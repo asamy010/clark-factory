@@ -723,7 +723,7 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
   const workshops=data.workshops||[];
 
   const wsObj=workshops.find(w=>(w.name||w)===(selWs));
-  const prodOrders=data.orders.filter(o=>o.status==="تم القص");
+  const prodOrders=data.orders.filter(o=>o.status==="تم القص"||o.status==="في التشغيل");
   const wsOrders=selWs?data.orders.filter(o=>(o.workshopDeliveries||[]).some(wd=>wd.wsName===selWs)):[];
 
   const deliverToWs=()=>{
