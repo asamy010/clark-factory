@@ -10,12 +10,12 @@ import { getFirestore } from "firebase/firestore";
   ╚══════════════════════════════════════════════════════╝
 */
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY_HERE",
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT.appspot.com",
-  messagingSenderId: "000000000000",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyD42_SF_afFduOpaSkMNcJdy55EXV8kzKo",
+  authDomain: "clarkfactorymanagement.firebaseapp.com",
+  projectId: "clarkfactorymanagement",
+  storageBucket: "clarkfactorymanagement.firebasestorage.app",
+  messagingSenderId: "845345484896",
+  appId: "1:845345484896:web:c44e0bcfb716bc18e9d305"
 };
 
 const app = initializeApp(firebaseConfig);
