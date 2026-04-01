@@ -81,32 +81,31 @@ function compressImg43(file,maxW,quality){
     resolve(canvas.toDataURL("image/jpeg",quality||0.5))};img.src=e.target.result};reader.readAsDataURL(file)})
 }
 
-function printReceipt(wsName,wsOwner,orderNo,modelNo,qty,date){
+function printReceipt(wsName,wsOwner,modelNo,qty,date,balance){
   const pw=window.open("","_blank");if(!pw)return;
-  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><title>اذن استلام</title><style>body{font-family:Arial,sans-serif;padding:40px;font-size:18px;direction:rtl;color:#1E293B;line-height:2}h1{font-size:28px;text-align:center;color:#0284C7;margin-bottom:30px;border-bottom:3px solid #0284C7;padding-bottom:15px}.sig{margin-top:60px;display:flex;justify-content:space-between}.sig-box{text-align:center;width:200px;border-top:2px solid #333;padding-top:10px;font-weight:bold}.info{font-weight:bold;color:#0284C7}@media print{body{padding:20px}}</style></head><body>");
+  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><title>اذن استلام</title><style>body{font-family:Arial,sans-serif;padding:40px;font-size:18px;direction:rtl;color:#1E293B;line-height:2}h1{font-size:28px;text-align:center;color:#0284C7;margin-bottom:30px;border-bottom:3px solid #0284C7;padding-bottom:15px}.sig{margin-top:60px;display:flex;justify-content:space-between}.sig-box{text-align:center;width:200px;border-top:2px solid #333;padding-top:10px;font-weight:bold}.info{font-weight:bold;color:#0284C7}.bal{color:#EF4444;font-weight:bold}@media print{body{padding:20px}}</style></head><body>");
   pw.document.write("<h1>اذن استلام ورشة</h1>");
-  pw.document.write("<p>استلمت أنا ورشة <span class='info'>"+wsName+"</span> - "+wsOwner+"</p>");
-  pw.document.write("<p>أوردر رقم: <span class='info'>"+orderNo+"</span></p>");
+  pw.document.write("<p>استلمت أنا ورشة <span class='info'>"+wsName+"</span>"+(wsOwner?" - "+wsOwner:"")+"</p>");
   pw.document.write("<p>موديل رقم: <span class='info'>"+modelNo+"</span></p>");
   pw.document.write("<p>الكمية: <span class='info'>"+qty+"</span> قطعة</p>");
   pw.document.write("<p>تاريخ الاستلام: <span class='info'>"+date+"</span></p>");
+  if(balance>0)pw.document.write("<p>الرصيد المتبقي: <span class='bal'>"+balance+" قطعة</span></p>");
   pw.document.write("<br/><p>وأقر أنا الموقع أدناه بتسليم البضاعة على الحالة التي استلمتها عليها وهذا اقرار مني بذلك.</p>");
   pw.document.write("<div class='sig'><div class='sig-box'>توقيع المستلم</div><div class='sig-box'>توقيع المسلّم</div></div>");
-  pw.document.write("</body></html>");pw.document.close();
-  pw.onload=()=>{pw.focus();pw.print()}
+  pw.document.write("</body></html>");pw.document.close();setTimeout(()=>{pw.focus();pw.print()},500)
 }
 
-function printReceiveReceipt(wsName,orderNo,modelNo,qty,date){
+function printReceiveReceipt(wsName,modelNo,qty,date,balance){
   const pw=window.open("","_blank");if(!pw)return;
-  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><title>اذن استلام مصنع</title><style>body{font-family:Arial,sans-serif;padding:40px;font-size:18px;direction:rtl;color:#1E293B;line-height:2}h1{font-size:28px;text-align:center;color:#10B981;margin-bottom:30px;border-bottom:3px solid #10B981;padding-bottom:15px}.info{font-weight:bold;color:#10B981}.sig{margin-top:60px;display:flex;justify-content:space-between}.sig-box{text-align:center;width:200px;border-top:2px solid #333;padding-top:10px;font-weight:bold}@media print{body{padding:20px}}</style></head><body>");
+  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><title>اذن استلام مصنع</title><style>body{font-family:Arial,sans-serif;padding:40px;font-size:18px;direction:rtl;color:#1E293B;line-height:2}h1{font-size:28px;text-align:center;color:#10B981;margin-bottom:30px;border-bottom:3px solid #10B981;padding-bottom:15px}.info{font-weight:bold;color:#10B981}.bal{color:#EF4444;font-weight:bold}.sig{margin-top:60px;display:flex;justify-content:space-between}.sig-box{text-align:center;width:200px;border-top:2px solid #333;padding-top:10px;font-weight:bold}@media print{body{padding:20px}}</style></head><body>");
   pw.document.write("<h1>اذن استلام - المصنع</h1>");
   pw.document.write("<p>تم استلام من ورشة <span class='info'>"+wsName+"</span></p>");
-  pw.document.write("<p>أوردر رقم: <span class='info'>"+orderNo+"</span> - موديل: <span class='info'>"+modelNo+"</span></p>");
+  pw.document.write("<p>موديل رقم: <span class='info'>"+modelNo+"</span></p>");
   pw.document.write("<p>الكمية المستلمة: <span class='info'>"+qty+"</span> قطعة</p>");
   pw.document.write("<p>تاريخ الاستلام: <span class='info'>"+date+"</span></p>");
+  if(balance>0)pw.document.write("<p>الرصيد المتبقي عند الورشة: <span class='bal'>"+balance+" قطعة</span></p>");
   pw.document.write("<div class='sig'><div class='sig-box'>المستلم</div><div class='sig-box'>المسلّم</div></div>");
-  pw.document.write("</body></html>");pw.document.close();
-  pw.onload=()=>{pw.focus();pw.print()}
+  pw.document.write("</body></html>");pw.document.close();setTimeout(()=>{pw.focus();pw.print()},500)
 }
 
 function compressFile(file){
@@ -663,7 +662,7 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
         </tbody></table></div>:<div style={{textAlign:"center",padding:20,color:T.textSec}}>لم يتم اضافة بنود</div>}</Card>
         <Card title="التسليمات" extra={canEdit&&<Btn primary small onClick={()=>updOrder(sel,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty:0,notes:""})})}>+ تسليم</Btn>}>
           <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:350}}><thead><tr>{["#","التاريخ","الكمية","ملاحظات",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-            {(order.deliveries||[]).map((d,i)=><tr key={i}><td style={TD}>{i+1}</td><td style={TD}>{canEdit?<Inp type="date" value={d.date} onChange={v=>updOrder(sel,o=>{o.deliveries[i].date=v})}/>:d.date}</td><td style={TD}>{canEdit?<Inp type="number" value={d.qty} onChange={v=>updOrder(sel,o=>{o.deliveries[i].qty=Number(v)||0;o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0)})} style={{width:80}}/>:d.qty}</td><td style={TD}>{canEdit?<Inp value={d.notes} onChange={v=>updOrder(sel,o=>{o.deliveries[i].notes=v})}/>:d.notes}</td>{canEdit&&<td style={TD}><Btn danger small onClick={()=>updOrder(sel,o=>{o.deliveries.splice(i,1);o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0)})}>حذف</Btn></td>}</tr>)}
+            {(order.deliveries||[]).map((d,i)=><tr key={i}><td style={TD}>{i+1}</td><td style={TD}>{canEdit?<Inp type="date" value={d.date} onChange={v=>updOrder(sel,o=>{o.deliveries[i].date=v})}/>:d.date}</td><td style={TD}>{canEdit?<Inp type="number" value={d.qty} onChange={v=>updOrder(sel,o=>{o.deliveries[i].qty=Number(v)||0;o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);const cut=calcOrder(o).cutQty||o.cutQty;if(o.deliveredQty>=cut)o.status="تم الشحن";else if(o.deliveredQty>0)o.status="شحن جزئي"})} style={{width:80}}/>:d.qty}</td><td style={TD}>{canEdit?<Inp value={d.notes} onChange={v=>updOrder(sel,o=>{o.deliveries[i].notes=v})}/>:d.notes}</td>{canEdit&&<td style={TD}><Btn danger small onClick={()=>updOrder(sel,o=>{o.deliveries.splice(i,1);o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);const cut=calcOrder(o).cutQty||o.cutQty;if(o.deliveredQty>=cut)o.status="تم الشحن";else if(o.deliveredQty>0)o.status="شحن جزئي"})}>حذف</Btn></td>}</tr>)}
             {(!order.deliveries||order.deliveries.length===0)&&<tr><td colSpan={canEdit?5:4} style={{...TD,textAlign:"center",color:T.textSec}}>لا توجد تسليمات</td></tr>}
           </tbody></table></div>
         </Card>
@@ -720,6 +719,8 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
   const[delPrice,setDelPrice]=useState(0);
   const[rcvQty,setRcvQty]=useState(0);
   const[rcvNote,setRcvNote]=useState("");
+  const[movQ,setMovQ]=useState("");
+  const[movWsF,setMovWsF]=useState("الكل");
   const workshops=data.workshops||[];
 
   const wsObj=workshops.find(w=>(w.name||w)===(selWs));
@@ -734,18 +735,23 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
       o.workshopDeliveries.push({id:gid(),wsName:selWs,wsOwner:wsObj?wsObj.owner:"",qty:Number(delQty),garmentType:delType,notes:delNote,price:Number(delPrice)||0,date:new Date().toISOString().split("T")[0],receives:[]});
       if(o.status==="تم القص")o.status="في التشغيل";
     });
-    if(wsObj)printReceipt(selWs,wsObj.owner||"",ord.id.slice(-6),ord.modelNo,delQty,new Date().toISOString().split("T")[0]);
     setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice(0);
+  };
+
+  const printLastDelivery=(orderId)=>{
+    const ord=data.orders.find(o=>o.id===orderId);if(!ord)return;
+    const wds=(ord.workshopDeliveries||[]).filter(wd=>wd.wsName===selWs);
+    const last=wds[wds.length-1];if(!last)return;
+    const avail=getAvailQty(ord);
+    printReceipt(selWs,wsObj?wsObj.owner:"",ord.modelNo,last.qty,last.date,avail);
   };
 
   const receiveFromWs=(orderId,wdIdx)=>{
     if(!rcvQty)return;
-    const ord=data.orders.find(o=>o.id===orderId);if(!ord)return;
     updOrder(orderId,o=>{
       if(!o.workshopDeliveries[wdIdx].receives)o.workshopDeliveries[wdIdx].receives=[];
       o.workshopDeliveries[wdIdx].receives.push({date:new Date().toISOString().split("T")[0],qty:Number(rcvQty),notes:rcvNote})
     });
-    printReceiveReceipt(selWs,ord.id.slice(-6),ord.modelNo,rcvQty,new Date().toISOString().split("T")[0]);
     setRcvQty(0);setRcvNote("");
   };
 
@@ -776,25 +782,23 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
         <div style={{fontSize:FS,color:T.textSec}}>استلام أوردرات من الورش الخارجية</div>
       </div>
     </div>
-    {/* Movement Log */}
-    {movements.length>0&&<Card title={"سجل الحركات ("+movements.length+")"}>
-      <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
+    {/* Movement Log with search/filter */}
+    <Card title={"سجل الحركات ("+movements.length+")"}>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr auto",gap:10,marginBottom:14}}>
+        <Inp value={movQ} onChange={setMovQ} placeholder="بحث بالموديل أو الورشة..."/>
+        <Sel value={movWsF} onChange={setMovWsF}><option value="الكل">كل الورش</option>{workshops.map(w=><option key={w.id||w} value={w.name||w}>{w.name||w}</option>)}</Sel>
+        <Btn onClick={()=>{const el=document.getElementById("mov-log");if(!el)return;const pw=window.open("","_blank");if(!pw)return;pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><title>سجل الحركات</title><style>body{font-family:Arial;padding:20px;font-size:12px;direction:rtl}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;text-align:right}th{background:#f5f5f5;font-weight:700}.del{color:#10B981}.rcv{color:#0EA5E9}@media print{body{padding:10px}}</style></head><body><h2>سجل حركات التشغيل الخارجي</h2>"+el.innerHTML+"</body></html>");pw.document.close();setTimeout(()=>{pw.focus();pw.print()},500)}} style={{background:"#F1F5F9",color:T.text,border:"1px solid "+T.brd}}>طباعة التقرير</Btn>
+      </div>
+      {(()=>{const fMov=movements.filter(m=>{if(movWsF!=="الكل"&&m.wsName!==movWsF)return false;if(movQ.trim()){const s=movQ.trim().toLowerCase();if(!((m.orderNo||"").toLowerCase().includes(s)||(m.wsName||"").toLowerCase().includes(s)||(m.orderDesc||"").toLowerCase().includes(s)))return false}return true});return<div id="mov-log"><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
         <thead><tr>{["","التاريخ","الورشة","موديل","الوصف","نوع القطعة","الكمية","سعر التشغيل","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
-        <tbody>{movements.slice(0,30).map((m,i)=><tr key={i} style={{background:m.type==="deliver"?"#F0FDF4":"#EFF6FF"}}>
+        <tbody>{fMov.length>0?fMov.slice(0,50).map((m,i)=><tr key={i} style={{background:m.type==="deliver"?"#F0FDF4":"#EFF6FF"}}>
           <td style={{...TD,textAlign:"center",fontSize:20}}>{m.type==="deliver"?<span style={{color:T.ok}}>{"↗"}</span>:<span style={{color:T.accent}}>{"↙"}</span>}</td>
-          <td style={TD}>{m.date}</td>
-          <td style={{...TD,fontWeight:600}}>{m.wsName}</td>
-          <td style={TDB}>{m.orderNo}</td>
-          <td style={TD}>{m.orderDesc}</td>
-          <td style={TD}>{m.garmentType||"-"}</td>
-          <td style={{...TDB,color:m.type==="deliver"?T.ok:T.accent}}>{m.qty}</td>
-          <td style={TD}>{m.price?m.price+" ج.م":"-"}</td>
-          <td style={TD}>{m.notes||"-"}</td>
-          <td style={TD}>{canEdit&&<DelBtn onConfirm={()=>delMovement(m)}/>}</td>
-        </tr>)}</tbody>
-      </table></div>
-      {movements.length>30&&<div style={{textAlign:"center",padding:10,color:T.textSec,fontSize:FS-1}}>{"يتم عرض آخر 30 حركة من "+movements.length}</div>}
-    </Card>}
+          <td style={TD}>{m.date}</td><td style={{...TD,fontWeight:600}}>{m.wsName}</td><td style={TDB}>{m.orderNo}</td><td style={TD}>{m.orderDesc}</td>
+          <td style={TD}>{m.garmentType||"-"}</td><td style={{...TDB,color:m.type==="deliver"?T.ok:T.accent}}>{m.qty}</td><td style={TD}>{m.price?m.price+" ج.م":"-"}</td><td style={TD}>{m.notes||"-"}</td>
+          <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<DelBtn onConfirm={()=>delMovement(m)}/>}</td>
+        </tr>):<tr><td colSpan={10} style={{...TD,textAlign:"center",color:T.textSec,padding:30}}>لا توجد حركات</td></tr>}</tbody>
+      </table></div></div>})()}
+    </Card>
   </div>;
 
   /* ── DELIVER MODE ── */
@@ -837,7 +841,7 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
           <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4}}>سعر التشغيل</label><Inp type="number" value={delPrice} onChange={v=>setDelPrice(Number(v)||0)} placeholder="سعر القطعة"/></div>
           <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4}}>ملاحظات</label><Inp value={delNote} onChange={setDelNote} placeholder="ملاحظات..."/></div>
         </div>
-        <Btn primary onClick={deliverToWs} disabled={!selOrder||!delQty}>تسليم + طباعة اذن استلام</Btn>
+        <div style={{display:"flex",gap:8}}><Btn primary onClick={deliverToWs} disabled={!selOrder||!delQty}>تسليم وحفظ</Btn><Btn onClick={()=>{deliverToWs();setTimeout(()=>printLastDelivery(selOrder),300)}} disabled={!selOrder||!delQty} style={{background:"#F0F9FF",color:T.accent,border:"1px solid "+T.accent+"30"}}>تسليم + طباعة</Btn></div>
         {selOrder&&(()=>{const ord=data.orders.find(o=>o.id===selOrder);if(!ord)return null;const t=calcOrder(ord);const avail=getAvailQty(ord);const totalDel=(ord.workshopDeliveries||[]).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return<div style={{padding:14,background:"#F8FAFC",borderRadius:10,border:"1px solid "+T.brd,marginTop:12}}>
           <div style={{fontSize:FS,fontWeight:700,marginBottom:6}}>{"تفاصيل الأوردر: "+ord.modelNo}</div>
           <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:FS-1}}>
@@ -899,12 +903,13 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
               <div style={{padding:16}}>
                 <div style={{fontSize:FS-2,color:T.textSec,marginBottom:8}}>{"تاريخ التسليم: "+wd.date}</div>
                 {(wd.receives||[]).length>0&&<div style={{marginBottom:12}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:350}}><thead><tr>{["#","التاريخ","الكمية","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-                  {wd.receives.map((r,ri)=><tr key={ri}><td style={TD}>{ri+1}</td><td style={TD}>{r.date}</td><td style={TDB}>{r.qty}</td><td style={TD}>{r.notes||"-"}</td><td style={TD}><Btn small onClick={()=>printReceiveReceipt(selWs,ord.id.slice(-6),ord.modelNo,r.qty,r.date)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>طباعة</Btn></td></tr>)}
+                  {wd.receives.map((r,ri)=>{const rBal=bal+Number(r.qty);return<tr key={ri}><td style={TD}>{ri+1}</td><td style={TD}>{r.date}</td><td style={TDB}>{r.qty}</td><td style={TD}>{r.notes||"-"}</td><td style={TD}><Btn small onClick={()=>printReceiveReceipt(selWs,ord.modelNo,r.qty,r.date,rBal)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>طباعة</Btn></td></tr>})}
                 </tbody></table></div></div>}
-                {canEdit&&bal>0&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr auto",gap:10,padding:12,background:"#F8FAFC",borderRadius:10}}>
-                  <Inp type="number" value={rcvQty} onChange={v=>setRcvQty(Math.min(Number(v)||0,bal))} placeholder="الكمية"/>
-                  <Inp value={rcvNote} onChange={setRcvNote} placeholder="ملاحظات"/>
-                  <Btn onClick={()=>receiveFromWs(ord.id,actualIdx)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>استلام + طباعة</Btn>
+                {canEdit&&bal>0&&<div style={{display:"flex",gap:8,flexWrap:"wrap",padding:12,background:"#F8FAFC",borderRadius:10,alignItems:"end"}}>
+                  <div style={{flex:1,minWidth:80}}><Inp type="number" value={rcvQty} onChange={v=>setRcvQty(Math.min(Number(v)||0,bal))} placeholder="الكمية"/></div>
+                  <div style={{flex:1,minWidth:100}}><Inp value={rcvNote} onChange={setRcvNote} placeholder="ملاحظات"/></div>
+                  <Btn onClick={()=>receiveFromWs(ord.id,actualIdx)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>حفظ الاستلام</Btn>
+                  <Btn onClick={()=>{receiveFromWs(ord.id,actualIdx);setTimeout(()=>printReceiveReceipt(selWs,ord.modelNo,rcvQty,new Date().toISOString().split("T")[0],bal-rcvQty),300)}} style={{background:"#F0F9FF",color:T.accent,border:"1px solid "+T.accent+"30"}}>حفظ + طباعة</Btn>
                 </div>}
                 {bal===0&&<div style={{textAlign:"center",padding:10,color:T.ok,fontWeight:700,fontSize:FS}}>{"✓ تم استلام الكمية كاملة"}</div>}
               </div>
