@@ -9,7 +9,7 @@ import {
   signOut, onAuthStateChanged, updateProfile
 } from "firebase/auth";
 import {
-  doc, setDoc, onSnapshot, collection, addDoc, updateDoc, deleteDoc, getDoc
+  doc, setDoc, onSnapshot, collection, addDoc, updateDoc, deleteDoc, getDoc, getDocs
 } from "firebase/firestore";
 
 /* ── Constants ── */
@@ -89,10 +89,18 @@ function compressImage(file, maxW, quality) {
           if (w > h) { h = Math.round((h * max) / w); w = max; }
           else { w = Math.round((w * max) / h); h = max; }
         }
-        canvas.width = w;
-        canvas.height = h;
+        /* Crop to 3:4 aspect ratio */
+        const targetRatio = 3 / 4;
+        const currentRatio = w / h;
+        let cropW = w, cropH = h, sx = 0, sy = 0;
+        if (currentRatio > targetRatio) { cropW = Math.round(h * targetRatio); sx = Math.round((w - cropW) / 2); }
+        else { cropH = Math.round(w / targetRatio); sy = Math.round((h - cropH) / 2); }
+        canvas.width = cropW;
+        canvas.height = cropH;
         const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, w, h);
+        const scaleX = img.width / w;
+        const scaleY = img.height / h;
+        ctx.drawImage(img, sx * scaleX, sy * scaleY, cropW * scaleX, cropH * scaleY, 0, 0, cropW, cropH);
         resolve(canvas.toDataURL("image/jpeg", quality || 0.6));
       };
       img.src = e.target.result;
@@ -356,7 +364,13 @@ export default function App() {
   const handleLogout = () => signOut(auth);
 
   const data = { ...config, orders };
-  const userRole = (config.users && config.users[user?.uid]) || "admin";
+  const getUserRole = () => {
+    if (config.users && config.users[user?.uid]) return config.users[user.uid];
+    const byEmail = (config.usersList || []).find((u) => u.email === user?.email);
+    if (byEmail) return byEmail.role;
+    return "admin";
+  };
+  const userRole = getUserRole();
   const canEdit = userRole === "admin" || userRole === "manager";
 
   if (authLoading) return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: D.bg, color: D.acc, fontSize: 20, fontWeight: 700 }}>جاري التحميل...</div>;
@@ -498,7 +512,7 @@ function OrdForm({ data, initial, onSave, onCancel, isMob }) {
     <Card title={initial.modelNo ? "تعديل الأوردر" : "أمر قص جديد"} accent="#0E7490" style={{ marginBottom: 20 }}>
       {errs.length > 0 && <div style={{ background: D.err + "15", border: "1px solid " + D.err + "40", borderRadius: 10, padding: 14, marginBottom: 16 }}>{errs.map((e, i) => <div key={i} style={{ color: D.err, fontSize: FS, fontWeight: 600, padding: "2px 0" }}>{"* " + e}</div>)}</div>}
       <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "auto 1fr", gap: 16, marginBottom: 20 }}>
-        <div><div style={{ width: isMob ? "100%" : 140, height: 140, borderRadius: 14, border: "2px dashed " + D.brd, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", background: D.cardL, cursor: "pointer", position: "relative" }}>{form.image ? <img src={form.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: FS, color: D.dim }}>صورة الموديل</span>}<input type="file" accept="image/*" onChange={handleImg} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer" }} /></div></div>
+        <div><div style={{ width: isMob ? "100%" : 135, height: 180, borderRadius: 14, border: "2px dashed " + D.brd, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", background: D.cardL, cursor: "pointer", position: "relative" }}>{form.image ? <img src={form.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: FS, color: D.dim }}>صورة الموديل</span>}<input type="file" accept="image/*" onChange={handleImg} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer" }} /></div></div>
         <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", minWidth: 400 }}><tbody>
           <tr><td style={TDL}>رقم الموديل *</td><td style={TD}><Inp value={form.modelNo} onChange={(v) => updF("modelNo", v)} /></td><td style={TDL}>الوصف *</td><td style={TD}><Inp value={form.modelDesc} onChange={(v) => updF("modelDesc", v)} /></td></tr>
           <tr><td style={TDL}>المقاسات *</td><td style={TD}><Sel value={form.sizeSetId} onChange={(v) => updF("sizeSetId", v)}><option value="">-- اختر --</option>{data.sizeSets.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</Sel></td><td style={TDL}>التاريخ *</td><td style={TD}><Inp type="date" value={form.date} onChange={(v) => updF("date", v)} /></td></tr>
@@ -563,7 +577,7 @@ function DetPg({ data, updOrder, replaceOrder, sel, setSel, isMob, canEdit }) {
       <Metric label="رقم الموديل" value={order.modelNo} icon="🏷" /><Metric label="كمية القص" value={t.cutQty} icon="✂️" color={D.acc} /><Metric label="تم التسليم" value={order.deliveredQty || 0} icon="📥" color={D.ok} /><Metric label="الرصيد" value={t.balance} icon="📦" color={t.balance > 0 ? D.warn : D.ok} /><Metric label="تكلفة القطعة" value={t.costPer + " ج.م"} icon="💰" color={D.acc} />
     </div>
     <div style={{ display: "grid", gridTemplateColumns: order.image && !isMob ? "auto 1fr" : "1fr", gap: 16, marginBottom: 16 }}>
-      {order.image && <div><img src={order.image} alt="" style={{ width: isMob ? "100%" : 150, height: 150, objectFit: "cover", borderRadius: 14, border: "1px solid " + D.brd }} /></div>}
+      {order.image && <div><img src={order.image} alt="" style={{ width: isMob ? "100%" : 135, height: isMob ? "auto" : 180, aspectRatio: "3/4", objectFit: "cover", borderRadius: 14, border: "1px solid " + D.brd }} /></div>}
       <Card title="بيانات الموديل"><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", minWidth: 400 }}><tbody>
         <tr><td style={TDL}>الوصف</td><td style={TDB}>{order.modelDesc}</td><td style={TDL}>المقاسات</td><td style={TD}>{order.sizeLabel}</td></tr>
         <tr><td style={TDL}>الورشة</td><td style={TD}>{canEdit ? <Sel value={order.workshop} onChange={(v) => updOrder(sel, (o) => { o.workshop = v; })}><option value="">-</option>{data.workshops.map((w, i) => <option key={i} value={w}>{w}</option>)}</Sel> : order.workshop}</td><td style={TDL}>الحالة</td><td style={TD}>{canEdit ? <Sel value={order.status} onChange={(v) => updOrder(sel, (o) => { o.status = v; })}>{data.statuses.map((s) => <option key={s} value={s}>{s}</option>)}</Sel> : <Badge t={order.status} />}</td></tr>
@@ -587,9 +601,9 @@ function DetPg({ data, updOrder, replaceOrder, sel, setSel, isMob, canEdit }) {
         <tr style={{ background: D.cardL }}><td style={{ ...TD, fontWeight: 700 }}>اجمالي</td><td style={{ ...TD, fontWeight: 700 }}>{t.accPer + " ج.م/قطعة"}</td><td style={{ ...TD, fontWeight: 700, color: D.acc }}>{fmt(accAll) + " ج.م"}</td></tr>
       </tbody></table></div>) : <div style={{ textAlign: "center", padding: 20, color: D.dim }}>لم يتم اضافة بنود</div>}</Card>
       <Card title="التسليمات" extra={canEdit && <Btn primary small onClick={() => updOrder(sel, (o) => { if (!o.deliveries) o.deliveries = []; o.deliveries.push({ date: new Date().toISOString().split("T")[0], qty: 0, notes: "" }); })}>+ تسليم</Btn>}>
-        <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", minWidth: 300 }}><thead><tr>{["#", "التاريخ", "الكمية", "ملاحظات"].map((h) => <th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-          {(order.deliveries || []).map((d, i) => <tr key={i}><td style={TD}>{i + 1}</td><td style={TD}>{d.date}</td><td style={TDB}>{d.qty}</td><td style={TD}>{d.notes}</td></tr>)}
-          {(!order.deliveries || order.deliveries.length === 0) && <tr><td colSpan={4} style={{ ...TD, textAlign: "center", color: D.dim }}>لا توجد تسليمات</td></tr>}
+        <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", minWidth: 400 }}><thead><tr>{["#", "التاريخ", "الكمية", "ملاحظات", ...(canEdit ? [""] : [])].map((h) => <th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
+          {(order.deliveries || []).map((d, i) => <tr key={i}><td style={TD}>{i + 1}</td><td style={TD}>{canEdit ? <Inp type="date" value={d.date} onChange={(v) => updOrder(sel, (o) => { o.deliveries[i].date = v; })} /> : d.date}</td><td style={TD}>{canEdit ? <Inp type="number" value={d.qty} onChange={(v) => updOrder(sel, (o) => { o.deliveries[i].qty = Number(v) || 0; o.deliveredQty = o.deliveries.reduce((s, x) => s + (Number(x.qty) || 0), 0); })} style={{ width: 80 }} /> : d.qty}</td><td style={TD}>{canEdit ? <Inp value={d.notes} onChange={(v) => updOrder(sel, (o) => { o.deliveries[i].notes = v; })} /> : d.notes}</td>{canEdit && <td style={TD}><Btn danger small onClick={() => updOrder(sel, (o) => { o.deliveries.splice(i, 1); o.deliveredQty = o.deliveries.reduce((s, x) => s + (Number(x.qty) || 0), 0); })}>حذف</Btn></td>}</tr>)}
+          {(!order.deliveries || order.deliveries.length === 0) && <tr><td colSpan={canEdit ? 5 : 4} style={{ ...TD, textAlign: "center", color: D.dim }}>لا توجد تسليمات</td></tr>}
         </tbody></table></div>
       </Card>
     </div>
@@ -675,6 +689,9 @@ function RepPg({ data, isMob }) {
 /* ══ SETTINGS ══ */
 function SettingsPg({ config, upConfig, isMob, user, canEdit }) {
   const [newSeason, setNewSeason] = useState("");
+  const [delConfirm, setDelConfirm] = useState("");
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserRole, setNewUserRole] = useState("viewer");
 
   const handleLogo = async (e) => {
     const f = e.target.files[0];
@@ -695,9 +712,42 @@ function SettingsPg({ config, upConfig, isMob, user, canEdit }) {
 
   const switchSeason = (s) => { upConfig((d) => { d.activeSeason = s; }); };
 
-  const setUserRole = (uid, role) => { upConfig((d) => { if (!d.users) d.users = {}; d.users[uid] = role; }); };
+  const deleteSeason = async (s) => {
+    if (delConfirm !== s) { setDelConfirm(s); return; }
+    /* Delete all orders in this season */
+    try {
+      const snap = await getDocs(collection(db, "seasons", s, "orders"));
+      const promises = snap.docs.map((d) => deleteDoc(doc(db, "seasons", s, "orders", d.id)));
+      await Promise.all(promises);
+    } catch (e) { console.error(e); }
+    upConfig((d) => {
+      d.seasons = (d.seasons || []).filter((x) => x !== s);
+      if (d.activeSeason === s) d.activeSeason = d.seasons[0] || "";
+    });
+    setDelConfirm("");
+  };
 
-  if (!canEdit) return (<div><h1 style={{ fontSize: 30, fontWeight: 800, margin: "0 0 20px" }}>الاعدادات</h1><Card><p style={{ color: D.dim, fontSize: FS }}>ليس لديك صلاحية الوصول للاعدادات</p></Card></div>);
+  const addUserByEmail = () => {
+    if (!newUserEmail.trim()) return;
+    upConfig((d) => {
+      if (!d.usersList) d.usersList = [];
+      const exists = d.usersList.find((u) => u.email === newUserEmail.trim());
+      if (exists) { exists.role = newUserRole; }
+      else { d.usersList.push({ email: newUserEmail.trim(), role: newUserRole, addedAt: new Date().toISOString() }); }
+    });
+    setNewUserEmail("");
+  };
+
+  const removeUser = (email) => {
+    upConfig((d) => { d.usersList = (d.usersList || []).filter((u) => u.email !== email); });
+  };
+
+  const changeUserRole = (email, role) => {
+    upConfig((d) => { const u = (d.usersList || []).find((x) => x.email === email); if (u) u.role = role; });
+  };
+
+  const userRole = (config.users && config.users[user?.uid]) || "admin";
+  if (userRole !== "admin") return (<div><h1 style={{ fontSize: 30, fontWeight: 800, margin: "0 0 20px" }}>الاعدادات</h1><Card><p style={{ color: D.dim, fontSize: FS }}>هذه الصفحة متاحة للمدير فقط</p></Card></div>);
 
   return (<div>
     <h1 style={{ fontSize: isMob ? 22 : 30, fontWeight: 800, margin: "0 0 20px" }}>الاعدادات</h1>
@@ -720,43 +770,87 @@ function SettingsPg({ config, upConfig, isMob, user, canEdit }) {
     {/* Seasons */}
     <Card title="ادارة المواسم" style={{ marginBottom: 16 }}>
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
-        <Inp value={newSeason} onChange={setNewSeason} placeholder="اسم الموسم الجديد (مثال: SS27)" style={{ width: 200 }} />
+        <Inp value={newSeason} onChange={setNewSeason} placeholder="اسم الموسم الجديد (مثال: SS27)" style={{ width: 220 }} />
         <Btn primary onClick={addSeason}>+ موسم جديد</Btn>
       </div>
       <div style={{ fontSize: FS, color: D.dim, marginBottom: 10, fontWeight: 600 }}>المواسم المتاحة:</div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {(config.seasons || []).map((s) => (
-          <div key={s} onClick={() => switchSeason(s)} style={{ padding: "12px 20px", borderRadius: 10, cursor: "pointer", border: s === config.activeSeason ? "2px solid " + D.acc : "1px solid " + D.brd, background: s === config.activeSeason ? D.accDim : D.cardL, color: s === config.activeSeason ? D.acc : D.txt, fontWeight: 700, fontSize: FS }}>
-            {s}
-            {s === config.activeSeason && <span style={{ fontSize: FS - 3, marginRight: 6, color: D.ok }}> (نشط)</span>}
+          <div key={s} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderRadius: 10, border: s === config.activeSeason ? "2px solid " + D.acc : "1px solid " + D.brd, background: s === config.activeSeason ? D.accDim : D.cardL, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={() => switchSeason(s)}>
+              <span style={{ fontWeight: 700, fontSize: FS + 2, color: s === config.activeSeason ? D.acc : D.txt }}>{s}</span>
+              {s === config.activeSeason && <span style={{ fontSize: FS - 3, color: D.ok, background: D.ok + "20", padding: "2px 10px", borderRadius: 12 }}>نشط</span>}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {s !== config.activeSeason && <Btn small onClick={() => switchSeason(s)} style={{ background: D.acc + "20", color: D.acc, border: "1px solid " + D.acc + "40" }}>تفعيل</Btn>}
+              <Btn danger small onClick={() => deleteSeason(s)}>{delConfirm === s ? "تأكيد الحذف النهائي؟" : "حذف الموسم"}</Btn>
+              {delConfirm === s && <Btn ghost small onClick={() => setDelConfirm("")}>الغاء</Btn>}
+            </div>
           </div>
         ))}
       </div>
-      <div style={{ marginTop: 12, fontSize: FS - 2, color: D.dim }}>اضغط على أي موسم للتبديل اليه. كل موسم له أوامر منفصلة.</div>
+      {delConfirm && <div style={{ marginTop: 10, padding: 12, background: D.err + "15", border: "1px solid " + D.err + "40", borderRadius: 8, fontSize: FS - 1, color: D.err, fontWeight: 600 }}>{"تحذير: حذف الموسم سيحذف جميع بيانات الأوردرات الخاصة به نهائياً!"}</div>}
+      <div style={{ marginTop: 12, fontSize: FS - 2, color: D.dim }}>اضغط على اسم الموسم للتبديل اليه. كل موسم له أوامر منفصلة.</div>
     </Card>
 
-    {/* User Permissions */}
-    <Card title="صلاحيات المستخدمين">
-      <div style={{ fontSize: FS - 1, color: D.dim, marginBottom: 14 }}>
-        {"حسابك: " + (user.displayName || user.email) + " (" + (ROLES[(config.users || {})[user.uid] || "admin"]) + ")"}
+    {/* User Management */}
+    <Card title="ادارة المستخدمين والصلاحيات">
+      <div style={{ fontSize: FS - 1, color: D.dim, marginBottom: 14, padding: 12, background: D.cardL, borderRadius: 8 }}>
+        {"حسابك: " + (user.displayName || user.email)}
       </div>
-      <div style={{ marginBottom: 10, fontSize: FS - 1, color: D.dim }}>الأدوار المتاحة:</div>
+
+      {/* Add user */}
+      <div style={{ fontSize: FS, fontWeight: 700, color: D.acc, marginBottom: 10 }}>اضافة مستخدم جديد</div>
+      <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "2fr 1fr auto", gap: 10, marginBottom: 20 }}>
+        <Inp value={newUserEmail} onChange={setNewUserEmail} placeholder="البريد الالكتروني للمستخدم" />
+        <Sel value={newUserRole} onChange={setNewUserRole}>
+          <option value="admin">مدير النظام</option>
+          <option value="manager">مدير انتاج</option>
+          <option value="viewer">مشاهد فقط</option>
+        </Sel>
+        <Btn primary onClick={addUserByEmail}>+ اضافة</Btn>
+      </div>
+
+      {/* Users list */}
+      <div style={{ fontSize: FS, fontWeight: 700, color: D.txt, marginBottom: 10 }}>المستخدمين المسجلين</div>
+      {(config.usersList || []).length > 0 ? (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 500 }}>
+            <thead><tr>{["البريد الالكتروني", "الصلاحية", ""].map((h) => <th key={h} style={TH}>{h}</th>)}</tr></thead>
+            <tbody>
+              {(config.usersList || []).map((u, i) => (
+                <tr key={i}>
+                  <td style={{ ...TD, fontWeight: 600 }}>{u.email}</td>
+                  <td style={TD}>
+                    <Sel value={u.role} onChange={(v) => changeUserRole(u.email, v)}>
+                      <option value="admin">مدير النظام</option>
+                      <option value="manager">مدير انتاج</option>
+                      <option value="viewer">مشاهد فقط</option>
+                    </Sel>
+                  </td>
+                  <td style={TD}><Btn danger small onClick={() => removeUser(u.email)}>حذف</Btn></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : <div style={{ textAlign: "center", padding: 20, color: D.dim }}>لم يتم اضافة مستخدمين بعد</div>}
+
+      {/* Roles explanation */}
+      <div style={{ marginTop: 16, fontSize: FS, fontWeight: 700, color: D.txt, marginBottom: 10 }}>شرح الصلاحيات</div>
       <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "repeat(3,1fr)", gap: 12 }}>
         <div style={{ padding: 14, borderRadius: 10, background: D.cardL, border: "1px solid " + D.brd }}>
           <div style={{ fontSize: FS, fontWeight: 700, color: D.acc, marginBottom: 4 }}>مدير النظام</div>
-          <div style={{ fontSize: FS - 2, color: D.dim }}>كل الصلاحيات - اعدادات، اضافة، تعديل، حذف</div>
+          <div style={{ fontSize: FS - 2, color: D.dim }}>كل الصلاحيات - اعدادات + اضافة + تعديل + حذف + ادارة المستخدمين</div>
         </div>
         <div style={{ padding: 14, borderRadius: 10, background: D.cardL, border: "1px solid " + D.brd }}>
           <div style={{ fontSize: FS, fontWeight: 700, color: D.ok, marginBottom: 4 }}>مدير انتاج</div>
-          <div style={{ fontSize: FS - 2, color: D.dim }}>اضافة وتعديل الأوامر والبيانات</div>
+          <div style={{ fontSize: FS - 2, color: D.dim }}>اضافة وتعديل الأوامر وقاعدة البيانات</div>
         </div>
         <div style={{ padding: 14, borderRadius: 10, background: D.cardL, border: "1px solid " + D.brd }}>
           <div style={{ fontSize: FS, fontWeight: 700, color: D.warn, marginBottom: 4 }}>مشاهد فقط</div>
           <div style={{ fontSize: FS - 2, color: D.dim }}>عرض البيانات والتقارير فقط بدون تعديل</div>
         </div>
-      </div>
-      <div style={{ marginTop: 14, fontSize: FS - 2, color: D.dim, padding: 12, background: D.cardL, borderRadius: 8 }}>
-        {"لتغيير صلاحيات مستخدم: افتح Firebase Console > Firestore > factory > config > users وضيف UID المستخدم مع الدور (admin/manager/viewer)"}
       </div>
     </Card>
   </div>);
