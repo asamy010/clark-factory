@@ -391,7 +391,7 @@ export default function App() {
           <div onClick={() => setSideOpen(!sideOpen)} style={{ cursor: "pointer", color: D.acc, fontSize: 22 }}>{"☰"}</div>
         </div>
         {sideOpen && <div style={{ padding: "8px 10px", flex: 1, overflowY: "auto" }}>
-          {TABS.map((t) => <button key={t.key} onClick={() => { setTab(t.key); if (isMob) setSideOpen(false); }} style={{ display: "block", width: "100%", textAlign: "right", padding: "12px 16px", border: "none", cursor: "pointer", borderRadius: 10, marginBottom: 2, background: tab === t.key ? D.accDim : "transparent", color: tab === t.key ? D.acc : D.dim, fontSize: FS, fontWeight: tab === t.key ? 700 : 400, fontFamily: "inherit" }}>{t.label}</button>)}
+          {TABS.filter((t) => t.key !== "settings" || userRole === "admin").map((t) => <button key={t.key} onClick={() => { setTab(t.key); if (isMob) setSideOpen(false); }} style={{ display: "block", width: "100%", textAlign: "right", padding: "12px 16px", border: "none", cursor: "pointer", borderRadius: 10, marginBottom: 2, background: tab === t.key ? D.accDim : "transparent", color: tab === t.key ? D.acc : D.dim, fontSize: FS, fontWeight: tab === t.key ? 700 : 400, fontFamily: "inherit" }}>{t.label}</button>)}
         </div>}
         {sideOpen && <div style={{ padding: "14px 18px", borderTop: "1px solid " + D.brd }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
