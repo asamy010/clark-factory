@@ -411,18 +411,6 @@ function DashPg({data,goD,isMob,season,statusCards}){
   orders.forEach(o=>{(o.workshopDeliveries||[]).forEach(wd=>{totalDeliveredToWs+=(Number(wd.qty)||0);(wd.receives||[]).forEach(r=>{totalReceivedFromWs+=(Number(r.qty)||0)})})});
   const inProdQty=totalDeliveredToWs-totalReceivedFromWs;
 
-  /* تحت التشغيل = الكمية على أرض المصنع = كمية القص - اللي اتسلم للورش */
-  let underProdQty=0;const floorPieces=[];
-  orders.forEach(o=>{
-    const t=calcOrder(o);const wds=o.workshopDeliveries||[];const pieces=o.orderPieces||[];
-    if(pieces.length>0){
-      pieces.forEach(p=>{const delForP=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);const onFloor=t.cutQty-delForP;if(onFloor>0){underProdQty+=onFloor;floorPieces.push({modelNo:o.modelNo,piece:p,avail:onFloor})}})
-    } else {
-      const totalDel=wds.reduce((s,wd)=>s+(Number(wd.qty)||0),0);const onFloor=t.cutQty-totalDel;
-      if(onFloor>0){underProdQty+=onFloor;floorPieces.push({modelNo:o.modelNo,piece:"",avail:onFloor})}
-    }
-  });
-
   const sc={};orders.forEach(o=>{sc[o.status]=(sc[o.status]||0)+1});
   const pieData=Object.entries(sc).map(([name,value])=>({name,value,fill:getStatusColor(name,statusCards)}));
   const recent=sortOrders(orders).slice(0,6);
@@ -448,22 +436,14 @@ function DashPg({data,goD,isMob,season,statusCards}){
       <MetricCard label="تسليم مخزن جاهز" value={fmt(delQ)} icon="📦" color={T.ok} sub="قطعة"/>
       <MetricCard label="رصيد بالمصنع" value={fmt(cutQ-delQ)} icon="🏭" color={T.warn} sub="قطعة"/>
     </div>
-    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(3,1fr)",gap:16,marginBottom:28}}>
+    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:16,marginBottom:28}}>
       <MetricCard label="في التشغيل (عند الورش)" value={fmt(Math.max(0,inProdQty))} icon="⚙️" color="#8B5CF6" sub={"تم تسليمه: "+fmt(totalDeliveredToWs)+" - استلم: "+fmt(totalReceivedFromWs)}/>
-      <MetricCard label="على أرض المصنع" value={fmt(underProdQty)} icon="⏳" color="#EC4899" sub={"كمية القص - اللي اتسلم للورش"}/>
       <div style={{background:T.card,backdropFilter:"blur(12px)",borderRadius:16,padding:"22px 24px",border:"1px solid "+T.brd,boxShadow:T.shadow}}>
         <div style={{fontSize:FS,color:T.textSec,marginBottom:8,fontWeight:600}}>معدل الانجاز</div>
         <div style={{fontSize:38,fontWeight:800,color:T.accent}}>{comp+"%"}</div>
         <PBar value={comp}/>
       </div>
     </div>
-    {/* Floor Pieces Detail */}
-    {floorPieces.length>0&&<Card title={"متاح على أرض المصنع ("+floorPieces.length+")"} style={{marginBottom:24}}>
-      <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-        {floorPieces.slice(0,30).map((p,i)=><span key={i} style={{padding:"6px 14px",borderRadius:10,fontSize:FS-2,fontWeight:600,background:"#FDF2F8",border:"1px solid #EC489930",color:"#EC4899"}}>{p.modelNo+(p.piece?" - "+p.piece:"")+" ("+p.avail+")"}</span>)}
-        {floorPieces.length>30&&<span style={{fontSize:FS-2,color:T.textSec}}>{"و "+(floorPieces.length-30)+" أخرى..."}</span>}
-      </div>
-    </Card>}
     <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:16,marginBottom:24}}>
       <Card title="توزيع الحالات">{pieData.length>0?<div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
         <ResponsiveContainer width={isMob?"100%":160} height={160}><PieChart><Pie data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={68} paddingAngle={3} dataKey="value" stroke="none">{pieData.map((d,i)=><Cell key={i} fill={d.fill}/>)}</Pie><Tooltip/></PieChart></ResponsiveContainer>
