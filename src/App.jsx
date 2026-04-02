@@ -167,7 +167,7 @@ function printOrderSheet(order,t,activeFabs,statusCards){
   if(order.image)pw.document.write("<div class='img-box'><img src='"+order.image+"'/></div>");
   pw.document.write("<div class='info'><table><tr><th>رقم الموديل</th><td><b>"+order.modelNo+"</b></td><th>الوصف</th><td>"+order.modelDesc+"</td></tr><tr><th>المقاسات</th><td>"+order.sizeLabel+"</td><th>التاريخ</th><td>"+order.date+"</td></tr><tr><th>كمية القص</th><td><b>"+t.cutQty+"</b></td><th>تم التسليم</th><td>"+(order.deliveredQty||0)+"</td></tr><tr><th>الرصيد</th><td><b>"+t.balance+"</b></td><th>الحالة</th><td><span class='badge' style='background:"+col+"20;color:"+col+"'>"+order.status+"</span></td></tr></table></div></div>");
   if(fabRows)pw.document.write("<h2 style='font-size:16px;margin:16px 0 8px'>الخامات</h2><table><tr><th>الخامة</th><th>عدد الراقات</th><th>كمية القطع</th></tr>"+fabRows+"</table>");
-  if(wsRows)pw.document.write("<h2 style='font-size:16px;margin:16px 0 8px'>الورش المستلمة</h2><table><tr><th>الورشة</th><th>صاحبها</th><th>كمية مسلمة</th><th>تم استلام</th><th>الرصيد</th></tr>"+wsRows+"</table>");
+  if(wsRows)pw.document.write("<h2 style='font-size:16px;margin:16px 0 8px'>الورش المستلمة</h2><table><tr><th>الورشة</th><th>صاحبها</th><th>الكمية</th><th>تم استلام</th><th>الرصيد</th></tr>"+wsRows+"</table>");
   if(order.instructions)pw.document.write("<h2 style='font-size:16px;margin:16px 0 8px'>تعليمات التشغيل</h2><div style='background:#F8FAFC;padding:14px;border-radius:8px;white-space:pre-wrap'>"+order.instructions+"</div>");
   pw.document.write("</body></html>");pw.document.close();
   setTimeout(()=>{pw.focus();pw.print()},500)
@@ -386,7 +386,7 @@ function DashPg({data,goD,isMob,season,statusCards}){
   const delQ=orders.reduce((s,o)=>s+(o.deliveredQty||0),0);
   const comp=cutQ?Math.round((delQ/cutQ)*100):0;
 
-  /* في التشغيل = مجموع الكميات المسلمة للورش - مجموع الكميات المستلمة من الورش */
+  /* في التشغيل = مجموع الكميات اللي اتسلمت للورش - مجموع الكميات المستلمة من الورش */
   let totalDeliveredToWs=0,totalReceivedFromWs=0;
   orders.forEach(o=>{(o.workshopDeliveries||[]).forEach(wd=>{totalDeliveredToWs+=(Number(wd.qty)||0);(wd.receives||[]).forEach(r=>{totalReceivedFromWs+=(Number(r.qty)||0)})})});
   const inProdQty=totalDeliveredToWs-totalReceivedFromWs;
@@ -421,7 +421,7 @@ function DashPg({data,goD,isMob,season,statusCards}){
       <MetricCard label="رصيد بالمصنع" value={fmt(cutQ-delQ)} icon="🏭" color={T.warn} sub="قطعة"/>
     </div>
     <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(3,1fr)",gap:16,marginBottom:28}}>
-      <MetricCard label="في التشغيل (عند الورش)" value={fmt(Math.max(0,inProdQty))} icon="⚙️" color="#8B5CF6" sub={"مسلم: "+fmt(totalDeliveredToWs)+" - استلم: "+fmt(totalReceivedFromWs)}/>
+      <MetricCard label="في التشغيل (عند الورش)" value={fmt(Math.max(0,inProdQty))} icon="⚙️" color="#8B5CF6" sub={"تم تسليمه: "+fmt(totalDeliveredToWs)+" - استلم: "+fmt(totalReceivedFromWs)}/>
       <MetricCard label="تحت التشغيل (لم تُسلّم)" value={fmt(underProdQty)} icon="⏳" color="#EC4899" sub={underProdOrders.length+" موديل - تم القص"}/>
       <div style={{background:T.card,backdropFilter:"blur(12px)",borderRadius:16,padding:"22px 24px",border:"1px solid "+T.brd,boxShadow:T.shadow}}>
         <div style={{fontSize:FS,color:T.textSec,marginBottom:8,fontWeight:600}}>معدل الانجاز</div>
@@ -435,7 +435,7 @@ function DashPg({data,goD,isMob,season,statusCards}){
         <div style={{flex:1,minWidth:120}}>{pieData.map((d,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",fontSize:FS}}><span style={{width:12,height:12,borderRadius:4,background:d.fill,flexShrink:0}}/><span style={{color:T.textSec,flex:1}}>{d.name}</span><span style={{fontWeight:700}}>{d.value}</span></div>)}</div>
       </div>:<p style={{color:T.textSec,textAlign:"center",padding:30}}>لا توجد بيانات</p>}</Card>
       {/* Workshop Comparison Chart */}
-      <Card title="أداء الورش - المسلم vs المستلم">{wsChartData.length>0?<div>
+      <Card title="أداء الورش - تم تسليمه vs تم استلامه">{wsChartData.length>0?<div>
         <ResponsiveContainer width="100%" height={Math.max(180,wsChartData.length*40)}>
           <BarChart data={wsChartData} layout="vertical" margin={{right:10}}>
             <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0"/>
@@ -443,7 +443,7 @@ function DashPg({data,goD,isMob,season,statusCards}){
             <YAxis dataKey="name" type="category" tick={{fontSize:12,fill:T.text}} width={isMob?80:120}/>
             <Tooltip contentStyle={{borderRadius:10,border:"1px solid #E2E8F0"}}/>
             <Legend wrapperStyle={{fontSize:12}}/>
-            <Bar dataKey="delivered" name="مسلم للورشة" fill="#8B5CF6" barSize={14} radius={[0,4,4,0]}/>
+            <Bar dataKey="delivered" name="تم تسليمه للورشة" fill="#8B5CF6" barSize={14} radius={[0,4,4,0]}/>
             <Bar dataKey="received" name="استلم المصنع" fill="#10B981" barSize={14} radius={[0,4,4,0]}/>
           </BarChart>
         </ResponsiveContainer>
@@ -713,7 +713,7 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
         {order.orderPieces.map((p,i)=>{
           const delForP=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);
           const avail=t.cutQty-delForP;
-          return<span key={i} style={{padding:"8px 16px",borderRadius:12,background:avail>0?"#FEF3C7":"#D1FAE5",border:"1px solid "+(avail>0?T.warn:T.ok)+"40",fontSize:FS,fontWeight:600}}>{"👕 "+p}<span style={{fontSize:FS-2,color:T.textSec,marginRight:6}}>{" (مسلم: "+delForP+" / متاح: "+avail+")"}</span></span>
+          return<span key={i} style={{padding:"8px 16px",borderRadius:12,background:avail>0?"#FEF3C7":"#D1FAE5",border:"1px solid "+(avail>0?T.warn:T.ok)+"40",fontSize:FS,fontWeight:600}}>{"👕 "+p}<span style={{fontSize:FS-2,color:T.textSec,marginRight:6}}>{" (تم تسليمه: "+delForP+" / متاح: "+avail+")"}</span></span>
         })}
       </div>}
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":activeFabs.length>=3?"1fr 1fr 1fr":activeFabs.length===2?"1fr 1fr":"1fr",gap:14,marginBottom:16}}>
@@ -756,7 +756,7 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
                 {wd.garmentType&&<span style={{fontSize:FS-2,color:T.purple,background:T.purple+"12",padding:"2px 10px",borderRadius:12}}>{wd.garmentType}</span>}
               </div>
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                <span style={{padding:"4px 12px",borderRadius:8,background:T.accent+"12",fontSize:FS-2,fontWeight:600}}>{"مسلم: "+wd.qty+" - "+wd.date}</span>
+                <span style={{padding:"4px 12px",borderRadius:8,background:T.accent+"12",fontSize:FS-2,fontWeight:600}}>{"تم تسليمه: "+wd.qty+" - "+wd.date}</span>
                 {wd.price>0&&<span style={{padding:"4px 12px",borderRadius:8,background:T.purple+"12",fontSize:FS-2,fontWeight:600,color:T.purple}}>{"تشغيل: "+wd.price+" ج.م"}</span>}
                 <span style={{padding:"4px 12px",borderRadius:8,background:T.ok+"12",fontSize:FS-2,fontWeight:600,color:T.ok}}>{"استلم: "+rcvd}</span>
                 <span style={{padding:"4px 12px",borderRadius:8,background:bal>0?T.err+"15":T.ok+"15",fontSize:FS-2,fontWeight:700,color:bal>0?T.err:T.ok}}>{"رصيد: "+bal}</span>
@@ -1006,7 +1006,7 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
         {workshops.map(w=><option key={w.id||w} value={w.name||w}>{(w.name||w)+(w.owner?" - "+w.owner:"")}</option>)}
       </Sel>
     </Card>
-    {selWs&&<Card title={"أوردرات مسلمة لـ "+selWs} style={{marginBottom:16}}>
+    {selWs&&<Card title={"أوردرات تم تسليمها لـ "+selWs} style={{marginBottom:16}}>
       {wsOrders.length>0?<div style={{display:"flex",flexDirection:"column",gap:16}}>
         {wsOrders.map(ord=>{
           const wds=(ord.workshopDeliveries||[]).filter(wd=>wd.wsName===selWs);
@@ -1018,7 +1018,7 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
               <div style={{padding:"14px 18px",background:bal>0?T.err+"08":T.ok+"08",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
                 <div><span style={{fontWeight:700,fontSize:FS+1}}>{ord.modelNo}</span><span style={{fontSize:FS-1,color:T.textSec,marginRight:10}}>{" - "+ord.modelDesc}</span>{wd.garmentType&&<span style={{fontSize:FS,fontWeight:700,color:T.purple,background:T.purple+"15",padding:"4px 14px",borderRadius:10,marginRight:6}}>{"👕 "+wd.garmentType}</span>}</div>
                 <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                  <span style={{padding:"4px 12px",borderRadius:8,background:T.accent+"15",fontSize:FS-1,fontWeight:600}}>{"مسلم: "+wd.qty}</span>
+                  <span style={{padding:"4px 12px",borderRadius:8,background:T.accent+"15",fontSize:FS-1,fontWeight:600}}>{"تم تسليمه: "+wd.qty}</span>
                   <span style={{padding:"4px 12px",borderRadius:8,background:T.ok+"15",fontSize:FS-1,fontWeight:600,color:T.ok}}>{"استلم: "+rcvd}</span>
                   <span style={{padding:"4px 12px",borderRadius:8,background:bal>0?T.err+"15":T.ok+"15",fontSize:FS-1,fontWeight:700,color:bal>0?T.err:T.ok}}>{"رصيد: "+bal}</span>
                   {wd.price>0&&<span style={{padding:"4px 12px",borderRadius:8,background:T.purple+"15",fontSize:FS-1,fontWeight:600,color:T.purple}}>{"تشغيل: "+wd.price+" ج.م"}</span>}
@@ -1040,7 +1040,7 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
             </div>
           })
         })}
-      </div>:<p style={{color:T.textSec,textAlign:"center",padding:30}}>لا توجد أوردرات مسلمة لهذه الورشة</p>}
+      </div>:<p style={{color:T.textSec,textAlign:"center",padding:30}}>لا توجد أوردرات تم تسليمها لهذه الورشة</p>}
     </Card>}
     {/* Workshop-specific movements */}
     {selWs&&wsMoves.length>0&&<Card title={"حركات ورشة "+selWs+" ("+wsMoves.length+")"}>
