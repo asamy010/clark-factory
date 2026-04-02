@@ -823,8 +823,10 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
   const[delType,setDelType]=useState("");
   const[delNote,setDelNote]=useState("");
   const[delPrice,setDelPrice]=useState(0);
-  const[rcvQty,setRcvQty]=useState(0);
-  const[rcvNote,setRcvNote]=useState("");
+  const[rcvInputs,setRcvInputs]=useState({});
+  const getRcv=(key)=>rcvInputs[key]||{qty:0,note:""};
+  const setRcv=(key,field,val)=>setRcvInputs(p=>({...p,[key]:{...getRcv(key),[field]:val}}));
+  const clearRcv=(key)=>setRcvInputs(p=>{const n={...p};delete n[key];return n});
   const[movQ,setMovQ]=useState("");
   const[movWsF,setMovWsF]=useState("الكل");
   const[editMov,setEditMov]=useState(null);
@@ -864,14 +866,15 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
     if(andPrint)setTimeout(()=>printReceipt(selWs,wsObj?wsObj.owner:"",saveModelNo,saveQty,saveDate,Math.max(0,availAfter)),400);
   };
 
-  const receiveFromWs=(orderId,wdIdx,andPrint,printData)=>{
-    if(!rcvQty)return;
-    const saveQty=Number(rcvQty);const saveNote=rcvNote;const saveDate=new Date().toISOString().split("T")[0];
+  const receiveFromWs=(orderId,wdIdx,andPrint,printData,cardKey)=>{
+    const rv=getRcv(cardKey);
+    if(!rv.qty)return;
+    const saveQty=Number(rv.qty);const saveNote=rv.note;const saveDate=new Date().toISOString().split("T")[0];
     updOrder(orderId,o=>{
       if(!o.workshopDeliveries[wdIdx].receives)o.workshopDeliveries[wdIdx].receives=[];
       o.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty,notes:saveNote})
     });
-    setRcvQty(0);setRcvNote("");
+    clearRcv(cardKey);
     if(andPrint&&printData)setTimeout(()=>printReceiveReceipt(selWs,printData.modelNo,saveQty,saveDate,printData.bal-saveQty),400);
   };
 
@@ -1059,12 +1062,12 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
                 {(wd.receives||[]).length>0&&<div style={{marginBottom:12}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:350}}><thead><tr>{["#","التاريخ","الكمية","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
                   {wd.receives.map((r,ri)=>{const rBal=bal+Number(r.qty);return<tr key={ri}><td style={TD}>{ri+1}</td><td style={TD}>{r.date}</td><td style={TDB}>{r.qty}</td><td style={TD}>{r.notes||"-"}</td><td style={TD}><Btn small onClick={()=>printReceiveReceipt(selWs,ord.modelNo,r.qty,r.date,rBal)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>طباعة</Btn></td></tr>})}
                 </tbody></table></div></div>}
-                {canEdit&&bal>0&&<div style={{display:"flex",gap:8,flexWrap:"wrap",padding:12,background:"#F8FAFC",borderRadius:10,alignItems:"end"}}>
-                  <div style={{flex:1,minWidth:80}}><Inp type="number" value={rcvQty} onChange={v=>setRcvQty(Math.min(Number(v)||0,bal))} placeholder="الكمية"/></div>
-                  <div style={{flex:1,minWidth:100}}><Inp value={rcvNote} onChange={setRcvNote} placeholder="ملاحظات"/></div>
-                  <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,false)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>حفظ الاستلام</Btn>
-                  <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,true,{modelNo:ord.modelNo,bal})} style={{background:"#F0F9FF",color:T.accent,border:"1px solid "+T.accent+"30"}}>حفظ + طباعة</Btn>
-                </div>}
+                {canEdit&&bal>0&&(()=>{const ck=ord.id+"-"+actualIdx;const rv=getRcv(ck);return<div style={{display:"flex",gap:8,flexWrap:"wrap",padding:12,background:"#F8FAFC",borderRadius:10,alignItems:"end"}}>
+                  <div style={{flex:1,minWidth:80}}><Inp type="number" value={rv.qty} onChange={v=>setRcv(ck,"qty",Math.min(Number(v)||0,bal))} placeholder="الكمية"/></div>
+                  <div style={{flex:1,minWidth:100}}><Inp value={rv.note} onChange={v=>setRcv(ck,"note",v)} placeholder="ملاحظات"/></div>
+                  <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,false,null,ck)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>حفظ الاستلام</Btn>
+                  <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,true,{modelNo:ord.modelNo,bal},ck)} style={{background:"#F0F9FF",color:T.accent,border:"1px solid "+T.accent+"30"}}>حفظ + طباعة</Btn>
+                </div>})()}
                 {bal===0&&<div style={{textAlign:"center",padding:10,color:T.ok,fontWeight:700,fontSize:FS}}>{"✓ تم استلام الكمية كاملة"}</div>}
               </div>
             </div>
