@@ -932,9 +932,11 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
       {availOrders.length>0?<div>
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr",gap:10,marginBottom:10}}>
           <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4}}>اختر الأوردر</label>
-            <Sel value={selOrder} onChange={v=>{setSelOrder(v);const o=data.orders.find(x=>x.id===v);if(o)setDelQty(getAvailQty(o))}}>
+            <Sel value={selOrder} onChange={v=>{setSelOrder(v);setDelType("");const o=data.orders.find(x=>x.id===v);if(o){const pieces=o.orderPieces||[];if(pieces.length===0)setDelQty(getAvailQty(o))}}}>
               <option value="">-- اختر أوردر --</option>
-              {availOrders.map(o=>{const avail=getAvailQty(o);return<option key={o.id} value={o.id}>{o.modelNo+" - "+o.modelDesc+" (متاح: "+avail+" قطعة)"}</option>})}
+              {availOrders.map(o=>{const t=calcOrder(o);const pieces=o.orderPieces||[];
+                const pInfo=pieces.length>0?pieces.map(p=>{const d=(o.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);const a=t.cutQty-d;return a>0?p+":"+a:null}).filter(Boolean).join(" | "):"متاح: "+getAvailQty(o);
+                return<option key={o.id} value={o.id}>{o.modelNo+" - "+o.modelDesc+" ["+pInfo+"]"}</option>})}
             </Sel>
           </div>
           <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4}}>الكمية</label><Inp type="number" value={delQty} onChange={v=>{const ord=data.orders.find(x=>x.id===selOrder);const max=ord?getAvailQty(ord):99999;setDelQty(Math.min(Number(v)||0,max))}}/></div>
@@ -1006,7 +1008,7 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
             const bal=(Number(wd.qty)||0)-rcvd;
             return<div key={ord.id+"-"+wdIdx} style={{background:T.cardSolid,borderRadius:14,border:"1px solid "+(bal>0?T.err+"40":T.ok+"40"),overflow:"hidden"}}>
               <div style={{padding:"14px 18px",background:bal>0?T.err+"08":T.ok+"08",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-                <div><span style={{fontWeight:700,fontSize:FS+1}}>{ord.modelNo}</span><span style={{fontSize:FS-1,color:T.textSec,marginRight:10}}>{" - "+ord.modelDesc}</span>{wd.garmentType&&<span style={{fontSize:FS-1,color:T.purple,marginRight:6}}>{"("+wd.garmentType+")"}</span>}</div>
+                <div><span style={{fontWeight:700,fontSize:FS+1}}>{ord.modelNo}</span><span style={{fontSize:FS-1,color:T.textSec,marginRight:10}}>{" - "+ord.modelDesc}</span>{wd.garmentType&&<span style={{fontSize:FS,fontWeight:700,color:T.purple,background:T.purple+"15",padding:"4px 14px",borderRadius:10,marginRight:6}}>{"👕 "+wd.garmentType}</span>}</div>
                 <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                   <span style={{padding:"4px 12px",borderRadius:8,background:T.accent+"15",fontSize:FS-1,fontWeight:600}}>{"مسلم: "+wd.qty}</span>
                   <span style={{padding:"4px 12px",borderRadius:8,background:T.ok+"15",fontSize:FS-1,fontWeight:600,color:T.ok}}>{"استلم: "+rcvd}</span>
