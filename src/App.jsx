@@ -392,9 +392,20 @@ function DashPg({data,goD,isMob,season,statusCards}){
   orders.forEach(o=>{(o.workshopDeliveries||[]).forEach(wd=>{totalDeliveredToWs+=(Number(wd.qty)||0);(wd.receives||[]).forEach(r=>{totalReceivedFromWs+=(Number(r.qty)||0)})})});
   const inProdQty=totalDeliveredToWs-totalReceivedFromWs;
 
-  /* تحت التشغيل = كمية القص للأوردرات حالتها "تم القص" ولم يتم تسليمها لأي ورشة */
-  const underProdOrders=orders.filter(o=>o.status==="تم القص"&&(o.workshopDeliveries||[]).length===0);
-  const underProdQty=underProdOrders.reduce((s,o)=>s+calcOrder(o).cutQty,0);
+  /* تحت التشغيل = اجمالي كمية القص - اجمالي الأطقم المستلمة كاملة */
+  let underProdQty=0;const pendingPieces=[];
+  orders.forEach(o=>{
+    const t=calcOrder(o);const wds=o.workshopDeliveries||[];const pieces=o.orderPieces||[];
+    if(wds.length===0){underProdQty+=t.cutQty;return}
+    if(pieces.length>0){
+      const minRcv=Math.min(...pieces.map(p=>wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0)));
+      const pending=t.cutQty-minRcv;if(pending>0)underProdQty+=pending;
+      pieces.forEach(p=>{const rcvP=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);const avail=t.cutQty-rcvP;if(avail>0)pendingPieces.push({modelNo:o.modelNo,piece:p,avail})})
+    } else {
+      const totalRcv=wds.reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);
+      const pending=t.cutQty-totalRcv;if(pending>0){underProdQty+=pending;pendingPieces.push({modelNo:o.modelNo,piece:"",avail:pending})}
+    }
+  });
 
   const sc={};orders.forEach(o=>{sc[o.status]=(sc[o.status]||0)+1});
   const pieData=Object.entries(sc).map(([name,value])=>({name,value,fill:getStatusColor(name,statusCards)}));
@@ -423,13 +434,20 @@ function DashPg({data,goD,isMob,season,statusCards}){
     </div>
     <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(3,1fr)",gap:16,marginBottom:28}}>
       <MetricCard label="في التشغيل (عند الورش)" value={fmt(Math.max(0,inProdQty))} icon="⚙️" color="#8B5CF6" sub={"تم تسليمه: "+fmt(totalDeliveredToWs)+" - استلم: "+fmt(totalReceivedFromWs)}/>
-      <MetricCard label="تحت التشغيل (لم تُسلّم)" value={fmt(underProdQty)} icon="⏳" color="#EC4899" sub={underProdOrders.length+" موديل - تم القص"}/>
+      <MetricCard label="تحت التشغيل" value={fmt(underProdQty)} icon="⏳" color="#EC4899" sub={pendingPieces.length+" قطعة معلقة"}/>
       <div style={{background:T.card,backdropFilter:"blur(12px)",borderRadius:16,padding:"22px 24px",border:"1px solid "+T.brd,boxShadow:T.shadow}}>
         <div style={{fontSize:FS,color:T.textSec,marginBottom:8,fontWeight:600}}>معدل الانجاز</div>
         <div style={{fontSize:38,fontWeight:800,color:T.accent}}>{comp+"%"}</div>
         <PBar value={comp}/>
       </div>
     </div>
+    {/* Pending Pieces Detail */}
+    {pendingPieces.length>0&&<Card title={"قطع تحت التشغيل ("+pendingPieces.length+")"} style={{marginBottom:24}}>
+      <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+        {pendingPieces.slice(0,20).map((p,i)=><span key={i} style={{padding:"6px 14px",borderRadius:10,fontSize:FS-2,fontWeight:600,background:"#FDF2F8",border:"1px solid #EC489930",color:"#EC4899"}}>{p.modelNo+(p.piece?" - "+p.piece:"")+" ("+p.avail+")"}</span>)}
+        {pendingPieces.length>20&&<span style={{fontSize:FS-2,color:T.textSec,padding:"6px 0"}}>{"و "+( pendingPieces.length-20)+" قطعة أخرى..."}</span>}
+      </div>
+    </Card>}
     <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:16,marginBottom:24}}>
       <Card title="توزيع الحالات">{pieData.length>0?<div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
         <ResponsiveContainer width={isMob?"100%":160} height={160}><PieChart><Pie data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={68} paddingAngle={3} dataKey="value" stroke="none">{pieData.map((d,i)=><Cell key={i} fill={d.fill}/>)}</Pie><Tooltip/></PieChart></ResponsiveContainer>
@@ -466,20 +484,31 @@ function DashPg({data,goD,isMob,season,statusCards}){
 
 /* ══ DB ══ */
 function DBPg({data,upConfig,isMob,canEdit,statusCards}){
-  const[sub,setSub]=useState("fab");const[ff,setFf]=useState({name:"",unit:"كيلو",price:""});
-  const[af,setAf]=useState({name:"",unit:"قطعة",price:""});const[sfld,setSfld]=useState({label:""});const[wf,setWf]=useState("");
-  const[stName,setStName]=useState("");const[stColor,setStColor]=useState("#0EA5E9");
-  const[gName,setGName]=useState("");
+  const[sub,setSub]=useState("fab");
+  const[ff,setFf]=useState({name:"",unit:"كيلو",price:"",_eid:null});
+  const[af,setAf]=useState({name:"",unit:"قطعة",price:"",_eid:null});
+  const[sfld,setSfld]=useState({label:"",_eid:null});
+  const[wf,setWf]=useState("");
+  const[stName,setStName]=useState("");const[stColor,setStColor]=useState("#0EA5E9");const[stEid,setStEid]=useState(null);
+  const[gName,setGName]=useState("");const[gEid,setGEid]=useState(null);
+
+  const saveFab=()=>{if(!ff.name)return;upConfig(d=>{if(ff._eid){const idx=d.fabrics.findIndex(x=>x.id===ff._eid);if(idx>=0)d.fabrics[idx]={...d.fabrics[idx],name:ff.name,unit:ff.unit,price:Number(ff.price)||0}}else{d.fabrics.push({id:Date.now(),name:ff.name,unit:ff.unit,price:Number(ff.price)||0})}});setFf({name:"",unit:"كيلو",price:"",_eid:null})};
+  const saveAcc=()=>{if(!af.name)return;upConfig(d=>{if(af._eid){const idx=d.accessories.findIndex(x=>x.id===af._eid);if(idx>=0)d.accessories[idx]={...d.accessories[idx],name:af.name,unit:af.unit,price:Number(af.price)||0}}else{d.accessories.push({id:Date.now(),name:af.name,unit:af.unit,price:Number(af.price)||0})}});setAf({name:"",unit:"قطعة",price:"",_eid:null})};
+  const saveSize=()=>{if(!sfld.label)return;upConfig(d=>{if(sfld._eid){const idx=d.sizeSets.findIndex(x=>x.id===sfld._eid);if(idx>=0)d.sizeSets[idx]={...d.sizeSets[idx],label:sfld.label}}else{d.sizeSets.push({id:Date.now(),label:sfld.label})}});setSfld({label:"",_eid:null})};
+  const saveGarment=()=>{if(!gName.trim())return;upConfig(d=>{if(!d.garmentTypes)d.garmentTypes=[];if(gEid){const idx=d.garmentTypes.findIndex(x=>x.id===gEid);if(idx>=0)d.garmentTypes[idx].name=gName.trim()}else{d.garmentTypes.push({id:Date.now(),name:gName.trim()})}});setGName("");setGEid(null)};
+  const saveStatus=()=>{if(!stName.trim())return;upConfig(d=>{if(!d.statusCards)d.statusCards=[...DEFAULT_STATUSES];if(stEid){const idx=d.statusCards.findIndex(x=>x.id===stEid);if(idx>=0){d.statusCards[idx].name=stName.trim();d.statusCards[idx].color=stColor}}else{d.statusCards.push({id:Date.now(),name:stName.trim(),color:stColor})}});setStName("");setStColor("#0EA5E9");setStEid(null)};
+
+  const eBtn=(onClick)=><Btn small onClick={onClick} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>تعديل</Btn>;
   return<div>
     <h1 style={{fontSize:isMob?24:32,fontWeight:800,margin:"0 0 20px"}}>قاعدة البيانات</h1>
     <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>{[["fab","الأقمشة"],["acc","الاكسسوار"],["size","المقاسات"],["garment","قطع الموديل"],["ws","الورش"],["status","حالات الأوردر"]].map(([k,l])=><Btn key={k} on={sub===k} onClick={()=>setSub(k)}>{l}</Btn>)}</div>
-    {sub==="fab"&&<Card title="جدول الأقمشة">{canEdit&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"3fr 1fr 1fr auto",gap:10,marginBottom:16}}><Inp value={ff.name} onChange={v=>setFf({...ff,name:v})} placeholder="اسم القماش"/><Sel value={ff.unit} onChange={v=>setFf({...ff,unit:v})}><option value="كيلو">كيلو</option><option value="متر">متر</option><option value="يارد">يارد</option></Sel><Inp value={ff.price} onChange={v=>setFf({...ff,price:v})} placeholder="السعر" type="number"/><Btn primary onClick={()=>{if(!ff.name)return;upConfig(d=>d.fabrics.push({id:Date.now(),name:ff.name,unit:ff.unit,price:Number(ff.price)||0}));setFf({name:"",unit:"كيلو",price:""})}}>+ اضافة</Btn></div>}
-      <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:450}}><thead><tr>{["#","القماش","الوحدة","السعر",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.fabrics.map((f,i)=><tr key={f.id}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:600}}>{f.name}</td><td style={TD}>{f.unit}</td><td style={{...TDB,color:T.accent}}>{f.price+" ج.م"}</td>{canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><DelBtn onConfirm={()=>upConfig(d=>{d.fabrics=d.fabrics.filter(x=>x.id!==f.id)})}/></td>}</tr>)}</tbody></table></div></Card>}
-    {sub==="acc"&&<Card title="الاكسسوار">{canEdit&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"3fr 1fr 1fr auto",gap:10,marginBottom:16}}><Inp value={af.name} onChange={v=>setAf({...af,name:v})} placeholder="الوصف"/><Sel value={af.unit} onChange={v=>setAf({...af,unit:v})}><option value="قطعة">قطعة</option><option value="متر">متر</option></Sel><Inp value={af.price} onChange={v=>setAf({...af,price:v})} placeholder="السعر" type="number"/><Btn primary onClick={()=>{if(!af.name)return;upConfig(d=>d.accessories.push({id:Date.now(),name:af.name,unit:af.unit,price:Number(af.price)||0}));setAf({name:"",unit:"قطعة",price:""})}}>+ اضافة</Btn></div>}
-      <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><thead><tr>{["#","الوصف","الوحدة","السعر",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.accessories.map((a,i)=><tr key={a.id}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:600}}>{a.name}</td><td style={TD}>{a.unit}</td><td style={{...TDB,color:T.accent}}>{a.price+" ج.م"}</td>{canEdit&&<td style={TD}><DelBtn onConfirm={()=>upConfig(d=>{d.accessories=d.accessories.filter(x=>x.id!==a.id)})}/></td>}</tr>)}</tbody></table></div></Card>}
-    {sub==="size"&&<Card title="المقاسات">{canEdit&&<div style={{display:"grid",gridTemplateColumns:"3fr auto",gap:10,marginBottom:16}}><Inp value={sfld.label} onChange={v=>setSfld({label:v})} placeholder="المقاسات"/><Btn primary onClick={()=>{if(!sfld.label)return;upConfig(d=>d.sizeSets.push({id:Date.now(),label:sfld.label}));setSfld({label:""})}}>+ اضافة</Btn></div>}<table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","المقاسات",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.sizeSets.map((s,i)=><tr key={s.id}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:600}}>{s.label}</td>{canEdit&&<td style={TD}><DelBtn onConfirm={()=>upConfig(d=>{d.sizeSets=d.sizeSets.filter(x=>x.id!==s.id)})}/></td>}</tr>)}</tbody></table></Card>}
-    {sub==="garment"&&<Card title="قطع الموديل">{canEdit&&<div style={{display:"grid",gridTemplateColumns:"3fr auto",gap:10,marginBottom:16}}><Inp value={gName} onChange={setGName} placeholder="اسم القطعة (مثال: قميص، شورت، تيشيرت)"/><Btn primary onClick={()=>{if(!gName.trim())return;upConfig(d=>{if(!d.garmentTypes)d.garmentTypes=[];d.garmentTypes.push({id:Date.now(),name:gName.trim()})});setGName("")}}>+ اضافة</Btn></div>}
-      <div style={{display:"flex",flexWrap:"wrap",gap:10}}>{(data.garmentTypes||[]).map(g=><span key={g.id} style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 18px",borderRadius:12,border:"1px solid "+T.brd,fontSize:FS,fontWeight:600,background:T.cardSolid,boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}}>{"👕 "+g.name}{canEdit&&<span style={{cursor:"pointer"}}><DelBtn onConfirm={()=>upConfig(d=>{d.garmentTypes=(d.garmentTypes||[]).filter(x=>x.id!==g.id)})}/></span>}</span>)}</div>
+    {sub==="fab"&&<Card title="جدول الأقمشة">{canEdit&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"3fr 1fr 1fr auto",gap:10,marginBottom:16}}><Inp value={ff.name} onChange={v=>setFf({...ff,name:v})} placeholder="اسم القماش"/><Sel value={ff.unit} onChange={v=>setFf({...ff,unit:v})}><option value="كيلو">كيلو</option><option value="متر">متر</option><option value="يارد">يارد</option></Sel><Inp value={ff.price} onChange={v=>setFf({...ff,price:v})} placeholder="السعر" type="number"/><div style={{display:"flex",gap:4}}><Btn primary onClick={saveFab}>{ff._eid?"تحديث":"+ اضافة"}</Btn>{ff._eid&&<Btn ghost onClick={()=>setFf({name:"",unit:"كيلو",price:"",_eid:null})}>الغاء</Btn>}</div></div>}
+      <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:450}}><thead><tr>{["#","القماش","الوحدة","السعر",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.fabrics.map((f,i)=><tr key={f.id} style={{background:ff._eid===f.id?T.warn+"10":"transparent"}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:600}}>{f.name}</td><td style={TD}>{f.unit}</td><td style={{...TDB,color:T.accent}}>{f.price+" ج.م"}</td>{canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:4}}>{eBtn(()=>setFf({name:f.name,unit:f.unit,price:f.price,_eid:f.id}))}<DelBtn onConfirm={()=>upConfig(d=>{d.fabrics=d.fabrics.filter(x=>x.id!==f.id)})}/></div></td>}</tr>)}</tbody></table></div></Card>}
+    {sub==="acc"&&<Card title="الاكسسوار">{canEdit&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"3fr 1fr 1fr auto",gap:10,marginBottom:16}}><Inp value={af.name} onChange={v=>setAf({...af,name:v})} placeholder="الوصف"/><Sel value={af.unit} onChange={v=>setAf({...af,unit:v})}><option value="قطعة">قطعة</option><option value="متر">متر</option></Sel><Inp value={af.price} onChange={v=>setAf({...af,price:v})} placeholder="السعر" type="number"/><div style={{display:"flex",gap:4}}><Btn primary onClick={saveAcc}>{af._eid?"تحديث":"+ اضافة"}</Btn>{af._eid&&<Btn ghost onClick={()=>setAf({name:"",unit:"قطعة",price:"",_eid:null})}>الغاء</Btn>}</div></div>}
+      <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><thead><tr>{["#","الوصف","الوحدة","السعر",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.accessories.map((a,i)=><tr key={a.id} style={{background:af._eid===a.id?T.warn+"10":"transparent"}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:600}}>{a.name}</td><td style={TD}>{a.unit}</td><td style={{...TDB,color:T.accent}}>{a.price+" ج.م"}</td>{canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:4}}>{eBtn(()=>setAf({name:a.name,unit:a.unit,price:a.price,_eid:a.id}))}<DelBtn onConfirm={()=>upConfig(d=>{d.accessories=d.accessories.filter(x=>x.id!==a.id)})}/></div></td>}</tr>)}</tbody></table></div></Card>}
+    {sub==="size"&&<Card title="المقاسات">{canEdit&&<div style={{display:"grid",gridTemplateColumns:"3fr auto",gap:10,marginBottom:16}}><Inp value={sfld.label} onChange={v=>setSfld({...sfld,label:v})} placeholder="المقاسات"/><div style={{display:"flex",gap:4}}><Btn primary onClick={saveSize}>{sfld._eid?"تحديث":"+ اضافة"}</Btn>{sfld._eid&&<Btn ghost onClick={()=>setSfld({label:"",_eid:null})}>الغاء</Btn>}</div></div>}<table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","المقاسات",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.sizeSets.map((s,i)=><tr key={s.id} style={{background:sfld._eid===s.id?T.warn+"10":"transparent"}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:600}}>{s.label}</td>{canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:4}}>{eBtn(()=>setSfld({label:s.label,_eid:s.id}))}<DelBtn onConfirm={()=>upConfig(d=>{d.sizeSets=d.sizeSets.filter(x=>x.id!==s.id)})}/></div></td>}</tr>)}</tbody></table></Card>}
+    {sub==="garment"&&<Card title="قطع الموديل">{canEdit&&<div style={{display:"grid",gridTemplateColumns:"3fr auto",gap:10,marginBottom:16}}><Inp value={gName} onChange={setGName} placeholder="اسم القطعة (مثال: قميص، شورت، تيشيرت)"/><div style={{display:"flex",gap:4}}><Btn primary onClick={saveGarment}>{gEid?"تحديث":"+ اضافة"}</Btn>{gEid&&<Btn ghost onClick={()=>{setGName("");setGEid(null)}}>الغاء</Btn>}</div></div>}
+      <div style={{display:"flex",flexWrap:"wrap",gap:10}}>{(data.garmentTypes||[]).map(g=><span key={g.id} style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 18px",borderRadius:12,border:"1px solid "+(gEid===g.id?T.warn:T.brd),fontSize:FS,fontWeight:600,background:gEid===g.id?T.warn+"10":T.cardSolid}}>{"👕 "+g.name}{canEdit&&<>{" "}{eBtn(()=>{setGName(g.name);setGEid(g.id)})}<DelBtn onConfirm={()=>upConfig(d=>{d.garmentTypes=(d.garmentTypes||[]).filter(x=>x.id!==g.id)})}/></>}</span>)}</div>
       {(!data.garmentTypes||data.garmentTypes.length===0)&&<div style={{textAlign:"center",padding:20,color:T.textSec}}>لم يتم اضافة قطع بعد</div>}
     </Card>}
     {sub==="ws"&&<WsManager workshops={data.workshops||[]} upConfig={upConfig} canEdit={canEdit} isMob={isMob}/>}
@@ -488,12 +517,13 @@ function DBPg({data,upConfig,isMob,canEdit,statusCards}){
       {canEdit&&<div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
         <Inp value={stName} onChange={setStName} placeholder="اسم الحالة" style={{width:200}}/>
         <div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:FS-2,color:T.textSec}}>اللون:</span><input type="color" value={stColor} onChange={e=>setStColor(e.target.value)} style={{width:40,height:36,borderRadius:8,border:"none",cursor:"pointer"}}/></div>
-        <Btn primary onClick={()=>{if(!stName.trim())return;upConfig(d=>{if(!d.statusCards)d.statusCards=[...DEFAULT_STATUSES];d.statusCards.push({id:Date.now(),name:stName.trim(),color:stColor})});setStName("")}}>+ اضافة حالة</Btn>
+        <Btn primary onClick={saveStatus}>{stEid?"تحديث":"+ اضافة حالة"}</Btn>
+        {stEid&&<Btn ghost onClick={()=>{setStName("");setStColor("#0EA5E9");setStEid(null)}}>الغاء</Btn>}
       </div>}
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:12}}>
-        {statusCards.map(s=><div key={s.id} style={{padding:16,borderRadius:14,border:"2px solid "+s.color+"40",background:s.color+"08",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        {statusCards.map(s=><div key={s.id} style={{padding:16,borderRadius:14,border:"2px solid "+(stEid===s.id?T.warn:s.color)+"40",background:s.color+"08",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:20,height:20,borderRadius:6,background:s.color}}/><span style={{fontWeight:700,fontSize:FS,color:T.text}}>{s.name}</span></div>
-          {canEdit&&<DelBtn onConfirm={()=>upConfig(d=>{d.statusCards=(d.statusCards||[]).filter(x=>x.id!==s.id)})}/>}
+          {canEdit&&<div style={{display:"flex",gap:4}}>{eBtn(()=>{setStName(s.name);setStColor(s.color);setStEid(s.id)})}<DelBtn onConfirm={()=>upConfig(d=>{d.statusCards=(d.statusCards||[]).filter(x=>x.id!==s.id)})}/></div>}
         </div>)}
       </div>
     </Card>}
@@ -687,7 +717,7 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
             {wds.length>0&&<div style={{display:"flex",flexDirection:"column",gap:4}}>
               {(()=>{const wsStats={};wds.forEach(wd=>{if(!wsStats[wd.wsName])wsStats[wd.wsName]={del:0,rcv:0};wsStats[wd.wsName].del+=(Number(wd.qty)||0);(wd.receives||[]).forEach(r=>{wsStats[wd.wsName].rcv+=(Number(r.qty)||0)})});return Object.entries(wsStats).map(([name,s])=>{const bal=s.del-s.rcv;return<div key={name} style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
                 <span style={{fontSize:FS-2,padding:"2px 8px",borderRadius:6,background:T.purple+"12",color:T.purple,fontWeight:700}}>{"🏭 "+name}</span>
-                <span style={{fontSize:FS-2,color:T.accent,fontWeight:600}}>{"تشغيل: "+s.del}</span>
+                <span style={{fontSize:FS-2,color:T.accent,fontWeight:600}}>{"تسليم: "+s.del}</span>
                 <span style={{fontSize:FS-2,color:T.ok,fontWeight:600}}>{"استلم: "+s.rcv}</span>
                 {bal>0&&<span style={{fontSize:FS-2,color:T.err,fontWeight:700}}>{"رصيد: "+bal}</span>}
                 {bal===0&&<span style={{fontSize:FS-2,color:T.ok}}>{"✓ مكتمل"}</span>}
