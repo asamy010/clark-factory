@@ -23,6 +23,13 @@ const THEMES = {
     ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#8B5CF6",shadow:"0 4px 24px rgba(0,0,0,0.06)",
     sidebarBg:"rgba(255,255,255,0.95)",inputBg:"#FFFFFF",bodyBg:"#EFF6FF"
   },
+  purple: {
+    name:"بنفسجي",bg:"#F8F9FC",card:"rgba(255,255,255,0.95)",cardSolid:"#FFFFFF",glass:"rgba(255,255,255,0.8)",
+    brd:"rgba(108,92,231,0.12)",brdStrong:"rgba(108,92,231,0.2)",
+    text:"#2D3436",textSec:"#636E72",textMut:"#B2BEC3",accent:"#6C5CE7",accentBg:"rgba(108,92,231,0.08)",
+    ok:"#00B894",err:"#E17055",warn:"#FDCB6E",purple:"#6C5CE7",shadow:"0 4px 20px rgba(108,92,231,0.08)",
+    sidebarBg:"#F3F4F8",inputBg:"#FFFFFF",bodyBg:"#F8F9FC"
+  },
   dark: {
     name:"داكن",bg:"#1A1D23",card:"rgba(36,40,50,0.95)",cardSolid:"#242832",glass:"rgba(36,40,50,0.8)",
     brd:"rgba(255,255,255,0.08)",brdStrong:"rgba(255,255,255,0.15)",
@@ -1242,7 +1249,7 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme}){
     <h1 style={{fontSize:isMob?24:32,fontWeight:800,margin:"0 0 20px"}}>الاعدادات</h1>
     {/* Theme Selector */}
     <Card title="مظهر التطبيق" style={{marginBottom:16}}>
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:14}}>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:14}}>
         {Object.entries(THEMES).map(([key,th])=><div key={key} onClick={()=>setTheme(key)} style={{cursor:"pointer",borderRadius:16,overflow:"hidden",border:theme===key?"3px solid "+th.accent:"2px solid "+th.brd,boxShadow:theme===key?"0 0 20px "+th.accent+"40":"none",transition:"all 0.2s"}}>
           <div style={{background:th.bg,padding:14}}>
             <div style={{display:"flex",gap:8,marginBottom:10}}>
