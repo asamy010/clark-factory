@@ -592,7 +592,7 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards}){
       {(form.orderPieces||[]).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8}}>{(form.orderPieces||[]).map((p,i)=><span key={i} style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 16px",borderRadius:12,background:"#F0F9FF",border:"1px solid "+T.accent+"30",fontSize:FS,fontWeight:600,color:T.accent}}>{"👕 "+p}<span onClick={()=>updF("orderPieces",(form.orderPieces||[]).filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err,fontWeight:800}}>x</span></span>)}</div>}
       {(form.orderPieces||[]).length===0&&<div style={{fontSize:FS-1,color:T.textMut}}>لم يتم اختيار قطع - كل قطعة تأخذ كمية القص</div>}
     </div>
-    {FKEYS.map((k,idx)=>{const fid=form["fabric"+k];const fb=fabObj(fid);return<div key={k}>
+    {FKEYS.map((k,idx)=>{const fid=form["fabric"+k];const fb=fabObj(fid);const fabPieces=form["fabricPieces"+k]||[];return<div key={k}>
       <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",marginBottom:6,minWidth:500}}><tbody><tr>
         <td style={{...TDL,fontWeight:700}}><span style={{display:"inline-block",width:12,height:12,borderRadius:4,background:FCOL[idx],marginLeft:6}}/>{"خامة "+k+(k==="A"?" *":"")}</td>
         <td style={TD}><Sel value={fid} onChange={v=>updF("fabric"+k,v)}><option value="">{k==="A"?"-- اختر (اجباري) --":"-- اختياري --"}</option>{data.fabrics.map(f=><option key={f.id} value={f.id}>{f.name+" - "+f.price+" ج.م/"+f.unit}</option>)}</Sel></td>
@@ -600,6 +600,10 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards}){
         <td style={{...TDL,width:80}}>تاريخ القص</td><td style={{...TD,width:130}}><Inp type="date" value={form["cutDate"+k]||""} onChange={v=>updF("cutDate"+k,v)}/></td>
       </tr></tbody></table></div>
       {fid&&<FCTable label={"خامة "+k} fabName={fb?fb.name:""} accent={FCOL[idx]} colors={form["colors"+k]||[]} setColors={c=>updF("colors"+k,c)}/>}
+      {fid&&(form.orderPieces||[]).length>0&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
+        <span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{"قطع خامة "+k+":"}</span>
+        {(form.orderPieces||[]).map(p=>{const sel=fabPieces.includes(p);return<span key={p} onClick={()=>{const np=sel?fabPieces.filter(x=>x!==p):[...fabPieces,p];updF("fabricPieces"+k,np)}} style={{padding:"5px 12px",borderRadius:10,fontSize:FS-2,fontWeight:600,cursor:"pointer",background:sel?FCOL[idx]+"20":"#F1F5F9",color:sel?FCOL[idx]:T.textMut,border:"1px solid "+(sel?FCOL[idx]+"50":T.brd)}}>{p}</span>})}
+      </div>}
     </div>})}
     <div style={{marginBottom:16}}><div style={{fontSize:FS,fontWeight:700,color:T.accent,marginBottom:10}}>بنود الاكسسوار</div><AccPicker accItems={form.accItems||[]} dbAcc={data.accessories} onChange={items=>updF("accItems",items)}/></div>
     <div style={{marginBottom:16}}><label style={{display:"block",fontSize:FS,color:T.textSec,marginBottom:6,fontWeight:600}}>ملفات مرفقة (حد أقصى 500KB/ملف)</label>
@@ -705,7 +709,10 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
         })}
       </div>}
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":activeFabs.length>=3?"1fr 1fr 1fr":activeFabs.length===2?"1fr 1fr":"1fr",gap:14,marginBottom:16}}>
-        {activeFabs.map(k=>{const colors=gc(order,k);if(colors.length===0)return null;const dt=gdate(order,k);return<div key={k}><FCTable label={"خامة "+k} fabName={gf(order,k,"Label")} accent={FCOL[FKEYS.indexOf(k)]} colors={colors} setColors={()=>{}} readOnly/>{dt&&<div style={{fontSize:FS-2,color:T.textSec,marginTop:-8,marginBottom:10}}>{"تاريخ القص: "+dt}</div>}</div>})}
+        {activeFabs.map(k=>{const colors=gc(order,k);if(colors.length===0)return null;const dt=gdate(order,k);const fp=order["fabricPieces"+k]||[];return<div key={k}><FCTable label={"خامة "+k} fabName={gf(order,k,"Label")} accent={FCOL[FKEYS.indexOf(k)]} colors={colors} setColors={()=>{}} readOnly/>
+          {fp.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:-8,marginBottom:8}}>{fp.map(p=><span key={p} style={{padding:"3px 10px",borderRadius:8,fontSize:FS-3,fontWeight:600,background:FCOL[FKEYS.indexOf(k)]+"15",color:FCOL[FKEYS.indexOf(k)],border:"1px solid "+FCOL[FKEYS.indexOf(k)]+"30"}}>{"👕 "+p}</span>)}</div>}
+          {dt&&<div style={{fontSize:FS-2,color:T.textSec,marginTop:-4,marginBottom:10}}>{"تاريخ القص: "+dt}</div>}
+        </div>})}
       </div>
       <Card title={"تكلفة الخامات (كمية A = "+t.cutQty+")"} style={{marginBottom:16}}>
         <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
@@ -782,7 +789,21 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
   const[rcvNote,setRcvNote]=useState("");
   const[movQ,setMovQ]=useState("");
   const[movWsF,setMovWsF]=useState("الكل");
+  const[editMov,setEditMov]=useState(null);
+  const[editQty,setEditQty]=useState(0);
+  const[editNote,setEditNote]=useState("");
+  const[editPrice,setEditPrice]=useState(0);
   const workshops=data.workshops||[];
+
+  const startEditMov=(m)=>{setEditMov(m);setEditQty(m.qty);setEditNote(m.notes||"");setEditPrice(m.price||0)};
+  const saveEditMov=()=>{if(!editMov)return;
+    if(editMov.type==="deliver"){updOrder(editMov.orderId,o=>{const wd=o.workshopDeliveries[editMov.wdIdx];if(wd){wd.qty=Number(editQty)||0;wd.notes=editNote;wd.price=Number(editPrice)||0}})}
+    else{updOrder(editMov.orderId,o=>{const r=o.workshopDeliveries[editMov.wdIdx].receives[editMov.rIdx];if(r){r.qty=Number(editQty)||0;r.notes=editNote}})}
+    setEditMov(null)};
+  const printMov=(m)=>{
+    if(m.type==="deliver")printReceipt(m.wsName,"",m.orderNo,m.qty,m.date,0);
+    else printReceiveReceipt(m.wsName,m.orderNo,m.qty,m.date,0)
+  };
 
   const wsObj=workshops.find(w=>(w.name||w)===(selWs));
   const prodOrders=data.orders.filter(o=>o.status==="تم القص"||o.status==="في التشغيل");
@@ -852,12 +873,22 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
       </div>
       {(()=>{const fMov=movements.filter(m=>{if(movWsF!=="الكل"&&m.wsName!==movWsF)return false;if(movQ.trim()){const s=movQ.trim().toLowerCase();if(!((m.orderNo||"").toLowerCase().includes(s)||(m.wsName||"").toLowerCase().includes(s)||(m.orderDesc||"").toLowerCase().includes(s)))return false}return true});return<div id="mov-log"><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
         <thead><tr>{["","التاريخ","الورشة","موديل","الوصف","نوع القطعة","الكمية","سعر التشغيل","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
-        <tbody>{fMov.length>0?fMov.slice(0,50).map((m,i)=><tr key={i} style={{background:m.type==="deliver"?"#F0FDF4":"#EFF6FF"}}>
+        <tbody>{fMov.length>0?fMov.slice(0,50).map((m,i)=>{
+          const isEditing=editMov&&editMov.orderId===m.orderId&&editMov.wdIdx===m.wdIdx&&editMov.type===m.type&&(m.type==="deliver"||editMov.rIdx===m.rIdx);
+          return<tr key={i} style={{background:m.type==="deliver"?"#F0FDF4":"#EFF6FF"}}>
           <td style={{...TD,textAlign:"center",fontSize:20}}>{m.type==="deliver"?<span style={{color:T.ok}}>{"↗"}</span>:<span style={{color:T.accent}}>{"↙"}</span>}</td>
           <td style={TD}>{m.date}</td><td style={{...TD,fontWeight:600}}>{m.wsName}</td><td style={TDB}>{m.orderNo}</td><td style={TD}>{m.orderDesc}</td>
-          <td style={TD}>{m.garmentType||"-"}</td><td style={{...TDB,color:m.type==="deliver"?T.ok:T.accent}}>{m.qty}</td><td style={TD}>{m.price?m.price+" ج.م":"-"}</td><td style={TD}>{m.notes||"-"}</td>
-          <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<DelBtn onConfirm={()=>delMovement(m)}/>}</td>
-        </tr>):<tr><td colSpan={10} style={{...TD,textAlign:"center",color:T.textSec,padding:30}}>لا توجد حركات</td></tr>}</tbody>
+          <td style={TD}>{m.garmentType||"-"}</td>
+          <td style={{...TDB,color:m.type==="deliver"?T.ok:T.accent}}>{isEditing?<Inp type="number" value={editQty} onChange={v=>setEditQty(Number(v)||0)} style={{width:70}}/>:m.qty}</td>
+          <td style={TD}>{isEditing&&m.type==="deliver"?<Inp type="number" value={editPrice} onChange={v=>setEditPrice(Number(v)||0)} style={{width:70}}/>:(m.price?m.price+" ج.م":"-")}</td>
+          <td style={TD}>{isEditing?<Inp value={editNote} onChange={setEditNote} style={{width:100}}/>:(m.notes||"-")}</td>
+          <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+            {isEditing?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>الغاء</Btn></>:<>
+            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>طباعة</Btn>
+            <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>تعديل</Btn>
+            <DelBtn onConfirm={()=>delMovement(m)}/></>}
+          </div>}</td>
+        </tr>}):<tr><td colSpan={10} style={{...TD,textAlign:"center",color:T.textSec,padding:30}}>لا توجد حركات</td></tr>}</tbody>
       </table></div></div>})()}
     </Card>
   </div>;
@@ -939,7 +970,7 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
     {/* Workshop-specific movements */}
     {selWs&&wsMoves.length>0&&<Card title={"حركات ورشة "+selWs+" ("+wsMoves.length+")"}>
       <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:550}}>
-        <thead><tr>{["","التاريخ","موديل","الوصف","نوع القطعة","الكمية","سعر التشغيل","ملاحظات"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+        <thead><tr>{["","التاريخ","موديل","الوصف","نوع القطعة","الكمية","سعر التشغيل","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
         <tbody>{wsMoves.map((m,i)=><tr key={i} style={{background:m.type==="deliver"?"#F0FDF4":"#EFF6FF"}}>
           <td style={{...TD,textAlign:"center",fontSize:18}}>{m.type==="deliver"?<span style={{color:T.ok}}>{"↗"}</span>:<span style={{color:T.accent}}>{"↙"}</span>}</td>
           <td style={TD}>{m.date}</td><td style={TDB}>{m.orderNo}</td><td style={TD}>{m.orderDesc}</td>
@@ -947,6 +978,7 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
           <td style={{...TDB,color:m.type==="deliver"?T.ok:T.accent}}>{m.qty}</td>
           <td style={TD}>{m.price?m.price+" ج.م":"-"}</td>
           <td style={TD}>{m.notes||"-"}</td>
+          <td style={TD}><Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>طباعة</Btn></td>
         </tr>)}</tbody>
       </table></div>
     </Card>}
@@ -1003,12 +1035,13 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
     {/* Workshop-specific movements */}
     {selWs&&wsMoves.length>0&&<Card title={"حركات ورشة "+selWs+" ("+wsMoves.length+")"}>
       <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:550}}>
-        <thead><tr>{["","التاريخ","موديل","الوصف","الكمية","ملاحظات"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+        <thead><tr>{["","التاريخ","موديل","الوصف","الكمية","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
         <tbody>{wsMoves.map((m,i)=><tr key={i} style={{background:m.type==="deliver"?"#F0FDF4":"#EFF6FF"}}>
           <td style={{...TD,textAlign:"center",fontSize:18}}>{m.type==="deliver"?<span style={{color:T.ok}}>{"↗"}</span>:<span style={{color:T.accent}}>{"↙"}</span>}</td>
           <td style={TD}>{m.date}</td><td style={TDB}>{m.orderNo}</td><td style={TD}>{m.orderDesc}</td>
           <td style={{...TDB,color:m.type==="deliver"?T.ok:T.accent}}>{m.qty}</td>
           <td style={TD}>{m.notes||"-"}</td>
+          <td style={TD}><Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>طباعة</Btn></td>
         </tr>)}</tbody>
       </table></div>
     </Card>}
