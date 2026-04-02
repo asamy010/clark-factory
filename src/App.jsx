@@ -14,15 +14,31 @@ const COLORS_DB = [
   {n:"فوشيا",h:"#D81B60"},{n:"بني",h:"#5D4037"},{n:"كاكي",h:"#8D6E63"},{n:"منت",h:"#80CBC4"},{n:"مشمشي",h:"#FFAB91"},{n:"سلمون",h:"#EF9A9A"},
 ];
 
-/* ── Light Glassmorphism Theme ── */
-const T = {
-  bg: "#EFF6FF", card: "rgba(255,255,255,0.85)", cardSolid: "#FFFFFF", glass: "rgba(255,255,255,0.6)",
-  brd: "rgba(148,163,184,0.25)", brdStrong: "rgba(148,163,184,0.4)",
-  accent: "#0EA5E9", accentDark: "#0284C7", accentBg: "rgba(14,165,233,0.08)",
-  text: "#1E293B", textSec: "#64748B", textMut: "#94A3B8",
-  ok: "#10B981", warn: "#F59E0B", err: "#EF4444", purple: "#8B5CF6",
-  shadow: "0 4px 24px rgba(148,163,184,0.12)", shadowLg: "0 8px 40px rgba(148,163,184,0.18)",
+/* ── Theme System ── */
+const THEMES = {
+  light: {
+    name:"فاتح",bg:"#EFF6FF",card:"rgba(255,255,255,0.85)",cardSolid:"#FFFFFF",glass:"rgba(255,255,255,0.6)",
+    brd:"rgba(148,163,184,0.25)",brdStrong:"rgba(148,163,184,0.4)",
+    text:"#1E293B",textSec:"#64748B",textMut:"#94A3B8",accent:"#0EA5E9",accentBg:"#E0F2FE",
+    ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#8B5CF6",shadow:"0 4px 24px rgba(0,0,0,0.06)",
+    sidebarBg:"rgba(255,255,255,0.95)",inputBg:"#FFFFFF",bodyBg:"#EFF6FF"
+  },
+  dark: {
+    name:"داكن",bg:"#1A1D23",card:"rgba(36,40,50,0.95)",cardSolid:"#242832",glass:"rgba(36,40,50,0.8)",
+    brd:"rgba(255,255,255,0.08)",brdStrong:"rgba(255,255,255,0.15)",
+    text:"#E8ECF1",textSec:"#9CA3AF",textMut:"#6B7280",accent:"#00BFA5",accentBg:"rgba(0,191,165,0.12)",
+    ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#A78BFA",shadow:"0 4px 24px rgba(0,0,0,0.3)",
+    sidebarBg:"#1E222A",inputBg:"#2A2E38",bodyBg:"#1A1D23"
+  },
+  midnight: {
+    name:"ليلي",bg:"#0F172A",card:"rgba(30,41,59,0.9)",cardSolid:"#1E293B",glass:"rgba(30,41,59,0.7)",
+    brd:"rgba(148,163,184,0.12)",brdStrong:"rgba(148,163,184,0.2)",
+    text:"#F1F5F9",textSec:"#94A3B8",textMut:"#64748B",accent:"#38BDF8",accentBg:"rgba(56,189,248,0.1)",
+    ok:"#34D399",err:"#FB7185",warn:"#FBBF24",purple:"#C084FC",shadow:"0 4px 24px rgba(0,0,0,0.4)",
+    sidebarBg:"#0F172A",inputBg:"#1E293B",bodyBg:"#0F172A"
+  }
 };
+let T = THEMES.light;
 
 const DEFAULT_STATUSES = [
   {id:1,name:"تم القص",color:"#0EA5E9"},{id:2,name:"في التشغيل",color:"#F59E0B"},
@@ -176,7 +192,7 @@ function printOrderSheet(order,t,activeFabs,statusCards){
 
 /* ── UI Components (Light Glassmorphism) ── */
 const FS=15;
-const TH={textAlign:"right",padding:"12px 14px",fontSize:FS-3,fontWeight:600,color:T.textSec,whiteSpace:"nowrap",borderBottom:"2px solid "+T.brd,background:"#F8FAFC",textTransform:"uppercase",letterSpacing:"0.04em"};
+const TH={textAlign:"right",padding:"12px 14px",fontSize:FS-3,fontWeight:600,color:T.textSec,whiteSpace:"nowrap",borderBottom:"2px solid "+T.brd,background:T.inputBg||T.cardSolid,textTransform:"uppercase",letterSpacing:"0.04em"};
 const TD={padding:"12px 14px",fontSize:FS,color:T.text,borderBottom:"1px solid "+T.brd,verticalAlign:"middle"};
 const TDB={...TD,fontWeight:600};
 const TDL={...TD,color:T.textSec,width:100};
@@ -192,7 +208,7 @@ function Btn({children,on,primary,danger,ghost,onClick,small,disabled,style:sx})
 }
 
 function Inp({value,onChange,placeholder,type,step,style:sx,readOnly}){
-  return<input type={type||"text"} step={step||"any"} value={value==null?"":value} readOnly={readOnly} onChange={e=>onChange&&onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:readOnly?"#F8FAFC":T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",transition:"border-color 0.2s",...(sx||{})}}/>
+  return<input type={type||"text"} step={step||"any"} value={value==null?"":value} readOnly={readOnly} onChange={e=>onChange&&onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:readOnly?T.bg:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",transition:"border-color 0.2s",...(sx||{})}}/>
 }
 
 function Sel({value,onChange,children}){
@@ -254,7 +270,7 @@ function FCTable({label,fabName,colors,setColors,accent,readOnly}){
           <td style={{...TD,minWidth:160,overflow:"visible"}}>{readOnly?<div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:22,height:22,borderRadius:6,background:c.colorHex||"#E2E8F0",border:"1px solid #E2E8F0",flexShrink:0}}/><span style={{fontWeight:500}}>{c.color||"-"}</span></div>:<ColorPicker value={c.color} colorHex={c.colorHex} onSelect={(nm,hx)=>{const nc=colors.map((cc,jj)=>jj===i?{...cc,color:nm,colorHex:hx}:cc);setColors(nc)}}/>}</td>
           <td style={{...TD,width:100}}>{readOnly?c.layers:<Inp type="number" value={c.layers} onChange={v=>upC(i,"layers",v)}/>}</td>
           <td style={{...TD,width:100}}>{readOnly?(c.pcsPerLayer||"-"):<Inp type="number" value={c.pcsPerLayer} onChange={v=>upC(i,"pcsPerLayer",v)}/>}</td>
-          <td style={{...TDB,width:80,background:"#F0F9FF",textAlign:"center",borderRadius:6,color:T.accent}}>{c.qty}</td>
+          <td style={{...TDB,width:80,background:T.accentBg,textAlign:"center",borderRadius:6,color:T.accent}}>{c.qty}</td>
           {!readOnly&&<td style={{...TD,width:40}}><Btn danger small onClick={()=>setColors(colors.filter((_,j)=>j!==i))}>x</Btn></td>}
         </tr>)}</tbody>
       </table>
@@ -316,6 +332,9 @@ export default function App(){
   const[user,setUser]=useState(null);const[authLoading,setAuthLoading]=useState(true);
   const[config,setConfig]=useState(INIT_CONFIG);const[orders,setOrders]=useState([]);const[dataLoading,setDataLoading]=useState(true);
   const[tab,setTab]=useState("dashboard");const[sel,setSel]=useState(null);const[sideOpen,setSideOpen]=useState(true);
+  const[theme,setTheme]=useState(()=>localStorage.getItem("clark-theme")||"light");
+  T=THEMES[theme]||THEMES.light;
+  useEffect(()=>{localStorage.setItem("clark-theme",theme);document.body.style.background=T.bodyBg||T.bg},[theme]);
   const w=useWin();const isMob=w<768;const season=config.activeSeason||"WS26";
 
   useEffect(()=>{const unsub=onAuthStateChanged(auth,u=>{setUser(u);setAuthLoading(false)});return unsub},[]);
@@ -342,7 +361,7 @@ export default function App(){
 
   return<div style={{display:"flex",minHeight:"100vh",direction:"rtl",fontFamily:"'Cairo',sans-serif",background:T.bg,color:T.text,fontSize:FS}}>
     {isMob&&sideOpen&&<div onClick={()=>setSideOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.3)",zIndex:998}}/>}
-    <nav style={{width:isMob?(sideOpen?260:0):(sideOpen?230:56),background:T.cardSolid,borderLeft:"1px solid "+T.brd,boxShadow:"4px 0 20px rgba(0,0,0,0.04)",flexShrink:0,display:"flex",flexDirection:"column",transition:"width 0.3s",overflow:"hidden",position:isMob?"fixed":"relative",right:0,top:0,bottom:0,zIndex:999}}>
+    <nav style={{width:isMob?(sideOpen?260:0):(sideOpen?230:56),background:T.sidebarBg||T.cardSolid,borderLeft:"1px solid "+T.brd,boxShadow:"4px 0 20px rgba(0,0,0,0.04)",flexShrink:0,display:"flex",flexDirection:"column",transition:"width 0.3s",overflow:"hidden",position:isMob?"fixed":"relative",right:0,top:0,bottom:0,zIndex:999}}>
       <div style={{padding:"20px 18px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid "+T.brd}}>
         {sideOpen&&<div><div style={{fontWeight:800,fontSize:22,color:T.accent,letterSpacing:4}}>CLARK</div><div style={{fontSize:9,color:T.textMut}}>CUTTING & PRODUCTION</div></div>}
         <div onClick={()=>setSideOpen(!sideOpen)} style={{cursor:"pointer",color:T.accent,fontSize:22}}>{"☰"}</div>
@@ -374,7 +393,7 @@ export default function App(){
       {tab==="search"&&<SearchPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
       {tab==="report"&&<RepPg data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
       {tab==="cost"&&<CostPg data={data} isMob={isMob} statusCards={statusCards}/>}
-      {tab==="settings"&&<SettingsPg config={config} upConfig={upConfig} isMob={isMob} user={user}/>}
+      {tab==="settings"&&<SettingsPg config={config} upConfig={upConfig} isMob={isMob} user={user} theme={theme} setTheme={setTheme}/>}
       </div>
     </main>
   </div>
@@ -392,18 +411,15 @@ function DashPg({data,goD,isMob,season,statusCards}){
   orders.forEach(o=>{(o.workshopDeliveries||[]).forEach(wd=>{totalDeliveredToWs+=(Number(wd.qty)||0);(wd.receives||[]).forEach(r=>{totalReceivedFromWs+=(Number(r.qty)||0)})})});
   const inProdQty=totalDeliveredToWs-totalReceivedFromWs;
 
-  /* تحت التشغيل = اجمالي كمية القص - اجمالي الأطقم المستلمة كاملة */
-  let underProdQty=0;const pendingPieces=[];
+  /* تحت التشغيل = الكمية على أرض المصنع = كمية القص - اللي اتسلم للورش */
+  let underProdQty=0;const floorPieces=[];
   orders.forEach(o=>{
     const t=calcOrder(o);const wds=o.workshopDeliveries||[];const pieces=o.orderPieces||[];
-    if(wds.length===0){underProdQty+=t.cutQty;return}
     if(pieces.length>0){
-      const minRcv=Math.min(...pieces.map(p=>wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0)));
-      const pending=t.cutQty-minRcv;if(pending>0)underProdQty+=pending;
-      pieces.forEach(p=>{const rcvP=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);const avail=t.cutQty-rcvP;if(avail>0)pendingPieces.push({modelNo:o.modelNo,piece:p,avail})})
+      pieces.forEach(p=>{const delForP=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);const onFloor=t.cutQty-delForP;if(onFloor>0){underProdQty+=onFloor;floorPieces.push({modelNo:o.modelNo,piece:p,avail:onFloor})}})
     } else {
-      const totalRcv=wds.reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);
-      const pending=t.cutQty-totalRcv;if(pending>0){underProdQty+=pending;pendingPieces.push({modelNo:o.modelNo,piece:"",avail:pending})}
+      const totalDel=wds.reduce((s,wd)=>s+(Number(wd.qty)||0),0);const onFloor=t.cutQty-totalDel;
+      if(onFloor>0){underProdQty+=onFloor;floorPieces.push({modelNo:o.modelNo,piece:"",avail:onFloor})}
     }
   });
 
@@ -434,18 +450,18 @@ function DashPg({data,goD,isMob,season,statusCards}){
     </div>
     <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(3,1fr)",gap:16,marginBottom:28}}>
       <MetricCard label="في التشغيل (عند الورش)" value={fmt(Math.max(0,inProdQty))} icon="⚙️" color="#8B5CF6" sub={"تم تسليمه: "+fmt(totalDeliveredToWs)+" - استلم: "+fmt(totalReceivedFromWs)}/>
-      <MetricCard label="تحت التشغيل" value={fmt(underProdQty)} icon="⏳" color="#EC4899" sub={pendingPieces.length+" قطعة معلقة"}/>
+      <MetricCard label="على أرض المصنع" value={fmt(underProdQty)} icon="⏳" color="#EC4899" sub={"كمية القص - اللي اتسلم للورش"}/>
       <div style={{background:T.card,backdropFilter:"blur(12px)",borderRadius:16,padding:"22px 24px",border:"1px solid "+T.brd,boxShadow:T.shadow}}>
         <div style={{fontSize:FS,color:T.textSec,marginBottom:8,fontWeight:600}}>معدل الانجاز</div>
         <div style={{fontSize:38,fontWeight:800,color:T.accent}}>{comp+"%"}</div>
         <PBar value={comp}/>
       </div>
     </div>
-    {/* Pending Pieces Detail */}
-    {pendingPieces.length>0&&<Card title={"قطع تحت التشغيل ("+pendingPieces.length+")"} style={{marginBottom:24}}>
+    {/* Floor Pieces Detail */}
+    {floorPieces.length>0&&<Card title={"متاح على أرض المصنع ("+floorPieces.length+")"} style={{marginBottom:24}}>
       <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-        {pendingPieces.slice(0,20).map((p,i)=><span key={i} style={{padding:"6px 14px",borderRadius:10,fontSize:FS-2,fontWeight:600,background:"#FDF2F8",border:"1px solid #EC489930",color:"#EC4899"}}>{p.modelNo+(p.piece?" - "+p.piece:"")+" ("+p.avail+")"}</span>)}
-        {pendingPieces.length>20&&<span style={{fontSize:FS-2,color:T.textSec,padding:"6px 0"}}>{"و "+( pendingPieces.length-20)+" قطعة أخرى..."}</span>}
+        {floorPieces.slice(0,30).map((p,i)=><span key={i} style={{padding:"6px 14px",borderRadius:10,fontSize:FS-2,fontWeight:600,background:"#FDF2F8",border:"1px solid #EC489930",color:"#EC4899"}}>{p.modelNo+(p.piece?" - "+p.piece:"")+" ("+p.avail+")"}</span>)}
+        {floorPieces.length>30&&<span style={{fontSize:FS-2,color:T.textSec}}>{"و "+(floorPieces.length-30)+" أخرى..."}</span>}
       </div>
     </Card>}
     <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:16,marginBottom:24}}>
@@ -543,7 +559,7 @@ function WsManager({workshops,upConfig,canEdit,isMob}){
 
   return<div>
     <Card title="ادارة الورش" extra={canEdit&&<Btn primary small onClick={startNew}>+ ورشة جديدة</Btn>}>
-      {showForm&&<div style={{background:"#F8FAFC",borderRadius:14,padding:20,marginBottom:20,border:"1px solid "+T.brd}}>
+      {showForm&&<div style={{background:T.inputBg||T.cardSolid,borderRadius:14,padding:20,marginBottom:20,border:"1px solid "+T.brd}}>
         <div style={{fontSize:FS+1,fontWeight:700,color:T.accent,marginBottom:14}}>{editId?"تعديل الورشة":"ورشة جديدة"}</div>
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12,marginBottom:14}}>
           <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>اسم الورشة *</label><Inp value={f.name} onChange={v=>setF({...f,name:v})}/></div>
@@ -555,14 +571,14 @@ function WsManager({workshops,upConfig,canEdit,isMob}){
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:14,marginBottom:14}}>
           <div>
             <label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>صورة بطاقة الورشة (4:3)</label>
-            <div style={{width:"100%",height:120,borderRadius:12,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:"#F1F5F9",cursor:"pointer",position:"relative"}}>
+            <div style={{width:"100%",height:120,borderRadius:12,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.bg,cursor:"pointer",position:"relative"}}>
               {f.idCard?<img src={f.idCard} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-1,color:T.textMut}}>اضغط لرفع البطاقة</span>}
               <input type="file" accept="image/*" onChange={handleIdCard} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
             </div>
           </div>
           <div>
             <label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>صورة صاحب الورشة (3:4)</label>
-            <div style={{width:100,height:133,borderRadius:12,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:"#F1F5F9",cursor:"pointer",position:"relative"}}>
+            <div style={{width:100,height:133,borderRadius:12,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.bg,cursor:"pointer",position:"relative"}}>
               {f.ownerPhoto?<img src={f.ownerPhoto} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-2,color:T.textMut}}>صورة</span>}
               <input type="file" accept="image/*" onChange={handleOwnerPhoto} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
             </div>
@@ -612,7 +628,7 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards}){
   return<Card title={initial.modelNo?"تعديل الأوردر":"أمر قص جديد"} accent="linear-gradient(135deg,#0EA5E9,#0284C7)" extra={<div style={{display:"flex",gap:8}}><Btn small onClick={save} style={{background:"#fff",color:T.accent,border:"none",fontWeight:700}}>حفظ</Btn><Btn small onClick={onCancel} style={{background:"rgba(255,255,255,0.3)",color:"#fff",border:"none"}}>الغاء</Btn></div>} style={{marginBottom:20}}>
     {errs.length>0&&<div style={{background:T.err+"10",border:"1px solid "+T.err+"30",borderRadius:12,padding:14,marginBottom:16}}>{errs.map((e,i)=><div key={i} style={{color:T.err,fontSize:FS,fontWeight:600,padding:"2px 0"}}>{"* "+e}</div>)}</div>}
     <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"auto 1fr",gap:16,marginBottom:20}}>
-      <div><div style={{width:isMob?"100%":135,height:180,borderRadius:16,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:"#F8FAFC",cursor:"pointer",position:"relative"}}>{form.image?<img src={form.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS,color:T.textMut}}>صورة الموديل</span>}<input type="file" accept="image/*" onChange={handleImg} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/></div></div>
+      <div><div style={{width:isMob?"100%":135,height:180,borderRadius:16,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.inputBg||T.cardSolid,cursor:"pointer",position:"relative"}}>{form.image?<img src={form.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS,color:T.textMut}}>صورة الموديل</span>}<input type="file" accept="image/*" onChange={handleImg} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/></div></div>
       <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><tbody>
         <tr><td style={TDL}>رقم الموديل *</td><td style={TD}><Inp value={form.modelNo} onChange={v=>updF("modelNo",v)}/></td><td style={TDL}>الوصف *</td><td style={TD}><Inp value={form.modelDesc} onChange={v=>updF("modelDesc",v)}/></td></tr>
         <tr><td style={TDL}>المقاسات *</td><td style={TD}><Sel value={form.sizeSetId} onChange={v=>updF("sizeSetId",v)}><option value="">-- اختر --</option>{data.sizeSets.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</Sel></td><td style={TDL}>التاريخ *</td><td style={TD}><Inp type="date" value={form.date} onChange={v=>updF("date",v)}/></td></tr>
@@ -628,7 +644,7 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards}){
           {(data.garmentTypes||[]).filter(g=>!(form.orderPieces||[]).includes(g.name)).map(g=><option key={g.id} value={g.name}>{g.name}</option>)}
         </Sel></div>
       </div>
-      {(form.orderPieces||[]).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8}}>{(form.orderPieces||[]).map((p,i)=><span key={i} style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 16px",borderRadius:12,background:"#F0F9FF",border:"1px solid "+T.accent+"30",fontSize:FS,fontWeight:600,color:T.accent}}>{"👕 "+p}<span onClick={()=>updF("orderPieces",(form.orderPieces||[]).filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err,fontWeight:800}}>x</span></span>)}</div>}
+      {(form.orderPieces||[]).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8}}>{(form.orderPieces||[]).map((p,i)=><span key={i} style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 16px",borderRadius:12,background:T.accentBg,border:"1px solid "+T.accent+"30",fontSize:FS,fontWeight:600,color:T.accent}}>{"👕 "+p}<span onClick={()=>updF("orderPieces",(form.orderPieces||[]).filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err,fontWeight:800}}>x</span></span>)}</div>}
       {(form.orderPieces||[]).length===0&&<div style={{fontSize:FS-1,color:T.textMut}}>لم يتم اختيار قطع - كل قطعة تأخذ كمية القص</div>}
     </div>
     {FKEYS.map((k,idx)=>{const fid=form["fabric"+k];const fb=fabObj(fid);const fabPieces=form["fabricPieces"+k]||[];return<div key={k}>
@@ -647,7 +663,7 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards}){
     <div style={{marginBottom:16}}><div style={{fontSize:FS,fontWeight:700,color:T.accent,marginBottom:10}}>بنود الاكسسوار</div><AccPicker accItems={form.accItems||[]} dbAcc={data.accessories} onChange={items=>updF("accItems",items)}/></div>
     <div style={{marginBottom:16}}><label style={{display:"block",fontSize:FS,color:T.textSec,marginBottom:6,fontWeight:600}}>ملفات مرفقة (حد أقصى 500KB/ملف)</label>
       <input type="file" onChange={handleFile} style={{marginBottom:8,fontSize:FS}}/>
-      {(form.attachments||[]).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8}}>{form.attachments.map((a,i)=><span key={i} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:8,background:"#F0F9FF",border:"1px solid "+T.brd,fontSize:FS-2}}>{"📎 "+a.name}<span onClick={()=>updF("attachments",form.attachments.filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err,fontWeight:800}}>x</span></span>)}</div>}
+      {(form.attachments||[]).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8}}>{form.attachments.map((a,i)=><span key={i} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:8,background:T.accentBg,border:"1px solid "+T.brd,fontSize:FS-2}}>{"📎 "+a.name}<span onClick={()=>updF("attachments",form.attachments.filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err,fontWeight:800}}>x</span></span>)}</div>}
     </div>
     <div style={{marginBottom:16}}><label style={{display:"block",fontSize:FS,color:T.textSec,marginBottom:6,fontWeight:600}}>تعليمات التشغيل</label><textarea value={form.instructions||""} onChange={e=>updF("instructions",e.target.value)} placeholder="تعليمات التشغيل..." style={{width:"100%",height:100,padding:14,borderRadius:14,border:"1.5px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",resize:"vertical"}}/></div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:16,borderTop:"1px solid "+T.brd,flexWrap:"wrap",gap:10}}>
@@ -699,7 +715,7 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
         {sortOrders(filtered).map(o=>{const t=calcOrder(o);
           const wds=o.workshopDeliveries||[];
           return<div key={o.id} onClick={()=>setSel(o.id)} style={{display:"flex",gap:16,padding:16,background:T.cardSolid,borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",alignItems:"flex-start"}}>
-          {o.image?<img src={o.image} alt="" style={{width:80,height:107,borderRadius:10,objectFit:"cover",flexShrink:0,border:"1px solid "+T.brd}}/>:<div style={{width:80,height:107,borderRadius:10,background:"#F1F5F9",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:28,color:T.textMut}}>📷</div>}
+          {o.image?<img src={o.image} alt="" style={{width:80,height:107,borderRadius:10,objectFit:"cover",flexShrink:0,border:"1px solid "+T.brd}}/>:<div style={{width:80,height:107,borderRadius:10,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:28,color:T.textMut}}>📷</div>}
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6,gap:8}}>
               <div style={{flex:1,minWidth:0}}>
@@ -736,7 +752,7 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
   return<div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
       <h1 style={{fontSize:isMob?20:28,fontWeight:800,margin:0}}>{"أمر تشغيل - "}<span style={{color:T.accent}}>{order.modelNo}</span></h1>
-      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><Btn onClick={()=>printOrderSheet(order,t,activeFabs,statusCards)} style={{background:"#F0F9FF",color:T.accent,border:"1px solid "+T.accent+"30"}}>طباعة الأوردر</Btn>{canEdit&&<Btn primary onClick={()=>setEditing(true)}>تعديل</Btn>}<Btn ghost onClick={()=>setSel(null)}>← عودة</Btn></div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><Btn onClick={()=>printOrderSheet(order,t,activeFabs,statusCards)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>طباعة الأوردر</Btn>{canEdit&&<Btn primary onClick={()=>setEditing(true)}>تعديل</Btn>}<Btn ghost onClick={()=>setSel(null)}>← عودة</Btn></div>
     </div>
     <div id="parea">
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(5,1fr)",gap:12,marginBottom:20}}>
@@ -769,14 +785,14 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
           <thead><tr>{["الخامة","السعر","استهلاك/راق","الراقات","القطع","التكلفة","تكلفة القطعة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
           <tbody>
             {activeFabs.map(k=>{const cons=gcons(order,k),price=gf(order,k,"Price")||0,layers=slay(gc(order,k)),qty=sqty(gc(order,k)),cost=cons*price*layers,perPc=t.cutQty?r2(cost/t.cutQty):0;return<tr key={k}><td style={TD}><span style={{display:"inline-block",width:10,height:10,borderRadius:3,background:FCOL[FKEYS.indexOf(k)],marginLeft:8}}/>{gf(order,k,"Label")}</td><td style={TD}>{price+" ج.م"}</td><td style={TD}>{cons}</td><td style={TDB}>{layers}</td><td style={TDB}>{qty}</td><td style={{...TDB,color:T.accent}}>{fmt(r2(cost))+" ج.م"}</td><td style={{...TDB,color:T.accent}}>{perPc+" ج.م"}</td></tr>})}
-            <tr style={{background:"#F8FAFC"}}><td colSpan={5} style={{...TD,fontWeight:700}}>اجمالي تكلفة الخامات</td><td style={{...TD,fontWeight:700,color:T.accent}}>{fmt(r2(t.totalFab))+" ج.م"}</td><td style={{...TD,fontWeight:800,color:T.accent,fontSize:FS+2}}>{t.fabPer+" ج.م"}</td></tr>
+            <tr style={{background:T.inputBg||T.cardSolid}}><td colSpan={5} style={{...TD,fontWeight:700}}>اجمالي تكلفة الخامات</td><td style={{...TD,fontWeight:700,color:T.accent}}>{fmt(r2(t.totalFab))+" ج.م"}</td><td style={{...TD,fontWeight:800,color:T.accent,fontSize:FS+2}}>{t.fabPer+" ج.م"}</td></tr>
           </tbody>
         </table></div>
       </Card>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1.5fr 1fr",gap:16,marginBottom:16}}>
         <Card title="تكاليف الاكسسوار">{accItems.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><thead><tr>{["الوصف","السعر","اجمالي"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
           {accItems.map((a,i)=><tr key={i}><td style={{...TD,fontWeight:600}}>{a.name}</td><td style={TD}>{a.price+" ج.م"}</td><td style={{...TDB,color:T.accent}}>{fmt(a.price*t.cutQty)+" ج.م"}</td></tr>)}
-          <tr style={{background:"#F8FAFC"}}><td style={{...TD,fontWeight:700}}>اجمالي</td><td style={{...TD,fontWeight:700}}>{t.accPer+" ج.م/قطعة"}</td><td style={{...TD,fontWeight:700,color:T.accent}}>{fmt(accAll)+" ج.م"}</td></tr>
+          <tr style={{background:T.inputBg||T.cardSolid}}><td style={{...TD,fontWeight:700}}>اجمالي</td><td style={{...TD,fontWeight:700}}>{t.accPer+" ج.م/قطعة"}</td><td style={{...TD,fontWeight:700,color:T.accent}}>{fmt(accAll)+" ج.م"}</td></tr>
         </tbody></table></div>:<div style={{textAlign:"center",padding:20,color:T.textSec}}>لم يتم اضافة بنود</div>}</Card>
         {(()=>{
           const wds=order.workshopDeliveries||[];
@@ -831,7 +847,7 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
         })}
       </Card>}
       {/* Attachments */}
-      {(order.attachments||[]).length>0&&<Card title="ملفات مرفقة" style={{marginBottom:16}}><div style={{display:"flex",flexWrap:"wrap",gap:10}}>{order.attachments.map((a,i)=><a key={i} href={a.data} download={a.name} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"10px 16px",borderRadius:10,background:"#F0F9FF",border:"1px solid "+T.brd,fontSize:FS,color:T.accent,fontWeight:600,textDecoration:"none"}}>{"📎 "+a.name}</a>)}</div></Card>}
+      {(order.attachments||[]).length>0&&<Card title="ملفات مرفقة" style={{marginBottom:16}}><div style={{display:"flex",flexWrap:"wrap",gap:10}}>{order.attachments.map((a,i)=><a key={i} href={a.data} download={a.name} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"10px 16px",borderRadius:10,background:T.accentBg,border:"1px solid "+T.brd,fontSize:FS,color:T.accent,fontWeight:600,textDecoration:"none"}}>{"📎 "+a.name}</a>)}</div></Card>}
       <Card title="ملخص تكلفة الموديل" accent="linear-gradient(135deg,#0EA5E9,#0284C7)">
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS+1}}><thead><tr>{["البند","التكلفة الكلية","تكلفة القطعة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
           <tr><td style={TD}>تكلفة الخامات</td><td style={TDB}>{fmt(r2(t.totalFab))+" ج.م"}</td><td style={TDB}>{t.fabPer+" ج.م"}</td></tr>
@@ -940,7 +956,7 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr auto",gap:10,marginBottom:14}}>
         <Inp value={movQ} onChange={setMovQ} placeholder="بحث بالموديل أو الورشة..."/>
         <Sel value={movWsF} onChange={setMovWsF}><option value="الكل">كل الورش</option>{workshops.map(w=><option key={w.id||w} value={w.name||w}>{w.name||w}</option>)}</Sel>
-        <Btn onClick={()=>{const el=document.getElementById("mov-log");if(!el)return;const pw=window.open("","_blank");if(!pw)return;pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>سجل الحركات</title><style>body{font-family:'Cairo',Arial;padding:20px;font-size:12px;direction:rtl}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;text-align:right}th{background:#f5f5f5;font-weight:700}.del{color:#10B981}.rcv{color:#0EA5E9}@media print{body{padding:10px}}</style></head><body><h2>سجل حركات التشغيل الخارجي</h2>"+el.innerHTML+"</body></html>");pw.document.close();setTimeout(()=>{pw.focus();pw.print()},500)}} style={{background:"#F1F5F9",color:T.text,border:"1px solid "+T.brd}}>طباعة التقرير</Btn>
+        <Btn onClick={()=>{const el=document.getElementById("mov-log");if(!el)return;const pw=window.open("","_blank");if(!pw)return;pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>سجل الحركات</title><style>body{font-family:'Cairo',Arial;padding:20px;font-size:12px;direction:rtl}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;text-align:right}th{background:#f5f5f5;font-weight:700}.del{color:#10B981}.rcv{color:#0EA5E9}@media print{body{padding:10px}}</style></head><body><h2>سجل حركات التشغيل الخارجي</h2>"+el.innerHTML+"</body></html>");pw.document.close();setTimeout(()=>{pw.focus();pw.print()},500)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>طباعة التقرير</Btn>
       </div>
       {(()=>{const fMov=movements.filter(m=>{if(movWsF!=="الكل"&&m.wsName!==movWsF)return false;if(movQ.trim()){const s=movQ.trim().toLowerCase();if(!((m.orderNo||"").toLowerCase().includes(s)||(m.wsName||"").toLowerCase().includes(s)||(m.orderDesc||"").toLowerCase().includes(s)))return false}return true});return<div id="mov-log"><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
         <thead><tr>{["","التاريخ","الورشة","موديل","الوصف","نوع القطعة","الكمية","سعر التشغيل","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
@@ -993,7 +1009,7 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
         <option value="">-- اختر ورشة --</option>
         {workshops.map(w=><option key={w.id||w} value={w.name||w}>{(w.name||w)+(w.owner?" - "+w.owner:"")}</option>)}
       </Sel>
-      {wsObj&&<div style={{marginTop:12,display:"flex",alignItems:"center",gap:12,padding:12,background:"#F0F9FF",borderRadius:10}}>
+      {wsObj&&<div style={{marginTop:12,display:"flex",alignItems:"center",gap:12,padding:12,background:T.accentBg,borderRadius:10}}>
         {wsObj.ownerPhoto&&<img src={wsObj.ownerPhoto} alt="" style={{width:40,height:53,borderRadius:8,objectFit:"cover"}}/>}
         <div><div style={{fontWeight:700,fontSize:FS}}>{wsObj.name}</div>{wsObj.phone&&<div style={{fontSize:FS-2,color:T.textSec}}>{"📱 "+wsObj.phone}</div>}</div>
         <div style={{marginRight:"auto",fontWeight:700,color:wsObj.rating>=7?T.ok:T.warn}}>{wsObj.rating+"/10"}</div>
@@ -1027,8 +1043,8 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
           <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4}}>سعر التشغيل</label><Inp type="number" value={delPrice} onChange={v=>setDelPrice(Number(v)||0)} placeholder="سعر القطعة"/></div>
           <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4}}>ملاحظات</label><Inp value={delNote} onChange={setDelNote} placeholder="ملاحظات..."/></div>
         </div>
-        <div style={{display:"flex",gap:8}}><Btn primary onClick={()=>deliverToWs(false)} disabled={!selOrder||!delQty}>تسليم وحفظ</Btn><Btn onClick={()=>deliverToWs(true)} disabled={!selOrder||!delQty} style={{background:"#F0F9FF",color:T.accent,border:"1px solid "+T.accent+"30"}}>تسليم + طباعة</Btn></div>
-        {selOrder&&(()=>{const ord=data.orders.find(o=>o.id===selOrder);if(!ord)return null;const t=calcOrder(ord);const avail=getAvailQty(ord);const totalDel=(ord.workshopDeliveries||[]).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return<div style={{padding:14,background:"#F8FAFC",borderRadius:10,border:"1px solid "+T.brd,marginTop:12}}>
+        <div style={{display:"flex",gap:8}}><Btn primary onClick={()=>deliverToWs(false)} disabled={!selOrder||!delQty}>تسليم وحفظ</Btn><Btn onClick={()=>deliverToWs(true)} disabled={!selOrder||!delQty} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>تسليم + طباعة</Btn></div>
+        {selOrder&&(()=>{const ord=data.orders.find(o=>o.id===selOrder);if(!ord)return null;const t=calcOrder(ord);const avail=getAvailQty(ord);const totalDel=(ord.workshopDeliveries||[]).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return<div style={{padding:14,background:T.inputBg||T.cardSolid,borderRadius:10,border:"1px solid "+T.brd,marginTop:12}}>
           <div style={{fontSize:FS,fontWeight:700,marginBottom:6}}>{"تفاصيل الأوردر: "+ord.modelNo}</div>
           <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:FS-1}}>
             <span>{"الوصف: "+ord.modelDesc}</span><span>{"المقاسات: "+ord.sizeLabel}</span>
@@ -1092,11 +1108,11 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
                 {(wd.receives||[]).length>0&&<div style={{marginBottom:12}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:350}}><thead><tr>{["#","التاريخ","الكمية","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
                   {wd.receives.map((r,ri)=>{const rBal=bal+Number(r.qty);return<tr key={ri}><td style={TD}>{ri+1}</td><td style={TD}>{r.date}</td><td style={TDB}>{r.qty}</td><td style={TD}>{r.notes||"-"}</td><td style={TD}><Btn small onClick={()=>printReceiveReceipt(selWs,ord.modelNo,r.qty,r.date,rBal)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>طباعة</Btn></td></tr>})}
                 </tbody></table></div></div>}
-                {canEdit&&bal>0&&(()=>{const ck=ord.id+"-"+actualIdx;const rv=getRcv(ck);return<div style={{display:"flex",gap:8,flexWrap:"wrap",padding:12,background:"#F8FAFC",borderRadius:10,alignItems:"end"}}>
+                {canEdit&&bal>0&&(()=>{const ck=ord.id+"-"+actualIdx;const rv=getRcv(ck);return<div style={{display:"flex",gap:8,flexWrap:"wrap",padding:12,background:T.inputBg||T.cardSolid,borderRadius:10,alignItems:"end"}}>
                   <div style={{flex:1,minWidth:80}}><Inp type="number" value={rv.qty} onChange={v=>setRcv(ck,"qty",Math.min(Number(v)||0,bal))} placeholder="الكمية"/></div>
                   <div style={{flex:1,minWidth:100}}><Inp value={rv.note} onChange={v=>setRcv(ck,"note",v)} placeholder="ملاحظات"/></div>
                   <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,false,null,ck)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>حفظ الاستلام</Btn>
-                  <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,true,{modelNo:ord.modelNo,bal},ck)} style={{background:"#F0F9FF",color:T.accent,border:"1px solid "+T.accent+"30"}}>حفظ + طباعة</Btn>
+                  <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,true,{modelNo:ord.modelNo,bal},ck)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>حفظ + طباعة</Btn>
                 </div>})()}
                 {bal===0&&<div style={{textAlign:"center",padding:10,color:T.ok,fontWeight:700,fontSize:FS}}>{"✓ تم استلام الكمية كاملة"}</div>}
               </div>
@@ -1155,7 +1171,7 @@ function RepPg({data,isMob,season,statusCards}){
   return<div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:10}}>
       <div><div style={{fontSize:isMob?18:26,fontWeight:800,color:T.text}}>{today}</div><div style={{fontSize:FS+2,color:T.accent,fontWeight:700,marginTop:4}}>{"الموسم: "+season}</div></div>
-      <Btn onClick={()=>{const el=document.getElementById("rep-area");if(!el)return;const pw=window.open("","_blank");if(!pw)return;pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>تقرير الانتاج</title><style>body{font-family:'Cairo',Arial;padding:20px;font-size:13px;direction:rtl}table{width:100%;border-collapse:collapse;margin:10px 0}th,td{border:1px solid #ddd;padding:8px;text-align:right}th{background:#f5f5f5;font-weight:700}@media print{body{padding:10px}}</style></head><body>"+el.innerHTML+"</body></html>");pw.document.close();setTimeout(()=>{pw.focus();pw.print()},500)}} style={{background:"#F1F5F9",color:T.text,border:"1px solid "+T.brd}}>طباعة التقرير</Btn>
+      <Btn onClick={()=>{const el=document.getElementById("rep-area");if(!el)return;const pw=window.open("","_blank");if(!pw)return;pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>تقرير الانتاج</title><style>body{font-family:'Cairo',Arial;padding:20px;font-size:13px;direction:rtl}table{width:100%;border-collapse:collapse;margin:10px 0}th,td{border:1px solid #ddd;padding:8px;text-align:right}th{background:#f5f5f5;font-weight:700}@media print{body{padding:10px}}</style></head><body>"+el.innerHTML+"</body></html>");pw.document.close();setTimeout(()=>{pw.focus();pw.print()},500)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>طباعة التقرير</Btn>
     </div>
     <div id="rep-area">
       <h1 style={{fontSize:isMob?22:30,fontWeight:800,margin:"16px 0 20px"}}>تقرير قص وانتاج المصنع</h1>
@@ -1194,7 +1210,7 @@ function CostPg({data,isMob,statusCards}){
 }
 
 /* ══ SETTINGS ══ */
-function SettingsPg({config,upConfig,isMob,user}){
+function SettingsPg({config,upConfig,isMob,user,theme,setTheme}){
   const[newSeason,setNewSeason]=useState("");const[delConfirm,setDelConfirm]=useState("");
   const[newUserEmail,setNewUserEmail]=useState("");const[newUserRole,setNewUserRole]=useState("viewer");
   const handleLogo=async e=>{const f=e.target.files[0];if(!f)return;const compressed=await compressImage(f,200,0.6);upConfig(d=>{d.logo=compressed})};
@@ -1203,9 +1219,31 @@ function SettingsPg({config,upConfig,isMob,user}){
 
   return<div>
     <h1 style={{fontSize:isMob?24:32,fontWeight:800,margin:"0 0 20px"}}>الاعدادات</h1>
+    {/* Theme Selector */}
+    <Card title="مظهر التطبيق" style={{marginBottom:16}}>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:14}}>
+        {Object.entries(THEMES).map(([key,th])=><div key={key} onClick={()=>setTheme(key)} style={{cursor:"pointer",borderRadius:16,overflow:"hidden",border:theme===key?"3px solid "+th.accent:"2px solid "+th.brd,boxShadow:theme===key?"0 0 20px "+th.accent+"40":"none",transition:"all 0.2s"}}>
+          <div style={{background:th.bg,padding:14}}>
+            <div style={{display:"flex",gap:8,marginBottom:10}}>
+              <div style={{width:40,height:50,borderRadius:8,background:th.sidebarBg||th.cardSolid,border:"1px solid "+th.brd}}/>
+              <div style={{flex:1}}>
+                <div style={{height:10,borderRadius:4,background:th.accent,width:"60%",marginBottom:6}}/>
+                <div style={{height:8,borderRadius:4,background:th.textMut,width:"80%",marginBottom:6}}/>
+                <div style={{display:"flex",gap:4}}>
+                  <div style={{height:24,flex:1,borderRadius:6,background:th.cardSolid,border:"1px solid "+th.brd}}/>
+                  <div style={{height:24,flex:1,borderRadius:6,background:th.cardSolid,border:"1px solid "+th.brd}}/>
+                </div>
+              </div>
+            </div>
+            <div style={{textAlign:"center",fontWeight:700,fontSize:FS,color:th.text}}>{th.name}</div>
+            {theme===key&&<div style={{textAlign:"center",fontSize:FS-2,color:th.accent,fontWeight:600,marginTop:4}}>✓ مفعّل</div>}
+          </div>
+        </div>)}
+      </div>
+    </Card>
     <Card title="لوجو المصنع" style={{marginBottom:16}}>
       <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
-        <div style={{width:100,height:100,borderRadius:16,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:"#F8FAFC",cursor:"pointer",position:"relative"}}>{config.logo?<img src={config.logo} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS,color:T.textMut}}>لوجو</span>}<input type="file" accept="image/*" onChange={handleLogo} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/></div>
+        <div style={{width:100,height:100,borderRadius:16,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.inputBg||T.cardSolid,cursor:"pointer",position:"relative"}}>{config.logo?<img src={config.logo} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS,color:T.textMut}}>لوجو</span>}<input type="file" accept="image/*" onChange={handleLogo} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/></div>
         <div><div style={{fontSize:FS,color:T.text,fontWeight:600,marginBottom:4}}>اضغط لرفع اللوجو</div>{config.logo&&<Btn danger small onClick={()=>upConfig(d=>{d.logo=""})} style={{marginTop:8}}>حذف اللوجو</Btn>}</div>
       </div>
     </Card>
