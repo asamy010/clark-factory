@@ -308,7 +308,7 @@ function LoginScreen(){
   </div>
 }
 
-const TABS=[{key:"dashboard",label:"لوحة التحكم"},{key:"db",label:"قاعدة البيانات"},{key:"orders",label:"أوامر القص"},{key:"details",label:"تفاصيل الأوردر"},{key:"external",label:"تشغيل خارجي"},{key:"search",label:"بحث"},{key:"report",label:"تقرير الإنتاج"},{key:"cost",label:"التكاليف"},{key:"settings",label:"الاعدادات"}];
+const TABS=[{key:"dashboard",label:"لوحة التحكم",icon:"📊"},{key:"orders",label:"أوامر القص",icon:"✂️"},{key:"details",label:"تفاصيل الأوردر",icon:"📋"},{key:"external",label:"تشغيل خارجي",icon:"🏭"},{key:"report",label:"تقرير الإنتاج",icon:"📈"},{key:"cost",label:"التكاليف",icon:"💰"},{key:"search",label:"بحث",icon:"🔍"},{key:"db",label:"قاعدة البيانات",icon:"🗄️"},{key:"settings",label:"الاعدادات",icon:"⚙️"}];
 
 /* ══ MAIN APP ══ */
 export default function App(){
@@ -343,21 +343,28 @@ export default function App(){
     {isMob&&sideOpen&&<div onClick={()=>setSideOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.3)",zIndex:998}}/>}
     <nav style={{width:isMob?(sideOpen?260:0):(sideOpen?230:56),background:T.cardSolid,borderLeft:"1px solid "+T.brd,boxShadow:"4px 0 20px rgba(0,0,0,0.04)",flexShrink:0,display:"flex",flexDirection:"column",transition:"width 0.3s",overflow:"hidden",position:isMob?"fixed":"relative",right:0,top:0,bottom:0,zIndex:999}}>
       <div style={{padding:"20px 18px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid "+T.brd}}>
-        {sideOpen&&<div style={{display:"flex",alignItems:"center",gap:10}}>{config.logo&&<img src={config.logo} alt="" style={{width:36,height:36,borderRadius:8,objectFit:"cover"}}/>}<div><div style={{fontWeight:800,fontSize:22,color:T.accent,letterSpacing:4}}>CLARK</div><div style={{fontSize:9,color:T.textMut}}>ONLINE</div></div></div>}
+        {sideOpen&&<div><div style={{fontWeight:800,fontSize:22,color:T.accent,letterSpacing:4}}>CLARK</div><div style={{fontSize:9,color:T.textMut}}>CUTTING & PRODUCTION</div></div>}
         <div onClick={()=>setSideOpen(!sideOpen)} style={{cursor:"pointer",color:T.accent,fontSize:22}}>{"☰"}</div>
       </div>
       {sideOpen&&<div style={{padding:"8px 10px",flex:1,overflowY:"auto"}}>
-        {TABS.filter(t=>t.key!=="settings"||userRole==="admin").map(t=><button key={t.key} onClick={()=>{setTab(t.key);if(isMob)setSideOpen(false)}} style={{display:"block",width:"100%",textAlign:"right",padding:"12px 16px",border:"none",cursor:"pointer",borderRadius:12,marginBottom:2,background:tab===t.key?T.accentBg:"transparent",color:tab===t.key?T.accent:T.textSec,fontSize:FS,fontWeight:tab===t.key?700:400,fontFamily:"inherit"}}>{t.label}</button>)}
+        {TABS.filter(t=>t.key!=="settings"||userRole==="admin").map(t=><button key={t.key} onClick={()=>{setTab(t.key);if(isMob)setSideOpen(false)}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",textAlign:"right",padding:"12px 16px",border:"none",cursor:"pointer",borderRadius:12,marginBottom:2,background:tab===t.key?T.accentBg:"transparent",color:tab===t.key?T.accent:T.textSec,fontSize:FS,fontWeight:tab===t.key?700:400,fontFamily:"inherit"}}><span style={{fontSize:18,width:24,textAlign:"center"}}>{t.icon}</span>{t.label}</button>)}
       </div>}
-      {sideOpen&&<div style={{padding:"14px 18px",borderTop:"1px solid "+T.brd}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div><div style={{fontSize:11,color:T.textMut}}>{"مرحبا، "+userName}</div><div style={{fontSize:18,fontWeight:700,color:T.accent}}>{season}</div></div>
-          <button onClick={()=>signOut(auth)} style={{padding:"6px 14px",borderRadius:8,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",cursor:"pointer",fontSize:FS-2,fontWeight:600}}>خروج</button>
-        </div>
+      {sideOpen&&<div style={{padding:"12px 18px",borderTop:"1px solid "+T.brd}}>
+        <div style={{fontSize:14,fontWeight:700,color:T.accent,textAlign:"center"}}>{season}</div>
       </div>}
     </nav>
-    <main style={{flex:1,padding:isMob?14:28,overflow:"auto",minWidth:0}}>
-      {isMob&&!sideOpen&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div onClick={()=>setSideOpen(true)} style={{cursor:"pointer",fontSize:24,color:T.accent}}>{"☰"}</div><span style={{fontSize:FS,color:T.textSec,fontWeight:600}}>{TABS.find(t=>t.key===tab)?.label}</span><span style={{fontSize:12,color:T.textMut}}>{season}</span></div>}
+    <main style={{flex:1,overflow:"auto",minWidth:0,display:"flex",flexDirection:"column"}}>
+      {/* User Bar */}
+      <div style={{padding:isMob?"10px 14px":"12px 28px",background:T.cardSolid,borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          {isMob&&!sideOpen&&<div onClick={()=>setSideOpen(true)} style={{cursor:"pointer",fontSize:22,color:T.accent}}>{"☰"}</div>}
+          {config.logo&&<img src={config.logo} alt="" style={{width:32,height:32,borderRadius:8,objectFit:"cover"}}/>}
+          <span style={{fontSize:FS+1,fontWeight:700,color:T.text}}>{"مرحباً، "+userName}</span>
+          <span style={{fontSize:FS-1,color:T.textSec,padding:"3px 12px",background:T.accentBg,borderRadius:8}}>{season}</span>
+        </div>
+        <button onClick={()=>signOut(auth)} style={{padding:"8px 18px",borderRadius:10,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",cursor:"pointer",fontSize:FS,fontWeight:600}}>خروج</button>
+      </div>
+      <div style={{flex:1,padding:isMob?14:28,overflow:"auto"}}>
       {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
       {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
       {tab==="orders"&&<OrdPg data={data} addOrder={addOrder} delOrder={delOrder} updOrder={updOrder} goD={goD} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
@@ -367,6 +374,7 @@ export default function App(){
       {tab==="report"&&<RepPg data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
       {tab==="cost"&&<CostPg data={data} isMob={isMob} statusCards={statusCards}/>}
       {tab==="settings"&&<SettingsPg config={config} upConfig={upConfig} isMob={isMob} user={user}/>}
+      </div>
     </main>
   </div>
 }
@@ -570,7 +578,7 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards}){
   const save=()=>{const v=validateOrder(form);if(v.length>0){setErrs(v);return}setErrs([]);const ss=data.sizeSets.find(s=>s.id===Number(form.sizeSetId));const o={...form,cutQty:mainQty,sizeLabel:ss?ss.label:""};FKEYS.forEach(k=>{const fb=fabObj(o["fabric"+k]);o["fabric"+k+"Label"]=fb?(fb.name+" - "+fb.unit):"";o["fabric"+k+"Price"]=fb?fb.price:0;o["fabric"+k+"Unit"]=fb?fb.unit:""});delete o._docId;onSave(o)};
   const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
 
-  return<Card title={initial.modelNo?"تعديل الأوردر":"أمر قص جديد"} accent="linear-gradient(135deg,#0EA5E9,#0284C7)" style={{marginBottom:20}}>
+  return<Card title={initial.modelNo?"تعديل الأوردر":"أمر قص جديد"} accent="linear-gradient(135deg,#0EA5E9,#0284C7)" extra={<div style={{display:"flex",gap:8}}><Btn small onClick={save} style={{background:"#fff",color:T.accent,border:"none",fontWeight:700}}>حفظ</Btn><Btn small onClick={onCancel} style={{background:"rgba(255,255,255,0.3)",color:"#fff",border:"none"}}>الغاء</Btn></div>} style={{marginBottom:20}}>
     {errs.length>0&&<div style={{background:T.err+"10",border:"1px solid "+T.err+"30",borderRadius:12,padding:14,marginBottom:16}}>{errs.map((e,i)=><div key={i} style={{color:T.err,fontSize:FS,fontWeight:600,padding:"2px 0"}}>{"* "+e}</div>)}</div>}
     <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"auto 1fr",gap:16,marginBottom:20}}>
       <div><div style={{width:isMob?"100%":135,height:180,borderRadius:16,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:"#F8FAFC",cursor:"pointer",position:"relative"}}>{form.image?<img src={form.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS,color:T.textMut}}>صورة الموديل</span>}<input type="file" accept="image/*" onChange={handleImg} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/></div></div>
