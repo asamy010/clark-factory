@@ -6,7 +6,6 @@ import { doc, setDoc, onSnapshot, collection, addDoc, updateDoc, deleteDoc, getD
 
 const FKEYS = ["A","B","C","D","E"];
 const FCOL = ["#0EA5E9","#10B981","#F59E0B","#8B5CF6","#EF4444"];
-const CPAL = ["#0EA5E9","#10B981","#F59E0B","#EF4444","#8B5CF6","#06B6D4","#D97706","#EC4899"];
 const COLORS_DB = [
   {n:"ابيض",h:"#FFFFFF"},{n:"اسود",h:"#1a1a1a"},{n:"كحلي",h:"#1B2A4A"},{n:"رمادي",h:"#8B8B8B"},{n:"بيج",h:"#D4C5A9"},{n:"كريمي",h:"#FFF8DC"},
   {n:"احمر",h:"#C62828"},{n:"نبيتي",h:"#6A1B29"},{n:"برتقالي",h:"#E65100"},{n:"اصفر",h:"#F9A825"},{n:"زيتي",h:"#556B2F"},{n:"اخضر",h:"#2E7D32"},
@@ -64,8 +63,6 @@ const INIT_CONFIG = {
   seasons:["WS26"], activeSeason:"WS26", logo:"", users:{}, usersList:[],
 };
 
-const ROLES = {admin:"مدير النظام",manager:"مدير انتاج",viewer:"مشاهد فقط"};
-function loadUsers(){try{return JSON.parse(localStorage.getItem("clark-users"))||[{username:"admin",password:"admin123",name:"المدير"}]}catch(e){return[]}}
 function gid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
 function fmt(n){return Number(n||0).toLocaleString("en-US")}
 function r2(n){return Math.round((n||0)*100)/100}
@@ -79,8 +76,28 @@ function gdate(o,k){return o["cutDate"+k]||""}
 function useWin(){const[w,setW]=useState(typeof window!=="undefined"?window.innerWidth:1200);useEffect(()=>{const h=()=>setW(window.innerWidth);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h)},[]);return w}
 function getStatusColor(name,cards){const c=(cards||DEFAULT_STATUSES).find(s=>s.name===name);return c?c.color:"#94A3B8"}
 function sortOrders(orders){return[...orders].sort((a,b)=>(b.createdAt||b.date||"").localeCompare(a.createdAt||a.date||""))}
-function getWsName(wsId,workshops){if(!wsId)return"";const ws=(workshops||[]).find(w=>w.id===Number(wsId)||w.name===wsId);return ws?ws.name:(typeof wsId==="string"?wsId:"")}
-function getWsObj(wsId,workshops){return(workshops||[]).find(w=>w.id===Number(wsId)||w.name===wsId)||null}
+
+/* Smart status recompute based on data state */
+function recomputeStatus(o){
+  const t=calcOrder(o);const wds=o.workshopDeliveries||[];const dels=o.deliveries||[];
+  const stockDel=dels.reduce((s,d)=>s+(Number(d.qty)||0),0);
+  if(stockDel>=t.cutQty&&t.cutQty>0)return"تم الشحن";
+  if(stockDel>0)return"شحن جزئي";
+  /* Check if 30%+ of all pieces received back */
+  const pieces=o.orderPieces||[];
+  if(wds.length>0){
+    let totalWsDel=0,totalWsRcv=0;
+    wds.forEach(wd=>{totalWsDel+=(Number(wd.qty)||0);(wd.receives||[]).forEach(r=>{totalWsRcv+=(Number(r.qty)||0)})});
+    if(pieces.length>0){
+      const allRcvd=pieces.every(p=>{const rcvP=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);return rcvP>0});
+      if(allRcvd&&totalWsDel>0&&totalWsRcv>=totalWsDel*0.3)return"تشطيب وتعبئة"
+    } else {
+      if(totalWsDel>0&&totalWsRcv>=totalWsDel*0.3)return"تشطيب وتعبئة"
+    }
+    if(totalWsDel>0)return"في التشغيل"
+  }
+  return"تم القص"
+}
 
 function compressImage(file,maxW,quality){
   return new Promise((resolve)=>{const reader=new FileReader();reader.onload=(e)=>{const img=new Image();img.onload=()=>{
@@ -172,13 +189,6 @@ function validateOrder(form){
   return e
 }
 
-function exportPDF(elementId,title){
-  const el=document.getElementById(elementId);if(!el)return;
-  const pw=window.open("","_blank");if(!pw)return;
-  const html="<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>"+title+"</title><style>body{font-family:'Cairo',Arial,sans-serif;padding:30px;font-size:13px;direction:rtl;color:#1E293B;background:#fff}table{width:100%;border-collapse:collapse;margin:14px 0}th,td{border:1px solid #E2E8F0;padding:10px 12px;text-align:right}th{background:#F1F5F9;font-weight:700;font-size:11px;color:#475569}h1{font-size:22px;color:#0284C7;margin:0 0 6px}img{max-width:140px;border-radius:10px}@media print{body{padding:15px}}</style></head><body>"+el.innerHTML+"</body></html>";
-  pw.document.write(html);pw.document.close();
-  setTimeout(()=>{pw.focus();pw.print()},500)
-}
 
 function printOrderSheet(order,t,activeFabs,statusCards){
   const pw=window.open("","_blank");if(!pw)return;
@@ -401,7 +411,7 @@ export default function App(){
       {tab==="search"&&<SearchPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
       {tab==="report"&&<RepPg data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
       {tab==="cost"&&<CostPg data={data} isMob={isMob} statusCards={statusCards}/>}
-      {tab==="settings"&&<SettingsPg config={config} upConfig={upConfig} isMob={isMob} user={user} theme={theme} setTheme={setTheme}/>}
+      {tab==="settings"&&<SettingsPg config={config} upConfig={upConfig} isMob={isMob} user={user} theme={theme} setTheme={setTheme} season={season} orders={orders}/>}
       </div>
     </main>
   </div>
@@ -843,7 +853,7 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
               <span style={{padding:"8px 16px",borderRadius:10,background:stockRemain>0?T.warn+"12":T.ok+"12",color:stockRemain>0?T.warn:T.ok,fontWeight:700,fontSize:FS}}>{"المتبقي: "+stockRemain}</span>
             </div>
             <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:350}}><thead><tr>{["#","التاريخ","الكمية","ملاحظات",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-            {(order.deliveries||[]).map((d,i)=><tr key={i}><td style={TD}>{i+1}</td><td style={TD}>{canEdit?<Inp type="date" value={d.date} onChange={v=>updOrder(sel,o=>{o.deliveries[i].date=v})}/>:d.date}</td><td style={TD}>{canEdit?<Inp type="number" value={d.qty} onChange={v=>updOrder(sel,o=>{const maxQ=t.cutQty-o.deliveries.filter((_,j)=>j!==i).reduce((s,x)=>s+(Number(x.qty)||0),0);o.deliveries[i].qty=Math.min(Number(v)||0,maxQ);o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);const cut=t.cutQty;if(o.deliveredQty>=cut)o.status="تم الشحن";else if(o.deliveredQty>0)o.status="شحن جزئي"})} style={{width:80}}/>:d.qty}</td><td style={TD}>{canEdit?<Inp value={d.notes} onChange={v=>updOrder(sel,o=>{o.deliveries[i].notes=v})}/>:d.notes}</td>{canEdit&&<td style={TD}><Btn danger small onClick={()=>updOrder(sel,o=>{o.deliveries.splice(i,1);o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);if(o.deliveredQty>=t.cutQty)o.status="تم الشحن";else if(o.deliveredQty>0)o.status="شحن جزئي"})}>حذف</Btn></td>}</tr>)}
+            {(order.deliveries||[]).map((d,i)=><tr key={i}><td style={TD}>{i+1}</td><td style={TD}>{canEdit?<Inp type="date" value={d.date} onChange={v=>updOrder(sel,o=>{o.deliveries[i].date=v})}/>:d.date}</td><td style={TD}>{canEdit?<Inp type="number" value={d.qty} onChange={v=>updOrder(sel,o=>{const maxQ=t.cutQty-o.deliveries.filter((_,j)=>j!==i).reduce((s,x)=>s+(Number(x.qty)||0),0);o.deliveries[i].qty=Math.min(Number(v)||0,maxQ);o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)})} style={{width:80}}/>:d.qty}</td><td style={TD}>{canEdit?<Inp value={d.notes} onChange={v=>updOrder(sel,o=>{o.deliveries[i].notes=v})}/>:d.notes}</td>{canEdit&&<td style={TD}><Btn danger small onClick={()=>updOrder(sel,o=>{o.deliveries.splice(i,1);o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)})}>حذف</Btn></td>}</tr>)}
             {(!order.deliveries||order.deliveries.length===0)&&<tr><td colSpan={canEdit?5:4} style={{...TD,textAlign:"center",color:T.textSec}}>لا توجد تسليمات</td></tr>}
           </tbody></table></div>
           </Card>})()}
@@ -894,6 +904,7 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
   const[mode,setMode]=useState(null);
   const[selWs,setSelWs]=useState("");
   const[selOrder,setSelOrder]=useState("");
+  const[ordSearch,setOrdSearch]=useState("");
   const[delQty,setDelQty]=useState(0);
   const[delType,setDelType]=useState("");
   const[delNote,setDelNote]=useState("");
@@ -913,8 +924,8 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
 
   const startEditMov=(m)=>{setEditMov(m);setEditQty(m.qty);setEditNote(m.notes||"");setEditPrice(m.price||0);setEditDate(m.date||"")};
   const saveEditMov=()=>{if(!editMov)return;
-    if(editMov.type==="deliver"){updOrder(editMov.orderId,o=>{const wd=o.workshopDeliveries[editMov.wdIdx];if(wd){wd.qty=Number(editQty)||0;wd.notes=editNote;wd.price=Number(editPrice)||0;if(editDate)wd.date=editDate}})}
-    else{updOrder(editMov.orderId,o=>{const r=o.workshopDeliveries[editMov.wdIdx].receives[editMov.rIdx];if(r){r.qty=Number(editQty)||0;r.notes=editNote;if(editDate)r.date=editDate}})}
+    if(editMov.type==="deliver"){updOrder(editMov.orderId,o=>{const wd=o.workshopDeliveries[editMov.wdIdx];if(wd){wd.qty=Number(editQty)||0;wd.notes=editNote;wd.price=Number(editPrice)||0;if(editDate)wd.date=editDate};o.status=recomputeStatus(o)})}
+    else{updOrder(editMov.orderId,o=>{const r=o.workshopDeliveries[editMov.wdIdx].receives[editMov.rIdx];if(r){r.qty=Number(editQty)||0;r.notes=editNote;if(editDate)r.date=editDate};o.status=recomputeStatus(o)})}
     setEditMov(null)};
   const printMov=(m)=>{
     if(m.type==="deliver")printReceipt(m.wsName,"",m.orderNo,m.qty,m.date,0);
@@ -940,7 +951,7 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
     updOrder(selOrder,o=>{
       if(!o.workshopDeliveries)o.workshopDeliveries=[];
       o.workshopDeliveries.push({id:gid(),wsName:selWs,wsOwner:wsObj?wsObj.owner:"",qty:saveQty,garmentType:saveType,notes:saveNote,price:savePrice,date:saveDate,receives:[]});
-      if(o.status==="تم القص")o.status="في التشغيل";
+      o.status=recomputeStatus(o);
     });
     setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice(0);
     if(andPrint)setTimeout(()=>printReceipt(selWs,wsObj?wsObj.owner:"",saveModelNo,saveQty,saveDate,Math.max(0,availAfter)),400);
@@ -957,7 +968,8 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
     const saveNote=rv.note;const saveDate=new Date().toISOString().split("T")[0];
     updOrder(orderId,o=>{
       if(!o.workshopDeliveries[wdIdx].receives)o.workshopDeliveries[wdIdx].receives=[];
-      o.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty,notes:saveNote})
+      o.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty,notes:saveNote});
+      o.status=recomputeStatus(o)
     });
     clearRcv(cardKey);
     if(andPrint&&printData)setTimeout(()=>printReceiveReceipt(selWs,printData.modelNo,saveQty,saveDate,maxRcv-saveQty),400);
@@ -984,8 +996,8 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
     }
   };
   const delMovement=(m)=>{
-    if(m.type==="deliver"){updOrder(m.orderId,o=>{o.workshopDeliveries.splice(m.wdIdx,1);if(o.workshopDeliveries.length===0&&o.status==="في التشغيل")o.status="تم القص"})}
-    else{updOrder(m.orderId,o=>{o.workshopDeliveries[m.wdIdx].receives.splice(m.rIdx,1)})}
+    if(m.type==="deliver"){updOrder(m.orderId,o=>{o.workshopDeliveries.splice(m.wdIdx,1);o.status=recomputeStatus(o)})}
+    else{updOrder(m.orderId,o=>{o.workshopDeliveries[m.wdIdx].receives.splice(m.rIdx,1);o.status=recomputeStatus(o)})}
   };
 
   if(!mode)return<div>
@@ -1068,17 +1080,18 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
     </Card>
     {selWs&&<Card title={"أوردرات متاحة للتسليم ("+availOrders.length+")"} style={{marginBottom:16}}>
       {availOrders.length>0?<div>
-        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr",gap:10,marginBottom:10}}>
-          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4}}>اختر الأوردر</label>
+        <Inp value={ordSearch} onChange={setOrdSearch} placeholder="بحث بالرقم أو الوصف..." style={{marginBottom:10}}/>
+        {(()=>{const fOrds=ordSearch.trim()?availOrders.filter(o=>{const s=ordSearch.trim().toLowerCase();return(o.modelNo||"").toLowerCase().includes(s)||(o.modelDesc||"").toLowerCase().includes(s)}):availOrders;return<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr",gap:10,marginBottom:10}}>
+          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4}}>{"اختر الأوردر ("+fOrds.length+")"}</label>
             <Sel value={selOrder} onChange={v=>{setSelOrder(v);setDelType("");const o=data.orders.find(x=>x.id===v);if(o){const pieces=o.orderPieces||[];if(pieces.length===0)setDelQty(getAvailQty(o))}}}>
               <option value="">-- اختر أوردر --</option>
-              {availOrders.map(o=>{const t=calcOrder(o);const pieces=o.orderPieces||[];
+              {fOrds.map(o=>{const t=calcOrder(o);const pieces=o.orderPieces||[];
                 const pInfo=pieces.length>0?pieces.map(p=>{const d=(o.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);const a=t.cutQty-d;return a>0?p+":"+a:null}).filter(Boolean).join(" | "):"متاح: "+getAvailQty(o);
                 return<option key={o.id} value={o.id}>{o.modelNo+" - "+o.modelDesc+" ["+pInfo+"]"}</option>})}
             </Sel>
           </div>
           <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4}}>الكمية</label><Inp type="number" value={delQty} onChange={v=>{const ord=data.orders.find(x=>x.id===selOrder);const max=ord?getAvailQty(ord):99999;setDelQty(Math.min(Number(v)||0,max))}}/></div>
-        </div>
+        </div>})()}
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:10}}>
           <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4}}>نوع القطعة</label>{(()=>{
             const ord=data.orders.find(x=>x.id===selOrder);
@@ -1262,9 +1275,10 @@ function CostPg({data,isMob,statusCards}){
 }
 
 /* ══ SETTINGS ══ */
-function SettingsPg({config,upConfig,isMob,user,theme,setTheme}){
+function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders}){
   const[newSeason,setNewSeason]=useState("");const[delConfirm,setDelConfirm]=useState("");
   const[newUserEmail,setNewUserEmail]=useState("");const[newUserRole,setNewUserRole]=useState("viewer");
+  const[clearConfirm,setClearConfirm]=useState(false);
   const handleLogo=async e=>{const f=e.target.files[0];if(!f)return;const compressed=await compressImage(f,200,0.6);upConfig(d=>{d.logo=compressed})};
   const addSeason=()=>{if(!newSeason.trim())return;upConfig(d=>{if(!d.seasons)d.seasons=[];if(!d.seasons.includes(newSeason.trim()))d.seasons.push(newSeason.trim());d.activeSeason=newSeason.trim()});setNewSeason("")};
   const deleteSeason=async s=>{if(delConfirm!==s){setDelConfirm(s);return}try{const snap=await getDocs(collection(db,"seasons",s,"orders"));await Promise.all(snap.docs.map(d=>deleteDoc(doc(db,"seasons",s,"orders",d.id))))}catch(e){}upConfig(d=>{d.seasons=(d.seasons||[]).filter(x=>x!==s);if(d.activeSeason===s)d.activeSeason=d.seasons[0]||""});setDelConfirm("")};
@@ -1307,6 +1321,14 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme}){
           <div style={{display:"flex",gap:8}}>{s!==config.activeSeason&&<Btn small onClick={()=>upConfig(d=>{d.activeSeason=s})} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>تفعيل</Btn>}<Btn danger small onClick={()=>deleteSeason(s)}>{delConfirm===s?"تأكيد الحذف؟":"حذف"}</Btn>{delConfirm===s&&<Btn ghost small onClick={()=>setDelConfirm("")}>الغاء</Btn>}</div>
         </div>)}
       </div>
+    </Card>
+    <Card title="مسح بيانات الأوردرات" style={{marginBottom:16}}>
+      <div style={{fontSize:FS,color:T.textSec,marginBottom:10}}>{"الموسم الحالي: "+season+" - عدد الأوردرات: "+(orders||[]).length}</div>
+      {!clearConfirm?<Btn danger onClick={()=>setClearConfirm(true)}>مسح جميع الأوردرات للموسم الحالي</Btn>:
+      <div style={{padding:16,background:T.err+"08",borderRadius:12,border:"1px solid "+T.err+"30"}}>
+        <div style={{fontSize:FS,fontWeight:700,color:T.err,marginBottom:10}}>{"⚠️ سيتم حذف "+(orders||[]).length+" أوردر نهائياً مع جميع التسليمات - هل أنت متأكد؟"}</div>
+        <div style={{display:"flex",gap:8}}><Btn danger onClick={async()=>{try{const snap=await getDocs(collection(db,"seasons",season,"orders"));await Promise.all(snap.docs.map(d=>deleteDoc(doc(db,"seasons",season,"orders",d.id))))}catch(e){}setClearConfirm(false)}}>تأكيد المسح</Btn><Btn ghost onClick={()=>setClearConfirm(false)}>الغاء</Btn></div>
+      </div>}
     </Card>
     <Card title="ادارة المستخدمين">
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr auto",gap:10,marginBottom:20}}>
