@@ -741,14 +741,19 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
               <span style={{fontSize:FS,color:T.textSec}}>{"تسليم: "}<b style={{color:T.ok}}>{o.deliveredQty||0}</b></span>
               <span style={{fontSize:FS,color:T.textSec}}>{"رصيد: "}<b style={{color:t.balance>0?T.err:T.ok}}>{t.balance}</b></span>
             </div>
-            {wds.length>0&&<div style={{display:"flex",flexDirection:"column",gap:4}}>
-              {(()=>{const wsStats={};wds.forEach(wd=>{if(!wsStats[wd.wsName])wsStats[wd.wsName]={del:0,rcv:0};wsStats[wd.wsName].del+=(Number(wd.qty)||0);(wd.receives||[]).forEach(r=>{wsStats[wd.wsName].rcv+=(Number(r.qty)||0)})});return Object.entries(wsStats).map(([name,s])=>{const bal=s.del-s.rcv;return<div key={name} style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-                <span style={{fontSize:FS-2,padding:"2px 8px",borderRadius:6,background:T.purple+"12",color:T.purple,fontWeight:700}}>{"🏭 "+name}</span>
-                <span style={{fontSize:FS-2,color:T.accent,fontWeight:600}}>{"تسليم: "+s.del}</span>
-                <span style={{fontSize:FS-2,color:T.ok,fontWeight:600}}>{"استلم: "+s.rcv}</span>
-                {bal>0&&<span style={{fontSize:FS-2,color:T.err,fontWeight:700}}>{"رصيد: "+bal}</span>}
-                {bal===0&&<span style={{fontSize:FS-2,color:T.ok}}>{"✓ مكتمل"}</span>}
-              </div>})})()}
+            {wds.length>0&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {(()=>{const wsGroup={};wds.forEach(wd=>{if(!wsGroup[wd.wsName])wsGroup[wd.wsName]=[];wsGroup[wd.wsName].push(wd)});
+                return Object.entries(wsGroup).map(([name,items])=><div key={name} style={{display:"flex",flexDirection:"column",gap:2}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{fontSize:FS-2,padding:"2px 8px",borderRadius:6,background:T.purple+"12",color:T.purple,fontWeight:700}}>{"🏭 "+name}</span>
+                  </div>
+                  <div style={{display:"flex",gap:4,flexWrap:"wrap",paddingRight:20}}>
+                    {items.map((wd,wi)=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=wd.qty-rcvd;
+                      return<span key={wi} style={{fontSize:FS-3,padding:"3px 8px",borderRadius:6,background:bal>0?T.warn+"10":T.ok+"10",border:"1px solid "+(bal>0?T.warn:T.ok)+"25"}}>
+                        {wd.garmentType?<b style={{color:T.purple}}>{wd.garmentType+": "}</b>:""}<span style={{color:T.accent}}>{"تسليم "+wd.qty}</span>{" | "}<span style={{color:T.ok}}>{"استلم "+rcvd}</span>{bal>0&&<span style={{color:T.err}}>{" | رصيد "+bal}</span>}{bal===0&&<span style={{color:T.ok}}>{" ✓"}</span>}
+                      </span>})}
+                  </div>
+                </div>)})()}
             </div>}
           </div>
         </div>})}
