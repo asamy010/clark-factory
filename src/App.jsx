@@ -343,13 +343,23 @@ function LoginScreen(){
   </div>
 }
 
-const TABS=[{key:"dashboard",label:"لوحة التحكم",icon:"📊"},{key:"orders",label:"أوامر القص",icon:"✂️"},{key:"details",label:"تفاصيل الأوردر",icon:"📋"},{key:"external",label:"تشغيل خارجي",icon:"🏭"},{key:"report",label:"تقرير الإنتاج",icon:"📈"},{key:"cost",label:"التكاليف",icon:"💰"},{key:"search",label:"بحث",icon:"🔍"},{key:"db",label:"قاعدة البيانات",icon:"🗄️"},{key:"settings",label:"الاعدادات",icon:"⚙️"}];
+const TABS=[
+  {key:"dashboard",label:"لوحة التحكم",icon:"📊",color:"#0EA5E9",bg:"#E0F2FE"},
+  {key:"orders",label:"أوامر القص",icon:"✂️",color:"#8B5CF6",bg:"#EDE9FE"},
+  {key:"details",label:"تفاصيل الأوردر",icon:"📋",color:"#F59E0B",bg:"#FEF3C7"},
+  {key:"external",label:"تشغيل خارجي",icon:"🏭",color:"#10B981",bg:"#D1FAE5"},
+  {key:"report",label:"تقرير الإنتاج",icon:"📈",color:"#06B6D4",bg:"#CFFAFE"},
+  {key:"cost",label:"التكاليف",icon:"💰",color:"#EC4899",bg:"#FCE7F3"},
+  {key:"search",label:"بحث",icon:"🔍",color:"#6366F1",bg:"#E0E7FF"},
+  {key:"db",label:"قاعدة البيانات",icon:"🗄️",color:"#EF4444",bg:"#FEE2E2"},
+  {key:"settings",label:"الاعدادات",icon:"⚙️",color:"#64748B",bg:"#F1F5F9"}
+];
 
 /* ══ MAIN APP ══ */
 export default function App(){
   const[user,setUser]=useState(null);const[authLoading,setAuthLoading]=useState(true);
   const[config,setConfig]=useState(INIT_CONFIG);const[orders,setOrders]=useState([]);const[dataLoading,setDataLoading]=useState(true);
-  const[tab,setTab]=useState("dashboard");const[sel,setSel]=useState(null);const[sideOpen,setSideOpen]=useState(true);
+  const[tab,setTab]=useState("home");const[sel,setSel]=useState(null);
   const[theme,setTheme]=useState(()=>localStorage.getItem("clark-theme")||"light");
   T=THEMES[theme]||THEMES.light;
   useEffect(()=>{localStorage.setItem("clark-theme",theme);document.body.style.background=T.bodyBg||T.bg},[theme]);
@@ -358,14 +368,13 @@ export default function App(){
   useEffect(()=>{const unsub=onAuthStateChanged(auth,u=>{setUser(u);setAuthLoading(false)});return unsub},[]);
   useEffect(()=>{if(!user)return;const unsub=onSnapshot(doc(db,"factory","config"),snap=>{if(snap.exists())setConfig(snap.data());else setDoc(doc(db,"factory","config"),INIT_CONFIG)});return()=>unsub()},[user]);
   useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>({_docId:d.id,...d.data()})));setDataLoading(false)});return()=>unsub()},[user,season]);
-  useEffect(()=>{if(isMob)setSideOpen(false)},[isMob]);
 
   const upConfig=useCallback(fn=>{setConfig(prev=>{const next=JSON.parse(JSON.stringify(prev));fn(next);setDoc(doc(db,"factory","config"),next);return next})},[]);
   const addOrder=async o=>{await addDoc(collection(db,"seasons",season,"orders"),o)};
   const updOrder=async(orderId,fn)=>{const ord=orders.find(o=>o.id===orderId);if(!ord)return;const updated=JSON.parse(JSON.stringify(ord));fn(updated);const clean={...updated};delete clean._docId;await updateDoc(doc(db,"seasons",season,"orders",ord._docId),clean)};
   const delOrder=async orderId=>{const ord=orders.find(o=>o.id===orderId);if(ord)await deleteDoc(doc(db,"seasons",season,"orders",ord._docId))};
   const replaceOrder=async(orderId,newData)=>{const ord=orders.find(o=>o.id===orderId);if(!ord)return;const clean={...newData};delete clean._docId;await setDoc(doc(db,"seasons",season,"orders",ord._docId),clean)};
-  const goD=id=>{setSel(id);setTab("details");if(isMob)setSideOpen(false)};
+  const goD=id=>{setSel(id);setTab("details")};
 
   const data={...config,orders};
   const getUserRole=()=>{if(config.users&&config.users[user?.uid])return config.users[user.uid];const byEmail=(config.usersList||[]).find(u=>u.email===user?.email);if(byEmail)return byEmail.role;return"admin"};
@@ -377,43 +386,54 @@ export default function App(){
   if(dataLoading)return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,color:T.accent,fontSize:20,fontWeight:700,direction:"rtl"}}>{"جاري تحميل بيانات "+season+"..."}</div>;
   const userName=user.displayName||user.email.split("@")[0];
 
-  return<div style={{display:"flex",minHeight:"100vh",direction:"rtl",fontFamily:"'Cairo',sans-serif",background:T.bg,color:T.text,fontSize:FS}}>
-    {isMob&&sideOpen&&<div onClick={()=>setSideOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.3)",zIndex:998}}/>}
-    <nav style={{width:isMob?(sideOpen?260:0):(sideOpen?230:56),background:T.sidebarBg||T.cardSolid,borderLeft:"1px solid "+T.brd,boxShadow:"4px 0 20px rgba(0,0,0,0.04)",flexShrink:0,display:"flex",flexDirection:"column",transition:"width 0.3s",overflow:"hidden",position:isMob?"fixed":"relative",right:0,top:0,bottom:0,zIndex:999}}>
-      <div style={{padding:"20px 18px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid "+T.brd}}>
-        {sideOpen&&<div><div style={{fontWeight:800,fontSize:22,color:T.accent,letterSpacing:4}}>CLARK</div><div style={{fontSize:9,color:T.textMut}}>CUTTING & PRODUCTION</div></div>}
-        <div onClick={()=>setSideOpen(!sideOpen)} style={{cursor:"pointer",color:T.accent,fontSize:22}}>{"☰"}</div>
+  const goHome=()=>{setTab("home");setSel(null)};
+  const goTo=(key)=>{setTab(key);if(key!=="details")setSel(null)};
+
+  return<div style={{minHeight:"100vh",direction:"rtl",fontFamily:"'Cairo',sans-serif",background:T.bg,color:T.text,fontSize:FS,display:"flex",flexDirection:"column"}}>
+    {/* Top Bar */}
+    <div style={{padding:isMob?"10px 14px":"12px 28px",background:T.cardSolid,borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        {tab!=="home"&&<div onClick={goHome} style={{cursor:"pointer",fontSize:20,color:T.accent,padding:"4px 10px",borderRadius:8,background:T.accentBg}}>{"⌂"}</div>}
+        {config.logo&&<img src={config.logo} alt="" style={{width:32,height:32,borderRadius:8,objectFit:"cover"}}/>}
+        <span style={{fontWeight:800,fontSize:18,color:T.accent,letterSpacing:3}}>CLARK</span>
+        <span style={{fontSize:FS-1,color:T.textSec,padding:"3px 12px",background:T.accentBg,borderRadius:8}}>{season}</span>
       </div>
-      {sideOpen&&<div style={{padding:"8px 10px",flex:1,overflowY:"auto"}}>
-        {TABS.filter(t=>t.key!=="settings"||userRole==="admin").map(t=><button key={t.key} onClick={()=>{setTab(t.key);if(isMob)setSideOpen(false)}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",textAlign:"right",padding:"12px 16px",border:"none",cursor:"pointer",borderRadius:12,marginBottom:2,background:tab===t.key?T.accentBg:"transparent",color:tab===t.key?T.accent:T.textSec,fontSize:FS,fontWeight:tab===t.key?700:400,fontFamily:"inherit"}}><span style={{fontSize:18,width:24,textAlign:"center"}}>{t.icon}</span>{t.label}</button>)}
-      </div>}
-      {sideOpen&&<div style={{padding:"12px 18px",borderTop:"1px solid "+T.brd}}>
-        <div style={{fontSize:14,fontWeight:700,color:T.accent,textAlign:"center"}}>{season}</div>
-      </div>}
-    </nav>
-    <main style={{flex:1,overflow:"auto",minWidth:0,display:"flex",flexDirection:"column"}}>
-      {/* User Bar */}
-      <div style={{padding:isMob?"10px 14px":"12px 28px",background:T.cardSolid,borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          {isMob&&!sideOpen&&<div onClick={()=>setSideOpen(true)} style={{cursor:"pointer",fontSize:22,color:T.accent}}>{"☰"}</div>}
-          {config.logo&&<img src={config.logo} alt="" style={{width:32,height:32,borderRadius:8,objectFit:"cover"}}/>}
-          <span style={{fontSize:FS+1,fontWeight:700,color:T.text}}>{"مرحباً، "+userName}</span>
-          <span style={{fontSize:FS-1,color:T.textSec,padding:"3px 12px",background:T.accentBg,borderRadius:8}}>{season}</span>
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <span style={{fontSize:FS,color:T.textSec}}>{userName}</span>
+        <button onClick={()=>signOut(auth)} style={{padding:"6px 14px",borderRadius:8,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",cursor:"pointer",fontSize:FS-1,fontWeight:600,fontFamily:"inherit"}}>خروج</button>
+      </div>
+    </div>
+    <div style={{flex:1,overflow:"auto",padding:isMob?14:28}}>
+      {/* HOME SCREEN */}
+      {tab==="home"&&<div>
+        <div style={{textAlign:"center",marginBottom:30}}>
+          <h1 style={{fontSize:isMob?24:34,fontWeight:800,color:T.text,margin:"0 0 6px"}}>مرحباً، {userName}</h1>
+          <div style={{fontSize:FS,color:T.textSec}}>اختر من القائمة</div>
         </div>
-        <button onClick={()=>signOut(auth)} style={{padding:"8px 18px",borderRadius:10,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",cursor:"pointer",fontSize:FS,fontWeight:600}}>خروج</button>
-      </div>
-      <div style={{flex:1,padding:isMob?14:28,overflow:"auto"}}>
-      {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
-      {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
-      {tab==="orders"&&<OrdPg data={data} addOrder={addOrder} delOrder={delOrder} updOrder={updOrder} goD={goD} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
-      {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEdit} statusCards={statusCards} setTab={setTab}/>}
-      {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
-      {tab==="search"&&<SearchPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
-      {tab==="report"&&<RepPg data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
-      {tab==="cost"&&<CostPg data={data} isMob={isMob} statusCards={statusCards}/>}
-      {tab==="settings"&&<SettingsPg config={config} upConfig={upConfig} isMob={isMob} user={user} theme={theme} setTheme={setTheme} season={season} orders={orders}/>}
-      </div>
-    </main>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)",gap:isMob?14:20,maxWidth:900,margin:"0 auto"}}>
+          {TABS.filter(t=>t.key!=="settings"||userRole==="admin").map(t=><div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:20,padding:isMob?"24px 12px":"30px 20px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-4px)";e.currentTarget.style.boxShadow="0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow}}>
+            <div style={{width:isMob?56:68,height:isMob?56:68,borderRadius:18,background:t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px",fontSize:isMob?28:34}}>{t.icon}</div>
+            <div style={{fontSize:isMob?FS-1:FS,fontWeight:700,color:T.text}}>{t.label}</div>
+          </div>)}
+        </div>
+      </div>}
+      {/* PAGES with back button */}
+      {tab!=="home"&&<div>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
+          <Btn ghost onClick={goHome} style={{display:"flex",alignItems:"center",gap:6}}>{"← الرئيسية"}</Btn>
+          <span style={{fontSize:isMob?20:26,fontWeight:800,color:T.text}}>{TABS.find(t=>t.key===tab)?.label||""}</span>
+        </div>
+        {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
+        {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
+        {tab==="orders"&&<OrdPg data={data} addOrder={addOrder} delOrder={delOrder} updOrder={updOrder} goD={goD} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
+        {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEdit} statusCards={statusCards} goHome={goHome}/>}
+        {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
+        {tab==="search"&&<SearchPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
+        {tab==="report"&&<RepPg data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
+        {tab==="cost"&&<CostPg data={data} isMob={isMob} statusCards={statusCards}/>}
+        {tab==="settings"&&<SettingsPg config={config} upConfig={upConfig} isMob={isMob} user={user} theme={theme} setTheme={setTheme} season={season} orders={orders}/>}
+      </div>}
+    </div>
   </div>
 }
 
@@ -718,7 +738,7 @@ function OrdPg({data,addOrder,delOrder,updOrder,goD,isMob,canEdit,statusCards}){
 }
 
 /* ══ DETAILS ══ */
-function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,setTab}){
+function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,goHome}){
   const order=data.orders.find(o=>o.id===sel);const[editing,setEditing]=useState(false);
   const[detQ,setDetQ]=useState("");const[detSt,setDetSt]=useState("الكل");
   const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
@@ -732,7 +752,7 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
     return<div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
         <h1 style={{fontSize:isMob?24:32,fontWeight:800,margin:0}}>تفاصيل الأوردر</h1>
-        {setTab&&<Btn ghost onClick={()=>setTab("orders")}>← عودة</Btn>}
+        {goHome&&<Btn ghost onClick={goHome}>← الرئيسية</Btn>}
       </div>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr",gap:10,marginBottom:16}}>
         <Inp value={detQ} onChange={setDetQ} placeholder="بحث بالرقم أو الوصف أو المقاسات..."/>
