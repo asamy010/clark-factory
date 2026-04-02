@@ -948,7 +948,7 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
   const movements=[];
   data.orders.forEach(ord=>{(ord.workshopDeliveries||[]).forEach((wd,wdIdx)=>{
     movements.push({type:"deliver",date:wd.date,wsName:wd.wsName,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:wd.qty,garmentType:wd.garmentType||"",price:wd.price||0,notes:wd.notes||"",orderId:ord.id,wdIdx});
-    (wd.receives||[]).forEach((r,rIdx)=>{movements.push({type:"receive",date:r.date,wsName:wd.wsName,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,notes:r.notes||"",orderId:ord.id,wdIdx,rIdx})})
+    (wd.receives||[]).forEach((r,rIdx)=>{movements.push({type:"receive",date:r.date,wsName:wd.wsName,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,garmentType:wd.garmentType||"",notes:r.notes||"",orderId:ord.id,wdIdx,rIdx})})
   })});
   movements.sort((a,b)=>b.date.localeCompare(a.date));
 
@@ -1016,7 +1016,7 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
   const availOrders=prodOrders.filter(o=>getAvailQty(o)>0);
   /* Workshop-specific movements */
   const wsMoves=[];
-  if(selWs)data.orders.forEach(ord=>{(ord.workshopDeliveries||[]).forEach((wd,wdIdx)=>{if(wd.wsName===selWs){wsMoves.push({type:"deliver",date:wd.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:wd.qty,garmentType:wd.garmentType||"",price:wd.price||0,notes:wd.notes||""});(wd.receives||[]).forEach(r=>{wsMoves.push({type:"receive",date:r.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,notes:r.notes||""})})}})});
+  if(selWs)data.orders.forEach(ord=>{(ord.workshopDeliveries||[]).forEach((wd,wdIdx)=>{if(wd.wsName===selWs){wsMoves.push({type:"deliver",date:wd.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:wd.qty,garmentType:wd.garmentType||"",price:wd.price||0,notes:wd.notes||""});(wd.receives||[]).forEach(r=>{wsMoves.push({type:"receive",date:r.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,garmentType:wd.garmentType||"",notes:r.notes||""})})}})});
   wsMoves.sort((a,b)=>b.date.localeCompare(a.date));
 
   if(mode==="deliver")return<div>
@@ -1144,10 +1144,11 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
     {/* Workshop-specific movements */}
     {selWs&&wsMoves.length>0&&<Card title={"حركات ورشة "+selWs+" ("+wsMoves.length+")"}>
       <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:550}}>
-        <thead><tr>{["","التاريخ","موديل","الوصف","الكمية","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+        <thead><tr>{["","التاريخ","موديل","الوصف","نوع القطعة","الكمية","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
         <tbody>{wsMoves.map((m,i)=><tr key={i} style={{background:m.type==="deliver"?"#F0FDF4":"#EFF6FF"}}>
           <td style={{...TD,textAlign:"center",fontSize:18}}>{m.type==="deliver"?<span style={{color:T.ok}}>{"↗"}</span>:<span style={{color:T.accent}}>{"↙"}</span>}</td>
           <td style={TD}>{m.date}</td><td style={TDB}>{m.orderNo}</td><td style={TD}>{m.orderDesc}</td>
+          <td style={TD}>{m.garmentType||"-"}</td>
           <td style={{...TDB,color:m.type==="deliver"?T.ok:T.accent}}>{m.qty}</td>
           <td style={TD}>{m.notes||"-"}</td>
           <td style={TD}><Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>طباعة</Btn></td>
