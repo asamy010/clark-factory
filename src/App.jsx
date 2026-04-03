@@ -1269,14 +1269,15 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         <div><label style={{fontSize:FS-2,color:T.textSec}}>التاريخ</label><Inp type="date" value={payDate} onChange={setPayDate}/></div>
         <div><label style={{fontSize:FS-2,color:T.textSec}}>ملاحظات</label><Inp value={payNote} onChange={setPayNote}/></div>
       </div>
-      {payWs&&(()=>{const a=wsAccounts(payWs);const wsObj=workshops.find(x=>x.name===payWs);const pct=wsObj?.payPercent||70;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const exceeded=a.totalPaid>limit;
+      {payWs&&(()=>{const a=wsAccounts(payWs);const wsObj=workshops.find(x=>x.name===payWs);const pct=wsObj?.payPercent||70;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const remaining=r2(limit-a.totalPaid);const exceeded=remaining<0;
         return<div style={{marginBottom:8}}>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:4}}>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:4}}>
             <span style={{padding:"4px 10px",borderRadius:6,fontSize:FS-1,fontWeight:700,background:a.balance>0?T.err+"10":T.ok+"10",color:a.balance>0?T.err:T.ok}}>{"الرصيد: "+fmt(r2(a.balance))+" ج.م"}</span>
-            <span style={{padding:"4px 10px",borderRadius:6,fontSize:FS-1,fontWeight:600,background:T.purple+"10",color:T.purple}}>{"حد "+pct+"%: "+fmt(limit)+" ج.م"}</span>
-            <span style={{padding:"4px 10px",borderRadius:6,fontSize:FS-1,fontWeight:600,background:T.warn+"10"}}>{"مدفوع: "+fmt(r2(a.totalPaid))+" ج.م"}</span>
+            <span style={{padding:"4px 10px",borderRadius:6,fontSize:FS-1,fontWeight:600,background:T.purple+"10",color:T.purple}}>{"حد "+pct+"%: "+fmt(limit)}</span>
+            <span style={{padding:"4px 10px",borderRadius:6,fontSize:FS-1,fontWeight:600,background:T.warn+"10"}}>{"مدفوع: "+fmt(r2(a.totalPaid))}</span>
+            <span style={{padding:"4px 10px",borderRadius:6,fontSize:FS-1,fontWeight:700,background:remaining>0?T.ok+"10":T.err+"10",color:remaining>0?T.ok:T.err}}>{"متاح للدفع: "+(remaining>0?fmt(remaining)+" ج.م":"0")}</span>
           </div>
-          {exceeded&&<div style={{padding:6,borderRadius:6,background:T.err+"10",fontSize:FS-1,fontWeight:700,color:T.err}}>{"⚠️ تجاوز حد "+pct+"% بمبلغ "+fmt(r2(a.totalPaid-limit))+" ج.م"}</div>}
+          {exceeded&&<div style={{padding:6,borderRadius:6,background:T.err+"10",fontSize:FS-1,fontWeight:700,color:T.err}}>{"⚠️ تجاوز حد "+pct+"% بمبلغ "+fmt(Math.abs(remaining))+" ج.م"}</div>}
         </div>})()}
       <Btn primary onClick={addPayment} disabled={!payWs||!payAmt}>تسجيل</Btn>
     </Card>
@@ -1300,21 +1301,25 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         <Btn ghost onClick={()=>setMode(null)}>← عودة</Btn>
       </div>
       <Card title="ملخص الحسابات" style={{marginBottom:14}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
-        <thead><tr>{["الورشة","النسبة","مستحق","مدفوع","حد النسبة","الرصيد",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
-        <tbody>{activeWs.map(w=>{const a=wsAccounts(w.name);const pct=w.payPercent||70;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const exceeded=a.totalPaid>limit;
+        <thead><tr>{["الورشة","النسبة","مستحق","مدفوع","حد النسبة","متاح للدفع","الرصيد",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+        <tbody>{activeWs.map(w=>{const a=wsAccounts(w.name);const pct=w.payPercent||70;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const remaining=r2(limit-a.totalPaid);const exceeded=remaining<0;
           return<tr key={w.id}>
           <td style={{...TD,fontWeight:700}}>{w.name}</td>
           <td style={{...TDB,color:T.purple}}>{pct+"%"}</td>
           <td style={{...TDB,color:T.accent}}>{fmt(r2(totalDue))}</td>
           <td style={{...TDB,color:T.warn}}>{fmt(r2(a.totalPaid))}</td>
           <td style={TDB}>{fmt(limit)}</td>
+          <td style={{...TDB,fontWeight:700,color:remaining>0?T.ok:remaining<0?T.err:T.textMut}}>{remaining>0?fmt(remaining):remaining<0?"تجاوز "+fmt(Math.abs(remaining)):"0"}</td>
           <td style={{...TDB,fontSize:FS+1,color:a.balance>0?T.err:T.ok}}>{fmt(r2(a.balance))}</td>
-          <td style={TD}>{exceeded&&<span style={{fontSize:FS-2,padding:"2px 8px",borderRadius:6,background:T.err+"12",color:T.err,fontWeight:700}}>{"⚠ تجاوز بـ "+fmt(r2(a.totalPaid-limit))}</span>}</td>
+          <td style={TD}>{exceeded&&<span style={{fontSize:FS-2,padding:"2px 6px",borderRadius:6,background:T.err+"12",color:T.err,fontWeight:700}}>⚠</span>}</td>
         </tr>})}
-          <tr style={{background:T.accent+"08"}}><td style={{...TD,fontWeight:800}}>الاجمالي</td><td style={TD}></td>
+          {(()=>{const tLimit=activeWs.reduce((s,w)=>{const a=wsAccounts(w.name);const pct=w.payPercent||70;return s+r2((a.due+a.totalPurchase)*(pct/100))},0);const tRemaining=r2(tLimit-totals.paid);
+          return<tr style={{background:T.accent+"08"}}><td style={{...TD,fontWeight:800}}>الاجمالي</td><td style={TD}></td>
           <td style={{...TDB,color:T.accent,fontWeight:800}}>{fmt(r2(totals.due+totals.purchase))}</td>
-          <td style={{...TDB,color:T.warn,fontWeight:800}}>{fmt(r2(totals.paid))}</td><td style={TD}></td>
-          <td style={{...TDB,fontSize:FS+2,fontWeight:800,color:totals.balance>0?T.err:T.ok}}>{fmt(r2(totals.balance))+" ج.م"}</td><td style={TD}></td></tr>
+          <td style={{...TDB,color:T.warn,fontWeight:800}}>{fmt(r2(totals.paid))}</td>
+          <td style={{...TDB,fontWeight:800}}>{fmt(r2(tLimit))}</td>
+          <td style={{...TDB,fontWeight:800,color:tRemaining>0?T.ok:T.err}}>{tRemaining>0?fmt(tRemaining):tRemaining<0?"تجاوز "+fmt(Math.abs(tRemaining)):"0"}</td>
+          <td style={{...TDB,fontSize:FS+2,fontWeight:800,color:totals.balance>0?T.err:T.ok}}>{fmt(r2(totals.balance))+" ج.م"}</td><td style={TD}></td></tr>})()}
         </tbody>
       </table></div></Card>
       {/* Workshop filter */}
@@ -1333,14 +1338,15 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
           <div id={"ws-stmt-"+w.id}>
           <h2>{"كشف حساب: "+w.name}</h2>
           <div className="sub">{"الموسم: "+season+" | التاريخ: "+new Date().toLocaleDateString("ar-EG")}</div>
-          {(()=>{const pct=w.payPercent||70;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const exceeded=a.totalPaid>limit;
-          return<><div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+          {(()=>{const pct=w.payPercent||70;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const remaining=r2(limit-a.totalPaid);const exceeded=remaining<0;
+          return<><div style={{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap"}}>
             <span className="badge" style={{padding:"4px 10px",borderRadius:6,background:T.accent+"10",fontSize:FS-1,fontWeight:600}}>{"مستحق: "+fmt(r2(totalDue))}</span>
             <span className="badge" style={{padding:"4px 10px",borderRadius:6,background:T.warn+"10",fontSize:FS-1,fontWeight:600}}>{"مدفوع: "+fmt(r2(a.totalPaid))}</span>
             <span className="badge" style={{padding:"4px 10px",borderRadius:6,background:T.purple+"10",fontSize:FS-1,fontWeight:600,color:T.purple}}>{"حد "+pct+"%: "+fmt(limit)}</span>
-            <span className="badge" style={{padding:"4px 10px",borderRadius:6,background:a.balance>0?T.err+"10":T.ok+"10",fontSize:FS-1,fontWeight:700,color:a.balance>0?T.err:T.ok}}>{"الرصيد: "+fmt(r2(a.balance))+" ج.م"}</span>
+            <span className="badge" style={{padding:"4px 10px",borderRadius:6,background:remaining>0?T.ok+"10":T.err+"10",fontSize:FS-1,fontWeight:700,color:remaining>0?T.ok:T.err}}>{"متاح للدفع: "+(remaining>0?fmt(remaining):"0")}</span>
+            <span className="badge" style={{padding:"4px 10px",borderRadius:6,background:a.balance>0?T.err+"10":T.ok+"10",fontSize:FS-1,fontWeight:700,color:a.balance>0?T.err:T.ok}}>{"الرصيد النهائي: "+fmt(r2(a.balance))+" ج.م"}</span>
           </div>
-          {exceeded&&<div style={{padding:8,borderRadius:8,background:T.err+"10",border:"1px solid "+T.err+"25",marginBottom:8,fontSize:FS,fontWeight:700,color:T.err}}>{"⚠️ تجاوز حد النسبة "+pct+"% بمبلغ "+fmt(r2(a.totalPaid-limit))+" ج.م"}</div>}</>})()}
+          {exceeded&&<div style={{padding:8,borderRadius:8,background:T.err+"10",border:"1px solid "+T.err+"25",marginBottom:8,fontSize:FS,fontWeight:700,color:T.err}}>{"⚠️ تجاوز حد النسبة "+pct+"% بمبلغ "+fmt(Math.abs(remaining))+" ج.م"}</div>}</>})()}
           <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["التاريخ","البيان","كمية","سعر","مستحق","مدفوع","الرصيد"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
             <tbody>{entries.map((e,i)=>{if(e.type==="due"||e.type==="purchase")running+=e.amount;else running-=e.amount;
               return<tr key={i} style={{background:e.type==="payment"?"#FEF2F2":e.type==="purchase"?"#F0FDF4":""}}>
