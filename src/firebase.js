@@ -18,6 +18,14 @@ const firebaseConfig = {
   appId: "1:845345484896:web:c44e0bcfb716bc18e9d305"
 };
 
+
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+
+/* Secondary auth for admin creating users without logging out */
+let _secApp=null;
+export function getSecondaryAuth(){
+  if(!_secApp)_secApp=initializeApp(firebaseConfig,"secondary");
+  return getAuth(_secApp);
+}
