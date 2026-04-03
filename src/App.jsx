@@ -961,16 +961,16 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards}){
 
   const receiveFromWs=(orderId,wdIdx,andPrint,printData,cardKey)=>{
     const rv=getRcv(cardKey);
-    if(!rv.qty||!rv.price){if(!rv.price)alert("سعر التشغيل مطلوب");return}
+    if(!rv.qty)return;
     const ord=data.orders.find(o=>o.id===orderId);if(!ord)return;
     const wd=(ord.workshopDeliveries||[])[wdIdx];if(!wd)return;
     const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
     const maxRcv=(Number(wd.qty)||0)-rcvd;
     const saveQty=Math.min(Number(rv.qty),maxRcv);if(saveQty<=0)return;
-    const saveNote=rv.note;const savePrice=Number(rv.price)||0;const saveDate=new Date().toISOString().split("T")[0];
+    const saveNote=rv.note;const wdPrice=Number(wd.price)||0;const saveDate=new Date().toISOString().split("T")[0];
     updOrder(orderId,o=>{
       if(!o.workshopDeliveries[wdIdx].receives)o.workshopDeliveries[wdIdx].receives=[];
-      o.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty,notes:saveNote,price:savePrice,amount:r2(saveQty*savePrice)});
+      o.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty,notes:saveNote,price:wdPrice,amount:r2(saveQty*wdPrice)});
       o.status=recomputeStatus(o)
     });
     clearRcv(cardKey);
@@ -1154,7 +1154,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards}){
   </div>;
 
   /* ── RECEIVE MODE ── */
-  return<div>
+  if(mode==="receive")return<div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
       <h1 style={{fontSize:isMob?22:28,fontWeight:800,margin:0}}>{"📥 استلام من ورشة"}</h1>
       <Btn ghost onClick={()=>{setMode(null);setSelWs("")}}>← عودة</Btn>
@@ -1188,10 +1188,10 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards}){
                 {(wd.receives||[]).length>0&&<div style={{marginBottom:12}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:350}}><thead><tr>{["#","التاريخ","الكمية","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
                   {wd.receives.map((r,ri)=>{const rBal=bal+Number(r.qty);return<tr key={ri}><td style={TD}>{ri+1}</td><td style={TD}>{r.date}</td><td style={TDB}>{r.qty}</td><td style={TD}>{r.notes||"-"}</td><td style={TD}><Btn small onClick={()=>printReceiveReceipt(selWs,ord.modelNo,r.qty,r.date,rBal)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>طباعة</Btn></td></tr>})}
                 </tbody></table></div></div>}
-                {canEdit&&bal>0&&(()=>{const ck=ord.id+"-"+actualIdx;const rv=getRcv(ck);return<div style={{display:"flex",gap:6,flexWrap:"wrap",padding:10,background:T.inputBg||T.cardSolid,borderRadius:8,alignItems:"end"}}>
+                {canEdit&&bal>0&&(()=>{const ck=ord.id+"-"+actualIdx;const rv=getRcv(ck);const wdP=Number(wd.price)||0;return<div style={{display:"flex",gap:6,flexWrap:"wrap",padding:8,background:T.inputBg||T.cardSolid,borderRadius:8,alignItems:"end"}}>
                   <div style={{minWidth:70}}><label style={{fontSize:FS-3,color:T.textSec}}>الكمية</label><Inp type="number" value={rv.qty} onChange={v=>setRcv(ck,"qty",Math.min(Number(v)||0,bal))}/></div>
-                  <div style={{minWidth:70}}><label style={{fontSize:FS-3,color:T.err}}>سعر القطعة *</label><Inp type="number" value={rv.price} onChange={v=>setRcv(ck,"price",Number(v)||0)}/></div>
-                  <div style={{minWidth:80}}><label style={{fontSize:FS-3,color:T.textSec}}>المبلغ</label><div style={{padding:"6px 10px",borderRadius:8,background:T.accent+"10",fontWeight:700,color:T.accent,fontSize:FS}}>{fmt(r2((rv.qty||0)*(rv.price||0)))+" ج.م"}</div></div>
+                  {wdP>0&&<div><label style={{fontSize:FS-3,color:T.purple}}>سعر التشغيل</label><div style={{padding:"6px 10px",borderRadius:8,background:T.purple+"10",fontWeight:700,color:T.purple,fontSize:FS}}>{wdP+" ج.م"}</div></div>}
+                  {wdP>0&&(rv.qty||0)>0&&<div><label style={{fontSize:FS-3,color:T.accent}}>المبلغ</label><div style={{padding:"6px 10px",borderRadius:8,background:T.accent+"10",fontWeight:700,color:T.accent,fontSize:FS}}>{fmt(r2((rv.qty||0)*wdP))+" ج.م"}</div></div>}
                   <div style={{flex:1,minWidth:80}}><label style={{fontSize:FS-3,color:T.textSec}}>ملاحظات</label><Inp value={rv.note} onChange={v=>setRcv(ck,"note",v)}/></div>
                   <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,false,null,ck)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>حفظ</Btn>
                   <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,true,{modelNo:ord.modelNo,bal},ck)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>حفظ+طباعة</Btn>
@@ -1261,11 +1261,18 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards}){
         data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{(wd.receives||[]).forEach(r=>{entries.push({date:r.date,desc:o.modelNo+(wd.garmentType?" - "+wd.garmentType:""),qty:r.qty,price:r.price||0,amount:r2((r.qty||0)*(r.price||0)),type:"due"})})})});
         (data.wsPayments||[]).filter(p=>p.wsName===w.name).forEach(p=>{entries.push({date:p.date,desc:p.type==="payment"?"دفعة"+(p.notes?" - "+p.notes:""):"مشتريات"+(p.notes?" - "+p.notes:""),amount:p.amount,type:p.type})});
         entries.sort((a,b)=>(a.date||"").localeCompare(b.date||""));let running=0;
-        return<Card key={w.id} title={"كشف حساب: "+w.name} style={{marginTop:12}}>
+        return<Card key={w.id} title={"كشف حساب: "+w.name} style={{marginTop:12}} extra={<Btn small onClick={()=>{
+          const el=document.getElementById("ws-stmt-"+w.id);if(!el)return;const pw=window.open("","_blank");if(!pw)return;
+          pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>كشف حساب "+w.name+"</title><style>body{font-family:'Cairo',Arial;padding:20px;font-size:12px;direction:rtl}table{width:100%;border-collapse:collapse;margin:10px 0}th,td{border:1px solid #ddd;padding:6px 8px;text-align:right}th{background:#f5f5f5;font-weight:700}h2{color:#0284C7;margin:0 0 10px}.badge{display:inline-block;padding:4px 12px;border-radius:6px;margin:0 4px 8px;font-weight:700;font-size:12px}@media print{body{padding:10px}}</style></head><body>"+el.innerHTML+"</body></html>");
+          pw.document.close();setTimeout(()=>{pw.focus();pw.print()},500)
+        }} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>طباعة</Btn>}>
+          <div id={"ws-stmt-"+w.id}>
+          <h2 style={{display:"none"}}>{"كشف حساب: "+w.name+" - "+new Date().toLocaleDateString("ar-EG")}</h2>
           <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}>
-            <span style={{padding:"4px 10px",borderRadius:6,background:T.accent+"10",fontSize:FS-1,fontWeight:600}}>{"مستحق: "+fmt(r2(a.due))}</span>
-            <span style={{padding:"4px 10px",borderRadius:6,background:T.warn+"10",fontSize:FS-1,fontWeight:600}}>{"مدفوع: "+fmt(r2(a.totalPaid))}</span>
-            <span style={{padding:"4px 10px",borderRadius:6,background:a.balance>0?T.err+"10":T.ok+"10",fontSize:FS-1,fontWeight:700,color:a.balance>0?T.err:T.ok}}>{"الرصيد: "+fmt(r2(a.balance))+" ج.م"}</span>
+            <span className="badge" style={{padding:"4px 10px",borderRadius:6,background:T.accent+"10",fontSize:FS-1,fontWeight:600}}>{"مستحق: "+fmt(r2(a.due))}</span>
+            <span className="badge" style={{padding:"4px 10px",borderRadius:6,background:T.ok+"10",fontSize:FS-1,fontWeight:600}}>{"مشتريات: "+fmt(r2(a.totalPurchase))}</span>
+            <span className="badge" style={{padding:"4px 10px",borderRadius:6,background:T.warn+"10",fontSize:FS-1,fontWeight:600}}>{"مدفوع: "+fmt(r2(a.totalPaid))}</span>
+            <span className="badge" style={{padding:"4px 10px",borderRadius:6,background:a.balance>0?T.err+"10":T.ok+"10",fontSize:FS-1,fontWeight:700,color:a.balance>0?T.err:T.ok}}>{"الرصيد: "+fmt(r2(a.balance))+" ج.م"}</span>
           </div>
           <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["التاريخ","البيان","كمية","سعر","مستحق","مدفوع","الرصيد"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
             <tbody>{entries.map((e,i)=>{if(e.type==="due"||e.type==="purchase")running+=e.amount;else running-=e.amount;
@@ -1275,6 +1282,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards}){
                 <td style={{...TDB,color:T.err}}>{e.type==="payment"?fmt(e.amount):"-"}</td>
                 <td style={{...TDB,color:running>0?T.err:T.ok}}>{fmt(r2(running))}</td></tr>})}</tbody>
           </table></div>
+          </div>
         </Card>})}
     </div>
   }
