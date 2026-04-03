@@ -456,18 +456,12 @@ function DashPg({data,goD,isMob,season,statusCards}){
         <div><h1 style={{fontSize:isMob?20:28,fontWeight:800,margin:0,color:T.text}}>لوحة التحكم</h1><div style={{fontSize:FS,color:T.textSec,marginTop:2}}>{"الموسم "+season+" - "+orders.length+" موديل"}</div></div>
       </div>
     </div>
-    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(3,1fr)",gap:12,marginBottom:16}}>
-      <MetricCard label="اجمالي كمية القص" value={fmt(cutQ)} icon="✂️" color={T.accent} sub="قطعة"/>
-      <MetricCard label="تسليم مخزن جاهز" value={fmt(delQ)} icon="📦" color={T.ok} sub="قطعة"/>
-      <MetricCard label="رصيد بالمصنع" value={fmt(cutQ-delQ)} icon="🏭" color={T.warn} sub="قطعة"/>
-    </div>
-    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12,marginBottom:16}}>
-      <MetricCard label="في التشغيل (عند الورش)" value={fmt(Math.max(0,inProdQty))} icon="⚙️" color="#8B5CF6" sub={"تم تسليمه: "+fmt(totalDeliveredToWs)+" - استلم: "+fmt(totalReceivedFromWs)}/>
-      <div style={{background:T.card,backdropFilter:"blur(12px)",borderRadius:12,padding:"14px 16px",border:"1px solid "+T.brd,boxShadow:T.shadow}}>
-        <div style={{fontSize:FS,color:T.textSec,marginBottom:6,fontWeight:600}}>معدل الانجاز</div>
-        <div style={{fontSize:28,fontWeight:800,color:T.accent}}>{comp+"%"}</div>
-        <PBar value={comp}/>
-      </div>
+    <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(5,1fr)",gap:10,marginBottom:16}}>
+      <MetricCard label="كمية القص" value={fmt(cutQ)} icon="✂️" color={T.accent} sub="قطعة"/>
+      <MetricCard label="مخزن جاهز" value={fmt(delQ)} icon="📦" color={T.ok} sub="قطعة"/>
+      <MetricCard label="رصيد المصنع" value={fmt(cutQ-delQ)} icon="🏭" color={T.warn} sub="قطعة"/>
+      <MetricCard label="عند الورش" value={fmt(Math.max(0,inProdQty))} icon="⚙️" color="#8B5CF6" sub={"سلّم: "+fmt(totalDeliveredToWs)+" استلم: "+fmt(totalReceivedFromWs)}/>
+      <MetricCard label="معدل الانجاز" value={comp+"%"} icon="📊" color={comp>=80?T.ok:comp>=50?T.warn:T.err} sub={<PBar value={comp}/>}/>
     </div>
     {/* Workshop Accounts Summary */}
     <Card title="حسابات الورش" style={{marginBottom:16}}>
@@ -967,6 +961,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
 
   const deliverToWs=(andPrint)=>{
     if(!selWs||!selOrder||!delQty)return;
+    if(!isInternal(selWs)&&!Number(delPrice)){alert("سعر التشغيل مطلوب");return}
     const ord=data.orders.find(o=>o.id===selOrder);if(!ord)return;
     const t=calcOrder(ord);
     const pieces=ord.orderPieces||[];
@@ -1005,12 +1000,12 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
   };
 
   /* Collect all movements for the log */
-  const movements=[];
+  const movements=[];let _mi=0;
   data.orders.forEach(ord=>{(ord.workshopDeliveries||[]).forEach((wd,wdIdx)=>{
-    movements.push({type:"deliver",date:wd.date,wsName:wd.wsName,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:wd.qty,garmentType:wd.garmentType||"",price:wd.price||0,notes:wd.notes||"",orderId:ord.id,wdIdx});
-    (wd.receives||[]).forEach((r,rIdx)=>{movements.push({type:"receive",date:r.date,wsName:wd.wsName,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,garmentType:wd.garmentType||"",notes:r.notes||"",orderId:ord.id,wdIdx,rIdx})})
+    movements.push({type:"deliver",date:wd.date,wsName:wd.wsName,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:wd.qty,garmentType:wd.garmentType||"",price:wd.price||0,notes:wd.notes||"",orderId:ord.id,wdIdx,_i:_mi++});
+    (wd.receives||[]).forEach((r,rIdx)=>{movements.push({type:"receive",date:r.date,wsName:wd.wsName,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,garmentType:wd.garmentType||"",notes:r.notes||"",orderId:ord.id,wdIdx,rIdx,_i:_mi++})})
   })});
-  movements.sort((a,b)=>b.date.localeCompare(a.date));
+  movements.sort((a,b)=>b.date.localeCompare(a.date)||b._i-a._i);
 
   const getMovBlock=(m)=>{
     const ord=data.orders.find(o=>o.id===m.orderId);if(!ord)return null;
@@ -1101,9 +1096,9 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
   };
   const availOrders=prodOrders.filter(o=>getAvailQty(o)>0);
   /* Workshop-specific movements */
-  const wsMoves=[];
-  if(selWs)data.orders.forEach(ord=>{(ord.workshopDeliveries||[]).forEach((wd,wdIdx)=>{if(wd.wsName===selWs){wsMoves.push({type:"deliver",date:wd.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:wd.qty,garmentType:wd.garmentType||"",price:wd.price||0,notes:wd.notes||""});(wd.receives||[]).forEach(r=>{wsMoves.push({type:"receive",date:r.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,garmentType:wd.garmentType||"",notes:r.notes||""})})}})});
-  wsMoves.sort((a,b)=>b.date.localeCompare(a.date));
+  const wsMoves=[];let _wi=0;
+  if(selWs)data.orders.forEach(ord=>{(ord.workshopDeliveries||[]).forEach((wd,wdIdx)=>{if(wd.wsName===selWs){wsMoves.push({type:"deliver",date:wd.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:wd.qty,garmentType:wd.garmentType||"",price:wd.price||0,notes:wd.notes||"",orderId:ord.id,wdIdx,_i:_wi++});(wd.receives||[]).forEach((r,rIdx)=>{wsMoves.push({type:"receive",date:r.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,garmentType:wd.garmentType||"",price:r.price||0,notes:r.notes||"",orderId:ord.id,wdIdx,rIdx,_i:_wi++})})}})});
+  wsMoves.sort((a,b)=>b.date.localeCompare(a.date)||b._i-a._i);
 
   if(mode==="deliver")return<div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
@@ -1166,16 +1161,21 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     {/* Workshop-specific movements */}
     {selWs&&wsMoves.length>0&&<Card title={"حركات ورشة "+selWs+" ("+wsMoves.length+")"}>
       <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:550}}>
-        <thead><tr>{["","التاريخ","موديل","الوصف","نوع القطعة","الكمية","سعر التشغيل","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
-        <tbody>{wsMoves.map((m,i)=><tr key={i} style={{background:m.type==="deliver"?"#F0FDF4":"#EFF6FF"}}>
-          <td style={{...TD,textAlign:"center",fontSize:18}}>{m.type==="deliver"?<span style={{color:T.ok}}>{"↗"}</span>:<span style={{color:T.accent}}>{"↙"}</span>}</td>
-          <td style={TD}>{m.date}</td><td style={TDB}>{m.orderNo}</td><td style={TD}>{m.orderDesc}</td>
-          <td style={TD}>{m.garmentType||"-"}</td>
-          <td style={{...TDB,color:m.type==="deliver"?T.ok:T.accent}}>{m.qty}</td>
-          <td style={TD}>{m.price?m.price+" ج.م":"-"}</td>
-          <td style={TD}>{m.notes||"-"}</td>
-          <td style={TD}><Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>طباعة</Btn></td>
-        </tr>)}</tbody>
+        <thead><tr>{["","التاريخ","موديل","الوصف","نوع القطعة","الكمية",...(isInternal(selWs)?[]:["سعر"]),"ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+        <tbody>{wsMoves.map((m,i)=>{const isEd=editMov&&editMov.orderId===m.orderId&&editMov.wdIdx===m.wdIdx&&editMov.type===m.type&&(m.type==="deliver"||editMov.rIdx===m.rIdx);
+          return<tr key={i} style={{background:m.type==="deliver"?"#F0FDF4":"#EFF6FF"}}>
+          <td style={{...TD,textAlign:"center",fontSize:16}}>{m.type==="deliver"?<span style={{color:T.ok}}>{"↗"}</span>:<span style={{color:T.accent}}>{"↙"}</span>}</td>
+          <td style={TD}>{isEd?<Inp type="date" value={editDate} onChange={setEditDate} style={{width:120}}/>:m.date}</td>
+          <td style={TDB}>{m.orderNo}</td><td style={TD}>{m.orderDesc}</td><td style={TD}>{m.garmentType||"-"}</td>
+          <td style={{...TDB,color:m.type==="deliver"?T.ok:T.accent}}>{isEd?<Inp type="number" value={editQty} onChange={v=>setEditQty(Number(v)||0)} style={{width:60}}/>:m.qty}</td>
+          {!isInternal(selWs)&&<td style={TD}>{isEd&&m.type==="deliver"?<Inp type="number" step="0.01" value={editPrice} onChange={v=>setEditPrice(v)} style={{width:60}}/>:(m.price?m.price+" ج.م":"-")}</td>}
+          <td style={TD}>{isEd?<Inp value={editNote} onChange={setEditNote} style={{width:80}}/>:(m.notes||"-")}</td>
+          <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<div style={{display:"flex",gap:3}}>
+            {isEd?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>✕</Btn></>:<>
+            <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>تعديل</Btn>
+            <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/>
+            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn></>}
+          </div>}</td></tr>})}</tbody>
       </table></div>
     </Card>}
   </div>;
@@ -1233,15 +1233,21 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     {/* Workshop-specific movements */}
     {selWs&&wsMoves.length>0&&<Card title={"حركات ورشة "+selWs+" ("+wsMoves.length+")"}>
       <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:550}}>
-        <thead><tr>{["","التاريخ","موديل","الوصف","نوع القطعة","الكمية","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
-        <tbody>{wsMoves.map((m,i)=><tr key={i} style={{background:m.type==="deliver"?"#F0FDF4":"#EFF6FF"}}>
-          <td style={{...TD,textAlign:"center",fontSize:18}}>{m.type==="deliver"?<span style={{color:T.ok}}>{"↗"}</span>:<span style={{color:T.accent}}>{"↙"}</span>}</td>
-          <td style={TD}>{m.date}</td><td style={TDB}>{m.orderNo}</td><td style={TD}>{m.orderDesc}</td>
-          <td style={TD}>{m.garmentType||"-"}</td>
-          <td style={{...TDB,color:m.type==="deliver"?T.ok:T.accent}}>{m.qty}</td>
-          <td style={TD}>{m.notes||"-"}</td>
-          <td style={TD}><Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>طباعة</Btn></td>
-        </tr>)}</tbody>
+        <thead><tr>{["","التاريخ","موديل","الوصف","نوع القطعة","الكمية",...(isInternal(selWs)?[]:["سعر"]),"ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+        <tbody>{wsMoves.map((m,i)=>{const isEd=editMov&&editMov.orderId===m.orderId&&editMov.wdIdx===m.wdIdx&&editMov.type===m.type&&(m.type==="deliver"||editMov.rIdx===m.rIdx);
+          return<tr key={i} style={{background:m.type==="deliver"?"#F0FDF4":"#EFF6FF"}}>
+          <td style={{...TD,textAlign:"center",fontSize:16}}>{m.type==="deliver"?<span style={{color:T.ok}}>{"↗"}</span>:<span style={{color:T.accent}}>{"↙"}</span>}</td>
+          <td style={TD}>{isEd?<Inp type="date" value={editDate} onChange={setEditDate} style={{width:120}}/>:m.date}</td>
+          <td style={TDB}>{m.orderNo}</td><td style={TD}>{m.orderDesc}</td><td style={TD}>{m.garmentType||"-"}</td>
+          <td style={{...TDB,color:m.type==="deliver"?T.ok:T.accent}}>{isEd?<Inp type="number" value={editQty} onChange={v=>setEditQty(Number(v)||0)} style={{width:60}}/>:m.qty}</td>
+          {!isInternal(selWs)&&<td style={TD}>{isEd&&m.type==="deliver"?<Inp type="number" step="0.01" value={editPrice} onChange={v=>setEditPrice(v)} style={{width:60}}/>:(m.price?m.price+" ج.م":"-")}</td>}
+          <td style={TD}>{isEd?<Inp value={editNote} onChange={setEditNote} style={{width:80}}/>:(m.notes||"-")}</td>
+          <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<div style={{display:"flex",gap:3}}>
+            {isEd?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>✕</Btn></>:<>
+            <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>تعديل</Btn>
+            <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/>
+            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn></>}
+          </div>}</td></tr>})}</tbody>
       </table></div>
     </Card>}
   </div>;
