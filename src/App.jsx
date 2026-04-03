@@ -486,24 +486,23 @@ function DashPg({data,goD,isMob,season,statusCards}){
         <div style={{flex:1,minWidth:120}}>{pieData.map((d,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",fontSize:FS}}><span style={{width:12,height:12,borderRadius:4,background:d.fill,flexShrink:0}}/><span style={{color:T.textSec,flex:1}}>{d.name}</span><span style={{fontWeight:700}}>{d.value}</span></div>)}</div>
       </div>:<p style={{color:T.textSec,textAlign:"center",padding:30}}>لا توجد بيانات</p>}</Card>
       {/* Workshop Comparison Chart */}
-      <Card title="أداء الورش - تم تسليمه vs تم استلامه">{wsChartData.length>0?<div>
-        <ResponsiveContainer width="100%" height={Math.max(180,wsChartData.length*40)}>
-          <BarChart data={wsChartData} layout="vertical" margin={{right:10}}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0"/>
-            <XAxis type="number" tick={{fontSize:11,fill:T.textSec}}/>
-            <YAxis dataKey="name" type="category" tick={{fontSize:12,fill:T.text}} width={isMob?80:120}/>
-            <Tooltip contentStyle={{borderRadius:10,border:"1px solid #E2E8F0"}}/>
-            <Legend wrapperStyle={{fontSize:12}}/>
-            <Bar dataKey="delivered" name="تم تسليمه للورشة" fill="#8B5CF6" barSize={14} radius={[0,4,4,0]}/>
-            <Bar dataKey="received" name="استلم المصنع" fill="#10B981" barSize={14} radius={[0,4,4,0]}/>
+      <Card title="أداء الورش - تسليم vs استلام">{wsChartData.length>0?<div>
+        <ResponsiveContainer width="100%" height={250}>
+          <BarChart data={wsChartData} margin={{top:10,right:10,bottom:5}}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false}/>
+            <XAxis dataKey="name" tick={{fontSize:11,fill:T.text}} interval={0} angle={isMob?-45:0} textAnchor={isMob?"end":"middle"} height={isMob?60:30}/>
+            <YAxis tick={{fontSize:11,fill:T.textSec}}/>
+            <Tooltip contentStyle={{borderRadius:8,border:"1px solid #E2E8F0",fontSize:12}}/>
+            <Legend wrapperStyle={{fontSize:11}}/>
+            <Bar dataKey="delivered" name="تسليم للورشة" fill="#8B5CF6" barSize={isMob?16:24} radius={[4,4,0,0]}/>
+            <Bar dataKey="received" name="استلام المصنع" fill="#10B981" barSize={isMob?16:24} radius={[4,4,0,0]}/>
           </BarChart>
         </ResponsiveContainer>
-        {/* Top workshop badge */}
-        {wsChartData.length>0&&<div style={{marginTop:12,padding:12,background:"#F0FDF4",borderRadius:10,border:"1px solid "+T.ok+"30",display:"flex",alignItems:"center",gap:10}}>
-          <span style={{fontSize:20}}>🏆</span>
-          <span style={{fontSize:FS,fontWeight:700,color:T.ok}}>{"أعلى ورشة تسليماً: "+wsChartData[0].name+" ("+wsChartData[0].received+" قطعة)"}</span>
+        {wsChartData.length>0&&<div style={{marginTop:8,padding:8,background:"#F0FDF4",borderRadius:8,border:"1px solid "+T.ok+"30",display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:18}}>🏆</span>
+          <span style={{fontSize:FS,fontWeight:700,color:T.ok}}>{"أعلى ورشة: "+wsChartData[0].name+" ("+wsChartData[0].received+" قطعة)"}</span>
         </div>}
-      </div>:<p style={{color:T.textSec,textAlign:"center",padding:30}}>لا توجد بيانات ورش</p>}</Card>
+      </div>:<p style={{color:T.textSec,textAlign:"center",padding:20}}>لا توجد بيانات ورش</p>}</Card>
     </div>
     <Card title="آخر الأوامر"><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}>
       <thead><tr>{["موديل","الوصف","الكمية","الحالة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
