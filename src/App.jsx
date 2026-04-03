@@ -570,9 +570,9 @@ function DBPg({data,upConfig,isMob,canEdit,statusCards}){
 /* ══ WORKSHOP MANAGER ══ */
 function WsManager({workshops,upConfig,canEdit,isMob,orders}){
   const[showForm,setShowForm]=useState(false);const[editId,setEditId]=useState(null);
-  const[f,setF]=useState({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:5,type:"خارجي"});
-  const startEdit=(ws)=>{setF({...ws,type:ws.type||"خارجي"});setEditId(ws.id);setShowForm(true)};
-  const startNew=()=>{setF({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:5,type:"خارجي"});setEditId(null);setShowForm(true)};
+  const[f,setF]=useState({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:5,type:"خارجي",payPercent:70});
+  const startEdit=(ws)=>{setF({...ws,type:ws.type||"خارجي",payPercent:ws.payPercent||70});setEditId(ws.id);setShowForm(true)};
+  const startNew=()=>{setF({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:5,type:"خارجي",payPercent:70});setEditId(null);setShowForm(true)};
   const handleIdCard=async e=>{const file=e.target.files[0];if(!file)return;const compressed=await compressImg43(file,300,0.5);setF(p=>({...p,idCard:compressed}))};
   const handleOwnerPhoto=async e=>{const file=e.target.files[0];if(!file)return;const compressed=await compressImage(file,200,0.5);setF(p=>({...p,ownerPhoto:compressed}))};
   const save=()=>{if(!f.name.trim())return;upConfig(d=>{if(!Array.isArray(d.workshops))d.workshops=[];if(editId){const idx=d.workshops.findIndex(w=>w.id===editId);if(idx>=0)d.workshops[idx]={...f,id:editId}}else{d.workshops.push({...f,id:Date.now()})}});setShowForm(false);setEditId(null)};
@@ -583,10 +583,11 @@ function WsManager({workshops,upConfig,canEdit,isMob,orders}){
     <Card title="ادارة الورش" extra={canEdit&&<Btn primary small onClick={startNew}>+ ورشة جديدة</Btn>}>
       {showForm&&<div style={{background:T.inputBg||T.cardSolid,borderRadius:14,padding:20,marginBottom:20,border:"1px solid "+T.brd}}>
         <div style={{fontSize:FS+1,fontWeight:700,color:T.accent,marginBottom:14}}>{editId?"تعديل الورشة":"ورشة جديدة"}</div>
-        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:12}}>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr 1fr",gap:10,marginBottom:12}}>
           <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>اسم الورشة *</label><Inp value={f.name} onChange={v=>setF({...f,name:v})}/></div>
           <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>اسم صاحب الورشة</label><Inp value={f.owner} onChange={v=>setF({...f,owner:v})}/></div>
           <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>نوع الورشة *</label><Sel value={f.type||"خارجي"} onChange={v=>setF({...f,type:v})}><option value="خارجي">خارجي</option><option value="داخلي">داخلي</option></Sel></div>
+          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>النسبة من الدفعات</label><Sel value={f.payPercent||70} onChange={v=>setF({...f,payPercent:Number(v)})}>{[30,40,50,60,70,80,90,100].map(p=><option key={p} value={p}>{p+"%"}</option>)}</Sel></div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
           <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>رقم التليفون</label><Inp value={f.phone} onChange={v=>setF({...f,phone:v})} type="tel"/></div>
@@ -617,7 +618,7 @@ function WsManager({workshops,upConfig,canEdit,isMob,orders}){
           <div style={{display:"flex",gap:14,padding:16}}>
             {ws.ownerPhoto&&<img src={ws.ownerPhoto} alt="" style={{width:60,height:80,borderRadius:10,objectFit:"cover",flexShrink:0}}/>}
             <div style={{flex:1,minWidth:0}}>
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}><span style={{fontSize:FS+2,fontWeight:700,color:T.text}}>{ws.name}</span><span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,fontWeight:600,background:ws.type==="داخلي"?T.accent+"12":T.ok+"12",color:ws.type==="داخلي"?T.accent:T.ok}}>{ws.type||"خارجي"}</span></div>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}><span style={{fontSize:FS+2,fontWeight:700,color:T.text}}>{ws.name}</span><span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,fontWeight:600,background:ws.type==="داخلي"?T.accent+"12":T.ok+"12",color:ws.type==="داخلي"?T.accent:T.ok}}>{ws.type||"خارجي"}</span>{ws.type!=="داخلي"&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,fontWeight:600,background:T.purple+"12",color:T.purple}}>{(ws.payPercent||70)+"%"}</span>}</div>
               {ws.owner&&<div style={{fontSize:FS-1,color:T.textSec}}>{"👤 "+ws.owner}</div>}
               {ws.phone&&<div style={{fontSize:FS-1,color:T.textSec}}>{"📱 "+ws.phone}</div>}
               {ws.address&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{ws.address}</div>}
@@ -1268,7 +1269,15 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         <div><label style={{fontSize:FS-2,color:T.textSec}}>التاريخ</label><Inp type="date" value={payDate} onChange={setPayDate}/></div>
         <div><label style={{fontSize:FS-2,color:T.textSec}}>ملاحظات</label><Inp value={payNote} onChange={setPayNote}/></div>
       </div>
-      {payWs&&(()=>{const a=wsAccounts(payWs);return<div style={{padding:8,borderRadius:8,background:a.balance>0?T.err+"08":T.ok+"08",marginBottom:8,fontSize:FS,fontWeight:700,color:a.balance>0?T.err:T.ok}}>{"رصيد "+payWs+": "+fmt(r2(a.balance))+" ج.م"}</div>})()}
+      {payWs&&(()=>{const a=wsAccounts(payWs);const wsObj=workshops.find(x=>x.name===payWs);const pct=wsObj?.payPercent||70;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const exceeded=a.totalPaid>limit;
+        return<div style={{marginBottom:8}}>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:4}}>
+            <span style={{padding:"4px 10px",borderRadius:6,fontSize:FS-1,fontWeight:700,background:a.balance>0?T.err+"10":T.ok+"10",color:a.balance>0?T.err:T.ok}}>{"الرصيد: "+fmt(r2(a.balance))+" ج.م"}</span>
+            <span style={{padding:"4px 10px",borderRadius:6,fontSize:FS-1,fontWeight:600,background:T.purple+"10",color:T.purple}}>{"حد "+pct+"%: "+fmt(limit)+" ج.م"}</span>
+            <span style={{padding:"4px 10px",borderRadius:6,fontSize:FS-1,fontWeight:600,background:T.warn+"10"}}>{"مدفوع: "+fmt(r2(a.totalPaid))+" ج.م"}</span>
+          </div>
+          {exceeded&&<div style={{padding:6,borderRadius:6,background:T.err+"10",fontSize:FS-1,fontWeight:700,color:T.err}}>{"⚠️ تجاوز حد "+pct+"% بمبلغ "+fmt(r2(a.totalPaid-limit))+" ج.م"}</div>}
+        </div>})()}
       <Btn primary onClick={addPayment} disabled={!payWs||!payAmt}>تسجيل</Btn>
     </Card>
     {payWs&&<Card title={"دفعات "+payWs}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["التاريخ","النوع","المبلغ","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
@@ -1291,14 +1300,21 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         <Btn ghost onClick={()=>setMode(null)}>← عودة</Btn>
       </div>
       <Card title="ملخص الحسابات" style={{marginBottom:14}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
-        <thead><tr>{["الورشة","مستحق تشغيل","مشتريات","اجمالي","مدفوع","الرصيد"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
-        <tbody>{activeWs.map(w=>{const a=wsAccounts(w.name);return<tr key={w.id}>
-          <td style={{...TD,fontWeight:700}}>{w.name}</td><td style={{...TDB,color:T.accent}}>{fmt(r2(a.due))}</td><td style={{...TDB,color:T.ok}}>{fmt(r2(a.totalPurchase))}</td>
-          <td style={TDB}>{fmt(r2(a.due+a.totalPurchase))}</td><td style={{...TDB,color:T.warn}}>{fmt(r2(a.totalPaid))}</td>
-          <td style={{...TDB,fontSize:FS+1,color:a.balance>0?T.err:T.ok}}>{fmt(r2(a.balance))+" ج.م"}</td></tr>})}
-          <tr style={{background:T.accent+"08"}}><td style={{...TD,fontWeight:800}}>الاجمالي</td><td style={{...TDB,color:T.accent}}>{fmt(r2(totals.due))}</td><td style={{...TDB,color:T.ok}}>{fmt(r2(totals.purchase))}</td>
-          <td style={{...TDB,fontWeight:800}}>{fmt(r2(totals.due+totals.purchase))}</td><td style={{...TDB,color:T.warn,fontWeight:800}}>{fmt(r2(totals.paid))}</td>
-          <td style={{...TDB,fontSize:FS+2,fontWeight:800,color:totals.balance>0?T.err:T.ok}}>{fmt(r2(totals.balance))+" ج.م"}</td></tr>
+        <thead><tr>{["الورشة","النسبة","مستحق","مدفوع","حد النسبة","الرصيد",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+        <tbody>{activeWs.map(w=>{const a=wsAccounts(w.name);const pct=w.payPercent||70;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const exceeded=a.totalPaid>limit;
+          return<tr key={w.id}>
+          <td style={{...TD,fontWeight:700}}>{w.name}</td>
+          <td style={{...TDB,color:T.purple}}>{pct+"%"}</td>
+          <td style={{...TDB,color:T.accent}}>{fmt(r2(totalDue))}</td>
+          <td style={{...TDB,color:T.warn}}>{fmt(r2(a.totalPaid))}</td>
+          <td style={TDB}>{fmt(limit)}</td>
+          <td style={{...TDB,fontSize:FS+1,color:a.balance>0?T.err:T.ok}}>{fmt(r2(a.balance))}</td>
+          <td style={TD}>{exceeded&&<span style={{fontSize:FS-2,padding:"2px 8px",borderRadius:6,background:T.err+"12",color:T.err,fontWeight:700}}>{"⚠ تجاوز بـ "+fmt(r2(a.totalPaid-limit))}</span>}</td>
+        </tr>})}
+          <tr style={{background:T.accent+"08"}}><td style={{...TD,fontWeight:800}}>الاجمالي</td><td style={TD}></td>
+          <td style={{...TDB,color:T.accent,fontWeight:800}}>{fmt(r2(totals.due+totals.purchase))}</td>
+          <td style={{...TDB,color:T.warn,fontWeight:800}}>{fmt(r2(totals.paid))}</td><td style={TD}></td>
+          <td style={{...TDB,fontSize:FS+2,fontWeight:800,color:totals.balance>0?T.err:T.ok}}>{fmt(r2(totals.balance))+" ج.م"}</td><td style={TD}></td></tr>
         </tbody>
       </table></div></Card>
       {/* Workshop filter */}
@@ -1317,12 +1333,14 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
           <div id={"ws-stmt-"+w.id}>
           <h2>{"كشف حساب: "+w.name}</h2>
           <div className="sub">{"الموسم: "+season+" | التاريخ: "+new Date().toLocaleDateString("ar-EG")}</div>
-          <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}>
-            <span className="badge" style={{padding:"4px 10px",borderRadius:6,background:T.accent+"10",fontSize:FS-1,fontWeight:600}}>{"مستحق: "+fmt(r2(a.due))}</span>
-            <span className="badge" style={{padding:"4px 10px",borderRadius:6,background:T.ok+"10",fontSize:FS-1,fontWeight:600}}>{"مشتريات: "+fmt(r2(a.totalPurchase))}</span>
+          {(()=>{const pct=w.payPercent||70;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const exceeded=a.totalPaid>limit;
+          return<><div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+            <span className="badge" style={{padding:"4px 10px",borderRadius:6,background:T.accent+"10",fontSize:FS-1,fontWeight:600}}>{"مستحق: "+fmt(r2(totalDue))}</span>
             <span className="badge" style={{padding:"4px 10px",borderRadius:6,background:T.warn+"10",fontSize:FS-1,fontWeight:600}}>{"مدفوع: "+fmt(r2(a.totalPaid))}</span>
+            <span className="badge" style={{padding:"4px 10px",borderRadius:6,background:T.purple+"10",fontSize:FS-1,fontWeight:600,color:T.purple}}>{"حد "+pct+"%: "+fmt(limit)}</span>
             <span className="badge" style={{padding:"4px 10px",borderRadius:6,background:a.balance>0?T.err+"10":T.ok+"10",fontSize:FS-1,fontWeight:700,color:a.balance>0?T.err:T.ok}}>{"الرصيد: "+fmt(r2(a.balance))+" ج.م"}</span>
           </div>
+          {exceeded&&<div style={{padding:8,borderRadius:8,background:T.err+"10",border:"1px solid "+T.err+"25",marginBottom:8,fontSize:FS,fontWeight:700,color:T.err}}>{"⚠️ تجاوز حد النسبة "+pct+"% بمبلغ "+fmt(r2(a.totalPaid-limit))+" ج.م"}</div>}</>})()}
           <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["التاريخ","البيان","كمية","سعر","مستحق","مدفوع","الرصيد"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
             <tbody>{entries.map((e,i)=>{if(e.type==="due"||e.type==="purchase")running+=e.amount;else running-=e.amount;
               return<tr key={i} style={{background:e.type==="payment"?"#FEF2F2":e.type==="purchase"?"#F0FDF4":""}}>
