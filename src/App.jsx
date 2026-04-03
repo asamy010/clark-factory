@@ -743,6 +743,7 @@ function OrdPg({data,addOrder,delOrder,updOrder,goD,isMob,canEdit,statusCards}){
 function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,goHome}){
   const order=data.orders.find(o=>o.id===sel);const[editing,setEditing]=useState(false);
   const[detQ,setDetQ]=useState("");const[detSt,setDetSt]=useState("الكل");
+  const[editStockIdx,setEditStockIdx]=useState(null);
   const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
 
   if(!order){
@@ -867,15 +868,25 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
             else{canStock=true}
           }
           const stockDel=(order.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const stockRemain=t.cutQty-stockDel;
-          return<Card title="تسليم مخزن جاهز" extra={canEdit&&canStock&&<Btn primary small onClick={()=>updOrder(sel,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty:0,notes:""})})}>+ تسليم</Btn>}>
-            {!canStock&&<div style={{padding:14,background:T.err+"10",border:"1px solid "+T.err+"30",borderRadius:10,marginBottom:14,fontSize:FS,color:T.err,fontWeight:600}}>{blockMsg}</div>}
-            <div style={{display:"flex",gap:14,marginBottom:14,flexWrap:"wrap"}}>
-              <span style={{padding:"8px 16px",borderRadius:10,background:T.err+"12",color:T.err,fontWeight:700,fontSize:FS}}>{"كمية القص: "+t.cutQty}</span>
-              <span style={{padding:"8px 16px",borderRadius:10,background:T.ok+"12",color:T.ok,fontWeight:700,fontSize:FS}}>{"تم تسليمه: "+stockDel}</span>
-              <span style={{padding:"8px 16px",borderRadius:10,background:stockRemain>0?T.warn+"12":T.ok+"12",color:stockRemain>0?T.warn:T.ok,fontWeight:700,fontSize:FS}}>{"المتبقي: "+stockRemain}</span>
+          return<Card title="تسليم مخزن جاهز" extra={canEdit&&canStock&&<Btn primary small onClick={()=>updOrder(sel,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty:0,notes:""});setTimeout(()=>setEditStockIdx(o.deliveries.length-1),100)})}>+ تسليم</Btn>}>
+            {!canStock&&<div style={{padding:10,background:T.err+"10",border:"1px solid "+T.err+"30",borderRadius:8,marginBottom:10,fontSize:FS,color:T.err,fontWeight:600}}>{blockMsg}</div>}
+            <div style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap"}}>
+              <span style={{padding:"6px 12px",borderRadius:8,background:T.err+"12",color:T.err,fontWeight:700,fontSize:FS}}>{"كمية القص: "+t.cutQty}</span>
+              <span style={{padding:"6px 12px",borderRadius:8,background:T.ok+"12",color:T.ok,fontWeight:700,fontSize:FS}}>{"تم تسليمه: "+stockDel}</span>
+              <span style={{padding:"6px 12px",borderRadius:8,background:stockRemain>0?T.warn+"12":T.ok+"12",color:stockRemain>0?T.warn:T.ok,fontWeight:700,fontSize:FS}}>{"المتبقي: "+stockRemain}</span>
             </div>
-            <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:350}}><thead><tr>{["#","التاريخ","الكمية","ملاحظات",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-            {(order.deliveries||[]).map((d,i)=><tr key={i}><td style={TD}>{i+1}</td><td style={TD}>{canEdit?<Inp type="date" value={d.date} onChange={v=>updOrder(sel,o=>{o.deliveries[i].date=v})}/>:d.date}</td><td style={TD}>{canEdit?<Inp type="number" value={d.qty} onChange={v=>updOrder(sel,o=>{const maxQ=t.cutQty-o.deliveries.filter((_,j)=>j!==i).reduce((s,x)=>s+(Number(x.qty)||0),0);o.deliveries[i].qty=Math.min(Number(v)||0,maxQ);o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)})} style={{width:80}}/>:d.qty}</td><td style={TD}>{canEdit?<Inp value={d.notes} onChange={v=>updOrder(sel,o=>{o.deliveries[i].notes=v})}/>:d.notes}</td>{canEdit&&<td style={TD}><Btn danger small onClick={()=>updOrder(sel,o=>{o.deliveries.splice(i,1);o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)})}>🗑️</Btn></td>}</tr>)}
+            <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:450}}><thead><tr>{["#","التاريخ","الكمية","ملاحظات",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
+            {(order.deliveries||[]).map((d,i)=>{const isEd=editStockIdx===i&&canEdit;
+              return<tr key={i} style={{background:isEd?T.warn+"06":"transparent"}}>
+              <td style={TD}>{i+1}</td>
+              <td style={{...TD,minWidth:130}}>{isEd?<Inp type="date" value={d.date} onChange={v=>updOrder(sel,o=>{o.deliveries[i].date=v})}/>:d.date}</td>
+              <td style={{...TD,minWidth:100}}>{isEd?<Inp type="number" value={d.qty} onChange={v=>updOrder(sel,o=>{const maxQ=t.cutQty-o.deliveries.filter((_,j)=>j!==i).reduce((s,x)=>s+(Number(x.qty)||0),0);o.deliveries[i].qty=Math.min(Number(v)||0,maxQ);o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)})}/>:<span style={{fontWeight:700,color:T.accent}}>{d.qty}</span>}</td>
+              <td style={{...TD,minWidth:120}}>{isEd?<Inp value={d.notes} onChange={v=>updOrder(sel,o=>{o.deliveries[i].notes=v})} placeholder="ملاحظات"/>:(d.notes||"-")}</td>
+              {canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}>
+                {isEd?<><Btn small primary onClick={()=>setEditStockIdx(null)}>💾</Btn><Btn danger small onClick={()=>{updOrder(sel,o=>{o.deliveries.splice(i,1);o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)});setEditStockIdx(null)}}>🗑️</Btn></>
+                :<Btn small onClick={()=>setEditStockIdx(i)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>}
+              </div></td>}
+            </tr>})}
             {(!order.deliveries||order.deliveries.length===0)&&<tr><td colSpan={canEdit?5:4} style={{...TD,textAlign:"center",color:T.textSec}}>لا توجد تسليمات</td></tr>}
           </tbody></table></div>
           </Card>})()}
