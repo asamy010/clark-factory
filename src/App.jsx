@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
-import { auth, db } from "./firebase";
+import { auth, authSecondary, db } from "./firebase";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile } from "firebase/auth";
 import { doc, setDoc, onSnapshot, collection, addDoc, updateDoc, deleteDoc, getDocs } from "firebase/firestore";
 
@@ -314,31 +314,21 @@ function AccPicker({accItems,dbAcc,onChange}){
 
 /* ══ LOGIN ══ */
 function LoginScreen(){
-  const[email,setEmail]=useState("");const[pass,setPass]=useState("");const[name,setName]=useState("");
-  const[err,setErr]=useState("");const[isReg,setIsReg]=useState(false);const[loading,setLoading]=useState(false);
+  const[email,setEmail]=useState("");const[pass,setPass]=useState("");
+  const[err,setErr]=useState("");const[loading,setLoading]=useState(false);
   const handleLogin=async()=>{if(!email||!pass){setErr("ادخل الايميل وكلمة المرور");return}setLoading(true);setErr("");try{await signInWithEmailAndPassword(auth,email,pass)}catch(e){setErr(e.code==="auth/invalid-credential"?"بيانات الدخول غلط":"خطأ: "+e.message)}setLoading(false)};
-  const handleReg=async()=>{if(!email||!pass||!name){setErr("اكمل كل البيانات");return}if(pass.length<6){setErr("كلمة المرور 6 حروف على الأقل");return}setLoading(true);setErr("");try{const cred=await createUserWithEmailAndPassword(auth,email,pass);await updateProfile(cred.user,{displayName:name})}catch(e){setErr(e.code==="auth/email-already-in-use"?"الايميل مستخدم":"خطأ: "+e.message)}setLoading(false)};
   const iS={width:"100%",padding:"14px 16px",borderRadius:14,border:"2px solid "+T.brd,fontSize:FS+1,fontFamily:"inherit",boxSizing:"border-box",background:T.cardSolid,color:T.text,outline:"none"};
   return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(135deg,#EFF6FF,#DBEAFE,#E0F2FE)",direction:"rtl",fontFamily:"'Cairo',sans-serif",padding:20}}>
-    <div style={{width:"100%",maxWidth:420,background:T.card,backdropFilter:"blur(20px)",borderRadius:28,padding:44,border:"1px solid "+T.brd,boxShadow:T.shadowLg}}>
+    <div style={{width:"100%",maxWidth:420,background:T.card,backdropFilter:"blur(20px)",borderRadius:28,padding:44,border:"1px solid "+T.brd,boxShadow:T.shadow}}>
       <div style={{textAlign:"center",marginBottom:36}}>
         <div style={{fontSize:48,fontWeight:800,background:"linear-gradient(135deg,#0EA5E9,#0284C7)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",letterSpacing:8}}>CLARK</div>
         <div style={{fontSize:FS,color:T.textSec,marginTop:6}}>نظام ادارة القص والتشغيل</div>
       </div>
-      {!isReg?<div>
-        <div style={{marginBottom:16}}><label style={{display:"block",fontSize:FS,color:T.textSec,marginBottom:6,fontWeight:600}}>البريد الالكتروني</label><input value={email} onChange={e=>setEmail(e.target.value)} placeholder="example@email.com" type="email" onKeyDown={e=>e.key==="Enter"&&handleLogin()} style={iS}/></div>
-        <div style={{marginBottom:20}}><label style={{display:"block",fontSize:FS,color:T.textSec,marginBottom:6,fontWeight:600}}>كلمة المرور</label><input type="password" value={pass} onChange={e=>setPass(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleLogin()} style={iS}/></div>
-        {err&&<div style={{color:T.err,fontSize:FS,marginBottom:12,textAlign:"center",fontWeight:600}}>{err}</div>}
-        <button onClick={handleLogin} disabled={loading} style={{width:"100%",padding:16,borderRadius:14,background:"linear-gradient(135deg,#0EA5E9,#0284C7)",color:"#fff",fontSize:FS+2,fontWeight:800,border:"none",cursor:"pointer",marginBottom:14,boxShadow:"0 4px 16px rgba(14,165,233,0.3)"}}>{loading?"جاري الدخول...":"تسجيل الدخول"}</button>
-        <div style={{textAlign:"center"}}><span style={{color:T.textSec}}>مستخدم جديد؟ </span><span onClick={()=>{setIsReg(true);setErr("")}} style={{color:T.accent,cursor:"pointer",fontWeight:700}}>انشاء حساب</span></div>
-      </div>:<div>
-        <div style={{marginBottom:14}}><label style={{display:"block",fontSize:FS,color:T.textSec,marginBottom:6,fontWeight:600}}>الاسم</label><input value={name} onChange={e=>setName(e.target.value)} style={iS}/></div>
-        <div style={{marginBottom:14}}><label style={{display:"block",fontSize:FS,color:T.textSec,marginBottom:6,fontWeight:600}}>البريد الالكتروني</label><input value={email} onChange={e=>setEmail(e.target.value)} type="email" style={iS}/></div>
-        <div style={{marginBottom:20}}><label style={{display:"block",fontSize:FS,color:T.textSec,marginBottom:6,fontWeight:600}}>كلمة المرور</label><input type="password" value={pass} onChange={e=>setPass(e.target.value)} style={iS}/></div>
-        {err&&<div style={{color:T.err,fontSize:FS,marginBottom:12,textAlign:"center"}}>{err}</div>}
-        <button onClick={handleReg} disabled={loading} style={{width:"100%",padding:16,borderRadius:14,background:"linear-gradient(135deg,#0EA5E9,#0284C7)",color:"#fff",fontSize:FS+2,fontWeight:800,border:"none",cursor:"pointer",marginBottom:14}}>{loading?"جاري الانشاء...":"انشاء حساب"}</button>
-        <div style={{textAlign:"center"}}><span onClick={()=>{setIsReg(false);setErr("")}} style={{color:T.accent,cursor:"pointer",fontWeight:700}}>عودة لتسجيل الدخول</span></div>
-      </div>}
+      <div style={{marginBottom:16}}><label style={{display:"block",fontSize:FS,color:T.textSec,marginBottom:6,fontWeight:600}}>البريد الالكتروني</label><input value={email} onChange={e=>setEmail(e.target.value)} placeholder="example@email.com" type="email" onKeyDown={e=>e.key==="Enter"&&handleLogin()} style={iS}/></div>
+      <div style={{marginBottom:20}}><label style={{display:"block",fontSize:FS,color:T.textSec,marginBottom:6,fontWeight:600}}>كلمة المرور</label><input type="password" value={pass} onChange={e=>setPass(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleLogin()} style={iS}/></div>
+      {err&&<div style={{color:T.err,fontSize:FS,marginBottom:12,textAlign:"center",fontWeight:600}}>{err}</div>}
+      <button onClick={handleLogin} disabled={loading} style={{width:"100%",padding:16,borderRadius:14,background:"linear-gradient(135deg,#0EA5E9,#0284C7)",color:"#fff",fontSize:FS+2,fontWeight:800,border:"none",cursor:"pointer",boxShadow:"0 4px 16px rgba(14,165,233,0.3)",fontFamily:"inherit"}}>{loading?"جاري الدخول...":"تسجيل الدخول"}</button>
+      <div style={{textAlign:"center",marginTop:14,fontSize:FS-1,color:T.textMut}}>تواصل مع المدير للحصول على حساب</div>
     </div>
   </div>
 }
@@ -1298,10 +1288,31 @@ function CostPg({data,isMob,statusCards}){
 function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders}){
   const[newSeason,setNewSeason]=useState("");const[delConfirm,setDelConfirm]=useState("");
   const[newUserEmail,setNewUserEmail]=useState("");const[newUserRole,setNewUserRole]=useState("viewer");
+  const[newUserName,setNewUserName]=useState("");const[newUserPass,setNewUserPass]=useState("");const[newUserPass2,setNewUserPass2]=useState("");
+  const[createErr,setCreateErr]=useState("");const[createOk,setCreateOk]=useState("");const[creating,setCreating]=useState(false);
   const[clearConfirm,setClearConfirm]=useState(false);
   const handleLogo=async e=>{const f=e.target.files[0];if(!f)return;const compressed=await compressImage(f,200,0.6);upConfig(d=>{d.logo=compressed})};
   const addSeason=()=>{if(!newSeason.trim())return;upConfig(d=>{if(!d.seasons)d.seasons=[];if(!d.seasons.includes(newSeason.trim()))d.seasons.push(newSeason.trim());d.activeSeason=newSeason.trim()});setNewSeason("")};
   const deleteSeason=async s=>{if(delConfirm!==s){setDelConfirm(s);return}try{const snap=await getDocs(collection(db,"seasons",s,"orders"));await Promise.all(snap.docs.map(d=>deleteDoc(doc(db,"seasons",s,"orders",d.id))))}catch(e){}upConfig(d=>{d.seasons=(d.seasons||[]).filter(x=>x!==s);if(d.activeSeason===s)d.activeSeason=d.seasons[0]||""});setDelConfirm("")};
+
+  const createUser=async()=>{
+    setCreateErr("");setCreateOk("");
+    if(!newUserName.trim()||!newUserEmail.trim()||!newUserPass){setCreateErr("اكمل جميع البيانات");return}
+    if(newUserPass.length<6){setCreateErr("كلمة المرور 6 حروف على الأقل");return}
+    if(newUserPass!==newUserPass2){setCreateErr("كلمة المرور غير متطابقة");return}
+    setCreating(true);
+    try{
+      const cred=await createUserWithEmailAndPassword(authSecondary,newUserEmail.trim(),newUserPass);
+      await updateProfile(cred.user,{displayName:newUserName.trim()});
+      await signOut(authSecondary);
+      upConfig(d=>{if(!d.usersList)d.usersList=[];const ex=d.usersList.find(u=>u.email===newUserEmail.trim());if(ex){ex.role=newUserRole;ex.name=newUserName.trim()}else{d.usersList.push({email:newUserEmail.trim(),role:newUserRole,name:newUserName.trim()})}});
+      setCreateOk("تم انشاء الحساب بنجاح: "+newUserEmail.trim());
+      setNewUserName("");setNewUserEmail("");setNewUserPass("");setNewUserPass2("");setNewUserRole("viewer");
+    }catch(e){
+      setCreateErr(e.code==="auth/email-already-in-use"?"الايميل مستخدم بالفعل":"خطأ: "+e.message)
+    }
+    setCreating(false);
+  };
 
   return<div>
     <h1 style={{fontSize:isMob?24:32,fontWeight:800,margin:"0 0 20px"}}>الاعدادات</h1>
@@ -1350,15 +1361,29 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders}){
         <div style={{display:"flex",gap:8}}><Btn danger onClick={async()=>{try{const snap=await getDocs(collection(db,"seasons",season,"orders"));await Promise.all(snap.docs.map(d=>deleteDoc(doc(db,"seasons",season,"orders",d.id))))}catch(e){}setClearConfirm(false)}}>تأكيد المسح</Btn><Btn ghost onClick={()=>setClearConfirm(false)}>الغاء</Btn></div>
       </div>}
     </Card>
-    <Card title="ادارة المستخدمين">
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr auto",gap:10,marginBottom:20}}>
-        <Inp value={newUserEmail} onChange={setNewUserEmail} placeholder="البريد الالكتروني"/>
-        <Sel value={newUserRole} onChange={setNewUserRole}><option value="admin">مدير النظام</option><option value="manager">مدير انتاج</option><option value="viewer">مشاهد فقط</option></Sel>
-        <Btn primary onClick={()=>{if(!newUserEmail.trim())return;upConfig(d=>{if(!d.usersList)d.usersList=[];const ex=d.usersList.find(u=>u.email===newUserEmail.trim());if(ex)ex.role=newUserRole;else d.usersList.push({email:newUserEmail.trim(),role:newUserRole})});setNewUserEmail("")}}>+ اضافة</Btn>
+    <Card title="ادارة المستخدمين" style={{marginBottom:16}}>
+      {/* Create new user */}
+      <div style={{padding:20,background:T.accentBg,borderRadius:14,marginBottom:20,border:"1px solid "+T.accent+"20"}}>
+        <div style={{fontSize:FS+1,fontWeight:700,color:T.accent,marginBottom:14}}>انشاء حساب جديد</div>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:10}}>
+          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>اسم المستخدم *</label><Inp value={newUserName} onChange={setNewUserName} placeholder="الاسم الكامل"/></div>
+          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>البريد الالكتروني *</label><Inp value={newUserEmail} onChange={setNewUserEmail} placeholder="example@email.com" type="email"/></div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:10}}>
+          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>كلمة المرور *</label><Inp value={newUserPass} onChange={setNewUserPass} type="password" placeholder="6 حروف على الأقل"/></div>
+          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>تأكيد كلمة المرور *</label><Inp value={newUserPass2} onChange={setNewUserPass2} type="password" placeholder="أعد كتابة كلمة المرور"/></div>
+          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>الصلاحية</label><Sel value={newUserRole} onChange={setNewUserRole}><option value="admin">مدير النظام</option><option value="manager">مدير انتاج</option><option value="viewer">مشاهد فقط</option></Sel></div>
+        </div>
+        {createErr&&<div style={{color:T.err,fontSize:FS,marginBottom:10,fontWeight:600}}>{"⚠️ "+createErr}</div>}
+        {createOk&&<div style={{color:T.ok,fontSize:FS,marginBottom:10,fontWeight:600}}>{"✓ "+createOk}</div>}
+        <Btn primary onClick={createUser} disabled={creating}>{creating?"جاري الانشاء...":"انشاء الحساب"}</Btn>
       </div>
-      {(config.usersList||[]).length>0&&<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}><thead><tr>{["البريد","الصلاحية",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-        {(config.usersList||[]).map((u,i)=><tr key={i}><td style={{...TD,fontWeight:600}}>{u.email}</td><td style={TD}><Sel value={u.role} onChange={v=>upConfig(d=>{const x=(d.usersList||[]).find(z=>z.email===u.email);if(x)x.role=v})}><option value="admin">مدير النظام</option><option value="manager">مدير انتاج</option><option value="viewer">مشاهد فقط</option></Sel></td><td style={TD}><DelBtn onConfirm={()=>upConfig(d=>{d.usersList=(d.usersList||[]).filter(x=>x.email!==u.email)})}/></td></tr>)}
+      {/* Existing users */}
+      <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:10}}>المستخدمين الحاليين</div>
+      {(config.usersList||[]).length>0&&<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}><thead><tr>{["الاسم","البريد","الصلاحية",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
+        {(config.usersList||[]).map((u,i)=><tr key={i}><td style={{...TD,fontWeight:600}}>{u.name||"-"}</td><td style={TD}>{u.email}</td><td style={TD}><Sel value={u.role} onChange={v=>upConfig(d=>{const x=(d.usersList||[]).find(z=>z.email===u.email);if(x)x.role=v})}><option value="admin">مدير النظام</option><option value="manager">مدير انتاج</option><option value="viewer">مشاهد فقط</option></Sel></td><td style={TD}><DelBtn onConfirm={()=>upConfig(d=>{d.usersList=(d.usersList||[]).filter(x=>x.email!==u.email)})}/></td></tr>)}
       </tbody></table></div>}
+      {(config.usersList||[]).length===0&&<div style={{textAlign:"center",padding:20,color:T.textSec}}>لم يتم اضافة مستخدمين</div>}
       <div style={{marginTop:16,display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:12}}>
         {[["مدير النظام",T.accent,"كل الصلاحيات + اعدادات"],["مدير انتاج",T.ok,"اضافة وتعديل"],["مشاهد",T.warn,"عرض فقط"]].map(([n,c,d])=><div key={n} style={{padding:14,borderRadius:12,background:c+"08",border:"1px solid "+c+"25"}}><div style={{fontSize:FS,fontWeight:700,color:c,marginBottom:4}}>{n}</div><div style={{fontSize:FS-2,color:T.textSec}}>{d}</div></div>)}
       </div>
