@@ -391,37 +391,37 @@ export default function App(){
 
   return<div style={{minHeight:"100vh",direction:"rtl",fontFamily:"'Cairo',sans-serif",background:T.bg,color:T.text,fontSize:FS,display:"flex",flexDirection:"column"}}>
     {/* Top Bar */}
-    <div style={{padding:isMob?"10px 14px":"12px 28px",background:T.cardSolid,borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
-      <div style={{display:"flex",alignItems:"center",gap:10}}>
-        {tab!=="home"&&<div onClick={goHome} style={{cursor:"pointer",fontSize:20,color:T.accent,padding:"4px 10px",borderRadius:8,background:T.accentBg}}>{"⌂"}</div>}
-        {config.logo&&<img src={config.logo} alt="" style={{width:32,height:32,borderRadius:8,objectFit:"cover"}}/>}
-        <span style={{fontWeight:800,fontSize:18,color:T.accent,letterSpacing:3}}>CLARK</span>
-        <span style={{fontSize:FS-1,color:T.textSec,padding:"3px 12px",background:T.accentBg,borderRadius:8}}>{season}</span>
+    <div style={{padding:isMob?"8px 10px":"12px 28px",background:T.cardSolid,borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+      <div style={{display:"flex",alignItems:"center",gap:isMob?6:10}}>
+        {tab!=="home"&&<div onClick={goHome} style={{cursor:"pointer",fontSize:isMob?16:20,color:T.accent,padding:isMob?"3px 6px":"4px 10px",borderRadius:8,background:T.accentBg}}>{"⌂"}</div>}
+        {config.logo&&<img src={config.logo} alt="" style={{width:isMob?24:32,height:isMob?24:32,borderRadius:8,objectFit:"cover"}}/>}
+        <span style={{fontWeight:800,fontSize:isMob?14:18,color:T.accent,letterSpacing:3}}>CLARK</span>
+        <span style={{fontSize:isMob?10:FS-1,color:T.textSec,padding:"2px 8px",background:T.accentBg,borderRadius:6}}>{season}</span>
       </div>
-      <div style={{display:"flex",alignItems:"center",gap:10}}>
-        <span style={{fontSize:FS,color:T.textSec}}>{userName}</span>
-        <button onClick={()=>signOut(auth)} style={{padding:"6px 14px",borderRadius:8,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",cursor:"pointer",fontSize:FS-1,fontWeight:600,fontFamily:"inherit"}}>خروج</button>
+      <div style={{display:"flex",alignItems:"center",gap:isMob?6:10}}>
+        <span style={{fontSize:isMob?11:FS,color:T.textSec}}>{userName}</span>
+        <button onClick={()=>signOut(auth)} style={{padding:isMob?"4px 10px":"6px 14px",borderRadius:8,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",cursor:"pointer",fontSize:isMob?11:FS-1,fontWeight:600,fontFamily:"inherit"}}>خروج</button>
       </div>
     </div>
-    <div style={{flex:1,overflow:"auto",padding:isMob?14:28}}>
+    <div style={{flex:1,overflow:"auto",padding:isMob?10:28}}>
       {/* HOME SCREEN */}
       {tab==="home"&&<div>
-        <div style={{textAlign:"center",marginBottom:30}}>
-          <h1 style={{fontSize:isMob?24:34,fontWeight:800,color:T.text,margin:"0 0 6px"}}>مرحباً، {userName}</h1>
-          <div style={{fontSize:FS,color:T.textSec}}>اختر من القائمة</div>
+        <div style={{textAlign:"center",marginBottom:isMob?16:30}}>
+          <h1 style={{fontSize:isMob?20:34,fontWeight:800,color:T.text,margin:"0 0 4px"}}>مرحباً، {userName}</h1>
+          <div style={{fontSize:isMob?12:FS,color:T.textSec}}>اختر من القائمة</div>
         </div>
-        <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)",gap:isMob?14:20,maxWidth:900,margin:"0 auto"}}>
-          {TABS.filter(t=>t.key!=="settings"||userRole==="admin").map(t=><div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:20,padding:isMob?"24px 12px":"30px 20px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-4px)";e.currentTarget.style.boxShadow="0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow}}>
-            <div style={{width:isMob?56:68,height:isMob?56:68,borderRadius:18,background:t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px",fontSize:isMob?28:34}}>{t.icon}</div>
-            <div style={{fontSize:isMob?FS-1:FS,fontWeight:700,color:T.text}}>{t.label}</div>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(5,1fr)",gap:isMob?10:16,maxWidth:800,margin:"0 auto"}}>
+          {TABS.filter(t=>t.key!=="settings"||userRole==="admin").map(t=><div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:isMob?"16px 8px":"20px 14px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow}}>
+            <div style={{width:isMob?44:52,height:isMob?44:52,borderRadius:14,background:t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px",fontSize:isMob?22:26}}>{t.icon}</div>
+            <div style={{fontSize:isMob?FS-3:FS-1,fontWeight:700,color:T.text}}>{t.label}</div>
           </div>)}
         </div>
       </div>}
       {/* PAGES with back button */}
       {tab!=="home"&&<div>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
-          <Btn ghost onClick={goHome} style={{display:"flex",alignItems:"center",gap:6}}>{"← الرئيسية"}</Btn>
-          <span style={{fontSize:isMob?20:26,fontWeight:800,color:T.text}}>{TABS.find(t=>t.key===tab)?.label||""}</span>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:isMob?12:20}}>
+          <Btn ghost onClick={goHome} style={{fontSize:isMob?12:FS}}>{"← الرئيسية"}</Btn>
+          <span style={{fontSize:isMob?18:26,fontWeight:800,color:T.text}}>{TABS.find(t=>t.key===tab)?.label||""}</span>
         </div>
         {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
