@@ -15,34 +15,14 @@ const COLORS_DB = [
 
 /* ── Theme System ── */
 const THEMES = {
-  light: {
-    name:"فاتح",bg:"#EFF6FF",card:"rgba(255,255,255,0.85)",cardSolid:"#FFFFFF",glass:"rgba(255,255,255,0.6)",
-    brd:"rgba(148,163,184,0.25)",brdStrong:"rgba(148,163,184,0.4)",
-    text:"#1E293B",textSec:"#64748B",textMut:"#94A3B8",accent:"#0EA5E9",accentBg:"#E0F2FE",
-    ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#8B5CF6",shadow:"0 4px 24px rgba(0,0,0,0.06)",
-    sidebarBg:"rgba(255,255,255,0.95)",inputBg:"#FFFFFF",bodyBg:"#EFF6FF"
-  },
-  purple: {
-    name:"بنفسجي",bg:"#F8F9FC",card:"rgba(255,255,255,0.95)",cardSolid:"#FFFFFF",glass:"rgba(255,255,255,0.8)",
-    brd:"rgba(108,92,231,0.12)",brdStrong:"rgba(108,92,231,0.2)",
-    text:"#2D3436",textSec:"#636E72",textMut:"#B2BEC3",accent:"#6C5CE7",accentBg:"rgba(108,92,231,0.08)",
-    ok:"#00B894",err:"#E17055",warn:"#FDCB6E",purple:"#6C5CE7",shadow:"0 4px 20px rgba(108,92,231,0.08)",
-    sidebarBg:"#F3F4F8",inputBg:"#FFFFFF",bodyBg:"#F8F9FC"
-  },
-  dark: {
-    name:"داكن",bg:"#1A1D23",card:"rgba(36,40,50,0.95)",cardSolid:"#242832",glass:"rgba(36,40,50,0.8)",
-    brd:"rgba(255,255,255,0.08)",brdStrong:"rgba(255,255,255,0.15)",
-    text:"#E8ECF1",textSec:"#9CA3AF",textMut:"#6B7280",accent:"#00BFA5",accentBg:"rgba(0,191,165,0.12)",
-    ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#A78BFA",shadow:"0 4px 24px rgba(0,0,0,0.3)",
-    sidebarBg:"#1E222A",inputBg:"#2A2E38",bodyBg:"#1A1D23"
-  },
-  midnight: {
-    name:"ليلي",bg:"#0F172A",card:"rgba(30,41,59,0.9)",cardSolid:"#1E293B",glass:"rgba(30,41,59,0.7)",
-    brd:"rgba(148,163,184,0.12)",brdStrong:"rgba(148,163,184,0.2)",
-    text:"#F1F5F9",textSec:"#94A3B8",textMut:"#64748B",accent:"#38BDF8",accentBg:"rgba(56,189,248,0.1)",
-    ok:"#34D399",err:"#FB7185",warn:"#FBBF24",purple:"#C084FC",shadow:"0 4px 24px rgba(0,0,0,0.4)",
-    sidebarBg:"#0F172A",inputBg:"#1E293B",bodyBg:"#0F172A"
-  }
+  light:{name:"فاتح",bg:"#EFF6FF",card:"rgba(255,255,255,0.9)",cardSolid:"#FFF",glass:"rgba(255,255,255,0.6)",brd:"rgba(148,163,184,0.2)",brdStrong:"rgba(148,163,184,0.4)",text:"#1E293B",textSec:"#64748B",textMut:"#94A3B8",accent:"#0EA5E9",accentBg:"#E0F2FE",ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#8B5CF6",shadow:"0 2px 12px rgba(0,0,0,0.04)",sidebarBg:"#FFF",inputBg:"#FFF",bodyBg:"#EFF6FF"},
+  purple:{name:"بنفسجي",bg:"#F8F9FC",card:"rgba(255,255,255,0.95)",cardSolid:"#FFF",glass:"rgba(255,255,255,0.8)",brd:"rgba(108,92,231,0.1)",brdStrong:"rgba(108,92,231,0.2)",text:"#2D3436",textSec:"#636E72",textMut:"#B2BEC3",accent:"#6C5CE7",accentBg:"rgba(108,92,231,0.06)",ok:"#00B894",err:"#E17055",warn:"#FDCB6E",purple:"#6C5CE7",shadow:"0 2px 12px rgba(108,92,231,0.06)",sidebarBg:"#F3F4F8",inputBg:"#FFF",bodyBg:"#F8F9FC"},
+  teal:{name:"تيل",bg:"#F0FDFA",card:"rgba(255,255,255,0.9)",cardSolid:"#FFF",glass:"rgba(255,255,255,0.7)",brd:"rgba(20,184,166,0.12)",brdStrong:"rgba(20,184,166,0.2)",text:"#134E4A",textSec:"#5F7A76",textMut:"#9DB5B2",accent:"#14B8A6",accentBg:"rgba(20,184,166,0.06)",ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#8B5CF6",shadow:"0 2px 12px rgba(20,184,166,0.06)",sidebarBg:"#FFF",inputBg:"#FFF",bodyBg:"#F0FDFA"},
+  rose:{name:"وردي",bg:"#FFF1F2",card:"rgba(255,255,255,0.9)",cardSolid:"#FFF",glass:"rgba(255,255,255,0.7)",brd:"rgba(244,63,94,0.1)",brdStrong:"rgba(244,63,94,0.2)",text:"#1C1917",textSec:"#78716C",textMut:"#A8A29E",accent:"#F43F5E",accentBg:"rgba(244,63,94,0.06)",ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#A855F7",shadow:"0 2px 12px rgba(244,63,94,0.06)",sidebarBg:"#FFF",inputBg:"#FFF",bodyBg:"#FFF1F2"},
+  amber:{name:"ذهبي",bg:"#FFFBEB",card:"rgba(255,255,255,0.9)",cardSolid:"#FFF",glass:"rgba(255,255,255,0.7)",brd:"rgba(245,158,11,0.12)",brdStrong:"rgba(245,158,11,0.2)",text:"#1C1917",textSec:"#78716C",textMut:"#A8A29E",accent:"#D97706",accentBg:"rgba(217,119,6,0.06)",ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#8B5CF6",shadow:"0 2px 12px rgba(245,158,11,0.06)",sidebarBg:"#FFF",inputBg:"#FFF",bodyBg:"#FFFBEB"},
+  dark:{name:"داكن",bg:"#1A1D23",card:"rgba(36,40,50,0.95)",cardSolid:"#242832",glass:"rgba(36,40,50,0.8)",brd:"rgba(255,255,255,0.08)",brdStrong:"rgba(255,255,255,0.15)",text:"#E8ECF1",textSec:"#9CA3AF",textMut:"#6B7280",accent:"#00BFA5",accentBg:"rgba(0,191,165,0.1)",ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#A78BFA",shadow:"0 2px 12px rgba(0,0,0,0.2)",sidebarBg:"#1E222A",inputBg:"#2A2E38",bodyBg:"#1A1D23"},
+  midnight:{name:"ليلي",bg:"#0F172A",card:"rgba(30,41,59,0.9)",cardSolid:"#1E293B",glass:"rgba(30,41,59,0.7)",brd:"rgba(148,163,184,0.1)",brdStrong:"rgba(148,163,184,0.2)",text:"#F1F5F9",textSec:"#94A3B8",textMut:"#64748B",accent:"#38BDF8",accentBg:"rgba(56,189,248,0.08)",ok:"#34D399",err:"#FB7185",warn:"#FBBF24",purple:"#C084FC",shadow:"0 2px 12px rgba(0,0,0,0.3)",sidebarBg:"#0F172A",inputBg:"#1E293B",bodyBg:"#0F172A"},
+  charcoal:{name:"رمادي",bg:"#18181B",card:"rgba(39,39,42,0.95)",cardSolid:"#27272A",glass:"rgba(39,39,42,0.8)",brd:"rgba(255,255,255,0.06)",brdStrong:"rgba(255,255,255,0.12)",text:"#FAFAFA",textSec:"#A1A1AA",textMut:"#71717A",accent:"#A78BFA",accentBg:"rgba(167,139,250,0.1)",ok:"#34D399",err:"#FB7185",warn:"#FBBF24",purple:"#A78BFA",shadow:"0 2px 12px rgba(0,0,0,0.3)",sidebarBg:"#18181B",inputBg:"#27272A",bodyBg:"#18181B"}
 };
 let T = THEMES.light;
 
@@ -60,7 +40,7 @@ const INIT_CONFIG = {
   statusCards: DEFAULT_STATUSES,
   garmentTypes:[{id:1,name:"قميص"},{id:2,name:"شورت"},{id:3,name:"تيشيرت"},{id:4,name:"بنطلون"},{id:5,name:"شنطة"},{id:6,name:"جاكت"}],
   workshops:[{id:1,name:"CLARK",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:8},{id:2,name:"ورشة محمود",owner:"محمود",phone:"",address:"",idCard:"",ownerPhoto:"",rating:7},{id:3,name:"المصنع",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:9}],
-  seasons:["WS26"], activeSeason:"WS26", logo:"", users:{}, usersList:[],
+  seasons:["WS26"], activeSeason:"WS26", logo:"", users:{}, usersList:[], wsPayments:[],
 };
 
 function gid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
@@ -208,11 +188,11 @@ function printOrderSheet(order,t,activeFabs,statusCards){
 }
 
 /* ── UI Components (Light Glassmorphism) ── */
-const FS=15;
-const TH={textAlign:"right",padding:"12px 14px",fontSize:FS-3,fontWeight:600,color:T.textSec,whiteSpace:"nowrap",borderBottom:"2px solid "+T.brd,background:T.inputBg||T.cardSolid,textTransform:"uppercase",letterSpacing:"0.04em"};
-const TD={padding:"12px 14px",fontSize:FS,color:T.text,borderBottom:"1px solid "+T.brd,verticalAlign:"middle"};
+const FS=13;
+const TH={textAlign:"right",padding:"6px 10px",fontSize:FS-2,fontWeight:600,color:T.textSec,whiteSpace:"nowrap",borderBottom:"2px solid "+T.brd,background:T.inputBg||T.cardSolid,letterSpacing:"0.03em"};
+const TD={padding:"6px 10px",fontSize:FS,color:T.text,borderBottom:"1px solid "+T.brd,verticalAlign:"middle"};
 const TDB={...TD,fontWeight:600};
-const TDL={...TD,color:T.textSec,width:100};
+const TDL={...TD,color:T.textSec,width:80};
 
 function Badge({t,cards}){const col=getStatusColor(t,cards);return<span style={{padding:"5px 14px",borderRadius:20,fontSize:FS-2,fontWeight:600,background:col+"18",color:col,border:"1px solid "+col+"30"}}>{t}</span>}
 
@@ -221,36 +201,36 @@ function Btn({children,on,primary,danger,ghost,onClick,small,disabled,style:sx})
   if(on||primary){bg="linear-gradient(135deg,#0EA5E9,#0284C7)";fg="#fff";bd="none"}
   if(danger){bg=T.err+"12";fg=T.err;bd="1px solid "+T.err+"30"}
   if(ghost){bg="transparent";bd="none";fg=T.textSec}
-  return<button onClick={onClick} disabled={disabled} style={{padding:small?"6px 14px":"10px 22px",borderRadius:10,fontSize:small?FS-2:FS,fontWeight:600,background:bg,color:fg,border:bd,cursor:disabled?"default":"pointer",fontFamily:"inherit",opacity:disabled?0.5:1,boxShadow:primary?"0 2px 12px rgba(14,165,233,0.3)":"none",...(sx||{})}}>{children}</button>
+  return<button onClick={onClick} disabled={disabled} style={{padding:small?"4px 10px":"7px 16px",borderRadius:8,fontSize:small?FS-2:FS,fontWeight:600,background:bg,color:fg,border:bd,cursor:disabled?"default":"pointer",fontFamily:"inherit",opacity:disabled?0.5:1,boxShadow:primary?"0 2px 8px rgba(14,165,233,0.2)":"none",...(sx||{})}}>{children}</button>
 }
 
 function Inp({value,onChange,placeholder,type,step,style:sx,readOnly}){
-  return<input type={type||"text"} step={step||"any"} value={value==null?"":value} readOnly={readOnly} onChange={e=>onChange&&onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:readOnly?T.bg:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",transition:"border-color 0.2s",...(sx||{})}}/>
+  return<input type={type||"text"} step={step||"any"} value={value==null?"":value} readOnly={readOnly} onChange={e=>onChange&&onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",padding:"6px 10px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:readOnly?T.bg:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",...(sx||{})}}/>
 }
 
 function Sel({value,onChange,children}){
-  return<select value={value==null?"":value} onChange={e=>onChange(e.target.value)} style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box"}}>{children}</select>
+  return<select value={value==null?"":value} onChange={e=>onChange(e.target.value)} style={{width:"100%",padding:"6px 10px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box"}}>{children}</select>
 }
 
 function Card({children,title,extra,accent,style:sx}){
-  return<div style={{background:T.card,backdropFilter:"blur(12px)",borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow,overflow:"visible",...(sx||{})}}>
-    {(title||extra)&&<div style={{padding:"16px 22px",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",background:accent||"rgba(248,250,252,0.8)",borderRadius:"16px 16px 0 0"}}><span style={{fontSize:FS+1,fontWeight:700,color:accent?"#fff":T.text}}>{title}</span>{extra}</div>}
-    <div style={{padding:22}}>{children}</div>
+  return<div style={{background:T.card,backdropFilter:"blur(12px)",borderRadius:12,border:"1px solid "+T.brd,boxShadow:T.shadow,overflow:"visible",...(sx||{})}}>
+    {(title||extra)&&<div style={{padding:"10px 16px",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",background:accent||"rgba(248,250,252,0.8)",borderRadius:"12px 12px 0 0"}}><span style={{fontSize:FS+1,fontWeight:700,color:accent?"#fff":T.text}}>{title}</span>{extra}</div>}
+    <div style={{padding:14}}>{children}</div>
   </div>
 }
 
 function MetricCard({label,value,color,icon,sub}){
-  return<div style={{background:T.card,backdropFilter:"blur(12px)",borderRadius:16,padding:"22px 24px",border:"1px solid "+T.brd,boxShadow:T.shadow,display:"flex",alignItems:"center",gap:16}}>
-    <div style={{width:52,height:52,borderRadius:14,background:(color||T.accent)+"12",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0,boxShadow:"0 2px 8px "+(color||T.accent)+"20"}}>{icon}</div>
+  return<div style={{background:T.card,backdropFilter:"blur(12px)",borderRadius:12,padding:"14px 16px",border:"1px solid "+T.brd,boxShadow:T.shadow,display:"flex",alignItems:"center",gap:12}}>
+    <div style={{width:40,height:40,borderRadius:10,background:(color||T.accent)+"12",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{icon}</div>
     <div style={{flex:1}}>
-      <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:500}}>{label}</div>
-      <div style={{fontSize:28,fontWeight:800,color:color||T.text,letterSpacing:"-0.02em"}}>{value}</div>
-      {sub&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{sub}</div>}
+      <div style={{fontSize:FS-2,color:T.textSec,marginBottom:2,fontWeight:500}}>{label}</div>
+      <div style={{fontSize:22,fontWeight:800,color:color||T.text}}>{value}</div>
+      {sub&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:1}}>{sub}</div>}
     </div>
   </div>
 }
 
-function PBar({value,color}){return<div style={{height:10,borderRadius:5,background:"#E2E8F0",overflow:"hidden",marginTop:8}}><div style={{height:"100%",width:Math.min(value,100)+"%",borderRadius:5,background:color||"linear-gradient(90deg,#0EA5E9,#06B6D4)",transition:"width 0.6s"}}/></div>}
+function PBar({value,color}){return<div style={{height:6,borderRadius:3,background:"#E2E8F0",overflow:"hidden",marginTop:4}}><div style={{height:"100%",width:Math.min(value,100)+"%",borderRadius:3,background:color||"linear-gradient(90deg,#0EA5E9,#06B6D4)",transition:"width 0.6s"}}/></div>}
 
 function DelBtn({onConfirm,label,blocked}){
   const[confirm,setConfirm]=useState(false);const[showBlock,setShowBlock]=useState(false);
@@ -427,7 +407,7 @@ export default function App(){
         {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
         {tab==="orders"&&<OrdPg data={data} addOrder={addOrder} delOrder={delOrder} updOrder={updOrder} goD={goD} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
         {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEdit} statusCards={statusCards} goHome={goHome}/>}
-        {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
+        {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
         {tab==="search"&&<SearchPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="report"&&<RepPg data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="cost"&&<CostPg data={data} isMob={isMob} statusCards={statusCards}/>}
@@ -920,7 +900,7 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
 }
 
 /* ══ EXTERNAL PRODUCTION ══ */
-function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
+function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards}){
   const[mode,setMode]=useState(null);
   const[selWs,setSelWs]=useState("");
   const[selOrder,setSelOrder]=useState("");
@@ -930,9 +910,11 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
   const[delNote,setDelNote]=useState("");
   const[delPrice,setDelPrice]=useState(0);
   const[rcvInputs,setRcvInputs]=useState({});
-  const getRcv=(key)=>rcvInputs[key]||{qty:0,note:""};
+  const getRcv=(key)=>rcvInputs[key]||{qty:0,note:"",price:0};
   const setRcv=(key,field,val)=>setRcvInputs(p=>({...p,[key]:{...getRcv(key),[field]:val}}));
   const clearRcv=(key)=>setRcvInputs(p=>{const n={...p};delete n[key];return n});
+  /* Payment states */
+  const[payWs,setPayWs]=useState("");const[payAmt,setPayAmt]=useState(0);const[payNote,setPayNote]=useState("");const[payType,setPayType]=useState("payment");const[payDate,setPayDate]=useState(new Date().toISOString().split("T")[0]);
   const[movQ,setMovQ]=useState("");
   const[movWsF,setMovWsF]=useState("الكل");
   const[editMov,setEditMov]=useState(null);
@@ -979,16 +961,16 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
 
   const receiveFromWs=(orderId,wdIdx,andPrint,printData,cardKey)=>{
     const rv=getRcv(cardKey);
-    if(!rv.qty)return;
+    if(!rv.qty||!rv.price){if(!rv.price)alert("سعر التشغيل مطلوب");return}
     const ord=data.orders.find(o=>o.id===orderId);if(!ord)return;
     const wd=(ord.workshopDeliveries||[])[wdIdx];if(!wd)return;
     const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
     const maxRcv=(Number(wd.qty)||0)-rcvd;
     const saveQty=Math.min(Number(rv.qty),maxRcv);if(saveQty<=0)return;
-    const saveNote=rv.note;const saveDate=new Date().toISOString().split("T")[0];
+    const saveNote=rv.note;const savePrice=Number(rv.price)||0;const saveDate=new Date().toISOString().split("T")[0];
     updOrder(orderId,o=>{
       if(!o.workshopDeliveries[wdIdx].receives)o.workshopDeliveries[wdIdx].receives=[];
-      o.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty,notes:saveNote});
+      o.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty,notes:saveNote,price:savePrice,amount:r2(saveQty*savePrice)});
       o.status=recomputeStatus(o)
     });
     clearRcv(cardKey);
@@ -1020,18 +1002,32 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
     else{updOrder(m.orderId,o=>{o.workshopDeliveries[m.wdIdx].receives.splice(m.rIdx,1);o.status=recomputeStatus(o)})}
   };
 
+  /* Workshop accounts calculation */
+  const wsAccounts=(wsName)=>{let due=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===wsName).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});
+    const payments=(data.wsPayments||[]).filter(p=>p.wsName===wsName);
+    const totalPaid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);
+    const totalPurchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);
+    return{due,totalPaid,totalPurchase,balance:due+totalPurchase-totalPaid}
+  };
+  const addPayment=()=>{if(!payWs||!payAmt)return;upConfig(d=>{if(!d.wsPayments)d.wsPayments=[];d.wsPayments.push({id:gid(),wsName:payWs,amount:Number(payAmt),type:payType,notes:payNote,date:payDate})});setPayAmt(0);setPayNote("");setPayDate(new Date().toISOString().split("T")[0])};
+
   if(!mode)return<div>
-    <h1 style={{fontSize:isMob?24:32,fontWeight:800,margin:"0 0 24px"}}>التشغيل الخارجي</h1>
-    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:20,marginBottom:24}}>
-      <div onClick={()=>setMode("deliver")} style={{background:T.card,backdropFilter:"blur(12px)",borderRadius:20,padding:40,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center"}}>
-        <div style={{fontSize:48,marginBottom:16}}>📤</div>
-        <div style={{fontSize:FS+4,fontWeight:800,color:T.accent,marginBottom:8}}>تسليم ورشة</div>
-        <div style={{fontSize:FS,color:T.textSec}}>تسليم أوردرات للورش الخارجية</div>
+    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:12,marginBottom:20}}>
+      <div onClick={()=>setMode("deliver")} style={{background:T.card,borderRadius:14,padding:isMob?16:24,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center"}}>
+        <div style={{fontSize:32,marginBottom:8}}>📤</div>
+        <div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>تسليم ورشة</div>
       </div>
-      <div onClick={()=>setMode("receive")} style={{background:T.card,backdropFilter:"blur(12px)",borderRadius:20,padding:40,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center"}}>
-        <div style={{fontSize:48,marginBottom:16}}>📥</div>
-        <div style={{fontSize:FS+4,fontWeight:800,color:T.ok,marginBottom:8}}>استلام من ورشة</div>
-        <div style={{fontSize:FS,color:T.textSec}}>استلام أوردرات من الورش الخارجية</div>
+      <div onClick={()=>setMode("receive")} style={{background:T.card,borderRadius:14,padding:isMob?16:24,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center"}}>
+        <div style={{fontSize:32,marginBottom:8}}>📥</div>
+        <div style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>استلام من ورشة</div>
+      </div>
+      <div onClick={()=>setMode("payment")} style={{background:T.card,borderRadius:14,padding:isMob?16:24,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center"}}>
+        <div style={{fontSize:32,marginBottom:8}}>💳</div>
+        <div style={{fontSize:FS+1,fontWeight:800,color:T.purple}}>اضافة دفعة</div>
+      </div>
+      <div onClick={()=>setMode("accounts")} style={{background:T.card,borderRadius:14,padding:isMob?16:24,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center"}}>
+        <div style={{fontSize:32,marginBottom:8}}>📊</div>
+        <div style={{fontSize:FS+1,fontWeight:800,color:T.warn}}>حسابات الورش</div>
       </div>
     </div>
     {/* Movement Log with search/filter */}
@@ -1192,11 +1188,13 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
                 {(wd.receives||[]).length>0&&<div style={{marginBottom:12}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:350}}><thead><tr>{["#","التاريخ","الكمية","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
                   {wd.receives.map((r,ri)=>{const rBal=bal+Number(r.qty);return<tr key={ri}><td style={TD}>{ri+1}</td><td style={TD}>{r.date}</td><td style={TDB}>{r.qty}</td><td style={TD}>{r.notes||"-"}</td><td style={TD}><Btn small onClick={()=>printReceiveReceipt(selWs,ord.modelNo,r.qty,r.date,rBal)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>طباعة</Btn></td></tr>})}
                 </tbody></table></div></div>}
-                {canEdit&&bal>0&&(()=>{const ck=ord.id+"-"+actualIdx;const rv=getRcv(ck);return<div style={{display:"flex",gap:8,flexWrap:"wrap",padding:12,background:T.inputBg||T.cardSolid,borderRadius:10,alignItems:"end"}}>
-                  <div style={{flex:1,minWidth:80}}><Inp type="number" value={rv.qty} onChange={v=>setRcv(ck,"qty",Math.min(Number(v)||0,bal))} placeholder="الكمية"/></div>
-                  <div style={{flex:1,minWidth:100}}><Inp value={rv.note} onChange={v=>setRcv(ck,"note",v)} placeholder="ملاحظات"/></div>
-                  <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,false,null,ck)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>حفظ الاستلام</Btn>
-                  <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,true,{modelNo:ord.modelNo,bal},ck)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>حفظ + طباعة</Btn>
+                {canEdit&&bal>0&&(()=>{const ck=ord.id+"-"+actualIdx;const rv=getRcv(ck);return<div style={{display:"flex",gap:6,flexWrap:"wrap",padding:10,background:T.inputBg||T.cardSolid,borderRadius:8,alignItems:"end"}}>
+                  <div style={{minWidth:70}}><label style={{fontSize:FS-3,color:T.textSec}}>الكمية</label><Inp type="number" value={rv.qty} onChange={v=>setRcv(ck,"qty",Math.min(Number(v)||0,bal))}/></div>
+                  <div style={{minWidth:70}}><label style={{fontSize:FS-3,color:T.err}}>سعر القطعة *</label><Inp type="number" value={rv.price} onChange={v=>setRcv(ck,"price",Number(v)||0)}/></div>
+                  <div style={{minWidth:80}}><label style={{fontSize:FS-3,color:T.textSec}}>المبلغ</label><div style={{padding:"6px 10px",borderRadius:8,background:T.accent+"10",fontWeight:700,color:T.accent,fontSize:FS}}>{fmt(r2((rv.qty||0)*(rv.price||0)))+" ج.م"}</div></div>
+                  <div style={{flex:1,minWidth:80}}><label style={{fontSize:FS-3,color:T.textSec}}>ملاحظات</label><Inp value={rv.note} onChange={v=>setRcv(ck,"note",v)}/></div>
+                  <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,false,null,ck)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>حفظ</Btn>
+                  <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,true,{modelNo:ord.modelNo,bal},ck)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>حفظ+طباعة</Btn>
                 </div>})()}
                 {bal===0&&<div style={{textAlign:"center",padding:10,color:T.ok,fontWeight:700,fontSize:FS}}>{"✓ تم استلام الكمية كاملة"}</div>}
               </div>
@@ -1219,7 +1217,68 @@ function ExtProdPg({data,updOrder,isMob,canEdit,statusCards}){
         </tr>)}</tbody>
       </table></div>
     </Card>}
-  </div>
+  </div>;
+
+  /* ── PAYMENT MODE ── */
+  if(mode==="payment")return<div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><h2 style={{fontSize:isMob?18:22,fontWeight:800,margin:0}}>{"💳 اضافة دفعة"}</h2><Btn ghost onClick={()=>setMode(null)}>← عودة</Btn></div>
+    <Card title="تسجيل دفعة" style={{marginBottom:14}}>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:8,marginBottom:8}}>
+        <div><label style={{fontSize:FS-2,color:T.textSec}}>الورشة *</label><Sel value={payWs} onChange={setPayWs}><option value="">-- اختر --</option>{workshops.map(w=><option key={w.id} value={w.name}>{w.name}</option>)}</Sel></div>
+        <div><label style={{fontSize:FS-2,color:T.textSec}}>نوع الحركة</label><Sel value={payType} onChange={setPayType}><option value="payment">دفعة للورشة (↗ تقليل)</option><option value="purchase">مشتريات الورشة (↙ اضافة)</option></Sel></div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 2fr",gap:8,marginBottom:8}}>
+        <div><label style={{fontSize:FS-2,color:T.textSec}}>المبلغ *</label><Inp type="number" value={payAmt} onChange={v=>setPayAmt(Number(v)||0)}/></div>
+        <div><label style={{fontSize:FS-2,color:T.textSec}}>التاريخ</label><Inp type="date" value={payDate} onChange={setPayDate}/></div>
+        <div><label style={{fontSize:FS-2,color:T.textSec}}>ملاحظات</label><Inp value={payNote} onChange={setPayNote}/></div>
+      </div>
+      {payWs&&(()=>{const a=wsAccounts(payWs);return<div style={{padding:8,borderRadius:8,background:a.balance>0?T.err+"08":T.ok+"08",marginBottom:8,fontSize:FS,fontWeight:700,color:a.balance>0?T.err:T.ok}}>{"رصيد "+payWs+": "+fmt(r2(a.balance))+" ج.م"}</div>})()}
+      <Btn primary onClick={addPayment} disabled={!payWs||!payAmt}>تسجيل</Btn>
+    </Card>
+    {payWs&&<Card title={"دفعات "+payWs}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["التاريخ","النوع","المبلغ","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
+      {(data.wsPayments||[]).filter(p=>p.wsName===payWs).sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map((p,i)=><tr key={i} style={{background:p.type==="payment"?"#FEF2F2":"#F0FDF4"}}>
+        <td style={TD}>{p.date}</td><td style={{...TD,fontWeight:700,color:p.type==="payment"?T.err:T.ok}}>{p.type==="payment"?"دفعة ↗":"مشتريات ↙"}</td>
+        <td style={{...TDB,color:p.type==="payment"?T.err:T.ok}}>{fmt(p.amount)+" ج.م"}</td><td style={TD}>{p.notes||"-"}</td>
+        <td style={TD}><DelBtn onConfirm={()=>upConfig(d=>{d.wsPayments=(d.wsPayments||[]).filter(x=>x.id!==p.id)})}/></td>
+      </tr>)}{(data.wsPayments||[]).filter(p=>p.wsName===payWs).length===0&&<tr><td colSpan={5} style={{...TD,textAlign:"center",color:T.textSec}}>لا توجد دفعات</td></tr>}
+    </tbody></table></div></Card>}
+  </div>;
+
+  /* ── ACCOUNTS MODE ── */
+  if(mode==="accounts"){
+    return<div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><h2 style={{fontSize:isMob?18:22,fontWeight:800,margin:0}}>{"📊 حسابات الورش"}</h2><Btn ghost onClick={()=>setMode(null)}>← عودة</Btn></div>
+      <Card title="ملخص الحسابات" style={{marginBottom:14}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
+        <thead><tr>{["الورشة","مستحق تشغيل","مشتريات","اجمالي","مدفوع","الرصيد"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+        <tbody>{workshops.map(w=>{const a=wsAccounts(w.name);if(a.due===0&&a.totalPaid===0&&a.totalPurchase===0)return null;return<tr key={w.id}>
+          <td style={{...TD,fontWeight:700}}>{w.name}</td><td style={{...TDB,color:T.accent}}>{fmt(r2(a.due))}</td><td style={{...TDB,color:T.ok}}>{fmt(r2(a.totalPurchase))}</td>
+          <td style={TDB}>{fmt(r2(a.due+a.totalPurchase))}</td><td style={{...TDB,color:T.warn}}>{fmt(r2(a.totalPaid))}</td>
+          <td style={{...TDB,fontSize:FS+2,color:a.balance>0?T.err:T.ok}}>{fmt(r2(a.balance))+" ج.م"}</td></tr>})}</tbody>
+      </table></div></Card>
+      {/* Per-workshop statement */}
+      {workshops.map(w=>{const a=wsAccounts(w.name);if(a.due===0&&a.totalPaid===0)return null;
+        const entries=[];
+        data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{(wd.receives||[]).forEach(r=>{entries.push({date:r.date,desc:o.modelNo+(wd.garmentType?" - "+wd.garmentType:""),qty:r.qty,price:r.price||0,amount:r2((r.qty||0)*(r.price||0)),type:"due"})})})});
+        (data.wsPayments||[]).filter(p=>p.wsName===w.name).forEach(p=>{entries.push({date:p.date,desc:p.type==="payment"?"دفعة"+(p.notes?" - "+p.notes:""):"مشتريات"+(p.notes?" - "+p.notes:""),amount:p.amount,type:p.type})});
+        entries.sort((a,b)=>(a.date||"").localeCompare(b.date||""));let running=0;
+        return<Card key={w.id} title={"كشف حساب: "+w.name} style={{marginTop:12}}>
+          <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+            <span style={{padding:"4px 10px",borderRadius:6,background:T.accent+"10",fontSize:FS-1,fontWeight:600}}>{"مستحق: "+fmt(r2(a.due))}</span>
+            <span style={{padding:"4px 10px",borderRadius:6,background:T.warn+"10",fontSize:FS-1,fontWeight:600}}>{"مدفوع: "+fmt(r2(a.totalPaid))}</span>
+            <span style={{padding:"4px 10px",borderRadius:6,background:a.balance>0?T.err+"10":T.ok+"10",fontSize:FS-1,fontWeight:700,color:a.balance>0?T.err:T.ok}}>{"الرصيد: "+fmt(r2(a.balance))+" ج.م"}</span>
+          </div>
+          <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["التاريخ","البيان","كمية","سعر","مستحق","مدفوع","الرصيد"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+            <tbody>{entries.map((e,i)=>{if(e.type==="due"||e.type==="purchase")running+=e.amount;else running-=e.amount;
+              return<tr key={i} style={{background:e.type==="payment"?"#FEF2F2":e.type==="purchase"?"#F0FDF4":""}}>
+                <td style={TD}>{e.date}</td><td style={TD}>{e.desc}</td><td style={TDB}>{e.qty||"-"}</td><td style={TD}>{e.price?e.price:"-"}</td>
+                <td style={{...TDB,color:T.accent}}>{e.type==="due"?fmt(e.amount):e.type==="purchase"?fmt(e.amount):"-"}</td>
+                <td style={{...TDB,color:T.err}}>{e.type==="payment"?fmt(e.amount):"-"}</td>
+                <td style={{...TDB,color:running>0?T.err:T.ok}}>{fmt(r2(running))}</td></tr>})}</tbody>
+          </table></div>
+        </Card>})}
+    </div>
+  }
+  return null
 }
 
 /* ══ SEARCH ══ */
@@ -1329,22 +1388,14 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders}){
     <h1 style={{fontSize:isMob?24:32,fontWeight:800,margin:"0 0 20px"}}>الاعدادات</h1>
     {/* Theme Selector */}
     <Card title="مظهر التطبيق" style={{marginBottom:16}}>
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:14}}>
-        {Object.entries(THEMES).map(([key,th])=><div key={key} onClick={()=>setTheme(key)} style={{cursor:"pointer",borderRadius:16,overflow:"hidden",border:theme===key?"3px solid "+th.accent:"2px solid "+th.brd,boxShadow:theme===key?"0 0 20px "+th.accent+"40":"none",transition:"all 0.2s"}}>
-          <div style={{background:th.bg,padding:14}}>
-            <div style={{display:"flex",gap:8,marginBottom:10}}>
-              <div style={{width:40,height:50,borderRadius:8,background:th.sidebarBg||th.cardSolid,border:"1px solid "+th.brd}}/>
-              <div style={{flex:1}}>
-                <div style={{height:10,borderRadius:4,background:th.accent,width:"60%",marginBottom:6}}/>
-                <div style={{height:8,borderRadius:4,background:th.textMut,width:"80%",marginBottom:6}}/>
-                <div style={{display:"flex",gap:4}}>
-                  <div style={{height:24,flex:1,borderRadius:6,background:th.cardSolid,border:"1px solid "+th.brd}}/>
-                  <div style={{height:24,flex:1,borderRadius:6,background:th.cardSolid,border:"1px solid "+th.brd}}/>
-                </div>
-              </div>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)",gap:10}}>
+        {Object.entries(THEMES).map(([key,th])=><div key={key} onClick={()=>setTheme(key)} style={{cursor:"pointer",borderRadius:10,overflow:"hidden",border:theme===key?"2px solid "+th.accent:"1px solid "+th.brd,boxShadow:theme===key?"0 0 12px "+th.accent+"30":"none"}}>
+          <div style={{background:th.bg,padding:10}}>
+            <div style={{display:"flex",gap:6,marginBottom:6}}>
+              <div style={{width:24,height:30,borderRadius:4,background:th.cardSolid,border:"1px solid "+th.brd}}/>
+              <div style={{flex:1}}><div style={{height:6,borderRadius:3,background:th.accent,width:"60%",marginBottom:4}}/><div style={{height:5,borderRadius:3,background:th.textMut,width:"80%"}}/></div>
             </div>
-            <div style={{textAlign:"center",fontWeight:700,fontSize:FS,color:th.text}}>{th.name}</div>
-            {theme===key&&<div style={{textAlign:"center",fontSize:FS-2,color:th.accent,fontWeight:600,marginTop:4}}>✓ مفعّل</div>}
+            <div style={{textAlign:"center",fontWeight:700,fontSize:FS-1,color:th.text}}>{th.name}{theme===key?" ✓":""}</div>
           </div>
         </div>)}
       </div>
