@@ -1387,50 +1387,75 @@ function SearchPg({data,goD,isMob,season,statusCards}){
 function RepPg({data,isMob,season,statusCards}){
   const[filter,setFilter]=useState("الكل");
   const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
-  const list=filter==="الكل"?data.orders:data.orders.filter(o=>o.status===filter);
+  const list=sortOrders(filter==="الكل"?data.orders:data.orders.filter(o=>o.status===filter));
   const cutQ=list.reduce((s,o)=>s+calcOrder(o).cutQty,0);
   const delQ=list.reduce((s,o)=>s+(o.deliveredQty||0),0);
   const comp=cutQ?Math.round((delQ/cutQ)*100):0;
-  const today=new Date().toLocaleDateString("ar-EG",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
+  const today=new Date().toLocaleDateString("ar-EG",{year:"numeric",month:"long",day:"numeric"});
+  const fabName=(o,k)=>{const l=gf(o,k,"Label");return l?l.split(" - ")[0]:null};
+  const activeFabs=(o)=>FKEYS.filter(k=>gf(o,k)&&gc(o,k).length>0);
+  const printRep=()=>{const el=document.getElementById("rep-area");if(!el)return;const pw=window.open("","_blank");if(!pw)return;pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>تقرير الانتاج - "+season+"</title><style>body{font-family:'Cairo',Arial;padding:20px;font-size:11px;direction:rtl;color:#1e293b}table{width:100%;border-collapse:collapse;margin:8px 0}th,td{border:1px solid #ddd;padding:5px 8px;text-align:right}th{background:#f1f5f9;font-weight:700;font-size:10px}.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;margin:1px}.fab{background:#e0f2fe;color:#0284c7}.ws{background:#f0fdf4;color:#059669}.st{background:#fef3c7;color:#92400e}h1{font-size:20px;color:#0284c7;margin:0 0 4px}.sub{color:#64748b;font-size:11px;margin-bottom:12px}.mc{display:inline-block;padding:8px 16px;border:1px solid #e2e8f0;border-radius:8px;margin:0 4px 8px;text-align:center}.mc b{display:block;font-size:18px}@media print{body{padding:10px}}</style></head><body>"+el.innerHTML+"</body></html>");pw.document.close();setTimeout(()=>{pw.focus();pw.print()},500)};
 
   return<div>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:10}}>
-      <div><div style={{fontSize:isMob?18:26,fontWeight:800,color:T.text}}>{today}</div><div style={{fontSize:FS+2,color:T.accent,fontWeight:700,marginTop:4}}>{"الموسم: "+season}</div></div>
-      <Btn onClick={()=>{const el=document.getElementById("rep-area");if(!el)return;const pw=window.open("","_blank");if(!pw)return;pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>تقرير الانتاج</title><style>body{font-family:'Cairo',Arial;padding:20px;font-size:13px;direction:rtl}table{width:100%;border-collapse:collapse;margin:10px 0}th,td{border:1px solid #ddd;padding:8px;text-align:right}th{background:#f5f5f5;font-weight:700}@media print{body{padding:10px}}</style></head><body>"+el.innerHTML+"</body></html>");pw.document.close();setTimeout(()=>{pw.focus();pw.print()},500)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>طباعة التقرير</Btn>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+      <div><div style={{fontSize:FS,color:T.textSec}}>{today}</div></div>
+      <Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>طباعة التقرير</Btn>
     </div>
     <div id="rep-area">
-      <h1 style={{fontSize:isMob?22:30,fontWeight:800,margin:"16px 0 20px"}}>تقرير قص وانتاج المصنع</h1>
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:12,marginBottom:20}}>
-        <MetricCard label="كمية القص" value={fmt(cutQ)} icon="✂️" color={T.accent}/>
-        <MetricCard label="تسليم مخزن" value={fmt(delQ)} icon="📦" color={T.ok}/>
-        <MetricCard label="رصيد بالمصنع" value={fmt(cutQ-delQ)} icon="🏭" color={T.warn}/>
-        <div style={{background:T.card,borderRadius:16,padding:"22px 24px",border:"1px solid "+T.brd,boxShadow:T.shadow}}>
-          <div style={{fontSize:FS,color:T.textSec,marginBottom:8,fontWeight:600}}>معدل الانجاز</div>
-          <div style={{fontSize:32,fontWeight:800,color:T.accent}}>{comp+"%"}</div>
-          <PBar value={comp}/>
-        </div>
+      <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>تقرير قص وانتاج المصنع</h1>
+      <div className="sub" style={{fontSize:FS-1,color:T.textSec,marginBottom:12}}>{"الموسم: "+season+" | "+list.length+" موديل | "+today}</div>
+      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+        <div className="mc" style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+T.brd,background:T.cardSolid,textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>كمية القص</div><b style={{fontSize:20,fontWeight:800,color:T.accent}}>{fmt(cutQ)}</b></div>
+        <div className="mc" style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+T.brd,background:T.cardSolid,textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>مخزن جاهز</div><b style={{fontSize:20,fontWeight:800,color:T.ok}}>{fmt(delQ)}</b></div>
+        <div className="mc" style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+T.brd,background:T.cardSolid,textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>الرصيد</div><b style={{fontSize:20,fontWeight:800,color:T.warn}}>{fmt(cutQ-delQ)}</b></div>
+        <div className="mc" style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+T.brd,background:T.cardSolid,textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>الانجاز</div><b style={{fontSize:20,fontWeight:800,color:comp>=80?T.ok:comp>=50?T.warn:T.err}}>{comp+"%"}</b></div>
       </div>
-      <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>{["الكل",...statuses].map(s=><Btn key={s} on={filter===s} small onClick={()=>setFilter(s)}>{s}</Btn>)}</div>
-      <Card><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:800}}>
-        <thead><tr>{["#","رقم الموديل","وصف الموديل",...FKEYS.map(k=>"خامة "+k),"كمية القص","تسليم مخزن","رصيد","الحالة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
-        <tbody>{list.map((o,i)=>{const c=calcOrder(o);return<tr key={o.id}><td style={TD}>{i+1}</td><td style={TDB}>{o.modelNo}</td><td style={TD}>{o.modelDesc}</td>
-          {FKEYS.map(k=><td key={k} style={{...TD,fontSize:FS-2,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{gf(o,k,"Label")?gf(o,k,"Label").split(" - ")[0]:"-"}</td>)}
-          <td style={{...TDB,color:T.accent}}>{c.cutQty}</td><td style={TD}>{o.deliveredQty||0}</td><td style={{...TD,color:c.balance>0?T.warn:T.ok,fontWeight:700}}>{c.balance}</td><td style={TD}><Badge t={o.status} cards={statusCards}/></td></tr>})}
-          {list.length===0&&<tr><td colSpan={12} style={{...TD,textAlign:"center",color:T.textSec,padding:40}}>لا توجد بيانات</td></tr>}
+      <div style={{display:"flex",gap:4,marginBottom:12,flexWrap:"wrap"}}>{["الكل",...statuses].map(s=><Btn key={s} on={filter===s} small onClick={()=>setFilter(s)}>{s}</Btn>)}</div>
+      <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
+        <thead><tr>{["#","الموديل","الوصف","الخامات","القطع","كمية القص","مخزن","رصيد","الورش","الحالة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+        <tbody>{list.map((o,i)=>{const c=calcOrder(o);const aFabs=activeFabs(o);const wds=o.workshopDeliveries||[];const pieces=o.orderPieces||[];
+          return<tr key={o.id}>
+          <td style={TD}>{i+1}</td><td style={TDB}>{o.modelNo}</td><td style={{...TD,maxWidth:120}}>{o.modelDesc}</td>
+          <td style={TD}><div style={{display:"flex",gap:3,flexWrap:"wrap"}}>{aFabs.map(k=><span key={k} className="fab" style={{display:"inline-block",padding:"1px 6px",borderRadius:4,fontSize:FS-3,fontWeight:600,background:FCOL[FKEYS.indexOf(k)]+"18",color:FCOL[FKEYS.indexOf(k)]}}>{fabName(o,k)}</span>)}</div></td>
+          <td style={TD}>{pieces.length>0?<div style={{display:"flex",gap:2,flexWrap:"wrap"}}>{pieces.map(p=><span key={p} style={{fontSize:FS-3,padding:"1px 5px",borderRadius:4,background:T.purple+"10",color:T.purple,fontWeight:600}}>{p}</span>)}</div>:"-"}</td>
+          <td style={{...TDB,color:T.accent}}>{c.cutQty}</td><td style={TDB}>{o.deliveredQty||0}</td>
+          <td style={{...TDB,color:c.balance>0?T.warn:T.ok}}>{c.balance}</td>
+          <td style={TD}>{wds.length>0?<div style={{display:"flex",gap:2,flexWrap:"wrap"}}>{[...new Set(wds.map(wd=>wd.wsName))].map(n=><span key={n} className="ws" style={{fontSize:FS-3,padding:"1px 5px",borderRadius:4,background:T.ok+"10",color:T.ok,fontWeight:600}}>{n}</span>)}</div>:"-"}</td>
+          <td style={TD}><Badge t={o.status} cards={statusCards}/></td></tr>})}
+          {list.length===0&&<tr><td colSpan={10} style={{...TD,textAlign:"center",color:T.textSec,padding:30}}>لا توجد بيانات</td></tr>}
         </tbody>
-      </table></div></Card>
+      </table></div>
     </div>
   </div>
 }
 
 /* ══ COST ══ */
 function CostPg({data,isMob,statusCards}){
-  return<div><h1 style={{fontSize:isMob?24:32,fontWeight:800,margin:"0 0 20px"}}>تقرير التكاليف</h1>
-    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(auto-fit,minmax(160px,1fr))",gap:12,marginBottom:20}}><MetricCard label="عدد الموديلات" value={data.orders.length} icon="📦" color={T.accent}/><MetricCard label="اجمالي القص" value={fmt(data.orders.reduce((s,o)=>s+calcOrder(o).cutQty,0))} icon="✂️" color={T.ok}/></div>
-    <Card><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:550}}><thead><tr>{["#","موديل","الوصف","الكمية","تسليم","رصيد","تكلفة القطعة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-      {sortOrders(data.orders).map((o,i)=>{const c=calcOrder(o);return<tr key={o.id}><td style={TD}>{i+1}</td><td style={TDB}>{o.modelNo}</td><td style={TD}>{o.modelDesc}</td><td style={{...TDB,color:T.accent}}>{c.cutQty}</td><td style={TD}>{o.deliveredQty||0}</td><td style={{...TD,color:c.balance>0?T.warn:T.ok,fontWeight:700}}>{c.balance}</td><td style={{...TDB,color:T.accent,fontSize:FS+2}}>{c.costPer+" ج.م"}</td></tr>})}
-      {data.orders.length===0&&<tr><td colSpan={7} style={{...TD,textAlign:"center",color:T.textSec,padding:40}}>لا توجد بيانات</td></tr>}
-    </tbody></table></div></Card>
+  const orders=sortOrders(data.orders);const totalCut=orders.reduce((s,o)=>s+calcOrder(o).cutQty,0);const totalCost=orders.reduce((s,o)=>s+calcOrder(o).costAll,0);
+  const fabName=(o,k)=>{const l=gf(o,k,"Label");return l?l.split(" - ")[0]:null};
+  return<div>
+    <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+      <div style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+T.brd,background:T.cardSolid,textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>الموديلات</div><b style={{fontSize:18,fontWeight:800,color:T.accent}}>{orders.length}</b></div>
+      <div style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+T.brd,background:T.cardSolid,textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>اجمالي القص</div><b style={{fontSize:18,fontWeight:800,color:T.ok}}>{fmt(totalCut)}</b></div>
+      <div style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+T.brd,background:T.cardSolid,textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>اجمالي التكاليف</div><b style={{fontSize:18,fontWeight:800,color:T.err}}>{fmt(r2(totalCost))+" ج.م"}</b></div>
+      <div style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+T.brd,background:T.cardSolid,textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>متوسط تكلفة القطعة</div><b style={{fontSize:18,fontWeight:800,color:T.purple}}>{totalCut?r2(totalCost/totalCut):0}{ " ج.م"}</b></div>
+    </div>
+    <Card><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:650}}>
+      <thead><tr>{["#","الموديل","الوصف","الخامات","كمية","تكلفة خامات/قطعة","اكسسوار/قطعة","تكلفة القطعة","اجمالي التكلفة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+      <tbody>{orders.map((o,i)=>{const c=calcOrder(o);const aFabs=FKEYS.filter(k=>gf(o,k)&&gc(o,k).length>0);
+        return<tr key={o.id}>
+        <td style={TD}>{i+1}</td><td style={TDB}>{o.modelNo}</td><td style={{...TD,maxWidth:100}}>{o.modelDesc}</td>
+        <td style={TD}><div style={{display:"flex",gap:3,flexWrap:"wrap"}}>{aFabs.map(k=>{const cost=gcons(o,k)*(gf(o,k,"Price")||0)*slay(gc(o,k));const perPc=c.cutQty?r2(cost/c.cutQty):0;
+          return<span key={k} style={{display:"inline-block",padding:"2px 6px",borderRadius:4,fontSize:FS-3,fontWeight:600,background:FCOL[FKEYS.indexOf(k)]+"15",color:FCOL[FKEYS.indexOf(k)],border:"1px solid "+FCOL[FKEYS.indexOf(k)]+"20"}}>{fabName(o,k)+" "+perPc+"ج"}</span>})}{aFabs.length===0&&"-"}</div></td>
+        <td style={{...TDB,color:T.accent}}>{c.cutQty}</td>
+        <td style={TDB}>{c.fabPer+" ج.م"}</td>
+        <td style={TDB}>{c.accPer+" ج.م"}</td>
+        <td style={{...TDB,color:T.accent,fontSize:FS+1}}>{c.costPer+" ج.م"}</td>
+        <td style={{...TDB,color:T.err}}>{fmt(c.costAll)+" ج.م"}</td></tr>})}
+        {orders.length>0&&<tr style={{background:T.accent+"08"}}><td colSpan={4} style={{...TD,fontWeight:800}}>الاجمالي</td><td style={{...TDB,fontWeight:800}}>{fmt(totalCut)}</td><td colSpan={2} style={TD}></td><td style={TDB}></td><td style={{...TDB,fontWeight:800,color:T.err,fontSize:FS+1}}>{fmt(r2(totalCost))+" ج.م"}</td></tr>}
+        {orders.length===0&&<tr><td colSpan={9} style={{...TD,textAlign:"center",color:T.textSec,padding:30}}>لا توجد بيانات</td></tr>}
+      </tbody>
+    </table></div></Card>
   </div>
 }
 
