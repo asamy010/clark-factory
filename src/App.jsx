@@ -891,41 +891,28 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
           </tbody></table></div>
           </Card>})()}
       </div>
-      {/* Workshop Deliveries Info (read-only from تشغيل خارجي page) */}
-      {(order.workshopDeliveries||[]).length>0&&<Card title="التشغيل الخارجي - الورش المستلمة" style={{marginBottom:16}}>
+      {/* Workshop Deliveries Info */}
+      {(order.workshopDeliveries||[]).length>0&&<Card title="التشغيل الخارجي" style={{marginBottom:16}}>
         {(order.workshopDeliveries||[]).map((wd,i)=>{
           const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
           const bal=(Number(wd.qty)||0)-rcvd;
-          return<div key={i} style={{border:"1px solid "+T.brd,borderRadius:10,marginBottom:10,overflow:"hidden"}}>
-            <div style={{padding:"10px 14px",background:bal>0?T.err+"06":T.ok+"06",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <span style={{fontWeight:700,fontSize:FS+1}}>{wd.wsName}</span>
-                {wd.wsOwner&&<span style={{fontSize:FS-1,color:T.textSec}}>{wd.wsOwner}</span>}
-                {wd.garmentType&&<span style={{fontSize:FS-2,color:T.purple,background:T.purple+"12",padding:"2px 8px",borderRadius:10}}>{wd.garmentType}</span>}
-              </div>
-              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                <span style={{padding:"3px 10px",borderRadius:6,background:T.accent+"12",fontSize:FS-2,fontWeight:600}}>{"تسليم: "+wd.qty+" - "+wd.date}</span>
-                {wd.price>0&&<span style={{padding:"3px 10px",borderRadius:6,background:T.purple+"12",fontSize:FS-2,fontWeight:600,color:T.purple}}>{"تشغيل: "+wd.price+" ج.م"}</span>}
-                <span style={{padding:"3px 10px",borderRadius:6,background:T.ok+"12",fontSize:FS-2,fontWeight:600,color:T.ok}}>{"استلم: "+rcvd}</span>
-                <span style={{padding:"3px 10px",borderRadius:6,background:bal>0?T.err+"12":T.ok+"12",fontSize:FS-2,fontWeight:700,color:bal>0?T.err:T.ok}}>{"رصيد: "+bal}</span>
+          return<div key={i} style={{border:"1px solid "+T.brd,borderRadius:8,marginBottom:8,overflow:"hidden"}}>
+            <div style={{padding:"8px 12px",background:bal>0?T.err+"05":T.ok+"05",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontWeight:700,fontSize:FS}}>{wd.wsName}</span>
+                {wd.garmentType&&<span style={{fontSize:FS-3,color:T.purple,background:T.purple+"10",padding:"1px 6px",borderRadius:6}}>{wd.garmentType}</span>}
+                <span style={{fontSize:FS-3,padding:"1px 6px",borderRadius:6,background:bal>0?T.err+"10":T.ok+"10",color:bal>0?T.err:T.ok,fontWeight:700}}>{"رصيد: "+bal}</span>
               </div>
             </div>
-            {(wd.receives||[]).length>0&&<div style={{padding:"6px 14px 10px"}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
-              <thead><tr>{["#","تاريخ الاستلام","الكمية","سعر التشغيل","المبلغ","ملاحظات"].map(h=><th key={h} style={{...TH,fontSize:FS-3}}>{h}</th>)}</tr></thead>
-              <tbody>{wd.receives.map((r,ri)=><tr key={ri}><td style={TD}>{ri+1}</td><td style={TD}>{r.date}</td><td style={{...TDB,color:T.ok}}>{r.qty}</td><td style={TD}>{r.price?r.price+" ج.م":"-"}</td><td style={{...TDB,color:T.accent}}>{r.amount?fmt(r.amount)+" ج.م":"-"}</td><td style={TD}>{r.notes||"-"}</td></tr>)}</tbody>
-            </table></div></div>}
-            {wd.notes&&<div style={{padding:"0 14px 8px",fontSize:FS-2,color:T.textSec}}>{"ملاحظات: "+wd.notes}</div>}
+            <div style={{padding:"4px 12px 8px"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead><tr>{["","الحركة","التاريخ","الكمية","ملاحظات"].map(h=><th key={h} style={{...TH,fontSize:FS-3,padding:"4px 8px"}}>{h}</th>)}</tr></thead>
+              <tbody>
+                <tr style={{background:"#F0FDF408"}}><td style={{...TD,padding:"4px 8px",textAlign:"center",color:T.ok,fontSize:14}}>↗</td><td style={{...TD,padding:"4px 8px",fontWeight:600,color:T.ok}}>تسليم للورشة</td><td style={{...TD,padding:"4px 8px"}}>{wd.date}</td><td style={{...TDB,padding:"4px 8px",color:T.ok}}>{wd.qty}</td><td style={{...TD,padding:"4px 8px",fontSize:FS-2}}>{wd.notes||"-"}</td></tr>
+                {(wd.receives||[]).map((r,ri)=><tr key={ri} style={{background:"#EFF6FF08"}}><td style={{...TD,padding:"4px 8px",textAlign:"center",color:T.accent,fontSize:14}}>↙</td><td style={{...TD,padding:"4px 8px",fontWeight:600,color:T.accent}}>استلام للمصنع</td><td style={{...TD,padding:"4px 8px"}}>{r.date}</td><td style={{...TDB,padding:"4px 8px",color:T.accent}}>{r.qty}</td><td style={{...TD,padding:"4px 8px",fontSize:FS-2}}>{r.notes||"-"}</td></tr>)}
+              </tbody>
+            </table></div>
           </div>
         })}
-        {/* Stock deliveries summary */}
-        {(order.deliveries||[]).length>0&&<div style={{borderTop:"2px solid "+T.brd,paddingTop:10,marginTop:6}}>
-          <div style={{fontSize:FS,fontWeight:700,color:T.accent,marginBottom:6}}>{"📦 تسليم مخزن جاهز ("+(order.deliveries||[]).length+")"}</div>
-          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            {(order.deliveries||[]).map((d,i)=><span key={i} style={{padding:"4px 12px",borderRadius:8,fontSize:FS-1,fontWeight:600,background:T.ok+"10",border:"1px solid "+T.ok+"20",color:T.ok}}>
-              {d.date+" — "+d.qty+" قطعة"+(d.notes?" ("+d.notes+")":"")}
-            </span>)}
-          </div>
-        </div>}
       </Card>}
       {/* Attachments */}
       {(order.attachments||[]).length>0&&<Card title="ملفات مرفقة" style={{marginBottom:16}}><div style={{display:"flex",flexWrap:"wrap",gap:10}}>{order.attachments.map((a,i)=><a key={i} href={a.data} download={a.name} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"10px 16px",borderRadius:10,background:T.accentBg,border:"1px solid "+T.brd,fontSize:FS,color:T.accent,fontWeight:600,textDecoration:"none"}}>{"📎 "+a.name}</a>)}</div></Card>}
