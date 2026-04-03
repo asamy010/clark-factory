@@ -407,7 +407,7 @@ export default function App(){
         {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
         {tab==="orders"&&<OrdPg data={data} addOrder={addOrder} delOrder={delOrder} updOrder={updOrder} goD={goD} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
         {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEdit} statusCards={statusCards} goHome={goHome}/>}
-        {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
+        {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards} season={season}/>}
         {tab==="search"&&<SearchPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="report"&&<RepPg data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="cost"&&<CostPg data={data} isMob={isMob} statusCards={statusCards}/>}
@@ -900,7 +900,7 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
 }
 
 /* ══ EXTERNAL PRODUCTION ══ */
-function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards}){
+function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
   const[mode,setMode]=useState(null);
   const[selWs,setSelWs]=useState("");
   const[selOrder,setSelOrder]=useState("");
@@ -915,6 +915,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards}){
   const clearRcv=(key)=>setRcvInputs(p=>{const n={...p};delete n[key];return n});
   /* Payment states */
   const[payWs,setPayWs]=useState("");const[payAmt,setPayAmt]=useState(0);const[payNote,setPayNote]=useState("");const[payType,setPayType]=useState("payment");const[payDate,setPayDate]=useState(new Date().toISOString().split("T")[0]);
+  const[accWsF,setAccWsF]=useState("الكل");
   const[movQ,setMovQ]=useState("");
   const[movWsF,setMovWsF]=useState("الكل");
   const[editMov,setEditMov]=useState(null);
@@ -1246,28 +1247,41 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards}){
 
   /* ── ACCOUNTS MODE ── */
   if(mode==="accounts"){
+    const activeWs=workshops.filter(w=>{const a=wsAccounts(w.name);return a.due>0||a.totalPaid>0||a.totalPurchase>0});
+    const totals=activeWs.reduce((s,w)=>{const a=wsAccounts(w.name);return{due:s.due+a.due,purchase:s.purchase+a.totalPurchase,paid:s.paid+a.totalPaid,balance:s.balance+a.balance}},{due:0,purchase:0,paid:0,balance:0});
+    const filteredWs=accWsF==="الكل"?activeWs:activeWs.filter(w=>w.name===accWsF);
     return<div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><h2 style={{fontSize:isMob?18:22,fontWeight:800,margin:0}}>{"📊 حسابات الورش"}</h2><Btn ghost onClick={()=>setMode(null)}>← عودة</Btn></div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+        <div><h2 style={{fontSize:isMob?18:22,fontWeight:800,margin:0}}>{"📊 حسابات الورش"}</h2><div style={{fontSize:FS-1,color:T.textSec}}>{"الموسم: "+season}</div></div>
+        <Btn ghost onClick={()=>setMode(null)}>← عودة</Btn>
+      </div>
       <Card title="ملخص الحسابات" style={{marginBottom:14}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
         <thead><tr>{["الورشة","مستحق تشغيل","مشتريات","اجمالي","مدفوع","الرصيد"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
-        <tbody>{workshops.map(w=>{const a=wsAccounts(w.name);if(a.due===0&&a.totalPaid===0&&a.totalPurchase===0)return null;return<tr key={w.id}>
+        <tbody>{activeWs.map(w=>{const a=wsAccounts(w.name);return<tr key={w.id}>
           <td style={{...TD,fontWeight:700}}>{w.name}</td><td style={{...TDB,color:T.accent}}>{fmt(r2(a.due))}</td><td style={{...TDB,color:T.ok}}>{fmt(r2(a.totalPurchase))}</td>
           <td style={TDB}>{fmt(r2(a.due+a.totalPurchase))}</td><td style={{...TDB,color:T.warn}}>{fmt(r2(a.totalPaid))}</td>
-          <td style={{...TDB,fontSize:FS+2,color:a.balance>0?T.err:T.ok}}>{fmt(r2(a.balance))+" ج.م"}</td></tr>})}</tbody>
+          <td style={{...TDB,fontSize:FS+1,color:a.balance>0?T.err:T.ok}}>{fmt(r2(a.balance))+" ج.م"}</td></tr>})}
+          <tr style={{background:T.accent+"08"}}><td style={{...TD,fontWeight:800}}>الاجمالي</td><td style={{...TDB,color:T.accent}}>{fmt(r2(totals.due))}</td><td style={{...TDB,color:T.ok}}>{fmt(r2(totals.purchase))}</td>
+          <td style={{...TDB,fontWeight:800}}>{fmt(r2(totals.due+totals.purchase))}</td><td style={{...TDB,color:T.warn,fontWeight:800}}>{fmt(r2(totals.paid))}</td>
+          <td style={{...TDB,fontSize:FS+2,fontWeight:800,color:totals.balance>0?T.err:T.ok}}>{fmt(r2(totals.balance))+" ج.م"}</td></tr>
+        </tbody>
       </table></div></Card>
+      {/* Workshop filter */}
+      <div style={{marginBottom:14}}><Sel value={accWsF} onChange={setAccWsF}><option value="الكل">كل الورش</option>{activeWs.map(w=><option key={w.id} value={w.name}>{w.name}</option>)}</Sel></div>
       {/* Per-workshop statement */}
-      {workshops.map(w=>{const a=wsAccounts(w.name);if(a.due===0&&a.totalPaid===0)return null;
+      {filteredWs.map(w=>{const a=wsAccounts(w.name);
         const entries=[];
         data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{(wd.receives||[]).forEach(r=>{entries.push({date:r.date,desc:o.modelNo+(wd.garmentType?" - "+wd.garmentType:""),qty:r.qty,price:r.price||0,amount:r2((r.qty||0)*(r.price||0)),type:"due"})})})});
         (data.wsPayments||[]).filter(p=>p.wsName===w.name).forEach(p=>{entries.push({date:p.date,desc:p.type==="payment"?"دفعة"+(p.notes?" - "+p.notes:""):"مشتريات"+(p.notes?" - "+p.notes:""),amount:p.amount,type:p.type})});
         entries.sort((a,b)=>(a.date||"").localeCompare(b.date||""));let running=0;
         return<Card key={w.id} title={"كشف حساب: "+w.name} style={{marginTop:12}} extra={<Btn small onClick={()=>{
           const el=document.getElementById("ws-stmt-"+w.id);if(!el)return;const pw=window.open("","_blank");if(!pw)return;
-          pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>كشف حساب "+w.name+"</title><style>body{font-family:'Cairo',Arial;padding:20px;font-size:12px;direction:rtl}table{width:100%;border-collapse:collapse;margin:10px 0}th,td{border:1px solid #ddd;padding:6px 8px;text-align:right}th{background:#f5f5f5;font-weight:700}h2{color:#0284C7;margin:0 0 10px}.badge{display:inline-block;padding:4px 12px;border-radius:6px;margin:0 4px 8px;font-weight:700;font-size:12px}@media print{body{padding:10px}}</style></head><body>"+el.innerHTML+"</body></html>");
+          pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>كشف حساب "+w.name+"</title><style>body{font-family:'Cairo',Arial;padding:20px;font-size:12px;direction:rtl}table{width:100%;border-collapse:collapse;margin:10px 0}th,td{border:1px solid #ddd;padding:6px 8px;text-align:right}th{background:#f5f5f5;font-weight:700}h2{color:#0284C7;margin:0 0 6px}.sub{color:#64748B;font-size:11px;margin-bottom:10px}.badge{display:inline-block;padding:3px 10px;border-radius:6px;margin:0 4px 8px;font-weight:700;font-size:11px}.tot{background:#f8fafc;font-weight:800}@media print{body{padding:10px}}</style></head><body>"+el.innerHTML+"</body></html>");
           pw.document.close();setTimeout(()=>{pw.focus();pw.print()},500)
         }} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>طباعة</Btn>}>
           <div id={"ws-stmt-"+w.id}>
-          <h2 style={{display:"none"}}>{"كشف حساب: "+w.name+" - "+new Date().toLocaleDateString("ar-EG")}</h2>
+          <h2>{"كشف حساب: "+w.name}</h2>
+          <div className="sub">{"الموسم: "+season+" | التاريخ: "+new Date().toLocaleDateString("ar-EG")}</div>
           <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}>
             <span className="badge" style={{padding:"4px 10px",borderRadius:6,background:T.accent+"10",fontSize:FS-1,fontWeight:600}}>{"مستحق: "+fmt(r2(a.due))}</span>
             <span className="badge" style={{padding:"4px 10px",borderRadius:6,background:T.ok+"10",fontSize:FS-1,fontWeight:600}}>{"مشتريات: "+fmt(r2(a.totalPurchase))}</span>
