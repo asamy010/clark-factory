@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
-import { auth, authSecondary, db } from "./firebase";
+import { auth, db, getSecondaryAuth } from "./firebase";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile } from "firebase/auth";
 import { doc, setDoc, onSnapshot, collection, addDoc, updateDoc, deleteDoc, getDocs } from "firebase/firestore";
 
@@ -371,9 +371,19 @@ export default function App(){
   const userRole=getUserRole();const canEdit=userRole==="admin"||userRole==="manager";
   const statusCards=config.statusCards||DEFAULT_STATUSES;
 
-  if(authLoading)return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,color:T.accent,fontSize:20,fontWeight:700}}>جاري التحميل...</div>;
+  const LoadingScreen=()=><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,direction:"rtl",fontFamily:"'Cairo',sans-serif"}}>
+    <div style={{textAlign:"center",width:280}}>
+      <div style={{fontSize:42,fontWeight:800,background:"linear-gradient(135deg,#0EA5E9,#0284C7)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",letterSpacing:8,marginBottom:24}}>CLARK</div>
+      <div style={{height:6,borderRadius:3,background:T.brd,overflow:"hidden",marginBottom:12}}>
+        <div style={{height:"100%",borderRadius:3,background:"linear-gradient(90deg,#0EA5E9,#0284C7)",animation:"loadBar 1.5s ease-in-out infinite"}}/>
+      </div>
+      <style>{`@keyframes loadBar{0%{width:0;margin-right:0}50%{width:70%;margin-right:15%}100%{width:0;margin-right:100%}}`}</style>
+    </div>
+  </div>;
+
+  if(authLoading)return<LoadingScreen/>;
   if(!user)return<LoginScreen/>;
-  if(dataLoading)return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,color:T.accent,fontSize:20,fontWeight:700,direction:"rtl"}}>{"جاري تحميل بيانات "+season+"..."}</div>;
+  if(dataLoading)return<LoadingScreen/>;
   const userName=user.displayName||user.email.split("@")[0];
 
   const goHome=()=>{setTab("home");setSel(null)};
@@ -1302,9 +1312,10 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders}){
     if(newUserPass!==newUserPass2){setCreateErr("كلمة المرور غير متطابقة");return}
     setCreating(true);
     try{
-      const cred=await createUserWithEmailAndPassword(authSecondary,newUserEmail.trim(),newUserPass);
+      const secAuth=getSecondaryAuth();
+      const cred=await createUserWithEmailAndPassword(secAuth,newUserEmail.trim(),newUserPass);
       await updateProfile(cred.user,{displayName:newUserName.trim()});
-      await signOut(authSecondary);
+      await signOut(secAuth);
       upConfig(d=>{if(!d.usersList)d.usersList=[];const ex=d.usersList.find(u=>u.email===newUserEmail.trim());if(ex){ex.role=newUserRole;ex.name=newUserName.trim()}else{d.usersList.push({email:newUserEmail.trim(),role:newUserRole,name:newUserName.trim()})}});
       setCreateOk("تم انشاء الحساب بنجاح: "+newUserEmail.trim());
       setNewUserName("");setNewUserEmail("");setNewUserPass("");setNewUserPass2("");setNewUserRole("viewer");
