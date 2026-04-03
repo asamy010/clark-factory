@@ -896,27 +896,36 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
         {(order.workshopDeliveries||[]).map((wd,i)=>{
           const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
           const bal=(Number(wd.qty)||0)-rcvd;
-          return<div key={i} style={{border:"1px solid "+T.brd,borderRadius:12,marginBottom:12,overflow:"hidden"}}>
-            <div style={{padding:"12px 16px",background:bal>0?T.err+"06":"#F0FDF4",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-              <div style={{display:"flex",alignItems:"center",gap:10}}>
+          return<div key={i} style={{border:"1px solid "+T.brd,borderRadius:10,marginBottom:10,overflow:"hidden"}}>
+            <div style={{padding:"10px 14px",background:bal>0?T.err+"06":T.ok+"06",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <span style={{fontWeight:700,fontSize:FS+1}}>{wd.wsName}</span>
                 {wd.wsOwner&&<span style={{fontSize:FS-1,color:T.textSec}}>{wd.wsOwner}</span>}
-                {wd.garmentType&&<span style={{fontSize:FS-2,color:T.purple,background:T.purple+"12",padding:"2px 10px",borderRadius:12}}>{wd.garmentType}</span>}
+                {wd.garmentType&&<span style={{fontSize:FS-2,color:T.purple,background:T.purple+"12",padding:"2px 8px",borderRadius:10}}>{wd.garmentType}</span>}
               </div>
-              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                <span style={{padding:"4px 12px",borderRadius:8,background:T.accent+"12",fontSize:FS-2,fontWeight:600}}>{"تم تسليمه: "+wd.qty+" - "+wd.date}</span>
-                {wd.price>0&&<span style={{padding:"4px 12px",borderRadius:8,background:T.purple+"12",fontSize:FS-2,fontWeight:600,color:T.purple}}>{"تشغيل: "+wd.price+" ج.م"}</span>}
-                <span style={{padding:"4px 12px",borderRadius:8,background:T.ok+"12",fontSize:FS-2,fontWeight:600,color:T.ok}}>{"استلم: "+rcvd}</span>
-                <span style={{padding:"4px 12px",borderRadius:8,background:bal>0?T.err+"15":T.ok+"15",fontSize:FS-2,fontWeight:700,color:bal>0?T.err:T.ok}}>{"رصيد: "+bal}</span>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                <span style={{padding:"3px 10px",borderRadius:6,background:T.accent+"12",fontSize:FS-2,fontWeight:600}}>{"تسليم: "+wd.qty+" - "+wd.date}</span>
+                {wd.price>0&&<span style={{padding:"3px 10px",borderRadius:6,background:T.purple+"12",fontSize:FS-2,fontWeight:600,color:T.purple}}>{"تشغيل: "+wd.price+" ج.م"}</span>}
+                <span style={{padding:"3px 10px",borderRadius:6,background:T.ok+"12",fontSize:FS-2,fontWeight:600,color:T.ok}}>{"استلم: "+rcvd}</span>
+                <span style={{padding:"3px 10px",borderRadius:6,background:bal>0?T.err+"12":T.ok+"12",fontSize:FS-2,fontWeight:700,color:bal>0?T.err:T.ok}}>{"رصيد: "+bal}</span>
               </div>
             </div>
-            {(wd.receives||[]).length>0&&<div style={{padding:"8px 16px 12px"}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
-              <thead><tr>{["#","تاريخ الاستلام","الكمية","ملاحظات"].map(h=><th key={h} style={{...TH,fontSize:FS-3}}>{h}</th>)}</tr></thead>
-              <tbody>{wd.receives.map((r,ri)=><tr key={ri}><td style={TD}>{ri+1}</td><td style={TD}>{r.date}</td><td style={{...TDB,color:T.ok}}>{r.qty}</td><td style={TD}>{r.notes||"-"}</td></tr>)}</tbody>
+            {(wd.receives||[]).length>0&&<div style={{padding:"6px 14px 10px"}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead><tr>{["#","تاريخ الاستلام","الكمية","سعر التشغيل","المبلغ","ملاحظات"].map(h=><th key={h} style={{...TH,fontSize:FS-3}}>{h}</th>)}</tr></thead>
+              <tbody>{wd.receives.map((r,ri)=><tr key={ri}><td style={TD}>{ri+1}</td><td style={TD}>{r.date}</td><td style={{...TDB,color:T.ok}}>{r.qty}</td><td style={TD}>{r.price?r.price+" ج.م":"-"}</td><td style={{...TDB,color:T.accent}}>{r.amount?fmt(r.amount)+" ج.م":"-"}</td><td style={TD}>{r.notes||"-"}</td></tr>)}</tbody>
             </table></div></div>}
-            {wd.notes&&<div style={{padding:"0 16px 10px",fontSize:FS-2,color:T.textSec}}>{"ملاحظات: "+wd.notes}</div>}
+            {wd.notes&&<div style={{padding:"0 14px 8px",fontSize:FS-2,color:T.textSec}}>{"ملاحظات: "+wd.notes}</div>}
           </div>
         })}
+        {/* Stock deliveries summary */}
+        {(order.deliveries||[]).length>0&&<div style={{borderTop:"2px solid "+T.brd,paddingTop:10,marginTop:6}}>
+          <div style={{fontSize:FS,fontWeight:700,color:T.accent,marginBottom:6}}>{"📦 تسليم مخزن جاهز ("+(order.deliveries||[]).length+")"}</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {(order.deliveries||[]).map((d,i)=><span key={i} style={{padding:"4px 12px",borderRadius:8,fontSize:FS-1,fontWeight:600,background:T.ok+"10",border:"1px solid "+T.ok+"20",color:T.ok}}>
+              {d.date+" — "+d.qty+" قطعة"+(d.notes?" ("+d.notes+")":"")}
+            </span>)}
+          </div>
+        </div>}
       </Card>}
       {/* Attachments */}
       {(order.attachments||[]).length>0&&<Card title="ملفات مرفقة" style={{marginBottom:16}}><div style={{display:"flex",flexWrap:"wrap",gap:10}}>{order.attachments.map((a,i)=><a key={i} href={a.data} download={a.name} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"10px 16px",borderRadius:10,background:T.accentBg,border:"1px solid "+T.brd,fontSize:FS,color:T.accent,fontWeight:600,textDecoration:"none"}}>{"📎 "+a.name}</a>)}</div></Card>}
