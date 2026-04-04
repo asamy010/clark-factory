@@ -866,10 +866,24 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
   const t=calcOrder(order);const accItems=order.accItems||[];const accAll=t.accPer*t.cutQty;
   const activeFabs=FKEYS.filter(k=>order["fabric"+k]);
 
+  /* Prev/Next navigation */
+  const sortedIds=sortOrders(data.orders).map(o=>o.id);const curIdx=sortedIds.indexOf(sel);
+  const prevId=curIdx>0?sortedIds[curIdx-1]:null;const nextId=curIdx<sortedIds.length-1?sortedIds[curIdx+1]:null;
+
   return<div>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
-      <h1 style={{fontSize:isMob?20:28,fontWeight:800,margin:0}}>{"أمر تشغيل - "}<span style={{color:T.accent}}>{order.modelNo}</span></h1>
-      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><Btn onClick={()=>printOrderSheet(order,t,activeFabs,statusCards)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 الأوردر</Btn>{canEdit&&<Btn primary onClick={()=>setEditing(true)}>✏️</Btn>}<Btn ghost onClick={()=>setSel(null)}>← عودة</Btn></div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        <Btn ghost onClick={()=>setSel(null)} style={{fontSize:isMob?16:20}}>✕</Btn>
+        <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:0}}>{"أمر تشغيل - "}<span style={{color:T.accent}}>{order.modelNo}</span></h1>
+      </div>
+      <div style={{display:"flex",gap:4,alignItems:"center"}}>
+        <Btn small onClick={()=>prevId&&setSel(prevId)} disabled={!prevId} style={{fontSize:18,padding:"2px 8px",opacity:prevId?1:0.3}}>→</Btn>
+        <span style={{fontSize:FS-2,color:T.textSec}}>{(curIdx+1)+"/"+sortedIds.length}</span>
+        <Btn small onClick={()=>nextId&&setSel(nextId)} disabled={!nextId} style={{fontSize:18,padding:"2px 8px",opacity:nextId?1:0.3}}>←</Btn>
+        <div style={{width:1,height:20,background:T.brd,margin:"0 4px"}}/>
+        <Btn small onClick={()=>printOrderSheet(order,t,activeFabs,statusCards)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
+        {canEdit&&<Btn small primary onClick={()=>setEditing(true)}>✏️</Btn>}
+      </div>
     </div>
     <div id="parea">
       <div style={{display:"flex",gap:10,marginBottom:12}}>
@@ -1185,7 +1199,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
   if(mode==="deliver")return<div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
       <h1 style={{fontSize:isMob?22:28,fontWeight:800,margin:0}}>{"📤 تسليم ورشة"}</h1>
-      <Btn ghost onClick={()=>{setMode(null);setSelWs("");setSelOrder("")}}>← عودة</Btn>
+      <Btn ghost onClick={()=>{setMode(null);setSelWs("");setSelOrder("")}}>↩</Btn>
     </div>
     <Card title="اختر الورشة" style={{marginBottom:16}}>
       <Sel value={selWs} onChange={v=>{setSelWs(v);setSelOrder("")}}>
@@ -1266,7 +1280,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
   if(mode==="receive")return<div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
       <h1 style={{fontSize:isMob?22:28,fontWeight:800,margin:0}}>{"📥 استلام من ورشة"}</h1>
-      <Btn ghost onClick={()=>{setMode(null);setSelWs("")}}>← عودة</Btn>
+      <Btn ghost onClick={()=>{setMode(null);setSelWs("")}}>↩</Btn>
     </div>
     <Card title="اختر الورشة" style={{marginBottom:16}}>
       <Sel value={selWs} onChange={v=>setSelWs(v)}>
@@ -1332,7 +1346,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
 
   /* ── PAYMENT MODE ── */
   if(mode==="payment")return<div>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><h2 style={{fontSize:isMob?18:22,fontWeight:800,margin:0}}>{"💳 اضافة دفعة"}</h2><Btn ghost onClick={()=>setMode(null)}>← عودة</Btn></div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><h2 style={{fontSize:isMob?18:22,fontWeight:800,margin:0}}>{"💳 اضافة دفعة"}</h2><Btn ghost onClick={()=>setMode(null)}>↩</Btn></div>
     <Card title="تسجيل دفعة" style={{marginBottom:14}}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:8,marginBottom:8}}>
         <div><label style={{fontSize:FS-2,color:T.textSec}}>الورشة *</label><Sel value={payWs} onChange={setPayWs}><option value="">-- اختر --</option>{extWorkshops.map(w=><option key={w.id} value={w.name}>{w.name}</option>)}</Sel></div>
@@ -1374,7 +1388,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         <div><h2 style={{fontSize:isMob?18:22,fontWeight:800,margin:0}}>{"📊 حسابات الورش"}</h2><div style={{fontSize:FS-1,color:T.textSec}}>{"الموسم: "+season}</div></div>
         <div style={{display:"flex",gap:6}}>
           <Btn onClick={()=>{const rows=[["الورشة","النسبة","مستحق","مدفوع","حد النسبة","متاح للدفع","الرصيد"]];activeWs.forEach(w=>{const a=wsAccounts(w.name);const pct=w.payPercent||70;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const remaining=r2(limit-a.totalPaid);rows.push([w.name,pct+"%",r2(totalDue),r2(a.totalPaid),limit,remaining>0?remaining:0,r2(a.balance)])});rows.push([]);rows.push(["اجمالي","",r2(totals.due+totals.purchase),r2(totals.paid),"","",r2(totals.balance)]);exportExcel(rows,"حسابات_الورش_"+season)}} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-          <Btn ghost onClick={()=>setMode(null)}>← عودة</Btn>
+          <Btn ghost onClick={()=>setMode(null)}>↩</Btn>
         </div>
       </div>
       <Card title="ملخص الحسابات" style={{marginBottom:14}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
@@ -1546,12 +1560,12 @@ function ReportsHub({data,isMob,season,statusCards}){
     {key:"delivery",label:"معدل التسليم",icon:"📦",color:"#10B981"},
     {key:"summary",label:"ملخص الموسم",icon:"📋",color:"#0EA5E9"},
   ];
-  if(sub==="production")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>← كل التقارير</Btn><RepPg data={data} isMob={isMob} season={season} statusCards={statusCards}/></div>;
-  if(sub==="cost")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>← كل التقارير</Btn><CostPg data={data} isMob={isMob} statusCards={statusCards}/></div>;
-  if(sub==="fabrics")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>← كل التقارير</Btn><FabricReport data={data} isMob={isMob} season={season}/></div>;
-  if(sub==="wsPerf")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>← كل التقارير</Btn><WsPerfReport data={data} isMob={isMob} season={season}/></div>;
-  if(sub==="delivery")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>← كل التقارير</Btn><DeliveryReport data={data} isMob={isMob} season={season}/></div>;
-  if(sub==="summary")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>← كل التقارير</Btn><SeasonSummary data={data} isMob={isMob} season={season} statusCards={statusCards}/></div>;
+  if(sub==="production")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><RepPg data={data} isMob={isMob} season={season} statusCards={statusCards}/></div>;
+  if(sub==="cost")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><CostPg data={data} isMob={isMob} statusCards={statusCards}/></div>;
+  if(sub==="fabrics")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><FabricReport data={data} isMob={isMob} season={season}/></div>;
+  if(sub==="wsPerf")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><WsPerfReport data={data} isMob={isMob} season={season}/></div>;
+  if(sub==="delivery")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><DeliveryReport data={data} isMob={isMob} season={season}/></div>;
+  if(sub==="summary")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><SeasonSummary data={data} isMob={isMob} season={season} statusCards={statusCards}/></div>;
   return<div>
     <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(3,1fr)",gap:12}}>
       {reports.map(r=><div key={r.key} onClick={()=>setSub(r.key)} style={{background:T.cardSolid,borderRadius:14,padding:isMob?16:20,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",display:"flex",alignItems:"center",gap:12,transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
