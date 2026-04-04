@@ -392,7 +392,7 @@ export default function App(){
 
   const[user,setUser]=useState(null);const[authLoading,setAuthLoading]=useState(true);
   const[config,setConfig]=useState(INIT_CONFIG);const[orders,setOrders]=useState([]);const[dataLoading,setDataLoading]=useState(true);
-  const[tab,setTab]=useState("home");const[sel,setSel]=useState(null);const[gSearch,setGSearch]=useState("");
+  const[tab,setTab]=useState("home");const[sel,setSel]=useState(null);const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);
   const[theme,setTheme]=useState(()=>localStorage.getItem("clark-theme")||"light");
   T=THEMES[theme]||THEMES.light;
   useEffect(()=>{localStorage.setItem("clark-theme",theme);document.body.style.background=T.bodyBg||T.bg},[theme]);
@@ -428,6 +428,14 @@ export default function App(){
   if(!user)return<LoginScreen/>;
   if(dataLoading)return<LoadingScreen/>;
   const userName=user.displayName||user.email.split("@")[0];
+  /* Compute alerts */
+  const appAlerts=(()=>{const a=[];
+    const stuckOrds=data.orders.filter(o=>o.status==="تم القص"&&(o.workshopDeliveries||[]).length===0);
+    if(stuckOrds.length>0)a.push({msg:stuckOrds.length+" أوردر لم يُسلَّم لأي ورشة",color:T.warn,icon:"⏳"});
+    const now=new Date();data.orders.filter(o=>o.status!=="تم الشحن").forEach(o=>{let lastDate=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});const diff=Math.floor((now-new Date(lastDate))/(1000*60*60*24));if(diff>7&&!stuckOrds.find(x=>x.id===o.id))a.push({msg:o.modelNo+" بدون حركة منذ "+diff+" يوم",color:T.err,icon:"🔴"})});
+    const _cutQ=data.orders.reduce((s,o)=>s+calcOrder(o).cutQty,0);const _delQ=data.orders.reduce((s,o)=>s+(o.deliveredQty||0),0);if(_cutQ&&Math.round(_delQ/_cutQ*100)>=100)a.push({msg:"تم الانتهاء من جميع الأوردرات!",color:T.ok,icon:"🎉"});
+    (data.workshops||[]).filter(w=>w.type!=="داخلي").forEach(w=>{let due=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});const purch=(data.wsPayments||[]).filter(p=>p.wsName===w.name&&p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);const paid=(data.wsPayments||[]).filter(p=>p.wsName===w.name&&p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);const pct=w.payPercent||70;const limit=r2((due+purch)*(pct/100));if(paid>limit&&due>0)a.push({msg:w.name+" تجاوز حد "+pct+"%",color:T.err,icon:"⚠️"})});
+    return a})();
 
   const goHome=()=>{setTab("home");setSel(null)};
   const goTo=(key)=>{setTab(key);if(key!=="details")setSel(null)};
@@ -456,26 +464,26 @@ export default function App(){
         </div>
       </div>}
       <div style={{display:"flex",alignItems:"center",gap:isMob?6:10}}>
+        {/* Alerts Bell */}
+        <div style={{position:"relative"}}>
+          <div onClick={()=>setShowAlerts(!showAlerts)} style={{cursor:"pointer",fontSize:isMob?18:22,padding:"2px 6px",borderRadius:8,background:appAlerts.length>0?T.warn+"12":"transparent",position:"relative"}}>🔔
+            {appAlerts.length>0&&<span style={{position:"absolute",top:-2,left:-2,width:16,height:16,borderRadius:8,background:T.err,color:"#fff",fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>{appAlerts.length}</span>}
+          </div>
+          {showAlerts&&<div style={{position:"absolute",top:"100%",left:0,marginTop:6,width:isMob?280:320,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:12,boxShadow:"0 8px 30px rgba(0,0,0,0.15)",zIndex:999,maxHeight:350,overflow:"auto"}}>
+            <div style={{padding:"10px 14px",borderBottom:"1px solid "+T.brd,fontWeight:700,fontSize:FS,color:T.text}}>{"الاشعارات ("+appAlerts.length+")"}</div>
+            {appAlerts.length>0?appAlerts.map((a,i)=><div key={i} style={{padding:"10px 14px",borderBottom:"1px solid "+T.brd,display:"flex",gap:8,alignItems:"flex-start"}}>
+              <span style={{fontSize:16,flexShrink:0}}>{a.icon}</span>
+              <span style={{fontSize:FS-1,color:a.color,fontWeight:600}}>{a.msg}</span>
+            </div>):<div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد اشعارات</div>}
+          </div>}
+        </div>
         <span style={{fontSize:isMob?11:FS,color:T.textSec}}>{userName}</span>
         <button onClick={()=>signOut(auth)} style={{padding:isMob?"4px 10px":"6px 14px",borderRadius:8,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",cursor:"pointer",fontSize:isMob?11:FS-1,fontWeight:600,fontFamily:"inherit"}}>خروج</button>
       </div>
     </div>
     <div style={{flex:1,overflow:"auto",padding:isMob?"8px 10px":"12px 24px"}}>
       {/* HOME SCREEN */}
-      {tab==="home"&&(()=>{
-        /* Compute alerts for home */
-        const _alerts=[];
-        const _isIntH=(n)=>{const w=(data.workshops||[]).find(x=>x.name===n);return w?w.type==="داخلي":false};
-        const stuckOrds=data.orders.filter(o=>o.status==="تم القص"&&(o.workshopDeliveries||[]).length===0);
-        if(stuckOrds.length>0)_alerts.push({msg:stuckOrds.length+" أوردر لم يُسلَّم لأي ورشة",color:T.warn,icon:"⏳"});
-        /* Delay check - orders with no movement >7 days */
-        const now=new Date();data.orders.filter(o=>o.status!=="تم الشحن").forEach(o=>{let lastDate=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});const diff=Math.floor((now-new Date(lastDate))/(1000*60*60*24));if(diff>7&&!stuckOrds.find(x=>x.id===o.id))_alerts.push({msg:o.modelNo+" بدون حركة منذ "+diff+" يوم",color:T.err,icon:"🔴"})});
-        const _cutQ=data.orders.reduce((s,o)=>s+calcOrder(o).cutQty,0);const _delQ=data.orders.reduce((s,o)=>s+(o.deliveredQty||0),0);
-        const _comp=_cutQ?Math.round((_delQ/_cutQ)*100):0;
-        if(_comp>=100)_alerts.push({msg:"تم الانتهاء من جميع الأوردرات!",color:T.ok,icon:"🎉"});
-        (data.workshops||[]).filter(w=>w.type!=="داخلي").forEach(w=>{let due=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});const purch=(data.wsPayments||[]).filter(p=>p.wsName===w.name&&p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);const paid=(data.wsPayments||[]).filter(p=>p.wsName===w.name&&p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);const pct=w.payPercent||70;const limit=r2((due+purch)*(pct/100));if(paid>limit&&due>0)_alerts.push({msg:w.name+" تجاوز حد "+pct+"%",color:T.err,icon:"⚠️"})});
-        return<div>
-          {_alerts.length>0&&<div style={{marginBottom:12,display:"flex",gap:6,flexWrap:"wrap"}}>{_alerts.map((a,i)=><span key={i} style={{padding:"5px 12px",borderRadius:8,fontSize:FS-1,fontWeight:600,background:a.color+"10",color:a.color,border:"1px solid "+a.color+"20"}}>{a.icon+" "+a.msg}</span>)}</div>}
+      {tab==="home"&&<div>
           <div style={{textAlign:"center",marginBottom:isMob?14:20}}><h1 style={{fontSize:isMob?22:32,fontWeight:800,color:T.text,margin:0}}>{"مرحباً، "+userName}</h1></div>
           <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(5,1fr)",gap:isMob?10:16,maxWidth:800,margin:"0 auto"}}>
             {TABS.filter(t=>t.key!=="settings"||userRole==="admin").map(t=><div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:isMob?"16px 8px":"20px 14px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow}}>
@@ -483,7 +491,7 @@ export default function App(){
               <div style={{fontSize:isMob?FS-3:FS-1,fontWeight:700,color:T.text}}>{t.label}</div>
             </div>)}
           </div>
-        </div>})()}
+      </div>}
       {/* PAGES with back button */}
       {tab!=="home"&&<div>
         {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
@@ -1292,18 +1300,18 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       </Sel>
     </Card>
     {selWs&&<Card title={"أوردرات تم تسليمها لـ "+selWs} style={{marginBottom:16}}>
-      {wsOrders.length>0?<div style={{display:"flex",flexDirection:"column",gap:16}}>
-        {(()=>{/* Flatten and sort: pending first */
-          const cards=[];wsOrders.forEach(ord=>{(ord.workshopDeliveries||[]).filter(wd=>wd.wsName===selWs).forEach((wd,wdIdx)=>{const actualIdx=(ord.workshopDeliveries||[]).indexOf(wd);const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;cards.push({ord,wd,wdIdx,actualIdx,rcvd,bal})})});
-          cards.sort((a,b)=>{if(a.bal>0&&b.bal===0)return-1;if(a.bal===0&&b.bal>0)return 1;return 0});
-          return cards.map(({ord,wd,wdIdx,actualIdx,rcvd,bal})=>{
-            return<div key={ord.id+"-"+wdIdx} style={{background:T.cardSolid,borderRadius:14,border:"1px solid "+(bal>0?T.err+"40":T.ok+"40"),overflow:"hidden"}}>
-              <div style={{padding:"14px 18px",background:bal>0?T.err+"08":T.ok+"08",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+      {(()=>{
+        const cards=[];wsOrders.forEach(ord=>{(ord.workshopDeliveries||[]).filter(wd=>wd.wsName===selWs).forEach((wd,wdIdx)=>{const actualIdx=(ord.workshopDeliveries||[]).indexOf(wd);const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;if(bal>0)cards.push({ord,wd,wdIdx,actualIdx,rcvd,bal})})});
+        if(cards.length===0){const hasAny=wsOrders.some(o=>(o.workshopDeliveries||[]).some(wd=>wd.wsName===selWs));return<p style={{color:hasAny?T.ok:T.textSec,textAlign:"center",padding:30,fontWeight:hasAny?700:400}}>{hasAny?"✓ تم استلام جميع الكميات من الورشة":"لا توجد أوردرات تم تسليمها لهذه الورشة"}</p>}
+        return<div style={{display:"flex",flexDirection:"column",gap:16}}>
+          {cards.map(({ord,wd,wdIdx,actualIdx,rcvd,bal})=>{
+            return<div key={ord.id+"-"+wdIdx} style={{background:T.cardSolid,borderRadius:14,border:"1px solid "+T.err+"40",overflow:"hidden"}}>
+              <div style={{padding:"14px 18px",background:T.err+"08",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
                 <div><span style={{fontWeight:700,fontSize:FS+1}}>{ord.modelNo}</span><span style={{fontSize:FS-1,color:T.textSec,marginRight:10}}>{" - "+ord.modelDesc}</span>{wd.garmentType&&<span style={{fontSize:FS,fontWeight:700,color:T.purple,background:T.purple+"15",padding:"4px 14px",borderRadius:10,marginRight:6}}>{"👕 "+wd.garmentType}</span>}</div>
                 <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                  <span style={{padding:"4px 12px",borderRadius:8,background:T.accent+"15",fontSize:FS-1,fontWeight:600}}>{"تم تسليمه: "+wd.qty}</span>
+                  <span style={{padding:"4px 12px",borderRadius:8,background:T.accent+"15",fontSize:FS-1,fontWeight:600}}>{"تسليم ورشة: "+wd.qty}</span>
                   <span style={{padding:"4px 12px",borderRadius:8,background:T.ok+"15",fontSize:FS-1,fontWeight:600,color:T.ok}}>{"استلام مصنع: "+rcvd}</span>
-                  <span style={{padding:"4px 12px",borderRadius:8,background:bal>0?T.err+"15":T.ok+"15",fontSize:FS-1,fontWeight:700,color:bal>0?T.err:T.ok}}>{"رصيد: "+bal}</span>
+                  <span style={{padding:"4px 12px",borderRadius:8,background:T.err+"15",fontSize:FS-1,fontWeight:700,color:T.err}}>{"رصيد: "+bal}</span>
                   {!isInternal(selWs)&&wd.price>0&&<span style={{padding:"4px 12px",borderRadius:8,background:T.purple+"15",fontSize:FS-1,fontWeight:600,color:T.purple}}>{"تشغيل: "+wd.price+" ج.م"}</span>}
                 </div>
               </div>
@@ -1312,7 +1320,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
                 {(wd.receives||[]).length>0&&<div style={{marginBottom:12}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:350}}><thead><tr>{["#","التاريخ","الكمية","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
                   {wd.receives.map((r,ri)=>{const rBal=bal+Number(r.qty);return<tr key={ri}><td style={TD}>{ri+1}</td><td style={TD}>{r.date}</td><td style={TDB}>{r.qty}</td><td style={TD}>{r.notes||"-"}</td><td style={TD}><Btn small onClick={()=>printReceiveReceipt(selWs,ord.modelNo,r.qty,r.date,rBal)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>🖨</Btn></td></tr>})}
                 </tbody></table></div></div>}
-                {canEdit&&bal>0&&(()=>{const ck=ord.id+"-"+actualIdx;const rv=getRcv(ck);const wdP=Number(wd.price)||0;return<div style={{display:"flex",gap:6,flexWrap:"wrap",padding:8,background:T.inputBg||T.cardSolid,borderRadius:8,alignItems:"end"}}>
+                {canEdit&&(()=>{const ck=ord.id+"-"+actualIdx;const rv=getRcv(ck);const wdP=Number(wd.price)||0;return<div style={{display:"flex",gap:6,flexWrap:"wrap",padding:8,background:T.inputBg||T.cardSolid,borderRadius:8,alignItems:"end"}}>
                   <div style={{minWidth:70}}><label style={{fontSize:FS-3,color:T.textSec}}>الكمية</label><Inp type="number" value={rv.qty} onChange={v=>setRcv(ck,"qty",Math.min(Number(v)||0,bal))}/></div>
                   {!isInternal(selWs)&&wdP>0&&<div><label style={{fontSize:FS-3,color:T.purple}}>سعر التشغيل</label><div style={{padding:"6px 10px",borderRadius:8,background:T.purple+"10",fontWeight:700,color:T.purple,fontSize:FS}}>{wdP+" ج.م"}</div></div>}
                   {!isInternal(selWs)&&wdP>0&&(rv.qty||0)>0&&<div><label style={{fontSize:FS-3,color:T.accent}}>المبلغ</label><div style={{padding:"6px 10px",borderRadius:8,background:T.accent+"10",fontWeight:700,color:T.accent,fontSize:FS}}>{fmt(r2((rv.qty||0)*wdP))+" ج.م"}</div></div>}
@@ -1320,11 +1328,10 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
                   <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,false,null,ck)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>حفظ</Btn>
                   <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,true,{modelNo:ord.modelNo,bal},ck)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>حفظ+طباعة</Btn>
                 </div>})()}
-                {bal===0&&<div style={{textAlign:"center",padding:10,color:T.ok,fontWeight:700,fontSize:FS}}>{"✓ تم استلام الكمية كاملة"}</div>}
               </div>
             </div>
-          })})()}
-      </div>:<p style={{color:T.textSec,textAlign:"center",padding:30}}>لا توجد أوردرات تم تسليمها لهذه الورشة</p>}
+          })}
+        </div>})()}
     </Card>}
     {/* Workshop-specific movements */}
     {selWs&&wsMoves.length>0&&<Card title={"حركات ورشة "+selWs+" ("+wsMoves.length+")"}>
@@ -1480,6 +1487,7 @@ function SearchPg({data,goD,isMob,season,statusCards}){
 function StockPg({data,updOrder,isMob,canEdit,statusCards}){
   const[selOrder,setSelOrder]=useState("");
   const[stQty,setStQty]=useState(0);const[stNote,setStNote]=useState("");const[stDate,setStDate]=useState(new Date().toISOString().split("T")[0]);
+  const[editSt,setEditSt]=useState(null);const[edStDate,setEdStDate]=useState("");const[edStQty,setEdStQty]=useState(0);const[edStNote,setEdStNote]=useState("");
 
   /* Eligible orders: has workshop deliveries AND all pieces received */
   const eligible=data.orders.filter(o=>{
@@ -1531,9 +1539,23 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards}){
     </Card>
     {/* Recent stock deliveries */}
     {(()=>{const allStock=[];data.orders.forEach(o=>{(o.deliveries||[]).forEach((d,i)=>{allStock.push({...d,modelNo:o.modelNo,modelDesc:o.modelDesc,orderId:o.id,idx:i})})});allStock.sort((a,b)=>b.date.localeCompare(a.date));
+      const startEdit=(s)=>{setEditSt({orderId:s.orderId,idx:s.idx});setEdStDate(s.date);setEdStQty(s.qty);setEdStNote(s.notes||"")};
+      const saveEdit=()=>{if(!editSt)return;updOrder(editSt.orderId,o=>{const d=o.deliveries[editSt.idx];if(d){d.date=edStDate;d.qty=Number(edStQty)||0;d.notes=edStNote;o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)}});setEditSt(null)};
+      const delStock=(s)=>{updOrder(s.orderId,o=>{o.deliveries.splice(s.idx,1);o.deliveredQty=o.deliveries.reduce((ss,x)=>ss+(Number(x.qty)||0),0);o.status=recomputeStatus(o)})};
       return allStock.length>0&&<Card title={"سجل تسليمات المخزن ("+allStock.length+")"}>
-        <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","التاريخ","الموديل","الوصف","الكمية","ملاحظات"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
-        <tbody>{allStock.map((s,i)=><tr key={i}><td style={TD}>{i+1}</td><td style={TD}>{s.date}</td><td style={TDB}>{s.modelNo}</td><td style={TD}>{s.modelDesc}</td><td style={{...TDB,color:T.ok}}>{s.qty}</td><td style={TD}>{s.notes||"-"}</td></tr>)}</tbody>
+        <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","التاريخ","الموديل","الوصف","الكمية","ملاحظات",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+        <tbody>{allStock.map((s,i)=>{const isEd=editSt&&editSt.orderId===s.orderId&&editSt.idx===s.idx;
+          return<tr key={i} style={{background:isEd?T.warn+"06":""}}>
+          <td style={TD}>{i+1}</td>
+          <td style={{...TD,minWidth:120}}>{isEd?<Inp type="date" value={edStDate} onChange={setEdStDate}/>:s.date}</td>
+          <td style={TDB}>{s.modelNo}</td><td style={TD}>{s.modelDesc}</td>
+          <td style={{...TDB,color:T.ok,minWidth:80}}>{isEd?<Inp type="number" value={edStQty} onChange={v=>setEdStQty(Number(v)||0)}/>:s.qty}</td>
+          <td style={{...TD,minWidth:100}}>{isEd?<Inp value={edStNote} onChange={setEdStNote}/>:(s.notes||"-")}</td>
+          {canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}>
+            {isEd?<><Btn small primary onClick={saveEdit}>💾</Btn><Btn ghost small onClick={()=>setEditSt(null)}>✕</Btn></>
+            :<><Btn small onClick={()=>startEdit(s)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn><DelBtn onConfirm={()=>delStock(s)}/></>}
+          </div></td>}
+        </tr>})}</tbody>
       </table></div></Card>})()}
   </div>
 }
