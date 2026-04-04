@@ -212,11 +212,11 @@ function Btn({children,on,primary,danger,ghost,onClick,small,disabled,style:sx})
 }
 
 function Inp({value,onChange,placeholder,type,step,style:sx,readOnly}){
-  return<input type={type||"text"} step={step||"any"} value={value==null?"":value} readOnly={readOnly} onChange={e=>onChange&&onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",padding:"6px 10px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:readOnly?T.bg:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",...(sx||{})}}/>
+  return<input type={type||"text"} step={step||"any"} value={value==null?"":value} readOnly={readOnly} onChange={e=>onChange&&onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:readOnly?T.bg:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",...(sx||{})}}/>
 }
 
 function Sel({value,onChange,children}){
-  return<select value={value==null?"":value} onChange={e=>onChange(e.target.value)} style={{width:"100%",padding:"6px 10px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box"}}>{children}</select>
+  return<select value={value==null?"":value} onChange={e=>onChange(e.target.value)} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box"}}>{children}</select>
 }
 
 function Card({children,title,extra,accent,style:sx}){
@@ -620,26 +620,26 @@ function WsManager({workshops,upConfig,canEdit,isMob,orders}){
       {showForm&&<div style={{background:T.inputBg||T.cardSolid,borderRadius:14,padding:20,marginBottom:20,border:"1px solid "+T.brd}}>
         <div style={{fontSize:FS+1,fontWeight:700,color:T.accent,marginBottom:14}}>{editId?"تعديل الورشة":"ورشة جديدة"}</div>
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr 1fr",gap:10,marginBottom:12}}>
-          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>اسم الورشة *</label><Inp value={f.name} onChange={v=>setF({...f,name:v})}/></div>
-          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>اسم صاحب الورشة</label><Inp value={f.owner} onChange={v=>setF({...f,owner:v})}/></div>
-          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>نوع الورشة *</label><Sel value={f.type||"خارجي"} onChange={v=>setF({...f,type:v})}><option value="خارجي">خارجي</option><option value="داخلي">داخلي</option></Sel></div>
-          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>النسبة من الدفعات</label><Sel value={f.payPercent||70} onChange={v=>setF({...f,payPercent:Number(v)})}>{[30,40,50,60,70,80,90,100].map(p=><option key={p} value={p}>{p+"%"}</option>)}</Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>اسم الورشة *</label><Inp value={f.name} onChange={v=>setF({...f,name:v})}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>اسم صاحب الورشة</label><Inp value={f.owner} onChange={v=>setF({...f,owner:v})}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>نوع الورشة *</label><Sel value={f.type||"خارجي"} onChange={v=>setF({...f,type:v})}><option value="خارجي">خارجي</option><option value="داخلي">داخلي</option></Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>النسبة من الدفعات</label><Sel value={f.payPercent||70} onChange={v=>setF({...f,payPercent:Number(v)})}>{[30,40,50,60,70,80,90,100].map(p=><option key={p} value={p}>{p+"%"}</option>)}</Sel></div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
-          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>رقم التليفون</label><Inp value={f.phone} onChange={v=>setF({...f,phone:v})} type="tel"/></div>
-          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>التقييم (من 10)</label><Inp value={f.rating} onChange={v=>setF({...f,rating:Math.min(10,Math.max(0,Number(v)||0))})} type="number"/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>رقم التليفون</label><Inp value={f.phone} onChange={v=>setF({...f,phone:v})} type="tel"/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>التقييم (من 10)</label><Inp value={f.rating} onChange={v=>setF({...f,rating:Math.min(10,Math.max(0,Number(v)||0))})} type="number"/></div>
         </div>
-        <div style={{marginBottom:14}}><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>العنوان بالتفصيل</label><textarea value={f.address||""} onChange={e=>setF({...f,address:e.target.value})} style={{width:"100%",height:60,padding:10,borderRadius:10,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",resize:"vertical"}}/></div>
+        <div style={{marginBottom:14}}><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>العنوان بالتفصيل</label><textarea value={f.address||""} onChange={e=>setF({...f,address:e.target.value})} style={{width:"100%",height:60,padding:10,borderRadius:10,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",resize:"vertical"}}/></div>
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:14,marginBottom:14}}>
           <div>
-            <label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>صورة بطاقة الورشة (4:3)</label>
+            <label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>صورة بطاقة الورشة (4:3)</label>
             <div style={{width:"100%",height:120,borderRadius:12,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.bg,cursor:"pointer",position:"relative"}}>
               {f.idCard?<img src={f.idCard} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-1,color:T.textMut}}>اضغط لرفع البطاقة</span>}
               <input type="file" accept="image/*" onChange={handleIdCard} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
             </div>
           </div>
           <div>
-            <label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>صورة صاحب الورشة (3:4)</label>
+            <label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>صورة صاحب الورشة (3:4)</label>
             <div style={{width:100,height:133,borderRadius:12,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.bg,cursor:"pointer",position:"relative"}}>
               {f.ownerPhoto?<img src={f.ownerPhoto} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-2,color:T.textMut}}>صورة</span>}
               <input type="file" accept="image/*" onChange={handleOwnerPhoto} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
@@ -713,13 +713,17 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards}){
 
   return<Card title={initial.modelNo?"تعديل الأوردر":"أمر قص جديد"} accent="linear-gradient(135deg,#0EA5E9,#0284C7)" extra={<div style={{display:"flex",gap:8}}>{!initial.modelNo&&<Btn small onClick={()=>setCopyMode(true)} style={{background:"rgba(255,255,255,0.2)",color:"#fff",border:"none"}}>نسخ من أوردر</Btn>}<Btn small onClick={save} style={{background:"#fff",color:T.accent,border:"none",fontWeight:700}}>حفظ</Btn><Btn small onClick={onCancel} style={{background:"rgba(255,255,255,0.3)",color:"#fff",border:"none"}}>الغاء</Btn></div>} style={{marginBottom:20}}>
     {errs.length>0&&<div style={{background:T.err+"10",border:"1px solid "+T.err+"30",borderRadius:12,padding:14,marginBottom:16}}>{errs.map((e,i)=><div key={i} style={{color:T.err,fontSize:FS,fontWeight:600,padding:"2px 0"}}>{"* "+e}</div>)}</div>}
-    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"auto 1fr",gap:16,marginBottom:20}}>
-      <div><div style={{width:isMob?"100%":135,height:180,borderRadius:16,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.inputBg||T.cardSolid,cursor:"pointer",position:"relative"}}>{form.image?<img src={form.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS,color:T.textMut}}>صورة الموديل</span>}<input type="file" accept="image/*" onChange={handleImg} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/></div></div>
-      <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><tbody>
-        <tr><td style={TDL}>رقم الموديل *</td><td style={TD}><Inp value={form.modelNo} onChange={v=>updF("modelNo",v)}/></td><td style={TDL}>الوصف *</td><td style={TD}><Inp value={form.modelDesc} onChange={v=>updF("modelDesc",v)}/></td></tr>
-        <tr><td style={TDL}>المقاسات *</td><td style={TD}><Sel value={form.sizeSetId} onChange={v=>updF("sizeSetId",v)}><option value="">-- اختر --</option>{data.sizeSets.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</Sel></td><td style={TDL}>التاريخ *</td><td style={TD}><Inp type="date" value={form.date} onChange={v=>updF("date",v)}/></td></tr>
-        <tr><td style={TDL}>الحالة</td><td style={TD}><Sel value={form.status} onChange={v=>updF("status",v)}>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel></td><td style={TDL}> </td><td style={TD}> </td></tr>
-      </tbody></table></div>
+    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"auto 1fr",gap:12,marginBottom:14}}>
+      <div><div style={{width:isMob?"100%":100,height:133,borderRadius:12,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.inputBg||T.cardSolid,cursor:"pointer",position:"relative"}}>{form.image?<img src={form.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-1,color:T.textMut}}>صورة</span>}<input type="file" accept="image/*" onChange={handleImg} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/></div></div>
+      <div>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"1fr 2fr 1fr 1fr 1fr",gap:6,marginBottom:6}}>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>رقم الموديل *</label><Inp value={form.modelNo} onChange={v=>updF("modelNo",v)}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الوصف *</label><Inp value={form.modelDesc} onChange={v=>updF("modelDesc",v)}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>المقاسات *</label><Sel value={form.sizeSetId} onChange={v=>updF("sizeSetId",v)}><option value="">-- اختر --</option>{data.sizeSets.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>التاريخ *</label><Inp type="date" value={form.date} onChange={v=>updF("date",v)}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الحالة</label><Sel value={form.status} onChange={v=>updF("status",v)}>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel></div>
+        </div>
+      </div>
     </div>
     {/* Garment Pieces */}
     <div style={{marginBottom:16}}>
@@ -1180,7 +1184,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       {availOrders.length>0?<div>
         <Inp value={ordSearch} onChange={setOrdSearch} placeholder="بحث بالرقم أو الوصف..." style={{marginBottom:10}}/>
         {(()=>{const fOrds=ordSearch.trim()?availOrders.filter(o=>{const s=ordSearch.trim().toLowerCase();return(o.modelNo||"").toLowerCase().includes(s)||(o.modelDesc||"").toLowerCase().includes(s)}):availOrders;return<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr",gap:10,marginBottom:10}}>
-          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4}}>{"اختر الأوردر ("+fOrds.length+")"}</label>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>{"اختر الأوردر ("+fOrds.length+")"}</label>
             <Sel value={selOrder} onChange={v=>{setSelOrder(v);setDelType("");const o=data.orders.find(x=>x.id===v);if(o){const pieces=o.orderPieces||[];if(pieces.length===0)setDelQty(getAvailQty(o))}}}>
               <option value="">-- اختر أوردر --</option>
               {fOrds.map(o=>{const t=calcOrder(o);const pieces=o.orderPieces||[];
@@ -1188,10 +1192,10 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
                 return<option key={o.id} value={o.id}>{o.modelNo+" - "+o.modelDesc+" ["+pInfo+"]"}</option>})}
             </Sel>
           </div>
-          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4}}>الكمية</label><Inp type="number" value={delQty} onChange={v=>{const ord=data.orders.find(x=>x.id===selOrder);const max=ord?getAvailQty(ord):99999;setDelQty(Math.min(Number(v)||0,max))}}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الكمية</label><Inp type="number" value={delQty} onChange={v=>{const ord=data.orders.find(x=>x.id===selOrder);const max=ord?getAvailQty(ord):99999;setDelQty(Math.min(Number(v)||0,max))}}/></div>
         </div>})()}
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:10}}>
-          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4}}>نوع القطعة</label>{(()=>{
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>نوع القطعة</label>{(()=>{
             const ord=data.orders.find(x=>x.id===selOrder);
             const pieces=ord?(ord.orderPieces||[]):[];
             const t=ord?calcOrder(ord):{cutQty:0};
@@ -1202,8 +1206,8 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
               {availPieces.map(p=>{const delForP=(ord.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return<option key={p} value={p}>{p+" (متاح: "+(t.cutQty-delForP)+")"}</option>})}
             </Sel>:<Inp value={delType} onChange={setDelType} placeholder="نوع القطعة..."/>
           })()}</div>
-          {!isInternal(selWs)&&<div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4}}>سعر التشغيل</label><Inp type="number" step="0.01" value={delPrice} onChange={v=>setDelPrice(v)} placeholder="سعر القطعة"/></div>}
-          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4}}>ملاحظات</label><Inp value={delNote} onChange={setDelNote} placeholder="ملاحظات..."/></div>
+          {!isInternal(selWs)&&<div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>سعر التشغيل</label><Inp type="number" step="0.01" value={delPrice} onChange={v=>setDelPrice(v)} placeholder="سعر القطعة"/></div>}
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>ملاحظات</label><Inp value={delNote} onChange={setDelNote} placeholder="ملاحظات..."/></div>
         </div>
         <div style={{display:"flex",gap:8}}><Btn primary onClick={()=>deliverToWs(false)} disabled={!selOrder||!delQty}>تسليم وحفظ</Btn><Btn onClick={()=>deliverToWs(true)} disabled={!selOrder||!delQty} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>تسليم + طباعة</Btn></div>
         {selOrder&&(()=>{const ord=data.orders.find(o=>o.id===selOrder);if(!ord)return null;const t=calcOrder(ord);const avail=getAvailQty(ord);const totalDel=(ord.workshopDeliveries||[]).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return<div style={{padding:14,background:T.inputBg||T.cardSolid,borderRadius:10,border:"1px solid "+T.brd,marginTop:12}}>
@@ -1422,9 +1426,9 @@ function SearchPg({data,goD,isMob,season,statusCards}){
   const filtered=data.orders.filter(o=>{if(stF!=="الكل"&&o.status!==stF)return false;if(wsF!=="الكل"&&!(o.workshopDeliveries||[]).some(wd=>wd.wsName===wsF))return false;if(q.trim()){const s=q.trim().toLowerCase();const wsNames=(o.workshopDeliveries||[]).map(wd=>wd.wsName).join(" ");const h=[o.modelNo,o.modelDesc,o.sizeLabel,wsNames,o.status].filter(Boolean).join(" ").toLowerCase();if(!h.includes(s))return false}return true});
   return<div>
     <Card style={{marginBottom:12}}><div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr 1fr",gap:8}}>
-      <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>بحث</label><Inp value={q} onChange={setQ} placeholder="رقم موديل، وصف..."/></div>
-      <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>الحالة</label><Sel value={stF} onChange={setStF}><option value="الكل">الكل</option>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel></div>
-      <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>الورشة</label><Sel value={wsF} onChange={setWsF}><option value="الكل">الكل</option>{(data.workshops||[]).map(w=><option key={w.id||w} value={w.name||w}>{w.name||w}</option>)}</Sel></div>
+      <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>بحث</label><Inp value={q} onChange={setQ} placeholder="رقم موديل، وصف..."/></div>
+      <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>الحالة</label><Sel value={stF} onChange={setStF}><option value="الكل">الكل</option>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel></div>
+      <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>الورشة</label><Sel value={wsF} onChange={setWsF}><option value="الكل">الكل</option>{(data.workshops||[]).map(w=><option key={w.id||w} value={w.name||w}>{w.name||w}</option>)}</Sel></div>
     </div></Card>
     <Card title={"نتائج ("+filtered.length+")"}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:650}}>
       <thead><tr>{["#","التاريخ","موديل","الوصف","الورشة","الكمية","الحالة",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
@@ -1470,11 +1474,11 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards}){
   return<div>
     <Card style={{marginBottom:12}}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr auto",gap:10,alignItems:"end"}}>
-        <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4}}>اختر الأوردر</label>
+        <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>اختر الأوردر</label>
           <Sel value={selOrder} onChange={v=>setSelOrder(v)}><option value="">-- اختر أوردر --</option>{eligible.map(o=>{const tc=calcOrder(o);const sd=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return<option key={o.id} value={o.id}>{o.modelNo+" — "+o.modelDesc+" (متبقي: "+(tc.cutQty-sd)+")"}</option>})}</Sel>
         </div>
-        {selOrder&&<><div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4}}>الكمية (متاح: {stockRemain})</label><Inp type="number" value={stQty} onChange={v=>setStQty(Math.min(Number(v)||0,stockRemain))}/></div>
-        <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4}}>التاريخ</label><Inp type="date" value={stDate} onChange={setStDate}/></div>
+        {selOrder&&<><div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الكمية (متاح: {stockRemain})</label><Inp type="number" value={stQty} onChange={v=>setStQty(Math.min(Number(v)||0,stockRemain))}/></div>
+        <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>التاريخ</label><Inp type="date" value={stDate} onChange={setStDate}/></div>
         <Btn primary onClick={saveStock} disabled={!stQty||stQty<=0}>📦 تسليم</Btn></>}
       </div>
       {selOrder&&<div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
@@ -1859,13 +1863,13 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders}){
       <div style={{padding:20,background:T.accentBg,borderRadius:14,marginBottom:20,border:"1px solid "+T.accent+"20"}}>
         <div style={{fontSize:FS+1,fontWeight:700,color:T.accent,marginBottom:14}}>انشاء حساب جديد</div>
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:10}}>
-          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>اسم المستخدم *</label><Inp value={newUserName} onChange={setNewUserName} placeholder="الاسم الكامل"/></div>
-          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>البريد الالكتروني *</label><Inp value={newUserEmail} onChange={setNewUserEmail} placeholder="example@email.com" type="email"/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>اسم المستخدم *</label><Inp value={newUserName} onChange={setNewUserName} placeholder="الاسم الكامل"/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>البريد الالكتروني *</label><Inp value={newUserEmail} onChange={setNewUserEmail} placeholder="example@email.com" type="email"/></div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:10}}>
-          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>كلمة المرور *</label><Inp value={newUserPass} onChange={setNewUserPass} type="password" placeholder="6 حروف على الأقل"/></div>
-          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>تأكيد كلمة المرور *</label><Inp value={newUserPass2} onChange={setNewUserPass2} type="password" placeholder="أعد كتابة كلمة المرور"/></div>
-          <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>الصلاحية</label><Sel value={newUserRole} onChange={setNewUserRole}><option value="admin">مدير النظام</option><option value="manager">مدير انتاج</option><option value="viewer">مشاهد فقط</option></Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>كلمة المرور *</label><Inp value={newUserPass} onChange={setNewUserPass} type="password" placeholder="6 حروف على الأقل"/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>تأكيد كلمة المرور *</label><Inp value={newUserPass2} onChange={setNewUserPass2} type="password" placeholder="أعد كتابة كلمة المرور"/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>الصلاحية</label><Sel value={newUserRole} onChange={setNewUserRole}><option value="admin">مدير النظام</option><option value="manager">مدير انتاج</option><option value="viewer">مشاهد فقط</option></Sel></div>
         </div>
         {createErr&&<div style={{color:T.err,fontSize:FS,marginBottom:10,fontWeight:600}}>{"⚠️ "+createErr}</div>}
         {createOk&&<div style={{color:T.ok,fontSize:FS,marginBottom:10,fontWeight:600}}>{"✓ "+createOk}</div>}
