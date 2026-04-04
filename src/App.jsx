@@ -361,10 +361,9 @@ export default function App(){
   useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>({_docId:d.id,...d.data()})));setDataLoading(false)});return()=>unsub()},[user,season]);
 
   const upConfig=useCallback(fn=>{setConfig(prev=>{const next=JSON.parse(JSON.stringify(prev));fn(next);setDoc(doc(db,"factory","config"),next);return next})},[]);
-  const logAudit=(action,detail)=>{setTimeout(()=>{try{upConfig(d=>{if(!d.auditLog)d.auditLog=[];d.auditLog.unshift({user:user?.displayName||user?.email?.split("@")[0]||"",action,detail:detail||"",time:new Date().toISOString()});if(d.auditLog.length>200)d.auditLog=d.auditLog.slice(0,200)})}catch(e){console.error("audit err",e)}},100)};
-  const addOrder=async o=>{await addDoc(collection(db,"seasons",season,"orders"),o);logAudit("اضافة أوردر",o.modelNo+" - "+o.modelDesc)};
-  const updOrder=async(orderId,fn)=>{const ord=orders.find(o=>o.id===orderId);if(!ord)return;const updated=JSON.parse(JSON.stringify(ord));const oldStatus=updated.status;fn(updated);const clean={...updated};delete clean._docId;await updateDoc(doc(db,"seasons",season,"orders",ord._docId),clean);if(updated.status!==oldStatus)logAudit("تغيير حالة",ord.modelNo+": "+oldStatus+" → "+updated.status)};
-  const delOrder=async orderId=>{const ord=orders.find(o=>o.id===orderId);if(ord){await deleteDoc(doc(db,"seasons",season,"orders",ord._docId));logAudit("حذف أوردر",ord.modelNo)}};
+  const addOrder=async o=>{await addDoc(collection(db,"seasons",season,"orders"),o)};
+  const updOrder=async(orderId,fn)=>{const ord=orders.find(o=>o.id===orderId);if(!ord)return;const updated=JSON.parse(JSON.stringify(ord));fn(updated);const clean={...updated};delete clean._docId;await updateDoc(doc(db,"seasons",season,"orders",ord._docId),clean)};
+  const delOrder=async orderId=>{const ord=orders.find(o=>o.id===orderId);if(ord)await deleteDoc(doc(db,"seasons",season,"orders",ord._docId))};
   const replaceOrder=async(orderId,newData)=>{const ord=orders.find(o=>o.id===orderId);if(!ord)return;const clean={...newData};delete clean._docId;await setDoc(doc(db,"seasons",season,"orders",ord._docId),clean)};
   const goD=id=>{setSel(id);setTab("details")};
   /* QR scan auto-navigate */
@@ -376,19 +375,9 @@ export default function App(){
   const userRole=getUserRole();const canEdit=userRole==="admin"||userRole==="manager";
   const statusCards=config.statusCards||DEFAULT_STATUSES;
 
-  const LoadingScreen=()=><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,direction:"rtl",fontFamily:"'Cairo',sans-serif"}}>
-    <div style={{textAlign:"center",width:280}}>
-      <img src={CLARK_LOGO} alt="CLARK" style={{width:180,marginBottom:24,opacity:0.8}}/>
-      <div style={{height:4,borderRadius:2,background:T.brd,overflow:"hidden"}}>
-        <div style={{height:"100%",borderRadius:2,background:"linear-gradient(90deg,#0EA5E9,#0284C7)",animation:"loadBar 1.5s ease-in-out infinite"}}/>
-      </div>
-      <style>{`@keyframes loadBar{0%{width:0;margin-right:0}50%{width:70%;margin-right:15%}100%{width:0;margin-right:100%}}`}</style>
-    </div>
-  </div>;
-
-  if(authLoading)return<LoadingScreen/>;
+  if(authLoading)return null;
   if(!user)return<LoginScreen/>;
-  if(dataLoading)return<LoadingScreen/>;
+  if(dataLoading)return null;
   const userName=user.displayName||user.email.split("@")[0];
   /* Compute alerts */
   const appAlerts=(()=>{try{const a=[];
@@ -410,12 +399,6 @@ export default function App(){
 
   const goHome=()=>{setTab("home");setSel(null)};
   const goTo=(key)=>{setTab(key);if(key!=="details")setSel(null)};
-  /* Keyboard shortcuts */
-  useEffect(()=>{const handler=e=>{if(e.target.tagName==="INPUT"||e.target.tagName==="TEXTAREA"||e.target.tagName==="SELECT")return;
-    if(e.ctrlKey&&e.key==="f"){e.preventDefault();const si=document.querySelector("input[placeholder*='بحث']");if(si)si.focus()}
-    if(e.key==="Escape"){if(sel)setSel(null);else if(tab!=="home")goHome()}
-    if(e.key==="h"||e.key==="ح")goHome();
-  };document.addEventListener("keydown",handler);return()=>document.removeEventListener("keydown",handler)},[tab,sel]);
 
   return<div onClick={()=>{if(showAlerts)setShowAlerts(false);if(gSearch)setGSearch("");if(showLogout)setShowLogout(false)}} style={{minHeight:"100vh",direction:"rtl",fontFamily:"'Cairo',sans-serif",background:T.bg,color:T.text,fontSize:FS,display:"flex",flexDirection:"column"}}>
     {/* Top Bar */}
@@ -476,7 +459,7 @@ export default function App(){
         {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
         {tab==="orders"&&<OrdPg data={data} addOrder={addOrder} delOrder={delOrder} updOrder={updOrder} goD={goD} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
         {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEdit} statusCards={statusCards} goHome={goHome}/>}
-        {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards} season={season} logAudit={logAudit}/>}
+        {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards} season={season}/>}
         {tab==="stock"&&<StockPg data={data} updOrder={updOrder} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
         {tab==="search"&&<SearchPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="reports"&&<ReportsHub data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
@@ -791,31 +774,19 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards}){
 
 /* ══ ORDERS PAGE ══ */
 function OrdPg({data,addOrder,delOrder,updOrder,goD,isMob,canEdit,statusCards}){
-  const[show,setShow]=useState(false);const[bulkSel,setBulkSel]=useState([]);const[bulkStatus,setBulkStatus]=useState("");
+  const[show,setShow]=useState(false);
   const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
-  const toggleBulk=(id)=>setBulkSel(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
-  const applyBulk=()=>{if(!bulkStatus||bulkSel.length===0)return;bulkSel.forEach(id=>updOrder(id,o=>{o.status=bulkStatus;o.status=recomputeStatus(o)}));setBulkSel([]);setBulkStatus("")};
   return<div>
-    <div style={{display:"flex",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:6}}>
-      {canEdit&&bulkSel.length>0&&<div style={{display:"flex",gap:6,alignItems:"center"}}>
-        <span style={{fontSize:FS-1,color:T.accent,fontWeight:700}}>{bulkSel.length+" محدد"}</span>
-        <Sel value={bulkStatus} onChange={setBulkStatus}><option value="">تغيير الحالة</option>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel>
-        <Btn small primary onClick={applyBulk} disabled={!bulkStatus}>تطبيق</Btn>
-        <Btn ghost small onClick={()=>setBulkSel([])}>الغاء</Btn>
-      </div>}
-      {canEdit&&<Btn primary onClick={()=>setShow(!show)}>{show?"الغاء":"+ أمر قص جديد"}</Btn>}
-    </div>
+    <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>{canEdit&&<Btn primary onClick={()=>setShow(!show)}>{show?"الغاء":"+ أمر قص جديد"}</Btn>}</div>
     {show&&<OrdForm data={data} initial={mkOrder()} onSave={o=>{addOrder(o);setShow(false)}} onCancel={()=>setShow(false)} isMob={isMob} statusCards={statusCards}/>}
     <Card title={"جميع الأوامر ("+data.orders.length+")"}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:800}}>
-      <thead><tr>{[...(canEdit?["✓"]:[]),"#","التاريخ","موديل","الوصف","الكمية","آخر حركة","الحالة",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+      <thead><tr>{["#","التاريخ","موديل","الوصف","الكمية","آخر حركة","الحالة",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
       <tbody>{sortOrders(data.orders).map((o,i)=>{const t=calcOrder(o);const hasWsDel=(o.workshopDeliveries||[]).length>0;const hasStockDel=(o.deliveries||[]).length>0;const delBlock=hasStockDel?"يوجد تسليمات مخزن مرتبطة":hasWsDel?"يوجد تسليمات ورش مرتبطة":null;
         let lastMov=null;(o.workshopDeliveries||[]).forEach(wd=>{if(!lastMov||wd.date>lastMov.date)lastMov={date:wd.date,type:"تسليم ورشة",name:wd.wsName};(wd.receives||[]).forEach(r=>{if(!lastMov||r.date>lastMov.date)lastMov={date:r.date,type:"استلام مصنع",name:wd.wsName}})});(o.deliveries||[]).forEach(d=>{if(!lastMov||d.date>lastMov.date)lastMov={date:d.date,type:"مخزن جاهز"}});
-        return<tr key={o.id} style={{background:bulkSel.includes(o.id)?T.accent+"08":""}}>
-        {canEdit&&<td style={TD}><input type="checkbox" checked={bulkSel.includes(o.id)} onChange={()=>toggleBulk(o.id)} style={{cursor:"pointer",width:16,height:16}}/></td>}
-        <td style={TD}>{i+1}</td><td style={TD}>{o.date}</td><td style={TDB}>{o.modelNo}</td><td style={TD}>{o.modelDesc}</td><td style={{...TDB,color:T.accent}}>{t.cutQty}</td>
+        return<tr key={o.id}><td style={TD}>{i+1}</td><td style={TD}>{o.date}</td><td style={TDB}>{o.modelNo}</td><td style={TD}>{o.modelDesc}</td><td style={{...TDB,color:T.accent}}>{t.cutQty}</td>
         <td style={{...TD,fontSize:FS-2}}>{lastMov?<span style={{color:lastMov.type==="مخزن جاهز"?T.ok:lastMov.type==="استلام مصنع"?T.accent:T.purple}}>{lastMov.type+" "+lastMov.date}</span>:<span style={{color:T.textMut}}>—</span>}</td>
         <td style={TD}><Badge t={o.status} cards={statusCards}/></td><td style={{...TD,whiteSpace:"nowrap"}}><Btn ghost small onClick={()=>goD(o.id)}>تفاصيل</Btn>{canEdit&&<>{" "}<DelBtn onConfirm={()=>delOrder(o.id)} blocked={delBlock}/></>}</td></tr>})}
-        {data.orders.length===0&&<tr><td colSpan={canEdit?9:8} style={{...TD,textAlign:"center",color:T.textSec,padding:40}}>لا توجد أوامر</td></tr>}
+        {data.orders.length===0&&<tr><td colSpan={8} style={{...TD,textAlign:"center",color:T.textSec,padding:40}}>لا توجد أوامر</td></tr>}
       </tbody>
     </table></div></Card>
   </div>
@@ -825,7 +796,7 @@ function OrdPg({data,addOrder,delOrder,updOrder,goD,isMob,canEdit,statusCards}){
 function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,goHome}){
   const order=data.orders.find(o=>o.id===sel);const[editing,setEditing]=useState(false);
   const[detQ,setDetQ]=useState("");const[detSt,setDetSt]=useState("الكل");
-  const[editStockIdx,setEditStockIdx]=useState(null);const[viewMode,setViewMode]=useState("list");
+  const[editStockIdx,setEditStockIdx]=useState(null);
   const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
 
   if(!order){
@@ -837,36 +808,13 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
     return<div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
         <h2 style={{fontSize:FS+1,fontWeight:700,margin:0,color:T.textSec}}>{"اختر أوردر ("+filtered.length+")"}</h2>
-        <div style={{display:"flex",gap:4}}>
-          <Btn small on={viewMode==="list"} onClick={()=>setViewMode("list")}>☰</Btn>
-          <Btn small on={viewMode==="kanban"} onClick={()=>setViewMode("kanban")}>▦</Btn>
-        </div>
       </div>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr",gap:8,marginBottom:10}}>
         <Inp value={detQ} onChange={setDetQ} placeholder="بحث بالرقم أو الوصف أو المقاسات..."/>
         <Sel value={detSt} onChange={setDetSt}><option value="الكل">كل الحالات</option>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel>
       </div>
       {filtered.length===0&&<Card><p style={{color:T.textSec,textAlign:"center",padding:30}}>لا توجد نتائج</p></Card>}
-      {/* Kanban View */}
-      {viewMode==="kanban"&&filtered.length>0&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat("+Math.min(statuses.length,5)+",1fr)",gap:10,marginBottom:16,overflowX:"auto"}}>
-        {statuses.map(st=>{const stOrders=sortOrders(filtered.filter(o=>o.status===st));const col=getStatusColor(st,statusCards);
-          return<div key={st} style={{background:T.bg,borderRadius:12,border:"1px solid "+T.brd,minHeight:200,display:"flex",flexDirection:"column"}}>
-            <div style={{padding:"8px 12px",borderBottom:"2px solid "+col,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontWeight:700,fontSize:FS,color:col}}>{st}</span><span style={{fontSize:FS-2,color:T.textMut,background:col+"12",padding:"1px 8px",borderRadius:10}}>{stOrders.length}</span></div>
-            <div style={{padding:8,flex:1,display:"flex",flexDirection:"column",gap:6}}>
-              {stOrders.map(o=>{const t=calcOrder(o);return<div key={o.id} onClick={()=>setSel(o.id)} style={{padding:10,background:T.cardSolid,borderRadius:10,border:"1px solid "+T.brd,cursor:"pointer",borderRight:"3px solid "+col}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-1px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
-                <div style={{fontWeight:700,fontSize:FS,marginBottom:2}}>{o.modelNo}</div>
-                <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>{o.modelDesc}</div>
-                <div style={{display:"flex",gap:4,fontSize:FS-3}}>
-                  <span style={{color:T.accent}}>{"قص: "+t.cutQty}</span>
-                  <span style={{color:T.ok}}>{"تسليم: "+(o.deliveredQty||0)}</span>
-                </div>
-              </div>})}
-              {stOrders.length===0&&<div style={{textAlign:"center",padding:20,color:T.textMut,fontSize:FS-2}}>فارغ</div>}
-            </div>
-          </div>})}
-      </div>}
-      {/* List View */}
-      {viewMode==="list"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
         {sortOrders(filtered).map(o=>{const t=calcOrder(o);
           const wds=o.workshopDeliveries||[];
           return<div key={o.id} onClick={()=>setSel(o.id)} style={{display:"flex",gap:16,padding:16,background:T.cardSolid,borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",alignItems:"flex-start"}}>
@@ -901,7 +849,7 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
             </div>}
           </div>
         </div>})}
-      </div>}
+      </div>
     </div>
   }
   if(editing)return<OrdForm data={data} initial={order} onSave={o=>{replaceOrder(sel,o);setEditing(false)}} onCancel={()=>setEditing(false)} isMob={isMob} statusCards={statusCards}/>;
@@ -1057,7 +1005,7 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
 }
 
 /* ══ EXTERNAL PRODUCTION ══ */
-function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,logAudit}){
+function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
   const[mode,setMode]=useState(null);
   const[selWs,setSelWs]=useState("");
   const[selOrder,setSelOrder]=useState("");
@@ -1117,7 +1065,6 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,logA
       o.status=recomputeStatus(o);
     });
     setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice("");
-    if(logAudit)logAudit("تسليم ورشة",saveModelNo+" → "+selWs+" ("+saveQty+" قطعة"+(saveType?" - "+saveType:"")+")");
     if(andPrint)setTimeout(()=>printReceipt(selWs,wsObj?wsObj.owner:"",saveModelNo,saveQty,saveDate,Math.max(0,availAfter)),400);
   };
 
@@ -1136,7 +1083,6 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,logA
       o.status=recomputeStatus(o)
     });
     clearRcv(cardKey);
-    if(logAudit)logAudit("استلام مصنع",ord.modelNo+" ← "+wd.wsName+" ("+saveQty+" قطعة)");
     if(andPrint&&printData)setTimeout(()=>printReceiveReceipt(selWs,printData.modelNo,saveQty,saveDate,maxRcv-saveQty),400);
   };
 
@@ -1984,12 +1930,6 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders}){
       <div style={{marginTop:16,display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:12}}>
         {[["مدير النظام",T.accent,"كل الصلاحيات + اعدادات"],["مدير انتاج",T.ok,"اضافة وتعديل"],["مشاهد",T.warn,"عرض فقط"]].map(([n,c,d])=><div key={n} style={{padding:14,borderRadius:12,background:c+"08",border:"1px solid "+c+"25"}}><div style={{fontSize:FS,fontWeight:700,color:c,marginBottom:4}}>{n}</div><div style={{fontSize:FS-2,color:T.textSec}}>{d}</div></div>)}
       </div>
-    </Card>
-    {/* Audit Log */}
-    <Card title={"سجل التدقيق (آخر "+((config.auditLog||[]).length)+" حركة)"} style={{marginBottom:12}}>
-      {(config.auditLog||[]).length>0?<div style={{maxHeight:250,overflow:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["التوقيت","المستخدم","العملية","التفاصيل"].map(h=><th key={h} style={{...TH,position:"sticky",top:0,background:T.cardSolid}}>{h}</th>)}</tr></thead><tbody>
-        {(config.auditLog||[]).slice(0,50).map((l,i)=><tr key={i}><td style={{...TD,fontSize:FS-2,whiteSpace:"nowrap"}}>{new Date(l.time).toLocaleString("ar-EG",{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}</td><td style={{...TDB,fontSize:FS-1}}>{l.user}</td><td style={{...TD,fontSize:FS-1}}>{l.action}</td><td style={{...TD,fontSize:FS-2,color:T.textSec}}>{l.detail}</td></tr>)}
-      </tbody></table></div>:<div style={{textAlign:"center",padding:20,color:T.textMut,fontSize:FS-1}}>لا توجد حركات مسجلة</div>}
     </Card>
     {/* Theme Toggle - Bottom */}
     <div style={{display:"flex",justifyContent:"center",gap:12,marginTop:16}}>
