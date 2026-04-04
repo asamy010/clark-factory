@@ -304,6 +304,7 @@ const TABS=[
   {key:"orders",label:"أوامر القص",icon:"✂️",color:"#8B5CF6",bg:"#EDE9FE"},
   {key:"details",label:"تفاصيل الأوردر",icon:"📋",color:"#F59E0B",bg:"#FEF3C7"},
   {key:"external",label:"تشغيل خارجي",icon:"🏭",color:"#10B981",bg:"#D1FAE5"},
+  {key:"stock",label:"تسليم مخزن جاهز",icon:"📦",color:"#059669",bg:"#ECFDF5"},
   {key:"report",label:"تقرير الإنتاج",icon:"📈",color:"#06B6D4",bg:"#CFFAFE"},
   {key:"cost",label:"التكاليف",icon:"💰",color:"#EC4899",bg:"#FCE7F3"},
   {key:"search",label:"بحث",icon:"🔍",color:"#6366F1",bg:"#E0E7FF"},
@@ -397,6 +398,7 @@ export default function App(){
         {tab==="orders"&&<OrdPg data={data} addOrder={addOrder} delOrder={delOrder} updOrder={updOrder} goD={goD} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
         {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEdit} statusCards={statusCards} goHome={goHome}/>}
         {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards} season={season}/>}
+        {tab==="stock"&&<StockPg data={data} updOrder={updOrder} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
         {tab==="search"&&<SearchPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="report"&&<RepPg data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="cost"&&<CostPg data={data} isMob={isMob} statusCards={statusCards}/>}
@@ -820,11 +822,11 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
         </div>})}
       </div>
       <Card title={"تكلفة الخامات (كمية A = "+t.cutQty+")"} style={{marginBottom:16}}>
-        <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
-          <thead><tr>{["الخامة","السعر","استهلاك/راق","الراقات","القطع","التكلفة","تكلفة القطعة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+        <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
+          <thead><tr>{["الخامة","السعر","استهلاك/راق","استهلاك/قطعة","الراقات","القطع","التكلفة","تكلفة/قطعة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
           <tbody>
-            {activeFabs.map(k=>{const cons=gcons(order,k),price=gf(order,k,"Price")||0,layers=slay(gc(order,k)),qty=sqty(gc(order,k)),cost=cons*price*layers,perPc=t.cutQty?r2(cost/t.cutQty):0;return<tr key={k}><td style={TD}><span style={{display:"inline-block",width:10,height:10,borderRadius:3,background:FCOL[FKEYS.indexOf(k)],marginLeft:8}}/>{gf(order,k,"Label")}</td><td style={TD}>{price+" ج.م"}</td><td style={TD}>{cons}</td><td style={TDB}>{layers}</td><td style={TDB}>{qty}</td><td style={{...TDB,color:T.accent}}>{fmt(r2(cost))+" ج.م"}</td><td style={{...TDB,color:T.accent}}>{perPc+" ج.م"}</td></tr>})}
-            <tr style={{background:T.inputBg||T.cardSolid}}><td colSpan={5} style={{...TD,fontWeight:700}}>اجمالي تكلفة الخامات</td><td style={{...TD,fontWeight:700,color:T.accent}}>{fmt(r2(t.totalFab))+" ج.م"}</td><td style={{...TD,fontWeight:800,color:T.accent,fontSize:FS+2}}>{t.fabPer+" ج.م"}</td></tr>
+            {activeFabs.map(k=>{const cons=gcons(order,k),price=gf(order,k,"Price")||0,layers=slay(gc(order,k)),qty=sqty(gc(order,k)),cost=cons*price*layers,perPc=t.cutQty?r2(cost/t.cutQty):0,unit=gf(order,k,"Unit")||"",ppl=(gc(order,k)[0]||{}).pcsPerLayer||1,consPc=r2(cons/ppl);return<tr key={k}><td style={TD}><span style={{display:"inline-block",width:10,height:10,borderRadius:3,background:FCOL[FKEYS.indexOf(k)],marginLeft:8}}/>{gf(order,k,"Label")}</td><td style={TD}>{price+" ج.م"}</td><td style={TD}>{cons+(unit?" "+unit:"")}</td><td style={{...TDB,color:T.purple}}>{consPc+(unit?" "+unit:"")}</td><td style={TDB}>{layers}</td><td style={TDB}>{qty}</td><td style={{...TDB,color:T.accent}}>{fmt(r2(cost))+" ج.م"}</td><td style={{...TDB,color:T.accent}}>{perPc+" ج.م"}</td></tr>})}
+            <tr style={{background:T.inputBg||T.cardSolid}}><td colSpan={6} style={{...TD,fontWeight:700}}>اجمالي تكلفة الخامات</td><td style={{...TD,fontWeight:700,color:T.accent}}>{fmt(r2(t.totalFab))+" ج.م"}</td><td style={{...TD,fontWeight:800,color:T.accent,fontSize:FS+2}}>{t.fabPer+" ج.م"}</td></tr>
           </tbody>
         </table></div>
       </Card>
@@ -1371,6 +1373,62 @@ function SearchPg({data,goD,isMob,season,statusCards}){
 }
 
 /* ══ PRODUCTION REPORT ══ */
+/* ══ STOCK DELIVERY ══ */
+function StockPg({data,updOrder,isMob,canEdit,statusCards}){
+  const[selOrder,setSelOrder]=useState("");
+  const[stQty,setStQty]=useState(0);const[stNote,setStNote]=useState("");const[stDate,setStDate]=useState(new Date().toISOString().split("T")[0]);
+
+  /* Eligible orders: has workshop deliveries AND all pieces received */
+  const eligible=data.orders.filter(o=>{
+    const wds=o.workshopDeliveries||[];if(wds.length===0)return false;
+    const t=calcOrder(o);const stockDel=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
+    if(stockDel>=t.cutQty)return false;
+    const pieces=o.orderPieces||[];
+    if(pieces.length>0){
+      return!pieces.some(p=>{const rcvdForP=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);return rcvdForP===0})
+    }else{
+      const totalRcv=wds.reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);return totalRcv>0
+    }
+  });
+
+  const ord=eligible.find(o=>o.id===selOrder);
+  const t=ord?calcOrder(ord):{cutQty:0};
+  const stockDel=ord?(ord.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0):0;
+  const stockRemain=t.cutQty-stockDel;
+
+  const saveStock=()=>{
+    if(!selOrder||!stQty||stQty<=0)return;
+    const qty=Math.min(Number(stQty),stockRemain);if(qty<=0){alert("لا توجد كمية متاحة");return}
+    updOrder(selOrder,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:stDate,qty,notes:stNote});o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)});
+    setStQty(0);setStNote("");setStDate(new Date().toISOString().split("T")[0])
+  };
+
+  return<div>
+    <Card style={{marginBottom:12}}>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr auto",gap:10,alignItems:"end"}}>
+        <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4}}>اختر الأوردر</label>
+          <Sel value={selOrder} onChange={v=>setSelOrder(v)}><option value="">-- اختر أوردر --</option>{eligible.map(o=>{const tc=calcOrder(o);const sd=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return<option key={o.id} value={o.id}>{o.modelNo+" — "+o.modelDesc+" (متبقي: "+(tc.cutQty-sd)+")"}</option>})}</Sel>
+        </div>
+        {selOrder&&<><div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4}}>الكمية (متاح: {stockRemain})</label><Inp type="number" value={stQty} onChange={v=>setStQty(Math.min(Number(v)||0,stockRemain))}/></div>
+        <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4}}>التاريخ</label><Inp type="date" value={stDate} onChange={setStDate}/></div>
+        <Btn primary onClick={saveStock} disabled={!stQty||stQty<=0}>📦 تسليم</Btn></>}
+      </div>
+      {selOrder&&<div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
+        <span style={{padding:"4px 10px",borderRadius:6,background:T.err+"10",color:T.err,fontWeight:700,fontSize:FS-1}}>{"القص: "+t.cutQty}</span>
+        <span style={{padding:"4px 10px",borderRadius:6,background:T.ok+"10",color:T.ok,fontWeight:700,fontSize:FS-1}}>{"تم تسليمه: "+stockDel}</span>
+        <span style={{padding:"4px 10px",borderRadius:6,background:stockRemain>0?T.warn+"10":T.ok+"10",color:stockRemain>0?T.warn:T.ok,fontWeight:700,fontSize:FS-1}}>{"المتبقي: "+stockRemain}</span>
+      </div>}
+      {selOrder&&<div style={{marginTop:8}}><Inp value={stNote} onChange={setStNote} placeholder="ملاحظات (اختياري)"/></div>}
+    </Card>
+    {/* Recent stock deliveries */}
+    {(()=>{const allStock=[];data.orders.forEach(o=>{(o.deliveries||[]).forEach((d,i)=>{allStock.push({...d,modelNo:o.modelNo,modelDesc:o.modelDesc,orderId:o.id,idx:i})})});allStock.sort((a,b)=>b.date.localeCompare(a.date));
+      return allStock.length>0&&<Card title={"سجل تسليمات المخزن ("+allStock.length+")"}>
+        <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","التاريخ","الموديل","الوصف","الكمية","ملاحظات"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+        <tbody>{allStock.map((s,i)=><tr key={i}><td style={TD}>{i+1}</td><td style={TD}>{s.date}</td><td style={TDB}>{s.modelNo}</td><td style={TD}>{s.modelDesc}</td><td style={{...TDB,color:T.ok}}>{s.qty}</td><td style={TD}>{s.notes||"-"}</td></tr>)}</tbody>
+      </table></div></Card>})()}
+  </div>
+}
+
 function RepPg({data,isMob,season,statusCards}){
   const[filter,setFilter]=useState("الكل");
   const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
