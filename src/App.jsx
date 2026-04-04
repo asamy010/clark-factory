@@ -399,9 +399,8 @@ export default function App(){
       </div>}
       {/* PAGES with back button */}
       {tab!=="home"&&<div>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:isMob?12:20}}>
-          <Btn ghost onClick={goHome} style={{fontSize:isMob?12:FS}}>{"← الرئيسية"}</Btn>
-          <span style={{fontSize:isMob?18:26,fontWeight:800,color:T.text}}>{TABS.find(t=>t.key===tab)?.label||""}</span>
+        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}>
+          <Btn ghost onClick={goHome} style={{fontSize:isMob?14:16,padding:"4px 8px"}}>⌂</Btn>
         </div>
         {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
@@ -450,19 +449,15 @@ function DashPg({data,goD,isMob,season,statusCards}){
   const wsBalance=wsDue+wsPurchase-wsPaid;
 
   return<div>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
-      <div style={{display:"flex",alignItems:"center",gap:14}}>
-        {data.logo&&<img src={data.logo} alt="" style={{width:44,height:44,borderRadius:12,objectFit:"cover",border:"2px solid "+T.brd}}/>}
-        <div><h1 style={{fontSize:isMob?20:28,fontWeight:800,margin:0,color:T.text}}>لوحة التحكم</h1><div style={{fontSize:FS,color:T.textSec,marginTop:2}}>{"الموسم "+season+" - "+orders.length+" موديل"}</div></div>
+    <Card title={"الانتاج - الموسم "+season+" ("+orders.length+" موديل)"} style={{marginBottom:12}}>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(5,1fr)",gap:10}}>
+        <div style={{padding:10,borderRadius:8,background:T.accent+"06",border:"1px solid "+T.accent+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>كمية القص</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.accent}}>{fmt(cutQ)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
+        <div style={{padding:10,borderRadius:8,background:T.ok+"06",border:"1px solid "+T.ok+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>مخزن جاهز</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.ok}}>{fmt(delQ)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
+        <div style={{padding:10,borderRadius:8,background:T.warn+"06",border:"1px solid "+T.warn+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>رصيد المصنع</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.warn}}>{fmt(cutQ-delQ)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
+        <div style={{padding:10,borderRadius:8,background:"#8B5CF606",border:"1px solid #8B5CF612",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>عند الورش</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:"#8B5CF6"}}>{fmt(Math.max(0,inProdQty))}</div><div style={{fontSize:FS-3,color:T.textMut}}>{"سلّم: "+fmt(totalDeliveredToWs)+" | استلم: "+fmt(totalReceivedFromWs)}</div></div>
+        <div style={{padding:10,borderRadius:8,background:(comp>=80?T.ok:comp>=50?T.warn:T.err)+"06",border:"1px solid "+(comp>=80?T.ok:comp>=50?T.warn:T.err)+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>الانجاز</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:comp>=80?T.ok:comp>=50?T.warn:T.err}}>{comp+"%"}</div><PBar value={comp}/></div>
       </div>
-    </div>
-    <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(5,1fr)",gap:10,marginBottom:16}}>
-      <MetricCard label="كمية القص" value={fmt(cutQ)} icon="✂️" color={T.accent} sub="قطعة"/>
-      <MetricCard label="مخزن جاهز" value={fmt(delQ)} icon="📦" color={T.ok} sub="قطعة"/>
-      <MetricCard label="رصيد المصنع" value={fmt(cutQ-delQ)} icon="🏭" color={T.warn} sub="قطعة"/>
-      <MetricCard label="عند الورش" value={fmt(Math.max(0,inProdQty))} icon="⚙️" color="#8B5CF6" sub={"سلّم: "+fmt(totalDeliveredToWs)+" استلم: "+fmt(totalReceivedFromWs)}/>
-      <MetricCard label="معدل الانجاز" value={comp+"%"} icon="📊" color={comp>=80?T.ok:comp>=50?T.warn:T.err} sub={<PBar value={comp}/>}/>
-    </div>
+    </Card>
     {/* Workshop Accounts Summary */}
     <Card title="حسابات الورش" style={{marginBottom:16}}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:12}}>
@@ -536,8 +531,7 @@ function DBPg({data,upConfig,isMob,canEdit,statusCards}){
   const sizeBlock=(s)=>ords.some(o=>Number(o.sizeSetId)===s.id)?"مستخدم في أوردرات":null;
   const garmentBlock=(g)=>ords.some(o=>(o.orderPieces||[]).includes(g.name))?"مستخدم في أوردرات":null;
   return<div>
-    <h1 style={{fontSize:isMob?24:32,fontWeight:800,margin:"0 0 20px"}}>قاعدة البيانات</h1>
-    <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>{[["fab","الأقمشة"],["acc","الاكسسوار"],["size","المقاسات"],["garment","قطع الموديل"],["ws","الورش"],["status","حالات الأوردر"]].map(([k,l])=><Btn key={k} on={sub===k} onClick={()=>setSub(k)}>{l}</Btn>)}</div>
+    <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>{[["fab","الأقمشة"],["acc","الاكسسوار"],["size","المقاسات"],["garment","قطع الموديل"],["ws","الورش"],["status","حالات الأوردر"]].map(([k,l])=><Btn key={k} on={sub===k} onClick={()=>setSub(k)}>{l}</Btn>)}</div>
     {sub==="fab"&&<Card title="جدول الأقمشة">{canEdit&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"3fr 1fr 1fr auto",gap:10,marginBottom:16}}><Inp value={ff.name} onChange={v=>setFf({...ff,name:v})} placeholder="اسم القماش"/><Sel value={ff.unit} onChange={v=>setFf({...ff,unit:v})}><option value="كيلو">كيلو</option><option value="متر">متر</option><option value="يارد">يارد</option></Sel><Inp value={ff.price} onChange={v=>setFf({...ff,price:v})} placeholder="السعر" type="number"/><div style={{display:"flex",gap:4}}><Btn primary onClick={saveFab}>{ff._eid?"تحديث":"+ اضافة"}</Btn>{ff._eid&&<Btn ghost onClick={()=>setFf({name:"",unit:"كيلو",price:"",_eid:null})}>الغاء</Btn>}</div></div>}
       <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:450}}><thead><tr>{["#","القماش","الوحدة","السعر",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.fabrics.map((f,i)=><tr key={f.id} style={{background:ff._eid===f.id?T.warn+"10":"transparent"}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:600}}>{f.name}</td><td style={TD}>{f.unit}</td><td style={{...TDB,color:T.accent}}>{f.price+" ج.م"}</td>{canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:4}}>{eBtn(()=>setFf({name:f.name,unit:f.unit,price:f.price,_eid:f.id}))}<DelBtn onConfirm={()=>upConfig(d=>{d.fabrics=d.fabrics.filter(x=>x.id!==f.id)})} blocked={fabBlock(f)}/></div></td>}</tr>)}</tbody></table></div></Card>}
     {sub==="acc"&&<Card title="الاكسسوار">{canEdit&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"3fr 1fr 1fr auto",gap:10,marginBottom:16}}><Inp value={af.name} onChange={v=>setAf({...af,name:v})} placeholder="الوصف"/><Sel value={af.unit} onChange={v=>setAf({...af,unit:v})}><option value="قطعة">قطعة</option><option value="متر">متر</option></Sel><Inp value={af.price} onChange={v=>setAf({...af,price:v})} placeholder="السعر" type="number"/><div style={{display:"flex",gap:4}}><Btn primary onClick={saveAcc}>{af._eid?"تحديث":"+ اضافة"}</Btn>{af._eid&&<Btn ghost onClick={()=>setAf({name:"",unit:"قطعة",price:"",_eid:null})}>الغاء</Btn>}</div></div>}
@@ -727,7 +721,7 @@ function OrdPg({data,addOrder,delOrder,updOrder,goD,isMob,canEdit,statusCards}){
   const[show,setShow]=useState(false);
   const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
   return<div>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}><h1 style={{fontSize:isMob?24:32,fontWeight:800,margin:0}}>أوامر القص</h1>{canEdit&&<Btn primary onClick={()=>setShow(!show)}>{show?"الغاء":"+ أمر قص جديد"}</Btn>}</div>
+    <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>{canEdit&&<Btn primary onClick={()=>setShow(!show)}>{show?"الغاء":"+ أمر قص جديد"}</Btn>}</div>
     {show&&<OrdForm data={data} initial={mkOrder()} onSave={o=>{addOrder(o);setShow(false)}} onCancel={()=>setShow(false)} isMob={isMob} statusCards={statusCards}/>}
     <Card title={"جميع الأوامر ("+data.orders.length+")"}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
       <thead><tr>{["#","التاريخ","موديل","الوصف","الكمية","الحالة",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
@@ -753,8 +747,8 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
     });
     return<div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
-        <h1 style={{fontSize:isMob?24:32,fontWeight:800,margin:0}}>تفاصيل الأوردر</h1>
-        {goHome&&<Btn ghost onClick={goHome}>← الرئيسية</Btn>}
+        <h2 style={{fontSize:FS+1,fontWeight:700,margin:"0 0 8px",color:T.textSec}}>{"اختر أوردر ("+filtered.length+")"}</h2>
+        {goHome&&<Btn ghost onClick={goHome} style={{padding:"4px 8px"}}>⌂</Btn>}
       </div>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr",gap:10,marginBottom:16}}>
         <Inp value={detQ} onChange={setDetQ} placeholder="بحث بالرقم أو الوصف أو المقاسات..."/>
@@ -1374,8 +1368,7 @@ function SearchPg({data,goD,isMob,season,statusCards}){
   const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
   const filtered=data.orders.filter(o=>{if(stF!=="الكل"&&o.status!==stF)return false;if(wsF!=="الكل"&&!(o.workshopDeliveries||[]).some(wd=>wd.wsName===wsF))return false;if(q.trim()){const s=q.trim().toLowerCase();const wsNames=(o.workshopDeliveries||[]).map(wd=>wd.wsName).join(" ");const h=[o.modelNo,o.modelDesc,o.sizeLabel,wsNames,o.status].filter(Boolean).join(" ").toLowerCase();if(!h.includes(s))return false}return true});
   return<div>
-    <h1 style={{fontSize:isMob?24:32,fontWeight:800,margin:"0 0 20px"}}>{"بحث - "+season}</h1>
-    <Card style={{marginBottom:20}}><div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr 1fr",gap:12}}>
+    <Card style={{marginBottom:12}}><div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr 1fr",gap:8}}>
       <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>بحث</label><Inp value={q} onChange={setQ} placeholder="رقم موديل، وصف..."/></div>
       <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>الحالة</label><Sel value={stF} onChange={setStF}><option value="الكل">الكل</option>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel></div>
       <div><label style={{display:"block",fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:600}}>الورشة</label><Sel value={wsF} onChange={setWsF}><option value="الكل">الكل</option>{(data.workshops||[]).map(w=><option key={w.id||w} value={w.name||w}>{w.name||w}</option>)}</Sel></div>
