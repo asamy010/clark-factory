@@ -380,10 +380,10 @@ export default function App(){
   if(dataLoading)return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#EFF6FF",direction:"rtl",fontFamily:"'Cairo',sans-serif"}}>
     <div style={{width:280}}>
       <div style={{height:28,borderRadius:8,background:"#E2E8F0",overflow:"hidden",position:"relative"}}>
-        <div style={{height:"100%",borderRadius:8,background:"linear-gradient(90deg,#0EA5E9,#0284C7)",animation:"fillBar 2s ease-out forwards"}}/>
-        <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:"#fff",textShadow:"0 1px 2px rgba(0,0,0,0.3)"}}>جاري تحميل البيانات</div>
+        <div style={{position:"absolute",top:0,right:0,bottom:0,width:"100%",borderRadius:8,background:"linear-gradient(90deg,#0EA5E9,#0284C7)",transformOrigin:"right",animation:"fillOnce 2s ease-out 1 forwards",transform:"scaleX(0)"}}/>
+        <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:"#fff",textShadow:"0 1px 2px rgba(0,0,0,0.3)",zIndex:1}}>جاري تحميل البيانات</div>
       </div>
-      <style>{`@keyframes fillBar{0%{width:0}100%{width:100%}}`}</style>
+      <style>{`@keyframes fillOnce{from{transform:scaleX(0)}to{transform:scaleX(1)}}`}</style>
     </div>
   </div>;
   const userName=user.displayName||user.email.split("@")[0];
