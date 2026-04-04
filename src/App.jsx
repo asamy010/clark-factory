@@ -115,18 +115,19 @@ function buildQRData(order,t,activeFabs){
   try{return window.location.origin+"?qr="+btoa(unescape(encodeURIComponent(JSON.stringify(d))))}catch(e){return order.modelNo}
 }
 
-function Timeline({events}){if(!events||events.length===0)return null;return<div style={{position:"relative",padding:"0 10px"}}>
-  {events.map((e,i)=><div key={i} style={{display:"flex",gap:12,marginBottom:i<events.length-1?0:0,position:"relative"}}>
-    <div style={{display:"flex",flexDirection:"column",alignItems:"center",flexShrink:0}}>
-      <div style={{width:12,height:12,borderRadius:6,background:e.color||T.accent,border:"2px solid #fff",boxShadow:"0 0 0 2px "+(e.color||T.accent),zIndex:1}}/>
-      {i<events.length-1&&<div style={{width:2,flex:1,background:T.brd,minHeight:30}}/>}
-    </div>
-    <div style={{paddingBottom:i<events.length-1?16:0,flex:1}}>
-      <div style={{fontSize:FS,fontWeight:700,color:e.color||T.text}}>{e.title}</div>
-      <div style={{fontSize:FS-2,color:T.textSec}}>{e.date}</div>
-      {e.detail&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{e.detail}</div>}
-    </div>
-  </div>)}
+function Timeline({events}){if(!events||events.length===0)return null;return<div style={{overflowX:"auto",padding:"8px 0"}}>
+  <div style={{display:"flex",alignItems:"flex-start",minWidth:events.length*140,position:"relative"}}>
+    {events.map((e,i)=><div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",position:"relative",minWidth:120}}>
+      <div style={{fontSize:FS-2,fontWeight:700,color:e.color||T.accent,textAlign:"center",marginBottom:6,maxWidth:110}}>{e.title}</div>
+      <div style={{display:"flex",alignItems:"center",width:"100%"}}>
+        {i>0&&<div style={{flex:1,height:2,background:T.brd}}/>}
+        <div style={{width:14,height:14,borderRadius:7,background:e.color||T.accent,border:"2px solid #fff",boxShadow:"0 0 0 2px "+(e.color||T.accent),flexShrink:0,zIndex:1}}/>
+        {i<events.length-1&&<div style={{flex:1,height:2,background:T.brd}}/>}
+      </div>
+      <div style={{fontSize:FS-3,color:T.textSec,marginTop:6,textAlign:"center"}}>{e.date}</div>
+      {e.detail&&<div style={{fontSize:FS-3,color:T.textMut,textAlign:"center",marginTop:2}}>{e.detail}</div>}
+    </div>)}
+  </div>
 </div>}
 
 function printReceipt(wsName,wsOwner,modelNo,qty,date,balance){
@@ -894,9 +895,15 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><Btn onClick={()=>printOrderSheet(order,t,activeFabs,statusCards)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 الأوردر</Btn>{canEdit&&<Btn primary onClick={()=>setEditing(true)}>✏️</Btn>}<Btn ghost onClick={()=>setSel(null)}>← عودة</Btn></div>
     </div>
     <div id="parea">
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(5,1fr)",gap:12,marginBottom:20}}>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(5,1fr)",gap:12,marginBottom:12}}>
         <MetricCard label="رقم الموديل" value={order.modelNo} icon="🏷"/><MetricCard label="كمية القص" value={t.cutQty} icon="✂️" color={T.accent}/><MetricCard label="تم التسليم" value={order.deliveredQty||0} icon="📦" color={T.ok}/><MetricCard label="الرصيد" value={t.balance} icon="📊" color={t.balance>0?T.warn:T.ok}/><MetricCard label="تكلفة القطعة" value={t.costPer+" ج.م"} icon="💰" color={T.accent}/>
       </div>
+      {/* Timeline - horizontal after cards */}
+      {(()=>{const ev=[];ev.push({title:"تم القص",date:order.date,color:T.accent,detail:"كمية: "+t.cutQty});
+        (order.workshopDeliveries||[]).forEach(wd=>{ev.push({title:"تسليم ورشة — "+wd.wsName,date:wd.date,color:"#8B5CF6",detail:(wd.garmentType||"")+" | "+wd.qty+" قطعة"});(wd.receives||[]).forEach(r=>{ev.push({title:"استلام مصنع — "+wd.wsName,date:r.date,color:T.ok,detail:r.qty+" قطعة"})})});
+        (order.deliveries||[]).forEach(d=>{ev.push({title:"مخزن جاهز",date:d.date,color:"#059669",detail:d.qty+" قطعة"})});
+        ev.sort((a,b)=>a.date.localeCompare(b.date));
+        return ev.length>1&&<div style={{marginBottom:14,background:T.cardSolid,borderRadius:10,padding:"10px 14px",border:"1px solid "+T.brd}}><Timeline events={ev}/></div>})()}
       <div style={{display:"grid",gridTemplateColumns:order.image&&!isMob?"auto auto 1fr":isMob?"1fr":"auto 1fr",gap:16,marginBottom:16}}>
         {order.image&&<div><img src={order.image} alt="" style={{width:isMob?"100%":135,height:180,aspectRatio:"3/4",objectFit:"cover",borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow}}/></div>}
         <div style={{display:"flex",justifyContent:"center",alignItems:"flex-start"}}><QRImg text={buildQRData(order,t,activeFabs)} size={isMob?100:120}/></div>
@@ -905,12 +912,6 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
           <tr><td style={TDL}>الحالة</td><td style={TD}>{canEdit?<Sel value={order.status} onChange={v=>updOrder(sel,o=>{o.status=v})}>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel>:<Badge t={order.status} cards={statusCards}/>}</td><td style={TDL}>التاريخ</td><td style={TD}>{order.date}</td></tr>
         </tbody></table></div></Card>
       </div>
-      {/* Timeline */}
-      {(()=>{const ev=[];ev.push({title:"تم القص",date:order.date,color:T.accent,detail:"كمية: "+t.cutQty});
-        (order.workshopDeliveries||[]).forEach(wd=>{ev.push({title:"تسليم ورشة — "+wd.wsName,date:wd.date,color:"#8B5CF6",detail:(wd.garmentType||"")+" | "+wd.qty+" قطعة"});(wd.receives||[]).forEach(r=>{ev.push({title:"استلام مصنع — "+wd.wsName,date:r.date,color:T.ok,detail:r.qty+" قطعة"})})});
-        (order.deliveries||[]).forEach(d=>{ev.push({title:"تسليم مخزن جاهز",date:d.date,color:"#059669",detail:d.qty+" قطعة"+(d.notes?" — "+d.notes:"")})});
-        ev.sort((a,b)=>a.date.localeCompare(b.date));
-        return ev.length>1&&<Card title="مسار الأوردر" style={{marginBottom:16}}><Timeline events={ev}/></Card>})()}
       {/* Order Pieces */}
       {(order.orderPieces||[]).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:10,marginBottom:16}}>
         <span style={{fontSize:FS,fontWeight:700,color:T.text}}>{"قطع الموديل ("+order.orderPieces.length+"):"}</span>
