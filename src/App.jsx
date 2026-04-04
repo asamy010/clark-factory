@@ -316,7 +316,7 @@ const TABS=[
 export default function App(){
   const[user,setUser]=useState(null);const[authLoading,setAuthLoading]=useState(true);
   const[config,setConfig]=useState(INIT_CONFIG);const[orders,setOrders]=useState([]);const[dataLoading,setDataLoading]=useState(true);
-  const[tab,setTab]=useState("home");const[sel,setSel]=useState(null);
+  const[tab,setTab]=useState("home");const[sel,setSel]=useState(null);const[gSearch,setGSearch]=useState("");
   const[theme,setTheme]=useState(()=>localStorage.getItem("clark-theme")||"light");
   T=THEMES[theme]||THEMES.light;
   useEffect(()=>{localStorage.setItem("clark-theme",theme);document.body.style.background=T.bodyBg||T.bg},[theme]);
@@ -364,6 +364,21 @@ export default function App(){
         <img src={config.logo||CLARK_LOGO} alt="CLARK" style={{height:isMob?22:28,objectFit:"contain"}}/>
         <span style={{fontSize:isMob?10:FS-1,color:T.textSec,padding:"2px 8px",background:T.accentBg,borderRadius:6}}>{season}</span>
       </div>
+      {!isMob&&<div style={{flex:1,display:"flex",justifyContent:"center",position:"relative"}}>
+        <div style={{position:"relative",width:280}}>
+          <input value={gSearch} onChange={e=>setGSearch(e.target.value)} placeholder="🔍 بحث سريع..." style={{width:"100%",padding:"5px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none"}}/>
+          {gSearch.trim()&&(()=>{const q=gSearch.trim().toLowerCase();const res=[];
+            data.orders.forEach(o=>{if([o.modelNo,o.modelDesc].join(" ").toLowerCase().includes(q))res.push({type:"أوردر",label:o.modelNo+" — "+o.modelDesc,action:()=>{goD(o.id);setGSearch("")}})});
+            (data.workshops||[]).forEach(w=>{if(w.name.toLowerCase().includes(q))res.push({type:"ورشة",label:w.name+(w.owner?" — "+w.owner:""),action:()=>{setTab("db");setGSearch("")}})});
+            (data.fabrics||[]).forEach(f=>{if(f.name.toLowerCase().includes(q))res.push({type:"خامة",label:f.name,action:()=>{setTab("db");setGSearch("")}})});
+            return<div style={{position:"absolute",top:"100%",right:0,left:0,marginTop:4,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:10,boxShadow:"0 8px 30px rgba(0,0,0,0.15)",zIndex:999,maxHeight:300,overflow:"auto"}}>
+              {res.slice(0,8).map((r,i)=><div key={i} onClick={r.action} style={{padding:"8px 12px",cursor:"pointer",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:FS-1}} onMouseEnter={e=>e.currentTarget.style.background=T.accentBg} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                <span>{r.label}</span><span style={{fontSize:FS-3,color:T.textMut,background:T.bg,padding:"1px 6px",borderRadius:4}}>{r.type}</span>
+              </div>)}
+              {res.length===0&&<div style={{padding:12,textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد نتائج</div>}
+            </div>})()}
+        </div>
+      </div>}
       <div style={{display:"flex",alignItems:"center",gap:isMob?6:10}}>
         <span style={{fontSize:isMob?11:FS,color:T.textSec}}>{userName}</span>
         <button onClick={()=>signOut(auth)} style={{padding:isMob?"4px 10px":"6px 14px",borderRadius:8,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",cursor:"pointer",fontSize:isMob?11:FS-1,fontWeight:600,fontFamily:"inherit"}}>خروج</button>
@@ -377,6 +392,8 @@ export default function App(){
         const _isIntH=(n)=>{const w=(data.workshops||[]).find(x=>x.name===n);return w?w.type==="داخلي":false};
         const stuckOrds=data.orders.filter(o=>o.status==="تم القص"&&(o.workshopDeliveries||[]).length===0);
         if(stuckOrds.length>0)_alerts.push({msg:stuckOrds.length+" أوردر لم يُسلَّم لأي ورشة",color:T.warn,icon:"⏳"});
+        /* Delay check - orders with no movement >7 days */
+        const now=new Date();data.orders.filter(o=>o.status!=="تم الشحن").forEach(o=>{let lastDate=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});const diff=Math.floor((now-new Date(lastDate))/(1000*60*60*24));if(diff>7&&!stuckOrds.find(x=>x.id===o.id))_alerts.push({msg:o.modelNo+" بدون حركة منذ "+diff+" يوم",color:T.err,icon:"🔴"})});
         const _cutQ=data.orders.reduce((s,o)=>s+calcOrder(o).cutQty,0);const _delQ=data.orders.reduce((s,o)=>s+(o.deliveredQty||0),0);
         const _comp=_cutQ?Math.round((_delQ/_cutQ)*100):0;
         if(_comp>=100)_alerts.push({msg:"تم الانتهاء من جميع الأوردرات!",color:T.ok,icon:"🎉"});
@@ -716,10 +733,15 @@ function OrdPg({data,addOrder,delOrder,updOrder,goD,isMob,canEdit,statusCards}){
   return<div>
     <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>{canEdit&&<Btn primary onClick={()=>setShow(!show)}>{show?"الغاء":"+ أمر قص جديد"}</Btn>}</div>
     {show&&<OrdForm data={data} initial={mkOrder()} onSave={o=>{addOrder(o);setShow(false)}} onCancel={()=>setShow(false)} isMob={isMob} statusCards={statusCards}/>}
-    <Card title={"جميع الأوامر ("+data.orders.length+")"}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
-      <thead><tr>{["#","التاريخ","موديل","الوصف","الكمية","الحالة",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
-      <tbody>{sortOrders(data.orders).map((o,i)=>{const t=calcOrder(o);const hasWsDel=(o.workshopDeliveries||[]).length>0;const hasStockDel=(o.deliveries||[]).length>0;const delBlock=hasStockDel?"يوجد تسليمات مخزن مرتبطة":hasWsDel?"يوجد تسليمات ورش مرتبطة":null;return<tr key={o.id}><td style={TD}>{i+1}</td><td style={TD}>{o.date}</td><td style={TDB}>{o.modelNo}</td><td style={TD}>{o.modelDesc}</td><td style={{...TDB,color:T.accent}}>{t.cutQty}</td><td style={TD}><Badge t={o.status} cards={statusCards}/></td><td style={{...TD,whiteSpace:"nowrap"}}><Btn ghost small onClick={()=>goD(o.id)}>تفاصيل</Btn>{canEdit&&<>{" "}<DelBtn onConfirm={()=>delOrder(o.id)} blocked={delBlock}/></>}</td></tr>})}
-        {data.orders.length===0&&<tr><td colSpan={7} style={{...TD,textAlign:"center",color:T.textSec,padding:40}}>لا توجد أوامر</td></tr>}
+    <Card title={"جميع الأوامر ("+data.orders.length+")"}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:800}}>
+      <thead><tr>{["#","التاريخ","موديل","الوصف","الكمية","آخر حركة","الحالة",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+      <tbody>{sortOrders(data.orders).map((o,i)=>{const t=calcOrder(o);const hasWsDel=(o.workshopDeliveries||[]).length>0;const hasStockDel=(o.deliveries||[]).length>0;const delBlock=hasStockDel?"يوجد تسليمات مخزن مرتبطة":hasWsDel?"يوجد تسليمات ورش مرتبطة":null;
+        /* Last movement */
+        let lastMov=null;(o.workshopDeliveries||[]).forEach(wd=>{if(!lastMov||wd.date>lastMov.date)lastMov={date:wd.date,type:"تسليم ورشة",name:wd.wsName};(wd.receives||[]).forEach(r=>{if(!lastMov||r.date>lastMov.date)lastMov={date:r.date,type:"استلام مصنع",name:wd.wsName}})});(o.deliveries||[]).forEach(d=>{if(!lastMov||d.date>lastMov.date)lastMov={date:d.date,type:"مخزن جاهز"}});
+        return<tr key={o.id}><td style={TD}>{i+1}</td><td style={TD}>{o.date}</td><td style={TDB}>{o.modelNo}</td><td style={TD}>{o.modelDesc}</td><td style={{...TDB,color:T.accent}}>{t.cutQty}</td>
+        <td style={{...TD,fontSize:FS-2}}>{lastMov?<span style={{color:lastMov.type==="مخزن جاهز"?T.ok:lastMov.type==="استلام مصنع"?T.accent:T.purple}}>{lastMov.type+" "+lastMov.date}</span>:<span style={{color:T.textMut}}>—</span>}</td>
+        <td style={TD}><Badge t={o.status} cards={statusCards}/></td><td style={{...TD,whiteSpace:"nowrap"}}><Btn ghost small onClick={()=>goD(o.id)}>تفاصيل</Btn>{canEdit&&<>{" "}<DelBtn onConfirm={()=>delOrder(o.id)} blocked={delBlock}/></>}</td></tr>})}
+        {data.orders.length===0&&<tr><td colSpan={8} style={{...TD,textAlign:"center",color:T.textSec,padding:40}}>لا توجد أوامر</td></tr>}
       </tbody>
     </table></div></Card>
   </div>
@@ -1418,6 +1440,12 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards}){
         <span style={{padding:"4px 10px",borderRadius:6,background:T.ok+"10",color:T.ok,fontWeight:700,fontSize:FS-1}}>{"تم تسليمه: "+stockDel}</span>
         <span style={{padding:"4px 10px",borderRadius:6,background:stockRemain>0?T.warn+"10":T.ok+"10",color:stockRemain>0?T.warn:T.ok,fontWeight:700,fontSize:FS-1}}>{"المتبقي: "+stockRemain}</span>
       </div>}
+      {/* Workshop balance for selected order */}
+      {selOrder&&ord&&(ord.workshopDeliveries||[]).length>0&&<div style={{marginTop:8,padding:8,borderRadius:8,background:T.bg,border:"1px solid "+T.brd}}>
+        <div style={{fontSize:FS-2,fontWeight:700,color:T.textSec,marginBottom:4}}>حالة الورش</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{(ord.workshopDeliveries||[]).map((wd,i)=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;
+          return<span key={i} style={{padding:"3px 8px",borderRadius:6,fontSize:FS-2,fontWeight:600,background:bal>0?T.err+"08":T.ok+"08",color:bal>0?T.err:T.ok,border:"1px solid "+(bal>0?T.err:T.ok)+"15"}}>{wd.wsName+(wd.garmentType?" ("+wd.garmentType+")":"")+" → سلّم: "+wd.qty+" | رجع: "+rcvd+(bal>0?" | متبقي: "+bal:" ✓")}</span>})}</div>
+      </div>}
       {selOrder&&<div style={{marginTop:8}}><Inp value={stNote} onChange={setStNote} placeholder="ملاحظات (اختياري)"/></div>}
     </Card>
     {/* Recent stock deliveries */}
@@ -1430,9 +1458,9 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards}){
 }
 
 function RepPg({data,isMob,season,statusCards}){
-  const[filter,setFilter]=useState("الكل");
+  const[filter,setFilter]=useState("الكل");const[dateFrom,setDateFrom]=useState("");const[dateTo,setDateTo]=useState("");
   const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
-  const list=sortOrders(filter==="الكل"?data.orders:data.orders.filter(o=>o.status===filter));
+  const list=sortOrders((filter==="الكل"?data.orders:data.orders.filter(o=>o.status===filter)).filter(o=>{if(dateFrom&&o.date<dateFrom)return false;if(dateTo&&o.date>dateTo)return false;return true}));
   const cutQ=list.reduce((s,o)=>s+calcOrder(o).cutQty,0);
   const delQ=list.reduce((s,o)=>s+(o.deliveredQty||0),0);
   const comp=cutQ?Math.round((delQ/cutQ)*100):0;
@@ -1455,7 +1483,12 @@ function RepPg({data,isMob,season,statusCards}){
         <div className="mc" style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+T.brd,background:T.cardSolid,textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>الرصيد</div><b style={{fontSize:20,fontWeight:800,color:T.warn}}>{fmt(cutQ-delQ)}</b></div>
         <div className="mc" style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+T.brd,background:T.cardSolid,textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>الانجاز</div><b style={{fontSize:20,fontWeight:800,color:comp>=80?T.ok:comp>=50?T.warn:T.err}}>{comp+"%"}</b></div>
       </div>
-      <div style={{display:"flex",gap:4,marginBottom:12,flexWrap:"wrap"}}>{["الكل",...statuses].map(s=><Btn key={s} on={filter===s} small onClick={()=>setFilter(s)}>{s}</Btn>)}</div>
+      <div style={{display:"flex",gap:4,marginBottom:8,flexWrap:"wrap",alignItems:"center"}}>{["الكل",...statuses].map(s=><Btn key={s} on={filter===s} small onClick={()=>setFilter(s)}>{s}</Btn>)}
+        <span style={{fontSize:FS-2,color:T.textMut,margin:"0 4px"}}>|</span>
+        <Inp type="date" value={dateFrom} onChange={setDateFrom} placeholder="من" style={{width:120,fontSize:FS-2}}/>
+        <Inp type="date" value={dateTo} onChange={setDateTo} placeholder="إلى" style={{width:120,fontSize:FS-2}}/>
+        {(dateFrom||dateTo)&&<Btn ghost small onClick={()=>{setDateFrom("");setDateTo("")}}>✕</Btn>}
+      </div>
       <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
         <thead><tr>{["#","الموديل","الوصف","الخامات","القطع","كمية القص","مخزن","رصيد","الورش","الحالة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
         <tbody>{list.map((o,i)=>{const c=calcOrder(o);const aFabs=activeFabs(o);const wds=o.workshopDeliveries||[];const pieces=o.orderPieces||[];
@@ -1476,12 +1509,21 @@ function RepPg({data,isMob,season,statusCards}){
 
 /* ══ COST ══ */
 function CostPg({data,isMob,statusCards}){
-  const orders=sortOrders(data.orders);const totalCut=orders.reduce((s,o)=>s+calcOrder(o).cutQty,0);const totalCost=orders.reduce((s,o)=>s+calcOrder(o).costAll,0);const totalFab=orders.reduce((s,o)=>s+calcOrder(o).totalFab,0);const totalAcc=orders.reduce((s,o)=>s+calcOrder(o).accAll,0);
+  const[cDateFrom,setCDateFrom]=useState("");const[cDateTo,setCDateTo]=useState("");
+  const orders=sortOrders(data.orders.filter(o=>{if(cDateFrom&&o.date<cDateFrom)return false;if(cDateTo&&o.date>cDateTo)return false;return true}));const totalCut=orders.reduce((s,o)=>s+calcOrder(o).cutQty,0);const totalCost=orders.reduce((s,o)=>s+calcOrder(o).costAll,0);const totalFab=orders.reduce((s,o)=>s+calcOrder(o).totalFab,0);const totalAcc=orders.reduce((s,o)=>s+calcOrder(o).accAll,0);
   const fabName=(o,k)=>{const l=gf(o,k,"Label");return l?l.split(" - ")[0]:null};
   const today=new Date().toLocaleDateString("ar-EG",{year:"numeric",month:"long",day:"numeric"});
   const printCost=()=>{const el=document.getElementById("cost-area");if(!el)return;printPage("تقرير التكاليف",el.innerHTML)};
   return<div>
-    <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}><Btn onClick={printCost} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨 طباعة</Btn></div>
+    <div style={{display:"flex",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:6,alignItems:"center"}}>
+      <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
+        <span style={{fontSize:FS-2,color:T.textSec}}>فترة:</span>
+        <Inp type="date" value={cDateFrom} onChange={setCDateFrom} style={{width:120,fontSize:FS-2}}/>
+        <Inp type="date" value={cDateTo} onChange={setCDateTo} style={{width:120,fontSize:FS-2}}/>
+        {(cDateFrom||cDateTo)&&<Btn ghost small onClick={()=>{setCDateFrom("");setCDateTo("")}}>✕</Btn>}
+      </div>
+      <Btn onClick={printCost} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨 طباعة</Btn>
+    </div>
     <div id="cost-area">
       <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>تقرير التكاليف</h1>
       <div className="sub" style={{fontSize:FS-1,color:T.textSec,marginBottom:12}}>{orders.length+" موديل | "+today}</div>
