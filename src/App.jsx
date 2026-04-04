@@ -105,15 +105,7 @@ function printPage(title,bodyHtml){const pw=window.open("","_blank");if(!pw)retu
 
 function exportExcel(rows,fileName){const ws=XLSX.utils.aoa_to_sheet(rows);ws["!cols"]=rows[0].map(()=>({wch:18}));const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Sheet1");XLSX.writeFile(wb,fileName+".xlsx")}
 
-function QRImg({text,size}){const[src,setSrc]=useState("");useEffect(()=>{if(!text)return;QRCode.toDataURL(text,{width:size||120,margin:1,color:{dark:"#1E293B",light:"#FFFFFF"}}).then(setSrc).catch(()=>{})},[text,size]);return src?<img src={src} alt="QR" style={{width:size||120,height:size||120,borderRadius:8,border:"1px solid #E2E8F0"}}/>:null}
-
-function buildQRData(order,t,activeFabs){
-  const d={m:order.modelNo,d:order.modelDesc,dt:order.date,sz:order.sizeLabel,cut:t.cutQty,del:order.deliveredQty||0,st:order.status,
-    fab:activeFabs.map(k=>gf(order,k,"Label")?.split(" - ")[0]).filter(Boolean),
-    pcs:order.orderPieces||[],
-    ws:(order.workshopDeliveries||[]).map(wd=>({n:wd.wsName,g:wd.garmentType||"",q:wd.qty,r:(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0)}))};
-  try{return window.location.origin+"?qr="+btoa(unescape(encodeURIComponent(JSON.stringify(d))))}catch(e){return order.modelNo}
-}
+function QRImg({text,size}){const[src,setSrc]=useState("");useEffect(()=>{if(!text)return;QRCode.toDataURL(text,{width:size||120,margin:1,errorCorrectionLevel:"L",color:{dark:"#1E293B",light:"#FFFFFF"}}).then(setSrc).catch(()=>{})},[text,size]);return src?<img src={src} alt="QR" style={{width:size||120,height:size||120,borderRadius:8,border:"1px solid #E2E8F0"}}/>:null}
 
 function Timeline({events}){if(!events||events.length===0)return null;return<div style={{overflowX:"auto",padding:"8px 0"}}>
   <div style={{display:"flex",alignItems:"flex-start",minWidth:events.length*130,position:"relative"}}>
@@ -188,7 +180,7 @@ function validateOrder(form){
 
 
 async function printOrderSheet(order,t,activeFabs,statusCards){
-  let qrSrc="";try{const qrUrl=buildQRData(order,t,activeFabs);qrSrc=await QRCode.toDataURL(qrUrl,{width:100,margin:1})}catch(e){}
+  let qrSrc="";try{qrSrc=await QRCode.toDataURL(window.location.origin+"?o="+encodeURIComponent(order.modelNo),{width:100,margin:1,errorCorrectionLevel:"L"})}catch(e){}
   let fabRows="";activeFabs.forEach(k=>{const fp=order["fabricPieces"+k]||[];fabRows+="<tr><td>"+gf(order,k,"Label")+"</td><td>"+(fp.length>0?fp.join("، "):"-")+"</td><td>"+slay(gc(order,k))+"</td><td>"+sqty(gc(order,k))+"</td></tr>"});
   let wsRows="";(order.workshopDeliveries||[]).forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);wsRows+="<tr><td>"+wd.wsName+"</td><td>"+(wd.garmentType||"-")+"</td><td>"+wd.qty+"</td><td>"+rcvd+"</td><td>"+(wd.qty-rcvd)+"</td></tr>"});
   const col=getStatusColor(order.status,statusCards);
@@ -341,54 +333,9 @@ const TABS=[
 ];
 
 /* ══ MAIN APP ══ */
-/* ══ PUBLIC ORDER VIEW (QR Scan) ══ */
-function PublicOrderView({data}){
-  return<div style={{minHeight:"100vh",direction:"rtl",fontFamily:"'Cairo',sans-serif",background:"#EFF6FF",color:"#1E293B",fontSize:13}}>
-    <div style={{padding:"12px 20px",background:"#FFF",borderBottom:"1px solid rgba(148,163,184,0.2)",display:"flex",alignItems:"center",gap:12}}>
-      <img src={CLARK_LOGO} alt="CLARK" style={{height:28,objectFit:"contain"}}/>
-      <span style={{fontSize:12,color:"#64748B"}}>بيانات أمر التشغيل</span>
-    </div>
-    <div style={{padding:16,maxWidth:600,margin:"0 auto"}}>
-      <div style={{background:"#FFF",borderRadius:14,padding:20,border:"1px solid rgba(148,163,184,0.2)",marginBottom:12}}>
-        <div style={{fontSize:22,fontWeight:800,color:"#0EA5E9",marginBottom:4}}>{data.m}</div>
-        <div style={{fontSize:15,fontWeight:600,color:"#1E293B",marginBottom:12}}>{data.d}</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          {[["التاريخ",data.dt],["المقاسات",data.sz],["كمية القص",data.cut],["تم التسليم",data.del],["الرصيد",data.cut-data.del],["الحالة",data.st]].map(([l,v],i)=>
-            <div key={i} style={{padding:8,borderRadius:8,background:"#F8FAFC",border:"1px solid #E2E8F0"}}>
-              <div style={{fontSize:11,color:"#64748B"}}>{l}</div>
-              <div style={{fontSize:15,fontWeight:700,color:l==="الحالة"?"#0EA5E9":"#1E293B"}}>{v}</div>
-            </div>)}
-        </div>
-      </div>
-      {data.fab&&data.fab.length>0&&<div style={{background:"#FFF",borderRadius:14,padding:16,border:"1px solid rgba(148,163,184,0.2)",marginBottom:12}}>
-        <div style={{fontSize:14,fontWeight:700,marginBottom:8}}>الخامات</div>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{data.fab.map((f,i)=><span key={i} style={{padding:"4px 12px",borderRadius:8,background:"#E0F2FE",color:"#0284C7",fontWeight:600,fontSize:12}}>{f}</span>)}</div>
-      </div>}
-      {data.pcs&&data.pcs.length>0&&<div style={{background:"#FFF",borderRadius:14,padding:16,border:"1px solid rgba(148,163,184,0.2)",marginBottom:12}}>
-        <div style={{fontSize:14,fontWeight:700,marginBottom:8}}>قطع الموديل</div>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{data.pcs.map((p,i)=><span key={i} style={{padding:"4px 12px",borderRadius:8,background:"#EDE9FE",color:"#8B5CF6",fontWeight:600,fontSize:12}}>{"👕 "+p}</span>)}</div>
-      </div>}
-      {data.ws&&data.ws.length>0&&<div style={{background:"#FFF",borderRadius:14,padding:16,border:"1px solid rgba(148,163,184,0.2)"}}>
-        <div style={{fontSize:14,fontWeight:700,marginBottom:8}}>الورش</div>
-        {data.ws.map((w,i)=>{const bal=w.q-w.r;return<div key={i} style={{padding:8,borderRadius:8,background:bal>0?"#FEF2F2":"#F0FDF4",border:"1px solid "+(bal>0?"#FECACA":"#BBF7D0"),marginBottom:i<data.ws.length-1?6:0,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:4}}>
-          <div><span style={{fontWeight:700}}>{w.n}</span>{w.g&&<span style={{fontSize:11,color:"#8B5CF6",marginRight:6}}>{" — "+w.g}</span>}</div>
-          <div style={{display:"flex",gap:6,fontSize:12}}>
-            <span style={{color:"#8B5CF6",fontWeight:600}}>{"تسليم: "+w.q}</span>
-            <span style={{color:"#10B981",fontWeight:600}}>{"استلام: "+w.r}</span>
-            {bal>0&&<span style={{color:"#EF4444",fontWeight:700}}>{"رصيد: "+bal}</span>}
-            {bal===0&&<span style={{color:"#10B981"}}>✓</span>}
-          </div>
-        </div>})}
-      </div>}
-      <div style={{textAlign:"center",marginTop:20,fontSize:11,color:"#94A3B8"}}>CLARK Factory Management System</div>
-    </div>
-  </div>
-}
-
 export default function App(){
-  /* Check for QR public view */
-  const qrParam=new URLSearchParams(window.location.search).get("qr");
-  if(qrParam){try{const d=JSON.parse(decodeURIComponent(escape(atob(qrParam))));return<PublicOrderView data={d}/>}catch(e){}}
+  /* QR scan: ?o=modelNo → after login, open order details */
+  const qrModelNo=new URLSearchParams(window.location.search).get("o");
 
   const[user,setUser]=useState(null);const[authLoading,setAuthLoading]=useState(true);
   const[config,setConfig]=useState(INIT_CONFIG);const[orders,setOrders]=useState([]);const[dataLoading,setDataLoading]=useState(true);
@@ -408,6 +355,9 @@ export default function App(){
   const delOrder=async orderId=>{const ord=orders.find(o=>o.id===orderId);if(ord)await deleteDoc(doc(db,"seasons",season,"orders",ord._docId))};
   const replaceOrder=async(orderId,newData)=>{const ord=orders.find(o=>o.id===orderId);if(!ord)return;const clean={...newData};delete clean._docId;await setDoc(doc(db,"seasons",season,"orders",ord._docId),clean)};
   const goD=id=>{setSel(id);setTab("details")};
+  /* QR scan auto-navigate */
+  const qrDone=useRef(false);
+  useEffect(()=>{if(qrModelNo&&!qrDone.current&&orders.length>0){const o=orders.find(x=>x.modelNo===qrModelNo);if(o){qrDone.current=true;goD(o.id);window.history.replaceState({},"",window.location.pathname)}}},[orders,qrModelNo]);
 
   const data={...config,orders};
   const getUserRole=()=>{if(config.users&&config.users[user?.uid])return config.users[user.uid];const byEmail=(config.usersList||[]).find(u=>u.email===user?.email);if(byEmail)return byEmail.role;return"admin"};
