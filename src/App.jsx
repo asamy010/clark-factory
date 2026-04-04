@@ -339,7 +339,7 @@ export default function App(){
 
   const[user,setUser]=useState(null);const[authLoading,setAuthLoading]=useState(true);
   const[config,setConfig]=useState(INIT_CONFIG);const[orders,setOrders]=useState([]);const[dataLoading,setDataLoading]=useState(true);
-  const[tab,setTab]=useState("home");const[sel,setSel]=useState(null);const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);
+  const[tab,setTab]=useState("home");const[sel,setSel]=useState(null);const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);
   const[theme,setTheme]=useState(()=>localStorage.getItem("clark-theme")||"light");
   T=THEMES[theme]||THEMES.light;
   useEffect(()=>{localStorage.setItem("clark-theme",theme);document.body.style.background=T.bodyBg||T.bg},[theme]);
@@ -380,17 +380,27 @@ export default function App(){
   const userName=user.displayName||user.email.split("@")[0];
   /* Compute alerts */
   const appAlerts=(()=>{const a=[];
-    const stuckOrds=data.orders.filter(o=>o.status==="تم القص"&&(o.workshopDeliveries||[]).length===0);
-    if(stuckOrds.length>0)a.push({msg:stuckOrds.length+" أوردر لم يُسلَّم لأي ورشة",color:T.warn,icon:"⏳"});
-    const now=new Date();data.orders.filter(o=>o.status!=="تم الشحن").forEach(o=>{let lastDate=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});const diff=Math.floor((now-new Date(lastDate))/(1000*60*60*24));if(diff>7&&!stuckOrds.find(x=>x.id===o.id))a.push({msg:o.modelNo+" بدون حركة منذ "+diff+" يوم",color:T.err,icon:"🔴"})});
+    /* Per-order piece alerts */
+    data.orders.filter(o=>{const wds=o.workshopDeliveries||[];const pieces=o.orderPieces||[];const t=calcOrder(o);
+      if(pieces.length>0){
+        const allMissing=pieces.every(p=>wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0)===0);
+        const someMissing=pieces.some(p=>wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0)===0);
+        if(allMissing&&wds.length===0)a.push({msg:o.modelNo+" — كل القطع لم تُسلَّم ("+pieces.join("، ")+")",color:T.warn,icon:"⏳",orderId:o.id});
+        else if(someMissing){const missing=pieces.filter(p=>wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0)===0);const done=pieces.filter(p=>!missing.includes(p));a.push({msg:o.modelNo+" — متبقي: "+missing.join("، ")+(done.length>0?" (تم: "+done.join("، ")+")":""),color:T.warn,icon:"⏳",orderId:o.id})}
+      }else if(wds.length===0&&o.status==="تم القص"){a.push({msg:o.modelNo+" — "+o.modelDesc+" لم يُسلَّم لأي ورشة",color:T.warn,icon:"⏳",orderId:o.id})}
+      return false});
+    /* Delay alerts */
+    const now=new Date();data.orders.filter(o=>o.status!=="تم الشحن").forEach(o=>{let lastDate=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});const diff=Math.floor((now-new Date(lastDate))/(1000*60*60*24));if(diff>7&&!a.find(x=>x.orderId===o.id))a.push({msg:o.modelNo+" بدون حركة منذ "+diff+" يوم",color:T.err,icon:"🔴",orderId:o.id})});
+    /* Completion */
     const _cutQ=data.orders.reduce((s,o)=>s+calcOrder(o).cutQty,0);const _delQ=data.orders.reduce((s,o)=>s+(o.deliveredQty||0),0);if(_cutQ&&Math.round(_delQ/_cutQ*100)>=100)a.push({msg:"تم الانتهاء من جميع الأوردرات!",color:T.ok,icon:"🎉"});
+    /* Workshop limit */
     (data.workshops||[]).filter(w=>w.type!=="داخلي").forEach(w=>{let due=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});const purch=(data.wsPayments||[]).filter(p=>p.wsName===w.name&&p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);const paid=(data.wsPayments||[]).filter(p=>p.wsName===w.name&&p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);const pct=w.payPercent||70;const limit=r2((due+purch)*(pct/100));if(paid>limit&&due>0)a.push({msg:w.name+" تجاوز حد "+pct+"%",color:T.err,icon:"⚠️"})});
     return a})();
 
   const goHome=()=>{setTab("home");setSel(null)};
   const goTo=(key)=>{setTab(key);if(key!=="details")setSel(null)};
 
-  return<div style={{minHeight:"100vh",direction:"rtl",fontFamily:"'Cairo',sans-serif",background:T.bg,color:T.text,fontSize:FS,display:"flex",flexDirection:"column"}}>
+  return<div onClick={()=>{if(showAlerts)setShowAlerts(false);if(gSearch)setGSearch("");if(showLogout)setShowLogout(false)}} style={{minHeight:"100vh",direction:"rtl",fontFamily:"'Cairo',sans-serif",background:T.bg,color:T.text,fontSize:FS,display:"flex",flexDirection:"column"}}>
     {/* Top Bar */}
     <div style={{padding:isMob?"8px 10px":"12px 28px",background:T.cardSolid,borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
       <div style={{display:"flex",alignItems:"center",gap:isMob?6:10}}>
@@ -398,7 +408,7 @@ export default function App(){
         <img src={config.logo||CLARK_LOGO} alt="CLARK" style={{height:isMob?22:28,objectFit:"contain"}}/>
         <span style={{fontSize:isMob?10:FS-1,color:T.textSec,padding:"2px 8px",background:T.accentBg,borderRadius:6}}>{season}</span>
       </div>
-      {!isMob&&<div style={{flex:1,display:"flex",justifyContent:"center",position:"relative"}}>
+      {!isMob&&<div onClick={e=>e.stopPropagation()} style={{flex:1,display:"flex",justifyContent:"center",position:"relative"}}>
         <div style={{position:"relative",width:280}}>
           <input value={gSearch} onChange={e=>setGSearch(e.target.value)} placeholder="🔍 بحث سريع..." style={{width:"100%",padding:"5px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none"}}/>
           {gSearch.trim()&&(()=>{const q=gSearch.trim().toLowerCase();const res=[];
@@ -415,20 +425,21 @@ export default function App(){
       </div>}
       <div style={{display:"flex",alignItems:"center",gap:isMob?6:10}}>
         {/* Alerts Bell */}
-        <div style={{position:"relative"}}>
+        <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
           <div onClick={()=>setShowAlerts(!showAlerts)} style={{cursor:"pointer",fontSize:isMob?18:22,padding:"2px 6px",borderRadius:8,background:appAlerts.length>0?T.warn+"12":"transparent",position:"relative"}}>🔔
             {appAlerts.length>0&&<span style={{position:"absolute",top:-2,left:-2,width:16,height:16,borderRadius:8,background:T.err,color:"#fff",fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>{appAlerts.length}</span>}
           </div>
-          {showAlerts&&<div style={{position:"absolute",top:"100%",left:0,marginTop:6,width:isMob?280:320,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:12,boxShadow:"0 8px 30px rgba(0,0,0,0.15)",zIndex:999,maxHeight:350,overflow:"auto"}}>
+          {showAlerts&&<div style={{position:"absolute",top:"100%",left:0,marginTop:6,width:isMob?280:340,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:12,boxShadow:"0 8px 30px rgba(0,0,0,0.15)",zIndex:999,maxHeight:400,overflow:"auto"}}>
             <div style={{padding:"10px 14px",borderBottom:"1px solid "+T.brd,fontWeight:700,fontSize:FS,color:T.text}}>{"الاشعارات ("+appAlerts.length+")"}</div>
-            {appAlerts.length>0?appAlerts.map((a,i)=><div key={i} style={{padding:"10px 14px",borderBottom:"1px solid "+T.brd,display:"flex",gap:8,alignItems:"flex-start"}}>
+            {appAlerts.length>0?appAlerts.map((a,i)=><div key={i} onClick={()=>{if(a.orderId){goD(a.orderId);setShowAlerts(false)}}} style={{padding:"10px 14px",borderBottom:"1px solid "+T.brd,display:"flex",gap:8,alignItems:"flex-start",cursor:a.orderId?"pointer":"default",transition:"background 0.15s"}} onMouseEnter={e=>{if(a.orderId)e.currentTarget.style.background=T.accentBg}} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
               <span style={{fontSize:16,flexShrink:0}}>{a.icon}</span>
-              <span style={{fontSize:FS-1,color:a.color,fontWeight:600}}>{a.msg}</span>
+              <div style={{flex:1}}><span style={{fontSize:FS-1,color:a.color,fontWeight:600,lineHeight:1.5}}>{a.msg}</span>{a.orderId&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>اضغط لفتح الأوردر</div>}</div>
             </div>):<div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد اشعارات</div>}
           </div>}
         </div>
         <span style={{fontSize:isMob?11:FS,color:T.textSec}}>{userName}</span>
-        <button onClick={()=>signOut(auth)} style={{padding:isMob?"4px 10px":"6px 14px",borderRadius:8,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",cursor:"pointer",fontSize:isMob?11:FS-1,fontWeight:600,fontFamily:"inherit"}}>خروج</button>
+        {!showLogout?<button onClick={e=>{e.stopPropagation();setShowLogout(true)}} style={{padding:isMob?"4px 10px":"6px 14px",borderRadius:8,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",cursor:"pointer",fontSize:isMob?11:FS-1,fontWeight:600,fontFamily:"inherit"}}>خروج</button>
+        :<div onClick={e=>e.stopPropagation()} style={{display:"flex",gap:4,alignItems:"center"}}><button onClick={()=>signOut(auth)} style={{padding:isMob?"4px 8px":"5px 12px",borderRadius:6,background:T.err,color:"#fff",border:"none",cursor:"pointer",fontSize:isMob?10:FS-1,fontWeight:700,fontFamily:"inherit"}}>تأكيد</button><button onClick={()=>setShowLogout(false)} style={{padding:isMob?"4px 8px":"5px 12px",borderRadius:6,background:T.cardSolid,color:T.textSec,border:"1px solid "+T.brd,cursor:"pointer",fontSize:isMob?10:FS-1,fontWeight:600,fontFamily:"inherit"}}>الغاء</button></div>}
       </div>
     </div>
     <div style={{flex:1,overflow:"auto",padding:isMob?"8px 10px":"12px 24px"}}>
