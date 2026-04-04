@@ -369,7 +369,7 @@ export default function App(){
           <input value={gSearch} onChange={e=>setGSearch(e.target.value)} placeholder="🔍 بحث سريع..." style={{width:"100%",padding:"5px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none"}}/>
           {gSearch.trim()&&(()=>{const q=gSearch.trim().toLowerCase();const res=[];
             data.orders.forEach(o=>{if([o.modelNo,o.modelDesc].join(" ").toLowerCase().includes(q))res.push({type:"أوردر",label:o.modelNo+" — "+o.modelDesc,action:()=>{goD(o.id);setGSearch("")}})});
-            (data.workshops||[]).forEach(w=>{if(w.name.toLowerCase().includes(q))res.push({type:"ورشة",label:w.name+(w.owner?" — "+w.owner:""),action:()=>{setInitWs(w.name);setTab("external");setGSearch("")}})});
+            (data.workshops||[]).forEach(w=>{if(w.name.toLowerCase().includes(q))res.push({type:"ورشة",label:w.name+(w.owner?" — "+w.owner:""),action:()=>{setGSearch("");setTab("home");setTimeout(()=>{setInitWs(w.name);setTab("external")},50)}})});
             (data.fabrics||[]).forEach(f=>{if(f.name.toLowerCase().includes(q))res.push({type:"خامة",label:f.name,action:()=>{setTab("db");setGSearch("")}})});
             return<div style={{position:"absolute",top:"100%",right:0,left:0,marginTop:4,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:10,boxShadow:"0 8px 30px rgba(0,0,0,0.15)",zIndex:999,maxHeight:300,overflow:"auto"}}>
               {res.slice(0,8).map((r,i)=><div key={i} onClick={r.action} style={{padding:"8px 12px",cursor:"pointer",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:FS-1}} onMouseEnter={e=>e.currentTarget.style.background=T.accentBg} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
@@ -937,9 +937,9 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
 
 /* ══ EXTERNAL PRODUCTION ══ */
 function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,initWs,clearInitWs}){
-  const[mode,setMode]=useState(initWs?"deliver":null);
-  const[selWs,setSelWs]=useState(initWs||"");
-  React.useEffect(()=>{if(initWs){setSelWs(initWs);setMode("deliver");if(clearInitWs)clearInitWs()}},[initWs]);
+  const[mode,setMode]=useState(()=>initWs?"deliver":null);
+  const[selWs,setSelWs]=useState(()=>initWs||"");
+  React.useEffect(()=>{if(initWs&&clearInitWs)clearInitWs()},[]);
   const[selOrder,setSelOrder]=useState("");
   const[ordSearch,setOrdSearch]=useState("");
   const[delQty,setDelQty]=useState(0);
