@@ -116,16 +116,14 @@ function buildQRData(order,t,activeFabs){
 }
 
 function Timeline({events}){if(!events||events.length===0)return null;return<div style={{overflowX:"auto",padding:"8px 0"}}>
-  <div style={{display:"flex",alignItems:"flex-start",minWidth:events.length*140,position:"relative"}}>
-    {events.map((e,i)=><div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",position:"relative",minWidth:120}}>
-      <div style={{fontSize:FS-2,fontWeight:700,color:e.color||T.accent,textAlign:"center",marginBottom:6,maxWidth:110}}>{e.title}</div>
-      <div style={{display:"flex",alignItems:"center",width:"100%"}}>
-        {i>0&&<div style={{flex:1,height:2,background:T.brd}}/>}
-        <div style={{width:14,height:14,borderRadius:7,background:e.color||T.accent,border:"2px solid #fff",boxShadow:"0 0 0 2px "+(e.color||T.accent),flexShrink:0,zIndex:1}}/>
-        {i<events.length-1&&<div style={{flex:1,height:2,background:T.brd}}/>}
-      </div>
+  <div style={{display:"flex",alignItems:"flex-start",minWidth:events.length*130,position:"relative"}}>
+    {/* Continuous line */}
+    <div style={{position:"absolute",top:28,right:events.length>1?"calc(50% / "+events.length+")":"0",left:events.length>1?"calc(50% / "+events.length+")":"0",height:2,background:T.brd}}/>
+    {events.map((e,i)=><div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",position:"relative",minWidth:110}}>
+      <div style={{fontSize:FS-2,fontWeight:700,color:e.color||T.accent,textAlign:"center",marginBottom:6,maxWidth:110,lineHeight:1.3}}>{e.title}</div>
+      <div style={{width:14,height:14,borderRadius:7,background:e.color||T.accent,border:"3px solid "+T.cardSolid,boxShadow:"0 0 0 2px "+(e.color||T.accent),zIndex:1}}/>
       <div style={{fontSize:FS-3,color:T.textSec,marginTop:6,textAlign:"center"}}>{e.date}</div>
-      {e.detail&&<div style={{fontSize:FS-3,color:T.textMut,textAlign:"center",marginTop:2}}>{e.detail}</div>}
+      {e.detail&&<div style={{fontSize:FS-3,color:T.textMut,textAlign:"center",marginTop:1}}>{e.detail}</div>}
     </div>)}
   </div>
 </div>}
@@ -904,9 +902,8 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
         (order.deliveries||[]).forEach(d=>{ev.push({title:"مخزن جاهز",date:d.date,color:"#059669",detail:d.qty+" قطعة"})});
         ev.sort((a,b)=>a.date.localeCompare(b.date));
         return ev.length>1&&<div style={{marginBottom:14,background:T.cardSolid,borderRadius:10,padding:"10px 14px",border:"1px solid "+T.brd}}><Timeline events={ev}/></div>})()}
-      <div style={{display:"grid",gridTemplateColumns:order.image&&!isMob?"auto auto 1fr":isMob?"1fr":"auto 1fr",gap:16,marginBottom:16}}>
+      <div style={{display:"grid",gridTemplateColumns:order.image&&!isMob?"auto 1fr":"1fr",gap:16,marginBottom:16}}>
         {order.image&&<div><img src={order.image} alt="" style={{width:isMob?"100%":135,height:180,aspectRatio:"3/4",objectFit:"cover",borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow}}/></div>}
-        <div style={{display:"flex",justifyContent:"center",alignItems:"flex-start"}}><QRImg text={buildQRData(order,t,activeFabs)} size={isMob?100:120}/></div>
         <Card title="بيانات الموديل"><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><tbody>
           <tr><td style={TDL}>الوصف</td><td style={TDB}>{order.modelDesc}</td><td style={TDL}>المقاسات</td><td style={TD}>{order.sizeLabel}</td></tr>
           <tr><td style={TDL}>الحالة</td><td style={TD}>{canEdit?<Sel value={order.status} onChange={v=>updOrder(sel,o=>{o.status=v})}>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel>:<Badge t={order.status} cards={statusCards}/>}</td><td style={TDL}>التاريخ</td><td style={TD}>{order.date}</td></tr>
