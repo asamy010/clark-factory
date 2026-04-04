@@ -181,14 +181,22 @@ function validateOrder(form){
 
 async function printOrderSheet(order,t,activeFabs,statusCards){
   let qrSrc="";try{qrSrc=await QRCode.toDataURL(window.location.origin+"?o="+encodeURIComponent(order.modelNo),{width:100,margin:1,errorCorrectionLevel:"L"})}catch(e){}
-  let fabRows="";activeFabs.forEach(k=>{const fp=order["fabricPieces"+k]||[];fabRows+="<tr><td>"+gf(order,k,"Label")+"</td><td>"+(fp.length>0?fp.join("، "):"-")+"</td><td>"+slay(gc(order,k))+"</td><td>"+sqty(gc(order,k))+"</td></tr>"});
   let wsRows="";(order.workshopDeliveries||[]).forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);wsRows+="<tr><td>"+wd.wsName+"</td><td>"+(wd.garmentType||"-")+"</td><td>"+wd.qty+"</td><td>"+rcvd+"</td><td>"+(wd.qty-rcvd)+"</td></tr>"});
   const col=getStatusColor(order.status,statusCards);
   let h="<div style='display:flex;gap:16px;align-items:flex-start;margin-bottom:16px'>";
   if(order.image)h+="<div style='width:100px;height:133px;border-radius:8px;overflow:hidden;border:1px solid #ddd;flex-shrink:0'><img src='"+order.image+"' style='width:100%;height:100%;object-fit:cover'/></div>";
   if(qrSrc)h+="<div style='flex-shrink:0'><img src='"+qrSrc+"' style='width:80px;height:80px'/></div>";
-  h+="<div style='flex:1'><table><tr><th>رقم الموديل</th><td><b>"+order.modelNo+"</b></td><th>الوصف</th><td>"+order.modelDesc+"</td></tr><tr><th>المقاسات</th><td>"+order.sizeLabel+"</td><th>التاريخ</th><td>"+order.date+"</td></tr><tr><th>كمية القص</th><td><b>"+t.cutQty+"</b></td><th>تم التسليم</th><td>"+(order.deliveredQty||0)+"</td></tr><tr><th>الرصيد</th><td><b>"+t.balance+"</b></td><th>الحالة</th><td><span class='badge' style='background:"+col+"20;color:"+col+"'>"+order.status+"</span></td></tr></table></div></div>";
-  if(fabRows)h+="<h2 style='font-size:14px;margin:12px 0 6px'>الخامات</h2><table><tr><th>الخامة</th><th>القطعة</th><th>الراقات</th><th>الكمية</th></tr>"+fabRows+"</table>";
+  h+="<div style='flex:1'><table><tr><th>رقم الموديل</th><td><b>"+order.modelNo+"</b></td><th>الوصف</th><td>"+order.modelDesc+"</td></tr><tr><th>المقاسات</th><td>"+order.sizeLabel+"</td><th>التاريخ</th><td>"+order.date+"</td></tr><tr><th>كمية القص</th><td><b>"+t.cutQty+"</b></td><th>تم التسليم</th><td>"+(order.deliveredQty||0)+"</td></tr><tr><th>الرصيد</th><td><b>"+t.balance+"</b></td><th>الحالة</th><td><span class='badge' style='background:"+col+"20;color:"+col+"'>"+order.status+"</span></td></tr>"+(order.marker?"<tr><th>ماركر</th><td colspan='3'>"+order.marker+"</td></tr>":"")+"</table></div></div>";
+  /* Detailed fabric tables */
+  if(activeFabs.length>0){h+="<h2 style='font-size:14px;margin:12px 0 6px'>الخامات</h2>";
+    activeFabs.forEach(k=>{const colors=gc(order,k);const fp=order["fabricPieces"+k]||[];const cons=gcons(order,k);const unit=gf(order,k,"Unit")||"";
+      h+="<div style='margin-bottom:10px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden'>";
+      h+="<div style='background:#f1f5f9;padding:6px 12px;font-weight:700;font-size:12px;display:flex;justify-content:space-between'><span>"+gf(order,k,"Label")+"</span><span>استهلاك/راق: "+cons+(unit?" "+unit:"")+(fp.length>0?" | القطع: "+fp.join("، "):"")+"</span></div>";
+      h+="<table style='margin:0'><tr><th>اللون</th><th>الراقات</th><th>قطع/راق</th><th>اجمالي القطع</th></tr>";
+      let totalLayers=0,totalQty=0;colors.forEach(c=>{const q=(Number(c.layers)||0)*(Number(c.pcsPerLayer)||0);totalLayers+=(Number(c.layers)||0);totalQty+=q;
+        h+="<tr><td>"+(c.color||"-")+"</td><td style='font-weight:700'>"+(c.layers||0)+"</td><td>"+(c.pcsPerLayer||0)+"</td><td style='font-weight:700;color:#0284C7'>"+q+"</td></tr>"});
+      h+="<tr style='background:#f8fafc;font-weight:800'><td>الاجمالي</td><td>"+totalLayers+"</td><td></td><td style='color:#0284C7'>"+totalQty+"</td></tr>";
+      h+="</table></div>"})};
   if(wsRows)h+="<h2 style='font-size:14px;margin:12px 0 6px'>الورش</h2><table><tr><th>الورشة</th><th>القطعة</th><th>الكمية</th><th>استلام مصنع</th><th>الرصيد</th></tr>"+wsRows+"</table>";
   if(order.instructions)h+="<h2 style='font-size:14px;margin:12px 0 6px'>تعليمات التشغيل</h2><div style='background:#f8fafc;padding:10px;border-radius:6px;white-space:pre-wrap;font-size:12px'>"+order.instructions+"</div>";
   printPage("أمر تشغيل — "+order.modelNo,h)
@@ -1861,13 +1869,7 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders}){
         </div>
       </div>
     </div>}
-    <Card title="لوجو المصنع" style={{marginBottom:16}}>
-      <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
-        <div style={{width:100,height:100,borderRadius:16,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.inputBg||T.cardSolid,cursor:"pointer",position:"relative"}}>{config.logo?<img src={config.logo} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS,color:T.textMut}}>لوجو</span>}<input type="file" accept="image/*" onChange={handleLogo} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/></div>
-        <div><div style={{fontSize:FS,color:T.text,fontWeight:600,marginBottom:4}}>اضغط لرفع اللوجو</div>{config.logo&&<Btn danger small onClick={()=>requirePass(()=>upConfig(d=>{d.logo=""}))} style={{marginTop:8}}>حذف اللوجو</Btn>}</div>
-      </div>
-    </Card>
-    <Card title="ادارة المواسم" style={{marginBottom:16}}>
+    <Card title="ادارة المواسم" style={{marginBottom:12}}>
       <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}><Inp value={newSeason} onChange={setNewSeason} placeholder="اسم الموسم (مثال: SS27)" style={{width:220}}/><Btn primary onClick={addSeason}>+ موسم جديد</Btn></div>
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {(config.seasons||[]).map(s=><div key={s} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderRadius:12,border:s===config.activeSeason?"2px solid "+T.accent:"1px solid "+T.brd,background:s===config.activeSeason?T.accentBg:T.cardSolid,flexWrap:"wrap",gap:8}}>
@@ -1877,16 +1879,25 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders}){
       </div>
     </Card>
     <Card title="نسخ احتياطي" style={{marginBottom:12}}>
-      <div style={{fontSize:FS-1,color:T.textSec,marginBottom:8}}>{"تصدير كل بيانات الموسم "+season+" كملف JSON"}</div>
-      <Btn primary onClick={()=>{const backup={config,orders,exportDate:new Date().toISOString(),season};const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="clark-backup-"+season+"-"+new Date().toISOString().split("T")[0]+".json";a.click();URL.revokeObjectURL(url)}}>📥 تصدير النسخة الاحتياطية</Btn>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+        <Btn primary onClick={()=>{const backup={config,orders,exportDate:new Date().toISOString(),season};const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="clark-backup-"+season+"-"+new Date().toISOString().split("T")[0]+".json";a.click();URL.revokeObjectURL(url)}}>📥 تصدير</Btn>
+        <div style={{position:"relative"}}><Btn onClick={()=>{}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>📤 استيراد</Btn><input type="file" accept=".json" onChange={e=>{const f=e.target.files[0];if(!f)return;requirePass(()=>{const reader=new FileReader();reader.onload=async ev=>{try{const d=JSON.parse(ev.target.result);if(d.config){await setDoc(doc(db,"factory","config"),d.config)}if(d.orders&&d.season){for(const o of d.orders){const{_docId,...rest}=o;await addDoc(collection(db,"seasons",d.season,"orders"),rest)}}alert("تم استيراد النسخة الاحتياطية بنجاح")}catch(err){alert("خطأ في الملف: "+err.message)}};reader.readAsText(f)});e.target.value=""}} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/></div>
+        <span style={{fontSize:FS-2,color:T.textSec}}>{"الموسم: "+season}</span>
+      </div>
     </Card>
-    <Card title="مسح بيانات الأوردرات" style={{marginBottom:16}}>
+    <Card title="مسح بيانات الأوردرات" style={{marginBottom:12}}>
       <div style={{fontSize:FS,color:T.textSec,marginBottom:10}}>{"الموسم الحالي: "+season+" - عدد الأوردرات: "+(orders||[]).length}</div>
       {!clearConfirm?<Btn danger onClick={()=>setClearConfirm(true)}>مسح جميع الأوردرات للموسم الحالي</Btn>:
       <div style={{padding:16,background:T.err+"08",borderRadius:12,border:"1px solid "+T.err+"30"}}>
         <div style={{fontSize:FS,fontWeight:700,color:T.err,marginBottom:10}}>{"⚠️ سيتم حذف "+(orders||[]).length+" أوردر نهائياً مع جميع التسليمات - هل أنت متأكد؟"}</div>
         <div style={{display:"flex",gap:8}}><Btn danger onClick={clearAllOrders}>تأكيد المسح</Btn><Btn ghost onClick={()=>setClearConfirm(false)}>الغاء</Btn></div>
       </div>}
+    </Card>
+    <Card title="لوجو المصنع" style={{marginBottom:12}}>
+      <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
+        <div style={{width:80,height:80,borderRadius:12,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.inputBg||T.cardSolid,cursor:"pointer",position:"relative"}}>{config.logo?<img src={config.logo} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-1,color:T.textMut}}>لوجو</span>}<input type="file" accept="image/*" onChange={handleLogo} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/></div>
+        <div><div style={{fontSize:FS,color:T.text,fontWeight:600,marginBottom:4}}>اضغط لرفع اللوجو</div>{config.logo&&<Btn danger small onClick={()=>requirePass(()=>upConfig(d=>{d.logo=""}))} style={{marginTop:4}}>حذف اللوجو</Btn>}</div>
+      </div>
     </Card>
     <Card title="ادارة المستخدمين" style={{marginBottom:16}}>
       {/* Create new user */}
