@@ -1816,9 +1816,16 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders}){
   const[newUserName,setNewUserName]=useState("");const[newUserPass,setNewUserPass]=useState("");const[newUserPass2,setNewUserPass2]=useState("");
   const[createErr,setCreateErr]=useState("");const[createOk,setCreateOk]=useState("");const[creating,setCreating]=useState(false);
   const[clearConfirm,setClearConfirm]=useState(false);
-  const handleLogo=async e=>{const f=e.target.files[0];if(!f)return;const compressed=await compressImage(f,200,0.6);upConfig(d=>{d.logo=compressed})};
-  const addSeason=()=>{if(!newSeason.trim())return;upConfig(d=>{if(!d.seasons)d.seasons=[];if(!d.seasons.includes(newSeason.trim()))d.seasons.push(newSeason.trim());d.activeSeason=newSeason.trim()});setNewSeason("")};
-  const deleteSeason=async s=>{if(delConfirm!==s){setDelConfirm(s);return}try{const snap=await getDocs(collection(db,"seasons",s,"orders"));await Promise.all(snap.docs.map(d=>deleteDoc(doc(db,"seasons",s,"orders",d.id))))}catch(e){}upConfig(d=>{d.seasons=(d.seasons||[]).filter(x=>x!==s);if(d.activeSeason===s)d.activeSeason=d.seasons[0]||""});setDelConfirm("")};
+  /* Admin password gate */
+  const[pendingAction,setPendingAction]=useState(null);const[adminPass,setAdminPass]=useState("");const[passErr,setPassErr]=useState("");const[passLoading,setPassLoading]=useState(false);
+  const requirePass=(action)=>{setPendingAction(()=>action);setAdminPass("");setPassErr("")};
+  const confirmPass=async()=>{if(!adminPass){setPassErr("ادخل كلمة المرور");return}setPassLoading(true);setPassErr("");
+    try{await signInWithEmailAndPassword(auth,user.email,adminPass);if(pendingAction)pendingAction();setPendingAction(null);setAdminPass("")}
+    catch(e){setPassErr("كلمة المرور غير صحيحة")}finally{setPassLoading(false)}};
+  const handleLogo=async e=>{const f=e.target.files[0];if(!f)return;const compressed=await compressImage(f,200,0.6);requirePass(()=>upConfig(d=>{d.logo=compressed}))};
+  const addSeason=()=>{if(!newSeason.trim())return;requirePass(()=>{upConfig(d=>{if(!d.seasons)d.seasons=[];if(!d.seasons.includes(newSeason.trim()))d.seasons.push(newSeason.trim());d.activeSeason=newSeason.trim()});setNewSeason("")})};
+  const deleteSeason=(s)=>{requirePass(async()=>{try{const snap=await getDocs(collection(db,"seasons",s,"orders"));await Promise.all(snap.docs.map(d=>deleteDoc(doc(db,"seasons",s,"orders",d.id))))}catch(e){}upConfig(d=>{d.seasons=(d.seasons||[]).filter(x=>x!==s);if(d.activeSeason===s)d.activeSeason=d.seasons[0]||""})})};
+  const clearAllOrders=()=>{requirePass(async()=>{try{const snap=await getDocs(collection(db,"seasons",season,"orders"));await Promise.all(snap.docs.map(d=>deleteDoc(doc(db,"seasons",season,"orders",d.id))))}catch(e){}setClearConfirm(false)})};
 
   const createUser=async()=>{
     setCreateErr("");setCreateOk("");
@@ -1841,18 +1848,31 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders}){
   };
 
   return<div>
+    {/* Admin Password Modal */}
+    {pendingAction&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",direction:"rtl"}} onClick={()=>{setPendingAction(null);setAdminPass("");setPassErr("")}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:isMob?300:360,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",border:"1px solid "+T.brd}}>
+        <div style={{fontSize:FS+2,fontWeight:800,color:T.text,marginBottom:4,textAlign:"center"}}>🔐 تأكيد الهوية</div>
+        <div style={{fontSize:FS-1,color:T.textSec,textAlign:"center",marginBottom:16}}>ادخل كلمة مرور المدير للمتابعة</div>
+        <Inp type="password" value={adminPass} onChange={setAdminPass} placeholder="كلمة المرور"/>
+        {passErr&&<div style={{color:T.err,fontSize:FS-1,fontWeight:600,marginTop:6,textAlign:"center"}}>{passErr}</div>}
+        <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"center"}}>
+          <Btn primary onClick={confirmPass} disabled={passLoading}>{passLoading?"جاري التحقق...":"تأكيد"}</Btn>
+          <Btn ghost onClick={()=>{setPendingAction(null);setAdminPass("");setPassErr("")}}>الغاء</Btn>
+        </div>
+      </div>
+    </div>}
     <Card title="لوجو المصنع" style={{marginBottom:16}}>
       <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
         <div style={{width:100,height:100,borderRadius:16,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.inputBg||T.cardSolid,cursor:"pointer",position:"relative"}}>{config.logo?<img src={config.logo} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS,color:T.textMut}}>لوجو</span>}<input type="file" accept="image/*" onChange={handleLogo} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/></div>
-        <div><div style={{fontSize:FS,color:T.text,fontWeight:600,marginBottom:4}}>اضغط لرفع اللوجو</div>{config.logo&&<Btn danger small onClick={()=>upConfig(d=>{d.logo=""})} style={{marginTop:8}}>حذف اللوجو</Btn>}</div>
+        <div><div style={{fontSize:FS,color:T.text,fontWeight:600,marginBottom:4}}>اضغط لرفع اللوجو</div>{config.logo&&<Btn danger small onClick={()=>requirePass(()=>upConfig(d=>{d.logo=""}))} style={{marginTop:8}}>حذف اللوجو</Btn>}</div>
       </div>
     </Card>
     <Card title="ادارة المواسم" style={{marginBottom:16}}>
       <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}><Inp value={newSeason} onChange={setNewSeason} placeholder="اسم الموسم (مثال: SS27)" style={{width:220}}/><Btn primary onClick={addSeason}>+ موسم جديد</Btn></div>
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {(config.seasons||[]).map(s=><div key={s} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderRadius:12,border:s===config.activeSeason?"2px solid "+T.accent:"1px solid "+T.brd,background:s===config.activeSeason?T.accentBg:T.cardSolid,flexWrap:"wrap",gap:8}}>
-          <div onClick={()=>upConfig(d=>{d.activeSeason=s})} style={{cursor:"pointer",display:"flex",alignItems:"center",gap:10}}><span style={{fontWeight:700,fontSize:FS+2,color:s===config.activeSeason?T.accent:T.text}}>{s}</span>{s===config.activeSeason&&<span style={{fontSize:FS-3,color:T.ok,background:T.ok+"15",padding:"2px 10px",borderRadius:12}}>نشط</span>}</div>
-          <div style={{display:"flex",gap:8}}>{s!==config.activeSeason&&<Btn small onClick={()=>upConfig(d=>{d.activeSeason=s})} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>تفعيل</Btn>}<Btn danger small onClick={()=>deleteSeason(s)}>{delConfirm===s?"تأكيد الحذف؟":"حذف"}</Btn>{delConfirm===s&&<Btn ghost small onClick={()=>setDelConfirm("")}>الغاء</Btn>}</div>
+          <div onClick={()=>requirePass(()=>upConfig(d=>{d.activeSeason=s}))} style={{cursor:"pointer",display:"flex",alignItems:"center",gap:10}}><span style={{fontWeight:700,fontSize:FS+2,color:s===config.activeSeason?T.accent:T.text}}>{s}</span>{s===config.activeSeason&&<span style={{fontSize:FS-3,color:T.ok,background:T.ok+"15",padding:"2px 10px",borderRadius:12}}>نشط</span>}</div>
+          <div style={{display:"flex",gap:8}}>{s!==config.activeSeason&&<Btn small onClick={()=>requirePass(()=>upConfig(d=>{d.activeSeason=s}))} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>تفعيل</Btn>}<Btn danger small onClick={()=>deleteSeason(s)}>حذف</Btn></div>
         </div>)}
       </div>
     </Card>
@@ -1865,7 +1885,7 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders}){
       {!clearConfirm?<Btn danger onClick={()=>setClearConfirm(true)}>مسح جميع الأوردرات للموسم الحالي</Btn>:
       <div style={{padding:16,background:T.err+"08",borderRadius:12,border:"1px solid "+T.err+"30"}}>
         <div style={{fontSize:FS,fontWeight:700,color:T.err,marginBottom:10}}>{"⚠️ سيتم حذف "+(orders||[]).length+" أوردر نهائياً مع جميع التسليمات - هل أنت متأكد؟"}</div>
-        <div style={{display:"flex",gap:8}}><Btn danger onClick={async()=>{try{const snap=await getDocs(collection(db,"seasons",season,"orders"));await Promise.all(snap.docs.map(d=>deleteDoc(doc(db,"seasons",season,"orders",d.id))))}catch(e){}setClearConfirm(false)}}>تأكيد المسح</Btn><Btn ghost onClick={()=>setClearConfirm(false)}>الغاء</Btn></div>
+        <div style={{display:"flex",gap:8}}><Btn danger onClick={clearAllOrders}>تأكيد المسح</Btn><Btn ghost onClick={()=>setClearConfirm(false)}>الغاء</Btn></div>
       </div>}
     </Card>
     <Card title="ادارة المستخدمين" style={{marginBottom:16}}>
@@ -1888,7 +1908,7 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders}){
       {/* Existing users */}
       <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:10}}>المستخدمين الحاليين</div>
       {(config.usersList||[]).length>0&&<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}><thead><tr>{["الاسم","البريد","الصلاحية",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-        {(config.usersList||[]).map((u,i)=><tr key={i}><td style={{...TD,fontWeight:600}}>{u.name||"-"}</td><td style={TD}>{u.email}</td><td style={TD}><Sel value={u.role} onChange={v=>upConfig(d=>{const x=(d.usersList||[]).find(z=>z.email===u.email);if(x)x.role=v})}><option value="admin">مدير النظام</option><option value="manager">مدير انتاج</option><option value="viewer">مشاهد فقط</option></Sel></td><td style={TD}><DelBtn onConfirm={()=>upConfig(d=>{d.usersList=(d.usersList||[]).filter(x=>x.email!==u.email)})}/></td></tr>)}
+        {(config.usersList||[]).map((u,i)=><tr key={i}><td style={{...TD,fontWeight:600}}>{u.name||"-"}</td><td style={TD}>{u.email}</td><td style={TD}><Sel value={u.role} onChange={v=>requirePass(()=>upConfig(d=>{const x=(d.usersList||[]).find(z=>z.email===u.email);if(x)x.role=v}))}><option value="admin">مدير النظام</option><option value="manager">مدير انتاج</option><option value="viewer">مشاهد فقط</option></Sel></td><td style={TD}><DelBtn onConfirm={()=>requirePass(()=>upConfig(d=>{d.usersList=(d.usersList||[]).filter(x=>x.email!==u.email)}))}/></td></tr>)}
       </tbody></table></div>}
       {(config.usersList||[]).length===0&&<div style={{textAlign:"center",padding:20,color:T.textSec}}>لم يتم اضافة مستخدمين</div>}
       <div style={{marginTop:16,display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:12}}>
