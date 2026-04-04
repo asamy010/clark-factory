@@ -316,7 +316,7 @@ const TABS=[
 export default function App(){
   const[user,setUser]=useState(null);const[authLoading,setAuthLoading]=useState(true);
   const[config,setConfig]=useState(INIT_CONFIG);const[orders,setOrders]=useState([]);const[dataLoading,setDataLoading]=useState(true);
-  const[tab,setTab]=useState("home");const[sel,setSel]=useState(null);const[gSearch,setGSearch]=useState("");
+  const[tab,setTab]=useState("home");const[sel,setSel]=useState(null);const[gSearch,setGSearch]=useState("");const[initWs,setInitWs]=useState("");
   const[theme,setTheme]=useState(()=>localStorage.getItem("clark-theme")||"light");
   T=THEMES[theme]||THEMES.light;
   useEffect(()=>{localStorage.setItem("clark-theme",theme);document.body.style.background=T.bodyBg||T.bg},[theme]);
@@ -369,7 +369,7 @@ export default function App(){
           <input value={gSearch} onChange={e=>setGSearch(e.target.value)} placeholder="🔍 بحث سريع..." style={{width:"100%",padding:"5px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none"}}/>
           {gSearch.trim()&&(()=>{const q=gSearch.trim().toLowerCase();const res=[];
             data.orders.forEach(o=>{if([o.modelNo,o.modelDesc].join(" ").toLowerCase().includes(q))res.push({type:"أوردر",label:o.modelNo+" — "+o.modelDesc,action:()=>{goD(o.id);setGSearch("")}})});
-            (data.workshops||[]).forEach(w=>{if(w.name.toLowerCase().includes(q))res.push({type:"ورشة",label:w.name+(w.owner?" — "+w.owner:""),action:()=>{setTab("db");setGSearch("")}})});
+            (data.workshops||[]).forEach(w=>{if(w.name.toLowerCase().includes(q))res.push({type:"ورشة",label:w.name+(w.owner?" — "+w.owner:""),action:()=>{setInitWs(w.name);setTab("external");setGSearch("")}})});
             (data.fabrics||[]).forEach(f=>{if(f.name.toLowerCase().includes(q))res.push({type:"خامة",label:f.name,action:()=>{setTab("db");setGSearch("")}})});
             return<div style={{position:"absolute",top:"100%",right:0,left:0,marginTop:4,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:10,boxShadow:"0 8px 30px rgba(0,0,0,0.15)",zIndex:999,maxHeight:300,overflow:"auto"}}>
               {res.slice(0,8).map((r,i)=><div key={i} onClick={r.action} style={{padding:"8px 12px",cursor:"pointer",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:FS-1}} onMouseEnter={e=>e.currentTarget.style.background=T.accentBg} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
@@ -414,7 +414,7 @@ export default function App(){
         {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
         {tab==="orders"&&<OrdPg data={data} addOrder={addOrder} delOrder={delOrder} updOrder={updOrder} goD={goD} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
         {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEdit} statusCards={statusCards} goHome={goHome}/>}
-        {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards} season={season}/>}
+        {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards} season={season} initWs={initWs} clearInitWs={()=>setInitWs("")}/>}
         {tab==="stock"&&<StockPg data={data} updOrder={updOrder} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
         {tab==="search"&&<SearchPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="report"&&<RepPg data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
@@ -936,9 +936,10 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
 }
 
 /* ══ EXTERNAL PRODUCTION ══ */
-function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
-  const[mode,setMode]=useState(null);
-  const[selWs,setSelWs]=useState("");
+function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,initWs,clearInitWs}){
+  const[mode,setMode]=useState(initWs?"deliver":null);
+  const[selWs,setSelWs]=useState(initWs||"");
+  React.useEffect(()=>{if(initWs){setSelWs(initWs);setMode("deliver");if(clearInitWs)clearInitWs()}},[initWs]);
   const[selOrder,setSelOrder]=useState("");
   const[ordSearch,setOrdSearch]=useState("");
   const[delQty,setDelQty]=useState(0);
@@ -1212,12 +1213,10 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     </Card>
     {selWs&&<Card title={"أوردرات تم تسليمها لـ "+selWs} style={{marginBottom:16}}>
       {wsOrders.length>0?<div style={{display:"flex",flexDirection:"column",gap:16}}>
-        {wsOrders.map(ord=>{
-          const wds=(ord.workshopDeliveries||[]).filter(wd=>wd.wsName===selWs);
-          return wds.map((wd,wdIdx)=>{
-            const actualIdx=(ord.workshopDeliveries||[]).indexOf(wd);
-            const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
-            const bal=(Number(wd.qty)||0)-rcvd;
+        {(()=>{/* Flatten and sort: pending first */
+          const cards=[];wsOrders.forEach(ord=>{(ord.workshopDeliveries||[]).filter(wd=>wd.wsName===selWs).forEach((wd,wdIdx)=>{const actualIdx=(ord.workshopDeliveries||[]).indexOf(wd);const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;cards.push({ord,wd,wdIdx,actualIdx,rcvd,bal})})});
+          cards.sort((a,b)=>{if(a.bal>0&&b.bal===0)return-1;if(a.bal===0&&b.bal>0)return 1;return 0});
+          return cards.map(({ord,wd,wdIdx,actualIdx,rcvd,bal})=>{
             return<div key={ord.id+"-"+wdIdx} style={{background:T.cardSolid,borderRadius:14,border:"1px solid "+(bal>0?T.err+"40":T.ok+"40"),overflow:"hidden"}}>
               <div style={{padding:"14px 18px",background:bal>0?T.err+"08":T.ok+"08",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
                 <div><span style={{fontWeight:700,fontSize:FS+1}}>{ord.modelNo}</span><span style={{fontSize:FS-1,color:T.textSec,marginRight:10}}>{" - "+ord.modelDesc}</span>{wd.garmentType&&<span style={{fontSize:FS,fontWeight:700,color:T.purple,background:T.purple+"15",padding:"4px 14px",borderRadius:10,marginRight:6}}>{"👕 "+wd.garmentType}</span>}</div>
@@ -1244,8 +1243,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
                 {bal===0&&<div style={{textAlign:"center",padding:10,color:T.ok,fontWeight:700,fontSize:FS}}>{"✓ تم استلام الكمية كاملة"}</div>}
               </div>
             </div>
-          })
-        })}
+          })})()}
       </div>:<p style={{color:T.textSec,textAlign:"center",padding:30}}>لا توجد أوردرات تم تسليمها لهذه الورشة</p>}
     </Card>}
     {/* Workshop-specific movements */}
