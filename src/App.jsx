@@ -103,7 +103,12 @@ function compressImg43(file,maxW,quality){
     resolve(canvas.toDataURL("image/jpeg",quality||0.5))};img.src=e.target.result};reader.readAsDataURL(file)})
 }
 
-const PRINT_CSS="*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Cairo',Arial,sans-serif;padding:30px;font-size:13px;direction:rtl;color:#1E293B;line-height:1.6}.hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #0284C7;padding-bottom:14px;margin-bottom:24px}.hdr img{height:44px}.hdr-info{text-align:left;font-size:11px;color:#64748B;font-weight:600}h2{font-size:16px;color:#0284C7;margin:16px 0 8px;padding-bottom:4px;border-bottom:1px solid #E2E8F0}table{width:100%;border-collapse:collapse;margin:8px 0 16px;border:1px solid #CBD5E1}th{background:linear-gradient(180deg,#F1F5F9,#E2E8F0);font-weight:700;font-size:11px;color:#475569;padding:6px 10px;text-align:right;border:1px solid #CBD5E1}td{padding:5px 10px;text-align:right;border:1px solid #E2E8F0;font-size:12px}tr:nth-child(even){background:#F8FAFC}tr:hover{background:#EFF6FF}.info{font-weight:700;color:#0284C7}.ok{color:#10B981;font-weight:700}.err{color:#EF4444;font-weight:700}.sig{margin-top:50px;display:flex;justify-content:space-between}.sig-box{text-align:center;width:180px;border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:13px}.badge{display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;margin:2px}.summary-cards{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}.summary-card{padding:10px 16px;border-radius:8px;border:1px solid #E2E8F0;text-align:center;min-width:100px}.summary-card .label{font-size:10px;color:#64748B}.summary-card .value{font-size:18px;font-weight:800}@media print{body{padding:15px}table{page-break-inside:auto}tr{page-break-inside:avoid}}";
+/* Toast notification - no hooks */
+function showToast(msg){const el=document.createElement("div");el.textContent=msg;el.style.cssText="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#10B981;color:#fff;padding:10px 28px;border-radius:10px;font-family:'Cairo',sans-serif;font-size:13px;font-weight:700;z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,0.2);direction:rtl;animation:toastIn 0.3s ease";document.body.appendChild(el);const style=document.createElement("style");style.textContent="@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}";document.head.appendChild(style);setTimeout(()=>{el.style.opacity="0";el.style.transition="opacity 0.3s";setTimeout(()=>{el.remove();style.remove()},300)},2000)}
+
+function highlightRow(id){setTimeout(()=>{const el=document.querySelector("[data-oid='"+id+"']");if(!el)return;el.style.transition="background 0.3s";el.style.background="#FEF3C7";setTimeout(()=>{el.style.background="";setTimeout(()=>el.style.transition="",500)},2000)},200)}
+
+const PRINT_CSS="*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Cairo',Arial,sans-serif;padding:30px;font-size:13px;direction:rtl;color:#1E293B;line-height:1.6}.hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #0284C7;padding-bottom:14px;margin-bottom:24px}.hdr img{height:44px}.hdr-info{text-align:left;font-size:11px;color:#64748B;font-weight:600}h2{font-size:16px;color:#0284C7;margin:16px 0 8px;padding-bottom:4px;border-bottom:1px solid #E2E8F0}table{width:100%;border-collapse:collapse;margin:8px 0 16px;border:1px solid #CBD5E1}th{background:linear-gradient(180deg,#F1F5F9,#E2E8F0);font-weight:700;font-size:11px;color:#475569;padding:6px 10px;text-align:right;border:1px solid #CBD5E1}td{padding:5px 10px;text-align:right;border:1px solid #E2E8F0;font-size:12px}tr:nth-child(even){background:#F8FAFC}.info{font-weight:700;color:#0284C7}.ok{color:#10B981;font-weight:700}.err{color:#EF4444;font-weight:700}.sig{margin-top:50px;display:flex;justify-content:space-between}.sig-box{text-align:center;width:180px;border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:13px}.badge{display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;margin:2px}@media print{body{padding:15px}table{page-break-inside:auto}tr{page-break-inside:avoid}@page{margin:15mm;@bottom-center{content:counter(page)' / 'counter(pages)}}}";
 function printPage(title,bodyHtml){const pw=window.open("","_blank");if(!pw)return;const today=new Date().toLocaleDateString("ar-EG");pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>"+title+"</title><style>"+PRINT_CSS+"</style></head><body><div class='hdr'><div><img src='"+CLARK_LOGO+"'/></div><div class='hdr-info'>"+title+"<br/>"+today+"</div></div>"+bodyHtml+"</body></html>");pw.document.close();setTimeout(()=>{pw.focus();pw.print()},500)}
 
 async function exportExcel(rows,fileName){const X=await loadXLSX();if(!X){alert("مكتبة Excel غير متوفرة");return}const ws=X.utils.aoa_to_sheet(rows);ws["!cols"]=rows[0].map(()=>({wch:18}));const wb=X.utils.book_new();X.utils.book_append_sheet(wb,ws,"Sheet1");X.writeFile(wb,fileName+".xlsx")}
@@ -202,6 +207,7 @@ async function printOrderSheet(order,t,activeFabs,statusCards){
       h+="</table></div>"})};
   if(wsRows)h+="<h2 style='font-size:14px;margin:12px 0 6px'>الورش</h2><table><tr><th>الورشة</th><th>القطعة</th><th>الكمية</th><th>استلام مصنع</th><th>الرصيد</th></tr>"+wsRows+"</table>";
   if(order.instructions)h+="<h2 style='font-size:14px;margin:12px 0 6px'>تعليمات التشغيل</h2><div style='background:#f8fafc;padding:10px;border-radius:6px;white-space:pre-wrap;font-size:12px'>"+order.instructions+"</div>";
+  h+="<div class='sig'><div class='sig-box'>مسؤول القص</div><div class='sig-box'>مسؤول التشغيل</div><div class='sig-box'>مدير الانتاج</div></div>";
   printPage("أمر تشغيل — "+order.modelNo,h)
 }
 
@@ -219,7 +225,8 @@ function Btn({children,on,primary,danger,ghost,onClick,small,disabled,style:sx})
   if(on||primary){bg="linear-gradient(135deg,#0EA5E9,#0284C7)";fg="#fff";bd="none"}
   if(danger){bg=T.err+"12";fg=T.err;bd="1px solid "+T.err+"30"}
   if(ghost){bg="transparent";bd="none";fg=T.textSec}
-  return<button onClick={onClick} disabled={disabled} style={{padding:small?"4px 10px":"7px 16px",borderRadius:8,fontSize:small?FS-2:FS,fontWeight:600,background:bg,color:fg,border:bd,cursor:disabled?"default":"pointer",fontFamily:"inherit",opacity:disabled?0.5:1,boxShadow:primary?"0 2px 8px rgba(14,165,233,0.2)":"none",...(sx||{})}}>{children}</button>
+  const mob=typeof window!=="undefined"&&window.innerWidth<768;
+  return<button onClick={onClick} disabled={disabled} style={{padding:small?(mob?"6px 12px":"4px 10px"):(mob?"9px 18px":"7px 16px"),borderRadius:8,fontSize:small?FS-2:FS,fontWeight:600,background:bg,color:fg,border:bd,cursor:disabled?"default":"pointer",fontFamily:"inherit",opacity:disabled?0.5:1,boxShadow:primary?"0 2px 8px rgba(14,165,233,0.2)":"none",minHeight:mob?36:undefined,...(sx||{})}}>{children}</button>
 }
 
 function Inp({value,onChange,placeholder,type,step,style:sx,readOnly}){
@@ -702,7 +709,7 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards}){
   const[copyMode,setCopyMode]=useState(false);const[copyFrom,setCopyFrom]=useState("");
   const[copyFields,setCopyFields]=useState({fabrics:true,pieces:true,sizes:true,acc:true,instructions:true});
   const fabObj=id=>data.fabrics.find(x=>x.id===Number(id));
-  const handleImg=async e=>{const f=e.target.files[0];if(!f)return;const compressed=await compressImage(f,300,0.5);setForm(p=>({...p,image:compressed}))};
+  const handleImg=async e=>{const f=e.target.files[0];if(!f)return;const compressed=await compressImage(f,250,0.4);setForm(p=>({...p,image:compressed}))};
   const handleFile=async e=>{const f=e.target.files[0];if(!f)return;if(f.size>500000){alert("حجم الملف أكبر من 500KB");return}const result=await compressFile(f);if(result)setForm(p=>({...p,attachments:[...(p.attachments||[]),result]}))};
   const mainQty=sqty(form.colorsA);const updF=(key,val)=>setForm(p=>setF(p,key,val));
   const save=()=>{const v=validateOrder(form);if(v.length>0){setErrs(v);return}setErrs([]);const ss=data.sizeSets.find(s=>s.id===Number(form.sizeSetId));const o={...form,cutQty:mainQty,sizeLabel:ss?ss.label:""};FKEYS.forEach(k=>{const fb=fabObj(o["fabric"+k]);o["fabric"+k+"Label"]=fb?(fb.name+" - "+fb.unit):"";o["fabric"+k+"Price"]=fb?fb.price:0;o["fabric"+k+"Unit"]=fb?fb.unit:""});delete o._docId;onSave(o)};
@@ -786,15 +793,15 @@ function OrdPg({data,addOrder,delOrder,updOrder,goD,isMob,canEdit,statusCards}){
   const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
   return<div>
     <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>{canEdit&&<Btn primary onClick={()=>setShow(!show)}>{show?"الغاء":"+ أمر قص جديد"}</Btn>}</div>
-    {show&&<OrdForm data={data} initial={mkOrder()} onSave={o=>{addOrder(o);setShow(false)}} onCancel={()=>setShow(false)} isMob={isMob} statusCards={statusCards}/>}
-    <Card title={"جميع الأوامر ("+data.orders.length+")"}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:800}}>
-      <thead><tr>{["#","التاريخ","موديل","الوصف","الكمية","آخر حركة","الحالة",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+    {show&&<OrdForm data={data} initial={mkOrder()} onSave={o=>{addOrder(o);setShow(false);showToast("✓ تم اضافة أمر القص")}} onCancel={()=>setShow(false)} isMob={isMob} statusCards={statusCards}/>}
+    <Card title={"جميع الأوامر ("+data.orders.length+")"}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:isMob?400:800}}>
+      <thead><tr>{["#","التاريخ","موديل","الوصف","الكمية",...(isMob?[]:["آخر حركة"]),"الحالة",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
       <tbody>{sortOrders(data.orders).map((o,i)=>{const t=calcOrder(o);const hasWsDel=(o.workshopDeliveries||[]).length>0;const hasStockDel=(o.deliveries||[]).length>0;const delBlock=hasStockDel?"يوجد تسليمات مخزن مرتبطة":hasWsDel?"يوجد تسليمات ورش مرتبطة":null;
         let lastMov=null;(o.workshopDeliveries||[]).forEach(wd=>{if(!lastMov||wd.date>lastMov.date)lastMov={date:wd.date,type:"تسليم ورشة",name:wd.wsName};(wd.receives||[]).forEach(r=>{if(!lastMov||r.date>lastMov.date)lastMov={date:r.date,type:"استلام مصنع",name:wd.wsName}})});(o.deliveries||[]).forEach(d=>{if(!lastMov||d.date>lastMov.date)lastMov={date:d.date,type:"مخزن جاهز"}});
-        return<tr key={o.id}><td style={TD}>{i+1}</td><td style={TD}>{o.date}</td><td style={TDB}>{o.modelNo}</td><td style={TD}>{o.modelDesc}</td><td style={{...TDB,color:T.accent}}>{t.cutQty}</td>
-        <td style={{...TD,fontSize:FS-2}}>{lastMov?<span style={{color:lastMov.type==="مخزن جاهز"?T.ok:lastMov.type==="استلام مصنع"?T.accent:T.purple}}>{lastMov.type+" "+lastMov.date}</span>:<span style={{color:T.textMut}}>—</span>}</td>
+        return<tr key={o.id} data-oid={o.id}><td style={TD}>{i+1}</td><td style={TD}>{o.date}</td><td style={TDB}>{o.modelNo}</td><td style={TD}>{o.modelDesc}</td><td style={{...TDB,color:T.accent}}>{t.cutQty}</td>
+        {!isMob&&<td style={{...TD,fontSize:FS-2}}>{lastMov?<span style={{color:lastMov.type==="مخزن جاهز"?T.ok:lastMov.type==="استلام مصنع"?T.accent:T.purple}}>{lastMov.type+" "+lastMov.date}</span>:<span style={{color:T.textMut}}>—</span>}</td>}
         <td style={TD}><Badge t={o.status} cards={statusCards}/></td><td style={{...TD,whiteSpace:"nowrap"}}><Btn ghost small onClick={()=>goD(o.id)}>تفاصيل</Btn>{canEdit&&<>{" "}<DelBtn onConfirm={()=>delOrder(o.id)} blocked={delBlock}/></>}</td></tr>})}
-        {data.orders.length===0&&<tr><td colSpan={8} style={{...TD,textAlign:"center",color:T.textSec,padding:40}}>لا توجد أوامر</td></tr>}
+        {data.orders.length===0&&<tr><td colSpan={isMob?7:8} style={{...TD,textAlign:"center",color:T.textSec,padding:40}}>لا توجد أوامر</td></tr>}
       </tbody>
     </table></div></Card>
   </div>
@@ -825,7 +832,7 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         {sortOrders(filtered).map(o=>{const t=calcOrder(o);
           const wds=o.workshopDeliveries||[];
-          return<div key={o.id} onClick={()=>setSel(o.id)} style={{display:"flex",gap:16,padding:16,background:T.cardSolid,borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",alignItems:"flex-start"}}>
+          return<div key={o.id} data-oid={o.id} onClick={()=>setSel(o.id)} style={{display:"flex",gap:16,padding:16,background:T.cardSolid,borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",alignItems:"flex-start"}}>
           {o.image?<img src={o.image} alt="" style={{width:80,height:107,borderRadius:10,objectFit:"cover",flexShrink:0,border:"1px solid "+T.brd}}/>:<div style={{width:80,height:107,borderRadius:10,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:28,color:T.textMut}}>📷</div>}
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6,gap:8}}>
@@ -860,7 +867,7 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
       </div>
     </div>
   }
-  if(editing)return<OrdForm data={data} initial={order} onSave={o=>{replaceOrder(sel,o);setEditing(false)}} onCancel={()=>setEditing(false)} isMob={isMob} statusCards={statusCards}/>;
+  if(editing)return<OrdForm data={data} initial={order} onSave={o=>{replaceOrder(sel,o);setEditing(false);showToast("✓ تم حفظ التعديلات");highlightRow(sel)}} onCancel={()=>setEditing(false)} isMob={isMob} statusCards={statusCards}/>;
 
   const t=calcOrder(order);const accItems=order.accItems||[];const accAll=t.accPer*t.cutQty;
   const activeFabs=FKEYS.filter(k=>order["fabric"+k]);
@@ -1072,7 +1079,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       o.workshopDeliveries.push({id:gid(),wsName:selWs,wsOwner:wsObj?wsObj.owner:"",qty:saveQty,garmentType:saveType,notes:saveNote,price:savePrice,date:saveDate,receives:[]});
       o.status=recomputeStatus(o);
     });
-    setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice("");
+    setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice("");showToast("✓ تم تسليم "+saveQty+" قطعة لـ "+selWs);
     if(andPrint)setTimeout(()=>printReceipt(selWs,wsObj?wsObj.owner:"",saveModelNo,saveQty,saveDate,Math.max(0,availAfter)),400);
   };
 
@@ -1090,7 +1097,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       o.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty,notes:saveNote,price:wdPrice,amount:r2(saveQty*wdPrice)});
       o.status=recomputeStatus(o)
     });
-    clearRcv(cardKey);
+    clearRcv(cardKey);showToast("✓ تم استلام "+saveQty+" قطعة");
     if(andPrint&&printData)setTimeout(()=>printReceiveReceipt(selWs,printData.modelNo,saveQty,saveDate,maxRcv-saveQty),400);
   };
 
@@ -1502,7 +1509,7 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards}){
     if(!selOrder||!stQty||stQty<=0)return;
     const qty=Math.min(Number(stQty),stockRemain);if(qty<=0){alert("لا توجد كمية متاحة");return}
     updOrder(selOrder,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:stDate,qty,notes:stNote});o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)});
-    setStQty(0);setStNote("");setStDate(new Date().toISOString().split("T")[0])
+    setStQty(0);setStNote("");setStDate(new Date().toISOString().split("T")[0]);showToast("✓ تم تسليم المخزن")
   };
 
   return<div>
