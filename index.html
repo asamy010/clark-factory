@@ -14,11 +14,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
     <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Cairo',sans-serif;background:#EFF6FF}
-    #splash{display:flex;align-items:center;justify-content:center;min-height:100vh;background:#EFF6FF}
-    #splash img{width:140px;animation:pulse 1.5s ease-in-out infinite}
-    @keyframes pulse{0%,100%{opacity:.6;transform:scale(1)}50%{opacity:1;transform:scale(1.05)}}
     @media(max-width:768px){table{font-size:12px!important}th,td{padding:6px 8px!important}input,select{font-size:13px!important;padding:8px 10px!important}button{font-size:12px!important}h1{font-size:20px!important}}</style>
   </head>
-  <body><div id="root"><div id="splash"><img src="/icon-192.png" alt="CLARK"/></div></div><script type="module" src="/src/main.jsx"></script>
+  <body><div id="root"></div><script type="module" src="/src/main.jsx"></script>
   <script>if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js')})}</script></body>
 </html>

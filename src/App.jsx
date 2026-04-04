@@ -375,10 +375,9 @@ export default function App(){
   const userRole=getUserRole();const canEdit=userRole==="admin"||userRole==="manager";
   const statusCards=config.statusCards||DEFAULT_STATUSES;
 
-  const Splash=()=><div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#EFF6FF"}}><img src="/icon-192.png" alt="CLARK" style={{width:140,animation:"pulse 1.5s ease-in-out infinite"}}/><style>{`@keyframes pulse{0%,100%{opacity:.6;transform:scale(1)}50%{opacity:1;transform:scale(1.05)}}`}</style></div>;
-  if(authLoading)return<Splash/>;
+  if(authLoading)return null;
   if(!user)return<LoginScreen/>;
-  if(dataLoading)return<Splash/>;
+  if(dataLoading)return null;
   const userName=user.displayName||user.email.split("@")[0];
   /* Compute alerts */
   const appAlerts=(()=>{try{const a=[];
