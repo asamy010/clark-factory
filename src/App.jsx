@@ -17,13 +17,7 @@ const COLORS_DB = [
 /* ── Theme System ── */
 const THEMES = {
   light:{name:"فاتح",bg:"#EFF6FF",card:"rgba(255,255,255,0.9)",cardSolid:"#FFF",glass:"rgba(255,255,255,0.6)",brd:"rgba(148,163,184,0.2)",brdStrong:"rgba(148,163,184,0.4)",text:"#1E293B",textSec:"#64748B",textMut:"#94A3B8",accent:"#0EA5E9",accentBg:"#E0F2FE",ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#8B5CF6",shadow:"0 2px 12px rgba(0,0,0,0.04)",sidebarBg:"#FFF",inputBg:"#FFF",bodyBg:"#EFF6FF"},
-  purple:{name:"بنفسجي",bg:"#F8F9FC",card:"rgba(255,255,255,0.95)",cardSolid:"#FFF",glass:"rgba(255,255,255,0.8)",brd:"rgba(108,92,231,0.1)",brdStrong:"rgba(108,92,231,0.2)",text:"#2D3436",textSec:"#636E72",textMut:"#B2BEC3",accent:"#6C5CE7",accentBg:"rgba(108,92,231,0.06)",ok:"#00B894",err:"#E17055",warn:"#FDCB6E",purple:"#6C5CE7",shadow:"0 2px 12px rgba(108,92,231,0.06)",sidebarBg:"#F3F4F8",inputBg:"#FFF",bodyBg:"#F8F9FC"},
-  teal:{name:"تيل",bg:"#F0FDFA",card:"rgba(255,255,255,0.9)",cardSolid:"#FFF",glass:"rgba(255,255,255,0.7)",brd:"rgba(20,184,166,0.12)",brdStrong:"rgba(20,184,166,0.2)",text:"#134E4A",textSec:"#5F7A76",textMut:"#9DB5B2",accent:"#14B8A6",accentBg:"rgba(20,184,166,0.06)",ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#8B5CF6",shadow:"0 2px 12px rgba(20,184,166,0.06)",sidebarBg:"#FFF",inputBg:"#FFF",bodyBg:"#F0FDFA"},
-  rose:{name:"وردي",bg:"#FFF1F2",card:"rgba(255,255,255,0.9)",cardSolid:"#FFF",glass:"rgba(255,255,255,0.7)",brd:"rgba(244,63,94,0.1)",brdStrong:"rgba(244,63,94,0.2)",text:"#1C1917",textSec:"#78716C",textMut:"#A8A29E",accent:"#F43F5E",accentBg:"rgba(244,63,94,0.06)",ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#A855F7",shadow:"0 2px 12px rgba(244,63,94,0.06)",sidebarBg:"#FFF",inputBg:"#FFF",bodyBg:"#FFF1F2"},
-  amber:{name:"ذهبي",bg:"#FFFBEB",card:"rgba(255,255,255,0.9)",cardSolid:"#FFF",glass:"rgba(255,255,255,0.7)",brd:"rgba(245,158,11,0.12)",brdStrong:"rgba(245,158,11,0.2)",text:"#1C1917",textSec:"#78716C",textMut:"#A8A29E",accent:"#D97706",accentBg:"rgba(217,119,6,0.06)",ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#8B5CF6",shadow:"0 2px 12px rgba(245,158,11,0.06)",sidebarBg:"#FFF",inputBg:"#FFF",bodyBg:"#FFFBEB"},
-  dark:{name:"داكن",bg:"#1A1D23",card:"rgba(36,40,50,0.95)",cardSolid:"#242832",glass:"rgba(36,40,50,0.8)",brd:"rgba(255,255,255,0.08)",brdStrong:"rgba(255,255,255,0.15)",text:"#E8ECF1",textSec:"#9CA3AF",textMut:"#6B7280",accent:"#00BFA5",accentBg:"rgba(0,191,165,0.1)",ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#A78BFA",shadow:"0 2px 12px rgba(0,0,0,0.2)",sidebarBg:"#1E222A",inputBg:"#2A2E38",bodyBg:"#1A1D23"},
-  midnight:{name:"ليلي",bg:"#0F172A",card:"rgba(30,41,59,0.9)",cardSolid:"#1E293B",glass:"rgba(30,41,59,0.7)",brd:"rgba(148,163,184,0.1)",brdStrong:"rgba(148,163,184,0.2)",text:"#F1F5F9",textSec:"#94A3B8",textMut:"#64748B",accent:"#38BDF8",accentBg:"rgba(56,189,248,0.08)",ok:"#34D399",err:"#FB7185",warn:"#FBBF24",purple:"#C084FC",shadow:"0 2px 12px rgba(0,0,0,0.3)",sidebarBg:"#0F172A",inputBg:"#1E293B",bodyBg:"#0F172A"},
-  charcoal:{name:"رمادي",bg:"#18181B",card:"rgba(39,39,42,0.95)",cardSolid:"#27272A",glass:"rgba(39,39,42,0.8)",brd:"rgba(255,255,255,0.06)",brdStrong:"rgba(255,255,255,0.12)",text:"#FAFAFA",textSec:"#A1A1AA",textMut:"#71717A",accent:"#A78BFA",accentBg:"rgba(167,139,250,0.1)",ok:"#34D399",err:"#FB7185",warn:"#FBBF24",purple:"#A78BFA",shadow:"0 2px 12px rgba(0,0,0,0.3)",sidebarBg:"#18181B",inputBg:"#27272A",bodyBg:"#18181B"}
+  dark:{name:"داكن",bg:"#1A1D23",card:"rgba(36,40,50,0.95)",cardSolid:"#242832",glass:"rgba(36,40,50,0.8)",brd:"rgba(255,255,255,0.08)",brdStrong:"rgba(255,255,255,0.15)",text:"#E8ECF1",textSec:"#9CA3AF",textMut:"#6B7280",accent:"#00BFA5",accentBg:"rgba(0,191,165,0.1)",ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#A78BFA",shadow:"0 2px 12px rgba(0,0,0,0.2)",sidebarBg:"#1E222A",inputBg:"#2A2E38",bodyBg:"#1A1D23"}
 };
 let T = THEMES.light;
 
@@ -376,19 +370,25 @@ export default function App(){
     </div>
     <div style={{flex:1,overflow:"auto",padding:isMob?"8px 10px":"12px 24px"}}>
       {/* HOME SCREEN */}
-      {tab==="home"&&<div>
-        <div style={{textAlign:"center",marginBottom:isMob?12:20}}>
-          <img src={config.logo||CLARK_LOGO} alt="CLARK" style={{width:isMob?140:180,marginBottom:8}}/>
-          <div style={{fontSize:isMob?16:20,fontWeight:700,color:T.text}}>{"مرحباً، "+userName}</div>
-          <div style={{fontSize:FS-1,color:T.textSec}}>{"الموسم "+season+" — "+data.orders.length+" موديل"}</div>
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(5,1fr)",gap:isMob?10:16,maxWidth:800,margin:"0 auto"}}>
-          {TABS.filter(t=>t.key!=="settings"||userRole==="admin").map(t=><div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:isMob?"16px 8px":"20px 14px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow}}>
-            <div style={{width:isMob?44:52,height:isMob?44:52,borderRadius:14,background:t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px",fontSize:isMob?22:26}}>{t.icon}</div>
-            <div style={{fontSize:isMob?FS-3:FS-1,fontWeight:700,color:T.text}}>{t.label}</div>
-          </div>)}
-        </div>
-      </div>}
+      {tab==="home"&&(()=>{
+        /* Compute alerts for home */
+        const _alerts=[];
+        const _isIntH=(n)=>{const w=(data.workshops||[]).find(x=>x.name===n);return w?w.type==="داخلي":false};
+        const stuckOrds=data.orders.filter(o=>o.status==="تم القص"&&(o.workshopDeliveries||[]).length===0);
+        if(stuckOrds.length>0)_alerts.push({msg:stuckOrds.length+" أوردر لم يُسلَّم لأي ورشة",color:T.warn,icon:"⏳"});
+        const _cutQ=data.orders.reduce((s,o)=>s+calcOrder(o).cutQty,0);const _delQ=data.orders.reduce((s,o)=>s+(o.deliveredQty||0),0);
+        const _comp=_cutQ?Math.round((_delQ/_cutQ)*100):0;
+        if(_comp>=100)_alerts.push({msg:"تم الانتهاء من جميع الأوردرات!",color:T.ok,icon:"🎉"});
+        (data.workshops||[]).filter(w=>w.type!=="داخلي").forEach(w=>{let due=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});const purch=(data.wsPayments||[]).filter(p=>p.wsName===w.name&&p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);const paid=(data.wsPayments||[]).filter(p=>p.wsName===w.name&&p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);const pct=w.payPercent||70;const limit=r2((due+purch)*(pct/100));if(paid>limit&&due>0)_alerts.push({msg:w.name+" تجاوز حد "+pct+"%",color:T.err,icon:"⚠️"})});
+        return<div>
+          {_alerts.length>0&&<div style={{marginBottom:12,display:"flex",gap:6,flexWrap:"wrap"}}>{_alerts.map((a,i)=><span key={i} style={{padding:"5px 12px",borderRadius:8,fontSize:FS-1,fontWeight:600,background:a.color+"10",color:a.color,border:"1px solid "+a.color+"20"}}>{a.icon+" "+a.msg}</span>)}</div>}
+          <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(5,1fr)",gap:isMob?10:16,maxWidth:800,margin:"0 auto"}}>
+            {TABS.filter(t=>t.key!=="settings"||userRole==="admin").map(t=><div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:isMob?"16px 8px":"20px 14px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow}}>
+              <div style={{width:isMob?44:52,height:isMob?44:52,borderRadius:14,background:t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px",fontSize:isMob?22:26}}>{t.icon}</div>
+              <div style={{fontSize:isMob?FS-3:FS-1,fontWeight:700,color:T.text}}>{t.label}</div>
+            </div>)}
+          </div>
+        </div>})()}
       {/* PAGES with back button */}
       {tab!=="home"&&<div>
         {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
@@ -449,15 +449,6 @@ function DashPg({data,goD,isMob,season,statusCards}){
       </div>
     </Card>
     {/* Workshop Accounts Summary */}
-    {/* Smart Alerts */}
-    {(()=>{const alerts=[];
-      const stuckOrders=data.orders.filter(o=>o.status==="تم القص"&&(o.workshopDeliveries||[]).length===0);
-      if(stuckOrders.length>0)alerts.push({msg:stuckOrders.length+" أوردر لم يُسلَّم لأي ورشة",color:T.warn,icon:"⏳"});
-      const extWs=(data.workshops||[]).filter(w=>w.type!=="داخلي");
-      extWs.forEach(w=>{const a=wsAccounts(w.name);if(a.due===0)return;const pct=w.payPercent||70;const limit=r2((a.due+a.totalPurchase)*(pct/100));if(a.totalPaid>limit)alerts.push({msg:w.name+" تجاوز حد "+pct+"%",color:T.err,icon:"⚠️"})});
-      if(comp>=100)alerts.push({msg:"تم الانتهاء من جميع الأوردرات!",color:T.ok,icon:"🎉"});
-      return alerts.length>0&&<div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>{alerts.map((a,i)=><span key={i} style={{padding:"4px 12px",borderRadius:8,fontSize:FS-1,fontWeight:600,background:a.color+"10",color:a.color,border:"1px solid "+a.color+"20"}}>{a.icon+" "+a.msg}</span>)}</div>
-    })()}
     <Card title="حسابات الورش" style={{marginBottom:12}}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:12}}>
         <div style={{padding:12,borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"15",textAlign:"center"}}>
@@ -1491,21 +1482,6 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders}){
   };
 
   return<div>
-    <h1 style={{fontSize:isMob?24:32,fontWeight:800,margin:"0 0 20px"}}>الاعدادات</h1>
-    {/* Theme Selector */}
-    <Card title="مظهر التطبيق" style={{marginBottom:16}}>
-      <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)",gap:10}}>
-        {Object.entries(THEMES).map(([key,th])=><div key={key} onClick={()=>setTheme(key)} style={{cursor:"pointer",borderRadius:10,overflow:"hidden",border:theme===key?"2px solid "+th.accent:"1px solid "+th.brd,boxShadow:theme===key?"0 0 12px "+th.accent+"30":"none"}}>
-          <div style={{background:th.bg,padding:10}}>
-            <div style={{display:"flex",gap:6,marginBottom:6}}>
-              <div style={{width:24,height:30,borderRadius:4,background:th.cardSolid,border:"1px solid "+th.brd}}/>
-              <div style={{flex:1}}><div style={{height:6,borderRadius:3,background:th.accent,width:"60%",marginBottom:4}}/><div style={{height:5,borderRadius:3,background:th.textMut,width:"80%"}}/></div>
-            </div>
-            <div style={{textAlign:"center",fontWeight:700,fontSize:FS-1,color:th.text}}>{th.name}{theme===key?" ✓":""}</div>
-          </div>
-        </div>)}
-      </div>
-    </Card>
     <Card title="لوجو المصنع" style={{marginBottom:16}}>
       <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
         <div style={{width:100,height:100,borderRadius:16,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.inputBg||T.cardSolid,cursor:"pointer",position:"relative"}}>{config.logo?<img src={config.logo} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS,color:T.textMut}}>لوجو</span>}<input type="file" accept="image/*" onChange={handleLogo} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/></div>
@@ -1560,5 +1536,12 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders}){
         {[["مدير النظام",T.accent,"كل الصلاحيات + اعدادات"],["مدير انتاج",T.ok,"اضافة وتعديل"],["مشاهد",T.warn,"عرض فقط"]].map(([n,c,d])=><div key={n} style={{padding:14,borderRadius:12,background:c+"08",border:"1px solid "+c+"25"}}><div style={{fontSize:FS,fontWeight:700,color:c,marginBottom:4}}>{n}</div><div style={{fontSize:FS-2,color:T.textSec}}>{d}</div></div>)}
       </div>
     </Card>
+    {/* Theme Toggle - Bottom */}
+    <div style={{display:"flex",justifyContent:"center",gap:12,marginTop:16}}>
+      {Object.entries(THEMES).map(([key,th])=><div key={key} onClick={()=>setTheme(key)} style={{cursor:"pointer",padding:"10px 28px",borderRadius:10,background:th.bg,border:theme===key?"2px solid "+th.accent:"1px solid "+th.brd,textAlign:"center",transition:"all 0.2s"}}>
+        <div style={{width:22,height:22,borderRadius:6,background:th.accent,margin:"0 auto 6px"}}/>
+        <div style={{fontSize:FS,fontWeight:700,color:th.text}}>{th.name}{theme===key?" ✓":""}</div>
+      </div>)}
+    </div>
   </div>
 }
