@@ -1164,10 +1164,6 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     if(m.type==="deliver")printReceipt(m.wsName||"",ws?ws.owner:"",ord||{modelNo:m.orderNo||"",modelDesc:m.orderDesc||""},m.garmentType||"",m.qty,m.date,0,data.garmentTypes);
     else printReceiveReceipt(m.wsName||"",ord||{modelNo:m.orderNo||"",modelDesc:m.orderDesc||""},m.garmentType||"",m.qty,m.date,0,data.garmentTypes)
   };
-      const ws=(data.workshops||[]).find(w=>w.name===m.wsName);
-    if(m.type==="deliver")printReceipt(m.wsName||"",ws?ws.owner:"",ord||{modelNo:m.orderNo||"",modelDesc:m.orderDesc||""},m.garmentType||"",m.qty,m.date,0,data.garmentTypes);
-    else printReceiveReceipt(m.wsName||"",ord||{modelNo:m.orderNo||"",modelDesc:m.orderDesc||""},m.garmentType||"",m.qty,m.date,0,data.garmentTypes)
-  };
 
   const wsObj=workshops.find(w=>(w.name||w)===(selWs));
   const prodOrders=data.orders.filter(o=>o.status==="تم القص"||o.status==="في التشغيل");
@@ -1580,6 +1576,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     </div>
   }
   return null
+}
 
 /* ══ SEARCH ══ */
 function SearchPg({data,goD,isMob,season,statusCards}){
