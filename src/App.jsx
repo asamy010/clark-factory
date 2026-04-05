@@ -128,14 +128,40 @@ function Timeline({events}){if(!events||events.length===0)return null;return<div
   </div>
 </div>}
 
-function printReceipt(wsName,wsOwner,modelNo,qty,date,balance){
+function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance){
+  const t=calcOrder(order);const col=getStatusColor(order.status);
   let h="<h2>اذن تسليم ورشة</h2>";
-  h+="<p>الورشة: <span class='info'>"+wsName+"</span>"+(wsOwner?" — "+wsOwner:"")+"</p>";
-  h+="<p>موديل: <span class='info'>"+modelNo+"</span> | الكمية: <span class='info'>"+qty+"</span> قطعة | التاريخ: <span class='info'>"+date+"</span></p>";
-  if(balance>0)h+="<p>الرصيد المتبقي: <span class='err'>"+balance+" قطعة</span></p>";
-  h+="<p>وأقر بتسليم البضاعة على الحالة المستلمة.</p>";
-  h+="<div class='sig'><div class='sig-box'>توقيع المستلم</div><div class='sig-box'>توقيع المسلّم</div></div>";
-  printPage("اذن تسليم ورشة",h)
+  /* Order info */
+  h+="<div style='display:flex;gap:16px;align-items:flex-start;margin-bottom:16px'>";
+  if(order.image)h+="<div style='width:80px;height:107px;border-radius:8px;overflow:hidden;border:1px solid #ddd;flex-shrink:0'><img src='"+order.image+"' style='width:100%;height:100%;object-fit:cover'/></div>";
+  h+="<div style='flex:1'><table><tr><th>رقم الموديل</th><td><b>"+order.modelNo+"</b></td><th>الوصف</th><td>"+order.modelDesc+"</td></tr>";
+  h+="<tr><th>المقاسات</th><td>"+order.sizeLabel+"</td><th>كمية القص</th><td><b>"+t.cutQty+"</b></td></tr>";
+  h+="<tr><th>الورشة</th><td><b style='color:#8B5CF6'>"+wsName+"</b>"+(wsOwner?" — "+wsOwner:"")+"</td><th>التاريخ</th><td>"+date+"</td></tr>";
+  if(garmentType)h+="<tr><th>القطعة المسلمة</th><td><b style='color:#8B5CF6'>👕 "+garmentType+"</b></td><th>الكمية المسلمة</th><td><b style='color:#0284C7;font-size:16px'>"+qty+"</b> قطعة</td></tr>";
+  else h+="<tr><th>الكمية المسلمة</th><td><b style='color:#0284C7;font-size:16px'>"+qty+"</b> قطعة</td><th></th><td></td></tr>";
+  if(order.marker)h+="<tr><th>ماركر</th><td colspan='3'>"+order.marker+"</td></tr>";
+  h+="</table></div></div>";
+  /* Fabric details for this garment piece only */
+  const FKEYS=["A","B","C","D","E"];
+  const fabsForPiece=FKEYS.filter(k=>{if(!order["fabric"+k])return false;if(!garmentType)return true;const fp=order["fabricPieces"+k]||[];return fp.length===0||fp.includes(garmentType)});
+  if(fabsForPiece.length>0){h+="<h2 style='font-size:14px;margin:12px 0 6px'>"+(garmentType?"خامات قطعة: "+garmentType:"الخامات")+"</h2>";
+    fabsForPiece.forEach(k=>{const colors=order["colors"+k]||[];const cons=Number(order["cons"+k])||0;const unit=order["fabric"+k+"Unit"]||"";const label=order["fabric"+k+"Label"]||"";
+      h+="<div style='margin-bottom:10px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden'>";
+      h+="<div style='background:#f1f5f9;padding:6px 12px;font-weight:700;font-size:12px'>"+label+(cons?" | استهلاك/راق: "+cons+" "+unit:"")+"</div>";
+      h+="<table style='margin:0'><tr><th>اللون</th><th>الراقات</th><th>قطع/راق</th><th>اجمالي القطع</th></tr>";
+      let tL=0,tQ=0;colors.forEach(c=>{const q=(Number(c.layers)||0)*(Number(c.pcsPerLayer)||0);tL+=(Number(c.layers)||0);tQ+=q;
+        h+="<tr><td>"+(c.color||"-")+"</td><td style='font-weight:700'>"+(c.layers||0)+"</td><td>"+(c.pcsPerLayer||0)+"</td><td style='font-weight:700;color:#0284C7'>"+q+"</td></tr>"});
+      h+="<tr style='background:#f8fafc;font-weight:800'><td>الاجمالي</td><td>"+tL+"</td><td></td><td style='color:#0284C7'>"+tQ+"</td></tr></table></div>"})};
+  if(balance>0)h+="<p style='margin:12px 0;color:#EF4444;font-weight:700'>الرصيد المتبقي: "+balance+" قطعة</p>";
+  /* Receipt statement */
+  h+="<div style='margin:20px 0;padding:16px;border:2px solid #CBD5E1;border-radius:10px;background:#F8FAFC;font-size:13px;line-height:2'>";
+  h+="استلمت أنا ورشة <b style='color:#8B5CF6'>"+wsName+"</b> موديل رقم <b style='color:#0284C7'>"+order.modelNo+"</b>";
+  if(garmentType)h+=" نوع القطعة <b style='color:#8B5CF6'>"+garmentType+"</b>";
+  h+=" اجمالي الكمية المستلمة <b style='color:#0284C7'>"+qty+" قطعة</b>";
+  h+=" وتعهد بارجاع البضاعة كما تم الاتفاق عليه.</div>";
+  /* Signatures */
+  h+="<div class='sig'><div class='sig-box'>توقيع صاحب الورشة<br/><span style='font-size:11px;color:#8B5CF6'>"+wsName+"</span></div><div class='sig-box'>مسؤول القص والتسليم</div></div>";
+  printPage("اذن تسليم ورشة — "+order.modelNo,h)
 }
 
 function printReceiveReceipt(wsName,modelNo,qty,date,balance){
@@ -1053,7 +1079,8 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     else{updOrder(editMov.orderId,o=>{const r=o.workshopDeliveries[editMov.wdIdx].receives[editMov.rIdx];if(r){r.qty=Number(editQty)||0;r.notes=editNote;if(editDate)r.date=editDate};o.status=recomputeStatus(o)})}
     setEditMov(null)};
   const printMov=(m)=>{
-    if(m.type==="deliver")printReceipt(m.wsName,"",m.orderNo,m.qty,m.date,0);
+    const ord=data.orders.find(o=>o.id===m.orderId);
+    if(m.type==="deliver")printReceipt(m.wsName,"",ord||{modelNo:m.orderNo,modelDesc:m.orderDesc},m.garmentType,m.qty,m.date,0);
     else printReceiveReceipt(m.wsName,m.orderNo,m.qty,m.date,0)
   };
 
@@ -1080,7 +1107,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       o.status=recomputeStatus(o);
     });
     setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice("");showToast("✓ تم تسليم "+saveQty+" قطعة لـ "+selWs);
-    if(andPrint)setTimeout(()=>printReceipt(selWs,wsObj?wsObj.owner:"",saveModelNo,saveQty,saveDate,Math.max(0,availAfter)),400);
+    if(andPrint){const printOrd=JSON.parse(JSON.stringify(ord));setTimeout(()=>printReceipt(selWs,wsObj?wsObj.owner:"",printOrd,saveType,saveQty,saveDate,Math.max(0,availAfter)),400)}
   };
 
   const receiveFromWs=(orderId,wdIdx,andPrint,printData,cardKey)=>{
