@@ -131,7 +131,11 @@ function Timeline({events}){if(!events||events.length===0)return null;return<div
 function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance){
   if(!order)return;
   const t=calcOrder(order);
-  const ws=wsName||"";const wsO=wsOwner||"";
+  /* Fallback: find wsName from order's workshopDeliveries if not passed */
+  let ws=wsName||"";
+  if(!ws&&order.workshopDeliveries){const wd=order.workshopDeliveries.find(w=>w.garmentType===garmentType)||order.workshopDeliveries[order.workshopDeliveries.length-1];if(wd)ws=wd.wsName||""}
+  let wsO=wsOwner||"";
+  if(!wsO&&order.workshopDeliveries){const wd=order.workshopDeliveries.find(w=>w.wsName===ws);if(wd)wsO=wd.wsOwner||""}
   const modelNo=order.modelNo||"";const modelDesc=order.modelDesc||"";const sizeLabel=order.sizeLabel||"";const marker=order.marker||"";
   let h="<h2>اذن تسليم ورشة</h2>";
   /* Order info table */
@@ -160,11 +164,8 @@ function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance){
     h+="</table></div>"});
   if(balance>0)h+="<p style='margin:12px 0;color:#EF4444;font-weight:700'>الرصيد المتبقي: "+balance+" قطعة</p>";
   /* Receipt statement */
-  h+="<div style='margin:20px 0;padding:16px;border:2px solid #CBD5E1;border-radius:10px;background:#F8FAFC;font-size:13px;line-height:2'>";
-  h+="استلمت أنا ورشة <b style='color:#8B5CF6'>"+ws+"</b> موديل رقم <b style='color:#0284C7'>"+modelNo+"</b>";
-  if(garmentType)h+=" نوع القطعة <b style='color:#8B5CF6'>"+garmentType+"</b>";
-  h+=" اجمالي الكمية المستلمة <b style='color:#0284C7'>"+qty+" قطعة</b>";
-  h+=" وتعهد بارجاع البضاعة كما تم الاتفاق عليه.</div>";
+  h+="<div style='margin:20px 0;padding:16px;border:2px solid #CBD5E1;border-radius:10px;background:#F8FAFC;font-size:13px;line-height:2;text-align:center'>";
+  h+="اقر أنا الموقع أدناه بأنني استلمت هذه البضاعة المذكورة عاليه وأتعهد بسداد قيمتها وقت طلبها. وأعتبر مسؤلاً مسئولية كاملة في حالة تبديد هذه البضاعة أو تلفها. وهذا اقرار مني بذلك</div>";
   /* Signatures */
   h+="<div class='sig'><div class='sig-box'>توقيع صاحب الورشة<br/><span style='font-size:11px;color:#8B5CF6'>"+ws+"</span></div><div class='sig-box'>مسؤول القص والتسليم</div></div>";
   printPage("اذن تسليم ورشة — "+modelNo,h)
