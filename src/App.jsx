@@ -114,14 +114,6 @@ function highlightRow(id){setTimeout(()=>{const el=document.querySelector("[data
 const PRINT_CSS="*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Cairo',Arial,sans-serif;padding:30px;font-size:13px;direction:rtl;color:#1E293B;line-height:1.6}.hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #0284C7;padding-bottom:14px;margin-bottom:24px}.hdr img{height:22px}.hdr-info{text-align:left;font-size:11px;color:#64748B;font-weight:600}h2{font-size:16px;color:#0284C7;margin:16px 0 8px;padding-bottom:4px;border-bottom:1px solid #E2E8F0}table{width:100%;border-collapse:collapse;margin:8px 0 16px;border:1px solid #CBD5E1}th{background:linear-gradient(180deg,#F1F5F9,#E2E8F0);font-weight:700;font-size:11px;color:#475569;padding:6px 10px;text-align:right;border:1px solid #CBD5E1}td{padding:5px 10px;text-align:right;border:1px solid #E2E8F0;font-size:12px}tr:nth-child(even){background:#F8FAFC}.info{font-weight:700;color:#0284C7}.ok{color:#10B981;font-weight:700}.err{color:#EF4444;font-weight:700}.sig{margin-top:50px;display:flex;justify-content:space-between}.sig-box{text-align:center;width:180px;border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:13px}.badge{display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;margin:2px}@media print{body{padding:15px}table{page-break-inside:auto}tr{page-break-inside:avoid}@page{margin:15mm;@bottom-center{content:counter(page)' / 'counter(pages)}}}";
 function printPage(title,bodyHtml){const pw=window.open("","_blank");if(!pw)return;const today=new Date().toLocaleDateString("ar-EG");pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>"+title+"</title><style>"+PRINT_CSS+"</style></head><body><div class='hdr'><div><img src='"+CLARK_LOGO+"'/></div><div class='hdr-info'>"+title+"<br/>"+today+"</div></div>"+bodyHtml+"</body></html>");pw.document.close();setTimeout(()=>{pw.focus();pw.print()},500)}
 
-async function sharePDF(title,bodyHtml){
-  const today=new Date().toLocaleDateString("ar-EG");
-  const pw=window.open("","_blank");if(!pw)return;
-  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>"+title+"</title><style>"+PRINT_CSS+".topbar{position:sticky;top:0;background:#fff;padding:10px 20px;border-bottom:2px solid #0EA5E9;display:flex;justify-content:center;gap:12px;z-index:999}@media print{.topbar{display:none}}.topbar button{padding:12px 28px;border-radius:10px;border:none;cursor:pointer;font-family:'Cairo',sans-serif;font-size:14px;font-weight:700}.btn-pdf{background:#0EA5E9;color:#fff}.btn-share{background:#10B981;color:#fff}</style></head><body><div class='topbar'><button class='btn-pdf' onclick='window.print()'>📄 حفظ كـ PDF</button><button class='btn-share' onclick='sharePage()'>📤 مشاركة</button></div><div class='hdr'><div><img src='"+CLARK_LOGO+"'/></div><div class='hdr-info'>"+title+"<br/>"+today+"</div></div>"+bodyHtml+"<script>async function sharePage(){try{if(navigator.share){await navigator.share({title:document.title,text:'"+title+"',url:window.location.href})}else{window.print()}}catch(e){window.print()}}<\/script></body></html>");
-  pw.document.close()
-}
-const _isMob=()=>window.innerWidth<768;
-
 async function exportExcel(rows,fileName){const X=await loadXLSX();if(!X){alert("مكتبة Excel غير متوفرة");return}const ws=X.utils.aoa_to_sheet(rows);ws["!cols"]=rows[0].map(()=>({wch:18}));const wb=X.utils.book_new();X.utils.book_append_sheet(wb,ws,"Sheet1");X.writeFile(wb,fileName+".xlsx")}
 
 function QRImg({text,size}){const[src,setSrc]=useState("");useEffect(()=>{if(!text)return;loadQR().then(QR=>{if(QR)QR.toDataURL(text,{width:size||120,margin:1,errorCorrectionLevel:"L",color:{dark:"#1E293B",light:"#FFFFFF"}}).then(setSrc).catch(()=>{})}).catch(()=>{})},[text,size]);return src?<img src={src} alt="QR" style={{width:size||120,height:size||120,borderRadius:8,border:"1px solid #E2E8F0"}}/>:null}
@@ -139,7 +131,7 @@ function Timeline({events}){if(!events||events.length===0)return null;return<div
   </div>
 </div>}
 
-function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance,gtList,share){
+function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance,gtList){
   if(!order)return;
   const t=calcOrder(order);
   /* Fallback: find wsName from order's workshopDeliveries if not passed */
@@ -180,10 +172,10 @@ function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance,gtList,s
   h+="اقر أنا الموقع أدناه بأنني استلمت هذه البضاعة المذكورة عاليه وأتعهد بسداد قيمتها وقت طلبها. وأعتبر مسؤلاً مسئولية كاملة في حالة تبديد هذه البضاعة أو تلفها. وهذا اقرار مني بذلك</div>";
   /* Signatures */
   h+="<div class='sig'><div class='sig-box'>توقيع صاحب الورشة<br/><span style='font-size:11px;color:#8B5CF6'>"+ws+"</span></div><div class='sig-box'>مسؤول القص والتسليم</div></div>";
-  (share?sharePDF:printPage)("اذن تسليم ورشة — "+modelNo,h)
+  printPage("اذن تسليم ورشة — "+modelNo,h)
 }
 
-function printReceiveReceipt(wsName,order,garmentType,qty,date,balance,gtList,share){
+function printReceiveReceipt(wsName,order,garmentType,qty,date,balance,gtList){
   if(!order){printPage("اذن استلام مصنع","<p>بيانات غير متوفرة</p>");return}
   const t=calcOrder(order);const gi=n=>gIcon(n,gtList);
   let ws=wsName||"";
@@ -221,7 +213,7 @@ function printReceiveReceipt(wsName,order,garmentType,qty,date,balance,gtList,sh
   else h+="<div style='margin:16px 0;padding:12px 20px;background:#F0FDF4;border:2px solid #BBF7D0;border-radius:10px;text-align:center;font-size:16px;font-weight:800;color:#10B981'>✓ تم استلام الكمية كاملة</div>";
   /* Signature */
   h+="<div style='margin-top:50px;text-align:center;width:200px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:13px'>توقيع المستلم</div></div>";
-  (share?sharePDF:printPage)("اذن استلام مصنع — "+modelNo,h)
+  printPage("اذن استلام مصنع — "+modelNo,h)
 }
 
 function compressFile(file){
@@ -1172,11 +1164,9 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     if(m.type==="deliver")printReceipt(m.wsName||"",ws?ws.owner:"",ord||{modelNo:m.orderNo||"",modelDesc:m.orderDesc||""},m.garmentType||"",m.qty,m.date,0,data.garmentTypes);
     else printReceiveReceipt(m.wsName||"",ord||{modelNo:m.orderNo||"",modelDesc:m.orderDesc||""},m.garmentType||"",m.qty,m.date,0,data.garmentTypes)
   };
-  const shareMov=(m)=>{
-    const ord=data.orders.find(o=>o.id===m.orderId);
-    const ws=(data.workshops||[]).find(w=>w.name===m.wsName);
-    if(m.type==="deliver")printReceipt(m.wsName||"",ws?ws.owner:"",ord||{modelNo:m.orderNo||"",modelDesc:m.orderDesc||""},m.garmentType||"",m.qty,m.date,0,data.garmentTypes,true);
-    else printReceiveReceipt(m.wsName||"",ord||{modelNo:m.orderNo||"",modelDesc:m.orderDesc||""},m.garmentType||"",m.qty,m.date,0,data.garmentTypes,true)
+      const ws=(data.workshops||[]).find(w=>w.name===m.wsName);
+    if(m.type==="deliver")printReceipt(m.wsName||"",ws?ws.owner:"",ord||{modelNo:m.orderNo||"",modelDesc:m.orderDesc||""},m.garmentType||"",m.qty,m.date,0,data.garmentTypes);
+    else printReceiveReceipt(m.wsName||"",ord||{modelNo:m.orderNo||"",modelDesc:m.orderDesc||""},m.garmentType||"",m.qty,m.date,0,data.garmentTypes)
   };
 
   const wsObj=workshops.find(w=>(w.name||w)===(selWs));
@@ -1300,7 +1290,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
           <td style={TD}>{isEditing?<Inp value={editNote} onChange={setEditNote} style={{width:100}}/>:(m.notes||"-")}</td>
           <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
             {isEditing?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>الغاء</Btn></>:<>
-            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>{_isMob()&&<Btn small onClick={()=>shareMov(m)} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄</Btn>}
+            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/></>}
           </div>}</td>
@@ -1406,7 +1396,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
             {isEd?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>✕</Btn></>:<>
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/>
-            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>{_isMob()&&<Btn small onClick={()=>shareMov(m)} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄</Btn>}</>}
+            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn></>}
           </div>}</td></tr>})}</tbody>
       </table></div>
     </Card>}
@@ -1445,7 +1435,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
               <div style={{padding:16}}>
                 <div style={{fontSize:FS-2,color:T.textSec,marginBottom:8}}>{"تاريخ التسليم: "+wd.date}</div>
                 {(wd.receives||[]).length>0&&<div style={{marginBottom:12}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:350}}><thead><tr>{["#","التاريخ","الكمية","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-                  {wd.receives.map((r,ri)=>{const rBal=bal+Number(r.qty);return<tr key={ri}><td style={TD}>{ri+1}</td><td style={TD}>{r.date}</td><td style={TDB}>{r.qty}</td><td style={TD}>{r.notes||"-"}</td><td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}><Btn small onClick={()=>printReceiveReceipt(selWs,ord,wd.garmentType||"",r.qty,r.date,rBal,data.garmentTypes)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>🖨</Btn>{_isMob()&&<Btn small onClick={()=>printReceiveReceipt(selWs,ord,wd.garmentType||"",r.qty,r.date,rBal,data.garmentTypes,true)} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄</Btn>}</div></td></tr>})}
+                  {wd.receives.map((r,ri)=>{const rBal=bal+Number(r.qty);return<tr key={ri}><td style={TD}>{ri+1}</td><td style={TD}>{r.date}</td><td style={TDB}>{r.qty}</td><td style={TD}>{r.notes||"-"}</td><td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}><Btn small onClick={()=>printReceiveReceipt(selWs,ord,wd.garmentType||"",r.qty,r.date,rBal,data.garmentTypes)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>🖨</Btn></div></td></tr>})}
                 </tbody></table></div></div>}
                 {canEdit&&(()=>{const ck=ord.id+"-"+actualIdx;const rv=getRcv(ck);const wdP=Number(wd.price)||0;return<div style={{display:"flex",gap:6,flexWrap:"wrap",padding:8,background:T.inputBg||T.cardSolid,borderRadius:8,alignItems:"end"}}>
                   <div style={{minWidth:70}}><label style={{fontSize:FS-3,color:T.textSec}}>الكمية</label><Inp type="number" value={rv.qty} onChange={v=>setRcv(ck,"qty",Math.min(Number(v)||0,bal))}/></div>
@@ -1476,7 +1466,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
             {isEd?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>✕</Btn></>:<>
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/>
-            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>{_isMob()&&<Btn small onClick={()=>shareMov(m)} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄</Btn>}</>}
+            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn></>}
           </div>}</td></tr>})}</tbody>
       </table></div>
     </Card>}
@@ -1526,7 +1516,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         <div><h2 style={{fontSize:isMob?18:22,fontWeight:800,margin:0}}>{"📊 حسابات الورش"}</h2><div style={{fontSize:FS-1,color:T.textSec}}>{"الموسم: "+season}</div></div>
         <div style={{display:"flex",gap:6}}>
           <Btn onClick={()=>{const rows=[["الورشة","النسبة","مستحق","مدفوع","حد النسبة","متاح للدفع","الرصيد"]];activeWs.forEach(w=>{const a=wsAccounts(w.name);const pct=w.payPercent||70;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const remaining=r2(limit-a.totalPaid);rows.push([w.name,pct+"%",r2(totalDue),r2(a.totalPaid),limit,remaining>0?remaining:0,r2(a.balance)])});rows.push([]);rows.push(["اجمالي","",r2(totals.due+totals.purchase),r2(totals.paid),"","",r2(totals.balance)]);exportExcel(rows,"حسابات_الورش_"+season)}} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-          <Btn onClick={()=>{const el=document.getElementById("ws-acc-area");if(!el)return;printPage("حسابات الورش — "+season,el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>{_isMob()&&<Btn onClick={()=>{const el=document.getElementById("ws-acc-area");if(el)sharePDF("حسابات الورش — "+season,el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>}
+          <Btn onClick={()=>{const el=document.getElementById("ws-acc-area");if(!el)return;printPage("حسابات الورش — "+season,el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
           <Btn ghost onClick={()=>setMode(null)}>↩</Btn>
         </div>
       </div>
@@ -1590,7 +1580,6 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     </div>
   }
   return null
-}
 
 /* ══ SEARCH ══ */
 function SearchPg({data,goD,isMob,season,statusCards}){
@@ -1730,7 +1719,7 @@ function FabricReport({data,isMob,season}){
   return<div>
     <div style={{display:"flex",justifyContent:"flex-end",gap:6,marginBottom:10}}>
       <Btn onClick={exportFabXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-      <Btn onClick={printFab} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>{_isMob()&&<Btn onClick={()=>{const el=document.getElementById("fab-rep");if(el)sharePDF("تقرير الخامات",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>}
+      <Btn onClick={printFab} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
     </div>
     <div id="fab-rep">
       <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>تقرير الخامات المستهلكة</h1>
@@ -1766,7 +1755,7 @@ function WsPerfReport({data,isMob,season}){
   return<div>
     <div style={{display:"flex",justifyContent:"flex-end",gap:6,marginBottom:10}}>
       <Btn onClick={exportWsPerfXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-      <Btn onClick={printWsPerf} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>{_isMob()&&<Btn onClick={()=>{const el=document.getElementById("ws-perf");if(el)sharePDF("انتاجية الورش",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>}
+      <Btn onClick={printWsPerf} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
     </div>
     <div id="ws-perf">
       <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>تقرير انتاجية الورش</h1>
@@ -1807,7 +1796,7 @@ function DeliveryReport({data,isMob,season}){
   const printDel=()=>{const el=document.getElementById("del-rep");if(!el)return;printPage("تقرير معدل التسليم — "+season,el.innerHTML)};
   return<div>
     <div style={{display:"flex",justifyContent:"flex-end",gap:6,marginBottom:10}}>
-      <Btn onClick={printDel} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>{_isMob()&&<Btn onClick={()=>{const el=document.getElementById("del-rep");if(el)sharePDF("معدل التسليم",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>}
+      <Btn onClick={printDel} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
     </div>
     <div id="del-rep">
       <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>تقرير معدل التسليم</h1>
@@ -1842,7 +1831,7 @@ function SeasonSummary({data,isMob,season,statusCards}){
   return<div>
     <div style={{display:"flex",justifyContent:"flex-end",gap:6,marginBottom:10}}>
       <Btn onClick={exportSumXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-      <Btn onClick={printSum} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>{_isMob()&&<Btn onClick={()=>{const el=document.getElementById("sum-rep");if(el)sharePDF("ملخص الموسم",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>}
+      <Btn onClick={printSum} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
     </div>
     <div id="sum-rep">
       <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>ملخص الموسم</h1>
@@ -1886,7 +1875,7 @@ function RepPg({data,isMob,season,statusCards}){
       <div><div style={{fontSize:FS,color:T.textSec}}>{today}</div></div>
       <div style={{display:"flex",gap:6}}>
         <Btn onClick={exportRepXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-        <Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>{_isMob()&&<Btn onClick={()=>{const el=document.getElementById("rep-area");if(el)sharePDF("تقرير الانتاج",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>}
+        <Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
       </div>
     </div>
     <div id="rep-area">
@@ -1942,7 +1931,7 @@ function CostPg({data,isMob,statusCards}){
       </div>
       <div style={{display:"flex",gap:6}}>
         <Btn onClick={exportCostXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-        <Btn onClick={printCost} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>{_isMob()&&<Btn onClick={()=>{const el=document.getElementById("cost-area");if(el)sharePDF("تقرير التكاليف",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>}
+        <Btn onClick={printCost} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
       </div>
     </div>
     <div id="cost-area">
