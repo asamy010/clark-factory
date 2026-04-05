@@ -119,24 +119,23 @@ function printPage(title,bodyHtml){const pw=window.open("","_blank");if(!pw)retu
 async function sharePDF(title,bodyHtml){
   const today=new Date().toLocaleDateString("ar-EG");
   const container=document.createElement("div");
-  container.style.cssText="position:fixed;left:-9999px;top:0;width:800px;direction:rtl;font-family:'Cairo',sans-serif;padding:30px;font-size:13px;color:#1E293B;line-height:1.6;background:#fff";
+  container.style.cssText="position:absolute;left:0;top:0;width:800px;direction:rtl;font-family:'Cairo',sans-serif;padding:30px;font-size:13px;color:#1E293B;line-height:1.6;background:#fff;z-index:99999";
   container.innerHTML="<div style='display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #0284C7;padding-bottom:14px;margin-bottom:24px'><div><img src='"+CLARK_LOGO+"' style='height:22px'/></div><div style='text-align:left;font-size:11px;color:#64748B;font-weight:600'>"+title+"<br/>"+today+"</div></div>"+bodyHtml;
   document.body.appendChild(container);
   const h2p=await loadH2P();
   if(!h2p){document.body.removeChild(container);printPage(title,bodyHtml);return}
   try{
-    const opt={margin:[10,10,10,10],filename:title+".pdf",image:{type:"jpeg",quality:0.95},html2canvas:{scale:2,useCORS:true,scrollY:0},jsPDF:{unit:"mm",format:"a4",orientation:"portrait"}};
+    const opt={margin:[10,10,10,10],filename:title+".pdf",image:{type:"jpeg",quality:0.95},html2canvas:{scale:2,useCORS:true,scrollY:-window.scrollY,windowWidth:800},jsPDF:{unit:"mm",format:"a4",orientation:"portrait"}};
     const blob=await h2p().set(opt).from(container).outputPdf("blob");
     document.body.removeChild(container);
     const file=new File([blob],title+".pdf",{type:"application/pdf"});
-    /* Mobile: share */
     if(navigator.share&&navigator.canShare&&navigator.canShare({files:[file]})){
       await navigator.share({title,files:[file]});return}
-    /* Desktop: download */
     const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=title+".pdf";a.click();URL.revokeObjectURL(url);
     showToast("✓ تم تحميل PDF");
   }catch(e){document.body.removeChild(container);printPage(title,bodyHtml)}
 }
+const _isMob=()=>window.innerWidth<768;
 
 async function exportExcel(rows,fileName){const X=await loadXLSX();if(!X){alert("مكتبة Excel غير متوفرة");return}const ws=X.utils.aoa_to_sheet(rows);ws["!cols"]=rows[0].map(()=>({wch:18}));const wb=X.utils.book_new();X.utils.book_append_sheet(wb,ws,"Sheet1");X.writeFile(wb,fileName+".xlsx")}
 
@@ -1316,7 +1315,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
           <td style={TD}>{isEditing?<Inp value={editNote} onChange={setEditNote} style={{width:100}}/>:(m.notes||"-")}</td>
           <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
             {isEditing?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>الغاء</Btn></>:<>
-            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn><Btn small onClick={()=>shareMov(m)} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄</Btn>
+            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>{_isMob()&&<Btn small onClick={()=>shareMov(m)} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄</Btn>}
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/></>}
           </div>}</td>
@@ -1422,7 +1421,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
             {isEd?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>✕</Btn></>:<>
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/>
-            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn><Btn small onClick={()=>shareMov(m)} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄</Btn></>}
+            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>{_isMob()&&<Btn small onClick={()=>shareMov(m)} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄</Btn>}</>}
           </div>}</td></tr>})}</tbody>
       </table></div>
     </Card>}
@@ -1461,7 +1460,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
               <div style={{padding:16}}>
                 <div style={{fontSize:FS-2,color:T.textSec,marginBottom:8}}>{"تاريخ التسليم: "+wd.date}</div>
                 {(wd.receives||[]).length>0&&<div style={{marginBottom:12}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:350}}><thead><tr>{["#","التاريخ","الكمية","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-                  {wd.receives.map((r,ri)=>{const rBal=bal+Number(r.qty);return<tr key={ri}><td style={TD}>{ri+1}</td><td style={TD}>{r.date}</td><td style={TDB}>{r.qty}</td><td style={TD}>{r.notes||"-"}</td><td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}><Btn small onClick={()=>printReceiveReceipt(selWs,ord,wd.garmentType||"",r.qty,r.date,rBal,data.garmentTypes)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>🖨</Btn><Btn small onClick={()=>printReceiveReceipt(selWs,ord,wd.garmentType||"",r.qty,r.date,rBal,data.garmentTypes,true)} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄</Btn></div></td></tr>})}
+                  {wd.receives.map((r,ri)=>{const rBal=bal+Number(r.qty);return<tr key={ri}><td style={TD}>{ri+1}</td><td style={TD}>{r.date}</td><td style={TDB}>{r.qty}</td><td style={TD}>{r.notes||"-"}</td><td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}><Btn small onClick={()=>printReceiveReceipt(selWs,ord,wd.garmentType||"",r.qty,r.date,rBal,data.garmentTypes)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>🖨</Btn>{_isMob()&&<Btn small onClick={()=>printReceiveReceipt(selWs,ord,wd.garmentType||"",r.qty,r.date,rBal,data.garmentTypes,true)} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄</Btn>}</div></td></tr>})}
                 </tbody></table></div></div>}
                 {canEdit&&(()=>{const ck=ord.id+"-"+actualIdx;const rv=getRcv(ck);const wdP=Number(wd.price)||0;return<div style={{display:"flex",gap:6,flexWrap:"wrap",padding:8,background:T.inputBg||T.cardSolid,borderRadius:8,alignItems:"end"}}>
                   <div style={{minWidth:70}}><label style={{fontSize:FS-3,color:T.textSec}}>الكمية</label><Inp type="number" value={rv.qty} onChange={v=>setRcv(ck,"qty",Math.min(Number(v)||0,bal))}/></div>
@@ -1492,7 +1491,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
             {isEd?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>✕</Btn></>:<>
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/>
-            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn><Btn small onClick={()=>shareMov(m)} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄</Btn></>}
+            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>{_isMob()&&<Btn small onClick={()=>shareMov(m)} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄</Btn>}</>}
           </div>}</td></tr>})}</tbody>
       </table></div>
     </Card>}
@@ -1542,7 +1541,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         <div><h2 style={{fontSize:isMob?18:22,fontWeight:800,margin:0}}>{"📊 حسابات الورش"}</h2><div style={{fontSize:FS-1,color:T.textSec}}>{"الموسم: "+season}</div></div>
         <div style={{display:"flex",gap:6}}>
           <Btn onClick={()=>{const rows=[["الورشة","النسبة","مستحق","مدفوع","حد النسبة","متاح للدفع","الرصيد"]];activeWs.forEach(w=>{const a=wsAccounts(w.name);const pct=w.payPercent||70;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const remaining=r2(limit-a.totalPaid);rows.push([w.name,pct+"%",r2(totalDue),r2(a.totalPaid),limit,remaining>0?remaining:0,r2(a.balance)])});rows.push([]);rows.push(["اجمالي","",r2(totals.due+totals.purchase),r2(totals.paid),"","",r2(totals.balance)]);exportExcel(rows,"حسابات_الورش_"+season)}} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-          <Btn onClick={()=>{const el=document.getElementById("ws-acc-area");if(!el)return;printPage("حسابات الورش — "+season,el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn onClick={()=>{const el=document.getElementById("ws-acc-area");if(el)sharePDF("حسابات الورش — "+season,el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>
+          <Btn onClick={()=>{const el=document.getElementById("ws-acc-area");if(!el)return;printPage("حسابات الورش — "+season,el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>{_isMob()&&<Btn onClick={()=>{const el=document.getElementById("ws-acc-area");if(el)sharePDF("حسابات الورش — "+season,el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>}
           <Btn ghost onClick={()=>setMode(null)}>↩</Btn>
         </div>
       </div>
@@ -1746,7 +1745,7 @@ function FabricReport({data,isMob,season}){
   return<div>
     <div style={{display:"flex",justifyContent:"flex-end",gap:6,marginBottom:10}}>
       <Btn onClick={exportFabXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-      <Btn onClick={printFab} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn onClick={()=>{const el=document.getElementById("fab-rep");if(el)sharePDF("تقرير الخامات",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>
+      <Btn onClick={printFab} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>{_isMob()&&<Btn onClick={()=>{const el=document.getElementById("fab-rep");if(el)sharePDF("تقرير الخامات",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>}
     </div>
     <div id="fab-rep">
       <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>تقرير الخامات المستهلكة</h1>
@@ -1782,7 +1781,7 @@ function WsPerfReport({data,isMob,season}){
   return<div>
     <div style={{display:"flex",justifyContent:"flex-end",gap:6,marginBottom:10}}>
       <Btn onClick={exportWsPerfXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-      <Btn onClick={printWsPerf} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn onClick={()=>{const el=document.getElementById("ws-perf");if(el)sharePDF("انتاجية الورش",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>
+      <Btn onClick={printWsPerf} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>{_isMob()&&<Btn onClick={()=>{const el=document.getElementById("ws-perf");if(el)sharePDF("انتاجية الورش",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>}
     </div>
     <div id="ws-perf">
       <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>تقرير انتاجية الورش</h1>
@@ -1823,7 +1822,7 @@ function DeliveryReport({data,isMob,season}){
   const printDel=()=>{const el=document.getElementById("del-rep");if(!el)return;printPage("تقرير معدل التسليم — "+season,el.innerHTML)};
   return<div>
     <div style={{display:"flex",justifyContent:"flex-end",gap:6,marginBottom:10}}>
-      <Btn onClick={printDel} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn onClick={()=>{const el=document.getElementById("del-rep");if(el)sharePDF("معدل التسليم",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>
+      <Btn onClick={printDel} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>{_isMob()&&<Btn onClick={()=>{const el=document.getElementById("del-rep");if(el)sharePDF("معدل التسليم",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>}
     </div>
     <div id="del-rep">
       <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>تقرير معدل التسليم</h1>
@@ -1858,7 +1857,7 @@ function SeasonSummary({data,isMob,season,statusCards}){
   return<div>
     <div style={{display:"flex",justifyContent:"flex-end",gap:6,marginBottom:10}}>
       <Btn onClick={exportSumXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-      <Btn onClick={printSum} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn onClick={()=>{const el=document.getElementById("sum-rep");if(el)sharePDF("ملخص الموسم",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>
+      <Btn onClick={printSum} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>{_isMob()&&<Btn onClick={()=>{const el=document.getElementById("sum-rep");if(el)sharePDF("ملخص الموسم",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>}
     </div>
     <div id="sum-rep">
       <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>ملخص الموسم</h1>
@@ -1902,7 +1901,7 @@ function RepPg({data,isMob,season,statusCards}){
       <div><div style={{fontSize:FS,color:T.textSec}}>{today}</div></div>
       <div style={{display:"flex",gap:6}}>
         <Btn onClick={exportRepXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-        <Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn onClick={()=>{const el=document.getElementById("rep-area");if(el)sharePDF("تقرير الانتاج",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>
+        <Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>{_isMob()&&<Btn onClick={()=>{const el=document.getElementById("rep-area");if(el)sharePDF("تقرير الانتاج",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>}
       </div>
     </div>
     <div id="rep-area">
@@ -1958,7 +1957,7 @@ function CostPg({data,isMob,statusCards}){
       </div>
       <div style={{display:"flex",gap:6}}>
         <Btn onClick={exportCostXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-        <Btn onClick={printCost} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn onClick={()=>{const el=document.getElementById("cost-area");if(el)sharePDF("تقرير التكاليف",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>
+        <Btn onClick={printCost} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>{_isMob()&&<Btn onClick={()=>{const el=document.getElementById("cost-area");if(el)sharePDF("تقرير التكاليف",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>}
       </div>
     </div>
     <div id="cost-area">
