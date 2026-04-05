@@ -171,13 +171,42 @@ function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance){
   printPage("اذن تسليم ورشة — "+modelNo,h)
 }
 
-function printReceiveReceipt(wsName,modelNo,qty,date,balance){
-  let h="<h2>اذن استلام — المصنع</h2>";
-  h+="<p>تم استلام من ورشة: <span class='ok'>"+wsName+"</span></p>";
-  h+="<p>موديل: <span class='info'>"+modelNo+"</span> | الكمية: <span class='ok'>"+qty+"</span> قطعة | التاريخ: <span class='info'>"+date+"</span></p>";
-  if(balance>0)h+="<p>الرصيد المتبقي: <span class='err'>"+balance+" قطعة</span></p>";
-  h+="<div class='sig'><div class='sig-box'>توقيع المستلم</div><div class='sig-box'>توقيع المسلّم</div></div>";
-  printPage("اذن استلام مصنع",h)
+function printReceiveReceipt(wsName,order,garmentType,qty,date,balance){
+  if(!order){printPage("اذن استلام مصنع","<p>بيانات غير متوفرة</p>");return}
+  const t=calcOrder(order);
+  let ws=wsName||"";
+  if(!ws&&order.workshopDeliveries){const wd=order.workshopDeliveries.find(w=>w.garmentType===garmentType)||order.workshopDeliveries[order.workshopDeliveries.length-1];if(wd)ws=wd.wsName||""}
+  const modelNo=order.modelNo||"";const modelDesc=order.modelDesc||"";const sizeLabel=order.sizeLabel||"";const marker=order.marker||"";
+  let h="<h2>اذن استلام مصنع</h2>";
+  h+="<div style='display:flex;gap:16px;align-items:flex-start;margin-bottom:16px'>";
+  if(order.image)h+="<div style='width:80px;height:107px;border-radius:8px;overflow:hidden;border:1px solid #ddd;flex-shrink:0'><img src='"+order.image+"' style='width:100%;height:100%;object-fit:cover'/></div>";
+  h+="<div style='flex:1'><table>";
+  h+="<tr><th>رقم الموديل</th><td><b>"+modelNo+"</b></td><th>الوصف</th><td>"+modelDesc+"</td></tr>";
+  h+="<tr><th>المقاسات</th><td>"+sizeLabel+"</td><th>كمية القص</th><td><b>"+t.cutQty+"</b></td></tr>";
+  h+="<tr><th>الورشة</th><td><b style='color:#8B5CF6'>"+ws+"</b></td><th>التاريخ</th><td>"+(date||"")+"</td></tr>";
+  if(garmentType)h+="<tr><th>القطعة</th><td><b style='color:#8B5CF6'>👕 "+garmentType+"</b></td><th>الكمية المستلمة</th><td><b style='color:#10B981;font-size:16px'>"+qty+"</b> قطعة</td></tr>";
+  else h+="<tr><th>الكمية المستلمة</th><td colspan='3'><b style='color:#10B981;font-size:16px'>"+qty+"</b> قطعة</td></tr>";
+  if(marker)h+="<tr><th>ماركر</th><td colspan='3'>"+marker+"</td></tr>";
+  h+="</table></div></div>";
+  /* Fabric details */
+  const activeFabs=FKEYS.filter(k=>gf(order,k));
+  const fabsForPiece=activeFabs.filter(k=>{if(!garmentType)return true;const fp=order["fabricPieces"+k]||[];return fp.length===0||fp.includes(garmentType)});
+  fabsForPiece.forEach(k=>{const colors=gc(order,k);if(colors.length===0)return;
+    const label=gf(order,k,"Label")||("خامة "+k);const cons=gcons(order,k);const unit=gf(order,k,"Unit")||"";
+    h+="<h2 style='font-size:13px;margin:14px 0 4px'>"+(garmentType?"👕 "+garmentType+" — "+label:label)+"</h2>";
+    h+="<div style='border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:8px'>";
+    if(cons)h+="<div style='background:#f1f5f9;padding:5px 12px;font-size:11px;color:#475569'>استهلاك/راق: <b>"+cons+" "+unit+"</b></div>";
+    h+="<table style='margin:0'><tr><th>اللون</th><th>الراقات</th><th>قطع/راق</th><th>اجمالي القطع</th></tr>";
+    let tL=0,tQ=0;colors.forEach(c=>{const ly=Number(c.layers)||0;const pp=Number(c.pcsPerLayer)||0;const q=ly*pp;tL+=ly;tQ+=q;
+      h+="<tr><td>"+(c.color||"-")+"</td><td style='font-weight:700'>"+ly+"</td><td>"+pp+"</td><td style='font-weight:700;color:#0284C7'>"+q+"</td></tr>"});
+    h+="<tr style='background:#f8fafc;font-weight:800'><td>الاجمالي</td><td>"+tL+"</td><td></td><td style='color:#0284C7'>"+tQ+"</td></tr>";
+    h+="</table></div>"});
+  /* Balance */
+  if(balance>0)h+="<div style='margin:16px 0;padding:12px 20px;background:#FEF2F2;border:2px solid #FECACA;border-radius:10px;text-align:center;font-size:16px;font-weight:800;color:#EF4444'>الرصيد الباقي عند الورشة: "+balance+" قطعة</div>";
+  else h+="<div style='margin:16px 0;padding:12px 20px;background:#F0FDF4;border:2px solid #BBF7D0;border-radius:10px;text-align:center;font-size:16px;font-weight:800;color:#10B981'>✓ تم استلام الكمية كاملة</div>";
+  /* Signature */
+  h+="<div style='margin-top:50px;text-align:center;width:200px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:13px'>توقيع المستلم</div></div>";
+  printPage("اذن استلام مصنع — "+modelNo,h)
 }
 
 function compressFile(file){
@@ -1089,7 +1118,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     const ord=data.orders.find(o=>o.id===m.orderId);
     const ws=(data.workshops||[]).find(w=>w.name===m.wsName);
     if(m.type==="deliver")printReceipt(m.wsName||"",ws?ws.owner:"",ord||{modelNo:m.orderNo||"",modelDesc:m.orderDesc||""},m.garmentType||"",m.qty,m.date,0);
-    else printReceiveReceipt(m.wsName||"",m.orderNo||"",m.qty,m.date,0)
+    else printReceiveReceipt(m.wsName||"",ord||{modelNo:m.orderNo||"",modelDesc:m.orderDesc||""},m.garmentType||"",m.qty,m.date,0)
   };
 
   const wsObj=workshops.find(w=>(w.name||w)===(selWs));
@@ -1133,7 +1162,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       o.status=recomputeStatus(o)
     });
     clearRcv(cardKey);showToast("✓ تم استلام "+saveQty+" قطعة");
-    if(andPrint&&printData)setTimeout(()=>printReceiveReceipt(selWs,printData.modelNo,saveQty,saveDate,maxRcv-saveQty),400);
+    if(andPrint&&printData){const pOrd=JSON.parse(JSON.stringify(ord));const pWs=selWs;const pType=wd.garmentType||"";setTimeout(()=>printReceiveReceipt(pWs,pOrd,pType,saveQty,saveDate,maxRcv-saveQty),400)}
   };
 
   /* Collect all movements for the log */
@@ -1348,7 +1377,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
               <div style={{padding:16}}>
                 <div style={{fontSize:FS-2,color:T.textSec,marginBottom:8}}>{"تاريخ التسليم: "+wd.date}</div>
                 {(wd.receives||[]).length>0&&<div style={{marginBottom:12}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:350}}><thead><tr>{["#","التاريخ","الكمية","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-                  {wd.receives.map((r,ri)=>{const rBal=bal+Number(r.qty);return<tr key={ri}><td style={TD}>{ri+1}</td><td style={TD}>{r.date}</td><td style={TDB}>{r.qty}</td><td style={TD}>{r.notes||"-"}</td><td style={TD}><Btn small onClick={()=>printReceiveReceipt(selWs,ord.modelNo,r.qty,r.date,rBal)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>🖨</Btn></td></tr>})}
+                  {wd.receives.map((r,ri)=>{const rBal=bal+Number(r.qty);return<tr key={ri}><td style={TD}>{ri+1}</td><td style={TD}>{r.date}</td><td style={TDB}>{r.qty}</td><td style={TD}>{r.notes||"-"}</td><td style={TD}><Btn small onClick={()=>printReceiveReceipt(selWs,ord,wd.garmentType||"",r.qty,r.date,rBal)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>🖨</Btn></td></tr>})}
                 </tbody></table></div></div>}
                 {canEdit&&(()=>{const ck=ord.id+"-"+actualIdx;const rv=getRcv(ck);const wdP=Number(wd.price)||0;return<div style={{display:"flex",gap:6,flexWrap:"wrap",padding:8,background:T.inputBg||T.cardSolid,borderRadius:8,alignItems:"end"}}>
                   <div style={{minWidth:70}}><label style={{fontSize:FS-3,color:T.textSec}}>الكمية</label><Inp type="number" value={rv.qty} onChange={v=>setRcv(ck,"qty",Math.min(Number(v)||0,bal))}/></div>
