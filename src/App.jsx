@@ -108,7 +108,7 @@ function showToast(msg){const el=document.createElement("div");el.textContent=ms
 
 function highlightRow(id){setTimeout(()=>{const el=document.querySelector("[data-oid='"+id+"']");if(!el)return;el.style.transition="background 0.3s";el.style.background="#FEF3C7";setTimeout(()=>{el.style.background="";setTimeout(()=>el.style.transition="",500)},2000)},200)}
 
-const PRINT_CSS="*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Cairo',Arial,sans-serif;padding:30px;font-size:13px;direction:rtl;color:#1E293B;line-height:1.6}.hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #0284C7;padding-bottom:14px;margin-bottom:24px}.hdr img{height:44px}.hdr-info{text-align:left;font-size:11px;color:#64748B;font-weight:600}h2{font-size:16px;color:#0284C7;margin:16px 0 8px;padding-bottom:4px;border-bottom:1px solid #E2E8F0}table{width:100%;border-collapse:collapse;margin:8px 0 16px;border:1px solid #CBD5E1}th{background:linear-gradient(180deg,#F1F5F9,#E2E8F0);font-weight:700;font-size:11px;color:#475569;padding:6px 10px;text-align:right;border:1px solid #CBD5E1}td{padding:5px 10px;text-align:right;border:1px solid #E2E8F0;font-size:12px}tr:nth-child(even){background:#F8FAFC}.info{font-weight:700;color:#0284C7}.ok{color:#10B981;font-weight:700}.err{color:#EF4444;font-weight:700}.sig{margin-top:50px;display:flex;justify-content:space-between}.sig-box{text-align:center;width:180px;border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:13px}.badge{display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;margin:2px}@media print{body{padding:15px}table{page-break-inside:auto}tr{page-break-inside:avoid}@page{margin:15mm;@bottom-center{content:counter(page)' / 'counter(pages)}}}";
+const PRINT_CSS="*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Cairo',Arial,sans-serif;padding:30px;font-size:13px;direction:rtl;color:#1E293B;line-height:1.6}.hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #0284C7;padding-bottom:14px;margin-bottom:24px}.hdr img{height:22px}.hdr-info{text-align:left;font-size:11px;color:#64748B;font-weight:600}h2{font-size:16px;color:#0284C7;margin:16px 0 8px;padding-bottom:4px;border-bottom:1px solid #E2E8F0}table{width:100%;border-collapse:collapse;margin:8px 0 16px;border:1px solid #CBD5E1}th{background:linear-gradient(180deg,#F1F5F9,#E2E8F0);font-weight:700;font-size:11px;color:#475569;padding:6px 10px;text-align:right;border:1px solid #CBD5E1}td{padding:5px 10px;text-align:right;border:1px solid #E2E8F0;font-size:12px}tr:nth-child(even){background:#F8FAFC}.info{font-weight:700;color:#0284C7}.ok{color:#10B981;font-weight:700}.err{color:#EF4444;font-weight:700}.sig{margin-top:50px;display:flex;justify-content:space-between}.sig-box{text-align:center;width:180px;border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:13px}.badge{display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;margin:2px}@media print{body{padding:15px}table{page-break-inside:auto}tr{page-break-inside:avoid}@page{margin:15mm;@bottom-center{content:counter(page)' / 'counter(pages)}}}";
 function printPage(title,bodyHtml){const pw=window.open("","_blank");if(!pw)return;const today=new Date().toLocaleDateString("ar-EG");pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>"+title+"</title><style>"+PRINT_CSS+"</style></head><body><div class='hdr'><div><img src='"+CLARK_LOGO+"'/></div><div class='hdr-info'>"+title+"<br/>"+today+"</div></div>"+bodyHtml+"</body></html>");pw.document.close();setTimeout(()=>{pw.focus();pw.print()},500)}
 
 async function exportExcel(rows,fileName){const X=await loadXLSX();if(!X){alert("مكتبة Excel غير متوفرة");return}const ws=X.utils.aoa_to_sheet(rows);ws["!cols"]=rows[0].map(()=>({wch:18}));const wb=X.utils.book_new();X.utils.book_append_sheet(wb,ws,"Sheet1");X.writeFile(wb,fileName+".xlsx")}
@@ -1103,6 +1103,10 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
   const[accWsF,setAccWsF]=useState("الكل");
   const[movQ,setMovQ]=useState("");
   const[movWsF,setMovWsF]=useState("الكل");
+  const[movTypeF,setMovTypeF]=useState("الكل");
+  const[movLimit,setMovLimit]=useState(50);
+  const[wsMovLimit,setWsMovLimit]=useState(10);
+  const[rcvSearch,setRcvSearch]=useState("");
   const[editMov,setEditMov]=useState(null);
   const[editQty,setEditQty]=useState(0);
   const[editNote,setEditNote]=useState("");
@@ -1223,17 +1227,21 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     </div>
     {/* Movement Log with search/filter */}
     <Card title={"سجل الحركات ("+movements.length+")"}>
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr auto",gap:10,marginBottom:14}}>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr 1fr 1fr",gap:8,marginBottom:10}}>
         <Inp value={movQ} onChange={setMovQ} placeholder="بحث بالموديل أو الورشة..."/>
         <Sel value={movWsF} onChange={setMovWsF}><option value="الكل">كل الورش</option>{workshops.map(w=><option key={w.id||w} value={w.name||w}>{w.name||w}</option>)}</Sel>
-        <Btn onClick={()=>{const el=document.getElementById("mov-log");if(!el)return;printPage("سجل حركات التشغيل الخارجي",el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨 طباعة</Btn>
+        <Sel value={movTypeF} onChange={setMovTypeF}><option value="الكل">كل الحركات</option><option value="deliver">تسليم ورشة</option><option value="receive">استلام مصنع</option></Sel>
+        <div style={{display:"flex",gap:4}}>
+          <Btn onClick={()=>{const el=document.getElementById("mov-log");if(!el)return;printPage("سجل حركات التشغيل الخارجي",el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd,flex:1}}>🖨 المعروض</Btn>
+          <Btn onClick={()=>{const allH="<table><thead><tr>"+["نوع","التاريخ","الورشة","موديل","الوصف","القطعة","الكمية","السعر","ملاحظات"].map(h=>"<th>"+h+"</th>").join("")+"</tr></thead><tbody>"+movements.map(m=>"<tr style='background:"+(m.type==="deliver"?"#F0FDF4":"#EFF6FF")+"'><td style='color:"+(m.type==="deliver"?"#10B981":"#0EA5E9")+";font-weight:700'>"+(m.type==="deliver"?"تسليم ورشة":"استلام مصنع")+"</td><td>"+m.date+"</td><td>"+m.wsName+"</td><td><b>"+m.orderNo+"</b></td><td>"+(m.orderDesc||"")+"</td><td>"+(m.garmentType||"-")+"</td><td><b>"+m.qty+"</b></td><td>"+(m.price?m.price+" ج.م":"-")+"</td><td>"+(m.notes||"-")+"</td></tr>").join("")+"</tbody></table>";printPage("سجل حركات التشغيل الخارجي (كامل - "+movements.length+" حركة)",allH)}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",flex:1}}>🖨 الكل</Btn>
+        </div>
       </div>
-      {(()=>{const fMov=movements.filter(m=>{if(movWsF!=="الكل"&&m.wsName!==movWsF)return false;if(movQ.trim()){const s=movQ.trim().toLowerCase();if(!((m.orderNo||"").toLowerCase().includes(s)||(m.wsName||"").toLowerCase().includes(s)||(m.orderDesc||"").toLowerCase().includes(s)))return false}return true});return<div id="mov-log"><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
-        <thead><tr>{["","التاريخ","الورشة","موديل","الوصف","نوع القطعة","الكمية","سعر التشغيل","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
-        <tbody>{fMov.length>0?fMov.slice(0,50).map((m,i)=>{
+      {(()=>{const fMov=movements.filter(m=>{if(movWsF!=="الكل"&&m.wsName!==movWsF)return false;if(movTypeF!=="الكل"&&m.type!==movTypeF)return false;if(movQ.trim()){const s=movQ.trim().toLowerCase();if(!((m.orderNo||"").toLowerCase().includes(s)||(m.wsName||"").toLowerCase().includes(s)||(m.orderDesc||"").toLowerCase().includes(s)))return false}return true});const shown=fMov.slice(0,movLimit);return<div id="mov-log"><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
+        <thead><tr>{["نوع الحركة","التاريخ","الورشة","موديل","الوصف","نوع القطعة","الكمية","سعر التشغيل","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+        <tbody>{shown.length>0?shown.map((m,i)=>{
           const isEditing=editMov&&editMov.orderId===m.orderId&&editMov.wdIdx===m.wdIdx&&editMov.type===m.type&&(m.type==="deliver"||editMov.rIdx===m.rIdx);
           return<tr key={i} style={{background:m.type==="deliver"?"#F0FDF4":"#EFF6FF"}}>
-          <td style={{...TD,textAlign:"center",fontSize:20}}>{m.type==="deliver"?<span style={{color:T.ok}}>{"↗"}</span>:<span style={{color:T.accent}}>{"↙"}</span>}</td>
+          <td style={{...TD,fontWeight:700,color:m.type==="deliver"?T.ok:T.accent}}>{m.type==="deliver"?"↗ تسليم ورشة":"↙ استلام مصنع"}</td>
           <td style={TD}>{isEditing?<Inp type="date" value={editDate} onChange={setEditDate} style={{width:130}}/>:m.date}</td><td style={{...TD,fontWeight:600}}>{m.wsName}</td><td style={TDB}>{m.orderNo}</td><td style={TD}>{m.orderDesc}</td>
           <td style={TD}>{m.garmentType||"-"}</td>
           <td style={{...TDB,color:m.type==="deliver"?T.ok:T.accent}}>{isEditing?<Inp type="number" value={editQty} onChange={v=>setEditQty(Number(v)||0)} style={{width:70}}/>:m.qty}</td>
@@ -1246,7 +1254,11 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/></>}
           </div>}</td>
         </tr>}):<tr><td colSpan={10} style={{...TD,textAlign:"center",color:T.textSec,padding:30}}>لا توجد حركات</td></tr>}</tbody>
-      </table></div></div>})()}
+      </table></div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10}}>
+        <span style={{fontSize:FS-2,color:T.textMut}}>{"عرض "+Math.min(movLimit,fMov.length)+" من "+fMov.length+" حركة"}</span>
+        {fMov.length>movLimit&&<Btn small onClick={()=>setMovLimit(p=>p+25)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>{"عرض المزيد (+25)"}</Btn>}
+      </div></div>})()}
     </Card>
   </div>;
 
@@ -1328,12 +1340,12 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       </div>:<p style={{color:T.textSec,textAlign:"center",padding:30}}>لا توجد أوردرات متاحة للتسليم</p>}
     </Card>}
     {/* Workshop-specific movements */}
-    {selWs&&wsMoves.length>0&&<Card title={"حركات ورشة "+selWs+" ("+wsMoves.length+")"}>
+    {selWs&&wsMoves.length>0&&<Card title={"حركات ورشة "+selWs+" (آخر "+Math.min(10,wsMoves.length)+" من "+wsMoves.length+")"}>
       <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:550}}>
-        <thead><tr>{["","التاريخ","موديل","الوصف","نوع القطعة","الكمية",...(isInternal(selWs)?[]:["سعر"]),"ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
-        <tbody>{wsMoves.map((m,i)=>{const isEd=editMov&&editMov.orderId===m.orderId&&editMov.wdIdx===m.wdIdx&&editMov.type===m.type&&(m.type==="deliver"||editMov.rIdx===m.rIdx);
+        <thead><tr>{["نوع الحركة","التاريخ","موديل","الوصف","نوع القطعة","الكمية",...(isInternal(selWs)?[]:["سعر"]),"ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+        <tbody>{wsMoves.slice(0,10).map((m,i)=>{const isEd=editMov&&editMov.orderId===m.orderId&&editMov.wdIdx===m.wdIdx&&editMov.type===m.type&&(m.type==="deliver"||editMov.rIdx===m.rIdx);
           return<tr key={i} style={{background:m.type==="deliver"?"#F0FDF4":"#EFF6FF"}}>
-          <td style={{...TD,textAlign:"center",fontSize:16}}>{m.type==="deliver"?<span style={{color:T.ok}}>{"↗"}</span>:<span style={{color:T.accent}}>{"↙"}</span>}</td>
+          <td style={{...TD,fontWeight:700,color:m.type==="deliver"?T.ok:T.accent}}>{m.type==="deliver"?"↗ تسليم ورشة":"↙ استلام مصنع"}</td>
           <td style={TD}>{isEd?<Inp type="date" value={editDate} onChange={setEditDate} style={{width:120}}/>:m.date}</td>
           <td style={TDB}>{m.orderNo}</td><td style={TD}>{m.orderDesc}</td><td style={TD}>{m.garmentType||"-"}</td>
           <td style={{...TDB,color:m.type==="deliver"?T.ok:T.accent}}>{isEd?<Inp type="number" value={editQty} onChange={v=>setEditQty(Number(v)||0)} style={{width:60}}/>:m.qty}</td>
@@ -1356,17 +1368,19 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       <Btn ghost onClick={()=>{setMode(null);setSelWs("")}}>↩</Btn>
     </div>
     <Card title="اختر الورشة" style={{marginBottom:16}}>
-      <Sel value={selWs} onChange={v=>setSelWs(v)}>
+      <Sel value={selWs} onChange={v=>{setSelWs(v);setRcvSearch("")}}>
         <option value="">-- اختر ورشة --</option>
         {workshops.map(w=><option key={w.id||w} value={w.name||w}>{(w.name||w)+(w.owner?" - "+w.owner:"")}</option>)}
       </Sel>
+      {selWs&&<div style={{marginTop:8}}><Inp value={rcvSearch} onChange={setRcvSearch} placeholder="بحث برقم الموديل..."/></div>}
     </Card>
     {selWs&&<Card title={"أوردرات تم تسليمها لـ "+selWs} style={{marginBottom:16}}>
       {(()=>{
         const cards=[];wsOrders.forEach(ord=>{(ord.workshopDeliveries||[]).filter(wd=>wd.wsName===selWs).forEach((wd,wdIdx)=>{const actualIdx=(ord.workshopDeliveries||[]).indexOf(wd);const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;if(bal>0)cards.push({ord,wd,wdIdx,actualIdx,rcvd,bal})})});
-        if(cards.length===0){const hasAny=wsOrders.some(o=>(o.workshopDeliveries||[]).some(wd=>wd.wsName===selWs));return<p style={{color:hasAny?T.ok:T.textSec,textAlign:"center",padding:30,fontWeight:hasAny?700:400}}>{hasAny?"✓ تم استلام جميع الكميات من الورشة":"لا توجد أوردرات تم تسليمها لهذه الورشة"}</p>}
+        const filtered=rcvSearch.trim()?cards.filter(c=>c.ord.modelNo.toLowerCase().includes(rcvSearch.trim().toLowerCase())):cards;
+        if(filtered.length===0){const hasAny=wsOrders.some(o=>(o.workshopDeliveries||[]).some(wd=>wd.wsName===selWs));return<p style={{color:hasAny?T.ok:T.textSec,textAlign:"center",padding:30,fontWeight:hasAny?700:400}}>{rcvSearch.trim()?"لا توجد نتائج لـ \""+rcvSearch+"\"":hasAny?"✓ تم استلام جميع الكميات من الورشة":"لا توجد أوردرات تم تسليمها لهذه الورشة"}</p>}
         return<div style={{display:"flex",flexDirection:"column",gap:16}}>
-          {cards.map(({ord,wd,wdIdx,actualIdx,rcvd,bal})=>{
+          {filtered.map(({ord,wd,wdIdx,actualIdx,rcvd,bal})=>{
             return<div key={ord.id+"-"+wdIdx} style={{background:T.cardSolid,borderRadius:14,border:"1px solid "+T.err+"40",overflow:"hidden"}}>
               <div style={{padding:"14px 18px",background:T.err+"08",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
                 <div><span style={{fontWeight:700,fontSize:FS+1}}>{ord.modelNo}</span><span style={{fontSize:FS-1,color:T.textSec,marginRight:10}}>{" - "+ord.modelDesc}</span>{wd.garmentType&&<span style={{fontSize:FS,fontWeight:700,color:T.purple,background:T.purple+"15",padding:"4px 14px",borderRadius:10,marginRight:6}}>{"👕 "+wd.garmentType}</span>}</div>
@@ -1396,12 +1410,12 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         </div>})()}
     </Card>}
     {/* Workshop-specific movements */}
-    {selWs&&wsMoves.length>0&&<Card title={"حركات ورشة "+selWs+" ("+wsMoves.length+")"}>
+    {selWs&&wsMoves.length>0&&<Card title={"حركات ورشة "+selWs+" (آخر "+Math.min(10,wsMoves.length)+" من "+wsMoves.length+")"}>
       <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:550}}>
-        <thead><tr>{["","التاريخ","موديل","الوصف","نوع القطعة","الكمية",...(isInternal(selWs)?[]:["سعر"]),"ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
-        <tbody>{wsMoves.map((m,i)=>{const isEd=editMov&&editMov.orderId===m.orderId&&editMov.wdIdx===m.wdIdx&&editMov.type===m.type&&(m.type==="deliver"||editMov.rIdx===m.rIdx);
+        <thead><tr>{["نوع الحركة","التاريخ","موديل","الوصف","نوع القطعة","الكمية",...(isInternal(selWs)?[]:["سعر"]),"ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+        <tbody>{wsMoves.slice(0,10).map((m,i)=>{const isEd=editMov&&editMov.orderId===m.orderId&&editMov.wdIdx===m.wdIdx&&editMov.type===m.type&&(m.type==="deliver"||editMov.rIdx===m.rIdx);
           return<tr key={i} style={{background:m.type==="deliver"?"#F0FDF4":"#EFF6FF"}}>
-          <td style={{...TD,textAlign:"center",fontSize:16}}>{m.type==="deliver"?<span style={{color:T.ok}}>{"↗"}</span>:<span style={{color:T.accent}}>{"↙"}</span>}</td>
+          <td style={{...TD,fontWeight:700,color:m.type==="deliver"?T.ok:T.accent}}>{m.type==="deliver"?"↗ تسليم ورشة":"↙ استلام مصنع"}</td>
           <td style={TD}>{isEd?<Inp type="date" value={editDate} onChange={setEditDate} style={{width:120}}/>:m.date}</td>
           <td style={TDB}>{m.orderNo}</td><td style={TD}>{m.orderDesc}</td><td style={TD}>{m.garmentType||"-"}</td>
           <td style={{...TDB,color:m.type==="deliver"?T.ok:T.accent}}>{isEd?<Inp type="number" value={editQty} onChange={v=>setEditQty(Number(v)||0)} style={{width:60}}/>:m.qty}</td>
