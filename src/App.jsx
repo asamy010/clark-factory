@@ -51,7 +51,8 @@ function sqty(a){return(a||[]).reduce((s,c)=>s+(Number(c.qty)||0),0)}
 function slay(a){return(a||[]).reduce((s,c)=>s+(Number(c.layers)||0),0)}
 function setF(o,k,v){const c=JSON.parse(JSON.stringify(o));c[k]=v;return c}
 function gf(o,k,s){return o["fabric"+k+(s||"")]}
-function gIcon(name){if(!name)return"👕";const n=name.toLowerCase();if(n.includes("قميص")||n.includes("شيرت")||n.includes("بلوز"))return"👔";if(n.includes("تيشيرت")||n.includes("تي شيرت")||n.includes("t-shirt")||n.includes("بولو"))return"👕";if(n.includes("بنطلون")||n.includes("بنط")||n.includes("تراوزر"))return"👖";if(n.includes("شورت"))return"🩳";if(n.includes("جاكيت")||n.includes("جاكت")||n.includes("سويت"))return"🧥";if(n.includes("فستان"))return"👗";if(n.includes("شنطة")||n.includes("حقيبة")||n.includes("شنط"))return"👜";if(n.includes("كاب")||n.includes("طاقية")||n.includes("قبعة"))return"🧢";if(n.includes("جيلي")||n.includes("سديري"))return"🦺";if(n.includes("جوارب")||n.includes("شراب"))return"🧦";if(n.includes("ملابس داخلية")||n.includes("اندر"))return"🩲";return"👕"}
+const GARMENT_ICONS=["👕","👔","👗","👖","🩳","🧥","👚","🦺","👜","🎒","💼","🧢","🧦","🩲","🩱","👙","🧤","🧣","👘","🥼","🩴","👞","👟","👠","👡","👢","🥾","⛑️"];
+function gIcon(name,list){if(list){const g=list.find(x=>x.name===name);if(g&&g.icon)return g.icon}if(!name)return"👕";const n=name.toLowerCase();if(n.includes("قميص")||n.includes("شيرت")||n.includes("بلوز"))return"👔";if(n.includes("تيشيرت")||n.includes("تي شيرت")||n.includes("t-shirt")||n.includes("بولو"))return"👕";if(n.includes("بنطلون")||n.includes("بنط")||n.includes("تراوزر"))return"👖";if(n.includes("شورت"))return"🩳";if(n.includes("جاكيت")||n.includes("جاكت")||n.includes("سويت"))return"🧥";if(n.includes("فستان"))return"👗";if(n.includes("شنطة")||n.includes("حقيبة")||n.includes("شنط"))return"👜";if(n.includes("كاب")||n.includes("طاقية")||n.includes("قبعة"))return"🧢";if(n.includes("جيلي")||n.includes("سديري"))return"🦺";if(n.includes("جوارب")||n.includes("شراب"))return"🧦";if(n.includes("ملابس داخلية")||n.includes("اندر"))return"🩲";return"👕"}
 function gc(o,k){return o["colors"+k]||[]}
 function gcons(o,k){return parseFloat(o["cons"+k])||0}
 function gdate(o,k){return o["cutDate"+k]||""}
@@ -113,6 +114,22 @@ function highlightRow(id){setTimeout(()=>{const el=document.querySelector("[data
 const PRINT_CSS="*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Cairo',Arial,sans-serif;padding:30px;font-size:13px;direction:rtl;color:#1E293B;line-height:1.6}.hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #0284C7;padding-bottom:14px;margin-bottom:24px}.hdr img{height:22px}.hdr-info{text-align:left;font-size:11px;color:#64748B;font-weight:600}h2{font-size:16px;color:#0284C7;margin:16px 0 8px;padding-bottom:4px;border-bottom:1px solid #E2E8F0}table{width:100%;border-collapse:collapse;margin:8px 0 16px;border:1px solid #CBD5E1}th{background:linear-gradient(180deg,#F1F5F9,#E2E8F0);font-weight:700;font-size:11px;color:#475569;padding:6px 10px;text-align:right;border:1px solid #CBD5E1}td{padding:5px 10px;text-align:right;border:1px solid #E2E8F0;font-size:12px}tr:nth-child(even){background:#F8FAFC}.info{font-weight:700;color:#0284C7}.ok{color:#10B981;font-weight:700}.err{color:#EF4444;font-weight:700}.sig{margin-top:50px;display:flex;justify-content:space-between}.sig-box{text-align:center;width:180px;border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:13px}.badge{display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;margin:2px}@media print{body{padding:15px}table{page-break-inside:auto}tr{page-break-inside:avoid}@page{margin:15mm;@bottom-center{content:counter(page)' / 'counter(pages)}}}";
 function printPage(title,bodyHtml){const pw=window.open("","_blank");if(!pw)return;const today=new Date().toLocaleDateString("ar-EG");pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>"+title+"</title><style>"+PRINT_CSS+"</style></head><body><div class='hdr'><div><img src='"+CLARK_LOGO+"'/></div><div class='hdr-info'>"+title+"<br/>"+today+"</div></div>"+bodyHtml+"</body></html>");pw.document.close();setTimeout(()=>{pw.focus();pw.print()},500)}
 
+function sharePDF(title,bodyHtml){
+  const today=new Date().toLocaleDateString("ar-EG");
+  const fullHtml="<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>"+title+"</title><style>"+PRINT_CSS+"</style></head><body><div class='hdr'><div><img src='"+CLARK_LOGO+"'/></div><div class='hdr-info'>"+title+"<br/>"+today+"</div></div>"+bodyHtml+"</body></html>";
+  /* Try Web Share API (mobile) */
+  if(navigator.share&&navigator.canShare){
+    const blob=new Blob([fullHtml],{type:"text/html"});
+    const file=new File([blob],title+".html",{type:"text/html"});
+    if(navigator.canShare({files:[file]})){
+      navigator.share({title,files:[file]}).catch(()=>{/* fallback to print */printPage(title,bodyHtml)});return}
+  }
+  /* Fallback: open print page with share/download buttons */
+  const pw=window.open("","_blank");if(!pw)return;
+  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>"+title+"</title><style>"+PRINT_CSS+" .share-bar{position:fixed;bottom:0;left:0;right:0;padding:10px;background:#fff;border-top:2px solid #E2E8F0;display:flex;justify-content:center;gap:10px;z-index:999}@media print{.share-bar{display:none}}</style></head><body><div class='hdr'><div><img src='"+CLARK_LOGO+"'/></div><div class='hdr-info'>"+title+"<br/>"+today+"</div></div>"+bodyHtml+"<div class='share-bar'><button onclick='window.print()' style='padding:10px 24px;border-radius:8px;background:#0EA5E9;color:#fff;border:none;cursor:pointer;font-family:Cairo,sans-serif;font-size:14px;font-weight:700'>حفظ كـ PDF</button></div><div style='height:60px'></div></body></html>");
+  pw.document.close()
+}
+
 async function exportExcel(rows,fileName){const X=await loadXLSX();if(!X){alert("مكتبة Excel غير متوفرة");return}const ws=X.utils.aoa_to_sheet(rows);ws["!cols"]=rows[0].map(()=>({wch:18}));const wb=X.utils.book_new();X.utils.book_append_sheet(wb,ws,"Sheet1");X.writeFile(wb,fileName+".xlsx")}
 
 function QRImg({text,size}){const[src,setSrc]=useState("");useEffect(()=>{if(!text)return;loadQR().then(QR=>{if(QR)QR.toDataURL(text,{width:size||120,margin:1,errorCorrectionLevel:"L",color:{dark:"#1E293B",light:"#FFFFFF"}}).then(setSrc).catch(()=>{})}).catch(()=>{})},[text,size]);return src?<img src={src} alt="QR" style={{width:size||120,height:size||120,borderRadius:8,border:"1px solid #E2E8F0"}}/>:null}
@@ -130,7 +147,7 @@ function Timeline({events}){if(!events||events.length===0)return null;return<div
   </div>
 </div>}
 
-function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance){
+function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance,gtList,share){
   if(!order)return;
   const t=calcOrder(order);
   /* Fallback: find wsName from order's workshopDeliveries if not passed */
@@ -138,6 +155,7 @@ function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance){
   if(!ws&&order.workshopDeliveries){const wd=order.workshopDeliveries.find(w=>w.garmentType===garmentType)||order.workshopDeliveries[order.workshopDeliveries.length-1];if(wd)ws=wd.wsName||""}
   let wsO=wsOwner||"";
   if(!wsO&&order.workshopDeliveries){const wd=order.workshopDeliveries.find(w=>w.wsName===ws);if(wd)wsO=wd.wsOwner||""}
+  const gi=n=>gIcon(n,gtList);
   const modelNo=order.modelNo||"";const modelDesc=order.modelDesc||"";const sizeLabel=order.sizeLabel||"";const marker=order.marker||"";
   let h="<h2>اذن تسليم ورشة</h2>";
   /* Order info table */
@@ -147,7 +165,7 @@ function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance){
   h+="<tr><th>رقم الموديل</th><td><b>"+modelNo+"</b></td><th>الوصف</th><td>"+modelDesc+"</td></tr>";
   h+="<tr><th>المقاسات</th><td>"+sizeLabel+"</td><th>كمية القص</th><td><b>"+t.cutQty+"</b></td></tr>";
   h+="<tr><th>الورشة</th><td><b style='color:#8B5CF6'>"+ws+"</b>"+(wsO?" — "+wsO:"")+"</td><th>التاريخ</th><td>"+(date||"")+"</td></tr>";
-  if(garmentType)h+="<tr><th>القطعة المسلمة</th><td><b style='color:#8B5CF6'>"+gIcon(garmentType)+" "+garmentType+"</b></td><th>الكمية المسلمة</th><td><b style='color:#0284C7;font-size:16px'>"+qty+"</b> قطعة</td></tr>";
+  if(garmentType)h+="<tr><th>القطعة المسلمة</th><td><b style='color:#8B5CF6'>"+gi(garmentType)+" "+garmentType+"</b></td><th>الكمية المسلمة</th><td><b style='color:#0284C7;font-size:16px'>"+qty+"</b> قطعة</td></tr>";
   else h+="<tr><th>الكمية المسلمة</th><td colspan='3'><b style='color:#0284C7;font-size:16px'>"+qty+"</b> قطعة</td></tr>";
   if(marker)h+="<tr><th>ماركر</th><td colspan='3'>"+marker+"</td></tr>";
   h+="</table></div></div>";
@@ -156,7 +174,7 @@ function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance){
   const fabsForPiece=activeFabs.filter(k=>{if(!garmentType)return true;const fp=order["fabricPieces"+k]||[];return fp.length===0||fp.includes(garmentType)});
   fabsForPiece.forEach(k=>{const colors=gc(order,k);if(colors.length===0)return;
     const label=gf(order,k,"Label")||("خامة "+k);const cons=gcons(order,k);const unit=gf(order,k,"Unit")||"";
-    h+="<h2 style='font-size:13px;margin:14px 0 4px'>"+(garmentType?""+gIcon(garmentType)+" "+garmentType+" — "+label:label)+"</h2>";
+    h+="<h2 style='font-size:13px;margin:14px 0 4px'>"+(garmentType?""+gi(garmentType)+" "+garmentType+" — "+label:label)+"</h2>";
     h+="<div style='border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:8px'>";
     if(cons)h+="<div style='background:#f1f5f9;padding:5px 12px;font-size:11px;color:#475569'>استهلاك/راق: <b>"+cons+" "+unit+"</b></div>";
     h+="<table style='margin:0'><tr><th>اللون</th><th>الراقات</th><th>قطع/راق</th><th>اجمالي القطع</th></tr>";
@@ -170,12 +188,12 @@ function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance){
   h+="اقر أنا الموقع أدناه بأنني استلمت هذه البضاعة المذكورة عاليه وأتعهد بسداد قيمتها وقت طلبها. وأعتبر مسؤلاً مسئولية كاملة في حالة تبديد هذه البضاعة أو تلفها. وهذا اقرار مني بذلك</div>";
   /* Signatures */
   h+="<div class='sig'><div class='sig-box'>توقيع صاحب الورشة<br/><span style='font-size:11px;color:#8B5CF6'>"+ws+"</span></div><div class='sig-box'>مسؤول القص والتسليم</div></div>";
-  printPage("اذن تسليم ورشة — "+modelNo,h)
+  (share?sharePDF:printPage)("اذن تسليم ورشة — "+modelNo,h)
 }
 
-function printReceiveReceipt(wsName,order,garmentType,qty,date,balance){
+function printReceiveReceipt(wsName,order,garmentType,qty,date,balance,gtList,share){
   if(!order){printPage("اذن استلام مصنع","<p>بيانات غير متوفرة</p>");return}
-  const t=calcOrder(order);
+  const t=calcOrder(order);const gi=n=>gIcon(n,gtList);
   let ws=wsName||"";
   if(!ws&&order.workshopDeliveries){const wd=order.workshopDeliveries.find(w=>w.garmentType===garmentType)||order.workshopDeliveries[order.workshopDeliveries.length-1];if(wd)ws=wd.wsName||""}
   const modelNo=order.modelNo||"";const modelDesc=order.modelDesc||"";const sizeLabel=order.sizeLabel||"";const marker=order.marker||"";
@@ -186,7 +204,7 @@ function printReceiveReceipt(wsName,order,garmentType,qty,date,balance){
   h+="<tr><th>رقم الموديل</th><td><b>"+modelNo+"</b></td><th>الوصف</th><td>"+modelDesc+"</td></tr>";
   h+="<tr><th>المقاسات</th><td>"+sizeLabel+"</td><th>كمية القص</th><td><b>"+t.cutQty+"</b></td></tr>";
   h+="<tr><th>الورشة</th><td><b style='color:#8B5CF6'>"+ws+"</b></td><th>التاريخ</th><td>"+(date||"")+"</td></tr>";
-  if(garmentType)h+="<tr><th>القطعة</th><td><b style='color:#8B5CF6'>"+gIcon(garmentType)+" "+garmentType+"</b></td><th>الكمية المستلمة</th><td><b style='color:#10B981;font-size:16px'>"+qty+"</b> قطعة</td></tr>";
+  if(garmentType)h+="<tr><th>القطعة</th><td><b style='color:#8B5CF6'>"+gi(garmentType)+" "+garmentType+"</b></td><th>الكمية المستلمة</th><td><b style='color:#10B981;font-size:16px'>"+qty+"</b> قطعة</td></tr>";
   else h+="<tr><th>الكمية المستلمة</th><td colspan='3'><b style='color:#10B981;font-size:16px'>"+qty+"</b> قطعة</td></tr>";
   if(marker)h+="<tr><th>ماركر</th><td colspan='3'>"+marker+"</td></tr>";
   h+="</table></div></div>";
@@ -195,7 +213,7 @@ function printReceiveReceipt(wsName,order,garmentType,qty,date,balance){
   const fabsForPiece=activeFabs.filter(k=>{if(!garmentType)return true;const fp=order["fabricPieces"+k]||[];return fp.length===0||fp.includes(garmentType)});
   fabsForPiece.forEach(k=>{const colors=gc(order,k);if(colors.length===0)return;
     const label=gf(order,k,"Label")||("خامة "+k);const cons=gcons(order,k);const unit=gf(order,k,"Unit")||"";
-    h+="<h2 style='font-size:13px;margin:14px 0 4px'>"+(garmentType?""+gIcon(garmentType)+" "+garmentType+" — "+label:label)+"</h2>";
+    h+="<h2 style='font-size:13px;margin:14px 0 4px'>"+(garmentType?""+gi(garmentType)+" "+garmentType+" — "+label:label)+"</h2>";
     h+="<div style='border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:8px'>";
     if(cons)h+="<div style='background:#f1f5f9;padding:5px 12px;font-size:11px;color:#475569'>استهلاك/راق: <b>"+cons+" "+unit+"</b></div>";
     h+="<table style='margin:0'><tr><th>اللون</th><th>الراقات</th><th>قطع/راق</th><th>اجمالي القطع</th></tr>";
@@ -211,7 +229,7 @@ function printReceiveReceipt(wsName,order,garmentType,qty,date,balance){
   else h+="<div style='margin:16px 0;padding:12px 20px;background:#F0FDF4;border:2px solid #BBF7D0;border-radius:10px;text-align:center;font-size:16px;font-weight:800;color:#10B981'>✓ تم استلام الكمية كاملة</div>";
   /* Signature */
   h+="<div style='margin-top:50px;text-align:center;width:200px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:13px'>توقيع المستلم</div></div>";
-  printPage("اذن استلام مصنع — "+modelNo,h)
+  (share?sharePDF:printPage)("اذن استلام مصنع — "+modelNo,h)
 }
 
 function compressFile(file){
@@ -653,12 +671,12 @@ function DBPg({data,upConfig,isMob,canEdit,statusCards}){
   const[sfld,setSfld]=useState({label:"",_eid:null});
   const[wf,setWf]=useState("");
   const[stName,setStName]=useState("");const[stColor,setStColor]=useState("#0EA5E9");const[stEid,setStEid]=useState(null);
-  const[gName,setGName]=useState("");const[gEid,setGEid]=useState(null);
+  const[gName,setGName]=useState("");const[gEid,setGEid]=useState(null);const[gIconSel,setGIconSel]=useState("👕");
 
   const saveFab=()=>{if(!ff.name)return;upConfig(d=>{if(ff._eid){const idx=d.fabrics.findIndex(x=>x.id===ff._eid);if(idx>=0)d.fabrics[idx]={...d.fabrics[idx],name:ff.name,unit:ff.unit,price:Number(ff.price)||0}}else{d.fabrics.push({id:Date.now(),name:ff.name,unit:ff.unit,price:Number(ff.price)||0})}});setFf({name:"",unit:"كيلو",price:"",_eid:null})};
   const saveAcc=()=>{if(!af.name)return;upConfig(d=>{if(af._eid){const idx=d.accessories.findIndex(x=>x.id===af._eid);if(idx>=0)d.accessories[idx]={...d.accessories[idx],name:af.name,unit:af.unit,price:Number(af.price)||0}}else{d.accessories.push({id:Date.now(),name:af.name,unit:af.unit,price:Number(af.price)||0})}});setAf({name:"",unit:"قطعة",price:"",_eid:null})};
   const saveSize=()=>{if(!sfld.label)return;upConfig(d=>{if(sfld._eid){const idx=d.sizeSets.findIndex(x=>x.id===sfld._eid);if(idx>=0)d.sizeSets[idx]={...d.sizeSets[idx],label:sfld.label}}else{d.sizeSets.push({id:Date.now(),label:sfld.label})}});setSfld({label:"",_eid:null})};
-  const saveGarment=()=>{if(!gName.trim())return;upConfig(d=>{if(!d.garmentTypes)d.garmentTypes=[];if(gEid){const idx=d.garmentTypes.findIndex(x=>x.id===gEid);if(idx>=0)d.garmentTypes[idx].name=gName.trim()}else{d.garmentTypes.push({id:Date.now(),name:gName.trim()})}});setGName("");setGEid(null)};
+  const saveGarment=()=>{if(!gName.trim())return;upConfig(d=>{if(!d.garmentTypes)d.garmentTypes=[];if(gEid){const idx=d.garmentTypes.findIndex(x=>x.id===gEid);if(idx>=0){d.garmentTypes[idx].name=gName.trim();d.garmentTypes[idx].icon=gIconSel}}else{d.garmentTypes.push({id:Date.now(),name:gName.trim(),icon:gIconSel})}});setGName("");setGEid(null);setGIconSel("👕")};
   const saveStatus=()=>{if(!stName.trim())return;upConfig(d=>{if(!d.statusCards)d.statusCards=[...DEFAULT_STATUSES];if(stEid){const idx=d.statusCards.findIndex(x=>x.id===stEid);if(idx>=0){d.statusCards[idx].name=stName.trim();d.statusCards[idx].color=stColor}}else{d.statusCards.push({id:Date.now(),name:stName.trim(),color:stColor})}});setStName("");setStColor("#0EA5E9");setStEid(null)};
 
   const eBtn=(onClick)=><Btn small onClick={onClick} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>;
@@ -674,8 +692,12 @@ function DBPg({data,upConfig,isMob,canEdit,statusCards}){
     {sub==="acc"&&<Card title="الاكسسوار">{canEdit&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"3fr 1fr 1fr auto",gap:10,marginBottom:16}}><Inp value={af.name} onChange={v=>setAf({...af,name:v})} placeholder="الوصف"/><Sel value={af.unit} onChange={v=>setAf({...af,unit:v})}><option value="قطعة">قطعة</option><option value="متر">متر</option></Sel><Inp value={af.price} onChange={v=>setAf({...af,price:v})} placeholder="السعر" type="number"/><div style={{display:"flex",gap:4}}><Btn primary onClick={saveAcc}>{af._eid?"تحديث":"+ اضافة"}</Btn>{af._eid&&<Btn ghost onClick={()=>setAf({name:"",unit:"قطعة",price:"",_eid:null})}>الغاء</Btn>}</div></div>}
       <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><thead><tr>{["#","الوصف","الوحدة","السعر",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.accessories.map((a,i)=><tr key={a.id} style={{background:af._eid===a.id?T.warn+"10":"transparent"}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:600}}>{a.name}</td><td style={TD}>{a.unit}</td><td style={{...TDB,color:T.accent}}>{a.price+" ج.م"}</td>{canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:4}}>{eBtn(()=>setAf({name:a.name,unit:a.unit,price:a.price,_eid:a.id}))}<DelBtn onConfirm={()=>upConfig(d=>{d.accessories=d.accessories.filter(x=>x.id!==a.id)})} blocked={accBlock(a)}/></div></td>}</tr>)}</tbody></table></div></Card>}
     {sub==="size"&&<Card title="المقاسات">{canEdit&&<div style={{display:"grid",gridTemplateColumns:"3fr auto",gap:10,marginBottom:16}}><Inp value={sfld.label} onChange={v=>setSfld({...sfld,label:v})} placeholder="المقاسات"/><div style={{display:"flex",gap:4}}><Btn primary onClick={saveSize}>{sfld._eid?"تحديث":"+ اضافة"}</Btn>{sfld._eid&&<Btn ghost onClick={()=>setSfld({label:"",_eid:null})}>الغاء</Btn>}</div></div>}<table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","المقاسات",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.sizeSets.map((s,i)=><tr key={s.id} style={{background:sfld._eid===s.id?T.warn+"10":"transparent"}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:600}}>{s.label}</td>{canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:4}}>{eBtn(()=>setSfld({label:s.label,_eid:s.id}))}<DelBtn onConfirm={()=>upConfig(d=>{d.sizeSets=d.sizeSets.filter(x=>x.id!==s.id)})} blocked={sizeBlock(s)}/></div></td>}</tr>)}</tbody></table></Card>}
-    {sub==="garment"&&<Card title="قطع الموديل">{canEdit&&<div style={{display:"grid",gridTemplateColumns:"3fr auto",gap:10,marginBottom:16}}><Inp value={gName} onChange={setGName} placeholder="اسم القطعة (مثال: قميص، شورت، تيشيرت)"/><div style={{display:"flex",gap:4}}><Btn primary onClick={saveGarment}>{gEid?"تحديث":"+ اضافة"}</Btn>{gEid&&<Btn ghost onClick={()=>{setGName("");setGEid(null)}}>الغاء</Btn>}</div></div>}
-      <div style={{display:"flex",flexWrap:"wrap",gap:10}}>{(data.garmentTypes||[]).map(g=><span key={g.id} style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 18px",borderRadius:12,border:"1px solid "+(gEid===g.id?T.warn:T.brd),fontSize:FS,fontWeight:600,background:gEid===g.id?T.warn+"10":T.cardSolid}}>{gIcon(g.name)+" "+g.name}{canEdit&&<>{" "}{eBtn(()=>{setGName(g.name);setGEid(g.id)})}<DelBtn onConfirm={()=>upConfig(d=>{d.garmentTypes=(d.garmentTypes||[]).filter(x=>x.id!==g.id)})} blocked={garmentBlock(g)}/></>}</span>)}</div>
+    {sub==="garment"&&<Card title="قطع الموديل">{canEdit&&<div style={{display:"grid",gridTemplateColumns:"auto 3fr auto",gap:8,marginBottom:16,alignItems:"end"}}>
+      <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الأيقونة</label><Sel value={gIconSel} onChange={setGIconSel}>{GARMENT_ICONS.map(ic=><option key={ic} value={ic}>{ic}</option>)}</Sel></div>
+      <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>اسم القطعة</label><Inp value={gName} onChange={setGName} placeholder="مثال: قميص، شورت، تيشيرت"/></div>
+      <div style={{display:"flex",gap:4}}><Btn primary onClick={saveGarment}>{gEid?"تحديث":"+ اضافة"}</Btn>{gEid&&<Btn ghost onClick={()=>{setGName("");setGEid(null);setGIconSel("👕")}}>الغاء</Btn>}</div>
+    </div>}
+      <div style={{display:"flex",flexWrap:"wrap",gap:10}}>{(data.garmentTypes||[]).map(g=><span key={g.id} style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 18px",borderRadius:12,border:"1px solid "+(gEid===g.id?T.warn:T.brd),fontSize:FS,fontWeight:600,background:gEid===g.id?T.warn+"10":T.cardSolid}}>{(g.icon||gIcon(g.name,data.garmentTypes))+" "+g.name}{canEdit&&<>{" "}{eBtn(()=>{setGName(g.name);setGEid(g.id);setGIconSel(g.icon||gIcon(g.name,data.garmentTypes))})}<DelBtn onConfirm={()=>upConfig(d=>{d.garmentTypes=(d.garmentTypes||[]).filter(x=>x.id!==g.id)})} blocked={garmentBlock(g)}/></>}</span>)}</div>
       {(!data.garmentTypes||data.garmentTypes.length===0)&&<div style={{textAlign:"center",padding:20,color:T.textSec}}>لم يتم اضافة قطع بعد</div>}
     </Card>}
     {sub==="ws"&&<WsManager workshops={data.workshops||[]} upConfig={upConfig} canEdit={canEdit} isMob={isMob} orders={data.orders}/>}
@@ -820,10 +842,10 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards}){
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 2fr 2fr",gap:6}}>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>قطع الموديل</label><Sel value="" onChange={v=>{if(!v||(form.orderPieces||[]).length>=5)return;updF("orderPieces",[...(form.orderPieces||[]),v])}}>
             <option value="">{"-- اضف ("+(form.orderPieces||[]).length+"/5) --"}</option>
-            {(data.garmentTypes||[]).filter(g=>!(form.orderPieces||[]).includes(g.name)).map(g=><option key={g.id} value={g.name}>{g.name}</option>)}
+            {(data.garmentTypes||[]).filter(g=>!(form.orderPieces||[]).includes(g.name)).map(g=><option key={g.id} value={g.name}>{(g.icon||gIcon(g.name))+" "+g.name}</option>)}
           </Sel></div>
           <div style={{display:"flex",gap:4,alignItems:"end",flexWrap:"wrap"}}>
-            {(form.orderPieces||[]).map((p,i)=><span key={i} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:8,background:T.accentBg,border:"1px solid "+T.accent+"30",fontSize:FS-2,fontWeight:600,color:T.accent}}>{gIcon(p)+" "+p}<span onClick={()=>updF("orderPieces",(form.orderPieces||[]).filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err,fontWeight:800,fontSize:FS-1}}>×</span></span>)}
+            {(form.orderPieces||[]).map((p,i)=><span key={i} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:8,background:T.accentBg,border:"1px solid "+T.accent+"30",fontSize:FS-2,fontWeight:600,color:T.accent}}>{gIcon(p,data.garmentTypes)+" "+p}<span onClick={()=>updF("orderPieces",(form.orderPieces||[]).filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err,fontWeight:800,fontSize:FS-1}}>×</span></span>)}
           </div>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>ماركر (جربر)</label><Inp value={form.marker||""} onChange={v=>updF("marker",v)} placeholder="بيانات الماركر..."/></div>
         </div>
@@ -1014,12 +1036,12 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
         {order.orderPieces.map((p,i)=>{
           const delForP=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);
           const avail=t.cutQty-delForP;
-          return<span key={i} style={{padding:"8px 16px",borderRadius:12,background:avail>0?"#FEF3C7":"#D1FAE5",border:"1px solid "+(avail>0?T.warn:T.ok)+"40",fontSize:FS,fontWeight:600}}>{gIcon(p)+" "+p}<span style={{fontSize:FS-2,color:T.textSec,marginRight:6}}>{" (تشغيل: "+delForP+" / متاح: "+avail+")"}</span></span>
+          return<span key={i} style={{padding:"8px 16px",borderRadius:12,background:avail>0?"#FEF3C7":"#D1FAE5",border:"1px solid "+(avail>0?T.warn:T.ok)+"40",fontSize:FS,fontWeight:600}}>{gIcon(p,data.garmentTypes)+" "+p}<span style={{fontSize:FS-2,color:T.textSec,marginRight:6}}>{" (تشغيل: "+delForP+" / متاح: "+avail+")"}</span></span>
         })}
       </div>}
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":activeFabs.length>=3?"1fr 1fr 1fr":activeFabs.length===2?"1fr 1fr":"1fr",gap:14,marginBottom:16}}>
         {activeFabs.map(k=>{const colors=gc(order,k);if(colors.length===0)return null;const dt=gdate(order,k);const fp=order["fabricPieces"+k]||[];return<div key={k}><FCTable label={"خامة "+k} fabName={gf(order,k,"Label")} accent={FCOL[FKEYS.indexOf(k)]} colors={colors} setColors={()=>{}} readOnly/>
-          {fp.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:-8,marginBottom:8}}>{fp.map(p=><span key={p} style={{padding:"3px 10px",borderRadius:8,fontSize:FS-3,fontWeight:600,background:FCOL[FKEYS.indexOf(k)]+"15",color:FCOL[FKEYS.indexOf(k)],border:"1px solid "+FCOL[FKEYS.indexOf(k)]+"30"}}>{gIcon(p)+" "+p}</span>)}</div>}
+          {fp.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:-8,marginBottom:8}}>{fp.map(p=><span key={p} style={{padding:"3px 10px",borderRadius:8,fontSize:FS-3,fontWeight:600,background:FCOL[FKEYS.indexOf(k)]+"15",color:FCOL[FKEYS.indexOf(k)],border:"1px solid "+FCOL[FKEYS.indexOf(k)]+"30"}}>{gIcon(p,data.garmentTypes)+" "+p}</span>)}</div>}
           {dt&&<div style={{fontSize:FS-2,color:T.textSec,marginTop:-4,marginBottom:10}}>{"تاريخ القص: "+dt}</div>}
         </div>})}
       </div>
@@ -1155,8 +1177,14 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
   const printMov=(m)=>{
     const ord=data.orders.find(o=>o.id===m.orderId);
     const ws=(data.workshops||[]).find(w=>w.name===m.wsName);
-    if(m.type==="deliver")printReceipt(m.wsName||"",ws?ws.owner:"",ord||{modelNo:m.orderNo||"",modelDesc:m.orderDesc||""},m.garmentType||"",m.qty,m.date,0);
-    else printReceiveReceipt(m.wsName||"",ord||{modelNo:m.orderNo||"",modelDesc:m.orderDesc||""},m.garmentType||"",m.qty,m.date,0)
+    if(m.type==="deliver")printReceipt(m.wsName||"",ws?ws.owner:"",ord||{modelNo:m.orderNo||"",modelDesc:m.orderDesc||""},m.garmentType||"",m.qty,m.date,0,data.garmentTypes);
+    else printReceiveReceipt(m.wsName||"",ord||{modelNo:m.orderNo||"",modelDesc:m.orderDesc||""},m.garmentType||"",m.qty,m.date,0,data.garmentTypes)
+  };
+  const shareMov=(m)=>{
+    const ord=data.orders.find(o=>o.id===m.orderId);
+    const ws=(data.workshops||[]).find(w=>w.name===m.wsName);
+    if(m.type==="deliver")printReceipt(m.wsName||"",ws?ws.owner:"",ord||{modelNo:m.orderNo||"",modelDesc:m.orderDesc||""},m.garmentType||"",m.qty,m.date,0,data.garmentTypes,true);
+    else printReceiveReceipt(m.wsName||"",ord||{modelNo:m.orderNo||"",modelDesc:m.orderDesc||""},m.garmentType||"",m.qty,m.date,0,data.garmentTypes,true)
   };
 
   const wsObj=workshops.find(w=>(w.name||w)===(selWs));
@@ -1182,7 +1210,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       o.status=recomputeStatus(o);
     });
     setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice("");showToast("✓ تم تسليم "+saveQty+" قطعة لـ "+selWs);
-    if(andPrint){const printOrd=JSON.parse(JSON.stringify(ord));const pWs=selWs;const pWsOwner=wsObj?wsObj.owner:"";setTimeout(()=>printReceipt(pWs,pWsOwner,printOrd,saveType,saveQty,saveDate,Math.max(0,availAfter)),400)}
+    if(andPrint){const printOrd=JSON.parse(JSON.stringify(ord));const pWs=selWs;const pWsOwner=wsObj?wsObj.owner:"";const pGt=data.garmentTypes;setTimeout(()=>printReceipt(pWs,pWsOwner,printOrd,saveType,saveQty,saveDate,Math.max(0,availAfter),pGt),400)}
   };
 
   const receiveFromWs=(orderId,wdIdx,andPrint,printData,cardKey)=>{
@@ -1200,7 +1228,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       o.status=recomputeStatus(o)
     });
     clearRcv(cardKey);showToast("✓ تم استلام "+saveQty+" قطعة");
-    if(andPrint&&printData){const pOrd=JSON.parse(JSON.stringify(ord));if(pOrd.workshopDeliveries&&pOrd.workshopDeliveries[wdIdx]){if(!pOrd.workshopDeliveries[wdIdx].receives)pOrd.workshopDeliveries[wdIdx].receives=[];pOrd.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty})}const pWs=selWs;const pType=wd.garmentType||"";setTimeout(()=>printReceiveReceipt(pWs,pOrd,pType,saveQty,saveDate,0),400)}
+    if(andPrint&&printData){const pOrd=JSON.parse(JSON.stringify(ord));if(pOrd.workshopDeliveries&&pOrd.workshopDeliveries[wdIdx]){if(!pOrd.workshopDeliveries[wdIdx].receives)pOrd.workshopDeliveries[wdIdx].receives=[];pOrd.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty})}const pWs=selWs;const pType=wd.garmentType||"";const pGt=data.garmentTypes;setTimeout(()=>printReceiveReceipt(pWs,pOrd,pType,saveQty,saveDate,0,pGt),400)}
   };
 
   /* Collect all movements for the log */
@@ -1280,7 +1308,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
           <td style={TD}>{isEditing?<Inp value={editNote} onChange={setEditNote} style={{width:100}}/>:(m.notes||"-")}</td>
           <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
             {isEditing?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>الغاء</Btn></>:<>
-            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
+            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn><Btn small onClick={()=>shareMov(m)} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄</Btn>
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/></>}
           </div>}</td>
@@ -1386,7 +1414,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
             {isEd?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>✕</Btn></>:<>
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/>
-            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn></>}
+            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn><Btn small onClick={()=>shareMov(m)} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄</Btn></>}
           </div>}</td></tr>})}</tbody>
       </table></div>
     </Card>}
@@ -1414,7 +1442,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
           {filtered.map(({ord,wd,wdIdx,actualIdx,rcvd,bal})=>{
             return<div key={ord.id+"-"+wdIdx} style={{background:T.cardSolid,borderRadius:14,border:"1px solid "+T.err+"40",overflow:"hidden"}}>
               <div style={{padding:"14px 18px",background:T.err+"08",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-                <div><span style={{fontWeight:700,fontSize:FS+1}}>{ord.modelNo}</span><span style={{fontSize:FS-1,color:T.textSec,marginRight:10}}>{" - "+ord.modelDesc}</span>{wd.garmentType&&<span style={{fontSize:FS,fontWeight:700,color:T.purple,background:T.purple+"15",padding:"4px 14px",borderRadius:10,marginRight:6}}>{gIcon(wd.garmentType)+" "+wd.garmentType}</span>}</div>
+                <div><span style={{fontWeight:700,fontSize:FS+1}}>{ord.modelNo}</span><span style={{fontSize:FS-1,color:T.textSec,marginRight:10}}>{" - "+ord.modelDesc}</span>{wd.garmentType&&<span style={{fontSize:FS,fontWeight:700,color:T.purple,background:T.purple+"15",padding:"4px 14px",borderRadius:10,marginRight:6}}>{gIcon(wd.garmentType,data.garmentTypes)+" "+wd.garmentType}</span>}</div>
                 <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                   <span style={{padding:"4px 12px",borderRadius:8,background:T.accent+"15",fontSize:FS-1,fontWeight:600}}>{"تسليم ورشة: "+wd.qty}</span>
                   <span style={{padding:"4px 12px",borderRadius:8,background:T.ok+"15",fontSize:FS-1,fontWeight:600,color:T.ok}}>{"استلام مصنع: "+rcvd}</span>
@@ -1425,7 +1453,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
               <div style={{padding:16}}>
                 <div style={{fontSize:FS-2,color:T.textSec,marginBottom:8}}>{"تاريخ التسليم: "+wd.date}</div>
                 {(wd.receives||[]).length>0&&<div style={{marginBottom:12}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:350}}><thead><tr>{["#","التاريخ","الكمية","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-                  {wd.receives.map((r,ri)=>{const rBal=bal+Number(r.qty);return<tr key={ri}><td style={TD}>{ri+1}</td><td style={TD}>{r.date}</td><td style={TDB}>{r.qty}</td><td style={TD}>{r.notes||"-"}</td><td style={TD}><Btn small onClick={()=>printReceiveReceipt(selWs,ord,wd.garmentType||"",r.qty,r.date,rBal)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>🖨</Btn></td></tr>})}
+                  {wd.receives.map((r,ri)=>{const rBal=bal+Number(r.qty);return<tr key={ri}><td style={TD}>{ri+1}</td><td style={TD}>{r.date}</td><td style={TDB}>{r.qty}</td><td style={TD}>{r.notes||"-"}</td><td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}><Btn small onClick={()=>printReceiveReceipt(selWs,ord,wd.garmentType||"",r.qty,r.date,rBal,data.garmentTypes)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>🖨</Btn><Btn small onClick={()=>printReceiveReceipt(selWs,ord,wd.garmentType||"",r.qty,r.date,rBal,data.garmentTypes,true)} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄</Btn></div></td></tr>})}
                 </tbody></table></div></div>}
                 {canEdit&&(()=>{const ck=ord.id+"-"+actualIdx;const rv=getRcv(ck);const wdP=Number(wd.price)||0;return<div style={{display:"flex",gap:6,flexWrap:"wrap",padding:8,background:T.inputBg||T.cardSolid,borderRadius:8,alignItems:"end"}}>
                   <div style={{minWidth:70}}><label style={{fontSize:FS-3,color:T.textSec}}>الكمية</label><Inp type="number" value={rv.qty} onChange={v=>setRcv(ck,"qty",Math.min(Number(v)||0,bal))}/></div>
@@ -1456,7 +1484,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
             {isEd?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>✕</Btn></>:<>
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/>
-            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn></>}
+            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn><Btn small onClick={()=>shareMov(m)} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄</Btn></>}
           </div>}</td></tr>})}</tbody>
       </table></div>
     </Card>}
@@ -1506,7 +1534,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         <div><h2 style={{fontSize:isMob?18:22,fontWeight:800,margin:0}}>{"📊 حسابات الورش"}</h2><div style={{fontSize:FS-1,color:T.textSec}}>{"الموسم: "+season}</div></div>
         <div style={{display:"flex",gap:6}}>
           <Btn onClick={()=>{const rows=[["الورشة","النسبة","مستحق","مدفوع","حد النسبة","متاح للدفع","الرصيد"]];activeWs.forEach(w=>{const a=wsAccounts(w.name);const pct=w.payPercent||70;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const remaining=r2(limit-a.totalPaid);rows.push([w.name,pct+"%",r2(totalDue),r2(a.totalPaid),limit,remaining>0?remaining:0,r2(a.balance)])});rows.push([]);rows.push(["اجمالي","",r2(totals.due+totals.purchase),r2(totals.paid),"","",r2(totals.balance)]);exportExcel(rows,"حسابات_الورش_"+season)}} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-          <Btn onClick={()=>{const el=document.getElementById("ws-acc-area");if(!el)return;printPage("حسابات الورش — "+season,el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨 طباعة</Btn>
+          <Btn onClick={()=>{const el=document.getElementById("ws-acc-area");if(!el)return;printPage("حسابات الورش — "+season,el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn onClick={()=>{const el=document.getElementById("ws-acc-area");if(el)sharePDF("حسابات الورش — "+season,el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>
           <Btn ghost onClick={()=>setMode(null)}>↩</Btn>
         </div>
       </div>
@@ -1710,7 +1738,7 @@ function FabricReport({data,isMob,season}){
   return<div>
     <div style={{display:"flex",justifyContent:"flex-end",gap:6,marginBottom:10}}>
       <Btn onClick={exportFabXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-      <Btn onClick={printFab} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨 طباعة</Btn>
+      <Btn onClick={printFab} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn onClick={()=>{const el=document.getElementById("fab-rep");if(el)sharePDF("تقرير الخامات",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>
     </div>
     <div id="fab-rep">
       <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>تقرير الخامات المستهلكة</h1>
@@ -1746,7 +1774,7 @@ function WsPerfReport({data,isMob,season}){
   return<div>
     <div style={{display:"flex",justifyContent:"flex-end",gap:6,marginBottom:10}}>
       <Btn onClick={exportWsPerfXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-      <Btn onClick={printWsPerf} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨 طباعة</Btn>
+      <Btn onClick={printWsPerf} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn onClick={()=>{const el=document.getElementById("ws-perf");if(el)sharePDF("انتاجية الورش",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>
     </div>
     <div id="ws-perf">
       <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>تقرير انتاجية الورش</h1>
@@ -1787,7 +1815,7 @@ function DeliveryReport({data,isMob,season}){
   const printDel=()=>{const el=document.getElementById("del-rep");if(!el)return;printPage("تقرير معدل التسليم — "+season,el.innerHTML)};
   return<div>
     <div style={{display:"flex",justifyContent:"flex-end",gap:6,marginBottom:10}}>
-      <Btn onClick={printDel} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨 طباعة</Btn>
+      <Btn onClick={printDel} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn onClick={()=>{const el=document.getElementById("del-rep");if(el)sharePDF("معدل التسليم",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>
     </div>
     <div id="del-rep">
       <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>تقرير معدل التسليم</h1>
@@ -1822,7 +1850,7 @@ function SeasonSummary({data,isMob,season,statusCards}){
   return<div>
     <div style={{display:"flex",justifyContent:"flex-end",gap:6,marginBottom:10}}>
       <Btn onClick={exportSumXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-      <Btn onClick={printSum} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨 طباعة</Btn>
+      <Btn onClick={printSum} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn onClick={()=>{const el=document.getElementById("sum-rep");if(el)sharePDF("ملخص الموسم",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>
     </div>
     <div id="sum-rep">
       <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>ملخص الموسم</h1>
@@ -1866,7 +1894,7 @@ function RepPg({data,isMob,season,statusCards}){
       <div><div style={{fontSize:FS,color:T.textSec}}>{today}</div></div>
       <div style={{display:"flex",gap:6}}>
         <Btn onClick={exportRepXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-        <Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨 طباعة</Btn>
+        <Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn onClick={()=>{const el=document.getElementById("rep-area");if(el)sharePDF("تقرير الانتاج",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>
       </div>
     </div>
     <div id="rep-area">
@@ -1922,7 +1950,7 @@ function CostPg({data,isMob,statusCards}){
       </div>
       <div style={{display:"flex",gap:6}}>
         <Btn onClick={exportCostXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-        <Btn onClick={printCost} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨 طباعة</Btn>
+        <Btn onClick={printCost} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn onClick={()=>{const el=document.getElementById("cost-area");if(el)sharePDF("تقرير التكاليف",el.innerHTML)}} style={{background:T.purple+"12",color:T.purple,border:"1px solid "+T.purple+"30"}}>📄 PDF</Btn>
       </div>
     </div>
     <div id="cost-area">
