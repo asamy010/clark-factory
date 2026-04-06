@@ -1079,8 +1079,8 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
     <div id="parea">
       <div style={{display:"flex",gap:10,marginBottom:12}}>
         {isMob&&order.image&&<div style={{flexShrink:0}}><img src={order.image} alt="" style={{width:70,height:93,objectFit:"cover",borderRadius:10,border:"1px solid "+T.brd}}/></div>}
-        <div style={{flex:1,display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(5,1fr)",gap:isMob?6:12}}>
-          <MetricCard label="رقم الموديل" value={order.modelNo} icon="🏷"/><MetricCard label="كمية القص" value={t.cutQty} icon="✂️" color={T.accent}/><MetricCard label="تم التسليم" value={order.deliveredQty||0} icon="📦" color={T.ok}/><MetricCard label="الرصيد" value={t.balance} icon="📊" color={t.balance>0?T.warn:T.ok}/><MetricCard label="تكلفة القطعة" value={t.costPer+" ج.م"} icon="💰" color={T.accent}/>
+        <div style={{flex:1,display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:isMob?6:12}}>
+          <MetricCard label="كمية القص" value={t.cutQty} icon="✂️" color={T.accent}/><MetricCard label="تم التسليم" value={order.deliveredQty||0} icon="📦" color={T.ok}/><MetricCard label="الرصيد" value={t.balance} icon="📊" color={t.balance>0?T.warn:T.ok}/><MetricCard label="تكلفة القطعة" value={t.costPer+" ج.م"} icon="💰" color={T.accent}/>
         </div>
       </div>
       {/* Timeline - horizontal after cards */}
@@ -1091,10 +1091,11 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
         return ev.length>1&&<div style={{marginBottom:14,background:T.cardSolid,borderRadius:10,padding:"10px 14px",border:"1px solid "+T.brd}}><Timeline events={ev}/></div>})()}
       <div style={{display:"grid",gridTemplateColumns:order.image&&!isMob?"auto 1fr":"1fr",gap:16,marginBottom:16}}>
         {!isMob&&order.image&&<div><img src={order.image} alt="" style={{width:135,height:180,aspectRatio:"3/4",objectFit:"cover",borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow}}/></div>}
-        <Card title="بيانات الموديل"><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><tbody>
-          <tr><td style={TDL}>الوصف</td><td style={TDB}>{order.modelDesc}</td><td style={TDL}>المقاسات</td><td style={TD}>{order.sizeLabel}</td></tr>
-          <tr><td style={TDL}>الحالة</td><td style={TD}>{canEdit?<Sel value={order.status} onChange={v=>updOrder(sel,o=>{o.status=v})}>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel>:<Badge t={order.status} cards={statusCards}/>}</td><td style={TDL}>التاريخ</td><td style={TD}>{order.date}</td></tr>
-          {order.marker&&<tr><td style={TDL}>ماركر</td><td colSpan={3} style={TD}>{order.marker}</td></tr>}
+        <Card title="بيانات الموديل">
+          <div style={{fontSize:FS+4,fontWeight:800,color:T.accent,marginBottom:8}}>{"🏷 "+order.modelNo}<span style={{fontSize:FS,fontWeight:600,color:T.textSec,marginRight:10}}>{" — "+order.modelDesc}</span></div>
+          <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><tbody>
+          <tr><td style={TDL}>المقاسات</td><td style={TDB}>{order.sizeLabel}</td><td style={TDL}>الحالة</td><td style={TD}>{canEdit?<Sel value={order.status} onChange={v=>updOrder(sel,o=>{o.status=v})}>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel>:<Badge t={order.status} cards={statusCards}/>}</td></tr>
+          <tr><td style={TDL}>التاريخ</td><td style={TD}>{order.date}</td>{order.marker?<><td style={TDL}>ماركر</td><td style={TD}>{order.marker}</td></>:<><td/><td/></>}</tr>
         </tbody></table></div></Card>
       </div>
       {/* Order Pieces */}
@@ -1731,10 +1732,8 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards}){
         <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>التاريخ</label><Inp type="date" value={stDate} onChange={setStDate}/></div>
         <Btn primary onClick={saveStock} disabled={!stQty||stQty<=0}>📦 تسليم</Btn></>}
       </div>
-      {selOrder&&<div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
-        <span style={{padding:"4px 10px",borderRadius:6,background:T.err+"10",color:T.err,fontWeight:700,fontSize:FS-1}}>{"القص: "+t.cutQty}</span>
-        <span style={{padding:"4px 10px",borderRadius:6,background:T.ok+"10",color:T.ok,fontWeight:700,fontSize:FS-1}}>{"تم تسليمه: "+stockDel}</span>
-        <span style={{padding:"4px 10px",borderRadius:6,background:stockRemain>0?T.warn+"10":T.ok+"10",color:stockRemain>0?T.warn:T.ok,fontWeight:700,fontSize:FS-1}}>{"المتبقي: "+stockRemain}</span>
+      {selOrder&&<div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap",alignItems:"center"}}>
+        <span style={{fontSize:FS,fontWeight:700,color:T.accent}}>{"القص: "+t.cutQty+" | تسليم: "+stockDel+" | المتبقي: "+stockRemain}</span>
       </div>}
       {/* Workshop balance for selected order */}
       {selOrder&&ord&&(ord.workshopDeliveries||[]).length>0&&<div style={{marginTop:8,padding:8,borderRadius:8,background:T.bg,border:"1px solid "+T.brd}}>
@@ -1772,18 +1771,18 @@ function UncutReport({data,isMob,season}){
   const rows=[];
   data.orders.forEach(o=>{const pieces=o.orderPieces||[];if(pieces.length===0)return;
     const linkedPieces=new Set();FKEYS.forEach(k=>{if(gf(o,k))(o["fabricPieces"+k]||[]).forEach(p=>linkedPieces.add(p))});
-    const unlinked=pieces.filter(p=>!linkedPieces.has(p));
-    unlinked.forEach(p=>rows.push({modelNo:o.modelNo,modelDesc:o.modelDesc,date:o.date,piece:p,status:o.status,id:o.id}))});
+    const linked=pieces.filter(p=>linkedPieces.has(p));const unlinked=pieces.filter(p=>!linkedPieces.has(p));
+    unlinked.forEach(p=>rows.push({modelNo:o.modelNo,modelDesc:o.modelDesc,date:o.date,piece:p,linked,id:o.id}))});
   const printRep=()=>{const el=document.getElementById("uncut-rep");if(el)printPage("تقرير القطع غير المقصوصة — "+season,el.innerHTML)};
-  const exportXls=()=>{const xRows=[["رقم الموديل","الوصف","التاريخ","القطعة","الحالة"]];rows.forEach(r=>xRows.push([r.modelNo,r.modelDesc,r.date,r.piece,r.status]));xRows.push([]);xRows.push(["الاجمالي",rows.length+" قطعة غير مقصوصة"]);exportExcel(xRows,"قطع_غير_مقصوصة_"+season)};
+  const exportXls=()=>{const xRows=[["رقم الموديل","الوصف","التاريخ","تم قصها","لم يتم قصها"]];rows.forEach(r=>xRows.push([r.modelNo,r.modelDesc,r.date,r.linked.join("، "),r.piece]));xRows.push([]);xRows.push(["الاجمالي",rows.length+" قطعة غير مقصوصة"]);exportExcel(xRows,"قطع_غير_مقصوصة_"+season)};
   return<div id="uncut-rep">
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
       <div><h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.err}}>✂️ قطع لم يتم قصها</h1><div style={{fontSize:FS-1,color:T.textSec}}>{"الموسم: "+season+" — "+rows.length+" قطعة"}</div></div>
       <div style={{display:"flex",gap:6}}><Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn onClick={exportXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn></div>
     </div>
     {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}>
-      <thead><tr>{["#","رقم الموديل","الوصف","التاريخ","القطعة","الحالة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
-      <tbody>{rows.map((r,i)=><tr key={i}><td style={TD}>{i+1}</td><td style={TDB}>{r.modelNo}</td><td style={TD}>{r.modelDesc}</td><td style={TD}>{r.date}</td><td style={{...TDB,color:T.err}}>{gIcon(r.piece,data.garmentTypes)+" "+r.piece}</td><td style={TD}><Badge t={r.status} cards={[]}/></td></tr>)}</tbody>
+      <thead><tr>{["#","رقم الموديل","الوصف","التاريخ","تم قصها ✓","لم يتم قصها ✕"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+      <tbody>{rows.map((r,i)=><tr key={i}><td style={TD}>{i+1}</td><td style={TDB}>{r.modelNo}</td><td style={TD}>{r.modelDesc}</td><td style={TD}>{r.date}</td><td style={{...TD,color:T.ok}}>{r.linked.map(p=>gIcon(p,data.garmentTypes)+" "+p).join("، ")||"—"}</td><td style={{...TDB,color:T.err}}>{gIcon(r.piece,data.garmentTypes)+" "+r.piece}</td></tr>)}</tbody>
     </table></div>:<div style={{textAlign:"center",padding:40,color:T.ok,fontWeight:700,fontSize:FS+2}}>✓ جميع القطع تم قصها</div>}
   </div>
 }
