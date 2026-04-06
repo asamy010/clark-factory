@@ -856,11 +856,14 @@ function WsManager({workshops,upConfig,canEdit,isMob,orders}){
             <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-2,color:T.textSec,marginBottom:3}}><span>نسبة الاستلام</span><span style={{fontWeight:700,color:pct>=80?T.ok:pct>=50?T.warn:T.err}}>{pct+"%"}</span></div>
             <div style={{height:6,borderRadius:3,background:"#E2E8F0",overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",borderRadius:3,background:pct>=80?T.ok:pct>=50?T.warn:T.err,transition:"width 0.5s"}}/></div>
           </div>
-          {/* Info */}
-          <div style={{padding:"4px 16px 10px",display:"flex",gap:12,flexWrap:"wrap",fontSize:FS-2,color:T.textSec,alignItems:"center"}}>
+          {/* Info + Rating */}
+          {(()=>{const autoR=calcWsRating(ws.name,orders);const rating=ws.ratingManual?(ws.rating||0):autoR!==null?autoR:0;const label=ws.ratingManual?"يدوي":autoR!==null?"تلقائي":"بدون بيانات";return<div style={{padding:"4px 16px 10px",display:"flex",gap:10,flexWrap:"wrap",fontSize:FS-2,color:T.textSec,alignItems:"center"}}>
             {ws.phone&&<span>{"📱 "+ws.phone}</span>}
             {ws.address&&<span style={{maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{"📍 "+ws.address}</span>}
-          </div>
+            <span style={{fontWeight:700,color:rating>=7?T.ok:rating>=4?T.warn:rating>0?T.err:T.textMut}}>{"⭐ "+rating+"/10 ("+label+")"}</span>
+            {canEdit&&<span onClick={e=>{e.stopPropagation();const v=prompt("تعديل التقييم يدوي (من 10):",rating);if(v!==null){const n=Math.min(10,Math.max(0,Number(v)||0));upConfig(d=>{const idx=d.workshops.findIndex(x=>x.id===ws.id);if(idx>=0){d.workshops[idx].rating=n;d.workshops[idx].ratingManual=true}})}}} style={{cursor:"pointer",fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</span>}
+            {canEdit&&ws.ratingManual&&<span onClick={e=>{e.stopPropagation();upConfig(d=>{const idx=d.workshops.findIndex(x=>x.id===ws.id);if(idx>=0){d.workshops[idx].ratingManual=false}})}} style={{cursor:"pointer",fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>↩ تلقائي</span>}
+          </div>})()}
           {/* Delete only */}
           <div style={{padding:"0 16px 10px",display:"flex",gap:6}} onClick={e=>e.stopPropagation()}>
             {canEdit&&<DelBtn onConfirm={()=>del(ws.id)} blocked={wsBlock(ws)}/>}
@@ -886,20 +889,11 @@ function WsManager({workshops,upConfig,canEdit,isMob,orders}){
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رقم التليفون</label><Inp value={f.phone} onChange={v=>setF({...f,phone:v})} type="tel"/></div>
         </div>
         <div style={{marginBottom:12}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>العنوان</label><textarea value={f.address||""} onChange={e=>setF({...f,address:e.target.value})} style={{width:"100%",height:60,padding:10,borderRadius:10,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",resize:"vertical"}}/></div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
-          <div>
-            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>صورة بطاقة الورشة</label>
-            <div style={{width:"100%",height:100,borderRadius:12,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.bg,cursor:"pointer",position:"relative"}}>
-              {f.idCard?<img src={f.idCard} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-1,color:T.textMut}}>رفع البطاقة</span>}
-              <input type="file" accept="image/*" onChange={handleIdCard} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
-            </div>
-          </div>
-          <div>
-            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>صورة صاحب الورشة</label>
-            <div style={{width:80,height:107,borderRadius:12,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.bg,cursor:"pointer",position:"relative"}}>
-              {f.ownerPhoto?<img src={f.ownerPhoto} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-2,color:T.textMut}}>صورة</span>}
-              <input type="file" accept="image/*" onChange={handleOwnerPhoto} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
-            </div>
+        <div style={{marginBottom:14}}>
+          <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>صورة صاحب الورشة</label>
+          <div style={{width:80,height:107,borderRadius:12,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.bg,cursor:"pointer",position:"relative"}}>
+            {f.ownerPhoto?<img src={f.ownerPhoto} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-2,color:T.textMut}}>صورة</span>}
+            <input type="file" accept="image/*" onChange={handleOwnerPhoto} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
           </div>
         </div>
         <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn ghost onClick={()=>{setShowForm(false);setEditId(null)}}>الغاء</Btn><Btn primary onClick={save}>💾 حفظ</Btn></div>
