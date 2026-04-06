@@ -578,10 +578,10 @@ export default function App(){
   if(authLoading)return null;
   if(!user)return<LoginScreen/>;
   if(dataLoading)return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#EFF6FF",direction:"rtl",fontFamily:"'Cairo',sans-serif"}}>
-    <div style={{width:280}}>
-      <div style={{height:28,borderRadius:8,background:"#E2E8F0",overflow:"hidden",position:"relative"}}>
-        <div style={{position:"absolute",top:0,right:0,bottom:0,width:"100%",borderRadius:8,background:"linear-gradient(90deg,"+T.accent+","+T.accent+"CC)",transformOrigin:"right",animation:"fillOnce 2s ease-out 1 forwards",transform:"scaleX(0)"}}/>
-        <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:"#fff",textShadow:"0 1px 2px rgba(0,0,0,0.3)",zIndex:1}}>جاري تحميل البيانات</div>
+    <div style={{width:140,textAlign:"center"}}>
+      <div style={{fontSize:12,fontWeight:700,color:T.accent,marginBottom:8}}>جاري تحميل البيانات</div>
+      <div style={{height:6,borderRadius:4,background:"#E2E8F0",overflow:"hidden"}}>
+        <div style={{width:"100%",height:"100%",borderRadius:4,background:"linear-gradient(90deg,"+T.accent+","+T.accent+"CC)",transformOrigin:"right",animation:"fillOnce 2s ease-out 1 forwards",transform:"scaleX(0)"}}/>
       </div>
       <style>{`@keyframes fillOnce{from{transform:scaleX(0)}to{transform:scaleX(1)}}`}</style>
     </div>
