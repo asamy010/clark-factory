@@ -178,12 +178,14 @@ async function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance,gt
   printPage("اذن تسليم ورشة — "+modelNo,h)
 }
 
-function printReceiveReceipt(wsName,order,garmentType,qty,date,balance,gtList){
+async function printReceiveReceipt(wsName,order,garmentType,qty,date,balance,gtList){
   if(!order){printPage("اذن استلام مصنع","<p>بيانات غير متوفرة</p>");return}
   const t=calcOrder(order);const gi=n=>gIcon(n,gtList);
   let ws=wsName||"";
   if(!ws&&order.workshopDeliveries){const wd=order.workshopDeliveries.find(w=>w.garmentType===garmentType)||order.workshopDeliveries[order.workshopDeliveries.length-1];if(wd)ws=wd.wsName||""}
   const modelNo=order.modelNo||"";const modelDesc=order.modelDesc||"";const sizeLabel=order.sizeLabel||"";const marker=order.marker||"";
+  /* Generate workshop QR */
+  let wsQrSrc="";try{const QR=await loadQR();if(QR&&ws)wsQrSrc=await QR.toDataURL(window.location.origin+"?act=wsacc&ws="+encodeURIComponent(ws),{width:130,margin:1,errorCorrectionLevel:"L"})}catch(e){}
   let h="<h2>اذن استلام مصنع</h2>";
   h+="<div style='display:flex;gap:16px;align-items:flex-start;margin-bottom:16px'>";
   if(order.image)h+="<div style='width:80px;height:107px;border-radius:8px;overflow:hidden;border:1px solid #ddd;flex-shrink:0'><img src='"+order.image+"' style='width:100%;height:100%;object-fit:cover'/></div>";
@@ -214,8 +216,9 @@ function printReceiveReceipt(wsName,order,garmentType,qty,date,balance,gtList){
     wds.forEach(wd=>{const del=Number(wd.qty)||0;const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);realBal+=del-rcvd})}
   if(realBal>0)h+="<div style='margin:16px 0;padding:12px 20px;background:#FEF2F2;border:2px solid #FECACA;border-radius:10px;text-align:center;font-size:16px;font-weight:800;color:#EF4444'>الرصيد الباقي عند الورشة: "+realBal+" قطعة</div>";
   else h+="<div style='margin:16px 0;padding:12px 20px;background:#F0FDF4;border:2px solid #BBF7D0;border-radius:10px;text-align:center;font-size:16px;font-weight:800;color:#10B981'>✓ تم استلام الكمية كاملة</div>";
-  /* Signature */
-  h+="<div style='margin-top:50px;text-align:center;width:200px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:13px'>توقيع المستلم</div></div>";
+  /* Workshop QR + Signature */
+  if(wsQrSrc)h+="<div style='display:flex;justify-content:space-between;align-items:flex-end;margin-top:30px'><div style='text-align:center;width:200px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:12px'>توقيع المستلم</div></div><div style='text-align:center'><img src='"+wsQrSrc+"' style='width:94px;height:94px'/><div style='font-size:8px;color:#94A3B8;margin-top:2px'>كشف حساب "+ws+"</div></div></div>";
+  else h+="<div style='margin-top:50px;text-align:center;width:200px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:13px'>توقيع المستلم</div></div>";
   printPage("اذن استلام مصنع — "+modelNo,h)
 }
 
@@ -510,8 +513,8 @@ export default function App(){
     (data.workshops||[]).filter(w=>w.type!=="داخلي").forEach(w=>{let due=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});const purch=(data.wsPayments||[]).filter(p=>p.wsName===w.name&&p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);const paid=(data.wsPayments||[]).filter(p=>p.wsName===w.name&&p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);const pct=w.payPercent||70;const limit=r2((due+purch)*(pct/100));if(paid>limit&&due>0)a.push({msg:w.name+" تجاوز حد "+pct+"%",color:T.err,icon:"⚠️"})});
     return a}catch(e){console.error("Alert error:",e);return[]}})();
 
-  const goHome=()=>{setTab("home");setSel(null)};
-  const goTo=(key)=>{setTab(key);if(key!=="details")setSel(null)};
+  const goHome=()=>{if(window.__formDirty){if(!confirm("هل تريد الخروج بدون حفظ البيانات المدخلة؟"))return;window.__formDirty=false}setTab("home");setSel(null)};
+  const goTo=(key)=>{if(window.__formDirty){if(!confirm("هل تريد الخروج بدون حفظ البيانات المدخلة؟"))return;window.__formDirty=false}setTab(key);if(key!=="details")setSel(null)};
 
   return<div onClick={()=>{if(showAlerts)setShowAlerts(false);if(gSearch)setGSearch("");if(showLogout)setShowLogout(false)}} style={{minHeight:"100vh",direction:"rtl",fontFamily:"'Cairo',sans-serif",background:T.bg,color:T.text,fontSize:FS,display:"flex",flexDirection:"column"}}>
     {/* Top Bar */}
@@ -799,7 +802,7 @@ function WsManager({workshops,upConfig,canEdit,isMob,orders}){
                   {ws.owner&&<div style={{fontSize:FS-1,color:T.textSec}}>{"👤 "+ws.owner}</div>}
                 </div>
               </div>
-              {ws.type!=="داخلي"&&<QRImg text={window.location.origin+"?act=wsacc&ws="+encodeURIComponent(ws.name)} size={72}/>}
+              {ws.type!=="داخلي"&&<QRImg text={window.location.origin+"?act=wsacc&ws="+encodeURIComponent(ws.name)} size={94}/>}
             </div>
           </div>
           {/* Stats Grid */}
@@ -842,6 +845,7 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig}){
   const handleFile=async e=>{const f=e.target.files[0];if(!f)return;if(f.size>1000000){alert("حجم الملف أكبر من 1MB");return}const result=await compressFile(f);if(result)setForm(p=>({...p,attachments:[...(p.attachments||[]),result]}))};
   const mainQty=sqty(form.colorsA);const updF=(key,val)=>setForm(p=>setF(p,key,val));
   const isDirty=form.modelNo||form.modelDesc||form.fabricA||(form.colorsA||[]).some(c=>c.color||c.layers>0);
+  useEffect(()=>{window.__formDirty=!!isDirty;return()=>{window.__formDirty=false}},[isDirty]);
   const handleCancel=()=>{if(isDirty){if(!confirm("هل تريد الخروج بدون حفظ البيانات المدخلة؟"))return}onCancel()};
   const save=()=>{const v=validateOrder(form);if(v.length>0){setErrs(v);return}setErrs([]);const ss=data.sizeSets.find(s=>s.id===Number(form.sizeSetId));const o={...form,cutQty:mainQty,sizeLabel:ss?ss.label:""};FKEYS.forEach(k=>{const fb=fabObj(o["fabric"+k]);o["fabric"+k+"Label"]=fb?(fb.name+" - "+fb.unit):"";o["fabric"+k+"Price"]=fb?fb.price:0;o["fabric"+k+"Unit"]=fb?fb.unit:""});delete o._docId;onSave(o)};
   const doCopy=()=>{const src=data.orders.find(o=>o.id===copyFrom);if(!src)return;setForm(p=>{const n={...p};
