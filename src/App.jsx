@@ -238,25 +238,39 @@ function calcOrder(o){
 
 const QUALITY_MAP={"ممتاز":10,"جيد جداً":8,"جيد":6,"مقبول":4,"سئ":2};
 function calcWsRating(wsName,orders){
-  const scores=[];
+  let totalDel=0,totalRcv=0;
+  const qScores=[],tScores=[];
   orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===wsName).forEach(wd=>{
     const delDate=new Date(wd.date);const qty=Number(wd.qty)||0;
+    totalDel+=qty;
+    const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
+    totalRcv+=rcvd;
     (wd.receives||[]).forEach(r=>{
       /* Quality score */
-      const qScore=QUALITY_MAP[r.quality]||6;
-      /* Time score: ideal = qty/500 * 6.5 days (avg of 5-8) */
-      const rcvDate=new Date(r.date);const days=Math.max(1,Math.floor((rcvDate-delDate)/(1000*60*60*24)));
+      qScores.push(QUALITY_MAP[r.quality]||6);
+      /* Time score: ideal = qty/500 * 6.5 days */
+      const rcvDate=new Date(r.date);
+      const days=Math.max(1,Math.floor((rcvDate-delDate)/(1000*60*60*24)));
       const idealDays=Math.max(3,Math.round((qty/500)*6.5));
-      let tScore=10;
-      if(days<=idealDays)tScore=10;
-      else if(days<=idealDays*1.5)tScore=7;
-      else if(days<=idealDays*2)tScore=5;
-      else tScore=3;
-      /* Combined: 60% quality + 40% time */
-      scores.push(r2(qScore*0.6+tScore*0.4))
+      if(days<=idealDays)tScores.push(10);
+      else if(days<=idealDays*1.3)tScores.push(8);
+      else if(days<=idealDays*1.6)tScores.push(6);
+      else if(days<=idealDays*2)tScores.push(4);
+      else tScores.push(2);
     })})});
-  if(scores.length===0)return null;
-  return r2(scores.reduce((s,v)=>s+v,0)/scores.length)
+  if(qScores.length===0)return null;
+  /* 1. Quality avg (40%) */
+  const avgQ=qScores.reduce((s,v)=>s+v,0)/qScores.length;
+  /* 2. Time avg (25%) */
+  const avgT=tScores.length>0?tScores.reduce((s,v)=>s+v,0)/tScores.length:5;
+  /* 3. Delivery rate (20%) */
+  const delRate=totalDel>0?Math.min(1,totalRcv/totalDel):0;
+  const delScore=delRate>=0.95?10:delRate>=0.8?8:delRate>=0.6?6:delRate>=0.4?4:2;
+  /* 4. Consistency (15%) - low quality variance = better */
+  const qMean=avgQ;const variance=qScores.reduce((s,v)=>s+Math.pow(v-qMean,2),0)/qScores.length;
+  const consScore=variance<=1?10:variance<=4?8:variance<=9?6:4;
+  /* Combined */
+  return r2(avgQ*0.4+avgT*0.25+delScore*0.2+consScore*0.15);
 }
 
 function mkOrder(){
@@ -800,9 +814,9 @@ function DBPg({data,upConfig,isMob,canEdit,statusCards}){
 /* ══ WORKSHOP MANAGER ══ */
 function WsManager({workshops,upConfig,canEdit,isMob,orders}){
   const[showForm,setShowForm]=useState(false);const[editId,setEditId]=useState(null);
-  const[f,setF]=useState({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:5,type:"خارجي",payPercent:70});
+  const[f,setF]=useState({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خارجي",payPercent:70});
   const startEdit=(ws)=>{setF({...ws,type:ws.type||"خارجي",payPercent:ws.payPercent||70});setEditId(ws.id);setShowForm(true)};
-  const startNew=()=>{setF({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:5,type:"خارجي",payPercent:70});setEditId(null);setShowForm(true)};
+  const startNew=()=>{setF({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خارجي",payPercent:70});setEditId(null);setShowForm(true)};
   const handleIdCard=async e=>{const file=e.target.files[0];if(!file)return;const compressed=await compressImg43(file,300,0.5);setF(p=>({...p,idCard:compressed}))};
   const handleOwnerPhoto=async e=>{const file=e.target.files[0];if(!file)return;const compressed=await compressImage(file,200,0.5);setF(p=>({...p,ownerPhoto:compressed}))};
   const save=()=>{if(!f.name.trim())return;upConfig(d=>{if(!Array.isArray(d.workshops))d.workshops=[];if(editId){const idx=d.workshops.findIndex(w=>w.id===editId);if(idx>=0)d.workshops[idx]={...f,id:editId}}else{d.workshops.push({...f,id:Date.now()})}});setShowForm(false);setEditId(null)};
@@ -811,37 +825,6 @@ function WsManager({workshops,upConfig,canEdit,isMob,orders}){
 
   return<div>
     <Card title="ادارة الورش" extra={canEdit&&<Btn primary small onClick={startNew}>+ ورشة جديدة</Btn>}>
-      {showForm&&<div style={{background:T.inputBg||T.cardSolid,borderRadius:14,padding:20,marginBottom:20,border:"1px solid "+T.brd}}>
-        <div style={{fontSize:FS+1,fontWeight:700,color:T.accent,marginBottom:14}}>{editId?"تعديل الورشة":"ورشة جديدة"}</div>
-        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr 1fr",gap:10,marginBottom:12}}>
-          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>اسم الورشة *</label><Inp value={f.name} onChange={v=>setF({...f,name:v})}/></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>اسم صاحب الورشة</label><Inp value={f.owner} onChange={v=>setF({...f,owner:v})}/></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>نوع الورشة *</label><Sel value={f.type||"خارجي"} onChange={v=>setF({...f,type:v})}><option value="خارجي">خارجي</option><option value="داخلي">داخلي</option></Sel></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>النسبة من الدفعات</label><Sel value={f.payPercent||70} onChange={v=>setF({...f,payPercent:Number(v)})}>{[30,40,50,60,70,80,90,100].map(p=><option key={p} value={p}>{p+"%"}</option>)}</Sel></div>
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
-          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>رقم التليفون</label><Inp value={f.phone} onChange={v=>setF({...f,phone:v})} type="tel"/></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>التقييم (من 10)</label><Inp value={f.rating} onChange={v=>setF({...f,rating:Math.min(10,Math.max(0,Number(v)||0))})} type="number"/></div>
-        </div>
-        <div style={{marginBottom:14}}><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>العنوان بالتفصيل</label><textarea value={f.address||""} onChange={e=>setF({...f,address:e.target.value})} style={{width:"100%",height:60,padding:10,borderRadius:10,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",resize:"vertical"}}/></div>
-        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:14,marginBottom:14}}>
-          <div>
-            <label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>صورة بطاقة الورشة (4:3)</label>
-            <div style={{width:"100%",height:120,borderRadius:12,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.bg,cursor:"pointer",position:"relative"}}>
-              {f.idCard?<img src={f.idCard} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-1,color:T.textMut}}>اضغط لرفع البطاقة</span>}
-              <input type="file" accept="image/*" onChange={handleIdCard} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
-            </div>
-          </div>
-          <div>
-            <label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>صورة صاحب الورشة (3:4)</label>
-            <div style={{width:100,height:133,borderRadius:12,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.bg,cursor:"pointer",position:"relative"}}>
-              {f.ownerPhoto?<img src={f.ownerPhoto} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-2,color:T.textMut}}>صورة</span>}
-              <input type="file" accept="image/*" onChange={handleOwnerPhoto} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
-            </div>
-          </div>
-        </div>
-        <div style={{display:"flex",gap:10}}><Btn primary onClick={save}>حفظ</Btn><Btn ghost onClick={()=>{setShowForm(false);setEditId(null)}}>الغاء</Btn></div>
-      </div>}
       {/* Workshop Cards */}
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:14}}>
         {(workshops||[]).map(ws=>{
@@ -874,23 +857,54 @@ function WsManager({workshops,upConfig,canEdit,isMob,orders}){
             <div style={{height:6,borderRadius:3,background:"#E2E8F0",overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",borderRadius:3,background:pct>=80?T.ok:pct>=50?T.warn:T.err,transition:"width 0.5s"}}/></div>
           </div>
           {/* Info */}
-          {(()=>{const autoR=calcWsRating(ws.name,orders);const rating=autoR!==null?autoR:(ws.rating||5);return<div style={{padding:"0 16px 10px",display:"flex",gap:12,flexWrap:"wrap",fontSize:FS-2,color:T.textSec,alignItems:"center"}}>
+          <div style={{padding:"4px 16px 10px",display:"flex",gap:12,flexWrap:"wrap",fontSize:FS-2,color:T.textSec,alignItems:"center"}}>
             {ws.phone&&<span>{"📱 "+ws.phone}</span>}
             {ws.address&&<span style={{maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{"📍 "+ws.address}</span>}
-            <span style={{fontWeight:700,color:rating>=7?T.ok:rating>=4?T.warn:T.err}}>{"⭐ "+rating+"/10"+(autoR!==null?" (تلقائي)":"")}</span>
-            {canEdit&&autoR!==null&&<span onClick={e=>{e.stopPropagation();const v=prompt("تعديل التقييم يدوي (من 10):",rating);if(v!==null){const n=Math.min(10,Math.max(0,Number(v)||0));upConfig(d=>{const idx=d.workshops.findIndex(x=>x.id===ws.id);if(idx>=0)d.workshops[idx].rating=n;d.workshops[idx].ratingManual=true})}}} style={{cursor:"pointer",fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</span>}
-          </div>})()}
-          {/* ID Card */}
-          {ws.idCard&&<div style={{padding:"0 16px 10px"}}><img src={ws.idCard} alt="" style={{width:"75%",height:60,objectFit:"cover",borderRadius:8,border:"1px solid "+T.brd}}/></div>}
-          {/* Actions */}
-          <div style={{padding:"0 16px 12px",display:"flex",gap:6}} onClick={e=>e.stopPropagation()}>
-            {canEdit&&<Btn small onClick={()=>startEdit(ws)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>✏️ تعديل</Btn>}
+          </div>
+          {/* Delete only */}
+          <div style={{padding:"0 16px 10px",display:"flex",gap:6}} onClick={e=>e.stopPropagation()}>
             {canEdit&&<DelBtn onConfirm={()=>del(ws.id)} blocked={wsBlock(ws)}/>}
           </div>
         </div>})}
       </div>
       {(!workshops||workshops.length===0)&&<div style={{textAlign:"center",padding:30,color:T.textSec}}>لا توجد ورش مسجلة</div>}
     </Card>
+    {/* Workshop Edit Popup */}
+    {showForm&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setShowForm(false);setEditId(null)}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:600,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{editId?"✏️ تعديل الورشة":"+ ورشة جديدة"}</div>
+          <Btn ghost onClick={()=>{setShowForm(false);setEditId(null)}}>✕</Btn>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>اسم الورشة *</label><Inp value={f.name} onChange={v=>setF({...f,name:v})}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>اسم صاحب الورشة</label><Inp value={f.owner} onChange={v=>setF({...f,owner:v})}/></div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:12}}>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع الورشة *</label><Sel value={f.type||"خارجي"} onChange={v=>setF({...f,type:v})}><option value="خارجي">خارجي</option><option value="داخلي">داخلي</option></Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النسبة من الدفعات</label><Sel value={f.payPercent||70} onChange={v=>setF({...f,payPercent:Number(v)})}>{[30,40,50,60,70,80,90,100].map(p=><option key={p} value={p}>{p+"%"}</option>)}</Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رقم التليفون</label><Inp value={f.phone} onChange={v=>setF({...f,phone:v})} type="tel"/></div>
+        </div>
+        <div style={{marginBottom:12}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>العنوان</label><textarea value={f.address||""} onChange={e=>setF({...f,address:e.target.value})} style={{width:"100%",height:60,padding:10,borderRadius:10,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",resize:"vertical"}}/></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>صورة بطاقة الورشة</label>
+            <div style={{width:"100%",height:100,borderRadius:12,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.bg,cursor:"pointer",position:"relative"}}>
+              {f.idCard?<img src={f.idCard} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-1,color:T.textMut}}>رفع البطاقة</span>}
+              <input type="file" accept="image/*" onChange={handleIdCard} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
+            </div>
+          </div>
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>صورة صاحب الورشة</label>
+            <div style={{width:80,height:107,borderRadius:12,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.bg,cursor:"pointer",position:"relative"}}>
+              {f.ownerPhoto?<img src={f.ownerPhoto} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-2,color:T.textMut}}>صورة</span>}
+              <input type="file" accept="image/*" onChange={handleOwnerPhoto} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
+            </div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn ghost onClick={()=>{setShowForm(false);setEditId(null)}}>الغاء</Btn><Btn primary onClick={save}>💾 حفظ</Btn></div>
+      </div>
+    </div>}
   </div>
 }
 
