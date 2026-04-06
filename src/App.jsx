@@ -365,7 +365,7 @@ function FCTable({label,fabName,colors,setColors,accent,readOnly,pcsPerSeries}){
         <tbody>{colors.map((c,i)=>{const isFree=c._free;const ppsValid=pps>0&&!isFree;return<tr key={i}>
           <td style={{...TD,minWidth:160,overflow:"visible"}}>{readOnly?<div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:22,height:22,borderRadius:6,background:c.colorHex||"#E2E8F0",border:"1px solid #E2E8F0",flexShrink:0}}/><span style={{fontWeight:500}}>{c.color||"-"}</span></div>:<ColorPicker value={c.color} colorHex={c.colorHex} onSelect={(nm,hx)=>{const nc=colors.map((cc,jj)=>jj===i?{...cc,color:nm,colorHex:hx}:cc);setColors(nc)}}/>}</td>
           <td style={{...TD,width:100}}>{readOnly?c.layers:<Inp type="number" value={c.layers} onChange={v=>{upC(i,"layers",v);if(ppsValid&&(!c.pcsPerLayer||c.pcsPerLayer===0)){upC(i,"pcsPerLayer",pps)}}}/>}</td>
-          <td style={{...TD,width:120}}>{readOnly?(c.pcsPerLayer||"-"):<div style={{display:"flex",gap:3,alignItems:"center"}}>{ppsValid?<Sel value={c.pcsPerLayer||""} onChange={v=>upC(i,"pcsPerLayer",v)}><option value="">--</option>{Array.from({length:20},(_,n)=>(n+1)*pps).map(v=><option key={v} value={v}>{v}</option>)}</Sel>:<Inp type="number" value={c.pcsPerLayer} onChange={v=>upC(i,"pcsPerLayer",v)}/>}{!readOnly&&pps>0&&<Btn small onClick={()=>{const nc=colors.map((cc,jj)=>jj===i?{...cc,_free:!cc._free}:cc);setColors(nc)}} style={{padding:"2px 6px",fontSize:FS-3,background:isFree?T.warn+"15":"transparent",color:isFree?T.warn:T.textMut,border:"1px solid "+(isFree?T.warn+"40":T.brd),whiteSpace:"nowrap",flexShrink:0}}>{isFree?"🔓":"🔒"}</Btn>}</div>}</td>
+          <td style={{...TD,width:120}}>{readOnly?(c.pcsPerLayer||"-"):<div style={{display:"flex",gap:3,alignItems:"center"}}>{ppsValid?<Sel value={c.pcsPerLayer||""} onChange={v=>upC(i,"pcsPerLayer",v)}><option value="">--</option>{Array.from({length:5},(_,n)=>(n+1)*pps).map(v=><option key={v} value={v}>{v}</option>)}</Sel>:<Inp type="number" value={c.pcsPerLayer} onChange={v=>upC(i,"pcsPerLayer",v)}/>}{!readOnly&&pps>0&&<Btn small onClick={()=>{const nc=colors.map((cc,jj)=>jj===i?{...cc,_free:!cc._free}:cc);setColors(nc)}} style={{padding:"2px 6px",fontSize:FS-3,background:isFree?T.warn+"15":"transparent",color:isFree?T.warn:T.textMut,border:"1px solid "+(isFree?T.warn+"40":T.brd),whiteSpace:"nowrap",flexShrink:0}}>{isFree?"🔓":"🔒"}</Btn>}</div>}</td>
           <td style={{...TDB,width:80,background:T.accentBg,textAlign:"center",borderRadius:6,color:T.accent}}>{c.qty}</td>
           {!readOnly&&<td style={{...TD,width:40}}><Btn danger small onClick={()=>setColors(colors.filter((_,j)=>j!==i))}>x</Btn></td>}
         </tr>})}</tbody>
@@ -569,7 +569,7 @@ export default function App(){
         {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
         {tab==="orders"&&<OrdPg data={data} addOrder={addOrder} delOrder={delOrder} updOrder={updOrder} goD={goD} isMob={isMob} canEdit={canEdit} statusCards={statusCards} upConfig={upConfig}/>}
-        {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEdit} statusCards={statusCards} goHome={goHome} upConfig={upConfig}/>}
+        {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEdit} statusCards={statusCards} goHome={goHome} upConfig={upConfig}/>}
         {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards} season={season}/>}
         {tab==="stock"&&<StockPg data={data} updOrder={updOrder} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
         {tab==="search"&&<SearchPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
@@ -958,11 +958,14 @@ function OrdPg({data,addOrder,delOrder,updOrder,goD,isMob,canEdit,statusCards,up
 }
 
 /* ══ DETAILS ══ */
-function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,goHome,upConfig}){
+function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,statusCards,goHome,upConfig}){
   const order=data.orders.find(o=>o.id===sel);const[editing,setEditing]=useState(false);
   const[detQ,setDetQ]=useState("");const[detSt,setDetSt]=useState("الكل");
   const[editStockIdx,setEditStockIdx]=useState(null);
+  const[showNew,setShowNew]=useState(false);
   const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
+
+  if(showNew)return<OrdForm data={data} initial={mkOrder()} onSave={o=>{addOrder(o);setShowNew(false);showToast("✓ تم اضافة أمر القص")}} onCancel={()=>setShowNew(false)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
 
   if(!order){
     const filtered=data.orders.filter(o=>{
@@ -973,6 +976,7 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
     return<div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
         <h2 style={{fontSize:FS+1,fontWeight:700,margin:0,color:T.textSec}}>{"اختر أوردر ("+filtered.length+")"}</h2>
+        {canEdit&&<Btn primary onClick={()=>setShowNew(true)}>+ أمر قص جديد</Btn>}
       </div>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr",gap:8,marginBottom:10}}>
         <Inp value={detQ} onChange={setDetQ} placeholder="بحث بالرقم أو الوصف أو المقاسات..."/>
@@ -1039,6 +1043,7 @@ function DetPg({data,updOrder,replaceOrder,sel,setSel,isMob,canEdit,statusCards,
         <div style={{width:1,height:20,background:T.brd,margin:"0 4px"}}/>
         <Btn small onClick={()=>printOrderSheet(order,t,activeFabs,statusCards)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
         {canEdit&&<Btn small primary onClick={()=>setEditing(true)}>✏️</Btn>}
+        {canEdit&&<Btn small onClick={()=>setShowNew(true)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>+ جديد</Btn>}
       </div>
     </div>
     <div id="parea">
