@@ -643,8 +643,8 @@ export default function App(){
         </div>
       </div>}
       <div style={{display:"flex",alignItems:"center",gap:isMob?6:10}}>
-        {/* QR Scanner */}
-        <div onClick={()=>setShowScanner(true)} style={{cursor:"pointer",fontSize:isMob?16:20,padding:"2px 6px",borderRadius:8,background:T.accentBg}}>📷</div>
+        {/* QR Scanner - mobile/tablet only */}
+        {isMob&&<div onClick={()=>setShowScanner(true)} style={{cursor:"pointer",fontSize:16,padding:"2px 6px",borderRadius:8,background:T.accentBg}}>📷</div>}
         {/* Alerts Bell */}
         <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
           <div onClick={()=>setShowAlerts(!showAlerts)} style={{cursor:"pointer",fontSize:isMob?18:22,padding:"2px 6px",borderRadius:8,background:alertCount>0?T.warn+"12":"transparent",position:"relative"}}>🔔
@@ -658,7 +658,7 @@ export default function App(){
             </div>):<div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد اشعارات</div>}
           </div>}
         </div>
-        <span style={{fontSize:isMob?11:FS,color:T.textSec}}>{userName}</span>
+        {!isMob&&<span style={{fontSize:FS,color:T.textSec}}>{userName}</span>}
         {!showLogout?<button onClick={e=>{e.stopPropagation();setShowLogout(true)}} style={{padding:isMob?"4px 10px":"6px 14px",borderRadius:8,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",cursor:"pointer",fontSize:isMob?11:FS-1,fontWeight:600,fontFamily:"inherit"}}>خروج</button>
         :<div onClick={e=>e.stopPropagation()} style={{display:"flex",gap:4,alignItems:"center"}}><button onClick={()=>signOut(auth)} style={{padding:isMob?"4px 8px":"5px 12px",borderRadius:6,background:T.err,color:"#fff",border:"none",cursor:"pointer",fontSize:isMob?10:FS-1,fontWeight:700,fontFamily:"inherit"}}>تأكيد</button><button onClick={()=>setShowLogout(false)} style={{padding:isMob?"4px 8px":"5px 12px",borderRadius:6,background:T.cardSolid,color:T.textSec,border:"1px solid "+T.brd,cursor:"pointer",fontSize:isMob?10:FS-1,fontWeight:600,fontFamily:"inherit"}}>الغاء</button></div>}
       </div>
@@ -673,6 +673,7 @@ export default function App(){
               <div style={{fontSize:isMob?FS-3:FS-1,fontWeight:700,color:T.text}}>{t.label}</div>
             </div>)}
           </div>
+          {isMob&&<div onClick={()=>setShowScanner(true)} style={{margin:"16px auto 0",maxWidth:800,display:"flex",justifyContent:"center"}}><div style={{background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",borderRadius:14,padding:"14px 30px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,boxShadow:"0 4px 20px rgba(14,165,233,0.3)"}}><span style={{fontSize:24}}>📷</span><span style={{fontSize:FS+1,fontWeight:700,color:"#fff"}}>مسح كود QR</span></div></div>}
       </div>}
       {/* PAGES with back button */}
       {tab!=="home"&&<div>
@@ -820,8 +821,8 @@ function DBPg({data,upConfig,isMob,canEdit,statusCards}){
   const[af,setAf]=useState({name:"",unit:"قطعة",price:"",_eid:null});
   const[sfld,setSfld]=useState({label:"",pcs:0,_eid:null});
   const[wf,setWf]=useState("");
-  const[stName,setStName]=useState("");const[stColor,setStColor]=useState("#0EA5E9");const[stEid,setStEid]=useState(null);
-  const[gName,setGName]=useState("");const[gEid,setGEid]=useState(null);const[gIconSel,setGIconSel]=useState("👕");
+  const[stName,setStName]=useState("");const[stColor,setStColor]=useState("#0EA5E9");const[stEid,setStEid]=useState(null);const[stShow,setStShow]=useState(false);
+  const[gName,setGName]=useState("");const[gEid,setGEid]=useState(null);const[gIconSel,setGIconSel]=useState("👕");const[gShow,setGShow]=useState(false);
 
   const saveFab=()=>{if(!ff.name)return;upConfig(d=>{if(ff._eid){const idx=d.fabrics.findIndex(x=>x.id===ff._eid);if(idx>=0)d.fabrics[idx]={...d.fabrics[idx],name:ff.name,unit:ff.unit,price:Number(ff.price)||0}}else{d.fabrics.push({id:Date.now(),name:ff.name,unit:ff.unit,price:Number(ff.price)||0})}});setFf({name:"",unit:"كيلو",price:"",_eid:null})};
   const saveAcc=()=>{if(!af.name)return;upConfig(d=>{if(af._eid){const idx=d.accessories.findIndex(x=>x.id===af._eid);if(idx>=0)d.accessories[idx]={...d.accessories[idx],name:af.name,unit:af.unit,price:Number(af.price)||0}}else{d.accessories.push({id:Date.now(),name:af.name,unit:af.unit,price:Number(af.price)||0})}});setAf({name:"",unit:"قطعة",price:"",_eid:null})};
@@ -863,35 +864,47 @@ function DBPg({data,upConfig,isMob,canEdit,statusCards}){
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setAf({name:"",unit:"قطعة",price:"",_eid:null,_show:false})}>الغاء</Btn><Btn primary onClick={()=>{saveAcc();setAf({name:"",unit:"قطعة",price:"",_eid:null,_show:false})}}>💾 حفظ</Btn></div>
       </div>
     </div></div>}</>}
-    {sub==="size"&&<Card title="المقاسات">{canEdit&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"3fr 1fr auto",gap:10,marginBottom:16}}>
-      <Inp value={sfld.label} onChange={v=>setSfld({...sfld,label:v})} placeholder="المقاسات (مثال: S-M-L-XL)"/>
-      <Inp type="number" value={sfld.pcs||""} onChange={v=>setSfld({...sfld,pcs:Number(v)||0})} placeholder="قطع/سيري"/>
-      <div style={{display:"flex",gap:4}}><Btn primary onClick={saveSize}>{sfld._eid?"تحديث":"+ اضافة"}</Btn>{sfld._eid&&<Btn ghost onClick={()=>setSfld({label:"",pcs:0,_eid:null})}>الغاء</Btn>}</div>
-    </div>}<table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","المقاسات","قطع/سيري",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.sizeSets.map((s,i)=><tr key={s.id} style={{background:sfld._eid===s.id?T.warn+"10":"transparent"}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:600}}>{s.label}</td><td style={{...TDB,color:T.accent}}>{s.pcsPerSeries||"-"}</td>{canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:4}}>{eBtn(()=>setSfld({label:s.label,pcs:s.pcsPerSeries||0,_eid:s.id}))}<DelBtn onConfirm={()=>upConfig(d=>{d.sizeSets=d.sizeSets.filter(x=>x.id!==s.id)})} blocked={sizeBlock(s)}/></div></td>}</tr>)}</tbody></table></Card>}
-    {sub==="garment"&&<Card title="قطع الموديل">{canEdit&&<div style={{display:"grid",gridTemplateColumns:"auto 3fr auto",gap:8,marginBottom:16,alignItems:"end"}}>
-      <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الأيقونة</label><Sel value={gIconSel} onChange={setGIconSel}>{GARMENT_ICONS.map(ic=><option key={ic} value={ic}>{ic}</option>)}</Sel></div>
-      <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>اسم القطعة</label><Inp value={gName} onChange={setGName} placeholder="مثال: قميص، شورت، تيشيرت"/></div>
-      <div style={{display:"flex",gap:4}}><Btn primary onClick={saveGarment}>{gEid?"تحديث":"+ اضافة"}</Btn>{gEid&&<Btn ghost onClick={()=>{setGName("");setGEid(null);setGIconSel("👕")}}>الغاء</Btn>}</div>
-    </div>}
-      <div style={{display:"flex",flexWrap:"wrap",gap:10}}>{(data.garmentTypes||[]).map(g=><span key={g.id} style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 18px",borderRadius:12,border:"1px solid "+(gEid===g.id?T.warn:T.brd),fontSize:FS,fontWeight:600,background:gEid===g.id?T.warn+"10":T.cardSolid}}>{(g.icon||gIcon(g.name,data.garmentTypes))+" "+g.name}{canEdit&&<>{" "}{eBtn(()=>{setGName(g.name);setGEid(g.id);setGIconSel(g.icon||gIcon(g.name,data.garmentTypes))})}<DelBtn onConfirm={()=>upConfig(d=>{d.garmentTypes=(d.garmentTypes||[]).filter(x=>x.id!==g.id)})} blocked={garmentBlock(g)}/></>}</span>)}</div>
+    {sub==="size"&&<><Card title="المقاسات" extra={canEdit&&<Btn primary small onClick={()=>setSfld({label:"",pcs:0,_eid:null,_show:true})}>+ اضافة</Btn>}>
+      <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","المقاسات","قطع/سيري",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.sizeSets.map((s,i)=><tr key={s.id}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:600}}>{s.label}</td><td style={{...TDB,color:T.accent}}>{s.pcsPerSeries||"-"}</td>{canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:4}}>{eBtn(()=>setSfld({label:s.label,pcs:s.pcsPerSeries||0,_eid:s.id,_show:true}))}<DelBtn onConfirm={()=>upConfig(d=>{d.sizeSets=d.sizeSets.filter(x=>x.id!==s.id)})} blocked={sizeBlock(s)}/></div></td>}</tr>)}</tbody></table></Card>
+    {sfld._show&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setSfld({...sfld,_show:false})}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:400,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
+      <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,marginBottom:14}}>{sfld._eid?"✏️ تعديل المقاس":"+ مقاس جديد"}</div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <div><label style={{fontSize:FS-2,color:T.textSec}}>المقاسات</label><Inp value={sfld.label} onChange={v=>setSfld({...sfld,label:v})} placeholder="S-M-L-XL"/></div>
+        <div><label style={{fontSize:FS-2,color:T.textSec}}>قطع/سيري</label><Inp type="number" value={sfld.pcs||""} onChange={v=>setSfld({...sfld,pcs:Number(v)||0})}/></div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setSfld({label:"",pcs:0,_eid:null,_show:false})}>الغاء</Btn><Btn primary onClick={()=>{saveSize();setSfld({label:"",pcs:0,_eid:null,_show:false})}}>💾 حفظ</Btn></div>
+      </div>
+    </div></div>}</>}
+    {sub==="garment"&&<><Card title="قطع الموديل" extra={canEdit&&<Btn primary small onClick={()=>{setGName("");setGEid(null);setGIconSel("👕");setGShow(true)}}>+ اضافة</Btn>}>
+      <div style={{display:"flex",flexWrap:"wrap",gap:10}}>{(data.garmentTypes||[]).map(g=><span key={g.id} style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 18px",borderRadius:12,border:"1px solid "+T.brd,fontSize:FS,fontWeight:600,background:T.cardSolid}}>{(g.icon||gIcon(g.name,data.garmentTypes))+" "+g.name}{canEdit&&<>{" "}{eBtn(()=>{setGName(g.name);setGEid(g.id);setGIconSel(g.icon||gIcon(g.name,data.garmentTypes));setGShow(true)})}<DelBtn onConfirm={()=>upConfig(d=>{d.garmentTypes=(d.garmentTypes||[]).filter(x=>x.id!==g.id)})} blocked={garmentBlock(g)}/></>}</span>)}</div>
       {(!data.garmentTypes||data.garmentTypes.length===0)&&<div style={{textAlign:"center",padding:20,color:T.textSec}}>لم يتم اضافة قطع بعد</div>}
-    </Card>}
+    </Card>
+    {gShow&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setGShow(false)}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:380,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
+      <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,marginBottom:14}}>{gEid?"✏️ تعديل القطعة":"+ قطعة جديدة"}</div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:8}}>
+          <div><label style={{fontSize:FS-2,color:T.textSec}}>الأيقونة</label><Sel value={gIconSel} onChange={setGIconSel}>{GARMENT_ICONS.map(ic=><option key={ic} value={ic}>{ic}</option>)}</Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec}}>اسم القطعة</label><Inp value={gName} onChange={setGName} placeholder="قميص، شورت..."/></div>
+        </div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setGShow(false)}>الغاء</Btn><Btn primary onClick={()=>{saveGarment();setGShow(false)}}>💾 حفظ</Btn></div>
+      </div>
+    </div></div>}</>}
     {sub==="ws"&&<WsManager workshops={data.workshops||[]} upConfig={upConfig} canEdit={canEdit} isMob={isMob} orders={data.orders}/>}
-    {/* STATUS CARDS */}
-    {sub==="status"&&<Card title="حالات الأوردر (بالألوان)">
-      {canEdit&&<div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
-        <Inp value={stName} onChange={setStName} placeholder="اسم الحالة" style={{width:200}}/>
-        <div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:FS-2,color:T.textSec}}>اللون:</span><input type="color" value={stColor} onChange={e=>setStColor(e.target.value)} style={{width:40,height:36,borderRadius:8,border:"none",cursor:"pointer"}}/></div>
-        <Btn primary onClick={saveStatus}>{stEid?"تحديث":"+ اضافة حالة"}</Btn>
-        {stEid&&<Btn ghost onClick={()=>{setStName("");setStColor("#0EA5E9");setStEid(null)}}>الغاء</Btn>}
-      </div>}
+    {sub==="status"&&<><Card title="حالات الأوردر" extra={canEdit&&<Btn primary small onClick={()=>{setStName("");setStColor("#0EA5E9");setStEid(null);setStShow(true)}}>+ اضافة</Btn>}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:12}}>
-        {statusCards.map(s=><div key={s.id} style={{padding:16,borderRadius:14,border:"2px solid "+(stEid===s.id?T.warn:s.color)+"40",background:s.color+"08",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        {statusCards.map(s=><div key={s.id} style={{padding:16,borderRadius:14,border:"2px solid "+s.color+"40",background:s.color+"08",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:20,height:20,borderRadius:6,background:s.color}}/><span style={{fontWeight:700,fontSize:FS,color:T.text}}>{s.name}</span></div>
-          {canEdit&&<div style={{display:"flex",gap:4}}>{eBtn(()=>{setStName(s.name);setStColor(s.color);setStEid(s.id)})}<DelBtn onConfirm={()=>upConfig(d=>{d.statusCards=(d.statusCards||[]).filter(x=>x.id!==s.id)})}/></div>}
+          {canEdit&&<div style={{display:"flex",gap:4}}>{eBtn(()=>{setStName(s.name);setStColor(s.color);setStEid(s.id);setStShow(true)})}<DelBtn onConfirm={()=>upConfig(d=>{d.statusCards=(d.statusCards||[]).filter(x=>x.id!==s.id)})}/></div>}
         </div>)}
       </div>
-    </Card>}
+    </Card>
+    {stShow&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setStShow(false)}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:380,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
+      <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,marginBottom:14}}>{stEid?"✏️ تعديل الحالة":"+ حالة جديدة"}</div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <div><label style={{fontSize:FS-2,color:T.textSec}}>اسم الحالة</label><Inp value={stName} onChange={setStName}/></div>
+        <div><label style={{fontSize:FS-2,color:T.textSec}}>اللون</label><input type="color" value={stColor} onChange={e=>setStColor(e.target.value)} style={{width:"100%",height:40,borderRadius:8,border:"1px solid "+T.brd,cursor:"pointer"}}/></div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setStShow(false)}>الغاء</Btn><Btn primary onClick={()=>{saveStatus();setStShow(false)}}>💾 حفظ</Btn></div>
+      </div>
+    </div></div>}</>}
   </div>
 }
 
@@ -998,7 +1011,9 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig}){
   const mainQty=sqty(form.colorsA);const updF=(key,val)=>setForm(p=>setF(p,key,val));
   const isDirty=form.modelNo||form.modelDesc||form.fabricA||(form.colorsA||[]).some(c=>c.color||c.layers>0);
   useEffect(()=>{window.__formDirty=!!isDirty;return()=>{window.__formDirty=false}},[isDirty]);
-  const handleCancel=()=>{if(isDirty){if(!confirm("هل تريد الخروج بدون حفظ البيانات المدخلة؟"))return}onCancel()};
+  const[dupPopup,setDupPopup]=useState(false);const[dupModelNo,setDupModelNo]=useState("");
+  const[cancelPopup,setCancelPopup]=useState(false);
+  const handleCancel=()=>{if(isDirty){setCancelPopup(true)}else{onCancel()}};
   const save=()=>{const v=validateOrder(form);if(v.length>0){setErrs(v);return}setErrs([]);const ss=data.sizeSets.find(s=>s.id===Number(form.sizeSetId));const o={...form,cutQty:mainQty,sizeLabel:ss?ss.label:""};FKEYS.forEach(k=>{const fb=fabObj(o["fabric"+k]);o["fabric"+k+"Label"]=fb?(fb.name+" - "+fb.unit):"";o["fabric"+k+"Price"]=fb?fb.price:0;o["fabric"+k+"Unit"]=fb?fb.unit:""});delete o._docId;onSave(o)};
   const doCopy=()=>{const src=data.orders.find(o=>o.id===copyFrom);if(!src)return;setForm(p=>{const n={...p};
     if(copyFields.sizes){n.sizeSetId=src.sizeSetId;n.sizeLabel=src.sizeLabel}
@@ -1037,7 +1052,7 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig}){
     <div style={{marginTop:12}}><Btn ghost onClick={()=>setTplMode(false)}>↩ رجوع</Btn></div>
   </Card>;
 
-  return<Card title={initial.modelNo?"تعديل الأوردر":"أمر قص جديد"} accent={"linear-gradient(135deg,"+T.accent+","+T.accent+"CC)"} extra={<div style={{display:"flex",gap:8}}>{!initial.modelNo&&<Btn small onClick={()=>setTplMode(true)} style={{background:"rgba(255,255,255,0.2)",color:"#fff",border:"none"}}>📂 قوالب</Btn>}{!initial.modelNo&&<Btn small onClick={()=>setCopyMode(true)} style={{background:"rgba(255,255,255,0.2)",color:"#fff",border:"none"}}>نسخ من أوردر</Btn>}{!initial.modelNo&&data.orders.length>0&&<Btn small onClick={()=>{const oid=prompt("ادخل رقم الموديل للتكرار:");if(!oid)return;const src=data.orders.find(o=>o.modelNo===oid.trim());if(!src){alert("لم يتم العثور على الموديل");return}setForm(p=>{const n={...p};n.sizeSetId=src.sizeSetId;n.sizeLabel=src.sizeLabel;n.orderPieces=[...(src.orderPieces||[])];n.accItems=JSON.parse(JSON.stringify(src.accItems||[]));n.instructions=src.instructions||"";FKEYS.forEach(k=>{n["fabric"+k]=src["fabric"+k]||"";n["cons"+k]=src["cons"+k]||"";n["colors"+k]=JSON.parse(JSON.stringify(src["colors"+k]||[]));n["cutDate"+k]=new Date().toISOString().split("T")[0];n["fabricPieces"+k]=src["fabricPieces"+k]||[]});return n})}} style={{background:"rgba(255,255,255,0.2)",color:"#fff",border:"none"}}>📋 تكرار</Btn>}<Btn small onClick={save} style={{background:"#fff",color:T.accent,border:"none",fontWeight:700}}>حفظ</Btn>{form.fabricA&&<Btn small onClick={saveTpl} style={{background:"rgba(255,255,255,0.15)",color:"#fff",border:"none"}}>💾 حفظ كقالب</Btn>}<Btn small onClick={handleCancel} style={{background:"rgba(255,255,255,0.3)",color:"#fff",border:"none"}}>الغاء</Btn></div>} style={{marginBottom:20}}>
+  return<Card title={initial.modelNo?"تعديل الأوردر":"أمر قص جديد"} accent={"linear-gradient(135deg,"+T.accent+","+T.accent+"CC)"} extra={<div style={{display:"flex",gap:8}}>{!initial.modelNo&&<Btn small onClick={()=>setTplMode(true)} style={{background:"rgba(255,255,255,0.2)",color:"#fff",border:"none"}}>📂 قوالب</Btn>}{!initial.modelNo&&<Btn small onClick={()=>setCopyMode(true)} style={{background:"rgba(255,255,255,0.2)",color:"#fff",border:"none"}}>نسخ من أوردر</Btn>}{!initial.modelNo&&data.orders.length>0&&<Btn small onClick={()=>{setDupPopup(true);setDupModelNo("")}} style={{background:"rgba(255,255,255,0.2)",color:"#fff",border:"none"}}>📋 تكرار</Btn>}<Btn small onClick={save} style={{background:"#fff",color:T.accent,border:"none",fontWeight:700}}>حفظ</Btn>{form.fabricA&&<Btn small onClick={saveTpl} style={{background:"rgba(255,255,255,0.15)",color:"#fff",border:"none"}}>💾 حفظ كقالب</Btn>}<Btn small onClick={handleCancel} style={{background:"rgba(255,255,255,0.3)",color:"#fff",border:"none"}}>الغاء</Btn></div>} style={{marginBottom:20}}>
     {errs.length>0&&<div style={{background:T.err+"10",border:"1px solid "+T.err+"30",borderRadius:12,padding:14,marginBottom:16}}>{errs.map((e,i)=><div key={i} style={{color:T.err,fontSize:FS,fontWeight:600,padding:"2px 0"}}>{"* "+e}</div>)}</div>}
     <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"auto 1fr",gap:10,marginBottom:10}}>
       <div><div style={{width:isMob?"100%":100,height:isMob?120:160,borderRadius:10,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.inputBg||T.cardSolid,cursor:"pointer",position:"relative"}}>{form.image?<img src={form.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-1,color:T.textMut}}>صورة</span>}<input type="file" accept="image/*" onChange={handleImg} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/></div></div>
@@ -1101,6 +1116,17 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig}){
         </div>
       </div>
     </div>}
+    {dupPopup&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setDupPopup(false)}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:380,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
+      <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6",marginBottom:14}}>📋 تكرار من أوردر</div>
+      <div style={{marginBottom:12}}><label style={{fontSize:FS-2,color:T.textSec}}>اختر الأوردر</label><Sel value={dupModelNo} onChange={setDupModelNo}><option value="">-- اختر --</option>{data.orders.map(o=><option key={o.id} value={o.modelNo}>{o.modelNo+" — "+o.modelDesc}</option>)}</Sel></div>
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setDupPopup(false)}>الغاء</Btn><Btn primary disabled={!dupModelNo} onClick={()=>{const src=data.orders.find(o=>o.modelNo===dupModelNo);if(!src)return;setForm(p=>{const n={...p};n.sizeSetId=src.sizeSetId;n.sizeLabel=src.sizeLabel;n.orderPieces=[...(src.orderPieces||[])];n.accItems=JSON.parse(JSON.stringify(src.accItems||[]));n.instructions=src.instructions||"";FKEYS.forEach(k=>{n["fabric"+k]=src["fabric"+k]||"";n["cons"+k]=src["cons"+k]||"";n["colors"+k]=JSON.parse(JSON.stringify(src["colors"+k]||[]));n["cutDate"+k]=new Date().toISOString().split("T")[0];n["fabricPieces"+k]=src["fabricPieces"+k]||[]});return n});setDupPopup(false);showToast("✓ تم نسخ بيانات "+dupModelNo)}}>تكرار</Btn></div>
+    </div></div>}
+    {cancelPopup&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setCancelPopup(false)}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:360,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)",textAlign:"center"}}>
+      <div style={{fontSize:40,marginBottom:10}}>⚠️</div>
+      <div style={{fontSize:FS+2,fontWeight:800,color:T.warn,marginBottom:8}}>هل تريد الخروج؟</div>
+      <div style={{fontSize:FS,color:T.textSec,marginBottom:16}}>يوجد بيانات مدخلة لم يتم حفظها</div>
+      <div style={{display:"flex",gap:10,justifyContent:"center"}}><Btn ghost onClick={()=>setCancelPopup(false)}>متابعة التسجيل</Btn><Btn danger onClick={()=>{setCancelPopup(false);window.__formDirty=false;onCancel()}}>خروج بدون حفظ</Btn></div>
+    </div></div>}
   </Card>
 }
 
@@ -1255,7 +1281,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
     <div id="parea">
       <div style={{display:"flex",gap:10,marginBottom:12}}>
         {isMob&&order.image&&<div style={{flexShrink:0}}><img src={order.image} alt="" style={{width:70,height:93,objectFit:"cover",borderRadius:10,border:"1px solid "+T.brd}}/></div>}
-        <div style={{flex:1,display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:isMob?6:12}}>
+        <div style={{flex:1,display:"grid",gridTemplateColumns:"1fr 1fr",gap:isMob?6:10}}>
           <MetricCard label="كمية القص" value={t.cutQty} icon="✂️" color={T.accent}/><MetricCard label="تم التسليم" value={order.deliveredQty||0} icon="📦" color={T.ok}/><MetricCard label="الرصيد" value={t.balance} icon="📊" color={t.balance>0?T.warn:T.ok}/><MetricCard label="تكلفة القطعة" value={t.costPer+" ج.م"} icon="💰" color={T.accent}/>
         </div>
       </div>
@@ -1434,7 +1460,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
   const wsOrders=selWs?data.orders.filter(o=>(o.workshopDeliveries||[]).some(wd=>wd.wsName===selWs)):[];
 
   const deliverToWs=(andPrint)=>{
-    if(!selWs||!selOrder||!delQty)return;
+    if(!selWs||!selOrder||!delQty||!delType)return;
     if(!isInternal(selWs)&&!Number(delPrice)){alert("سعر التشغيل مطلوب");return}
     const ord=data.orders.find(o=>o.id===selOrder);if(!ord)return;
     const t=calcOrder(ord);
@@ -1592,11 +1618,18 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         <option value="">-- اختر ورشة --</option>
         {workshops.map(w=><option key={w.id||w} value={w.name||w}>{(w.name||w)+(w.owner?" - "+w.owner:"")}</option>)}
       </Sel>
-      {wsObj&&<div style={{marginTop:12,display:"flex",alignItems:"center",gap:12,padding:12,background:T.accentBg,borderRadius:10}}>
-        {wsObj.ownerPhoto&&<img src={wsObj.ownerPhoto} alt="" style={{width:40,height:53,borderRadius:8,objectFit:"cover"}}/>}
-        <div><div style={{fontWeight:700,fontSize:FS}}>{wsObj.name}</div>{wsObj.phone&&<div style={{fontSize:FS-2,color:T.textSec}}>{"📱 "+wsObj.phone}</div>}</div>
-        <div style={{marginRight:"auto",fontWeight:700,color:wsObj.rating>=7?T.ok:T.warn}}>{wsObj.rating+"/10"}</div>
-      </div>}
+      {wsObj&&(()=>{let wsTotalDel=0,wsTotalRcv=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===selWs).forEach(wd=>{wsTotalDel+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{wsTotalRcv+=Number(r.qty)||0})})});const wsBal=wsTotalDel-wsTotalRcv;
+        return<div style={{marginTop:12,padding:12,background:T.accentBg,borderRadius:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8}}>
+            {wsObj.ownerPhoto&&<img src={wsObj.ownerPhoto} alt="" style={{width:40,height:53,borderRadius:8,objectFit:"cover"}}/>}
+            <div style={{flex:1}}><div style={{fontWeight:700,fontSize:FS}}>{wsObj.name}</div>{wsObj.phone&&<div style={{fontSize:FS-2,color:T.textSec}}>{"📱 "+wsObj.phone}</div>}</div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+            <div style={{padding:"6px 8px",borderRadius:8,background:T.purple+"10",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>تسليم ورشة</div><div style={{fontWeight:800,color:T.purple}}>{wsTotalDel}</div></div>
+            <div style={{padding:"6px 8px",borderRadius:8,background:T.ok+"10",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>استلام مصنع</div><div style={{fontWeight:800,color:T.ok}}>{wsTotalRcv}</div></div>
+            <div style={{padding:"6px 8px",borderRadius:8,background:(wsBal>0?T.err:T.ok)+"10",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>الرصيد</div><div style={{fontWeight:800,color:wsBal>0?T.err:T.ok}}>{wsBal}</div></div>
+          </div>
+        </div>})()}
     </Card>
     {selWs&&<Card title={"أوردرات متاحة للتسليم ("+availOrders.length+")"} style={{marginBottom:16}}>
       {availOrders.length>0?<div>
@@ -1631,7 +1664,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
           {!isInternal(selWs)&&<div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>سعر التشغيل</label><Inp type="number" step="0.01" value={delPrice} onChange={v=>setDelPrice(v)} placeholder="سعر القطعة"/></div>}
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>ملاحظات</label><Inp value={delNote} onChange={setDelNote} placeholder="ملاحظات..."/></div>
         </div>
-        <div style={{display:"flex",gap:8}}><Btn primary onClick={()=>deliverToWs(false)} disabled={!selOrder||!delQty}>تسليم وحفظ</Btn><Btn onClick={()=>deliverToWs(true)} disabled={!selOrder||!delQty} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>تسليم + طباعة</Btn></div>
+        <div style={{display:"flex",gap:8}}><Btn primary onClick={()=>deliverToWs(false)} disabled={!selOrder||!delQty||!delType}>تسليم وحفظ</Btn><Btn onClick={()=>deliverToWs(true)} disabled={!selOrder||!delQty||!delType} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>تسليم + طباعة</Btn></div>
         {selOrder&&(()=>{const ord=data.orders.find(o=>o.id===selOrder);if(!ord)return null;const t=calcOrder(ord);const avail=getAvailQty(ord);const totalDel=(ord.workshopDeliveries||[]).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return<div style={{padding:14,background:T.inputBg||T.cardSolid,borderRadius:10,border:"1px solid "+T.brd,marginTop:12}}>
           <div style={{fontSize:FS,fontWeight:700,marginBottom:6}}>{"تفاصيل الأوردر: "+ord.modelNo}</div>
           <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:FS-1}}>
