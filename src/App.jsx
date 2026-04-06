@@ -1021,10 +1021,10 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6,gap:8}}>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:FS+3,fontWeight:800,color:T.text,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis"}}>{o.modelDesc}</div>
-                <div style={{fontSize:FS,color:T.textSec}}>{"مقاس "+o.sizeLabel}</div>
+                <div style={{fontSize:FS+1,fontWeight:800,color:T.accent,marginBottom:2}}>{"🏷 "+o.modelNo}</div>
+                <div style={{fontSize:FS+2,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis"}}>{o.modelDesc}</div>
+                <div style={{fontSize:FS-1,color:T.textSec}}>{"مقاس "+o.sizeLabel}</div>
               </div>
-              <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}><span style={{fontSize:18,color:"#F59E0B"}}>★</span><span style={{fontSize:FS,fontWeight:700,color:T.textSec}}>{"["+o.modelNo+"]"}</span></div>
             </div>
             <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:wds.length>0?8:0}}>
               <Badge t={o.status} cards={statusCards}/>
@@ -1732,8 +1732,10 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards}){
         <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>التاريخ</label><Inp type="date" value={stDate} onChange={setStDate}/></div>
         <Btn primary onClick={saveStock} disabled={!stQty||stQty<=0}>📦 تسليم</Btn></>}
       </div>
-      {selOrder&&<div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap",alignItems:"center"}}>
-        <span style={{fontSize:FS,fontWeight:700,color:T.accent}}>{"القص: "+t.cutQty+" | تسليم: "+stockDel+" | المتبقي: "+stockRemain}</span>
+      {selOrder&&<div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
+        <span style={{padding:"4px 10px",borderRadius:6,background:T.err+"10",color:T.err,fontWeight:700,fontSize:FS-1}}>{"القص: "+t.cutQty}</span>
+        <span style={{padding:"4px 10px",borderRadius:6,background:T.ok+"10",color:T.ok,fontWeight:700,fontSize:FS-1}}>{"تم تسليمه: "+stockDel}</span>
+        <span style={{padding:"4px 10px",borderRadius:6,background:stockRemain>0?T.warn+"10":T.ok+"10",color:stockRemain>0?T.warn:T.ok,fontWeight:700,fontSize:FS-1}}>{"المتبقي: "+stockRemain}</span>
       </div>}
       {/* Workshop balance for selected order */}
       {selOrder&&ord&&(ord.workshopDeliveries||[]).length>0&&<div style={{marginTop:8,padding:8,borderRadius:8,background:T.bg,border:"1px solid "+T.brd}}>
@@ -1966,9 +1968,8 @@ function SeasonSummary({data,isMob,season,statusCards}){
 }
 
 function RepPg({data,isMob,season,statusCards}){
-  const[filter,setFilter]=useState("الكل");const[dateFrom,setDateFrom]=useState("");const[dateTo,setDateTo]=useState("");
   const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
-  const list=sortOrders((filter==="الكل"?data.orders:data.orders.filter(o=>o.status===filter)).filter(o=>{if(dateFrom&&o.date<dateFrom)return false;if(dateTo&&o.date>dateTo)return false;return true}));
+  const list=sortOrders(data.orders);
   const cutQ=list.reduce((s,o)=>s+calcOrder(o).cutQty,0);
   const delQ=list.reduce((s,o)=>s+(o.deliveredQty||0),0);
   const comp=cutQ?Math.round((delQ/cutQ)*100):0;
@@ -1991,18 +1992,6 @@ function RepPg({data,isMob,season,statusCards}){
     <div id="rep-area">
       <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>تقرير قص وانتاج المصنع</h1>
       <div className="sub" style={{fontSize:FS-1,color:T.textSec,marginBottom:12}}>{"الموسم: "+season+" | "+list.length+" موديل | "+today}</div>
-      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
-        <div className="mc" style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+T.brd,background:T.cardSolid,textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>كمية القص</div><b style={{fontSize:20,fontWeight:800,color:T.accent}}>{fmt(cutQ)}</b></div>
-        <div className="mc" style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+T.brd,background:T.cardSolid,textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>مخزن جاهز</div><b style={{fontSize:20,fontWeight:800,color:T.ok}}>{fmt(delQ)}</b></div>
-        <div className="mc" style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+T.brd,background:T.cardSolid,textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>الرصيد</div><b style={{fontSize:20,fontWeight:800,color:T.warn}}>{fmt(cutQ-delQ)}</b></div>
-        <div className="mc" style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+T.brd,background:T.cardSolid,textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>الانجاز</div><b style={{fontSize:20,fontWeight:800,color:comp>=80?T.ok:comp>=50?T.warn:T.err}}>{comp+"%"}</b></div>
-      </div>
-      <div style={{display:"flex",gap:4,marginBottom:8,flexWrap:"wrap",alignItems:"center"}}>{["الكل",...statuses].map(s=><Btn key={s} on={filter===s} small onClick={()=>setFilter(s)}>{s}</Btn>)}
-        <span style={{fontSize:FS-2,color:T.textMut,margin:"0 4px"}}>|</span>
-        <Inp type="date" value={dateFrom} onChange={setDateFrom} placeholder="من" style={{width:120,fontSize:FS-2}}/>
-        <Inp type="date" value={dateTo} onChange={setDateTo} placeholder="إلى" style={{width:120,fontSize:FS-2}}/>
-        {(dateFrom||dateTo)&&<Btn ghost small onClick={()=>{setDateFrom("");setDateTo("")}}>✕</Btn>}
-      </div>
       <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
         <thead><tr>{["#","الموديل","الوصف","الخامات","القطع","كمية القص","مخزن","رصيد","الورش","الحالة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
         <tbody>{list.map((o,i)=>{const c=calcOrder(o);const aFabs=activeFabs(o);const wds=o.workshopDeliveries||[];const pieces=o.orderPieces||[];
