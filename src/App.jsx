@@ -538,7 +538,8 @@ export default function App(){
     /* Smart: Workshop quality alerts */
     (data.workshops||[]).filter(w=>w.type!=="داخلي").forEach(w=>{const r=calcWsRating(w.name,data.orders);if(r!==null&&r<5)a.push({msg:w.name+" تقييم منخفض ("+r+"/10) — مراجعة الجودة",color:T.err,icon:"📉"})});
     /* Smart: Workshop delay alerts */
-    const now=new Date();(data.workshops||[]).filter(w=>w.type!=="داخلي").forEach(w=>{let maxDelay=0,delayOrder="";data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);if(rcvd<(Number(wd.qty)||0)){const days=Math.floor((now-new Date(wd.date))/(1000*60*60*24));const ideal=Math.max(5,Math.round(((Number(wd.qty)||0)/500)*6.5));if(days>ideal*1.5&&days>maxDelay){maxDelay=days;delayOrder=o.modelNo}}})});if(maxDelay>0)a.push({msg:w.name+" متأخرة "+maxDelay+" يوم (موديل "+delayOrder+")",color:T.warn,icon:"🕐"})});
+    const _now=new Date();
+    (data.workshops||[]).filter(w=>w.type!=="داخلي").forEach(w=>{let maxDelay=0,delayOrder="";data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);if(rcvd<(Number(wd.qty)||0)){const days=Math.floor((_now-new Date(wd.date))/(1000*60*60*24));const ideal=Math.max(5,Math.round(((Number(wd.qty)||0)/500)*6.5));if(days>ideal*1.5&&days>maxDelay){maxDelay=days;delayOrder=o.modelNo}}})});if(maxDelay>0)a.push({msg:w.name+" متأخرة "+maxDelay+" يوم (موديل "+delayOrder+")",color:T.warn,icon:"🕐"})});
     return a}catch(e){console.error("Alert error:",e);return[]}})();
 
   const goHome=()=>{if(window.__formDirty){if(!confirm("هل تريد الخروج بدون حفظ البيانات المدخلة؟"))return;window.__formDirty=false}setTab("home");setSel(null)};
