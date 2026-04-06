@@ -485,12 +485,7 @@ export default function App(){
   /* Compute alerts */
   const appAlerts=(()=>{try{const a=[];
     data.orders.forEach(o=>{const wds=o.workshopDeliveries||[];const pieces=o.orderPieces||[];
-      if(pieces.length>0){
-        const allMissing=pieces.every(p=>wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0)===0);
-        const someMissing=pieces.some(p=>wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0)===0);
-        if(allMissing&&wds.length===0)a.push({msg:o.modelNo+" — كل القطع لم تُسلَّم ("+pieces.join("، ")+")",color:T.warn,icon:"⏳",orderId:o.id});
-        else if(someMissing){const missing=pieces.filter(p=>wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0)===0);const done=pieces.filter(p=>!missing.includes(p));a.push({msg:o.modelNo+" — متبقي: "+missing.join("، ")+(done.length>0?" (تم: "+done.join("، ")+")":""),color:T.warn,icon:"⏳",orderId:o.id})}
-      }else if(wds.length===0&&o.status==="تم القص"){a.push({msg:o.modelNo+" — "+o.modelDesc+" لم يُسلَّم لأي ورشة",color:T.warn,icon:"⏳",orderId:o.id})}
+      if(pieces.length===0&&wds.length===0&&o.status==="تم القص"){a.push({msg:o.modelNo+" — "+o.modelDesc+" لم يُسلَّم لأي ورشة",color:T.warn,icon:"⏳",orderId:o.id})}
       /* Pieces not linked to fabric */
       if(pieces.length>0){const linkedPieces=new Set();FKEYS.forEach(k=>{if(gf(o,k))(o["fabricPieces"+k]||[]).forEach(p=>linkedPieces.add(p))});const unlinked=pieces.filter(p=>!linkedPieces.has(p));unlinked.forEach(p=>a.push({msg:o.modelNo+" — متبقي "+p+" «لم يتم القص»",color:T.purple,icon:"🧵",orderId:o.id}))}
     });
