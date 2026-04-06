@@ -778,6 +778,33 @@ function DashPg({data,goD,isMob,season,statusCards}){
         </div>}
       </div>:<p style={{color:T.textSec,textAlign:"center",padding:20}}>لا توجد بيانات ورش</p>}</Card>
     </div>
+    {/* Today's Summary */}
+    {(()=>{const today=new Date().toISOString().split("T")[0];
+      let todayCut=0,todayWsDel=0,todayWsRcv=0,todayStock=0;const todayOrders=[];const todayWsNames=new Set();
+      orders.forEach(o=>{
+        if(o.date===today){todayCut+=calcOrder(o).cutQty;todayOrders.push(o.modelNo)}
+        (o.workshopDeliveries||[]).forEach(wd=>{
+          if(wd.date===today){todayWsDel+=Number(wd.qty)||0;todayWsNames.add(wd.wsName)}
+          (wd.receives||[]).forEach(r=>{if(r.date===today)todayWsRcv+=Number(r.qty)||0})
+        });
+        (o.deliveries||[]).forEach(d=>{if(d.date===today)todayStock+=Number(d.qty)||0})
+      });
+      const hasActivity=todayCut||todayWsDel||todayWsRcv||todayStock;
+      return<Card title={"📊 ملخص اليوم — "+today} style={{marginBottom:16}}>
+        {hasActivity?<div>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:10,marginBottom:12}}>
+            <div style={{padding:12,borderRadius:10,background:T.accent+"08",textAlign:"center"}}><div style={{fontSize:22,marginBottom:2}}>✂️</div><div style={{fontSize:FS+4,fontWeight:800,color:T.accent}}>{todayCut}</div><div style={{fontSize:FS-2,color:T.textSec}}>تم قصها</div></div>
+            <div style={{padding:12,borderRadius:10,background:"#8B5CF608",textAlign:"center"}}><div style={{fontSize:22,marginBottom:2}}>📤</div><div style={{fontSize:FS+4,fontWeight:800,color:"#8B5CF6"}}>{todayWsDel}</div><div style={{fontSize:FS-2,color:T.textSec}}>تسليم ورشة</div></div>
+            <div style={{padding:12,borderRadius:10,background:T.ok+"08",textAlign:"center"}}><div style={{fontSize:22,marginBottom:2}}>📥</div><div style={{fontSize:FS+4,fontWeight:800,color:T.ok}}>{todayWsRcv}</div><div style={{fontSize:FS-2,color:T.textSec}}>استلام مصنع</div></div>
+            <div style={{padding:12,borderRadius:10,background:"#05966908",textAlign:"center"}}><div style={{fontSize:22,marginBottom:2}}>📦</div><div style={{fontSize:FS+4,fontWeight:800,color:"#059669"}}>{todayStock}</div><div style={{fontSize:FS-2,color:T.textSec}}>مخزن جاهز</div></div>
+          </div>
+          {todayOrders.length>0&&<div style={{fontSize:FS-1,color:T.textSec}}>{"أوامر قص: "+todayOrders.join("، ")}</div>}
+          {todayWsNames.size>0&&<div style={{fontSize:FS-1,color:T.textSec}}>{"ورش: "+[...todayWsNames].join("، ")}</div>}
+        </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>
+          <div style={{fontSize:28,marginBottom:6}}>☀️</div>
+          <div style={{fontSize:FS,fontWeight:600}}>لا توجد حركات اليوم بعد</div>
+        </div>}
+      </Card>})()}
     <Card title="آخر الأوامر"><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}>
       <thead><tr>{["موديل","الوصف","الكمية","الحالة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
       <tbody>{recent.map(o=>{const t=calcOrder(o);return<tr key={o.id} style={{cursor:"pointer"}} onClick={()=>goD(o.id)}><td style={TDB}>{o.modelNo}</td><td style={TD}>{o.modelDesc}</td><td style={{...TDB,color:T.accent}}>{t.cutQty}</td><td style={TD}><Badge t={o.status} cards={statusCards}/></td></tr>})}
