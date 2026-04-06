@@ -545,7 +545,7 @@ export default function App(){
 
   const[user,setUser]=useState(null);const[authLoading,setAuthLoading]=useState(true);
   const[config,setConfig]=useState(INIT_CONFIG);const[orders,setOrders]=useState([]);const[dataLoading,setDataLoading]=useState(true);
-  const[tab,setTab]=useState("home");const[sel,setSel]=useState(null);const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);
+  const[tab,setTab]=useState("home");const[sel,setSel]=useState(null);const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);
   const themeKey="clark-theme-"+(user?.uid||"default");
   const[theme,setTheme]=useState(()=>localStorage.getItem(themeKey)||"light");
   T=THEMES[theme]||THEMES.light;
@@ -632,8 +632,9 @@ export default function App(){
           <input value={gSearch} onChange={e=>setGSearch(e.target.value)} placeholder="🔍 بحث سريع..." style={{width:"100%",padding:"5px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none"}}/>
           {gSearch.trim()&&(()=>{const q=gSearch.trim().toLowerCase();const res=[];
             data.orders.forEach(o=>{if([o.modelNo,o.modelDesc].join(" ").toLowerCase().includes(q))res.push({type:"أوردر",label:o.modelNo+" — "+o.modelDesc,action:()=>{goD(o.id);setGSearch("")}})});
-            (data.workshops||[]).forEach(w=>{if(w.name.toLowerCase().includes(q))res.push({type:"ورشة",label:w.name+(w.owner?" — "+w.owner:""),action:()=>{setTab("db");setGSearch("")}})});
-            (data.fabrics||[]).forEach(f=>{if(f.name.toLowerCase().includes(q))res.push({type:"خامة",label:f.name,action:()=>{setTab("db");setGSearch("")}})});
+            (data.workshops||[]).forEach(w=>{if(w.name.toLowerCase().includes(q))res.push({type:"ورشة",label:w.name+(w.owner?" — "+w.owner:""),action:()=>{setDbSub("ws");setTab("db");setGSearch("")}})});
+            (data.fabrics||[]).forEach(f=>{if(f.name.toLowerCase().includes(q))res.push({type:"خامة",label:f.name,action:()=>{setDbSub("fab");setTab("db");setGSearch("")}})});
+            (data.accessories||[]).forEach(a=>{if(a.name.toLowerCase().includes(q))res.push({type:"اكسسوار",label:a.name,action:()=>{setDbSub("acc");setTab("db");setGSearch("")}})});
             return<div style={{position:"absolute",top:"100%",right:0,left:0,marginTop:4,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:10,boxShadow:"0 8px 30px rgba(0,0,0,0.15)",zIndex:999,maxHeight:300,overflow:"auto"}}>
               {res.slice(0,8).map((r,i)=><div key={i} onClick={r.action} style={{padding:"8px 12px",cursor:"pointer",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:FS-1}} onMouseEnter={e=>e.currentTarget.style.background=T.accentBg} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                 <span>{r.label}</span><span style={{fontSize:FS-3,color:T.textMut,background:T.bg,padding:"1px 6px",borderRadius:4}}>{r.type}</span>
@@ -678,7 +679,7 @@ export default function App(){
       {/* PAGES with back button */}
       {tab!=="home"&&<div>
         {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
-        {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
+        {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)}/>}
         {tab==="orders"&&<OrdPg data={data} addOrder={addOrder} delOrder={delOrder} updOrder={updOrder} goD={goD} isMob={isMob} canEdit={canEdit} statusCards={statusCards} upConfig={upConfig}/>}
         {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEdit} statusCards={statusCards} goHome={goHome} upConfig={upConfig}/>}
         {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards} season={season}/>}
@@ -842,8 +843,9 @@ function DashPg({data,goD,isMob,season,statusCards}){
 }
 
 /* ══ DB ══ */
-function DBPg({data,upConfig,isMob,canEdit,statusCards}){
-  const[sub,setSub]=useState("fab");
+function DBPg({data,upConfig,isMob,canEdit,statusCards,initialSub,onSubUsed}){
+  const[sub,setSub]=useState(initialSub||"fab");
+  useEffect(()=>{if(initialSub){setSub(initialSub);if(onSubUsed)onSubUsed()}},[initialSub]);
   const[ff,setFf]=useState({name:"",unit:"كيلو",price:"",_eid:null});
   const[af,setAf]=useState({name:"",unit:"قطعة",price:"",_eid:null});
   const[sfld,setSfld]=useState({label:"",pcs:0,_eid:null});
