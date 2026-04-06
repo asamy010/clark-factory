@@ -147,7 +147,6 @@ async function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance,gt
   /* Order info table */
   h+="<div style='display:flex;gap:16px;align-items:flex-start;margin-bottom:16px'>";
   if(order.image)h+="<div style='width:80px;height:107px;border-radius:8px;overflow:hidden;border:1px solid #ddd;flex-shrink:0'><img src='"+order.image+"' style='width:100%;height:100%;object-fit:cover'/></div>";
-  if(qrSrc)h+="<div style='flex-shrink:0;text-align:center'><img src='"+qrSrc+"' style='width:80px;height:80px'/><div style='font-size:9px;color:#94A3B8;margin-top:2px'>مسح للاستلام</div></div>";
   h+="<div style='flex:1'><table>";
   h+="<tr><th>رقم الموديل</th><td><b>"+modelNo+"</b></td><th>الوصف</th><td>"+modelDesc+"</td></tr>";
   h+="<tr><th>المقاسات</th><td>"+sizeLabel+"</td><th>كمية القص</th><td><b>"+t.cutQty+"</b></td></tr>";
@@ -174,6 +173,7 @@ async function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance,gt
   h+="<div style='margin:20px 0;padding:16px;border:2px solid #CBD5E1;border-radius:10px;background:#F8FAFC;font-size:13px;line-height:2;text-align:center'>";
   h+="اقر أنا الموقع أدناه بأنني استلمت هذه البضاعة المذكورة عاليه وأتعهد بسداد قيمتها وقت طلبها. وأعتبر مسؤلاً مسئولية كاملة في حالة تبديد هذه البضاعة أو تلفها. وهذا اقرار مني بذلك</div>";
   /* Signatures */
+  if(qrSrc)h+="<div style='display:flex;justify-content:flex-end;margin:16px 0'><div style='text-align:center'><img src='"+qrSrc+"' style='width:88px;height:88px'/><div style='font-size:9px;color:#94A3B8;margin-top:2px'>مسح للاستلام</div></div></div>";
   h+="<div class='sig'><div class='sig-box'>توقيع صاحب الورشة<br/><span style='font-size:11px;color:#8B5CF6'>"+ws+"</span></div><div class='sig-box'>مسؤول القص والتسليم</div></div>";
   printPage("اذن تسليم ورشة — "+modelNo,h)
 }
@@ -449,6 +449,7 @@ export default function App(){
   const qrAction=qrParams.get("act");
   const qrOid=qrParams.get("oid");
   const qrWdi=qrParams.get("wdi");
+  const qrWs=qrParams.get("ws");
 
   const[user,setUser]=useState(null);const[authLoading,setAuthLoading]=useState(true);
   const[config,setConfig]=useState(INIT_CONFIG);const[orders,setOrders]=useState([]);const[dataLoading,setDataLoading]=useState(true);
@@ -474,6 +475,7 @@ export default function App(){
   useEffect(()=>{if(qrDone.current||orders.length===0)return;
     if(qrModelNo){const o=orders.find(x=>x.modelNo===qrModelNo);if(o){qrDone.current=true;goD(o.id);window.history.replaceState({},"",window.location.pathname)}}
     if(qrAction==="rcv"&&qrOid){const o=orders.find(x=>x.id===qrOid);if(o){qrDone.current=true;setTab("external");window.history.replaceState({},"",window.location.pathname);setTimeout(()=>{window.__qrReceive={oid:qrOid,wdi:Number(qrWdi)||0};window.dispatchEvent(new Event("qr-receive"))},600)}}
+    if(qrAction==="wsacc"&&qrWs){qrDone.current=true;setTab("external");window.history.replaceState({},"",window.location.pathname);setTimeout(()=>{window.__qrWsAcc={ws:decodeURIComponent(qrWs)};window.dispatchEvent(new Event("qr-wsacc"))},600)}
   },[orders,qrModelNo,qrAction]);
 
   const data={...config,orders};
@@ -796,10 +798,13 @@ function WsManager({workshops,upConfig,canEdit,isMob,orders}){
             </div>
           </div>
           {ws.idCard&&<div style={{padding:"0 16px 12px"}}><img src={ws.idCard} alt="" style={{width:"100%",height:80,objectFit:"cover",borderRadius:8,border:"1px solid "+T.brd}}/></div>}
-          {canEdit&&<div style={{padding:"0 16px 14px",display:"flex",gap:8}}>
-            <Btn small onClick={()=>startEdit(ws)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>✏️</Btn>
-            <DelBtn onConfirm={()=>del(ws.id)} blocked={wsBlock(ws)}/>
-          </div>}
+          <div style={{padding:"0 16px 10px",display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
+            <div style={{display:"flex",gap:8}}>
+              {canEdit&&<Btn small onClick={()=>startEdit(ws)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>✏️</Btn>}
+              {canEdit&&<DelBtn onConfirm={()=>del(ws.id)} blocked={wsBlock(ws)}/>}
+            </div>
+            {ws.type!=="داخلي"&&<QRImg text={window.location.origin+"?act=wsacc&ws="+encodeURIComponent(ws.name)} size={56}/>}
+          </div>
         </div>)}
       </div>
       {(!workshops||workshops.length===0)&&<div style={{textAlign:"center",padding:30,color:T.textSec}}>لا توجد ورش مسجلة</div>}
@@ -1208,6 +1213,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
 
   /* QR scan receive handler */
   useEffect(()=>{const h=()=>{const qr=window.__qrReceive;if(!qr)return;const ord=data.orders.find(o=>o.id===qr.oid);if(!ord)return;const wd=(ord.workshopDeliveries||[])[qr.wdi];if(!wd)return;setMode("receive");setSelWs(wd.wsName);setRcvSearch(ord.modelNo);delete window.__qrReceive};window.addEventListener("qr-receive",h);return()=>window.removeEventListener("qr-receive",h)},[data.orders]);
+  useEffect(()=>{const h=()=>{const qr=window.__qrWsAcc;if(!qr)return;setMode("accounts");setAccWsF(qr.ws);delete window.__qrWsAcc};window.addEventListener("qr-wsacc",h);return()=>window.removeEventListener("qr-wsacc",h)},[]);
 
   const startEditMov=(m)=>{setEditMov(m);setEditQty(m.qty);setEditNote(m.notes||"");setEditPrice(m.price||0);setEditDate(m.date||"")};
   const saveEditMov=()=>{if(!editMov)return;
