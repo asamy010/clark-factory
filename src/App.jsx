@@ -392,8 +392,33 @@ function Btn({children,on,primary,danger,ghost,onClick,small,disabled,style:sx})
   return<button onClick={onClick} disabled={disabled} style={{padding:small?(mob?"6px 12px":"4px 10px"):(mob?"9px 18px":"7px 16px"),borderRadius:8,fontSize:small?FS-2:FS,fontWeight:600,background:bg,color:fg,border:bd,cursor:disabled?"default":"pointer",fontFamily:"inherit",opacity:disabled?0.5:1,boxShadow:primary?"0 2px 8px "+T.accent+"33":"none",minHeight:mob?36:undefined,...(sx||{})}}>{children}</button>
 }
 
+function safeCalc(expr){try{const clean=expr.replace(/[^0-9+\-*/.() ]/g,"");if(!clean)return null;return new Function("return "+clean)()}catch(e){return null}}
+
+function MiniCalc({onResult,onClose}){
+  const[disp,setDisp]=useState("");
+  const press=(v)=>{if(v==="C"){setDisp("")}else if(v==="⌫"){setDisp(p=>p.slice(0,-1))}else if(v==="="){const r=safeCalc(disp);if(r!==null)setDisp(String(r))}else{setDisp(p=>p+v)}};
+  const ok=()=>{const r=safeCalc(disp);onResult(r!==null?r:Number(disp)||0)};
+  const btns=[["7","8","9","÷"],["4","5","6","×"],["1","2","3","-"],["0",".","C","+"],["⌫","="]];
+  return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
+    <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:16,width:240,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.25)"}}>
+      <div style={{background:T.bg,borderRadius:10,padding:"10px 14px",marginBottom:10,fontSize:20,fontWeight:700,textAlign:"left",direction:"ltr",minHeight:32,color:T.text,wordBreak:"break-all"}}>{disp||"0"}</div>
+      {btns.map((row,ri)=><div key={ri} style={{display:"grid",gridTemplateColumns:ri===4?"1fr 1fr":"repeat(4,1fr)",gap:4,marginBottom:4}}>
+        {row.map(b=><button key={b} onClick={()=>press(b==="÷"?"/":b==="×"?"*":b)} style={{padding:10,borderRadius:8,border:"none",fontSize:16,fontWeight:700,cursor:"pointer",fontFamily:"inherit",background:["+","-","×","÷","="].includes(b)?T.accent:b==="C"||b==="⌫"?T.err+"15":T.bg,color:["+","-","×","÷","="].includes(b)?"#fff":b==="C"||b==="⌫"?T.err:T.text}}>{b}</button>)}
+      </div>)}
+      <div style={{display:"flex",gap:6,marginTop:8}}><button onClick={onClose} style={{flex:1,padding:8,borderRadius:8,border:"1px solid "+T.brd,background:T.bg,color:T.textSec,fontSize:FS,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>الغاء</button><button onClick={ok} style={{flex:1,padding:8,borderRadius:8,border:"none",background:T.ok,color:"#fff",fontSize:FS,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✓ ادخال</button></div>
+    </div>
+  </div>
+}
+
 function Inp({value,onChange,placeholder,type,step,style:sx,readOnly}){
-  return<input type={type||"text"} step={step||"any"} value={value==null?"":value} readOnly={readOnly} onChange={e=>onChange&&onChange(e.target.value)} onFocus={e=>e.target.select()} placeholder={placeholder} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:readOnly?T.bg:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",...(sx||{})}}/>
+  const[showCalc,setShowCalc]=useState(false);
+  const isNum=type==="number";
+  const handleKey=(e)=>{if(e.key==="Enter"&&isNum){const v=String(e.target.value);if(v.startsWith("=")){const r=safeCalc(v.slice(1));if(r!==null&&onChange)onChange(r)}}};
+  return<div style={{position:"relative",display:"flex",gap:2,alignItems:"center"}}>
+    <input type={isNum?"text":type||"text"} inputMode={isNum?"decimal":undefined} step={step||"any"} value={value==null?"":value} readOnly={readOnly} onChange={e=>{const v=e.target.value;if(isNum&&!v.startsWith("=")){onChange&&onChange(v.replace(/[^0-9.\-]/g,""))}else{onChange&&onChange(v)}}} onKeyDown={handleKey} onFocus={e=>e.target.select()} placeholder={placeholder||(isNum?"= معادلة":"")} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:readOnly?T.bg:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",...(sx||{})}}/>
+    {isNum&&!readOnly&&<span onClick={()=>setShowCalc(true)} style={{cursor:"pointer",fontSize:12,flexShrink:0,padding:"3px 4px",borderRadius:4,background:T.bg,border:"1px solid "+T.brd,lineHeight:1}}>🧮</span>}
+    {showCalc&&<MiniCalc onClose={()=>setShowCalc(false)} onResult={v=>{if(onChange)onChange(v);setShowCalc(false)}}/>}
+  </div>
 }
 
 function Sel({value,onChange,children}){
@@ -728,6 +753,33 @@ function DashPg({data,goD,isMob,season,statusCards}){
   const finishingQty=orders.filter(o=>o.status==="تشطيب وتعبئة").reduce((s,o)=>s+calcOrder(o).cutQty,0);
 
   return<div>
+    {/* Today's Summary */}
+    {(()=>{const today=new Date().toISOString().split("T")[0];
+      let todayCut=0,todayWsDel=0,todayWsRcv=0,todayStock=0;const todayOrders=[];const todayWsNames=new Set();
+      orders.forEach(o=>{
+        if(o.date===today){todayCut+=calcOrder(o).cutQty;todayOrders.push(o.modelNo)}
+        (o.workshopDeliveries||[]).forEach(wd=>{
+          if(wd.date===today){todayWsDel+=Number(wd.qty)||0;todayWsNames.add(wd.wsName)}
+          (wd.receives||[]).forEach(r=>{if(r.date===today)todayWsRcv+=Number(r.qty)||0})
+        });
+        (o.deliveries||[]).forEach(d=>{if(d.date===today)todayStock+=Number(d.qty)||0})
+      });
+      const hasActivity=todayCut||todayWsDel||todayWsRcv||todayStock;
+      return<Card title={"📊 ملخص اليوم — "+today} style={{marginBottom:12}}>
+        {hasActivity?<div>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:10,marginBottom:12}}>
+            <div style={{padding:12,borderRadius:10,background:T.accent+"08",textAlign:"center"}}><div style={{fontSize:22,marginBottom:2}}>✂️</div><div style={{fontSize:FS+4,fontWeight:800,color:T.accent}}>{todayCut}</div><div style={{fontSize:FS-2,color:T.textSec}}>تم قصها</div></div>
+            <div style={{padding:12,borderRadius:10,background:"#8B5CF608",textAlign:"center"}}><div style={{fontSize:22,marginBottom:2}}>📤</div><div style={{fontSize:FS+4,fontWeight:800,color:"#8B5CF6"}}>{todayWsDel}</div><div style={{fontSize:FS-2,color:T.textSec}}>تسليم ورشة</div></div>
+            <div style={{padding:12,borderRadius:10,background:T.ok+"08",textAlign:"center"}}><div style={{fontSize:22,marginBottom:2}}>📥</div><div style={{fontSize:FS+4,fontWeight:800,color:T.ok}}>{todayWsRcv}</div><div style={{fontSize:FS-2,color:T.textSec}}>استلام مصنع</div></div>
+            <div style={{padding:12,borderRadius:10,background:"#05966908",textAlign:"center"}}><div style={{fontSize:22,marginBottom:2}}>📦</div><div style={{fontSize:FS+4,fontWeight:800,color:"#059669"}}>{todayStock}</div><div style={{fontSize:FS-2,color:T.textSec}}>مخزن جاهز</div></div>
+          </div>
+          {todayOrders.length>0&&<div style={{fontSize:FS-1,color:T.textSec}}>{"أوامر قص: "+todayOrders.join("، ")}</div>}
+          {todayWsNames.size>0&&<div style={{fontSize:FS-1,color:T.textSec}}>{"ورش: "+[...todayWsNames].join("، ")}</div>}
+        </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>
+          <div style={{fontSize:28,marginBottom:6}}>☀️</div>
+          <div style={{fontSize:FS,fontWeight:600}}>لا توجد حركات اليوم بعد</div>
+        </div>}
+      </Card>})()}
     <Card title={"الانتاج - الموسم "+season+" ("+orders.length+" موديل)"} style={{marginBottom:12}}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(6,1fr)",gap:10}}>
         <div style={{padding:10,borderRadius:8,background:T.accent+"06",border:"1px solid "+T.accent+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>كمية القص</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.accent}}>{fmt(cutQ)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
@@ -779,33 +831,6 @@ function DashPg({data,goD,isMob,season,statusCards}){
         </div>}
       </div>:<p style={{color:T.textSec,textAlign:"center",padding:20}}>لا توجد بيانات ورش</p>}</Card>
     </div>
-    {/* Today's Summary */}
-    {(()=>{const today=new Date().toISOString().split("T")[0];
-      let todayCut=0,todayWsDel=0,todayWsRcv=0,todayStock=0;const todayOrders=[];const todayWsNames=new Set();
-      orders.forEach(o=>{
-        if(o.date===today){todayCut+=calcOrder(o).cutQty;todayOrders.push(o.modelNo)}
-        (o.workshopDeliveries||[]).forEach(wd=>{
-          if(wd.date===today){todayWsDel+=Number(wd.qty)||0;todayWsNames.add(wd.wsName)}
-          (wd.receives||[]).forEach(r=>{if(r.date===today)todayWsRcv+=Number(r.qty)||0})
-        });
-        (o.deliveries||[]).forEach(d=>{if(d.date===today)todayStock+=Number(d.qty)||0})
-      });
-      const hasActivity=todayCut||todayWsDel||todayWsRcv||todayStock;
-      return<Card title={"📊 ملخص اليوم — "+today} style={{marginBottom:16}}>
-        {hasActivity?<div>
-          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:10,marginBottom:12}}>
-            <div style={{padding:12,borderRadius:10,background:T.accent+"08",textAlign:"center"}}><div style={{fontSize:22,marginBottom:2}}>✂️</div><div style={{fontSize:FS+4,fontWeight:800,color:T.accent}}>{todayCut}</div><div style={{fontSize:FS-2,color:T.textSec}}>تم قصها</div></div>
-            <div style={{padding:12,borderRadius:10,background:"#8B5CF608",textAlign:"center"}}><div style={{fontSize:22,marginBottom:2}}>📤</div><div style={{fontSize:FS+4,fontWeight:800,color:"#8B5CF6"}}>{todayWsDel}</div><div style={{fontSize:FS-2,color:T.textSec}}>تسليم ورشة</div></div>
-            <div style={{padding:12,borderRadius:10,background:T.ok+"08",textAlign:"center"}}><div style={{fontSize:22,marginBottom:2}}>📥</div><div style={{fontSize:FS+4,fontWeight:800,color:T.ok}}>{todayWsRcv}</div><div style={{fontSize:FS-2,color:T.textSec}}>استلام مصنع</div></div>
-            <div style={{padding:12,borderRadius:10,background:"#05966908",textAlign:"center"}}><div style={{fontSize:22,marginBottom:2}}>📦</div><div style={{fontSize:FS+4,fontWeight:800,color:"#059669"}}>{todayStock}</div><div style={{fontSize:FS-2,color:T.textSec}}>مخزن جاهز</div></div>
-          </div>
-          {todayOrders.length>0&&<div style={{fontSize:FS-1,color:T.textSec}}>{"أوامر قص: "+todayOrders.join("، ")}</div>}
-          {todayWsNames.size>0&&<div style={{fontSize:FS-1,color:T.textSec}}>{"ورش: "+[...todayWsNames].join("، ")}</div>}
-        </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>
-          <div style={{fontSize:28,marginBottom:6}}>☀️</div>
-          <div style={{fontSize:FS,fontWeight:600}}>لا توجد حركات اليوم بعد</div>
-        </div>}
-      </Card>})()}
     <Card title="آخر الأوامر"><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}>
       <thead><tr>{["موديل","الوصف","الكمية","الحالة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
       <tbody>{recent.map(o=>{const t=calcOrder(o);return<tr key={o.id} style={{cursor:"pointer"}} onClick={()=>goD(o.id)}><td style={TDB}>{o.modelNo}</td><td style={TD}>{o.modelDesc}</td><td style={{...TDB,color:T.accent}}>{t.cutQty}</td><td style={TD}><Badge t={o.status} cards={statusCards}/></td></tr>})}
