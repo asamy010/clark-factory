@@ -41,7 +41,7 @@ const INIT_CONFIG = {
   statusCards: DEFAULT_STATUSES,
   garmentTypes:[{id:1,name:"قميص"},{id:2,name:"شورت"},{id:3,name:"تيشيرت"},{id:4,name:"بنطلون"},{id:5,name:"شنطة"},{id:6,name:"جاكت"}],
   workshops:[{id:1,name:"CLARK",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:8,type:"داخلي"},{id:2,name:"ورشة محمود",owner:"محمود",phone:"",address:"",idCard:"",ownerPhoto:"",rating:7,type:"خارجي"},{id:3,name:"المصنع",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:9,type:"داخلي"}],
-  seasons:["WS26"], activeSeason:"WS26", logo:"", users:{}, usersList:[], wsPayments:[], notifications:[],
+  seasons:["WS26"], activeSeason:"WS26", logo:"", users:{}, usersList:[], wsPayments:[], notifications:[], activityLog:[],
 };
 
 function gid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
@@ -588,6 +588,8 @@ export default function App(){
   const addOrder=async o=>{await addDoc(collection(db,"seasons",season,"orders"),o)};
   const updOrder=async(orderId,fn)=>{const ord=orders.find(o=>o.id===orderId);if(!ord)return;const updated=JSON.parse(JSON.stringify(ord));fn(updated);const clean={...updated};delete clean._docId;await updateDoc(doc(db,"seasons",season,"orders",ord._docId),clean)};
   const delOrder=async orderId=>{const ord=orders.find(o=>o.id===orderId);if(ord)await deleteDoc(doc(db,"seasons",season,"orders",ord._docId))};
+  /* Activity log */
+  const logActivity=(action,details)=>{const uName=user?.displayName||user?.email?.split("@")[0]||"";upConfig(d=>{if(!d.activityLog)d.activityLog=[];d.activityLog.push({user:uName,action,details:details||"",date:new Date().toISOString().split("T")[0],time:new Date().toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit"}),ts:Date.now()});if(d.activityLog.length>100)d.activityLog=d.activityLog.slice(-100)})};
   const replaceOrder=async(orderId,newData)=>{
     const ord=orders.find(o=>o.id===orderId);if(!ord||!ord._docId)return;
     /* Safety: verify data is a valid order object */
@@ -674,6 +676,9 @@ export default function App(){
     </div>
   </div>;
   const userName=user.displayName||user.email.split("@")[0];
+  /* Auto-focus search on keypress */
+  const gSearchRef=useRef(null);
+  useEffect(()=>{const handler=e=>{if(e.target.tagName==="INPUT"||e.target.tagName==="TEXTAREA"||e.target.tagName==="SELECT"||e.target.isContentEditable)return;if(e.ctrlKey||e.altKey||e.metaKey)return;if(e.key.length===1&&/[\u0600-\u06FFa-zA-Z0-9]/.test(e.key)){if(gSearchRef.current){gSearchRef.current.focus();gSearchRef.current.value=e.key;setGSearch(e.key);e.preventDefault()}}};document.addEventListener("keydown",handler);return()=>document.removeEventListener("keydown",handler)},[]);
   /* Compute alerts */
   const appAlerts=(()=>{try{const a=[];
     data.orders.forEach(o=>{const wds=o.workshopDeliveries||[];const pieces=o.orderPieces||[];
@@ -716,7 +721,7 @@ export default function App(){
       </div>
       {!isMob&&<div onClick={e=>e.stopPropagation()} style={{flex:1,display:"flex",justifyContent:"center",position:"relative"}}>
         <div style={{position:"relative",width:280}}>
-          <input value={gSearch} onChange={e=>setGSearch(e.target.value)} placeholder="🔍 بحث سريع..." style={{width:"100%",padding:"5px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none"}}/>
+          <input ref={gSearchRef} value={gSearch} onChange={e=>setGSearch(e.target.value)} placeholder="🔍 بحث سريع..." style={{width:"100%",padding:"5px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none"}}/>
           {gSearch.trim()&&(()=>{const q=gSearch.trim().toLowerCase();const res=[];
             data.orders.forEach(o=>{if([o.modelNo,o.modelDesc].join(" ").toLowerCase().includes(q))res.push({type:"أوردر",label:o.modelNo+" — "+o.modelDesc,action:()=>{goD(o.id);setGSearch("")}})});
             (data.workshops||[]).forEach(w=>{if(w.name.toLowerCase().includes(q))res.push({type:"ورشة",label:w.name+(w.owner?" — "+w.owner:""),action:()=>{setDbSub("ws");setTab("db");setGSearch("")}})});
@@ -768,9 +773,9 @@ export default function App(){
         {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
         {tab==="orders"&&<OrdPg data={data} addOrder={addOrder} delOrder={delOrder} updOrder={updOrder} goD={goD} isMob={isMob} canEdit={canEdit} statusCards={statusCards} upConfig={upConfig}/>}
-        {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEdit} statusCards={statusCards} goHome={goHome} upConfig={upConfig}/>}
-        {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards} season={season}/>}
-        {tab==="stock"&&<StockPg data={data} updOrder={updOrder} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
+        {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEdit} statusCards={statusCards} goHome={goHome} upConfig={upConfig} logActivity={logActivity}/>}
+        {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards} season={season} logActivity={logActivity}/>}
+        {tab==="stock"&&<StockPg data={data} updOrder={updOrder} isMob={isMob} canEdit={canEdit} statusCards={statusCards} logActivity={logActivity}/>}
         {tab==="search"&&<SearchPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="calc"&&<CalcPg data={data} isMob={isMob}/>}
         {tab==="reports"&&<ReportsHub data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
@@ -1268,7 +1273,7 @@ function OrdPg({data,addOrder,delOrder,updOrder,goD,isMob,canEdit,statusCards,up
         <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الخامة</label><Sel value={oFab} onChange={setOFab}><option value="الكل">الكل</option>{fabrics.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}</Sel></div>
       </div>
     </Card>}
-    {show&&<OrdForm data={data} initial={mkOrder()} onSave={o=>{addOrder(o);setShow(false);showToast("✓ تم اضافة أمر القص")}} onCancel={()=>setShow(false)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>}
+    {show&&<OrdForm data={data} initial={mkOrder()} onSave={o=>{addOrder(o);setShow(false);showToast("✓ تم اضافة أمر القص");logActivity("أمر قص جديد",o.modelNo+" — "+o.modelDesc)}} onCancel={()=>setShow(false)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>}
     {!show&&<Card title={"جميع الأوامر ("+filtered.length+")"}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:isMob?400:800}}>
       <thead><tr>{["#","التاريخ","موديل","الوصف","الكمية",...(isMob?[]:["آخر حركة"]),"الحالة",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
       <tbody>{filtered.map((o,i)=>{const t=calcOrder(o);const hasWsDel=(o.workshopDeliveries||[]).length>0;const hasStockDel=(o.deliveries||[]).length>0;const delBlock=hasStockDel?"يوجد تسليمات مخزن مرتبطة":hasWsDel?"يوجد تسليمات ورش مرتبطة":null;
@@ -1283,7 +1288,7 @@ function OrdPg({data,addOrder,delOrder,updOrder,goD,isMob,canEdit,statusCards,up
 }
 
 /* ══ DETAILS ══ */
-function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,statusCards,goHome,upConfig}){
+function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,statusCards,goHome,upConfig,logActivity}){
   const order=data.orders.find(o=>o.id===sel);const[editing,setEditing]=useState(false);
   const[detQ,setDetQ]=useState("");const[detSt,setDetSt]=useState("الكل");
   const[editStockIdx,setEditStockIdx]=useState(null);
@@ -1295,8 +1300,8 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
   const workshops=data.workshops||[];
   const isInternal=(name)=>{const w=workshops.find(x=>x.name===name);return w?w.type==="داخلي":false};
 
-  if(dupInit)return<OrdForm data={data} initial={dupInit} onSave={o=>{addOrder(o);setDupInit(null);showToast("✓ تم تكرار الأوردر")}} onCancel={()=>setDupInit(null)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
-  if(showNew)return<OrdForm data={data} initial={mkOrder()} onSave={o=>{addOrder(o);setShowNew(false);showToast("✓ تم اضافة أمر القص")}} onCancel={()=>setShowNew(false)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
+  if(dupInit)return<OrdForm data={data} initial={dupInit} onSave={o=>{addOrder(o);setDupInit(null);showToast("✓ تم تكرار الأوردر");if(logActivity)logActivity("تكرار أوردر",o.modelNo)}} onCancel={()=>setDupInit(null)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
+  if(showNew)return<OrdForm data={data} initial={mkOrder()} onSave={o=>{addOrder(o);setShowNew(false);showToast("✓ تم اضافة أمر القص");if(logActivity)logActivity("أمر قص جديد",o.modelNo+" — "+o.modelDesc)}} onCancel={()=>setShowNew(false)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
 
   if(!order){
     const filtered=data.orders.filter(o=>{
@@ -1524,6 +1529,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
         upd.status=recomputeStatus(upd);
         replaceOrder(order.id,upd);
         showToast("✓ تم التسليم — "+dWs);setShowDeliver(false);
+        if(logActivity)logActivity("تسليم ورشة",order.modelNo+" → "+dWs+" ("+dQty+" "+dType+")");
         if(print){setTimeout(()=>{printReceipt(dWs,wsObj?wsObj.owner:"",upd,dType,Number(dQty),new Date().toISOString().split("T")[0],maxQty-Number(dQty),data.garmentTypes)},300)}
       };
       return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowDeliver(false)}>
@@ -1555,7 +1561,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
 }
 
 /* ══ EXTERNAL PRODUCTION ══ */
-function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
+function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,logActivity}){
   const[mode,setMode]=useState(null);
   const[selWs,setSelWs]=useState("");
   const[selOrder,setSelOrder]=useState("");
@@ -1625,6 +1631,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       o.status=recomputeStatus(o);
     });
     setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice("");showToast("✓ تم تسليم "+saveQty+" قطعة لـ "+selWs);
+    if(logActivity)logActivity("تسليم ورشة",ord.modelNo+" → "+selWs+" ("+saveQty+" "+saveType+")");
     if(andPrint){const printOrd=JSON.parse(JSON.stringify(ord));const pWs=selWs;const pWsOwner=wsObj?wsObj.owner:"";const pGt=data.garmentTypes;setTimeout(()=>printReceipt(pWs,pWsOwner,printOrd,saveType,saveQty,saveDate,Math.max(0,availAfter),pGt),400)}
   };
 
@@ -1643,6 +1650,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       o.status=recomputeStatus(o)
     });
     clearRcv(cardKey);showToast("✓ تم استلام "+saveQty+" قطعة");
+    if(logActivity)logActivity("استلام مصنع",ordForRcv.modelNo+" ← "+selWs+" ("+saveQty+")");
     if(andPrint&&printData){const pOrd=JSON.parse(JSON.stringify(ord));if(pOrd.workshopDeliveries&&pOrd.workshopDeliveries[wdIdx]){if(!pOrd.workshopDeliveries[wdIdx].receives)pOrd.workshopDeliveries[wdIdx].receives=[];pOrd.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty})}const pWs=selWs;const pType=wd.garmentType||"";const pGt=data.garmentTypes;setTimeout(()=>printReceiveReceipt(pWs,pOrd,pType,saveQty,saveDate,0,pGt),400)}
   };
 
@@ -2099,7 +2107,7 @@ function SearchPg({data,goD,isMob,season,statusCards}){
 
 /* ══ PRODUCTION REPORT ══ */
 /* ══ STOCK DELIVERY ══ */
-function StockPg({data,updOrder,isMob,canEdit,statusCards}){
+function StockPg({data,updOrder,isMob,canEdit,statusCards,logActivity}){
   const[selOrder,setSelOrder]=useState("");
   const[stQty,setStQty]=useState(0);const[stNote,setStNote]=useState("");const[stDate,setStDate]=useState(new Date().toISOString().split("T")[0]);
   const[editSt,setEditSt]=useState(null);const[edStDate,setEdStDate]=useState("");const[edStQty,setEdStQty]=useState(0);const[edStNote,setEdStNote]=useState("");
@@ -2126,7 +2134,8 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards}){
     if(!selOrder||!stQty||stQty<=0)return;
     const qty=Math.min(Number(stQty),stockRemain);if(qty<=0){alert("لا توجد كمية متاحة");return}
     updOrder(selOrder,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:stDate,qty,notes:stNote});o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)});
-    setStQty(0);setStNote("");setStDate(new Date().toISOString().split("T")[0]);showToast("✓ تم تسليم المخزن")
+    setStQty(0);setStNote("");setStDate(new Date().toISOString().split("T")[0]);showToast("✓ تم تسليم المخزن");
+    if(logActivity)logActivity("تسليم مخزن",stOrd.modelNo+" ("+stQty+")");
   };
 
   return<div>
@@ -2670,6 +2679,25 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
             </div>)}
           </div>}
         </div>})()}
+    </Card>
+    {/* Activity Log */}
+    <Card title={"📋 سجل الحركات ("+(config.activityLog||[]).length+")"} style={{marginBottom:16}}>
+      {(config.activityLog||[]).length>0?<div>
+        <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}>
+          <thead><tr>{["المستخدم","العملية","التفاصيل","التاريخ","الوقت"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+          <tbody>{[...(config.activityLog||[])].reverse().slice(0,30).map((log,i)=><tr key={i}>
+            <td style={{...TD,fontWeight:600,color:T.accent}}>{log.user}</td>
+            <td style={{...TD,color:log.action.includes("قص")?"#0EA5E9":log.action.includes("تسليم ورشة")?"#8B5CF6":log.action.includes("استلام")?"#10B981":log.action.includes("مخزن")?"#059669":T.text,fontWeight:600}}>{log.action}</td>
+            <td style={{...TD,fontSize:FS-1}}>{log.details}</td>
+            <td style={{...TD,fontSize:FS-2,color:T.textSec}}>{log.date}</td>
+            <td style={{...TD,fontSize:FS-2,color:T.textSec}}>{log.time}</td>
+          </tr>)}</tbody>
+        </table></div>
+        {(config.activityLog||[]).length>30&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:6}}>{"عرض آخر 30 من "+(config.activityLog||[]).length}</div>}
+        <div style={{marginTop:10,display:"flex",gap:8}}>
+          <Btn ghost small onClick={()=>{if(confirm("مسح سجل الحركات؟"))upConfig(d=>{d.activityLog=[]})}} style={{color:T.err}}>🗑️ مسح السجل</Btn>
+        </div>
+      </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد حركات مسجلة</div>}
     </Card>
     {/* Data Maintenance */}
     <Card title="🔧 صيانة البيانات" style={{marginBottom:16}}>
