@@ -416,7 +416,7 @@ function Inp({value,onChange,placeholder,type,step,style:sx,readOnly}){
   const handleKey=(e)=>{if(e.key==="Enter"&&isNum){const v=String(e.target.value);if(v.startsWith("=")){const r=safeCalc(v.slice(1));if(r!==null&&onChange)onChange(r)}}};
   return<div style={{position:"relative",display:"flex",gap:2,alignItems:"center"}}>
     <input type={isNum?"text":type||"text"} inputMode={isNum?"decimal":undefined} step={step||"any"} value={value==null?"":value} readOnly={readOnly} onChange={e=>{const v=e.target.value;if(isNum&&!v.startsWith("=")){onChange&&onChange(v.replace(/[^0-9.\-]/g,""))}else{onChange&&onChange(v)}}} onKeyDown={handleKey} onFocus={e=>e.target.select()} placeholder={placeholder||(isNum?"= معادلة":"")} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:readOnly?T.bg:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",...(sx||{})}}/>
-    {isNum&&!readOnly&&<span onClick={()=>setShowCalc(true)} style={{cursor:"pointer",fontSize:12,flexShrink:0,padding:"3px 4px",borderRadius:4,background:T.bg,border:"1px solid "+T.brd,lineHeight:1}}>🧮</span>}
+    {isNum&&!readOnly&&window.innerWidth<768&&<span onClick={()=>setShowCalc(true)} style={{cursor:"pointer",fontSize:12,flexShrink:0,padding:"3px 4px",borderRadius:4,background:T.bg,border:"1px solid "+T.brd,lineHeight:1}}>🧮</span>}
     {showCalc&&<MiniCalc onClose={()=>setShowCalc(false)} onResult={v=>{if(onChange)onChange(v);setShowCalc(false)}}/>}
   </div>
 }
@@ -570,7 +570,10 @@ export default function App(){
 
   const[user,setUser]=useState(null);const[authLoading,setAuthLoading]=useState(true);
   const[config,setConfig]=useState(INIT_CONFIG);const[orders,setOrders]=useState([]);const[dataLoading,setDataLoading]=useState(true);
-  const[tab,setTab]=useState("home");const[sel,setSel]=useState(null);const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);
+  const[tab,setTab_]=useState(()=>sessionStorage.getItem("clark_tab")||"home");const[sel,setSel_]=useState(()=>sessionStorage.getItem("clark_sel")||null);
+  const setTab=v=>{setTab_(v);sessionStorage.setItem("clark_tab",v)};
+  const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
+  const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);
   const themeKey="clark-theme-"+(user?.uid||"default");
   const[theme,setTheme]=useState(()=>localStorage.getItem(themeKey)||"light");
   T=THEMES[theme]||THEMES.light;
