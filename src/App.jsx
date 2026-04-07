@@ -415,7 +415,7 @@ function Inp({value,onChange,placeholder,type,step,style:sx,readOnly}){
   const isNum=type==="number";
   const handleKey=(e)=>{if(e.key==="Enter"&&isNum){const v=String(e.target.value);if(v.startsWith("=")){const r=safeCalc(v.slice(1));if(r!==null&&onChange)onChange(r)}}};
   return<div style={{position:"relative",display:"flex",gap:2,alignItems:"center"}}>
-    <input type={isNum?"text":type||"text"} inputMode={isNum?"decimal":undefined} step={step||"any"} value={value==null?"":value} readOnly={readOnly} onChange={e=>{const v=e.target.value;if(isNum&&!v.startsWith("=")){onChange&&onChange(v.replace(/[^0-9.\-]/g,""))}else{onChange&&onChange(v)}}} onKeyDown={handleKey} onFocus={e=>e.target.select()} placeholder={placeholder||(isNum?"= معادلة":"")} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:readOnly?T.bg:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",...(sx||{})}}/>
+    <input type={isNum?"text":type||"text"} inputMode={isNum?"decimal":undefined} step={step||"any"} value={value==null?"":value} readOnly={readOnly} onChange={e=>{const v=e.target.value;if(isNum&&!v.startsWith("=")){let cleaned=v.replace(/[^0-9.\-]/g,"");const parts=cleaned.split(".");if(parts.length>2)cleaned=parts[0]+"."+parts.slice(1).join("");onChange&&onChange(cleaned)}else{onChange&&onChange(v)}}} onKeyDown={handleKey} onFocus={e=>e.target.select()} placeholder={placeholder||(isNum?"= معادلة":"")} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:readOnly?T.bg:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",...(sx||{})}}/>
     {isNum&&!readOnly&&window.innerWidth<768&&<span onClick={()=>setShowCalc(true)} style={{cursor:"pointer",fontSize:12,flexShrink:0,padding:"3px 4px",borderRadius:4,background:T.bg,border:"1px solid "+T.brd,lineHeight:1}}>🧮</span>}
     {showCalc&&<MiniCalc onClose={()=>setShowCalc(false)} onResult={v=>{if(onChange)onChange(v);setShowCalc(false)}}/>}
   </div>
@@ -751,7 +751,7 @@ export default function App(){
           </div>}
         </div>
         {!isMob&&<span style={{fontSize:FS,color:T.textSec}}>{userName}</span>}
-        {(()=>{const td=new Date().toISOString().split("T")[0];let ops=0;data.orders.forEach(o=>{if(o.date===td)ops++;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date===td)ops++;(wd.receives||[]).forEach(r=>{if(r.date===td)ops++})});(o.deliveries||[]).forEach(d=>{if(d.date===td)ops++})});return ops>0?<span style={{fontSize:isMob?9:FS-2,padding:"2px 6px",borderRadius:6,background:T.ok+"12",color:T.ok,fontWeight:700}}>{ops+" عملية"}</span>:null})()}
+        {!isMob&&(()=>{const td=new Date().toISOString().split("T")[0];let ops=0;data.orders.forEach(o=>{if(o.date===td)ops++;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date===td)ops++;(wd.receives||[]).forEach(r=>{if(r.date===td)ops++})});(o.deliveries||[]).forEach(d=>{if(d.date===td)ops++})});return ops>0?<span style={{fontSize:FS-2,padding:"2px 6px",borderRadius:6,background:T.ok+"12",color:T.ok,fontWeight:700}}>{ops+" عملية"}</span>:null})()}
         {!showLogout?<button onClick={e=>{e.stopPropagation();setShowLogout(true)}} style={{padding:isMob?"4px 10px":"6px 14px",borderRadius:8,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",cursor:"pointer",fontSize:isMob?11:FS-1,fontWeight:600,fontFamily:"inherit"}}>خروج</button>
         :<div onClick={e=>e.stopPropagation()} style={{display:"flex",gap:4,alignItems:"center"}}><button onClick={()=>signOut(auth)} style={{padding:isMob?"4px 8px":"5px 12px",borderRadius:6,background:T.err,color:"#fff",border:"none",cursor:"pointer",fontSize:isMob?10:FS-1,fontWeight:700,fontFamily:"inherit"}}>تأكيد</button><button onClick={()=>setShowLogout(false)} style={{padding:isMob?"4px 8px":"5px 12px",borderRadius:6,background:T.cardSolid,color:T.textSec,border:"1px solid "+T.brd,cursor:"pointer",fontSize:isMob?10:FS-1,fontWeight:600,fontFamily:"inherit"}}>الغاء</button></div>}
       </div>
@@ -1756,9 +1756,9 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
   };
   const availOrders=prodOrders.filter(o=>getAvailQty(o)>0);
   /* Workshop-specific movements */
-  const wsMoves=[];let _wi=0;
-  if(selWs)data.orders.forEach(ord=>{(ord.workshopDeliveries||[]).forEach((wd,wdIdx)=>{if(wd.wsName===selWs){wsMoves.push({type:"deliver",date:wd.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:wd.qty,garmentType:wd.garmentType||"",price:wd.price||0,notes:wd.notes||"",orderId:ord.id,wdIdx,_i:_wi++});(wd.receives||[]).forEach((r,rIdx)=>{wsMoves.push({type:"receive",date:r.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,garmentType:wd.garmentType||"",price:r.price||0,notes:r.notes||"",orderId:ord.id,wdIdx,rIdx,_i:_wi++})})}})});
-  wsMoves.sort((a,b)=>(b.date||"").localeCompare(a.date||"")||b._i-a._i);
+  const wsMoves=[];
+  if(selWs)data.orders.forEach(ord=>{(ord.workshopDeliveries||[]).forEach((wd,wdIdx)=>{if(wd.wsName===selWs){wsMoves.push({type:"deliver",date:wd.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:wd.qty,garmentType:wd.garmentType||"",price:wd.price||0,notes:wd.notes||"",orderId:ord.id,wdIdx,_ts:new Date(wd.date).getTime()+wdIdx});(wd.receives||[]).forEach((r,rIdx)=>{wsMoves.push({type:"receive",date:r.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,garmentType:wd.garmentType||"",price:r.price||0,notes:r.notes||"",orderId:ord.id,wdIdx,rIdx,_ts:new Date(r.date).getTime()+wdIdx*100+rIdx})})}})});
+  wsMoves.sort((a,b)=>(b.date||"").localeCompare(a.date||"")||b._ts-a._ts);
 
   if(mode==="deliver")return<div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
@@ -2286,14 +2286,22 @@ function AvailableReport({data,isMob,season}){
   });
   rows.sort((a,b)=>b.available-a.available);
   const totalAvail=rows.reduce((s,r)=>s+r.available,0);
-  const printRep=()=>{const el=document.getElementById("avail-rep");if(el)printPage("تقرير القطع المتاحة للتسليم — "+season,el.innerHTML)};
+  const printRep=()=>{
+    let h="<div style='margin-bottom:16px;text-align:center'><h2 style='margin:0;font-size:18px;color:#0284C7'>📤 تقرير القطع المتاحة للتسليم</h2><p style='margin:4px 0;font-size:13px;color:#64748B'>"+rows.length+" بند — "+fmt(totalAvail)+" قطعة متاحة</p></div>";
+    h+="<table><thead><tr><th>#</th><th>رقم الموديل</th><th>الوصف</th><th>القطعة</th><th>كمية القص</th><th>تم تسليمه</th><th>متاح للتسليم</th></tr></thead><tbody>";
+    rows.forEach((r,i)=>{h+="<tr><td>"+(i+1)+"</td><td style='font-weight:700'>"+r.modelNo+"</td><td>"+r.modelDesc+"</td><td style='color:#8B5CF6;font-weight:700'>"+r.piece+"</td><td style='font-weight:700'>"+r.cutQty+"</td><td style='color:#F59E0B;font-weight:700'>"+r.delivered+"</td><td style='color:#10B981;font-weight:800;font-size:14px'>"+r.available+"</td></tr>"});
+    h+="<tr style='background:#EFF6FF;font-weight:800'><td colspan='4'>الاجمالي</td><td>"+fmt(rows.reduce((s,r)=>s+r.cutQty,0))+"</td><td>"+fmt(rows.reduce((s,r)=>s+r.delivered,0))+"</td><td style='color:#10B981;font-size:16px'>"+fmt(totalAvail)+"</td></tr>";
+    h+="</tbody></table>";
+    h+="<div style='margin-top:20px;padding:12px;border:2px solid #E2E8F0;border-radius:8px;text-align:center;font-size:11px;color:#94A3B8'>تم الطباعة في "+new Date().toLocaleDateString("ar-EG")+" — CLARK Factory Management</div>";
+    printPage("القطع المتاحة للتسليم — "+season,h)
+  };
   return<div id="avail-rep">
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
       <div><h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>📤 القطع المتاحة للتسليم</h1><div style={{fontSize:FS-1,color:T.textSec}}>{"الموسم: "+season+" — "+rows.length+" بند — "+fmt(totalAvail)+" قطعة متاحة"}</div></div>
       <Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
     </div>
-    {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
-      <thead><tr>{["#","الموديل","الوصف","القطعة","كمية القص","تم تسليمه","متاح للتسليم","الحالة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+    {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}>
+      <thead><tr>{["#","الموديل","الوصف","القطعة","كمية القص","تم تسليمه","متاح للتسليم"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
       <tbody>{rows.map((r,i)=><tr key={i}>
         <td style={TD}>{i+1}</td>
         <td style={TDB}>{r.modelNo}</td>
@@ -2302,9 +2310,8 @@ function AvailableReport({data,isMob,season}){
         <td style={TDB}>{r.cutQty}</td>
         <td style={{...TDB,color:T.warn}}>{r.delivered}</td>
         <td style={{...TDB,color:T.ok,fontSize:FS+1}}>{r.available}</td>
-        <td style={TD}><Badge t={r.status} cards={data.statusCards}/></td>
       </tr>)}
-      <tr style={{background:T.accent+"08",fontWeight:800}}><td colSpan={4} style={TD}>الاجمالي</td><td style={TDB}>{fmt(rows.reduce((s,r)=>s+r.cutQty,0))}</td><td style={TDB}>{fmt(rows.reduce((s,r)=>s+r.delivered,0))}</td><td style={{...TDB,color:T.ok,fontSize:FS+2}}>{fmt(totalAvail)}</td><td style={TD}></td></tr>
+      <tr style={{background:T.accent+"08",fontWeight:800}}><td colSpan={4} style={TD}>الاجمالي</td><td style={TDB}>{fmt(rows.reduce((s,r)=>s+r.cutQty,0))}</td><td style={TDB}>{fmt(rows.reduce((s,r)=>s+r.delivered,0))}</td><td style={{...TDB,color:T.ok,fontSize:FS+2}}>{fmt(totalAvail)}</td></tr>
       </tbody>
     </table></div>:<div style={{textAlign:"center",padding:40,color:T.ok,fontWeight:700,fontSize:FS+2}}>✓ لا توجد قطع متاحة — تم تسليم كل شيء</div>}
   </div>
