@@ -1250,7 +1250,11 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
   const[editStockIdx,setEditStockIdx]=useState(null);
   const[showNew,setShowNew]=useState(false);
   const[dupInit,setDupInit]=useState(null);
+  const[showDeliver,setShowDeliver]=useState(false);
+  const[dWs,setDWs]=useState("");const[dType,setDType]=useState("");const[dQty,setDQty]=useState(0);const[dPrice,setDPrice]=useState("");const[dNote,setDNote]=useState("");
   const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
+  const workshops=data.workshops||[];
+  const isInternal=(name)=>{const w=workshops.find(x=>x.name===name);return w?w.type==="داخلي":false};
 
   if(dupInit)return<OrdForm data={data} initial={dupInit} onSave={o=>{addOrder(o);setDupInit(null);showToast("✓ تم تكرار الأوردر")}} onCancel={()=>setDupInit(null)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
   if(showNew)return<OrdForm data={data} initial={mkOrder()} onSave={o=>{addOrder(o);setShowNew(false);showToast("✓ تم اضافة أمر القص")}} onCancel={()=>setShowNew(false)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
@@ -1332,6 +1336,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
         <Btn small onClick={()=>printOrderSheet(order,t,activeFabs,statusCards)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
         {canEdit&&<Btn small primary onClick={()=>setEditing(true)}>✏️</Btn>}
         {canEdit&&<Btn small onClick={()=>{const dup=JSON.parse(JSON.stringify(order));dup.id=gid();dup.date=new Date().toISOString().split("T")[0];dup.createdAt=new Date().toISOString();dup.modelNo="";dup.status="تم القص";dup.deliveredQty=0;dup.deliveries=[];dup.workshopDeliveries=[];dup._isDup=true;delete dup._docId;setDupInit(dup)}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📋 تكرار</Btn>}
+        {canEdit&&t.cutQty>0&&<Btn small onClick={()=>{setShowDeliver(true);setDWs("");setDType("");setDQty(0);setDPrice("");setDNote("")}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📤 تسليم ورشة</Btn>}
         {canEdit&&<Btn small onClick={()=>setShowNew(true)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>+ جديد</Btn>}
       </div>
     </div>
@@ -1461,6 +1466,47 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
       </Card>
       {order.instructions&&<Card title="تعليمات التشغيل" style={{marginTop:16}}><div style={{whiteSpace:"pre-wrap",fontSize:FS+1,lineHeight:2}}>{order.instructions}</div></Card>}
     </div>
+    {/* Deliver to Workshop Popup */}
+    {showDeliver&&(()=>{
+      const pieces=order.orderPieces||[];
+      const linkedPieces=new Set();FKEYS.forEach(k=>{if(gf(order,k))(order["fabricPieces"+k]||[]).forEach(p=>linkedPieces.add(p))});
+      const isLinked=p=>linkedPieces.size===0||linkedPieces.has(p);
+      const availPieces=pieces.filter(p=>{if(!isLinked(p))return false;const delForP=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return delForP<t.cutQty});
+      const totalDelForType=dType?(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===dType).reduce((s,wd)=>s+(Number(wd.qty)||0),0):0;
+      const maxQty=dType?Math.max(0,t.cutQty-totalDelForType):t.cutQty;
+      const doDeliver=(print)=>{
+        if(!dWs||!dType||!dQty)return;
+        const wd={wsName:dWs,qty:Number(dQty),garmentType:dType,price:Number(dPrice)||0,notes:dNote,date:new Date().toISOString().split("T")[0],receives:[]};
+        const upd=JSON.parse(JSON.stringify(order));if(!upd.workshopDeliveries)upd.workshopDeliveries=[];upd.workshopDeliveries.push(wd);
+        const newO=recomputeStatus(upd);updOrder(newO);
+        showToast("✓ تم التسليم — "+dWs);setShowDeliver(false);
+        if(print){const wsObj=workshops.find(w=>w.name===dWs);setTimeout(()=>{printReceipt(dWs,wsObj?wsObj.owner:"",newO,dType,Number(dQty),new Date().toISOString().split("T")[0],maxQty-Number(dQty),data.garmentTypes)},300)}
+      };
+      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowDeliver(false)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+            <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>{"📤 تسليم "+order.modelNo+" لورشة"}</div>
+            <Btn ghost onClick={()=>setShowDeliver(false)}>✕</Btn>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الورشة *</label><Sel value={dWs} onChange={v=>{setDWs(v);setDPrice("")}}><option value="">-- اختر ورشة --</option>{workshops.map(w=><option key={w.id} value={w.name}>{w.name+(w.owner?" - "+w.owner:"")}</option>)}</Sel></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع القطعة *</label><Sel value={dType} onChange={v=>{setDType(v);const delForP=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===v).reduce((s,wd)=>s+(Number(wd.qty)||0),0);setDQty(Math.max(0,t.cutQty-delForP))}}><option value="">-- اختر --</option>{(availPieces.length>0?availPieces:pieces.length>0?pieces:["عام"]).map(p=><option key={p} value={p}>{(gIcon(p,data.garmentTypes))+" "+p}</option>)}</Sel></div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:12}}>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الكمية *</label><Inp type="number" value={dQty} onChange={v=>setDQty(Math.min(Number(v)||0,maxQty))}/></div>
+            {dWs&&!isInternal(dWs)&&<div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>سعر القطعة</label><Inp type="number" value={dPrice} onChange={setDPrice}/></div>}
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات</label><Inp value={dNote} onChange={setDNote}/></div>
+          </div>
+          {dWs&&dType&&<div style={{padding:10,borderRadius:8,background:T.accentBg,marginBottom:12,fontSize:FS-1,color:T.textSec}}>
+            {"كمية القص: "+t.cutQty+" | تم تسليمه: "+totalDelForType+" | متاح: "+maxQty}
+          </div>}
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <Btn ghost onClick={()=>setShowDeliver(false)}>الغاء</Btn>
+            <Btn primary onClick={()=>doDeliver(false)} disabled={!dWs||!dType||!dQty}>تسليم وحفظ</Btn>
+            <Btn onClick={()=>doDeliver(true)} disabled={!dWs||!dType||!dQty} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>تسليم + طباعة</Btn>
+          </div>
+        </div>
+      </div>})()}
   </div>
 }
 
