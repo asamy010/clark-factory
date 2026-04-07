@@ -589,6 +589,15 @@ export default function App(){
   const updOrder=async(orderId,fn)=>{const ord=orders.find(o=>o.id===orderId);if(!ord)return;const updated=JSON.parse(JSON.stringify(ord));fn(updated);const clean={...updated};delete clean._docId;await updateDoc(doc(db,"seasons",season,"orders",ord._docId),clean)};
   const delOrder=async orderId=>{const ord=orders.find(o=>o.id===orderId);if(ord)await deleteDoc(doc(db,"seasons",season,"orders",ord._docId))};
   const replaceOrder=async(orderId,newData)=>{const ord=orders.find(o=>o.id===orderId);if(!ord)return;const clean={...newData};delete clean._docId;await setDoc(doc(db,"seasons",season,"orders",ord._docId),clean)};
+  /* Cascade rename in all orders */
+  const renameInOrders=async(type,oldName,newName)=>{if(oldName===newName||!oldName||!newName)return;
+    for(const o of orders){let changed=false;const upd=JSON.parse(JSON.stringify(o));
+      if(type==="ws"){(upd.workshopDeliveries||[]).forEach(wd=>{if(wd.wsName===oldName){wd.wsName=newName;changed=true}})}
+      if(type==="garment"){(upd.workshopDeliveries||[]).forEach(wd=>{if(wd.garmentType===oldName){wd.garmentType=newName;changed=true};(wd.receives||[]).forEach(r=>{if(r.garmentType===oldName){r.garmentType=newName;changed=true}})});if(upd.orderPieces){upd.orderPieces=upd.orderPieces.map(p=>p===oldName?(changed=true,newName):p)};FKEYS.forEach(k=>{if(upd["fabricPieces"+k]){upd["fabricPieces"+k]=upd["fabricPieces"+k].map(p=>p===oldName?(changed=true,newName):p)}})}
+      if(type==="status"&&upd.status===oldName){upd.status=newName;changed=true}
+      if(changed)await replaceOrder(o.id,upd);
+    }
+  };
   const goD=id=>{setSel(id);setTab("details")};
   /* QR scan auto-navigate */
   const qrDone=useRef(false);
@@ -629,7 +638,7 @@ export default function App(){
     /* Completion */
     const _cutQ=data.orders.reduce((s,o)=>s+calcOrder(o).cutQty,0);const _delQ=data.orders.reduce((s,o)=>s+(o.deliveredQty||0),0);if(_cutQ&&Math.round(_delQ/_cutQ*100)>=100)a.push({msg:"تم الانتهاء من جميع الأوردرات!",color:T.ok,icon:"🎉"});
     /* Workshop limit */
-    (data.workshops||[]).filter(w=>w.type!=="داخلي").forEach(w=>{let due=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});const purch=(data.wsPayments||[]).filter(p=>p.wsName===w.name&&p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);const paid=(data.wsPayments||[]).filter(p=>p.wsName===w.name&&p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);const pct=w.payPercent||70;const limit=r2((due+purch)*(pct/100));if(paid>limit&&due>0)a.push({msg:w.name+" تجاوز حد "+pct+"%",color:T.err,icon:"⚠️"})});
+    (data.workshops||[]).filter(w=>w.type!=="داخلي").forEach(w=>{let due=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});const purch=(data.wsPayments||[]).filter(p=>p.wsName===w.name&&p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);const paid=(data.wsPayments||[]).filter(p=>p.wsName===w.name&&p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);const pct=w.payPercent||60;const limit=r2((due+purch)*(pct/100));if(paid>limit&&due>0)a.push({msg:w.name+" تجاوز حد "+pct+"%",color:T.err,icon:"⚠️"})});
     /* Smart: Workshop quality alerts */
     (data.workshops||[]).filter(w=>w.type!=="داخلي").forEach(w=>{const r=calcWsRating(w.name,data.orders);if(r!==null&&r<5)a.push({msg:w.name+" تقييم منخفض ("+r+"/10) — مراجعة الجودة",color:T.err,icon:"📉"})});
     /* Smart: Workshop delay alerts */
@@ -707,7 +716,7 @@ export default function App(){
       {/* PAGES with back button */}
       {tab!=="home"&&<div>
         {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
-        {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)}/>}
+        {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
         {tab==="orders"&&<OrdPg data={data} addOrder={addOrder} delOrder={delOrder} updOrder={updOrder} goD={goD} isMob={isMob} canEdit={canEdit} statusCards={statusCards} upConfig={upConfig}/>}
         {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEdit} statusCards={statusCards} goHome={goHome} upConfig={upConfig}/>}
         {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards} season={season}/>}
@@ -871,7 +880,7 @@ function DashPg({data,goD,isMob,season,statusCards}){
 }
 
 /* ══ DB ══ */
-function DBPg({data,upConfig,isMob,canEdit,statusCards,initialSub,onSubUsed}){
+function DBPg({data,upConfig,isMob,canEdit,statusCards,initialSub,onSubUsed,renameInOrders}){
   const[sub,setSub]=useState(initialSub||"fab");
   useEffect(()=>{if(initialSub){setSub(initialSub);if(onSubUsed)onSubUsed()}},[initialSub]);
   const[ff,setFf]=useState({name:"",unit:"كيلو",price:"",_eid:null});
@@ -884,8 +893,8 @@ function DBPg({data,upConfig,isMob,canEdit,statusCards,initialSub,onSubUsed}){
   const saveFab=()=>{if(!ff.name)return;upConfig(d=>{if(ff._eid){const idx=d.fabrics.findIndex(x=>x.id===ff._eid);if(idx>=0)d.fabrics[idx]={...d.fabrics[idx],name:ff.name,unit:ff.unit,price:Number(ff.price)||0}}else{d.fabrics.push({id:Date.now(),name:ff.name,unit:ff.unit,price:Number(ff.price)||0})}});setFf({name:"",unit:"كيلو",price:"",_eid:null})};
   const saveAcc=()=>{if(!af.name)return;upConfig(d=>{if(af._eid){const idx=d.accessories.findIndex(x=>x.id===af._eid);if(idx>=0)d.accessories[idx]={...d.accessories[idx],name:af.name,unit:af.unit,price:Number(af.price)||0}}else{d.accessories.push({id:Date.now(),name:af.name,unit:af.unit,price:Number(af.price)||0})}});setAf({name:"",unit:"قطعة",price:"",_eid:null})};
   const saveSize=()=>{if(!sfld.label)return;upConfig(d=>{if(sfld._eid){const idx=d.sizeSets.findIndex(x=>x.id===sfld._eid);if(idx>=0)d.sizeSets[idx]={...d.sizeSets[idx],label:sfld.label,pcsPerSeries:Number(sfld.pcs)||0}}else{d.sizeSets.push({id:Date.now(),label:sfld.label,pcsPerSeries:Number(sfld.pcs)||0})}});setSfld({label:"",pcs:0,_eid:null})};
-  const saveGarment=()=>{if(!gName.trim())return;upConfig(d=>{if(!d.garmentTypes)d.garmentTypes=[];if(gEid){const idx=d.garmentTypes.findIndex(x=>x.id===gEid);if(idx>=0){d.garmentTypes[idx].name=gName.trim();d.garmentTypes[idx].icon=gIconSel}}else{d.garmentTypes.push({id:Date.now(),name:gName.trim(),icon:gIconSel})}});setGName("");setGEid(null);setGIconSel("👕")};
-  const saveStatus=()=>{if(!stName.trim())return;upConfig(d=>{if(!d.statusCards)d.statusCards=[...DEFAULT_STATUSES];if(stEid){const idx=d.statusCards.findIndex(x=>x.id===stEid);if(idx>=0){d.statusCards[idx].name=stName.trim();d.statusCards[idx].color=stColor}}else{d.statusCards.push({id:Date.now(),name:stName.trim(),color:stColor})}});setStName("");setStColor("#0EA5E9");setStEid(null)};
+  const saveGarment=()=>{if(!gName.trim())return;const oldName=gEid?(data.garmentTypes||[]).find(x=>x.id===gEid)?.name:null;upConfig(d=>{if(!d.garmentTypes)d.garmentTypes=[];if(gEid){const idx=d.garmentTypes.findIndex(x=>x.id===gEid);if(idx>=0){d.garmentTypes[idx].name=gName.trim();d.garmentTypes[idx].icon=gIconSel}}else{d.garmentTypes.push({id:Date.now(),name:gName.trim(),icon:gIconSel})}});if(oldName&&oldName!==gName.trim())renameInOrders("garment",oldName,gName.trim());setGName("");setGEid(null);setGIconSel("👕")};
+  const saveStatus=()=>{if(!stName.trim())return;const oldName=stEid?(statusCards||[]).find(x=>x.id===stEid)?.name:null;upConfig(d=>{if(!d.statusCards)d.statusCards=[...DEFAULT_STATUSES];if(stEid){const idx=d.statusCards.findIndex(x=>x.id===stEid);if(idx>=0){d.statusCards[idx].name=stName.trim();d.statusCards[idx].color=stColor}}else{d.statusCards.push({id:Date.now(),name:stName.trim(),color:stColor})}});if(oldName&&oldName!==stName.trim())renameInOrders("status",oldName,stName.trim());setStName("");setStColor("#0EA5E9");setStEid(null)};
 
   const eBtn=(onClick)=><Btn small onClick={onClick} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>;
   const ords=data.orders||[];
@@ -945,7 +954,7 @@ function DBPg({data,upConfig,isMob,canEdit,statusCards,initialSub,onSubUsed}){
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setGShow(false)}>الغاء</Btn><Btn primary onClick={()=>{saveGarment();setGShow(false)}}>💾 حفظ</Btn></div>
       </div>
     </div></div>}</>}
-    {sub==="ws"&&<WsManager workshops={data.workshops||[]} upConfig={upConfig} canEdit={canEdit} isMob={isMob} orders={data.orders}/>}
+    {sub==="ws"&&<WsManager workshops={data.workshops||[]} upConfig={upConfig} canEdit={canEdit} isMob={isMob} orders={data.orders} renameInOrders={renameInOrders}/>}
     {sub==="status"&&<><Card title="حالات الأوردر" extra={canEdit&&<Btn primary small onClick={()=>{setStName("");setStColor("#0EA5E9");setStEid(null);setStShow(true)}}>+ اضافة</Btn>}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:12}}>
         {statusCards.map(s=><div key={s.id} style={{padding:16,borderRadius:14,border:"2px solid "+s.color+"40",background:s.color+"08",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -966,14 +975,24 @@ function DBPg({data,upConfig,isMob,canEdit,statusCards,initialSub,onSubUsed}){
 }
 
 /* ══ WORKSHOP MANAGER ══ */
-function WsManager({workshops,upConfig,canEdit,isMob,orders}){
+function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrders}){
   const[showForm,setShowForm]=useState(false);const[editId,setEditId]=useState(null);
-  const[f,setF]=useState({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خارجي",payPercent:70});
-  const startEdit=(ws)=>{setF({...ws,type:ws.type||"خارجي",payPercent:ws.payPercent||70});setEditId(ws.id);setShowForm(true)};
-  const startNew=()=>{setF({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خارجي",payPercent:70});setEditId(null);setShowForm(true)};
+  const[f,setF]=useState({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خارجي",payPercent:60});
+  const startEdit=(ws)=>{setF({...ws,type:ws.type||"خارجي",payPercent:ws.payPercent||60});setEditId(ws.id);setShowForm(true)};
+  const startNew=()=>{setF({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خارجي",payPercent:60});setEditId(null);setShowForm(true)};
   const handleIdCard=async e=>{const file=e.target.files[0];if(!file)return;const compressed=await compressImg43(file,300,0.5);setF(p=>({...p,idCard:compressed}))};
   const handleOwnerPhoto=async e=>{const file=e.target.files[0];if(!file)return;const compressed=await compressImage(file,200,0.5);setF(p=>({...p,ownerPhoto:compressed}))};
-  const save=()=>{if(!f.name.trim())return;upConfig(d=>{if(!Array.isArray(d.workshops))d.workshops=[];if(editId){const idx=d.workshops.findIndex(w=>w.id===editId);if(idx>=0)d.workshops[idx]={...f,id:editId}}else{d.workshops.push({...f,id:Date.now()})}});setShowForm(false);setEditId(null)};
+  const save=()=>{if(!f.name.trim())return;
+    /* Detect name change for cascade */
+    let oldName=null;
+    if(editId){const old=workshops.find(w=>w.id===editId);if(old&&old.name!==f.name.trim())oldName=old.name}
+    upConfig(d=>{if(!Array.isArray(d.workshops))d.workshops=[];if(editId){const idx=d.workshops.findIndex(w=>w.id===editId);if(idx>=0)d.workshops[idx]={...f,id:editId}}else{d.workshops.push({...f,id:Date.now()})}
+      /* Cascade rename in wsPayments */
+      if(oldName){(d.wsPayments||[]).forEach(p=>{if(p.wsName===oldName)p.wsName=f.name.trim()});(d.notifications||[]).forEach(n=>{if(n.msg&&n.msg.includes(oldName))n.msg=n.msg.replace(new RegExp(oldName,"g"),f.name.trim())})}
+    });
+    /* Cascade rename in orders */
+    if(oldName)renameInOrders("ws",oldName,f.name.trim());
+    setShowForm(false);setEditId(null)};
   const del=(id)=>upConfig(d=>{d.workshops=(d.workshops||[]).filter(w=>w.id!==id)});
   const wsBlock=(ws)=>{const used=(orders||[]).some(o=>(o.workshopDeliveries||[]).some(wd=>wd.wsName===ws.name));return used?"يوجد أوردرات مرتبطة بهذه الورشة":null};
 
@@ -994,7 +1013,7 @@ function WsManager({workshops,upConfig,canEdit,isMob,orders}){
               <div style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:0}}>
                 {ws.ownerPhoto&&<img src={ws.ownerPhoto} alt="" style={{width:44,height:58,borderRadius:8,objectFit:"cover",flexShrink:0}}/>}
                 <div>
-                  <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}><span style={{fontSize:FS+2,fontWeight:800}}>{ws.name}</span><span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,fontWeight:600,background:ws.type==="داخلي"?T.accent+"15":T.ok+"15",color:ws.type==="داخلي"?T.accent:T.ok}}>{ws.type||"خارجي"}</span>{ws.type!=="داخلي"&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,fontWeight:600,background:T.purple+"12",color:T.purple}}>{(ws.payPercent||70)+"%"}</span>}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}><span style={{fontSize:FS+2,fontWeight:800}}>{ws.name}</span><span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,fontWeight:600,background:ws.type==="داخلي"?T.accent+"15":T.ok+"15",color:ws.type==="داخلي"?T.accent:T.ok}}>{ws.type||"خارجي"}</span>{ws.type!=="داخلي"&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,fontWeight:600,background:T.purple+"12",color:T.purple}}>{(ws.payPercent||60)+"%"}</span>}</div>
                   {ws.owner&&<div style={{fontSize:FS-1,color:T.textSec}}>{"👤 "+ws.owner}</div>}
                 </div>
               </div>
@@ -1039,7 +1058,7 @@ function WsManager({workshops,upConfig,canEdit,isMob,orders}){
         </div>
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:12}}>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع الورشة *</label><Sel value={f.type||"خارجي"} onChange={v=>setF({...f,type:v})}><option value="خارجي">خارجي</option><option value="داخلي">داخلي</option></Sel></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النسبة من الدفعات</label><Sel value={f.payPercent||70} onChange={v=>setF({...f,payPercent:Number(v)})}>{[30,40,50,60,70,80,90,100].map(p=><option key={p} value={p}>{p+"%"}</option>)}</Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النسبة من الدفعات</label><Sel value={f.payPercent||60} onChange={v=>setF({...f,payPercent:Number(v)})}>{[30,40,50,60,70,80,90,100].map(p=><option key={p} value={p}>{p+"%"}</option>)}</Sel></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رقم التليفون</label><Inp value={f.phone} onChange={v=>setF({...f,phone:v})} type="tel"/></div>
         </div>
         <div style={{marginBottom:12}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>العنوان</label><textarea value={f.address||""} onChange={e=>setF({...f,address:e.target.value})} style={{width:"100%",height:60,padding:10,borderRadius:10,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",resize:"vertical"}}/></div>
@@ -1293,6 +1312,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
               <span style={{fontSize:FS,color:T.textSec}}>{"الكمية: "}<b style={{color:T.accent}}>{t.cutQty}</b></span>
               <span style={{fontSize:FS,color:T.textSec}}>{"تسليم: "}<b style={{color:T.ok}}>{o.deliveredQty||0}</b></span>
               <span style={{fontSize:FS,color:T.textSec}}>{"رصيد: "}<b style={{color:t.balance>0?T.err:T.ok}}>{t.balance}</b></span>
+              <span style={{fontSize:FS,color:T.textSec}}>{"تكلفة: "}<b style={{color:"#8B5CF6"}}>{t.costPer+" ج.م"}</b></span>
             </div>
             {wds.length>0&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
               {(()=>{const wsGroup={};wds.forEach(wd=>{if(!wsGroup[wd.wsName])wsGroup[wd.wsName]=[];wsGroup[wd.wsName].push(wd)});
@@ -1478,7 +1498,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
         if(!dWs||!dType||!dQty)return;
         const wd={wsName:dWs,qty:Number(dQty),garmentType:dType,price:Number(dPrice)||0,notes:dNote,date:new Date().toISOString().split("T")[0],receives:[]};
         const upd=JSON.parse(JSON.stringify(order));if(!upd.workshopDeliveries)upd.workshopDeliveries=[];upd.workshopDeliveries.push(wd);
-        const newO=recomputeStatus(upd);updOrder(newO);
+        const newO=recomputeStatus(upd);replaceOrder(order.id,newO);
         showToast("✓ تم التسليم — "+dWs);setShowDeliver(false);
         if(print){const wsObj=workshops.find(w=>w.name===dWs);setTimeout(()=>{printReceipt(dWs,wsObj?wsObj.owner:"",newO,dType,Number(dQty),new Date().toISOString().split("T")[0],maxQty-Number(dQty),data.garmentTypes)},300)}
       };
@@ -1779,22 +1799,6 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
           {(ord.workshopDeliveries||[]).length>0&&<div style={{marginTop:10}}><div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>تم تسليمه سابقاً:</div>{(ord.workshopDeliveries||[]).map((wd,i)=><div key={i} style={{fontSize:FS-2,color:T.purple,padding:"2px 0"}}>{"• "+wd.wsName+" - "+wd.qty+" قطعة"+(wd.garmentType?" ("+wd.garmentType+")":"")+" - "+wd.date}</div>)}</div>}
         </div>})()}
       </div>:<p style={{color:T.textSec,textAlign:"center",padding:30}}>لا توجد أوردرات متاحة للتسليم</p>}
-      {/* Quick Batch Deliver */}
-      {availOrders.length>1&&selWs&&<div style={{marginTop:12,borderTop:"1px solid "+T.brd,paddingTop:12}}>
-        {(()=>{const qOrds=ordSearch.trim()?availOrders.filter(o=>{const s=ordSearch.trim().toLowerCase();return(o.modelNo||"").toLowerCase().includes(s)||(o.modelDesc||"").toLowerCase().includes(s)}):availOrders;
-        return<><div style={{fontSize:FS,fontWeight:700,color:T.purple,marginBottom:8}}>{"⚡ تسليم سريع — "+qOrds.length+" أوردر متاح"}</div>
-        <div style={{display:"flex",flexDirection:"column",gap:6}}>{qOrds.slice(0,10).map(o=>{const t=calcOrder(o);const pieces=o.orderPieces||[];const firstPiece=pieces.length>0?pieces.find(p=>{const d=(o.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return d<t.cutQty}):null;
-          const avQ=getAvailQty(o);
-          return<div key={o.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",background:T.bg,borderRadius:8,border:"1px solid "+T.brd,gap:8}}>
-            <div style={{flex:1,minWidth:0}}>
-              <span style={{fontWeight:700}}>{o.modelNo}</span>
-              <span style={{fontSize:FS-2,color:T.textSec,marginRight:6}}>{" — "+o.modelDesc}</span>
-              {firstPiece&&<span style={{fontSize:FS-3,padding:"1px 6px",borderRadius:4,background:T.purple+"12",color:T.purple,marginRight:4}}>{firstPiece}</span>}
-            </div>
-            <span style={{fontSize:FS-1,fontWeight:700,color:T.accent,flexShrink:0}}>{avQ+" قطعة"}</span>
-            <Btn small onClick={()=>{setSelOrder(o.id);setDelType(firstPiece||"");setDelQty(avQ);if(!isInternal(selWs)){const lastWd=(o.workshopDeliveries||[]).find(wd=>wd.wsName===selWs);if(lastWd)setDelPrice(String(lastWd.price||""))}}} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",flexShrink:0}}>تحديد</Btn>
-          </div>})}</div></>})()}
-      </div>}
     </Card>}
     {/* Workshop-specific movements */}
     {selWs&&wsMoves.length>0&&<Card title={"حركات ورشة "+selWs+" (آخر "+Math.min(10,wsMoves.length)+" من "+wsMoves.length+")"}>
@@ -1902,7 +1906,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         <div><label style={{fontSize:FS-2,color:T.textSec}}>التاريخ</label><Inp type="date" value={payDate} onChange={setPayDate}/></div>
         <div><label style={{fontSize:FS-2,color:T.textSec}}>ملاحظات</label><Inp value={payNote} onChange={setPayNote}/></div>
       </div>
-      {payWs&&(()=>{const a=wsAccounts(payWs);const wsObj=workshops.find(x=>x.name===payWs);const pct=wsObj?.payPercent||70;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const remaining=r2(limit-a.totalPaid);const exceeded=remaining<0;
+      {payWs&&(()=>{const a=wsAccounts(payWs);const wsObj=workshops.find(x=>x.name===payWs);const pct=wsObj?.payPercent||60;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const remaining=r2(limit-a.totalPaid);const exceeded=remaining<0;
         return<div style={{marginBottom:8}}>
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:4}}>
             <span style={{padding:"4px 10px",borderRadius:6,fontSize:FS-1,fontWeight:700,background:a.balance>0?T.err+"10":T.ok+"10",color:a.balance>0?T.err:T.ok}}>{"الرصيد: "+fmt(r2(a.balance))+" ج.م"}</span>
@@ -1932,7 +1936,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
         <div><h2 style={{fontSize:isMob?18:22,fontWeight:800,margin:0}}>{"📊 حسابات الورش"}</h2><div style={{fontSize:FS-1,color:T.textSec}}>{"الموسم: "+season}</div></div>
         <div style={{display:"flex",gap:6}}>
-          <Btn onClick={()=>{const rows=[["الورشة","النسبة","مستحق","مدفوع","حد النسبة","متاح للدفع","الرصيد"]];activeWs.forEach(w=>{const a=wsAccounts(w.name);const pct=w.payPercent||70;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const remaining=r2(limit-a.totalPaid);rows.push([w.name,pct+"%",r2(totalDue),r2(a.totalPaid),limit,remaining>0?remaining:0,r2(a.balance)])});rows.push([]);rows.push(["اجمالي","",r2(totals.due+totals.purchase),r2(totals.paid),"","",r2(totals.balance)]);exportExcel(rows,"حسابات_الورش_"+season)}} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
+          <Btn onClick={()=>{const rows=[["الورشة","النسبة","مستحق","مدفوع","حد النسبة","متاح للدفع","الرصيد"]];activeWs.forEach(w=>{const a=wsAccounts(w.name);const pct=w.payPercent||60;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const remaining=r2(limit-a.totalPaid);rows.push([w.name,pct+"%",r2(totalDue),r2(a.totalPaid),limit,remaining>0?remaining:0,r2(a.balance)])});rows.push([]);rows.push(["اجمالي","",r2(totals.due+totals.purchase),r2(totals.paid),"","",r2(totals.balance)]);exportExcel(rows,"حسابات_الورش_"+season)}} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
           <Btn onClick={()=>{const el=document.getElementById("ws-acc-area");if(!el)return;printPage("حسابات الورش — "+season,el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
           <Btn ghost onClick={()=>setMode(null)}>↩</Btn>
         </div>
@@ -1940,7 +1944,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       <div id="ws-acc-area">
       <Card title="ملخص الحسابات" style={{marginBottom:14}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
         <thead><tr>{["الورشة","النسبة","مستحق","مدفوع","حد النسبة","متاح للدفع","الرصيد",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
-        <tbody>{activeWs.map(w=>{const a=wsAccounts(w.name);const pct=w.payPercent||70;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const remaining=r2(limit-a.totalPaid);const exceeded=remaining<0;
+        <tbody>{activeWs.map(w=>{const a=wsAccounts(w.name);const pct=w.payPercent||60;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const remaining=r2(limit-a.totalPaid);const exceeded=remaining<0;
           return<tr key={w.id}>
           <td style={{...TD,fontWeight:700}}>{w.name}</td>
           <td style={{...TDB,color:T.purple}}>{pct+"%"}</td>
@@ -1951,7 +1955,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
           <td style={{...TDB,fontSize:FS+1,color:a.balance>0?T.err:T.ok}}>{fmt(r2(a.balance))}</td>
           <td style={TD}>{exceeded&&<span style={{fontSize:FS-2,padding:"2px 6px",borderRadius:6,background:T.err+"12",color:T.err,fontWeight:700}}>⚠</span>}</td>
         </tr>})}
-          {(()=>{const tLimit=activeWs.reduce((s,w)=>{const a=wsAccounts(w.name);const pct=w.payPercent||70;return s+r2((a.due+a.totalPurchase)*(pct/100))},0);const tRemaining=r2(tLimit-totals.paid);
+          {(()=>{const tLimit=activeWs.reduce((s,w)=>{const a=wsAccounts(w.name);const pct=w.payPercent||60;return s+r2((a.due+a.totalPurchase)*(pct/100))},0);const tRemaining=r2(tLimit-totals.paid);
           return<tr style={{background:T.accent+"08"}}><td style={{...TD,fontWeight:800}}>الاجمالي</td><td style={TD}></td>
           <td style={{...TDB,color:T.accent,fontWeight:800}}>{fmt(r2(totals.due+totals.purchase))}</td>
           <td style={{...TDB,color:T.warn,fontWeight:800}}>{fmt(r2(totals.paid))}</td>
@@ -1974,7 +1978,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
           <div id={"ws-stmt-"+w.id}>
           <h2>{"كشف حساب: "+w.name}</h2>
           <div className="sub">{"الموسم: "+season+" | التاريخ: "+new Date().toLocaleDateString("ar-EG")}</div>
-          {(()=>{const pct=w.payPercent||70;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const remaining=r2(limit-a.totalPaid);const exceeded=remaining<0;
+          {(()=>{const pct=w.payPercent||60;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const remaining=r2(limit-a.totalPaid);const exceeded=remaining<0;
           return<><div style={{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap"}}>
             <span className="badge" style={{padding:"4px 10px",borderRadius:6,background:T.accent+"10",fontSize:FS-1,fontWeight:600}}>{"مستحق: "+fmt(r2(totalDue))}</span>
             <span className="badge" style={{padding:"4px 10px",borderRadius:6,background:T.warn+"10",fontSize:FS-1,fontWeight:600}}>{"مدفوع: "+fmt(r2(a.totalPaid))}</span>
