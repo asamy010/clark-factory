@@ -1721,7 +1721,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
           {!isInternal(selWs)&&<div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>سعر التشغيل</label><Inp type="number" step="0.01" value={delPrice} onChange={v=>setDelPrice(v)} placeholder="سعر القطعة"/></div>}
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>ملاحظات</label><Inp value={delNote} onChange={setDelNote} placeholder="ملاحظات..."/></div>
         </div>
-        <div style={{display:"flex",gap:8}}><Btn primary onClick={()=>deliverToWs(false)} disabled={!selOrder||!delQty||!delType}>تسليم وحفظ</Btn><Btn onClick={()=>deliverToWs(true)} disabled={!selOrder||!delQty||!delType} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>تسليم + طباعة</Btn></div>
+        <div style={{display:"flex",gap:8}}><Btn primary onClick={()=>deliverToWs(false)} disabled={!selOrder||!delQty||!delType}>تسليم وحفظ</Btn><Btn onClick={()=>deliverToWs(true)} disabled={!selOrder||!delQty||!delType} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>تسليم + طباعة</Btn><Btn ghost onClick={()=>{setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice("")}}>الغاء</Btn></div>
         {selOrder&&(()=>{const ord=data.orders.find(o=>o.id===selOrder);if(!ord)return null;const t=calcOrder(ord);const avail=getAvailQty(ord);const totalDel=(ord.workshopDeliveries||[]).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return<div style={{padding:14,background:T.inputBg||T.cardSolid,borderRadius:10,border:"1px solid "+T.brd,marginTop:12}}>
           <div style={{fontSize:FS,fontWeight:700,marginBottom:6}}>{"تفاصيل الأوردر: "+ord.modelNo}</div>
           <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:FS-1}}>
@@ -1735,8 +1735,9 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       </div>:<p style={{color:T.textSec,textAlign:"center",padding:30}}>لا توجد أوردرات متاحة للتسليم</p>}
       {/* Quick Batch Deliver */}
       {availOrders.length>1&&selWs&&<div style={{marginTop:12,borderTop:"1px solid "+T.brd,paddingTop:12}}>
-        <div style={{fontSize:FS,fontWeight:700,color:T.purple,marginBottom:8}}>{"⚡ تسليم سريع — "+availOrders.length+" أوردر متاح"}</div>
-        <div style={{display:"flex",flexDirection:"column",gap:6}}>{availOrders.slice(0,10).map(o=>{const t=calcOrder(o);const pieces=o.orderPieces||[];const firstPiece=pieces.length>0?pieces.find(p=>{const d=(o.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return d<t.cutQty}):null;
+        {(()=>{const qOrds=ordSearch.trim()?availOrders.filter(o=>{const s=ordSearch.trim().toLowerCase();return(o.modelNo||"").toLowerCase().includes(s)||(o.modelDesc||"").toLowerCase().includes(s)}):availOrders;
+        return<><div style={{fontSize:FS,fontWeight:700,color:T.purple,marginBottom:8}}>{"⚡ تسليم سريع — "+qOrds.length+" أوردر متاح"}</div>
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>{qOrds.slice(0,10).map(o=>{const t=calcOrder(o);const pieces=o.orderPieces||[];const firstPiece=pieces.length>0?pieces.find(p=>{const d=(o.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return d<t.cutQty}):null;
           const avQ=getAvailQty(o);
           return<div key={o.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",background:T.bg,borderRadius:8,border:"1px solid "+T.brd,gap:8}}>
             <div style={{flex:1,minWidth:0}}>
@@ -1746,7 +1747,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
             </div>
             <span style={{fontSize:FS-1,fontWeight:700,color:T.accent,flexShrink:0}}>{avQ+" قطعة"}</span>
             <Btn small onClick={()=>{setSelOrder(o.id);setDelType(firstPiece||"");setDelQty(avQ);if(!isInternal(selWs)){const lastWd=(o.workshopDeliveries||[]).find(wd=>wd.wsName===selWs);if(lastWd)setDelPrice(String(lastWd.price||""))}}} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",flexShrink:0}}>تحديد</Btn>
-          </div>})}</div>
+          </div>})}</div></>})()}
       </div>}
     </Card>}
     {/* Workshop-specific movements */}
