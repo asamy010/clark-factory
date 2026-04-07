@@ -599,6 +599,28 @@ export default function App(){
     }
     if(type==="ws")showToast("✓ تم تحديث "+orders.filter(o=>(o.workshopDeliveries||[]).some(wd=>wd.wsName===oldName||(entityId&&wd.wsId===entityId))).length+" أوردر");
   };
+  /* Sync all existing data with workshop IDs */
+  const syncWsIds=async()=>{
+    const wsList=config.workshops||[];
+    let ordCount=0;
+    /* Sync orders - workshopDeliveries */
+    for(const o of orders){let changed=false;const upd=JSON.parse(JSON.stringify(o));
+      (upd.workshopDeliveries||[]).forEach(wd=>{
+        const ws=wsList.find(w=>w.name===wd.wsName||(wd.wsId&&w.id===wd.wsId));
+        if(ws){if(!wd.wsId||wd.wsId!==ws.id){wd.wsId=ws.id;changed=true}if(wd.wsName!==ws.name){wd.wsName=ws.name;changed=true}}
+      });
+      if(changed){await replaceOrder(o.id,upd);ordCount++}
+    }
+    /* Sync config - wsPayments */
+    let payChanged=false;
+    upConfig(d=>{
+      (d.wsPayments||[]).forEach(p=>{
+        const ws=wsList.find(w=>w.name===p.wsName||(p.wsId&&w.id===p.wsId));
+        if(ws){if(!p.wsId||p.wsId!==ws.id){p.wsId=ws.id;payChanged=true}if(p.wsName!==ws.name){p.wsName=ws.name;payChanged=true}}
+      });
+    });
+    showToast("✓ تم مزامنة "+ordCount+" أوردر"+(payChanged?" + المدفوعات":""));
+  };
   const goD=id=>{setSel(id);setTab("details")};
   /* QR scan auto-navigate */
   const qrDone=useRef(false);
@@ -725,7 +747,7 @@ export default function App(){
         {tab==="search"&&<SearchPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="calc"&&<CalcPg data={data} isMob={isMob}/>}
         {tab==="reports"&&<ReportsHub data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
-        {tab==="settings"&&<SettingsPg config={config} upConfig={upConfig} isMob={isMob} user={user} theme={theme} setTheme={setTheme} season={season} orders={orders}/>}
+        {tab==="settings"&&<SettingsPg config={config} upConfig={upConfig} isMob={isMob} user={user} theme={theme} setTheme={setTheme} season={season} orders={orders} syncWsIds={syncWsIds}/>}
       </div>}
     </div>
     {showScanner&&<QRScanner onClose={()=>setShowScanner(false)} onScan={url=>{setShowScanner(false);try{const u=new URL(url);const p=new URLSearchParams(u.search);if(p.get("o")){const o=orders.find(x=>x.modelNo===p.get("o"));if(o)goD(o.id)}else if(p.get("act")==="rcv"&&p.get("oid")){setTab("external");setTimeout(()=>{window.__qrReceive={oid:p.get("oid"),wdi:Number(p.get("wdi"))||0};window.dispatchEvent(new Event("qr-receive"))},600)}else if(p.get("act")==="wsacc"&&p.get("ws")){setTab("external");setTimeout(()=>{window.__qrWsAcc={ws:decodeURIComponent(p.get("ws"))};window.dispatchEvent(new Event("qr-wsacc"))},600)}else{showToast("QR غير معروف")}}catch(e){showToast("QR غير صالح")}}}/>}
@@ -2512,7 +2534,7 @@ function CostPg({data,isMob,statusCards}){
 }
 
 /* ══ SETTINGS ══ */
-function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders}){
+function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syncWsIds}){
   const[newSeason,setNewSeason]=useState("");const[delConfirm,setDelConfirm]=useState("");
   const[newUserEmail,setNewUserEmail]=useState("");const[newUserRole,setNewUserRole]=useState("viewer");
   const[newUserName,setNewUserName]=useState("");const[newUserPass,setNewUserPass]=useState("");const[newUserPass2,setNewUserPass2]=useState("");
@@ -2643,6 +2665,13 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders}){
             </div>)}
           </div>}
         </div>})()}
+    </Card>
+    {/* Data Sync */}
+    <Card title="🔧 صيانة البيانات" style={{marginBottom:16}}>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+        <Btn onClick={syncWsIds} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🔄 مزامنة أسماء الورش</Btn>
+        <span style={{fontSize:FS-2,color:T.textSec}}>يحدّث أسماء الورش في كل التسليمات والمدفوعات والاستلامات لتتوافق مع البيانات الحالية</span>
+      </div>
     </Card>
     {/* Theme Toggle - Bottom */}
     <div style={{display:"flex",justifyContent:"center",gap:12,marginTop:16}}>
