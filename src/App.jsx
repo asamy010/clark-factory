@@ -58,7 +58,7 @@ function gcons(o,k){return parseFloat(o["cons"+k])||0}
 function gdate(o,k){return o["cutDate"+k]||""}
 function useWin(){const[w,setW]=useState(typeof window!=="undefined"?window.innerWidth:1200);useEffect(()=>{const h=()=>setW(window.innerWidth);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h)},[]);return w}
 function getStatusColor(name,cards){const c=(cards||DEFAULT_STATUSES).find(s=>s.name===name);return c?c.color:"#94A3B8"}
-function sortOrders(orders){return[...orders].sort((a,b)=>(b.createdAt||b.date||"").localeCompare(a.createdAt||a.date||""))}
+function sortOrders(orders){return[...orders].filter(o=>o&&o.id).sort((a,b)=>(b.createdAt||b.date||"").localeCompare(a.createdAt||a.date||""))}
 
 /* Smart status recompute based on data state */
 function recomputeStatus(o){
@@ -582,7 +582,7 @@ export default function App(){
 
   useEffect(()=>{const unsub=onAuthStateChanged(auth,u=>{setUser(u);setAuthLoading(false)});return unsub},[]);
   useEffect(()=>{if(!user)return;const unsub=onSnapshot(doc(db,"factory","config"),snap=>{if(snap.exists())setConfig(snap.data());else setDoc(doc(db,"factory","config"),INIT_CONFIG)});return()=>unsub()},[user]);
-  useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>({_docId:d.id,...d.data()})));setDataLoading(false)});return()=>unsub()},[user,season]);
+  useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>({_docId:d.id,...d.data()})).filter(o=>o.id&&o.modelNo));setDataLoading(false)});return()=>unsub()},[user,season]);
 
   const upConfig=useCallback(fn=>{setConfig(prev=>{const next=JSON.parse(JSON.stringify(prev));fn(next);setDoc(doc(db,"factory","config"),next);return next})},[]);
   const addOrder=async o=>{await addDoc(collection(db,"seasons",season,"orders"),o)};
@@ -899,33 +899,6 @@ function DashPg({data,goD,isMob,season,statusCards}){
         {recent.length===0&&<tr><td colSpan={4} style={{...TD,textAlign:"center",color:T.textSec,padding:40}}>لا توجد أوامر</td></tr>}
       </tbody>
     </table></div></Card>
-    {/* Season Timeline */}
-    {(()=>{const events=[];
-      orders.forEach(o=>{
-        events.push({date:o.date,type:"قص",label:o.modelNo,color:T.accent});
-        (o.workshopDeliveries||[]).forEach(wd=>{
-          events.push({date:wd.date,type:"تسليم ورشة",label:o.modelNo+" → "+wd.wsName,color:"#8B5CF6"});
-          (wd.receives||[]).forEach(r=>{events.push({date:r.date,type:"استلام",label:o.modelNo+" ← "+wd.wsName,color:T.ok})})
-        });
-        (o.deliveries||[]).forEach(d=>{events.push({date:d.date,type:"مخزن",label:o.modelNo+" ("+d.qty+")",color:"#059669"})})
-      });
-      events.sort((a,b)=>b.date.localeCompare(a.date));
-      const shown=events.slice(0,15);
-      return shown.length>0&&<Card title={"📅 خط زمني للموسم (آخر "+shown.length+" حدث)"} style={{marginTop:16}}>
-        <div style={{position:"relative",paddingRight:20}}>
-          <div style={{position:"absolute",right:8,top:0,bottom:0,width:3,background:T.brd,borderRadius:2}}/>
-          {shown.map((ev,i)=><div key={i} style={{display:"flex",gap:12,marginBottom:12,position:"relative"}}>
-            <div style={{width:18,height:18,borderRadius:9,background:ev.color,border:"3px solid "+T.cardSolid,flexShrink:0,zIndex:1,marginTop:2}}/>
-            <div style={{flex:1,padding:"8px 14px",borderRadius:10,background:ev.color+"08",border:"1px solid "+ev.color+"20"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:6}}>
-                <span style={{fontWeight:700,fontSize:FS,color:ev.color}}>{ev.type}</span>
-                <span style={{fontSize:FS-2,color:T.textMut}}>{ev.date}</span>
-              </div>
-              <div style={{fontSize:FS-1,color:T.textSec,marginTop:2}}>{ev.label}</div>
-            </div>
-          </div>)}
-        </div>
-      </Card>})()}
   </div>
 }
 
@@ -1418,7 +1391,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
       {(()=>{const ev=[];ev.push({title:"تم القص",date:order.date,color:T.accent,detail:"كمية: "+t.cutQty});
         (order.workshopDeliveries||[]).forEach(wd=>{ev.push({title:"تسليم ورشة — "+wd.wsName,date:wd.date,color:"#8B5CF6",detail:(wd.garmentType||"")+" | "+wd.qty+" قطعة"});(wd.receives||[]).forEach(r=>{ev.push({title:"استلام مصنع — "+wd.wsName,date:r.date,color:T.ok,detail:r.qty+" قطعة"})})});
         (order.deliveries||[]).forEach(d=>{ev.push({title:"مخزن جاهز",date:d.date,color:"#059669",detail:d.qty+" قطعة"})});
-        ev.sort((a,b)=>a.date.localeCompare(b.date));
+        ev.sort((a,b)=>(a.date||"").localeCompare(b.date||""));
         return ev.length>1&&<div style={{marginBottom:14,background:T.cardSolid,borderRadius:10,padding:"10px 14px",border:"1px solid "+T.brd}}><Timeline events={ev}/></div>})()}
       <div style={{display:"grid",gridTemplateColumns:order.image&&!isMob?"auto 1fr":"1fr",gap:16,marginBottom:16}}>
         {!isMob&&order.image&&<div><img src={order.image} alt="" style={{width:135,height:180,aspectRatio:"3/4",objectFit:"cover",borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow}}/></div>}
@@ -1679,7 +1652,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     movements.push({type:"deliver",date:wd.date,wsName:wd.wsName,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:wd.qty,garmentType:wd.garmentType||"",price:wd.price||0,notes:wd.notes||"",orderId:ord.id,wdIdx,_i:_mi++});
     (wd.receives||[]).forEach((r,rIdx)=>{movements.push({type:"receive",date:r.date,wsName:wd.wsName,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,garmentType:wd.garmentType||"",notes:r.notes||"",orderId:ord.id,wdIdx,rIdx,_i:_mi++})})
   })});
-  movements.sort((a,b)=>b.date.localeCompare(a.date)||b._i-a._i);
+  movements.sort((a,b)=>(b.date||"").localeCompare(a.date||"")||b._i-a._i);
 
   const getMovBlock=(m)=>{
     const ord=data.orders.find(o=>o.id===m.orderId);if(!ord)return null;
@@ -1780,7 +1753,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
   /* Workshop-specific movements */
   const wsMoves=[];let _wi=0;
   if(selWs)data.orders.forEach(ord=>{(ord.workshopDeliveries||[]).forEach((wd,wdIdx)=>{if(wd.wsName===selWs){wsMoves.push({type:"deliver",date:wd.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:wd.qty,garmentType:wd.garmentType||"",price:wd.price||0,notes:wd.notes||"",orderId:ord.id,wdIdx,_i:_wi++});(wd.receives||[]).forEach((r,rIdx)=>{wsMoves.push({type:"receive",date:r.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,garmentType:wd.garmentType||"",price:r.price||0,notes:r.notes||"",orderId:ord.id,wdIdx,rIdx,_i:_wi++})})}})});
-  wsMoves.sort((a,b)=>b.date.localeCompare(a.date)||b._i-a._i);
+  wsMoves.sort((a,b)=>(b.date||"").localeCompare(a.date||"")||b._i-a._i);
 
   if(mode==="deliver")return<div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
@@ -2180,7 +2153,7 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards}){
       {selOrder&&<div style={{marginTop:8}}><Inp value={stNote} onChange={setStNote} placeholder="ملاحظات (اختياري)"/></div>}
     </Card>
     {/* Recent stock deliveries */}
-    {(()=>{const allStock=[];data.orders.forEach(o=>{(o.deliveries||[]).forEach((d,i)=>{allStock.push({...d,modelNo:o.modelNo,modelDesc:o.modelDesc,orderId:o.id,idx:i})})});allStock.sort((a,b)=>b.date.localeCompare(a.date));
+    {(()=>{const allStock=[];data.orders.forEach(o=>{(o.deliveries||[]).forEach((d,i)=>{allStock.push({...d,modelNo:o.modelNo,modelDesc:o.modelDesc,orderId:o.id,idx:i})})});allStock.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
       const startEdit=(s)=>{setEditSt({orderId:s.orderId,idx:s.idx});setEdStDate(s.date);setEdStQty(s.qty);setEdStNote(s.notes||"")};
       const saveEdit=()=>{if(!editSt)return;updOrder(editSt.orderId,o=>{const d=o.deliveries[editSt.idx];if(d){d.date=edStDate;d.qty=Number(edStQty)||0;d.notes=edStNote;o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)}});setEditSt(null)};
       const delStock=(s)=>{updOrder(s.orderId,o=>{o.deliveries.splice(s.idx,1);o.deliveredQty=o.deliveries.reduce((ss,x)=>ss+(Number(x.qty)||0),0);o.status=recomputeStatus(o)})};
@@ -2400,7 +2373,7 @@ function DeliveryReport({data,isMob,season}){
   /* Workshop deliveries per day */
   const wsDay={};data.orders.forEach(o=>{(o.workshopDeliveries||[]).forEach(wd=>{if(!wsDay[wd.date])wsDay[wd.date]={date:wd.date,qty:0};wsDay[wd.date].qty+=(Number(wd.qty)||0)})});
   /* Cumulative stock delivery */
-  const stockDays=Object.values(dayMap).filter(d=>d.qty>0).sort((a,b)=>a.date.localeCompare(b.date));
+  const stockDays=Object.values(dayMap).filter(d=>d.qty>0).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
   let cum=0;const cumData=stockDays.map(d=>{cum+=d.qty;return{date:d.date,qty:d.qty,cumulative:cum}});
   const totalCut=data.orders.reduce((s,o)=>s+calcOrder(o).cutQty,0);const totalDel=data.orders.reduce((s,o)=>s+(o.deliveredQty||0),0);
   const printDel=()=>{const el=document.getElementById("del-rep");if(!el)return;printPage("تقرير معدل التسليم — "+season,el.innerHTML)};
