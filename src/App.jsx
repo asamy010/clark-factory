@@ -588,7 +588,14 @@ export default function App(){
   const addOrder=async o=>{await addDoc(collection(db,"seasons",season,"orders"),o)};
   const updOrder=async(orderId,fn)=>{const ord=orders.find(o=>o.id===orderId);if(!ord)return;const updated=JSON.parse(JSON.stringify(ord));fn(updated);const clean={...updated};delete clean._docId;await updateDoc(doc(db,"seasons",season,"orders",ord._docId),clean)};
   const delOrder=async orderId=>{const ord=orders.find(o=>o.id===orderId);if(ord)await deleteDoc(doc(db,"seasons",season,"orders",ord._docId))};
-  const replaceOrder=async(orderId,newData)=>{const ord=orders.find(o=>o.id===orderId);if(!ord)return;const clean={...newData};delete clean._docId;await setDoc(doc(db,"seasons",season,"orders",ord._docId),clean)};
+  const replaceOrder=async(orderId,newData)=>{
+    const ord=orders.find(o=>o.id===orderId);if(!ord||!ord._docId)return;
+    /* Safety: verify data is a valid order object */
+    if(!newData||typeof newData!=="object"||!newData.id||!newData.modelNo){console.error("replaceOrder: invalid data",newData);showToast("⚠️ خطأ — البيانات غير صالحة");return}
+    const clean={...newData};delete clean._docId;
+    try{await setDoc(doc(db,"seasons",season,"orders",ord._docId),clean)}
+    catch(e){console.error("replaceOrder error:",e);showToast("⚠️ خطأ في الحفظ")}
+  };
   /* Cascade rename in all orders - matches by ID (new data) or name (old data) */
   const renameInOrders=async(type,oldName,newName,entityId)=>{if(oldName===newName||!oldName||!newName)return;
     for(const o of orders){let changed=false;const upd=JSON.parse(JSON.stringify(o));
@@ -636,19 +643,21 @@ export default function App(){
     if(qrAction==="wsacc"&&qrWs){qrDone.current=true;setTab("external");window.history.replaceState({},"",window.location.pathname);setTimeout(()=>{window.__qrWsAcc={ws:decodeURIComponent(qrWs)};window.dispatchEvent(new Event("qr-wsacc"))},600)}
   },[orders,qrModelNo,qrAction]);
 
-  /* Auto-resolve wsName from wsId - keeps display names in sync with workshop cards */
+  /* Auto-resolve wsName from wsId */
   const resolvedOrders=useMemo(()=>{
-    const wsList=config.workshops||[];
-    return orders.map(o=>{
-      let changed=false;
-      const wds=(o.workshopDeliveries||[]).map(wd=>{
-        if(wd.wsId){const ws=wsList.find(w=>w.id===wd.wsId);if(ws&&ws.name!==wd.wsName){changed=true;return{...wd,wsName:ws.name}}}
-        return wd;
+    try{
+      const wsList=config.workshops||[];
+      return orders.map(o=>{
+        let changed=false;
+        const wds=(o.workshopDeliveries||[]).map(wd=>{
+          if(wd.wsId){const ws=wsList.find(w=>w.id===wd.wsId);if(ws&&ws.name!==wd.wsName){changed=true;return{...wd,wsName:ws.name}}}
+          return wd;
+        });
+        return changed?{...o,workshopDeliveries:wds}:o;
       });
-      return changed?{...o,workshopDeliveries:wds}:o;
-    });
+    }catch(e){console.error("resolvedOrders error:",e);return orders}
   },[orders,config.workshops]);
-  const data={...config,orders:resolvedOrders};
+  const data={...config,orders:resolvedOrders||orders};
   const getUserRole=()=>{if(config.users&&config.users[user?.uid])return config.users[user.uid];const byEmail=(config.usersList||[]).find(u=>u.email===user?.email);if(byEmail)return byEmail.role;return"admin"};
   const userRole=getUserRole();const canEdit=userRole==="admin"||userRole==="manager";
   const statusCards=config.statusCards||DEFAULT_STATUSES;
@@ -1536,10 +1545,13 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
         if(!dWs||!dType||!dQty)return;
         const wsObj=workshops.find(w=>w.name===dWs);
         const wd={wsName:dWs,wsId:wsObj?wsObj.id:null,qty:Number(dQty),garmentType:dType,price:Number(dPrice)||0,notes:dNote,date:new Date().toISOString().split("T")[0],receives:[]};
-        const upd=JSON.parse(JSON.stringify(order));if(!upd.workshopDeliveries)upd.workshopDeliveries=[];upd.workshopDeliveries.push(wd);
-        const newO=recomputeStatus(upd);replaceOrder(order.id,newO);
+        const upd=JSON.parse(JSON.stringify(order));
+        if(!upd||!upd.id||!upd.modelNo){showToast("⚠️ خطأ — بيانات الأوردر غير صالحة");return}
+        if(!upd.workshopDeliveries)upd.workshopDeliveries=[];upd.workshopDeliveries.push(wd);
+        upd.status=recomputeStatus(upd);
+        replaceOrder(order.id,upd);
         showToast("✓ تم التسليم — "+dWs);setShowDeliver(false);
-        if(print){setTimeout(()=>{printReceipt(dWs,wsObj?wsObj.owner:"",newO,dType,Number(dQty),new Date().toISOString().split("T")[0],maxQty-Number(dQty),data.garmentTypes)},300)}
+        if(print){setTimeout(()=>{printReceipt(dWs,wsObj?wsObj.owner:"",upd,dType,Number(dQty),new Date().toISOString().split("T")[0],maxQty-Number(dQty),data.garmentTypes)},300)}
       };
       return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowDeliver(false)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
