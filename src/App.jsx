@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 import { auth, db, getSecondaryAuth } from "./firebase";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile } from "firebase/auth";
@@ -599,24 +599,30 @@ export default function App(){
     }
     if(type==="ws")showToast("✓ تم تحديث "+orders.filter(o=>(o.workshopDeliveries||[]).some(wd=>wd.wsName===oldName||(entityId&&wd.wsId===entityId))).length+" أوردر");
   };
-  /* Sync all existing data with workshop IDs */
-  const syncWsIds=async()=>{
+  /* Sync all existing data with workshop IDs. nameMap: {oldName: wsId} for orphan linking */
+  const syncWsIds=async(nameMap)=>{
     const wsList=config.workshops||[];
+    const nm=nameMap||{};
     let ordCount=0;
-    /* Sync orders - workshopDeliveries */
     for(const o of orders){let changed=false;const upd=JSON.parse(JSON.stringify(o));
       (upd.workshopDeliveries||[]).forEach(wd=>{
-        const ws=wsList.find(w=>w.name===wd.wsName||(wd.wsId&&w.id===wd.wsId));
-        if(ws){if(!wd.wsId||wd.wsId!==ws.id){wd.wsId=ws.id;changed=true}if(wd.wsName!==ws.name){wd.wsName=ws.name;changed=true}}
+        /* Match by: wsId → name → nameMap (orphan) */
+        let ws=null;
+        if(wd.wsId)ws=wsList.find(w=>w.id===wd.wsId);
+        if(!ws)ws=wsList.find(w=>w.name===wd.wsName);
+        if(!ws&&nm[wd.wsName])ws=wsList.find(w=>w.id===Number(nm[wd.wsName]));
+        if(ws){if(wd.wsId!==ws.id){wd.wsId=ws.id;changed=true}if(wd.wsName!==ws.name){wd.wsName=ws.name;changed=true}}
       });
       if(changed){await replaceOrder(o.id,upd);ordCount++}
     }
-    /* Sync config - wsPayments */
     let payChanged=false;
     upConfig(d=>{
       (d.wsPayments||[]).forEach(p=>{
-        const ws=wsList.find(w=>w.name===p.wsName||(p.wsId&&w.id===p.wsId));
-        if(ws){if(!p.wsId||p.wsId!==ws.id){p.wsId=ws.id;payChanged=true}if(p.wsName!==ws.name){p.wsName=ws.name;payChanged=true}}
+        let ws=null;
+        if(p.wsId)ws=wsList.find(w=>w.id===p.wsId);
+        if(!ws)ws=wsList.find(w=>w.name===p.wsName);
+        if(!ws&&nm[p.wsName])ws=wsList.find(w=>w.id===Number(nm[p.wsName]));
+        if(ws){if(p.wsId!==ws.id){p.wsId=ws.id;payChanged=true}if(p.wsName!==ws.name){p.wsName=ws.name;payChanged=true}}
       });
     });
     showToast("✓ تم مزامنة "+ordCount+" أوردر"+(payChanged?" + المدفوعات":""));
@@ -630,7 +636,19 @@ export default function App(){
     if(qrAction==="wsacc"&&qrWs){qrDone.current=true;setTab("external");window.history.replaceState({},"",window.location.pathname);setTimeout(()=>{window.__qrWsAcc={ws:decodeURIComponent(qrWs)};window.dispatchEvent(new Event("qr-wsacc"))},600)}
   },[orders,qrModelNo,qrAction]);
 
-  const data={...config,orders};
+  /* Auto-resolve wsName from wsId - keeps display names in sync with workshop cards */
+  const resolvedOrders=useMemo(()=>{
+    const wsList=config.workshops||[];
+    return orders.map(o=>{
+      let changed=false;
+      const wds=(o.workshopDeliveries||[]).map(wd=>{
+        if(wd.wsId){const ws=wsList.find(w=>w.id===wd.wsId);if(ws&&ws.name!==wd.wsName){changed=true;return{...wd,wsName:ws.name}}}
+        return wd;
+      });
+      return changed?{...o,workshopDeliveries:wds}:o;
+    });
+  },[orders,config.workshops]);
+  const data={...config,orders:resolvedOrders};
   const getUserRole=()=>{if(config.users&&config.users[user?.uid])return config.users[user.uid];const byEmail=(config.usersList||[]).find(u=>u.email===user?.email);if(byEmail)return byEmail.role;return"admin"};
   const userRole=getUserRole();const canEdit=userRole==="admin"||userRole==="manager";
   const statusCards=config.statusCards||DEFAULT_STATUSES;
@@ -2540,6 +2558,7 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
   const[newUserName,setNewUserName]=useState("");const[newUserPass,setNewUserPass]=useState("");const[newUserPass2,setNewUserPass2]=useState("");
   const[createErr,setCreateErr]=useState("");const[createOk,setCreateOk]=useState("");const[creating,setCreating]=useState(false);
   const[clearConfirm,setClearConfirm]=useState(false);
+  const[linkMap,setLinkMap]=useState({});
   /* Admin password gate */
   const[pendingAction,setPendingAction]=useState(null);const[adminPass,setAdminPass]=useState("");const[passErr,setPassErr]=useState("");const[passLoading,setPassLoading]=useState(false);
   const requirePass=(action)=>{setPendingAction(()=>action);setAdminPass("");setPassErr("")};
@@ -2668,10 +2687,43 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
     </Card>
     {/* Data Sync */}
     <Card title="🔧 صيانة البيانات" style={{marginBottom:16}}>
-      <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
-        <Btn onClick={syncWsIds} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🔄 مزامنة أسماء الورش</Btn>
-        <span style={{fontSize:FS-2,color:T.textSec}}>يحدّث أسماء الورش في كل التسليمات والمدفوعات والاستلامات لتتوافق مع البيانات الحالية</span>
-      </div>
+      {(()=>{
+        const wsList=config.workshops||[];const wsNames=new Set(wsList.map(w=>w.name));
+        /* Find orphaned wsNames - names in deliveries/payments that don't match any current workshop */
+        const orphaned=new Map();
+        orders.forEach(o=>{(o.workshopDeliveries||[]).forEach(wd=>{if(!wd.wsId&&!wsNames.has(wd.wsName)&&wd.wsName)orphaned.set(wd.wsName,(orphaned.get(wd.wsName)||0)+1)})});
+        (config.wsPayments||[]).forEach(p=>{if(!p.wsId&&!wsNames.has(p.wsName)&&p.wsName)orphaned.set(p.wsName,(orphaned.get(p.wsName)||0)+1)});
+        /* Find orphaned wsNames */
+        const doLink=async()=>{
+          const entries=Object.entries(linkMap).filter(([,wsId])=>wsId);
+          if(entries.length===0)return;
+          const nameMap={};entries.forEach(([oldName,wsId])=>{nameMap[oldName]=wsId});
+          await syncWsIds(nameMap);
+          setLinkMap({});
+        };
+        return<div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:orphaned.size>0?14:0}}>
+            <Btn onClick={syncWsIds} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🔄 مزامنة أسماء الورش</Btn>
+            <span style={{fontSize:FS-2,color:T.textSec}}>يحدّث أسماء الورش في كل التسليمات والمدفوعات</span>
+          </div>
+          {orphaned.size>0&&<div style={{marginTop:10,padding:14,borderRadius:12,background:T.err+"06",border:"1px solid "+T.err+"20"}}>
+            <div style={{fontSize:FS,fontWeight:700,color:T.err,marginBottom:10}}>{"⚠️ أسماء غير مرتبطة ("+orphaned.size+")"}</div>
+            <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10}}>الأسماء التالية موجودة في الحركات لكن مفيش ورشة بنفس الاسم. اربط كل اسم بالورشة الصحيحة:</div>
+            {[...orphaned.entries()].map(([name,count])=><div key={name} style={{display:"flex",gap:10,alignItems:"center",marginBottom:8,padding:"8px 12px",background:T.cardSolid,borderRadius:8,border:"1px solid "+T.brd}}>
+              <div style={{flex:1}}>
+                <span style={{fontWeight:700,color:T.err}}>{name}</span>
+                <span style={{fontSize:FS-3,color:T.textMut,marginRight:6}}>{"("+count+" حركة)"}</span>
+              </div>
+              <span style={{fontSize:FS-2,color:T.textSec}}>→</span>
+              <Sel value={linkMap[name]||""} onChange={v=>setLinkMap(p=>({...p,[name]:v}))} style={{maxWidth:200}}>
+                <option value="">-- اختر الورشة --</option>
+                {wsList.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
+              </Sel>
+            </div>)}
+            <Btn primary onClick={doLink} disabled={!Object.values(linkMap).some(v=>v)} style={{marginTop:6}}>✓ ربط وتحديث</Btn>
+          </div>}
+          {orphaned.size===0&&<div style={{marginTop:8,fontSize:FS-1,color:T.ok,fontWeight:600}}>✓ كل الأسماء مرتبطة بالورش الصحيحة</div>}
+        </div>})()}
     </Card>
     {/* Theme Toggle - Bottom */}
     <div style={{display:"flex",justifyContent:"center",gap:12,marginTop:16}}>
