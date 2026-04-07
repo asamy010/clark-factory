@@ -547,8 +547,7 @@ function LoginScreen(){
 
 const TABS=[
   {key:"dashboard",label:"لوحة التحكم",icon:"📊",color:"#0EA5E9",bg:"#E0F2FE"},
-  {key:"orders",label:"أوامر القص",icon:"✂️",color:"#8B5CF6",bg:"#EDE9FE"},
-  {key:"details",label:"تفاصيل الأوردر",icon:"📋",color:"#F59E0B",bg:"#FEF3C7"},
+  {key:"details",label:"أوامر القص",icon:"✂️",color:"#8B5CF6",bg:"#EDE9FE"},
   {key:"external",label:"تشغيل خارجي",icon:"🏭",color:"#10B981",bg:"#D1FAE5"},
   {key:"stock",label:"تسليم مخزن جاهز",icon:"📦",color:"#059669",bg:"#ECFDF5"},
   {key:"reports",label:"التقارير",icon:"📈",color:"#06B6D4",bg:"#CFFAFE"},
@@ -772,7 +771,6 @@ export default function App(){
       {tab!=="home"&&<div>
         {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
-        {tab==="orders"&&<OrdPg data={data} addOrder={addOrder} delOrder={delOrder} updOrder={updOrder} goD={goD} isMob={isMob} canEdit={canEdit} statusCards={statusCards} upConfig={upConfig}/>}
         {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEdit} statusCards={statusCards} goHome={goHome} upConfig={upConfig}/>}
         {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards} season={season}/>}
         {tab==="stock"&&<StockPg data={data} updOrder={updOrder} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
@@ -1230,62 +1228,6 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig}){
     <div style={{display:"flex",gap:10,justifyContent:"center"}}><Btn ghost onClick={()=>setCancelPopup(false)}>متابعة التسجيل</Btn><Btn danger onClick={()=>{setCancelPopup(false);window.__formDirty=false;onCancel()}}>خروج بدون حفظ</Btn></div>
   </div></div>}
 </>}
-
-/* ══ ORDERS PAGE ══ */
-function OrdPg({data,addOrder,delOrder,updOrder,goD,isMob,canEdit,statusCards,upConfig}){
-  const[show,setShow]=useState(false);
-  const[oQ,setOQ]=useState("");const[oSt,setOSt]=useState("الكل");const[oDateFrom,setODateFrom]=useState("");const[oDateTo,setODateTo]=useState("");const[oWs,setOWs]=useState("الكل");const[oFab,setOFab]=useState("الكل");const[showFilter,setShowFilter]=useState(false);
-  const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
-  const workshops=data.workshops||[];const fabrics=data.fabrics||[];
-  const filtered=sortOrders(data.orders.filter(o=>{
-    if(oSt!=="الكل"&&o.status!==oSt)return false;
-    if(oDateFrom&&o.date<oDateFrom)return false;
-    if(oDateTo&&o.date>oDateTo)return false;
-    if(oWs!=="الكل"&&!(o.workshopDeliveries||[]).some(wd=>wd.wsName===oWs))return false;
-    if(oFab!=="الكل"&&!FKEYS.some(k=>String(gf(o,k))===oFab))return false;
-    if(oQ.trim()){const s=oQ.trim().toLowerCase();if(!([o.modelNo,o.modelDesc,o.sizeLabel,o.marker].filter(Boolean).join(" ").toLowerCase().includes(s)))return false}
-    return true}));
-  const hasFilter=oQ||oSt!=="الكل"||oDateFrom||oDateTo||oWs!=="الكل"||oFab!=="الكل";
-  const barcodeRef=useRef(null);
-  const handleBarcode=(v)=>{const q=v.trim();if(!q)return;const ord=data.orders.find(o=>o.modelNo===q);if(ord){goD(ord.id)}else{setOQ(q);setShowFilter(true)}};
-  return<div>
-    {/* Barcode Scanner Bar */}
-    <div style={{marginBottom:10,display:"flex",gap:6,alignItems:"center"}}>
-      <div style={{flex:1,position:"relative"}}>
-        <input ref={barcodeRef} placeholder="📷 مسح باركود أو ادخل رقم الموديل..." onKeyDown={e=>{if(e.key==="Enter"){handleBarcode(e.target.value);e.target.value=""}}} style={{width:"100%",padding:"10px 14px",borderRadius:10,border:"2px solid "+T.accent+"40",fontSize:FS+1,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none"}}/>
-      </div>
-    </div>
-    <div style={{display:"flex",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:6}}>
-      <div style={{display:"flex",gap:6,alignItems:"center"}}>
-        <Btn small on={showFilter} onClick={()=>setShowFilter(!showFilter)} style={{background:hasFilter?T.accent+"15":""}}>{"🔍 فلتر"+(hasFilter?" ●":"")}</Btn>
-        {hasFilter&&<Btn ghost small onClick={()=>{setOQ("");setOSt("الكل");setODateFrom("");setODateTo("");setOWs("الكل");setOFab("الكل")}}>✕ مسح</Btn>}
-        <span style={{fontSize:FS-2,color:T.textSec}}>{filtered.length+" من "+data.orders.length}</span>
-      </div>
-      {canEdit&&<Btn primary onClick={()=>setShow(!show)}>{show?"الغاء":"+ أمر قص جديد"}</Btn>}
-    </div>
-    {showFilter&&<Card style={{marginBottom:10}}>
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"2fr 1fr 1fr 1fr 1fr 1fr",gap:6}}>
-        <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>بحث</label><Inp value={oQ} onChange={setOQ} placeholder="رقم الموديل / الوصف / المقاسات..."/></div>
-        <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الحالة</label><Sel value={oSt} onChange={setOSt}><option value="الكل">الكل</option>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel></div>
-        <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>من تاريخ</label><Inp type="date" value={oDateFrom} onChange={setODateFrom}/></div>
-        <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الى تاريخ</label><Inp type="date" value={oDateTo} onChange={setODateTo}/></div>
-        <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الورشة</label><Sel value={oWs} onChange={setOWs}><option value="الكل">الكل</option>{workshops.map(w=><option key={w.id} value={w.name}>{w.name}</option>)}</Sel></div>
-        <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الخامة</label><Sel value={oFab} onChange={setOFab}><option value="الكل">الكل</option>{fabrics.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}</Sel></div>
-      </div>
-    </Card>}
-    {show&&<OrdForm data={data} initial={mkOrder()} onSave={o=>{addOrder(o);setShow(false);showToast("✓ تم اضافة أمر القص")}} onCancel={()=>setShow(false)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>}
-    {!show&&<Card title={"جميع الأوامر ("+filtered.length+")"}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:isMob?400:800}}>
-      <thead><tr>{["#","التاريخ","موديل","الوصف","الكمية",...(isMob?[]:["آخر حركة"]),"الحالة",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
-      <tbody>{filtered.map((o,i)=>{const t=calcOrder(o);const hasWsDel=(o.workshopDeliveries||[]).length>0;const hasStockDel=(o.deliveries||[]).length>0;const delBlock=hasStockDel?"يوجد تسليمات مخزن مرتبطة":hasWsDel?"يوجد تسليمات ورش مرتبطة":null;
-        let lastMov=null;(o.workshopDeliveries||[]).forEach(wd=>{if(!lastMov||wd.date>lastMov.date)lastMov={date:wd.date,type:"تسليم ورشة",name:wd.wsName};(wd.receives||[]).forEach(r=>{if(!lastMov||r.date>lastMov.date)lastMov={date:r.date,type:"استلام مصنع",name:wd.wsName}})});(o.deliveries||[]).forEach(d=>{if(!lastMov||d.date>lastMov.date)lastMov={date:d.date,type:"مخزن جاهز"}});
-        return<tr key={o.id} data-oid={o.id}><td style={TD}>{i+1}</td><td style={TD}>{o.date}</td><td style={TDB}>{o.modelNo}</td><td style={TD}>{o.modelDesc}</td><td style={{...TDB,color:T.accent}}>{t.cutQty}</td>
-        {!isMob&&<td style={{...TD,fontSize:FS-2}}>{lastMov?<span style={{color:lastMov.type==="مخزن جاهز"?T.ok:lastMov.type==="استلام مصنع"?T.accent:T.purple}}>{lastMov.type+" "+lastMov.date}</span>:<span style={{color:T.textMut}}>—</span>}</td>}
-        <td style={TD}><Badge t={o.status} cards={statusCards}/></td><td style={{...TD,whiteSpace:"nowrap"}}><Btn ghost small onClick={()=>goD(o.id)}>تفاصيل</Btn>{canEdit&&<>{" "}<DelBtn onConfirm={()=>delOrder(o.id)} blocked={delBlock}/></>}</td></tr>})}
-        {filtered.length===0&&<tr><td colSpan={isMob?7:8} style={{...TD,textAlign:"center",color:T.textSec,padding:40}}>{hasFilter?"لا توجد نتائج مطابقة":"لا توجد أوامر"}</td></tr>}
-      </tbody>
-    </table></div></Card>}
-  </div>
-}
 
 /* ══ DETAILS ══ */
 function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,statusCards,goHome,upConfig}){
