@@ -574,6 +574,9 @@ export default function App(){
   const setTab=v=>{setTab_(v);sessionStorage.setItem("clark_tab",v)};
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
   const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);
+  /* Online/Offline status */
+  const[isOnline,setIsOnline]=useState(navigator.onLine);const[justReconnected,setJustReconnected]=useState(false);
+  useEffect(()=>{const on=()=>{setIsOnline(true);setJustReconnected(true);setTimeout(()=>setJustReconnected(false),4000)};const off=()=>{setIsOnline(false);setJustReconnected(false)};window.addEventListener("online",on);window.addEventListener("offline",off);return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off)}},[]);
   const themeKey="clark-theme-"+(user?.uid||"default");
   const[theme,setTheme]=useState(()=>localStorage.getItem(themeKey)||"light");
   T=THEMES[theme]||THEMES.light;
@@ -713,6 +716,7 @@ export default function App(){
         {tab!=="home"&&<div onClick={goHome} style={{cursor:"pointer",fontSize:isMob?22:28,color:T.accent,padding:isMob?"4px 8px":"6px 12px",borderRadius:10,background:T.accentBg,lineHeight:1}}>{"⌂"}</div>}
         <img src={config.logo||CLARK_LOGO} alt="CLARK" style={{height:isMob?22:28,objectFit:"contain"}}/>
         <span style={{fontSize:isMob?10:FS-1,color:T.textSec,padding:"2px 8px",background:T.accentBg,borderRadius:6}}>{season}</span>
+        <span style={{fontSize:isMob?9:FS-2,padding:"2px 8px",borderRadius:6,fontWeight:700,background:justReconnected?"#10B98118":isOnline?"#10B98108":"#EF444418",color:justReconnected?"#10B981":isOnline?"#10B981":"#EF4444",transition:"all 0.5s"}}>{justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}</span>
       </div>
       {!isMob&&<div onClick={e=>e.stopPropagation()} style={{flex:1,display:"flex",justifyContent:"center",position:"relative"}}>
         <div style={{position:"relative",width:280}}>
