@@ -774,7 +774,7 @@ export default function App(){
         {tab==="search"&&<SearchPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="calc"&&<CalcPg data={data} isMob={isMob}/>}
         {tab==="reports"&&<ReportsHub data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
-        {tab==="settings"&&<SettingsPg config={config} upConfig={upConfig} isMob={isMob} user={user} theme={theme} setTheme={setTheme} season={season} orders={orders} syncWsIds={syncWsIds}/>}
+        {tab==="settings"&&<SettingsPg config={config} upConfig={upConfig} isMob={isMob} user={user} theme={theme} setTheme={setTheme} season={season} orders={orders} syncWsIds={syncWsIds} replaceOrder={replaceOrder}/>}
       </div>}
     </div>
     {showScanner&&<QRScanner onClose={()=>setShowScanner(false)} onScan={url=>{setShowScanner(false);try{const u=new URL(url);const p=new URLSearchParams(u.search);if(p.get("o")){const o=orders.find(x=>x.modelNo===p.get("o"));if(o)goD(o.id)}else if(p.get("act")==="rcv"&&p.get("oid")){setTab("external");setTimeout(()=>{window.__qrReceive={oid:p.get("oid"),wdi:Number(p.get("wdi"))||0};window.dispatchEvent(new Event("qr-receive"))},600)}else if(p.get("act")==="wsacc"&&p.get("ws")){setTab("external");setTimeout(()=>{window.__qrWsAcc={ws:decodeURIComponent(p.get("ws"))};window.dispatchEvent(new Event("qr-wsacc"))},600)}else{showToast("QR غير معروف")}}catch(e){showToast("QR غير صالح")}}}/>}
@@ -2537,13 +2537,14 @@ function CostPg({data,isMob,statusCards}){
 }
 
 /* ══ SETTINGS ══ */
-function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syncWsIds}){
+function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syncWsIds,replaceOrder}){
   const[newSeason,setNewSeason]=useState("");const[delConfirm,setDelConfirm]=useState("");
   const[newUserEmail,setNewUserEmail]=useState("");const[newUserRole,setNewUserRole]=useState("viewer");
   const[newUserName,setNewUserName]=useState("");const[newUserPass,setNewUserPass]=useState("");const[newUserPass2,setNewUserPass2]=useState("");
   const[createErr,setCreateErr]=useState("");const[createOk,setCreateOk]=useState("");const[creating,setCreating]=useState(false);
   const[clearConfirm,setClearConfirm]=useState(false);
   const[linkMap,setLinkMap]=useState({});
+  const[compressing,setCompressing]=useState(false);
   /* Admin password gate */
   const[pendingAction,setPendingAction]=useState(null);const[adminPass,setAdminPass]=useState("");const[passErr,setPassErr]=useState("");const[passLoading,setPassLoading]=useState(false);
   const requirePass=(action)=>{setPendingAction(()=>action);setAdminPass("");setPassErr("")};
@@ -2670,44 +2671,145 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
           </div>}
         </div>})()}
     </Card>
-    {/* Data Sync */}
+    {/* Data Maintenance */}
     <Card title="🔧 صيانة البيانات" style={{marginBottom:16}}>
       {(()=>{
         const wsList=config.workshops||[];const wsNames=new Set(wsList.map(w=>w.name));
-        /* Find orphaned wsNames - names in deliveries/payments that don't match any current workshop */
-        const orphaned=new Map();
-        orders.forEach(o=>{(o.workshopDeliveries||[]).forEach(wd=>{if(!wd.wsId&&!wsNames.has(wd.wsName)&&wd.wsName)orphaned.set(wd.wsName,(orphaned.get(wd.wsName)||0)+1)})});
-        (config.wsPayments||[]).forEach(p=>{if(!p.wsId&&!wsNames.has(p.wsName)&&p.wsName)orphaned.set(p.wsName,(orphaned.get(p.wsName)||0)+1)});
-        /* Find orphaned wsNames */
+        const gtList=config.garmentTypes||[];const gtNames=new Set(gtList.map(g=>g.name));
+        const stList=(config.statusCards||[]);const stNames=new Set(stList.map(s=>s.name));
+        /* Orphaned workshops */
+        const orphanWs=new Map();
+        orders.forEach(o=>{(o.workshopDeliveries||[]).forEach(wd=>{if(!wd.wsId&&!wsNames.has(wd.wsName)&&wd.wsName)orphanWs.set(wd.wsName,(orphanWs.get(wd.wsName)||0)+1)})});
+        (config.wsPayments||[]).forEach(p=>{if(!p.wsId&&!wsNames.has(p.wsName)&&p.wsName)orphanWs.set(p.wsName,(orphanWs.get(p.wsName)||0)+1)});
+        /* Orphaned garment types */
+        const orphanGt=new Map();
+        orders.forEach(o=>{(o.orderPieces||[]).forEach(p=>{if(!gtNames.has(p)&&p)orphanGt.set(p,(orphanGt.get(p)||0)+1)});(o.workshopDeliveries||[]).forEach(wd=>{if(wd.garmentType&&!gtNames.has(wd.garmentType))orphanGt.set(wd.garmentType,(orphanGt.get(wd.garmentType)||0)+1)})});
+        /* Orphaned statuses */
+        const orphanSt=new Map();
+        orders.forEach(o=>{if(o.status&&!stNames.has(o.status))orphanSt.set(o.status,(orphanSt.get(o.status)||0)+1)});
+        const totalOrphans=orphanWs.size+orphanGt.size+orphanSt.size;
+        /* Dolink */
         const doLink=async()=>{
-          const entries=Object.entries(linkMap).filter(([,wsId])=>wsId);
-          if(entries.length===0)return;
-          const nameMap={};entries.forEach(([oldName,wsId])=>{nameMap[oldName]=wsId});
-          await syncWsIds(nameMap);
-          setLinkMap({});
+          const entries=Object.entries(linkMap).filter(([,v])=>v);if(entries.length===0)return;
+          const wsMap={};entries.filter(([k])=>orphanWs.has(k)).forEach(([k,v])=>{wsMap[k]=v});
+          if(Object.keys(wsMap).length)await syncWsIds(wsMap);
+          /* Garment & status renames directly */
+          for(const[oldName,newName] of entries){
+            if(orphanGt.has(oldName)&&newName){for(const o of orders){let ch=false;const u=JSON.parse(JSON.stringify(o));(u.workshopDeliveries||[]).forEach(wd=>{if(wd.garmentType===oldName){wd.garmentType=newName;ch=true}});u.orderPieces=(u.orderPieces||[]).map(p=>p===oldName?(ch=true,newName):p);FKEYS.forEach(k=>{if(u["fabricPieces"+k])u["fabricPieces"+k]=u["fabricPieces"+k].map(p=>p===oldName?(ch=true,newName):p)});if(ch)await replaceOrder(o.id,u)}}
+            if(orphanSt.has(oldName)&&newName){for(const o of orders){if(o.status===oldName){const u={...o};u.status=newName;await replaceOrder(o.id,u)}}}
+          }
+          setLinkMap({});showToast("✓ تم الربط والتحديث");
         };
-        return<div>
-          <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:orphaned.size>0?14:0}}>
-            <Btn onClick={syncWsIds} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🔄 مزامنة أسماء الورش</Btn>
-            <span style={{fontSize:FS-2,color:T.textSec}}>يحدّث أسماء الورش في كل التسليمات والمدفوعات</span>
+        /* Data integrity */
+        const issues=[];
+        orders.forEach(o=>{const t=calcOrder(o);
+          if(!o.modelNo)issues.push({ord:o.id,msg:"بدون رقم موديل",sev:"err"});
+          if(!o.fabricA&&!o.fabricB)issues.push({ord:o.id,no:o.modelNo,msg:"بدون خامة",sev:"warn"});
+          if(t.cutQty===0)issues.push({ord:o.id,no:o.modelNo,msg:"كمية القص = 0",sev:"warn"});
+          if(!o.sizeSetId&&!o.sizeLabel)issues.push({ord:o.id,no:o.modelNo,msg:"بدون مقاس",sev:"warn"});
+        });
+        /* Notifications cleanup */
+        const notifs=config.notifications||[];const now=new Date();
+        const oldNotifs=notifs.filter(n=>{const d=new Date(n.createdAt);return(now-d)/(1000*60*60*24)>30});
+        const excessNotifs=notifs.length>50?notifs.length-50:0;
+        const cleanNotifs=()=>upConfig(d=>{const cutoff=new Date();cutoff.setDate(cutoff.getDate()-30);d.notifications=(d.notifications||[]).filter(n=>new Date(n.createdAt)>=cutoff).slice(-50);showToast("✓ تم تنظيف الاشعارات")});
+        /* Storage stats */
+        const configSize=JSON.stringify(config).length;const ordersSize=JSON.stringify(orders).length;
+        const totalSize=configSize+ordersSize;
+        const imgSize=orders.reduce((s,o)=>{let sz=(o.image||"").length;(o.attachments||[]).forEach(a=>sz+=(a.data||"").length);return s+sz},0);
+        const wsImgSize=(config.workshops||[]).reduce((s,w)=>s+(w.ownerPhoto||"").length+(w.idCard||"").length,0);
+        /* Backup */
+        const doBackup=()=>{const backup={config,orders:orders.map(o=>{const c={...o};delete c._docId;return c}),exportDate:new Date().toISOString(),season};const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="CLARK_backup_"+season+"_"+new Date().toISOString().split("T")[0]+".json";a.click();URL.revokeObjectURL(url);showToast("✓ تم تنزيل النسخة الاحتياطية")};
+        /* Compress images */
+        const compressOldImages=async()=>{setCompressing(true);let cnt=0;
+          for(const o of orders){if(!o.image||o.image.length<50000)continue;
+            try{const img=new Image();await new Promise((res,rej)=>{img.onload=res;img.onerror=rej;img.src=o.image});
+              const canvas=document.createElement("canvas");const max=150;const ratio=Math.min(max/img.width,max/img.height,1);canvas.width=img.width*ratio;canvas.height=img.height*ratio;canvas.getContext("2d").drawImage(img,0,0,canvas.width,canvas.height);
+              const compressed=canvas.toDataURL("image/jpeg",0.4);
+              if(compressed.length<o.image.length){await replaceOrder(o.id,{...o,image:compressed});cnt++}
+            }catch(e){}
+          }
+          setCompressing(false);showToast("✓ تم ضغط صور "+cnt+" أوردر")};
+
+        return<div style={{display:"flex",flexDirection:"column",gap:16}}>
+          {/* 1. Orphan linking */}
+          <div>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+              <Btn onClick={()=>syncWsIds()} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🔄 مزامنة</Btn>
+              <span style={{fontSize:FS-2,color:T.textSec}}>مزامنة أسماء الورش في كل الحركات</span>
+            </div>
+            {totalOrphans>0?<div style={{marginTop:10,padding:14,borderRadius:12,background:T.err+"06",border:"1px solid "+T.err+"20"}}>
+              <div style={{fontSize:FS,fontWeight:700,color:T.err,marginBottom:8}}>{"⚠️ أسماء غير مرتبطة ("+totalOrphans+")"}</div>
+              {[...orphanWs.entries()].map(([name,count])=><div key={"ws-"+name} style={{display:"flex",gap:8,alignItems:"center",marginBottom:6,padding:"6px 10px",background:T.cardSolid,borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1}}>
+                <span style={{color:T.err,fontWeight:700}}>🏭 {name}</span><span style={{fontSize:FS-3,color:T.textMut}}>{"("+count+")"}</span><span style={{color:T.textSec}}>→</span>
+                <Sel value={linkMap[name]||""} onChange={v=>setLinkMap(p=>({...p,[name]:v}))}><option value="">--</option>{wsList.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</Sel>
+              </div>)}
+              {[...orphanGt.entries()].map(([name,count])=><div key={"gt-"+name} style={{display:"flex",gap:8,alignItems:"center",marginBottom:6,padding:"6px 10px",background:T.cardSolid,borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1}}>
+                <span style={{color:T.warn,fontWeight:700}}>👕 {name}</span><span style={{fontSize:FS-3,color:T.textMut}}>{"("+count+")"}</span><span style={{color:T.textSec}}>→</span>
+                <Sel value={linkMap[name]||""} onChange={v=>setLinkMap(p=>({...p,[name]:v}))}><option value="">--</option>{gtList.map(g=><option key={g.id} value={g.name}>{g.name}</option>)}</Sel>
+              </div>)}
+              {[...orphanSt.entries()].map(([name,count])=><div key={"st-"+name} style={{display:"flex",gap:8,alignItems:"center",marginBottom:6,padding:"6px 10px",background:T.cardSolid,borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1}}>
+                <span style={{color:T.accent,fontWeight:700}}>📌 {name}</span><span style={{fontSize:FS-3,color:T.textMut}}>{"("+count+")"}</span><span style={{color:T.textSec}}>→</span>
+                <Sel value={linkMap[name]||""} onChange={v=>setLinkMap(p=>({...p,[name]:v}))}><option value="">--</option>{stList.map(s=><option key={s.id} value={s.name}>{s.name}</option>)}</Sel>
+              </div>)}
+              <Btn primary onClick={doLink} disabled={!Object.values(linkMap).some(v=>v)} style={{marginTop:8}}>✓ ربط وتحديث</Btn>
+            </div>:<div style={{marginTop:6,fontSize:FS-1,color:T.ok,fontWeight:600}}>✓ كل الأسماء مرتبطة</div>}
           </div>
-          {orphaned.size>0&&<div style={{marginTop:10,padding:14,borderRadius:12,background:T.err+"06",border:"1px solid "+T.err+"20"}}>
-            <div style={{fontSize:FS,fontWeight:700,color:T.err,marginBottom:10}}>{"⚠️ أسماء غير مرتبطة ("+orphaned.size+")"}</div>
-            <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10}}>الأسماء التالية موجودة في الحركات لكن مفيش ورشة بنفس الاسم. اربط كل اسم بالورشة الصحيحة:</div>
-            {[...orphaned.entries()].map(([name,count])=><div key={name} style={{display:"flex",gap:10,alignItems:"center",marginBottom:8,padding:"8px 12px",background:T.cardSolid,borderRadius:8,border:"1px solid "+T.brd}}>
-              <div style={{flex:1}}>
-                <span style={{fontWeight:700,color:T.err}}>{name}</span>
-                <span style={{fontSize:FS-3,color:T.textMut,marginRight:6}}>{"("+count+" حركة)"}</span>
-              </div>
-              <span style={{fontSize:FS-2,color:T.textSec}}>→</span>
-              <Sel value={linkMap[name]||""} onChange={v=>setLinkMap(p=>({...p,[name]:v}))} style={{maxWidth:200}}>
-                <option value="">-- اختر الورشة --</option>
-                {wsList.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
-              </Sel>
-            </div>)}
-            <Btn primary onClick={doLink} disabled={!Object.values(linkMap).some(v=>v)} style={{marginTop:6}}>✓ ربط وتحديث</Btn>
+
+          {/* 2. Notifications cleanup */}
+          {(oldNotifs.length>0||excessNotifs>0)&&<div style={{padding:12,borderRadius:10,background:T.warn+"08",border:"1px solid "+T.warn+"20"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:FS-1,color:T.warn,fontWeight:600}}>{"🔔 "+notifs.length+" اشعار"+(oldNotifs.length>0?" — "+oldNotifs.length+" أقدم من 30 يوم":"")+(excessNotifs>0?" — "+excessNotifs+" زيادة عن 50":"")}</span>
+              <Btn small onClick={cleanNotifs} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>🧹 تنظيف</Btn>
+            </div>
           </div>}
-          {orphaned.size===0&&<div style={{marginTop:8,fontSize:FS-1,color:T.ok,fontWeight:600}}>✓ كل الأسماء مرتبطة بالورش الصحيحة</div>}
+
+          {/* 3. Data integrity */}
+          {issues.length>0&&<div style={{padding:12,borderRadius:10,background:T.err+"06",border:"1px solid "+T.err+"15"}}>
+            <div style={{fontSize:FS,fontWeight:700,color:T.err,marginBottom:8}}>{"🔍 مشاكل في البيانات ("+issues.length+")"}</div>
+            {issues.slice(0,10).map((iss,i)=><div key={i} style={{fontSize:FS-2,padding:"4px 0",color:iss.sev==="err"?T.err:T.warn}}>{"• "+(iss.no||"—")+" — "+iss.msg}</div>)}
+            {issues.length>10&&<div style={{fontSize:FS-3,color:T.textMut}}>{"و "+( issues.length-10)+" مشكلة أخرى..."}</div>}
+          </div>}
+          {issues.length===0&&<div style={{fontSize:FS-1,color:T.ok,fontWeight:600}}>✓ لا توجد مشاكل في البيانات</div>}
+
+          {/* 4+5. Backup & Restore */}
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+            <Btn onClick={doBackup} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>💾 نسخة احتياطية</Btn>
+            <label style={{cursor:"pointer",padding:"6px 16px",borderRadius:8,background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontSize:FS-1,fontWeight:600}}>
+              📂 استعادة
+              <input type="file" accept=".json" style={{display:"none"}} onChange={async e=>{const file=e.target.files[0];if(!file)return;if(!confirm("⚠️ سيتم استبدال جميع البيانات الحالية بالنسخة الاحتياطية. متأكد؟"))return;try{const text=await file.text();const backup=JSON.parse(text);if(!backup.config||!backup.orders){alert("ملف غير صالح");return}upConfig(d=>{Object.assign(d,backup.config)});showToast("✓ تم استعادة الاعدادات — الأوردرات تحتاج استعادة يدوية من Firebase")}catch(er){alert("خطأ في قراءة الملف")}}}/>
+            </label>
+            <span style={{fontSize:FS-3,color:T.textMut}}>JSON بكل بيانات الموسم</span>
+          </div>
+
+          {/* 6. Compress images */}
+          <div style={{display:"flex",gap:10,alignItems:"center"}}>
+            <Btn onClick={compressOldImages} disabled={compressing} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>{compressing?"جاري الضغط...":"🗜️ ضغط الصور"}</Btn>
+            <span style={{fontSize:FS-3,color:T.textMut}}>يعيد ضغط صور الأوردرات الكبيرة (أكبر من 50KB)</span>
+          </div>
+
+          {/* 7. Storage stats */}
+          <div style={{padding:14,borderRadius:12,background:T.bg,border:"1px solid "+T.brd}}>
+            <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:10}}>📊 احصائيات التخزين</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+              <div style={{textAlign:"center",padding:8,borderRadius:8,background:T.cardSolid}}>
+                <div style={{fontSize:FS-2,color:T.textSec}}>اجمالي</div>
+                <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{(totalSize/1024/1024).toFixed(2)+" MB"}</div>
+              </div>
+              <div style={{textAlign:"center",padding:8,borderRadius:8,background:T.cardSolid}}>
+                <div style={{fontSize:FS-2,color:T.textSec}}>الأوردرات</div>
+                <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>{(ordersSize/1024/1024).toFixed(2)+" MB"}</div>
+              </div>
+              <div style={{textAlign:"center",padding:8,borderRadius:8,background:T.cardSolid}}>
+                <div style={{fontSize:FS-2,color:T.textSec}}>الصور</div>
+                <div style={{fontSize:FS+2,fontWeight:800,color:T.warn}}>{((imgSize+wsImgSize)/1024/1024).toFixed(2)+" MB"}</div>
+              </div>
+            </div>
+            <div style={{marginTop:8}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-2,color:T.textSec,marginBottom:3}}><span>استهلاك التخزين</span><span>{(totalSize/1024/1024).toFixed(2)+" / 1.0 MB (حد المستند)"}</span></div>
+              <div style={{height:8,borderRadius:4,background:"#E2E8F0",overflow:"hidden"}}><div style={{height:"100%",width:Math.min(100,totalSize/1024/1024*100)+"%",borderRadius:4,background:totalSize>800000?T.err:totalSize>500000?T.warn:T.ok}}/></div>
+            </div>
+          </div>
         </div>})()}
     </Card>
     {/* Theme Toggle - Bottom */}
