@@ -2264,6 +2264,52 @@ function ExpectedDeliveries({data,isMob,season}){
   </div>
 }
 
+/* ══ AVAILABLE FOR DELIVERY REPORT ══ */
+function AvailableReport({data,isMob,season}){
+  const rows=[];
+  data.orders.forEach(o=>{
+    const t=calcOrder(o);const pieces=o.orderPieces||[];const wds=o.workshopDeliveries||[];
+    /* Find linked pieces */
+    const linkedPieces=new Set();FKEYS.forEach(k=>{if(gf(o,k))(o["fabricPieces"+k]||[]).forEach(p=>linkedPieces.add(p))});
+    if(pieces.length>0){
+      pieces.forEach(p=>{
+        if(!linkedPieces.has(p))return;/* not cut yet */
+        const delForP=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+        const avail=t.cutQty-delForP;
+        if(avail>0)rows.push({modelNo:o.modelNo,modelDesc:o.modelDesc,piece:p,cutQty:t.cutQty,delivered:delForP,available:avail,status:o.status,orderId:o.id})
+      })
+    }else{
+      const totalDel=wds.reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+      const avail=t.cutQty-totalDel;
+      if(avail>0&&t.cutQty>0)rows.push({modelNo:o.modelNo,modelDesc:o.modelDesc,piece:"—",cutQty:t.cutQty,delivered:totalDel,available:avail,status:o.status,orderId:o.id})
+    }
+  });
+  rows.sort((a,b)=>b.available-a.available);
+  const totalAvail=rows.reduce((s,r)=>s+r.available,0);
+  const printRep=()=>{const el=document.getElementById("avail-rep");if(el)printPage("تقرير القطع المتاحة للتسليم — "+season,el.innerHTML)};
+  return<div id="avail-rep">
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+      <div><h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>📤 القطع المتاحة للتسليم</h1><div style={{fontSize:FS-1,color:T.textSec}}>{"الموسم: "+season+" — "+rows.length+" بند — "+fmt(totalAvail)+" قطعة متاحة"}</div></div>
+      <Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
+    </div>
+    {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+      <thead><tr>{["#","الموديل","الوصف","القطعة","كمية القص","تم تسليمه","متاح للتسليم","الحالة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+      <tbody>{rows.map((r,i)=><tr key={i}>
+        <td style={TD}>{i+1}</td>
+        <td style={TDB}>{r.modelNo}</td>
+        <td style={TD}>{r.modelDesc}</td>
+        <td style={{...TD,color:"#8B5CF6",fontWeight:600}}>{r.piece}</td>
+        <td style={TDB}>{r.cutQty}</td>
+        <td style={{...TDB,color:T.warn}}>{r.delivered}</td>
+        <td style={{...TDB,color:T.ok,fontSize:FS+1}}>{r.available}</td>
+        <td style={TD}><Badge t={r.status} cards={data.statusCards}/></td>
+      </tr>)}
+      <tr style={{background:T.accent+"08",fontWeight:800}}><td colSpan={4} style={TD}>الاجمالي</td><td style={TDB}>{fmt(rows.reduce((s,r)=>s+r.cutQty,0))}</td><td style={TDB}>{fmt(rows.reduce((s,r)=>s+r.delivered,0))}</td><td style={{...TDB,color:T.ok,fontSize:FS+2}}>{fmt(totalAvail)}</td><td style={TD}></td></tr>
+      </tbody>
+    </table></div>:<div style={{textAlign:"center",padding:40,color:T.ok,fontWeight:700,fontSize:FS+2}}>✓ لا توجد قطع متاحة — تم تسليم كل شيء</div>}
+  </div>
+}
+
 function ReportsHub({data,isMob,season,statusCards}){
   const[sub,setSub]=useState(null);
   const reports=[
@@ -2275,7 +2321,9 @@ function ReportsHub({data,isMob,season,statusCards}){
     {key:"summary",label:"ملخص الموسم",icon:"📋",color:"#0EA5E9"},
     {key:"uncut",label:"قطع لم يتم قصها",icon:"✂️",color:"#EF4444"},
     {key:"expected",label:"مواعيد التسليم المتوقعة",icon:"📅",color:"#F97316"},
+    {key:"available",label:"القطع المتاحة للتسليم",icon:"📤",color:"#059669"},
   ];
+  if(sub==="available")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><AvailableReport data={data} isMob={isMob} season={season}/></div>;
   if(sub==="expected")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><ExpectedDeliveries data={data} isMob={isMob} season={season}/></div>;
   if(sub==="uncut")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><UncutReport data={data} isMob={isMob} season={season}/></div>;
   if(sub==="production")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><RepPg data={data} isMob={isMob} season={season} statusCards={statusCards}/></div>;
