@@ -2154,6 +2154,7 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards}){
   const[stLogQ,setStLogQ]=useState("");
   const[stOrdQ,setStOrdQ]=useState("");
   const[qRcvPiece,setQRcvPiece]=useState(null);const[qRcvQty,setQRcvQty]=useState(0);const[qRcvDate,setQRcvDate]=useState(new Date().toISOString().split("T")[0]);
+  const[qEditPiece,setQEditPiece]=useState(null);const[qEditQty,setQEditQty]=useState(0);
 
   const eligible=data.orders.filter(o=>{
     const wds=o.workshopDeliveries||[];if(wds.length===0)return false;
@@ -2225,18 +2226,26 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards}){
       {selOrder&&ord&&pieces.length>0&&<div style={{marginTop:10,padding:10,borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
         <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:6}}>تفاصيل القطع والطقم الكامل</div>
         <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["القطعة","كمية القص","تسليم ورشة","استلام مصنع","متبقي عند الورش",""].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead>
-        <tbody>{pieceBreakdown.map(p=>{const isEdRcv=qRcvPiece===p.piece;
-          /* Find last wd with balance for this piece */
+        <tbody>{pieceBreakdown.map(p=>{const isAdding=qRcvPiece===p.piece;const isEditing=qEditPiece===p.piece;
+          /* Find wd with balance for adding */
           const wdForP=wds.filter(wd=>wd.garmentType===p.piece).find(wd=>{const rc=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);return rc<(Number(wd.qty)||0)});
           const wdIdx=wdForP?wds.indexOf(wdForP):-1;
-          const maxRcv=wdForP?((Number(wdForP.qty)||0)-(wdForP.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0)):0;
-          return<tr key={p.piece} style={{background:isEdRcv?T.accent+"06":""}}>
+          const maxAdd=wdForP?((Number(wdForP.qty)||0)-(wdForP.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0)):0;
+          /* Find last receive for editing */
+          let lastRcvWdIdx=-1,lastRcvRIdx=-1;
+          wds.forEach((wd,wi)=>{if(wd.garmentType===p.piece)(wd.receives||[]).forEach((r,ri)=>{lastRcvWdIdx=wi;lastRcvRIdx=ri})});
+          const hasRcv=lastRcvWdIdx>=0;
+          return<tr key={p.piece} style={{background:(isAdding||isEditing)?T.accent+"06":""}}>
           <td style={{...TD,fontWeight:700,color:"#8B5CF6"}}>{p.piece}</td>
           <td style={TDB}>{p.cutQty}</td>
           <td style={{...TDB,color:T.purple}}>{p.delToWs}</td>
-          <td style={{...TDB,color:T.ok}}>{isEdRcv?<div style={{display:"flex",gap:4,alignItems:"center"}}><span style={{fontWeight:700}}>{p.rcvFromWs}</span><span style={{color:T.textMut}}>+</span><Inp type="number" value={qRcvQty} onChange={v=>setQRcvQty(Math.min(Number(v)||0,maxRcv))} sx={{width:60,padding:"2px 4px",fontSize:FS-1}}/><Inp type="date" value={qRcvDate} onChange={setQRcvDate} sx={{padding:"2px 4px",fontSize:FS-2}}/></div>:p.rcvFromWs}</td>
+          <td style={{...TDB,color:T.ok}}>{isEditing?<Inp type="number" value={qEditQty} onChange={v=>setQEditQty(Number(v)||0)} sx={{width:70,padding:"2px 4px",fontSize:FS}}/>:isAdding?<div style={{display:"flex",gap:4,alignItems:"center"}}><span style={{fontWeight:700}}>{p.rcvFromWs}</span><span style={{color:T.textMut}}>+</span><Inp type="number" value={qRcvQty} onChange={v=>setQRcvQty(Math.min(Number(v)||0,maxAdd))} sx={{width:60,padding:"2px 4px",fontSize:FS-1}}/><Inp type="date" value={qRcvDate} onChange={setQRcvDate} sx={{padding:"2px 4px",fontSize:FS-2}}/></div>:p.rcvFromWs}</td>
           <td style={{...TDB,color:p.balance>0?T.err:T.ok}}>{p.balance>0?p.balance:"✓"}</td>
-          <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&p.balance>0&&wdIdx>=0&&(isEdRcv?<div style={{display:"flex",gap:3}}><Btn small primary onClick={()=>{if(!qRcvQty||qRcvQty<=0)return;updOrder(selOrder,o=>{if(!o.workshopDeliveries[wdIdx].receives)o.workshopDeliveries[wdIdx].receives=[];o.workshopDeliveries[wdIdx].receives.push({date:qRcvDate,qty:qRcvQty,notes:"استلام سريع",price:Number(wdForP.price)||0,amount:r2(qRcvQty*(Number(wdForP.price)||0))});o.status=recomputeStatus(o)});setQRcvPiece(null);setQRcvQty(0);showToast("✓ تم استلام "+qRcvQty+" "+p.piece)}}>💾</Btn><Btn ghost small onClick={()=>setQRcvPiece(null)}>✕</Btn></div>:<Btn ghost small onClick={()=>{setQRcvPiece(p.piece);setQRcvQty(0);setQRcvDate(new Date().toISOString().split("T")[0])}} style={{fontSize:FS-3,padding:"2px 8px",color:T.accent}}>📥 استلام</Btn>)}</td>
+          <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<div style={{display:"flex",gap:3}}>
+            {isEditing?<><Btn small primary onClick={()=>{updOrder(selOrder,o=>{const r=o.workshopDeliveries[lastRcvWdIdx].receives[lastRcvRIdx];if(r)r.qty=qEditQty;o.status=recomputeStatus(o)});setQEditPiece(null);showToast("✓ تم تعديل الاستلام")}}>💾</Btn><Btn ghost small onClick={()=>setQEditPiece(null)}>✕</Btn></>
+            :isAdding?<><Btn small primary onClick={()=>{if(!qRcvQty||qRcvQty<=0)return;updOrder(selOrder,o=>{if(!o.workshopDeliveries[wdIdx].receives)o.workshopDeliveries[wdIdx].receives=[];o.workshopDeliveries[wdIdx].receives.push({date:qRcvDate,qty:qRcvQty,notes:"استلام سريع",price:Number(wdForP.price)||0,amount:r2(qRcvQty*(Number(wdForP.price)||0))});o.status=recomputeStatus(o)});setQRcvPiece(null);setQRcvQty(0);showToast("✓ تم استلام "+qRcvQty+" "+p.piece)}}>💾</Btn><Btn ghost small onClick={()=>setQRcvPiece(null)}>✕</Btn></>
+            :<>{hasRcv&&<Btn ghost small onClick={()=>{const lastR=wds[lastRcvWdIdx].receives[lastRcvRIdx];setQEditPiece(p.piece);setQEditQty(lastR.qty);setQRcvPiece(null)}} style={{fontSize:FS-3,padding:"2px 6px"}}>✏️</Btn>}{p.balance>0&&wdIdx>=0&&<Btn ghost small onClick={()=>{setQRcvPiece(p.piece);setQRcvQty(0);setQRcvDate(new Date().toISOString().split("T")[0]);setQEditPiece(null)}} style={{fontSize:FS-3,padding:"2px 8px",color:T.accent}}>📥</Btn>}</>}
+          </div>}</td>
         </tr>})}</tbody></table></div>
         <div style={{marginTop:8,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
           <span style={{padding:"6px 14px",borderRadius:8,background:T.ok+"12",color:T.ok,fontWeight:800,fontSize:FS}}>{"🧩 الطقم الكامل المتاح: "+stockRemain}</span>
