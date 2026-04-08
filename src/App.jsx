@@ -46,6 +46,8 @@ const DEFAULT_STATUSES = [
   {id:3,name:"ملغي",color:"#EF4444"},{id:4,name:"في الغسيل",color:"#EC4899"},
   {id:5,name:"تشطيب وتعبئة",color:"#10B981"},{id:6,name:"تم الشحن",color:"#059669"},
   {id:7,name:"شحن جزئي",color:"#D97706"},{id:8,name:"تشغيل خارجي",color:"#8B5CF6"},
+  {id:9,name:"في الطباعة",color:"#EF4444"},{id:10,name:"في التطريز",color:"#F59E0B"},
+  {id:11,name:"تشطيب وتعبئة خارجي",color:"#14B8A6"},
 ];
 
 const INIT_CONFIG = {
@@ -80,18 +82,29 @@ function recomputeStatus(o){
   const stockDel=dels.reduce((s,d)=>s+(Number(d.qty)||0),0);
   if(stockDel>=t.cutQty&&t.cutQty>0)return"تم الشحن";
   if(stockDel>0)return"شحن جزئي";
-  /* Check if 30%+ of all pieces received back */
   const pieces=o.orderPieces||[];
   if(wds.length>0){
     let totalWsDel=0,totalWsRcv=0;
     wds.forEach(wd=>{totalWsDel+=(Number(wd.qty)||0);(wd.receives||[]).forEach(r=>{totalWsRcv+=(Number(r.qty)||0)})});
+    /* Check if enough received back for تشطيب */
+    let isFinishing=false;
     if(pieces.length>0){
       const allRcvd=pieces.every(p=>{const rcvP=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);return rcvP>0});
-      if(allRcvd&&totalWsDel>0&&totalWsRcv>=totalWsDel*0.3)return"تشطيب وتعبئة"
+      if(allRcvd&&totalWsDel>0&&totalWsRcv>=totalWsDel*0.3)isFinishing=true
     } else {
-      if(totalWsDel>0&&totalWsRcv>=totalWsDel*0.3)return"تشطيب وتعبئة"
+      if(totalWsDel>0&&totalWsRcv>=totalWsDel*0.3)isFinishing=true
     }
-    if(totalWsDel>0)return"في التشغيل"
+    if(isFinishing)return"تشطيب وتعبئة";
+    /* Determine status from last active (pending) workshop type */
+    if(totalWsDel>0){
+      const lastActive=wds.filter(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);return rcvd<(Number(wd.qty)||0)}).pop();
+      if(lastActive&&lastActive.wsType){
+        if(lastActive.wsType.includes("طباعة"))return"في الطباعة";
+        if(lastActive.wsType.includes("تطريز"))return"في التطريز";
+        if(lastActive.wsType.includes("تشطيب وتعبئة"))return"تشطيب وتعبئة خارجي";
+      }
+      return"في التشغيل"
+    }
   }
   return"تم القص"
 }
@@ -1514,7 +1527,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
       const doDeliver=(print)=>{
         if(!dWs||!dType||!dQty)return;
         const wsObj=workshops.find(w=>w.name===dWs);
-        const wd={wsName:dWs,wsId:wsObj?wsObj.id:null,qty:Number(dQty),garmentType:dType,price:Number(dPrice)||0,notes:dNote,date:new Date().toISOString().split("T")[0],receives:[]};
+        const wd={wsName:dWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",qty:Number(dQty),garmentType:dType,price:Number(dPrice)||0,notes:dNote,date:new Date().toISOString().split("T")[0],receives:[]};
         const upd=JSON.parse(JSON.stringify(order));
         if(!upd||!upd.id||!upd.modelNo){showToast("⚠️ خطأ — بيانات الأوردر غير صالحة");return}
         if(!upd.workshopDeliveries)upd.workshopDeliveries=[];upd.workshopDeliveries.push(wd);
@@ -1530,7 +1543,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
             <Btn ghost onClick={()=>setShowDeliver(false)}>✕</Btn>
           </div>
           <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
-            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الورشة *</label><Sel value={dWs} onChange={v=>{setDWs(v);setDPrice("")}}><option value="">-- اختر ورشة --</option>{workshops.map(w=><option key={w.id} value={w.name}>{w.name+(w.owner?" - "+w.owner:"")}</option>)}</Sel></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الورشة *</label><Sel value={dWs} onChange={v=>{setDWs(v);setDPrice("")}}><option value="">-- اختر ورشة --</option>{workshops.map(w=><option key={w.id} value={w.name}>{wsTypeInfo(w.type).icon+" "+w.name+(w.owner?" - "+w.owner:"")}</option>)}</Sel></div>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع القطعة *</label><Sel value={dType} onChange={v=>{setDType(v);const delForP=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===v).reduce((s,wd)=>s+(Number(wd.qty)||0),0);setDQty(Math.max(0,t.cutQty-delForP))}}><option value="">-- اختر --</option>{(availPieces.length>0?availPieces:pieces.length>0?pieces:["عام"]).map(p=><option key={p} value={p}>{(gIcon(p,data.garmentTypes))+" "+p}</option>)}</Sel></div>
           </div>
           <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:12}}>
@@ -1618,7 +1631,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     const availAfter=maxAllowed-saveQty;
     updOrder(selOrder,o=>{
       if(!o.workshopDeliveries)o.workshopDeliveries=[];
-      o.workshopDeliveries.push({id:gid(),wsName:selWs,wsId:wsObj?wsObj.id:null,wsOwner:wsObj?wsObj.owner:"",qty:saveQty,garmentType:saveType,notes:saveNote,price:savePrice,date:saveDate,receives:[]});
+      o.workshopDeliveries.push({id:gid(),wsName:selWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",wsOwner:wsObj?wsObj.owner:"",qty:saveQty,garmentType:saveType,notes:saveNote,price:savePrice,date:saveDate,receives:[]});
       o.status=recomputeStatus(o);
     });
     setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice("");showToast("✓ تم تسليم "+saveQty+" قطعة لـ "+selWs);
@@ -1700,7 +1713,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     <Card title={"سجل الحركات ("+movements.length+")"}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr 1fr 1fr",gap:8,marginBottom:10}}>
         <Inp value={movQ} onChange={setMovQ} placeholder="بحث بالموديل أو الورشة..."/>
-        <Sel value={movWsF} onChange={setMovWsF}><option value="الكل">كل الورش</option>{workshops.map(w=><option key={w.id||w} value={w.name||w}>{w.name||w}</option>)}</Sel>
+        <Sel value={movWsF} onChange={setMovWsF}><option value="الكل">كل الورش</option>{workshops.map(w=><option key={w.id||w} value={w.name||w}>{(w.type?wsTypeInfo(w.type).icon+" ":"")+(w.name||w)}</option>)}</Sel>
         <Sel value={movTypeF} onChange={setMovTypeF}><option value="الكل">كل الحركات</option><option value="deliver">تسليم ورشة</option><option value="receive">استلام مصنع</option></Sel>
         <div style={{display:"flex",gap:4}}>
           <Btn onClick={()=>{const el=document.getElementById("mov-log");if(!el)return;printPage("سجل حركات التشغيل الخارجي",el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd,flex:1}}>🖨 المعروض</Btn>
@@ -1760,7 +1773,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     <Card title="اختر الورشة" style={{marginBottom:16}}>
       <Sel value={selWs} onChange={v=>{setSelWs(v);setSelOrder("")}}>
         <option value="">-- اختر ورشة --</option>
-        {workshops.map(w=><option key={w.id||w} value={w.name||w}>{(w.name||w)+(w.owner?" - "+w.owner:"")}</option>)}
+        {workshops.map(w=><option key={w.id||w} value={w.name||w}>{(w.type?wsTypeInfo(w.type).icon+" ":"")+(w.name||w)+(w.owner?" - "+w.owner:"")}</option>)}
       </Sel>
       {wsObj&&(()=>{let wsTotalDel=0,wsTotalRcv=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===selWs).forEach(wd=>{wsTotalDel+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{wsTotalRcv+=Number(r.qty)||0})})});const wsBal=wsTotalDel-wsTotalRcv;
         return<div style={{marginTop:12,padding:12,background:T.accentBg,borderRadius:10}}>
@@ -1852,7 +1865,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     <Card title="اختر الورشة" style={{marginBottom:16}}>
       <Sel value={selWs} onChange={v=>{setSelWs(v);setRcvSearch("")}}>
         <option value="">-- اختر ورشة --</option>
-        {workshops.map(w=><option key={w.id||w} value={w.name||w}>{(w.name||w)+(w.owner?" - "+w.owner:"")}</option>)}
+        {workshops.map(w=><option key={w.id||w} value={w.name||w}>{(w.type?wsTypeInfo(w.type).icon+" ":"")+(w.name||w)+(w.owner?" - "+w.owner:"")}</option>)}
       </Sel>
       {selWs&&<div style={{marginTop:8}}><Inp value={rcvSearch} onChange={setRcvSearch} placeholder="بحث برقم الموديل..."/></div>}
     </Card>
@@ -1919,7 +1932,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><h2 style={{fontSize:isMob?18:22,fontWeight:800,margin:0}}>{"💳 اضافة دفعة"}</h2><Btn ghost onClick={()=>setMode(null)}>↩</Btn></div>
     <Card title="تسجيل دفعة" style={{marginBottom:14}}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:8,marginBottom:8}}>
-        <div><label style={{fontSize:FS-2,color:T.textSec}}>الورشة *</label><Sel value={payWs} onChange={setPayWs}><option value="">-- اختر --</option>{extWorkshops.map(w=><option key={w.id} value={w.name}>{w.name}</option>)}</Sel></div>
+        <div><label style={{fontSize:FS-2,color:T.textSec}}>الورشة *</label><Sel value={payWs} onChange={setPayWs}><option value="">-- اختر --</option>{extWorkshops.map(w=><option key={w.id} value={w.name}>{wsTypeInfo(w.type).icon+" "+w.name}</option>)}</Sel></div>
         <div><label style={{fontSize:FS-2,color:T.textSec}}>نوع الحركة</label><Sel value={payType} onChange={setPayType}><option value="payment">دفعة للورشة (↗ تقليل)</option><option value="purchase">مشتريات الورشة (↙ اضافة)</option></Sel></div>
       </div>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 2fr",gap:8,marginBottom:8}}>
@@ -1986,7 +1999,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         </tbody>
       </table></div></Card>
       {/* Workshop filter */}
-      <div style={{marginBottom:14}}><Sel value={accWsF} onChange={setAccWsF}><option value="الكل">كل الورش</option>{activeWs.map(w=><option key={w.id} value={w.name}>{w.name}</option>)}</Sel></div>
+      <div style={{marginBottom:14}}><Sel value={accWsF} onChange={setAccWsF}><option value="الكل">كل الورش</option>{activeWs.map(w=><option key={w.id} value={w.name}>{(w.type?wsTypeInfo(w.type).icon+" ":"")+w.name}</option>)}</Sel></div>
       {/* Per-workshop statement */}
       {filteredWs.map(w=>{const a=wsAccounts(w.name);
         const entries=[];
@@ -2083,7 +2096,7 @@ function SearchPg({data,goD,isMob,season,statusCards}){
     <Card style={{marginBottom:12}}><div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr 1fr",gap:8}}>
       <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>بحث</label><Inp value={q} onChange={setQ} placeholder="رقم موديل، وصف..."/></div>
       <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>الحالة</label><Sel value={stF} onChange={setStF}><option value="الكل">الكل</option>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel></div>
-      <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>الورشة</label><Sel value={wsF} onChange={setWsF}><option value="الكل">الكل</option>{(data.workshops||[]).map(w=><option key={w.id||w} value={w.name||w}>{w.name||w}</option>)}</Sel></div>
+      <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>الورشة</label><Sel value={wsF} onChange={setWsF}><option value="الكل">الكل</option>{(data.workshops||[]).map(w=><option key={w.id||w} value={w.name||w}>{(w.type?wsTypeInfo(w.type).icon+" ":"")+(w.name||w)}</option>)}</Sel></div>
     </div></Card>
     <Card title={"نتائج ("+filtered.length+")"}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:650}}>
       <thead><tr>{["#","التاريخ","موديل","الوصف","الورشة","الكمية","الحالة",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
@@ -2797,7 +2810,7 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
               <div style={{fontSize:FS,fontWeight:700,color:T.err,marginBottom:8}}>{"⚠️ أسماء غير مرتبطة ("+totalOrphans+")"}</div>
               {[...orphanWs.entries()].map(([name,count])=><div key={"ws-"+name} style={{display:"flex",gap:8,alignItems:"center",marginBottom:6,padding:"6px 10px",background:T.cardSolid,borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1}}>
                 <span style={{color:T.err,fontWeight:700}}>🏭 {name}</span><span style={{fontSize:FS-3,color:T.textMut}}>{"("+count+")"}</span><span style={{color:T.textSec}}>→</span>
-                <Sel value={linkMap[name]||""} onChange={v=>setLinkMap(p=>({...p,[name]:v}))}><option value="">--</option>{wsList.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</Sel>
+                <Sel value={linkMap[name]||""} onChange={v=>setLinkMap(p=>({...p,[name]:v}))}><option value="">--</option>{wsList.map(w=><option key={w.id} value={w.id}>{wsTypeInfo(w.type).icon+" "+w.name}</option>)}</Sel>
               </div>)}
               {[...orphanGt.entries()].map(([name,count])=><div key={"gt-"+name} style={{display:"flex",gap:8,alignItems:"center",marginBottom:6,padding:"6px 10px",background:T.cardSolid,borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1}}>
                 <span style={{color:T.warn,fontWeight:700}}>👕 {name}</span><span style={{fontSize:FS-3,color:T.textMut}}>{"("+count+")"}</span><span style={{color:T.textSec}}>→</span>
