@@ -2233,16 +2233,33 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         </tbody>
       </table></div></Card>
       {/* Workshop filter */}
-      <div style={{marginBottom:14}}><Sel value={accWsF} onChange={setAccWsF}><option value="الكل">كل الورش</option>{activeWs.map(w=><option key={w.id} value={w.name}>{(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+w.name}</option>)}</Sel></div>
+      <div style={{marginBottom:14}}><SearchSel value={accWsF} onChange={setAccWsF} options={[{value:"الكل",label:"كل الورش"},...activeWs.map(w=>({value:w.name,label:(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+w.name}))]} placeholder="ابحث عن ورشة..."/></div>
       {/* Per-workshop statement */}
       {filteredWs.map(w=>{const a=wsAccounts(w.name);
         const entries=[];
         data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{(wd.receives||[]).forEach(r=>{entries.push({date:r.date,desc:o.modelNo+(wd.garmentType?" - "+wd.garmentType:""),qty:r.qty,price:r.price||0,amount:r2((r.qty||0)*(r.price||0)),type:"due"})})})});
         (data.wsPayments||[]).filter(p=>p.wsName===w.name).forEach(p=>{entries.push({date:p.date,desc:p.type==="payment"?"دفعة"+(p.notes?" - "+p.notes:""):"مشتريات"+(p.notes?" - "+p.notes:""),amount:p.amount,type:p.type})});
         entries.sort((a,b)=>(a.date||"").localeCompare(b.date||""));let running=0;
-        return<Card key={w.id} title={"كشف حساب: "+w.name} style={{marginTop:12}} extra={<Btn small onClick={()=>{
-          const el=document.getElementById("ws-stmt-"+w.id);if(!el)return;printPage("كشف حساب — "+w.name,el.innerHTML)
-        }} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>}>
+        const printStmt=async()=>{
+          let qrSrc="";try{const QR=await loadQR();if(QR)qrSrc=await QR.toDataURL(window.location.origin+"?act=wsacc&ws="+encodeURIComponent(w.name),{width:120,margin:1})}catch(e){}
+          const totalDue=a.due+a.totalPurchase;const pct=w.payPercent||60;
+          let del=0,rcv=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{del+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{rcv+=Number(r.qty)||0})})});
+          let h="<div style='text-align:center;margin-bottom:20px'><img src='"+CLARK_LOGO+"' style='width:160px;margin-bottom:8px'/><h1 style='font-size:22px;margin:0;color:#0F172A'>كشف حساب ورشة</h1><h2 style='font-size:26px;margin:4px 0;color:#0284C7'>"+w.name+"</h2><div style='font-size:12px;color:#64748B'>الموسم: "+season+" | تاريخ الطباعة: "+new Date().toLocaleDateString("ar-EG")+"</div></div>";
+          h+="<div style='display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:16px'>";
+          h+="<div style='padding:10px 16px;border-radius:8px;background:#EFF6FF;text-align:center;min-width:100px'><div style='font-size:11px;color:#64748B'>تسليم للورشة</div><div style='font-size:18px;font-weight:800;color:#0284C7'>"+fmt(del)+"</div></div>";
+          h+="<div style='padding:10px 16px;border-radius:8px;background:#F0FDF4;text-align:center;min-width:100px'><div style='font-size:11px;color:#64748B'>استلام مصنع</div><div style='font-size:18px;font-weight:800;color:#10B981'>"+fmt(rcv)+"</div></div>";
+          h+="<div style='padding:10px 16px;border-radius:8px;background:#FEF3C7;text-align:center;min-width:100px'><div style='font-size:11px;color:#64748B'>المستحق</div><div style='font-size:18px;font-weight:800;color:#F59E0B'>"+fmt(r2(totalDue))+"</div></div>";
+          h+="<div style='padding:10px 16px;border-radius:8px;background:#FEE2E2;text-align:center;min-width:100px'><div style='font-size:11px;color:#64748B'>المدفوع</div><div style='font-size:18px;font-weight:800;color:#EF4444'>"+fmt(r2(a.totalPaid))+"</div></div>";
+          h+="<div style='padding:10px 16px;border-radius:8px;background:"+(a.balance>0?"#FEE2E2":"#F0FDF4")+";text-align:center;min-width:100px'><div style='font-size:11px;color:#64748B'>الرصيد</div><div style='font-size:18px;font-weight:800;color:"+(a.balance>0?"#EF4444":"#10B981")+"'>"+fmt(r2(a.balance))+"</div></div></div>";
+          h+="<table><thead><tr><th>التاريخ</th><th>البيان</th><th>كمية</th><th>سعر</th><th>مستحق</th><th>مدفوع</th><th>الرصيد</th></tr></thead><tbody>";
+          let pRun=0;entries.forEach(e=>{if(e.type==="due"||e.type==="purchase")pRun+=e.amount;else pRun-=e.amount;
+            h+="<tr style='background:"+(e.type==="payment"?"#FEF2F2":e.type==="purchase"?"#F0FDF4":"")+"'><td>"+e.date+"</td><td>"+e.desc+"</td><td style='font-weight:700'>"+(e.qty||"-")+"</td><td>"+(e.price||"-")+"</td><td style='color:#0284C7;font-weight:700'>"+(e.type==="due"?fmt(e.amount):e.type==="purchase"?fmt(e.amount):"-")+"</td><td style='color:#EF4444;font-weight:700'>"+(e.type==="payment"?fmt(e.amount):"-")+"</td><td style='font-weight:700;color:"+(pRun>0?"#EF4444":"#10B981")+"'>"+fmt(r2(pRun))+"</td></tr>"});
+          h+="</tbody></table>";
+          h+="<div style='display:flex;justify-content:space-between;align-items:flex-end;margin-top:30px'><div style='text-align:center;width:180px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:12px'>توقيع المسؤول</div></div><div style='text-align:center;width:180px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:12px'>توقيع الورشة</div></div>"+(qrSrc?"<div style='text-align:center'><img src='"+qrSrc+"' style='width:80px;height:80px'/><div style='font-size:8px;color:#94A3B8'>"+w.name+"</div></div>":"")+"</div>";
+          h+="<div style='margin-top:16px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:8px'>CLARK Factory Management — "+new Date().toLocaleDateString("ar-EG")+"</div>";
+          printPage("كشف حساب — "+w.name,h)
+        };
+        return<Card key={w.id} title={"كشف حساب: "+w.name} style={{marginTop:12}} extra={<Btn small onClick={printStmt} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة</Btn>}>
           <div id={"ws-stmt-"+w.id}>
           <h2>{"كشف حساب: "+w.name}</h2>
           <div className="sub">{"الموسم: "+season+" | التاريخ: "+new Date().toLocaleDateString("ar-EG")}</div>
