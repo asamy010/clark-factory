@@ -728,16 +728,6 @@ export default function App(){
   const canViewTab=(tabKey)=>getTabPerm(tabKey)!=="hide";
   const statusCards=config.statusCards||DEFAULT_STATUSES;
 
-  /* Auto-confirm for logged-in users */
-  useEffect(()=>{if(confirmDone.current||!confirmTok||qrAction!=="confirm"||!user||orders.length===0)return;
-    for(const o of orders){const wds=o.workshopDeliveries||[];
-      for(let wi=0;wi<wds.length;wi++){const wd=wds[wi];
-        if(wd.confirmToken===confirmTok&&!wd.confirmed){confirmDone.current=true;updOrder(o.id,u=>{u.workshopDeliveries[wi].confirmed=true;u.workshopDeliveries[wi].confirmedAt=new Date().toISOString()});showToast("✅ تم تأكيد التسليم — "+wd.wsName);window.history.replaceState({},"",window.location.pathname);return}
-        for(let ri=0;ri<(wd.receives||[]).length;ri++){const r=wd.receives[ri];
-          if(r.confirmToken===confirmTok&&!r.confirmed){confirmDone.current=true;updOrder(o.id,u=>{u.workshopDeliveries[wi].receives[ri].confirmed=true;u.workshopDeliveries[wi].receives[ri].confirmedAt=new Date().toISOString()});showToast("✅ تم تأكيد الاستلام");window.history.replaceState({},"",window.location.pathname);return}}
-      }}
-  },[orders,confirmTok,qrAction,user]);
-
   if(authLoading)return null;
   /* Public confirmation page */
   if(!user&&qrAction==="confirm"&&confirmTok){
@@ -760,6 +750,49 @@ export default function App(){
     </div>
   }
   if(!user)return<LoginScreen/>;
+  /* Confirmation screen for logged-in users */
+  if(qrAction==="confirm"&&confirmTok&&!confirmDone.current){
+    const confirmOrder=orders.find(o=>(o.workshopDeliveries||[]).some(wd=>wd.confirmToken===confirmTok||(wd.receives||[]).some(r=>r.confirmToken===confirmTok)));
+    const doConfirm=()=>{if(!confirmOrder)return;
+      for(const o of orders){const wds=o.workshopDeliveries||[];
+        for(let wi=0;wi<wds.length;wi++){const wd=wds[wi];
+          if(wd.confirmToken===confirmTok&&!wd.confirmed){updOrder(o.id,u=>{u.workshopDeliveries[wi].confirmed=true;u.workshopDeliveries[wi].confirmedAt=new Date().toISOString()});confirmDone.current=true;setPubConfirmed(true);return}
+          for(let ri=0;ri<(wd.receives||[]).length;ri++){const r=wd.receives[ri];
+            if(r.confirmToken===confirmTok&&!r.confirmed){updOrder(o.id,u=>{u.workshopDeliveries[wi].receives[ri].confirmed=true;u.workshopDeliveries[wi].receives[ri].confirmedAt=new Date().toISOString()});confirmDone.current=true;setPubConfirmed(true);return}}
+        }}};
+    const wd=confirmOrder?(confirmOrder.workshopDeliveries||[]).find(w=>w.confirmToken===confirmTok||((w.receives||[]).some(r=>r.confirmToken===confirmTok))):null;
+    const isRcv=wd?(wd.receives||[]).some(r=>r.confirmToken===confirmTok):false;
+    const alreadyDone=wd?(isRcv?(wd.receives||[]).find(r=>r.confirmToken===confirmTok)?.confirmed:wd.confirmed):false;
+    return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(180deg,#EFF6FF 0%,#DBEAFE 100%)",fontFamily:"'Cairo',sans-serif",direction:"rtl",padding:16}}>
+      <div style={{background:"#fff",borderRadius:24,padding:"40px 24px",maxWidth:480,width:"100%",boxShadow:"0 12px 50px rgba(0,0,0,0.12)",textAlign:"center"}}>
+        <img src={CLARK_LOGO} alt="CLARK" style={{width:180,marginBottom:24}}/>
+        {(pubConfirmed||alreadyDone)?<div>
+          <div style={{width:90,height:90,borderRadius:45,background:"#10B98115",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 20px"}}><span style={{fontSize:50}}>✅</span></div>
+          <div style={{fontSize:28,fontWeight:800,color:"#10B981",marginBottom:10}}>تم التأكيد بنجاح</div>
+          <div style={{fontSize:16,color:"#64748B",marginBottom:20}}>تم تسجيل التأكيد في النظام</div>
+          <button onClick={()=>{window.history.replaceState({},"",window.location.pathname);confirmDone.current=true;setTab("home")}} style={{padding:"12px 30px",borderRadius:12,background:T.accent,color:"#fff",border:"none",fontSize:16,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>↩ الرئيسية</button>
+        </div>:confirmOrder&&wd?<div>
+          <div style={{fontSize:22,fontWeight:800,color:"#0F172A",marginBottom:16}}>{isRcv?"تأكيد استلام من ورشة":"تأكيد تسليم لورشة"}</div>
+          <div style={{background:"#F8FAFC",borderRadius:14,padding:16,marginBottom:20,textAlign:"right"}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:15}}>
+              <div><span style={{color:"#64748B"}}>الموديل: </span><b>{confirmOrder.modelNo}</b></div>
+              <div><span style={{color:"#64748B"}}>الوصف: </span><b>{confirmOrder.modelDesc}</b></div>
+              <div><span style={{color:"#64748B"}}>الورشة: </span><b style={{color:"#8B5CF6"}}>{wd.wsName}</b></div>
+              <div><span style={{color:"#64748B"}}>القطعة: </span><b>{wd.garmentType||"—"}</b></div>
+              <div><span style={{color:"#64748B"}}>الكمية: </span><b style={{color:T.accent,fontSize:20}}>{wd.qty}</b></div>
+              <div><span style={{color:"#64748B"}}>التاريخ: </span><b>{wd.date}</b></div>
+            </div>
+          </div>
+          <button onClick={doConfirm} style={{width:"100%",padding:"18px 40px",borderRadius:16,background:"linear-gradient(135deg,#10B981,#059669)",color:"#fff",border:"none",fontSize:22,fontWeight:800,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 6px 24px rgba(16,185,129,0.35)"}}>✓ تأكيد</button>
+          <div style={{marginTop:12}}><button onClick={()=>{window.history.replaceState({},"",window.location.pathname);confirmDone.current=true;setTab("home")}} style={{background:"none",border:"none",color:"#64748B",cursor:"pointer",fontFamily:"inherit",fontSize:14}}>تخطي ←</button></div>
+        </div>:<div>
+          <div style={{fontSize:20,color:"#EF4444",fontWeight:700,marginBottom:12}}>⚠️ لم يتم العثور على البيان</div>
+          <div style={{fontSize:14,color:"#64748B",marginBottom:20}}>اللينك غير صالح أو تم التأكيد مسبقاً</div>
+          <button onClick={()=>{window.history.replaceState({},"",window.location.pathname);confirmDone.current=true;setTab("home")}} style={{padding:"12px 30px",borderRadius:12,background:T.accent,color:"#fff",border:"none",fontSize:16,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>↩ الرئيسية</button>
+        </div>}
+      </div>
+    </div>
+  }
   if(dataLoading)return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#EFF6FF",direction:"rtl",fontFamily:"'Cairo',sans-serif"}}>
     <div style={{width:140,textAlign:"center"}}>
       <div style={{fontSize:12,fontWeight:700,color:T.accent,marginBottom:8}}>جاري تحميل البيانات</div>
