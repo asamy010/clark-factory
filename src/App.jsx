@@ -12,6 +12,20 @@ const loadQR=async()=>{if(!_QR)try{const m=await import("qrcode");_QR=m.default|
 const FKEYS = ["A","B","C","D","E"];
 const CLARK_LOGO="data:image/png;base64,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";
 const FCOL = ["#0EA5E9","#10B981","#F59E0B","#8B5CF6","#EF4444"];
+const WS_TYPES=[
+  {key:"خياطة خارجي",icon:"🏭",color:"#8B5CF6",internal:false},
+  {key:"خياطة داخلي",icon:"🏠",color:"#0EA5E9",internal:true},
+  {key:"تطريز",icon:"🪡",color:"#F59E0B",internal:false},
+  {key:"طباعة",icon:"🖨",color:"#EF4444",internal:false},
+  {key:"تشطيب وتعبئة خارجي",icon:"👔",color:"#10B981",internal:false},
+  {key:"مخصص",icon:"⚙️",color:"#64748B",internal:false},
+];
+function wsTypeInfo(type){
+  /* Migrate old types */
+  if(type==="خارجي")type="خياطة خارجي";if(type==="داخلي")type="خياطة داخلي";
+  return WS_TYPES.find(t=>t.key===type)||WS_TYPES[0];
+}
+function wsIsInternal(type){return wsTypeInfo(type).internal}
 const COLORS_DB = [
   {n:"ابيض",h:"#FFFFFF"},{n:"اسود",h:"#1a1a1a"},{n:"كحلي",h:"#1B2A4A"},{n:"رمادي",h:"#8B8B8B"},{n:"بيج",h:"#D4C5A9"},{n:"كريمي",h:"#FFF8DC"},
   {n:"احمر",h:"#C62828"},{n:"نبيتي",h:"#6A1B29"},{n:"برتقالي",h:"#E65100"},{n:"اصفر",h:"#F9A825"},{n:"زيتي",h:"#556B2F"},{n:"اخضر",h:"#2E7D32"},
@@ -22,7 +36,7 @@ const COLORS_DB = [
 /* ── Theme System ── */
 const THEMES = {
   light:{name:"فاتح",bg:"#EFF6FF",card:"rgba(255,255,255,0.9)",cardSolid:"#FFF",glass:"rgba(255,255,255,0.6)",brd:"rgba(148,163,184,0.2)",brdStrong:"rgba(148,163,184,0.4)",text:"#1E293B",textSec:"#64748B",textMut:"#94A3B8",accent:"#0EA5E9",accentBg:"#E0F2FE",ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#8B5CF6",shadow:"0 2px 12px rgba(0,0,0,0.04)",sidebarBg:"#FFF",inputBg:"#FFF",bodyBg:"#EFF6FF"},
-  dark:{name:"داكن",bg:"#1A1D23",card:"rgba(36,40,50,0.95)",cardSolid:"#242832",glass:"rgba(36,40,50,0.8)",brd:"rgba(255,255,255,0.08)",brdStrong:"rgba(255,255,255,0.15)",text:"#E8ECF1",textSec:"#9CA3AF",textMut:"#6B7280",accent:"#00BFA5",accentBg:"rgba(0,191,165,0.1)",ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#A78BFA",shadow:"0 2px 12px rgba(0,0,0,0.2)",sidebarBg:"#1E222A",inputBg:"#2A2E38",bodyBg:"#1A1D23"},
+  dark:{name:"داكن",bg:"#0C0C0E",card:"rgba(22,22,26,0.95)",cardSolid:"#16161A",glass:"rgba(22,22,26,0.85)",brd:"rgba(255,255,255,0.07)",brdStrong:"rgba(255,255,255,0.12)",text:"#ECECEC",textSec:"#8B8B8B",textMut:"#555555",accent:"#3B82F6",accentBg:"rgba(59,130,246,0.1)",ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#A78BFA",shadow:"0 2px 16px rgba(0,0,0,0.4)",sidebarBg:"#111113",inputBg:"#1E1E22",bodyBg:"#0C0C0E"},
   pink:{name:"بينك شيك",bg:"#FFF0F5",card:"rgba(255,255,255,0.95)",cardSolid:"#FFF5F8",glass:"rgba(255,240,245,0.7)",brd:"rgba(236,72,153,0.15)",brdStrong:"rgba(236,72,153,0.3)",text:"#4A1942",textSec:"#9D4E8C",textMut:"#C084A8",accent:"#DB2777",accentBg:"#FCE7F3",ok:"#059669",err:"#E11D48",warn:"#D97706",purple:"#A855F7",shadow:"0 2px 12px rgba(236,72,153,0.08)",sidebarBg:"#FFF5F8",inputBg:"#FFF",bodyBg:"#FFF0F5"}
 };
 let T = THEMES.light;
@@ -40,7 +54,7 @@ const INIT_CONFIG = {
   sizeSets:[{id:1,label:"6-9M - 9-12M - 12-18M"},{id:2,label:"2-3-4-5"},{id:3,label:"6-8-10-12"},{id:4,label:"M-L-XL-2XL"},{id:5,label:"L-XL-2XL-3XL"},{id:6,label:"FREE SIZE"},{id:7,label:"4-6-8-10-12"},{id:8,label:"S/L/M/XL"}],
   statusCards: DEFAULT_STATUSES,
   garmentTypes:[{id:1,name:"قميص"},{id:2,name:"شورت"},{id:3,name:"تيشيرت"},{id:4,name:"بنطلون"},{id:5,name:"شنطة"},{id:6,name:"جاكت"}],
-  workshops:[{id:1,name:"CLARK",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:8,type:"داخلي"},{id:2,name:"ورشة محمود",owner:"محمود",phone:"",address:"",idCard:"",ownerPhoto:"",rating:7,type:"خارجي"},{id:3,name:"المصنع",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:9,type:"داخلي"}],
+  workshops:[{id:1,name:"CLARK",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:8,type:"خياطة داخلي"},{id:2,name:"ورشة محمود",owner:"محمود",phone:"",address:"",idCard:"",ownerPhoto:"",rating:7,type:"خياطة خارجي"},{id:3,name:"المصنع",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:9,type:"خياطة داخلي"}],
   seasons:["WS26"], activeSeason:"WS26", logo:"", users:{}, usersList:[], wsPayments:[], notifications:[],
 };
 
@@ -354,11 +368,14 @@ async function printOrderSheet(order,t,activeFabs,statusCards){
   let qrSrc="";try{const QR=await loadQR();if(QR)qrSrc=await QR.toDataURL(window.location.origin+"?o="+encodeURIComponent(order.modelNo),{width:100,margin:1,errorCorrectionLevel:"L"})}catch(e){}
   let wsRows="";(order.workshopDeliveries||[]).forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);wsRows+="<tr><td>"+wd.wsName+"</td><td>"+(wd.garmentType||"-")+"</td><td>"+wd.qty+"</td><td>"+rcvd+"</td><td>"+(wd.qty-rcvd)+"</td></tr>"});
   const col=getStatusColor(order.status,statusCards);
+  const pieces=order.orderPieces||[];
   let h="<div style='display:flex;gap:16px;align-items:flex-start;margin-bottom:16px'>";
   if(order.image)h+="<div style='width:100px;height:133px;border-radius:8px;overflow:hidden;border:1px solid #ddd;flex-shrink:0'><img src='"+order.image+"' style='width:100%;height:100%;object-fit:cover'/></div>";
-  if(qrSrc)h+="<div style='flex-shrink:0'><img src='"+qrSrc+"' style='width:80px;height:80px'/></div>";
-  h+="<div style='flex:1'><table><tr><th>رقم الموديل</th><td><b>"+order.modelNo+"</b></td><th>الوصف</th><td>"+order.modelDesc+"</td></tr><tr><th>المقاسات</th><td>"+order.sizeLabel+"</td><th>التاريخ</th><td>"+order.date+"</td></tr><tr><th>كمية القص</th><td><b>"+t.cutQty+"</b></td><th>تم التسليم</th><td>"+(order.deliveredQty||0)+"</td></tr><tr><th>الرصيد</th><td><b>"+t.balance+"</b></td><th>الحالة</th><td><span class='badge' style='background:"+col+"20;color:"+col+"'>"+order.status+"</span></td></tr>"+(order.marker?"<tr><th>ماركر</th><td colspan='3'>"+order.marker+"</td></tr>":"")+"</table></div></div>";
-  /* Detailed fabric tables */
+  if(qrSrc)h+="<div style='flex-shrink:0;text-align:center'><img src='"+qrSrc+"' style='width:88px;height:88px'/><div style='font-size:9px;color:#64748B;margin-top:2px'>سكان لفتح الأوردر</div></div>";
+  h+="<div style='flex:1'><table><tr><th>رقم الموديل</th><td><b style='font-size:16px;color:#0284C7'>"+order.modelNo+"</b></td><th>الوصف</th><td>"+order.modelDesc+"</td></tr><tr><th>المقاسات</th><td>"+order.sizeLabel+"</td><th>التاريخ</th><td>"+order.date+"</td></tr><tr><th>كمية القص</th><td><b style='font-size:15px;color:#0284C7'>"+t.cutQty+"</b></td><th>الحالة</th><td><span class='badge' style='background:"+col+"20;color:"+col+"'>"+order.status+"</span></td></tr>"+(order.marker?"<tr><th>ماركر</th><td colspan='3'>"+order.marker+"</td></tr>":"")+"</table></div></div>";
+  /* Order pieces */
+  if(pieces.length>0){h+="<div style='margin-bottom:12px;padding:8px 14px;background:#F8FAFC;border-radius:8px;border:1px solid #E2E8F0'><span style='font-weight:700;font-size:12px;color:#475569'>قطع الموديل: </span>";pieces.forEach(p=>{h+="<span style='display:inline-block;padding:3px 10px;margin:2px 3px;border-radius:6px;font-size:11px;font-weight:600;background:#8B5CF615;color:#8B5CF6;border:1px solid #8B5CF630'>"+p+"</span>"});h+="</div>"}
+  /* Fabric tables */
   if(activeFabs.length>0){h+="<h2 style='font-size:14px;margin:12px 0 6px'>الخامات</h2>";
     activeFabs.forEach(k=>{const colors=gc(order,k);const fp=order["fabricPieces"+k]||[];const cons=gcons(order,k);const unit=gf(order,k,"Unit")||"";
       h+="<div style='margin-bottom:10px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden'>";
@@ -370,8 +387,29 @@ async function printOrderSheet(order,t,activeFabs,statusCards){
       h+="</table></div>"})};
   if(wsRows)h+="<h2 style='font-size:14px;margin:12px 0 6px'>الورش</h2><table><tr><th>الورشة</th><th>القطعة</th><th>الكمية</th><th>استلام مصنع</th><th>الرصيد</th></tr>"+wsRows+"</table>";
   if(order.instructions)h+="<h2 style='font-size:14px;margin:12px 0 6px'>تعليمات التشغيل</h2><div style='background:#f8fafc;padding:10px;border-radius:6px;white-space:pre-wrap;font-size:12px'>"+order.instructions+"</div>";
-  h+="<div class='sig'><div class='sig-box'>مسؤول القص</div><div class='sig-box'>مسؤول التشغيل</div><div class='sig-box'>مدير الانتاج</div></div>";
-  printPage("أمر تشغيل — "+order.modelNo,h)
+  h+="<div class='sig'><div class='sig-box'>توقيع القصاص</div><div class='sig-box'>مسؤول التشغيل</div><div class='sig-box'>مدير الانتاج</div></div>";
+  printPage("أمر قص — "+order.modelNo,h)
+}
+
+async function printStockDelivery(order,qty,date,note,totalDelivered,totalCut){
+  if(!order)return;
+  let qrSrc="";try{const QR=await loadQR();if(QR)qrSrc=await QR.toDataURL(window.location.origin+"?o="+encodeURIComponent(order.modelNo),{width:100,margin:1,errorCorrectionLevel:"L"})}catch(e){}
+  let h="<div style='display:flex;gap:16px;align-items:flex-start;margin-bottom:16px'>";
+  if(order.image)h+="<div style='width:80px;height:107px;border-radius:8px;overflow:hidden;border:1px solid #ddd;flex-shrink:0'><img src='"+order.image+"' style='width:100%;height:100%;object-fit:cover'/></div>";
+  if(qrSrc)h+="<div style='flex-shrink:0;text-align:center'><img src='"+qrSrc+"' style='width:80px;height:80px'/><div style='font-size:9px;color:#64748B;margin-top:2px'>سكان لفتح الأوردر</div></div>";
+  h+="<div style='flex:1'><table>";
+  h+="<tr><th>رقم الموديل</th><td><b style='font-size:16px;color:#059669'>"+order.modelNo+"</b></td><th>الوصف</th><td>"+order.modelDesc+"</td></tr>";
+  h+="<tr><th>المقاسات</th><td>"+order.sizeLabel+"</td><th>التاريخ</th><td><b>"+date+"</b></td></tr>";
+  h+="<tr><th>الكمية المسلمة</th><td><b style='font-size:18px;color:#059669'>"+qty+"</b> قطعة</td><th>اجمالي القص</th><td>"+totalCut+"</td></tr>";
+  h+="<tr><th>اجمالي المسلم للمخزن</th><td><b>"+totalDelivered+"</b></td><th>المتبقي</th><td><b style='color:"+(totalCut-totalDelivered>0?"#EF4444":"#10B981")+"'>"+(totalCut-totalDelivered)+"</b></td></tr>";
+  if(note)h+="<tr><th>ملاحظات</th><td colspan='3'>"+note+"</td></tr>";
+  h+="</table></div></div>";
+  /* Statement */
+  h+="<div style='margin:20px 0;padding:14px;border:2px solid #CBD5E1;border-radius:10px;background:#F0FDF4;font-size:12px;line-height:2;text-align:center'>";
+  h+="أقر بأنني استلمت الكمية المذكورة أعلاه وتم ادخالها للمخزن بعد الفحص والمراجعة</div>";
+  h+="<div class='sig'><div class='sig-box'>أمين المخزن</div><div class='sig-box'>مسؤول التشطيب</div><div class='sig-box'>مدير الانتاج</div></div>";
+  h+="<div style='margin-top:16px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:8px'>CLARK Factory Management — "+new Date().toLocaleDateString("ar-EG")+"</div>";
+  printPage("اذن تسليم مخزن — "+order.modelNo,h)
 }
 
 /* ── UI Components (Light Glassmorphism) ── */
@@ -690,14 +728,14 @@ export default function App(){
     /* Completion */
     const _cutQ=data.orders.reduce((s,o)=>s+calcOrder(o).cutQty,0);const _delQ=data.orders.reduce((s,o)=>s+(o.deliveredQty||0),0);if(_cutQ&&Math.round(_delQ/_cutQ*100)>=100)a.push({msg:"تم الانتهاء من جميع الأوردرات!",color:T.ok,icon:"🎉"});
     /* Workshop limit */
-    (data.workshops||[]).filter(w=>w.type!=="داخلي").forEach(w=>{let due=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});const purch=(data.wsPayments||[]).filter(p=>p.wsName===w.name&&p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);const paid=(data.wsPayments||[]).filter(p=>p.wsName===w.name&&p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);const pct=w.payPercent||60;const limit=r2((due+purch)*(pct/100));if(paid>limit&&due>0)a.push({msg:w.name+" تجاوز حد "+pct+"%",color:T.err,icon:"⚠️"})});
+    (data.workshops||[]).filter(w=>!wsIsInternal(w.type)).forEach(w=>{let due=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});const purch=(data.wsPayments||[]).filter(p=>p.wsName===w.name&&p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);const paid=(data.wsPayments||[]).filter(p=>p.wsName===w.name&&p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);const pct=w.payPercent||60;const limit=r2((due+purch)*(pct/100));if(paid>limit&&due>0)a.push({msg:w.name+" تجاوز حد "+pct+"%",color:T.err,icon:"⚠️"})});
     /* Smart: Workshop quality alerts */
-    (data.workshops||[]).filter(w=>w.type!=="داخلي").forEach(w=>{const r=calcWsRating(w.name,data.orders);if(r!==null&&r<5)a.push({msg:w.name+" تقييم منخفض ("+r+"/10) — مراجعة الجودة",color:T.err,icon:"📉"})});
+    (data.workshops||[]).filter(w=>!wsIsInternal(w.type)).forEach(w=>{const r=calcWsRating(w.name,data.orders);if(r!==null&&r<5)a.push({msg:w.name+" تقييم منخفض ("+r+"/10) — مراجعة الجودة",color:T.err,icon:"📉"})});
     /* Smart: Workshop delay alerts */
     const _now=new Date();
     /* Approaching deadline alerts */
     data.orders.forEach(o=>{(o.workshopDeliveries||[]).forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);if(rcvd>=(Number(wd.qty)||0))return;const days=Math.floor((_now-new Date(wd.date))/(1000*60*60*24));const ideal=Math.max(5,Math.round(((Number(wd.qty)||0)/500)*6.5));const remaining=ideal-days;if(remaining>0&&remaining<=2&&days>0)a.push({msg:o.modelNo+" — "+wd.wsName+" باقي "+remaining+" يوم على الموعد",color:"#F59E0B",icon:"⏰",orderId:o.id})})});
-    (data.workshops||[]).filter(w=>w.type!=="داخلي").forEach(w=>{let maxDelay=0,delayOrder="";data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);if(rcvd<(Number(wd.qty)||0)){const days=Math.floor((_now-new Date(wd.date))/(1000*60*60*24));const ideal=Math.max(5,Math.round(((Number(wd.qty)||0)/500)*6.5));if(days>ideal*1.5&&days>maxDelay){maxDelay=days;delayOrder=o.modelNo}}})});if(maxDelay>0)a.push({msg:w.name+" متأخرة "+maxDelay+" يوم (موديل "+delayOrder+")",color:T.warn,icon:"🕐"})});
+    (data.workshops||[]).filter(w=>!wsIsInternal(w.type)).forEach(w=>{let maxDelay=0,delayOrder="";data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);if(rcvd<(Number(wd.qty)||0)){const days=Math.floor((_now-new Date(wd.date))/(1000*60*60*24));const ideal=Math.max(5,Math.round(((Number(wd.qty)||0)/500)*6.5));if(days>ideal*1.5&&days>maxDelay){maxDelay=days;delayOrder=o.modelNo}}})});if(maxDelay>0)a.push({msg:w.name+" متأخرة "+maxDelay+" يوم (موديل "+delayOrder+")",color:T.warn,icon:"🕐"})});
     return a}catch(e){console.error("Alert error:",e);return[]}})();
 
   /* User notifications */
@@ -706,6 +744,9 @@ export default function App(){
   const markRead=(nid)=>upConfig(d=>{const n=(d.notifications||[]).find(x=>x.id===nid);if(n){if(!n.readBy)n.readBy=[];if(!n.readBy.includes(userEmail))n.readBy.push(userEmail)}});
   const allAlerts=[...userNotifs.map(n=>({msg:n.msg,color:n.type==="طلب"?"#8B5CF6":n.type==="مهمة"?T.accent:T.warn,icon:n.type==="طلب"?"📩":n.type==="مهمة"?"📌":"💬",orderId:n.orderId||null,isNotif:true,notifId:n.id,from:n.fromName,date:n.createdAt})),...appAlerts];
   const alertCount=allAlerts.length;
+  /* Urgent tasks - separate from bell */
+  const urgentTasks=(config.notifications||[]).filter(n=>n.type==="مهمة عاجلة"&&(n.toEmail===userEmail||n.toEmail==="all")&&!(n.doneBy||[]).includes(userEmail));
+  const markTaskDone=(nid)=>upConfig(d=>{const n=(d.notifications||[]).find(x=>x.id===nid);if(n){if(!n.doneBy)n.doneBy=[];if(!n.doneBy.includes(userEmail))n.doneBy.push(userEmail)}});
 
   const goHome=()=>{if(window.__formDirty){if(!confirm("هل تريد الخروج بدون حفظ البيانات المدخلة؟"))return;window.__formDirty=false}setTab("home");setSel(null)};
   const goTo=(key)=>{if(window.__formDirty){if(!confirm("هل تريد الخروج بدون حفظ البيانات المدخلة؟"))return;window.__formDirty=false}setTab(key);if(key!=="details")setSel(null)};
@@ -736,6 +777,15 @@ export default function App(){
         </div>
       </div>}
       <div style={{display:"flex",alignItems:"center",gap:isMob?6:10}}>
+        {/* Urgent Tasks - desktop only */}
+        {!isMob&&urgentTasks.length>0&&<div style={{display:"flex",gap:6,alignItems:"center",maxWidth:400,overflow:"auto"}}>
+          {urgentTasks.map(t=><div key={t.id} onClick={()=>{markTaskDone(t.id);showToast("✓ تم تنفيذ المهمة")}} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 12px",borderRadius:8,background:"#EF444418",border:"1px solid #EF444440",cursor:"pointer",animation:"pulse 2s infinite",whiteSpace:"nowrap",transition:"all 0.2s"}} onMouseEnter={e=>e.currentTarget.style.background="#EF444430"} onMouseLeave={e=>e.currentTarget.style.background="#EF444418"}>
+            <span style={{fontSize:12}}>🔴</span>
+            <span style={{fontSize:FS-2,fontWeight:700,color:"#EF4444"}}>{t.msg}</span>
+            <span style={{fontSize:10,color:"#EF444480"}}>✓</span>
+          </div>)}
+          <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.7}}`}</style>
+        </div>}
         {/* Alerts Bell */}
         <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
           <div onClick={()=>setShowAlerts(!showAlerts)} style={{cursor:"pointer",fontSize:isMob?18:22,padding:"2px 6px",borderRadius:8,background:alertCount>0?T.warn+"12":"transparent",position:"relative"}}>🔔
@@ -809,7 +859,7 @@ function DashPg({data,goD,isMob,season,statusCards}){
 
   /* Workshop accounts totals */
   let wsDue=0,wsPaid=0,wsPurchase=0;
-  const _isInt=(n)=>{const w=(data.workshops||[]).find(x=>x.name===n);return w?w.type==="داخلي":false};
+  const _isInt=(n)=>{const w=(data.workshops||[]).find(x=>x.name===n);return w?wsIsInternal(w.type):false};
   const wsAccounts=(wsName)=>{if(_isInt(wsName))return{due:0,totalPaid:0,totalPurchase:0,balance:0};let due=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===wsName).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});const payments=(data.wsPayments||[]).filter(p=>p.wsName===wsName);const totalPaid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);const totalPurchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);return{due,totalPaid,totalPurchase,balance:due+totalPurchase-totalPaid}};
   orders.forEach(o=>{(o.workshopDeliveries||[]).forEach(wd=>{if(_isInt(wd.wsName))return;(wd.receives||[]).forEach(r=>{wsDue+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});
   (data.wsPayments||[]).forEach(p=>{if(p.type==="payment")wsPaid+=(Number(p.amount)||0);else wsPurchase+=(Number(p.amount)||0)});
@@ -1003,9 +1053,9 @@ function DBPg({data,upConfig,isMob,canEdit,statusCards,initialSub,onSubUsed,rena
 /* ══ WORKSHOP MANAGER ══ */
 function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrders}){
   const[showForm,setShowForm]=useState(false);const[editId,setEditId]=useState(null);
-  const[f,setF]=useState({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خارجي",payPercent:60});
-  const startEdit=(ws)=>{setF({...ws,type:ws.type||"خارجي",payPercent:ws.payPercent||60});setEditId(ws.id);setShowForm(true)};
-  const startNew=()=>{setF({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خارجي",payPercent:60});setEditId(null);setShowForm(true)};
+  const[f,setF]=useState({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خياطة خارجي",payPercent:60});
+  const startEdit=(ws)=>{setF({...ws,type:ws.type==="خارجي"?"خياطة خارجي":ws.type==="داخلي"?"خياطة داخلي":ws.type||"خياطة خارجي",payPercent:ws.payPercent||60});setEditId(ws.id);setShowForm(true)};
+  const startNew=()=>{setF({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خياطة خارجي",payPercent:60});setEditId(null);setShowForm(true)};
   const handleIdCard=async e=>{const file=e.target.files[0];if(!file)return;const compressed=await compressImg43(file,300,0.5);setF(p=>({...p,idCard:compressed}))};
   const handleOwnerPhoto=async e=>{const file=e.target.files[0];if(!file)return;const compressed=await compressImage(file,200,0.5);setF(p=>({...p,ownerPhoto:compressed}))};
   const save=()=>{if(!f.name.trim())return;
@@ -1031,18 +1081,18 @@ function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrders}){
           const bal=totalDel-totalRcv;
           return<div key={ws.id} onClick={()=>{if(canEdit)startEdit(ws)}} style={{background:T.cardSolid,borderRadius:16,border:"1px solid "+T.brd,overflow:"hidden",boxShadow:"0 2px 12px rgba(0,0,0,0.06)",cursor:canEdit?"pointer":"default",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
           {/* Header */}
-          <div style={{padding:"14px 16px",background:ws.type==="داخلي"?T.accent+"08":T.ok+"08",borderBottom:"1px solid "+T.brd}}>
+          {(()=>{const wt=wsTypeInfo(ws.type);return<div style={{padding:"14px 16px",background:wt.color+"08",borderBottom:"1px solid "+T.brd}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <div style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:0}}>
                 {ws.ownerPhoto&&<img src={ws.ownerPhoto} alt="" style={{width:44,height:58,borderRadius:8,objectFit:"cover",flexShrink:0}}/>}
                 <div>
-                  <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}><span style={{fontSize:FS+2,fontWeight:800}}>{ws.name}</span><span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,fontWeight:600,background:ws.type==="داخلي"?T.accent+"15":T.ok+"15",color:ws.type==="داخلي"?T.accent:T.ok}}>{ws.type||"خارجي"}</span>{ws.type!=="داخلي"&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,fontWeight:600,background:T.purple+"12",color:T.purple}}>{(ws.payPercent||60)+"%"}</span>}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}><span style={{fontSize:FS+2,fontWeight:800}}>{ws.name}</span><span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,fontWeight:600,background:wt.color+"15",color:wt.color}}>{wt.icon+" "+wt.key}</span>{!wt.internal&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,fontWeight:600,background:T.purple+"12",color:T.purple}}>{(ws.payPercent||60)+"%"}</span>}</div>
                   {ws.owner&&<div style={{fontSize:FS-1,color:T.textSec}}>{"👤 "+ws.owner}</div>}
                 </div>
               </div>
-              {ws.type!=="داخلي"&&<QRImg text={window.location.origin+"?act=wsacc&ws="+encodeURIComponent(ws.name)} size={94}/>}
+              {!wt.internal&&<QRImg text={window.location.origin+"?act=wsacc&ws="+encodeURIComponent(ws.name)} size={94}/>}
             </div>
-          </div>
+          </div>})()}
           {/* Stats Grid */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:1,background:T.brd}}>
             {[{label:"أوردرات",value:orderCount,color:T.accent},{label:"تسليم ورشة",value:totalDel,color:T.purple},{label:"استلام مصنع",value:totalRcv,color:T.ok},{label:"الرصيد",value:bal,color:bal>0?T.err:T.ok}].map(s=><div key={s.label} style={{background:T.cardSolid,padding:"8px 6px",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>{s.label}</div><div style={{fontSize:FS+2,fontWeight:800,color:s.color}}>{s.value}</div></div>)}
@@ -1080,7 +1130,7 @@ function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrders}){
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>اسم صاحب الورشة</label><Inp value={f.owner} onChange={v=>setF({...f,owner:v})}/></div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:12}}>
-          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع الورشة *</label><Sel value={f.type||"خارجي"} onChange={v=>setF({...f,type:v})}><option value="خارجي">خارجي</option><option value="داخلي">داخلي</option></Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع الورشة *</label><Sel value={f.type||"خياطة خارجي"} onChange={v=>setF({...f,type:v})}>{WS_TYPES.map(t=><option key={t.key} value={t.key}>{t.icon+" "+t.key}</option>)}</Sel></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النسبة من الدفعات</label><Sel value={f.payPercent||60} onChange={v=>setF({...f,payPercent:Number(v)})}>{[30,40,50,60,70,80,90,100].map(p=><option key={p} value={p}>{p+"%"}</option>)}</Sel></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رقم التليفون</label><Inp value={f.phone} onChange={v=>setF({...f,phone:v})} type="tel"/></div>
         </div>
@@ -1240,7 +1290,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
   const[dWs,setDWs]=useState("");const[dType,setDType]=useState("");const[dQty,setDQty]=useState(0);const[dPrice,setDPrice]=useState("");const[dNote,setDNote]=useState("");
   const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
   const workshops=data.workshops||[];
-  const isInternal=(name)=>{const w=workshops.find(x=>x.name===name);return w?w.type==="داخلي":false};
+  const isInternal=(name)=>{const w=workshops.find(x=>x.name===name);return w?wsIsInternal(w.type):false};
 
   if(dupInit)return<OrdForm data={data} initial={dupInit} onSave={o=>{addOrder(o);setDupInit(null);showToast("✓ تم تكرار الأوردر")}} onCancel={()=>setDupInit(null)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
   if(showNew)return<OrdForm data={data} initial={mkOrder()} onSave={o=>{addOrder(o);setShowNew(false);showToast("✓ تم اضافة أمر القص")}} onCancel={()=>setShowNew(false)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
@@ -1530,8 +1580,8 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
   const[editPrice,setEditPrice]=useState(0);
   const[editDate,setEditDate]=useState("");
   const workshops=data.workshops||[];
-  const isInternal=(name)=>{const w=workshops.find(x=>x.name===name);return w?w.type==="داخلي":false};
-  const extWorkshops=workshops.filter(w=>w.type!=="داخلي");
+  const isInternal=(name)=>{const w=workshops.find(x=>x.name===name);return w?wsIsInternal(w.type):false};
+  const extWorkshops=workshops.filter(w=>!wsIsInternal(w.type));
 
   /* QR scan receive handler */
   useEffect(()=>{const h=()=>{const qr=window.__qrReceive;if(!qr)return;const ord=data.orders.find(o=>o.id===qr.oid);if(!ord)return;const wd=(ord.workshopDeliveries||[])[qr.wdi];if(!wd)return;setMode("receive");setSelWs(wd.wsName);setRcvSearch(ord.modelNo);delete window.__qrReceive};window.addEventListener("qr-receive",h);return()=>window.removeEventListener("qr-receive",h)},[data.orders]);
@@ -2069,10 +2119,13 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards}){
   const stockDel=ord?(ord.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0):0;
   const stockRemain=t.cutQty-stockDel;
 
-  const saveStock=()=>{
+  const saveStock=(andPrint)=>{
     if(!selOrder||!stQty||stQty<=0)return;
     const qty=Math.min(Number(stQty),stockRemain);if(qty<=0){alert("لا توجد كمية متاحة");return}
+    const saveOrd=JSON.parse(JSON.stringify(ord));
     updOrder(selOrder,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:stDate,qty,notes:stNote});o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)});
+    const newTotalDel=stockDel+qty;
+    if(andPrint)setTimeout(()=>printStockDelivery(saveOrd,qty,stDate,stNote,newTotalDel,t.cutQty),400);
     setStQty(0);setStNote("");setStDate(new Date().toISOString().split("T")[0]);showToast("✓ تم تسليم المخزن")
   };
 
@@ -2084,7 +2137,7 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards}){
         </div>
         {selOrder&&<><div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الكمية (متاح: {stockRemain})</label><Inp type="number" value={stQty} onChange={v=>setStQty(Math.min(Number(v)||0,stockRemain))}/></div>
         <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>التاريخ</label><Inp type="date" value={stDate} onChange={setStDate}/></div>
-        <Btn primary onClick={saveStock} disabled={!stQty||stQty<=0}>📦 تسليم</Btn></>}
+        <div style={{display:"flex",gap:6}}><Btn primary onClick={()=>saveStock(false)} disabled={!stQty||stQty<=0}>📦 تسليم</Btn><Btn onClick={()=>saveStock(true)} disabled={!stQty||stQty<=0} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>📦 تسليم + طباعة</Btn></div></>}
       </div>
       {selOrder&&<div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
         <span style={{padding:"4px 10px",borderRadius:6,background:T.err+"10",color:T.err,fontWeight:700,fontSize:FS-1}}>{"القص: "+t.cutQty}</span>
@@ -2656,7 +2709,7 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
         return<div>
           <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:10}}>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الى</label><Sel value={nTo} onChange={setNTo}><option value="all">جميع المستخدمين</option>{(config.usersList||[]).map(u=><option key={u.email} value={u.email}>{u.name||u.email}</option>)}</Sel></div>
-            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label><Sel value={nType} onChange={setNType}><option value="تنبيه">💬 تنبيه</option><option value="طلب">📩 طلب</option><option value="مهمة">📌 مهمة</option></Sel></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label><Sel value={nType} onChange={setNType}><option value="تنبيه">💬 تنبيه</option><option value="طلب">📩 طلب</option><option value="مهمة">📌 مهمة</option><option value="مهمة عاجلة">🔴 مهمة عاجلة</option></Sel></div>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ربط بأوردر (اختياري)</label><Sel value={nOrd} onChange={setNOrd}><option value="">بدون</option>{orders.map(o=><option key={o.id} value={o.id}>{o.modelNo+" — "+o.modelDesc}</option>)}</Sel></div>
           </div>
           <div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الرسالة</label><Inp value={nMsg} onChange={setNMsg} placeholder="اكتب الرسالة أو الطلب..."/></div>
