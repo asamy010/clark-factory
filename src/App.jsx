@@ -622,7 +622,6 @@ export default function App(){
   const qrOid=qrParams.get("oid");
   const qrWdi=qrParams.get("wdi");
   const qrWs=qrParams.get("ws");
-  const confirmTok=qrParams.get("tok");
 
   const[user,setUser]=useState(null);const[authLoading,setAuthLoading]=useState(true);
   const[config,setConfig]=useState(INIT_CONFIG);const[orders,setOrders]=useState([]);const[dataLoading,setDataLoading]=useState(true);
@@ -630,7 +629,6 @@ export default function App(){
   const setTab=v=>{setTab_(v);sessionStorage.setItem("clark_tab",v)};
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
   const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);
-  const[pubConfirmed,setPubConfirmed]=useState(false);const confirmDone=useRef(false);
   /* Online/Offline status */
   const[isOnline,setIsOnline]=useState(navigator.onLine);const[justReconnected,setJustReconnected]=useState(false);
   useEffect(()=>{const on=()=>{setIsOnline(true);setJustReconnected(true);setTimeout(()=>setJustReconnected(false),4000)};const off=()=>{setIsOnline(false);setJustReconnected(false)};window.addEventListener("online",on);window.addEventListener("offline",off);return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off)}},[]);
@@ -729,70 +727,7 @@ export default function App(){
   const statusCards=config.statusCards||DEFAULT_STATUSES;
 
   if(authLoading)return null;
-  /* Public confirmation page */
-  if(!user&&qrAction==="confirm"&&confirmTok){
-    return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(180deg,#EFF6FF 0%,#DBEAFE 100%)",fontFamily:"'Cairo',sans-serif",direction:"rtl",padding:16}}>
-      <div style={{background:"#fff",borderRadius:24,padding:"40px 24px",maxWidth:440,width:"100%",boxShadow:"0 12px 50px rgba(0,0,0,0.12)",textAlign:"center"}}>
-        <img src={CLARK_LOGO} alt="CLARK" style={{width:180,marginBottom:24}}/>
-        {pubConfirmed?<div>
-          <div style={{width:90,height:90,borderRadius:45,background:"#10B98115",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 20px"}}><span style={{fontSize:50}}>✅</span></div>
-          <div style={{fontSize:28,fontWeight:800,color:"#10B981",marginBottom:10}}>تم التأكيد بنجاح</div>
-          <div style={{fontSize:18,color:"#64748B",lineHeight:1.8}}>شكراً لك<br/>تم تسجيل التأكيد في النظام</div>
-          <div style={{marginTop:24,padding:"14px 20px",borderRadius:14,background:"#F0FDF4",border:"1px solid #BBF7D0"}}><div style={{fontSize:14,color:"#16A34A",fontWeight:600}}>يمكنك اغلاق هذه الصفحة</div></div>
-        </div>:<div>
-          <div style={{width:80,height:80,borderRadius:40,background:"#0284C715",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 20px"}}><span style={{fontSize:40}}>📋</span></div>
-          <div style={{fontSize:26,fontWeight:800,color:"#0F172A",marginBottom:8}}>تأكيد العملية</div>
-          <div style={{fontSize:18,color:"#475569",marginBottom:30,lineHeight:1.8}}>تم ارسال طلب تأكيد من المصنع<br/>اضغط الزر للتأكيد</div>
-          <button onClick={()=>setPubConfirmed(true)} style={{width:"100%",padding:"18px 40px",borderRadius:16,background:"linear-gradient(135deg,#10B981,#059669)",color:"#fff",border:"none",fontSize:22,fontWeight:800,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 6px 24px rgba(16,185,129,0.35)"}}>✓ تأكيد الاستلام</button>
-          <div style={{marginTop:20,fontSize:13,color:"#94A3B8"}}>CLARK Factory Management</div>
-        </div>}
-      </div>
-    </div>
-  }
   if(!user)return<LoginScreen/>;
-  /* Confirmation screen for logged-in users */
-  if(qrAction==="confirm"&&confirmTok&&!confirmDone.current){
-    const confirmOrder=orders.find(o=>(o.workshopDeliveries||[]).some(wd=>wd.confirmToken===confirmTok||(wd.receives||[]).some(r=>r.confirmToken===confirmTok)));
-    const doConfirm=()=>{if(!confirmOrder)return;
-      for(const o of orders){const wds=o.workshopDeliveries||[];
-        for(let wi=0;wi<wds.length;wi++){const wd=wds[wi];
-          if(wd.confirmToken===confirmTok&&!wd.confirmed){updOrder(o.id,u=>{u.workshopDeliveries[wi].confirmed=true;u.workshopDeliveries[wi].confirmedAt=new Date().toISOString()});confirmDone.current=true;setPubConfirmed(true);return}
-          for(let ri=0;ri<(wd.receives||[]).length;ri++){const r=wd.receives[ri];
-            if(r.confirmToken===confirmTok&&!r.confirmed){updOrder(o.id,u=>{u.workshopDeliveries[wi].receives[ri].confirmed=true;u.workshopDeliveries[wi].receives[ri].confirmedAt=new Date().toISOString()});confirmDone.current=true;setPubConfirmed(true);return}}
-        }}};
-    const wd=confirmOrder?(confirmOrder.workshopDeliveries||[]).find(w=>w.confirmToken===confirmTok||((w.receives||[]).some(r=>r.confirmToken===confirmTok))):null;
-    const isRcv=wd?(wd.receives||[]).some(r=>r.confirmToken===confirmTok):false;
-    const alreadyDone=wd?(isRcv?(wd.receives||[]).find(r=>r.confirmToken===confirmTok)?.confirmed:wd.confirmed):false;
-    return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(180deg,#EFF6FF 0%,#DBEAFE 100%)",fontFamily:"'Cairo',sans-serif",direction:"rtl",padding:16}}>
-      <div style={{background:"#fff",borderRadius:24,padding:"40px 24px",maxWidth:480,width:"100%",boxShadow:"0 12px 50px rgba(0,0,0,0.12)",textAlign:"center"}}>
-        <img src={CLARK_LOGO} alt="CLARK" style={{width:180,marginBottom:24}}/>
-        {(pubConfirmed||alreadyDone)?<div>
-          <div style={{width:90,height:90,borderRadius:45,background:"#10B98115",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 20px"}}><span style={{fontSize:50}}>✅</span></div>
-          <div style={{fontSize:28,fontWeight:800,color:"#10B981",marginBottom:10}}>تم التأكيد بنجاح</div>
-          <div style={{fontSize:16,color:"#64748B",marginBottom:20}}>تم تسجيل التأكيد في النظام</div>
-          <button onClick={()=>{window.history.replaceState({},"",window.location.pathname);confirmDone.current=true;setTab("home")}} style={{padding:"12px 30px",borderRadius:12,background:T.accent,color:"#fff",border:"none",fontSize:16,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>↩ الرئيسية</button>
-        </div>:confirmOrder&&wd?<div>
-          <div style={{fontSize:22,fontWeight:800,color:"#0F172A",marginBottom:16}}>{isRcv?"تأكيد استلام من ورشة":"تأكيد تسليم لورشة"}</div>
-          <div style={{background:"#F8FAFC",borderRadius:14,padding:16,marginBottom:20,textAlign:"right"}}>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:15}}>
-              <div><span style={{color:"#64748B"}}>الموديل: </span><b>{confirmOrder.modelNo}</b></div>
-              <div><span style={{color:"#64748B"}}>الوصف: </span><b>{confirmOrder.modelDesc}</b></div>
-              <div><span style={{color:"#64748B"}}>الورشة: </span><b style={{color:"#8B5CF6"}}>{wd.wsName}</b></div>
-              <div><span style={{color:"#64748B"}}>القطعة: </span><b>{wd.garmentType||"—"}</b></div>
-              <div><span style={{color:"#64748B"}}>الكمية: </span><b style={{color:T.accent,fontSize:20}}>{wd.qty}</b></div>
-              <div><span style={{color:"#64748B"}}>التاريخ: </span><b>{wd.date}</b></div>
-            </div>
-          </div>
-          <button onClick={doConfirm} style={{width:"100%",padding:"18px 40px",borderRadius:16,background:"linear-gradient(135deg,#10B981,#059669)",color:"#fff",border:"none",fontSize:22,fontWeight:800,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 6px 24px rgba(16,185,129,0.35)"}}>✓ تأكيد</button>
-          <div style={{marginTop:12}}><button onClick={()=>{window.history.replaceState({},"",window.location.pathname);confirmDone.current=true;setTab("home")}} style={{background:"none",border:"none",color:"#64748B",cursor:"pointer",fontFamily:"inherit",fontSize:14}}>تخطي ←</button></div>
-        </div>:<div>
-          <div style={{fontSize:20,color:"#EF4444",fontWeight:700,marginBottom:12}}>⚠️ لم يتم العثور على البيان</div>
-          <div style={{fontSize:14,color:"#64748B",marginBottom:20}}>اللينك غير صالح أو تم التأكيد مسبقاً</div>
-          <button onClick={()=>{window.history.replaceState({},"",window.location.pathname);confirmDone.current=true;setTab("home")}} style={{padding:"12px 30px",borderRadius:12,background:T.accent,color:"#fff",border:"none",fontSize:16,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>↩ الرئيسية</button>
-        </div>}
-      </div>
-    </div>
-  }
   if(dataLoading)return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#EFF6FF",direction:"rtl",fontFamily:"'Cairo',sans-serif"}}>
     <div style={{width:140,textAlign:"center"}}>
       <div style={{fontSize:12,fontWeight:700,color:T.accent,marginBottom:8}}>جاري تحميل البيانات</div>
@@ -1609,7 +1544,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
             <div style={{padding:"4px 12px 8px"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
               <thead><tr>{["","الحركة","التاريخ","الكمية","ملاحظات",...(canEdit?[""]:[])] .map(h=><th key={h} style={{...TH,fontSize:FS-3,padding:"4px 8px"}}>{h}</th>)}</tr></thead>
               <tbody>
-                <tr style={{background:"#F0FDF408"}}><td style={{...TD,padding:"4px 8px",textAlign:"center",color:T.ok,fontSize:14}}>↗</td><td style={{...TD,padding:"4px 8px",fontWeight:600,color:T.ok}}>تسليم ورشة</td><td style={{...TD,padding:"4px 8px"}}>{wd.date}</td><td style={{...TDB,padding:"4px 8px",color:T.ok}}>{wd.qty}</td><td style={{...TD,padding:"4px 8px",fontSize:FS-2}}>{wd.notes||"-"}{wd.confirmed?<span style={{marginRight:6,fontSize:FS-3,color:T.ok,fontWeight:700}}> ✅ مؤكد</span>:wd.confirmToken?<span style={{marginRight:6,fontSize:FS-3,color:T.warn}}> ⏳</span>:""}</td>{canEdit&&<td style={{...TD,padding:"4px 8px"}}>{wd.confirmToken&&!wd.confirmed&&<span onClick={e=>{e.stopPropagation();const link=window.location.origin+"?act=confirm&tok="+wd.confirmToken;const wsObj=workshops.find(w=>w.name===wd.wsName);const phone=wsObj?.phone||"";const msg="*CLARK — تأكيد تسليم*%0A📋 "+order.modelNo+"%0A👕 "+(wd.garmentType||"")+"%0A📦 "+wd.qty+" قطعة%0A%0A✅ اضغط:%0A"+link;window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{cursor:"pointer",fontSize:FS-2,color:"#25D366"}}>📱</span>}</td>}</tr>
+                <tr style={{background:"#F0FDF408"}}><td style={{...TD,padding:"4px 8px",textAlign:"center",color:T.ok,fontSize:14}}>↗</td><td style={{...TD,padding:"4px 8px",fontWeight:600,color:T.ok}}>تسليم ورشة</td><td style={{...TD,padding:"4px 8px"}}>{wd.date}</td><td style={{...TDB,padding:"4px 8px",color:T.ok}}>{wd.qty}</td><td style={{...TD,padding:"4px 8px",fontSize:FS-2}}>{wd.notes||"-"}</td>{canEdit&&<td style={{...TD,padding:"4px 8px"}}></td>}</tr>
                 {(wd.receives||[]).map((r,ri)=>{const isEdR=editRcv&&editRcv.wdIdx===i&&editRcv.rIdx===ri;return<tr key={ri} style={{background:isEdR?T.warn+"08":"#EFF6FF08"}}><td style={{...TD,padding:"4px 8px",textAlign:"center",color:T.accent,fontSize:14}}>↙</td><td style={{...TD,padding:"4px 8px",fontWeight:600,color:T.accent}}>استلام مصنع</td><td style={{...TD,padding:"4px 8px"}}>{isEdR?<Inp type="date" value={edRcvDate} onChange={setEdRcvDate} sx={{padding:"2px 4px",fontSize:FS-2}}/>:r.date}</td><td style={{...TDB,padding:"4px 8px",color:T.accent}}>{isEdR?<Inp type="number" value={edRcvQty} onChange={v=>setEdRcvQty(Number(v)||0)} sx={{padding:"2px 4px",fontSize:FS-1,width:60}}/>:r.qty}</td><td style={{...TD,padding:"4px 8px",fontSize:FS-2}}>{isEdR?<Inp value={edRcvNote} onChange={setEdRcvNote} sx={{padding:"2px 4px",fontSize:FS-2}}/>:(r.notes||"-")}</td>{canEdit&&<td style={{...TD,padding:"4px 8px",whiteSpace:"nowrap"}}>{isEdR?<div style={{display:"flex",gap:3}}><Btn small primary onClick={()=>{updOrder(sel,o=>{const rc=o.workshopDeliveries[i].receives[ri];if(rc){rc.qty=edRcvQty;rc.date=edRcvDate;rc.notes=edRcvNote}o.status=recomputeStatus(o)});setEditRcv(null)}}>💾</Btn><Btn ghost small onClick={()=>setEditRcv(null)}>✕</Btn></div>:<Btn ghost small onClick={()=>{setEditRcv({wdIdx:i,rIdx:ri});setEdRcvQty(r.qty);setEdRcvDate(r.date);setEdRcvNote(r.notes||"")}} style={{fontSize:FS-3,padding:"2px 6px"}}>✏️</Btn>}</td>}</tr>})}
               </tbody>
             </table></div>
@@ -1635,10 +1570,10 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
       const availPieces=pieces.filter(p=>{if(!isLinked(p))return false;const delForP=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return delForP<t.cutQty});
       const totalDelForType=dType?(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===dType).reduce((s,wd)=>s+(Number(wd.qty)||0),0):0;
       const maxQty=dType?Math.max(0,t.cutQty-totalDelForType):t.cutQty;
-      const doDeliver=(print,whatsapp)=>{
+      const doDeliver=(print,wa)=>{
         if(!dWs||!dType||!dQty)return;
-        const wsObj=workshops.find(w=>w.name===dWs);const tok=gid();
-        const wd={wsName:dWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",qty:Number(dQty),garmentType:dType,price:Number(dPrice)||0,notes:dNote,date:dDate||new Date().toISOString().split("T")[0],receives:[],confirmToken:tok,confirmed:false};
+        const wsObj=workshops.find(w=>w.name===dWs);
+        const wd={wsName:dWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",qty:Number(dQty),garmentType:dType,price:Number(dPrice)||0,notes:dNote,date:dDate||new Date().toISOString().split("T")[0],receives:[]};
         const upd=JSON.parse(JSON.stringify(order));
         if(!upd||!upd.id||!upd.modelNo){showToast("⚠️ خطأ — بيانات الأوردر غير صالحة");return}
         if(!upd.workshopDeliveries)upd.workshopDeliveries=[];upd.workshopDeliveries.push(wd);
@@ -1646,7 +1581,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
         replaceOrder(order.id,upd);
         showToast("✓ تم التسليم — "+dWs);setShowDeliver(false);
         if(print){setTimeout(()=>{printReceipt(dWs,wsObj?wsObj.owner:"",upd,dType,Number(dQty),dDate||new Date().toISOString().split("T")[0],maxQty-Number(dQty),data.garmentTypes)},300)}
-        if(whatsapp){const link=window.location.origin+"?act=confirm&tok="+tok;const phone=wsObj?.phone||"";const msg="*CLARK — اذن تسليم ورشة*%0A📋 الموديل: "+order.modelNo+" — "+order.modelDesc+"%0A👕 القطعة: "+dType+"%0A📦 الكمية: "+dQty+"%0A💰 السعر: "+(dPrice||0)+" ج.م/قطعة%0A%0A✅ اضغط للتأكيد:%0A"+link;window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
+        if(wa){const phone=wsObj?.phone||"";const d=dDate||new Date().toISOString().split("T")[0];const msg="*CLARK — اذن تسليم ورشة*%0A%0A🏭 الورشة: *"+dWs+"*%0A📋 رقم الموديل: *"+order.modelNo+"*%0A📝 الوصف: "+order.modelDesc+"%0A👕 نوع القطعة: *"+dType+"*%0A📦 الكمية المستلمة: *"+dQty+"* قطعة%0A💰 السعر: *"+(dPrice||0)+"* ج.م/قطعة%0A📅 تاريخ الاستلام: *"+d+"*%0A%0A✅ *برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
       };
       return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowDeliver(false)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
@@ -1746,7 +1681,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     const availAfter=maxAllowed-saveQty;
     updOrder(selOrder,o=>{
       if(!o.workshopDeliveries)o.workshopDeliveries=[];
-      o.workshopDeliveries.push({id:gid(),wsName:selWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",wsOwner:wsObj?wsObj.owner:"",qty:saveQty,garmentType:saveType,notes:saveNote,price:savePrice,date:saveDate,receives:[],confirmToken:gid(),confirmed:false});
+      o.workshopDeliveries.push({id:gid(),wsName:selWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",wsOwner:wsObj?wsObj.owner:"",qty:saveQty,garmentType:saveType,notes:saveNote,price:savePrice,date:saveDate,receives:[]});
       o.status=recomputeStatus(o);
     });
     setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice("");setDelDate(new Date().toISOString().split("T")[0]);showToast("✓ تم تسليم "+saveQty+" قطعة لـ "+selWs);
@@ -1764,7 +1699,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     const saveNote=rv.note;const wdPrice=Number(wd.price)||0;const saveDate=rv.date||new Date().toISOString().split("T")[0];const saveQuality=rv.quality||"جيد جداً";
     updOrder(orderId,o=>{
       if(!o.workshopDeliveries[wdIdx].receives)o.workshopDeliveries[wdIdx].receives=[];
-      o.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty,notes:saveNote,price:wdPrice,amount:r2(saveQty*wdPrice),quality:saveQuality,confirmToken:gid(),confirmed:false});
+      o.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty,notes:saveNote,price:wdPrice,amount:r2(saveQty*wdPrice),quality:saveQuality});
       o.status=recomputeStatus(o)
     });
     clearRcv(cardKey);showToast("✓ تم استلام "+saveQty+" قطعة");
