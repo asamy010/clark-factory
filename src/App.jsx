@@ -481,6 +481,24 @@ function Sel({value,onChange,children}){
   return<select value={value==null?"":value} onChange={e=>onChange(e.target.value)} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box"}}>{children}</select>
 }
 
+function SearchSel({value,onChange,options,placeholder}){
+  const[open,setOpen]=useState(false);const[q,setQ]=useState("");const ref=useRef(null);
+  const selected=options.find(o=>o.value===value);
+  const filtered=q?options.filter(o=>o.label.toLowerCase().includes(q.toLowerCase())).slice(0,10):options.slice(0,10);
+  useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false)};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h)},[]);
+  return<div ref={ref} style={{position:"relative"}}>
+    <div style={{display:"flex",border:"1px solid "+T.brd,borderRadius:6,overflow:"hidden",background:T.cardSolid}}>
+      <input value={open?q:(selected?selected.label:"")} onChange={e=>{setQ(e.target.value);if(!open)setOpen(true)}} onFocus={()=>{setOpen(true);setQ("")}} onKeyDown={e=>{if(e.key==="Escape")setOpen(false)}}
+        placeholder={placeholder||"بحث..."} style={{flex:1,padding:"5px 8px",border:"none",outline:"none",fontSize:FS,fontFamily:"inherit",background:"transparent",color:T.text,boxSizing:"border-box"}}/>
+      <div onClick={()=>{setOpen(!open);setQ("")}} style={{padding:"4px 8px",cursor:"pointer",display:"flex",alignItems:"center",color:T.textSec,borderRight:"1px solid "+T.brd,background:T.bg,fontSize:12}}>{open?"▲":"▼"}</div>
+    </div>
+    {open&&<div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:999,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:"0 0 8px 8px",boxShadow:"0 8px 24px rgba(0,0,0,0.15)",maxHeight:240,overflowY:"auto"}}>
+      {filtered.length>0?filtered.map(o=><div key={o.value} onClick={()=>{onChange(o.value);setOpen(false);setQ("")}} style={{padding:"8px 12px",cursor:"pointer",fontSize:FS,color:o.value===value?T.accent:T.text,fontWeight:o.value===value?700:400,background:o.value===value?T.accent+"08":"transparent",borderBottom:"1px solid "+T.brd+"40"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background=o.value===value?T.accent+"08":"transparent"}>{o.label}</div>)
+      :<div style={{padding:"12px",textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد نتائج</div>}
+    </div>}
+  </div>
+}
+
 function Card({children,title,extra,accent,style:sx}){
   return<div style={{background:T.card,backdropFilter:"blur(12px)",borderRadius:12,border:"1px solid "+T.brd,boxShadow:T.shadow,overflow:"visible",...(sx||{})}}>
     {(title||extra)&&<div style={{padding:"10px 16px",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",background:accent||"rgba(248,250,252,0.8)",borderRadius:"12px 12px 0 0"}}><span style={{fontSize:FS+1,fontWeight:700,color:accent?"#fff":T.text}}>{title}</span>{extra}</div>}
@@ -866,11 +884,11 @@ export default function App(){
           {isMob&&<div onClick={()=>setShowScanner(true)} style={{margin:"16px auto 0",display:"flex",justifyContent:"center"}}><div style={{background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",borderRadius:14,padding:"14px 30px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,boxShadow:"0 4px 20px rgba(14,165,233,0.3)"}}><span style={{fontSize:24}}>📷</span><span style={{fontSize:FS+1,fontWeight:700,color:"#fff"}}>مسح كود QR</span></div></div>}
           </div>
           {/* Tasks sidebar */}
-          {(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const myTasks=((config||{}).tasks||[]).filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
+          {(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
             return myTasks.length>0&&<div style={{background:T.cardSolid,borderRadius:16,border:"1px solid #F59E0B30",padding:16,boxShadow:T.shadow}}>
               <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12}}><span style={{fontSize:20}}>📌</span><span style={{fontSize:FS+1,fontWeight:800,color:"#F59E0B"}}>{"مهامي ("+myTasks.length+")"}</span></div>
               <div style={{display:"flex",flexDirection:"column",gap:8}}>{myTasks.slice(0,8).map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"10px 12px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
-                <span onClick={()=>upConfig(d=>{const tk=(d.tasks||[]).find(x=>x.id===t.id);if(tk){tk.done=true;tk.doneAt=new Date().toISOString()}})} style={{cursor:"pointer",fontSize:18,flexShrink:0,marginTop:2}}>⬜</span>
+                <span onClick={()=>upConfig(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const tk=arr.find(x=>x.id===t.id);if(tk){tk.done=true;tk.doneAt=new Date().toISOString()}})} style={{cursor:"pointer",fontSize:18,flexShrink:0,marginTop:2}}>⬜</span>
                 <div style={{flex:1}}>
                   <div style={{fontSize:FS,fontWeight:600,color:T.text,lineHeight:1.5}}>{t.text}</div>
                   <div style={{fontSize:FS-2,color:T.textSec,marginTop:2}}>{"من: "+(t.fromName||"—")+" | "+t.date}</div>
@@ -1744,7 +1762,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
             <Btn ghost onClick={()=>setShowDeliver(false)}>✕</Btn>
           </div>
           <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
-            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الورشة *</label><Sel value={dWs} onChange={v=>{setDWs(v);setDPrice("")}}><option value="">-- اختر ورشة --</option>{workshops.map(w=><option key={w.id} value={w.name}>{wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — "+w.name+(w.owner?" - "+w.owner:"")}</option>)}</Sel></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الورشة *</label><SearchSel value={dWs} onChange={v=>{setDWs(v);setDPrice("")}} options={workshops.map(w=>({value:w.name,label:wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — "+w.name+(w.owner?" - "+w.owner:"")}))} placeholder="ابحث عن ورشة..."/></div>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع القطعة *</label><Sel value={dType} onChange={v=>{setDType(v);const delForP=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===v).reduce((s,wd)=>s+(Number(wd.qty)||0),0);setDQty(Math.max(0,t.cutQty-delForP))}}><option value="">-- اختر --</option>{(availPieces.length>0?availPieces:pieces.length>0?pieces:["عام"]).map(p=><option key={p} value={p}>{(gIcon(p,data.garmentTypes))+" "+p}</option>)}</Sel></div>
           </div>
           <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:12}}>
@@ -1975,10 +1993,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       <Btn ghost onClick={()=>{setMode(null);setSelWs("");setSelOrder("")}}>↩</Btn>
     </div>
     <Card title="اختر الورشة" style={{marginBottom:16}}>
-      <Sel value={selWs} onChange={v=>{setSelWs(v);setSelOrder("")}}>
-        <option value="">-- اختر ورشة --</option>
-        {workshops.map(w=><option key={w.id||w} value={w.name||w}>{(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)+(w.owner?" - "+w.owner:"")}</option>)}
-      </Sel>
+      <SearchSel value={selWs} onChange={v=>{setSelWs(v);setSelOrder("")}} options={workshops.map(w=>({value:w.name||w,label:(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)+(w.owner?" - "+w.owner:"")}))} placeholder="ابحث عن ورشة..."/>
       {wsObj&&(()=>{let wsTotalDel=0,wsTotalRcv=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===selWs).forEach(wd=>{wsTotalDel+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{wsTotalRcv+=Number(r.qty)||0})})});const wsBal=wsTotalDel-wsTotalRcv;
         return<div style={{marginTop:12,padding:12,background:T.accentBg,borderRadius:10}}>
           <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8}}>
@@ -1997,12 +2012,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         <Inp value={ordSearch} onChange={setOrdSearch} placeholder="بحث بالرقم أو الوصف..." style={{marginBottom:10}}/>
         {(()=>{const fOrds=ordSearch.trim()?availOrders.filter(o=>{const s=ordSearch.trim().toLowerCase();return(o.modelNo||"").toLowerCase().includes(s)||(o.modelDesc||"").toLowerCase().includes(s)}):availOrders;return<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr",gap:10,marginBottom:10}}>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>{"اختر الأوردر ("+fOrds.length+")"}</label>
-            <Sel value={selOrder} onChange={v=>{setSelOrder(v);setDelType("");const o=data.orders.find(x=>x.id===v);if(o){const pieces=o.orderPieces||[];if(pieces.length===0)setDelQty(getAvailQty(o))}}}>
-              <option value="">-- اختر أوردر --</option>
-              {fOrds.map(o=>{const t=calcOrder(o);const pieces=o.orderPieces||[];
-                const pInfo=pieces.length>0?pieces.map(p=>{const d=(o.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);const a=t.cutQty-d;return a>0?p+":"+a:null}).filter(Boolean).join(" | "):"متاح: "+getAvailQty(o);
-                return<option key={o.id} value={o.id}>{o.modelNo+" - "+o.modelDesc+" ["+pInfo+"]"}</option>})}
-            </Sel>
+            <SearchSel value={selOrder} onChange={v=>{setSelOrder(v);setDelType("");const o=data.orders.find(x=>x.id===v);if(o){const pieces=o.orderPieces||[];if(pieces.length===0)setDelQty(getAvailQty(o))}}} options={fOrds.map(o=>{const t=calcOrder(o);const pieces=o.orderPieces||[];const pInfo=pieces.length>0?pieces.map(p=>{const d=(o.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);const a=t.cutQty-d;return a>0?p+":"+a:null}).filter(Boolean).join(" | "):"متاح: "+getAvailQty(o);return{value:o.id,label:o.modelNo+" - "+o.modelDesc+" ["+pInfo+"]"}})} placeholder="ابحث بالموديل..."/>
           </div>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الكمية</label><Inp type="number" value={delQty} onChange={v=>{const ord=data.orders.find(x=>x.id===selOrder);const max=ord?getAvailQty(ord):99999;setDelQty(Math.min(Number(v)||0,max))}}/></div>
         </div>})()}
@@ -2321,7 +2331,6 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards}){
   const[editSt,setEditSt]=useState(null);const[edStDate,setEdStDate]=useState("");const[edStQty,setEdStQty]=useState(0);const[edStNote,setEdStNote]=useState("");
   const[showLimitPopup,setShowLimitPopup]=useState(null);
   const[stLogQ,setStLogQ]=useState("");
-  const[stOrdQ,setStOrdQ]=useState("");
   const[qRcvPiece,setQRcvPiece]=useState(null);const[qRcvQty,setQRcvQty]=useState(0);const[qRcvDate,setQRcvDate]=useState(new Date().toISOString().split("T")[0]);
   const[qEditPiece,setQEditPiece]=useState(null);const[qEditQty,setQEditQty]=useState(0);
 
@@ -2382,10 +2391,9 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards}){
 
   return<div>
     <Card style={{marginBottom:12}}>
-      <div style={{marginBottom:8}}><Inp value={stOrdQ} onChange={setStOrdQ} placeholder="🔍 بحث برقم الموديل أو الوصف..."/></div>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr auto",gap:10,alignItems:"end"}}>
-        <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>اختر الأوردر</label>
-          {(()=>{const fElig=stOrdQ.trim()?eligible.filter(o=>(o.modelNo+o.modelDesc).toLowerCase().includes(stOrdQ.trim().toLowerCase())):eligible;return<Sel value={selOrder} onChange={v=>{setSelOrder(v);setStQty(0)}}><option value="">{"-- اختر أوردر ("+fElig.length+") --"}</option>{fElig.map(o=>{const tc=calcOrder(o);const sd=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return<option key={o.id} value={o.id}>{o.modelNo+" — "+o.modelDesc+" (متبقي: "+(tc.cutQty-sd)+")"}</option>})}</Sel>})()}
+        <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>{"اختر الأوردر ("+eligible.length+")"}</label>
+          <SearchSel value={selOrder} onChange={v=>{setSelOrder(v);setStQty(0)}} options={eligible.map(o=>{const tc=calcOrder(o);const sd=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return{value:o.id,label:o.modelNo+" — "+o.modelDesc+" (متبقي: "+(tc.cutQty-sd)+")"}})} placeholder="ابحث بالموديل أو الوصف..."/>
         </div>
         {selOrder&&<><div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>{"الكمية (طقم كامل متاح: "+stockRemain+")"}</label><Inp type="number" value={stQty} onChange={v=>setStQty(Number(v)||0)}/></div>
         <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>التاريخ</label><Inp type="date" value={stDate} onChange={setStDate}/></div>
@@ -2889,15 +2897,15 @@ function CostPg({data,isMob,statusCards}){
 function TasksPg({data,upConfig,isMob,user}){
   const[taskText,setTaskText]=useState("");const[taskTo,setTaskTo]=useState("");
   const uid=user?.uid||"default";const userEmail=user?.email||"";
-  const allTasks=(data.tasks||[]);
+  const allTasks=Array.isArray(data.tasks)?data.tasks:[];
   const myTasks=allTasks.filter(t=>t.toEmail===userEmail||t.toUid===uid);
   const sentTasks=allTasks.filter(t=>t.fromEmail===userEmail||t.fromUid===uid);
   const users=(data.usersList||[]);
   const addTask=()=>{if(!taskText.trim()||!taskTo)return;const target=users.find(u=>u.email===taskTo);
-    upConfig(d=>{if(!d.tasks)d.tasks=[];d.tasks.unshift({id:Date.now(),text:taskText.trim(),done:false,date:new Date().toISOString().split("T")[0],fromUid:uid,fromEmail:userEmail,fromName:user?.displayName||userEmail.split("@")[0],toEmail:taskTo,toName:target?.name||taskTo.split("@")[0]})});
+    upConfig(d=>{if(!Array.isArray(d.tasks))d.tasks=[];d.tasks.unshift({id:Date.now(),text:taskText.trim(),done:false,date:new Date().toISOString().split("T")[0],fromUid:uid,fromEmail:userEmail,fromName:user?.displayName||userEmail.split("@")[0],toEmail:taskTo,toName:target?.name||taskTo.split("@")[0]})});
     setTaskText("");showToast("✓ تم ارسال المهمة")};
-  const toggleTask=(tid)=>{upConfig(d=>{const t=(d.tasks||[]).find(x=>x.id===tid);if(t){t.done=!t.done;t.doneAt=t.done?new Date().toISOString():null}})};
-  const delTask=(tid)=>{upConfig(d=>{d.tasks=(d.tasks||[]).filter(x=>x.id!==tid)})};
+  const toggleTask=(tid)=>{upConfig(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const t=arr.find(x=>x.id===tid);if(t){t.done=!t.done;t.doneAt=t.done?new Date().toISOString():null}})};
+  const delTask=(tid)=>{upConfig(d=>{d.tasks=Array.isArray(d.tasks)?d.tasks.filter(x=>x.id!==tid):[]})};
   return<div>
     <Card title="📌 ارسال مهمة جديدة" style={{marginBottom:16}}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 2fr auto",gap:8,alignItems:"end"}}>
