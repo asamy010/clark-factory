@@ -358,7 +358,7 @@ function calcWsRating(wsName,orders){
 
 function mkOrder(){
   const today=new Date().toISOString().split("T")[0];
-  const o={id:gid(),date:today,createdAt:new Date().toISOString(),modelNo:"",modelDesc:"",poNumber:"",sizeSetId:"",sizeLabel:"",status:"تم القص",cutQty:0,deliveredQty:0,accItems:[],deliveries:[],workshopDeliveries:[],orderPieces:[],image:"",instructions:"",attachments:[],marker:""};
+  const o={id:gid(),date:today,createdAt:new Date().toISOString(),modelNo:"",modelDesc:"",poNumber:"",sizeSetId:"",sizeLabel:"",status:"تم القص",cutQty:0,deliveredQty:0,accItems:[],deliveries:[],workshopDeliveries:[],orderPieces:[],image:"",instructions:"",attachments:[],marker:"",favorite:false,priority:"normal"};
   FKEYS.forEach(k=>{o["fabric"+k]="";o["cons"+k]=0;o["cutDate"+k]=today;o["colors"+k]=k==="A"?[{color:"",colorHex:"",layers:0,pcsPerLayer:0,qty:0}]:[];o["fabric"+k+"Label"]="";o["fabric"+k+"Price"]=0;o["fabric"+k+"Unit"]=""});
   return o
 }
@@ -629,6 +629,7 @@ export default function App(){
   const setTab=v=>{setTab_(v);sessionStorage.setItem("clark_tab",v)};
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
   const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);
+  const[statusNotif,setStatusNotif]=useState(null);const prevStatuses=useRef({});
   /* Online/Offline status */
   const[isOnline,setIsOnline]=useState(navigator.onLine);const[justReconnected,setJustReconnected]=useState(false);
   useEffect(()=>{const on=()=>{setIsOnline(true);setJustReconnected(true);setTimeout(()=>setJustReconnected(false),4000)};const off=()=>{setIsOnline(false);setJustReconnected(false)};window.addEventListener("online",on);window.addEventListener("offline",off);return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off)}},[]);
@@ -726,6 +727,12 @@ export default function App(){
   const canViewTab=(tabKey)=>getTabPerm(tabKey)!=="hide";
   const statusCards=config.statusCards||DEFAULT_STATUSES;
 
+  /* Status change notification */
+  useEffect(()=>{if(orders.length===0)return;const prev=prevStatuses.current;let changed=null;
+    orders.forEach(o=>{if(prev[o.id]&&prev[o.id]!==o.status)changed={modelNo:o.modelNo,from:prev[o.id],to:o.status};prev[o.id]=o.status});
+    if(changed){setStatusNotif(changed);setTimeout(()=>setStatusNotif(null),60000)}
+  },[orders]);
+
   if(authLoading)return null;
   if(!user)return<LoginScreen/>;
   if(dataLoading)return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#EFF6FF",direction:"rtl",fontFamily:"'Cairo',sans-serif"}}>
@@ -812,6 +819,9 @@ export default function App(){
         </div>}
         {/* Alerts Bell */}
         <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
+          {statusNotif&&<div onClick={()=>setStatusNotif(null)} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 12px",borderRadius:8,background:"#8B5CF612",border:"1px solid #8B5CF630",cursor:"pointer",animation:"pulse 2s infinite",fontSize:FS-1}}>
+            <span>🔄</span><span style={{fontWeight:700,color:"#8B5CF6"}}>{statusNotif.modelNo}</span><span style={{color:T.textSec}}>{statusNotif.from+" → "+statusNotif.to}</span>
+          </div>}
           <div onClick={()=>setShowAlerts(!showAlerts)} style={{cursor:"pointer",fontSize:isMob?18:22,padding:"2px 6px",borderRadius:8,background:alertCount>0?T.warn+"12":"transparent",position:"relative"}}>🔔
             {alertCount>0&&<span style={{position:"absolute",top:-2,left:-2,width:16,height:16,borderRadius:8,background:T.err,color:"#fff",fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>{alertCount}</span>}
           </div>
@@ -854,7 +864,7 @@ export default function App(){
       </div>}
       {/* PAGES with back button */}
       {tab!=="home"&&canViewTab(tab)&&<div>
-        {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
+        {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards} upConfig={upConfig} user={user}/>}
         {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("db")} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
         {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} delOrder={delOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEditTab("details")} statusCards={statusCards} goHome={goHome} upConfig={upConfig}/>}
         {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("external")} statusCards={statusCards} season={season}/>}
@@ -868,7 +878,9 @@ export default function App(){
     {showScanner&&<QRScanner onClose={()=>setShowScanner(false)} onScan={url=>{setShowScanner(false);try{const u=new URL(url);const p=new URLSearchParams(u.search);if(p.get("o")){const o=orders.find(x=>x.modelNo===p.get("o"));if(o)goD(o.id)}else if(p.get("act")==="rcv"&&p.get("oid")){setTab("external");setTimeout(()=>{window.__qrReceive={oid:p.get("oid"),wdi:Number(p.get("wdi"))||0};window.dispatchEvent(new Event("qr-receive"))},600)}else if(p.get("act")==="wsacc"&&p.get("ws")){setTab("external");setTimeout(()=>{window.__qrWsAcc={ws:decodeURIComponent(p.get("ws"))};window.dispatchEvent(new Event("qr-wsacc"))},600)}else{showToast("QR غير معروف")}}catch(e){showToast("QR غير صالح")}}}/>}
   </div>
 }
-function DashPg({data,goD,isMob,season,statusCards}){
+function DashPg({data,goD,isMob,season,statusCards,upConfig,user}){
+  const[noteEdit,setNoteEdit]=useState(false);const[noteText,setNoteText]=useState("");
+  const[taskText,setTaskText]=useState("");
   const orders=data.orders;
   const cutQ=orders.reduce((s,o)=>s+calcOrder(o).cutQty,0);
   const delQ=orders.reduce((s,o)=>s+(o.deliveredQty||0),0);
@@ -987,6 +999,132 @@ function DashPg({data,goD,isMob,season,statusCards}){
         {recent.length===0&&<tr><td colSpan={4} style={{...TD,textAlign:"center",color:T.textSec,padding:40}}>لا توجد أوامر</td></tr>}
       </tbody>
     </table></div></Card>
+
+    {/* ═══ HEATMAP: 7 days ═══ */}
+    <Card title="📅 خريطة حرارية أسبوعية" style={{marginTop:16}}>
+      {(()=>{const days=[];for(let i=6;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);days.push(d.toISOString().split("T")[0])}
+        const dayData=days.map(d=>{let ops=0;orders.forEach(o=>{if(o.date===d)ops+=calcOrder(o).cutQty;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date===d)ops+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{if(r.date===d)ops+=Number(r.qty)||0})});(o.deliveries||[]).forEach(dl=>{if(dl.date===d)ops+=Number(dl.qty)||0})});return{date:d,ops}});
+        const maxOps=Math.max(1,...dayData.map(x=>x.ops));
+        const dayNames=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"];
+        return<div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6}}>{dayData.map(d=>{const pct=d.ops/maxOps;const bg=d.ops===0?"#F1F5F9":pct>0.7?"#059669":pct>0.3?"#F59E0B":"#FCA5A5";
+          return<div key={d.date} style={{textAlign:"center",padding:10,borderRadius:10,background:bg+"18",border:"1px solid "+bg+"30"}}>
+            <div style={{fontSize:FS-2,color:T.textSec}}>{dayNames[new Date(d.date).getDay()]}</div>
+            <div style={{fontSize:FS+2,fontWeight:800,color:bg==="F1F5F9"?T.textMut:bg}}>{d.ops}</div>
+            <div style={{fontSize:FS-3,color:T.textMut}}>{d.date.slice(5)}</div>
+          </div>})}</div>})()}
+    </Card>
+
+    {/* ═══ SPEEDOMETER ═══ */}
+    <Card title="🏎 مؤشر سرعة الموسم" style={{marginTop:16}}>
+      {(()=>{const pct=comp;const angle=-90+pct*1.8;const color=pct>=80?"#10B981":pct>=50?"#F59E0B":"#EF4444";
+        return<div style={{textAlign:"center"}}>
+          <svg width={isMob?200:260} height={isMob?120:150} viewBox="0 0 260 150">
+            <path d="M30 140 A100 100 0 0 1 230 140" fill="none" stroke="#E2E8F0" strokeWidth="18" strokeLinecap="round"/>
+            <path d="M30 140 A100 100 0 0 1 230 140" fill="none" stroke={color} strokeWidth="18" strokeLinecap="round" strokeDasharray={`${pct*3.14} 314`}/>
+            <text x="130" y="110" textAnchor="middle" fill={color} fontSize="36" fontWeight="800" fontFamily="Cairo">{pct+"%"}</text>
+            <text x="130" y="135" textAnchor="middle" fill="#94A3B8" fontSize="12" fontFamily="Cairo">{pct>=80?"ممتاز 🔥":pct>=50?"جيد ⚡":"بطيء 🐢"}</text>
+          </svg>
+          <div style={{fontSize:FS-1,color:T.textSec,marginTop:4}}>{"قص: "+fmt(cutQ)+" | جاهز: "+fmt(delQ)+" | متبقي: "+fmt(cutQ-delQ)}</div>
+        </div>})()}
+    </Card>
+
+    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:16,marginTop:16}}>
+    {/* ═══ WORKSHOP PRESSURE ═══ */}
+    <Card title="📊 مقياس الضغط على الورش">
+      {(()=>{const wsList=(data.workshops||[]).filter(w=>!wsIsInternal(w.type));
+        const wsLoad=wsList.map(w=>{let del=0,rcv=0;orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{del+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{rcv+=Number(r.qty)||0})})});const pending=del-rcv;const pct=del?Math.round((pending/del)*100):0;return{name:w.name,del,rcv,pending,pct}}).filter(w=>w.del>0).sort((a,b)=>b.pct-a.pct);
+        return wsLoad.length>0?<div style={{display:"flex",flexDirection:"column",gap:8}}>{wsLoad.map(w=><div key={w.name}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-1,marginBottom:2}}><span style={{fontWeight:700}}>{w.name}</span><span style={{color:w.pct>60?T.err:w.pct>30?T.warn:T.ok,fontWeight:700}}>{w.pending+" متبقي ("+w.pct+"%)"}{w.pct>60?" ⚠️":""}</span></div>
+          <div style={{height:8,borderRadius:4,background:T.bg}}><div style={{height:"100%",borderRadius:4,background:w.pct>60?T.err:w.pct>30?T.warn:T.ok,width:w.pct+"%",transition:"width 0.5s"}}/></div>
+        </div>)}</div>:<div style={{textAlign:"center",color:T.textMut,padding:20}}>لا توجد بيانات</div>})()}
+    </Card>
+
+    {/* ═══ WORKSHOP TIMER ═══ */}
+    <Card title="⏱ مؤقت الورش — أيام بدون حركة">
+      {(()=>{const now=new Date();const wsList=(data.workshops||[]).filter(w=>!wsIsInternal(w.type));
+        const wsTimers=wsList.map(w=>{let lastAct=null;orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{if(!lastAct||wd.date>lastAct)lastAct=wd.date;(wd.receives||[]).forEach(r=>{if(!lastAct||r.date>lastAct)lastAct=r.date})})});const days=lastAct?Math.floor((now-new Date(lastAct))/(1000*60*60*24)):null;return{name:w.name,days,lastAct}}).filter(w=>w.lastAct).sort((a,b)=>b.days-a.days);
+        return wsTimers.length>0?<div style={{display:"flex",flexDirection:"column",gap:6}}>{wsTimers.map(w=><div key={w.name} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",borderRadius:8,background:w.days>7?T.err+"08":w.days>3?T.warn+"08":T.ok+"08"}}>
+          <span style={{fontWeight:700,fontSize:FS}}>{w.name}</span>
+          <span style={{fontWeight:800,fontSize:FS,color:w.days>7?T.err:w.days>3?T.warn:T.ok}}>{w.days===0?"اليوم ✓":w.days+" يوم"}{w.days>7?" 🔴":""}</span>
+        </div>)}</div>:<div style={{textAlign:"center",color:T.textMut,padding:20}}>لا توجد بيانات</div>})()}
+    </Card>
+    </div>
+
+    {/* ═══ WORKSHOP RACE ═══ */}
+    <Card title="🏁 سباق الورش — نسبة الانجاز" style={{marginTop:16}}>
+      {(()=>{const wsRace=Object.values(wsMap).map(w=>({...w,pct:w.delivered?Math.round((w.received/w.delivered)*100):0})).sort((a,b)=>b.pct-a.pct);
+        return wsRace.length>0?<div style={{display:"flex",flexDirection:"column",gap:10}}>{wsRace.map((w,i)=><div key={w.name}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:FS,marginBottom:3}}>
+            <span style={{fontWeight:700}}>{(i===0?"🥇 ":i===1?"🥈 ":i===2?"🥉 ":(i+1)+". ")+w.name}</span>
+            <span style={{fontWeight:800,color:w.pct>=80?T.ok:w.pct>=50?T.warn:T.err}}>{w.pct+"%"}</span>
+          </div>
+          <div style={{height:14,borderRadius:7,background:T.bg,overflow:"hidden",position:"relative"}}>
+            <div style={{height:"100%",borderRadius:7,background:w.pct>=80?"linear-gradient(90deg,#10B981,#059669)":w.pct>=50?"linear-gradient(90deg,#F59E0B,#D97706)":"linear-gradient(90deg,#EF4444,#DC2626)",width:w.pct+"%",transition:"width 1s ease",position:"relative"}}>
+              <span style={{position:"absolute",left:6,top:0,fontSize:9,lineHeight:"14px",color:"#fff",fontWeight:700}}>{w.received+"/"+w.delivered}</span>
+            </div>
+          </div>
+        </div>)}</div>:<div style={{textAlign:"center",color:T.textMut,padding:20}}>لا توجد بيانات</div>})()}
+    </Card>
+
+    {/* ═══ DELAYS BOARD ═══ */}
+    {(()=>{const now=new Date();const delayed=orders.filter(o=>{if(o.status==="تم التسليم"||o.status==="تم الشحن")return false;let ld=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>ld)ld=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>ld)ld=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>ld)ld=d.date});return Math.floor((now-new Date(ld))/(1000*60*60*24))>7}).map(o=>{let ld=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>ld)ld=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>ld)ld=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>ld)ld=d.date});return{...o,ageDays:Math.floor((now-new Date(ld))/(1000*60*60*24))}}).sort((a,b)=>b.ageDays-a.ageDays);
+      return delayed.length>0&&<Card title={"🚨 لوحة المتأخرات ("+delayed.length+")"} style={{marginTop:16}}>
+        <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","الوصف","الحالة","آخر حركة","أيام التأخر"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+        <tbody>{delayed.map(o=><tr key={o.id} style={{cursor:"pointer",background:o.ageDays>14?T.err+"06":""}} onClick={()=>goD(o.id)}>
+          <td style={TDB}>{o.modelNo}</td><td style={TD}>{o.modelDesc}</td><td style={TD}><Badge t={o.status} cards={statusCards}/></td>
+          <td style={TD}>{(()=>{let ld=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>ld)ld=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>ld)ld=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>ld)ld=d.date});return ld})()}</td>
+          <td style={{...TDB,color:T.err,fontSize:FS+1}}>{o.ageDays+" يوم 🔴"}</td>
+        </tr>)}</tbody></table></div>
+      </Card>})()}
+
+    {/* ═══ WASTE REPORT ═══ */}
+    {(()=>{const wasteRows=[];orders.forEach(o=>{const t=calcOrder(o);const wds=o.workshopDeliveries||[];
+      const pieces=o.orderPieces||[];
+      if(pieces.length>0){pieces.forEach(p=>{const rcv=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);if(rcv>0&&rcv<t.cutQty)wasteRows.push({modelNo:o.modelNo,piece:p,cut:t.cutQty,rcv,waste:t.cutQty-rcv,pct:Math.round(((t.cutQty-rcv)/t.cutQty)*100)})})}
+      else{const rcv=wds.reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);if(rcv>0&&rcv<t.cutQty)wasteRows.push({modelNo:o.modelNo,piece:"عام",cut:t.cutQty,rcv,waste:t.cutQty-rcv,pct:Math.round(((t.cutQty-rcv)/t.cutQty)*100)})}
+    });wasteRows.sort((a,b)=>b.waste-a.waste);
+      return wasteRows.length>0&&<Card title={"📉 تقرير الفاقد ("+wasteRows.length+")"} style={{marginTop:16}}>
+        <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","القطعة","القص","المستلم","الفاقد","النسبة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+        <tbody>{wasteRows.map((w,i)=><tr key={i}><td style={TDB}>{w.modelNo}</td><td style={{...TD,color:"#8B5CF6",fontWeight:600}}>{w.piece}</td><td style={TDB}>{w.cut}</td><td style={{...TDB,color:T.ok}}>{w.rcv}</td><td style={{...TDB,color:T.err}}>{w.waste}</td><td style={{...TDB,color:w.pct>5?T.err:T.warn}}>{w.pct+"%"}</td></tr>)}
+        </tbody></table></div>
+      </Card>})()}
+
+    {/* ═══ WORKSHOP COMPARISON ═══ */}
+    <Card title="📊 تقرير مقارنة الورش الخارجية" style={{marginTop:16}}>
+      {(()=>{const wsList=(data.workshops||[]).filter(w=>!wsIsInternal(w.type));
+        const wsComp=wsList.map(w=>{let del=0,rcv=0,waste=0,totalAmt=0;
+          orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{del+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{rcv+=Number(r.qty)||0;totalAmt+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});
+          waste=del-rcv;const wastePct=del?Math.round((waste/del)*100):0;
+          const acc=wsAccounts(w.name);
+          return{name:w.name,type:w.type,del,rcv,waste,wastePct,totalAmt,balance:acc.balance}
+        }).sort((a,b)=>b.rcv-a.rcv);
+        return wsComp.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الورشة","النوع","تسليم","استلام","فاقد","نسبة","المستحق","الرصيد"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+        <tbody>{wsComp.map(w=><tr key={w.name}><td style={{...TD,fontWeight:700}}>{w.name}</td><td style={{...TD,fontSize:FS-2}}>{wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key}</td><td style={TDB}>{w.del}</td><td style={{...TDB,color:T.ok}}>{w.rcv}</td><td style={{...TDB,color:w.waste>0?T.err:T.ok}}>{w.waste}</td><td style={{...TDB,color:w.wastePct>5?T.err:T.warn}}>{w.wastePct+"%"}</td><td style={{...TDB,color:T.accent}}>{fmt(r2(w.totalAmt))}</td><td style={{...TDB,color:w.balance>0?T.err:T.ok}}>{fmt(r2(w.balance))}</td></tr>)}</tbody>
+        </table></div>:<div style={{textAlign:"center",color:T.textMut,padding:20}}>لا توجد ورش</div>})()}
+    </Card>
+
+    {/* ═══ SHARED NOTES ═══ */}
+    <Card title="📝 لوحة ملاحظات مشتركة" style={{marginTop:16}} extra={noteEdit?<div style={{display:"flex",gap:4}}><Btn small primary onClick={()=>{upConfig(d=>{d.sharedNotes=noteText});setNoteEdit(false)}}>💾</Btn><Btn ghost small onClick={()=>setNoteEdit(false)}>✕</Btn></div>:<Btn ghost small onClick={()=>{setNoteText(data.sharedNotes||"");setNoteEdit(true)}}>✏️</Btn>}>
+      {noteEdit?<textarea value={noteText} onChange={e=>setNoteText(e.target.value)} style={{width:"100%",minHeight:120,borderRadius:10,border:"1px solid "+T.brd,background:T.inputBg||T.cardSolid,color:T.text,padding:12,fontSize:FS,fontFamily:"'Cairo',sans-serif",direction:"rtl",resize:"vertical"}} placeholder="اكتب ملاحظات يشوفها كل الفريق..."/>
+      :<div style={{whiteSpace:"pre-wrap",fontSize:FS,lineHeight:1.8,color:data.sharedNotes?T.text:T.textMut,minHeight:40,padding:8}}>{data.sharedNotes||"لا توجد ملاحظات — اضغط ✏️ للكتابة"}</div>}
+    </Card>
+
+    {/* ═══ DAILY TASKS ═══ */}
+    <Card title="✅ مهام يومية" style={{marginTop:16}}>
+      {(()=>{const uid=user?.uid||"default";const tasks=(data.tasks||{})[uid]||[];
+        const addTask=()=>{if(!taskText.trim())return;upConfig(d=>{if(!d.tasks)d.tasks={};if(!d.tasks[uid])d.tasks[uid]=[];d.tasks[uid].unshift({id:Date.now(),text:taskText.trim(),done:false,date:new Date().toISOString().split("T")[0]})});setTaskText("")};
+        const toggleTask=(tid)=>{upConfig(d=>{const t=((d.tasks||{})[uid]||[]).find(x=>x.id===tid);if(t)t.done=!t.done})};
+        const delTask=(tid)=>{upConfig(d=>{if(d.tasks&&d.tasks[uid])d.tasks[uid]=d.tasks[uid].filter(x=>x.id!==tid)})};
+        return<div>
+          <div style={{display:"flex",gap:6,marginBottom:10}}><Inp value={taskText} onChange={setTaskText} placeholder="اضف مهمة جديدة..." onKeyDown={e=>{if(e.key==="Enter")addTask()}}/><Btn primary onClick={addTask}>+</Btn></div>
+          {tasks.length>0?<div style={{display:"flex",flexDirection:"column",gap:4}}>{tasks.map(t=><div key={t.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:8,background:t.done?T.ok+"06":T.bg,border:"1px solid "+(t.done?T.ok+"20":T.brd)}}>
+            <span onClick={()=>toggleTask(t.id)} style={{cursor:"pointer",fontSize:18}}>{t.done?"✅":"⬜"}</span>
+            <span style={{flex:1,fontSize:FS,textDecoration:t.done?"line-through":"none",color:t.done?T.textMut:T.text}}>{t.text}</span>
+            <span style={{fontSize:FS-3,color:T.textMut}}>{t.date}</span>
+            <span onClick={()=>delTask(t.id)} style={{cursor:"pointer",fontSize:14,color:T.err}}>✕</span>
+          </div>)}</div>:<div style={{textAlign:"center",padding:16,color:T.textMut,fontSize:FS}}>لا توجد مهام</div>}
+        </div>})()}
+    </Card>
   </div>
 }
 
@@ -1351,7 +1489,10 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
 
   if(!order){
     const filtered=data.orders.filter(o=>{
-      if(detSt!=="الكل"&&o.status!==detSt)return false;
+      if(detSt==="⭐"&&!o.favorite)return false;
+      if(detSt==="🔴"&&o.priority!=="urgent")return false;
+      if(detSt==="⚠️"){const _now=new Date();let _ld=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>_ld)_ld=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>_ld)_ld=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>_ld)_ld=d.date});if(Math.floor((_now-new Date(_ld))/(1000*60*60*24))<=7||o.status==="تم التسليم"||o.status==="تم الشحن")return false}
+      if(detSt!=="الكل"&&detSt!=="⭐"&&detSt!=="🔴"&&detSt!=="⚠️"&&o.status!==detSt)return false;
       if(detQ.trim()){const s=detQ.trim().toLowerCase();const h=[o.modelNo,o.modelDesc,o.sizeLabel,o.status].filter(Boolean).join(" ").toLowerCase();if(!h.includes(s))return false}
       return true
     });
@@ -1364,12 +1505,26 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
         <Inp value={detQ} onChange={setDetQ} placeholder="بحث بالرقم أو الوصف أو المقاسات..."/>
         <Sel value={detSt} onChange={setDetSt}><option value="الكل">كل الحالات</option>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel>
       </div>
+      <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+        <span onClick={()=>setDetSt(detSt==="⭐"?"الكل":"⭐")} style={{padding:"4px 10px",borderRadius:6,background:detSt==="⭐"?T.warn+"20":T.bg,border:"1px solid "+(detSt==="⭐"?T.warn:T.brd),cursor:"pointer",fontSize:FS-1,fontWeight:600,color:detSt==="⭐"?T.warn:T.textSec}}>⭐ المفضلة</span>
+        <span onClick={()=>setDetSt(detSt==="🔴"?"الكل":"🔴")} style={{padding:"4px 10px",borderRadius:6,background:detSt==="🔴"?T.err+"20":T.bg,border:"1px solid "+(detSt==="🔴"?T.err:T.brd),cursor:"pointer",fontSize:FS-1,fontWeight:600,color:detSt==="🔴"?T.err:T.textSec}}>🔴 عاجل</span>
+        <span onClick={()=>setDetSt(detSt==="⚠️"?"الكل":"⚠️")} style={{padding:"4px 10px",borderRadius:6,background:detSt==="⚠️"?T.err+"20":T.bg,border:"1px solid "+(detSt==="⚠️"?T.err:T.brd),cursor:"pointer",fontSize:FS-1,fontWeight:600,color:detSt==="⚠️"?T.err:T.textSec}}>⚠️ متأخرة</span>
+      </div>
       {filtered.length===0&&<Card><p style={{color:T.textSec,textAlign:"center",padding:30}}>لا توجد نتائج</p></Card>}
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(4,1fr)",gap:12}}>
         {sortOrders(filtered).map(o=>{const t=calcOrder(o);
           const wds=o.workshopDeliveries||[];const hasData=wds.length>0||(o.deliveries||[]).length>0;
-          return<div key={o.id} data-oid={o.id} style={{display:"flex",gap:16,padding:16,background:T.cardSolid,borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",alignItems:"flex-start",position:"relative"}} onClick={()=>setSel(o.id)}>
+          /* Age coloring */
+          const now=new Date();let lastDate=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});
+          const ageDays=Math.floor((now-new Date(lastDate))/(1000*60*60*24));
+          const isStale=ageDays>7&&o.status!=="تم التسليم"&&o.status!=="تم الشحن";
+          const pri=o.priority||"normal";const priColor=pri==="urgent"?T.err:pri==="low"?"#10B981":T.warn;
+          return<div key={o.id} data-oid={o.id} style={{display:"flex",gap:16,padding:16,background:T.cardSolid,borderRadius:16,border:isStale?"2px solid "+T.err+"60":"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",alignItems:"flex-start",position:"relative"}} onClick={()=>setSel(o.id)}>
           {canEdit&&!hasData&&<div onClick={e=>{e.stopPropagation()}} style={{position:"absolute",top:8,left:8}}><DelBtn onConfirm={()=>delOrder(o.id)}/></div>}
+          {/* Favorite star + Priority */}
+          <div onClick={e=>{e.stopPropagation();updOrder(o.id,u=>{u.favorite=!u.favorite})}} style={{position:"absolute",top:8,right:8,cursor:"pointer",fontSize:18,zIndex:2}}>{o.favorite?"⭐":"☆"}</div>
+          {pri!=="normal"&&<div style={{position:"absolute",top:28,right:10,fontSize:10}}>{pri==="urgent"?"🔴":"🟢"}</div>}
+          {isStale&&<div style={{position:"absolute",bottom:8,left:8,fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.err+"15",color:T.err,fontWeight:700}}>{ageDays+" يوم"}</div>}
           {o.image?<img src={o.image} alt="" style={{width:80,height:107,borderRadius:10,objectFit:"cover",flexShrink:0,border:"1px solid "+T.brd}}/>:<div style={{width:80,height:107,borderRadius:10,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:28,color:T.textMut}}>📷</div>}
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6,gap:8}}>
@@ -1420,6 +1575,10 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
       <div style={{display:"flex",alignItems:"center",gap:6}}>
         <Btn ghost onClick={()=>setSel(null)} style={{fontSize:isMob?16:20}}>✕</Btn>
         <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:0}}>{"أمر تشغيل - "}<span style={{color:T.accent}}>{order.modelNo}</span></h1>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <span onClick={()=>updOrder(sel,o=>{o.favorite=!o.favorite})} style={{cursor:"pointer",fontSize:20}}>{order.favorite?"⭐":"☆"}</span>
+          {["urgent","normal","low"].map(p=><span key={p} onClick={()=>updOrder(sel,o=>{o.priority=p})} style={{cursor:"pointer",fontSize:14,padding:"2px 8px",borderRadius:6,background:order.priority===p?(p==="urgent"?T.err:p==="low"?T.ok:T.warn)+"15":"transparent",border:order.priority===p?"1px solid "+(p==="urgent"?T.err:p==="low"?T.ok:T.warn)+"30":"1px solid transparent",fontWeight:600,color:p==="urgent"?T.err:p==="low"?T.ok:T.warn}}>{p==="urgent"?"🔴 عاجل":p==="low"?"🟢 مرن":"🟡 عادي"}</span>)}
+        </div>
       </div>
       <div style={{display:"flex",gap:4,alignItems:"center"}}>
         <Btn small onClick={()=>prevId&&setSel(prevId)} disabled={!prevId} style={{fontSize:18,padding:"2px 8px",opacity:prevId?1:0.3}}>→</Btn>
