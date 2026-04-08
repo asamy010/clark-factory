@@ -1978,6 +1978,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
           <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
             {isEditing?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>الغاء</Btn></>:<>
             <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
+            <Btn small onClick={()=>{const wsObj=workshops.find(w=>w.name===m.wsName);const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — اذن تسليم ورشة*%0A%0A- الورشة: *"+m.wsName+"*%0A- رقم الموديل: *"+m.orderNo+"*%0A- الوصف: "+m.orderDesc+"%0A- نوع القطعة: *"+(m.garmentType||"عام")+"*%0A- الكمية: *"+m.qty+"* قطعة%0A- السعر: *"+(m.price||0)+"* ج.م/قطعة%0A- التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — اذن استلام من ورشة*%0A%0A- الورشة: *"+m.wsName+"*%0A- رقم الموديل: *"+m.orderNo+"*%0A- الوصف: "+m.orderDesc+"%0A- نوع القطعة: *"+(m.garmentType||"عام")+"*%0A- الكمية المستلمة: *"+m.qty+"* قطعة%0A- التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn>
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/></>}
           </div>}</td>
@@ -2087,7 +2088,8 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
             {isEd?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>✕</Btn></>:<>
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/>
-            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn></>}
+            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
+            <Btn small onClick={()=>{const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — تسليم*%0A%0A- الورشة: *"+selWs+"*%0A- موديل: *"+m.orderNo+"*%0A- القطعة: *"+(m.garmentType||"عام")+"*%0A- الكمية: *"+m.qty+"*%0A- التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — استلام*%0A%0A- الورشة: *"+selWs+"*%0A- موديل: *"+m.orderNo+"*%0A- القطعة: *"+(m.garmentType||"عام")+"*%0A- الكمية: *"+m.qty+"*%0A- التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn></>}
           </div>}</td></tr>})}</tbody>
       </table></div>
     </Card>}
@@ -2157,7 +2159,8 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
             {isEd?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>✕</Btn></>:<>
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/>
-            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn></>}
+            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
+            <Btn small onClick={()=>{const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — تسليم*%0A%0A- الورشة: *"+selWs+"*%0A- موديل: *"+m.orderNo+"*%0A- القطعة: *"+(m.garmentType||"عام")+"*%0A- الكمية: *"+m.qty+"*%0A- التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — استلام*%0A%0A- الورشة: *"+selWs+"*%0A- موديل: *"+m.orderNo+"*%0A- القطعة: *"+(m.garmentType||"عام")+"*%0A- الكمية: *"+m.qty+"*%0A- التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn></>}
           </div>}</td></tr>})}</tbody>
       </table></div>
     </Card>}
@@ -2193,7 +2196,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       {(data.wsPayments||[]).filter(p=>p.wsName===payWs).sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map((p,i)=><tr key={i} style={{background:p.type==="payment"?"#FEF2F2":"#F0FDF4"}}>
         <td style={TD}>{p.date}</td><td style={{...TD,fontWeight:700,color:p.type==="payment"?T.err:T.ok}}>{p.type==="payment"?"دفعة ↗":"مشتريات ↙"}</td>
         <td style={{...TDB,color:p.type==="payment"?T.err:T.ok}}>{fmt(p.amount)+" ج.م"}</td><td style={TD}>{p.notes||"-"}</td>
-        <td style={TD}><DelBtn onConfirm={()=>upConfig(d=>{d.wsPayments=(d.wsPayments||[]).filter(x=>x.id!==p.id)})}/></td>
+        <td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}><Btn small onClick={()=>{const wsO=workshops.find(w=>w.name===payWs);const ph=wsO?.phone||"";const ac=wsAccounts(payWs);const mg="*CLARK — "+(p.type==="payment"?"اشعار دفعة":"اشعار مشتريات")+"*%0A%0A- الورشة: *"+payWs+"*%0A- المبلغ: *"+fmt(p.amount)+"* ج.م%0A- التاريخ: *"+p.date+"*%0A"+(p.notes?"- ملاحظات: "+p.notes+"%0A":"")+"%0A─────────────────%0A*الرصيد الحالي: "+fmt(r2(ac.balance))+" ج.م*";window.open("https://wa.me/"+(ph?ph.replace(/[^0-9]/g,""):"")+"?text="+mg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn><DelBtn onConfirm={()=>upConfig(d=>{d.wsPayments=(d.wsPayments||[]).filter(x=>x.id!==p.id)})}/></div></td>
       </tr>)}{(data.wsPayments||[]).filter(p=>p.wsName===payWs).length===0&&<tr><td colSpan={5} style={{...TD,textAlign:"center",color:T.textSec}}>لا توجد دفعات</td></tr>}
     </tbody></table></div></Card>}
   </div>;
