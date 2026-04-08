@@ -884,8 +884,8 @@ export default function App(){
           </div>
           {isMob&&<div onClick={()=>setShowScanner(true)} style={{margin:"16px auto 0",display:"flex",justifyContent:"center"}}><div style={{background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",borderRadius:14,padding:"14px 30px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,boxShadow:"0 4px 20px rgba(14,165,233,0.3)"}}><span style={{fontSize:24}}>📷</span><span style={{fontSize:FS+1,fontWeight:700,color:"#fff"}}>مسح كود QR</span></div></div>}
           </div>
-          {/* Tasks panel - right side, fits content */}
-          {!isMob&&(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
+          {/* Tasks panel - right side, admin only */}
+          {!isMob&&userRole==="admin"&&(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
             return myTasks.length>0&&<div style={{width:260,flexShrink:0}}>
               <div style={{background:T.cardSolid,borderRadius:16,border:"1px solid #F59E0B30",padding:14,boxShadow:T.shadow}}>
               <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}><span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:800,color:"#F59E0B"}}>{"مهامي ("+myTasks.length+")"}</span></div>
@@ -898,8 +898,8 @@ export default function App(){
               </div>)}</div>
               {myTasks.length>8&&<div style={{textAlign:"center",marginTop:6}}><span onClick={()=>goTo("tasks")} style={{cursor:"pointer",fontSize:FS-2,color:T.accent}}>{"عرض الكل ("+myTasks.length+")"}</span></div>}
             </div></div>})()}
-          {/* Mobile tasks */}
-          {isMob&&(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
+          {/* Mobile tasks - admin only */}
+          {isMob&&userRole==="admin"&&(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
             return myTasks.length>0&&<div style={{background:T.cardSolid,borderRadius:16,border:"1px solid #F59E0B30",padding:14,boxShadow:T.shadow,marginTop:16}}>
               <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}><span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:800,color:"#F59E0B"}}>{"مهامي ("+myTasks.length+")"}</span></div>
               <div style={{display:"flex",flexDirection:"column",gap:6}}>{myTasks.slice(0,5).map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:6,padding:"8px 10px",borderRadius:8,background:T.bg,border:"1px solid "+T.brd}}>
@@ -1598,10 +1598,13 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
       <div style={{display:"flex",alignItems:"center",gap:6}}>
         <Btn ghost onClick={()=>setSel(null)} style={{fontSize:isMob?16:20}}>✕</Btn>
-        <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:0}}>{order.poNumber?<><span style={{color:T.accent,fontFamily:"monospace"}}>{order.poNumber}</span><span style={{fontSize:FS,fontWeight:600,color:T.textSec,marginRight:8}}>{"  "+order.modelNo}</span></>:<span style={{color:T.accent}}>{order.modelNo}</span>}</h1>
-        <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          <span onClick={()=>updOrder(sel,o=>{o.favorite=!o.favorite})} style={{cursor:"pointer",fontSize:20}}>{order.favorite?"⭐":"☆"}</span>
-          {["urgent","normal","low"].map(p=><span key={p} onClick={()=>updOrder(sel,o=>{o.priority=o.priority===p?"normal":p})} style={{cursor:"pointer",fontSize:14,padding:"2px 8px",borderRadius:6,background:order.priority===p?(p==="urgent"?T.err:p==="low"?T.ok:T.warn)+"15":"transparent",border:order.priority===p?"1px solid "+(p==="urgent"?T.err:p==="low"?T.ok:T.warn)+"30":"1px solid transparent",fontWeight:600,color:p==="urgent"?T.err:p==="low"?T.ok:T.warn}}>{p==="urgent"?"🔴 عاجل":p==="low"?"🟢 مرن":"🟡 عادي"}</span>)}
+        <div>
+          <h1 style={{fontSize:isMob?16:20,fontWeight:800,margin:0}}>{order.poNumber?<>{"أمر تشغيل: "}<span style={{color:T.accent,fontFamily:"monospace"}}>{order.poNumber}</span></>:<>{"أمر تشغيل: "}<span style={{color:T.accent}}>{order.modelNo}</span></>}</h1>
+          {order.poNumber&&<div style={{fontSize:FS-1,color:T.textSec,marginTop:2}}>{"موديل: "+order.modelNo+" — "+order.modelDesc}</div>}
+        </div>
+        <div style={{display:"flex",gap:4,alignItems:"center"}}>
+          <span onClick={()=>updOrder(sel,o=>{o.favorite=!o.favorite})} style={{cursor:"pointer",fontSize:16}}>{order.favorite?"⭐":"☆"}</span>
+          {["urgent","normal","low"].map(p=><span key={p} onClick={()=>updOrder(sel,o=>{o.priority=o.priority===p?"normal":p})} style={{cursor:"pointer",fontSize:11,padding:"2px 6px",borderRadius:5,background:order.priority===p?(p==="urgent"?T.err:p==="low"?T.ok:T.warn)+"15":"transparent",border:order.priority===p?"1px solid "+(p==="urgent"?T.err:p==="low"?T.ok:T.warn)+"30":"1px solid transparent",fontWeight:600,color:p==="urgent"?T.err:p==="low"?T.ok:T.warn}}>{p==="urgent"?"🔴 عاجل":p==="low"?"🟢 مرن":"🟡 عادي"}</span>)}
         </div>
       </div>
       <div style={{display:"flex",gap:4,alignItems:"center"}}>
@@ -1921,7 +1924,13 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     const totalPurchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);
     return{due,totalPaid,totalPurchase,balance:due+totalPurchase-totalPaid}
   };
-  const addPayment=()=>{if(!payWs||!payAmt)return;const wsObj=workshops.find(w=>w.name===payWs);upConfig(d=>{if(!d.wsPayments)d.wsPayments=[];d.wsPayments.push({id:gid(),wsName:payWs,wsId:wsObj?wsObj.id:null,amount:Number(payAmt),type:payType,notes:payNote,date:payDate})});setPayAmt("");setPayNote("");setPayDate(new Date().toISOString().split("T")[0])};
+  const addPayment=(wa)=>{if(!payWs||!payAmt)return;const wsObj=workshops.find(w=>w.name===payWs);upConfig(d=>{if(!d.wsPayments)d.wsPayments=[];d.wsPayments.push({id:gid(),wsName:payWs,wsId:wsObj?wsObj.id:null,amount:Number(payAmt),type:payType,notes:payNote,date:payDate})});
+    if(wa){const acc=wsAccounts(payWs);let del=0,rcv=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===payWs).forEach(wd=>{del+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{rcv+=Number(r.qty)||0})})});
+      const allPay=(data.wsPayments||[]).filter(p=>p.wsName===payWs&&p.type==="payment");const totalPaid=allPay.reduce((s,p)=>s+(Number(p.amount)||0),0)+Number(payAmt);
+      const phone=wsObj?.phone||"";
+      const msg="*CLARK — اشعار دفعة*%0A%0A- الورشة: *"+payWs+"*%0A- نوع العملية: *"+(payType==="payment"?"دفعة":"مشتريات")+"*%0A- المبلغ: *"+fmt(Number(payAmt))+"* ج.م%0A- التاريخ: *"+payDate+"*%0A"+(payNote?"- ملاحظات: "+payNote+"%0A":"")+"%0A─────────────────%0A*ملخص الحساب*%0A- تم تسليمه للورشة: "+fmt(del)+" قطعة%0A- تم استلامه للمصنع: "+fmt(rcv)+" قطعة%0A- اجمالي المستحق: "+fmt(r2(acc.due))+" ج.م%0A- اجمالي المشتريات: "+fmt(r2(acc.totalPurchase))+" ج.م%0A- اجمالي المدفوع: "+fmt(r2(totalPaid))+" ج.م%0A- الرصيد المتبقي: *"+fmt(r2(acc.due+acc.totalPurchase-totalPaid))+"* ج.م";
+      window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
+    setPayAmt("");setPayNote("");setPayDate(new Date().toISOString().split("T")[0])};
 
   if(!mode)return<div>
     <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:12,marginBottom:20}}>
@@ -2089,10 +2098,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       <Btn ghost onClick={()=>{setMode(null);setSelWs("")}}>↩</Btn>
     </div>
     <Card title="اختر الورشة" style={{marginBottom:16}}>
-      <Sel value={selWs} onChange={v=>{setSelWs(v);setRcvSearch("")}}>
-        <option value="">-- اختر ورشة --</option>
-        {workshops.map(w=><option key={w.id||w} value={w.name||w}>{(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)+(w.owner?" - "+w.owner:"")}</option>)}
-      </Sel>
+      <SearchSel value={selWs} onChange={v=>{setSelWs(v);setRcvSearch("")}} options={workshops.map(w=>({value:w.name||w,label:(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)+(w.owner?" - "+w.owner:"")}))} placeholder="ابحث عن ورشة..."/>
       {selWs&&<div style={{marginTop:8}}><Inp value={rcvSearch} onChange={setRcvSearch} placeholder="بحث برقم الموديل..."/></div>}
     </Card>
     {selWs&&<Card title={"أوردرات تم تسليمها لـ "+selWs} style={{marginBottom:16}}>
@@ -2159,7 +2165,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><h2 style={{fontSize:isMob?18:22,fontWeight:800,margin:0}}>{"💳 اضافة دفعة"}</h2><Btn ghost onClick={()=>setMode(null)}>↩</Btn></div>
     <Card title="تسجيل دفعة" style={{marginBottom:14}}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:8,marginBottom:8}}>
-        <div><label style={{fontSize:FS-2,color:T.textSec}}>الورشة *</label><Sel value={payWs} onChange={setPayWs}><option value="">-- اختر --</option>{extWorkshops.map(w=><option key={w.id} value={w.name}>{wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — "+w.name}</option>)}</Sel></div>
+        <div><label style={{fontSize:FS-2,color:T.textSec}}>الورشة *</label><SearchSel value={payWs} onChange={setPayWs} options={extWorkshops.map(w=>({value:w.name,label:wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — "+w.name}))} placeholder="ابحث عن ورشة..."/></div>
         <div><label style={{fontSize:FS-2,color:T.textSec}}>نوع الحركة</label><Sel value={payType} onChange={setPayType}><option value="payment">دفعة للورشة (↗ تقليل)</option><option value="purchase">مشتريات الورشة (↙ اضافة)</option></Sel></div>
       </div>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 2fr",gap:8,marginBottom:8}}>
@@ -2177,7 +2183,8 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
           </div>
           {exceeded&&<div style={{padding:6,borderRadius:6,background:T.err+"10",fontSize:FS-1,fontWeight:700,color:T.err}}>{"⚠️ تجاوز حد "+pct+"% بمبلغ "+fmt(Math.abs(remaining))+" ج.م"}</div>}
         </div>})()}
-      <Btn primary onClick={addPayment} disabled={!payWs||!payAmt}>تسجيل</Btn>
+      <Btn primary onClick={()=>addPayment(false)} disabled={!payWs||!payAmt}>تسجيل</Btn>
+      <Btn onClick={()=>addPayment(true)} disabled={!payWs||!payAmt} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱 واتساب</Btn>
     </Card>
     {payWs&&<Card title={"دفعات "+payWs}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["التاريخ","النوع","المبلغ","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
       {(data.wsPayments||[]).filter(p=>p.wsName===payWs).sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map((p,i)=><tr key={i} style={{background:p.type==="payment"?"#FEF2F2":"#F0FDF4"}}>
