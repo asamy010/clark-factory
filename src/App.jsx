@@ -630,6 +630,8 @@ export default function App(){
   const setTab=v=>{setTab_(v);sessionStorage.setItem("clark_tab",v)};
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
   const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);
+  const[pubConfirmed,setPubConfirmed]=useState(false);
+  const confirmDone=useRef(false);
   /* Online/Offline status */
   const[isOnline,setIsOnline]=useState(navigator.onLine);const[justReconnected,setJustReconnected]=useState(false);
   useEffect(()=>{const on=()=>{setIsOnline(true);setJustReconnected(true);setTimeout(()=>setJustReconnected(false),4000)};const off=()=>{setIsOnline(false);setJustReconnected(false)};window.addEventListener("online",on);window.addEventListener("offline",off);return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off)}},[]);
@@ -730,7 +732,6 @@ export default function App(){
   if(authLoading)return null;
   /* Public confirmation page (no login needed) */
   if(!user&&qrAction==="confirm"&&confirmTok){
-    const[pubConfirmed,setPubConfirmed]=useState(false);
     return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(180deg,#EFF6FF 0%,#DBEAFE 100%)",fontFamily:"'Cairo',sans-serif",direction:"rtl",padding:16}}>
       <div style={{background:"#fff",borderRadius:24,padding:"40px 24px",maxWidth:440,width:"100%",boxShadow:"0 12px 50px rgba(0,0,0,0.12)",textAlign:"center"}}>
         <img src={CLARK_LOGO} alt="CLARK" style={{width:180,marginBottom:24}}/>
@@ -753,7 +754,6 @@ export default function App(){
   }
   if(!user)return<LoginScreen/>;
   /* Auto-confirm for logged-in users */
-  const confirmDone=useRef(false);
   useEffect(()=>{if(confirmDone.current||!confirmTok||qrAction!=="confirm"||orders.length===0)return;
     for(const o of orders){const wds=o.workshopDeliveries||[];
       for(let wi=0;wi<wds.length;wi++){const wd=wds[wi];
