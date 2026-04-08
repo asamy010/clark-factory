@@ -59,9 +59,9 @@ const INIT_CONFIG = {
   workshops:[{id:1,name:"CLARK",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:8,type:"خياطة داخلي"},{id:2,name:"ورشة محمود",owner:"محمود",phone:"",address:"",idCard:"",ownerPhoto:"",rating:7,type:"خياطة خارجي"},{id:3,name:"المصنع",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:9,type:"خياطة داخلي"}],
   seasons:["WS26"], activeSeason:"WS26", logo:"", users:{}, usersList:[], wsPayments:[], notifications:[],
   permissions:{
-    admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",search:"edit",db:"edit",settings:"edit"},
-    manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",search:"edit",db:"edit",settings:"hide"},
-    viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",search:"view",db:"hide",settings:"hide"}
+    admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",search:"edit",tasks:"edit",db:"edit",settings:"edit"},
+    manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",search:"edit",tasks:"edit",db:"edit",settings:"hide"},
+    viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",search:"view",tasks:"edit",db:"hide",settings:"hide"}
   },
 };
 
@@ -609,6 +609,7 @@ const TABS=[
   {key:"reports",label:"التقارير",icon:"📈",color:"#06B6D4",bg:"#CFFAFE"},
   {key:"calc",label:"حاسبة التكاليف",icon:"🧮",color:"#EC4899",bg:"#FCE7F3"},
   {key:"search",label:"بحث",icon:"🔍",color:"#6366F1",bg:"#E0E7FF"},
+  {key:"tasks",label:"المهام",icon:"📌",color:"#F59E0B",bg:"#FEF3C7"},
   {key:"db",label:"قاعدة البيانات",icon:"🗄️",color:"#EF4444",bg:"#FEE2E2"},
   {key:"settings",label:"الاعدادات",icon:"⚙️",color:"#64748B",bg:"#F1F5F9"}
 ];
@@ -721,7 +722,7 @@ export default function App(){
   const data={...config,orders:resolvedOrders||orders};
   const getUserRole=()=>{if(config.users&&config.users[user?.uid]){const r=config.users[user.uid];return typeof r==="string"?r:r?.role||"admin"}const byEmail=(config.usersList||[]).find(u=>u.email===user?.email);if(byEmail)return byEmail.role;return"admin"};
   const userRole=getUserRole();const canEdit=userRole==="admin"||userRole==="manager";
-  const DEFAULT_PERMS={admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",search:"edit",db:"edit",settings:"edit"},manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",search:"edit",db:"edit",settings:"hide"},viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",search:"view",db:"hide",settings:"hide"}};
+  const DEFAULT_PERMS={admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",search:"edit",tasks:"edit",db:"edit",settings:"edit"},manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",search:"edit",tasks:"edit",db:"edit",settings:"hide"},viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",search:"view",tasks:"edit",db:"hide",settings:"hide"}};
   const getTabPerm=(tabKey)=>{const perms=config.permissions||{};const defaults=DEFAULT_PERMS[userRole]||DEFAULT_PERMS.viewer;const rolePerm=perms[userRole]||{};return rolePerm[tabKey]||defaults[tabKey]||"view"};
   const canEditTab=(tabKey)=>getTabPerm(tabKey)==="edit";
   const canViewTab=(tabKey)=>getTabPerm(tabKey)!=="hide";
@@ -853,14 +854,31 @@ export default function App(){
       {/* HOME SCREEN */}
       {tab==="home"&&<div>
           <div style={{textAlign:"center",marginBottom:isMob?14:20}}><h1 style={{fontSize:isMob?22:32,fontWeight:800,color:T.text,margin:0}}>{"مرحباً، "+userName}</h1></div>
-          <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(5,1fr)",gap:isMob?10:16,maxWidth:800,margin:"0 auto"}}>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 280px",gap:16,maxWidth:1000,margin:"0 auto"}}>
+          <div>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(5,1fr)",gap:isMob?10:16}}>
             {TABS.filter(t=>canViewTab(t.key)).map(t=>{const perm=getTabPerm(t.key);return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:isMob?"16px 8px":"20px 14px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s",opacity:perm==="view"?0.75:1,position:"relative"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow}}>
               <div style={{width:isMob?44:52,height:isMob?44:52,borderRadius:14,background:t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px",fontSize:isMob?22:26}}>{t.icon}</div>
               <div style={{fontSize:isMob?FS-3:FS-1,fontWeight:700,color:T.text}}>{t.label}</div>
               {perm==="view"&&<div style={{position:"absolute",top:6,left:6,fontSize:9,padding:"1px 6px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁 عرض</div>}
             </div>})}
           </div>
-          {isMob&&<div onClick={()=>setShowScanner(true)} style={{margin:"16px auto 0",maxWidth:800,display:"flex",justifyContent:"center"}}><div style={{background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",borderRadius:14,padding:"14px 30px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,boxShadow:"0 4px 20px rgba(14,165,233,0.3)"}}><span style={{fontSize:24}}>📷</span><span style={{fontSize:FS+1,fontWeight:700,color:"#fff"}}>مسح كود QR</span></div></div>}
+          {isMob&&<div onClick={()=>setShowScanner(true)} style={{margin:"16px auto 0",display:"flex",justifyContent:"center"}}><div style={{background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",borderRadius:14,padding:"14px 30px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,boxShadow:"0 4px 20px rgba(14,165,233,0.3)"}}><span style={{fontSize:24}}>📷</span><span style={{fontSize:FS+1,fontWeight:700,color:"#fff"}}>مسح كود QR</span></div></div>}
+          </div>
+          {/* Tasks sidebar */}
+          {(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const myTasks=((config||{}).tasks||[]).filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
+            return myTasks.length>0&&<div style={{background:T.cardSolid,borderRadius:16,border:"1px solid #F59E0B30",padding:16,boxShadow:T.shadow}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12}}><span style={{fontSize:20}}>📌</span><span style={{fontSize:FS+1,fontWeight:800,color:"#F59E0B"}}>{"مهامي ("+myTasks.length+")"}</span></div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>{myTasks.slice(0,8).map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"10px 12px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
+                <span onClick={()=>upConfig(d=>{const tk=(d.tasks||[]).find(x=>x.id===t.id);if(tk){tk.done=true;tk.doneAt=new Date().toISOString()}})} style={{cursor:"pointer",fontSize:18,flexShrink:0,marginTop:2}}>⬜</span>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:FS,fontWeight:600,color:T.text,lineHeight:1.5}}>{t.text}</div>
+                  <div style={{fontSize:FS-2,color:T.textSec,marginTop:2}}>{"من: "+(t.fromName||"—")+" | "+t.date}</div>
+                </div>
+              </div>)}</div>
+              {myTasks.length>8&&<div style={{textAlign:"center",marginTop:8}}><span onClick={()=>goTo("tasks")} style={{cursor:"pointer",fontSize:FS-1,color:T.accent}}>{"عرض الكل ("+myTasks.length+")"}</span></div>}
+            </div>})()}
+          </div>
       </div>}
       {/* PAGES with back button */}
       {tab!=="home"&&canViewTab(tab)&&<div>
@@ -870,6 +888,7 @@ export default function App(){
         {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("external")} statusCards={statusCards} season={season}/>}
         {tab==="stock"&&<StockPg data={data} updOrder={updOrder} isMob={isMob} canEdit={canEditTab("stock")} statusCards={statusCards}/>}
         {tab==="search"&&<SearchPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
+        {tab==="tasks"&&<TasksPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
         {tab==="calc"&&<CalcPg data={data} isMob={isMob}/>}
         {tab==="reports"&&<ReportsHub data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="settings"&&canEditTab("settings")&&<SettingsPg config={config} upConfig={upConfig} isMob={isMob} user={user} theme={theme} setTheme={setTheme} season={season} orders={orders} syncWsIds={syncWsIds} replaceOrder={replaceOrder}/>}
@@ -879,8 +898,6 @@ export default function App(){
   </div>
 }
 function DashPg({data,goD,isMob,season,statusCards,upConfig,user}){
-  const[noteEdit,setNoteEdit]=useState(false);const[noteText,setNoteText]=useState("");
-  const[taskText,setTaskText]=useState("");
   const orders=data.orders;
   const cutQ=orders.reduce((s,o)=>s+calcOrder(o).cutQty,0);
   const delQ=orders.reduce((s,o)=>s+(o.deliveredQty||0),0);
@@ -893,7 +910,6 @@ function DashPg({data,goD,isMob,season,statusCards,upConfig,user}){
 
   const sc={};orders.forEach(o=>{sc[o.status]=(sc[o.status]||0)+1});
   const pieData=Object.entries(sc).map(([name,value])=>({name,value,fill:getStatusColor(name,statusCards)}));
-  const recent=sortOrders(orders).slice(0,6);
 
   /* Workshop comparison chart data */
   const wsMap={};
@@ -993,15 +1009,9 @@ function DashPg({data,goD,isMob,season,statusCards,upConfig,user}){
         </div>}
       </div>:<p style={{color:T.textSec,textAlign:"center",padding:20}}>لا توجد بيانات ورش</p>}</Card>
     </div>
-    <Card title="آخر الأوامر"><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}>
-      <thead><tr>{["موديل","الوصف","الكمية","الحالة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
-      <tbody>{recent.map(o=>{const t=calcOrder(o);return<tr key={o.id} style={{cursor:"pointer"}} onClick={()=>goD(o.id)}><td style={TDB}>{o.modelNo}</td><td style={TD}>{o.modelDesc}</td><td style={{...TDB,color:T.accent}}>{t.cutQty}</td><td style={TD}><Badge t={o.status} cards={statusCards}/></td></tr>})}
-        {recent.length===0&&<tr><td colSpan={4} style={{...TD,textAlign:"center",color:T.textSec,padding:40}}>لا توجد أوامر</td></tr>}
-      </tbody>
-    </table></div></Card>
 
     {/* ═══ HEATMAP: 7 days ═══ */}
-    <Card title="📅 خريطة حرارية أسبوعية" style={{marginTop:16}}>
+    <Card title="📅 خريطة اسبوعية للانتاج" style={{marginTop:16}}>
       {(()=>{const days=[];for(let i=6;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);days.push(d.toISOString().split("T")[0])}
         const dayData=days.map(d=>{let ops=0;orders.forEach(o=>{if(o.date===d)ops+=calcOrder(o).cutQty;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date===d)ops+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{if(r.date===d)ops+=Number(r.qty)||0})});(o.deliveries||[]).forEach(dl=>{if(dl.date===d)ops+=Number(dl.qty)||0})});return{date:d,ops}});
         const maxOps=Math.max(1,...dayData.map(x=>x.ops));
@@ -1051,7 +1061,7 @@ function DashPg({data,goD,isMob,season,statusCards,upConfig,user}){
     </div>
 
     {/* ═══ WORKSHOP RACE ═══ */}
-    <Card title="🏁 سباق الورش — نسبة الانجاز" style={{marginTop:16}}>
+    <Card title="🏁 معدل انجاز الورش" style={{marginTop:16}}>
       {(()=>{const wsRace=Object.values(wsMap).map(w=>({...w,pct:w.delivered?Math.round((w.received/w.delivered)*100):0})).sort((a,b)=>b.pct-a.pct);
         return wsRace.length>0?<div style={{display:"flex",flexDirection:"column",gap:10}}>{wsRace.map((w,i)=><div key={w.name}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:FS,marginBottom:3}}>
@@ -1083,9 +1093,12 @@ function DashPg({data,goD,isMob,season,statusCards,upConfig,user}){
       if(pieces.length>0){pieces.forEach(p=>{const rcv=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);if(rcv>0&&rcv<t.cutQty)wasteRows.push({modelNo:o.modelNo,piece:p,cut:t.cutQty,rcv,waste:t.cutQty-rcv,pct:Math.round(((t.cutQty-rcv)/t.cutQty)*100)})})}
       else{const rcv=wds.reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);if(rcv>0&&rcv<t.cutQty)wasteRows.push({modelNo:o.modelNo,piece:"عام",cut:t.cutQty,rcv,waste:t.cutQty-rcv,pct:Math.round(((t.cutQty-rcv)/t.cutQty)*100)})}
     });wasteRows.sort((a,b)=>b.waste-a.waste);
-      return wasteRows.length>0&&<Card title={"📉 تقرير الفاقد ("+wasteRows.length+")"} style={{marginTop:16}}>
+      const totalWaste=wasteRows.reduce((s,w)=>s+w.waste,0);const totalCut=wasteRows.reduce((s,w)=>s+w.cut,0);const totalRcv=wasteRows.reduce((s,w)=>s+w.rcv,0);const avgPct=totalCut?Math.round(((totalCut-totalRcv)/totalCut)*100):0;
+      const printWaste=()=>{let h="<h2 style='text-align:center'>📉 تقرير الفاقد</h2><table><thead><tr><th>الموديل</th><th>القطعة</th><th>القص</th><th>المستلم</th><th>الفاقد</th><th>النسبة</th></tr></thead><tbody>";wasteRows.forEach(w=>{h+="<tr><td style='font-weight:700'>"+w.modelNo+"</td><td>"+w.piece+"</td><td>"+w.cut+"</td><td style='color:#10B981'>"+w.rcv+"</td><td style='color:#EF4444;font-weight:700'>"+w.waste+"</td><td>"+ w.pct+"%</td></tr>"});h+="<tr style='background:#FEF2F2;font-weight:800'><td colspan='2'>الاجمالي</td><td>"+fmt(totalCut)+"</td><td style='color:#10B981'>"+fmt(totalRcv)+"</td><td style='color:#EF4444'>"+fmt(totalWaste)+"</td><td>"+avgPct+"%</td></tr></tbody></table><div style='margin-top:12px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:8px'>CLARK Factory Management</div>";printPage("تقرير الفاقد",h)};
+      return wasteRows.length>0&&<Card title={"📉 تقرير الفاقد ("+wasteRows.length+")"} style={{marginTop:16}} extra={<Btn small onClick={printWaste} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>}>
         <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","القطعة","القص","المستلم","الفاقد","النسبة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
         <tbody>{wasteRows.map((w,i)=><tr key={i}><td style={TDB}>{w.modelNo}</td><td style={{...TD,color:"#8B5CF6",fontWeight:600}}>{w.piece}</td><td style={TDB}>{w.cut}</td><td style={{...TDB,color:T.ok}}>{w.rcv}</td><td style={{...TDB,color:T.err}}>{w.waste}</td><td style={{...TDB,color:w.pct>5?T.err:T.warn}}>{w.pct+"%"}</td></tr>)}
+        <tr style={{background:T.err+"06"}}><td colSpan={2} style={{...TD,fontWeight:800}}>الاجمالي</td><td style={TDB}>{fmt(totalCut)}</td><td style={{...TDB,color:T.ok}}>{fmt(totalRcv)}</td><td style={{...TDB,color:T.err,fontSize:FS+1}}>{fmt(totalWaste)}</td><td style={{...TDB,color:T.err}}>{avgPct+"%"}</td></tr>
         </tbody></table></div>
       </Card>})()}
 
@@ -1098,32 +1111,14 @@ function DashPg({data,goD,isMob,season,statusCards,upConfig,user}){
           const acc=wsAccounts(w.name);
           return{name:w.name,type:w.type,del,rcv,waste,wastePct,totalAmt,balance:acc.balance}
         }).sort((a,b)=>b.rcv-a.rcv);
-        return wsComp.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الورشة","النوع","تسليم","استلام","فاقد","نسبة","المستحق","الرصيد"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
-        <tbody>{wsComp.map(w=><tr key={w.name}><td style={{...TD,fontWeight:700}}>{w.name}</td><td style={{...TD,fontSize:FS-2}}>{wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key}</td><td style={TDB}>{w.del}</td><td style={{...TDB,color:T.ok}}>{w.rcv}</td><td style={{...TDB,color:w.waste>0?T.err:T.ok}}>{w.waste}</td><td style={{...TDB,color:w.wastePct>5?T.err:T.warn}}>{w.wastePct+"%"}</td><td style={{...TDB,color:T.accent}}>{fmt(r2(w.totalAmt))}</td><td style={{...TDB,color:w.balance>0?T.err:T.ok}}>{fmt(r2(w.balance))}</td></tr>)}</tbody>
-        </table></div>:<div style={{textAlign:"center",color:T.textMut,padding:20}}>لا توجد ورش</div>})()}
-    </Card>
-
-    {/* ═══ SHARED NOTES ═══ */}
-    <Card title="📝 لوحة ملاحظات مشتركة" style={{marginTop:16}} extra={noteEdit?<div style={{display:"flex",gap:4}}><Btn small primary onClick={()=>{upConfig(d=>{d.sharedNotes=noteText});setNoteEdit(false)}}>💾</Btn><Btn ghost small onClick={()=>setNoteEdit(false)}>✕</Btn></div>:<Btn ghost small onClick={()=>{setNoteText(data.sharedNotes||"");setNoteEdit(true)}}>✏️</Btn>}>
-      {noteEdit?<textarea value={noteText} onChange={e=>setNoteText(e.target.value)} style={{width:"100%",minHeight:120,borderRadius:10,border:"1px solid "+T.brd,background:T.inputBg||T.cardSolid,color:T.text,padding:12,fontSize:FS,fontFamily:"'Cairo',sans-serif",direction:"rtl",resize:"vertical"}} placeholder="اكتب ملاحظات يشوفها كل الفريق..."/>
-      :<div style={{whiteSpace:"pre-wrap",fontSize:FS,lineHeight:1.8,color:data.sharedNotes?T.text:T.textMut,minHeight:40,padding:8}}>{data.sharedNotes||"لا توجد ملاحظات — اضغط ✏️ للكتابة"}</div>}
-    </Card>
-
-    {/* ═══ DAILY TASKS ═══ */}
-    <Card title="✅ مهام يومية" style={{marginTop:16}}>
-      {(()=>{const uid=user?.uid||"default";const tasks=(data.tasks||{})[uid]||[];
-        const addTask=()=>{if(!taskText.trim())return;upConfig(d=>{if(!d.tasks)d.tasks={};if(!d.tasks[uid])d.tasks[uid]=[];d.tasks[uid].unshift({id:Date.now(),text:taskText.trim(),done:false,date:new Date().toISOString().split("T")[0]})});setTaskText("")};
-        const toggleTask=(tid)=>{upConfig(d=>{const t=((d.tasks||{})[uid]||[]).find(x=>x.id===tid);if(t)t.done=!t.done})};
-        const delTask=(tid)=>{upConfig(d=>{if(d.tasks&&d.tasks[uid])d.tasks[uid]=d.tasks[uid].filter(x=>x.id!==tid)})};
-        return<div>
-          <div style={{display:"flex",gap:6,marginBottom:10}}><Inp value={taskText} onChange={setTaskText} placeholder="اضف مهمة جديدة..." onKeyDown={e=>{if(e.key==="Enter")addTask()}}/><Btn primary onClick={addTask}>+</Btn></div>
-          {tasks.length>0?<div style={{display:"flex",flexDirection:"column",gap:4}}>{tasks.map(t=><div key={t.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:8,background:t.done?T.ok+"06":T.bg,border:"1px solid "+(t.done?T.ok+"20":T.brd)}}>
-            <span onClick={()=>toggleTask(t.id)} style={{cursor:"pointer",fontSize:18}}>{t.done?"✅":"⬜"}</span>
-            <span style={{flex:1,fontSize:FS,textDecoration:t.done?"line-through":"none",color:t.done?T.textMut:T.text}}>{t.text}</span>
-            <span style={{fontSize:FS-3,color:T.textMut}}>{t.date}</span>
-            <span onClick={()=>delTask(t.id)} style={{cursor:"pointer",fontSize:14,color:T.err}}>✕</span>
-          </div>)}</div>:<div style={{textAlign:"center",padding:16,color:T.textMut,fontSize:FS}}>لا توجد مهام</div>}
-        </div>})()}
+        const tDel=wsComp.reduce((s,w)=>s+w.del,0);const tRcv=wsComp.reduce((s,w)=>s+w.rcv,0);const tWaste=wsComp.reduce((s,w)=>s+w.waste,0);const tAmt=wsComp.reduce((s,w)=>s+w.totalAmt,0);const tBal=wsComp.reduce((s,w)=>s+w.balance,0);
+        const printComp=()=>{let h="<h2 style='text-align:center'>📊 تقرير مقارنة الورش</h2><table><thead><tr><th>الورشة</th><th>النوع</th><th>تسليم</th><th>استلام</th><th>فاقد</th><th>نسبة</th><th>المستحق</th><th>الرصيد</th></tr></thead><tbody>";wsComp.forEach(w=>{h+="<tr><td style='font-weight:700'>"+w.name+"</td><td>"+wsTypeInfo(w.type).key+"</td><td>"+w.del+"</td><td style='color:#10B981'>"+w.rcv+"</td><td style='color:#EF4444'>"+w.waste+"</td><td>"+w.wastePct+"%</td><td>"+fmt(r2(w.totalAmt))+"</td><td style='color:"+(w.balance>0?"#EF4444":"#10B981")+"'>"+fmt(r2(w.balance))+"</td></tr>"});h+="<tr style='background:#EFF6FF;font-weight:800'><td colspan='2'>الاجمالي</td><td>"+fmt(tDel)+"</td><td style='color:#10B981'>"+fmt(tRcv)+"</td><td style='color:#EF4444'>"+fmt(tWaste)+"</td><td>"+(tDel?Math.round((tWaste/tDel)*100):0)+"%</td><td>"+fmt(r2(tAmt))+"</td><td style='color:"+(tBal>0?"#EF4444":"#10B981")+"'>"+fmt(r2(tBal))+"</td></tr></tbody></table><div style='margin-top:12px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:8px'>CLARK Factory Management</div>";printPage("تقرير مقارنة الورش",h)};
+        return wsComp.length>0?<div>
+          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}><Btn small onClick={printComp} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨 طباعة</Btn></div>
+          <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الورشة","النوع","تسليم","استلام","فاقد","نسبة","المستحق","الرصيد"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+        <tbody>{wsComp.map(w=><tr key={w.name}><td style={{...TD,fontWeight:700}}>{w.name}</td><td style={{...TD,fontSize:FS-2}}>{wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key}</td><td style={TDB}>{w.del}</td><td style={{...TDB,color:T.ok}}>{w.rcv}</td><td style={{...TDB,color:w.waste>0?T.err:T.ok}}>{w.waste}</td><td style={{...TDB,color:w.wastePct>5?T.err:T.warn}}>{w.wastePct+"%"}</td><td style={{...TDB,color:T.accent}}>{fmt(r2(w.totalAmt))}</td><td style={{...TDB,color:w.balance>0?T.err:T.ok}}>{fmt(r2(w.balance))}</td></tr>)}
+        <tr style={{background:T.accent+"06"}}><td colSpan={2} style={{...TD,fontWeight:800}}>الاجمالي</td><td style={TDB}>{fmt(tDel)}</td><td style={{...TDB,color:T.ok}}>{fmt(tRcv)}</td><td style={{...TDB,color:T.err}}>{fmt(tWaste)}</td><td style={{...TDB,color:T.err}}>{(tDel?Math.round((tWaste/tDel)*100):0)+"%"}</td><td style={{...TDB,color:T.accent}}>{fmt(r2(tAmt))}</td><td style={{...TDB,color:tBal>0?T.err:T.ok}}>{fmt(r2(tBal))}</td></tr>
+        </tbody></table></div></div>:<div style={{textAlign:"center",color:T.textMut,padding:20}}>لا توجد ورش</div>})()}
     </Card>
   </div>
 }
@@ -1574,10 +1569,10 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
       <div style={{display:"flex",alignItems:"center",gap:6}}>
         <Btn ghost onClick={()=>setSel(null)} style={{fontSize:isMob?16:20}}>✕</Btn>
-        <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:0}}>{"أمر تشغيل - "}<span style={{color:T.accent}}>{order.modelNo}</span></h1>
+        <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:0}}>{order.poNumber?<><span style={{color:T.accent,fontFamily:"monospace"}}>{order.poNumber}</span><span style={{fontSize:FS,fontWeight:600,color:T.textSec,marginRight:8}}>{"  "+order.modelNo}</span></>:<span style={{color:T.accent}}>{order.modelNo}</span>}</h1>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
           <span onClick={()=>updOrder(sel,o=>{o.favorite=!o.favorite})} style={{cursor:"pointer",fontSize:20}}>{order.favorite?"⭐":"☆"}</span>
-          {["urgent","normal","low"].map(p=><span key={p} onClick={()=>updOrder(sel,o=>{o.priority=p})} style={{cursor:"pointer",fontSize:14,padding:"2px 8px",borderRadius:6,background:order.priority===p?(p==="urgent"?T.err:p==="low"?T.ok:T.warn)+"15":"transparent",border:order.priority===p?"1px solid "+(p==="urgent"?T.err:p==="low"?T.ok:T.warn)+"30":"1px solid transparent",fontWeight:600,color:p==="urgent"?T.err:p==="low"?T.ok:T.warn}}>{p==="urgent"?"🔴 عاجل":p==="low"?"🟢 مرن":"🟡 عادي"}</span>)}
+          {["urgent","normal","low"].map(p=><span key={p} onClick={()=>updOrder(sel,o=>{o.priority=o.priority===p?"normal":p})} style={{cursor:"pointer",fontSize:14,padding:"2px 8px",borderRadius:6,background:order.priority===p?(p==="urgent"?T.err:p==="low"?T.ok:T.warn)+"15":"transparent",border:order.priority===p?"1px solid "+(p==="urgent"?T.err:p==="low"?T.ok:T.warn)+"30":"1px solid transparent",fontWeight:600,color:p==="urgent"?T.err:p==="low"?T.ok:T.warn}}>{p==="urgent"?"🔴 عاجل":p==="low"?"🟢 مرن":"🟡 عادي"}</span>)}
         </div>
       </div>
       <div style={{display:"flex",gap:4,alignItems:"center"}}>
@@ -2890,6 +2885,53 @@ function CostPg({data,isMob,statusCards}){
 }
 
 /* ══ SETTINGS ══ */
+/* ══ TASKS ══ */
+function TasksPg({data,upConfig,isMob,user}){
+  const[taskText,setTaskText]=useState("");const[taskTo,setTaskTo]=useState("");
+  const uid=user?.uid||"default";const userEmail=user?.email||"";
+  const allTasks=(data.tasks||[]);
+  const myTasks=allTasks.filter(t=>t.toEmail===userEmail||t.toUid===uid);
+  const sentTasks=allTasks.filter(t=>t.fromEmail===userEmail||t.fromUid===uid);
+  const users=(data.usersList||[]);
+  const addTask=()=>{if(!taskText.trim()||!taskTo)return;const target=users.find(u=>u.email===taskTo);
+    upConfig(d=>{if(!d.tasks)d.tasks=[];d.tasks.unshift({id:Date.now(),text:taskText.trim(),done:false,date:new Date().toISOString().split("T")[0],fromUid:uid,fromEmail:userEmail,fromName:user?.displayName||userEmail.split("@")[0],toEmail:taskTo,toName:target?.name||taskTo.split("@")[0]})});
+    setTaskText("");showToast("✓ تم ارسال المهمة")};
+  const toggleTask=(tid)=>{upConfig(d=>{const t=(d.tasks||[]).find(x=>x.id===tid);if(t){t.done=!t.done;t.doneAt=t.done?new Date().toISOString():null}})};
+  const delTask=(tid)=>{upConfig(d=>{d.tasks=(d.tasks||[]).filter(x=>x.id!==tid)})};
+  return<div>
+    <Card title="📌 ارسال مهمة جديدة" style={{marginBottom:16}}>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 2fr auto",gap:8,alignItems:"end"}}>
+        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ارسال الى</label><Sel value={taskTo} onChange={setTaskTo}><option value="">-- اختر مستخدم --</option>{users.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+" — "+u.role}</option>)}</Sel></div>
+        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المهمة</label><Inp value={taskText} onChange={setTaskText} placeholder="اكتب المهمة..." onKeyDown={e=>{if(e.key==="Enter")addTask()}}/></div>
+        <Btn primary onClick={addTask} disabled={!taskText.trim()||!taskTo}>📤 ارسال</Btn>
+      </div>
+    </Card>
+    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:16}}>
+      <Card title={"📥 مهامي ("+myTasks.filter(t=>!t.done).length+")"}>
+        {myTasks.length>0?<div style={{display:"flex",flexDirection:"column",gap:6}}>{myTasks.map(t=><div key={t.id} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:10,background:t.done?T.ok+"06":T.bg,border:"1px solid "+(t.done?T.ok+"20":T.brd)}}>
+          <span onClick={()=>toggleTask(t.id)} style={{cursor:"pointer",fontSize:20}}>{t.done?"✅":"⬜"}</span>
+          <div style={{flex:1}}>
+            <div style={{fontSize:FS,fontWeight:600,textDecoration:t.done?"line-through":"none",color:t.done?T.textMut:T.text}}>{t.text}</div>
+            <div style={{fontSize:FS-2,color:T.textSec}}>{"من: "+(t.fromName||"—")+" | "+t.date}</div>
+          </div>
+          {t.done&&<span style={{fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.ok+"12",color:T.ok,fontWeight:600}}>تم ✓</span>}
+        </div>)}</div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد مهام</div>}
+      </Card>
+      <Card title={"📤 المهام المرسلة ("+sentTasks.length+")"}>
+        {sentTasks.length>0?<div style={{display:"flex",flexDirection:"column",gap:6}}>{sentTasks.map(t=><div key={t.id} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:10,background:t.done?T.ok+"06":T.warn+"04",border:"1px solid "+(t.done?T.ok+"20":T.warn+"20")}}>
+          <span style={{fontSize:20}}>{t.done?"✅":"⏳"}</span>
+          <div style={{flex:1}}>
+            <div style={{fontSize:FS,fontWeight:600,color:T.text}}>{t.text}</div>
+            <div style={{fontSize:FS-2,color:T.textSec}}>{"الى: "+(t.toName||"—")+" | "+t.date}</div>
+          </div>
+          {t.done&&<span style={{fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.ok+"12",color:T.ok,fontWeight:600}}>{"تم ✓ "+((t.doneAt||"").split("T")[0]||"")}</span>}
+          <span onClick={()=>delTask(t.id)} style={{cursor:"pointer",fontSize:14,color:T.err}}>✕</span>
+        </div>)}</div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لم ترسل مهام</div>}
+      </Card>
+    </div>
+  </div>
+}
+
 function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syncWsIds,replaceOrder}){
   const[newSeason,setNewSeason]=useState("");const[delConfirm,setDelConfirm]=useState("");
   const[newUserEmail,setNewUserEmail]=useState("");const[newUserRole,setNewUserRole]=useState("viewer");
@@ -3016,7 +3058,7 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
           <thead><tr><th style={TH}>الشاشة</th>{roles.map(r=><th key={r} style={{...TH,textAlign:"center"}}>{roleLabels[r]}</th>)}</tr></thead>
           <tbody>{tabs.map(t=><tr key={t.key}>
             <td style={{...TD,fontWeight:600}}><span style={{marginLeft:6}}>{t.icon}</span>{t.label}</td>
-            {roles.map(r=>{const defPerms={admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",search:"edit",db:"edit",settings:"edit"},manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",search:"edit",db:"edit",settings:"hide"},viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",search:"view",db:"hide",settings:"hide"}};const cur=(perms[r]||{})[t.key]||(defPerms[r]||{})[t.key]||"view";
+            {roles.map(r=>{const defPerms={admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",search:"edit",tasks:"edit",db:"edit",settings:"edit"},manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",search:"edit",tasks:"edit",db:"edit",settings:"hide"},viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",search:"view",tasks:"edit",db:"hide",settings:"hide"}};const cur=(perms[r]||{})[t.key]||(defPerms[r]||{})[t.key]||"view";
               return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px"}}>
                 {r==="admin"&&t.key==="settings"?<span style={{fontSize:FS-2,color:T.ok,fontWeight:600}}>✏️ دائماً</span>:
                 <select value={cur} onChange={e=>setPerm(r,t.key,e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:levelColors[cur],fontWeight:700,cursor:"pointer"}}>
