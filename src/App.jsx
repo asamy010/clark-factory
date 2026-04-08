@@ -843,7 +843,7 @@ export default function App(){
       {tab!=="home"&&canViewTab(tab)&&<div>
         {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("db")} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
-        {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEditTab("details")} statusCards={statusCards} goHome={goHome} upConfig={upConfig}/>}
+        {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} delOrder={delOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEditTab("details")} statusCards={statusCards} goHome={goHome} upConfig={upConfig}/>}
         {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("external")} statusCards={statusCards} season={season}/>}
         {tab==="stock"&&<StockPg data={data} updOrder={updOrder} isMob={isMob} canEdit={canEditTab("stock")} statusCards={statusCards}/>}
         {tab==="search"&&<SearchPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
@@ -1319,7 +1319,7 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig}){
 </>}
 
 /* ══ DETAILS ══ */
-function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,statusCards,goHome,upConfig}){
+function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,canEdit,statusCards,goHome,upConfig}){
   const order=data.orders.find(o=>o.id===sel);const[editing,setEditing]=useState(false);
   const[detQ,setDetQ]=useState("");const[detSt,setDetSt]=useState("الكل");
   const[editStockIdx,setEditStockIdx]=useState(null);
@@ -1327,6 +1327,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
   const[dupInit,setDupInit]=useState(null);
   const[showDeliver,setShowDeliver]=useState(false);
   const[editStatusMode,setEditStatusMode]=useState(false);
+  const[editRcv,setEditRcv]=useState(null);const[edRcvQty,setEdRcvQty]=useState(0);const[edRcvDate,setEdRcvDate]=useState("");const[edRcvNote,setEdRcvNote]=useState("");
   const[dWs,setDWs]=useState("");const[dType,setDType]=useState("");const[dQty,setDQty]=useState(0);const[dPrice,setDPrice]=useState("");const[dNote,setDNote]=useState("");const[dDate,setDDate]=useState(new Date().toISOString().split("T")[0]);
   const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
   const workshops=data.workshops||[];
@@ -1353,8 +1354,9 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
       {filtered.length===0&&<Card><p style={{color:T.textSec,textAlign:"center",padding:30}}>لا توجد نتائج</p></Card>}
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(4,1fr)",gap:12}}>
         {sortOrders(filtered).map(o=>{const t=calcOrder(o);
-          const wds=o.workshopDeliveries||[];
-          return<div key={o.id} data-oid={o.id} onClick={()=>setSel(o.id)} style={{display:"flex",gap:16,padding:16,background:T.cardSolid,borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",alignItems:"flex-start"}}>
+          const wds=o.workshopDeliveries||[];const hasData=wds.length>0||(o.deliveries||[]).length>0;
+          return<div key={o.id} data-oid={o.id} style={{display:"flex",gap:16,padding:16,background:T.cardSolid,borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",alignItems:"flex-start",position:"relative"}} onClick={()=>setSel(o.id)}>
+          {canEdit&&!hasData&&<div onClick={e=>{e.stopPropagation()}} style={{position:"absolute",top:8,left:8}}><DelBtn onConfirm={()=>delOrder(o.id)}/></div>}
           {o.image?<img src={o.image} alt="" style={{width:80,height:107,borderRadius:10,objectFit:"cover",flexShrink:0,border:"1px solid "+T.brd}}/>:<div style={{width:80,height:107,borderRadius:10,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:28,color:T.textMut}}>📷</div>}
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6,gap:8}}>
@@ -1527,10 +1529,10 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
               </div>
             </div>
             <div style={{padding:"4px 12px 8px"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
-              <thead><tr>{["","الحركة","التاريخ","الكمية","ملاحظات"].map(h=><th key={h} style={{...TH,fontSize:FS-3,padding:"4px 8px"}}>{h}</th>)}</tr></thead>
+              <thead><tr>{["","الحركة","التاريخ","الكمية","ملاحظات",...(canEdit?[""]:[])] .map(h=><th key={h} style={{...TH,fontSize:FS-3,padding:"4px 8px"}}>{h}</th>)}</tr></thead>
               <tbody>
-                <tr style={{background:"#F0FDF408"}}><td style={{...TD,padding:"4px 8px",textAlign:"center",color:T.ok,fontSize:14}}>↗</td><td style={{...TD,padding:"4px 8px",fontWeight:600,color:T.ok}}>تسليم ورشة</td><td style={{...TD,padding:"4px 8px"}}>{wd.date}</td><td style={{...TDB,padding:"4px 8px",color:T.ok}}>{wd.qty}</td><td style={{...TD,padding:"4px 8px",fontSize:FS-2}}>{wd.notes||"-"}</td></tr>
-                {(wd.receives||[]).map((r,ri)=><tr key={ri} style={{background:"#EFF6FF08"}}><td style={{...TD,padding:"4px 8px",textAlign:"center",color:T.accent,fontSize:14}}>↙</td><td style={{...TD,padding:"4px 8px",fontWeight:600,color:T.accent}}>استلام مصنع</td><td style={{...TD,padding:"4px 8px"}}>{r.date}</td><td style={{...TDB,padding:"4px 8px",color:T.accent}}>{r.qty}</td><td style={{...TD,padding:"4px 8px",fontSize:FS-2}}>{r.notes||"-"}</td></tr>)}
+                <tr style={{background:"#F0FDF408"}}><td style={{...TD,padding:"4px 8px",textAlign:"center",color:T.ok,fontSize:14}}>↗</td><td style={{...TD,padding:"4px 8px",fontWeight:600,color:T.ok}}>تسليم ورشة</td><td style={{...TD,padding:"4px 8px"}}>{wd.date}</td><td style={{...TDB,padding:"4px 8px",color:T.ok}}>{wd.qty}</td><td style={{...TD,padding:"4px 8px",fontSize:FS-2}}>{wd.notes||"-"}</td>{canEdit&&<td style={{...TD,padding:"4px 8px"}}></td>}</tr>
+                {(wd.receives||[]).map((r,ri)=>{const isEdR=editRcv&&editRcv.wdIdx===i&&editRcv.rIdx===ri;return<tr key={ri} style={{background:isEdR?T.warn+"08":"#EFF6FF08"}}><td style={{...TD,padding:"4px 8px",textAlign:"center",color:T.accent,fontSize:14}}>↙</td><td style={{...TD,padding:"4px 8px",fontWeight:600,color:T.accent}}>استلام مصنع</td><td style={{...TD,padding:"4px 8px"}}>{isEdR?<Inp type="date" value={edRcvDate} onChange={setEdRcvDate} sx={{padding:"2px 4px",fontSize:FS-2}}/>:r.date}</td><td style={{...TDB,padding:"4px 8px",color:T.accent}}>{isEdR?<Inp type="number" value={edRcvQty} onChange={v=>setEdRcvQty(Number(v)||0)} sx={{padding:"2px 4px",fontSize:FS-1,width:60}}/>:r.qty}</td><td style={{...TD,padding:"4px 8px",fontSize:FS-2}}>{isEdR?<Inp value={edRcvNote} onChange={setEdRcvNote} sx={{padding:"2px 4px",fontSize:FS-2}}/>:(r.notes||"-")}</td>{canEdit&&<td style={{...TD,padding:"4px 8px",whiteSpace:"nowrap"}}>{isEdR?<div style={{display:"flex",gap:3}}><Btn small primary onClick={()=>{updOrder(sel,o=>{const rc=o.workshopDeliveries[i].receives[ri];if(rc){rc.qty=edRcvQty;rc.date=edRcvDate;rc.notes=edRcvNote}o.status=recomputeStatus(o)});setEditRcv(null)}}>💾</Btn><Btn ghost small onClick={()=>setEditRcv(null)}>✕</Btn></div>:<Btn ghost small onClick={()=>{setEditRcv({wdIdx:i,rIdx:ri});setEdRcvQty(r.qty);setEdRcvDate(r.date);setEdRcvNote(r.notes||"")}} style={{fontSize:FS-3,padding:"2px 6px"}}>✏️</Btn>}</td>}</tr>})}
               </tbody>
             </table></div>
           </div>
@@ -2151,6 +2153,7 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards}){
   const[showLimitPopup,setShowLimitPopup]=useState(null);
   const[stLogQ,setStLogQ]=useState("");
   const[stOrdQ,setStOrdQ]=useState("");
+  const[qRcvPiece,setQRcvPiece]=useState(null);const[qRcvQty,setQRcvQty]=useState(0);const[qRcvDate,setQRcvDate]=useState(new Date().toISOString().split("T")[0]);
 
   const eligible=data.orders.filter(o=>{
     const wds=o.workshopDeliveries||[];if(wds.length===0)return false;
@@ -2221,14 +2224,20 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards}){
       {/* Per-piece breakdown */}
       {selOrder&&ord&&pieces.length>0&&<div style={{marginTop:10,padding:10,borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
         <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:6}}>تفاصيل القطع والطقم الكامل</div>
-        <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["القطعة","كمية القص","تسليم ورشة","استلام مصنع","متبقي عند الورش"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead>
-        <tbody>{pieceBreakdown.map(p=><tr key={p.piece}>
+        <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["القطعة","كمية القص","تسليم ورشة","استلام مصنع","متبقي عند الورش",""].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead>
+        <tbody>{pieceBreakdown.map(p=>{const isEdRcv=qRcvPiece===p.piece;
+          /* Find last wd with balance for this piece */
+          const wdForP=wds.filter(wd=>wd.garmentType===p.piece).find(wd=>{const rc=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);return rc<(Number(wd.qty)||0)});
+          const wdIdx=wdForP?wds.indexOf(wdForP):-1;
+          const maxRcv=wdForP?((Number(wdForP.qty)||0)-(wdForP.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0)):0;
+          return<tr key={p.piece} style={{background:isEdRcv?T.accent+"06":""}}>
           <td style={{...TD,fontWeight:700,color:"#8B5CF6"}}>{p.piece}</td>
           <td style={TDB}>{p.cutQty}</td>
           <td style={{...TDB,color:T.purple}}>{p.delToWs}</td>
-          <td style={{...TDB,color:T.ok}}>{p.rcvFromWs}</td>
+          <td style={{...TDB,color:T.ok}}>{isEdRcv?<div style={{display:"flex",gap:4,alignItems:"center"}}><span style={{fontWeight:700}}>{p.rcvFromWs}</span><span style={{color:T.textMut}}>+</span><Inp type="number" value={qRcvQty} onChange={v=>setQRcvQty(Math.min(Number(v)||0,maxRcv))} sx={{width:60,padding:"2px 4px",fontSize:FS-1}}/><Inp type="date" value={qRcvDate} onChange={setQRcvDate} sx={{padding:"2px 4px",fontSize:FS-2}}/></div>:p.rcvFromWs}</td>
           <td style={{...TDB,color:p.balance>0?T.err:T.ok}}>{p.balance>0?p.balance:"✓"}</td>
-        </tr>)}</tbody></table></div>
+          <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&p.balance>0&&wdIdx>=0&&(isEdRcv?<div style={{display:"flex",gap:3}}><Btn small primary onClick={()=>{if(!qRcvQty||qRcvQty<=0)return;updOrder(selOrder,o=>{if(!o.workshopDeliveries[wdIdx].receives)o.workshopDeliveries[wdIdx].receives=[];o.workshopDeliveries[wdIdx].receives.push({date:qRcvDate,qty:qRcvQty,notes:"استلام سريع",price:Number(wdForP.price)||0,amount:r2(qRcvQty*(Number(wdForP.price)||0))});o.status=recomputeStatus(o)});setQRcvPiece(null);setQRcvQty(0);showToast("✓ تم استلام "+qRcvQty+" "+p.piece)}}>💾</Btn><Btn ghost small onClick={()=>setQRcvPiece(null)}>✕</Btn></div>:<Btn ghost small onClick={()=>{setQRcvPiece(p.piece);setQRcvQty(0);setQRcvDate(new Date().toISOString().split("T")[0])}} style={{fontSize:FS-3,padding:"2px 8px",color:T.accent}}>📥 استلام</Btn>)}</td>
+        </tr>})}</tbody></table></div>
         <div style={{marginTop:8,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
           <span style={{padding:"6px 14px",borderRadius:8,background:T.ok+"12",color:T.ok,fontWeight:800,fontSize:FS}}>{"🧩 الطقم الكامل المتاح: "+stockRemain}</span>
           <span style={{padding:"4px 10px",borderRadius:6,background:T.accent+"10",color:T.accent,fontWeight:600,fontSize:FS-2}}>{"= أقل قطعة مستلمة ("+maxCompleteSet+") - تم تسليمه للمخزن ("+stockDel+")"}</span>
