@@ -872,8 +872,9 @@ export default function App(){
       {/* HOME SCREEN */}
       {tab==="home"&&<div>
           <div style={{textAlign:"center",marginBottom:isMob?14:20}}><h1 style={{fontSize:isMob?22:32,fontWeight:800,color:T.text,margin:0}}>{"مرحباً، "+userName}</h1></div>
-          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 280px",gap:16,maxWidth:1000,margin:"0 auto"}}>
-          <div>
+          <div style={{display:"flex",gap:20,justifyContent:"center",alignItems:"flex-start",flexDirection:isMob?"column":"row"}}>
+          {/* Buttons - centered */}
+          <div style={{flex:"0 1 700px"}}>
           <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(5,1fr)",gap:isMob?10:16}}>
             {TABS.filter(t=>canViewTab(t.key)).map(t=>{const perm=getTabPerm(t.key);return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:isMob?"16px 8px":"20px 14px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s",opacity:perm==="view"?0.75:1,position:"relative"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow}}>
               <div style={{width:isMob?44:52,height:isMob?44:52,borderRadius:14,background:t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px",fontSize:isMob?22:26}}>{t.icon}</div>
@@ -883,18 +884,28 @@ export default function App(){
           </div>
           {isMob&&<div onClick={()=>setShowScanner(true)} style={{margin:"16px auto 0",display:"flex",justifyContent:"center"}}><div style={{background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",borderRadius:14,padding:"14px 30px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,boxShadow:"0 4px 20px rgba(14,165,233,0.3)"}}><span style={{fontSize:24}}>📷</span><span style={{fontSize:FS+1,fontWeight:700,color:"#fff"}}>مسح كود QR</span></div></div>}
           </div>
-          {/* Tasks sidebar */}
-          {(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
-            return myTasks.length>0&&<div style={{background:T.cardSolid,borderRadius:16,border:"1px solid #F59E0B30",padding:16,boxShadow:T.shadow}}>
-              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12}}><span style={{fontSize:20}}>📌</span><span style={{fontSize:FS+1,fontWeight:800,color:"#F59E0B"}}>{"مهامي ("+myTasks.length+")"}</span></div>
-              <div style={{display:"flex",flexDirection:"column",gap:8}}>{myTasks.slice(0,8).map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"10px 12px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
-                <span onClick={()=>upConfig(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const tk=arr.find(x=>x.id===t.id);if(tk){tk.done=true;tk.doneAt=new Date().toISOString()}})} style={{cursor:"pointer",fontSize:18,flexShrink:0,marginTop:2}}>⬜</span>
-                <div style={{flex:1}}>
-                  <div style={{fontSize:FS,fontWeight:600,color:T.text,lineHeight:1.5}}>{t.text}</div>
-                  <div style={{fontSize:FS-2,color:T.textSec,marginTop:2}}>{"من: "+(t.fromName||"—")+" | "+t.date}</div>
+          {/* Tasks panel - right side, fits content */}
+          {!isMob&&(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
+            return myTasks.length>0&&<div style={{width:260,flexShrink:0}}>
+              <div style={{background:T.cardSolid,borderRadius:16,border:"1px solid #F59E0B30",padding:14,boxShadow:T.shadow}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}><span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:800,color:"#F59E0B"}}>{"مهامي ("+myTasks.length+")"}</span></div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>{myTasks.slice(0,8).map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:6,padding:"8px 10px",borderRadius:8,background:T.bg,border:"1px solid "+T.brd}}>
+                <span onClick={()=>upConfig(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const tk=arr.find(x=>x.id===t.id);if(tk){tk.done=true;tk.doneAt=new Date().toISOString()}})} style={{cursor:"pointer",fontSize:16,flexShrink:0,marginTop:1}}>⬜</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:FS-1,fontWeight:600,color:T.text,lineHeight:1.4}}>{t.text}</div>
+                  <div style={{fontSize:FS-3,color:T.textSec,marginTop:1}}>{"من: "+(t.fromName||"—")}</div>
                 </div>
               </div>)}</div>
-              {myTasks.length>8&&<div style={{textAlign:"center",marginTop:8}}><span onClick={()=>goTo("tasks")} style={{cursor:"pointer",fontSize:FS-1,color:T.accent}}>{"عرض الكل ("+myTasks.length+")"}</span></div>}
+              {myTasks.length>8&&<div style={{textAlign:"center",marginTop:6}}><span onClick={()=>goTo("tasks")} style={{cursor:"pointer",fontSize:FS-2,color:T.accent}}>{"عرض الكل ("+myTasks.length+")"}</span></div>}
+            </div></div>})()}
+          {/* Mobile tasks */}
+          {isMob&&(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
+            return myTasks.length>0&&<div style={{background:T.cardSolid,borderRadius:16,border:"1px solid #F59E0B30",padding:14,boxShadow:T.shadow,marginTop:16}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}><span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:800,color:"#F59E0B"}}>{"مهامي ("+myTasks.length+")"}</span></div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>{myTasks.slice(0,5).map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:6,padding:"8px 10px",borderRadius:8,background:T.bg,border:"1px solid "+T.brd}}>
+                <span onClick={()=>upConfig(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const tk=arr.find(x=>x.id===t.id);if(tk){tk.done=true;tk.doneAt=new Date().toISOString()}})} style={{cursor:"pointer",fontSize:16}}>⬜</span>
+                <div style={{flex:1}}><div style={{fontSize:FS-1,fontWeight:600,color:T.text}}>{t.text}</div><div style={{fontSize:FS-3,color:T.textSec}}>{"من: "+(t.fromName||"—")}</div></div>
+              </div>)}</div>
             </div>})()}
           </div>
       </div>}
