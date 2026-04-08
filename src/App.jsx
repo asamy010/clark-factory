@@ -58,6 +58,11 @@ const INIT_CONFIG = {
   garmentTypes:[{id:1,name:"قميص"},{id:2,name:"شورت"},{id:3,name:"تيشيرت"},{id:4,name:"بنطلون"},{id:5,name:"شنطة"},{id:6,name:"جاكت"}],
   workshops:[{id:1,name:"CLARK",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:8,type:"خياطة داخلي"},{id:2,name:"ورشة محمود",owner:"محمود",phone:"",address:"",idCard:"",ownerPhoto:"",rating:7,type:"خياطة خارجي"},{id:3,name:"المصنع",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:9,type:"خياطة داخلي"}],
   seasons:["WS26"], activeSeason:"WS26", logo:"", users:{}, usersList:[], wsPayments:[], notifications:[],
+  permissions:{
+    admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",search:"edit",db:"edit",settings:"edit"},
+    manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",search:"edit",db:"view",settings:"hide"},
+    viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",search:"view",db:"hide",settings:"hide"}
+  },
 };
 
 function gid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
@@ -713,6 +718,9 @@ export default function App(){
   const data={...config,orders:resolvedOrders||orders};
   const getUserRole=()=>{if(config.users&&config.users[user?.uid])return config.users[user.uid];const byEmail=(config.usersList||[]).find(u=>u.email===user?.email);if(byEmail)return byEmail.role;return"admin"};
   const userRole=getUserRole();const canEdit=userRole==="admin"||userRole==="manager";
+  const getTabPerm=(tabKey)=>{const perms=config.permissions||{};const rolePerm=perms[userRole];if(!rolePerm)return userRole==="admin"?"edit":"view";return rolePerm[tabKey]||"hide"};
+  const canEditTab=(tabKey)=>getTabPerm(tabKey)==="edit";
+  const canViewTab=(tabKey)=>getTabPerm(tabKey)!=="hide";
   const statusCards=config.statusCards||DEFAULT_STATUSES;
 
   if(authLoading)return null;
@@ -823,24 +831,25 @@ export default function App(){
       {tab==="home"&&<div>
           <div style={{textAlign:"center",marginBottom:isMob?14:20}}><h1 style={{fontSize:isMob?22:32,fontWeight:800,color:T.text,margin:0}}>{"مرحباً، "+userName}</h1></div>
           <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(5,1fr)",gap:isMob?10:16,maxWidth:800,margin:"0 auto"}}>
-            {TABS.filter(t=>t.key!=="settings"||userRole==="admin").map(t=><div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:isMob?"16px 8px":"20px 14px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow}}>
+            {TABS.filter(t=>canViewTab(t.key)).map(t=>{const perm=getTabPerm(t.key);return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:isMob?"16px 8px":"20px 14px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s",opacity:perm==="view"?0.75:1,position:"relative"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow}}>
               <div style={{width:isMob?44:52,height:isMob?44:52,borderRadius:14,background:t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px",fontSize:isMob?22:26}}>{t.icon}</div>
               <div style={{fontSize:isMob?FS-3:FS-1,fontWeight:700,color:T.text}}>{t.label}</div>
-            </div>)}
+              {perm==="view"&&<div style={{position:"absolute",top:6,left:6,fontSize:9,padding:"1px 6px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁 عرض</div>}
+            </div>})}
           </div>
           {isMob&&<div onClick={()=>setShowScanner(true)} style={{margin:"16px auto 0",maxWidth:800,display:"flex",justifyContent:"center"}}><div style={{background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",borderRadius:14,padding:"14px 30px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,boxShadow:"0 4px 20px rgba(14,165,233,0.3)"}}><span style={{fontSize:24}}>📷</span><span style={{fontSize:FS+1,fontWeight:700,color:"#fff"}}>مسح كود QR</span></div></div>}
       </div>}
       {/* PAGES with back button */}
-      {tab!=="home"&&<div>
+      {tab!=="home"&&canViewTab(tab)&&<div>
         {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
-        {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
-        {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEdit} statusCards={statusCards} goHome={goHome} upConfig={upConfig}/>}
-        {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEdit} statusCards={statusCards} season={season}/>}
-        {tab==="stock"&&<StockPg data={data} updOrder={updOrder} isMob={isMob} canEdit={canEdit} statusCards={statusCards}/>}
+        {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("db")} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
+        {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEditTab("details")} statusCards={statusCards} goHome={goHome} upConfig={upConfig}/>}
+        {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("external")} statusCards={statusCards} season={season}/>}
+        {tab==="stock"&&<StockPg data={data} updOrder={updOrder} isMob={isMob} canEdit={canEditTab("stock")} statusCards={statusCards}/>}
         {tab==="search"&&<SearchPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="calc"&&<CalcPg data={data} isMob={isMob}/>}
         {tab==="reports"&&<ReportsHub data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
-        {tab==="settings"&&<SettingsPg config={config} upConfig={upConfig} isMob={isMob} user={user} theme={theme} setTheme={setTheme} season={season} orders={orders} syncWsIds={syncWsIds} replaceOrder={replaceOrder}/>}
+        {tab==="settings"&&canEditTab("settings")&&<SettingsPg config={config} upConfig={upConfig} isMob={isMob} user={user} theme={theme} setTheme={setTheme} season={season} orders={orders} syncWsIds={syncWsIds} replaceOrder={replaceOrder}/>}
       </div>}
     </div>
     {showScanner&&<QRScanner onClose={()=>setShowScanner(false)} onScan={url=>{setShowScanner(false);try{const u=new URL(url);const p=new URLSearchParams(u.search);if(p.get("o")){const o=orders.find(x=>x.modelNo===p.get("o"));if(o)goD(o.id)}else if(p.get("act")==="rcv"&&p.get("oid")){setTab("external");setTimeout(()=>{window.__qrReceive={oid:p.get("oid"),wdi:Number(p.get("wdi"))||0};window.dispatchEvent(new Event("qr-receive"))},600)}else if(p.get("act")==="wsacc"&&p.get("ws")){setTab("external");setTimeout(()=>{window.__qrWsAcc={ws:decodeURIComponent(p.get("ws"))};window.dispatchEvent(new Event("qr-wsacc"))},600)}else{showToast("QR غير معروف")}}catch(e){showToast("QR غير صالح")}}}/>}
@@ -2716,6 +2725,32 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
       </div>
     </Card>
     {/* Send Notifications */}
+    {/* Permissions Management */}
+    <Card title="🔐 صلاحيات المستخدمين" style={{marginBottom:16}}>
+      {(()=>{
+        const perms=config.permissions||{};
+        const roles=["admin","manager","viewer"];
+        const roleLabels={admin:"أدمن",manager:"مدير",viewer:"مشاهد"};
+        const tabs=TABS;
+        const levels=["edit","view","hide"];
+        const levelLabels={edit:"✏️ تعديل",view:"👁 عرض",hide:"❌ مخفي"};
+        const levelColors={edit:T.ok,view:T.warn,hide:T.err};
+        const setPerm=(role,tabKey,level)=>upConfig(d=>{if(!d.permissions)d.permissions={};if(!d.permissions[role])d.permissions[role]={};d.permissions[role][tabKey]=level});
+        return<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}>
+          <thead><tr><th style={TH}>الشاشة</th>{roles.map(r=><th key={r} style={{...TH,textAlign:"center"}}>{roleLabels[r]}</th>)}</tr></thead>
+          <tbody>{tabs.map(t=><tr key={t.key}>
+            <td style={{...TD,fontWeight:600}}><span style={{marginLeft:6}}>{t.icon}</span>{t.label}</td>
+            {roles.map(r=>{const cur=(perms[r]||{})[t.key]||(r==="admin"?"edit":r==="manager"?"edit":"view");
+              return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px"}}>
+                {r==="admin"&&t.key==="settings"?<span style={{fontSize:FS-2,color:T.ok,fontWeight:600}}>✏️ دائماً</span>:
+                <select value={cur} onChange={e=>setPerm(r,t.key,e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:levelColors[cur],fontWeight:700,cursor:"pointer"}}>
+                  {levels.map(l=><option key={l} value={l}>{levelLabels[l]}</option>)}
+                </select>}
+              </td>})}
+          </tr>)}</tbody>
+        </table></div>
+      })()}
+    </Card>
     <Card title="📩 ارسال اشعار" style={{marginBottom:16}}>
       {(()=>{const[nTo,setNTo]=useState("all");const[nMsg,setNMsg]=useState("");const[nType,setNType]=useState("تنبيه");const[nOrd,setNOrd]=useState("");
         const sendNotif=()=>{if(!nMsg.trim())return;upConfig(d=>{if(!d.notifications)d.notifications=[];d.notifications.push({id:Date.now(),toEmail:nTo,msg:nMsg.trim(),type:nType,orderId:nOrd||null,fromName:user.displayName||user.email.split("@")[0],createdAt:new Date().toISOString().split("T")[0],readBy:[]})});setNMsg("");showToast("✓ تم ارسال الاشعار")};
