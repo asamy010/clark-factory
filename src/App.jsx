@@ -719,7 +719,7 @@ export default function App(){
   const getUserRole=()=>{if(config.users&&config.users[user?.uid]){const r=config.users[user.uid];return typeof r==="string"?r:r?.role||"admin"}const byEmail=(config.usersList||[]).find(u=>u.email===user?.email);if(byEmail)return byEmail.role;return"admin"};
   const userRole=getUserRole();const canEdit=userRole==="admin"||userRole==="manager";
   const DEFAULT_PERMS={admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",search:"edit",db:"edit",settings:"edit"},manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",search:"edit",db:"view",settings:"hide"},viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",search:"view",db:"hide",settings:"hide"}};
-  const getTabPerm=(tabKey)=>{const perms=config.permissions||{};const rolePerm=perms[userRole]||DEFAULT_PERMS[userRole]||DEFAULT_PERMS.viewer;return rolePerm[tabKey]||(userRole==="admin"?"edit":"view")};
+  const getTabPerm=(tabKey)=>{const perms=config.permissions||{};const defaults=DEFAULT_PERMS[userRole]||DEFAULT_PERMS.viewer;const rolePerm=perms[userRole]||{};return rolePerm[tabKey]||defaults[tabKey]||"view"};
   const canEditTab=(tabKey)=>getTabPerm(tabKey)==="edit";
   const canViewTab=(tabKey)=>getTabPerm(tabKey)!=="hide";
   const statusCards=config.statusCards||DEFAULT_STATUSES;
