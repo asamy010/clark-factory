@@ -633,7 +633,9 @@ export default function App(){
   const[isOnline,setIsOnline]=useState(navigator.onLine);const[justReconnected,setJustReconnected]=useState(false);
   useEffect(()=>{const on=()=>{setIsOnline(true);setJustReconnected(true);setTimeout(()=>setJustReconnected(false),4000)};const off=()=>{setIsOnline(false);setJustReconnected(false)};window.addEventListener("online",on);window.addEventListener("offline",off);return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off)}},[]);
   const themeKey="clark-theme-"+(user?.uid||"default");
-  const[theme,setTheme]=useState(()=>localStorage.getItem(themeKey)||"light");
+  const[theme,setTheme_]=useState(()=>localStorage.getItem("clark-theme-default")||"light");
+  const setTheme=v=>{setTheme_(v);localStorage.setItem(themeKey,v)};
+  useEffect(()=>{const saved=localStorage.getItem(themeKey);if(saved&&saved!==theme)setTheme_(saved)},[themeKey]);
   T=THEMES[theme]||THEMES.light;
   useEffect(()=>{localStorage.setItem(themeKey,theme);document.body.style.background=T.bodyBg||T.bg},[theme,themeKey]);
   const w=useWin();const isMob=w<768;const season=config.activeSeason||"WS26";
