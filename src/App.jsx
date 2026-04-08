@@ -2116,8 +2116,18 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     const totalQty=checked.reduce((s,x)=>s+x.qty,0);
 
     const doBatchDeliver=async(andPrint,andWa)=>{if(checked.length===0)return;
-      for(const item of checked){await updOrder(item.orderId,o=>{if(!o.workshopDeliveries)o.workshopDeliveries=[];
-        o.workshopDeliveries.push({id:gid(),wsName:selWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",wsOwner:wsObj?wsObj.owner:"",qty:item.qty,garmentType:item.garmentType,notes:"تسليم مُجمع",price:item.price,date:batchDate,receives:[]});o.status=recomputeStatus(o)})}
+      /* Group items by orderId */
+      const byOrder={};checked.forEach(item=>{if(!byOrder[item.orderId])byOrder[item.orderId]=[];byOrder[item.orderId].push(item)});
+      /* Direct Firestore writes - bypass updOrder to avoid stale state */
+      for(const[orderId,items] of Object.entries(byOrder)){
+        const ord=data.orders.find(o=>o.id===orderId);if(!ord||!ord._docId)continue;
+        const updated=JSON.parse(JSON.stringify(ord));
+        if(!updated.workshopDeliveries)updated.workshopDeliveries=[];
+        items.forEach(item=>{updated.workshopDeliveries.push({id:gid(),wsName:selWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",wsOwner:wsObj?wsObj.owner:"",qty:item.qty,garmentType:item.garmentType,notes:"تسليم مُجمع",price:item.price,date:batchDate,receives:[]})});
+        updated.status=recomputeStatus(updated);
+        const clean={...updated};delete clean._docId;
+        try{await setDoc(doc(db,"seasons",season,"orders",ord._docId),clean)}catch(e){console.error("batch write error:",e)}
+      }
       showToast("✓ تم تسليم "+checked.length+" بند ("+totalQty+" قطعة) لـ "+selWs);
       if(andPrint){let h="<div style='text-align:center;margin-bottom:16px'><img src='"+CLARK_LOGO+"' style='width:160px;margin-bottom:6px'/><h1 style='font-size:20px;margin:4px 0'>اذن تسليم ورشة — تسليم مُجمع</h1><h2 style='font-size:18px;color:#0284C7;margin:2px 0'>"+selWs+"</h2><div style='font-size:11px;color:#64748B'>التاريخ: "+batchDate+"</div></div>";
         h+="<table><thead><tr><th>#</th><th>رقم الموديل</th><th>الوصف</th><th>القطعة</th><th>الكمية</th><th>السعر</th></tr></thead><tbody>";
