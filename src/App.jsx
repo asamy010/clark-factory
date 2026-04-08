@@ -628,7 +628,7 @@ export default function App(){
   const[tab,setTab_]=useState(()=>sessionStorage.getItem("clark_tab")||"home");const[sel,setSel_]=useState(()=>sessionStorage.getItem("clark_sel")||null);
   const setTab=v=>{setTab_(v);sessionStorage.setItem("clark_tab",v)};
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
-  const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);
+  const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);
   /* Online/Offline status */
   const[isOnline,setIsOnline]=useState(navigator.onLine);const[justReconnected,setJustReconnected]=useState(false);
   useEffect(()=>{const on=()=>{setIsOnline(true);setJustReconnected(true);setTimeout(()=>setJustReconnected(false),4000)};const off=()=>{setIsOnline(false);setJustReconnected(false)};window.addEventListener("online",on);window.addEventListener("offline",off);return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off)}},[]);
@@ -716,9 +716,10 @@ export default function App(){
     }catch(e){console.error("resolvedOrders error:",e);return orders}
   },[orders,config.workshops]);
   const data={...config,orders:resolvedOrders||orders};
-  const getUserRole=()=>{if(config.users&&config.users[user?.uid])return config.users[user.uid];const byEmail=(config.usersList||[]).find(u=>u.email===user?.email);if(byEmail)return byEmail.role;return"admin"};
+  const getUserRole=()=>{if(config.users&&config.users[user?.uid]){const r=config.users[user.uid];return typeof r==="string"?r:r?.role||"admin"}const byEmail=(config.usersList||[]).find(u=>u.email===user?.email);if(byEmail)return byEmail.role;return"admin"};
   const userRole=getUserRole();const canEdit=userRole==="admin"||userRole==="manager";
-  const getTabPerm=(tabKey)=>{const perms=config.permissions||{};const rolePerm=perms[userRole];if(!rolePerm)return userRole==="admin"?"edit":"view";return rolePerm[tabKey]||"hide"};
+  const DEFAULT_PERMS={admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",search:"edit",db:"edit",settings:"edit"},manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",search:"edit",db:"view",settings:"hide"},viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",search:"view",db:"hide",settings:"hide"}};
+  const getTabPerm=(tabKey)=>{const perms=config.permissions||{};const rolePerm=perms[userRole]||DEFAULT_PERMS[userRole]||DEFAULT_PERMS.viewer;return rolePerm[tabKey]||(userRole==="admin"?"edit":"view")};
   const canEditTab=(tabKey)=>getTabPerm(tabKey)==="edit";
   const canViewTab=(tabKey)=>getTabPerm(tabKey)!=="hide";
   const statusCards=config.statusCards||DEFAULT_STATUSES;
@@ -821,6 +822,16 @@ export default function App(){
           </div>}
         </div>
         {!isMob&&<span style={{fontSize:FS,color:T.textSec}}>{userName}</span>}
+        {/* Theme picker - desktop only */}
+        {!isMob&&<div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
+          <div onClick={()=>setShowTheme(!showTheme)} style={{cursor:"pointer",width:22,height:22,borderRadius:6,background:T.accent,border:"2px solid "+T.brd,transition:"transform 0.2s"}} title="تغيير المظهر"/>
+          {showTheme&&<div style={{position:"absolute",top:"100%",left:0,marginTop:6,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:10,boxShadow:"0 8px 30px rgba(0,0,0,0.15)",zIndex:999,padding:8,display:"flex",gap:6}}>
+            {Object.entries(THEMES).map(([key,th])=><div key={key} onClick={()=>{setTheme(key);setShowTheme(false)}} style={{cursor:"pointer",padding:"8px 14px",borderRadius:8,background:th.bg,border:theme===key?"2px solid "+th.accent:"1px solid "+th.brd,textAlign:"center",transition:"all 0.15s",minWidth:60}}>
+              <div style={{width:18,height:18,borderRadius:5,background:th.accent,margin:"0 auto 4px"}}/>
+              <div style={{fontSize:FS-2,fontWeight:700,color:th.text,whiteSpace:"nowrap"}}>{th.name}{theme===key?" ✓":""}</div>
+            </div>)}
+          </div>}
+        </div>}
         {!isMob&&(()=>{const td=new Date().toISOString().split("T")[0];let ops=0;data.orders.forEach(o=>{if(o.date===td)ops++;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date===td)ops++;(wd.receives||[]).forEach(r=>{if(r.date===td)ops++})});(o.deliveries||[]).forEach(d=>{if(d.date===td)ops++})});return ops>0?<span style={{fontSize:FS-2,padding:"2px 6px",borderRadius:6,background:T.ok+"12",color:T.ok,fontWeight:700}}>{ops+" عملية"}</span>:null})()}
         {!showLogout?<button onClick={e=>{e.stopPropagation();setShowLogout(true)}} style={{padding:isMob?"4px 10px":"6px 14px",borderRadius:8,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",cursor:"pointer",fontSize:isMob?11:FS-1,fontWeight:600,fontFamily:"inherit"}}>خروج</button>
         :<div onClick={e=>e.stopPropagation()} style={{display:"flex",gap:4,alignItems:"center"}}><button onClick={()=>signOut(auth)} style={{padding:isMob?"4px 8px":"5px 12px",borderRadius:6,background:T.err,color:"#fff",border:"none",cursor:"pointer",fontSize:isMob?10:FS-1,fontWeight:700,fontFamily:"inherit"}}>تأكيد</button><button onClick={()=>setShowLogout(false)} style={{padding:isMob?"4px 8px":"5px 12px",borderRadius:6,background:T.cardSolid,color:T.textSec,border:"1px solid "+T.brd,cursor:"pointer",fontSize:isMob?10:FS-1,fontWeight:600,fontFamily:"inherit"}}>الغاء</button></div>}
@@ -3017,12 +3028,5 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
           </div>
         </div>})()}
     </Card>
-    {/* Theme Toggle - Bottom */}
-    <div style={{display:"flex",justifyContent:"center",gap:12,marginTop:16}}>
-      {Object.entries(THEMES).map(([key,th])=><div key={key} onClick={()=>setTheme(key)} style={{cursor:"pointer",padding:"10px 28px",borderRadius:10,background:th.bg,border:theme===key?"2px solid "+th.accent:"1px solid "+th.brd,textAlign:"center",transition:"all 0.2s"}}>
-        <div style={{width:22,height:22,borderRadius:6,background:th.accent,margin:"0 auto 6px"}}/>
-        <div style={{fontSize:FS,fontWeight:700,color:th.text}}>{th.name}{theme===key?" ✓":""}</div>
-      </div>)}
-    </div>
   </div>
 }
