@@ -1767,7 +1767,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
         replaceOrder(order.id,upd);
         showToast("✓ تم التسليم — "+dWs);setShowDeliver(false);
         if(print){setTimeout(()=>{printReceipt(dWs,wsObj?wsObj.owner:"",upd,dType,Number(dQty),dDate||new Date().toISOString().split("T")[0],maxQty-Number(dQty),data.garmentTypes)},300)}
-        if(wa){const phone=wsObj?.phone||"";const d=dDate||new Date().toISOString().split("T")[0];const msg="*CLARK — اذن تسليم ورشة*%0A%0A🏭 الورشة: *"+dWs+"*%0A📋 رقم الموديل: *"+order.modelNo+"*%0A📝 الوصف: "+order.modelDesc+"%0A👕 نوع القطعة: *"+dType+"*%0A📦 الكمية المستلمة: *"+dQty+"* قطعة%0A💰 السعر: *"+(dPrice||0)+"* ج.م/قطعة%0A📅 تاريخ الاستلام: *"+d+"*%0A%0A✅ *برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
+        if(wa){const phone=wsObj?.phone||"";const d=dDate||new Date().toISOString().split("T")[0];const msg="*CLARK — اذن تسليم ورشة*%0A%0A- الورشة: *"+dWs+"*%0A- رقم الموديل: *"+order.modelNo+"*%0A- الوصف: "+order.modelDesc+"%0A- نوع القطعة: *"+dType+"*%0A- الكمية المستلمة: *"+dQty+"* قطعة%0A- السعر: *"+(dPrice||0)+"* ج.م/قطعة%0A- التاريخ: *"+d+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
       };
       return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowDeliver(false)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
@@ -1852,7 +1852,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
   const prodOrders=data.orders.filter(o=>o.status==="تم القص"||o.status==="في التشغيل");
   const wsOrders=selWs?data.orders.filter(o=>(o.workshopDeliveries||[]).some(wd=>wd.wsName===selWs)):[];
 
-  const deliverToWs=(andPrint)=>{
+  const deliverToWs=(andPrint,andWa)=>{
     if(!selWs||!selOrder||!delQty||!delType)return;
     if(!isInternal(selWs)&&!Number(delPrice)){alert("سعر التشغيل مطلوب");return}
     const ord=data.orders.find(o=>o.id===selOrder);if(!ord)return;
@@ -1872,9 +1872,10 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     });
     setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice("");setDelDate(new Date().toISOString().split("T")[0]);showToast("✓ تم تسليم "+saveQty+" قطعة لـ "+selWs);
     if(andPrint){const printOrd=JSON.parse(JSON.stringify(ord));const pWs=selWs;const pWsOwner=wsObj?wsObj.owner:"";const pGt=data.garmentTypes;setTimeout(()=>printReceipt(pWs,pWsOwner,printOrd,saveType,saveQty,saveDate,Math.max(0,availAfter),pGt),400)}
+    if(andWa){const phone=wsObj?.phone||"";const msg="*CLARK — اذن تسليم ورشة*%0A%0A- الورشة: *"+selWs+"*%0A- رقم الموديل: *"+ord.modelNo+"*%0A- الوصف: "+ord.modelDesc+"%0A- نوع القطعة: *"+saveType+"*%0A- الكمية: *"+saveQty+"* قطعة%0A- السعر: *"+savePrice+"* ج.م/قطعة%0A- التاريخ: *"+saveDate+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
   };
 
-  const receiveFromWs=(orderId,wdIdx,andPrint,printData,cardKey)=>{
+  const receiveFromWs=(orderId,wdIdx,andPrint,printData,cardKey,andWa)=>{
     const rv=getRcv(cardKey);
     if(!rv.qty)return;
     const ord=data.orders.find(o=>o.id===orderId);if(!ord)return;
@@ -1890,6 +1891,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     });
     clearRcv(cardKey);showToast("✓ تم استلام "+saveQty+" قطعة");
     if(andPrint&&printData){const pOrd=JSON.parse(JSON.stringify(ord));if(pOrd.workshopDeliveries&&pOrd.workshopDeliveries[wdIdx]){if(!pOrd.workshopDeliveries[wdIdx].receives)pOrd.workshopDeliveries[wdIdx].receives=[];pOrd.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty})}const pWs=selWs;const pType=wd.garmentType||"";const pGt=data.garmentTypes;setTimeout(()=>printReceiveReceipt(pWs,pOrd,pType,saveQty,saveDate,0,pGt),400)}
+    if(andWa){const wsObj=workshops.find(w=>w.name===wd.wsName);const phone=wsObj?.phone||"";const remaining=maxRcv-saveQty;const msg="*CLARK — اذن استلام من ورشة*%0A%0A- الورشة: *"+wd.wsName+"*%0A- رقم الموديل: *"+ord.modelNo+"*%0A- الوصف: "+ord.modelDesc+"%0A- نوع القطعة: *"+(wd.garmentType||"عام")+"*%0A- الكمية المستلمة: *"+saveQty+"* قطعة%0A- الرصيد المتبقي: *"+remaining+"* قطعة%0A- التاريخ: *"+saveDate+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
   };
 
   /* Collect all movements for the log */
@@ -2056,7 +2058,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>ملاحظات</label><Inp value={delNote} onChange={setDelNote} placeholder="ملاحظات..."/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>التاريخ</label><Inp type="date" value={delDate} onChange={setDelDate}/></div>
         </div>
-        <div style={{display:"flex",gap:8}}><Btn primary onClick={()=>deliverToWs(false)} disabled={!selOrder||!delQty||!delType}>تسليم وحفظ</Btn><Btn onClick={()=>deliverToWs(true)} disabled={!selOrder||!delQty||!delType} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>تسليم + طباعة</Btn><Btn ghost onClick={()=>{setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice("")}}>الغاء</Btn></div>
+        <div style={{display:"flex",gap:8}}><Btn primary onClick={()=>deliverToWs(false)} disabled={!selOrder||!delQty||!delType}>تسليم وحفظ</Btn><Btn onClick={()=>deliverToWs(true)} disabled={!selOrder||!delQty||!delType} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>تسليم + طباعة</Btn><Btn onClick={()=>deliverToWs(false,true)} disabled={!selOrder||!delQty||!delType} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱 واتساب</Btn><Btn ghost onClick={()=>{setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice("")}}>الغاء</Btn></div>
         {selOrder&&(()=>{const ord=data.orders.find(o=>o.id===selOrder);if(!ord)return null;const t=calcOrder(ord);const avail=getAvailQty(ord);const totalDel=(ord.workshopDeliveries||[]).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return<div style={{padding:14,background:T.inputBg||T.cardSolid,borderRadius:10,border:"1px solid "+T.brd,marginTop:12}}>
           <div style={{fontSize:FS,fontWeight:700,marginBottom:6}}>{"تفاصيل الأوردر: "+ord.modelNo}</div>
           <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:FS-1}}>
@@ -2132,6 +2134,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
                   <div style={{minWidth:110}}><label style={{fontSize:FS-3,color:T.textSec}}>التاريخ</label><Inp type="date" value={rv.date||new Date().toISOString().split("T")[0]} onChange={v=>setRcv(ck,"date",v)}/></div>
                   <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,false,null,ck)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>حفظ</Btn>
                   <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,true,{modelNo:ord.modelNo,bal},ck)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>حفظ+طباعة</Btn>
+                  <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,false,null,ck,true)} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn>
                 </div>})()}
               </div>
             </div>
