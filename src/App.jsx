@@ -1543,7 +1543,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
             <Btn ghost onClick={()=>setShowDeliver(false)}>✕</Btn>
           </div>
           <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
-            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الورشة *</label><Sel value={dWs} onChange={v=>{setDWs(v);setDPrice("")}}><option value="">-- اختر ورشة --</option>{workshops.map(w=><option key={w.id} value={w.name}>{wsTypeInfo(w.type).icon+" "+w.name+(w.owner?" - "+w.owner:"")}</option>)}</Sel></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الورشة *</label><Sel value={dWs} onChange={v=>{setDWs(v);setDPrice("")}}><option value="">-- اختر ورشة --</option>{workshops.map(w=><option key={w.id} value={w.name}>{wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — "+w.name+(w.owner?" - "+w.owner:"")}</option>)}</Sel></div>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع القطعة *</label><Sel value={dType} onChange={v=>{setDType(v);const delForP=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===v).reduce((s,wd)=>s+(Number(wd.qty)||0),0);setDQty(Math.max(0,t.cutQty-delForP))}}><option value="">-- اختر --</option>{(availPieces.length>0?availPieces:pieces.length>0?pieces:["عام"]).map(p=><option key={p} value={p}>{(gIcon(p,data.garmentTypes))+" "+p}</option>)}</Sel></div>
           </div>
           <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:12}}>
@@ -1713,7 +1713,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     <Card title={"سجل الحركات ("+movements.length+")"}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr 1fr 1fr",gap:8,marginBottom:10}}>
         <Inp value={movQ} onChange={setMovQ} placeholder="بحث بالموديل أو الورشة..."/>
-        <Sel value={movWsF} onChange={setMovWsF}><option value="الكل">كل الورش</option>{workshops.map(w=><option key={w.id||w} value={w.name||w}>{(w.type?wsTypeInfo(w.type).icon+" ":"")+(w.name||w)}</option>)}</Sel>
+        <Sel value={movWsF} onChange={setMovWsF}><option value="الكل">كل الورش</option>{workshops.map(w=><option key={w.id||w} value={w.name||w}>{(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)}</option>)}</Sel>
         <Sel value={movTypeF} onChange={setMovTypeF}><option value="الكل">كل الحركات</option><option value="deliver">تسليم ورشة</option><option value="receive">استلام مصنع</option></Sel>
         <div style={{display:"flex",gap:4}}>
           <Btn onClick={()=>{const el=document.getElementById("mov-log");if(!el)return;printPage("سجل حركات التشغيل الخارجي",el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd,flex:1}}>🖨 المعروض</Btn>
@@ -1773,7 +1773,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     <Card title="اختر الورشة" style={{marginBottom:16}}>
       <Sel value={selWs} onChange={v=>{setSelWs(v);setSelOrder("")}}>
         <option value="">-- اختر ورشة --</option>
-        {workshops.map(w=><option key={w.id||w} value={w.name||w}>{(w.type?wsTypeInfo(w.type).icon+" ":"")+(w.name||w)+(w.owner?" - "+w.owner:"")}</option>)}
+        {workshops.map(w=><option key={w.id||w} value={w.name||w}>{(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)+(w.owner?" - "+w.owner:"")}</option>)}
       </Sel>
       {wsObj&&(()=>{let wsTotalDel=0,wsTotalRcv=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===selWs).forEach(wd=>{wsTotalDel+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{wsTotalRcv+=Number(r.qty)||0})})});const wsBal=wsTotalDel-wsTotalRcv;
         return<div style={{marginTop:12,padding:12,background:T.accentBg,borderRadius:10}}>
@@ -1865,7 +1865,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     <Card title="اختر الورشة" style={{marginBottom:16}}>
       <Sel value={selWs} onChange={v=>{setSelWs(v);setRcvSearch("")}}>
         <option value="">-- اختر ورشة --</option>
-        {workshops.map(w=><option key={w.id||w} value={w.name||w}>{(w.type?wsTypeInfo(w.type).icon+" ":"")+(w.name||w)+(w.owner?" - "+w.owner:"")}</option>)}
+        {workshops.map(w=><option key={w.id||w} value={w.name||w}>{(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)+(w.owner?" - "+w.owner:"")}</option>)}
       </Sel>
       {selWs&&<div style={{marginTop:8}}><Inp value={rcvSearch} onChange={setRcvSearch} placeholder="بحث برقم الموديل..."/></div>}
     </Card>
@@ -1932,7 +1932,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><h2 style={{fontSize:isMob?18:22,fontWeight:800,margin:0}}>{"💳 اضافة دفعة"}</h2><Btn ghost onClick={()=>setMode(null)}>↩</Btn></div>
     <Card title="تسجيل دفعة" style={{marginBottom:14}}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:8,marginBottom:8}}>
-        <div><label style={{fontSize:FS-2,color:T.textSec}}>الورشة *</label><Sel value={payWs} onChange={setPayWs}><option value="">-- اختر --</option>{extWorkshops.map(w=><option key={w.id} value={w.name}>{wsTypeInfo(w.type).icon+" "+w.name}</option>)}</Sel></div>
+        <div><label style={{fontSize:FS-2,color:T.textSec}}>الورشة *</label><Sel value={payWs} onChange={setPayWs}><option value="">-- اختر --</option>{extWorkshops.map(w=><option key={w.id} value={w.name}>{wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — "+w.name}</option>)}</Sel></div>
         <div><label style={{fontSize:FS-2,color:T.textSec}}>نوع الحركة</label><Sel value={payType} onChange={setPayType}><option value="payment">دفعة للورشة (↗ تقليل)</option><option value="purchase">مشتريات الورشة (↙ اضافة)</option></Sel></div>
       </div>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 2fr",gap:8,marginBottom:8}}>
@@ -1999,7 +1999,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         </tbody>
       </table></div></Card>
       {/* Workshop filter */}
-      <div style={{marginBottom:14}}><Sel value={accWsF} onChange={setAccWsF}><option value="الكل">كل الورش</option>{activeWs.map(w=><option key={w.id} value={w.name}>{(w.type?wsTypeInfo(w.type).icon+" ":"")+w.name}</option>)}</Sel></div>
+      <div style={{marginBottom:14}}><Sel value={accWsF} onChange={setAccWsF}><option value="الكل">كل الورش</option>{activeWs.map(w=><option key={w.id} value={w.name}>{(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+w.name}</option>)}</Sel></div>
       {/* Per-workshop statement */}
       {filteredWs.map(w=>{const a=wsAccounts(w.name);
         const entries=[];
@@ -2096,7 +2096,7 @@ function SearchPg({data,goD,isMob,season,statusCards}){
     <Card style={{marginBottom:12}}><div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr 1fr",gap:8}}>
       <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>بحث</label><Inp value={q} onChange={setQ} placeholder="رقم موديل، وصف..."/></div>
       <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>الحالة</label><Sel value={stF} onChange={setStF}><option value="الكل">الكل</option>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel></div>
-      <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>الورشة</label><Sel value={wsF} onChange={setWsF}><option value="الكل">الكل</option>{(data.workshops||[]).map(w=><option key={w.id||w} value={w.name||w}>{(w.type?wsTypeInfo(w.type).icon+" ":"")+(w.name||w)}</option>)}</Sel></div>
+      <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>الورشة</label><Sel value={wsF} onChange={setWsF}><option value="الكل">الكل</option>{(data.workshops||[]).map(w=><option key={w.id||w} value={w.name||w}>{(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)}</option>)}</Sel></div>
     </div></Card>
     <Card title={"نتائج ("+filtered.length+")"}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:650}}>
       <thead><tr>{["#","التاريخ","موديل","الوصف","الورشة","الكمية","الحالة",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
@@ -2810,7 +2810,7 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
               <div style={{fontSize:FS,fontWeight:700,color:T.err,marginBottom:8}}>{"⚠️ أسماء غير مرتبطة ("+totalOrphans+")"}</div>
               {[...orphanWs.entries()].map(([name,count])=><div key={"ws-"+name} style={{display:"flex",gap:8,alignItems:"center",marginBottom:6,padding:"6px 10px",background:T.cardSolid,borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1}}>
                 <span style={{color:T.err,fontWeight:700}}>🏭 {name}</span><span style={{fontSize:FS-3,color:T.textMut}}>{"("+count+")"}</span><span style={{color:T.textSec}}>→</span>
-                <Sel value={linkMap[name]||""} onChange={v=>setLinkMap(p=>({...p,[name]:v}))}><option value="">--</option>{wsList.map(w=><option key={w.id} value={w.id}>{wsTypeInfo(w.type).icon+" "+w.name}</option>)}</Sel>
+                <Sel value={linkMap[name]||""} onChange={v=>setLinkMap(p=>({...p,[name]:v}))}><option value="">--</option>{wsList.map(w=><option key={w.id} value={w.id}>{wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — "+w.name}</option>)}</Sel>
               </div>)}
               {[...orphanGt.entries()].map(([name,count])=><div key={"gt-"+name} style={{display:"flex",gap:8,alignItems:"center",marginBottom:6,padding:"6px 10px",background:T.cardSolid,borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1}}>
                 <span style={{color:T.warn,fontWeight:700}}>👕 {name}</span><span style={{fontSize:FS-3,color:T.textMut}}>{"("+count+")"}</span><span style={{color:T.textSec}}>→</span>
