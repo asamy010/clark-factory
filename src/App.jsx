@@ -1245,8 +1245,8 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig}){
       <div><div style={{width:isMob?"100%":100,height:isMob?120:160,borderRadius:10,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.inputBg||T.cardSolid,cursor:"pointer",position:"relative"}}>{form.image?<img src={form.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-1,color:T.textMut}}>صورة</span>}<input type="file" accept="image/*" onChange={handleImg} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/></div></div>
       <div>
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"1fr 1fr 2fr 1fr 1fr 1fr",gap:6,marginBottom:6}}>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>رقم أمر التشغيل</label><Inp value={form.poNumber||""} onChange={v=>{if(initial.modelNo)updF("poNumber",v)}} readOnly={!initial.modelNo} placeholder={form.modelNo?"PO-"+form.modelNo+"-001":"PO-XXXX-001"} sx={{fontFamily:"monospace",letterSpacing:1,fontWeight:700,color:T.accent,opacity:initial.modelNo?1:0.7}}/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>رقم الموديل *</label><Inp value={form.modelNo} onChange={v=>{updF("modelNo",v);if(!form.poNumber||form.poNumber.startsWith("PO-"))updF("poNumber",genPO(v))}}/></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>رقم أمر التشغيل</label><Inp value={form.poNumber||""} onChange={v=>updF("poNumber",v)} placeholder={form.modelNo?"PO-"+form.modelNo+"-001":"PO-XXXX-001"} sx={{fontFamily:"monospace",letterSpacing:1,fontWeight:700,color:T.accent}}/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الوصف *</label><Inp value={form.modelDesc} onChange={v=>updF("modelDesc",v)}/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>المقاسات *</label><Sel value={form.sizeSetId} onChange={v=>{updF("sizeSetId",v);const ss=data.sizeSets.find(s=>s.id===Number(v));if(ss&&ss.pcsPerSeries){FKEYS.forEach(k=>{const cols=form["colors"+k]||[];if(cols.length>0){const nc=cols.map(c=>(!c.pcsPerLayer||c.pcsPerLayer===0)?{...c,pcsPerLayer:ss.pcsPerSeries,qty:(Number(c.layers)||0)*ss.pcsPerSeries}:c);updF("colors"+k,nc)}})}}}><option value="">-- اختر --</option>{data.sizeSets.map(s=><option key={s.id} value={s.id}>{s.label+(s.pcsPerSeries?" ("+s.pcsPerSeries+" قطعة/سيري)":"")}</option>)}</Sel></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>التاريخ *</label><Inp type="date" value={form.date} onChange={v=>updF("date",v)}/></div>
@@ -1359,7 +1359,8 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6,gap:8}}>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:FS+1,fontWeight:800,color:T.accent,marginBottom:2}}>{"🏷 "+o.modelNo}</div>
+                {o.poNumber&&<div style={{fontSize:FS,fontWeight:800,color:T.accent,fontFamily:"monospace",letterSpacing:0.5,marginBottom:1}}>{"📋 "+o.poNumber}</div>}
+                <div style={{fontSize:o.poNumber?FS-1:FS+1,fontWeight:700,color:o.poNumber?T.textSec:T.accent,marginBottom:2}}>{"🏷 "+o.modelNo}</div>
                 <div style={{fontSize:FS+2,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis"}}>{o.modelDesc}</div>
                 <div style={{fontSize:FS-1,color:T.textSec}}>{"مقاس "+o.sizeLabel}</div>
               </div>
@@ -1433,7 +1434,10 @@ function DetPg({data,updOrder,replaceOrder,addOrder,sel,setSel,isMob,canEdit,sta
       <div style={{display:"grid",gridTemplateColumns:order.image&&!isMob?"auto 1fr":"1fr",gap:16,marginBottom:16}}>
         {!isMob&&order.image&&<div><img src={order.image} alt="" style={{width:135,height:180,aspectRatio:"3/4",objectFit:"cover",borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow}}/></div>}
         <Card title="بيانات الموديل">
-          <div style={{fontSize:FS+4,fontWeight:800,color:T.accent,marginBottom:8}}>{"🏷 "+order.modelNo}<span style={{fontSize:FS,fontWeight:600,color:T.textSec,marginRight:10}}>{" — "+order.modelDesc}</span></div>
+          <div style={{marginBottom:8}}>
+            {order.poNumber&&<div style={{fontSize:FS+4,fontWeight:800,color:T.accent,fontFamily:"monospace",letterSpacing:1}}>{"📋 "+order.poNumber}</div>}
+            <div style={{fontSize:order.poNumber?FS+1:FS+4,fontWeight:700,color:order.poNumber?T.textSec:T.accent}}>{(order.poNumber?"🏷 ":"🏷 ")+order.modelNo}<span style={{fontSize:FS,fontWeight:600,color:T.textSec,marginRight:10}}>{" — "+order.modelDesc}</span></div>
+          </div>
           <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><tbody>
           <tr><td style={TDL}>المقاسات</td><td style={TDB}>{order.sizeLabel}</td><td style={TDL}>الحالة</td><td style={TD}><div style={{display:"flex",alignItems:"center",gap:6}}>{canEdit&&editStatusMode?<><Sel value={order.status} onChange={v=>{updOrder(sel,o=>{o.status=v});setEditStatusMode(false)}}>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel><Btn ghost small onClick={()=>setEditStatusMode(false)}>✕</Btn></>:<><Badge t={order.status} cards={statusCards}/>{canEdit&&<Btn ghost small onClick={()=>setEditStatusMode(true)} style={{fontSize:FS-3,padding:"2px 8px"}}>✏️</Btn>}</>}</div></td></tr>
           <tr><td style={TDL}>التاريخ</td><td style={TD}>{order.date}</td>{order.marker?<><td style={TDL}>ماركر</td><td style={TD}>{order.marker}</td></>:<><td></td><td></td></>}</tr>
@@ -2146,6 +2150,7 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards}){
   const[editSt,setEditSt]=useState(null);const[edStDate,setEdStDate]=useState("");const[edStQty,setEdStQty]=useState(0);const[edStNote,setEdStNote]=useState("");
   const[showLimitPopup,setShowLimitPopup]=useState(null);
   const[stLogQ,setStLogQ]=useState("");
+  const[stOrdQ,setStOrdQ]=useState("");
 
   const eligible=data.orders.filter(o=>{
     const wds=o.workshopDeliveries||[];if(wds.length===0)return false;
@@ -2204,9 +2209,10 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards}){
 
   return<div>
     <Card style={{marginBottom:12}}>
+      <div style={{marginBottom:8}}><Inp value={stOrdQ} onChange={setStOrdQ} placeholder="🔍 بحث برقم الموديل أو الوصف..."/></div>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr auto",gap:10,alignItems:"end"}}>
         <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>اختر الأوردر</label>
-          <Sel value={selOrder} onChange={v=>{setSelOrder(v);setStQty(0)}}><option value="">-- اختر أوردر --</option>{eligible.map(o=>{const tc=calcOrder(o);const sd=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return<option key={o.id} value={o.id}>{o.modelNo+" — "+o.modelDesc+" (متبقي: "+(tc.cutQty-sd)+")"}</option>})}</Sel>
+          {(()=>{const fElig=stOrdQ.trim()?eligible.filter(o=>(o.modelNo+o.modelDesc).toLowerCase().includes(stOrdQ.trim().toLowerCase())):eligible;return<Sel value={selOrder} onChange={v=>{setSelOrder(v);setStQty(0)}}><option value="">{"-- اختر أوردر ("+fElig.length+") --"}</option>{fElig.map(o=>{const tc=calcOrder(o);const sd=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return<option key={o.id} value={o.id}>{o.modelNo+" — "+o.modelDesc+" (متبقي: "+(tc.cutQty-sd)+")"}</option>})}</Sel>})()}
         </div>
         {selOrder&&<><div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>{"الكمية (طقم كامل متاح: "+stockRemain+")"}</label><Inp type="number" value={stQty} onChange={v=>setStQty(Number(v)||0)}/></div>
         <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>التاريخ</label><Inp type="date" value={stDate} onChange={setStDate}/></div>
