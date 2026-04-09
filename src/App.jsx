@@ -945,7 +945,7 @@ export default function App(){
                 </div>
               </div>
             </div>}
-            {/* Right side: Notes */}
+            {!isMob&&<>{/* Notes - desktop only */}
             <div style={{flex:1}}>
           {(()=>{const uemail=user?.email||"";const COLORS=[{key:"#FEF9C3",border:"#EAB308",name:"أصفر"},{key:"#DBEAFE",border:"#3B82F6",name:"أزرق"},{key:"#DCFCE7",border:"#22C55E",name:"أخضر"},{key:"#FCE7F3",border:"#EC4899",name:"وردي"},{key:"#EDE9FE",border:"#8B5CF6",name:"بنفسجي"},{key:"#FFEDD5",border:"#F97316",name:"برتقالي"}];
             const allNotes=(config.stickyNotes||[]);const myNotes=allNotes.filter(n=>n.email===uemail);
@@ -976,10 +976,10 @@ export default function App(){
                 </div>})}
               </div>}
             </div>})()}
-            </div>{/* close right side */}
+            </div></>}
           </div>{/* close flex layout */}
           {/* Mobile AI floating button */}
-          {isMob&&!aiOpen&&<div onClick={()=>setAiOpen(true)} style={{position:"fixed",bottom:20,left:20,width:56,height:56,borderRadius:28,background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 20px rgba(14,165,233,0.4)",cursor:"pointer",zIndex:999,fontSize:24}}>🤖</div>}
+          {isMob&&!aiOpen&&<div onClick={()=>setAiOpen(true)} style={{position:"fixed",bottom:20,right:20,width:56,height:56,borderRadius:28,background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 20px rgba(14,165,233,0.4)",cursor:"pointer",zIndex:999,fontSize:24}}>🤖</div>}
       </div>}
       {/* PAGES with back button */}
       {tab!=="home"&&canViewTab(tab)&&<div>
@@ -1100,10 +1100,11 @@ function DashPg({data,goD,isMob,season,statusCards,upConfig,user}){
         <div style={{padding:10,borderRadius:8,background:T.accent+"06",border:"1px solid "+T.accent+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>كمية القص</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.accent}}>{fmt(cutQ)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
         <div style={{padding:10,borderRadius:8,background:T.ok+"06",border:"1px solid "+T.ok+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>مخزن جاهز</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.ok}}>{fmt(delQ)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
         <div style={{padding:10,borderRadius:8,background:T.warn+"06",border:"1px solid "+T.warn+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>رصيد المصنع</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.warn}}>{fmt(cutQ-delQ)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
-        <div style={{padding:10,borderRadius:8,background:"#8B5CF606",border:"1px solid #8B5CF612",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>عند الورش</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:"#8B5CF6"}}>{fmt(Math.max(0,inProdQty))+" قطعة"}</div>
-          {Object.keys(wsPieces).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,justifyContent:"center",marginTop:6}}>{Object.entries(wsPieces).sort((a,b)=>b[1]-a[1]).map(([piece,qty])=><span key={piece} style={{fontSize:FS-3,padding:"2px 6px",borderRadius:5,background:"#8B5CF610",color:"#7C3AED",fontWeight:600}}>{gIcon(piece,data.garmentTypes)+" "+piece+": "+fmt(qty)}</span>)}</div>}
-          <div style={{marginTop:6,fontSize:FS-2,fontWeight:700,color:totalCompleteSets>0?"#10B981":"#94A3B8"}}>{"✅ طقم كامل: "+fmt(totalCompleteSets)}</div>
-          <div style={{fontSize:FS-3,color:T.textMut}}>{"تسليم: "+fmt(totalDeliveredToWs)+" | استلام: "+fmt(totalReceivedFromWs)}</div></div>
+        <div style={{padding:10,borderRadius:8,background:"#8B5CF606",border:"1px solid #8B5CF612"}}><div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",justifyContent:"center"}}>
+          <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>عند الورش</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:"#8B5CF6"}}>{fmt(Math.max(0,inProdQty))+" قطعة"}</div></div>
+          {Object.keys(wsPieces).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,justifyContent:"center"}}>{Object.entries(wsPieces).sort((a,b)=>b[1]-a[1]).map(([piece,qty])=><span key={piece} style={{fontSize:FS-3,padding:"2px 6px",borderRadius:5,background:"#8B5CF610",color:"#7C3AED",fontWeight:600}}>{gIcon(piece,data.garmentTypes)+" "+piece+": "+fmt(qty)}</span>)}</div>}
+          {totalCompleteSets>0&&<div style={{fontSize:FS-2,fontWeight:700,color:"#10B981",padding:"2px 8px",borderRadius:5,background:"#10B98110"}}>{"✅ "+fmt(totalCompleteSets)+" طقم"}</div>}
+          </div><div style={{fontSize:FS-3,color:T.textMut,textAlign:"center",marginTop:4}}>{"تسليم: "+fmt(totalDeliveredToWs)+" | استلام: "+fmt(totalReceivedFromWs)}</div></div>
         <div style={{padding:10,borderRadius:8,background:"#F59E0B06",border:"1px solid #F59E0B12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>تشطيب وتعبئة</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:"#F59E0B"}}>{fmt(finishingQty)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
         <div style={{padding:10,borderRadius:8,background:(comp>=80?T.ok:comp>=50?T.warn:T.err)+"06",border:"1px solid "+(comp>=80?T.ok:comp>=50?T.warn:T.err)+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>الانجاز</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:comp>=80?T.ok:comp>=50?T.warn:T.err}}>{comp+"%"}</div><PBar value={comp}/></div>
       </div>
