@@ -2176,7 +2176,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
           else{const totalDel=(o.workshopDeliveries||[]).reduce((s,wd)=>s+(Number(wd.qty)||0),0);const avail=t.cutQty-totalDel;if(avail>0)items.push({orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,garmentType:"عام",qty:avail,maxQty:avail,price:0,checked:true})}
         });setBatchItems(items)},100)}} options={workshops.map(w=>({value:w.name||w,label:(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)}))} placeholder="ابحث عن ورشة..."/>
       </Card>
-      {selWs&&batchItems.length>0&&<Card title={"القطع المتاحة ("+batchItems.length+")"} style={{marginBottom:16}}>
+      {selWs&&batchItems.length>0&&<Card title={"الاوردرات المتاحة للتسليم ("+batchItems.length+")"} style={{marginBottom:16}}>
         <div style={{display:"flex",gap:8,marginBottom:10}}>
           <Btn small onClick={selectAll} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>تحديد الكل</Btn>
           <Btn small onClick={deselectAll} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>الغاء الكل</Btn>
@@ -2250,7 +2250,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
           if(bal>0)items.push({orderId:o.id,docId:o._docId,modelNo:o.modelNo,modelDesc:o.modelDesc,garmentType:wd.garmentType||"عام",wdIdx,delivered:wd.qty,received:rcvd,balance:bal,qty:bal,price:Number(wd.price)||0,checked:true})
         })});setBatchItems(items)},100)}} options={workshops.map(w=>({value:w.name||w,label:(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)}))} placeholder="ابحث عن ورشة..."/>
       </Card>
-      {selWs&&batchItems.length>0&&<Card title={"قطع في انتظار الاستلام ("+batchItems.length+")"} style={{marginBottom:16}}>
+      {selWs&&batchItems.length>0&&<Card title={"الاوردرات المتاحة للاستلام ("+batchItems.length+")"} style={{marginBottom:16}}>
         <div style={{display:"flex",gap:8,marginBottom:10}}>
           <Btn small onClick={()=>setBatchItems(p=>p.map(x=>({...x,checked:true})))} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>تحديد الكل</Btn>
           <Btn small onClick={()=>setBatchItems(p=>p.map(x=>({...x,checked:false})))} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>الغاء الكل</Btn>
