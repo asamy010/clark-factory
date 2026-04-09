@@ -862,6 +862,31 @@ export default function App(){
             </div>):<div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد اشعارات</div>}
           </div>}
         </div>
+        {/* AI Assistant - desktop top bar */}
+        {!isMob&&<div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
+          <div onClick={()=>setAiOpen(!aiOpen)} style={{cursor:"pointer",fontSize:20,padding:"2px 6px",borderRadius:8,background:aiOpen?"linear-gradient(135deg,#0EA5E910,#8B5CF610)":"transparent",transition:"all 0.2s"}}>🤖</div>
+          {aiOpen&&<div style={{position:"absolute",top:"100%",left:0,marginTop:6,width:380,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:16,boxShadow:"0 8px 30px rgba(0,0,0,0.15)",zIndex:999,display:"flex",flexDirection:"column",height:450}}>
+            <div style={{padding:"12px 16px",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",background:"linear-gradient(135deg,#0EA5E910,#8B5CF610)",borderRadius:"16px 16px 0 0"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:20}}>🤖</span><span style={{fontWeight:800,fontSize:FS+1,color:T.text}}>مساعد CLARK</span></div>
+              {aiMsgs.length>0&&<span onClick={()=>setAiMsgs([])} style={{cursor:"pointer",fontSize:11,padding:"2px 8px",borderRadius:6,background:T.err+"10",color:T.err,fontWeight:600}}>مسح</span>}
+            </div>
+            <div style={{flex:1,overflowY:"auto",padding:12,display:"flex",flexDirection:"column",gap:8}}>
+              {aiMsgs.length===0&&<div style={{textAlign:"center",padding:20,color:T.textMut}}>
+                <div style={{fontSize:32,marginBottom:8}}>🤖</div>
+                <div style={{fontSize:FS,fontWeight:600,marginBottom:6}}>اسألني عن أي حاجة!</div>
+                <div style={{fontSize:FS-2,lineHeight:1.6}}>{"• موديل 3262 فين؟\n• كام أوردر متأخر؟\n• رصيد ورشة نورهان\n• ملخص الموسم"}</div>
+              </div>}
+              {aiMsgs.map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-start":"flex-end"}}>
+                <div style={{maxWidth:"85%",padding:"8px 12px",borderRadius:m.role==="user"?"12px 12px 4px 12px":"12px 12px 12px 4px",background:m.role==="user"?T.accent:T.bg,color:m.role==="user"?"#fff":T.text,fontSize:FS-1,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{m.text}</div>
+              </div>)}
+              {aiLoading&&<div style={{display:"flex",justifyContent:"flex-end"}}><div style={{padding:"8px 16px",borderRadius:12,background:T.bg,fontSize:FS-1,color:T.textMut}}>⏳ جاري التحليل...</div></div>}
+            </div>
+            <div style={{padding:"8px 12px",borderTop:"1px solid "+T.brd,display:"flex",gap:6}}>
+              <input value={aiInput} onChange={e=>setAiInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")askAI()}} placeholder="اسأل عن أي حاجة..." style={{flex:1,padding:"8px 12px",borderRadius:10,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none",boxSizing:"border-box"}}/>
+              <button onClick={askAI} disabled={aiLoading||!aiInput.trim()} style={{padding:"8px 14px",borderRadius:10,border:"none",background:aiInput.trim()?"linear-gradient(135deg,#0EA5E9,#8B5CF6)":"#E2E8F0",color:aiInput.trim()?"#fff":"#94A3B8",cursor:aiInput.trim()?"pointer":"default",fontSize:14,fontWeight:700}}>📩</button>
+            </div>
+          </div>}
+        </div>}
         {!isMob&&<span style={{fontSize:FS,color:T.textSec}}>{userName}</span>}
         {/* Theme picker - desktop only */}
         {!isMob&&<div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
@@ -914,44 +939,13 @@ export default function App(){
               <span style={{fontSize:18}}>📩</span><span style={{fontSize:FS,fontWeight:700,color:"#8B5CF6"}}>ارسال اشعار</span>
             </div>
           </div>
-          {/* ── AI Chat + Notes Layout ── */}
-          <div style={{display:"flex",gap:16,marginTop:16,flexDirection:isMob?"column":"row",maxWidth:1100,margin:"16px auto 0"}}>
-            {/* AI Chat Panel */}
-            {(!isMob||aiOpen)&&<div style={isMob?{position:"fixed",inset:0,zIndex:99997,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"flex-end",justifyContent:"center",padding:10}:{flex:"0 0 340px"}}>
-              <div style={{background:T.cardSolid,borderRadius:16,border:"1px solid "+T.brd,boxShadow:"0 4px 20px rgba(0,0,0,0.08)",display:"flex",flexDirection:"column",height:isMob?"85vh":400,width:isMob?"100%":"auto",maxWidth:isMob?420:"none"}} onClick={e=>e.stopPropagation()}>
-                <div style={{padding:"12px 16px",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",background:"linear-gradient(135deg,#0EA5E910,#8B5CF610)",borderRadius:"16px 16px 0 0"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:20}}>🤖</span><span style={{fontWeight:800,fontSize:FS+1,color:T.text}}>مساعد CLARK</span></div>
-                  <div style={{display:"flex",gap:4}}>
-                    {aiMsgs.length>0&&<span onClick={()=>setAiMsgs([])} style={{cursor:"pointer",fontSize:11,padding:"2px 8px",borderRadius:6,background:T.err+"10",color:T.err,fontWeight:600}}>مسح</span>}
-                    {isMob&&<span onClick={()=>setAiOpen(false)} style={{cursor:"pointer",fontSize:16,color:T.textMut}}>✕</span>}
-                  </div>
-                </div>
-                <div style={{flex:1,overflowY:"auto",padding:12,display:"flex",flexDirection:"column",gap:8}}>
-                  {aiMsgs.length===0&&<div style={{textAlign:"center",padding:20,color:T.textMut}}>
-                    <div style={{fontSize:32,marginBottom:8}}>🤖</div>
-                    <div style={{fontSize:FS,fontWeight:600,marginBottom:6}}>اسألني عن أي حاجة!</div>
-                    <div style={{fontSize:FS-2,lineHeight:1.6}}>{"• موديل 3262 فين؟\n• كام أوردر متأخر؟\n• رصيد ورشة نورهان\n• ملخص الموسم"}</div>
-                  </div>}
-                  {aiMsgs.map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-start":"flex-end"}}>
-                    <div style={{maxWidth:"85%",padding:"8px 12px",borderRadius:m.role==="user"?"12px 12px 4px 12px":"12px 12px 12px 4px",background:m.role==="user"?T.accent:T.bg,color:m.role==="user"?"#fff":T.text,fontSize:FS-1,lineHeight:1.6,whiteSpace:"pre-wrap"}}>
-                      {m.text}
-                    </div>
-                  </div>)}
-                  {aiLoading&&<div style={{display:"flex",justifyContent:"flex-end"}}><div style={{padding:"8px 16px",borderRadius:12,background:T.bg,fontSize:FS-1,color:T.textMut}}>⏳ جاري التحليل...</div></div>}
-                </div>
-                <div style={{padding:"8px 12px",borderTop:"1px solid "+T.brd,display:"flex",gap:6}}>
-                  <input value={aiInput} onChange={e=>setAiInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")askAI()}} placeholder="اسأل عن أي حاجة..." style={{flex:1,padding:"8px 12px",borderRadius:10,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none",boxSizing:"border-box"}}/>
-                  <button onClick={askAI} disabled={aiLoading||!aiInput.trim()} style={{padding:"8px 14px",borderRadius:10,border:"none",background:aiInput.trim()?"linear-gradient(135deg,#0EA5E9,#8B5CF6)":"#E2E8F0",color:aiInput.trim()?"#fff":"#94A3B8",cursor:aiInput.trim()?"pointer":"default",fontSize:14,fontWeight:700}}>📩</button>
-                </div>
-              </div>
-            </div>}
-            {!isMob&&<>{/* Notes - desktop only */}
-            <div style={{flex:1}}>
+          {/* ── Notes (desktop only) ── */}
+          {!isMob&&<div style={{maxWidth:1100,margin:"16px auto 0"}}>
           {(()=>{const uemail=user?.email||"";const COLORS=[{key:"#FEF9C3",border:"#EAB308",name:"أصفر"},{key:"#DBEAFE",border:"#3B82F6",name:"أزرق"},{key:"#DCFCE7",border:"#22C55E",name:"أخضر"},{key:"#FCE7F3",border:"#EC4899",name:"وردي"},{key:"#EDE9FE",border:"#8B5CF6",name:"بنفسجي"},{key:"#FFEDD5",border:"#F97316",name:"برتقالي"}];
             const allNotes=(config.stickyNotes||[]);const myNotes=allNotes.filter(n=>n.email===uemail);
             const saveNote=(note)=>{upConfig(d=>{if(!d.stickyNotes)d.stickyNotes=[];const idx=d.stickyNotes.findIndex(n=>n.id===note.id);if(idx>=0)d.stickyNotes[idx]=note;else{if(d.stickyNotes.filter(n=>n.email===uemail).length>=20){showToast("⚠️ الحد الاقصى 20 ملاحظة");return}d.stickyNotes.push(note)}});setStickyForm(null);showToast("✓ تم الحفظ")};
             const delNote=(id)=>{upConfig(d=>{d.stickyNotes=(d.stickyNotes||[]).filter(n=>n.id!==id)})};
-            return<div style={{marginTop:16}}>
+            return<div>
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
                 <span style={{fontSize:FS,fontWeight:700,color:T.textSec}}>{"📝 ملاحظاتي"+(myNotes.length>0?" ("+myNotes.length+"/20)":"")}</span>
                 <span onClick={()=>setStickyForm({id:gid(),email:uemail,title:"",text:"",color:"#FEF9C3",date:new Date().toISOString().split("T")[0]})} style={{cursor:"pointer",fontSize:FS-2,padding:"3px 10px",borderRadius:6,background:T.accent+"12",color:T.accent,fontWeight:700}}>+ ملاحظة</span>
@@ -963,7 +957,7 @@ export default function App(){
                 <div style={{display:"flex",gap:6,marginTop:6}}><Btn primary small onClick={()=>{if(!stickyForm.title?.trim()&&!stickyForm.text?.trim())return;saveNote(stickyForm)}}>💾 حفظ</Btn><Btn ghost small onClick={()=>setStickyForm(null)}>الغاء</Btn></div>
               </div>}
               {myNotes.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-                {myNotes.map(n=>{const bc=COLORS.find(c=>c.key===n.color);return<div key={n.id} style={{background:n.color||"#FEF9C3",borderRadius:10,padding:"8px 10px",border:"1px solid "+(bc?.border||"#EAB308")+"30",boxShadow:"0 1px 4px rgba(0,0,0,0.04)",width:isMob?140:160}}>
+                {myNotes.map(n=>{const bc=COLORS.find(c=>c.key===n.color);return<div key={n.id} style={{background:n.color||"#FEF9C3",borderRadius:10,padding:"8px 10px",border:"1px solid "+(bc?.border||"#EAB308")+"30",boxShadow:"0 1px 4px rgba(0,0,0,0.04)",width:160}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                     {n.title&&<div style={{fontWeight:700,fontSize:FS-1,color:"#1E293B",marginBottom:2,flex:1,lineHeight:1.3}}>{n.title}</div>}
                     <div style={{display:"flex",gap:2,flexShrink:0}}>
@@ -976,10 +970,26 @@ export default function App(){
                 </div>})}
               </div>}
             </div>})()}
-            </div></>}
-          </div>{/* close flex layout */}
+          </div>}
           {/* Mobile AI floating button */}
           {isMob&&!aiOpen&&<div onClick={()=>setAiOpen(true)} style={{position:"fixed",bottom:20,right:20,width:56,height:56,borderRadius:28,background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 20px rgba(14,165,233,0.4)",cursor:"pointer",zIndex:999,fontSize:24}}>🤖</div>}
+          {isMob&&aiOpen&&<div style={{position:"fixed",inset:0,zIndex:99997,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"flex-end",justifyContent:"center",padding:10}} onClick={()=>setAiOpen(false)}>
+            <div style={{background:T.cardSolid,borderRadius:16,border:"1px solid "+T.brd,boxShadow:"0 4px 20px rgba(0,0,0,0.08)",display:"flex",flexDirection:"column",height:"85vh",width:"100%",maxWidth:420}} onClick={e=>e.stopPropagation()}>
+              <div style={{padding:"12px 16px",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",background:"linear-gradient(135deg,#0EA5E910,#8B5CF610)",borderRadius:"16px 16px 0 0"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:20}}>🤖</span><span style={{fontWeight:800,fontSize:FS+1,color:T.text}}>مساعد CLARK</span></div>
+                <div style={{display:"flex",gap:4}}>{aiMsgs.length>0&&<span onClick={()=>setAiMsgs([])} style={{cursor:"pointer",fontSize:11,padding:"2px 8px",borderRadius:6,background:T.err+"10",color:T.err,fontWeight:600}}>مسح</span>}<span onClick={()=>setAiOpen(false)} style={{cursor:"pointer",fontSize:16,color:T.textMut}}>✕</span></div>
+              </div>
+              <div style={{flex:1,overflowY:"auto",padding:12,display:"flex",flexDirection:"column",gap:8}}>
+                {aiMsgs.length===0&&<div style={{textAlign:"center",padding:20,color:T.textMut}}><div style={{fontSize:32,marginBottom:8}}>🤖</div><div style={{fontSize:FS,fontWeight:600,marginBottom:6}}>اسألني عن أي حاجة!</div><div style={{fontSize:FS-2,lineHeight:1.6}}>{"• موديل 3262 فين؟\n• كام أوردر متأخر؟\n• رصيد ورشة نورهان\n• ملخص الموسم"}</div></div>}
+                {aiMsgs.map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-start":"flex-end"}}><div style={{maxWidth:"85%",padding:"8px 12px",borderRadius:m.role==="user"?"12px 12px 4px 12px":"12px 12px 12px 4px",background:m.role==="user"?T.accent:T.bg,color:m.role==="user"?"#fff":T.text,fontSize:FS-1,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{m.text}</div></div>)}
+                {aiLoading&&<div style={{display:"flex",justifyContent:"flex-end"}}><div style={{padding:"8px 16px",borderRadius:12,background:T.bg,fontSize:FS-1,color:T.textMut}}>⏳ جاري التحليل...</div></div>}
+              </div>
+              <div style={{padding:"8px 12px",borderTop:"1px solid "+T.brd,display:"flex",gap:6}}>
+                <input value={aiInput} onChange={e=>setAiInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")askAI()}} placeholder="اسأل عن أي حاجة..." style={{flex:1,padding:"8px 12px",borderRadius:10,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none",boxSizing:"border-box"}}/>
+                <button onClick={askAI} disabled={aiLoading||!aiInput.trim()} style={{padding:"8px 14px",borderRadius:10,border:"none",background:aiInput.trim()?"linear-gradient(135deg,#0EA5E9,#8B5CF6)":"#E2E8F0",color:aiInput.trim()?"#fff":"#94A3B8",cursor:aiInput.trim()?"pointer":"default",fontSize:14,fontWeight:700}}>📩</button>
+              </div>
+            </div>
+          </div>}
       </div>}
       {/* PAGES with back button */}
       {tab!=="home"&&canViewTab(tab)&&<div>
@@ -1033,6 +1043,15 @@ function DashPg({data,goD,isMob,season,statusCards,upConfig,user}){
     const cutQ=orders.reduce((s,o)=>s+calcOrder(o).cutQty,0);
     const delQ=orders.reduce((s,o)=>s+(o.deliveredQty||0),0);
     const comp=cutQ?Math.round((delQ/cutQ)*100):0;
+    /* Per-piece breakdowns for all cards */
+    const cutPieces={},stockPieces={},factoryPieces={};let cutSets=0,stockSets=0,factorySets=0;
+    orders.forEach(o=>{const pieces=o.orderPieces||[];const t=calcOrder(o);const qty=t.cutQty;
+      if(pieces.length>0){pieces.forEach(p=>{cutPieces[p]=(cutPieces[p]||0)+qty;
+        const stk=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);stockPieces[p]=(stockPieces[p]||0)+stk;factoryPieces[p]=(factoryPieces[p]||0)+(qty-stk)});
+        if(pieces.length>1){cutSets+=qty;const stkMin=Math.min(...pieces.map(p=>(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0)));stockSets+=stkMin;factorySets+=(qty-stkMin)}
+        else{cutSets+=qty;const stk=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);stockSets+=stk;factorySets+=(qty-stk)}
+      }else{cutPieces["عام"]=(cutPieces["عام"]||0)+qty;const stk=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);stockPieces["عام"]=(stockPieces["عام"]||0)+stk;factoryPieces["عام"]=(factoryPieces["عام"]||0)+(qty-stk);cutSets+=qty;stockSets+=stk;factorySets+=(qty-stk)}
+    });
     let totalDeliveredToWs=0,totalReceivedFromWs=0;
     orders.forEach(o=>{(o.workshopDeliveries||[]).forEach(wd=>{totalDeliveredToWs+=(Number(wd.qty)||0);(wd.receives||[]).forEach(r=>{totalReceivedFromWs+=(Number(r.qty)||0)})})});
     const inProdQty=totalDeliveredToWs-totalReceivedFromWs;
@@ -1061,10 +1080,10 @@ function DashPg({data,goD,isMob,season,statusCards,upConfig,user}){
     (data.wsPayments||[]).forEach(p=>{if(p.type==="payment")wsPaid+=(Number(p.amount)||0);else wsPurchase+=(Number(p.amount)||0)});
     const wsBalance=wsDue+wsPurchase-wsPaid;
     const finishingQty=orders.filter(o=>o.status==="تشطيب وتعبئة").reduce((s,o)=>s+calcOrder(o).cutQty,0);
-    return{cutQ,delQ,comp,totalDeliveredToWs,totalReceivedFromWs,inProdQty,wsPieces,totalCompleteSets,pieData,wsMap,wsChartData,wsDue,wsPaid,wsPurchase,wsBalance,finishingQty,_isInt}
+    return{cutQ,delQ,comp,cutPieces,stockPieces,factoryPieces,cutSets,stockSets,factorySets,totalDeliveredToWs,totalReceivedFromWs,inProdQty,wsPieces,totalCompleteSets,pieData,wsMap,wsChartData,wsDue,wsPaid,wsPurchase,wsBalance,finishingQty,_isInt}
   },[orders,statusCards,data.wsPayments,data.workshops]);
 
-  const{cutQ,delQ,comp,totalDeliveredToWs,totalReceivedFromWs,inProdQty,wsPieces,totalCompleteSets,pieData,wsMap,wsChartData,wsDue,wsPaid,wsPurchase,wsBalance,finishingQty,_isInt}=stats;
+  const{cutQ,delQ,comp,cutPieces,stockPieces,factoryPieces,cutSets,stockSets,factorySets,totalDeliveredToWs,totalReceivedFromWs,inProdQty,wsPieces,totalCompleteSets,pieData,wsMap,wsChartData,wsDue,wsPaid,wsPurchase,wsBalance,finishingQty,_isInt}=stats;
   const wsAccounts=(wsName)=>{if(_isInt(wsName))return{due:0,totalPaid:0,totalPurchase:0,balance:0};let due=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===wsName).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});const payments=(data.wsPayments||[]).filter(p=>p.wsName===wsName);const totalPaid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);const totalPurchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);return{due,totalPaid,totalPurchase,balance:due+totalPurchase-totalPaid}};
 
   return<div>
@@ -1097,9 +1116,21 @@ function DashPg({data,goD,isMob,season,statusCards,upConfig,user}){
       </Card>})()}
     <Card title={"الانتاج - الموسم "+season+" ("+orders.length+" موديل)"} style={{marginBottom:12}}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(6,1fr)",gap:10}}>
-        <div style={{padding:10,borderRadius:8,background:T.accent+"06",border:"1px solid "+T.accent+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>كمية القص</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.accent}}>{fmt(cutQ)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
-        <div style={{padding:10,borderRadius:8,background:T.ok+"06",border:"1px solid "+T.ok+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>مخزن جاهز</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.ok}}>{fmt(delQ)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
-        <div style={{padding:10,borderRadius:8,background:T.warn+"06",border:"1px solid "+T.warn+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>رصيد المصنع</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.warn}}>{fmt(cutQ-delQ)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
+        <div style={{padding:10,borderRadius:8,background:T.accent+"06",border:"1px solid "+T.accent+"12"}}><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",justifyContent:"center"}}>
+          <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>كمية القص</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.accent}}>{fmt(cutQ)+" قطعة"}</div></div>
+          {Object.keys(cutPieces).length>1&&<div style={{display:"flex",flexWrap:"wrap",gap:3,justifyContent:"center"}}>{Object.entries(cutPieces).sort((a,b)=>b[1]-a[1]).map(([p,q])=><span key={p} style={{fontSize:FS-3,padding:"1px 5px",borderRadius:4,background:T.accent+"10",color:T.accent,fontWeight:600}}>{gIcon(p,data.garmentTypes)+" "+p+":"+fmt(q)}</span>)}</div>}
+          {cutSets>0&&Object.keys(cutPieces).length>1&&<div style={{fontSize:FS-3,fontWeight:700,color:T.accent,padding:"1px 6px",borderRadius:4,background:T.accent+"10"}}>{"📦 "+fmt(cutSets)+" طقم"}</div>}
+        </div></div>
+        <div style={{padding:10,borderRadius:8,background:T.ok+"06",border:"1px solid "+T.ok+"12"}}><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",justifyContent:"center"}}>
+          <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>مخزن جاهز</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.ok}}>{fmt(delQ)+" قطعة"}</div></div>
+          {Object.keys(stockPieces).filter(k=>stockPieces[k]>0).length>1&&<div style={{display:"flex",flexWrap:"wrap",gap:3,justifyContent:"center"}}>{Object.entries(stockPieces).filter(([,q])=>q>0).sort((a,b)=>b[1]-a[1]).map(([p,q])=><span key={p} style={{fontSize:FS-3,padding:"1px 5px",borderRadius:4,background:T.ok+"10",color:T.ok,fontWeight:600}}>{gIcon(p,data.garmentTypes)+" "+p+":"+fmt(q)}</span>)}</div>}
+          {stockSets>0&&Object.keys(stockPieces).filter(k=>stockPieces[k]>0).length>1&&<div style={{fontSize:FS-3,fontWeight:700,color:T.ok,padding:"1px 6px",borderRadius:4,background:T.ok+"10"}}>{"✅ "+fmt(stockSets)+" طقم"}</div>}
+        </div></div>
+        <div style={{padding:10,borderRadius:8,background:T.warn+"06",border:"1px solid "+T.warn+"12"}}><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",justifyContent:"center"}}>
+          <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>رصيد المصنع</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.warn}}>{fmt(cutQ-delQ)+" قطعة"}</div></div>
+          {Object.keys(factoryPieces).filter(k=>factoryPieces[k]>0).length>1&&<div style={{display:"flex",flexWrap:"wrap",gap:3,justifyContent:"center"}}>{Object.entries(factoryPieces).filter(([,q])=>q>0).sort((a,b)=>b[1]-a[1]).map(([p,q])=><span key={p} style={{fontSize:FS-3,padding:"1px 5px",borderRadius:4,background:T.warn+"10",color:T.warn,fontWeight:600}}>{gIcon(p,data.garmentTypes)+" "+p+":"+fmt(q)}</span>)}</div>}
+          {factorySets>0&&Object.keys(factoryPieces).filter(k=>factoryPieces[k]>0).length>1&&<div style={{fontSize:FS-3,fontWeight:700,color:T.warn,padding:"1px 6px",borderRadius:4,background:T.warn+"10"}}>{"📦 "+fmt(factorySets)+" طقم"}</div>}
+        </div></div>
         <div style={{padding:10,borderRadius:8,background:"#8B5CF606",border:"1px solid #8B5CF612"}}><div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",justifyContent:"center"}}>
           <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>عند الورش</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:"#8B5CF6"}}>{fmt(Math.max(0,inProdQty))+" قطعة"}</div></div>
           {Object.keys(wsPieces).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,justifyContent:"center"}}>{Object.entries(wsPieces).sort((a,b)=>b[1]-a[1]).map(([piece,qty])=><span key={piece} style={{fontSize:FS-3,padding:"2px 6px",borderRadius:5,background:"#8B5CF610",color:"#7C3AED",fontWeight:600}}>{gIcon(piece,data.garmentTypes)+" "+piece+": "+fmt(qty)}</span>)}</div>}
@@ -1529,7 +1560,7 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig}){
       <div style={{display:"flex",gap:8}}><Btn small onClick={()=>{updF("poNumber",genPO(form.modelNo));setDupPoPopup(false)}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🔄 توليد رقم جديد</Btn><Btn ghost small onClick={()=>setDupPoPopup(false)}>تعديل يدوي</Btn></div>
     </div>}
     <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"auto 1fr",gap:10,marginBottom:10}}>
-      <div><div style={{width:isMob?"100%":100,height:isMob?120:160,borderRadius:10,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.inputBg||T.cardSolid,cursor:"pointer",position:"relative"}}>{form.image?<img src={form.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-1,color:T.textMut}}>صورة</span>}<input type="file" accept="image/*" onChange={handleImg} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/></div></div>
+      <div><div style={{width:isMob?"100%":100,aspectRatio:"3/4",borderRadius:10,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.inputBg||T.cardSolid,cursor:"pointer",position:"relative"}}>{form.image?<img src={form.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-1,color:T.textMut}}>صورة</span>}<input type="file" accept="image/*" onChange={handleImg} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/></div></div>
       <div>
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"1fr 1fr 2fr 1fr 1fr 1fr",gap:6,marginBottom:6}}>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>رقم أمر التشغيل</label><Inp value={form.poNumber||""} onChange={v=>{if(initial.modelNo)updF("poNumber",v)}} readOnly={!initial.modelNo} placeholder={form.modelNo?"PO-"+form.modelNo+"-001":"PO-XXXX-001"} sx={{fontFamily:"monospace",letterSpacing:1,fontWeight:700,color:T.accent,opacity:initial.modelNo?1:0.7}}/></div>
@@ -1661,7 +1692,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
           <div onClick={e=>{e.stopPropagation();updOrder(o.id,u=>{u.favorite=!u.favorite})}} style={{position:"absolute",top:8,right:8,cursor:"pointer",fontSize:18,zIndex:2}}>{o.favorite?"⭐":"☆"}</div>
           {pri!=="normal"&&<div style={{position:"absolute",top:28,right:10,fontSize:10}}>{pri==="urgent"?"🔴":"🟢"}</div>}
           {isStale&&<div style={{position:"absolute",bottom:8,left:8,fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.err+"15",color:T.err,fontWeight:700}}>{ageDays+" يوم"}</div>}
-          {o.image?<img src={o.image} alt="" style={{width:80,height:107,borderRadius:10,objectFit:"cover",flexShrink:0,border:"1px solid "+T.brd}}/>:<div style={{width:80,height:107,borderRadius:10,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:28,color:T.textMut}}>📷</div>}
+          {o.image?<img src={o.image} alt="" style={{width:80,aspectRatio:"3/4",borderRadius:10,objectFit:"cover",flexShrink:0,border:"1px solid "+T.brd}}/>:<div style={{width:80,aspectRatio:"3/4",borderRadius:10,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:28,color:T.textMut}}>📷</div>}
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6,gap:8}}>
               <div style={{flex:1,minWidth:0}}>
