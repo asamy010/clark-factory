@@ -1937,7 +1937,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     setPayAmt("");setPayNote("");setPayDate(new Date().toISOString().split("T")[0])};
 
   if(!mode)return<div>
-    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(5,1fr)",gap:12,marginBottom:20}}>
+    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(6,1fr)",gap:12,marginBottom:20}}>
       <div onClick={()=>setMode("deliver")} style={{background:T.card,borderRadius:14,padding:isMob?16:24,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center"}}>
         <div style={{fontSize:32,marginBottom:8}}>📤</div>
         <div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>تسليم ورشة</div>
@@ -1958,6 +1958,10 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         <div style={{fontSize:32,marginBottom:8}}>📦</div>
         <div style={{fontSize:FS+1,fontWeight:800,color:"#8B5CF6"}}>تسليم مُجمع</div>
       </div>
+      <div onClick={()=>{setMode("batchRcv");setSelWs("");setBatchItems([]);setBatchDate(new Date().toISOString().split("T")[0])}} style={{background:T.card,borderRadius:14,padding:isMob?16:24,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center"}}>
+        <div style={{fontSize:32,marginBottom:8}}>📥</div>
+        <div style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>استلام مُجمع</div>
+      </div>
     </div>
     {/* Movement Log with search/filter */}
     <Card title={"سجل الحركات ("+movements.length+")"}>
@@ -1973,12 +1977,24 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       {(()=>{const fMov=movements.filter(m=>{if(movWsF!=="الكل"&&m.wsName!==movWsF)return false;if(movTypeF!=="الكل"&&m.type!==movTypeF)return false;if(movQ.trim()){const s=movQ.trim().toLowerCase();if(!((m.orderNo||"").toLowerCase().includes(s)||(m.wsName||"").toLowerCase().includes(s)||(m.orderDesc||"").toLowerCase().includes(s)))return false}return true});const shown=fMov.slice(0,movLimit);
       const toggleSel=(idx)=>setSelMoves(p=>{const n=new Set(p);n.has(idx)?n.delete(idx):n.add(idx);return n});
       const selArr=[...selMoves].map(i=>shown[i]).filter(Boolean);
-      const printBatch=()=>{if(selArr.length===0)return;let h="<h2 style='text-align:center'>ملخص حركات — "+season+"</h2><table><thead><tr><th>#</th><th>النوع</th><th>التاريخ</th><th>الورشة</th><th>الموديل</th><th>القطعة</th><th>الكمية</th><th>السعر</th></tr></thead><tbody>";selArr.forEach((m,i)=>{h+="<tr style='background:"+(m.type==="deliver"?"#F0FDF4":"#EFF6FF")+"'><td>"+(i+1)+"</td><td style='font-weight:700;color:"+(m.type==="deliver"?"#10B981":"#0EA5E9")+"'>"+(m.type==="deliver"?"تسليم":"استلام")+"</td><td>"+m.date+"</td><td>"+m.wsName+"</td><td style='font-weight:700'>"+m.orderNo+"</td><td>"+(m.garmentType||"-")+"</td><td style='font-weight:700'>"+m.qty+"</td><td>"+(m.price?m.price+" ج.م":"-")+"</td></tr>"});const tQty=selArr.reduce((s,m)=>s+(Number(m.qty)||0),0);h+="<tr style='background:#EFF6FF;font-weight:800'><td colspan='6'>الاجمالي</td><td>"+tQty+"</td><td></td></tr></tbody></table><div style='margin-top:16px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:8px'>CLARK Factory Management</div>";printPage("ملخص حركات مجمعة",h)};
+      const printBatch=()=>{if(selArr.length===0)return;selArr.forEach((m,i)=>{setTimeout(()=>printMov(m),i*500)})};
+      const printBatchCombined=()=>{if(selArr.length===0)return;let h="";selArr.forEach((m,i)=>{const ord=data.orders.find(o=>o.id===m.orderId);const ws=(data.workshops||[]).find(w=>w.name===m.wsName);
+        h+="<div style='"+(i>0?"page-break-before:always;":"")+"padding:20px'>";
+        h+="<div style='text-align:center;margin-bottom:16px'><img src='"+CLARK_LOGO+"' style='width:140px;margin-bottom:6px'/><h2 style='margin:4px 0'>"+(m.type==="deliver"?"اذن تسليم ورشة":"اذن استلام من ورشة")+"</h2></div>";
+        h+="<table><tbody>";
+        h+="<tr><th>الورشة</th><td style='font-weight:700'>"+m.wsName+"</td><th>التاريخ</th><td>"+m.date+"</td></tr>";
+        h+="<tr><th>رقم الموديل</th><td style='font-weight:700'>"+m.orderNo+"</td><th>الوصف</th><td>"+(m.orderDesc||"-")+"</td></tr>";
+        h+="<tr><th>نوع القطعة</th><td style='color:#8B5CF6;font-weight:700'>"+(m.garmentType||"-")+"</td><th>الكمية</th><td style='font-weight:800;font-size:18px;color:#0284C7'>"+m.qty+"</td></tr>";
+        if(m.price)h+="<tr><th>السعر</th><td>"+m.price+" ج.م</td><th>الاجمالي</th><td style='font-weight:700'>"+fmt(r2(m.qty*m.price))+" ج.م</td></tr>";
+        h+="</tbody></table>";
+        h+="<div style='display:flex;justify-content:space-between;align-items:flex-end;margin-top:40px'><div style='text-align:center;width:160px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:12px'>توقيع المسلّم</div></div><div style='text-align:center;width:160px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:12px'>توقيع المستلم</div></div></div>";
+        h+="<div style='margin-top:12px;text-align:center;font-size:9px;color:#94A3B8'>CLARK Factory Management — "+new Date().toLocaleDateString("ar-EG")+"</div></div>"});
+        printPage("اذونات مجمعة ("+selArr.length+")",h)};
       const waBatch=()=>{if(selArr.length===0)return;const byWs={};selArr.forEach(m=>{if(!byWs[m.wsName])byWs[m.wsName]=[];byWs[m.wsName].push(m)});Object.entries(byWs).forEach(([ws,items])=>{const wsObj=workshops.find(w=>w.name===ws);const phone=wsObj?.phone||"";const lines=items.map(m=>"• "+(m.type==="deliver"?"تسليم":"استلام")+" — موديل *"+m.orderNo+"* — "+(m.garmentType||"عام")+" — *"+m.qty+"* قطعة").join("%0A");const tQty=items.reduce((s,m)=>s+(Number(m.qty)||0),0);const msg="*CLARK — ملخص حركات*%0A%0A• الورشة: *"+ws+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+tQty+"* قطعة%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")})};
       return<div id="mov-log">
       {selArr.length>0&&<div style={{padding:"10px 14px",borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF625",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <span style={{fontWeight:700,color:"#8B5CF6",fontSize:FS}}>{"☑ "+selArr.length+" حركة محددة ("+selArr.reduce((s,m)=>s+(Number(m.qty)||0),0)+" قطعة)"}</span>
-        <div style={{display:"flex",gap:6}}><Btn small onClick={printBatch} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة مجمعة</Btn><Btn small onClick={waBatch} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱 واتساب مجمع</Btn><Btn ghost small onClick={()=>setSelMoves(new Set())}>✕ الغاء</Btn></div>
+        <div style={{display:"flex",gap:6}}><Btn small onClick={printBatchCombined} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة مجمعة</Btn><Btn small onClick={waBatch} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱 واتساب مجمع</Btn><Btn ghost small onClick={()=>setSelMoves(new Set())}>✕ الغاء</Btn></div>
       </div>}
       <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
         <thead><tr>{["☐","نوع الحركة","التاريخ","الورشة","موديل","الوصف","نوع القطعة","الكمية","سعر التشغيل","ملاحظات",""].map(h=><th key={h} style={{...TH,width:h==="☐"?30:"auto"}}>{h==="☐"?<span onClick={()=>{if(selMoves.size===shown.length)setSelMoves(new Set());else setSelMoves(new Set(shown.map((_,i)=>i)))}} style={{cursor:"pointer",fontSize:16}}>{selMoves.size===shown.length&&shown.length>0?"☑":"☐"}</span>:h}</th>)}</tr></thead>
@@ -2192,6 +2208,86 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         </div>}
       </Card>}
       {selWs&&batchItems.length===0&&<Card><div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد قطع متاحة للتسليم لهذه الورشة</div></Card>}
+    </div>
+  }
+
+  /* ── BATCH RECEIVE MODE ── */
+  if(mode==="batchRcv"){
+    const buildRcvItems=()=>{if(!selWs)return[];const items=[];
+      data.orders.forEach(o=>{(o.workshopDeliveries||[]).forEach((wd,wdIdx)=>{if(wd.wsName!==selWs)return;
+        const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;
+        if(bal>0)items.push({orderId:o.id,docId:o._docId,modelNo:o.modelNo,modelDesc:o.modelDesc,garmentType:wd.garmentType||"عام",wdIdx,delivered:wd.qty,received:rcvd,balance:bal,qty:bal,price:Number(wd.price)||0,checked:true})
+      })});return items};
+    const toggleRcv=(idx)=>setBatchItems(p=>p.map((x,i)=>i===idx?{...x,checked:!x.checked}:x));
+    const updateRcv=(idx,val)=>setBatchItems(p=>p.map((x,i)=>i===idx?{...x,qty:Math.min(Number(val)||0,x.balance)}:x));
+    const checkedRcv=batchItems.filter(x=>x.checked&&x.qty>0);
+    const totalRcvQty=checkedRcv.reduce((s,x)=>s+x.qty,0);
+
+    const doBatchReceive=async(andPrint,andWa)=>{if(checkedRcv.length===0)return;
+      const byOrder={};checkedRcv.forEach(item=>{if(!byOrder[item.orderId])byOrder[item.orderId]=[];byOrder[item.orderId].push(item)});
+      for(const[orderId,items] of Object.entries(byOrder)){
+        const ord=data.orders.find(o=>o.id===orderId);if(!ord||!ord._docId)continue;
+        const updated=JSON.parse(JSON.stringify(ord));
+        items.forEach(item=>{if(!updated.workshopDeliveries[item.wdIdx].receives)updated.workshopDeliveries[item.wdIdx].receives=[];
+          updated.workshopDeliveries[item.wdIdx].receives.push({date:batchDate,qty:item.qty,notes:"استلام مُجمع",price:item.price,amount:r2(item.qty*item.price),quality:"جيد جداً"})});
+        updated.status=recomputeStatus(updated);
+        const clean={...updated};delete clean._docId;
+        try{await setDoc(doc(db,"seasons",season,"orders",ord._docId),clean)}catch(e){console.error("batch rcv error:",e)}
+      }
+      showToast("✓ تم استلام "+checkedRcv.length+" بند ("+totalRcvQty+" قطعة) من "+selWs);
+      if(andPrint){let h="";checkedRcv.forEach((item,i)=>{
+        h+="<div style='"+(i>0?"page-break-before:always;":"")+"padding:20px'><div style='text-align:center;margin-bottom:16px'><img src='"+CLARK_LOGO+"' style='width:140px;margin-bottom:6px'/><h2 style='margin:4px 0'>اذن استلام من ورشة</h2></div>";
+        h+="<table><tbody><tr><th>الورشة</th><td style='font-weight:700'>"+selWs+"</td><th>التاريخ</th><td>"+batchDate+"</td></tr>";
+        h+="<tr><th>رقم الموديل</th><td style='font-weight:700'>"+item.modelNo+"</td><th>الوصف</th><td>"+item.modelDesc+"</td></tr>";
+        h+="<tr><th>نوع القطعة</th><td style='color:#8B5CF6;font-weight:700'>"+item.garmentType+"</td><th>الكمية</th><td style='font-weight:800;font-size:18px;color:#10B981'>"+item.qty+"</td></tr>";
+        h+="</tbody></table><div style='display:flex;justify-content:space-between;margin-top:40px'><div style='text-align:center;width:160px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:12px'>توقيع المسلّم</div></div><div style='text-align:center;width:160px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:12px'>توقيع المستلم</div></div></div>";
+        h+="<div style='margin-top:12px;text-align:center;font-size:9px;color:#94A3B8'>CLARK Factory Management</div></div>"});
+        printPage("اذونات استلام مجمعة — "+selWs,h)}
+      if(andWa){const phone=wsObj?.phone||"";const lines=checkedRcv.map(item=>"• موديل *"+item.modelNo+"* — "+item.garmentType+" — *"+item.qty+"* قطعة").join("%0A");
+        const msg="*CLARK — استلام مُجمع من ورشة*%0A%0A• الورشة: *"+selWs+"*%0A• التاريخ: *"+batchDate+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+totalRcvQty+"* قطعة%0A%0A*برجاء التأكيد*";
+        window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
+      setBatchItems([]);setSelWs("");setMode(null)};
+
+    return<div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+        <h1 style={{fontSize:isMob?22:28,fontWeight:800,margin:0,color:T.ok}}>{"📥 استلام مُجمع"}</h1>
+        <Btn ghost onClick={()=>{setMode(null);setSelWs("");setBatchItems([])}}>↩</Btn>
+      </div>
+      <Card title="اختر الورشة" style={{marginBottom:16}}>
+        <SearchSel value={selWs} onChange={v=>{setSelWs(v);setTimeout(()=>{const items=[];data.orders.forEach(o=>{(o.workshopDeliveries||[]).forEach((wd,wdIdx)=>{if(wd.wsName!==v)return;
+          const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;
+          if(bal>0)items.push({orderId:o.id,docId:o._docId,modelNo:o.modelNo,modelDesc:o.modelDesc,garmentType:wd.garmentType||"عام",wdIdx,delivered:wd.qty,received:rcvd,balance:bal,qty:bal,price:Number(wd.price)||0,checked:true})
+        })});setBatchItems(items)},100)}} options={workshops.map(w=>({value:w.name||w,label:(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)}))} placeholder="ابحث عن ورشة..."/>
+      </Card>
+      {selWs&&batchItems.length>0&&<Card title={"قطع في انتظار الاستلام ("+batchItems.length+")"} style={{marginBottom:16}}>
+        <div style={{display:"flex",gap:8,marginBottom:10}}>
+          <Btn small onClick={()=>setBatchItems(p=>p.map(x=>({...x,checked:true})))} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>تحديد الكل</Btn>
+          <Btn small onClick={()=>setBatchItems(p=>p.map(x=>({...x,checked:false})))} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>الغاء الكل</Btn>
+          <div style={{marginRight:"auto"}}><label style={{fontSize:FS-2,color:T.textSec}}>التاريخ </label><input type="date" value={batchDate} onChange={e=>setBatchDate(e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.cardSolid,color:T.text}}/></div>
+        </div>
+        <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["✓","الموديل","الوصف","القطعة","تسليم","مستلم","رصيد","استلام الآن"].map(h=><th key={h} style={{...TH,fontSize:FS-1}}>{h}</th>)}</tr></thead>
+        <tbody>{batchItems.map((item,i)=><tr key={i} style={{background:item.checked?T.ok+"04":"",opacity:item.checked?1:0.5}}>
+          <td style={{...TD,textAlign:"center"}}><span onClick={()=>toggleRcv(i)} style={{cursor:"pointer",fontSize:18}}>{item.checked?"☑":"☐"}</span></td>
+          <td style={{...TDB,fontSize:FS}}>{item.modelNo}</td>
+          <td style={{...TD,fontSize:FS-1}}>{item.modelDesc}</td>
+          <td style={{...TD,fontWeight:700,color:"#8B5CF6"}}>{item.garmentType}</td>
+          <td style={TDB}>{item.delivered}</td>
+          <td style={{...TDB,color:T.ok}}>{item.received}</td>
+          <td style={{...TDB,color:T.err}}>{item.balance}</td>
+          <td style={{...TD,minWidth:70}}><Inp type="number" value={item.qty} onChange={v=>updateRcv(i,v)} sx={{padding:"3px 6px",fontSize:FS-1,textAlign:"center"}}/></td>
+        </tr>)}</tbody></table></div>
+        {checkedRcv.length>0&&<div style={{marginTop:12,padding:12,borderRadius:10,background:T.ok+"08",border:"1px solid "+T.ok+"20"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+            <div style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>{"اجمالي: "+checkedRcv.length+" بند — "+totalRcvQty+" قطعة"}</div>
+            <div style={{display:"flex",gap:6}}>
+              <Btn primary onClick={()=>doBatchReceive(false)} style={{background:T.ok,border:"none"}}>📥 استلام الكل</Btn>
+              <Btn onClick={()=>doBatchReceive(true)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>📥 استلام + طباعة</Btn>
+              <Btn onClick={()=>doBatchReceive(false,true)} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱 واتساب</Btn>
+            </div>
+          </div>
+        </div>}
+      </Card>}
+      {selWs&&batchItems.length===0&&<Card><div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد قطع في انتظار الاستلام من هذه الورشة</div></Card>}
     </div>
   }
 
