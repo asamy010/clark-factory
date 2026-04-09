@@ -214,8 +214,8 @@ function Timeline({events}){if(!events||events.length===0)return null;return<div
   </div>
 </div>}
 
-async function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance,gtList){
-  if(!order)return;
+async function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance,gtList,_returnHtml){
+  if(!order){if(_returnHtml)return"";return;}
   const t=calcOrder(order);
   /* Fallback: find wsName from order's workshopDeliveries if not passed */
   let ws=wsName||"";let wdIdx=0;
@@ -258,11 +258,12 @@ async function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance,gt
   h+="اقر أنا الموقع أدناه بأنني استلمت هذه البضاعة المذكورة عاليه وأتعهد بسداد قيمتها وقت طلبها. وأعتبر مسؤلاً مسئولية كاملة في حالة تبديد هذه البضاعة أو تلفها. وهذا اقرار مني بذلك</div>";
   /* Signatures */
   h+="<div class='sig'><div class='sig-box'>توقيع صاحب الورشة<br/><span style='font-size:11px;color:#8B5CF6'>"+ws+"</span></div><div class='sig-box'>مسؤول القص والتسليم</div></div>";
+  if(_returnHtml)return h;
   printPage("اذن تسليم ورشة — "+modelNo,h)
 }
 
-async function printReceiveReceipt(wsName,order,garmentType,qty,date,balance,gtList){
-  if(!order){printPage("اذن استلام مصنع","<p>بيانات غير متوفرة</p>");return}
+async function printReceiveReceipt(wsName,order,garmentType,qty,date,balance,gtList,_returnHtml){
+  if(!order){if(_returnHtml)return"";printPage("اذن استلام مصنع","<p>بيانات غير متوفرة</p>");return}
   const t=calcOrder(order);const gi=n=>gIcon(n,gtList);
   let ws=wsName||"";
   if(!ws&&order.workshopDeliveries){const wd=order.workshopDeliveries.find(w=>w.garmentType===garmentType)||order.workshopDeliveries[order.workshopDeliveries.length-1];if(wd)ws=wd.wsName||""}
@@ -302,6 +303,7 @@ async function printReceiveReceipt(wsName,order,garmentType,qty,date,balance,gtL
   /* Workshop QR + Signature */
   if(wsQrSrc)h+="<div style='display:flex;justify-content:space-between;align-items:flex-end;margin-top:30px'><div style='text-align:center;width:200px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:12px'>توقيع المستلم</div></div><div style='text-align:center'><img src='"+wsQrSrc+"' style='width:94px;height:94px'/><div style='font-size:8px;color:#94A3B8;margin-top:2px'>كشف حساب "+ws+"</div></div></div>";
   else h+="<div style='margin-top:50px;text-align:center;width:200px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:13px'>توقيع المستلم</div></div>";
+  if(_returnHtml)return h;
   printPage("اذن استلام مصنع — "+modelNo,h)
 }
 
@@ -1978,18 +1980,14 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       const toggleSel=(idx)=>setSelMoves(p=>{const n=new Set(p);n.has(idx)?n.delete(idx):n.add(idx);return n});
       const selArr=[...selMoves].map(i=>shown[i]).filter(Boolean);
       const printBatch=()=>{if(selArr.length===0)return;selArr.forEach((m,i)=>{setTimeout(()=>printMov(m),i*500)})};
-      const printBatchCombined=()=>{if(selArr.length===0)return;let h="";selArr.forEach((m,i)=>{const ord=data.orders.find(o=>o.id===m.orderId);const ws=(data.workshops||[]).find(w=>w.name===m.wsName);
-        h+="<div style='"+(i>0?"page-break-before:always;":"")+"padding:20px'>";
-        h+="<div style='text-align:center;margin-bottom:16px'><img src='"+CLARK_LOGO+"' style='width:140px;margin-bottom:6px'/><h2 style='margin:4px 0'>"+(m.type==="deliver"?"اذن تسليم ورشة":"اذن استلام من ورشة")+"</h2></div>";
-        h+="<table><tbody>";
-        h+="<tr><th>الورشة</th><td style='font-weight:700'>"+m.wsName+"</td><th>التاريخ</th><td>"+m.date+"</td></tr>";
-        h+="<tr><th>رقم الموديل</th><td style='font-weight:700'>"+m.orderNo+"</td><th>الوصف</th><td>"+(m.orderDesc||"-")+"</td></tr>";
-        h+="<tr><th>نوع القطعة</th><td style='color:#8B5CF6;font-weight:700'>"+(m.garmentType||"-")+"</td><th>الكمية</th><td style='font-weight:800;font-size:18px;color:#0284C7'>"+m.qty+"</td></tr>";
-        if(m.price)h+="<tr><th>السعر</th><td>"+m.price+" ج.م</td><th>الاجمالي</th><td style='font-weight:700'>"+fmt(r2(m.qty*m.price))+" ج.م</td></tr>";
-        h+="</tbody></table>";
-        h+="<div style='display:flex;justify-content:space-between;align-items:flex-end;margin-top:40px'><div style='text-align:center;width:160px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:12px'>توقيع المسلّم</div></div><div style='text-align:center;width:160px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:12px'>توقيع المستلم</div></div></div>";
-        h+="<div style='margin-top:12px;text-align:center;font-size:9px;color:#94A3B8'>CLARK Factory Management — "+new Date().toLocaleDateString("ar-EG")+"</div></div>"});
-        printPage("اذونات مجمعة ("+selArr.length+")",h)};
+      const printBatchCombined=async()=>{if(selArr.length===0)return;let pages=[];
+        for(const m of selArr){const ord=data.orders.find(o=>o.id===m.orderId);const ws=(data.workshops||[]).find(w=>w.name===m.wsName);
+          let html="";if(m.type==="deliver")html=await printReceipt(m.wsName,ws?.owner||"",ord||{modelNo:m.orderNo,modelDesc:m.orderDesc},m.garmentType||"",m.qty,m.date,0,data.garmentTypes,true);
+          else html=await printReceiveReceipt(m.wsName,ord||{modelNo:m.orderNo,modelDesc:m.orderDesc},m.garmentType||"",m.qty,m.date,0,data.garmentTypes,true);
+          if(html)pages.push(html)}
+        if(pages.length===0)return;
+        const combined=pages.map((p,i)=>"<div"+(i>0?" style='page-break-before:always'":"")+">"+p+"</div>").join("");
+        printPage("اذونات مجمعة ("+pages.length+")",combined)};
       const waBatch=()=>{if(selArr.length===0)return;const byWs={};selArr.forEach(m=>{if(!byWs[m.wsName])byWs[m.wsName]=[];byWs[m.wsName].push(m)});Object.entries(byWs).forEach(([ws,items])=>{const wsObj=workshops.find(w=>w.name===ws);const phone=wsObj?.phone||"";const lines=items.map(m=>"• "+(m.type==="deliver"?"تسليم":"استلام")+" — موديل *"+m.orderNo+"* — "+(m.garmentType||"عام")+" — *"+m.qty+"* قطعة").join("%0A");const tQty=items.reduce((s,m)=>s+(Number(m.qty)||0),0);const msg="*CLARK — ملخص حركات*%0A%0A• الورشة: *"+ws+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+tQty+"* قطعة%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")})};
       return<div id="mov-log">
       {selArr.length>0&&<div style={{padding:"10px 14px",borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF625",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
@@ -2158,13 +2156,10 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         try{await setDoc(doc(db,"seasons",season,"orders",ord._docId),clean)}catch(e){console.error("batch write error:",e)}
       }
       showToast("✓ تم تسليم "+checked.length+" بند ("+totalQty+" قطعة) لـ "+selWs);
-      if(andPrint){let h="<div style='text-align:center;margin-bottom:16px'><img src='"+CLARK_LOGO+"' style='width:160px;margin-bottom:6px'/><h1 style='font-size:20px;margin:4px 0'>اذن تسليم ورشة — تسليم مُجمع</h1><h2 style='font-size:18px;color:#0284C7;margin:2px 0'>"+selWs+"</h2><div style='font-size:11px;color:#64748B'>التاريخ: "+batchDate+"</div></div>";
-        h+="<table><thead><tr><th>#</th><th>رقم الموديل</th><th>الوصف</th><th>القطعة</th><th>الكمية</th><th>السعر</th></tr></thead><tbody>";
-        checked.forEach((item,i)=>{h+="<tr><td>"+(i+1)+"</td><td style='font-weight:700'>"+item.modelNo+"</td><td>"+item.modelDesc+"</td><td style='color:#8B5CF6;font-weight:600'>"+item.garmentType+"</td><td style='font-weight:800;color:#0284C7'>"+item.qty+"</td><td>"+(item.price||"-")+"</td></tr>"});
-        h+="<tr style='background:#EFF6FF;font-weight:800'><td colspan='4'>الاجمالي</td><td style='color:#0284C7;font-size:16px'>"+totalQty+"</td><td></td></tr></tbody></table>";
-        h+="<div style='display:flex;justify-content:space-between;align-items:flex-end;margin-top:30px'><div style='text-align:center;width:180px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:12px'>توقيع المسلّم</div></div><div style='text-align:center;width:180px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:12px'>توقيع المستلم</div></div></div>";
-        h+="<div style='margin-top:16px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:8px'>CLARK Factory Management — "+new Date().toLocaleDateString("ar-EG")+"</div>";
-        printPage("اذن تسليم مُجمع — "+selWs,h)}
+      if(andPrint){let pages=[];for(const item of checked){const ord=data.orders.find(o=>o.id===item.orderId);
+          const html=await printReceipt(selWs,wsObj?.owner||"",ord||{modelNo:item.modelNo,modelDesc:item.modelDesc},item.garmentType,item.qty,batchDate,0,data.garmentTypes,true);
+          if(html)pages.push(html)}
+        if(pages.length>0)printPage("اذن تسليم مُجمع — "+selWs,pages.map((p,i)=>"<div"+(i>0?" style='page-break-before:always'":"")+">"+p+"</div>").join(""))}
       if(andWa){const phone=wsObj?.phone||"";let lines=checked.map(item=>"• موديل *"+item.modelNo+"* — "+item.garmentType+" — *"+item.qty+"* قطعة"+(item.price?" — "+item.price+" ج.م":"")).join("%0A");
         const msg="*CLARK — اذن تسليم مُجمع*%0A%0A• الورشة: *"+selWs+"*%0A• التاريخ: *"+batchDate+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+totalQty+"* قطعة%0A%0A*برجاء التأكيد*";
         window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
@@ -2235,14 +2230,10 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         try{await setDoc(doc(db,"seasons",season,"orders",ord._docId),clean)}catch(e){console.error("batch rcv error:",e)}
       }
       showToast("✓ تم استلام "+checkedRcv.length+" بند ("+totalRcvQty+" قطعة) من "+selWs);
-      if(andPrint){let h="";checkedRcv.forEach((item,i)=>{
-        h+="<div style='"+(i>0?"page-break-before:always;":"")+"padding:20px'><div style='text-align:center;margin-bottom:16px'><img src='"+CLARK_LOGO+"' style='width:140px;margin-bottom:6px'/><h2 style='margin:4px 0'>اذن استلام من ورشة</h2></div>";
-        h+="<table><tbody><tr><th>الورشة</th><td style='font-weight:700'>"+selWs+"</td><th>التاريخ</th><td>"+batchDate+"</td></tr>";
-        h+="<tr><th>رقم الموديل</th><td style='font-weight:700'>"+item.modelNo+"</td><th>الوصف</th><td>"+item.modelDesc+"</td></tr>";
-        h+="<tr><th>نوع القطعة</th><td style='color:#8B5CF6;font-weight:700'>"+item.garmentType+"</td><th>الكمية</th><td style='font-weight:800;font-size:18px;color:#10B981'>"+item.qty+"</td></tr>";
-        h+="</tbody></table><div style='display:flex;justify-content:space-between;margin-top:40px'><div style='text-align:center;width:160px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:12px'>توقيع المسلّم</div></div><div style='text-align:center;width:160px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:12px'>توقيع المستلم</div></div></div>";
-        h+="<div style='margin-top:12px;text-align:center;font-size:9px;color:#94A3B8'>CLARK Factory Management</div></div>"});
-        printPage("اذونات استلام مجمعة — "+selWs,h)}
+      if(andPrint){let pages=[];for(const item of checkedRcv){const ord=data.orders.find(o=>o.id===item.orderId);
+          const html=await printReceiveReceipt(selWs,ord||{modelNo:item.modelNo,modelDesc:item.modelDesc},item.garmentType,item.qty,batchDate,0,data.garmentTypes,true);
+          if(html)pages.push(html)}
+        if(pages.length>0)printPage("اذونات استلام مجمعة — "+selWs,pages.map((p,i)=>"<div"+(i>0?" style='page-break-before:always'":"")+">"+p+"</div>").join(""))}
       if(andWa){const phone=wsObj?.phone||"";const lines=checkedRcv.map(item=>"• موديل *"+item.modelNo+"* — "+item.garmentType+" — *"+item.qty+"* قطعة").join("%0A");
         const msg="*CLARK — استلام مُجمع من ورشة*%0A%0A• الورشة: *"+selWs+"*%0A• التاريخ: *"+batchDate+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+totalRcvQty+"* قطعة%0A%0A*برجاء التأكيد*";
         window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
