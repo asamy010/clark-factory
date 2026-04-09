@@ -1870,7 +1870,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
   const[movLimit,setMovLimit]=useState(50);
   const[wsMovLimit,setWsMovLimit]=useState(10);
   const[rcvSearch,setRcvSearch]=useState("");
-  const[batchItems,setBatchItems]=useState([]);const[batchDate,setBatchDate]=useState(new Date().toISOString().split("T")[0]);
+  const[batchItems,setBatchItems]=useState([]);const[batchDate,setBatchDate]=useState(new Date().toISOString().split("T")[0]);const[batchQ,setBatchQ]=useState("");
   const[editMov,setEditMov]=useState(null);
   const[editQty,setEditQty]=useState(0);
   const[editNote,setEditNote]=useState("");
@@ -2215,20 +2215,38 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         <Btn ghost onClick={()=>{setMode(null);setSelWs("");setBatchItems([])}}>↩</Btn>
       </div>
       <Card title="اختر الورشة" style={{marginBottom:16,position:"relative",zIndex:100}}>
-        <SearchSel value={selWs} onChange={v=>{setSelWs(v);setTimeout(()=>{const items=[];const ws=v;data.orders.forEach(o=>{const t=calcOrder(o);const pieces=o.orderPieces||[];const linkedPieces=new Set();FKEYS.forEach(k=>{if(gf(o,k))(o["fabricPieces"+k]||[]).forEach(p=>linkedPieces.add(p))});
-          if(pieces.length>0){pieces.forEach(p=>{if(linkedPieces.size>0&&!linkedPieces.has(p))return;const delForP=(o.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);const avail=t.cutQty-delForP;if(avail>0)items.push({orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,garmentType:p,qty:avail,maxQty:avail,price:0,checked:false})})}
-          else{const totalDel=(o.workshopDeliveries||[]).reduce((s,wd)=>s+(Number(wd.qty)||0),0);const avail=t.cutQty-totalDel;if(avail>0)items.push({orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,garmentType:"عام",qty:avail,maxQty:avail,price:0,checked:false})}
-        });setBatchItems(items)},100)}} options={workshops.map(w=>({value:w.name||w,label:(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)}))} placeholder="ابحث عن ورشة..."/>
+        <SearchSel value={selWs} onChange={v=>{setSelWs(v);
+          /* Build items using same logic as regular deliver */
+          const items=[];
+          const eligible=data.orders.filter(o=>{const s=o.status;return s==="تم القص"||s==="في التشغيل"||s==="في الطباعة"||s==="في التطريز"});
+          eligible.forEach(o=>{const t=calcOrder(o);if(t.cutQty<=0)return;
+            const pieces=o.orderPieces||[];
+            if(pieces.length>0){
+              pieces.forEach(p=>{
+                const delForP=(o.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+                const avail=t.cutQty-delForP;
+                if(avail>0)items.push({orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,garmentType:p,qty:avail,maxQty:avail,price:0,checked:false})
+              })
+            }else{
+              const totalDel=(o.workshopDeliveries||[]).reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+              const avail=t.cutQty-totalDel;
+              if(avail>0)items.push({orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,garmentType:"عام",qty:avail,maxQty:avail,price:0,checked:false})
+            }
+          });
+          setBatchItems(items)
+        }} options={workshops.map(w=>({value:w.name||w,label:(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)}))} placeholder="ابحث عن ورشة..."/>
       </Card>
-      {selWs&&batchItems.length>0&&<Card title={"الاوردرات المتاحة للتسليم ("+batchItems.length+")"} style={{marginBottom:16}}>
+      {selWs&&batchItems.length>0&&(()=>{const bq=batchQ.trim().toLowerCase();const filteredIdx=batchItems.map((item,i)=>({item,i})).filter(({item})=>!bq||(item.modelNo||"").toLowerCase().includes(bq)||(item.modelDesc||"").toLowerCase().includes(bq));
+        return<Card title={"الاوردرات المتاحة للتسليم ("+batchItems.length+")"} style={{marginBottom:16}}>
         <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
           <Btn small onClick={selectAll} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>تحديد الكل</Btn>
           <Btn small onClick={deselectAll} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>الغاء الكل</Btn>
           <div><label style={{fontSize:FS-2,color:T.textSec}}>التاريخ </label><input type="date" value={batchDate} onChange={e=>setBatchDate(e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.cardSolid,color:T.text}}/></div>
           {checked.length>0&&<><Btn small primary onClick={()=>doBatchDeliver(false)}>📦 تسليم ({checked.length})</Btn><Btn small onClick={()=>doBatchDeliver(true)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn><Btn small onClick={()=>doBatchDeliver(false,true)} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn></>}
         </div>
+        <Inp value={batchQ} onChange={setBatchQ} placeholder="فلتر برقم الموديل أو الوصف..." style={{marginBottom:8}}/>
         <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["✓","الموديل","الوصف","القطعة","الكمية","السعر"].map(h=><th key={h} style={{...TH,fontSize:FS-1}}>{h}</th>)}</tr></thead>
-        <tbody>{batchItems.map((item,i)=><tr key={i} style={{background:item.checked?T.ok+"04":"",opacity:item.checked?1:0.5}}>
+        <tbody>{filteredIdx.map(({item,i})=><tr key={i} style={{background:item.checked?T.ok+"04":"",opacity:item.checked?1:0.5}}>
           <td style={{...TD,textAlign:"center"}}><span onClick={()=>toggleItem(i)} style={{cursor:"pointer",fontSize:18}}>{item.checked?"☑":"☐"}</span></td>
           <td style={{...TDB,fontSize:FS}}>{item.modelNo}</td>
           <td style={{...TD,fontSize:FS-1}}>{item.modelDesc}</td>
@@ -2246,7 +2264,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
             </div>
           </div>
         </div>}
-      </Card>}
+      </Card>})()}
       {selWs&&batchItems.length===0&&<Card><div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد قطع متاحة للتسليم لهذه الورشة</div></Card>}
     </div>
   }
@@ -2290,20 +2308,24 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         <Btn ghost onClick={()=>{setMode(null);setSelWs("");setBatchItems([])}}>↩</Btn>
       </div>
       <Card title="اختر الورشة" style={{marginBottom:16,position:"relative",zIndex:100}}>
-        <SearchSel value={selWs} onChange={v=>{setSelWs(v);setTimeout(()=>{const items=[];data.orders.forEach(o=>{(o.workshopDeliveries||[]).forEach((wd,wdIdx)=>{if(wd.wsName!==v)return;
-          const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;
-          if(bal>0)items.push({orderId:o.id,docId:o._docId,modelNo:o.modelNo,modelDesc:o.modelDesc,garmentType:wd.garmentType||"عام",wdIdx,delivered:wd.qty,received:rcvd,balance:bal,qty:bal,price:Number(wd.price)||0,checked:false})
-        })});setBatchItems(items)},100)}} options={workshops.map(w=>({value:w.name||w,label:(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)}))} placeholder="ابحث عن ورشة..."/>
+        <SearchSel value={selWs} onChange={v=>{setSelWs(v);
+          const items=[];data.orders.forEach(o=>{(o.workshopDeliveries||[]).forEach((wd,wdIdx)=>{if(wd.wsName!==v)return;
+            const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;
+            if(bal>0)items.push({orderId:o.id,docId:o._docId,modelNo:o.modelNo,modelDesc:o.modelDesc,garmentType:wd.garmentType||"عام",wdIdx,delivered:wd.qty,received:rcvd,balance:bal,qty:bal,price:Number(wd.price)||0,checked:false})
+          })});setBatchItems(items);setBatchQ("")
+        }} options={workshops.map(w=>({value:w.name||w,label:(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)}))} placeholder="ابحث عن ورشة..."/>
       </Card>
-      {selWs&&batchItems.length>0&&<Card title={"الاوردرات المتاحة للاستلام ("+batchItems.length+")"} style={{marginBottom:16}}>
+      {selWs&&batchItems.length>0&&(()=>{const bq=batchQ.trim().toLowerCase();const filteredIdx=batchItems.map((item,i)=>({item,i})).filter(({item})=>!bq||(item.modelNo||"").toLowerCase().includes(bq)||(item.modelDesc||"").toLowerCase().includes(bq));
+        return<Card title={"الاوردرات المتاحة للاستلام ("+batchItems.length+")"} style={{marginBottom:16}}>
         <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
           <Btn small onClick={()=>setBatchItems(p=>p.map(x=>({...x,checked:true})))} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>تحديد الكل</Btn>
           <Btn small onClick={()=>setBatchItems(p=>p.map(x=>({...x,checked:false})))} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>الغاء الكل</Btn>
           <div><label style={{fontSize:FS-2,color:T.textSec}}>التاريخ </label><input type="date" value={batchDate} onChange={e=>setBatchDate(e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.cardSolid,color:T.text}}/></div>
           {checkedRcv.length>0&&<><Btn small onClick={()=>doBatchReceive(false)} style={{background:T.ok,color:"#fff",border:"none"}}>📥 استلام ({checkedRcv.length})</Btn><Btn small onClick={()=>doBatchReceive(true)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn><Btn small onClick={()=>doBatchReceive(false,true)} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn></>}
         </div>
+        <Inp value={batchQ} onChange={setBatchQ} placeholder="فلتر برقم الموديل أو الوصف..." style={{marginBottom:8}}/>
         <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["✓","الموديل","الوصف","القطعة","تسليم","مستلم","رصيد","استلام الآن"].map(h=><th key={h} style={{...TH,fontSize:FS-1}}>{h}</th>)}</tr></thead>
-        <tbody>{batchItems.map((item,i)=><tr key={i} style={{background:item.checked?T.ok+"04":"",opacity:item.checked?1:0.5}}>
+        <tbody>{filteredIdx.map(({item,i})=><tr key={i} style={{background:item.checked?T.ok+"04":"",opacity:item.checked?1:0.5}}>
           <td style={{...TD,textAlign:"center"}}><span onClick={()=>toggleRcv(i)} style={{cursor:"pointer",fontSize:18}}>{item.checked?"☑":"☐"}</span></td>
           <td style={{...TDB,fontSize:FS}}>{item.modelNo}</td>
           <td style={{...TD,fontSize:FS-1}}>{item.modelDesc}</td>
@@ -2323,7 +2345,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
             </div>
           </div>
         </div>}
-      </Card>}
+      </Card>})()}
       {selWs&&batchItems.length===0&&<Card><div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد قطع في انتظار الاستلام من هذه الورشة</div></Card>}
     </div>
   }
