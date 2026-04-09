@@ -1544,6 +1544,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
   const[detQ,setDetQ]=useState("");const[detSt,setDetSt]=useState("الكل");
   const[editStockIdx,setEditStockIdx]=useState(null);
+  const[settReason,setSettReason]=useState("");const[settNotes,setSettNotes]=useState("");
   const[showNew,setShowNew]=useState(false);
   const[dupInit,setDupInit]=useState(null);
   const[showDeliver,setShowDeliver]=useState(false);
@@ -1813,14 +1814,14 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
                   return<div style={{padding:14,borderRadius:10,background:T.err+"04",border:"1px solid "+T.err+"15"}}>
                     <div style={{fontSize:FS+1,fontWeight:800,color:T.err,marginBottom:10}}>{"🔴 تكلفة الهالك: "+fmt(settCost)+" ج.م"}</div>
                     <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:8,marginBottom:10}}>
-                      <div><label style={{fontSize:FS-2,color:T.textSec}}>سبب التسوية</label><Sel id="sett-reason"><option value="">-- اختر --</option>{REASONS.map(r=><option key={r} value={r}>{r}</option>)}</Sel></div>
-                      <div><label style={{fontSize:FS-2,color:T.textSec}}>ملاحظات</label><Inp id="sett-notes" placeholder="ملاحظات اضافية..."/></div>
+                      <div><label style={{fontSize:FS-2,color:T.textSec}}>سبب التسوية</label><Sel value={settReason} onChange={setSettReason}><option value="">-- اختر --</option>{REASONS.map(r=><option key={r} value={r}>{r}</option>)}</Sel></div>
+                      <div><label style={{fontSize:FS-2,color:T.textSec}}>ملاحظات</label><Inp value={settNotes} onChange={setSettNotes} placeholder="ملاحظات اضافية..."/></div>
                     </div>
                     <div style={{display:"flex",gap:8}}>
-                      <Btn onClick={()=>{const reason=document.getElementById("sett-reason")?.value;if(!reason){showToast("⚠️ اختر سبب التسوية");return}const notes=document.getElementById("sett-notes")?.value||"";
-                        updOrder(sel,o=>{o.settlement={qty:remain,reason,notes,cost:settCost,date:new Date().toISOString().split("T")[0],createdBy:userName};o.closed=true;o.status="تم التسليم"})}} style={{background:T.err,color:"#fff",border:"none",fontWeight:700}}>⚖️ تسوية + غلق الأوردر</Btn>
-                      <Btn onClick={()=>{const reason=document.getElementById("sett-reason")?.value;if(!reason){showToast("⚠️ اختر سبب التسوية");return}const notes=document.getElementById("sett-notes")?.value||"";
-                        updOrder(sel,o=>{o.settlement={qty:remain,reason,notes,cost:settCost,date:new Date().toISOString().split("T")[0],createdBy:userName}})}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>⚖️ تسوية فقط</Btn>
+                      <Btn onClick={()=>{if(!settReason){showToast("⚠️ اختر سبب التسوية");return}
+                        updOrder(sel,o=>{o.settlement={qty:remain,reason:settReason,notes:settNotes,cost:settCost,date:new Date().toISOString().split("T")[0],createdBy:userName};o.closed=true;o.status="تم التسليم"});setSettReason("");setSettNotes("")}} style={{background:T.err,color:"#fff",border:"none",fontWeight:700}}>⚖️ تسوية + غلق الأوردر</Btn>
+                      <Btn onClick={()=>{if(!settReason){showToast("⚠️ اختر سبب التسوية");return}
+                        updOrder(sel,o=>{o.settlement={qty:remain,reason:settReason,notes:settNotes,cost:settCost,date:new Date().toISOString().split("T")[0],createdBy:userName}});setSettReason("");setSettNotes("")}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>⚖️ تسوية فقط</Btn>
                     </div>
                   </div>})()}
               </div>}
