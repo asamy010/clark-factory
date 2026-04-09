@@ -629,7 +629,7 @@ export default function App(){
   const[config,setConfig]=useState(INIT_CONFIG);const[orders,setOrders]=useState([]);const[dataLoading,setDataLoading]=useState(true);
   const[tab,setTab_]=useState(()=>sessionStorage.getItem("clark_tab")||"home");const[sel,setSel_]=useState(()=>sessionStorage.getItem("clark_sel")||null);
   const setTab=v=>{setTab_(v);sessionStorage.setItem("clark_tab",v)};
-  const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
+  const setSel=v=>{setSel_(v);if(v){sessionStorage.setItem("clark_sel",v);window.scrollTo(0,0)}else sessionStorage.removeItem("clark_sel")};
   const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);
   const[stickyForm,setStickyForm]=useState(null);
   const[quickPopup,setQuickPopup]=useState(null);/* "task"|"notif"|null */
