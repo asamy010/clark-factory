@@ -66,6 +66,7 @@ const INIT_CONFIG = {
 };
 
 function gid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+function beep(){try{const ctx=new(window.AudioContext||window.webkitAudioContext)();const o=ctx.createOscillator();const g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.type="sine";o.frequency.value=1200;g.gain.value=0.3;o.start();o.stop(ctx.currentTime+0.15)}catch(e){}}
 function fmt(n){return Number(n||0).toLocaleString("en-US")}
 function r2(n){return Math.round((n||0)*100)/100}
 function sqty(a){return(a||[]).reduce((s,c)=>s+(Number(c.qty)||0),0)}
@@ -645,8 +646,25 @@ export default function App(){
         return{modelNo:o.modelNo,desc:o.modelDesc,status:o.status,cutQty:t.cutQty,deliveredToWs:totalDel,receivedFromWs:totalRcv,wsBalance:totalDel-totalRcv,stockDelivered:stockDel,workshops:wds.map(wd=>wd.wsName).filter((v,i,a)=>a.indexOf(v)===i),daysSinceLastMove:days,pieces:o.orderPieces||[]}});
       const ctx="أنت مساعد ذكي لنظام CLARK لإدارة مصانع الملابس. أجب بالعربية بشكل مختصر ومفيد.\n\nبيانات الموسم "+season+":\n\nالأوردرات ("+ords.length+"):\n"+JSON.stringify(ords,null,0)+"\n\nالورش ("+ws.length+"):\n"+JSON.stringify(ws,null,0)+"\n\nالتاريخ: "+new Date().toISOString().split("T")[0];
       const res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system:ctx,messages:[...aiMsgs.map(m=>({role:m.role==="user"?"user":"assistant",content:m.text})),{role:"user",content:q}]})});
-      const data2=await res.json();if(data2.error){setAiMsgs(p=>[...p,{role:"ai",text:"⚠️ "+( data2.error.message||data2.error||"خطأ غير معروف")}]);setAiLoading(false);return}const reply=data2.content?.map(c=>c.text||"").join("\n")||"عذراً، لم أتمكن من الرد";
-      setAiMsgs(p=>[...p,{role:"ai",text:reply}])
+      const ct=res.headers.get("content-type")||"";
+      if(ct.includes("text/event-stream")){
+        /* Streaming response */
+        setAiMsgs(p=>[...p,{role:"ai",text:""}]);setAiLoading(false);
+        const reader=res.body.getReader();const decoder=new TextDecoder();let full="";let buf="";
+        while(true){const{done,value}=await reader.read();if(done)break;
+          buf+=decoder.decode(value,{stream:true});
+          const lines=buf.split("\n");buf=lines.pop()||"";
+          for(const line of lines){if(!line.startsWith("data: ")||line==="data: [DONE]")continue;
+            try{const ev=JSON.parse(line.slice(6));if(ev.type==="content_block_delta"&&ev.delta?.text){full+=ev.delta.text;const txt=full;setAiMsgs(p=>{const n=[...p];n[n.length-1]={...n[n.length-1],text:txt};return n})}}catch(e){}
+          }
+        }
+        if(!full)setAiMsgs(p=>{const n=[...p];n[n.length-1]={...n[n.length-1],text:"عذراً، لم أتمكن من الرد"};return n});
+      }else{
+        /* Non-streaming fallback */
+        const data2=await res.json();if(data2.error){setAiMsgs(p=>[...p,{role:"ai",text:"⚠️ "+(data2.error.message||data2.error||"خطأ غير معروف")}]);setAiLoading(false);return}
+        const reply=data2.content?.map(c=>c.text||"").join("\n")||"عذراً، لم أتمكن من الرد";
+        setAiMsgs(p=>[...p,{role:"ai",text:reply}])
+      }
     }catch(e){console.error("AI error:",e);setAiMsgs(p=>[...p,{role:"ai",text:"⚠️ خطأ في الاتصال بالمساعد الذكي"}])}
     setAiLoading(false)};
   useEffect(()=>{const h=e=>{if(e.key==="Escape"){setQuickPopup(null);setShowAlerts(false);setShowScanner(false);setStickyForm(null);setShowTheme(false);setAiOpen(false)}};window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h)},[]);
@@ -1032,7 +1050,7 @@ export default function App(){
         </div>}
       </div>
     </div>})()}
-    {showScanner&&<QRScanner onClose={()=>setShowScanner(false)} onScan={url=>{setShowScanner(false);try{const u=new URL(url);const p=new URLSearchParams(u.search);if(p.get("o")){const o=orders.find(x=>x.modelNo===p.get("o"));if(o)goD(o.id)}else if(p.get("act")==="rcv"&&p.get("oid")){setTab("external");setTimeout(()=>{window.__qrReceive={oid:p.get("oid"),wdi:Number(p.get("wdi"))||0};window.dispatchEvent(new Event("qr-receive"))},600)}else if(p.get("act")==="wsacc"&&p.get("ws")){setTab("external");setTimeout(()=>{window.__qrWsAcc={ws:decodeURIComponent(p.get("ws"))};window.dispatchEvent(new Event("qr-wsacc"))},600)}else{showToast("QR غير معروف")}}catch(e){showToast("QR غير صالح")}}}/>}
+    {showScanner&&<QRScanner onClose={()=>setShowScanner(false)} onScan={url=>{setShowScanner(false);beep();try{const u=new URL(url);const p=new URLSearchParams(u.search);if(p.get("o")){const o=orders.find(x=>x.modelNo===p.get("o"));if(o)goD(o.id)}else if(p.get("act")==="rcv"&&p.get("oid")){setTab("external");setTimeout(()=>{window.__qrReceive={oid:p.get("oid"),wdi:Number(p.get("wdi"))||0};window.dispatchEvent(new Event("qr-receive"))},600)}else if(p.get("act")==="wsacc"&&p.get("ws")){setTab("external");setTimeout(()=>{window.__qrWsAcc={ws:decodeURIComponent(p.get("ws"))};window.dispatchEvent(new Event("qr-wsacc"))},600)}else{showToast("QR غير معروف")}}catch(e){showToast("QR غير صالح")}}}/>}
   </div>
 }
 function DashPg({data,goD,isMob,season,statusCards,upConfig,user}){
