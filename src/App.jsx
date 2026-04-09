@@ -932,7 +932,7 @@ export default function App(){
       {tab!=="home"&&canViewTab(tab)&&<div>
         {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards} upConfig={upConfig} user={user}/>}
         {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("db")} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
-        {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} delOrder={delOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEditTab("details")} statusCards={statusCards} goHome={goHome} upConfig={upConfig}/>}
+        {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} delOrder={delOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEditTab("details")} statusCards={statusCards} goHome={goHome} upConfig={upConfig} user={user}/>}
         {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("external")} statusCards={statusCards} season={season}/>}
         {tab==="stock"&&<StockPg data={data} updOrder={updOrder} isMob={isMob} canEdit={canEditTab("stock")} statusCards={statusCards}/>}
         {tab==="search"&&<SearchPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
@@ -1539,8 +1539,9 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig}){
 </>}
 
 /* ══ DETAILS ══ */
-function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,canEdit,statusCards,goHome,upConfig}){
+function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,canEdit,statusCards,goHome,upConfig,user}){
   const order=data.orders.find(o=>o.id===sel);const[editing,setEditing]=useState(false);
+  const userName=user?.displayName||user?.email?.split("@")[0]||"";
   const[detQ,setDetQ]=useState("");const[detSt,setDetSt]=useState("الكل");
   const[editStockIdx,setEditStockIdx]=useState(null);
   const[showNew,setShowNew]=useState(false);
@@ -1610,6 +1611,8 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
               <span style={{fontSize:FS,color:T.textSec}}>{"تسليم: "}<b style={{color:T.ok}}>{o.deliveredQty||0}</b></span>
               <span style={{fontSize:FS,color:T.textSec}}>{"رصيد: "}<b style={{color:t.balance>0?T.err:T.ok}}>{t.balance}</b></span>
               <span style={{fontSize:FS,color:T.textSec}}>{"تكلفة: "}<b style={{color:"#8B5CF6"}}>{t.costPer+" ج.م"}</b></span>
+              {o.settlement&&<span style={{fontSize:FS-1,padding:"2px 8px",borderRadius:6,background:T.err+"12",color:T.err,fontWeight:700}}>{"🔴 هالك: "+fmt(r2(o.settlement.cost))+" ج.م"}</span>}
+              {o.closed&&<span style={{fontSize:FS-1,padding:"2px 8px",borderRadius:6,background:"#64748B15",color:"#64748B",fontWeight:700}}>🔒 مغلق</span>}
             </div>
             {wds.length>0&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
               {(()=>{const wsGroup={};wds.forEach(wd=>{if(!wsGroup[wd.wsName])wsGroup[wd.wsName]=[];wsGroup[wd.wsName].push(wd)});
@@ -1658,10 +1661,11 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
         <Btn small onClick={()=>nextId&&setSel(nextId)} disabled={!nextId} style={{fontSize:18,padding:"2px 8px",opacity:nextId?1:0.3}}>←</Btn>
         <div style={{width:1,height:20,background:T.brd,margin:"0 4px"}}/>
         <Btn small onClick={()=>printOrderSheet(order,t,activeFabs,statusCards)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
-        {canEdit&&<Btn small primary onClick={()=>setEditing(true)}>✏️</Btn>}
-        {canEdit&&<Btn small onClick={()=>{const dup=JSON.parse(JSON.stringify(order));dup.id=gid();dup.date=new Date().toISOString().split("T")[0];dup.createdAt=new Date().toISOString();dup.modelNo="";dup.status="تم القص";dup.deliveredQty=0;dup.deliveries=[];dup.workshopDeliveries=[];dup._isDup=true;delete dup._docId;setDupInit(dup)}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📋 تكرار</Btn>}
-        {canEdit&&t.cutQty>0&&<Btn small onClick={()=>{setShowDeliver(true);setDWs("");setDType("");setDQty(0);setDPrice("");setDNote("")}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📤 تسليم ورشة</Btn>}
-        {canEdit&&<Btn small onClick={()=>setShowNew(true)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>+ جديد</Btn>}
+        {canEdit&&!order.closed&&<Btn small primary onClick={()=>setEditing(true)}>✏️</Btn>}
+        {canEdit&&!order.closed&&<Btn small onClick={()=>{const dup=JSON.parse(JSON.stringify(order));dup.id=gid();dup.date=new Date().toISOString().split("T")[0];dup.createdAt=new Date().toISOString();dup.modelNo="";dup.status="تم القص";dup.deliveredQty=0;dup.deliveries=[];dup.workshopDeliveries=[];dup._isDup=true;delete dup._docId;setDupInit(dup)}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📋 تكرار</Btn>}
+        {canEdit&&!order.closed&&t.cutQty>0&&<Btn small onClick={()=>{setShowDeliver(true);setDWs("");setDType("");setDQty(0);setDPrice("");setDNote("")}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📤 تسليم ورشة</Btn>}
+        {canEdit&&!order.closed&&<Btn small onClick={()=>setShowNew(true)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>+ جديد</Btn>}
+        {order.closed&&<span style={{padding:"4px 12px",borderRadius:8,background:"#64748B12",color:"#64748B",fontWeight:700,fontSize:FS-1}}>🔒 مغلق</span>}
       </div>
     </div>
     <div id="parea">
@@ -1758,6 +1762,70 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
             {(!order.deliveries||order.deliveries.length===0)&&<tr><td colSpan={canEdit?5:4} style={{...TD,textAlign:"center",color:T.textSec}}>لا توجد تسليمات</td></tr>}
           </tbody></table></div>
           </Card>})()}
+          {/* ── Settlement & Close ── */}
+          {(()=>{
+            const stockDel=(order.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
+            const remain=t.cutQty-stockDel;
+            const hasSett=!!order.settlement;const isClosed=!!order.closed;
+            if(isClosed)return<Card style={{marginBottom:16,background:"#64748B08",border:"1px solid #64748B20"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                <span style={{fontSize:20}}>🔒</span><span style={{fontSize:FS+2,fontWeight:800,color:"#64748B"}}>أوردر مغلق</span>
+              </div>
+              {hasSett&&<div style={{padding:12,borderRadius:10,background:T.err+"06",border:"1px solid "+T.err+"20",marginBottom:8}}>
+                <div style={{fontSize:FS,fontWeight:700,color:T.err,marginBottom:6}}>{"⚖️ تسوية: "+order.settlement.qty+" قطعة"}</div>
+                <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:FS-1}}>
+                  <span>{"السبب: "+order.settlement.reason}</span>
+                  <span style={{fontWeight:700,color:T.err}}>{"تكلفة الهالك: "+fmt(r2(order.settlement.cost))+" ج.م"}</span>
+                  <span style={{color:T.textMut}}>{order.settlement.date}</span>
+                </div>
+                {order.settlement.notes&&<div style={{fontSize:FS-2,color:T.textSec,marginTop:4}}>{order.settlement.notes}</div>}
+              </div>}
+              <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:FS}}>
+                <span>{"تسليم مخزن: "+stockDel+" قطعة"}</span>
+                <span style={{fontWeight:700,color:T.ok}}>{"تكلفة الانتاج: "+fmt(r2(t.costAll))+" ج.م"}</span>
+                {hasSett&&<span style={{fontWeight:700,color:T.err}}>{"+ هالك: "+fmt(r2(order.settlement.cost))+" ج.م"}</span>}
+                <span style={{fontWeight:800,color:T.accent}}>{"= الاجمالي: "+fmt(r2(t.costAll+(hasSett?order.settlement.cost:0)))+" ج.م"}</span>
+                {stockDel>0&&<span style={{fontWeight:700,color:"#8B5CF6"}}>{"تكلفة القطعة الفعلية: "+r2((t.costAll+(hasSett?order.settlement.cost:0))/stockDel)+" ج.م"}</span>}
+              </div>
+              {canEdit&&<Btn small onClick={()=>updOrder(sel,o=>{o.closed=false;o.settlement=null;o.status=recomputeStatus(o)})} style={{marginTop:10,background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>↩ اعادة فتح الأوردر</Btn>}
+            </Card>;
+            if(stockDel===0||isClosed)return null;
+            return<Card title="⚖️ تسوية وغلق الأوردر" style={{marginBottom:16}}>
+              <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap"}}>
+                <span style={{padding:"6px 12px",borderRadius:8,background:T.accent+"12",color:T.accent,fontWeight:700}}>{"كمية القص: "+t.cutQty}</span>
+                <span style={{padding:"6px 12px",borderRadius:8,background:T.ok+"12",color:T.ok,fontWeight:700}}>{"مخزن جاهز: "+stockDel}</span>
+                {remain>0&&<span style={{padding:"6px 12px",borderRadius:8,background:T.err+"12",color:T.err,fontWeight:700}}>{"متبقي: "+remain+" قطعة"}</span>}
+              </div>
+              {remain===0?<div>
+                <div style={{padding:12,borderRadius:10,background:T.ok+"08",border:"1px solid "+T.ok+"20",marginBottom:10,textAlign:"center"}}>
+                  <span style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>✅ تم تسليم كامل الكمية للمخزن</span>
+                </div>
+                {canEdit&&<Btn primary onClick={()=>updOrder(sel,o=>{o.closed=true;o.status="تم التسليم"})}>🔒 غلق الأوردر</Btn>}
+              </div>
+              :<div>
+                <div style={{padding:12,borderRadius:10,background:T.warn+"08",border:"1px solid "+T.warn+"20",marginBottom:12}}>
+                  <div style={{fontSize:FS,fontWeight:700,color:T.warn,marginBottom:6}}>{"⚠️ يوجد "+remain+" قطعة لم تسلّم للمخزن"}</div>
+                  <div style={{fontSize:FS-1,color:T.textSec}}>يمكنك عمل تسوية لتسجيل الفرق كهالك ثم غلق الأوردر</div>
+                </div>
+                {canEdit&&(()=>{
+                  const settCost=r2(remain*t.costPer);
+                  const REASONS=["عيوب تصنيع","تالف خامة","فاقد ورشة","خطأ قص","أخرى"];
+                  return<div style={{padding:14,borderRadius:10,background:T.err+"04",border:"1px solid "+T.err+"15"}}>
+                    <div style={{fontSize:FS+1,fontWeight:800,color:T.err,marginBottom:10}}>{"🔴 تكلفة الهالك: "+fmt(settCost)+" ج.م"}</div>
+                    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:8,marginBottom:10}}>
+                      <div><label style={{fontSize:FS-2,color:T.textSec}}>سبب التسوية</label><Sel id="sett-reason"><option value="">-- اختر --</option>{REASONS.map(r=><option key={r} value={r}>{r}</option>)}</Sel></div>
+                      <div><label style={{fontSize:FS-2,color:T.textSec}}>ملاحظات</label><Inp id="sett-notes" placeholder="ملاحظات اضافية..."/></div>
+                    </div>
+                    <div style={{display:"flex",gap:8}}>
+                      <Btn onClick={()=>{const reason=document.getElementById("sett-reason")?.value;if(!reason){showToast("⚠️ اختر سبب التسوية");return}const notes=document.getElementById("sett-notes")?.value||"";
+                        updOrder(sel,o=>{o.settlement={qty:remain,reason,notes,cost:settCost,date:new Date().toISOString().split("T")[0],createdBy:userName};o.closed=true;o.status="تم التسليم"})}} style={{background:T.err,color:"#fff",border:"none",fontWeight:700}}>⚖️ تسوية + غلق الأوردر</Btn>
+                      <Btn onClick={()=>{const reason=document.getElementById("sett-reason")?.value;if(!reason){showToast("⚠️ اختر سبب التسوية");return}const notes=document.getElementById("sett-notes")?.value||"";
+                        updOrder(sel,o=>{o.settlement={qty:remain,reason,notes,cost:settCost,date:new Date().toISOString().split("T")[0],createdBy:userName}})}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>⚖️ تسوية فقط</Btn>
+                    </div>
+                  </div>})()}
+              </div>}
+            </Card>
+          })()}
       </div>
       {/* Workshop Deliveries Info */}
       {(order.workshopDeliveries||[]).length>0&&<Card title="التشغيل الخارجي" style={{marginBottom:16}}>
@@ -1789,6 +1857,8 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
           <tr><td style={TD}>تكلفة الخامات</td><td style={TDB}>{fmt(r2(t.totalFab))+" ج.م"}</td><td style={TDB}>{t.fabPer+" ج.م"}</td></tr>
           <tr><td style={TD}>تكاليف الاكسسوار</td><td style={TDB}>{fmt(accAll)+" ج.م"}</td><td style={TDB}>{t.accPer+" ج.م"}</td></tr>
           <tr style={{background:T.accentBg}}><td style={{...TD,fontWeight:800,fontSize:FS+4,color:T.accent}}>الاجمالي</td><td style={{...TD,fontWeight:800,fontSize:FS+4,color:T.accent}}>{fmt(r2(t.costAll))+" ج.م"}</td><td style={{...TD,fontWeight:800,fontSize:FS+6,color:T.accent}}>{t.costPer+" ج.م"}</td></tr>
+          {order.settlement&&<><tr style={{background:T.err+"08"}}><td style={{...TD,fontWeight:800,color:T.err}}>{"🔴 هالك ("+order.settlement.qty+" قطعة)"}</td><td style={{...TD,fontWeight:800,color:T.err}}>{fmt(r2(order.settlement.cost))+" ج.م"}</td><td style={{...TD,fontWeight:700,color:T.err}}>{order.settlement.reason}</td></tr>
+          <tr style={{background:"#1E293B08"}}><td style={{...TD,fontWeight:800,fontSize:FS+2}}>التكلفة الفعلية</td><td style={{...TD,fontWeight:800,fontSize:FS+2,color:T.err}}>{fmt(r2(t.costAll+order.settlement.cost))+" ج.م"}</td><td style={{...TD,fontWeight:800,fontSize:FS+2,color:T.err}}>{(order.deliveredQty>0?r2((t.costAll+order.settlement.cost)/order.deliveredQty):0)+" ج.م/قطعة"}</td></tr></>}
         </tbody></table>
       </Card>
       {order.instructions&&<Card title="تعليمات التشغيل" style={{marginTop:16}}><div style={{whiteSpace:"pre-wrap",fontSize:FS+1,lineHeight:2}}>{order.instructions}</div></Card>}
