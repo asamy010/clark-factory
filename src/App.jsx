@@ -1691,7 +1691,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
           const pri=o.priority||"normal";const priColor=pri==="urgent"?T.err:pri==="low"?"#10B981":T.warn;
           return<div key={o.id} data-oid={o.id} style={{display:"flex",gap:16,padding:16,background:T.cardSolid,borderRadius:16,border:isStale?"2px solid "+T.err+"60":"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",alignItems:"flex-start",position:"relative"}} onClick={()=>setSel(o.id)}>
           {pri!=="normal"&&<div style={{position:"absolute",top:8,right:10,fontSize:10}}>{pri==="urgent"?"🔴":"🟢"}</div>}
-          {isStale&&<div style={{position:"absolute",bottom:8,left:8,fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.err+"15",color:T.err,fontWeight:700}}>{ageDays+" يوم"}</div>}
+          {isStale&&<div style={{position:"absolute",top:8,left:8,fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.err+"15",color:T.err,fontWeight:700}}>{ageDays+" يوم"}</div>}
           {o.image?<img src={o.image} alt="" style={{width:80,aspectRatio:"3/4",borderRadius:10,objectFit:"cover",flexShrink:0,border:"1px solid "+T.brd}}/>:<div style={{width:80,aspectRatio:"3/4",borderRadius:10,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:28,color:T.textMut}}>📷</div>}
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6,gap:8}}>
