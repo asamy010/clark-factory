@@ -885,7 +885,7 @@ export default function App(){
           {isMob&&<div onClick={()=>setShowScanner(true)} style={{margin:"16px auto 0",display:"flex",justifyContent:"center"}}><div style={{background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",borderRadius:14,padding:"14px 30px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,boxShadow:"0 4px 20px rgba(14,165,233,0.3)"}}><span style={{fontSize:24}}>📷</span><span style={{fontSize:FS+1,fontWeight:700,color:"#fff"}}>مسح كود QR</span></div></div>}
           </div>
           {/* Tasks panel - right side, admin only */}
-          {!isMob&&userRole==="admin"&&(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
+          {!isMob&&(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
             return myTasks.length>0&&<div style={{width:260,flexShrink:0}}>
               <div style={{background:T.cardSolid,borderRadius:16,border:"1px solid #F59E0B30",padding:14,boxShadow:T.shadow}}>
               <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}><span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:800,color:"#F59E0B"}}>{"مهامي ("+myTasks.length+")"}</span></div>
@@ -899,7 +899,7 @@ export default function App(){
               {myTasks.length>8&&<div style={{textAlign:"center",marginTop:6}}><span onClick={()=>goTo("tasks")} style={{cursor:"pointer",fontSize:FS-2,color:T.accent}}>{"عرض الكل ("+myTasks.length+")"}</span></div>}
             </div></div>})()}
           {/* Mobile tasks - admin only */}
-          {isMob&&userRole==="admin"&&(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
+          {isMob&&(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
             return myTasks.length>0&&<div style={{background:T.cardSolid,borderRadius:16,border:"1px solid #F59E0B30",padding:14,boxShadow:T.shadow,marginTop:16}}>
               <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}><span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:800,color:"#F59E0B"}}>{"مهامي ("+myTasks.length+")"}</span></div>
               <div style={{display:"flex",flexDirection:"column",gap:6}}>{myTasks.slice(0,5).map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:6,padding:"8px 10px",borderRadius:8,background:T.bg,border:"1px solid "+T.brd}}>
@@ -917,7 +917,7 @@ export default function App(){
         {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("external")} statusCards={statusCards} season={season}/>}
         {tab==="stock"&&<StockPg data={data} updOrder={updOrder} isMob={isMob} canEdit={canEditTab("stock")} statusCards={statusCards}/>}
         {tab==="search"&&<SearchPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards}/>}
-        {tab==="tasks"&&<TasksPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
+        {tab==="tasks"&&<TasksPg data={data} upConfig={upConfig} isMob={isMob} user={user} userRole={userRole}/>}
         {tab==="calc"&&<CalcPg data={data} isMob={isMob}/>}
         {tab==="reports"&&<ReportsHub data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="settings"&&canEditTab("settings")&&<SettingsPg config={config} upConfig={upConfig} isMob={isMob} user={user} theme={theme} setTheme={setTheme} season={season} orders={orders} syncWsIds={syncWsIds} replaceOrder={replaceOrder}/>}
@@ -1766,7 +1766,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
         replaceOrder(order.id,upd);
         showToast("✓ تم التسليم — "+dWs);setShowDeliver(false);
         if(print){setTimeout(()=>{printReceipt(dWs,wsObj?wsObj.owner:"",upd,dType,Number(dQty),dDate||new Date().toISOString().split("T")[0],maxQty-Number(dQty),data.garmentTypes)},300)}
-        if(wa){const phone=wsObj?.phone||"";const d=dDate||new Date().toISOString().split("T")[0];const msg="*CLARK — اذن تسليم ورشة*%0A%0A- الورشة: *"+dWs+"*%0A- رقم الموديل: *"+order.modelNo+"*%0A- الوصف: "+order.modelDesc+"%0A- نوع القطعة: *"+dType+"*%0A- الكمية المستلمة: *"+dQty+"* قطعة%0A- السعر: *"+(dPrice||0)+"* ج.م/قطعة%0A- التاريخ: *"+d+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
+        if(wa){const phone=wsObj?.phone||"";const d=dDate||new Date().toISOString().split("T")[0];const msg="*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+dWs+"*%0A• رقم الموديل: *"+order.modelNo+"*%0A• الوصف: "+order.modelDesc+"%0A• نوع القطعة: *"+dType+"*%0A• الكمية المستلمة: *"+dQty+"* قطعة%0A• السعر: *"+(dPrice||0)+"* ج.م/قطعة%0A• التاريخ: *"+d+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
       };
       return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowDeliver(false)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
@@ -1818,6 +1818,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
   const[editPayId,setEditPayId]=useState(null);const[edPayDate,setEdPayDate]=useState("");const[edPayAmt,setEdPayAmt]=useState("");const[edPayNote,setEdPayNote]=useState("");const[edPayType,setEdPayType]=useState("payment");
   const[accWsF,setAccWsF]=useState("الكل");
   const[movQ,setMovQ]=useState("");
+  const[selMoves,setSelMoves]=useState(new Set());
   const[movWsF,setMovWsF]=useState("الكل");
   const[movTypeF,setMovTypeF]=useState("الكل");
   const[movLimit,setMovLimit]=useState(50);
@@ -1873,7 +1874,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     });
     setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice("");setDelDate(new Date().toISOString().split("T")[0]);showToast("✓ تم تسليم "+saveQty+" قطعة لـ "+selWs);
     if(andPrint){const printOrd=JSON.parse(JSON.stringify(ord));const pWs=selWs;const pWsOwner=wsObj?wsObj.owner:"";const pGt=data.garmentTypes;setTimeout(()=>printReceipt(pWs,pWsOwner,printOrd,saveType,saveQty,saveDate,Math.max(0,availAfter),pGt),400)}
-    if(andWa){const phone=wsObj?.phone||"";const msg="*CLARK — اذن تسليم ورشة*%0A%0A- الورشة: *"+selWs+"*%0A- رقم الموديل: *"+ord.modelNo+"*%0A- الوصف: "+ord.modelDesc+"%0A- نوع القطعة: *"+saveType+"*%0A- الكمية: *"+saveQty+"* قطعة%0A- السعر: *"+savePrice+"* ج.م/قطعة%0A- التاريخ: *"+saveDate+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
+    if(andWa){const phone=wsObj?.phone||"";const msg="*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+selWs+"*%0A• رقم الموديل: *"+ord.modelNo+"*%0A• الوصف: "+ord.modelDesc+"%0A• نوع القطعة: *"+saveType+"*%0A• الكمية: *"+saveQty+"* قطعة%0A• السعر: *"+savePrice+"* ج.م/قطعة%0A• التاريخ: *"+saveDate+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
   };
 
   const receiveFromWs=(orderId,wdIdx,andPrint,printData,cardKey,andWa)=>{
@@ -1892,7 +1893,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     });
     clearRcv(cardKey);showToast("✓ تم استلام "+saveQty+" قطعة");
     if(andPrint&&printData){const pOrd=JSON.parse(JSON.stringify(ord));if(pOrd.workshopDeliveries&&pOrd.workshopDeliveries[wdIdx]){if(!pOrd.workshopDeliveries[wdIdx].receives)pOrd.workshopDeliveries[wdIdx].receives=[];pOrd.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty})}const pWs=selWs;const pType=wd.garmentType||"";const pGt=data.garmentTypes;setTimeout(()=>printReceiveReceipt(pWs,pOrd,pType,saveQty,saveDate,0,pGt),400)}
-    if(andWa){const wsObj=workshops.find(w=>w.name===wd.wsName);const phone=wsObj?.phone||"";const remaining=maxRcv-saveQty;const msg="*CLARK — اذن استلام من ورشة*%0A%0A- الورشة: *"+wd.wsName+"*%0A- رقم الموديل: *"+ord.modelNo+"*%0A- الوصف: "+ord.modelDesc+"%0A- نوع القطعة: *"+(wd.garmentType||"عام")+"*%0A- الكمية المستلمة: *"+saveQty+"* قطعة%0A- الرصيد المتبقي: *"+remaining+"* قطعة%0A- التاريخ: *"+saveDate+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
+    if(andWa){const wsObj=workshops.find(w=>w.name===wd.wsName);const phone=wsObj?.phone||"";const remaining=maxRcv-saveQty;const msg="*CLARK — اذن استلام من ورشة*%0A%0A• الورشة: *"+wd.wsName+"*%0A• رقم الموديل: *"+ord.modelNo+"*%0A• الوصف: "+ord.modelDesc+"%0A• نوع القطعة: *"+(wd.garmentType||"عام")+"*%0A• الكمية المستلمة: *"+saveQty+"* قطعة%0A• الرصيد المتبقي: *"+remaining+"* قطعة%0A• التاريخ: *"+saveDate+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
   };
 
   /* Collect all movements for the log — memoized */
@@ -1931,7 +1932,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     if(wa){const acc=wsAccounts(payWs);let del=0,rcv=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===payWs).forEach(wd=>{del+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{rcv+=Number(r.qty)||0})})});
       const allPay=(data.wsPayments||[]).filter(p=>p.wsName===payWs&&p.type==="payment");const totalPaid=allPay.reduce((s,p)=>s+(Number(p.amount)||0),0)+Number(payAmt);
       const phone=wsObj?.phone||"";
-      const msg="*CLARK — اشعار دفعة*%0A%0A- الورشة: *"+payWs+"*%0A- نوع العملية: *"+(payType==="payment"?"دفعة":"مشتريات")+"*%0A- المبلغ: *"+fmt(Number(payAmt))+"* ج.م%0A- التاريخ: *"+payDate+"*%0A"+(payNote?"- ملاحظات: "+payNote+"%0A":"")+"%0A─────────────────%0A*ملخص الحساب*%0A- تم تسليمه للورشة: "+fmt(del)+" قطعة%0A- تم استلامه للمصنع: "+fmt(rcv)+" قطعة%0A- اجمالي المستحق: "+fmt(r2(acc.due))+" ج.م%0A- اجمالي المشتريات: "+fmt(r2(acc.totalPurchase))+" ج.م%0A- اجمالي المدفوع: "+fmt(r2(totalPaid))+" ج.م%0A- الرصيد المتبقي: *"+fmt(r2(acc.due+acc.totalPurchase-totalPaid))+"* ج.م";
+      const msg="*CLARK — اشعار دفعة*%0A%0A• الورشة: *"+payWs+"*%0A• نوع العملية: *"+(payType==="payment"?"دفعة":"مشتريات")+"*%0A• المبلغ: *"+fmt(Number(payAmt))+"* ج.م%0A• التاريخ: *"+payDate+"*%0A"+(payNote?"• ملاحظات: "+payNote+"%0A":"")+"%0A─────────────────%0A*ملخص الحساب*%0A• تم تسليمه للورشة: "+fmt(del)+" قطعة%0A• تم استلامه للمصنع: "+fmt(rcv)+" قطعة%0A• اجمالي المستحق: "+fmt(r2(acc.due))+" ج.م%0A• اجمالي المشتريات: "+fmt(r2(acc.totalPurchase))+" ج.م%0A• اجمالي المدفوع: "+fmt(r2(totalPaid))+" ج.م%0A• الرصيد المتبقي: *"+fmt(r2(acc.due+acc.totalPurchase-totalPaid))+"* ج.م";
       window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
     setPayAmt("");setPayNote("");setPayDate(new Date().toISOString().split("T")[0])};
 
@@ -1969,11 +1970,23 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
           <Btn onClick={()=>{const allH="<table><thead><tr>"+["نوع","التاريخ","الورشة","موديل","الوصف","القطعة","الكمية","السعر","ملاحظات"].map(h=>"<th>"+h+"</th>").join("")+"</tr></thead><tbody>"+movements.map(m=>"<tr style='background:"+(m.type==="deliver"?"#F0FDF4":"#EFF6FF")+"'><td style='color:"+(m.type==="deliver"?"#10B981":"#0EA5E9")+";font-weight:700'>"+(m.type==="deliver"?"تسليم ورشة":"استلام مصنع")+"</td><td>"+m.date+"</td><td>"+m.wsName+"</td><td><b>"+m.orderNo+"</b></td><td>"+(m.orderDesc||"")+"</td><td>"+(m.garmentType||"-")+"</td><td><b>"+m.qty+"</b></td><td>"+(m.price?m.price+" ج.م":"-")+"</td><td>"+(m.notes||"-")+"</td></tr>").join("")+"</tbody></table>";printPage("سجل حركات التشغيل الخارجي (كامل - "+movements.length+" حركة)",allH)}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",flex:1}}>🖨 الكل</Btn>
         </div>
       </div>
-      {(()=>{const fMov=movements.filter(m=>{if(movWsF!=="الكل"&&m.wsName!==movWsF)return false;if(movTypeF!=="الكل"&&m.type!==movTypeF)return false;if(movQ.trim()){const s=movQ.trim().toLowerCase();if(!((m.orderNo||"").toLowerCase().includes(s)||(m.wsName||"").toLowerCase().includes(s)||(m.orderDesc||"").toLowerCase().includes(s)))return false}return true});const shown=fMov.slice(0,movLimit);return<div id="mov-log"><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
-        <thead><tr>{["نوع الحركة","التاريخ","الورشة","موديل","الوصف","نوع القطعة","الكمية","سعر التشغيل","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+      {(()=>{const fMov=movements.filter(m=>{if(movWsF!=="الكل"&&m.wsName!==movWsF)return false;if(movTypeF!=="الكل"&&m.type!==movTypeF)return false;if(movQ.trim()){const s=movQ.trim().toLowerCase();if(!((m.orderNo||"").toLowerCase().includes(s)||(m.wsName||"").toLowerCase().includes(s)||(m.orderDesc||"").toLowerCase().includes(s)))return false}return true});const shown=fMov.slice(0,movLimit);
+      const toggleSel=(idx)=>setSelMoves(p=>{const n=new Set(p);n.has(idx)?n.delete(idx):n.add(idx);return n});
+      const selArr=[...selMoves].map(i=>shown[i]).filter(Boolean);
+      const printBatch=()=>{if(selArr.length===0)return;let h="<h2 style='text-align:center'>ملخص حركات — "+season+"</h2><table><thead><tr><th>#</th><th>النوع</th><th>التاريخ</th><th>الورشة</th><th>الموديل</th><th>القطعة</th><th>الكمية</th><th>السعر</th></tr></thead><tbody>";selArr.forEach((m,i)=>{h+="<tr style='background:"+(m.type==="deliver"?"#F0FDF4":"#EFF6FF")+"'><td>"+(i+1)+"</td><td style='font-weight:700;color:"+(m.type==="deliver"?"#10B981":"#0EA5E9")+"'>"+(m.type==="deliver"?"تسليم":"استلام")+"</td><td>"+m.date+"</td><td>"+m.wsName+"</td><td style='font-weight:700'>"+m.orderNo+"</td><td>"+(m.garmentType||"-")+"</td><td style='font-weight:700'>"+m.qty+"</td><td>"+(m.price?m.price+" ج.م":"-")+"</td></tr>"});const tQty=selArr.reduce((s,m)=>s+(Number(m.qty)||0),0);h+="<tr style='background:#EFF6FF;font-weight:800'><td colspan='6'>الاجمالي</td><td>"+tQty+"</td><td></td></tr></tbody></table><div style='margin-top:16px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:8px'>CLARK Factory Management</div>";printPage("ملخص حركات مجمعة",h)};
+      const waBatch=()=>{if(selArr.length===0)return;const byWs={};selArr.forEach(m=>{if(!byWs[m.wsName])byWs[m.wsName]=[];byWs[m.wsName].push(m)});Object.entries(byWs).forEach(([ws,items])=>{const wsObj=workshops.find(w=>w.name===ws);const phone=wsObj?.phone||"";const lines=items.map(m=>"• "+(m.type==="deliver"?"تسليم":"استلام")+" — موديل *"+m.orderNo+"* — "+(m.garmentType||"عام")+" — *"+m.qty+"* قطعة").join("%0A");const tQty=items.reduce((s,m)=>s+(Number(m.qty)||0),0);const msg="*CLARK — ملخص حركات*%0A%0A• الورشة: *"+ws+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+tQty+"* قطعة%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")})};
+      return<div id="mov-log">
+      {selArr.length>0&&<div style={{padding:"10px 14px",borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF625",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+        <span style={{fontWeight:700,color:"#8B5CF6",fontSize:FS}}>{"☑ "+selArr.length+" حركة محددة ("+selArr.reduce((s,m)=>s+(Number(m.qty)||0),0)+" قطعة)"}</span>
+        <div style={{display:"flex",gap:6}}><Btn small onClick={printBatch} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة مجمعة</Btn><Btn small onClick={waBatch} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱 واتساب مجمع</Btn><Btn ghost small onClick={()=>setSelMoves(new Set())}>✕ الغاء</Btn></div>
+      </div>}
+      <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
+        <thead><tr>{["☐","نوع الحركة","التاريخ","الورشة","موديل","الوصف","نوع القطعة","الكمية","سعر التشغيل","ملاحظات",""].map(h=><th key={h} style={{...TH,width:h==="☐"?30:"auto"}}>{h==="☐"?<span onClick={()=>{if(selMoves.size===shown.length)setSelMoves(new Set());else setSelMoves(new Set(shown.map((_,i)=>i)))}} style={{cursor:"pointer",fontSize:16}}>{selMoves.size===shown.length&&shown.length>0?"☑":"☐"}</span>:h}</th>)}</tr></thead>
         <tbody>{shown.length>0?shown.map((m,i)=>{
           const isEditing=editMov&&editMov.orderId===m.orderId&&editMov.wdIdx===m.wdIdx&&editMov.type===m.type&&(m.type==="deliver"||editMov.rIdx===m.rIdx);
-          return<tr key={i} style={{background:m.type==="deliver"?"#F0FDF4":"#EFF6FF"}}>
+          const isSel=selMoves.has(i);
+          return<tr key={i} style={{background:isSel?"#8B5CF610":m.type==="deliver"?"#F0FDF4":"#EFF6FF"}}>
+          <td style={{...TD,textAlign:"center"}}><span onClick={()=>toggleSel(i)} style={{cursor:"pointer",fontSize:16}}>{isSel?"☑":"☐"}</span></td>
           <td style={{...TD,fontWeight:700,color:m.type==="deliver"?T.ok:T.accent}}>{m.type==="deliver"?"↗ تسليم ورشة":"↙ استلام مصنع"}</td>
           <td style={TD}>{isEditing?<Inp type="date" value={editDate} onChange={setEditDate} style={{width:130}}/>:m.date}</td><td style={{...TD,fontWeight:600}}>{m.wsName}</td><td style={TDB}>{m.orderNo}</td><td style={TD}>{m.orderDesc}</td>
           <td style={TD}>{m.garmentType||"-"}</td>
@@ -1983,7 +1996,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
           <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
             {isEditing?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>الغاء</Btn></>:<>
             <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
-            <Btn small onClick={()=>{const wsObj=workshops.find(w=>w.name===m.wsName);const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — اذن تسليم ورشة*%0A%0A- الورشة: *"+m.wsName+"*%0A- رقم الموديل: *"+m.orderNo+"*%0A- الوصف: "+m.orderDesc+"%0A- نوع القطعة: *"+(m.garmentType||"عام")+"*%0A- الكمية: *"+m.qty+"* قطعة%0A- السعر: *"+(m.price||0)+"* ج.م/قطعة%0A- التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — اذن استلام من ورشة*%0A%0A- الورشة: *"+m.wsName+"*%0A- رقم الموديل: *"+m.orderNo+"*%0A- الوصف: "+m.orderDesc+"%0A- نوع القطعة: *"+(m.garmentType||"عام")+"*%0A- الكمية المستلمة: *"+m.qty+"* قطعة%0A- التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn>
+            <Btn small onClick={()=>{const wsObj=workshops.find(w=>w.name===m.wsName);const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+m.wsName+"*%0A• رقم الموديل: *"+m.orderNo+"*%0A• الوصف: "+m.orderDesc+"%0A• نوع القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"* قطعة%0A• السعر: *"+(m.price||0)+"* ج.م/قطعة%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — اذن استلام من ورشة*%0A%0A• الورشة: *"+m.wsName+"*%0A• رقم الموديل: *"+m.orderNo+"*%0A• الوصف: "+m.orderDesc+"%0A• نوع القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية المستلمة: *"+m.qty+"* قطعة%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn>
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/></>}
           </div>}</td>
@@ -2094,7 +2107,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/>
             <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
-            <Btn small onClick={()=>{const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — تسليم*%0A%0A- الورشة: *"+selWs+"*%0A- موديل: *"+m.orderNo+"*%0A- القطعة: *"+(m.garmentType||"عام")+"*%0A- الكمية: *"+m.qty+"*%0A- التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — استلام*%0A%0A- الورشة: *"+selWs+"*%0A- موديل: *"+m.orderNo+"*%0A- القطعة: *"+(m.garmentType||"عام")+"*%0A- الكمية: *"+m.qty+"*%0A- التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn></>}
+            <Btn small onClick={()=>{const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — تسليم*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — استلام*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn></>}
           </div>}</td></tr>})}</tbody>
       </table></div>
     </Card>}
@@ -2136,8 +2149,8 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         h+="<div style='display:flex;justify-content:space-between;align-items:flex-end;margin-top:30px'><div style='text-align:center;width:180px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:12px'>توقيع المسلّم</div></div><div style='text-align:center;width:180px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:12px'>توقيع المستلم</div></div></div>";
         h+="<div style='margin-top:16px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:8px'>CLARK Factory Management — "+new Date().toLocaleDateString("ar-EG")+"</div>";
         printPage("اذن تسليم مُجمع — "+selWs,h)}
-      if(andWa){const phone=wsObj?.phone||"";let lines=checked.map(item=>"- موديل *"+item.modelNo+"* — "+item.garmentType+" — *"+item.qty+"* قطعة"+(item.price?" — "+item.price+" ج.م":"")).join("%0A");
-        const msg="*CLARK — اذن تسليم مُجمع*%0A%0A- الورشة: *"+selWs+"*%0A- التاريخ: *"+batchDate+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A- الاجمالي: *"+totalQty+"* قطعة%0A%0A*برجاء التأكيد*";
+      if(andWa){const phone=wsObj?.phone||"";let lines=checked.map(item=>"• موديل *"+item.modelNo+"* — "+item.garmentType+" — *"+item.qty+"* قطعة"+(item.price?" — "+item.price+" ج.م":"")).join("%0A");
+        const msg="*CLARK — اذن تسليم مُجمع*%0A%0A• الورشة: *"+selWs+"*%0A• التاريخ: *"+batchDate+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+totalQty+"* قطعة%0A%0A*برجاء التأكيد*";
         window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
       setBatchItems([]);setSelWs("");setMode(null)};
 
@@ -2247,7 +2260,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/>
             <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
-            <Btn small onClick={()=>{const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — تسليم*%0A%0A- الورشة: *"+selWs+"*%0A- موديل: *"+m.orderNo+"*%0A- القطعة: *"+(m.garmentType||"عام")+"*%0A- الكمية: *"+m.qty+"*%0A- التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — استلام*%0A%0A- الورشة: *"+selWs+"*%0A- موديل: *"+m.orderNo+"*%0A- القطعة: *"+(m.garmentType||"عام")+"*%0A- الكمية: *"+m.qty+"*%0A- التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn></>}
+            <Btn small onClick={()=>{const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — تسليم*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — استلام*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn></>}
           </div>}</td></tr>})}</tbody>
       </table></div>
     </Card>}
@@ -2289,7 +2302,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         <td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}>
           {isEd?<><Btn small primary onClick={()=>{upConfig(d=>{const t=(d.wsPayments||[]).find(x=>x.id===p.id);if(t){t.date=edPayDate;t.amount=Number(edPayAmt)||0;t.notes=edPayNote;t.type=edPayType}});setEditPayId(null);showToast("✓ تم التعديل")}}>💾</Btn><Btn ghost small onClick={()=>setEditPayId(null)}>✕</Btn></>
           :<><Btn small onClick={()=>{setEditPayId(p.id);setEdPayDate(p.date);setEdPayAmt(p.amount);setEdPayNote(p.notes||"");setEdPayType(p.type)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
-          <Btn small onClick={()=>{const wsO=workshops.find(w=>w.name===payWs);const ph=wsO?.phone||"";const ac=wsAccounts(payWs);const mg="*CLARK — "+(p.type==="payment"?"اشعار دفعة":"اشعار مشتريات")+"*%0A%0A- الورشة: *"+payWs+"*%0A- المبلغ: *"+fmt(p.amount)+"* ج.م%0A- التاريخ: *"+p.date+"*%0A"+(p.notes?"- ملاحظات: "+p.notes+"%0A":"")+"%0A─────────────────%0A*الرصيد الحالي: "+fmt(r2(ac.balance))+" ج.م*";window.open("https://wa.me/"+(ph?ph.replace(/[^0-9]/g,""):"")+"?text="+mg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn>
+          <Btn small onClick={()=>{const wsO=workshops.find(w=>w.name===payWs);const ph=wsO?.phone||"";const ac=wsAccounts(payWs);const mg="*CLARK — "+(p.type==="payment"?"اشعار دفعة":"اشعار مشتريات")+"*%0A%0A• الورشة: *"+payWs+"*%0A• المبلغ: *"+fmt(p.amount)+"* ج.م%0A• التاريخ: *"+p.date+"*%0A"+(p.notes?"• ملاحظات: "+p.notes+"%0A":"")+"%0A─────────────────%0A*الرصيد الحالي: "+fmt(r2(ac.balance))+" ج.م*";window.open("https://wa.me/"+(ph?ph.replace(/[^0-9]/g,""):"")+"?text="+mg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn>
           <DelBtn onConfirm={()=>upConfig(d=>{d.wsPayments=(d.wsPayments||[]).filter(x=>x.id!==p.id)})}/></>}
         </div></td>
       </tr>})}{(data.wsPayments||[]).filter(p=>p.wsName===payWs).length===0&&<tr><td colSpan={5} style={{...TD,textAlign:"center",color:T.textSec}}>لا توجد دفعات</td></tr>}
@@ -3030,13 +3043,15 @@ function CostPg({data,isMob,statusCards}){
 
 /* ══ SETTINGS ══ */
 /* ══ TASKS ══ */
-function TasksPg({data,upConfig,isMob,user}){
+function TasksPg({data,upConfig,isMob,user,userRole}){
   const[taskText,setTaskText]=useState("");const[taskTo,setTaskTo]=useState("");
   const uid=user?.uid||"default";const userEmail=user?.email||"";
   const allTasks=Array.isArray(data.tasks)?data.tasks:[];
   const myTasks=allTasks.filter(t=>t.toEmail===userEmail||t.toUid===uid);
   const sentTasks=allTasks.filter(t=>t.fromEmail===userEmail||t.fromUid===uid);
   const users=(data.usersList||[]);
+  /* Role hierarchy: admin→all, manager→admin+manager, viewer→admin */
+  const allowedTargets=users.filter(u=>{if(u.email===userEmail)return false;if(userRole==="admin")return true;if(userRole==="manager")return u.role==="admin"||u.role==="manager";return u.role==="admin"});
   const addTask=()=>{if(!taskText.trim()||!taskTo)return;const target=users.find(u=>u.email===taskTo);
     upConfig(d=>{if(!Array.isArray(d.tasks))d.tasks=[];d.tasks.unshift({id:Date.now(),text:taskText.trim(),done:false,date:new Date().toISOString().split("T")[0],fromUid:uid,fromEmail:userEmail,fromName:user?.displayName||userEmail.split("@")[0],toEmail:taskTo,toName:target?.name||taskTo.split("@")[0]})});
     setTaskText("");showToast("✓ تم ارسال المهمة")};
@@ -3045,7 +3060,7 @@ function TasksPg({data,upConfig,isMob,user}){
   return<div>
     <Card title="📌 ارسال مهمة جديدة" style={{marginBottom:16}}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 2fr auto",gap:8,alignItems:"end"}}>
-        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ارسال الى</label><Sel value={taskTo} onChange={setTaskTo}><option value="">-- اختر مستخدم --</option>{users.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+" — "+u.role}</option>)}</Sel></div>
+        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ارسال الى</label><Sel value={taskTo} onChange={setTaskTo}><option value="">-- اختر مستخدم --</option>{allowedTargets.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+" — "+(u.role==="admin"?"مدير النظام":u.role==="manager"?"مدير انتاج":"مشاهد")}</option>)}</Sel></div>
         <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المهمة</label><Inp value={taskText} onChange={setTaskText} placeholder="اكتب المهمة..." onKeyDown={e=>{if(e.key==="Enter")addTask()}}/></div>
         <Btn primary onClick={addTask} disabled={!taskText.trim()||!taskTo}>📤 ارسال</Btn>
       </div>
@@ -3215,7 +3230,7 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
     </Card>
     <Card title="📩 ارسال اشعار" style={{marginBottom:16}}>
       {(()=>{const[nTo,setNTo]=useState("all");const[nMsg,setNMsg]=useState("");const[nType,setNType]=useState("تنبيه");const[nOrd,setNOrd]=useState("");
-        const sendNotif=()=>{if(!nMsg.trim())return;upConfig(d=>{if(!d.notifications)d.notifications=[];d.notifications.push({id:Date.now(),toEmail:nTo,msg:nMsg.trim(),type:nType,orderId:nOrd||null,fromName:user.displayName||user.email.split("@")[0],createdAt:new Date().toISOString().split("T")[0],readBy:[]})});setNMsg("");showToast("✓ تم ارسال الاشعار")};
+        const sendNotif=()=>{if(!nMsg.trim())return;const targetUser=(config.usersList||[]).find(u=>u.email===nTo);upConfig(d=>{if(!d.notifications)d.notifications=[];d.notifications.push({id:Date.now(),toEmail:nTo,toName:nTo==="all"?"الكل":targetUser?.name||nTo.split("@")[0],msg:nMsg.trim(),type:nType,orderId:nOrd||null,fromName:user.displayName||user.email.split("@")[0],createdAt:new Date().toISOString().split("T")[0],readBy:[]})});setNMsg("");showToast("✓ تم ارسال الاشعار")};
         return<div>
           <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:10}}>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الى</label><Sel value={nTo} onChange={setNTo}><option value="all">جميع المستخدمين</option>{(config.usersList||[]).map(u=><option key={u.email} value={u.email}>{u.name||u.email}</option>)}</Sel></div>
@@ -3230,7 +3245,7 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
           {(config.notifications||[]).length>0&&<div style={{marginTop:14,borderTop:"1px solid "+T.brd,paddingTop:10}}>
             <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:8}}>{"الاشعارات المرسلة ("+config.notifications.length+")"}</div>
             {[...config.notifications].reverse().slice(0,10).map(n=><div key={n.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",borderRadius:8,background:T.bg,marginBottom:4,fontSize:FS-2}}>
-              <div><span style={{fontWeight:700,color:n.type==="طلب"?"#8B5CF6":n.type==="مهمة"?T.accent:T.warn}}>{n.type}</span><span style={{marginRight:8,color:T.text}}>{n.msg}</span><span style={{color:T.textMut}}>{"→ "+(n.toEmail==="all"?"الكل":n.toEmail)}</span></div>
+              <div><span style={{fontWeight:700,color:n.type==="طلب"?"#8B5CF6":n.type==="مهمة"?T.accent:T.warn}}>{n.type}</span><span style={{marginRight:8,color:T.text}}>{n.msg}</span><span style={{color:T.textMut}}>{"→ "+(n.toName||n.toEmail==="all"?"الكل":(config.usersList||[]).find(u=>u.email===n.toEmail)?.name||n.toEmail)}</span></div>
               <span style={{color:T.textMut,flexShrink:0}}>{n.createdAt}</span>
             </div>)}
           </div>}
