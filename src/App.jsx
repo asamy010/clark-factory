@@ -407,7 +407,7 @@ async function printOrderSheet(order,t,activeFabs,statusCards){
       h+="</table></div>"})};
   if(wsRows)h+="<h2 style='font-size:14px;margin:12px 0 6px'>الورش</h2><table><tr><th>الورشة</th><th>القطعة</th><th>الكمية</th><th>استلام مصنع</th><th>الرصيد</th></tr>"+wsRows+"</table>";
   if(order.instructions)h+="<h2 style='font-size:14px;margin:12px 0 6px'>تعليمات التشغيل</h2><div style='background:#f8fafc;padding:10px;border-radius:6px;white-space:pre-wrap;font-size:12px'>"+order.instructions+"</div>";
-  h+="<div class='sig'><div class='sig-box'>توقيع القصاص</div><div class='sig-box'>مسؤول التشغيل</div><div class='sig-box'>مدير الانتاج</div></div>";
+  h+="<div class='sig'><div class='sig-box'>توقيع مسؤول القص</div><div class='sig-box'>مسؤول التشغيل</div><div class='sig-box'>مدير الانتاج</div></div>";
   printPage("أمر قص — "+order.modelNo,h)
 }
 
@@ -922,7 +922,7 @@ export default function App(){
           {/* ── Quick Action: Task / Notification ── */}
           <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"center"}}>
             <div onClick={()=>setQuickPopup("task")} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:T.accent+"10",border:"1px solid "+T.accent+"25",display:"flex",alignItems:"center",gap:6,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"20"} onMouseLeave={e=>e.currentTarget.style.background=T.accent+"10"}>
-              <span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:700,color:T.accent}}>مهمة سريعة</span>
+              <span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:700,color:T.accent}}>ارسال مهمة</span>
             </div>
             <div onClick={()=>setQuickPopup("notif")} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:"#8B5CF610",border:"1px solid #8B5CF625",display:"flex",alignItems:"center",gap:6,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#8B5CF620"} onMouseLeave={e=>e.currentTarget.style.background="#8B5CF610"}>
               <span style={{fontSize:18}}>📩</span><span style={{fontSize:FS,fontWeight:700,color:"#8B5CF6"}}>ارسال اشعار</span>
@@ -934,9 +934,9 @@ export default function App(){
             const saveNote=(note)=>{upConfig(d=>{if(!d.stickyNotes)d.stickyNotes=[];const idx=d.stickyNotes.findIndex(n=>n.id===note.id);if(idx>=0)d.stickyNotes[idx]=note;else{if(d.stickyNotes.filter(n=>n.email===uemail).length>=20){showToast("⚠️ الحد الاقصى 20 ملاحظة");return}d.stickyNotes.push(note)}});setStickyForm(null);showToast("✓ تم الحفظ")};
             const delNote=(id)=>{upConfig(d=>{d.stickyNotes=(d.stickyNotes||[]).filter(n=>n.id!==id)})};
             return<div style={{marginTop:16}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
                 <span style={{fontSize:FS,fontWeight:700,color:T.textSec}}>{"📝 ملاحظاتي"+(myNotes.length>0?" ("+myNotes.length+"/20)":"")}</span>
-                <span onClick={()=>setStickyForm({id:gid(),email:uemail,title:"",text:"",color:"#FEF9C3",date:new Date().toISOString().split("T")[0]})} style={{cursor:"pointer",fontSize:FS-1,padding:"4px 12px",borderRadius:8,background:T.accent+"12",color:T.accent,fontWeight:700}}>+ ملاحظة</span>
+                <span onClick={()=>setStickyForm({id:gid(),email:uemail,title:"",text:"",color:"#FEF9C3",date:new Date().toISOString().split("T")[0]})} style={{cursor:"pointer",fontSize:FS-2,padding:"3px 10px",borderRadius:6,background:T.accent+"12",color:T.accent,fontWeight:700}}>+ ملاحظة</span>
               </div>
               {stickyForm&&<div style={{maxWidth:360,background:stickyForm.color,borderRadius:10,padding:10,border:"2px solid "+(COLORS.find(c=>c.key===stickyForm.color)?.border||"#EAB308")+"40",marginBottom:12,boxShadow:"0 2px 10px rgba(0,0,0,0.06)"}}>
                 <div style={{display:"flex",gap:3,marginBottom:6}}>{COLORS.map(c=><div key={c.key} onClick={()=>setStickyForm(p=>({...p,color:c.key}))} style={{width:18,height:18,borderRadius:5,background:c.key,border:stickyForm.color===c.key?"2px solid "+c.border:"1px solid #ccc",cursor:"pointer"}}/>)}</div>
@@ -975,21 +975,21 @@ export default function App(){
     </div>
     {/* Quick Task/Notification Popup */}
     {quickPopup&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setQuickPopup(null)}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:20,width:"100%",maxWidth:400,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
-        <div style={{display:"flex",gap:0,marginBottom:14,borderRadius:10,overflow:"hidden",border:"1px solid "+T.brd}}>
-          <div onClick={()=>setQuickPopup("task")} style={{flex:1,padding:"8px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:quickPopup==="task"?T.accent:T.bg,color:quickPopup==="task"?"#fff":T.text}}>📌 مهمة</div>
-          <div onClick={()=>setQuickPopup("notif")} style={{flex:1,padding:"8px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:quickPopup==="notif"?"#8B5CF6":T.bg,color:quickPopup==="notif"?"#fff":T.text}}>📩 اشعار</div>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:20,width:"100%",maxWidth:380,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <span style={{fontSize:FS+2,fontWeight:800,color:quickPopup==="task"?T.accent:"#8B5CF6"}}>{quickPopup==="task"?"📌 ارسال مهمة":"📩 ارسال اشعار"}</span>
+          <span onClick={()=>setQuickPopup(null)} style={{cursor:"pointer",fontSize:18,color:T.textMut}}>✕</span>
         </div>
         {(()=>{
           const allUsers=(config.usersList||[]);const me={email:user?.email||"",name:user?.displayName||(user?.email||"").split("@")[0],role:userRole};
           const targets=allUsers.find(u=>u.email===me.email)?allUsers:[me,...allUsers];
           if(quickPopup==="task"){
             return<div>
-              <div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ارسال الى</label><Sel value={""} onChange={v=>document.getElementById("qp-to").value=v} id="qp-to-sel"><option value="">-- اختر --</option>{targets.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+(u.email===me.email?" (أنا)":"")}</option>)}</Sel></div>
+              <div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ارسال الى</label><Sel value={""} onChange={v=>document.getElementById("qp-to-sel").value=v} id="qp-to-sel"><option value="">-- اختر --</option>{targets.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+(u.email===me.email?" (أنا)":"")}</option>)}</Sel></div>
               <div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المهمة</label><input id="qp-text" placeholder="اكتب المهمة..." style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.bg,color:T.text,boxSizing:"border-box"}}/></div>
               <Btn primary onClick={()=>{const to=document.getElementById("qp-to-sel").value;const text=document.getElementById("qp-text").value;if(!to||!text.trim())return;const target=targets.find(u=>u.email===to);
                 upConfig(d=>{if(!Array.isArray(d.tasks))d.tasks=[];d.tasks.unshift({id:Date.now(),text:text.trim(),done:false,date:new Date().toISOString().split("T")[0],fromUid:user?.uid||"",fromEmail:user?.email||"",fromName:user?.displayName||(user?.email||"").split("@")[0],toEmail:to,toName:target?.name||to.split("@")[0]})});
-                setQuickPopup(null);showToast("✓ تم ارسال المهمة")}} style={{width:"100%"}}>📌 ارسال المهمة</Btn>
+                setQuickPopup(null);showToast("✓ تم ارسال المهمة")}} style={{width:"100%"}}>📌 ارسال</Btn>
             </div>
           }else{
             return<div>
@@ -1000,7 +1000,7 @@ export default function App(){
               <div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الرسالة</label><input id="qp-nmsg" placeholder="اكتب الاشعار..." style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.bg,color:T.text,boxSizing:"border-box"}}/></div>
               <Btn primary onClick={()=>{const msg=document.getElementById("qp-nmsg").value;if(!msg.trim())return;const to=document.getElementById("qp-nto").value;const ntype=document.getElementById("qp-ntype").value;const targetUser=(config.usersList||[]).find(u=>u.email===to);
                 upConfig(d=>{if(!d.notifications)d.notifications=[];d.notifications.push({id:Date.now(),toEmail:to,toName:to==="all"?"الكل":targetUser?.name||to.split("@")[0],msg:msg.trim(),type:ntype,fromName:user?.displayName||(user?.email||"").split("@")[0],createdAt:new Date().toISOString().split("T")[0],readBy:[]})});
-                setQuickPopup(null);showToast("✓ تم ارسال الاشعار")}} style={{width:"100%",background:"#8B5CF6"}}>📩 ارسال الاشعار</Btn>
+                setQuickPopup(null);showToast("✓ تم ارسال الاشعار")}} style={{width:"100%",background:"#8B5CF6"}}>📩 ارسال</Btn>
             </div>
           }
         })()}
@@ -2128,7 +2128,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       <h1 style={{fontSize:isMob?22:28,fontWeight:800,margin:0}}>{"📤 تسليم ورشة"}</h1>
       <Btn ghost onClick={()=>{setMode(null);setSelWs("");setSelOrder("")}}>↩</Btn>
     </div>
-    <Card title="اختر الورشة" style={{marginBottom:16}}>
+    <Card title="اختر الورشة" style={{marginBottom:16,position:"relative",zIndex:100}}>
       <SearchSel value={selWs} onChange={v=>{setSelWs(v);setSelOrder("")}} options={workshops.map(w=>({value:w.name||w,label:(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)+(w.owner?" - "+w.owner:"")}))} placeholder="ابحث عن ورشة..."/>
       {wsObj&&(()=>{let wsTotalDel=0,wsTotalRcv=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===selWs).forEach(wd=>{wsTotalDel+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{wsTotalRcv+=Number(r.qty)||0})})});const wsBal=wsTotalDel-wsTotalRcv;
         return<div style={{marginTop:12,padding:12,background:T.accentBg,borderRadius:10}}>
@@ -2251,7 +2251,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         <h1 style={{fontSize:isMob?22:28,fontWeight:800,margin:0,color:"#8B5CF6"}}>{"📦 تسليم مُجمع"}</h1>
         <Btn ghost onClick={()=>{setMode(null);setSelWs("");setBatchItems([])}}>↩</Btn>
       </div>
-      <Card title="اختر الورشة" style={{marginBottom:16}}>
+      <Card title="اختر الورشة" style={{marginBottom:16,position:"relative",zIndex:100}}>
         <SearchSel value={selWs} onChange={v=>{setSelWs(v);setTimeout(()=>{const items=[];const ws=v;data.orders.forEach(o=>{const t=calcOrder(o);const pieces=o.orderPieces||[];const linkedPieces=new Set();FKEYS.forEach(k=>{if(gf(o,k))(o["fabricPieces"+k]||[]).forEach(p=>linkedPieces.add(p))});
           if(pieces.length>0){pieces.forEach(p=>{if(linkedPieces.size>0&&!linkedPieces.has(p))return;const delForP=(o.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);const avail=t.cutQty-delForP;if(avail>0)items.push({orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,garmentType:p,qty:avail,maxQty:avail,price:0,checked:true})})}
           else{const totalDel=(o.workshopDeliveries||[]).reduce((s,wd)=>s+(Number(wd.qty)||0),0);const avail=t.cutQty-totalDel;if(avail>0)items.push({orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,garmentType:"عام",qty:avail,maxQty:avail,price:0,checked:true})}
@@ -2325,7 +2325,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         <h1 style={{fontSize:isMob?22:28,fontWeight:800,margin:0,color:T.ok}}>{"📥 استلام مُجمع"}</h1>
         <Btn ghost onClick={()=>{setMode(null);setSelWs("");setBatchItems([])}}>↩</Btn>
       </div>
-      <Card title="اختر الورشة" style={{marginBottom:16}}>
+      <Card title="اختر الورشة" style={{marginBottom:16,position:"relative",zIndex:100}}>
         <SearchSel value={selWs} onChange={v=>{setSelWs(v);setTimeout(()=>{const items=[];data.orders.forEach(o=>{(o.workshopDeliveries||[]).forEach((wd,wdIdx)=>{if(wd.wsName!==v)return;
           const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;
           if(bal>0)items.push({orderId:o.id,docId:o._docId,modelNo:o.modelNo,modelDesc:o.modelDesc,garmentType:wd.garmentType||"عام",wdIdx,delivered:wd.qty,received:rcvd,balance:bal,qty:bal,price:Number(wd.price)||0,checked:true})
@@ -2369,7 +2369,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
       <h1 style={{fontSize:isMob?22:28,fontWeight:800,margin:0}}>{"📥 استلام من ورشة"}</h1>
       <Btn ghost onClick={()=>{setMode(null);setSelWs("")}}>↩</Btn>
     </div>
-    <Card title="اختر الورشة" style={{marginBottom:16}}>
+    <Card title="اختر الورشة" style={{marginBottom:16,position:"relative",zIndex:100}}>
       <SearchSel value={selWs} onChange={v=>{setSelWs(v);setRcvSearch("")}} options={workshops.map(w=>({value:w.name||w,label:(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)+(w.owner?" - "+w.owner:"")}))} placeholder="ابحث عن ورشة..."/>
       {selWs&&<div style={{marginTop:8}}><Inp value={rcvSearch} onChange={setRcvSearch} placeholder="بحث برقم الموديل..."/></div>}
     </Card>
