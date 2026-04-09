@@ -653,7 +653,14 @@ export default function App(){
   const[statusNotif,setStatusNotif]=useState(null);const prevStatuses=useRef({});
   /* Online/Offline status */
   const[isOnline,setIsOnline]=useState(navigator.onLine);const[justReconnected,setJustReconnected]=useState(false);
-  useEffect(()=>{const on=()=>{setIsOnline(true);setJustReconnected(true);setTimeout(()=>setJustReconnected(false),4000)};const off=()=>{setIsOnline(false);setJustReconnected(false)};window.addEventListener("online",on);window.addEventListener("offline",off);return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off)}},[]);
+  useEffect(()=>{
+    const checkReal=async()=>{try{const r=await fetch("https://firestore.googleapis.com",{method:"HEAD",mode:"no-cors",cache:"no-store"});setIsOnline(p=>{if(!p)setJustReconnected(true);return true})}catch(e){setIsOnline(false);setJustReconnected(false)}};
+    const on=()=>checkReal();const off=()=>{setIsOnline(false);setJustReconnected(false)};
+    window.addEventListener("online",on);window.addEventListener("offline",off);
+    const interval=setInterval(checkReal,15000);checkReal();
+    return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off);clearInterval(interval)}
+  },[]);
+  useEffect(()=>{if(justReconnected){const t=setTimeout(()=>setJustReconnected(false),4000);return()=>clearTimeout(t)}},[justReconnected]);
   const themeKey="clark-theme-"+(user?.uid||"default");
   const[theme,setTheme_]=useState(()=>localStorage.getItem("clark-theme-default")||"light");
   const setTheme=v=>{setTheme_(v);localStorage.setItem(themeKey,v)};
@@ -3138,7 +3145,7 @@ function TasksPg({data,upConfig,isMob,user,userRole}){
   const sentTasks=allTasks.filter(t=>t.fromEmail===userEmail||t.fromUid===uid);
   const users=(data.usersList||[]);
   /* Role hierarchy: admin→all, manager→admin+manager, viewer→admin */
-  const allowedTargets=users.filter(u=>{if(u.email===userEmail)return false;if(userRole==="admin")return true;if(userRole==="manager")return u.role==="admin"||u.role==="manager";return u.role==="admin"});
+  const allowedTargets=users;
   const addTask=()=>{if(!taskText.trim()||!taskTo)return;const target=users.find(u=>u.email===taskTo);
     upConfig(d=>{if(!Array.isArray(d.tasks))d.tasks=[];d.tasks.unshift({id:Date.now(),text:taskText.trim(),done:false,date:new Date().toISOString().split("T")[0],fromUid:uid,fromEmail:userEmail,fromName:user?.displayName||userEmail.split("@")[0],toEmail:taskTo,toName:target?.name||taskTo.split("@")[0]})});
     setTaskText("");showToast("✓ تم ارسال المهمة")};
@@ -3147,7 +3154,7 @@ function TasksPg({data,upConfig,isMob,user,userRole}){
   return<div>
     <Card title="📌 ارسال مهمة جديدة" style={{marginBottom:16}}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 2fr auto",gap:8,alignItems:"end"}}>
-        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ارسال الى</label><Sel value={taskTo} onChange={setTaskTo}><option value="">-- اختر مستخدم --</option>{allowedTargets.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+" — "+(u.role==="admin"?"مدير النظام":u.role==="manager"?"مدير انتاج":"مشاهد")}</option>)}</Sel></div>
+        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ارسال الى</label><Sel value={taskTo} onChange={setTaskTo}><option value="">-- اختر مستخدم --</option>{allowedTargets.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+(u.email===userEmail?" (أنا)":"")+" — "+(u.role==="admin"?"مدير النظام":u.role==="manager"?"مدير انتاج":"مشاهد")}</option>)}</Sel></div>
         <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المهمة</label><Inp value={taskText} onChange={setTaskText} placeholder="اكتب المهمة..." onKeyDown={e=>{if(e.key==="Enter")addTask()}}/></div>
         <Btn primary onClick={addTask} disabled={!taskText.trim()||!taskTo}>📤 ارسال</Btn>
       </div>
