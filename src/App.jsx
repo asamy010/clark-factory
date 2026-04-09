@@ -651,6 +651,7 @@ export default function App(){
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
   const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);
   const[stickyForm,setStickyForm]=useState(null);
+  const[quickPopup,setQuickPopup]=useState(null);/* "task"|"notif"|null */
   const[statusNotif,setStatusNotif]=useState(null);const prevStatuses=useRef({});
   /* Online/Offline status */
   const[isOnline,setIsOnline]=useState(navigator.onLine);const[justReconnected,setJustReconnected]=useState(false);
@@ -851,6 +852,7 @@ export default function App(){
           {statusNotif&&<div onClick={()=>setStatusNotif(null)} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 12px",borderRadius:8,background:"#8B5CF612",border:"1px solid #8B5CF630",cursor:"pointer",animation:"pulse 2s infinite",fontSize:FS-1}}>
             <span>🔄</span><span style={{fontWeight:700,color:"#8B5CF6"}}>{statusNotif.modelNo}</span><span style={{color:T.textSec}}>{statusNotif.from+" → "+statusNotif.to}</span>
           </div>}
+          <div onClick={e=>{e.stopPropagation();setQuickPopup(quickPopup?"":"task")}} style={{cursor:"pointer",fontSize:isMob?16:20,padding:"2px 6px",borderRadius:8,background:quickPopup?T.accent+"15":"transparent"}}>📌</div>
           <div onClick={()=>setShowAlerts(!showAlerts)} style={{cursor:"pointer",fontSize:isMob?18:22,padding:"2px 6px",borderRadius:8,background:alertCount>0?T.warn+"12":"transparent",position:"relative"}}>🔔
             {alertCount>0&&<span style={{position:"absolute",top:-2,left:-2,width:16,height:16,borderRadius:8,background:T.err,color:"#fff",fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>{alertCount}</span>}
           </div>
@@ -928,23 +930,23 @@ export default function App(){
                 <span style={{fontSize:FS,fontWeight:700,color:T.textSec}}>{"📝 ملاحظاتي"+(myNotes.length>0?" ("+myNotes.length+"/20)":"")}</span>
                 <span onClick={()=>setStickyForm({id:gid(),email:uemail,title:"",text:"",color:"#FEF9C3",date:new Date().toISOString().split("T")[0]})} style={{cursor:"pointer",fontSize:FS-1,padding:"4px 12px",borderRadius:8,background:T.accent+"12",color:T.accent,fontWeight:700}}>+ ملاحظة</span>
               </div>
-              {stickyForm&&<div style={{background:stickyForm.color,borderRadius:12,padding:14,border:"2px solid "+(COLORS.find(c=>c.key===stickyForm.color)?.border||"#EAB308")+"40",marginBottom:12,boxShadow:"0 2px 10px rgba(0,0,0,0.06)"}}>
-                <div style={{display:"flex",gap:4,marginBottom:8}}>{COLORS.map(c=><div key={c.key} onClick={()=>setStickyForm(p=>({...p,color:c.key}))} style={{width:22,height:22,borderRadius:6,background:c.key,border:stickyForm.color===c.key?"2px solid "+c.border:"1px solid #ccc",cursor:"pointer"}}/>)}</div>
-                <input value={stickyForm.title} onChange={e=>setStickyForm(p=>({...p,title:e.target.value}))} placeholder="العنوان..." style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #ddd",fontSize:FS,fontFamily:"inherit",fontWeight:700,background:"rgba(255,255,255,0.6)",marginBottom:6,boxSizing:"border-box"}}/>
-                <textarea value={stickyForm.text} onChange={e=>setStickyForm(p=>({...p,text:e.target.value}))} placeholder="اكتب ملاحظتك..." rows={3} style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #ddd",fontSize:FS-1,fontFamily:"inherit",background:"rgba(255,255,255,0.6)",resize:"vertical",boxSizing:"border-box"}}/>
-                <div style={{display:"flex",gap:6,marginTop:8}}><Btn primary small onClick={()=>{if(!stickyForm.title?.trim()&&!stickyForm.text?.trim())return;saveNote(stickyForm)}}>💾 حفظ</Btn><Btn ghost small onClick={()=>setStickyForm(null)}>الغاء</Btn></div>
+              {stickyForm&&<div style={{maxWidth:360,background:stickyForm.color,borderRadius:10,padding:10,border:"2px solid "+(COLORS.find(c=>c.key===stickyForm.color)?.border||"#EAB308")+"40",marginBottom:12,boxShadow:"0 2px 10px rgba(0,0,0,0.06)"}}>
+                <div style={{display:"flex",gap:3,marginBottom:6}}>{COLORS.map(c=><div key={c.key} onClick={()=>setStickyForm(p=>({...p,color:c.key}))} style={{width:18,height:18,borderRadius:5,background:c.key,border:stickyForm.color===c.key?"2px solid "+c.border:"1px solid #ccc",cursor:"pointer"}}/>)}</div>
+                <input value={stickyForm.title} onChange={e=>setStickyForm(p=>({...p,title:e.target.value}))} placeholder="العنوان..." style={{width:"100%",padding:"4px 8px",borderRadius:6,border:"1px solid #ddd",fontSize:FS-1,fontFamily:"inherit",fontWeight:700,background:"rgba(255,255,255,0.6)",marginBottom:4,boxSizing:"border-box"}}/>
+                <textarea value={stickyForm.text} onChange={e=>setStickyForm(p=>({...p,text:e.target.value}))} placeholder="ملاحظة قصيرة..." rows={2} style={{width:"100%",padding:"4px 8px",borderRadius:6,border:"1px solid #ddd",fontSize:FS-2,fontFamily:"inherit",background:"rgba(255,255,255,0.6)",resize:"none",boxSizing:"border-box"}}/>
+                <div style={{display:"flex",gap:6,marginTop:6}}><Btn primary small onClick={()=>{if(!stickyForm.title?.trim()&&!stickyForm.text?.trim())return;saveNote(stickyForm)}}>💾 حفظ</Btn><Btn ghost small onClick={()=>setStickyForm(null)}>الغاء</Btn></div>
               </div>}
-              {myNotes.length>0&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:10}}>
-                {myNotes.map(n=>{const bc=COLORS.find(c=>c.key===n.color);return<div key={n.id} style={{background:n.color||"#FEF9C3",borderRadius:12,padding:"12px 14px",border:"1px solid "+(bc?.border||"#EAB308")+"30",boxShadow:"0 2px 8px rgba(0,0,0,0.04)",position:"relative",minHeight:80}}>
+              {myNotes.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                {myNotes.map(n=>{const bc=COLORS.find(c=>c.key===n.color);return<div key={n.id} style={{background:n.color||"#FEF9C3",borderRadius:10,padding:"8px 10px",border:"1px solid "+(bc?.border||"#EAB308")+"30",boxShadow:"0 1px 4px rgba(0,0,0,0.04)",width:isMob?140:160}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                    {n.title&&<div style={{fontWeight:700,fontSize:FS,color:"#1E293B",marginBottom:4,flex:1}}>{n.title}</div>}
+                    {n.title&&<div style={{fontWeight:700,fontSize:FS-1,color:"#1E293B",marginBottom:2,flex:1,lineHeight:1.3}}>{n.title}</div>}
                     <div style={{display:"flex",gap:2,flexShrink:0}}>
-                      <span onClick={()=>setStickyForm({...n})} style={{cursor:"pointer",fontSize:12,opacity:0.5}}>✏️</span>
-                      <span onClick={()=>delNote(n.id)} style={{cursor:"pointer",fontSize:12,opacity:0.5}}>✕</span>
+                      <span onClick={()=>setStickyForm({...n})} style={{cursor:"pointer",fontSize:10,opacity:0.4}}>✏️</span>
+                      <span onClick={()=>delNote(n.id)} style={{cursor:"pointer",fontSize:10,opacity:0.4}}>✕</span>
                     </div>
                   </div>
-                  {n.text&&<div style={{fontSize:FS-1,color:"#334155",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{n.text}</div>}
-                  <div style={{fontSize:FS-3,color:"#94A3B8",marginTop:6}}>{n.date}</div>
+                  {n.text&&<div style={{fontSize:FS-2,color:"#334155",lineHeight:1.4,whiteSpace:"pre-wrap"}}>{n.text}</div>}
+                  <div style={{fontSize:FS-3,color:"#94A3B8",marginTop:4}}>{n.date}</div>
                 </div>})}
               </div>}
             </div>})()}
@@ -963,6 +965,39 @@ export default function App(){
         {tab==="settings"&&canEditTab("settings")&&<SettingsPg config={config} upConfig={upConfig} isMob={isMob} user={user} theme={theme} setTheme={setTheme} season={season} orders={orders} syncWsIds={syncWsIds} replaceOrder={replaceOrder}/>}
       </div>}
     </div>
+    {/* Quick Task/Notification Popup */}
+    {quickPopup&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setQuickPopup(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:20,width:"100%",maxWidth:400,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
+        <div style={{display:"flex",gap:0,marginBottom:14,borderRadius:10,overflow:"hidden",border:"1px solid "+T.brd}}>
+          <div onClick={()=>setQuickPopup("task")} style={{flex:1,padding:"8px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:quickPopup==="task"?T.accent:T.bg,color:quickPopup==="task"?"#fff":T.text}}>📌 مهمة</div>
+          <div onClick={()=>setQuickPopup("notif")} style={{flex:1,padding:"8px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:quickPopup==="notif"?"#8B5CF6":T.bg,color:quickPopup==="notif"?"#fff":T.text}}>📩 اشعار</div>
+        </div>
+        {(()=>{
+          const allUsers=(config.usersList||[]);const me={email:user?.email||"",name:user?.displayName||(user?.email||"").split("@")[0],role:userRole};
+          const targets=allUsers.find(u=>u.email===me.email)?allUsers:[me,...allUsers];
+          if(quickPopup==="task"){
+            return<div>
+              <div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ارسال الى</label><Sel value={""} onChange={v=>document.getElementById("qp-to").value=v} id="qp-to-sel"><option value="">-- اختر --</option>{targets.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+(u.email===me.email?" (أنا)":"")}</option>)}</Sel></div>
+              <div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المهمة</label><input id="qp-text" placeholder="اكتب المهمة..." style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.bg,color:T.text,boxSizing:"border-box"}}/></div>
+              <Btn primary onClick={()=>{const to=document.getElementById("qp-to-sel").value;const text=document.getElementById("qp-text").value;if(!to||!text.trim())return;const target=targets.find(u=>u.email===to);
+                upConfig(d=>{if(!Array.isArray(d.tasks))d.tasks=[];d.tasks.unshift({id:Date.now(),text:text.trim(),done:false,date:new Date().toISOString().split("T")[0],fromUid:user?.uid||"",fromEmail:user?.email||"",fromName:user?.displayName||(user?.email||"").split("@")[0],toEmail:to,toName:target?.name||to.split("@")[0]})});
+                setQuickPopup(null);showToast("✓ تم ارسال المهمة")}} style={{width:"100%"}}>📌 ارسال المهمة</Btn>
+            </div>
+          }else{
+            return<div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الى</label><Sel id="qp-nto"><option value="all">الكل</option>{targets.map(u=><option key={u.email} value={u.email}>{u.name||u.email.split("@")[0]}</option>)}</Sel></div>
+                <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label><Sel id="qp-ntype"><option value="تذكير">💬 تذكير</option><option value="طلب">📩 طلب</option><option value="مهمة">📌 مهمة</option><option value="مهمة عاجلة">🔴 عاجل</option></Sel></div>
+              </div>
+              <div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الرسالة</label><input id="qp-nmsg" placeholder="اكتب الاشعار..." style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.bg,color:T.text,boxSizing:"border-box"}}/></div>
+              <Btn primary onClick={()=>{const msg=document.getElementById("qp-nmsg").value;if(!msg.trim())return;const to=document.getElementById("qp-nto").value;const ntype=document.getElementById("qp-ntype").value;const targetUser=(config.usersList||[]).find(u=>u.email===to);
+                upConfig(d=>{if(!d.notifications)d.notifications=[];d.notifications.push({id:Date.now(),toEmail:to,toName:to==="all"?"الكل":targetUser?.name||to.split("@")[0],msg:msg.trim(),type:ntype,fromName:user?.displayName||(user?.email||"").split("@")[0],createdAt:new Date().toISOString().split("T")[0],readBy:[]})});
+                setQuickPopup(null);showToast("✓ تم ارسال الاشعار")}} style={{width:"100%",background:"#8B5CF6"}}>📩 ارسال الاشعار</Btn>
+            </div>
+          }
+        })()}
+      </div>
+    </div>}
     {showScanner&&<QRScanner onClose={()=>setShowScanner(false)} onScan={url=>{setShowScanner(false);try{const u=new URL(url);const p=new URLSearchParams(u.search);if(p.get("o")){const o=orders.find(x=>x.modelNo===p.get("o"));if(o)goD(o.id)}else if(p.get("act")==="rcv"&&p.get("oid")){setTab("external");setTimeout(()=>{window.__qrReceive={oid:p.get("oid"),wdi:Number(p.get("wdi"))||0};window.dispatchEvent(new Event("qr-receive"))},600)}else if(p.get("act")==="wsacc"&&p.get("ws")){setTab("external");setTimeout(()=>{window.__qrWsAcc={ws:decodeURIComponent(p.get("ws"))};window.dispatchEvent(new Event("qr-wsacc"))},600)}else{showToast("QR غير معروف")}}catch(e){showToast("QR غير صالح")}}}/>}
   </div>
 }
@@ -3352,29 +3387,6 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
           </tr>)}</tbody>
         </table></div>
       })()}
-    </Card>
-    <Card title="📩 ارسال اشعار" style={{marginBottom:16}}>
-      {(()=>{const[nTo,setNTo]=useState("all");const[nMsg,setNMsg]=useState("");const[nType,setNType]=useState("تنبيه");const[nOrd,setNOrd]=useState("");
-        const sendNotif=()=>{if(!nMsg.trim())return;const targetUser=(config.usersList||[]).find(u=>u.email===nTo);upConfig(d=>{if(!d.notifications)d.notifications=[];d.notifications.push({id:Date.now(),toEmail:nTo,toName:nTo==="all"?"الكل":targetUser?.name||nTo.split("@")[0],msg:nMsg.trim(),type:nType,orderId:nOrd||null,fromName:user.displayName||user.email.split("@")[0],createdAt:new Date().toISOString().split("T")[0],readBy:[]})});setNMsg("");showToast("✓ تم ارسال الاشعار")};
-        return<div>
-          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:10}}>
-            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الى</label><Sel value={nTo} onChange={setNTo}><option value="all">جميع المستخدمين</option>{(config.usersList||[]).map(u=><option key={u.email} value={u.email}>{u.name||u.email}</option>)}</Sel></div>
-            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label><Sel value={nType} onChange={setNType}><option value="تنبيه">💬 تنبيه</option><option value="طلب">📩 طلب</option><option value="مهمة">📌 مهمة</option><option value="مهمة عاجلة">🔴 مهمة عاجلة</option></Sel></div>
-            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ربط بأوردر (اختياري)</label><Sel value={nOrd} onChange={setNOrd}><option value="">بدون</option>{orders.map(o=><option key={o.id} value={o.id}>{o.modelNo+" — "+o.modelDesc}</option>)}</Sel></div>
-          </div>
-          <div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الرسالة</label><Inp value={nMsg} onChange={setNMsg} placeholder="اكتب الرسالة أو الطلب..."/></div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <Btn primary onClick={sendNotif} disabled={!nMsg.trim()}>📩 ارسال</Btn>
-            {(config.notifications||[]).length>0&&<Btn ghost small onClick={()=>{if(confirm("حذف جميع الاشعارات؟"))upConfig(d=>{d.notifications=[]})}} style={{color:T.err}}>🗑️ مسح الكل</Btn>}
-          </div>
-          {(config.notifications||[]).length>0&&<div style={{marginTop:14,borderTop:"1px solid "+T.brd,paddingTop:10}}>
-            <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:8}}>{"الاشعارات المرسلة ("+config.notifications.length+")"}</div>
-            {[...config.notifications].reverse().slice(0,10).map(n=><div key={n.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",borderRadius:8,background:T.bg,marginBottom:4,fontSize:FS-2}}>
-              <div><span style={{fontWeight:700,color:n.type==="طلب"?"#8B5CF6":n.type==="مهمة"?T.accent:T.warn}}>{n.type}</span><span style={{marginRight:8,color:T.text}}>{n.msg}</span><span style={{color:T.textMut}}>{"→ "+(n.toName||n.toEmail==="all"?"الكل":(config.usersList||[]).find(u=>u.email===n.toEmail)?.name||n.toEmail)}</span></div>
-              <span style={{color:T.textMut,flexShrink:0}}>{n.createdAt}</span>
-            </div>)}
-          </div>}
-        </div>})()}
     </Card>
     {/* Data Maintenance */}
     <Card title="🔧 صيانة البيانات" style={{marginBottom:16}}>
