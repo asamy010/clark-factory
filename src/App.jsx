@@ -852,7 +852,16 @@ export default function App(){
           {statusNotif&&<div onClick={()=>setStatusNotif(null)} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 12px",borderRadius:8,background:"#8B5CF612",border:"1px solid #8B5CF630",cursor:"pointer",animation:"pulse 2s infinite",fontSize:FS-1}}>
             <span>🔄</span><span style={{fontWeight:700,color:"#8B5CF6"}}>{statusNotif.modelNo}</span><span style={{color:T.textSec}}>{statusNotif.from+" → "+statusNotif.to}</span>
           </div>}
-          <div onClick={e=>{e.stopPropagation();setQuickPopup(quickPopup?"":"task")}} style={{cursor:"pointer",fontSize:isMob?16:20,padding:"2px 6px",borderRadius:8,background:quickPopup?T.accent+"15":"transparent"}}>📌</div>
+          <div onClick={()=>setShowAlerts(!showAlerts)} style={{cursor:"pointer",fontSize:isMob?18:22,padding:"2px 6px",borderRadius:8,background:alertCount>0?T.warn+"12":"transparent",position:"relative"}}>🔔
+            {alertCount>0&&<span style={{position:"absolute",top:-2,left:-2,width:16,height:16,borderRadius:8,background:T.err,color:"#fff",fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>{alertCount}</span>}
+          </div>
+          {showAlerts&&<div style={{position:"absolute",top:"100%",left:0,marginTop:6,width:isMob?280:340,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:12,boxShadow:"0 8px 30px rgba(0,0,0,0.15)",zIndex:999,maxHeight:400,overflow:"auto"}}>
+            <div style={{padding:"10px 14px",borderBottom:"1px solid "+T.brd,fontWeight:700,fontSize:FS,color:T.text}}>{"الاشعارات ("+alertCount+")"}</div>
+            {alertCount>0?allAlerts.map((a,i)=><div key={i} onClick={()=>{if(a.isNotif)markRead(a.notifId);if(a.orderId){goD(a.orderId);setShowAlerts(false)}else if(a.isNotif)setShowAlerts(false)}} style={{padding:"10px 14px",borderBottom:"1px solid "+T.brd,display:"flex",gap:8,alignItems:"flex-start",cursor:a.orderId||a.isNotif?"pointer":"default",background:a.isNotif?a.color+"06":"transparent",transition:"background 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=a.color+"12"} onMouseLeave={e=>e.currentTarget.style.background=a.isNotif?a.color+"06":"transparent"}>
+              <span style={{fontSize:16,flexShrink:0}}>{a.icon}</span>
+              <div style={{flex:1}}><span style={{fontSize:FS-1,color:a.color,fontWeight:600,lineHeight:1.5}}>{a.msg}</span>{a.from&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{"من: "+a.from+(a.date?" — "+a.date:"")}</div>}{a.orderId&&!a.isNotif&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>اضغط لفتح الأوردر</div>}</div>
+            </div>):<div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد اشعارات</div>}
+          </div>}
         </div>
         {!isMob&&<span style={{fontSize:FS,color:T.textSec}}>{userName}</span>}
         {/* Theme picker - desktop only */}
@@ -910,6 +919,15 @@ export default function App(){
               </div>)}</div>
             </div>})()}
           </div>
+          {/* ── Quick Action: Task / Notification ── */}
+          <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"center"}}>
+            <div onClick={()=>setQuickPopup("task")} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:T.accent+"10",border:"1px solid "+T.accent+"25",display:"flex",alignItems:"center",gap:6,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"20"} onMouseLeave={e=>e.currentTarget.style.background=T.accent+"10"}>
+              <span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:700,color:T.accent}}>مهمة سريعة</span>
+            </div>
+            <div onClick={()=>setQuickPopup("notif")} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:"#8B5CF610",border:"1px solid #8B5CF625",display:"flex",alignItems:"center",gap:6,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#8B5CF620"} onMouseLeave={e=>e.currentTarget.style.background="#8B5CF610"}>
+              <span style={{fontSize:18}}>📩</span><span style={{fontSize:FS,fontWeight:700,color:"#8B5CF6"}}>ارسال اشعار</span>
+            </div>
+          </div>
           {/* ── Sticky Notes ── */}
           {(()=>{const uemail=user?.email||"";const COLORS=[{key:"#FEF9C3",border:"#EAB308",name:"أصفر"},{key:"#DBEAFE",border:"#3B82F6",name:"أزرق"},{key:"#DCFCE7",border:"#22C55E",name:"أخضر"},{key:"#FCE7F3",border:"#EC4899",name:"وردي"},{key:"#EDE9FE",border:"#8B5CF6",name:"بنفسجي"},{key:"#FFEDD5",border:"#F97316",name:"برتقالي"}];
             const allNotes=(config.stickyNotes||[]);const myNotes=allNotes.filter(n=>n.email===uemail);
@@ -940,22 +958,6 @@ export default function App(){
                 </div>})}
               </div>}
             </div>})()}
-          {/* ── Notifications on Home ── */}
-          {alertCount>0&&<div style={{marginTop:16}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-              <span style={{fontSize:FS,fontWeight:700,color:T.warn}}>{"🔔 الاشعارات ("+alertCount+")"}</span>
-              <span onClick={()=>setShowAlerts(!showAlerts)} style={{cursor:"pointer",fontSize:FS-2,color:T.accent,fontWeight:600}}>{showAlerts?"▲ اخفاء":"▼ عرض"}</span>
-            </div>
-            {showAlerts&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
-              {allAlerts.slice(0,10).map((a,i)=><div key={i} onClick={()=>{if(a.isNotif)markRead(a.notifId);if(a.orderId)goD(a.orderId)}} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"8px 12px",borderRadius:10,background:T.cardSolid,border:"1px solid "+T.brd,cursor:a.orderId?"pointer":"default"}}>
-                <span style={{fontSize:14,flexShrink:0}}>{a.icon}</span>
-                <div style={{flex:1}}>
-                  <div style={{fontSize:FS-1,fontWeight:600,color:a.color,lineHeight:1.4}}>{a.msg}</div>
-                  {a.from&&<div style={{fontSize:FS-3,color:T.textMut}}>{"من: "+a.from+(a.date?" — "+a.date:"")}</div>}
-                </div>
-              </div>)}
-            </div>}
-          </div>}
       </div>}
       {/* PAGES with back button */}
       {tab!=="home"&&canViewTab(tab)&&<div>
