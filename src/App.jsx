@@ -452,31 +452,10 @@ function Btn({children,on,primary,danger,ghost,onClick,small,disabled,style:sx})
 
 function safeCalc(expr){try{const clean=expr.replace(/[^0-9+\-*/.() ]/g,"");if(!clean)return null;return new Function("return "+clean)()}catch(e){return null}}
 
-function MiniCalc({onResult,onClose}){
-  const[disp,setDisp]=useState("");
-  const press=(v)=>{if(v==="C"){setDisp("")}else if(v==="⌫"){setDisp(p=>p.slice(0,-1))}else if(v==="="){const r=safeCalc(disp);if(r!==null)setDisp(String(r))}else{setDisp(p=>p+v)}};
-  const ok=()=>{const r=safeCalc(disp);onResult(r!==null?r:Number(disp)||0)};
-  const btns=[["7","8","9","÷"],["4","5","6","×"],["1","2","3","-"],["0",".","C","+"],["⌫","="]];
-  return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
-    <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:16,width:240,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.25)"}}>
-      <div style={{background:T.bg,borderRadius:10,padding:"10px 14px",marginBottom:10,fontSize:20,fontWeight:700,textAlign:"left",direction:"ltr",minHeight:32,color:T.text,wordBreak:"break-all"}}>{disp||"0"}</div>
-      {btns.map((row,ri)=><div key={ri} style={{display:"grid",gridTemplateColumns:ri===4?"1fr 1fr":"repeat(4,1fr)",gap:4,marginBottom:4}}>
-        {row.map(b=><button key={b} onClick={()=>press(b==="÷"?"/":b==="×"?"*":b)} style={{padding:10,borderRadius:8,border:"none",fontSize:16,fontWeight:700,cursor:"pointer",fontFamily:"inherit",background:["+","-","×","÷","="].includes(b)?T.accent:b==="C"||b==="⌫"?T.err+"15":T.bg,color:["+","-","×","÷","="].includes(b)?"#fff":b==="C"||b==="⌫"?T.err:T.text}}>{b}</button>)}
-      </div>)}
-      <div style={{display:"flex",gap:6,marginTop:8}}><button onClick={onClose} style={{flex:1,padding:8,borderRadius:8,border:"1px solid "+T.brd,background:T.bg,color:T.textSec,fontSize:FS,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>الغاء</button><button onClick={ok} style={{flex:1,padding:8,borderRadius:8,border:"none",background:T.ok,color:"#fff",fontSize:FS,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✓ ادخال</button></div>
-    </div>
-  </div>
-}
-
 function Inp({value,onChange,placeholder,type,step,style:sx,readOnly}){
-  const[showCalc,setShowCalc]=useState(false);
   const isNum=type==="number";
   const handleKey=(e)=>{if(e.key==="Enter"&&isNum){const v=String(e.target.value);if(v.startsWith("=")){const r=safeCalc(v.slice(1));if(r!==null&&onChange)onChange(r)}}};
-  return<div style={{position:"relative",display:"flex",gap:2,alignItems:"center"}}>
-    <input type={isNum?"text":type||"text"} inputMode={isNum?"decimal":undefined} step={step||"any"} value={value==null?"":value} readOnly={readOnly} onChange={e=>{const v=e.target.value;if(isNum&&!v.startsWith("=")){let cleaned=v.replace(/[^0-9.\-]/g,"");const parts=cleaned.split(".");if(parts.length>2)cleaned=parts[0]+"."+parts.slice(1).join("");onChange&&onChange(cleaned)}else{onChange&&onChange(v)}}} onKeyDown={handleKey} onFocus={e=>e.target.select()} placeholder={placeholder||(isNum?"= معادلة":"")} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:readOnly?T.bg:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",...(sx||{})}}/>
-    {isNum&&!readOnly&&window.innerWidth<768&&<span onClick={()=>setShowCalc(true)} style={{cursor:"pointer",fontSize:12,flexShrink:0,padding:"3px 4px",borderRadius:4,background:T.bg,border:"1px solid "+T.brd,lineHeight:1}}>🧮</span>}
-    {showCalc&&<MiniCalc onClose={()=>setShowCalc(false)} onResult={v=>{if(onChange)onChange(v);setShowCalc(false)}}/>}
-  </div>
+  return<input type={isNum?"text":type||"text"} inputMode={isNum?"decimal":undefined} step={step||"any"} value={value==null?"":value} readOnly={readOnly} onChange={e=>{const v=e.target.value;if(isNum&&!v.startsWith("=")){let cleaned=v.replace(/[^0-9.\-]/g,"");const parts=cleaned.split(".");if(parts.length>2)cleaned=parts[0]+"."+parts.slice(1).join("");onChange&&onChange(cleaned)}else{onChange&&onChange(v)}}} onKeyDown={handleKey} onFocus={e=>e.target.select()} placeholder={placeholder||(isNum?"0":"")} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:readOnly?T.bg:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",...(sx||{})}}/>
 }
 
 function Sel({value,onChange,children}){
@@ -851,7 +830,7 @@ export default function App(){
         </div>}
         {/* Status change notification */}
         {statusNotif&&<div onClick={()=>setStatusNotif(null)} style={{display:"flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:8,background:"#8B5CF612",border:"1px solid #8B5CF630",cursor:"pointer",animation:"pulse 2s infinite",fontSize:isMob?10:FS-1,maxWidth:isMob?120:280,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>
-          <span style={{fontSize:isMob?10:14}}>🔄</span><span style={{fontWeight:700,color:"#8B5CF6"}}>{statusNotif.modelNo}</span>{!isMob&&<span style={{color:T.textSec}}>{statusNotif.from+" → "+statusNotif.to}</span>}
+          <span style={{fontSize:isMob?10:14}}>🔄</span><span style={{fontWeight:700,color:"#8B5CF6"}}>{statusNotif.modelNo}</span>{!isMob&&<span style={{color:T.textSec}}>{statusNotif.from+" ← "+statusNotif.to}</span>}
         </div>}
         {/* Alerts Bell */}
         <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
@@ -2242,10 +2221,11 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         });setBatchItems(items)},100)}} options={workshops.map(w=>({value:w.name||w,label:(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)}))} placeholder="ابحث عن ورشة..."/>
       </Card>
       {selWs&&batchItems.length>0&&<Card title={"الاوردرات المتاحة للتسليم ("+batchItems.length+")"} style={{marginBottom:16}}>
-        <div style={{display:"flex",gap:8,marginBottom:10}}>
+        <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
           <Btn small onClick={selectAll} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>تحديد الكل</Btn>
           <Btn small onClick={deselectAll} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>الغاء الكل</Btn>
-          <div style={{marginRight:"auto"}}><label style={{fontSize:FS-2,color:T.textSec}}>التاريخ </label><input type="date" value={batchDate} onChange={e=>setBatchDate(e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.cardSolid,color:T.text}}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec}}>التاريخ </label><input type="date" value={batchDate} onChange={e=>setBatchDate(e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.cardSolid,color:T.text}}/></div>
+          {checked.length>0&&<><Btn small primary onClick={()=>doBatchDeliver(false)}>📦 تسليم ({checked.length})</Btn><Btn small onClick={()=>doBatchDeliver(true)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn><Btn small onClick={()=>doBatchDeliver(false,true)} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn></>}
         </div>
         <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["✓","الموديل","الوصف","القطعة","الكمية","السعر"].map(h=><th key={h} style={{...TH,fontSize:FS-1}}>{h}</th>)}</tr></thead>
         <tbody>{batchItems.map((item,i)=><tr key={i} style={{background:item.checked?T.ok+"04":"",opacity:item.checked?1:0.5}}>
@@ -2316,10 +2296,11 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         })});setBatchItems(items)},100)}} options={workshops.map(w=>({value:w.name||w,label:(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)}))} placeholder="ابحث عن ورشة..."/>
       </Card>
       {selWs&&batchItems.length>0&&<Card title={"الاوردرات المتاحة للاستلام ("+batchItems.length+")"} style={{marginBottom:16}}>
-        <div style={{display:"flex",gap:8,marginBottom:10}}>
+        <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
           <Btn small onClick={()=>setBatchItems(p=>p.map(x=>({...x,checked:true})))} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>تحديد الكل</Btn>
           <Btn small onClick={()=>setBatchItems(p=>p.map(x=>({...x,checked:false})))} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>الغاء الكل</Btn>
-          <div style={{marginRight:"auto"}}><label style={{fontSize:FS-2,color:T.textSec}}>التاريخ </label><input type="date" value={batchDate} onChange={e=>setBatchDate(e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.cardSolid,color:T.text}}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec}}>التاريخ </label><input type="date" value={batchDate} onChange={e=>setBatchDate(e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.cardSolid,color:T.text}}/></div>
+          {checkedRcv.length>0&&<><Btn small onClick={()=>doBatchReceive(false)} style={{background:T.ok,color:"#fff",border:"none"}}>📥 استلام ({checkedRcv.length})</Btn><Btn small onClick={()=>doBatchReceive(true)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn><Btn small onClick={()=>doBatchReceive(false,true)} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn></>}
         </div>
         <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["✓","الموديل","الوصف","القطعة","تسليم","مستلم","رصيد","استلام الآن"].map(h=><th key={h} style={{...TH,fontSize:FS-1}}>{h}</th>)}</tr></thead>
         <tbody>{batchItems.map((item,i)=><tr key={i} style={{background:item.checked?T.ok+"04":"",opacity:item.checked?1:0.5}}>
