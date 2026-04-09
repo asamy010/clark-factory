@@ -632,7 +632,24 @@ export default function App(){
   const[stickyForm,setStickyForm]=useState(null);
   const[quickPopup,setQuickPopup]=useState(null);/* "task"|"notif"|null */
   const[qpTo,setQpTo]=useState("");const[qpText,setQpText]=useState("");const[qpType,setQpType]=useState("تذكير");
-  useEffect(()=>{const h=e=>{if(e.key==="Escape"){setQuickPopup(null);setShowAlerts(false);setShowScanner(false);setStickyForm(null);setShowTheme(false)}};window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h)},[]);
+  const[aiMsgs,setAiMsgs]=useState([]);const[aiInput,setAiInput]=useState("");const[aiLoading,setAiLoading]=useState(false);const[aiOpen,setAiOpen]=useState(false);
+  const askAI=async()=>{if(!aiInput.trim()||aiLoading)return;const q=aiInput.trim();setAiInput("");setAiMsgs(p=>[...p,{role:"user",text:q}]);setAiLoading(true);
+    try{
+      const ws=(config.workshops||[]).map(w=>{let del=0,rcv=0;orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{del+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{rcv+=Number(r.qty)||0})})});
+        const payments=(config.wsPayments||[]).filter(p=>p.wsName===w.name);const paid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);
+        let due=0;orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});
+        return{name:w.name,type:w.type,delivered:del,received:rcv,balance:del-rcv,dueMoney:r2(due),paid:r2(paid),owedMoney:r2(due-paid)}});
+      const ords=orders.map(o=>{const t=calcOrder(o);const wds=o.workshopDeliveries||[];const totalDel=wds.reduce((s,wd)=>s+(Number(wd.qty)||0),0);const totalRcv=wds.reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);const stockDel=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
+        const lastMove=wds.reduce((d,wd)=>{let ld=wd.date||"";(wd.receives||[]).forEach(r=>{if(r.date>ld)ld=r.date});return ld>d?ld:d},"");
+        const days=lastMove?Math.floor((Date.now()-new Date(lastMove))/(86400000)):null;
+        return{modelNo:o.modelNo,desc:o.modelDesc,status:o.status,cutQty:t.cutQty,deliveredToWs:totalDel,receivedFromWs:totalRcv,wsBalance:totalDel-totalRcv,stockDelivered:stockDel,workshops:wds.map(wd=>wd.wsName).filter((v,i,a)=>a.indexOf(v)===i),daysSinceLastMove:days,pieces:o.orderPieces||[]}});
+      const ctx="أنت مساعد ذكي لنظام CLARK لإدارة مصانع الملابس. أجب بالعربية بشكل مختصر ومفيد.\n\nبيانات الموسم "+season+":\n\nالأوردرات ("+ords.length+"):\n"+JSON.stringify(ords,null,0)+"\n\nالورش ("+ws.length+"):\n"+JSON.stringify(ws,null,0)+"\n\nالتاريخ: "+new Date().toISOString().split("T")[0];
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,system:ctx,messages:[...aiMsgs.map(m=>({role:m.role==="user"?"user":"assistant",content:m.text})),{role:"user",content:q}]})});
+      const data2=await res.json();const reply=data2.content?.map(c=>c.text||"").join("\n")||"عذراً، لم أتمكن من الرد";
+      setAiMsgs(p=>[...p,{role:"ai",text:reply}])
+    }catch(e){console.error("AI error:",e);setAiMsgs(p=>[...p,{role:"ai",text:"⚠️ خطأ في الاتصال بالمساعد الذكي"}])}
+    setAiLoading(false)};
+  useEffect(()=>{const h=e=>{if(e.key==="Escape"){setQuickPopup(null);setShowAlerts(false);setShowScanner(false);setStickyForm(null);setShowTheme(false);setAiOpen(false)}};window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h)},[]);
   const[statusNotif,setStatusNotif]=useState(null);const prevStatuses=useRef({});
   /* Online/Offline status */
   const[isOnline,setIsOnline]=useState(navigator.onLine);const[justReconnected,setJustReconnected]=useState(false);
@@ -657,7 +674,7 @@ export default function App(){
   useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>({_docId:d.id,...d.data()})).filter(o=>o.id&&o.modelNo));setDataLoading(false)});return()=>unsub()},[user,season]);
 
   const upConfig=useCallback(fn=>{setConfig(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);setDoc(doc(db,"factory","config"),next).catch(e=>console.error("upConfig write error:",e));return next}catch(e){console.error("upConfig error:",e);showToast("⚠️ خطأ في الحفظ");return prev}})},[]);
-  const addOrder=async o=>{await addDoc(collection(db,"seasons",season,"orders"),o)};
+  const addOrder=async o=>{o.createdBy=userName;await addDoc(collection(db,"seasons",season,"orders"),o)};
   const updOrder=async(orderId,fn)=>{try{const ord=orders.find(o=>o.id===orderId);if(!ord)return;const updated=JSON.parse(JSON.stringify(ord));fn(updated);const clean={...updated};delete clean._docId;await updateDoc(doc(db,"seasons",season,"orders",ord._docId),clean)}catch(e){console.error("updOrder error:",e);showToast("⚠️ خطأ في حفظ الأوردر")}};
   const delOrder=async orderId=>{const ord=orders.find(o=>o.id===orderId);if(ord)await deleteDoc(doc(db,"seasons",season,"orders",ord._docId))};
   const replaceOrder=async(orderId,newData)=>{
@@ -897,7 +914,39 @@ export default function App(){
               <span style={{fontSize:18}}>📩</span><span style={{fontSize:FS,fontWeight:700,color:"#8B5CF6"}}>ارسال اشعار</span>
             </div>
           </div>
-          {/* ── Sticky Notes ── */}
+          {/* ── AI Chat + Notes Layout ── */}
+          <div style={{display:"flex",gap:16,marginTop:16,flexDirection:isMob?"column":"row",maxWidth:1100,margin:"16px auto 0"}}>
+            {/* AI Chat Panel */}
+            {(!isMob||aiOpen)&&<div style={isMob?{position:"fixed",inset:0,zIndex:99997,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"flex-end",justifyContent:"center",padding:10}:{flex:"0 0 340px"}}>
+              <div style={{background:T.cardSolid,borderRadius:16,border:"1px solid "+T.brd,boxShadow:"0 4px 20px rgba(0,0,0,0.08)",display:"flex",flexDirection:"column",height:isMob?"85vh":400,width:isMob?"100%":"auto",maxWidth:isMob?420:"none"}} onClick={e=>e.stopPropagation()}>
+                <div style={{padding:"12px 16px",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",background:"linear-gradient(135deg,#0EA5E910,#8B5CF610)",borderRadius:"16px 16px 0 0"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:20}}>🤖</span><span style={{fontWeight:800,fontSize:FS+1,color:T.text}}>مساعد CLARK</span></div>
+                  <div style={{display:"flex",gap:4}}>
+                    {aiMsgs.length>0&&<span onClick={()=>setAiMsgs([])} style={{cursor:"pointer",fontSize:11,padding:"2px 8px",borderRadius:6,background:T.err+"10",color:T.err,fontWeight:600}}>مسح</span>}
+                    {isMob&&<span onClick={()=>setAiOpen(false)} style={{cursor:"pointer",fontSize:16,color:T.textMut}}>✕</span>}
+                  </div>
+                </div>
+                <div style={{flex:1,overflowY:"auto",padding:12,display:"flex",flexDirection:"column",gap:8}}>
+                  {aiMsgs.length===0&&<div style={{textAlign:"center",padding:20,color:T.textMut}}>
+                    <div style={{fontSize:32,marginBottom:8}}>🤖</div>
+                    <div style={{fontSize:FS,fontWeight:600,marginBottom:6}}>اسألني عن أي حاجة!</div>
+                    <div style={{fontSize:FS-2,lineHeight:1.6}}>{"• موديل 3262 فين؟\n• كام أوردر متأخر؟\n• رصيد ورشة نورهان\n• ملخص الموسم"}</div>
+                  </div>}
+                  {aiMsgs.map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-start":"flex-end"}}>
+                    <div style={{maxWidth:"85%",padding:"8px 12px",borderRadius:m.role==="user"?"12px 12px 4px 12px":"12px 12px 12px 4px",background:m.role==="user"?T.accent:T.bg,color:m.role==="user"?"#fff":T.text,fontSize:FS-1,lineHeight:1.6,whiteSpace:"pre-wrap"}}>
+                      {m.text}
+                    </div>
+                  </div>)}
+                  {aiLoading&&<div style={{display:"flex",justifyContent:"flex-end"}}><div style={{padding:"8px 16px",borderRadius:12,background:T.bg,fontSize:FS-1,color:T.textMut}}>⏳ جاري التحليل...</div></div>}
+                </div>
+                <div style={{padding:"8px 12px",borderTop:"1px solid "+T.brd,display:"flex",gap:6}}>
+                  <input value={aiInput} onChange={e=>setAiInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")askAI()}} placeholder="اسأل عن أي حاجة..." style={{flex:1,padding:"8px 12px",borderRadius:10,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none",boxSizing:"border-box"}}/>
+                  <button onClick={askAI} disabled={aiLoading||!aiInput.trim()} style={{padding:"8px 14px",borderRadius:10,border:"none",background:aiInput.trim()?"linear-gradient(135deg,#0EA5E9,#8B5CF6)":"#E2E8F0",color:aiInput.trim()?"#fff":"#94A3B8",cursor:aiInput.trim()?"pointer":"default",fontSize:14,fontWeight:700}}>📩</button>
+                </div>
+              </div>
+            </div>}
+            {/* Right side: Notes */}
+            <div style={{flex:1}}>
           {(()=>{const uemail=user?.email||"";const COLORS=[{key:"#FEF9C3",border:"#EAB308",name:"أصفر"},{key:"#DBEAFE",border:"#3B82F6",name:"أزرق"},{key:"#DCFCE7",border:"#22C55E",name:"أخضر"},{key:"#FCE7F3",border:"#EC4899",name:"وردي"},{key:"#EDE9FE",border:"#8B5CF6",name:"بنفسجي"},{key:"#FFEDD5",border:"#F97316",name:"برتقالي"}];
             const allNotes=(config.stickyNotes||[]);const myNotes=allNotes.filter(n=>n.email===uemail);
             const saveNote=(note)=>{upConfig(d=>{if(!d.stickyNotes)d.stickyNotes=[];const idx=d.stickyNotes.findIndex(n=>n.id===note.id);if(idx>=0)d.stickyNotes[idx]=note;else{if(d.stickyNotes.filter(n=>n.email===uemail).length>=20){showToast("⚠️ الحد الاقصى 20 ملاحظة");return}d.stickyNotes.push(note)}});setStickyForm(null);showToast("✓ تم الحفظ")};
@@ -927,6 +976,10 @@ export default function App(){
                 </div>})}
               </div>}
             </div>})()}
+            </div>{/* close right side */}
+          </div>{/* close flex layout */}
+          {/* Mobile AI floating button */}
+          {isMob&&!aiOpen&&<div onClick={()=>setAiOpen(true)} style={{position:"fixed",bottom:20,left:20,width:56,height:56,borderRadius:28,background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 20px rgba(14,165,233,0.4)",cursor:"pointer",zIndex:999,fontSize:24}}>🤖</div>}
       </div>}
       {/* PAGES with back button */}
       {tab!=="home"&&canViewTab(tab)&&<div>
@@ -983,6 +1036,16 @@ function DashPg({data,goD,isMob,season,statusCards,upConfig,user}){
     let totalDeliveredToWs=0,totalReceivedFromWs=0;
     orders.forEach(o=>{(o.workshopDeliveries||[]).forEach(wd=>{totalDeliveredToWs+=(Number(wd.qty)||0);(wd.receives||[]).forEach(r=>{totalReceivedFromWs+=(Number(r.qty)||0)})})});
     const inProdQty=totalDeliveredToWs-totalReceivedFromWs;
+    /* Per-piece breakdown at workshops */
+    const wsPieces={};let totalCompleteSets=0;
+    orders.forEach(o=>{const pieces=o.orderPieces||[];
+      const pieceBalances={};
+      (o.workshopDeliveries||[]).forEach(wd=>{const g=wd.garmentType||"عام";if(!pieceBalances[g])pieceBalances[g]=0;pieceBalances[g]+=(Number(wd.qty)||0);(wd.receives||[]).forEach(r=>{pieceBalances[g]-=(Number(r.qty)||0)})});
+      Object.entries(pieceBalances).forEach(([g,bal])=>{if(bal>0){if(!wsPieces[g])wsPieces[g]=0;wsPieces[g]+=bal}});
+      if(pieces.length>1){const pBals=pieces.map(p=>pieceBalances[p]||0);const minBal=Math.min(...pBals);if(minBal>0)totalCompleteSets+=minBal}
+      else if(pieces.length===1){const bal=pieceBalances[pieces[0]]||0;if(bal>0)totalCompleteSets+=bal}
+      else{const bal=pieceBalances["عام"]||0;if(bal>0)totalCompleteSets+=bal}
+    });
     const sc={};orders.forEach(o=>{sc[o.status]=(sc[o.status]||0)+1});
     const pieData=Object.entries(sc).map(([name,value])=>({name,value,fill:getStatusColor(name,statusCards)}));
     const wsMap={};
@@ -998,10 +1061,10 @@ function DashPg({data,goD,isMob,season,statusCards,upConfig,user}){
     (data.wsPayments||[]).forEach(p=>{if(p.type==="payment")wsPaid+=(Number(p.amount)||0);else wsPurchase+=(Number(p.amount)||0)});
     const wsBalance=wsDue+wsPurchase-wsPaid;
     const finishingQty=orders.filter(o=>o.status==="تشطيب وتعبئة").reduce((s,o)=>s+calcOrder(o).cutQty,0);
-    return{cutQ,delQ,comp,totalDeliveredToWs,totalReceivedFromWs,inProdQty,pieData,wsMap,wsChartData,wsDue,wsPaid,wsPurchase,wsBalance,finishingQty,_isInt}
+    return{cutQ,delQ,comp,totalDeliveredToWs,totalReceivedFromWs,inProdQty,wsPieces,totalCompleteSets,pieData,wsMap,wsChartData,wsDue,wsPaid,wsPurchase,wsBalance,finishingQty,_isInt}
   },[orders,statusCards,data.wsPayments,data.workshops]);
 
-  const{cutQ,delQ,comp,totalDeliveredToWs,totalReceivedFromWs,inProdQty,pieData,wsMap,wsChartData,wsDue,wsPaid,wsPurchase,wsBalance,finishingQty,_isInt}=stats;
+  const{cutQ,delQ,comp,totalDeliveredToWs,totalReceivedFromWs,inProdQty,wsPieces,totalCompleteSets,pieData,wsMap,wsChartData,wsDue,wsPaid,wsPurchase,wsBalance,finishingQty,_isInt}=stats;
   const wsAccounts=(wsName)=>{if(_isInt(wsName))return{due:0,totalPaid:0,totalPurchase:0,balance:0};let due=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===wsName).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});const payments=(data.wsPayments||[]).filter(p=>p.wsName===wsName);const totalPaid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);const totalPurchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);return{due,totalPaid,totalPurchase,balance:due+totalPurchase-totalPaid}};
 
   return<div>
@@ -1037,7 +1100,10 @@ function DashPg({data,goD,isMob,season,statusCards,upConfig,user}){
         <div style={{padding:10,borderRadius:8,background:T.accent+"06",border:"1px solid "+T.accent+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>كمية القص</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.accent}}>{fmt(cutQ)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
         <div style={{padding:10,borderRadius:8,background:T.ok+"06",border:"1px solid "+T.ok+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>مخزن جاهز</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.ok}}>{fmt(delQ)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
         <div style={{padding:10,borderRadius:8,background:T.warn+"06",border:"1px solid "+T.warn+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>رصيد المصنع</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.warn}}>{fmt(cutQ-delQ)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
-        <div style={{padding:10,borderRadius:8,background:"#8B5CF606",border:"1px solid #8B5CF612",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>عند الورش</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:"#8B5CF6"}}>{fmt(Math.max(0,inProdQty))}</div><div style={{fontSize:FS-3,color:T.textMut}}>{"تسليم: "+fmt(totalDeliveredToWs)+" | استلام: "+fmt(totalReceivedFromWs)}</div></div>
+        <div style={{padding:10,borderRadius:8,background:"#8B5CF606",border:"1px solid #8B5CF612",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>عند الورش</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:"#8B5CF6"}}>{fmt(Math.max(0,inProdQty))+" قطعة"}</div>
+          {Object.keys(wsPieces).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,justifyContent:"center",marginTop:6}}>{Object.entries(wsPieces).sort((a,b)=>b[1]-a[1]).map(([piece,qty])=><span key={piece} style={{fontSize:FS-3,padding:"2px 6px",borderRadius:5,background:"#8B5CF610",color:"#7C3AED",fontWeight:600}}>{gIcon(piece,data.garmentTypes)+" "+piece+": "+fmt(qty)}</span>)}</div>}
+          <div style={{marginTop:6,fontSize:FS-2,fontWeight:700,color:totalCompleteSets>0?"#10B981":"#94A3B8"}}>{"✅ طقم كامل: "+fmt(totalCompleteSets)}</div>
+          <div style={{fontSize:FS-3,color:T.textMut}}>{"تسليم: "+fmt(totalDeliveredToWs)+" | استلام: "+fmt(totalReceivedFromWs)}</div></div>
         <div style={{padding:10,borderRadius:8,background:"#F59E0B06",border:"1px solid #F59E0B12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>تشطيب وتعبئة</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:"#F59E0B"}}>{fmt(finishingQty)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
         <div style={{padding:10,borderRadius:8,background:(comp>=80?T.ok:comp>=50?T.warn:T.err)+"06",border:"1px solid "+(comp>=80?T.ok:comp>=50?T.warn:T.err)+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>الانجاز</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:comp>=80?T.ok:comp>=50?T.warn:T.err}}>{comp+"%"}</div><PBar value={comp}/></div>
       </div>
@@ -1277,7 +1343,7 @@ function DBPg({data,upConfig,isMob,canEdit,statusCards,initialSub,onSubUsed,rena
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:12}}>
         {statusCards.map(s=><div key={s.id} style={{padding:16,borderRadius:14,border:"2px solid "+s.color+"40",background:s.color+"08",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:20,height:20,borderRadius:6,background:s.color}}/><span style={{fontWeight:700,fontSize:FS,color:T.text}}>{s.name}</span></div>
-          {canEdit&&<div style={{display:"flex",gap:4}}>{eBtn(()=>{setStName(s.name);setStColor(s.color);setStEid(s.id);setStShow(true)})}<DelBtn onConfirm={()=>upConfig(d=>{d.statusCards=(d.statusCards||[]).filter(x=>x.id!==s.id)})}/></div>}
+          {canEdit&&<div style={{display:"flex",gap:4}}>{eBtn(()=>{setStName(s.name);setStColor(s.color);setStEid(s.id);setStShow(true)})}<DelBtn onConfirm={()=>upConfig(d=>{d.statusCards=(d.statusCards||[]).filter(x=>x.id!==s.id)})} blocked={ords.some(o=>o.status===s.name)?"يوجد أوردرات بهذه الحالة":null}/></div>}
         </div>)}
       </div>
     </Card>
@@ -1309,7 +1375,7 @@ function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrders}){
     if(oldName)renameInOrders("ws",oldName,f.name.trim(),editId);
     setShowForm(false);setEditId(null)};
   const del=(id)=>upConfig(d=>{d.workshops=(d.workshops||[]).filter(w=>w.id!==id)});
-  const wsBlock=(ws)=>{const used=(orders||[]).some(o=>(o.workshopDeliveries||[]).some(wd=>wd.wsName===ws.name));return used?"يوجد أوردرات مرتبطة بهذه الورشة":null};
+  const wsBlock=(ws)=>{const hasOrders=(orders||[]).some(o=>(o.workshopDeliveries||[]).some(wd=>wd.wsName===ws.name));if(hasOrders)return"يوجد تسليمات مرتبطة بهذه الورشة";const hasPay=(config.wsPayments||[]).some(p=>p.wsName===ws.name);if(hasPay)return"يوجد دفعات مرتبطة بهذه الورشة";return null};
 
   return<div>
     <Card title="ادارة الورش" extra={canEdit&&<Btn primary small onClick={startNew}>+ ورشة جديدة</Btn>}>
@@ -1736,7 +1802,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
             else{canStock=true}
           }
           const stockDel=(order.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const stockRemain=t.cutQty-stockDel;
-          return<Card title="تسليم مخزن جاهز" extra={canEdit&&canStock&&<Btn primary small onClick={()=>updOrder(sel,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty:0,notes:""});setTimeout(()=>setEditStockIdx(o.deliveries.length-1),100)})}>+ تسليم</Btn>}>
+          return<Card title="تسليم مخزن جاهز" extra={canEdit&&canStock&&<Btn primary small onClick={()=>updOrder(sel,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty:0,notes:"",createdBy:user?.displayName||user?.email?.split("@")[0]||""});setTimeout(()=>setEditStockIdx(o.deliveries.length-1),100)})}>+ تسليم</Btn>}>
             {!canStock&&<div style={{padding:10,background:T.err+"10",border:"1px solid "+T.err+"30",borderRadius:8,marginBottom:10,fontSize:FS,color:T.err,fontWeight:600}}>{blockMsg}</div>}
             <div style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap"}}>
               <span style={{padding:"6px 12px",borderRadius:8,background:T.err+"12",color:T.err,fontWeight:700,fontSize:FS}}>{"كمية القص: "+t.cutQty}</span>
@@ -1804,7 +1870,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
       const doDeliver=(print,wa)=>{
         if(!dWs||!dType||!dQty)return;
         const wsObj=workshops.find(w=>w.name===dWs);
-        const wd={wsName:dWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",qty:Number(dQty),garmentType:dType,price:Number(dPrice)||0,notes:dNote,date:dDate||new Date().toISOString().split("T")[0],receives:[]};
+        const wd={wsName:dWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",qty:Number(dQty),garmentType:dType,price:Number(dPrice)||0,notes:dNote,date:dDate||new Date().toISOString().split("T")[0],receives:[],createdBy:user?.displayName||user?.email?.split("@")[0]||""};
         const upd=JSON.parse(JSON.stringify(order));
         if(!upd||!upd.id||!upd.modelNo){showToast("⚠️ خطأ — بيانات الأوردر غير صالحة");return}
         if(!upd.workshopDeliveries)upd.workshopDeliveries=[];upd.workshopDeliveries.push(wd);
@@ -1915,7 +1981,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     const availAfter=maxAllowed-saveQty;
     updOrder(selOrder,o=>{
       if(!o.workshopDeliveries)o.workshopDeliveries=[];
-      o.workshopDeliveries.push({id:gid(),wsName:selWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",wsOwner:wsObj?wsObj.owner:"",qty:saveQty,garmentType:saveType,notes:saveNote,price:savePrice,date:saveDate,receives:[]});
+      o.workshopDeliveries.push({id:gid(),wsName:selWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",wsOwner:wsObj?wsObj.owner:"",qty:saveQty,garmentType:saveType,notes:saveNote,price:savePrice,date:saveDate,receives:[],createdBy:user?.displayName||user?.email?.split("@")[0]||""});
       o.status=recomputeStatus(o);
     });
     setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice("");setDelDate(new Date().toISOString().split("T")[0]);showToast("✓ تم تسليم "+saveQty+" قطعة لـ "+selWs);
@@ -1934,7 +2000,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     const saveNote=rv.note;const wdPrice=Number(wd.price)||0;const saveDate=rv.date||new Date().toISOString().split("T")[0];const saveQuality=rv.quality||"جيد جداً";
     updOrder(orderId,o=>{
       if(!o.workshopDeliveries[wdIdx].receives)o.workshopDeliveries[wdIdx].receives=[];
-      o.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty,notes:saveNote,price:wdPrice,amount:r2(saveQty*wdPrice),quality:saveQuality});
+      o.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty,notes:saveNote,price:wdPrice,amount:r2(saveQty*wdPrice),quality:saveQuality,createdBy:user?.displayName||user?.email?.split("@")[0]||""});
       o.status=recomputeStatus(o)
     });
     clearRcv(cardKey);showToast("✓ تم استلام "+saveQty+" قطعة");
@@ -1945,8 +2011,8 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
   /* Collect all movements for the log — memoized */
   const movements=useMemo(()=>{const mvs=[];let _mi=0;
   data.orders.forEach(ord=>{(ord.workshopDeliveries||[]).forEach((wd,wdIdx)=>{
-    mvs.push({type:"deliver",date:wd.date,wsName:wd.wsName,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:wd.qty,garmentType:wd.garmentType||"",price:wd.price||0,notes:wd.notes||"",orderId:ord.id,wdIdx,_i:_mi++});
-    (wd.receives||[]).forEach((r,rIdx)=>{mvs.push({type:"receive",date:r.date,wsName:wd.wsName,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,garmentType:wd.garmentType||"",notes:r.notes||"",orderId:ord.id,wdIdx,rIdx,_i:_mi++})})
+    mvs.push({type:"deliver",date:wd.date,wsName:wd.wsName,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:wd.qty,garmentType:wd.garmentType||"",price:wd.price||0,notes:wd.notes||"",orderId:ord.id,wdIdx,_i:_mi++,createdBy:wd.createdBy||""});
+    (wd.receives||[]).forEach((r,rIdx)=>{mvs.push({type:"receive",date:r.date,wsName:wd.wsName,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,garmentType:wd.garmentType||"",notes:r.notes||"",orderId:ord.id,wdIdx,rIdx,_i:_mi++,createdBy:r.createdBy||""})})
   })});
   mvs.sort((a,b)=>(b.date||"").localeCompare(a.date||"")||b._i-a._i);return mvs},[data.orders]);
 
@@ -1974,7 +2040,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     const totalPurchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);
     return{due,totalPaid,totalPurchase,balance:due+totalPurchase-totalPaid}
   };
-  const addPayment=(wa)=>{if(!payWs||!payAmt)return;const wsObj=workshops.find(w=>w.name===payWs);upConfig(d=>{if(!d.wsPayments)d.wsPayments=[];d.wsPayments.push({id:gid(),wsName:payWs,wsId:wsObj?wsObj.id:null,amount:Number(payAmt),type:payType,notes:payNote,date:payDate})});
+  const addPayment=(wa)=>{if(!payWs||!payAmt)return;const wsObj=workshops.find(w=>w.name===payWs);upConfig(d=>{if(!d.wsPayments)d.wsPayments=[];d.wsPayments.push({id:gid(),wsName:payWs,wsId:wsObj?wsObj.id:null,amount:Number(payAmt),type:payType,notes:payNote,date:payDate,createdBy:user?.displayName||user?.email?.split("@")[0]||""})});
     if(wa){const acc=wsAccounts(payWs);let del=0,rcv=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===payWs).forEach(wd=>{del+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{rcv+=Number(r.qty)||0})})});
       const allPay=(data.wsPayments||[]).filter(p=>p.wsName===payWs&&p.type==="payment");const totalPaid=allPay.reduce((s,p)=>s+(Number(p.amount)||0),0)+Number(payAmt);
       const phone=wsObj?.phone||"";
@@ -2050,7 +2116,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
           <td style={TD}>{m.garmentType||"-"}</td>
           <td style={{...TDB,color:m.type==="deliver"?T.ok:T.accent}}>{isEditing?<Inp type="number" value={editQty} onChange={v=>setEditQty(Number(v)||0)} style={{width:70}}/>:m.qty}</td>
           <td style={TD}>{isEditing&&m.type==="deliver"?<Inp type="number" value={editPrice} onChange={v=>setEditPrice(Number(v)||0)} style={{width:70}}/>:(m.price?m.price+" ج.م":"-")}</td>
-          <td style={TD}>{isEditing?<Inp value={editNote} onChange={setEditNote} style={{width:100}}/>:(m.notes||"-")}</td>
+          <td style={TD}>{isEditing?<Inp value={editNote} onChange={setEditNote} style={{width:100}}/>:<>{m.notes||"-"}{m.createdBy&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{"👤 "+m.createdBy}</div>}</>}</td>
           <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
             {isEditing?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>الغاء</Btn></>:<>
             <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
@@ -2083,7 +2149,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
   const availOrders=prodOrders.filter(o=>getAvailQty(o)>0);
   /* Workshop-specific movements */
   const wsMoves=[];
-  if(selWs)data.orders.forEach(ord=>{(ord.workshopDeliveries||[]).forEach((wd,wdIdx)=>{if(wd.wsName===selWs){wsMoves.push({type:"deliver",date:wd.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:wd.qty,garmentType:wd.garmentType||"",price:wd.price||0,notes:wd.notes||"",orderId:ord.id,wdIdx,_ts:new Date(wd.date).getTime()+wdIdx});(wd.receives||[]).forEach((r,rIdx)=>{wsMoves.push({type:"receive",date:r.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,garmentType:wd.garmentType||"",price:r.price||0,notes:r.notes||"",orderId:ord.id,wdIdx,rIdx,_ts:new Date(r.date).getTime()+wdIdx*100+rIdx})})}})});
+  if(selWs)data.orders.forEach(ord=>{(ord.workshopDeliveries||[]).forEach((wd,wdIdx)=>{if(wd.wsName===selWs){wsMoves.push({type:"deliver",date:wd.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:wd.qty,garmentType:wd.garmentType||"",price:wd.price||0,notes:wd.notes||"",orderId:ord.id,wdIdx,_ts:new Date(wd.date).getTime()+wdIdx,createdBy:wd.createdBy||""});(wd.receives||[]).forEach((r,rIdx)=>{wsMoves.push({type:"receive",date:r.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,garmentType:wd.garmentType||"",price:r.price||0,notes:r.notes||"",orderId:ord.id,wdIdx,rIdx,_ts:new Date(r.date).getTime()+wdIdx*100+rIdx,createdBy:r.createdBy||""})})}})});
   wsMoves.sort((a,b)=>(b.date||"").localeCompare(a.date||"")||b._ts-a._ts);
 
   if(mode==="deliver")return<div>
@@ -2194,7 +2260,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         const ord=data.orders.find(o=>o.id===orderId);if(!ord||!ord._docId)continue;
         const updated=JSON.parse(JSON.stringify(ord));
         if(!updated.workshopDeliveries)updated.workshopDeliveries=[];
-        items.forEach(item=>{updated.workshopDeliveries.push({id:gid(),wsName:selWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",wsOwner:wsObj?wsObj.owner:"",qty:item.qty,garmentType:item.garmentType,notes:"تسليم مُجمع",price:item.price,date:batchDate,receives:[]})});
+        items.forEach(item=>{updated.workshopDeliveries.push({id:gid(),wsName:selWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",wsOwner:wsObj?wsObj.owner:"",qty:item.qty,garmentType:item.garmentType,notes:"تسليم مُجمع",price:item.price,date:batchDate,receives:[],createdBy:user?.displayName||user?.email?.split("@")[0]||""})});
         updated.status=recomputeStatus(updated);
         const clean={...updated};delete clean._docId;
         try{await setDoc(doc(db,"seasons",season,"orders",ord._docId),clean)}catch(e){console.error("batch write error:",e)}
@@ -2287,7 +2353,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         const ord=data.orders.find(o=>o.id===orderId);if(!ord||!ord._docId)continue;
         const updated=JSON.parse(JSON.stringify(ord));
         items.forEach(item=>{if(!updated.workshopDeliveries[item.wdIdx].receives)updated.workshopDeliveries[item.wdIdx].receives=[];
-          updated.workshopDeliveries[item.wdIdx].receives.push({date:batchDate,qty:item.qty,notes:"استلام مُجمع",price:item.price,amount:r2(item.qty*item.price),quality:"جيد جداً"})});
+          updated.workshopDeliveries[item.wdIdx].receives.push({date:batchDate,qty:item.qty,notes:"استلام مُجمع",price:item.price,amount:r2(item.qty*item.price),quality:"جيد جداً",createdBy:user?.displayName||user?.email?.split("@")[0]||""})});
         updated.status=recomputeStatus(updated);
         const clean={...updated};delete clean._docId;
         try{await setDoc(doc(db,"seasons",season,"orders",ord._docId),clean)}catch(e){console.error("batch rcv error:",e)}
@@ -2674,7 +2740,7 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards}){
       setShowLimitPopup({max:stockRemain,requested:qty,details:pieceBreakdown});return
     }
     const saveOrd=JSON.parse(JSON.stringify(ord));
-    updOrder(selOrder,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:stDate,qty,notes:stNote});o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)});
+    updOrder(selOrder,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:stDate,qty,notes:stNote,createdBy:user?.displayName||user?.email?.split("@")[0]||""});o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)});
     const newTotalDel=stockDel+qty;
     if(andPrint)setTimeout(()=>printStockDelivery(saveOrd,qty,stDate,stNote,newTotalDel,t.cutQty),400);
     setStQty(0);setStNote("");setStDate(new Date().toISOString().split("T")[0]);showToast("✓ تم تسليم المخزن")
@@ -2724,7 +2790,7 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards}){
           <td style={{...TDB,color:p.balance>0?T.err:T.ok}}>{p.balance>0?p.balance:"✓"}</td>
           <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<div style={{display:"flex",gap:3}}>
             {isEditing?<><Btn small primary onClick={()=>{updOrder(selOrder,o=>{const r=o.workshopDeliveries[lastRcvWdIdx].receives[lastRcvRIdx];if(r)r.qty=qEditQty;o.status=recomputeStatus(o)});setQEditPiece(null);showToast("✓ تم تعديل الاستلام")}}>💾</Btn><Btn ghost small onClick={()=>setQEditPiece(null)}>✕</Btn></>
-            :isAdding?<><Btn small primary onClick={()=>{if(!qRcvQty||qRcvQty<=0)return;updOrder(selOrder,o=>{if(!o.workshopDeliveries[wdIdx].receives)o.workshopDeliveries[wdIdx].receives=[];o.workshopDeliveries[wdIdx].receives.push({date:qRcvDate,qty:qRcvQty,notes:"استلام سريع",price:Number(wdForP.price)||0,amount:r2(qRcvQty*(Number(wdForP.price)||0))});o.status=recomputeStatus(o)});setQRcvPiece(null);setQRcvQty(0);showToast("✓ تم استلام "+qRcvQty+" "+p.piece)}}>💾</Btn><Btn ghost small onClick={()=>setQRcvPiece(null)}>✕</Btn></>
+            :isAdding?<><Btn small primary onClick={()=>{if(!qRcvQty||qRcvQty<=0)return;updOrder(selOrder,o=>{if(!o.workshopDeliveries[wdIdx].receives)o.workshopDeliveries[wdIdx].receives=[];o.workshopDeliveries[wdIdx].receives.push({date:qRcvDate,qty:qRcvQty,notes:"استلام سريع",price:Number(wdForP.price)||0,amount:r2(qRcvQty*(Number(wdForP.price)||0)),createdBy:user?.displayName||user?.email?.split("@")[0]||""});o.status=recomputeStatus(o)});setQRcvPiece(null);setQRcvQty(0);showToast("✓ تم استلام "+qRcvQty+" "+p.piece)}}>💾</Btn><Btn ghost small onClick={()=>setQRcvPiece(null)}>✕</Btn></>
             :<>{hasRcv&&<Btn ghost small onClick={()=>{const lastR=wds[lastRcvWdIdx].receives[lastRcvRIdx];setQEditPiece(p.piece);setQEditQty(lastR.qty);setQRcvPiece(null)}} style={{fontSize:FS-3,padding:"2px 6px"}}>✏️</Btn>}{p.balance>0&&wdIdx>=0&&<Btn ghost small onClick={()=>{setQRcvPiece(p.piece);setQRcvQty(0);setQRcvDate(new Date().toISOString().split("T")[0]);setQEditPiece(null)}} style={{fontSize:FS-3,padding:"2px 8px",color:T.accent}}>📥</Btn>}</>}
           </div>}</td>
         </tr>})}</tbody></table></div>
@@ -3349,7 +3415,7 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
       {/* Existing users */}
       <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:10}}>المستخدمين الحاليين</div>
       {(config.usersList||[]).length>0&&<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}><thead><tr>{["الاسم","البريد","الصلاحية",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-        {(config.usersList||[]).map((u,i)=><tr key={i}><td style={{...TD,fontWeight:600}}>{u.name||"-"}</td><td style={TD}>{u.email}</td><td style={TD}><Sel value={u.role} onChange={v=>requirePass(()=>upConfig(d=>{const x=(d.usersList||[]).find(z=>z.email===u.email);if(x)x.role=v}))}><option value="admin">مدير النظام</option><option value="manager">مدير انتاج</option><option value="viewer">مشاهد فقط</option></Sel></td><td style={TD}><DelBtn onConfirm={()=>requirePass(()=>upConfig(d=>{d.usersList=(d.usersList||[]).filter(x=>x.email!==u.email)}))}/></td></tr>)}
+        {(config.usersList||[]).map((u,i)=><tr key={i}><td style={{...TD,fontWeight:600}}>{u.name||"-"}</td><td style={TD}>{u.email}</td><td style={TD}><Sel value={u.role} onChange={v=>requirePass(()=>upConfig(d=>{const x=(d.usersList||[]).find(z=>z.email===u.email);if(x)x.role=v}))}><option value="admin">مدير النظام</option><option value="manager">مدير انتاج</option><option value="viewer">مشاهد فقط</option></Sel></td><td style={TD}>{(()=>{const hasTasks=(Array.isArray(config.tasks)?config.tasks:[]).some(t=>t.toEmail===u.email&&!t.done);return<DelBtn onConfirm={()=>requirePass(()=>upConfig(d=>{d.usersList=(d.usersList||[]).filter(x=>x.email!==u.email)}))} blocked={hasTasks?"لديه مهام مفتوحة":null}/>})()}</td></tr>)}
       </tbody></table></div>}
       {(config.usersList||[]).length===0&&<div style={{textAlign:"center",padding:20,color:T.textSec}}>لم يتم اضافة مستخدمين</div>}
       <div style={{marginTop:16,display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:12}}>
