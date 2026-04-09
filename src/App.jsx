@@ -488,13 +488,13 @@ function SearchSel({value,onChange,options,placeholder}){
   const selected=options.find(o=>o.value===value);
   const filtered=q?options.filter(o=>o.label.toLowerCase().includes(q.toLowerCase())).slice(0,10):options.slice(0,10);
   useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false)};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h)},[]);
-  return<div ref={ref} style={{position:"relative"}}>
+  return<div ref={ref} style={{position:"relative",zIndex:open?9999:1}}>
     <div style={{display:"flex",border:"1px solid "+T.brd,borderRadius:6,overflow:"hidden",background:T.cardSolid}}>
       <input value={open?q:(selected?selected.label:"")} onChange={e=>{setQ(e.target.value);if(!open)setOpen(true)}} onFocus={()=>{setOpen(true);setQ("")}} onKeyDown={e=>{if(e.key==="Escape")setOpen(false)}}
         placeholder={placeholder||"بحث..."} style={{flex:1,padding:"5px 8px",border:"none",outline:"none",fontSize:FS,fontFamily:"inherit",background:"transparent",color:T.text,boxSizing:"border-box"}}/>
       <div onClick={()=>{setOpen(!open);setQ("")}} style={{padding:"4px 8px",cursor:"pointer",display:"flex",alignItems:"center",color:T.textSec,borderRight:"1px solid "+T.brd,background:T.bg,fontSize:12}}>{open?"▲":"▼"}</div>
     </div>
-    {open&&<div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:999,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:"0 0 8px 8px",boxShadow:"0 8px 24px rgba(0,0,0,0.15)",maxHeight:240,overflowY:"auto"}}>
+    {open&&<div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:9999,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:"0 0 8px 8px",boxShadow:"0 8px 24px rgba(0,0,0,0.15)",maxHeight:240,overflowY:"auto"}}>
       {filtered.length>0?filtered.map(o=><div key={o.value} onClick={()=>{onChange(o.value);setOpen(false);setQ("")}} style={{padding:"8px 12px",cursor:"pointer",fontSize:FS,color:o.value===value?T.accent:T.text,fontWeight:o.value===value?700:400,background:o.value===value?T.accent+"08":"transparent",borderBottom:"1px solid "+T.brd+"40"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background=o.value===value?T.accent+"08":"transparent"}>{o.label}</div>)
       :<div style={{padding:"12px",textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد نتائج</div>}
     </div>}
@@ -650,6 +650,7 @@ export default function App(){
   const setTab=v=>{setTab_(v);sessionStorage.setItem("clark_tab",v)};
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
   const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);
+  const[stickyForm,setStickyForm]=useState(null);
   const[statusNotif,setStatusNotif]=useState(null);const prevStatuses=useRef({});
   /* Online/Offline status */
   const[isOnline,setIsOnline]=useState(navigator.onLine);const[justReconnected,setJustReconnected]=useState(false);
@@ -884,8 +885,8 @@ export default function App(){
           <div style={{display:"flex",gap:20,justifyContent:"center",alignItems:"flex-start",flexDirection:isMob?"column":"row"}}>
           {/* Buttons - centered */}
           <div style={{flex:"0 1 700px"}}>
-          <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(5,1fr)",gap:isMob?10:16}}>
-            {TABS.filter(t=>canViewTab(t.key)).map(t=>{const perm=getTabPerm(t.key);return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:isMob?"16px 8px":"20px 14px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s",opacity:perm==="view"?0.75:1,position:"relative"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow}}>
+          <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:isMob?10:16}}>
+            {TABS.filter(t=>canViewTab(t.key)).map(t=>{const perm=getTabPerm(t.key);return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:isMob?"16px 8px":"20px 14px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s",opacity:perm==="view"?0.75:1,position:"relative",width:isMob?"calc(33.33% - 8px)":"calc(20% - 14px)",boxSizing:"border-box"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow}}>
               <div style={{width:isMob?44:52,height:isMob?44:52,borderRadius:14,background:t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px",fontSize:isMob?22:26}}>{t.icon}</div>
               <div style={{fontSize:isMob?FS-3:FS-1,fontWeight:700,color:T.text}}>{t.label}</div>
               {perm==="view"&&<div style={{position:"absolute",top:6,left:6,fontSize:9,padding:"1px 6px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁 عرض</div>}
@@ -917,6 +918,36 @@ export default function App(){
               </div>)}</div>
             </div>})()}
           </div>
+          {/* ── Sticky Notes ── */}
+          {(()=>{const uemail=user?.email||"";const COLORS=[{key:"#FEF9C3",border:"#EAB308",name:"أصفر"},{key:"#DBEAFE",border:"#3B82F6",name:"أزرق"},{key:"#DCFCE7",border:"#22C55E",name:"أخضر"},{key:"#FCE7F3",border:"#EC4899",name:"وردي"},{key:"#EDE9FE",border:"#8B5CF6",name:"بنفسجي"},{key:"#FFEDD5",border:"#F97316",name:"برتقالي"}];
+            const allNotes=(config.stickyNotes||[]);const myNotes=allNotes.filter(n=>n.email===uemail);
+            const saveNote=(note)=>{upConfig(d=>{if(!d.stickyNotes)d.stickyNotes=[];const idx=d.stickyNotes.findIndex(n=>n.id===note.id);if(idx>=0)d.stickyNotes[idx]=note;else{if(d.stickyNotes.filter(n=>n.email===uemail).length>=20){showToast("⚠️ الحد الاقصى 20 ملاحظة");return}d.stickyNotes.push(note)}});setStickyForm(null);showToast("✓ تم الحفظ")};
+            const delNote=(id)=>{upConfig(d=>{d.stickyNotes=(d.stickyNotes||[]).filter(n=>n.id!==id)})};
+            return<div style={{marginTop:16}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                <span style={{fontSize:FS,fontWeight:700,color:T.textSec}}>{"📝 ملاحظاتي"+(myNotes.length>0?" ("+myNotes.length+"/20)":"")}</span>
+                <span onClick={()=>setStickyForm({id:gid(),email:uemail,title:"",text:"",color:"#FEF9C3",date:new Date().toISOString().split("T")[0]})} style={{cursor:"pointer",fontSize:FS-1,padding:"4px 12px",borderRadius:8,background:T.accent+"12",color:T.accent,fontWeight:700}}>+ ملاحظة</span>
+              </div>
+              {stickyForm&&<div style={{background:stickyForm.color,borderRadius:12,padding:14,border:"2px solid "+(COLORS.find(c=>c.key===stickyForm.color)?.border||"#EAB308")+"40",marginBottom:12,boxShadow:"0 2px 10px rgba(0,0,0,0.06)"}}>
+                <div style={{display:"flex",gap:4,marginBottom:8}}>{COLORS.map(c=><div key={c.key} onClick={()=>setStickyForm(p=>({...p,color:c.key}))} style={{width:22,height:22,borderRadius:6,background:c.key,border:stickyForm.color===c.key?"2px solid "+c.border:"1px solid #ccc",cursor:"pointer"}}/>)}</div>
+                <input value={stickyForm.title} onChange={e=>setStickyForm(p=>({...p,title:e.target.value}))} placeholder="العنوان..." style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #ddd",fontSize:FS,fontFamily:"inherit",fontWeight:700,background:"rgba(255,255,255,0.6)",marginBottom:6,boxSizing:"border-box"}}/>
+                <textarea value={stickyForm.text} onChange={e=>setStickyForm(p=>({...p,text:e.target.value}))} placeholder="اكتب ملاحظتك..." rows={3} style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #ddd",fontSize:FS-1,fontFamily:"inherit",background:"rgba(255,255,255,0.6)",resize:"vertical",boxSizing:"border-box"}}/>
+                <div style={{display:"flex",gap:6,marginTop:8}}><Btn primary small onClick={()=>{if(!stickyForm.title?.trim()&&!stickyForm.text?.trim())return;saveNote(stickyForm)}}>💾 حفظ</Btn><Btn ghost small onClick={()=>setStickyForm(null)}>الغاء</Btn></div>
+              </div>}
+              {myNotes.length>0&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:10}}>
+                {myNotes.map(n=>{const bc=COLORS.find(c=>c.key===n.color);return<div key={n.id} style={{background:n.color||"#FEF9C3",borderRadius:12,padding:"12px 14px",border:"1px solid "+(bc?.border||"#EAB308")+"30",boxShadow:"0 2px 8px rgba(0,0,0,0.04)",position:"relative",minHeight:80}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    {n.title&&<div style={{fontWeight:700,fontSize:FS,color:"#1E293B",marginBottom:4,flex:1}}>{n.title}</div>}
+                    <div style={{display:"flex",gap:2,flexShrink:0}}>
+                      <span onClick={()=>setStickyForm({...n})} style={{cursor:"pointer",fontSize:12,opacity:0.5}}>✏️</span>
+                      <span onClick={()=>delNote(n.id)} style={{cursor:"pointer",fontSize:12,opacity:0.5}}>✕</span>
+                    </div>
+                  </div>
+                  {n.text&&<div style={{fontSize:FS-1,color:"#334155",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{n.text}</div>}
+                  <div style={{fontSize:FS-3,color:"#94A3B8",marginTop:6}}>{n.date}</div>
+                </div>})}
+              </div>}
+            </div>})()}
       </div>}
       {/* PAGES with back button */}
       {tab!=="home"&&canViewTab(tab)&&<div>
@@ -1995,7 +2026,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         if(pages.length===0)return;
         const combined=pages.map((p,i)=>"<div"+(i>0?" style='page-break-before:always'":"")+">"+p+"</div>").join("");
         printPage("اذونات مجمعة ("+pages.length+")",combined)};
-      const waBatch=()=>{if(selArr.length===0)return;const byWs={};selArr.forEach(m=>{if(!byWs[m.wsName])byWs[m.wsName]=[];byWs[m.wsName].push(m)});Object.entries(byWs).forEach(([ws,items])=>{const wsObj=workshops.find(w=>w.name===ws);const phone=wsObj?.phone||"";const lines=items.map(m=>"• "+(m.type==="deliver"?"تسليم":"استلام")+" — موديل *"+m.orderNo+"* — "+(m.garmentType||"عام")+" — *"+m.qty+"* قطعة").join("%0A");const tQty=items.reduce((s,m)=>s+(Number(m.qty)||0),0);const msg="*CLARK — ملخص حركات*%0A%0A• الورشة: *"+ws+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+tQty+"* قطعة%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")})};
+      const waBatch=()=>{if(selArr.length===0)return;const byWs={};selArr.forEach(m=>{if(!byWs[m.wsName])byWs[m.wsName]=[];byWs[m.wsName].push(m)});Object.entries(byWs).forEach(([ws,items])=>{const wsObj=workshops.find(w=>w.name===ws);const phone=wsObj?.phone||"";const lines=items.map(m=>"• "+(m.type==="deliver"?"تسليم":"استلام")+" — موديل *"+m.orderNo+"*%0A  "+(m.orderDesc||"-")+" — "+(m.garmentType||"عام")+" — *"+m.qty+"* قطعة").join("%0A");const tQty=items.reduce((s,m)=>s+(Number(m.qty)||0),0);const msg="*CLARK — ملخص حركات*%0A%0A• الورشة: *"+ws+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+tQty+"* قطعة%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")})};
       return<div id="mov-log">
       {selArr.length>0&&<div style={{padding:"10px 14px",borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF625",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <span style={{fontWeight:700,color:"#8B5CF6",fontSize:FS}}>{"☑ "+selArr.length+" حركة محددة ("+selArr.reduce((s,m)=>s+(Number(m.qty)||0),0)+" قطعة)"}</span>
@@ -2128,7 +2159,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/>
             <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
-            <Btn small onClick={()=>{const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — تسليم*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — استلام*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn></>}
+            <Btn small onClick={()=>{const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — تسليم*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• الوصف: "+(m.orderDesc||"-")+"%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — استلام*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• الوصف: "+(m.orderDesc||"-")+"%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn></>}
           </div>}</td></tr>})}</tbody>
       </table></div>
     </Card>}
@@ -2167,7 +2198,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
           const html=await printReceipt(selWs,wsObj?.owner||"",ord||{modelNo:item.modelNo,modelDesc:item.modelDesc},item.garmentType,item.qty,batchDate,0,data.garmentTypes,true);
           if(html)pages.push(html)}
         if(pages.length>0)printPage("اذن تسليم مُجمع — "+selWs,pages.map((p,i)=>"<div"+(i>0?" style='page-break-before:always'":"")+">"+p+"</div>").join(""))}
-      if(andWa){const phone=wsObj?.phone||"";let lines=checked.map(item=>"• موديل *"+item.modelNo+"* — "+item.garmentType+" — *"+item.qty+"* قطعة"+(item.price?" — "+item.price+" ج.م":"")).join("%0A");
+      if(andWa){const phone=wsObj?.phone||"";let lines=checked.map(item=>"• موديل *"+item.modelNo+"* — "+item.modelDesc+"%0A  "+item.garmentType+" — *"+item.qty+"* قطعة"+(item.price?" — "+item.price+" ج.م":"")).join("%0A");
         const msg="*CLARK — اذن تسليم مُجمع*%0A%0A• الورشة: *"+selWs+"*%0A• التاريخ: *"+batchDate+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+totalQty+"* قطعة%0A%0A*برجاء التأكيد*";
         window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
       setBatchItems([]);setSelWs("");setMode(null)};
@@ -2241,7 +2272,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
           const html=await printReceiveReceipt(selWs,ord||{modelNo:item.modelNo,modelDesc:item.modelDesc},item.garmentType,item.qty,batchDate,0,data.garmentTypes,true);
           if(html)pages.push(html)}
         if(pages.length>0)printPage("اذونات استلام مجمعة — "+selWs,pages.map((p,i)=>"<div"+(i>0?" style='page-break-before:always'":"")+">"+p+"</div>").join(""))}
-      if(andWa){const phone=wsObj?.phone||"";const lines=checkedRcv.map(item=>"• موديل *"+item.modelNo+"* — "+item.garmentType+" — *"+item.qty+"* قطعة").join("%0A");
+      if(andWa){const phone=wsObj?.phone||"";const lines=checkedRcv.map(item=>"• موديل *"+item.modelNo+"* — "+item.modelDesc+"%0A  "+item.garmentType+" — *"+item.qty+"* قطعة").join("%0A");
         const msg="*CLARK — استلام مُجمع من ورشة*%0A%0A• الورشة: *"+selWs+"*%0A• التاريخ: *"+batchDate+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+totalRcvQty+"* قطعة%0A%0A*برجاء التأكيد*";
         window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
       setBatchItems([]);setSelWs("");setMode(null)};
@@ -2354,7 +2385,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/>
             <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
-            <Btn small onClick={()=>{const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — تسليم*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — استلام*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn></>}
+            <Btn small onClick={()=>{const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — تسليم*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• الوصف: "+(m.orderDesc||"-")+"%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — استلام*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• الوصف: "+(m.orderDesc||"-")+"%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn></>}
           </div>}</td></tr>})}</tbody>
       </table></div>
     </Card>}
@@ -3144,9 +3175,9 @@ function TasksPg({data,upConfig,isMob,user,userRole}){
   const myTasks=allTasks.filter(t=>t.toEmail===userEmail||t.toUid===uid);
   const sentTasks=allTasks.filter(t=>t.fromEmail===userEmail||t.fromUid===uid);
   const users=(data.usersList||[]);
-  /* Role hierarchy: admin→all, manager→admin+manager, viewer→admin */
-  const allowedTargets=users;
-  const addTask=()=>{if(!taskText.trim()||!taskTo)return;const target=users.find(u=>u.email===taskTo);
+  /* Ensure current user always in list */
+  const allowedTargets=users.find(u=>u.email===userEmail)?users:[{email:userEmail,name:user?.displayName||userEmail.split("@")[0],role:userRole},...users];
+  const addTask=()=>{if(!taskText.trim()||!taskTo)return;const target=allowedTargets.find(u=>u.email===taskTo);
     upConfig(d=>{if(!Array.isArray(d.tasks))d.tasks=[];d.tasks.unshift({id:Date.now(),text:taskText.trim(),done:false,date:new Date().toISOString().split("T")[0],fromUid:uid,fromEmail:userEmail,fromName:user?.displayName||userEmail.split("@")[0],toEmail:taskTo,toName:target?.name||taskTo.split("@")[0]})});
     setTaskText("");showToast("✓ تم ارسال المهمة")};
   const toggleTask=(tid)=>{upConfig(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const t=arr.find(x=>x.id===tid);if(t){t.done=!t.done;t.doneAt=t.done?new Date().toISOString():null}})};
