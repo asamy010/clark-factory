@@ -909,7 +909,6 @@ export default function App(){
               </div>)}</div>
               {myTasks.length>(isMob?5:8)&&<div style={{textAlign:"center",marginTop:6}}><span onClick={()=>goTo("tasks")} style={{cursor:"pointer",fontSize:FS-2,color:"#92400E",fontWeight:700}}>{"عرض الكل ("+myTasks.length+")"}</span></div>}
             </div></div>})()}
-          </div>
           {/* ── Quick Action: Task / Notification ── */}
           <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"center"}}>
             <div onClick={()=>setQuickPopup("task")} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:T.accent+"10",border:"1px solid "+T.accent+"25",display:"flex",alignItems:"center",gap:6,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"20"} onMouseLeave={e=>e.currentTarget.style.background=T.accent+"10"}>
