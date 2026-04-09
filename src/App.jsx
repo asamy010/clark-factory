@@ -79,11 +79,12 @@ function gc(o,k){return o["colors"+k]||[]}
 function gcons(o,k){return parseFloat(o["cons"+k])||0}
 function gdate(o,k){return o["cutDate"+k]||""}
 function useWin(){const[w,setW]=useState(typeof window!=="undefined"?window.innerWidth:1200);useEffect(()=>{const h=()=>setW(window.innerWidth);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h)},[]);return w}
-function getStatusColor(name,cards){const c=(cards||DEFAULT_STATUSES).find(s=>s.name===name);return c?c.color:"#94A3B8"}
+function getStatusColor(name,cards){if(name==="مغلق")return"#64748B";const c=(cards||DEFAULT_STATUSES).find(s=>s.name===name);return c?c.color:"#94A3B8"}
 function sortOrders(orders){return[...orders].filter(o=>o&&o.id).sort((a,b)=>(b.createdAt||b.date||"").localeCompare(a.createdAt||a.date||""))}
 
 /* Smart status recompute based on data state */
 function recomputeStatus(o){
+  if(o.closed)return"مغلق";
   const t=calcOrder(o);const wds=o.workshopDeliveries||[];const dels=o.deliveries||[];
   const stockDel=dels.reduce((s,d)=>s+(Number(d.qty)||0),0);
   if(stockDel>=t.cutQty&&t.cutQty>0)return"تم الشحن";
@@ -646,25 +647,9 @@ export default function App(){
         return{modelNo:o.modelNo,desc:o.modelDesc,status:o.status,cutQty:t.cutQty,deliveredToWs:totalDel,receivedFromWs:totalRcv,wsBalance:totalDel-totalRcv,stockDelivered:stockDel,workshops:wds.map(wd=>wd.wsName).filter((v,i,a)=>a.indexOf(v)===i),daysSinceLastMove:days,pieces:o.orderPieces||[]}});
       const ctx="أنت مساعد ذكي لنظام CLARK لإدارة مصانع الملابس. أجب بالعربية بشكل مختصر ومفيد.\n\nبيانات الموسم "+season+":\n\nالأوردرات ("+ords.length+"):\n"+JSON.stringify(ords,null,0)+"\n\nالورش ("+ws.length+"):\n"+JSON.stringify(ws,null,0)+"\n\nالتاريخ: "+new Date().toISOString().split("T")[0];
       const res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system:ctx,messages:[...aiMsgs.map(m=>({role:m.role==="user"?"user":"assistant",content:m.text})),{role:"user",content:q}]})});
-      const ct=res.headers.get("content-type")||"";
-      if(ct.includes("text/event-stream")){
-        /* Streaming response */
-        setAiMsgs(p=>[...p,{role:"ai",text:""}]);setAiLoading(false);
-        const reader=res.body.getReader();const decoder=new TextDecoder();let full="";let buf="";
-        while(true){const{done,value}=await reader.read();if(done)break;
-          buf+=decoder.decode(value,{stream:true});
-          const lines=buf.split("\n");buf=lines.pop()||"";
-          for(const line of lines){if(!line.startsWith("data: ")||line==="data: [DONE]")continue;
-            try{const ev=JSON.parse(line.slice(6));if(ev.type==="content_block_delta"&&ev.delta?.text){full+=ev.delta.text;const txt=full;setAiMsgs(p=>{const n=[...p];n[n.length-1]={...n[n.length-1],text:txt};return n})}}catch(e){}
-          }
-        }
-        if(!full)setAiMsgs(p=>{const n=[...p];n[n.length-1]={...n[n.length-1],text:"عذراً، لم أتمكن من الرد"};return n});
-      }else{
-        /* Non-streaming fallback */
-        const data2=await res.json();if(data2.error){setAiMsgs(p=>[...p,{role:"ai",text:"⚠️ "+(data2.error.message||data2.error||"خطأ غير معروف")}]);setAiLoading(false);return}
-        const reply=data2.content?.map(c=>c.text||"").join("\n")||"عذراً، لم أتمكن من الرد";
-        setAiMsgs(p=>[...p,{role:"ai",text:reply}])
-      }
+      const data2=await res.json();if(data2.error){setAiMsgs(p=>[...p,{role:"ai",text:"⚠️ "+(data2.error.message||data2.error||"خطأ غير معروف")}]);setAiLoading(false);return}
+      const reply=data2.content?.map(c=>c.text||"").join("\n")||"عذراً، لم أتمكن من الرد";
+      setAiMsgs(p=>[...p,{role:"ai",text:reply}])
     }catch(e){console.error("AI error:",e);setAiMsgs(p=>[...p,{role:"ai",text:"⚠️ خطأ في الاتصال بالمساعد الذكي"}])}
     setAiLoading(false)};
   useEffect(()=>{const h=e=>{if(e.key==="Escape"){setQuickPopup(null);setShowAlerts(false);setShowScanner(false);setStickyForm(null);setShowTheme(false);setAiOpen(false)}};window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h)},[]);
@@ -1705,10 +1690,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
           const isStale=ageDays>7&&o.status!=="تم التسليم"&&o.status!=="تم الشحن";
           const pri=o.priority||"normal";const priColor=pri==="urgent"?T.err:pri==="low"?"#10B981":T.warn;
           return<div key={o.id} data-oid={o.id} style={{display:"flex",gap:16,padding:16,background:T.cardSolid,borderRadius:16,border:isStale?"2px solid "+T.err+"60":"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",alignItems:"flex-start",position:"relative"}} onClick={()=>setSel(o.id)}>
-          {canEdit&&!hasData&&<div onClick={e=>{e.stopPropagation()}} style={{position:"absolute",top:8,left:8}}><DelBtn onConfirm={()=>delOrder(o.id)}/></div>}
-          {/* Favorite star + Priority */}
-          <div onClick={e=>{e.stopPropagation();updOrder(o.id,u=>{u.favorite=!u.favorite})}} style={{position:"absolute",top:8,right:8,cursor:"pointer",fontSize:18,zIndex:2}}>{o.favorite?"⭐":"☆"}</div>
-          {pri!=="normal"&&<div style={{position:"absolute",top:28,right:10,fontSize:10}}>{pri==="urgent"?"🔴":"🟢"}</div>}
+          {pri!=="normal"&&<div style={{position:"absolute",top:8,right:10,fontSize:10}}>{pri==="urgent"?"🔴":"🟢"}</div>}
           {isStale&&<div style={{position:"absolute",bottom:8,left:8,fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.err+"15",color:T.err,fontWeight:700}}>{ageDays+" يوم"}</div>}
           {o.image?<img src={o.image} alt="" style={{width:80,aspectRatio:"3/4",borderRadius:10,objectFit:"cover",flexShrink:0,border:"1px solid "+T.brd}}/>:<div style={{width:80,aspectRatio:"3/4",borderRadius:10,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:28,color:T.textMut}}>📷</div>}
           <div style={{flex:1,minWidth:0}}>
@@ -1726,6 +1708,8 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
               <span style={{fontSize:FS,color:T.textSec}}>{"تسليم: "}<b style={{color:T.ok}}>{o.deliveredQty||0}</b></span>
               <span style={{fontSize:FS,color:T.textSec}}>{"رصيد: "}<b style={{color:t.balance>0?T.err:T.ok}}>{t.balance}</b></span>
               <span style={{fontSize:FS,color:T.textSec}}>{"تكلفة: "}<b style={{color:"#8B5CF6"}}>{t.costPer+" ج.م"}</b></span>
+              {o.settlement&&<span style={{fontSize:FS-1,padding:"2px 8px",borderRadius:6,background:T.err+"12",color:T.err,fontWeight:700}}>{"🔴 هالك: "+fmt(r2(o.settlement.cost))+" ج.م"}</span>}
+              {o.closed&&<span style={{fontSize:FS-1,padding:"2px 8px",borderRadius:6,background:"#64748B15",color:"#64748B",fontWeight:700}}>🔒 مغلق</span>}
             </div>
             {wds.length>0&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
               {(()=>{const wsGroup={};wds.forEach(wd=>{if(!wsGroup[wd.wsName])wsGroup[wd.wsName]=[];wsGroup[wd.wsName].push(wd)});
@@ -1741,6 +1725,10 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
                   </div>
                 </div>)})()}
             </div>}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:6}} onClick={e=>e.stopPropagation()}>
+              <div>{canEdit&&!hasData&&<DelBtn onConfirm={()=>delOrder(o.id)}/>}</div>
+              <div onClick={()=>updOrder(o.id,u=>{u.favorite=!u.favorite})} style={{cursor:"pointer",fontSize:18}}>{o.favorite?"⭐":"☆"}</div>
+            </div>
           </div>
         </div>})}
       </div>
@@ -1750,6 +1738,8 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
 
   const t=calcOrder(order);const accItems=order.accItems||[];const accAll=t.accPer*t.cutQty;
   const activeFabs=FKEYS.filter(k=>order["fabric"+k]);
+  const canReopen=canEdit;
+  if(order.closed)canEdit=false;
 
   /* Prev/Next navigation */
   const sortedIds=sortOrders(data.orders).map(o=>o.id);const curIdx=sortedIds.indexOf(sel);
@@ -1874,6 +1864,48 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
             {(!order.deliveries||order.deliveries.length===0)&&<tr><td colSpan={canEdit?5:4} style={{...TD,textAlign:"center",color:T.textSec}}>لا توجد تسليمات</td></tr>}
           </tbody></table></div>
           </Card>})()}
+          {/* ── Settlement & Close ── */}
+          {(()=>{const stockDel2=(order.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const remain=t.cutQty-stockDel2;const isClosed=order.closed;const stl=order.settlement;
+            return<>
+            {stl&&<Card title="⚖️ تسوية" style={{marginBottom:16,border:"2px solid "+T.err+"30",background:T.err+"03"}}>
+              <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10}}>
+                <div><span style={{fontSize:FS-2,color:T.textSec}}>كمية الهالك</span><div style={{fontSize:FS+2,fontWeight:800,color:T.err}}>{stl.qty+" قطعة"}</div></div>
+                <div><span style={{fontSize:FS-2,color:T.textSec}}>السبب</span><div style={{fontSize:FS,fontWeight:700,color:T.text}}>{stl.reason||"-"}</div></div>
+                <div><span style={{fontSize:FS-2,color:T.textSec}}>تكلفة الهالك</span><div style={{fontSize:FS+2,fontWeight:800,color:T.err}}>{fmt(r2(stl.cost||0))+" ج.م"}</div></div>
+              </div>
+              {stl.notes&&<div style={{marginTop:8,fontSize:FS-1,color:T.textSec}}>{stl.notes}</div>}
+              <div style={{marginTop:6,fontSize:FS-3,color:T.textMut}}>{"📅 "+stl.date+(stl.createdBy?" — 👤 "+stl.createdBy:"")}</div>
+              {canEdit&&!isClosed&&<Btn danger small onClick={()=>updOrder(sel,o=>{delete o.settlement})} style={{marginTop:8}}>🗑️ حذف التسوية</Btn>}
+            </Card>}
+            {isClosed&&<div style={{padding:14,borderRadius:12,background:"#64748B10",border:"2px solid #64748B30",marginBottom:16,textAlign:"center"}}>
+              <span style={{fontSize:20}}>🔒</span><span style={{fontSize:FS+1,fontWeight:800,color:"#64748B",marginRight:8}}> أوردر مغلق</span>
+              {order.closedAt&&<span style={{fontSize:FS-2,color:T.textMut}}>{"بتاريخ "+order.closedAt+(order.closedBy?" — "+order.closedBy:"")}</span>}
+              {canReopen&&<Btn small onClick={()=>{if(confirm("فتح الأوردر مرة أخرى؟"))updOrder(sel,o=>{o.closed=false;delete o.closedAt;delete o.closedBy;o.status=recomputeStatus(o)})}} style={{marginRight:10,background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>🔓 فتح الأوردر</Btn>}
+            </div>}
+            {canEdit&&!isClosed&&remain>0&&!stl&&<Card title="⚖️ تسوية الأوردر" style={{marginBottom:16}}>
+              {(()=>{const[stlReason,setStlReason]=useState("عيوب تصنيع");const[stlNotes,setStlNotes]=useState("");
+                const costPerUnit=t.cutQty>0?r2(t.totalCost/t.cutQty):0;const wasteCost=r2(remain*costPerUnit);
+                return<div>
+                  <div style={{padding:10,borderRadius:8,background:T.warn+"08",border:"1px solid "+T.warn+"20",marginBottom:12}}>
+                    <span style={{fontWeight:700,color:T.warn}}>{"⚠️ يوجد "+remain+" قطعة لم تسلّم للمخزن الجاهز"}</span>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:10}}>
+                    <div><label style={{fontSize:FS-2,color:T.textSec}}>كمية الهالك</label><div style={{fontSize:FS+2,fontWeight:800,color:T.err}}>{remain+" قطعة"}</div></div>
+                    <div><label style={{fontSize:FS-2,color:T.textSec}}>تكلفة القطعة</label><div style={{fontSize:FS,fontWeight:700}}>{fmt(costPerUnit)+" ج.م"}</div></div>
+                    <div><label style={{fontSize:FS-2,color:T.textSec}}>🔴 تكلفة الهالك</label><div style={{fontSize:FS+2,fontWeight:800,color:T.err}}>{fmt(wasteCost)+" ج.م"}</div></div>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:10}}>
+                    <div><label style={{fontSize:FS-2,color:T.textSec}}>السبب</label><Sel value={stlReason} onChange={setStlReason}><option value="عيوب تصنيع">عيوب تصنيع</option><option value="تالف خامة">تالف خامة</option><option value="فاقد ورشة">فاقد ورشة</option><option value="خطأ قص">خطأ قص</option><option value="أخرى">أخرى</option></Sel></div>
+                    <div><label style={{fontSize:FS-2,color:T.textSec}}>ملاحظات</label><Inp value={stlNotes} onChange={setStlNotes} placeholder="ملاحظات اختيارية..."/></div>
+                  </div>
+                  <Btn onClick={()=>{updOrder(sel,o=>{o.settlement={qty:remain,reason:stlReason,notes:stlNotes,cost:wasteCost,costPerUnit,date:new Date().toISOString().split("T")[0],createdBy:userName}});showToast("✓ تم تسجيل التسوية")}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>⚖️ تأكيد التسوية ({remain} قطعة — {fmt(wasteCost)} ج.م)</Btn>
+                </div>})()}
+            </Card>}
+            {canEdit&&!isClosed&&(remain===0||stl)&&<div style={{textAlign:"center",marginBottom:16}}>
+              <Btn onClick={()=>{if(confirm("هل تريد غلق الأوردر نهائياً؟ لن تتمكن من التعديل بعد الغلق."))updOrder(sel,o=>{o.closed=true;o.closedAt=new Date().toISOString().split("T")[0];o.closedBy=userName;o.status="مغلق"})}} style={{background:"#64748B",color:"#fff",border:"none",padding:"10px 30px",fontSize:FS+1,fontWeight:800,borderRadius:12}}>🔒 غلق الأوردر نهائياً</Btn>
+              {remain>0&&stl&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:6}}>{"(تم تسوية "+stl.qty+" قطعة بتكلفة "+fmt(r2(stl.cost))+" ج.م)"}</div>}
+            </div>}
+            </>})()}
       </div>
       {/* Workshop Deliveries Info */}
       {(order.workshopDeliveries||[]).length>0&&<Card title="التشغيل الخارجي" style={{marginBottom:16}}>
@@ -1904,7 +1936,8 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS+1}}><thead><tr>{["البند","التكلفة الكلية","تكلفة القطعة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
           <tr><td style={TD}>تكلفة الخامات</td><td style={TDB}>{fmt(r2(t.totalFab))+" ج.م"}</td><td style={TDB}>{t.fabPer+" ج.م"}</td></tr>
           <tr><td style={TD}>تكاليف الاكسسوار</td><td style={TDB}>{fmt(accAll)+" ج.م"}</td><td style={TDB}>{t.accPer+" ج.م"}</td></tr>
-          <tr style={{background:T.accentBg}}><td style={{...TD,fontWeight:800,fontSize:FS+4,color:T.accent}}>الاجمالي</td><td style={{...TD,fontWeight:800,fontSize:FS+4,color:T.accent}}>{fmt(r2(t.costAll))+" ج.م"}</td><td style={{...TD,fontWeight:800,fontSize:FS+6,color:T.accent}}>{t.costPer+" ج.م"}</td></tr>
+          {order.settlement&&<tr style={{background:T.err+"08"}}><td style={{...TD,fontWeight:700,color:T.err}}>{"🔴 هالك ("+order.settlement.qty+" قطعة — "+order.settlement.reason+")"}</td><td style={{...TD,fontWeight:800,color:T.err}}>{fmt(r2(order.settlement.cost))+" ج.م"}</td><td style={{...TD,fontWeight:800,color:T.err}}>{t.cutQty>0?r2(order.settlement.cost/t.cutQty)+" ج.م":"-"}</td></tr>}
+          <tr style={{background:T.accentBg}}><td style={{...TD,fontWeight:800,fontSize:FS+4,color:T.accent}}>الاجمالي</td><td style={{...TD,fontWeight:800,fontSize:FS+4,color:T.accent}}>{fmt(r2(t.costAll+(order.settlement?.cost||0)))+" ج.م"}</td><td style={{...TD,fontWeight:800,fontSize:FS+6,color:T.accent}}>{(t.cutQty>0?r2((t.costAll+(order.settlement?.cost||0))/t.cutQty):0)+" ج.م"}</td></tr>
         </tbody></table>
       </Card>
       {order.instructions&&<Card title="تعليمات التشغيل" style={{marginTop:16}}><div style={{whiteSpace:"pre-wrap",fontSize:FS+1,lineHeight:2}}>{order.instructions}</div></Card>}
