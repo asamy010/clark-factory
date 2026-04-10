@@ -460,7 +460,7 @@ async function printOrderSheet(order,t,activeFabs,statusCards){
         h+="<tr><td>"+(c.color||"-")+"</td><td style='font-weight:700'>"+(c.layers||0)+"</td><td>"+(c.pcsPerLayer||0)+"</td><td style='font-weight:700;color:#0284C7'>"+q+"</td></tr>"});
       h+="<tr style='background:#f8fafc;font-weight:800'><td>الاجمالي</td><td>"+totalLayers+"</td><td></td><td style='color:#0284C7'>"+totalQty+"</td></tr>";
       h+="</table></div>"})};
-  if(wsRows)h+="<h2 style='font-size:14px;margin:12px 0 6px'>الورش</h2><table><tr><th>الورشة</th><th>القطعة</th><th>الكمية</th><th>استلام مصنع</th><th>الرصيد</th></tr>"+wsRows+"</table>";
+  if(wsRows)h+="<h2 style='font-size:14px;margin:12px 0 6px'>الورش</h2><table><tr><th>الورشة</th><th>القطعة</th><th>الكمية</th><th>استلام مصنع</th><th>رصيد حالي</th></tr>"+wsRows+"</table>";
   if(order.instructions)h+="<h2 style='font-size:14px;margin:12px 0 6px'>تعليمات التشغيل</h2><div style='background:#f8fafc;padding:10px;border-radius:6px;white-space:pre-wrap;font-size:12px'>"+order.instructions+"</div>";
   h+="<div class='sig'><div class='sig-box'>توقيع مسؤول القص</div><div class='sig-box'>مسؤول التشغيل</div><div class='sig-box'>مدير الانتاج</div></div>";
   printPage("أمر قص — "+order.modelNo,h)
@@ -664,8 +664,8 @@ const TABS=[
   {key:"calc",label:"حاسبة التكاليف",icon:"🧮",color:"#EC4899",bg:"#FCE7F3"},
   {key:"tasks",label:"المهام",icon:"📌",color:"#F59E0B",bg:"#FEF3C7"},
   {key:"db",label:"قاعدة البيانات",icon:"🗄️",color:"#EF4444",bg:"#FEE2E2"},
-  {key:"settings",label:"الاعدادات",icon:"⚙️",color:"#64748B",bg:"#F1F5F9"},
-  {key:"custDeliver",label:"تسليم عملاء",icon:"🚚",color:"#059669",bg:"#ECFDF5"}
+  {key:"custDeliver",label:"تسليم عملاء",icon:"🚚",color:"#059669",bg:"#ECFDF5"},
+  {key:"settings",label:"الاعدادات",icon:"⚙️",color:"#64748B",bg:"#F1F5F9"}
 ];
 
 /* ══ MAIN APP ══ */
@@ -687,7 +687,10 @@ export default function App(){
   const[stickyForm,setStickyForm]=useState(null);
   const[quickPopup,setQuickPopup]=useState(null);/* "task"|"notif"|null */
   const[qpTo,setQpTo]=useState("");const[qpText,setQpText]=useState("");const[qpType,setQpType]=useState("تذكير");
-  const[aiMsgs,setAiMsgs]=useState([]);const[aiInput,setAiInput]=useState("");const[aiLoading,setAiLoading]=useState(false);const[aiOpen,setAiOpen]=useState(false);const[dismissedAlerts,setDismissedAlerts]=useState([]);
+  const[aiMsgs,setAiMsgs]=useState([]);const[aiInput,setAiInput]=useState("");const[aiLoading,setAiLoading]=useState(false);const[aiOpen,setAiOpen]=useState(false);
+  const[dismissedAlerts,setDismissedAlerts]=useState(()=>{try{const raw=localStorage.getItem("clark_dismissed_alerts");if(!raw)return[];const arr=JSON.parse(raw);const now=Date.now();return arr.filter(d=>now-d.at<864000000)}catch(e){return[]}});
+  const dismissAlert=(text)=>{setDismissedAlerts(p=>{const n=[...p,{text,at:Date.now()}];try{localStorage.setItem("clark_dismissed_alerts",JSON.stringify(n))}catch(e){}return n})};
+  const isDismissed=(text)=>dismissedAlerts.some(d=>d.text===text);
   const aiAlerts=useMemo(()=>{const a=[];const now=Date.now();const workshops=config.workshops||[];const wsPayments=config.wsPayments||[];
     /* 1. أوردرات متأخرة */
     orders.forEach(o=>{if(o.closed||o.status==="تم التسليم"||o.status==="تم الشحن")return;const wds=o.workshopDeliveries||[];let lastDate=o.date;wds.forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});const days=Math.floor((now-new Date(lastDate))/(86400000));
@@ -707,7 +710,7 @@ export default function App(){
     workshops.forEach(w=>{let bal=0,oldestDate="";orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const wBal=(Number(wd.qty)||0)-rcvd;if(wBal>0){bal+=wBal;if(!oldestDate||wd.date<oldestDate)oldestDate=wd.date}})});
       if(bal>0&&oldestDate){const days=Math.floor((now-new Date(oldestDate))/(86400000));if(days>14)a.push({icon:"🐢",text:"ورشة "+w.name+" عندها "+bal+" قطعة من "+days+" يوم",type:"slow"})}});
     return a},[orders,config.workshops,config.wsPayments]);
-  const visibleAlerts=aiAlerts.filter(a=>!dismissedAlerts.includes(a.text));
+  const visibleAlerts=aiAlerts.filter(a=>!isDismissed(a.text));
   const askAI=async()=>{if(!aiInput.trim()||aiLoading)return;const q=aiInput.trim();setAiInput("");setAiMsgs(p=>[...p,{role:"user",text:q}]);setAiLoading(true);
     try{
       const ws=(config.workshops||[]).map(w=>{let del=0,rcv=0;orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{del+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{rcv+=Number(r.qty)||0})})});
@@ -945,6 +948,7 @@ export default function App(){
             </div>):<div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد اشعارات</div>}
           </div></>}
         </div>
+        <span style={{color:T.textMut,fontSize:12,userSelect:"none"}}>-</span>
         <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
           <div onClick={()=>setAiOpen(!aiOpen)} style={{cursor:"pointer",fontSize:isMob?16:18,padding:"3px 8px",borderRadius:8,background:aiOpen?"linear-gradient(135deg,#0EA5E920,#8B5CF620)":visibleAlerts.length>0?"#EF444410":"transparent",transition:"all 0.2s",display:"flex",alignItems:"center",gap:isMob?0:4,position:"relative"}}><span>🤖</span>{!isMob&&<span style={{fontSize:FS-2,fontWeight:600,color:aiOpen?"#8B5CF6":T.textSec}}>AI</span>}
             {visibleAlerts.length>0&&<span style={{position:"absolute",top:-2,right:isMob?-2:-4,width:16,height:16,borderRadius:8,background:"#EF4444",color:"#fff",fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>{visibleAlerts.length}</span>}
@@ -964,9 +968,9 @@ export default function App(){
                     <div style={{fontSize:FS-1,fontWeight:800,color:T.text,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>{"⚡ "+visibleAlerts.length+" تنبيه"}</div>
                     {visibleAlerts.map((al,i)=><div key={i} onClick={()=>{setAiInput(al.text);}} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"8px 10px",marginBottom:4,borderRadius:10,background:al.type==="late"?"#FEF2F2":al.type==="ready"?"#F0FDF4":al.type==="overpaid"?"#FFF7ED":al.type==="slow"?"#FFFBEB":"#F8FAFC",border:"1px solid "+(al.type==="late"?"#FECACA":al.type==="ready"?"#BBF7D0":al.type==="overpaid"?"#FED7AA":al.type==="slow"?"#FDE68A":"#E2E8F0"),cursor:"pointer",transition:"all 0.15s"}}>
                       <span style={{fontSize:16,flexShrink:0}}>{al.icon}</span>
-                      <span style={{fontSize:FS-2,color:"#1E293B",fontWeight:600,lineHeight:1.5,flex:1}}>{al.text}</span><span onClick={e=>{e.stopPropagation();setDismissedAlerts(p=>[...p,al.text])}} style={{cursor:"pointer",fontSize:10,color:"#94A3B8",flexShrink:0,padding:"0 2px"}}>✕</span>
+                      <span style={{fontSize:FS-2,color:"#1E293B",fontWeight:600,lineHeight:1.5,flex:1}}>{al.text}</span><span onClick={e=>{e.stopPropagation();dismissAlert(al.text)}} style={{cursor:"pointer",fontSize:10,color:"#94A3B8",flexShrink:0,padding:"0 2px"}}>✕</span>
                     </div>)}
-                    <div style={{height:1,background:T.brd,margin:"12px 0"}}/>
+                    <div style={{textAlign:"center",margin:"10px 0",fontSize:FS-2,color:T.textMut,letterSpacing:4}}>— — —</div>
                   </div>}
                   <div style={{textAlign:"center",padding:visibleAlerts.length>0?8:20,color:T.textMut}}>
                     {visibleAlerts.length===0&&<div style={{fontSize:32,marginBottom:8}}>🤖</div>}
@@ -1043,7 +1047,7 @@ export default function App(){
             {/* ── Center 50%: App Grid + Actions ── */}
             <div style={{flex:"0 0 50%",minWidth:0}}>
               <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:12}}>
-                {TABS.filter(t=>canViewTab(t.key)).map(t=>{const perm=getTabPerm(t.key);return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:"16px 8px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s",opacity:perm==="view"?0.75:1,position:"relative",aspectRatio:"1"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow}}>
+                {[...TABS.filter(t=>canViewTab(t.key))].sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0).map(t=>{const perm=getTabPerm(t.key);return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:"16px 8px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s",opacity:perm==="view"?0.75:1,position:"relative",aspectRatio:"1"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow}}>
                   <div style={{width:48,height:48,borderRadius:14,background:t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 8px",fontSize:24}}>{t.icon}</div>
                   <div style={{fontSize:FS-1,fontWeight:700,color:T.text}}>{t.label}</div>
                   {perm==="view"&&<div style={{position:"absolute",top:4,left:4,fontSize:8,padding:"1px 4px",borderRadius:3,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
@@ -1076,7 +1080,7 @@ export default function App(){
           </div>
           :<div>{/* ══ Mobile ══ */}
             <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:10}}>
-              {TABS.filter(t=>canViewTab(t.key)).map(t=>{const perm=getTabPerm(t.key);return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:"16px 8px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",opacity:perm==="view"?0.75:1,position:"relative",width:"calc(33.33% - 8px)",boxSizing:"border-box"}}>
+              {[...TABS.filter(t=>canViewTab(t.key))].sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0).map(t=>{const perm=getTabPerm(t.key);return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:"16px 8px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",opacity:perm==="view"?0.75:1,position:"relative",width:"calc(33.33% - 8px)",boxSizing:"border-box"}}>
                 <div style={{width:44,height:44,borderRadius:14,background:t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px",fontSize:22}}>{t.icon}</div>
                 <div style={{fontSize:FS-3,fontWeight:700,color:T.text}}>{t.label}</div>
                 {perm==="view"&&<div style={{position:"absolute",top:6,left:6,fontSize:9,padding:"1px 6px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
@@ -1159,9 +1163,9 @@ export default function App(){
               <div style={{fontSize:FS-1,fontWeight:800,color:T.text,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>{"⚡ "+visibleAlerts.length+" تنبيه"}</div>
               {visibleAlerts.map((al,i)=><div key={i} onClick={()=>{setAiInput(al.text);}} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"8px 10px",marginBottom:4,borderRadius:10,background:al.type==="late"?"#FEF2F2":al.type==="ready"?"#F0FDF4":al.type==="overpaid"?"#FFF7ED":al.type==="slow"?"#FFFBEB":"#F8FAFC",border:"1px solid "+(al.type==="late"?"#FECACA":al.type==="ready"?"#BBF7D0":al.type==="overpaid"?"#FED7AA":al.type==="slow"?"#FDE68A":"#E2E8F0"),cursor:"pointer",transition:"all 0.15s"}}>
                 <span style={{fontSize:16,flexShrink:0}}>{al.icon}</span>
-                <span style={{fontSize:FS-2,color:"#1E293B",fontWeight:600,lineHeight:1.5,flex:1}}>{al.text}</span><span onClick={e=>{e.stopPropagation();setDismissedAlerts(p=>[...p,al.text])}} style={{cursor:"pointer",fontSize:10,color:"#94A3B8",flexShrink:0,padding:"0 2px"}}>✕</span>
+                <span style={{fontSize:FS-2,color:"#1E293B",fontWeight:600,lineHeight:1.5,flex:1}}>{al.text}</span><span onClick={e=>{e.stopPropagation();dismissAlert(al.text)}} style={{cursor:"pointer",fontSize:10,color:"#94A3B8",flexShrink:0,padding:"0 2px"}}>✕</span>
               </div>)}
-              <div style={{height:1,background:T.brd,margin:"12px 0"}}/>
+              <div style={{textAlign:"center",margin:"10px 0",fontSize:FS-2,color:T.textMut,letterSpacing:4}}>— — —</div>
             </div>}
             <div style={{textAlign:"center",padding:visibleAlerts.length>0?8:20,color:T.textMut}}>
               {visibleAlerts.length===0&&<div style={{fontSize:32,marginBottom:8}}>🤖</div>}
@@ -1243,7 +1247,7 @@ function DashPg({data,goD,isMob,season,statusCards,upConfig,user}){
             <div style={{padding:12,borderRadius:10,background:T.accent+"08",textAlign:"center"}}><div style={{fontSize:22,marginBottom:2}}>✂️</div><div style={{fontSize:FS+4,fontWeight:800,color:T.accent}}>{todayCut}</div><div style={{fontSize:FS-2,color:T.textSec}}>تم قصها</div></div>
             <div style={{padding:12,borderRadius:10,background:"#8B5CF608",textAlign:"center"}}><div style={{fontSize:22,marginBottom:2}}>📤</div><div style={{fontSize:FS+4,fontWeight:800,color:"#8B5CF6"}}>{todayWsDel}</div><div style={{fontSize:FS-2,color:T.textSec}}>تسليم ورشة</div></div>
             <div style={{padding:12,borderRadius:10,background:T.ok+"08",textAlign:"center"}}><div style={{fontSize:22,marginBottom:2}}>📥</div><div style={{fontSize:FS+4,fontWeight:800,color:T.ok}}>{todayWsRcv}</div><div style={{fontSize:FS-2,color:T.textSec}}>استلام مصنع</div></div>
-            <div style={{padding:12,borderRadius:10,background:"#05966908",textAlign:"center"}}><div style={{fontSize:22,marginBottom:2}}>📦</div><div style={{fontSize:FS+4,fontWeight:800,color:"#059669"}}>{todayStock}</div><div style={{fontSize:FS-2,color:T.textSec}}>مخزن جاهز</div></div>
+            <div style={{padding:12,borderRadius:10,background:"#05966908",textAlign:"center"}}><div style={{fontSize:22,marginBottom:2}}>📦</div><div style={{fontSize:FS+4,fontWeight:800,color:"#059669"}}>{todayStock}</div><div style={{fontSize:FS-2,color:T.textSec}}>استلام مخزن جاهز</div></div>
           </div>
           {todayOrders.length>0&&<div style={{fontSize:FS-1,color:T.textSec}}>{"أوامر قص: "+todayOrders.join("، ")}</div>}
           {todayWsNames.size>0&&<div style={{fontSize:FS-1,color:T.textSec}}>{"ورش: "+[...todayWsNames].join("، ")}</div>}
@@ -1255,7 +1259,7 @@ function DashPg({data,goD,isMob,season,statusCards,upConfig,user}){
     <Card title={"الانتاج - الموسم "+season+" ("+orders.length+" موديل)"} style={{marginBottom:12}}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(6,1fr)",gap:10}}>
         <div style={{padding:10,borderRadius:8,background:T.accent+"06",border:"1px solid "+T.accent+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>كمية القص</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.accent}}>{fmt(cutQ)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
-        <div style={{padding:10,borderRadius:8,background:T.ok+"06",border:"1px solid "+T.ok+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>مخزن جاهز</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.ok}}>{fmt(delQ)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
+        <div style={{padding:10,borderRadius:8,background:T.ok+"06",border:"1px solid "+T.ok+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>استلام مخزن جاهز</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.ok}}>{fmt(delQ)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
         <div style={{padding:10,borderRadius:8,background:T.warn+"06",border:"1px solid "+T.warn+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>رصيد المصنع</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.warn}}>{fmt(cutQ-delQ)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
         <div style={{padding:10,borderRadius:8,background:"#8B5CF606",border:"1px solid #8B5CF612",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>عند الورش</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:"#8B5CF6"}}>{fmt(Math.max(0,inProdQty))+" قطعة"}</div>
           {Object.keys(wsPieces).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,justifyContent:"center",marginTop:6}}>{Object.entries(wsPieces).sort((a,b)=>b[1]-a[1]).map(([piece,qty])=><span key={piece} style={{fontSize:FS-3,padding:"2px 6px",borderRadius:5,background:"#8B5CF610",color:"#7C3AED",fontWeight:600}}>{gIcon(piece,data.garmentTypes)+" "+piece+": "+fmt(qty)}</span>)}</div>}
@@ -1409,7 +1413,7 @@ function DashPg({data,goD,isMob,season,statusCards,upConfig,user}){
           return{name:w.name,type:w.type,del,rcv,waste,wastePct,totalAmt,balance:acc.balance}
         }).sort((a,b)=>b.rcv-a.rcv);
         const tDel=wsComp.reduce((s,w)=>s+w.del,0);const tRcv=wsComp.reduce((s,w)=>s+w.rcv,0);const tWaste=wsComp.reduce((s,w)=>s+w.waste,0);const tAmt=wsComp.reduce((s,w)=>s+w.totalAmt,0);const tBal=wsComp.reduce((s,w)=>s+w.balance,0);
-        const printComp=()=>{let h="<h2 style='text-align:center'>📊 تقرير مقارنة الورش</h2><table><thead><tr><th>الورشة</th><th>النوع</th><th>تسليم</th><th>استلام</th><th>فاقد</th><th>نسبة</th><th>المستحق</th><th>الرصيد</th></tr></thead><tbody>";wsComp.forEach(w=>{h+="<tr><td style='font-weight:700'>"+w.name+"</td><td>"+wsTypeInfo(w.type).key+"</td><td>"+w.del+"</td><td style='color:#10B981'>"+w.rcv+"</td><td style='color:#EF4444'>"+w.waste+"</td><td>"+w.wastePct+"%</td><td>"+fmt(r2(w.totalAmt))+"</td><td style='color:"+(w.balance>0?"#EF4444":"#10B981")+"'>"+fmt(r2(w.balance))+"</td></tr>"});h+="<tr style='background:#EFF6FF;font-weight:800'><td colspan='2'>الاجمالي</td><td>"+fmt(tDel)+"</td><td style='color:#10B981'>"+fmt(tRcv)+"</td><td style='color:#EF4444'>"+fmt(tWaste)+"</td><td>"+(tDel?Math.round((tWaste/tDel)*100):0)+"%</td><td>"+fmt(r2(tAmt))+"</td><td style='color:"+(tBal>0?"#EF4444":"#10B981")+"'>"+fmt(r2(tBal))+"</td></tr></tbody></table><div style='margin-top:12px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:8px'>CLARK Factory Management</div>";printPage("تقرير مقارنة الورش",h)};
+        const printComp=()=>{let h="<h2 style='text-align:center'>📊 تقرير مقارنة الورش</h2><table><thead><tr><th>الورشة</th><th>النوع</th><th>تسليم</th><th>استلام</th><th>فاقد</th><th>نسبة</th><th>المستحق</th><th>رصيد حالي</th></tr></thead><tbody>";wsComp.forEach(w=>{h+="<tr><td style='font-weight:700'>"+w.name+"</td><td>"+wsTypeInfo(w.type).key+"</td><td>"+w.del+"</td><td style='color:#10B981'>"+w.rcv+"</td><td style='color:#EF4444'>"+w.waste+"</td><td>"+w.wastePct+"%</td><td>"+fmt(r2(w.totalAmt))+"</td><td style='color:"+(w.balance>0?"#EF4444":"#10B981")+"'>"+fmt(r2(w.balance))+"</td></tr>"});h+="<tr style='background:#EFF6FF;font-weight:800'><td colspan='2'>الاجمالي</td><td>"+fmt(tDel)+"</td><td style='color:#10B981'>"+fmt(tRcv)+"</td><td style='color:#EF4444'>"+fmt(tWaste)+"</td><td>"+(tDel?Math.round((tWaste/tDel)*100):0)+"%</td><td>"+fmt(r2(tAmt))+"</td><td style='color:"+(tBal>0?"#EF4444":"#10B981")+"'>"+fmt(r2(tBal))+"</td></tr></tbody></table><div style='margin-top:12px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:8px'>CLARK Factory Management</div>";printPage("تقرير مقارنة الورش",h)};
         return wsComp.length>0?<div>
           <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}><Btn small onClick={printComp} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨 طباعة</Btn></div>
           <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الورشة","النوع","تسليم","استلام","فاقد","نسبة","المستحق","الرصيد"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
@@ -2407,7 +2411,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
             <div style={{padding:"6px 8px",borderRadius:8,background:T.purple+"10",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>تسليم ورشة</div><div style={{fontWeight:800,color:T.purple}}>{wsTotalDel}</div></div>
             <div style={{padding:"6px 8px",borderRadius:8,background:T.ok+"10",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>استلام مصنع</div><div style={{fontWeight:800,color:T.ok}}>{wsTotalRcv}</div></div>
-            <div style={{padding:"6px 8px",borderRadius:8,background:(wsBal>0?T.err:T.ok)+"10",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>الرصيد</div><div style={{fontWeight:800,color:wsBal>0?T.err:T.ok}}>{wsBal}</div></div>
+            <div style={{padding:"6px 8px",borderRadius:8,background:(wsBal>0?T.err:T.ok)+"10",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>رصيد حالي</div><div style={{fontWeight:800,color:wsBal>0?T.err:T.ok}}>{wsBal}</div></div>
           </div>
         </div>})()}
     </Card>
@@ -2828,8 +2832,8 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user
           h+="<div style='padding:10px 16px;border-radius:8px;background:#F0FDF4;text-align:center;min-width:100px'><div style='font-size:11px;color:#64748B'>استلام مصنع</div><div style='font-size:18px;font-weight:800;color:#10B981'>"+fmt(rcv)+"</div></div>";
           h+="<div style='padding:10px 16px;border-radius:8px;background:#FEF3C7;text-align:center;min-width:100px'><div style='font-size:11px;color:#64748B'>المستحق</div><div style='font-size:18px;font-weight:800;color:#F59E0B'>"+fmt(r2(totalDue))+"</div></div>";
           h+="<div style='padding:10px 16px;border-radius:8px;background:#FEE2E2;text-align:center;min-width:100px'><div style='font-size:11px;color:#64748B'>المدفوع</div><div style='font-size:18px;font-weight:800;color:#EF4444'>"+fmt(r2(a.totalPaid))+"</div></div>";
-          h+="<div style='padding:10px 16px;border-radius:8px;background:"+(a.balance>0?"#FEE2E2":"#F0FDF4")+";text-align:center;min-width:100px'><div style='font-size:11px;color:#64748B'>الرصيد</div><div style='font-size:18px;font-weight:800;color:"+(a.balance>0?"#EF4444":"#10B981")+"'>"+fmt(r2(a.balance))+"</div></div></div>";
-          h+="<table><thead><tr><th>التاريخ</th><th>البيان</th><th>كمية</th><th>سعر</th><th>مستحق</th><th>مدفوع</th><th>الرصيد</th></tr></thead><tbody>";
+          h+="<div style='padding:10px 16px;border-radius:8px;background:"+(a.balance>0?"#FEE2E2":"#F0FDF4")+";text-align:center;min-width:100px'><div style='font-size:11px;color:#64748B'>رصيد حالي</div><div style='font-size:18px;font-weight:800;color:"+(a.balance>0?"#EF4444":"#10B981")+"'>"+fmt(r2(a.balance))+"</div></div></div>";
+          h+="<table><thead><tr><th>التاريخ</th><th>البيان</th><th>كمية</th><th>سعر</th><th>مستحق</th><th>مدفوع</th><th>رصيد حالي</th></tr></thead><tbody>";
           let pRun=0;entries.forEach(e=>{if(e.type==="due"||e.type==="purchase")pRun+=e.amount;else pRun-=e.amount;
             h+="<tr style='background:"+(e.type==="payment"?"#FEF2F2":e.type==="purchase"?"#F0FDF4":"")+"'><td>"+e.date+"</td><td>"+e.desc+"</td><td style='font-weight:700'>"+(e.qty||"-")+"</td><td>"+(e.price||"-")+"</td><td style='color:#0284C7;font-weight:700'>"+(e.type==="due"?fmt(e.amount):e.type==="purchase"?fmt(e.amount):"-")+"</td><td style='color:#EF4444;font-weight:700'>"+(e.type==="payment"?fmt(e.amount):"-")+"</td><td style='font-weight:700;color:"+(pRun>0?"#EF4444":"#10B981")+"'>"+fmt(r2(pRun))+"</td></tr>"});
           h+="</tbody></table>";
@@ -3177,7 +3181,7 @@ function AvailableReport({data,isMob,season}){
   const totalAvail=rows.reduce((s,r)=>s+r.available,0);
   const printRep=()=>{
     let h="<div style='margin-bottom:16px;text-align:center'><h2 style='margin:0;font-size:18px;color:#0284C7'>📤 تقرير القطع المتاحة للتسليم</h2><p style='margin:4px 0;font-size:13px;color:#64748B'>"+rows.length+" بند — "+fmt(totalAvail)+" قطعة متاحة</p></div>";
-    h+="<table><thead><tr><th>#</th><th>رقم الموديل</th><th>الوصف</th><th>القطعة</th><th>كمية القص</th><th>تم تسليمه</th><th>متاح للتسليم</th></tr></thead><tbody>";
+    h+="<table><thead><tr><th>#</th><th>رقم الموديل</th><th>الوصف</th><th>القطعة</th><th>كمية القص</th><th>تسليم عملاء</th><th>متاح للتسليم</th></tr></thead><tbody>";
     rows.forEach((r,i)=>{h+="<tr><td>"+(i+1)+"</td><td style='font-weight:700'>"+r.modelNo+"</td><td>"+r.modelDesc+"</td><td style='color:#8B5CF6;font-weight:700'>"+r.piece+"</td><td style='font-weight:700'>"+r.cutQty+"</td><td style='color:#F59E0B;font-weight:700'>"+r.delivered+"</td><td style='color:#10B981;font-weight:800;font-size:14px'>"+r.available+"</td></tr>"});
     h+="<tr style='background:#EFF6FF;font-weight:800'><td colspan='4'>الاجمالي</td><td>"+fmt(rows.reduce((s,r)=>s+r.cutQty,0))+"</td><td>"+fmt(rows.reduce((s,r)=>s+r.delivered,0))+"</td><td style='color:#10B981;font-size:16px'>"+fmt(totalAvail)+"</td></tr>";
     h+="</tbody></table>";
@@ -3544,6 +3548,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
   const[selModels,setSelModels]=useState({});const[selCusts,setSelCusts]=useState({});
   const[activeSession,setActiveSession]=useState(null);
   const[editCell,setEditCell]=useState(null);const[editVal,setEditVal]=useState(0);const[cellError,setCellError]=useState("");
+  const[sessFilterQ,setSessFilterQ]=useState("");
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
 
   const getRackSize=(orderId)=>{const o=orders.find(x=>x.id===orderId);if(!o||!o.sizeLabel)return 1;const parts=o.sizeLabel.split(/[-\/]/).map(s=>s.trim()).filter(Boolean);return parts.length||1};
@@ -3617,6 +3622,63 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
       {canEdit&&<Btn primary onClick={()=>{setCName("");setCPhone("");setCAddr("");setCEditId(null);setShowCustForm(true)}}>+ تسجيل عميل</Btn>}
       {canEdit&&<Btn onClick={()=>{setSelModels({});setSelCusts({});setShowNewSession(true)}} style={{background:"#059669",color:"#fff",border:"none",fontWeight:700}}>🚚 تسليم جديد</Btn>}
     </div>
+    {/* Active Session Matrix */}
+    {activeSess&&<Card title={"📊 "+activeSess.date+" — جدول التوزيع"} style={{marginBottom:16}} extra={<div style={{display:"flex",gap:4}}><Btn small onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn><Btn ghost small onClick={()=>{setActiveSession(null);setCellError("")}}>✕</Btn></div>}>
+      {cellError&&<div style={{padding:"8px 12px",borderRadius:8,background:T.err+"10",border:"1px solid "+T.err+"30",marginBottom:10,fontSize:FS-1,fontWeight:700,color:T.err}}>{cellError}</div>}
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",minWidth:aMods.length*90+180}}>
+          <thead><tr>
+            <th style={{...TH,minWidth:130}}>العميل</th>
+            {aMods.map(m=><th key={m.id} style={{...TH,textAlign:"center",minWidth:aMods.length>5?50:80,fontSize:FS-2,padding:aMods.length>5?"8px 2px":"4px 8px"}}><div style={{fontWeight:800,color:T.accent,writingMode:aMods.length>5?"vertical-rl":"horizontal-tb",transform:aMods.length>5?"rotate(180deg)":"none",whiteSpace:"nowrap"}}>{m.modelNo}</div><div style={{fontSize:FS-3,color:T.textMut}}>{"سيري: "+(m.rackSize||getRackSize(m.id))}</div></th>)}
+            <th style={{...TH,textAlign:"center",background:"#0284C715",color:T.accent,fontWeight:800}}>اجمالي</th>
+            <th style={{...TH,width:70}}></th>
+          </tr></thead>
+          <tbody>
+            {aCusts.map((c,ci)=>{const rowTotal=aMods.reduce((s,m)=>s+(Number(aGrid[m.id+"_"+c.id])||0),0);
+              return<tr key={c.id}>
+                <td style={{...TD,fontWeight:700}}>{c.name}<div style={{fontSize:FS-3,color:T.textMut}}>{c.phone}</div></td>
+                {aMods.map((m,mi)=>{const k=m.id+"_"+c.id;const q=Number(aGrid[k])||0;const isEd=editCell===k;
+                  return<td key={m.id} style={{...TD,textAlign:"center",padding:2,cursor:canEdit?"pointer":"default",background:isEd?T.warn+"10":q>0?T.ok+"04":"transparent"}}
+                    onClick={()=>{if(!canEdit||isEd)return;setEditCell(k);setEditVal(q);setCellError("")}}>
+                    {isEd?<input type="number" autoFocus value={editVal}
+                      onFocus={e=>e.target.select()}
+                      onChange={e=>{setEditVal(Number(e.target.value)||0);setCellError("")}}
+                      onBlur={()=>saveCell(activeSess.id,m.id,c.id,editVal)}
+                      onKeyDown={e=>{if(e.key==="Enter"){saveCell(activeSess.id,m.id,c.id,editVal)}
+                        if(e.key==="Tab"){e.preventDefault();saveCell(activeSess.id,m.id,c.id,editVal);const nextMi=mi+1;if(nextMi<aMods.length){const nk=aMods[nextMi].id+"_"+c.id;setTimeout(()=>{setEditCell(nk);setEditVal(Number(aGrid[nk])||0)},50)}}
+                        if(e.key==="Escape"){setEditCell(null);setCellError("")}}}
+                      style={{width:"100%",textAlign:"center",border:"2px solid "+T.accent,borderRadius:6,padding:"4px 2px",fontSize:FS,fontWeight:700,fontFamily:"inherit",outline:"none",background:T.bg,color:T.text,boxSizing:"border-box"}}/>
+                    :<span style={{fontWeight:q>0?800:400,color:q>0?T.accent:T.textMut+"50",fontSize:q>0?FS:FS-2}}>{q||"—"}</span>}
+                  </td>})}
+                <td style={{...TD,textAlign:"center",fontWeight:800,color:T.accent,background:"#0284C706",fontSize:FS+1}}>{rowTotal||"—"}</td>
+                <td style={{...TD,whiteSpace:"nowrap",padding:"2px 4px"}}>{rowTotal>0&&<div style={{display:"flex",gap:2}}>
+                  <Btn small onClick={()=>{let h="<h2>🚚 اذن تسليم عميل</h2><table><tr><th>العميل</th><td><b>"+c.name+"</b></td><th>التليفون</th><td>"+c.phone+"</td></tr><tr><th>التاريخ</th><td>"+activeSess.date+"</td><th>العنوان</th><td>"+(c.address||"—")+"</td></tr></table><h2>تفاصيل الاستلام</h2><table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th></tr></thead><tbody>";
+                    aMods.forEach(m=>{const q=Number(aGrid[m.id+"_"+c.id])||0;if(q>0)h+="<tr><td><b>"+m.modelNo+"</b></td><td>"+(m.modelDesc||"")+"</td><td style='font-weight:800;color:#0284C7'>"+q+"</td></tr>"});
+                    h+="<tr style='background:#F1F5F9'><td colspan='2' style='font-weight:800'>الاجمالي</td><td style='font-weight:800;color:#0284C7;font-size:14px'>"+rowTotal+" قطعة</td></tr></tbody></table>";
+                    h+="<div class='sig'><div class='sig-box'>مسؤول التسليم</div><div class='sig-box'>توقيع العميل<br/>"+c.name+"</div></div>";
+                    printPage("اذن تسليم — "+c.name,h)}} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30",fontSize:9,padding:"2px 5px"}}>🖨</Btn>
+                  <Btn small onClick={()=>{const lines=aMods.map(m=>{const q=Number(aGrid[m.id+"_"+c.id])||0;return q>0?"• موديل *"+m.modelNo+"*: *"+q+"* قطعة":null}).filter(Boolean).join("%0A");
+                    const msg="*CLARK — اذن تسليم عميل*%0A%0A• العميل: *"+c.name+"*%0A• التاريخ: *"+activeSess.date+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+rowTotal+"* قطعة%0A%0A*برجاء التأكيد*";
+                    window.open("https://wa.me/"+(c.phone?c.phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",fontSize:9,padding:"2px 5px"}}>📱</Btn>
+                </div>}</td>
+              </tr>})}
+            <tr style={{background:T.ok+"08"}}><td style={{...TD,fontWeight:800,color:T.ok}}>اجمالي تسليم</td>
+              {aMods.map(m=>{const mt=aCusts.reduce((s,c)=>s+(Number(aGrid[m.id+"_"+c.id])||0),0);return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,color:T.ok}}>{mt||"—"}</td>})}
+              <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#fff",background:T.ok}}>{aCusts.reduce((s,c)=>s+aMods.reduce((ss,m)=>ss+(Number(aGrid[m.id+"_"+c.id])||0),0),0)}</td><td style={TD}></td></tr>
+            <tr><td style={{...TD,fontWeight:700,color:T.textSec}}>استلام مخزن جاهز</td>
+              {aMods.map(m=><td key={m.id} style={{...TD,textAlign:"center",fontWeight:700}}>{m.stockQty}</td>)}
+              <td style={TD}></td><td style={TD}></td></tr>
+            <tr><td style={{...TD,fontWeight:800,color:T.warn}}>رصيد حالي</td>
+              {aMods.map(m=>{const totalAllCust=orders.find(o=>o.id===m.id)?.customerDeliveries?.reduce((s,d)=>s+(Number(d.qty)||0),0)||0;const rem=m.stockQty-totalAllCust;return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,color:rem>0?T.warn:T.ok}}>{rem}</td>})}
+              <td style={TD}></td><td style={TD}></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:12}}>
+        <Btn onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة الجدول</Btn>
+        <Btn onClick={()=>{setActiveSession(null);setCellError("")}} style={{background:T.ok,color:"#fff",border:"none",fontWeight:700}}>✓ تأكيد وإغلاق</Btn>
+      </div>
+    </Card>}
     {/* ══ Sales Dashboard ══ */}
     {(()=>{const totalStock=stockModels.reduce((s,m)=>s+m.stockQty,0);const totalSold=stockModels.reduce((s,m)=>s+m.custDel,0);const totalRemain=totalStock-totalSold;const pct=totalStock?Math.round(totalSold/totalStock*100):0;
       const topCusts=[...customers].map(c=>({...c,total:getCustTotal(c.id)})).filter(c=>c.total>0).sort((a,b)=>b.total-a.total);
@@ -3624,10 +3686,10 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
       return<div style={{marginBottom:16}}>
         {/* Metric Cards */}
         <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)",gap:isMob?8:12,marginBottom:14}}>
-          <div style={{padding:12,borderRadius:12,background:T.accent+"08",border:"1px solid "+T.accent+"15",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>مخزن جاهز</div><div style={{fontSize:isMob?18:24,fontWeight:800,color:T.accent}}>{fmt(totalStock)}</div></div>
-          <div style={{padding:12,borderRadius:12,background:T.ok+"08",border:"1px solid "+T.ok+"15",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>تم تسليمه</div><div style={{fontSize:isMob?18:24,fontWeight:800,color:T.ok}}>{fmt(totalSold)}</div><div style={{fontSize:FS-3,color:T.ok}}>{pct+"%"}</div></div>
-          <div style={{padding:12,borderRadius:12,background:T.warn+"08",border:"1px solid "+T.warn+"15",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>الرصيد</div><div style={{fontSize:isMob?18:24,fontWeight:800,color:T.warn}}>{fmt(totalRemain)}</div></div>
-          <div style={{padding:12,borderRadius:12,background:"#8B5CF608",border:"1px solid #8B5CF615",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>العملاء</div><div style={{fontSize:isMob?18:24,fontWeight:800,color:"#8B5CF6"}}>{customers.length}</div><div style={{fontSize:FS-3,color:T.textMut}}>{sessions.length+" تسليم"}</div></div>
+          <div style={{padding:12,borderRadius:12,background:T.accent+"08",border:"1px solid "+T.accent+"15",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>استلام مخزن جاهز</div><div style={{fontSize:isMob?18:24,fontWeight:800,color:T.accent}}>{fmt(totalStock)}</div></div>
+          <div style={{padding:12,borderRadius:12,background:T.ok+"08",border:"1px solid "+T.ok+"15",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>تسليم عملاء</div><div style={{fontSize:isMob?18:24,fontWeight:800,color:T.ok}}>{fmt(totalSold)}</div><div style={{fontSize:FS-3,color:T.ok}}>{pct+"%"}</div></div>
+          <div style={{padding:12,borderRadius:12,background:T.warn+"08",border:"1px solid "+T.warn+"15",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>رصيد حالي</div><div style={{fontSize:isMob?18:24,fontWeight:800,color:T.warn}}>{fmt(totalRemain)}</div></div>
+          <div style={{padding:12,borderRadius:12,background:"#8B5CF608",border:"1px solid #8B5CF615",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>نسبة مبيعات / الرصيد</div><div style={{fontSize:isMob?18:24,fontWeight:800,color:"#8B5CF6"}}>{pct+"%"}</div><div style={{fontSize:FS-3,color:T.textMut}}>{fmt(totalSold)+" / "+fmt(totalStock)}</div></div>
         </div>
         {/* Stock by model */}
         {stockModels.length>0&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:14}}>
@@ -3671,67 +3733,12 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
           </div></td>}</tr>})}
       </tbody></table></div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>سجّل عملاء أولاً</div>}
     </Card>}
-    {/* Active Session Matrix */}
-    {activeSess&&<Card title={"📊 "+activeSess.date+" — جدول التوزيع"} style={{marginBottom:16}} extra={<div style={{display:"flex",gap:4}}><Btn small onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn><Btn ghost small onClick={()=>{setActiveSession(null);setCellError("")}}>✕</Btn></div>}>
-      {cellError&&<div style={{padding:"8px 12px",borderRadius:8,background:T.err+"10",border:"1px solid "+T.err+"30",marginBottom:10,fontSize:FS-1,fontWeight:700,color:T.err}}>{cellError}</div>}
-      <div style={{overflowX:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",minWidth:aMods.length*90+180}}>
-          <thead><tr>
-            <th style={{...TH,minWidth:130}}>العميل</th>
-            {aMods.map(m=><th key={m.id} style={{...TH,textAlign:"center",minWidth:80,fontSize:FS-2}}><div style={{fontWeight:800,color:T.accent}}>{m.modelNo}</div><div style={{fontSize:FS-3,color:T.textMut}}>{"سيري: "+(m.rackSize||getRackSize(m.id))}</div></th>)}
-            <th style={{...TH,textAlign:"center",background:"#0284C715",color:T.accent,fontWeight:800}}>اجمالي</th>
-            <th style={{...TH,width:70}}></th>
-          </tr></thead>
-          <tbody>
-            {aCusts.map((c,ci)=>{const rowTotal=aMods.reduce((s,m)=>s+(Number(aGrid[m.id+"_"+c.id])||0),0);
-              return<tr key={c.id}>
-                <td style={{...TD,fontWeight:700}}>{c.name}<div style={{fontSize:FS-3,color:T.textMut}}>{c.phone}</div></td>
-                {aMods.map((m,mi)=>{const k=m.id+"_"+c.id;const q=Number(aGrid[k])||0;const isEd=editCell===k;
-                  return<td key={m.id} style={{...TD,textAlign:"center",padding:2,cursor:canEdit?"pointer":"default",background:isEd?T.warn+"10":q>0?T.ok+"04":"transparent"}}
-                    onClick={()=>{if(!canEdit||isEd)return;setEditCell(k);setEditVal(q);setCellError("")}}>
-                    {isEd?<input type="number" autoFocus value={editVal}
-                      onFocus={e=>e.target.select()}
-                      onChange={e=>{setEditVal(Number(e.target.value)||0);setCellError("")}}
-                      onBlur={()=>saveCell(activeSess.id,m.id,c.id,editVal)}
-                      onKeyDown={e=>{if(e.key==="Enter"){saveCell(activeSess.id,m.id,c.id,editVal)}
-                        if(e.key==="Tab"){e.preventDefault();saveCell(activeSess.id,m.id,c.id,editVal);const nextMi=mi+1;if(nextMi<aMods.length){const nk=aMods[nextMi].id+"_"+c.id;setTimeout(()=>{setEditCell(nk);setEditVal(Number(aGrid[nk])||0)},50)}}
-                        if(e.key==="Escape"){setEditCell(null);setCellError("")}}}
-                      style={{width:"100%",textAlign:"center",border:"2px solid "+T.accent,borderRadius:6,padding:"4px 2px",fontSize:FS,fontWeight:700,fontFamily:"inherit",outline:"none",background:T.bg,color:T.text,boxSizing:"border-box"}}/>
-                    :<span style={{fontWeight:q>0?800:400,color:q>0?T.accent:T.textMut+"50",fontSize:q>0?FS:FS-2}}>{q||"—"}</span>}
-                  </td>})}
-                <td style={{...TD,textAlign:"center",fontWeight:800,color:T.accent,background:"#0284C706",fontSize:FS+1}}>{rowTotal||"—"}</td>
-                <td style={{...TD,whiteSpace:"nowrap",padding:"2px 4px"}}>{rowTotal>0&&<div style={{display:"flex",gap:2}}>
-                  <Btn small onClick={()=>{let h="<h2>🚚 اذن تسليم عميل</h2><table><tr><th>العميل</th><td><b>"+c.name+"</b></td><th>التليفون</th><td>"+c.phone+"</td></tr><tr><th>التاريخ</th><td>"+activeSess.date+"</td><th>العنوان</th><td>"+(c.address||"—")+"</td></tr></table><h2>تفاصيل الاستلام</h2><table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th></tr></thead><tbody>";
-                    aMods.forEach(m=>{const q=Number(aGrid[m.id+"_"+c.id])||0;if(q>0)h+="<tr><td><b>"+m.modelNo+"</b></td><td>"+(m.modelDesc||"")+"</td><td style='font-weight:800;color:#0284C7'>"+q+"</td></tr>"});
-                    h+="<tr style='background:#F1F5F9'><td colspan='2' style='font-weight:800'>الاجمالي</td><td style='font-weight:800;color:#0284C7;font-size:14px'>"+rowTotal+" قطعة</td></tr></tbody></table>";
-                    h+="<div class='sig'><div class='sig-box'>مسؤول التسليم</div><div class='sig-box'>توقيع العميل<br/>"+c.name+"</div></div>";
-                    printPage("اذن تسليم — "+c.name,h)}} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30",fontSize:9,padding:"2px 5px"}}>🖨</Btn>
-                  <Btn small onClick={()=>{const lines=aMods.map(m=>{const q=Number(aGrid[m.id+"_"+c.id])||0;return q>0?"• موديل *"+m.modelNo+"*: *"+q+"* قطعة":null}).filter(Boolean).join("%0A");
-                    const msg="*CLARK — اذن تسليم عميل*%0A%0A• العميل: *"+c.name+"*%0A• التاريخ: *"+activeSess.date+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+rowTotal+"* قطعة%0A%0A*برجاء التأكيد*";
-                    window.open("https://wa.me/"+(c.phone?c.phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",fontSize:9,padding:"2px 5px"}}>📱</Btn>
-                </div>}</td>
-              </tr>})}
-            <tr style={{background:T.ok+"08"}}><td style={{...TD,fontWeight:800,color:T.ok}}>اجمالي تسليم</td>
-              {aMods.map(m=>{const mt=aCusts.reduce((s,c)=>s+(Number(aGrid[m.id+"_"+c.id])||0),0);return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,color:T.ok}}>{mt||"—"}</td>})}
-              <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#fff",background:T.ok}}>{aCusts.reduce((s,c)=>s+aMods.reduce((ss,m)=>ss+(Number(aGrid[m.id+"_"+c.id])||0),0),0)}</td><td style={TD}></td></tr>
-            <tr><td style={{...TD,fontWeight:700,color:T.textSec}}>مخزن جاهز</td>
-              {aMods.map(m=><td key={m.id} style={{...TD,textAlign:"center",fontWeight:700}}>{m.stockQty}</td>)}
-              <td style={TD}></td><td style={TD}></td></tr>
-            <tr><td style={{...TD,fontWeight:800,color:T.warn}}>رصيد</td>
-              {aMods.map(m=>{const totalAllCust=orders.find(o=>o.id===m.id)?.customerDeliveries?.reduce((s,d)=>s+(Number(d.qty)||0),0)||0;const rem=m.stockQty-totalAllCust;return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,color:rem>0?T.warn:T.ok}}>{rem}</td>})}
-              <td style={TD}></td><td style={TD}></td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div style={{display:"flex",gap:8,marginTop:12}}>
-        <Btn onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة الجدول</Btn>
-        <Btn onClick={()=>{setActiveSession(null);setCellError("")}} style={{background:T.ok,color:"#fff",border:"none",fontWeight:700}}>✓ تأكيد وإغلاق</Btn>
-      </div>
-    </Card>}
     {/* Sessions Log */}
     <Card title={"📦 سجل التسليمات ("+sessions.length+")"}>
-      {sortedSessions.length>0?<div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {sortedSessions.map(s=>{const totalQty=Object.values(s.grid||{}).reduce((sum,v)=>sum+(Number(v)||0),0);const isActive=activeSession===s.id;
+      <div style={{marginBottom:10}}><Inp value={sessFilterQ} onChange={setSessFilterQ} placeholder="فلتر بالتاريخ أو اسم العميل أو رقم الموديل..."/></div>
+      {(()=>{const fSess=sortedSessions.filter(s=>{if(!sessFilterQ.trim())return true;const q=sessFilterQ.trim().toLowerCase();const mNos=s.modelIds.map(id=>{const o=orders.find(x=>x.id===id);return o?.modelNo||""}).join(" ").toLowerCase();const cNames=s.custIds.map(id=>{const c=customers.find(x=>x.id===id);return c?.name||""}).join(" ").toLowerCase();return(s.date||"").includes(q)||mNos.includes(q)||cNames.includes(q)});
+        return fSess.length>0?<div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {fSess.map(s=>{const totalQty=Object.values(s.grid||{}).reduce((sum,v)=>sum+(Number(v)||0),0);const isActive=activeSession===s.id;
           return<div key={s.id} style={{padding:"12px 16px",borderRadius:12,background:isActive?T.accent+"08":T.cardSolid,border:isActive?"2px solid "+T.accent:"1px solid "+T.brd,cursor:"pointer",transition:"all 0.15s"}} onClick={()=>setActiveSession(isActive?null:s.id)}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -3745,7 +3752,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
               </div>
             </div>
           </div>})}
-      </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد تسليمات — اضغط "🚚 تسليم جديد"</div>}
+      </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد تسليمات — اضغط "🚚 تسليم جديد"</div>})()}
     </Card>
     {/* Register Customer Popup */}
     {showCustForm&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowCustForm(false)}>
