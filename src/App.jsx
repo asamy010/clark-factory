@@ -3579,7 +3579,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
   const[editCell,setEditCell]=useState(null);const[editVal,setEditVal]=useState(0);const[cellError,setCellError]=useState("");
   const[shipPopup,setShipPopup]=useState(null);const[shipCount,setShipCount]=useState(1);
   const[sessFilterQ,setSessFilterQ]=useState("");
-  const[reportRange,setReportRange]=useState({from:"",to:""});const[showReport,setShowReport]=useState(false);
+  const[reportRange,setReportRange]=useState({from:"",to:""});const[showReport,setShowReport]=useState(false);const[rptType,setRptType]=useState("all");const[rptCust,setRptCust]=useState("");const[rptModel,setRptModel]=useState("");
   const[returnPopup,setReturnPopup]=useState(null);const[retQty,setRetQty]=useState(0);const[retNote,setRetNote]=useState("");
   const[custQR,setCustQR]=useState(null);
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
@@ -3665,21 +3665,38 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
   const setSellPrice=(orderId,price)=>{updOrder(orderId,o=>{o.sellPrice=Number(price)||0})};
 
   /* Period report */
-  const printPeriodReport=()=>{const{from,to}=reportRange;
-    const filtered=sessions.filter(s=>{if(from&&s.date<from)return false;if(to&&s.date>to)return false;return true});
-    if(filtered.length===0){showToast("⚠️ لا توجد تسليمات في الفترة");return}
-    let totalQty=0;let totalVal=0;const custTotals={};const modelTotals={};
-    filtered.forEach(s=>{Object.entries(s.grid||{}).forEach(([k,v])=>{const q=Number(v)||0;if(q===0)return;const[oid,cid]=k.split("_");totalQty+=q;
-      const m=stockModels.find(x=>x.id===oid);const c=customers.find(x=>x.id===cid);totalVal+=q*(m?.sellPrice||0);
-      if(c){custTotals[c.name]=(custTotals[c.name]||0)+q}if(m){modelTotals[m.modelNo]=(modelTotals[m.modelNo]||0)+q}})});
-    let h="<h2>📊 تقرير المبيعات"+(from||to?" — "+(from||"...")+" إلى "+(to||"..."):""  )+"</h2>";
+  const printSalesReport=()=>{const{from,to}=reportRange;const type=rptType;
+    let filtered=sessions.filter(s=>{if(from&&s.date<from)return false;if(to&&s.date>to)return false;return true});
+    if(filtered.length===0){showToast("⚠️ لا توجد تسليمات");return}
+    let totalQty=0;let totalVal=0;const custMap={};const modelMap={};const dateMap={};
+    filtered.forEach(s=>{Object.entries(s.grid||{}).forEach(([k,v])=>{const q=Number(v)||0;if(q===0)return;const[oid,cid]=k.split("_");
+      if(type==="customer"&&rptCust&&cid!==rptCust)return;
+      if(type==="model"&&rptModel&&oid!==rptModel)return;
+      totalQty+=q;const m=stockModels.find(x=>x.id===oid);const c=customers.find(x=>x.id===cid);const sp=m?.sellPrice||0;totalVal+=q*sp;
+      const cn=c?.name||"—";const mn=m?.modelNo||"—";
+      if(!custMap[cn])custMap[cn]={qty:0,val:0,models:{}};custMap[cn].qty+=q;custMap[cn].val+=q*sp;if(!custMap[cn].models[mn])custMap[cn].models[mn]=0;custMap[cn].models[mn]+=q;
+      if(!modelMap[mn])modelMap[mn]={qty:0,val:0,price:sp};modelMap[mn].qty+=q;modelMap[mn].val+=q*sp;
+      if(!dateMap[s.date])dateMap[s.date]={qty:0,val:0};dateMap[s.date].qty+=q;dateMap[s.date].val+=q*sp})});
+    if(totalQty===0){showToast("⚠️ لا توجد بيانات بالفلتر المحدد");return}
+    const titleParts=["📊 تقرير المبيعات"];
+    if(type==="customer"&&rptCust){const c=customers.find(x=>x.id===rptCust);if(c)titleParts.push("عميل: "+c.name)}
+    if(type==="model"&&rptModel){const m=stockModels.find(x=>x.id===rptModel);if(m)titleParts.push("موديل: "+m.modelNo)}
+    if(from||to)titleParts.push((from||"...")+" → "+(to||"..."));
+    let h="<h2>"+titleParts.join(" — ")+"</h2>";
     h+="<table><tr><th>عدد التسليمات</th><td><b>"+filtered.length+"</b></td><th>اجمالي القطع</th><td><b>"+fmt(totalQty)+"</b></td></tr>";
-    h+="<tr><th>اجمالي القيمة</th><td><b>"+fmt(r2(totalVal))+" ج.م</b></td><th>الفترة</th><td>"+(from||"البداية")+" → "+(to||"اليوم")+"</td></tr></table>";
-    h+="<h2>حسب الموديل</h2><table><thead><tr><th>الموديل</th><th>الكمية</th><th>السعر</th><th>القيمة</th></tr></thead><tbody>";
-    Object.entries(modelTotals).sort((a,b)=>b[1]-a[1]).forEach(([n,q])=>{const m=stockModels.find(x=>x.modelNo===n);const p=m?.sellPrice||0;h+="<tr><td><b>"+n+"</b></td><td>"+q+"</td><td>"+p+" ج.م</td><td style='font-weight:800;color:#0284C7'>"+fmt(r2(q*p))+" ج.م</td></tr>"});
-    h+="</tbody></table><h2>حسب العميل</h2><table><thead><tr><th>العميل</th><th>الكمية</th></tr></thead><tbody>";
-    Object.entries(custTotals).sort((a,b)=>b[1]-a[1]).forEach(([n,q])=>{h+="<tr><td><b>"+n+"</b></td><td>"+q+"</td></tr>"});
-    h+="</tbody></table>";printPage("تقرير مبيعات",h);setShowReport(false)};
+    h+="<tr><th>اجمالي القيمة</th><td><b style='color:#8B5CF6'>"+fmt(r2(totalVal))+" ج.م</b></td><th>متوسط سعر القطعة</th><td>"+(totalQty?r2(totalVal/totalQty):0)+" ج.م</td></tr></table>";
+    if(type!=="model"||!rptModel){h+="<h2>حسب الموديل</h2><table><thead><tr><th>الموديل</th><th>الكمية</th><th>السعر</th><th>القيمة</th><th>النسبة</th></tr></thead><tbody>";
+      Object.entries(modelMap).sort((a,b)=>b[1].qty-a[1].qty).forEach(([n,d])=>{const pct=totalQty?Math.round(d.qty/totalQty*100):0;h+="<tr><td><b>"+n+"</b></td><td>"+fmt(d.qty)+"</td><td>"+d.price+" ج.م</td><td style='font-weight:800;color:#0284C7'>"+fmt(r2(d.val))+" ج.م</td><td>"+pct+"%</td></tr>"});
+      h+="</tbody></table>"}
+    if(type!=="customer"||!rptCust){h+="<h2>حسب العميل</h2><table><thead><tr><th>العميل</th><th>الكمية</th><th>القيمة</th><th>النسبة</th></tr></thead><tbody>";
+      Object.entries(custMap).sort((a,b)=>b[1].qty-a[1].qty).forEach(([n,d])=>{const pct=totalQty?Math.round(d.qty/totalQty*100):0;h+="<tr><td><b>"+n+"</b></td><td>"+fmt(d.qty)+"</td><td style='font-weight:700;color:#8B5CF6'>"+fmt(r2(d.val))+" ج.م</td><td>"+pct+"%</td></tr>"});
+      h+="</tbody></table>"}
+    if(type==="customer"&&rptCust){const cn=Object.keys(custMap)[0];const cd=custMap[cn];if(cd){h+="<h2>تفصيل موديلات — "+cn+"</h2><table><thead><tr><th>الموديل</th><th>الكمية</th></tr></thead><tbody>";
+      Object.entries(cd.models).sort((a,b)=>b[1]-a[1]).forEach(([mn,q])=>{h+="<tr><td><b>"+mn+"</b></td><td>"+q+"</td></tr>"});h+="</tbody></table>"}}
+    h+="<h2>حسب التاريخ</h2><table><thead><tr><th>التاريخ</th><th>الكمية</th><th>القيمة</th></tr></thead><tbody>";
+    Object.entries(dateMap).sort((a,b)=>b[0].localeCompare(a[0])).forEach(([d,v])=>{h+="<tr><td>"+d+"</td><td>"+fmt(v.qty)+"</td><td>"+fmt(r2(v.val))+" ج.م</td></tr>"});
+    h+="</tbody></table><div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>المدير</div></div>";
+    printPage(titleParts.join(" — "),h);setShowReport(false)};
 
   /* Shipping label */
   const printShippingLabel=async(cust,sessDate,items,total,shipN)=>{
@@ -3758,7 +3775,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
       {canEdit&&<Btn onClick={()=>setShowCustList(!showCustList)} style={{background:showCustList?T.accent+"15":T.bg,color:showCustList?T.accent:T.textSec,border:"1px solid "+(showCustList?T.accent+"30":T.brd)}}>{"👥 العملاء ("+customers.length+")"}</Btn>}
       {canEdit&&<Btn primary onClick={()=>{setCName("");setCPhone("");setCAddr("");setCEditId(null);setShowCustForm(true)}}>+ تسجيل عميل</Btn>}
       {canEdit&&<Btn onClick={()=>{setSelModels({});setSelCusts({});setShowNewSession(true)}} style={{background:"#059669",color:"#fff",border:"none",fontWeight:700}}>🚚 تسليم جديد</Btn>}
-      <Btn onClick={()=>setShowReport(true)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📊 تقرير فترة</Btn>
+      <Btn onClick={()=>{setRptType("all");setRptCust("");setRptModel("");setReportRange({from:"",to:""});setShowReport(true)}} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📊 تقرير مبيعات</Btn>
     </div>
     {/* Active Session Matrix - Popup */}
     {activeSess&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:24}} onClick={()=>closeMatrix()}>
@@ -3982,15 +3999,39 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
         </div>
       </div>
     </div>}
-    {/* Period Report Popup */}
+    {/* Sales Report Popup */}
     {showReport&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowReport(false)}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
-        <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6",marginBottom:16}}>📊 تقرير فترة</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
-          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>من تاريخ</label><Inp type="date" value={reportRange.from} onChange={v=>setReportRange(p=>({...p,from:v}))}/></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>إلى تاريخ</label><Inp type="date" value={reportRange.to} onChange={v=>setReportRange(p=>({...p,to:v}))}/></div>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>📊 تقرير مبيعات</div>
+          <Btn ghost small onClick={()=>setShowReport(false)}>✕</Btn>
         </div>
-        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setShowReport(false)}>الغاء</Btn><Btn onClick={printPeriodReport} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:700}}>🖨 طباعة التقرير</Btn></div>
+        <div style={{marginBottom:14}}>
+          <label style={{fontSize:FS-1,fontWeight:700,color:T.text,marginBottom:6,display:"block"}}>نوع التقرير</label>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {[{k:"all",l:"📋 كل المبيعات",c:"#8B5CF6"},{k:"customer",l:"👤 حسب عميل",c:"#059669"},{k:"model",l:"📦 حسب موديل",c:T.accent}].map(t=>
+              <div key={t.k} onClick={()=>setRptType(t.k)} style={{padding:"8px 14px",borderRadius:10,cursor:"pointer",fontWeight:700,fontSize:FS-1,background:rptType===t.k?t.c+"15":T.bg,color:rptType===t.k?t.c:T.textMut,border:"1.5px solid "+(rptType===t.k?t.c+"40":T.brd),transition:"all 0.15s"}}>{t.l}</div>)}
+          </div>
+        </div>
+        {rptType==="customer"&&<div style={{marginBottom:12}}>
+          <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>العميل</label>
+          <Sel value={rptCust} onChange={setRptCust}><option value="">كل العملاء</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</Sel>
+        </div>}
+        {rptType==="model"&&<div style={{marginBottom:12}}>
+          <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الموديل</label>
+          <Sel value={rptModel} onChange={setRptModel}><option value="">كل الموديلات</option>{stockModels.map(m=><option key={m.id} value={m.id}>{m.modelNo+" — "+m.modelDesc}</option>)}</Sel>
+        </div>}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>من تاريخ (اختياري)</label><Inp type="date" value={reportRange.from} onChange={v=>setReportRange(p=>({...p,from:v}))}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>إلى تاريخ (اختياري)</label><Inp type="date" value={reportRange.to} onChange={v=>setReportRange(p=>({...p,to:v}))}/></div>
+        </div>
+        <div style={{padding:10,borderRadius:8,background:T.bg,border:"1px solid "+T.brd,marginBottom:16,fontSize:FS-2,color:T.textSec}}>
+          {"💡 "+(rptType==="all"?"تقرير شامل بكل العملاء والموديلات":rptType==="customer"?(rptCust?"تقرير مبيعات العميل المحدد بالتفصيل":"تقرير مقارنة كل العملاء"):(rptModel?"تقرير مبيعات الموديل المحدد لكل العملاء":"تقرير مقارنة كل الموديلات"))+(reportRange.from||reportRange.to?" — في الفترة المحددة":" — كل الفترات")}
+        </div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <Btn ghost onClick={()=>setShowReport(false)}>الغاء</Btn>
+          <Btn onClick={printSalesReport} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:700}}>🖨 طباعة التقرير</Btn>
+        </div>
       </div>
     </div>}
     {/* Return Popup */}
