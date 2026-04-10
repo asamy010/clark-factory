@@ -979,8 +979,7 @@ export default function App(){
                 </div>:<div style={{textAlign:"center",padding:20,color:T.textMut,fontSize:FS-1}}>{"📌 لا توجد مهام"}</div>})()}
             </div>
           </div>
-          :{/* ══ Mobile: vertical layout ══ */}
-          <div>
+          :<div>{/* ══ Mobile ══ */}
             <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:10}}>
               {TABS.filter(t=>canViewTab(t.key)).map(t=>{const perm=getTabPerm(t.key);return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:"16px 8px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",opacity:perm==="view"?0.75:1,position:"relative",width:"calc(33.33% - 8px)",boxSizing:"border-box"}}>
                 <div style={{width:44,height:44,borderRadius:14,background:t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px",fontSize:22}}>{t.icon}</div>
