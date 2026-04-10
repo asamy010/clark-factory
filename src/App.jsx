@@ -3548,6 +3548,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
   const[selModels,setSelModels]=useState({});const[selCusts,setSelCusts]=useState({});
   const[activeSession,setActiveSession]=useState(null);
   const[editCell,setEditCell]=useState(null);const[editVal,setEditVal]=useState(0);const[cellError,setCellError]=useState("");
+  const[shipPopup,setShipPopup]=useState(null);const[shipCount,setShipCount]=useState(1);
   const[sessFilterQ,setSessFilterQ]=useState("");
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
 
@@ -3616,6 +3617,48 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
   const aCusts=activeSess?activeSess.custIds.map(id=>customers.find(c=>c.id===id)).filter(Boolean):[];
   const aGrid=activeSess?.grid||{};
 
+  const printCustLabels=async(cust,models,grid,sessDate,total,count)=>{
+    let qrSrc="";try{const QR=await loadQR();if(QR)qrSrc=await QR.toDataURL(window.location.origin+"?cust="+encodeURIComponent(cust.name)+"&d="+sessDate,{width:200,margin:1,errorCorrectionLevel:"M"})}catch(e){}
+    const pw=window.open("","_blank");if(!pw)return;
+    let pages="";
+    for(let i=1;i<=count;i++){
+      pages+="<div class='page'>"
+      +"<div class='hdr'><h1>CLARK Factory</h1><div class='type'>🚚 تسليم عميل</div></div>"
+      +(qrSrc?"<div class='qr'><img src='"+qrSrc+"'/></div>":"")
+      +"<div class='cust'><div class='cname'>"+cust.name+"</div><div class='cphone'>"+cust.phone+"</div></div>"
+      +"<table>";
+      models.forEach(m=>{const q=Number(grid[m.id+"_"+cust.id])||0;if(q>0)pages+="<tr><td class='k'>"+m.modelNo+"</td><td>"+q+" قطعة</td></tr>"});
+      pages+="<tr class='total'><td class='k'>الاجمالي</td><td>"+total+" قطعة</td></tr></table>"
+      +"<div class='ship'>"+i+" / "+count+"</div>"
+      +"<div class='date'>"+sessDate+"</div>"
+      +"</div>"
+      +(i<count?"<div style='page-break-after:always'></div>":"")
+    }
+    pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>ليبل تسليم</title><style>"
+    +"@page{size:10cm 15cm;margin:2mm}*{margin:0;padding:0;box-sizing:border-box}"
+    +"body{font-family:'Cairo',sans-serif;color:#000}"
+    +".page{width:10cm;height:15cm;padding:3mm;display:flex;flex-direction:column;align-items:center}"
+    +".hdr{text-align:center;border-bottom:3px solid #000;padding-bottom:2mm;margin-bottom:2mm;width:100%}"
+    +".hdr h1{font-size:14pt;font-weight:800}.hdr .type{font-size:11pt;font-weight:800;border:2.5px solid #000;display:inline-block;padding:1mm 5mm;border-radius:4px;margin-top:2mm}"
+    +".qr{text-align:center;margin:2mm 0}.qr img{width:28mm;height:28mm}"
+    +".cust{text-align:center;margin:2mm 0;padding:2mm;border:2px solid #000;border-radius:6px;width:100%}"
+    +".cname{font-size:16pt;font-weight:800}.cphone{font-size:10pt;color:#333}"
+    +"table{width:100%;border-collapse:collapse;margin:2mm 0}"
+    +"table td{padding:2mm 3mm;font-size:11pt;font-weight:700;border:1px solid #000}"
+    +"table td.k{font-weight:800;width:40%;background:#f5f5f5}"
+    +".total td{font-size:13pt;font-weight:800;background:#f0f0f0}"
+    +".ship{text-align:center;font-size:28pt;font-weight:800;border:3px solid #000;border-radius:8px;padding:3mm 8mm;margin:3mm 0}"
+    +".date{text-align:center;font-size:9pt;color:#555;margin-top:auto;padding-top:2mm;border-top:1px dashed #000;width:100%}"
+    +".pbar{position:sticky;top:0;background:#fff;padding:4px 10px;display:none;justify-content:center;gap:6px;border-bottom:2px solid #ccc;z-index:999}"
+    +".pbar button{padding:5px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo',sans-serif;font-size:11px;font-weight:700;background:#fff}"
+    +".pbar .pr{background:#000;color:#fff}"
+    +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
+    +"</style></head><body>"
+    +"<div class='pbar'><button onclick='window.close()'>↩ رجوع</button><button class='pr' onclick='window.print()'>🖨 طباعة "+count+" ليبل</button></div>"
+    +pages+"</body></html>");
+    pw.document.close();if(window.innerWidth>1024)setTimeout(()=>{pw.focus();pw.print()},500)
+  };
+
   return<div>
     <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
       {canEdit&&<Btn onClick={()=>setShowCustList(!showCustList)} style={{background:showCustList?T.accent+"15":T.bg,color:showCustList?T.accent:T.textSec,border:"1px solid "+(showCustList?T.accent+"30":T.brd)}}>{"👥 العملاء ("+customers.length+")"}</Btn>}
@@ -3660,6 +3703,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
                   <Btn small onClick={()=>{const lines=aMods.map(m=>{const q=Number(aGrid[m.id+"_"+c.id])||0;return q>0?"• موديل *"+m.modelNo+"*: *"+q+"* قطعة":null}).filter(Boolean).join("%0A");
                     const msg="*CLARK — اذن تسليم عميل*%0A%0A• العميل: *"+c.name+"*%0A• التاريخ: *"+activeSess.date+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+rowTotal+"* قطعة%0A%0A*برجاء التأكيد*";
                     window.open("https://wa.me/"+(c.phone?c.phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",fontSize:9,padding:"2px 5px"}}>📱</Btn>
+                  <Btn small onClick={()=>{setShipPopup({cust:c,total:rowTotal});setShipCount(1)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30",fontSize:9,padding:"2px 5px"}}>🏷️</Btn>
                 </div>}</td>
               </tr>})}
             <tr style={{background:T.ok+"08"}}><td style={{...TD,fontWeight:800,color:T.ok}}>اجمالي تسليم</td>
@@ -3797,6 +3841,28 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
           <Btn ghost onClick={()=>setShowNewSession(false)}>الغاء</Btn>
           <Btn onClick={createSession} style={{background:"#059669",color:"#fff",border:"none",fontWeight:700}}>✓ انشاء وفتح الجدول</Btn>
+        </div>
+      </div>
+    </div>}
+    {/* Shipment Labels Popup */}
+    {shipPopup&&activeSess&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShipPopup(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:380,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{fontSize:FS+2,fontWeight:800,color:"#F59E0B",marginBottom:12}}>{"🏷️ طباعة ليبل — "+shipPopup.cust.name}</div>
+        <div style={{padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd,marginBottom:12}}>
+          <div style={{fontSize:FS-1,color:T.textSec,marginBottom:4}}>الاجمالي: <b style={{color:T.accent}}>{shipPopup.total+" قطعة"}</b></div>
+          {aMods.map(m=>{const q=Number(aGrid[m.id+"_"+shipPopup.cust.id])||0;return q>0?<div key={m.id} style={{fontSize:FS-2,color:T.text}}>{"• "+m.modelNo+": "+q+" قطعة"}</div>:null})}
+        </div>
+        <div style={{marginBottom:16}}>
+          <label style={{fontSize:FS,fontWeight:700,color:T.text}}>عدد الشحنات (الأكياس)</label>
+          <Inp type="number" value={shipCount} onChange={v=>setShipCount(Math.max(1,Number(v)||1))}/>
+          <div style={{fontSize:FS-2,color:T.textMut,marginTop:4}}>{"سيتم طباعة "+shipCount+" ليبل مرقمة (1/"+shipCount+" ... "+shipCount+"/"+shipCount+")"}</div>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn ghost onClick={()=>setShipPopup(null)}>الغاء</Btn>
+          <Btn onClick={()=>{printCustLabels(shipPopup.cust,aMods,aGrid,activeSess.date,shipPopup.total,shipCount);setShipPopup(null)}} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700}}>{"🖨 طباعة "+shipCount+" ليبل"}</Btn>
+          <Btn onClick={()=>{const lines=aMods.map(m=>{const q=Number(aGrid[m.id+"_"+shipPopup.cust.id])||0;return q>0?"• موديل *"+m.modelNo+"*: *"+q+"* قطعة":null}).filter(Boolean).join("%0A");
+            const msg="*CLARK — تسليم عميل*%0A%0A• العميل: *"+shipPopup.cust.name+"*%0A• التاريخ: *"+activeSess.date+"*%0A• عدد الشحنات: *"+shipCount+"* شحنة%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+shipPopup.total+"* قطعة%0A%0A⚠️ *برجاء التأكد من استلام "+shipCount+" شحنات كاملة*%0A%0A*برجاء التأكيد*";
+            window.open("https://wa.me/"+(shipPopup.cust.phone?shipPopup.cust.phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank");setShipPopup(null)}} style={{background:"#25D366",color:"#fff",border:"none",fontWeight:700}}>📱 واتساب</Btn>
         </div>
       </div>
     </div>}
