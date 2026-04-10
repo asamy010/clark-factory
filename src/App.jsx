@@ -919,7 +919,7 @@ export default function App(){
                 const allNotes=(config.stickyNotes||[]);const myNotes=allNotes.filter(n=>n.email===uemail);
                 const saveNote=(note)=>{upConfig(d=>{if(!d.stickyNotes)d.stickyNotes=[];const idx=d.stickyNotes.findIndex(n=>n.id===note.id);if(idx>=0)d.stickyNotes[idx]=note;else{if(d.stickyNotes.filter(n=>n.email===uemail).length>=20){showToast("⚠️ الحد الاقصى 20 ملاحظة");return}d.stickyNotes.push(note)}});setStickyForm(null);showToast("✓ تم الحفظ")};
                 const delNote=(id)=>{upConfig(d=>{d.stickyNotes=(d.stickyNotes||[]).filter(n=>n.id!==id)})};
-                return<div>
+                return<div style={{width:"100%",maxWidth:220,margin:"0 auto"}}>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
                     <span style={{fontSize:FS,fontWeight:700,color:T.textSec}}>{"📝 ملاحظاتي"+(myNotes.length>0?" ("+myNotes.length+"/20)":"")}</span>
                     <span onClick={()=>setStickyForm({id:gid(),email:uemail,title:"",text:"",color:"#FEF9C3",date:new Date().toISOString().split("T")[0]})} style={{cursor:"pointer",fontSize:FS-2,padding:"3px 10px",borderRadius:6,background:T.accent+"12",color:T.accent,fontWeight:700}}>+</span>
@@ -966,7 +966,7 @@ export default function App(){
             {/* ── Right 25%: Tasks ── */}
             <div style={{flex:"0 0 24%",minWidth:0}}>
               {(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
-                return myTasks.length>0?<div style={{background:"#FEF9C3",borderRadius:16,border:"1px solid #EAB30830",padding:14,boxShadow:"0 2px 8px rgba(234,179,8,0.08)"}}>
+                return<div style={{width:"100%",maxWidth:240,margin:"0 auto"}}>{myTasks.length>0?<div style={{background:"#FEF9C3",borderRadius:16,border:"1px solid #EAB30830",padding:14,boxShadow:"0 2px 8px rgba(234,179,8,0.08)"}}>
                   <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}><span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:800,color:"#92400E"}}>{"مهامي ("+myTasks.length+")"}</span></div>
                   <div style={{display:"flex",flexDirection:"column",gap:6}}>{myTasks.slice(0,8).map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:6,padding:"8px 10px",borderRadius:8,background:"rgba(255,255,255,0.7)",border:"1px solid #EAB30820"}}>
                     <span onClick={()=>upConfig(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const tk=arr.find(x=>x.id===t.id);if(tk){tk.done=true;tk.doneAt=new Date().toISOString()}})} style={{cursor:"pointer",fontSize:16,flexShrink:0,marginTop:1}}>⬜</span>
@@ -976,7 +976,7 @@ export default function App(){
                     </div>
                   </div>)}</div>
                   {myTasks.length>8&&<div style={{textAlign:"center",marginTop:6}}><span onClick={()=>goTo("tasks")} style={{cursor:"pointer",fontSize:FS-2,color:"#92400E",fontWeight:700}}>{"عرض الكل ("+myTasks.length+")"}</span></div>}
-                </div>:<div style={{textAlign:"center",padding:20,color:T.textMut,fontSize:FS-1}}>{"📌 لا توجد مهام"}</div>})()}
+                </div>:<div style={{textAlign:"center",padding:20,color:T.textMut,fontSize:FS-1}}>{"📌 لا توجد مهام"}</div>}</div>})()}
             </div>
           </div>
           :<div>{/* ══ Mobile ══ */}
