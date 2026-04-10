@@ -852,7 +852,6 @@ export default function App(){
         </div>}
         {/* Alerts Bell */}
         <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
-          {!isMob&&<div onClick={()=>setAiOpen(!aiOpen)} style={{cursor:"pointer",fontSize:20,padding:"2px 6px",borderRadius:8,background:aiOpen?"linear-gradient(135deg,#0EA5E920,#8B5CF620)":"transparent",transition:"all 0.2s"}}>🤖</div>}
           <div onClick={()=>setShowAlerts(!showAlerts)} style={{cursor:"pointer",fontSize:isMob?18:22,padding:"2px 6px",borderRadius:8,background:alertCount>0?T.warn+"12":"transparent",position:"relative"}}>🔔
             {alertCount>0&&<span style={{position:"absolute",top:-2,left:-2,width:16,height:16,borderRadius:8,background:T.err,color:"#fff",fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>{alertCount}</span>}
           </div>
@@ -864,6 +863,7 @@ export default function App(){
             </div>):<div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد اشعارات</div>}
           </div>}
         </div>
+        {!isMob&&<div onClick={()=>setAiOpen(!aiOpen)} style={{cursor:"pointer",fontSize:18,padding:"3px 8px",borderRadius:8,background:aiOpen?"linear-gradient(135deg,#0EA5E920,#8B5CF620)":"transparent",transition:"all 0.2s",display:"flex",alignItems:"center",gap:4}}><span>🤖</span><span style={{fontSize:FS-2,fontWeight:600,color:aiOpen?"#8B5CF6":T.textSec}}>AI</span></div>}
         {!isMob&&<span style={{fontSize:FS,color:T.textSec}}>{userName}</span>}
         {/* Theme picker - desktop only */}
         {!isMob&&<div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
