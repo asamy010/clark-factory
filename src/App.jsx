@@ -746,6 +746,40 @@ export default function App(){
     return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off);clearInterval(interval)}
   },[]);
   useEffect(()=>{if(justReconnected){const t=setTimeout(()=>setJustReconnected(false),4000);return()=>clearTimeout(t)}},[justReconnected]);
+  /* ── Auto Bot Tasks ── */
+  const botTasksRef=useRef(false);
+  useEffect(()=>{
+    if(!user||orders.length===0||botTasksRef.current)return;
+    const at=config.autoTasks;if(!at?.enabled||!at?.targetEmail)return;
+    const rules=at.rules||{};const tasks=Array.isArray(config.tasks)?config.tasks:[];const now=Date.now();
+    const newTasks=[];
+    const addBotTask=(key,text)=>{if(tasks.some(t=>t.botKey===key&&!t.done))return;if(newTasks.some(t=>t.botKey===key))return;
+      newTasks.push({id:Date.now()+Math.random(),text,done:false,date:new Date().toISOString().split("T")[0],fromUid:"bot",fromEmail:"bot@clark",fromName:"🤖 CLARK Bot",toEmail:at.targetEmail,toName:at.targetName||at.targetEmail.split("@")[0],botKey:key})};
+    orders.forEach(o=>{
+      if(o.closed||o.status==="تم التسليم"||o.status==="تم الشحن")return;
+      const t=calcOrder(o);const wds=o.workshopDeliveries||[];const hasFab=FKEYS.some(k=>o["fabric"+k]);
+      if(!hasFab||t.cutQty===0)return;
+      const daysSinceCut=Math.floor((now-new Date(o.date))/(86400000));
+      /* Rule 1: مقصوص ولم يُسلم لورشة */
+      if(rules.noDeliver?.enabled&&wds.length===0&&daysSinceCut>=(rules.noDeliver.days||5)){
+        addBotTask("nodeliver_"+o.id,"موديل "+o.modelNo+" مقصوص من "+daysSinceCut+" يوم ولم يتم تسليمه لأي ورشة")}
+      /* Rule 2: قطعة متاحة ولم تُسلم */
+      if(rules.availPiece?.enabled){const pieces=o.orderPieces||[];
+        pieces.forEach(p=>{const delForP=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+          if(delForP===0&&daysSinceCut>=(rules.availPiece.days||5)){addBotTask("availpiece_"+o.id+"_"+p,p+" موديل "+o.modelNo+" متاح من "+daysSinceCut+" يوم ولم يتم تسليمه")}})}
+      /* Rule 3: ورشة متأخرة */
+      if(rules.slowWorkshop?.enabled){wds.forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;
+        if(bal>0){const daysSinceDel=Math.floor((now-new Date(wd.date))/(86400000));
+          if(daysSinceDel>=(rules.slowWorkshop.days||14)){addBotTask("slowws_"+o.id+"_"+wd.wsName+"_"+(wd.garmentType||""),
+            "ورشة "+wd.wsName+" عندها "+bal+" "+(wd.garmentType||"قطعة")+" موديل "+o.modelNo+" من "+daysSinceDel+" يوم")}}})}
+      /* Rule 4: مخزن لم يُسلم لعملاء */
+      if(rules.stockNoSale?.enabled){const stockDel=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const custDel=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
+        if(stockDel>0&&custDel===0){const lastStock=o.deliveries.reduce((d,x)=>x.date>d?x.date:d,"");const daysSinceStock=lastStock?Math.floor((now-new Date(lastStock))/(86400000)):0;
+          if(daysSinceStock>=(rules.stockNoSale.days||7)){addBotTask("nosale_"+o.id,"موديل "+o.modelNo+" في المخزن "+stockDel+" قطعة من "+daysSinceStock+" يوم بدون تسليم عملاء")}}}
+    });
+    if(newTasks.length>0){botTasksRef.current=true;upConfig(d=>{if(!Array.isArray(d.tasks))d.tasks=[];newTasks.forEach(t=>d.tasks.unshift(t))});
+      setTimeout(()=>{botTasksRef.current=false},60000)}
+  },[orders,config.autoTasks,config.tasks,user]);
   const themeKey="clark-theme-"+(user?.uid||"default");
   const[theme,setTheme_]=useState(()=>localStorage.getItem("clark-theme-default")||"light");
   const setTheme=v=>{setTheme_(v);localStorage.setItem(themeKey,v)};
@@ -4145,6 +4179,37 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
               <div style={{height:8,borderRadius:4,background:"#E2E8F0",overflow:"hidden"}}><div style={{height:"100%",width:Math.min(100,totalSize/1024/1024*100)+"%",borderRadius:4,background:totalSize>800000?T.err:totalSize>500000?T.warn:T.ok}}/></div>
             </div>
           </div>
+        </div>})()}
+    </Card>
+    {/* ── Auto Bot Tasks Settings ── */}
+    <Card title="🤖 المهام التلقائية" style={{marginTop:16}}>
+      {(()=>{const at=config.autoTasks||{enabled:false,targetEmail:"",rules:{}};const rules=at.rules||{};const users=config.usersList||[];
+        const updateAT=(fn)=>{upConfig(d=>{if(!d.autoTasks)d.autoTasks={enabled:false,targetEmail:"",targetName:"",rules:{noDeliver:{enabled:true,days:5},availPiece:{enabled:true,days:5},slowWorkshop:{enabled:true,days:14},stockNoSale:{enabled:true,days:7}}};fn(d.autoTasks)})};
+        return<div>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+            <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
+              <input type="checkbox" checked={!!at.enabled} onChange={e=>updateAT(a=>{a.enabled=e.target.checked})} style={{width:20,height:20}}/>
+              <span style={{fontSize:FS,fontWeight:700,color:at.enabled?T.ok:T.textMut}}>{at.enabled?"مفعّلة":"معطّلة"}</span>
+            </label>
+          </div>
+          {at.enabled&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المستخدم المستهدف للمهام</label>
+              <Sel value={at.targetEmail||""} onChange={v=>{const u=users.find(x=>x.email===v);updateAT(a=>{a.targetEmail=v;a.targetName=u?.name||v.split("@")[0]})}}>
+                <option value="">-- اختر --</option>{users.map(u=><option key={u.email} value={u.email}>{(u.name||u.email)}</option>)}
+              </Sel>
+            </div>
+            <div style={{fontSize:FS,fontWeight:700,color:T.text}}>القواعد:</div>
+            {[{key:"noDeliver",label:"موديل مقصوص ولم يُسلَّم لورشة",icon:"✂️",dd:5},{key:"availPiece",label:"قطعة متاحة ولم تُسلَّم",icon:"👔",dd:5},{key:"slowWorkshop",label:"ورشة متأخرة في الاستلام",icon:"🐢",dd:14},{key:"stockNoSale",label:"مخزن جاهز لم يُسلَّم لعملاء",icon:"📦",dd:7}].map(rule=>{const r=rules[rule.key]||{enabled:true,days:rule.dd};
+              return<div key={rule.key} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",borderRadius:10,background:r.enabled?T.ok+"06":T.bg,border:"1px solid "+(r.enabled?T.ok+"20":T.brd),flexWrap:"wrap"}}>
+                <input type="checkbox" checked={r.enabled!==false} onChange={e=>updateAT(a=>{if(!a.rules)a.rules={};if(!a.rules[rule.key])a.rules[rule.key]={enabled:true,days:rule.dd};a.rules[rule.key].enabled=e.target.checked})} style={{width:18,height:18}}/>
+                <span style={{fontSize:16}}>{rule.icon}</span>
+                <span style={{flex:1,fontSize:FS-1,fontWeight:600,color:r.enabled?T.text:T.textMut,minWidth:120}}>{rule.label}</span>
+                <span style={{fontSize:FS-2,color:T.textSec}}>بعد</span>
+                <input type="number" value={r.days||rule.dd} onChange={e=>updateAT(a=>{if(!a.rules)a.rules={};if(!a.rules[rule.key])a.rules[rule.key]={enabled:true,days:rule.dd};a.rules[rule.key].days=Number(e.target.value)||rule.dd})} style={{width:50,textAlign:"center",padding:"4px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-1,fontWeight:700,fontFamily:"inherit",background:T.bg,color:T.text}}/>
+                <span style={{fontSize:FS-2,color:T.textSec}}>يوم</span>
+              </div>})}
+            <div style={{padding:10,borderRadius:8,background:T.accent+"06",border:"1px solid "+T.accent+"15",fontSize:FS-2,color:T.textSec}}>💡 المهام تُنشأ مرة واحدة لكل مخالفة ولا تتكرر طالما مفتوحة. المصدر: 🤖 CLARK Bot</div>
+          </div>}
         </div>})()}
     </Card>
   </div>
