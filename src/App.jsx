@@ -911,75 +911,109 @@ export default function App(){
       {/* HOME SCREEN */}
       {tab==="home"&&<div>
           <div style={{textAlign:"center",marginBottom:isMob?14:20}}><h1 style={{fontSize:isMob?22:32,fontWeight:800,color:T.text,margin:0}}>{"مرحباً، "+userName}</h1></div>
-          {/* Buttons grid - centered */}
-          <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:isMob?10:16,maxWidth:900,margin:"0 auto"}}>
-            {TABS.filter(t=>canViewTab(t.key)).map(t=>{const perm=getTabPerm(t.key);return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:isMob?"16px 8px":"20px 14px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s",opacity:perm==="view"?0.75:1,position:"relative",width:isMob?"calc(33.33% - 8px)":"calc(20% - 14px)",boxSizing:"border-box"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow}}>
-              <div style={{width:isMob?44:52,height:isMob?44:52,borderRadius:14,background:t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px",fontSize:isMob?22:26}}>{t.icon}</div>
-              <div style={{fontSize:isMob?FS-3:FS-1,fontWeight:700,color:T.text}}>{t.label}</div>
-              {perm==="view"&&<div style={{position:"absolute",top:6,left:6,fontSize:9,padding:"1px 6px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁 عرض</div>}
-            </div>})}
-          </div>
-          {isMob&&<div onClick={()=>setShowScanner(true)} style={{margin:"16px auto 0",display:"flex",justifyContent:"center"}}><div style={{background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",borderRadius:14,padding:"14px 30px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,boxShadow:"0 4px 20px rgba(14,165,233,0.3)"}}><span style={{fontSize:24}}>📷</span><span style={{fontSize:FS+1,fontWeight:700,color:"#fff"}}>مسح كود QR</span></div></div>}
-          {/* Tasks panel - separate with yellow bg */}
-          {(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
-            return myTasks.length>0&&<div style={{maxWidth:900,margin:"16px auto 0"}}>
-              <div style={{background:"#FEF9C3",borderRadius:16,border:"1px solid #EAB30830",padding:14,boxShadow:"0 2px 8px rgba(234,179,8,0.08)"}}>
-              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}><span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:800,color:"#92400E"}}>{"مهامي ("+myTasks.length+")"}</span></div>
-              <div style={{display:"flex",flexDirection:"column",gap:6}}>{myTasks.slice(0,isMob?5:8).map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:6,padding:"8px 10px",borderRadius:8,background:"rgba(255,255,255,0.7)",border:"1px solid #EAB30820"}}>
-                <span onClick={()=>upConfig(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const tk=arr.find(x=>x.id===t.id);if(tk){tk.done=true;tk.doneAt=new Date().toISOString()}})} style={{cursor:"pointer",fontSize:16,flexShrink:0,marginTop:1}}>⬜</span>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:FS-1,fontWeight:600,color:"#1C1917",lineHeight:1.4}}>{t.text}</div>
-                  <div style={{fontSize:FS-3,color:"#78716C",marginTop:1}}>{"من: "+(t.fromName||"—")}</div>
-                </div>
-              </div>)}</div>
-              {myTasks.length>(isMob?5:8)&&<div style={{textAlign:"center",marginTop:6}}><span onClick={()=>goTo("tasks")} style={{cursor:"pointer",fontSize:FS-2,color:"#92400E",fontWeight:700}}>{"عرض الكل ("+myTasks.length+")"}</span></div>}
-            </div></div>})()}
-          {/* ── Quick Action: Task / Notification ── */}
-          <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"center"}}>
-            <div onClick={()=>setQuickPopup("task")} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:T.accent+"10",border:"1px solid "+T.accent+"25",display:"flex",alignItems:"center",gap:6,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"20"} onMouseLeave={e=>e.currentTarget.style.background=T.accent+"10"}>
-              <span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:700,color:T.accent}}>ارسال مهمة</span>
-            </div>
-            <div onClick={()=>setQuickPopup("notif")} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:"#8B5CF610",border:"1px solid #8B5CF625",display:"flex",alignItems:"center",gap:6,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#8B5CF620"} onMouseLeave={e=>e.currentTarget.style.background="#8B5CF610"}>
-              <span style={{fontSize:18}}>📩</span><span style={{fontSize:FS,fontWeight:700,color:"#8B5CF6"}}>ارسال اشعار</span>
-            </div>
-          </div>
-          {/* ── Sticky Notes (Desktop only) ── */}
-          {!isMob&&(()=>{const uemail=user?.email||"";const COLORS=[{key:"#FEF9C3",border:"#EAB308",name:"أصفر"},{key:"#DBEAFE",border:"#3B82F6",name:"أزرق"},{key:"#DCFCE7",border:"#22C55E",name:"أخضر"},{key:"#FCE7F3",border:"#EC4899",name:"وردي"},{key:"#EDE9FE",border:"#8B5CF6",name:"بنفسجي"},{key:"#FFEDD5",border:"#F97316",name:"برتقالي"}];
-            const allNotes=(config.stickyNotes||[]);const myNotes=allNotes.filter(n=>n.email===uemail);
-            const saveNote=(note)=>{upConfig(d=>{if(!d.stickyNotes)d.stickyNotes=[];const idx=d.stickyNotes.findIndex(n=>n.id===note.id);if(idx>=0)d.stickyNotes[idx]=note;else{if(d.stickyNotes.filter(n=>n.email===uemail).length>=20){showToast("⚠️ الحد الاقصى 20 ملاحظة");return}d.stickyNotes.push(note)}});setStickyForm(null);showToast("✓ تم الحفظ")};
-            const delNote=(id)=>{upConfig(d=>{d.stickyNotes=(d.stickyNotes||[]).filter(n=>n.id!==id)})};
-            return<div style={{marginTop:16}}>
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-                <span style={{fontSize:FS,fontWeight:700,color:T.textSec}}>{"📝 ملاحظاتي"+(myNotes.length>0?" ("+myNotes.length+"/20)":"")}</span>
-                <span onClick={()=>setStickyForm({id:gid(),email:uemail,title:"",text:"",color:"#FEF9C3",date:new Date().toISOString().split("T")[0]})} style={{cursor:"pointer",fontSize:FS-2,padding:"3px 10px",borderRadius:6,background:T.accent+"12",color:T.accent,fontWeight:700}}>+ ملاحظة</span>
-              </div>
-              {stickyForm&&<div style={{maxWidth:360,background:stickyForm.color,borderRadius:10,padding:10,border:"2px solid "+(COLORS.find(c=>c.key===stickyForm.color)?.border||"#EAB308")+"40",marginBottom:12,boxShadow:"0 2px 10px rgba(0,0,0,0.06)"}}>
-                <div style={{display:"flex",gap:3,marginBottom:6}}>{COLORS.map(c=><div key={c.key} onClick={()=>setStickyForm(p=>({...p,color:c.key}))} style={{width:18,height:18,borderRadius:5,background:c.key,border:stickyForm.color===c.key?"2px solid "+c.border:"1px solid #ccc",cursor:"pointer"}}/>)}</div>
-                <input value={stickyForm.title} onChange={e=>setStickyForm(p=>({...p,title:e.target.value}))} placeholder="العنوان..." style={{width:"100%",padding:"4px 8px",borderRadius:6,border:"1px solid #ddd",fontSize:FS-1,fontFamily:"inherit",fontWeight:700,background:"rgba(255,255,255,0.6)",marginBottom:4,boxSizing:"border-box"}}/>
-                <textarea value={stickyForm.text} onChange={e=>setStickyForm(p=>({...p,text:e.target.value}))} placeholder="ملاحظة قصيرة..." rows={2} style={{width:"100%",padding:"4px 8px",borderRadius:6,border:"1px solid #ddd",fontSize:FS-2,fontFamily:"inherit",background:"rgba(255,255,255,0.6)",resize:"none",boxSizing:"border-box"}}/>
-                <div style={{display:"flex",gap:6,marginTop:6}}><Btn primary small onClick={()=>{if(!stickyForm.title?.trim()&&!stickyForm.text?.trim())return;saveNote(stickyForm)}}>💾 حفظ</Btn><Btn ghost small onClick={()=>setStickyForm(null)}>الغاء</Btn></div>
-              </div>}
-              {myNotes.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-                {myNotes.map(n=>{const bc=COLORS.find(c=>c.key===n.color);return<div key={n.id} style={{background:n.color||"#FEF9C3",borderRadius:10,padding:"8px 10px",border:"1px solid "+(bc?.border||"#EAB308")+"30",boxShadow:"0 1px 4px rgba(0,0,0,0.04)",width:160}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                    {n.title&&<div style={{fontWeight:700,fontSize:FS-1,color:"#1E293B",marginBottom:2,flex:1,lineHeight:1.3}}>{n.title}</div>}
-                    <div style={{display:"flex",gap:2,flexShrink:0}}>
-                      <span onClick={()=>setStickyForm({...n})} style={{cursor:"pointer",fontSize:10,opacity:0.4}}>✏️</span>
-                      <span onClick={()=>delNote(n.id)} style={{cursor:"pointer",fontSize:10,opacity:0.4}}>✕</span>
-                    </div>
+          {/* ══ Desktop: 3-column layout ══ */}
+          {!isMob?<div style={{display:"flex",gap:16,maxWidth:1200,margin:"0 auto",alignItems:"flex-start"}}>
+            {/* ── Left 25%: Sticky Notes ── */}
+            <div style={{flex:"0 0 24%",minWidth:0}}>
+              {(()=>{const uemail=user?.email||"";const COLORS=[{key:"#FEF9C3",border:"#EAB308",name:"أصفر"},{key:"#DBEAFE",border:"#3B82F6",name:"أزرق"},{key:"#DCFCE7",border:"#22C55E",name:"أخضر"},{key:"#FCE7F3",border:"#EC4899",name:"وردي"},{key:"#EDE9FE",border:"#8B5CF6",name:"بنفسجي"},{key:"#FFEDD5",border:"#F97316",name:"برتقالي"}];
+                const allNotes=(config.stickyNotes||[]);const myNotes=allNotes.filter(n=>n.email===uemail);
+                const saveNote=(note)=>{upConfig(d=>{if(!d.stickyNotes)d.stickyNotes=[];const idx=d.stickyNotes.findIndex(n=>n.id===note.id);if(idx>=0)d.stickyNotes[idx]=note;else{if(d.stickyNotes.filter(n=>n.email===uemail).length>=20){showToast("⚠️ الحد الاقصى 20 ملاحظة");return}d.stickyNotes.push(note)}});setStickyForm(null);showToast("✓ تم الحفظ")};
+                const delNote=(id)=>{upConfig(d=>{d.stickyNotes=(d.stickyNotes||[]).filter(n=>n.id!==id)})};
+                return<div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                    <span style={{fontSize:FS,fontWeight:700,color:T.textSec}}>{"📝 ملاحظاتي"+(myNotes.length>0?" ("+myNotes.length+"/20)":"")}</span>
+                    <span onClick={()=>setStickyForm({id:gid(),email:uemail,title:"",text:"",color:"#FEF9C3",date:new Date().toISOString().split("T")[0]})} style={{cursor:"pointer",fontSize:FS-2,padding:"3px 10px",borderRadius:6,background:T.accent+"12",color:T.accent,fontWeight:700}}>+</span>
                   </div>
-                  {n.text&&<div style={{fontSize:FS-2,color:"#334155",lineHeight:1.4,whiteSpace:"pre-wrap"}}>{n.text}</div>}
-                  <div style={{fontSize:FS-3,color:"#94A3B8",marginTop:4}}>{n.date}</div>
+                  {stickyForm&&<div style={{background:stickyForm.color,borderRadius:10,padding:10,border:"2px solid "+(COLORS.find(c=>c.key===stickyForm.color)?.border||"#EAB308")+"40",marginBottom:10,boxShadow:"0 2px 10px rgba(0,0,0,0.06)"}}>
+                    <div style={{display:"flex",gap:3,marginBottom:6}}>{COLORS.map(c=><div key={c.key} onClick={()=>setStickyForm(p=>({...p,color:c.key}))} style={{width:16,height:16,borderRadius:4,background:c.key,border:stickyForm.color===c.key?"2px solid "+c.border:"1px solid #ccc",cursor:"pointer"}}/>)}</div>
+                    <input value={stickyForm.title} onChange={e=>setStickyForm(p=>({...p,title:e.target.value}))} placeholder="العنوان..." style={{width:"100%",padding:"4px 8px",borderRadius:6,border:"1px solid #ddd",fontSize:FS-1,fontFamily:"inherit",fontWeight:700,background:"rgba(255,255,255,0.6)",marginBottom:4,boxSizing:"border-box"}}/>
+                    <textarea value={stickyForm.text} onChange={e=>setStickyForm(p=>({...p,text:e.target.value}))} placeholder="ملاحظة..." rows={2} style={{width:"100%",padding:"4px 8px",borderRadius:6,border:"1px solid #ddd",fontSize:FS-2,fontFamily:"inherit",background:"rgba(255,255,255,0.6)",resize:"none",boxSizing:"border-box"}}/>
+                    <div style={{display:"flex",gap:4,marginTop:6}}><Btn primary small onClick={()=>{if(!stickyForm.title?.trim()&&!stickyForm.text?.trim())return;saveNote(stickyForm)}}>💾</Btn><Btn ghost small onClick={()=>setStickyForm(null)}>✕</Btn></div>
+                  </div>}
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    {myNotes.map(n=>{const bc=COLORS.find(c=>c.key===n.color);return<div key={n.id} style={{background:n.color||"#FEF9C3",borderRadius:10,padding:"8px 10px",border:"1px solid "+(bc?.border||"#EAB308")+"30",boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                        {n.title&&<div style={{fontWeight:700,fontSize:FS-1,color:"#1E293B",marginBottom:2,flex:1,lineHeight:1.3}}>{n.title}</div>}
+                        <div style={{display:"flex",gap:2,flexShrink:0}}>
+                          <span onClick={()=>setStickyForm({...n})} style={{cursor:"pointer",fontSize:10,opacity:0.4}}>✏️</span>
+                          <span onClick={()=>delNote(n.id)} style={{cursor:"pointer",fontSize:10,opacity:0.4}}>✕</span>
+                        </div>
+                      </div>
+                      {n.text&&<div style={{fontSize:FS-2,color:"#334155",lineHeight:1.4,whiteSpace:"pre-wrap"}}>{n.text}</div>}
+                      <div style={{fontSize:FS-3,color:"#94A3B8",marginTop:4}}>{n.date}</div>
+                    </div>})}
+                  </div>
+                </div>})()}
+            </div>
+            {/* ── Center 50%: App Grid + Actions ── */}
+            <div style={{flex:"0 0 50%",minWidth:0}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:12}}>
+                {TABS.filter(t=>canViewTab(t.key)).map(t=>{const perm=getTabPerm(t.key);return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:"16px 8px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s",opacity:perm==="view"?0.75:1,position:"relative",aspectRatio:"1"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow}}>
+                  <div style={{width:48,height:48,borderRadius:14,background:t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 8px",fontSize:24}}>{t.icon}</div>
+                  <div style={{fontSize:FS-1,fontWeight:700,color:T.text}}>{t.label}</div>
+                  {perm==="view"&&<div style={{position:"absolute",top:4,left:4,fontSize:8,padding:"1px 4px",borderRadius:3,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
                 </div>})}
-              </div>}
-            </div>})()}
+              </div>
+              <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"center"}}>
+                <div onClick={()=>setQuickPopup("task")} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:T.accent+"10",border:"1px solid "+T.accent+"25",display:"flex",alignItems:"center",gap:6,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"20"} onMouseLeave={e=>e.currentTarget.style.background=T.accent+"10"}>
+                  <span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:700,color:T.accent}}>ارسال مهمة</span>
+                </div>
+                <div onClick={()=>setQuickPopup("notif")} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:"#8B5CF610",border:"1px solid #8B5CF625",display:"flex",alignItems:"center",gap:6,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#8B5CF620"} onMouseLeave={e=>e.currentTarget.style.background="#8B5CF610"}>
+                  <span style={{fontSize:18}}>📩</span><span style={{fontSize:FS,fontWeight:700,color:"#8B5CF6"}}>ارسال اشعار</span>
+                </div>
+              </div>
+            </div>
+            {/* ── Right 25%: Tasks ── */}
+            <div style={{flex:"0 0 24%",minWidth:0}}>
+              {(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
+                return myTasks.length>0?<div style={{background:"#FEF9C3",borderRadius:16,border:"1px solid #EAB30830",padding:14,boxShadow:"0 2px 8px rgba(234,179,8,0.08)"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}><span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:800,color:"#92400E"}}>{"مهامي ("+myTasks.length+")"}</span></div>
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>{myTasks.slice(0,8).map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:6,padding:"8px 10px",borderRadius:8,background:"rgba(255,255,255,0.7)",border:"1px solid #EAB30820"}}>
+                    <span onClick={()=>upConfig(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const tk=arr.find(x=>x.id===t.id);if(tk){tk.done=true;tk.doneAt=new Date().toISOString()}})} style={{cursor:"pointer",fontSize:16,flexShrink:0,marginTop:1}}>⬜</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:FS-1,fontWeight:600,color:"#1C1917",lineHeight:1.4}}>{t.text}</div>
+                      <div style={{fontSize:FS-3,color:"#78716C",marginTop:1}}>{"من: "+(t.fromName||"—")}</div>
+                    </div>
+                  </div>)}</div>
+                  {myTasks.length>8&&<div style={{textAlign:"center",marginTop:6}}><span onClick={()=>goTo("tasks")} style={{cursor:"pointer",fontSize:FS-2,color:"#92400E",fontWeight:700}}>{"عرض الكل ("+myTasks.length+")"}</span></div>}
+                </div>:<div style={{textAlign:"center",padding:20,color:T.textMut,fontSize:FS-1}}>{"📌 لا توجد مهام"}</div>})()}
+            </div>
+          </div>
+          :{/* ══ Mobile: vertical layout ══ */}
+          <div>
+            <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:10}}>
+              {TABS.filter(t=>canViewTab(t.key)).map(t=>{const perm=getTabPerm(t.key);return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:"16px 8px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",opacity:perm==="view"?0.75:1,position:"relative",width:"calc(33.33% - 8px)",boxSizing:"border-box"}}>
+                <div style={{width:44,height:44,borderRadius:14,background:t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px",fontSize:22}}>{t.icon}</div>
+                <div style={{fontSize:FS-3,fontWeight:700,color:T.text}}>{t.label}</div>
+                {perm==="view"&&<div style={{position:"absolute",top:6,left:6,fontSize:9,padding:"1px 6px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
+              </div>})}
+            </div>
+            <div onClick={()=>setShowScanner(true)} style={{margin:"16px auto 0",display:"flex",justifyContent:"center"}}><div style={{background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",borderRadius:14,padding:"14px 30px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,boxShadow:"0 4px 20px rgba(14,165,233,0.3)"}}><span style={{fontSize:24}}>📷</span><span style={{fontSize:FS+1,fontWeight:700,color:"#fff"}}>مسح كود QR</span></div></div>
+            {(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
+              return myTasks.length>0&&<div style={{marginTop:16}}>
+                <div style={{background:"#FEF9C3",borderRadius:16,border:"1px solid #EAB30830",padding:14,boxShadow:"0 2px 8px rgba(234,179,8,0.08)"}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}><span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:800,color:"#92400E"}}>{"مهامي ("+myTasks.length+")"}</span></div>
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>{myTasks.slice(0,5).map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:6,padding:"8px 10px",borderRadius:8,background:"rgba(255,255,255,0.7)",border:"1px solid #EAB30820"}}>
+                  <span onClick={()=>upConfig(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const tk=arr.find(x=>x.id===t.id);if(tk){tk.done=true;tk.doneAt=new Date().toISOString()}})} style={{cursor:"pointer",fontSize:16}}>⬜</span>
+                  <div style={{flex:1}}><div style={{fontSize:FS-1,fontWeight:600,color:"#1C1917"}}>{t.text}</div><div style={{fontSize:FS-3,color:"#78716C"}}>{"من: "+(t.fromName||"—")}</div></div>
+                </div>)}</div>
+              </div></div>})()}
+            <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"center"}}>
+              <div onClick={()=>setQuickPopup("task")} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:T.accent+"10",border:"1px solid "+T.accent+"25",display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:700,color:T.accent}}>مهمة</span>
+              </div>
+              <div onClick={()=>setQuickPopup("notif")} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:"#8B5CF610",border:"1px solid #8B5CF625",display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:18}}>📩</span><span style={{fontSize:FS,fontWeight:700,color:"#8B5CF6"}}>اشعار</span>
+              </div>
+            </div>
+          </div>}
       </div>}
       {/* PAGES with back button */}
       {tab!=="home"&&canViewTab(tab)&&<div>
         {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards} upConfig={upConfig} user={user}/>}
         {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("db")} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
         {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} delOrder={delOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEditTab("details")} statusCards={statusCards} goHome={goHome} upConfig={upConfig} user={user}/>}
-        {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("external")} statusCards={statusCards} season={season}/>}
+        {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("external")} statusCards={statusCards} season={season} user={user}/>}
         {tab==="stock"&&<StockPg data={data} updOrder={updOrder} isMob={isMob} canEdit={canEditTab("stock")} statusCards={statusCards} user={user}/>}
         {tab==="tasks"&&<TasksPg data={data} upConfig={upConfig} isMob={isMob} user={user} userRole={userRole}/>}
         {tab==="calc"&&<CalcPg data={data} isMob={isMob}/>}
@@ -1825,7 +1859,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
             else{canStock=true}
           }
           const stockDel=(order.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const stockRemain=t.cutQty-stockDel;
-          return<Card title="تسليم مخزن جاهز" extra={canEdit&&canStock&&<Btn primary small onClick={()=>updOrder(sel,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty:0,notes:"",createdBy:userName});setTimeout(()=>setEditStockIdx(o.deliveries.length-1),100)})}>+ تسليم</Btn>}>
+          return<Card title="تسليم مخزن جاهز" extra={canEdit&&canStock&&<Btn primary small onClick={()=>updOrder(sel,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty:0,notes:"",createdBy:userName||""});setTimeout(()=>setEditStockIdx(o.deliveries.length-1),100)})}>+ تسليم</Btn>}>
             {!canStock&&<div style={{padding:10,background:T.err+"10",border:"1px solid "+T.err+"30",borderRadius:8,marginBottom:10,fontSize:FS,color:T.err,fontWeight:600}}>{blockMsg}</div>}
             <div style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap"}}>
               <span style={{padding:"6px 12px",borderRadius:8,background:T.err+"12",color:T.err,fontWeight:700,fontSize:FS}}>{"كمية القص: "+t.cutQty}</span>
@@ -1903,9 +1937,9 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
                     </div>
                     <div style={{display:"flex",gap:8}}>
                       <Btn onClick={()=>{if(!settReason){showToast("⚠️ اختر سبب التسوية");return}
-                        updOrder(sel,o=>{o.settlement={qty:remain,reason:settReason,notes:settNotes,cost:settCost,date:new Date().toISOString().split("T")[0],createdBy:userName};o.closed=true;o.status="تم التسليم"});setSettReason("");setSettNotes("")}} style={{background:T.err,color:"#fff",border:"none",fontWeight:700}}>⚖️ تسوية + غلق الأوردر</Btn>
+                        updOrder(sel,o=>{o.settlement={qty:remain,reason:settReason,notes:settNotes,cost:settCost,date:new Date().toISOString().split("T")[0],createdBy:userName||""};o.closed=true;o.status="تم التسليم"});setSettReason("");setSettNotes("")}} style={{background:T.err,color:"#fff",border:"none",fontWeight:700}}>⚖️ تسوية + غلق الأوردر</Btn>
                       <Btn onClick={()=>{if(!settReason){showToast("⚠️ اختر سبب التسوية");return}
-                        updOrder(sel,o=>{o.settlement={qty:remain,reason:settReason,notes:settNotes,cost:settCost,date:new Date().toISOString().split("T")[0],createdBy:userName}});setSettReason("");setSettNotes("")}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>⚖️ تسوية فقط</Btn>
+                        updOrder(sel,o=>{o.settlement={qty:remain,reason:settReason,notes:settNotes,cost:settCost,date:new Date().toISOString().split("T")[0],createdBy:userName||""}});setSettReason("");setSettNotes("")}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>⚖️ تسوية فقط</Btn>
                     </div>
                   </div>})()}
               </div>}
@@ -1956,18 +1990,20 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
       const availPieces=pieces.filter(p=>{if(!isLinked(p))return false;const delForP=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return delForP<t.cutQty});
       const totalDelForType=dType?(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===dType).reduce((s,wd)=>s+(Number(wd.qty)||0),0):0;
       const maxQty=dType?Math.max(0,t.cutQty-totalDelForType):t.cutQty;
-      const doDeliver=(print,wa)=>{
+      const doDeliver=async(print,wa)=>{
         if(!dWs||!dType||!dQty)return;
         const wsObj=workshops.find(w=>w.name===dWs);
-        const wd={wsName:dWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",qty:Number(dQty),garmentType:dType,price:Number(dPrice)||0,notes:dNote,date:dDate||new Date().toISOString().split("T")[0],receives:[],createdBy:userName};
-        const upd=JSON.parse(JSON.stringify(order));
-        if(!upd||!upd.id||!upd.modelNo){showToast("⚠️ خطأ — بيانات الأوردر غير صالحة");return}
-        if(!upd.workshopDeliveries)upd.workshopDeliveries=[];upd.workshopDeliveries.push(wd);
-        upd.status=recomputeStatus(upd);
-        replaceOrder(order.id,upd);
-        showToast("✓ تم التسليم — "+dWs);setShowDeliver(false);
-        if(print){setTimeout(()=>{printReceipt(dWs,wsObj?wsObj.owner:"",upd,dType,Number(dQty),dDate||new Date().toISOString().split("T")[0],maxQty-Number(dQty),data.garmentTypes)},300)}
-        if(wa){const phone=wsObj?.phone||"";const d=dDate||new Date().toISOString().split("T")[0];const msg="*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+dWs+"*%0A• رقم الموديل: *"+order.modelNo+"*%0A• الوصف: "+order.modelDesc+"%0A• نوع القطعة: *"+dType+"*%0A• الكمية المستلمة: *"+dQty+"* قطعة%0A• السعر: *"+(dPrice||0)+"* ج.م/قطعة%0A• التاريخ: *"+d+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
+        const saveQty=Number(dQty);const saveType=dType;const saveDate=dDate||new Date().toISOString().split("T")[0];const savePrice=Number(dPrice)||0;const saveNote=dNote;
+        try{
+          await updOrder(sel,o=>{
+            if(!o.workshopDeliveries)o.workshopDeliveries=[];
+            o.workshopDeliveries.push({id:gid(),wsName:dWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",wsOwner:wsObj?wsObj.owner:"",qty:saveQty,garmentType:saveType,price:savePrice,notes:saveNote,date:saveDate,receives:[],createdBy:userName||""});
+            o.status=recomputeStatus(o);
+          });
+          showToast("✓ تم التسليم — "+dWs);setShowDeliver(false);
+          if(print){setTimeout(()=>{const pOrd=data.orders.find(o=>o.id===sel)||order;printReceipt(dWs,wsObj?wsObj.owner:"",pOrd,saveType,saveQty,saveDate,maxQty-saveQty,data.garmentTypes)},400)}
+          if(wa){const phone=wsObj?.phone||"";const msg="*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+dWs+"*%0A• رقم الموديل: *"+order.modelNo+"*%0A• الوصف: "+order.modelDesc+"%0A• نوع القطعة: *"+saveType+"*%0A• الكمية المستلمة: *"+saveQty+"* قطعة%0A• السعر: *"+(savePrice||0)+"* ج.م/قطعة%0A• التاريخ: *"+saveDate+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
+        }catch(e){console.error("doDeliver error:",e);showToast("⚠️ خطأ في حفظ التسليم")}
       };
       return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowDeliver(false)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
@@ -2000,7 +2036,8 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
 }
 
 /* ══ EXTERNAL PRODUCTION ══ */
-function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
+function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user}){
+  const userName=user?.displayName||user?.email?.split("@")[0]||"";
   const[mode,setMode]=useState(null);
   const[selWs,setSelWs]=useState("");
   const[selOrder,setSelOrder]=useState("");
@@ -2070,7 +2107,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     const availAfter=maxAllowed-saveQty;
     updOrder(selOrder,o=>{
       if(!o.workshopDeliveries)o.workshopDeliveries=[];
-      o.workshopDeliveries.push({id:gid(),wsName:selWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",wsOwner:wsObj?wsObj.owner:"",qty:saveQty,garmentType:saveType,notes:saveNote,price:savePrice,date:saveDate,receives:[],createdBy:userName});
+      o.workshopDeliveries.push({id:gid(),wsName:selWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",wsOwner:wsObj?wsObj.owner:"",qty:saveQty,garmentType:saveType,notes:saveNote,price:savePrice,date:saveDate,receives:[],createdBy:userName||""});
       o.status=recomputeStatus(o);
     });
     setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice("");setDelDate(new Date().toISOString().split("T")[0]);showToast("✓ تم تسليم "+saveQty+" قطعة لـ "+selWs);
@@ -2089,7 +2126,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     const saveNote=rv.note;const wdPrice=Number(wd.price)||0;const saveDate=rv.date||new Date().toISOString().split("T")[0];const saveQuality=rv.quality||"جيد جداً";
     updOrder(orderId,o=>{
       if(!o.workshopDeliveries[wdIdx].receives)o.workshopDeliveries[wdIdx].receives=[];
-      o.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty,notes:saveNote,price:wdPrice,amount:r2(saveQty*wdPrice),quality:saveQuality,createdBy:userName});
+      o.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty,notes:saveNote,price:wdPrice,amount:r2(saveQty*wdPrice),quality:saveQuality,createdBy:userName||""});
       o.status=recomputeStatus(o)
     });
     clearRcv(cardKey);showToast("✓ تم استلام "+saveQty+" قطعة");
@@ -2129,7 +2166,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
     const totalPurchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);
     return{due,totalPaid,totalPurchase,balance:due+totalPurchase-totalPaid}
   };
-  const addPayment=(wa)=>{if(!payWs||!payAmt)return;const wsObj=workshops.find(w=>w.name===payWs);upConfig(d=>{if(!d.wsPayments)d.wsPayments=[];d.wsPayments.push({id:gid(),wsName:payWs,wsId:wsObj?wsObj.id:null,amount:Number(payAmt),type:payType,notes:payNote,date:payDate,createdBy:userName})});
+  const addPayment=(wa)=>{if(!payWs||!payAmt)return;const wsObj=workshops.find(w=>w.name===payWs);upConfig(d=>{if(!d.wsPayments)d.wsPayments=[];d.wsPayments.push({id:gid(),wsName:payWs,wsId:wsObj?wsObj.id:null,amount:Number(payAmt),type:payType,notes:payNote,date:payDate,createdBy:userName||""})});
     if(wa){const acc=wsAccounts(payWs);let del=0,rcv=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===payWs).forEach(wd=>{del+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{rcv+=Number(r.qty)||0})})});
       const allPay=(data.wsPayments||[]).filter(p=>p.wsName===payWs&&p.type==="payment");const totalPaid=allPay.reduce((s,p)=>s+(Number(p.amount)||0),0)+Number(payAmt);
       const phone=wsObj?.phone||"";
@@ -2349,7 +2386,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         const ord=data.orders.find(o=>o.id===orderId);if(!ord||!ord._docId)continue;
         const updated=JSON.parse(JSON.stringify(ord));
         if(!updated.workshopDeliveries)updated.workshopDeliveries=[];
-        items.forEach(item=>{updated.workshopDeliveries.push({id:gid(),wsName:selWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",wsOwner:wsObj?wsObj.owner:"",qty:item.qty,garmentType:item.garmentType,notes:"تسليم مُجمع",price:item.price,date:batchDate,receives:[],createdBy:user?.displayName||user?.email?.split("@")[0]||""})});
+        items.forEach(item=>{updated.workshopDeliveries.push({id:gid(),wsName:selWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",wsOwner:wsObj?wsObj.owner:"",qty:item.qty,garmentType:item.garmentType,notes:"تسليم مُجمع",price:item.price,date:batchDate,receives:[],createdBy:userName||""})});
         updated.status=recomputeStatus(updated);
         const clean={...updated};delete clean._docId;
         try{await setDoc(doc(db,"seasons",season,"orders",ord._docId),clean)}catch(e){console.error("batch write error:",e)}
@@ -2442,7 +2479,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season}){
         const ord=data.orders.find(o=>o.id===orderId);if(!ord||!ord._docId)continue;
         const updated=JSON.parse(JSON.stringify(ord));
         items.forEach(item=>{if(!updated.workshopDeliveries[item.wdIdx].receives)updated.workshopDeliveries[item.wdIdx].receives=[];
-          updated.workshopDeliveries[item.wdIdx].receives.push({date:batchDate,qty:item.qty,notes:"استلام مُجمع",price:item.price,amount:r2(item.qty*item.price),quality:"جيد جداً",createdBy:user?.displayName||user?.email?.split("@")[0]||""})});
+          updated.workshopDeliveries[item.wdIdx].receives.push({date:batchDate,qty:item.qty,notes:"استلام مُجمع",price:item.price,amount:r2(item.qty*item.price),quality:"جيد جداً",createdBy:userName||""})});
         updated.status=recomputeStatus(updated);
         const clean={...updated};delete clean._docId;
         try{await setDoc(doc(db,"seasons",season,"orders",ord._docId),clean)}catch(e){console.error("batch rcv error:",e)}
@@ -2809,7 +2846,7 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards,user}){
       setShowLimitPopup({max:stockRemain,requested:qty,details:pieceBreakdown});return
     }
     const saveOrd=JSON.parse(JSON.stringify(ord));
-    updOrder(selOrder,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:stDate,qty,notes:stNote,createdBy:userName});o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)});
+    updOrder(selOrder,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:stDate,qty,notes:stNote,createdBy:userName||""});o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)});
     const newTotalDel=stockDel+qty;
     if(andPrint)setTimeout(()=>printStockDelivery(saveOrd,qty,stDate,stNote,newTotalDel,t.cutQty),400);
     setStQty(0);setStNote("");setStDate(new Date().toISOString().split("T")[0]);showToast("✓ تم تسليم المخزن")
@@ -2859,7 +2896,7 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards,user}){
           <td style={{...TDB,color:p.balance>0?T.err:T.ok}}>{p.balance>0?p.balance:"✓"}</td>
           <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<div style={{display:"flex",gap:3}}>
             {isEditing?<><Btn small primary onClick={()=>{updOrder(selOrder,o=>{const r=o.workshopDeliveries[lastRcvWdIdx].receives[lastRcvRIdx];if(r)r.qty=qEditQty;o.status=recomputeStatus(o)});setQEditPiece(null);showToast("✓ تم تعديل الاستلام")}}>💾</Btn><Btn ghost small onClick={()=>setQEditPiece(null)}>✕</Btn></>
-            :isAdding?<><Btn small primary onClick={()=>{if(!qRcvQty||qRcvQty<=0)return;updOrder(selOrder,o=>{if(!o.workshopDeliveries[wdIdx].receives)o.workshopDeliveries[wdIdx].receives=[];o.workshopDeliveries[wdIdx].receives.push({date:qRcvDate,qty:qRcvQty,notes:"استلام سريع",price:Number(wdForP.price)||0,amount:r2(qRcvQty*(Number(wdForP.price)||0)),createdBy:userName});o.status=recomputeStatus(o)});setQRcvPiece(null);setQRcvQty(0);showToast("✓ تم استلام "+qRcvQty+" "+p.piece)}}>💾</Btn><Btn ghost small onClick={()=>setQRcvPiece(null)}>✕</Btn></>
+            :isAdding?<><Btn small primary onClick={()=>{if(!qRcvQty||qRcvQty<=0)return;updOrder(selOrder,o=>{if(!o.workshopDeliveries[wdIdx].receives)o.workshopDeliveries[wdIdx].receives=[];o.workshopDeliveries[wdIdx].receives.push({date:qRcvDate,qty:qRcvQty,notes:"استلام سريع",price:Number(wdForP.price)||0,amount:r2(qRcvQty*(Number(wdForP.price)||0)),createdBy:userName||""});o.status=recomputeStatus(o)});setQRcvPiece(null);setQRcvQty(0);showToast("✓ تم استلام "+qRcvQty+" "+p.piece)}}>💾</Btn><Btn ghost small onClick={()=>setQRcvPiece(null)}>✕</Btn></>
             :<>{hasRcv&&<Btn ghost small onClick={()=>{const lastR=wds[lastRcvWdIdx].receives[lastRcvRIdx];setQEditPiece(p.piece);setQEditQty(lastR.qty);setQRcvPiece(null)}} style={{fontSize:FS-3,padding:"2px 6px"}}>✏️</Btn>}{p.balance>0&&wdIdx>=0&&<Btn ghost small onClick={()=>{setQRcvPiece(p.piece);setQRcvQty(0);setQRcvDate(new Date().toISOString().split("T")[0]);setQEditPiece(null)}} style={{fontSize:FS-3,padding:"2px 8px",color:T.accent}}>📥</Btn>}</>}
           </div>}</td>
         </tr>})}</tbody></table></div>
