@@ -746,37 +746,34 @@ export default function App(){
     return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off);clearInterval(interval)}
   },[]);
   useEffect(()=>{if(justReconnected){const t=setTimeout(()=>setJustReconnected(false),4000);return()=>clearTimeout(t)}},[justReconnected]);
-  /* ── Auto Bot Tasks ── */
+  /* ── Auto Bot Tasks (multi-user) ── */
   const botTasksRef=useRef(false);
   useEffect(()=>{
     if(!user||orders.length===0||botTasksRef.current)return;
-    const at=config.autoTasks;if(!at?.enabled||!at?.targetEmail)return;
-    const rules=at.rules||{};const tasks=Array.isArray(config.tasks)?config.tasks:[];const now=Date.now();
+    const at=config.autoTasks;if(!at?.enabled)return;
+    const atUsers=at.users||[];if(atUsers.length===0)return;
+    const tasks=Array.isArray(config.tasks)?config.tasks:[];const now=Date.now();
     const newTasks=[];
-    const addBotTask=(key,text)=>{if(tasks.some(t=>t.botKey===key&&!t.done))return;if(newTasks.some(t=>t.botKey===key))return;
-      newTasks.push({id:Date.now()+Math.random(),text,done:false,date:new Date().toISOString().split("T")[0],fromUid:"bot",fromEmail:"bot@clark",fromName:"🤖 CLARK Bot",toEmail:at.targetEmail,toName:at.targetName||at.targetEmail.split("@")[0],botKey:key})};
-    orders.forEach(o=>{
-      if(o.closed||o.status==="تم التسليم"||o.status==="تم الشحن")return;
-      const t=calcOrder(o);const wds=o.workshopDeliveries||[];const hasFab=FKEYS.some(k=>o["fabric"+k]);
-      if(!hasFab||t.cutQty===0)return;
-      const daysSinceCut=Math.floor((now-new Date(o.date))/(86400000));
-      /* Rule 1: مقصوص ولم يُسلم لورشة */
-      if(rules.noDeliver?.enabled&&wds.length===0&&daysSinceCut>=(rules.noDeliver.days||5)){
-        addBotTask("nodeliver_"+o.id,"موديل "+o.modelNo+" مقصوص من "+daysSinceCut+" يوم ولم يتم تسليمه لأي ورشة")}
-      /* Rule 2: قطعة متاحة ولم تُسلم */
-      if(rules.availPiece?.enabled){const pieces=o.orderPieces||[];
-        pieces.forEach(p=>{const delForP=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);
-          if(delForP===0&&daysSinceCut>=(rules.availPiece.days||5)){addBotTask("availpiece_"+o.id+"_"+p,p+" موديل "+o.modelNo+" متاح من "+daysSinceCut+" يوم ولم يتم تسليمه")}})}
-      /* Rule 3: ورشة متأخرة */
-      if(rules.slowWorkshop?.enabled){wds.forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;
-        if(bal>0){const daysSinceDel=Math.floor((now-new Date(wd.date))/(86400000));
-          if(daysSinceDel>=(rules.slowWorkshop.days||14)){addBotTask("slowws_"+o.id+"_"+wd.wsName+"_"+(wd.garmentType||""),
-            "ورشة "+wd.wsName+" عندها "+bal+" "+(wd.garmentType||"قطعة")+" موديل "+o.modelNo+" من "+daysSinceDel+" يوم")}}})}
-      /* Rule 4: مخزن لم يُسلم لعملاء */
-      if(rules.stockNoSale?.enabled){const stockDel=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const custDel=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
-        if(stockDel>0&&custDel===0){const lastStock=o.deliveries.reduce((d,x)=>x.date>d?x.date:d,"");const daysSinceStock=lastStock?Math.floor((now-new Date(lastStock))/(86400000)):0;
-          if(daysSinceStock>=(rules.stockNoSale.days||7)){addBotTask("nosale_"+o.id,"موديل "+o.modelNo+" في المخزن "+stockDel+" قطعة من "+daysSinceStock+" يوم بدون تسليم عملاء")}}}
-    });
+    const addBotTask=(key,text,toEmail,toName)=>{if(tasks.some(t=>t.botKey===key&&!t.done))return;if(newTasks.some(t=>t.botKey===key))return;
+      newTasks.push({id:Date.now()+Math.random(),text,done:false,date:new Date().toISOString().split("T")[0],fromUid:"bot",fromEmail:"bot@clark",fromName:"🤖 CLARK Bot",toEmail,toName:toName||toEmail.split("@")[0],botKey:key})};
+    atUsers.forEach(au=>{if(!au.email)return;const rules=au.rules||{};
+      orders.forEach(o=>{
+        if(o.closed||o.status==="تم التسليم"||o.status==="تم الشحن")return;
+        const t=calcOrder(o);const wds=o.workshopDeliveries||[];const hasFab=FKEYS.some(k=>o["fabric"+k]);
+        if(!hasFab||t.cutQty===0)return;
+        const daysSinceCut=Math.floor((now-new Date(o.date))/(86400000));
+        if(rules.noDeliver?.enabled&&wds.length===0&&daysSinceCut>=(rules.noDeliver.days||5)){
+          addBotTask("nodeliver_"+o.id+"_"+au.email,"موديل "+o.modelNo+" مقصوص من "+daysSinceCut+" يوم ولم يتم تسليمه لأي ورشة",au.email,au.name)}
+        if(rules.availPiece?.enabled){(o.orderPieces||[]).forEach(p=>{const delForP=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+          if(delForP===0&&daysSinceCut>=(rules.availPiece.days||5)){addBotTask("availpiece_"+o.id+"_"+p+"_"+au.email,p+" موديل "+o.modelNo+" متاح من "+daysSinceCut+" يوم ولم يتم تسليمه",au.email,au.name)}})}
+        if(rules.slowWorkshop?.enabled){wds.forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;
+          if(bal>0){const daysSinceDel=Math.floor((now-new Date(wd.date))/(86400000));
+            if(daysSinceDel>=(rules.slowWorkshop.days||14)){addBotTask("slowws_"+o.id+"_"+wd.wsName+"_"+(wd.garmentType||"")+"_"+au.email,
+              "ورشة "+wd.wsName+" عندها "+bal+" "+(wd.garmentType||"قطعة")+" موديل "+o.modelNo+" من "+daysSinceDel+" يوم",au.email,au.name)}}})}
+        if(rules.stockNoSale?.enabled){const stockDel=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const custDel=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
+          if(stockDel>0&&custDel===0){const lastStock=o.deliveries.reduce((d,x)=>x.date>d?x.date:d,"");const daysSinceStock=lastStock?Math.floor((now-new Date(lastStock))/(86400000)):0;
+            if(daysSinceStock>=(rules.stockNoSale.days||7)){addBotTask("nosale_"+o.id+"_"+au.email,"موديل "+o.modelNo+" في المخزن "+stockDel+" قطعة من "+daysSinceStock+" يوم بدون تسليم عملاء",au.email,au.name)}}}
+      })});
     if(newTasks.length>0){botTasksRef.current=true;upConfig(d=>{if(!Array.isArray(d.tasks))d.tasks=[];newTasks.forEach(t=>d.tasks.unshift(t))});
       setTimeout(()=>{botTasksRef.current=false},60000)}
   },[orders,config.autoTasks,config.tasks,user]);
@@ -3652,43 +3649,42 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
   const aGrid=activeSess?.grid||{};
 
   const printCustLabels=async(cust,models,grid,sessDate,total,count)=>{
-    let qrSrc="";try{const QR=await loadQR();if(QR)qrSrc=await QR.toDataURL(window.location.origin+"?cust="+encodeURIComponent(cust.name)+"&d="+sessDate,{width:200,margin:1,errorCorrectionLevel:"M"})}catch(e){}
+    let qrSrc="";try{const QR=await loadQR();if(QR)qrSrc=await QR.toDataURL(window.location.origin+"?cust="+encodeURIComponent(cust.name)+"&d="+sessDate,{width:180,margin:1,errorCorrectionLevel:"M"})}catch(e){}
     const pw=window.open("","_blank");if(!pw)return;
-    let pages="";
+    let pages="";const items=models.map(m=>({no:m.modelNo,qty:Number(grid[m.id+"_"+cust.id])||0})).filter(x=>x.qty>0);
     for(let i=1;i<=count;i++){
       pages+="<div class='page'>"
-      +"<div class='hdr'><h1>CLARK Factory</h1><div class='type'>🚚 تسليم عميل</div></div>"
-      +(qrSrc?"<div class='qr'><img src='"+qrSrc+"'/></div>":"")
-      +"<div class='cust'><div class='cname'>"+cust.name+"</div><div class='cphone'>"+cust.phone+"</div></div>"
+      +"<div class='brand'>CLARK</div>"
+      +"<div class='cust'>"+cust.name+"</div>"
+      +"<div class='phone'>"+cust.phone+"</div>"
       +"<table>";
-      models.forEach(m=>{const q=Number(grid[m.id+"_"+cust.id])||0;if(q>0)pages+="<tr><td class='k'>"+m.modelNo+"</td><td>"+q+" قطعة</td></tr>"});
-      pages+="<tr class='total'><td class='k'>الاجمالي</td><td>"+total+" قطعة</td></tr></table>"
-      +"<div class='ship'>"+i+" / "+count+"</div>"
-      +"<div class='date'>"+sessDate+"</div>"
-      +"</div>"
-      +(i<count?"<div style='page-break-after:always'></div>":"")
+      items.forEach(it=>{pages+="<tr><td class='mn'>"+it.no+"</td><td class='mq'>"+it.qty+"</td></tr>"});
+      pages+="<tr class='tot'><td class='mn'>الاجمالي</td><td class='mq'>"+total+"</td></tr></table>"
+      +"<div class='mid'>"+(qrSrc?"<img class='qr' src='"+qrSrc+"'/>":"")+"<div class='ship'>"+i+"/"+count+"</div></div>"
+      +"<div class='foot'>"+sessDate+"</div>"
+      +"</div>"+(i<count?"<div style='page-break-after:always'></div>":"")
     }
-    pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>ليبل تسليم</title><style>"
-    +"@page{size:10cm 15cm;margin:2mm}*{margin:0;padding:0;box-sizing:border-box}"
+    pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@600;800&display=swap' rel='stylesheet'/><title>ليبل</title><style>"
+    +"@page{size:10cm 15cm;margin:0}*{margin:0;padding:0;box-sizing:border-box}"
     +"body{font-family:'Cairo',sans-serif;color:#000}"
-    +".page{width:10cm;height:15cm;padding:3mm;display:flex;flex-direction:column;align-items:center}"
-    +".hdr{text-align:center;border-bottom:3px solid #000;padding-bottom:2mm;margin-bottom:2mm;width:100%}"
-    +".hdr h1{font-size:14pt;font-weight:800}.hdr .type{font-size:11pt;font-weight:800;border:2.5px solid #000;display:inline-block;padding:1mm 5mm;border-radius:4px;margin-top:2mm}"
-    +".qr{text-align:center;margin:2mm 0}.qr img{width:28mm;height:28mm}"
-    +".cust{text-align:center;margin:2mm 0;padding:2mm;border:2px solid #000;border-radius:6px;width:100%}"
-    +".cname{font-size:16pt;font-weight:800}.cphone{font-size:10pt;color:#333}"
-    +"table{width:100%;border-collapse:collapse;margin:2mm 0}"
-    +"table td{padding:2mm 3mm;font-size:11pt;font-weight:700;border:1px solid #000}"
-    +"table td.k{font-weight:800;width:40%;background:#f5f5f5}"
-    +".total td{font-size:13pt;font-weight:800;background:#f0f0f0}"
-    +".ship{text-align:center;font-size:28pt;font-weight:800;border:3px solid #000;border-radius:8px;padding:3mm 8mm;margin:3mm 0}"
-    +".date{text-align:center;font-size:9pt;color:#555;margin-top:auto;padding-top:2mm;border-top:1px dashed #000;width:100%}"
-    +".pbar{position:sticky;top:0;background:#fff;padding:4px 10px;display:none;justify-content:center;gap:6px;border-bottom:2px solid #ccc;z-index:999}"
-    +".pbar button{padding:5px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo',sans-serif;font-size:11px;font-weight:700;background:#fff}"
+    +".page{width:10cm;height:15cm;padding:4mm;display:flex;flex-direction:column;align-items:center;overflow:hidden}"
+    +".brand{font-size:10pt;font-weight:800;letter-spacing:2px;color:#555;margin-bottom:1mm}"
+    +".cust{font-size:18pt;font-weight:800;text-align:center;border:2.5px solid #000;border-radius:6px;padding:2mm 4mm;width:100%;margin-bottom:1mm}"
+    +".phone{font-size:10pt;text-align:center;color:#333;margin-bottom:2mm}"
+    +"table{width:100%;border-collapse:collapse}"
+    +"table td{padding:1.5mm 3mm;border:1px solid #000;font-size:11pt;font-weight:700}"
+    +".mn{text-align:right;width:55%}.mq{text-align:center;font-weight:800}"
+    +".tot td{background:#eee;font-size:12pt;font-weight:800}"
+    +".mid{display:flex;align-items:center;justify-content:center;gap:4mm;margin:3mm 0;flex:1}"
+    +".qr{width:25mm;height:25mm}"
+    +".ship{font-size:32pt;font-weight:800;border:3px solid #000;border-radius:8px;padding:2mm 6mm;line-height:1}"
+    +".foot{font-size:8pt;color:#555;border-top:1px dashed #000;padding-top:1mm;width:100%;text-align:center}"
+    +".pbar{position:sticky;top:0;background:#fff;padding:4px;display:none;justify-content:center;gap:6px;border-bottom:2px solid #ccc;z-index:99}"
+    +".pbar button{padding:5px 14px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:11px;font-weight:700;background:#fff}"
     +".pbar .pr{background:#000;color:#fff}"
     +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
     +"</style></head><body>"
-    +"<div class='pbar'><button onclick='window.close()'>↩ رجوع</button><button class='pr' onclick='window.print()'>🖨 طباعة "+count+" ليبل</button></div>"
+    +"<div class='pbar'><button onclick='window.close()'>↩</button><button class='pr' onclick='window.print()'>🖨 طباعة "+count+"</button></div>"
     +pages+"</body></html>");
     pw.document.close();if(window.innerWidth>1024)setTimeout(()=>{pw.focus();pw.print()},500)
   };
@@ -3699,14 +3695,19 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
       {canEdit&&<Btn primary onClick={()=>{setCName("");setCPhone("");setCAddr("");setCEditId(null);setShowCustForm(true)}}>+ تسجيل عميل</Btn>}
       {canEdit&&<Btn onClick={()=>{setSelModels({});setSelCusts({});setShowNewSession(true)}} style={{background:"#059669",color:"#fff",border:"none",fontWeight:700}}>🚚 تسليم جديد</Btn>}
     </div>
-    {/* Active Session Matrix */}
-    {activeSess&&<Card title={"📊 "+activeSess.date+" — جدول التوزيع"} style={{marginBottom:16}} extra={<div style={{display:"flex",gap:4}}><Btn small onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn><Btn ghost small onClick={()=>{setActiveSession(null);setCellError("")}}>✕</Btn></div>}>
+    {/* Active Session Matrix - Popup */}
+    {activeSess&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:24}} onClick={()=>{setActiveSession(null);setCellError("")}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:900,maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{"📊 "+activeSess.date+" — جدول التوزيع"}</div>
+          <div style={{display:"flex",gap:4}}><Btn small onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn><Btn ghost small onClick={()=>{setActiveSession(null);setCellError("")}}>✕</Btn></div>
+        </div>
       {cellError&&<div style={{padding:"8px 12px",borderRadius:8,background:T.err+"10",border:"1px solid "+T.err+"30",marginBottom:10,fontSize:FS-1,fontWeight:700,color:T.err}}>{cellError}</div>}
       <div style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:aMods.length*90+180}}>
           <thead><tr>
             <th style={{...TH,minWidth:130}}>العميل</th>
-            {aMods.map(m=><th key={m.id} style={{...TH,textAlign:"center",minWidth:aMods.length>5?50:80,fontSize:FS-2,padding:aMods.length>5?"8px 2px":"4px 8px"}}><div style={{fontWeight:800,color:T.accent,writingMode:aMods.length>5?"vertical-rl":"horizontal-tb",transform:aMods.length>5?"rotate(180deg)":"none",whiteSpace:"nowrap"}}>{m.modelNo}</div><div style={{fontSize:FS-3,color:T.textMut}}>{"سيري: "+(m.rackSize||getRackSize(m.id))}</div></th>)}
+            {aMods.map(m=><th key={m.id} style={{...TH,textAlign:"center",minWidth:aMods.length>5?50:80,fontSize:FS-2,padding:aMods.length>5?"8px 2px":"4px 8px"}}><div style={{fontWeight:800,color:T.accent,writingMode:aMods.length>5?"vertical-rl":"horizontal-tb",transform:aMods.length>5?"rotate(180deg)":"none",whiteSpace:"nowrap"}}>{m.modelNo}</div><div style={{fontSize:FS-3,color:T.textMut,writingMode:aMods.length>5?"vertical-rl":"horizontal-tb",transform:aMods.length>5?"rotate(180deg)":"none",whiteSpace:"nowrap"}}>{(m.rackSize||getRackSize(m.id))+"س"}</div></th>)}
             <th style={{...TH,textAlign:"center",background:"#0284C715",color:T.accent,fontWeight:800}}>اجمالي</th>
             <th style={{...TH,width:70}}></th>
           </tr></thead>
@@ -3756,7 +3757,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
         <Btn onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة الجدول</Btn>
         <Btn onClick={()=>{setActiveSession(null);setCellError("")}} style={{background:T.ok,color:"#fff",border:"none",fontWeight:700}}>✓ تأكيد وإغلاق</Btn>
       </div>
-    </Card>}
+    </div></div>}
     {/* ══ Sales Dashboard ══ */}
     {(()=>{const totalStock=stockModels.reduce((s,m)=>s+m.stockQty,0);const totalSold=stockModels.reduce((s,m)=>s+m.custDel,0);const totalRemain=totalStock-totalSold;const pct=totalStock?Math.round(totalSold/totalStock*100):0;
       const topCusts=[...customers].map(c=>({...c,total:getCustTotal(c.id)})).filter(c=>c.total>0).sort((a,b)=>b.total-a.total);
@@ -3909,6 +3910,7 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
   const[newUserName,setNewUserName]=useState("");const[newUserPass,setNewUserPass]=useState("");const[newUserPass2,setNewUserPass2]=useState("");
   const[createErr,setCreateErr]=useState("");const[createOk,setCreateOk]=useState("");const[creating,setCreating]=useState(false);
   const[clearConfirm,setClearConfirm]=useState(false);
+  const[atSelUser,setAtSelUser]=useState("");const[atEditIdx,setAtEditIdx]=useState(null);
   const[linkMap,setLinkMap]=useState({});
   const[compressing,setCompressing]=useState(false);
   /* Admin password gate */
@@ -4181,34 +4183,54 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
           </div>
         </div>})()}
     </Card>
-    {/* ── Auto Bot Tasks Settings ── */}
+    {/* ── Auto Bot Tasks Settings (multi-user) ── */}
     <Card title="🤖 المهام التلقائية" style={{marginTop:16}}>
-      {(()=>{const at=config.autoTasks||{enabled:false,targetEmail:"",rules:{}};const rules=at.rules||{};const users=config.usersList||[];
-        const updateAT=(fn)=>{upConfig(d=>{if(!d.autoTasks)d.autoTasks={enabled:false,targetEmail:"",targetName:"",rules:{noDeliver:{enabled:true,days:5},availPiece:{enabled:true,days:5},slowWorkshop:{enabled:true,days:14},stockNoSale:{enabled:true,days:7}}};fn(d.autoTasks)})};
+      {(()=>{const at=config.autoTasks||{enabled:false,users:[]};const atUsers=at.users||[];const allUsers=config.usersList||[];
+        const RULES=[{key:"noDeliver",label:"موديل مقصوص ولم يُسلَّم لورشة",icon:"✂️",dd:5},{key:"availPiece",label:"قطعة متاحة ولم تُسلَّم",icon:"👔",dd:5},{key:"slowWorkshop",label:"ورشة متأخرة في الاستلام",icon:"🐢",dd:14},{key:"stockNoSale",label:"مخزن جاهز لم يُسلَّم لعملاء",icon:"📦",dd:7}];
+        const defaultRules=()=>{const r={};RULES.forEach(ru=>{r[ru.key]={enabled:true,days:ru.dd}});return r};
+        const toggleEnabled=()=>{upConfig(d=>{if(!d.autoTasks)d.autoTasks={enabled:false,users:[]};d.autoTasks.enabled=!d.autoTasks.enabled})};
+        const addUser=()=>{if(!atSelUser)return;const u=allUsers.find(x=>x.email===atSelUser);if(atUsers.some(x=>x.email===atSelUser)){showToast("⚠️ المستخدم مضاف بالفعل");return}
+          upConfig(d=>{if(!d.autoTasks)d.autoTasks={enabled:true,users:[]};if(!d.autoTasks.users)d.autoTasks.users=[];d.autoTasks.users.push({email:atSelUser,name:u?.name||atSelUser.split("@")[0],rules:defaultRules()})});setAtSelUser("");showToast("✓ تم الإضافة")};
+        const removeUser=(email)=>{upConfig(d=>{d.autoTasks.users=(d.autoTasks.users||[]).filter(x=>x.email!==email)});if(atEditIdx!==null)setAtEditIdx(null)};
+        const updateRule=(idx,ruleKey,field,val)=>{upConfig(d=>{const u=d.autoTasks.users[idx];if(!u)return;if(!u.rules)u.rules=defaultRules();if(!u.rules[ruleKey])u.rules[ruleKey]={enabled:true,days:5};u.rules[ruleKey][field]=val})};
         return<div>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
             <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
-              <input type="checkbox" checked={!!at.enabled} onChange={e=>updateAT(a=>{a.enabled=e.target.checked})} style={{width:20,height:20}}/>
+              <input type="checkbox" checked={!!at.enabled} onChange={toggleEnabled} style={{width:20,height:20}}/>
               <span style={{fontSize:FS,fontWeight:700,color:at.enabled?T.ok:T.textMut}}>{at.enabled?"مفعّلة":"معطّلة"}</span>
             </label>
+            <span style={{fontSize:FS-2,color:T.textMut}}>{"("+atUsers.length+" مستخدم)"}</span>
           </div>
           {at.enabled&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
-            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المستخدم المستهدف للمهام</label>
-              <Sel value={at.targetEmail||""} onChange={v=>{const u=users.find(x=>x.email===v);updateAT(a=>{a.targetEmail=v;a.targetName=u?.name||v.split("@")[0]})}}>
-                <option value="">-- اختر --</option>{users.map(u=><option key={u.email} value={u.email}>{(u.name||u.email)}</option>)}
-              </Sel>
+            <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+              <div style={{flex:1}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>اضافة مستخدم</label>
+                <Sel value={atSelUser} onChange={setAtSelUser}><option value="">-- اختر --</option>
+                  {allUsers.filter(u=>!atUsers.some(a=>a.email===u.email)).map(u=><option key={u.email} value={u.email}>{u.name||u.email}</option>)}
+                </Sel></div>
+              <Btn primary onClick={addUser} disabled={!atSelUser}>+ اضافة</Btn>
             </div>
-            <div style={{fontSize:FS,fontWeight:700,color:T.text}}>القواعد:</div>
-            {[{key:"noDeliver",label:"موديل مقصوص ولم يُسلَّم لورشة",icon:"✂️",dd:5},{key:"availPiece",label:"قطعة متاحة ولم تُسلَّم",icon:"👔",dd:5},{key:"slowWorkshop",label:"ورشة متأخرة في الاستلام",icon:"🐢",dd:14},{key:"stockNoSale",label:"مخزن جاهز لم يُسلَّم لعملاء",icon:"📦",dd:7}].map(rule=>{const r=rules[rule.key]||{enabled:true,days:rule.dd};
-              return<div key={rule.key} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",borderRadius:10,background:r.enabled?T.ok+"06":T.bg,border:"1px solid "+(r.enabled?T.ok+"20":T.brd),flexWrap:"wrap"}}>
-                <input type="checkbox" checked={r.enabled!==false} onChange={e=>updateAT(a=>{if(!a.rules)a.rules={};if(!a.rules[rule.key])a.rules[rule.key]={enabled:true,days:rule.dd};a.rules[rule.key].enabled=e.target.checked})} style={{width:18,height:18}}/>
-                <span style={{fontSize:16}}>{rule.icon}</span>
-                <span style={{flex:1,fontSize:FS-1,fontWeight:600,color:r.enabled?T.text:T.textMut,minWidth:120}}>{rule.label}</span>
-                <span style={{fontSize:FS-2,color:T.textSec}}>بعد</span>
-                <input type="number" value={r.days||rule.dd} onChange={e=>updateAT(a=>{if(!a.rules)a.rules={};if(!a.rules[rule.key])a.rules[rule.key]={enabled:true,days:rule.dd};a.rules[rule.key].days=Number(e.target.value)||rule.dd})} style={{width:50,textAlign:"center",padding:"4px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-1,fontWeight:700,fontFamily:"inherit",background:T.bg,color:T.text}}/>
-                <span style={{fontSize:FS-2,color:T.textSec}}>يوم</span>
+            {atUsers.map((au,idx)=>{const isOpen=atEditIdx===idx;const rules=au.rules||{};
+              return<div key={au.email} style={{borderRadius:12,border:"1px solid "+(isOpen?T.accent:T.brd),overflow:"hidden"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",background:isOpen?T.accent+"06":T.bg,cursor:"pointer"}} onClick={()=>setAtEditIdx(isOpen?null:idx)}>
+                  <span style={{fontSize:16}}>👤</span>
+                  <span style={{flex:1,fontWeight:700,fontSize:FS}}>{au.name||au.email}</span>
+                  <span style={{fontSize:FS-2,color:T.textMut}}>{Object.values(rules).filter(r=>r.enabled).length+" قاعدة فعّالة"}</span>
+                  <span style={{color:T.textMut,fontSize:12}}>{isOpen?"▲":"▼"}</span>
+                </div>
+                {isOpen&&<div style={{padding:"10px 14px",display:"flex",flexDirection:"column",gap:8,borderTop:"1px solid "+T.brd}}>
+                  {RULES.map(rule=>{const r=rules[rule.key]||{enabled:true,days:rule.dd};
+                    return<div key={rule.key} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderRadius:8,background:r.enabled?T.ok+"06":T.bg,border:"1px solid "+(r.enabled?T.ok+"15":T.brd),flexWrap:"wrap"}}>
+                      <input type="checkbox" checked={r.enabled!==false} onChange={e=>updateRule(idx,rule.key,"enabled",e.target.checked)} style={{width:16,height:16}}/>
+                      <span style={{fontSize:14}}>{rule.icon}</span>
+                      <span style={{flex:1,fontSize:FS-2,fontWeight:600,color:r.enabled?T.text:T.textMut,minWidth:100}}>{rule.label}</span>
+                      <span style={{fontSize:FS-3,color:T.textSec}}>بعد</span>
+                      <input type="number" value={r.days||rule.dd} onChange={e=>updateRule(idx,rule.key,"days",Number(e.target.value)||rule.dd)} style={{width:45,textAlign:"center",padding:"3px",borderRadius:5,border:"1px solid "+T.brd,fontSize:FS-2,fontWeight:700,fontFamily:"inherit",background:T.bg,color:T.text}}/>
+                      <span style={{fontSize:FS-3,color:T.textSec}}>يوم</span>
+                    </div>})}
+                  <div style={{display:"flex",justifyContent:"flex-end"}}><Btn small onClick={()=>removeUser(au.email)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",fontSize:FS-2}}>🗑️ حذف المستخدم</Btn></div>
+                </div>}
               </div>})}
-            <div style={{padding:10,borderRadius:8,background:T.accent+"06",border:"1px solid "+T.accent+"15",fontSize:FS-2,color:T.textSec}}>💡 المهام تُنشأ مرة واحدة لكل مخالفة ولا تتكرر طالما مفتوحة. المصدر: 🤖 CLARK Bot</div>
+            <div style={{padding:10,borderRadius:8,background:T.accent+"06",border:"1px solid "+T.accent+"15",fontSize:FS-2,color:T.textSec}}>💡 كل مستخدم يستلم المهام حسب القواعد المحددة له. المهام لا تتكرر طالما مفتوحة.</div>
           </div>}
         </div>})()}
     </Card>
