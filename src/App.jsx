@@ -3680,33 +3680,52 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
             <th style={{...TH,minWidth:130}}>العميل</th>
             {aMods.map(m=><th key={m.id} style={{...TH,textAlign:"center",minWidth:80,fontSize:FS-2}}><div style={{fontWeight:800,color:T.accent}}>{m.modelNo}</div><div style={{fontSize:FS-3,color:T.textMut}}>{"سيري: "+(m.rackSize||getRackSize(m.id))}</div></th>)}
             <th style={{...TH,textAlign:"center",background:"#0284C715",color:T.accent,fontWeight:800}}>اجمالي</th>
+            <th style={{...TH,width:70}}></th>
           </tr></thead>
           <tbody>
-            {aCusts.map(c=>{const rowTotal=aMods.reduce((s,m)=>s+(Number(aGrid[m.id+"_"+c.id])||0),0);
+            {aCusts.map((c,ci)=>{const rowTotal=aMods.reduce((s,m)=>s+(Number(aGrid[m.id+"_"+c.id])||0),0);
               return<tr key={c.id}>
                 <td style={{...TD,fontWeight:700}}>{c.name}<div style={{fontSize:FS-3,color:T.textMut}}>{c.phone}</div></td>
-                {aMods.map(m=>{const k=m.id+"_"+c.id;const q=Number(aGrid[k])||0;const isEd=editCell===k;
+                {aMods.map((m,mi)=>{const k=m.id+"_"+c.id;const q=Number(aGrid[k])||0;const isEd=editCell===k;
                   return<td key={m.id} style={{...TD,textAlign:"center",padding:2,cursor:canEdit?"pointer":"default",background:isEd?T.warn+"10":q>0?T.ok+"04":"transparent"}}
                     onClick={()=>{if(!canEdit||isEd)return;setEditCell(k);setEditVal(q);setCellError("")}}>
-                    {isEd?<input type="number" autoFocus value={editVal} onChange={e=>{setEditVal(Number(e.target.value)||0);setCellError("")}}
+                    {isEd?<input type="number" autoFocus value={editVal}
+                      onFocus={e=>e.target.select()}
+                      onChange={e=>{setEditVal(Number(e.target.value)||0);setCellError("")}}
                       onBlur={()=>saveCell(activeSess.id,m.id,c.id,editVal)}
-                      onKeyDown={e=>{if(e.key==="Enter")saveCell(activeSess.id,m.id,c.id,editVal);if(e.key==="Escape"){setEditCell(null);setCellError("")}}}
+                      onKeyDown={e=>{if(e.key==="Enter"){saveCell(activeSess.id,m.id,c.id,editVal)}
+                        if(e.key==="Tab"){e.preventDefault();saveCell(activeSess.id,m.id,c.id,editVal);const nextMi=mi+1;if(nextMi<aMods.length){const nk=aMods[nextMi].id+"_"+c.id;setTimeout(()=>{setEditCell(nk);setEditVal(Number(aGrid[nk])||0)},50)}}
+                        if(e.key==="Escape"){setEditCell(null);setCellError("")}}}
                       style={{width:"100%",textAlign:"center",border:"2px solid "+T.accent,borderRadius:6,padding:"4px 2px",fontSize:FS,fontWeight:700,fontFamily:"inherit",outline:"none",background:T.bg,color:T.text,boxSizing:"border-box"}}/>
                     :<span style={{fontWeight:q>0?800:400,color:q>0?T.accent:T.textMut+"50",fontSize:q>0?FS:FS-2}}>{q||"—"}</span>}
                   </td>})}
                 <td style={{...TD,textAlign:"center",fontWeight:800,color:T.accent,background:"#0284C706",fontSize:FS+1}}>{rowTotal||"—"}</td>
+                <td style={{...TD,whiteSpace:"nowrap",padding:"2px 4px"}}>{rowTotal>0&&<div style={{display:"flex",gap:2}}>
+                  <Btn small onClick={()=>{let h="<h2>🚚 اذن تسليم عميل</h2><table><tr><th>العميل</th><td><b>"+c.name+"</b></td><th>التليفون</th><td>"+c.phone+"</td></tr><tr><th>التاريخ</th><td>"+activeSess.date+"</td><th>العنوان</th><td>"+(c.address||"—")+"</td></tr></table><h2>تفاصيل الاستلام</h2><table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th></tr></thead><tbody>";
+                    aMods.forEach(m=>{const q=Number(aGrid[m.id+"_"+c.id])||0;if(q>0)h+="<tr><td><b>"+m.modelNo+"</b></td><td>"+(m.modelDesc||"")+"</td><td style='font-weight:800;color:#0284C7'>"+q+"</td></tr>"});
+                    h+="<tr style='background:#F1F5F9'><td colspan='2' style='font-weight:800'>الاجمالي</td><td style='font-weight:800;color:#0284C7;font-size:14px'>"+rowTotal+" قطعة</td></tr></tbody></table>";
+                    h+="<div class='sig'><div class='sig-box'>مسؤول التسليم</div><div class='sig-box'>توقيع العميل<br/>"+c.name+"</div></div>";
+                    printPage("اذن تسليم — "+c.name,h)}} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30",fontSize:9,padding:"2px 5px"}}>🖨</Btn>
+                  <Btn small onClick={()=>{const lines=aMods.map(m=>{const q=Number(aGrid[m.id+"_"+c.id])||0;return q>0?"• موديل *"+m.modelNo+"*: *"+q+"* قطعة":null}).filter(Boolean).join("%0A");
+                    const msg="*CLARK — اذن تسليم عميل*%0A%0A• العميل: *"+c.name+"*%0A• التاريخ: *"+activeSess.date+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+rowTotal+"* قطعة%0A%0A*برجاء التأكيد*";
+                    window.open("https://wa.me/"+(c.phone?c.phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",fontSize:9,padding:"2px 5px"}}>📱</Btn>
+                </div>}</td>
               </tr>})}
             <tr style={{background:T.ok+"08"}}><td style={{...TD,fontWeight:800,color:T.ok}}>اجمالي تسليم</td>
               {aMods.map(m=>{const mt=aCusts.reduce((s,c)=>s+(Number(aGrid[m.id+"_"+c.id])||0),0);return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,color:T.ok}}>{mt||"—"}</td>})}
-              <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#fff",background:T.ok}}>{aCusts.reduce((s,c)=>s+aMods.reduce((ss,m)=>ss+(Number(aGrid[m.id+"_"+c.id])||0),0),0)}</td></tr>
+              <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#fff",background:T.ok}}>{aCusts.reduce((s,c)=>s+aMods.reduce((ss,m)=>ss+(Number(aGrid[m.id+"_"+c.id])||0),0),0)}</td><td style={TD}></td></tr>
             <tr><td style={{...TD,fontWeight:700,color:T.textSec}}>مخزن جاهز</td>
               {aMods.map(m=><td key={m.id} style={{...TD,textAlign:"center",fontWeight:700}}>{m.stockQty}</td>)}
-              <td style={TD}></td></tr>
+              <td style={TD}></td><td style={TD}></td></tr>
             <tr><td style={{...TD,fontWeight:800,color:T.warn}}>رصيد</td>
               {aMods.map(m=>{const totalAllCust=orders.find(o=>o.id===m.id)?.customerDeliveries?.reduce((s,d)=>s+(Number(d.qty)||0),0)||0;const rem=m.stockQty-totalAllCust;return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,color:rem>0?T.warn:T.ok}}>{rem}</td>})}
-              <td style={TD}></td></tr>
+              <td style={TD}></td><td style={TD}></td></tr>
           </tbody>
         </table>
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:12}}>
+        <Btn onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة الجدول</Btn>
+        <Btn onClick={()=>{setActiveSession(null);setCellError("")}} style={{background:T.ok,color:"#fff",border:"none",fontWeight:700}}>✓ تأكيد وإغلاق</Btn>
       </div>
     </Card>}
     {/* Sessions Log */}
