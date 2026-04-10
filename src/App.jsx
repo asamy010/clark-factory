@@ -59,9 +59,9 @@ const INIT_CONFIG = {
   workshops:[{id:1,name:"CLARK",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:8,type:"خياطة داخلي"},{id:2,name:"ورشة محمود",owner:"محمود",phone:"",address:"",idCard:"",ownerPhoto:"",rating:7,type:"خياطة خارجي"},{id:3,name:"المصنع",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:9,type:"خياطة داخلي"}],
   seasons:["WS26"], activeSeason:"WS26", logo:"", users:{}, usersList:[], wsPayments:[], notifications:[],
   permissions:{
-    admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit"},
-    manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide"},
-    viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide"}
+    admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit"},
+    manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit"},
+    viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit"}
   },
 };
 
@@ -264,56 +264,55 @@ async function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance,gt
 
 async function printLabel(wsName,order,garmentType,qty,date,gtList,opts){
   if(!order)return;
-  const t=calcOrder(order);const gi=n=>gIcon(n,gtList);
+  const t=calcOrder(order);
   const type=(opts?.type)||"deliver";const rcvDate=opts?.rcvDate||"";const delDate=opts?.delDate||date||"";const rcvQty=opts?.rcvQty||0;const delQty=opts?.delQty||qty;
   const isRcv=type==="receive";
-  const title=isRcv?"اذن استلام مصنع":"اذن تسليم ورشة";
-  const accent=isRcv?"#10B981":"#0284C7";const accentBg=isRcv?"#F0FDF4":"#F0F9FF";
-  let qrSrc="";try{const QR=await loadQR();if(QR&&order.id)qrSrc=await QR.toDataURL(window.location.origin+"?act=rcv&oid="+encodeURIComponent(order.id),{width:200,margin:1,errorCorrectionLevel:"M"})}catch(e){}
+  const title=isRcv?"استلام مصنع":"تسليم ورشة";
+  let qrSrc="";try{const QR=await loadQR();if(QR&&order.id)qrSrc=await QR.toDataURL(window.location.origin+"?act=rcv&oid="+encodeURIComponent(order.id),{width:280,margin:1,errorCorrectionLevel:"M"})}catch(e){}
   const modelNo=order.modelNo||"";const modelDesc=order.modelDesc||"";const sizeLabel=order.sizeLabel||"";
   const pw=window.open("","_blank");if(!pw)return;
   pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>"+title+"</title><style>"
   +"@page{size:10cm 15cm;margin:2mm}"
   +"*{margin:0;padding:0;box-sizing:border-box}"
-  +"body{font-family:'Cairo',sans-serif;width:10cm;height:15cm;padding:3mm;display:flex;flex-direction:column;color:#1E293B}"
-  +".hdr{text-align:center;padding:2mm 0 3mm;border-bottom:2.5px solid "+accent+"}"
-  +".hdr h1{font-size:13pt;color:"+accent+";font-weight:800;letter-spacing:1px}"
-  +".hdr .type{font-size:11pt;font-weight:800;color:#fff;background:"+accent+";display:inline-block;padding:1mm 5mm;border-radius:5px;margin-top:2mm}"
-  +".mid{display:flex;gap:3mm;align-items:center;margin:3mm 0;justify-content:center}"
-  +".qr img{border:1px solid #E2E8F0;border-radius:3mm;padding:1mm}"
-  +".big{text-align:center;padding:2.5mm;background:"+accentBg+";border:2px solid "+accent+"50;border-radius:6px;margin:2mm 0}"
-  +".big .icon{font-size:16pt}"
-  +".big .piece{font-size:12pt;font-weight:800;color:"+accent+"}"
-  +".big .qty{font-size:20pt;font-weight:800;color:"+accent+"}"
-  +"table{width:100%;border-collapse:collapse;margin:2mm 0;font-size:9pt}"
-  +"table th{background:#F1F5F9;color:#475569;font-weight:700;padding:2mm 3mm;text-align:right;border:1px solid #CBD5E1}"
-  +"table td{padding:2mm 3mm;text-align:right;border:1px solid #E2E8F0;font-weight:600}"
-  +"table td.val{color:"+accent+";font-weight:800;font-size:10pt}"
-  +".moves{margin:2mm 0}"
-  +".move{display:flex;justify-content:space-between;padding:2mm 3mm;border-radius:4px;margin:1mm 0;font-size:9pt;font-weight:700}"
-  +".move.del{background:#F0F9FF;color:#0284C7;border:1px solid #0284C730}"
-  +".move.rcv{background:#F0FDF4;color:#10B981;border:1px solid #10B98130}"
-  +".foot{margin-top:auto;text-align:center;font-size:7pt;color:#94A3B8;padding-top:2mm;border-top:1px dashed #CBD5E1}"
-  +".pbar{position:sticky;top:0;background:#fff;padding:4px 10px;display:none;justify-content:center;gap:6px;border-bottom:2px solid #E2E8F0;z-index:999}"
-  +".pbar button{padding:5px 16px;border-radius:6px;border:none;cursor:pointer;font-family:'Cairo',sans-serif;font-size:11px;font-weight:700}"
+  +"body{font-family:'Cairo',sans-serif;width:10cm;height:15cm;padding:3mm;display:flex;flex-direction:column;color:#000}"
+  +".hdr{text-align:center;border-bottom:3px solid #000;padding-bottom:2mm;margin-bottom:2mm}"
+  +".hdr h1{font-size:14pt;font-weight:800;letter-spacing:1px}"
+  +".hdr .type{font-size:12pt;font-weight:800;display:inline-block;padding:1mm 6mm;border:2.5px solid #000;border-radius:4px;margin-top:2mm}"
+  +".qr{text-align:center;margin:3mm 0;padding:2mm 0;border-bottom:1px dashed #000}"
+  +".qr img{width:32mm;height:32mm}"
+  +".qr .hint{font-size:7pt;color:#555;margin-top:1mm}"
+  +".big{text-align:center;padding:3mm;border:2.5px solid #000;border-radius:6px;margin:2mm 0}"
+  +".big .piece{font-size:14pt;font-weight:800}"
+  +".big .qty{font-size:22pt;font-weight:800}"
+  +"table{width:100%;border-collapse:collapse;margin:2mm 0}"
+  +"table td{padding:1.5mm 3mm;font-size:10pt;font-weight:700;border:1px solid #000}"
+  +"table td.k{background:#f5f5f5;font-weight:800;width:35%}"
+  +".moves{margin:2mm 0;border:2px solid #000;border-radius:4px;overflow:hidden}"
+  +".move{display:flex;justify-content:space-between;padding:2mm 3mm;font-size:10pt;font-weight:800;border-bottom:1px solid #000}"
+  +".move:last-child{border-bottom:none}"
+  +".move .arrow{font-size:12pt}"
+  +".foot{margin-top:auto;text-align:center;font-size:7pt;color:#555;padding-top:2mm;border-top:1px dashed #000}"
+  +".pbar{position:sticky;top:0;background:#fff;padding:4px 10px;display:none;justify-content:center;gap:6px;border-bottom:2px solid #ccc;z-index:999}"
+  +".pbar button{padding:5px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo',sans-serif;font-size:11px;font-weight:700;background:#fff}"
+  +".pbar .pr{background:#000;color:#fff}"
   +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
   +"</style></head><body>"
-  +"<div class='pbar'><button style='background:#F1F5F9;color:#475569' onclick='window.close()'>↩ رجوع</button><button style='background:"+accent+";color:#fff' onclick='window.print()'>🖨 طباعة</button></div>"
-  +"<div class='hdr'><h1>CLARK Factory</h1><div class='type'>"+(isRcv?"↙ استلام مصنع":"↗ تسليم ورشة")+"</div></div>"
-  +"<div class='mid'>"+(qrSrc?"<div class='qr'><img src='"+qrSrc+"' style='width:25mm;height:25mm'/></div>":"")
-  +"<div class='big'><div class='icon'>"+gi(garmentType||"عام")+"</div><div class='piece'>"+(garmentType||"عام")+"</div><div class='qty'>"+(isRcv?rcvQty:delQty)+" قطعة</div></div></div>"
+  +"<div class='pbar'><button onclick='window.close()'>↩ رجوع</button><button class='pr' onclick='window.print()'>🖨 طباعة</button></div>"
+  +"<div class='hdr'><h1>CLARK Factory</h1><div class='type'>"+(isRcv?"↙ "+title:"↗ "+title)+"</div></div>"
+  +(qrSrc?"<div class='qr'><img src='"+qrSrc+"'/><div class='hint'>مسح للاستلام السريع</div></div>":"")
+  +"<div class='big'><div class='piece'>"+(garmentType||"عام")+"</div><div class='qty'>"+(isRcv?rcvQty:delQty)+" قطعة</div></div>"
   +"<table>"
-  +"<tr><th>رقم الموديل</th><td class='val'>"+modelNo+"</td></tr>"
-  +"<tr><th>الوصف</th><td>"+modelDesc+"</td></tr>"
-  +"<tr><th>المقاسات</th><td>"+sizeLabel+"</td></tr>"
-  +"<tr><th>الورشة</th><td class='val' style='color:#8B5CF6'>"+wsName+"</td></tr>"
-  +"<tr><th>كمية القص</th><td>"+t.cutQty+"</td></tr>"
+  +"<tr><td class='k'>الموديل</td><td>"+modelNo+"</td></tr>"
+  +"<tr><td class='k'>الوصف</td><td>"+modelDesc+"</td></tr>"
+  +"<tr><td class='k'>المقاسات</td><td>"+sizeLabel+"</td></tr>"
+  +"<tr><td class='k'>الورشة</td><td>"+wsName+"</td></tr>"
+  +"<tr><td class='k'>كمية القص</td><td>"+t.cutQty+"</td></tr>"
   +"</table>"
   +"<div class='moves'>"
-  +"<div class='move del'><span>↗ تسليم ورشة</span><span>"+delQty+" قطعة</span><span>"+delDate+"</span></div>"
-  +(isRcv?"<div class='move rcv'><span>↙ استلام مصنع</span><span>"+rcvQty+" قطعة</span><span>"+rcvDate+"</span></div>":"")
+  +"<div class='move'><span class='arrow'>↗</span><span>تسليم ورشة</span><span>"+delQty+" قطعة</span><span>"+delDate+"</span></div>"
+  +(isRcv?"<div class='move'><span class='arrow'>↙</span><span>استلام مصنع</span><span>"+rcvQty+" قطعة</span><span>"+rcvDate+"</span></div>":"")
   +"</div>"
-  +"<div class='foot'>"+modelNo+"-"+(garmentType||"عام")+"-"+(isRcv?rcvQty:delQty)+"-"+wsName+"</div>"
+  +"<div class='foot'>"+modelNo+" | "+(garmentType||"عام")+" | "+(isRcv?rcvQty:delQty)+" | "+wsName+"</div>"
   +"</body></html>");
   pw.document.close();if(window.innerWidth>1024)setTimeout(()=>{pw.focus();pw.print()},500)
 }
@@ -665,7 +664,8 @@ const TABS=[
   {key:"calc",label:"حاسبة التكاليف",icon:"🧮",color:"#EC4899",bg:"#FCE7F3"},
   {key:"tasks",label:"المهام",icon:"📌",color:"#F59E0B",bg:"#FEF3C7"},
   {key:"db",label:"قاعدة البيانات",icon:"🗄️",color:"#EF4444",bg:"#FEE2E2"},
-  {key:"settings",label:"الاعدادات",icon:"⚙️",color:"#64748B",bg:"#F1F5F9"}
+  {key:"settings",label:"الاعدادات",icon:"⚙️",color:"#64748B",bg:"#F1F5F9"},
+  {key:"custDeliver",label:"تسليم عملاء",icon:"🚚",color:"#059669",bg:"#ECFDF5"}
 ];
 
 /* ══ MAIN APP ══ */
@@ -687,7 +687,7 @@ export default function App(){
   const[stickyForm,setStickyForm]=useState(null);
   const[quickPopup,setQuickPopup]=useState(null);/* "task"|"notif"|null */
   const[qpTo,setQpTo]=useState("");const[qpText,setQpText]=useState("");const[qpType,setQpType]=useState("تذكير");
-  const[aiMsgs,setAiMsgs]=useState([]);const[aiInput,setAiInput]=useState("");const[aiLoading,setAiLoading]=useState(false);const[aiOpen,setAiOpen]=useState(false);
+  const[aiMsgs,setAiMsgs]=useState([]);const[aiInput,setAiInput]=useState("");const[aiLoading,setAiLoading]=useState(false);const[aiOpen,setAiOpen]=useState(false);const[dismissedAlerts,setDismissedAlerts]=useState([]);
   const aiAlerts=useMemo(()=>{const a=[];const now=Date.now();const workshops=config.workshops||[];const wsPayments=config.wsPayments||[];
     /* 1. أوردرات متأخرة */
     orders.forEach(o=>{if(o.closed||o.status==="تم التسليم"||o.status==="تم الشحن")return;const wds=o.workshopDeliveries||[];let lastDate=o.date;wds.forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});const days=Math.floor((now-new Date(lastDate))/(86400000));
@@ -707,6 +707,7 @@ export default function App(){
     workshops.forEach(w=>{let bal=0,oldestDate="";orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const wBal=(Number(wd.qty)||0)-rcvd;if(wBal>0){bal+=wBal;if(!oldestDate||wd.date<oldestDate)oldestDate=wd.date}})});
       if(bal>0&&oldestDate){const days=Math.floor((now-new Date(oldestDate))/(86400000));if(days>14)a.push({icon:"🐢",text:"ورشة "+w.name+" عندها "+bal+" قطعة من "+days+" يوم",type:"slow"})}});
     return a},[orders,config.workshops,config.wsPayments]);
+  const visibleAlerts=aiAlerts.filter(a=>!dismissedAlerts.includes(a.text));
   const askAI=async()=>{if(!aiInput.trim()||aiLoading)return;const q=aiInput.trim();setAiInput("");setAiMsgs(p=>[...p,{role:"user",text:q}]);setAiLoading(true);
     try{
       const ws=(config.workshops||[]).map(w=>{let del=0,rcv=0;orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{del+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{rcv+=Number(r.qty)||0})})});
@@ -718,8 +719,14 @@ export default function App(){
         const days=lastMove?Math.floor((Date.now()-new Date(lastMove))/(86400000)):null;
         return{modelNo:o.modelNo,desc:o.modelDesc,status:o.status,cutQty:t.cutQty,deliveredToWs:totalDel,receivedFromWs:totalRcv,wsBalance:totalDel-totalRcv,stockDelivered:stockDel,workshops:wds.map(wd=>wd.wsName).filter((v,i,a)=>a.indexOf(v)===i),daysSinceLastMove:days,pieces:o.orderPieces||[]}});
       const ctx="أنت مساعد ذكي لنظام CLARK لإدارة مصانع الملابس.\n\nقواعد الرد:\n- رد بالمصري العامي (يعني، كده، خلاص، أهو)\n- اختصر اختصار غير مخل — بلاش كلام كتير\n- افصل بين كل أوردر أو معلومة بخط فاصل ─────\n- في الأرصدة المالية للورش: لو owedMoney سالب يبقى الورشة عليها فلوس (دفعنالها أكتر من المستحق)، لو موجب يبقى ليها فلوس عندنا\n- في الآخر خالص حط سطر ─────── وبعده 💡 ملاحظتك أو نصيحتك من عندك كمدير انتاج خبرة\n\nبيانات الموسم "+season+":\n\nالأوردرات ("+ords.length+"):\n"+JSON.stringify(ords,null,0)+"\n\nالورش ("+ws.length+"):\n"+JSON.stringify(ws,null,0)+"\n\nالتاريخ: "+new Date().toISOString().split("T")[0];
-      const res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system:ctx,messages:[...aiMsgs.map(m=>({role:m.role==="user"?"user":"assistant",content:m.text})),{role:"user",content:q}]})});
-      const data2=await res.json();if(data2.error){setAiMsgs(p=>[...p,{role:"ai",text:"⚠️ "+(data2.error.message||data2.error||"خطأ غير معروف")}]);setAiLoading(false);return}
+      const msgs=[...aiMsgs.map(m=>({role:m.role==="user"?"user":"assistant",content:m.text})),{role:"user",content:q}];
+      let data2;let retries=0;
+      while(retries<2){
+        const res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system:ctx,messages:msgs})});
+        data2=await res.json();
+        if(data2.error&&(data2.error.message||"").toLowerCase().includes("overloaded")&&retries<1){retries++;setAiMsgs(p=>[...p,{role:"ai",text:"⏳ السيرفر مشغول... بعيد المحاولة"}]);await new Promise(r=>setTimeout(r,3000));setAiMsgs(p=>p.filter(m=>m.text!=="⏳ السيرفر مشغول... بعيد المحاولة"));continue}
+        break}
+      if(data2.error){setAiMsgs(p=>[...p,{role:"ai",text:"⚠️ "+(data2.error.message||data2.error||"خطأ غير معروف")}]);setAiLoading(false);return}
       const reply=data2.content?.map(c=>c.text||"").join("\n")||"عذراً، لم أتمكن من الرد";
       setAiMsgs(p=>[...p,{role:"ai",text:reply}])
     }catch(e){console.error("AI error:",e);setAiMsgs(p=>[...p,{role:"ai",text:"⚠️ خطأ في الاتصال بالمساعد الذكي"}])}
@@ -805,6 +812,7 @@ export default function App(){
     if(qrModelNo){const o=orders.find(x=>x.modelNo===qrModelNo);if(o){qrDone.current=true;goD(o.id);window.history.replaceState({},"",window.location.pathname)}}
     if(qrAction==="rcv"&&qrOid){const o=orders.find(x=>x.id===qrOid);if(o){qrDone.current=true;setTab("external");window.history.replaceState({},"",window.location.pathname);setTimeout(()=>{window.__qrReceive={oid:qrOid,wdi:Number(qrWdi)||0};window.dispatchEvent(new Event("qr-receive"))},600)}}
     if(qrAction==="wsacc"&&qrWs){qrDone.current=true;setTab("external");window.history.replaceState({},"",window.location.pathname);setTimeout(()=>{window.__qrWsAcc={ws:decodeURIComponent(qrWs)};window.dispatchEvent(new Event("qr-wsacc"))},600)}
+    if(qrAction==="stock"&&qrOid){const o=orders.find(x=>x.id===qrOid);if(o){qrDone.current=true;goD(o.id);window.history.replaceState({},"",window.location.pathname);setTimeout(()=>{window.__qrStock=true;window.dispatchEvent(new Event("qr-stock"))},800)}}
   },[orders,qrModelNo,qrAction]);
 
   /* Auto-resolve wsName from wsId */
@@ -824,7 +832,7 @@ export default function App(){
   const data={...config,orders:resolvedOrders||orders};
   const getUserRole=()=>{if(config.users&&config.users[user?.uid]){const r=config.users[user.uid];return typeof r==="string"?r:r?.role||"admin"}const byEmail=(config.usersList||[]).find(u=>u.email===user?.email);if(byEmail)return byEmail.role;return"admin"};
   const userRole=getUserRole();const canEdit=userRole==="admin"||userRole==="manager";
-  const DEFAULT_PERMS={admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit"},manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide"},viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide"}};
+  const DEFAULT_PERMS={admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit"},manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit"},viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit"}};
   const getTabPerm=(tabKey)=>{const perms=config.permissions||{};const defaults=DEFAULT_PERMS[userRole]||DEFAULT_PERMS.viewer;const rolePerm=perms[userRole]||{};return rolePerm[tabKey]||defaults[tabKey]||"view"};
   const canEditTab=(tabKey)=>getTabPerm(tabKey)==="edit";
   const canViewTab=(tabKey)=>getTabPerm(tabKey)!=="hide";
@@ -938,10 +946,10 @@ export default function App(){
           </div>}
         </div>
         <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
-          <div onClick={()=>setAiOpen(!aiOpen)} style={{cursor:"pointer",fontSize:isMob?16:18,padding:"3px 8px",borderRadius:8,background:aiOpen?"linear-gradient(135deg,#0EA5E920,#8B5CF620)":aiAlerts.length>0?"#EF444410":"transparent",transition:"all 0.2s",display:"flex",alignItems:"center",gap:isMob?0:4,position:"relative"}}><span>🤖</span>{!isMob&&<span style={{fontSize:FS-2,fontWeight:600,color:aiOpen?"#8B5CF6":T.textSec}}>AI</span>}
-            {aiAlerts.length>0&&<span style={{position:"absolute",top:-2,right:isMob?-2:-4,width:16,height:16,borderRadius:8,background:"#EF4444",color:"#fff",fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>{aiAlerts.length}</span>}
+          <div onClick={()=>setAiOpen(!aiOpen)} style={{cursor:"pointer",fontSize:isMob?16:18,padding:"3px 8px",borderRadius:8,background:aiOpen?"linear-gradient(135deg,#0EA5E920,#8B5CF620)":visibleAlerts.length>0?"#EF444410":"transparent",transition:"all 0.2s",display:"flex",alignItems:"center",gap:isMob?0:4,position:"relative"}}><span>🤖</span>{!isMob&&<span style={{fontSize:FS-2,fontWeight:600,color:aiOpen?"#8B5CF6":T.textSec}}>AI</span>}
+            {visibleAlerts.length>0&&<span style={{position:"absolute",top:-2,right:isMob?-2:-4,width:16,height:16,borderRadius:8,background:"#EF4444",color:"#fff",fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>{visibleAlerts.length}</span>}
           </div>
-          {!isMob&&aiOpen&&<div style={{position:"absolute",top:"100%",left:"50%",transform:"translateX(-50%)",marginTop:8,zIndex:9999}}>
+          {!isMob&&aiOpen&&<><div onClick={()=>setAiOpen(false)} style={{position:"fixed",inset:0,zIndex:9998}}/><div style={{position:"absolute",top:"100%",left:"50%",transform:"translateX(-50%)",marginTop:8,zIndex:9999}}>
             <div style={{background:T.cardSolid,borderRadius:16,border:"1px solid "+T.brd,boxShadow:"0 8px 40px rgba(0,0,0,0.15)",display:"flex",flexDirection:"column",height:460,width:380}}>
               <div style={{padding:"12px 16px",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",background:"linear-gradient(135deg,#0EA5E910,#8B5CF610)",borderRadius:"16px 16px 0 0"}}>
                 <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:20}}>🤖</span><span style={{fontWeight:800,fontSize:FS+1,color:T.text}}>مساعد CLARK</span></div>
@@ -952,16 +960,16 @@ export default function App(){
               </div>
               <div style={{flex:1,overflowY:"auto",padding:12,display:"flex",flexDirection:"column",gap:8}}>
                 {aiMsgs.length===0&&<div>
-                  {aiAlerts.length>0&&<div style={{marginBottom:12}}>
-                    <div style={{fontSize:FS-1,fontWeight:800,color:T.text,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>{"⚡ "+aiAlerts.length+" تنبيه"}</div>
-                    {aiAlerts.map((al,i)=><div key={i} onClick={()=>{setAiInput(al.text);}} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"8px 10px",marginBottom:4,borderRadius:10,background:al.type==="late"?"#FEF2F2":al.type==="ready"?"#F0FDF4":al.type==="overpaid"?"#FFF7ED":al.type==="slow"?"#FFFBEB":"#F8FAFC",border:"1px solid "+(al.type==="late"?"#FECACA":al.type==="ready"?"#BBF7D0":al.type==="overpaid"?"#FED7AA":al.type==="slow"?"#FDE68A":"#E2E8F0"),cursor:"pointer",transition:"all 0.15s"}}>
+                  {visibleAlerts.length>0&&<div style={{marginBottom:12}}>
+                    <div style={{fontSize:FS-1,fontWeight:800,color:T.text,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>{"⚡ "+visibleAlerts.length+" تنبيه"}</div>
+                    {visibleAlerts.map((al,i)=><div key={i} onClick={()=>{setAiInput(al.text);}} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"8px 10px",marginBottom:4,borderRadius:10,background:al.type==="late"?"#FEF2F2":al.type==="ready"?"#F0FDF4":al.type==="overpaid"?"#FFF7ED":al.type==="slow"?"#FFFBEB":"#F8FAFC",border:"1px solid "+(al.type==="late"?"#FECACA":al.type==="ready"?"#BBF7D0":al.type==="overpaid"?"#FED7AA":al.type==="slow"?"#FDE68A":"#E2E8F0"),cursor:"pointer",transition:"all 0.15s"}}>
                       <span style={{fontSize:16,flexShrink:0}}>{al.icon}</span>
-                      <span style={{fontSize:FS-2,color:"#1E293B",fontWeight:600,lineHeight:1.5}}>{al.text}</span>
+                      <span style={{fontSize:FS-2,color:"#1E293B",fontWeight:600,lineHeight:1.5,flex:1}}>{al.text}</span><span onClick={e=>{e.stopPropagation();setDismissedAlerts(p=>[...p,al.text])}} style={{cursor:"pointer",fontSize:10,color:"#94A3B8",flexShrink:0,padding:"0 2px"}}>✕</span>
                     </div>)}
                     <div style={{height:1,background:T.brd,margin:"12px 0"}}/>
                   </div>}
-                  <div style={{textAlign:"center",padding:aiAlerts.length>0?8:20,color:T.textMut}}>
-                    {aiAlerts.length===0&&<div style={{fontSize:32,marginBottom:8}}>🤖</div>}
+                  <div style={{textAlign:"center",padding:visibleAlerts.length>0?8:20,color:T.textMut}}>
+                    {visibleAlerts.length===0&&<div style={{fontSize:32,marginBottom:8}}>🤖</div>}
                     <div style={{fontSize:FS-1,fontWeight:600,marginBottom:4}}>اسألني عن أي حاجة</div>
                     <div style={{fontSize:FS-2,lineHeight:1.8,whiteSpace:"pre-wrap"}}>{"• موديل 3262 فين؟\n• ملخص الورش\n• كام أوردر متأخر؟"}</div>
                   </div>
@@ -976,7 +984,7 @@ export default function App(){
                 <button onClick={askAI} disabled={aiLoading||!aiInput.trim()} style={{padding:"8px 14px",borderRadius:10,border:"none",background:aiInput.trim()?"linear-gradient(135deg,#0EA5E9,#8B5CF6)":"#E2E8F0",color:aiInput.trim()?"#fff":"#94A3B8",cursor:aiInput.trim()?"pointer":"default",fontSize:14,fontWeight:700}}>📩</button>
               </div>
             </div>
-          </div>}
+          </div></>}
         </div>
         {!isMob&&<span style={{fontSize:FS,color:T.textSec}}>{userName}</span>}
         {/* Theme picker - desktop only */}
@@ -1105,6 +1113,7 @@ export default function App(){
         {tab==="calc"&&<CalcPg data={data} isMob={isMob}/>}
         {tab==="reports"&&<ReportsHub data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="settings"&&canEditTab("settings")&&<SettingsPg config={config} upConfig={upConfig} isMob={isMob} user={user} theme={theme} setTheme={setTheme} season={season} orders={orders} syncWsIds={syncWsIds} replaceOrder={replaceOrder}/>}
+        {tab==="custDeliver"&&<Card title="🚚 تسليم عملاء"><div style={{textAlign:"center",padding:40,color:T.textMut}}><div style={{fontSize:48,marginBottom:12}}>🚚</div><div style={{fontSize:FS+2,fontWeight:700,color:T.text,marginBottom:6}}>تسليم العملاء</div><div style={{fontSize:FS,color:T.textSec}}>قريباً — هيتم اضافة شاشة تسليم العملاء</div></div></Card>}
       </div>}
     </div>
     {/* Quick Task/Notification Popup */}
@@ -1146,16 +1155,16 @@ export default function App(){
         </div>
         <div style={{flex:1,overflowY:"auto",padding:12,display:"flex",flexDirection:"column",gap:8}}>
           {aiMsgs.length===0&&<div>
-            {aiAlerts.length>0&&<div style={{marginBottom:12}}>
-              <div style={{fontSize:FS-1,fontWeight:800,color:T.text,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>{"⚡ "+aiAlerts.length+" تنبيه"}</div>
-              {aiAlerts.map((al,i)=><div key={i} onClick={()=>{setAiInput(al.text);}} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"8px 10px",marginBottom:4,borderRadius:10,background:al.type==="late"?"#FEF2F2":al.type==="ready"?"#F0FDF4":al.type==="overpaid"?"#FFF7ED":al.type==="slow"?"#FFFBEB":"#F8FAFC",border:"1px solid "+(al.type==="late"?"#FECACA":al.type==="ready"?"#BBF7D0":al.type==="overpaid"?"#FED7AA":al.type==="slow"?"#FDE68A":"#E2E8F0"),cursor:"pointer",transition:"all 0.15s"}}>
+            {visibleAlerts.length>0&&<div style={{marginBottom:12}}>
+              <div style={{fontSize:FS-1,fontWeight:800,color:T.text,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>{"⚡ "+visibleAlerts.length+" تنبيه"}</div>
+              {visibleAlerts.map((al,i)=><div key={i} onClick={()=>{setAiInput(al.text);}} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"8px 10px",marginBottom:4,borderRadius:10,background:al.type==="late"?"#FEF2F2":al.type==="ready"?"#F0FDF4":al.type==="overpaid"?"#FFF7ED":al.type==="slow"?"#FFFBEB":"#F8FAFC",border:"1px solid "+(al.type==="late"?"#FECACA":al.type==="ready"?"#BBF7D0":al.type==="overpaid"?"#FED7AA":al.type==="slow"?"#FDE68A":"#E2E8F0"),cursor:"pointer",transition:"all 0.15s"}}>
                 <span style={{fontSize:16,flexShrink:0}}>{al.icon}</span>
-                <span style={{fontSize:FS-2,color:"#1E293B",fontWeight:600,lineHeight:1.5}}>{al.text}</span>
+                <span style={{fontSize:FS-2,color:"#1E293B",fontWeight:600,lineHeight:1.5,flex:1}}>{al.text}</span><span onClick={e=>{e.stopPropagation();setDismissedAlerts(p=>[...p,al.text])}} style={{cursor:"pointer",fontSize:10,color:"#94A3B8",flexShrink:0,padding:"0 2px"}}>✕</span>
               </div>)}
               <div style={{height:1,background:T.brd,margin:"12px 0"}}/>
             </div>}
-            <div style={{textAlign:"center",padding:aiAlerts.length>0?8:20,color:T.textMut}}>
-              {aiAlerts.length===0&&<div style={{fontSize:32,marginBottom:8}}>🤖</div>}
+            <div style={{textAlign:"center",padding:visibleAlerts.length>0?8:20,color:T.textMut}}>
+              {visibleAlerts.length===0&&<div style={{fontSize:32,marginBottom:8}}>🤖</div>}
               <div style={{fontSize:FS-1,fontWeight:600,marginBottom:4}}>اسألني عن أي حاجة</div>
               <div style={{fontSize:FS-2,lineHeight:1.8,whiteSpace:"pre-wrap"}}>{"• موديل 3262 فين؟\n• ملخص الورش\n• كام أوردر متأخر؟"}</div>
             </div>
@@ -1171,7 +1180,7 @@ export default function App(){
         </div>
       </div>
     </div>}
-    {showScanner&&<QRScanner onClose={()=>setShowScanner(false)} onScan={url=>{setShowScanner(false);try{const u=new URL(url);const p=new URLSearchParams(u.search);if(p.get("o")){const o=orders.find(x=>x.modelNo===p.get("o"));if(o)goD(o.id)}else if(p.get("act")==="rcv"&&p.get("oid")){setTab("external");setTimeout(()=>{window.__qrReceive={oid:p.get("oid"),wdi:Number(p.get("wdi"))||0};window.dispatchEvent(new Event("qr-receive"))},600)}else if(p.get("act")==="wsacc"&&p.get("ws")){setTab("external");setTimeout(()=>{window.__qrWsAcc={ws:decodeURIComponent(p.get("ws"))};window.dispatchEvent(new Event("qr-wsacc"))},600)}else{showToast("QR غير معروف")}}catch(e){showToast("QR غير صالح")}}}/>}
+    {showScanner&&<QRScanner onClose={()=>setShowScanner(false)} onScan={url=>{setShowScanner(false);try{const u=new URL(url);const p=new URLSearchParams(u.search);if(p.get("o")){const o=orders.find(x=>x.modelNo===p.get("o"));if(o)goD(o.id)}else if(p.get("act")==="rcv"&&p.get("oid")){setTab("external");setTimeout(()=>{window.__qrReceive={oid:p.get("oid"),wdi:Number(p.get("wdi"))||0};window.dispatchEvent(new Event("qr-receive"))},600)}else if(p.get("act")==="stock"&&p.get("oid")){const o=orders.find(x=>x.id===p.get("oid"));if(o){goD(o.id);setTimeout(()=>{window.__qrStock=true;window.dispatchEvent(new Event("qr-stock"))},800)}}else if(p.get("act")==="wsacc"&&p.get("ws")){setTab("external");setTimeout(()=>{window.__qrWsAcc={ws:decodeURIComponent(p.get("ws"))};window.dispatchEvent(new Event("qr-wsacc"))},600)}else{showToast("QR غير معروف")}}catch(e){showToast("QR غير صالح")}}}/>}
   </div>
 }
 function DashPg({data,goD,isMob,season,statusCards,upConfig,user}){
@@ -1769,6 +1778,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
   const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
   const workshops=data.workshops||[];
   const isInternal=(name)=>{const w=workshops.find(x=>x.name===name);return w?wsIsInternal(w.type):false};
+  useEffect(()=>{const h=()=>{if(!window.__qrStock||!order)return;delete window.__qrStock;updOrder(sel,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty:0,notes:"",createdBy:userName||""})});setTimeout(()=>{setEditStockIdx((order.deliveries||[]).length);setTimeout(()=>{const inp=document.querySelector("#stock-qty-input-wrap input");if(inp)inp.focus()},300)},200)};window.addEventListener("qr-stock",h);return()=>window.removeEventListener("qr-stock",h)},[order,sel]);
 
   if(dupInit)return<OrdForm data={data} initial={dupInit} onSave={o=>{addOrder(o);setDupInit(null);showToast("✓ تم تكرار الأوردر")}} onCancel={()=>setDupInit(null)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
   if(showNew)return<OrdForm data={data} initial={mkOrder()} onSave={o=>{addOrder(o);setShowNew(false);showToast("✓ تم اضافة أمر القص")}} onCancel={()=>setShowNew(false)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
@@ -1968,10 +1978,10 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
               return<tr key={i} style={{background:isEd?T.warn+"06":"transparent"}}>
               <td style={TD}>{i+1}</td>
               <td style={{...TD,minWidth:130}}>{isEd?<Inp type="date" value={d.date} onChange={v=>updOrder(sel,o=>{o.deliveries[i].date=v})}/>:d.date}</td>
-              <td style={{...TD,minWidth:100}}>{isEd?<Inp type="number" value={d.qty} onChange={v=>updOrder(sel,o=>{const maxQ=t.cutQty-o.deliveries.filter((_,j)=>j!==i).reduce((s,x)=>s+(Number(x.qty)||0),0);o.deliveries[i].qty=Math.min(Number(v)||0,maxQ);o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)})}/>:<span style={{fontWeight:700,color:T.accent}}>{d.qty}</span>}</td>
+              <td style={{...TD,minWidth:100}}>{isEd?<div id="stock-qty-input-wrap"><Inp type="number" value={d.qty} onChange={v=>updOrder(sel,o=>{const maxQ=t.cutQty-o.deliveries.filter((_,j)=>j!==i).reduce((s,x)=>s+(Number(x.qty)||0),0);o.deliveries[i].qty=Math.min(Number(v)||0,maxQ);o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)})}/></div>:<span style={{fontWeight:700,color:T.accent}}>{d.qty}</span>}</td>
               <td style={{...TD,minWidth:120}}>{isEd?<Inp value={d.notes} onChange={v=>updOrder(sel,o=>{o.deliveries[i].notes=v})} placeholder="ملاحظات"/>:(d.notes||"-")}</td>
               {canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}>
-                {isEd?<><Btn small primary onClick={()=>setEditStockIdx(null)}>💾</Btn><Btn danger small onClick={()=>{updOrder(sel,o=>{o.deliveries.splice(i,1);o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)});setEditStockIdx(null)}}>🗑️</Btn></>
+                {isEd?<><Btn small primary onClick={()=>setEditStockIdx(null)}>💾</Btn><Btn small onClick={()=>{setEditStockIdx(null);printLabel("مخزن جاهز",order,"مخزن جاهز",d.qty,d.date,data.garmentTypes,{type:"deliver",delDate:d.date,delQty:d.qty})}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>🏷️</Btn><Btn danger small onClick={()=>{updOrder(sel,o=>{o.deliveries.splice(i,1);o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)});setEditStockIdx(null)}}>🗑️</Btn></>
                 :<Btn small onClick={()=>setEditStockIdx(i)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>}
               </div></td>}
             </tr>})}
@@ -2348,6 +2358,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user
           <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
             {isEditing?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>الغاء</Btn></>:<>
             <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
+            <Btn small onClick={()=>{const ord=data.orders.find(o=>o.id===m.orderId);if(!ord)return;const wd=(ord.workshopDeliveries||[])[m.wdIdx];if(!wd)return;if(m.type==="deliver")printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"deliver",delDate:m.date,delQty:m.qty});else{printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"receive",delDate:wd.date,delQty:wd.qty,rcvDate:m.date,rcvQty:m.qty})}}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>🏷️</Btn>
             <Btn small onClick={()=>{const wsObj=workshops.find(w=>w.name===m.wsName);const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+m.wsName+"*%0A• رقم الموديل: *"+m.orderNo+"*%0A• الوصف: "+m.orderDesc+"%0A• نوع القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"* قطعة%0A• السعر: *"+(m.price||0)+"* ج.م/قطعة%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — اذن استلام من ورشة*%0A%0A• الورشة: *"+m.wsName+"*%0A• رقم الموديل: *"+m.orderNo+"*%0A• الوصف: "+m.orderDesc+"%0A• نوع القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية المستلمة: *"+m.qty+"* قطعة%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn>
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/></>}
@@ -2460,6 +2471,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/>
             <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
+            <Btn small onClick={()=>{const ord=data.orders.find(o=>o.id===m.orderId);if(!ord)return;const wd=(ord.workshopDeliveries||[])[m.wdIdx];if(!wd)return;if(m.type==="deliver")printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"deliver",delDate:m.date,delQty:m.qty});else{printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"receive",delDate:wd.date,delQty:wd.qty,rcvDate:m.date,rcvQty:m.qty})}}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>🏷️</Btn>
             <Btn small onClick={()=>{const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — تسليم*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• الوصف: "+(m.orderDesc||"-")+"%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — استلام*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• الوصف: "+(m.orderDesc||"-")+"%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn></>}
           </div>}</td></tr>})}</tbody>
       </table></div>
@@ -2711,6 +2723,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/>
             <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
+            <Btn small onClick={()=>{const ord=data.orders.find(o=>o.id===m.orderId);if(!ord)return;const wd=(ord.workshopDeliveries||[])[m.wdIdx];if(!wd)return;if(m.type==="deliver")printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"deliver",delDate:m.date,delQty:m.qty});else{printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"receive",delDate:wd.date,delQty:wd.qty,rcvDate:m.date,rcvQty:m.qty})}}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>🏷️</Btn>
             <Btn small onClick={()=>{const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — تسليم*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• الوصف: "+(m.orderDesc||"-")+"%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — استلام*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• الوصف: "+(m.orderDesc||"-")+"%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn></>}
           </div>}</td></tr>})}</tbody>
       </table></div>
@@ -3648,7 +3661,7 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
           <thead><tr><th style={TH}>الشاشة</th>{roles.map(r=><th key={r} style={{...TH,textAlign:"center"}}>{roleLabels[r]}</th>)}</tr></thead>
           <tbody>{tabs.map(t=><tr key={t.key}>
             <td style={{...TD,fontWeight:600}}><span style={{marginLeft:6}}>{t.icon}</span>{t.label}</td>
-            {roles.map(r=>{const defPerms={admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit"},manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide"},viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide"}};const cur=(perms[r]||{})[t.key]||(defPerms[r]||{})[t.key]||"view";
+            {roles.map(r=>{const defPerms={admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit"},manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit"},viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit"}};const cur=(perms[r]||{})[t.key]||(defPerms[r]||{})[t.key]||"view";
               return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px"}}>
                 {r==="admin"&&t.key==="settings"?<span style={{fontSize:FS-2,color:T.ok,fontWeight:600}}>✏️ دائماً</span>:
                 <select value={cur} onChange={e=>setPerm(r,t.key,e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:levelColors[cur],fontWeight:700,cursor:"pointer"}}>
