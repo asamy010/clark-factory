@@ -937,13 +937,13 @@ export default function App(){
           <div onClick={()=>setShowAlerts(!showAlerts)} style={{cursor:"pointer",fontSize:isMob?18:22,padding:"2px 6px",borderRadius:8,background:alertCount>0?T.warn+"12":"transparent",position:"relative"}}>🔔
             {alertCount>0&&<span style={{position:"absolute",top:-2,left:-2,width:16,height:16,borderRadius:8,background:T.err,color:"#fff",fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>{alertCount}</span>}
           </div>
-          {showAlerts&&<div style={{position:"absolute",top:"100%",left:0,marginTop:6,width:isMob?280:340,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:12,boxShadow:"0 8px 30px rgba(0,0,0,0.15)",zIndex:999,maxHeight:400,overflow:"auto"}}>
+          {showAlerts&&<><div onClick={()=>setShowAlerts(false)} style={{position:"fixed",inset:0,zIndex:998}}/><div style={{position:"absolute",top:"100%",left:0,marginTop:6,width:isMob?280:340,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:12,boxShadow:"0 8px 30px rgba(0,0,0,0.15)",zIndex:999,maxHeight:400,overflow:"auto"}}>
             <div style={{padding:"10px 14px",borderBottom:"1px solid "+T.brd,fontWeight:700,fontSize:FS,color:T.text}}>{"الاشعارات ("+alertCount+")"}</div>
             {alertCount>0?allAlerts.map((a,i)=><div key={i} onClick={()=>{if(a.isNotif)markRead(a.notifId);if(a.orderId){goD(a.orderId);setShowAlerts(false)}else if(a.isNotif)setShowAlerts(false)}} style={{padding:"10px 14px",borderBottom:"1px solid "+T.brd,display:"flex",gap:8,alignItems:"flex-start",cursor:a.orderId||a.isNotif?"pointer":"default",background:a.isNotif?a.color+"06":"transparent",transition:"background 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=a.color+"12"} onMouseLeave={e=>e.currentTarget.style.background=a.isNotif?a.color+"06":"transparent"}>
               <span style={{fontSize:16,flexShrink:0}}>{a.icon}</span>
               <div style={{flex:1}}><span style={{fontSize:FS-1,color:a.color,fontWeight:600,lineHeight:1.5}}>{a.msg}</span>{a.from&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{"من: "+a.from+(a.date?" — "+a.date:"")}</div>}{a.orderId&&!a.isNotif&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>اضغط لفتح الأوردر</div>}</div>
             </div>):<div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد اشعارات</div>}
-          </div>}
+          </div></>}
         </div>
         <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
           <div onClick={()=>setAiOpen(!aiOpen)} style={{cursor:"pointer",fontSize:isMob?16:18,padding:"3px 8px",borderRadius:8,background:aiOpen?"linear-gradient(135deg,#0EA5E920,#8B5CF620)":visibleAlerts.length>0?"#EF444410":"transparent",transition:"all 0.2s",display:"flex",alignItems:"center",gap:isMob?0:4,position:"relative"}}><span>🤖</span>{!isMob&&<span style={{fontSize:FS-2,fontWeight:600,color:aiOpen?"#8B5CF6":T.textSec}}>AI</span>}
@@ -1113,7 +1113,7 @@ export default function App(){
         {tab==="calc"&&<CalcPg data={data} isMob={isMob}/>}
         {tab==="reports"&&<ReportsHub data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="settings"&&canEditTab("settings")&&<SettingsPg config={config} upConfig={upConfig} isMob={isMob} user={user} theme={theme} setTheme={setTheme} season={season} orders={orders} syncWsIds={syncWsIds} replaceOrder={replaceOrder}/>}
-        {tab==="custDeliver"&&<Card title="🚚 تسليم عملاء"><div style={{textAlign:"center",padding:40,color:T.textMut}}><div style={{fontSize:48,marginBottom:12}}>🚚</div><div style={{fontSize:FS+2,fontWeight:700,color:T.text,marginBottom:6}}>تسليم العملاء</div><div style={{fontSize:FS,color:T.textSec}}>قريباً — هيتم اضافة شاشة تسليم العملاء</div></div></Card>}
+        {tab==="custDeliver"&&<CustDeliverPg data={data} upConfig={upConfig} updOrder={updOrder} isMob={isMob} canEdit={canEditTab("custDeliver")} user={user}/>}
       </div>}
     </div>
     {/* Quick Task/Notification Popup */}
@@ -3532,6 +3532,135 @@ function TasksPg({data,upConfig,isMob,user,userRole}){
         </div>)}</div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لم ترسل مهام</div>}
       </Card>
     </div>
+  </div>
+}
+
+
+function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
+  const config=data;const orders=data.orders||[];const customers=config.customers||[];
+  const[showCustForm,setShowCustForm]=useState(false);
+  const[cName,setCName]=useState("");const[cPhone,setCPhone]=useState("");const[cAddr,setCAddr]=useState("");const[cEditId,setCEditId]=useState(null);
+  const[editCell,setEditCell]=useState(null);const[editVal,setEditVal]=useState(0);
+  const userName=user?.displayName||user?.email?.split("@")[0]||"";
+
+  /* Models with stock available */
+  const stockModels=useMemo(()=>orders.filter(o=>{const stockDel=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return stockDel>0}).map(o=>{const stockDel=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return{id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,stockQty:stockDel,cutQty:calcOrder(o).cutQty}}),[orders]);
+
+  /* Get delivered qty for a customer+order */
+  const getCustQty=(orderId,custId)=>{const o=orders.find(x=>x.id===orderId);if(!o)return 0;return(o.customerDeliveries||[]).filter(d=>d.custId===custId).reduce((s,d)=>s+(Number(d.qty)||0),0)};
+  /* Total delivered for an order (all customers) */
+  const getTotalDel=(orderId)=>{const o=orders.find(x=>x.id===orderId);if(!o)return 0;return(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0)};
+  /* Total for a customer (all orders) */
+  const getCustTotal=(custId)=>stockModels.reduce((s,m)=>s+getCustQty(m.id,custId),0);
+
+  const saveCust=()=>{if(!cName.trim()||!cPhone.trim()){showToast("⚠️ الاسم والتليفون مطلوبين");return}
+    upConfig(d=>{if(!d.customers)d.customers=[];if(cEditId){const idx=d.customers.findIndex(c=>c.id===cEditId);if(idx>=0){d.customers[idx].name=cName.trim();d.customers[idx].phone=cPhone.trim();d.customers[idx].address=cAddr.trim()}}else{d.customers.push({id:gid(),name:cName.trim(),phone:cPhone.trim(),address:cAddr.trim()})}});
+    setCName("");setCPhone("");setCAddr("");setCEditId(null);setShowCustForm(false);showToast("✓ تم الحفظ")};
+
+  const saveCell=(orderId,custId,newQty)=>{
+    const o=orders.find(x=>x.id===orderId);if(!o)return;
+    const avail=stockModels.find(m=>m.id===orderId)?.stockQty||0;
+    const othersQty=(o.customerDeliveries||[]).filter(d=>d.custId!==custId).reduce((s,d)=>s+(Number(d.qty)||0),0);
+    const maxQ=avail-othersQty;const qty=Math.min(Math.max(0,newQty),maxQ);
+    const c=customers.find(x=>x.id===custId);
+    updOrder(orderId,ord=>{
+      if(!ord.customerDeliveries)ord.customerDeliveries=[];
+      const idx=ord.customerDeliveries.findIndex(d=>d.custId===custId);
+      if(qty>0){if(idx>=0){ord.customerDeliveries[idx].qty=qty;ord.customerDeliveries[idx].date=new Date().toISOString().split("T")[0]}
+        else{ord.customerDeliveries.push({custId,custName:c?.name||"",custPhone:c?.phone||"",qty,date:new Date().toISOString().split("T")[0],createdBy:userName||""})}}
+      else{if(idx>=0)ord.customerDeliveries.splice(idx,1)}
+    });setEditCell(null)};
+
+  const printMatrix=()=>{
+    const today=new Date().toLocaleDateString("ar-EG");
+    let h="<h2>🚚 جدول توزيع العملاء</h2>";
+    h+="<table><thead><tr><th>المكتب / العميل</th>";
+    stockModels.forEach(m=>{h+="<th style='writing-mode:vertical-rl;text-align:center;min-width:40px'>"+m.modelNo+"</th>"});
+    h+="<th style='background:#0284C7;color:#fff'>اجمالي</th></tr></thead><tbody>";
+    customers.forEach(c=>{const total=getCustTotal(c.id);
+      h+="<tr><td><b>"+c.name+"</b></td>";
+      stockModels.forEach(m=>{const q=getCustQty(m.id,c.id);h+="<td style='text-align:center;"+(q>0?"font-weight:800;color:#0284C7":"color:#ccc")+"'>"+(q||"—")+"</td>"});
+      h+="<td style='text-align:center;font-weight:800;background:#F0F9FF;color:#0284C7'>"+total+"</td></tr>"});
+    h+="<tr style='background:#F1F5F9;font-weight:800'><td>اجمالي تسليم</td>";
+    stockModels.forEach(m=>{h+="<td style='text-align:center;color:#059669'>"+getTotalDel(m.id)+"</td>"});
+    h+="<td style='text-align:center;background:#059669;color:#fff'>"+stockModels.reduce((s,m)=>s+getTotalDel(m.id),0)+"</td></tr>";
+    h+="<tr style='font-weight:700'><td>مخزن جاهز</td>";
+    stockModels.forEach(m=>{h+="<td style='text-align:center'>"+m.stockQty+"</td>"});
+    h+="<td></td></tr>";
+    h+="<tr style='font-weight:700'><td>رصيد</td>";
+    stockModels.forEach(m=>{const rem=m.stockQty-getTotalDel(m.id);h+="<td style='text-align:center;color:"+(rem>0?"#F59E0B":"#10B981")+"'>"+rem+"</td>"});
+    h+="<td></td></tr></tbody></table>";
+    printPage("توزيع العملاء — "+today,h)};
+
+  return<div>
+    <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+      {canEdit&&<Btn primary onClick={()=>{setCName("");setCPhone("");setCAddr("");setCEditId(null);setShowCustForm(true)}}>+ تسجيل عميل</Btn>}
+      <Btn onClick={printMatrix} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة الجدول</Btn>
+      <span style={{fontSize:FS-1,color:T.textSec}}>{"👥 "+customers.length+" عميل | 📦 "+stockModels.length+" موديل في المخزن"}</span>
+    </div>
+    {/* Matrix Table */}
+    {stockModels.length>0&&customers.length>0?<Card>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",minWidth:stockModels.length*80+200}}>
+          <thead><tr>
+            <th style={{...TH,position:"sticky",right:0,background:T.cardSolid,zIndex:2,minWidth:140}}>المكتب / العميل</th>
+            {stockModels.map(m=><th key={m.id} style={{...TH,textAlign:"center",minWidth:70,fontSize:FS-2}}><div style={{fontWeight:800,color:T.accent}}>{m.modelNo}</div><div style={{fontSize:FS-3,color:T.textMut,fontWeight:400}}>{m.modelDesc?.slice(0,12)}</div></th>)}
+            <th style={{...TH,textAlign:"center",background:"#0284C715",color:T.accent,fontWeight:800,minWidth:70}}>اجمالي</th>
+            {canEdit&&<th style={{...TH,width:60}}></th>}
+          </tr></thead>
+          <tbody>
+            {customers.map(c=>{const total=getCustTotal(c.id);return<tr key={c.id}>
+              <td style={{...TD,fontWeight:700,position:"sticky",right:0,background:T.cardSolid,zIndex:1}}>{c.name}<div style={{fontSize:FS-3,color:T.textMut}}>{c.phone}</div></td>
+              {stockModels.map(m=>{const q=getCustQty(m.id,c.id);const isEd=editCell?.orderId===m.id&&editCell?.custId===c.id;const avail=m.stockQty-getTotalDel(m.id)+q;
+                return<td key={m.id} style={{...TD,textAlign:"center",padding:2,cursor:canEdit?"pointer":"default",background:isEd?T.warn+"10":q>0?T.ok+"04":"transparent"}}
+                  onClick={()=>{if(!canEdit||isEd)return;setEditCell({orderId:m.id,custId:c.id});setEditVal(q)}}>
+                  {isEd?<input type="number" autoFocus value={editVal} onChange={e=>setEditVal(Number(e.target.value)||0)}
+                    onBlur={()=>saveCell(m.id,c.id,editVal)}
+                    onKeyDown={e=>{if(e.key==="Enter"){saveCell(m.id,c.id,editVal)}if(e.key==="Escape")setEditCell(null)}}
+                    style={{width:"100%",textAlign:"center",border:"2px solid "+T.accent,borderRadius:6,padding:"4px 2px",fontSize:FS,fontWeight:700,fontFamily:"inherit",outline:"none",background:T.bg,color:T.text,boxSizing:"border-box"}}/>
+                  :<span style={{fontWeight:q>0?800:400,color:q>0?T.accent:T.textMut+"50",fontSize:q>0?FS:FS-2}}>{q||"—"}</span>}
+                </td>})}
+              <td style={{...TD,textAlign:"center",fontWeight:800,color:T.accent,background:"#0284C706",fontSize:FS+1}}>{total||"—"}</td>
+              {canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:2}}>
+                <Btn small onClick={()=>{setCName(c.name);setCPhone(c.phone);setCAddr(c.address||"");setCEditId(c.id);setShowCustForm(true)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30",fontSize:9,padding:"2px 5px"}}>✏️</Btn>
+                <DelBtn onConfirm={()=>upConfig(d=>{d.customers=(d.customers||[]).filter(x=>x.id!==c.id)})} blocked={total>0?"لديه تسليمات":null}/>
+              </div></td>}
+            </tr>})}
+            {/* Totals row */}
+            <tr style={{background:T.ok+"08"}}><td style={{...TD,fontWeight:800,color:T.ok}}>اجمالي تسليم</td>
+              {stockModels.map(m=><td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,color:T.ok}}>{getTotalDel(m.id)||"—"}</td>)}
+              <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#fff",background:T.ok}}>{stockModels.reduce((s,m)=>s+getTotalDel(m.id),0)}</td>
+              {canEdit&&<td style={TD}></td>}
+            </tr>
+            <tr><td style={{...TD,fontWeight:700,color:T.textSec}}>مخزن جاهز</td>
+              {stockModels.map(m=><td key={m.id} style={{...TD,textAlign:"center",fontWeight:700}}>{m.stockQty}</td>)}
+              <td style={{...TD,textAlign:"center",fontWeight:700}}>{stockModels.reduce((s,m)=>s+m.stockQty,0)}</td>
+              {canEdit&&<td style={TD}></td>}
+            </tr>
+            <tr><td style={{...TD,fontWeight:800,color:T.warn}}>رصيد</td>
+              {stockModels.map(m=>{const rem=m.stockQty-getTotalDel(m.id);return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,color:rem>0?T.warn:T.ok}}>{rem}</td>})}
+              <td style={{...TD,textAlign:"center",fontWeight:800}}>{stockModels.reduce((s,m)=>s+(m.stockQty-getTotalDel(m.id)),0)}</td>
+              {canEdit&&<td style={TD}></td>}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </Card>
+    :<Card><div style={{textAlign:"center",padding:30,color:T.textMut}}>
+      {customers.length===0?"👥 سجّل عملاء أولاً":"📦 لا يوجد موديلات في المخزن بعد"}
+    </div></Card>}
+    {/* Register Customer Popup */}
+    {showCustForm&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowCustForm(false)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,marginBottom:16}}>{cEditId?"✏️ تعديل عميل":"+ تسجيل عميل جديد"}</div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>اسم العميل *</label><Inp value={cName} onChange={setCName} placeholder="الاسم بالكامل..."/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رقم التليفون *</label><Inp value={cPhone} onChange={setCPhone} placeholder="01xxxxxxxxx"/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>العنوان</label><Inp value={cAddr} onChange={setCAddr} placeholder="اختياري..."/></div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setShowCustForm(false)}>الغاء</Btn><Btn primary onClick={saveCust}>💾 حفظ</Btn></div>
+        </div>
+      </div>
+    </div>}
   </div>
 }
 
