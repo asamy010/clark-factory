@@ -504,12 +504,12 @@ function Sel({value,onChange,children}){
 }
 
 function SearchSel({value,onChange,options,placeholder}){
-  const[q,setQ]=useState("");const[focused,setFocused]=useState(false);const ref=useRef(null);
+  const[q,setQ]=useState("");const[focused,setFocused]=useState(false);const ref=useRef(null);const dropRef=useRef(null);
   const selected=options.find(o=>o.value===value);
   const showResults=focused&&q.length>0;
   const filtered=q?options.filter(o=>o.label.toLowerCase().includes(q.toLowerCase())).slice(0,5):[];
   useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target))setFocused(false)};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h)},[]);
-  const getRect=()=>{if(!ref.current)return null;return ref.current.getBoundingClientRect()};
+  useEffect(()=>{if(showResults&&dropRef.current&&ref.current){const r=ref.current.querySelector("input").getBoundingClientRect();const d=dropRef.current;d.style.position="fixed";d.style.top=(r.bottom+1)+"px";d.style.left=r.left+"px";d.style.width=r.width+"px"}},[showResults,q,filtered.length]);
   return<div ref={ref} style={{position:"relative"}}>
     <input value={focused?q:(selected?selected.label:"")}
       onChange={e=>{setQ(e.target.value);if(!focused)setFocused(true)}}
@@ -518,13 +518,12 @@ function SearchSel({value,onChange,options,placeholder}){
       placeholder={placeholder||"اكتب للبحث..."}
       style={{width:"100%",padding:"6px 10px",border:"2px solid "+(focused?T.accent:T.brd),borderRadius:8,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",transition:"border 0.15s"}}/>
     {selected&&!focused&&<div style={{fontSize:FS-3,color:T.ok,marginTop:2}}>{"✓ "+selected.label}</div>}
-    {showResults&&(()=>{const r=getRect();const st=r?{position:"fixed",top:r.bottom+2,left:r.left,width:r.width}:{};
-      return<div style={{...st,zIndex:99999,borderRadius:8,border:"1px solid "+T.brd,overflow:"hidden",background:T.cardSolid,boxShadow:"0 8px 24px rgba(0,0,0,0.2)"}}>
-        {filtered.length>0?filtered.map(o=><div key={o.value} onMouseDown={e=>{e.preventDefault();onChange(o.value);setQ("");setFocused(false)}}
-          style={{padding:"8px 12px",cursor:"pointer",fontSize:FS,color:o.value===value?T.accent:T.text,fontWeight:o.value===value?700:400,background:o.value===value?T.accent+"08":"transparent",borderBottom:"1px solid "+T.brd+"30"}}
-          onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background=o.value===value?T.accent+"08":"transparent"}>{o.label}</div>)
-        :<div style={{padding:"8px 12px",textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد نتائج</div>}
-      </div>})()}
+    {showResults&&<div ref={dropRef} style={{position:"fixed",zIndex:99999,borderRadius:8,border:"1px solid "+T.brd,overflow:"hidden",background:T.cardSolid,boxShadow:"0 8px 24px rgba(0,0,0,0.2)"}}>
+      {filtered.length>0?filtered.map(o=><div key={o.value} onMouseDown={e=>{e.preventDefault();onChange(o.value);setQ("");setFocused(false)}}
+        style={{padding:"8px 12px",cursor:"pointer",fontSize:FS,color:o.value===value?T.accent:T.text,fontWeight:o.value===value?700:400,background:o.value===value?T.accent+"08":"transparent",borderBottom:"1px solid "+T.brd+"30"}}
+        onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background=o.value===value?T.accent+"08":"transparent"}>{o.label}</div>)
+      :<div style={{padding:"8px 12px",textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد نتائج</div>}
+    </div>}
   </div>
 }
 
@@ -1945,7 +1944,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
         <div style={{width:1,height:20,background:T.brd,margin:"0 4px"}}/>
         <Btn small onClick={()=>printOrderSheet(order,t,activeFabs,statusCards)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
         {canEdit&&!order.closed&&<Btn small primary onClick={()=>setEditing(true)}>✏️</Btn>}
-        <Btn small onClick={async()=>{const text="*CLARK — تفاصيل أوردر*\n\n• الموديل: *"+order.modelNo+"*\n• الوصف: "+order.modelDesc+"\n• المقاسات: "+(order.sizeLabel||"-")+"\n• كمية القص: *"+t.cutQty+"*\n• مخزن جاهز: *"+(order.deliveredQty||0)+"*";
+        <Btn small onClick={async()=>{const lines=["*CLARK — تفاصيل أوردر*","","• رقم الموديل: *"+order.modelNo+"*","• الوصف: "+order.modelDesc,"• المقاسات: "+(order.sizeLabel||"-"),"• كمية القص: *"+t.cutQty+"*","• الحالة: "+order.status,"• مخزن جاهز: *"+(order.deliveredQty||0)+"*"];const text=lines.join("\n");
           if(order.image&&navigator.canShare){try{const res=await fetch(order.image);const blob=await res.blob();const file=new File([blob],order.modelNo+".jpg",{type:blob.type||"image/jpeg"});if(navigator.canShare({files:[file]})){await navigator.share({title:"CLARK — "+order.modelNo,text,files:[file]});return}}catch(e){}}
           const msg=encodeURIComponent(text);window.open("https://wa.me/?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn>
         {canEdit&&!order.closed&&<Btn small onClick={()=>{const dup=JSON.parse(JSON.stringify(order));dup.id=gid();dup.date=new Date().toISOString().split("T")[0];dup.createdAt=new Date().toISOString();dup.modelNo="";dup.status="تم القص";dup.deliveredQty=0;dup.deliveries=[];dup.workshopDeliveries=[];dup._isDup=true;delete dup._docId;setDupInit(dup)}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📋 تكرار</Btn>}
