@@ -504,13 +504,12 @@ function Sel({value,onChange,children}){
 }
 
 function SearchSel({value,onChange,options,placeholder}){
-  const[q,setQ]=useState("");const[focused,setFocused]=useState(false);const ref=useRef(null);const dropRef=useRef(null);
+  const[q,setQ]=useState("");const[focused,setFocused]=useState(false);const ref=useRef(null);
   const selected=options.find(o=>o.value===value);
   const showResults=focused&&q.length>0;
   const filtered=q?options.filter(o=>o.label.toLowerCase().includes(q.toLowerCase())).slice(0,5):[];
   useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target))setFocused(false)};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h)},[]);
-  useEffect(()=>{if(showResults&&dropRef.current&&ref.current){const r=ref.current.querySelector("input").getBoundingClientRect();const d=dropRef.current;d.style.position="fixed";d.style.top=(r.bottom+1)+"px";d.style.left=r.left+"px";d.style.width=r.width+"px"}},[showResults,q,filtered.length]);
-  return<div ref={ref} style={{position:"relative"}}>
+  return<div ref={ref} style={{position:"relative",zIndex:focused?999:1}}>
     <input value={focused?q:(selected?selected.label:"")}
       onChange={e=>{setQ(e.target.value);if(!focused)setFocused(true)}}
       onFocus={()=>{setFocused(true);setQ("")}}
@@ -518,18 +517,18 @@ function SearchSel({value,onChange,options,placeholder}){
       placeholder={placeholder||"اكتب للبحث..."}
       style={{width:"100%",padding:"6px 10px",border:"2px solid "+(focused?T.accent:T.brd),borderRadius:8,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",transition:"border 0.15s"}}/>
     {selected&&!focused&&<div style={{fontSize:FS-3,color:T.ok,marginTop:2}}>{"✓ "+selected.label}</div>}
-    {showResults&&<div ref={dropRef} style={{position:"fixed",zIndex:99999,borderRadius:8,border:"1px solid "+T.brd,overflow:"hidden",background:T.cardSolid,boxShadow:"0 8px 24px rgba(0,0,0,0.2)"}}>
+    {showResults&&<div style={{position:"absolute",top:"100%",left:0,right:0,marginTop:1,zIndex:9999,borderRadius:8,border:"1px solid "+T.brd,overflow:"hidden",background:T.cardSolid,boxShadow:"0 8px 24px rgba(0,0,0,0.2)"}}>
       {filtered.length>0?filtered.map(o=><div key={o.value} onMouseDown={e=>{e.preventDefault();onChange(o.value);setQ("");setFocused(false)}}
-        style={{padding:"8px 12px",cursor:"pointer",fontSize:FS,color:o.value===value?T.accent:T.text,fontWeight:o.value===value?700:400,background:o.value===value?T.accent+"08":"transparent",borderBottom:"1px solid "+T.brd+"30"}}
-        onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background=o.value===value?T.accent+"08":"transparent"}>{o.label}</div>)
+        style={{padding:"8px 12px",cursor:"pointer",fontSize:FS,color:o.value===value?T.accent:T.text,fontWeight:o.value===value?700:400,background:o.value===value?T.accent+"08":T.cardSolid,borderBottom:"1px solid "+T.brd+"30"}}
+        onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background=o.value===value?T.accent+"08":T.cardSolid}>{o.label}</div>)
       :<div style={{padding:"8px 12px",textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد نتائج</div>}
     </div>}
   </div>
 }
 
 function Card({children,title,extra,accent,style:sx}){
-  return<div style={{background:T.card,backdropFilter:"blur(12px)",borderRadius:12,border:"1px solid "+T.brd,boxShadow:T.shadow,overflow:"visible",...(sx||{})}}>
-    {(title||extra)&&<div style={{padding:"10px 16px",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",background:accent||"rgba(248,250,252,0.8)",borderRadius:"12px 12px 0 0"}}><span style={{fontSize:FS+1,fontWeight:700,color:accent?"#fff":T.text}}>{title}</span>{extra}</div>}
+  return<div style={{background:T.cardSolid,borderRadius:12,border:"1px solid "+T.brd,boxShadow:T.shadow,overflow:"visible",...(sx||{})}}>
+    {(title||extra)&&<div style={{padding:"10px 16px",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",background:accent||T.bg,borderRadius:"12px 12px 0 0"}}><span style={{fontSize:FS+1,fontWeight:700,color:accent?"#fff":T.text}}>{title}</span>{extra}</div>}
     <div style={{padding:14}}>{children}</div>
   </div>
 }
@@ -3678,6 +3677,8 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   const[shipPopup,setShipPopup]=useState(null);const[shipCount,setShipCount]=useState(1);
   const[sessFilterQ,setSessFilterQ]=useState("");
   const[reportRange,setReportRange]=useState({from:"",to:""});const[showReport,setShowReport]=useState(false);const[rptType,setRptType]=useState("all");const[rptCust,setRptCust]=useState("");const[rptModel,setRptModel]=useState("");
+  const[showNewAudit,setShowNewAudit]=useState(false);const[auditDate,setAuditDate]=useState(new Date().toISOString().split("T")[0]);const[auditFrom,setAuditFrom]=useState("");const[auditTo,setAuditTo]=useState("");const[auditNote,setAuditNote]=useState("");
+  const[activeAudit,setActiveAudit]=useState(null);const[auditCell,setAuditCell]=useState(null);const[auditVal,setAuditVal]=useState(0);const[showAuditAnalysis,setShowAuditAnalysis]=useState(null);
   const[returnPopup,setReturnPopup]=useState(null);const[retQty,setRetQty]=useState(0);const[retNote,setRetNote]=useState("");
   const[custQR,setCustQR]=useState(null);
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
@@ -3829,6 +3830,26 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   /* Customer QR */
   const showCustQR=async(c)=>{try{const QR=await loadQR();if(QR){const src=await QR.toDataURL(window.location.origin+"?cust="+encodeURIComponent(c.name),{width:300,margin:2});setCustQR({name:c.name,phone:c.phone,src})}}catch(e){}};
 
+  /* ── Sales Audit (جرد المبيعات) ── */
+  const audits=config.salesAudits||[];
+  const sortedAudits=[...audits].sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
+  /* Models that have been delivered to customers */
+  const auditModels=stockModels.filter(m=>m.custDel>0);
+  /* Customers that received deliveries */
+  const auditCusts=customers.filter(c=>getCustTotal(c.id)>0);
+  const activeAud=audits.find(a=>a.id===activeAudit);
+  const aAudGrid=activeAud?.grid||{};
+
+  const createAudit=()=>{if(!auditDate){showToast("⚠️ اختر تاريخ الجرد");return}
+    const aud={id:gid(),date:auditDate,fromDate:auditFrom,toDate:auditTo||auditDate,notes:auditNote,createdBy:userName||"",createdAt:new Date().toISOString(),grid:{}};
+    upConfig(d=>{if(!d.salesAudits)d.salesAudits=[];d.salesAudits.unshift(aud)});
+    setActiveAudit(aud.id);setShowNewAudit(false);setAuditNote("");showToast("✓ تم إنشاء الجرد")};
+
+  const saveAuditCell=(audId,orderId,custId,val)=>{const q=Math.max(0,Number(val)||0);
+    upConfig(d=>{const ai=(d.salesAudits||[]).findIndex(a=>a.id===audId);if(ai>=0){if(!d.salesAudits[ai].grid)d.salesAudits[ai].grid={};d.salesAudits[ai].grid[orderId+"_"+custId]=q}})};
+
+  const delAudit=(audId)=>{upConfig(d=>{d.salesAudits=(d.salesAudits||[]).filter(a=>a.id!==audId)});if(activeAudit===audId)setActiveAudit(null);showToast("✓ تم الحذف")};
+
   const printCustLabels=async(cust,models,grid,sessDate,total,count)=>{
     let qrSrc="";try{const QR=await loadQR();if(QR)qrSrc=await QR.toDataURL(window.location.origin+"?cust="+encodeURIComponent(cust.name)+"&d="+sessDate,{width:180,margin:1,errorCorrectionLevel:"M"})}catch(e){}
     const pw=window.open("","_blank");if(!pw)return;
@@ -3876,6 +3897,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
       {canEdit&&<Btn primary onClick={()=>{setCName("");setCPhone("");setCAddr("");setCEditId(null);setShowCustForm(true)}}>+ تسجيل عميل</Btn>}
       {canEdit&&<Btn onClick={()=>{setSelModels({});setSelCusts({});setShowNewSession(true)}} style={{background:"#059669",color:"#fff",border:"none",fontWeight:700}}>🚚 تسليم جديد</Btn>}
       <Btn onClick={()=>{setRptType("all");setRptCust("");setRptModel("");setReportRange({from:"",to:""});setShowReport(true)}} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📊 تقرير مبيعات</Btn>
+      {canEdit&&<Btn onClick={()=>{setAuditDate(new Date().toISOString().split("T")[0]);setAuditFrom("");setAuditTo("");setAuditNote("");setShowNewAudit(true)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>📋 جرد مبيعات</Btn>}
     </div>
     {/* Active Session Matrix - Popup */}
     {activeSess&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:24}} onClick={()=>closeMatrix()}>
@@ -4033,6 +4055,130 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
           </div>})}
       </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد تسليمات — اضغط "🚚 تسليم جديد"</div>})()}
     </Card>
+    {/* ── Sales Audits Section ── */}
+    <Card title={"📋 جرد المبيعات ("+audits.length+")"} style={{marginBottom:16}}>
+      {sortedAudits.length>0?<div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {sortedAudits.map(a=>{const totalQ=Object.values(a.grid||{}).reduce((s,v)=>s+(Number(v)||0),0);const isActive=activeAudit===a.id;
+          return<div key={a.id} style={{padding:"10px 14px",borderRadius:10,background:isActive?T.accent+"08":T.cardSolid,border:isActive?"2px solid "+T.accent:"1px solid "+T.brd,cursor:"pointer"}} onClick={()=>setActiveAudit(isActive?null:a.id)}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:16}}>📋</span>
+                <div><div style={{fontWeight:700,fontSize:FS}}>{"جرد "+a.date+(a.notes?" — "+a.notes:"")}</div>
+                  <div style={{fontSize:FS-2,color:T.textMut}}>{(a.fromDate||"")+(a.fromDate?" → "+(a.toDate||""):"")+" | "+totalQ+" قطعة مباعة"}</div></div>
+              </div>
+              <div style={{display:"flex",gap:4}} onClick={e=>e.stopPropagation()}>
+                <Btn small onClick={()=>setShowAuditAnalysis(a.id)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📊</Btn>
+                {canEdit&&<DelBtn onConfirm={()=>delAudit(a.id)}/>}
+              </div>
+            </div>
+          </div>})}
+      </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا يوجد جرد — اضغط "📋 جرد مبيعات"</div>}
+    </Card>
+    {/* Audit Matrix Popup */}
+    {activeAud&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:24}} onClick={()=>setActiveAudit(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,width:"100%",maxWidth:isMob?900:Math.min(200+auditCusts.length*100,window.innerWidth-80),maxHeight:"92vh",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <div style={{padding:isMob?"12px 16px":"16px 24px",borderBottom:"1px solid "+T.brd,flexShrink:0}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{fontSize:FS+2,fontWeight:800,color:"#F59E0B"}}>{"📋 جرد "+activeAud.date+(activeAud.notes?" — "+activeAud.notes:"")}</div>
+            <div style={{display:"flex",gap:4}}><Btn small onClick={()=>setShowAuditAnalysis(activeAud.id)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📊 تحليل</Btn><Btn ghost small onClick={()=>setActiveAudit(null)}>✕</Btn></div>
+          </div>
+        </div>
+        <div style={{flex:1,overflowY:"auto",overflowX:"auto",padding:isMob?"8px 16px 16px":"8px 24px 24px"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",whiteSpace:"nowrap"}}>
+            <thead style={{position:"sticky",top:0,zIndex:10,background:T.cardSolid}}><tr>
+              <th style={{...TH,minWidth:120}}>الموديل</th>
+              {auditCusts.map(c=><th key={c.id} style={{...TH,textAlign:"center",minWidth:80,fontSize:FS-2}}><div style={{fontWeight:700}}>{c.name}</div></th>)}
+              <th style={{...TH,textAlign:"center",background:"#F59E0B15",color:"#F59E0B",fontWeight:800}}>اجمالي</th>
+              <th style={{...TH,textAlign:"center",fontSize:FS-2}}>تم تسليمه</th>
+              <th style={{...TH,textAlign:"center",fontSize:FS-2}}>% البيع</th>
+            </tr></thead>
+            <tbody>
+              {auditModels.map((m,mi)=>{const rowTotal=auditCusts.reduce((s,c)=>s+(Number(aAudGrid[m.id+"_"+c.id])||0),0);const pct=m.custDel>0?Math.round(rowTotal/m.custDel*100):0;
+                return<tr key={m.id} style={{background:mi%2===0?"transparent":T.bg+"80"}}>
+                  <td style={{...TD,fontWeight:700}}><div style={{fontWeight:800,color:T.accent}}>{m.modelNo}</div><div style={{fontSize:FS-3,color:T.textMut}}>{m.modelDesc}</div></td>
+                  {auditCusts.map(c=>{const k=m.id+"_"+c.id;const q=Number(aAudGrid[k])||0;const isEd=auditCell===k;
+                    return<td key={c.id} style={{...TD,textAlign:"center",padding:2,cursor:canEdit?"pointer":"default",background:isEd?"#F59E0B10":q>0?"#F59E0B04":"transparent"}}
+                      onClick={()=>{if(!canEdit||isEd)return;setAuditCell(k);setAuditVal(q)}}>
+                      {isEd?<input type="number" autoFocus value={auditVal} onFocus={e=>e.target.select()}
+                        onChange={e=>setAuditVal(Number(e.target.value)||0)}
+                        onBlur={()=>{saveAuditCell(activeAud.id,m.id,c.id,auditVal);setAuditCell(null)}}
+                        onKeyDown={e=>{if(e.key==="Enter"||e.key==="Tab"){e.preventDefault();saveAuditCell(activeAud.id,m.id,c.id,auditVal);setAuditCell(null)}if(e.key==="Escape")setAuditCell(null)}}
+                        style={{width:"100%",textAlign:"center",border:"2px solid #F59E0B",borderRadius:4,padding:"2px",fontSize:FS,fontWeight:700,fontFamily:"inherit",background:"#FFF",outline:"none"}}/>
+                      :<span style={{fontWeight:q>0?700:400,color:q>0?"#F59E0B":T.textMut}}>{q||"—"}</span>}
+                    </td>})}
+                  <td style={{...TD,textAlign:"center",fontWeight:800,color:"#F59E0B",background:"#F59E0B08"}}>{rowTotal||"—"}</td>
+                  <td style={{...TD,textAlign:"center",fontSize:FS-2,color:T.textSec}}>{m.custDel}</td>
+                  <td style={{...TD,textAlign:"center",fontWeight:700,color:pct>=50?T.ok:pct>=20?T.warn:T.err}}>{pct+"%"}</td>
+                </tr>})}
+              <tr style={{background:"#F59E0B10"}}><td style={{...TD,fontWeight:800,color:"#F59E0B"}}>اجمالي الجرد</td>
+                {auditCusts.map(c=>{const ct=auditModels.reduce((s,m)=>s+(Number(aAudGrid[m.id+"_"+c.id])||0),0);return<td key={c.id} style={{...TD,textAlign:"center",fontWeight:800,color:"#F59E0B"}}>{ct||"—"}</td>})}
+                <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#fff",background:"#F59E0B"}}>{auditModels.reduce((s,m)=>s+auditCusts.reduce((ss,c)=>ss+(Number(aAudGrid[m.id+"_"+c.id])||0),0),0)}</td>
+                <td style={TD}></td><td style={TD}></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div style={{display:"flex",gap:10,justifyContent:"center",padding:"12px 24px",borderTop:"1px solid "+T.brd,flexShrink:0}}>
+          <Btn onClick={()=>setShowAuditAnalysis(activeAud.id)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📊 تحليل المبيعات</Btn>
+          <Btn onClick={()=>setActiveAudit(null)} style={{background:T.ok,color:"#fff",border:"none",fontWeight:700}}>✓ حفظ وإغلاق</Btn>
+        </div>
+      </div>
+    </div>}
+    {/* Audit Analysis Popup */}
+    {showAuditAnalysis&&(()=>{const aud=audits.find(a=>a.id===showAuditAnalysis);if(!aud)return null;const g=aud.grid||{};
+      const modelSales={};const custSales={};let total=0;
+      auditModels.forEach(m=>{let mTotal=0;auditCusts.forEach(c=>{const q=Number(g[m.id+"_"+c.id])||0;mTotal+=q;if(!custSales[c.name])custSales[c.name]=0;custSales[c.name]+=q});if(mTotal>0)modelSales[m.modelNo]={qty:mTotal,delivered:m.custDel,pct:m.custDel>0?Math.round(mTotal/m.custDel*100):0};total+=mTotal});
+      const topModels=Object.entries(modelSales).sort((a,b)=>b[1].qty-a[1].qty);
+      const topCusts=Object.entries(custSales).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
+      const maxModelQty=topModels[0]?.[1]?.qty||1;const maxCustQty=topCusts[0]?.[1]||1;
+      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowAuditAnalysis(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:isMob?500:700,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+            <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>{"📊 تحليل جرد — "+aud.date}</div>
+            <Btn ghost small onClick={()=>setShowAuditAnalysis(null)}>✕</Btn>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+            <div style={{padding:10,borderRadius:10,background:"#F59E0B08",border:"1px solid #F59E0B15",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>اجمالي المبيعات</div><div style={{fontSize:20,fontWeight:800,color:"#F59E0B"}}>{fmt(total)}</div></div>
+            <div style={{padding:10,borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"15",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>عدد الموديلات</div><div style={{fontSize:20,fontWeight:800,color:T.accent}}>{topModels.length}</div></div>
+            <div style={{padding:10,borderRadius:10,background:T.ok+"08",border:"1px solid "+T.ok+"15",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>عدد العملاء</div><div style={{fontSize:20,fontWeight:800,color:T.ok}}>{topCusts.length}</div></div>
+          </div>
+          <div style={{marginBottom:16}}>
+            <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>🏆 أعلى موديلات مبيعاً</div>
+            {topModels.slice(0,5).map(([name,d],i)=><div key={name} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+              <span style={{fontWeight:800,color:i===0?"#F59E0B":i===1?"#94A3B8":i===2?"#CD7F32":T.textSec,fontSize:FS}}>{i<3?["🥇","🥈","🥉"][i]:(i+1)+"."}</span>
+              <div style={{flex:1}}><div style={{display:"flex",justifyContent:"space-between",fontSize:FS-1}}><span style={{fontWeight:700}}>{name}</span><span style={{fontWeight:800,color:"#F59E0B"}}>{d.qty+" قطعة ("+d.pct+"%)"}</span></div>
+                <div style={{height:6,borderRadius:3,background:T.brd,marginTop:3}}><div style={{height:6,borderRadius:3,background:"linear-gradient(90deg,#F59E0B,#F97316)",width:Math.round(d.qty/maxModelQty*100)+"%"}}/></div></div>
+            </div>)}
+          </div>
+          <div style={{marginBottom:16}}>
+            <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>👥 أعلى عملاء مبيعاً</div>
+            {topCusts.slice(0,5).map(([name,qty],i)=><div key={name} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+              <span style={{fontWeight:800,color:i===0?"#F59E0B":i===1?"#94A3B8":i===2?"#CD7F32":T.textSec,fontSize:FS}}>{i<3?["🥇","🥈","🥉"][i]:(i+1)+"."}</span>
+              <div style={{flex:1}}><div style={{display:"flex",justifyContent:"space-between",fontSize:FS-1}}><span style={{fontWeight:700}}>{name}</span><span style={{fontWeight:800,color:T.ok}}>{qty+" قطعة ("+(total?Math.round(qty/total*100):0)+"%)"}</span></div>
+                <div style={{height:6,borderRadius:3,background:T.brd,marginTop:3}}><div style={{height:6,borderRadius:3,background:"linear-gradient(90deg,#10B981,#059669)",width:Math.round(qty/maxCustQty*100)+"%"}}/></div></div>
+            </div>)}
+          </div>
+          {topModels.filter(([,d])=>d.pct<20).length>0&&<div style={{padding:10,borderRadius:10,background:T.warn+"08",border:"1px solid "+T.warn+"15"}}>
+            <div style={{fontSize:FS-1,fontWeight:700,color:T.warn,marginBottom:4}}>⚠️ موديلات بطيئة البيع (أقل من 20%)</div>
+            {topModels.filter(([,d])=>d.pct<20).map(([name,d])=><div key={name} style={{fontSize:FS-2,color:T.textSec}}>{"• "+name+" — تسليم "+d.delivered+" → مبيعات "+d.qty+" ("+d.pct+"%)"}</div>)}
+          </div>}
+        </div>
+      </div>})()}
+    {/* New Audit Popup */}
+    {showNewAudit&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowNewAudit(false)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{fontSize:FS+2,fontWeight:800,color:"#F59E0B",marginBottom:16}}>📋 جرد مبيعات جديد</div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تاريخ الجرد *</label><Inp type="date" value={auditDate} onChange={setAuditDate}/></div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>من تاريخ</label><Inp type="date" value={auditFrom} onChange={setAuditFrom}/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>إلى تاريخ</label><Inp type="date" value={auditTo} onChange={setAuditTo}/></div>
+          </div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات</label><Inp value={auditNote} onChange={setAuditNote} placeholder="مثال: جرد أسبوع 2"/></div>
+        </div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}><Btn ghost onClick={()=>setShowNewAudit(false)}>الغاء</Btn><Btn onClick={createAudit} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700}}>📋 إنشاء وفتح الجرد</Btn></div>
+      </div>
+    </div>}
     {/* Register Customer Popup */}
     {showCustForm&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowCustForm(false)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
