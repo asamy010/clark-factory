@@ -61,7 +61,9 @@ const INIT_CONFIG = {
   permissions:{
     admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit"},
     manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit"},
-    viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit"}
+    sales_accountant:{dashboard:"view",details:"view",external:"hide",stock:"view",reports:"edit",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit"},
+    purchase_accountant:{dashboard:"view",details:"view",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"hide"},
+    viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide"}
   },
 };
 
@@ -866,7 +868,7 @@ export default function App(){
   const data={...config,orders:resolvedOrders||orders};
   const getUserRole=()=>{if(config.users&&config.users[user?.uid]){const r=config.users[user.uid];return typeof r==="string"?r:r?.role||"admin"}const byEmail=(config.usersList||[]).find(u=>u.email===user?.email);if(byEmail)return byEmail.role;return"admin"};
   const userRole=getUserRole();const canEdit=userRole==="admin"||userRole==="manager";
-  const DEFAULT_PERMS={admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit"},manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit"},viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit"}};
+  const DEFAULT_PERMS={admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit"},manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit"},sales_accountant:{dashboard:"view",details:"view",external:"hide",stock:"view",reports:"edit",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit"},purchase_accountant:{dashboard:"view",details:"view",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"hide"},viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide"}};
   const getTabPerm=(tabKey)=>{const perms=config.permissions||{};const defaults=DEFAULT_PERMS[userRole]||DEFAULT_PERMS.viewer;const rolePerm=perms[userRole]||{};return rolePerm[tabKey]||defaults[tabKey]||"view"};
   const canEditTab=(tabKey)=>getTabPerm(tabKey)==="edit";
   const canViewTab=(tabKey)=>getTabPerm(tabKey)!=="hide";
@@ -1161,7 +1163,7 @@ export default function App(){
           <div onClick={()=>{setQuickPopup("notif");setQpTo("all");setQpText("")}} style={{flex:1,padding:"8px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:quickPopup==="notif"?"#8B5CF6":T.bg,color:quickPopup==="notif"?"#fff":T.text}}>📩 اشعار</div>
         </div>
         {quickPopup==="task"?<div>
-          <div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ارسال الى</label><Sel value={qpTo} onChange={setQpTo}><option value="">-- اختر --</option>{targets.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+(u.email===me.email?" (أنا)":"")+" — "+(u.role==="admin"?"مدير النظام":u.role==="manager"?"مدير انتاج":"مشاهد")}</option>)}</Sel></div>
+          <div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ارسال الى</label><Sel value={qpTo} onChange={setQpTo}><option value="">-- اختر --</option>{targets.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+(u.email===me.email?" (أنا)":"")+" — "+(u.role==="admin"?"مدير النظام":u.role==="manager"?"مدير انتاج":u.role==="sales_accountant"?"محاسب مبيعات":u.role==="purchase_accountant"?"محاسب مشتريات":"مشاهد")}</option>)}</Sel></div>
           <div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المهمة</label><Inp value={qpText} onChange={setQpText} placeholder="اكتب المهمة..."/></div>
           <Btn primary onClick={()=>{if(!qpTo||!qpText.trim())return;const target=targets.find(u=>u.email===qpTo);
             upConfig(d=>{if(!Array.isArray(d.tasks))d.tasks=[];d.tasks.unshift({id:Date.now(),text:qpText.trim(),done:false,date:new Date().toISOString().split("T")[0],fromUid:user?.uid||"",fromEmail:user?.email||"",fromName:me.name,toEmail:qpTo,toName:target?.name||qpTo.split("@")[0]})});
@@ -3107,21 +3109,38 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards,user}){
 
 /* ══ UNCUT PIECES REPORT ══ */
 function UncutReport({data,isMob,season}){
+  const ALL_COLS=[{key:"modelNo",label:"رقم الموديل",req:true},{key:"modelDesc",label:"الوصف"},{key:"sizeLabel",label:"المقاسات"},{key:"cutQty",label:"كمية القص"},{key:"linked",label:"تم قصها ✓"},{key:"piece",label:"لم يتم قصها ✕",req:true}];
+  const[showColPk,setShowColPk]=useState(false);
+  const[visCols,setVisCols]=useState(()=>{try{const s=localStorage.getItem("clark_uncut_cols");return s?JSON.parse(s):ALL_COLS.map(c=>c.key)}catch(e){return ALL_COLS.map(c=>c.key)}});
+  const togCol=(key)=>{const c=ALL_COLS.find(x=>x.key===key);if(c?.req)return;setVisCols(p=>{const n=p.includes(key)?p.filter(k=>k!==key):[...p,key];try{localStorage.setItem("clark_uncut_cols",JSON.stringify(n))}catch(e){}return n})};
   const rows=[];
   data.orders.forEach(o=>{const pieces=o.orderPieces||[];if(pieces.length===0)return;
     const linkedPieces=new Set();FKEYS.forEach(k=>{if(gf(o,k))(o["fabricPieces"+k]||[]).forEach(p=>linkedPieces.add(p))});
     const linked=pieces.filter(p=>linkedPieces.has(p));const unlinked=pieces.filter(p=>!linkedPieces.has(p));const t=calcOrder(o);
     unlinked.forEach(p=>rows.push({modelNo:o.modelNo,modelDesc:o.modelDesc,sizeLabel:o.sizeLabel||"—",cutQty:t.cutQty,piece:p,linked,id:o.id}))});
+  const cols=ALL_COLS.filter(c=>visCols.includes(c.key));
   const printRep=()=>{const el=document.getElementById("uncut-rep");if(el)printPage("تقرير القطع غير المقصوصة — "+season,el.innerHTML)};
-  const exportXls=()=>{const xRows=[["رقم الموديل","الوصف","المقاسات","كمية القص","تم قصها","لم يتم قصها"]];rows.forEach(r=>xRows.push([r.modelNo,r.modelDesc,r.sizeLabel,r.cutQty,r.linked.join("، "),r.piece]));xRows.push([]);xRows.push(["الاجمالي",rows.length+" قطعة غير مقصوصة"]);exportExcel(xRows,"قطع_غير_مقصوصة_"+season)};
+  const exportXls=()=>{const xRows=[cols.map(c=>c.label)];rows.forEach(r=>xRows.push(cols.map(c=>c.key==="linked"?r.linked.join("، "):c.key==="piece"?r.piece:r[c.key])));xRows.push([]);xRows.push(["الاجمالي",rows.length+" قطعة"]);exportExcel(xRows,"قطع_غير_مقصوصة_"+season)};
+  const renderCell=(r,c)=>{if(c.key==="modelNo")return<td key={c.key} style={TDB}>{r.modelNo}</td>;if(c.key==="modelDesc")return<td key={c.key} style={TD}>{r.modelDesc}</td>;if(c.key==="sizeLabel")return<td key={c.key} style={TD}>{r.sizeLabel}</td>;if(c.key==="cutQty")return<td key={c.key} style={{...TDB,color:T.accent}}>{r.cutQty}</td>;if(c.key==="linked")return<td key={c.key} style={{...TD,color:T.ok}}>{r.linked.map(p=>gIcon(p,data.garmentTypes)+" "+p).join("، ")||"—"}</td>;if(c.key==="piece")return<td key={c.key} style={{...TDB,color:T.err}}>{gIcon(r.piece,data.garmentTypes)+" "+r.piece}</td>;return<td key={c.key} style={TD}>{r[c.key]}</td>};
   return<div id="uncut-rep">
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
       <div><h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.err}}>✂️ قطع لم يتم قصها</h1><div style={{fontSize:FS-1,color:T.textSec}}>{"الموسم: "+season+" — "+rows.length+" قطعة"}</div></div>
-      <div style={{display:"flex",gap:6}}><Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn onClick={exportXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn></div>
+      <div style={{display:"flex",gap:6,alignItems:"center",position:"relative"}}>
+        <div><Btn onClick={()=>setShowColPk(!showColPk)} style={{background:showColPk?T.accent+"15":T.bg,color:showColPk?T.accent:T.textSec,border:"1px solid "+(showColPk?T.accent+"30":T.brd),fontSize:FS-2}}>{"⚙️ الأعمدة ("+cols.length+")"}</Btn>
+          {showColPk&&<div style={{position:"absolute",top:"100%",right:0,marginTop:4,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,0.15)",zIndex:99,padding:8,minWidth:170}}>
+            {ALL_COLS.map(c=><label key={c.key} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 6px",cursor:c.req?"default":"pointer",borderRadius:6,background:visCols.includes(c.key)?T.ok+"06":"transparent"}}>
+              <input type="checkbox" checked={visCols.includes(c.key)} onChange={()=>togCol(c.key)} disabled={c.req} style={{width:14,height:14}}/>
+              <span style={{fontSize:FS-2,color:c.req?T.textMut:T.text,fontWeight:600}}>{c.label}{c.req?" ●":""}</span>
+            </label>)}
+          </div>}
+        </div>
+        <Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
+        <Btn onClick={exportXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊</Btn>
+      </div>
     </div>
-    {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
-      <thead><tr>{["#","رقم الموديل","الوصف","المقاسات","كمية القص","تم قصها ✓","لم يتم قصها ✕"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
-      <tbody>{rows.map((r,i)=><tr key={i}><td style={TD}>{i+1}</td><td style={TDB}>{r.modelNo}</td><td style={TD}>{r.modelDesc}</td><td style={TD}>{r.sizeLabel}</td><td style={{...TDB,color:T.accent}}>{r.cutQty}</td><td style={{...TD,color:T.ok}}>{r.linked.map(p=>gIcon(p,data.garmentTypes)+" "+p).join("، ")||"—"}</td><td style={{...TDB,color:T.err}}>{gIcon(r.piece,data.garmentTypes)+" "+r.piece}</td></tr>)}</tbody>
+    {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
+      <thead><tr><th style={TH}>#</th>{cols.map(c=><th key={c.key} style={TH}>{c.label}</th>)}</tr></thead>
+      <tbody>{rows.map((r,i)=><tr key={i}><td style={TD}>{i+1}</td>{cols.map(c=>renderCell(r,c))}</tr>)}</tbody>
     </table></div>:<div style={{textAlign:"center",padding:40,color:T.ok,fontWeight:700,fontSize:FS+2}}>✓ جميع القطع تم قصها</div>}
   </div>
 }
@@ -3540,7 +3559,7 @@ function TasksPg({data,upConfig,isMob,user,userRole}){
   return<div>
     <Card title="📌 ارسال مهمة جديدة" style={{marginBottom:16}}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 2fr auto",gap:8,alignItems:"end"}}>
-        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ارسال الى</label><Sel value={taskTo} onChange={setTaskTo}><option value="">-- اختر مستخدم --</option>{allowedTargets.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+(u.email===userEmail?" (أنا)":"")+" — "+(u.role==="admin"?"مدير النظام":u.role==="manager"?"مدير انتاج":"مشاهد")}</option>)}</Sel></div>
+        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ارسال الى</label><Sel value={taskTo} onChange={setTaskTo}><option value="">-- اختر مستخدم --</option>{allowedTargets.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+(u.email===userEmail?" (أنا)":"")+" — "+(u.role==="admin"?"مدير النظام":u.role==="manager"?"مدير انتاج":u.role==="sales_accountant"?"محاسب مبيعات":u.role==="purchase_accountant"?"محاسب مشتريات":"مشاهد")}</option>)}</Sel></div>
         <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المهمة</label><Inp value={taskText} onChange={setTaskText} placeholder="اكتب المهمة..." onKeyDown={e=>{if(e.key==="Enter")addTask()}}/></div>
         <Btn primary onClick={addTask} disabled={!taskText.trim()||!taskTo}>📤 ارسال</Btn>
       </div>
@@ -4161,7 +4180,7 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:10}}>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>كلمة المرور *</label><Inp value={newUserPass} onChange={setNewUserPass} type="password" placeholder="6 حروف على الأقل"/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>تأكيد كلمة المرور *</label><Inp value={newUserPass2} onChange={setNewUserPass2} type="password" placeholder="أعد كتابة كلمة المرور"/></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>الصلاحية</label><Sel value={newUserRole} onChange={setNewUserRole}><option value="admin">مدير النظام</option><option value="manager">مدير انتاج</option><option value="viewer">مشاهد فقط</option></Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>الصلاحية</label><Sel value={newUserRole} onChange={setNewUserRole}><option value="admin">مدير النظام</option><option value="manager">مدير انتاج</option><option value="sales_accountant">محاسب مبيعات</option><option value="purchase_accountant">محاسب مشتريات</option><option value="viewer">مشاهد فقط</option></Sel></div>
         </div>
         {createErr&&<div style={{color:T.err,fontSize:FS,marginBottom:10,fontWeight:600}}>{"⚠️ "+createErr}</div>}
         {createOk&&<div style={{color:T.ok,fontSize:FS,marginBottom:10,fontWeight:600}}>{"✓ "+createOk}</div>}
@@ -4170,11 +4189,11 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
       {/* Existing users */}
       <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:10}}>المستخدمين الحاليين</div>
       {(config.usersList||[]).length>0&&<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}><thead><tr>{["الاسم","البريد","الصلاحية",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-        {(config.usersList||[]).map((u,i)=><tr key={i}><td style={{...TD,fontWeight:600}}>{u.name||"-"}</td><td style={TD}>{u.email}</td><td style={TD}><Sel value={u.role} onChange={v=>requirePass(()=>upConfig(d=>{const x=(d.usersList||[]).find(z=>z.email===u.email);if(x)x.role=v}))}><option value="admin">مدير النظام</option><option value="manager">مدير انتاج</option><option value="viewer">مشاهد فقط</option></Sel></td><td style={TD}>{(()=>{const hasTasks=(Array.isArray(config.tasks)?config.tasks:[]).some(t=>t.toEmail===u.email&&!t.done);return<DelBtn onConfirm={()=>requirePass(()=>upConfig(d=>{d.usersList=(d.usersList||[]).filter(x=>x.email!==u.email)}))} blocked={hasTasks?"لديه مهام مفتوحة":null}/>})()}</td></tr>)}
+        {(config.usersList||[]).map((u,i)=><tr key={i}><td style={{...TD,fontWeight:600}}>{u.name||"-"}</td><td style={TD}>{u.email}</td><td style={TD}><Sel value={u.role} onChange={v=>requirePass(()=>upConfig(d=>{const x=(d.usersList||[]).find(z=>z.email===u.email);if(x)x.role=v}))}><option value="admin">مدير النظام</option><option value="manager">مدير انتاج</option><option value="sales_accountant">محاسب مبيعات</option><option value="purchase_accountant">محاسب مشتريات</option><option value="viewer">مشاهد فقط</option></Sel></td><td style={TD}>{(()=>{const hasTasks=(Array.isArray(config.tasks)?config.tasks:[]).some(t=>t.toEmail===u.email&&!t.done);return<DelBtn onConfirm={()=>requirePass(()=>upConfig(d=>{d.usersList=(d.usersList||[]).filter(x=>x.email!==u.email)}))} blocked={hasTasks?"لديه مهام مفتوحة":null}/>})()}</td></tr>)}
       </tbody></table></div>}
       {(config.usersList||[]).length===0&&<div style={{textAlign:"center",padding:20,color:T.textSec}}>لم يتم اضافة مستخدمين</div>}
       <div style={{marginTop:16,display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:12}}>
-        {[["مدير النظام",T.accent,"كل الصلاحيات + اعدادات"],["مدير انتاج",T.ok,"اضافة وتعديل"],["مشاهد",T.warn,"عرض فقط"]].map(([n,c,d])=><div key={n} style={{padding:14,borderRadius:12,background:c+"08",border:"1px solid "+c+"25"}}><div style={{fontSize:FS,fontWeight:700,color:c,marginBottom:4}}>{n}</div><div style={{fontSize:FS-2,color:T.textSec}}>{d}</div></div>)}
+        {[["مدير النظام",T.accent,"كل الصلاحيات + اعدادات"],["مدير انتاج",T.ok,"اضافة وتعديل"],["محاسب مبيعات","#8B5CF6","تسليم عملاء + تقارير"],["محاسب مشتريات","#F59E0B","تشغيل + حسابات ورش"],["مشاهد",T.warn,"عرض فقط"]].map(([n,c,d])=><div key={n} style={{padding:14,borderRadius:12,background:c+"08",border:"1px solid "+c+"25"}}><div style={{fontSize:FS,fontWeight:700,color:c,marginBottom:4}}>{n}</div><div style={{fontSize:FS-2,color:T.textSec}}>{d}</div></div>)}
       </div>
     </Card>
     {/* Send Notifications */}
@@ -4182,8 +4201,8 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
     <Card title="🔐 صلاحيات المستخدمين" style={{marginBottom:16}}>
       {(()=>{
         const perms=config.permissions||{};
-        const roles=["admin","manager","viewer"];
-        const roleLabels={admin:"أدمن",manager:"مدير",viewer:"مشاهد"};
+        const roles=["admin","manager","sales_accountant","purchase_accountant","viewer"];
+        const roleLabels={admin:"أدمن",manager:"مدير",sales_accountant:"مبيعات",purchase_accountant:"مشتريات",viewer:"مشاهد"};
         const tabs=TABS;
         const levels=["edit","view","hide"];
         const levelLabels={edit:"✏️ تعديل",view:"👁 عرض",hide:"❌ مخفي"};
@@ -4193,7 +4212,7 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
           <thead><tr><th style={TH}>الشاشة</th>{roles.map(r=><th key={r} style={{...TH,textAlign:"center"}}>{roleLabels[r]}</th>)}</tr></thead>
           <tbody>{tabs.map(t=><tr key={t.key}>
             <td style={{...TD,fontWeight:600}}><span style={{marginLeft:6}}>{t.icon}</span>{t.label}</td>
-            {roles.map(r=>{const defPerms={admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit"},manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit"},viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit"}};const cur=(perms[r]||{})[t.key]||(defPerms[r]||{})[t.key]||"view";
+            {roles.map(r=>{const defPerms={admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit"},manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit"},sales_accountant:{dashboard:"view",details:"view",external:"hide",stock:"view",reports:"edit",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit"},purchase_accountant:{dashboard:"view",details:"view",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"hide"},viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide"}};const cur=(perms[r]||{})[t.key]||(defPerms[r]||{})[t.key]||"view";
               return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px"}}>
                 {r==="admin"&&t.key==="settings"?<span style={{fontSize:FS-2,color:T.ok,fontWeight:600}}>✏️ دائماً</span>:
                 <select value={cur} onChange={e=>setPerm(r,t.key,e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:levelColors[cur],fontWeight:700,cursor:"pointer"}}>
