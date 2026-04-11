@@ -3943,9 +3943,9 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
           </tbody>
         </table>
       </div>
-      <div style={{display:"flex",gap:8,marginTop:12}}>
-        <Btn onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة الجدول</Btn>
-        <Btn onClick={()=>closeMatrix(true)} style={{background:T.ok,color:"#fff",border:"none",fontWeight:700}}>✓ تأكيد وإغلاق</Btn>
+      <div style={{display:"flex",gap:10,justifyContent:"center",padding:"12px 24px",borderTop:"1px solid "+T.brd,flexShrink:0}}>
+        <Btn onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30",padding:"8px 20px"}}>🖨 طباعة الجدول</Btn>
+        <Btn onClick={()=>closeMatrix(true)} style={{background:T.ok,color:"#fff",border:"none",fontWeight:700,padding:"8px 24px"}}>✓ تأكيد وإغلاق</Btn>
       </div>
     </div></div>}
     {/* ══ Sales Dashboard ══ */}
