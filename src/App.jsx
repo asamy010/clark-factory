@@ -1944,7 +1944,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
         <Btn small onClick={()=>printOrderSheet(order,t,activeFabs,statusCards)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
         {canEdit&&!order.closed&&<Btn small primary onClick={()=>setEditing(true)}>✏️</Btn>}
         <Btn small onClick={async()=>{const text="*CLARK — تفاصيل أوردر*\n\n• الموديل: *"+order.modelNo+"*\n• الوصف: "+order.modelDesc+"\n• المقاسات: "+(order.sizeLabel||"-")+"\n• كمية القص: *"+t.cutQty+"*\n• مخزن جاهز: *"+(order.deliveredQty||0)+"*";
-          if(order.image&&navigator.share){try{const res=await fetch(order.image);const blob=await res.blob();const file=new File([blob],order.modelNo+".jpg",{type:blob.type||"image/jpeg"});await navigator.share({text,files:[file]});return}catch(e){}}
+          if(order.image&&navigator.canShare){try{const res=await fetch(order.image);const blob=await res.blob();const file=new File([blob],order.modelNo+".jpg",{type:blob.type||"image/jpeg"});if(navigator.canShare({files:[file]})){await navigator.share({title:"CLARK — "+order.modelNo,text,files:[file]});return}}catch(e){}}
           const msg=encodeURIComponent(text);window.open("https://wa.me/?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn>
         {canEdit&&!order.closed&&<Btn small onClick={()=>{const dup=JSON.parse(JSON.stringify(order));dup.id=gid();dup.date=new Date().toISOString().split("T")[0];dup.createdAt=new Date().toISOString();dup.modelNo="";dup.status="تم القص";dup.deliveredQty=0;dup.deliveries=[];dup.workshopDeliveries=[];dup._isDup=true;delete dup._docId;setDupInit(dup)}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📋 تكرار</Btn>}
         {canEdit&&!order.closed&&t.cutQty>0&&activeFabs.length>0&&<Btn small onClick={()=>{setShowDeliver(true);setDWs("");setDType("");setDQty(0);setDPrice("");setDNote("")}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📤 تسليم ورشة</Btn>}
@@ -3088,15 +3088,16 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards,user}){
   };
 
   return<div>
-    <Card style={{marginBottom:12}}>
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr auto",gap:10,alignItems:"end"}}>
-        <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>{"اختر الأوردر ("+eligible.length+")"}</label>
-          <SearchSel value={selOrder} onChange={v=>{setSelOrder(v);setStQty(0)}} options={eligible.map(o=>{const tc=calcOrder(o);const sd=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return{value:o.id,label:o.modelNo+" — "+o.modelDesc+" (متبقي: "+(tc.cutQty-sd)+")"}})} placeholder="ابحث بالموديل أو الوصف..."/>
-        </div>
-        {selOrder&&<><div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>{"الكمية (طقم كامل متاح: "+stockRemain+")"}</label><Inp type="number" value={stQty} onChange={v=>setStQty(Number(v)||0)}/></div>
-        <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>التاريخ</label><Inp type="date" value={stDate} onChange={setStDate}/></div>
-        <div style={{display:"flex",gap:6}}><Btn primary onClick={()=>saveStock(false)} disabled={!stQty||stQty<=0}>📦 تسليم</Btn><Btn onClick={()=>saveStock(true)} disabled={!stQty||stQty<=0} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>📦 تسليم + طباعة</Btn></div></>}
+    <Card style={{marginBottom:12,overflow:"visible"}}>
+      <div style={{marginBottom:12,position:"relative",zIndex:100}}>
+        <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,marginBottom:4,display:"block"}}>{"اختر الأوردر ("+eligible.length+")"}</label>
+        <SearchSel value={selOrder} onChange={v=>{setSelOrder(v);setStQty(0)}} options={eligible.map(o=>{const tc=calcOrder(o);const sd=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return{value:o.id,label:o.modelNo+" — "+o.modelDesc+" (متبقي: "+(tc.cutQty-sd)+")"}})} placeholder="ابحث بالموديل أو الوصف..."/>
       </div>
+      {selOrder&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"1fr 1fr 1fr auto",gap:10,alignItems:"end"}}>
+        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{"الكمية (متاح: "+stockRemain+")"}</label><Inp type="number" value={stQty} onChange={v=>setStQty(Number(v)||0)}/></div>
+        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>التاريخ</label><Inp type="date" value={stDate} onChange={setStDate}/></div>
+        <div style={{display:"flex",gap:6,alignItems:"end"}}><Btn primary onClick={()=>saveStock(false)} disabled={!stQty||stQty<=0}>📦 تسليم</Btn><Btn onClick={()=>saveStock(true)} disabled={!stQty||stQty<=0} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>📦+🖨</Btn></div>
+      </div>}
       {/* Per-piece breakdown */}
       {selOrder&&ord&&pieces.length>0&&<div style={{marginTop:10,padding:10,borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
         <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:6}}>تفاصيل القطع والطقم الكامل</div>
