@@ -504,21 +504,25 @@ function Sel({value,onChange,children}){
 }
 
 function SearchSel({value,onChange,options,placeholder}){
-  const[open,setOpen]=useState(false);const[q,setQ]=useState("");const ref=useRef(null);const dropRef=useRef(null);
+  const[q,setQ]=useState("");const[focused,setFocused]=useState(false);const ref=useRef(null);
   const selected=options.find(o=>o.value===value);
-  const filtered=q?options.filter(o=>o.label.toLowerCase().includes(q.toLowerCase())).slice(0,10):options.slice(0,10);
-  useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target)&&dropRef.current&&!dropRef.current.contains(e.target))setOpen(false)};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h)},[]);
-  const getPos=()=>{if(!ref.current)return{top:0,left:0,width:200};const r=ref.current.getBoundingClientRect();return{top:r.bottom,left:r.left,width:r.width}};
-  return<div ref={ref} style={{position:"relative"}}>
-    <div style={{display:"flex",border:"1px solid "+T.brd,borderRadius:6,overflow:"hidden",background:T.cardSolid}}>
-      <input value={open?q:(selected?selected.label:"")} onChange={e=>{setQ(e.target.value);if(!open)setOpen(true)}} onFocus={()=>{setOpen(true);setQ("")}} onKeyDown={e=>{if(e.key==="Escape")setOpen(false)}}
-        placeholder={placeholder||"بحث..."} style={{flex:1,padding:"5px 8px",border:"none",outline:"none",fontSize:FS,fontFamily:"inherit",background:"transparent",color:T.text,boxSizing:"border-box"}}/>
-      <div onClick={()=>{setOpen(!open);setQ("")}} style={{padding:"4px 8px",cursor:"pointer",display:"flex",alignItems:"center",color:T.textSec,borderRight:"1px solid "+T.brd,background:T.bg,fontSize:12}}>{open?"▲":"▼"}</div>
-    </div>
-    {open&&(()=>{const p=getPos();return<div ref={dropRef} style={{position:"fixed",top:p.top,left:p.left,width:p.width||200,zIndex:99999,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:"0 0 8px 8px",boxShadow:"0 8px 24px rgba(0,0,0,0.15)",maxHeight:240,overflowY:"auto"}}>
-      {filtered.length>0?filtered.map(o=><div key={o.value} onClick={()=>{onChange(o.value);setOpen(false);setQ("")}} style={{padding:"8px 12px",cursor:"pointer",fontSize:FS,color:o.value===value?T.accent:T.text,fontWeight:o.value===value?700:400,background:o.value===value?T.accent+"08":"transparent",borderBottom:"1px solid "+T.brd+"40"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background=o.value===value?T.accent+"08":"transparent"}>{o.label}</div>)
-      :<div style={{padding:"12px",textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد نتائج</div>}
-    </div>})()}
+  const showResults=focused&&q.length>0;
+  const filtered=q?options.filter(o=>o.label.toLowerCase().includes(q.toLowerCase())).slice(0,5):[];
+  useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target))setFocused(false)};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h)},[]);
+  return<div ref={ref}>
+    <input value={focused?q:(selected?selected.label:"")}
+      onChange={e=>{setQ(e.target.value);if(!focused)setFocused(true)}}
+      onFocus={()=>{setFocused(true);setQ("")}}
+      onKeyDown={e=>{if(e.key==="Escape"){setFocused(false)}}}
+      placeholder={placeholder||"اكتب للبحث..."}
+      style={{width:"100%",padding:"6px 10px",border:"2px solid "+(focused?T.accent:T.brd),borderRadius:8,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",transition:"border 0.15s"}}/>
+    {selected&&!focused&&<div style={{fontSize:FS-3,color:T.ok,marginTop:2}}>{"✓ "+selected.label}</div>}
+    {showResults&&filtered.length>0&&<div style={{marginTop:4,borderRadius:8,border:"1px solid "+T.brd,overflow:"hidden",background:T.cardSolid,boxShadow:"0 4px 12px rgba(0,0,0,0.1)"}}>
+      {filtered.map(o=><div key={o.value} onMouseDown={e=>{e.preventDefault();onChange(o.value);setQ("");setFocused(false)}}
+        style={{padding:"8px 12px",cursor:"pointer",fontSize:FS,color:o.value===value?T.accent:T.text,fontWeight:o.value===value?700:400,background:o.value===value?T.accent+"08":"transparent",borderBottom:"1px solid "+T.brd+"30"}}
+        onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background=o.value===value?T.accent+"08":"transparent"}>{o.label}</div>)}
+    </div>}
+    {showResults&&filtered.length===0&&q.length>0&&<div style={{marginTop:4,padding:"8px 12px",borderRadius:8,background:T.bg,fontSize:FS-1,color:T.textMut,textAlign:"center"}}>لا توجد نتائج</div>}
   </div>
 }
 
