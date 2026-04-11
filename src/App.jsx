@@ -3679,8 +3679,9 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   const[reportRange,setReportRange]=useState({from:"",to:""});const[showReport,setShowReport]=useState(false);const[rptType,setRptType]=useState("all");const[rptCust,setRptCust]=useState("");const[rptModel,setRptModel]=useState("");
   const[showNewAudit,setShowNewAudit]=useState(false);const[auditDate,setAuditDate]=useState(new Date().toISOString().split("T")[0]);const[auditFrom,setAuditFrom]=useState("");const[auditTo,setAuditTo]=useState("");const[auditNote,setAuditNote]=useState("");
   const[activeAudit,setActiveAudit]=useState(null);const[auditCell,setAuditCell]=useState(null);const[auditVal,setAuditVal]=useState(0);const[showAuditAnalysis,setShowAuditAnalysis]=useState(null);
+  const[ocrCust,setOcrCust]=useState(null);const[ocrLoading,setOcrLoading]=useState(false);const[ocrResult,setOcrResult]=useState(null);const ocrRef=useRef(null);
   const[returnPopup,setReturnPopup]=useState(null);const[retQty,setRetQty]=useState(0);const[retNote,setRetNote]=useState("");
-  const[custQR,setCustQR]=useState(null);
+  const[custQR,setCustQR]=useState(null);const[salesDetail,setSalesDetail]=useState(null);
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
 
   const getRackSize=(orderId)=>{const o=orders.find(x=>x.id===orderId);if(!o||!o.sizeLabel)return 1;const parts=o.sizeLabel.split(/[-\/]/).map(s=>s.trim()).filter(Boolean);return parts.length||1};
@@ -3850,6 +3851,24 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
 
   const delAudit=(audId)=>{upConfig(d=>{d.salesAudits=(d.salesAudits||[]).filter(a=>a.id!==audId)});if(activeAudit===audId)setActiveAudit(null);showToast("✓ تم الحذف")};
 
+  const scanAuditImage=async(file,custId)=>{if(!file||!activeAudit)return;setOcrLoading(true);setOcrResult(null);
+    try{const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=()=>rej();r.readAsDataURL(file)});
+      const modelList=auditModels.map(m=>m.modelNo).join(", ");
+      const prompt="اقرأ جرد المبيعات في الصورة.\nالمطلوب: استخرج رقم كل موديل وكمية المبيعات فقط (مش الكمية الكلية ومش الرصيد — عمود المبيعات أو المنصرف أو المباع).\nلو مفيش عمود مبيعات واضح، احسب المبيعات = الكمية - الرصيد.\n\nالموديلات المتاحة في النظام: "+modelList+"\nطابق الأرقام مع أقرب موديل متاح.\n\nارجع JSON فقط بدون أي كلام أو markdown:\n[{\"model\":\"3262101\",\"qty\":28},{\"model\":\"3261115\",\"qty\":14}]";
+      const res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system:"أنت أداة OCR لقراءة جداول جرد المبيعات. ارجع JSON فقط.",messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},{type:"text",text:prompt}]}]})});
+      const data2=await res.json();if(data2.error){showToast("⚠️ خطأ: "+(data2.error.message||""));setOcrLoading(false);return}
+      const txt=(data2.content||[]).map(c=>c.text||"").join("").trim();
+      const clean=txt.replace(/```json|```/g,"").trim();
+      const items=JSON.parse(clean);
+      const matched=items.map(it=>{const m=auditModels.find(x=>x.modelNo===it.model||x.modelNo.includes(it.model)||it.model.includes(x.modelNo));return{input:it.model,qty:Number(it.qty)||0,matched:m?m.modelNo:null,matchedId:m?m.id:null}});
+      setOcrResult({custId,items:matched})
+    }catch(e){showToast("⚠️ فشل قراءة الصورة: "+e.message)}
+    setOcrLoading(false)};
+
+  const applyOcr=()=>{if(!ocrResult||!activeAudit)return;const{custId,items}=ocrResult;
+    upConfig(d=>{const ai=(d.salesAudits||[]).findIndex(a=>a.id===activeAudit);if(ai>=0){if(!d.salesAudits[ai].grid)d.salesAudits[ai].grid={};items.filter(it=>it.matchedId).forEach(it=>{d.salesAudits[ai].grid[it.matchedId+"_"+custId]=it.qty})}});
+    const count=items.filter(it=>it.matchedId).length;showToast("✓ تم تسجيل "+count+" موديل");setOcrResult(null);setOcrCust(null)};
+
   const printCustLabels=async(cust,models,grid,sessDate,total,count)=>{
     let qrSrc="";try{const QR=await loadQR();if(QR)qrSrc=await QR.toDataURL(window.location.origin+"?cust="+encodeURIComponent(cust.name)+"&d="+sessDate,{width:180,margin:1,errorCorrectionLevel:"M"})}catch(e){}
     const pw=window.open("","_blank");if(!pw)return;
@@ -3992,25 +4011,25 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
             printPage("رصيد مخزن الجاهز",h)}} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>}>
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
               {stockModels.map(m=>{const rem=m.avail;const pc=m.stockQty?Math.round(m.custDel/m.stockQty*100):0;
-                return<div key={m.id} style={{display:"flex",alignItems:"center",gap:8}}>
-                  <div style={{minWidth:60,fontWeight:800,color:T.accent,fontSize:FS-1}}>{m.modelNo}</div>
-                  <div style={{flex:1}}>
+                return<div key={m.id} onClick={()=>{const details=[];customers.forEach(c=>{const cd=(orders.find(o=>o.id===m.id)?.customerDeliveries||[]).filter(d=>d.custId===c.id).reduce((s,d)=>s+(Number(d.qty)||0),0);if(cd>0)details.push({name:c.name,qty:cd})});details.sort((a,b)=>b.qty-a.qty);setSalesDetail({title:"📊 موديل "+m.modelNo+" — "+m.modelDesc,items:details,total:m.custDel,color:"#F59E0B"})}} style={{display:"grid",gridTemplateColumns:"60px 1fr 80px",alignItems:"center",gap:8,cursor:"pointer",padding:"4px 6px",borderRadius:8,transition:"background 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"08"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <div style={{fontWeight:800,color:T.accent,fontSize:FS-1}}>{m.modelNo}</div>
+                  <div>
                     <div style={{height:20,borderRadius:10,background:T.brd+"40",overflow:"hidden",position:"relative"}}>
                       <div style={{height:"100%",width:pc+"%",borderRadius:10,background:pc>70?"linear-gradient(90deg,#10B981,#059669)":pc>30?"linear-gradient(90deg,#F59E0B,#EAB308)":"linear-gradient(90deg,#EF4444,#DC2626)",transition:"width 0.5s"}}/>
                       <span style={{position:"absolute",top:0,right:6,fontSize:FS-3,fontWeight:700,color:"#fff",lineHeight:"20px"}}>{pc+"%"}</span>
                     </div>
                   </div>
-                  <div style={{minWidth:80,textAlign:"left",fontSize:FS-2}}><span style={{fontWeight:800,color:T.warn}}>{rem}</span><span style={{color:T.textMut}}>{"/ "+m.stockQty}</span></div>
+                  <div style={{textAlign:"left",fontSize:FS-2}}><span style={{fontWeight:800,color:T.warn}}>{rem}</span><span style={{color:T.textMut}}>{"/ "+m.stockQty}</span></div>
                 </div>})}
             </div>
           </Card>
           {topCusts.length>0&&<Card title="🏆 أعلى العملاء مبيعات">
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {topCusts.slice(0,8).map((c,i)=><div key={c.id} style={{display:"flex",alignItems:"center",gap:8}}>
-                <div style={{minWidth:20,fontWeight:800,color:i<3?"#F59E0B":T.textMut,fontSize:FS-1}}>{i+1}</div>
-                <div style={{minWidth:80,fontWeight:700,fontSize:FS-1}}>{c.name}</div>
-                <div style={{flex:1}}><div style={{height:16,borderRadius:8,background:T.brd+"40",overflow:"hidden"}}><div style={{height:"100%",width:Math.round(c.total/maxCust*100)+"%",borderRadius:8,background:i===0?"linear-gradient(90deg,#F59E0B,#EAB308)":"linear-gradient(90deg,#0EA5E9,#0284C7)",transition:"width 0.5s"}}/></div></div>
-                <div style={{minWidth:50,textAlign:"left",fontWeight:800,color:T.accent,fontSize:FS-1}}>{fmt(c.total)}</div>
+              {topCusts.map((c,i)=><div key={c.id} onClick={()=>{const details=[];orders.forEach(o=>{const cd=(o.customerDeliveries||[]).filter(d=>d.custId===c.id).reduce((s,d)=>s+(Number(d.qty)||0),0);if(cd>0)details.push({name:o.modelNo+" — "+o.modelDesc,qty:cd})});setSalesDetail({title:"📦 تفاصيل "+c.name,items:details,total:c.total,color:"#0EA5E9"})}} style={{display:"grid",gridTemplateColumns:"24px 1fr 2fr 60px",alignItems:"center",gap:8,cursor:"pointer",padding:"4px 6px",borderRadius:8,transition:"background 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"08"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                <div style={{fontWeight:800,color:i<3?"#F59E0B":T.textMut,fontSize:FS-1,textAlign:"center"}}>{i+1}</div>
+                <div style={{fontWeight:700,fontSize:FS-1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>
+                <div><div style={{height:16,borderRadius:8,background:T.brd+"40",overflow:"hidden"}}><div style={{height:"100%",width:Math.round(c.total/maxCust*100)+"%",borderRadius:8,background:i===0?"linear-gradient(90deg,#F59E0B,#EAB308)":"linear-gradient(90deg,#0EA5E9,#0284C7)",transition:"width 0.5s"}}/></div></div>
+                <div style={{fontWeight:800,color:T.accent,fontSize:FS-1,textAlign:"left"}}>{fmt(c.total)}</div>
               </div>)}
             </div>
           </Card>}
@@ -4087,7 +4106,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
           <table style={{width:"100%",borderCollapse:"collapse",whiteSpace:"nowrap"}}>
             <thead style={{position:"sticky",top:0,zIndex:10,background:T.cardSolid}}><tr>
               <th style={{...TH,minWidth:120}}>الموديل</th>
-              {auditCusts.map(c=><th key={c.id} style={{...TH,textAlign:"center",minWidth:80,fontSize:FS-2}}><div style={{fontWeight:700}}>{c.name}</div></th>)}
+              {auditCusts.map(c=><th key={c.id} style={{...TH,textAlign:"center",minWidth:80,fontSize:FS-2}}><div style={{fontWeight:700}}>{c.name}</div>{canEdit&&<div style={{marginTop:2}}><span onClick={e=>{e.stopPropagation();setOcrCust(c.id);setOcrResult(null)}} style={{cursor:"pointer",fontSize:10,padding:"1px 4px",borderRadius:4,background:"#8B5CF610",color:"#8B5CF6"}}>📸</span></div>}</th>)}
               <th style={{...TH,textAlign:"center",background:"#F59E0B15",color:"#F59E0B",fontWeight:800}}>اجمالي</th>
               <th style={{...TH,textAlign:"center",fontSize:FS-2}}>تم تسليمه</th>
               <th style={{...TH,textAlign:"center",fontSize:FS-2}}>% البيع</th>
@@ -4114,6 +4133,10 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
                 {auditCusts.map(c=>{const ct=auditModels.reduce((s,m)=>s+(Number(aAudGrid[m.id+"_"+c.id])||0),0);return<td key={c.id} style={{...TD,textAlign:"center",fontWeight:800,color:"#F59E0B"}}>{ct||"—"}</td>})}
                 <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#fff",background:"#F59E0B"}}>{auditModels.reduce((s,m)=>s+auditCusts.reduce((ss,c)=>ss+(Number(aAudGrid[m.id+"_"+c.id])||0),0),0)}</td>
                 <td style={TD}></td><td style={TD}></td>
+              </tr>
+              <tr style={{background:"#8B5CF608"}}><td style={{...TD,fontWeight:700,color:"#8B5CF6",fontSize:FS-2}}>% مبيعات</td>
+                {auditCusts.map(c=>{const ct=auditModels.reduce((s,m)=>s+(Number(aAudGrid[m.id+"_"+c.id])||0),0);const delivered=getCustTotal(c.id);const pct=delivered>0?Math.round(ct/delivered*100):0;return<td key={c.id} style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS-1,color:pct>=50?T.ok:pct>=20?"#F59E0B":T.err}}>{pct+"%"}</td>})}
+                <td style={TD}></td><td style={TD}></td><td style={TD}></td>
               </tr>
             </tbody>
           </table>
@@ -4164,6 +4187,55 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
           </div>}
         </div>
       </div>})()}
+    {/* OCR Audit Popup */}
+    {ocrCust&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setOcrCust(null);setOcrResult(null)}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontSize:FS+1,fontWeight:800,color:"#8B5CF6"}}>{"📸 قراءة جرد — "+(auditCusts.find(c=>c.id===ocrCust)?.name||"")}</div>
+          <Btn ghost small onClick={()=>{setOcrCust(null);setOcrResult(null)}}>✕</Btn>
+        </div>
+        {!ocrResult&&!ocrLoading&&<div>
+          <div style={{border:"2px dashed "+T.brd,borderRadius:12,padding:30,textAlign:"center",cursor:"pointer",background:T.bg}} onClick={()=>ocrRef.current?.click()}>
+            <div style={{fontSize:32,marginBottom:8}}>📸</div>
+            <div style={{fontSize:FS,fontWeight:700,color:T.text}}>صوّر جرد العميل أو اختار صورة</div>
+            <div style={{fontSize:FS-2,color:T.textMut,marginTop:4}}>البرنامج هيقرأ عمود المبيعات تلقائياً</div>
+          </div>
+          <input ref={ocrRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0];if(f)scanAuditImage(f,ocrCust);e.target.value=""}}/>
+        </div>}
+        {ocrLoading&&<div style={{textAlign:"center",padding:30}}>
+          <div style={{fontSize:28,marginBottom:8}}>🔍</div>
+          <div style={{fontSize:FS,fontWeight:700,color:T.accent}}>جاري قراءة الجرد بالذكاء الاصطناعي...</div>
+          <div style={{fontSize:FS-2,color:T.textMut,marginTop:4}}>قد يستغرق بضع ثواني</div>
+        </div>}
+        {ocrResult&&<div>
+          <div style={{fontSize:FS,fontWeight:700,color:T.ok,marginBottom:10}}>{"✅ تم القراءة — "+ocrResult.items.length+" موديل"}</div>
+          <table style={{width:"100%",borderCollapse:"collapse",marginBottom:12}}><thead><tr><th style={TH}>الموديل (من الصورة)</th><th style={TH}>المطابقة</th><th style={TH}>المبيعات</th></tr></thead><tbody>
+            {ocrResult.items.map((it,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}>
+              <td style={{...TD,fontWeight:600}}>{it.input}</td>
+              <td style={TD}>{it.matched?<span style={{color:T.ok,fontWeight:700}}>{"✅ "+it.matched}</span>:<span style={{color:T.err,fontWeight:700}}>⚠️ غير موجود</span>}</td>
+              <td style={{...TD,textAlign:"center",fontWeight:800,color:it.matched?"#F59E0B":T.textMut}}>{it.qty}</td>
+            </tr>)}
+          </tbody></table>
+          <div style={{display:"flex",gap:8,justifyContent:"center"}}>
+            <Btn ghost onClick={()=>{setOcrResult(null)}}>📸 صورة أخرى</Btn>
+            <Btn onClick={applyOcr} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700}}>{"✓ تسجيل "+ocrResult.items.filter(it=>it.matchedId).length+" موديل"}</Btn>
+          </div>
+        </div>}
+      </div>
+    </div>}
+    {/* Sales Detail Popup */}
+    {salesDetail&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setSalesDetail(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:isMob?400:550,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontSize:FS+1,fontWeight:800,color:salesDetail.color}}>{salesDetail.title}</div>
+          <Btn ghost small onClick={()=>setSalesDetail(null)}>✕</Btn>
+        </div>
+        <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th style={TH}>#</th><th style={TH}>البيان</th><th style={TH}>الكمية</th></tr></thead><tbody>
+          {(salesDetail.items||[]).map((d,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:700}}>{d.name}</td><td style={{...TD,textAlign:"center",fontWeight:800,color:salesDetail.color}}>{fmt(d.qty)}</td></tr>)}
+          <tr style={{background:salesDetail.color+"10"}}><td style={TD}></td><td style={{...TD,fontWeight:800}}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:salesDetail.color}}>{fmt(salesDetail.total)}</td></tr>
+        </tbody></table>
+      </div>
+    </div>}
     {/* New Audit Popup */}
     {showNewAudit&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowNewAudit(false)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
