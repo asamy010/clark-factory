@@ -778,7 +778,7 @@ export default function App(){
   useEffect(()=>{const saved=localStorage.getItem(themeKey);if(saved&&saved!==theme)setTheme_(saved)},[themeKey]);
   T=THEMES[theme]||THEMES.light;
   useEffect(()=>{localStorage.setItem(themeKey,theme);document.body.style.background=T.bodyBg||T.bg},[theme,themeKey]);
-  const w=useWin();const isMob=w<768;const season=config.activeSeason||"WS26";
+  const w=useWin();const isMob=w<768;const isTab=w>=768&&w<1100;const season=config.activeSeason||"WS26";
 
   useEffect(()=>{const unsub=onAuthStateChanged(auth,u=>{setUser(u);setAuthLoading(false)});return unsub},[]);
   useEffect(()=>{if(!user)return;const unsub=onSnapshot(doc(db,"factory","config"),snap=>{if(snap.exists())setConfig(snap.data());else setDoc(doc(db,"factory","config"),INIT_CONFIG)});return()=>unsub()},[user]);
@@ -1156,16 +1156,16 @@ export default function App(){
       </div>}
       {/* PAGES with back button */}
       {tab!=="home"&&canViewTab(tab)&&<div>
-        {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} season={season} statusCards={statusCards} upConfig={upConfig} user={user} setCardPopup={setCardPopup}/>}
+        {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} isTab={isTab} season={season} statusCards={statusCards} upConfig={upConfig} user={user} setCardPopup={setCardPopup}/>}
         {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("db")} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
-        {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} delOrder={delOrder} sel={sel} setSel={setSel} isMob={isMob} canEdit={canEditTab("details")} statusCards={statusCards} goHome={goHome} upConfig={upConfig} user={user}/>}
-        {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("external")} statusCards={statusCards} season={season} user={user}/>}
+        {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} delOrder={delOrder} sel={sel} setSel={setSel} isMob={isMob} isTab={isTab} canEdit={canEditTab("details")} statusCards={statusCards} goHome={goHome} upConfig={upConfig} user={user}/>}
+        {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("external")} statusCards={statusCards} season={season} user={user}/>}
         {tab==="stock"&&<StockPg data={data} updOrder={updOrder} isMob={isMob} canEdit={canEditTab("stock")} statusCards={statusCards} user={user}/>}
         {tab==="tasks"&&<TasksPg data={data} upConfig={upConfig} isMob={isMob} user={user} userRole={userRole}/>}
         {tab==="calc"&&<CalcPg data={data} isMob={isMob}/>}
         {tab==="reports"&&<ReportsHub data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="settings"&&canEditTab("settings")&&<SettingsPg config={config} upConfig={upConfig} isMob={isMob} user={user} theme={theme} setTheme={setTheme} season={season} orders={orders} syncWsIds={syncWsIds} replaceOrder={replaceOrder} updOrder={updOrder}/>}
-        {tab==="custDeliver"&&<CustDeliverPg data={data} upConfig={upConfig} updOrder={updOrder} isMob={isMob} canEdit={canEditTab("custDeliver")} user={user}/>}
+        {tab==="custDeliver"&&<CustDeliverPg data={data} upConfig={upConfig} updOrder={updOrder} isMob={isMob} isTab={isTab} canEdit={canEditTab("custDeliver")} user={user}/>}
       </div>}
     </div>
     {/* Quick Task/Notification Popup */}
@@ -1247,7 +1247,7 @@ export default function App(){
     </div>}
   </div>
 }
-function DashPg({data,goD,isMob,season,statusCards,upConfig,user,setCardPopup}){
+function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,setCardPopup}){
   const orders=data.orders;
 
   /* ═══ MEMOIZED COMPUTATIONS ═══ */
@@ -1303,7 +1303,7 @@ function DashPg({data,goD,isMob,season,statusCards,upConfig,user,setCardPopup}){
       const hasActivity=todayCut||todayWsDel||todayWsRcv||todayStock;
       return<Card title={"📊 ملخص اليوم — "+today} style={{marginBottom:12}}>
         {hasActivity?<div>
-          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:10,marginBottom:12}}>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(2,1fr)":"repeat(4,1fr)",gap:10,marginBottom:12}}>
             <div style={{padding:12,borderRadius:10,background:T.accent+"08",textAlign:"center"}}><div style={{fontSize:22,marginBottom:2}}>✂️</div><div style={{fontSize:FS+4,fontWeight:800,color:T.accent}}>{todayCut}</div><div style={{fontSize:FS-2,color:T.textSec}}>تم قصها</div></div>
             <div style={{padding:12,borderRadius:10,background:"#8B5CF608",textAlign:"center"}}><div style={{fontSize:22,marginBottom:2}}>📤</div><div style={{fontSize:FS+4,fontWeight:800,color:"#8B5CF6"}}>{todayWsDel}</div><div style={{fontSize:FS-2,color:T.textSec}}>تسليم ورشة</div></div>
             <div style={{padding:12,borderRadius:10,background:T.ok+"08",textAlign:"center"}}><div style={{fontSize:22,marginBottom:2}}>📥</div><div style={{fontSize:FS+4,fontWeight:800,color:T.ok}}>{todayWsRcv}</div><div style={{fontSize:FS-2,color:T.textSec}}>استلام مصنع</div></div>
@@ -1317,7 +1317,7 @@ function DashPg({data,goD,isMob,season,statusCards,upConfig,user,setCardPopup}){
         </div>}
       </Card>})()}
     <Card title={"الانتاج - الموسم "+season+" ("+orders.length+" موديل)"} style={{marginBottom:12}}>
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(6,1fr)",gap:10}}>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(3,1fr)":"repeat(6,1fr)",gap:10}}>
         <div onClick={()=>{const details=[];orders.forEach(o=>{const t=calcOrder(o);if(t.cutQty>0)details.push({model:o.modelNo,desc:o.modelDesc,qty:t.cutQty})});setCardPopup({title:"كمية القص",color:T.accent,details})}} style={{padding:10,borderRadius:8,background:T.accent+"06",border:"1px solid "+T.accent+"12",textAlign:"center",cursor:"pointer",transition:"all 0.15s"}}><div style={{fontSize:FS-2,color:T.textSec}}>كمية القص</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.accent}}>{fmt(cutQ)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
         <div style={{padding:10,borderRadius:8,background:T.ok+"06",border:"1px solid "+T.ok+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>استلام مخزن جاهز</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.ok}}>{fmt(delQ)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
         <div style={{padding:10,borderRadius:8,background:T.warn+"06",border:"1px solid "+T.warn+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>رصيد المصنع</div><div style={{fontSize:isMob?18:22,fontWeight:800,color:T.warn}}>{fmt(cutQ-delQ)}</div><div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div></div>
@@ -1559,7 +1559,7 @@ function DBPg({data,upConfig,isMob,canEdit,statusCards,initialSub,onSubUsed,rena
     </div></div>}</>}
     {sub==="ws"&&<WsManager workshops={data.workshops||[]} upConfig={upConfig} canEdit={canEdit} isMob={isMob} orders={data.orders} renameInOrders={renameInOrders} wsPayments={data.wsPayments||[]}/>}
     {sub==="status"&&<><Card title="حالات الأوردر" extra={canEdit&&<Btn primary small onClick={()=>{setStName("");setStColor("#0EA5E9");setStEid(null);setStShow(true)}}>+ اضافة</Btn>}>
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:12}}>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(2,1fr)":"repeat(4,1fr)",gap:12}}>
         {statusCards.map(s=><div key={s.id} style={{padding:16,borderRadius:14,border:"2px solid "+s.color+"40",background:s.color+"08",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:20,height:20,borderRadius:6,background:s.color}}/><span style={{fontWeight:700,fontSize:FS,color:T.text}}>{s.name}</span></div>
           {canEdit&&<div style={{display:"flex",gap:4}}>{eBtn(()=>{setStName(s.name);setStColor(s.color);setStEid(s.id);setStShow(true)})}<DelBtn onConfirm={()=>upConfig(d=>{d.statusCards=(d.statusCards||[]).filter(x=>x.id!==s.id)})} blocked={ords.some(o=>o.status===s.name)?"يوجد أوردرات بهذه الحالة":null}/></div>}
@@ -1827,7 +1827,7 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig}){
 </>}
 
 /* ══ DETAILS ══ */
-function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,canEdit,statusCards,goHome,upConfig,user}){
+function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,isTab,canEdit,statusCards,goHome,upConfig,user}){
   const order=data.orders.find(o=>o.id===sel);const[editing,setEditing]=useState(false);
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
   const[detQ,setDetQ]=useState("");const[detSt,setDetSt]=useState("الكل");
@@ -1859,7 +1859,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
         <h2 style={{fontSize:FS+1,fontWeight:700,margin:0,color:T.textSec}}>{"اختر أوردر ("+filtered.length+")"}</h2>
         {canEdit&&<Btn primary onClick={()=>setShowNew(true)}>+ أمر قص جديد</Btn>}
       </div>
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr",gap:8,marginBottom:10}}>
+      <div style={{display:"grid",gridTemplateColumns:isMob||isTab?"1fr":"2fr 1fr",gap:8,marginBottom:10}}>
         <Inp value={detQ} onChange={setDetQ} placeholder="بحث بالرقم أو الوصف أو المقاسات..."/>
         <Sel value={detSt} onChange={setDetSt}><option value="الكل">كل الحالات</option>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel>
       </div>
@@ -1957,7 +1957,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
         {isMob&&order.image&&<div style={{flexShrink:0,position:"relative"}}><img src={order.image} alt="" style={{width:70,height:93,objectFit:"cover",borderRadius:10,border:"1px solid "+T.brd}}/>
           {canEdit&&<div onClick={()=>{if(confirm("حذف صورة الأوردر؟"))updOrder(sel,o=>{o.image=""})}} style={{position:"absolute",top:2,right:2,width:18,height:18,borderRadius:9,background:"rgba(0,0,0,0.6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:9}}>✕</div>}
         </div>}
-        <div style={{flex:1,display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:isMob?6:12}}>
+        <div style={{flex:1,display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(2,1fr)":"repeat(4,1fr)",gap:isMob?6:12}}>
           <MetricCard label="كمية القص" value={t.cutQty} icon="✂️" color={T.accent}/><MetricCard label="تم التسليم" value={order.deliveredQty||0} icon="📦" color={T.ok}/><MetricCard label="الرصيد" value={t.balance} icon="📊" color={t.balance>0?T.warn:T.ok}/><MetricCard label="تكلفة القطعة" value={t.costPer+" ج.م"} icon="💰" color={T.accent}/>
         </div>
       </div>
@@ -2005,7 +2005,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
           </tbody>
         </table></div>
       </Card>
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1.5fr 1fr",gap:16,marginBottom:16}}>
+      <div style={{display:"grid",gridTemplateColumns:isMob||isTab?"1fr":"1.5fr 1fr",gap:16,marginBottom:16}}>
         <Card title="تكاليف الاكسسوار">{accItems.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><thead><tr>{["الوصف","السعر","اجمالي"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
           {accItems.map((a,i)=><tr key={i}><td style={{...TD,fontWeight:600}}>{a.name}</td><td style={TD}>{a.price+" ج.م"}</td><td style={{...TDB,color:T.accent}}>{fmt(a.price*t.cutQty)+" ج.م"}</td></tr>)}
           <tr style={{background:T.inputBg||T.cardSolid}}><td style={{...TD,fontWeight:700}}>اجمالي</td><td style={{...TD,fontWeight:700}}>{t.accPer+" ج.م/قطعة"}</td><td style={{...TD,fontWeight:700,color:T.accent}}>{fmt(accAll)+" ج.م"}</td></tr>
@@ -2225,7 +2225,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
 }
 
 /* ══ EXTERNAL PRODUCTION ══ */
-function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user}){
+function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,season,user}){
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
   const[mode,setMode]=useState(null);
   const[selWs,setSelWs]=useState("");
@@ -2367,7 +2367,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user
     setPayAmt("");setPayNote("");setPayDate(new Date().toISOString().split("T")[0])};
 
   if(!mode)return<div>
-    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(6,1fr)",gap:12,marginBottom:20}}>
+    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(3,1fr)":"repeat(6,1fr)",gap:12,marginBottom:20}}>
       <div onClick={()=>setMode("deliver")} style={{background:T.card,borderRadius:14,padding:isMob?16:24,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center"}}>
         <div style={{fontSize:32,marginBottom:8}}>📤</div>
         <div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>تسليم ورشة</div>
@@ -2395,7 +2395,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user
     </div>
     {/* Movement Log with search/filter */}
     <Card title={"سجل الحركات ("+movements.length+")"}>
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr 1fr 1fr",gap:8,marginBottom:10}}>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":isTab?"1fr 1fr":"2fr 1fr 1fr 1fr",gap:8,marginBottom:10}}>
         <Inp value={movQ} onChange={setMovQ} placeholder="بحث بالموديل أو الورشة..."/>
         <Sel value={movWsF} onChange={setMovWsF}><option value="الكل">كل الورش</option>{workshops.map(w=><option key={w.id||w} value={w.name||w}>{(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)}</option>)}</Sel>
         <Sel value={movTypeF} onChange={v=>{setMovTypeF(v);setLateChecked({})}}><option value="الكل">كل الحركات</option><option value="deliver">تسليم ورشة</option><option value="receive">استلام مصنع</option><option value="late">⏰ متأخرات</option></Sel>
@@ -3665,7 +3665,7 @@ function TasksPg({data,upConfig,isMob,user,userRole}){
 }
 
 
-function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
+function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   const config=data;const orders=data.orders||[];const customers=config.customers||[];const sessions=config.custDeliverySessions||[];
   const[showCustForm,setShowCustForm]=useState(false);const[showCustList,setShowCustList]=useState(false);
   const[cName,setCName]=useState("");const[cPhone,setCPhone]=useState("");const[cAddr,setCAddr]=useState("");const[cEditId,setCEditId]=useState(null);
@@ -3877,15 +3877,17 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
     </div>
     {/* Active Session Matrix - Popup */}
     {activeSess&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:24}} onClick={()=>closeMatrix()}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?900:Math.min(200+aMods.length*120,window.innerWidth-80),maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-          <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{"📊 "+activeSess.date+" — جدول التوزيع"}</div>
-          <div style={{display:"flex",gap:4}}><Btn small onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn><Btn ghost small onClick={()=>closeMatrix()}>✕</Btn></div>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,width:"100%",maxWidth:isMob?900:Math.min(200+aMods.length*120,window.innerWidth-80),maxHeight:"92vh",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <div style={{padding:isMob?"12px 16px":"16px 24px",borderBottom:"1px solid "+T.brd,flexShrink:0}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{"📊 "+activeSess.date+" — جدول التوزيع"}</div>
+            <div style={{display:"flex",gap:4}}><Btn small onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn><Btn ghost small onClick={()=>closeMatrix()}>✕</Btn></div>
+          </div>
+          {cellError&&<div style={{padding:"6px 10px",borderRadius:8,background:T.err+"10",border:"1px solid "+T.err+"30",marginTop:8,fontSize:FS-1,fontWeight:700,color:T.err}}>{cellError}</div>}
         </div>
-      {cellError&&<div style={{padding:"8px 12px",borderRadius:8,background:T.err+"10",border:"1px solid "+T.err+"30",marginBottom:10,fontSize:FS-1,fontWeight:700,color:T.err}}>{cellError}</div>}
-      <div style={{overflowX:"auto"}}>
+        <div style={{flex:1,overflowY:"auto",overflowX:"auto",padding:isMob?"8px 16px 16px":"8px 24px 24px"}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:aMods.length*90+180}}>
-          <thead><tr>
+          <thead style={{position:"sticky",top:0,zIndex:10,background:T.cardSolid}}><tr>
             <th style={{...TH,minWidth:130}}>العميل</th>
             {aMods.map(m=><th key={m.id} style={{...TH,textAlign:"center",minWidth:60,fontSize:FS-2,padding:"4px 6px"}}><div style={{fontWeight:800,color:T.accent,whiteSpace:"nowrap"}}>{m.modelNo}</div><div style={{fontSize:FS-3,color:T.textMut,whiteSpace:"nowrap"}}>{(m.rackSize||getRackSize(m.id))+"س"}</div></th>)}
             <th style={{...TH,textAlign:"center",background:"#0284C715",color:T.accent,fontWeight:800}}>اجمالي</th>
