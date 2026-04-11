@@ -3854,13 +3854,13 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   const scanAuditImage=async(file,custId)=>{if(!file||!activeAudit)return;setOcrLoading(true);setOcrResult(null);
     try{const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=()=>rej();r.readAsDataURL(file)});
       const modelList=auditModels.map(m=>m.modelNo).join(", ");
-      const prompt="اقرأ جرد المبيعات في الصورة.\nالمطلوب: استخرج رقم كل موديل وكمية المبيعات فقط (مش الكمية الكلية ومش الرصيد — عمود المبيعات أو المنصرف أو المباع).\nلو مفيش عمود مبيعات واضح، احسب المبيعات = الكمية - الرصيد.\n\nالموديلات المتاحة في النظام: "+modelList+"\nطابق الأرقام مع أقرب موديل متاح.\n\nارجع JSON فقط بدون أي كلام أو markdown:\n[{\"model\":\"3262101\",\"qty\":28},{\"model\":\"3261115\",\"qty\":14}]";
-      const res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system:"أنت أداة OCR لقراءة جداول جرد المبيعات. ارجع JSON فقط.",messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},{type:"text",text:prompt}]}]})});
+      const prompt="You are reading a sales inventory report image. Extract ONLY the model/product numbers and their SALES quantities.\n\nIMPORTANT RULES:\n1. Look for columns labeled: مبيعات, منصرف, مباع, sold, sales, or similar\n2. Do NOT use the 'quantity' or 'balance/رصيد' column — only the SALES column\n3. If there is no explicit sales column, calculate: sales = initial_quantity - remaining_balance\n4. Read each number VERY carefully — double check every digit\n5. The model numbers in our system are: "+modelList+"\n6. Match each model number from the image to the closest one in our system\n\nReturn ONLY valid JSON array, no markdown, no explanation:\n[{\"model\":\"3262101\",\"qty\":28},{\"model\":\"3261115\",\"qty\":14}]";
+      const res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system:"You are a precise OCR tool for reading sales inventory tables from images. Return ONLY JSON. Read numbers very carefully — accuracy is critical.",messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},{type:"text",text:prompt}]}]})});
       const data2=await res.json();if(data2.error){showToast("⚠️ خطأ: "+(data2.error.message||""));setOcrLoading(false);return}
       const txt=(data2.content||[]).map(c=>c.text||"").join("").trim();
       const clean=txt.replace(/```json|```/g,"").trim();
       const items=JSON.parse(clean);
-      const matched=items.map(it=>{const m=auditModels.find(x=>x.modelNo===it.model||x.modelNo.includes(it.model)||it.model.includes(x.modelNo));return{input:it.model,qty:Number(it.qty)||0,matched:m?m.modelNo:null,matchedId:m?m.id:null}});
+      const matched=items.map(it=>{const m=auditModels.find(x=>x.modelNo===it.model)||auditModels.find(x=>x.modelNo.includes(it.model)||it.model.includes(x.modelNo));return{input:it.model,qty:Number(it.qty)||0,matched:m?m.modelNo:null,matchedId:m?m.id:null}});
       setOcrResult({custId,items:matched})
     }catch(e){showToast("⚠️ فشل قراءة الصورة: "+e.message)}
     setOcrLoading(false)};
@@ -4208,12 +4208,13 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
           <div style={{fontSize:FS-2,color:T.textMut,marginTop:4}}>قد يستغرق بضع ثواني</div>
         </div>}
         {ocrResult&&<div>
-          <div style={{fontSize:FS,fontWeight:700,color:T.ok,marginBottom:10}}>{"✅ تم القراءة — "+ocrResult.items.length+" موديل"}</div>
+          <div style={{fontSize:FS,fontWeight:700,color:T.ok,marginBottom:4}}>{"✅ تم القراءة — "+ocrResult.items.length+" موديل"}</div>
+          <div style={{fontSize:FS-2,color:T.warn,marginBottom:10,fontWeight:600}}>⚠️ راجع الأرقام وعدّل لو فيه خطأ قبل التسجيل</div>
           <table style={{width:"100%",borderCollapse:"collapse",marginBottom:12}}><thead><tr><th style={TH}>الموديل (من الصورة)</th><th style={TH}>المطابقة</th><th style={TH}>المبيعات</th></tr></thead><tbody>
             {ocrResult.items.map((it,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}>
               <td style={{...TD,fontWeight:600}}>{it.input}</td>
               <td style={TD}>{it.matched?<span style={{color:T.ok,fontWeight:700}}>{"✅ "+it.matched}</span>:<span style={{color:T.err,fontWeight:700}}>⚠️ غير موجود</span>}</td>
-              <td style={{...TD,textAlign:"center",fontWeight:800,color:it.matched?"#F59E0B":T.textMut}}>{it.qty}</td>
+              <td style={{...TD,textAlign:"center"}}><input type="number" value={it.qty} onChange={e=>{const v=Number(e.target.value)||0;setOcrResult(p=>{const n={...p,items:[...p.items]};n.items[i]={...n.items[i],qty:v};return n})}} style={{width:70,textAlign:"center",border:"2px solid "+(it.matched?"#F59E0B":T.brd),borderRadius:6,padding:"4px",fontSize:FS,fontWeight:800,fontFamily:"inherit",background:it.matched?"#FFF":T.bg,color:it.matched?"#F59E0B":T.textMut}}/></td>
             </tr>)}
           </tbody></table>
           <div style={{display:"flex",gap:8,justifyContent:"center"}}>
