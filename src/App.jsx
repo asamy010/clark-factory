@@ -268,55 +268,46 @@ async function printLabel(wsName,order,garmentType,qty,date,gtList,opts){
   if(!order)return;
   const t=calcOrder(order);
   const type=(opts?.type)||"deliver";const rcvDate=opts?.rcvDate||"";const delDate=opts?.delDate||date||"";const rcvQty=opts?.rcvQty||0;const delQty=opts?.delQty||qty;
-  const isRcv=type==="receive";
-  const title=isRcv?"استلام مصنع":"تسليم ورشة";
+  const isRcv=type==="receive";const title=isRcv?"استلام مصنع":"تسليم ورشة";const arrow=isRcv?"↙":"↗";
   let qrSrc="";try{const QR=await loadQR();if(QR&&order.id)qrSrc=await QR.toDataURL(window.location.origin+"?act=rcv&oid="+encodeURIComponent(order.id),{width:280,margin:1,errorCorrectionLevel:"M"})}catch(e){}
-  const modelNo=order.modelNo||"";const modelDesc=order.modelDesc||"";const sizeLabel=order.sizeLabel||"";
+  const d={title,arrow,qrSrc,piece:garmentType||"عام",qty:isRcv?rcvQty:delQty,modelNo:order.modelNo||"",modelDesc:order.modelDesc||"",sizeLabel:order.sizeLabel||"",wsName,cutQty:t.cutQty,delQty,delDate,rcvQty,rcvDate,isRcv};
   const pw=window.open("","_blank");if(!pw)return;
   pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>"+title+"</title><style>"
-  +"@page{size:10cm 15cm;margin:2mm}"
-  +"*{margin:0;padding:0;box-sizing:border-box}"
-  +"body{font-family:'Cairo',sans-serif;width:10cm;height:15cm;padding:3mm;display:flex;flex-direction:column;color:#000}"
-  +".hdr{text-align:center;border-bottom:3px solid #000;padding-bottom:2mm;margin-bottom:2mm}"
-  +".hdr h1{font-size:14pt;font-weight:800;letter-spacing:1px}"
-  +".hdr .type{font-size:12pt;font-weight:800;display:inline-block;padding:1mm 6mm;border:2.5px solid #000;border-radius:4px;margin-top:2mm}"
-  +".qr{text-align:center;margin:3mm 0;padding:2mm 0;border-bottom:1px dashed #000}"
-  +".qr img{width:32mm;height:32mm}"
-  +".qr .hint{font-size:7pt;color:#555;margin-top:1mm}"
-  +".big{text-align:center;padding:3mm;border:2.5px solid #000;border-radius:6px;margin:2mm 0}"
-  +".big .piece{font-size:14pt;font-weight:800}"
-  +".big .qty{font-size:22pt;font-weight:800}"
-  +"table{width:100%;border-collapse:collapse;margin:2mm 0}"
-  +"table td{padding:1.5mm 3mm;font-size:10pt;font-weight:700;border:1px solid #000}"
-  +"table td.k{background:#f5f5f5;font-weight:800;width:35%}"
-  +".moves{margin:2mm 0;border:2px solid #000;border-radius:4px;overflow:hidden}"
-  +".move{display:flex;justify-content:space-between;padding:2mm 3mm;font-size:10pt;font-weight:800;border-bottom:1px solid #000}"
-  +".move:last-child{border-bottom:none}"
-  +".move .arrow{font-size:12pt}"
+  +"@page{size:10cm 15cm;margin:0}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Cairo',sans-serif;color:#000}"
+  +".page{width:10cm;height:15cm;padding:3mm;display:flex;flex-direction:column;page-break-after:always}.page:last-child{page-break-after:auto}"
+  +".hdr{text-align:center;border-bottom:3px solid #000;padding-bottom:2mm;margin-bottom:2mm}.hdr h1{font-size:13pt;font-weight:800}.hdr .tp{font-size:11pt;font-weight:800;display:inline-block;padding:1mm 5mm;border:2.5px solid #000;border-radius:4px;margin-top:2mm}"
+  +".qr{text-align:center;margin:2mm 0}.qr img{width:28mm;height:28mm}"
+  +".big{text-align:center;padding:2mm;border:2.5px solid #000;border-radius:6px;margin:2mm 0}.big .pc{font-size:13pt;font-weight:800}.big .qt{font-size:20pt;font-weight:800}"
+  +"table{width:100%;border-collapse:collapse;margin:2mm 0}td{padding:1.5mm 3mm;font-size:10pt;font-weight:700;border:1px solid #000}td.k{background:#f5f5f5;font-weight:800;width:35%}"
+  +".mv{margin:2mm 0;border:2px solid #000;border-radius:4px;overflow:hidden}.mvr{display:flex;justify-content:space-between;padding:2mm 3mm;font-size:10pt;font-weight:800;border-bottom:1px solid #000}.mvr:last-child{border-bottom:none}"
+  +".bags{text-align:center;font-size:28pt;font-weight:800;border:3px solid #000;border-radius:8px;padding:2mm 6mm;margin:2mm auto;line-height:1}"
   +".foot{margin-top:auto;text-align:center;font-size:7pt;color:#555;padding-top:2mm;border-top:1px dashed #000}"
-  +".pbar{position:sticky;top:0;background:#fff;padding:4px 10px;display:none;justify-content:center;gap:6px;border-bottom:2px solid #ccc;z-index:999}"
-  +".pbar button{padding:5px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo',sans-serif;font-size:11px;font-weight:700;background:#fff}"
-  +".pbar .pr{background:#000;color:#fff}"
-  +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
+  +".ask{max-width:320px;margin:80px auto;text-align:center}.ask h2{font-size:16pt;margin-bottom:6px}.ask p{font-size:11pt;color:#555;margin-bottom:16px}"
+  +".ask input{width:100px;text-align:center;font-size:22pt;font-weight:800;border:3px solid #000;border-radius:10px;padding:8px;font-family:'Cairo'}"
+  +".ask button{display:block;width:100%;margin-top:14px;padding:10px;font-size:13pt;font-weight:800;border:none;border-radius:10px;cursor:pointer;font-family:'Cairo';background:#000;color:#fff}"
+  +".pbar{position:sticky;top:0;background:#fff;padding:4px;display:none;justify-content:center;gap:6px;border-bottom:2px solid #ccc;z-index:99}"
+  +".pbar button{padding:5px 14px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:11px;font-weight:700;background:#fff}.pbar .pr{background:#000;color:#fff}"
+  +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar,.ask{display:none}}"
   +"</style></head><body>"
-  +"<div class='pbar'><button onclick='window.close()'>↩ رجوع</button><button class='pr' onclick='window.print()'>🖨 طباعة</button></div>"
-  +"<div class='hdr'><h1>CLARK Factory</h1><div class='type'>"+(isRcv?"↙ "+title:"↗ "+title)+"</div></div>"
-  +(qrSrc?"<div class='qr'><img src='"+qrSrc+"'/><div class='hint'>مسح للاستلام السريع</div></div>":"")
-  +"<div class='big'><div class='piece'>"+(garmentType||"عام")+"</div><div class='qty'>"+(isRcv?rcvQty:delQty)+" قطعة</div></div>"
-  +"<table>"
-  +"<tr><td class='k'>الموديل</td><td>"+modelNo+"</td></tr>"
-  +"<tr><td class='k'>الوصف</td><td>"+modelDesc+"</td></tr>"
-  +"<tr><td class='k'>المقاسات</td><td>"+sizeLabel+"</td></tr>"
-  +"<tr><td class='k'>الورشة</td><td>"+wsName+"</td></tr>"
-  +"<tr><td class='k'>كمية القص</td><td>"+t.cutQty+"</td></tr>"
-  +"</table>"
-  +"<div class='moves'>"
-  +"<div class='move'><span class='arrow'>↗</span><span>تسليم ورشة</span><span>"+delQty+" قطعة</span><span>"+delDate+"</span></div>"
-  +(isRcv?"<div class='move'><span class='arrow'>↙</span><span>استلام مصنع</span><span>"+rcvQty+" قطعة</span><span>"+rcvDate+"</span></div>":"")
-  +"</div>"
-  +"<div class='foot'>"+modelNo+" | "+(garmentType||"عام")+" | "+(isRcv?rcvQty:delQty)+" | "+wsName+"</div>"
-  +"</body></html>");
-  pw.document.close();if(window.innerWidth>1024)setTimeout(()=>{pw.focus();pw.print()},500)
+  +"<div class='ask'><h2>🏷️ "+d.arrow+" "+d.title+"</h2><p>"+d.modelNo+" — "+d.piece+" — "+d.qty+" قطعة</p><label style='font-size:11pt;font-weight:700'>عدد الأكياس</label><br/><input id='bn' type='number' value='1' min='1'/><button onclick='go()'>🖨 طباعة</button></div>"
+  +"<div id='out'></div>"
+  +"<script>var D="+JSON.stringify(d)+";"
+  +"function go(){var n=Math.max(1,parseInt(document.getElementById('bn').value)||1);"
+  +"var h='<div class=\"pbar\"><button onclick=\"window.close()\">↩</button><button class=\"pr\" onclick=\"window.print()\">🖨 '+n+'</button></div>';"
+  +"for(var i=1;i<=n;i++){h+='<div class=\"page\">';"
+  +"h+='<div class=\"hdr\"><h1>CLARK Factory</h1><div class=\"tp\">'+D.arrow+' '+D.title+'</div></div>';"
+  +"if(D.qrSrc)h+='<div class=\"qr\"><img src=\"'+D.qrSrc+'\"/></div>';"
+  +"h+='<div class=\"big\"><div class=\"pc\">'+D.piece+'</div><div class=\"qt\">'+D.qty+' قطعة</div></div>';"
+  +"h+='<table><tr><td class=\"k\">الموديل</td><td>'+D.modelNo+'</td></tr><tr><td class=\"k\">الوصف</td><td>'+D.modelDesc+'</td></tr><tr><td class=\"k\">المقاسات</td><td>'+D.sizeLabel+'</td></tr><tr><td class=\"k\">الورشة</td><td>'+D.wsName+'</td></tr><tr><td class=\"k\">القص</td><td>'+D.cutQty+'</td></tr></table>';"
+  +"h+='<div class=\"mv\"><div class=\"mvr\"><span>↗ تسليم</span><span>'+D.delQty+'</span><span>'+D.delDate+'</span></div>';"
+  +"if(D.isRcv)h+='<div class=\"mvr\"><span>↙ استلام</span><span>'+D.rcvQty+'</span><span>'+D.rcvDate+'</span></div>';"
+  +"h+='</div>';"
+  +"if(n>1)h+='<div class=\"bags\">'+i+' / '+n+'</div>';"
+  +"h+='<div class=\"foot\">'+D.modelNo+' | '+D.piece+' | '+D.wsName+'</div></div>'}"
+  +"document.querySelector('.ask').style.display='none';document.getElementById('out').innerHTML=h;"
+  +"if(window.innerWidth>1024)setTimeout(function(){window.focus();window.print()},400)}"
+  +"</script></body></html>");
+  pw.document.close()
 }
 
 async function printReceiveReceipt(wsName,order,garmentType,qty,date,balance,gtList,_returnHtml){
@@ -708,9 +699,12 @@ export default function App(){
       const owed=due+purchase-paid;
       if(owed<-500)a.push({icon:"💸",text:""+w.name+" عليها "+fmt(r2(Math.abs(owed)))+" ج.م (دفعنالها زيادة)",type:"overpaid"});
       if(owed>5000)a.push({icon:"💰",text:""+w.name+" ليها "+fmt(r2(owed))+" ج.م مدفعناش",type:"unpaid"})});
-    /* 5. ورش بطيئة (رصيد كبير > 14 يوم) */
-    workshops.forEach(w=>{let bal=0,oldestDate="";orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const wBal=(Number(wd.qty)||0)-rcvd;if(wBal>0){bal+=wBal;if(!oldestDate||wd.date<oldestDate)oldestDate=wd.date}})});
-      if(bal>0&&oldestDate){const days=Math.floor((now-new Date(oldestDate))/(86400000));if(days>14)a.push({icon:"🐢",text:""+w.name+" عندها "+bal+" قطعة من "+days+" يوم",type:"slow"})}});
+    /* 5. ورش بطيئة + قرب الموعد */
+    workshops.forEach(w=>{const wPhone=w.phone||"";let details=[];orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const wBal=(Number(wd.qty)||0)-rcvd;if(wBal>0){const daysSince=Math.floor((now-new Date(wd.date))/(86400000));const agreed=Number(wd.agreedDays)||0;details.push({modelNo:o.modelNo,qty:wBal,days:daysSince,agreed,garment:wd.garmentType||"",delDate:wd.date})}})});
+      if(details.length>0){const totalBal=details.reduce((s,d)=>s+d.qty,0);const maxDays=Math.max(...details.map(d=>d.days));
+        if(maxDays>14)a.push({icon:"🐢",text:w.name+" عندها "+totalBal+" قطعة من "+maxDays+" يوم",type:"slow",wsName:w.name,wsPhone:wPhone,details});
+        details.forEach(d=>{if(d.agreed>0){const remaining=d.agreed-d.days;if(remaining<=2&&remaining>=0)a.push({icon:"⏰",text:w.name+" باقي "+(remaining||"آخر")+" يوم على موعد تسليم موديل "+d.modelNo+" ("+d.agreed+" يوم متفق)",type:"deadline",wsName:w.name,wsPhone:wPhone,details:[d]});
+          else if(remaining<0)a.push({icon:"🔴",text:w.name+" متأخرة "+Math.abs(remaining)+" يوم عن الموعد — موديل "+d.modelNo+" (متفق "+d.agreed+" يوم)",type:"overdue",wsName:w.name,wsPhone:wPhone,details:[d]})}})}});
     return a},[orders,config.workshops,config.wsPayments]);
   const visibleAlerts=aiAlerts.filter(a=>!isDismissed(a.text));
   const askAI=async()=>{if(!aiInput.trim()||aiLoading)return;const q=aiInput.trim();setAiInput("");setAiMsgs(p=>[...p,{role:"user",text:q}]);setAiLoading(true);
@@ -1001,7 +995,7 @@ export default function App(){
                     <div style={{fontSize:FS-1,fontWeight:800,color:T.text,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>{"⚡ "+visibleAlerts.length+" تنبيه"}</div>
                     {visibleAlerts.map((al,i)=><div key={i} onClick={()=>{setAiInput(al.text);}} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"8px 10px",marginBottom:4,borderRadius:10,background:al.type==="late"?"#FEF2F2":al.type==="ready"?"#F0FDF4":al.type==="overpaid"?"#FFF7ED":al.type==="slow"?"#FFFBEB":"#F8FAFC",border:"1px solid "+(al.type==="late"?"#FECACA":al.type==="ready"?"#BBF7D0":al.type==="overpaid"?"#FED7AA":al.type==="slow"?"#FDE68A":"#E2E8F0"),cursor:"pointer",transition:"all 0.15s"}}>
                       <span style={{fontSize:16,flexShrink:0}}>{al.icon}</span>
-                      <span style={{fontSize:FS-2,color:"#1E293B",fontWeight:600,lineHeight:1.5,flex:1}}>{al.text}</span><span onClick={e=>{e.stopPropagation();dismissAlert(al.text)}} style={{cursor:"pointer",fontSize:10,color:"#94A3B8",flexShrink:0,padding:"0 2px"}}>✕</span>
+                      <span style={{fontSize:FS-2,color:"#1E293B",fontWeight:600,lineHeight:1.5,flex:1}}>{al.text}</span>{al.wsPhone&&<span onClick={e=>{e.stopPropagation();const lines=(al.details||[]).map(d=>"• موديل *"+d.modelNo+"*: *"+d.qty+"* قطعة — "+d.days+" يوم"+(d.agreed?" (متفق "+d.agreed+" يوم)":"")).join("%0A");const msg="*CLARK — تنبيه تأخير*%0A%0A• الورشة: *"+al.wsName+"*%0A%0A"+lines+"%0A%0A⚠️ *برجاء الاهتمام بالتسليم في أقرب وقت*";window.open("https://wa.me/"+(al.wsPhone.replace(/[^0-9]/g,""))+"?text="+msg,"_blank");dismissAlert(al.text)}} style={{cursor:"pointer",fontSize:10,color:"#25D366",flexShrink:0,padding:"0 4px",fontWeight:700}}>📱</span>}<span onClick={e=>{e.stopPropagation();dismissAlert(al.text)}} style={{cursor:"pointer",fontSize:10,color:"#94A3B8",flexShrink:0,padding:"0 2px"}}>✕</span>
                     </div>)}
                     <div style={{textAlign:"center",margin:"10px 0",fontSize:FS-2,color:T.textMut,letterSpacing:4}}>— — —</div>
                   </div>}
@@ -1196,7 +1190,7 @@ export default function App(){
               <div style={{fontSize:FS-1,fontWeight:800,color:T.text,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>{"⚡ "+visibleAlerts.length+" تنبيه"}</div>
               {visibleAlerts.map((al,i)=><div key={i} onClick={()=>{setAiInput(al.text);}} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"8px 10px",marginBottom:4,borderRadius:10,background:al.type==="late"?"#FEF2F2":al.type==="ready"?"#F0FDF4":al.type==="overpaid"?"#FFF7ED":al.type==="slow"?"#FFFBEB":"#F8FAFC",border:"1px solid "+(al.type==="late"?"#FECACA":al.type==="ready"?"#BBF7D0":al.type==="overpaid"?"#FED7AA":al.type==="slow"?"#FDE68A":"#E2E8F0"),cursor:"pointer",transition:"all 0.15s"}}>
                 <span style={{fontSize:16,flexShrink:0}}>{al.icon}</span>
-                <span style={{fontSize:FS-2,color:"#1E293B",fontWeight:600,lineHeight:1.5,flex:1}}>{al.text}</span><span onClick={e=>{e.stopPropagation();dismissAlert(al.text)}} style={{cursor:"pointer",fontSize:10,color:"#94A3B8",flexShrink:0,padding:"0 2px"}}>✕</span>
+                <span style={{fontSize:FS-2,color:"#1E293B",fontWeight:600,lineHeight:1.5,flex:1}}>{al.text}</span>{al.wsPhone&&<span onClick={e=>{e.stopPropagation();const lines=(al.details||[]).map(d=>"• موديل *"+d.modelNo+"*: *"+d.qty+"* قطعة — "+d.days+" يوم"+(d.agreed?" (متفق "+d.agreed+" يوم)":"")).join("%0A");const msg="*CLARK — تنبيه تأخير*%0A%0A• الورشة: *"+al.wsName+"*%0A%0A"+lines+"%0A%0A⚠️ *برجاء الاهتمام بالتسليم في أقرب وقت*";window.open("https://wa.me/"+(al.wsPhone.replace(/[^0-9]/g,""))+"?text="+msg,"_blank");dismissAlert(al.text)}} style={{cursor:"pointer",fontSize:10,color:"#25D366",flexShrink:0,padding:"0 4px",fontWeight:700}}>📱</span>}<span onClick={e=>{e.stopPropagation();dismissAlert(al.text)}} style={{cursor:"pointer",fontSize:10,color:"#94A3B8",flexShrink:0,padding:"0 2px"}}>✕</span>
               </div>)}
               <div style={{textAlign:"center",margin:"10px 0",fontSize:FS-2,color:T.textMut,letterSpacing:4}}>— — —</div>
             </div>}
@@ -1812,7 +1806,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
   const[showDeliver,setShowDeliver]=useState(false);
   const[editStatusMode,setEditStatusMode]=useState(false);
   const[editRcv,setEditRcv]=useState(null);const[edRcvQty,setEdRcvQty]=useState(0);const[edRcvDate,setEdRcvDate]=useState("");const[edRcvNote,setEdRcvNote]=useState("");
-  const[dWs,setDWs]=useState("");const[dType,setDType]=useState("");const[dQty,setDQty]=useState(0);const[dPrice,setDPrice]=useState("");const[dNote,setDNote]=useState("");const[dDate,setDDate]=useState(new Date().toISOString().split("T")[0]);
+  const[dWs,setDWs]=useState("");const[dType,setDType]=useState("");const[dQty,setDQty]=useState(0);const[dPrice,setDPrice]=useState("");const[dNote,setDNote]=useState("");const[dDate,setDDate]=useState(new Date().toISOString().split("T")[0]);const[dAgreed,setDAgreed]=useState("");
   const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
   const workshops=data.workshops||[];
   const isInternal=(name)=>{const w=workshops.find(x=>x.name===name);return w?wsIsInternal(w.type):false};
@@ -2143,13 +2137,13 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
         try{
           await updOrder(sel,o=>{
             if(!o.workshopDeliveries)o.workshopDeliveries=[];
-            o.workshopDeliveries.push({id:gid(),wsName:dWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",wsOwner:wsObj?wsObj.owner:"",qty:saveQty,garmentType:saveType,price:savePrice,notes:saveNote,date:saveDate,receives:[],createdBy:userName||""});
+            o.workshopDeliveries.push({id:gid(),wsName:dWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",wsOwner:wsObj?wsObj.owner:"",qty:saveQty,garmentType:saveType,price:savePrice,notes:saveNote,date:saveDate,receives:[],createdBy:userName||"",agreedDays:Number(dAgreed)||0});
             o.status=recomputeStatus(o);
           });
           showToast("✓ تم التسليم — "+dWs);setShowDeliver(false);
           if(print){setTimeout(()=>{const pOrd=data.orders.find(o=>o.id===sel)||order;printReceipt(dWs,wsObj?wsObj.owner:"",pOrd,saveType,saveQty,saveDate,maxQty-saveQty,data.garmentTypes)},400)}
           if(label){setTimeout(()=>{const pOrd=data.orders.find(o=>o.id===sel)||order;printLabel(dWs,pOrd,saveType,saveQty,saveDate,data.garmentTypes,{type:"deliver",delDate:saveDate,delQty:saveQty})},400)}
-          if(wa){const phone=wsObj?.phone||"";const msg="*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+dWs+"*%0A• رقم الموديل: *"+order.modelNo+"*%0A• الوصف: "+order.modelDesc+"%0A• نوع القطعة: *"+saveType+"*%0A• الكمية المستلمة: *"+saveQty+"* قطعة%0A• السعر: *"+(savePrice||0)+"* ج.م/قطعة%0A• التاريخ: *"+saveDate+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
+          if(wa){const phone=wsObj?.phone||"";const msg="*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+dWs+"*%0A• رقم الموديل: *"+order.modelNo+"*%0A• الوصف: "+order.modelDesc+"%0A• نوع القطعة: *"+saveType+"*%0A• الكمية المستلمة: *"+saveQty+"* قطعة%0A• السعر: *"+(savePrice||0)+"* ج.م/قطعة%0A• التاريخ: *"+saveDate+"*"+(Number(dAgreed)>0?"%0A• مدة التسليم المتفق عليها: *"+dAgreed+"* يوم%0A• موعد التسليم المتوقع: *"+new Date(new Date(saveDate).getTime()+Number(dAgreed)*86400000).toISOString().split("T")[0]+"*":"")+"%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
         }catch(e){console.error("doDeliver error:",e);showToast("⚠️ خطأ في حفظ التسليم")}
       };
       return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowDeliver(false)}>
@@ -2166,6 +2160,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الكمية *</label><Inp type="number" value={dQty} onChange={v=>setDQty(Math.min(Number(v)||0,maxQty))}/></div>
             {dWs&&!isInternal(dWs)&&<div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>سعر القطعة</label><Inp type="number" value={dPrice} onChange={setDPrice}/></div>}
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات</label><Inp value={dNote} onChange={setDNote}/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>مدة التسليم المتفق عليها (أيام)</label><Inp type="number" value={dAgreed} onChange={setDAgreed} placeholder="اختياري"/>{dAgreed&&Number(dAgreed)>0&&<div style={{fontSize:FS-3,color:T.ok,marginTop:2}}>{"📅 موعد التسليم المتوقع: "+new Date(new Date(dDate||Date.now()).getTime()+Number(dAgreed)*86400000).toISOString().split("T")[0]}</div>}</div>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>التاريخ</label><Inp type="date" value={dDate} onChange={setDDate}/></div>
           </div>
           {dWs&&dType&&<div style={{padding:10,borderRadius:8,background:T.accentBg,marginBottom:12,fontSize:FS-1,color:T.textSec}}>
@@ -2192,7 +2187,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user
   const[ordSearch,setOrdSearch]=useState("");
   const[delQty,setDelQty]=useState(0);
   const[delType,setDelType]=useState("");
-  const[delNote,setDelNote]=useState("");
+  const[delNote,setDelNote]=useState("");const[delAgreed,setDelAgreed]=useState("");
   const[delPrice,setDelPrice]=useState("");
   const[delDate,setDelDate]=useState(new Date().toISOString().split("T")[0]);
   const[rcvInputs,setRcvInputs]=useState({});
@@ -2255,13 +2250,13 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user
     const availAfter=maxAllowed-saveQty;
     updOrder(selOrder,o=>{
       if(!o.workshopDeliveries)o.workshopDeliveries=[];
-      o.workshopDeliveries.push({id:gid(),wsName:selWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",wsOwner:wsObj?wsObj.owner:"",qty:saveQty,garmentType:saveType,notes:saveNote,price:savePrice,date:saveDate,receives:[],createdBy:userName||""});
+      o.workshopDeliveries.push({id:gid(),wsName:selWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",wsOwner:wsObj?wsObj.owner:"",qty:saveQty,garmentType:saveType,notes:saveNote,price:savePrice,date:saveDate,receives:[],createdBy:userName||"",agreedDays:Number(delAgreed)||0});
       o.status=recomputeStatus(o);
     });
     setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice("");setDelDate(new Date().toISOString().split("T")[0]);showToast("✓ تم تسليم "+saveQty+" قطعة لـ "+selWs);
     if(andPrint){const printOrd=JSON.parse(JSON.stringify(ord));const pWs=selWs;const pWsOwner=wsObj?wsObj.owner:"";const pGt=data.garmentTypes;setTimeout(()=>printReceipt(pWs,pWsOwner,printOrd,saveType,saveQty,saveDate,Math.max(0,availAfter),pGt),400)}
     if(andLabel){const printOrd=JSON.parse(JSON.stringify(ord));const pWs=selWs;const pGt=data.garmentTypes;setTimeout(()=>printLabel(pWs,printOrd,saveType,saveQty,saveDate,pGt,{type:"deliver",delDate:saveDate,delQty:saveQty}),400)}
-    if(andWa){const phone=wsObj?.phone||"";const msg="*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+selWs+"*%0A• رقم الموديل: *"+ord.modelNo+"*%0A• الوصف: "+ord.modelDesc+"%0A• نوع القطعة: *"+saveType+"*%0A• الكمية: *"+saveQty+"* قطعة%0A• السعر: *"+savePrice+"* ج.م/قطعة%0A• التاريخ: *"+saveDate+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
+    if(andWa){const phone=wsObj?.phone||"";const msg="*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+selWs+"*%0A• رقم الموديل: *"+ord.modelNo+"*%0A• الوصف: "+ord.modelDesc+"%0A• نوع القطعة: *"+saveType+"*%0A• الكمية: *"+saveQty+"* قطعة%0A• السعر: *"+savePrice+"* ج.م/قطعة%0A• التاريخ: *"+saveDate+"*"+(Number(delAgreed)>0?"%0A• مدة التسليم: *"+delAgreed+"* يوم%0A• موعد التسليم: *"+new Date(new Date(saveDate).getTime()+Number(delAgreed)*86400000).toISOString().split("T")[0]+"*":"")+"%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
   };
 
   const receiveFromWs=(orderId,wdIdx,andPrint,printData,cardKey,andWa,andLabel)=>{
@@ -2477,6 +2472,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user
           })()}</div>
           {!isInternal(selWs)&&<div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>سعر التشغيل</label><Inp type="number" step="0.01" value={delPrice} onChange={v=>setDelPrice(v)} placeholder="سعر القطعة"/></div>}
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>ملاحظات</label><Inp value={delNote} onChange={setDelNote} placeholder="ملاحظات..."/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>مدة التسليم (أيام)</label><Inp type="number" value={delAgreed} onChange={setDelAgreed} placeholder="اختياري"/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>التاريخ</label><Inp type="date" value={delDate} onChange={setDelDate}/></div>
         </div>
         <div style={{display:"flex",gap:8}}><Btn primary onClick={()=>deliverToWs(false)} disabled={!selOrder||!delQty||!delType}>تسليم وحفظ</Btn><Btn onClick={()=>deliverToWs(true)} disabled={!selOrder||!delQty||!delType} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>تسليم + طباعة</Btn><Btn onClick={()=>deliverToWs(false,false,true)} disabled={!selOrder||!delQty||!delType} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>🏷️ ليبل</Btn><Btn onClick={()=>deliverToWs(false,true)} disabled={!selOrder||!delQty||!delType} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱 واتساب</Btn><Btn ghost onClick={()=>{setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice("")}}>الغاء</Btn></div>
