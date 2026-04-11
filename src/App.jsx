@@ -271,48 +271,36 @@ async function printLabel(wsName,order,garmentType,qty,date,gtList,opts){
   const isRcv=type==="receive";const title=isRcv?"استلام مصنع":"تسليم ورشة";const arrow=isRcv?"↙":"↗";
   let qrSrc="";try{const QR=await loadQR();if(QR&&order.id)qrSrc=await QR.toDataURL(window.location.origin+"?act=rcv&oid="+encodeURIComponent(order.id),{width:200,margin:1,errorCorrectionLevel:"M"})}catch(e){}
   const d={title,arrow,qrSrc,piece:garmentType||"عام",qty:isRcv?rcvQty:delQty,modelNo:order.modelNo||"",modelDesc:order.modelDesc||"",sizeLabel:order.sizeLabel||"",wsName,cutQty:t.cutQty,delQty,delDate,rcvQty,rcvDate,isRcv};
+  /* Store data and trigger popup event */
+  window.__labelData=d;window.dispatchEvent(new Event("show-label-popup"))
+}
+function renderLabelPages(d,n){
   const pw=window.open("","_blank");if(!pw)return;
-  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@600;800&display=swap' rel='stylesheet'/><title>"+title+"</title><style>"
+  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@600;800&display=swap' rel='stylesheet'/><title>"+d.title+"</title><style>"
   +"@page{size:10cm 15cm;margin:0}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Cairo',sans-serif;color:#000}"
   +".pg{width:10cm;min-height:15cm;padding:4mm;display:flex;flex-direction:column;page-break-after:always;overflow:hidden}.pg:last-child{page-break-after:auto}"
   +".brand{text-align:center;font-size:10pt;font-weight:800;letter-spacing:2px;color:#555;padding-bottom:1mm;border-bottom:2px solid #000;margin-bottom:2mm}"
-  +".tp{text-align:center;font-size:11pt;font-weight:800;border:2.5px solid #000;display:inline-block;padding:1mm 6mm;border-radius:4px;margin:0 auto 2mm;display:block;width:fit-content;margin-left:auto;margin-right:auto}"
+  +".tp{text-align:center;font-size:11pt;font-weight:800;border:2.5px solid #000;display:block;width:fit-content;padding:1mm 6mm;border-radius:4px;margin:0 auto 2mm}"
   +".big{text-align:center;padding:2mm;border:2.5px solid #000;border-radius:6px;margin-bottom:2mm}.big .pc{font-size:13pt;font-weight:800}.big .qt{font-size:18pt;font-weight:800}"
   +"table{width:100%;border-collapse:collapse;margin-bottom:2mm}td{padding:1mm 3mm;font-size:9pt;font-weight:700;border:1px solid #000}td.k{font-weight:800;width:35%}"
   +".mv{border:2px solid #000;border-radius:4px;overflow:hidden;margin-bottom:2mm}.mvr{display:flex;justify-content:space-between;padding:1.5mm 3mm;font-size:9pt;font-weight:800;border-bottom:1px solid #000}.mvr:last-child{border-bottom:none}"
-  +".bot{display:flex;align-items:center;justify-content:center;gap:5mm;margin-top:auto;padding-top:2mm}"
-  +".bot img{width:22mm;height:22mm}"
+  +".bot{display:flex;align-items:center;justify-content:center;gap:5mm;margin-top:auto;padding-top:2mm}.bot img{width:22mm;height:22mm}"
   +".bags{font-size:26pt;font-weight:800;border:3px solid #000;border-radius:8px;padding:1mm 5mm;line-height:1}"
   +".foot{text-align:center;font-size:7pt;color:#555;padding-top:1mm;border-top:1px dashed #000;margin-top:2mm}"
-  +".ask{max-width:320px;margin:80px auto;text-align:center}.ask h2{font-size:16pt;margin-bottom:6px}.ask p{font-size:11pt;color:#555;margin-bottom:16px}"
-  +".ask input{width:100px;text-align:center;font-size:22pt;font-weight:800;border:3px solid #000;border-radius:10px;padding:8px;font-family:'Cairo'}"
-  +".ask button{display:block;width:100%;margin-top:14px;padding:10px;font-size:13pt;font-weight:800;border:none;border-radius:10px;cursor:pointer;font-family:'Cairo';background:#000;color:#fff}"
   +".pbar{position:sticky;top:0;background:#fff;padding:4px;display:none;justify-content:center;gap:6px;border-bottom:2px solid #ccc;z-index:99}"
   +".pbar button{padding:5px 14px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:11px;font-weight:700;background:#fff}.pbar .pr{background:#000;color:#fff}"
-  +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar,.ask{display:none}}"
-  +"</style></head><body>"
-  +"<div class='ask'><h2>🏷️ "+d.arrow+" "+d.title+"</h2><p>"+d.modelNo+" — "+d.piece+" — "+d.qty+" قطعة</p><label style='font-size:11pt;font-weight:700'>عدد الأكياس</label><br/><input id='bn' type='number' value='1' min='1'/><button onclick='go()'>🖨 طباعة</button></div>"
-  +"<div id='out'></div>"
-  +"<script>var D="+JSON.stringify(d)+";"
-  +"function go(){var n=Math.max(1,parseInt(document.getElementById('bn').value)||1);"
-  +"var h='<div class=\"pbar\"><button onclick=\"window.close()\">↩</button><button class=\"pr\" onclick=\"window.print()\">🖨 '+n+'</button></div>';"
-  +"for(var i=1;i<=n;i++){h+='<div class=\"pg\">';"
-  +"h+='<div class=\"brand\">CLARK Factory</div>';"
-  +"h+='<div class=\"tp\">'+D.arrow+' '+D.title+'</div>';"
-  +"h+='<div class=\"big\"><div class=\"pc\">'+D.piece+'</div><div class=\"qt\">'+D.qty+' قطعة</div></div>';"
-  +"h+='<table><tr><td class=\"k\">الموديل</td><td>'+D.modelNo+'</td></tr><tr><td class=\"k\">الوصف</td><td>'+D.modelDesc+'</td></tr><tr><td class=\"k\">المقاسات</td><td>'+D.sizeLabel+'</td></tr><tr><td class=\"k\">الورشة</td><td>'+D.wsName+'</td></tr><tr><td class=\"k\">القص</td><td>'+D.cutQty+'</td></tr></table>';"
-  +"h+='<div class=\"mv\"><div class=\"mvr\"><span>↗ تسليم</span><span>'+D.delQty+'</span><span>'+D.delDate+'</span></div>';"
-  +"if(D.isRcv)h+='<div class=\"mvr\"><span>↙ استلام</span><span>'+D.rcvQty+'</span><span>'+D.rcvDate+'</span></div>';"
-  +"h+='</div>';"
-  +"h+='<div class=\"bot\">';"
-  +"if(D.qrSrc)h+='<img src=\"'+D.qrSrc+'\"/>';"
-  +"if(n>1)h+='<div class=\"bags\">'+i+'/'+n+'</div>';"
-  +"h+='</div>';"
-  +"h+='<div class=\"foot\">'+D.modelNo+' | '+D.piece+' | '+D.wsName+'</div></div>'}"
-  +"document.querySelector('.ask').style.display='none';document.getElementById('out').innerHTML=h;"
-  +"if(window.innerWidth>1024)setTimeout(function(){window.focus();window.print()},400)}"
-  +"</script></body></html>");
-  pw.document.close()
+  +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
+  +"</style></head><body>");
+  let h="<div class='pbar'><button onclick='window.close()'>↩</button><button class='pr' onclick='window.print()'>🖨 "+n+"</button></div>";
+  for(let i=1;i<=n;i++){h+="<div class='pg'><div class='brand'>CLARK Factory</div><div class='tp'>"+d.arrow+" "+d.title+"</div>"
+    +"<div class='big'><div class='pc'>"+d.piece+"</div><div class='qt'>"+d.qty+" قطعة</div></div>"
+    +"<table><tr><td class='k'>الموديل</td><td>"+d.modelNo+"</td></tr><tr><td class='k'>الوصف</td><td>"+d.modelDesc+"</td></tr><tr><td class='k'>المقاسات</td><td>"+d.sizeLabel+"</td></tr><tr><td class='k'>الورشة</td><td>"+d.wsName+"</td></tr><tr><td class='k'>القص</td><td>"+d.cutQty+"</td></tr></table>"
+    +"<div class='mv'><div class='mvr'><span>↗ تسليم</span><span>"+d.delQty+"</span><span>"+d.delDate+"</span></div>"
+    +(d.isRcv?"<div class='mvr'><span>↙ استلام</span><span>"+d.rcvQty+"</span><span>"+d.rcvDate+"</span></div>":"")+"</div>"
+    +"<div class='bot'>"+(d.qrSrc?"<img src='"+d.qrSrc+"'/>":"")+(n>1?"<div class='bags'>"+i+"/"+n+"</div>":"")+"</div>"
+    +"<div class='foot'>"+d.modelNo+" | "+d.piece+" | "+d.wsName+"</div></div>"}
+  pw.document.write(h+"</body></html>");pw.document.close();
+  if(window.innerWidth>1024)setTimeout(()=>{pw.focus();pw.print()},500)
 }
 
 async function printReceiveReceipt(wsName,order,garmentType,qty,date,balance,gtList,_returnHtml){
@@ -516,21 +504,21 @@ function Sel({value,onChange,children}){
 }
 
 function SearchSel({value,onChange,options,placeholder}){
-  const[open,setOpen]=useState(false);const[q,setQ]=useState("");const ref=useRef(null);const[pos,setPos]=useState({top:0,left:0,width:0});
+  const[open,setOpen]=useState(false);const[q,setQ]=useState("");const ref=useRef(null);const dropRef=useRef(null);
   const selected=options.find(o=>o.value===value);
   const filtered=q?options.filter(o=>o.label.toLowerCase().includes(q.toLowerCase())).slice(0,10):options.slice(0,10);
-  useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false)};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h)},[]);
-  useEffect(()=>{if(open&&ref.current){const r=ref.current.getBoundingClientRect();setPos({top:r.bottom,left:r.left,width:r.width})}},[open]);
+  useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target)&&dropRef.current&&!dropRef.current.contains(e.target))setOpen(false)};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h)},[]);
+  const getPos=()=>{if(!ref.current)return{top:0,left:0,width:200};const r=ref.current.getBoundingClientRect();return{top:r.bottom,left:r.left,width:r.width}};
   return<div ref={ref} style={{position:"relative"}}>
     <div style={{display:"flex",border:"1px solid "+T.brd,borderRadius:6,overflow:"hidden",background:T.cardSolid}}>
       <input value={open?q:(selected?selected.label:"")} onChange={e=>{setQ(e.target.value);if(!open)setOpen(true)}} onFocus={()=>{setOpen(true);setQ("")}} onKeyDown={e=>{if(e.key==="Escape")setOpen(false)}}
         placeholder={placeholder||"بحث..."} style={{flex:1,padding:"5px 8px",border:"none",outline:"none",fontSize:FS,fontFamily:"inherit",background:"transparent",color:T.text,boxSizing:"border-box"}}/>
       <div onClick={()=>{setOpen(!open);setQ("")}} style={{padding:"4px 8px",cursor:"pointer",display:"flex",alignItems:"center",color:T.textSec,borderRight:"1px solid "+T.brd,background:T.bg,fontSize:12}}>{open?"▲":"▼"}</div>
     </div>
-    {open&&<div style={{position:"fixed",top:pos.top,left:pos.left,width:pos.width,zIndex:99999,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:"0 0 8px 8px",boxShadow:"0 8px 24px rgba(0,0,0,0.15)",maxHeight:240,overflowY:"auto"}}>
+    {open&&(()=>{const p=getPos();return<div ref={dropRef} style={{position:"fixed",top:p.top,left:p.left,width:p.width||200,zIndex:99999,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:"0 0 8px 8px",boxShadow:"0 8px 24px rgba(0,0,0,0.15)",maxHeight:240,overflowY:"auto"}}>
       {filtered.length>0?filtered.map(o=><div key={o.value} onClick={()=>{onChange(o.value);setOpen(false);setQ("")}} style={{padding:"8px 12px",cursor:"pointer",fontSize:FS,color:o.value===value?T.accent:T.text,fontWeight:o.value===value?700:400,background:o.value===value?T.accent+"08":"transparent",borderBottom:"1px solid "+T.brd+"40"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background=o.value===value?T.accent+"08":"transparent"}>{o.label}</div>)
       :<div style={{padding:"12px",textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد نتائج</div>}
-    </div>}
+    </div>})()}
   </div>
 }
 
@@ -682,7 +670,7 @@ export default function App(){
   const[tab,setTab_]=useState(()=>sessionStorage.getItem("clark_tab")||"home");const[sel,setSel_]=useState(()=>sessionStorage.getItem("clark_sel")||null);
   const setTab=v=>{setTab_(v);sessionStorage.setItem("clark_tab",v)};
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
-  const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);const[cardPopup,setCardPopup]=useState(null);
+  const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);const[cardPopup,setCardPopup]=useState(null);const[labelPopup,setLabelPopup]=useState(null);const[labelBags,setLabelBags]=useState(1);
   const[stickyForm,setStickyForm]=useState(null);
   const[quickPopup,setQuickPopup]=useState(null);/* "task"|"notif"|null */
   const[qpTo,setQpTo]=useState("");const[qpText,setQpText]=useState("");const[qpType,setQpType]=useState("تذكير");
@@ -842,6 +830,7 @@ export default function App(){
     showToast("✓ تم مزامنة "+ordCount+" أوردر"+(payChanged?" + المدفوعات":""));
   };
   const goD=id=>{setSel(id);setTab("details")};
+  useEffect(()=>{const h=()=>{const d=window.__labelData;if(d){setLabelPopup(d);setLabelBags(1);delete window.__labelData}};window.addEventListener("show-label-popup",h);return()=>window.removeEventListener("show-label-popup",h)},[]);
   /* QR scan auto-navigate */
   const qrDone=useRef(false);
   useEffect(()=>{if(qrDone.current||orders.length===0)return;
@@ -1228,6 +1217,17 @@ export default function App(){
     </div>}
     {showScanner&&<QRScanner onClose={()=>setShowScanner(false)} onScan={url=>{setShowScanner(false);try{const u=new URL(url);const p=new URLSearchParams(u.search);if(p.get("o")){const o=orders.find(x=>x.modelNo===p.get("o"));if(o)goD(o.id)}else if(p.get("act")==="rcv"&&p.get("oid")){setTab("external");setTimeout(()=>{window.__qrReceive={oid:p.get("oid"),wdi:Number(p.get("wdi"))||0};window.dispatchEvent(new Event("qr-receive"))},600)}else if(p.get("act")==="stock"&&p.get("oid")){const o=orders.find(x=>x.id===p.get("oid"));if(o){goD(o.id);setTimeout(()=>{window.__qrStock=true;window.dispatchEvent(new Event("qr-stock"))},800)}}else if(p.get("act")==="wsacc"&&p.get("ws")){setTab("external");setTimeout(()=>{window.__qrWsAcc={ws:decodeURIComponent(p.get("ws"))};window.dispatchEvent(new Event("qr-wsacc"))},600)}else{showToast("QR غير معروف")}}catch(e){showToast("QR غير صالح")}}}/>}
     {cardPopup&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setCardPopup(null)}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:500,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><div style={{fontSize:FS+2,fontWeight:800,color:cardPopup.color}}>{cardPopup.title}</div><Btn ghost small onClick={()=>setCardPopup(null)}>✕</Btn></div><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th style={TH}>البيان</th>{cardPopup.details?.[0]?.desc!==undefined&&<th style={TH}>الوصف</th>}<th style={TH}>الكمية</th></tr></thead><tbody>{(cardPopup.details||[]).map((d,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={{...TD,fontWeight:700,color:cardPopup.color}}>{d.model}</td>{d.desc!==undefined&&<td style={TD}>{d.desc}</td>}<td style={{...TD,textAlign:"center",fontWeight:800}}>{fmt(d.qty)}</td></tr>)}<tr style={{background:cardPopup.color+"10"}}><td style={{...TD,fontWeight:800}} colSpan={cardPopup.details?.[0]?.desc!==undefined?2:1}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:cardPopup.color}}>{fmt((cardPopup.details||[]).reduce((s,d)=>s+(Number(d.qty)||0),0))}</td></tr></tbody></table></div></div>}
+    {labelPopup&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setLabelPopup(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:320,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",textAlign:"center"}}>
+        <div style={{fontSize:18,fontWeight:800,color:T.text,marginBottom:4}}>{"🏷️ "+labelPopup.arrow+" "+labelPopup.title}</div>
+        <div style={{fontSize:FS,color:T.textSec,marginBottom:16}}>{labelPopup.modelNo+" — "+labelPopup.piece+" — "+labelPopup.qty+" قطعة"}</div>
+        <div style={{marginBottom:12}}><label style={{fontSize:FS,fontWeight:700,color:T.text}}>عدد الأكياس</label><input type="number" value={labelBags} onChange={e=>setLabelBags(Math.max(1,Number(e.target.value)||1))} min="1" style={{display:"block",margin:"8px auto",width:100,textAlign:"center",fontSize:22,fontWeight:800,border:"3px solid "+T.accent,borderRadius:10,padding:"6px",fontFamily:"Cairo",background:T.bg,color:T.text}}/></div>
+        <div style={{display:"flex",gap:8,justifyContent:"center"}}>
+          <Btn ghost onClick={()=>setLabelPopup(null)}>الغاء</Btn>
+          <Btn onClick={()=>{renderLabelPages(labelPopup,labelBags);setLabelPopup(null);setLabelBags(1)}} style={{background:T.accent,color:"#fff",border:"none",fontWeight:700}}>{"🖨 طباعة "+labelBags}</Btn>
+        </div>
+      </div>
+    </div>}
   </div>
 }
 function DashPg({data,goD,isMob,season,statusCards,upConfig,user,setCardPopup}){
