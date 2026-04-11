@@ -4079,7 +4079,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
     <Card title={"📋 جرد المبيعات ("+audits.length+")"} style={{marginBottom:16}}>
       {sortedAudits.length>0?<div style={{display:"flex",flexDirection:"column",gap:8}}>
         {sortedAudits.map(a=>{const totalQ=Object.values(a.grid||{}).reduce((s,v)=>s+(Number(v)||0),0);const isActive=activeAudit===a.id;
-          return<div key={a.id} style={{padding:"10px 14px",borderRadius:10,background:isActive?T.accent+"08":T.cardSolid,border:isActive?"2px solid "+T.accent:"1px solid "+T.brd,cursor:"pointer"}} onClick={()=>setActiveAudit(isActive?null:a.id)}>
+          return<div key={a.id} style={{padding:"10px 14px",borderRadius:10,background:isActive?T.accent+"08":T.cardSolid,border:isActive?"2px solid "+T.accent:"1px solid "+T.brd,cursor:"pointer"}} onClick={()=>{if(isActive){setActiveAudit(null);setAuditInclude(null)}else{setActiveAudit(a.id);const g=a.grid||{};const custIds=[...new Set(Object.keys(g).map(k=>k.split("_")[1]))].filter(id=>auditCusts.some(c=>c.id===id));setAuditInclude(custIds.length>0?custIds:null)}}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <span style={{fontSize:16}}>📋</span>
@@ -4146,7 +4146,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
                       {isEd?<input type="number" autoFocus value={auditVal} onFocus={e=>e.target.select()}
                         onChange={e=>setAuditVal(Number(e.target.value)||0)}
                         onBlur={()=>{saveAuditCell(activeAud.id,m.id,c.id,auditVal);setAuditCell(null)}}
-                        onKeyDown={e=>{if(e.key==="Enter"||e.key==="Tab"){e.preventDefault();saveAuditCell(activeAud.id,m.id,c.id,auditVal);setAuditCell(null)}if(e.key==="Escape")setAuditCell(null)}}
+                        onKeyDown={e=>{if(e.key==="Enter"||e.key==="Tab"){e.preventDefault();saveAuditCell(activeAud.id,m.id,c.id,auditVal);const ci=visCusts.indexOf(c);const mi=auditModels.indexOf(m);let ni=e.shiftKey?ci-1:ci+1;let nm=mi;if(ni>=visCusts.length){ni=0;nm=mi+1}if(ni<0){ni=visCusts.length-1;nm=mi-1}if(nm>=0&&nm<auditModels.length){const nk=auditModels[nm].id+"_"+visCusts[ni].id;setAuditCell(nk);setAuditVal(Number(aAudGrid[nk])||0)}else{setAuditCell(null)}}if(e.key==="Escape")setAuditCell(null)}}
                         style={{width:"100%",textAlign:"center",border:"2px solid #F59E0B",borderRadius:4,padding:"2px",fontSize:FS,fontWeight:700,fontFamily:"inherit",background:"#FFF",outline:"none"}}/>
                       :<span style={{fontWeight:q>0?700:400,color:q>0?"#F59E0B":T.textMut}}>{q||"—"}</span>}
                     </td>})}
