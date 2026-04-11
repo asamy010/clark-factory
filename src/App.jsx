@@ -1147,7 +1147,7 @@ export default function App(){
         {tab==="tasks"&&<TasksPg data={data} upConfig={upConfig} isMob={isMob} user={user} userRole={userRole}/>}
         {tab==="calc"&&<CalcPg data={data} isMob={isMob}/>}
         {tab==="reports"&&<ReportsHub data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
-        {tab==="settings"&&canEditTab("settings")&&<SettingsPg config={config} upConfig={upConfig} isMob={isMob} user={user} theme={theme} setTheme={setTheme} season={season} orders={orders} syncWsIds={syncWsIds} replaceOrder={replaceOrder}/>}
+        {tab==="settings"&&canEditTab("settings")&&<SettingsPg config={config} upConfig={upConfig} isMob={isMob} user={user} theme={theme} setTheme={setTheme} season={season} orders={orders} syncWsIds={syncWsIds} replaceOrder={replaceOrder} updOrder={updOrder}/>}
         {tab==="custDeliver"&&<CustDeliverPg data={data} upConfig={upConfig} updOrder={updOrder} isMob={isMob} canEdit={canEditTab("custDeliver")} user={user}/>}
       </div>}
     </div>
@@ -3621,8 +3621,10 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
     setEditCell(null)};
 
   const delSession=(sessId)=>{const sess=sessions.find(s=>s.id===sessId);if(!sess)return;
-    Object.entries(sess.grid||{}).forEach(([k])=>{const[orderId,custId]=k.split("_");
-      updOrder(orderId,o=>{o.customerDeliveries=(o.customerDeliveries||[]).filter(d=>!(d.custId===custId&&d.sessionId===sessId))})});
+    const affectedOrders=new Set();
+    Object.entries(sess.grid||{}).forEach(([k])=>{const[orderId]=k.split("_");affectedOrders.add(orderId)});
+    sess.modelIds.forEach(id=>affectedOrders.add(id));
+    affectedOrders.forEach(orderId=>{updOrder(orderId,o=>{o.customerDeliveries=(o.customerDeliveries||[]).filter(d=>d.sessionId!==sessId)})});
     upConfig(d=>{d.custDeliverySessions=(d.custDeliverySessions||[]).filter(s=>s.id!==sessId)});
     if(activeSession===sessId)setActiveSession(null);showToast("✓ تم الحذف")};
 
@@ -4061,7 +4063,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
   </div>
 }
 
-function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syncWsIds,replaceOrder}){
+function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syncWsIds,replaceOrder,updOrder}){
   const[newSeason,setNewSeason]=useState("");const[delConfirm,setDelConfirm]=useState("");
   const[newUserEmail,setNewUserEmail]=useState("");const[newUserRole,setNewUserRole]=useState("viewer");
   const[newUserName,setNewUserName]=useState("");const[newUserPass,setNewUserPass]=useState("");const[newUserPass2,setNewUserPass2]=useState("");
@@ -4338,6 +4340,52 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
               <div style={{height:8,borderRadius:4,background:"#E2E8F0",overflow:"hidden"}}><div style={{height:"100%",width:Math.min(100,totalSize/1024/1024*100)+"%",borderRadius:4,background:totalSize>800000?T.err:totalSize>500000?T.warn:T.ok}}/></div>
             </div>
           </div>
+        </div>})()}
+    </Card>
+    {/* ── Data Maintenance ── */}
+    <Card title="🔧 صيانة البيانات" style={{marginTop:16}}>
+      {(()=>{const sessIds=new Set((config.custDeliverySessions||[]).map(s=>s.id));
+        let orphanCount=0;const orphanDetails=[];
+        orders.forEach(o=>{
+          const orphans=(o.customerDeliveries||[]).filter(d=>!d.sessionId||!sessIds.has(d.sessionId));
+          if(orphans.length>0){orphanCount+=orphans.length;orphanDetails.push({model:o.modelNo,count:orphans.length})}
+        });
+        const orphanReturns=orders.reduce((s,o)=>{const rets=(o.customerReturns||[]).filter(r=>{if(!r.custId)return true;const custExists=(config.customers||[]).some(c=>c.id===r.custId);return!custExists});return s+rets.length},0);
+        const emptyDels=orders.filter(o=>(o.customerDeliveries||[]).some(d=>!d.qty||d.qty<=0)).length;
+        const totalIssues=orphanCount+orphanReturns+emptyDels;
+        const cleanOrphans=()=>{
+          let cleaned=0;
+          orders.forEach(o=>{
+            const orphans=(o.customerDeliveries||[]).filter(d=>!d.sessionId||!sessIds.has(d.sessionId));
+            const emptyQ=(o.customerDeliveries||[]).filter(d=>!d.qty||d.qty<=0);
+            const orphanRets=(o.customerReturns||[]).filter(r=>!r.custId||!(config.customers||[]).some(c=>c.id===r.custId));
+            if(orphans.length>0||emptyQ.length>0||orphanRets.length>0){
+              updOrder(o.id,ord=>{
+                if(orphans.length>0||emptyQ.length>0){ord.customerDeliveries=(ord.customerDeliveries||[]).filter(d=>d.sessionId&&sessIds.has(d.sessionId)&&d.qty>0)}
+                if(orphanRets.length>0){ord.customerReturns=(ord.customerReturns||[]).filter(r=>r.custId&&(config.customers||[]).some(c=>c.id===r.custId))}
+              });cleaned+=orphans.length+emptyQ.length+orphanRets.length}
+          });
+          showToast("✓ تم تنظيف "+cleaned+" سجل يتيم")};
+        return<div>
+          <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:12}}>
+            <div style={{padding:10,borderRadius:8,background:totalIssues>0?T.warn+"08":T.ok+"08",border:"1px solid "+(totalIssues>0?T.warn:T.ok)+"15",textAlign:"center",flex:1,minWidth:120}}>
+              <div style={{fontSize:FS-2,color:T.textSec}}>بيانات يتيمة</div>
+              <div style={{fontSize:18,fontWeight:800,color:totalIssues>0?T.warn:T.ok}}>{totalIssues}</div>
+            </div>
+            <div style={{padding:10,borderRadius:8,background:T.bg,border:"1px solid "+T.brd,textAlign:"center",flex:1,minWidth:120}}>
+              <div style={{fontSize:FS-2,color:T.textSec}}>تسليمات يتيمة</div>
+              <div style={{fontSize:18,fontWeight:800,color:orphanCount>0?T.err:T.ok}}>{orphanCount}</div>
+            </div>
+            <div style={{padding:10,borderRadius:8,background:T.bg,border:"1px solid "+T.brd,textAlign:"center",flex:1,minWidth:120}}>
+              <div style={{fontSize:FS-2,color:T.textSec}}>مرتجعات يتيمة</div>
+              <div style={{fontSize:18,fontWeight:800,color:orphanReturns>0?T.err:T.ok}}>{orphanReturns}</div>
+            </div>
+          </div>
+          {orphanDetails.length>0&&<div style={{marginBottom:12,fontSize:FS-2,color:T.textMut}}>
+            {orphanDetails.map(d=><span key={d.model} style={{display:"inline-block",padding:"2px 8px",margin:2,borderRadius:6,background:T.warn+"10",color:T.warn,fontWeight:600}}>{"موديل "+d.model+": "+d.count+" يتيم"}</span>)}
+          </div>}
+          {totalIssues>0?<Btn onClick={cleanOrphans} style={{background:T.warn,color:"#fff",border:"none",fontWeight:700}}>🧹 تنظيف البيانات اليتيمة ({totalIssues})</Btn>
+          :<div style={{fontSize:FS-1,color:T.ok,fontWeight:600}}>✅ البيانات نظيفة — لا توجد سجلات يتيمة</div>}
         </div>})()}
     </Card>
     {/* ── Auto Bot Tasks Settings (multi-user) ── */}
