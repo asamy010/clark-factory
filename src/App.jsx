@@ -3679,7 +3679,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   const[reportRange,setReportRange]=useState({from:"",to:""});const[showReport,setShowReport]=useState(false);const[rptType,setRptType]=useState("all");const[rptCust,setRptCust]=useState("");const[rptModel,setRptModel]=useState("");
   const[showNewAudit,setShowNewAudit]=useState(false);const[auditDate,setAuditDate]=useState(new Date().toISOString().split("T")[0]);const[auditFrom,setAuditFrom]=useState("");const[auditTo,setAuditTo]=useState("");const[auditNote,setAuditNote]=useState("");
   const[activeAudit,setActiveAudit]=useState(null);const[auditCell,setAuditCell]=useState(null);const[auditVal,setAuditVal]=useState(0);const[showAuditAnalysis,setShowAuditAnalysis]=useState(null);
-  const[ocrCust,setOcrCust]=useState(null);const[ocrLoading,setOcrLoading]=useState(false);const[ocrResult,setOcrResult]=useState(null);const ocrRef=useRef(null);const[auditExclude,setAuditExclude]=useState([]);
+  const[ocrCust,setOcrCust]=useState(null);const[ocrLoading,setOcrLoading]=useState(false);const[ocrResult,setOcrResult]=useState(null);const ocrRef=useRef(null);const[auditInclude,setAuditInclude]=useState(null);
   const[returnPopup,setReturnPopup]=useState(null);const[retQty,setRetQty]=useState(0);const[retNote,setRetNote]=useState("");
   const[custQR,setCustQR]=useState(null);const[salesDetail,setSalesDetail]=useState(null);
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
@@ -4094,7 +4094,31 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
       </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا يوجد جرد — اضغط "📋 جرد مبيعات"</div>}
     </Card>
     {/* Audit Matrix Popup */}
-    {activeAud&&(()=>{const visCusts=auditCusts.filter(c=>!auditExclude.includes(c.id));return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:24}} onClick={()=>{setActiveAudit(null);setAuditExclude([])}}>
+    {activeAud&&!auditInclude&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setActiveAudit(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:450,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{fontSize:FS+2,fontWeight:800,color:"#F59E0B",marginBottom:4}}>📋 اختر عملاء الجرد</div>
+        <div style={{fontSize:FS-2,color:T.textMut,marginBottom:12}}>اختر العملاء اللي بعتوا جرد المبيعات</div>
+        {(()=>{const[selAll,setSelAll]=useState({});const toggle=id=>setSelAll(p=>({...p,[id]:!p[id]}));const selCount=Object.values(selAll).filter(Boolean).length;
+          return<div>
+            <div style={{display:"flex",gap:6,marginBottom:10}}>
+              <Btn small onClick={()=>{const all={};auditCusts.forEach(c=>{all[c.id]=true});setSelAll(all)}} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>☑ اختار الكل</Btn>
+              <Btn small onClick={()=>setSelAll({})} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>☐ الغاء الكل</Btn>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:14}}>
+              {auditCusts.map(c=><label key={c.id} onClick={()=>toggle(c.id)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:8,cursor:"pointer",background:selAll[c.id]?"#F59E0B08":"transparent",border:"1px solid "+(selAll[c.id]?"#F59E0B30":T.brd)}}>
+                <span style={{fontSize:16}}>{selAll[c.id]?"☑":"☐"}</span>
+                <span style={{fontWeight:600,fontSize:FS}}>{c.name}</span>
+                <span style={{fontSize:FS-2,color:T.textMut,marginRight:"auto"}}>{"(استلم: "+getCustTotal(c.id)+")"}</span>
+              </label>)}
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <Btn ghost onClick={()=>setActiveAudit(null)}>الغاء</Btn>
+              <Btn onClick={()=>{const ids=Object.entries(selAll).filter(([,v])=>v).map(([k])=>k);if(ids.length===0){showToast("⚠️ اختر عميل واحد على الأقل");return}setAuditInclude(ids)}} disabled={selCount===0} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700}}>{"📋 فتح الجرد ("+selCount+" عميل)"}</Btn>
+            </div>
+          </div>})()}
+      </div>
+    </div>}
+    {activeAud&&auditInclude&&(()=>{const visCusts=auditCusts.filter(c=>auditInclude.includes(c.id));return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:24}} onClick={()=>{setActiveAudit(null);setAuditInclude(null)}}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,width:"100%",maxWidth:isMob?900:Math.min(200+visCusts.length*100,window.innerWidth-80),maxHeight:"92vh",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
         <div style={{padding:isMob?"12px 16px":"16px 24px",borderBottom:"1px solid "+T.brd,flexShrink:0}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -4102,15 +4126,12 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
             <div style={{display:"flex",gap:4}}><Btn small onClick={()=>setShowAuditAnalysis(activeAud.id)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📊 تحليل</Btn><Btn ghost small onClick={()=>setActiveAudit(null)}>✕</Btn></div>
           </div>
         </div>
-        <div style={{flex:1,overflowY:"auto",overflowX:"auto",padding:isMob?"8px 16px 16px":"8px 24px 24px"}}>
+        <div id="audit-matrix-table" style={{flex:1,overflowY:"auto",overflowX:"auto",padding:isMob?"8px 16px 16px":"8px 24px 24px"}}>
           <table style={{width:"100%",borderCollapse:"collapse",whiteSpace:"nowrap"}}>
             <thead style={{position:"sticky",top:0,zIndex:10,background:T.cardSolid}}><tr>
               <th style={{...TH,minWidth:120}}>الموديل</th>
               {visCusts.map(c=><th key={c.id} style={{...TH,textAlign:"center",minWidth:80,fontSize:FS-2}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:2}}>
-                  <span style={{fontWeight:700}}>{c.name}</span>
-                  {canEdit&&<span onClick={e=>{e.stopPropagation();setAuditExclude(p=>[...p,c.id])}} style={{cursor:"pointer",fontSize:9,color:T.textMut,opacity:0.5}}>✕</span>}
-                </div>
+                <div style={{fontWeight:700}}>{c.name}</div>
                 {canEdit&&<div style={{marginTop:2}}><span onClick={e=>{e.stopPropagation();setOcrCust(c.id);setOcrResult(null)}} style={{cursor:"pointer",fontSize:10,padding:"1px 4px",borderRadius:4,background:"#8B5CF610",color:"#8B5CF6"}}>📸</span></div>}
               </th>)}
               <th style={{...TH,textAlign:"center",background:"#F59E0B15",color:"#F59E0B",fontWeight:800}}>اجمالي</th>
@@ -4157,9 +4178,9 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
           </table>
         </div>
         <div style={{display:"flex",gap:10,justifyContent:"center",alignItems:"center",padding:"12px 24px",borderTop:"1px solid "+T.brd,flexShrink:0,flexWrap:"wrap"}}>
-          {auditExclude.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}><span style={{fontSize:FS-2,color:T.textMut}}>مخفي:</span>{auditExclude.map(id=>{const c=customers.find(x=>x.id===id);return c?<span key={id} onClick={()=>setAuditExclude(p=>p.filter(x=>x!==id))} style={{fontSize:FS-2,padding:"2px 6px",borderRadius:4,background:T.accent+"10",color:T.accent,cursor:"pointer"}}>{"+ "+c.name}</span>:null})}</div>}
+          <Btn onClick={()=>{setAuditInclude(null)}} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>👥 تغيير العملاء</Btn>
           <Btn onClick={()=>setShowAuditAnalysis(activeAud.id)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📊 تحليل</Btn>
-          <Btn onClick={()=>{setActiveAudit(null);setAuditExclude([])}} style={{background:T.ok,color:"#fff",border:"none",fontWeight:700}}>✓ حفظ وإغلاق</Btn>
+          <Btn onClick={()=>{setActiveAudit(null);setAuditInclude(null)}} style={{background:T.ok,color:"#fff",border:"none",fontWeight:700}}>✓ حفظ وإغلاق</Btn>
         </div>
       </div>
     </div>})()}
@@ -4174,8 +4195,9 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:isMob?500:700,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
             <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>{"📊 تحليل جرد — "+aud.date}</div>
-            <Btn ghost small onClick={()=>setShowAuditAnalysis(null)}>✕</Btn>
+            <div style={{display:"flex",gap:4}}><Btn small onClick={()=>{const el=document.getElementById("audit-analysis-content");if(el)printPage("📊 تحليل جرد مبيعات — "+aud.date,el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn ghost small onClick={()=>setShowAuditAnalysis(null)}>✕</Btn></div>
           </div>
+          <div id="audit-analysis-content">
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
             <div style={{padding:10,borderRadius:10,background:"#F59E0B08",border:"1px solid #F59E0B15",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>اجمالي المبيعات</div><div style={{fontSize:20,fontWeight:800,color:"#F59E0B"}}>{fmt(total)}</div></div>
             <div style={{padding:10,borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"15",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>عدد الموديلات</div><div style={{fontSize:20,fontWeight:800,color:T.accent}}>{topModels.length}</div></div>
@@ -4201,6 +4223,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
             <div style={{fontSize:FS-1,fontWeight:700,color:T.warn,marginBottom:4}}>⚠️ موديلات بطيئة البيع (أقل من 20%)</div>
             {topModels.filter(([,d])=>d.pct<20).map(([name,d])=><div key={name} style={{fontSize:FS-2,color:T.textSec}}>{"• "+name+" — تسليم "+d.delivered+" → مبيعات "+d.qty+" ("+d.pct+"%)"}</div>)}
           </div>}
+          </div>
         </div>
       </div>})()}
     {/* OCR Audit Popup */}
