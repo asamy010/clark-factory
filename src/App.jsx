@@ -269,19 +269,21 @@ async function printLabel(wsName,order,garmentType,qty,date,gtList,opts){
   const t=calcOrder(order);
   const type=(opts?.type)||"deliver";const rcvDate=opts?.rcvDate||"";const delDate=opts?.delDate||date||"";const rcvQty=opts?.rcvQty||0;const delQty=opts?.delQty||qty;
   const isRcv=type==="receive";const title=isRcv?"استلام مصنع":"تسليم ورشة";const arrow=isRcv?"↙":"↗";
-  let qrSrc="";try{const QR=await loadQR();if(QR&&order.id)qrSrc=await QR.toDataURL(window.location.origin+"?act=rcv&oid="+encodeURIComponent(order.id),{width:280,margin:1,errorCorrectionLevel:"M"})}catch(e){}
+  let qrSrc="";try{const QR=await loadQR();if(QR&&order.id)qrSrc=await QR.toDataURL(window.location.origin+"?act=rcv&oid="+encodeURIComponent(order.id),{width:200,margin:1,errorCorrectionLevel:"M"})}catch(e){}
   const d={title,arrow,qrSrc,piece:garmentType||"عام",qty:isRcv?rcvQty:delQty,modelNo:order.modelNo||"",modelDesc:order.modelDesc||"",sizeLabel:order.sizeLabel||"",wsName,cutQty:t.cutQty,delQty,delDate,rcvQty,rcvDate,isRcv};
   const pw=window.open("","_blank");if(!pw)return;
-  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><title>"+title+"</title><style>"
+  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@600;800&display=swap' rel='stylesheet'/><title>"+title+"</title><style>"
   +"@page{size:10cm 15cm;margin:0}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Cairo',sans-serif;color:#000}"
-  +".page{width:10cm;height:15cm;padding:3mm;display:flex;flex-direction:column;page-break-after:always}.page:last-child{page-break-after:auto}"
-  +".hdr{text-align:center;border-bottom:3px solid #000;padding-bottom:2mm;margin-bottom:2mm}.hdr h1{font-size:13pt;font-weight:800}.hdr .tp{font-size:11pt;font-weight:800;display:inline-block;padding:1mm 5mm;border:2.5px solid #000;border-radius:4px;margin-top:2mm}"
-  +".qr{text-align:center;margin:2mm 0}.qr img{width:28mm;height:28mm}"
-  +".big{text-align:center;padding:2mm;border:2.5px solid #000;border-radius:6px;margin:2mm 0}.big .pc{font-size:13pt;font-weight:800}.big .qt{font-size:20pt;font-weight:800}"
-  +"table{width:100%;border-collapse:collapse;margin:2mm 0}td{padding:1.5mm 3mm;font-size:10pt;font-weight:700;border:1px solid #000}td.k{background:#f5f5f5;font-weight:800;width:35%}"
-  +".mv{margin:2mm 0;border:2px solid #000;border-radius:4px;overflow:hidden}.mvr{display:flex;justify-content:space-between;padding:2mm 3mm;font-size:10pt;font-weight:800;border-bottom:1px solid #000}.mvr:last-child{border-bottom:none}"
-  +".bags{text-align:center;font-size:28pt;font-weight:800;border:3px solid #000;border-radius:8px;padding:2mm 6mm;margin:2mm auto;line-height:1}"
-  +".foot{margin-top:auto;text-align:center;font-size:7pt;color:#555;padding-top:2mm;border-top:1px dashed #000}"
+  +".pg{width:10cm;min-height:15cm;padding:4mm;display:flex;flex-direction:column;page-break-after:always;overflow:hidden}.pg:last-child{page-break-after:auto}"
+  +".brand{text-align:center;font-size:10pt;font-weight:800;letter-spacing:2px;color:#555;padding-bottom:1mm;border-bottom:2px solid #000;margin-bottom:2mm}"
+  +".tp{text-align:center;font-size:11pt;font-weight:800;border:2.5px solid #000;display:inline-block;padding:1mm 6mm;border-radius:4px;margin:0 auto 2mm;display:block;width:fit-content;margin-left:auto;margin-right:auto}"
+  +".big{text-align:center;padding:2mm;border:2.5px solid #000;border-radius:6px;margin-bottom:2mm}.big .pc{font-size:13pt;font-weight:800}.big .qt{font-size:18pt;font-weight:800}"
+  +"table{width:100%;border-collapse:collapse;margin-bottom:2mm}td{padding:1mm 3mm;font-size:9pt;font-weight:700;border:1px solid #000}td.k{font-weight:800;width:35%}"
+  +".mv{border:2px solid #000;border-radius:4px;overflow:hidden;margin-bottom:2mm}.mvr{display:flex;justify-content:space-between;padding:1.5mm 3mm;font-size:9pt;font-weight:800;border-bottom:1px solid #000}.mvr:last-child{border-bottom:none}"
+  +".bot{display:flex;align-items:center;justify-content:center;gap:5mm;margin-top:auto;padding-top:2mm}"
+  +".bot img{width:22mm;height:22mm}"
+  +".bags{font-size:26pt;font-weight:800;border:3px solid #000;border-radius:8px;padding:1mm 5mm;line-height:1}"
+  +".foot{text-align:center;font-size:7pt;color:#555;padding-top:1mm;border-top:1px dashed #000;margin-top:2mm}"
   +".ask{max-width:320px;margin:80px auto;text-align:center}.ask h2{font-size:16pt;margin-bottom:6px}.ask p{font-size:11pt;color:#555;margin-bottom:16px}"
   +".ask input{width:100px;text-align:center;font-size:22pt;font-weight:800;border:3px solid #000;border-radius:10px;padding:8px;font-family:'Cairo'}"
   +".ask button{display:block;width:100%;margin-top:14px;padding:10px;font-size:13pt;font-weight:800;border:none;border-radius:10px;cursor:pointer;font-family:'Cairo';background:#000;color:#fff}"
@@ -294,15 +296,18 @@ async function printLabel(wsName,order,garmentType,qty,date,gtList,opts){
   +"<script>var D="+JSON.stringify(d)+";"
   +"function go(){var n=Math.max(1,parseInt(document.getElementById('bn').value)||1);"
   +"var h='<div class=\"pbar\"><button onclick=\"window.close()\">↩</button><button class=\"pr\" onclick=\"window.print()\">🖨 '+n+'</button></div>';"
-  +"for(var i=1;i<=n;i++){h+='<div class=\"page\">';"
-  +"h+='<div class=\"hdr\"><h1>CLARK Factory</h1><div class=\"tp\">'+D.arrow+' '+D.title+'</div></div>';"
-  +"if(D.qrSrc)h+='<div class=\"qr\"><img src=\"'+D.qrSrc+'\"/></div>';"
+  +"for(var i=1;i<=n;i++){h+='<div class=\"pg\">';"
+  +"h+='<div class=\"brand\">CLARK Factory</div>';"
+  +"h+='<div class=\"tp\">'+D.arrow+' '+D.title+'</div>';"
   +"h+='<div class=\"big\"><div class=\"pc\">'+D.piece+'</div><div class=\"qt\">'+D.qty+' قطعة</div></div>';"
   +"h+='<table><tr><td class=\"k\">الموديل</td><td>'+D.modelNo+'</td></tr><tr><td class=\"k\">الوصف</td><td>'+D.modelDesc+'</td></tr><tr><td class=\"k\">المقاسات</td><td>'+D.sizeLabel+'</td></tr><tr><td class=\"k\">الورشة</td><td>'+D.wsName+'</td></tr><tr><td class=\"k\">القص</td><td>'+D.cutQty+'</td></tr></table>';"
   +"h+='<div class=\"mv\"><div class=\"mvr\"><span>↗ تسليم</span><span>'+D.delQty+'</span><span>'+D.delDate+'</span></div>';"
   +"if(D.isRcv)h+='<div class=\"mvr\"><span>↙ استلام</span><span>'+D.rcvQty+'</span><span>'+D.rcvDate+'</span></div>';"
   +"h+='</div>';"
-  +"if(n>1)h+='<div class=\"bags\">'+i+' / '+n+'</div>';"
+  +"h+='<div class=\"bot\">';"
+  +"if(D.qrSrc)h+='<img src=\"'+D.qrSrc+'\"/>';"
+  +"if(n>1)h+='<div class=\"bags\">'+i+'/'+n+'</div>';"
+  +"h+='</div>';"
   +"h+='<div class=\"foot\">'+D.modelNo+' | '+D.piece+' | '+D.wsName+'</div></div>'}"
   +"document.querySelector('.ask').style.display='none';document.getElementById('out').innerHTML=h;"
   +"if(window.innerWidth>1024)setTimeout(function(){window.focus();window.print()},400)}"
@@ -408,7 +413,7 @@ function calcWsRating(wsName,orders){
 
 function mkOrder(){
   const today=new Date().toISOString().split("T")[0];
-  const o={id:gid(),date:today,createdAt:new Date().toISOString(),modelNo:"",modelDesc:"",poNumber:"",sizeSetId:"",sizeLabel:"",status:"تم القص",cutQty:0,deliveredQty:0,accItems:[],deliveries:[],workshopDeliveries:[],orderPieces:[],image:"",instructions:"",attachments:[],marker:"",favorite:false,priority:"normal"};
+  const o={id:gid(),date:today,createdAt:new Date().toISOString(),modelNo:"",modelDesc:"",poNumber:"",sizeSetId:"",sizeLabel:"",status:"تم القص",cutQty:0,deliveredQty:0,accItems:[],deliveries:[],workshopDeliveries:[],orderPieces:[],image:"",instructions:"",attachments:[],marker:""};
   FKEYS.forEach(k=>{o["fabric"+k]="";o["cons"+k]=0;o["cutDate"+k]=today;o["colors"+k]=k==="A"?[{color:"",colorHex:"",layers:0,pcsPerLayer:0,qty:0}]:[];o["fabric"+k+"Label"]="";o["fabric"+k+"Price"]=0;o["fabric"+k+"Unit"]=""});
   return o
 }
@@ -511,17 +516,18 @@ function Sel({value,onChange,children}){
 }
 
 function SearchSel({value,onChange,options,placeholder}){
-  const[open,setOpen]=useState(false);const[q,setQ]=useState("");const ref=useRef(null);
+  const[open,setOpen]=useState(false);const[q,setQ]=useState("");const ref=useRef(null);const[pos,setPos]=useState({top:0,left:0,width:0});
   const selected=options.find(o=>o.value===value);
   const filtered=q?options.filter(o=>o.label.toLowerCase().includes(q.toLowerCase())).slice(0,10):options.slice(0,10);
   useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false)};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h)},[]);
-  return<div ref={ref} style={{position:"relative",zIndex:open?9999:1}}>
+  useEffect(()=>{if(open&&ref.current){const r=ref.current.getBoundingClientRect();setPos({top:r.bottom,left:r.left,width:r.width})}},[open]);
+  return<div ref={ref} style={{position:"relative"}}>
     <div style={{display:"flex",border:"1px solid "+T.brd,borderRadius:6,overflow:"hidden",background:T.cardSolid}}>
       <input value={open?q:(selected?selected.label:"")} onChange={e=>{setQ(e.target.value);if(!open)setOpen(true)}} onFocus={()=>{setOpen(true);setQ("")}} onKeyDown={e=>{if(e.key==="Escape")setOpen(false)}}
         placeholder={placeholder||"بحث..."} style={{flex:1,padding:"5px 8px",border:"none",outline:"none",fontSize:FS,fontFamily:"inherit",background:"transparent",color:T.text,boxSizing:"border-box"}}/>
       <div onClick={()=>{setOpen(!open);setQ("")}} style={{padding:"4px 8px",cursor:"pointer",display:"flex",alignItems:"center",color:T.textSec,borderRight:"1px solid "+T.brd,background:T.bg,fontSize:12}}>{open?"▲":"▼"}</div>
     </div>
-    {open&&<div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:9999,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:"0 0 8px 8px",boxShadow:"0 8px 24px rgba(0,0,0,0.15)",maxHeight:240,overflowY:"auto"}}>
+    {open&&<div style={{position:"fixed",top:pos.top,left:pos.left,width:pos.width,zIndex:99999,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:"0 0 8px 8px",boxShadow:"0 8px 24px rgba(0,0,0,0.15)",maxHeight:240,overflowY:"auto"}}>
       {filtered.length>0?filtered.map(o=><div key={o.value} onClick={()=>{onChange(o.value);setOpen(false);setQ("")}} style={{padding:"8px 12px",cursor:"pointer",fontSize:FS,color:o.value===value?T.accent:T.text,fontWeight:o.value===value?700:400,background:o.value===value?T.accent+"08":"transparent",borderBottom:"1px solid "+T.brd+"40"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background=o.value===value?T.accent+"08":"transparent"}>{o.label}</div>)
       :<div style={{padding:"12px",textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد نتائج</div>}
     </div>}
@@ -1826,10 +1832,8 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
 
   if(!order){
     const filtered=data.orders.filter(o=>{
-      if(detSt==="⭐"&&!o.favorite)return false;
-      if(detSt==="🔴"&&o.priority!=="urgent")return false;
       if(detSt==="⚠️"){const _now=new Date();let _ld=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>_ld)_ld=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>_ld)_ld=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>_ld)_ld=d.date});if(Math.floor((_now-new Date(_ld))/(1000*60*60*24))<=7||o.status==="تم التسليم"||o.status==="تم الشحن")return false}
-      if(detSt!=="الكل"&&detSt!=="⭐"&&detSt!=="🔴"&&detSt!=="⚠️"&&o.status!==detSt)return false;
+      if(detSt!=="الكل"&&detSt!=="⚠️"&&o.status!==detSt)return false;
       if(detQ.trim()){const s=detQ.trim().toLowerCase();const h=[o.modelNo,o.modelDesc,o.sizeLabel,o.status].filter(Boolean).join(" ").toLowerCase();if(!h.includes(s))return false}
       return true
     });
@@ -1843,8 +1847,6 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
         <Sel value={detSt} onChange={setDetSt}><option value="الكل">كل الحالات</option>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel>
       </div>
       <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
-        <span onClick={()=>setDetSt(detSt==="⭐"?"الكل":"⭐")} style={{padding:"4px 10px",borderRadius:6,background:detSt==="⭐"?T.warn+"20":T.bg,border:"1px solid "+(detSt==="⭐"?T.warn:T.brd),cursor:"pointer",fontSize:FS-1,fontWeight:600,color:detSt==="⭐"?T.warn:T.textSec}}>⭐ المفضلة</span>
-        <span onClick={()=>setDetSt(detSt==="🔴"?"الكل":"🔴")} style={{padding:"4px 10px",borderRadius:6,background:detSt==="🔴"?T.err+"20":T.bg,border:"1px solid "+(detSt==="🔴"?T.err:T.brd),cursor:"pointer",fontSize:FS-1,fontWeight:600,color:detSt==="🔴"?T.err:T.textSec}}>🔴 عاجل</span>
         <span onClick={()=>setDetSt(detSt==="⚠️"?"الكل":"⚠️")} style={{padding:"4px 10px",borderRadius:6,background:detSt==="⚠️"?T.err+"20":T.bg,border:"1px solid "+(detSt==="⚠️"?T.err:T.brd),cursor:"pointer",fontSize:FS-1,fontWeight:600,color:detSt==="⚠️"?T.err:T.textSec}}>⚠️ متأخرة</span>
       </div>
       {filtered.length===0&&<Card><p style={{color:T.textSec,textAlign:"center",padding:30}}>لا توجد نتائج</p></Card>}
@@ -1855,11 +1857,9 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
           const now=new Date();let lastDate=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});
           const ageDays=Math.floor((now-new Date(lastDate))/(1000*60*60*24));
           const isStale=ageDays>7&&o.status!=="تم التسليم"&&o.status!=="تم الشحن";
-          const pri=o.priority||"normal";const priColor=pri==="urgent"?T.err:pri==="low"?"#10B981":T.warn;
           return<div key={o.id} data-oid={o.id} style={{display:"flex",gap:16,padding:16,background:T.cardSolid,borderRadius:16,border:isStale?"2px solid "+T.err+"60":"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",alignItems:"flex-start",position:"relative"}} onClick={()=>setSel(o.id)}>
           {canEdit&&!hasData&&<div onClick={e=>{e.stopPropagation()}} style={{position:"absolute",top:8,left:8}}><DelBtn onConfirm={()=>delOrder(o.id)}/></div>}
           {/* Favorite star + Priority */}
-          <div onClick={e=>{e.stopPropagation();updOrder(o.id,u=>{u.favorite=!u.favorite})}} style={{position:"absolute",top:8,right:8,cursor:"pointer",fontSize:18,zIndex:2}}>{o.favorite?"⭐":"☆"}</div>
           {pri!=="normal"&&<div style={{position:"absolute",top:28,right:10,fontSize:10}}>{pri==="urgent"?"🔴":"🟢"}</div>}
           {isStale&&<div style={{position:"absolute",bottom:8,left:8,fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.err+"15",color:T.err,fontWeight:700}}>{ageDays+" يوم"}</div>}
           {o.image?<img src={o.image} alt="" style={{width:80,height:107,borderRadius:10,objectFit:"cover",flexShrink:0,border:"1px solid "+T.brd}}/>:<div style={{width:80,height:107,borderRadius:10,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:28,color:T.textMut}}>📷</div>}
@@ -1918,8 +1918,6 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
           {order.poNumber&&<div style={{fontSize:FS-1,color:T.textSec,marginTop:2}}>{"موديل: "+order.modelNo+" — "+order.modelDesc}</div>}
         </div>
         <div style={{display:"flex",gap:4,alignItems:"center"}}>
-          <span onClick={()=>updOrder(sel,o=>{o.favorite=!o.favorite})} style={{cursor:"pointer",fontSize:16}}>{order.favorite?"⭐":"☆"}</span>
-          {["urgent","normal","low"].map(p=><span key={p} onClick={()=>updOrder(sel,o=>{o.priority=o.priority===p?"normal":p})} style={{cursor:"pointer",fontSize:11,padding:"2px 6px",borderRadius:5,background:order.priority===p?(p==="urgent"?T.err:p==="low"?T.ok:T.warn)+"15":"transparent",border:order.priority===p?"1px solid "+(p==="urgent"?T.err:p==="low"?T.ok:T.warn)+"30":"1px solid transparent",fontWeight:600,color:p==="urgent"?T.err:p==="low"?T.ok:T.warn}}>{p==="urgent"?"🔴 عاجل":p==="low"?"🟢 مرن":"🟡 عادي"}</span>)}
         </div>
       </div>
       <div style={{display:"flex",gap:4,alignItems:"center"}}>
@@ -1944,7 +1942,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
       </div>
       {/* Timeline - horizontal after cards */}
       {(()=>{const ev=[];ev.push({title:"تم القص",date:order.date,color:T.accent,detail:"كمية: "+t.cutQty});
-        (order.workshopDeliveries||[]).forEach(wd=>{ev.push({title:"تسليم ورشة — "+wd.wsName,date:wd.date,color:"#8B5CF6",detail:(wd.garmentType||"")+" | "+wd.qty+" قطعة"});(wd.receives||[]).forEach(r=>{ev.push({title:"استلام مصنع — "+wd.wsName,date:r.date,color:T.ok,detail:r.qty+" قطعة"})})});
+        (order.workshopDeliveries||[]).forEach(wd=>{ev.push({title:"تسليم ورشة — "+wd.wsName,date:wd.date,color:"#8B5CF6",detail:(wd.garmentType||"")+" | "+wd.qty+" قطعة"});(wd.receives||[]).forEach(r=>{ev.push({title:(r.isSettlement?"⚖️ تسوية":"استلام مصنع")+" — "+wd.wsName,date:r.date,color:r.isSettlement?"#EF4444":T.ok,detail:r.qty+" قطعة"})})});
         (order.deliveries||[]).forEach(d=>{ev.push({title:"مخزن جاهز",date:d.date,color:"#059669",detail:d.qty+" قطعة"})});
         ev.sort((a,b)=>(a.date||"").localeCompare(b.date||""));
         return ev.length>1&&<div style={{marginBottom:14,background:T.cardSolid,borderRadius:10,padding:"10px 14px",border:"1px solid "+T.brd}}><Timeline events={ev}/></div>})()}
@@ -2034,6 +2032,9 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
             const stockDel=(order.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
             const remain=t.cutQty-stockDel;
             const hasSett=!!order.settlement;const isClosed=!!order.closed;
+            /* Workshop balances for this order */
+            const wsBals=[];(order.workshopDeliveries||[]).forEach((wd,idx)=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;if(bal>0)wsBals.push({wsName:wd.wsName,garment:wd.garmentType||"عام",qty:bal,wdIdx:idx,price:Number(wd.price)||0})});
+            const wsBalTotal=wsBals.reduce((s,w)=>s+w.qty,0);
             if(isClosed)return<Card style={{marginBottom:16,background:"#64748B08",border:"1px solid #64748B20"}}>
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
                 <span style={{fontSize:20}}>🔒</span><span style={{fontSize:FS+2,fontWeight:800,color:"#64748B"}}>أوردر مغلق</span>
@@ -2046,6 +2047,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
                   <span style={{color:T.textMut}}>{order.settlement.date}</span>
                 </div>
                 {order.settlement.notes&&<div style={{fontSize:FS-2,color:T.textSec,marginTop:4}}>{order.settlement.notes}</div>}
+                {order.settlement.wsSettled&&<div style={{fontSize:FS-2,color:T.err,marginTop:4}}>{"✓ تم تصفير رصيد "+order.settlement.wsSettled.length+" ورشة"}</div>}
               </div>}
               <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:FS}}>
                 <span>{"تسليم مخزن: "+stockDel+" قطعة"}</span>
@@ -2070,10 +2072,29 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
                 {canEdit&&<Btn primary onClick={()=>updOrder(sel,o=>{o.closed=true;o.status="تم التسليم"})}>🔒 غلق الأوردر</Btn>}
               </div>
               :<div>
-                <div style={{padding:12,borderRadius:10,background:T.warn+"08",border:"1px solid "+T.warn+"20",marginBottom:12}}>
-                  <div style={{fontSize:FS,fontWeight:700,color:T.warn,marginBottom:6}}>{"⚠️ يوجد "+remain+" قطعة لم تسلّم للمخزن"}</div>
-                  <div style={{fontSize:FS-1,color:T.textSec}}>يمكنك عمل تسوية لتسجيل الفرق كهالك ثم غلق الأوردر</div>
+                <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12,marginBottom:12}}>
+                  <div style={{padding:10,borderRadius:10,background:T.warn+"08",border:"1px solid "+T.warn+"20"}}>
+                    <div style={{fontSize:FS,fontWeight:700,color:T.warn,marginBottom:4}}>{"⚠️ يوجد "+remain+" قطعة لم تسلّم للمخزن"}</div>
+                    {wsBalTotal>0&&<div style={{fontSize:FS-2,color:T.textSec}}>{"منها "+wsBalTotal+" قطعة عند الورش"}</div>}
+                  </div>
+                  {wsBals.length>0&&<div style={{padding:10,borderRadius:10,background:"#8B5CF606",border:"1px solid #8B5CF615"}}>
+                    <div style={{fontSize:FS-2,fontWeight:700,color:"#8B5CF6",marginBottom:4}}>رصيد الورش:</div>
+                    {wsBals.map((w,i)=><div key={i} style={{display:"flex",gap:6,fontSize:FS-2,padding:"2px 0"}}>
+                      <span style={{fontWeight:700,color:"#8B5CF6",flex:1}}>{w.wsName}</span>
+                      <span style={{color:T.textSec}}>{w.garment}</span>
+                      <span style={{fontWeight:800,color:T.err}}>{w.qty}</span>
+                    </div>)}
+                  </div>}
                 </div>
+                {/* Compact workshop movements */}
+                {(()=>{const wdList=(order.workshopDeliveries||[]).filter(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);return(Number(wd.qty)||0)-rcvd!==0||rcvd>0});
+                  return wdList.length>0&&<div style={{marginBottom:12,borderRadius:10,border:"1px solid "+T.brd,overflow:"hidden"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-2}}>
+                      <thead><tr style={{background:T.bg}}><th style={{...TH,padding:"4px 8px",fontSize:FS-2}}>الورشة</th><th style={{...TH,padding:"4px 8px",fontSize:FS-2}}>القطعة</th><th style={{...TH,padding:"4px 8px",fontSize:FS-2}}>تسليم</th><th style={{...TH,padding:"4px 8px",fontSize:FS-2}}>استلام</th><th style={{...TH,padding:"4px 8px",fontSize:FS-2}}>الرصيد</th></tr></thead>
+                      <tbody>{wdList.map((wd,i)=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;
+                        return<tr key={i} style={{background:bal>0?T.err+"04":"transparent"}}><td style={{...TD,padding:"3px 6px",fontWeight:700}}>{wd.wsName}</td><td style={{...TD,padding:"3px 6px"}}>{wd.garmentType||"عام"}</td><td style={{...TD,padding:"3px 6px",color:T.ok,fontWeight:700}}>{wd.qty}</td><td style={{...TD,padding:"3px 6px",color:T.accent,fontWeight:700}}>{rcvd}</td><td style={{...TD,padding:"3px 6px",fontWeight:800,color:bal>0?T.err:T.ok}}>{bal}</td></tr>})}</tbody>
+                    </table>
+                  </div>})()}
                 {canEdit&&(()=>{
                   const settCost=r2(remain*t.costPer);
                   const REASONS=["عيوب تصنيع","تالف خامة","فاقد ورشة","خطأ قص","أخرى"];
@@ -2083,11 +2104,27 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
                       <div><label style={{fontSize:FS-2,color:T.textSec}}>سبب التسوية</label><Sel value={settReason} onChange={setSettReason}><option value="">-- اختر --</option>{REASONS.map(r=><option key={r} value={r}>{r}</option>)}</Sel></div>
                       <div><label style={{fontSize:FS-2,color:T.textSec}}>ملاحظات</label><Inp value={settNotes} onChange={setSettNotes} placeholder="ملاحظات اضافية..."/></div>
                     </div>
+                    {wsBals.length>0&&<div style={{padding:8,borderRadius:8,background:T.warn+"08",border:"1px solid "+T.warn+"15",marginBottom:10,fontSize:FS-2,color:T.warn,fontWeight:600}}>
+                      {"⚡ سيتم تصفير رصيد "+wsBals.length+" ورشة وتسجيل استلام تسوية تلقائي"}
+                    </div>}
                     <div style={{display:"flex",gap:8}}>
                       <Btn onClick={()=>{if(!settReason){showToast("⚠️ اختر سبب التسوية");return}
-                        updOrder(sel,o=>{o.settlement={qty:remain,reason:settReason,notes:settNotes,cost:settCost,date:new Date().toISOString().split("T")[0],createdBy:userName||""};o.closed=true;o.status="تم التسليم"});setSettReason("");setSettNotes("")}} style={{background:T.err,color:"#fff",border:"none",fontWeight:700}}>⚖️ تسوية + غلق الأوردر</Btn>
+                        updOrder(sel,o=>{
+                          /* Zero workshop balances */
+                          const wsSettled=[];
+                          (o.workshopDeliveries||[]).forEach((wd,idx)=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;
+                            if(bal>0){if(!wd.receives)wd.receives=[];wd.receives.push({date:new Date().toISOString().split("T")[0],qty:bal,notes:"⚖️ تسوية — "+settReason,price:Number(wd.price)||0,amount:r2(bal*(Number(wd.price)||0)),quality:"تسوية",createdBy:userName||"",isSettlement:true});
+                              wsSettled.push({wsName:wd.wsName,garment:wd.garmentType||"",qty:bal})}});
+                          o.settlement={qty:remain,reason:settReason,notes:settNotes,cost:settCost,date:new Date().toISOString().split("T")[0],createdBy:userName||"",wsSettled};
+                          o.closed=true;o.status="تم التسليم"});setSettReason("");setSettNotes("")}} style={{background:T.err,color:"#fff",border:"none",fontWeight:700}}>⚖️ تسوية + غلق</Btn>
                       <Btn onClick={()=>{if(!settReason){showToast("⚠️ اختر سبب التسوية");return}
-                        updOrder(sel,o=>{o.settlement={qty:remain,reason:settReason,notes:settNotes,cost:settCost,date:new Date().toISOString().split("T")[0],createdBy:userName||""}});setSettReason("");setSettNotes("")}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>⚖️ تسوية فقط</Btn>
+                        updOrder(sel,o=>{
+                          const wsSettled=[];
+                          (o.workshopDeliveries||[]).forEach((wd,idx)=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;
+                            if(bal>0){if(!wd.receives)wd.receives=[];wd.receives.push({date:new Date().toISOString().split("T")[0],qty:bal,notes:"⚖️ تسوية — "+settReason,price:Number(wd.price)||0,amount:r2(bal*(Number(wd.price)||0)),quality:"تسوية",createdBy:userName||"",isSettlement:true});
+                              wsSettled.push({wsName:wd.wsName,garment:wd.garmentType||"",qty:bal})}});
+                          o.settlement={qty:remain,reason:settReason,notes:settNotes,cost:settCost,date:new Date().toISOString().split("T")[0],createdBy:userName||"",wsSettled};
+                          o.status=recomputeStatus(o)});setSettReason("");setSettNotes("")}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>⚖️ تسوية فقط</Btn>
                     </div>
                   </div>})()}
               </div>}
@@ -2111,7 +2148,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
               <thead><tr>{["","الحركة","التاريخ","الكمية","ملاحظات",...(canEdit?[""]:[])] .map(h=><th key={h} style={{...TH,fontSize:FS-3,padding:"4px 8px"}}>{h}</th>)}</tr></thead>
               <tbody>
                 <tr style={{background:"#F0FDF408"}}><td style={{...TD,padding:"4px 8px",textAlign:"center",color:T.ok,fontSize:14}}>↗</td><td style={{...TD,padding:"4px 8px",fontWeight:600,color:T.ok}}>تسليم ورشة</td><td style={{...TD,padding:"4px 8px"}}>{wd.date}</td><td style={{...TDB,padding:"4px 8px",color:T.ok}}>{wd.qty}</td><td style={{...TD,padding:"4px 8px",fontSize:FS-2}}>{wd.notes||"-"}</td>{canEdit&&<td style={{...TD,padding:"4px 8px"}}></td>}</tr>
-                {(wd.receives||[]).map((r,ri)=>{const isEdR=editRcv&&editRcv.wdIdx===i&&editRcv.rIdx===ri;return<tr key={ri} style={{background:isEdR?T.warn+"08":"#EFF6FF08"}}><td style={{...TD,padding:"4px 8px",textAlign:"center",color:T.accent,fontSize:14}}>↙</td><td style={{...TD,padding:"4px 8px",fontWeight:600,color:T.accent}}>استلام مصنع</td><td style={{...TD,padding:"4px 8px"}}>{isEdR?<Inp type="date" value={edRcvDate} onChange={setEdRcvDate} sx={{padding:"2px 4px",fontSize:FS-2}}/>:r.date}</td><td style={{...TDB,padding:"4px 8px",color:T.accent}}>{isEdR?<Inp type="number" value={edRcvQty} onChange={v=>setEdRcvQty(Number(v)||0)} sx={{padding:"2px 4px",fontSize:FS-1,width:60}}/>:r.qty}</td><td style={{...TD,padding:"4px 8px",fontSize:FS-2}}>{isEdR?<Inp value={edRcvNote} onChange={setEdRcvNote} sx={{padding:"2px 4px",fontSize:FS-2}}/>:(r.notes||"-")}</td>{canEdit&&<td style={{...TD,padding:"4px 8px",whiteSpace:"nowrap"}}>{isEdR?<div style={{display:"flex",gap:3}}><Btn small primary onClick={()=>{updOrder(sel,o=>{const rc=o.workshopDeliveries[i].receives[ri];if(rc){rc.qty=edRcvQty;rc.date=edRcvDate;rc.notes=edRcvNote}o.status=recomputeStatus(o)});setEditRcv(null)}}>💾</Btn><Btn ghost small onClick={()=>setEditRcv(null)}>✕</Btn></div>:<Btn ghost small onClick={()=>{setEditRcv({wdIdx:i,rIdx:ri});setEdRcvQty(r.qty);setEdRcvDate(r.date);setEdRcvNote(r.notes||"")}} style={{fontSize:FS-3,padding:"2px 6px"}}>✏️</Btn>}</td>}</tr>})}
+                {(wd.receives||[]).map((r,ri)=>{const isEdR=editRcv&&editRcv.wdIdx===i&&editRcv.rIdx===ri;return<tr key={ri} style={{background:isEdR?T.warn+"08":r.isSettlement?"#FEF2F208":"#EFF6FF08"}}><td style={{...TD,padding:"4px 8px",textAlign:"center",color:r.isSettlement?T.err:T.accent,fontSize:14}}>{r.isSettlement?"⚖️":"↙"}</td><td style={{...TD,padding:"4px 8px",fontWeight:600,color:r.isSettlement?T.err:T.accent}}>{r.isSettlement?"تسوية":"استلام مصنع"}</td><td style={{...TD,padding:"4px 8px"}}>{isEdR?<Inp type="date" value={edRcvDate} onChange={setEdRcvDate} sx={{padding:"2px 4px",fontSize:FS-2}}/>:r.date}</td><td style={{...TDB,padding:"4px 8px",color:T.accent}}>{isEdR?<Inp type="number" value={edRcvQty} onChange={v=>setEdRcvQty(Number(v)||0)} sx={{padding:"2px 4px",fontSize:FS-1,width:60}}/>:r.qty}</td><td style={{...TD,padding:"4px 8px",fontSize:FS-2}}>{isEdR?<Inp value={edRcvNote} onChange={setEdRcvNote} sx={{padding:"2px 4px",fontSize:FS-2}}/>:(r.notes||"-")}</td>{canEdit&&<td style={{...TD,padding:"4px 8px",whiteSpace:"nowrap"}}>{isEdR?<div style={{display:"flex",gap:3}}><Btn small primary onClick={()=>{updOrder(sel,o=>{const rc=o.workshopDeliveries[i].receives[ri];if(rc){rc.qty=edRcvQty;rc.date=edRcvDate;rc.notes=edRcvNote}o.status=recomputeStatus(o)});setEditRcv(null)}}>💾</Btn><Btn ghost small onClick={()=>setEditRcv(null)}>✕</Btn></div>:<Btn ghost small onClick={()=>{setEditRcv({wdIdx:i,rIdx:ri});setEdRcvQty(r.qty);setEdRcvDate(r.date);setEdRcvNote(r.notes||"")}} style={{fontSize:FS-3,padding:"2px 6px"}}>✏️</Btn>}</td>}</tr>})}
               </tbody>
             </table></div>
           </div>
@@ -2292,7 +2329,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user
   const movements=useMemo(()=>{const mvs=[];let _mi=0;
   data.orders.forEach(ord=>{(ord.workshopDeliveries||[]).forEach((wd,wdIdx)=>{
     mvs.push({type:"deliver",date:wd.date,wsName:wd.wsName,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:wd.qty,garmentType:wd.garmentType||"",price:wd.price||0,notes:wd.notes||"",orderId:ord.id,wdIdx,_i:_mi++,createdBy:wd.createdBy||""});
-    (wd.receives||[]).forEach((r,rIdx)=>{mvs.push({type:"receive",date:r.date,wsName:wd.wsName,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,garmentType:wd.garmentType||"",notes:r.notes||"",orderId:ord.id,wdIdx,rIdx,_i:_mi++,createdBy:r.createdBy||""})})
+    (wd.receives||[]).forEach((r,rIdx)=>{mvs.push({type:r.isSettlement?"settlement":"receive",date:r.date,wsName:wd.wsName,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,garmentType:wd.garmentType||"",notes:r.notes||"",orderId:ord.id,wdIdx,rIdx,_i:_mi++,createdBy:r.createdBy||"",isSettlement:!!r.isSettlement})})
   })});
   mvs.sort((a,b)=>(b.date||"").localeCompare(a.date||"")||b._i-a._i);return mvs},[data.orders]);
 
@@ -2363,7 +2400,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user
         <Sel value={movTypeF} onChange={setMovTypeF}><option value="الكل">كل الحركات</option><option value="deliver">تسليم ورشة</option><option value="receive">استلام مصنع</option></Sel>
         <div style={{display:"flex",gap:4}}>
           <Btn onClick={()=>{const el=document.getElementById("mov-log");if(!el)return;printPage("سجل حركات التشغيل الخارجي",el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd,flex:1}}>🖨 المعروض</Btn>
-          <Btn onClick={()=>{const allH="<table><thead><tr>"+["نوع","التاريخ","الورشة","موديل","الوصف","القطعة","الكمية","السعر","ملاحظات"].map(h=>"<th>"+h+"</th>").join("")+"</tr></thead><tbody>"+movements.map(m=>"<tr style='background:"+(m.type==="deliver"?"#F0FDF4":"#EFF6FF")+"'><td style='color:"+(m.type==="deliver"?"#10B981":"#0EA5E9")+";font-weight:700'>"+(m.type==="deliver"?"تسليم ورشة":"استلام مصنع")+"</td><td>"+m.date+"</td><td>"+m.wsName+"</td><td><b>"+m.orderNo+"</b></td><td>"+(m.orderDesc||"")+"</td><td>"+(m.garmentType||"-")+"</td><td><b>"+m.qty+"</b></td><td>"+(m.price?m.price+" ج.م":"-")+"</td><td>"+(m.notes||"-")+"</td></tr>").join("")+"</tbody></table>";printPage("سجل حركات التشغيل الخارجي (كامل - "+movements.length+" حركة)",allH)}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",flex:1}}>🖨 الكل</Btn>
+          <Btn onClick={()=>{const allH="<table><thead><tr>"+["نوع","التاريخ","الورشة","موديل","الوصف","القطعة","الكمية","السعر","ملاحظات"].map(h=>"<th>"+h+"</th>").join("")+"</tr></thead><tbody>"+movements.map(m=>"<tr style='background:"+(m.type==="deliver"?"#F0FDF4":m.type==="settlement"?"#FEF2F2":"#EFF6FF")+"'><td style='color:"+(m.type==="deliver"?"#10B981":m.type==="settlement"?"#EF4444":"#0EA5E9")+";font-weight:700'>"+(m.type==="deliver"?"تسليم ورشة":m.type==="settlement"?"⚖️ تسوية":"استلام مصنع")+"</td><td>"+m.date+"</td><td>"+m.wsName+"</td><td><b>"+m.orderNo+"</b></td><td>"+(m.orderDesc||"")+"</td><td>"+(m.garmentType||"-")+"</td><td><b>"+m.qty+"</b></td><td>"+(m.price?m.price+" ج.م":"-")+"</td><td>"+(m.notes||"-")+"</td></tr>").join("")+"</tbody></table>";printPage("سجل حركات التشغيل الخارجي (كامل - "+movements.length+" حركة)",allH)}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",flex:1}}>🖨 الكل</Btn>
         </div>
       </div>
       {(()=>{const fMov=movements.filter(m=>{if(movWsF!=="الكل"&&m.wsName!==movWsF)return false;if(movTypeF!=="الكل"&&m.type!==movTypeF)return false;if(movQ.trim()){const s=movQ.trim().toLowerCase();if(!((m.orderNo||"").toLowerCase().includes(s)||(m.wsName||"").toLowerCase().includes(s)||(m.orderDesc||"").toLowerCase().includes(s)))return false}return true});const shown=fMov.slice(0,movLimit);
@@ -2391,10 +2428,10 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user
           const isSel=selMoves.has(i);
           return<tr key={i} style={{background:isSel?"#8B5CF610":m.type==="deliver"?"#F0FDF4":"#EFF6FF"}}>
           <td style={{...TD,textAlign:"center"}}><span onClick={()=>toggleSel(i)} style={{cursor:"pointer",fontSize:16}}>{isSel?"☑":"☐"}</span></td>
-          <td style={{...TD,fontWeight:700,color:m.type==="deliver"?T.ok:T.accent}}>{m.type==="deliver"?"↗ تسليم ورشة":"↙ استلام مصنع"}</td>
+          <td style={{...TD,fontWeight:700,color:m.type==="deliver"?T.ok:m.type==="settlement"?T.err:T.accent}}>{m.type==="deliver"?"↗ تسليم ورشة":m.type==="settlement"?"⚖️ تسوية":"↙ استلام مصنع"}</td>
           <td style={TD}>{isEditing?<Inp type="date" value={editDate} onChange={setEditDate} style={{width:130}}/>:m.date}</td><td style={{...TD,fontWeight:600}}>{m.wsName}</td><td style={TDB}>{m.orderNo}</td><td style={TD}>{m.orderDesc}</td>
           <td style={TD}>{m.garmentType||"-"}</td>
-          <td style={{...TDB,color:m.type==="deliver"?T.ok:T.accent}}>{isEditing?<Inp type="number" value={editQty} onChange={v=>setEditQty(Number(v)||0)} style={{width:70}}/>:m.qty}</td>
+          <td style={{...TDB,color:m.type==="deliver"?T.ok:m.type==="settlement"?T.err:T.accent}}>{isEditing?<Inp type="number" value={editQty} onChange={v=>setEditQty(Number(v)||0)} style={{width:70}}/>:m.qty}</td>
           <td style={TD}>{isEditing&&m.type==="deliver"?<Inp type="number" value={editPrice} onChange={v=>setEditPrice(Number(v)||0)} style={{width:70}}/>:(m.price?m.price+" ج.م":"-")}</td>
           <td style={TD}>{isEditing?<Inp value={editNote} onChange={setEditNote} style={{width:100}}/>:<>{m.notes||"-"}{m.createdBy&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{"👤 "+m.createdBy}</div>}</>}</td>
           <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
@@ -2430,7 +2467,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user
   const availOrders=prodOrders.filter(o=>getAvailQty(o)>0&&FKEYS.some(k=>gf(o,k)));
   /* Workshop-specific movements */
   const wsMoves=[];
-  if(selWs)data.orders.forEach(ord=>{(ord.workshopDeliveries||[]).forEach((wd,wdIdx)=>{if(wd.wsName===selWs){wsMoves.push({type:"deliver",date:wd.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:wd.qty,garmentType:wd.garmentType||"",price:wd.price||0,notes:wd.notes||"",orderId:ord.id,wdIdx,_ts:new Date(wd.date).getTime()+wdIdx,createdBy:wd.createdBy||""});(wd.receives||[]).forEach((r,rIdx)=>{wsMoves.push({type:"receive",date:r.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,garmentType:wd.garmentType||"",price:r.price||0,notes:r.notes||"",orderId:ord.id,wdIdx,rIdx,_ts:new Date(r.date).getTime()+wdIdx*100+rIdx,createdBy:r.createdBy||""})})}})});
+  if(selWs)data.orders.forEach(ord=>{(ord.workshopDeliveries||[]).forEach((wd,wdIdx)=>{if(wd.wsName===selWs){wsMoves.push({type:"deliver",date:wd.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:wd.qty,garmentType:wd.garmentType||"",price:wd.price||0,notes:wd.notes||"",orderId:ord.id,wdIdx,_ts:new Date(wd.date).getTime()+wdIdx,createdBy:wd.createdBy||""});(wd.receives||[]).forEach((r,rIdx)=>{wsMoves.push({type:r.isSettlement?"settlement":"receive",date:r.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,garmentType:wd.garmentType||"",price:r.price||0,notes:r.notes||"",orderId:ord.id,wdIdx,rIdx,_ts:new Date(r.date).getTime()+wdIdx*100+rIdx,createdBy:r.createdBy||"",isSettlement:!!r.isSettlement})})}})});
   wsMoves.sort((a,b)=>(b.date||"").localeCompare(a.date||"")||b._ts-a._ts);
 
   if(mode==="deliver")return<div>
@@ -2503,10 +2540,10 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user
         <thead><tr>{["نوع الحركة","التاريخ","موديل","الوصف","نوع القطعة","الكمية",...(isInternal(selWs)?[]:["سعر"]),"ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
         <tbody>{wsMoves.slice(0,10).map((m,i)=>{const isEd=editMov&&editMov.orderId===m.orderId&&editMov.wdIdx===m.wdIdx&&editMov.type===m.type&&(m.type==="deliver"||editMov.rIdx===m.rIdx);
           return<tr key={i} style={{background:m.type==="deliver"?"#F0FDF4":"#EFF6FF"}}>
-          <td style={{...TD,fontWeight:700,color:m.type==="deliver"?T.ok:T.accent}}>{m.type==="deliver"?"↗ تسليم ورشة":"↙ استلام مصنع"}</td>
+          <td style={{...TD,fontWeight:700,color:m.type==="deliver"?T.ok:m.type==="settlement"?T.err:T.accent}}>{m.type==="deliver"?"↗ تسليم ورشة":m.type==="settlement"?"⚖️ تسوية":"↙ استلام مصنع"}</td>
           <td style={TD}>{isEd?<Inp type="date" value={editDate} onChange={setEditDate} style={{width:120}}/>:m.date}</td>
           <td style={TDB}>{m.orderNo}</td><td style={TD}>{m.orderDesc}</td><td style={TD}>{m.garmentType||"-"}</td>
-          <td style={{...TDB,color:m.type==="deliver"?T.ok:T.accent}}>{isEd?<Inp type="number" value={editQty} onChange={v=>setEditQty(Number(v)||0)} style={{width:60}}/>:m.qty}</td>
+          <td style={{...TDB,color:m.type==="deliver"?T.ok:m.type==="settlement"?T.err:T.accent}}>{isEd?<Inp type="number" value={editQty} onChange={v=>setEditQty(Number(v)||0)} style={{width:60}}/>:m.qty}</td>
           {!isInternal(selWs)&&<td style={TD}>{isEd&&m.type==="deliver"?<Inp type="number" step="0.01" value={editPrice} onChange={v=>setEditPrice(v)} style={{width:60}}/>:(m.price?m.price+" ج.م":"-")}</td>}
           <td style={TD}>{isEd?<Inp value={editNote} onChange={setEditNote} style={{width:80}}/>:(m.notes||"-")}</td>
           <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<div style={{display:"flex",gap:3}}>
@@ -2755,10 +2792,10 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user
         <thead><tr>{["نوع الحركة","التاريخ","موديل","الوصف","نوع القطعة","الكمية",...(isInternal(selWs)?[]:["سعر"]),"ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
         <tbody>{wsMoves.slice(0,10).map((m,i)=>{const isEd=editMov&&editMov.orderId===m.orderId&&editMov.wdIdx===m.wdIdx&&editMov.type===m.type&&(m.type==="deliver"||editMov.rIdx===m.rIdx);
           return<tr key={i} style={{background:m.type==="deliver"?"#F0FDF4":"#EFF6FF"}}>
-          <td style={{...TD,fontWeight:700,color:m.type==="deliver"?T.ok:T.accent}}>{m.type==="deliver"?"↗ تسليم ورشة":"↙ استلام مصنع"}</td>
+          <td style={{...TD,fontWeight:700,color:m.type==="deliver"?T.ok:m.type==="settlement"?T.err:T.accent}}>{m.type==="deliver"?"↗ تسليم ورشة":m.type==="settlement"?"⚖️ تسوية":"↙ استلام مصنع"}</td>
           <td style={TD}>{isEd?<Inp type="date" value={editDate} onChange={setEditDate} style={{width:120}}/>:m.date}</td>
           <td style={TDB}>{m.orderNo}</td><td style={TD}>{m.orderDesc}</td><td style={TD}>{m.garmentType||"-"}</td>
-          <td style={{...TDB,color:m.type==="deliver"?T.ok:T.accent}}>{isEd?<Inp type="number" value={editQty} onChange={v=>setEditQty(Number(v)||0)} style={{width:60}}/>:m.qty}</td>
+          <td style={{...TDB,color:m.type==="deliver"?T.ok:m.type==="settlement"?T.err:T.accent}}>{isEd?<Inp type="number" value={editQty} onChange={v=>setEditQty(Number(v)||0)} style={{width:60}}/>:m.qty}</td>
           {!isInternal(selWs)&&<td style={TD}>{isEd&&m.type==="deliver"?<Inp type="number" step="0.01" value={editPrice} onChange={v=>setEditPrice(v)} style={{width:60}}/>:(m.price?m.price+" ج.م":"-")}</td>}
           <td style={TD}>{isEd?<Inp value={editNote} onChange={setEditNote} style={{width:80}}/>:(m.notes||"-")}</td>
           <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<div style={{display:"flex",gap:3}}>
