@@ -509,7 +509,7 @@ function SearchSel({value,onChange,options,placeholder}){
   const showResults=focused&&q.length>0;
   const filtered=q?options.filter(o=>o.label.toLowerCase().includes(q.toLowerCase())).slice(0,5):[];
   useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target))setFocused(false)};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h)},[]);
-  return<div ref={ref}>
+  return<div ref={ref} style={{position:"relative"}}>
     <input value={focused?q:(selected?selected.label:"")}
       onChange={e=>{setQ(e.target.value);if(!focused)setFocused(true)}}
       onFocus={()=>{setFocused(true);setQ("")}}
@@ -517,12 +517,12 @@ function SearchSel({value,onChange,options,placeholder}){
       placeholder={placeholder||"اكتب للبحث..."}
       style={{width:"100%",padding:"6px 10px",border:"2px solid "+(focused?T.accent:T.brd),borderRadius:8,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",transition:"border 0.15s"}}/>
     {selected&&!focused&&<div style={{fontSize:FS-3,color:T.ok,marginTop:2}}>{"✓ "+selected.label}</div>}
-    {showResults&&filtered.length>0&&<div style={{marginTop:4,borderRadius:8,border:"1px solid "+T.brd,overflow:"hidden",background:T.cardSolid,boxShadow:"0 4px 12px rgba(0,0,0,0.1)"}}>
-      {filtered.map(o=><div key={o.value} onMouseDown={e=>{e.preventDefault();onChange(o.value);setQ("");setFocused(false)}}
+    {showResults&&<div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:9999,marginTop:2,borderRadius:8,border:"1px solid "+T.brd,overflow:"hidden",background:T.cardSolid,boxShadow:"0 8px 24px rgba(0,0,0,0.15)"}}>
+      {filtered.length>0?filtered.map(o=><div key={o.value} onMouseDown={e=>{e.preventDefault();onChange(o.value);setQ("");setFocused(false)}}
         style={{padding:"8px 12px",cursor:"pointer",fontSize:FS,color:o.value===value?T.accent:T.text,fontWeight:o.value===value?700:400,background:o.value===value?T.accent+"08":"transparent",borderBottom:"1px solid "+T.brd+"30"}}
-        onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background=o.value===value?T.accent+"08":"transparent"}>{o.label}</div>)}
+        onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background=o.value===value?T.accent+"08":"transparent"}>{o.label}</div>)
+      :<div style={{padding:"8px 12px",textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد نتائج</div>}
     </div>}
-    {showResults&&filtered.length===0&&q.length>0&&<div style={{marginTop:4,padding:"8px 12px",borderRadius:8,background:T.bg,fontSize:FS-1,color:T.textMut,textAlign:"center"}}>لا توجد نتائج</div>}
   </div>
 }
 
@@ -714,7 +714,8 @@ export default function App(){
       const ords=orders.map(o=>{const t=calcOrder(o);const wds=o.workshopDeliveries||[];const totalDel=wds.reduce((s,wd)=>s+(Number(wd.qty)||0),0);const totalRcv=wds.reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);const stockDel=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
         const lastMove=wds.reduce((d,wd)=>{let ld=wd.date||"";(wd.receives||[]).forEach(r=>{if(r.date>ld)ld=r.date});return ld>d?ld:d},"");
         const days=lastMove?Math.floor((Date.now()-new Date(lastMove))/(86400000)):null;
-        return{modelNo:o.modelNo,desc:o.modelDesc,status:o.status,cutQty:t.cutQty,deliveredToWs:totalDel,receivedFromWs:totalRcv,wsBalance:totalDel-totalRcv,stockDelivered:stockDel,workshops:wds.map(wd=>wd.wsName).filter((v,i,a)=>a.indexOf(v)===i),daysSinceLastMove:days,pieces:o.orderPieces||[]}});
+        return{modelNo:o.modelNo,desc:o.modelDesc,status:o.status,cutQty:t.cutQty,deliveredToWs:totalDel,receivedFromWs:totalRcv,wsBalance:totalDel-totalRcv,stockDelivered:stockDel,completeSet:stockDel,daysSinceLastMove:days,pieces:o.orderPieces||[],
+          wsDetails:wds.map(wd=>{const rcvd=(wd.receives||[]).filter(r=>!r.isSettlement).reduce((s,r)=>s+(Number(r.qty)||0),0);return{ws:wd.wsName,piece:wd.garmentType||"عام",delivered:Number(wd.qty)||0,received:rcvd,balance:(Number(wd.qty)||0)-rcvd,agreed:Number(wd.agreedDays)||0,date:wd.date}}).filter(w=>w.balance>0||w.received>0)}});
       const ctx="أنت مساعد ذكي لنظام CLARK لإدارة مصانع الملابس.\n\nقواعد الرد:\n- رد بالمصري العامي (يعني، كده، خلاص، أهو)\n- اختصر اختصار غير مخل — بلاش كلام كتير\n- افصل بين كل أوردر أو معلومة بخط فاصل ─────\n- في الأرصدة المالية للورش: لو owedMoney سالب يبقى الورشة عليها فلوس (دفعنالها أكتر من المستحق)، لو موجب يبقى ليها فلوس عندنا\n- في الآخر خالص حط سطر ─────── وبعده 💡 ملاحظتك أو نصيحتك من عندك كمدير انتاج خبرة\n\nبيانات الموسم "+season+":\n\nالأوردرات ("+ords.length+"):\n"+JSON.stringify(ords,null,0)+"\n\nالورش ("+ws.length+"):\n"+JSON.stringify(ws,null,0)+"\n\nالتاريخ: "+new Date().toISOString().split("T")[0];
       const msgs=[...aiMsgs.map(m=>({role:m.role==="user"?"user":"assistant",content:m.text})),{role:"user",content:q}];
       let data2;let retries=0;
@@ -915,6 +916,18 @@ export default function App(){
       wsDetails.forEach(d=>{if(d.agreed>0){const remaining=d.agreed-d.days;
         if(remaining<=2&&remaining>=0)a.push({msg:w.name+" باقي "+(remaining||"آخر")+" يوم على تسليم موديل "+d.modelNo+" ("+d.agreed+" يوم متفق)",color:"#F59E0B",icon:"⏰",orderId:d.orderId,wsName:w.name,wsPhone:wPhone,wsDetails:[d]});
         else if(remaining<0)a.push({msg:w.name+" متأخرة "+Math.abs(remaining)+" يوم — موديل "+d.modelNo+" (متفق "+d.agreed+" يوم)",color:T.err,icon:"🔴",orderId:d.orderId,wsName:w.name,wsPhone:wPhone,wsDetails:[d]})}})});
+    /* 6. Bottleneck — طقم واقف بسبب قطعة */
+    data.orders.forEach(o=>{if(o.closed)return;const pieces=o.orderPieces||[];if(pieces.length<2)return;
+      const wds=o.workshopDeliveries||[];const pBal={};
+      pieces.forEach(p=>{const del=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);const rcv=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>(wd.receives||[]).filter(r=>!r.isSettlement).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);pBal[p]={del,rcv,bal:del-rcv}});
+      const doneP=pieces.filter(p=>pBal[p].bal===0&&pBal[p].rcv>0);const stuckP=pieces.filter(p=>pBal[p].bal>0);
+      if(doneP.length>0&&stuckP.length>0&&stuckP.length<=doneP.length){
+        const minDone=Math.min(...doneP.map(p=>pBal[p].rcv));
+        stuckP.forEach(p=>{const ws=wds.filter(wd=>wd.garmentType===p&&(Number(wd.qty)||0)-(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0)>0);
+          const wsName=ws[0]?.wsName||"";const wsObj=_workshops.find(w=>w.name===wsName);const wPhone=wsObj?.phone||"";
+          const stuckQty=pBal[p].bal;const waitingSets=Math.min(stuckQty,minDone>0?stuckQty:0);
+          a.push({msg:"🚨 موديل "+o.modelNo+" — طقم واقف! "+p+" ("+stuckQty+" قطعة) عند "+(wsName||"ورشة")+" — باقي القطع جاهزة",
+            color:"#DC2626",icon:"🚨",orderId:o.id,wsName,wsPhone:wPhone,wsDetails:[{modelNo:o.modelNo,qty:stuckQty,days:0,agreed:0,garment:p}]})})}});
     return a}catch(e){console.error("Alert error:",e);return[]}})();
 
   /* User notifications */
@@ -1220,7 +1233,7 @@ export default function App(){
       </div>
     </div>}
     {showScanner&&<QRScanner onClose={()=>setShowScanner(false)} onScan={url=>{setShowScanner(false);try{const u=new URL(url);const p=new URLSearchParams(u.search);if(p.get("o")){const o=orders.find(x=>x.modelNo===p.get("o"));if(o)goD(o.id)}else if(p.get("act")==="rcv"&&p.get("oid")){setTab("external");setTimeout(()=>{window.__qrReceive={oid:p.get("oid"),wdi:Number(p.get("wdi"))||0};window.dispatchEvent(new Event("qr-receive"))},600)}else if(p.get("act")==="stock"&&p.get("oid")){const o=orders.find(x=>x.id===p.get("oid"));if(o){goD(o.id);setTimeout(()=>{window.__qrStock=true;window.dispatchEvent(new Event("qr-stock"))},800)}}else if(p.get("act")==="wsacc"&&p.get("ws")){setTab("external");setTimeout(()=>{window.__qrWsAcc={ws:decodeURIComponent(p.get("ws"))};window.dispatchEvent(new Event("qr-wsacc"))},600)}else{showToast("QR غير معروف")}}catch(e){showToast("QR غير صالح")}}}/>}
-    {cardPopup&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setCardPopup(null)}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:500,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><div style={{fontSize:FS+2,fontWeight:800,color:cardPopup.color}}>{cardPopup.title}</div><Btn ghost small onClick={()=>setCardPopup(null)}>✕</Btn></div><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th style={TH}>البيان</th>{cardPopup.details?.[0]?.desc!==undefined&&<th style={TH}>الوصف</th>}<th style={TH}>الكمية</th></tr></thead><tbody>{(cardPopup.details||[]).map((d,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={{...TD,fontWeight:700,color:cardPopup.color}}>{d.model}</td>{d.desc!==undefined&&<td style={TD}>{d.desc}</td>}<td style={{...TD,textAlign:"center",fontWeight:800}}>{fmt(d.qty)}</td></tr>)}<tr style={{background:cardPopup.color+"10"}}><td style={{...TD,fontWeight:800}} colSpan={cardPopup.details?.[0]?.desc!==undefined?2:1}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:cardPopup.color}}>{fmt((cardPopup.details||[]).reduce((s,d)=>s+(Number(d.qty)||0),0))}</td></tr></tbody></table></div></div>}
+    {cardPopup&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setCardPopup(null)}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:isMob?500:650,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><div style={{fontSize:FS+2,fontWeight:800,color:cardPopup.color}}>{cardPopup.title}</div><Btn ghost small onClick={()=>setCardPopup(null)}>✕</Btn></div><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th style={TH}>البيان</th>{cardPopup.details?.[0]?.desc!==undefined&&<th style={TH}>الوصف</th>}<th style={TH}>الكمية</th></tr></thead><tbody>{(cardPopup.details||[]).map((d,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={{...TD,fontWeight:700,color:cardPopup.color}}>{d.model}</td>{d.desc!==undefined&&<td style={TD}>{d.desc}</td>}<td style={{...TD,textAlign:"center",fontWeight:800}}>{fmt(d.qty)}</td></tr>)}<tr style={{background:cardPopup.color+"10"}}><td style={{...TD,fontWeight:800}} colSpan={cardPopup.details?.[0]?.desc!==undefined?2:1}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:cardPopup.color}}>{fmt((cardPopup.details||[]).reduce((s,d)=>s+(Number(d.qty)||0),0))}</td></tr></tbody></table></div></div>}
     {labelPopup&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setLabelPopup(null)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:320,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",textAlign:"center"}}>
         <div style={{fontSize:18,fontWeight:800,color:T.text,marginBottom:4}}>{"🏷️ "+labelPopup.arrow+" "+labelPopup.title}</div>
@@ -1930,6 +1943,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,ca
         <div style={{width:1,height:20,background:T.brd,margin:"0 4px"}}/>
         <Btn small onClick={()=>printOrderSheet(order,t,activeFabs,statusCards)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
         {canEdit&&!order.closed&&<Btn small primary onClick={()=>setEditing(true)}>✏️</Btn>}
+        <Btn small onClick={()=>{const msg="*CLARK — تفاصيل أوردر*%0A%0A• الموديل: *"+order.modelNo+"*%0A• الوصف: "+order.modelDesc+"%0A• المقاسات: "+(order.sizeLabel||"-")+"%0A• كمية القص: *"+t.cutQty+"*%0A• مخزن جاهز: *"+(order.deliveredQty||0)+"*%0A%0A🔗 *عرض الأوردر:*%0A"+window.location.origin+"?o="+encodeURIComponent(order.modelNo);window.open("https://wa.me/?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn>
         {canEdit&&!order.closed&&<Btn small onClick={()=>{const dup=JSON.parse(JSON.stringify(order));dup.id=gid();dup.date=new Date().toISOString().split("T")[0];dup.createdAt=new Date().toISOString();dup.modelNo="";dup.status="تم القص";dup.deliveredQty=0;dup.deliveries=[];dup.workshopDeliveries=[];dup._isDup=true;delete dup._docId;setDupInit(dup)}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📋 تكرار</Btn>}
         {canEdit&&!order.closed&&t.cutQty>0&&activeFabs.length>0&&<Btn small onClick={()=>{setShowDeliver(true);setDWs("");setDType("");setDQty(0);setDPrice("");setDNote("")}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📤 تسليم ورشة</Btn>}
         {canEdit&&!order.closed&&<Btn small onClick={()=>setShowNew(true)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>+ جديد</Btn>}
@@ -2227,7 +2241,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user
   const[movQ,setMovQ]=useState("");
   const[selMoves,setSelMoves]=useState(new Set());
   const[movWsF,setMovWsF]=useState("الكل");
-  const[movTypeF,setMovTypeF]=useState("الكل");
+  const[movTypeF,setMovTypeF]=useState("الكل");const[lateChecked,setLateChecked]=useState({});const[lateSent,setLateSent]=useState({});
   const[movLimit,setMovLimit]=useState(50);
   const[wsMovLimit,setWsMovLimit]=useState(10);
   const[rcvSearch,setRcvSearch]=useState("");
@@ -2378,13 +2392,17 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr 1fr 1fr",gap:8,marginBottom:10}}>
         <Inp value={movQ} onChange={setMovQ} placeholder="بحث بالموديل أو الورشة..."/>
         <Sel value={movWsF} onChange={setMovWsF}><option value="الكل">كل الورش</option>{workshops.map(w=><option key={w.id||w} value={w.name||w}>{(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)}</option>)}</Sel>
-        <Sel value={movTypeF} onChange={setMovTypeF}><option value="الكل">كل الحركات</option><option value="deliver">تسليم ورشة</option><option value="receive">استلام مصنع</option></Sel>
+        <Sel value={movTypeF} onChange={v=>{setMovTypeF(v);setLateChecked({})}}><option value="الكل">كل الحركات</option><option value="deliver">تسليم ورشة</option><option value="receive">استلام مصنع</option><option value="late">⏰ متأخرات</option></Sel>
         <div style={{display:"flex",gap:4}}>
           <Btn onClick={()=>{const el=document.getElementById("mov-log");if(!el)return;printPage("سجل حركات التشغيل الخارجي",el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd,flex:1}}>🖨 المعروض</Btn>
           <Btn onClick={()=>{const allH="<table><thead><tr>"+["نوع","التاريخ","الورشة","موديل","الوصف","القطعة","الكمية","السعر","ملاحظات"].map(h=>"<th>"+h+"</th>").join("")+"</tr></thead><tbody>"+movements.map(m=>"<tr style='background:"+(m.type==="deliver"?"#F0FDF4":m.type==="settlement"?"#FEF2F2":"#EFF6FF")+"'><td style='color:"+(m.type==="deliver"?"#10B981":m.type==="settlement"?"#EF4444":"#0EA5E9")+";font-weight:700'>"+(m.type==="deliver"?"تسليم ورشة":m.type==="settlement"?"⚖️ تسوية":"استلام مصنع")+"</td><td>"+m.date+"</td><td>"+m.wsName+"</td><td><b>"+m.orderNo+"</b></td><td>"+(m.orderDesc||"")+"</td><td>"+(m.garmentType||"-")+"</td><td><b>"+m.qty+"</b></td><td>"+(m.price?m.price+" ج.م":"-")+"</td><td>"+(m.notes||"-")+"</td></tr>").join("")+"</tbody></table>";printPage("سجل حركات التشغيل الخارجي (كامل - "+movements.length+" حركة)",allH)}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",flex:1}}>🖨 الكل</Btn>
         </div>
       </div>
-      {(()=>{const fMov=movements.filter(m=>{if(movWsF!=="الكل"&&m.wsName!==movWsF)return false;if(movTypeF!=="الكل"&&m.type!==movTypeF)return false;if(movQ.trim()){const s=movQ.trim().toLowerCase();if(!((m.orderNo||"").toLowerCase().includes(s)||(m.wsName||"").toLowerCase().includes(s)||(m.orderDesc||"").toLowerCase().includes(s)))return false}return true});const shown=fMov.slice(0,movLimit);
+      {(()=>{
+      /* Compute late deliveries */
+      const _now=new Date();const lateItems=[];
+      if(movTypeF==="late"){data.orders.forEach(ord=>{(ord.workshopDeliveries||[]).forEach((wd,wdIdx)=>{const rcvd=(wd.receives||[]).filter(r=>!r.isSettlement).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;if(bal<=0)return;const days=Math.floor((_now-new Date(wd.date))/(86400000));const agreed=Number(wd.agreedDays)||0;const isLate=agreed>0?days>agreed:days>14;if(isLate)lateItems.push({wsName:wd.wsName,orderNo:ord.modelNo,orderDesc:ord.modelDesc,garment:wd.garmentType||"عام",qty:bal,days,agreed,orderId:ord.id,wdIdx,delDate:wd.date,key:ord.id+"_"+wdIdx})})})}
+      const fMov=movTypeF==="late"?[]:movements.filter(m=>{if(movWsF!=="الكل"&&m.wsName!==movWsF)return false;if(movTypeF!=="الكل"&&m.type!==movTypeF)return false;if(movQ.trim()){const s=movQ.trim().toLowerCase();if(!((m.orderNo||"").toLowerCase().includes(s)||(m.wsName||"").toLowerCase().includes(s)||(m.orderDesc||"").toLowerCase().includes(s)))return false}return true});const shown=movTypeF==="late"?[]:fMov.slice(0,movLimit);
       const toggleSel=(idx)=>setSelMoves(p=>{const n=new Set(p);n.has(idx)?n.delete(idx):n.add(idx);return n});
       const selArr=[...selMoves].map(i=>shown[i]).filter(Boolean);
       const printBatch=()=>{if(selArr.length===0)return;selArr.forEach((m,i)=>{setTimeout(()=>printMov(m),i*500)})};
@@ -2398,6 +2416,27 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user
         printPage("اذونات مجمعة ("+pages.length+")",combined)};
       const waBatch=()=>{if(selArr.length===0)return;const byWs={};selArr.forEach(m=>{if(!byWs[m.wsName])byWs[m.wsName]=[];byWs[m.wsName].push(m)});Object.entries(byWs).forEach(([ws,items])=>{const wsObj=workshops.find(w=>w.name===ws);const phone=wsObj?.phone||"";const lines=items.map(m=>"• "+(m.type==="deliver"?"تسليم":"استلام")+" — موديل *"+m.orderNo+"*%0A  "+(m.orderDesc||"-")+" — "+(m.garmentType||"عام")+" — *"+m.qty+"* قطعة").join("%0A");const tQty=items.reduce((s,m)=>s+(Number(m.qty)||0),0);const msg="*CLARK — ملخص حركات*%0A%0A• الورشة: *"+ws+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+tQty+"* قطعة%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")})};
       return<div id="mov-log">
+      {/* Late deliveries view */}
+      {movTypeF==="late"&&<div>
+        {lateItems.length>0?<div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+            <span style={{fontWeight:700,color:T.err,fontSize:FS}}>{"⏰ "+lateItems.length+" تسليم متأخر"}</span>
+            <div style={{display:"flex",gap:6}}>
+              <Btn small onClick={()=>{const all={};lateItems.forEach(l=>{all[l.key]=!Object.keys(lateChecked).length||!lateChecked[l.key]});setLateChecked(all)}} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>{Object.values(lateChecked).filter(Boolean).length===lateItems.length?"☑ الغاء الكل":"☐ اختار الكل"}</Btn>
+              {Object.values(lateChecked).filter(Boolean).length>0&&<Btn small onClick={()=>{const byWs={};lateItems.filter(l=>lateChecked[l.key]).forEach(l=>{if(!byWs[l.wsName])byWs[l.wsName]=[];byWs[l.wsName].push(l)});Object.entries(byWs).forEach(([ws,items])=>{const wsObj=workshops.find(w=>w.name===ws);const phone=wsObj?.phone||"";const lines=items.map(l=>"• موديل *"+l.orderNo+"* "+l.garment+" — *"+l.qty+"* قطعة — متأخر *"+l.days+"* يوم"+(l.agreed?" (متفق "+l.agreed+" يوم)":"")).join("%0A");const msg="*CLARK — تنبيه تأخير*%0A%0A• الورشة: *"+ws+"*%0A%0A"+lines+"%0A%0A⚠️ *برجاء الاهتمام بالتسليم في أقرب وقت*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")});const sent={};lateItems.filter(l=>lateChecked[l.key]).forEach(l=>{sent[l.key]=Date.now()});setLateSent(p=>({...p,...sent}));setLateChecked({})}} style={{background:"#25D366",color:"#fff",border:"none",fontWeight:700}}>{"📱 ارسال تحذير ("+Object.values(lateChecked).filter(Boolean).length+")"}</Btn>}
+            </div>
+          </div>
+          <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["☐","الورشة","موديل","القطعة","الرصيد","الأيام","المتفق",""].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead>
+            <tbody>{lateItems.map((l,i)=>{const isSent=lateSent[l.key]&&(Date.now()-lateSent[l.key]<60000);return<tr key={l.key} style={{background:isSent?T.ok+"12":i%2===0?"transparent":T.bg+"80"}}>
+              <td style={{...TD,textAlign:"center"}}><span onClick={()=>setLateChecked(p=>({...p,[l.key]:!p[l.key]}))} style={{cursor:"pointer",fontSize:16}}>{lateChecked[l.key]?"☑":"☐"}</span></td>
+              <td style={{...TD,fontWeight:700}}>{l.wsName}</td><td style={TDB}>{l.orderNo}</td><td style={TD}>{l.garment}</td>
+              <td style={{...TDB,color:T.err}}>{l.qty}</td><td style={{...TD,fontWeight:700,color:T.err}}>{l.days+" يوم"}</td>
+              <td style={TD}>{l.agreed?l.agreed+" يوم":"—"}</td>
+              <td style={TD}>{isSent?<span style={{color:T.ok,fontWeight:700}}>{"✅ تم"}</span>:""}</td>
+            </tr>})}</tbody>
+          </table></div>
+        </div>:<div style={{textAlign:"center",padding:30,color:T.ok,fontWeight:700}}>✅ لا توجد تسليمات متأخرة</div>}
+      </div>}
       {selArr.length>0&&<div style={{padding:"10px 14px",borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF625",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <span style={{fontWeight:700,color:"#8B5CF6",fontSize:FS}}>{"☑ "+selArr.length+" حركة محددة ("+selArr.reduce((s,m)=>s+(Number(m.qty)||0),0)+" قطعة)"}</span>
         <div style={{display:"flex",gap:6}}><Btn small onClick={printBatchCombined} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة مجمعة</Btn><Btn small onClick={waBatch} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱 واتساب مجمع</Btn><Btn ghost small onClick={()=>setSelMoves(new Set())}>✕ الغاء</Btn></div>
@@ -3132,7 +3171,7 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards,user}){
 
 /* ══ UNCUT PIECES REPORT ══ */
 function UncutReport({data,isMob,season}){
-  const ALL_COLS=[{key:"modelNo",label:"رقم الموديل",req:true},{key:"modelDesc",label:"الوصف"},{key:"sizeLabel",label:"المقاسات"},{key:"cutQty",label:"كمية القص"},{key:"linked",label:"تم قصها ✓"},{key:"piece",label:"لم يتم قصها ✕",req:true}];
+  const ALL_COLS=[{key:"modelNo",label:"رقم الموديل",req:true},{key:"modelDesc",label:"الوصف"},{key:"sizeLabel",label:"المقاسات"},{key:"cutQty",label:"كمية القص"},{key:"rackCount",label:"عدد راقات"},{key:"linked",label:"تم قصها ✓"},{key:"piece",label:"لم يتم قصها ✕",req:true}];
   const[showColPk,setShowColPk]=useState(false);
   const[visCols,setVisCols]=useState(()=>{try{const s=localStorage.getItem("clark_uncut_cols");return s?JSON.parse(s):ALL_COLS.map(c=>c.key)}catch(e){return ALL_COLS.map(c=>c.key)}});
   const togCol=(key)=>{const c=ALL_COLS.find(x=>x.key===key);if(c?.req)return;setVisCols(p=>{const n=p.includes(key)?p.filter(k=>k!==key):[...p,key];try{localStorage.setItem("clark_uncut_cols",JSON.stringify(n))}catch(e){}return n})};
@@ -3140,14 +3179,17 @@ function UncutReport({data,isMob,season}){
   data.orders.forEach(o=>{const pieces=o.orderPieces||[];if(pieces.length===0)return;
     const linkedPieces=new Set();FKEYS.forEach(k=>{if(gf(o,k))(o["fabricPieces"+k]||[]).forEach(p=>linkedPieces.add(p))});
     const linked=pieces.filter(p=>linkedPieces.has(p));const unlinked=pieces.filter(p=>!linkedPieces.has(p));const t=calcOrder(o);
-    unlinked.forEach(p=>rows.push({modelNo:o.modelNo,modelDesc:o.modelDesc,sizeLabel:o.sizeLabel||"—",cutQty:t.cutQty,piece:p,linked,id:o.id}))});
+    const sizeCount=(o.sizeLabel||"").split(/[-\/]/).map(s=>s.trim()).filter(Boolean).length||1;
+    const rackCount=sizeCount>0?Math.ceil(t.cutQty/sizeCount):t.cutQty;
+    unlinked.forEach(p=>rows.push({modelNo:o.modelNo,modelDesc:o.modelDesc,sizeLabel:o.sizeLabel||"—",cutQty:t.cutQty,rackCount,piece:p,linked,id:o.id}))});
+  const totalCutQty=rows.reduce((s,r)=>s+r.cutQty,0);
   const cols=ALL_COLS.filter(c=>visCols.includes(c.key));
   const printRep=()=>{const el=document.getElementById("uncut-rep");if(el)printPage("تقرير القطع غير المقصوصة — "+season,el.innerHTML)};
-  const exportXls=()=>{const xRows=[cols.map(c=>c.label)];rows.forEach(r=>xRows.push(cols.map(c=>c.key==="linked"?r.linked.join("، "):c.key==="piece"?r.piece:r[c.key])));xRows.push([]);xRows.push(["الاجمالي",rows.length+" قطعة"]);exportExcel(xRows,"قطع_غير_مقصوصة_"+season)};
-  const renderCell=(r,c)=>{if(c.key==="modelNo")return<td key={c.key} style={TDB}>{r.modelNo}</td>;if(c.key==="modelDesc")return<td key={c.key} style={TD}>{r.modelDesc}</td>;if(c.key==="sizeLabel")return<td key={c.key} style={TD}>{r.sizeLabel}</td>;if(c.key==="cutQty")return<td key={c.key} style={{...TDB,color:T.accent}}>{r.cutQty}</td>;if(c.key==="linked")return<td key={c.key} style={{...TD,color:T.ok}}>{r.linked.map(p=>gIcon(p,data.garmentTypes)+" "+p).join("، ")||"—"}</td>;if(c.key==="piece")return<td key={c.key} style={{...TDB,color:T.err}}>{gIcon(r.piece,data.garmentTypes)+" "+r.piece}</td>;return<td key={c.key} style={TD}>{r[c.key]}</td>};
+  const exportXls=()=>{const xRows=[cols.map(c=>c.label)];rows.forEach(r=>xRows.push(cols.map(c=>c.key==="linked"?r.linked.join("، "):c.key==="piece"?r.piece:r[c.key])));xRows.push([]);xRows.push(["الاجمالي",rows.length+" قطعة","","اجمالي القص: "+fmt(totalCutQty)]);exportExcel(xRows,"قطع_غير_مقصوصة_"+season)};
+  const renderCell=(r,c)=>{if(c.key==="modelNo")return<td key={c.key} style={TDB}>{r.modelNo}</td>;if(c.key==="modelDesc")return<td key={c.key} style={TD}>{r.modelDesc}</td>;if(c.key==="sizeLabel")return<td key={c.key} style={TD}>{r.sizeLabel}</td>;if(c.key==="cutQty")return<td key={c.key} style={{...TDB,color:T.accent}}>{r.cutQty}</td>;if(c.key==="rackCount")return<td key={c.key} style={{...TDB,color:"#8B5CF6"}}>{r.rackCount}</td>;if(c.key==="linked")return<td key={c.key} style={{...TD,color:T.ok}}>{r.linked.map(p=>gIcon(p,data.garmentTypes)+" "+p).join("، ")||"—"}</td>;if(c.key==="piece")return<td key={c.key} style={{...TDB,color:T.err}}>{gIcon(r.piece,data.garmentTypes)+" "+r.piece}</td>;return<td key={c.key} style={TD}>{r[c.key]}</td>};
   return<div id="uncut-rep">
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
-      <div><h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.err}}>✂️ قطع لم يتم قصها</h1><div style={{fontSize:FS-1,color:T.textSec}}>{"الموسم: "+season+" — "+rows.length+" قطعة"}</div></div>
+      <div><h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.err}}>✂️ قطع لم يتم قصها</h1><div style={{fontSize:FS-1,color:T.textSec}}>{"الموسم: "+season+" — "+rows.length+" قطعة — اجمالي القص: "+fmt(totalCutQty)}</div></div>
       <div style={{display:"flex",gap:6,alignItems:"center",position:"relative"}}>
         <div><Btn onClick={()=>setShowColPk(!showColPk)} style={{background:showColPk?T.accent+"15":T.bg,color:showColPk?T.accent:T.textSec,border:"1px solid "+(showColPk?T.accent+"30":T.brd),fontSize:FS-2}}>{"⚙️ الأعمدة ("+cols.length+")"}</Btn>
           {showColPk&&<div style={{position:"absolute",top:"100%",right:0,marginTop:4,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,0.15)",zIndex:99,padding:8,minWidth:170}}>
@@ -3163,7 +3205,11 @@ function UncutReport({data,isMob,season}){
     </div>
     {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
       <thead><tr><th style={TH}>#</th>{cols.map(c=><th key={c.key} style={TH}>{c.label}</th>)}</tr></thead>
-      <tbody>{rows.map((r,i)=><tr key={i}><td style={TD}>{i+1}</td>{cols.map(c=>renderCell(r,c))}</tr>)}</tbody>
+      <tbody>{rows.map((r,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={TD}>{i+1}</td>{cols.map(c=>renderCell(r,c))}</tr>)}
+        <tr style={{background:T.accent+"10"}}><td style={{...TD,fontWeight:800}} colSpan={2}>الاجمالي</td>
+          {cols.slice(1).map(c=><td key={c.key} style={{...TD,fontWeight:800,color:T.accent,textAlign:"center"}}>{c.key==="cutQty"?fmt(totalCutQty):c.key==="rackCount"?fmt(rows.reduce((s,r)=>s+r.rackCount,0)):""}</td>)}
+        </tr>
+      </tbody>
     </table></div>:<div style={{textAlign:"center",padding:40,color:T.ok,fontWeight:700,fontSize:FS+2}}>✓ جميع القطع تم قصها</div>}
   </div>
 }
@@ -3826,7 +3872,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
     </div>
     {/* Active Session Matrix - Popup */}
     {activeSess&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:24}} onClick={()=>closeMatrix()}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:900,maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?900:Math.min(200+aMods.length*120,window.innerWidth-80),maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{"📊 "+activeSess.date+" — جدول التوزيع"}</div>
           <div style={{display:"flex",gap:4}}><Btn small onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn><Btn ghost small onClick={()=>closeMatrix()}>✕</Btn></div>
@@ -3836,13 +3882,13 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:aMods.length*90+180}}>
           <thead><tr>
             <th style={{...TH,minWidth:130}}>العميل</th>
-            {aMods.map(m=><th key={m.id} style={{...TH,textAlign:"center",minWidth:aMods.length>5?50:80,fontSize:FS-2,padding:aMods.length>5?"8px 2px":"4px 8px"}}><div style={{fontWeight:800,color:T.accent,writingMode:aMods.length>5?"vertical-rl":"horizontal-tb",transform:aMods.length>5?"rotate(180deg)":"none",whiteSpace:"nowrap"}}>{m.modelNo}</div><div style={{fontSize:FS-3,color:T.textMut,writingMode:aMods.length>5?"vertical-rl":"horizontal-tb",transform:aMods.length>5?"rotate(180deg)":"none",whiteSpace:"nowrap"}}>{(m.rackSize||getRackSize(m.id))+"س"}</div></th>)}
+            {aMods.map(m=><th key={m.id} style={{...TH,textAlign:"center",minWidth:60,fontSize:FS-2,padding:"4px 6px"}}><div style={{fontWeight:800,color:T.accent,whiteSpace:"nowrap"}}>{m.modelNo}</div><div style={{fontSize:FS-3,color:T.textMut,whiteSpace:"nowrap"}}>{(m.rackSize||getRackSize(m.id))+"س"}</div></th>)}
             <th style={{...TH,textAlign:"center",background:"#0284C715",color:T.accent,fontWeight:800}}>اجمالي</th>
             <th style={{...TH,width:70}}></th>
           </tr></thead>
           <tbody>
             {aCusts.map((c,ci)=>{const rowTotal=aMods.reduce((s,m)=>s+(Number(aGrid[m.id+"_"+c.id])||0),0);
-              return<tr key={c.id}>
+              return<tr key={c.id} style={{background:ci%2===0?"transparent":T.bg+"80"}}>
                 <td style={{...TD,fontWeight:700}}>{c.name}<div style={{fontSize:FS-3,color:T.textMut}}>{c.phone}</div></td>
                 {aMods.map((m,mi)=>{const k=m.id+"_"+c.id;const q=Number(aGrid[k])||0;const isEd=editCell===k;
                   return<td key={m.id} style={{...TD,textAlign:"center",padding:2,cursor:canEdit?"pointer":"default",background:isEd?T.warn+"10":q>0?T.ok+"04":"transparent"}}
@@ -4048,7 +4094,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,canEdit,user}){
     </div>}
     {/* Sales Report Popup */}
     {showReport&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowReport(false)}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:isMob?500:600,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>📊 تقرير مبيعات</div>
           <Btn ghost small onClick={()=>setShowReport(false)}>✕</Btn>
