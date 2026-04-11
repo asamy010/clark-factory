@@ -3677,7 +3677,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   const[shipPopup,setShipPopup]=useState(null);const[shipCount,setShipCount]=useState(1);
   const[sessFilterQ,setSessFilterQ]=useState("");
   const[reportRange,setReportRange]=useState({from:"",to:""});const[showReport,setShowReport]=useState(false);const[rptType,setRptType]=useState("all");const[rptCust,setRptCust]=useState("");const[rptModel,setRptModel]=useState("");
-  const[showNewAudit,setShowNewAudit]=useState(false);const[auditDate,setAuditDate]=useState(new Date().toISOString().split("T")[0]);const[auditFrom,setAuditFrom]=useState("");const[auditTo,setAuditTo]=useState("");const[auditNote,setAuditNote]=useState("");
+  const[showNewAudit,setShowNewAudit]=useState(false);const[auditDate,setAuditDate]=useState(new Date().toISOString().split("T")[0]);const[auditFrom,setAuditFrom]=useState("");const[auditTo,setAuditTo]=useState("");const[auditNote,setAuditNote]=useState("");const[auditSelCusts,setAuditSelCusts]=useState({});
   const[activeAudit,setActiveAudit]=useState(null);const[auditCell,setAuditCell]=useState(null);const[auditVal,setAuditVal]=useState(0);const[showAuditAnalysis,setShowAuditAnalysis]=useState(null);
   const[ocrCust,setOcrCust]=useState(null);const[ocrLoading,setOcrLoading]=useState(false);const[ocrResult,setOcrResult]=useState(null);const ocrRef=useRef(null);const[auditInclude,setAuditInclude]=useState(null);
   const[returnPopup,setReturnPopup]=useState(null);const[retQty,setRetQty]=useState(0);const[retNote,setRetNote]=useState("");
@@ -3842,9 +3842,10 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   const aAudGrid=activeAud?.grid||{};
 
   const createAudit=()=>{if(!auditDate){showToast("⚠️ اختر تاريخ الجرد");return}
+    const selIds=Object.entries(auditSelCusts).filter(([,v])=>v).map(([k])=>k);if(selIds.length===0){showToast("⚠️ اختر عميل واحد على الأقل");return}
     const aud={id:gid(),date:auditDate,fromDate:auditFrom,toDate:auditTo||auditDate,notes:auditNote,createdBy:userName||"",createdAt:new Date().toISOString(),grid:{}};
     upConfig(d=>{if(!d.salesAudits)d.salesAudits=[];d.salesAudits.unshift(aud)});
-    setActiveAudit(aud.id);setShowNewAudit(false);setAuditNote("");showToast("✓ تم إنشاء الجرد")};
+    setAuditInclude(selIds);setActiveAudit(aud.id);setShowNewAudit(false);setAuditNote("");setAuditSelCusts({});showToast("✓ تم إنشاء الجرد")};
 
   const saveAuditCell=(audId,orderId,custId,val)=>{const q=Math.max(0,Number(val)||0);
     upConfig(d=>{const ai=(d.salesAudits||[]).findIndex(a=>a.id===audId);if(ai>=0){if(!d.salesAudits[ai].grid)d.salesAudits[ai].grid={};d.salesAudits[ai].grid[orderId+"_"+custId]=q}})};
@@ -4278,9 +4279,9 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
     </div>}
     {/* New Audit Popup */}
     {showNewAudit&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowNewAudit(false)}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:480,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
         <div style={{fontSize:FS+2,fontWeight:800,color:"#F59E0B",marginBottom:16}}>📋 جرد مبيعات جديد</div>
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تاريخ الجرد *</label><Inp type="date" value={auditDate} onChange={setAuditDate}/></div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>من تاريخ</label><Inp type="date" value={auditFrom} onChange={setAuditFrom}/></div>
@@ -4288,7 +4289,19 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
           </div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات</label><Inp value={auditNote} onChange={setAuditNote} placeholder="مثال: جرد أسبوع 2"/></div>
         </div>
-        <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}><Btn ghost onClick={()=>setShowNewAudit(false)}>الغاء</Btn><Btn onClick={createAudit} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700}}>📋 إنشاء وفتح الجرد</Btn></div>
+        <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>👥 اختر العملاء:</div>
+        <div style={{display:"flex",gap:6,marginBottom:8}}>
+          <Btn small onClick={()=>{const all={};auditCusts.forEach(c=>{all[c.id]=true});setAuditSelCusts(all)}} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd,fontSize:FS-2}}>☑ الكل</Btn>
+          <Btn small onClick={()=>setAuditSelCusts({})} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd,fontSize:FS-2}}>☐ لا شيء</Btn>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:14,maxHeight:200,overflowY:"auto"}}>
+          {auditCusts.map(c=><div key={c.id} onClick={()=>setAuditSelCusts(p=>({...p,[c.id]:!p[c.id]}))} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderRadius:8,cursor:"pointer",background:auditSelCusts[c.id]?"#F59E0B08":"transparent",border:"1px solid "+(auditSelCusts[c.id]?"#F59E0B30":T.brd+"60")}}>
+            <span style={{fontSize:14}}>{auditSelCusts[c.id]?"☑":"☐"}</span>
+            <span style={{fontWeight:600,fontSize:FS-1,flex:1}}>{c.name}</span>
+            <span style={{fontSize:FS-2,color:T.textMut}}>{"استلم: "+getCustTotal(c.id)}</span>
+          </div>)}
+        </div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setShowNewAudit(false)}>الغاء</Btn><Btn onClick={createAudit} disabled={Object.values(auditSelCusts).filter(Boolean).length===0} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700}}>{"📋 إنشاء ("+Object.values(auditSelCusts).filter(Boolean).length+" عميل)"}</Btn></div>
       </div>
     </div>}
     {/* Register Customer Popup */}
