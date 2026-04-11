@@ -704,11 +704,11 @@ export default function App(){
       let due=0;orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});
       const payments=wsPayments.filter(p=>p.wsName===w.name);const paid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);const purchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);
       const owed=due+purchase-paid;
-      if(owed<-500)a.push({icon:"💸",text:"ورشة "+w.name+" عليها "+fmt(r2(Math.abs(owed)))+" ج.م (دفعنالها زيادة)",type:"overpaid"});
-      if(owed>5000)a.push({icon:"💰",text:"ورشة "+w.name+" ليها "+fmt(r2(owed))+" ج.م مدفعناش",type:"unpaid"})});
+      if(owed<-500)a.push({icon:"💸",text:""+w.name+" عليها "+fmt(r2(Math.abs(owed)))+" ج.م (دفعنالها زيادة)",type:"overpaid"});
+      if(owed>5000)a.push({icon:"💰",text:""+w.name+" ليها "+fmt(r2(owed))+" ج.م مدفعناش",type:"unpaid"})});
     /* 5. ورش بطيئة (رصيد كبير > 14 يوم) */
     workshops.forEach(w=>{let bal=0,oldestDate="";orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const wBal=(Number(wd.qty)||0)-rcvd;if(wBal>0){bal+=wBal;if(!oldestDate||wd.date<oldestDate)oldestDate=wd.date}})});
-      if(bal>0&&oldestDate){const days=Math.floor((now-new Date(oldestDate))/(86400000));if(days>14)a.push({icon:"🐢",text:"ورشة "+w.name+" عندها "+bal+" قطعة من "+days+" يوم",type:"slow"})}});
+      if(bal>0&&oldestDate){const days=Math.floor((now-new Date(oldestDate))/(86400000));if(days>14)a.push({icon:"🐢",text:""+w.name+" عندها "+bal+" قطعة من "+days+" يوم",type:"slow"})}});
     return a},[orders,config.workshops,config.wsPayments]);
   const visibleAlerts=aiAlerts.filter(a=>!isDismissed(a.text));
   const askAI=async()=>{if(!aiInput.trim()||aiLoading)return;const q=aiInput.trim();setAiInput("");setAiMsgs(p=>[...p,{role:"user",text:q}]);setAiLoading(true);
@@ -769,7 +769,7 @@ export default function App(){
         if(rules.slowWorkshop?.enabled){wds.forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;
           if(bal>0){const daysSinceDel=Math.floor((now-new Date(wd.date))/(86400000));
             if(daysSinceDel>=(rules.slowWorkshop.days||14)){addBotTask("slowws_"+o.id+"_"+wd.wsName+"_"+(wd.garmentType||"")+"_"+au.email,
-              "ورشة "+wd.wsName+" عندها "+bal+" "+(wd.garmentType||"قطعة")+" موديل "+o.modelNo+" من "+daysSinceDel+" يوم",au.email,au.name)}}})}
+              wd.wsName+" عندها "+bal+" "+(wd.garmentType||"قطعة")+" موديل "+o.modelNo+" من "+daysSinceDel+" يوم",au.email,au.name)}}})}
         if(rules.stockNoSale?.enabled){const stockDel=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const custDel=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
           if(stockDel>0&&custDel===0){const lastStock=o.deliveries.reduce((d,x)=>x.date>d?x.date:d,"");const daysSinceStock=lastStock?Math.floor((now-new Date(lastStock))/(86400000)):0;
             if(daysSinceStock>=(rules.stockNoSale.days||7)){addBotTask("nosale_"+o.id+"_"+au.email,"موديل "+o.modelNo+" في المخزن "+stockDel+" قطعة من "+daysSinceStock+" يوم بدون تسليم عملاء",au.email,au.name)}}}
@@ -1567,12 +1567,15 @@ function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrders,wsPay
     setShowForm(false);setEditId(null)};
   const del=(id)=>upConfig(d=>{d.workshops=(d.workshops||[]).filter(w=>w.id!==id)});
   const wsBlock=(ws)=>{const hasOrders=(orders||[]).some(o=>(o.workshopDeliveries||[]).some(wd=>wd.wsName===ws.name));if(hasOrders)return"يوجد تسليمات مرتبطة بهذه الورشة";const hasPay=(wsPayments||[]).some(p=>p.wsName===ws.name);if(hasPay)return"يوجد دفعات مرتبطة بهذه الورشة";return null};
+  const[wsSearch,setWsSearch]=useState("");
+  const filteredWs=wsSearch.trim()?(workshops||[]).filter(ws=>(ws.name||"").includes(wsSearch)||(ws.address||"").includes(wsSearch)||(ws.phone||"").includes(wsSearch)||(ws.owner||"").includes(wsSearch)):(workshops||[]);
 
   return<div>
     <Card title="ادارة الورش" extra={canEdit&&<Btn primary small onClick={startNew}>+ ورشة جديدة</Btn>}>
+      <div style={{marginBottom:12}}><Inp value={wsSearch} onChange={setWsSearch} placeholder="بحث باسم الورشة أو العنوان أو التليفون..."/></div>
       {/* Workshop Cards */}
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:14}}>
-        {(workshops||[]).map(ws=>{
+        {filteredWs.map(ws=>{
           /* Compute workshop stats */
           let totalDel=0,totalRcv=0,orderCount=0;
           orders.forEach(o=>{let hasWs=false;(o.workshopDeliveries||[]).filter(wd=>wd.wsName===ws.name).forEach(wd=>{hasWs=true;totalDel+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{totalRcv+=Number(r.qty)||0})});if(hasWs)orderCount++});
@@ -2276,7 +2279,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user
     clearRcv(cardKey);showToast("✓ تم استلام "+saveQty+" قطعة");
     if(andPrint&&printData){const pOrd=JSON.parse(JSON.stringify(ord));if(pOrd.workshopDeliveries&&pOrd.workshopDeliveries[wdIdx]){if(!pOrd.workshopDeliveries[wdIdx].receives)pOrd.workshopDeliveries[wdIdx].receives=[];pOrd.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty})}const pWs=selWs;const pType=wd.garmentType||"";const pGt=data.garmentTypes;setTimeout(()=>printReceiveReceipt(pWs,pOrd,pType,saveQty,saveDate,0,pGt),400)}
     if(andLabel){const pOrd=JSON.parse(JSON.stringify(ord));const pGt=data.garmentTypes;setTimeout(()=>printLabel(wd.wsName,pOrd,wd.garmentType||"عام",saveQty,saveDate,pGt,{type:"receive",delDate:wd.date,delQty:wd.qty,rcvDate:saveDate,rcvQty:saveQty}),400)}
-    if(andWa){const wsObj=workshops.find(w=>w.name===wd.wsName);const phone=wsObj?.phone||"";const remaining=maxRcv-saveQty;const msg="*CLARK — اذن استلام من ورشة*%0A%0A• الورشة: *"+wd.wsName+"*%0A• رقم الموديل: *"+ord.modelNo+"*%0A• الوصف: "+ord.modelDesc+"%0A• نوع القطعة: *"+(wd.garmentType||"عام")+"*%0A• الكمية المستلمة: *"+saveQty+"* قطعة%0A• الرصيد المتبقي: *"+remaining+"* قطعة%0A• التاريخ: *"+saveDate+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
+    if(andWa){const wsObj=workshops.find(w=>w.name===wd.wsName);const phone=wsObj?.phone||"";const remaining=maxRcv-saveQty;const msg="*CLARK — اذن استلام من ورشة*%0A%0A• الورشة: *"+wd.wsName+"*%0A• رقم الموديل: *"+ord.modelNo+"*%0A• الوصف: "+ord.modelDesc+"%0A• نوع القطعة: *"+(wd.garmentType||"عام")+"*%0A• الكمية المستلمة: *"+saveQty+"* قطعة%0A• الرصيد المتبقي: *"+remaining+"* قطعة%0A• التاريخ: *"+saveDate+"*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
   };
 
   /* Collect all movements for the log — memoized */
@@ -2392,7 +2395,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,canEdit,statusCards,season,user
             {isEditing?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>الغاء</Btn></>:<>
             <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
             <Btn small onClick={()=>{const ord=data.orders.find(o=>o.id===m.orderId);if(!ord)return;const wd=(ord.workshopDeliveries||[])[m.wdIdx];if(!wd)return;if(m.type==="deliver")printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"deliver",delDate:m.date,delQty:m.qty});else{printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"receive",delDate:wd.date,delQty:wd.qty,rcvDate:m.date,rcvQty:m.qty})}}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>🏷️</Btn>
-            <Btn small onClick={()=>{const wsObj=workshops.find(w=>w.name===m.wsName);const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+m.wsName+"*%0A• رقم الموديل: *"+m.orderNo+"*%0A• الوصف: "+m.orderDesc+"%0A• نوع القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"* قطعة%0A• السعر: *"+(m.price||0)+"* ج.م/قطعة%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — اذن استلام من ورشة*%0A%0A• الورشة: *"+m.wsName+"*%0A• رقم الموديل: *"+m.orderNo+"*%0A• الوصف: "+m.orderDesc+"%0A• نوع القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية المستلمة: *"+m.qty+"* قطعة%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn>
+            <Btn small onClick={()=>{const wsObj=workshops.find(w=>w.name===m.wsName);const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+m.wsName+"*%0A• رقم الموديل: *"+m.orderNo+"*%0A• الوصف: "+m.orderDesc+"%0A• نوع القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"* قطعة%0A• السعر: *"+(m.price||0)+"* ج.م/قطعة%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — اذن استلام من ورشة*%0A%0A• الورشة: *"+m.wsName+"*%0A• رقم الموديل: *"+m.orderNo+"*%0A• الوصف: "+m.orderDesc+"%0A• نوع القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية المستلمة: *"+m.qty+"* قطعة%0A• التاريخ: *"+m.date+"*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn>
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/></>}
           </div>}</td>
@@ -3108,17 +3111,17 @@ function UncutReport({data,isMob,season}){
   data.orders.forEach(o=>{const pieces=o.orderPieces||[];if(pieces.length===0)return;
     const linkedPieces=new Set();FKEYS.forEach(k=>{if(gf(o,k))(o["fabricPieces"+k]||[]).forEach(p=>linkedPieces.add(p))});
     const linked=pieces.filter(p=>linkedPieces.has(p));const unlinked=pieces.filter(p=>!linkedPieces.has(p));const t=calcOrder(o);
-    unlinked.forEach(p=>rows.push({modelNo:o.modelNo,modelDesc:o.modelDesc,date:o.date,cutQty:t.cutQty,piece:p,linked,id:o.id}))});
+    unlinked.forEach(p=>rows.push({modelNo:o.modelNo,modelDesc:o.modelDesc,sizeLabel:o.sizeLabel||"—",cutQty:t.cutQty,piece:p,linked,id:o.id}))});
   const printRep=()=>{const el=document.getElementById("uncut-rep");if(el)printPage("تقرير القطع غير المقصوصة — "+season,el.innerHTML)};
-  const exportXls=()=>{const xRows=[["رقم الموديل","الوصف","التاريخ","كمية القص","تم قصها","لم يتم قصها"]];rows.forEach(r=>xRows.push([r.modelNo,r.modelDesc,r.date,r.cutQty,r.linked.join("، "),r.piece]));xRows.push([]);xRows.push(["الاجمالي",rows.length+" قطعة غير مقصوصة"]);exportExcel(xRows,"قطع_غير_مقصوصة_"+season)};
+  const exportXls=()=>{const xRows=[["رقم الموديل","الوصف","المقاسات","كمية القص","تم قصها","لم يتم قصها"]];rows.forEach(r=>xRows.push([r.modelNo,r.modelDesc,r.sizeLabel,r.cutQty,r.linked.join("، "),r.piece]));xRows.push([]);xRows.push(["الاجمالي",rows.length+" قطعة غير مقصوصة"]);exportExcel(xRows,"قطع_غير_مقصوصة_"+season)};
   return<div id="uncut-rep">
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
       <div><h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.err}}>✂️ قطع لم يتم قصها</h1><div style={{fontSize:FS-1,color:T.textSec}}>{"الموسم: "+season+" — "+rows.length+" قطعة"}</div></div>
       <div style={{display:"flex",gap:6}}><Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn onClick={exportXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn></div>
     </div>
     {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
-      <thead><tr>{["#","رقم الموديل","الوصف","التاريخ","كمية القص","تم قصها ✓","لم يتم قصها ✕"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
-      <tbody>{rows.map((r,i)=><tr key={i}><td style={TD}>{i+1}</td><td style={TDB}>{r.modelNo}</td><td style={TD}>{r.modelDesc}</td><td style={TD}>{r.date}</td><td style={{...TDB,color:T.accent}}>{r.cutQty}</td><td style={{...TD,color:T.ok}}>{r.linked.map(p=>gIcon(p,data.garmentTypes)+" "+p).join("، ")||"—"}</td><td style={{...TDB,color:T.err}}>{gIcon(r.piece,data.garmentTypes)+" "+r.piece}</td></tr>)}</tbody>
+      <thead><tr>{["#","رقم الموديل","الوصف","المقاسات","كمية القص","تم قصها ✓","لم يتم قصها ✕"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+      <tbody>{rows.map((r,i)=><tr key={i}><td style={TD}>{i+1}</td><td style={TDB}>{r.modelNo}</td><td style={TD}>{r.modelDesc}</td><td style={TD}>{r.sizeLabel}</td><td style={{...TDB,color:T.accent}}>{r.cutQty}</td><td style={{...TD,color:T.ok}}>{r.linked.map(p=>gIcon(p,data.garmentTypes)+" "+p).join("، ")||"—"}</td><td style={{...TDB,color:T.err}}>{gIcon(r.piece,data.garmentTypes)+" "+r.piece}</td></tr>)}</tbody>
     </table></div>:<div style={{textAlign:"center",padding:40,color:T.ok,fontWeight:700,fontSize:FS+2}}>✓ جميع القطع تم قصها</div>}
   </div>
 }
@@ -4069,7 +4072,7 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
   const[newUserName,setNewUserName]=useState("");const[newUserPass,setNewUserPass]=useState("");const[newUserPass2,setNewUserPass2]=useState("");
   const[createErr,setCreateErr]=useState("");const[createOk,setCreateOk]=useState("");const[creating,setCreating]=useState(false);
   const[clearConfirm,setClearConfirm]=useState(false);
-  const[atSelUser,setAtSelUser]=useState("");const[atEditIdx,setAtEditIdx]=useState(null);
+  const[atSelUser,setAtSelUser]=useState("");const[atEditIdx,setAtEditIdx]=useState(null);const[nfEditUser,setNfEditUser]=useState("");
   const[linkMap,setLinkMap]=useState({});
   const[compressing,setCompressing]=useState(false);
   /* Admin password gate */
@@ -4389,6 +4392,35 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
         </div>})()}
     </Card>
     {/* ── Auto Bot Tasks Settings (multi-user) ── */}
+    {/* ── Notification Control ── */}
+    <Card title="🔔 التحكم في الاشعارات" style={{marginTop:16}}>
+      {(()=>{const users=config.usersList||[];const prefs=config.notifPrefs||{};
+        const NTYPES=[{key:"botAlerts",label:"تنبيهات البوت الذكية",icon:"🤖"},{key:"tasks",label:"المهام",icon:"📌"},{key:"movements",label:"حركات التشغيل",icon:"🔄"},{key:"statusChanges",label:"تغيير حالة الأوردر",icon:"📋"},{key:"stockDelivery",label:"تسليم مخزن جاهز",icon:"📦"},{key:"custDelivery",label:"تسليم عملاء",icon:"🚚"}];
+        const updatePref=(email,key,val)=>{upConfig(d=>{if(!d.notifPrefs)d.notifPrefs={};if(!d.notifPrefs[email])d.notifPrefs[email]={};d.notifPrefs[email][key]=val})};
+        return<div>
+          <div style={{fontSize:FS-1,color:T.textMut,marginBottom:10}}>تحكم في نوع الإشعارات اللي يستلمها كل مستخدم</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {users.map(u=>{const up=prefs[u.email]||{};const isOpen=nfEditUser===u.email;
+              const enabledCount=NTYPES.filter(t=>up[t.key]!==false).length;
+              return<div key={u.email} style={{borderRadius:10,border:"1px solid "+(isOpen?T.accent:T.brd),overflow:"hidden"}}>
+                <div onClick={()=>setNfEditUser(isOpen?"":u.email)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",cursor:"pointer",background:isOpen?T.accent+"06":T.bg}}>
+                  <span style={{fontSize:14}}>👤</span>
+                  <span style={{flex:1,fontWeight:700,fontSize:FS-1}}>{u.name||u.email}</span>
+                  <span style={{fontSize:FS-3,color:T.textMut}}>{enabledCount+"/"+NTYPES.length+" مفعّل"}</span>
+                  <span style={{color:T.textMut,fontSize:10}}>{isOpen?"▲":"▼"}</span>
+                </div>
+                {isOpen&&<div style={{padding:"8px 12px",borderTop:"1px solid "+T.brd,display:"flex",flexDirection:"column",gap:6}}>
+                  {NTYPES.map(t=>{const enabled=up[t.key]!==false;
+                    return<label key={t.key} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 8px",borderRadius:6,background:enabled?T.ok+"06":T.bg,border:"1px solid "+(enabled?T.ok+"15":T.brd),cursor:"pointer"}}>
+                      <input type="checkbox" checked={enabled} onChange={e=>updatePref(u.email,t.key,e.target.checked)} style={{width:16,height:16}}/>
+                      <span style={{fontSize:14}}>{t.icon}</span>
+                      <span style={{fontSize:FS-2,fontWeight:600,color:enabled?T.text:T.textMut}}>{t.label}</span>
+                    </label>})}
+                </div>}
+              </div>})}
+          </div>
+        </div>})()}
+    </Card>
     <Card title="🤖 المهام التلقائية" style={{marginTop:16}}>
       {(()=>{const at=config.autoTasks||{enabled:false,users:[]};const atUsers=at.users||[];const allUsers=config.usersList||[];
         const RULES=[{key:"noDeliver",label:"موديل مقصوص ولم يُسلَّم لورشة",icon:"✂️",dd:5},{key:"availPiece",label:"قطعة متاحة ولم تُسلَّم",icon:"👔",dd:5},{key:"slowWorkshop",label:"ورشة متأخرة في الاستلام",icon:"🐢",dd:14},{key:"stockNoSale",label:"مخزن جاهز لم يُسلَّم لعملاء",icon:"📦",dd:7}];
