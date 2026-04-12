@@ -264,6 +264,22 @@ async function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance,gt
   printPage("اذن تسليم ورشة — "+modelNo,h)
 }
 
+function getOrderWaText(o,t){
+  const lines=["*CLARK — تفاصيل أوردر*","","• رقم الموديل: *"+o.modelNo+"*","• الوصف: "+o.modelDesc,"• المقاسات: "+(o.sizeLabel||"-"),"• كمية القص: *"+(t?.cutQty||0)+"*","• الحالة: "+o.status,"• مخزن جاهز: *"+(o.deliveredQty||0)+"*"];
+  lines.push("","─────────────────","*📋 تايم لاين:*");
+  const evs=[];
+  if(o.date)evs.push({d:o.date,t:"✂️ تم القص ("+(t?.cutQty||0)+" قطعة)"});
+  (o.workshopDeliveries||[]).forEach(wd=>{evs.push({d:wd.date,t:"📦 تسليم "+wd.wsName+" — "+(wd.garmentType||"عام")+" ("+wd.qty+")"});
+    (wd.receives||[]).forEach(r=>{if(r.isSettlement)evs.push({d:r.date,t:"⚖️ تسوية "+wd.wsName+" ("+r.qty+")"});
+      else evs.push({d:r.date,t:"↙ استلام "+(wd.garmentType||"")+" من "+wd.wsName+" ("+r.qty+")"})})});
+  (o.deliveries||[]).forEach(d=>{evs.push({d:d.date,t:"📦 مخزن جاهز ("+d.qty+")"})});
+  (o.customerDeliveries||[]).forEach(d=>{evs.push({d:d.date,t:"🚚 تسليم "+(d.custName||"عميل")+" ("+d.qty+")"})});
+  if(o.settlement)evs.push({d:o.settlement.date,t:"⚖️ تسوية وغلق ("+o.settlement.qty+" هالك)"});
+  evs.sort((a,b)=>(a.d||"").localeCompare(b.d||""));
+  if(evs.length>0)evs.forEach(e=>{lines.push(e.d+" │ "+e.t)});
+  else lines.push("لم يتم أي حركات على هذا الأوردر حتى الآن");
+  return lines.join("\n")
+}
 async function printLabel(wsName,order,garmentType,qty,date,gtList,opts){
   if(!order)return;
   const t=calcOrder(order);
@@ -1900,7 +1916,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
           {isStale&&!isSent&&<div style={{position:"absolute",bottom:8,left:8,fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.err+"15",color:T.err,fontWeight:700}}>{ageDays+" يوم"}</div>}
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,flexShrink:0}}>
             {o.image?<img src={o.image} alt="" style={{width:80,height:107,borderRadius:10,objectFit:"cover",border:"1px solid "+T.brd}}/>:<div style={{width:80,height:107,borderRadius:10,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,color:T.textMut}}>📷</div>}
-            <div onClick={async e=>{e.stopPropagation();const tc=calcOrder(o);const lines=["*CLARK — تفاصيل أوردر*","","• رقم الموديل: *"+o.modelNo+"*","• الوصف: "+o.modelDesc,"• المقاسات: "+(o.sizeLabel||"-"),"• كمية القص: *"+tc.cutQty+"*","• الحالة: "+o.status,"• مخزن جاهز: *"+(o.deliveredQty||0)+"*"];const text=lines.join("\n");
+            <div onClick={async e=>{e.stopPropagation();const tc=calcOrder(o);const text=getOrderWaText(o,tc);
               if(o.image&&navigator.canShare){try{const res=await fetch(o.image);const blob=await res.blob();const file=new File([blob],o.modelNo+".jpg",{type:blob.type||"image/jpeg"});if(navigator.canShare({files:[file]})){await navigator.share({title:"CLARK — "+o.modelNo,text,files:[file]});setWaSent(p=>({...p,[o.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[o.id];return n}),60000);return}}catch(e2){}}
               window.open("https://wa.me/?text="+encodeURIComponent(text),"_blank");setWaSent(p=>({...p,[o.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[o.id];return n}),60000)}} title="ارسال واتساب" style={{width:80,height:28,borderRadius:6,background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12,fontWeight:700,gap:4}}>📱</div>
           </div>
@@ -1968,7 +1984,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
         <div style={{width:1,height:20,background:T.brd,margin:"0 4px"}}/>
         <Btn small onClick={()=>printOrderSheet(order,t,activeFabs,statusCards)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨</Btn>
         {canEdit&&!order.closed&&<Btn small primary onClick={()=>setEditing(true)} title="تعديل">✏️</Btn>}
-        <Btn small onClick={async()=>{const lines=["*CLARK — تفاصيل أوردر*","","• رقم الموديل: *"+order.modelNo+"*","• الوصف: "+order.modelDesc,"• المقاسات: "+(order.sizeLabel||"-"),"• كمية القص: *"+t.cutQty+"*","• الحالة: "+order.status,"• مخزن جاهز: *"+(order.deliveredQty||0)+"*"];const text=lines.join("\n");
+        <Btn small onClick={async()=>{const text=getOrderWaText(order,t);
           if(order.image&&navigator.canShare){try{const res=await fetch(order.image);const blob=await res.blob();const file=new File([blob],order.modelNo+".jpg",{type:blob.type||"image/jpeg"});if(navigator.canShare({files:[file]})){await navigator.share({title:"CLARK — "+order.modelNo,text,files:[file]});return}}catch(e){}}
           const msg=encodeURIComponent(text);window.open("https://wa.me/?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال واتساب">📱</Btn>
         {canEdit&&!order.closed&&<Btn small onClick={()=>{const dup=JSON.parse(JSON.stringify(order));dup.id=gid();dup.date=new Date().toISOString().split("T")[0];dup.createdAt=new Date().toISOString();dup.modelNo="";dup.status="تم القص";dup.deliveredQty=0;dup.deliveries=[];dup.workshopDeliveries=[];dup._isDup=true;delete dup._docId;setDupInit(dup)}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="تكرار الأوردر">📋 تكرار</Btn>}
