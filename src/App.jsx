@@ -3701,6 +3701,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   const[activeAudit,setActiveAudit]=useState(null);const[auditCell,setAuditCell]=useState(null);const[auditVal,setAuditVal]=useState(0);const[showAuditAnalysis,setShowAuditAnalysis]=useState(null);
   const[ocrCust,setOcrCust]=useState(null);const[ocrLoading,setOcrLoading]=useState(false);const[ocrResult,setOcrResult]=useState(null);const ocrRef=useRef(null);const[auditInclude,setAuditInclude]=useState(null);
   const[returnPopup,setReturnPopup]=useState(null);const[retQty,setRetQty]=useState(0);const[retNote,setRetNote]=useState("");
+  const[freeReturn,setFreeReturn]=useState(null);const[freeRetItems,setFreeRetItems]=useState({});const[freeRetNote,setFreeRetNote]=useState("");
   const[custQR,setCustQR]=useState(null);const[salesDetail,setSalesDetail]=useState(null);
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
 
@@ -3940,6 +3941,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
       {canEdit&&<Btn onClick={()=>{setSelModels({});setSelCusts({});setShowNewSession(true)}} style={{background:"#059669",color:"#fff",border:"none",fontWeight:700}}>🚚 تسليم جديد</Btn>}
       <Btn onClick={()=>{setRptType("all");setRptCust("");setRptModel("");setReportRange({from:"",to:""});setShowReport(true)}} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📊 تقرير مبيعات</Btn>
       {canEdit&&<Btn onClick={()=>{setAuditDate(new Date().toISOString().split("T")[0]);setAuditFrom("");setAuditTo("");setAuditNote("");setShowNewAudit(true)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>📋 جرد مبيعات</Btn>}
+      {canEdit&&<Btn onClick={()=>{setFreeReturn("pick");setFreeRetItems({});setFreeRetNote("")}} title="تسجيل مرتجع من عميل" style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>↩️ مرتجع</Btn>}
     </div>
     {/* Active Session Matrix - Popup */}
     {activeSess&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:24}} onClick={()=>closeMatrix()}>
@@ -4323,6 +4325,51 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setShowNewAudit(false)}>الغاء</Btn><Btn onClick={createAudit} disabled={Object.values(auditSelCusts).filter(Boolean).length===0} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700}}>{"📋 إنشاء ("+Object.values(auditSelCusts).filter(Boolean).length+" عميل)"}</Btn></div>
       </div>
     </div>}
+    {/* Free Return Popup */}
+    {freeReturn==="pick"&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setFreeReturn(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:450,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{fontSize:FS+2,fontWeight:800,color:T.err,marginBottom:12}}>↩️ مرتجع مبيعات — اختر العميل</div>
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          {customers.filter(c=>getCustTotal(c.id)>0).map(c=><div key={c.id} onClick={()=>{setFreeReturn(c.id);setFreeRetItems({});setFreeRetNote("")}} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",borderRadius:10,cursor:"pointer",border:"1px solid "+T.brd,background:T.cardSolid}} onMouseEnter={e=>e.currentTarget.style.background=T.err+"06"} onMouseLeave={e=>e.currentTarget.style.background=T.cardSolid}>
+            <span style={{fontWeight:700,fontSize:FS}}>{c.name}</span>
+            <span style={{fontSize:FS-1,color:T.accent,fontWeight:600}}>{"استلم: "+getCustTotal(c.id)}</span>
+          </div>)}
+        </div>
+      </div>
+    </div>}
+    {freeReturn&&freeReturn!=="pick"&&(()=>{const cust=customers.find(c=>c.id===freeReturn);if(!cust)return null;
+      const custModels=[];orders.forEach(o=>{const del=(o.customerDeliveries||[]).filter(d=>d.custId===freeReturn).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).filter(r=>r.custId===freeReturn).reduce((s,r)=>s+(Number(r.qty)||0),0);const net=del-ret;if(net>0)custModels.push({id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,delivered:del,returned:ret,net})});
+      const totalRet=Object.values(freeRetItems).reduce((s,v)=>s+(Number(v)||0),0);
+      const saveFreeReturn=()=>{if(totalRet<=0){showToast("⚠️ ادخل كمية المرتجع");return}
+        Object.entries(freeRetItems).forEach(([orderId,qty])=>{const q=Number(qty)||0;if(q<=0)return;
+          updOrder(orderId,o=>{if(!o.customerReturns)o.customerReturns=[];o.customerReturns.push({custId:freeReturn,custName:cust.name,qty:q,note:freeRetNote||"مرتجع حر",date:new Date().toISOString().split("T")[0],createdBy:userName||""})})});
+        showToast("✓ تم تسجيل مرتجع "+totalRet+" قطعة من "+cust.name);setFreeReturn(null)};
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setFreeReturn(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:isMob?420:550,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+            <div style={{fontSize:FS+2,fontWeight:800,color:T.err}}>{"↩️ مرتجع — "+cust.name}</div>
+            <Btn ghost small onClick={()=>setFreeReturn(null)} title="إغلاق">✕</Btn>
+          </div>
+          <div style={{fontSize:FS-2,color:T.textMut,marginBottom:12}}>{"استلم "+getCustTotal(freeReturn)+" قطعة خلال الموسم"}</div>
+          <table style={{width:"100%",borderCollapse:"collapse",marginBottom:12}}><thead><tr>{["الموديل","تسليم","مرتجع سابق","صافي","كمية المرتجع"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
+            {custModels.map((m,i)=>{const retQ=Number(freeRetItems[m.id])||0;return<tr key={m.id} style={{background:i%2===0?"transparent":T.bg+"80"}}>
+              <td style={{...TD,fontWeight:700}}><div style={{color:T.accent}}>{m.modelNo}</div><div style={{fontSize:FS-3,color:T.textMut}}>{m.modelDesc}</div></td>
+              <td style={{...TD,textAlign:"center"}}>{m.delivered}</td>
+              <td style={{...TD,textAlign:"center",color:m.returned>0?T.err:T.textMut}}>{m.returned||"—"}</td>
+              <td style={{...TD,textAlign:"center",fontWeight:700}}>{m.net}</td>
+              <td style={{...TD,textAlign:"center",width:90}}><input type="number" value={retQ||""} onChange={e=>{const v=Math.min(Math.max(0,Number(e.target.value)||0),m.net);setFreeRetItems(p=>({...p,[m.id]:v}))}} placeholder="0" style={{width:70,textAlign:"center",border:"2px solid "+(retQ>0?T.err:T.brd),borderRadius:6,padding:"4px",fontSize:FS,fontWeight:700,fontFamily:"inherit",background:retQ>0?T.err+"06":"transparent",color:retQ>0?T.err:T.text}}/></td>
+            </tr>})}
+          </tbody></table>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات</label><Inp value={freeRetNote} onChange={setFreeRetNote} placeholder="سبب المرتجع..."/></div>
+          {totalRet>0&&<div style={{padding:10,borderRadius:8,background:T.err+"08",border:"1px solid "+T.err+"20",marginTop:10,textAlign:"center"}}>
+            <span style={{fontWeight:800,color:T.err,fontSize:FS+1}}>{"اجمالي المرتجع: "+totalRet+" قطعة"}</span>
+          </div>}
+          <div style={{display:"flex",gap:8,justifyContent:"center",marginTop:12}}>
+            <Btn ghost onClick={()=>setFreeReturn("pick")}>← تغيير العميل</Btn>
+            <Btn onClick={saveFreeReturn} disabled={totalRet<=0} style={{background:T.err,color:"#fff",border:"none",fontWeight:700}}>{"↩️ تسجيل مرتجع ("+totalRet+")"}</Btn>
+          </div>
+        </div>
+      </div>})()}
     {/* Register Customer Popup */}
     {showCustForm&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowCustForm(false)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
