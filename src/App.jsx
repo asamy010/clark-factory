@@ -1134,14 +1134,14 @@ export default function App(){
               </div>
               <div style={{display:"flex",gap:8,marginTop:14}}>
                 <div onClick={()=>setQuickPopup("task")} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:T.accent+"10",border:"1px solid "+T.accent+"25",display:"flex",alignItems:"center",gap:6,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"20"} onMouseLeave={e=>e.currentTarget.style.background=T.accent+"10"}>
-                  <span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:700,color:T.accent}}>ارسال مهمة</span>
+                  <span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:700,color:T.accent}}>مهمة</span>
                 </div>
                 <div onClick={()=>setQuickPopup("notif")} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:"#8B5CF610",border:"1px solid #8B5CF625",display:"flex",alignItems:"center",gap:6,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#8B5CF620"} onMouseLeave={e=>e.currentTarget.style.background="#8B5CF610"}>
-                  <span style={{fontSize:18}}>📩</span><span style={{fontSize:FS,fontWeight:700,color:"#8B5CF6"}}>ارسال اشعار</span>
+                  <span style={{fontSize:18}}>📩</span><span style={{fontSize:FS,fontWeight:700,color:"#8B5CF6"}}>اشعار</span>
                 </div>
-              </div>
-              <div style={{display:"flex",gap:8,marginTop:10,justifyContent:"center"}}>
-                <div onClick={()=>setBarcodePopup({mode:"manual",modelId:"",size:"",qty:1,serial:1})} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:"linear-gradient(135deg,#F59E0B,#D97706)",display:"flex",alignItems:"center",gap:6,boxShadow:"0 2px 10px rgba(245,158,11,0.2)"}}><span style={{fontSize:18}}>🏷️</span><span style={{fontSize:FS,fontWeight:700,color:"#fff"}}>طباعة QR</span></div>
+                <div onClick={()=>setBarcodePopup({mode:"manual",modelId:"",size:"",qty:1,serial:1})} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:"#F59E0B10",border:"1px solid #F59E0B25",display:"flex",alignItems:"center",gap:6,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#F59E0B20"} onMouseLeave={e=>e.currentTarget.style.background="#F59E0B10"}>
+                  <span style={{fontSize:18}}>🏷️</span><span style={{fontSize:FS,fontWeight:700,color:"#F59E0B"}}>طباعة QR</span>
+                </div>
               </div>
             </div>
             {/* ── Right 25%: Tasks ── */}
@@ -1169,7 +1169,6 @@ export default function App(){
               </div>})}
             </div>
             <div onClick={()=>setShowScanner("menu")} style={{margin:"16px auto 0",display:"flex",justifyContent:"center"}}><div style={{background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",borderRadius:14,padding:"14px 30px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,boxShadow:"0 4px 20px rgba(14,165,233,0.3)"}}><span style={{fontSize:24}} title="فتح كاميرا QR">📷</span><span style={{fontSize:FS+1,fontWeight:700,color:"#fff"}}>مسح QR</span></div></div>
-            <div onClick={()=>setBarcodePopup({mode:"manual",modelId:"",size:"",qty:1,serial:1})} style={{margin:"10px auto 0",display:"flex",justifyContent:"center"}}><div style={{background:"linear-gradient(135deg,#F59E0B,#D97706)",borderRadius:14,padding:"12px 26px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,boxShadow:"0 4px 20px rgba(245,158,11,0.3)"}}><span style={{fontSize:22}}>🏷️</span><span style={{fontSize:FS,fontWeight:700,color:"#fff"}}>طباعة QR</span></div></div>
             {(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
               return myTasks.length>0&&<div style={{marginTop:16}}>
                 <div style={{background:"#FEF9C3",borderRadius:16,border:"1px solid #EAB30830",padding:14,boxShadow:"0 2px 8px rgba(234,179,8,0.08)"}}>
@@ -1179,12 +1178,15 @@ export default function App(){
                   <div style={{flex:1}}><div style={{fontSize:FS-1,fontWeight:600,color:"#1C1917"}}>{t.text}</div><div style={{fontSize:FS-3,color:"#78716C"}}>{"من: "+(t.fromName||"—")}</div></div>
                 </div>)}</div>
               </div></div>})()}
-            <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"center"}}>
-              <div onClick={()=>setQuickPopup("task")} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:T.accent+"10",border:"1px solid "+T.accent+"25",display:"flex",alignItems:"center",gap:6}}>
-                <span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:700,color:T.accent}}>مهمة</span>
+            <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"center",flexWrap:"wrap"}}>
+              <div onClick={()=>setQuickPopup("task")} style={{cursor:"pointer",padding:"10px 16px",borderRadius:12,background:T.accent+"10",border:"1px solid "+T.accent+"25",display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:16}}>📌</span><span style={{fontSize:FS-1,fontWeight:700,color:T.accent}}>مهمة</span>
               </div>
-              <div onClick={()=>setQuickPopup("notif")} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:"#8B5CF610",border:"1px solid #8B5CF625",display:"flex",alignItems:"center",gap:6}}>
-                <span style={{fontSize:18}}>📩</span><span style={{fontSize:FS,fontWeight:700,color:"#8B5CF6"}}>اشعار</span>
+              <div onClick={()=>setQuickPopup("notif")} style={{cursor:"pointer",padding:"10px 16px",borderRadius:12,background:"#8B5CF610",border:"1px solid #8B5CF625",display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:16}}>📩</span><span style={{fontSize:FS-1,fontWeight:700,color:"#8B5CF6"}}>اشعار</span>
+              </div>
+              <div onClick={()=>setBarcodePopup({mode:"manual",modelId:"",size:"",qty:1,serial:1})} style={{cursor:"pointer",padding:"10px 16px",borderRadius:12,background:"#F59E0B10",border:"1px solid #F59E0B25",display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:16}}>🏷️</span><span style={{fontSize:FS-1,fontWeight:700,color:"#F59E0B"}}>طباعة QR</span>
               </div>
             </div>
           </div>}
