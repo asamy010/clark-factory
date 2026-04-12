@@ -1344,37 +1344,36 @@ export default function App(){
             <Btn ghost small onClick={()=>setBarcodePopup(null)}>✕</Btn>
           </div>
           <div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec}}>اختر الموديل</label><SearchSel value={barcodePopup.modelId||""} onChange={v=>setBarcodePopup(p=>({...p,modelId:v,_size:"",_qty:1}))} options={allOrders.map(o=>({value:o.id,label:o.modelNo+" — "+(o.modelDesc||"")}))} placeholder="اختر الموديل..."/></div>
-          {selOrder&&<div>
-            <div style={{display:"flex",gap:4,marginBottom:12,borderRadius:10,border:"1px solid "+T.brd,overflow:"hidden"}}>
-              <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"manual"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="manual"?"#F59E0B":"transparent",color:mode==="manual"?"#fff":T.textSec}}>طباعة يدوية</div>
-              <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"auto"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="auto"?"#F59E0B":"transparent",color:mode==="auto"?"#fff":T.textSec}}>طباعة تلقائية</div>
-            </div>
-            {mode==="manual"&&<div>
-              <div style={{textAlign:"center",padding:10,background:T.bg+"60",borderRadius:10,marginBottom:10}}>
-                <div style={{fontWeight:800,fontSize:FS+1,color:T.accent}}>{selOrder.modelNo}</div>
-                <div style={{fontSize:FS-1,color:T.textMut}}>{selOrder.modelDesc}</div>
-              </div>
-              {sizes.length>0&&<div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec}}>المقاس</label><Sel value={barcodePopup._size||""} onChange={v=>setBarcodePopup(p=>({...p,_size:v}))}><option value="">بدون مقاس</option>{sizes.map(s=><option key={s} value={s}>{s}</option>)}</Sel></div>}
-              <div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec}}>عدد النسخ</label><Sel value={barcodePopup._qty||1} onChange={v=>setBarcodePopup(p=>({...p,_qty:Number(v)||1}))}>{Array.from({length:50},(_,i)=>i+1).map(n=><option key={n} value={n}>{n}</option>)}</Sel></div>
-              <Btn onClick={()=>{const sz=barcodePopup._size||"";const qty=barcodePopup._qty||1;const qrText="CLARK:"+selOrder.id+":"+rs;const labels=[];
-                for(let i=0;i<qty;i++)labels.push(buildLabel(qrText,selOrder.modelNo,selOrder.modelDesc||"",sz?"مقاس: "+sz:"","سيري: "+rs));
-                doPrint(labels)}} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+(barcodePopup._qty||1)+" ليبل"}</Btn>
-            </div>}
-            {mode==="auto"&&<div>
-              <div style={{padding:12,background:T.bg+"60",borderRadius:10,marginBottom:10}}>
-                <div style={{fontWeight:800,fontSize:FS+1,color:T.accent,marginBottom:6}}>{selOrder.modelNo+" — "+selOrder.modelDesc}</div>
-                <div style={{fontSize:FS-1,color:T.textMut,marginBottom:8}}>{"القص: "+(selOrder.cutQty||0)+" | المقاسات: "+(sizes.join(" - ")||"—")+" | سيري: "+rs}</div>
+          {selOrder&&<div style={{textAlign:"center",padding:8,background:T.bg+"60",borderRadius:10,marginBottom:10}}>
+            <div style={{fontWeight:800,fontSize:FS+1,color:T.accent}}>{selOrder.modelNo}</div>
+            <div style={{fontSize:FS-1,color:T.textMut}}>{selOrder.modelDesc}</div>
+            <div style={{fontSize:FS-2,color:T.textSec,marginTop:2}}>{"القص: "+(selOrder.cutQty||0)+" | المقاسات: "+(sizes.join("-")||"—")+" | سيري: "+rs}</div>
+          </div>}
+          <div style={{display:"flex",gap:4,marginBottom:12,borderRadius:10,border:"1px solid "+T.brd,overflow:"hidden"}}>
+            <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"manual"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="manual"?"#F59E0B":"transparent",color:mode==="manual"?"#fff":T.textSec}}>طباعة يدوية</div>
+            <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"auto"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="auto"?"#F59E0B":"transparent",color:mode==="auto"?"#fff":T.textSec}}>طباعة تلقائية</div>
+          </div>
+          {mode==="manual"&&<div>
+            {sizes.length>0&&<div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec}}>المقاس</label><Sel value={barcodePopup._size||""} onChange={v=>setBarcodePopup(p=>({...p,_size:v}))}><option value="">بدون مقاس</option>{sizes.map(s=><option key={s} value={s}>{s}</option>)}</Sel></div>}
+            <div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec}}>عدد النسخ</label><Inp type="number" value={barcodePopup._qty||1} onChange={v=>setBarcodePopup(p=>({...p,_qty:Math.max(1,Number(v)||1)}))}/></div>
+            <Btn onClick={()=>{if(!selOrder){showToast("⚠️ اختر موديل");return}const sz=barcodePopup._size||"";const qty=barcodePopup._qty||1;const qrText="CLARK:"+selOrder.id+":"+rs;const labels=[];
+              for(let i=0;i<qty;i++)labels.push(buildLabel(qrText,selOrder.modelNo,selOrder.modelDesc||"",sz?"مقاس: "+sz:"","سيري: "+rs));
+              doPrint(labels)}} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+(barcodePopup._qty||1)+" ليبل"}</Btn>
+          </div>}
+          {mode==="auto"&&<div>
+            {selOrder?<div>
+              <div style={{padding:10,background:T.bg+"60",borderRadius:10,marginBottom:10}}>
                 {sizes.length>0?<table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th style={{...TH,fontSize:FS-2}}>المقاس</th><th style={{...TH,fontSize:FS-2}}>الكمية</th><th style={{...TH,fontSize:FS-2}}>ليبلات</th></tr></thead><tbody>
                   {sizes.map(sz=><tr key={sz}><td style={{...TD,fontWeight:700,textAlign:"center"}}>{sz}</td><td style={{...TD,textAlign:"center"}}>{perSize}</td><td style={{...TD,textAlign:"center",fontWeight:700,color:"#F59E0B"}}>{perSize}</td></tr>)}
                   <tr style={{background:"#F59E0B10"}}><td style={{...TD,fontWeight:800}}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800}}>{perSize*sizes.length}</td><td style={{...TD,textAlign:"center",fontWeight:800,color:"#F59E0B"}}>{perSize*sizes.length}</td></tr>
                 </tbody></table>
-                :<div style={{textAlign:"center",color:T.textMut}}>{"سيتم طباعة "+(selOrder.cutQty||0)+" ليبل بدون مقاس"}</div>}
+                :<div style={{textAlign:"center",color:T.textMut,padding:10}}>{"سيتم طباعة "+(selOrder.cutQty||0)+" ليبل بدون مقاس"}</div>}
               </div>
               <Btn onClick={()=>{const labels=[];const qrText="CLARK:"+selOrder.id+":"+rs;
                 if(sizes.length>0){sizes.forEach(sz=>{for(let i=0;i<perSize;i++)labels.push(buildLabel(qrText,selOrder.modelNo,selOrder.modelDesc||"","مقاس: "+sz,"سيري: "+rs))})}
                 else{for(let i=0;i<(selOrder.cutQty||1);i++)labels.push(buildLabel(qrText,selOrder.modelNo,selOrder.modelDesc||"","","سيري: "+rs))}
                 doPrint(labels)}} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة تلقائية ("+(sizes.length>0?perSize*sizes.length:selOrder.cutQty||0)+" ليبل)"}</Btn>
-            </div>}
+            </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>اختر موديل أولاً</div>}
           </div>}
         </div>
       </div>})()}
@@ -2032,6 +2031,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
               <span style={{fontSize:FS,color:T.textSec}}>{"تسليم: "}<b style={{color:T.ok}}>{o.deliveredQty||0}</b></span>
               <span style={{fontSize:FS,color:T.textSec}}>{"رصيد: "}<b style={{color:t.balance>0?T.err:T.ok}}>{t.balance}</b></span>
               <span style={{fontSize:FS,color:T.textSec}}>{"تكلفة: "}<b style={{color:"#8B5CF6"}}>{Math.ceil(t.costPer)+" ج.م"}</b></span>
+              {(()=>{const pieces=o.orderPieces||[];if(pieces.length<=1)return null;const linked=new Set();FKEYS.forEach(k=>{if(gf(o,k))(o["fabricPieces"+k]||[]).forEach(p=>linked.add(p))});const missing=pieces.filter(p=>!linked.has(p));if(missing.length===0)return null;return<span style={{fontSize:FS-2,padding:"2px 8px",borderRadius:6,background:"#F59E0B12",color:"#F59E0B",fontWeight:700,border:"1px solid #F59E0B30"}}>{"⚠️ تكلفة غير مكتملة ("+missing.join("، ")+")"}</span>})()}
               {o.settlement&&<span style={{fontSize:FS-1,color:T.err,fontWeight:700}}>{"الفعلية: "+Math.ceil(o.deliveredQty>0?(t.costAll+o.settlement.cost)/o.deliveredQty:t.costPer)+" ج.م"}</span>}
               {o.closed&&<span style={{fontSize:FS-1,padding:"2px 8px",borderRadius:6,background:"#64748B15",color:"#64748B",fontWeight:700}}>🔒 مغلق</span>}
             </div>
@@ -2110,6 +2110,22 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
         <div style={{flex:1,display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(2,1fr)":"repeat(4,1fr)",gap:isMob?6:12}}>
           <MetricCard label="كمية القص" value={t.cutQty} icon="✂️" color={T.accent}/><MetricCard label="تم التسليم" value={order.deliveredQty||0} icon="📦" color={T.ok}/><MetricCard label="الرصيد" value={t.balance} icon="📊" color={t.balance>0?T.warn:T.ok}/><MetricCard label="تكلفة القطعة" value={t.costPer+" ج.م"} icon="💰" color={T.accent}/>
         </div>
+        {/* Cost warning */}
+        {(()=>{const pieces=order.orderPieces||[];if(pieces.length<=1)return null;const linked=new Set();FKEYS.forEach(k=>{if(gf(order,k))(order["fabricPieces"+k]||[]).forEach(p=>linked.add(p))});const missing=pieces.filter(p=>!linked.has(p));if(missing.length===0)return null;
+          return<div style={{marginBottom:14,padding:"10px 14px",borderRadius:10,background:"#F59E0B08",border:"1px solid #F59E0B30",display:"flex",gap:10,alignItems:"flex-start"}}>
+            <span style={{fontSize:20,flexShrink:0}}>⚠️</span>
+            <div>
+              <div style={{fontWeight:800,color:"#F59E0B",fontSize:FS}}>تكلفة غير مكتملة</div>
+              <div style={{fontSize:FS-1,color:T.textSec,marginTop:2}}>{"القطع التالية لم يتم قصها بعد (بدون خامات):"}</div>
+              <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:4}}>
+                {missing.map(p=><span key={p} style={{padding:"2px 10px",borderRadius:6,background:"#EF444412",color:"#EF4444",fontWeight:700,fontSize:FS-1,border:"1px solid #EF444425"}}>{"❌ "+p}</span>)}
+              </div>
+              <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:4}}>
+                {pieces.filter(p=>linked.has(p)).map(p=><span key={p} style={{padding:"2px 10px",borderRadius:6,background:"#10B98112",color:"#10B981",fontWeight:700,fontSize:FS-1,border:"1px solid #10B98125"}}>{"✅ "+p}</span>)}
+              </div>
+              <div style={{fontSize:FS-2,color:T.textMut,marginTop:4}}>💡 أضف خامات القطع الناقصة لحساب التكلفة الكاملة</div>
+            </div>
+          </div>})()}
       </div>
       {/* Timeline - horizontal after cards */}
       {(()=>{const ev=[];ev.push({title:"تم القص",date:order.date,color:T.accent,detail:"كمية: "+t.cutQty});
@@ -2205,6 +2221,8 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
       {/* Attachments */}
       {(order.attachments||[]).length>0&&<Card title="ملفات مرفقة" style={{marginBottom:16}}><div style={{display:"flex",flexWrap:"wrap",gap:10}}>{order.attachments.map((a,i)=><a key={i} href={a.data} download={a.name} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"10px 16px",borderRadius:10,background:T.accentBg,border:"1px solid "+T.brd,fontSize:FS,color:T.accent,fontWeight:600,textDecoration:"none"}}>{"📎 "+a.name}</a>)}</div></Card>}
       <Card title="ملخص تكلفة الموديل" accent={"linear-gradient(135deg,"+T.accent+","+T.accent+"CC)"}>
+        {(()=>{const pieces=order.orderPieces||[];const linked=new Set();FKEYS.forEach(k=>{if(gf(order,k))(order["fabricPieces"+k]||[]).forEach(p=>linked.add(p))});const missing=pieces.filter(p=>!linked.has(p));
+          return missing.length>0&&pieces.length>1?<div style={{padding:"8px 12px",borderRadius:8,background:"#F59E0B10",border:"1px solid #F59E0B30",marginBottom:10,fontSize:FS-1,fontWeight:700,color:"#F59E0B"}}>{"⚠️ تكلفة غير مكتملة — ناقص: "+missing.join("، ")}</div>:null})()}
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS+1}}><thead><tr>{["البند","التكلفة الكلية","تكلفة القطعة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
           <tr><td style={TD}>تكلفة الخامات</td><td style={TDB}>{fmt(r2(t.totalFab))+" ج.م"}</td><td style={TDB}>{t.fabPer+" ج.م"}</td></tr>
           <tr><td style={TD}>تكاليف الاكسسوار</td><td style={TDB}>{fmt(accAll)+" ج.م"}</td><td style={TDB}>{t.accPer+" ج.م"}</td></tr>
