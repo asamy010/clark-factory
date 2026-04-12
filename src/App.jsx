@@ -936,8 +936,6 @@ export default function App(){
   const markRead=(nid)=>upConfig(d=>{const n=(d.notifications||[]).find(x=>x.id===nid);if(n){if(!n.readBy)n.readBy=[];if(!n.readBy.includes(userEmail))n.readBy.push(userEmail)}});
   const allAlerts=[...userNotifs.map(n=>({msg:n.msg,color:n.type==="طلب"?"#8B5CF6":n.type==="مهمة"?T.accent:T.warn,icon:n.type==="طلب"?"📩":n.type==="مهمة"?"📌":"💬",orderId:n.orderId||null,isNotif:true,notifId:n.id,from:n.fromName,date:n.createdAt})),...appAlerts];
   const alertCount=allAlerts.length;
-  /* Lock body scroll when any popup is open — universal CSS approach */
-  useEffect(()=>{const s=document.createElement("style");s.id="popup-scroll-lock";s.textContent="body:has(.pop-overlay){overflow:hidden!important}";document.head.appendChild(s);return()=>s.remove()},[]);
   /* Urgent tasks - separate from bell */
   const urgentTasks=(config.notifications||[]).filter(n=>n.type==="مهمة عاجلة"&&(n.toEmail===userEmail||n.toEmail==="all")&&!(n.doneBy||[]).includes(userEmail));
   const markTaskDone=(nid)=>upConfig(d=>{const n=(d.notifications||[]).find(x=>x.id===nid);if(n){if(!n.doneBy)n.doneBy=[];if(!n.doneBy.includes(userEmail))n.doneBy.push(userEmail)}});
@@ -946,12 +944,6 @@ export default function App(){
   const goTo=(key)=>{if(window.__formDirty){if(!confirm("هل تريد الخروج بدون حفظ البيانات المدخلة؟"))return;window.__formDirty=false}setTab(key);if(key!=="details")setSel(null)};
 
   return<div onClick={()=>{if(showAlerts)setShowAlerts(false);if(gSearch)setGSearch("");if(showLogout)setShowLogout(false)}} style={{minHeight:"100vh",direction:"rtl",fontFamily:"'Cairo',sans-serif",background:T.bg,color:T.text,fontSize:FS,display:"flex",flexDirection:"column"}}>
-    <style>{`@media(max-width:900px)and(orientation:landscape){.landscape-block{display:flex!important}}`}</style>
-    <div className="landscape-block" style={{display:"none",position:"fixed",inset:0,zIndex:999999,background:T.bg,alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,fontFamily:"'Cairo',sans-serif",direction:"rtl"}}>
-      <div style={{fontSize:48}}>📱</div>
-      <div style={{fontSize:18,fontWeight:800,color:T.accent}}>اقلب الجهاز</div>
-      <div style={{fontSize:14,color:T.textSec}}>التطبيق يعمل في الوضع الرأسي فقط</div>
-    </div>
     {/* Top Bar */}
     <div style={{padding:isMob?"8px 10px":"12px 28px",background:T.cardSolid,borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
       <div style={{display:"flex",alignItems:"center",gap:isMob?6:10}}>
