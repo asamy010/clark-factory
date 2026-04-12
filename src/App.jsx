@@ -1140,7 +1140,6 @@ export default function App(){
                 </div>
               </div>
               <div style={{display:"flex",gap:8,marginTop:10,justifyContent:"center"}}>
-                <div onClick={()=>setShowScanner(true)} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",display:"flex",alignItems:"center",gap:6,boxShadow:"0 2px 10px rgba(14,165,233,0.2)"}}><span style={{fontSize:18}}>📷</span><span style={{fontSize:FS,fontWeight:700,color:"#fff"}}>مسح QR</span></div>
                 <div onClick={()=>setBarcodePopup({mode:"manual",modelId:"",size:"",qty:1,serial:1})} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:"linear-gradient(135deg,#F59E0B,#D97706)",display:"flex",alignItems:"center",gap:6,boxShadow:"0 2px 10px rgba(245,158,11,0.2)"}}><span style={{fontSize:18}}>🏷️</span><span style={{fontSize:FS,fontWeight:700,color:"#fff"}}>طباعة باركود</span></div>
               </div>
             </div>
@@ -3820,7 +3819,7 @@ function TasksPg({data,upConfig,isMob,user,userRole}){
 function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   const config=data;const orders=data.orders||[];const customers=config.customers||[];const sessions=config.custDeliverySessions||[];
   const[showCustForm,setShowCustForm]=useState(false);const[showCustList,setShowCustList]=useState(false);
-  const[cName,setCName]=useState("");const[cPhone,setCPhone]=useState("");const[cAddr,setCAddr]=useState("");const[cEditId,setCEditId]=useState(null);
+  const[cName,setCName]=useState("");const[cPhone,setCPhone]=useState("");const[cAddr,setCAddr]=useState("");const[cEditId,setCEditId]=useState(null);const[cType,setCType]=useState("مكتب");const[custFilter,setCustFilter]=useState("");
   const[showNewSession,setShowNewSession]=useState(false);
   const[selModels,setSelModels]=useState({});const[selCusts,setSelCusts]=useState({});
   const[activeSession,setActiveSession]=useState(null);
@@ -3843,8 +3842,8 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   const stockModels=useMemo(()=>orders.filter(o=>{const sd=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return sd>0}).map(o=>{const sd=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const cd=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);return{id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,stockQty:sd,custDel:cd-ret,avail:sd-(cd-ret),rackSize:getRackSize(o.id),sellPrice:Number(o.sellPrice)||0,returns:ret}}),[orders]);
 
   const saveCust=()=>{if(!cName.trim()||!cPhone.trim()){showToast("⚠️ الاسم والتليفون مطلوبين");return}
-    upConfig(d=>{if(!d.customers)d.customers=[];if(cEditId){const idx=d.customers.findIndex(c=>c.id===cEditId);if(idx>=0){d.customers[idx].name=cName.trim();d.customers[idx].phone=cPhone.trim();d.customers[idx].address=cAddr.trim()}}else{d.customers.push({id:gid(),name:cName.trim(),phone:cPhone.trim(),address:cAddr.trim()})}});
-    setCName("");setCPhone("");setCAddr("");setCEditId(null);setShowCustForm(false);showToast("✓ تم الحفظ")};
+    upConfig(d=>{if(!d.customers)d.customers=[];if(cEditId){const idx=d.customers.findIndex(c=>c.id===cEditId);if(idx>=0){d.customers[idx].name=cName.trim();d.customers[idx].phone=cPhone.trim();d.customers[idx].address=cAddr.trim();d.customers[idx].type=cType}}else{d.customers.push({id:gid(),name:cName.trim(),phone:cPhone.trim(),address:cAddr.trim(),type:cType})}});
+    setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCEditId(null);setShowCustForm(false);showToast("✓ تم الحفظ")};
 
   const createSession=()=>{const mIds=Object.keys(selModels).filter(k=>selModels[k]);const cIds=Object.keys(selCusts).filter(k=>selCusts[k]);
     if(mIds.length===0||cIds.length===0){showToast("⚠️ اختر موديل وعميل على الأقل");return}
@@ -4068,16 +4067,40 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   };
 
   return<div>
-    <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
-      {canEdit&&<Btn onClick={()=>setShowCustList(!showCustList)} style={{background:showCustList?T.accent+"15":T.bg,color:showCustList?T.accent:T.textSec,border:"1px solid "+(showCustList?T.accent+"30":T.brd)}}>{"👥 العملاء ("+customers.length+")"}</Btn>}
-      {canEdit&&<Btn primary onClick={()=>{setCName("");setCPhone("");setCAddr("");setCEditId(null);setShowCustForm(true)}}>+ تسجيل عميل</Btn>}
-      {canEdit&&<Btn onClick={()=>{setSelModels({});setSelCusts({});setShowNewSession(true)}} style={{background:"#059669",color:"#fff",border:"none",fontWeight:700}}>🚚 تسليم جديد</Btn>}
-      <Btn onClick={()=>{setRptType("all");setRptCust("");setRptModel("");setReportRange({from:"",to:""});setShowReport(true)}} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📊 تقرير مبيعات</Btn>
-      {canEdit&&<Btn onClick={()=>{setAuditDate(new Date().toISOString().split("T")[0]);setAuditFrom("");setAuditTo("");setAuditNote("");setShowNewAudit(true)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>📋 جرد مبيعات</Btn>}
-      {canEdit&&<Btn onClick={()=>{setFreeReturn("pick");setFreeRetItems({});setFreeRetNote("")}} title="تسجيل مرتجع من عميل" style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>↩️ مرتجع</Btn>}
-      {canEdit&&<Btn onClick={()=>setQrSale({mode:"sale",custId:null,items:[],note:""})} title="بيع سريع بالباركود" style={{background:"#10B98112",color:"#10B981",border:"1px solid #10B98130"}}>📷 بيع سريع</Btn>}
-      {canEdit&&<Btn onClick={()=>setQrSale({mode:"return",custId:null,items:[],note:""})} title="مرتجع سريع بالباركود" style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📷 مرتجع سريع</Btn>}
-      {stockModels.length>0&&<Btn onClick={()=>setCustomLabel("pick")} title="طباعة ليبلات QR للبيع" style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>🏷️ ليبلات QR</Btn>}
+    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:isMob?8:10,marginBottom:16}}>
+      {canEdit&&<div onClick={()=>setShowCustList(true)} style={{background:T.cardSolid,borderRadius:14,padding:isMob?"14px 10px":"16px 14px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
+        <div style={{fontSize:isMob?24:28,marginBottom:4}}>👥</div>
+        <div style={{fontSize:FS-1,fontWeight:700,color:T.text}}>العملاء</div>
+        <div style={{fontSize:FS-2,color:T.accent,fontWeight:600}}>{customers.length+" عميل"}</div>
+      </div>}
+      {canEdit&&<div onClick={()=>{setSelModels({});setSelCusts({});setShowNewSession(true)}} style={{background:"linear-gradient(135deg,#059669,#047857)",borderRadius:14,padding:isMob?"14px 10px":"16px 14px",border:"none",boxShadow:"0 4px 15px rgba(5,150,105,0.2)",cursor:"pointer",textAlign:"center",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
+        <div style={{fontSize:isMob?24:28,marginBottom:4}}>🚚</div>
+        <div style={{fontSize:FS-1,fontWeight:700,color:"#fff"}}>تسليم جديد</div>
+      </div>}
+      <div onClick={()=>{setRptType("all");setRptCust("");setRptModel("");setReportRange({from:"",to:""});setShowReport(true)}} style={{background:T.cardSolid,borderRadius:14,padding:isMob?"14px 10px":"16px 14px",border:"1px solid #8B5CF620",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
+        <div style={{fontSize:isMob?24:28,marginBottom:4}}>📊</div>
+        <div style={{fontSize:FS-1,fontWeight:700,color:"#8B5CF6"}}>تقرير مبيعات</div>
+      </div>
+      {canEdit&&<div onClick={()=>{setAuditDate(new Date().toISOString().split("T")[0]);setAuditFrom("");setAuditTo("");setAuditNote("");setShowNewAudit(true)}} style={{background:T.cardSolid,borderRadius:14,padding:isMob?"14px 10px":"16px 14px",border:"1px solid #F59E0B20",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
+        <div style={{fontSize:isMob?24:28,marginBottom:4}}>📋</div>
+        <div style={{fontSize:FS-1,fontWeight:700,color:"#F59E0B"}}>جرد مبيعات</div>
+      </div>}
+      {canEdit&&<div onClick={()=>{setFreeReturn("pick");setFreeRetItems({});setFreeRetNote("")}} style={{background:T.cardSolid,borderRadius:14,padding:isMob?"14px 10px":"16px 14px",border:"1px solid "+T.err+"20",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
+        <div style={{fontSize:isMob?24:28,marginBottom:4}}>↩️</div>
+        <div style={{fontSize:FS-1,fontWeight:700,color:T.err}}>مرتجع</div>
+      </div>}
+      {canEdit&&<div onClick={()=>setQrSale({mode:"sale",custId:null,items:[],note:""})} style={{background:T.cardSolid,borderRadius:14,padding:isMob?"14px 10px":"16px 14px",border:"1px solid #10B98120",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
+        <div style={{fontSize:isMob?24:28,marginBottom:4}}>📦</div>
+        <div style={{fontSize:FS-1,fontWeight:700,color:"#10B981"}}>بيع سريع</div>
+      </div>}
+      {canEdit&&<div onClick={()=>setQrSale({mode:"return",custId:null,items:[],note:""})} style={{background:T.cardSolid,borderRadius:14,padding:isMob?"14px 10px":"16px 14px",border:"1px solid #8B5CF620",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
+        <div style={{fontSize:isMob?24:28,marginBottom:4}}>📷</div>
+        <div style={{fontSize:FS-1,fontWeight:700,color:"#8B5CF6"}}>مرتجع سريع</div>
+      </div>}
+      {stockModels.length>0&&<div onClick={()=>setCustomLabel("pick")} style={{background:T.cardSolid,borderRadius:14,padding:isMob?"14px 10px":"16px 14px",border:"1px solid #F59E0B20",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
+        <div style={{fontSize:isMob?24:28,marginBottom:4}}>🏷️</div>
+        <div style={{fontSize:FS-1,fontWeight:700,color:"#F59E0B"}}>ليبلات QR</div>
+      </div>}
     </div>
     {/* Active Session Matrix - Popup */}
     {activeSess&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:24}} onClick={()=>closeMatrix()}>
@@ -4184,15 +4207,15 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
             </div>
           </Card>
           {topCusts.length>0&&<Card title="🏆 أعلى العملاء مبيعات">
-            <div style={{overflowX:"auto"}}>
-              <div style={{display:"flex",alignItems:"flex-end",gap:6,minHeight:160,padding:"10px 0"}}>
-                {topCusts.map((c,i)=>{const pct=maxCust?Math.round(c.total/maxCust*100):0;const maxH=130;
-                  return<div key={c.id} onClick={()=>{const details=[];orders.forEach(o=>{const cd=(o.customerDeliveries||[]).filter(d=>d.custId===c.id).reduce((s,d)=>s+(Number(d.qty)||0),0);if(cd>0)details.push({name:o.modelNo+" — "+o.modelDesc,qty:cd})});setSalesDetail({title:"📦 تفاصيل "+c.name,items:details,total:c.total,color:"#0EA5E9"})}} title={c.name+" — "+fmt(c.total)+" قطعة"} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer",flex:1,minWidth:40}}>
-                    <div style={{fontSize:FS-3,fontWeight:800,color:T.accent}}>{fmt(c.total)}</div>
-                    <div style={{width:"100%",maxWidth:36,height:Math.max(8,pct/100*maxH),borderRadius:"6px 6px 0 0",background:i===0?"linear-gradient(180deg,#F59E0B,#EAB308)":"linear-gradient(180deg,#0EA5E9,#0284C7)",transition:"height 0.5s"}}/>
-                    <div style={{writingMode:"vertical-rl",transform:"rotate(180deg)",fontSize:FS-3,fontWeight:700,color:T.text,whiteSpace:"nowrap",maxHeight:60,overflow:"hidden",textOverflow:"ellipsis"}}>{c.name}</div>
-                  </div>})}
-              </div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {topCusts.map((c,i)=>{const pct=maxCust?Math.round(c.total/maxCust*100):0;
+                return<div key={c.id} onClick={()=>{const details=[];orders.forEach(o=>{const cd=(o.customerDeliveries||[]).filter(d=>d.custId===c.id).reduce((s,d)=>s+(Number(d.qty)||0),0);if(cd>0)details.push({name:o.modelNo+" — "+o.modelDesc,qty:cd})});setSalesDetail({title:"📦 تفاصيل "+c.name,items:details,total:c.total,color:"#0EA5E9"})}} style={{cursor:"pointer",padding:"4px 6px",borderRadius:8,transition:"background 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"08"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+                    <span style={{fontSize:FS-1,fontWeight:700,color:T.text}}>{c.name}</span>
+                    <span style={{fontSize:FS-1,fontWeight:800,color:i===0?"#F59E0B":T.accent}}>{fmt(c.total)}</span>
+                  </div>
+                  <div style={{height:14,borderRadius:7,background:T.brd+"40",overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",borderRadius:7,background:i===0?"linear-gradient(90deg,#F59E0B,#EAB308)":"linear-gradient(90deg,#0EA5E9,#0284C7)",transition:"width 0.5s"}}/></div>
+                </div>})}
             </div>
           </Card>}
         </div>}
@@ -4202,16 +4225,21 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?700:900,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{"👥 العملاء ("+customers.length+")"}</div>
-          <Btn ghost small onClick={()=>setShowCustList(false)} title="إغلاق">✕</Btn>
+          <div style={{display:"flex",gap:4}}>
+            {canEdit&&<Btn small primary onClick={()=>{setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCEditId(null);setShowCustForm(true)}}>+ عميل جديد</Btn>}
+            <Btn ghost small onClick={()=>setShowCustList(false)} title="إغلاق">✕</Btn>
+          </div>
         </div>
-        {customers.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",whiteSpace:"nowrap"}}><thead><tr>{["#","الاسم","التليفون","العنوان","اجمالي",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-          {customers.map((c,i)=>{const total=getCustTotal(c.id);return<tr key={c.id} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:700}}>{c.name}</td><td style={TD}>{c.phone}</td><td style={TD}>{c.address||"—"}</td><td style={{...TD,fontWeight:700,color:T.accent}}>{total||"—"}</td>
+        <div style={{marginBottom:10}}><Inp value={custFilter} onChange={setCustFilter} placeholder="بحث بالاسم أو رقم التليفون..."/></div>
+        {(()=>{const fc=customers.filter(c=>{if(!custFilter.trim())return true;const q=custFilter.trim().toLowerCase();return(c.name||"").toLowerCase().includes(q)||(c.phone||"").includes(q)||(c.type||"").includes(q)});
+          return fc.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",whiteSpace:"nowrap"}}><thead><tr>{["#","الاسم","النوع","التليفون","العنوان","اجمالي",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
+          {fc.map((c,i)=>{const total=getCustTotal(c.id);return<tr key={c.id} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:700}}>{c.name}</td><td style={{...TD,fontSize:FS-2,color:T.textSec}}>{c.type==="محل"?"🏪 محل":c.type==="أونلاين"?"🌐 أونلاين":c.type==="أخرى"?"📦 أخرى":"🏢 مكتب"}</td><td style={TD}>{c.phone}</td><td style={TD}>{c.address||"—"}</td><td style={{...TD,fontWeight:700,color:T.accent}}>{total||"—"}</td>
             {canEdit&&<td style={TD}><div style={{display:"flex",gap:3}}>
-              <Btn small onClick={()=>{setCName(c.name);setCPhone(c.phone);setCAddr(c.address||"");setCEditId(c.id);setShowCustForm(true)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
+              <Btn small onClick={()=>{setCName(c.name);setCPhone(c.phone);setCAddr(c.address||"");setCType(c.type||"مكتب");setCEditId(c.id);setShowCustForm(true)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
               <Btn small onClick={()=>showCustQR(c)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="عرض كود QR">QR</Btn>
               <DelBtn onConfirm={()=>upConfig(d=>{d.customers=(d.customers||[]).filter(x=>x.id!==c.id)})} blocked={total>0?"لديه تسليمات":null}/>
             </div></td>}</tr>})}
-        </tbody></table></div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>سجّل عملاء أولاً</div>}
+        </tbody></table></div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>{custFilter?"لا توجد نتائج":"سجّل عملاء أولاً"}</div>})()}
       </div>
     </div>}
     {/* Sessions Log */}
@@ -4236,6 +4264,23 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
           </div>})}
       </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد تسليمات — اضغط "🚚 تسليم جديد"</div>})()}
     </Card>
+    {/* ── Returns Log ── */}
+    {(()=>{const allReturns=[];orders.forEach(o=>{(o.customerReturns||[]).forEach(r=>{allReturns.push({...r,orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc})})});
+      allReturns.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+      if(allReturns.length===0)return null;
+      const filteredRet=allReturns.filter(r=>{if(!sessFilterQ.trim())return true;const q=sessFilterQ.trim().toLowerCase();return(r.modelNo||"").toLowerCase().includes(q)||(r.custName||"").toLowerCase().includes(q)||(r.date||"").includes(q)||(r.note||"").toLowerCase().includes(q)});
+      const totalRetQty=filteredRet.reduce((s,r)=>s+(Number(r.qty)||0),0);
+      const printReturns=()=>{let h="<h2>↩️ سجل المرتجعات</h2><table><thead><tr><th>#</th><th>التاريخ</th><th>العميل</th><th>الموديل</th><th>الوصف</th><th>الكمية</th><th>ملاحظات</th><th>بواسطة</th></tr></thead><tbody>";
+        filteredRet.forEach((r,i)=>{h+="<tr style='background:"+(i%2===0?"transparent":"#f8f8f8")+"'><td>"+(i+1)+"</td><td>"+r.date+"</td><td><b>"+(r.custName||"—")+"</b></td><td><b>"+r.modelNo+"</b></td><td>"+(r.modelDesc||"")+"</td><td style='font-weight:800;color:#EF4444'>"+r.qty+"</td><td>"+(r.note||"—")+"</td><td>"+(r.createdBy||"—")+"</td></tr>"});
+        h+="<tr style='background:#FEF2F2;font-weight:800'><td colspan='5'>الاجمالي</td><td style='color:#EF4444;font-size:14px'>"+totalRetQty+"</td><td colspan='2'></td></tr></tbody></table>";
+        printPage("سجل المرتجعات",h)};
+      return<Card title={"↩️ سجل المرتجعات ("+allReturns.length+")"} extra={<Btn small onClick={printReturns} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>}>
+        {filteredRet.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","التاريخ","العميل","الموديل","الكمية","ملاحظات","بواسطة"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
+          {filteredRet.slice(0,20).map((r,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={TD}>{i+1}</td><td style={TD}>{r.date}</td><td style={{...TD,fontWeight:700}}>{r.custName||"—"}</td><td style={{...TD,fontWeight:700,color:T.accent}}>{r.modelNo}</td><td style={{...TD,fontWeight:800,color:T.err,textAlign:"center"}}>{r.qty}</td><td style={{...TD,fontSize:FS-2}}>{r.note||"—"}</td><td style={{...TD,fontSize:FS-3,color:T.textMut}}>{r.createdBy||"—"}</td></tr>)}
+          {filteredRet.length>20&&<tr><td colSpan={7} style={{...TD,textAlign:"center",color:T.textMut}}>{"... و "+(filteredRet.length-20)+" مرتجع آخر"}</td></tr>}
+          <tr style={{background:T.err+"08"}}><td colSpan={4} style={{...TD,fontWeight:800}}>اجمالي المرتجعات</td><td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:T.err}}>{totalRetQty}</td><td colSpan={2} style={TD}></td></tr>
+        </tbody></table></div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد مرتجعات بهذا الفلتر</div>}
+      </Card>})()}
     {/* ── Sales Audits Section ── */}
     <Card title={"📋 جرد المبيعات ("+audits.length+")"} style={{marginBottom:16}}>
       {sortedAudits.length>0?<div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -4515,6 +4560,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
       const total=qrSale.items.reduce((s,it)=>s+(Number(it.qty)||0),0);
       const updateQty=(idx,v)=>setQrSale(p=>{const items=[...p.items];items[idx]={...items[idx],qty:Math.max(0,Number(v)||0)};return{...p,items}});
       const removeItem=(idx)=>setQrSale(p=>({...p,items:p.items.filter((_,i)=>i!==idx)}));
+      const closeQrSale=()=>{try{const v=document.getElementById("qr-sale-video");if(v&&v.srcObject)v.srcObject.getTracks().forEach(t=>t.stop())}catch(e){}setQrScanActive(false);setQrSale(null)};
       const confirmSale=()=>{if(!qrSale.custId||total<=0)return;const cust=customers.find(c=>c.id===qrSale.custId);if(!cust)return;
         /* Group by orderId */
         const byOrder={};qrSale.items.forEach(it=>{if(!byOrder[it.orderId])byOrder[it.orderId]=0;byOrder[it.orderId]+=(Number(it.qty)||0)});
@@ -4526,9 +4572,9 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
         }else{/* Register returns */
           Object.entries(byOrder).forEach(([oid,qty])=>{updOrder(oid,o=>{if(!o.customerReturns)o.customerReturns=[];o.customerReturns.push({custId:qrSale.custId,custName:cust.name,qty,note:qrSale.note||"مرتجع سريع",date:new Date().toISOString().split("T")[0],createdBy:userName})})});
           playBeep("done");showToast("✓ تم تسجيل مرتجع "+total+" قطعة من "+cust.name)
-        }setQrSale(null)};
+        }closeQrSale()};
       /* Customer picker */
-      if(!qrSale.custId)return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setQrSale(null)}>
+      if(!qrSale.custId)return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={closeQrSale}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:450,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{fontSize:FS+2,fontWeight:800,color,marginBottom:12}}>{title+" — اختر العميل"}</div>
           <div style={{display:"flex",flexDirection:"column",gap:4}}>
@@ -4541,17 +4587,17 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
       </div>;
       /* Scanner + items */
       const custName=customers.find(c=>c.id===qrSale.custId)?.name||"";
-      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setQrSale(null)}>
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={closeQrSale}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?420:550,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div><div style={{fontSize:FS+2,fontWeight:800,color}}>{title}</div><div style={{fontSize:FS-1,color:T.textMut}}>{custName}</div></div>
-            <div style={{display:"flex",gap:4}}><Btn ghost small onClick={()=>setQrSale(p=>({...p,custId:null}))}>← تغيير</Btn><Btn ghost small onClick={()=>setQrSale(null)} title="إغلاق">✕</Btn></div>
+            <div style={{display:"flex",gap:4}}><Btn ghost small onClick={()=>setQrSale(p=>({...p,custId:null}))}>← تغيير</Btn><Btn ghost small onClick={closeQrSale} title="إغلاق">✕</Btn></div>
           </div>
           {qrScanActive?<div style={{marginBottom:12}}>
             <div style={{position:"relative",width:"100%",maxWidth:300,margin:"0 auto",borderRadius:12,overflow:"hidden",background:"#000"}}>
               <video id="qr-sale-video" playsInline muted autoPlay style={{width:"100%",display:"block"}}/>
               <canvas id="qr-sale-canvas" style={{display:"none"}}/>
-              <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",width:160,height:160,border:"2px solid "+color,borderRadius:12,boxShadow:"0 0 0 999px rgba(0,0,0,0.4)"}}/>
+              <div style={{position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",width:160,height:160,border:"2px solid "+color,borderRadius:12,boxShadow:"0 0 0 999px rgba(0,0,0,0.4)"}}/>
             </div>
             <div style={{textAlign:"center",marginTop:8}}><Btn small onClick={()=>{setQrScanActive(false);try{const v=document.getElementById("qr-sale-video");if(v&&v.srcObject)v.srcObject.getTracks().forEach(t=>t.stop())}catch(e){}}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>⏹ إيقاف الماسح</Btn></div></div>
           :<div style={{textAlign:"center",marginBottom:12}}><Btn onClick={()=>{setQrScanActive(true);setTimeout(()=>{const startCam=async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:640}}});
@@ -4576,7 +4622,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
           </div>}
           {!isSale&&<div style={{marginBottom:10}}><Inp value={qrSale.note||""} onChange={v=>setQrSale(p=>({...p,note:v}))} placeholder="سبب المرتجع..."/></div>}
           <div style={{display:"flex",gap:8,justifyContent:"center"}}>
-            <Btn ghost onClick={()=>setQrSale(null)}>الغاء</Btn>
+            <Btn ghost onClick={closeQrSale}>الغاء</Btn>
             <Btn onClick={confirmSale} disabled={total<=0} style={{background:color,color:"#fff",border:"none",fontWeight:700}}>{(isSale?"📦 تأكيد البيع":"↩️ تأكيد المرتجع")+" ("+total+")"}</Btn>
           </div>
         </div>
@@ -4628,6 +4674,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>اسم العميل *</label><Inp value={cName} onChange={setCName} placeholder="الاسم بالكامل..."/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رقم التليفون *</label><Inp value={cPhone} onChange={setCPhone} placeholder="01xxxxxxxxx"/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع العميل</label><Sel value={cType} onChange={setCType}><option value="مكتب">🏢 مكتب</option><option value="محل">🏪 محل</option><option value="أونلاين">🌐 أونلاين</option><option value="أخرى">📦 أخرى</option></Sel></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>العنوان</label><Inp value={cAddr} onChange={setCAddr} placeholder="اختياري..."/></div>
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setShowCustForm(false)}>الغاء</Btn><Btn primary onClick={saveCust} title="حفظ التعديلات">💾 حفظ</Btn></div>
         </div>
