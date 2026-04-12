@@ -482,13 +482,13 @@ const TDL={...TD,color:T.textSec,width:80,whiteSpace:"nowrap"};
 
 function Badge({t,cards}){const col=getStatusColor(t,cards);return<span style={{padding:"5px 14px",borderRadius:20,fontSize:FS-2,fontWeight:600,background:col+"18",color:col,border:"1px solid "+col+"30"}}>{t}</span>}
 
-function Btn({children,on,primary,danger,ghost,onClick,small,disabled,style:sx}){
+function Btn({children,on,primary,danger,ghost,onClick,small,disabled,style:sx,title}){
   let bg=T.cardSolid,fg=T.text,bd="1px solid "+T.brd;
   if(on||primary){bg="linear-gradient(135deg,"+T.accent+","+T.accent+"CC)";fg="#fff";bd="none"}
   if(danger){bg=T.err+"12";fg=T.err;bd="1px solid "+T.err+"30"}
   if(ghost){bg="transparent";bd="none";fg=T.textSec}
   const mob=typeof window!=="undefined"&&window.innerWidth<768;
-  return<button onClick={onClick} disabled={disabled} style={{padding:small?(mob?"6px 12px":"4px 10px"):(mob?"9px 18px":"7px 16px"),borderRadius:8,fontSize:small?FS-2:FS,fontWeight:600,background:bg,color:fg,border:bd,cursor:disabled?"default":"pointer",fontFamily:"inherit",opacity:disabled?0.5:1,boxShadow:primary?"0 2px 8px "+T.accent+"33":"none",minHeight:mob?36:undefined,...(sx||{})}}>{children}</button>
+  return<button onClick={onClick} disabled={disabled} title={title} style={{padding:small?(mob?"6px 12px":"4px 10px"):(mob?"9px 18px":"7px 16px"),borderRadius:8,fontSize:small?FS-2:FS,fontWeight:600,background:bg,color:fg,border:bd,cursor:disabled?"default":"pointer",fontFamily:"inherit",opacity:disabled?0.5:1,boxShadow:primary?"0 2px 8px "+T.accent+"33":"none",minHeight:mob?36:undefined,...(sx||{})}}>{children}</button>
 }
 
 function safeCalc(expr){try{const clean=expr.replace(/[^0-9+\-*/.() ]/g,"");if(!clean)return null;return new Function("return "+clean)()}catch(e){return null}}
@@ -549,7 +549,7 @@ function PBar({value,color}){return<div style={{height:6,borderRadius:3,backgrou
 function DelBtn({onConfirm,label,blocked}){
   const[confirm,setConfirm]=useState(false);const[showBlock,setShowBlock]=useState(false);
   if(showBlock)return<div style={{display:"inline-flex",gap:4,alignItems:"center",flexWrap:"wrap"}}><span style={{fontSize:FS-3,color:T.err,fontWeight:600,maxWidth:200}}>{"⚠️ "+blocked}</span><Btn ghost small onClick={()=>setShowBlock(false)}>✓</Btn></div>;
-  if(confirm)return<div style={{display:"inline-flex",gap:4,alignItems:"center"}}><Btn danger small onClick={()=>{onConfirm();setConfirm(false)}}>✓ تأكيد</Btn><Btn ghost small onClick={()=>setConfirm(false)}>✕</Btn></div>;
+  if(confirm)return<div style={{display:"inline-flex",gap:4,alignItems:"center"}}><Btn danger small onClick={()=>{onConfirm();setConfirm(false)}}>✓ تأكيد</Btn><Btn ghost small onClick={()=>setConfirm(false)} title="إغلاق">✕</Btn></div>;
   return<Btn danger small onClick={()=>blocked?setShowBlock(true):setConfirm(true)}>{label||"🗑️"}</Btn>
 }
 
@@ -608,7 +608,7 @@ function AccPicker({accItems,dbAcc,onChange}){
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:20,width:"100%",maxWidth:450,maxHeight:"70vh",overflow:"auto",border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
           <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>اختر بنود الاكسسوار</div>
-          <Btn ghost small onClick={()=>setShowPick(false)}>✕</Btn>
+          <Btn ghost small onClick={()=>setShowPick(false)} title="إغلاق">✕</Btn>
         </div>
         {available.length>0?<div style={{display:"flex",flexDirection:"column",gap:6}}>
           {available.map(a=><div key={a.id} onClick={()=>togglePick(a.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,cursor:"pointer",background:picked[a.id]?T.accent+"12":T.bg,border:"1.5px solid "+(picked[a.id]?T.accent:T.brd),transition:"all 0.15s"}}>
@@ -947,7 +947,7 @@ export default function App(){
     {/* Top Bar */}
     <div style={{padding:isMob?"8px 10px":"12px 28px",background:T.cardSolid,borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
       <div style={{display:"flex",alignItems:"center",gap:isMob?6:10}}>
-        {tab!=="home"&&<div onClick={goHome} style={{cursor:"pointer",fontSize:isMob?22:28,color:T.accent,padding:isMob?"4px 8px":"6px 12px",borderRadius:10,background:T.accentBg,lineHeight:1}}>{"⌂"}</div>}
+        {tab!=="home"&&<div onClick={goHome} title="الصفحة الرئيسية" style={{cursor:"pointer",fontSize:isMob?22:28,color:T.accent,padding:isMob?"4px 8px":"6px 12px",borderRadius:10,background:T.accentBg,lineHeight:1}}>{"⌂"}</div>}
         <img src={config.logo||CLARK_LOGO} alt="CLARK" style={{height:isMob?22:28,objectFit:"contain"}}/>
         <span style={{fontSize:isMob?10:FS-1,color:T.textSec,padding:"2px 8px",background:T.accentBg,borderRadius:6}}>{season}</span>
         <span style={{fontSize:isMob?9:FS-2,padding:"2px 8px",borderRadius:6,fontWeight:700,background:justReconnected?"#10B98118":isOnline?"#10B98108":"#EF444418",color:justReconnected?"#10B981":isOnline?"#10B981":"#EF4444",transition:"all 0.5s"}}>{justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}</span>
@@ -984,7 +984,7 @@ export default function App(){
         </div>}
         {/* Alerts Bell */}
         <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
-          <div onClick={()=>setShowAlerts(!showAlerts)} style={{cursor:"pointer",fontSize:isMob?18:22,padding:"2px 6px",borderRadius:8,background:alertCount>0?T.warn+"12":"transparent",position:"relative"}}>🔔
+          <div onClick={()=>setShowAlerts(!showAlerts)} title="التنبيهات والإشعارات" style={{cursor:"pointer",fontSize:isMob?18:22,padding:"2px 6px",borderRadius:8,background:alertCount>0?T.warn+"12":"transparent",position:"relative"}}>🔔
             {alertCount>0&&<span style={{position:"absolute",top:-2,left:-2,width:16,height:16,borderRadius:8,background:T.err,color:"#fff",fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>{alertCount}</span>}
           </div>
           {showAlerts&&<><div onClick={()=>setShowAlerts(false)} style={{position:"fixed",inset:0,zIndex:998}}/><div style={{position:"absolute",top:"100%",left:0,marginTop:6,width:isMob?280:340,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:12,boxShadow:"0 8px 30px rgba(0,0,0,0.15)",zIndex:999,maxHeight:400,overflow:"auto"}}>
@@ -1075,7 +1075,7 @@ export default function App(){
                     <div style={{display:"flex",gap:3,marginBottom:6}}>{COLORS.map(c=><div key={c.key} onClick={()=>setStickyForm(p=>({...p,color:c.key}))} style={{width:16,height:16,borderRadius:4,background:c.key,border:stickyForm.color===c.key?"2px solid "+c.border:"1px solid #ccc",cursor:"pointer"}}/>)}</div>
                     <input value={stickyForm.title} onChange={e=>setStickyForm(p=>({...p,title:e.target.value}))} placeholder="العنوان..." style={{width:"100%",padding:"4px 8px",borderRadius:6,border:"1px solid #ddd",fontSize:FS-1,fontFamily:"inherit",fontWeight:700,background:"rgba(255,255,255,0.6)",marginBottom:4,boxSizing:"border-box"}}/>
                     <textarea value={stickyForm.text} onChange={e=>setStickyForm(p=>({...p,text:e.target.value}))} placeholder="ملاحظة..." rows={2} style={{width:"100%",padding:"4px 8px",borderRadius:6,border:"1px solid #ddd",fontSize:FS-2,fontFamily:"inherit",background:"rgba(255,255,255,0.6)",resize:"none",boxSizing:"border-box"}}/>
-                    <div style={{display:"flex",gap:4,marginTop:6}}><Btn primary small onClick={()=>{if(!stickyForm.title?.trim()&&!stickyForm.text?.trim())return;saveNote(stickyForm)}}>💾</Btn><Btn ghost small onClick={()=>setStickyForm(null)}>✕</Btn></div>
+                    <div style={{display:"flex",gap:4,marginTop:6}}><Btn primary small onClick={()=>{if(!stickyForm.title?.trim()&&!stickyForm.text?.trim())return;saveNote(stickyForm)}} title="حفظ">💾</Btn><Btn ghost small onClick={()=>setStickyForm(null)} title="إغلاق">✕</Btn></div>
                   </div>}
                   <div style={{display:"flex",flexDirection:"column",gap:6}}>
                     {myNotes.map(n=>{const bc=COLORS.find(c=>c.key===n.color);return<div key={n.id} style={{background:n.color||"#FEF9C3",borderRadius:10,padding:"8px 10px",border:"1px solid "+(bc?.border||"#EAB308")+"30",boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}}>
@@ -1134,7 +1134,7 @@ export default function App(){
                 {perm==="view"&&<div style={{position:"absolute",top:6,left:6,fontSize:9,padding:"1px 6px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
               </div>})}
             </div>
-            <div onClick={()=>setShowScanner(true)} style={{margin:"16px auto 0",display:"flex",justifyContent:"center"}}><div style={{background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",borderRadius:14,padding:"14px 30px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,boxShadow:"0 4px 20px rgba(14,165,233,0.3)"}}><span style={{fontSize:24}}>📷</span><span style={{fontSize:FS+1,fontWeight:700,color:"#fff"}}>مسح كود QR</span></div></div>
+            <div onClick={()=>setShowScanner(true)} style={{margin:"16px auto 0",display:"flex",justifyContent:"center"}}><div style={{background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",borderRadius:14,padding:"14px 30px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,boxShadow:"0 4px 20px rgba(14,165,233,0.3)"}}><span style={{fontSize:24}} title="فتح كاميرا QR">📷</span><span style={{fontSize:FS+1,fontWeight:700,color:"#fff"}}>مسح كود QR</span></div></div>
             {(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
               return myTasks.length>0&&<div style={{marginTop:16}}>
                 <div style={{background:"#FEF9C3",borderRadius:16,border:"1px solid #EAB30830",padding:14,boxShadow:"0 2px 8px rgba(234,179,8,0.08)"}}>
@@ -1233,7 +1233,7 @@ export default function App(){
       </div>
     </div>}
     {showScanner&&<QRScanner onClose={()=>setShowScanner(false)} onScan={url=>{setShowScanner(false);try{const u=new URL(url);const p=new URLSearchParams(u.search);if(p.get("o")){const o=orders.find(x=>x.modelNo===p.get("o"));if(o)goD(o.id)}else if(p.get("act")==="rcv"&&p.get("oid")){setTab("external");setTimeout(()=>{window.__qrReceive={oid:p.get("oid"),wdi:Number(p.get("wdi"))||0};window.dispatchEvent(new Event("qr-receive"))},600)}else if(p.get("act")==="stock"&&p.get("oid")){const o=orders.find(x=>x.id===p.get("oid"));if(o){goD(o.id);setTimeout(()=>{window.__qrStock=true;window.dispatchEvent(new Event("qr-stock"))},800)}}else if(p.get("act")==="wsacc"&&p.get("ws")){setTab("external");setTimeout(()=>{window.__qrWsAcc={ws:decodeURIComponent(p.get("ws"))};window.dispatchEvent(new Event("qr-wsacc"))},600)}else{showToast("QR غير معروف")}}catch(e){showToast("QR غير صالح")}}}/>}
-    {cardPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setCardPopup(null)}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:isMob?500:650,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><div style={{fontSize:FS+2,fontWeight:800,color:cardPopup.color}}>{cardPopup.title}</div><Btn ghost small onClick={()=>setCardPopup(null)}>✕</Btn></div><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th style={TH}>البيان</th>{cardPopup.details?.[0]?.desc!==undefined&&<th style={TH}>الوصف</th>}<th style={TH}>الكمية</th></tr></thead><tbody>{(cardPopup.details||[]).map((d,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={{...TD,fontWeight:700,color:cardPopup.color}}>{d.model}</td>{d.desc!==undefined&&<td style={TD}>{d.desc}</td>}<td style={{...TD,textAlign:"center",fontWeight:800}}>{fmt(d.qty)}</td></tr>)}<tr style={{background:cardPopup.color+"10"}}><td style={{...TD,fontWeight:800}} colSpan={cardPopup.details?.[0]?.desc!==undefined?2:1}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:cardPopup.color}}>{fmt((cardPopup.details||[]).reduce((s,d)=>s+(Number(d.qty)||0),0))}</td></tr></tbody></table></div></div>}
+    {cardPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setCardPopup(null)}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:isMob?500:650,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><div style={{fontSize:FS+2,fontWeight:800,color:cardPopup.color}}>{cardPopup.title}</div><Btn ghost small onClick={()=>setCardPopup(null)} title="إغلاق">✕</Btn></div><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th style={TH}>البيان</th>{cardPopup.details?.[0]?.desc!==undefined&&<th style={TH}>الوصف</th>}<th style={TH}>الكمية</th></tr></thead><tbody>{(cardPopup.details||[]).map((d,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={{...TD,fontWeight:700,color:cardPopup.color}}>{d.model}</td>{d.desc!==undefined&&<td style={TD}>{d.desc}</td>}<td style={{...TD,textAlign:"center",fontWeight:800}}>{fmt(d.qty)}</td></tr>)}<tr style={{background:cardPopup.color+"10"}}><td style={{...TD,fontWeight:800}} colSpan={cardPopup.details?.[0]?.desc!==undefined?2:1}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:cardPopup.color}}>{fmt((cardPopup.details||[]).reduce((s,d)=>s+(Number(d.qty)||0),0))}</td></tr></tbody></table></div></div>}
     {labelPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setLabelPopup(null)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:320,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",textAlign:"center"}}>
         <div style={{fontSize:18,fontWeight:800,color:T.text,marginBottom:4}}>{"🏷️ "+labelPopup.arrow+" "+labelPopup.title}</div>
@@ -1250,8 +1250,8 @@ export default function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           <div style={{fontSize:FS+1,fontWeight:800,color:wsAccPopup.color}}>{wsAccPopup.title}</div>
           <div style={{display:"flex",gap:4}}>
-            <Btn small onClick={()=>{const el=document.getElementById("ws-acc-popup-tbl");if(el)printPage(wsAccPopup.title,el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
-            <Btn ghost small onClick={()=>setWsAccPopup(null)}>✕</Btn>
+            <Btn small onClick={()=>{const el=document.getElementById("ws-acc-popup-tbl");if(el)printPage(wsAccPopup.title,el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>
+            <Btn ghost small onClick={()=>setWsAccPopup(null)} title="إغلاق">✕</Btn>
           </div>
         </div>
         <div id="ws-acc-popup-tbl"><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th style={TH}>#</th><th style={TH}>الورشة</th><th style={TH}>المبلغ</th></tr></thead><tbody>
@@ -1468,7 +1468,7 @@ function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,setCardPo
     });wasteRows.sort((a,b)=>b.waste-a.waste);
       const totalWaste=wasteRows.reduce((s,w)=>s+w.waste,0);const totalCut=wasteRows.reduce((s,w)=>s+w.cut,0);const totalRcv=wasteRows.reduce((s,w)=>s+w.rcv,0);const avgPct=totalCut?Math.round(((totalCut-totalRcv)/totalCut)*100):0;
       const printWaste=()=>{let h="<h2 style='text-align:center'>📉 تقرير الفاقد</h2><table><thead><tr><th>الموديل</th><th>القطعة</th><th>القص</th><th>المستلم</th><th>الفاقد</th><th>النسبة</th></tr></thead><tbody>";wasteRows.forEach(w=>{h+="<tr><td style='font-weight:700'>"+w.modelNo+"</td><td>"+w.piece+"</td><td>"+w.cut+"</td><td style='color:#10B981'>"+w.rcv+"</td><td style='color:#EF4444;font-weight:700'>"+w.waste+"</td><td>"+ w.pct+"%</td></tr>"});h+="<tr style='background:#FEF2F2;font-weight:800'><td colspan='2'>الاجمالي</td><td>"+fmt(totalCut)+"</td><td style='color:#10B981'>"+fmt(totalRcv)+"</td><td style='color:#EF4444'>"+fmt(totalWaste)+"</td><td>"+avgPct+"%</td></tr></tbody></table><div style='margin-top:12px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:8px'>CLARK Factory Management</div>";printPage("تقرير الفاقد",h)};
-      return wasteRows.length>0&&<Card title={"📉 تقرير الفاقد ("+wasteRows.length+")"} style={{marginTop:16}} extra={<Btn small onClick={printWaste} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>}>
+      return wasteRows.length>0&&<Card title={"📉 تقرير الفاقد ("+wasteRows.length+")"} style={{marginTop:16}} extra={<Btn small onClick={printWaste} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>}>
         <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","القطعة","القص","المستلم","الفاقد","النسبة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
         <tbody>{wasteRows.map((w,i)=><tr key={i}><td style={TDB}>{w.modelNo}</td><td style={{...TD,color:"#8B5CF6",fontWeight:600}}>{w.piece}</td><td style={TDB}>{w.cut}</td><td style={{...TDB,color:T.ok}}>{w.rcv}</td><td style={{...TDB,color:T.err}}>{w.waste}</td><td style={{...TDB,color:w.pct>5?T.err:T.warn}}>{w.pct+"%"}</td></tr>)}
         <tr style={{background:T.err+"06"}}><td colSpan={2} style={{...TD,fontWeight:800}}>الاجمالي</td><td style={TDB}>{fmt(totalCut)}</td><td style={{...TDB,color:T.ok}}>{fmt(totalRcv)}</td><td style={{...TDB,color:T.err,fontSize:FS+1}}>{fmt(totalWaste)}</td><td style={{...TDB,color:T.err}}>{avgPct+"%"}</td></tr>
@@ -1487,7 +1487,7 @@ function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,setCardPo
         const tDel=wsComp.reduce((s,w)=>s+w.del,0);const tRcv=wsComp.reduce((s,w)=>s+w.rcv,0);const tWaste=wsComp.reduce((s,w)=>s+w.waste,0);const tAmt=wsComp.reduce((s,w)=>s+w.totalAmt,0);const tBal=wsComp.reduce((s,w)=>s+w.balance,0);
         const printComp=()=>{let h="<h2 style='text-align:center'>📊 تقرير مقارنة الورش</h2><table><thead><tr><th>الورشة</th><th>النوع</th><th>تسليم</th><th>استلام</th><th>فاقد</th><th>نسبة</th><th>المستحق</th><th>رصيد حالي</th></tr></thead><tbody>";wsComp.forEach(w=>{h+="<tr><td style='font-weight:700'>"+w.name+"</td><td>"+wsTypeInfo(w.type).key+"</td><td>"+w.del+"</td><td style='color:#10B981'>"+w.rcv+"</td><td style='color:#EF4444'>"+w.waste+"</td><td>"+w.wastePct+"%</td><td>"+fmt(r2(w.totalAmt))+"</td><td style='color:"+(w.balance>0?"#EF4444":"#10B981")+"'>"+fmt(r2(w.balance))+"</td></tr>"});h+="<tr style='background:#EFF6FF;font-weight:800'><td colspan='2'>الاجمالي</td><td>"+fmt(tDel)+"</td><td style='color:#10B981'>"+fmt(tRcv)+"</td><td style='color:#EF4444'>"+fmt(tWaste)+"</td><td>"+(tDel?Math.round((tWaste/tDel)*100):0)+"%</td><td>"+fmt(r2(tAmt))+"</td><td style='color:"+(tBal>0?"#EF4444":"#10B981")+"'>"+fmt(r2(tBal))+"</td></tr></tbody></table><div style='margin-top:12px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:8px'>CLARK Factory Management</div>";printPage("تقرير مقارنة الورش",h)};
         return wsComp.length>0?<div>
-          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}><Btn small onClick={printComp} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨 طباعة</Btn></div>
+          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}><Btn small onClick={printComp} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨 طباعة</Btn></div>
           <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الورشة","النوع","تسليم","استلام","فاقد","نسبة","المستحق","الرصيد"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
         <tbody>{wsComp.map(w=><tr key={w.name}><td style={{...TD,fontWeight:700}}>{w.name}</td><td style={{...TD,fontSize:FS-2}}>{wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key}</td><td style={TDB}>{w.del}</td><td style={{...TDB,color:T.ok}}>{w.rcv}</td><td style={{...TDB,color:w.waste>0?T.err:T.ok}}>{w.waste}</td><td style={{...TDB,color:w.wastePct>5?T.err:T.warn}}>{w.wastePct+"%"}</td><td style={{...TDB,color:T.accent}}>{fmt(r2(w.totalAmt))}</td><td style={{...TDB,color:w.balance>0?T.err:T.ok}}>{fmt(r2(w.balance))}</td></tr>)}
         <tr style={{background:T.accent+"06"}}><td colSpan={2} style={{...TD,fontWeight:800}}>الاجمالي</td><td style={TDB}>{fmt(tDel)}</td><td style={{...TDB,color:T.ok}}>{fmt(tRcv)}</td><td style={{...TDB,color:T.err}}>{fmt(tWaste)}</td><td style={{...TDB,color:T.err}}>{(tDel?Math.round((tWaste/tDel)*100):0)+"%"}</td><td style={{...TDB,color:T.accent}}>{fmt(r2(tAmt))}</td><td style={{...TDB,color:tBal>0?T.err:T.ok}}>{fmt(r2(tBal))}</td></tr>
@@ -1513,7 +1513,7 @@ function DBPg({data,upConfig,isMob,canEdit,statusCards,initialSub,onSubUsed,rena
   const saveGarment=()=>{if(!gName.trim())return;const oldName=gEid?(data.garmentTypes||[]).find(x=>x.id===gEid)?.name:null;upConfig(d=>{if(!d.garmentTypes)d.garmentTypes=[];if(gEid){const idx=d.garmentTypes.findIndex(x=>x.id===gEid);if(idx>=0){d.garmentTypes[idx].name=gName.trim();d.garmentTypes[idx].icon=gIconSel;d.garmentTypes[idx].defaultPrice=Number(gPrice)||0}}else{d.garmentTypes.push({id:Date.now(),name:gName.trim(),icon:gIconSel,defaultPrice:Number(gPrice)||0})}});if(oldName&&oldName!==gName.trim())renameInOrders("garment",oldName,gName.trim());setGName("");setGEid(null);setGIconSel("👕");setGPrice("")};
   const saveStatus=()=>{if(!stName.trim())return;const oldName=stEid?(statusCards||[]).find(x=>x.id===stEid)?.name:null;upConfig(d=>{if(!d.statusCards)d.statusCards=[...DEFAULT_STATUSES];if(stEid){const idx=d.statusCards.findIndex(x=>x.id===stEid);if(idx>=0){d.statusCards[idx].name=stName.trim();d.statusCards[idx].color=stColor}}else{d.statusCards.push({id:Date.now(),name:stName.trim(),color:stColor})}});if(oldName&&oldName!==stName.trim())renameInOrders("status",oldName,stName.trim());setStName("");setStColor("#0EA5E9");setStEid(null)};
 
-  const eBtn=(onClick)=><Btn small onClick={onClick} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>;
+  const eBtn=(onClick)=><Btn small onClick={onClick} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>;
   const ords=data.orders||[];
   const fabBlock=(f)=>ords.some(o=>FKEYS.some(k=>Number(o["fabric"+k])===f.id))?"مستخدم في أوردرات":null;
   const accBlock=(a)=>ords.some(o=>(o.accItems||[]).some(x=>x.name===a.name))?"مستخدم في أوردرات":null;
@@ -1531,7 +1531,7 @@ function DBPg({data,upConfig,isMob,canEdit,statusCards,initialSub,onSubUsed,rena
           <div><label style={{fontSize:FS-2,color:T.textSec}}>الوحدة</label><Sel value={ff.unit} onChange={v=>setFf({...ff,unit:v})}><option value="كيلو">كيلو</option><option value="متر">متر</option><option value="يارد">يارد</option></Sel></div>
           <div><label style={{fontSize:FS-2,color:T.textSec}}>السعر</label><Inp value={ff.price} onChange={v=>setFf({...ff,price:v})} type="number"/></div>
         </div>
-        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setFf({name:"",unit:"كيلو",price:"",_eid:null,_show:false})}>الغاء</Btn><Btn primary onClick={()=>{saveFab();setFf({name:"",unit:"كيلو",price:"",_eid:null,_show:false})}}>💾 حفظ</Btn></div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setFf({name:"",unit:"كيلو",price:"",_eid:null,_show:false})}>الغاء</Btn><Btn primary onClick={()=>{saveFab();setFf({name:"",unit:"كيلو",price:"",_eid:null,_show:false})}} title="حفظ التعديلات">💾 حفظ</Btn></div>
       </div>
     </div></div>}</>}
     {sub==="acc"&&<><Card title="تشغيل + اكسسوار" extra={canEdit&&<Btn primary small onClick={()=>setAf({name:"",unit:"قطعة",price:"",_eid:null,_show:true})}>+ اضافة</Btn>}>
@@ -1544,7 +1544,7 @@ function DBPg({data,upConfig,isMob,canEdit,statusCards,initialSub,onSubUsed,rena
           <div><label style={{fontSize:FS-2,color:T.textSec}}>الوحدة</label><Sel value={af.unit} onChange={v=>setAf({...af,unit:v})}><option value="قطعة">قطعة</option><option value="متر">متر</option></Sel></div>
           <div><label style={{fontSize:FS-2,color:T.textSec}}>السعر</label><Inp value={af.price} onChange={v=>setAf({...af,price:v})} type="number"/></div>
         </div>
-        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setAf({name:"",unit:"قطعة",price:"",_eid:null,_show:false})}>الغاء</Btn><Btn primary onClick={()=>{saveAcc();setAf({name:"",unit:"قطعة",price:"",_eid:null,_show:false})}}>💾 حفظ</Btn></div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setAf({name:"",unit:"قطعة",price:"",_eid:null,_show:false})}>الغاء</Btn><Btn primary onClick={()=>{saveAcc();setAf({name:"",unit:"قطعة",price:"",_eid:null,_show:false})}} title="حفظ التعديلات">💾 حفظ</Btn></div>
       </div>
     </div></div>}</>}
     {sub==="size"&&<><Card title="المقاسات" extra={canEdit&&<Btn primary small onClick={()=>setSfld({label:"",pcs:0,_eid:null,_show:true})}>+ اضافة</Btn>}>
@@ -1554,7 +1554,7 @@ function DBPg({data,upConfig,isMob,canEdit,statusCards,initialSub,onSubUsed,rena
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         <div><label style={{fontSize:FS-2,color:T.textSec}}>المقاسات</label><Inp value={sfld.label} onChange={v=>setSfld({...sfld,label:v})} placeholder="S-M-L-XL"/></div>
         <div><label style={{fontSize:FS-2,color:T.textSec}}>قطع/سيري</label><Inp type="number" value={sfld.pcs||""} onChange={v=>setSfld({...sfld,pcs:Number(v)||0})}/></div>
-        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setSfld({label:"",pcs:0,_eid:null,_show:false})}>الغاء</Btn><Btn primary onClick={()=>{saveSize();setSfld({label:"",pcs:0,_eid:null,_show:false})}}>💾 حفظ</Btn></div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setSfld({label:"",pcs:0,_eid:null,_show:false})}>الغاء</Btn><Btn primary onClick={()=>{saveSize();setSfld({label:"",pcs:0,_eid:null,_show:false})}} title="حفظ التعديلات">💾 حفظ</Btn></div>
       </div>
     </div></div>}</>}
     {sub==="garment"&&<><Card title="قطع الموديل" extra={canEdit&&<Btn primary small onClick={()=>{setGName("");setGEid(null);setGIconSel("👕");setGShow(true)}}>+ اضافة</Btn>}>
@@ -1569,7 +1569,7 @@ function DBPg({data,upConfig,isMob,canEdit,statusCards,initialSub,onSubUsed,rena
           <div><label style={{fontSize:FS-2,color:T.textSec}}>اسم القطعة</label><Inp value={gName} onChange={setGName} placeholder="قميص، شورت..."/></div>
         </div>
         <div><label style={{fontSize:FS-2,color:T.textSec}}>سعر التشغيل الافتراضي (ج.م/قطعة)</label><Inp type="number" value={gPrice} onChange={setGPrice} placeholder="0"/></div>
-        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setGShow(false)}>الغاء</Btn><Btn primary onClick={()=>{saveGarment();setGShow(false)}}>💾 حفظ</Btn></div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setGShow(false)}>الغاء</Btn><Btn primary onClick={()=>{saveGarment();setGShow(false)}} title="حفظ التعديلات">💾 حفظ</Btn></div>
       </div>
     </div></div>}</>}
     {sub==="ws"&&<WsManager workshops={data.workshops||[]} upConfig={upConfig} canEdit={canEdit} isMob={isMob} orders={data.orders} renameInOrders={renameInOrders} wsPayments={data.wsPayments||[]}/>}
@@ -1586,7 +1586,7 @@ function DBPg({data,upConfig,isMob,canEdit,statusCards,initialSub,onSubUsed,rena
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         <div><label style={{fontSize:FS-2,color:T.textSec}}>اسم الحالة</label><Inp value={stName} onChange={setStName}/></div>
         <div><label style={{fontSize:FS-2,color:T.textSec}}>اللون</label><input type="color" value={stColor} onChange={e=>setStColor(e.target.value)} style={{width:"100%",height:40,borderRadius:8,border:"1px solid "+T.brd,cursor:"pointer"}}/></div>
-        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setStShow(false)}>الغاء</Btn><Btn primary onClick={()=>{saveStatus();setStShow(false)}}>💾 حفظ</Btn></div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setStShow(false)}>الغاء</Btn><Btn primary onClick={()=>{saveStatus();setStShow(false)}} title="حفظ التعديلات">💾 حفظ</Btn></div>
       </div>
     </div></div>}</>}
   </div>
@@ -1668,7 +1668,7 @@ function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrders,wsPay
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:600,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{editId?"✏️ تعديل الورشة":"+ ورشة جديدة"}</div>
-          <Btn ghost onClick={()=>{setShowForm(false);setEditId(null)}}>✕</Btn>
+          <Btn ghost onClick={()=>{setShowForm(false);setEditId(null)}} title="إغلاق">✕</Btn>
         </div>
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>اسم الورشة *</label><Inp value={f.name} onChange={v=>setF({...f,name:v})}/></div>
@@ -1687,7 +1687,7 @@ function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrders,wsPay
             <input type="file" accept="image/*" onChange={handleOwnerPhoto} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
           </div>
         </div>
-        <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn ghost onClick={()=>{setShowForm(false);setEditId(null)}}>الغاء</Btn><Btn primary onClick={save}>💾 حفظ</Btn></div>
+        <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn ghost onClick={()=>{setShowForm(false);setEditId(null)}}>الغاء</Btn><Btn primary onClick={save} title="حفظ التعديلات">💾 حفظ</Btn></div>
       </div>
     </div>}
   </div>
@@ -1757,7 +1757,7 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig}){
   </Card>;
 
   const _isDup=initial._isDup;
-  return<><Card title={initial.modelNo?"تعديل الأوردر":_isDup?"تكرار أوردر":"أمر قص جديد"} accent={"linear-gradient(135deg,"+T.accent+","+T.accent+"CC)"} extra={<div style={{display:"flex",gap:8}}>{!initial.modelNo&&!isMob&&!_isDup&&<Btn small onClick={()=>setTplMode(true)} style={{background:"rgba(255,255,255,0.2)",color:"#fff",border:"none"}}>📂 قوالب</Btn>}{!initial.modelNo&&!isMob&&!_isDup&&<Btn small onClick={()=>setCopyMode(true)} style={{background:"rgba(255,255,255,0.2)",color:"#fff",border:"none"}}>نسخ من أوردر</Btn>}{!initial.modelNo&&!isMob&&!_isDup&&data.orders.length>0&&<Btn small onClick={()=>{setDupPopup(true);setDupModelNo("")}} style={{background:"rgba(255,255,255,0.2)",color:"#fff",border:"none"}}>📋 تكرار</Btn>}<Btn small onClick={save} style={{background:"#fff",color:T.accent,border:"none",fontWeight:700}}>حفظ</Btn>{form.fabricA&&!_isDup&&<Btn small onClick={saveTpl} style={{background:"rgba(255,255,255,0.15)",color:"#fff",border:"none"}}>💾 حفظ كقالب</Btn>}<Btn small onClick={handleCancel} style={{background:"rgba(255,255,255,0.3)",color:"#fff",border:"none"}}>الغاء</Btn></div>} style={{marginBottom:20}}>
+  return<><Card title={initial.modelNo?"تعديل الأوردر":_isDup?"تكرار أوردر":"أمر قص جديد"} accent={"linear-gradient(135deg,"+T.accent+","+T.accent+"CC)"} extra={<div style={{display:"flex",gap:8}}>{!initial.modelNo&&!isMob&&!_isDup&&<Btn small onClick={()=>setTplMode(true)} style={{background:"rgba(255,255,255,0.2)",color:"#fff",border:"none"}}>📂 قوالب</Btn>}{!initial.modelNo&&!isMob&&!_isDup&&<Btn small onClick={()=>setCopyMode(true)} style={{background:"rgba(255,255,255,0.2)",color:"#fff",border:"none"}}>نسخ من أوردر</Btn>}{!initial.modelNo&&!isMob&&!_isDup&&data.orders.length>0&&<Btn small onClick={()=>{setDupPopup(true);setDupModelNo("")}} style={{background:"rgba(255,255,255,0.2)",color:"#fff",border:"none"}} title="تكرار الأوردر">📋 تكرار</Btn>}<Btn small onClick={save} style={{background:"#fff",color:T.accent,border:"none",fontWeight:700}}>حفظ</Btn>{form.fabricA&&!_isDup&&<Btn small onClick={saveTpl} style={{background:"rgba(255,255,255,0.15)",color:"#fff",border:"none"}}>💾 حفظ كقالب</Btn>}<Btn small onClick={handleCancel} style={{background:"rgba(255,255,255,0.3)",color:"#fff",border:"none"}}>الغاء</Btn></div>} style={{marginBottom:20}}>
     {errs.length>0&&<div style={{background:T.err+"10",border:"1px solid "+T.err+"30",borderRadius:12,padding:14,marginBottom:16}}>{errs.map((e,i)=><div key={i} style={{color:T.err,fontSize:FS,fontWeight:600,padding:"2px 0"}}>{"* "+e}</div>)}</div>}
     {dupPoPopup&&<div style={{background:T.err+"10",border:"1px solid "+T.err+"30",borderRadius:12,padding:14,marginBottom:16}}>
       <div style={{fontSize:FS+1,fontWeight:800,color:T.err,marginBottom:6}}>⚠️ رقم أمر التشغيل متكرر</div>
@@ -1773,7 +1773,7 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig}){
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الوصف *</label><Inp value={form.modelDesc} onChange={v=>updF("modelDesc",v)}/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>المقاسات *</label><Sel value={form.sizeSetId} onChange={v=>{updF("sizeSetId",v);const ss=data.sizeSets.find(s=>s.id===Number(v));if(ss&&ss.pcsPerSeries){FKEYS.forEach(k=>{const cols=form["colors"+k]||[];if(cols.length>0){const nc=cols.map(c=>(!c.pcsPerLayer||c.pcsPerLayer===0)?{...c,pcsPerLayer:ss.pcsPerSeries,qty:(Number(c.layers)||0)*ss.pcsPerSeries}:c);updF("colors"+k,nc)}})}}}><option value="">-- اختر --</option>{data.sizeSets.map(s=><option key={s.id} value={s.id}>{s.label+(s.pcsPerSeries?" ("+s.pcsPerSeries+" قطعة/سيري)":"")}</option>)}</Sel></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>التاريخ *</label><Inp type="date" value={form.date} onChange={v=>updF("date",v)}/></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الحالة</label><div style={{display:"flex",alignItems:"center",gap:6}}>{editStatusForm?<><Sel value={form.status} onChange={v=>{updF("status",v);setEditStatusForm(false)}}>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel><Btn ghost small onClick={()=>setEditStatusForm(false)}>✕</Btn></>:<><Badge t={form.status} cards={statusCards}/><Btn ghost small onClick={()=>setEditStatusForm(true)} style={{fontSize:FS-3,padding:"2px 8px"}}>✏️</Btn></>}</div></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الحالة</label><div style={{display:"flex",alignItems:"center",gap:6}}>{editStatusForm?<><Sel value={form.status} onChange={v=>{updF("status",v);setEditStatusForm(false)}}>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel><Btn ghost small onClick={()=>setEditStatusForm(false)} title="إغلاق">✕</Btn></>:<><Badge t={form.status} cards={statusCards}/><Btn ghost small onClick={()=>setEditStatusForm(true)} style={{fontSize:FS-3,padding:"2px 8px"}} title="تعديل">✏️</Btn></>}</div></div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 2fr 2fr",gap:6}}>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>قطع الموديل</label><Sel value="" onChange={v=>{if(!v||(form.orderPieces||[]).length>=5)return;updF("orderPieces",[...(form.orderPieces||[]),v])}}>
@@ -1815,7 +1815,7 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig}){
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:380,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           <div style={{fontSize:FS+2,fontWeight:800,color:T.ok}}>{"اضافة خامة سريعة ("+qfab.forKey+")"}</div>
-          <Btn ghost small onClick={()=>setQfab(null)}>✕</Btn>
+          <Btn ghost small onClick={()=>setQfab(null)} title="إغلاق">✕</Btn>
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           <div><label style={{fontSize:FS-2,color:T.textSec}}>اسم الخامة</label><Inp value={qfab.name} onChange={v=>setQfab({...qfab,name:v})} placeholder="مثال: شعييرات مازيراتي"/></div>
@@ -1943,7 +1943,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
   return<div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
       <div style={{display:"flex",alignItems:"center",gap:6}}>
-        <Btn ghost onClick={()=>setSel(null)} style={{fontSize:isMob?16:20}}>✕</Btn>
+        <Btn ghost onClick={()=>setSel(null)} style={{fontSize:isMob?16:20}} title="إغلاق">✕</Btn>
         <div>
           <h1 style={{fontSize:isMob?16:20,fontWeight:800,margin:0}}>{order.poNumber?<>{"أمر تشغيل: "}<span style={{color:T.accent,fontFamily:"monospace"}}>{order.poNumber}</span></>:<>{"أمر تشغيل: "}<span style={{color:T.accent}}>{order.modelNo}</span></>}</h1>
           {order.poNumber&&<div style={{fontSize:FS-1,color:T.textSec,marginTop:2}}>{"موديل: "+order.modelNo+" — "+order.modelDesc}</div>}
@@ -1956,12 +1956,12 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
         <span style={{fontSize:FS-2,color:T.textSec}}>{(curIdx+1)+"/"+sortedIds.length}</span>
         <Btn small onClick={()=>nextId&&setSel(nextId)} disabled={!nextId} style={{fontSize:18,padding:"2px 8px",opacity:nextId?1:0.3}}>←</Btn>
         <div style={{width:1,height:20,background:T.brd,margin:"0 4px"}}/>
-        <Btn small onClick={()=>printOrderSheet(order,t,activeFabs,statusCards)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
-        {canEdit&&!order.closed&&<Btn small primary onClick={()=>setEditing(true)}>✏️</Btn>}
+        <Btn small onClick={()=>printOrderSheet(order,t,activeFabs,statusCards)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨</Btn>
+        {canEdit&&!order.closed&&<Btn small primary onClick={()=>setEditing(true)} title="تعديل">✏️</Btn>}
         <Btn small onClick={async()=>{const lines=["*CLARK — تفاصيل أوردر*","","• رقم الموديل: *"+order.modelNo+"*","• الوصف: "+order.modelDesc,"• المقاسات: "+(order.sizeLabel||"-"),"• كمية القص: *"+t.cutQty+"*","• الحالة: "+order.status,"• مخزن جاهز: *"+(order.deliveredQty||0)+"*"];const text=lines.join("\n");
           if(order.image&&navigator.canShare){try{const res=await fetch(order.image);const blob=await res.blob();const file=new File([blob],order.modelNo+".jpg",{type:blob.type||"image/jpeg"});if(navigator.canShare({files:[file]})){await navigator.share({title:"CLARK — "+order.modelNo,text,files:[file]});return}}catch(e){}}
-          const msg=encodeURIComponent(text);window.open("https://wa.me/?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn>
-        {canEdit&&!order.closed&&<Btn small onClick={()=>{const dup=JSON.parse(JSON.stringify(order));dup.id=gid();dup.date=new Date().toISOString().split("T")[0];dup.createdAt=new Date().toISOString();dup.modelNo="";dup.status="تم القص";dup.deliveredQty=0;dup.deliveries=[];dup.workshopDeliveries=[];dup._isDup=true;delete dup._docId;setDupInit(dup)}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📋 تكرار</Btn>}
+          const msg=encodeURIComponent(text);window.open("https://wa.me/?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال واتساب">📱</Btn>
+        {canEdit&&!order.closed&&<Btn small onClick={()=>{const dup=JSON.parse(JSON.stringify(order));dup.id=gid();dup.date=new Date().toISOString().split("T")[0];dup.createdAt=new Date().toISOString();dup.modelNo="";dup.status="تم القص";dup.deliveredQty=0;dup.deliveries=[];dup.workshopDeliveries=[];dup._isDup=true;delete dup._docId;setDupInit(dup)}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="تكرار الأوردر">📋 تكرار</Btn>}
         {canEdit&&!order.closed&&t.cutQty>0&&activeFabs.length>0&&<Btn small onClick={()=>{setShowDeliver(true);setDWs("");setDType("");setDQty(0);setDPrice("");setDNote("")}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📤 تسليم ورشة</Btn>}
         {canEdit&&!order.closed&&<Btn small onClick={()=>setShowNew(true)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>+ جديد</Btn>}
         {order.closed&&<span style={{padding:"4px 12px",borderRadius:8,background:"#64748B12",color:"#64748B",fontWeight:700,fontSize:FS-1}}>🔒 مغلق</span>}
@@ -1992,7 +1992,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
             <div style={{fontSize:order.poNumber?FS+1:FS+4,fontWeight:700,color:order.poNumber?T.textSec:T.accent}}>{(order.poNumber?"🏷 ":"🏷 ")+order.modelNo}<span style={{fontSize:FS,fontWeight:600,color:T.textSec,marginRight:10}}>{" — "+order.modelDesc}</span></div>
           </div>
           <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><tbody>
-          <tr><td style={TDL}>المقاسات</td><td style={TDB}>{order.sizeLabel}</td><td style={TDL}>الحالة</td><td style={TD}><div style={{display:"flex",alignItems:"center",gap:6}}>{canEdit&&editStatusMode?<><Sel value={order.status} onChange={v=>{updOrder(sel,o=>{o.status=v});setEditStatusMode(false)}}>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel><Btn ghost small onClick={()=>setEditStatusMode(false)}>✕</Btn></>:<><Badge t={order.status} cards={statusCards}/>{canEdit&&<Btn ghost small onClick={()=>setEditStatusMode(true)} style={{fontSize:FS-3,padding:"2px 8px"}}>✏️</Btn>}</>}</div></td></tr>
+          <tr><td style={TDL}>المقاسات</td><td style={TDB}>{order.sizeLabel}</td><td style={TDL}>الحالة</td><td style={TD}><div style={{display:"flex",alignItems:"center",gap:6}}>{canEdit&&editStatusMode?<><Sel value={order.status} onChange={v=>{updOrder(sel,o=>{o.status=v});setEditStatusMode(false)}}>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel><Btn ghost small onClick={()=>setEditStatusMode(false)} title="إغلاق">✕</Btn></>:<><Badge t={order.status} cards={statusCards}/>{canEdit&&<Btn ghost small onClick={()=>setEditStatusMode(true)} style={{fontSize:FS-3,padding:"2px 8px"}} title="تعديل">✏️</Btn>}</>}</div></td></tr>
           <tr><td style={TDL}>التاريخ</td><td style={TD}>{order.date}</td>{order.marker?<><td style={TDL}>ماركر</td><td style={TD}>{order.marker}</td></>:<><td></td><td></td></>}</tr>
         </tbody></table></div></Card>
       </div>
@@ -2058,8 +2058,8 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
               <td style={{...TD,minWidth:100}}>{isEd?<div id="stock-qty-input-wrap"><Inp type="number" value={d.qty} onChange={v=>updOrder(sel,o=>{const totalRcvd=(o.workshopDeliveries||[]).reduce((s,wd)=>(wd.receives||[]).filter(r=>!r.isSettlement).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);const otherDels=o.deliveries.filter((_,j)=>j!==i).reduce((s,x)=>s+(Number(x.qty)||0),0);const maxQ=Math.min(t.cutQty-otherDels,totalRcvd-otherDels);o.deliveries[i].qty=Math.min(Math.max(0,Number(v)||0),Math.max(0,maxQ));o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)})}/></div>:<span style={{fontWeight:700,color:T.accent}}>{d.qty}</span>}</td>
               <td style={{...TD,minWidth:120}}>{isEd?<Inp value={d.notes} onChange={v=>updOrder(sel,o=>{o.deliveries[i].notes=v})} placeholder="ملاحظات"/>:(d.notes||"-")}</td>
               {canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}>
-                {isEd?<><Btn small primary onClick={()=>setEditStockIdx(null)}>💾</Btn><Btn small onClick={()=>{setEditStockIdx(null);printLabel("مخزن جاهز",order,"مخزن جاهز",d.qty,d.date,data.garmentTypes,{type:"deliver",delDate:d.date,delQty:d.qty})}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>🏷️</Btn><Btn danger small onClick={()=>{updOrder(sel,o=>{o.deliveries.splice(i,1);o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)});setEditStockIdx(null)}}>🗑️</Btn></>
-                :<Btn small onClick={()=>setEditStockIdx(i)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>}
+                {isEd?<><Btn small primary onClick={()=>setEditStockIdx(null)} title="حفظ">💾</Btn><Btn small onClick={()=>{setEditStockIdx(null);printLabel("مخزن جاهز",order,"مخزن جاهز",d.qty,d.date,data.garmentTypes,{type:"deliver",delDate:d.date,delQty:d.qty})}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}} title="طباعة ليبل حراري">🏷️</Btn><Btn danger small onClick={()=>{updOrder(sel,o=>{o.deliveries.splice(i,1);o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)});setEditStockIdx(null)}}>🗑️</Btn></>
+                :<Btn small onClick={()=>setEditStockIdx(i)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>}
               </div></td>}
             </tr>})}
             {(!order.deliveries||order.deliveries.length===0)&&<tr><td colSpan={canEdit?5:4} style={{...TD,textAlign:"center",color:T.textSec}}>لا توجد تسليمات</td></tr>}
@@ -2211,7 +2211,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
             <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>{"📤 تسليم "+order.modelNo+" لورشة"}</div>
-            <Btn ghost onClick={()=>setShowDeliver(false)}>✕</Btn>
+            <Btn ghost onClick={()=>setShowDeliver(false)} title="إغلاق">✕</Btn>
           </div>
           <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الورشة *</label><SearchSel value={dWs} onChange={v=>{setDWs(v);setDPrice("")}} options={workshops.map(w=>({value:w.name,label:wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — "+w.name+(w.owner?" - "+w.owner:"")}))} placeholder="ابحث عن ورشة..."/></div>
@@ -2231,8 +2231,8 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
             <Btn ghost onClick={()=>setShowDeliver(false)}>الغاء</Btn>
             <Btn primary onClick={()=>doDeliver(false)} disabled={!dWs||!dType||!dQty}>تسليم وحفظ</Btn>
             <Btn onClick={()=>doDeliver(true)} disabled={!dWs||!dType||!dQty} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>تسليم + طباعة</Btn>
-            <Btn onClick={()=>doDeliver(false,false,true)} disabled={!dWs||!dType||!dQty} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>🏷️ ليبل</Btn>
-            <Btn onClick={()=>doDeliver(false,true)} disabled={!dWs||!dType||!dQty} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱 واتساب</Btn>
+            <Btn onClick={()=>doDeliver(false,false,true)} disabled={!dWs||!dType||!dQty} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}} title="طباعة ليبل حراري">🏷️ ليبل</Btn>
+            <Btn onClick={()=>doDeliver(false,true)} disabled={!dWs||!dType||!dQty} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال عبر واتساب">📱 واتساب</Btn>
           </div>
         </div>
       </div>})()}
@@ -2417,8 +2417,8 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
         <Sel value={movWsF} onChange={setMovWsF}><option value="الكل">كل الورش</option>{workshops.map(w=><option key={w.id||w} value={w.name||w}>{(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+(w.name||w)}</option>)}</Sel>
         <Sel value={movTypeF} onChange={v=>{setMovTypeF(v);setLateChecked({})}}><option value="الكل">كل الحركات</option><option value="deliver">تسليم ورشة</option><option value="receive">استلام مصنع</option><option value="late">⏰ متأخرات</option></Sel>
         <div style={{display:"flex",gap:4}}>
-          <Btn onClick={()=>{const el=document.getElementById("mov-log");if(!el)return;printPage("سجل حركات التشغيل الخارجي",el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd,flex:1}}>🖨 المعروض</Btn>
-          <Btn onClick={()=>{const allH="<table><thead><tr>"+["نوع","التاريخ","الورشة","موديل","الوصف","القطعة","الكمية","السعر","ملاحظات"].map(h=>"<th>"+h+"</th>").join("")+"</tr></thead><tbody>"+movements.map(m=>"<tr style='background:"+(m.type==="deliver"?"#F0FDF4":m.type==="settlement"?"#FEF2F2":"#EFF6FF")+"'><td style='color:"+(m.type==="deliver"?"#10B981":m.type==="settlement"?"#EF4444":"#0EA5E9")+";font-weight:700'>"+(m.type==="deliver"?"تسليم ورشة":m.type==="settlement"?"⚖️ تسوية":"استلام مصنع")+"</td><td>"+m.date+"</td><td>"+m.wsName+"</td><td><b>"+m.orderNo+"</b></td><td>"+(m.orderDesc||"")+"</td><td>"+(m.garmentType||"-")+"</td><td><b>"+m.qty+"</b></td><td>"+(m.price?m.price+" ج.م":"-")+"</td><td>"+(m.notes||"-")+"</td></tr>").join("")+"</tbody></table>";printPage("سجل حركات التشغيل الخارجي (كامل - "+movements.length+" حركة)",allH)}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",flex:1}}>🖨 الكل</Btn>
+          <Btn onClick={()=>{const el=document.getElementById("mov-log");if(!el)return;printPage("سجل حركات التشغيل الخارجي",el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd,flex:1}} title="طباعة الحركات المعروضة">🖨 المعروض</Btn>
+          <Btn onClick={()=>{const allH="<table><thead><tr>"+["نوع","التاريخ","الورشة","موديل","الوصف","القطعة","الكمية","السعر","ملاحظات"].map(h=>"<th>"+h+"</th>").join("")+"</tr></thead><tbody>"+movements.map(m=>"<tr style='background:"+(m.type==="deliver"?"#F0FDF4":m.type==="settlement"?"#FEF2F2":"#EFF6FF")+"'><td style='color:"+(m.type==="deliver"?"#10B981":m.type==="settlement"?"#EF4444":"#0EA5E9")+";font-weight:700'>"+(m.type==="deliver"?"تسليم ورشة":m.type==="settlement"?"⚖️ تسوية":"استلام مصنع")+"</td><td>"+m.date+"</td><td>"+m.wsName+"</td><td><b>"+m.orderNo+"</b></td><td>"+(m.orderDesc||"")+"</td><td>"+(m.garmentType||"-")+"</td><td><b>"+m.qty+"</b></td><td>"+(m.price?m.price+" ج.م":"-")+"</td><td>"+(m.notes||"-")+"</td></tr>").join("")+"</tbody></table>";printPage("سجل حركات التشغيل الخارجي (كامل - "+movements.length+" حركة)",allH)}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",flex:1}} title="طباعة كل الحركات">🖨 الكل</Btn>
         </div>
       </div>
       {(()=>{
@@ -2462,7 +2462,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
       </div>}
       {selArr.length>0&&<div style={{padding:"10px 14px",borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF625",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <span style={{fontWeight:700,color:"#8B5CF6",fontSize:FS}}>{"☑ "+selArr.length+" حركة محددة ("+selArr.reduce((s,m)=>s+(Number(m.qty)||0),0)+" قطعة)"}</span>
-        <div style={{display:"flex",gap:6}}><Btn small onClick={printBatchCombined} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة مجمعة</Btn><Btn small onClick={waBatch} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱 واتساب مجمع</Btn><Btn ghost small onClick={()=>setSelMoves(new Set())}>✕ الغاء</Btn></div>
+        <div style={{display:"flex",gap:6}}><Btn small onClick={printBatchCombined} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة كل الحركات المحددة">🖨 طباعة مجمعة</Btn><Btn small onClick={waBatch} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال واتساب للحركات المحددة">📱 واتساب مجمع</Btn><Btn ghost small onClick={()=>setSelMoves(new Set())} title="إلغاء التحديد">✕ الغاء</Btn></div>
       </div>}
       <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
         <thead><tr>{["☐","نوع الحركة","التاريخ","الورشة","موديل","الوصف","نوع القطعة","الكمية","سعر التشغيل","ملاحظات",""].map(h=><th key={h} style={{...TH,width:h==="☐"?30:"auto"}}>{h==="☐"?<span onClick={()=>{if(selMoves.size===shown.length)setSelMoves(new Set());else setSelMoves(new Set(shown.map((_,i)=>i)))}} style={{cursor:"pointer",fontSize:16}}>{selMoves.size===shown.length&&shown.length>0?"☑":"☐"}</span>:h}</th>)}</tr></thead>
@@ -2479,10 +2479,10 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
           <td style={TD}>{isEditing?<div style={{display:"flex",flexDirection:"column",gap:4}}>{m.type==="receive"&&<Sel value={editQuality} onChange={setEditQuality}>{["ممتاز","جيد جداً","جيد","مقبول","سئ"].map(q=><option key={q} value={q}>{q}</option>)}</Sel>}<Inp value={editNote} onChange={setEditNote} placeholder="ملاحظات" style={{width:100}}/></div>:<>{m.notes||"-"}{m.createdBy&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{"👤 "+m.createdBy}</div>}</>}</td>
           <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
             {isEditing?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>الغاء</Btn></>:<>
-            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
-            <Btn small onClick={()=>{const ord=data.orders.find(o=>o.id===m.orderId);if(!ord)return;const wd=(ord.workshopDeliveries||[])[m.wdIdx];if(!wd)return;if(m.type==="deliver")printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"deliver",delDate:m.date,delQty:m.qty});else{printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"receive",delDate:wd.date,delQty:wd.qty,rcvDate:m.date,rcvQty:m.qty})}}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>🏷️</Btn>
-            <Btn small onClick={()=>{const wsObj=workshops.find(w=>w.name===m.wsName);const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+m.wsName+"*%0A• رقم الموديل: *"+m.orderNo+"*%0A• الوصف: "+m.orderDesc+"%0A• نوع القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"* قطعة%0A• السعر: *"+(m.price||0)+"* ج.م/قطعة%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — اذن استلام من ورشة*%0A%0A• الورشة: *"+m.wsName+"*%0A• رقم الموديل: *"+m.orderNo+"*%0A• الوصف: "+m.orderDesc+"%0A• نوع القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية المستلمة: *"+m.qty+"* قطعة%0A• التاريخ: *"+m.date+"*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn>
-            <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
+            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨</Btn>
+            <Btn small onClick={()=>{const ord=data.orders.find(o=>o.id===m.orderId);if(!ord)return;const wd=(ord.workshopDeliveries||[])[m.wdIdx];if(!wd)return;if(m.type==="deliver")printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"deliver",delDate:m.date,delQty:m.qty});else{printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"receive",delDate:wd.date,delQty:wd.qty,rcvDate:m.date,rcvQty:m.qty})}}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}} title="طباعة ليبل حراري">🏷️</Btn>
+            <Btn small onClick={()=>{const wsObj=workshops.find(w=>w.name===m.wsName);const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+m.wsName+"*%0A• رقم الموديل: *"+m.orderNo+"*%0A• الوصف: "+m.orderDesc+"%0A• نوع القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"* قطعة%0A• السعر: *"+(m.price||0)+"* ج.م/قطعة%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — اذن استلام من ورشة*%0A%0A• الورشة: *"+m.wsName+"*%0A• رقم الموديل: *"+m.orderNo+"*%0A• الوصف: "+m.orderDesc+"%0A• نوع القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية المستلمة: *"+m.qty+"* قطعة%0A• التاريخ: *"+m.date+"*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال واتساب">📱</Btn>
+            <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/></>}
           </div>}</td>
         </tr>}):<tr><td colSpan={10} style={{...TD,textAlign:"center",color:T.textSec,padding:30}}>لا توجد حركات</td></tr>}</tbody>
@@ -2563,7 +2563,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>مدة التسليم (أيام)</label><Inp type="number" value={delAgreed} onChange={setDelAgreed} placeholder="اختياري"/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>التاريخ</label><Inp type="date" value={delDate} onChange={setDelDate}/></div>
         </div>
-        <div style={{display:"flex",gap:8}}><Btn primary onClick={()=>deliverToWs(false)} disabled={!selOrder||!delQty||!delType}>تسليم وحفظ</Btn><Btn onClick={()=>deliverToWs(true)} disabled={!selOrder||!delQty||!delType} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>تسليم + طباعة</Btn><Btn onClick={()=>deliverToWs(false,false,true)} disabled={!selOrder||!delQty||!delType} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>🏷️ ليبل</Btn><Btn onClick={()=>deliverToWs(false,true)} disabled={!selOrder||!delQty||!delType} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱 واتساب</Btn><Btn ghost onClick={()=>{setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice("")}}>الغاء</Btn></div>
+        <div style={{display:"flex",gap:8}}><Btn primary onClick={()=>deliverToWs(false)} disabled={!selOrder||!delQty||!delType}>تسليم وحفظ</Btn><Btn onClick={()=>deliverToWs(true)} disabled={!selOrder||!delQty||!delType} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>تسليم + طباعة</Btn><Btn onClick={()=>deliverToWs(false,false,true)} disabled={!selOrder||!delQty||!delType} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}} title="طباعة ليبل حراري">🏷️ ليبل</Btn><Btn onClick={()=>deliverToWs(false,true)} disabled={!selOrder||!delQty||!delType} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال عبر واتساب">📱 واتساب</Btn><Btn ghost onClick={()=>{setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice("")}}>الغاء</Btn></div>
         {selOrder&&(()=>{const ord=data.orders.find(o=>o.id===selOrder);if(!ord)return null;const t=calcOrder(ord);const avail=getAvailQty(ord);const totalDel=(ord.workshopDeliveries||[]).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return<div style={{padding:14,background:T.inputBg||T.cardSolid,borderRadius:10,border:"1px solid "+T.brd,marginTop:12}}>
           <div style={{fontSize:FS,fontWeight:700,marginBottom:6}}>{"تفاصيل الأوردر: "+ord.modelNo}</div>
           <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:FS-1}}>
@@ -2589,12 +2589,12 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
           {!isInternal(selWs)&&<td style={TD}>{isEd&&m.type==="deliver"?<Inp type="number" step="0.01" value={editPrice} onChange={v=>setEditPrice(v)} style={{width:60}}/>:(m.price?m.price+" ج.م":"-")}</td>}
           <td style={TD}>{isEd?<Inp value={editNote} onChange={setEditNote} style={{width:80}}/>:(m.notes||"-")}</td>
           <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<div style={{display:"flex",gap:3}}>
-            {isEd?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>✕</Btn></>:<>
-            <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
+            {isEd?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)} title="إغلاق">✕</Btn></>:<>
+            <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/>
-            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
-            <Btn small onClick={()=>{const ord=data.orders.find(o=>o.id===m.orderId);if(!ord)return;const wd=(ord.workshopDeliveries||[])[m.wdIdx];if(!wd)return;if(m.type==="deliver")printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"deliver",delDate:m.date,delQty:m.qty});else{printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"receive",delDate:wd.date,delQty:wd.qty,rcvDate:m.date,rcvQty:m.qty})}}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>🏷️</Btn>
-            <Btn small onClick={()=>{const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — تسليم*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• الوصف: "+(m.orderDesc||"-")+"%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — استلام*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• الوصف: "+(m.orderDesc||"-")+"%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn></>}
+            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨</Btn>
+            <Btn small onClick={()=>{const ord=data.orders.find(o=>o.id===m.orderId);if(!ord)return;const wd=(ord.workshopDeliveries||[])[m.wdIdx];if(!wd)return;if(m.type==="deliver")printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"deliver",delDate:m.date,delQty:m.qty});else{printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"receive",delDate:wd.date,delQty:wd.qty,rcvDate:m.date,rcvQty:m.qty})}}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}} title="طباعة ليبل حراري">🏷️</Btn>
+            <Btn small onClick={()=>{const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — تسليم*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• الوصف: "+(m.orderDesc||"-")+"%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — استلام*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• الوصف: "+(m.orderDesc||"-")+"%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال واتساب">📱</Btn></>}
           </div>}</td></tr>})}</tbody>
       </table></div>
     </Card>}
@@ -2671,7 +2671,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
           <Btn small onClick={selectAll} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>تحديد الكل</Btn>
           <Btn small onClick={deselectAll} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>الغاء الكل</Btn>
           <div><label style={{fontSize:FS-2,color:T.textSec}}>التاريخ </label><input type="date" value={batchDate} onChange={e=>setBatchDate(e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.cardSolid,color:T.text}}/></div>
-          {checked.length>0&&<><Btn small primary onClick={()=>doBatchDeliver(false)}>📦 تسليم ({checked.length})</Btn><Btn small onClick={()=>doBatchDeliver(true)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn><Btn small onClick={()=>doBatchDeliver(false,true)} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn></>}
+          {checked.length>0&&<><Btn small primary onClick={()=>doBatchDeliver(false)}>📦 تسليم ({checked.length})</Btn><Btn small onClick={()=>doBatchDeliver(true)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨</Btn><Btn small onClick={()=>doBatchDeliver(false,true)} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال واتساب">📱</Btn></>}
         </div>
         <Inp value={batchQ} onChange={setBatchQ} placeholder="فلتر برقم الموديل أو الوصف..." style={{marginBottom:8}}/>
         <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["✓","الموديل","الوصف","القطعة","الكمية","السعر"].map(h=><th key={h} style={{...TH,fontSize:FS-1}}>{h}</th>)}</tr></thead>
@@ -2689,7 +2689,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
             <div style={{display:"flex",gap:6}}>
               <Btn primary onClick={()=>doBatchDeliver(false)}>📦 تسليم الكل</Btn>
               <Btn onClick={()=>doBatchDeliver(true)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>📦 تسليم + طباعة</Btn>
-              <Btn onClick={()=>doBatchDeliver(false,true)} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱 واتساب</Btn>
+              <Btn onClick={()=>doBatchDeliver(false,true)} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال عبر واتساب">📱 واتساب</Btn>
             </div>
           </div>
         </div>}
@@ -2750,7 +2750,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
           <Btn small onClick={()=>setBatchItems(p=>p.map(x=>({...x,checked:true})))} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>تحديد الكل</Btn>
           <Btn small onClick={()=>setBatchItems(p=>p.map(x=>({...x,checked:false})))} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>الغاء الكل</Btn>
           <div><label style={{fontSize:FS-2,color:T.textSec}}>التاريخ </label><input type="date" value={batchDate} onChange={e=>setBatchDate(e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.cardSolid,color:T.text}}/></div>
-          {checkedRcv.length>0&&<><Btn small onClick={()=>doBatchReceive(false)} style={{background:T.ok,color:"#fff",border:"none"}}>📥 استلام ({checkedRcv.length})</Btn><Btn small onClick={()=>doBatchReceive(true)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn><Btn small onClick={()=>doBatchReceive(false,true)} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn></>}
+          {checkedRcv.length>0&&<><Btn small onClick={()=>doBatchReceive(false)} style={{background:T.ok,color:"#fff",border:"none"}}>📥 استلام ({checkedRcv.length})</Btn><Btn small onClick={()=>doBatchReceive(true)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨</Btn><Btn small onClick={()=>doBatchReceive(false,true)} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال واتساب">📱</Btn></>}
         </div>
         <Inp value={batchQ} onChange={setBatchQ} placeholder="فلتر برقم الموديل أو الوصف..." style={{marginBottom:8}}/>
         <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["✓","الموديل","الوصف","القطعة","تسليم","مستلم","رصيد","استلام الآن"].map(h=><th key={h} style={{...TH,fontSize:FS-1}}>{h}</th>)}</tr></thead>
@@ -2770,7 +2770,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
             <div style={{display:"flex",gap:6}}>
               <Btn primary onClick={()=>doBatchReceive(false)} style={{background:T.ok,border:"none"}}>📥 استلام الكل</Btn>
               <Btn onClick={()=>doBatchReceive(true)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>📥 استلام + طباعة</Btn>
-              <Btn onClick={()=>doBatchReceive(false,true)} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱 واتساب</Btn>
+              <Btn onClick={()=>doBatchReceive(false,true)} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال عبر واتساب">📱 واتساب</Btn>
             </div>
           </div>
         </div>}
@@ -2809,7 +2809,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
               <div style={{padding:16}}>
                 <div style={{fontSize:FS-2,color:T.textSec,marginBottom:8}}>{"تاريخ التسليم: "+wd.date}</div>
                 {(wd.receives||[]).length>0&&<div style={{marginBottom:12}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:350}}><thead><tr>{["#","التاريخ","الكمية","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-                  {wd.receives.map((r,ri)=>{const rBal=bal+Number(r.qty);return<tr key={ri}><td style={TD}>{ri+1}</td><td style={TD}>{r.date}</td><td style={TDB}>{r.qty}</td><td style={TD}>{r.notes||"-"}</td><td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}><Btn small onClick={()=>printReceiveReceipt(selWs,ord,wd.garmentType||"",r.qty,r.date,rBal,data.garmentTypes)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>🖨</Btn></div></td></tr>})}
+                  {wd.receives.map((r,ri)=>{const rBal=bal+Number(r.qty);return<tr key={ri}><td style={TD}>{ri+1}</td><td style={TD}>{r.date}</td><td style={TDB}>{r.qty}</td><td style={TD}>{r.notes||"-"}</td><td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}><Btn small onClick={()=>printReceiveReceipt(selWs,ord,wd.garmentType||"",r.qty,r.date,rBal,data.garmentTypes)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}} title="طباعة">🖨</Btn></div></td></tr>})}
                 </tbody></table></div></div>}
                 {canEdit&&(()=>{const ck=ord.id+"-"+actualIdx;const rv=getRcv(ck);const wdP=Number(wd.price)||0;return<div style={{display:"flex",gap:6,flexWrap:"wrap",padding:8,background:T.inputBg||T.cardSolid,borderRadius:8,alignItems:"end"}}>
                   <div style={{minWidth:70}}><label style={{fontSize:FS-3,color:T.textSec}}>الكمية</label><Inp type="number" value={rv.qty} onChange={v=>setRcv(ck,"qty",Math.min(Number(v)||0,bal))}/></div>
@@ -2820,8 +2820,8 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
                   <div style={{minWidth:110}}><label style={{fontSize:FS-3,color:T.textSec}}>التاريخ</label><Inp type="date" value={rv.date||new Date().toISOString().split("T")[0]} onChange={v=>setRcv(ck,"date",v)}/></div>
                   <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,false,null,ck)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>حفظ</Btn>
                   <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,true,{modelNo:ord.modelNo,bal},ck)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>حفظ+طباعة</Btn>
-                  <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,false,null,ck,false,true)} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>🏷️</Btn>
-                  <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,false,null,ck,true)} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn>
+                  <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,false,null,ck,false,true)} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}} title="طباعة ليبل حراري">🏷️</Btn>
+                  <Btn onClick={()=>receiveFromWs(ord.id,actualIdx,false,null,ck,true)} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال واتساب">📱</Btn>
                 </div>})()}
               </div>
             </div>
@@ -2841,12 +2841,12 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
           {!isInternal(selWs)&&<td style={TD}>{isEd&&m.type==="deliver"?<Inp type="number" step="0.01" value={editPrice} onChange={v=>setEditPrice(v)} style={{width:60}}/>:(m.price?m.price+" ج.م":"-")}</td>}
           <td style={TD}>{isEd?<Inp value={editNote} onChange={setEditNote} style={{width:80}}/>:(m.notes||"-")}</td>
           <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<div style={{display:"flex",gap:3}}>
-            {isEd?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>✕</Btn></>:<>
-            <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
+            {isEd?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)} title="إغلاق">✕</Btn></>:<>
+            <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/>
-            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
-            <Btn small onClick={()=>{const ord=data.orders.find(o=>o.id===m.orderId);if(!ord)return;const wd=(ord.workshopDeliveries||[])[m.wdIdx];if(!wd)return;if(m.type==="deliver")printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"deliver",delDate:m.date,delQty:m.qty});else{printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"receive",delDate:wd.date,delQty:wd.qty,rcvDate:m.date,rcvQty:m.qty})}}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>🏷️</Btn>
-            <Btn small onClick={()=>{const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — تسليم*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• الوصف: "+(m.orderDesc||"-")+"%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — استلام*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• الوصف: "+(m.orderDesc||"-")+"%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn></>}
+            <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨</Btn>
+            <Btn small onClick={()=>{const ord=data.orders.find(o=>o.id===m.orderId);if(!ord)return;const wd=(ord.workshopDeliveries||[])[m.wdIdx];if(!wd)return;if(m.type==="deliver")printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"deliver",delDate:m.date,delQty:m.qty});else{printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"receive",delDate:wd.date,delQty:wd.qty,rcvDate:m.date,rcvQty:m.qty})}}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}} title="طباعة ليبل حراري">🏷️</Btn>
+            <Btn small onClick={()=>{const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — تسليم*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• الوصف: "+(m.orderDesc||"-")+"%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — استلام*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• الوصف: "+(m.orderDesc||"-")+"%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال واتساب">📱</Btn></>}
           </div>}</td></tr>})}</tbody>
       </table></div>
     </Card>}
@@ -2876,7 +2876,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
           {exceeded&&<div style={{padding:6,borderRadius:6,background:T.err+"10",fontSize:FS-1,fontWeight:700,color:T.err}}>{"⚠️ تجاوز حد "+pct+"% بمبلغ "+fmt(Math.abs(remaining))+" ج.م"}</div>}
         </div>})()}
       <Btn primary onClick={()=>addPayment(false)} disabled={!payWs||!payAmt}>تسجيل</Btn>
-      <Btn onClick={()=>addPayment(true)} disabled={!payWs||!payAmt} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱 واتساب</Btn>
+      <Btn onClick={()=>addPayment(true)} disabled={!payWs||!payAmt} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال عبر واتساب">📱 واتساب</Btn>
     </Card>
     {payWs&&<Card title={"دفعات "+payWs}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["التاريخ","النوع","المبلغ","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
       {(data.wsPayments||[]).filter(p=>p.wsName===payWs).sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map((p,i)=>{const isEd=editPayId===p.id;
@@ -2886,9 +2886,9 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
         <td style={{...TDB,color:p.type==="payment"?T.err:T.ok,minWidth:90}}>{isEd?<Inp type="number" value={edPayAmt} onChange={setEdPayAmt}/>:fmt(p.amount)+" ج.م"}</td>
         <td style={{...TD,minWidth:80}}>{isEd?<Inp value={edPayNote} onChange={setEdPayNote}/>:(p.notes||"-")}</td>
         <td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}>
-          {isEd?<><Btn small primary onClick={()=>{upConfig(d=>{const t=(d.wsPayments||[]).find(x=>x.id===p.id);if(t){t.date=edPayDate;t.amount=Number(edPayAmt)||0;t.notes=edPayNote;t.type=edPayType}});setEditPayId(null);showToast("✓ تم التعديل")}}>💾</Btn><Btn ghost small onClick={()=>setEditPayId(null)}>✕</Btn></>
-          :<><Btn small onClick={()=>{setEditPayId(p.id);setEdPayDate(p.date);setEdPayAmt(p.amount);setEdPayNote(p.notes||"");setEdPayType(p.type)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
-          <Btn small onClick={()=>{const wsO=workshops.find(w=>w.name===payWs);const ph=wsO?.phone||"";const ac=wsAccounts(payWs);const mg="*CLARK — "+(p.type==="payment"?"اشعار دفعة":"اشعار مشتريات")+"*%0A%0A• الورشة: *"+payWs+"*%0A• المبلغ: *"+fmt(p.amount)+"* ج.م%0A• التاريخ: *"+p.date+"*%0A"+(p.notes?"• ملاحظات: "+p.notes+"%0A":"")+"%0A─────────────────%0A*الرصيد الحالي: "+fmt(r2(ac.balance))+" ج.م*";window.open("https://wa.me/"+(ph?ph.replace(/[^0-9]/g,""):"")+"?text="+mg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}}>📱</Btn>
+          {isEd?<><Btn small primary onClick={()=>{upConfig(d=>{const t=(d.wsPayments||[]).find(x=>x.id===p.id);if(t){t.date=edPayDate;t.amount=Number(edPayAmt)||0;t.notes=edPayNote;t.type=edPayType}});setEditPayId(null);showToast("✓ تم التعديل")}} title="حفظ">💾</Btn><Btn ghost small onClick={()=>setEditPayId(null)} title="إغلاق">✕</Btn></>
+          :<><Btn small onClick={()=>{setEditPayId(p.id);setEdPayDate(p.date);setEdPayAmt(p.amount);setEdPayNote(p.notes||"");setEdPayType(p.type)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
+          <Btn small onClick={()=>{const wsO=workshops.find(w=>w.name===payWs);const ph=wsO?.phone||"";const ac=wsAccounts(payWs);const mg="*CLARK — "+(p.type==="payment"?"اشعار دفعة":"اشعار مشتريات")+"*%0A%0A• الورشة: *"+payWs+"*%0A• المبلغ: *"+fmt(p.amount)+"* ج.م%0A• التاريخ: *"+p.date+"*%0A"+(p.notes?"• ملاحظات: "+p.notes+"%0A":"")+"%0A─────────────────%0A*الرصيد الحالي: "+fmt(r2(ac.balance))+" ج.م*";window.open("https://wa.me/"+(ph?ph.replace(/[^0-9]/g,""):"")+"?text="+mg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال واتساب">📱</Btn>
           <DelBtn onConfirm={()=>upConfig(d=>{d.wsPayments=(d.wsPayments||[]).filter(x=>x.id!==p.id)})}/></>}
         </div></td>
       </tr>})}{(data.wsPayments||[]).filter(p=>p.wsName===payWs).length===0&&<tr><td colSpan={5} style={{...TD,textAlign:"center",color:T.textSec}}>لا توجد دفعات</td></tr>}
@@ -2905,7 +2905,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
         <div><h2 style={{fontSize:isMob?18:22,fontWeight:800,margin:0}}>{"📊 حسابات الورش"}</h2><div style={{fontSize:FS-1,color:T.textSec}}>{"الموسم: "+season}</div></div>
         <div style={{display:"flex",gap:6}}>
           <Btn onClick={()=>{const rows=[["الورشة","النسبة","مستحق","مدفوع","حد النسبة","متاح للدفع","الرصيد"]];activeWs.forEach(w=>{const a=wsAccounts(w.name);const pct=w.payPercent||60;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const remaining=r2(limit-a.totalPaid);rows.push([w.name,pct+"%",r2(totalDue),r2(a.totalPaid),limit,remaining>0?remaining:0,r2(a.balance)])});rows.push([]);rows.push(["اجمالي","",r2(totals.due+totals.purchase),r2(totals.paid),"","",r2(totals.balance)]);exportExcel(rows,"حسابات_الورش_"+season)}} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-          <Btn onClick={()=>{const el=document.getElementById("ws-acc-area");if(!el)return;printPage("حسابات الورش — "+season,el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
+          <Btn onClick={()=>{const el=document.getElementById("ws-acc-area");if(!el)return;printPage("حسابات الورش — "+season,el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>
           <Btn ghost onClick={()=>setMode(null)}>↩</Btn>
         </div>
       </div>
@@ -2959,7 +2959,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
           h+="<div style='margin-top:16px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:8px'>CLARK Factory Management — "+new Date().toLocaleDateString("ar-EG")+"</div>";
           printPage("كشف حساب — "+w.name,h)
         };
-        return<Card key={w.id} title={"كشف حساب: "+w.name} style={{marginTop:12}} extra={<Btn small onClick={printStmt} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة</Btn>}>
+        return<Card key={w.id} title={"كشف حساب: "+w.name} style={{marginTop:12}} extra={<Btn small onClick={printStmt} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨 طباعة</Btn>}>
           <div id={"ws-stmt-"+w.id}>
           <h2>{"كشف حساب: "+w.name}</h2>
           <div className="sub">{"الموسم: "+season+" | التاريخ: "+new Date().toLocaleDateString("ar-EG")}</div>
@@ -3011,7 +3011,7 @@ function CalcPg({data,isMob}){
         <div><label style={{fontSize:FS-2,color:T.textSec}}>استهلاك/راق</label><Inp type="number" value={f.cons} onChange={v=>upFab(i,"cons",v)}/></div>
         <div><label style={{fontSize:FS-2,color:T.textSec}}>الراقات</label><Inp type="number" value={f.layers} onChange={v=>upFab(i,"layers",v)}/></div>
         <div><label style={{fontSize:FS-2,color:T.textSec}}>قطع/راق</label><Inp type="number" value={f.pcsPerLayer} onChange={v=>upFab(i,"pcsPerLayer",v)}/></div>
-        {i>0&&<Btn danger small onClick={()=>setCFabs(p=>p.filter((_,j)=>j!==i))} style={{alignSelf:"end"}}>✕</Btn>}
+        {i>0&&<Btn danger small onClick={()=>setCFabs(p=>p.filter((_,j)=>j!==i))} style={{alignSelf:"end"}} title="إغلاق">✕</Btn>}
       </div>})}
       <Btn ghost small onClick={addFab} style={{color:"#EC4899"}}>+ خامة اضافية</Btn>
     </Card>
@@ -3135,9 +3135,9 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards,user}){
           <td style={{...TDB,color:T.ok}}>{isEditing?<Inp type="number" value={qEditQty} onChange={v=>setQEditQty(Number(v)||0)} sx={{width:70,padding:"2px 4px",fontSize:FS}}/>:isAdding?<div style={{display:"flex",gap:4,alignItems:"center"}}><span style={{fontWeight:700}}>{p.rcvFromWs}</span><span style={{color:T.textMut}}>+</span><Inp type="number" value={qRcvQty} onChange={v=>setQRcvQty(Math.min(Number(v)||0,maxAdd))} sx={{width:60,padding:"2px 4px",fontSize:FS-1}}/><Inp type="date" value={qRcvDate} onChange={setQRcvDate} sx={{padding:"2px 4px",fontSize:FS-2}}/></div>:p.rcvFromWs}</td>
           <td style={{...TDB,color:p.balance>0?T.err:T.ok}}>{p.balance>0?p.balance:"✓"}</td>
           <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<div style={{display:"flex",gap:3}}>
-            {isEditing?<><Btn small primary onClick={()=>{updOrder(selOrder,o=>{const r=o.workshopDeliveries[lastRcvWdIdx].receives[lastRcvRIdx];if(r)r.qty=qEditQty;o.status=recomputeStatus(o)});setQEditPiece(null);showToast("✓ تم تعديل الاستلام")}}>💾</Btn><Btn ghost small onClick={()=>setQEditPiece(null)}>✕</Btn></>
-            :isAdding?<><Btn small primary onClick={()=>{if(!qRcvQty||qRcvQty<=0)return;updOrder(selOrder,o=>{if(!o.workshopDeliveries[wdIdx].receives)o.workshopDeliveries[wdIdx].receives=[];o.workshopDeliveries[wdIdx].receives.push({date:qRcvDate,qty:qRcvQty,notes:"استلام سريع",price:Number(wdForP.price)||0,amount:r2(qRcvQty*(Number(wdForP.price)||0)),createdBy:userName||""});o.status=recomputeStatus(o)});setQRcvPiece(null);setQRcvQty(0);showToast("✓ تم استلام "+qRcvQty+" "+p.piece)}}>💾</Btn><Btn ghost small onClick={()=>setQRcvPiece(null)}>✕</Btn></>
-            :<>{hasRcv&&<Btn ghost small onClick={()=>{const lastR=wds[lastRcvWdIdx].receives[lastRcvRIdx];setQEditPiece(p.piece);setQEditQty(lastR.qty);setQRcvPiece(null)}} style={{fontSize:FS-3,padding:"2px 6px"}}>✏️</Btn>}{p.balance>0&&wdIdx>=0&&<Btn ghost small onClick={()=>{setQRcvPiece(p.piece);setQRcvQty(0);setQRcvDate(new Date().toISOString().split("T")[0]);setQEditPiece(null)}} style={{fontSize:FS-3,padding:"2px 8px",color:T.accent}}>📥</Btn>}</>}
+            {isEditing?<><Btn small primary onClick={()=>{updOrder(selOrder,o=>{const r=o.workshopDeliveries[lastRcvWdIdx].receives[lastRcvRIdx];if(r)r.qty=qEditQty;o.status=recomputeStatus(o)});setQEditPiece(null);showToast("✓ تم تعديل الاستلام")}} title="حفظ">💾</Btn><Btn ghost small onClick={()=>setQEditPiece(null)} title="إغلاق">✕</Btn></>
+            :isAdding?<><Btn small primary onClick={()=>{if(!qRcvQty||qRcvQty<=0)return;updOrder(selOrder,o=>{if(!o.workshopDeliveries[wdIdx].receives)o.workshopDeliveries[wdIdx].receives=[];o.workshopDeliveries[wdIdx].receives.push({date:qRcvDate,qty:qRcvQty,notes:"استلام سريع",price:Number(wdForP.price)||0,amount:r2(qRcvQty*(Number(wdForP.price)||0)),createdBy:userName||""});o.status=recomputeStatus(o)});setQRcvPiece(null);setQRcvQty(0);showToast("✓ تم استلام "+qRcvQty+" "+p.piece)}} title="حفظ">💾</Btn><Btn ghost small onClick={()=>setQRcvPiece(null)} title="إغلاق">✕</Btn></>
+            :<>{hasRcv&&<Btn ghost small onClick={()=>{const lastR=wds[lastRcvWdIdx].receives[lastRcvRIdx];setQEditPiece(p.piece);setQEditQty(lastR.qty);setQRcvPiece(null)}} style={{fontSize:FS-3,padding:"2px 6px"}} title="تعديل">✏️</Btn>}{p.balance>0&&wdIdx>=0&&<Btn ghost small onClick={()=>{setQRcvPiece(p.piece);setQRcvQty(0);setQRcvDate(new Date().toISOString().split("T")[0]);setQEditPiece(null)}} style={{fontSize:FS-3,padding:"2px 8px",color:T.accent}}>📥</Btn>}</>}
           </div>}</td>
         </tr>})}</tbody></table></div>
         <div style={{marginTop:8,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
@@ -3173,7 +3173,7 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards,user}){
       const startEdit=(s)=>{setEditSt({orderId:s.orderId,idx:s.idx});setEdStDate(s.date);setEdStQty(s.qty);setEdStNote(s.notes||"")};
       const saveEdit=()=>{if(!editSt)return;updOrder(editSt.orderId,o=>{const d=o.deliveries[editSt.idx];if(d){d.date=edStDate;d.qty=Number(edStQty)||0;d.notes=edStNote;o.deliveredQty=o.deliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);o.status=recomputeStatus(o)}});setEditSt(null)};
       const delStock=(s)=>{updOrder(s.orderId,o=>{o.deliveries.splice(s.idx,1);o.deliveredQty=o.deliveries.reduce((ss,x)=>ss+(Number(x.qty)||0),0);o.status=recomputeStatus(o)})};
-      return allStock.length>0&&<Card title={"سجل تسليمات المخزن ("+allStock.length+")"} extra={<Btn small onClick={printLog} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>}>
+      return allStock.length>0&&<Card title={"سجل تسليمات المخزن ("+allStock.length+")"} extra={<Btn small onClick={printLog} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>}>
         <div style={{marginBottom:8}}><Inp value={stLogQ} onChange={setStLogQ} placeholder="🔍 بحث برقم الموديل..."/></div>
         {(()=>{const filtered=stLogQ.trim()?allStock.filter(s=>s.modelNo.includes(stLogQ.trim())):allStock;return<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","التاريخ","الموديل","الوصف","الكمية","ملاحظات",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
         <tbody>{filtered.map((s,i)=>{const isEd=editSt&&editSt.orderId===s.orderId&&editSt.idx===s.idx;
@@ -3184,8 +3184,8 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards,user}){
           <td style={{...TDB,color:T.ok,minWidth:80}}>{isEd?<Inp type="number" value={edStQty} onChange={v=>setEdStQty(Number(v)||0)}/>:s.qty}</td>
           <td style={{...TD,minWidth:100}}>{isEd?<Inp value={edStNote} onChange={setEdStNote}/>:(s.notes||"-")}</td>
           {canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}>
-            {isEd?<><Btn small primary onClick={saveEdit}>💾</Btn><Btn ghost small onClick={()=>setEditSt(null)}>✕</Btn></>
-            :<><Btn small onClick={()=>startEdit(s)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn><DelBtn onConfirm={()=>delStock(s)}/></>}
+            {isEd?<><Btn small primary onClick={saveEdit} title="حفظ">💾</Btn><Btn ghost small onClick={()=>setEditSt(null)} title="إغلاق">✕</Btn></>
+            :<><Btn small onClick={()=>startEdit(s)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn><DelBtn onConfirm={()=>delStock(s)}/></>}
           </div></td>}
         </tr>})}{filtered.length===0&&<tr><td colSpan={canEdit?7:6} style={{...TD,textAlign:"center",color:T.textMut,padding:20}}>لا توجد نتائج</td></tr>}</tbody>
       </table></div>})()}</Card>})()}
@@ -3222,8 +3222,8 @@ function UncutReport({data,isMob,season}){
             </label>)}
           </div>}
         </div>
-        <Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
-        <Btn onClick={exportXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊</Btn>
+        <Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>
+        <Btn onClick={exportXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}} title="تحليل المبيعات" title="تصدير اكسل">📊</Btn>
       </div>
     </div>
     {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
@@ -3272,7 +3272,7 @@ function ExpectedDeliveries({data,isMob,season}){
   return<div id="exp-del">
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
       <div><h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>📅 مواعيد التسليم المتوقعة</h1><div style={{fontSize:FS-1,color:T.textSec}}>{"الموسم: "+season+" — "+pending.length+" تسليمة معلقة"}</div></div>
-      <Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
+      <Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>
     </div>
     {/* Workshop avg days summary */}
     {Object.keys(wsAvgDays).length>0&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
@@ -3334,7 +3334,7 @@ function AvailableReport({data,isMob,season}){
   return<div id="avail-rep">
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
       <div><h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>📤 القطع المتاحة للتسليم</h1><div style={{fontSize:FS-1,color:T.textSec}}>{"الموسم: "+season+" — "+rows.length+" بند — "+fmt(totalAvail)+" قطعة متاحة"}</div></div>
-      <Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
+      <Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>
     </div>
     {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}>
       <thead><tr>{["#","الموديل","الوصف","القطعة","كمية القص","تم تسليمه","متاح للتسليم"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
@@ -3398,7 +3398,7 @@ function FabricReport({data,isMob,season}){
   return<div>
     <div style={{display:"flex",justifyContent:"flex-end",gap:6,marginBottom:10}}>
       <Btn onClick={exportFabXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-      <Btn onClick={printFab} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
+      <Btn onClick={printFab} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>
     </div>
     <div id="fab-rep">
       <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>تقرير الخامات المستهلكة</h1>
@@ -3434,7 +3434,7 @@ function WsPerfReport({data,isMob,season}){
   return<div>
     <div style={{display:"flex",justifyContent:"flex-end",gap:6,marginBottom:10}}>
       <Btn onClick={exportWsPerfXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-      <Btn onClick={printWsPerf} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
+      <Btn onClick={printWsPerf} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>
     </div>
     <div id="ws-perf">
       <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>تقرير انتاجية الورش</h1>
@@ -3475,7 +3475,7 @@ function DeliveryReport({data,isMob,season}){
   const printDel=()=>{const el=document.getElementById("del-rep");if(!el)return;printPage("تقرير معدل التسليم — "+season,el.innerHTML)};
   return<div>
     <div style={{display:"flex",justifyContent:"flex-end",gap:6,marginBottom:10}}>
-      <Btn onClick={printDel} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
+      <Btn onClick={printDel} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>
     </div>
     <div id="del-rep">
       <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>تقرير معدل التسليم</h1>
@@ -3510,7 +3510,7 @@ function SeasonSummary({data,isMob,season,statusCards}){
   return<div>
     <div style={{display:"flex",justifyContent:"flex-end",gap:6,marginBottom:10}}>
       <Btn onClick={exportSumXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-      <Btn onClick={printSum} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
+      <Btn onClick={printSum} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>
     </div>
     <div id="sum-rep">
       <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>ملخص الموسم</h1>
@@ -3553,7 +3553,7 @@ function RepPg({data,isMob,season,statusCards}){
       <div><div style={{fontSize:FS,color:T.textSec}}>{today}</div></div>
       <div style={{display:"flex",gap:6}}>
         <Btn onClick={exportRepXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-        <Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
+        <Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>
       </div>
     </div>
     <div id="rep-area">
@@ -3598,11 +3598,11 @@ function CostPg({data,isMob,statusCards}){
         <span style={{fontSize:FS-2,color:T.textSec}}>فترة:</span>
         <Inp type="date" value={cDateFrom} onChange={setCDateFrom} style={{width:120,fontSize:FS-2}}/>
         <Inp type="date" value={cDateTo} onChange={setCDateTo} style={{width:120,fontSize:FS-2}}/>
-        {(cDateFrom||cDateTo)&&<Btn ghost small onClick={()=>{setCDateFrom("");setCDateTo("")}}>✕</Btn>}
+        {(cDateFrom||cDateTo)&&<Btn ghost small onClick={()=>{setCDateFrom("");setCDateTo("")}} title="إغلاق">✕</Btn>}
       </div>
       <div style={{display:"flex",gap:6}}>
         <Btn onClick={exportCostXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
-        <Btn onClick={printCost} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
+        <Btn onClick={printCost} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>
       </div>
     </div>
     <div id="cost-area">
@@ -3944,7 +3944,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
         <div style={{padding:isMob?"12px 16px":"16px 24px",borderBottom:"1px solid "+T.brd,flexShrink:0}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{"📊 "+activeSess.date+" — جدول التوزيع"}</div>
-            <div style={{display:"flex",gap:4}}><Btn small onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn><Btn ghost small onClick={()=>closeMatrix()}>✕</Btn></div>
+            <div style={{display:"flex",gap:4}}><Btn small onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨</Btn><Btn ghost small onClick={()=>closeMatrix()} title="إغلاق">✕</Btn></div>
           </div>
           {cellError&&<div style={{padding:"6px 10px",borderRadius:8,background:T.err+"10",border:"1px solid "+T.err+"30",marginTop:8,fontSize:FS-1,fontWeight:700,color:T.err}}>{cellError}</div>}
         </div>
@@ -3979,11 +3979,11 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
                     aMods.forEach(m=>{const q=Number(aGrid[m.id+"_"+c.id])||0;if(q>0)h+="<tr><td><b>"+m.modelNo+"</b></td><td>"+(m.modelDesc||"")+"</td><td style='font-weight:800;color:#0284C7'>"+q+"</td></tr>"});
                     h+="<tr style='background:#F1F5F9'><td colspan='2' style='font-weight:800'>الاجمالي</td><td style='font-weight:800;color:#0284C7;font-size:14px'>"+rowTotal+" قطعة</td></tr></tbody></table>";
                     h+="<div class='sig'><div class='sig-box'>مسؤول التسليم</div><div class='sig-box'>توقيع العميل<br/>"+c.name+"</div></div>";
-                    printPage("اذن تسليم — "+c.name,h)}} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30",fontSize:9,padding:"2px 5px"}}>🖨</Btn>
+                    printPage("اذن تسليم — "+c.name,h)}} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30",fontSize:9,padding:"2px 5px"}} title="طباعة">🖨</Btn>
                   <Btn small onClick={()=>{const lines=aMods.map(m=>{const q=Number(aGrid[m.id+"_"+c.id])||0;return q>0?"• موديل *"+m.modelNo+"*: *"+q+"* قطعة":null}).filter(Boolean).join("%0A");
                     const msg="*CLARK — اذن تسليم عميل*%0A%0A• العميل: *"+c.name+"*%0A• التاريخ: *"+activeSess.date+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+rowTotal+"* قطعة%0A%0A*برجاء التأكيد*";
-                    window.open("https://wa.me/"+(c.phone?c.phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",fontSize:9,padding:"2px 5px"}}>📱</Btn>
-                  <Btn small onClick={()=>{setShipPopup({cust:c,total:rowTotal});setShipCount(1)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30",fontSize:9,padding:"2px 5px"}}>🏷️</Btn>
+                    window.open("https://wa.me/"+(c.phone?c.phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",fontSize:9,padding:"2px 5px"}} title="ارسال واتساب">📱</Btn>
+                  <Btn small onClick={()=>{setShipPopup({cust:c,total:rowTotal});setShipCount(1)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30",fontSize:9,padding:"2px 5px"}} title="طباعة ليبل حراري">🏷️</Btn>
                   <Btn small onClick={()=>{const items=aMods.map(m=>({no:m.modelNo,qty:Number(aGrid[m.id+"_"+c.id])||0})).filter(x=>x.qty>0);printShippingLabel(c,activeSess.date,items,rowTotal,1)}} style={{background:"#6366F112",color:"#6366F1",border:"1px solid #6366F130",fontSize:9,padding:"2px 5px"}}>📮</Btn>
                   {canEdit&&aMods.filter(m=>Number(aGrid[m.id+"_"+c.id])>0).length>0&&<Btn small onClick={()=>{const first=aMods.find(m=>Number(aGrid[m.id+"_"+c.id])>0);if(first)setReturnPopup({orderId:first.id,modelNo:first.modelNo,custId:c.id,custName:c.name,sessId:activeSess.id,models:aMods.filter(m=>Number(aGrid[m.id+"_"+c.id])>0)})}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",fontSize:9,padding:"2px 5px"}}>↩️</Btn>}
                 </div>}</td>
@@ -4007,7 +4007,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
         </table>
       </div>
       <div style={{display:"flex",gap:10,justifyContent:"center",padding:"12px 24px",borderTop:"1px solid "+T.brd,flexShrink:0}}>
-        <Btn onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30",padding:"8px 20px"}}>🖨 طباعة الجدول</Btn>
+        <Btn onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30",padding:"8px 20px"}} title="طباعة جدول التوزيع">🖨 طباعة الجدول</Btn>
         <Btn onClick={()=>closeMatrix(true)} style={{background:T.ok,color:"#fff",border:"none",fontWeight:700,padding:"8px 24px"}}>✓ تأكيد وإغلاق</Btn>
       </div>
     </div></div>}
@@ -4028,7 +4028,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
           <Card title="📦 رصيد المخزن بالموديل" extra={<Btn small onClick={()=>{let h="<h2>📦 رصيد مخزن الجاهز</h2><table><thead><tr><th>الموديل</th><th>الوصف</th><th>المخزن</th><th>مبيعات</th><th>رصيد</th><th>نسبة</th></tr></thead><tbody>";
             stockModels.forEach(m=>{const rem=m.avail;const pc=m.stockQty?Math.round(m.custDel/m.stockQty*100):0;h+="<tr><td><b>"+m.modelNo+"</b></td><td>"+m.modelDesc+"</td><td>"+m.stockQty+"</td><td style='color:#059669;font-weight:700'>"+m.custDel+"</td><td style='color:"+(rem>0?"#F59E0B":"#10B981")+";font-weight:800'>"+rem+"</td><td>"+pc+"%</td></tr>"});
             h+="<tr style='background:#F1F5F9;font-weight:800'><td colspan='2'>الاجمالي</td><td>"+totalStock+"</td><td style='color:#059669'>"+totalSold+"</td><td style='color:#F59E0B'>"+totalRemain+"</td><td>"+pct+"%</td></tr></tbody></table>";
-            printPage("رصيد مخزن الجاهز",h)}} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>}>
+            printPage("رصيد مخزن الجاهز",h)}} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨</Btn>}>
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
               {stockModels.map(m=>{const rem=m.avail;const pc=m.stockQty?Math.round(m.custDel/m.stockQty*100):0;
                 return<div key={m.id} onClick={()=>{const details=[];customers.forEach(c=>{const cd=(orders.find(o=>o.id===m.id)?.customerDeliveries||[]).filter(d=>d.custId===c.id).reduce((s,d)=>s+(Number(d.qty)||0),0);if(cd>0)details.push({name:c.name,qty:cd})});details.sort((a,b)=>b.qty-a.qty);setSalesDetail({title:"📊 موديل "+m.modelNo+" — "+m.modelDesc,items:details,total:m.custDel,color:"#F59E0B"})}} style={{display:"grid",gridTemplateColumns:"60px 1fr 80px",alignItems:"center",gap:8,cursor:"pointer",padding:"4px 6px",borderRadius:8,transition:"background 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"08"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
@@ -4060,13 +4060,13 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?700:900,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{"👥 العملاء ("+customers.length+")"}</div>
-          <Btn ghost small onClick={()=>setShowCustList(false)}>✕</Btn>
+          <Btn ghost small onClick={()=>setShowCustList(false)} title="إغلاق">✕</Btn>
         </div>
         {customers.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",whiteSpace:"nowrap"}}><thead><tr>{["#","الاسم","التليفون","العنوان","اجمالي",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
           {customers.map((c,i)=>{const total=getCustTotal(c.id);return<tr key={c.id} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:700}}>{c.name}</td><td style={TD}>{c.phone}</td><td style={TD}>{c.address||"—"}</td><td style={{...TD,fontWeight:700,color:T.accent}}>{total||"—"}</td>
             {canEdit&&<td style={TD}><div style={{display:"flex",gap:3}}>
-              <Btn small onClick={()=>{setCName(c.name);setCPhone(c.phone);setCAddr(c.address||"");setCEditId(c.id);setShowCustForm(true)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</Btn>
-              <Btn small onClick={()=>showCustQR(c)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>QR</Btn>
+              <Btn small onClick={()=>{setCName(c.name);setCPhone(c.phone);setCAddr(c.address||"");setCEditId(c.id);setShowCustForm(true)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
+              <Btn small onClick={()=>showCustQR(c)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="عرض كود QR">QR</Btn>
               <DelBtn onConfirm={()=>upConfig(d=>{d.customers=(d.customers||[]).filter(x=>x.id!==c.id)})} blocked={total>0?"لديه تسليمات":null}/>
             </div></td>}</tr>})}
         </tbody></table></div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>سجّل عملاء أولاً</div>}
@@ -4087,7 +4087,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
               </div>
               <div style={{display:"flex",gap:4,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
                 <select value={st} onChange={e=>updateSessStatus(s.id,e.target.value)} style={{padding:"3px 6px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",fontWeight:700,background:T.bg,color:stColor,cursor:"pointer"}}>{SESS_STATUSES.map(ss=><option key={ss} value={ss}>{ss}</option>)}</select>
-                <Btn small onClick={()=>printSession(s.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
+                <Btn small onClick={()=>printSession(s.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨</Btn>
                 {canEdit&&<DelBtn onConfirm={()=>delSession(s.id)}/>}
               </div>
             </div>
@@ -4106,7 +4106,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
                   <div style={{fontSize:FS-2,color:T.textMut}}>{(a.fromDate||"")+(a.fromDate?" → "+(a.toDate||""):"")+" | "+totalQ+" قطعة مباعة"}</div></div>
               </div>
               <div style={{display:"flex",gap:4}} onClick={e=>e.stopPropagation()}>
-                <Btn small onClick={()=>setShowAuditAnalysis(a.id)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📊</Btn>
+                <Btn small onClick={()=>setShowAuditAnalysis(a.id)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="تحليل المبيعات" title="تصدير اكسل">📊</Btn>
                 {canEdit&&<DelBtn onConfirm={()=>delAudit(a.id)}/>}
               </div>
             </div>
@@ -4140,7 +4140,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
         <div style={{padding:isMob?"12px 16px":"16px 24px",borderBottom:"1px solid "+T.brd,flexShrink:0}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div style={{fontSize:FS+2,fontWeight:800,color:"#F59E0B"}}>{"📋 جرد "+activeAud.date+(activeAud.notes?" — "+activeAud.notes:"")}</div>
-            <div style={{display:"flex",gap:4}}><Btn small onClick={()=>setShowAuditAnalysis(activeAud.id)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📊 تحليل</Btn><Btn ghost small onClick={()=>setActiveAudit(null)}>✕</Btn></div>
+            <div style={{display:"flex",gap:4}}><Btn small onClick={()=>setShowAuditAnalysis(activeAud.id)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="تحليل المبيعات">📊 تحليل</Btn><Btn ghost small onClick={()=>setActiveAudit(null)} title="إغلاق">✕</Btn></div>
           </div>
         </div>
         <div id="audit-matrix-table" style={{flex:1,overflowY:"auto",overflowX:"auto",padding:isMob?"8px 16px 16px":"8px 24px 24px"}}>
@@ -4149,7 +4149,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
               <th style={{...TH,minWidth:120}}>الموديل</th>
               {visCusts.map(c=><th key={c.id} style={{...TH,textAlign:"center",minWidth:80,fontSize:FS-2}}>
                 <div style={{fontWeight:700}}>{c.name}</div>
-                {canEdit&&<div style={{marginTop:2}}><span onClick={e=>{e.stopPropagation();setOcrCust(c.id);setOcrResult(null)}} style={{cursor:"pointer",fontSize:10,padding:"1px 4px",borderRadius:4,background:"#8B5CF610",color:"#8B5CF6"}}>📸</span></div>}
+                {canEdit&&<div style={{marginTop:2}}><span onClick={e=>{e.stopPropagation();setOcrCust(c.id);setOcrResult(null)}} style={{cursor:"pointer",fontSize:10,padding:"1px 4px",borderRadius:4,background:"#8B5CF610",color:"#8B5CF6"}} title="تصوير جرد بالذكاء الاصطناعي">📸</span></div>}
               </th>)}
               <th style={{...TH,textAlign:"center",background:"#F59E0B15",color:"#F59E0B",fontWeight:800}}>اجمالي</th>
               <th style={{...TH,textAlign:"center",fontSize:FS-2}}>تم تسليمه</th>
@@ -4196,7 +4196,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
         </div>
         <div style={{display:"flex",gap:10,justifyContent:"center",alignItems:"center",padding:"12px 24px",borderTop:"1px solid "+T.brd,flexShrink:0,flexWrap:"wrap"}}>
           <Btn onClick={()=>{const sel={};(auditInclude||[]).forEach(id=>{sel[id]=true});setAuditSelCusts(sel);setAuditInclude(null)}} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>👥 تغيير العملاء</Btn>
-          <Btn onClick={()=>setShowAuditAnalysis(activeAud.id)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📊 تحليل</Btn>
+          <Btn onClick={()=>setShowAuditAnalysis(activeAud.id)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="تحليل المبيعات">📊 تحليل</Btn>
           <Btn onClick={()=>{setActiveAudit(null);setAuditInclude(null)}} style={{background:T.ok,color:"#fff",border:"none",fontWeight:700}}>✓ حفظ وإغلاق</Btn>
         </div>
       </div>
@@ -4212,7 +4212,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:isMob?500:700,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
             <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>{"📊 تحليل جرد — "+aud.date}</div>
-            <div style={{display:"flex",gap:4}}><Btn small onClick={()=>{const el=document.getElementById("audit-analysis-content");if(el)printPage("📊 تحليل جرد مبيعات — "+aud.date,el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn ghost small onClick={()=>setShowAuditAnalysis(null)}>✕</Btn></div>
+            <div style={{display:"flex",gap:4}}><Btn small onClick={()=>{const el=document.getElementById("audit-analysis-content");if(el)printPage("📊 تحليل جرد مبيعات — "+aud.date,el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn><Btn ghost small onClick={()=>setShowAuditAnalysis(null)} title="إغلاق">✕</Btn></div>
           </div>
           <div id="audit-analysis-content">
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
@@ -4248,7 +4248,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           <div style={{fontSize:FS+1,fontWeight:800,color:"#8B5CF6"}}>{"📸 قراءة جرد — "+(auditCusts.find(c=>c.id===ocrCust)?.name||"")}</div>
-          <Btn ghost small onClick={()=>{setOcrCust(null);setOcrResult(null)}}>✕</Btn>
+          <Btn ghost small onClick={()=>{setOcrCust(null);setOcrResult(null)}} title="إغلاق">✕</Btn>
         </div>
         {!ocrResult&&!ocrLoading&&<div>
           <div style={{border:"2px dashed "+T.brd,borderRadius:12,padding:30,textAlign:"center",cursor:"pointer",background:T.bg}} onClick={()=>ocrRef.current?.click()}>
@@ -4285,7 +4285,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:isMob?400:550,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           <div style={{fontSize:FS+1,fontWeight:800,color:salesDetail.color}}>{salesDetail.title}</div>
-          <Btn ghost small onClick={()=>setSalesDetail(null)}>✕</Btn>
+          <Btn ghost small onClick={()=>setSalesDetail(null)} title="إغلاق">✕</Btn>
         </div>
         <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th style={TH}>#</th><th style={TH}>البيان</th><th style={TH}>الكمية</th></tr></thead><tbody>
           {(salesDetail.items||[]).map((d,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:700}}>{d.name}</td><td style={{...TD,textAlign:"center",fontWeight:800,color:salesDetail.color}}>{fmt(d.qty)}</td></tr>)}
@@ -4328,7 +4328,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>اسم العميل *</label><Inp value={cName} onChange={setCName} placeholder="الاسم بالكامل..."/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رقم التليفون *</label><Inp value={cPhone} onChange={setCPhone} placeholder="01xxxxxxxxx"/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>العنوان</label><Inp value={cAddr} onChange={setCAddr} placeholder="اختياري..."/></div>
-          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setShowCustForm(false)}>الغاء</Btn><Btn primary onClick={saveCust}>💾 حفظ</Btn></div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setShowCustForm(false)}>الغاء</Btn><Btn primary onClick={saveCust} title="حفظ التعديلات">💾 حفظ</Btn></div>
         </div>
       </div>
     </div>}
@@ -4337,7 +4337,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:550,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           <div style={{fontSize:FS+2,fontWeight:800,color:"#059669"}}>🚚 تسليم جديد</div>
-          <Btn ghost onClick={()=>setShowNewSession(false)}>✕</Btn>
+          <Btn ghost onClick={()=>setShowNewSession(false)} title="إغلاق">✕</Btn>
         </div>
         <div style={{marginBottom:16}}>
           <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>📦 اختر الموديلات:</div>
@@ -4384,7 +4384,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
           <Btn onClick={()=>{printCustLabels(shipPopup.cust,aMods,aGrid,activeSess.date,shipPopup.total,shipCount);setShipPopup(null)}} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700}}>{"🖨 طباعة "+shipCount+" ليبل"}</Btn>
           <Btn onClick={()=>{const lines=aMods.map(m=>{const q=Number(aGrid[m.id+"_"+shipPopup.cust.id])||0;return q>0?"• موديل *"+m.modelNo+"*: *"+q+"* قطعة":null}).filter(Boolean).join("%0A");
             const msg="*CLARK — تسليم عميل*%0A%0A• العميل: *"+shipPopup.cust.name+"*%0A• التاريخ: *"+activeSess.date+"*%0A• عدد الشحنات: *"+shipCount+"* شحنة%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+shipPopup.total+"* قطعة%0A%0A⚠️ *برجاء التأكد من استلام "+shipCount+" شحنات كاملة*%0A%0A*برجاء التأكيد*";
-            window.open("https://wa.me/"+(shipPopup.cust.phone?shipPopup.cust.phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank");setShipPopup(null)}} style={{background:"#25D366",color:"#fff",border:"none",fontWeight:700}}>📱 واتساب</Btn>
+            window.open("https://wa.me/"+(shipPopup.cust.phone?shipPopup.cust.phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank");setShipPopup(null)}} style={{background:"#25D366",color:"#fff",border:"none",fontWeight:700}} title="ارسال عبر واتساب">📱 واتساب</Btn>
         </div>
       </div>
     </div>}
@@ -4393,7 +4393,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:isMob?500:600,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>📊 تقرير مبيعات</div>
-          <Btn ghost small onClick={()=>setShowReport(false)}>✕</Btn>
+          <Btn ghost small onClick={()=>setShowReport(false)} title="إغلاق">✕</Btn>
         </div>
         <div style={{marginBottom:14}}>
           <label style={{fontSize:FS-1,fontWeight:700,color:T.text,marginBottom:6,display:"block"}}>نوع التقرير</label>
