@@ -264,9 +264,10 @@ async function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance,gt
   printPage("اذن تسليم ورشة — "+modelNo,h)
 }
 
-function getOrderWaText(o,t){
-  const lines=["*CLARK — تفاصيل أوردر*","","• رقم الموديل: *"+o.modelNo+"*","• الوصف: "+o.modelDesc,"• المقاسات: "+(o.sizeLabel||"-"),"• كمية القص: *"+(t?.cutQty||0)+"*","• الحالة: "+o.status,"• مخزن جاهز: *"+(o.deliveredQty||0)+"*"];
-  lines.push("","─────────────────","*📋 تايم لاين:*");
+function getOrderDetails(o,t){
+  return["*CLARK — تفاصيل أوردر*","","• رقم الموديل: *"+o.modelNo+"*","• الوصف: "+o.modelDesc,"• المقاسات: "+(o.sizeLabel||"-"),"• كمية القص: *"+(t?.cutQty||0)+"*","• الحالة: "+o.status,"• مخزن جاهز: *"+(o.deliveredQty||0)+"*"].join("\n")
+}
+function getOrderTimeline(o,t){
   const evs=[];
   if(o.date)evs.push({d:o.date,t:"✂️ تم القص ("+(t?.cutQty||0)+" قطعة)"});
   (o.workshopDeliveries||[]).forEach(wd=>{evs.push({d:wd.date,t:"📦 تسليم "+wd.wsName+" — "+(wd.garmentType||"عام")+" ("+wd.qty+")"});
@@ -276,8 +277,11 @@ function getOrderWaText(o,t){
   (o.customerDeliveries||[]).forEach(d=>{evs.push({d:d.date,t:"🚚 تسليم "+(d.custName||"عميل")+" ("+d.qty+")"})});
   if(o.settlement)evs.push({d:o.settlement.date,t:"⚖️ تسوية وغلق ("+o.settlement.qty+" هالك)"});
   evs.sort((a,b)=>(a.d||"").localeCompare(b.d||""));
-  if(evs.length>0)evs.forEach(e=>{lines.push(e.d+" │ "+e.t)});
-  else lines.push("لم يتم أي حركات على هذا الأوردر حتى الآن");
+  if(evs.length===0)return null;
+  const stockDel=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
+  const custDel=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
+  const remain=stockDel-custDel;
+  const lines=["","─────────────────","*📋 تايم لاين:*",...evs.map(e=>e.d+" │ "+e.t),"─────────────────","📦 *رصيد المخزن الجاهز: "+remain+" قطعة*"];
   return lines.join("\n")
 }
 async function printLabel(wsName,order,garmentType,qty,date,gtList,opts){
@@ -1864,7 +1868,7 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig}){
 function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,isTab,canEdit,statusCards,goHome,upConfig,user}){
   const order=data.orders.find(o=>o.id===sel);const[editing,setEditing]=useState(false);
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
-  const[detQ,setDetQ]=useState("");const[detSt,setDetSt]=useState("الكل");const[waSent,setWaSent]=useState({});
+  const[detQ,setDetQ]=useState("");const[detSt,setDetSt]=useState("الكل");const[waSent,setWaSent]=useState({});const[waPopup,setWaPopup]=useState(null);
   const[editStockIdx,setEditStockIdx]=useState(null);
   const[settReason,setSettReason]=useState("");const[settNotes,setSettNotes]=useState("");
   const[showNew,setShowNew]=useState(false);
@@ -1916,9 +1920,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
           {isStale&&!isSent&&<div style={{position:"absolute",bottom:8,left:8,fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.err+"15",color:T.err,fontWeight:700}}>{ageDays+" يوم"}</div>}
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,flexShrink:0}}>
             {o.image?<img src={o.image} alt="" style={{width:80,height:107,borderRadius:10,objectFit:"cover",border:"1px solid "+T.brd}}/>:<div style={{width:80,height:107,borderRadius:10,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,color:T.textMut}}>📷</div>}
-            <div onClick={async e=>{e.stopPropagation();const tc=calcOrder(o);const text=getOrderWaText(o,tc);
-              if(o.image&&navigator.canShare){try{const res=await fetch(o.image);const blob=await res.blob();const file=new File([blob],o.modelNo+".jpg",{type:blob.type||"image/jpeg"});if(navigator.canShare({files:[file]})){await navigator.share({title:"CLARK — "+o.modelNo,text,files:[file]});setWaSent(p=>({...p,[o.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[o.id];return n}),60000);return}}catch(e2){}}
-              window.open("https://wa.me/?text="+encodeURIComponent(text),"_blank");setWaSent(p=>({...p,[o.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[o.id];return n}),60000)}} title="ارسال واتساب" style={{width:80,height:28,borderRadius:6,background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12,fontWeight:700,gap:4}}>📱</div>
+            <div onClick={e=>{e.stopPropagation();setWaPopup({order:o,t:calcOrder(o),fromCard:true})}} title="ارسال واتساب" style={{width:80,height:28,borderRadius:6,background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12,fontWeight:700,gap:4}}>📱</div>
           </div>
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6,gap:8}}>
@@ -1984,9 +1986,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
         <div style={{width:1,height:20,background:T.brd,margin:"0 4px"}}/>
         <Btn small onClick={()=>printOrderSheet(order,t,activeFabs,statusCards)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨</Btn>
         {canEdit&&!order.closed&&<Btn small primary onClick={()=>setEditing(true)} title="تعديل">✏️</Btn>}
-        <Btn small onClick={async()=>{const text=getOrderWaText(order,t);
-          if(order.image&&navigator.canShare){try{const res=await fetch(order.image);const blob=await res.blob();const file=new File([blob],order.modelNo+".jpg",{type:blob.type||"image/jpeg"});if(navigator.canShare({files:[file]})){await navigator.share({title:"CLARK — "+order.modelNo,text,files:[file]});return}}catch(e){}}
-          const msg=encodeURIComponent(text);window.open("https://wa.me/?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال واتساب">📱</Btn>
+        <Btn small onClick={()=>setWaPopup({order,t,fromCard:false})} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال واتساب">📱</Btn>
         {canEdit&&!order.closed&&<Btn small onClick={()=>{const dup=JSON.parse(JSON.stringify(order));dup.id=gid();dup.date=new Date().toISOString().split("T")[0];dup.createdAt=new Date().toISOString();dup.modelNo="";dup.status="تم القص";dup.deliveredQty=0;dup.deliveries=[];dup.workshopDeliveries=[];dup._isDup=true;delete dup._docId;setDupInit(dup)}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="تكرار الأوردر">📋 تكرار</Btn>}
         {canEdit&&!order.closed&&t.cutQty>0&&activeFabs.length>0&&<Btn small onClick={()=>{setShowDeliver(true);setDWs("");setDType("");setDQty(0);setDPrice("");setDNote("")}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>📤 تسليم ورشة</Btn>}
         {canEdit&&!order.closed&&<Btn small onClick={()=>setShowNew(true)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>+ جديد</Btn>}
@@ -2208,6 +2208,31 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
           })()}
       {order.instructions&&<Card title="تعليمات التشغيل" style={{marginTop:16}}><div style={{whiteSpace:"pre-wrap",fontSize:FS+1,lineHeight:2}}>{order.instructions}</div></Card>}
     </div>
+    {/* WhatsApp Choice Popup */}
+    {waPopup&&(()=>{const wo=waPopup.order;const wt=waPopup.t||calcOrder(wo);const timeline=getOrderTimeline(wo,wt);const hasTimeline=!!timeline;
+      const sendWa=async(withTimeline)=>{let text=getOrderDetails(wo,wt);if(withTimeline&&timeline)text+=timeline;
+        if(wo.image&&navigator.canShare){try{const res=await fetch(wo.image);const blob=await res.blob();const file=new File([blob],wo.modelNo+".jpg",{type:blob.type||"image/jpeg"});if(navigator.canShare({files:[file]})){await navigator.share({title:"CLARK — "+wo.modelNo,text,files:[file]});setWaSent(p=>({...p,[wo.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[wo.id];return n}),60000);setWaPopup(null);return}}catch(e){}}
+        window.open("https://wa.me/?text="+encodeURIComponent(text),"_blank");setWaSent(p=>({...p,[wo.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[wo.id];return n}),60000);setWaPopup(null)};
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setWaPopup(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:380,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{textAlign:"center",marginBottom:16}}>
+            <div style={{fontSize:20,marginBottom:4}}>📱</div>
+            <div style={{fontSize:FS+1,fontWeight:800,color:"#25D366"}}>ارسال واتساب</div>
+            <div style={{fontSize:FS-1,color:T.textSec}}>{wo.modelNo+" — "+wo.modelDesc}</div>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <div onClick={()=>sendWa(false)} style={{padding:14,borderRadius:12,border:"1px solid #25D36630",background:"#25D36606",cursor:"pointer",textAlign:"center",transition:"background 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#25D36612"} onMouseLeave={e=>e.currentTarget.style.background="#25D36606"}>
+              <div style={{fontSize:FS,fontWeight:700,color:"#25D366"}}>📋 تفاصيل الأوردر فقط</div>
+              <div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>رقم الموديل والوصف والكمية والحالة</div>
+            </div>
+            {hasTimeline&&<div onClick={()=>sendWa(true)} style={{padding:14,borderRadius:12,border:"1px solid #25D36630",background:"#25D36606",cursor:"pointer",textAlign:"center",transition:"background 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#25D36612"} onMouseLeave={e=>e.currentTarget.style.background="#25D36606"}>
+              <div style={{fontSize:FS,fontWeight:700,color:"#25D366"}}>📋 تفاصيل + تايم لاين</div>
+              <div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>كل الحركات من القص للتسليم + رصيد المخزن</div>
+            </div>}
+          </div>
+          <div style={{textAlign:"center",marginTop:12}}><Btn ghost small onClick={()=>setWaPopup(null)}>الغاء</Btn></div>
+        </div>
+      </div>})()}
     {/* Deliver to Workshop Popup */}
     {showDeliver&&(()=>{
       const pieces=order.orderPieces||[];
