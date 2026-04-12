@@ -759,8 +759,11 @@ export default function App(){
         const daysSinceCut=Math.floor((now-new Date(o.date))/(86400000));
         if(rules.noDeliver?.enabled&&wds.length===0&&daysSinceCut>=(rules.noDeliver.days||5)){
           addBotTask("nodeliver_"+o.id+"_"+au.email,"موديل "+o.modelNo+" مقصوص من "+daysSinceCut+" يوم ولم يتم تسليمه لأي ورشة",au.email,au.name)}
-        if(rules.availPiece?.enabled){(o.orderPieces||[]).forEach(p=>{const delForP=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);
-          if(delForP===0&&daysSinceCut>=(rules.availPiece.days||5)){addBotTask("availpiece_"+o.id+"_"+p+"_"+au.email,p+" موديل "+o.modelNo+" متاح من "+daysSinceCut+" يوم ولم يتم تسليمه",au.email,au.name)}})}
+        if(rules.availPiece?.enabled){const linkedPieces=new Set();FKEYS.forEach(k=>{if(o["fabric"+k])(o["fabricPieces"+k]||[]).forEach(p=>linkedPieces.add(p))});
+          (o.orderPieces||[]).forEach(p=>{const delForP=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+          const isCut=hasFab&&(linkedPieces.size===0||linkedPieces.has(p));
+          if(!isCut)return;/* قطعة لم تُقص بعد — لا تنبيه */
+          if(delForP===0&&daysSinceCut>=(rules.availPiece.days||5)){addBotTask("availpiece_"+o.id+"_"+p+"_"+au.email,"تم قص "+p+" موديل "+o.modelNo+" ولم يتم تسليمه للتشغيل من "+daysSinceCut+" يوم",au.email,au.name)}})}
         if(rules.slowWorkshop?.enabled){wds.forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;
           if(bal>0){const daysSinceDel=Math.floor((now-new Date(wd.date))/(86400000));
             if(daysSinceDel>=(rules.slowWorkshop.days||14)){addBotTask("slowws_"+o.id+"_"+wd.wsName+"_"+(wd.garmentType||"")+"_"+au.email,
