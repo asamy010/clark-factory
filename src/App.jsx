@@ -1894,16 +1894,16 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
           const isStale=ageDays>7&&o.status!=="تم التسليم"&&o.status!=="تم الشحن";
           const isSent=waSent[o.id]&&(Date.now()-waSent[o.id]<60000);
           return<div key={o.id} data-oid={o.id} style={{display:"flex",gap:16,padding:16,background:isSent?T.ok+"08":T.cardSolid,borderRadius:16,border:isSent?"2px solid "+T.ok+"40":isStale?"2px solid "+T.err+"60":"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",alignItems:"flex-start",position:"relative",transition:"all 0.3s"}} onClick={()=>setSel(o.id)}>
-          <div onClick={e=>{e.stopPropagation()}} style={{position:"absolute",top:8,left:8,display:"flex",flexDirection:"column",gap:4}}>
-            {canEdit&&!hasData&&<DelBtn onConfirm={()=>delOrder(o.id)}/>}
-            <div onClick={async()=>{const tc=calcOrder(o);const lines=["*CLARK — تفاصيل أوردر*","","• رقم الموديل: *"+o.modelNo+"*","• الوصف: "+o.modelDesc,"• المقاسات: "+(o.sizeLabel||"-"),"• كمية القص: *"+tc.cutQty+"*","• الحالة: "+o.status,"• مخزن جاهز: *"+(o.deliveredQty||0)+"*"];const text=lines.join("\n");
-              if(o.image&&navigator.canShare){try{const res=await fetch(o.image);const blob=await res.blob();const file=new File([blob],o.modelNo+".jpg",{type:blob.type||"image/jpeg"});if(navigator.canShare({files:[file]})){await navigator.share({title:"CLARK — "+o.modelNo,text,files:[file]});setWaSent(p=>({...p,[o.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[o.id];return n}),60000);return}}catch(e){}}
-              window.open("https://wa.me/?text="+encodeURIComponent(text),"_blank");setWaSent(p=>({...p,[o.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[o.id];return n}),60000)}} title="ارسال واتساب" style={{width:26,height:26,borderRadius:6,background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12}}>📱</div>
-          </div>
+          {canEdit&&!hasData&&<div onClick={e=>{e.stopPropagation()}} style={{position:"absolute",top:8,left:8}}><DelBtn onConfirm={()=>delOrder(o.id)}/></div>}
           {isSent&&<div style={{position:"absolute",bottom:8,left:8,fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.ok+"15",color:T.ok,fontWeight:700}}>✅ تم الارسال</div>}
           {/* Priority removed */}
-          {isStale&&<div style={{position:"absolute",bottom:8,left:8,fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.err+"15",color:T.err,fontWeight:700}}>{ageDays+" يوم"}</div>}
-          {o.image?<img src={o.image} alt="" style={{width:80,height:107,borderRadius:10,objectFit:"cover",flexShrink:0,border:"1px solid "+T.brd}}/>:<div style={{width:80,height:107,borderRadius:10,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:28,color:T.textMut}}>📷</div>}
+          {isStale&&!isSent&&<div style={{position:"absolute",bottom:8,left:8,fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.err+"15",color:T.err,fontWeight:700}}>{ageDays+" يوم"}</div>}
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,flexShrink:0}}>
+            {o.image?<img src={o.image} alt="" style={{width:80,height:107,borderRadius:10,objectFit:"cover",border:"1px solid "+T.brd}}/>:<div style={{width:80,height:107,borderRadius:10,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,color:T.textMut}}>📷</div>}
+            <div onClick={async e=>{e.stopPropagation();const tc=calcOrder(o);const lines=["*CLARK — تفاصيل أوردر*","","• رقم الموديل: *"+o.modelNo+"*","• الوصف: "+o.modelDesc,"• المقاسات: "+(o.sizeLabel||"-"),"• كمية القص: *"+tc.cutQty+"*","• الحالة: "+o.status,"• مخزن جاهز: *"+(o.deliveredQty||0)+"*"];const text=lines.join("\n");
+              if(o.image&&navigator.canShare){try{const res=await fetch(o.image);const blob=await res.blob();const file=new File([blob],o.modelNo+".jpg",{type:blob.type||"image/jpeg"});if(navigator.canShare({files:[file]})){await navigator.share({title:"CLARK — "+o.modelNo,text,files:[file]});setWaSent(p=>({...p,[o.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[o.id];return n}),60000);return}}catch(e2){}}
+              window.open("https://wa.me/?text="+encodeURIComponent(text),"_blank");setWaSent(p=>({...p,[o.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[o.id];return n}),60000)}} title="ارسال واتساب" style={{width:80,height:28,borderRadius:6,background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12,fontWeight:700,gap:4}}>📱</div>
+          </div>
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6,gap:8}}>
               <div style={{flex:1,minWidth:0}}>
@@ -1918,8 +1918,8 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
               <span style={{fontSize:FS,color:T.textSec}}>{"الكمية: "}<b style={{color:T.accent}}>{t.cutQty}</b></span>
               <span style={{fontSize:FS,color:T.textSec}}>{"تسليم: "}<b style={{color:T.ok}}>{o.deliveredQty||0}</b></span>
               <span style={{fontSize:FS,color:T.textSec}}>{"رصيد: "}<b style={{color:t.balance>0?T.err:T.ok}}>{t.balance}</b></span>
-              <span style={{fontSize:FS,color:T.textSec}}>{"تكلفة: "}<b style={{color:"#8B5CF6"}}>{t.costPer+" ج.م"}</b></span>
-              {o.settlement&&<span style={{fontSize:FS-1,padding:"2px 8px",borderRadius:6,background:T.err+"12",color:T.err,fontWeight:700}}>{"🔴 هالك: "+fmt(r2(o.settlement.cost))+" ج.م"}</span>}
+              <span style={{fontSize:FS,color:T.textSec}}>{"تكلفة: "}<b style={{color:"#8B5CF6"}}>{Math.ceil(t.costPer)+" ج.م"}</b></span>
+              {o.settlement&&<span style={{fontSize:FS-1,color:T.err,fontWeight:700}}>{"الفعلية: "+Math.ceil(o.deliveredQty>0?(t.costAll+o.settlement.cost)/o.deliveredQty:t.costPer)+" ج.م"}</span>}
               {o.closed&&<span style={{fontSize:FS-1,padding:"2px 8px",borderRadius:6,background:"#64748B15",color:"#64748B",fontWeight:700}}>🔒 مغلق</span>}
             </div>
             {wds.length>0&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
@@ -2083,9 +2083,9 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS+1}}><thead><tr>{["البند","التكلفة الكلية","تكلفة القطعة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
           <tr><td style={TD}>تكلفة الخامات</td><td style={TDB}>{fmt(r2(t.totalFab))+" ج.م"}</td><td style={TDB}>{t.fabPer+" ج.م"}</td></tr>
           <tr><td style={TD}>تكاليف الاكسسوار</td><td style={TDB}>{fmt(accAll)+" ج.م"}</td><td style={TDB}>{t.accPer+" ج.م"}</td></tr>
-          <tr style={{background:T.accentBg}}><td style={{...TD,fontWeight:800,fontSize:FS+4,color:T.accent}}>الاجمالي</td><td style={{...TD,fontWeight:800,fontSize:FS+4,color:T.accent}}>{fmt(r2(t.costAll))+" ج.م"}</td><td style={{...TD,fontWeight:800,fontSize:FS+6,color:T.accent}}>{t.costPer+" ج.م"}</td></tr>
+          <tr style={{background:T.accentBg}}><td style={{...TD,fontWeight:800,fontSize:FS+4,color:T.accent}}>الاجمالي</td><td style={{...TD,fontWeight:800,fontSize:FS+4,color:T.accent}}>{fmt(Math.ceil(t.costAll))+" ج.م"}</td><td style={{...TD,fontWeight:800,fontSize:FS+6,color:T.accent}}>{Math.ceil(t.costPer)+" ج.م"}</td></tr>
           {order.settlement&&<><tr style={{background:T.err+"08"}}><td style={{...TD,fontWeight:800,color:T.err}}>{"🔴 هالك ("+order.settlement.qty+" قطعة)"}</td><td style={{...TD,fontWeight:800,color:T.err}}>{fmt(r2(order.settlement.cost))+" ج.م"}</td><td style={{...TD,fontWeight:700,color:T.err}}>{order.settlement.reason}</td></tr>
-          <tr style={{background:"#1E293B08"}}><td style={{...TD,fontWeight:800,fontSize:FS+2}}>التكلفة الفعلية</td><td style={{...TD,fontWeight:800,fontSize:FS+2,color:T.err}}>{fmt(r2(t.costAll+order.settlement.cost))+" ج.م"}</td><td style={{...TD,fontWeight:800,fontSize:FS+2,color:T.err}}>{(order.deliveredQty>0?r2((t.costAll+order.settlement.cost)/order.deliveredQty):0)+" ج.م/قطعة"}</td></tr></>}
+          <tr style={{background:"#1E293B08"}}><td style={{...TD,fontWeight:800,fontSize:FS+2}}>التكلفة الفعلية</td><td style={{...TD,fontWeight:800,fontSize:FS+2,color:T.err}}>{fmt(Math.ceil(t.costAll+order.settlement.cost))+" ج.م"}</td><td style={{...TD,fontWeight:800,fontSize:FS+2,color:T.err}}>{(order.deliveredQty>0?Math.ceil((t.costAll+order.settlement.cost)/order.deliveredQty):0)+" ج.م/قطعة"}</td></tr></>}
         </tbody></table>
       </Card>
           {(()=>{
