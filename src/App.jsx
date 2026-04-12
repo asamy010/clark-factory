@@ -1848,7 +1848,7 @@ function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig}){
 function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,isTab,canEdit,statusCards,goHome,upConfig,user}){
   const order=data.orders.find(o=>o.id===sel);const[editing,setEditing]=useState(false);
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
-  const[detQ,setDetQ]=useState("");const[detSt,setDetSt]=useState("الكل");
+  const[detQ,setDetQ]=useState("");const[detSt,setDetSt]=useState("الكل");const[waSent,setWaSent]=useState({});
   const[editStockIdx,setEditStockIdx]=useState(null);
   const[settReason,setSettReason]=useState("");const[settNotes,setSettNotes]=useState("");
   const[showNew,setShowNew]=useState(false);
@@ -1892,8 +1892,15 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
           const now=new Date();let lastDate=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});
           const ageDays=Math.floor((now-new Date(lastDate))/(1000*60*60*24));
           const isStale=ageDays>7&&o.status!=="تم التسليم"&&o.status!=="تم الشحن";
-          return<div key={o.id} data-oid={o.id} style={{display:"flex",gap:16,padding:16,background:T.cardSolid,borderRadius:16,border:isStale?"2px solid "+T.err+"60":"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",alignItems:"flex-start",position:"relative"}} onClick={()=>setSel(o.id)}>
-          {canEdit&&!hasData&&<div onClick={e=>{e.stopPropagation()}} style={{position:"absolute",top:8,left:8}}><DelBtn onConfirm={()=>delOrder(o.id)}/></div>}
+          const isSent=waSent[o.id]&&(Date.now()-waSent[o.id]<60000);
+          return<div key={o.id} data-oid={o.id} style={{display:"flex",gap:16,padding:16,background:isSent?T.ok+"08":T.cardSolid,borderRadius:16,border:isSent?"2px solid "+T.ok+"40":isStale?"2px solid "+T.err+"60":"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",alignItems:"flex-start",position:"relative",transition:"all 0.3s"}} onClick={()=>setSel(o.id)}>
+          <div onClick={e=>{e.stopPropagation()}} style={{position:"absolute",top:8,left:8,display:"flex",flexDirection:"column",gap:4}}>
+            {canEdit&&!hasData&&<DelBtn onConfirm={()=>delOrder(o.id)}/>}
+            <div onClick={async()=>{const tc=calcOrder(o);const lines=["*CLARK — تفاصيل أوردر*","","• رقم الموديل: *"+o.modelNo+"*","• الوصف: "+o.modelDesc,"• المقاسات: "+(o.sizeLabel||"-"),"• كمية القص: *"+tc.cutQty+"*","• الحالة: "+o.status,"• مخزن جاهز: *"+(o.deliveredQty||0)+"*"];const text=lines.join("\n");
+              if(o.image&&navigator.canShare){try{const res=await fetch(o.image);const blob=await res.blob();const file=new File([blob],o.modelNo+".jpg",{type:blob.type||"image/jpeg"});if(navigator.canShare({files:[file]})){await navigator.share({title:"CLARK — "+o.modelNo,text,files:[file]});setWaSent(p=>({...p,[o.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[o.id];return n}),60000);return}}catch(e){}}
+              window.open("https://wa.me/?text="+encodeURIComponent(text),"_blank");setWaSent(p=>({...p,[o.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[o.id];return n}),60000)}} title="ارسال واتساب" style={{width:26,height:26,borderRadius:6,background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12}}>📱</div>
+          </div>
+          {isSent&&<div style={{position:"absolute",bottom:8,left:8,fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.ok+"15",color:T.ok,fontWeight:700}}>✅ تم الارسال</div>}
           {/* Priority removed */}
           {isStale&&<div style={{position:"absolute",bottom:8,left:8,fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.err+"15",color:T.err,fontWeight:700}}>{ageDays+" يوم"}</div>}
           {o.image?<img src={o.image} alt="" style={{width:80,height:107,borderRadius:10,objectFit:"cover",flexShrink:0,border:"1px solid "+T.brd}}/>:<div style={{width:80,height:107,borderRadius:10,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:28,color:T.textMut}}>📷</div>}
@@ -4034,28 +4041,29 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
             stockModels.forEach(m=>{const rem=m.avail;const pc=m.stockQty?Math.round(m.custDel/m.stockQty*100):0;h+="<tr><td><b>"+m.modelNo+"</b></td><td>"+m.modelDesc+"</td><td>"+m.stockQty+"</td><td style='color:#059669;font-weight:700'>"+m.custDel+"</td><td style='color:"+(rem>0?"#F59E0B":"#10B981")+";font-weight:800'>"+rem+"</td><td>"+pc+"%</td></tr>"});
             h+="<tr style='background:#F1F5F9;font-weight:800'><td colspan='2'>الاجمالي</td><td>"+totalStock+"</td><td style='color:#059669'>"+totalSold+"</td><td style='color:#F59E0B'>"+totalRemain+"</td><td>"+pct+"%</td></tr></tbody></table>";
             printPage("رصيد مخزن الجاهز",h)}} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨</Btn>}>
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {stockModels.map(m=>{const rem=m.avail;const pc=m.stockQty?Math.round(m.custDel/m.stockQty*100):0;
-                return<div key={m.id} onClick={()=>{const details=[];customers.forEach(c=>{const cd=(orders.find(o=>o.id===m.id)?.customerDeliveries||[]).filter(d=>d.custId===c.id).reduce((s,d)=>s+(Number(d.qty)||0),0);if(cd>0)details.push({name:c.name,qty:cd})});details.sort((a,b)=>b.qty-a.qty);setSalesDetail({title:"📊 موديل "+m.modelNo+" — "+m.modelDesc,items:details,total:m.custDel,color:"#F59E0B"})}} style={{display:"grid",gridTemplateColumns:"60px 1fr 80px",alignItems:"center",gap:8,cursor:"pointer",padding:"4px 6px",borderRadius:8,transition:"background 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"08"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                  <div style={{fontWeight:800,color:T.accent,fontSize:FS-1}}>{m.modelNo}</div>
-                  <div>
-                    <div style={{height:20,borderRadius:10,background:T.brd+"40",overflow:"hidden",position:"relative"}}>
-                      <div style={{height:"100%",width:pc+"%",borderRadius:10,background:pc>70?"linear-gradient(90deg,#10B981,#059669)":pc>30?"linear-gradient(90deg,#F59E0B,#EAB308)":"linear-gradient(90deg,#EF4444,#DC2626)",transition:"width 0.5s"}}/>
-                      <span style={{position:"absolute",top:0,right:6,fontSize:FS-3,fontWeight:700,color:"#fff",lineHeight:"20px"}}>{pc+"%"}</span>
+            <div style={{overflowX:"auto"}}>
+              <div style={{display:"flex",alignItems:"flex-end",gap:6,minHeight:160,padding:"10px 0"}}>
+                {stockModels.map(m=>{const rem=m.avail;const pc=m.stockQty?Math.round(m.custDel/m.stockQty*100):0;const maxH=130;
+                  return<div key={m.id} onClick={()=>{const details=[];customers.forEach(c=>{const cd=(orders.find(o=>o.id===m.id)?.customerDeliveries||[]).filter(d=>d.custId===c.id).reduce((s,d)=>s+(Number(d.qty)||0),0);if(cd>0)details.push({name:c.name,qty:cd})});details.sort((a,b)=>b.qty-a.qty);setSalesDetail({title:"📊 موديل "+m.modelNo+" — "+m.modelDesc,items:details,total:m.custDel,color:"#F59E0B"})}} title={m.modelNo+" — رصيد: "+rem+"/"+m.stockQty+" ("+pc+"%)"} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer",flex:1,minWidth:40}}>
+                    <div style={{fontSize:FS-3,fontWeight:800,color:T.warn}}>{rem}</div>
+                    <div style={{width:"100%",maxWidth:36,height:Math.max(8,pc/100*maxH),borderRadius:"6px 6px 0 0",background:pc>70?"linear-gradient(180deg,#10B981,#059669)":pc>30?"linear-gradient(180deg,#F59E0B,#EAB308)":"linear-gradient(180deg,#EF4444,#DC2626)",transition:"height 0.5s",position:"relative"}}>
+                      <div style={{position:"absolute",top:-16,left:"50%",transform:"translateX(-50%)",fontSize:8,fontWeight:700,color:T.textSec,whiteSpace:"nowrap"}}>{pc+"%"}</div>
                     </div>
-                  </div>
-                  <div style={{textAlign:"left",fontSize:FS-2}}><span style={{fontWeight:800,color:T.warn}}>{rem}</span><span style={{color:T.textMut}}>{"/ "+m.stockQty}</span></div>
-                </div>})}
+                    <div style={{writingMode:"vertical-rl",transform:"rotate(180deg)",fontSize:FS-3,fontWeight:700,color:T.accent,whiteSpace:"nowrap",maxHeight:50,overflow:"hidden"}}>{m.modelNo}</div>
+                  </div>})}
+              </div>
             </div>
           </Card>
           {topCusts.length>0&&<Card title="🏆 أعلى العملاء مبيعات">
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {topCusts.map((c,i)=><div key={c.id} onClick={()=>{const details=[];orders.forEach(o=>{const cd=(o.customerDeliveries||[]).filter(d=>d.custId===c.id).reduce((s,d)=>s+(Number(d.qty)||0),0);if(cd>0)details.push({name:o.modelNo+" — "+o.modelDesc,qty:cd})});setSalesDetail({title:"📦 تفاصيل "+c.name,items:details,total:c.total,color:"#0EA5E9"})}} style={{display:"grid",gridTemplateColumns:"24px 1fr 2fr 60px",alignItems:"center",gap:8,cursor:"pointer",padding:"4px 6px",borderRadius:8,transition:"background 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"08"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                <div style={{fontWeight:800,color:i<3?"#F59E0B":T.textMut,fontSize:FS-1,textAlign:"center"}}>{i+1}</div>
-                <div style={{fontWeight:700,fontSize:FS-1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>
-                <div><div style={{height:16,borderRadius:8,background:T.brd+"40",overflow:"hidden"}}><div style={{height:"100%",width:Math.round(c.total/maxCust*100)+"%",borderRadius:8,background:i===0?"linear-gradient(90deg,#F59E0B,#EAB308)":"linear-gradient(90deg,#0EA5E9,#0284C7)",transition:"width 0.5s"}}/></div></div>
-                <div style={{fontWeight:800,color:T.accent,fontSize:FS-1,textAlign:"left"}}>{fmt(c.total)}</div>
-              </div>)}
+            <div style={{overflowX:"auto"}}>
+              <div style={{display:"flex",alignItems:"flex-end",gap:6,minHeight:160,padding:"10px 0"}}>
+                {topCusts.map((c,i)=>{const pct=maxCust?Math.round(c.total/maxCust*100):0;const maxH=130;
+                  return<div key={c.id} onClick={()=>{const details=[];orders.forEach(o=>{const cd=(o.customerDeliveries||[]).filter(d=>d.custId===c.id).reduce((s,d)=>s+(Number(d.qty)||0),0);if(cd>0)details.push({name:o.modelNo+" — "+o.modelDesc,qty:cd})});setSalesDetail({title:"📦 تفاصيل "+c.name,items:details,total:c.total,color:"#0EA5E9"})}} title={c.name+" — "+fmt(c.total)+" قطعة"} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer",flex:1,minWidth:40}}>
+                    <div style={{fontSize:FS-3,fontWeight:800,color:T.accent}}>{fmt(c.total)}</div>
+                    <div style={{width:"100%",maxWidth:36,height:Math.max(8,pct/100*maxH),borderRadius:"6px 6px 0 0",background:i===0?"linear-gradient(180deg,#F59E0B,#EAB308)":"linear-gradient(180deg,#0EA5E9,#0284C7)",transition:"height 0.5s"}}/>
+                    <div style={{writingMode:"vertical-rl",transform:"rotate(180deg)",fontSize:FS-3,fontWeight:700,color:T.text,whiteSpace:"nowrap",maxHeight:60,overflow:"hidden",textOverflow:"ellipsis"}}>{c.name}</div>
+                  </div>})}
+              </div>
             </div>
           </Card>}
         </div>}
