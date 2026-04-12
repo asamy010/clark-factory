@@ -1958,6 +1958,21 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
         </div>})}
       </div>
     </div>
+    {waPopup&&(()=>{const wo=waPopup.order;const wt=waPopup.t||calcOrder(wo);const timeline=getOrderTimeline(wo,wt);const hasTimeline=!!timeline;
+      const sendWa=async(withTimeline)=>{let text=getOrderDetails(wo,wt);if(withTimeline&&timeline)text+=timeline;
+        if(wo.image&&navigator.canShare){try{const res=await fetch(wo.image);const blob=await res.blob();const file=new File([blob],wo.modelNo+".jpg",{type:blob.type||"image/jpeg"});if(navigator.canShare({files:[file]})){await navigator.share({title:"CLARK — "+wo.modelNo,text,files:[file]});setWaSent(p=>({...p,[wo.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[wo.id];return n}),60000);setWaPopup(null);return}}catch(e){}}
+        window.open("https://wa.me/?text="+encodeURIComponent(text),"_blank");setWaSent(p=>({...p,[wo.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[wo.id];return n}),60000);setWaPopup(null)};
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setWaPopup(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:380,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{textAlign:"center",marginBottom:16}}><div style={{fontSize:20,marginBottom:4}}>📱</div><div style={{fontSize:FS+1,fontWeight:800,color:"#25D366"}}>ارسال واتساب</div><div style={{fontSize:FS-1,color:T.textSec}}>{wo.modelNo+" — "+wo.modelDesc}</div></div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <div onClick={()=>sendWa(false)} style={{padding:14,borderRadius:12,border:"1px solid #25D36630",background:"#25D36606",cursor:"pointer",textAlign:"center"}} onMouseEnter={e=>e.currentTarget.style.background="#25D36612"} onMouseLeave={e=>e.currentTarget.style.background="#25D36606"}><div style={{fontSize:FS,fontWeight:700,color:"#25D366"}}>📋 تفاصيل الأوردر فقط</div><div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>رقم الموديل والوصف والكمية والحالة</div></div>
+            {hasTimeline&&<div onClick={()=>sendWa(true)} style={{padding:14,borderRadius:12,border:"1px solid #25D36630",background:"#25D36606",cursor:"pointer",textAlign:"center"}} onMouseEnter={e=>e.currentTarget.style.background="#25D36612"} onMouseLeave={e=>e.currentTarget.style.background="#25D36606"}><div style={{fontSize:FS,fontWeight:700,color:"#25D366"}}>📋 تفاصيل + تايم لاين</div><div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>كل الحركات + رصيد المخزن</div></div>}
+          </div>
+          <div style={{textAlign:"center",marginTop:12}}><Btn ghost small onClick={()=>setWaPopup(null)}>الغاء</Btn></div>
+        </div>
+      </div>})()}
+  </div>
   }
   if(editing)return<OrdForm data={data} initial={order} onSave={o=>{replaceOrder(sel,o);setEditing(false);showToast("✓ تم حفظ التعديلات");highlightRow(sel)}} onCancel={()=>setEditing(false)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
 
