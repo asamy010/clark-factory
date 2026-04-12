@@ -4067,7 +4067,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   };
 
   return<div>
-    {(()=>{const crd=(icon,label,color,onClick,sub)=><div onClick={onClick} style={{background:T.cardSolid,borderRadius:14,padding:isMob?"12px 8px":"14px 8px",border:"1px solid "+color+"20",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",flex:isMob?undefined:"1 1 0",minWidth:isMob?undefined:0}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}><div style={{fontSize:isMob?22:24,marginBottom:2}}>{icon}</div><div style={{fontSize:isMob?FS-2:FS-2,fontWeight:700,color,whiteSpace:"nowrap"}}>{label}</div>{sub&&<div style={{fontSize:FS-3,color:T.textMut}}>{sub}</div>}</div>;
+    {(()=>{const crd=(icon,label,color,onClick,sub)=><div onClick={onClick} style={{background:T.cardSolid,borderRadius:14,padding:"8px 4px",border:"1px solid "+color+"20",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",flex:isMob?undefined:"1 1 0",minWidth:isMob?undefined:0,height:isMob?80:90,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}><div style={{fontSize:isMob?20:24,marginBottom:2}}>{icon}</div><div style={{fontSize:isMob?FS-3:FS-2,fontWeight:700,color,whiteSpace:"nowrap"}}>{label}</div>{sub&&<div style={{fontSize:FS-3,color:T.textMut}}>{sub}</div>}</div>;
       return<div style={isMob?{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}:{display:"flex",gap:8,marginBottom:16}}>
         {canEdit&&crd("👥","العملاء",T.text,()=>setShowCustList(true),customers.length+"")}
         {canEdit&&crd("🚚","تسليم جديد",T.ok,()=>{setSelModels({});setSelCusts({});setShowNewSession(true)})}
@@ -4592,7 +4592,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
       const total=qrSale.items.reduce((s,it)=>s+(Number(it.qty)||0),0);
       const updateQty=(idx,v)=>setQrSale(p=>{const items=[...p.items];items[idx]={...items[idx],qty:Math.max(0,Number(v)||0)};return{...p,items}});
       const removeItem=(idx)=>setQrSale(p=>({...p,items:p.items.filter((_,i)=>i!==idx)}));
-      const closeQrSale=()=>{try{const v=document.getElementById("qr-sale-video");if(v&&v.srcObject)v.srcObject.getTracks().forEach(t=>t.stop())}catch(e){}setQrScanActive(false);setQrSale(null)};
+      const closeQrSale=()=>{try{const v=document.getElementById("qr-sale-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setQrScanActive(false);setQrSale(null)};
       const confirmSale=()=>{if(!qrSale.custId||total<=0)return;const cust=customers.find(c=>c.id===qrSale.custId);if(!cust)return;
         /* Group by orderId */
         const byOrder={};qrSale.items.forEach(it=>{if(!byOrder[it.orderId])byOrder[it.orderId]=0;byOrder[it.orderId]+=(Number(it.qty)||0)});
@@ -4635,7 +4635,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
               <canvas id="qr-sale-canvas" style={{display:"none"}}/>
               <div style={{position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",width:160,height:160,border:"2px solid "+color,borderRadius:12,boxShadow:"0 0 0 999px rgba(0,0,0,0.4)"}}/>
             </div>
-            <div style={{textAlign:"center",marginTop:8}}><Btn small onClick={()=>{setQrScanActive(false);try{const v=document.getElementById("qr-sale-video");if(v&&v.srcObject)v.srcObject.getTracks().forEach(t=>t.stop())}catch(e){}}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>⏹ إيقاف الماسح</Btn></div></div>
+            <div style={{textAlign:"center",marginTop:8}}><Btn small onClick={()=>{setQrScanActive(false);try{const v=document.getElementById("qr-sale-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>⏹ إيقاف الماسح</Btn></div></div>
           :<div style={{textAlign:"center",marginBottom:12}}><Btn onClick={()=>{setQrScanActive(true);setTimeout(()=>{const startCam=async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:640}}});
             const v=document.getElementById("qr-sale-video");if(!v){stream.getTracks().forEach(t=>t.stop());return}v.srcObject=stream;
             const hasBD=typeof BarcodeDetector!=="undefined";const detector=hasBD?new BarcodeDetector({formats:["qr_code"]}):null;
@@ -4657,6 +4657,20 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
             </tbody></table>
           </div>}
           {!isSale&&<div style={{marginBottom:10}}><Inp value={qrSale.note||""} onChange={v=>setQrSale(p=>({...p,note:v}))} placeholder="سبب المرتجع..."/></div>}
+          {/* Grouped summary */}
+          {qrSale.items.length>0&&(()=>{const grouped={};qrSale.items.forEach(it=>{if(!grouped[it.modelNo])grouped[it.modelNo]={modelNo:it.modelNo,modelDesc:it.modelDesc,scans:0,totalQty:0};grouped[it.modelNo].scans++;grouped[it.modelNo].totalQty+=(Number(it.qty)||0)});const gArr=Object.values(grouped);
+            return<div style={{padding:10,borderRadius:10,background:color+"06",border:"1px solid "+color+"20",marginBottom:12}}>
+              <div style={{fontSize:FS-1,fontWeight:700,color,marginBottom:6}}>📊 ملخص المراجعة:</div>
+              {gArr.map(g=><div key={g.modelNo} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 8px",fontSize:FS-1}}>
+                <span style={{fontWeight:700,color:T.accent}}>{g.modelNo}</span>
+                <span style={{color:T.textSec}}>{g.scans+" سيري"}</span>
+                <span style={{fontWeight:800,color}}>{g.totalQty+" قطعة"}</span>
+              </div>)}
+              <div style={{borderTop:"1px solid "+color+"20",marginTop:6,paddingTop:6,display:"flex",justifyContent:"space-between",fontSize:FS,fontWeight:800}}>
+                <span>{"اجمالي: "+gArr.reduce((s,g)=>s+g.scans,0)+" سيري"}</span>
+                <span style={{color}}>{total+" قطعة"}</span>
+              </div>
+            </div>})()}
           <div style={{display:"flex",gap:8,justifyContent:"center"}}>
             <Btn ghost onClick={closeQrSale}>الغاء</Btn>
             <Btn onClick={confirmSale} disabled={total<=0} style={{background:color,color:"#fff",border:"none",fontWeight:700}}>{(isSale?"📦 تأكيد البيع":"↩️ تأكيد المرتجع")+" ("+total+")"}</Btn>
@@ -4679,7 +4693,10 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
         </div>
       </div>
     </div>}
-    {customLabel&&customLabel!=="pick"&&(()=>{const o=orders.find(x=>x.id===customLabel);if(!o)return null;const rs=getRackSize(o.id);const sm=stockModels.find(m=>m.id===o.id);const totalLabels=sm?Math.ceil(sm.stockQty/rs):0;
+    {customLabel&&customLabel!=="pick"&&(()=>{const clId=typeof customLabel==="object"?customLabel._id:customLabel;const o=orders.find(x=>x.id===clId);if(!o)return null;const rs=getRackSize(o.id);const sm=stockModels.find(m=>m.id===o.id);const totalLabels=sm?Math.ceil(sm.stockQty/rs):0;
+      const clQty=(typeof customLabel==="object"?customLabel._qty:null)||rs;
+      const clCopies=(typeof customLabel==="object"?customLabel._copies:null)||1;
+      const setClField=(f,v)=>setCustomLabel(p=>{const base=typeof p==="object"?p:{_id:p};return{...base,[f]:v}});
       const printQRLabels=(qty,copies)=>{const qrText="CLARK:"+o.id+":"+qty;
         let h="";for(let i=0;i<copies;i++){h+="<div style='page-break-inside:avoid;text-align:center;padding:8px;border:1px dashed #ccc;margin:4px;display:inline-block;width:200px'><div style='font-weight:800;font-size:16px'>"+o.modelNo+"</div><div style='font-size:11px;color:#666'>"+o.modelDesc+"</div><div style='margin:6px 0'><img class='qr-img' data-text='"+qrText+"' style='width:100px;height:100px'/></div><div style='font-size:13px;font-weight:700'>سيري: "+qty+" قطعة</div>"+(copies>1?"<div style='font-size:10px;color:#999'>"+(i+1)+"/"+copies+"</div>":"")+"</div>"}
         const w=window.open("","_blank");w.document.write("<html dir='rtl'><head><title>ليبل "+o.modelNo+"</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script></head><body style='font-family:Cairo,sans-serif;text-align:center'>"+h+"<script>document.querySelectorAll('.qr-img').forEach(img=>{QRCode.toDataURL(img.dataset.text,{width:100,margin:1}).then(url=>{img.src=url}).catch(()=>{})});setTimeout(()=>window.print(),800)</"+"script></body></html>");w.document.close()};
@@ -4691,19 +4708,17 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
           </div>
           <div style={{fontSize:FS-1,color:T.textMut,marginBottom:16}}>{o.modelNo+" — "+o.modelDesc+" (سيري: "+rs+")"}</div>
           <div style={{textAlign:"center",marginBottom:16}}><QRImg text={"CLARK:"+o.id+":"+rs} size={120}/></div>
-          {/* Print all labels */}
           {totalLabels>0&&<div onClick={()=>{printQRLabels(rs,totalLabels);setCustomLabel(null);showToast("✓ تم طباعة "+totalLabels+" ليبل")}} style={{padding:14,borderRadius:12,border:"1px solid #F59E0B30",background:"#F59E0B06",cursor:"pointer",textAlign:"center",marginBottom:8}} onMouseEnter={e=>e.currentTarget.style.background="#F59E0B12"} onMouseLeave={e=>e.currentTarget.style.background="#F59E0B06"}>
             <div style={{fontSize:FS,fontWeight:700,color:"#F59E0B"}}>{"🖨 طباعة كل الليبلات ("+totalLabels+" ليبل)"}</div>
             <div style={{fontSize:FS-2,color:T.textMut}}>{sm.stockQty+" قطعة ÷ "+rs+" سيري = "+totalLabels+" ليبل"}</div>
           </div>}
-          {/* Custom label */}
           <div style={{padding:14,borderRadius:12,border:"1px solid "+T.brd,background:T.bg+"40"}}>
-            <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>🏷️ ليبل مخصص (كمية حرة)</div>
+            <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>🏷️ ليبل مخصص</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-              <div><label style={{fontSize:FS-2,color:T.textSec}}>الكمية</label><Inp type="number" value={customLabel._qty||rs} onChange={v=>setCustomLabel(p=>({...p,_qty:Number(v)||rs}))}/></div>
-              <div><label style={{fontSize:FS-2,color:T.textSec}}>عدد النسخ</label><Inp type="number" value={customLabel._copies||1} onChange={v=>setCustomLabel(p=>({...p,_copies:Number(v)||1}))}/></div>
+              <div><label style={{fontSize:FS-2,color:T.textSec}}>عدد القطع</label><Sel value={clQty} onChange={v=>setClField("_qty",Number(v))}>{Array.from({length:20},(_,i)=>(i+1)*rs).map(n=><option key={n} value={n}>{n+" قطعة"}</option>)}</Sel></div>
+              <div><label style={{fontSize:FS-2,color:T.textSec}}>عدد النسخ</label><Sel value={clCopies} onChange={v=>setClField("_copies",Number(v))}>{Array.from({length:20},(_,i)=>i+1).map(n=><option key={n} value={n}>{n}</option>)}</Sel></div>
             </div>
-            <Btn onClick={()=>{printQRLabels(customLabel._qty||rs,customLabel._copies||1);setCustomLabel(null);showToast("✓ تم الطباعة")}} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+(customLabel._copies||1)+" ليبل بكمية "+(customLabel._qty||rs)}</Btn>
+            <Btn onClick={()=>{printQRLabels(clQty,clCopies);setCustomLabel(null);showToast("✓ تم الطباعة")}} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+clCopies+" ليبل بكمية "+clQty}</Btn>
           </div>
         </div>
       </div>})()}
