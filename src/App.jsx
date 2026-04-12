@@ -3833,7 +3833,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   const[custQR,setCustQR]=useState(null);const[salesDetail,setSalesDetail]=useState(null);const[custStatement,setCustStatement]=useState(null);const[salesAnalysis,setSalesAnalysis]=useState(false);const[editRetIdx,setEditRetIdx]=useState(null);const[editRetQty,setEditRetQty]=useState(0);const[editRetNote,setEditRetNote]=useState("");
   const[qrSale,setQrSale]=useState(null);/* {mode:"sale"|"return",custId,items:[{orderId,modelNo,modelDesc,rackSize,qty}],note,linkedSession} */
   const[qrScanActive,setQrScanActive]=useState(false);const[customLabel,setCustomLabel]=useState(null);
-  const[pkgPopup,setPkgPopup]=useState(null);const[pkgItems,setPkgItems]=useState([]);const[pkgNote,setPkgNote]=useState("");const[pkgSearch,setPkgSearch]=useState("");
+  const[pkgPopup,setPkgPopup]=useState(null);const[pkgItems,setPkgItems]=useState([]);const[pkgNote,setPkgNote]=useState("");const[pkgSearch,setPkgSearch]=useState("");const[pkgScan,setPkgScan]=useState(false);
   useEffect(()=>{const h=()=>{const mode=window.__qrSaleMode;if(mode){delete window.__qrSaleMode;setQrSale({mode,custId:null,items:[],note:""})}};const h2=()=>{const pkgId=window.__openPkg;if(pkgId){delete window.__openPkg;setPkgPopup("view_"+pkgId)}};window.addEventListener("qr-sale-trigger",h);window.addEventListener("open-pkg",h2);return()=>{window.removeEventListener("qr-sale-trigger",h);window.removeEventListener("open-pkg",h2)}},[]);
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
 
@@ -4725,25 +4725,38 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
       const totalQ=pkgItems.reduce((s,it)=>s+(Number(it.qty)||0),0);
       const addModel=(orderId)=>{const o=orders.find(x=>x.id===orderId);if(!o)return;const rs=getRackSize(orderId);setPkgItems(p=>[...p,{orderId,modelNo:o.modelNo,modelDesc:o.modelDesc,rackSize:rs,count:1,qty:rs}])};
       const updateItem=(idx,f,v)=>setPkgItems(p=>{const items=[...p];items[idx]={...items[idx],[f]:Number(v)||0};if(f==="count")items[idx].qty=items[idx].count*items[idx].rackSize;return items});
+      const stopPkgCam=()=>{setPkgScan(false);try{const v=document.getElementById("pkg-scan-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}};
+      const closePkgCreate=()=>{stopPkgCam();setPkgPopup("list")};
       const savePkg=()=>{if(pkgItems.length===0){showToast("⚠️ أضف موديل واحد على الأقل");return}
         const pkg={id:gid(),number:pkgNum,date:new Date().toISOString().split("T")[0],note:pkgNote,items:pkgItems.map(it=>({orderId:it.orderId,modelNo:it.modelNo,rackSize:it.rackSize,count:it.count,qty:it.qty})),createdBy:userName,status:"مخزن"};
         upConfig(d=>{if(!d.packages)d.packages=[];d.packages.push(pkg)});
         /* Print QR */
         const qrData=JSON.stringify({app:"clark",type:"pkg",id:pkg.id,num:pkgNum});
         const w=window.open("","_blank");w.document.write("<html dir='rtl'><head><title>كرتونة "+pkgNum+"</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script></head><body style='font-family:Cairo,sans-serif;text-align:center;padding:20px'><div style='max-width:300px;margin:0 auto;border:2px solid #000;border-radius:16px;padding:20px'><div style='font-weight:900;font-size:20px;letter-spacing:2px;margin-bottom:4px'>CLARK</div><div style='font-size:14px;font-weight:700;color:#0EA5E9;margin-bottom:4px'>📦 كرتونة رقم</div><div style='font-size:24px;font-weight:900;margin-bottom:10px'>"+pkgNum+"</div><canvas id='qr' style='margin:0 auto'></canvas><div style='margin-top:10px;font-size:13px;font-weight:700'>"+pkgItems.length+" موديل | "+totalQ+" قطعة</div><div style='font-size:11px;color:#666;margin-top:4px'>"+pkg.date+"</div></div><script>QRCode.toCanvas(document.getElementById('qr'),'"+qrData.replace(/'/g,"\\'")+"',{width:180,margin:1},()=>{});setTimeout(()=>window.print(),800)</"+"script></body></html>");w.document.close();
-        playBeep("done");showToast("✓ تم حفظ كرتونة "+pkgNum);setPkgPopup("list")};
+        playBeep("done");showToast("✓ تم حفظ كرتونة "+pkgNum);closePkgCreate()};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setPkgPopup("list")}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?420:550,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div><div style={{fontSize:FS+2,fontWeight:800,color:"#0EA5E9"}}>📦 كرتونة جديدة</div><div style={{fontSize:FS-1,color:T.textMut}}>{"رقم: "+pkgNum}</div></div>
-            <Btn ghost small onClick={()=>setPkgPopup("list")}>← رجوع</Btn>
+            <Btn ghost small onClick={closePkgCreate}>← رجوع</Btn>
           </div>
           <div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec}}>ملاحظات</label><Inp value={pkgNote} onChange={setPkgNote} placeholder="مثال: كرتونة سيلا — شحنة 1"/></div>
-          <div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec}}>اضف موديل (يدوي أو مسح)</label>
-            <div style={{display:"flex",gap:6}}>
+          <div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec}}>اضف موديل</label>
+            <div style={{display:"flex",gap:6,marginBottom:6}}>
               <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(v)addModel(v)}} options={stockModels.filter(m=>m.avail>0).map(m=>({value:m.id,label:m.modelNo+" — "+m.modelDesc+" ("+m.avail+")"}))} placeholder="اختر موديل..."/></div>
-              <Btn small onClick={()=>{const scanInput=prompt("الصق كود QR (CLARK:...):","");if(!scanInput)return;try{const parts=scanInput.split(":");if(parts[0]==="CLARK"&&parts[1]){addModel(parts[1]);playBeep("ok")}else showToast("⚠️ كود غير صالح")}catch(e){showToast("⚠️ كود غير صالح")}}} style={{background:"#0EA5E912",color:"#0EA5E9",border:"1px solid #0EA5E930",whiteSpace:"nowrap"}} title="مسح QR يدوي">📷</Btn>
+              <Btn small onClick={()=>{if(pkgScan){try{const v=document.getElementById("pkg-scan-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}}setPkgScan(!pkgScan)}} style={{background:pkgScan?"#EF444412":"#0EA5E912",color:pkgScan?"#EF4444":"#0EA5E9",border:"1px solid "+(pkgScan?"#EF444430":"#0EA5E930"),whiteSpace:"nowrap"}}>{pkgScan?"⏹":"📷"}</Btn>
             </div>
+            {pkgScan&&<div style={{marginBottom:8}}>
+              <div style={{position:"relative",width:"100%",maxWidth:260,margin:"0 auto",borderRadius:12,overflow:"hidden",background:"#000"}}>
+                <video id="pkg-scan-video" playsInline muted autoPlay style={{width:"100%",display:"block"}} ref={el=>{if(!el||el.srcObject)return;(async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:640}}});el.srcObject=stream;
+                  const hasBD=typeof BarcodeDetector!=="undefined";const detector=hasBD?new BarcodeDetector({formats:["qr_code"]}):null;const canvas=document.createElement("canvas");let lastScan="";let lastTime=0;
+                  const scan=async()=>{if(!el.srcObject)return;if(el.readyState<2){requestAnimationFrame(scan);return}canvas.width=el.videoWidth;canvas.height=el.videoHeight;canvas.getContext("2d").drawImage(el,0,0);
+                    if(detector){try{const codes=await detector.detect(canvas);if(codes.length>0){const t=codes[0].rawValue;const now=Date.now();if(t!==lastScan||now-lastTime>2000){lastScan=t;lastTime=now;try{const parts=t.split(":");if(parts[0]==="CLARK"&&parts[1]){addModel(parts[1]);playBeep("ok")}}catch(e){}}}}catch(e){}}
+                    if(el.srcObject)requestAnimationFrame(scan)};setTimeout(scan,500)}catch(e){showToast("⚠️ تعذر فتح الكاميرا");setPkgScan(false)}})()}}/>
+                <div style={{position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",width:120,height:120,border:"2px solid #0EA5E9",borderRadius:10,boxShadow:"0 0 0 999px rgba(0,0,0,0.4)"}}/>
+              </div>
+              <div style={{textAlign:"center",fontSize:FS-2,color:T.textMut,marginTop:4}}>وجّه الكاميرا على QR الموديل</div>
+            </div>}
           </div>
           {pkgItems.length>0&&<div style={{border:"1px solid "+T.brd,borderRadius:12,overflow:"hidden",marginBottom:12}}>
             <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","السيري","عدد سيريهات","الكمية",""].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
@@ -4754,7 +4767,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
               <tr style={{background:"#0EA5E908"}}><td colSpan={3} style={{...TD,fontWeight:800}}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#0EA5E9"}}>{totalQ}</td><td style={TD}></td></tr>
             </tbody></table>
           </div>}
-          <div style={{display:"flex",gap:8,justifyContent:"center"}}><Btn ghost onClick={()=>setPkgPopup("list")}>الغاء</Btn><Btn onClick={savePkg} disabled={pkgItems.length===0} style={{background:"#0EA5E9",color:"#fff",border:"none",fontWeight:700}}>{"📦 حفظ + طباعة QR ("+totalQ+" قطعة)"}</Btn></div>
+          <div style={{display:"flex",gap:8,justifyContent:"center"}}><Btn ghost onClick={closePkgCreate}>الغاء</Btn><Btn onClick={savePkg} disabled={pkgItems.length===0} style={{background:"#0EA5E9",color:"#fff",border:"none",fontWeight:700}}>{"📦 حفظ + طباعة QR ("+totalQ+" قطعة)"}</Btn></div>
         </div>
       </div>})()}
     {pkgPopup&&pkgPopup.startsWith("view_")&&(()=>{const pkgId=pkgPopup.replace("view_","");const pkg=(config.packages||[]).find(p=>p.id===pkgId);if(!pkg)return null;
