@@ -2272,6 +2272,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
   const[editNote,setEditNote]=useState("");
   const[editPrice,setEditPrice]=useState(0);
   const[editDate,setEditDate]=useState("");
+  const[editQuality,setEditQuality]=useState("");
   const workshops=data.workshops||[];
   const isInternal=(name)=>{const w=workshops.find(x=>x.name===name);return w?wsIsInternal(w.type):false};
   const extWorkshops=workshops.filter(w=>!wsIsInternal(w.type));
@@ -2280,10 +2281,11 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
   useEffect(()=>{const h=()=>{const qr=window.__qrReceive;if(!qr)return;const ord=data.orders.find(o=>o.id===qr.oid);if(!ord)return;const wd=(ord.workshopDeliveries||[])[qr.wdi];if(!wd)return;setMode("receive");setSelWs(wd.wsName);setRcvSearch(ord.modelNo);delete window.__qrReceive};window.addEventListener("qr-receive",h);return()=>window.removeEventListener("qr-receive",h)},[data.orders]);
   useEffect(()=>{const h=()=>{const qr=window.__qrWsAcc;if(!qr)return;setMode("accounts");setAccWsF(qr.ws);delete window.__qrWsAcc};window.addEventListener("qr-wsacc",h);return()=>window.removeEventListener("qr-wsacc",h)},[]);
 
-  const startEditMov=(m)=>{setEditMov(m);setEditQty(m.qty);setEditNote(m.notes||"");setEditPrice(m.price||0);setEditDate(m.date||"")};
+  const startEditMov=(m)=>{setEditMov(m);setEditQty(m.qty);setEditNote(m.notes||"");setEditPrice(m.price||0);setEditDate(m.date||"");
+    if(m.type==="receive"){const ord=data.orders.find(o=>o.id===m.orderId);const r=ord?.workshopDeliveries?.[m.wdIdx]?.receives?.[m.rIdx];setEditQuality(r?.quality||"جيد جداً")}else{setEditQuality("")}};
   const saveEditMov=()=>{if(!editMov)return;
     if(editMov.type==="deliver"){updOrder(editMov.orderId,o=>{const wd=o.workshopDeliveries[editMov.wdIdx];if(wd){wd.qty=Number(editQty)||0;wd.notes=editNote;wd.price=Number(editPrice)||0;if(editDate)wd.date=editDate};o.status=recomputeStatus(o)})}
-    else{updOrder(editMov.orderId,o=>{const r=o.workshopDeliveries[editMov.wdIdx].receives[editMov.rIdx];if(r){r.qty=Number(editQty)||0;r.notes=editNote;if(editDate)r.date=editDate};o.status=recomputeStatus(o)})}
+    else{updOrder(editMov.orderId,o=>{const r=o.workshopDeliveries[editMov.wdIdx].receives[editMov.rIdx];if(r){r.qty=Number(editQty)||0;r.notes=editNote;if(editDate)r.date=editDate;if(editQuality)r.quality=editQuality};o.status=recomputeStatus(o)})}
     setEditMov(null)};
   const printMov=(m)=>{
     const ord=data.orders.find(o=>o.id===m.orderId);
@@ -2474,7 +2476,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
           <td style={TD}>{m.garmentType||"-"}</td>
           <td style={{...TDB,color:m.type==="deliver"?T.ok:m.type==="settlement"?T.err:T.accent}}>{isEditing?<Inp type="number" value={editQty} onChange={v=>setEditQty(Number(v)||0)} style={{width:70}}/>:m.qty}</td>
           <td style={TD}>{isEditing&&m.type==="deliver"?<Inp type="number" value={editPrice} onChange={v=>setEditPrice(Number(v)||0)} style={{width:70}}/>:(m.price?m.price+" ج.م":"-")}</td>
-          <td style={TD}>{isEditing?<Inp value={editNote} onChange={setEditNote} style={{width:100}}/>:<>{m.notes||"-"}{m.createdBy&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{"👤 "+m.createdBy}</div>}</>}</td>
+          <td style={TD}>{isEditing?<div style={{display:"flex",flexDirection:"column",gap:4}}>{m.type==="receive"&&<Sel value={editQuality} onChange={setEditQuality}>{["ممتاز","جيد جداً","جيد","مقبول","سئ"].map(q=><option key={q} value={q}>{q}</option>)}</Sel>}<Inp value={editNote} onChange={setEditNote} placeholder="ملاحظات" style={{width:100}}/></div>:<>{m.notes||"-"}{m.createdBy&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{"👤 "+m.createdBy}</div>}</>}</td>
           <td style={{...TD,whiteSpace:"nowrap"}}>{canEdit&&<div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
             {isEditing?<><Btn small primary onClick={saveEditMov}>حفظ</Btn><Btn ghost small onClick={()=>setEditMov(null)}>الغاء</Btn></>:<>
             <Btn small onClick={()=>printMov(m)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨</Btn>
