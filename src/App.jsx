@@ -1167,7 +1167,7 @@ export default function App(){
                 {perm==="view"&&<div style={{position:"absolute",top:6,left:6,fontSize:9,padding:"1px 6px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
               </div>})}
             </div>
-            <div onClick={()=>setShowScanner(true)} style={{margin:"16px auto 0",display:"flex",justifyContent:"center"}}><div style={{background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",borderRadius:14,padding:"14px 30px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,boxShadow:"0 4px 20px rgba(14,165,233,0.3)"}}><span style={{fontSize:24}} title="فتح كاميرا QR">📷</span><span style={{fontSize:FS+1,fontWeight:700,color:"#fff"}}>مسح كود QR</span></div></div>
+            <div onClick={()=>setShowScanner("menu")} style={{margin:"16px auto 0",display:"flex",justifyContent:"center"}}><div style={{background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",borderRadius:14,padding:"14px 30px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,boxShadow:"0 4px 20px rgba(14,165,233,0.3)"}}><span style={{fontSize:24}} title="فتح كاميرا QR">📷</span><span style={{fontSize:FS+1,fontWeight:700,color:"#fff"}}>مسح QR</span></div></div>
             <div onClick={()=>setBarcodePopup({mode:"manual",modelId:"",size:"",qty:1,serial:1})} style={{margin:"10px auto 0",display:"flex",justifyContent:"center"}}><div style={{background:"linear-gradient(135deg,#F59E0B,#D97706)",borderRadius:14,padding:"12px 26px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,boxShadow:"0 4px 20px rgba(245,158,11,0.3)"}}><span style={{fontSize:22}}>🏷️</span><span style={{fontSize:FS,fontWeight:700,color:"#fff"}}>طباعة باركود</span></div></div>
             {(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
               return myTasks.length>0&&<div style={{marginTop:16}}>
@@ -1266,7 +1266,30 @@ export default function App(){
         </div>
       </div>
     </div>}
-    {showScanner&&<QRScanner onClose={()=>setShowScanner(false)} onScan={url=>{setShowScanner(false);try{const u=new URL(url);const p=new URLSearchParams(u.search);if(p.get("o")){const o=orders.find(x=>x.modelNo===p.get("o"));if(o)goD(o.id)}else if(p.get("act")==="rcv"&&p.get("oid")){setTab("external");setTimeout(()=>{window.__qrReceive={oid:p.get("oid"),wdi:Number(p.get("wdi"))||0};window.dispatchEvent(new Event("qr-receive"))},600)}else if(p.get("act")==="stock"&&p.get("oid")){const o=orders.find(x=>x.id===p.get("oid"));if(o){goD(o.id);setTimeout(()=>{window.__qrStock=true;window.dispatchEvent(new Event("qr-stock"))},800)}}else if(p.get("act")==="wsacc"&&p.get("ws")){setTab("external");setTimeout(()=>{window.__qrWsAcc={ws:decodeURIComponent(p.get("ws"))};window.dispatchEvent(new Event("qr-wsacc"))},600)}else{showToast("QR غير معروف")}}catch(e){showToast("QR غير صالح")}}}/>}
+    {showScanner==="menu"&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowScanner(false)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:420,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>📷 مسح QR — اختر العملية</div>
+          <Btn ghost small onClick={()=>setShowScanner(false)}>✕</Btn>
+        </div>
+        {[
+          {icon:"📷",label:"مسح ذكي (تلقائي)",desc:"التطبيق يتعرف على النوع تلقائياً",color:T.accent,action:()=>setShowScanner(true)},
+          {icon:"📋",label:"فتح أوردر",desc:"اسكان QR → تفاصيل الأوردر",color:T.accent,action:()=>setShowScanner(true)},
+          {icon:"↙",label:"استلام من ورشة",desc:"اسكان QR ليبل → شاشة الاستلام",color:"#8B5CF6",action:()=>setShowScanner(true)},
+          {icon:"📦",label:"بيع سريع",desc:"اختر عميل → اسكان متتابع",color:"#10B981",action:()=>{setShowScanner(false);setTab("customers");setTimeout(()=>{/* trigger from customer page */},100)}},
+          {icon:"↩️",label:"مرتجع سريع",desc:"اختر عميل → اسكان مرتجعات",color:"#EF4444",action:()=>{setShowScanner(false);setTab("customers");setTimeout(()=>{},100)}},
+          {icon:"🔍",label:"استعلام موديل",desc:"اسكان أي QR → بيانات الموديل",color:"#F59E0B",action:()=>setShowScanner(true)},
+          {icon:"🏭",label:"حساب ورشة",desc:"اسكان QR الورشة → الحساب",color:"#0EA5E9",action:()=>setShowScanner(true)},
+        ].map(op=><div key={op.label} onClick={op.action} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:12,cursor:"pointer",border:"1px solid "+op.color+"20",marginBottom:6,transition:"background 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=op.color+"08"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+          <div style={{width:40,height:40,borderRadius:10,background:op.color+"12",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{op.icon}</div>
+          <div><div style={{fontWeight:700,fontSize:FS,color:op.color}}>{op.label}</div><div style={{fontSize:FS-2,color:T.textMut}}>{op.desc}</div></div>
+        </div>)}
+      </div>
+    </div>}
+    {showScanner===true&&<QRScanner onClose={()=>setShowScanner(false)} onScan={url=>{setShowScanner(false);try{/* Smart scan — detect type */
+      if(url.startsWith("CLARK:")){const parts=url.split(":");const orderId=parts[1];const o=orders.find(x=>x.id===orderId);if(o){goD(o.id);showToast("📋 "+o.modelNo);return}}
+      try{const j=JSON.parse(url);if(j.app==="clark"&&j.type==="pkg"){const pkg=(config.packages||[]).find(p=>p.id===j.id);if(pkg){setTab("customers");setTimeout(()=>{window.__openPkg=j.id;window.dispatchEvent(new Event("open-pkg"))},500);showToast("📦 "+j.num);return}}}catch(e2){}
+      const u=new URL(url);const p=new URLSearchParams(u.search);if(p.get("o")){const o=orders.find(x=>x.modelNo===p.get("o"));if(o)goD(o.id)}else if(p.get("act")==="rcv"&&p.get("oid")){setTab("external");setTimeout(()=>{window.__qrReceive={oid:p.get("oid"),wdi:Number(p.get("wdi"))||0};window.dispatchEvent(new Event("qr-receive"))},600)}else if(p.get("act")==="stock"&&p.get("oid")){const o=orders.find(x=>x.id===p.get("oid"));if(o){goD(o.id);setTimeout(()=>{window.__qrStock=true;window.dispatchEvent(new Event("qr-stock"))},800)}}else if(p.get("act")==="wsacc"&&p.get("ws")){setTab("external");setTimeout(()=>{window.__qrWsAcc={ws:decodeURIComponent(p.get("ws"))};window.dispatchEvent(new Event("qr-wsacc"))},600)}else{showToast("QR غير معروف")}}catch(e){if(url.startsWith("CLARK:")){const parts=url.split(":");const orderId=parts[1];const o=orders.find(x=>x.id===orderId);if(o){goD(o.id);return}}showToast("QR غير صالح")}}}/>}
     {cardPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setCardPopup(null)}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:isMob?500:650,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><div style={{fontSize:FS+2,fontWeight:800,color:cardPopup.color}}>{cardPopup.title}</div><Btn ghost small onClick={()=>setCardPopup(null)} title="إغلاق">✕</Btn></div><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th style={TH}>البيان</th>{cardPopup.details?.[0]?.desc!==undefined&&<th style={TH}>الوصف</th>}<th style={TH}>الكمية</th></tr></thead><tbody>{(cardPopup.details||[]).map((d,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={{...TD,fontWeight:700,color:cardPopup.color}}>{d.model}</td>{d.desc!==undefined&&<td style={TD}>{d.desc}</td>}<td style={{...TD,textAlign:"center",fontWeight:800}}>{fmt(d.qty)}</td></tr>)}<tr style={{background:cardPopup.color+"10"}}><td style={{...TD,fontWeight:800}} colSpan={cardPopup.details?.[0]?.desc!==undefined?2:1}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:cardPopup.color}}>{fmt((cardPopup.details||[]).reduce((s,d)=>s+(Number(d.qty)||0),0))}</td></tr></tbody></table></div></div>}
     {labelPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setLabelPopup(null)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:320,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",textAlign:"center"}}>
@@ -3834,7 +3857,8 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   const[freeReturn,setFreeReturn]=useState(null);const[freeRetItems,setFreeRetItems]=useState({});const[freeRetNote,setFreeRetNote]=useState("");
   const[custQR,setCustQR]=useState(null);const[salesDetail,setSalesDetail]=useState(null);const[custStatement,setCustStatement]=useState(null);const[salesAnalysis,setSalesAnalysis]=useState(false);const[editRetIdx,setEditRetIdx]=useState(null);const[editRetQty,setEditRetQty]=useState(0);const[editRetNote,setEditRetNote]=useState("");
   const[qrSale,setQrSale]=useState(null);/* {mode:"sale"|"return",custId,items:[{orderId,modelNo,modelDesc,rackSize,qty}],note} */
-  const[qrScanActive,setQrScanActive]=useState(false);const[customLabel,setCustomLabel]=useState(null);/* {orderId,qty} */
+  const[qrScanActive,setQrScanActive]=useState(false);const[customLabel,setCustomLabel]=useState(null);
+  const[pkgPopup,setPkgPopup]=useState(null);const[pkgItems,setPkgItems]=useState([]);const[pkgNote,setPkgNote]=useState("");const[pkgSearch,setPkgSearch]=useState("");
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
 
   const getRackSize=(orderId)=>{const o=orders.find(x=>x.id===orderId);if(!o||!o.sizeLabel)return 1;const parts=o.sizeLabel.split(/[-\/]/).map(s=>s.trim()).filter(Boolean);return parts.length||1};
@@ -3859,18 +3883,12 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
     const sm=stockModels.find(m=>m.id===orderId);if(!sm)return;
     const sess=sessions.find(s=>s.id===sessId);if(!sess)return;
     const otherCustQty=Object.entries(sess.grid||{}).filter(([k])=>{const[oid]=k.split("_");return oid===orderId&&k!==orderId+"_"+custId}).reduce((s,[_,v])=>s+(Number(v)||0),0);
-    const otherSessQty=(o.customerDeliveries||[]).filter(d=>d.sessionId!==sessId).reduce((s,d)=>s+(Number(d.qty)||0),0);
-    const maxQ=sm.stockQty-otherSessQty-otherCustQty;
+    const maxQ=sm.stockQty-otherCustQty;
     const qty=Math.min(Math.max(0,newQty),Math.max(0,maxQ));
-    const c=customers.find(x=>x.id===custId);
+    /* Plan only — update grid, NO customerDeliveries */
     upConfig(d=>{const si=d.custDeliverySessions.findIndex(s=>s.id===sessId);if(si<0)return;if(!d.custDeliverySessions[si].grid)d.custDeliverySessions[si].grid={};
       if(qty>0)d.custDeliverySessions[si].grid[orderId+"_"+custId]=qty;
       else delete d.custDeliverySessions[si].grid[orderId+"_"+custId]});
-    updOrder(orderId,ord=>{if(!ord.customerDeliveries)ord.customerDeliveries=[];
-      const idx=ord.customerDeliveries.findIndex(d=>d.custId===custId&&d.sessionId===sessId);
-      if(qty>0){if(idx>=0){ord.customerDeliveries[idx].qty=qty;ord.customerDeliveries[idx].date=sess.date}
-        else{ord.customerDeliveries.push({custId,custName:c?.name||"",custPhone:c?.phone||"",qty,date:sess.date,sessionId:sessId,createdBy:userName||""})}}
-      else{if(idx>=0)ord.customerDeliveries.splice(idx,1)}});
     setEditCell(null)};
 
   const delSession=(sessId)=>{const sess=sessions.find(s=>s.id===sessId);if(!sess)return;
@@ -4079,6 +4097,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
         {stockModels.length>0&&crd("🏷️","ليبلات QR","#F59E0B",()=>setCustomLabel("pick"))}
         {crd("📄","كشف حساب",T.accent,()=>{setCustStatement("pick");setCustFilter("")})}
         {stockModels.length>0&&crd("🏆","تحليل مبيعات","#8B5CF6",()=>setSalesAnalysis(true))}
+        {crd("📦","كراتين","#0EA5E9",()=>setPkgPopup("list"))}
       </div>})()}
     {/* Active Session Matrix - Popup */}
     {activeSess&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:24}} onClick={()=>closeMatrix()}>
@@ -4264,12 +4283,16 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
       {(()=>{const fSess=sortedSessions.filter(s=>{if(!sessFilterQ.trim())return true;const q=sessFilterQ.trim().toLowerCase();const mNos=s.modelIds.map(id=>{const o=orders.find(x=>x.id===id);return o?.modelNo||""}).join(" ").toLowerCase();const cNames=s.custIds.map(id=>{const c=customers.find(x=>x.id===id);return c?.name||""}).join(" ").toLowerCase();return(s.date||"").includes(q)||mNos.includes(q)||cNames.includes(q)});
         return fSess.length>0?<div style={{display:"flex",flexDirection:"column",gap:8}}>
         {fSess.map(s=>{const totalQty=Object.values(s.grid||{}).reduce((sum,v)=>sum+(Number(v)||0),0);const isActive=activeSession===s.id;const st=s.status||"جاري التجهيز";const stColor=st==="تم التسليم"?"#10B981":st==="تم الشحن"?"#0EA5E9":"#F59E0B";
-          return<div key={s.id} style={{padding:"12px 16px",borderRadius:12,background:isActive?T.accent+"08":T.cardSolid,border:isActive?"2px solid "+T.accent:"1px solid "+T.brd,cursor:"pointer",transition:"all 0.15s"}} onClick={()=>setActiveSession(isActive?null:s.id)}>
+          const confirmed=s.saleConfirmed;const isFree=s.freeSale;
+          return<div key={s.id} style={{padding:"12px 16px",borderRadius:12,background:isActive?T.accent+"08":T.cardSolid,border:isActive?"2px solid "+T.accent:confirmed?"1px solid #10B98130":"1px solid "+T.brd,cursor:"pointer",transition:"all 0.15s"}} onClick={()=>setActiveSession(isActive?null:s.id)}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <span style={{fontSize:18}}>📦</span>
-                <div><div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}><span style={{fontWeight:700,fontSize:FS,color:T.text}}>{"تسليم عملاء — "+s.date}</span><span style={{fontSize:FS-3,fontWeight:700,color:stColor,background:stColor+"15",padding:"1px 8px",borderRadius:6,border:"1px solid "+stColor+"30"}}>{st}</span></div>
-                  <div style={{fontSize:FS-2,color:T.textMut}}>{s.modelIds.length+" موديل × "+s.custIds.length+" عميل | "+totalQty+" قطعة"}</div></div>
+                <span style={{fontSize:18}}>{isFree?"🔓":"📦"}</span>
+                <div><div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}><span style={{fontWeight:700,fontSize:FS,color:T.text}}>{(isFree?"بيع حر":"سجل توزيع")+" — "+s.date}</span><span style={{fontSize:FS-3,fontWeight:700,color:stColor,background:stColor+"15",padding:"1px 8px",borderRadius:6,border:"1px solid "+stColor+"30"}}>{st}</span>
+                    {confirmed&&<span style={{fontSize:FS-3,fontWeight:700,color:"#10B981",background:"#10B98110",padding:"1px 8px",borderRadius:6}}>✅ بيع فعلي</span>}
+                    {!confirmed&&!isFree&&<span style={{fontSize:FS-3,fontWeight:700,color:"#F59E0B",background:"#F59E0B10",padding:"1px 8px",borderRadius:6}}>⏳ خطة</span>}
+                  </div>
+                  <div style={{fontSize:FS-2,color:T.textMut}}>{(s.modelIds?.length||0)+" موديل × "+(s.custIds?.length||0)+" عميل | "+totalQty+" قطعة"+(s.actualSaleBy?" | بواسطة: "+s.actualSaleBy:"")}</div></div>
               </div>
               <div style={{display:"flex",gap:4,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
                 <select value={st} onChange={e=>updateSessStatus(s.id,e.target.value)} style={{padding:"3px 6px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",fontWeight:700,background:T.bg,color:stColor,cursor:"pointer"}}>{SESS_STATUSES.map(ss=><option key={ss} value={ss}>{ss}</option>)}</select>
@@ -4593,19 +4616,22 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
       const updateQty=(idx,v)=>setQrSale(p=>{const items=[...p.items];items[idx]={...items[idx],qty:Math.max(0,Number(v)||0)};return{...p,items}});
       const removeItem=(idx)=>setQrSale(p=>({...p,items:p.items.filter((_,i)=>i!==idx)}));
       const closeQrSale=()=>{try{const v=document.getElementById("qr-sale-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setQrScanActive(false);setQrSale(null)};
+      const linkedSess=isSale&&qrSale.linkedSession&&qrSale.linkedSession!=="free"?sessions.find(s=>s.id===qrSale.linkedSession):null;
+      const plannedByModel={};if(linkedSess){Object.entries(linkedSess.grid||{}).forEach(([k,v])=>{const[oid,cid]=k.split("_");if(cid===qrSale.custId){plannedByModel[oid]=(plannedByModel[oid]||0)+(Number(v)||0)}})}
+      const actualByModel={};qrSale.items.forEach(it=>{actualByModel[it.orderId]=(actualByModel[it.orderId]||0)+(Number(it.qty)||0)});
       const confirmSale=()=>{if(!qrSale.custId||total<=0)return;const cust=customers.find(c=>c.id===qrSale.custId);if(!cust)return;
-        /* Group by orderId */
         const byOrder={};qrSale.items.forEach(it=>{if(!byOrder[it.orderId])byOrder[it.orderId]=0;byOrder[it.orderId]+=(Number(it.qty)||0)});
-        if(isSale){/* Create delivery session */
-          const sessId=gid();const modelIds=[...new Set(qrSale.items.map(it=>it.orderId))];const grid={};Object.entries(byOrder).forEach(([oid,qty])=>{grid[oid+"_"+qrSale.custId]=qty});
-          upConfig(d=>{if(!d.custDeliverySessions)d.custDeliverySessions=[];d.custDeliverySessions.push({id:sessId,date:new Date().toISOString().split("T")[0],modelIds,custIds:[qrSale.custId],grid,createdBy:userName,createdAt:new Date().toISOString(),status:"تم التسليم"})});
+        if(isSale){
+          const sessId=linkedSess?linkedSess.id:gid();const modelIds=[...new Set(qrSale.items.map(it=>it.orderId))];
+          if(!linkedSess){const grid={};Object.entries(byOrder).forEach(([oid,qty])=>{grid[oid+"_"+qrSale.custId]=qty});
+            upConfig(d=>{if(!d.custDeliverySessions)d.custDeliverySessions=[];d.custDeliverySessions.push({id:sessId,date:new Date().toISOString().split("T")[0],modelIds,custIds:[qrSale.custId],grid,createdBy:userName,createdAt:new Date().toISOString(),status:"تم التسليم",freeSale:true,saleConfirmed:true})})}
+          else{upConfig(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===sessId);if(si>=0){d.custDeliverySessions[si].actualSales=byOrder;d.custDeliverySessions[si].actualSaleDate=new Date().toISOString().split("T")[0];d.custDeliverySessions[si].actualSaleBy=userName;d.custDeliverySessions[si].saleConfirmed=true;d.custDeliverySessions[si].status="تم التسليم"}})}
           Object.entries(byOrder).forEach(([oid,qty])=>{updOrder(oid,o=>{if(!o.customerDeliveries)o.customerDeliveries=[];o.customerDeliveries.push({custId:qrSale.custId,custName:cust.name,qty,date:new Date().toISOString().split("T")[0],sessionId:sessId,createdBy:userName})})});
           playBeep("done");showToast("✓ تم تسجيل بيع "+total+" قطعة لـ "+cust.name)
-        }else{/* Register returns */
+        }else{
           Object.entries(byOrder).forEach(([oid,qty])=>{updOrder(oid,o=>{if(!o.customerReturns)o.customerReturns=[];o.customerReturns.push({custId:qrSale.custId,custName:cust.name,qty,note:qrSale.note||"مرتجع سريع",date:new Date().toISOString().split("T")[0],createdBy:userName})})});
           playBeep("done");showToast("✓ تم تسجيل مرتجع "+total+" قطعة من "+cust.name)
         }closeQrSale()};
-      /* Customer picker */
       if(!qrSale.custId)return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={closeQrSale}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:450,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -4614,41 +4640,68 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
           </div>
           <div style={{marginBottom:10}}><Inp value={custFilter} onChange={setCustFilter} placeholder="بحث بالاسم أو التليفون..."/></div>
           <div style={{display:"flex",flexDirection:"column",gap:4}}>
-            {customers.filter(c=>{if(!custFilter.trim())return true;const q=custFilter.trim().toLowerCase();return(c.name||"").toLowerCase().includes(q)||(c.phone||"").includes(q)}).map(c=><div key={c.id} onClick={()=>{setQrSale(p=>({...p,custId:c.id}));setCustFilter("")}} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",borderRadius:10,cursor:"pointer",border:"1px solid "+T.brd}} onMouseEnter={e=>e.currentTarget.style.background=color+"08"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+            {customers.filter(c=>{if(!custFilter.trim())return true;const q=custFilter.trim().toLowerCase();return(c.name||"").toLowerCase().includes(q)||(c.phone||"").includes(q)}).map(c=><div key={c.id} onClick={()=>{setQrSale(p=>({...p,custId:c.id,linkedSession:isSale?undefined:"free"}));setCustFilter("")}} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",borderRadius:10,cursor:"pointer",border:"1px solid "+T.brd}} onMouseEnter={e=>e.currentTarget.style.background=color+"08"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
               <span style={{fontWeight:700}}>{c.name}</span>
-              <span style={{fontSize:FS-1,color:T.accent}}>{"استلم: "+getCustTotal(c.id)}</span>
+              <span style={{fontSize:FS-1,color:T.accent}}>{"صافي: "+getCustTotal(c.id)}</span>
             </div>)}
           </div>
         </div>
       </div>;
-      /* Scanner + items */
+      if(isSale&&qrSale.linkedSession===undefined){const custSessions=sessions.filter(s=>{const hasGrid=Object.keys(s.grid||{}).some(k=>k.endsWith("_"+qrSale.custId)&&Number(s.grid[k])>0);return hasGrid&&!s.saleConfirmed});
+        return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={closeQrSale}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:500,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div><div style={{fontSize:FS+2,fontWeight:800,color}}>📦 اختر طريقة البيع</div><div style={{fontSize:FS-1,color:T.textMut}}>{customers.find(c=>c.id===qrSale.custId)?.name}</div></div>
+              <div style={{display:"flex",gap:4}}><Btn ghost small onClick={()=>setQrSale(p=>({...p,custId:null}))}>← رجوع</Btn><Btn ghost small onClick={closeQrSale}>✕</Btn></div>
+            </div>
+            {custSessions.length>0&&<div style={{marginBottom:12}}>
+              <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:6}}>📋 بيع مربوط بسجل توزيع:</div>
+              <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                {custSessions.map(s=>{const totalQ=Object.entries(s.grid||{}).filter(([k])=>k.endsWith("_"+qrSale.custId)).reduce((sum,[,v])=>sum+(Number(v)||0),0);
+                  return<div key={s.id} onClick={()=>setQrSale(p=>({...p,linkedSession:s.id}))} style={{padding:"10px 14px",borderRadius:10,cursor:"pointer",border:"1px solid "+T.accent+"30",background:T.accent+"04"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"10"} onMouseLeave={e=>e.currentTarget.style.background=T.accent+"04"}>
+                    <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontWeight:700}}>{"📦 "+s.date}</span><span style={{fontWeight:800,color:T.accent}}>{totalQ+" قطعة"}</span></div>
+                    <div style={{fontSize:FS-2,color:T.textMut}}>{s.modelIds?.length+" موديل"}</div>
+                  </div>})}
+              </div>
+            </div>}
+            <div onClick={()=>setQrSale(p=>({...p,linkedSession:"free"}))} style={{padding:14,borderRadius:12,border:"1px solid "+color+"30",background:color+"06",cursor:"pointer",textAlign:"center"}} onMouseEnter={e=>e.currentTarget.style.background=color+"12"} onMouseLeave={e=>e.currentTarget.style.background=color+"06"}>
+              <div style={{fontSize:FS,fontWeight:700,color}}>🔓 بيع حر (بدون ربط)</div>
+              <div style={{fontSize:FS-2,color:T.textMut}}>بيع مباشر بدون مقارنة بسجل</div>
+            </div>
+          </div>
+        </div>}
       const custName=customers.find(c=>c.id===qrSale.custId)?.name||"";
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={closeQrSale}>
-        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?420:550,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-            <div><div style={{fontSize:FS+2,fontWeight:800,color}}>{title}</div><div style={{fontSize:FS-1,color:T.textMut}}>{custName}</div></div>
-            <div style={{display:"flex",gap:4}}><Btn ghost small onClick={()=>setQrSale(p=>({...p,custId:null}))}>← تغيير</Btn><Btn ghost small onClick={closeQrSale} title="إغلاق">✕</Btn></div>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?420:600,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div><div style={{fontSize:FS+2,fontWeight:800,color}}>{title}</div><div style={{fontSize:FS-1,color:T.textMut}}>{custName+(linkedSess?" — مربوط بسجل "+linkedSess.date:isSale?" — بيع حر":"")}</div></div>
+            <div style={{display:"flex",gap:4}}><Btn ghost small onClick={()=>setQrSale(p=>({...p,linkedSession:isSale?undefined:"free",items:[]}))}>{isSale?"← سجل":"← عميل"}</Btn><Btn ghost small onClick={closeQrSale}>✕</Btn></div>
           </div>
+          {linkedSess&&qrSale.items.length>0&&(()=>{const allModels=[...new Set([...Object.keys(plannedByModel),...Object.keys(actualByModel)])];
+            return<div style={{border:"1px solid "+T.brd,borderRadius:10,overflow:"hidden",marginBottom:10}}>
+              <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th style={{...TH,fontSize:FS-2}}>الموديل</th><th style={{...TH,fontSize:FS-2}}>المخطط</th><th style={{...TH,fontSize:FS-2}}>الفعلي</th><th style={{...TH,fontSize:FS-2}}>الحالة</th></tr></thead><tbody>
+                {allModels.map(oid=>{const o=orders.find(x=>x.id===oid);const planned=plannedByModel[oid]||0;const actual=actualByModel[oid]||0;const diff=actual-planned;
+                  return<tr key={oid} style={{background:diff===0?"#10B98108":diff>0?"#F59E0B08":"#EF444408"}}><td style={{...TD,fontWeight:700,color:T.accent}}>{o?.modelNo||"?"}</td><td style={{...TD,textAlign:"center"}}>{planned}</td><td style={{...TD,textAlign:"center",fontWeight:800}}>{actual}</td>
+                    <td style={{...TD,textAlign:"center",fontWeight:700,color:diff===0?"#10B981":diff>0?"#F59E0B":"#EF4444"}}>{diff===0?"✅ تمام":diff>0?"⚠️ +"+diff:"❌ "+diff}</td></tr>})}
+              </tbody></table>
+            </div>})()}
           {qrScanActive?<div style={{marginBottom:12}}>
             <div style={{position:"relative",width:"100%",maxWidth:300,margin:"0 auto",borderRadius:12,overflow:"hidden",background:"#000"}}>
               <video id="qr-sale-video" playsInline muted autoPlay style={{width:"100%",display:"block"}}/>
               <canvas id="qr-sale-canvas" style={{display:"none"}}/>
               <div style={{position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",width:160,height:160,border:"2px solid "+color,borderRadius:12,boxShadow:"0 0 0 999px rgba(0,0,0,0.4)"}}/>
             </div>
-            <div style={{textAlign:"center",marginTop:8}}><Btn small onClick={()=>{setQrScanActive(false);try{const v=document.getElementById("qr-sale-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>⏹ إيقاف الماسح</Btn></div></div>
+            <div style={{textAlign:"center",marginTop:8}}><Btn small onClick={()=>{setQrScanActive(false);try{const v=document.getElementById("qr-sale-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>⏹ إيقاف</Btn></div></div>
           :<div style={{textAlign:"center",marginBottom:12}}><Btn onClick={()=>{setQrScanActive(true);setTimeout(()=>{const startCam=async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:640}}});
             const v=document.getElementById("qr-sale-video");if(!v){stream.getTracks().forEach(t=>t.stop());return}v.srcObject=stream;
-            const hasBD=typeof BarcodeDetector!=="undefined";const detector=hasBD?new BarcodeDetector({formats:["qr_code"]}):null;
-            let lastScan="";let lastTime=0;
+            const hasBD=typeof BarcodeDetector!=="undefined";const detector=hasBD?new BarcodeDetector({formats:["qr_code"]}):null;let lastScan="";let lastTime=0;
             const scan=async()=>{if(!v.srcObject)return;const c=document.getElementById("qr-sale-canvas");if(!c||v.readyState<2){requestAnimationFrame(scan);return}
               c.width=v.videoWidth;c.height=v.videoHeight;c.getContext("2d").drawImage(v,0,0);
               if(detector){try{const codes=await detector.detect(c);if(codes.length>0){const t=codes[0].rawValue;const now=Date.now();if(t!==lastScan||now-lastTime>2000){lastScan=t;lastTime=now;handleScan(t)}}}catch(e){}}
               if(v.srcObject)requestAnimationFrame(scan)};setTimeout(scan,500)}catch(e){showToast("⚠️ تعذر فتح الكاميرا")}};startCam()},300)}} style={{background:color+"12",color,border:"1px solid "+color+"30",padding:"12px 24px",fontSize:FS+1}}>📷 فتح الماسح</Btn>
-            <div style={{fontSize:FS-2,color:T.textMut,marginTop:6}}>أو أضف يدوياً من القائمة</div></div>}
-          {/* Manual add */}
-          <div style={{marginBottom:12}}><SearchSel value="" onChange={v=>{if(!v)return;const o=orders.find(x=>x.id===v);if(!o)return;const rs=getRackSize(v);playBeep("ok");setQrSale(p=>({...p,items:[...p.items,{orderId:v,modelNo:o.modelNo,modelDesc:o.modelDesc,rackSize:rs,qty:rs}]}))}} options={stockModels.filter(m=>m.avail>0).map(m=>({value:m.id,label:m.modelNo+" — "+m.modelDesc+" (رصيد: "+m.avail+")"}))} placeholder="اختر موديل يدوياً..."/></div>
-          {/* Items list */}
-          {qrSale.items.length>0&&<div style={{border:"1px solid "+T.brd,borderRadius:12,overflow:"hidden",marginBottom:12}}>
+            <div style={{fontSize:FS-2,color:T.textMut,marginTop:6}}>أو أضف يدوياً</div></div>}
+          <div style={{marginBottom:12}}><SearchSel value="" onChange={v=>{if(!v)return;const o=orders.find(x=>x.id===v);if(!o)return;const rs=getRackSize(v);playBeep("ok");setQrSale(p=>({...p,items:[...p.items,{orderId:v,modelNo:o.modelNo,modelDesc:o.modelDesc,rackSize:rs,qty:rs}]}))}} options={stockModels.filter(m=>m.avail>0).map(m=>({value:m.id,label:m.modelNo+" — "+m.modelDesc+" ("+m.avail+")"}))} placeholder="اختر موديل..."/></div>
+          {qrSale.items.length>0&&<div style={{border:"1px solid "+T.brd,borderRadius:12,overflow:"hidden",marginBottom:10}}>
             <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th style={{...TH,fontSize:FS-2}}>الموديل</th><th style={{...TH,fontSize:FS-2}}>السيري</th><th style={{...TH,fontSize:FS-2}}>الكمية</th><th style={{...TH,width:30}}></th></tr></thead><tbody>
               {qrSale.items.map((it,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={{...TD,fontWeight:700,color:T.accent}}>{it.modelNo}</td><td style={{...TD,textAlign:"center"}}>{it.rackSize}</td>
                 <td style={{...TD,textAlign:"center"}}><input type="number" value={it.qty} onChange={e=>updateQty(i,e.target.value)} style={{width:60,textAlign:"center",border:"1px solid "+T.brd,borderRadius:4,padding:"2px",fontSize:FS,fontWeight:700,fontFamily:"inherit",background:T.cardSolid,color:T.text}}/></td>
@@ -4657,23 +4710,97 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
             </tbody></table>
           </div>}
           {!isSale&&<div style={{marginBottom:10}}><Inp value={qrSale.note||""} onChange={v=>setQrSale(p=>({...p,note:v}))} placeholder="سبب المرتجع..."/></div>}
-          {/* Grouped summary */}
-          {qrSale.items.length>0&&(()=>{const grouped={};qrSale.items.forEach(it=>{if(!grouped[it.modelNo])grouped[it.modelNo]={modelNo:it.modelNo,modelDesc:it.modelDesc,scans:0,totalQty:0};grouped[it.modelNo].scans++;grouped[it.modelNo].totalQty+=(Number(it.qty)||0)});const gArr=Object.values(grouped);
-            return<div style={{padding:10,borderRadius:10,background:color+"06",border:"1px solid "+color+"20",marginBottom:12}}>
-              <div style={{fontSize:FS-1,fontWeight:700,color,marginBottom:6}}>📊 ملخص المراجعة:</div>
-              {gArr.map(g=><div key={g.modelNo} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 8px",fontSize:FS-1}}>
-                <span style={{fontWeight:700,color:T.accent}}>{g.modelNo}</span>
-                <span style={{color:T.textSec}}>{g.scans+" سيري"}</span>
-                <span style={{fontWeight:800,color}}>{g.totalQty+" قطعة"}</span>
-              </div>)}
-              <div style={{borderTop:"1px solid "+color+"20",marginTop:6,paddingTop:6,display:"flex",justifyContent:"space-between",fontSize:FS,fontWeight:800}}>
-                <span>{"اجمالي: "+gArr.reduce((s,g)=>s+g.scans,0)+" سيري"}</span>
-                <span style={{color}}>{total+" قطعة"}</span>
-              </div>
+          {qrSale.items.length>0&&(()=>{const grouped={};qrSale.items.forEach(it=>{if(!grouped[it.modelNo])grouped[it.modelNo]={modelNo:it.modelNo,scans:0,totalQty:0};grouped[it.modelNo].scans++;grouped[it.modelNo].totalQty+=(Number(it.qty)||0)});const gArr=Object.values(grouped);
+            return<div style={{padding:10,borderRadius:10,background:color+"06",border:"1px solid "+color+"20",marginBottom:10}}>
+              <div style={{fontSize:FS-1,fontWeight:700,color,marginBottom:6}}>📊 ملخص:</div>
+              {gArr.map(g=><div key={g.modelNo} style={{display:"flex",justifyContent:"space-between",padding:"3px 8px",fontSize:FS-1}}>
+                <span style={{fontWeight:700,color:T.accent}}>{g.modelNo}</span><span style={{color:T.textSec}}>{g.scans+" سيري"}</span><span style={{fontWeight:800,color}}>{g.totalQty+" ق"}</span></div>)}
+              <div style={{borderTop:"1px solid "+color+"20",marginTop:4,paddingTop:4,display:"flex",justifyContent:"space-between",fontSize:FS,fontWeight:800}}>
+                <span>{gArr.reduce((s,g)=>s+g.scans,0)+" سيري"}</span><span style={{color}}>{total+" قطعة"}</span></div>
             </div>})()}
           <div style={{display:"flex",gap:8,justifyContent:"center"}}>
             <Btn ghost onClick={closeQrSale}>الغاء</Btn>
             <Btn onClick={confirmSale} disabled={total<=0} style={{background:color,color:"#fff",border:"none",fontWeight:700}}>{(isSale?"📦 تأكيد البيع":"↩️ تأكيد المرتجع")+" ("+total+")"}</Btn>
+          </div>
+        </div>
+      </div>})()}
+    {/* Package System */}
+    {pkgPopup==="list"&&(()=>{const packages=config.packages||[];const filtered=packages.filter(p=>{if(!pkgSearch.trim())return true;const q=pkgSearch.trim().toLowerCase();return(p.number||"").toLowerCase().includes(q)||(p.note||"").toLowerCase().includes(q)||p.items?.some(it=>(it.modelNo||"").includes(q))});
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setPkgPopup(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?"100%":700,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={{fontSize:FS+2,fontWeight:800,color:"#0EA5E9"}}>{"📦 الكراتين ("+packages.length+")"}</div>
+            <div style={{display:"flex",gap:4}}>{canEdit&&<Btn small primary onClick={()=>{setPkgPopup("create");setPkgItems([]);setPkgNote("")}}>+ كرتونة جديدة</Btn>}<Btn ghost small onClick={()=>setPkgPopup(null)}>✕</Btn></div>
+          </div>
+          <div style={{marginBottom:10}}><Inp value={pkgSearch} onChange={setPkgSearch} placeholder="بحث برقم الكرتونة أو الموديل..."/></div>
+          {filtered.length>0?<div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {filtered.sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map(p=>{const totalQ=p.items?.reduce((s,it)=>s+(Number(it.qty)||0),0)||0;
+              return<div key={p.id} onClick={()=>setPkgPopup("view_"+p.id)} style={{padding:"12px 16px",borderRadius:12,border:"1px solid "+T.brd,cursor:"pointer",transition:"background 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"06"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div><span style={{fontWeight:800,color:"#0EA5E9"}}>{"📦 "+p.number}</span><span style={{fontSize:FS-2,color:T.textMut,marginRight:8}}>{" — "+p.date}</span></div>
+                  <span style={{fontWeight:700,color:T.accent}}>{totalQ+" قطعة"}</span>
+                </div>
+                <div style={{fontSize:FS-2,color:T.textMut}}>{p.items?.map(it=>it.modelNo+"("+it.qty+")").join(" | ")||"فارغة"}</div>
+              </div>})}
+          </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>{pkgSearch?"لا توجد نتائج":"لا توجد كراتين — أنشئ كرتونة جديدة"}</div>}
+        </div>
+      </div>})()}
+    {pkgPopup==="create"&&(()=>{const nextNum=(config.packages||[]).length+1;const pkgNum="CTN-"+String(nextNum).padStart(3,"0");
+      const totalQ=pkgItems.reduce((s,it)=>s+(Number(it.qty)||0),0);
+      const addModel=(orderId)=>{const o=orders.find(x=>x.id===orderId);if(!o)return;const rs=getRackSize(orderId);setPkgItems(p=>[...p,{orderId,modelNo:o.modelNo,modelDesc:o.modelDesc,rackSize:rs,count:1,qty:rs}])};
+      const updateItem=(idx,f,v)=>setPkgItems(p=>{const items=[...p];items[idx]={...items[idx],[f]:Number(v)||0};if(f==="count")items[idx].qty=items[idx].count*items[idx].rackSize;return items});
+      const savePkg=()=>{if(pkgItems.length===0){showToast("⚠️ أضف موديل واحد على الأقل");return}
+        const pkg={id:gid(),number:pkgNum,date:new Date().toISOString().split("T")[0],note:pkgNote,items:pkgItems.map(it=>({orderId:it.orderId,modelNo:it.modelNo,rackSize:it.rackSize,count:it.count,qty:it.qty})),createdBy:userName,status:"مخزن"};
+        upConfig(d=>{if(!d.packages)d.packages=[];d.packages.push(pkg)});
+        /* Print QR */
+        const qrData=JSON.stringify({app:"clark",type:"pkg",id:pkg.id,num:pkgNum});
+        const w=window.open("","_blank");w.document.write("<html dir='rtl'><head><title>كرتونة "+pkgNum+"</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script></head><body style='font-family:Cairo,sans-serif;text-align:center;padding:20px'><div style='max-width:300px;margin:0 auto;border:2px solid #000;border-radius:16px;padding:20px'><div style='font-weight:900;font-size:20px;letter-spacing:2px;margin-bottom:4px'>CLARK</div><div style='font-size:14px;font-weight:700;color:#0EA5E9;margin-bottom:4px'>📦 كرتونة رقم</div><div style='font-size:24px;font-weight:900;margin-bottom:10px'>"+pkgNum+"</div><canvas id='qr' style='margin:0 auto'></canvas><div style='margin-top:10px;font-size:13px;font-weight:700'>"+pkgItems.length+" موديل | "+totalQ+" قطعة</div><div style='font-size:11px;color:#666;margin-top:4px'>"+pkg.date+"</div></div><script>QRCode.toCanvas(document.getElementById('qr'),'"+qrData.replace(/'/g,"\\'")+"',{width:180,margin:1},()=>{});setTimeout(()=>window.print(),800)</"+"script></body></html>");w.document.close();
+        playBeep("done");showToast("✓ تم حفظ كرتونة "+pkgNum);setPkgPopup("list")};
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setPkgPopup("list")}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?420:550,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div><div style={{fontSize:FS+2,fontWeight:800,color:"#0EA5E9"}}>📦 كرتونة جديدة</div><div style={{fontSize:FS-1,color:T.textMut}}>{"رقم: "+pkgNum}</div></div>
+            <Btn ghost small onClick={()=>setPkgPopup("list")}>← رجوع</Btn>
+          </div>
+          <div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec}}>ملاحظات</label><Inp value={pkgNote} onChange={setPkgNote} placeholder="مثال: كرتونة سيلا — شحنة 1"/></div>
+          <div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec}}>اضف موديل</label><SearchSel value="" onChange={v=>{if(v)addModel(v)}} options={stockModels.filter(m=>m.avail>0).map(m=>({value:m.id,label:m.modelNo+" — "+m.modelDesc+" ("+m.avail+")"}))} placeholder="اختر موديل..."/></div>
+          {pkgItems.length>0&&<div style={{border:"1px solid "+T.brd,borderRadius:12,overflow:"hidden",marginBottom:12}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","السيري","عدد سيريهات","الكمية",""].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
+              {pkgItems.map((it,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={{...TD,fontWeight:700,color:T.accent}}>{it.modelNo}</td><td style={{...TD,textAlign:"center"}}>{it.rackSize}</td>
+                <td style={{...TD,textAlign:"center"}}><input type="number" min="1" value={it.count} onChange={e=>updateItem(i,"count",e.target.value)} style={{width:50,textAlign:"center",border:"1px solid "+T.brd,borderRadius:4,padding:"2px",fontSize:FS,fontWeight:700,fontFamily:"inherit"}}/></td>
+                <td style={{...TD,textAlign:"center",fontWeight:800,color:"#0EA5E9"}}>{it.qty}</td>
+                <td style={{...TD,textAlign:"center"}}><span onClick={()=>setPkgItems(p=>p.filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err}}>🗑️</span></td></tr>)}
+              <tr style={{background:"#0EA5E908"}}><td colSpan={3} style={{...TD,fontWeight:800}}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#0EA5E9"}}>{totalQ}</td><td style={TD}></td></tr>
+            </tbody></table>
+          </div>}
+          <div style={{display:"flex",gap:8,justifyContent:"center"}}><Btn ghost onClick={()=>setPkgPopup("list")}>الغاء</Btn><Btn onClick={savePkg} disabled={pkgItems.length===0} style={{background:"#0EA5E9",color:"#fff",border:"none",fontWeight:700}}>{"📦 حفظ + طباعة QR ("+totalQ+" قطعة)"}</Btn></div>
+        </div>
+      </div>})()}
+    {pkgPopup&&pkgPopup.startsWith("view_")&&(()=>{const pkgId=pkgPopup.replace("view_","");const pkg=(config.packages||[]).find(p=>p.id===pkgId);if(!pkg)return null;
+      const totalQ=pkg.items?.reduce((s,it)=>s+(Number(it.qty)||0),0)||0;
+      const reprintQR=()=>{const qrData=JSON.stringify({app:"clark",type:"pkg",id:pkg.id,num:pkg.number});
+        const w=window.open("","_blank");w.document.write("<html dir='rtl'><head><title>كرتونة "+pkg.number+"</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script></head><body style='font-family:Cairo,sans-serif;text-align:center;padding:20px'><div style='max-width:300px;margin:0 auto;border:2px solid #000;border-radius:16px;padding:20px'><div style='font-weight:900;font-size:20px'>CLARK</div><div style='font-size:14px;font-weight:700;color:#0EA5E9;margin-bottom:4px'>📦 "+pkg.number+"</div><canvas id='qr'></canvas><div style='margin-top:10px;font-size:13px;font-weight:700'>"+(pkg.items?.length||0)+" موديل | "+totalQ+" قطعة</div><div style='font-size:11px;color:#666'>"+pkg.date+"</div></div><script>QRCode.toCanvas(document.getElementById('qr'),'"+qrData.replace(/'/g,"\\'")+"',{width:180,margin:1},()=>{});setTimeout(()=>window.print(),800)</"+"script></body></html>");w.document.close()};
+      const printContents=()=>{let h="<h2 style='text-align:center'>📦 كرتونة "+pkg.number+"</h2><div style='text-align:center;color:#666;margin-bottom:16px'>"+pkg.date+(pkg.note?" — "+pkg.note:"")+"</div>";
+        h+="<table><thead><tr><th>الموديل</th><th>السيري</th><th>عدد سيريهات</th><th>الكمية</th></tr></thead><tbody>";
+        (pkg.items||[]).forEach((it,i)=>{h+="<tr style='background:"+(i%2===0?"transparent":"#f8f8f8")+"'><td style='font-weight:800;color:#0EA5E9'>"+it.modelNo+"</td><td style='text-align:center'>"+it.rackSize+"</td><td style='text-align:center'>"+it.count+"</td><td style='text-align:center;font-weight:800'>"+it.qty+"</td></tr>"});
+        h+="<tr style='background:#EFF6FF;font-weight:800'><td colspan='3'>الاجمالي</td><td style='text-align:center;font-size:16px;color:#0EA5E9'>"+totalQ+"</td></tr></tbody></table>";
+        printPage("كرتونة "+pkg.number,h)};
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setPkgPopup("list")}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:isMob?420:550,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div><div style={{fontSize:FS+2,fontWeight:800,color:"#0EA5E9"}}>{"📦 "+pkg.number}</div><div style={{fontSize:FS-1,color:T.textMut}}>{pkg.date+(pkg.note?" — "+pkg.note:"")}</div></div>
+            <div style={{display:"flex",gap:4}}>
+              <Btn small onClick={reprintQR} style={{background:"#0EA5E912",color:"#0EA5E9",border:"1px solid #0EA5E930"}} title="طباعة QR">QR</Btn>
+              <Btn small onClick={printContents} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة المحتويات">🖨</Btn>
+              {canEdit&&<Btn small danger onClick={()=>{if(!confirm("حذف الكرتونة؟"))return;upConfig(d=>{d.packages=(d.packages||[]).filter(p=>p.id!==pkgId)});setPkgPopup("list");showToast("✓ تم الحذف")}}>🗑️</Btn>}
+              <Btn ghost small onClick={()=>setPkgPopup("list")}>← رجوع</Btn>
+            </div>
+          </div>
+          <div style={{border:"1px solid "+T.brd,borderRadius:12,overflow:"hidden"}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","الوصف","السيري","سيريهات","الكمية"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
+              {(pkg.items||[]).map((it,i)=>{const o=orders.find(x=>x.id===it.orderId);return<tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={{...TD,fontWeight:700,color:T.accent}}>{it.modelNo}</td><td style={{...TD,fontSize:FS-2}}>{o?.modelDesc||"—"}</td><td style={{...TD,textAlign:"center"}}>{it.rackSize}</td><td style={{...TD,textAlign:"center"}}>{it.count}</td><td style={{...TD,textAlign:"center",fontWeight:800,color:"#0EA5E9"}}>{it.qty}</td></tr>})}
+              <tr style={{background:"#0EA5E908"}}><td colSpan={4} style={{...TD,fontWeight:800}}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#0EA5E9"}}>{totalQ}</td></tr>
+            </tbody></table>
           </div>
         </div>
       </div>})()}
@@ -4697,9 +4824,17 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
       const clQty=(typeof customLabel==="object"?customLabel._qty:null)||rs;
       const clCopies=(typeof customLabel==="object"?customLabel._copies:null)||1;
       const setClField=(f,v)=>setCustomLabel(p=>{const base=typeof p==="object"?p:{_id:p};return{...base,[f]:v}});
-      const printQRLabels=(qty,copies)=>{const qrText="CLARK:"+o.id+":"+qty;
-        let h="";for(let i=0;i<copies;i++){h+="<div style='page-break-inside:avoid;text-align:center;padding:8px;border:1px dashed #ccc;margin:4px;display:inline-block;width:200px'><div style='font-weight:800;font-size:16px'>"+o.modelNo+"</div><div style='font-size:11px;color:#666'>"+o.modelDesc+"</div><div style='margin:6px 0'><img class='qr-img' data-text='"+qrText+"' style='width:100px;height:100px'/></div><div style='font-size:13px;font-weight:700'>سيري: "+qty+" قطعة</div>"+(copies>1?"<div style='font-size:10px;color:#999'>"+(i+1)+"/"+copies+"</div>":"")+"</div>"}
-        const w=window.open("","_blank");w.document.write("<html dir='rtl'><head><title>ليبل "+o.modelNo+"</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script></head><body style='font-family:Cairo,sans-serif;text-align:center'>"+h+"<script>document.querySelectorAll('.qr-img').forEach(img=>{QRCode.toDataURL(img.dataset.text,{width:100,margin:1}).then(url=>{img.src=url}).catch(()=>{})});setTimeout(()=>window.print(),800)</"+"script></body></html>");w.document.close()};
+      const printQRLabels=(qty,copies)=>{const qrText="CLARK:"+o.id+":"+qty;const ps=config.printSettings||{};const lw=ps.labelWidth||50;const lh=ps.labelHeight||40;const mg=ps.margins||2;const fl=ps.fields||{};
+        let h="";for(let i=0;i<copies;i++){h+="<div class='lbl'>";
+          if(fl.brand?.show!==false)h+="<div style='font-weight:900;font-size:"+((fl.brand?.size||14)/2.5)+"mm;letter-spacing:2px'>CLARK</div>";
+          if(fl.modelNo?.show!==false)h+="<div style='font-weight:800;font-size:"+((fl.modelNo?.size||16)/2.5)+"mm'>"+o.modelNo+"</div>";
+          if(fl.desc?.show!==false)h+="<div style='font-size:"+((fl.desc?.size||10)/2.5)+"mm;color:#444'>"+o.modelDesc+"</div>";
+          if(fl.qr?.show!==false)h+="<div style='margin:1mm 0'><img class='qr-img' data-text='"+qrText+"' style='width:"+(fl.qr?.size||80)+"px;height:"+(fl.qr?.size||80)+"px'/></div>";
+          if(fl.series?.show!==false)h+="<div style='font-weight:700;font-size:"+((fl.series?.size||12)/2.5)+"mm'>سيري: "+qty+" قطعة</div>";
+          if(fl.sizeLabel?.show)h+="<div style='font-size:"+((fl.sizeLabel?.size||10)/2.5)+"mm'>مقاس: "+(o.sizeLabel||"—")+"</div>";
+          if(fl.price?.show)h+="<div style='font-size:"+((fl.price?.size||10)/2.5)+"mm'>"+((Number(o.sellPrice)||0)||"—")+" ج.م</div>";
+          h+="</div>"}
+        const w=window.open("","_blank");w.document.write("<html dir='rtl'><head><title>ليبل "+o.modelNo+"</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><style>@page{size:"+lw+"mm "+lh+"mm;margin:"+mg+"mm}body{margin:0;padding:0;font-family:'Cairo',Arial,sans-serif}.lbl{width:"+(lw-mg*2)+"mm;height:"+(lh-mg*2)+"mm;page-break-after:always;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}</style></head><body>"+h+"<script>document.querySelectorAll('.qr-img').forEach(img=>{QRCode.toDataURL(img.dataset.text,{width:"+(fl.qr?.size||80)+",margin:1}).then(url=>{img.src=url}).catch(()=>{})});setTimeout(()=>window.print(),800)</"+"script></body></html>");w.document.close()};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setCustomLabel(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
@@ -4990,6 +5125,39 @@ function SettingsPg({config,upConfig,isMob,user,theme,setTheme,season,orders,syn
           </tr>)}</tbody>
         </table></div>
       })()}
+    </Card>
+    {/* Print Settings */}
+    <Card title="🖨 إعدادات طباعة QR" style={{marginBottom:16}}>
+      {(()=>{const ps=config.printSettings||{labelWidth:50,labelHeight:40,orientation:"portrait",margins:2,fields:{brand:{show:true,size:14},modelNo:{show:true,size:16},desc:{show:true,size:10},qr:{show:true,size:80},series:{show:true,size:12},sizeLabel:{show:false,size:10},price:{show:false,size:10}}};
+        const savePS=(fn)=>upConfig(d=>{if(!d.printSettings)d.printSettings={...ps};fn(d.printSettings)});
+        const fields=[{key:"brand",label:"اسم الشركة (CLARK)"},{key:"modelNo",label:"رقم الموديل"},{key:"desc",label:"الوصف"},{key:"qr",label:"كود QR"},{key:"series",label:"عدد القطع (سيري)"},{key:"sizeLabel",label:"المقاس"},{key:"price",label:"السعر"}];
+        const printTest=()=>{const w=ps.labelWidth||50;const h=ps.labelHeight||40;const m=ps.margins||2;const orient=ps.orientation||"portrait";
+          const pw_=window.open("","_blank");let html="<html dir='rtl'><head><title>طباعة تجريبية</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><style>@page{size:"+w+"mm "+h+"mm;margin:"+m+"mm}body{margin:0;padding:0;font-family:'Cairo',Arial,sans-serif}.lbl{width:"+(w-m*2)+"mm;height:"+(h-m*2)+"mm;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}</style></head><body><div class='lbl'>";
+          if(ps.fields?.brand?.show)html+="<div style='font-weight:900;font-size:"+((ps.fields?.brand?.size||14)/2.5)+"mm;letter-spacing:2px'>CLARK</div>";
+          if(ps.fields?.modelNo?.show)html+="<div style='font-weight:800;font-size:"+((ps.fields?.modelNo?.size||16)/2.5)+"mm'>3262114</div>";
+          if(ps.fields?.desc?.show)html+="<div style='font-size:"+((ps.fields?.desc?.size||10)/2.5)+"mm;color:#444'>توينز اولادي قطعتين</div>";
+          if(ps.fields?.qr?.show)html+="<canvas id='qr' style='margin:2mm 0'></canvas>";
+          if(ps.fields?.series?.show)html+="<div style='font-weight:700;font-size:"+((ps.fields?.series?.size||12)/2.5)+"mm'>سيري: 4 قطعة</div>";
+          if(ps.fields?.sizeLabel?.show)html+="<div style='font-size:"+((ps.fields?.sizeLabel?.size||10)/2.5)+"mm'>مقاس: 6-8-10-12</div>";
+          if(ps.fields?.price?.show)html+="<div style='font-size:"+((ps.fields?.price?.size||10)/2.5)+"mm'>السعر: 95 ج.م</div>";
+          html+="</div><script>if(document.getElementById('qr'))QRCode.toCanvas(document.getElementById('qr'),'CLARK:test:4',{width:"+(ps.fields?.qr?.size||80)+",margin:1},()=>{});setTimeout(()=>window.print(),800)</"+"script></body></html>";
+          pw_.document.write(html);pw_.document.close()};
+        return<div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+            <div><label style={{fontSize:FS-2,color:T.textSec}}>العرض (مم)</label><Inp type="number" value={ps.labelWidth||50} onChange={v=>savePS(s=>{s.labelWidth=Number(v)||50})}/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec}}>الارتفاع (مم)</label><Inp type="number" value={ps.labelHeight||40} onChange={v=>savePS(s=>{s.labelHeight=Number(v)||40})}/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec}}>الهوامش (مم)</label><Inp type="number" value={ps.margins||2} onChange={v=>savePS(s=>{s.margins=Number(v)||2})}/></div>
+          </div>
+          <div><label style={{fontSize:FS-2,color:T.textSec}}>الاتجاه</label><Sel value={ps.orientation||"portrait"} onChange={v=>savePS(s=>{s.orientation=v})}><option value="portrait">رأسي (طولي)</option><option value="landscape">أفقي (عرضي)</option></Sel></div>
+          <div style={{fontSize:FS,fontWeight:700,color:T.text}}>محتوى الليبل:</div>
+          {fields.map(f=>{const fv=ps.fields?.[f.key]||{show:false,size:12};return<div key={f.key} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 0"}}>
+            <span onClick={()=>savePS(s=>{if(!s.fields)s.fields={};if(!s.fields[f.key])s.fields[f.key]={show:false,size:12};s.fields[f.key].show=!s.fields[f.key].show})} style={{cursor:"pointer",fontSize:16}}>{fv.show?"☑":"☐"}</span>
+            <span style={{flex:1,fontSize:FS-1,fontWeight:600,color:fv.show?T.text:T.textMut}}>{f.label}</span>
+            {fv.show&&f.key!=="qr"&&<div style={{width:60}}><Inp type="number" value={fv.size||12} onChange={v=>savePS(s=>{if(!s.fields)s.fields={};if(!s.fields[f.key])s.fields[f.key]={show:true,size:12};s.fields[f.key].size=Number(v)||12})}/></div>}
+            {fv.show&&f.key==="qr"&&<div style={{width:60}}><Inp type="number" value={fv.size||80} onChange={v=>savePS(s=>{if(!s.fields)s.fields={};if(!s.fields[f.key])s.fields[f.key]={show:true,size:80};s.fields[f.key].size=Number(v)||80})}/></div>}
+          </div>})}
+          <div style={{display:"flex",gap:8}}><Btn onClick={printTest} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة تجريبية</Btn></div>
+        </div>})()}
     </Card>
     {/* Data Maintenance */}
     <Card title="🔧 صيانة البيانات" style={{marginBottom:16}}>
