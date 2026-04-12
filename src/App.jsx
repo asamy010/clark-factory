@@ -1139,6 +1139,10 @@ export default function App(){
                   <span style={{fontSize:18}}>📩</span><span style={{fontSize:FS,fontWeight:700,color:"#8B5CF6"}}>ارسال اشعار</span>
                 </div>
               </div>
+              <div style={{display:"flex",gap:8,marginTop:10,justifyContent:"center"}}>
+                <div onClick={()=>setShowScanner(true)} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",display:"flex",alignItems:"center",gap:6,boxShadow:"0 2px 10px rgba(14,165,233,0.2)"}}><span style={{fontSize:18}}>📷</span><span style={{fontSize:FS,fontWeight:700,color:"#fff"}}>مسح QR</span></div>
+                <div onClick={()=>setBarcodePopup({mode:"manual",modelId:"",size:"",qty:1,serial:1})} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:"linear-gradient(135deg,#F59E0B,#D97706)",display:"flex",alignItems:"center",gap:6,boxShadow:"0 2px 10px rgba(245,158,11,0.2)"}}><span style={{fontSize:18}}>🏷️</span><span style={{fontSize:FS,fontWeight:700,color:"#fff"}}>طباعة باركود</span></div>
+              </div>
             </div>
             {/* ── Right 25%: Tasks ── */}
             <div style={{flex:"0 0 24%",minWidth:0}}>
