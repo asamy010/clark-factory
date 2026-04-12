@@ -1957,7 +1957,6 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
           </div>
         </div>})}
       </div>
-    </div>
     {waPopup&&(()=>{const wo=waPopup.order;const wt=waPopup.t||calcOrder(wo);const timeline=getOrderTimeline(wo,wt);const hasTimeline=!!timeline;
       const sendWa=async(withTimeline)=>{let text=getOrderDetails(wo,wt);if(withTimeline&&timeline)text+=timeline;
         if(wo.image&&navigator.canShare){try{const res=await fetch(wo.image);const blob=await res.blob();const file=new File([blob],wo.modelNo+".jpg",{type:blob.type||"image/jpeg"});if(navigator.canShare({files:[file]})){await navigator.share({title:"CLARK — "+wo.modelNo,text,files:[file]});setWaSent(p=>({...p,[wo.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[wo.id];return n}),60000);setWaPopup(null);return}}catch(e){}}
@@ -1972,7 +1971,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
           <div style={{textAlign:"center",marginTop:12}}><Btn ghost small onClick={()=>setWaPopup(null)}>الغاء</Btn></div>
         </div>
       </div>})()}
-  </div>
+    </div>
   }
   if(editing)return<OrdForm data={data} initial={order} onSave={o=>{replaceOrder(sel,o);setEditing(false);showToast("✓ تم حفظ التعديلات");highlightRow(sel)}} onCancel={()=>setEditing(false)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
 
