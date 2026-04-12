@@ -1276,8 +1276,8 @@ export default function App(){
           {icon:"📷",label:"مسح ذكي (تلقائي)",desc:"التطبيق يتعرف على النوع تلقائياً",color:T.accent,action:()=>setShowScanner(true)},
           {icon:"📋",label:"فتح أوردر",desc:"اسكان QR → تفاصيل الأوردر",color:T.accent,action:()=>setShowScanner(true)},
           {icon:"↙",label:"استلام من ورشة",desc:"اسكان QR ليبل → شاشة الاستلام",color:"#8B5CF6",action:()=>setShowScanner(true)},
-          {icon:"📦",label:"بيع سريع",desc:"اختر عميل → اسكان متتابع",color:"#10B981",action:()=>{setShowScanner(false);setTab("customers");setTimeout(()=>{/* trigger from customer page */},100)}},
-          {icon:"↩️",label:"مرتجع سريع",desc:"اختر عميل → اسكان مرتجعات",color:"#EF4444",action:()=>{setShowScanner(false);setTab("customers");setTimeout(()=>{},100)}},
+          {icon:"📦",label:"بيع سريع",desc:"اختر عميل → اسكان متتابع",color:"#10B981",action:()=>{setShowScanner(false);setTab("customers");setTimeout(()=>{window.__qrSaleMode="sale";window.dispatchEvent(new Event("qr-sale-trigger"))},500)}},
+          {icon:"↩️",label:"مرتجع سريع",desc:"اختر عميل → اسكان مرتجعات",color:"#EF4444",action:()=>{setShowScanner(false);setTab("customers");setTimeout(()=>{window.__qrSaleMode="return";window.dispatchEvent(new Event("qr-sale-trigger"))},500)}},
           {icon:"🔍",label:"استعلام موديل",desc:"اسكان أي QR → بيانات الموديل",color:"#F59E0B",action:()=>setShowScanner(true)},
           {icon:"🏭",label:"حساب ورشة",desc:"اسكان QR الورشة → الحساب",color:"#0EA5E9",action:()=>setShowScanner(true)},
         ].map(op=><div key={op.label} onClick={op.action} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:12,cursor:"pointer",border:"1px solid "+op.color+"20",marginBottom:6,transition:"background 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=op.color+"08"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
@@ -3856,9 +3856,10 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   const[returnPopup,setReturnPopup]=useState(null);const[retQty,setRetQty]=useState(0);const[retNote,setRetNote]=useState("");
   const[freeReturn,setFreeReturn]=useState(null);const[freeRetItems,setFreeRetItems]=useState({});const[freeRetNote,setFreeRetNote]=useState("");
   const[custQR,setCustQR]=useState(null);const[salesDetail,setSalesDetail]=useState(null);const[custStatement,setCustStatement]=useState(null);const[salesAnalysis,setSalesAnalysis]=useState(false);const[editRetIdx,setEditRetIdx]=useState(null);const[editRetQty,setEditRetQty]=useState(0);const[editRetNote,setEditRetNote]=useState("");
-  const[qrSale,setQrSale]=useState(null);/* {mode:"sale"|"return",custId,items:[{orderId,modelNo,modelDesc,rackSize,qty}],note} */
+  const[qrSale,setQrSale]=useState(null);/* {mode:"sale"|"return",custId,items:[{orderId,modelNo,modelDesc,rackSize,qty}],note,linkedSession} */
   const[qrScanActive,setQrScanActive]=useState(false);const[customLabel,setCustomLabel]=useState(null);
   const[pkgPopup,setPkgPopup]=useState(null);const[pkgItems,setPkgItems]=useState([]);const[pkgNote,setPkgNote]=useState("");const[pkgSearch,setPkgSearch]=useState("");
+  useEffect(()=>{const h=()=>{const mode=window.__qrSaleMode;if(mode){delete window.__qrSaleMode;setQrSale({mode,custId:null,items:[],note:""})}};const h2=()=>{const pkgId=window.__openPkg;if(pkgId){delete window.__openPkg;setPkgPopup("view_"+pkgId)}};window.addEventListener("qr-sale-trigger",h);window.addEventListener("open-pkg",h2);return()=>{window.removeEventListener("qr-sale-trigger",h);window.removeEventListener("open-pkg",h2)}},[]);
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
 
   const getRackSize=(orderId)=>{const o=orders.find(x=>x.id===orderId);if(!o||!o.sizeLabel)return 1;const parts=o.sizeLabel.split(/[-\/]/).map(s=>s.trim()).filter(Boolean);return parts.length||1};
