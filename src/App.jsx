@@ -3832,7 +3832,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   const[ocrCust,setOcrCust]=useState(null);const[ocrLoading,setOcrLoading]=useState(false);const[ocrResult,setOcrResult]=useState(null);const ocrRef=useRef(null);const[auditInclude,setAuditInclude]=useState(null);
   const[returnPopup,setReturnPopup]=useState(null);const[retQty,setRetQty]=useState(0);const[retNote,setRetNote]=useState("");
   const[freeReturn,setFreeReturn]=useState(null);const[freeRetItems,setFreeRetItems]=useState({});const[freeRetNote,setFreeRetNote]=useState("");
-  const[custQR,setCustQR]=useState(null);const[salesDetail,setSalesDetail]=useState(null);const[custStatement,setCustStatement]=useState(null);const[salesAnalysis,setSalesAnalysis]=useState(false);
+  const[custQR,setCustQR]=useState(null);const[salesDetail,setSalesDetail]=useState(null);const[custStatement,setCustStatement]=useState(null);const[salesAnalysis,setSalesAnalysis]=useState(false);const[editRetIdx,setEditRetIdx]=useState(null);const[editRetQty,setEditRetQty]=useState(0);const[editRetNote,setEditRetNote]=useState("");
   const[qrSale,setQrSale]=useState(null);/* {mode:"sale"|"return",custId,items:[{orderId,modelNo,modelDesc,rackSize,qty}],note} */
   const[qrScanActive,setQrScanActive]=useState(false);const[customLabel,setCustomLabel]=useState(null);/* {orderId,qty} */
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
@@ -4067,49 +4067,18 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   };
 
   return<div>
-    <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(4,1fr)":"repeat(8,1fr)",gap:isMob?8:10,marginBottom:16}}>
-      {canEdit&&<div onClick={()=>setShowCustList(true)} style={{background:T.cardSolid,borderRadius:14,padding:isMob?"14px 10px":"16px 14px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
-        <div style={{fontSize:isMob?24:28,marginBottom:4}}>👥</div>
-        <div style={{fontSize:FS-1,fontWeight:700,color:T.text}}>العملاء</div>
-        <div style={{fontSize:FS-2,color:T.accent,fontWeight:600}}>{customers.length+" عميل"}</div>
-      </div>}
-      {canEdit&&<div onClick={()=>{setSelModels({});setSelCusts({});setShowNewSession(true)}} style={{background:T.cardSolid,borderRadius:14,padding:isMob?"14px 10px":"16px 14px",border:"1px solid "+T.ok+"20",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
-        <div style={{fontSize:isMob?24:28,marginBottom:4}}>🚚</div>
-        <div style={{fontSize:FS-1,fontWeight:700,color:T.ok}}>تسليم جديد</div>
-      </div>}
-      <div onClick={()=>{setRptType("all");setRptCust("");setRptModel("");setReportRange({from:"",to:""});setShowReport(true)}} style={{background:T.cardSolid,borderRadius:14,padding:isMob?"14px 10px":"16px 14px",border:"1px solid #8B5CF620",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
-        <div style={{fontSize:isMob?24:28,marginBottom:4}}>📊</div>
-        <div style={{fontSize:FS-1,fontWeight:700,color:"#8B5CF6"}}>تقرير مبيعات</div>
-      </div>
-      {canEdit&&<div onClick={()=>{setAuditDate(new Date().toISOString().split("T")[0]);setAuditFrom("");setAuditTo("");setAuditNote("");setShowNewAudit(true)}} style={{background:T.cardSolid,borderRadius:14,padding:isMob?"14px 10px":"16px 14px",border:"1px solid #F59E0B20",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
-        <div style={{fontSize:isMob?24:28,marginBottom:4}}>📋</div>
-        <div style={{fontSize:FS-1,fontWeight:700,color:"#F59E0B"}}>جرد مبيعات</div>
-      </div>}
-      {canEdit&&<div onClick={()=>{setFreeReturn("pick");setFreeRetItems({});setFreeRetNote("")}} style={{background:T.cardSolid,borderRadius:14,padding:isMob?"14px 10px":"16px 14px",border:"1px solid "+T.err+"20",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
-        <div style={{fontSize:isMob?24:28,marginBottom:4}}>↩️</div>
-        <div style={{fontSize:FS-1,fontWeight:700,color:T.err}}>مرتجع</div>
-      </div>}
-      {canEdit&&<div onClick={()=>setQrSale({mode:"sale",custId:null,items:[],note:""})} style={{background:T.cardSolid,borderRadius:14,padding:isMob?"14px 10px":"16px 14px",border:"1px solid #10B98120",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
-        <div style={{fontSize:isMob?24:28,marginBottom:4}}>📦</div>
-        <div style={{fontSize:FS-1,fontWeight:700,color:"#10B981"}}>بيع سريع</div>
-      </div>}
-      {canEdit&&<div onClick={()=>setQrSale({mode:"return",custId:null,items:[],note:""})} style={{background:"#ECFDF5",borderRadius:14,padding:isMob?"14px 10px":"16px 14px",border:"1px solid #10B98125",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
-        <div style={{fontSize:isMob?24:28,marginBottom:4}}>📷</div>
-        <div style={{fontSize:FS-1,fontWeight:700,color:"#8B5CF6"}}>مرتجع سريع</div>
-      </div>}
-      {stockModels.length>0&&<div onClick={()=>setCustomLabel("pick")} style={{background:T.cardSolid,borderRadius:14,padding:isMob?"14px 10px":"16px 14px",border:"1px solid #F59E0B20",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
-        <div style={{fontSize:isMob?24:28,marginBottom:4}}>🏷️</div>
-        <div style={{fontSize:FS-1,fontWeight:700,color:"#F59E0B"}}>ليبلات QR</div>
-      </div>}
-      <div onClick={()=>{setCustStatement("pick");setCustFilter("")}} style={{background:T.cardSolid,borderRadius:14,padding:isMob?"14px 10px":"16px 14px",border:"1px solid "+T.accent+"20",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
-        <div style={{fontSize:isMob?24:28,marginBottom:4}}>📄</div>
-        <div style={{fontSize:FS-1,fontWeight:700,color:T.accent}}>كشف حساب</div>
-      </div>
-      {stockModels.length>0&&<div onClick={()=>setSalesAnalysis(true)} style={{background:T.cardSolid,borderRadius:14,padding:isMob?"14px 10px":"16px 14px",border:"1px solid #8B5CF620",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
-        <div style={{fontSize:isMob?24:28,marginBottom:4}}>🏆</div>
-        <div style={{fontSize:FS-1,fontWeight:700,color:"#8B5CF6"}}>تحليل مبيعات</div>
-      </div>}
-    </div>
+    {(()=>{const crd=(icon,label,color,onClick,sub)=><div onClick={onClick} style={{background:T.cardSolid,borderRadius:14,padding:isMob?"12px 8px":"16px 14px",border:"1px solid "+color+"20",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}><div style={{fontSize:isMob?22:28,marginBottom:4}}>{icon}</div><div style={{fontSize:isMob?FS-2:FS-1,fontWeight:700,color}}>{label}</div>{sub&&<div style={{fontSize:FS-2,color:T.textMut}}>{sub}</div>}</div>;
+      return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(5,1fr)",gap:isMob?8:10,marginBottom:16}}>
+        {canEdit&&crd("👥","العملاء",T.text,()=>setShowCustList(true),customers.length+" عميل")}
+        {canEdit&&crd("📦","بيع سريع","#10B981",()=>setQrSale({mode:"sale",custId:null,items:[],note:""}))}
+        {crd("📊","تقرير مبيعات","#8B5CF6",()=>{setRptType("all");setRptCust("");setRptModel("");setReportRange({from:"",to:""});setShowReport(true)})}
+        {canEdit&&crd("📋","جرد مبيعات","#F59E0B",()=>{setAuditDate(new Date().toISOString().split("T")[0]);setAuditFrom("");setAuditTo("");setAuditNote("");setShowNewAudit(true)})}
+        {canEdit&&crd("↩️","مرتجع حر",T.err,()=>{setFreeReturn("pick");setFreeRetItems({});setFreeRetNote("")})}
+        {canEdit&&crd("📷","مرتجع سريع","#8B5CF6",()=>setQrSale({mode:"return",custId:null,items:[],note:""}))}
+        {stockModels.length>0&&crd("🏷️","ليبلات QR","#F59E0B",()=>setCustomLabel("pick"))}
+        {stockModels.length>0&&crd("🏆","تحليل مبيعات","#8B5CF6",()=>setSalesAnalysis(true))}
+        {crd("📄","كشف حساب",T.accent,()=>{setCustStatement("pick");setCustFilter("")})}
+      </div>})()}
     {/* Active Session Matrix - Popup */}
     {activeSess&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:24}} onClick={()=>closeMatrix()}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,width:"100%",maxWidth:isMob?"100%":window.innerWidth-48,maxHeight:"92vh",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
@@ -4229,10 +4198,11 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
             <div><div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{"📄 كشف حساب — "+cust.name}</div><div style={{fontSize:FS-2,color:T.textMut}}>{(cust.type||"")+" | "+cust.phone}</div></div>
             <div style={{display:"flex",gap:4}}><Btn small onClick={printStatement} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn><Btn ghost small onClick={()=>setCustStatement("pick")}>← رجوع</Btn><Btn ghost small onClick={()=>setCustStatement(null)} title="إغلاق">✕</Btn></div>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,margin:"12px 0"}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,margin:"12px 0"}}>
             <div style={{padding:10,borderRadius:10,background:T.accent+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>اجمالي التسليم</div><div style={{fontSize:18,fontWeight:800,color:T.accent}}>{fmt(totalDel)}</div></div>
             <div style={{padding:10,borderRadius:10,background:T.err+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>اجمالي المرتجع</div><div style={{fontSize:18,fontWeight:800,color:T.err}}>{fmt(totalRet)}</div></div>
             <div style={{padding:10,borderRadius:10,background:T.ok+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>الصافي</div><div style={{fontSize:18,fontWeight:800,color:T.ok}}>{fmt(totalNet)}</div></div>
+            <div style={{padding:10,borderRadius:10,background:"#8B5CF608",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>نسبة المبيعات</div><div style={{fontSize:18,fontWeight:800,color:"#8B5CF6"}}>{(()=>{const totalAllSold=stockModels.reduce((s,m)=>s+m.custDel,0);return totalAllSold>0?Math.round(totalNet/totalAllSold*100)+"%":"0%"})()}</div></div>
           </div>
           {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","الوصف","تسليم","مرتجع","صافي","سعر","القيمة"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
             {rows.map((r,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={{...TD,fontWeight:700,color:T.accent}}>{r.modelNo}</td><td style={TD}>{r.modelDesc}</td><td style={{...TD,textAlign:"center"}}>{r.delivered}</td><td style={{...TD,textAlign:"center",color:r.returned?T.err:T.textMut}}>{r.returned||"—"}</td><td style={{...TD,textAlign:"center",fontWeight:800}}>{r.net}</td><td style={{...TD,textAlign:"center"}}>{r.sellPrice||"—"}</td><td style={{...TD,textAlign:"center",fontWeight:700}}>{fmt(r.net*r.sellPrice)}</td></tr>)}
@@ -4326,11 +4296,18 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
         printPage("سجل المرتجعات",h)};
       return<Card title={"↩️ سجل المرتجعات ("+allReturns.length+")"} extra={<Btn small onClick={printReturns} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>}>
         {filteredRet.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","التاريخ","العميل","الموديل","الكمية","ملاحظات","بواسطة",...(canEdit?[""]:[])] .map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
-          {filteredRet.slice(0,20).map((r,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={TD}>{i+1}</td><td style={TD}>{r.date}</td><td style={{...TD,fontWeight:700}}>{r.custName||"—"}</td><td style={{...TD,fontWeight:700,color:T.accent}}>{r.modelNo}</td><td style={{...TD,fontWeight:800,color:T.err,textAlign:"center"}}>{r.qty}</td><td style={{...TD,fontSize:FS-2}}>{r.note||"—"}</td><td style={{...TD,fontSize:FS-3,color:T.textMut}}>{r.createdBy||"—"}</td>
+          {filteredRet.slice(0,20).map((r,i)=>{const isEd=editRetIdx===i;
+            return<tr key={i} style={{background:isEd?T.warn+"08":i%2===0?"transparent":T.bg+"80"}}><td style={TD}>{i+1}</td><td style={TD}>{r.date}</td><td style={{...TD,fontWeight:700}}>{r.custName||"—"}</td>
+              <td style={{...TD,fontWeight:700,color:T.accent}}>{r.modelNo}</td>
+              <td style={{...TD,fontWeight:800,color:T.err,textAlign:"center"}}>{isEd?<input type="number" value={editRetQty} onChange={e=>setEditRetQty(Number(e.target.value)||0)} style={{width:60,textAlign:"center",border:"2px solid "+T.warn,borderRadius:4,padding:"2px",fontSize:FS,fontWeight:700,fontFamily:"inherit"}}/>:r.qty}</td>
+              <td style={{...TD,fontSize:FS-2}}>{isEd?<input value={editRetNote} onChange={e=>setEditRetNote(e.target.value)} placeholder="ملاحظات" style={{width:"100%",border:"1px solid "+T.brd,borderRadius:4,padding:"2px 4px",fontSize:FS-2,fontFamily:"inherit"}}/>:(r.note||"—")}</td>
+              <td style={{...TD,fontSize:FS-3,color:T.textMut}}>{r.createdBy||"—"}</td>
             {canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}>
-              <Btn small onClick={()=>{const newQty=prompt("تعديل كمية المرتجع:",r.qty);if(newQty===null)return;const q=Number(newQty);if(isNaN(q)||q<0){showToast("⚠️ كمية غير صالحة");return}updOrder(r.orderId,o=>{const ret=(o.customerReturns||[]).find(x=>x.custId===r.custId&&x.date===r.date&&x.qty===r.qty);if(ret)ret.qty=q});showToast("✓ تم التعديل")}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل الكمية">✏️</Btn>
-              <DelBtn onConfirm={()=>{updOrder(r.orderId,o=>{o.customerReturns=(o.customerReturns||[]).filter(x=>!(x.custId===r.custId&&x.date===r.date&&x.qty===r.qty&&(x.note||"")===(r.note||"")))});showToast("✓ تم حذف المرتجع")}}/>
-            </div></td>}</tr>)}
+              {isEd?<><Btn small primary onClick={()=>{if(editRetQty<=0){showToast("⚠️ كمية غير صالحة");return}updOrder(r.orderId,o=>{const ret=(o.customerReturns||[]).find(x=>x.custId===r.custId&&x.date===r.date&&(x.note||"")===(r.note||""));if(ret){ret.qty=editRetQty;ret.note=editRetNote}});setEditRetIdx(null);showToast("✓ تم التعديل")}} title="حفظ">💾</Btn><Btn ghost small onClick={()=>setEditRetIdx(null)} title="إلغاء">✕</Btn></>
+              :<><Btn small onClick={()=>{const h="<h2 style='text-align:center'>↩️ إذن مرتجع</h2><table style='margin:0 auto 16px'><tr><th style='text-align:right;padding:4px 12px'>العميل</th><td style='padding:4px 12px;font-weight:800'>"+(r.custName||"—")+"</td><th style='text-align:right;padding:4px 12px'>التاريخ</th><td style='padding:4px 12px'>"+r.date+"</td></tr></table><table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th><th>ملاحظات</th></tr></thead><tbody><tr><td style='font-weight:800;color:#0EA5E9'>"+r.modelNo+"</td><td>"+(r.modelDesc||"")+"</td><td style='font-weight:800;color:#EF4444;text-align:center;font-size:16px'>"+r.qty+"</td><td>"+(r.note||"—")+"</td></tr></tbody></table><div style='margin-top:8px;font-size:11px;color:#888'>بواسطة: "+(r.createdBy||"—")+"</div><div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>العميل</div></div>";printPage("إذن مرتجع — "+(r.custName||""),h)}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة إذن مرتجع">🖨</Btn>
+              <Btn small onClick={()=>{setEditRetIdx(i);setEditRetQty(r.qty);setEditRetNote(r.note||"")}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
+              <DelBtn onConfirm={()=>{updOrder(r.orderId,o=>{o.customerReturns=(o.customerReturns||[]).filter(x=>!(x.custId===r.custId&&x.date===r.date&&(x.note||"")===(r.note||"")))});showToast("✓ تم حذف المرتجع")}}/></>}
+            </div></td>}</tr>})}
           {filteredRet.length>20&&<tr><td colSpan={7} style={{...TD,textAlign:"center",color:T.textMut}}>{"... و "+(filteredRet.length-20)+" مرتجع آخر"}</td></tr>}
           <tr style={{background:T.err+"08"}}><td colSpan={4} style={{...TD,fontWeight:800}}>اجمالي المرتجعات</td><td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:T.err}}>{totalRetQty}</td><td colSpan={2} style={TD}></td></tr>
         </tbody></table></div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد مرتجعات بهذا الفلتر</div>}
