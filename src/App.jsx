@@ -1318,38 +1318,61 @@ export default function App(){
     </div>}
     {/* Barcode Print Popup */}
     {barcodePopup&&(()=>{const allOrders=data.orders||[];const ps=data.printSettings||{};const lw=ps.labelWidth||50;const lh=ps.labelHeight||40;const mg=ps.margins||2;const fl=ps.fields||{};
-      const[qrModel,setQrModel]=barcodePopup._m?[barcodePopup._m,v=>setBarcodePopup(p=>({...p,_m:v}))]:[barcodePopup.modelId||"",v=>setBarcodePopup(p=>({...p,modelId:v}))];
       const selOrder=allOrders.find(o=>o.id===barcodePopup.modelId);const rs=selOrder?Number(selOrder.rackSize)||1:1;
-      const copies=barcodePopup.copies||1;
-      const printQR=()=>{if(!selOrder){showToast("⚠️ اختر موديل");return}const qrText="CLARK:"+selOrder.id+":"+rs;
-        const qrMM=Math.min(lw-mg*2,lh-mg*2)-8;/* QR fills most of the label */
-        let h="";for(let i=0;i<copies;i++){h+="<div class='lbl'>";
-          if(fl.brand?.show)h+="<div style='font-weight:900;font-size:"+((fl.brand?.size||14)/2.5)+"mm;letter-spacing:2px;line-height:1'>CLARK</div>";
-          if(fl.modelNo?.show!==false)h+="<div style='font-weight:800;font-size:"+((fl.modelNo?.size||16)/2.5)+"mm;line-height:1.1'>"+selOrder.modelNo+"</div>";
-          if(fl.desc?.show)h+="<div style='font-size:"+((fl.desc?.size||10)/2.5)+"mm;color:#444;line-height:1'>"+(selOrder.modelDesc||"")+"</div>";
-          if(fl.qr?.show!==false)h+="<div style='flex:1;display:flex;align-items:center;justify-content:center'><img class='qr-img' data-text='"+qrText+"' style='width:"+qrMM+"mm;height:"+qrMM+"mm'/></div>";
-          if(fl.series?.show!==false)h+="<div style='font-weight:700;font-size:"+((fl.series?.size||12)/2.5)+"mm;line-height:1'>سيري: "+rs+"</div>";
-          if(fl.sizeLabel?.show)h+="<div style='font-size:"+((fl.sizeLabel?.size||10)/2.5)+"mm;line-height:1'>"+(selOrder.sizeLabel||"—")+"</div>";
-          if(fl.price?.show)h+="<div style='font-size:"+((fl.price?.size||10)/2.5)+"mm;line-height:1'>"+(selOrder.sellPrice||"—")+" ج.م</div>";
-          h+="</div>"}
-        const w=window.open("","_blank");w.document.write("<html dir='rtl'><head><title>QR</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><style>@page{size:"+lw+"mm "+lh+"mm;margin:"+mg+"mm}*{margin:0;padding:0}body{margin:0;padding:0;font-family:'Cairo',Arial,sans-serif}.lbl{width:"+(lw-mg*2)+"mm;height:"+(lh-mg*2)+"mm;page-break-after:always;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden}</style></head><body>"+h+"<script>document.querySelectorAll('.qr-img').forEach(img=>{QRCode.toDataURL(img.dataset.text,{width:400,margin:0}).then(url=>{img.src=url}).catch(()=>{})});setTimeout(()=>window.print(),800)</"+"script></body></html>");w.document.close();
-        showToast("✓ تم طباعة "+copies+" ليبل");setBarcodePopup(null)};
+      const sizes=selOrder?.sizeLabel?selOrder.sizeLabel.split(/[-/,]/).map(s=>s.trim()).filter(Boolean):[];
+      const perSize=sizes.length>0?Math.floor((selOrder.cutQty||0)/sizes.length):selOrder?.cutQty||0;
+      const mode=barcodePopup._mode||"manual";
+      const qrMM=Math.min(lw-mg*2,lh-mg*2)-8;
+      const buildLabel=(qrText,modelNo,desc,sizeStr,seriesStr)=>{let h="<div class='lbl'>";
+        if(fl.brand?.show)h+="<div style='font-weight:900;font-size:"+((fl.brand?.size||14)/2.5)+"mm;letter-spacing:2px;line-height:1'>CLARK</div>";
+        if(fl.modelNo?.show!==false)h+="<div style='font-weight:800;font-size:"+((fl.modelNo?.size||16)/2.5)+"mm;line-height:1.1'>"+modelNo+"</div>";
+        if(fl.desc?.show)h+="<div style='font-size:"+((fl.desc?.size||10)/2.5)+"mm;color:#444;line-height:1'>"+desc+"</div>";
+        if(fl.sizeLabel?.show!==false&&sizeStr)h+="<div style='font-weight:700;font-size:"+((fl.sizeLabel?.size||12)/2.5)+"mm;line-height:1'>"+sizeStr+"</div>";
+        if(fl.qr?.show!==false)h+="<div style='flex:1;display:flex;align-items:center;justify-content:center'><img class='qr-img' data-text='"+qrText+"' style='width:"+qrMM+"mm;height:"+qrMM+"mm'/></div>";
+        if(fl.series?.show!==false&&seriesStr)h+="<div style='font-weight:700;font-size:"+((fl.series?.size||12)/2.5)+"mm;line-height:1'>"+seriesStr+"</div>";
+        if(fl.price?.show&&selOrder?.sellPrice)h+="<div style='font-size:"+((fl.price?.size||10)/2.5)+"mm;line-height:1'>"+selOrder.sellPrice+" ج.م</div>";
+        return h+"</div>"};
+      const doPrint=(labels)=>{if(labels.length===0)return;
+        const w=window.open("","_blank");w.document.write("<html dir='rtl'><head><title>QR</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><style>@page{size:"+lw+"mm "+lh+"mm;margin:"+mg+"mm}*{margin:0;padding:0}body{margin:0;padding:0;font-family:'Cairo',Arial,sans-serif}.lbl{width:"+(lw-mg*2)+"mm;height:"+(lh-mg*2)+"mm;page-break-after:always;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden}</style></head><body>"+labels.join("")+"<script>document.querySelectorAll('.qr-img').forEach(img=>{QRCode.toDataURL(img.dataset.text,{width:400,margin:0}).then(url=>{img.src=url}).catch(()=>{})});setTimeout(()=>window.print(),800)</"+"script></body></html>");w.document.close();
+        showToast("✓ تم تجهيز "+labels.length+" ليبل");setBarcodePopup(null)};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setBarcodePopup(null)}>
-        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:420,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:450,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div style={{fontSize:FS+2,fontWeight:800,color:"#F59E0B"}}>🏷️ طباعة QR</div>
-            <Btn ghost small onClick={()=>setBarcodePopup(null)} title="إغلاق">✕</Btn>
+            <Btn ghost small onClick={()=>setBarcodePopup(null)}>✕</Btn>
           </div>
-          <div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec}}>اختر الموديل</label><SearchSel value={barcodePopup.modelId||""} onChange={v=>setBarcodePopup(p=>({...p,modelId:v}))} options={allOrders.map(o=>({value:o.id,label:o.modelNo+" — "+(o.modelDesc||"")}))} placeholder="اختر الموديل..."/></div>
+          <div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec}}>اختر الموديل</label><SearchSel value={barcodePopup.modelId||""} onChange={v=>setBarcodePopup(p=>({...p,modelId:v,_size:"",_qty:1}))} options={allOrders.map(o=>({value:o.id,label:o.modelNo+" — "+(o.modelDesc||"")}))} placeholder="اختر الموديل..."/></div>
           {selOrder&&<div>
-            <div style={{textAlign:"center",marginBottom:12,padding:12,background:T.bg+"60",borderRadius:12}}>
-              <div style={{fontWeight:800,fontSize:FS+2,color:T.accent}}>{selOrder.modelNo}</div>
-              <div style={{fontSize:FS-1,color:T.textMut}}>{selOrder.modelDesc}</div>
-              <div style={{marginTop:6}}><QRImg text={"CLARK:"+selOrder.id+":"+rs} size={100}/></div>
-              <div style={{fontSize:FS,fontWeight:700,marginTop:4}}>{"سيري: "+rs+" قطعة"}</div>
+            <div style={{display:"flex",gap:4,marginBottom:12,borderRadius:10,border:"1px solid "+T.brd,overflow:"hidden"}}>
+              <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"manual"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="manual"?"#F59E0B":"transparent",color:mode==="manual"?"#fff":T.textSec}}>طباعة يدوية</div>
+              <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"auto"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="auto"?"#F59E0B":"transparent",color:mode==="auto"?"#fff":T.textSec}}>طباعة تلقائية</div>
             </div>
-            <div style={{marginBottom:12}}><label style={{fontSize:FS-2,color:T.textSec}}>عدد النسخ</label><Sel value={copies} onChange={v=>setBarcodePopup(p=>({...p,copies:Number(v)||1}))}>{Array.from({length:50},(_,i)=>i+1).map(n=><option key={n} value={n}>{n}</option>)}</Sel></div>
-            <Btn onClick={printQR} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+copies+" ليبل QR"}</Btn>
+            {mode==="manual"&&<div>
+              <div style={{textAlign:"center",padding:10,background:T.bg+"60",borderRadius:10,marginBottom:10}}>
+                <div style={{fontWeight:800,fontSize:FS+1,color:T.accent}}>{selOrder.modelNo}</div>
+                <div style={{fontSize:FS-1,color:T.textMut}}>{selOrder.modelDesc}</div>
+              </div>
+              {sizes.length>0&&<div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec}}>المقاس</label><Sel value={barcodePopup._size||""} onChange={v=>setBarcodePopup(p=>({...p,_size:v}))}><option value="">بدون مقاس</option>{sizes.map(s=><option key={s} value={s}>{s}</option>)}</Sel></div>}
+              <div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec}}>عدد النسخ</label><Sel value={barcodePopup._qty||1} onChange={v=>setBarcodePopup(p=>({...p,_qty:Number(v)||1}))}>{Array.from({length:50},(_,i)=>i+1).map(n=><option key={n} value={n}>{n}</option>)}</Sel></div>
+              <Btn onClick={()=>{const sz=barcodePopup._size||"";const qty=barcodePopup._qty||1;const qrText="CLARK:"+selOrder.id+":"+rs;const labels=[];
+                for(let i=0;i<qty;i++)labels.push(buildLabel(qrText,selOrder.modelNo,selOrder.modelDesc||"",sz?"مقاس: "+sz:"","سيري: "+rs));
+                doPrint(labels)}} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+(barcodePopup._qty||1)+" ليبل"}</Btn>
+            </div>}
+            {mode==="auto"&&<div>
+              <div style={{padding:12,background:T.bg+"60",borderRadius:10,marginBottom:10}}>
+                <div style={{fontWeight:800,fontSize:FS+1,color:T.accent,marginBottom:6}}>{selOrder.modelNo+" — "+selOrder.modelDesc}</div>
+                <div style={{fontSize:FS-1,color:T.textMut,marginBottom:8}}>{"القص: "+(selOrder.cutQty||0)+" | المقاسات: "+(sizes.join(" - ")||"—")+" | سيري: "+rs}</div>
+                {sizes.length>0?<table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th style={{...TH,fontSize:FS-2}}>المقاس</th><th style={{...TH,fontSize:FS-2}}>الكمية</th><th style={{...TH,fontSize:FS-2}}>ليبلات</th></tr></thead><tbody>
+                  {sizes.map(sz=><tr key={sz}><td style={{...TD,fontWeight:700,textAlign:"center"}}>{sz}</td><td style={{...TD,textAlign:"center"}}>{perSize}</td><td style={{...TD,textAlign:"center",fontWeight:700,color:"#F59E0B"}}>{perSize}</td></tr>)}
+                  <tr style={{background:"#F59E0B10"}}><td style={{...TD,fontWeight:800}}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800}}>{perSize*sizes.length}</td><td style={{...TD,textAlign:"center",fontWeight:800,color:"#F59E0B"}}>{perSize*sizes.length}</td></tr>
+                </tbody></table>
+                :<div style={{textAlign:"center",color:T.textMut}}>{"سيتم طباعة "+(selOrder.cutQty||0)+" ليبل بدون مقاس"}</div>}
+              </div>
+              <Btn onClick={()=>{const labels=[];const qrText="CLARK:"+selOrder.id+":"+rs;
+                if(sizes.length>0){sizes.forEach(sz=>{for(let i=0;i<perSize;i++)labels.push(buildLabel(qrText,selOrder.modelNo,selOrder.modelDesc||"","مقاس: "+sz,"سيري: "+rs))})}
+                else{for(let i=0;i<(selOrder.cutQty||1);i++)labels.push(buildLabel(qrText,selOrder.modelNo,selOrder.modelDesc||"","","سيري: "+rs))}
+                doPrint(labels)}} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة تلقائية ("+(sizes.length>0?perSize*sizes.length:selOrder.cutQty||0)+" ليبل)"}</Btn>
+            </div>}
           </div>}
         </div>
       </div>})()}
