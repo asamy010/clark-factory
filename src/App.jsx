@@ -4067,17 +4067,18 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   };
 
   return<div>
-    {(()=>{const crd=(icon,label,color,onClick,sub)=><div onClick={onClick} style={{background:T.cardSolid,borderRadius:14,padding:isMob?"12px 8px":"16px 14px",border:"1px solid "+color+"20",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}><div style={{fontSize:isMob?22:28,marginBottom:4}}>{icon}</div><div style={{fontSize:isMob?FS-2:FS-1,fontWeight:700,color}}>{label}</div>{sub&&<div style={{fontSize:FS-2,color:T.textMut}}>{sub}</div>}</div>;
-      return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(5,1fr)",gap:isMob?8:10,marginBottom:16}}>
-        {canEdit&&crd("👥","العملاء",T.text,()=>setShowCustList(true),customers.length+" عميل")}
+    {(()=>{const crd=(icon,label,color,onClick,sub)=><div onClick={onClick} style={{background:T.cardSolid,borderRadius:14,padding:isMob?"12px 8px":"14px 8px",border:"1px solid "+color+"20",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",flex:isMob?undefined:"1 1 0",minWidth:isMob?undefined:0}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}><div style={{fontSize:isMob?22:24,marginBottom:2}}>{icon}</div><div style={{fontSize:isMob?FS-2:FS-2,fontWeight:700,color,whiteSpace:"nowrap"}}>{label}</div>{sub&&<div style={{fontSize:FS-3,color:T.textMut}}>{sub}</div>}</div>;
+      return<div style={isMob?{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}:{display:"flex",gap:8,marginBottom:16}}>
+        {canEdit&&crd("👥","العملاء",T.text,()=>setShowCustList(true),customers.length+"")}
+        {canEdit&&crd("🚚","تسليم جديد",T.ok,()=>{setSelModels({});setSelCusts({});setShowNewSession(true)})}
         {canEdit&&crd("📦","بيع سريع","#10B981",()=>setQrSale({mode:"sale",custId:null,items:[],note:""}))}
         {crd("📊","تقرير مبيعات","#8B5CF6",()=>{setRptType("all");setRptCust("");setRptModel("");setReportRange({from:"",to:""});setShowReport(true)})}
         {canEdit&&crd("📋","جرد مبيعات","#F59E0B",()=>{setAuditDate(new Date().toISOString().split("T")[0]);setAuditFrom("");setAuditTo("");setAuditNote("");setShowNewAudit(true)})}
         {canEdit&&crd("↩️","مرتجع حر",T.err,()=>{setFreeReturn("pick");setFreeRetItems({});setFreeRetNote("")})}
         {canEdit&&crd("📷","مرتجع سريع","#8B5CF6",()=>setQrSale({mode:"return",custId:null,items:[],note:""}))}
         {stockModels.length>0&&crd("🏷️","ليبلات QR","#F59E0B",()=>setCustomLabel("pick"))}
-        {stockModels.length>0&&crd("🏆","تحليل مبيعات","#8B5CF6",()=>setSalesAnalysis(true))}
         {crd("📄","كشف حساب",T.accent,()=>{setCustStatement("pick");setCustFilter("")})}
+        {stockModels.length>0&&crd("🏆","تحليل مبيعات","#8B5CF6",()=>setSalesAnalysis(true))}
       </div>})()}
     {/* Active Session Matrix - Popup */}
     {activeSess&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:24}} onClick={()=>closeMatrix()}>
