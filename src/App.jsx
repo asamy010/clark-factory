@@ -5113,7 +5113,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
             <div style={{display:"flex",gap:4}}><Btn small onClick={printStockRcv} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn ghost small onClick={()=>{closeStockCam();setStockRcv(null)}}>✕</Btn></div>
           </div>
           <div style={{display:"flex",gap:6,marginBottom:10}}>
-            <Btn small onClick={()=>{if(stockRcv.scanning){closeStockCam()}else{setStockRcv(p=>({...p,scanning:true}))}}} style={{background:stockRcv.scanning?"#EF444412":"#0EA5E912",color:stockRcv.scanning?"#EF4444":"#0EA5E9",border:"1px solid "+(stockRcv.scanning?"#EF444430":"#0EA5E930")}}>{stockRcv.scanning?"⏹ إيقاف":"📷 استلام بالسكان"}</Btn>
+            <Btn small onClick={()=>{if(stockRcv.scanning){closeStockCam()}else{setStockRcv(p=>({...p,scanning:true}))}}} style={{background:stockRcv.scanning?"#EF444412":"#0EA5E912",color:stockRcv.scanning?"#EF4444":"#0EA5E9",border:"1px solid "+(stockRcv.scanning?"#EF444430":"#0EA5E930")}}>{stockRcv.scanning?"⏹ إيقاف":"📷 Scan"}</Btn>
             <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(!v)return;const rs=getRackSize(v);setStockRcv(p=>({...p,items:{...p.items,[v]:(p.items[v]||0)+rs}}));playBeep("ok")}} options={available.map(m=>({value:m.id,label:m.modelNo+" — "+m.modelDesc+" ("+m.fromFinishing+")"}))} placeholder="اضف يدوي..."/></div>
           </div>
           {stockRcv.scanning&&<div style={{marginBottom:10}}>
@@ -5179,7 +5179,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
           </div>
           {/* Scan or manual */}
           <div style={{display:"flex",gap:6,marginBottom:10}}>
-            <Btn small onClick={()=>{if(invAudit.scanning){closeAuditCam()}else{setInvAudit(p=>({...p,scanning:true}))}}} style={{background:invAudit.scanning?"#EF444412":"#8B5CF612",color:invAudit.scanning?"#EF4444":"#8B5CF6",border:"1px solid "+(invAudit.scanning?"#EF444430":"#8B5CF630")}}>{invAudit.scanning?"⏹ إيقاف الماسح":"📷 جرد بالسكان"}</Btn>
+            <Btn small onClick={()=>{if(invAudit.scanning){closeAuditCam()}else{setInvAudit(p=>({...p,scanning:true}))}}} style={{background:invAudit.scanning?"#EF444412":"#8B5CF612",color:invAudit.scanning?"#EF4444":"#8B5CF6",border:"1px solid "+(invAudit.scanning?"#EF444430":"#8B5CF630")}}>{invAudit.scanning?"⏹ Stop":"📷 Scan"}</Btn>
             <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(!v)return;const rs=getRackSize(v);setInvAudit(p=>{const items={...p.items};items[v]=(items[v]||0)+rs;return{...p,items}});playBeep("ok")}} options={stockModels.map(m=>({value:m.id,label:m.modelNo+" — "+m.modelDesc+" ("+m.avail+")"}))} placeholder="اضف يدوي..."/></div>
           </div>
           {invAudit.scanning&&<div style={{marginBottom:10}}>
