@@ -695,7 +695,7 @@ export default function App(){
   const[tab,setTab_]=useState(()=>sessionStorage.getItem("clark_tab")||"home");const[sel,setSel_]=useState(()=>sessionStorage.getItem("clark_sel")||null);
   const setTab=v=>{setTab_(v);sessionStorage.setItem("clark_tab",v)};
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
-  const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);const[cardPopup,setCardPopup]=useState(null);const[labelPopup,setLabelPopup]=useState(null);const[labelBags,setLabelBags]=useState(1);const[wsAccPopup,setWsAccPopup]=useState(null);const[barcodePopup,setBarcodePopup]=useState(null);
+  const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);const[cardPopup,setCardPopup]=useState(null);const[labelPopup,setLabelPopup]=useState(null);const[labelBags,setLabelBags]=useState(1);const[wsAccPopup,setWsAccPopup]=useState(null);const[barcodePopup,setBarcodePopup]=useState(null);const[showStockMenu,setShowStockMenu]=useState(false);
   const[stickyForm,setStickyForm]=useState(null);
   const[quickPopup,setQuickPopup]=useState(null);/* "task"|"notif"|null */
   const[qpTo,setQpTo]=useState("");const[qpText,setQpText]=useState("");const[qpType,setQpType]=useState("تذكير");
@@ -861,7 +861,7 @@ export default function App(){
   const goD=id=>{setSel(id);setTab("details")};
   useEffect(()=>{const h=()=>{const d=window.__labelData;if(d){setLabelPopup(d);setLabelBags(1);delete window.__labelData}};window.addEventListener("show-label-popup",h);return()=>window.removeEventListener("show-label-popup",h)},[]);
   /* QR scan auto-navigate */
-  const qrDone=useRef(false);
+  const qrDone=useRef(false);const scanHold=useRef(false);
   useEffect(()=>{if(qrDone.current||orders.length===0)return;
     if(qrModelNo){const o=orders.find(x=>x.modelNo===qrModelNo);if(o){qrDone.current=true;goD(o.id);window.history.replaceState({},"",window.location.pathname)}}
     if(qrAction==="rcv"&&qrOid){const o=orders.find(x=>x.id===qrOid);if(o){qrDone.current=true;setTab("external");window.history.replaceState({},"",window.location.pathname);setTimeout(()=>{window.__qrReceive={oid:qrOid,wdi:Number(qrWdi)||0};window.dispatchEvent(new Event("qr-receive"))},600)}}
@@ -1125,7 +1125,7 @@ export default function App(){
                   {perm==="view"&&<div style={{position:"absolute",top:4,left:4,fontSize:8,padding:"1px 4px",borderRadius:3,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
                 </div>})}
               </div>
-              <div style={{display:"flex",gap:8,marginTop:14}}>
+              <div style={{display:"flex",gap:8,marginTop:14,flexWrap:"wrap"}}>
                 <div onClick={()=>setQuickPopup("task")} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:T.accent+"10",border:"1px solid "+T.accent+"25",display:"flex",alignItems:"center",gap:6,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"20"} onMouseLeave={e=>e.currentTarget.style.background=T.accent+"10"}>
                   <span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:700,color:T.accent}}>مهمة</span>
                 </div>
@@ -1134,6 +1134,9 @@ export default function App(){
                 </div>
                 <div onClick={()=>setBarcodePopup({mode:"manual",modelId:"",size:"",qty:1,serial:1})} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:"#F59E0B10",border:"1px solid #F59E0B25",display:"flex",alignItems:"center",gap:6,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#F59E0B20"} onMouseLeave={e=>e.currentTarget.style.background="#F59E0B10"}>
                   <span style={{fontSize:18}}>🏷️</span><span style={{fontSize:FS,fontWeight:700,color:"#F59E0B"}}>طباعة QR</span>
+                </div>
+                <div onClick={()=>setShowStockMenu(true)} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:"#05966910",border:"1px solid #05966925",display:"flex",alignItems:"center",gap:6,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#05966920"} onMouseLeave={e=>e.currentTarget.style.background="#05966910"}>
+                  <span style={{fontSize:18}}>🏪</span><span style={{fontSize:FS,fontWeight:700,color:"#059669"}}>المخزن</span>
                 </div>
               </div>
             </div>
@@ -1181,8 +1184,34 @@ export default function App(){
               <div onClick={()=>setBarcodePopup({mode:"manual",modelId:"",size:"",qty:1,serial:1})} style={{cursor:"pointer",padding:"10px 16px",borderRadius:12,background:"#F59E0B10",border:"1px solid #F59E0B25",display:"flex",alignItems:"center",gap:6}}>
                 <span style={{fontSize:16}}>🏷️</span><span style={{fontSize:FS-1,fontWeight:700,color:"#F59E0B"}}>طباعة QR</span>
               </div>
+              <div onClick={()=>setShowStockMenu(true)} style={{cursor:"pointer",padding:"10px 16px",borderRadius:12,background:"#05966910",border:"1px solid #05966925",display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:16}}>🏪</span><span style={{fontSize:FS-1,fontWeight:700,color:"#059669"}}>المخزن</span>
+              </div>
             </div>
           </div>}
+      </div>}
+      {/* Stock Menu Popup */}
+      {showStockMenu&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowStockMenu(false)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+            <div style={{fontSize:FS+4,fontWeight:900,color:"#059669"}}>🏪 المخزن</div>
+            <Btn ghost small onClick={()=>setShowStockMenu(false)}>✕</Btn>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
+            {[
+              {icon:"📥",label:"استلام جاهز",desc:"استلام من التشطيب بالسكان",color:"#0EA5E9",action:()=>{setShowStockMenu(false);goTo("custDeliver");setTimeout(()=>{window.__stockAction="receive";window.dispatchEvent(new Event("stock-action"))},500)}},
+              {icon:"🏪",label:"جرد المخزن",desc:"جرد بالسكان + تسوية",color:"#8B5CF6",action:()=>{setShowStockMenu(false);goTo("custDeliver");setTimeout(()=>{window.__stockAction="audit";window.dispatchEvent(new Event("stock-action"))},500)}},
+              {icon:"📦",label:"الكراتين",desc:"إدارة الكراتين والحركات",color:"#0EA5E9",action:()=>{setShowStockMenu(false);goTo("custDeliver");setTimeout(()=>{window.__stockAction="packages";window.dispatchEvent(new Event("stock-action"))},500)}},
+              {icon:"🏭",label:"قطع على الأرض",desc:"موديلات جاهزة للتسليم",color:"#F59E0B",action:()=>{setShowStockMenu(false);goTo("custDeliver");setTimeout(()=>{window.__stockAction="floor";window.dispatchEvent(new Event("stock-action"))},500)}},
+              {icon:"📊",label:"خط الانتاج",desc:"من القص للجاهز",color:"#059669",action:()=>{setShowStockMenu(false);goTo("custDeliver");setTimeout(()=>{window.__stockAction="production";window.dispatchEvent(new Event("stock-action"))},500)}},
+              {icon:"🏷️",label:"طباعة QR",desc:"ليبلات باركود",color:"#F59E0B",action:()=>{setShowStockMenu(false);setBarcodePopup({mode:"manual",modelId:"",size:"",qty:1,serial:1})}},
+            ].map(op=><div key={op.label} onClick={op.action} style={{padding:14,borderRadius:14,cursor:"pointer",border:"1px solid "+op.color+"20",textAlign:"center",background:T.cardSolid,transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
+              <div style={{fontSize:28,marginBottom:4}}>{op.icon}</div>
+              <div style={{fontWeight:700,fontSize:FS,color:op.color}}>{op.label}</div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{op.desc}</div>
+            </div>)}
+          </div>
+        </div>
       </div>}
       {/* PAGES with back button */}
       {tab!=="home"&&canViewTab(tab)&&<div>
@@ -3887,7 +3916,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   const[qrSale,setQrSale]=useState(null);/* {mode:"sale"|"return",custId,items:[{orderId,modelNo,modelDesc,rackSize,qty}],note,linkedSession} */
   const[qrScanActive,setQrScanActive]=useState(false);const[customLabel,setCustomLabel]=useState(null);
   const[pkgPopup,setPkgPopup]=useState(null);const[pkgItems,setPkgItems]=useState([]);const[pkgNote,setPkgNote]=useState("");const[pkgSearch,setPkgSearch]=useState("");const[pkgScan,setPkgScan]=useState(false);const[pkgAction,setPkgAction]=useState(null);/* {id,mode:"menu"|"add"|"remove"} */
-  useEffect(()=>{const h=()=>{const mode=window.__qrSaleMode;if(mode){delete window.__qrSaleMode;setQrSale({mode,custId:null,items:[],note:""})}};const h2=()=>{const pkgId=window.__openPkg;if(pkgId){delete window.__openPkg;setPkgAction({id:pkgId,mode:"menu"})}};window.addEventListener("qr-sale-trigger",h);window.addEventListener("open-pkg",h2);return()=>{window.removeEventListener("qr-sale-trigger",h);window.removeEventListener("open-pkg",h2)}},[]);
+  useEffect(()=>{const h=()=>{const mode=window.__qrSaleMode;if(mode){delete window.__qrSaleMode;setQrSale({mode,custId:null,items:[],note:""})}};const h2=()=>{const pkgId=window.__openPkg;if(pkgId){delete window.__openPkg;setPkgAction({id:pkgId,mode:"menu"})}};const h3=()=>{const action=window.__stockAction;if(action){delete window.__stockAction;if(action==="receive")setStockRcv({items:{},scanning:false});if(action==="audit")setInvAudit({items:{},scanning:false});if(action==="packages")setPkgPopup("list");if(action==="floor")printFloorStock();if(action==="production")printProductionLine()}};window.addEventListener("qr-sale-trigger",h);window.addEventListener("open-pkg",h2);window.addEventListener("stock-action",h3);return()=>{window.removeEventListener("qr-sale-trigger",h);window.removeEventListener("open-pkg",h2);window.removeEventListener("stock-action",h3)}},[]);
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
 
   const getRackSize=(orderId)=>{const o=orders.find(x=>x.id===orderId);if(!o||!o.sizeLabel)return 1;const parts=o.sizeLabel.split(/[-\/]/).map(s=>s.trim()).filter(Boolean);return parts.length||1};
@@ -4423,13 +4452,13 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
       <div style={{marginBottom:10}}><Inp value={sessFilterQ} onChange={setSessFilterQ} placeholder="فلتر بالتاريخ أو اسم العميل أو رقم الموديل..."/></div>
       {(()=>{const fSess=sortedSessions.filter(s=>{if(!sessFilterQ.trim())return true;const q=sessFilterQ.trim().toLowerCase();const mNos=s.modelIds.map(id=>{const o=orders.find(x=>x.id===id);return o?.modelNo||""}).join(" ").toLowerCase();const cNames=s.custIds.map(id=>{const c=customers.find(x=>x.id===id);return c?.name||""}).join(" ").toLowerCase();return(s.date||"").includes(q)||mNos.includes(q)||cNames.includes(q)});
         return fSess.length>0?<div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {fSess.map(s=>{const totalQty=Object.values(s.grid||{}).reduce((sum,v)=>sum+(Number(v)||0),0);const isActive=activeSession===s.id;const st=s.status||"جاري التجهيز";const stColor=st==="تم التسليم"?"#10B981":st==="تم الشحن"?"#0EA5E9":"#F59E0B";
-          const confirmed=s.saleConfirmed;const isFree=s.freeSale;
-          return<div key={s.id} style={{padding:"12px 16px",borderRadius:12,background:isActive?T.accent+"08":T.cardSolid,border:isActive?"2px solid "+T.accent:confirmed?"1px solid #10B98130":"1px solid "+T.brd,cursor:"pointer",transition:"all 0.15s"}} onClick={()=>setActiveSession(isActive?null:s.id)}>
+        {fSess.map(s=>{const totalQty=Object.values(s.grid||{}).reduce((sum,v)=>sum+(Number(v)||0),0);const isActive=activeSession===s.id;const st=s.status||"جاري التجهيز";const stColor=st==="تم التسليم"?"#EF4444":st==="تم الشحن"?"#0EA5E9":"#F59E0B";
+          const confirmed=s.saleConfirmed;const isFree=s.freeSale;const isClosed=st==="تم التسليم";
+          return<div key={s.id} style={{padding:"12px 16px",borderRadius:12,background:isClosed?"#FEF2F2":isActive?T.accent+"08":T.cardSolid,border:isActive?"2px solid "+T.accent:isClosed?"1px solid #EF444430":confirmed?"1px solid #10B98130":"1px solid "+T.brd,cursor:"pointer",transition:"all 0.15s",opacity:isClosed?0.7:1}} onClick={()=>setActiveSession(isActive?null:s.id)}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <span style={{fontSize:18}}>{isFree?"🔓":"📦"}</span>
-                <div><div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}><span style={{fontWeight:700,fontSize:FS,color:T.text}}>{(isFree?"بيع حر":"سجل توزيع")+" — "+s.date}</span><span style={{fontSize:FS-3,fontWeight:700,color:stColor,background:stColor+"15",padding:"1px 8px",borderRadius:6,border:"1px solid "+stColor+"30"}}>{st}</span>
+                <span style={{fontSize:18}}>{isClosed?"🔒":isFree?"🔓":"📦"}</span>
+                <div><div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}><span style={{fontWeight:700,fontSize:FS,color:isClosed?"#EF4444":T.text,textDecoration:isClosed?"line-through":"none"}}>{(isFree?"بيع حر":"سجل توزيع")+" — "+s.date}</span><span style={{fontSize:FS-3,fontWeight:700,color:stColor,background:stColor+"15",padding:"1px 8px",borderRadius:6,border:"1px solid "+stColor+"30"}}>{st}</span>
                     {confirmed&&<span style={{fontSize:FS-3,fontWeight:700,color:"#10B981",background:"#10B98110",padding:"1px 8px",borderRadius:6}}>✅ بيع فعلي</span>}
                     {!confirmed&&!isFree&&<span style={{fontSize:FS-3,fontWeight:700,color:"#F59E0B",background:"#F59E0B10",padding:"1px 8px",borderRadius:6}}>⏳ خطة</span>}
                   </div>
@@ -4767,8 +4796,11 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
             setQrSale(p=>({...p,items:[...p.items,...newItems],_pkgId:pkg.id,_pkgNum:j.num}))}
           else{playBeep("error");showToast("⛔ لا يمكن مرتجع كرتونة كاملة")}return}}catch(e2){}
         /* Regular model QR */
-        const parts=text.split(":");if(parts[0]!=="CLARK"||parts.length<3)return;const orderId=parts[1];const rs=Number(parts[2])||1;
+        const parts=text.split(":");if(parts[0]!=="CLARK"||parts.length<3)return;const orderId=parts[1];const qrRs=Number(parts[2])||1;
         const o=orders.find(x=>x.id===orderId);if(!o){playBeep("error");showToast("⛔ موديل غير موجود");return}
+        /* Always scan as full series: max(QR value, number of sizes) */
+        const sizes=o.sizeLabel?o.sizeLabel.split(/[-/,]/).map(s=>s.trim()).filter(Boolean):[];
+        const rs=sizes.length>1?Math.max(qrRs,sizes.length):qrRs;
         if(isSale){/* Check stock - use latest items from state */
           const currentActual={};qrSale.items.forEach(it=>{currentActual[it.orderId]=(currentActual[it.orderId]||0)+(Number(it.qty)||0)});
           const alreadyInCart=(currentActual[orderId]||0);const avail=getAvailStock(orderId);
@@ -4785,7 +4817,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
       const total=qrSale.items.reduce((s,it)=>s+(Number(it.qty)||0),0);
       const updateQty=(idx,v)=>setQrSale(p=>{const items=[...p.items];items[idx]={...items[idx],qty:Math.max(0,Number(v)||0)};return{...p,items}});
       const removeItem=(idx)=>setQrSale(p=>({...p,items:p.items.filter((_,i)=>i!==idx)}));
-      const closeQrSale=()=>{try{const v=document.getElementById("qr-sale-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setQrScanActive(false);setQrSale(null)};
+      const closeQrSale=()=>{scanHold.current=false;try{const v=document.getElementById("qr-sale-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setQrScanActive(false);setQrSale(null)};
       const linkedSess=isSale&&qrSale.linkedSession&&qrSale.linkedSession!=="free"?sessions.find(s=>s.id===qrSale.linkedSession):null;
       const plannedByModel={};if(linkedSess){Object.entries(linkedSess.grid||{}).forEach(([k,v])=>{const[oid,cid]=k.split("_");if(cid===qrSale.custId){plannedByModel[oid]=(plannedByModel[oid]||0)+(Number(v)||0)}})}
       const actualByModel={};qrSale.items.forEach(it=>{actualByModel[it.orderId]=(actualByModel[it.orderId]||0)+(Number(it.qty)||0)});
@@ -4825,7 +4857,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
           </div>
         </div>
       </div>;
-      if(isSale&&qrSale.linkedSession===undefined){const custSessions=sessions.filter(s=>{const hasGrid=Object.keys(s.grid||{}).some(k=>k.endsWith("_"+qrSale.custId)&&Number(s.grid[k])>0);return hasGrid&&!s.saleConfirmed});
+      if(isSale&&qrSale.linkedSession===undefined){const custSessions=sessions.filter(s=>{const hasGrid=Object.keys(s.grid||{}).some(k=>k.endsWith("_"+qrSale.custId)&&Number(s.grid[k])>0);return hasGrid&&s.status!=="تم التسليم"});
         return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={closeQrSale}>
           <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:500,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
@@ -4869,13 +4901,22 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
               <canvas id="qr-sale-canvas" style={{display:"none"}}/>
               <div style={{position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",width:160,height:160,border:"2px solid "+color,borderRadius:12,boxShadow:"0 0 0 999px rgba(0,0,0,0.4)"}}/>
             </div>
-            <div style={{textAlign:"center",marginTop:8}}><Btn small onClick={()=>{setQrScanActive(false);try{const v=document.getElementById("qr-sale-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>⏹ إيقاف</Btn></div></div>
+            <div style={{textAlign:"center",marginTop:8,display:"flex",gap:6,justifyContent:"center"}}>
+              <div onMouseDown={()=>{scanHold.current=true}} onMouseUp={()=>{scanHold.current=false}} onMouseLeave={()=>{scanHold.current=false}}
+                onTouchStart={e=>{e.preventDefault();scanHold.current=true}} onTouchEnd={()=>{scanHold.current=false}}
+                style={{padding:"10px 24px",borderRadius:10,cursor:"pointer",fontWeight:700,fontSize:FS,fontFamily:"inherit",userSelect:"none",WebkitUserSelect:"none",
+                  background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",color:"#fff",border:"none",boxShadow:"0 4px 15px rgba(14,165,233,0.3)",transition:"transform 0.1s",touchAction:"none"}}
+                onPointerDown={e=>{e.currentTarget.style.transform="scale(0.95)"}} onPointerUp={e=>{e.currentTarget.style.transform="scale(1)"}}>
+                {"👆 اضغط مع الاستمرار للمسح"}
+              </div>
+              <Btn small onClick={()=>{scanHold.current=false;setQrScanActive(false);try{const v=document.getElementById("qr-sale-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>⏹ Stop</Btn>
+            </div></div>
           :<div style={{textAlign:"center",marginBottom:12}}><Btn onClick={()=>{setQrScanActive(true);setTimeout(()=>{const startCam=async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:640}}});
             const v=document.getElementById("qr-sale-video");if(!v){stream.getTracks().forEach(t=>t.stop());return}v.srcObject=stream;
             const hasBD=typeof BarcodeDetector!=="undefined";const detector=hasBD?new BarcodeDetector({formats:["qr_code"]}):null;let lastScan="";let lastTime=0;
             const scan=async()=>{if(!v.srcObject)return;const c=document.getElementById("qr-sale-canvas");if(!c||v.readyState<2){requestAnimationFrame(scan);return}
               c.width=v.videoWidth;c.height=v.videoHeight;c.getContext("2d").drawImage(v,0,0);
-              if(detector){try{const codes=await detector.detect(c);if(codes.length>0){const t=codes[0].rawValue;const now=Date.now();if(t!==lastScan||now-lastTime>2000){lastScan=t;lastTime=now;handleScan(t)}}}catch(e){}}
+              if(detector&&scanHold.current){try{const codes=await detector.detect(c);if(codes.length>0){const t=codes[0].rawValue;const now=Date.now();if(t!==lastScan||now-lastTime>2000){lastScan=t;lastTime=now;handleScan(t)}}}catch(e){}}
               if(v.srcObject)requestAnimationFrame(scan)};setTimeout(scan,500)}catch(e){showToast("⚠️ تعذر فتح الكاميرا")}};startCam()},300)}} style={{background:color+"12",color,border:"1px solid "+color+"30",padding:"12px 24px",fontSize:FS+1}}>📷 فتح الماسح</Btn>
             <div style={{fontSize:FS-2,color:T.textMut,marginTop:6}}>أو أضف يدوياً</div></div>}
           <div style={{marginBottom:12,display:"flex",gap:6,alignItems:"end"}}>
@@ -4941,7 +4982,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
       const addModel=(orderId)=>{const o=orders.find(x=>x.id===orderId);if(!o)return;const rs=getRackSize(orderId);
         setPkgItems(p=>{const existing=p.findIndex(it=>it.orderId===orderId);if(existing>=0){const items=[...p];items[existing]={...items[existing],count:items[existing].count+1,qty:(items[existing].count+1)*items[existing].rackSize};return items}return[...p,{orderId,modelNo:o.modelNo,modelDesc:o.modelDesc,rackSize:rs,count:1,qty:rs}]})};
       const updateItem=(idx,f,v)=>setPkgItems(p=>{const items=[...p];items[idx]={...items[idx],[f]:Number(v)||0};if(f==="count")items[idx].qty=items[idx].count*items[idx].rackSize;return items});
-      const stopPkgCam=()=>{setPkgScan(false);try{const v=document.getElementById("pkg-scan-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}};
+      const stopPkgCam=()=>{scanHold.current=false;setPkgScan(false);try{const v=document.getElementById("pkg-scan-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}};
       const closePkgCreate=()=>{stopPkgCam();setPkgPopup("list")};
       const savePkg=()=>{if(pkgItems.length===0){showToast("⚠️ أضف موديل واحد على الأقل");return}
         const pkg={id:gid(),number:pkgNum,date:new Date().toISOString().split("T")[0],note:pkgNote,items:pkgItems.map(it=>({orderId:it.orderId,modelNo:it.modelNo,rackSize:it.rackSize,count:it.count,qty:it.qty})),createdBy:userName,status:"مخزن"};
@@ -4971,7 +5012,8 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
                     if(el.srcObject)requestAnimationFrame(scan)};setTimeout(scan,500)}catch(e){showToast("⚠️ تعذر فتح الكاميرا");setPkgScan(false)}})()}}/>
                 <div style={{position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",width:120,height:120,border:"2px solid #0EA5E9",borderRadius:10,boxShadow:"0 0 0 999px rgba(0,0,0,0.4)"}}/>
               </div>
-              <div style={{textAlign:"center",fontSize:FS-2,color:T.textMut,marginTop:4}}>وجّه الكاميرا على QR الموديل</div>
+              <div onMouseDown={()=>{scanHold.current=true}} onMouseUp={()=>{scanHold.current=false}} onMouseLeave={()=>{scanHold.current=false}} onTouchStart={e=>{e.preventDefault();scanHold.current=true}} onTouchEnd={()=>{scanHold.current=false}}
+                style={{margin:"4px auto",padding:"6px 16px",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:FS-2,userSelect:"none",WebkitUserSelect:"none",textAlign:"center",background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",color:"#fff",touchAction:"none",maxWidth:180}}>👆 اضغط للمسح</div>
             </div>}
           </div>
           {pkgItems.length>0&&<div style={{border:"1px solid "+T.brd,borderRadius:12,overflow:"hidden",marginBottom:12}}>
@@ -5053,10 +5095,12 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
                 <video id="pkg-scan-video" playsInline muted autoPlay style={{width:"100%",display:"block"}} ref={el=>{if(!el||el.srcObject)return;(async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:640}}});el.srcObject=stream;
                   const hasBD=typeof BarcodeDetector!=="undefined";const detector=hasBD?new BarcodeDetector({formats:["qr_code"]}):null;const canvas=document.createElement("canvas");let lastScan="";let lastTime=0;
                   const scan=async()=>{if(!el.srcObject)return;if(el.readyState<2){requestAnimationFrame(scan);return}canvas.width=el.videoWidth;canvas.height=el.videoHeight;canvas.getContext("2d").drawImage(el,0,0);
-                    if(detector){try{const codes=await detector.detect(canvas);if(codes.length>0){const t=codes[0].rawValue;const now=Date.now();if(t!==lastScan||now-lastTime>2000){lastScan=t;lastTime=now;try{const parts=t.split(":");if(parts[0]==="CLARK"&&parts[1]){addToPkg(parts[1])}}catch(e){}}}}catch(e){}}
+                    if(detector&&scanHold.current){try{const codes=await detector.detect(canvas);if(codes.length>0){const t=codes[0].rawValue;const now=Date.now();if(t!==lastScan||now-lastTime>2000){lastScan=t;lastTime=now;try{const parts=t.split(":");if(parts[0]==="CLARK"&&parts[1]){addToPkg(parts[1])}}catch(e){}}}}catch(e){}}
                     if(el.srcObject)requestAnimationFrame(scan)};setTimeout(scan,500)}catch(e){showToast("⚠️ تعذر فتح الكاميرا");setPkgScan(false)}})()}}/>
                 <div style={{position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",width:110,height:110,border:"2px solid #0EA5E9",borderRadius:10,boxShadow:"0 0 0 999px rgba(0,0,0,0.4)"}}/>
               </div>
+              <div onMouseDown={()=>{scanHold.current=true}} onMouseUp={()=>{scanHold.current=false}} onMouseLeave={()=>{scanHold.current=false}} onTouchStart={e=>{e.preventDefault();scanHold.current=true}} onTouchEnd={()=>{scanHold.current=false}}
+                style={{margin:"4px auto",padding:"6px 16px",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:FS-2,userSelect:"none",WebkitUserSelect:"none",textAlign:"center",background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",color:"#fff",touchAction:"none",maxWidth:180}}>👆 اضغط للمسح</div>
             </div>}
           </div>}
           {/* Contents table with edit */}
@@ -5093,10 +5137,11 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
     {/* Stock Receive from Finishing - استلام مخزن جاهز */}
     {stockRcv&&(()=>{const rcvItems=stockRcv.items||{};
       const available=orders.filter(o=>{const wds=o.workshopDeliveries||[];const rcvFromWs=wds.reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);const stockDel=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return rcvFromWs-stockDel>0}).map(o=>{const wds=o.workshopDeliveries||[];const rcvFromWs=wds.reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);const stockDel=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return{id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,fromFinishing:rcvFromWs-stockDel,rackSize:getRackSize(o.id)}});
-      const handleStockScan=(text)=>{try{const parts=text.split(":");if(parts[0]!=="CLARK"||!parts[1])return;const orderId=parts[1];const rs=Number(parts[2])||1;
+      const handleStockScan=(text)=>{try{const parts=text.split(":");if(parts[0]!=="CLARK"||!parts[1])return;const orderId=parts[1];const qrRs=Number(parts[2])||1;
         const o=orders.find(x=>x.id===orderId);if(!o){playBeep("error");showToast("⛔ موديل غير موجود");return}
+        const _sz=o.sizeLabel?o.sizeLabel.split(/[-\/,]/).map(s=>s.trim()).filter(Boolean):[];const rs=_sz.length>1?Math.max(qrRs,_sz.length):qrRs;
         setStockRcv(p=>({...p,items:{...p.items,[orderId]:(p.items[orderId]||0)+rs}}));playBeep("ok");showToast("✅ "+o.modelNo+" +"+rs)}catch(e){}};
-      const closeStockCam=()=>{try{const v=document.getElementById("stock-rcv-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setStockRcv(p=>({...p,scanning:false}))};
+      const closeStockCam=()=>{scanHold.current=false;try{const v=document.getElementById("stock-rcv-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setStockRcv(p=>({...p,scanning:false}))};
       const totalRcv=Object.values(rcvItems).reduce((s,v)=>s+v,0);
       const confirmStockRcv=()=>{if(totalRcv<=0){showToast("⚠️ لا توجد كميات للاستلام");return}
         Object.entries(rcvItems).forEach(([oid,qty])=>{if(qty<=0)return;updOrder(oid,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty,notes:"استلام من التشطيب",createdBy:userName||""});o.deliveredQty=(o.deliveredQty||0)+qty;o.status=recomputeStatus(o)})});
@@ -5107,25 +5152,34 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
         h+="<tr style='background:#F1F5F9;font-weight:800'><td colspan='3'>الاجمالي</td><td style='text-align:center;color:#0EA5E9'>"+totalRcv+"</td><td></td></tr></tbody></table>";
         h+="<div class='sig'><div class='sig-box'>مسؤول التشطيب</div><div class='sig-box'>أمين المخزن<br/>"+(userName||"")+"</div></div>";printPage("استلام مخزن جاهز",h)};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>{closeStockCam();setStockRcv(null)}}>
-        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?"100%":650,maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <div style={{fontSize:FS+2,fontWeight:800,color:"#0EA5E9"}}>📥 استلام مخزن الجاهز</div>
-            <div style={{display:"flex",gap:4}}><Btn small onClick={printStockRcv} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn ghost small onClick={()=>{closeStockCam();setStockRcv(null)}}>✕</Btn></div>
-          </div>
-          <div style={{display:"flex",gap:6,marginBottom:10}}>
-            <Btn small onClick={()=>{if(stockRcv.scanning){closeStockCam()}else{setStockRcv(p=>({...p,scanning:true}))}}} style={{background:stockRcv.scanning?"#EF444412":"#0EA5E912",color:stockRcv.scanning?"#EF4444":"#0EA5E9",border:"1px solid "+(stockRcv.scanning?"#EF444430":"#0EA5E930")}}>{stockRcv.scanning?"⏹ إيقاف":"📷 Scan"}</Btn>
-            <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(!v)return;const rs=getRackSize(v);setStockRcv(p=>({...p,items:{...p.items,[v]:(p.items[v]||0)+rs}}));playBeep("ok")}} options={available.map(m=>({value:m.id,label:m.modelNo+" — "+m.modelDesc+" ("+m.fromFinishing+")"}))} placeholder="اضف يدوي..."/></div>
-          </div>
-          {stockRcv.scanning&&<div style={{marginBottom:10}}>
-            <div style={{position:"relative",width:"100%",maxWidth:250,margin:"0 auto",borderRadius:12,overflow:"hidden",background:"#000"}}>
-              <video id="stock-rcv-video" playsInline muted autoPlay style={{width:"100%",display:"block"}} ref={el=>{if(!el||el.srcObject)return;(async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:640}}});el.srcObject=stream;
-                const hasBD=typeof BarcodeDetector!=="undefined";const detector=hasBD?new BarcodeDetector({formats:["qr_code"]}):null;const canvas=document.createElement("canvas");let lastScan="";let lastTime=0;
-                const scan=async()=>{if(!el.srcObject)return;if(el.readyState<2){requestAnimationFrame(scan);return}canvas.width=el.videoWidth;canvas.height=el.videoHeight;canvas.getContext("2d").drawImage(el,0,0);
-                  if(detector){try{const codes=await detector.detect(canvas);if(codes.length>0){const t=codes[0].rawValue;const now=Date.now();if(t!==lastScan||now-lastTime>2000){lastScan=t;lastTime=now;handleStockScan(t)}}}catch(e){}}
-                  if(el.srcObject)requestAnimationFrame(scan)};setTimeout(scan,500)}catch(e){showToast("⚠️ تعذر فتح الكاميرا");closeStockCam()}})()}}/>
-              <div style={{position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",width:130,height:130,border:"2px solid #0EA5E9",borderRadius:10,boxShadow:"0 0 0 999px rgba(0,0,0,0.4)"}}/>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,width:"100%",maxWidth:isMob?"100%":650,maxHeight:"92vh",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+          <div style={{padding:isMob?"12px 16px":"16px 24px",borderBottom:"1px solid "+T.brd,flexShrink:0}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <div style={{fontSize:FS+2,fontWeight:800,color:"#0EA5E9"}}>📥 استلام مخزن الجاهز</div>
+              <div style={{display:"flex",gap:4}}><Btn small onClick={printStockRcv} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn ghost small onClick={()=>{closeStockCam();setStockRcv(null)}}>✕</Btn></div>
             </div>
-          </div>}
+            <div style={{display:"flex",gap:6}}>
+              <Btn small onClick={()=>{if(stockRcv.scanning){closeStockCam()}else{setStockRcv(p=>({...p,scanning:true}))}}} style={{background:stockRcv.scanning?"#EF444412":"#0EA5E912",color:stockRcv.scanning?"#EF4444":"#0EA5E9",border:"1px solid "+(stockRcv.scanning?"#EF444430":"#0EA5E930")}}>{stockRcv.scanning?"⏹ Stop":"📷 Scan"}</Btn>
+              <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(!v)return;const _o=orders.find(x=>x.id===v);const _szz=_o?.sizeLabel?_o.sizeLabel.split(/[-\/,]/).map(s=>s.trim()).filter(Boolean):[];const rs=_szz.length>1?Math.max(getRackSize(v),_szz.length):getRackSize(v);setStockRcv(p=>({...p,items:{...p.items,[v]:(p.items[v]||0)+rs}}));playBeep("ok")}} options={available.map(m=>({value:m.id,label:m.modelNo+" — "+m.modelDesc+" ("+m.fromFinishing+")"}))} placeholder="اضف يدوي..."/></div>
+            </div>
+            {stockRcv.scanning&&<div style={{marginTop:8}}>
+              <div style={{position:"relative",width:"100%",maxWidth:200,margin:"0 auto",borderRadius:12,overflow:"hidden",background:"#000"}}>
+                <video id="stock-rcv-video" playsInline muted autoPlay style={{width:"100%",display:"block"}} ref={el=>{if(!el||el.srcObject)return;(async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:640}}});el.srcObject=stream;
+                  const hasBD=typeof BarcodeDetector!=="undefined";const detector=hasBD?new BarcodeDetector({formats:["qr_code"]}):null;const canvas=document.createElement("canvas");let lastScan="";let lastTime=0;
+                  const scan=async()=>{if(!el.srcObject)return;if(el.readyState<2){requestAnimationFrame(scan);return}canvas.width=el.videoWidth;canvas.height=el.videoHeight;canvas.getContext("2d").drawImage(el,0,0);
+                    if(detector&&scanHold.current){try{const codes=await detector.detect(canvas);if(codes.length>0){const t=codes[0].rawValue;const now=Date.now();if(t!==lastScan||now-lastTime>2000){lastScan=t;lastTime=now;handleStockScan(t)}}}catch(e){}}
+                    if(el.srcObject)requestAnimationFrame(scan)};setTimeout(scan,500)}catch(e){showToast("⚠️ تعذر فتح الكاميرا");closeStockCam()}})()}}/>
+                <div style={{position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",width:100,height:100,border:"2px solid #0EA5E9",borderRadius:10,boxShadow:"0 0 0 999px rgba(0,0,0,0.4)"}}/>
+              </div>
+              <div onMouseDown={()=>{scanHold.current=true}} onMouseUp={()=>{scanHold.current=false}} onMouseLeave={()=>{scanHold.current=false}}
+                onTouchStart={e=>{e.preventDefault();scanHold.current=true}} onTouchEnd={()=>{scanHold.current=false}}
+                style={{margin:"6px auto 0",padding:"8px 20px",borderRadius:10,cursor:"pointer",fontWeight:700,fontSize:FS-1,fontFamily:"inherit",userSelect:"none",WebkitUserSelect:"none",textAlign:"center",
+                  background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",color:"#fff",touchAction:"none",maxWidth:200}}>
+                {"👆 اضغط للمسح"}
+              </div>
+            </div>}
+          </div>
+          <div style={{flex:1,overflowY:"auto",overflowX:"auto",padding:isMob?"8px 16px 16px":"8px 24px 24px"}}>
           <div style={{border:"1px solid "+T.brd,borderRadius:12,overflow:"hidden"}}>
             <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","الوصف","من التشطيب","المستلم","الفرق","الحالة"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
               {available.map((m,i)=>{const rcv=rcvItems[m.id]||0;const diff=rcv-m.fromFinishing;
@@ -5141,7 +5195,8 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
               {available.length>0&&<tr style={{background:"#0EA5E908"}}><td colSpan={3} style={{...TD,fontWeight:800}}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800,color:"#0EA5E9"}}>{totalRcv}</td><td colSpan={2} style={TD}></td></tr>}
             </tbody></table>
           </div>
-          <div style={{display:"flex",gap:8,justifyContent:"center",marginTop:12}}>
+          </div>
+          <div style={{display:"flex",gap:8,justifyContent:"center",padding:"12px 24px",borderTop:"1px solid "+T.brd,flexShrink:0}}>
             <Btn onClick={confirmStockRcv} style={{background:"#0EA5E9",color:"#fff",border:"none",fontWeight:700}}>📥 تأكيد الاستلام ({totalRcv} قطعة)</Btn>
             <Btn ghost onClick={()=>{closeStockCam();setStockRcv(null)}}>الغاء</Btn>
           </div>
@@ -5150,10 +5205,11 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
     {/* Inventory Audit - جرد المخزن */}
     {invAudit&&(()=>{const auditItems=invAudit.items||{};
       const allStock=stockModels.filter(m=>m.stockQty>0||auditItems[m.id]);
-      const handleAuditScan=(text)=>{try{const parts=text.split(":");if(parts[0]!=="CLARK"||!parts[1])return;const orderId=parts[1];const rs=Number(parts[2])||1;
+      const handleAuditScan=(text)=>{try{const parts=text.split(":");if(parts[0]!=="CLARK"||!parts[1])return;const orderId=parts[1];const qrRs=Number(parts[2])||1;
         const o=orders.find(x=>x.id===orderId);if(!o){playBeep("error");showToast("⛔ موديل غير موجود");return}
+        const _sz=o.sizeLabel?o.sizeLabel.split(/[-\/,]/).map(s=>s.trim()).filter(Boolean):[];const rs=_sz.length>1?Math.max(qrRs,_sz.length):qrRs;
         setInvAudit(p=>{const items={...p.items};items[orderId]=(items[orderId]||0)+rs;return{...p,items}});playBeep("ok");showToast("✅ "+o.modelNo+" +"+rs)}catch(e){}};
-      const closeAuditCam=()=>{try{const v=document.getElementById("audit-scan-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setInvAudit(p=>({...p,scanning:false}))};
+      const closeAuditCam=()=>{scanHold.current=false;try{const v=document.getElementById("audit-scan-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setInvAudit(p=>({...p,scanning:false}))};
       const totalSystem=allStock.reduce((s,m)=>s+m.avail,0);const totalCounted=allStock.reduce((s,m)=>s+(auditItems[m.id]||0),0);const totalDiff=totalCounted-totalSystem;
       const applyAdjust=()=>{let adj=0;allStock.forEach(m=>{const counted=auditItems[m.id];if(counted===undefined)return;const diff=counted-m.avail;if(diff===0)return;adj++;
         const adjustQty=diff;updOrder(m.id,o=>{if(!o.deliveries)o.deliveries=[];if(adjustQty>0){o.deliveries.push({date:new Date().toISOString().split("T")[0],qty:adjustQty,notes:"تسوية جرد (زيادة)",createdBy:userName||"",isAdjustment:true})}
@@ -5180,16 +5236,22 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
           {/* Scan or manual */}
           <div style={{display:"flex",gap:6,marginBottom:10}}>
             <Btn small onClick={()=>{if(invAudit.scanning){closeAuditCam()}else{setInvAudit(p=>({...p,scanning:true}))}}} style={{background:invAudit.scanning?"#EF444412":"#8B5CF612",color:invAudit.scanning?"#EF4444":"#8B5CF6",border:"1px solid "+(invAudit.scanning?"#EF444430":"#8B5CF630")}}>{invAudit.scanning?"⏹ Stop":"📷 Scan"}</Btn>
-            <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(!v)return;const rs=getRackSize(v);setInvAudit(p=>{const items={...p.items};items[v]=(items[v]||0)+rs;return{...p,items}});playBeep("ok")}} options={stockModels.map(m=>({value:m.id,label:m.modelNo+" — "+m.modelDesc+" ("+m.avail+")"}))} placeholder="اضف يدوي..."/></div>
+            <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(!v)return;const _o2=orders.find(x=>x.id===v);const _szz2=_o2?.sizeLabel?_o2.sizeLabel.split(/[-\/,]/).map(s=>s.trim()).filter(Boolean):[];const rs=_szz2.length>1?Math.max(getRackSize(v),_szz2.length):getRackSize(v);setInvAudit(p=>{const items={...p.items};items[v]=(items[v]||0)+rs;return{...p,items}});playBeep("ok")}} options={stockModels.map(m=>({value:m.id,label:m.modelNo+" — "+m.modelDesc+" ("+m.avail+")"}))} placeholder="اضف يدوي..."/></div>
           </div>
           {invAudit.scanning&&<div style={{marginBottom:10}}>
             <div style={{position:"relative",width:"100%",maxWidth:260,margin:"0 auto",borderRadius:12,overflow:"hidden",background:"#000"}}>
               <video id="audit-scan-video" playsInline muted autoPlay style={{width:"100%",display:"block"}} ref={el=>{if(!el||el.srcObject)return;(async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:640}}});el.srcObject=stream;
                 const hasBD=typeof BarcodeDetector!=="undefined";const detector=hasBD?new BarcodeDetector({formats:["qr_code"]}):null;const canvas=document.createElement("canvas");let lastScan="";let lastTime=0;
                 const scan=async()=>{if(!el.srcObject)return;if(el.readyState<2){requestAnimationFrame(scan);return}canvas.width=el.videoWidth;canvas.height=el.videoHeight;canvas.getContext("2d").drawImage(el,0,0);
-                  if(detector){try{const codes=await detector.detect(canvas);if(codes.length>0){const t=codes[0].rawValue;const now=Date.now();if(t!==lastScan||now-lastTime>2000){lastScan=t;lastTime=now;handleAuditScan(t)}}}catch(e){}}
+                  if(detector&&scanHold.current){try{const codes=await detector.detect(canvas);if(codes.length>0){const t=codes[0].rawValue;const now=Date.now();if(t!==lastScan||now-lastTime>2000){lastScan=t;lastTime=now;handleAuditScan(t)}}}catch(e){}}
                   if(el.srcObject)requestAnimationFrame(scan)};setTimeout(scan,500)}catch(e){showToast("⚠️ تعذر فتح الكاميرا");closeAuditCam()}})()}}/>
               <div style={{position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",width:130,height:130,border:"2px solid #8B5CF6",borderRadius:10,boxShadow:"0 0 0 999px rgba(0,0,0,0.4)"}}/>
+            </div>
+            <div onMouseDown={()=>{scanHold.current=true}} onMouseUp={()=>{scanHold.current=false}} onMouseLeave={()=>{scanHold.current=false}}
+              onTouchStart={e=>{e.preventDefault();scanHold.current=true}} onTouchEnd={()=>{scanHold.current=false}}
+              style={{margin:"6px auto 0",padding:"8px 20px",borderRadius:10,cursor:"pointer",fontWeight:700,fontSize:FS-1,fontFamily:"inherit",userSelect:"none",WebkitUserSelect:"none",textAlign:"center",
+                background:"linear-gradient(135deg,#8B5CF6,#0EA5E9)",color:"#fff",touchAction:"none",maxWidth:200}}>
+              {"👆 اضغط للمسح"}
             </div>
           </div>}
           {/* Table */}
@@ -5319,7 +5381,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
             <video id="pkg-action-video" playsInline muted autoPlay style={{width:"100%",display:"block"}} ref={el=>{if(!el||el.srcObject)return;(async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:640}}});el.srcObject=stream;
               const hasBD=typeof BarcodeDetector!=="undefined";const detector=hasBD?new BarcodeDetector({formats:["qr_code"]}):null;const canvas=document.createElement("canvas");let lastScan="";let lastTime=0;
               const scan=async()=>{if(!el.srcObject)return;if(el.readyState<2){requestAnimationFrame(scan);return}canvas.width=el.videoWidth;canvas.height=el.videoHeight;canvas.getContext("2d").drawImage(el,0,0);
-                if(detector){try{const codes=await detector.detect(canvas);if(codes.length>0){const t=codes[0].rawValue;const now=Date.now();if(t!==lastScan||now-lastTime>2000){lastScan=t;lastTime=now;handlePkgScan(t)}}}catch(e){}}
+                if(detector&&scanHold.current){try{const codes=await detector.detect(canvas);if(codes.length>0){const t=codes[0].rawValue;const now=Date.now();if(t!==lastScan||now-lastTime>2000){lastScan=t;lastTime=now;handlePkgScan(t)}}}catch(e){}}
                 if(el.srcObject)requestAnimationFrame(scan)};setTimeout(scan,500)}catch(e){showToast("⚠️ تعذر فتح الكاميرا");setPkgAction({id:pkgAction.id,mode:"menu"})}})()}}/>
             <div style={{position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",width:140,height:140,border:"2px solid "+color,borderRadius:12,boxShadow:"0 0 0 999px rgba(0,0,0,0.4)"}}/>
           </div>
