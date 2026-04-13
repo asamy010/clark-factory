@@ -3877,7 +3877,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   const[sessFilterQ,setSessFilterQ]=useState("");
   const[reportRange,setReportRange]=useState({from:"",to:""});const[showReport,setShowReport]=useState(false);const[rptType,setRptType]=useState("all");const[rptCust,setRptCust]=useState("");const[rptModel,setRptModel]=useState("");
   const[invAudit,setInvAudit]=useState(null);/* {items:{orderId:{counted:n}},scanning:false} */
-  const[groupPrint,setGroupPrint]=useState(null);/* {sessId,selCusts:{},receiver:""} */
+  const[groupPrint,setGroupPrint]=useState(null);const[addCustPick,setAddCustPick]=useState(null);const[stockRcv,setStockRcv]=useState(null);/* {items:{},scanning:false} */
   const[showNewAudit,setShowNewAudit]=useState(false);const[auditDate,setAuditDate]=useState(new Date().toISOString().split("T")[0]);const[auditFrom,setAuditFrom]=useState("");const[auditTo,setAuditTo]=useState("");const[auditNote,setAuditNote]=useState("");const[auditSelCusts,setAuditSelCusts]=useState({});
   const[activeAudit,setActiveAudit]=useState(null);const[auditCell,setAuditCell]=useState(null);const[auditVal,setAuditVal]=useState(0);const[showAuditAnalysis,setShowAuditAnalysis]=useState(null);
   const[ocrCust,setOcrCust]=useState(null);const[ocrLoading,setOcrLoading]=useState(false);const[ocrResult,setOcrResult]=useState(null);const ocrRef=useRef(null);const[auditInclude,setAuditInclude]=useState(null);
@@ -4161,6 +4161,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
         {crd("🏭","قطع على الأرض","#F59E0B",printFloorStock)}
         {crd("📊","خط الانتاج","#059669",printProductionLine)}
         {crd("🏪","جرد المخزن","#8B5CF6",()=>setInvAudit({items:{},scanning:false}))}
+        {canEdit&&crd("📥","استلام جاهز","#0EA5E9",()=>setStockRcv({items:{},scanning:false}))}
       </div>})()}
     {/* Active Session Matrix - Popup */}
     {activeSess&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:24}} onClick={()=>closeMatrix()}>
@@ -4169,10 +4170,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{"📊 "+activeSess.date+" — جدول التوزيع"}</div>
             <div style={{display:"flex",gap:4}}>
-              {canEdit&&<Btn small onClick={()=>{const existing=new Set(activeSess.custIds);const avail=customers.filter(c=>!existing.has(c.id));if(avail.length===0){showToast("⚠️ كل العملاء مضافين");return}
-                const pick=prompt("اختار عميل:\n"+avail.map((c,i)=>(i+1)+". "+c.name).join("\n")+"\n\nادخل الرقم:");if(!pick)return;const idx=Number(pick)-1;if(idx<0||idx>=avail.length){showToast("⚠️ رقم غير صحيح");return}
-                upConfig(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===activeSess.id);if(si>=0){if(!d.custDeliverySessions[si].custIds.includes(avail[idx].id))d.custDeliverySessions[si].custIds.push(avail[idx].id)}});
-                showToast("✅ تم اضافة "+avail[idx].name)}} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}} title="اضافة عميل">+ عميل</Btn>}
+              {canEdit&&<Btn small onClick={()=>setAddCustPick({sessId:activeSess.id,sel:{},filter:""})} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}} title="اضافة عميل">+ عميل</Btn>}
               <Btn small onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨</Btn>
               <Btn ghost small onClick={()=>closeMatrix()} title="إغلاق">✕</Btn>
             </div>
@@ -4287,6 +4285,31 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
             <span style={{fontWeight:800,color:"#8B5CF6"}}>{selCount+" عملاء"}</span><span style={{color:T.textMut}}>{" | "}</span><span style={{fontWeight:800,color:T.accent}}>{selTotal+" قطعة"}</span>
           </div>
           <Btn onClick={doPrintGroup} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>🖨 طباعة</Btn>
+        </div>
+      </div>})()}
+    {/* Add Customer to Session Popup */}
+    {addCustPick&&(()=>{const sess=sessions.find(s=>s.id===addCustPick.sessId);if(!sess)return null;
+      const existing=new Set(sess.custIds);const avail=customers.filter(c=>!existing.has(c.id));
+      const filtered=avail.filter(c=>{if(!addCustPick.filter?.trim())return true;const q=addCustPick.filter.trim().toLowerCase();return(c.name||"").toLowerCase().includes(q)||(c.phone||"").includes(q)});
+      const selCount=Object.values(addCustPick.sel).filter(Boolean).length;
+      const doAdd=()=>{const ids=Object.entries(addCustPick.sel).filter(([,v])=>v).map(([k])=>k);if(ids.length===0){showToast("⚠️ اختار عميل واحد على الأقل");return}
+        upConfig(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===addCustPick.sessId);if(si>=0){ids.forEach(id=>{if(!d.custDeliverySessions[si].custIds.includes(id))d.custDeliverySessions[si].custIds.push(id)})}});
+        showToast("✅ تم اضافة "+ids.length+" عميل");setAddCustPick(null)};
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setAddCustPick(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:420,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div style={{fontSize:FS+2,fontWeight:800,color:T.ok}}>+ اضافة عملاء للتوزيعة</div>
+            <Btn ghost small onClick={()=>setAddCustPick(null)}>✕</Btn>
+          </div>
+          <div style={{marginBottom:10}}><Inp value={addCustPick.filter||""} onChange={v=>setAddCustPick(p=>({...p,filter:v}))} placeholder="بحث بالاسم أو التليفون..."/></div>
+          {avail.length===0?<div style={{textAlign:"center",padding:20,color:T.textMut}}>كل العملاء مضافين للتوزيعة</div>:
+          <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:12}}>
+            {filtered.map(c=><div key={c.id} onClick={()=>setAddCustPick(p=>({...p,sel:{...p.sel,[c.id]:!p.sel[c.id]}}))} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:10,cursor:"pointer",border:"1px solid "+(addCustPick.sel[c.id]?T.ok+"40":T.brd),background:addCustPick.sel[c.id]?T.ok+"08":"transparent"}}>
+              <span style={{fontSize:16}}>{addCustPick.sel[c.id]?"☑":"☐"}</span>
+              <div style={{flex:1}}><div style={{fontWeight:700,color:addCustPick.sel[c.id]?T.ok:T.text}}>{c.name}</div><div style={{fontSize:FS-3,color:T.textMut}}>{c.phone||""}{c.type?" | "+c.type:""}</div></div>
+            </div>)}
+          </div>}
+          {selCount>0&&<Btn onClick={doAdd} style={{background:T.ok,color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"✅ اضافة "+selCount+" عميل"}</Btn>}
         </div>
       </div>})()}
     {/* ══ Sales Dashboard ══ */}
@@ -5065,6 +5088,63 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
             <div style={{fontSize:FS,fontWeight:800,color:pkg.status==="مباعة"?"#8B5CF6":"#EF4444"}}>{pkg.status==="مباعة"?"💰 تم البيع":"🔒 كرتونة مغلقة"}</div>
             <div style={{fontSize:FS-2,color:T.textMut}}>{pkg.closedAt?"تم الإغلاق: "+pkg.closedAt.split("T")[0]:""}</div>
           </div>}
+        </div>
+      </div>})()}
+    {/* Stock Receive from Finishing - استلام مخزن جاهز */}
+    {stockRcv&&(()=>{const rcvItems=stockRcv.items||{};
+      const available=orders.filter(o=>{const wds=o.workshopDeliveries||[];const rcvFromWs=wds.reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);const stockDel=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return rcvFromWs-stockDel>0}).map(o=>{const wds=o.workshopDeliveries||[];const rcvFromWs=wds.reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);const stockDel=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return{id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,fromFinishing:rcvFromWs-stockDel,rackSize:getRackSize(o.id)}});
+      const handleStockScan=(text)=>{try{const parts=text.split(":");if(parts[0]!=="CLARK"||!parts[1])return;const orderId=parts[1];const rs=Number(parts[2])||1;
+        const o=orders.find(x=>x.id===orderId);if(!o){playBeep("error");showToast("⛔ موديل غير موجود");return}
+        setStockRcv(p=>({...p,items:{...p.items,[orderId]:(p.items[orderId]||0)+rs}}));playBeep("ok");showToast("✅ "+o.modelNo+" +"+rs)}catch(e){}};
+      const closeStockCam=()=>{try{const v=document.getElementById("stock-rcv-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setStockRcv(p=>({...p,scanning:false}))};
+      const totalRcv=Object.values(rcvItems).reduce((s,v)=>s+v,0);
+      const confirmStockRcv=()=>{if(totalRcv<=0){showToast("⚠️ لا توجد كميات للاستلام");return}
+        Object.entries(rcvItems).forEach(([oid,qty])=>{if(qty<=0)return;updOrder(oid,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty,notes:"استلام من التشطيب",createdBy:userName||""});o.deliveredQty=(o.deliveredQty||0)+qty;o.status=recomputeStatus(o)})});
+        playBeep("done");showToast("✅ تم استلام "+totalRcv+" قطعة في مخزن الجاهز");closeStockCam();setStockRcv(null)};
+      const printStockRcv=()=>{let h="<h2 style='text-align:center'>📥 إذن استلام مخزن جاهز — "+new Date().toISOString().split("T")[0]+"</h2>";
+        h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>متاح من التشطيب</th><th>المستلم</th><th>الفرق</th></tr></thead><tbody>";
+        available.forEach(m=>{const rcv=rcvItems[m.id]||0;const diff=rcv-m.fromFinishing;h+="<tr><td style='font-weight:800'>"+m.modelNo+"</td><td>"+m.modelDesc+"</td><td style='text-align:center'>"+m.fromFinishing+"</td><td style='text-align:center;font-weight:800;color:#0EA5E9'>"+rcv+"</td><td style='text-align:center;font-weight:800;color:"+(diff===0?"#10B981":diff>0?"#0EA5E9":"#EF4444")+"'>"+diff+"</td></tr>"});
+        h+="<tr style='background:#F1F5F9;font-weight:800'><td colspan='3'>الاجمالي</td><td style='text-align:center;color:#0EA5E9'>"+totalRcv+"</td><td></td></tr></tbody></table>";
+        h+="<div class='sig'><div class='sig-box'>مسؤول التشطيب</div><div class='sig-box'>أمين المخزن<br/>"+(userName||"")+"</div></div>";printPage("استلام مخزن جاهز",h)};
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>{closeStockCam();setStockRcv(null)}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?"100%":650,maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div style={{fontSize:FS+2,fontWeight:800,color:"#0EA5E9"}}>📥 استلام مخزن الجاهز</div>
+            <div style={{display:"flex",gap:4}}><Btn small onClick={printStockRcv} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn ghost small onClick={()=>{closeStockCam();setStockRcv(null)}}>✕</Btn></div>
+          </div>
+          <div style={{display:"flex",gap:6,marginBottom:10}}>
+            <Btn small onClick={()=>{if(stockRcv.scanning){closeStockCam()}else{setStockRcv(p=>({...p,scanning:true}))}}} style={{background:stockRcv.scanning?"#EF444412":"#0EA5E912",color:stockRcv.scanning?"#EF4444":"#0EA5E9",border:"1px solid "+(stockRcv.scanning?"#EF444430":"#0EA5E930")}}>{stockRcv.scanning?"⏹ إيقاف":"📷 استلام بالسكان"}</Btn>
+            <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(!v)return;const rs=getRackSize(v);setStockRcv(p=>({...p,items:{...p.items,[v]:(p.items[v]||0)+rs}}));playBeep("ok")}} options={available.map(m=>({value:m.id,label:m.modelNo+" — "+m.modelDesc+" ("+m.fromFinishing+")"}))} placeholder="اضف يدوي..."/></div>
+          </div>
+          {stockRcv.scanning&&<div style={{marginBottom:10}}>
+            <div style={{position:"relative",width:"100%",maxWidth:250,margin:"0 auto",borderRadius:12,overflow:"hidden",background:"#000"}}>
+              <video id="stock-rcv-video" playsInline muted autoPlay style={{width:"100%",display:"block"}} ref={el=>{if(!el||el.srcObject)return;(async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:640}}});el.srcObject=stream;
+                const hasBD=typeof BarcodeDetector!=="undefined";const detector=hasBD?new BarcodeDetector({formats:["qr_code"]}):null;const canvas=document.createElement("canvas");let lastScan="";let lastTime=0;
+                const scan=async()=>{if(!el.srcObject)return;if(el.readyState<2){requestAnimationFrame(scan);return}canvas.width=el.videoWidth;canvas.height=el.videoHeight;canvas.getContext("2d").drawImage(el,0,0);
+                  if(detector){try{const codes=await detector.detect(canvas);if(codes.length>0){const t=codes[0].rawValue;const now=Date.now();if(t!==lastScan||now-lastTime>2000){lastScan=t;lastTime=now;handleStockScan(t)}}}catch(e){}}
+                  if(el.srcObject)requestAnimationFrame(scan)};setTimeout(scan,500)}catch(e){showToast("⚠️ تعذر فتح الكاميرا");closeStockCam()}})()}}/>
+              <div style={{position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",width:130,height:130,border:"2px solid #0EA5E9",borderRadius:10,boxShadow:"0 0 0 999px rgba(0,0,0,0.4)"}}/>
+            </div>
+          </div>}
+          <div style={{border:"1px solid "+T.brd,borderRadius:12,overflow:"hidden"}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","الوصف","من التشطيب","المستلم","الفرق","الحالة"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
+              {available.map((m,i)=>{const rcv=rcvItems[m.id]||0;const diff=rcv-m.fromFinishing;
+                return<tr key={m.id} style={{background:i%2===0?"transparent":T.bg+"80"}}>
+                  <td style={{...TD,fontWeight:700,color:T.accent}}>{m.modelNo}</td>
+                  <td style={{...TD,fontSize:FS-3,color:T.textMut}}>{m.modelDesc}</td>
+                  <td style={{...TD,textAlign:"center",fontWeight:700,color:"#F59E0B"}}>{m.fromFinishing}</td>
+                  <td style={{...TD,textAlign:"center"}}><input type="number" value={rcv||""} onChange={e=>setStockRcv(p=>({...p,items:{...p.items,[m.id]:Math.max(0,Number(e.target.value)||0)}}))} placeholder="0" style={{width:55,textAlign:"center",border:"2px solid "+(rcv?"#0EA5E9":T.brd),borderRadius:4,padding:"2px",fontSize:FS,fontWeight:700,fontFamily:"inherit",background:rcv?"#0EA5E906":"transparent"}}/></td>
+                  <td style={{...TD,textAlign:"center",fontWeight:800,color:diff===0?"#10B981":diff>0?"#0EA5E9":"#EF4444"}}>{diff}</td>
+                  <td style={{...TD,textAlign:"center",fontSize:FS-2}}>{!rcv?"—":diff===0?"✅ مطابق":diff>0?"🔵 زيادة":"⚠️ عجز"}</td>
+                </tr>})}
+              {available.length===0&&<tr><td colSpan={6} style={{...TD,textAlign:"center",color:T.textMut,padding:20}}>لا توجد كميات متاحة من التشطيب</td></tr>}
+              {available.length>0&&<tr style={{background:"#0EA5E908"}}><td colSpan={3} style={{...TD,fontWeight:800}}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800,color:"#0EA5E9"}}>{totalRcv}</td><td colSpan={2} style={TD}></td></tr>}
+            </tbody></table>
+          </div>
+          <div style={{display:"flex",gap:8,justifyContent:"center",marginTop:12}}>
+            <Btn onClick={confirmStockRcv} style={{background:"#0EA5E9",color:"#fff",border:"none",fontWeight:700}}>📥 تأكيد الاستلام ({totalRcv} قطعة)</Btn>
+            <Btn ghost onClick={()=>{closeStockCam();setStockRcv(null)}}>الغاء</Btn>
+          </div>
         </div>
       </div>})()}
     {/* Inventory Audit - جرد المخزن */}
