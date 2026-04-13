@@ -4804,7 +4804,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
           const sessId=linkedSess?linkedSess.id:gid();const modelIds=[...new Set(qrSale.items.map(it=>it.orderId))];
           if(!linkedSess){const grid={};Object.entries(byOrder).forEach(([oid,qty])=>{grid[oid+"_"+qrSale.custId]=qty});
             upConfig(d=>{if(!d.custDeliverySessions)d.custDeliverySessions=[];d.custDeliverySessions.push({id:sessId,date:new Date().toISOString().split("T")[0],modelIds,custIds:[qrSale.custId],grid,createdBy:userName,createdAt:new Date().toISOString(),status:"تم التسليم",freeSale:true,saleConfirmed:true})})}
-          else{upConfig(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===sessId);if(si>=0){d.custDeliverySessions[si].actualSales=byOrder;d.custDeliverySessions[si].actualSaleDate=new Date().toISOString().split("T")[0];d.custDeliverySessions[si].actualSaleBy=userName;d.custDeliverySessions[si].saleConfirmed=true;d.custDeliverySessions[si].status="تم التسليم"}})}
+          else{upConfig(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===sessId);if(si>=0){d.custDeliverySessions[si].actualSales=byOrder;d.custDeliverySessions[si].actualSaleDate=new Date().toISOString().split("T")[0];d.custDeliverySessions[si].actualSaleBy=userName;d.custDeliverySessions[si].saleConfirmed=true}})}
           Object.entries(byOrder).forEach(([oid,qty])=>{updOrder(oid,o=>{if(!o.customerDeliveries)o.customerDeliveries=[];o.customerDeliveries.push({custId:qrSale.custId,custName:cust.name,qty,date:new Date().toISOString().split("T")[0],sessionId:sessId,createdBy:userName})})});
           playBeep("done");showToast("✓ تم تسجيل بيع "+total+" قطعة لـ "+cust.name);
           /* Archive package if sale was from package */
@@ -4874,7 +4874,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
             </div>
             <div style={{textAlign:"center",marginTop:8,display:"flex",gap:6,justifyContent:"center"}}>
               <div onMouseDown={()=>{scanHold.current=true}} onMouseUp={()=>{scanHold.current=false}} onMouseLeave={()=>{scanHold.current=false}}
-                onTouchStart={e=>{e.preventDefault();scanHold.current=true}} onTouchEnd={()=>{scanHold.current=false}}
+                onTouchStart={()=>{scanHold.current=true}} onTouchEnd={()=>{scanHold.current=false}}
                 style={{padding:"10px 24px",borderRadius:10,cursor:"pointer",fontWeight:700,fontSize:FS,fontFamily:"inherit",userSelect:"none",WebkitUserSelect:"none",
                   background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",color:"#fff",border:"none",boxShadow:"0 4px 15px rgba(14,165,233,0.3)",transition:"transform 0.1s",touchAction:"none"}}
                 onPointerDown={e=>{e.currentTarget.style.transform="scale(0.95)"}} onPointerUp={e=>{e.currentTarget.style.transform="scale(1)"}}>
@@ -4983,7 +4983,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
                     if(el.srcObject)requestAnimationFrame(scan)};setTimeout(scan,500)}catch(e){showToast("⚠️ تعذر فتح الكاميرا");setPkgScan(false)}})()}}/>
                 <div style={{position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",width:120,height:120,border:"2px solid #0EA5E9",borderRadius:10,boxShadow:"0 0 0 999px rgba(0,0,0,0.4)"}}/>
               </div>
-              <div onMouseDown={()=>{scanHold.current=true}} onMouseUp={()=>{scanHold.current=false}} onMouseLeave={()=>{scanHold.current=false}} onTouchStart={e=>{e.preventDefault();scanHold.current=true}} onTouchEnd={()=>{scanHold.current=false}}
+              <div onMouseDown={()=>{scanHold.current=true}} onMouseUp={()=>{scanHold.current=false}} onMouseLeave={()=>{scanHold.current=false}} onTouchStart={()=>{scanHold.current=true}} onTouchEnd={()=>{scanHold.current=false}}
                 style={{margin:"4px auto",padding:"6px 16px",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:FS-2,userSelect:"none",WebkitUserSelect:"none",textAlign:"center",background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",color:"#fff",touchAction:"none",maxWidth:180}}>👆 اضغط للمسح</div>
             </div>}
           </div>
@@ -5070,7 +5070,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
                     if(el.srcObject)requestAnimationFrame(scan)};setTimeout(scan,500)}catch(e){showToast("⚠️ تعذر فتح الكاميرا");setPkgScan(false)}})()}}/>
                 <div style={{position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",width:110,height:110,border:"2px solid #0EA5E9",borderRadius:10,boxShadow:"0 0 0 999px rgba(0,0,0,0.4)"}}/>
               </div>
-              <div onMouseDown={()=>{scanHold.current=true}} onMouseUp={()=>{scanHold.current=false}} onMouseLeave={()=>{scanHold.current=false}} onTouchStart={e=>{e.preventDefault();scanHold.current=true}} onTouchEnd={()=>{scanHold.current=false}}
+              <div onMouseDown={()=>{scanHold.current=true}} onMouseUp={()=>{scanHold.current=false}} onMouseLeave={()=>{scanHold.current=false}} onTouchStart={()=>{scanHold.current=true}} onTouchEnd={()=>{scanHold.current=false}}
                 style={{margin:"4px auto",padding:"6px 16px",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:FS-2,userSelect:"none",WebkitUserSelect:"none",textAlign:"center",background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",color:"#fff",touchAction:"none",maxWidth:180}}>👆 اضغط للمسح</div>
             </div>}
           </div>}
@@ -5143,7 +5143,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
                 <div style={{position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",width:100,height:100,border:"2px solid #0EA5E9",borderRadius:10,boxShadow:"0 0 0 999px rgba(0,0,0,0.4)"}}/>
               </div>
               <div onMouseDown={()=>{scanHold.current=true}} onMouseUp={()=>{scanHold.current=false}} onMouseLeave={()=>{scanHold.current=false}}
-                onTouchStart={e=>{e.preventDefault();scanHold.current=true}} onTouchEnd={()=>{scanHold.current=false}}
+                onTouchStart={()=>{scanHold.current=true}} onTouchEnd={()=>{scanHold.current=false}}
                 style={{margin:"6px auto 0",padding:"8px 20px",borderRadius:10,cursor:"pointer",fontWeight:700,fontSize:FS-1,fontFamily:"inherit",userSelect:"none",WebkitUserSelect:"none",textAlign:"center",
                   background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",color:"#fff",touchAction:"none",maxWidth:200}}>
                 {"👆 اضغط للمسح"}
@@ -5219,7 +5219,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
               <div style={{position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",width:130,height:130,border:"2px solid #8B5CF6",borderRadius:10,boxShadow:"0 0 0 999px rgba(0,0,0,0.4)"}}/>
             </div>
             <div onMouseDown={()=>{scanHold.current=true}} onMouseUp={()=>{scanHold.current=false}} onMouseLeave={()=>{scanHold.current=false}}
-              onTouchStart={e=>{e.preventDefault();scanHold.current=true}} onTouchEnd={()=>{scanHold.current=false}}
+              onTouchStart={()=>{scanHold.current=true}} onTouchEnd={()=>{scanHold.current=false}}
               style={{margin:"6px auto 0",padding:"8px 20px",borderRadius:10,cursor:"pointer",fontWeight:700,fontSize:FS-1,fontFamily:"inherit",userSelect:"none",WebkitUserSelect:"none",textAlign:"center",
                 background:"linear-gradient(135deg,#8B5CF6,#0EA5E9)",color:"#fff",touchAction:"none",maxWidth:200}}>
               {"👆 اضغط للمسح"}
