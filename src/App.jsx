@@ -4171,6 +4171,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
             <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{"📊 "+activeSess.date+" — جدول التوزيع"}</div>
             <div style={{display:"flex",gap:4}}>
               {canEdit&&<Btn small onClick={()=>setAddCustPick({sessId:activeSess.id,sel:{},filter:""})} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}} title="اضافة عميل">+ عميل</Btn>}
+              {canEdit&&<Btn small onClick={()=>{const existing=new Set(activeSess.modelIds);const avail=stockModels.filter(m=>m.stockQty>0&&!existing.has(m.id));if(avail.length===0){showToast("⚠️ لا توجد موديلات متاحة");return}setAddCustPick({sessId:activeSess.id,sel:{},filter:"",_type:"model",_avail:avail})}} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="اضافة موديل">+ موديل</Btn>}
               <Btn small onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨</Btn>
               <Btn ghost small onClick={()=>closeMatrix()} title="إغلاق">✕</Btn>
             </div>
@@ -4289,9 +4290,34 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
       </div>})()}
     {/* Add Customer to Session Popup */}
     {addCustPick&&(()=>{const sess=sessions.find(s=>s.id===addCustPick.sessId);if(!sess)return null;
+      const isModel=addCustPick._type==="model";
+      const selCount=Object.values(addCustPick.sel).filter(Boolean).length;
+      if(isModel){
+        const mAvail=addCustPick._avail||[];const filtered=mAvail.filter(m=>{if(!addCustPick.filter?.trim())return true;const q=addCustPick.filter.trim().toLowerCase();return(m.modelNo||"").includes(q)||(m.modelDesc||"").toLowerCase().includes(q)});
+        const doAddModels=()=>{const ids=Object.entries(addCustPick.sel).filter(([,v])=>v).map(([k])=>k);if(ids.length===0){showToast("⚠️ اختار موديل واحد على الأقل");return}
+          upConfig(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===addCustPick.sessId);if(si>=0){ids.forEach(id=>{if(!d.custDeliverySessions[si].modelIds.includes(id))d.custDeliverySessions[si].modelIds.push(id)})}});
+          showToast("✅ تم اضافة "+ids.length+" موديل");setAddCustPick(null)};
+        return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setAddCustPick(null)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:420,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>+ اضافة موديلات للتوزيعة</div>
+              <Btn ghost small onClick={()=>setAddCustPick(null)}>✕</Btn>
+            </div>
+            <div style={{marginBottom:10}}><Inp value={addCustPick.filter||""} onChange={v=>setAddCustPick(p=>({...p,filter:v}))} placeholder="بحث برقم الموديل أو الوصف..."/></div>
+            {mAvail.length===0?<div style={{textAlign:"center",padding:20,color:T.textMut}}>كل الموديلات المتاحة مضافة</div>:
+            <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:12}}>
+              {filtered.map(m=><div key={m.id} onClick={()=>setAddCustPick(p=>({...p,sel:{...p.sel,[m.id]:!p.sel[m.id]}}))} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:10,cursor:"pointer",border:"1px solid "+(addCustPick.sel[m.id]?"#8B5CF640":T.brd),background:addCustPick.sel[m.id]?"#8B5CF608":"transparent"}}>
+                <span style={{fontSize:16}}>{addCustPick.sel[m.id]?"☑":"☐"}</span>
+                <div style={{flex:1}}><div style={{fontWeight:700,color:addCustPick.sel[m.id]?"#8B5CF6":T.accent}}>{m.modelNo}</div><div style={{fontSize:FS-3,color:T.textMut}}>{m.modelDesc}</div></div>
+                <span style={{fontWeight:700,color:T.ok,fontSize:FS-1}}>{m.avail+" قطعة"}</span>
+              </div>)}
+            </div>}
+            {selCount>0&&<Btn onClick={doAddModels} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"✅ اضافة "+selCount+" موديل"}</Btn>}
+          </div>
+        </div>
+      }
       const existing=new Set(sess.custIds);const avail=customers.filter(c=>!existing.has(c.id));
       const filtered=avail.filter(c=>{if(!addCustPick.filter?.trim())return true;const q=addCustPick.filter.trim().toLowerCase();return(c.name||"").toLowerCase().includes(q)||(c.phone||"").includes(q)});
-      const selCount=Object.values(addCustPick.sel).filter(Boolean).length;
       const doAdd=()=>{const ids=Object.entries(addCustPick.sel).filter(([,v])=>v).map(([k])=>k);if(ids.length===0){showToast("⚠️ اختار عميل واحد على الأقل");return}
         upConfig(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===addCustPick.sessId);if(si>=0){ids.forEach(id=>{if(!d.custDeliverySessions[si].custIds.includes(id))d.custDeliverySessions[si].custIds.push(id)})}});
         showToast("✅ تم اضافة "+ids.length+" عميل");setAddCustPick(null)};
@@ -4853,7 +4879,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
         </div>}
       const custName=customers.find(c=>c.id===qrSale.custId)?.name||"";
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={closeQrSale}>
-        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?420:600,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?420:600,minHeight:isMob?"75vh":"60vh",maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
             <div><div style={{fontSize:FS+2,fontWeight:800,color}}>{title}</div><div style={{fontSize:FS-1,color:T.textMut}}>{custName+(linkedSess?" — مربوط بسجل "+linkedSess.date:isSale?" — بيع حر":"")}</div></div>
             <div style={{display:"flex",gap:4}}><Btn ghost small onClick={()=>setQrSale(p=>({...p,linkedSession:isSale?undefined:"free",items:[]}))}>{isSale?"← سجل":"← عميل"}</Btn><Btn ghost small onClick={closeQrSale}>✕</Btn></div>
@@ -4882,7 +4908,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
               if(v.srcObject)requestAnimationFrame(scan)};setTimeout(scan,500)}catch(e){showToast("⚠️ تعذر فتح الكاميرا")}};startCam()},300)}} style={{background:color+"12",color,border:"1px solid "+color+"30",padding:"12px 24px",fontSize:FS+1}}>📷 فتح الماسح</Btn>
             <div style={{fontSize:FS-2,color:T.textMut,marginTop:6}}>أو أضف يدوياً</div></div>}
           <div style={{marginBottom:12,display:"flex",gap:6,alignItems:"end"}}>
-            <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(!v)return;const rs=getRackSize(v);handleScan("CLARK:"+v+":"+rs)}} options={stockModels.filter(m=>m.avail>0).map(m=>({value:m.id,label:m.modelNo+" — "+m.modelDesc+" ("+m.avail+")"}))} placeholder="اختر موديل..."/></div>
+            <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(!v)return;const rs=getRackSize(v);handleScan("CLARK:"+v+":"+rs)}} options={(linkedSess?stockModels.filter(m=>m.avail>0&&linkedSess.modelIds.includes(m.id)):stockModels.filter(m=>m.avail>0)).map(m=>({value:m.id,label:m.modelNo+" — "+m.modelDesc+" ("+m.avail+")"}))} placeholder={linkedSess?"موديلات التوزيعة...":"اختر موديل..."}/></div>
             <Btn small onClick={()=>{const v=prompt("بيع كسر — ادخل رقم الموديل:");if(!v)return;const o=orders.find(x=>x.modelNo===v||x.id===v);if(!o){showToast("⛔ موديل غير موجود");return}const q=Number(prompt("الكمية:",1))||0;if(q<=0)return;
               setQrSale(p=>({...p,items:[...p.items,{orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc||"",rackSize:q,qty:q,isBroken:true}]}));playBeep("ok");showToast("✅ كسر "+o.modelNo+" × "+q)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30",whiteSpace:"nowrap",fontSize:FS-2}}>🧩 كسر</Btn>
           </div>
