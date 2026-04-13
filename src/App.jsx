@@ -695,7 +695,7 @@ export default function App(){
   const[tab,setTab_]=useState(()=>sessionStorage.getItem("clark_tab")||"home");const[sel,setSel_]=useState(()=>sessionStorage.getItem("clark_sel")||null);
   const setTab=v=>{setTab_(v);sessionStorage.setItem("clark_tab",v)};
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
-  const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);const[cardPopup,setCardPopup]=useState(null);const[labelPopup,setLabelPopup]=useState(null);const[labelBags,setLabelBags]=useState(1);const[wsAccPopup,setWsAccPopup]=useState(null);const[barcodePopup,setBarcodePopup]=useState(null);const[showStockMenu,setShowStockMenu]=useState(false);
+  const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);const[cardPopup,setCardPopup]=useState(null);const[labelPopup,setLabelPopup]=useState(null);const[labelBags,setLabelBags]=useState(1);const[wsAccPopup,setWsAccPopup]=useState(null);const[barcodePopup,setBarcodePopup]=useState(null);
   const[stickyForm,setStickyForm]=useState(null);
   const[quickPopup,setQuickPopup]=useState(null);/* "task"|"notif"|null */
   const[qpTo,setQpTo]=useState("");const[qpText,setQpText]=useState("");const[qpType,setQpType]=useState("تذكير");
@@ -1135,9 +1135,6 @@ export default function App(){
                 <div onClick={()=>setBarcodePopup({mode:"manual",modelId:"",size:"",qty:1,serial:1})} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:"#F59E0B10",border:"1px solid #F59E0B25",display:"flex",alignItems:"center",gap:6,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#F59E0B20"} onMouseLeave={e=>e.currentTarget.style.background="#F59E0B10"}>
                   <span style={{fontSize:18}}>🏷️</span><span style={{fontSize:FS,fontWeight:700,color:"#F59E0B"}}>طباعة QR</span>
                 </div>
-                <div onClick={()=>setShowStockMenu(true)} style={{cursor:"pointer",padding:"10px 20px",borderRadius:12,background:"#05966910",border:"1px solid #05966925",display:"flex",alignItems:"center",gap:6,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#05966920"} onMouseLeave={e=>e.currentTarget.style.background="#05966910"}>
-                  <span style={{fontSize:18}}>🏪</span><span style={{fontSize:FS,fontWeight:700,color:"#059669"}}>المخزن</span>
-                </div>
               </div>
             </div>
             {/* ── Right 25%: Tasks ── */}
@@ -1184,34 +1181,8 @@ export default function App(){
               <div onClick={()=>setBarcodePopup({mode:"manual",modelId:"",size:"",qty:1,serial:1})} style={{cursor:"pointer",padding:"10px 16px",borderRadius:12,background:"#F59E0B10",border:"1px solid #F59E0B25",display:"flex",alignItems:"center",gap:6}}>
                 <span style={{fontSize:16}}>🏷️</span><span style={{fontSize:FS-1,fontWeight:700,color:"#F59E0B"}}>طباعة QR</span>
               </div>
-              <div onClick={()=>setShowStockMenu(true)} style={{cursor:"pointer",padding:"10px 16px",borderRadius:12,background:"#05966910",border:"1px solid #05966925",display:"flex",alignItems:"center",gap:6}}>
-                <span style={{fontSize:16}}>🏪</span><span style={{fontSize:FS-1,fontWeight:700,color:"#059669"}}>المخزن</span>
-              </div>
             </div>
           </div>}
-      </div>}
-      {/* Stock Menu Popup */}
-      {showStockMenu&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowStockMenu(false)}>
-        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-            <div style={{fontSize:FS+4,fontWeight:900,color:"#059669"}}>🏪 المخزن</div>
-            <Btn ghost small onClick={()=>setShowStockMenu(false)}>✕</Btn>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
-            {[
-              {icon:"📥",label:"استلام جاهز",desc:"استلام من التشطيب بالسكان",color:"#0EA5E9",action:()=>{setShowStockMenu(false);goTo("custDeliver");setTimeout(()=>{window.__stockAction="receive";window.dispatchEvent(new Event("stock-action"))},500)}},
-              {icon:"🏪",label:"جرد المخزن",desc:"جرد بالسكان + تسوية",color:"#8B5CF6",action:()=>{setShowStockMenu(false);goTo("custDeliver");setTimeout(()=>{window.__stockAction="audit";window.dispatchEvent(new Event("stock-action"))},500)}},
-              {icon:"📦",label:"الكراتين",desc:"إدارة الكراتين والحركات",color:"#0EA5E9",action:()=>{setShowStockMenu(false);goTo("custDeliver");setTimeout(()=>{window.__stockAction="packages";window.dispatchEvent(new Event("stock-action"))},500)}},
-              {icon:"🏭",label:"قطع على الأرض",desc:"موديلات جاهزة للتسليم",color:"#F59E0B",action:()=>{setShowStockMenu(false);goTo("custDeliver");setTimeout(()=>{window.__stockAction="floor";window.dispatchEvent(new Event("stock-action"))},500)}},
-              {icon:"📊",label:"خط الانتاج",desc:"من القص للجاهز",color:"#059669",action:()=>{setShowStockMenu(false);goTo("custDeliver");setTimeout(()=>{window.__stockAction="production";window.dispatchEvent(new Event("stock-action"))},500)}},
-              {icon:"🏷️",label:"طباعة QR",desc:"ليبلات باركود",color:"#F59E0B",action:()=>{setShowStockMenu(false);setBarcodePopup({mode:"manual",modelId:"",size:"",qty:1,serial:1})}},
-            ].map(op=><div key={op.label} onClick={op.action} style={{padding:14,borderRadius:14,cursor:"pointer",border:"1px solid "+op.color+"20",textAlign:"center",background:T.cardSolid,transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
-              <div style={{fontSize:28,marginBottom:4}}>{op.icon}</div>
-              <div style={{fontWeight:700,fontSize:FS,color:op.color}}>{op.label}</div>
-              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{op.desc}</div>
-            </div>)}
-          </div>
-        </div>
       </div>}
       {/* PAGES with back button */}
       {tab!=="home"&&canViewTab(tab)&&<div>
@@ -3916,7 +3887,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
   const[qrSale,setQrSale]=useState(null);/* {mode:"sale"|"return",custId,items:[{orderId,modelNo,modelDesc,rackSize,qty}],note,linkedSession} */
   const[qrScanActive,setQrScanActive]=useState(false);const[customLabel,setCustomLabel]=useState(null);
   const[pkgPopup,setPkgPopup]=useState(null);const[pkgItems,setPkgItems]=useState([]);const[pkgNote,setPkgNote]=useState("");const[pkgSearch,setPkgSearch]=useState("");const[pkgScan,setPkgScan]=useState(false);const[pkgAction,setPkgAction]=useState(null);/* {id,mode:"menu"|"add"|"remove"} */
-  useEffect(()=>{const h=()=>{const mode=window.__qrSaleMode;if(mode){delete window.__qrSaleMode;setQrSale({mode,custId:null,items:[],note:""})}};const h2=()=>{const pkgId=window.__openPkg;if(pkgId){delete window.__openPkg;setPkgAction({id:pkgId,mode:"menu"})}};const h3=()=>{const action=window.__stockAction;if(action){delete window.__stockAction;if(action==="receive")setStockRcv({items:{},scanning:false});if(action==="audit")setInvAudit({items:{},scanning:false});if(action==="packages")setPkgPopup("list");if(action==="floor")printFloorStock();if(action==="production")printProductionLine()}};window.addEventListener("qr-sale-trigger",h);window.addEventListener("open-pkg",h2);window.addEventListener("stock-action",h3);return()=>{window.removeEventListener("qr-sale-trigger",h);window.removeEventListener("open-pkg",h2);window.removeEventListener("stock-action",h3)}},[]);
+  useEffect(()=>{const h=()=>{const mode=window.__qrSaleMode;if(mode){delete window.__qrSaleMode;setQrSale({mode,custId:null,items:[],note:""})}};const h2=()=>{const pkgId=window.__openPkg;if(pkgId){delete window.__openPkg;setPkgAction({id:pkgId,mode:"menu"})}};window.addEventListener("qr-sale-trigger",h);window.addEventListener("open-pkg",h2);return()=>{window.removeEventListener("qr-sale-trigger",h);window.removeEventListener("open-pkg",h2)}},[]);
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
 
   const getRackSize=(orderId)=>{const o=orders.find(x=>x.id===orderId);if(!o||!o.sizeLabel)return 1;const parts=o.sizeLabel.split(/[-\/]/).map(s=>s.trim()).filter(Boolean);return parts.length||1};
