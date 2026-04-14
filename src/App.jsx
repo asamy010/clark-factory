@@ -5585,40 +5585,57 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
       </div>})()}
     {/* Customer Sales Log */}
                 {pendingRcv&&(()=>{
-      const pendings=[];orders.forEach(o=>{(o.deliveries||[]).forEach((d,di)=>{if(d.status==="pending")pendings.push({orderId:o.id,idx:di,modelNo:o.modelNo,modelDesc:o.modelDesc||"",qty:Number(d.qty)||0,date:d.date,by:d.createdBy||"",rackSize:getRackSize(o.id)})})});
-      pendings.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-      const rcvItems=pendingRcv.items||{};const totalRcv=Object.values(rcvItems).reduce((s,v)=>s+(Number(v)||0),0);
+      /* Group pending by orderId */
+      const pendingMap={};orders.forEach(o=>{(o.deliveries||[]).forEach((d,di)=>{if(d.status==="pending"){const key=o.id;if(!pendingMap[key])pendingMap[key]={orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc||"",pendingQty:0,pendingIdxs:[],date:d.date,by:d.createdBy||"",rackSize:getRackSize(o.id)};pendingMap[key].pendingQty+=Number(d.qty)||0;pendingMap[key].pendingIdxs.push(di)}})});
+      const pendings=Object.values(pendingMap).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+      const rcvItems=pendingRcv.items||{};const totalRcv=Object.values(rcvItems).reduce((s,v)=>s+(Number(v)||0),0);const totalPending=pendings.reduce((s,p)=>s+p.pendingQty,0);
+      const closePendCam=()=>{try{const v=document.getElementById("pend-rcv-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setPendingRcv(p=>({...p,scanning:false}))};
       const confirmPending=()=>{if(totalRcv<=0){showToast("⚠️ ادخل كمية واحدة على الأقل");return}
-        pendings.forEach(p=>{const key=p.orderId+"_"+p.idx;const qty=Number(rcvItems[key])||0;if(qty<=0)return;
-          updOrder(p.orderId,o=>{if(o.deliveries&&o.deliveries[p.idx]){o.deliveries[p.idx].status="confirmed";o.deliveries[p.idx].confirmedQty=qty;o.deliveries[p.idx].confirmedBy=userName||"";o.deliveries[p.idx].confirmedAt=new Date().toISOString();if(qty!==o.deliveries[p.idx].qty)o.deliveries[p.idx].notes=(o.deliveries[p.idx].notes||"")+" | فرق: "+(o.deliveries[p.idx].qty-qty);o.deliveries[p.idx].qty=qty}o.deliveredQty=getConfirmedStock(o);o.status=recomputeStatus(o)})});
-        playBeep("done");showToast("✅ تم تأكيد استلام "+totalRcv+" قطعة — الرصيد تحدّث");setPendingRcv(null)};
-      const fillAll=()=>{const items={};pendings.forEach(p=>{items[p.orderId+"_"+p.idx]=p.qty});setPendingRcv({items})};
-      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setPendingRcv(null)}>
-        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?"100%":650,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-            <div style={{fontSize:FS+2,fontWeight:800,color:"#10B981"}}>{"📥 تأكيد استلام المخزن ("+pendings.length+" معلّق)"}</div>
-            <Btn ghost small onClick={()=>setPendingRcv(null)}>✕</Btn>
-          </div>
-          <div style={{display:"flex",gap:6,marginBottom:12}}>
-            <Btn small onClick={fillAll} style={{background:"#10B98112",color:"#10B981",border:"1px solid #10B98130"}}>تأكيد الكل بنفس الكمية</Btn>
-          </div>
-          {pendings.length>0?<div>
-            <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","الوصف","المسلّم","التاريخ","بواسطة","المستلم فعلي"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
-              {pendings.map(p=>{const key=p.orderId+"_"+p.idx;const val=rcvItems[key]!=null?rcvItems[key]:"";const diff=val!==""?Number(val)-p.qty:0;
-                return<tr key={key} style={{background:diff!==0&&val!==""?"#FEF2F2":"transparent"}}>
-                  <td style={{...TD,fontWeight:800,color:T.accent}}>{p.modelNo}</td>
-                  <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{p.modelDesc}</td>
-                  <td style={{...TDB,fontWeight:800,color:"#F59E0B"}}>{p.qty}</td>
-                  <td style={{...TD,fontSize:FS-2}}>{p.date}</td>
-                  <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{p.by||"—"}</td>
-                  <td style={{...TD,textAlign:"center",padding:2}}><input type="number" value={val} onChange={e=>{const v=Math.max(0,Number(e.target.value)||0);setPendingRcv(pr=>({...pr,items:{...pr.items,[key]:v}}))}} placeholder={String(p.qty)} style={{width:80,textAlign:"center",border:"2px solid #10B981",borderRadius:6,padding:"6px",fontSize:FS+1,fontWeight:800,fontFamily:"inherit",background:T.bg,color:T.text}}/>{diff!==0&&val!==""&&<div style={{fontSize:FS-3,fontWeight:700,color:diff<0?"#EF4444":"#0EA5E9"}}>{diff>0?"+"+diff:diff}</div>}</td>
-                </tr>})}
-            </tbody></table></div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,padding:12,borderRadius:10,background:"#10B98108",border:"1px solid #10B98115"}}>
-              <div style={{fontWeight:800,color:"#10B981"}}>{"اجمالي المستلم: "+totalRcv+" قطعة"}</div>
-              <Btn onClick={confirmPending} disabled={totalRcv<=0} style={{background:"#10B981",color:"#fff",border:"none",fontWeight:700,padding:"8px 24px"}}>{"✅ تأكيد الاستلام ("+totalRcv+")"}</Btn>
+        pendings.forEach(p=>{const qty=Number(rcvItems[p.orderId])||0;if(qty<=0)return;
+          updOrder(p.orderId,o=>{let remaining=qty;p.pendingIdxs.forEach(idx=>{if(o.deliveries&&o.deliveries[idx]&&remaining>0){const dQty=Number(o.deliveries[idx].qty)||0;const take=Math.min(remaining,dQty);o.deliveries[idx].status="confirmed";o.deliveries[idx].confirmedQty=take;o.deliveries[idx].confirmedBy=userName||"";o.deliveries[idx].confirmedAt=new Date().toISOString();if(take!==dQty)o.deliveries[idx].notes=(o.deliveries[idx].notes||"")+" | فرق: "+(dQty-take);o.deliveries[idx].qty=take;remaining-=take}});o.deliveredQty=getConfirmedStock(o);o.status=recomputeStatus(o)})});
+        playBeep("done");showToast("✅ تم تأكيد استلام "+totalRcv+" قطعة — الرصيد تحدّث");closePendCam();setPendingRcv(null)};
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>{closePendCam();setPendingRcv(null)}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,width:"100%",maxWidth:isMob?"100%":650,maxHeight:"92vh",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+          <div style={{padding:isMob?"12px 16px":"16px 24px",borderBottom:"1px solid "+T.brd,flexShrink:0}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <div style={{fontSize:FS+2,fontWeight:800,color:"#10B981"}}>{"📥 تأكيد استلام المخزن"}</div>
+              <Btn ghost small onClick={()=>{closePendCam();setPendingRcv(null)}}>✕</Btn>
             </div>
-          </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>✅ لا توجد تسليمات معلّقة</div>}
+            <div style={{display:"flex",gap:6}}>
+              <Btn small onClick={()=>{if(pendingRcv.scanning){closePendCam()}else{setPendingRcv(p=>({...p,scanning:true}))}}} style={{background:pendingRcv.scanning?"#EF444412":"#10B98112",color:pendingRcv.scanning?"#EF4444":"#10B981",border:"1px solid "+(pendingRcv.scanning?"#EF444430":"#10B98130")}}>{pendingRcv.scanning?"⏹ Stop":"📷 Scan"}</Btn>
+              <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(!v)return;const p=pendings.find(x=>x.orderId===v);if(p){const rs=p.rackSize||1;setPendingRcv(pr=>({...pr,items:{...pr.items,[v]:(pr.items[v]||0)+rs}}));playBeep("ok")}else{showToast("⚠️ هذا الموديل ليس معلّق")}}} options={pendings.map(p=>({value:p.orderId,label:p.modelNo+" — "+p.modelDesc+" (⏳"+p.pendingQty+")"}))} placeholder="اضف يدوي..."/></div>
+            </div>
+            {pendingRcv.scanning&&<div style={{marginTop:8}}>
+              <div style={{position:"relative",width:"100%",maxWidth:200,margin:"0 auto",borderRadius:12,overflow:"hidden",background:"#000"}}>
+                <video id="pend-rcv-video" playsInline muted autoPlay style={{width:"100%",display:"block"}} ref={el=>{if(!el||el.srcObject)return;(async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:640}}});el.srcObject=stream;
+                  loadJsQR();const canvas=document.createElement("canvas");let lastScan="";let lastTime=0;
+                  const scan=async()=>{if(!el.srcObject)return;if(el.readyState<2){requestAnimationFrame(scan);return}canvas.width=el.videoWidth;canvas.height=el.videoHeight;canvas.getContext("2d").drawImage(el,0,0);
+                    {const _qr=await scanQR(canvas);if(_qr){const now=Date.now();if(_qr!==lastScan||now-lastTime>2000){lastScan=_qr;lastTime=now;
+                      try{const parts=_qr.split(":");if(parts[0]==="CLARK"&&parts[1]){const oid=parts[1];const rs=Number(parts[2])||1;const p=pendings.find(x=>x.orderId===oid);
+                        if(p){setPendingRcv(pr=>({...pr,items:{...pr.items,[oid]:(pr.items[oid]||0)+rs}}));playBeep("ok");showToast("✅ "+p.modelNo+" +"+rs)}
+                        else{playBeep("error");showToast("⚠️ موديل غير معلّق")}}}catch(e){}}}}
+                    requestAnimationFrame(scan)};scan()}catch(e){}})()}}/>
+              </div></div>}
+          </div>
+          <div style={{flex:1,overflowY:"auto",padding:isMob?"8px 12px":"12px 24px"}}>
+            {pendings.length>0?<div>
+              <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","الوصف","من التسليم","المستلم","الفرق","الحالة"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
+                {pendings.map(p=>{const val=rcvItems[p.orderId]||0;const diff=val-p.pendingQty;const hasVal=val>0;
+                  return<tr key={p.orderId} style={{background:hasVal&&diff!==0?"#FEF2F2":hasVal?"#F0FDF4":"transparent"}}>
+                    <td style={{...TD,fontWeight:800,color:T.accent}}>{p.modelNo}</td>
+                    <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{p.modelDesc}</td>
+                    <td style={{...TDB,fontWeight:800,color:"#F59E0B"}}>{p.pendingQty}</td>
+                    <td style={{...TD,textAlign:"center",padding:2}}><input type="number" value={val||""} onChange={e=>{const v=Math.max(0,Number(e.target.value)||0);setPendingRcv(pr=>({...pr,items:{...pr.items,[p.orderId]:v}}))}} placeholder="0" style={{width:80,textAlign:"center",border:"2px solid #10B981",borderRadius:6,padding:"6px",fontSize:FS+1,fontWeight:800,fontFamily:"inherit",background:T.bg,color:T.text}}/></td>
+                    <td style={{...TDB,fontWeight:800,color:diff<0?"#EF4444":diff===0?"#10B981":"#0EA5E9"}}>{hasVal?(diff>0?"+"+diff:diff):"—"}</td>
+                    <td style={{...TD,fontSize:FS-2,fontWeight:700,color:hasVal?"#10B981":T.textMut}}>{hasVal?"✅":"⏳"}</td>
+                  </tr>})}
+              </tbody></table>
+            </div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>✅ لا توجد تسليمات معلّقة</div>}
+          </div>
+          <div style={{padding:"12px 24px",borderTop:"1px solid "+T.brd,flexShrink:0,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{fontSize:FS,color:T.textMut}}>{"معلّق: "+totalPending+" | مستلم: "+totalRcv}</div>
+            <Btn onClick={confirmPending} disabled={totalRcv<=0} style={{background:"#10B981",color:"#fff",border:"none",fontWeight:700,padding:"8px 24px"}}>{"✅ تأكيد الاستلام ("+totalRcv+")"}</Btn>
+          </div>
         </div></div>})()}
 
     {balReview&&(()=>{
