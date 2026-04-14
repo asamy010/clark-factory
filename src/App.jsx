@@ -4687,8 +4687,7 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
           </div>
           {topCusts.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","العميل","النوع","تسليم","مرتجع","صافي","% من المخزن"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
               {topCusts.map((c,i)=>{const ret=orders.reduce((s,o)=>(o.customerReturns||[]).filter(r=>r.custId===c.id).reduce((ss,r)=>ss+(Number(r.qty)||0),s),0);return<tr key={c.id} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:700}}>{c.name}</td><td style={{...TD,fontSize:FS-2,color:T.textMut}}>{c.type||"—"}</td><td style={{...TD,textAlign:"center",fontWeight:700,color:T.accent}}>{fmt(c.total+ret)}</td><td style={{...TD,textAlign:"center",color:ret?T.err:T.textMut}}>{ret||"—"}</td><td style={{...TD,textAlign:"center",fontWeight:800}}>{fmt(c.total)}</td><td style={{...TD,textAlign:"center",fontWeight:700,color:"#8B5CF6"}}>{(totalStockAll?Math.round(c.total/totalStockAll*100):0)+"%"}</td></tr>})}
-            </tbody></table></div>
-          </div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد مبيعات</div>}
+            </tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد مبيعات</div>}
         </div>
       </div>})()}
     {/* Customer List - toggled */}
