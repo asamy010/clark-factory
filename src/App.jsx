@@ -4025,7 +4025,8 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
     const sm=stockModels.find(m=>m.id===orderId);if(!sm)return;
     const sess=sessions.find(s=>s.id===sessId);if(!sess)return;
     const otherCustQty=Object.entries(sess.grid||{}).filter(([k])=>{const[oid]=k.split("_");return oid===orderId&&k!==orderId+"_"+custId}).reduce((s,[_,v])=>s+(Number(v)||0),0);
-    const maxQ=sm.stockQty-otherCustQty;
+    const availStock=sm.avail||0;const maxQ=availStock-otherCustQty;
+    if(newQty>maxQ&&newQty>0){playBeep("error");showToast("⚠️ "+o.modelNo+": المتاح = "+availStock+" (مخصص لآخرين "+otherCustQty+") — الحد = "+Math.max(0,maxQ));setCellError("الحد "+Math.max(0,maxQ));return}
     const qty=Math.min(Math.max(0,newQty),Math.max(0,maxQ));
     /* Plan only — update grid, NO customerDeliveries */
     upSales(d=>{const si=d.custDeliverySessions.findIndex(s=>s.id===sessId);if(si<0)return;if(!d.custDeliverySessions[si].grid)d.custDeliverySessions[si].grid={};
@@ -4034,6 +4035,8 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
     setEditCell(null)};
 
   const delSession=(sessId)=>{const sess=sessions.find(s=>s.id===sessId);if(!sess)return;
+    if(sess.saleConfirmed){showToast("⛔ لا يمكن حذف توزيعة مرتبطة بعملية بيع فعلي");return}
+    if(sess.status==="تم التسليم"){showToast("⛔ لا يمكن حذف توزيعة مغلقة");return}
     const affectedOrders=new Set();
     Object.entries(sess.grid||{}).forEach(([k])=>{const[orderId]=k.split("_");affectedOrders.add(orderId)});
     sess.modelIds.forEach(id=>affectedOrders.add(id));
@@ -4353,9 +4356,14 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
             <tr><td style={{...TD,fontWeight:700,color:T.textSec}}>استلام مخزن جاهز</td>
               {aMods.map(m=><td key={m.id} style={{...TD,textAlign:"center",fontWeight:700}}>{m.stockQty}</td>)}
               <td style={TD}></td><td style={TD}></td></tr>
-            <tr><td style={{...TD,fontWeight:800,color:T.warn}}>رصيد حالي</td>
-              {aMods.map(m=>{const totalAllCust=orders.find(o=>o.id===m.id)?.customerDeliveries?.reduce((s,d)=>s+(Number(d.qty)||0),0)||0;const ret=orders.find(o=>o.id===m.id)?.customerReturns?.reduce((s,r)=>s+(Number(r.qty)||0),0)||0;const rem=m.stockQty-(totalAllCust-ret);return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,color:rem>0?T.warn:T.ok}}>{rem}</td>})}
-              <td style={TD}></td><td style={TD}></td></tr>
+            <tr><td style={{...TD,fontWeight:800,color:T.warn}}>رصيد متاح</td>
+              {aMods.map(m=>{const avail=m.avail!=null?m.avail:(()=>{const o=orders.find(x=>x.id===m.id);const cd=(o?.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o?.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);return m.stockQty-(cd-ret)})();
+                const planned=aCusts.reduce((s,c)=>s+(Number(aGrid[m.id+"_"+c.id])||0),0);
+                return<td key={m.id} style={{...TD,textAlign:"center",position:"relative"}}>
+                  <div style={{fontWeight:800,color:avail>0?"#F59E0B":"#EF4444",fontSize:FS+1}}>{avail}</div>
+                  {planned>0&&<div style={{fontSize:FS-3,color:avail-planned>=0?"#10B981":"#EF4444"}}>{avail>=planned?"متاح":"⚠️ عجز "+(planned-avail)}</div>}
+                </td>})}
+              <td style={{...TD,textAlign:"center",fontWeight:800,color:T.warn}}>{aMods.reduce((s,m)=>s+(m.avail||0),0)}</td><td style={TD}></td></tr>
             {sessCanEdit&&<tr><td style={{...TD,fontWeight:700,color:"#8B5CF6"}}>💰 سعر البيع</td>
               {aMods.map(m=><td key={m.id} style={{...TD,textAlign:"center",padding:2}}>
                 <input type="number" value={m.sellPrice||""} onChange={e=>setSellPrice(m.id,e.target.value)} placeholder="0"
