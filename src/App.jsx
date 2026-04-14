@@ -72,7 +72,7 @@ const INIT_CONFIG = {
 function gid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
 /* Audio feedback for QR scanning */
 const _audioCtx={c:null};
-function playBeep(type){try{if(!_audioCtx.c)_audioCtx.c=new(window.AudioContext||window.webkitAudioContext)();const c=_audioCtx.c;const o=c.createOscillator();const g=c.createGain();o.connect(g);g.connect(c.destination);
+function playBeep(type){try{if(!_audioCtx.c)_audioCtx.c=new(window.AudioContext||window.webkitAudioContext)();const c=_audioCtx.c;if(c.state==="suspended")c.resume();const o=c.createOscillator();const g=c.createGain();o.connect(g);g.connect(c.destination);
   if(type==="ok"){o.frequency.value=880;g.gain.value=0.3;o.start();o.stop(c.currentTime+0.12)}
   else if(type==="dup"){o.frequency.value=220;o.type="square";g.gain.value=0.2;o.start();o.stop(c.currentTime+0.3)}
   else if(type==="error"){o.frequency.value=200;o.type="square";g.gain.value=0.4;o.start();o.stop(c.currentTime+0.5)}
@@ -4389,9 +4389,12 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
             <tr><td style={{...TD,fontWeight:700,color:T.textSec}}>استلام مخزن جاهز</td>
               {aMods.map(m=><td key={m.id} style={{...TD,textAlign:"center",fontWeight:700}}>{m.stockQty}</td>)}
               <td style={TD}></td><td style={TD}></td></tr>
-            <tr><td style={{...TD,fontWeight:800,color:T.warn}}>رصيد حالي</td>
-              {aMods.map(m=>{const totalAllCust=orders.find(o=>o.id===m.id)?.customerDeliveries?.reduce((s,d)=>s+(Number(d.qty)||0),0)||0;const ret=orders.find(o=>o.id===m.id)?.customerReturns?.reduce((s,r)=>s+(Number(r.qty)||0),0)||0;const rem=m.stockQty-(totalAllCust-ret);return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,color:rem>0?T.warn:T.ok}}>{rem}</td>})}
+            <tr><td style={{...TD,fontWeight:700,color:"#8B5CF6"}}>مباع فعلي</td>
+              {aMods.map(m=>{const o=orders.find(x=>x.id===m.id);const cd=(o?.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o?.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const net=cd-ret;return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:700,color:net>0?"#8B5CF6":T.textMut}}>{net||"—"}{ret>0&&<span style={{fontSize:FS-3,color:T.ok}}>{" +"+ret+" مرتجع"}</span>}</td>})}
               <td style={TD}></td><td style={TD}></td></tr>
+            <tr style={{background:"#F59E0B06"}}><td style={{...TD,fontWeight:800,color:T.warn}}>رصيد متاح</td>
+              {aMods.map(m=>{const o=orders.find(x=>x.id===m.id);const cd=(o?.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o?.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const avail=m.stockQty-(cd-ret);return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1,color:avail>0?"#F59E0B":"#EF4444"}}>{avail}</td>})}
+              <td style={{...TD,textAlign:"center",fontWeight:800,color:T.warn}}>{aMods.reduce((s,m)=>{const o=orders.find(x=>x.id===m.id);const cd=(o?.customerDeliveries||[]).reduce((ss,d)=>ss+(Number(d.qty)||0),0);const ret=(o?.customerReturns||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0);return s+(m.stockQty-(cd-ret))},0)}</td><td style={TD}></td></tr>
             {sessCanEdit&&<tr><td style={{...TD,fontWeight:700,color:"#8B5CF6"}}>💰 سعر البيع</td>
               {aMods.map(m=><td key={m.id} style={{...TD,textAlign:"center",padding:2}}>
                 <input type="number" value={m.sellPrice||""} onChange={e=>setSellPrice(m.id,e.target.value)} placeholder="0"
