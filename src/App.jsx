@@ -1356,14 +1356,14 @@ export default function App(){
       try{const j=JSON.parse(url);if(j.app==="clark"&&j.type==="pkg"){const pkg=(config.packages||[]).find(p=>p.id===j.id);if(pkg){setTab("custDeliver");setTimeout(()=>{window.__openPkg=j.id;window.dispatchEvent(new Event("open-pkg"))},500);showToast("📦 "+j.num);return}}}catch(e2){}
       const u=new URL(url);const p=new URLSearchParams(u.search);if(p.get("o")){const o=orders.find(x=>x.modelNo===p.get("o"));if(o)goD(o.id)}else if(p.get("act")==="rcv"&&p.get("oid")){setTab("external");setTimeout(()=>{window.__qrReceive={oid:p.get("oid"),wdi:Number(p.get("wdi"))||0};window.dispatchEvent(new Event("qr-receive"))},600)}else if(p.get("act")==="stock"&&p.get("oid")){const o=orders.find(x=>x.id===p.get("oid"));if(o){goD(o.id);setTimeout(()=>{window.__qrStock=true;window.dispatchEvent(new Event("qr-stock"))},800)}}else if(p.get("act")==="wsacc"&&p.get("ws")){setTab("external");setTimeout(()=>{window.__qrWsAcc={ws:decodeURIComponent(p.get("ws"))};window.dispatchEvent(new Event("qr-wsacc"))},600)}else{showToast("QR غير معروف")}}catch(e){if(url.startsWith("CLARK:")){const parts=url.split(":");const orderId=parts[1];const o=orders.find(x=>x.id===orderId);if(o){goD(o.id);return}}showToast("QR غير صالح")}}}/>}
     {cardPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setCardPopup(null)}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:isMob?500:650,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><div style={{fontSize:FS+2,fontWeight:800,color:cardPopup.color}}>{cardPopup.title}</div><Btn ghost small onClick={()=>setCardPopup(null)} title="إغلاق">✕</Btn></div><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th style={TH}>البيان</th>{cardPopup.details?.[0]?.desc!==undefined&&<th style={TH}>الوصف</th>}<th style={TH}>الكمية</th></tr></thead><tbody>{(cardPopup.details||[]).map((d,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={{...TD,fontWeight:700,color:cardPopup.color}}>{d.model}</td>{d.desc!==undefined&&<td style={TD}>{d.desc}</td>}<td style={{...TD,textAlign:"center",fontWeight:800}}>{fmt(d.qty)}</td></tr>)}<tr style={{background:cardPopup.color+"10"}}><td style={{...TD,fontWeight:800}} colSpan={cardPopup.details?.[0]?.desc!==undefined?2:1}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:cardPopup.color}}>{fmt((cardPopup.details||[]).reduce((s,d)=>s+(Number(d.qty)||0),0))}</td></tr></tbody></table></div></div>}
-    {labelPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setLabelPopup(null)}>
+    {labelPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setLabelPopup(null);setLabelBags(1)}}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:320,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",textAlign:"center"}}>
         <div style={{fontSize:18,fontWeight:800,color:T.text,marginBottom:4}}>{"🏷️ "+labelPopup.arrow+" "+labelPopup.title}</div>
         <div style={{fontSize:FS,color:T.textSec,marginBottom:16}}>{labelPopup.modelNo+" — "+labelPopup.piece+" — "+labelPopup.qty+" قطعة"}</div>
         <div style={{marginBottom:12}}><label style={{fontSize:FS,fontWeight:700,color:T.text}}>عدد الأكياس</label><input type="number" value={labelBags} onChange={e=>setLabelBags(Math.max(1,Number(e.target.value)||1))} min="1" style={{display:"block",margin:"8px auto",width:100,textAlign:"center",fontSize:22,fontWeight:800,border:"3px solid "+T.accent,borderRadius:10,padding:"6px",fontFamily:"Cairo",background:T.bg,color:T.text}}/></div>
         <div style={{display:"flex",gap:8,justifyContent:"center"}}>
-          <Btn ghost onClick={()=>setLabelPopup(null)}>الغاء</Btn>
-          <Btn onClick={()=>{renderLabelPages(labelPopup,labelBags);setLabelPopup(null);setLabelBags(1)}} style={{background:T.accent,color:"#fff",border:"none",fontWeight:700}}>{"🖨 طباعة "+labelBags}</Btn>
+          <Btn ghost onClick={()=>{setLabelPopup(null);setLabelBags(1)}}>✕ إغلاق</Btn>
+          <Btn onClick={()=>{renderLabelPages(labelPopup,labelBags)}} style={{background:T.accent,color:"#fff",border:"none",fontWeight:700}}>{"🖨 طباعة "+labelBags}</Btn>
         </div>
       </div>
     </div>}
@@ -1421,13 +1421,30 @@ export default function App(){
             <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"auto"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="auto"?"#F59E0B":"transparent",color:mode==="auto"?"#fff":T.textSec}}>طباعة تلقائية</div>
           </div>
           {mode==="manual"&&<div>
-            {sizes.length>0&&<div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec}}>المقاس</label><Sel value={barcodePopup._size||""} onChange={v=>{const autoQty=v==="_full"?labelsPerSize:1;setBarcodePopup(p=>({...p,_size:v,_qty:autoQty}))}}><option value="">بدون مقاس</option><option value="_full">{"سيري كامل ("+sizes.join("-")+")"}</option>{sizes.map(s=><option key={s} value={s}>{s}</option>)}</Sel></div>}
-            <div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec}}>{"عدد الليبلات (كل ليبل = "+(barcodePopup._size==="_full"?sizes.length*rs+" قطعة — سيري كامل":rs+" قطع")+")"}</label><Inp type="number" value={barcodePopup._qty||1} onChange={v=>setBarcodePopup(p=>({...p,_qty:Math.max(1,Number(v)||1)}))}/></div>
-            <Btn onClick={()=>{if(!selOrder){showToast("⚠️ اختر موديل");return}const sz=barcodePopup._size||"";const qty=barcodePopup._qty||1;
-              const fullSeriesQty=sz==="_full"?sizes.length*rs:rs;const qrText="CLARK:"+selOrder.id+":"+fullSeriesQty;const labels=[];
-              const sizeText=sz==="_full"?"مقاسات: "+sizes.join("-"):sz?"مقاس: "+sz:"";
-              for(let i=0;i<qty;i++)labels.push(buildLabel(qrText,selOrder.modelNo,selOrder.modelDesc||"",sizeText,"سيري: "+fullSeriesQty));
-              doPrint(labels)}} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+(barcodePopup._qty||1)+" ليبل ("+(barcodePopup._qty||1)*(barcodePopup._size==="_full"?sizes.length*rs:rs)+" قطعة)"}</Btn>
+            {selOrder?<div>
+              {sizes.length>0?<div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <span style={{fontSize:FS-1,fontWeight:700,color:T.textSec}}>ادخل عدد الليبلات لكل مقاس</span>
+                  <Btn small onClick={()=>{const def=Math.max(1,Math.floor(qtyPerSize/rs));const n={};sizes.forEach(s=>{n[s]=def});setBarcodePopup(p=>({...p,_manualSizes:n}))}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>سيري كامل</Btn>
+                </div>
+                <table style={{width:"100%",borderCollapse:"collapse",marginBottom:10}}><thead><tr><th style={{...TH,fontSize:FS-2}}>المقاس</th><th style={{...TH,fontSize:FS-2}}>عدد الليبلات</th><th style={{...TH,fontSize:FS-2}}>القطع</th></tr></thead><tbody>
+                  {sizes.map(sz=>{const val=(barcodePopup._manualSizes||{})[sz]||0;return<tr key={sz}><td style={{...TD,fontWeight:700,textAlign:"center",fontSize:FS+1}}>{sz}</td>
+                    <td style={{...TD,textAlign:"center",padding:2}}><input type="number" value={val||""} onChange={e=>{const v=Math.max(0,Number(e.target.value)||0);setBarcodePopup(p=>({...p,_manualSizes:{...(p._manualSizes||{}),[sz]:v}}))}} style={{width:70,textAlign:"center",border:"2px solid "+T.accent,borderRadius:6,padding:"4px",fontSize:FS+1,fontWeight:700,fontFamily:"inherit",background:T.bg,color:T.text}} placeholder="0"/></td>
+                    <td style={{...TD,textAlign:"center",fontWeight:700,color:"#F59E0B"}}>{val*rs}</td></tr>})}
+                  {(()=>{const ms=barcodePopup._manualSizes||{};const totL=sizes.reduce((s,sz)=>s+(ms[sz]||0),0);const totQ=totL*rs;
+                    return<tr style={{background:"#F59E0B10"}}><td style={{...TD,fontWeight:800}}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800,color:"#F59E0B"}}>{totL+" ليبل"}</td><td style={{...TD,textAlign:"center",fontWeight:800,color:"#F59E0B"}}>{totQ+" قطعة"}</td></tr>})()}
+                </tbody></table>
+                <Btn onClick={()=>{const ms=barcodePopup._manualSizes||{};const labels=[];
+                  sizes.forEach(sz=>{const count=ms[sz]||0;for(let i=0;i<count;i++){const qrText="CLARK:"+selOrder.id+":"+rs;labels.push(buildLabel(qrText,selOrder.modelNo,selOrder.modelDesc||"","مقاس: "+sz,"سيري: "+rs))}});
+                  if(labels.length===0){showToast("⚠️ ادخل كمية واحدة على الأقل");return}doPrint(labels)}} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+sizes.reduce((s,sz)=>s+((barcodePopup._manualSizes||{})[sz]||0),0)+" ليبل"}</Btn>
+              </div>
+              :<div>
+                <div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec}}>{"عدد الليبلات (كل ليبل = "+rs+" قطع)"}</label><Inp type="number" value={barcodePopup._qty||1} onChange={v=>setBarcodePopup(p=>({...p,_qty:Math.max(1,Number(v)||1)}))}/></div>
+                <Btn onClick={()=>{if(!selOrder){showToast("⚠️ اختر موديل");return}const qty=barcodePopup._qty||1;const qrText="CLARK:"+selOrder.id+":"+rs;const labels=[];
+                  for(let i=0;i<qty;i++)labels.push(buildLabel(qrText,selOrder.modelNo,selOrder.modelDesc||"","","سيري: "+rs));
+                  doPrint(labels)}} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+(barcodePopup._qty||1)+" ليبل"}</Btn>
+              </div>}
+            </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>اختر موديل أولاً</div>}
           </div>}
           {mode==="auto"&&<div>
             {selOrder?<div>
