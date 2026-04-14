@@ -1403,7 +1403,7 @@ export default function App(){
       const doPrint=(labels)=>{if(labels.length===0)return;
         const qrOpts=JSON.stringify({width:400,margin:ps.qrMargin??1,errorCorrectionLevel:ps.qrLevel||"M",color:{dark:ps.qrColor||"#000000",light:"#ffffff"}});
         const w=window.open("","_blank");if(!w)return;w.document.write("<html dir='rtl'><head><title>QR</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><style>@page{size:"+lw+"mm "+lh+"mm;margin:"+mg+"mm}*{margin:0;padding:0}body{margin:0;padding:0;font-family:'Cairo',Arial,sans-serif}.lbl{width:"+(lw-mg*2)+"mm;height:"+(lh-mg*2)+"mm;page-break-after:always;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden"+(ps.showBorder?";border:1px dashed #999":"")+"}</style></head><body>"+labels.join("")+"<script>var qrOpts="+qrOpts+";document.querySelectorAll('.qr-img').forEach(function(img){QRCode.toDataURL(img.dataset.text,qrOpts).then(function(url){img.src=url}).catch(function(){})});setTimeout(function(){window.print()},800)</"+"script></body></html>");w.document.close();
-        showToast("✓ تم تجهيز "+labels.length+" ليبل");setBarcodePopup(null)};
+        showToast("✓ تم تجهيز "+labels.length+" ليبل")};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setBarcodePopup(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:450,minHeight:"60vh",maxHeight:"95vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
@@ -1417,22 +1417,18 @@ export default function App(){
             <div style={{fontSize:FS-2,color:T.textSec,marginTop:2}}>{"القص: "+(selOrder.cutQty||0)+" | المقاسات: "+(sizes.join("-")||"—")+" | سيري: "+rs}</div>
           </div>}
           <div style={{display:"flex",gap:4,marginBottom:12,borderRadius:10,border:"1px solid "+T.brd,overflow:"hidden"}}>
-            <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"manual"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="manual"?"#F59E0B":"transparent",color:mode==="manual"?"#fff":T.textSec}}>طباعة يدوية</div>
-            <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"auto"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="auto"?"#F59E0B":"transparent",color:mode==="auto"?"#fff":T.textSec}}>طباعة تلقائية</div>
+            <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"manual"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="manual"?"#F59E0B":"transparent",color:mode==="manual"?"#fff":T.textSec}}>يدوية</div>
+            <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"series"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="series"?"#F59E0B":"transparent",color:mode==="series"?"#fff":T.textSec}}>سيري</div>
+            <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"auto"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="auto"?"#F59E0B":"transparent",color:mode==="auto"?"#fff":T.textSec}}>تلقائية</div>
           </div>
           {mode==="manual"&&<div>
             {selOrder?<div>
               {sizes.length>0?<div>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                  <span style={{fontSize:FS-1,fontWeight:700,color:T.textSec}}>ادخل عدد الليبلات لكل مقاس</span>
-                  <Btn small onClick={()=>{const def=Math.max(1,Math.floor(qtyPerSize/rs));const n={};sizes.forEach(s=>{n[s]=def});setBarcodePopup(p=>({...p,_manualSizes:n}))}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>سيري كامل</Btn>
-                </div>
-                <table style={{width:"100%",borderCollapse:"collapse",marginBottom:10}}><thead><tr><th style={{...TH,fontSize:FS-2}}>المقاس</th><th style={{...TH,fontSize:FS-2}}>عدد الليبلات</th><th style={{...TH,fontSize:FS-2}}>القطع</th></tr></thead><tbody>
+                <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:8}}>ادخل عدد الليبلات لكل مقاس</div>
+                <table style={{width:"100%",borderCollapse:"collapse",marginBottom:10}}><thead><tr><th style={{...TH,fontSize:FS-2}}>المقاس</th><th style={{...TH,fontSize:FS-2}}>عدد الليبلات</th></tr></thead><tbody>
                   {sizes.map(sz=>{const val=(barcodePopup._manualSizes||{})[sz]||0;return<tr key={sz}><td style={{...TD,fontWeight:700,textAlign:"center",fontSize:FS+1}}>{sz}</td>
-                    <td style={{...TD,textAlign:"center",padding:2}}><input type="number" value={val||""} onChange={e=>{const v=Math.max(0,Number(e.target.value)||0);setBarcodePopup(p=>({...p,_manualSizes:{...(p._manualSizes||{}),[sz]:v}}))}} style={{width:70,textAlign:"center",border:"2px solid "+T.accent,borderRadius:6,padding:"4px",fontSize:FS+1,fontWeight:700,fontFamily:"inherit",background:T.bg,color:T.text}} placeholder="0"/></td>
-                    <td style={{...TD,textAlign:"center",fontWeight:700,color:"#F59E0B"}}>{val*rs}</td></tr>})}
-                  {(()=>{const ms=barcodePopup._manualSizes||{};const totL=sizes.reduce((s,sz)=>s+(ms[sz]||0),0);const totQ=totL*rs;
-                    return<tr style={{background:"#F59E0B10"}}><td style={{...TD,fontWeight:800}}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800,color:"#F59E0B"}}>{totL+" ليبل"}</td><td style={{...TD,textAlign:"center",fontWeight:800,color:"#F59E0B"}}>{totQ+" قطعة"}</td></tr>})()}
+                    <td style={{...TD,textAlign:"center",padding:2}}><input type="number" value={val||""} onChange={e=>{const v=Math.max(0,Number(e.target.value)||0);setBarcodePopup(p=>({...p,_manualSizes:{...(p._manualSizes||{}),[sz]:v}}))}} style={{width:70,textAlign:"center",border:"2px solid "+T.accent,borderRadius:6,padding:"4px",fontSize:FS+1,fontWeight:700,fontFamily:"inherit",background:T.bg,color:T.text}} placeholder="0"/></td></tr>})}
+                  <tr style={{background:"#F59E0B10"}}><td style={{...TD,fontWeight:800}}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800,color:"#F59E0B"}}>{sizes.reduce((s,sz)=>s+((barcodePopup._manualSizes||{})[sz]||0),0)+" ليبل"}</td></tr>
                 </tbody></table>
                 <Btn onClick={()=>{const ms=barcodePopup._manualSizes||{};const labels=[];
                   sizes.forEach(sz=>{const count=ms[sz]||0;for(let i=0;i<count;i++){const qrText="CLARK:"+selOrder.id+":"+rs;labels.push(buildLabel(qrText,selOrder.modelNo,selOrder.modelDesc||"","مقاس: "+sz,"سيري: "+rs))}});
@@ -1444,6 +1440,20 @@ export default function App(){
                   for(let i=0;i<qty;i++)labels.push(buildLabel(qrText,selOrder.modelNo,selOrder.modelDesc||"","","سيري: "+rs));
                   doPrint(labels)}} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+(barcodePopup._qty||1)+" ليبل"}</Btn>
               </div>}
+            </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>اختر موديل أولاً</div>}
+          </div>}
+          {mode==="series"&&<div>
+            {selOrder?<div style={{textAlign:"center"}}>
+              <div style={{padding:12,background:T.bg+"60",borderRadius:10,marginBottom:12}}>
+                <div style={{fontSize:FS,fontWeight:700,color:T.textSec,marginBottom:4}}>كل ليبل = سيري كامل</div>
+                <div style={{fontSize:FS+2,fontWeight:800,color:"#F59E0B"}}>{sizes.length>0?"مقاسات: "+sizes.join(" - "):"سيري: "+rs}</div>
+                <div style={{fontSize:FS-1,color:T.textMut,marginTop:4}}>{"كل ليبل = "+(sizes.length>0?sizes.length*rs:rs)+" قطعة"}</div>
+              </div>
+              <div style={{marginBottom:12}}><label style={{fontSize:FS,fontWeight:700,color:T.text}}>عدد السيريهات</label><input type="number" value={barcodePopup._seriesQty!=null?barcodePopup._seriesQty:totalLabels||1} onChange={e=>setBarcodePopup(p=>({...p,_seriesQty:Math.max(1,Number(e.target.value)||1)}))} style={{display:"block",margin:"8px auto",width:120,textAlign:"center",fontSize:24,fontWeight:800,border:"3px solid #F59E0B",borderRadius:10,padding:"8px",fontFamily:"Cairo",background:T.bg,color:T.text}}/></div>
+              <Btn onClick={()=>{const qty=barcodePopup._seriesQty!=null?barcodePopup._seriesQty:totalLabels||1;const fullQty=sizes.length>0?sizes.length*rs:rs;const qrText="CLARK:"+selOrder.id+":"+fullQty;const labels=[];
+                const sizeText=sizes.length>0?"مقاسات: "+sizes.join("-"):"";
+                for(let i=0;i<qty;i++)labels.push(buildLabel(qrText,selOrder.modelNo,selOrder.modelDesc||"",sizeText,"سيري: "+fullQty));
+                doPrint(labels)}} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+(barcodePopup._seriesQty!=null?barcodePopup._seriesQty:totalLabels||1)+" ليبل سيري"}</Btn>
             </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>اختر موديل أولاً</div>}
           </div>}
           {mode==="auto"&&<div>
