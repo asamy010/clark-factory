@@ -4808,7 +4808,7 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
                     {confirmed&&<span style={{fontSize:FS-3,fontWeight:700,color:"#10B981",background:"#10B98110",padding:"1px 8px",borderRadius:6}}>✅ بيع فعلي</span>}
                     {!confirmed&&!isFree&&<span style={{fontSize:FS-3,fontWeight:700,color:"#F59E0B",background:"#F59E0B10",padding:"1px 8px",borderRadius:6}}>⏳ خطة</span>}
                   </div>
-                  <div style={{fontSize:FS-2,color:T.textMut}}>{(()=>{const actualSales=orders.reduce((sum,o)=>(o.customerDeliveries||[]).filter(d=>d.sessionId===s.id).reduce((ss,d)=>ss+(Number(d.qty)||0),ss),0);const diff=totalQty-actualSales;
+                  <div style={{fontSize:FS-2,color:T.textMut}}>{(()=>{const actualSales=orders.reduce((sum,o)=>sum+(o.customerDeliveries||[]).filter(d=>d.sessionId===s.id).reduce((ss,d)=>ss+(Number(d.qty)||0),0),0);const diff=totalQty-actualSales;
                     return<>{(s.modelIds?.length||0)+" موديل × "+(s.custIds?.length||0)+" عميل"}{" | "}<span style={{color:"#94A3B8"}}>{"خطة: "+totalQty}</span>{actualSales>0&&<>{" | "}<span style={{color:"#10B981"}}>{"بيع: "+actualSales}</span>{diff!==0&&<span style={{color:"#EF4444",fontWeight:700}}>{" (فرق: "+diff+")"}</span>}</>}</>})()}</div></div>
               </div>
               <div style={{display:"flex",gap:4,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
