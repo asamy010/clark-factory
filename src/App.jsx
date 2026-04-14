@@ -3646,6 +3646,46 @@ function AvailableReport({data,isMob,season}){
   </div>
 }
 
+function FloorStockReport({data,isMob,season}){
+  const orders=data.orders||[];const[filter,setFilter]=useState("");const[pieceFilter,setPieceFilter]=useState("");
+  const rows=[];const allPieces=new Set();
+  orders.forEach(o=>{const t=calcOrder(o);if(t.cutQty===0)return;const pieces=o.orderPieces||[];const wds=o.workshopDeliveries||[];
+    if(pieces.length>0){const linkedPieces=new Set();FKEYS.forEach(k=>{if(gf(o,k))(o["fabricPieces"+k]||[]).forEach(p=>linkedPieces.add(p))});
+      pieces.forEach(p=>{allPieces.add(p);const isCut=linkedPieces.has(p);if(!isCut)return;const del=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);const floor=t.cutQty-del;
+        if(floor>0){const days=Math.floor((Date.now()-new Date(o.date))/(86400000));rows.push({modelNo:o.modelNo,desc:o.modelDesc,piece:p,cut:t.cutQty,del,floor,days})}})}
+    else{allPieces.add("عام");const del=wds.reduce((s,wd)=>s+(Number(wd.qty)||0),0);const floor=t.cutQty-del;
+      if(floor>0){const days=Math.floor((Date.now()-new Date(o.date))/(86400000));rows.push({modelNo:o.modelNo,desc:o.modelDesc,piece:"عام",cut:t.cutQty,del,floor,days})}}});
+  rows.sort((a,b)=>b.floor-a.floor);
+  const filtered=rows.filter(r=>{if(filter&&!r.modelNo.includes(filter)&&!(r.desc||"").toLowerCase().includes(filter.toLowerCase()))return false;if(pieceFilter&&r.piece!==pieceFilter)return false;return true});
+  const totalFloor=filtered.reduce((s,r)=>s+r.floor,0);
+  const printFloor=()=>{let h="<h2 style='text-align:center'>🏭 قطع على الأرض — "+season+"</h2><div style='text-align:center;margin-bottom:12px;font-size:16px;font-weight:800;color:#F59E0B'>"+totalFloor+" قطعة</div>";
+    h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>القطعة</th><th>القص</th><th>مسلّم</th><th>على الأرض</th><th>الأيام</th></tr></thead><tbody>";
+    filtered.forEach(r=>{const warn=r.days>7;h+="<tr style='background:"+(warn?"#FEF2F2":"transparent")+"'><td style='font-weight:800'>"+r.modelNo+"</td><td>"+r.desc+"</td><td>"+r.piece+"</td><td style='text-align:center'>"+r.cut+"</td><td style='text-align:center'>"+r.del+"</td><td style='text-align:center;font-weight:800;color:#F59E0B'>"+r.floor+(warn?" ⚠️":"")+"</td><td style='text-align:center;color:"+(warn?"#EF4444":"#666")+"'>"+r.days+"</td></tr>"});
+    h+="<tr style='background:#F59E0B10;font-weight:800'><td colspan='5'>الاجمالي</td><td style='text-align:center;color:#F59E0B;font-size:16px'>"+totalFloor+"</td><td></td></tr></tbody></table>";
+    h+="<div class='sig'><div class='sig-box'>مسؤول التشغيل</div><div class='sig-box'>المدير</div></div>";printPage("قطع على الأرض — "+season,h)};
+  return<div>
+    <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+      <div style={{flex:1,minWidth:150}}><Inp value={filter} onChange={setFilter} placeholder="بحث بالموديل أو الوصف..."/></div>
+      <Sel value={pieceFilter} onChange={setPieceFilter}><option value="">كل القطع</option>{[...allPieces].sort().map(p=><option key={p} value={p}>{p}</option>)}</Sel>
+      <Btn onClick={printFloor} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(3,1fr)",gap:8,marginBottom:12}}>
+      <div style={{padding:10,borderRadius:10,background:"#F59E0B08",border:"1px solid #F59E0B15",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>على الأرض</div><div style={{fontSize:isMob?18:24,fontWeight:800,color:"#F59E0B"}}>{totalFloor}</div></div>
+      <div style={{padding:10,borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"15",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>موديلات</div><div style={{fontSize:isMob?18:24,fontWeight:800,color:T.accent}}>{[...new Set(filtered.map(r=>r.modelNo))].length}</div></div>
+      <div style={{padding:10,borderRadius:10,background:"#EF444408",border:"1px solid #EF444415",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>أكبر من 7 أيام</div><div style={{fontSize:isMob?18:24,fontWeight:800,color:"#EF4444"}}>{filtered.filter(r=>r.days>7).length}</div></div>
+    </div>
+    {filtered.length===0?<div style={{textAlign:"center",padding:30,color:T.textMut}}>✅ لا توجد قطع على الأرض</div>:
+    <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+      <thead><tr>{["الموديل","الوصف","القطعة","القص","مسلّم","على الأرض","الأيام"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+      <tbody>{filtered.map((r,i)=>{const warn=r.days>7;return<tr key={i} style={{background:warn?"#FEF2F2":"transparent"}}>
+        <td style={{...TD,fontWeight:800,color:T.accent}}>{r.modelNo}</td><td style={TD}>{r.desc}</td><td style={{...TD,color:"#8B5CF6",fontWeight:600}}>{r.piece}</td>
+        <td style={{...TDB}}>{r.cut}</td><td style={{...TDB,color:T.ok}}>{r.del}</td>
+        <td style={{...TDB,fontWeight:800,color:"#F59E0B",fontSize:FS+1}}>{r.floor}{warn&&" ⚠️"}</td>
+        <td style={{...TDB,color:warn?"#EF4444":T.textMut}}>{r.days}</td></tr>})}
+      <tr style={{background:"#F59E0B08"}}><td colSpan={5} style={{...TD,fontWeight:800}}>الاجمالي</td><td style={{...TDB,fontWeight:800,color:"#F59E0B",fontSize:FS+2}}>{totalFloor}</td><td style={TD}></td></tr>
+      </tbody></table></div>}
+  </div>
+}
 function ReportsHub({data,isMob,season,statusCards}){
   const[sub,setSub]=useState(null);
   const reports=[
@@ -3658,7 +3698,9 @@ function ReportsHub({data,isMob,season,statusCards}){
     {key:"uncut",label:"قطع لم يتم قصها",icon:"✂️",color:"#EF4444"},
     {key:"expected",label:"مواعيد التسليم المتوقعة",icon:"📅",color:"#F97316"},
     {key:"available",label:"القطع المتاحة للتسليم",icon:"📤",color:"#059669"},
+    {key:"floor",label:"قطع على الأرض",icon:"🏭",color:"#F59E0B"},
   ];
+  if(sub==="floor")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><FloorStockReport data={data} isMob={isMob} season={season}/></div>;
   if(sub==="available")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><AvailableReport data={data} isMob={isMob} season={season}/></div>;
   if(sub==="expected")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><ExpectedDeliveries data={data} isMob={isMob} season={season}/></div>;
   if(sub==="uncut")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><UncutReport data={data} isMob={isMob} season={season}/></div>;
@@ -4279,7 +4321,6 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
         {crd("📄","كشف حساب",T.accent,()=>{setCustStatement("pick");setCustFilter("")})}
         {stockModels.length>0&&crd("🏆","تحليل مبيعات","#8B5CF6",()=>setSalesAnalysis(true))}
         {crd("📦","كراتين","#0EA5E9",()=>setPkgPopup("list"))}
-        {crd("🏭","قطع على الأرض","#F59E0B",printFloorStock)}
         {crd("📊","خط الانتاج","#059669",printProductionLine)}
         {crd("📋","تقرير الموسم","#EF4444",()=>setSeasonReport(true))}
         {crd("🏪","جرد المخزن","#8B5CF6",()=>setInvAudit({items:{},scanning:false}))}
