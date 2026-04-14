@@ -4312,6 +4312,7 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
         {stockModels.length>0&&crd("🏷️","ليبلات QR","#F59E0B",()=>setCustomLabel("pick"))}
         {crd("📄","كشف حساب",T.accent,()=>{setCustStatement("pick");setCustFilter("")})}
         {stockModels.length>0&&crd("🏆","تحليل مبيعات","#8B5CF6",()=>setSalesAnalysis(true))}
+        {crd("📋","سجل حركات البيع","#059669",()=>setCustSalesLog("all"))}
         {crd("📦","كراتين","#0EA5E9",()=>setPkgPopup("list"))}
         {crd("📊","خط الانتاج","#059669",printProductionLine)}
         {crd("📋","تقرير الموسم","#EF4444",()=>setSeasonReport(true))}
@@ -4377,7 +4378,6 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
                   <Btn small onClick={()=>{const lines=aMods.map(m=>{const q=Number(aGrid[m.id+"_"+c.id])||0;return q>0?"• موديل *"+m.modelNo+"*: *"+q+"* قطعة":null}).filter(Boolean).join("%0A");
                     const msg="*CLARK — اذن تسليم عميل*%0A%0A• العميل: *"+c.name+"*%0A• التاريخ: *"+activeSess.date+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+rowTotal+"* قطعة%0A%0A*برجاء التأكيد*";
                     window.open("https://wa.me/"+(c.phone?c.phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",fontSize:9,padding:"2px 5px"}} title="ارسال واتساب">📱</Btn>
-                  <Btn small onClick={()=>{setShipPopup({cust:c,total:rowTotal});setShipCount(1)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30",fontSize:9,padding:"2px 5px"}} title="طباعة ليبل حراري">🏷️</Btn>
                   <Btn small onClick={()=>{const items=aMods.map(m=>({no:m.modelNo,desc:orders.find(o=>o.id===m.id)?.modelDesc||"",qty:Number(aGrid[m.id+"_"+c.id])||0})).filter(x=>x.qty>0);printShippingLabel(c,activeSess.date,items,rowTotal,1)}} style={{background:"#6366F112",color:"#6366F1",border:"1px solid #6366F130",fontSize:9,padding:"2px 5px"}}>📮</Btn>
                   {sessCanEdit&&aMods.filter(m=>Number(aGrid[m.id+"_"+c.id])>0).length>0&&<Btn small onClick={()=>{const first=aMods.find(m=>Number(aGrid[m.id+"_"+c.id])>0);if(first)setReturnPopup({orderId:first.id,modelNo:first.modelNo,custId:c.id,custName:c.name,sessId:activeSess.id,models:aMods.filter(m=>Number(aGrid[m.id+"_"+c.id])>0)})}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",fontSize:9,padding:"2px 5px"}}>↩️</Btn>}
                   {sessCanEdit&&<Btn small onClick={()=>{if(!confirm("حذف "+c.name+" من التوزيعة؟"))return;upSales(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===activeSess.id);if(si>=0){d.custDeliverySessions[si].custIds=d.custDeliverySessions[si].custIds.filter(id=>id!==c.id);const g=d.custDeliverySessions[si].grid||{};Object.keys(g).forEach(k=>{if(k.endsWith("_"+c.id))delete g[k]})}});showToast("✓ تم حذف "+c.name)}} style={{background:"#EF444412",color:"#EF4444",border:"1px solid #EF444430",fontSize:9,padding:"2px 5px"}} title="حذف العميل">🗑</Btn>}
@@ -4678,26 +4678,15 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
         </div>
       </div>})()}
     {/* Sales Analysis Popup */}
-    {salesAnalysis&&(()=>{const topCusts=[...customers].map(c=>({...c,total:getCustTotal(c.id)})).filter(c=>c.total>0).sort((a,b)=>b.total-a.total);const maxCust=topCusts[0]?.total||1;
+    {salesAnalysis&&(()=>{const topCusts=[...customers].map(c=>({...c,total:getCustTotal(c.id)})).filter(c=>c.total>0).sort((a,b)=>b.total-a.total);const totalStockAll=stockModels.reduce((s,m)=>s+m.stockQty,0);
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setSalesAnalysis(false)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?"100%":window.innerWidth-48,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
             <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>🏆 تحليل مبيعات العملاء</div>
             <Btn ghost small onClick={()=>setSalesAnalysis(false)} title="إغلاق">✕</Btn>
           </div>
-          {topCusts.length>0?<div>
-            <div style={{overflowX:"auto",marginBottom:16}}>
-              <div style={{display:"flex",alignItems:"flex-end",gap:isMob?8:14,minHeight:200,padding:"10px 0"}}>
-                {topCusts.map((c,i)=>{const pc=maxCust?Math.round(c.total/maxCust*100):0;const maxH=160;
-                  return<div key={c.id} onClick={()=>{const details=[];orders.forEach(o=>{const cd=(o.customerDeliveries||[]).filter(d=>d.custId===c.id).reduce((s,d)=>s+(Number(d.qty)||0),0);if(cd>0)details.push({name:o.modelNo+" — "+o.modelDesc,qty:cd})});setSalesDetail({title:"📦 تفاصيل "+c.name,items:details,total:c.total,color:"#0EA5E9"})}} title={c.name+" — "+fmt(c.total)} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer",flex:1,minWidth:isMob?50:70}}>
-                    <div style={{fontSize:isMob?FS-2:FS,fontWeight:800,color:i===0?"#F59E0B":T.accent}}>{fmt(c.total)}</div>
-                    <div style={{width:"100%",maxWidth:isMob?32:50,height:Math.max(10,pc/100*maxH),borderRadius:"8px 8px 0 0",background:i===0?"linear-gradient(180deg,#F59E0B,#EAB308)":"linear-gradient(180deg,#0EA5E9,#0284C7)",transition:"height 0.5s"}}/>
-                    <div style={{fontSize:isMob?FS-3:FS-1,fontWeight:700,color:T.text,textAlign:"center",lineHeight:1.2,maxWidth:isMob?60:100,wordBreak:"break-word"}}>{c.name}</div>
-                  </div>})}
-              </div>
-            </div>
-            <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","العميل","النوع","تسليم","مرتجع","صافي"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-              {topCusts.map((c,i)=>{const ret=orders.reduce((s,o)=>(o.customerReturns||[]).filter(r=>r.custId===c.id).reduce((ss,r)=>ss+(Number(r.qty)||0),s),0);return<tr key={c.id} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:700}}>{c.name}</td><td style={{...TD,fontSize:FS-2,color:T.textMut}}>{c.type||"—"}</td><td style={{...TD,textAlign:"center",fontWeight:700,color:T.accent}}>{fmt(c.total+ret)}</td><td style={{...TD,textAlign:"center",color:ret?T.err:T.textMut}}>{ret||"—"}</td><td style={{...TD,textAlign:"center",fontWeight:800}}>{fmt(c.total)}</td></tr>})}
+          {topCusts.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","العميل","النوع","تسليم","مرتجع","صافي","% من المخزن"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
+              {topCusts.map((c,i)=>{const ret=orders.reduce((s,o)=>(o.customerReturns||[]).filter(r=>r.custId===c.id).reduce((ss,r)=>ss+(Number(r.qty)||0),s),0);return<tr key={c.id} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:700}}>{c.name}</td><td style={{...TD,fontSize:FS-2,color:T.textMut}}>{c.type||"—"}</td><td style={{...TD,textAlign:"center",fontWeight:700,color:T.accent}}>{fmt(c.total+ret)}</td><td style={{...TD,textAlign:"center",color:ret?T.err:T.textMut}}>{ret||"—"}</td><td style={{...TD,textAlign:"center",fontWeight:800}}>{fmt(c.total)}</td><td style={{...TD,textAlign:"center",fontWeight:700,color:"#8B5CF6"}}>{(totalStockAll?Math.round(c.total/totalStockAll*100):0)+"%"}</td></tr>})}
             </tbody></table></div>
           </div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد مبيعات</div>}
         </div>
@@ -5553,10 +5542,10 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
         </div>
       </div>})()}
     {/* Customer Sales Log */}
-    {custSalesLog&&(()=>{const cust=customers.find(c=>c.id===custSalesLog);if(!cust)return null;
+    {custSalesLog&&(()=>{const isAll=custSalesLog==="all";const cust=isAll?{name:"جميع العملاء",phone:"",type:""}:customers.find(c=>c.id===custSalesLog);if(!cust)return null;
       const moves=[];orders.forEach(o=>{
-        (o.customerDeliveries||[]).filter(d=>d.custId===custSalesLog).forEach((d,di)=>{moves.push({type:"sale",orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,qty:Number(d.qty)||0,date:d.date,sessId:d.sessionId,by:d.createdBy||"",idx:di,rackSize:Number(o.rackSize)||1})});
-        (o.customerReturns||[]).filter(r=>r.custId===custSalesLog).forEach((r,ri)=>{moves.push({type:"return",orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,qty:Number(r.qty)||0,date:r.date,note:r.note||"",by:r.createdBy||"",idx:ri})})});
+        (o.customerDeliveries||[]).filter(d=>isAll||d.custId===custSalesLog).forEach((d,di)=>{moves.push({type:"sale",orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,qty:Number(d.qty)||0,date:d.date,sessId:d.sessionId,by:d.createdBy||"",idx:di,rackSize:Number(o.rackSize)||1,custName:d.custName||""})});
+        (o.customerReturns||[]).filter(r=>isAll||r.custId===custSalesLog).forEach((r,ri)=>{moves.push({type:"return",orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,qty:Number(r.qty)||0,date:r.date,note:r.note||"",by:r.createdBy||"",idx:ri,custName:r.custName||""})})});
       moves.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
       const totalDel=moves.filter(m=>m.type==="sale").reduce((s,m)=>s+m.qty,0);
       const totalRet=moves.filter(m=>m.type==="return").reduce((s,m)=>s+m.qty,0);
@@ -5574,7 +5563,7 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>{setCustSalesLog(null);setEditSaleIdx(null)}}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?"100%":700,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <div><div style={{fontSize:FS+2,fontWeight:800,color:"#059669"}}>{"📋 سجل مبيعات — "+cust.name}</div><div style={{fontSize:FS-2,color:T.textMut}}>{cust.phone||""}{cust.type?" | "+cust.type:""}</div></div>
+            <div><div style={{fontSize:FS+2,fontWeight:800,color:"#059669"}}>{isAll?"📋 سجل حركات البيع":"📋 سجل مبيعات — "+cust.name}</div><div style={{fontSize:FS-2,color:T.textMut}}>{cust.phone||""}{cust.type?" | "+cust.type:""}</div></div>
             <div style={{display:"flex",gap:4}}><Btn small onClick={printLog} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn ghost small onClick={()=>{setCustSalesLog(null);setEditSaleIdx(null)}}>✕</Btn></div>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
