@@ -732,7 +732,14 @@ export default function App(){
 
   const[user,setUser]=useState(null);const[authLoading,setAuthLoading]=useState(true);
   const[configDoc,setConfigDoc]=useState(INIT_CONFIG);const[salesDoc,setSalesDoc]=useState({});const[tasksDoc,setTasksDoc]=useState({});const[orders,setOrders]=useState([]);const[dataLoading,setDataLoading]=useState(true);
-  const config=useMemo(()=>({...configDoc,...salesDoc,...tasksDoc}),[configDoc,salesDoc,tasksDoc]);
+  const config=useMemo(()=>{const merged={...configDoc,...salesDoc,...tasksDoc};
+    /* Safety: if salesDoc has sessions, ALWAYS prefer it over configDoc */
+    if(salesDoc.custDeliverySessions)merged.custDeliverySessions=salesDoc.custDeliverySessions;
+    if(salesDoc.packages)merged.packages=salesDoc.packages;
+    if(tasksDoc.tasks)merged.tasks=tasksDoc.tasks;
+    if(tasksDoc.stickyNotes)merged.stickyNotes=tasksDoc.stickyNotes;
+    if(tasksDoc.inventoryAudits)merged.inventoryAudits=tasksDoc.inventoryAudits;
+    return merged},[configDoc,salesDoc,tasksDoc]);
   const[tab,setTab_]=useState(()=>sessionStorage.getItem("clark_tab")||"home");const[sel,setSel_]=useState(()=>sessionStorage.getItem("clark_sel")||null);
   const setTab=v=>{setTab_(v);sessionStorage.setItem("clark_tab",v)};
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
@@ -4071,6 +4078,10 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
     setEditCell(null)};
 
   const delSession=(sessId)=>{const sess=sessions.find(s=>s.id===sessId);if(!sess)return;
+    if(sess.saleConfirmed){playBeep("error");showToast("⛔ لا يمكن حذف توزيعة مرتبطة بعملية بيع فعلي");return}
+    if(sess.status==="تم التسليم"){playBeep("error");showToast("⛔ لا يمكن حذف توزيعة مغلقة");return}
+    const hasSales=orders.some(o=>(o.customerDeliveries||[]).some(d=>d.sessionId===sessId));
+    if(hasSales){playBeep("error");showToast("⛔ لا يمكن حذف توزيعة بها حركات بيع فعلية");return}
     const affectedOrders=new Set();
     Object.entries(sess.grid||{}).forEach(([k])=>{const[orderId]=k.split("_");affectedOrders.add(orderId)});
     sess.modelIds.forEach(id=>affectedOrders.add(id));
@@ -4107,7 +4118,7 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
   const isSessClosed=activeSess?.status==="تم التسليم";
   const sessCanEdit=canEdit&&!isSessClosed;
   const closeMatrix=(forceKeep)=>{if(!activeSess){setActiveSession(null);return}
-    if(!forceKeep){const hasData=Object.values(activeSess.grid||{}).some(v=>Number(v)>0);if(!hasData){delSession(activeSess.id);setCellError("");return}}
+    if(!forceKeep&&!activeSess.saleConfirmed&&activeSess.status!=="تم التسليم"){const hasData=Object.values(activeSess.grid||{}).some(v=>Number(v)>0);if(!hasData){delSession(activeSess.id);setCellError("");return}}
     setActiveSession(null);setCellError("")};
 
   /* Session status */
@@ -4313,6 +4324,22 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
         {crd("📄","كشف حساب",T.accent,()=>{setCustStatement("pick");setCustFilter("")})}
         {stockModels.length>0&&crd("🏆","تحليل مبيعات","#8B5CF6",()=>setSalesAnalysis(true))}
         {crd("🧾","بيان سعر","#8B5CF6",()=>setQuoteCust("pick"))}
+        {crd("🔄","استعادة توزيعة محذوفة","#EF4444",()=>{
+          /* Scan orders for orphaned sessionIds */
+          const existingIds=new Set(sessions.map(s=>s.id));const orphans={};
+          orders.forEach(o=>{(o.customerDeliveries||[]).forEach(d=>{if(d.sessionId&&!existingIds.has(d.sessionId)){
+            if(!orphans[d.sessionId])orphans[d.sessionId]={id:d.sessionId,custIds:new Set(),modelIds:new Set(),grid:{},dates:[],total:0};
+            const orp=orphans[d.sessionId];orp.custIds.add(d.custId);orp.modelIds.add(o.id);
+            const k=o.id+"_"+d.custId;orp.grid[k]=(orp.grid[k]||0)+(Number(d.qty)||0);
+            if(d.date)orp.dates.push(d.date);orp.total+=(Number(d.qty)||0)}})});
+          const orphanList=Object.values(orphans);
+          if(orphanList.length===0){showToast("✅ لا توجد توزيعات محذوفة — كل البيانات سليمة");return}
+          if(!confirm("تم العثور على "+orphanList.length+" توزيعة محذوفة ("+orphanList.reduce((s,o)=>s+o.total,0)+" قطعة).\n\nهل تريد استعادتها؟"))return;
+          orphanList.forEach(orp=>{const date=orp.dates.sort()[0]||new Date().toISOString().split("T")[0];
+            upSales(d=>{if(!d.custDeliverySessions)d.custDeliverySessions=[];
+              d.custDeliverySessions.push({id:orp.id,date,modelIds:[...orp.modelIds],custIds:[...orp.custIds],grid:orp.grid,
+                status:"تم التسليم",saleConfirmed:true,createdBy:"RECOVERY",createdAt:new Date().toISOString(),recoveredAt:new Date().toISOString()})})});
+          showToast("✅ تم استعادة "+orphanList.length+" توزيعة بنجاح")})}
         {crd("📋","سجل حركات البيع","#059669",()=>{setCustSalesLog("all");setLogFilter("");setLogTypeFilter("");setLogLimit(50)})}
         {crd("📦","كراتين","#0EA5E9",()=>setPkgPopup("list"))}
         {crd("📊","خط الانتاج","#059669",printProductionLine)}
@@ -4734,7 +4761,7 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
               <div style={{display:"flex",gap:4,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
                 <select value={st} onChange={e=>updateSessStatus(s.id,e.target.value)} style={{padding:"3px 6px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",fontWeight:700,background:T.bg,color:stColor,cursor:"pointer"}}>{SESS_STATUSES.map(ss=><option key={ss} value={ss}>{ss}</option>)}</select>
                 <Btn small onClick={()=>printSession(s.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨</Btn>
-                {canEdit&&<DelBtn onConfirm={()=>delSession(s.id)}/>}
+                {canEdit&&<DelBtn onConfirm={()=>delSession(s.id)} blocked={confirmed?"بيع فعلي":isClosed?"مغلقة":null}/>}
               </div>
             </div>
           </div>})}
