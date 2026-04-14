@@ -5583,7 +5583,7 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
             {balReview&&(()=>{
       const rows=orders.filter(o=>{const t=calcOrder(o);return t.cutQty>0}).map(o=>{
         const t=calcOrder(o);const wds=o.workshopDeliveries||[];
-        const fromWs=wds.reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),ss),0);
+        const fromWs=wds.reduce((s,wd)=>s+(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0),0);
         const toStock=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
         const sold=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
         const ret=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
