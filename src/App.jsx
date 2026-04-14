@@ -4048,7 +4048,7 @@ function TasksPg({data,upConfig,upTasks,isMob,user,userRole}){
 
 function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEdit,user,season}){
   const config=data;const orders=data.orders||[];const customers=config.customers||[];const sessions=config.custDeliverySessions||[];
-  const[showCustForm,setShowCustForm]=useState(false);const[showCustList,setShowCustList]=useState(false);const[custSalesLog,setCustSalesLog]=useState(null);const[editSaleIdx,setEditSaleIdx]=useState(null);const[editSaleQty,setEditSaleQty]=useState(0);const[logCustF,setLogCustF]=useState("");const[logModelF,setLogModelF]=useState("");const[logDateF,setLogDateF]=useState("");const[logTypeFilter,setLogTypeFilter]=useState("");const[logLimit,setLogLimit]=useState(50);const[quoteCust,setQuoteCust]=useState(null);
+  const[showCustForm,setShowCustForm]=useState(false);const[showCustList,setShowCustList]=useState(false);const[custSalesLog,setCustSalesLog]=useState(null);const[editSaleIdx,setEditSaleIdx]=useState(null);const[editSaleQty,setEditSaleQty]=useState(0);const[logCustF,setLogCustF]=useState("");const[logModelF,setLogModelF]=useState("");const[logDateF,setLogDateF]=useState("");const[logTypeFilter,setLogTypeFilter]=useState("");const[logLimit,setLogLimit]=useState(50);const[quoteCust,setQuoteCust]=useState(null);const[balReview,setBalReview]=useState(false);
   const[cName,setCName]=useState("");const[cPhone,setCPhone]=useState("");const[cAddr,setCAddr]=useState("");const[cEditId,setCEditId]=useState(null);const[cType,setCType]=useState("مكتب");const[custFilter,setCustFilter]=useState("");
   const[showNewSession,setShowNewSession]=useState(false);
   const[selModels,setSelModels]=useState({});const[selCusts,setSelCusts]=useState({});
@@ -4355,6 +4355,7 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
         {crd("📊","خط الانتاج","#059669",printProductionLine)}
         {crd("📋","تقرير الموسم","#EF4444",()=>setSeasonReport(true))}
         {crd("🏪","جرد المخزن","#8B5CF6",()=>setInvAudit({items:{},scanning:false}))}
+        {crd("📊","مراجعة الأرصدة","#EC4899",()=>setBalReview(true))}
         {canEdit&&crd("📥","استلام جاهز","#0EA5E9",()=>setStockRcv({items:{},scanning:false}))}
       </div>})()}
     {/* Active Session Matrix - Popup */}
@@ -5579,7 +5580,55 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
         </div>
       </div>})()}
     {/* Customer Sales Log */}
-        {quoteCust&&(()=>{
+            {balReview&&(()=>{
+      const rows=orders.filter(o=>{const t=calcOrder(o);return t.cutQty>0}).map(o=>{
+        const t=calcOrder(o);const wds=o.workshopDeliveries||[];
+        const fromWs=wds.reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),ss),0);
+        const toStock=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
+        const sold=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
+        const ret=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
+        const avail=toStock-(sold-ret);const gap=fromWs-toStock;
+        let status="";if(toStock===0&&fromWs>0)status="لم يسجّل استلام";
+        else if(gap>0)status="فرق "+gap;
+        else if(avail<0)status="رصيد سالب!";
+        else status="✅";
+        return{id:o.id,no:o.modelNo,desc:o.modelDesc||"",cut:t.cutQty,fromWs,toStock,sold,ret,avail,gap,status}}).sort((a,b)=>b.gap-a.gap);
+      const issues=rows.filter(r=>r.status!=="✅");
+      const printRev=()=>{let h="<h2 style='text-align:center'>📊 مراجعة أرصدة المخزن</h2>";
+        h+="<div style='text-align:center;margin-bottom:12px'><span style='color:#EF4444;font-weight:800'>"+issues.length+" موديل يحتاج مراجعة</span> من "+rows.length+"</div>";
+        h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>القص</th><th>من الورش</th><th>المخزن</th><th>مباع</th><th>مرتجع</th><th>رصيد</th><th>فرق</th><th>الحالة</th></tr></thead><tbody>";
+        rows.forEach(r=>{const isErr=r.status!=="✅";h+="<tr style='background:"+(isErr?"#FEF2F2":"transparent")+"'><td style='font-weight:800'>"+r.no+"</td><td style='font-size:10px'>"+r.desc+"</td><td style='text-align:center'>"+r.cut+"</td><td style='text-align:center'>"+r.fromWs+"</td><td style='text-align:center;font-weight:800;color:#0EA5E9'>"+r.toStock+"</td><td style='text-align:center'>"+r.sold+"</td><td style='text-align:center;color:#EF4444'>"+(r.ret||"-")+"</td><td style='text-align:center;font-weight:800;color:"+(r.avail>=0?"#10B981":"#EF4444")+"'>"+r.avail+"</td><td style='text-align:center;font-weight:800;color:"+(r.gap>0?"#F59E0B":"#10B981")+"'>"+(r.gap||"-")+"</td><td style='font-weight:700;color:"+(isErr?"#EF4444":"#10B981")+"'>"+r.status+"</td></tr>"});
+        h+="</tbody></table>";printPage("مراجعة أرصدة المخزن",h)};
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setBalReview(false)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?"100%":900,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={{fontSize:FS+2,fontWeight:800,color:"#EC4899"}}>{"📊 مراجعة الأرصدة ("+rows.length+" موديل)"}</div>
+            <div style={{display:"flex",gap:4}}><Btn small onClick={printRev} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn ghost small onClick={()=>setBalReview(false)}>✕</Btn></div>
+          </div>
+          {issues.length>0&&<div style={{padding:10,borderRadius:10,background:"#FEF2F2",border:"1px solid #FECACA",marginBottom:12,fontWeight:700,color:"#EF4444"}}>{"⚠️ "+issues.length+" موديل يحتاج مراجعة"}</div>}
+          <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",whiteSpace:"nowrap"}}><thead><tr>{["الموديل","الوصف","القص","من الورش","مخزن جاهز","مباع","مرتجع","رصيد متاح","فرق","الحالة"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
+            {rows.map((r,i)=>{const isErr=r.status!=="✅";return<tr key={r.id} style={{background:isErr?"#FEF2F2":i%2===0?"transparent":T.bg+"80"}}>
+              <td style={{...TD,fontWeight:800,color:T.accent}}>{r.no}</td>
+              <td style={{...TD,fontSize:FS-3,color:T.textMut,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis"}}>{r.desc}</td>
+              <td style={{...TDB}}>{r.cut}</td>
+              <td style={{...TDB,color:"#8B5CF6"}}>{r.fromWs}</td>
+              <td style={{...TDB,fontWeight:800,color:"#0EA5E9"}}>{r.toStock}</td>
+              <td style={{...TDB}}>{r.sold}</td>
+              <td style={{...TDB,color:r.ret?"#EF4444":T.textMut}}>{r.ret||"—"}</td>
+              <td style={{...TDB,fontWeight:800,color:r.avail>=0?"#10B981":"#EF4444"}}>{r.avail}</td>
+              <td style={{...TDB,fontWeight:800,color:r.gap>0?"#F59E0B":"#10B981"}}>{r.gap||"—"}</td>
+              <td style={{...TD,fontWeight:700,fontSize:FS-2,color:isErr?"#EF4444":"#10B981"}}>{r.status}</td>
+            </tr>})}
+          </tbody></table></div>
+          <div style={{marginTop:12,padding:10,borderRadius:10,background:T.bg,fontSize:FS-2,color:T.textSec}}>
+            <div><b>من الورش</b> = اجمالي المستلم من الورش (تشطيب)</div>
+            <div><b>مخزن جاهز</b> = المسجّل كاستلام في المخزن (deliveries)</div>
+            <div><b>الفرق</b> = من الورش − مخزن جاهز (لو موجب = فيه كمية لم تسجّل)</div>
+            <div><b>رصيد متاح</b> = مخزن جاهز − مباع + مرتجع</div>
+          </div>
+        </div></div>})()}
+
+    {quoteCust&&(()=>{
       if(quoteCust==="pick"){const custsWithSales=customers.filter(c=>getCustTotal(c.id)>0);
         return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setQuoteCust(null)}>
           <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd}}>
