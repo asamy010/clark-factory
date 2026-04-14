@@ -846,23 +846,25 @@ export default function App(){
 
   useEffect(()=>{const unsub=onAuthStateChanged(auth,u=>{setUser(u);setAuthLoading(false)});return unsub},[]);
   useEffect(()=>{if(!user)return;
-    /* Migration flag */
-    let migrated=false;
+    let salesReady=false;let tasksReady=false;
     /* Main config */
     const u1=onSnapshot(doc(db,"factory","config"),snap=>{if(snap.exists()){const d=snap.data();
-      /* Auto-migrate ONCE: COPY sales/tasks to separate docs (keep in config until confirmed) */
-      if(!migrated&&(d.custDeliverySessions||d.packages||d.tasks||d.stickyNotes||d.inventoryAudits)){migrated=true;
+      /* Phase 1: Copy data to separate docs (first time only) */
+      if(!d._splitDone&&(d.custDeliverySessions||d.packages||d.tasks||d.stickyNotes||d.inventoryAudits)){
         const salesData={custDeliverySessions:d.custDeliverySessions||[],packages:d.packages||[]};
         const tasksData={tasks:d.tasks||[],stickyNotes:d.stickyNotes||[],inventoryAudits:d.inventoryAudits||[]};
         Promise.all([setDoc(doc(db,"factory","sales"),salesData),setDoc(doc(db,"factory","tasks"),tasksData)]).then(()=>{
-          /* Only clean config AFTER sales+tasks are confirmed written */
-          const clean={...d};delete clean.custDeliverySessions;delete clean.packages;delete clean.tasks;delete clean.stickyNotes;delete clean.inventoryAudits;
-          setDoc(doc(db,"factory","config"),clean);console.log("✅ Migration complete")}).catch(e=>console.error("Migration error:",e))}
+          /* Mark as split but KEEP data until phase 2 */
+          setDoc(doc(db,"factory","config"),{...d,_splitDone:true});console.log("✅ Phase 1: data copied to sales+tasks")}).catch(e=>console.error("Split error:",e))}
+      /* Phase 2: Clean config ONLY if sales+tasks docs already loaded */
+      if(d._splitDone&&d.custDeliverySessions&&salesReady&&tasksReady){
+        const clean={...d};delete clean.custDeliverySessions;delete clean.packages;delete clean.tasks;delete clean.stickyNotes;delete clean.inventoryAudits;
+        setDoc(doc(db,"factory","config"),clean);console.log("✅ Phase 2: config cleaned")}
       setConfigDoc(d)}else setDoc(doc(db,"factory","config"),INIT_CONFIG)});
     /* Sales doc */
-    const u2=onSnapshot(doc(db,"factory","sales"),snap=>{if(snap.exists())setSalesDoc(snap.data())});
+    const u2=onSnapshot(doc(db,"factory","sales"),snap=>{if(snap.exists()){salesReady=true;setSalesDoc(snap.data())}});
     /* Tasks doc */
-    const u3=onSnapshot(doc(db,"factory","tasks"),snap=>{if(snap.exists())setTasksDoc(snap.data())});
+    const u3=onSnapshot(doc(db,"factory","tasks"),snap=>{if(snap.exists()){tasksReady=true;setTasksDoc(snap.data())}});
     return()=>{u1();u2();u3()}},[user]);
   useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>({_docId:d.id,...d.data()})).filter(o=>o.id&&o.modelNo));setDataLoading(false)});return()=>unsub()},[user,season]);
 
