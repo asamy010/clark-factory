@@ -4385,8 +4385,8 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
   };
 
   return<div>
-    {(()=>{const crd=(icon,label,color,onClick,sub)=><div onClick={onClick} style={{background:T.cardSolid,borderRadius:14,padding:"8px 4px",border:"1px solid "+color+"20",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",flex:isMob?undefined:"1 1 0",minWidth:isMob?undefined:0,height:isMob?80:90,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}><div style={{fontSize:isMob?20:24,marginBottom:2}}>{icon}</div><div style={{fontSize:isMob?FS-3:FS-2,fontWeight:700,color,whiteSpace:"nowrap"}}>{label}</div>{sub&&<div style={{fontSize:FS-3,color:T.textMut}}>{sub}</div>}</div>;
-      return<div style={isMob?{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}:{display:"flex",gap:8,marginBottom:16}}>
+    {(()=>{const crd=(icon,label,color,onClick,sub)=><div onClick={onClick} style={{background:T.cardSolid,borderRadius:14,padding:"8px 4px",border:"1px solid "+color+"20",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",height:isMob?80:90,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}><div style={{fontSize:isMob?20:24,marginBottom:2}}>{icon}</div><div style={{fontSize:isMob?FS-3:FS-2,fontWeight:700,color,whiteSpace:"nowrap"}}>{label}</div>{sub&&<div style={{fontSize:FS-3,color:T.textMut}}>{sub}</div>}</div>;
+      return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":isTab?"repeat(5,1fr)":"repeat(10,1fr)",gap:8,marginBottom:16}}>
         {canEdit&&crd("👥","العملاء",T.text,()=>setShowCustList(true),customers.length+"")}
         {canEdit&&crd("🚚","تسليم جديد",T.ok,()=>{setSelModels({});setSelCusts({});setShowNewSession(true)})}
         {canEdit&&crd("📦","بيع سريع","#10B981",()=>setQrSale({mode:"sale",custId:null,items:[],note:""}))}
@@ -4601,12 +4601,7 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
     {(()=>{const totalStock=stockModels.reduce((s,m)=>s+m.stockQty,0);const totalSold=stockModels.reduce((s,m)=>s+m.custDel,0);const totalRemain=stockModels.reduce((s,m)=>s+m.avail,0);const pct=totalStock?Math.round(totalSold/totalStock*100):0;
       const totalRevenue=stockModels.reduce((s,m)=>s+m.custDel*(Number(orders.find(o=>o.id===m.id)?.sellPrice)||0),0);
       const totalCost=orders.reduce((s,o)=>{const t=calcOrder(o);return s+(t.totalCost||0)},0);
-      /* Today/Week/Month sales */
-      const now=new Date();const todayStr=now.toISOString().split("T")[0];
-      const weekAgo=new Date(now-7*86400000).toISOString().split("T")[0];
-      const monthAgo=new Date(now-30*86400000).toISOString().split("T")[0];
-      let salesToday=0,salesWeek=0,salesMonth=0,revToday=0,revWeek=0,revMonth=0;
-      orders.forEach(o=>{const price=Number(o.sellPrice)||0;(o.customerDeliveries||[]).forEach(d=>{const q=Number(d.qty)||0;if(d.date===todayStr){salesToday+=q;revToday+=q*price}if(d.date>=weekAgo){salesWeek+=q;revWeek+=q*price}if(d.date>=monthAgo){salesMonth+=q;revMonth+=q*price}})});
+      const now=new Date();
       /* Stale models: in stock > 14 days with no sales */
       const staleModels=stockModels.filter(m=>{if(m.avail<=0)return false;const o=orders.find(x=>x.id===m.id);if(!o)return false;
         const lastSaleDate=(o.customerDeliveries||[]).reduce((latest,d)=>d.date>latest?d.date:latest,"");
@@ -4622,12 +4617,6 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
           <div style={{padding:12,borderRadius:12,background:T.ok+"08",border:"1px solid "+T.ok+"15",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>المبيعات</div><div style={{fontSize:isMob?18:24,fontWeight:800,color:T.ok}}>{fmt(totalSold)}</div><div style={{fontSize:FS-3,color:T.ok}}>{pct+"%"}</div></div>
           <div style={{padding:12,borderRadius:12,background:T.warn+"08",border:"1px solid "+T.warn+"15",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>رصيد متاح</div><div style={{fontSize:isMob?18:24,fontWeight:800,color:T.warn}}>{fmt(totalRemain)}</div></div>
           <div style={{padding:12,borderRadius:12,background:"#8B5CF608",border:"1px solid #8B5CF615",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>الإيرادات</div><div style={{fontSize:isMob?18:24,fontWeight:800,color:"#8B5CF6"}}>{fmt(totalRevenue)}</div><div style={{fontSize:FS-3,color:T.textMut}}>ج.م</div></div>
-        </div>
-        {/* Live sales ticker */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
-          <div style={{padding:10,borderRadius:10,background:"linear-gradient(135deg,#059669,#10B981)",textAlign:"center",color:"#fff"}}><div style={{fontSize:FS-3,opacity:0.8}}>اليوم</div><div style={{fontSize:FS+2,fontWeight:800}}>{salesToday+" ق"}</div><div style={{fontSize:FS-3,opacity:0.7}}>{fmt(revToday)+" ج"}</div></div>
-          <div style={{padding:10,borderRadius:10,background:"linear-gradient(135deg,#0EA5E9,#38BDF8)",textAlign:"center",color:"#fff"}}><div style={{fontSize:FS-3,opacity:0.8}}>الأسبوع</div><div style={{fontSize:FS+2,fontWeight:800}}>{salesWeek+" ق"}</div><div style={{fontSize:FS-3,opacity:0.7}}>{fmt(revWeek)+" ج"}</div></div>
-          <div style={{padding:10,borderRadius:10,background:"linear-gradient(135deg,#8B5CF6,#A78BFA)",textAlign:"center",color:"#fff"}}><div style={{fontSize:FS-3,opacity:0.8}}>الشهر</div><div style={{fontSize:FS+2,fontWeight:800}}>{salesMonth+" ق"}</div><div style={{fontSize:FS-3,opacity:0.7}}>{fmt(revMonth)+" ج"}</div></div>
         </div>
         {/* Stale models alert */}
         {staleModels.length>0&&<div style={{padding:12,borderRadius:12,background:"#FEF2F2",border:"1px solid #EF444420",marginBottom:14}}>
