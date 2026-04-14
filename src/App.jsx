@@ -1249,15 +1249,15 @@ export default function App(){
       {/* PAGES with back button */}
       {tab!=="home"&&canViewTab(tab)&&<div>
         {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} isTab={isTab} season={season} statusCards={statusCards} upConfig={upConfig} user={user} setCardPopup={setCardPopup} setWsAccPopup={setWsAccPopup}/>}
-        {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("db")} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
+        {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("db")} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
         {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} delOrder={delOrder} sel={sel} setSel={setSel} isMob={isMob} isTab={isTab} canEdit={canEditTab("details")} statusCards={statusCards} goHome={goHome} upConfig={upConfig} user={user}/>}
         {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("external")} statusCards={statusCards} season={season} user={user}/>}
         {tab==="stock"&&<StockPg data={data} updOrder={updOrder} isMob={isMob} canEdit={canEditTab("stock")} statusCards={statusCards} user={user}/>}
-        {tab==="tasks"&&<TasksPg data={data} upConfig={upConfig} isMob={isMob} user={user} userRole={userRole}/>}
+        {tab==="tasks"&&<TasksPg data={data} upConfig={upConfig} upTasks={upTasks} isMob={isMob} user={user} userRole={userRole}/>}
         {tab==="calc"&&<CalcPg data={data} isMob={isMob}/>}
         {tab==="reports"&&<ReportsHub data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="settings"&&canEditTab("settings")&&<SettingsPg config={config} upConfig={upConfig} upSales={upSales} upTasks={upTasks} isMob={isMob} user={user} theme={theme} setTheme={setTheme} season={season} orders={orders} syncWsIds={syncWsIds} replaceOrder={replaceOrder} updOrder={updOrder} configDoc={configDoc} salesDoc={salesDoc} tasksDoc={tasksDoc}/>}
-        {tab==="custDeliver"&&<CustDeliverPg data={data} upConfig={upConfig} updOrder={updOrder} isMob={isMob} isTab={isTab} canEdit={canEditTab("custDeliver")} user={user}/>}
+        {tab==="custDeliver"&&<CustDeliverPg data={data} upConfig={upConfig} upSales={upSales} upTasks={upTasks} updOrder={updOrder} isMob={isMob} isTab={isTab} canEdit={canEditTab("custDeliver")} user={user} season={season}/>}
       </div>}
     </div>
     {/* Quick Task/Notification Popup */}
@@ -1674,17 +1674,20 @@ function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,setCardPo
     </Card>
     <Card title="🗄️ معلومات قاعدة البيانات" style={{marginTop:12}}>
       {(()=>{
-        const cSize=new Blob([JSON.stringify(configDoc||{})]).size;
-        const sSize=new Blob([JSON.stringify(salesDoc||{})]).size;
-        const tSize=new Blob([JSON.stringify(tasksDoc||{})]).size;
+        const _cfg={...data};delete _cfg.custDeliverySessions;delete _cfg.packages;delete _cfg.tasks;delete _cfg.stickyNotes;delete _cfg.inventoryAudits;delete _cfg.orders;
+        const _sal={custDeliverySessions:data.custDeliverySessions||[],packages:data.packages||[]};
+        const _tsk={tasks:data.tasks||[],stickyNotes:data.stickyNotes||[],inventoryAudits:data.inventoryAudits||[]};
+        const cSize=new Blob([JSON.stringify(_cfg)]).size;
+        const sSize=new Blob([JSON.stringify(_sal)]).size;
+        const tSize=new Blob([JSON.stringify(_tsk)]).size;
         const oSize=new Blob([JSON.stringify(orders)]).size;
         const totalSize=cSize+sSize+tSize+oSize;
         const imgCount=orders.filter(o=>o.image).length;
         const bar=(val,max,color)=><div style={{width:"100%",height:8,background:T.brd,borderRadius:4,overflow:"hidden"}}><div style={{width:Math.min(100,Math.round(val/max*100))+"%",height:"100%",background:color,borderRadius:4}}/></div>;
         const docs=[
-          {name:"⚙️ Config",size:cSize,items:[(config.customers||[]).length+" عميل",(config.workshops||[]).length+" ورشة",(config.users||[]).length+" مستخدم"],color:"#0EA5E9"},
-          {name:"💰 Sales",size:sSize,items:[(config.custDeliverySessions||[]).length+" توزيعة",(config.packages||[]).length+" كرتونة"],color:"#10B981"},
-          {name:"📌 Tasks",size:tSize,items:[(config.tasks||[]).length+" مهمة",(config.stickyNotes||[]).length+" ملاحظة"],color:"#F59E0B"},
+          {name:"⚙️ Config",size:cSize,items:[(data.customers||[]).length+" عميل",(data.workshops||[]).length+" ورشة",(data.users||[]).length+" مستخدم"],color:"#0EA5E9"},
+          {name:"💰 Sales",size:sSize,items:[(data.custDeliverySessions||[]).length+" توزيعة",(data.packages||[]).length+" كرتونة"],color:"#10B981"},
+          {name:"📌 Tasks",size:tSize,items:[(data.tasks||[]).length+" مهمة",(data.stickyNotes||[]).length+" ملاحظة"],color:"#F59E0B"},
           {name:"📋 Orders",size:oSize,items:[orders.length+" أوردر",imgCount+" صورة"],color:"#8B5CF6"},
         ];
         return<div>
@@ -1721,7 +1724,7 @@ function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,setCardPo
 }
 
 /* ══ DB ══ */
-function DBPg({data,upConfig,isMob,canEdit,statusCards,initialSub,onSubUsed,renameInOrders}){
+function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,onSubUsed,renameInOrders}){
   const[sub,setSub]=useState(initialSub||"fab");
   useEffect(()=>{if(initialSub){setSub(initialSub);if(onSubUsed)onSubUsed()}},[initialSub]);
   const[ff,setFf]=useState({name:"",unit:"كيلو",price:"",_eid:null});
@@ -1848,7 +1851,7 @@ function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrders,wsPay
           orders.forEach(o=>{let hasWs=false;(o.workshopDeliveries||[]).filter(wd=>wd.wsName===ws.name).forEach(wd=>{hasWs=true;totalDel+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{totalRcv+=Number(r.qty)||0})});if(hasWs)orderCount++});
           const pct=totalDel>0?Math.round(totalRcv/totalDel*100):0;
           const bal=totalDel-totalRcv;
-          return<div key={ws.id} onClick={()=>{if(canEdit)startEdit(ws)}} style={{background:T.cardSolid,borderRadius:16,border:"1px solid "+T.brd,overflow:"hidden",boxShadow:"0 2px 12px rgba(0,0,0,0.06)",cursor:sessCanEdit?"pointer":"default",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
+          return<div key={ws.id} onClick={()=>{if(canEdit)startEdit(ws)}} style={{background:T.cardSolid,borderRadius:16,border:"1px solid "+T.brd,overflow:"hidden",boxShadow:"0 2px 12px rgba(0,0,0,0.06)",cursor:canEdit?"pointer":"default",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
           {/* Header */}
           {(()=>{const wt=wsTypeInfo(ws.type);return<div style={{padding:"14px 16px",background:wt.color+"08",borderBottom:"1px solid "+T.brd}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -3924,7 +3927,7 @@ function CostPg({data,isMob,statusCards}){
 
 /* ══ SETTINGS ══ */
 /* ══ TASKS ══ */
-function TasksPg({data,upConfig,isMob,user,userRole}){
+function TasksPg({data,upConfig,upTasks,isMob,user,userRole}){
   const[taskText,setTaskText]=useState("");const[taskTo,setTaskTo]=useState("");
   const uid=user?.uid||"default";const userEmail=user?.email||"";
   const allTasks=Array.isArray(data.tasks)?data.tasks:[];
@@ -3973,7 +3976,7 @@ function TasksPg({data,upConfig,isMob,user,userRole}){
 }
 
 
-function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
+function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEdit,user,season}){
   const config=data;const orders=data.orders||[];const customers=config.customers||[];const sessions=config.custDeliverySessions||[];
   const[showCustForm,setShowCustForm]=useState(false);const[showCustList,setShowCustList]=useState(false);const[custSalesLog,setCustSalesLog]=useState(null);const[editSaleIdx,setEditSaleIdx]=useState(null);const[editSaleQty,setEditSaleQty]=useState(0);
   const[cName,setCName]=useState("");const[cPhone,setCPhone]=useState("");const[cAddr,setCAddr]=useState("");const[cEditId,setCEditId]=useState(null);const[cType,setCType]=useState("مكتب");const[custFilter,setCustFilter]=useState("");
