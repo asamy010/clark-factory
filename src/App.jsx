@@ -4324,22 +4324,6 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
         {crd("📄","كشف حساب",T.accent,()=>{setCustStatement("pick");setCustFilter("")})}
         {stockModels.length>0&&crd("🏆","تحليل مبيعات","#8B5CF6",()=>setSalesAnalysis(true))}
         {crd("🧾","بيان سعر","#8B5CF6",()=>setQuoteCust("pick"))}
-        {crd("🔄","استعادة توزيعة محذوفة","#EF4444",()=>{
-          /* Scan orders for orphaned sessionIds */
-          const existingIds=new Set(sessions.map(s=>s.id));const orphans={};
-          orders.forEach(o=>{(o.customerDeliveries||[]).forEach(d=>{if(d.sessionId&&!existingIds.has(d.sessionId)){
-            if(!orphans[d.sessionId])orphans[d.sessionId]={id:d.sessionId,custIds:new Set(),modelIds:new Set(),grid:{},dates:[],total:0};
-            const orp=orphans[d.sessionId];orp.custIds.add(d.custId);orp.modelIds.add(o.id);
-            const k=o.id+"_"+d.custId;orp.grid[k]=(orp.grid[k]||0)+(Number(d.qty)||0);
-            if(d.date)orp.dates.push(d.date);orp.total+=(Number(d.qty)||0)}})});
-          const orphanList=Object.values(orphans);
-          if(orphanList.length===0){showToast("✅ لا توجد توزيعات محذوفة — كل البيانات سليمة");return}
-          if(!confirm("تم العثور على "+orphanList.length+" توزيعة محذوفة ("+orphanList.reduce((s,o)=>s+o.total,0)+" قطعة).\n\nهل تريد استعادتها؟"))return;
-          orphanList.forEach(orp=>{const date=orp.dates.sort()[0]||new Date().toISOString().split("T")[0];
-            upSales(d=>{if(!d.custDeliverySessions)d.custDeliverySessions=[];
-              d.custDeliverySessions.push({id:orp.id,date,modelIds:[...orp.modelIds],custIds:[...orp.custIds],grid:orp.grid,
-                status:"تم التسليم",saleConfirmed:true,createdBy:"RECOVERY",createdAt:new Date().toISOString(),recoveredAt:new Date().toISOString()})})});
-          showToast("✅ تم استعادة "+orphanList.length+" توزيعة بنجاح")})}
         {crd("📋","سجل حركات البيع","#059669",()=>{setCustSalesLog("all");setLogFilter("");setLogTypeFilter("");setLogLimit(50)})}
         {crd("📦","كراتين","#0EA5E9",()=>setPkgPopup("list"))}
         {crd("📊","خط الانتاج","#059669",printProductionLine)}
