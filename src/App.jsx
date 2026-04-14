@@ -850,12 +850,14 @@ export default function App(){
     let migrated=false;
     /* Main config */
     const u1=onSnapshot(doc(db,"factory","config"),snap=>{if(snap.exists()){const d=snap.data();
-      /* Auto-migrate ONCE: move sales/tasks fields to separate docs */
+      /* Auto-migrate ONCE: COPY sales/tasks to separate docs (keep in config until confirmed) */
       if(!migrated&&(d.custDeliverySessions||d.packages||d.tasks||d.stickyNotes||d.inventoryAudits)){migrated=true;
         const salesData={custDeliverySessions:d.custDeliverySessions||[],packages:d.packages||[]};
         const tasksData={tasks:d.tasks||[],stickyNotes:d.stickyNotes||[],inventoryAudits:d.inventoryAudits||[]};
-        const clean={...d};delete clean.custDeliverySessions;delete clean.packages;delete clean.tasks;delete clean.stickyNotes;delete clean.inventoryAudits;
-        Promise.all([setDoc(doc(db,"factory","sales"),salesData),setDoc(doc(db,"factory","tasks"),tasksData),setDoc(doc(db,"factory","config"),clean)]).then(()=>console.log("✅ Migration complete")).catch(e=>console.error("Migration error:",e))}
+        Promise.all([setDoc(doc(db,"factory","sales"),salesData),setDoc(doc(db,"factory","tasks"),tasksData)]).then(()=>{
+          /* Only clean config AFTER sales+tasks are confirmed written */
+          const clean={...d};delete clean.custDeliverySessions;delete clean.packages;delete clean.tasks;delete clean.stickyNotes;delete clean.inventoryAudits;
+          setDoc(doc(db,"factory","config"),clean);console.log("✅ Migration complete")}).catch(e=>console.error("Migration error:",e))}
       setConfigDoc(d)}else setDoc(doc(db,"factory","config"),INIT_CONFIG)});
     /* Sales doc */
     const u2=onSnapshot(doc(db,"factory","sales"),snap=>{if(snap.exists())setSalesDoc(snap.data())});
@@ -1261,6 +1263,7 @@ export default function App(){
       const targets=allUsers.find(u=>u.email===me.email)?allUsers:[me,...allUsers];
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setQuickPopup(null);setQpTo("");setQpText("");setQpType("تذكير")}}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:20,width:"100%",maxWidth:380,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:4}}><Btn ghost small onClick={()=>{setQuickPopup(null);setQpTo("");setQpText("");setQpType("تذكير")}}>✕</Btn></div>
         <div style={{display:"flex",gap:0,marginBottom:14,borderRadius:10,overflow:"hidden",border:"1px solid "+T.brd}}>
           <div onClick={()=>{setQuickPopup("task");setQpTo("");setQpText("")}} style={{flex:1,padding:"8px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:quickPopup==="task"?T.accent:T.bg,color:quickPopup==="task"?"#fff":T.text}}>📌 مهمة</div>
           <div onClick={()=>{setQuickPopup("notif");setQpTo("all");setQpText("")}} style={{flex:1,padding:"8px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:quickPopup==="notif"?"#8B5CF6":T.bg,color:quickPopup==="notif"?"#fff":T.text}}>📩 اشعار</div>
@@ -3442,7 +3445,7 @@ function StockPg({data,updOrder,isMob,canEdit,statusCards,user}){
     {/* Limit exceeded popup */}
     {showLimitPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowLimitPopup(null)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:480,border:"1px solid "+T.err+"40",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
-        <div style={{fontSize:FS+2,fontWeight:800,color:T.err,marginBottom:12}}>⚠️ لا يمكن تسليم {showLimitPopup.requested} طقم</div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}><div style={{fontSize:FS+2,fontWeight:800,color:T.err}}>⚠️ لا يمكن تسليم {showLimitPopup.requested} طقم</div><Btn ghost small onClick={()=>setShowLimitPopup(null)}>✕</Btn></div>
         <div style={{fontSize:FS,color:T.text,marginBottom:12}}>{"الحد الأقصى للطقم الكامل: "+showLimitPopup.max+" طقم فقط"}</div>
         <div style={{fontSize:FS-1,color:T.textSec,marginBottom:12}}>السبب: عدد القطع المستلمة من الورش غير متساوي. الطقم الكامل = أقل قطعة مستلمة.</div>
         <div style={{overflowX:"auto",marginBottom:12}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["القطعة","مستلم من الورش","الحالة"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead>
@@ -4273,7 +4276,14 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
         {canEdit&&crd("📥","استلام جاهز","#0EA5E9",()=>setStockRcv({items:{},scanning:false}))}
       </div>})()}
     {/* Active Session Matrix - Popup */}
-    {activeSess&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:24}} onClick={()=>closeMatrix()}>
+    {activeSess&&aMods.length===0&&aCusts.length===0&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setActiveSession(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,textAlign:"center",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{fontSize:40,marginBottom:8}}>📭</div>
+        <div style={{fontSize:FS+1,fontWeight:700,color:T.textSec,marginBottom:12}}>جاري تحميل البيانات...</div>
+        <Btn ghost onClick={()=>setActiveSession(null)}>✕ إغلاق</Btn>
+      </div>
+    </div>}
+    {activeSess&&(aMods.length>0||aCusts.length>0)&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:24}} onClick={()=>closeMatrix()}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,width:"100%",maxWidth:isMob?"100%":window.innerWidth-48,maxHeight:"92vh",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
         <div style={{padding:isMob?"12px 16px":"16px 24px",borderBottom:"1px solid "+T.brd,flexShrink:0}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -4578,7 +4588,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
       </div>})()}
     {/* Customer Statement Popup */}
     {custStatement==="pick"&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setCustStatement(null)}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:450,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:500,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
           <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>📄 كشف حساب — اختر العميل</div>
           <Btn ghost small onClick={()=>setCustStatement(null)} title="إغلاق">✕</Btn>
@@ -5777,7 +5787,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
     {/* Return Popup */}
     {returnPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setReturnPopup(null)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
-        <div style={{fontSize:FS+2,fontWeight:800,color:T.err,marginBottom:12}}>{"↩️ مرتجع — "+returnPopup.custName}</div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}><div style={{fontSize:FS+2,fontWeight:800,color:T.err}}>{"↩️ مرتجع — "+returnPopup.custName}</div><Btn ghost small onClick={()=>setReturnPopup(null)}>✕</Btn></div>
         {returnPopup.models&&returnPopup.models.length>1&&<div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>اختر الموديل</label>
           <Sel value={returnPopup.orderId} onChange={v=>{const m=returnPopup.models.find(x=>x.id===v);setReturnPopup(p=>({...p,orderId:v,modelNo:m?.modelNo||""}))}}>
             {returnPopup.models.map(m=><option key={m.id} value={m.id}>{m.modelNo}</option>)}
@@ -5791,7 +5801,7 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
     {/* Customer QR Popup */}
     {custQR&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setCustQR(null)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:320,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",textAlign:"center"}}>
-        <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,marginBottom:8}}>{"👤 "+custQR.name}</div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{"👤 "+custQR.name}</div><Btn ghost small onClick={()=>setCustQR(null)}>✕</Btn></div>
         <div style={{fontSize:FS-1,color:T.textMut,marginBottom:12}}>{custQR.phone}</div>
         <img src={custQR.src} style={{width:200,height:200,borderRadius:12,border:"1px solid "+T.brd}}/>
         <div style={{marginTop:12,fontSize:FS-2,color:T.textMut}}>مسح الكود = فتح تسليمات العميل</div>
