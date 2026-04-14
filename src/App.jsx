@@ -4056,6 +4056,8 @@ function CustDeliverPg({data,upConfig,updOrder,isMob,isTab,canEdit,user}){
     printPage("تسليم عملاء — "+sess.date,h)};
 
   const custTotalsMap=useMemo(()=>{const m=new Map();(config.customers||[]).forEach(c=>{let t=0;orders.forEach(o=>{const d=(o.customerDeliveries||[]).filter(x=>x.custId===c.id).reduce((s,x)=>s+(Number(x.qty)||0),0);const r=(o.customerReturns||[]).filter(x=>x.custId===c.id).reduce((s,x)=>s+(Number(x.qty)||0),0);t+=d-r});m.set(c.id,t)});return m},[orders,config.customers]);
+  const getDeliveredForSess=(custId,sessId,orderId)=>{const o=orders.find(x=>x.id===orderId);if(!o)return 0;return(o.customerDeliveries||[]).filter(d=>d.custId===custId&&d.sessionId===sessId).reduce((s,d)=>s+(Number(d.qty)||0),0)};
+  const getRemainingForSess=(custId,sessId,orderId,grid)=>{const planned=Number(grid[orderId+"_"+custId])||0;const delivered=getDeliveredForSess(custId,sessId,orderId);return Math.max(0,planned-delivered)};
   const getCustTotal=(custId)=>custTotalsMap.get(custId)||orders.reduce((s,o)=>{const del=(o.customerDeliveries||[]).filter(d=>d.custId===custId).reduce((ss,d)=>ss+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).filter(r=>r.custId===custId).reduce((ss,r)=>ss+(Number(r.qty)||0),0);return s+del-ret},0);
   const sortedSessions=useMemo(()=>[...sessions].sort((a,b)=>(b.createdAt||b.date||"").localeCompare(a.createdAt||a.date||"")),[sessions]);
   const activeSess=sessions.find(s=>s.id===activeSession);
