@@ -884,7 +884,7 @@ export default function App(){
     /* Tasks doc */
     const u3=onSnapshot(doc(db,"factory","tasks"),snap=>{if(snap.exists()){tasksReady=true;setTasksDoc(snap.data())}});
     return()=>{u1();u2();u3()}},[user]);
-  useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>({_docId:d.id,...d.data()})).filter(o=>o.id&&o.modelNo));setDataLoading(false)});return()=>unsub()},[user,season]);
+  useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>({_docId:d.id,...d.data()})).filter(o=>o.id));setDataLoading(false)});return()=>unsub()},[user,season]);
 
   const upConfig=useCallback(fn=>{setConfigDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);setDoc(doc(db,"factory","config"),next,{merge:true}).catch(e=>console.error("upConfig error:",e));return next}catch(e){console.error("upConfig error:",e);showToast("⚠️ خطأ في الحفظ");return prev}})},[]);
   const upSales=useCallback(fn=>{setSalesDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);setDoc(doc(db,"factory","sales"),next,{merge:true}).catch(e=>console.error("upSales error:",e));return next}catch(e){console.error("upSales error:",e);showToast("⚠️ خطأ في الحفظ");return prev}})},[]);
