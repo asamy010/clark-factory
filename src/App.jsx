@@ -1231,6 +1231,7 @@ export default function App(){
                   </div>)}</div>
                   {myTasks.length>8&&<div style={{textAlign:"center",marginTop:6}}><span onClick={()=>goTo("tasks")} style={{cursor:"pointer",fontSize:FS-2,color:"#92400E",fontWeight:700}}>{"عرض الكل ("+myTasks.length+")"}</span></div>}
                 </div>:<div style={{textAlign:"center",padding:20,color:T.textMut,fontSize:FS-1}}>{"📌 لا توجد مهام"}</div>}</div>})()}
+              <div style={{marginTop:12}}><ActivityFeed orders={data.orders} config={config} user={user} isMob={false}/></div>
             </div>
           </div>
           :<div>{/* ══ Mobile ══ */}
@@ -1251,6 +1252,7 @@ export default function App(){
                   <div style={{flex:1}}><div style={{fontSize:FS-1,fontWeight:600,color:"#1C1917"}}>{t.text}</div><div style={{fontSize:FS-3,color:"#78716C"}}>{"من: "+(t.fromName||"—")}</div></div>
                 </div>)}</div>
               </div></div>})()}
+            <div style={{marginTop:12}}><ActivityFeed orders={data.orders} config={config} user={user} isMob={true}/></div>
             <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"center",flexWrap:"wrap"}}>
               <div onClick={()=>setQuickPopup("task")} style={{cursor:"pointer",padding:"10px 16px",borderRadius:12,background:T.accent+"10",border:"1px solid "+T.accent+"25",display:"flex",alignItems:"center",gap:6}}>
                 <span style={{fontSize:16}}>📌</span><span style={{fontSize:FS-1,fontWeight:700,color:T.accent}}>مهمة</span>
@@ -1486,8 +1488,53 @@ export default function App(){
       </div>})()}
   </div>
 }
+
+function ActivityFeed({orders,config,user,isMob}){
+  const[dismissed,setDismissed]=useState(()=>{try{return JSON.parse(localStorage.getItem("clark_act_dismissed")||"[]")}catch(e){return[]}});
+  const dismiss=(id)=>{const n=[...dismissed,id];setDismissed(n);try{localStorage.setItem("clark_act_dismissed",JSON.stringify(n.slice(-200)))}catch(e){}};
+  const isAdmin=(config.usersList||[]).find(u=>u.email===user?.email)?.role==="admin";
+  if(!isAdmin)return null;
+  const myName=user?.displayName||(user?.email||"").split("@")[0];
+  const now=Date.now();const cutoff=now-48*60*60*1000;const acts=[];
+  orders.forEach(o=>{const mn=o.modelNo||"";
+    /* Workshop deliveries */
+    (o.workshopDeliveries||[]).forEach(wd=>{const d=new Date(wd.date||wd.createdAt||o.date).getTime();if(d>cutoff&&wd.createdBy&&wd.createdBy!==myName){
+      acts.push({id:"wd_"+o.id+"_"+wd.date+"_"+(wd.garmentType||""),time:d,icon:"🔵",text:wd.createdBy+" سلّم ورشة "+wd.wsName,detail:mn+" | "+(wd.garmentType||"عام")+" | "+wd.qty+" قطعة"})}
+      /* Receives */
+      ;(wd.receives||[]).forEach(r=>{const rd=new Date(r.date||r.createdAt||"").getTime();if(rd>cutoff&&r.createdBy&&r.createdBy!==myName){
+        acts.push({id:"rcv_"+o.id+"_"+r.date+"_"+(wd.garmentType||""),time:rd,icon:"🟢",text:(r.createdBy||"")+" استلم من ورشة "+wd.wsName,detail:mn+" | "+r.qty+" قطعة"})}})});
+    /* Stock deliveries */
+    (o.deliveries||[]).forEach((dl,di)=>{const d=new Date(dl.date||"").getTime();
+      if(d>cutoff&&dl.createdBy&&dl.createdBy!==myName&&dl.status==="pending"){acts.push({id:"stk_"+o.id+"_"+di,time:d,icon:"🟠",text:dl.createdBy+" سلّم المخزن",detail:mn+" | "+dl.qty+" قطعة"})}
+      if(dl.confirmedAt){const cd=new Date(dl.confirmedAt).getTime();if(cd>cutoff&&dl.confirmedBy&&dl.confirmedBy!==myName){acts.push({id:"cfm_"+o.id+"_"+di,time:cd,icon:"✅",text:dl.confirmedBy+" أكد استلام المخزن",detail:mn+" | "+dl.qty+" قطعة"})}}});
+    /* Customer deliveries */
+    (o.customerDeliveries||[]).forEach((cd,ci)=>{const d=new Date(cd.date||"").getTime();if(d>cutoff&&cd.by&&cd.by!==myName){
+      acts.push({id:"sale_"+o.id+"_"+ci,time:d,icon:"💰",text:cd.by+" بيع فعلي",detail:mn+" | "+(cd.custName||"عميل")+" | "+cd.qty+" قطعة"})}});
+    /* New order */
+    if(o.createdAt){const d=new Date(o.createdAt).getTime();if(d>cutoff){const by=o.createdBy||"";if(by&&by!==myName)acts.push({id:"new_"+o.id,time:d,icon:"📋",text:by+" سجّل أوردر جديد",detail:mn+" — "+(o.modelDesc||"")})}}
+  });
+  acts.sort((a,b)=>b.time-a.time);
+  const visible=acts.filter(a=>!dismissed.includes(a.id)).slice(0,12);
+  if(visible.length===0)return<div style={{textAlign:"center",padding:16,color:T.textMut,fontSize:FS-1}}>✅ لا توجد حركات جديدة</div>;
+  return<div style={{background:T.cardSolid,borderRadius:16,border:"1px solid "+T.brd,padding:isMob?12:14,boxShadow:T.shadow}}>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+      <div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:16}}>🔔</span><span style={{fontSize:FS,fontWeight:800,color:T.accent}}>{"آخر الحركات ("+visible.length+")"}</span></div>
+      {visible.length>0&&<span onClick={()=>{visible.forEach(a=>dismiss(a.id))}} style={{fontSize:FS-2,color:T.textMut,cursor:"pointer",fontWeight:600}}>مسح الكل ×</span>}
+    </div>
+    <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:isMob?300:400,overflowY:"auto"}}>
+      {visible.map(a=><div key={a.id} style={{display:"flex",gap:8,padding:"6px 8px",borderRadius:8,background:T.bg+"80",border:"1px solid "+T.brd+"40",fontSize:FS-1}}>
+        <span style={{fontSize:14,flexShrink:0}}>{a.icon}</span>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontWeight:700,color:T.text,lineHeight:1.3}}>{a.text}</div>
+          <div style={{fontSize:FS-2,color:T.textMut,lineHeight:1.3}}>{a.detail}</div>
+        </div>
+        <span onClick={()=>dismiss(a.id)} style={{cursor:"pointer",color:T.textMut,fontSize:12,flexShrink:0,padding:"0 2px"}}>×</span>
+      </div>)}
+    </div>
+  </div>}
+
 function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,setCardPopup,setWsAccPopup}){
-  const orders=data.orders;
+  const orders=data.orders;const[_actR,_setActR]=useState(0);
 
   /* ═══ MEMOIZED COMPUTATIONS ═══ */
   const stats=useMemo(()=>{
@@ -1717,6 +1764,40 @@ function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,setCardPo
         <tr style={{background:T.accent+"06"}}><td colSpan={2} style={{...TD,fontWeight:800}}>الاجمالي</td><td style={TDB}>{fmt(tDel)}</td><td style={{...TDB,color:T.ok}}>{fmt(tRcv)}</td><td style={{...TDB,color:T.err}}>{fmt(tWaste)}</td><td style={{...TDB,color:T.err}}>{(tDel?Math.round((tWaste/tDel)*100):0)+"%"}</td><td style={{...TDB,color:T.accent}}>{fmt(r2(tAmt))}</td><td style={{...TDB,color:tBal>0?T.err:T.ok}}>{fmt(r2(tBal))}</td></tr>
         </tbody></table></div></div>:<div style={{textAlign:"center",color:T.textMut,padding:20}}>لا توجد ورش</div>})()}
     </Card>
+    {/* ═══ Activity Feed ═══ */}
+    {(()=>{const myName=user?.displayName||user?.email?.split("@")[0]||"";const cutoff=new Date(Date.now()-24*60*60*1000).toISOString();
+      const acts=[];
+      orders.forEach(o=>{const mn=o.modelNo;
+        /* Workshop deliveries */
+        (o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>=cutoff.split("T")[0]&&wd.createdBy&&wd.createdBy!==myName)acts.push({type:"wsDel",icon:"🔵",color:"#0EA5E9",by:wd.createdBy,text:"سلّم ورشة "+wd.wsName+" — "+(wd.garmentType||"")+" "+wd.qty+" قطعة",model:mn,date:wd.date,ts:wd.createdAt||wd.date,qty:Number(wd.qty)||0});
+          (wd.receives||[]).forEach(r=>{if(r.date>=cutoff.split("T")[0]&&r.createdBy&&r.createdBy!==myName)acts.push({type:"wsRcv",icon:"🟢",color:"#10B981",by:r.createdBy,text:"استلم من "+wd.wsName+" — "+r.qty+" قطعة",model:mn,date:r.date,ts:r.createdAt||r.date,qty:Number(r.qty)||0})})});
+        /* Stock deliveries */
+        (o.deliveries||[]).forEach(d=>{if(d.date>=cutoff.split("T")[0]&&d.createdBy&&d.createdBy!==myName){
+          if(d.status==="pending")acts.push({type:"stockDel",icon:"🟠",color:"#F59E0B",by:d.createdBy,text:"سلّم المخزن — "+d.qty+" قطعة",model:mn,date:d.date,ts:d.createdAt||d.date,qty:Number(d.qty)||0});
+          if(d.confirmedAt&&d.confirmedAt>=cutoff&&d.confirmedBy&&d.confirmedBy!==myName)acts.push({type:"stockConf",icon:"✅",color:"#10B981",by:d.confirmedBy,text:"أكد استلام — "+d.qty+" قطعة",model:mn,date:d.confirmedAt?.split("T")[0],ts:d.confirmedAt,qty:Number(d.qty)||0})}});
+        /* Customer deliveries */
+        (o.customerDeliveries||[]).forEach(d=>{if(d.date>=cutoff.split("T")[0]&&d.by&&d.by!==myName)acts.push({type:"custDel",icon:"💰",color:"#8B5CF6",by:d.by,text:"بيع "+(d.custName||"عميل")+" — "+d.qty+" قطعة",model:mn,date:d.date,ts:d.createdAt||d.date,qty:Number(d.qty)||0})});
+        /* New order */
+        if(o.createdAt&&o.createdAt>=cutoff&&o.createdBy&&o.createdBy!==myName)acts.push({type:"newOrder",icon:"📋",color:T.accent,by:o.createdBy,text:"سجّل أوردر جديد — "+mn,model:mn,date:o.date,ts:o.createdAt,qty:calcOrder(o).cutQty})
+      });
+      /* Group by user+type */
+      const groups={};acts.forEach(a=>{const k=a.by+"|"+a.type;if(!groups[k])groups[k]={...a,count:1,totalQty:a.qty,models:new Set([a.model])};else{groups[k].count++;groups[k].totalQty+=a.qty;groups[k].models.add(a.model);if(a.ts>groups[k].ts)groups[k].ts=a.ts}});
+      const grouped=Object.values(groups).map(g=>{if(g.count>1){const mList=[...g.models];return{...g,text:g.type==="wsDel"?g.by+" سلّم "+g.count+" حركة للورش ("+fmt(g.totalQty)+" قطعة)":g.type==="wsRcv"?g.by+" استلم "+g.count+" حركة من الورش ("+fmt(g.totalQty)+" قطعة)":g.type==="stockDel"?g.by+" سلّم المخزن "+mList.length+" موديل ("+fmt(g.totalQty)+" قطعة)":g.type==="stockConf"?g.by+" أكد استلام "+mList.length+" موديل ("+fmt(g.totalQty)+" قطعة)":g.type==="custDel"?g.by+" باع "+g.count+" حركة ("+fmt(g.totalQty)+" قطعة)":g.by+" سجّل "+g.count+" أوردر ("+fmt(g.totalQty)+" قطعة)",model:mList.length<=3?mList.join("، "):mList.length+" موديل"}}return{...g,text:g.by+" "+g.text}}).sort((a,b)=>(b.ts||"").localeCompare(a.ts||"")).slice(0,15);
+      const dismissed=JSON.parse(localStorage.getItem("clark_act_dismissed")||"[]");const visible=grouped.filter(g=>!dismissed.includes(g.by+"|"+g.type+"|"+g.ts));
+      const dismissAct=(g)=>{const key=g.by+"|"+g.type+"|"+g.ts;const d=JSON.parse(localStorage.getItem("clark_act_dismissed")||"[]");d.push(key);if(d.length>100)d.splice(0,50);localStorage.setItem("clark_act_dismissed",JSON.stringify(d))};
+      if(visible.length===0)return null;
+      return<Card title={"🔔 آخر الحركات ("+visible.length+")"} style={{marginTop:12}}>
+        <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:300,overflowY:"auto"}}>
+          {visible.map((g,i)=><div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"8px 10px",borderRadius:10,background:g.color+"06",border:"1px solid "+g.color+"15",transition:"opacity 0.3s"}}>
+            <span style={{fontSize:16,flexShrink:0}}>{g.icon}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:FS-1,fontWeight:700,color:T.text}}>{g.text}</div>
+              <div style={{fontSize:FS-3,color:T.textMut}}>{g.model+(g.date?" — "+g.date:"")}</div>
+            </div>
+            <span onClick={()=>{dismissAct(g);_setActR(p=>p+1)}} style={{cursor:"pointer",fontSize:12,color:T.textMut,padding:"2px 6px",borderRadius:4,flexShrink:0}}>✕</span>
+          </div>)}
+        </div>
+      </Card>})()}
     <Card title="🗄️ معلومات قاعدة البيانات" style={{marginTop:12}}>
       {(()=>{
         const _cfg={...data};delete _cfg.custDeliverySessions;delete _cfg.packages;delete _cfg.tasks;delete _cfg.stickyNotes;delete _cfg.inventoryAudits;delete _cfg.orders;
