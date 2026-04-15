@@ -759,8 +759,9 @@ export default function App(){
     orders.forEach(o=>{if(o.closed||o.status==="تم التسليم"||o.status==="تم الشحن")return;const wds=o.workshopDeliveries||[];let lastDate=o.date;wds.forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});const days=Math.floor((now-new Date(lastDate))/(86400000));
       if(days>7)a.push({icon:"🔴",text:"موديل "+o.modelNo+" واقف من "+days+" يوم",type:"late",orderId:o.id})});
     /* 2. أوردرات جاهزة للغلق */
-    orders.forEach(o=>{(o.deliveries||[]).filter(d=>d.status==="pending").forEach(d=>{a.push({icon:"⏳",text:"موديل "+o.modelNo+": "+d.qty+" قطعة في انتظار تأكيد أمين المخزن",type:"info",orderId:o.id})})});
-    orders.forEach(o=>{(o.deliveries||[]).filter(d=>d.confirmedAt&&d.confirmedAt>new Date(Date.now()-24*60*60*1000).toISOString()).forEach(d=>{a.push({icon:"✅",text:"تم تأكيد استلام "+(d.confirmedQty||d.qty)+" قطعة من موديل "+o.modelNo+(d.confirmedBy?" بواسطة "+d.confirmedBy:""),type:"ready",orderId:o.id})})});
+    const _userName=user?.displayName||user?.email?.split("@")[0]||"";
+    orders.forEach(o=>{(o.deliveries||[]).filter(d=>d.status==="pending"&&d.createdBy===_userName).forEach(d=>{a.push({icon:"⏳",text:"موديل "+o.modelNo+": "+d.qty+" قطعة في انتظار تأكيد أمين المخزن",type:"info",orderId:o.id})})});
+    orders.forEach(o=>{(o.deliveries||[]).filter(d=>d.confirmedAt&&d.confirmedAt>new Date(Date.now()-24*60*60*1000).toISOString()&&d.createdBy===_userName).forEach(d=>{a.push({icon:"✅",text:"تم تأكيد استلام "+(d.confirmedQty||d.qty)+" قطعة من موديل "+o.modelNo+(d.confirmedBy?" بواسطة "+d.confirmedBy:""),type:"ready",orderId:o.id})})});
     orders.forEach(o=>{if(o.closed)return;const t=calcOrder(o);const stockDel=getConfirmedStock(o);if(t.cutQty>0&&stockDel>=t.cutQty)a.push({icon:"✅",text:"موديل "+o.modelNo+" كامل — جاهز للغلق",type:"ready",orderId:o.id})});
     /* 3. هالك كبير (>5%) */
     orders.forEach(o=>{if(o.closed||!o.settlement)return;const t=calcOrder(o);if(t.cutQty>0){const pct=Math.round((o.settlement.qty/t.cutQty)*100);if(pct>5)a.push({icon:"⚠️",text:"موديل "+o.modelNo+" فيه "+pct+"% هالك ("+o.settlement.qty+" قطعة)",type:"waste"})}});
@@ -4145,11 +4146,11 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
     setCellError("");
     const o=orders.find(x=>x.id===orderId);if(!o)return;
     const sm=stockModels.find(m=>m.id===orderId);if(!sm)return;
-    const sess=sessions.find(s=>s.id===sessId);if(!sess)return;
-    const otherCustQty=Object.entries(sess.grid||{}).filter(([k])=>{const[oid]=k.split("_");return oid===orderId&&k!==orderId+"_"+custId}).reduce((s,[_,v])=>s+(Number(v)||0),0);
-    const availStock=sm.avail||0;const maxQ=availStock-otherCustQty;
-    if(newQty>maxQ&&newQty>0){playBeep("error");showToast("⚠️ "+o.modelNo+": المتاح = "+availStock+" — الحد = "+Math.max(0,maxQ));setCellError("الحد "+Math.max(0,maxQ));return}
-    const qty=Math.min(Math.max(0,newQty),Math.max(0,maxQ));
+    const availStock=sm.avail||0;
+    /* Warn if total plan exceeds stock, but don't block — plan is not actual sale */
+    if(newQty>availStock&&newQty>0){const sess=sessions.find(s=>s.id===sessId);const otherQ=Object.entries(sess?.grid||{}).filter(([k])=>{const[oid]=k.split("_");return oid===orderId&&k!==orderId+"_"+custId}).reduce((s,[_,v])=>s+(Number(v)||0),0);
+      if(newQty+otherQ>availStock){showToast("⚠️ "+o.modelNo+": اجمالي الخطة ("+(newQty+otherQ)+") أكبر من المتاح ("+availStock+") — تحذير فقط")}}
+    const qty=Math.max(0,newQty);
     /* Plan only — update grid, NO customerDeliveries */
     upSales(d=>{const si=d.custDeliverySessions.findIndex(s=>s.id===sessId);if(si<0)return;if(!d.custDeliverySessions[si].grid)d.custDeliverySessions[si].grid={};
       if(qty>0)d.custDeliverySessions[si].grid[orderId+"_"+custId]=qty;
