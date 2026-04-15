@@ -4412,6 +4412,20 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
         {crd("📋","تقرير الموسم","#EF4444",()=>setSeasonReport(true))}
         {crd("🏪","جرد المخزن","#8B5CF6",()=>setInvAudit({items:{},scanning:false}))}
         {crd("📊","مراجعة الأرصدة","#EC4899",()=>setBalReview(true))}
+        {(()=>{const existingIds=new Set(sessions.map(s=>s.id));const orphans={};
+          orders.forEach(o=>{(o.customerDeliveries||[]).forEach(d=>{if(d.sessionId&&!existingIds.has(d.sessionId)){
+            if(!orphans[d.sessionId])orphans[d.sessionId]={id:d.sessionId,custIds:new Set(),modelIds:new Set(),grid:{},dates:[],total:0};
+            const orp=orphans[d.sessionId];orp.custIds.add(d.custId);orp.modelIds.add(o.id);
+            const k=o.id+"_"+d.custId;orp.grid[k]=(orp.grid[k]||0)+(Number(d.qty)||0);
+            if(d.date)orp.dates.push(d.date);orp.total+=(Number(d.qty)||0)}})});
+          const oList=Object.values(orphans);
+          return oList.length>0?crd("🔄","استعادة توزيعة ("+oList.length+")","#EF4444",()=>{
+            if(!confirm("تم العثور على "+oList.length+" توزيعة محذوفة ("+oList.reduce((s,o)=>s+o.total,0)+" قطعة).\n\nهل تريد استعادتها؟"))return;
+            oList.forEach(orp=>{const date=orp.dates.sort()[0]||new Date().toISOString().split("T")[0];
+              upSales(d=>{if(!d.custDeliverySessions)d.custDeliverySessions=[];
+                d.custDeliverySessions.push({id:orp.id,date,modelIds:[...orp.modelIds],custIds:[...orp.custIds],grid:orp.grid,
+                  status:"جاري التجهيز",saleConfirmed:true,createdBy:"RECOVERY",createdAt:new Date().toISOString(),recoveredAt:new Date().toISOString()})})});
+            showToast("✅ تم استعادة "+oList.length+" توزيعة بنجاح")}):null})()}
         {(()=>{const pCount=orders.reduce((s,o)=>s+(o.deliveries||[]).filter(d=>d.status==="pending").length,0);return crd("📥",pCount>0?"تأكيد استلام ⏳"+pCount:"تأكيد استلام","#10B981",()=>setPendingRcv({items:{}}))})()}
 
       </div>})()}
