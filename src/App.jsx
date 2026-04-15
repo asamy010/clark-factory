@@ -1162,18 +1162,18 @@ export default function App(){
       {/* HOME SCREEN */}
       {tab==="home"&&<div>
           <div style={{textAlign:"center",marginBottom:isMob?14:20}}><h1 style={{fontSize:isMob?22:32,fontWeight:800,color:T.text,margin:0}}>{"مرحباً، "+userName}</h1></div>
-          {/* ══ Desktop: 3-column layout ══ */}
-          {!isMob?<div style={{display:"flex",gap:16,maxWidth:1200,margin:"0 auto",alignItems:"flex-start"}}>
-            {/* ── Left 25%: Sticky Notes ── */}
-            <div style={{flex:"0 0 24%",minWidth:0}}>
+          {/* ══ Desktop: 4-column layout ══ */}
+          {!isMob?<div style={{display:"flex",gap:12,maxWidth:1400,margin:"0 auto",alignItems:"flex-start"}}>
+            {/* ── Left 15%: Sticky Notes ── */}
+            <div style={{flex:"0 0 15%",minWidth:0,display:"flex",flexDirection:"column",alignItems:"center"}}>
               {(()=>{const uemail=user?.email||"";const COLORS=[{key:"#FEF9C3",border:"#EAB308",name:"أصفر"},{key:"#DBEAFE",border:"#3B82F6",name:"أزرق"},{key:"#DCFCE7",border:"#22C55E",name:"أخضر"},{key:"#FCE7F3",border:"#EC4899",name:"وردي"},{key:"#EDE9FE",border:"#8B5CF6",name:"بنفسجي"},{key:"#FFEDD5",border:"#F97316",name:"برتقالي"}];
                 const allNotes=(config.stickyNotes||[]);const myNotes=allNotes.filter(n=>n.email===uemail);
                 const saveNote=(note)=>{upTasks(d=>{if(!d.stickyNotes)d.stickyNotes=[];const idx=d.stickyNotes.findIndex(n=>n.id===note.id);if(idx>=0)d.stickyNotes[idx]=note;else{if(d.stickyNotes.filter(n=>n.email===uemail).length>=20){showToast("⚠️ الحد الاقصى 20 ملاحظة");return}d.stickyNotes.push(note)}});setStickyForm(null);showToast("✓ تم الحفظ")};
                 const delNote=(id)=>{upTasks(d=>{d.stickyNotes=(d.stickyNotes||[]).filter(n=>n.id!==id)})};
-                return<div style={{width:"100%",maxWidth:220,margin:"0 auto"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-                    <span style={{fontSize:FS,fontWeight:700,color:T.textSec}}>{"📝 ملاحظاتي"+(myNotes.length>0?" ("+myNotes.length+"/20)":"")}</span>
-                    <span onClick={()=>setStickyForm({id:gid(),email:uemail,title:"",text:"",color:"#FEF9C3",date:new Date().toISOString().split("T")[0]})} style={{cursor:"pointer",fontSize:FS-2,padding:"3px 10px",borderRadius:6,background:T.accent+"12",color:T.accent,fontWeight:700}}>+</span>
+                return<div style={{width:"100%"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}>
+                    <span style={{fontSize:FS-1,fontWeight:700,color:T.textSec}}>{"📝 ملاحظاتي"+(myNotes.length>0?" ("+myNotes.length+"/20)":"")}</span>
+                    <span onClick={()=>setStickyForm({id:gid(),email:uemail,title:"",text:"",color:"#FEF9C3",date:new Date().toISOString().split("T")[0]})} style={{cursor:"pointer",fontSize:FS-2,padding:"3px 8px",borderRadius:6,background:T.accent+"12",color:T.accent,fontWeight:700}}>+</span>
                   </div>
                   {stickyForm&&<div style={{background:stickyForm.color,borderRadius:10,padding:10,border:"2px solid "+(COLORS.find(c=>c.key===stickyForm.color)?.border||"#EAB308")+"40",marginBottom:10,boxShadow:"0 2px 10px rgba(0,0,0,0.06)"}}>
                     <div style={{display:"flex",gap:3,marginBottom:6}}>{COLORS.map(c=><div key={c.key} onClick={()=>setStickyForm(p=>({...p,color:c.key}))} style={{width:16,height:16,borderRadius:4,background:c.key,border:stickyForm.color===c.key?"2px solid "+c.border:"1px solid #ccc",cursor:"pointer"}}/>)}</div>
@@ -1196,8 +1196,8 @@ export default function App(){
                   </div>
                 </div>})()}
             </div>
-            {/* ── Center 45%: App Grid + Actions ── */}
-            <div style={{flex:"0 0 45%",minWidth:0}}>
+            {/* ── Center 50%: App Grid + Actions ── */}
+            <div style={{flex:"0 0 50%",minWidth:0}}>
               <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:12}}>
                 {[...TABS.filter(t=>canViewTab(t.key))].sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0).map(t=>{const perm=getTabPerm(t.key);return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:"16px 8px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s",opacity:perm==="view"?0.75:1,position:"relative",aspectRatio:"1"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow}}>
                   <div style={{width:48,height:48,borderRadius:14,background:t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 8px",fontSize:24}}>{t.icon}</div>
@@ -1217,18 +1217,16 @@ export default function App(){
                 </div>
               </div>
             </div>
-            {/* ── Right 30%: Activity Feed + Tasks side by side ── */}
-            <div style={{flex:"0 0 30%",minWidth:0,display:"flex",gap:8,alignItems:"flex-start"}}>
-              {/* Activity Feed - next to buttons */}
-              <div style={{flex:"1 1 50%",minWidth:0}}>
-                <ActivityFeed orders={data.orders} config={config} user={user} isMob={false}/>
-              </div>
-              {/* Tasks - far right */}
-              <div style={{flex:"1 1 50%",minWidth:0}}>
+            {/* ── 20%: Activity Feed ── */}
+            <div style={{flex:"0 0 20%",minWidth:0,display:"flex",flexDirection:"column",alignItems:"center"}}>
+              <div style={{width:"100%"}}><ActivityFeed orders={data.orders} config={config} user={user} isMob={false}/></div>
+            </div>
+            {/* ── Right 15%: Tasks ── */}
+            <div style={{flex:"0 0 15%",minWidth:0,display:"flex",flexDirection:"column",alignItems:"center"}}>
               {(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
-                return<div>{myTasks.length>0?<div style={{background:"#FEF9C3",borderRadius:16,border:"1px solid #EAB30830",padding:14,boxShadow:"0 2px 8px rgba(234,179,8,0.08)"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}><span style={{fontSize:16}}>📌</span><span style={{fontSize:FS-1,fontWeight:800,color:"#92400E"}}>{"مهامي ("+myTasks.length+")"}</span></div>
-                  <div style={{display:"flex",flexDirection:"column",gap:5}}>{myTasks.slice(0,8).map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:5,padding:"6px 8px",borderRadius:8,background:"rgba(255,255,255,0.7)",border:"1px solid #EAB30820"}}>
+                return<div style={{width:"100%"}}>{myTasks.length>0?<div style={{background:"#FEF9C3",borderRadius:16,border:"1px solid #EAB30830",padding:12,boxShadow:"0 2px 8px rgba(234,179,8,0.08)"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:8}}><span style={{fontSize:15}}>📌</span><span style={{fontSize:FS-1,fontWeight:800,color:"#92400E"}}>{"مهامي ("+myTasks.length+")"}</span></div>
+                  <div style={{display:"flex",flexDirection:"column",gap:5}}>{myTasks.slice(0,8).map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:5,padding:"5px 7px",borderRadius:8,background:"rgba(255,255,255,0.7)",border:"1px solid #EAB30820"}}>
                     <span onClick={()=>upTasks(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const tk=arr.find(x=>x.id===t.id);if(tk){tk.done=true;tk.doneAt=new Date().toISOString()}})} style={{cursor:"pointer",fontSize:14,flexShrink:0,marginTop:1}}>⬜</span>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:FS-2,fontWeight:600,color:"#1C1917",lineHeight:1.3}}>{t.text}</div>
@@ -1236,8 +1234,7 @@ export default function App(){
                     </div>
                   </div>)}</div>
                   {myTasks.length>8&&<div style={{textAlign:"center",marginTop:6}}><span onClick={()=>goTo("tasks")} style={{cursor:"pointer",fontSize:FS-2,color:"#92400E",fontWeight:700}}>{"عرض الكل ("+myTasks.length+")"}</span></div>}
-                </div>:<div style={{textAlign:"center",padding:20,color:T.textMut,fontSize:FS-1}}>{"📌 لا توجد مهام"}</div>}</div>})()}
-              </div>
+                </div>:<div style={{textAlign:"center",padding:16,color:T.textMut,fontSize:FS-1}}>{"📌 لا توجد مهام"}</div>}</div>})()}
             </div>
           </div>
           :<div>{/* ══ Mobile ══ */}
@@ -1830,7 +1827,6 @@ function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,onSubUse
   const[ff,setFf]=useState({name:"",unit:"كيلو",price:"",_eid:null});
   const[af,setAf]=useState({name:"",unit:"قطعة",price:"",_eid:null});
   const[sfld,setSfld]=useState({label:"",pcs:0,_eid:null});
-  const[wf,setWf]=useState("");
   const[stName,setStName]=useState("");const[stColor,setStColor]=useState("#0EA5E9");const[stEid,setStEid]=useState(null);const[stShow,setStShow]=useState(false);
   const[gName,setGName]=useState("");const[gEid,setGEid]=useState(null);const[gIconSel,setGIconSel]=useState("👕");const[gShow,setGShow]=useState(false);const[gPrice,setGPrice]=useState("");
 
@@ -2179,7 +2175,6 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
   const[dupInit,setDupInit]=useState(null);
   const[showDeliver,setShowDeliver]=useState(false);
   const[editStatusMode,setEditStatusMode]=useState(false);
-  const[editRcv,setEditRcv]=useState(null);const[edRcvQty,setEdRcvQty]=useState(0);const[edRcvDate,setEdRcvDate]=useState("");const[edRcvNote,setEdRcvNote]=useState("");
   const[dWs,setDWs]=useState("");const[dType,setDType]=useState("");const[dQty,setDQty]=useState(0);const[dPrice,setDPrice]=useState("");const[dNote,setDNote]=useState("");const[dDate,setDDate]=useState(new Date().toISOString().split("T")[0]);const[dAgreed,setDAgreed]=useState("");
   const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
   const workshops=data.workshops||[];
@@ -2660,7 +2655,6 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
   const[mode,setMode]=useState(null);
   const[selWs,setSelWs]=useState("");
   const[selOrder,setSelOrder]=useState("");
-  const[ordSearch,setOrdSearch]=useState("");
   const[delQty,setDelQty]=useState(0);
   const[delType,setDelType]=useState("");
   const[delNote,setDelNote]=useState("");const[delAgreed,setDelAgreed]=useState("");
@@ -2679,7 +2673,6 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
   const[movWsF,setMovWsF]=useState("الكل");
   const[movTypeF,setMovTypeF]=useState("الكل");const[lateChecked,setLateChecked]=useState({});const[lateSent,setLateSent]=useState({});
   const[movLimit,setMovLimit]=useState(50);
-  const[wsMovLimit,setWsMovLimit]=useState(10);
   const[rcvSearch,setRcvSearch]=useState("");
   const[batchItems,setBatchItems]=useState([]);const[batchDate,setBatchDate]=useState(new Date().toISOString().split("T")[0]);const[batchQ,setBatchQ]=useState("");
   const[editMov,setEditMov]=useState(null);
@@ -6223,7 +6216,7 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
 }
 
 function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,season,orders,syncWsIds,replaceOrder,updOrder,configDoc,salesDoc,tasksDoc}){
-  const[newSeason,setNewSeason]=useState("");const[delConfirm,setDelConfirm]=useState("");
+  const[newSeason,setNewSeason]=useState("");
   const[newUserEmail,setNewUserEmail]=useState("");const[newUserRole,setNewUserRole]=useState("viewer");
   const[newUserName,setNewUserName]=useState("");const[newUserPass,setNewUserPass]=useState("");const[newUserPass2,setNewUserPass2]=useState("");
   const[createErr,setCreateErr]=useState("");const[createOk,setCreateOk]=useState("");const[creating,setCreating]=useState(false);
