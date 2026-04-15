@@ -6561,9 +6561,16 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
               <div style={{fontWeight:800,color:"#F59E0B",marginBottom:8}}>{"👤 المستخدمين المسجلين: "+((config.usersList||[]).length)}</div>
               {(config.usersList||[]).map(u=><div key={u.email} style={{fontSize:FS-1,color:T.ok,padding:"2px 0"}}>{"✅ "+u.name+" ("+u.email+") — "+u.role}</div>)}
               {missingNames.length>0&&<div style={{marginTop:8}}>
-                <div style={{fontWeight:700,color:"#EF4444",marginBottom:4}}>{"⚠️ "+missingNames.length+" مستخدم موجود في الحركات بس مش في القائمة:"}</div>
-                {missingNames.map(n=><div key={n} style={{fontSize:FS-1,color:"#EF4444",padding:"2px 0"}}>{"• "+n}</div>)}
-                <div style={{fontSize:FS-2,color:T.textMut,marginTop:6}}>حسابات Firebase Auth لسه موجودة — أضفهم من "إنشاء مستخدم" أو من "إضافة مستخدم موجود"</div>
+                <div style={{fontWeight:700,color:"#EF4444",marginBottom:8}}>{"⚠️ "+missingNames.length+" مستخدم موجود في الحركات بس مش في القائمة:"}</div>
+                {missingNames.map(n=><div key={n} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:"1px solid "+T.brd}}>
+                  <span style={{fontSize:FS-1,color:"#EF4444",fontWeight:700,flex:1}}>{"• "+n}</span>
+                  <Btn small onClick={()=>{const email=prompt("ادخل ايميل "+n+":");if(!email||!email.includes("@"))return;const role=prompt("الصلاحية (admin / editor / viewer):","editor")||"editor";
+                    upConfig(d=>{if(!d.usersList)d.usersList=[];if(!d.usersList.find(u=>u.email===email)){d.usersList.push({email,name:n,role,recoveredAt:new Date().toISOString()})}});
+                    showToast("✅ تم استعادة "+n)}} style={{background:"#EF4444",color:"#fff",border:"none",fontWeight:700,whiteSpace:"nowrap"}}>🔄 استعادة</Btn>
+                </div>)}
+                <Btn onClick={()=>{missingNames.forEach(n=>{const email=prompt("ايميل "+n+":");if(!email||!email.includes("@"))return;const role=prompt("صلاحية "+n+" (admin/editor/viewer):","editor")||"editor";
+                  upConfig(d=>{if(!d.usersList)d.usersList=[];if(!d.usersList.find(u=>u.email===email)){d.usersList.push({email,name:n,role,recoveredAt:new Date().toISOString()})}})});
+                  showToast("✅ تم استعادة المستخدمين")}} style={{marginTop:8,background:"#F59E0B",color:"#fff",border:"none",fontWeight:700}}>{"🔄 استعادة الكل ("+missingNames.length+")"}</Btn>
               </div>}
             </div>})()}
           <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:12}}>
