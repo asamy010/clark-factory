@@ -829,7 +829,7 @@ export default function App(){
     const tasks=Array.isArray(config.tasks)?config.tasks:[];const now=Date.now();
     const newTasks=[];
     const addBotTask=(key,text,toEmail,toName)=>{if(tasks.some(t=>t.botKey===key))return;if(newTasks.some(t=>t.botKey===key))return;
-      newTasks.push({id:Date.now()+Math.random(),text,done:false,date:new Date().toISOString().split("T")[0],fromUid:"bot",fromEmail:"bot@clark",fromName:"🤖 CLARK Bot",toEmail,toName:toName||toEmail.split("@")[0],botKey:key})};
+      newTasks.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),text,done:false,date:new Date().toISOString().split("T")[0],fromUid:"bot",fromEmail:"bot@clark",fromName:"🤖 CLARK Bot",toEmail,toName:toName||toEmail.split("@")[0],botKey:key})};
     atUsers.forEach(au=>{if(!au.email)return;const rules=au.rules||{};
       orders.forEach(o=>{
         if(o.closed||o.settlement||o.status==="تم التسليم"||o.status==="تم الشحن")return;
@@ -4151,13 +4151,14 @@ function TasksPg({data,upConfig,upTasks,isMob,user,userRole}){
     </Card>
     <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:16}}>
       <Card title={"📥 مهامي ("+myTasks.filter(t=>!t.done).length+")"}>
-        {myTasks.length>0?<div style={{display:"flex",flexDirection:"column",gap:6}}>{myTasks.map(t=><div key={t.id} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:10,background:t.done?T.ok+"06":T.bg,border:"1px solid "+(t.done?T.ok+"20":T.brd)}}>
-          <span onClick={()=>toggleTask(t.id)} style={{cursor:"pointer",fontSize:20}}>{t.done?"✅":"⬜"}</span>
+        {myTasks.length>0?<div style={{display:"flex",flexDirection:"column",gap:6}}>{myTasks.map((t,ti)=><div key={String(t.id)+ti} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:10,background:t.done?T.ok+"06":T.bg,border:"1px solid "+(t.done?T.ok+"20":T.brd)}}>
+          <span onClick={()=>{upTasks(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const tk=arr.find(x=>String(x.id)===String(t.id)&&x.text===t.text);if(tk){tk.done=!tk.done;tk.doneAt=tk.done?new Date().toISOString():null}})}} style={{cursor:"pointer",fontSize:20}}>{t.done?"✅":"⬜"}</span>
           <div style={{flex:1}}>
             <div style={{fontSize:FS,fontWeight:600,textDecoration:t.done?"line-through":"none",color:t.done?T.textMut:T.text}}>{t.text}</div>
             <div style={{fontSize:FS-2,color:T.textSec}}>{"من: "+(t.fromName||"—")+" | "+t.date}</div>
           </div>
           {t.done&&<span style={{fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.ok+"12",color:T.ok,fontWeight:600}}>تم ✓</span>}
+          <span onClick={()=>{upTasks(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const idx=arr.findIndex(x=>String(x.id)===String(t.id)&&x.text===t.text);if(idx>=0)arr.splice(idx,1)})}} style={{cursor:"pointer",fontSize:14,color:T.err,flexShrink:0}}>✕</span>
         </div>)}</div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد مهام</div>}
       </Card>
       <Card title={"📤 المهام المرسلة ("+sentTasks.length+")"}>
