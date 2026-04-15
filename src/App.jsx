@@ -759,6 +759,8 @@ export default function App(){
     orders.forEach(o=>{if(o.closed||o.status==="تم التسليم"||o.status==="تم الشحن")return;const wds=o.workshopDeliveries||[];let lastDate=o.date;wds.forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});const days=Math.floor((now-new Date(lastDate))/(86400000));
       if(days>7)a.push({icon:"🔴",text:"موديل "+o.modelNo+" واقف من "+days+" يوم",type:"late",orderId:o.id})});
     /* 2. أوردرات جاهزة للغلق */
+    orders.forEach(o=>{(o.deliveries||[]).filter(d=>d.status==="pending").forEach(d=>{a.push({icon:"⏳",text:"موديل "+o.modelNo+": "+d.qty+" قطعة في انتظار تأكيد أمين المخزن",type:"info",orderId:o.id})})});
+    orders.forEach(o=>{(o.deliveries||[]).filter(d=>d.confirmedAt&&d.confirmedAt>new Date(Date.now()-24*60*60*1000).toISOString()).forEach(d=>{a.push({icon:"✅",text:"تم تأكيد استلام "+(d.confirmedQty||d.qty)+" قطعة من موديل "+o.modelNo+(d.confirmedBy?" بواسطة "+d.confirmedBy:""),type:"ready",orderId:o.id})})});
     orders.forEach(o=>{if(o.closed)return;const t=calcOrder(o);const stockDel=getConfirmedStock(o);if(t.cutQty>0&&stockDel>=t.cutQty)a.push({icon:"✅",text:"موديل "+o.modelNo+" كامل — جاهز للغلق",type:"ready",orderId:o.id})});
     /* 3. هالك كبير (>5%) */
     orders.forEach(o=>{if(o.closed||!o.settlement)return;const t=calcOrder(o);if(t.cutQty>0){const pct=Math.round((o.settlement.qty/t.cutQty)*100);if(pct>5)a.push({icon:"⚠️",text:"موديل "+o.modelNo+" فيه "+pct+"% هالك ("+o.settlement.qty+" قطعة)",type:"waste"})}});
@@ -2341,27 +2343,29 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
             if(totalRcv===0){blockMsg="⚠️ لا يمكن تسليم مخزن جاهز - لم يتم استلام أي كمية من الورش بعد"}
             else{canStock=true}
           }
-          const stockDel=getConfirmedStock(order);const stockRemain=t.cutQty-stockDel;
+          const stockDel=getConfirmedStock(order);const pendingDel=(order.deliveries||[]).filter(d=>d.status==="pending").reduce((s,d)=>s+(Number(d.qty)||0),0);const stockRemain=Math.max(0,t.cutQty-stockDel-pendingDel);
           return<Card title={"تسليم مخزن جاهز"+((order.deliveries||[]).some(d=>d.status==="pending")?" ⏳":"")} extra={canEdit&&canStock&&<Btn primary small onClick={()=>updOrder(sel,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty:0,notes:"",createdBy:userName||"",status:"pending"});setTimeout(()=>setEditStockIdx(o.deliveries.length-1),100)})}>+ تسليم</Btn>}>
             {!canStock&&<div style={{padding:10,background:T.err+"10",border:"1px solid "+T.err+"30",borderRadius:8,marginBottom:10,fontSize:FS,color:T.err,fontWeight:600}}>{blockMsg}</div>}
             <div style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap"}}>
               <span style={{padding:"6px 12px",borderRadius:8,background:T.err+"12",color:T.err,fontWeight:700,fontSize:FS}}>{"كمية القص: "+t.cutQty}</span>
-              <span style={{padding:"6px 12px",borderRadius:8,background:T.ok+"12",color:T.ok,fontWeight:700,fontSize:FS}}>{"تم تسليمه: "+stockDel}</span>
+              <span style={{padding:"6px 12px",borderRadius:8,background:T.ok+"12",color:T.ok,fontWeight:700,fontSize:FS}}>{"✅ مؤكد: "+stockDel}</span>
+              {pendingDel>0&&<span style={{padding:"6px 12px",borderRadius:8,background:"#F59E0B12",color:"#F59E0B",fontWeight:700,fontSize:FS}}>{"⏳ معلّق: "+pendingDel}</span>}
               <span style={{padding:"6px 12px",borderRadius:8,background:stockRemain>0?T.warn+"12":T.ok+"12",color:stockRemain>0?T.warn:T.ok,fontWeight:700,fontSize:FS}}>{"المتبقي: "+stockRemain}</span>
             </div>
-            <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:450}}><thead><tr>{["#","التاريخ","الكمية","ملاحظات",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
+            <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:450}}><thead><tr>{["#","التاريخ","الكمية","الحالة","ملاحظات",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
             {(order.deliveries||[]).map((d,i)=>{const isEd=editStockIdx===i&&canEdit;
               return<tr key={i} style={{background:isEd?T.warn+"06":"transparent"}}>
               <td style={TD}>{i+1}</td>
               <td style={{...TD,minWidth:130}}>{isEd?<Inp type="date" value={d.date} onChange={v=>updOrder(sel,o=>{o.deliveries[i].date=v})}/>:d.date}</td>
-              <td style={{...TD,minWidth:100}}>{isEd?<div id="stock-qty-input-wrap"><Inp type="number" value={d.qty} onChange={v=>updOrder(sel,o=>{const totalRcvd=(o.workshopDeliveries||[]).reduce((s,wd)=>(wd.receives||[]).filter(r=>!r.isSettlement).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);const otherDels=o.deliveries.filter((_,j)=>j!==i).reduce((s,x)=>s+(Number(x.qty)||0),0);const maxQ=Math.min(t.cutQty-otherDels,totalRcvd-otherDels);o.deliveries[i].qty=Math.min(Math.max(0,Number(v)||0),Math.max(0,maxQ));o.deliveredQty=getConfirmedStock(o);o.status=recomputeStatus(o)})}/></div>:<span style={{fontWeight:700,color:T.accent}}>{d.qty}</span>}</td>
+              <td style={{...TD,minWidth:80}}>{isEd?<div id="stock-qty-input-wrap"><Inp type="number" value={d.qty} onChange={v=>updOrder(sel,o=>{const totalRcvd=(o.workshopDeliveries||[]).reduce((s,wd)=>(wd.receives||[]).filter(r=>!r.isSettlement).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);const otherDels=o.deliveries.filter((_,j)=>j!==i).reduce((s,x)=>s+(Number(x.qty)||0),0);const maxQ=Math.min(t.cutQty-otherDels,totalRcvd-otherDels);o.deliveries[i].qty=Math.min(Math.max(0,Number(v)||0),Math.max(0,maxQ));o.deliveredQty=getConfirmedStock(o);o.status=recomputeStatus(o)})}/></div>:<span style={{fontWeight:700,color:T.accent}}>{d.qty}</span>}</td>
+              <td style={{...TD,textAlign:"center"}}>{d.status==="pending"?<span style={{color:"#F59E0B",fontWeight:700,fontSize:FS-1}}>⏳ معلّق</span>:d.confirmedBy?<span style={{color:"#10B981",fontWeight:700,fontSize:FS-1}}>{"✅ "+d.confirmedBy}</span>:<span style={{color:"#10B981",fontWeight:700,fontSize:FS-1}}>✅ مؤكد</span>}</td>
               <td style={{...TD,minWidth:120}}>{isEd?<Inp value={d.notes} onChange={v=>updOrder(sel,o=>{o.deliveries[i].notes=v})} placeholder="ملاحظات"/>:(d.notes||"-")}</td>
               {canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}>
                 {isEd?<><Btn small primary onClick={()=>setEditStockIdx(null)} title="حفظ">💾</Btn><Btn small onClick={()=>{setEditStockIdx(null);printLabel("مخزن جاهز",order,"مخزن جاهز",d.qty,d.date,data.garmentTypes,{type:"deliver",delDate:d.date,delQty:d.qty})}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}} title="طباعة ليبل حراري">🏷️</Btn><Btn danger small onClick={()=>{updOrder(sel,o=>{o.deliveries.splice(i,1);o.deliveredQty=getConfirmedStock(o);o.status=recomputeStatus(o)});setEditStockIdx(null)}}>🗑️</Btn></>
                 :<Btn small onClick={()=>setEditStockIdx(i)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>}
               </div></td>}
             </tr>})}
-            {(!order.deliveries||order.deliveries.length===0)&&<tr><td colSpan={canEdit?5:4} style={{...TD,textAlign:"center",color:T.textSec}}>لا توجد تسليمات</td></tr>}
+            {(!order.deliveries||order.deliveries.length===0)&&<tr><td colSpan={canEdit?6:5} style={{...TD,textAlign:"center",color:T.textSec}}>لا توجد تسليمات</td></tr>}
           </tbody></table></div>
           </Card>})()}
           {/* ── Settlement & Close ── */}
@@ -4190,7 +4194,7 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
   const aCusts=activeSess?activeSess.custIds.map(id=>customers.find(c=>c.id===id)).filter(Boolean):[];
   const aGrid=activeSess?.grid||{};
   const isSessClosed=activeSess?.status==="تم التسليم";
-  const sessCanEdit=canEdit;/* Plan editing always allowed — stock validation handles limits */
+  const sessCanEdit=canEdit&&!isSessClosed;/* Allow editing after sales — stock validation handles limits. Block only if closed */
   const closeMatrix=(forceKeep)=>{if(!activeSess){setActiveSession(null);return}
     if(!forceKeep&&!activeSess.saleConfirmed&&activeSess.status!=="تم التسليم"){const hasData=Object.values(activeSess.grid||{}).some(v=>Number(v)>0);if(!hasData){delSession(activeSess.id);setCellError("");return}}
     setActiveSession(null);setCellError("")};
