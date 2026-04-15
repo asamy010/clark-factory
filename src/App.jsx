@@ -6540,7 +6540,6 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
           {(()=>{const existingCustIds=new Set((config.customers||[]).map(c=>c.id));const lostCusts={};
             orders.forEach(o=>{(o.customerDeliveries||[]).forEach(d=>{if(d.custId&&!existingCustIds.has(d.custId)&&d.custName){if(!lostCusts[d.custId])lostCusts[d.custId]={id:d.custId,name:d.custName,qty:0};lostCusts[d.custId].qty+=(Number(d.qty)||0)}});
               (o.customerReturns||[]).forEach(r=>{if(r.custId&&!existingCustIds.has(r.custId)&&r.custName){if(!lostCusts[r.custId])lostCusts[r.custId]={id:r.custId,name:r.custName,qty:0}}})});
-            /* Also check session grids */
             (config.custDeliverySessions||[]).forEach(s=>{(s.custIds||[]).forEach(cid=>{if(!existingCustIds.has(cid)&&!lostCusts[cid]){lostCusts[cid]={id:cid,name:"عميل محذوف ("+cid.substring(0,6)+")",qty:0}}})});
             const lostList=Object.values(lostCusts);
             if(lostList.length===0)return null;
@@ -6548,6 +6547,24 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
               <div style={{fontWeight:800,color:"#EF4444",marginBottom:8}}>{"🔴 "+lostList.length+" عميل محذوف لديه حركات بيع!"}</div>
               {lostList.map(c=><div key={c.id} style={{fontSize:FS-1,padding:"4px 0",color:T.text}}>{"• "+c.name+(c.qty>0?" — "+c.qty+" قطعة مباعة":"")}</div>)}
               <Btn onClick={()=>{upConfig(d=>{if(!d.customers)d.customers=[];lostList.forEach(c=>{if(!d.customers.find(x=>x.id===c.id)){d.customers.push({id:c.id,name:c.name,phone:"",address:"",type:"مكتب",recoveredAt:new Date().toISOString()})}})});showToast("✅ تم استعادة "+lostList.length+" عميل")}} style={{marginTop:8,background:"#EF4444",color:"#fff",border:"none",fontWeight:700}}>{"🔄 استعادة "+lostList.length+" عميل"}</Btn>
+            </div>})()}
+          {/* Recover deleted users */}
+          {(()=>{const existingUsers=new Set((config.usersList||[]).map(u=>u.email));const foundNames=new Set();
+            orders.forEach(o=>{(o.deliveries||[]).forEach(d=>{if(d.createdBy)foundNames.add(d.createdBy);if(d.confirmedBy)foundNames.add(d.confirmedBy)});
+              (o.workshopDeliveries||[]).forEach(wd=>{if(wd.createdBy)foundNames.add(wd.createdBy)});
+              (o.customerDeliveries||[]).forEach(d=>{if(d.by)foundNames.add(d.by)})});
+            (config.custDeliverySessions||[]).forEach(s=>{if(s.createdBy&&s.createdBy!=="RECOVERY")foundNames.add(s.createdBy);if(s.actualSaleBy)foundNames.add(s.actualSaleBy)});
+            const knownNames=new Set((config.usersList||[]).map(u=>u.name));
+            const missingNames=[...foundNames].filter(n=>n&&!knownNames.has(n)&&n!=="RECOVERY"&&n!=="admin");
+            if(missingNames.length===0&&(config.usersList||[]).length>0)return null;
+            return<div style={{padding:12,borderRadius:10,background:"#F59E0B08",border:"1px solid #F59E0B20",marginBottom:12}}>
+              <div style={{fontWeight:800,color:"#F59E0B",marginBottom:8}}>{"👤 المستخدمين المسجلين: "+((config.usersList||[]).length)}</div>
+              {(config.usersList||[]).map(u=><div key={u.email} style={{fontSize:FS-1,color:T.ok,padding:"2px 0"}}>{"✅ "+u.name+" ("+u.email+") — "+u.role}</div>)}
+              {missingNames.length>0&&<div style={{marginTop:8}}>
+                <div style={{fontWeight:700,color:"#EF4444",marginBottom:4}}>{"⚠️ "+missingNames.length+" مستخدم موجود في الحركات بس مش في القائمة:"}</div>
+                {missingNames.map(n=><div key={n} style={{fontSize:FS-1,color:"#EF4444",padding:"2px 0"}}>{"• "+n}</div>)}
+                <div style={{fontSize:FS-2,color:T.textMut,marginTop:6}}>حسابات Firebase Auth لسه موجودة — أضفهم من "إنشاء مستخدم" أو من "إضافة مستخدم موجود"</div>
+              </div>}
             </div>})()}
           <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:12}}>
             <div style={{padding:10,borderRadius:8,background:totalIssues>0?T.warn+"08":T.ok+"08",border:"1px solid "+(totalIssues>0?T.warn:T.ok)+"15",textAlign:"center",flex:1,minWidth:120}}>
