@@ -1575,6 +1575,8 @@ function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,setCardPo
   const wsAccounts=(wsName)=>{if(_isInt(wsName))return{due:0,totalPaid:0,totalPurchase:0,balance:0};let due=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===wsName).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});const payments=(data.wsPayments||[]).filter(p=>p.wsName===wsName);const totalPaid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);const totalPurchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);return{due,totalPaid,totalPurchase,balance:due+totalPurchase-totalPaid}};
 
   return<div>
+    {/* Activity Feed - Admin only */}
+    <div style={{marginBottom:14}}><ActivityFeed orders={orders} config={data} user={user} isMob={isMob}/></div>
     {/* Today's Summary */}
     {(()=>{const today=new Date().toISOString().split("T")[0];
       let todayCut=0,todayWsDel=0,todayWsRcv=0,todayStock=0;const todayOrders=[];const todayWsNames=new Set();
