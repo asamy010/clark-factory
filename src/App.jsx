@@ -1196,8 +1196,8 @@ export default function App(){
                   </div>
                 </div>})()}
             </div>
-            {/* ── Center 50%: App Grid + Actions ── */}
-            <div style={{flex:"0 0 50%",minWidth:0}}>
+            {/* ── Center 45%: App Grid + Actions ── */}
+            <div style={{flex:"0 0 45%",minWidth:0}}>
               <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:12}}>
                 {[...TABS.filter(t=>canViewTab(t.key))].sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0).map(t=>{const perm=getTabPerm(t.key);return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:"16px 8px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s",opacity:perm==="view"?0.75:1,position:"relative",aspectRatio:"1"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow}}>
                   <div style={{width:48,height:48,borderRadius:14,background:t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 8px",fontSize:24}}>{t.icon}</div>
@@ -1217,21 +1217,27 @@ export default function App(){
                 </div>
               </div>
             </div>
-            {/* ── Right 25%: Tasks ── */}
-            <div style={{flex:"0 0 24%",minWidth:0}}>
+            {/* ── Right 30%: Activity Feed + Tasks side by side ── */}
+            <div style={{flex:"0 0 30%",minWidth:0,display:"flex",gap:8,alignItems:"flex-start"}}>
+              {/* Activity Feed - next to buttons */}
+              <div style={{flex:"1 1 50%",minWidth:0}}>
+                <ActivityFeed orders={data.orders} config={config} user={user} isMob={false}/>
+              </div>
+              {/* Tasks - far right */}
+              <div style={{flex:"1 1 50%",minWidth:0}}>
               {(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
-                return<div style={{width:"100%",maxWidth:240,margin:"0 auto"}}>{myTasks.length>0?<div style={{background:"#FEF9C3",borderRadius:16,border:"1px solid #EAB30830",padding:14,boxShadow:"0 2px 8px rgba(234,179,8,0.08)"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}><span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:800,color:"#92400E"}}>{"مهامي ("+myTasks.length+")"}</span></div>
-                  <div style={{display:"flex",flexDirection:"column",gap:6}}>{myTasks.slice(0,8).map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:6,padding:"8px 10px",borderRadius:8,background:"rgba(255,255,255,0.7)",border:"1px solid #EAB30820"}}>
-                    <span onClick={()=>upTasks(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const tk=arr.find(x=>x.id===t.id);if(tk){tk.done=true;tk.doneAt=new Date().toISOString()}})} style={{cursor:"pointer",fontSize:16,flexShrink:0,marginTop:1}}>⬜</span>
+                return<div>{myTasks.length>0?<div style={{background:"#FEF9C3",borderRadius:16,border:"1px solid #EAB30830",padding:14,boxShadow:"0 2px 8px rgba(234,179,8,0.08)"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}><span style={{fontSize:16}}>📌</span><span style={{fontSize:FS-1,fontWeight:800,color:"#92400E"}}>{"مهامي ("+myTasks.length+")"}</span></div>
+                  <div style={{display:"flex",flexDirection:"column",gap:5}}>{myTasks.slice(0,8).map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:5,padding:"6px 8px",borderRadius:8,background:"rgba(255,255,255,0.7)",border:"1px solid #EAB30820"}}>
+                    <span onClick={()=>upTasks(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const tk=arr.find(x=>x.id===t.id);if(tk){tk.done=true;tk.doneAt=new Date().toISOString()}})} style={{cursor:"pointer",fontSize:14,flexShrink:0,marginTop:1}}>⬜</span>
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:FS-1,fontWeight:600,color:"#1C1917",lineHeight:1.4}}>{t.text}</div>
+                      <div style={{fontSize:FS-2,fontWeight:600,color:"#1C1917",lineHeight:1.3}}>{t.text}</div>
                       <div style={{fontSize:FS-3,color:"#78716C",marginTop:1}}>{"من: "+(t.fromName||"—")}</div>
                     </div>
                   </div>)}</div>
                   {myTasks.length>8&&<div style={{textAlign:"center",marginTop:6}}><span onClick={()=>goTo("tasks")} style={{cursor:"pointer",fontSize:FS-2,color:"#92400E",fontWeight:700}}>{"عرض الكل ("+myTasks.length+")"}</span></div>}
                 </div>:<div style={{textAlign:"center",padding:20,color:T.textMut,fontSize:FS-1}}>{"📌 لا توجد مهام"}</div>}</div>})()}
-              <div style={{marginTop:12}}><ActivityFeed orders={data.orders} config={config} user={user} isMob={false}/></div>
+              </div>
             </div>
           </div>
           :<div>{/* ══ Mobile ══ */}
@@ -1243,8 +1249,9 @@ export default function App(){
               </div>})}
             </div>
             <div onClick={()=>setShowScanner("menu")} style={{margin:"16px auto 0",display:"flex",justifyContent:"center"}}><div style={{background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",borderRadius:14,padding:"14px 30px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,boxShadow:"0 4px 20px rgba(14,165,233,0.3)"}}><span style={{fontSize:24}} title="فتح كاميرا QR">📷</span><span style={{fontSize:FS+1,fontWeight:700,color:"#fff"}}>مسح QR</span></div></div>
+            <div style={{marginTop:12}}><ActivityFeed orders={data.orders} config={config} user={user} isMob={true}/></div>
             {(()=>{const uid=user?.uid||"";const uemail=user?.email||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
-              return myTasks.length>0&&<div style={{marginTop:16}}>
+              return myTasks.length>0&&<div style={{marginTop:12}}>
                 <div style={{background:"#FEF9C3",borderRadius:16,border:"1px solid #EAB30830",padding:14,boxShadow:"0 2px 8px rgba(234,179,8,0.08)"}}>
                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}><span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:800,color:"#92400E"}}>{"مهامي ("+myTasks.length+")"}</span></div>
                 <div style={{display:"flex",flexDirection:"column",gap:6}}>{myTasks.slice(0,5).map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:6,padding:"8px 10px",borderRadius:8,background:"rgba(255,255,255,0.7)",border:"1px solid #EAB30820"}}>
@@ -1252,7 +1259,6 @@ export default function App(){
                   <div style={{flex:1}}><div style={{fontSize:FS-1,fontWeight:600,color:"#1C1917"}}>{t.text}</div><div style={{fontSize:FS-3,color:"#78716C"}}>{"من: "+(t.fromName||"—")}</div></div>
                 </div>)}</div>
               </div></div>})()}
-            <div style={{marginTop:12}}><ActivityFeed orders={data.orders} config={config} user={user} isMob={true}/></div>
             <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"center",flexWrap:"wrap"}}>
               <div onClick={()=>setQuickPopup("task")} style={{cursor:"pointer",padding:"10px 16px",borderRadius:12,background:T.accent+"10",border:"1px solid "+T.accent+"25",display:"flex",alignItems:"center",gap:6}}>
                 <span style={{fontSize:16}}>📌</span><span style={{fontSize:FS-1,fontWeight:700,color:T.accent}}>مهمة</span>
@@ -1577,8 +1583,6 @@ function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,setCardPo
   const wsAccounts=(wsName)=>{if(_isInt(wsName))return{due:0,totalPaid:0,totalPurchase:0,balance:0};let due=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===wsName).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});const payments=(data.wsPayments||[]).filter(p=>p.wsName===wsName);const totalPaid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);const totalPurchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);return{due,totalPaid,totalPurchase,balance:due+totalPurchase-totalPaid}};
 
   return<div>
-    {/* Activity Feed - Admin only */}
-    <div style={{marginBottom:14}}><ActivityFeed orders={orders} config={data} user={user} isMob={isMob}/></div>
     {/* Today's Summary */}
     {(()=>{const today=new Date().toISOString().split("T")[0];
       let todayCut=0,todayWsDel=0,todayWsRcv=0,todayStock=0;const todayOrders=[];const todayWsNames=new Set();
