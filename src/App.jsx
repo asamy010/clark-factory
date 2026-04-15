@@ -4479,16 +4479,19 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
                   {sessCanEdit&&<Btn small onClick={()=>{if(!confirm("حذف "+c.name+" من التوزيعة؟"))return;upSales(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===activeSess.id);if(si>=0){d.custDeliverySessions[si].custIds=d.custDeliverySessions[si].custIds.filter(id=>id!==c.id);const g=d.custDeliverySessions[si].grid||{};Object.keys(g).forEach(k=>{if(k.endsWith("_"+c.id))delete g[k]})}});showToast("✓ تم حذف "+c.name)}} style={{background:"#EF444412",color:"#EF4444",border:"1px solid #EF444430",fontSize:9,padding:"2px 5px"}} title="حذف العميل">🗑</Btn>}
                 </div>}</td>
               </tr>})}
-            <tr style={{background:T.ok+"08"}}><td style={{...TD,fontWeight:800,color:T.ok}}>اجمالي تسليم</td>
+            <tr style={{background:T.ok+"08"}}><td style={{...TD,fontWeight:800,color:T.ok}}>اجمالي توزيع</td>
               {aMods.map(m=>{const mt=aCusts.reduce((s,c)=>s+(Number(aGrid[m.id+"_"+c.id])||0),0);return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,color:T.ok}}>{mt||"—"}</td>})}
               <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#fff",background:T.ok}}>{aCusts.reduce((s,c)=>s+aMods.reduce((ss,m)=>ss+(Number(aGrid[m.id+"_"+c.id])||0),0),0)}</td><td style={TD}></td></tr>
             <tr><td style={{...TD,fontWeight:700,color:T.textSec}}>استلام مخزن جاهز</td>
               {aMods.map(m=><td key={m.id} style={{...TD,textAlign:"center",fontWeight:700}}>{m.stockQty}</td>)}
               <td style={TD}></td><td style={TD}></td></tr>
+            <tr><td style={{...TD,fontWeight:700,color:"#0EA5E9"}}>رصيد توزيع</td>
+              {aMods.map(m=>{const mt=aCusts.reduce((s,c)=>s+(Number(aGrid[m.id+"_"+c.id])||0),0);const bal=m.stockQty-mt;return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:700,color:bal>=0?"#0EA5E9":"#EF4444"}}>{bal}</td>})}
+              <td style={{...TD,textAlign:"center",fontWeight:700,color:"#0EA5E9"}}>{aMods.reduce((s,m)=>{const mt=aCusts.reduce((ss,c)=>ss+(Number(aGrid[m.id+"_"+c.id])||0),0);return s+(m.stockQty-mt)},0)}</td><td style={TD}></td></tr>
             <tr><td style={{...TD,fontWeight:700,color:"#8B5CF6"}}>مباع فعلي</td>
               {aMods.map(m=>{const o=orders.find(x=>x.id===m.id);const cd=(o?.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o?.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const net=cd-ret;return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:700,color:net>0?"#8B5CF6":T.textMut}}>{net||"—"}{ret>0&&<span style={{fontSize:FS-3,color:T.ok}}>{" +"+ret+" مرتجع"}</span>}</td>})}
               <td style={TD}></td><td style={TD}></td></tr>
-            <tr style={{background:"#F59E0B06"}}><td style={{...TD,fontWeight:800,color:T.warn}}>رصيد متاح</td>
+            <tr style={{background:"#F59E0B06"}}><td style={{...TD,fontWeight:800,color:T.warn}}>رصيد متاح للبيع</td>
               {aMods.map(m=>{const o=orders.find(x=>x.id===m.id);const cd=(o?.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o?.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const avail=m.stockQty-(cd-ret);return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1,color:avail>0?"#F59E0B":"#EF4444"}}>{avail}</td>})}
               <td style={{...TD,textAlign:"center",fontWeight:800,color:T.warn}}>{aMods.reduce((s,m)=>{const o=orders.find(x=>x.id===m.id);const cd=(o?.customerDeliveries||[]).reduce((ss,d)=>ss+(Number(d.qty)||0),0);const ret=(o?.customerReturns||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0);return s+(m.stockQty-(cd-ret))},0)}</td><td style={TD}></td></tr>
             {sessCanEdit&&<tr><td style={{...TD,fontWeight:700,color:"#8B5CF6"}}>💰 سعر البيع</td>
@@ -4496,7 +4499,7 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
                 <input type="number" value={m.sellPrice||""} onChange={e=>setSellPrice(m.id,e.target.value)} placeholder="0"
                   style={{width:"100%",textAlign:"center",border:"1px solid "+T.brd,borderRadius:4,padding:"2px",fontSize:FS-2,fontWeight:700,fontFamily:"inherit",background:T.bg,color:"#8B5CF6"}}/>
               </td>)}
-              <td style={{...TD,textAlign:"center",fontWeight:800,color:"#8B5CF6"}}>{fmt(aCusts.reduce((s,c)=>s+aMods.reduce((ss,m)=>ss+(Number(aGrid[m.id+"_"+c.id])||0)*(m.sellPrice||0),0),0))+" ج"}</td><td style={TD}></td></tr>}
+              <td style={{...TD,textAlign:"center",fontWeight:800,color:"#8B5CF6",minWidth:120,whiteSpace:"nowrap"}}>{fmt(aCusts.reduce((s,c)=>s+aMods.reduce((ss,m)=>ss+(Number(aGrid[m.id+"_"+c.id])||0)*(m.sellPrice||0),0),0))+" ج.م"}</td><td style={TD}></td></tr>}
           </tbody>
         </table>
       </div>
@@ -6074,11 +6077,11 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
         </div>
         {rptType==="customer"&&<div style={{marginBottom:12}}>
           <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>العميل</label>
-          <Sel value={rptCust} onChange={setRptCust}><option value="">كل العملاء</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</Sel>
+          <SearchSel value={rptCust} onChange={setRptCust} options={[{value:"",label:"كل العملاء"},...customers.map(c=>({value:c.id,label:c.name}))]} placeholder="ابحث عن عميل..."/>
         </div>}
         {rptType==="model"&&<div style={{marginBottom:12}}>
           <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الموديل</label>
-          <Sel value={rptModel} onChange={setRptModel}><option value="">كل الموديلات</option>{stockModels.map(m=><option key={m.id} value={m.id}>{m.modelNo+" — "+m.modelDesc}</option>)}</Sel>
+          <SearchSel value={rptModel} onChange={setRptModel} options={[{value:"",label:"كل الموديلات"},...stockModels.map(m=>({value:m.id,label:m.modelNo+" — "+m.modelDesc}))]} placeholder="ابحث عن موديل..."/>
         </div>}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>من تاريخ (اختياري)</label><Inp type="date" value={reportRange.from} onChange={v=>setReportRange(p=>({...p,from:v}))}/></div>
