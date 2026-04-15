@@ -4197,7 +4197,6 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
   const isSessClosed=activeSess?.status==="تم التسليم";
   const sessCanEdit=canEdit&&!isSessClosed;/* Allow editing after sales — stock validation handles limits. Block only if closed */
   const closeMatrix=(forceKeep)=>{if(!activeSess){setActiveSession(null);return}
-    if(!forceKeep&&!activeSess.saleConfirmed&&activeSess.status!=="تم التسليم"){const hasData=Object.values(activeSess.grid||{}).some(v=>Number(v)>0);if(!hasData){delSession(activeSess.id);setCellError("");return}}
     setActiveSession(null);setCellError("")};
 
   /* Session status */
