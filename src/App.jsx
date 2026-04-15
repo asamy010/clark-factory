@@ -880,9 +880,9 @@ export default function App(){
         setDoc(doc(db,"factory","config"),clean);console.log("✅ Phase 2: config cleaned")}
       setConfigDoc(d)}else setDoc(doc(db,"factory","config"),INIT_CONFIG)});
     /* Sales doc */
-    const u2=onSnapshot(doc(db,"factory","sales"),snap=>{if(snap.exists()){salesReady=true;setSalesDoc(snap.data())}});
+    const u2=onSnapshot(doc(db,"factory","sales"),snap=>{if(snap.exists()){if(snap.metadata.hasPendingWrites)return;salesReady=true;setSalesDoc(snap.data())}});
     /* Tasks doc */
-    const u3=onSnapshot(doc(db,"factory","tasks"),snap=>{if(snap.exists()){tasksReady=true;setTasksDoc(snap.data())}});
+    const u3=onSnapshot(doc(db,"factory","tasks"),snap=>{if(snap.exists()){if(snap.metadata.hasPendingWrites)return;tasksReady=true;setTasksDoc(snap.data())}});
     return()=>{u1();u2();u3()}},[user]);
   useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>({_docId:d.id,...d.data()})).filter(o=>o.id));setDataLoading(false)});return()=>unsub()},[user,season]);
 
