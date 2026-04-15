@@ -6321,31 +6321,23 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
           if(ps.fields?.price?.show)html+="<div style='font-size:"+((ps.fields?.price?.size||10)/2.5)+"mm;line-height:1'>95 ج.م</div>";
           html+="</div><script>if(document.getElementById('qr'))QRCode.toCanvas(document.getElementById('qr'),'CLARK:test:4',{width:400,margin:"+(ps.qrMargin??1)+",errorCorrectionLevel:'"+(ps.qrLevel||"M")+"',color:{dark:'"+(ps.qrColor||"#000000")+"',light:'#ffffff'}},()=>{});setTimeout(()=>window.print(),800)</"+"script></body></html>";
           pw_.document.write(html);pw_.document.close()};
-        return<div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <div style={{fontSize:FS,fontWeight:700,color:T.accent}}>📐 مقاس الليبل:</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
-            <div><label style={{fontSize:FS-2,color:T.textSec}}>العرض (مم)</label><Inp type="number" value={ps.labelWidth||50} onChange={v=>savePS(s=>{s.labelWidth=Number(v)||50})}/></div>
-            <div><label style={{fontSize:FS-2,color:T.textSec}}>الارتفاع (مم)</label><Inp type="number" value={ps.labelHeight||40} onChange={v=>savePS(s=>{s.labelHeight=Number(v)||40})}/></div>
-            <div><label style={{fontSize:FS-2,color:T.textSec}}>الهوامش (مم)</label><Inp type="number" value={ps.margins||2} onChange={v=>savePS(s=>{s.margins=Number(v)||2})}/></div>
+        return<div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginBottom:8}}>
+            <div><label style={{fontSize:FS-3,color:T.textSec}}>العرض مم</label><Inp type="number" value={ps.labelWidth||50} onChange={v=>savePS(s=>{s.labelWidth=Number(v)||50})}/></div>
+            <div><label style={{fontSize:FS-3,color:T.textSec}}>الارتفاع مم</label><Inp type="number" value={ps.labelHeight||40} onChange={v=>savePS(s=>{s.labelHeight=Number(v)||40})}/></div>
+            <div><label style={{fontSize:FS-3,color:T.textSec}}>هوامش مم</label><Inp type="number" value={ps.margins||2} onChange={v=>savePS(s=>{s.margins=Number(v)||2})}/></div>
+            <div><label style={{fontSize:FS-3,color:T.textSec}}>تصحيح</label><Sel value={ps.qrLevel||"M"} onChange={v=>savePS(s=>{s.qrLevel=v})}><option value="L">L</option><option value="M">M</option><option value="Q">Q</option><option value="H">H</option></Sel></div>
           </div>
-          <div><label style={{fontSize:FS-2,color:T.textSec}}>الاتجاه</label><Sel value={ps.orientation||"portrait"} onChange={v=>savePS(s=>{s.orientation=v})}><option value="portrait">رأسي (طولي)</option><option value="landscape">أفقي (عرضي)</option></Sel></div>
-          <div style={{fontSize:FS,fontWeight:700,color:T.accent,marginTop:4}}>🔧 إعدادات QR:</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
-            <div><label style={{fontSize:FS-2,color:T.textSec}}>تصحيح الأخطاء</label><Sel value={ps.qrLevel||"M"} onChange={v=>savePS(s=>{s.qrLevel=v})}><option value="L">L — خفيف (7%)</option><option value="M">M — متوسط (15%)</option><option value="Q">Q — عالي (25%)</option><option value="H">H — أعلى (30%)</option></Sel></div>
-            <div><label style={{fontSize:FS-2,color:T.textSec}}>هامش QR</label><Sel value={ps.qrMargin??1} onChange={v=>savePS(s=>{s.qrMargin=Number(v)})}><option value="0">0 — بدون</option><option value="1">1 — صغير</option><option value="2">2 — متوسط</option><option value="3">3 — كبير</option></Sel></div>
-            <div><label style={{fontSize:FS-2,color:T.textSec}}>لون QR</label><Sel value={ps.qrColor||"#000000"} onChange={v=>savePS(s=>{s.qrColor=v})}><option value="#000000">⬛ أسود</option><option value="#1B2A4A">🟦 كحلي</option><option value="#1a1a1a">◼ رمادي غامق</option></Sel></div>
+          <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:8,flexWrap:"wrap"}}>
+            <Sel value={ps.qrColor||"#000000"} onChange={v=>savePS(s=>{s.qrColor=v})} style={{width:100,fontSize:FS-2}}><option value="#000000">⬛ أسود</option><option value="#1B2A4A">🟦 كحلي</option><option value="#1a1a1a">◼ رمادي</option></Sel>
+            <Sel value={ps.qrMargin??1} onChange={v=>savePS(s=>{s.qrMargin=Number(v)})} style={{width:80,fontSize:FS-2}}><option value="0">هامش 0</option><option value="1">هامش 1</option><option value="2">هامش 2</option></Sel>
+            <span onClick={()=>savePS(s=>{s.showBorder=!s.showBorder})} style={{cursor:"pointer",fontSize:FS-1,color:ps.showBorder?T.accent:T.textMut,padding:"4px 8px",borderRadius:6,border:"1px solid "+(ps.showBorder?T.accent+"40":T.brd)}}>{ps.showBorder?"☑":"☐"} إطار</span>
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <span onClick={()=>savePS(s=>{s.showBorder=!s.showBorder})} style={{cursor:"pointer",fontSize:16}}>{ps.showBorder?"☑":"☐"}</span>
-            <span style={{fontSize:FS-1,fontWeight:600,color:T.text}}>إطار حول الليبل (للاختبار)</span>
+          <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>
+            {fields.map(f=>{const fv=ps.fields?.[f.key]||{show:false,size:12};const isOn=f.key==="modelNo"||f.key==="qr"?fv.show!==false:fv.show;
+              return<div key={f.key} onClick={()=>savePS(s=>{if(!s.fields)s.fields={};if(!s.fields[f.key])s.fields[f.key]={show:false,size:12};s.fields[f.key].show=!s.fields[f.key].show})} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 8px",borderRadius:6,cursor:"pointer",fontSize:FS-2,fontWeight:600,background:isOn?T.accent+"10":"transparent",color:isOn?T.accent:T.textMut,border:"1px solid "+(isOn?T.accent+"30":T.brd)}}>{isOn?"☑":"☐"} {f.label}</div>})}
           </div>
-          <div style={{fontSize:FS,fontWeight:700,color:T.accent,marginTop:4}}>📝 محتوى الليبل:</div>
-          {fields.map(f=>{const fv=ps.fields?.[f.key]||{show:false,size:12};return<div key={f.key} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 0"}}>
-            <span onClick={()=>savePS(s=>{if(!s.fields)s.fields={};if(!s.fields[f.key])s.fields[f.key]={show:false,size:12};s.fields[f.key].show=!s.fields[f.key].show})} style={{cursor:"pointer",fontSize:16}}>{fv.show?"☑":"☐"}</span>
-            <span style={{flex:1,fontSize:FS-1,fontWeight:600,color:fv.show?T.text:T.textMut}}>{f.label}</span>
-            {fv.show&&<div style={{width:60}}><Inp type="number" value={fv.size||(f.key==="qr"?80:12)} onChange={v=>savePS(s=>{if(!s.fields)s.fields={};if(!s.fields[f.key])s.fields[f.key]={show:true,size:12};s.fields[f.key].size=Number(v)||12})}/></div>}
-          </div>})}
-          <div style={{display:"flex",gap:8,marginTop:4}}><Btn onClick={printTest} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة تجريبية</Btn></div>
+          <Btn small onClick={printTest} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة تجريبية</Btn>
         </div>})()}
     </Card>
     {/* Data Maintenance */}
@@ -6549,28 +6541,30 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
               <Btn onClick={()=>{upConfig(d=>{if(!d.customers)d.customers=[];lostList.forEach(c=>{if(!d.customers.find(x=>x.id===c.id)){d.customers.push({id:c.id,name:c.name,phone:"",address:"",type:"مكتب",recoveredAt:new Date().toISOString()})}})});showToast("✅ تم استعادة "+lostList.length+" عميل")}} style={{marginTop:8,background:"#EF4444",color:"#fff",border:"none",fontWeight:700}}>{"🔄 استعادة "+lostList.length+" عميل"}</Btn>
             </div>})()}
           {/* Recover deleted users */}
-          {(()=>{const existingUsers=new Set((config.usersList||[]).map(u=>u.email));const foundNames=new Set();
+          {(()=>{const foundNames=new Set();
             orders.forEach(o=>{(o.deliveries||[]).forEach(d=>{if(d.createdBy)foundNames.add(d.createdBy);if(d.confirmedBy)foundNames.add(d.confirmedBy)});
               (o.workshopDeliveries||[]).forEach(wd=>{if(wd.createdBy)foundNames.add(wd.createdBy)});
               (o.customerDeliveries||[]).forEach(d=>{if(d.by)foundNames.add(d.by)})});
             (config.custDeliverySessions||[]).forEach(s=>{if(s.createdBy&&s.createdBy!=="RECOVERY")foundNames.add(s.createdBy);if(s.actualSaleBy)foundNames.add(s.actualSaleBy)});
             const knownNames=new Set((config.usersList||[]).map(u=>u.name));
             const missingNames=[...foundNames].filter(n=>n&&!knownNames.has(n)&&n!=="RECOVERY"&&n!=="admin");
-            if(missingNames.length===0&&(config.usersList||[]).length>0)return null;
+            const addUser=()=>{const name=prompt("اسم المستخدم:");if(!name)return;const email=prompt("ايميل "+name+":");if(!email||!email.includes("@"))return;const role=prompt("الصلاحية (admin/editor/viewer):","editor")||"editor";
+              upConfig(d=>{if(!d.usersList)d.usersList=[];if(!d.usersList.find(u=>u.email===email)){d.usersList.push({email,name,role,recoveredAt:new Date().toISOString()})}});showToast("✅ تم اضافة "+name)};
             return<div style={{padding:12,borderRadius:10,background:"#F59E0B08",border:"1px solid #F59E0B20",marginBottom:12}}>
-              <div style={{fontWeight:800,color:"#F59E0B",marginBottom:8}}>{"👤 المستخدمين المسجلين: "+((config.usersList||[]).length)}</div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div style={{fontWeight:800,color:"#F59E0B"}}>{"👤 المستخدمين ("+((config.usersList||[]).length)+")"}</div>
+                <Btn small onClick={addUser} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700}}>+ اضافة مستخدم</Btn>
+              </div>
               {(config.usersList||[]).map(u=><div key={u.email} style={{fontSize:FS-1,color:T.ok,padding:"2px 0"}}>{"✅ "+u.name+" ("+u.email+") — "+u.role}</div>)}
+              {(config.usersList||[]).length===0&&<div style={{fontSize:FS-1,color:T.err,padding:"4px 0"}}>⚠️ لا يوجد مستخدمين مسجلين!</div>}
               {missingNames.length>0&&<div style={{marginTop:8}}>
-                <div style={{fontWeight:700,color:"#EF4444",marginBottom:8}}>{"⚠️ "+missingNames.length+" مستخدم موجود في الحركات بس مش في القائمة:"}</div>
+                <div style={{fontWeight:700,color:"#EF4444",marginBottom:8}}>{"⚠️ "+missingNames.length+" مستخدم في الحركات مش في القائمة:"}</div>
                 {missingNames.map(n=><div key={n} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:"1px solid "+T.brd}}>
                   <span style={{fontSize:FS-1,color:"#EF4444",fontWeight:700,flex:1}}>{"• "+n}</span>
-                  <Btn small onClick={()=>{const email=prompt("ادخل ايميل "+n+":");if(!email||!email.includes("@"))return;const role=prompt("الصلاحية (admin / editor / viewer):","editor")||"editor";
+                  <Btn small onClick={()=>{const email=prompt("ادخل ايميل "+n+":");if(!email||!email.includes("@"))return;const role=prompt("الصلاحية (admin/editor/viewer):","editor")||"editor";
                     upConfig(d=>{if(!d.usersList)d.usersList=[];if(!d.usersList.find(u=>u.email===email)){d.usersList.push({email,name:n,role,recoveredAt:new Date().toISOString()})}});
                     showToast("✅ تم استعادة "+n)}} style={{background:"#EF4444",color:"#fff",border:"none",fontWeight:700,whiteSpace:"nowrap"}}>🔄 استعادة</Btn>
                 </div>)}
-                <Btn onClick={()=>{missingNames.forEach(n=>{const email=prompt("ايميل "+n+":");if(!email||!email.includes("@"))return;const role=prompt("صلاحية "+n+" (admin/editor/viewer):","editor")||"editor";
-                  upConfig(d=>{if(!d.usersList)d.usersList=[];if(!d.usersList.find(u=>u.email===email)){d.usersList.push({email,name:n,role,recoveredAt:new Date().toISOString()})}})});
-                  showToast("✅ تم استعادة المستخدمين")}} style={{marginTop:8,background:"#F59E0B",color:"#fff",border:"none",fontWeight:700}}>{"🔄 استعادة الكل ("+missingNames.length+")"}</Btn>
               </div>}
             </div>})()}
           <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:12}}>
