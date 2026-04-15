@@ -1227,7 +1227,7 @@ export default function App(){
                 return<div style={{width:"100%"}}>{myTasks.length>0?<div style={{background:"#FEF9C3",borderRadius:16,border:"1px solid #EAB30830",padding:12,boxShadow:"0 2px 8px rgba(234,179,8,0.08)"}}>
                   <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:8}}><span style={{fontSize:15}}>📌</span><span style={{fontSize:FS-1,fontWeight:800,color:"#92400E"}}>{"مهامي ("+myTasks.length+")"}</span></div>
                   <div style={{display:"flex",flexDirection:"column",gap:5}}>{myTasks.slice(0,8).map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:5,padding:"5px 7px",borderRadius:8,background:"rgba(255,255,255,0.7)",border:"1px solid #EAB30820"}}>
-                    <span onClick={()=>upTasks(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const tk=arr.find(x=>x.id===t.id);if(tk){tk.done=true;tk.doneAt=new Date().toISOString()}})} style={{cursor:"pointer",fontSize:14,flexShrink:0,marginTop:1}}>⬜</span>
+                    <span onClick={()=>upTasks(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const tk=arr.find(x=>String(x.id)===String(t.id));if(tk){tk.done=true;tk.doneAt=new Date().toISOString()}})} style={{cursor:"pointer",fontSize:14,flexShrink:0,marginTop:1}}>⬜</span>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:FS-2,fontWeight:600,color:"#1C1917",lineHeight:1.3}}>{t.text}</div>
                       <div style={{fontSize:FS-3,color:"#78716C",marginTop:1}}>{"من: "+(t.fromName||"—")}</div>
@@ -1252,7 +1252,7 @@ export default function App(){
                 <div style={{background:"#FEF9C3",borderRadius:16,border:"1px solid #EAB30830",padding:14,boxShadow:"0 2px 8px rgba(234,179,8,0.08)"}}>
                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}><span style={{fontSize:18}}>📌</span><span style={{fontSize:FS,fontWeight:800,color:"#92400E"}}>{"مهامي ("+myTasks.length+")"}</span></div>
                 <div style={{display:"flex",flexDirection:"column",gap:6}}>{myTasks.slice(0,5).map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:6,padding:"8px 10px",borderRadius:8,background:"rgba(255,255,255,0.7)",border:"1px solid #EAB30820"}}>
-                  <span onClick={()=>upTasks(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const tk=arr.find(x=>x.id===t.id);if(tk){tk.done=true;tk.doneAt=new Date().toISOString()}})} style={{cursor:"pointer",fontSize:16}}>⬜</span>
+                  <span onClick={()=>upTasks(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const tk=arr.find(x=>String(x.id)===String(t.id));if(tk){tk.done=true;tk.doneAt=new Date().toISOString()}})} style={{cursor:"pointer",fontSize:16}}>⬜</span>
                   <div style={{flex:1}}><div style={{fontSize:FS-1,fontWeight:600,color:"#1C1917"}}>{t.text}</div><div style={{fontSize:FS-3,color:"#78716C"}}>{"من: "+(t.fromName||"—")}</div></div>
                 </div>)}</div>
               </div></div>})()}
@@ -4139,8 +4139,8 @@ function TasksPg({data,upConfig,upTasks,isMob,user,userRole}){
   const addTask=()=>{if(!taskText.trim()||!taskTo)return;const target=allowedTargets.find(u=>u.email===taskTo);
     upTasks(d=>{if(!Array.isArray(d.tasks))d.tasks=[];d.tasks.unshift({id:Date.now(),text:taskText.trim(),done:false,date:new Date().toISOString().split("T")[0],fromUid:uid,fromEmail:userEmail,fromName:user?.displayName||userEmail.split("@")[0],toEmail:taskTo,toName:target?.name||taskTo.split("@")[0]})});
     setTaskText("");showToast("✓ تم ارسال المهمة")};
-  const toggleTask=(tid)=>{upTasks(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const t=arr.find(x=>x.id===tid);if(t){t.done=!t.done;t.doneAt=t.done?new Date().toISOString():null}})};
-  const delTask=(tid)=>{upTasks(d=>{d.tasks=Array.isArray(d.tasks)?d.tasks.filter(x=>x.id!==tid):[]})};
+  const toggleTask=(tid)=>{upTasks(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const t=arr.find(x=>String(x.id)===String(tid));if(t){t.done=!t.done;t.doneAt=t.done?new Date().toISOString():null}})};
+  const delTask=(tid)=>{upTasks(d=>{d.tasks=Array.isArray(d.tasks)?d.tasks.filter(x=>String(x.id)!==String(tid)):[]})};
   return<div>
     <Card title="📌 ارسال مهمة جديدة" style={{marginBottom:16}}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 2fr auto",gap:8,alignItems:"end"}}>
