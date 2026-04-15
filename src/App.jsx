@@ -251,18 +251,22 @@ function QRScanner({onScan,onClose}){
   </div>
 }
 
-function Timeline({events}){if(!events||events.length===0)return null;return<div style={{overflowX:"auto",padding:"8px 0"}}>
-  <div style={{display:"flex",alignItems:"flex-start",minWidth:events.length*130,position:"relative"}}>
-    {/* Continuous line */}
-    <div style={{position:"absolute",top:28,right:events.length>1?"calc(50% / "+events.length+")":"0",left:events.length>1?"calc(50% / "+events.length+")":"0",height:2,background:T.brd}}/>
-    {events.map((e,i)=><div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",position:"relative",minWidth:110}}>
-      <div style={{fontSize:FS-2,fontWeight:700,color:e.color||T.accent,textAlign:"center",marginBottom:6,maxWidth:110,lineHeight:1.3}}>{e.title}</div>
-      <div style={{width:14,height:14,borderRadius:7,background:e.color||T.accent,border:"3px solid "+T.cardSolid,boxShadow:"0 0 0 2px "+(e.color||T.accent),zIndex:1}}/>
-      <div style={{fontSize:FS-3,color:T.textSec,marginTop:6,textAlign:"center"}}>{e.date}</div>
-      {e.detail&&<div style={{fontSize:FS-3,color:T.textMut,textAlign:"center",marginTop:1}}>{e.detail}</div>}
-    </div>)}
-  </div>
-</div>}
+function Timeline({phases,currentIdx}){if(!phases||phases.length===0)return null;
+  return<div style={{padding:"8px 0"}}>
+    <style>{`@keyframes tl-pulse{0%,100%{box-shadow:0 0 0 0 var(--pc)}50%{box-shadow:0 0 0 8px transparent}}`}</style>
+    <div style={{display:"flex",alignItems:"flex-start",position:"relative",gap:0}}>
+      <div style={{position:"absolute",top:16,right:phases.length>1?"calc(50% / "+phases.length+")":"0",left:phases.length>1?"calc(50% / "+phases.length+")":"0",height:3,background:T.brd,borderRadius:2}}/>
+      {phases.map((p,i)=>{const isCurrent=i===currentIdx;const isPast=i<currentIdx;const isFuture=i>currentIdx;
+        return<div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",position:"relative",minWidth:100}}>
+          <div style={{width:isCurrent?20:14,height:isCurrent?20:14,borderRadius:"50%",background:isFuture?T.brd:p.color||T.accent,border:"3px solid "+T.cardSolid,boxShadow:isCurrent?"0 0 0 3px "+(p.color||T.accent):"0 0 0 2px "+(isFuture?T.brd:p.color||T.accent),zIndex:2,transition:"all 0.3s","--pc":(p.color||T.accent)+"60",animation:isCurrent?"tl-pulse 2s infinite":"none"}}/>
+          <div style={{fontSize:FS-1,fontWeight:800,color:isFuture?T.textMut:p.color||T.accent,textAlign:"center",marginTop:8,lineHeight:1.2}}>{p.title}</div>
+          {p.date&&<div style={{fontSize:FS-3,color:T.textSec,marginTop:2}}>{p.date}</div>}
+          {p.details&&p.details.length>0&&<div style={{marginTop:4,textAlign:"center"}}>
+            {p.details.map((d,di)=><div key={di} style={{fontSize:FS-3,color:isFuture?T.textMut:T.textSec,lineHeight:1.4}}>{d}</div>)}
+          </div>}
+        </div>})}
+    </div>
+  </div>}
 
 async function printReceipt(wsName,wsOwner,order,garmentType,qty,date,balance,gtList,_returnHtml){
   if(!order){if(_returnHtml)return"";return;}
@@ -882,9 +886,9 @@ export default function App(){
     return()=>{u1();u2();u3()}},[user]);
   useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>({_docId:d.id,...d.data()})).filter(o=>o.id&&o.modelNo));setDataLoading(false)});return()=>unsub()},[user,season]);
 
-  const upConfig=useCallback(fn=>{setConfigDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);/* Safety: never accidentally delete customers */if(Array.isArray(prev.customers)&&prev.customers.length>0&&(!next.customers||next.customers.length<prev.customers.length*0.5)){console.warn("⛔ upConfig blocked: would delete "+(prev.customers.length-(next.customers||[]).length)+" customers");next.customers=prev.customers}setDoc(doc(db,"factory","config"),next).catch(e=>console.error("upConfig error:",e));return next}catch(e){console.error("upConfig error:",e);showToast("⚠️ خطأ في الحفظ");return prev}})},[]);
-  const upSales=useCallback(fn=>{setSalesDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);setDoc(doc(db,"factory","sales"),next).catch(e=>console.error("upSales error:",e));return next}catch(e){console.error("upSales error:",e);showToast("⚠️ خطأ في الحفظ");return prev}})},[]);
-  const upTasks=useCallback(fn=>{setTasksDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);setDoc(doc(db,"factory","tasks"),next).catch(e=>console.error("upTasks error:",e));return next}catch(e){console.error("upTasks error:",e);showToast("⚠️ خطأ في الحفظ");return prev}})},[]);
+  const upConfig=useCallback(fn=>{setConfigDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);setDoc(doc(db,"factory","config"),next,{merge:true}).catch(e=>console.error("upConfig error:",e));return next}catch(e){console.error("upConfig error:",e);showToast("⚠️ خطأ في الحفظ");return prev}})},[]);
+  const upSales=useCallback(fn=>{setSalesDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);setDoc(doc(db,"factory","sales"),next,{merge:true}).catch(e=>console.error("upSales error:",e));return next}catch(e){console.error("upSales error:",e);showToast("⚠️ خطأ في الحفظ");return prev}})},[]);
+  const upTasks=useCallback(fn=>{setTasksDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);setDoc(doc(db,"factory","tasks"),next,{merge:true}).catch(e=>console.error("upTasks error:",e));return next}catch(e){console.error("upTasks error:",e);showToast("⚠️ خطأ في الحفظ");return prev}})},[]);
   const addOrder=async o=>{o.createdBy=userName;await addDoc(collection(db,"seasons",season,"orders"),o)};
   const updOrder=async(orderId,fn)=>{try{const ord=orders.find(o=>o.id===orderId);if(!ord)return;const updated=JSON.parse(JSON.stringify(ord));fn(updated);const clean={...updated};delete clean._docId;await updateDoc(doc(db,"seasons",season,"orders",ord._docId),clean)}catch(e){console.error("updOrder error:",e);showToast("⚠️ خطأ في حفظ الأوردر")}};
   const delOrder=async orderId=>{const ord=orders.find(o=>o.id===orderId);if(ord)await deleteDoc(doc(db,"seasons",season,"orders",ord._docId))};
@@ -2278,12 +2282,37 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
             </div>
           </div>})()}
       </div>
-      {/* Timeline - horizontal after cards */}
-      {(()=>{const ev=[];ev.push({title:"تم القص",date:order.date,color:T.accent,detail:"كمية: "+t.cutQty});
-        (order.workshopDeliveries||[]).forEach(wd=>{ev.push({title:"تسليم ورشة — "+wd.wsName,date:wd.date,color:"#8B5CF6",detail:(wd.garmentType||"")+" | "+wd.qty+" قطعة"});(wd.receives||[]).forEach(r=>{ev.push({title:(r.isSettlement?"⚖️ تسوية":"استلام مصنع")+" — "+wd.wsName,date:r.date,color:r.isSettlement?"#EF4444":T.ok,detail:r.qty+" قطعة"})})});
-        (order.deliveries||[]).forEach(d=>{ev.push({title:"مخزن جاهز",date:d.date,color:"#059669",detail:d.qty+" قطعة"})});
-        ev.sort((a,b)=>(a.date||"").localeCompare(b.date||""));
-        return ev.length>1&&<div style={{marginBottom:14,background:T.cardSolid,borderRadius:10,padding:"10px 14px",border:"1px solid "+T.brd}}><Timeline events={ev}/></div>})()}
+      {/* Timeline - phases */}
+      {(()=>{const wds=order.workshopDeliveries||[];const dels=order.deliveries||[];
+        const totalWsDel=wds.reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+        const totalWsRcv=wds.reduce((s,wd)=>s+(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0),0);
+        const stockDel=getConfirmedStock(order);const isClosed=order.closed||!!order.settlement;
+        /* Build phases */
+        const phases=[];
+        /* 1. تم القص */
+        phases.push({title:"تم القص",color:T.accent,date:order.date,details:["كمية: "+t.cutQty]});
+        /* 2. في التشغيل */
+        const wsDetails=[];const wsNames=[...new Set(wds.map(w=>w.wsName))];
+        wsNames.forEach(n=>{const wdForWs=wds.filter(w=>w.wsName===n);const pieces=wdForWs.map(w=>(w.garmentType||"عام")+" ("+w.qty+")").join("، ");wsDetails.push(n+": "+pieces)});
+        if(wsDetails.length>0)phases.push({title:"في التشغيل",color:"#8B5CF6",date:wds[0]?.date,details:wsDetails});
+        else phases.push({title:"في التشغيل",color:"#8B5CF6",details:[]});
+        /* 3. تشطيب وتعبئة */
+        const rcvDetails=[];wsNames.forEach(n=>{const rcvd=wds.filter(w=>w.wsName===n).reduce((s,w)=>(w.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);if(rcvd>0)rcvDetails.push("استلام "+n+": "+rcvd)});
+        phases.push({title:"تشطيب وتعبئة",color:T.ok,details:rcvDetails.length>0?rcvDetails:[]});
+        /* 4. تسليم مخزن */
+        const stockDetails=[];if(stockDel>0)stockDetails.push("مؤكد: "+stockDel+" قطعة");
+        const pendDel=dels.filter(d=>d.status==="pending").reduce((s,d)=>s+(Number(d.qty)||0),0);
+        if(pendDel>0)stockDetails.push("⏳ معلّق: "+pendDel);
+        phases.push({title:"مخزن نهائي",color:"#059669",details:stockDetails});
+        /* 5. مغلق */
+        if(isClosed)phases.push({title:"مغلق ✅",color:"#64748B",details:order.settlement?["هالك: "+(order.settlement.qty||0)]:[]});
+        /* Determine current phase */
+        let curIdx=0;
+        if(totalWsDel>0)curIdx=1;
+        if(totalWsRcv>0)curIdx=2;
+        if(stockDel>0)curIdx=3;
+        if(isClosed)curIdx=phases.length-1;
+        return<div style={{marginBottom:14,background:T.cardSolid,borderRadius:10,padding:"10px 14px",border:"1px solid "+T.brd,overflowX:"auto"}}><Timeline phases={phases} currentIdx={curIdx}/></div>})()}
       <div style={{display:"grid",gridTemplateColumns:order.image&&!isMob?"auto 1fr":"1fr",gap:16,marginBottom:16}}>
         {!isMob&&order.image&&<div style={{position:"relative"}}><img src={order.image} alt="" style={{width:135,height:180,aspectRatio:"3/4",objectFit:"cover",borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow}}/>
           {canEdit&&<div onClick={()=>{if(confirm("حذف صورة الأوردر؟"))updOrder(sel,o=>{o.image=""})}} style={{position:"absolute",top:4,right:4,width:22,height:22,borderRadius:11,background:"rgba(0,0,0,0.6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11}}>✕</div>}
@@ -4489,7 +4518,9 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
                     const msg="*CLARK — اذن تسليم عميل*%0A%0A• العميل: *"+c.name+"*%0A• التاريخ: *"+activeSess.date+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+rowTotal+"* قطعة%0A%0A*برجاء التأكيد*";
                     window.open("https://wa.me/"+(c.phone?c.phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",fontSize:9,padding:"2px 5px"}} title="ارسال واتساب">📱</Btn>
                   <Btn small onClick={()=>{setShipPopup({cust:c,total:rowTotal});setShipCount(1)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30",fontSize:9,padding:"2px 5px"}} title="طباعة ليبل">🏷️</Btn>
-                  {sessCanEdit&&<Btn small onClick={()=>{if(!confirm("حذف "+c.name+" من التوزيعة؟"))return;upSales(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===activeSess.id);if(si>=0){d.custDeliverySessions[si].custIds=d.custDeliverySessions[si].custIds.filter(id=>id!==c.id);const g=d.custDeliverySessions[si].grid||{};Object.keys(g).forEach(k=>{if(k.endsWith("_"+c.id))delete g[k]})}});showToast("✓ تم حذف "+c.name)}} style={{background:"#EF444412",color:"#EF4444",border:"1px solid #EF444430",fontSize:9,padding:"2px 5px"}} title="حذف العميل">🗑</Btn>}
+                  {sessCanEdit&&(()=>{const hasSalesInSess=orders.some(o=>(o.customerDeliveries||[]).some(d=>d.custId===c.id&&d.sessionId===activeSess.id));
+                    return hasSalesInSess?<Btn small disabled style={{background:"#EF444406",color:"#ccc",border:"1px solid #EF444415",fontSize:9,padding:"2px 5px",cursor:"not-allowed"}} title="لا يمكن الحذف — لديه بيع فعلي">🔒</Btn>
+                    :<Btn small onClick={()=>{if(!confirm("حذف "+c.name+" من التوزيعة؟"))return;upSales(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===activeSess.id);if(si>=0){d.custDeliverySessions[si].custIds=d.custDeliverySessions[si].custIds.filter(id=>id!==c.id);const g=d.custDeliverySessions[si].grid||{};Object.keys(g).forEach(k=>{if(k.endsWith("_"+c.id))delete g[k]})}});showToast("✓ تم حذف "+c.name)}} style={{background:"#EF444412",color:"#EF4444",border:"1px solid #EF444430",fontSize:9,padding:"2px 5px"}} title="حذف العميل">🗑</Btn>})()}
                 </div>}</td>
               </tr>})}
             <tr style={{background:T.ok+"08"}}><td style={{...TD,fontWeight:800,color:T.ok}}>اجمالي توزيع</td>
@@ -4813,7 +4844,7 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
               <Btn small onClick={()=>setCustSalesLog(c.id)} style={{background:"#059669"+"12",color:"#059669",border:"1px solid #05966930"}} title="سجل مبيعات">📋</Btn>
               <Btn small onClick={()=>{setCName(c.name);setCPhone(c.phone);setCAddr(c.address||"");setCType(c.type||"مكتب");setCEditId(c.id);setShowCustForm(true)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
               <Btn small onClick={()=>showCustQR(c)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="عرض كود QR">QR</Btn>
-              <DelBtn onConfirm={()=>upConfig(d=>{d.customers=(d.customers||[]).filter(x=>x.id!==c.id)})} blocked={total>0?"لديه تسليمات":null}/>
+              <DelBtn onConfirm={()=>upConfig(d=>{d.customers=(d.customers||[]).filter(x=>x.id!==c.id)})} blocked={(()=>{if(total>0)return"لديه تسليمات";const inSess=(config.custDeliverySessions||[]).some(s=>(s.custIds||[]).includes(c.id));if(inSess)return"مرتبط بتوزيعة";const hasRet=orders.some(o=>(o.customerReturns||[]).some(r=>r.custId===c.id));if(hasRet)return"لديه مرتجعات";return null})()}/>
             </div></td>}</tr>})}
         </tbody></table></div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>{custFilter?"لا توجد نتائج":"سجّل عملاء أولاً"}</div>})()}
       </div>
@@ -6505,6 +6536,19 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
           });
           showToast("✓ تم تنظيف "+cleaned+" سجل يتيم")};
         return<div>
+          {/* Recover deleted customers */}
+          {(()=>{const existingCustIds=new Set((config.customers||[]).map(c=>c.id));const lostCusts={};
+            orders.forEach(o=>{(o.customerDeliveries||[]).forEach(d=>{if(d.custId&&!existingCustIds.has(d.custId)&&d.custName){if(!lostCusts[d.custId])lostCusts[d.custId]={id:d.custId,name:d.custName,qty:0};lostCusts[d.custId].qty+=(Number(d.qty)||0)}});
+              (o.customerReturns||[]).forEach(r=>{if(r.custId&&!existingCustIds.has(r.custId)&&r.custName){if(!lostCusts[r.custId])lostCusts[r.custId]={id:r.custId,name:r.custName,qty:0}}})});
+            /* Also check session grids */
+            (config.custDeliverySessions||[]).forEach(s=>{(s.custIds||[]).forEach(cid=>{if(!existingCustIds.has(cid)&&!lostCusts[cid]){lostCusts[cid]={id:cid,name:"عميل محذوف ("+cid.substring(0,6)+")",qty:0}}})});
+            const lostList=Object.values(lostCusts);
+            if(lostList.length===0)return null;
+            return<div style={{padding:12,borderRadius:10,background:"#EF444408",border:"1px solid #EF444420",marginBottom:12}}>
+              <div style={{fontWeight:800,color:"#EF4444",marginBottom:8}}>{"🔴 "+lostList.length+" عميل محذوف لديه حركات بيع!"}</div>
+              {lostList.map(c=><div key={c.id} style={{fontSize:FS-1,padding:"4px 0",color:T.text}}>{"• "+c.name+(c.qty>0?" — "+c.qty+" قطعة مباعة":"")}</div>)}
+              <Btn onClick={()=>{upConfig(d=>{if(!d.customers)d.customers=[];lostList.forEach(c=>{if(!d.customers.find(x=>x.id===c.id)){d.customers.push({id:c.id,name:c.name,phone:"",address:"",type:"مكتب",recoveredAt:new Date().toISOString()})}})});showToast("✅ تم استعادة "+lostList.length+" عميل")}} style={{marginTop:8,background:"#EF4444",color:"#fff",border:"none",fontWeight:700}}>{"🔄 استعادة "+lostList.length+" عميل"}</Btn>
+            </div>})()}
           <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:12}}>
             <div style={{padding:10,borderRadius:8,background:totalIssues>0?T.warn+"08":T.ok+"08",border:"1px solid "+(totalIssues>0?T.warn:T.ok)+"15",textAlign:"center",flex:1,minWidth:120}}>
               <div style={{fontSize:FS-2,color:T.textSec}}>بيانات يتيمة</div>
