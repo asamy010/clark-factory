@@ -9838,29 +9838,29 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       </Card>}
       <Card title={"👷 الموظفين ("+employees.length+")"}>
         {employees.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
-          {["#","الاسم","الكود","الوظيفة","مرتب","حافز","ساعات","تليفون","رصيد","مديونيات","حالة",""].map(h=><th key={h} style={{padding:"7px 6px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
+          {["#","الاسم","الكود","الوظيفة","مرتب","حافز","ساعات","تليفون","رصيد","مديونيات","حالة",""].map(h=><th key={h} style={{padding:"7px 6px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
         </tr></thead><tbody>
           {employees.map((e,i)=>{const activeD=empActiveDebts(e.id);const totalRemaining=activeD.reduce((s,d)=>{const paid=(d.paidWeekIds||[]).length;return s+(d.total-paid*d.perWeek)},0);
             const isEditing=inlineEditId===e.id;const d_=inlineDraft;
             const inpStyle={width:"100%",padding:"3px 6px",borderRadius:6,border:"1px solid "+T.accent+"40",fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text};
             return<tr key={e.id} style={{borderBottom:"1px solid "+T.brd,opacity:e.inactive?0.4:1,background:isEditing?T.accent+"06":""}}>
-              <td style={{padding:"5px 6px",fontSize:FS-2,color:T.textMut}}>{i+1}</td>
-              <td style={{padding:"5px 6px",fontSize:FS,fontWeight:700,minWidth:120}}>
+              <td style={{padding:"5px 6px",fontSize:FS-2,color:T.textMut,textAlign:"center"}}>{i+1}</td>
+              <td style={{padding:"5px 6px",fontSize:FS,fontWeight:700,minWidth:120,textAlign:"right"}}>
                 {isEditing?<input value={d_.name} onChange={ev=>setInlineDraft(p=>({...p,name:ev.target.value}))} style={{...inpStyle,textAlign:"right",fontWeight:700,fontSize:FS}}/>:<>{e.name}{e.noBiometric&&<span style={{fontSize:FS-3,marginRight:4,padding:"1px 5px",borderRadius:4,background:"#8B5CF612",color:"#8B5CF6",fontWeight:600}}>إدارة</span>}</>}</td>
-              <td style={{padding:"5px 6px",fontSize:FS-1,color:T.accent,fontWeight:700,minWidth:70}}>
+              <td style={{padding:"5px 6px",fontSize:FS-1,color:T.accent,fontWeight:700,minWidth:70,textAlign:"center"}}>
                 {isEditing?<input value={d_.code} onChange={ev=>setInlineDraft(p=>({...p,code:ev.target.value}))} style={{...inpStyle,width:70}}/>:e.code||"—"}</td>
-              <td style={{padding:"5px 6px",fontSize:FS-2,color:T.textSec,minWidth:80}}>
+              <td style={{padding:"5px 6px",fontSize:FS-2,color:T.textSec,minWidth:80,textAlign:"center"}}>
                 {isEditing?<input value={d_.job} onChange={ev=>setInlineDraft(p=>({...p,job:ev.target.value}))} style={{...inpStyle,width:80}}/>:e.job||"—"}</td>
-              <td style={{padding:"5px 6px",fontSize:FS-1,fontWeight:700,color:T.accent,minWidth:70}}>
+              <td style={{padding:"5px 6px",fontSize:FS-1,fontWeight:700,color:T.accent,minWidth:70,textAlign:"center"}}>
                 {isEditing?<input type="number" value={d_.weeklySalary} onChange={ev=>setInlineDraft(p=>({...p,weeklySalary:ev.target.value}))} style={{...inpStyle,width:70}}/>:fmt(e.weeklySalary||0)}</td>
-              <td style={{padding:"5px 6px",fontSize:FS-2,color:T.ok,minWidth:60}}>
+              <td style={{padding:"5px 6px",fontSize:FS-2,color:T.ok,minWidth:60,textAlign:"center"}}>
                 {isEditing?<input type="number" value={d_.weeklyBonus} onChange={ev=>setInlineDraft(p=>({...p,weeklyBonus:ev.target.value}))} style={{...inpStyle,width:60}} placeholder="0"/>:(e.weeklyBonus>0?fmt(e.weeklyBonus):"—")}</td>
-              <td style={{padding:"5px 6px",fontSize:FS-2,color:T.textMut,minWidth:50}}>
+              <td style={{padding:"5px 6px",fontSize:FS-2,color:T.textMut,minWidth:50,textAlign:"center"}}>
                 {isEditing?<input type="number" value={d_.baseHours} onChange={ev=>setInlineDraft(p=>({...p,baseHours:ev.target.value}))} style={{...inpStyle,width:50}}/>:(e.baseHours||hrs.defaultBaseHours||48)}</td>
-              <td style={{padding:"5px 6px",fontSize:FS-3,color:T.textMut,direction:"ltr",minWidth:90}}>
+              <td style={{padding:"5px 6px",fontSize:FS-3,color:T.textMut,direction:"ltr",minWidth:90,textAlign:"center"}}>
                 {isEditing?<input value={d_.phone} onChange={ev=>setInlineDraft(p=>({...p,phone:ev.target.value}))} style={{...inpStyle,width:90,direction:"ltr"}}/>:e.phone||"—"}</td>
-              <td style={{padding:"5px 6px",fontSize:FS-1,fontWeight:800,color:(e.prevBalance||0)>=0?T.ok:T.err}}>{fmt(e.prevBalance||0)}</td>
-              <td style={{padding:"5px 6px"}}>
+              <td style={{padding:"5px 6px",fontSize:FS-1,fontWeight:800,color:(e.prevBalance||0)>=0?T.ok:T.err,textAlign:"center"}}>{fmt(e.prevBalance||0)}</td>
+              <td style={{padding:"5px 6px",textAlign:"center"}}>
                 {activeD.length>0?<span onClick={()=>setShowEmpDebts(e.id)} style={{cursor:"pointer",padding:"3px 10px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:"#F9731612",color:"#F97316",border:"1px solid #F9731630",display:"inline-flex",alignItems:"center",gap:4}} title="عرض المديونيات">🧾 {activeD.length} | {fmt(totalRemaining)}</span>
                 :<span onClick={()=>{if(canEdit){setShowDebtForm({empId:e.id});resetDebtForm();setDebtStart(today)}}} style={{cursor:canEdit?"pointer":"default",padding:"2px 8px",borderRadius:6,fontSize:FS-2,color:T.textMut,border:"1px dashed "+T.brd}}>—</span>}
               </td>
