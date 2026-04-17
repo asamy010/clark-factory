@@ -8520,6 +8520,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const[debtStart,setDebtStart]=useState("");const[debtNotes,setDebtNotes]=useState("");
   const[showEmpDebts,setShowEmpDebts]=useState(null);/* empId to view */
   const[unlockedWeeks,setUnlockedWeeks]=useState({});/* weekId -> true if user explicitly unlocked */
+  const[previewWeekId,setPreviewWeekId]=useState(null);/* for side panel advances view */
   const[summaryWeekId,setSummaryWeekId]=useState(null);/* for weekly summary tab */
   const[empStatement,setEmpStatement]=useState(null);/* empId for statement popup */
   const[stmtFrom,setStmtFrom]=useState("");const[stmtTo,setStmtTo]=useState("");
@@ -8964,6 +8965,10 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         {canEdit&&<Btn onClick={()=>{setMatrixEmps(activeEmps.map(e=>({empId:e.id,name:e.name,amount:0})));setMatrixDate(today);setMatrixDesc("سلفة");setShowMatrix(true)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>💸 دفعات مجمعة</Btn>}
       </div>
       {showNewWeek&&<Card title="+ فتح أسبوع جديد" style={{marginBottom:16}}>
+        <div style={{display:"flex",gap:6,marginBottom:10}}>
+          <span onClick={()=>{const tdy=new Date();const dow=tdy.getDay();const toSat=dow===6?0:(dow+1);const sat=new Date(tdy);sat.setDate(tdy.getDate()-toSat);const thu=new Date(sat);thu.setDate(sat.getDate()+5);setNwStart(sat.toISOString().split("T")[0]);setNwEnd(thu.toISOString().split("T")[0]);setNwBaseHours(hrs.defaultBaseHours||48)}} style={{cursor:"pointer",padding:"6px 14px",borderRadius:8,fontSize:FS-1,fontWeight:700,background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>سبت → خميس (6 أيام)</span>
+          <span onClick={()=>{const tdy=new Date();const dow=tdy.getDay();const toSat=dow===6?0:(dow+1);const sat=new Date(tdy);sat.setDate(tdy.getDate()-toSat);const fri=new Date(sat);fri.setDate(sat.getDate()+6);setNwStart(sat.toISOString().split("T")[0]);setNwEnd(fri.toISOString().split("T")[0]);setNwBaseHours(Math.round((hrs.defaultBaseHours||48)*7/6))}} style={{cursor:"pointer",padding:"6px 14px",borderRadius:8,fontSize:FS-1,fontWeight:700,background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>سبت → جمعة (7 أيام)</span>
+        </div>
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:10}}>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>بداية الأسبوع</label><Inp type="date" value={nwStart} onChange={setNwStart}/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نهاية الأسبوع</label><Inp type="date" value={nwEnd} onChange={setNwEnd}/></div>
@@ -8971,21 +8976,24 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         </div>
         <div style={{marginTop:10}}><Btn primary onClick={createWeek}>📅 فتح الأسبوع</Btn></div>
       </Card>}
-      {/* Weeks list */}
+      {/* Split view: Weeks list (left) + Advances panel (right) */}
+      <div style={{display:isMob?"block":"flex",gap:16,alignItems:"flex-start"}}>
+        {/* ── LEFT: Weeks list ── */}
+        <div style={{flex:isMob?"auto":"1 1 55%",minWidth:0}}>
       {hrWeeks.length>0?<div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {hrWeeks.map(w=><div key={w.id} style={{padding:16,borderRadius:14,background:T.cardSolid,border:"2px solid "+(w.status==="closed"?T.ok+"30":T.accent+"30"),boxShadow:T.shadow,display:"flex",justifyContent:"space-between",alignItems:"center",transition:"transform 0.15s"}}>
-          <div onClick={()=>{if(w.status==="open"||w.status==="closed")setOpenWeekId(w.id)}} style={{display:"flex",alignItems:"center",gap:12,flex:1,cursor:"pointer"}}>
-            <span style={{fontSize:24,fontWeight:800,color:w.status==="closed"?T.ok:T.accent}}>{"W"+w.weekNum}</span>
+        {hrWeeks.map(w=>{const isSelected=previewWeekId===w.id;return<div key={w.id} style={{padding:isMob?12:16,borderRadius:14,background:isSelected?T.accent+"08":T.cardSolid,border:"2px solid "+(isSelected?T.accent:w.status==="closed"?T.ok+"30":T.accent+"30"),boxShadow:T.shadow,display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all 0.15s",cursor:"pointer"}} onClick={()=>setPreviewWeekId(isSelected?null:w.id)}>
+          <div style={{display:"flex",alignItems:"center",gap:12,flex:1}}>
+            <span style={{fontSize:isMob?18:24,fontWeight:800,color:w.status==="closed"?T.ok:T.accent}}>{"W"+w.weekNum}</span>
             <div>
               <div style={{fontSize:FS,fontWeight:700}}>{w.weekStart+" → "+w.weekEnd}</div>
               <div style={{fontSize:FS-2,color:T.textMut}}>{"ساعات أساسي: "+w.baseHours+(w.empCount?" | "+w.empCount+" موظف":"")}</div>
             </div>
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            {w.totalGross!=null&&<div style={{textAlign:"left"}}><div style={{fontSize:FS-2,color:T.textSec}}>صافي</div><div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>{fmt(r2(w.totalNet||0))}</div></div>}
+          <div style={{display:"flex",alignItems:"center",gap:isMob?6:10,flexWrap:"wrap"}}>
+            {w.totalGross!=null&&!isMob&&<div style={{textAlign:"left"}}><div style={{fontSize:FS-2,color:T.textSec}}>صافي</div><div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>{fmt(r2(w.totalNet||0))}</div></div>}
             <span style={{padding:"4px 12px",borderRadius:8,fontSize:FS-2,fontWeight:700,background:w.status==="closed"?T.ok+"12":T.warn+"12",color:w.status==="closed"?T.ok:T.warn}}>{w.status==="closed"?"✅ مقفول":"🔓 مفتوح"}</span>
-            {canEdit&&(w.status!=="closed"||unlockedWeeks[w.id])&&<span onClick={()=>{
-              /* Check for linked treasury entries (salary payouts) */
+            <span onClick={e=>{e.stopPropagation();setOpenWeekId(w.id)}} style={{cursor:"pointer",padding:"4px 10px",borderRadius:8,background:T.accent+"12",color:T.accent,fontSize:FS-2,fontWeight:700,border:"1px solid "+T.accent+"30"}}>فتح</span>
+            {canEdit&&(w.status!=="closed"||unlockedWeeks[w.id])&&<span onClick={e=>{e.stopPropagation();
               const linkedTreasury=(data.treasury||[]).filter(t=>t.category==="مرتبات"&&t.desc&&(t.desc.includes("W"+w.weekNum+" ("+w.weekStart)||t.desc.includes("مرتبات W"+w.weekNum)));
               if(linkedTreasury.length>0){
                 const total=linkedTreasury.reduce((s,t)=>s+(Number(t.amount)||0),0);
@@ -8994,14 +9002,68 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               openConfirm({title:"حذف أسبوع W"+w.weekNum,message:"البيانات المسجلة (بصمة + حضور + بيانات المرتبات) هتنحذف.\nالسلف المرتبطة بالأسبوع لن تتأثر.",variant:"danger",onConfirm:()=>{
                 upConfig(d=>{
                   d.hrWeeks=(d.hrWeeks||[]).filter(x=>x.id!==w.id);
-                  /* Clean up hrLog salary entries linked to this week */
                   d.hrLog=(d.hrLog||[]).filter(l=>!(l.type==="salary"&&l.weekId===w.id));
                 });
+                if(previewWeekId===w.id)setPreviewWeekId(null);
                 showToast("✓ تم حذف الأسبوع")}})
             }} style={{cursor:"pointer",padding:"4px 10px",borderRadius:8,background:T.err+"12",color:T.err,fontSize:FS-1,fontWeight:700,border:"1px solid "+T.err+"30"}} title="حذف الأسبوع">🗑️</span>}
           </div>
-        </div>)}
+        </div>})}
       </div>:<div style={{textAlign:"center",padding:40,color:T.textMut}}>لم يتم فتح أسابيع بعد — اضغط "+ أسبوع جديد"</div>}
+        </div>
+        {/* ── RIGHT: Advances panel for selected week or current week ── */}
+        {!isMob&&(()=>{const pw=hrWeeks.find(w=>w.id===previewWeekId);
+          /* Use selected week dates, or fallback to current week dates */
+          const pStart=pw?pw.weekStart:cwStart;
+          const pEnd=pw?pw.weekEnd:cwEnd;
+          const pLabel=pw?"W"+pw.weekNum+" ("+pStart+" → "+pEnd+")":"الأسبوع الحالي ("+cwStart+" → "+cwEnd+")";
+          const inWk=(dt)=>dt&&dt>=pStart&&dt<=pEnd;
+          const wAdvances=hrLog.filter(l=>l.type==="advance"&&((pw&&l.weekId===pw.id)||inWk(l.date)));
+          const seenIds=new Set(wAdvances.map(a=>a.id));
+          const wTreasury=(data.treasury||[]).filter(t=>t.type==="out"&&t.sourceType==="hr_advance"&&inWk(t.date)&&!seenIds.has(t.hrLogId));
+          const allAdv=[...wAdvances.map(a=>({...a,src:"hrLog"})),...wTreasury.map(t=>({empId:t.empId,empName:(employees.find(e=>e.id===t.empId)||{}).name||"",amount:t.amount,date:t.date,desc:t.desc||"سلفة",by:t.by||"",src:"treasury"}))];
+          const totalAdv=allAdv.reduce((s,a)=>s+(Number(a.amount)||0),0);
+          /* Group by employee */
+          const byEmp={};allAdv.forEach(a=>{if(!byEmp[a.empId])byEmp[a.empId]={name:a.empName,total:0,items:[]};byEmp[a.empId].total+=Number(a.amount)||0;byEmp[a.empId].items.push(a)});
+          return<div style={{flex:"0 0 40%",minWidth:0}}>
+            <Card title={"💸 سلف "+pLabel} accent={T.accent} style={{position:"sticky",top:80}}>
+              {allAdv.length>0?<div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,padding:"8px 12px",borderRadius:8,background:T.err+"08",border:"1px solid "+T.err+"20"}}>
+                  <span style={{fontSize:FS,fontWeight:700,color:T.text}}>إجمالي السلف</span>
+                  <span style={{fontSize:FS+2,fontWeight:800,color:T.err}}>{fmt(r2(totalAdv))+" ج.م"}</span>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {Object.entries(byEmp).map(([empId,d])=><div key={empId} style={{padding:"8px 12px",borderRadius:10,border:"1px solid "+T.brd,background:T.bg}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                      <span style={{fontSize:FS,fontWeight:700}}>{d.name}</span>
+                      <span style={{fontSize:FS,fontWeight:800,color:T.err}}>{fmt(r2(d.total))}</span>
+                    </div>
+                    {d.items.map((it,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:FS-2,color:T.textSec,padding:"2px 0"}}>
+                      <span>{it.date+" — "+(it.desc||"سلفة")}</span>
+                      <span style={{fontWeight:600,color:T.err}}>{fmt(it.amount)}</span>
+                    </div>)}
+                  </div>)}
+                </div>
+              </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد سلف في هذا الأسبوع</div>}
+            </Card>
+          </div>})()}
+      </div>
+      {/* Mobile: show advances below when week selected */}
+      {isMob&&(()=>{const pw=hrWeeks.find(w=>w.id===previewWeekId);
+        const pStart=pw?pw.weekStart:cwStart;const pEnd=pw?pw.weekEnd:cwEnd;
+        const pLabel=pw?"W"+pw.weekNum:cwStart+" → "+cwEnd;
+        const inWk=(dt)=>dt&&dt>=pStart&&dt<=pEnd;
+        const wAdv=hrLog.filter(l=>l.type==="advance"&&((pw&&l.weekId===pw.id)||inWk(l.date)));
+        const totalAdv=wAdv.reduce((s,a)=>s+(Number(a.amount)||0),0);
+        return<Card title={"💸 سلف "+pLabel} style={{marginTop:12}}>
+          {wAdv.length>0?<div>
+            <div style={{fontSize:FS,fontWeight:800,color:T.err,marginBottom:8}}>{"إجمالي: "+fmt(r2(totalAdv))+" ج.م"}</div>
+            {wAdv.map((a,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+T.brd,fontSize:FS-1}}>
+              <span style={{fontWeight:600}}>{a.empName}</span>
+              <span style={{color:T.err,fontWeight:700}}>{fmt(a.amount)+" — "+a.date}</span>
+            </div>)}
+          </div>:<div style={{textAlign:"center",padding:16,color:T.textMut}}>لا توجد سلف</div>}
+        </Card>})()}
     </div>}
 
     {/* ══ OPEN WEEK DETAIL ══ */}
