@@ -1263,6 +1263,7 @@ export default function App(){
         </div>}
         {/* Alerts Bell */}
         <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
+          {config.disableNotifications?<div style={{fontSize:isMob?18:22,padding:"2px 6px",color:T.textMut,opacity:0.4}} title="الإشعارات معطلة">🔕</div>:<>
           <div onClick={()=>setShowAlerts(!showAlerts)} title="التنبيهات والإشعارات" style={{cursor:"pointer",fontSize:isMob?18:22,padding:"2px 6px",borderRadius:8,background:alertCount>0?T.warn+"12":"transparent",position:"relative"}}>🔔
             {alertCount>0&&<span style={{position:"absolute",top:-2,left:-2,width:16,height:16,borderRadius:8,background:T.err,color:"#fff",fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>{alertCount}</span>}
           </div>
@@ -1273,7 +1274,7 @@ export default function App(){
               <div style={{flex:1}}><span style={{fontSize:FS-1,color:a.color,fontWeight:600,lineHeight:1.5}}>{a.msg}</span>{a.from&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{"من: "+a.from+(a.date?" — "+a.date:"")}</div>}{a.orderId&&!a.isNotif&&!a.wsPhone&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>اضغط لفتح الأوردر</div>}</div>
               {a.wsPhone&&<span onClick={e=>{e.stopPropagation();const lines=(a.wsDetails||[]).map(d=>"• موديل *"+d.modelNo+"*: *"+d.qty+"* قطعة — "+d.days+" يوم"+(d.agreed?" (متفق "+d.agreed+" يوم)":"")).join("%0A");const msg="*CLARK — تنبيه تأخير*%0A%0A• الورشة: *"+a.wsName+"*%0A%0A"+lines+"%0A%0A⚠️ *برجاء الاهتمام بالتسليم في أقرب وقت*";window.open("https://wa.me/"+(a.wsPhone.replace(/[^0-9]/g,""))+"?text="+msg,"_blank")}} style={{cursor:"pointer",fontSize:14,color:"#25D366",flexShrink:0,padding:"2px 4px"}}>📱</span>}
             </div>):<div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد اشعارات</div>}
-          </div></>}
+          </div></>}</>}
         </div>
         <span style={{color:T.textMut,fontSize:12,userSelect:"none"}}>-</span>
         <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
@@ -1374,7 +1375,7 @@ export default function App(){
             {/* ── Center 50%: App Grid + Actions ── */}
             <div style={{flex:"0 0 50%",minWidth:0}}>
               <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10}}>
-                {[...TABS.filter(t=>canViewTab(t.key))].sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0).map(t=>{const perm=getTabPerm(t.key);const isOdoo=!!T.navBg;return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:isOdoo?10:12,padding:isOdoo?"14px 6px":"12px 6px",border:"1px solid "+T.brd,boxShadow:isOdoo?"0 1px 4px rgba(0,0,0,0.04)":T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s",opacity:perm==="view"?0.75:1,position:"relative"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow=isOdoo?"0 6px 20px rgba(113,75,103,0.12)":"0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=isOdoo?"0 1px 4px rgba(0,0,0,0.04)":T.shadow}}>
+                {[...TABS.filter(t=>canViewTab(t.key))].sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0).map(t=>{const perm=getTabPerm(t.key);const isOdoo=!!T.navBg;return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:isOdoo?10:12,padding:isOdoo?"10px 6px":"8px 6px",border:"1px solid "+T.brd,boxShadow:isOdoo?"0 1px 4px rgba(0,0,0,0.04)":T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s",opacity:perm==="view"?0.75:1,position:"relative",aspectRatio:"1",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow=isOdoo?"0 6px 20px rgba(113,75,103,0.12)":"0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=isOdoo?"0 1px 4px rgba(0,0,0,0.04)":T.shadow}}>
                   <div style={{width:isOdoo?42:38,height:isOdoo?42:38,borderRadius:isOdoo?12:10,background:isOdoo?t.color+"15":t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 6px",fontSize:isOdoo?22:20,...(isOdoo?{border:"1px solid "+t.color+"20"}:{})}}>{t.icon}</div>
                   <div style={{fontSize:FS-2,fontWeight:700,color:T.text}}>{t.label}</div>
                   {perm==="view"&&<div style={{position:"absolute",top:4,left:4,fontSize:8,padding:"1px 4px",borderRadius:3,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
@@ -1414,7 +1415,7 @@ export default function App(){
           </div>
           :<div>{/* ══ Mobile + Tablet ══ */}
             <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:10}}>
-              {[...TABS.filter(t=>canViewTab(t.key))].sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0).map(t=>{const perm=getTabPerm(t.key);const isOdoo=!!T.navBg;return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:isOdoo?10:12,padding:isOdoo?"14px 6px":"12px 6px",border:"1px solid "+T.brd,boxShadow:isOdoo?"0 1px 4px rgba(0,0,0,0.04)":T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",opacity:perm==="view"?0.75:1,position:"relative",width:isTab?"calc(25% - 8px)":"calc(33.33% - 8px)",boxSizing:"border-box"}}>
+              {[...TABS.filter(t=>canViewTab(t.key))].sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0).map(t=>{const perm=getTabPerm(t.key);const isOdoo=!!T.navBg;return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:isOdoo?10:12,padding:isOdoo?"10px 6px":"8px 6px",border:"1px solid "+T.brd,boxShadow:isOdoo?"0 1px 4px rgba(0,0,0,0.04)":T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",opacity:perm==="view"?0.75:1,position:"relative",width:isTab?"calc(25% - 8px)":"calc(33.33% - 8px)",boxSizing:"border-box",aspectRatio:"1",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
                 <div style={{width:isOdoo?40:36,height:isOdoo?40:36,borderRadius:isOdoo?12:10,background:isOdoo?t.color+"15":t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 6px",fontSize:isOdoo?20:18,...(isOdoo?{border:"1px solid "+t.color+"20"}:{})}}>{t.icon}</div>
                 <div style={{fontSize:FS-3,fontWeight:700,color:T.text}}>{t.label}</div>
                 {perm==="view"&&<div style={{position:"absolute",top:6,left:6,fontSize:9,padding:"1px 6px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
@@ -4924,18 +4925,28 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
     h+="<tr style='background:#F59E0B10;font-weight:800'><td colspan='5'>الاجمالي</td><td style='text-align:center;color:#F59E0B;font-size:16px'>"+totalFloor+"</td><td></td></tr></tbody></table>";
     h+="<div class='sig'><div class='sig-box'>مسؤول التشغيل</div><div class='sig-box'>المدير</div></div>";printPage("قطع على الأرض",h)};
 
-  /* Production line report - خط الانتاج */
+  /* Production line report - خط الانتاج (per garment piece) */
   const printProductionLine=()=>{const rows=[];
     orders.forEach(o=>{const t=calcOrder(o);if(t.cutQty===0)return;const wds=o.workshopDeliveries||[];
-      const delToWs=wds.reduce((s,wd)=>s+(Number(wd.qty)||0),0);const rcvFromWs=wds.reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);
-      const stockDel=getConfirmedStock(o);const finishing=rcvFromWs-stockDel;const wsBalance=delToWs-rcvFromWs;
-      rows.push({modelNo:o.modelNo,desc:o.modelDesc,cut:t.cutQty,delWs:delToWs,rcvWs:rcvFromWs,finishing:Math.max(0,finishing),stock:stockDel,wsBalance:Math.max(0,wsBalance)})});
+      const pieces=o.orderPieces||[];const hasPieces=pieces.length>1;
+      if(hasPieces){
+        pieces.forEach(p=>{
+          const delToWs=wds.filter(wd=>(wd.garmentType||"عام")===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+          const rcvFromWs=wds.filter(wd=>(wd.garmentType||"عام")===p).reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);
+          const wsBalance=delToWs-rcvFromWs;
+          rows.push({modelNo:o.modelNo,desc:o.modelDesc,piece:p,cut:t.cutQty,delWs:delToWs,rcvWs:rcvFromWs,finishing:0,stock:0,wsBalance:Math.max(0,wsBalance)})});
+        const stockDel=getConfirmedStock(o);const totalRcv=wds.reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);
+        rows[rows.length-1].stock=stockDel;rows[rows.length-1].finishing=Math.max(0,totalRcv-stockDel);
+      }else{
+        const delToWs=wds.reduce((s,wd)=>s+(Number(wd.qty)||0),0);const rcvFromWs=wds.reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);
+        const stockDel=getConfirmedStock(o);const finishing=rcvFromWs-stockDel;const wsBalance=delToWs-rcvFromWs;
+        rows.push({modelNo:o.modelNo,desc:o.modelDesc,piece:"—",cut:t.cutQty,delWs:delToWs,rcvWs:rcvFromWs,finishing:Math.max(0,finishing),stock:stockDel,wsBalance:Math.max(0,wsBalance)})}});
     if(rows.length===0){showToast("⚠️ لا توجد بيانات");return}
     const totals=rows.reduce((s,r)=>({cut:s.cut+r.cut,delWs:s.delWs+r.delWs,rcvWs:s.rcvWs+r.rcvWs,finishing:s.finishing+r.finishing,stock:s.stock+r.stock,wsBalance:s.wsBalance+r.wsBalance}),{cut:0,delWs:0,rcvWs:0,finishing:0,stock:0,wsBalance:0});
     let h="<h2 style='text-align:center'>📊 تقرير خط الانتاج</h2>";
-    h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>القص</th><th>تسليم ورش</th><th>استلام ورش</th><th>رصيد ورش</th><th>عند التشطيب</th><th>مخزن جاهز</th></tr></thead><tbody>";
-    rows.forEach(r=>{h+="<tr><td style='font-weight:800'>"+r.modelNo+"</td><td>"+r.desc+"</td><td style='text-align:center'>"+r.cut+"</td><td style='text-align:center'>"+r.delWs+"</td><td style='text-align:center'>"+r.rcvWs+"</td><td style='text-align:center;color:"+(r.wsBalance>0?"#EF4444":"#10B981")+";font-weight:700'>"+(r.wsBalance||"✅")+"</td><td style='text-align:center;color:"+(r.finishing>0?"#F59E0B":"#666")+";font-weight:700'>"+(r.finishing||"—")+"</td><td style='text-align:center;font-weight:800;color:#0EA5E9'>"+r.stock+"</td></tr>"});
-    h+="<tr style='background:#F1F5F9;font-weight:800'><td colspan='2'>الاجمالي</td><td style='text-align:center'>"+totals.cut+"</td><td style='text-align:center'>"+totals.delWs+"</td><td style='text-align:center'>"+totals.rcvWs+"</td><td style='text-align:center;color:#EF4444'>"+totals.wsBalance+"</td><td style='text-align:center;color:#F59E0B'>"+totals.finishing+"</td><td style='text-align:center;color:#0EA5E9;font-size:14px'>"+totals.stock+"</td></tr></tbody></table>";
+    h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>القطعة</th><th>القص</th><th>تسليم ورش</th><th>استلام ورش</th><th>رصيد ورش</th><th>عند التشطيب</th><th>مخزن جاهز</th></tr></thead><tbody>";
+    rows.forEach(r=>{h+="<tr><td style='font-weight:800'>"+r.modelNo+"</td><td>"+r.desc+"</td><td style='color:#8B5CF6;font-weight:600'>"+r.piece+"</td><td style='text-align:center'>"+r.cut+"</td><td style='text-align:center'>"+r.delWs+"</td><td style='text-align:center'>"+r.rcvWs+"</td><td style='text-align:center;color:"+(r.wsBalance>0?"#EF4444":"#10B981")+";font-weight:700'>"+(r.wsBalance||"✅")+"</td><td style='text-align:center;color:"+(r.finishing>0?"#F59E0B":"#666")+";font-weight:700'>"+(r.finishing||"—")+"</td><td style='text-align:center;font-weight:800;color:#0EA5E9'>"+r.stock+"</td></tr>"});
+    h+="<tr style='background:#F1F5F9;font-weight:800'><td colspan='3'>الاجمالي</td><td style='text-align:center'>"+totals.cut+"</td><td style='text-align:center'>"+totals.delWs+"</td><td style='text-align:center'>"+totals.rcvWs+"</td><td style='text-align:center;color:#EF4444'>"+totals.wsBalance+"</td><td style='text-align:center;color:#F59E0B'>"+totals.finishing+"</td><td style='text-align:center;color:#0EA5E9;font-size:14px'>"+totals.stock+"</td></tr></tbody></table>";
     h+="<div class='sig'><div class='sig-box'>مسؤول الانتاج</div><div class='sig-box'>المدير</div></div>";printPage("خط الانتاج",h)};
 
   const printSalesReport=()=>{const{from,to}=reportRange;const type=rptType;
@@ -5089,7 +5100,7 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
   };
 
   return<div>
-    {(()=>{const crd=(icon,label,color,onClick,sub)=><div onClick={onClick} style={{background:T.cardSolid,borderRadius:12,padding:"10px 6px",border:"1px solid "+color+"25",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,minHeight:80}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}><div style={{fontSize:22,lineHeight:1}}>{icon}</div><div style={{fontSize:FS-3,fontWeight:700,color,lineHeight:1.2,textAlign:"center"}}>{label}</div>{sub&&<div style={{fontSize:FS-4,color:T.textMut}}>{sub}</div>}</div>;
+    {(()=>{const crd=(icon,label,color,onClick,sub)=><div onClick={onClick} style={{background:T.cardSolid,borderRadius:12,padding:"6px",border:"1px solid "+color+"25",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,aspectRatio:"1"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}><div style={{fontSize:20,lineHeight:1}}>{icon}</div><div style={{fontSize:FS-3,fontWeight:700,color,lineHeight:1.2,textAlign:"center"}}>{label}</div>{sub&&<div style={{fontSize:FS-4,color:T.textMut}}>{sub}</div>}</div>;
       return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(4,1fr)":isTab?"repeat(5,1fr)":"repeat(8,1fr)",gap:8,marginBottom:16}}>
         {canEdit&&crd("👥","العملاء",T.text,()=>setShowCustList(true),customers.length+"")}
         {canEdit&&crd("🚚","تسليم جديد",T.ok,()=>{setSelModels({});setSelCusts({});setShowNewSession(true)})}
@@ -5107,7 +5118,6 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
         {crd("📊","خط الانتاج","#059669",printProductionLine)}
         {crd("📋","تقرير الموسم","#EF4444",()=>setSeasonReport(true))}
         {crd("🏪","جرد المخزن","#8B5CF6",()=>setInvAudit({items:{},scanning:false}))}
-        {crd("📊","مراجعة الأرصدة","#EC4899",()=>setBalReview(true))}
         {(()=>{const existingIds=new Set(sessions.map(s=>s.id));const orphans={};
           orders.forEach(o=>{(o.customerDeliveries||[]).forEach(d=>{if(d.sessionId&&!existingIds.has(d.sessionId)){
             if(!orphans[d.sessionId])orphans[d.sessionId]={id:d.sessionId,custIds:new Set(),modelIds:new Set(),grid:{},dates:[],total:0};
@@ -7761,7 +7771,7 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
         </div>})()}
     </Card>
 
-    <BackupRestoreCard config={config} salesDoc={salesDoc} tasksDoc={tasksDoc} orders={orders} isMob={isMob}/>
+    {/* Backup card removed — export/import in نسخ احتياطي card above */}
   </div>
 }
 
