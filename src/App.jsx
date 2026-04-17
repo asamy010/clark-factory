@@ -6681,6 +6681,8 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
   /* Odoo account mapping — local state to avoid live-save issues */
   const[localMap,setLocalMap]=useState(()=>({...(config.odooSettings?.accountMapping||{})}));
   const[mapSaved,setMapSaved]=useState(false);
+  /* Keep localMap in sync when config loads/changes (e.g. on page reload) */
+  useEffect(()=>{const m=config.odooSettings?.accountMapping;if(m&&Object.keys(m).length>0){setLocalMap(prev=>{const merged={...prev};Object.entries(m).forEach(([k,v])=>{if(!merged[k])merged[k]=v});return merged})}},[config.odooSettings?.accountMapping]);
   /* Admin password gate */
   const[pendingAction,setPendingAction]=useState(null);const[adminPass,setAdminPass]=useState("");const[passErr,setPassErr]=useState("");const[passLoading,setPassLoading]=useState(false);
   const requirePass=(action)=>{setPendingAction(()=>action);setAdminPass("");setPassErr("")};
@@ -7587,6 +7589,7 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[odooSyncing,setOdooSyncing]=useState(false);const[odooResult,setOdooResult]=useState(null);
   const syncToOdoo=async()=>{
     const os=data.odooSettings||{};
+    console.log("🔗 Odoo sync — accountMapping:",JSON.stringify(os.accountMapping||{}));
     if(!os.url||!os.db||!os.user||!os.apiKey||!os.journalName||!os.cashAccountCode){showToast("⚠️ أكمل إعدادات Odoo في الاعدادات أولاً");return}
     setOdooSyncing(true);setOdooResult(null);
     try{
@@ -7825,12 +7828,15 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     return"حركة خارجية"};
 
   const delTx=(id)=>{upConfig(d=>{
-    /* Remove linked cust/supplier/ws payments */
+    /* Remove linked cust/supplier/ws payments + hrLog advances */
     const tx=(d.treasury||[]).find(t=>t.id===id);
     d.treasury=(d.treasury||[]).filter(t=>t.id!==id);
     if(tx){if(d.custPayments)d.custPayments=d.custPayments.filter(p=>p.treasuryTxId!==id);
       if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>p.treasuryTxId!==id);
-      if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>p.treasuryTxId!==id)}});showToast("✓ تم الحذف")};
+      if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>p.treasuryTxId!==id);
+      /* Remove linked hrLog advance entry */
+      if(tx.hrLogId&&d.hrLog)d.hrLog=d.hrLog.filter(l=>l.id!==tx.hrLogId);
+      if(tx.sourceType==="hr_advance"&&tx.empId&&d.hrLog)d.hrLog=d.hrLog.filter(l=>!(l.type==="advance"&&l.empId===tx.empId&&l.date===tx.date&&Math.abs((Number(l.amount)||0)-(Number(tx.amount)||0))<0.01))}});showToast("✓ تم الحذف")};
   const editTx=(t)=>{setEditId(t.id);setTxType(t.type);setTxAmount(String(t.amount));setTxDesc(t.desc||"");setTxNotes(t.notes||"");setTxCategory(t.category||"");setTxAccount(t.account||"MAIN CASH");setTxSeason(t.season||"");setTxDate(t.date||today);
     setTxPartyId(t.custId||t.supplierId||t.wsName||"");
     setTxPartyType(t.custId?"customer":t.supplierId?"supplier":t.wsName?"workshop":"");
