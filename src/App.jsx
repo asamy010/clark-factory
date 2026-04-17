@@ -6925,6 +6925,8 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
               <Inp value={os.journalName||""} onChange={v=>saveOS(s=>{s.journalName=v})} placeholder="الخزينة الفرعية"/></div>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>حساب الخزينة الفرعية</label>
               <Inp value={os.cashAccountCode||""} onChange={v=>saveOS(s=>{s.cashAccountCode=v})} placeholder="105001"/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>حساب افتراضي (للتصنيفات الغير مربوطة)</label>
+              <Inp value={os.defaultAccountCode||""} onChange={v=>saveOS(s=>{s.defaultAccountCode=v})} placeholder="اختياري — كود حساب"/></div>
           </div>
           <div style={{display:"flex",gap:8,marginBottom:12}}>
             <Btn onClick={testConnection} disabled={testing||!os.url||!os.db||!os.user||!os.apiKey} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>{testing?"⏳ جاري الاختبار...":"🔌 اختبار الاتصال"}</Btn>
@@ -7608,10 +7610,13 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           if(r.accountId)accCache[cat]=r.accountId}
       }
       /* 6. Build entries */
-      const entries=[];let skipped=0;
+      const entries=[];let skipped=0;const missingCats=new Set();
+      const defaultAccCode=os.defaultAccountCode||"";/* fallback account for unmapped categories */
+      let defaultAccId=null;
+      if(defaultAccCode){const r=await api({action:"find_account",payload:{accountCode:defaultAccCode}});if(r.accountId)defaultAccId=r.accountId}
       for(const t of newTxns){
-        const counterAccId=accCache[t.category];
-        if(!counterAccId){skipped++;continue}
+        const counterAccId=accCache[t.category]||defaultAccId;
+        if(!counterAccId){skipped++;missingCats.add(t.category||"بدون تصنيف");continue}
         const isIn=t.type==="in";
         entries.push({
           ref:"CLARK-"+t.id,
@@ -7624,7 +7629,7 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           ]
         })
       }
-      if(entries.length===0){setOdooResult({ok:false,msg:"⚠️ لا توجد حركات جديدة بحسابات مربوطة ("+skipped+" بدون ربط)"});setOdooSyncing(false);return}
+      if(entries.length===0){setOdooResult({ok:false,msg:"⚠️ لا توجد حركات جديدة بحسابات مربوطة ("+skipped+" بدون ربط"+(missingCats.size>0?": "+[...missingCats].join("، "):"")+"). اربط التصنيفات من الإعدادات."});setOdooSyncing(false);return}
       /* 7. Create in batches of 10 */
       let totalCreated=0;const allErrors=[];
       for(let i=0;i<entries.length;i+=10){
@@ -7969,9 +7974,9 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             <div onClick={()=>setTxType("out")} style={{flex:1,padding:"10px 0",borderRadius:10,textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:txType==="out"?T.err+"15":"transparent",border:"2px solid "+(txType==="out"?T.err:T.brd),color:txType==="out"?T.err:T.textSec}}>↑ منصرف</div>
           </div></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المبلغ</label><Inp type="number" value={txAmount} onChange={setTxAmount} placeholder="0.00"/></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع الحركة</label><Sel value={txCategory} onChange={v=>{setTxCategory(v);if(v==="دفعة عميل"){setShowPartyPicker("customer");setPartySearch("")}else if(v==="دفع مورد"){setShowPartyPicker("supplier");setPartySearch("")}else if(v==="تشغيل خارجي"||v==="مشتريات"){setShowPartyPicker("workshop");setPartySearch("")}else{setTxPartyId("");setTxPartyType("")}}}><option value="">— اختر —</option>{(txType==="in"?IN_CATS:OUT_CATS).map(c=><option key={c} value={c}>{c}</option>)}</Sel>
-          {txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفع مورد"||txCategory==="تشغيل خارجي"||txCategory==="مشتريات")&&(()=>{const list=txPartyType==="customer"?customers:txPartyType==="supplier"?suppliers:workshops;const p=list.find(x=>x.id===txPartyId||x.name===txPartyId);if(!p)return null;
-            const icon=txPartyType==="customer"?"🧑 العميل:":txPartyType==="supplier"?"🏭 المورد:":"🔧 الورشة:";
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع الحركة</label><Sel value={txCategory} onChange={v=>{setTxCategory(v);if(v==="دفعة عميل"){setShowPartyPicker("customer");setPartySearch("")}else if(v==="دفع مورد"){setShowPartyPicker("supplier");setPartySearch("")}else if(v==="تشغيل خارجي"||v==="مشتريات"){setShowPartyPicker("workshop");setPartySearch("")}else if(v==="مرتبات"){setShowPartyPicker("employee");setPartySearch("")}else{setTxPartyId("");setTxPartyType("")}}}><option value="">— اختر —</option>{(txType==="in"?IN_CATS:OUT_CATS).map(c=><option key={c} value={c}>{c}</option>)}</Sel>
+          {txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفع مورد"||txCategory==="تشغيل خارجي"||txCategory==="مشتريات"||txCategory==="مرتبات")&&(()=>{const list=txPartyType==="customer"?customers:txPartyType==="supplier"?suppliers:txPartyType==="employee"?(data.employees||[]):workshops;const p=list.find(x=>x.id===txPartyId||x.name===txPartyId);if(!p)return null;
+            const icon=txPartyType==="customer"?"🧑 العميل:":txPartyType==="supplier"?"🏭 المورد:":txPartyType==="employee"?"👷 الموظف:":"🔧 الورشة:";
             return<div style={{marginTop:6,padding:"6px 10px",borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"30",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
               <div><span style={{fontSize:FS-2,color:T.textMut}}>{icon}</span> <b style={{color:T.accent,fontSize:FS-1}}>{p.name}</b>{p.phone&&<span style={{fontSize:FS-3,color:T.textMut,marginRight:6}}> • {p.phone}</span>}</div>
               <span onClick={()=>setShowPartyPicker(txPartyType)} style={{cursor:"pointer",fontSize:FS-2,color:T.accent,padding:"2px 8px",borderRadius:6,background:T.cardSolid,border:"1px solid "+T.accent+"30"}}>تغيير</span>
@@ -8054,11 +8059,11 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut}}>{t.season||""}</td>
             <td style={{padding:"6px 8px"}}>{canEdit&&(()=>{const locked=isDayLocked(t.date);const allow=canModify(t);const external=isExternalTx(t);
               if(locked&&!isAdmin)return<span style={{fontSize:11,color:T.textMut}} title="اليوم مقفول — للمدير فقط">🔒</span>;
-              if(external)return<span style={{fontSize:11,color:"#8B5CF6"}} title={"حركة من "+externalSourceLabel(t)+" — احذفها من مصدرها"}>🔗</span>;
               return<div style={{display:"flex",gap:3,alignItems:"center"}}>
                 {locked&&isAdmin&&<span style={{fontSize:10,color:T.warn}} title="اليوم مقفول — وصول المدير">🔒</span>}
+                {external&&<span style={{fontSize:10,color:"#8B5CF6"}} title={"حركة من "+externalSourceLabel(t)}>🔗</span>}
                 <span onClick={()=>{if(!allow){showToast("⛔ اليوم مقفول — للمدير فقط");return}editTx(t)}} style={{cursor:"pointer",fontSize:11}}>✏️</span>
-                <span onClick={()=>{if(!allow){showToast("⛔ اليوم مقفول — للمدير فقط");return}openConfirm({title:"حذف حركة",message:"سيتم حذف الحركة نهائياً.\n"+(t.desc||"")+"\nالمبلغ: "+fmt(t.amount)+" ج.م",variant:"danger",onConfirm:()=>delTx(t.id)})}} style={{cursor:"pointer",fontSize:11,color:T.err}}>✕</span>
+                <span onClick={()=>{if(!allow){showToast("⛔ اليوم مقفول — للمدير فقط");return}openConfirm({title:"حذف حركة",message:(external?"⚠️ حركة مرتبطة بـ "+externalSourceLabel(t)+" — الحذف هنا لن يؤثر على المصدر.\n\n":"")+"سيتم حذف الحركة نهائياً.\n"+(t.desc||"")+"\nالمبلغ: "+fmt(t.amount)+" ج.م",variant:"danger",onConfirm:()=>delTx(t.id)})}} style={{cursor:"pointer",fontSize:11,color:T.err}}>✕</span>
               </div>})()}</td>
           </tr>})}
         </tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد حركات</div>}
@@ -8346,11 +8351,11 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       </div>
     </div>}
 
-    {/* ══ PARTY PICKER POPUP (customer/supplier/workshop) ══ */}
+    {/* ══ PARTY PICKER POPUP (customer/supplier/workshop/employee) ══ */}
     {showPartyPicker&&(()=>{
-      const list=showPartyPicker==="customer"?customers:showPartyPicker==="supplier"?suppliers:workshops;
-      const title=showPartyPicker==="customer"?"🧑 اختيار عميل":showPartyPicker==="supplier"?"🏭 اختيار مورد":"🔧 اختيار ورشة";
-      const emptyMsg=showPartyPicker==="customer"?"لا يوجد عملاء":showPartyPicker==="supplier"?"لا يوجد موردين":"لا توجد ورش";
+      const list=showPartyPicker==="customer"?customers:showPartyPicker==="supplier"?suppliers:showPartyPicker==="employee"?(data.employees||[]).filter(e=>!e.inactive):workshops;
+      const title=showPartyPicker==="customer"?"🧑 اختيار عميل":showPartyPicker==="supplier"?"🏭 اختيار مورد":showPartyPicker==="employee"?"👷 اختيار موظف":"🔧 اختيار ورشة";
+      const emptyMsg=showPartyPicker==="customer"?"لا يوجد عملاء":showPartyPicker==="supplier"?"لا يوجد موردين":showPartyPicker==="employee"?"لا يوجد موظفين":"لا توجد ورش";
       const filtered=list.filter(p=>!partySearch.trim()||(p.name||"").toLowerCase().includes(partySearch.toLowerCase())||(p.phone||"").includes(partySearch));
       /* For workshops: compute balance */
       const wsBalance=(wsName)=>{let due=0;(data.orders||[]).forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===wsName).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});const payments=(data.wsPayments||[]).filter(p=>p.wsName===wsName);const paid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);const purchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);return due+purchase-paid};
@@ -8371,6 +8376,7 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 if(!txDesc.trim()){
                   if(showPartyPicker==="customer")setTxDesc("دفعة من "+p.name);
                   else if(showPartyPicker==="supplier")setTxDesc("دفع لـ "+p.name);
+                  else if(showPartyPicker==="employee")setTxDesc("سلفة "+p.name);
                   else setTxDesc((txCategory==="مشتريات"?"مشتريات ورشة ":"دفعة ورشة ")+p.name)
                 }
               }} style={{padding:"10px 12px",borderRadius:10,cursor:"pointer",background:txPartyId===keyId?T.accent+"10":T.bg,border:"1px solid "+(txPartyId===keyId?T.accent+"40":T.brd),display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all 0.15s"}}>
