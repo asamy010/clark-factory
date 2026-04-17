@@ -1450,12 +1450,9 @@ export default function App(){
           const defaultLinks=[
             {id:"accounting",icon:"📊",label:"المحاسبة",url:"https://clarkdb.odoo.com/odoo/accounting",color:"#8B5CF6"},
             {id:"sales",icon:"🛒",label:"المبيعات",url:"https://clarkdb.odoo.com/odoo/sales",color:"#10B981"},
-            {id:"inventory",icon:"📦",label:"المخزن",url:"https://clarkdb.odoo.com/odoo/inventory",color:"#F59E0B"},
-            {id:"invoices",icon:"🧾",label:"الفواتير",url:"https://clarkdb.odoo.com/odoo/accounting/customer-invoices",color:"#0EA5E9"},
-            {id:"contacts",icon:"👥",label:"جهات الاتصال",url:"https://clarkdb.odoo.com/odoo/contacts",color:"#EC4899"},
             {id:"purchase",icon:"🏷️",label:"المشتريات",url:"https://clarkdb.odoo.com/odoo/purchase",color:"#EF4444"},
-            {id:"hr",icon:"👷",label:"الموظفين",url:"https://clarkdb.odoo.com/odoo/employees",color:"#059669"},
-            {id:"discuss",icon:"💬",label:"المحادثات",url:"https://clarkdb.odoo.com/odoo/discuss",color:"#6366F1"},
+            {id:"inventory",icon:"📦",label:"المخزن",url:"https://clarkdb.odoo.com/odoo/inventory",color:"#F59E0B"},
+            {id:"invoices",icon:"🧾",label:"فواتير بيع",url:"https://clarkdb.odoo.com/odoo/accounting/customer-invoices",color:"#0EA5E9"},
           ];
           const links=data.odooLinks||defaultLinks;
           if(links.length===0)return null;
@@ -5100,8 +5097,8 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
   };
 
   return<div>
-    {(()=>{const crd=(icon,label,color,onClick,sub)=><div onClick={onClick} style={{background:T.cardSolid,borderRadius:12,padding:"6px",border:"1px solid "+color+"25",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,aspectRatio:"1"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}><div style={{fontSize:20,lineHeight:1}}>{icon}</div><div style={{fontSize:FS-3,fontWeight:700,color,lineHeight:1.2,textAlign:"center"}}>{label}</div>{sub&&<div style={{fontSize:FS-4,color:T.textMut}}>{sub}</div>}</div>;
-      return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(4,1fr)":isTab?"repeat(5,1fr)":"repeat(8,1fr)",gap:8,marginBottom:16}}>
+    {(()=>{const crd=(icon,label,color,onClick,sub)=><div onClick={onClick} style={{background:T.cardSolid,borderRadius:10,padding:"4px",border:"1px solid "+color+"20",boxShadow:"0 1px 3px rgba(0,0,0,0.04)",cursor:"pointer",textAlign:"center",transition:"transform 0.15s",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,aspectRatio:"1"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}><div style={{fontSize:isMob?18:22,lineHeight:1}}>{icon}</div><div style={{fontSize:isMob?9:FS-3,fontWeight:700,color,lineHeight:1.2,textAlign:"center"}}>{label}</div>{sub&&<div style={{fontSize:8,color:T.textMut}}>{sub}</div>}</div>;
+      return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(4,1fr)":"repeat(auto-fill,minmax(70px,1fr))",gap:6,marginBottom:14}}>
         {canEdit&&crd("👥","العملاء",T.text,()=>setShowCustList(true),customers.length+"")}
         {canEdit&&crd("🚚","تسليم جديد",T.ok,()=>{setSelModels({});setSelCusts({});setShowNewSession(true)})}
         {canEdit&&crd("📦","بيع سريع","#10B981",()=>setQrSale({mode:"sale",custId:null,items:[],note:""}))}
@@ -7114,13 +7111,6 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
         </div>)}
       </div>
     </Card>
-    <Card title="نسخ احتياطي" style={{marginBottom:12}}>
-      <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
-        <Btn primary onClick={()=>{const backup={config,orders,exportDate:new Date().toISOString(),season};const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="clark-backup-"+season+"-"+new Date().toISOString().split("T")[0]+".json";a.click();URL.revokeObjectURL(url)}}>📥 تصدير</Btn>
-        <div style={{position:"relative"}}><Btn onClick={()=>{}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>📤 استيراد</Btn><input type="file" accept=".json" onChange={e=>{const f=e.target.files[0];if(!f)return;requirePass(()=>{const reader=new FileReader();reader.onload=async ev=>{try{const d=JSON.parse(ev.target.result);if(d.config){await setDoc(doc(db,"factory","config"),d.config)}if(d.sales){await setDoc(doc(db,"factory","sales"),d.sales)}if(d.tasks){await setDoc(doc(db,"factory","tasks"),d.tasks)}if(d.orders&&d.season){for(const o of d.orders){const{_docId,...rest}=o;await addDoc(collection(db,"seasons",d.season,"orders"),rest)}}alert("تم استيراد النسخة الاحتياطية بنجاح")}catch(err){alert("خطأ في الملف: "+err.message)}};reader.readAsText(f)});e.target.value=""}} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/></div>
-        <span style={{fontSize:FS-2,color:T.textSec}}>{"الموسم: "+season}</span>
-      </div>
-    </Card>
     <Card title="مسح بيانات الأوردرات" style={{marginBottom:12}}>
       <div style={{fontSize:FS,color:T.textSec,marginBottom:10}}>{"الموسم الحالي: "+season+" - عدد الأوردرات: "+(orders||[]).length}</div>
       {!clearConfirm?<Btn danger onClick={()=>setClearConfirm(true)}>مسح جميع الأوردرات للموسم الحالي</Btn>:
@@ -7731,23 +7721,21 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
     {/* ═══ ODOO LINKS ═══ */}
     <Card title="🔗 Odoo — إدارة الاختصارات" style={{marginTop:16}}>
       {(()=>{
-        const links=config.odooLinks||[];
+        const defaultOdooLinks=[
+          {id:"accounting",icon:"📊",label:"المحاسبة",url:"https://clarkdb.odoo.com/odoo/accounting",color:"#8B5CF6"},
+          {id:"sales",icon:"🛒",label:"المبيعات",url:"https://clarkdb.odoo.com/odoo/sales",color:"#10B981"},
+          {id:"purchase",icon:"🏷️",label:"المشتريات",url:"https://clarkdb.odoo.com/odoo/purchase",color:"#EF4444"},
+          {id:"inventory",icon:"📦",label:"المخزن",url:"https://clarkdb.odoo.com/odoo/inventory",color:"#F59E0B"},
+          {id:"invoices",icon:"🧾",label:"فواتير بيع",url:"https://clarkdb.odoo.com/odoo/accounting/customer-invoices",color:"#0EA5E9"},
+        ];
+        const links=config.odooLinks||defaultOdooLinks;
         const[oIcon,setOIcon]=useState("🔗");const[oLabel,setOLabel]=useState("");const[oUrl,setOUrl]=useState("");const[oColor,setOColor]=useState("#8B5CF6");const[oEditId,setOEditId]=useState(null);
         const saveLink=()=>{if(!oLabel.trim()||!oUrl.trim())return;
-          upConfig(d=>{if(!d.odooLinks)d.odooLinks=[
-            {id:"accounting",icon:"📊",label:"المحاسبة",url:"https://clarkdb.odoo.com/odoo/accounting",color:"#8B5CF6"},
-            {id:"sales",icon:"🛒",label:"المبيعات",url:"https://clarkdb.odoo.com/odoo/sales",color:"#10B981"},
-            {id:"inventory",icon:"📦",label:"المخزن",url:"https://clarkdb.odoo.com/odoo/inventory",color:"#F59E0B"},
-            {id:"invoices",icon:"🧾",label:"الفواتير",url:"https://clarkdb.odoo.com/odoo/accounting/customer-invoices",color:"#0EA5E9"},
-            {id:"contacts",icon:"👥",label:"جهات الاتصال",url:"https://clarkdb.odoo.com/odoo/contacts",color:"#EC4899"},
-            {id:"purchase",icon:"🏷️",label:"المشتريات",url:"https://clarkdb.odoo.com/odoo/purchase",color:"#EF4444"},
-            {id:"hr",icon:"👷",label:"الموظفين",url:"https://clarkdb.odoo.com/odoo/employees",color:"#059669"},
-            {id:"discuss",icon:"💬",label:"المحادثات",url:"https://clarkdb.odoo.com/odoo/discuss",color:"#6366F1"},
-          ];
+          upConfig(d=>{if(!d.odooLinks)d.odooLinks=[...defaultOdooLinks];
           if(oEditId){const l=d.odooLinks.find(x=>x.id===oEditId);if(l){l.icon=oIcon;l.label=oLabel.trim();l.url=oUrl.trim();l.color=oColor}}
           else{d.odooLinks.push({id:gid(),icon:oIcon,label:oLabel.trim(),url:oUrl.trim(),color:oColor})}});
           setOIcon("🔗");setOLabel("");setOUrl("");setOColor("#8B5CF6");setOEditId(null);showToast("✓ تم الحفظ")};
-        const delLink=(id)=>{upConfig(d=>{d.odooLinks=(d.odooLinks||[]).filter(x=>x.id!==id)});showToast("✓ تم الحذف")};
+        const delLink=(id)=>{upConfig(d=>{if(!d.odooLinks)d.odooLinks=[...defaultOdooLinks];d.odooLinks=(d.odooLinks||[]).filter(x=>x.id!==id)});showToast("✓ تم الحذف")};
         const editLink=(l)=>{setOEditId(l.id);setOIcon(l.icon||"🔗");setOLabel(l.label);setOUrl(l.url);setOColor(l.color||"#8B5CF6")};
         return<div>
           {links.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
@@ -7771,7 +7759,7 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
         </div>})()}
     </Card>
 
-    {/* Backup card removed — export/import in نسخ احتياطي card above */}
+    <BackupRestoreCard config={config} salesDoc={salesDoc} tasksDoc={tasksDoc} orders={orders} isMob={isMob}/>
   </div>
 }
 
