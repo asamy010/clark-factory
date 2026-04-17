@@ -8304,17 +8304,22 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         {odooResult&&<span style={{fontSize:FS-1,fontWeight:700,color:odooResult.ok?T.ok:T.err,padding:"4px 10px",borderRadius:6,background:odooResult.ok?T.ok+"08":T.err+"08"}}>{odooResult.msg}</span>}
       </div>}
 
-      {showForm&&<Card title={editId?"✏️ تعديل حركة":"+ حركة جديدة"} style={{marginBottom:16}}>
-        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(4,1fr)",gap:10}}>
-          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label><div style={{display:"flex",gap:6,marginTop:4}}>
-            <div onClick={()=>setTxType("in")} style={{flex:1,padding:"10px 0",borderRadius:10,textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:txType==="in"?T.ok+"15":"transparent",border:"2px solid "+(txType==="in"?T.ok:T.brd),color:txType==="in"?T.ok:T.textSec}}>↓ وارد</div>
-            <div onClick={()=>setTxType("out")} style={{flex:1,padding:"10px 0",borderRadius:10,textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:txType==="out"?T.err+"15":"transparent",border:"2px solid "+(txType==="out"?T.err:T.brd),color:txType==="out"?T.err:T.textSec}}>↑ منصرف</div>
+      {showForm&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>{setShowForm(false);setEditId(null)}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:600,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+            <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{editId?"✏️ تعديل حركة":"+ حركة جديدة"}</div>
+            <Btn ghost small onClick={()=>{setShowForm(false);setEditId(null)}}>✕</Btn>
+          </div>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12}}>
+          <div style={{gridColumn:isMob?"1":"1 / -1"}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label><div style={{display:"flex",gap:6,marginTop:4}}>
+            <div onClick={()=>setTxType("in")} style={{flex:1,padding:"12px 0",borderRadius:10,textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:txType==="in"?T.ok+"15":"transparent",border:"2px solid "+(txType==="in"?T.ok:T.brd),color:txType==="in"?T.ok:T.textSec}}>↓ وارد</div>
+            <div onClick={()=>setTxType("out")} style={{flex:1,padding:"12px 0",borderRadius:10,textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:txType==="out"?T.err+"15":"transparent",border:"2px solid "+(txType==="out"?T.err:T.brd),color:txType==="out"?T.err:T.textSec}}>↑ منصرف</div>
           </div></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المبلغ</label><Inp type="number" value={txAmount} onChange={setTxAmount} placeholder="0.00"/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع الحركة</label><Sel value={txCategory} onChange={v=>{setTxCategory(v);if(v==="دفعة عميل"){setShowPartyPicker("customer");setPartySearch("")}else if(v==="دفع مورد"){setShowPartyPicker("supplier");setPartySearch("")}else if(v==="تشغيل خارجي"||v==="مشتريات"){setShowPartyPicker("workshop");setPartySearch("")}else if(v==="مرتبات"){setShowPartyPicker("employee");setPartySearch("")}else{setTxPartyId("");setTxPartyType("")}}}><option value="">— اختر —</option>{(txType==="in"?IN_CATS:OUT_CATS).map(c=><option key={c} value={c}>{c}</option>)}</Sel>
           {txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفع مورد"||txCategory==="تشغيل خارجي"||txCategory==="مشتريات"||txCategory==="مرتبات")&&(()=>{const list=txPartyType==="customer"?customers:txPartyType==="supplier"?suppliers:txPartyType==="employee"?(data.employees||[]):workshops;const p=list.find(x=>x.id===txPartyId||x.name===txPartyId);if(!p)return null;
             const icon=txPartyType==="customer"?"🧑 العميل:":txPartyType==="supplier"?"🏭 المورد:":txPartyType==="employee"?"👷 الموظف:":"🔧 الورشة:";
-            return<div style={{marginTop:6,padding:"6px 10px",borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"30",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
+            return<div style={{gridColumn:"1 / -1",padding:"6px 10px",borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"30",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
               <div><span style={{fontSize:FS-2,color:T.textMut}}>{icon}</span> <b style={{color:T.accent,fontSize:FS-1}}>{p.name}</b>{p.phone&&<span style={{fontSize:FS-3,color:T.textMut,marginRight:6}}> • {p.phone}</span>}</div>
               <span onClick={()=>setShowPartyPicker(txPartyType)} style={{cursor:"pointer",fontSize:FS-2,color:T.accent,padding:"2px 8px",borderRadius:6,background:T.cardSolid,border:"1px solid "+T.accent+"30"}}>تغيير</span>
             </div>})()}</div>
@@ -8324,48 +8329,11 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>التاريخ</label><Inp type="date" value={txDate} onChange={setTxDate}/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الموسم</label><Inp value={txSeason} onChange={setTxSeason} placeholder={data.activeSeason||"W26"}/></div>
         </div>
-        <div style={{marginTop:10,display:"flex",gap:8}}><Btn primary onClick={saveTx}>{editId?"💾 حفظ التعديل":"💾 حفظ"}</Btn>{editId&&<Btn ghost onClick={()=>{setShowForm(false);setEditId(null)}}>إلغاء</Btn>}</div>
-      </Card>}
+        <div style={{marginTop:16,display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>{setShowForm(false);setEditId(null)}}>إلغاء</Btn><Btn primary onClick={saveTx}>{editId?"💾 حفظ التعديل":"💾 حفظ"}</Btn></div>
+        </div>
+      </div>}
 
       {/* Filters */}
-      {/* ── Live Daily Report ── */}
-      {(()=>{const reportDate=filterDay||today;
-        const dayTxns=txns.filter(t=>t.date===reportDate).sort((a,b)=>(a.createdAt||"").localeCompare(b.createdAt||""));
-        const dIn=dayTxns.filter(t=>t.type==="in").reduce((s,t)=>s+(Number(t.amount)||0),0);
-        const dOut=dayTxns.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0);
-        const prevTxns=txns.filter(t=>t.date<reportDate);
-        const openBal=prevTxns.reduce((s,t)=>t.type==="in"?s+(Number(t.amount)||0):s-(Number(t.amount)||0),0);
-        const closeBal=openBal+dIn-dOut;
-        return<Card title={"📋 تقرير يومية صندوق — "+reportDate+(reportDate===today?" (لحظي)":"")} style={{marginBottom:14}}>
-          <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)",gap:8,marginBottom:12}}>
-            <div style={{padding:10,borderRadius:10,background:T.accent+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>رصيد افتتاحي</div><div style={{fontSize:18,fontWeight:800,color:T.accent}}>{fmt(r2(openBal))}</div></div>
-            <div style={{padding:10,borderRadius:10,background:T.ok+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>وارد</div><div style={{fontSize:18,fontWeight:800,color:T.ok}}>{fmt(r2(dIn))}</div></div>
-            <div style={{padding:10,borderRadius:10,background:T.err+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>منصرف</div><div style={{fontSize:18,fontWeight:800,color:T.err}}>{fmt(r2(dOut))}</div></div>
-            <div style={{padding:10,borderRadius:10,background:closeBal>=0?"#0D948810":T.err+"10",border:"2px solid "+(closeBal>=0?"#0D948830":T.err+"30"),textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>رصيد اقفال</div><div style={{fontSize:20,fontWeight:800,color:closeBal>=0?"#0D9488":T.err}}>{fmt(r2(closeBal))}</div></div>
-          </div>
-          {dayTxns.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
-            {["رصيد","وارد","منصرف","بيان","ملاحظات","نوع","حساب"].map(h=><th key={h} style={{padding:"5px 7px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
-          </tr></thead><tbody>
-            {(()=>{let rb=openBal;return dayTxns.map(t=>{if(t.type==="in")rb+=(Number(t.amount)||0);else rb-=(Number(t.amount)||0);
-              return<tr key={t.id} style={{borderBottom:"1px solid "+T.brd}}>
-                <td style={{padding:"5px 7px",fontSize:FS-1,fontWeight:800,color:rb>=0?"#0D9488":T.err}}>{fmt(r2(rb))}</td>
-                <td style={{padding:"5px 7px",fontSize:FS-1,fontWeight:700,color:T.ok}}>{t.type==="in"?fmt(r2(t.amount)):""}</td>
-                <td style={{padding:"5px 7px",fontSize:FS-1,fontWeight:700,color:T.err}}>{t.type==="out"?fmt(r2(t.amount)):""}</td>
-                <td style={{padding:"5px 7px",fontSize:FS-1}}>{t.desc||"—"}</td>
-                <td style={{padding:"5px 7px",fontSize:FS-2,color:T.textMut}}>{t.notes||""}</td>
-                <td style={{padding:"5px 7px",fontSize:FS-2}}><span style={{padding:"1px 5px",borderRadius:4,background:t.type==="in"?T.ok+"12":T.err+"12",color:t.type==="in"?T.ok:T.err,fontWeight:600}}>{t.category||"—"}</span></td>
-                <td style={{padding:"5px 7px",fontSize:FS-2,color:T.textSec}}>{t.account||""}</td>
-              </tr>})})()}
-          </tbody></table></div>:<div style={{textAlign:"center",padding:16,color:T.textMut,fontSize:FS-1}}>{"لا توجد حركات في "+reportDate}</div>}
-          <div style={{display:"flex",gap:8,marginTop:10,justifyContent:"center",flexWrap:"wrap"}}>
-            <span onClick={()=>printDaily(reportDate)} style={{cursor:"pointer",padding:"6px 16px",borderRadius:8,background:T.accent+"10",color:T.accent,fontWeight:700,fontSize:FS-1}}>🖨 طباعة تقرير {reportDate===today?"اليوم":"هذا اليوم"}</span>
-            {canEdit&&(()=>{const locked=isDayLocked(reportDate);
-              if(locked){
-                if(!isAdmin)return<span style={{padding:"6px 16px",borderRadius:8,background:T.ok+"10",color:T.ok,fontWeight:700,fontSize:FS-1}}>🔒 اليوم مقفول</span>;
-                return<span onClick={()=>openConfirm({title:"فتح قفل اليوم",message:"سيتم فتح القفل عن يوم "+reportDate+"\nوسيسمح لكل المستخدمين بالتعديل والحذف مرة أخرى.",variant:"warn",onConfirm:()=>{upConfig(d=>{d.lockedDays=(d.lockedDays||[]).filter(x=>x!==reportDate)});showToast("🔓 تم فتح اليوم")}})} style={{cursor:"pointer",padding:"6px 16px",borderRadius:8,background:T.warn+"10",color:T.warn,fontWeight:700,fontSize:FS-1,border:"1px solid "+T.warn+"30"}}>🔓 فتح قفل اليوم (مدير)</span>}
-              return<span onClick={()=>openConfirm({title:"قفل يوم "+reportDate,message:"سيتم قفل هذا اليوم بعد اعتماده.\nلن يمكن لأي مستخدم عادي تعديل أو حذف حركاته.\nالمدير فقط يستطيع التعديل بعد القفل.",variant:"warn",onConfirm:()=>{upConfig(d=>{if(!d.lockedDays)d.lockedDays=[];if(!d.lockedDays.includes(reportDate))d.lockedDays.push(reportDate)});showToast("🔒 تم قفل اليوم")}})} style={{cursor:"pointer",padding:"6px 16px",borderRadius:8,background:T.warn+"10",color:T.warn,fontWeight:700,fontSize:FS-1}}>🔒 قفل اليوم</span>})()}
-          </div>
-        </Card>})()}
 
       <Card title={"📒 سجل اليومية ("+filtered.length+" حركة)"}>
         <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
