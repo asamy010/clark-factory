@@ -6934,13 +6934,18 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
           </div>
           <div style={{marginTop:12,borderTop:"1px solid "+T.brd,paddingTop:12}}>
             <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>📋 ربط التصنيفات بحسابات Odoo</div>
-            <div style={{fontSize:FS-2,color:T.textMut,marginBottom:8}}>اكتب كود الحساب في Odoo لكل تصنيف. الحساب ده هيكون الطرف المقابل للخزينة في القيد.</div>
-            <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:6}}>
-              {allCats.map(cat=><div key={cat} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 0"}}>
-                <span style={{fontSize:FS-2,fontWeight:600,color:outCats.includes(cat)?T.err:T.ok,minWidth:130,textAlign:"right"}}>{outCats.includes(cat)?"📤":"📥"} {cat}</span>
-                <input value={mapping[cat]||""} onChange={e=>saveOS(s=>{if(!s.accountMapping)s.accountMapping={};s.accountMapping[cat]=e.target.value})} placeholder="كود الحساب" style={{flex:1,padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg,color:T.text,maxWidth:120,direction:"ltr",textAlign:"center"}}/>
-              </div>)}
-            </div>
+            <div style={{fontSize:FS-2,color:T.textMut,marginBottom:8}}>اكتب كود الحساب في Odoo لكل تصنيف ثم اضغط حفظ.</div>
+            {(()=>{const[localMap,setLocalMap]=useState(()=>({...mapping}));const[mapSaved,setMapSaved]=useState(false);
+              const saveMap=()=>{saveOS(s=>{s.accountMapping={...localMap}});setMapSaved(true);showToast("✅ تم حفظ ربط الحسابات");setTimeout(()=>setMapSaved(false),2000)};
+              return<div>
+                <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:6}}>
+                  {allCats.map(cat=><div key={cat} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 0"}}>
+                    <span style={{fontSize:FS-2,fontWeight:600,color:outCats.includes(cat)?T.err:T.ok,minWidth:130,textAlign:"right"}}>{outCats.includes(cat)?"📤":"📥"} {cat}</span>
+                    <input value={localMap[cat]||""} onChange={e=>setLocalMap(p=>({...p,[cat]:e.target.value}))} placeholder="كود الحساب" style={{flex:1,padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg,color:T.text,maxWidth:120,direction:"ltr",textAlign:"center"}}/>
+                  </div>)}
+                </div>
+                <div style={{marginTop:10}}><Btn primary onClick={saveMap}>{mapSaved?"✅ تم الحفظ":"💾 حفظ ربط الحسابات"}</Btn></div>
+              </div>})()}
           </div>
         </div>})()}
     </Card>
@@ -7605,17 +7610,18 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       const mapping=os.accountMapping||{};
       const accCache={};
       for(const cat of Object.keys(mapping)){
-        if(mapping[cat]){
-          const r=await api({action:"find_account",payload:{accountCode:mapping[cat]}});
-          if(r.accountId)accCache[cat]=r.accountId}
+        const code=(mapping[cat]||"").trim();
+        if(code){
+          const r=await api({action:"find_account",payload:{accountCode:code}});
+          if(r.accountId)accCache[cat.trim()]=r.accountId}
       }
       /* 6. Build entries */
       const entries=[];let skipped=0;const missingCats=new Set();
-      const defaultAccCode=os.defaultAccountCode||"";/* fallback account for unmapped categories */
+      const defaultAccCode=(os.defaultAccountCode||"").trim();
       let defaultAccId=null;
       if(defaultAccCode){const r=await api({action:"find_account",payload:{accountCode:defaultAccCode}});if(r.accountId)defaultAccId=r.accountId}
       for(const t of newTxns){
-        const counterAccId=accCache[t.category]||defaultAccId;
+        const counterAccId=accCache[(t.category||"").trim()]||defaultAccId;
         if(!counterAccId){skipped++;missingCats.add(t.category||"بدون تصنيف");continue}
         const isIn=t.type==="in";
         entries.push({
@@ -7747,10 +7753,11 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     if(isDayLocked(txDate)&&!isAdmin){playBeep("error");showToast("⛔ اليوم "+txDate+" مقفول — للمدير فقط");return}
     /* If party is linked, validate & expand desc */
     let finalDesc=txDesc;
-    let linkedCustId=null,linkedSupplierId=null,linkedWsName=null;
+    let linkedCustId=null,linkedSupplierId=null,linkedWsName=null,linkedEmpId=null;
     if(txPartyId&&txPartyType==="customer"){const c=customers.find(x=>x.id===txPartyId);if(c){linkedCustId=c.id;if(!finalDesc.trim())finalDesc="دفعة من "+c.name}}
     if(txPartyId&&txPartyType==="supplier"){const s=suppliers.find(x=>x.id===txPartyId);if(s){linkedSupplierId=s.id;if(!finalDesc.trim())finalDesc="دفع لـ "+s.name}}
     if(txPartyId&&txPartyType==="workshop"){const w=workshops.find(x=>x.id===txPartyId||x.name===txPartyId);if(w){linkedWsName=w.name;if(!finalDesc.trim())finalDesc=(txCategory==="مشتريات"?"مشتريات ورشة ":"دفعة ورشة ")+w.name}}
+    if(txPartyId&&txPartyType==="employee"){const e=(data.employees||[]).find(x=>x.id===txPartyId);if(e){linkedEmpId=e.id;if(!finalDesc.trim())finalDesc="سلفة "+e.name}}
     upConfig(d=>{if(!d.treasury)d.treasury=[];
       if(editId){const tx=d.treasury.find(t=>t.id===editId);
         if(tx){tx.type=txType;tx.amount=amt;tx.desc=finalDesc;tx.notes=txNotes;tx.category=txCategory;tx.account=txAccount;tx.season=txSeason;tx.date=txDate;tx.custId=linkedCustId;tx.supplierId=linkedSupplierId;tx.updatedBy=userName;tx.updatedAt=new Date().toISOString();
@@ -7759,7 +7766,7 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         }}
       else{
         const txId=gid();
-        const baseEntry={id:txId,type:txType,amount:amt,desc:finalDesc,notes:txNotes,category:txCategory,account:txAccount,season:txSeason,date:txDate,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(txDate).getDay()],custId:linkedCustId,supplierId:linkedSupplierId,by:userName,createdAt:new Date().toISOString()};
+        const baseEntry={id:txId,type:txType,amount:amt,desc:finalDesc,notes:txNotes,category:txCategory,account:txAccount,season:txSeason,date:txDate,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(txDate).getDay()],custId:linkedCustId,supplierId:linkedSupplierId,empId:linkedEmpId,by:userName,createdAt:new Date().toISOString()};
         /* Auto-link to customer payments if customer selected */
         if(linkedCustId&&txType==="in"){if(!d.custPayments)d.custPayments=[];
           const c=customers.find(x=>x.id===linkedCustId);
@@ -7768,6 +7775,12 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         if(linkedSupplierId&&txType==="out"){if(!d.supplierPayments)d.supplierPayments=[];
           const s=suppliers.find(x=>x.id===linkedSupplierId);
           d.supplierPayments.push({id:gid(),supplierId:linkedSupplierId,supplierName:s?s.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:"كاش",by:userName,treasuryTxId:txId,createdAt:new Date().toISOString()})}
+        /* Auto-link to employee advance (hrLog) */
+        if(linkedEmpId&&txType==="out"){if(!d.hrLog)d.hrLog=[];
+          const emp=(d.employees||[]).find(x=>x.id===linkedEmpId);
+          const logId=gid();
+          d.hrLog.unshift({id:logId,type:"advance",empId:linkedEmpId,empName:emp?emp.name:"",amount:amt,desc:txNotes||finalDesc||"سلفة",weekId:"",date:txDate,by:userName,createdAt:new Date().toISOString()});
+          baseEntry.sourceType="hr_advance";baseEntry.hrLogId=logId}
         /* Auto-link to workshop payments */
         if(linkedWsName&&txType==="out"){if(!d.wsPayments)d.wsPayments=[];
           const w=workshops.find(x=>x.name===linkedWsName);const wsPayId=gid();
@@ -7961,7 +7974,7 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           </div>
         </Card>})()}
       {canEdit&&<div style={{marginBottom:14,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-        <Btn primary onClick={()=>{setEditId(null);setTxType("in");setTxAmount("");setTxDesc("");setTxNotes("");setTxCategory("");setTxAccount(view.startsWith("acc_")?(accountsData.find(a=>a.id===view.slice(4))?.name||"MAIN CASH"):"MAIN CASH");setTxSeason(data.activeSeason||"");setTxDate(today);setTxPartyId("");setTxPartyType("");setShowForm(!showForm)}}>{showForm?"✕ إغلاق":"+ حركة جديدة"}</Btn>
+        <Btn primary onClick={()=>{setEditId(null);setTxType("out");setTxAmount("");setTxDesc("");setTxNotes("");setTxCategory("");setTxAccount(view.startsWith("acc_")?(accountsData.find(a=>a.id===view.slice(4))?.name||"SUB CASH"):"SUB CASH");setTxSeason(data.activeSeason||"");setTxDate(today);setTxPartyId("");setTxPartyType("");setShowForm(!showForm)}}>{showForm?"✕ إغلاق":"+ حركة جديدة"}</Btn>
         {accountsData.length>=2&&<Btn onClick={()=>setShowTransfer(true)} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700}}>🔄 تحويل بين الخزن</Btn>}
         {(data.odooSettings||{}).url&&<Btn onClick={syncToOdoo} disabled={odooSyncing} style={{background:"#71486712",color:"#714867",border:"1px solid #71486730",fontWeight:700}}>{odooSyncing?"⏳ جاري التزامن...":"🔗 تزامن Odoo"}</Btn>}
         {odooResult&&<span style={{fontSize:FS-1,fontWeight:700,color:odooResult.ok?T.ok:T.err,padding:"4px 10px",borderRadius:6,background:odooResult.ok?T.ok+"08":T.err+"08"}}>{odooResult.msg}</span>}
