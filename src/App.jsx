@@ -214,16 +214,16 @@ function QRScanner({onScan,onClose}){
   const streamRef=useRef(null);
   const[err,setErr]=useState("");
   const[scanning,setScanning]=useState(true);
+  const[camReady,setCamReady]=useState(false);
   useEffect(()=>{
     let active=true;
+    loadJsQR();/* preload jsQR while camera starts */
     const startCam=async()=>{
       try{
         const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:640},height:{ideal:480}}});
         if(!active){stream.getTracks().forEach(t=>t.stop());return}
         streamRef.current=stream;
-        if(videoRef.current){videoRef.current.srcObject=stream;videoRef.current.play()}
-        /* Scan loop */
-        loadJsQR();
+        if(videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play();setCamReady(true)}
         const scan=async()=>{
           if(!active||!videoRef.current||!canvasRef.current)return;
           const v=videoRef.current;const c=canvasRef.current;
@@ -234,7 +234,7 @@ function QRScanner({onScan,onClose}){
           }
           if(active)requestAnimationFrame(scan)
         };
-        setTimeout(scan,500)
+        requestAnimationFrame(scan)
       }catch(e){setErr("لا يمكن فتح الكاميرا — تأكد من السماح بالوصول")}
     };
     startCam();
@@ -249,10 +249,11 @@ function QRScanner({onScan,onClose}){
     <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",position:"relative"}}>
       {err?<div style={{color:"#fff",textAlign:"center",padding:20}}><div style={{fontSize:40,marginBottom:12}}>📷</div><div style={{fontSize:16}}>{err}</div></div>
       :<>
-        <video ref={videoRef} playsInline muted style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+        {!camReady&&<div style={{position:"absolute",zIndex:2,color:"#fff",textAlign:"center"}}><div style={{fontSize:36,marginBottom:8,animation:"spin 1s linear infinite"}}>⏳</div><div style={{fontSize:14}}>جاري فتح الكاميرا...</div><style>{"@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}"}</style></div>}
+        <video ref={videoRef} playsInline muted style={{width:"100%",height:"100%",objectFit:"cover",opacity:camReady?1:0,transition:"opacity 0.3s"}}/>
         <canvas ref={canvasRef} style={{display:"none"}}/>
-        <div style={{position:"absolute",top:"20%",left:"50%",transform:"translate(-50%,-50%)",width:220,height:220,border:"3px solid #10B981",borderRadius:16,boxShadow:"0 0 0 9999px rgba(0,0,0,0.4)"}}/>
-        <div style={{position:"absolute",top:"38%",left:"50%",transform:"translateX(-50%)",color:"#fff",fontSize:14,fontWeight:600,background:"rgba(0,0,0,0.6)",padding:"8px 20px",borderRadius:10}}>وجّه الكاميرا على كود QR</div>
+        {camReady&&<><div style={{position:"absolute",top:"20%",left:"50%",transform:"translate(-50%,-50%)",width:220,height:220,border:"3px solid #10B981",borderRadius:16,boxShadow:"0 0 0 9999px rgba(0,0,0,0.4)"}}/>
+        <div style={{position:"absolute",top:"38%",left:"50%",transform:"translateX(-50%)",color:"#fff",fontSize:14,fontWeight:600,background:"rgba(0,0,0,0.6)",padding:"8px 20px",borderRadius:10}}>وجّه الكاميرا على كود QR</div></>}
       </>}
     </div>
   </div>
@@ -724,15 +725,15 @@ function LoginScreen(){
 const TABS=[
   {key:"dashboard",label:"لوحة التحكم",icon:"📊",color:"#0EA5E9",bg:"#E0F2FE"},
   {key:"details",label:"أوامر القص",icon:"✂️",color:"#8B5CF6",bg:"#EDE9FE"},
-  {key:"external",label:"تشغيل خارجي",icon:"🏭",color:"#10B981",bg:"#D1FAE5"},
-  {key:"stock",label:"تسليم مخزن جاهز",icon:"📦",color:"#059669",bg:"#ECFDF5"},
-  {key:"reports",label:"التقارير",icon:"📈",color:"#06B6D4",bg:"#CFFAFE"},
+  {key:"external",label:"تشغيل خارجي",icon:"🏗️",color:"#10B981",bg:"#D1FAE5"},
+  {key:"stock",label:"تسليم مخزن جاهز",icon:"📥",color:"#059669",bg:"#ECFDF5"},
+  {key:"reports",label:"التقارير",icon:"📑",color:"#06B6D4",bg:"#CFFAFE"},
   {key:"calc",label:"حاسبة التكاليف",icon:"🧮",color:"#EC4899",bg:"#FCE7F3"},
-  {key:"tasks",label:"المهام",icon:"📌",color:"#F59E0B",bg:"#FEF3C7"},
-  {key:"db",label:"قاعدة البيانات",icon:"🗄️",color:"#EF4444",bg:"#FEE2E2"},
-  {key:"custDeliver",label:"مبيعات",icon:"💰",color:"#059669",bg:"#ECFDF5"},
-  {key:"treasury",label:"الخزنة",icon:"🏦",color:"#0D9488",bg:"#CCFBF1"},
-  {key:"hr",label:"موظفين",icon:"👷",color:"#7C3AED",bg:"#EDE9FE"},
+  {key:"tasks",label:"المهام",icon:"✅",color:"#F59E0B",bg:"#FEF3C7"},
+  {key:"db",label:"قاعدة البيانات",icon:"🗃️",color:"#EF4444",bg:"#FEE2E2"},
+  {key:"custDeliver",label:"مبيعات",icon:"🛒",color:"#059669",bg:"#ECFDF5"},
+  {key:"treasury",label:"الخزنة",icon:"💵",color:"#0D9488",bg:"#CCFBF1"},
+  {key:"hr",label:"موظفين",icon:"🧑‍💼",color:"#7C3AED",bg:"#EDE9FE"},
   {key:"settings",label:"الاعدادات",icon:"⚙️",color:"#64748B",bg:"#F1F5F9"}
 ];
 
@@ -1372,10 +1373,10 @@ export default function App(){
             </div>
             {/* ── Center 50%: App Grid + Actions ── */}
             <div style={{flex:"0 0 50%",minWidth:0}}>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:12}}>
-                {[...TABS.filter(t=>canViewTab(t.key))].sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0).map(t=>{const perm=getTabPerm(t.key);const isOdoo=!!T.navBg;return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:isOdoo?12:16,padding:isOdoo?"20px 8px":"16px 8px",border:"1px solid "+T.brd,boxShadow:isOdoo?"0 1px 4px rgba(0,0,0,0.04)":T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s",opacity:perm==="view"?0.75:1,position:"relative",aspectRatio:"1"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow=isOdoo?"0 6px 20px rgba(113,75,103,0.12)":"0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=isOdoo?"0 1px 4px rgba(0,0,0,0.04)":T.shadow}}>
-                  <div style={{width:isOdoo?56:48,height:isOdoo?56:48,borderRadius:isOdoo?16:14,background:isOdoo?t.color+"15":t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 8px",fontSize:isOdoo?28:24,...(isOdoo?{border:"1px solid "+t.color+"20"}:{})}}>{t.icon}</div>
-                  <div style={{fontSize:FS-1,fontWeight:700,color:T.text}}>{t.label}</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10}}>
+                {[...TABS.filter(t=>canViewTab(t.key))].sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0).map(t=>{const perm=getTabPerm(t.key);const isOdoo=!!T.navBg;return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:isOdoo?10:12,padding:isOdoo?"14px 6px":"12px 6px",border:"1px solid "+T.brd,boxShadow:isOdoo?"0 1px 4px rgba(0,0,0,0.04)":T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s",opacity:perm==="view"?0.75:1,position:"relative"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow=isOdoo?"0 6px 20px rgba(113,75,103,0.12)":"0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=isOdoo?"0 1px 4px rgba(0,0,0,0.04)":T.shadow}}>
+                  <div style={{width:isOdoo?42:38,height:isOdoo?42:38,borderRadius:isOdoo?12:10,background:isOdoo?t.color+"15":t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 6px",fontSize:isOdoo?22:20,...(isOdoo?{border:"1px solid "+t.color+"20"}:{})}}>{t.icon}</div>
+                  <div style={{fontSize:FS-2,fontWeight:700,color:T.text}}>{t.label}</div>
                   {perm==="view"&&<div style={{position:"absolute",top:4,left:4,fontSize:8,padding:"1px 4px",borderRadius:3,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
                 </div>})}
               </div>
@@ -1413,8 +1414,8 @@ export default function App(){
           </div>
           :<div>{/* ══ Mobile + Tablet ══ */}
             <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:10}}>
-              {[...TABS.filter(t=>canViewTab(t.key))].sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0).map(t=>{const perm=getTabPerm(t.key);const isOdoo=!!T.navBg;return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:isOdoo?12:16,padding:isOdoo?"18px 8px":"16px 8px",border:"1px solid "+T.brd,boxShadow:isOdoo?"0 1px 4px rgba(0,0,0,0.04)":T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",opacity:perm==="view"?0.75:1,position:"relative",width:isTab?"calc(25% - 8px)":"calc(33.33% - 8px)",boxSizing:"border-box"}}>
-                <div style={{width:isOdoo?50:44,height:isOdoo?50:44,borderRadius:isOdoo?14:14,background:isOdoo?t.color+"15":t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px",fontSize:isOdoo?24:22,...(isOdoo?{border:"1px solid "+t.color+"20"}:{})}}>{t.icon}</div>
+              {[...TABS.filter(t=>canViewTab(t.key))].sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0).map(t=>{const perm=getTabPerm(t.key);const isOdoo=!!T.navBg;return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:isOdoo?10:12,padding:isOdoo?"14px 6px":"12px 6px",border:"1px solid "+T.brd,boxShadow:isOdoo?"0 1px 4px rgba(0,0,0,0.04)":T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",opacity:perm==="view"?0.75:1,position:"relative",width:isTab?"calc(25% - 8px)":"calc(33.33% - 8px)",boxSizing:"border-box"}}>
+                <div style={{width:isOdoo?40:36,height:isOdoo?40:36,borderRadius:isOdoo?12:10,background:isOdoo?t.color+"15":t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 6px",fontSize:isOdoo?20:18,...(isOdoo?{border:"1px solid "+t.color+"20"}:{})}}>{t.icon}</div>
                 <div style={{fontSize:FS-3,fontWeight:700,color:T.text}}>{t.label}</div>
                 {perm==="view"&&<div style={{position:"absolute",top:6,left:6,fontSize:9,padding:"1px 6px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
               </div>})}
@@ -1613,9 +1614,9 @@ export default function App(){
       const qrMM=Math.min(lw-mg*2,lh-mg*2)-8;
       const buildLabel=(qrText,modelNo,desc,sizeStr,seriesStr)=>{let h="<div class='lbl'>";
         if(fl.brand?.show)h+="<div style='font-weight:900;font-size:"+((fl.brand?.size||14)/2.5)+"mm;letter-spacing:2px;line-height:1'>CLARK</div>";
-        if(fl.modelNo?.show!==false)h+="<div style='font-weight:800;font-size:"+((fl.modelNo?.size||16)/2.5)+"mm;line-height:1.1'>"+modelNo+"</div>";
+        if(fl.modelNo?.show!==false)h+="<div style='font-weight:800;font-size:"+((fl.modelNo?.size||12)/2.5)+"mm;line-height:1.1'>"+modelNo+"</div>";
         if(fl.desc?.show)h+="<div style='font-size:"+((fl.desc?.size||10)/2.5)+"mm;color:#444;line-height:1'>"+desc+"</div>";
-        if(fl.sizeLabel?.show!==false&&sizeStr)h+="<div style='font-weight:700;font-size:"+((fl.sizeLabel?.size||12)/2.5)+"mm;line-height:1'>"+sizeStr+"</div>";
+        if(fl.sizeLabel?.show!==false&&sizeStr)h+="<div style='font-weight:700;font-size:"+((fl.sizeLabel?.size||10)/2.5)+"mm;line-height:1'>"+sizeStr+"</div>";
         if(fl.qr?.show!==false)h+="<div style='flex:1;display:flex;align-items:center;justify-content:center'><img class='qr-img' data-text='"+qrText+"' style='width:"+qrMM+"mm;height:"+qrMM+"mm'/></div>";
         if(fl.series?.show!==false&&seriesStr)h+="<div style='font-weight:700;font-size:"+((fl.series?.size||12)/2.5)+"mm;line-height:1'>"+seriesStr+"</div>";
         if(fl.price?.show&&selOrder?.sellPrice)h+="<div style='font-size:"+((fl.price?.size||10)/2.5)+"mm;line-height:1'>"+selOrder.sellPrice+" ج.م</div>";
@@ -5102,7 +5103,7 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
         {stockModels.length>0&&crd("🏆","تحليل مبيعات","#8B5CF6",()=>setSalesAnalysis(true))}
         {crd("🧾","بيان سعر","#8B5CF6",()=>setQuoteCust("pickSess"))}
         {crd("📋","سجل البيع","#059669",()=>{setCustSalesLog("all");setLogCustF("");setLogModelF("");setLogDateF("");setLogTypeFilter("");setLogLimit(50)})}
-        {crd("📦","كراتين","#0EA5E9",()=>setPkgPopup("list"))}
+        {crd("📦","كرتونة/Package","#0EA5E9",()=>setPkgPopup("list"))}
         {crd("📊","خط الانتاج","#059669",printProductionLine)}
         {crd("📋","تقرير الموسم","#EF4444",()=>setSeasonReport(true))}
         {crd("🏪","جرد المخزن","#8B5CF6",()=>setInvAudit({items:{},scanning:false}))}
@@ -6426,11 +6427,21 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
       </div>})()}
     {/* Inventory Audit - جرد المخزن */}
     {invAudit&&(()=>{const auditItems=invAudit.items||{};
+      const scanMode=invAudit.scanMode||"series";/* "series" | "piece" | "auto" */
       const allStock=stockModels.filter(m=>m.stockQty>0||auditItems[m.id]);
-      const handleAuditScan=(text)=>{try{const parts=text.split(":");if(parts[0]!=="CLARK"||!parts[1])return;const orderId=parts[1];const qrRs=Number(parts[2])||1;
+      const handleAuditScan=(text)=>{try{
+        /* 1. Try package QR (carton) */
+        try{const j=JSON.parse(text);if(j.app==="clark"&&j.type==="pkg"){
+          const pkg=(config.packages||[]).find(p=>p.id===j.id);
+          if(!pkg){playBeep("error");showToast("⛔ كرتونة غير موجودة");return}
+          setInvAudit(p=>{const items={...p.items};(pkg.items||[]).forEach(it=>{items[it.orderId]=(items[it.orderId]||0)+(Number(it.qty)||0)});return{...p,items}});
+          playBeep("ok");showToast("📦 كرتونة "+j.num+" — "+(pkg.items||[]).length+" موديل");return}}catch(e2){}
+        /* 2. Model QR: CLARK:orderId:rackSize */
+        const parts=text.split(":");if(parts[0]!=="CLARK"||!parts[1])return;const orderId=parts[1];const qrRs=Number(parts[2])||1;
         const o=orders.find(x=>x.id===orderId);if(!o){playBeep("error");showToast("⛔ موديل غير موجود");return}
         const _sz=o.sizeLabel?o.sizeLabel.split(/[-\/,]/).map(s=>s.trim()).filter(Boolean):[];const rs=_sz.length>1?Math.max(qrRs,_sz.length):qrRs;
-        setInvAudit(p=>{const items={...p.items};items[orderId]=(items[orderId]||0)+rs;return{...p,items}});playBeep("ok");showToast("✅ "+o.modelNo+" +"+rs)}catch(e){}};
+        const addQty=scanMode==="piece"?1:rs;
+        setInvAudit(p=>{const items={...p.items};items[orderId]=(items[orderId]||0)+addQty;return{...p,items}});playBeep("ok");showToast("✅ "+o.modelNo+" +"+(scanMode==="piece"?"1 قطعة":rs+" سيري"))}catch(e){}};
       const closeAuditCam=()=>{try{const v=document.getElementById("audit-scan-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setInvAudit(p=>({...p,scanning:false}))};
       const totalSystem=allStock.reduce((s,m)=>s+m.avail,0);const totalCounted=allStock.reduce((s,m)=>s+(auditItems[m.id]||0),0);const totalDiff=totalCounted-totalSystem;
       const applyAdjust=()=>{let adj=0;allStock.forEach(m=>{const counted=auditItems[m.id];if(counted===undefined)return;const diff=counted-m.avail;if(diff===0)return;adj++;
@@ -6450,30 +6461,46 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
             <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>🏪 جرد المخزن</div>
             <div style={{display:"flex",gap:4}}><Btn small onClick={printAudit} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn ghost small onClick={()=>{closeAuditCam();setInvAudit(null)}}>✕</Btn></div>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:10}}>
+          {/* Audit Tabs */}
+          {(()=>{const auditTab=invAudit.tab||"compare";
+          return<div>
+          <div style={{display:"flex",gap:0,marginBottom:12,borderRadius:10,overflow:"hidden",border:"1px solid "+T.brd}}>
+            <div onClick={()=>setInvAudit(p=>({...p,tab:"compare"}))} style={{flex:1,padding:"8px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-1,background:auditTab==="compare"?"#8B5CF6":T.cardSolid,color:auditTab==="compare"?"#fff":T.textSec}}>📊 جرد مقارنة</div>
+            <div onClick={()=>setInvAudit(p=>({...p,tab:"physical"}))} style={{flex:1,padding:"8px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-1,background:auditTab==="physical"?"#059669":T.cardSolid,color:auditTab==="physical"?"#fff":T.textSec}}>📋 جرد مادي</div>
+          </div>
+          {/* Summary cards */}
+          {auditTab==="compare"?<div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:10}}>
             <div style={{padding:8,borderRadius:10,background:T.accent+"08",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>النظام</div><div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{totalSystem}</div></div>
             <div style={{padding:8,borderRadius:10,background:"#8B5CF608",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>الجرد</div><div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>{totalCounted}</div></div>
             <div style={{padding:8,borderRadius:10,background:(totalDiff===0?"#10B981":totalDiff>0?"#0EA5E9":"#EF4444")+"08",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>الفرق</div><div style={{fontSize:FS+2,fontWeight:800,color:totalDiff===0?"#10B981":totalDiff>0?"#0EA5E9":"#EF4444"}}>{totalDiff}</div></div>
-          </div>
-          {/* Scan or manual */}
-          <div style={{display:"flex",gap:6,marginBottom:10}}>
+          </div>:<div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:10}}>
+            <div style={{padding:8,borderRadius:10,background:"#05966908",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>عدد الموديلات</div><div style={{fontSize:FS+2,fontWeight:800,color:"#059669"}}>{Object.keys(auditItems).filter(k=>auditItems[k]>0).length}</div></div>
+            <div style={{padding:8,borderRadius:10,background:"#05966908",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>إجمالي القطع</div><div style={{fontSize:FS+2,fontWeight:800,color:"#059669"}}>{totalCounted}</div></div>
+          </div>}
+          {/* Scan + mode selector */}
+          <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
             <Btn small onClick={()=>{if(invAudit.scanning){closeAuditCam()}else{setInvAudit(p=>({...p,scanning:true}))}}} style={{background:invAudit.scanning?"#EF444412":"#8B5CF612",color:invAudit.scanning?"#EF4444":"#8B5CF6",border:"1px solid "+(invAudit.scanning?"#EF444430":"#8B5CF630")}}>{invAudit.scanning?"⏹ Stop":"📷 Scan"}</Btn>
-            <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(!v)return;const _o2=orders.find(x=>x.id===v);const _szz2=_o2?.sizeLabel?_o2.sizeLabel.split(/[-\/,]/).map(s=>s.trim()).filter(Boolean):[];const rs=_szz2.length>1?Math.max(getRackSize(v),_szz2.length):getRackSize(v);setInvAudit(p=>{const items={...p.items};items[v]=(items[v]||0)+rs;return{...p,items}});playBeep("ok")}} options={stockModels.map(m=>({value:m.id,label:m.modelNo+" — "+m.modelDesc+" ("+m.avail+")"}))} placeholder="اضف يدوي..."/></div>
+            <div style={{display:"flex",gap:0,borderRadius:8,overflow:"hidden",border:"1px solid "+T.brd}}>
+              {[{k:"series",l:"سيري",ic:"📦"},{k:"piece",l:"قطعة",ic:"👕"}].map(m=><div key={m.k} onClick={()=>setInvAudit(p=>({...p,scanMode:m.k}))} style={{padding:"4px 10px",fontSize:FS-2,fontWeight:700,cursor:"pointer",background:scanMode===m.k?"#8B5CF6":"transparent",color:scanMode===m.k?"#fff":T.textSec,transition:"all 0.15s"}}>{m.ic+" "+m.l}</div>)}
+            </div>
+            <span style={{fontSize:FS-3,color:T.textMut}}>📦 كرتونة/Package = أوتو</span>
+            <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(!v)return;const _o2=orders.find(x=>x.id===v);const _szz2=_o2?.sizeLabel?_o2.sizeLabel.split(/[-\/,]/).map(s=>s.trim()).filter(Boolean):[];const rs=_szz2.length>1?Math.max(getRackSize(v),_szz2.length):getRackSize(v);const addQty=scanMode==="piece"?1:rs;setInvAudit(p=>{const items={...p.items};items[v]=(items[v]||0)+addQty;return{...p,items}});playBeep("ok")}} options={(auditTab==="compare"?stockModels:orders).map(m=>({value:m.id,label:(m.modelNo||"")+" — "+(m.modelDesc||"")+(auditTab==="compare"?" ("+m.avail+")":"")}))} placeholder="اضف يدوي..."/></div>
           </div>
           {invAudit.scanning&&<div style={{marginBottom:10}}>
             <div style={{position:"relative",width:"100%",maxWidth:260,margin:"0 auto",borderRadius:12,overflow:"hidden",background:"#000"}}>
               <video id="audit-scan-video" playsInline muted autoPlay style={{width:"100%",display:"block"}} ref={el=>{if(!el||el.srcObject)return;(async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:640}}});el.srcObject=stream;
-                const hasBD=typeof BarcodeDetector!=="undefined";const detector=hasBD?new BarcodeDetector({formats:["qr_code"]}):null;const canvas=document.createElement("canvas");let lastScan="";let lastTime=0;
+                const canvas=document.createElement("canvas");let lastScan="";let lastTime=0;
                 const scan=async()=>{if(!el.srcObject)return;if(el.readyState<2){requestAnimationFrame(scan);return}canvas.width=el.videoWidth;canvas.height=el.videoHeight;canvas.getContext("2d").drawImage(el,0,0);
-                  {const _qr=await scanQR(canvas);if(_qr){const now=Date.now();if(_qr!==lastScan||now-lastTime>2000){lastScan=_qr;lastTime=now;handleAuditScan(t)}}}
-                  if(el.srcObject)requestAnimationFrame(scan)};setTimeout(scan,500)}catch(e){showToast("⚠️ تعذر فتح الكاميرا");closeAuditCam()}})()}}/>
-              <div style={{position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",width:130,height:130,border:"2px solid #8B5CF6",borderRadius:10,boxShadow:"0 0 0 999px rgba(0,0,0,0.4)"}}/>
+                  {const _qr=await scanQR(canvas);if(_qr){const now=Date.now();if(_qr!==lastScan||now-lastTime>2000){lastScan=_qr;lastTime=now;handleAuditScan(_qr)}}}
+                  if(el.srcObject)requestAnimationFrame(scan)};setTimeout(scan,300)}catch(e){showToast("⚠️ تعذر فتح الكاميرا");closeAuditCam()}})()}}/>
+              <div style={{position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",width:130,height:130,border:"2px solid "+(auditTab==="compare"?"#8B5CF6":"#059669"),borderRadius:10,boxShadow:"0 0 0 999px rgba(0,0,0,0.4)"}}/>
             </div>
           </div>}
-          {/* Table */}
+          {/* ═══ COMPARE TABLE ═══ */}
+          {auditTab==="compare"&&<div>
           <div style={{border:"1px solid "+T.brd,borderRadius:12,overflow:"hidden"}}>
             <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","الوصف","النظام","الجرد","الفرق","الحالة"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
-              {allStock.map((m,i)=>{const counted=auditItems[m.id]||0;const diff=counted-m.avail;const rs=m.rackSize||1;
+              {allStock.map((m,i)=>{const counted=auditItems[m.id]||0;const diff=counted-m.avail;
                 return<tr key={m.id} style={{background:diff<0?"#FEF2F208":diff>0?"#EFF6FF":i%2===0?"transparent":T.bg+"80"}}>
                   <td style={{...TD,fontWeight:700,color:T.accent}}>{m.modelNo}</td>
                   <td style={{...TD,fontSize:FS-3,color:T.textMut}}>{m.modelDesc}</td>
@@ -6489,6 +6516,36 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
               if(!hasChanges){showToast("✅ لا توجد فروقات — المخزن مطابق");return}if(confirm("تأكيد التسوية؟ سيتم تعديل أرصدة المخزن"))applyAdjust()}} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:700}}>🔧 تسوية الفروقات</Btn>
             <Btn ghost onClick={()=>{closeAuditCam();setInvAudit(null)}}>الغاء</Btn>
           </div>
+          </div>}
+          {/* ═══ PHYSICAL COUNT TABLE ═══ */}
+          {auditTab==="physical"&&(()=>{
+            const physItems=Object.entries(auditItems).filter(([k,v])=>v>0).map(([id,qty])=>{const o=orders.find(x=>x.id===id);return{id,modelNo:o?.modelNo||"—",modelDesc:o?.modelDesc||"",qty}}).sort((a,b)=>a.modelNo.localeCompare(b.modelNo));
+            const physTotal=physItems.reduce((s,i)=>s+i.qty,0);
+            const printPhysical=()=>{let h="<h2 style='text-align:center'>📋 جرد مادي — "+new Date().toISOString().split("T")[0]+"</h2>";
+              h+="<table style='margin:0 auto 12px'><tr><th>عدد الموديلات</th><td style='font-weight:800'>"+physItems.length+"</td><th>إجمالي القطع</th><td style='font-weight:800'>"+physTotal+"</td></tr></table>";
+              h+="<table><thead><tr><th>#</th><th>الموديل</th><th>الوصف</th><th>الكمية</th></tr></thead><tbody>";
+              physItems.forEach((it,i)=>{h+="<tr><td style='text-align:center'>"+(i+1)+"</td><td style='font-weight:800'>"+it.modelNo+"</td><td>"+it.modelDesc+"</td><td style='text-align:center;font-weight:800;color:#059669'>"+it.qty+"</td></tr>"});
+              h+="<tr style='background:#ECFDF5;font-weight:800'><td colspan='3' style='text-align:center'>الإجمالي</td><td style='text-align:center;font-size:16px;color:#059669'>"+fmt(physTotal)+"</td></tr></tbody></table>";
+              h+="<div class='sig'><div class='sig-box'>أمين المخزن</div><div class='sig-box'>المدير</div></div>";printPage("جرد مادي",h)};
+            return<div>
+            <div style={{border:"1px solid "+T.brd,borderRadius:12,overflow:"hidden"}}>
+              <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","الموديل","الوصف","الكمية",""].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
+                {physItems.length>0?physItems.map((it,i)=><tr key={it.id} style={{borderBottom:"1px solid "+T.brd,background:i%2===0?"transparent":T.bg+"80"}}>
+                  <td style={{...TD,textAlign:"center",color:T.textMut}}>{i+1}</td>
+                  <td style={{...TD,fontWeight:700,color:"#059669"}}>{it.modelNo}</td>
+                  <td style={{...TD,fontSize:FS-3,color:T.textMut}}>{it.modelDesc}</td>
+                  <td style={{...TD,textAlign:"center"}}><input type="number" value={it.qty||""} onChange={e=>setInvAudit(p=>({...p,items:{...p.items,[it.id]:Math.max(0,Number(e.target.value)||0)}}))} style={{width:60,textAlign:"center",border:"2px solid #059669",borderRadius:4,padding:"2px",fontSize:FS,fontWeight:700,fontFamily:"inherit",background:"#05966906"}}/></td>
+                  <td style={{...TD,textAlign:"center"}}><span onClick={()=>setInvAudit(p=>{const items={...p.items};delete items[it.id];return{...p,items}})} style={{cursor:"pointer",color:T.err,fontSize:FS-2}}>✕</span></td>
+                </tr>):<tr><td colSpan={5} style={{...TD,textAlign:"center",color:T.textMut,padding:30}}>اسكان QR أو أضف يدوي لبدء الجرد</td></tr>}
+                {physItems.length>0&&<tr style={{background:"#ECFDF5"}}><td colSpan={3} style={{...TD,fontWeight:800,textAlign:"center"}}>الإجمالي</td><td style={{...TD,textAlign:"center",fontWeight:900,fontSize:FS+2,color:"#059669"}}>{fmt(physTotal)}</td><td/></tr>}
+              </tbody></table>
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"center",marginTop:12}}>
+              <Btn onClick={printPhysical} style={{background:"#059669",color:"#fff",border:"none",fontWeight:700}}>🖨 طباعة تقرير الجرد</Btn>
+              <Btn ghost onClick={()=>{closeAuditCam();setInvAudit(null)}}>الغاء</Btn>
+            </div>
+            </div>})()}
+          </div>})()}
         </div>
       </div>})()}
     {/* Customer Sales Log */}
@@ -6817,7 +6874,7 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
         const qrMM=Math.min(lw-mg*2,lh-mg*2)-8;
         let h="";for(let i=0;i<copies;i++){h+="<div class='lbl'>";
           if(fl.brand?.show)h+="<div style='font-weight:900;font-size:"+((fl.brand?.size||14)/2.5)+"mm;letter-spacing:2px;line-height:1'>CLARK</div>";
-          if(fl.modelNo?.show!==false)h+="<div style='font-weight:800;font-size:"+((fl.modelNo?.size||16)/2.5)+"mm;line-height:1.1'>"+o.modelNo+"</div>";
+          if(fl.modelNo?.show!==false)h+="<div style='font-weight:800;font-size:"+((fl.modelNo?.size||12)/2.5)+"mm;line-height:1.1'>"+o.modelNo+"</div>";
           if(fl.desc?.show)h+="<div style='font-size:"+((fl.desc?.size||10)/2.5)+"mm;color:#444;line-height:1'>"+o.modelDesc+"</div>";
           if(fl.qr?.show!==false)h+="<div style='flex:1;display:flex;align-items:center;justify-content:center'><img class='qr-img' data-text='"+qrText+"' style='width:"+qrMM+"mm;height:"+qrMM+"mm'/></div>";
           if(fl.series?.show!==false)h+="<div style='font-weight:700;font-size:"+((fl.series?.size||12)/2.5)+"mm;line-height:1'>سيري: "+qty+"</div>";
@@ -7124,15 +7181,15 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
     </Card>
     {/* Print Settings */}
     <Card title="🖨 إعدادات طباعة QR" style={{marginBottom:16}}>
-      {(()=>{const ps=config.printSettings||{labelWidth:50,labelHeight:40,orientation:"portrait",margins:2,qrLevel:"M",qrMargin:1,qrColor:"#000000",showBorder:false,fields:{brand:{show:false,size:14},modelNo:{show:true,size:16},desc:{show:false,size:10},qr:{show:true,size:80},series:{show:true,size:12},sizeLabel:{show:true,size:12},price:{show:false,size:10}}};
+      {(()=>{const ps=config.printSettings||{labelWidth:40,labelHeight:50,orientation:"portrait",margins:2,qrLevel:"M",qrMargin:1,qrColor:"#000000",showBorder:false,fields:{brand:{show:false,size:14},modelNo:{show:true,size:12},desc:{show:false,size:10},qr:{show:true,size:80},series:{show:true,size:12},sizeLabel:{show:true,size:10},price:{show:false,size:10}}};
         const savePS=(fn)=>upConfig(d=>{if(!d.printSettings)d.printSettings={...ps};fn(d.printSettings)});
         const fields=[{key:"brand",label:"اسم الشركة (CLARK)"},{key:"modelNo",label:"رقم الموديل"},{key:"desc",label:"الوصف"},{key:"qr",label:"كود QR"},{key:"series",label:"عدد القطع (سيري)"},{key:"sizeLabel",label:"المقاس"},{key:"price",label:"السعر"}];
         const printTest=()=>{const w=ps.labelWidth||40;const h=ps.labelHeight||50;const m=ps.margins||2;const qrMM=Math.min(w-m*2,h-m*2)-8;
           const pw_=window.open("","_blank");let html="<html dir='rtl'><head><title>طباعة تجريبية</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><style>@page{size:"+w+"mm "+h+"mm;margin:"+m+"mm}*{margin:0;padding:0}body{margin:0;padding:0;font-family:'Cairo',Arial,sans-serif}.lbl{width:"+(w-m*2)+"mm;height:"+(h-m*2)+"mm;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center"+(ps.showBorder?";border:1px dashed #999":"")+"}</style></head><body><div class='lbl'>";
           if(ps.fields?.brand?.show)html+="<div style='font-weight:900;font-size:"+((ps.fields?.brand?.size||14)/2.5)+"mm;letter-spacing:2px;line-height:1'>CLARK</div>";
-          if(ps.fields?.modelNo?.show!==false)html+="<div style='font-weight:800;font-size:"+((ps.fields?.modelNo?.size||16)/2.5)+"mm;line-height:1.1'>3262114</div>";
+          if(ps.fields?.modelNo?.show!==false)html+="<div style='font-weight:800;font-size:"+((ps.fields?.modelNo?.size||12)/2.5)+"mm;line-height:1.1'>3262114</div>";
           if(ps.fields?.desc?.show)html+="<div style='font-size:"+((ps.fields?.desc?.size||10)/2.5)+"mm;color:#444;line-height:1'>توينز اولادي قطعتين</div>";
-          if(ps.fields?.sizeLabel?.show)html+="<div style='font-weight:700;font-size:"+((ps.fields?.sizeLabel?.size||12)/2.5)+"mm;line-height:1'>مقاس: 8</div>";
+          if(ps.fields?.sizeLabel?.show)html+="<div style='font-weight:700;font-size:"+((ps.fields?.sizeLabel?.size||10)/2.5)+"mm;line-height:1'>مقاس: 8</div>";
           if(ps.fields?.qr?.show!==false)html+="<div style='flex:1;display:flex;align-items:center;justify-content:center'><canvas id='qr' style='width:"+qrMM+"mm;height:"+qrMM+"mm'></canvas></div>";
           if(ps.fields?.series?.show)html+="<div style='font-weight:700;font-size:"+((ps.fields?.series?.size||12)/2.5)+"mm;line-height:1'>سيري: 4</div>";
           if(ps.fields?.price?.show)html+="<div style='font-size:"+((ps.fields?.price?.size||10)/2.5)+"mm;line-height:1'>95 ج.م</div>";
