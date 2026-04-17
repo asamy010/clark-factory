@@ -6678,6 +6678,9 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
   const[atSelUser,setAtSelUser]=useState("");const[atEditIdx,setAtEditIdx]=useState(null);const[nfEditUser,setNfEditUser]=useState("");
   const[linkMap,setLinkMap]=useState({});
   const[compressing,setCompressing]=useState(false);
+  /* Odoo account mapping — local state to avoid live-save issues */
+  const[localMap,setLocalMap]=useState(()=>({...(config.odooSettings?.accountMapping||{})}));
+  const[mapSaved,setMapSaved]=useState(false);
   /* Admin password gate */
   const[pendingAction,setPendingAction]=useState(null);const[adminPass,setAdminPass]=useState("");const[passErr,setPassErr]=useState("");const[passLoading,setPassLoading]=useState(false);
   const requirePass=(action)=>{setPendingAction(()=>action);setAdminPass("");setPassErr("")};
@@ -6935,8 +6938,8 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
           <div style={{marginTop:12,borderTop:"1px solid "+T.brd,paddingTop:12}}>
             <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>📋 ربط التصنيفات بحسابات Odoo</div>
             <div style={{fontSize:FS-2,color:T.textMut,marginBottom:8}}>اكتب كود الحساب في Odoo لكل تصنيف ثم اضغط حفظ.</div>
-            {(()=>{const[localMap,setLocalMap]=useState(()=>({...mapping}));const[mapSaved,setMapSaved]=useState(false);
-              const saveMap=()=>{saveOS(s=>{s.accountMapping={...localMap}});setMapSaved(true);showToast("✅ تم حفظ ربط الحسابات");setTimeout(()=>setMapSaved(false),2000)};
+            {(()=>{
+              const saveMap=()=>{upConfig(d=>{if(!d.odooSettings)d.odooSettings={};d.odooSettings.accountMapping={...localMap}});setMapSaved(true);showToast("✅ تم حفظ ربط الحسابات");setTimeout(()=>setMapSaved(false),2000)};
               return<div>
                 <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:6}}>
                   {allCats.map(cat=><div key={cat} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 0"}}>
@@ -8549,6 +8552,9 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const getWeekNum=(dateStr)=>{if(!dateStr)return"";const d=new Date(dateStr);const start=new Date(d.getFullYear(),0,1);return Math.ceil(((d-start)/86400000+start.getDay()+1)/7)};
 
   const createWeek=()=>{if(!nwStart||!nwEnd)return;
+    /* Check for duplicate week with same dates */
+    const dup=hrWeeks.find(w=>w.weekStart===nwStart&&w.weekEnd===nwEnd);
+    if(dup){playBeep("error");showToast("⚠️ الأسبوع "+nwStart+" → "+nwEnd+" مفتوح بالفعل (W"+dup.weekNum+")");return}
     upConfig(d=>{if(!d.hrWeeks)d.hrWeeks=[];
       d.hrWeeks.unshift({id:gid(),weekNum:getWeekNum(nwStart),weekStart:nwStart,weekEnd:nwEnd,baseHours:Number(nwBaseHours)||48,attendance:{},status:"open",createdBy:userName,createdAt:new Date().toISOString()})});
     setShowNewWeek(false);showToast("✓ تم فتح الأسبوع")};
@@ -8916,37 +8922,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         <div key={v.k} onClick={()=>{setView(v.k);setOpenWeekId(null)}} style={{flex:1,padding:"10px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-1,background:view===v.k?T.accent:T.cardSolid,color:view===v.k?"#fff":T.textSec,transition:"all 0.15s"}}>{v.l}{v.c!=null?" ("+v.c+")":""}</div>)}
     </div>
 
-    {/* ══ FIXED EMPLOYEE REGISTER — CURRENT WEEK ══ */}
-    <Card title={"📋 سجل الموظفين — الأسبوع الحالي"} extra={<span style={{fontSize:FS-1,color:T.navText||"#fff",fontWeight:700,direction:"ltr"}}>{cwStart+" → "+cwEnd}</span>} accent={T.accent} style={{marginBottom:16}}>
-      <div style={{overflowX:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
-          <thead><tr style={{background:T.bg}}>
-            <th style={{padding:"8px 10px",textAlign:"right",borderBottom:"2px solid "+T.brd,fontWeight:800,color:T.textSec,fontSize:FS-2}}>الاسم</th>
-            <th style={{padding:"8px 10px",textAlign:"center",borderBottom:"2px solid "+T.brd,fontWeight:800,color:T.textSec,fontSize:FS-2}}>الكود</th>
-            <th style={{padding:"8px 10px",textAlign:"center",borderBottom:"2px solid "+T.brd,fontWeight:800,color:T.textSec,fontSize:FS-2}}>المرتب الأساسي</th>
-            <th style={{padding:"8px 10px",textAlign:"center",borderBottom:"2px solid "+T.brd,fontWeight:800,color:T.textSec,fontSize:FS-2}}>سلف الأسبوع</th>
-            <th style={{padding:"8px 10px",textAlign:"center",borderBottom:"2px solid "+T.brd,fontWeight:800,color:T.textSec,fontSize:FS-2}}>الصافي</th>
-          </tr></thead>
-          <tbody>
-            {activeEmps.map(e=>{const adv=cwAdvances[e.id]||0;const net=(e.weeklySalary||0)-adv;
-              return<tr key={e.id} style={{borderBottom:"1px solid "+T.brd}}>
-                <td style={{padding:"7px 10px",fontWeight:700,color:T.text}}>{e.name}</td>
-                <td style={{padding:"7px 10px",textAlign:"center",color:T.textSec,fontWeight:600}}>{e.code||"—"}</td>
-                <td style={{padding:"7px 10px",textAlign:"center",fontWeight:700,color:T.accent}}>{fmt(e.weeklySalary||0)}</td>
-                <td style={{padding:"7px 10px",textAlign:"center",fontWeight:700,color:adv>0?T.err:T.textMut}}>{adv>0?fmt(adv):"—"}</td>
-                <td style={{padding:"7px 10px",textAlign:"center",fontWeight:800,color:net<0?T.err:T.ok}}>{fmt(net)}</td>
-              </tr>})}
-            {activeEmps.length===0&&<tr><td colSpan={5} style={{padding:16,textAlign:"center",color:T.textMut}}>لا يوجد موظفين نشطين</td></tr>}
-          </tbody>
-          {activeEmps.length>0&&<tfoot><tr style={{background:T.accentBg,borderTop:"2px solid "+T.accent+"40"}}>
-            <td style={{padding:"8px 10px",fontWeight:800,color:T.text}} colSpan={2}>{"الإجمالي ("+activeEmps.length+" موظف)"}</td>
-            <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:T.accent}}>{fmt(cwTotalSalary)}</td>
-            <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:cwTotalAdv>0?T.err:T.textMut}}>{cwTotalAdv>0?fmt(cwTotalAdv):"—"}</td>
-            <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:(cwTotalSalary-cwTotalAdv)<0?T.err:T.ok}}>{fmt(cwTotalSalary-cwTotalAdv)}</td>
-          </tr></tfoot>}
-        </table>
-      </div>
-    </Card>
+    {/* ══ FIXED EMPLOYEE REGISTER — moved to weeklySummary tab ══ */}
 
     {/* ══ WEEKS LIST ══ */}
     {view==="weeks"&&!openWeekId&&<div>
@@ -9732,8 +9708,40 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     {/* ══ EMPLOYEES ══ */}
     {/* ══ WEEKLY SUMMARY ══ */}
     {view==="weeklySummary"&&(()=>{
+      /* ══ EMPLOYEE REGISTER — CURRENT WEEK ══ */
+      const registerCard=<Card title={"📋 سجل الموظفين — الأسبوع الحالي"} extra={<span style={{fontSize:FS-1,color:T.navText||"#fff",fontWeight:700,direction:"ltr"}}>{cwStart+" → "+cwEnd}</span>} accent={T.accent} style={{marginBottom:16}}>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+            <thead><tr style={{background:T.bg}}>
+              <th style={{padding:"8px 10px",textAlign:"right",borderBottom:"2px solid "+T.brd,fontWeight:800,color:T.textSec,fontSize:FS-2}}>الاسم</th>
+              <th style={{padding:"8px 10px",textAlign:"center",borderBottom:"2px solid "+T.brd,fontWeight:800,color:T.textSec,fontSize:FS-2}}>الكود</th>
+              <th style={{padding:"8px 10px",textAlign:"center",borderBottom:"2px solid "+T.brd,fontWeight:800,color:T.textSec,fontSize:FS-2}}>المرتب الأساسي</th>
+              <th style={{padding:"8px 10px",textAlign:"center",borderBottom:"2px solid "+T.brd,fontWeight:800,color:T.textSec,fontSize:FS-2}}>سلف الأسبوع</th>
+              <th style={{padding:"8px 10px",textAlign:"center",borderBottom:"2px solid "+T.brd,fontWeight:800,color:T.textSec,fontSize:FS-2}}>الصافي</th>
+            </tr></thead>
+            <tbody>
+              {activeEmps.map(e=>{const adv=cwAdvances[e.id]||0;const net=(e.weeklySalary||0)-adv;
+                return<tr key={e.id} style={{borderBottom:"1px solid "+T.brd}}>
+                  <td style={{padding:"7px 10px",fontWeight:700,color:T.text}}>{e.name}</td>
+                  <td style={{padding:"7px 10px",textAlign:"center",color:T.textSec,fontWeight:600}}>{e.code||"—"}</td>
+                  <td style={{padding:"7px 10px",textAlign:"center",fontWeight:700,color:T.accent}}>{fmt(e.weeklySalary||0)}</td>
+                  <td style={{padding:"7px 10px",textAlign:"center",fontWeight:700,color:adv>0?T.err:T.textMut}}>{adv>0?fmt(adv):"—"}</td>
+                  <td style={{padding:"7px 10px",textAlign:"center",fontWeight:800,color:net<0?T.err:T.ok}}>{fmt(net)}</td>
+                </tr>})}
+              {activeEmps.length===0&&<tr><td colSpan={5} style={{padding:16,textAlign:"center",color:T.textMut}}>لا يوجد موظفين نشطين</td></tr>}
+            </tbody>
+            {activeEmps.length>0&&<tfoot><tr style={{background:T.accentBg,borderTop:"2px solid "+T.accent+"40"}}>
+              <td style={{padding:"8px 10px",fontWeight:800,color:T.text}} colSpan={2}>{"الإجمالي ("+activeEmps.length+" موظف)"}</td>
+              <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:T.accent}}>{fmt(cwTotalSalary)}</td>
+              <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:cwTotalAdv>0?T.err:T.textMut}}>{cwTotalAdv>0?fmt(cwTotalAdv):"—"}</td>
+              <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:(cwTotalSalary-cwTotalAdv)<0?T.err:T.ok}}>{fmt(cwTotalSalary-cwTotalAdv)}</td>
+            </tr></tfoot>}
+          </table>
+        </div>
+      </Card>;
+
       const selectedWeek=summaryWeekId?hrWeeks.find(w=>w.id===summaryWeekId):hrWeeks[0];
-      if(!selectedWeek)return<div style={{textAlign:"center",padding:40,color:T.textMut}}>لا توجد أسابيع بعد — افتح أسبوع من تاب "📅 الأسابيع"</div>;
+      if(!selectedWeek)return<div>{registerCard}<div style={{textAlign:"center",padding:40,color:T.textMut}}>لا توجد أسابيع بعد — افتح أسبوع من تاب "📅 الأسابيع"</div></div>;
       const wStart=selectedWeek.weekStart;const wEnd=selectedWeek.weekEnd;
       /* Calculate per-employee advance total for this week (from hrLog advances by weekId OR by date) */
       const rows=activeEmps.map(e=>{
@@ -9745,6 +9753,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       const totalSalary=rows.reduce((s,r)=>s+r.salary,0);
       const totalAdvances=rows.reduce((s,r)=>s+r.advances,0);
       return<div>
+        {registerCard}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <span style={{fontSize:FS,fontWeight:700,color:T.textSec}}>اختر الأسبوع:</span>
