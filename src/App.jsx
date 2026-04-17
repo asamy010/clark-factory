@@ -1949,6 +1949,26 @@ function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,setCardPo
         </div>)}</div>:<div style={{textAlign:"center",color:T.textMut,padding:20}}>لا توجد بيانات</div>})()}
     </Card>
 
+    {/* ═══ TOP 3 WORKSHOPS BY RATING ═══ */}
+    {(()=>{const wsList=(data.workshops||[]).filter(w=>!wsIsInternal(w.type));
+      const rated=wsList.map(w=>{const score=calcWsRating(w.name,orders);return{name:w.name,type:w.type,rating:w.rating||0,score,owner:w.owner||""}}).filter(w=>w.score!==null).sort((a,b)=>b.score-a.score).slice(0,3);
+      if(rated.length===0)return null;
+      const medals=["🥇","🥈","🥉"];const colors=["#F59E0B","#94A3B8","#CD7F32"];
+      return<Card title="⭐ أعلى 3 ورش تقييماً" style={{marginTop:16}}>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:12}}>
+          {rated.map((w,i)=><div key={w.name} style={{padding:16,borderRadius:14,background:i===0?"linear-gradient(135deg,#FEF3C7,#FDE68A20)":T.bg,border:"2px solid "+(i===0?"#F59E0B40":T.brd),textAlign:"center",position:"relative"}}>
+            <div style={{fontSize:32,marginBottom:6}}>{medals[i]}</div>
+            <div style={{fontSize:FS+1,fontWeight:800,color:T.text}}>{w.name}</div>
+            {w.owner&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{w.owner}</div>}
+            <div style={{fontSize:28,fontWeight:900,color:colors[i],marginTop:8}}>{w.score}<span style={{fontSize:FS-1,fontWeight:600,color:T.textMut}}>/10</span></div>
+            <div style={{display:"flex",justifyContent:"center",gap:2,marginTop:6}}>
+              {Array.from({length:10}).map((_,s)=><div key={s} style={{width:8,height:8,borderRadius:"50%",background:s<Math.round(w.score)?colors[i]:T.brd}}/>)}
+            </div>
+            <div style={{fontSize:FS-2,color:T.textSec,marginTop:6}}>{wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key}</div>
+          </div>)}
+        </div>
+      </Card>})()}
+
     {/* ═══ DELAYS BOARD ═══ */}
     {(()=>{const now=new Date();const delayed=orders.filter(o=>{if(o.status==="تم التسليم"||o.status==="تم الشحن")return false;let ld=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>ld)ld=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>ld)ld=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>ld)ld=d.date});return Math.floor((now-new Date(ld))/(1000*60*60*24))>7}).map(o=>{let ld=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>ld)ld=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>ld)ld=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>ld)ld=d.date});return{...o,ageDays:Math.floor((now-new Date(ld))/(1000*60*60*24))}}).sort((a,b)=>b.ageDays-a.ageDays);
       return delayed.length>0&&<Card title={"🚨 لوحة المتأخرات ("+delayed.length+")"} style={{marginTop:16}}>
@@ -2229,6 +2249,25 @@ function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrders,wsPay
   const filteredWs=wsSearch.trim()?(workshops||[]).filter(ws=>(ws.name||"").includes(wsSearch)||(ws.address||"").includes(wsSearch)||(ws.phone||"").includes(wsSearch)||(ws.owner||"").includes(wsSearch)):(workshops||[]);
 
   return<div>
+    {/* ── Recover missing workshops ── */}
+    {(()=>{const wsNames=new Set((workshops||[]).map(w=>w.name));
+      const missingWs={};
+      (orders||[]).forEach(o=>{(o.workshopDeliveries||[]).forEach(wd=>{
+        if(wd.wsName&&!wsNames.has(wd.wsName)){
+          if(!missingWs[wd.wsName])missingWs[wd.wsName]={name:wd.wsName,deliveries:0,receives:0};
+          missingWs[wd.wsName].deliveries+=(Number(wd.qty)||0);
+          (wd.receives||[]).forEach(r=>{missingWs[wd.wsName].receives+=(Number(r.qty)||0)})}})});
+      const missing=Object.values(missingWs);
+      if(missing.length===0)return null;
+      return<Card style={{marginBottom:14,background:T.err+"06",border:"1px solid "+T.err+"25"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+          <div>
+            <div style={{fontSize:FS,fontWeight:800,color:T.err}}>{"⚠️ "+missing.length+" ورشة مفقودة لها حركات"}</div>
+            <div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{missing.map(w=>w.name+" ("+w.deliveries+" تسليم / "+w.receives+" استلام)").join(" — ")}</div>
+          </div>
+          <Btn onClick={()=>{upConfig(d=>{if(!d.workshops)d.workshops=[];missing.forEach(m=>{if(!d.workshops.some(w=>w.name===m.name))d.workshops.push({id:Date.now()+Math.random(),name:m.name,owner:"",phone:"",address:"",type:"خياطة خارجي",payPercent:60,rating:0})})});showToast("✅ تم استعادة "+missing.length+" ورشة")}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",fontWeight:700}}>{"↩ استعادة "+missing.length+" ورشة"}</Btn>
+        </div>
+      </Card>})()}
     <Card title="ادارة الورش" extra={canEdit&&<Btn primary small onClick={startNew}>+ ورشة جديدة</Btn>}>
       <div style={{marginBottom:12}}><Inp value={wsSearch} onChange={setWsSearch} placeholder="بحث باسم الورشة أو العنوان أو التليفون..."/></div>
       {/* Workshop Cards */}
@@ -4153,35 +4192,70 @@ function FloorStockReport({data,isMob,season}){
 }
 function ReportsHub({data,isMob,season,statusCards}){
   const[sub,setSub]=useState(null);
-  const reports=[
-    {key:"production",label:"تقرير الانتاج",icon:"📈",color:"#06B6D4"},
-    {key:"cost",label:"التكاليف",icon:"💰",color:"#EC4899"},
-    {key:"fabrics",label:"الخامات المستهلكة",icon:"🧵",color:"#8B5CF6"},
-    {key:"wsPerf",label:"انتاجية الورش",icon:"⚡",color:"#F59E0B"},
-    {key:"delivery",label:"معدل التسليم",icon:"📦",color:"#10B981"},
-    {key:"summary",label:"ملخص الموسم",icon:"📋",color:"#0EA5E9"},
-    {key:"uncut",label:"قطع لم يتم قصها",icon:"✂️",color:"#EF4444"},
-    {key:"expected",label:"مواعيد التسليم المتوقعة",icon:"📅",color:"#F97316"},
-    {key:"available",label:"القطع المتاحة للتسليم",icon:"📤",color:"#059669"},
-    {key:"floor",label:"قطع على الأرض",icon:"🏭",color:"#F59E0B"},
+  const sections=[
+    {title:"📊 الإنتاج",color:"#06B6D4",reports:[
+      {key:"production",label:"تقرير الانتاج",icon:"📈",color:"#06B6D4"},
+      {key:"uncut",label:"قطع لم يتم قصها",icon:"✂️",color:"#EF4444"},
+      {key:"floor",label:"قطع على الأرض",icon:"🏭",color:"#F59E0B"},
+      {key:"available",label:"القطع المتاحة للتسليم",icon:"📤",color:"#059669"},
+      {key:"expected",label:"مواعيد التسليم المتوقعة",icon:"📅",color:"#F97316"},
+      {key:"fabrics",label:"الخامات المستهلكة",icon:"🧵",color:"#8B5CF6"},
+      {key:"orderAge",label:"عمر الأوردر",icon:"⏱️",color:"#DC2626"},
+      {key:"capacity",label:"الطاقة الإنتاجية",icon:"📊",color:"#7C3AED"},
+    ]},
+    {title:"🏭 الورش",color:"#F59E0B",reports:[
+      {key:"wsPerf",label:"انتاجية الورش",icon:"⚡",color:"#F59E0B"},
+      {key:"delivery",label:"معدل التسليم",icon:"📦",color:"#10B981"},
+      {key:"wsCostPerPiece",label:"تكلفة القطعة بالورشة",icon:"💲",color:"#EC4899"},
+      {key:"wsStuck",label:"بضاعة معلقة عند الورش",icon:"🚨",color:"#EF4444"},
+    ]},
+    {title:"💰 المبيعات والعملاء",color:"#10B981",reports:[
+      {key:"summary",label:"ملخص الموسم",icon:"📋",color:"#0EA5E9"},
+      {key:"cost",label:"التكاليف",icon:"💰",color:"#EC4899"},
+      {key:"modelProfit",label:"أرباح الموديل",icon:"💎",color:"#059669"},
+      {key:"topCustomers",label:"أعلى 10 عملاء",icon:"🏆",color:"#F59E0B"},
+      {key:"aging",label:"تقرير التحصيل (Aging)",icon:"⏳",color:"#EF4444"},
+    ]},
+    {title:"🏦 المالية",color:"#8B5CF6",reports:[
+      {key:"monthlyExpenses",label:"المصروفات الشهرية",icon:"📉",color:"#8B5CF6"},
+      {key:"cashflow",label:"التدفق النقدي",icon:"💹",color:"#0EA5E9"},
+    ]},
+    {title:"👷 الموارد البشرية",color:"#F97316",reports:[
+      {key:"laborCost",label:"تكلفة العمالة",icon:"👷",color:"#F97316"},
+    ]},
   ];
-  if(sub==="floor")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><FloorStockReport data={data} isMob={isMob} season={season}/></div>;
-  if(sub==="available")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><AvailableReport data={data} isMob={isMob} season={season}/></div>;
-  if(sub==="expected")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><ExpectedDeliveries data={data} isMob={isMob} season={season}/></div>;
-  if(sub==="uncut")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><UncutReport data={data} isMob={isMob} season={season}/></div>;
-  if(sub==="production")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><RepPg data={data} isMob={isMob} season={season} statusCards={statusCards}/></div>;
-  if(sub==="cost")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><CostPg data={data} isMob={isMob} statusCards={statusCards}/></div>;
-  if(sub==="fabrics")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><FabricReport data={data} isMob={isMob} season={season}/></div>;
-  if(sub==="wsPerf")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><WsPerfReport data={data} isMob={isMob} season={season}/></div>;
-  if(sub==="delivery")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><DeliveryReport data={data} isMob={isMob} season={season}/></div>;
-  if(sub==="summary")return<div><Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn><SeasonSummary data={data} isMob={isMob} season={season} statusCards={statusCards}/></div>;
+  const back=<Btn ghost onClick={()=>setSub(null)} style={{marginBottom:10}}>↩ التقارير</Btn>;
+  if(sub==="floor")return<div>{back}<FloorStockReport data={data} isMob={isMob} season={season}/></div>;
+  if(sub==="available")return<div>{back}<AvailableReport data={data} isMob={isMob} season={season}/></div>;
+  if(sub==="expected")return<div>{back}<ExpectedDeliveries data={data} isMob={isMob} season={season}/></div>;
+  if(sub==="uncut")return<div>{back}<UncutReport data={data} isMob={isMob} season={season}/></div>;
+  if(sub==="production")return<div>{back}<RepPg data={data} isMob={isMob} season={season} statusCards={statusCards}/></div>;
+  if(sub==="cost")return<div>{back}<CostPg data={data} isMob={isMob} statusCards={statusCards}/></div>;
+  if(sub==="fabrics")return<div>{back}<FabricReport data={data} isMob={isMob} season={season}/></div>;
+  if(sub==="wsPerf")return<div>{back}<WsPerfReport data={data} isMob={isMob} season={season}/></div>;
+  if(sub==="delivery")return<div>{back}<DeliveryReport data={data} isMob={isMob} season={season}/></div>;
+  if(sub==="summary")return<div>{back}<SeasonSummary data={data} isMob={isMob} season={season} statusCards={statusCards}/></div>;
+  /* ── New reports ── */
+  if(sub==="orderAge")return<div>{back}<OrderAgeReport data={data} isMob={isMob} season={season} statusCards={statusCards}/></div>;
+  if(sub==="capacity")return<div>{back}<CapacityReport data={data} isMob={isMob} season={season}/></div>;
+  if(sub==="wsCostPerPiece")return<div>{back}<WsCostReport data={data} isMob={isMob} season={season}/></div>;
+  if(sub==="wsStuck")return<div>{back}<WsStuckReport data={data} isMob={isMob} season={season}/></div>;
+  if(sub==="modelProfit")return<div>{back}<ModelProfitReport data={data} isMob={isMob} season={season} statusCards={statusCards}/></div>;
+  if(sub==="topCustomers")return<div>{back}<TopCustomersReport data={data} isMob={isMob} season={season}/></div>;
+  if(sub==="aging")return<div>{back}<AgingReport data={data} isMob={isMob} season={season}/></div>;
+  if(sub==="monthlyExpenses")return<div>{back}<MonthlyExpensesReport data={data} isMob={isMob}/></div>;
+  if(sub==="cashflow")return<div>{back}<CashflowReport data={data} isMob={isMob}/></div>;
+  if(sub==="laborCost")return<div>{back}<LaborCostReport data={data} isMob={isMob}/></div>;
   return<div>
-    <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(3,1fr)",gap:12}}>
-      {reports.map(r=><div key={r.key} onClick={()=>setSub(r.key)} style={{background:T.cardSolid,borderRadius:14,padding:isMob?16:20,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",display:"flex",alignItems:"center",gap:12,transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
-        <div style={{width:44,height:44,borderRadius:12,background:r.color+"12",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{r.icon}</div>
-        <div style={{fontSize:FS,fontWeight:700,color:T.text}}>{r.label}</div>
-      </div>)}
-    </div>
+    {sections.map(sec=><div key={sec.title} style={{marginBottom:20}}>
+      <div style={{fontSize:FS+2,fontWeight:800,color:sec.color,marginBottom:10,paddingBottom:6,borderBottom:"2px solid "+sec.color+"30"}}>{sec.title}</div>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(3,1fr)",gap:10}}>
+        {sec.reports.map(r=><div key={r.key} onClick={()=>setSub(r.key)} style={{background:T.cardSolid,borderRadius:14,padding:isMob?14:18,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",display:"flex",alignItems:"center",gap:12,transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
+          <div style={{width:42,height:42,borderRadius:12,background:r.color+"12",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{r.icon}</div>
+          <div style={{fontSize:FS,fontWeight:700,color:T.text}}>{r.label}</div>
+        </div>)}
+      </div>
+    </div>)}
   </div>
 }
 
@@ -4483,6 +4557,242 @@ function TasksPg({data,upConfig,upTasks,isMob,user,userRole}){
   </div>
 }
 
+/* ══ ORDER AGE REPORT ══ */
+function OrderAgeReport({data,isMob,season,statusCards}){
+  const orders=data.orders||[];const now=new Date();
+  const rows=orders.filter(o=>o.status!=="تم التسليم"&&o.status!=="تم الشحن").map(o=>{
+    const startDate=new Date(o.date||o.createdAt||now);const days=Math.max(0,Math.floor((now-startDate)/(1000*60*60*24)));
+    let lastMove=o.date||"";(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>lastMove)lastMove=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastMove)lastMove=r.date})});
+    const stale=Math.max(0,Math.floor((now-new Date(lastMove||o.date))/(1000*60*60*24)));
+    return{modelNo:o.modelNo,modelDesc:o.modelDesc,status:o.status,startDate:o.date,days,lastMove,stale,cutQty:calcOrder(o).cutQty}}).sort((a,b)=>b.days-a.days);
+  const avgAge=rows.length>0?Math.round(rows.reduce((s,r)=>s+r.days,0)/rows.length):0;
+  return<Card title={"⏱️ عمر الأوردر — "+rows.length+" أوردر مفتوح (متوسط: "+avgAge+" يوم)"}>
+    {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+      {["الموديل","الوصف","كمية القص","تاريخ البدء","عمر (يوم)","آخر حركة","ركود (يوم)","الحالة"].map(h=><th key={h} style={TH}>{h}</th>)}
+    </tr></thead><tbody>{rows.map(r=><tr key={r.modelNo} style={{borderBottom:"1px solid "+T.brd,background:r.stale>14?T.err+"06":""}}>
+      <td style={TDB}>{r.modelNo}</td><td style={TD}>{r.modelDesc}</td><td style={TDB}>{r.cutQty}</td>
+      <td style={TD}>{r.startDate}</td><td style={{...TDB,color:r.days>30?T.err:r.days>14?T.warn:T.ok}}>{r.days}</td>
+      <td style={TD}>{r.lastMove}</td><td style={{...TDB,color:r.stale>14?T.err:r.stale>7?T.warn:T.ok,fontWeight:800}}>{r.stale}</td>
+      <td style={TD}><Badge t={r.status} cards={statusCards}/></td>
+    </tr>)}</tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>كل الأوردرات مكتملة</div>}
+  </Card>
+}
+
+/* ══ CAPACITY REPORT ══ */
+function CapacityReport({data,isMob,season}){
+  const orders=data.orders||[];
+  const weekMap={};
+  orders.forEach(o=>{const d=o.date;if(!d)return;const wk=d.slice(0,7);/* month */if(!weekMap[wk])weekMap[wk]={cut:0,wsOut:0,wsIn:0,stock:0};weekMap[wk].cut+=calcOrder(o).cutQty;weekMap[wk].stock+=(o.deliveredQty||0);
+    (o.workshopDeliveries||[]).forEach(wd=>{const m=(wd.date||d).slice(0,7);if(!weekMap[m])weekMap[m]={cut:0,wsOut:0,wsIn:0,stock:0};weekMap[m].wsOut+=(Number(wd.qty)||0);
+      (wd.receives||[]).forEach(r=>{const rm=(r.date||wd.date||d).slice(0,7);if(!weekMap[rm])weekMap[rm]={cut:0,wsOut:0,wsIn:0,stock:0};weekMap[rm].wsIn+=(Number(r.qty)||0)})})});
+  const months=Object.keys(weekMap).sort();
+  return<Card title="📊 الطاقة الإنتاجية — شهري">
+    {months.length>0?<div>
+      <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+        {["الشهر","قص","تسليم ورش","استلام ورش","تسليم مخزن"].map(h=><th key={h} style={TH}>{h}</th>)}
+      </tr></thead><tbody>{months.map((m,i)=>{const d=weekMap[m];const prev=i>0?weekMap[months[i-1]]:null;
+        const trend=(cur,prv)=>!prv?"":(cur>prv?"▲":"▼");
+        return<tr key={m} style={{borderBottom:"1px solid "+T.brd}}>
+          <td style={{...TDB,color:T.accent}}>{m}</td>
+          <td style={TDB}>{fmt(d.cut)} <span style={{fontSize:FS-3,color:trend(d.cut,prev?.cut)==="▲"?T.ok:T.err}}>{trend(d.cut,prev?.cut)}</span></td>
+          <td style={TDB}>{fmt(d.wsOut)}</td><td style={{...TDB,color:T.ok}}>{fmt(d.wsIn)}</td>
+          <td style={{...TDB,color:T.accent}}>{fmt(d.stock)}</td>
+        </tr>})}</tbody></table></div>
+    </div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد بيانات</div>}
+  </Card>
+}
+
+/* ══ WS COST PER PIECE REPORT ══ */
+function WsCostReport({data,isMob,season}){
+  const orders=data.orders||[];const wsMap={};
+  orders.forEach(o=>{(o.workshopDeliveries||[]).forEach(wd=>{
+    if(!wsMap[wd.wsName])wsMap[wd.wsName]={name:wd.wsName,totalQty:0,totalAmt:0};
+    (wd.receives||[]).forEach(r=>{wsMap[wd.wsName].totalQty+=(Number(r.qty)||0);wsMap[wd.wsName].totalAmt+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});
+  const rows=Object.values(wsMap).filter(w=>w.totalQty>0).map(w=>({...w,avg:r2(w.totalAmt/w.totalQty)})).sort((a,b)=>a.avg-b.avg);
+  const globalAvg=rows.length>0?r2(rows.reduce((s,r)=>s+r.totalAmt,0)/rows.reduce((s,r)=>s+r.totalQty,0)):0;
+  return<Card title={"💲 تكلفة القطعة بالورشة — متوسط عام: "+fmt(globalAvg)+" ج.م"}>
+    {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+      {["الورشة","إجمالي القطع","إجمالي المبالغ","متوسط سعر القطعة","مقارنة بالمتوسط"].map(h=><th key={h} style={TH}>{h}</th>)}
+    </tr></thead><tbody>{rows.map(r=>{const diff=r2(r.avg-globalAvg);return<tr key={r.name} style={{borderBottom:"1px solid "+T.brd}}>
+      <td style={{...TD,fontWeight:700}}>{r.name}</td><td style={TDB}>{fmt(r.totalQty)}</td>
+      <td style={TDB}>{fmt(r.totalAmt)}</td><td style={{...TDB,fontSize:FS+1,fontWeight:800,color:T.accent}}>{fmt(r.avg)+" ج.م"}</td>
+      <td style={{...TDB,color:diff>0?T.err:T.ok,fontWeight:700}}>{(diff>0?"+":"")+fmt(diff)}</td>
+    </tr>})}</tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد بيانات</div>}
+  </Card>
+}
+
+/* ══ WS STUCK REPORT ══ */
+function WsStuckReport({data,isMob,season}){
+  const orders=data.orders||[];const now=new Date();const wsItems=[];
+  orders.forEach(o=>{(o.workshopDeliveries||[]).forEach(wd=>{
+    const sent=Number(wd.qty)||0;const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const remaining=sent-rcvd;
+    if(remaining<=0)return;const days=Math.max(0,Math.floor((now-new Date(wd.date))/(1000*60*60*24)));
+    if(days>=7)wsItems.push({ws:wd.wsName,modelNo:o.modelNo,modelDesc:o.modelDesc,garment:wd.garmentType||"عام",sent,rcvd,remaining,date:wd.date,days})})});
+  wsItems.sort((a,b)=>b.days-a.days);
+  const totalStuck=wsItems.reduce((s,i)=>s+i.remaining,0);
+  return<Card title={"🚨 بضاعة معلقة عند الورش — "+wsItems.length+" حركة ("+fmt(totalStuck)+" قطعة)"}>
+    {wsItems.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+      {["الورشة","الموديل","القطعة","المرسل","المستلم","المتبقي","تاريخ الإرسال","أيام"].map(h=><th key={h} style={TH}>{h}</th>)}
+    </tr></thead><tbody>{wsItems.map((r,i)=><tr key={i} style={{borderBottom:"1px solid "+T.brd,background:r.days>14?T.err+"06":""}}>
+      <td style={{...TD,fontWeight:700}}>{r.ws}</td><td style={TDB}>{r.modelNo}</td><td style={TD}>{r.garment}</td>
+      <td style={TDB}>{r.sent}</td><td style={{...TDB,color:T.ok}}>{r.rcvd}</td>
+      <td style={{...TDB,color:T.err,fontWeight:800}}>{r.remaining}</td><td style={TD}>{r.date}</td>
+      <td style={{...TDB,color:r.days>14?T.err:T.warn,fontWeight:800}}>{r.days+" يوم"+(r.days>14?" 🔴":"")}</td>
+    </tr>)}</tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد بضاعة معلقة</div>}
+  </Card>
+}
+
+/* ══ MODEL PROFIT REPORT ══ */
+function ModelProfitReport({data,isMob,season,statusCards}){
+  const orders=data.orders||[];
+  const rows=orders.map(o=>{const c=calcOrder(o);const sellPrice=Number(o.sellPrice)||0;const costPrice=Number(o.costPrice)||c.totalCost||0;
+    const soldQty=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0)-(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
+    const revenue=r2(soldQty*sellPrice);const cost=r2(soldQty*costPrice);const profit=r2(revenue-cost);const margin=revenue>0?Math.round((profit/revenue)*100):0;
+    return{modelNo:o.modelNo,modelDesc:o.modelDesc,sellPrice,costPrice,soldQty,revenue,cost,profit,margin,status:o.status}}).filter(r=>r.soldQty>0).sort((a,b)=>b.profit-a.profit);
+  const totals={revenue:rows.reduce((s,r)=>s+r.revenue,0),cost:rows.reduce((s,r)=>s+r.cost,0),profit:rows.reduce((s,r)=>s+r.profit,0)};
+  totals.margin=totals.revenue>0?Math.round((totals.profit/totals.revenue)*100):0;
+  return<Card title={"💎 أرباح الموديل — "+rows.length+" موديل | صافي ربح: "+fmt(r2(totals.profit))+" ج.م"}>
+    {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+      {["الموديل","الوصف","سعر بيع","تكلفة","كمية مباعة","إيراد","تكلفة إجمالية","الربح","هامش %"].map(h=><th key={h} style={TH}>{h}</th>)}
+    </tr></thead><tbody>{rows.map(r=><tr key={r.modelNo} style={{borderBottom:"1px solid "+T.brd}}>
+      <td style={TDB}>{r.modelNo}</td><td style={TD}>{r.modelDesc}</td>
+      <td style={TDB}>{fmt(r.sellPrice)}</td><td style={TDB}>{fmt(r.costPrice)}</td>
+      <td style={TDB}>{fmt(r.soldQty)}</td><td style={{...TDB,color:T.ok}}>{fmt(r.revenue)}</td>
+      <td style={{...TDB,color:T.err}}>{fmt(r.cost)}</td>
+      <td style={{...TDB,color:r.profit>=0?T.ok:T.err,fontWeight:800,fontSize:FS+1}}>{fmt(r.profit)}</td>
+      <td style={{...TDB,color:r.margin>=20?T.ok:r.margin>=10?T.warn:T.err}}>{r.margin+"%"}</td>
+    </tr>)}
+    <tr style={{background:T.accent+"06"}}><td colSpan={5} style={{...TD,fontWeight:800}}>الإجمالي</td>
+      <td style={{...TDB,color:T.ok,fontWeight:800}}>{fmt(totals.revenue)}</td><td style={{...TDB,color:T.err,fontWeight:800}}>{fmt(totals.cost)}</td>
+      <td style={{...TDB,color:totals.profit>=0?T.ok:T.err,fontWeight:900,fontSize:FS+2}}>{fmt(totals.profit)}</td>
+      <td style={{...TDB,fontWeight:800}}>{totals.margin+"%"}</td>
+    </tr></tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد مبيعات</div>}
+  </Card>
+}
+
+/* ══ TOP CUSTOMERS REPORT ══ */
+function TopCustomersReport({data,isMob,season}){
+  const orders=data.orders||[];const customers=data.customers||[];
+  const custMap={};
+  orders.forEach(o=>{(o.customerDeliveries||[]).forEach(d=>{
+    if(!custMap[d.custId])custMap[d.custId]={id:d.custId,sales:0,returns:0,revenue:0};
+    custMap[d.custId].sales+=(Number(d.qty)||0);custMap[d.custId].revenue+=r2((Number(d.qty)||0)*(Number(o.sellPrice)||0))});
+    (o.customerReturns||[]).forEach(r=>{if(!custMap[r.custId])custMap[r.custId]={id:r.custId,sales:0,returns:0,revenue:0};custMap[r.custId].returns+=(Number(r.qty)||0);custMap[r.custId].revenue-=r2((Number(r.qty)||0)*(Number(o.sellPrice)||0))})});
+  const payments=(data.custPayments||[]);
+  const rows=Object.values(custMap).map(c=>{const cust=customers.find(x=>x.id===c.id);const paid=payments.filter(p=>p.custId===c.id).reduce((s,p)=>s+(Number(p.amount)||0),0);
+    const retPct=c.sales>0?Math.round((c.returns/c.sales)*100):0;
+    return{...c,name:cust?.name||"غير معروف",phone:cust?.phone||"",paid,balance:r2(c.revenue-paid),retPct}}).sort((a,b)=>b.revenue-a.revenue).slice(0,10);
+  return<Card title="🏆 أعلى 10 عملاء">
+    {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+      {["#","العميل","مبيعات (قطعة)","مرتجعات","% مرتجع","إيراد","مدفوع","رصيد"].map(h=><th key={h} style={TH}>{h}</th>)}
+    </tr></thead><tbody>{rows.map((r,i)=><tr key={r.id} style={{borderBottom:"1px solid "+T.brd,background:i<3?T.accent+"04":""}}>
+      <td style={{...TDB,fontSize:FS+1,fontWeight:800}}>{i===0?"🥇":i===1?"🥈":i===2?"🥉":(i+1)}</td>
+      <td style={{...TD,fontWeight:700}}>{r.name}</td><td style={TDB}>{fmt(r.sales)}</td>
+      <td style={{...TDB,color:r.returns>0?T.err:T.textMut}}>{r.returns||"—"}</td>
+      <td style={{...TDB,color:r.retPct>10?T.err:T.textMut}}>{r.retPct>0?r.retPct+"%":"—"}</td>
+      <td style={{...TDB,color:T.ok,fontWeight:700}}>{fmt(r.revenue)}</td>
+      <td style={TDB}>{fmt(r.paid)}</td>
+      <td style={{...TDB,color:r.balance>0?T.err:T.ok,fontWeight:800}}>{fmt(r.balance)}</td>
+    </tr>)}</tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد مبيعات</div>}
+  </Card>
+}
+
+/* ══ AGING REPORT ══ */
+function AgingReport({data,isMob,season}){
+  const customers=data.customers||[];const orders=data.orders||[];const payments=data.custPayments||[];const now=new Date();
+  const custMap={};
+  orders.forEach(o=>{(o.customerDeliveries||[]).forEach(d=>{
+    if(!custMap[d.custId])custMap[d.custId]={id:d.custId,totalDue:0,firstSale:d.date,lastSale:d.date};
+    custMap[d.custId].totalDue+=r2((Number(d.qty)||0)*(Number(o.sellPrice)||0));
+    if(d.date<custMap[d.custId].firstSale)custMap[d.custId].firstSale=d.date;
+    if(d.date>custMap[d.custId].lastSale)custMap[d.custId].lastSale=d.date});
+    (o.customerReturns||[]).forEach(r=>{if(custMap[r.custId])custMap[r.custId].totalDue-=r2((Number(r.qty)||0)*(Number(o.sellPrice)||0))})});
+  const rows=Object.values(custMap).map(c=>{const cust=customers.find(x=>x.id===c.id);const paid=payments.filter(p=>p.custId===c.id).reduce((s,p)=>s+(Number(p.amount)||0),0);
+    const balance=r2(c.totalDue-paid);if(balance<=0)return null;
+    const days=Math.max(0,Math.floor((now-new Date(c.lastSale))/(1000*60*60*24)));
+    const bucket=days<=30?"0-30 يوم":days<=60?"31-60 يوم":days<=90?"61-90 يوم":"90+ يوم";
+    const bucketColor=days<=30?T.ok:days<=60?T.warn:days<=90?"#F97316":T.err;
+    return{name:cust?.name||"غير معروف",phone:cust?.phone||"",balance,days,bucket,bucketColor,lastSale:c.lastSale}}).filter(Boolean).sort((a,b)=>b.days-a.days);
+  const totalBalance=rows.reduce((s,r)=>s+r.balance,0);
+  return<Card title={"⏳ تقرير التحصيل (Aging) — "+rows.length+" عميل | إجمالي: "+fmt(r2(totalBalance))+" ج.م"}>
+    {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+      {["العميل","التليفون","الرصيد المستحق","آخر بيع","أيام التأخر","الفئة"].map(h=><th key={h} style={TH}>{h}</th>)}
+    </tr></thead><tbody>{rows.map(r=><tr key={r.name} style={{borderBottom:"1px solid "+T.brd}}>
+      <td style={{...TD,fontWeight:700}}>{r.name}</td><td style={{...TD,direction:"ltr",fontSize:FS-2}}>{r.phone}</td>
+      <td style={{...TDB,color:T.err,fontWeight:800,fontSize:FS+1}}>{fmt(r.balance)}</td>
+      <td style={TD}>{r.lastSale}</td><td style={{...TDB,fontWeight:700}}>{r.days}</td>
+      <td style={TDB}><span style={{padding:"3px 10px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:r.bucketColor+"12",color:r.bucketColor}}>{r.bucket}</span></td>
+    </tr>)}</tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد أرصدة مستحقة</div>}
+  </Card>
+}
+
+/* ══ MONTHLY EXPENSES REPORT ══ */
+function MonthlyExpensesReport({data,isMob}){
+  const txns=data.treasury||[];const outTxns=txns.filter(t=>t.type==="out");
+  const monthMap={};const catSet=new Set();
+  outTxns.forEach(t=>{const m=(t.date||"").slice(0,7);if(!m)return;if(!monthMap[m])monthMap[m]={};const cat=t.category||"أخرى";catSet.add(cat);monthMap[m][cat]=(monthMap[m][cat]||0)+(Number(t.amount)||0)});
+  const months=Object.keys(monthMap).sort();const cats=[...catSet].sort();
+  return<Card title={"📉 المصروفات الشهرية — "+months.length+" شهر"}>
+    {months.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+      <th style={TH}>الشهر</th>{cats.map(c=><th key={c} style={{...TH,fontSize:FS-3}}>{c}</th>)}<th style={TH}>الإجمالي</th>
+    </tr></thead><tbody>{months.map((m,i)=>{const total=cats.reduce((s,c)=>s+(monthMap[m][c]||0),0);const prev=i>0?cats.reduce((s,c)=>s+(monthMap[months[i-1]][c]||0),0):null;
+      return<tr key={m} style={{borderBottom:"1px solid "+T.brd}}>
+        <td style={{...TDB,color:T.accent}}>{m}</td>
+        {cats.map(c=><td key={c} style={{...TDB,fontSize:FS-2}}>{monthMap[m][c]?fmt(r2(monthMap[m][c])):"—"}</td>)}
+        <td style={{...TDB,fontWeight:800,color:T.err}}>{fmt(r2(total))}{prev!=null&&<span style={{fontSize:FS-3,color:total>prev?T.err:T.ok,marginRight:4}}>{total>prev?"▲":"▼"}</span>}</td>
+      </tr>})}</tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد مصروفات</div>}
+  </Card>
+}
+
+/* ══ CASHFLOW REPORT ══ */
+function CashflowReport({data,isMob}){
+  const txns=data.treasury||[];const monthMap={};
+  txns.forEach(t=>{const m=(t.date||"").slice(0,7);if(!m)return;if(!monthMap[m])monthMap[m]={inflow:0,outflow:0};
+    if(t.type==="in")monthMap[m].inflow+=(Number(t.amount)||0);else monthMap[m].outflow+=(Number(t.amount)||0)});
+  const months=Object.keys(monthMap).sort();let runBal=(data.treasurySettings||{}).openingBalance||0;
+  const rows=months.map(m=>{const d=monthMap[m];runBal+=d.inflow-d.outflow;return{month:m,...d,net:r2(d.inflow-d.outflow),balance:r2(runBal)}});
+  return<Card title="💹 التدفق النقدي — شهري">
+    {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+      {["الشهر","وارد","منصرف","صافي الشهر","الرصيد التراكمي"].map(h=><th key={h} style={TH}>{h}</th>)}
+    </tr></thead><tbody>{rows.map(r=><tr key={r.month} style={{borderBottom:"1px solid "+T.brd}}>
+      <td style={{...TDB,color:T.accent}}>{r.month}</td>
+      <td style={{...TDB,color:T.ok,fontWeight:700}}>{fmt(r.inflow)}</td>
+      <td style={{...TDB,color:T.err,fontWeight:700}}>{fmt(r.outflow)}</td>
+      <td style={{...TDB,color:r.net>=0?T.ok:T.err,fontWeight:800}}>{(r.net>=0?"+":"")+fmt(r.net)}</td>
+      <td style={{...TDB,fontWeight:900,fontSize:FS+1,color:r.balance>=0?"#0D9488":T.err}}>{fmt(r.balance)}</td>
+    </tr>)}</tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد حركات</div>}
+  </Card>
+}
+
+/* ══ LABOR COST REPORT ══ */
+function LaborCostReport({data,isMob}){
+  const weeks=data.hrWeeks||[];const hrLog=data.hrLog||[];const employees=data.employees||[];
+  const rows=weeks.filter(w=>w.status==="closed").sort((a,b)=>(a.weekStart||"").localeCompare(b.weekStart||"")).map(w=>{
+    const salaries=hrLog.filter(l=>l.type==="salary"&&l.weekId===w.id);
+    const advances=hrLog.filter(l=>l.type==="advance"&&(l.weekId===w.id||(l.date>=w.weekStart&&l.date<=w.weekEnd)));
+    const totalGross=salaries.reduce((s,l)=>s+(Number(l.amount)||0),0);
+    const totalAdv=advances.reduce((s,l)=>s+(Number(l.amount)||0),0);
+    const totalNet=r2(totalGross-totalAdv);
+    const empCount=new Set(salaries.map(l=>l.empId)).size;
+    return{weekNum:w.weekNum,period:w.weekStart+" → "+w.weekEnd,empCount,totalGross:r2(totalGross),totalAdv:r2(totalAdv),totalNet,costPerEmp:empCount>0?r2(totalGross/empCount):0}});
+  const totals={gross:rows.reduce((s,r)=>s+r.totalGross,0),adv:rows.reduce((s,r)=>s+r.totalAdv,0),net:rows.reduce((s,r)=>s+r.totalNet,0)};
+  return<Card title={"👷 تكلفة العمالة — "+rows.length+" أسبوع | إجمالي: "+fmt(r2(totals.gross))+" ج.م"}>
+    {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+      {["الأسبوع","الفترة","عدد الموظفين","إجمالي المرتبات","السلف","الصافي","تكلفة/موظف"].map(h=><th key={h} style={TH}>{h}</th>)}
+    </tr></thead><tbody>{rows.map(r=><tr key={r.weekNum} style={{borderBottom:"1px solid "+T.brd}}>
+      <td style={{...TDB,color:T.accent,fontWeight:800}}>{"W"+r.weekNum}</td><td style={TD}>{r.period}</td>
+      <td style={TDB}>{r.empCount}</td><td style={{...TDB,fontWeight:700}}>{fmt(r.totalGross)}</td>
+      <td style={{...TDB,color:T.err}}>{fmt(r.totalAdv)}</td>
+      <td style={{...TDB,color:T.ok,fontWeight:800}}>{fmt(r.totalNet)}</td>
+      <td style={{...TDB,color:T.accent}}>{fmt(r.costPerEmp)}</td>
+    </tr>)}
+    <tr style={{background:T.accent+"06"}}><td colSpan={3} style={{...TD,fontWeight:800}}>الإجمالي</td>
+      <td style={{...TDB,fontWeight:900}}>{fmt(r2(totals.gross))}</td><td style={{...TDB,color:T.err,fontWeight:800}}>{fmt(r2(totals.adv))}</td>
+      <td style={{...TDB,color:T.ok,fontWeight:900,fontSize:FS+2}}>{fmt(r2(totals.net))}</td><td style={TDB}></td>
+    </tr></tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد أسابيع مقفولة</div>}
+  </Card>
+}
+
 
 function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEdit,user,season}){
   const config=data;const orders=data.orders||[];const customers=config.customers||[];const sessions=config.custDeliverySessions||[];
@@ -4778,8 +5088,8 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
   };
 
   return<div>
-    {(()=>{const crd=(icon,label,color,onClick,sub)=><div onClick={onClick} style={{background:T.cardSolid,borderRadius:12,padding:"8px 6px",border:"1px solid "+color+"25",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",width:86,height:86,flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}><div style={{fontSize:22,lineHeight:1}}>{icon}</div><div style={{fontSize:FS-3,fontWeight:700,color,lineHeight:1.2,textAlign:"center"}}>{label}</div>{sub&&<div style={{fontSize:FS-4,color:T.textMut}}>{sub}</div>}</div>;
-      return<div style={{display:"flex",gap:8,marginBottom:16,overflowX:"auto",overflowY:"hidden",paddingBottom:6,scrollbarWidth:"thin",WebkitOverflowScrolling:"touch"}}>
+    {(()=>{const crd=(icon,label,color,onClick,sub)=><div onClick={onClick} style={{background:T.cardSolid,borderRadius:12,padding:"10px 6px",border:"1px solid "+color+"25",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,minHeight:80}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}><div style={{fontSize:22,lineHeight:1}}>{icon}</div><div style={{fontSize:FS-3,fontWeight:700,color,lineHeight:1.2,textAlign:"center"}}>{label}</div>{sub&&<div style={{fontSize:FS-4,color:T.textMut}}>{sub}</div>}</div>;
+      return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(4,1fr)":isTab?"repeat(5,1fr)":"repeat(8,1fr)",gap:8,marginBottom:16}}>
         {canEdit&&crd("👥","العملاء",T.text,()=>setShowCustList(true),customers.length+"")}
         {canEdit&&crd("🚚","تسليم جديد",T.ok,()=>{setSelModels({});setSelCusts({});setShowNewSession(true)})}
         {canEdit&&crd("📦","بيع سريع","#10B981",()=>setQrSale({mode:"sale",custId:null,items:[],note:""}))}
