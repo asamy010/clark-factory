@@ -4812,6 +4812,10 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
   const[returnPopup,setReturnPopup]=useState(null);const[retQty,setRetQty]=useState(0);const[retNote,setRetNote]=useState("");
   const[freeReturn,setFreeReturn]=useState(null);const[freeRetItems,setFreeRetItems]=useState({});const[freeRetNote,setFreeRetNote]=useState("");
   const[custQR,setCustQR]=useState(null);const[salesDetail,setSalesDetail]=useState(null);const[custStatement,setCustStatement]=useState(null);const[salesAnalysis,setSalesAnalysis]=useState(false);const[seasonReport,setSeasonReport]=useState(false);const[editRetIdx,setEditRetIdx]=useState(null);const[editRetQty,setEditRetQty]=useState(0);const[editRetNote,setEditRetNote]=useState("");
+  /* Customer statement payment form */
+  const[payAmt,setPayAmt_]=useState("");const[payDate_,setPayDate_]=useState(new Date().toISOString().split("T")[0]);const[payNote_,setPayNote_]=useState("");const[payMethod,setPayMethod]=useState("كاش");
+  /* Distribution grid filters */
+  const[gridModelF,setGridModelF]=useState("");const[gridCustF,setGridCustF]=useState("");
   const[qrSale,setQrSale]=useState(null);/* {mode:"sale"|"return",custId,items:[{orderId,modelNo,modelDesc,rackSize,qty}],note,linkedSession} */
   const[qrScanActive,setQrScanActive]=useState(false);const[customLabel,setCustomLabel]=useState(null);
   const[pkgPopup,setPkgPopup]=useState(null);const[pkgItems,setPkgItems]=useState([]);const[pkgNote,setPkgNote]=useState("");const[pkgSearch,setPkgSearch]=useState("");const[pkgScan,setPkgScan]=useState(false);const[pkgAction,setPkgAction]=useState(null);/* {id,mode:"menu"|"add"|"remove"} */
@@ -4887,6 +4891,8 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
   const activeSess=sessions.find(s=>s.id===activeSession);
   const aMods=activeSess?activeSess.modelIds.map(id=>{const sm=stockModels.find(m=>m.id===id);const o=orders.find(x=>x.id===id);if(!o)return null;const sd=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return sm||{id,modelNo:o.modelNo,modelDesc:o.modelDesc,stockQty:sd,rackSize:getRackSize(id)}}).filter(Boolean):[];
   const aCusts=activeSess?activeSess.custIds.map(id=>customers.find(c=>c.id===id)).filter(Boolean):[];
+  const fMods=gridModelF.trim()?aMods.filter(m=>(m.modelNo||"").includes(gridModelF)||(m.modelDesc||"").includes(gridModelF)):aMods;
+  const fCusts=gridCustF.trim()?aCusts.filter(c=>(c.name||"").includes(gridCustF)||(c.phone||"").includes(gridCustF)):aCusts;
   const aGrid=activeSess?.grid||{};
   const isSessClosed=activeSess?.status==="تم التسليم";
   const sessCanEdit=canEdit&&!isSessClosed;/* Allow editing after sales — stock validation handles limits. Block only if closed */
@@ -5240,20 +5246,30 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
             </div>
           </div>
           {cellError&&<div style={{padding:"6px 10px",borderRadius:8,background:T.err+"10",border:"1px solid "+T.err+"30",marginTop:8,fontSize:FS-1,fontWeight:700,color:T.err}}>{cellError}</div>}
+          <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
+            <input value={gridModelF} onChange={e=>setGridModelF(e.target.value)} placeholder="🔍 فلتر موديل..." style={{flex:1,minWidth:100,padding:"5px 10px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg,color:T.text}}/>
+            <input value={gridCustF} onChange={e=>setGridCustF(e.target.value)} placeholder="🔍 فلتر عميل..." style={{flex:1,minWidth:100,padding:"5px 10px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg,color:T.text}}/>
+            {(gridModelF||gridCustF)&&<span onClick={()=>{setGridModelF("");setGridCustF("")}} style={{cursor:"pointer",padding:"5px 10px",borderRadius:8,background:T.err+"10",color:T.err,fontSize:FS-2,fontWeight:700}}>✕ مسح</span>}
+          </div>
         </div>
         <div style={{flex:1,overflowY:"auto",overflowX:"auto",padding:isMob?"8px 16px 16px":"8px 24px 24px"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",minWidth:aMods.length*90+180}}>
+        <table style={{width:"100%",borderCollapse:"collapse",minWidth:fMods.length*90+180}}>
           <thead style={{position:"sticky",top:0,zIndex:10,background:T.cardSolid}}><tr>
             <th style={{...TH,minWidth:130}}>العميل</th>
-            {aMods.map(m=><th key={m.id} style={{...TH,textAlign:"center",minWidth:60,fontSize:FS-2,padding:"4px 6px"}}><div style={{fontWeight:800,color:T.accent,whiteSpace:"nowrap"}}>{m.modelNo}</div><div style={{fontSize:FS-3,color:T.textMut,whiteSpace:"nowrap"}}>{(m.rackSize||getRackSize(m.id))+"س"}</div></th>)}
+            {fMods.map(m=><th key={m.id} style={{...TH,textAlign:"center",minWidth:60,fontSize:FS-2,padding:"4px 6px"}}><div style={{fontWeight:800,color:T.accent,whiteSpace:"nowrap"}}>{m.modelNo}</div><div style={{fontSize:FS-3,color:T.textMut,whiteSpace:"nowrap"}}>{(m.rackSize||getRackSize(m.id))+"س"}</div>
+              {sessCanEdit&&<div onClick={()=>{const hasDeliveries=orders.some(o=>o.id===m.id&&(o.customerDeliveries||[]).some(d=>d.sessionId===activeSess.id));
+                if(hasDeliveries){showToast("⛔ لا يمكن حذف موديل لديه بيع فعلي");return}
+                if(!confirm("حذف موديل "+m.modelNo+" من التوزيعة؟"))return;
+                upSales(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===activeSess.id);if(si>=0){d.custDeliverySessions[si].modelIds=d.custDeliverySessions[si].modelIds.filter(id=>id!==m.id);const g=d.custDeliverySessions[si].grid||{};Object.keys(g).forEach(k=>{if(k.startsWith(m.id+"_"))delete g[k]})}});showToast("✓ تم حذف "+m.modelNo)}} style={{cursor:"pointer",fontSize:9,color:T.err,marginTop:2}}>✕ حذف</div>}
+            </th>)}
             <th style={{...TH,textAlign:"center",background:"#0284C715",color:T.accent,fontWeight:800}}>اجمالي</th>
             <th style={{...TH,width:70}}></th>
           </tr></thead>
           <tbody>
-            {aCusts.map((c,ci)=>{const rowTotal=aMods.reduce((s,m)=>s+(Number(aGrid[m.id+"_"+c.id])||0),0);
+            {fCusts.map((c,ci)=>{const rowTotal=fMods.reduce((s,m)=>s+(Number(aGrid[m.id+"_"+c.id])||0),0);
               return<tr key={c.id} style={{background:ci%2===0?"transparent":T.bg+"80"}}>
                 <td style={{...TD,fontWeight:700}}>{c.name}<div style={{fontSize:FS-3,color:T.textMut}}>{c.phone}</div></td>
-                {aMods.map((m,mi)=>{const k=m.id+"_"+c.id;const q=Number(aGrid[k])||0;const isEd=editCell===k;
+                {fMods.map((m,mi)=>{const k=m.id+"_"+c.id;const q=Number(aGrid[k])||0;const isEd=editCell===k;
                   return<td key={m.id} style={{...TD,textAlign:"center",padding:2,cursor:canEdit?"pointer":"default",background:isEd?T.warn+"10":q>0?T.ok+"04":"transparent"}}
                     onClick={()=>{if(!sessCanEdit||isEd)return;setEditCell(k);setEditVal(q);setCellError("")}}>
                     {isEd?<div style={{display:"flex",alignItems:"center",gap:1}}><input type="number" autoFocus value={editVal}
@@ -5261,7 +5277,7 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
                       onChange={e=>{setEditVal(Number(e.target.value)||0);setCellError("")}}
                       onBlur={()=>{setTimeout(()=>{if(editCell===k)saveCell(activeSess.id,m.id,c.id,editVal)},150)}}
                       onKeyDown={e=>{if(e.key==="Enter"){saveCell(activeSess.id,m.id,c.id,editVal)}
-                        if(e.key==="Tab"){e.preventDefault();saveCell(activeSess.id,m.id,c.id,editVal);const nextMi=mi+1;if(nextMi<aMods.length){const nk=aMods[nextMi].id+"_"+c.id;setTimeout(()=>{setEditCell(nk);setEditVal(Number(aGrid[nk])||0)},50)}}
+                        if(e.key==="Tab"){e.preventDefault();saveCell(activeSess.id,m.id,c.id,editVal);const nextMi=mi+1;if(nextMi<fMods.length){const nk=fMods[nextMi].id+"_"+c.id;setTimeout(()=>{setEditCell(nk);setEditVal(Number(aGrid[nk])||0)},50)}}
                         if(e.key==="Escape"){setEditCell(null);setCellError("")}}}
                       style={{width:"100%",textAlign:"center",border:"2px solid "+T.accent,borderRadius:6,padding:"4px 2px",fontSize:FS,fontWeight:700,fontFamily:"inherit",outline:"none",background:T.bg,color:T.text,boxSizing:"border-box"}}/>
                       <span onMouseDown={e=>{e.preventDefault();setEditCell(null);setCellError("")}} style={{cursor:"pointer",fontSize:10,color:T.err,flexShrink:0,padding:"0 2px"}}>✕</span></div>
@@ -5285,8 +5301,8 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
                 </div>}</td>
               </tr>})}
             <tr style={{background:T.ok+"08"}}><td style={{...TD,fontWeight:800,color:T.ok}}>اجمالي توزيع</td>
-              {aMods.map(m=>{const mt=aCusts.reduce((s,c)=>s+(Number(aGrid[m.id+"_"+c.id])||0),0);return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,color:T.ok}}>{mt||"—"}</td>})}
-              <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#fff",background:T.ok}}>{aCusts.reduce((s,c)=>s+aMods.reduce((ss,m)=>ss+(Number(aGrid[m.id+"_"+c.id])||0),0),0)}</td><td style={TD}></td></tr>
+              {fMods.map(m=>{const mt=fCusts.reduce((s,c)=>s+(Number(aGrid[m.id+"_"+c.id])||0),0);return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,color:T.ok}}>{mt||"—"}</td>})}
+              <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#fff",background:T.ok}}>{fCusts.reduce((s,c)=>s+fMods.reduce((ss,m)=>ss+(Number(aGrid[m.id+"_"+c.id])||0),0),0)}</td><td style={TD}></td></tr>
             <tr><td style={{...TD,fontWeight:700,color:T.textSec}}>استلام مخزن جاهز</td>
               {aMods.map(m=><td key={m.id} style={{...TD,textAlign:"center",fontWeight:700}}>{m.stockQty}</td>)}
               <td style={TD}></td><td style={TD}></td></tr>
@@ -5555,7 +5571,6 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
       const custPayments=(config.custPayments||[]).filter(p=>p.custId===custStatement).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
       const totalPaid=custPayments.reduce((s,p)=>s+(Number(p.amount)||0),0);
       const custBalance=r2(totalVal-retVal-totalPaid);
-      const[payAmt,setPayAmt_]=useState("");const[payDate_,setPayDate_]=useState(new Date().toISOString().split("T")[0]);const[payNote_,setPayNote_]=useState("");const[payMethod,setPayMethod]=useState("كاش");
       const addCustPayment=()=>{const amt=parseFloat(payAmt);if(!amt||amt<=0){playBeep("error");return}
         upConfig(d=>{if(!d.custPayments)d.custPayments=[];
           d.custPayments.push({id:gid(),custId:custStatement,custName:cust.name,amount:amt,date:payDate_,note:payNote_,method:payMethod,by:userName,createdAt:new Date().toISOString()});
