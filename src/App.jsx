@@ -8336,16 +8336,16 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       {/* Filters */}
 
       <Card title={"📒 سجل اليومية ("+filtered.length+" حركة)"}>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
-          <Sel value={filterType} onChange={setFilterType} style={{width:90}}><option>الكل</option><option>وارد</option><option>منصرف</option></Sel>
-          <Sel value={filterCat} onChange={setFilterCat} style={{width:130}}><option>الكل</option>{ALL_CATS.map(c=><option key={c}>{c}</option>)}</Sel>
-          <Sel value={filterAcc} onChange={setFilterAcc} style={{width:130}}><option>الكل</option>{accounts.map(a=><option key={a}>{a}</option>)}</Sel>
-          <Inp type="month" value={filterMonth} onChange={v=>{setFilterMonth(v);setFilterDay("")}} style={{width:150}}/>
-          <Inp type="date" value={filterDay} onChange={v=>{setFilterDay(v);setFilterMonth("")}} style={{width:150}}/>
-          {(filterMonth||filterDay)&&<Btn small ghost onClick={()=>{setFilterMonth("");setFilterDay("")}}>✕</Btn>}
-          <Inp value={filterSearch} onChange={setFilterSearch} placeholder="🔍 بحث بيان / ملاحظات / بواسطة..." style={{width:isMob?"100%":200}}/>
-          {filterSearch&&<Btn small ghost onClick={()=>setFilterSearch("")}>✕</Btn>}
-          {filterDay&&<span onClick={()=>printDaily(filterDay)} style={{cursor:"pointer",padding:"6px 12px",borderRadius:8,background:T.accent+"10",color:T.accent,fontWeight:700,fontSize:FS-1}}>🖨 طباعة يوم</span>}
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"flex-end"}}>
+          <div><div style={{fontSize:FS-3,color:T.textSec,fontWeight:600,marginBottom:2}}>النوع</div><Sel value={filterType} onChange={setFilterType} style={{width:80}}><option>الكل</option><option>وارد</option><option>منصرف</option></Sel></div>
+          <div><div style={{fontSize:FS-3,color:T.textSec,fontWeight:600,marginBottom:2}}>التصنيف</div><Sel value={filterCat} onChange={setFilterCat} style={{width:120}}><option>الكل</option>{ALL_CATS.map(c=><option key={c}>{c}</option>)}</Sel></div>
+          <div><div style={{fontSize:FS-3,color:T.textSec,fontWeight:600,marginBottom:2}}>الحساب</div><Sel value={filterAcc} onChange={setFilterAcc} style={{width:110}}><option>الكل</option>{accounts.map(a=><option key={a}>{a}</option>)}</Sel></div>
+          <div><div style={{fontSize:FS-3,color:T.textSec,fontWeight:600,marginBottom:2}}>الشهر</div><Inp type="month" value={filterMonth} onChange={v=>{setFilterMonth(v);setFilterDay("")}} style={{width:130}}/></div>
+          <div><div style={{fontSize:FS-3,color:T.textSec,fontWeight:600,marginBottom:2}}>اليوم</div><Inp type="date" value={filterDay} onChange={v=>{setFilterDay(v);setFilterMonth("")}} style={{width:130}}/></div>
+          {(filterMonth||filterDay)&&<Btn small ghost onClick={()=>{setFilterMonth("");setFilterDay("")}} style={{marginBottom:2}}>✕</Btn>}
+          <div style={{flex:isMob?1:"0 0 auto"}}><div style={{fontSize:FS-3,color:T.textSec,fontWeight:600,marginBottom:2}}>بحث</div><Inp value={filterSearch} onChange={setFilterSearch} placeholder="🔍 بيان / ملاحظات..." style={{width:isMob?"100%":160}}/></div>
+          {filterSearch&&<Btn small ghost onClick={()=>setFilterSearch("")} style={{marginBottom:2}}>✕</Btn>}
+          {filterDay&&<span onClick={()=>printDaily(filterDay)} style={{cursor:"pointer",padding:"6px 12px",borderRadius:8,background:T.accent+"10",color:T.accent,fontWeight:700,fontSize:FS-1,marginBottom:2}}>🖨 طباعة</span>}
         </div>
         {withBalance.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
           {["الرصيد","تاريخ","اليوم","وارد","منصرف","بيان","ملاحظات","نوع الحركة","حساب جاري","موسم",""].map(h=><th key={h} style={{padding:"7px 8px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
