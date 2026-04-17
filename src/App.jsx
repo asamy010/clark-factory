@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 import { auth, db, getSecondaryAuth } from "./firebase";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile } from "firebase/auth";
-import { doc, setDoc, onSnapshot, collection, addDoc, updateDoc, deleteDoc, getDocs } from "firebase/firestore";
+import { doc, setDoc, onSnapshot, collection, addDoc, updateDoc, deleteDoc, getDocs, runTransaction, getDoc } from "firebase/firestore";
 
 /* Optional libs - loaded dynamically */
 let _XLSX=null,_QR=null,_jsQR=null;
@@ -39,7 +39,8 @@ const COLORS_DB = [
 const THEMES = {
   light:{name:"فاتح",bg:"#EFF6FF",card:"rgba(255,255,255,0.9)",cardSolid:"#FFF",glass:"rgba(255,255,255,0.6)",brd:"rgba(148,163,184,0.2)",brdStrong:"rgba(148,163,184,0.4)",text:"#1E293B",textSec:"#64748B",textMut:"#94A3B8",accent:"#0EA5E9",accentBg:"#E0F2FE",ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#8B5CF6",shadow:"0 2px 12px rgba(0,0,0,0.04)",sidebarBg:"#FFF",inputBg:"#FFF",bodyBg:"#EFF6FF"},
   dark:{name:"داكن",bg:"#0C0C0E",card:"rgba(22,22,26,0.95)",cardSolid:"#16161A",glass:"rgba(22,22,26,0.85)",brd:"rgba(255,255,255,0.07)",brdStrong:"rgba(255,255,255,0.12)",text:"#ECECEC",textSec:"#8B8B8B",textMut:"#555555",accent:"#3B82F6",accentBg:"rgba(59,130,246,0.1)",ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#A78BFA",shadow:"0 2px 16px rgba(0,0,0,0.4)",sidebarBg:"#111113",inputBg:"#1E1E22",bodyBg:"#0C0C0E"},
-  pink:{name:"بينك شيك",bg:"#FFF0F5",card:"rgba(255,255,255,0.95)",cardSolid:"#FFF5F8",glass:"rgba(255,240,245,0.7)",brd:"rgba(236,72,153,0.15)",brdStrong:"rgba(236,72,153,0.3)",text:"#4A1942",textSec:"#9D4E8C",textMut:"#C084A8",accent:"#DB2777",accentBg:"#FCE7F3",ok:"#059669",err:"#E11D48",warn:"#D97706",purple:"#A855F7",shadow:"0 2px 12px rgba(236,72,153,0.08)",sidebarBg:"#FFF5F8",inputBg:"#FFF",bodyBg:"#FFF0F5"}
+  pink:{name:"بينك شيك",bg:"#FFF0F5",card:"rgba(255,255,255,0.95)",cardSolid:"#FFF5F8",glass:"rgba(255,240,245,0.7)",brd:"rgba(236,72,153,0.15)",brdStrong:"rgba(236,72,153,0.3)",text:"#4A1942",textSec:"#9D4E8C",textMut:"#C084A8",accent:"#DB2777",accentBg:"#FCE7F3",ok:"#059669",err:"#E11D48",warn:"#D97706",purple:"#A855F7",shadow:"0 2px 12px rgba(236,72,153,0.08)",sidebarBg:"#FFF5F8",inputBg:"#FFF",bodyBg:"#FFF0F5"},
+  odoo:{name:"أودو",bg:"#EFEDF0",card:"rgba(255,255,255,0.95)",cardSolid:"#FFFFFF",glass:"rgba(255,255,255,0.7)",brd:"rgba(113,75,103,0.12)",brdStrong:"rgba(113,75,103,0.25)",text:"#2C2C33",textSec:"#6B7280",textMut:"#9CA3AF",accent:"#714B67",accentBg:"#F3EDF2",ok:"#21B799",err:"#D94F70",warn:"#E4A93F",purple:"#714B67",shadow:"0 2px 10px rgba(113,75,103,0.06)",sidebarBg:"#FFFFFF",inputBg:"#FFFFFF",bodyBg:"#EFEDF0",navBg:"#714B67",navText:"#FFFFFF"}
 };
 let T = THEMES.light;
 
@@ -59,13 +60,19 @@ const INIT_CONFIG = {
   statusCards: DEFAULT_STATUSES,
   garmentTypes:[{id:1,name:"قميص"},{id:2,name:"شورت"},{id:3,name:"تيشيرت"},{id:4,name:"بنطلون"},{id:5,name:"شنطة"},{id:6,name:"جاكت"}],
   workshops:[{id:1,name:"CLARK",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:8,type:"خياطة داخلي"},{id:2,name:"ورشة محمود",owner:"محمود",phone:"",address:"",idCard:"",ownerPhoto:"",rating:7,type:"خياطة خارجي"},{id:3,name:"المصنع",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:9,type:"خياطة داخلي"}],
-  seasons:["WS26"], activeSeason:"WS26", logo:"", users:{}, usersList:[], wsPayments:[], notifications:[],
+  seasons:["WS26"], activeSeason:"WS26", logo:"", users:{}, usersList:[],
+  /* Collections — initialized empty to prevent accidental overwrite from losing them */
+  wsPayments:[], notifications:[],
+  customers:[], suppliers:[],
+  treasury:[], treasuryAccounts:[], treasuryTransfers:[],
+  custPayments:[], supplierPayments:[], checks:[], lockedDays:[],
+  employees:[], hrLog:[], hrWeeks:[], empDebts:[],
   permissions:{
-    admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit"},
-    manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit"},
-    sales_accountant:{dashboard:"view",details:"view",external:"hide",stock:"view",reports:"edit",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit"},
-    purchase_accountant:{dashboard:"view",details:"view",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"hide"},
-    viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide"}
+    admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit",treasury:"edit",hr:"edit"},
+    manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit",treasury:"view",hr:"view"},
+    sales_accountant:{dashboard:"view",details:"view",external:"hide",stock:"view",reports:"edit",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit",treasury:"hide",hr:"hide"},
+    purchase_accountant:{dashboard:"view",details:"view",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"hide",treasury:"edit",hr:"hide"},
+    viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"hide",hr:"hide"}
   },
 };
 
@@ -724,6 +731,8 @@ const TABS=[
   {key:"tasks",label:"المهام",icon:"📌",color:"#F59E0B",bg:"#FEF3C7"},
   {key:"db",label:"قاعدة البيانات",icon:"🗄️",color:"#EF4444",bg:"#FEE2E2"},
   {key:"custDeliver",label:"مبيعات",icon:"💰",color:"#059669",bg:"#ECFDF5"},
+  {key:"treasury",label:"الخزنة",icon:"🏦",color:"#0D9488",bg:"#CCFBF1"},
+  {key:"hr",label:"موظفين",icon:"👷",color:"#7C3AED",bg:"#EDE9FE"},
   {key:"settings",label:"الاعدادات",icon:"⚙️",color:"#64748B",bg:"#F1F5F9"}
 ];
 
@@ -750,7 +759,8 @@ export default function App(){
   const[tab,setTab_]=useState(()=>sessionStorage.getItem("clark_tab")||"home");const[sel,setSel_]=useState(()=>sessionStorage.getItem("clark_sel")||null);
   const setTab=v=>{setTab_(v);sessionStorage.setItem("clark_tab",v)};
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
-  const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);const[cardPopup,setCardPopup]=useState(null);const[labelPopup,setLabelPopup]=useState(null);const[labelBags,setLabelBags]=useState(1);const[wsAccPopup,setWsAccPopup]=useState(null);const[barcodePopup,setBarcodePopup]=useState(null);
+  const[gSearch,setGSearch]=useState("");const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);const[cardPopup,setCardPopup]=useState(null);const[labelPopup,setLabelPopup]=useState(null);const[labelBags,setLabelBags]=useState(1);const[wsAccPopup,setWsAccPopup]=useState(null);const[barcodePopup,setBarcodePopup]=useState(null);const[showNotifs,setShowNotifs]=useState(false);
+  const[savingOverlay,setSavingOverlay]=useState(null);/* null or {message,progress} */
   const[stickyForm,setStickyForm]=useState(null);
   const[quickPopup,setQuickPopup]=useState(null);/* "task"|"notif"|null */
   const[qpTo,setQpTo]=useState("");const[qpText,setQpText]=useState("");const[qpType,setQpType]=useState("تذكير");
@@ -808,7 +818,7 @@ export default function App(){
       setAiMsgs(p=>[...p,{role:"ai",text:reply}])
     }catch(e){console.error("AI error:",e);setAiMsgs(p=>[...p,{role:"ai",text:"⚠️ خطأ في الاتصال بالمساعد الذكي"}])}
     setAiLoading(false)};
-  useEffect(()=>{const h=e=>{if(e.key==="Escape"){setQuickPopup(null);setShowAlerts(false);setShowScanner(false);setStickyForm(null);setShowTheme(false);setAiOpen(false)}};window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h)},[]);
+  useEffect(()=>{const h=e=>{if(e.key==="Escape"){setQuickPopup(null);setShowAlerts(false);setShowScanner(false);setStickyForm(null);setShowTheme(false);setShowNotifs(false);setAiOpen(false)}};window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h)},[]);
   const[statusNotif,setStatusNotif]=useState(null);const prevStatuses=useRef({});
   /* Online/Offline status */
   const[isOnline,setIsOnline]=useState(navigator.onLine);const[justReconnected,setJustReconnected]=useState(false);
@@ -867,6 +877,60 @@ export default function App(){
     let salesReady=false;let tasksReady=false;
     /* Main config */
     const u1=onSnapshot(doc(db,"factory","config"),snap=>{if(snap.exists()){const d=snap.data();
+      /* One-time migration: swap MAIN CASH ↔ SUB CASH names */
+      if(!d._cashSwapDone){
+        const TEMP="__SWAP_TMP__";
+        const swap=(name)=>name==="MAIN CASH"?"SUB CASH":name==="SUB CASH"?"MAIN CASH":name;
+        let changed=false;
+        /* Accounts */
+        if(Array.isArray(d.treasuryAccounts)){
+          d.treasuryAccounts=d.treasuryAccounts.map(a=>{
+            if(typeof a==="string"){const ns=swap(a);if(ns!==a)changed=true;return ns}
+            const obj={...a};const nn=swap(obj.name);if(nn!==obj.name){obj.name=nn;obj.id=nn;changed=true}return obj});
+        }
+        /* Treasury entries */
+        if(Array.isArray(d.treasury)){d.treasury=d.treasury.map(t=>{const na=swap(t.account);if(na!==t.account){changed=true;return{...t,account:na}}return t})}
+        /* Transfers */
+        if(Array.isArray(d.treasuryTransfers)){d.treasuryTransfers=d.treasuryTransfers.map(tf=>{const nf=swap(tf.fromAccount);const nt=swap(tf.toAccount);if(nf!==tf.fromAccount||nt!==tf.toAccount){changed=true;return{...tf,fromAccount:nf,toAccount:nt}}return tf})}
+        /* Update transfer desc in treasury (contains account names in desc like "تحويل إلى MAIN CASH") */
+        if(Array.isArray(d.treasury)){d.treasury=d.treasury.map(t=>{if(t.desc&&(t.desc.includes("MAIN CASH")||t.desc.includes("SUB CASH"))){return{...t,desc:t.desc.replace(/MAIN CASH/g,TEMP).replace(/SUB CASH/g,"MAIN CASH").replace(new RegExp(TEMP,"g"),"SUB CASH")}}return t})}
+        d._cashSwapDone=true;
+        setDoc(doc(db,"factory","config"),d).then(()=>console.log("✅ MAIN/SUB CASH swap migration done, changed="+changed)).catch(e=>console.error("Swap migration error:",e));
+      }
+      /* One-time migration: fix incomplete transfers (make sure every transfer has both IN and OUT entries) */
+      if(!d._transfersRepaired&&Array.isArray(d.treasuryTransfers)){
+        let repaired=false;
+        (d.treasuryTransfers||[]).forEach(tf=>{
+          if(tf.status==="cancelled")return;
+          const entries=(d.treasury||[]).filter(t=>t.transferId===tf.id);
+          const hasOut=entries.some(t=>t.type==="out");
+          const hasIn=entries.some(t=>t.type==="in");
+          const dayN=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(tf.date||new Date()).getDay()];
+          if(!hasOut&&tf.fromAccount){d.treasury=d.treasury||[];d.treasury.unshift({id:Math.random().toString(36).slice(2)+Date.now(),type:"out",amount:tf.amount,desc:"تحويل إلى "+tf.toAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.fromAccount,season:d.activeSeason||"",date:tf.date||new Date().toISOString().split("T")[0],day:dayN,transferId:tf.id,by:tf.sentBy||"",createdAt:new Date().toISOString()});repaired=true}
+          if(!hasIn&&tf.toAccount){d.treasury=d.treasury||[];d.treasury.unshift({id:Math.random().toString(36).slice(2)+Date.now(),type:"in",amount:tf.amount,desc:"تحويل من "+tf.fromAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.toAccount,season:d.activeSeason||"",date:tf.date||new Date().toISOString().split("T")[0],day:dayN,transferId:tf.id,by:tf.sentBy||"",createdAt:new Date().toISOString()});repaired=true}
+          /* Force status to confirmed */
+          if(tf.status!=="confirmed"){tf.status="confirmed";repaired=true}
+        });
+        d._transfersRepaired=true;
+        if(repaired)setDoc(doc(db,"factory","config"),d).then(()=>console.log("✅ Transfers repaired: missing entries added")).catch(e=>console.error("Transfer repair error:",e));
+      }
+      /* One-time migration: link ws payments with their treasury entries (by date + amount + workshop name in desc) */
+      if(!d._wsPayLinked&&Array.isArray(d.wsPayments)&&Array.isArray(d.treasury)){
+        let linked=0;
+        d.wsPayments.forEach(p=>{
+          if(p.treasuryTxId)return;/* already linked */
+          const candidate=(d.treasury||[]).find(t=>
+            !t.wsPaymentId&&
+            t.type==="out"&&
+            Number(t.amount)===Number(p.amount)&&
+            t.date===p.date&&
+            t.desc&&t.desc.includes(p.wsName)&&
+            (t.category==="تشغيل خارجي"||t.category==="مشتريات"));
+          if(candidate){p.treasuryTxId=candidate.id;candidate.wsPaymentId=p.id;candidate.wsName=p.wsName;candidate.sourceType="ws_payment";linked++}
+        });
+        d._wsPayLinked=true;
+        if(linked>0)setDoc(doc(db,"factory","config"),d).then(()=>console.log("✅ Linked "+linked+" ws payments")).catch(e=>console.error("WS link error:",e));
+      }
       /* Phase 1: Copy data to separate docs (first time only) */
       if(!d._splitDone&&(d.custDeliverySessions||d.packages||d.tasks||d.stickyNotes||d.inventoryAudits)){
         const salesData={custDeliverySessions:d.custDeliverySessions||[],packages:d.packages||[]};
@@ -884,11 +948,121 @@ export default function App(){
     /* Tasks doc */
     const u3=onSnapshot(doc(db,"factory","tasks"),snap=>{if(snap.exists()){if(snap.metadata.hasPendingWrites)return;tasksReady=true;setTasksDoc(snap.data())}});
     return()=>{u1();u2();u3()}},[user]);
+
+  /* ── LOCAL SNAPSHOT: save critical collections to localStorage on every config update ── */
+  useEffect(()=>{if(!configDoc||!configDoc.accessories)return;
+    try{const snap={workshops:configDoc.workshops||[],customers:configDoc.customers||[],suppliers:configDoc.suppliers||[],fabrics:configDoc.fabrics||[],accessories:configDoc.accessories||[],sizeSets:configDoc.sizeSets||[],garmentTypes:configDoc.garmentTypes||[],statusCards:configDoc.statusCards||[],employees:configDoc.employees||[],treasuryAccounts:configDoc.treasuryAccounts||[],savedAt:new Date().toISOString()};
+      localStorage.setItem("clark-data-snapshot",JSON.stringify(snap))}catch(e){}},[configDoc]);
   useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>({_docId:d.id,...d.data()})).filter(o=>o.id));setDataLoading(false)});return()=>unsub()},[user,season]);
 
-  const upConfig=useCallback(fn=>{setConfigDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);setDoc(doc(db,"factory","config"),next,{merge:true}).catch(e=>console.error("upConfig error:",e));return next}catch(e){console.error("upConfig error:",e);showToast("⚠️ خطأ في الحفظ");return prev}})},[]);
-  const upSales=useCallback(fn=>{setSalesDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);setDoc(doc(db,"factory","sales"),next,{merge:true}).catch(e=>console.error("upSales error:",e));return next}catch(e){console.error("upSales error:",e);showToast("⚠️ خطأ في الحفظ");return prev}})},[]);
-  const upTasks=useCallback(fn=>{setTasksDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);setDoc(doc(db,"factory","tasks"),next,{merge:true}).catch(e=>console.error("upTasks error:",e));return next}catch(e){console.error("upTasks error:",e);showToast("⚠️ خطأ في الحفظ");return prev}})},[]);
+  /* ═══ AUTO-BACKUP: once per day per user ═══ */
+  useEffect(()=>{
+    if(!user||!configDoc||!configDoc.accessories)return;/* wait for data load */
+    const today=new Date().toISOString().split("T")[0];
+    const lastBackupKey="clark-last-backup-"+user.uid;
+    const lastBackup=localStorage.getItem(lastBackupKey);
+    if(lastBackup===today)return;/* already backed up today on this device */
+    /* Schedule backup after 30s to avoid doing it on every page load race */
+    const timer=setTimeout(async()=>{
+      try{
+        const backupId="auto-"+today+"-"+(user.email||"").split("@")[0];
+        /* Check if this daily backup already exists (another device may have done it) */
+        const existing=await getDoc(doc(db,"backups",backupId));
+        if(existing.exists()){localStorage.setItem(lastBackupKey,today);return}
+        /* Create backup */
+        const data={
+          label:"تلقائية (يومية)",
+          autoGenerated:true,
+          createdAt:new Date().toISOString(),
+          createdBy:user.email||"",
+          config:configDoc||{},
+          sales:salesDoc||{},
+          tasks:tasksDoc||{},
+          orders:orders||[],
+          counts:{
+            treasury:(configDoc?.treasury||[]).length,
+            employees:(configDoc?.employees||[]).length,
+            customers:(configDoc?.customers||[]).length,
+            orders:(orders||[]).length
+          }
+        };
+        await setDoc(doc(db,"backups",backupId),data);
+        localStorage.setItem(lastBackupKey,today);
+        console.log("✅ Auto-backup saved:",backupId);
+        /* Cleanup old auto-backups: keep last 14 auto backups */
+        try{
+          const snap=await getDocs(collection(db,"backups"));
+          const autos=[];snap.forEach(d=>{const x=d.data();if(x.autoGenerated)autos.push({id:d.id,createdAt:x.createdAt})});
+          autos.sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
+          const toDelete=autos.slice(14);
+          for(const a of toDelete){await deleteDoc(doc(db,"backups",a.id))}
+          if(toDelete.length>0)console.log("🧹 Cleaned "+toDelete.length+" old auto-backups");
+        }catch(e){console.warn("Cleanup failed:",e)}
+      }catch(e){console.error("Auto-backup failed:",e)}
+    },30000);
+    return()=>clearTimeout(timer);
+  },[user,configDoc?.accessories]);/* trigger when data first loads */
+
+  /* ═══ TRANSACTION-SAFE WRITES ═══
+     Prevents data loss when multiple devices write at the same time.
+     Each write re-reads the doc inside a transaction, applies the change,
+     and writes back atomically. Firestore guarantees no concurrent update
+     can sneak in between read and write. */
+  const upConfigTx=useCallback(async(fn)=>{
+    const ref=doc(db,"factory","config");
+    try{
+      await runTransaction(db,async(tx)=>{
+        const snap=await tx.get(ref);
+        const current=snap.exists()?snap.data():{};
+        const next=JSON.parse(JSON.stringify(current));
+        fn(next);
+        tx.set(ref,next);
+      });
+    }catch(e){console.error("upConfig tx error:",e);showToast("⚠️ خطأ في الحفظ — جاري المحاولة");
+      /* Fallback to setDoc with merge if transaction fails */
+      setConfigDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);setDoc(ref,next,{merge:true}).catch(er=>console.error("Fallback error:",er));return next}catch(err){return prev}})}
+  },[]);
+  const upConfig=useCallback(fn=>{
+    /* Optimistic update local state first, then commit via transaction */
+    setConfigDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);return next}catch(e){return prev}});
+    upConfigTx(fn);
+  },[upConfigTx]);
+
+  const upSalesTx=useCallback(async(fn)=>{
+    const ref=doc(db,"factory","sales");
+    try{
+      await runTransaction(db,async(tx)=>{
+        const snap=await tx.get(ref);
+        const current=snap.exists()?snap.data():{};
+        const next=JSON.parse(JSON.stringify(current));
+        fn(next);
+        tx.set(ref,next);
+      });
+    }catch(e){console.error("upSales tx error:",e);showToast("⚠️ خطأ في الحفظ — جاري المحاولة");
+      setSalesDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);setDoc(ref,next,{merge:true}).catch(er=>console.error("Fallback error:",er));return next}catch(err){return prev}})}
+  },[]);
+  const upSales=useCallback(fn=>{
+    setSalesDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);return next}catch(e){return prev}});
+    upSalesTx(fn);
+  },[upSalesTx]);
+
+  const upTasksTx=useCallback(async(fn)=>{
+    const ref=doc(db,"factory","tasks");
+    try{
+      await runTransaction(db,async(tx)=>{
+        const snap=await tx.get(ref);
+        const current=snap.exists()?snap.data():{};
+        const next=JSON.parse(JSON.stringify(current));
+        fn(next);
+        tx.set(ref,next);
+      });
+    }catch(e){console.error("upTasks tx error:",e);showToast("⚠️ خطأ في الحفظ — جاري المحاولة");
+      setTasksDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);setDoc(ref,next,{merge:true}).catch(er=>console.error("Fallback error:",er));return next}catch(err){return prev}})}
+  },[]);
+  const upTasks=useCallback(fn=>{
+    setTasksDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);return next}catch(e){return prev}});
+    upTasksTx(fn);
+  },[upTasksTx]);
   const addOrder=async o=>{o.createdBy=userName;await addDoc(collection(db,"seasons",season,"orders"),o)};
   const updOrder=async(orderId,fn)=>{try{const ord=orders.find(o=>o.id===orderId);if(!ord)return;const updated=JSON.parse(JSON.stringify(ord));fn(updated);const clean={...updated};delete clean._docId;await updateDoc(doc(db,"seasons",season,"orders",ord._docId),clean)}catch(e){console.error("updOrder error:",e);showToast("⚠️ خطأ في حفظ الأوردر")}};
   const delOrder=async orderId=>{const ord=orders.find(o=>o.id===orderId);if(ord)await deleteDoc(doc(db,"seasons",season,"orders",ord._docId))};
@@ -966,7 +1140,7 @@ export default function App(){
   const data={...config,orders:resolvedOrders||orders};
   const getUserRole=()=>{if(config.users&&config.users[user?.uid]){const r=config.users[user.uid];return typeof r==="string"?r:r?.role||"admin"}const byEmail=(config.usersList||[]).find(u=>u.email===user?.email);if(byEmail)return byEmail.role;return"admin"};
   const userRole=getUserRole();const canEdit=userRole==="admin"||userRole==="manager";
-  const DEFAULT_PERMS={admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit"},manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit"},sales_accountant:{dashboard:"view",details:"view",external:"hide",stock:"view",reports:"edit",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit"},purchase_accountant:{dashboard:"view",details:"view",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"hide"},viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide"}};
+  const DEFAULT_PERMS={admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit",treasury:"edit",hr:"edit"},manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit",treasury:"view",hr:"view"},sales_accountant:{dashboard:"view",details:"view",external:"hide",stock:"view",reports:"edit",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit",treasury:"hide",hr:"hide"},purchase_accountant:{dashboard:"view",details:"view",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"hide",treasury:"edit",hr:"hide"},viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"hide",hr:"hide"}};
   const getTabPerm=(tabKey)=>{const perms=config.permissions||{};const defaults=DEFAULT_PERMS[userRole]||DEFAULT_PERMS.viewer;const rolePerm=perms[userRole]||{};return rolePerm[tabKey]||defaults[tabKey]||"view"};
   const canEditTab=(tabKey)=>getTabPerm(tabKey)==="edit";
   const canViewTab=(tabKey)=>getTabPerm(tabKey)!=="hide";
@@ -1049,12 +1223,12 @@ export default function App(){
 
   return<div onClick={()=>{if(showAlerts)setShowAlerts(false);if(gSearch)setGSearch("");if(showLogout)setShowLogout(false)}} style={{minHeight:"100vh",direction:"rtl",fontFamily:"'Cairo',sans-serif",background:T.bg,color:T.text,fontSize:FS,display:"flex",flexDirection:"column"}}>
     {/* Top Bar */}
-    <div style={{padding:isMob?"8px 10px":"12px 28px",background:T.cardSolid,borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+    <div style={{padding:isMob?"8px 10px":"12px 28px",background:T.navBg||T.cardSolid,borderBottom:T.navBg?"none":"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
       <div style={{display:"flex",alignItems:"center",gap:isMob?6:10}}>
-        {tab!=="home"&&<div onClick={goHome} title="الصفحة الرئيسية" style={{cursor:"pointer",fontSize:isMob?22:28,color:T.accent,padding:isMob?"4px 8px":"6px 12px",borderRadius:10,background:T.accentBg,lineHeight:1}}>{"⌂"}</div>}
-        <img src={config.logo||CLARK_LOGO} alt="CLARK" style={{height:isMob?22:28,objectFit:"contain"}}/>
-        <span style={{fontSize:isMob?10:FS-1,color:T.textSec,padding:"2px 8px",background:T.accentBg,borderRadius:6}}>{season}</span>
-        <span style={{fontSize:isMob?9:FS-2,padding:"2px 8px",borderRadius:6,fontWeight:700,background:justReconnected?"#10B98118":isOnline?"#10B98108":"#EF444418",color:justReconnected?"#10B981":isOnline?"#10B981":"#EF4444",transition:"all 0.5s"}}>{justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}</span>
+        {tab!=="home"&&<div onClick={goHome} title="الصفحة الرئيسية" style={{cursor:"pointer",fontSize:isMob?22:28,color:T.navText||T.accent,padding:isMob?"4px 8px":"6px 12px",borderRadius:10,background:T.navBg?"rgba(255,255,255,0.15)":T.accentBg,lineHeight:1}}>{"⌂"}</div>}
+        <img src={config.logo||CLARK_LOGO} alt="CLARK" style={{height:isMob?22:28,objectFit:"contain",...(T.navBg?{filter:"brightness(0) invert(1)"}:{})}}/>
+        <span style={{fontSize:isMob?10:FS-1,color:T.navText||T.textSec,padding:"2px 8px",background:T.navBg?"rgba(255,255,255,0.15)":T.accentBg,borderRadius:6}}>{season}</span>
+        <span style={{fontSize:isMob?9:FS-2,padding:"2px 8px",borderRadius:6,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444",transition:"all 0.5s"}}>{justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}</span>
       </div>
       {!isMob&&<div onClick={e=>e.stopPropagation()} style={{flex:1,display:"flex",justifyContent:"center",position:"relative"}}>
         <div style={{position:"relative",width:280}}>
@@ -1142,28 +1316,28 @@ export default function App(){
             </div>
           </div></>}
         </div>
-        {!isMob&&<span style={{fontSize:FS,color:T.textSec}}>{userName}</span>}
+        {!isMob&&<span style={{fontSize:FS,color:T.navText||T.textSec}}>{userName}</span>}
         {/* Theme picker - desktop only */}
         {!isMob&&<div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
-          <div onClick={()=>setShowTheme(!showTheme)} style={{cursor:"pointer",width:22,height:22,borderRadius:6,background:T.accent,border:"2px solid "+T.brd,transition:"transform 0.2s"}} title="تغيير المظهر"/>
+          <div onClick={()=>setShowTheme(!showTheme)} style={{cursor:"pointer",width:22,height:22,borderRadius:6,background:T.navBg?"rgba(255,255,255,0.3)":T.accent,border:"2px solid "+(T.navBg?"rgba(255,255,255,0.3)":T.brd),transition:"transform 0.2s"}} title="تغيير المظهر"/>
           {showTheme&&<div style={{position:"absolute",top:"100%",left:0,marginTop:6,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:10,boxShadow:"0 8px 30px rgba(0,0,0,0.15)",zIndex:999,padding:8,display:"flex",gap:6}}>
             {Object.entries(THEMES).map(([key,th])=><div key={key} onClick={()=>{setTheme(key);setShowTheme(false)}} style={{cursor:"pointer",padding:"8px 14px",borderRadius:8,background:th.bg,border:theme===key?"2px solid "+th.accent:"1px solid "+th.brd,textAlign:"center",transition:"all 0.15s",minWidth:60}}>
-              <div style={{width:18,height:18,borderRadius:5,background:th.accent,margin:"0 auto 4px"}}/>
+              <div style={{width:18,height:18,borderRadius:5,background:th.navBg||th.accent,margin:"0 auto 4px"}}/>
               <div style={{fontSize:FS-2,fontWeight:700,color:th.text,whiteSpace:"nowrap"}}>{th.name}{theme===key?" ✓":""}</div>
             </div>)}
           </div>}
         </div>}
-        {!isMob&&(()=>{const td=new Date().toISOString().split("T")[0];let ops=0;data.orders.forEach(o=>{if(o.date===td)ops++;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date===td)ops++;(wd.receives||[]).forEach(r=>{if(r.date===td)ops++})});(o.deliveries||[]).forEach(d=>{if(d.date===td)ops++})});return ops>0?<span style={{fontSize:FS-2,padding:"2px 6px",borderRadius:6,background:T.ok+"12",color:T.ok,fontWeight:700}}>{ops+" عملية"}</span>:null})()}
-        {!showLogout?<button onClick={e=>{e.stopPropagation();setShowLogout(true)}} style={{padding:isMob?"4px 10px":"6px 14px",borderRadius:8,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",cursor:"pointer",fontSize:isMob?11:FS-1,fontWeight:600,fontFamily:"inherit"}}>خروج</button>
-        :<div onClick={e=>e.stopPropagation()} style={{display:"flex",gap:4,alignItems:"center"}}><button onClick={()=>signOut(auth)} style={{padding:isMob?"4px 8px":"5px 12px",borderRadius:6,background:T.err,color:"#fff",border:"none",cursor:"pointer",fontSize:isMob?10:FS-1,fontWeight:700,fontFamily:"inherit"}}>تأكيد</button><button onClick={()=>setShowLogout(false)} style={{padding:isMob?"4px 8px":"5px 12px",borderRadius:6,background:T.cardSolid,color:T.textSec,border:"1px solid "+T.brd,cursor:"pointer",fontSize:isMob?10:FS-1,fontWeight:600,fontFamily:"inherit"}}>الغاء</button></div>}
+        {!isMob&&(()=>{const td=new Date().toISOString().split("T")[0];let ops=0;data.orders.forEach(o=>{if(o.date===td)ops++;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date===td)ops++;(wd.receives||[]).forEach(r=>{if(r.date===td)ops++})});(o.deliveries||[]).forEach(d=>{if(d.date===td)ops++})});return ops>0?<span style={{fontSize:FS-2,padding:"2px 6px",borderRadius:6,background:T.navBg?"rgba(255,255,255,0.15)":T.ok+"12",color:T.navText||T.ok,fontWeight:700}}>{ops+" عملية"}</span>:null})()}
+        {!showLogout?<button onClick={e=>{e.stopPropagation();setShowLogout(true)}} style={{padding:isMob?"4px 10px":"6px 14px",borderRadius:8,background:T.navBg?"rgba(255,255,255,0.15)":T.err+"12",color:T.navBg?"#FFD0D0":T.err,border:"1px solid "+(T.navBg?"rgba(255,255,255,0.2)":T.err+"30"),cursor:"pointer",fontSize:isMob?11:FS-1,fontWeight:600,fontFamily:"inherit"}}>خروج</button>
+        :<div onClick={e=>e.stopPropagation()} style={{display:"flex",gap:4,alignItems:"center"}}><button onClick={()=>signOut(auth)} style={{padding:isMob?"4px 8px":"5px 12px",borderRadius:6,background:T.err,color:"#fff",border:"none",cursor:"pointer",fontSize:isMob?10:FS-1,fontWeight:700,fontFamily:"inherit"}}>تأكيد</button><button onClick={()=>setShowLogout(false)} style={{padding:isMob?"4px 8px":"5px 12px",borderRadius:6,background:T.navBg?"rgba(255,255,255,0.15)":T.cardSolid,color:T.navText||T.textSec,border:"1px solid "+(T.navBg?"rgba(255,255,255,0.2)":T.brd),cursor:"pointer",fontSize:isMob?10:FS-1,fontWeight:600,fontFamily:"inherit"}}>الغاء</button></div>}
       </div>
     </div>
     <div style={{flex:1,overflow:"auto",padding:isMob?"8px 10px":"12px 24px"}}>
       {/* HOME SCREEN */}
       {tab==="home"&&<div>
-          <div style={{textAlign:"center",marginBottom:isMob?14:20}}><h1 style={{fontSize:isMob?22:32,fontWeight:800,color:T.text,margin:0}}>{"مرحباً، "+userName}</h1></div>
+          <div style={{textAlign:"center",marginBottom:isMob||isTab?14:20}}><h1 style={{fontSize:isMob?22:isTab?26:32,fontWeight:800,color:T.text,margin:0}}>{"مرحباً، "+userName}</h1></div>
           {/* ══ Desktop: 4-column layout ══ */}
-          {!isMob?<div style={{display:"flex",gap:12,maxWidth:1400,margin:"0 auto",alignItems:"flex-start"}}>
+          {!isMob&&!isTab?<div style={{display:"flex",gap:12,maxWidth:1400,margin:"0 auto",alignItems:"flex-start"}}>
             {/* ── Left 15%: Sticky Notes ── */}
             <div style={{flex:"0 0 15%",minWidth:0,display:"flex",flexDirection:"column",alignItems:"center"}}>
               {(()=>{const uemail=user?.email||"";const COLORS=[{key:"#FEF9C3",border:"#EAB308",name:"أصفر"},{key:"#DBEAFE",border:"#3B82F6",name:"أزرق"},{key:"#DCFCE7",border:"#22C55E",name:"أخضر"},{key:"#FCE7F3",border:"#EC4899",name:"وردي"},{key:"#EDE9FE",border:"#8B5CF6",name:"بنفسجي"},{key:"#FFEDD5",border:"#F97316",name:"برتقالي"}];
@@ -1199,8 +1373,8 @@ export default function App(){
             {/* ── Center 50%: App Grid + Actions ── */}
             <div style={{flex:"0 0 50%",minWidth:0}}>
               <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:12}}>
-                {[...TABS.filter(t=>canViewTab(t.key))].sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0).map(t=>{const perm=getTabPerm(t.key);return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:"16px 8px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s",opacity:perm==="view"?0.75:1,position:"relative",aspectRatio:"1"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow}}>
-                  <div style={{width:48,height:48,borderRadius:14,background:t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 8px",fontSize:24}}>{t.icon}</div>
+                {[...TABS.filter(t=>canViewTab(t.key))].sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0).map(t=>{const perm=getTabPerm(t.key);const isOdoo=!!T.navBg;return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:isOdoo?12:16,padding:isOdoo?"20px 8px":"16px 8px",border:"1px solid "+T.brd,boxShadow:isOdoo?"0 1px 4px rgba(0,0,0,0.04)":T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s",opacity:perm==="view"?0.75:1,position:"relative",aspectRatio:"1"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow=isOdoo?"0 6px 20px rgba(113,75,103,0.12)":"0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=isOdoo?"0 1px 4px rgba(0,0,0,0.04)":T.shadow}}>
+                  <div style={{width:isOdoo?56:48,height:isOdoo?56:48,borderRadius:isOdoo?16:14,background:isOdoo?t.color+"15":t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 8px",fontSize:isOdoo?28:24,...(isOdoo?{border:"1px solid "+t.color+"20"}:{})}}>{t.icon}</div>
                   <div style={{fontSize:FS-1,fontWeight:700,color:T.text}}>{t.label}</div>
                   {perm==="view"&&<div style={{position:"absolute",top:4,left:4,fontSize:8,padding:"1px 4px",borderRadius:3,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
                 </div>})}
@@ -1237,10 +1411,10 @@ export default function App(){
                 </div>:<div style={{textAlign:"center",padding:16,color:T.textMut,fontSize:FS-1}}>{"📌 لا توجد مهام"}</div>}</div>})()}
             </div>
           </div>
-          :<div>{/* ══ Mobile ══ */}
+          :<div>{/* ══ Mobile + Tablet ══ */}
             <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:10}}>
-              {[...TABS.filter(t=>canViewTab(t.key))].sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0).map(t=>{const perm=getTabPerm(t.key);return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:16,padding:"16px 8px",border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",opacity:perm==="view"?0.75:1,position:"relative",width:"calc(33.33% - 8px)",boxSizing:"border-box"}}>
-                <div style={{width:44,height:44,borderRadius:14,background:t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px",fontSize:22}}>{t.icon}</div>
+              {[...TABS.filter(t=>canViewTab(t.key))].sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0).map(t=>{const perm=getTabPerm(t.key);const isOdoo=!!T.navBg;return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:isOdoo?12:16,padding:isOdoo?"18px 8px":"16px 8px",border:"1px solid "+T.brd,boxShadow:isOdoo?"0 1px 4px rgba(0,0,0,0.04)":T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",opacity:perm==="view"?0.75:1,position:"relative",width:isTab?"calc(25% - 8px)":"calc(33.33% - 8px)",boxSizing:"border-box"}}>
+                <div style={{width:isOdoo?50:44,height:isOdoo?50:44,borderRadius:isOdoo?14:14,background:isOdoo?t.color+"15":t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px",fontSize:isOdoo?24:22,...(isOdoo?{border:"1px solid "+t.color+"20"}:{})}}>{t.icon}</div>
                 <div style={{fontSize:FS-3,fontWeight:700,color:T.text}}>{t.label}</div>
                 {perm==="view"&&<div style={{position:"absolute",top:6,left:6,fontSize:9,padding:"1px 6px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
               </div>})}
@@ -1268,6 +1442,35 @@ export default function App(){
               </div>
             </div>
           </div>}
+
+        {/* ═══ ODOO QUICK LINKS — middle bottom of home ═══ */}
+        {(()=>{
+          const defaultLinks=[
+            {id:"accounting",icon:"📊",label:"المحاسبة",url:"https://clarkdb.odoo.com/odoo/accounting",color:"#8B5CF6"},
+            {id:"sales",icon:"🛒",label:"المبيعات",url:"https://clarkdb.odoo.com/odoo/sales",color:"#10B981"},
+            {id:"inventory",icon:"📦",label:"المخزن",url:"https://clarkdb.odoo.com/odoo/inventory",color:"#F59E0B"},
+            {id:"invoices",icon:"🧾",label:"الفواتير",url:"https://clarkdb.odoo.com/odoo/accounting/customer-invoices",color:"#0EA5E9"},
+            {id:"contacts",icon:"👥",label:"جهات الاتصال",url:"https://clarkdb.odoo.com/odoo/contacts",color:"#EC4899"},
+            {id:"purchase",icon:"🏷️",label:"المشتريات",url:"https://clarkdb.odoo.com/odoo/purchase",color:"#EF4444"},
+            {id:"hr",icon:"👷",label:"الموظفين",url:"https://clarkdb.odoo.com/odoo/employees",color:"#059669"},
+            {id:"discuss",icon:"💬",label:"المحادثات",url:"https://clarkdb.odoo.com/odoo/discuss",color:"#6366F1"},
+          ];
+          const links=data.odooLinks||defaultLinks;
+          if(links.length===0)return null;
+          return<div style={{marginTop:24,maxWidth:700,marginLeft:"auto",marginRight:"auto"}}>
+            <div style={{textAlign:"center",marginBottom:12}}>
+              <div style={{display:"inline-flex",alignItems:"center",gap:8,padding:"6px 20px",borderRadius:10,background:T.cardSolid,border:"1px solid "+T.brd,boxShadow:T.shadow}}>
+                <img src="https://odoo-community.org/web/image/ir.attachment/22977/datas" alt="Odoo" style={{height:22,opacity:0.8}} onError={e=>{e.target.style.display="none"}}/>
+                <span style={{fontSize:FS+1,fontWeight:800,color:T.text}}>Odoo</span>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
+              {links.map(l=><a key={l.id||l.label} href={l.url} target="_blank" rel="noopener noreferrer" style={{background:T.cardSolid,borderRadius:14,padding:"12px 10px",border:"1px solid "+(l.color||T.accent)+"20",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"all 0.2s",width:90,height:90,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:5,textDecoration:"none"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 8px 25px "+(l.color||T.accent)+"25"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow}}>
+                <div style={{fontSize:26,lineHeight:1}}>{l.icon||"🔗"}</div>
+                <div style={{fontSize:FS-3,fontWeight:700,color:l.color||T.accent,lineHeight:1.2}}>{l.label}</div>
+              </a>)}
+            </div>
+          </div>})()}
       </div>}
       {/* PAGES with back button */}
       {tab!=="home"&&canViewTab(tab)&&<div>
@@ -1281,6 +1484,8 @@ export default function App(){
         {tab==="reports"&&<ReportsHub data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="settings"&&canEditTab("settings")&&<SettingsPg config={config} upConfig={upConfig} upSales={upSales} upTasks={upTasks} isMob={isMob} user={user} theme={theme} setTheme={setTheme} season={season} orders={orders} syncWsIds={syncWsIds} replaceOrder={replaceOrder} updOrder={updOrder} configDoc={configDoc} salesDoc={salesDoc} tasksDoc={tasksDoc}/>}
         {tab==="custDeliver"&&<CustDeliverPg data={data} upConfig={upConfig} upSales={upSales} upTasks={upTasks} updOrder={updOrder} isMob={isMob} isTab={isTab} canEdit={canEditTab("custDeliver")} user={user} season={season}/>}
+        {tab==="treasury"&&<TreasuryPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("treasury")} user={user} userRole={userRole}/>}
+        {tab==="hr"&&<HRPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("hr")} user={user} setSavingOverlay={setSavingOverlay}/>}
       </div>}
     </div>
     {/* Quick Task/Notification Popup */}
@@ -1489,6 +1694,20 @@ export default function App(){
           </div>}
         </div>
       </div>})()}
+    {/* ══ SAVING OVERLAY ══ */}
+    {savingOverlay&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",backdropFilter:"blur(4px)",zIndex:999999,display:"flex",alignItems:"center",justifyContent:"center",direction:"rtl",fontFamily:"'Cairo',sans-serif"}}>
+      <div style={{background:T.cardSolid,borderRadius:20,padding:"32px 40px",textAlign:"center",minWidth:280,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",border:"1px solid "+T.brd}}>
+        <div style={{marginBottom:16}}>
+          <div style={{width:48,height:48,borderRadius:"50%",border:"4px solid "+T.brd,borderTopColor:T.accent,margin:"0 auto",animation:"clarkSpin 0.8s linear infinite"}}/>
+        </div>
+        <div style={{fontSize:FS+1,fontWeight:800,color:T.text,marginBottom:8}}>{savingOverlay.message||"جاري الحفظ..."}</div>
+        {savingOverlay.progress!=null&&<div style={{height:8,borderRadius:4,background:T.bg,overflow:"hidden",margin:"12px 0"}}>
+          <div style={{height:"100%",borderRadius:4,background:"linear-gradient(90deg,"+T.accent+","+T.ok+")",width:savingOverlay.progress+"%",transition:"width 0.4s ease"}}/>
+        </div>}
+        <div style={{fontSize:FS-2,color:T.textMut}}>برجاء الانتظار وعدم اغلاق الصفحة</div>
+      </div>
+      <style>{`@keyframes clarkSpin{to{transform:rotate(360deg)}}`}</style>
+    </div>}
   </div>
 }
 
@@ -1619,18 +1838,23 @@ function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,setCardPo
     </Card>
     {/* Workshop Accounts Summary */}
     <Card title="حسابات الورش" style={{marginBottom:12}}>
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:12}}>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:12}}>
         <div onClick={()=>{const ws=(data.workshops||[]).filter(w=>!wsIsInternal(w.type));const items=ws.map(w=>{const a=wsAccounts(w.name);return{name:w.name,qty:r2(a.due+a.totalPurchase)}}).filter(x=>x.qty!==0).sort((a,b)=>b.qty-a.qty);setWsAccPopup({title:"💰 مستحق للورش",color:T.accent,items,total:r2(wsDue+wsPurchase)})}} style={{padding:12,borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"15",textAlign:"center",cursor:"pointer",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
           <div style={{fontSize:FS-1,color:T.textSec,marginBottom:4}}>مستحق للورش</div>
-          <div style={{fontSize:20,fontWeight:800,color:T.accent}}>{fmt(r2(wsDue+wsPurchase))+" ج.م"}</div>
+          <div style={{fontSize:isMob?16:20,fontWeight:800,color:T.accent}}>{fmt(r2(wsDue+wsPurchase))+" ج.م"}</div>
         </div>
+        {(()=>{const ws=(data.workshops||[]).filter(w=>!wsIsInternal(w.type));let totalLimit=0;const items=ws.map(w=>{const a=wsAccounts(w.name);const pct=w.payPercent||60;const lim=r2((a.due+a.totalPurchase)*(pct/100));totalLimit+=lim;return{name:w.name+" ("+pct+"%)",qty:lim}}).filter(x=>x.qty>0).sort((a,b)=>b.qty-a.qty);
+          return<div onClick={()=>setWsAccPopup({title:"📈 اجمالي حد النسبة",color:"#8B5CF6",items,total:r2(totalLimit)})} style={{padding:12,borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF615",textAlign:"center",cursor:"pointer",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
+            <div style={{fontSize:FS-1,color:T.textSec,marginBottom:4}}>اجمالي حد النسبة</div>
+            <div style={{fontSize:isMob?16:20,fontWeight:800,color:"#8B5CF6"}}>{fmt(r2(totalLimit))+" ج.م"}</div>
+          </div>})()}
         <div onClick={()=>{const ws=(data.workshops||[]).filter(w=>!wsIsInternal(w.type));const items=ws.map(w=>{const a=wsAccounts(w.name);return{name:w.name,qty:r2(a.totalPaid)}}).filter(x=>x.qty>0).sort((a,b)=>b.qty-a.qty);setWsAccPopup({title:"💳 اجمالي المدفوع",color:T.warn,items,total:r2(wsPaid)})}} style={{padding:12,borderRadius:10,background:T.warn+"08",border:"1px solid "+T.warn+"15",textAlign:"center",cursor:"pointer",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
           <div style={{fontSize:FS-1,color:T.textSec,marginBottom:4}}>اجمالي المدفوع</div>
-          <div style={{fontSize:20,fontWeight:800,color:T.warn}}>{fmt(r2(wsPaid))+" ج.م"}</div>
+          <div style={{fontSize:isMob?16:20,fontWeight:800,color:T.warn}}>{fmt(r2(wsPaid))+" ج.م"}</div>
         </div>
         <div onClick={()=>{const ws=(data.workshops||[]).filter(w=>!wsIsInternal(w.type));const items=ws.map(w=>{const a=wsAccounts(w.name);const bal=a.due+a.totalPurchase-a.totalPaid;return{name:w.name,qty:r2(bal)}}).filter(x=>x.qty!==0).sort((a,b)=>b.qty-a.qty);setWsAccPopup({title:"📊 رصيد الورش",color:wsBalance>0?T.err:T.ok,items,total:r2(wsBalance)})}} style={{padding:12,borderRadius:10,background:(wsBalance>0?T.err:T.ok)+"08",border:"1px solid "+(wsBalance>0?T.err:T.ok)+"15",textAlign:"center",cursor:"pointer",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
           <div style={{fontSize:FS-1,color:T.textSec,marginBottom:4}}>رصيد الورش</div>
-          <div style={{fontSize:20,fontWeight:800,color:wsBalance>0?T.err:T.ok}}>{fmt(r2(wsBalance))+" ج.م"}</div>
+          <div style={{fontSize:isMob?16:20,fontWeight:800,color:wsBalance>0?T.err:T.ok}}>{fmt(r2(wsBalance))+" ج.م"}</div>
         </div>
       </div>
     </Card>
@@ -1829,6 +2053,27 @@ function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,onSubUse
   const[sfld,setSfld]=useState({label:"",pcs:0,_eid:null});
   const[stName,setStName]=useState("");const[stColor,setStColor]=useState("#0EA5E9");const[stEid,setStEid]=useState(null);const[stShow,setStShow]=useState(false);
   const[gName,setGName]=useState("");const[gEid,setGEid]=useState(null);const[gIconSel,setGIconSel]=useState("👕");const[gShow,setGShow]=useState(false);const[gPrice,setGPrice]=useState("");
+  const[showRecycleBin,setShowRecycleBin]=useState(false);
+
+  /* ── Safe Delete: moves item to recycleBin before removing ── */
+  const safeDelete=(collection,id,type)=>{
+    upConfig(d=>{
+      if(!d.recycleBin)d.recycleBin=[];
+      const arr=d[collection]||[];const item=arr.find(x=>x.id===id);
+      if(item)d.recycleBin.unshift({...item,_type:type,_collection:collection,_deletedAt:new Date().toISOString()});
+      d[collection]=arr.filter(x=>x.id!==id);
+      /* Keep recycleBin max 100 items */
+      if(d.recycleBin.length>100)d.recycleBin=d.recycleBin.slice(0,100)});
+    showToast("✓ تم الحذف — يمكن الاستعادة من سلة المحذوفات")};
+  const restoreItem=(binIdx)=>{
+    upConfig(d=>{
+      const bin=d.recycleBin||[];const item=bin[binIdx];if(!item)return;
+      const col=item._collection;if(!d[col])d[col]=[];
+      /* Remove recycle meta before restoring */
+      const restored={...item};delete restored._type;delete restored._collection;delete restored._deletedAt;
+      d[col].push(restored);
+      d.recycleBin=bin.filter((_,i)=>i!==binIdx)});
+    showToast("✅ تم الاستعادة بنجاح")};
 
   const saveFab=()=>{if(!ff.name)return;upConfig(d=>{if(ff._eid){const idx=d.fabrics.findIndex(x=>x.id===ff._eid);if(idx>=0)d.fabrics[idx]={...d.fabrics[idx],name:ff.name,unit:ff.unit,price:Number(ff.price)||0}}else{d.fabrics.push({id:Date.now(),name:ff.name,unit:ff.unit,price:Number(ff.price)||0})}});setFf({name:"",unit:"كيلو",price:"",_eid:null})};
   const saveAcc=()=>{if(!af.name)return;upConfig(d=>{if(af._eid){const idx=d.accessories.findIndex(x=>x.id===af._eid);if(idx>=0)d.accessories[idx]={...d.accessories[idx],name:af.name,unit:af.unit,price:Number(af.price)||0}}else{d.accessories.push({id:Date.now(),name:af.name,unit:af.unit,price:Number(af.price)||0})}});setAf({name:"",unit:"قطعة",price:"",_eid:null})};
@@ -1843,9 +2088,56 @@ function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,onSubUse
   const sizeBlock=(s)=>ords.some(o=>Number(o.sizeSetId)===s.id)?"مستخدم في أوردرات":null;
   const garmentBlock=(g)=>ords.some(o=>(o.orderPieces||[]).includes(g.name))?"مستخدم في أوردرات":null;
   return<div>
-    <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>{[["fab","الأقمشة"],["acc","تشغيل + اكسسوار"],["size","المقاسات"],["garment","قطع الموديل"],["ws","الورش"],["status","حالات الأوردر"]].map(([k,l])=><Btn key={k} on={sub===k} onClick={()=>setSub(k)}>{l}</Btn>)}</div>
+    <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>{[["fab","الأقمشة"],["acc","تشغيل + اكسسوار"],["size","المقاسات"],["garment","قطع الموديل"],["ws","الورش"],["status","حالات الأوردر"]].map(([k,l])=><Btn key={k} on={sub===k} onClick={()=>setSub(k)}>{l}</Btn>)}
+      {canEdit&&<Btn onClick={()=>setShowRecycleBin(true)} style={{background:T.textMut+"12",color:T.textMut,border:"1px solid "+T.textMut+"25",marginRight:"auto"}}>{"🗑️ المحذوفات"+(data.recycleBin?.length>0?" ("+data.recycleBin.length+")":"")}</Btn>}
+    </div>
+    {/* ── Recycle Bin Popup ── */}
+    {showRecycleBin&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowRecycleBin(false)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:600,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontSize:FS+2,fontWeight:800,color:T.text}}>🗑️ سلة المحذوفات</div>
+          <div style={{display:"flex",gap:6}}>
+            {(data.recycleBin||[]).length>0&&<Btn danger small onClick={()=>{if(confirm("هل تريد تفريغ سلة المحذوفات نهائياً؟"))upConfig(d=>{d.recycleBin=[]})}}>تفريغ الكل</Btn>}
+            <Btn ghost small onClick={()=>setShowRecycleBin(false)}>✕</Btn>
+          </div>
+        </div>
+        {(data.recycleBin||[]).length>0?<div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {(data.recycleBin||[]).map((item,i)=><div key={i} style={{padding:"10px 14px",borderRadius:10,border:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",background:T.bg}}>
+            <div style={{flex:1}}>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:T.accent+"12",color:T.accent}}>{item._type}</span>
+                <span style={{fontSize:FS,fontWeight:700,color:T.text}}>{item.name||item.label||item.party||"—"}</span>
+              </div>
+              <div style={{fontSize:FS-2,color:T.textMut,marginTop:3}}>
+                {"حُذف: "+new Date(item._deletedAt).toLocaleDateString("ar-EG",{year:"numeric",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}
+                {item.price!=null&&" | السعر: "+item.price}
+                {item.phone&&" | "+item.phone}
+                {item.owner&&" | المالك: "+item.owner}
+              </div>
+            </div>
+            <Btn small onClick={()=>{restoreItem(i);setShowRecycleBin(false)}} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",fontWeight:700}}>↩ استعادة</Btn>
+          </div>)}
+        </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>سلة المحذوفات فارغة</div>}
+        {/* ── Restore from local snapshot ── */}
+        {(()=>{try{const raw=localStorage.getItem("clark-data-snapshot");if(!raw)return null;const snap=JSON.parse(raw);
+          const collections=[{key:"workshops",label:"الورش",icon:"🏭"},{key:"customers",label:"العملاء",icon:"👤"},{key:"suppliers",label:"الموردين",icon:"🏪"},{key:"fabrics",label:"الأقمشة",icon:"🧵"},{key:"accessories",label:"الإكسسوارات",icon:"🪡"},{key:"sizeSets",label:"المقاسات",icon:"📏"},{key:"garmentTypes",label:"أنواع القطع",icon:"👕"},{key:"employees",label:"الموظفين",icon:"👷"}];
+          const hasMissing=collections.some(c=>{const current=(data[c.key]||[]).length;const saved=(snap[c.key]||[]).length;return saved>current});
+          return<div style={{marginTop:16,padding:14,borderRadius:12,background:T.warn+"06",border:"1px solid "+T.warn+"20"}}>
+            <div style={{fontSize:FS,fontWeight:700,color:T.warn,marginBottom:8}}>📸 نسخة محلية محفوظة</div>
+            <div style={{fontSize:FS-2,color:T.textMut,marginBottom:8}}>{"آخر حفظ: "+new Date(snap.savedAt).toLocaleDateString("ar-EG",{year:"numeric",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+              {collections.map(c=>{const cur=(data[c.key]||[]).length;const saved=(snap[c.key]||[]).length;const diff=saved-cur;
+                return<div key={c.key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",borderRadius:8,background:diff>0?T.err+"06":T.cardSolid,border:"1px solid "+(diff>0?T.err+"20":T.brd)}}>
+                  <span style={{fontSize:FS-2}}>{c.icon+" "+c.label+": "+cur}</span>
+                  {diff>0?<Btn small onClick={()=>{if(confirm("سيتم استعادة "+c.label+" من النسخة المحلية ("+saved+" عنصر). البيانات الحالية ("+cur+") سيتم استبدالها.\n\nمتأكد؟")){upConfig(d=>{d[c.key]=snap[c.key]});showToast("✅ تم استعادة "+c.label);setShowRecycleBin(false)}}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",fontSize:FS-3}}>{"↩ استعادة ("+saved+")"}</Btn>
+                  :<span style={{fontSize:FS-3,color:T.ok}}>✓ متطابق</span>}
+                </div>})}
+            </div>
+          </div>}catch(e){return null}})()}
+      </div>
+    </div>}
     {sub==="fab"&&<><Card title="جدول الأقمشة" extra={canEdit&&<Btn primary small onClick={()=>setFf({name:"",unit:"كيلو",price:"",_eid:null,_show:true})}>+ اضافة</Btn>}>
-      <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:450}}><thead><tr>{["#","القماش","الوحدة","السعر",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.fabrics.map((f,i)=><tr key={f.id}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:600}}>{f.name}</td><td style={TD}>{f.unit}</td><td style={{...TDB,color:T.accent}}>{f.price+" ج.م"}</td>{canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:4}}>{eBtn(()=>setFf({name:f.name,unit:f.unit,price:f.price,_eid:f.id,_show:true}))}<DelBtn onConfirm={()=>upConfig(d=>{d.fabrics=d.fabrics.filter(x=>x.id!==f.id)})} blocked={fabBlock(f)}/></div></td>}</tr>)}</tbody></table></div></Card>
+      <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:450}}><thead><tr>{["#","القماش","الوحدة","السعر",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.fabrics.map((f,i)=><tr key={f.id}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:600}}>{f.name}</td><td style={TD}>{f.unit}</td><td style={{...TDB,color:T.accent}}>{f.price+" ج.م"}</td>{canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:4}}>{eBtn(()=>setFf({name:f.name,unit:f.unit,price:f.price,_eid:f.id,_show:true}))}<DelBtn onConfirm={()=>safeDelete("fabrics",f.id,"قماش")} blocked={fabBlock(f)}/></div></td>}</tr>)}</tbody></table></div></Card>
     {ff._show&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setFf({...ff,_show:false})}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
       <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,marginBottom:14}}>{ff._eid?"✏️ تعديل القماش":"+ قماش جديد"}</div>
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -1858,7 +2150,7 @@ function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,onSubUse
       </div>
     </div></div>}</>}
     {sub==="acc"&&<><Card title="تشغيل + اكسسوار" extra={canEdit&&<Btn primary small onClick={()=>setAf({name:"",unit:"قطعة",price:"",_eid:null,_show:true})}>+ اضافة</Btn>}>
-      <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><thead><tr>{["#","الوصف","الوحدة","السعر",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.accessories.map((a,i)=><tr key={a.id}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:600}}>{a.name}</td><td style={TD}>{a.unit}</td><td style={{...TDB,color:T.accent}}>{a.price+" ج.م"}</td>{canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:4}}>{eBtn(()=>setAf({name:a.name,unit:a.unit,price:a.price,_eid:a.id,_show:true}))}<DelBtn onConfirm={()=>upConfig(d=>{d.accessories=d.accessories.filter(x=>x.id!==a.id)})} blocked={accBlock(a)}/></div></td>}</tr>)}</tbody></table></div></Card>
+      <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><thead><tr>{["#","الوصف","الوحدة","السعر",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.accessories.map((a,i)=><tr key={a.id}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:600}}>{a.name}</td><td style={TD}>{a.unit}</td><td style={{...TDB,color:T.accent}}>{a.price+" ج.م"}</td>{canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:4}}>{eBtn(()=>setAf({name:a.name,unit:a.unit,price:a.price,_eid:a.id,_show:true}))}<DelBtn onConfirm={()=>safeDelete("accessories",a.id,"اكسسوار")} blocked={accBlock(a)}/></div></td>}</tr>)}</tbody></table></div></Card>
     {af._show&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setAf({...af,_show:false})}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
       <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,marginBottom:14}}>{af._eid?"✏️ تعديل البند":"+ بند جديد"}</div>
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -1871,7 +2163,7 @@ function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,onSubUse
       </div>
     </div></div>}</>}
     {sub==="size"&&<><Card title="المقاسات" extra={canEdit&&<Btn primary small onClick={()=>setSfld({label:"",pcs:0,_eid:null,_show:true})}>+ اضافة</Btn>}>
-      <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","المقاسات","قطع/سيري",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.sizeSets.map((s,i)=><tr key={s.id}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:600}}>{s.label}</td><td style={{...TDB,color:T.accent}}>{s.pcsPerSeries||"-"}</td>{canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:4}}>{eBtn(()=>setSfld({label:s.label,pcs:s.pcsPerSeries||0,_eid:s.id,_show:true}))}<DelBtn onConfirm={()=>upConfig(d=>{d.sizeSets=d.sizeSets.filter(x=>x.id!==s.id)})} blocked={sizeBlock(s)}/></div></td>}</tr>)}</tbody></table></Card>
+      <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","المقاسات","قطع/سيري",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.sizeSets.map((s,i)=><tr key={s.id}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:600}}>{s.label}</td><td style={{...TDB,color:T.accent}}>{s.pcsPerSeries||"-"}</td>{canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:4}}>{eBtn(()=>setSfld({label:s.label,pcs:s.pcsPerSeries||0,_eid:s.id,_show:true}))}<DelBtn onConfirm={()=>safeDelete("sizeSets",s.id,"مقاسات")} blocked={sizeBlock(s)}/></div></td>}</tr>)}</tbody></table></Card>
     {sfld._show&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setSfld({...sfld,_show:false})}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:400,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
       <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,marginBottom:14}}>{sfld._eid?"✏️ تعديل المقاس":"+ مقاس جديد"}</div>
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -1881,7 +2173,7 @@ function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,onSubUse
       </div>
     </div></div>}</>}
     {sub==="garment"&&<><Card title="قطع الموديل" extra={canEdit&&<Btn primary small onClick={()=>{setGName("");setGEid(null);setGIconSel("👕");setGShow(true)}}>+ اضافة</Btn>}>
-      <div style={{display:"flex",flexWrap:"wrap",gap:10}}>{(data.garmentTypes||[]).map(g=><span key={g.id} style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 18px",borderRadius:12,border:"1px solid "+T.brd,fontSize:FS,fontWeight:600,background:T.cardSolid}}>{(g.icon||gIcon(g.name,data.garmentTypes))+" "+g.name}{g.defaultPrice?<span style={{fontSize:FS-2,color:"#8B5CF6",fontWeight:700}}>{g.defaultPrice+" ج.م"}</span>:""}{canEdit&&<>{" "}{eBtn(()=>{setGName(g.name);setGEid(g.id);setGIconSel(g.icon||gIcon(g.name,data.garmentTypes));setGPrice(g.defaultPrice||"");setGShow(true)})}<DelBtn onConfirm={()=>upConfig(d=>{d.garmentTypes=(d.garmentTypes||[]).filter(x=>x.id!==g.id)})} blocked={garmentBlock(g)}/></>}</span>)}</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:10}}>{(data.garmentTypes||[]).map(g=><span key={g.id} style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 18px",borderRadius:12,border:"1px solid "+T.brd,fontSize:FS,fontWeight:600,background:T.cardSolid}}>{(g.icon||gIcon(g.name,data.garmentTypes))+" "+g.name}{g.defaultPrice?<span style={{fontSize:FS-2,color:"#8B5CF6",fontWeight:700}}>{g.defaultPrice+" ج.م"}</span>:""}{canEdit&&<>{" "}{eBtn(()=>{setGName(g.name);setGEid(g.id);setGIconSel(g.icon||gIcon(g.name,data.garmentTypes));setGPrice(g.defaultPrice||"");setGShow(true)})}<DelBtn onConfirm={()=>safeDelete("garmentTypes",g.id,"نوع قطعة")} blocked={garmentBlock(g)}/></>}</span>)}</div>
       {(!data.garmentTypes||data.garmentTypes.length===0)&&<div style={{textAlign:"center",padding:20,color:T.textSec}}>لم يتم اضافة قطع بعد</div>}
     </Card>
     {gShow&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setGShow(false)}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:380,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
@@ -1895,12 +2187,12 @@ function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,onSubUse
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setGShow(false)}>الغاء</Btn><Btn primary onClick={()=>{saveGarment();setGShow(false)}} title="حفظ التعديلات">💾 حفظ</Btn></div>
       </div>
     </div></div>}</>}
-    {sub==="ws"&&<WsManager workshops={data.workshops||[]} upConfig={upConfig} canEdit={canEdit} isMob={isMob} orders={data.orders} renameInOrders={renameInOrders} wsPayments={data.wsPayments||[]}/>}
+    {sub==="ws"&&<WsManager workshops={data.workshops||[]} upConfig={upConfig} canEdit={canEdit} isMob={isMob} orders={data.orders} renameInOrders={renameInOrders} wsPayments={data.wsPayments||[]} safeDelete={safeDelete}/>}
     {sub==="status"&&<><Card title="حالات الأوردر" extra={canEdit&&<Btn primary small onClick={()=>{setStName("");setStColor("#0EA5E9");setStEid(null);setStShow(true)}}>+ اضافة</Btn>}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(2,1fr)":"repeat(4,1fr)",gap:12}}>
         {statusCards.map(s=><div key={s.id} style={{padding:16,borderRadius:14,border:"2px solid "+s.color+"40",background:s.color+"08",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:20,height:20,borderRadius:6,background:s.color}}/><span style={{fontWeight:700,fontSize:FS,color:T.text}}>{s.name}</span></div>
-          {canEdit&&<div style={{display:"flex",gap:4}}>{eBtn(()=>{setStName(s.name);setStColor(s.color);setStEid(s.id);setStShow(true)})}<DelBtn onConfirm={()=>upConfig(d=>{d.statusCards=(d.statusCards||[]).filter(x=>x.id!==s.id)})} blocked={ords.some(o=>o.status===s.name)?"يوجد أوردرات بهذه الحالة":null}/></div>}
+          {canEdit&&<div style={{display:"flex",gap:4}}>{eBtn(()=>{setStName(s.name);setStColor(s.color);setStEid(s.id);setStShow(true)})}<DelBtn onConfirm={()=>safeDelete("statusCards",s.id,"حالة")} blocked={ords.some(o=>o.status===s.name)?"يوجد أوردرات بهذه الحالة":null}/></div>}
         </div>)}
       </div>
     </Card>
@@ -1916,7 +2208,7 @@ function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,onSubUse
 }
 
 /* ══ WORKSHOP MANAGER ══ */
-function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrders,wsPayments}){
+function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrders,wsPayments,safeDelete}){
   const[showForm,setShowForm]=useState(false);const[editId,setEditId]=useState(null);
   const[f,setF]=useState({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خياطة خارجي",payPercent:60});
   const startEdit=(ws)=>{setF({...ws,type:ws.type==="خارجي"?"خياطة خارجي":ws.type==="داخلي"?"خياطة داخلي":ws.type||"خياطة خارجي",payPercent:ws.payPercent||60});setEditId(ws.id);setShowForm(true)};
@@ -1931,7 +2223,7 @@ function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrders,wsPay
     });
     if(oldName)renameInOrders("ws",oldName,f.name.trim(),editId);
     setShowForm(false);setEditId(null)};
-  const del=(id)=>upConfig(d=>{d.workshops=(d.workshops||[]).filter(w=>w.id!==id)});
+  const del=(id)=>safeDelete("workshops",id,"ورشة");
   const wsBlock=(ws)=>{const hasOrders=(orders||[]).some(o=>(o.workshopDeliveries||[]).some(wd=>wd.wsName===ws.name));if(hasOrders)return"يوجد تسليمات مرتبطة بهذه الورشة";const hasPay=(wsPayments||[]).some(p=>p.wsName===ws.name);if(hasPay)return"يوجد دفعات مرتبطة بهذه الورشة";return null};
   const[wsSearch,setWsSearch]=useState("");
   const filteredWs=wsSearch.trim()?(workshops||[]).filter(ws=>(ws.name||"").includes(wsSearch)||(ws.address||"").includes(wsSearch)||(ws.phone||"").includes(wsSearch)||(ws.owner||"").includes(wsSearch)):(workshops||[]);
@@ -2788,7 +3080,12 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
     const totalPurchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);
     return{due,totalPaid,totalPurchase,balance:due+totalPurchase-totalPaid}
   };
-  const addPayment=(wa)=>{if(!payWs||!payAmt)return;const wsObj=workshops.find(w=>w.name===payWs);upConfig(d=>{if(!d.wsPayments)d.wsPayments=[];d.wsPayments.push({id:gid(),wsName:payWs,wsId:wsObj?wsObj.id:null,amount:Number(payAmt),type:payType,notes:payNote,date:payDate,createdBy:userName||""})});
+  const addPayment=(wa)=>{if(!payWs||!payAmt)return;const wsObj=workshops.find(w=>w.name===payWs);
+    const wsPayId=gid();const txId=gid();
+    upConfig(d=>{if(!d.wsPayments)d.wsPayments=[];
+      d.wsPayments.push({id:wsPayId,wsName:payWs,wsId:wsObj?wsObj.id:null,amount:Number(payAmt),type:payType,notes:payNote,date:payDate,createdBy:userName||"",treasuryTxId:txId});
+      /* Auto-register in treasury — linked to ws payment */
+      if(!d.treasury)d.treasury=[];d.treasury.unshift({id:txId,type:"out",amount:Number(payAmt),desc:(payType==="payment"?"دفعة ورشة ":"مشتريات ورشة ")+payWs+(payNote?" — "+payNote:""),notes:"",category:payType==="payment"?"تشغيل خارجي":"مشتريات",account:"SUB CASH",season:d.activeSeason||"",date:payDate,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(payDate).getDay()],sourceType:"ws_payment",wsPaymentId:wsPayId,wsName:payWs,by:userName||"",createdAt:new Date().toISOString()})});
     if(wa){const acc=wsAccounts(payWs);let del=0,rcv=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===payWs).forEach(wd=>{del+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{rcv+=Number(r.qty)||0})})});
       const allPay=(data.wsPayments||[]).filter(p=>p.wsName===payWs&&p.type==="payment");const totalPaid=allPay.reduce((s,p)=>s+(Number(p.amount)||0),0)+Number(payAmt);
       const phone=wsObj?.phone||"";
@@ -3299,10 +3596,20 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
         <td style={{...TDB,color:p.type==="payment"?T.err:T.ok,minWidth:90}}>{isEd?<Inp type="number" value={edPayAmt} onChange={setEdPayAmt}/>:fmt(p.amount)+" ج.م"}</td>
         <td style={{...TD,minWidth:80}}>{isEd?<Inp value={edPayNote} onChange={setEdPayNote}/>:(p.notes||"-")}</td>
         <td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}>
-          {isEd?<><Btn small primary onClick={()=>{upConfig(d=>{const t=(d.wsPayments||[]).find(x=>x.id===p.id);if(t){t.date=edPayDate;t.amount=Number(edPayAmt)||0;t.notes=edPayNote;t.type=edPayType}});setEditPayId(null);showToast("✓ تم التعديل")}} title="حفظ">💾</Btn><Btn ghost small onClick={()=>setEditPayId(null)} title="إغلاق">✕</Btn></>
+          {isEd?<><Btn small primary onClick={()=>{upConfig(d=>{const t=(d.wsPayments||[]).find(x=>x.id===p.id);if(t){t.date=edPayDate;t.amount=Number(edPayAmt)||0;t.notes=edPayNote;t.type=edPayType;
+            /* Sync linked treasury entry */
+            const txId=t.treasuryTxId;const tx=txId?(d.treasury||[]).find(x=>x.id===txId):(d.treasury||[]).find(x=>x.wsPaymentId===t.id);
+            if(tx){tx.date=edPayDate;tx.amount=Number(edPayAmt)||0;tx.category=edPayType==="payment"?"تشغيل خارجي":"مشتريات";tx.desc=(edPayType==="payment"?"دفعة ورشة ":"مشتريات ورشة ")+t.wsName+(edPayNote?" — "+edPayNote:"");tx.day=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(edPayDate).getDay()]}}
+            });setEditPayId(null);showToast("✓ تم التعديل")}} title="حفظ">💾</Btn><Btn ghost small onClick={()=>setEditPayId(null)} title="إغلاق">✕</Btn></>
           :<><Btn small onClick={()=>{setEditPayId(p.id);setEdPayDate(p.date);setEdPayAmt(p.amount);setEdPayNote(p.notes||"");setEdPayType(p.type)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
           <Btn small onClick={()=>{const wsO=workshops.find(w=>w.name===payWs);const ph=wsO?.phone||"";const ac=wsAccounts(payWs);const mg="*CLARK — "+(p.type==="payment"?"اشعار دفعة":"اشعار مشتريات")+"*%0A%0A• الورشة: *"+payWs+"*%0A• المبلغ: *"+fmt(p.amount)+"* ج.م%0A• التاريخ: *"+p.date+"*%0A"+(p.notes?"• ملاحظات: "+p.notes+"%0A":"")+"%0A─────────────────%0A*الرصيد الحالي: "+fmt(r2(ac.balance))+" ج.م*";window.open("https://wa.me/"+(ph?ph.replace(/[^0-9]/g,""):"")+"?text="+mg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال واتساب">📱</Btn>
-          <DelBtn onConfirm={()=>upConfig(d=>{d.wsPayments=(d.wsPayments||[]).filter(x=>x.id!==p.id)})}/></>}
+          <DelBtn onConfirm={()=>upConfig(d=>{
+            const pay=(d.wsPayments||[]).find(x=>x.id===p.id);
+            d.wsPayments=(d.wsPayments||[]).filter(x=>x.id!==p.id);
+            /* Remove linked treasury entry */
+            if(pay?.treasuryTxId)d.treasury=(d.treasury||[]).filter(t=>t.id!==pay.treasuryTxId);
+            else d.treasury=(d.treasury||[]).filter(t=>t.wsPaymentId!==p.id);
+          })}/></>}
         </div></td>
       </tr>})}{(data.wsPayments||[]).filter(p=>p.wsName===payWs).length===0&&<tr><td colSpan={5} style={{...TD,textAlign:"center",color:T.textSec}}>لا توجد دفعات</td></tr>}
     </tbody></table></div></Card>}
@@ -4471,8 +4778,8 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
   };
 
   return<div>
-    {(()=>{const crd=(icon,label,color,onClick,sub)=><div onClick={onClick} style={{background:T.cardSolid,borderRadius:14,padding:"8px 4px",border:"1px solid "+color+"20",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",height:isMob?80:90,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}><div style={{fontSize:isMob?20:24,marginBottom:2}}>{icon}</div><div style={{fontSize:isMob?FS-3:FS-2,fontWeight:700,color,whiteSpace:"nowrap"}}>{label}</div>{sub&&<div style={{fontSize:FS-3,color:T.textMut}}>{sub}</div>}</div>;
-      return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":isTab?"repeat(5,1fr)":"repeat(10,1fr)",gap:8,marginBottom:16}}>
+    {(()=>{const crd=(icon,label,color,onClick,sub)=><div onClick={onClick} style={{background:T.cardSolid,borderRadius:12,padding:"8px 6px",border:"1px solid "+color+"25",boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",width:86,height:86,flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}><div style={{fontSize:22,lineHeight:1}}>{icon}</div><div style={{fontSize:FS-3,fontWeight:700,color,lineHeight:1.2,textAlign:"center"}}>{label}</div>{sub&&<div style={{fontSize:FS-4,color:T.textMut}}>{sub}</div>}</div>;
+      return<div style={{display:"flex",gap:8,marginBottom:16,overflowX:"auto",overflowY:"hidden",paddingBottom:6,scrollbarWidth:"thin",WebkitOverflowScrolling:"touch"}}>
         {canEdit&&crd("👥","العملاء",T.text,()=>setShowCustList(true),customers.length+"")}
         {canEdit&&crd("🚚","تسليم جديد",T.ok,()=>{setSelModels({});setSelCusts({});setShowNewSession(true)})}
         {canEdit&&crd("📦","بيع سريع","#10B981",()=>setQrSale({mode:"sale",custId:null,items:[],note:""}))}
@@ -4484,7 +4791,7 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
         {crd("📄","كشف حساب",T.accent,()=>{setCustStatement("pick");setCustFilter("")})}
         {stockModels.length>0&&crd("🏆","تحليل مبيعات","#8B5CF6",()=>setSalesAnalysis(true))}
         {crd("🧾","بيان سعر","#8B5CF6",()=>setQuoteCust("pickSess"))}
-        {crd("📋","سجل حركات البيع","#059669",()=>{setCustSalesLog("all");setLogCustF("");setLogModelF("");setLogDateF("");setLogTypeFilter("");setLogLimit(50)})}
+        {crd("📋","سجل البيع","#059669",()=>{setCustSalesLog("all");setLogCustF("");setLogModelF("");setLogDateF("");setLogTypeFilter("");setLogLimit(50)})}
         {crd("📦","كراتين","#0EA5E9",()=>setPkgPopup("list"))}
         {crd("📊","خط الانتاج","#059669",printProductionLine)}
         {crd("📋","تقرير الموسم","#EF4444",()=>setSeasonReport(true))}
@@ -4497,15 +4804,102 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
             const k=o.id+"_"+d.custId;orp.grid[k]=(orp.grid[k]||0)+(Number(d.qty)||0);
             if(d.date)orp.dates.push(d.date);orp.total+=(Number(d.qty)||0)}})});
           const oList=Object.values(orphans);
-          return oList.length>0?crd("🔄","استعادة توزيعة ("+oList.length+")","#EF4444",()=>{
+          return oList.length>0?crd("🔄","استعادة ("+oList.length+")","#EF4444",()=>{
             if(!confirm("تم العثور على "+oList.length+" توزيعة محذوفة ("+oList.reduce((s,o)=>s+o.total,0)+" قطعة).\n\nهل تريد استعادتها؟"))return;
             oList.forEach(orp=>{const date=orp.dates.sort()[0]||new Date().toISOString().split("T")[0];
               upSales(d=>{if(!d.custDeliverySessions)d.custDeliverySessions=[];
                 d.custDeliverySessions.push({id:orp.id,date,modelIds:[...orp.modelIds],custIds:[...orp.custIds],grid:orp.grid,
                   status:"جاري التجهيز",saleConfirmed:true,createdBy:"RECOVERY",createdAt:new Date().toISOString(),recoveredAt:new Date().toISOString()})})});
             showToast("✅ تم استعادة "+oList.length+" توزيعة بنجاح")}):null})()}
-        {(()=>{const pCount=orders.reduce((s,o)=>s+(o.deliveries||[]).filter(d=>d.status==="pending").length,0);return crd("📥",pCount>0?"تأكيد استلام ⏳"+pCount:"تأكيد استلام","#10B981",()=>setPendingRcv({items:{}}))})()}
-
+        {(()=>{const pCount=orders.reduce((s,o)=>s+(o.deliveries||[]).filter(d=>d.status==="pending").length,0);return crd("📥",pCount>0?"تأكيد ⏳"+pCount:"تأكيد استلام","#10B981",()=>setPendingRcv({items:{}}))})()}
+      </div>})()}
+    {/* ═══ SALES STATS CARDS ═══ */}
+    {(()=>{
+      let totalSales=0,totalReturns=0,totalCashPay=0,totalCheckPay=0,totalOtherPay=0;
+      const perCust={};
+      orders.forEach(o=>{const sp=Number(o.sellPrice)||0;
+        (o.customerDeliveries||[]).forEach(d=>{const v=(Number(d.qty)||0)*sp;totalSales+=v;
+          if(!perCust[d.custId])perCust[d.custId]={sales:0,returns:0,cash:0,check:0,other:0};perCust[d.custId].sales+=v});
+        (o.customerReturns||[]).forEach(r=>{const v=(Number(r.qty)||0)*sp;totalReturns+=v;
+          if(!perCust[r.custId])perCust[r.custId]={sales:0,returns:0,cash:0,check:0,other:0};perCust[r.custId].returns+=v})});
+      (config.custPayments||[]).forEach(p=>{const amt=Number(p.amount)||0;const m=(p.method||"").toLowerCase();
+        const isCheck=m.includes("شيك")||m.includes("check");
+        const isCash=m.includes("كاش")||m.includes("cash")||!m;
+        if(isCheck)totalCheckPay+=amt;else if(isCash)totalCashPay+=amt;else totalOtherPay+=amt;
+        if(!perCust[p.custId])perCust[p.custId]={sales:0,returns:0,cash:0,check:0,other:0};
+        if(isCheck)perCust[p.custId].check+=amt;else if(isCash)perCust[p.custId].cash+=amt;else perCust[p.custId].other+=amt});
+      const totalBalance=totalSales-totalReturns-totalCashPay-totalCheckPay-totalOtherPay;
+      const printSalesReport=()=>{const w=window.open("","_blank");if(!w)return;
+        const logo=(config.logo||"").trim();
+        const rows=customers.map(c=>{const p=perCust[c.id]||{sales:0,returns:0,cash:0,check:0,other:0};const bal=p.sales-p.returns-p.cash-p.check-p.other;
+          return{name:c.name,phone:c.phone||"—",...p,bal}}).filter(r=>r.sales>0||r.returns>0||r.cash>0||r.check>0||r.other>0||r.bal!==0).sort((a,b)=>b.bal-a.bal);
+        let html=`<html dir="rtl"><head><meta charset="utf-8"><title>تقرير المبيعات</title>
+        <style>@page{size:A4;margin:10mm}*{box-sizing:border-box}body{font-family:'Cairo',Arial,sans-serif;font-size:11px;margin:0;padding:0;color:#1a1a1a}
+        .hdr{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:2px solid #0ea5e9;margin-bottom:12px}
+        .hdr img{max-height:50px}.hdr h1{font-size:16px;margin:0;color:#0ea5e9}
+        .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px}
+        .stat{padding:10px;border-radius:8px;text-align:center;border:1px solid #e2e8f0}
+        .stat .label{font-size:10px;color:#64748b;margin-bottom:4px}.stat .val{font-size:14px;font-weight:800}
+        .s-sales{background:#f0f9ff}.s-sales .val{color:#0ea5e9}
+        .s-ret{background:#fef2f2}.s-ret .val{color:#ef4444}
+        .s-cash{background:#f0fdf4}.s-cash .val{color:#10b981}
+        .s-chk{background:#fef3c7}.s-chk .val{color:#f59e0b}
+        .s-bal{background:#faf5ff}.s-bal .val{color:#8b5cf6}
+        table{width:100%;border-collapse:collapse;font-size:10px}
+        th,td{border:1px solid #cbd5e1;padding:5px 7px;text-align:right}
+        th{background:#0ea5e9;color:#fff;font-weight:700;text-align:center}
+        tr:nth-child(even){background:#f8fafc}
+        .num{text-align:center}.pos{color:#10b981;font-weight:700}.neg{color:#ef4444;font-weight:700}
+        tfoot tr{background:#0ea5e9;color:#fff;font-weight:800}
+        @media print{body{margin:0}}</style></head><body>
+        <div class="hdr">${logo?'<img src="'+logo+'"/>':'<div style="font-size:22px;font-weight:900;color:#0ea5e9">CLARK</div>'}
+          <div style="text-align:left"><h1>📊 تقرير المبيعات الموسم: ${season}</h1><div style="font-size:10px;color:#64748b">تاريخ: ${new Date().toISOString().split("T")[0]}</div></div></div>
+        <div class="stats">
+          <div class="stat s-sales"><div class="label">اجمالي المبيعات</div><div class="val">${fmt(r2(totalSales))}</div></div>
+          <div class="stat s-ret"><div class="label">المرتجعات</div><div class="val">${fmt(r2(totalReturns))}</div></div>
+          <div class="stat s-cash"><div class="label">دفعات كاش</div><div class="val">${fmt(r2(totalCashPay))}</div></div>
+          <div class="stat s-chk"><div class="label">دفعات شيكات</div><div class="val">${fmt(r2(totalCheckPay))}</div></div>
+          <div class="stat s-bal"><div class="label">رصيد عند العملاء</div><div class="val">${fmt(r2(totalBalance))}</div></div>
+        </div>
+        <table><thead><tr><th>العميل</th><th>تليفون</th><th>المبيعات</th><th>مرتجعات</th><th>دفعات كاش</th><th>دفعات شيكات</th><th>أخرى</th><th>الرصيد</th></tr></thead><tbody>`;
+        rows.forEach(r=>{html+=`<tr><td>${r.name}</td><td class="num">${r.phone}</td>
+          <td class="num">${fmt(r2(r.sales))}</td>
+          <td class="num ${r.returns>0?"neg":""}">${r.returns>0?fmt(r2(r.returns)):"—"}</td>
+          <td class="num ${r.cash>0?"pos":""}">${r.cash>0?fmt(r2(r.cash)):"—"}</td>
+          <td class="num ${r.check>0?"pos":""}">${r.check>0?fmt(r2(r.check)):"—"}</td>
+          <td class="num">${r.other>0?fmt(r2(r.other)):"—"}</td>
+          <td class="num" style="font-weight:800;color:${r.bal>0?"#ef4444":r.bal<0?"#10b981":"#64748b"}">${fmt(r2(r.bal))}</td></tr>`});
+        html+=`</tbody><tfoot><tr><td colspan="2" style="text-align:right">الاجمالي</td>
+          <td class="num">${fmt(r2(totalSales))}</td>
+          <td class="num">${fmt(r2(totalReturns))}</td>
+          <td class="num">${fmt(r2(totalCashPay))}</td>
+          <td class="num">${fmt(r2(totalCheckPay))}</td>
+          <td class="num">${fmt(r2(totalOtherPay))}</td>
+          <td class="num">${fmt(r2(totalBalance))}</td></tr></tfoot></table>
+        </body></html>`;
+        w.document.write(html);w.document.close();setTimeout(()=>w.print(),300)};
+      return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(5,1fr)",gap:10,marginBottom:16}}>
+        <div style={{padding:12,borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"15",textAlign:"center"}}>
+          <div style={{fontSize:FS-1,color:T.textSec,marginBottom:4}}>💰 المبيعات</div>
+          <div style={{fontSize:isMob?16:19,fontWeight:800,color:T.accent}}>{fmt(r2(totalSales))}</div>
+        </div>
+        <div style={{padding:12,borderRadius:10,background:T.err+"08",border:"1px solid "+T.err+"15",textAlign:"center"}}>
+          <div style={{fontSize:FS-1,color:T.textSec,marginBottom:4}}>↩️ مرتجعات</div>
+          <div style={{fontSize:isMob?16:19,fontWeight:800,color:T.err}}>{fmt(r2(totalReturns))}</div>
+        </div>
+        <div style={{padding:12,borderRadius:10,background:T.ok+"08",border:"1px solid "+T.ok+"15",textAlign:"center"}}>
+          <div style={{fontSize:FS-1,color:T.textSec,marginBottom:4}}>💵 دفعات كاش</div>
+          <div style={{fontSize:isMob?16:19,fontWeight:800,color:T.ok}}>{fmt(r2(totalCashPay))}</div>
+        </div>
+        <div style={{padding:12,borderRadius:10,background:T.warn+"08",border:"1px solid "+T.warn+"15",textAlign:"center"}}>
+          <div style={{fontSize:FS-1,color:T.textSec,marginBottom:4}}>📝 دفعات شيكات</div>
+          <div style={{fontSize:isMob?16:19,fontWeight:800,color:T.warn}}>{fmt(r2(totalCheckPay))}</div>
+        </div>
+        <div onClick={printSalesReport} style={{padding:12,borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF615",textAlign:"center",cursor:"pointer",position:"relative"}} title="طباعة تقرير تفصيلي بكل العملاء">
+          <div style={{position:"absolute",top:6,left:8,fontSize:13}}>🖨</div>
+          <div style={{fontSize:FS-1,color:T.textSec,marginBottom:4}}>⚖️ رصيد عند العملاء</div>
+          <div style={{fontSize:isMob?16:19,fontWeight:800,color:totalBalance>0?T.err:"#8B5CF6"}}>{fmt(r2(totalBalance))}</div>
+        </div>
       </div>})()}
     {/* Active Session Matrix - Popup */}
     {activeSess&&aMods.length===0&&aCusts.length===0&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setActiveSession(null)}>
@@ -4838,24 +5232,66 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
       orders.forEach(o=>{const del=(o.customerDeliveries||[]).filter(d=>d.custId===custStatement).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).filter(r=>r.custId===custStatement).reduce((s,r)=>s+(Number(r.qty)||0),0);
         if(del>0||ret>0){totalDel+=del;totalRet+=ret;rows.push({modelNo:o.modelNo,modelDesc:o.modelDesc,delivered:del,returned:ret,net:del-ret,sellPrice:Number(o.sellPrice)||0})}});
       const totalNet=totalDel-totalRet;const totalVal=rows.reduce((s,r)=>s+r.net*r.sellPrice,0);
+      const retVal=rows.reduce((s,r)=>s+r.returned*r.sellPrice,0);
+      /* Customer payments */
+      const custPayments=(config.custPayments||[]).filter(p=>p.custId===custStatement).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+      const totalPaid=custPayments.reduce((s,p)=>s+(Number(p.amount)||0),0);
+      const custBalance=r2(totalVal-retVal-totalPaid);
+      const[payAmt,setPayAmt_]=useState("");const[payDate_,setPayDate_]=useState(new Date().toISOString().split("T")[0]);const[payNote_,setPayNote_]=useState("");const[payMethod,setPayMethod]=useState("كاش");
+      const addCustPayment=()=>{const amt=parseFloat(payAmt);if(!amt||amt<=0){playBeep("error");return}
+        upConfig(d=>{if(!d.custPayments)d.custPayments=[];
+          d.custPayments.push({id:gid(),custId:custStatement,custName:cust.name,amount:amt,date:payDate_,note:payNote_,method:payMethod,by:userName,createdAt:new Date().toISOString()});
+          /* Auto-register in treasury as income */
+          if(!d.treasury)d.treasury=[];
+          d.treasury.unshift({id:gid(),type:"in",amount:amt,desc:"دفعة من عميل "+cust.name+(payNote_?" — "+payNote_:""),notes:payMethod,category:"دفعة عميل",account:"SUB CASH",season:d.activeSeason||"",date:payDate_,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(payDate_).getDay()],by:userName,createdAt:new Date().toISOString()})});
+        setPayAmt_("");setPayNote_("");showToast("✓ تم تسجيل الدفعة في حساب العميل والخزنة")};
+      const delCustPay=(pid)=>{upConfig(d=>{d.custPayments=(d.custPayments||[]).filter(p=>p.id!==pid)});showToast("✓ تم حذف الدفعة")};
       const printStatement=()=>{let h="<h2 style='text-align:center'>📄 كشف حساب عميل</h2><table style='margin:0 auto 16px'><tr><th style='text-align:right;padding:4px 12px'>العميل</th><td style='padding:4px 12px;font-weight:800'>"+cust.name+"</td><th style='text-align:right;padding:4px 12px'>النوع</th><td style='padding:4px 12px'>"+(cust.type||"—")+"</td></tr><tr><th style='text-align:right;padding:4px 12px'>التليفون</th><td style='padding:4px 12px'>"+cust.phone+"</td><th style='text-align:right;padding:4px 12px'>العنوان</th><td style='padding:4px 12px'>"+(cust.address||"—")+"</td></tr></table>";
         h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>تسليم</th><th>مرتجع</th><th>صافي</th><th>سعر</th><th>القيمة</th></tr></thead><tbody>";
         rows.forEach((r,i)=>{h+="<tr style='background:"+(i%2===0?"transparent":"#f8f8f8")+"'><td style='font-weight:800;color:#0EA5E9'>"+r.modelNo+"</td><td>"+r.modelDesc+"</td><td style='text-align:center'>"+r.delivered+"</td><td style='text-align:center;color:#EF4444'>"+(r.returned||"—")+"</td><td style='text-align:center;font-weight:800'>"+r.net+"</td><td style='text-align:center'>"+(r.sellPrice||"—")+"</td><td style='text-align:center;font-weight:700'>"+fmt(r.net*r.sellPrice)+"</td></tr>"});
         h+="<tr style='background:#EFF6FF;font-weight:800'><td colspan='2'>الاجمالي</td><td style='text-align:center;color:#0EA5E9'>"+totalDel+"</td><td style='text-align:center;color:#EF4444'>"+totalRet+"</td><td style='text-align:center;font-size:14px'>"+totalNet+"</td><td></td><td style='text-align:center;color:#0EA5E9;font-size:14px'>"+fmt(totalVal)+" ج.م</td></tr></tbody></table>";
+        h+="<h3>💳 ملخص الحساب</h3><table><tr><td>اجمالي المبيعات</td><td style='font-weight:800'>"+fmt(totalVal)+" ج.م</td></tr><tr><td>قيمة المرتجعات</td><td style='color:#EF4444'>-"+fmt(retVal)+" ج.م</td></tr><tr><td>اجمالي المدفوع</td><td style='color:#10B981'>-"+fmt(totalPaid)+" ج.م</td></tr><tr style='font-size:16px;font-weight:800'><td>الرصيد المتبقي</td><td style='color:"+(custBalance>0?"#EF4444":"#10B981")+"'>"+fmt(custBalance)+" ج.م</td></tr></table>";
+        if(custPayments.length>0){h+="<h3>💰 سجل الدفعات</h3><table><thead><tr><th>التاريخ</th><th>المبلغ</th><th>الطريقة</th><th>ملاحظات</th><th>بواسطة</th></tr></thead><tbody>";custPayments.forEach(p=>{h+="<tr><td>"+p.date+"</td><td style='font-weight:700;color:#10B981'>"+fmt(p.amount)+"</td><td>"+(p.method||"")+"</td><td>"+(p.note||"")+"</td><td>"+(p.by||"")+"</td></tr>"});h+="</tbody></table>"}
         h+="<div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>العميل: "+cust.name+"</div></div>";
         printPage("كشف حساب — "+cust.name,h)};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setCustStatement(null)}>
-        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?"100%":700,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?"100%":750,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
             <div><div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{"📄 كشف حساب — "+cust.name}</div><div style={{fontSize:FS-2,color:T.textMut}}>{(cust.type||"")+" | "+cust.phone}</div></div>
             <div style={{display:"flex",gap:4}}><Btn small onClick={printStatement} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn><Btn ghost small onClick={()=>setCustStatement("pick")}>← رجوع</Btn><Btn ghost small onClick={()=>setCustStatement(null)} title="إغلاق">✕</Btn></div>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,margin:"12px 0"}}>
-            <div style={{padding:10,borderRadius:10,background:T.accent+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>اجمالي التسليم</div><div style={{fontSize:18,fontWeight:800,color:T.accent}}>{fmt(totalDel)}</div></div>
-            <div style={{padding:10,borderRadius:10,background:T.err+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>اجمالي المرتجع</div><div style={{fontSize:18,fontWeight:800,color:T.err}}>{fmt(totalRet)}</div></div>
-            <div style={{padding:10,borderRadius:10,background:T.ok+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>الصافي</div><div style={{fontSize:18,fontWeight:800,color:T.ok}}>{fmt(totalNet)}</div></div>
-            <div style={{padding:10,borderRadius:10,background:"#8B5CF608",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>نسبة المبيعات</div><div style={{fontSize:18,fontWeight:800,color:"#8B5CF6"}}>{(()=>{const totalAllSold=stockModels.reduce((s,m)=>s+m.custDel,0);return totalAllSold>0?Math.round(totalNet/totalAllSold*100)+"%":"0%"})()}</div></div>
+          {/* Balance summary */}
+          <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(5,1fr)",gap:8,margin:"12px 0"}}>
+            <div style={{padding:10,borderRadius:10,background:T.accent+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>قيمة المبيعات</div><div style={{fontSize:16,fontWeight:800,color:T.accent}}>{fmt(totalVal)}</div></div>
+            <div style={{padding:10,borderRadius:10,background:T.err+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>قيمة المرتجعات</div><div style={{fontSize:16,fontWeight:800,color:T.err}}>{fmt(retVal)}</div></div>
+            <div style={{padding:10,borderRadius:10,background:T.ok+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>اجمالي المدفوع</div><div style={{fontSize:16,fontWeight:800,color:T.ok}}>{fmt(totalPaid)}</div></div>
+            <div style={{padding:10,borderRadius:10,background:custBalance>0?T.err+"10":T.ok+"10",border:"2px solid "+(custBalance>0?T.err:T.ok)+"30",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>الرصيد المتبقي</div><div style={{fontSize:20,fontWeight:800,color:custBalance>0?T.err:T.ok}}>{fmt(custBalance)+" ج.م"}</div></div>
+            <div style={{padding:10,borderRadius:10,background:T.ok+"06",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>صافي القطع</div><div style={{fontSize:16,fontWeight:800,color:T.ok}}>{fmt(totalNet)}</div></div>
           </div>
+          {/* Add payment form */}
+          {canEdit&&<div style={{padding:12,borderRadius:12,background:T.ok+"06",border:"1px solid "+T.ok+"20",marginBottom:12}}>
+            <div style={{fontSize:FS-1,fontWeight:700,color:T.ok,marginBottom:8}}>💳 تسجيل دفعة</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
+              <div><label style={{fontSize:FS-3,color:T.textSec}}>المبلغ</label><input type="number" value={payAmt} onChange={e=>setPayAmt_(e.target.value)} placeholder="0" style={{display:"block",width:100,padding:"6px 8px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.inputBg,color:T.text}}/></div>
+              <div><label style={{fontSize:FS-3,color:T.textSec}}>الطريقة</label><select value={payMethod} onChange={e=>setPayMethod(e.target.value)} style={{display:"block",padding:"6px 8px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text}}><option>كاش</option><option>تحويل بنكي</option><option>محفظة</option><option>شيك</option></select></div>
+              <div><label style={{fontSize:FS-3,color:T.textSec}}>التاريخ</label><input type="date" value={payDate_} onChange={e=>setPayDate_(e.target.value)} style={{display:"block",padding:"6px 8px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text}}/></div>
+              <div style={{flex:1,minWidth:80}}><label style={{fontSize:FS-3,color:T.textSec}}>ملاحظات</label><input value={payNote_} onChange={e=>setPayNote_(e.target.value)} placeholder="..." style={{display:"block",width:"100%",padding:"6px 8px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text}}/></div>
+              <Btn primary small onClick={addCustPayment}>💰 تسجيل</Btn>
+            </div>
+          </div>}
+          {/* Payments log */}
+          {custPayments.length>0&&<div style={{marginBottom:12}}>
+            <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:6}}>{"💰 سجل الدفعات ("+custPayments.length+")"}</div>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>{custPayments.map(p=><div key={p.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderRadius:8,background:T.ok+"06",border:"1px solid "+T.ok+"15"}}>
+              <span style={{fontSize:FS,fontWeight:800,color:T.ok}}>{fmt(p.amount)}</span>
+              <span style={{fontSize:FS-2,color:T.textSec}}>{p.date}</span>
+              <span style={{fontSize:FS-2,padding:"1px 6px",borderRadius:4,background:T.bg,color:T.textMut}}>{p.method||"كاش"}</span>
+              {p.note&&<span style={{fontSize:FS-2,color:T.textMut,flex:1}}>{p.note}</span>}
+              <span style={{fontSize:FS-3,color:T.textMut}}>{p.by}</span>
+              {canEdit&&<span onClick={()=>{if(confirm("حذف هذه الدفعة؟"))delCustPay(p.id)}} style={{cursor:"pointer",fontSize:11,color:T.err}}>✕</span>}
+            </div>)}</div>
+          </div>}
+          {/* Items table */}
           {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","الوصف","تسليم","مرتجع","صافي","سعر","القيمة"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
             {rows.map((r,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={{...TD,fontWeight:700,color:T.accent}}>{r.modelNo}</td><td style={TD}>{r.modelDesc}</td><td style={{...TD,textAlign:"center"}}>{r.delivered}</td><td style={{...TD,textAlign:"center",color:r.returned?T.err:T.textMut}}>{r.returned||"—"}</td><td style={{...TD,textAlign:"center",fontWeight:800}}>{r.net}</td><td style={{...TD,textAlign:"center"}}>{r.sellPrice||"—"}</td><td style={{...TD,textAlign:"center",fontWeight:700}}>{fmt(r.net*r.sellPrice)}</td></tr>)}
             <tr style={{background:T.accent+"08"}}><td colSpan={2} style={{...TD,fontWeight:800}}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800,color:T.accent}}>{totalDel}</td><td style={{...TD,textAlign:"center",fontWeight:800,color:T.err}}>{totalRet}</td><td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2}}>{totalNet}</td><td style={TD}></td><td style={{...TD,textAlign:"center",fontWeight:800,color:T.accent}}>{fmt(totalVal)+" ج.م"}</td></tr>
@@ -4893,7 +5329,7 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
               <Btn small onClick={()=>setCustSalesLog(c.id)} style={{background:"#059669"+"12",color:"#059669",border:"1px solid #05966930"}} title="سجل مبيعات">📋</Btn>
               <Btn small onClick={()=>{setCName(c.name);setCPhone(c.phone);setCAddr(c.address||"");setCType(c.type||"مكتب");setCEditId(c.id);setShowCustForm(true)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
               <Btn small onClick={()=>showCustQR(c)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="عرض كود QR">QR</Btn>
-              <DelBtn onConfirm={()=>upConfig(d=>{d.customers=(d.customers||[]).filter(x=>x.id!==c.id)})} blocked={(()=>{if(total>0)return"لديه تسليمات";const inSess=(config.custDeliverySessions||[]).some(s=>(s.custIds||[]).includes(c.id));if(inSess)return"مرتبط بتوزيعة";const hasRet=orders.some(o=>(o.customerReturns||[]).some(r=>r.custId===c.id));if(hasRet)return"لديه مرتجعات";return null})()}/>
+              <DelBtn onConfirm={()=>safeDelete("customers",c.id,"عميل")} blocked={(()=>{if(total>0)return"لديه تسليمات";const inSess=(config.custDeliverySessions||[]).some(s=>(s.custIds||[]).includes(c.id));if(inSess)return"مرتبط بتوزيعة";const hasRet=orders.some(o=>(o.customerReturns||[]).some(r=>r.custId===c.id));if(hasRet)return"لديه مرتجعات";return null})()}/>
             </div></td>}</tr>})}
         </tbody></table></div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>{custFilter?"لا توجد نتائج":"سجّل عملاء أولاً"}</div>})()}
       </div>
@@ -5281,8 +5717,25 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
       const confirmSale=()=>{if(!qrSale.custId||total<=0)return;const cust=customers.find(c=>c.id===qrSale.custId);if(!cust)return;
         const byOrder={};qrSale.items.forEach(it=>{if(!byOrder[it.orderId])byOrder[it.orderId]=0;byOrder[it.orderId]+=(Number(it.qty)||0)});
         /* Final validation */
-        if(isSale){for(const[oid,qty] of Object.entries(byOrder)){const avail=getAvailStock(oid);const o=orders.find(x=>x.id===oid);
-          if(qty>avail){showToast("⛔ "+o?.modelNo+": الكمية ("+qty+") أكبر من المتاح ("+avail+")");return}}}
+        if(isSale){
+          /* Determine if linked to a specific distribution session */
+          const linkSess=(qrSale.linkedSession&&qrSale.linkedSession!=="free")?sessions.find(s=>s.id===qrSale.linkedSession):null;
+          for(const[oid,qty] of Object.entries(byOrder)){const o=orders.find(x=>x.id===oid);
+            if(linkSess){
+              /* Option (ج): Limit to what was distributed in this session to this customer */
+              const distributed=Number(linkSess.grid?.[oid+"_"+qrSale.custId])||0;
+              if(distributed<=0){showToast("⛔ "+o?.modelNo+": لم يوزّع في هذه الجلسة للعميل");return}
+              /* Already sold in this session from this customer */
+              const alreadySold=(o?.customerDeliveries||[]).filter(d=>d.sessionId===linkSess.id&&d.custId===qrSale.custId).reduce((s,d)=>s+(Number(d.qty)||0),0);
+              const remaining=distributed-alreadySold;
+              if(qty>remaining){showToast("⛔ "+o?.modelNo+": الكمية ("+qty+") أكبر من المتبقي في التوزيعة ("+remaining+" من "+distributed+")");return}
+            }else{
+              /* Free sale: limit to available stock */
+              const avail=getAvailStock(oid);
+              if(qty>avail){showToast("⛔ "+o?.modelNo+": الكمية ("+qty+") أكبر من المتاح ("+avail+")");return}
+            }
+          }
+        }
         else{for(const[oid,qty] of Object.entries(byOrder)){const delivered=getCustDelivered(oid);const returned=getCustReturned(oid);const net=delivered-returned;const o=orders.find(x=>x.id===oid);
           if(delivered<=0){showToast("⛔ العميل لم يستلم "+o?.modelNo);return}
           if(qty>net){showToast("⚠️ "+o?.modelNo+": المرتجع ("+qty+") أكبر من الصافي ("+net+")");return}}}
@@ -6343,7 +6796,7 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
           <thead><tr><th style={TH}>الشاشة</th>{roles.map(r=><th key={r} style={{...TH,textAlign:"center"}}>{roleLabels[r]}</th>)}</tr></thead>
           <tbody>{tabs.map(t=><tr key={t.key}>
             <td style={{...TD,fontWeight:600}}><span style={{marginLeft:6}}>{t.icon}</span>{t.label}</td>
-            {roles.map(r=>{const defPerms={admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit"},manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit"},sales_accountant:{dashboard:"view",details:"view",external:"hide",stock:"view",reports:"edit",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit"},purchase_accountant:{dashboard:"view",details:"view",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"hide"},viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide"}};const cur=(perms[r]||{})[t.key]||(defPerms[r]||{})[t.key]||"view";
+            {roles.map(r=>{const defPerms={admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit",treasury:"edit",hr:"edit"},manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit",treasury:"view",hr:"view"},sales_accountant:{dashboard:"view",details:"view",external:"hide",stock:"view",reports:"edit",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit",treasury:"hide",hr:"hide"},purchase_accountant:{dashboard:"view",details:"view",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"hide",treasury:"edit",hr:"hide"},viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"hide",hr:"hide"}};const cur=(perms[r]||{})[t.key]||(defPerms[r]||{})[t.key]||"view";
               return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px"}}>
                 {r==="admin"&&t.key==="settings"?<span style={{fontSize:FS-2,color:T.ok,fontWeight:600}}>✏️ دائماً</span>:
                 <select value={cur} onChange={e=>setPerm(r,t.key,e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:levelColors[cur],fontWeight:700,cursor:"pointer"}}>
@@ -6384,11 +6837,156 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
           </div>
           <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>
             {fields.map(f=>{const fv=ps.fields?.[f.key]||{show:false,size:12};const isOn=f.key==="modelNo"||f.key==="qr"?fv.show!==false:fv.show;
-              return<div key={f.key} onClick={()=>savePS(s=>{if(!s.fields)s.fields={};if(!s.fields[f.key])s.fields[f.key]={show:false,size:12};s.fields[f.key].show=!s.fields[f.key].show})} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 8px",borderRadius:6,cursor:"pointer",fontSize:FS-2,fontWeight:600,background:isOn?T.accent+"10":"transparent",color:isOn?T.accent:T.textMut,border:"1px solid "+(isOn?T.accent+"30":T.brd)}}>{isOn?"☑":"☐"} {f.label}</div>})}
+              return<div key={f.key} style={{display:"flex",flexDirection:"column",gap:2,padding:"6px 8px",borderRadius:8,background:isOn?T.accent+"06":"transparent",border:"1px solid "+(isOn?T.accent+"25":T.brd),minWidth:100}}>
+                <div onClick={()=>savePS(s=>{if(!s.fields)s.fields={};if(!s.fields[f.key])s.fields[f.key]={show:false,size:12};s.fields[f.key].show=!s.fields[f.key].show})} style={{cursor:"pointer",fontSize:FS-2,fontWeight:600,color:isOn?T.accent:T.textMut}}>{isOn?"☑":"☐"} {f.label}</div>
+                {isOn&&f.key!=="qr"&&<div style={{display:"flex",alignItems:"center",gap:4}}>
+                  <span style={{fontSize:FS-3,color:T.textMut}}>حجم</span>
+                  <input type="range" min="6" max="28" value={fv.size||12} onChange={e=>savePS(s=>{if(!s.fields)s.fields={};if(!s.fields[f.key])s.fields[f.key]={show:true,size:12};s.fields[f.key].size=Number(e.target.value)})} style={{width:60,accentColor:T.accent}}/>
+                  <span style={{fontSize:FS-3,fontWeight:700,color:T.accent,minWidth:20}}>{fv.size||12}</span>
+                </div>}
+                {isOn&&f.key==="qr"&&<div style={{display:"flex",alignItems:"center",gap:4}}>
+                  <span style={{fontSize:FS-3,color:T.textMut}}>حجم</span>
+                  <input type="range" min="40" max="150" step="5" value={fv.size||80} onChange={e=>savePS(s=>{if(!s.fields)s.fields={};if(!s.fields.qr)s.fields.qr={show:true,size:80};s.fields.qr.size=Number(e.target.value)})} style={{width:60,accentColor:T.accent}}/>
+                  <span style={{fontSize:FS-3,fontWeight:700,color:T.accent,minWidth:20}}>{fv.size||80}%</span>
+                </div>}
+              </div>})}
           </div>
-          <Btn small onClick={printTest} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة تجريبية</Btn>
+          <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+            <Btn small onClick={printTest} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة تجريبية</Btn>
+          </div>
+          {/* Print sizes for reports */}
+          <div style={{marginTop:12,padding:10,borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
+            <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:6}}>📄 إعدادات طباعة التقارير</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              <div><label style={{fontSize:FS-3,color:T.textMut}}>كشف المرتب</label><Sel value={ps.salaryPageSize||"A5-landscape"} onChange={v=>savePS(s=>{s.salaryPageSize=v})}><option value="A5-landscape">A5 أفقي</option><option value="A5-portrait">A5 عمودي</option><option value="A4-portrait">A4 عمودي</option></Sel></div>
+              <div><label style={{fontSize:FS-3,color:T.textMut}}>تقرير اليومية</label><Sel value={ps.dailyReportSize||"A4"} onChange={v=>savePS(s=>{s.dailyReportSize=v})}><option value="A4">A4</option><option value="A5">A5</option></Sel></div>
+            </div>
+          </div>
         </div>})()}
     </Card>
+    {/* Treasury Settings */}
+    <Card title="🏦 إعدادات الخزنة" style={{marginBottom:16}}>
+      {(()=>{const ts=config.treasurySettings||{};
+        const saveTS=(fn)=>upConfig(d=>{if(!d.treasurySettings)d.treasurySettings={};fn(d.treasurySettings)});
+        const outCats=ts.outCategories||["تكلفة","مشتريات","مرتبات","قطع غيار","صيانة ماكينات","خيط","تشغيل خارجي","نقل","كهرباء","ايجار المصنع","نثريات","اكسسوار","مستلزمات تشغيل","ورق ماركر","خدمات","أصول ثابتة","تكاليف أخرى"];
+        const inCats=ts.inCategories||["وارد","إيرادات","دفعة عميل","رأس مال","تحويل"];
+        const[newOutCat,setNewOutCat]=useState("");const[newInCat,setNewInCat]=useState("");
+        return<div>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12}}>
+            <div><label style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:6,display:"block"}}>رصيد أول المدة</label>
+              <Inp type="number" value={ts.openingBalance||""} onChange={v=>saveTS(s=>{s.openingBalance=Number(v)||0})} placeholder="0"/></div>
+            <div><label style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:6,display:"block"}}>ربط الموسم تلقائياً</label>
+              <Sel value={ts.autoSeason===false?"manual":"auto"} onChange={v=>saveTS(s=>{s.autoSeason=v==="auto"})}>
+                <option value="auto">تلقائي (الموسم الحالي)</option><option value="manual">يدوي</option></Sel></div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12,marginTop:12}}>
+            <div><div style={{fontSize:FS-1,fontWeight:700,color:T.err,marginBottom:6}}>بنود المنصرف ({outCats.length})</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>{outCats.map(c=><span key={c} style={{padding:"3px 8px",borderRadius:6,fontSize:FS-2,background:T.err+"08",color:T.err,display:"flex",alignItems:"center",gap:4}}>
+                {c}<span onClick={()=>saveTS(s=>{s.outCategories=(s.outCategories||outCats).filter(x=>x!==c)})} style={{cursor:"pointer",fontSize:10}}>✕</span>
+              </span>)}</div>
+              <div style={{display:"flex",gap:4}}><Inp value={newOutCat} onChange={setNewOutCat} placeholder="بند جديد..." style={{flex:1}}/><Btn small onClick={()=>{if(newOutCat.trim()){saveTS(s=>{if(!s.outCategories)s.outCategories=[...outCats];if(!s.outCategories.includes(newOutCat.trim()))s.outCategories.push(newOutCat.trim())});setNewOutCat("")}}}>+</Btn></div>
+            </div>
+            <div><div style={{fontSize:FS-1,fontWeight:700,color:T.ok,marginBottom:6}}>بنود الوارد ({inCats.length})</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>{inCats.map(c=><span key={c} style={{padding:"3px 8px",borderRadius:6,fontSize:FS-2,background:T.ok+"08",color:T.ok,display:"flex",alignItems:"center",gap:4}}>
+                {c}<span onClick={()=>saveTS(s=>{s.inCategories=(s.inCategories||inCats).filter(x=>x!==c)})} style={{cursor:"pointer",fontSize:10}}>✕</span>
+              </span>)}</div>
+              <div style={{display:"flex",gap:4}}><Inp value={newInCat} onChange={setNewInCat} placeholder="بند جديد..." style={{flex:1}}/><Btn small onClick={()=>{if(newInCat.trim()){saveTS(s=>{if(!s.inCategories)s.inCategories=[...inCats];if(!s.inCategories.includes(newInCat.trim()))s.inCategories.push(newInCat.trim())});setNewInCat("")}}}>+</Btn></div>
+            </div>
+          </div>
+        </div>})()}
+    </Card>
+
+    {/* Odoo Sync Settings */}
+    <Card title="🔗 ربط Odoo — تزامن الخزنة" style={{marginBottom:16}}>
+      {(()=>{const os=config.odooSettings||{};
+        const saveOS=(fn)=>upConfig(d=>{if(!d.odooSettings)d.odooSettings={};fn(d.odooSettings)});
+        const[testResult,setTestResult]=useState(null);const[testing,setTesting]=useState(false);
+        const testConnection=async()=>{setTesting(true);setTestResult(null);
+          try{const r=await fetch("/api/odoo-sync",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"authenticate",odooUrl:os.url||"",odooDb:os.db||"",odooUser:os.user||"",odooKey:os.apiKey||""})});
+            const d=await r.json();if(r.ok&&d.uid){setTestResult({ok:true,msg:"✅ تم الاتصال بنجاح (UID: "+d.uid+")"})}else{setTestResult({ok:false,msg:"❌ فشل: "+(d.error||"خطأ غير معروف")})}}
+          catch(e){setTestResult({ok:false,msg:"❌ خطأ: "+e.message})}setTesting(false)};
+        /* Category → Odoo account mapping */
+        const ts=config.treasurySettings||{};
+        const outCats=ts.outCategories||["تكلفة","مشتريات","مرتبات","قطع غيار","صيانة ماكينات","خيط","تشغيل خارجي","نقل","كهرباء","ايجار المصنع","نثريات","اكسسوار","مستلزمات تشغيل","ورق ماركر","خدمات","أصول ثابتة","تكاليف أخرى"];
+        const inCats=ts.inCategories||["وارد","إيرادات","دفعة عميل","رأس مال","تحويل"];
+        const allCats=[...outCats,...inCats];
+        const mapping=os.accountMapping||{};
+        return<div>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(2,1fr)",gap:10,marginBottom:12}}>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>Odoo URL</label>
+              <Inp value={os.url||""} onChange={v=>saveOS(s=>{s.url=v})} placeholder="https://yourcompany.odoo.com"/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>Database</label>
+              <Inp value={os.db||""} onChange={v=>saveOS(s=>{s.db=v})} placeholder="database name"/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>Email</label>
+              <Inp value={os.user||""} onChange={v=>saveOS(s=>{s.user=v})} placeholder="user@example.com"/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>API Key</label>
+              <Inp value={os.apiKey||""} onChange={v=>saveOS(s=>{s.apiKey=v})} placeholder="API Key" type="password"/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>دفتر اليومية</label>
+              <Inp value={os.journalName||""} onChange={v=>saveOS(s=>{s.journalName=v})} placeholder="الخزينة الفرعية"/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>حساب الخزينة الفرعية</label>
+              <Inp value={os.cashAccountCode||""} onChange={v=>saveOS(s=>{s.cashAccountCode=v})} placeholder="105001"/></div>
+          </div>
+          <div style={{display:"flex",gap:8,marginBottom:12}}>
+            <Btn onClick={testConnection} disabled={testing||!os.url||!os.db||!os.user||!os.apiKey} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>{testing?"⏳ جاري الاختبار...":"🔌 اختبار الاتصال"}</Btn>
+            {testResult&&<span style={{fontSize:FS-1,fontWeight:700,color:testResult.ok?T.ok:T.err,padding:"6px 12px",borderRadius:8,background:testResult.ok?T.ok+"08":T.err+"08"}}>{testResult.msg}</span>}
+          </div>
+          <div style={{marginTop:12,borderTop:"1px solid "+T.brd,paddingTop:12}}>
+            <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>📋 ربط التصنيفات بحسابات Odoo</div>
+            <div style={{fontSize:FS-2,color:T.textMut,marginBottom:8}}>اكتب كود الحساب في Odoo لكل تصنيف. الحساب ده هيكون الطرف المقابل للخزينة في القيد.</div>
+            <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:6}}>
+              {allCats.map(cat=><div key={cat} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 0"}}>
+                <span style={{fontSize:FS-2,fontWeight:600,color:outCats.includes(cat)?T.err:T.ok,minWidth:130,textAlign:"right"}}>{outCats.includes(cat)?"📤":"📥"} {cat}</span>
+                <input value={mapping[cat]||""} onChange={e=>saveOS(s=>{if(!s.accountMapping)s.accountMapping={};s.accountMapping[cat]=e.target.value})} placeholder="كود الحساب" style={{flex:1,padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg,color:T.text,maxWidth:120,direction:"ltr",textAlign:"center"}}/>
+              </div>)}
+            </div>
+          </div>
+        </div>})()}
+    </Card>
+
+    {/* HR Settings */}
+    <Card title="👷 إعدادات الموظفين" style={{marginBottom:16}}>
+      {(()=>{const hrs=config.hrSettings||{};
+        const saveHR=(fn)=>upConfig(d=>{if(!d.hrSettings)d.hrSettings={};fn(d.hrSettings)});
+        return<div>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:10}}>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ساعات أساسي افتراضية (أسبوعي)</label>
+              <Inp type="number" value={hrs.defaultBaseHours||""} onChange={v=>saveHR(s=>{s.defaultBaseHours=Number(v)||0})} placeholder="48"/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>معامل الإضافي</label>
+              <Inp type="number" step="0.1" value={hrs.overtimeMultiplier||""} onChange={v=>saveHR(s=>{s.overtimeMultiplier=Number(v)||1.5})} placeholder="1.5"/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>خصم الغياب (بدون إذن)</label>
+              <Sel value={hrs.absencePenalty||"1"} onChange={v=>saveHR(s=>{s.absencePenalty=v})}>
+                <option value="1">يوم واحد</option><option value="2">يومين</option><option value="1.5">يوم ونص</option></Sel></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>يوم بداية الأسبوع</label>
+              <Sel value={hrs.weekStartDay||"sat"} onChange={v=>saveHR(s=>{s.weekStartDay=v})}>
+                <option value="sat">السبت</option><option value="sun">الأحد</option><option value="mon">الاثنين</option></Sel></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>يوم صرف المرتبات</label>
+              <Sel value={hrs.payDay||"thu"} onChange={v=>saveHR(s=>{s.payDay=v})}>
+                <option value="thu">الخميس</option><option value="fri">الجمعة</option><option value="wed">الأربعاء</option></Sel></div>
+          </div>
+        </div>})()}
+    </Card>
+
+    {/* Sales Settings */}
+    <Card title="💰 إعدادات المبيعات" style={{marginBottom:16}}>
+      {(()=>{const ss=config.salesSettings||{};
+        const saveSS=(fn)=>upConfig(d=>{if(!d.salesSettings)d.salesSettings={};fn(d.salesSettings)});
+        return<div>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10}}>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>حد الائتمان الافتراضي (ج.م)</label>
+              <Inp type="number" value={ss.defaultCreditLimit||""} onChange={v=>saveSS(s=>{s.defaultCreditLimit=Number(v)||0})} placeholder="0 = بدون حد"/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تنبيه تجاوز الحد</label>
+              <Sel value={ss.creditAlert===false?"off":"on"} onChange={v=>saveSS(s=>{s.creditAlert=v==="on"})}>
+                <option value="on">مفعّل</option><option value="off">معطّل</option></Sel></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>السماح بالبيع بدون سعر</label>
+              <Sel value={ss.allowNoPrice===false?"no":"yes"} onChange={v=>saveSS(s=>{s.allowNoPrice=v==="yes"})}>
+                <option value="yes">مسموح</option><option value="no">ممنوع (يجب تحديد سعر البيع)</option></Sel></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>طريقة الدفع الافتراضية</label>
+              <Sel value={ss.defaultPayMethod||"كاش"} onChange={v=>saveSS(s=>{s.defaultPayMethod=v})}>
+                <option>كاش</option><option>تحويل بنكي</option><option>محفظة</option><option>شيك</option><option>آجل</option></Sel></div>
+          </div>
+        </div>})()}
+    </Card>
+
     {/* Data Maintenance */}
     <Card title="🔧 صيانة البيانات" style={{marginBottom:16}}>
       {(()=>{
@@ -6739,5 +7337,2509 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
           </div>}
         </div>})()}
     </Card>
+
+    {/* ═══ BACKUP & RESTORE ═══ */}
+    {/* ═══ ODOO LINKS ═══ */}
+    <Card title="🔗 Odoo — إدارة الاختصارات" style={{marginTop:16}}>
+      {(()=>{
+        const links=config.odooLinks||[];
+        const[oIcon,setOIcon]=useState("🔗");const[oLabel,setOLabel]=useState("");const[oUrl,setOUrl]=useState("");const[oColor,setOColor]=useState("#8B5CF6");const[oEditId,setOEditId]=useState(null);
+        const saveLink=()=>{if(!oLabel.trim()||!oUrl.trim())return;
+          upConfig(d=>{if(!d.odooLinks)d.odooLinks=[
+            {id:"accounting",icon:"📊",label:"المحاسبة",url:"https://clarkdb.odoo.com/odoo/accounting",color:"#8B5CF6"},
+            {id:"sales",icon:"🛒",label:"المبيعات",url:"https://clarkdb.odoo.com/odoo/sales",color:"#10B981"},
+            {id:"inventory",icon:"📦",label:"المخزن",url:"https://clarkdb.odoo.com/odoo/inventory",color:"#F59E0B"},
+            {id:"invoices",icon:"🧾",label:"الفواتير",url:"https://clarkdb.odoo.com/odoo/accounting/customer-invoices",color:"#0EA5E9"},
+            {id:"contacts",icon:"👥",label:"جهات الاتصال",url:"https://clarkdb.odoo.com/odoo/contacts",color:"#EC4899"},
+            {id:"purchase",icon:"🏷️",label:"المشتريات",url:"https://clarkdb.odoo.com/odoo/purchase",color:"#EF4444"},
+            {id:"hr",icon:"👷",label:"الموظفين",url:"https://clarkdb.odoo.com/odoo/employees",color:"#059669"},
+            {id:"discuss",icon:"💬",label:"المحادثات",url:"https://clarkdb.odoo.com/odoo/discuss",color:"#6366F1"},
+          ];
+          if(oEditId){const l=d.odooLinks.find(x=>x.id===oEditId);if(l){l.icon=oIcon;l.label=oLabel.trim();l.url=oUrl.trim();l.color=oColor}}
+          else{d.odooLinks.push({id:gid(),icon:oIcon,label:oLabel.trim(),url:oUrl.trim(),color:oColor})}});
+          setOIcon("🔗");setOLabel("");setOUrl("");setOColor("#8B5CF6");setOEditId(null);showToast("✓ تم الحفظ")};
+        const delLink=(id)=>{upConfig(d=>{d.odooLinks=(d.odooLinks||[]).filter(x=>x.id!==id)});showToast("✓ تم الحذف")};
+        const editLink=(l)=>{setOEditId(l.id);setOIcon(l.icon||"🔗");setOLabel(l.label);setOUrl(l.url);setOColor(l.color||"#8B5CF6")};
+        return<div>
+          {links.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
+            {links.map(l=><div key={l.id} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:8,background:T.bg,border:"1px solid "+T.brd}}>
+              <span style={{fontSize:16}}>{l.icon}</span>
+              <span style={{fontSize:FS-1,fontWeight:700,color:l.color}}>{l.label}</span>
+              <span onClick={()=>editLink(l)} style={{cursor:"pointer",fontSize:10}}>✏️</span>
+              <span onClick={()=>delLink(l.id)} style={{cursor:"pointer",fontSize:10,color:T.err}}>✕</span>
+            </div>)}
+          </div>}
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"60px 1fr 2fr 80px auto",gap:8,alignItems:"flex-end"}}>
+            <div><label style={{fontSize:FS-3,color:T.textSec}}>أيقونة</label><Inp value={oIcon} onChange={setOIcon} style={{textAlign:"center",fontSize:18}}/></div>
+            <div><label style={{fontSize:FS-3,color:T.textSec}}>الاسم</label><Inp value={oLabel} onChange={setOLabel} placeholder="المحاسبة"/></div>
+            <div><label style={{fontSize:FS-3,color:T.textSec}}>الرابط</label><Inp value={oUrl} onChange={setOUrl} placeholder="https://clarkdb.odoo.com/odoo/accounting" style={{direction:"ltr"}}/></div>
+            <div><label style={{fontSize:FS-3,color:T.textSec}}>اللون</label><input type="color" value={oColor} onChange={ev=>setOColor(ev.target.value)} style={{width:"100%",height:36,borderRadius:6,border:"1px solid "+T.brd,cursor:"pointer"}}/></div>
+            <div style={{display:"flex",gap:4}}>
+              <Btn primary onClick={saveLink} disabled={!oLabel.trim()||!oUrl.trim()}>{oEditId?"💾":"+"}</Btn>
+              {oEditId&&<Btn ghost onClick={()=>{setOEditId(null);setOIcon("🔗");setOLabel("");setOUrl("");setOColor("#8B5CF6")}}>✕</Btn>}
+            </div>
+          </div>
+        </div>})()}
+    </Card>
+
+    <BackupRestoreCard config={config} salesDoc={salesDoc} tasksDoc={tasksDoc} orders={orders} isMob={isMob}/>
+  </div>
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BACKUP & RESTORE CARD — نسخ احتياطي واستعادة
+   ═══════════════════════════════════════════════════════════════ */
+function BackupRestoreCard({config,salesDoc,tasksDoc,orders,isMob}){
+  const[backupList,setBackupList]=useState([]);
+  const[loading,setLoading]=useState(false);
+  const[confirmRestore,setConfirmRestore]=useState(null);
+  const[busy,setBusy]=useState(false);
+
+  const loadBackups=async()=>{
+    setLoading(true);
+    try{
+      const snap=await getDocs(collection(db,"backups"));
+      const list=[];snap.forEach(d=>{const data=d.data();list.push({id:d.id,...data})});
+      list.sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
+      setBackupList(list);
+    }catch(e){console.error("loadBackups:",e);showToast("⚠️ تعذر تحميل النسخ")}
+    setLoading(false);
+  };
+
+  useEffect(()=>{loadBackups()},[]);
+
+  const createBackup=async(label)=>{
+    setBusy(true);
+    try{
+      const backupId=new Date().toISOString().replace(/[:.]/g,"-");
+      const data={
+        label:label||"يدوية",
+        createdAt:new Date().toISOString(),
+        config:config||{},
+        sales:salesDoc||{},
+        tasks:tasksDoc||{},
+        orders:orders||[],
+        counts:{
+          treasury:(config?.treasury||[]).length,
+          employees:(config?.employees||[]).length,
+          customers:(config?.customers||[]).length,
+          orders:(orders||[]).length
+        }
+      };
+      await setDoc(doc(db,"backups",backupId),data);
+      showToast("✅ تم حفظ النسخة الاحتياطية");
+      loadBackups();
+    }catch(e){console.error("createBackup:",e);showToast("⚠️ فشل حفظ النسخة")}
+    setBusy(false);
+  };
+
+  const deleteBackup=async(id)=>{
+    try{await deleteDoc(doc(db,"backups",id));showToast("✓ تم الحذف");loadBackups()}
+    catch(e){console.error("deleteBackup:",e);showToast("⚠️ فشل الحذف")}
+  };
+
+  const restoreBackup=async(b)=>{
+    setBusy(true);
+    try{
+      if(b.config)await setDoc(doc(db,"factory","config"),b.config);
+      if(b.sales)await setDoc(doc(db,"factory","sales"),b.sales);
+      if(b.tasks)await setDoc(doc(db,"factory","tasks"),b.tasks);
+      /* Orders restoration is complex — we only restore config/sales/tasks */
+      showToast("✅ تم الاستعادة — اغلق وافتح التطبيق");
+      setConfirmRestore(null);
+    }catch(e){console.error("restoreBackup:",e);showToast("⚠️ فشل الاستعادة")}
+    setBusy(false);
+  };
+
+  const downloadJSON=(b)=>{
+    const data=JSON.stringify(b,null,2);
+    const blob=new Blob([data],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;a.download="clark-backup-"+b.id+".json";a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return<Card title="💾 النسخ الاحتياطي والاستعادة" style={{marginTop:16}}>
+    <div style={{padding:12,borderRadius:10,background:T.accent+"06",border:"1px solid "+T.accent+"20",marginBottom:14,fontSize:FS-1,color:T.textSec,lineHeight:1.7}}>
+      النسخ الاحتياطي يحفظ كل بياناتك (الخزنة، HR، العملاء، الورش، الطلبات) في Firestore.
+      <br/>💡 <b>نصيحة:</b> خد نسخة احتياطية قبل أي تحديث كبير أو تغيير جذري.
+    </div>
+    <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+      <Btn primary onClick={()=>createBackup("يدوية")} disabled={busy}>💾 نسخة احتياطية الآن</Btn>
+      <Btn onClick={loadBackups} disabled={loading} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>{loading?"⏳ جاري التحميل...":"🔄 تحديث القائمة"}</Btn>
+    </div>
+    {backupList.length===0?<div style={{padding:30,textAlign:"center",color:T.textMut,background:T.bg,borderRadius:10}}>لا توجد نسخ احتياطية — اضغط "💾 نسخة احتياطية الآن" لأخذ نسخة</div>
+    :<div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:400,overflowY:"auto"}}>
+      {backupList.map(b=>{
+        const d=new Date(b.createdAt||0);
+        const c=b.counts||{};
+        return<div key={b.id} style={{padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:200}}>
+            <div style={{fontSize:FS,fontWeight:700,color:T.text}}>📦 {b.label||"نسخة"}</div>
+            <div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{d.toLocaleString("ar-EG",{dateStyle:"medium",timeStyle:"short"})}</div>
+            <div style={{fontSize:FS-3,color:T.textSec,marginTop:4,display:"flex",gap:10,flexWrap:"wrap"}}>
+              <span>💰 {c.treasury||0} حركة</span>
+              <span>👷 {c.employees||0} موظف</span>
+              <span>🧑 {c.customers||0} عميل</span>
+              <span>📋 {c.orders||0} طلب</span>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:4}}>
+            <Btn small onClick={()=>downloadJSON(b)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}} title="تحميل JSON">⬇</Btn>
+            <Btn small onClick={()=>setConfirmRestore(b)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="استعادة">🔄</Btn>
+            <Btn small onClick={()=>{if(confirm("حذف النسخة؟"))deleteBackup(b.id)}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}} title="حذف">🗑</Btn>
+          </div>
+        </div>})}
+    </div>}
+
+    {confirmRestore&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setConfirmRestore(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,maxWidth:500,width:"100%",border:"2px solid "+T.warn,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{fontSize:48,textAlign:"center",marginBottom:8}}>⚠️</div>
+        <div style={{fontSize:FS+2,fontWeight:800,color:T.warn,textAlign:"center",marginBottom:10}}>تأكيد الاستعادة</div>
+        <div style={{fontSize:FS-1,color:T.textSec,marginBottom:14,lineHeight:1.7,padding:12,background:T.warn+"08",borderRadius:10}}>
+          سيتم استبدال كل البيانات الحالية بهذه النسخة الاحتياطية:
+          <br/><br/>
+          📅 <b>{new Date(confirmRestore.createdAt).toLocaleString("ar-EG")}</b><br/>
+          📦 {confirmRestore.label}<br/>
+          💰 {confirmRestore.counts?.treasury||0} حركة خزنة<br/>
+          👷 {confirmRestore.counts?.employees||0} موظف<br/>
+          <br/>
+          <b style={{color:T.err}}>البيانات الحالية ستضيع نهائياً.</b>
+          <br/><br/>
+          💡 نصيحة: خد نسخة احتياطية الآن قبل الاستعادة.
+        </div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <Btn ghost onClick={()=>setConfirmRestore(null)}>إلغاء</Btn>
+          <Btn onClick={()=>restoreBackup(confirmRestore)} disabled={busy} style={{background:T.warn,color:"#fff",border:"none",fontWeight:700}}>{busy?"جاري...":"🔄 تأكيد الاستعادة"}</Btn>
+        </div>
+      </div>
+    </div>}
+  </Card>;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TREASURY PAGE — الخزنة
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════
+   TREASURY PAGE — يومية الصندوق
+   نظام مطابق لملف JOURNAL_File
+   ═══════════════════════════════════════════════════════════════ */
+function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
+  const userName=user?.displayName||(user?.email||"").split("@")[0];
+  const userEmail=user?.email||"";
+  const isAdmin=userRole==="admin";
+  const lockedDays=(data.lockedDays||[]);/* ["2026-04-15", ...] */
+  const isDayLocked=(dt)=>lockedDays.includes(dt);
+  const canModify=(t)=>{if(!canEdit)return false;if(!isDayLocked(t.date))return true;return isAdmin};
+  /* Confirm popup */
+  const[confirmPopup,setConfirmPopup]=useState(null);
+  const openConfirm=(cfg)=>setConfirmPopup(cfg);
+  const txns=(data.treasury||[]);
+  /* Accounts are now objects: {id, name, ownerEmail, type} — auto-migrate from old strings */
+  const rawAccounts=(data.treasuryAccounts||[]);
+  const accountsData=rawAccounts.length>0?rawAccounts.map(a=>typeof a==="string"?{id:a,name:a,ownerEmail:"",type:"cash"}:a):[{id:"MAIN CASH",name:"MAIN CASH",ownerEmail:"",type:"cash"},{id:"SUB CASH",name:"SUB CASH",ownerEmail:"",type:"cash"}];
+  const accounts=accountsData.map(a=>a.name);/* backward compat */
+  const customers=(data.customers||[]);
+  const suppliers=(data.suppliers||[]);
+  const workshops=(data.workshops||[]).filter(w=>!((w.type||"").includes("داخلي")));
+  const transfers=(data.treasuryTransfers||[]);
+  const notifications=(data.notifications||[]);
+  const[showForm,setShowForm]=useState(false);
+  const[txType,setTxType]=useState("in");
+  const[txAmount,setTxAmount]=useState("");
+  const[txDesc,setTxDesc]=useState("");
+  const[txNotes,setTxNotes]=useState("");
+  const[txCategory,setTxCategory]=useState("");
+  const[txAccount,setTxAccount]=useState("SUB CASH");
+  const[txSeason,setTxSeason]=useState(data.activeSeason||"");
+  const[txDate,setTxDate]=useState(new Date().toISOString().split("T")[0]);
+  const[txPartyId,setTxPartyId]=useState("");/* Customer or supplier ID */
+  const[txPartyType,setTxPartyType]=useState("");/* "customer" | "supplier" */
+  const[editId,setEditId]=useState(null);
+  /* Party picker popup */
+  const[showPartyPicker,setShowPartyPicker]=useState(null);/* "customer" | "supplier" */
+  const[partySearch,setPartySearch]=useState("");
+  /* Filters */
+  const[filterType,setFilterType]=useState("الكل");
+  const[filterCat,setFilterCat]=useState("الكل");
+  const[filterAcc,setFilterAcc]=useState(()=>{const accs=rawAccounts.length>0?rawAccounts:["MAIN CASH","SUB CASH"];const sub=accs.find(a=>{const n=typeof a==="string"?a:a.name||a.id;return n.toUpperCase().includes("SUB")});return sub?(typeof sub==="string"?sub:sub.name||"SUB CASH"):"SUB CASH"});
+  const[filterMonth,setFilterMonth]=useState("");
+  const[filterDay,setFilterDay]=useState("");
+  const[filterSearch,setFilterSearch]=useState("");
+  const[limit,setLimit]=useState(50);
+  /* View */
+  const subAccId=(rawAccounts.length>0?rawAccounts:["MAIN CASH","SUB CASH"]).find(a=>{const n=typeof a==="string"?a:a.name||a.id;return n.toUpperCase().includes("SUB")})||"SUB CASH";
+  const subAccKey="acc_"+(typeof subAccId==="string"?subAccId:subAccId.id||subAccId.name||"SUB CASH");
+  const[view,setView]=useState(subAccKey);
+  /* ── Odoo Sync ── */
+  const[odooSyncing,setOdooSyncing]=useState(false);const[odooResult,setOdooResult]=useState(null);
+  const syncToOdoo=async()=>{
+    const os=data.odooSettings||{};
+    if(!os.url||!os.db||!os.user||!os.apiKey||!os.journalName||!os.cashAccountCode){showToast("⚠️ أكمل إعدادات Odoo في الاعدادات أولاً");return}
+    setOdooSyncing(true);setOdooResult(null);
+    try{
+      const api=async(body)=>{const r=await fetch("/api/odoo-sync",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({odooUrl:os.url,odooDb:os.db,odooUser:os.user,odooKey:os.apiKey,...body})});return r.json()};
+      /* 1. Find journal ID */
+      const jRes=await api({action:"find_journal",payload:{journalName:os.journalName}});
+      if(jRes.error){setOdooResult({ok:false,msg:"❌ دفتر اليومية: "+jRes.error});setOdooSyncing(false);return}
+      const journalId=jRes.journalId;
+      /* 2. Find cash account ID */
+      const aRes=await api({action:"find_account",payload:{accountCode:os.cashAccountCode}});
+      if(aRes.error){setOdooResult({ok:false,msg:"❌ حساب الخزينة: "+aRes.error});setOdooSyncing(false);return}
+      const cashAccId=aRes.accountId;
+      /* 3. Get SUB CASH transactions only */
+      const subName=accountsData.find(a=>a.name.toUpperCase().includes("SUB"))?.name||"SUB CASH";
+      const subTxns=txns.filter(t=>(t.account||"")=== subName);
+      if(subTxns.length===0){setOdooResult({ok:false,msg:"⚠️ لا توجد حركات في الخزينة الفرعية"});setOdooSyncing(false);return}
+      /* 4. Check for existing refs (prevent duplicates) */
+      const refs=subTxns.map(t=>"CLARK-"+t.id);
+      const refRes=await api({action:"search_refs",payload:{refs}});
+      const existingRefs=new Set(refRes.existing||[]);
+      const newTxns=subTxns.filter(t=>!existingRefs.has("CLARK-"+t.id));
+      if(newTxns.length===0){setOdooResult({ok:true,msg:"✅ كل الحركات متزامنة بالفعل ("+subTxns.length+" حركة)"});setOdooSyncing(false);return}
+      /* 5. Build account mapping cache */
+      const mapping=os.accountMapping||{};
+      const accCache={};
+      for(const cat of Object.keys(mapping)){
+        if(mapping[cat]){
+          const r=await api({action:"find_account",payload:{accountCode:mapping[cat]}});
+          if(r.accountId)accCache[cat]=r.accountId}
+      }
+      /* 6. Build entries */
+      const entries=[];let skipped=0;
+      for(const t of newTxns){
+        const counterAccId=accCache[t.category];
+        if(!counterAccId){skipped++;continue}
+        const isIn=t.type==="in";
+        entries.push({
+          ref:"CLARK-"+t.id,
+          date:t.date||new Date().toISOString().split("T")[0],
+          journalId,
+          narration:(t.desc||"")+(t.notes?" — "+t.notes:""),
+          lines:[
+            {accountId:cashAccId,debit:isIn?Number(t.amount):0,credit:isIn?0:Number(t.amount),name:t.desc||t.category||""},
+            {accountId:counterAccId,debit:isIn?0:Number(t.amount),credit:isIn?Number(t.amount):0,name:t.desc||t.category||""}
+          ]
+        })
+      }
+      if(entries.length===0){setOdooResult({ok:false,msg:"⚠️ لا توجد حركات جديدة بحسابات مربوطة ("+skipped+" بدون ربط)"});setOdooSyncing(false);return}
+      /* 7. Create in batches of 10 */
+      let totalCreated=0;const allErrors=[];
+      for(let i=0;i<entries.length;i+=10){
+        const batch=entries.slice(i,i+10);
+        const r=await api({action:"create_entries",payload:{entries:batch}});
+        totalCreated+=(r.created||0);if(r.errors)allErrors.push(...r.errors)}
+      setOdooResult({ok:true,msg:"✅ تم تزامن "+totalCreated+" حركة"+(skipped>0?" | "+skipped+" بدون ربط حساب":"")+(allErrors.length>0?" | "+allErrors.length+" خطأ":"")+(existingRefs.size>0?" | "+existingRefs.size+" مكررة تم تجاهلها":"")});
+    }catch(e){setOdooResult({ok:false,msg:"❌ خطأ: "+e.message})}
+    setOdooSyncing(false)};
+
+  /* Auto-mark transfer notifications as read when viewing transfers tab.
+     Also cleanup orphaned notifications pointing to transfers that no longer exist. */
+  useEffect(()=>{
+    const allNotifs=data.notifications||[];
+    const allTransfers=data.treasuryTransfers||[];
+    const transferIds=new Set(allTransfers.map(t=>t.id));
+    /* Orphaned: linked to a transfer that was deleted */
+    const orphaned=allNotifs.filter(n=>(n.type==="treasury_transfer"||n.type==="treasury_transfer_confirmed")&&n.transferId&&!transferIds.has(n.transferId));
+    /* Unread transfer notifs for current user when in transfers tab */
+    const toMark=view==="transfers"
+      ?allNotifs.filter(n=>n.toEmail===userEmail&&!n.read&&(n.type==="treasury_transfer"||n.type==="treasury_transfer_confirmed"))
+      :[];
+    if(orphaned.length===0&&toMark.length===0)return;
+    const orphanIds=new Set(orphaned.map(n=>n.id));
+    const markIds=new Set(toMark.map(n=>n.id));
+    upConfig(d=>{
+      if(orphanIds.size>0)d.notifications=(d.notifications||[]).filter(n=>!orphanIds.has(n.id));
+      if(markIds.size>0)(d.notifications||[]).forEach(n=>{if(markIds.has(n.id))n.read=true});
+    });
+  },[view,data.notifications,data.treasuryTransfers]);
+  /* Account management */
+  const[newAccName,setNewAccName]=useState("");
+  const[newAccOwner,setNewAccOwner]=useState("");
+  const[editAccId,setEditAccId]=useState(null);
+  /* Transfer */
+  const[showTransfer,setShowTransfer]=useState(false);
+  const[tfFrom,setTfFrom]=useState("");const[tfTo,setTfTo]=useState("");
+  const[tfAmount,setTfAmount]=useState("");const[tfNote,setTfNote]=useState("");
+  /* Checks */
+  const checks=(data.checks||[]);
+  const[showCheckForm,setShowCheckForm]=useState(false);
+  const[chkType,setChkType]=useState("receivable");
+  const[chkAmount,setChkAmount]=useState("");const[chkParty,setChkParty]=useState("");const[chkBank,setChkBank]=useState("");
+  const[chkNumber,setChkNumber]=useState("");const[chkDate,setChkDate]=useState("");const[chkDueDate,setChkDueDate]=useState("");
+  const[chkNotes,setChkNotes]=useState("");const[chkEditId,setChkEditId]=useState(null);const[chkFilter,setChkFilter]=useState("الكل");
+
+  /* Danger zone: reset */
+  const[showResetPopup,setShowResetPopup]=useState(false);
+  const[resetConfirmText,setResetConfirmText]=useState("");
+  const executeReset=()=>{
+    upConfig(d=>{
+      /* Treasury */
+      d.treasury=[];
+      d.treasuryTransfers=[];
+      d.custPayments=[];
+      d.supplierPayments=[];
+      d.lockedDays=[];
+      /* HR: advances + salary records + debts */
+      d.hrLog=[];
+      d.empDebts=[];
+      /* Reset prev balance on all employees */
+      if(Array.isArray(d.employees)){d.employees=d.employees.map(e=>({...e,prevBalance:0}))}
+      /* Reset totals on weeks (keep attendance + metadata but re-open) */
+      if(Array.isArray(d.hrWeeks)){d.hrWeeks=d.hrWeeks.map(w=>({...w,status:"open",totalGross:0,totalNet:0,empCount:0}))}
+      /* Clear only treasury-related notifications */
+      d.notifications=(d.notifications||[]).filter(n=>n.type!=="treasury_transfer"&&n.type!=="treasury_transfer_confirmed"&&n.type!=="cust_payment");
+    });
+    setShowResetPopup(false);setResetConfirmText("");showToast("✅ تم المسح الشامل");
+  };
+
+  const OUT_CATS=["تكلفة","مشتريات","مرتبات","قطع غيار","صيانة ماكينات","خيط","تشغيل خارجي","نقل","كهرباء","ضيافة","ايجار المصنع","نثريات","اكسسوار","مستلزمات تشغيل","ورق ماركر","خدمات","أصول ثابتة","تكاليف أخرى","دفع مورد","تحويل داخلي"];
+  const IN_CATS=["وارد","إيرادات","دفعة عميل","رأس مال","تحويل","تحويل داخلي"];
+  const ALL_CATS=[...IN_CATS,...OUT_CATS];
+  const today=new Date().toISOString().split("T")[0];
+
+  /* ── Per-account balances ── */
+  const accBalances=useMemo(()=>{
+    const bal={};accounts.forEach(a=>{bal[a]={in:0,out:0}});
+    txns.forEach(t=>{const acc=t.account||"MAIN CASH";if(!bal[acc])bal[acc]={in:0,out:0};
+      if(t.type==="in")bal[acc].in+=(Number(t.amount)||0);else bal[acc].out+=(Number(t.amount)||0)});
+    return bal},[txns,accounts]);
+  const totalBalance=Object.values(accBalances).reduce((s,a)=>s+(a.in-a.out),0);
+
+  /* ── Today summary ── */
+  const todayTxns=txns.filter(t=>t.date===today);
+  const todayIn=todayTxns.filter(t=>t.type==="in").reduce((s,t)=>s+(Number(t.amount)||0),0);
+  const todayOut=todayTxns.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0);
+
+  /* ── Filtered & sorted ── */
+  let filtered=[...txns].sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||"").localeCompare(a.createdAt||""));
+  if(filterType!=="الكل")filtered=filtered.filter(t=>t.type===(filterType==="وارد"?"in":"out"));
+  if(filterCat!=="الكل")filtered=filtered.filter(t=>t.category===filterCat);
+  if(filterAcc!=="الكل")filtered=filtered.filter(t=>(t.account||"MAIN CASH")===filterAcc);
+  if(filterMonth)filtered=filtered.filter(t=>(t.date||"").startsWith(filterMonth));
+  if(filterDay)filtered=filtered.filter(t=>t.date===filterDay);
+  if(filterSearch){const q=filterSearch.toLowerCase();filtered=filtered.filter(t=>(t.desc||"").toLowerCase().includes(q)||(t.notes||"").toLowerCase().includes(q)||(t.by||"").toLowerCase().includes(q)||(t.category||"").toLowerCase().includes(q))}
+
+  /* Running balance for filtered view */
+  const withBalance=useMemo(()=>{
+    const sorted=[...filtered].reverse();let bal=0;
+    const result=sorted.map(t=>{if(t.type==="in")bal+=(Number(t.amount)||0);else bal-=(Number(t.amount)||0);return{...t,runBal:bal}});
+    return result.reverse()},[filtered]);
+
+  /* ── Category analysis ── */
+  const catAnalysis=useMemo(()=>{
+    const cats={};txns.forEach(t=>{const c=t.category||"بدون تصنيف";if(!cats[c])cats[c]={in:0,out:0,count:0};
+      if(t.type==="in")cats[c].in+=(Number(t.amount)||0);else cats[c].out+=(Number(t.amount)||0);cats[c].count++});
+    return Object.entries(cats).sort((a,b)=>(b[1].in+b[1].out)-(a[1].in+a[1].out))},[txns]);
+
+  /* ── CRUD ── */
+  const saveTx=()=>{const amt=parseFloat(txAmount);if(!amt||amt<=0){playBeep("error");return}
+    /* Block save on locked day unless admin */
+    if(isDayLocked(txDate)&&!isAdmin){playBeep("error");showToast("⛔ اليوم "+txDate+" مقفول — للمدير فقط");return}
+    /* If party is linked, validate & expand desc */
+    let finalDesc=txDesc;
+    let linkedCustId=null,linkedSupplierId=null,linkedWsName=null;
+    if(txPartyId&&txPartyType==="customer"){const c=customers.find(x=>x.id===txPartyId);if(c){linkedCustId=c.id;if(!finalDesc.trim())finalDesc="دفعة من "+c.name}}
+    if(txPartyId&&txPartyType==="supplier"){const s=suppliers.find(x=>x.id===txPartyId);if(s){linkedSupplierId=s.id;if(!finalDesc.trim())finalDesc="دفع لـ "+s.name}}
+    if(txPartyId&&txPartyType==="workshop"){const w=workshops.find(x=>x.id===txPartyId||x.name===txPartyId);if(w){linkedWsName=w.name;if(!finalDesc.trim())finalDesc=(txCategory==="مشتريات"?"مشتريات ورشة ":"دفعة ورشة ")+w.name}}
+    upConfig(d=>{if(!d.treasury)d.treasury=[];
+      if(editId){const tx=d.treasury.find(t=>t.id===editId);
+        if(tx){tx.type=txType;tx.amount=amt;tx.desc=finalDesc;tx.notes=txNotes;tx.category=txCategory;tx.account=txAccount;tx.season=txSeason;tx.date=txDate;tx.custId=linkedCustId;tx.supplierId=linkedSupplierId;tx.updatedBy=userName;tx.updatedAt=new Date().toISOString();
+          /* Sync linked wsPayment if exists */
+          if(tx.wsPaymentId){const wp=(d.wsPayments||[]).find(p=>p.id===tx.wsPaymentId);if(wp){wp.amount=amt;wp.notes=txNotes;wp.date=txDate;wp.type=txCategory==="مشتريات"?"purchase":"payment"}}
+        }}
+      else{
+        const txId=gid();
+        const baseEntry={id:txId,type:txType,amount:amt,desc:finalDesc,notes:txNotes,category:txCategory,account:txAccount,season:txSeason,date:txDate,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(txDate).getDay()],custId:linkedCustId,supplierId:linkedSupplierId,by:userName,createdAt:new Date().toISOString()};
+        /* Auto-link to customer payments if customer selected */
+        if(linkedCustId&&txType==="in"){if(!d.custPayments)d.custPayments=[];
+          const c=customers.find(x=>x.id===linkedCustId);
+          d.custPayments.push({id:gid(),custId:linkedCustId,custName:c?c.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:"كاش",by:userName,treasuryTxId:txId,createdAt:new Date().toISOString()})}
+        /* Auto-link to supplier payments */
+        if(linkedSupplierId&&txType==="out"){if(!d.supplierPayments)d.supplierPayments=[];
+          const s=suppliers.find(x=>x.id===linkedSupplierId);
+          d.supplierPayments.push({id:gid(),supplierId:linkedSupplierId,supplierName:s?s.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:"كاش",by:userName,treasuryTxId:txId,createdAt:new Date().toISOString()})}
+        /* Auto-link to workshop payments */
+        if(linkedWsName&&txType==="out"){if(!d.wsPayments)d.wsPayments=[];
+          const w=workshops.find(x=>x.name===linkedWsName);const wsPayId=gid();
+          d.wsPayments.push({id:wsPayId,wsName:linkedWsName,wsId:w?w.id:null,amount:amt,type:txCategory==="مشتريات"?"purchase":"payment",notes:txNotes,date:txDate,createdBy:userName,treasuryTxId:txId,createdAt:new Date().toISOString()});
+          baseEntry.wsPaymentId=wsPayId;baseEntry.wsName=linkedWsName;baseEntry.sourceType="ws_payment"}
+        d.treasury.unshift(baseEntry);
+      }});
+    setShowForm(false);setTxAmount("");setTxDesc("");setTxNotes("");setTxCategory("");setTxType("in");setTxPartyId("");setTxPartyType("");setEditId(null);showToast("✓ تم الحفظ")};
+  /* Detect treasury entries that were auto-created from an external source
+     (salary approval, check collection/payment, advance, transfer, workshop payment).
+     These entries should NOT be directly deletable from treasury — go to source. */
+  const isExternalTx=(t)=>{
+    if(!t)return false;
+    if(t.sourceType)return true;/* explicit marker if added later */
+    if(t.transferId)return true;/* transfer */
+    if(t.checkId)return true;/* check */
+    if(t.hrLogId)return true;/* advance/salary linked */
+    /* Legacy detection by desc */
+    const d=t.desc||"";
+    if(/^مرتبات W\d+/.test(d))return true;/* salary approval */
+    if(/^دفعة مرتبات W\d+/.test(d))return true;
+    if(/^سلفة /.test(d))return true;/* old advances without hrLogId */
+    if(/^تحصيل شيك |^صرف شيك /.test(d))return true;
+    if(/^تحويل إلى |^تحويل من /.test(d))return true;
+    if(/^دفعة ورشة |^مشتريات ورشة /.test(d))return true;
+    return false};
+  const externalSourceLabel=(t)=>{
+    if(t.transferId)return"تحويل بين الخزن";
+    if(t.checkId)return"تحصيل/صرف شيك";
+    const d=t.desc||"";
+    if(/^مرتبات W|^دفعة مرتبات W/.test(d))return"اعتماد أسبوع مرتبات";
+    if(/^سلفة /.test(d))return"سلفة موظف";
+    if(/^تحصيل شيك |^صرف شيك /.test(d))return"شيك";
+    if(/^تحويل /.test(d))return"تحويل";
+    if(/^دفعة ورشة |^مشتريات ورشة /.test(d))return"دفعة ورشة";
+    return"حركة خارجية"};
+
+  const delTx=(id)=>{upConfig(d=>{
+    /* Remove linked cust/supplier/ws payments */
+    const tx=(d.treasury||[]).find(t=>t.id===id);
+    d.treasury=(d.treasury||[]).filter(t=>t.id!==id);
+    if(tx){if(d.custPayments)d.custPayments=d.custPayments.filter(p=>p.treasuryTxId!==id);
+      if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>p.treasuryTxId!==id);
+      if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>p.treasuryTxId!==id)}});showToast("✓ تم الحذف")};
+  const editTx=(t)=>{setEditId(t.id);setTxType(t.type);setTxAmount(String(t.amount));setTxDesc(t.desc||"");setTxNotes(t.notes||"");setTxCategory(t.category||"");setTxAccount(t.account||"MAIN CASH");setTxSeason(t.season||"");setTxDate(t.date||today);
+    setTxPartyId(t.custId||t.supplierId||t.wsName||"");
+    setTxPartyType(t.custId?"customer":t.supplierId?"supplier":t.wsName?"workshop":"");
+    setShowForm(true)};
+  const addAccount=()=>{if(!newAccName.trim())return;
+    upConfig(d=>{if(!d.treasuryAccounts)d.treasuryAccounts=[];
+      /* Migrate old strings */
+      d.treasuryAccounts=d.treasuryAccounts.map(a=>typeof a==="string"?{id:a,name:a,ownerEmail:"",type:"cash"}:a);
+      if(editAccId){const i=d.treasuryAccounts.findIndex(a=>a.id===editAccId);
+        if(i>=0){d.treasuryAccounts[i].name=newAccName.trim();d.treasuryAccounts[i].ownerEmail=newAccOwner.trim()}}
+      else{if(!d.treasuryAccounts.find(a=>a.name===newAccName.trim()))
+        d.treasuryAccounts.push({id:newAccName.trim(),name:newAccName.trim(),ownerEmail:newAccOwner.trim(),type:"cash"})}});
+    setNewAccName("");setNewAccOwner("");setEditAccId(null);showToast("✓ تمت الإضافة")};
+  const editAccount=(a)=>{setEditAccId(a.id);setNewAccName(a.name);setNewAccOwner(a.ownerEmail||"")};
+  const delAccount=(id)=>{if(txns.some(t=>t.account===id||(accountsData.find(a=>a.id===id)||{}).name===t.account)){playBeep("error");showToast("⛔ لا يمكن الحذف — يوجد حركات مرتبطة");return}
+    upConfig(d=>{if(d.treasuryAccounts)d.treasuryAccounts=d.treasuryAccounts.filter(a=>(typeof a==="string"?a:a.id)!==id)});showToast("✓ تم الحذف")};
+
+  /* ── Transfer between accounts (immediate double-entry) ── */
+  const submitTransfer=()=>{const amt=parseFloat(tfAmount);
+    if(!tfFrom||!tfTo){showToast("⚠️ اختر الخزنة المصدر والهدف");return}
+    if(tfFrom===tfTo){showToast("⛔ لا يمكن التحويل لنفس الخزنة");return}
+    if(!amt||amt<=0){showToast("⚠️ أدخل المبلغ");return}
+    const toAcc=accountsData.find(a=>a.name===tfTo);
+    const tfId=gid();
+    const d_=new Date().toISOString().split("T")[0];
+    const dayN=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(d_).getDay()];
+    upConfig(d=>{
+      if(!d.treasuryTransfers)d.treasuryTransfers=[];
+      if(!d.treasury)d.treasury=[];
+      if(!d.notifications)d.notifications=[];
+      /* Create transfer record (immediately confirmed) */
+      d.treasuryTransfers.unshift({id:tfId,fromAccount:tfFrom,toAccount:tfTo,amount:amt,note:tfNote||"",status:"confirmed",sentBy:userName,sentByEmail:userEmail,sentAt:new Date().toISOString(),date:d_,toOwnerEmail:toAcc?.ownerEmail||""});
+      /* 1. OUT entry in source account */
+      d.treasury.unshift({id:gid(),type:"out",amount:amt,desc:"تحويل إلى "+tfTo+(tfNote?" — "+tfNote:""),notes:"",category:"تحويل داخلي",account:tfFrom,season:d.activeSeason||"",date:d_,day:dayN,transferId:tfId,by:userName,createdAt:new Date().toISOString()});
+      /* 2. IN entry in destination account — SAME MOMENT */
+      d.treasury.unshift({id:gid(),type:"in",amount:amt,desc:"تحويل من "+tfFrom+(tfNote?" — "+tfNote:""),notes:"",category:"تحويل داخلي",account:tfTo,season:d.activeSeason||"",date:d_,day:dayN,transferId:tfId,by:userName,createdAt:new Date().toISOString()});
+      /* Notification to owner of destination account (info only, no action needed) */
+      if(toAcc?.ownerEmail){d.notifications.unshift({id:gid(),type:"treasury_transfer",msg:"💸 وصلك تحويل "+fmt(amt)+" ج.م من "+tfFrom+(tfNote?" — "+tfNote:""),toEmail:toAcc.ownerEmail,transferId:tfId,read:false,by:userName,createdAt:new Date().toISOString()})}
+    });
+    setShowTransfer(false);setTfFrom("");setTfTo("");setTfAmount("");setTfNote("");showToast("✓ تم التحويل — منصرف من "+tfFrom+" ووارد في "+tfTo)};
+  /* Delete a transfer — removes both entries */
+  const deleteTransfer=(tfId)=>{const tf=transfers.find(t=>t.id===tfId);if(!tf)return;
+    upConfig(d=>{
+      d.treasuryTransfers=(d.treasuryTransfers||[]).filter(t=>t.id!==tfId);
+      d.treasury=(d.treasury||[]).filter(t=>t.transferId!==tfId);
+      d.notifications=(d.notifications||[]).filter(n=>n.transferId!==tfId);
+    });
+    showToast("✓ تم حذف التحويل وإلغاء حركاته")};
+  /* Keep old function names for backwards compat in the UI that calls them */
+  const confirmTransfer=(tfId)=>{/* no-op now — transfers are already confirmed */};
+  const cancelTransfer=deleteTransfer;
+
+  /* ── Print daily report ── */
+  const printDaily=(date)=>{
+    const dayTxns=txns.filter(t=>t.date===date).sort((a,b)=>(a.createdAt||"").localeCompare(b.createdAt||""));
+    const dIn=dayTxns.filter(t=>t.type==="in").reduce((s,t)=>s+(Number(t.amount)||0),0);
+    const dOut=dayTxns.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0);
+    /* opening balance = all txns before this date */
+    const prevTxns=txns.filter(t=>t.date<date);const openBal=prevTxns.reduce((s,t)=>t.type==="in"?s+(Number(t.amount)||0):s-(Number(t.amount)||0),0);
+    const closeBal=openBal+dIn-dOut;
+    const w=window.open("","_blank");if(!w)return;
+    w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>تقرير يومية — ${date}</title>
+    <style>@page{size:A4;margin:10mm}body{font-family:'Cairo',sans-serif;font-size:11px;padding:15px}
+    table{width:100%;border-collapse:collapse;margin:10px 0}td,th{border:1px solid #ccc;padding:6px 8px;text-align:right}
+    th{background:#f0f0f0;font-weight:700}.title{font-size:18px;font-weight:800;text-align:center;margin-bottom:10px}
+    .summary{display:flex;gap:20px;justify-content:center;margin:10px 0;flex-wrap:wrap}
+    .sbox{padding:8px 20px;border-radius:8px;text-align:center;border:1px solid #ddd}
+    .green{color:#10b981}.red{color:#ef4444}.blue{color:#0ea5e9}
+    @media print{body{margin:0}}</style></head><body>
+    <div class="title">🏦 تقرير يومية صندوق — ${date}</div>
+    <div class="summary">
+      <div class="sbox"><div style="font-size:10px;color:#666">رصيد افتتاحي</div><div class="blue" style="font-size:16px;font-weight:800">${fmt(r2(openBal))}</div></div>
+      <div class="sbox"><div style="font-size:10px;color:#666">وارد</div><div class="green" style="font-size:16px;font-weight:800">${fmt(r2(dIn))}</div></div>
+      <div class="sbox"><div style="font-size:10px;color:#666">منصرف</div><div class="red" style="font-size:16px;font-weight:800">${fmt(r2(dOut))}</div></div>
+      <div class="sbox"><div style="font-size:10px;color:#666">رصيد اقفال</div><div class="blue" style="font-size:18px;font-weight:800">${fmt(r2(closeBal))}</div></div>
+    </div>
+    <table><thead><tr><th>رصيد</th><th>تاريخ</th><th>وارد</th><th>منصرف</th><th>بيان</th><th>ملاحظات</th><th>نوع الحركة</th><th>حساب جاري</th></tr></thead><tbody>`);
+    let runBal=openBal;
+    dayTxns.forEach(t=>{if(t.type==="in")runBal+=(Number(t.amount)||0);else runBal-=(Number(t.amount)||0);
+      w.document.write(`<tr><td style="font-weight:700">${fmt(r2(runBal))}</td><td>${t.date}</td><td class="green">${t.type==="in"?fmt(r2(t.amount)):""}</td><td class="red">${t.type==="out"?fmt(r2(t.amount)):""}</td><td>${t.desc||"—"}</td><td style="font-size:10px;color:#666">${t.notes||""}</td><td>${t.category||"—"}</td><td>${t.account||""}</td></tr>`)});
+    w.document.write(`</tbody></table>
+    <div style="margin-top:15px;display:flex;gap:15px">
+      ${accounts.map(acc=>{const ab=accBalances[acc]||{in:0,out:0};return`<div class="sbox"><div style="font-size:10px;color:#666">${acc}</div><div class="blue" style="font-weight:700">${fmt(r2(ab.in-ab.out))}</div></div>`}).join("")}
+    </div></body></html>`);w.document.close();setTimeout(()=>w.print(),300)};
+
+  return<div>
+    {/* View Tabs */}
+    <div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflow:"hidden",border:"1px solid "+T.brd}}>
+      {(()=>{
+        /* Dynamic tabs: general journal + one per account + tools */
+        const unreadTransferNotifs=notifications.filter(n=>n.toEmail===userEmail&&!n.read&&(n.type==="treasury_transfer"||n.type==="treasury_transfer_confirmed")).length;
+        const baseTabs=[];
+        /* Sort accounts: SUB CASH first, then MAIN CASH, then others */
+        const sortedAccounts=[...accountsData].sort((a,b)=>{const aS=a.name.toUpperCase().includes("SUB")?0:a.name.toUpperCase().includes("MAIN")?1:2;const bS=b.name.toUpperCase().includes("SUB")?0:b.name.toUpperCase().includes("MAIN")?1:2;return aS-bS});
+        sortedAccounts.forEach(a=>{
+          const icon=a.name.toUpperCase().includes("MAIN")?"🏦":a.name.toUpperCase().includes("SUB")?"💰":"📘";
+          baseTabs.push({k:"acc_"+a.id,l:icon+" "+a.name,accName:a.name})
+        });
+        baseTabs.push({k:"journal",l:"📒 الكل"});
+        baseTabs.push({k:"transfers",l:"🔄 التحويلات"+(unreadTransferNotifs>0?" 🔴"+unreadTransferNotifs:"")});
+        baseTabs.push({k:"checks",l:"📝 الشيكات"});
+        baseTabs.push({k:"analysis",l:"📊 التحليل"});
+        baseTabs.push({k:"accounts",l:"🏦 الحسابات"});
+        return baseTabs.map(v=>
+        <div key={v.k} onClick={()=>{setView(v.k);if(v.accName){setFilterAcc(v.accName);setTxAccount(v.accName)}else if(v.k==="journal")setFilterAcc("الكل")}} style={{flex:1,padding:"10px 8px",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-2,background:view===v.k?T.accent:T.cardSolid,color:view===v.k?"#fff":T.textSec,transition:"all 0.15s",whiteSpace:"nowrap"}}>{v.l}</div>)
+      })()}
+    </div>
+
+    {/* Today mini summary — per-account when viewing specific account */}
+    {(()=>{
+      const currentAccName=view.startsWith("acc_")?(accountsData.find(a=>a.id===view.slice(4))||{}).name:null;
+      const scopeLabel=currentAccName||"الكل";
+      const todayFiltered=todayTxns.filter(t=>!currentAccName||(t.account||"")===currentAccName);
+      const tIn=todayFiltered.filter(t=>t.type==="in").reduce((s,t)=>s+(Number(t.amount)||0),0);
+      const tOut=todayFiltered.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0);
+      return<div style={{display:"flex",gap:12,marginBottom:16,justifyContent:"center",flexWrap:"wrap"}}>
+        <div style={{padding:"8px 20px",borderRadius:10,background:T.ok+"08",border:"1px solid "+T.ok+"20",textAlign:"center"}}>
+          <div style={{fontSize:FS-2,color:T.textSec}}>وارد اليوم {currentAccName?"("+scopeLabel+")":""}</div><div style={{fontSize:FS+2,fontWeight:800,color:T.ok}}>{"↓ "+fmt(r2(tIn))}</div>
+        </div>
+        <div style={{padding:"8px 20px",borderRadius:10,background:T.err+"08",border:"1px solid "+T.err+"20",textAlign:"center"}}>
+          <div style={{fontSize:FS-2,color:T.textSec}}>منصرف اليوم {currentAccName?"("+scopeLabel+")":""}</div><div style={{fontSize:FS+2,fontWeight:800,color:T.err}}>{"↑ "+fmt(r2(tOut))}</div>
+        </div>
+        <div style={{padding:"8px 20px",borderRadius:10,background:"#0D948808",border:"1px solid #0D948820",textAlign:"center"}}>
+          <div style={{fontSize:FS-2,color:T.textSec}}>صافي اليوم</div><div style={{fontSize:FS+2,fontWeight:800,color:"#0D9488"}}>{fmt(r2(tIn-tOut))}</div>
+        </div>
+        <div onClick={()=>printDaily(today)} style={{padding:"8px 20px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center",cursor:"pointer"}}>
+          <div style={{fontSize:FS-2,color:T.textSec}}>طباعة تقرير اليوم</div><div style={{fontSize:FS+1,fontWeight:700,color:T.accent}}>🖨️</div>
+        </div>
+      </div>})()}
+
+    {/* ══ JOURNAL VIEW ══ */}
+    {(view==="journal"||view.startsWith("acc_"))&&<div>
+      {view.startsWith("acc_")&&(()=>{
+        const accId=view.slice(4);const acc=accountsData.find(a=>a.id===accId);if(!acc)return null;
+        const b=accBalances[acc.name]||{in:0,out:0};const bal=b.in-b.out;
+        return<Card style={{marginBottom:14,background:"linear-gradient(135deg,"+T.accent+"08,"+T.accent+"03)",border:"1px solid "+T.accent+"20"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+            <div>
+              <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{acc.name.toUpperCase().includes("MAIN")?"🏦 ":acc.name.toUpperCase().includes("SUB")?"💰 ":"📘 "}{acc.name}</div>
+              {acc.ownerEmail&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>👤 المسؤول: {acc.ownerEmail}</div>}
+            </div>
+            <div style={{display:"flex",gap:16}}>
+              <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut}}>وارد</div><div style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>{fmt(r2(b.in))}</div></div>
+              <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut}}>منصرف</div><div style={{fontSize:FS+1,fontWeight:800,color:T.err}}>{fmt(r2(b.out))}</div></div>
+              <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut}}>الرصيد</div><div style={{fontSize:FS+4,fontWeight:900,color:bal>=0?"#0D9488":T.err}}>{fmt(r2(bal))}</div></div>
+            </div>
+          </div>
+        </Card>})()}
+      {canEdit&&<div style={{marginBottom:14,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+        <Btn primary onClick={()=>{setEditId(null);setTxType("in");setTxAmount("");setTxDesc("");setTxNotes("");setTxCategory("");setTxAccount(view.startsWith("acc_")?(accountsData.find(a=>a.id===view.slice(4))?.name||"MAIN CASH"):"MAIN CASH");setTxSeason(data.activeSeason||"");setTxDate(today);setTxPartyId("");setTxPartyType("");setShowForm(!showForm)}}>{showForm?"✕ إغلاق":"+ حركة جديدة"}</Btn>
+        {accountsData.length>=2&&<Btn onClick={()=>setShowTransfer(true)} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700}}>🔄 تحويل بين الخزن</Btn>}
+        {(data.odooSettings||{}).url&&<Btn onClick={syncToOdoo} disabled={odooSyncing} style={{background:"#71486712",color:"#714867",border:"1px solid #71486730",fontWeight:700}}>{odooSyncing?"⏳ جاري التزامن...":"🔗 تزامن Odoo"}</Btn>}
+        {odooResult&&<span style={{fontSize:FS-1,fontWeight:700,color:odooResult.ok?T.ok:T.err,padding:"4px 10px",borderRadius:6,background:odooResult.ok?T.ok+"08":T.err+"08"}}>{odooResult.msg}</span>}
+      </div>}
+
+      {showForm&&<Card title={editId?"✏️ تعديل حركة":"+ حركة جديدة"} style={{marginBottom:16}}>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(4,1fr)",gap:10}}>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label><div style={{display:"flex",gap:6,marginTop:4}}>
+            <div onClick={()=>setTxType("in")} style={{flex:1,padding:"10px 0",borderRadius:10,textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:txType==="in"?T.ok+"15":"transparent",border:"2px solid "+(txType==="in"?T.ok:T.brd),color:txType==="in"?T.ok:T.textSec}}>↓ وارد</div>
+            <div onClick={()=>setTxType("out")} style={{flex:1,padding:"10px 0",borderRadius:10,textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:txType==="out"?T.err+"15":"transparent",border:"2px solid "+(txType==="out"?T.err:T.brd),color:txType==="out"?T.err:T.textSec}}>↑ منصرف</div>
+          </div></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المبلغ</label><Inp type="number" value={txAmount} onChange={setTxAmount} placeholder="0.00"/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع الحركة</label><Sel value={txCategory} onChange={v=>{setTxCategory(v);if(v==="دفعة عميل"){setShowPartyPicker("customer");setPartySearch("")}else if(v==="دفع مورد"){setShowPartyPicker("supplier");setPartySearch("")}else if(v==="تشغيل خارجي"||v==="مشتريات"){setShowPartyPicker("workshop");setPartySearch("")}else{setTxPartyId("");setTxPartyType("")}}}><option value="">— اختر —</option>{(txType==="in"?IN_CATS:OUT_CATS).map(c=><option key={c} value={c}>{c}</option>)}</Sel>
+          {txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفع مورد"||txCategory==="تشغيل خارجي"||txCategory==="مشتريات")&&(()=>{const list=txPartyType==="customer"?customers:txPartyType==="supplier"?suppliers:workshops;const p=list.find(x=>x.id===txPartyId||x.name===txPartyId);if(!p)return null;
+            const icon=txPartyType==="customer"?"🧑 العميل:":txPartyType==="supplier"?"🏭 المورد:":"🔧 الورشة:";
+            return<div style={{marginTop:6,padding:"6px 10px",borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"30",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
+              <div><span style={{fontSize:FS-2,color:T.textMut}}>{icon}</span> <b style={{color:T.accent,fontSize:FS-1}}>{p.name}</b>{p.phone&&<span style={{fontSize:FS-3,color:T.textMut,marginRight:6}}> • {p.phone}</span>}</div>
+              <span onClick={()=>setShowPartyPicker(txPartyType)} style={{cursor:"pointer",fontSize:FS-2,color:T.accent,padding:"2px 8px",borderRadius:6,background:T.cardSolid,border:"1px solid "+T.accent+"30"}}>تغيير</span>
+            </div>})()}</div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>حساب جاري</label><Sel value={txAccount} onChange={setTxAccount}>{accounts.map(a=><option key={a} value={a}>{a}</option>)}</Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>بيان</label><Inp value={txDesc} onChange={setTxDesc} placeholder="وصف الحركة"/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات</label><Inp value={txNotes} onChange={setTxNotes} placeholder="ملاحظات إضافية"/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>التاريخ</label><Inp type="date" value={txDate} onChange={setTxDate}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الموسم</label><Inp value={txSeason} onChange={setTxSeason} placeholder={data.activeSeason||"W26"}/></div>
+        </div>
+        <div style={{marginTop:10,display:"flex",gap:8}}><Btn primary onClick={saveTx}>{editId?"💾 حفظ التعديل":"💾 حفظ"}</Btn>{editId&&<Btn ghost onClick={()=>{setShowForm(false);setEditId(null)}}>إلغاء</Btn>}</div>
+      </Card>}
+
+      {/* Filters */}
+      {/* ── Live Daily Report ── */}
+      {(()=>{const reportDate=filterDay||today;
+        const dayTxns=txns.filter(t=>t.date===reportDate).sort((a,b)=>(a.createdAt||"").localeCompare(b.createdAt||""));
+        const dIn=dayTxns.filter(t=>t.type==="in").reduce((s,t)=>s+(Number(t.amount)||0),0);
+        const dOut=dayTxns.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0);
+        const prevTxns=txns.filter(t=>t.date<reportDate);
+        const openBal=prevTxns.reduce((s,t)=>t.type==="in"?s+(Number(t.amount)||0):s-(Number(t.amount)||0),0);
+        const closeBal=openBal+dIn-dOut;
+        return<Card title={"📋 تقرير يومية صندوق — "+reportDate+(reportDate===today?" (لحظي)":"")} style={{marginBottom:14}}>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)",gap:8,marginBottom:12}}>
+            <div style={{padding:10,borderRadius:10,background:T.accent+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>رصيد افتتاحي</div><div style={{fontSize:18,fontWeight:800,color:T.accent}}>{fmt(r2(openBal))}</div></div>
+            <div style={{padding:10,borderRadius:10,background:T.ok+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>وارد</div><div style={{fontSize:18,fontWeight:800,color:T.ok}}>{fmt(r2(dIn))}</div></div>
+            <div style={{padding:10,borderRadius:10,background:T.err+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>منصرف</div><div style={{fontSize:18,fontWeight:800,color:T.err}}>{fmt(r2(dOut))}</div></div>
+            <div style={{padding:10,borderRadius:10,background:closeBal>=0?"#0D948810":T.err+"10",border:"2px solid "+(closeBal>=0?"#0D948830":T.err+"30"),textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>رصيد اقفال</div><div style={{fontSize:20,fontWeight:800,color:closeBal>=0?"#0D9488":T.err}}>{fmt(r2(closeBal))}</div></div>
+          </div>
+          {dayTxns.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+            {["رصيد","وارد","منصرف","بيان","ملاحظات","نوع","حساب"].map(h=><th key={h} style={{padding:"5px 7px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
+          </tr></thead><tbody>
+            {(()=>{let rb=openBal;return dayTxns.map(t=>{if(t.type==="in")rb+=(Number(t.amount)||0);else rb-=(Number(t.amount)||0);
+              return<tr key={t.id} style={{borderBottom:"1px solid "+T.brd}}>
+                <td style={{padding:"5px 7px",fontSize:FS-1,fontWeight:800,color:rb>=0?"#0D9488":T.err}}>{fmt(r2(rb))}</td>
+                <td style={{padding:"5px 7px",fontSize:FS-1,fontWeight:700,color:T.ok}}>{t.type==="in"?fmt(r2(t.amount)):""}</td>
+                <td style={{padding:"5px 7px",fontSize:FS-1,fontWeight:700,color:T.err}}>{t.type==="out"?fmt(r2(t.amount)):""}</td>
+                <td style={{padding:"5px 7px",fontSize:FS-1}}>{t.desc||"—"}</td>
+                <td style={{padding:"5px 7px",fontSize:FS-2,color:T.textMut}}>{t.notes||""}</td>
+                <td style={{padding:"5px 7px",fontSize:FS-2}}><span style={{padding:"1px 5px",borderRadius:4,background:t.type==="in"?T.ok+"12":T.err+"12",color:t.type==="in"?T.ok:T.err,fontWeight:600}}>{t.category||"—"}</span></td>
+                <td style={{padding:"5px 7px",fontSize:FS-2,color:T.textSec}}>{t.account||""}</td>
+              </tr>})})()}
+          </tbody></table></div>:<div style={{textAlign:"center",padding:16,color:T.textMut,fontSize:FS-1}}>{"لا توجد حركات في "+reportDate}</div>}
+          <div style={{display:"flex",gap:8,marginTop:10,justifyContent:"center",flexWrap:"wrap"}}>
+            <span onClick={()=>printDaily(reportDate)} style={{cursor:"pointer",padding:"6px 16px",borderRadius:8,background:T.accent+"10",color:T.accent,fontWeight:700,fontSize:FS-1}}>🖨 طباعة تقرير {reportDate===today?"اليوم":"هذا اليوم"}</span>
+            {canEdit&&(()=>{const locked=isDayLocked(reportDate);
+              if(locked){
+                if(!isAdmin)return<span style={{padding:"6px 16px",borderRadius:8,background:T.ok+"10",color:T.ok,fontWeight:700,fontSize:FS-1}}>🔒 اليوم مقفول</span>;
+                return<span onClick={()=>openConfirm({title:"فتح قفل اليوم",message:"سيتم فتح القفل عن يوم "+reportDate+"\nوسيسمح لكل المستخدمين بالتعديل والحذف مرة أخرى.",variant:"warn",onConfirm:()=>{upConfig(d=>{d.lockedDays=(d.lockedDays||[]).filter(x=>x!==reportDate)});showToast("🔓 تم فتح اليوم")}})} style={{cursor:"pointer",padding:"6px 16px",borderRadius:8,background:T.warn+"10",color:T.warn,fontWeight:700,fontSize:FS-1,border:"1px solid "+T.warn+"30"}}>🔓 فتح قفل اليوم (مدير)</span>}
+              return<span onClick={()=>openConfirm({title:"قفل يوم "+reportDate,message:"سيتم قفل هذا اليوم بعد اعتماده.\nلن يمكن لأي مستخدم عادي تعديل أو حذف حركاته.\nالمدير فقط يستطيع التعديل بعد القفل.",variant:"warn",onConfirm:()=>{upConfig(d=>{if(!d.lockedDays)d.lockedDays=[];if(!d.lockedDays.includes(reportDate))d.lockedDays.push(reportDate)});showToast("🔒 تم قفل اليوم")}})} style={{cursor:"pointer",padding:"6px 16px",borderRadius:8,background:T.warn+"10",color:T.warn,fontWeight:700,fontSize:FS-1}}>🔒 قفل اليوم</span>})()}
+          </div>
+        </Card>})()}
+
+      <Card title={"📒 سجل اليومية ("+filtered.length+" حركة)"}>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+          <Sel value={filterType} onChange={setFilterType} style={{width:90}}><option>الكل</option><option>وارد</option><option>منصرف</option></Sel>
+          <Sel value={filterCat} onChange={setFilterCat} style={{width:130}}><option>الكل</option>{ALL_CATS.map(c=><option key={c}>{c}</option>)}</Sel>
+          <Sel value={filterAcc} onChange={setFilterAcc} style={{width:130}}><option>الكل</option>{accounts.map(a=><option key={a}>{a}</option>)}</Sel>
+          <Inp type="month" value={filterMonth} onChange={v=>{setFilterMonth(v);setFilterDay("")}} style={{width:150}}/>
+          <Inp type="date" value={filterDay} onChange={v=>{setFilterDay(v);setFilterMonth("")}} style={{width:150}}/>
+          {(filterMonth||filterDay)&&<Btn small ghost onClick={()=>{setFilterMonth("");setFilterDay("")}}>✕</Btn>}
+          <Inp value={filterSearch} onChange={setFilterSearch} placeholder="🔍 بحث بيان / ملاحظات / بواسطة..." style={{width:isMob?"100%":200}}/>
+          {filterSearch&&<Btn small ghost onClick={()=>setFilterSearch("")}>✕</Btn>}
+          {filterDay&&<span onClick={()=>printDaily(filterDay)} style={{cursor:"pointer",padding:"6px 12px",borderRadius:8,background:T.accent+"10",color:T.accent,fontWeight:700,fontSize:FS-1}}>🖨 طباعة يوم</span>}
+        </div>
+        {withBalance.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+          {["الرصيد","تاريخ","اليوم","وارد","منصرف","بيان","ملاحظات","نوع الحركة","حساب جاري","موسم",""].map(h=><th key={h} style={{padding:"7px 8px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
+        </tr></thead><tbody>
+          {withBalance.slice(0,limit).map(t=>{const locked=isDayLocked(t.date);
+            return<tr key={t.id} style={{borderBottom:"1px solid "+T.brd,opacity:locked?0.8:1,background:locked?T.bg:""}}>
+            <td style={{padding:"6px 8px",fontSize:FS-1,fontWeight:800,color:t.runBal>=0?"#0D9488":T.err}}>{fmt(r2(t.runBal))}</td>
+            <td style={{padding:"6px 8px",fontSize:FS-1}}>{t.date}{locked?" 🔒":""}</td>
+            <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut}}>{t.day||""}</td>
+            <td style={{padding:"6px 8px",fontSize:FS,fontWeight:700,color:T.ok}}>{t.type==="in"?fmt(r2(t.amount)):""}</td>
+            <td style={{padding:"6px 8px",fontSize:FS,fontWeight:700,color:T.err}}>{t.type==="out"?fmt(r2(t.amount)):""}</td>
+            <td style={{padding:"6px 8px",fontSize:FS-1,maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.desc||"—"}</td>
+            <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.notes||""}</td>
+            <td style={{padding:"6px 8px"}}><span style={{padding:"2px 6px",borderRadius:5,fontSize:FS-2,fontWeight:600,background:t.type==="in"?T.ok+"12":T.err+"12",color:t.type==="in"?T.ok:T.err}}>{t.category||"—"}</span></td>
+            <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textSec}}>{t.account||""}</td>
+            <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut}}>{t.season||""}</td>
+            <td style={{padding:"6px 8px"}}>{canEdit&&(()=>{const locked=isDayLocked(t.date);const allow=canModify(t);const external=isExternalTx(t);
+              if(locked&&!isAdmin)return<span style={{fontSize:11,color:T.textMut}} title="اليوم مقفول — للمدير فقط">🔒</span>;
+              if(external)return<span style={{fontSize:11,color:"#8B5CF6"}} title={"حركة من "+externalSourceLabel(t)+" — احذفها من مصدرها"}>🔗</span>;
+              return<div style={{display:"flex",gap:3,alignItems:"center"}}>
+                {locked&&isAdmin&&<span style={{fontSize:10,color:T.warn}} title="اليوم مقفول — وصول المدير">🔒</span>}
+                <span onClick={()=>{if(!allow){showToast("⛔ اليوم مقفول — للمدير فقط");return}editTx(t)}} style={{cursor:"pointer",fontSize:11}}>✏️</span>
+                <span onClick={()=>{if(!allow){showToast("⛔ اليوم مقفول — للمدير فقط");return}openConfirm({title:"حذف حركة",message:"سيتم حذف الحركة نهائياً.\n"+(t.desc||"")+"\nالمبلغ: "+fmt(t.amount)+" ج.م",variant:"danger",onConfirm:()=>delTx(t.id)})}} style={{cursor:"pointer",fontSize:11,color:T.err}}>✕</span>
+              </div>})()}</td>
+          </tr>})}
+        </tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد حركات</div>}
+        {withBalance.length>limit&&<div style={{textAlign:"center",marginTop:10}}><Btn small onClick={()=>setLimit(p=>p+50)}>عرض المزيد</Btn></div>}
+      </Card>
+    </div>}
+
+    {/* ══ TRANSFERS VIEW ══ */}
+    {view==="transfers"&&<div>
+      {canEdit&&accountsData.length>=2&&<div style={{marginBottom:14}}><Btn onClick={()=>setShowTransfer(true)} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700}}>+ تحويل جديد</Btn></div>}
+      {transfers.length===0?<Card><div style={{textAlign:"center",padding:40,color:T.textMut}}>لا يوجد تحويلات بعد — اضغط "+ تحويل جديد"</div></Card>
+      :<Card title={"🔄 سجل التحويلات ("+transfers.length+")"}>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {transfers.map(tf=>{
+            return<div key={tf.id} style={{padding:14,borderRadius:12,border:"2px solid #8B5CF630",background:"#8B5CF606"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+                    <span style={{fontSize:FS,fontWeight:800,color:T.err}}>{tf.fromAccount}</span>
+                    <span style={{fontSize:18,color:"#8B5CF6"}}>→</span>
+                    <span style={{fontSize:FS,fontWeight:800,color:T.ok}}>{tf.toAccount}</span>
+                  </div>
+                  {tf.note&&<div style={{fontSize:FS-2,color:T.textMut,marginBottom:4}}>💬 {tf.note}</div>}
+                  <div style={{fontSize:FS-3,color:T.textMut}}>{"📅 "+tf.date+" • أرسله: "+tf.sentBy}</div>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
+                  <span style={{fontSize:FS+4,fontWeight:800,color:"#8B5CF6"}}>{fmt(tf.amount)}</span>
+                  {canEdit&&<span onClick={()=>openConfirm({title:"حذف التحويل",message:"سيتم حذف التحويل وحركاته في السجلين معاً.\nمن "+tf.fromAccount+" إلى "+tf.toAccount+"\nالمبلغ: "+fmt(tf.amount)+" ج.م",variant:"danger",onConfirm:()=>deleteTransfer(tf.id)})} style={{cursor:"pointer",fontSize:11,color:T.err,padding:"2px 8px",borderRadius:6,border:"1px solid "+T.err+"30",background:T.err+"08"}}>🗑️ حذف</span>}
+                </div>
+              </div>
+            </div>})}
+        </div>
+      </Card>}
+    </div>}
+
+    {/* ══ CHECKS VIEW — الشيكات ══ */}
+    {view==="checks"&&<div>
+      {(()=>{
+        const receivable=checks.filter(c=>c.type==="receivable");
+        const payable=checks.filter(c=>c.type==="payable");
+        const totalRcv=receivable.filter(c=>c.status!=="محصل"&&c.status!=="ملغي").reduce((s,c)=>s+(Number(c.amount)||0),0);
+        const totalPay=payable.filter(c=>c.status!=="مدفوع"&&c.status!=="ملغي").reduce((s,c)=>s+(Number(c.amount)||0),0);
+        const saveCheck=()=>{const amt=parseFloat(chkAmount);if(!amt||!chkParty.trim()){playBeep("error");return}
+          upConfig(d=>{if(!d.checks)d.checks=[];
+            if(chkEditId){const ch=d.checks.find(c=>c.id===chkEditId);if(ch){ch.type=chkType;ch.amount=amt;ch.party=chkParty;ch.bank=chkBank;ch.checkNo=chkNumber;ch.date=chkDate;ch.dueDate=chkDueDate;ch.notes=chkNotes;ch.updatedBy=userName}}
+            else{d.checks.push({id:gid(),type:chkType,amount:amt,party:chkParty.trim(),bank:chkBank,checkNo:chkNumber,date:chkDate||today,dueDate:chkDueDate,notes:chkNotes,status:"معلق",by:userName,createdAt:new Date().toISOString()})}});
+          setShowCheckForm(false);setChkAmount("");setChkParty("");setChkBank("");setChkNumber("");setChkDate("");setChkDueDate("");setChkNotes("");setChkEditId(null);showToast("✓ تم الحفظ")};
+        const editCheck=(c)=>{setChkEditId(c.id);setChkType(c.type);setChkAmount(String(c.amount));setChkParty(c.party||"");setChkBank(c.bank||"");setChkNumber(c.checkNo||"");setChkDate(c.date||"");setChkDueDate(c.dueDate||"");setChkNotes(c.notes||"");setShowCheckForm(true)};
+        const updateStatus=(id,status)=>{upConfig(d=>{const ch=(d.checks||[]).find(c=>c.id===id);if(ch){ch.status=status;ch.statusDate=today;ch.statusBy=userName;
+          /* Auto-register in treasury when collected/paid */
+          if(!d.treasury)d.treasury=[];
+          if(status==="محصل"){d.treasury.unshift({id:gid(),type:"in",amount:ch.amount,desc:"تحصيل شيك من "+ch.party+(ch.checkNo?" #"+ch.checkNo:""),category:"دفعة عميل",account:ch.bank||"MAIN CASH",season:d.activeSeason||"",date:today,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date().getDay()],by:userName,createdAt:new Date().toISOString()})}
+          if(status==="مدفوع"){d.treasury.unshift({id:gid(),type:"out",amount:ch.amount,desc:"صرف شيك لـ "+ch.party+(ch.checkNo?" #"+ch.checkNo:""),category:"تشغيل خارجي",account:ch.bank||"MAIN CASH",season:d.activeSeason||"",date:today,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date().getDay()],by:userName,createdAt:new Date().toISOString()})}}});showToast("✓ تم التحديث")};
+        const delCheck=(id)=>{upConfig(d=>{d.checks=(d.checks||[]).filter(c=>c.id!==id)})};
+        const filteredChecks=chkFilter==="الكل"?checks:checks.filter(c=>chkFilter==="أوراق قبض"?c.type==="receivable":c.type==="payable");
+        const STATUS_COLORS={معلق:"#F59E0B",محصل:"#10B981",مدفوع:"#10B981","مُظهّر":"#8B5CF6",مرتجع:"#EF4444",ملغي:"#94A3B8"};
+        const[endorsePopup,setEndorsePopup]=useState(null);/* checkId to endorse */
+        const[endorseSearch,setEndorseSearch]=useState("");
+        const endorseCheck=(checkId,supplierId)=>{
+          const sup=suppliers.find(s=>s.id===supplierId);if(!sup)return;
+          upConfig(d=>{
+            const ch=(d.checks||[]).find(c=>c.id===checkId);if(!ch)return;
+            ch.status="مُظهّر";ch.statusDate=today;ch.statusBy=userName;ch.endorsedTo=sup.name;ch.endorsedToId=sup.id;
+            /* Register supplier payment */
+            if(!d.supplierPayments)d.supplierPayments=[];
+            d.supplierPayments.push({id:gid(),supplierId:sup.id,supplierName:sup.name,amount:ch.amount,date:today,note:"تظهير شيك"+(ch.party?" من "+ch.party:"")+(ch.checkNo?" #"+ch.checkNo:""),method:"شيك مُظهّر",by:userName,createdAt:new Date().toISOString()});
+            /* Treasury entry */
+            if(!d.treasury)d.treasury=[];
+            d.treasury.unshift({id:gid(),type:"out",amount:ch.amount,desc:"تظهير شيك لـ "+sup.name+(ch.party?" (شيك "+ch.party+")":"")+(ch.checkNo?" #"+ch.checkNo:""),category:"تشغيل خارجي",account:"CHECKS",season:d.activeSeason||"",date:today,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date().getDay()],sourceType:"check_endorse",checkId,by:userName,createdAt:new Date().toISOString()})});
+          setEndorsePopup(null);setEndorseSearch("");showToast("✅ تم تظهير الشيك لـ "+sup.name)};
+        return<div>
+          {/* Summary */}
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:10,marginBottom:16}}>
+            <div style={{padding:14,borderRadius:12,background:T.ok+"08",border:"1px solid "+T.ok+"20",textAlign:"center"}}>
+              <div style={{fontSize:FS-2,color:T.textSec}}>أوراق قبض (معلقة)</div>
+              <div style={{fontSize:20,fontWeight:800,color:T.ok}}>{fmt(r2(totalRcv))}</div>
+              <div style={{fontSize:FS-2,color:T.textMut}}>{receivable.filter(c=>c.status!=="محصل"&&c.status!=="ملغي").length+" شيك"}</div>
+            </div>
+            <div style={{padding:14,borderRadius:12,background:T.err+"08",border:"1px solid "+T.err+"20",textAlign:"center"}}>
+              <div style={{fontSize:FS-2,color:T.textSec}}>أوراق دفع (معلقة)</div>
+              <div style={{fontSize:20,fontWeight:800,color:T.err}}>{fmt(r2(totalPay))}</div>
+              <div style={{fontSize:FS-2,color:T.textMut}}>{payable.filter(c=>c.status!=="مدفوع"&&c.status!=="ملغي").length+" شيك"}</div>
+            </div>
+            <div style={{padding:14,borderRadius:12,background:T.ok+"06",textAlign:"center"}}>
+              <div style={{fontSize:FS-2,color:T.textSec}}>تم تحصيله</div>
+              <div style={{fontSize:18,fontWeight:800,color:T.ok}}>{fmt(r2(receivable.filter(c=>c.status==="محصل").reduce((s,c)=>s+(Number(c.amount)||0),0)))}</div>
+            </div>
+            <div style={{padding:14,borderRadius:12,background:T.err+"06",textAlign:"center"}}>
+              <div style={{fontSize:FS-2,color:T.textSec}}>تم دفعه</div>
+              <div style={{fontSize:18,fontWeight:800,color:T.err}}>{fmt(r2(payable.filter(c=>c.status==="مدفوع").reduce((s,c)=>s+(Number(c.amount)||0),0)))}</div>
+            </div>
+          </div>
+          {/* Add button + filter */}
+          <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+            {canEdit&&<Btn primary onClick={()=>{setChkEditId(null);setChkType("receivable");setChkAmount("");setChkParty("");setChkBank("");setChkNumber("");setChkDate(today);setChkDueDate("");setChkNotes("");setShowCheckForm(!showCheckForm)}}>{showCheckForm?"✕ إغلاق":"+ شيك جديد"}</Btn>}
+            <Sel value={chkFilter} onChange={setChkFilter} style={{width:130}}><option>الكل</option><option>أوراق قبض</option><option>أوراق دفع</option></Sel>
+          </div>
+          {/* Form */}
+          {showCheckForm&&<Card title={chkEditId?"✏️ تعديل شيك":"+ شيك جديد"} style={{marginBottom:16}}>
+            <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(4,1fr)",gap:10}}>
+              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label><div style={{display:"flex",gap:6,marginTop:4}}>
+                <div onClick={()=>setChkType("receivable")} style={{flex:1,padding:"8px 0",borderRadius:8,textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-1,background:chkType==="receivable"?T.ok+"15":"transparent",border:"2px solid "+(chkType==="receivable"?T.ok:T.brd),color:chkType==="receivable"?T.ok:T.textSec}}>أوراق قبض</div>
+                <div onClick={()=>setChkType("payable")} style={{flex:1,padding:"8px 0",borderRadius:8,textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-1,background:chkType==="payable"?T.err+"15":"transparent",border:"2px solid "+(chkType==="payable"?T.err:T.brd),color:chkType==="payable"?T.err:T.textSec}}>أوراق دفع</div>
+              </div></div>
+              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المبلغ</label><Inp type="number" value={chkAmount} onChange={setChkAmount} placeholder="0.00"/></div>
+              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{chkType==="receivable"?"اسم العميل / الجهة":"اسم المستفيد"}</label><Inp value={chkParty} onChange={setChkParty} placeholder="الاسم"/></div>
+              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>البنك</label><Inp value={chkBank} onChange={setChkBank} placeholder="اسم البنك"/></div>
+              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رقم الشيك</label><Inp value={chkNumber} onChange={setChkNumber} placeholder="رقم"/></div>
+              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تاريخ التحرير</label><Inp type="date" value={chkDate} onChange={setChkDate}/></div>
+              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تاريخ الاستحقاق</label><Inp type="date" value={chkDueDate} onChange={setChkDueDate}/></div>
+              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات</label><Inp value={chkNotes} onChange={setChkNotes} placeholder="ملاحظات"/></div>
+            </div>
+            <div style={{marginTop:10}}><Btn primary onClick={saveCheck}>{chkEditId?"💾 حفظ التعديل":"💾 حفظ"}</Btn></div>
+          </Card>}
+          {/* Checks table */}
+          <Card title={"📝 سجل الشيكات ("+filteredChecks.length+")"}>
+            {filteredChecks.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+              {["النوع","المبلغ","الجهة","البنك","رقم الشيك","تاريخ الاستحقاق","الحالة",""].map(h=><th key={h} style={{padding:"7px 8px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
+            </tr></thead><tbody>
+              {filteredChecks.sort((a,b)=>(a.dueDate||"").localeCompare(b.dueDate||"")).map(c=>{const overdue=c.dueDate&&c.dueDate<today&&c.status==="معلق";
+                return<tr key={c.id} style={{borderBottom:"1px solid "+T.brd,background:overdue?T.err+"04":""}}>
+                <td style={{padding:"6px 8px"}}><span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:c.type==="receivable"?T.ok+"12":T.err+"12",color:c.type==="receivable"?T.ok:T.err}}>{c.type==="receivable"?"قبض":"دفع"}</span></td>
+                <td style={{padding:"6px 8px",fontSize:FS,fontWeight:800,color:c.type==="receivable"?T.ok:T.err}}>{fmt(r2(c.amount))}</td>
+                <td style={{padding:"6px 8px",fontSize:FS-1,fontWeight:600}}>{c.party}{c.status==="مُظهّر"&&c.endorsedTo&&<div style={{fontSize:FS-3,color:"#8B5CF6",fontWeight:700,marginTop:2}}>{"📤 مُظهّر لـ "+c.endorsedTo}</div>}</td>
+                <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textSec}}>{c.bank||"—"}</td>
+                <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut}}>{c.checkNo||"—"}</td>
+                <td style={{padding:"6px 8px",fontSize:FS-1,fontWeight:overdue?700:400,color:overdue?T.err:T.text}}>{c.dueDate||"—"}{overdue?" ⚠️":""}</td>
+                <td style={{padding:"6px 8px"}}><span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:(STATUS_COLORS[c.status]||T.textMut)+"15",color:STATUS_COLORS[c.status]||T.textMut}}>{c.status}</span></td>
+                <td style={{padding:"6px 8px"}}>{canEdit&&c.status==="معلق"&&<div style={{display:"flex",gap:3,flexWrap:"wrap"}}>
+                  <span onClick={()=>updateStatus(c.id,c.type==="receivable"?"محصل":"مدفوع")} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:T.ok+"12",color:T.ok,fontWeight:700}}>{c.type==="receivable"?"✅ تحصيل":"✅ دفع"}</span>
+                  {c.type==="receivable"&&<span onClick={()=>{setEndorsePopup(c.id);setEndorseSearch("")}} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:"#8B5CF612",color:"#8B5CF6",fontWeight:700}}>📤 تظهير</span>}
+                  <span onClick={()=>updateStatus(c.id,"مرتجع")} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:T.warn+"12",color:T.warn,fontWeight:700}}>↩ مرتجع</span>
+                  <span onClick={()=>editCheck(c)} style={{cursor:"pointer",fontSize:11}}>✏️</span>
+                  <span onClick={()=>openConfirm({title:"حذف الشيك",message:"سيتم حذف الشيك:\n"+c.party+" — "+fmt(c.amount)+" ج.م",variant:"danger",onConfirm:()=>delCheck(c.id)})} style={{cursor:"pointer",fontSize:11,color:T.err}}>✕</span>
+                </div>}</td>
+              </tr>})}
+            </tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد شيكات</div>}
+          </Card>
+          {/* ── Endorse popup — select supplier ── */}
+          {endorsePopup&&(()=>{const ch=checks.find(c=>c.id===endorsePopup);if(!ch)return null;
+            const q=endorseSearch.toLowerCase();
+            const filteredSup=suppliers.filter(s=>!q||s.name.toLowerCase().includes(q));
+            return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setEndorsePopup(null)}>
+              <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:450,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                  <div style={{fontSize:FS+1,fontWeight:800,color:"#8B5CF6"}}>📤 تظهير شيك</div>
+                  <Btn ghost small onClick={()=>setEndorsePopup(null)}>✕</Btn>
+                </div>
+                <div style={{padding:12,borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF620",marginBottom:14}}>
+                  <div style={{fontSize:FS-1,color:T.textSec}}>شيك من: <b style={{color:T.text}}>{ch.party}</b></div>
+                  <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6",marginTop:4}}>{fmt(r2(ch.amount))} ج.م</div>
+                  {ch.checkNo&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{"رقم: #"+ch.checkNo+(ch.dueDate?" | استحقاق: "+ch.dueDate:"")}</div>}
+                </div>
+                <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>اختر المورد:</div>
+                <input value={endorseSearch} onChange={e=>setEndorseSearch(e.target.value)} placeholder="🔍 بحث عن مورد..." style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.inputBg,color:T.text,marginBottom:10,boxSizing:"border-box"}}/>
+                {filteredSup.length>0?<div style={{display:"flex",flexDirection:"column",gap:4}}>
+                  {filteredSup.map(s=><div key={s.id} onClick={()=>endorseCheck(endorsePopup,s.id)} style={{padding:"10px 14px",borderRadius:10,border:"1px solid "+T.brd,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#8B5CF608"} onMouseLeave={e=>e.currentTarget.style.background=""}>
+                    <div><div style={{fontSize:FS,fontWeight:700}}>{s.name}</div>{s.phone&&<div style={{fontSize:FS-2,color:T.textMut}}>{s.phone}</div>}</div>
+                    <span style={{fontSize:FS-1,color:"#8B5CF6",fontWeight:700}}>📤 تظهير</span>
+                  </div>)}
+                </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>{suppliers.length===0?"لا يوجد موردين — أضف موردين من قاعدة البيانات":"لا توجد نتائج"}</div>}
+              </div>
+            </div>})()}
+        </div>})()}
+    </div>}
+
+    {/* ══ ANALYSIS VIEW ══ */}
+    {view==="analysis"&&<div>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:16}}>
+        {/* OUT Analysis */}
+        <Card title="📊 تحليل المنصرف بالنوع">
+          {(()=>{const outCats=catAnalysis.filter(([,v])=>v.out>0).sort((a,b)=>b[1].out-a[1].out);const totalOut=outCats.reduce((s,[,v])=>s+v.out,0);
+            return outCats.length>0?<div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {outCats.map(([cat,v])=>{const pct=totalOut?Math.round(v.out/totalOut*100):0;
+                return<div key={cat}><div style={{display:"flex",justifyContent:"space-between",fontSize:FS-1,marginBottom:2}}>
+                  <span style={{fontWeight:600}}>{cat}</span><span style={{fontWeight:700,color:T.err}}>{fmt(r2(v.out))+" ("+pct+"%)"}</span>
+                </div><div style={{height:6,borderRadius:3,background:T.bg}}><div style={{height:"100%",borderRadius:3,background:T.err,width:pct+"%"}}/></div></div>})}
+              <div style={{marginTop:8,padding:8,borderRadius:8,background:T.err+"06",textAlign:"center",fontWeight:800,color:T.err}}>{"اجمالي: "+fmt(r2(totalOut))+" ج.م"}</div>
+            </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد بيانات</div>})()}
+        </Card>
+        {/* IN Analysis */}
+        <Card title="📊 تحليل الوارد بالنوع">
+          {(()=>{const inCats=catAnalysis.filter(([,v])=>v.in>0).sort((a,b)=>b[1].in-a[1].in);const totalIn=inCats.reduce((s,[,v])=>s+v.in,0);
+            return inCats.length>0?<div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {inCats.map(([cat,v])=>{const pct=totalIn?Math.round(v.in/totalIn*100):0;
+                return<div key={cat}><div style={{display:"flex",justifyContent:"space-between",fontSize:FS-1,marginBottom:2}}>
+                  <span style={{fontWeight:600}}>{cat}</span><span style={{fontWeight:700,color:T.ok}}>{fmt(r2(v.in))+" ("+pct+"%)"}</span>
+                </div><div style={{height:6,borderRadius:3,background:T.bg}}><div style={{height:"100%",borderRadius:3,background:T.ok,width:pct+"%"}}/></div></div>})}
+              <div style={{marginTop:8,padding:8,borderRadius:8,background:T.ok+"06",textAlign:"center",fontWeight:800,color:T.ok}}>{"اجمالي: "+fmt(r2(totalIn))+" ج.م"}</div>
+            </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد بيانات</div>})()}
+        </Card>
+      </div>
+      {/* Monthly breakdown */}
+      <Card title="📅 تحليل شهري" style={{marginTop:16}}>
+        {(()=>{const months={};txns.forEach(t=>{const m=(t.date||"").slice(0,7);if(!m)return;if(!months[m])months[m]={in:0,out:0};
+          if(t.type==="in")months[m].in+=(Number(t.amount)||0);else months[m].out+=(Number(t.amount)||0)});
+          const sorted=Object.entries(months).sort((a,b)=>b[0].localeCompare(a[0]));
+          return sorted.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+            {["الشهر","وارد","منصرف","صافي"].map(h=><th key={h} style={{padding:"8px 10px",textAlign:"right",fontSize:FS-1,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700}}>{h}</th>)}
+          </tr></thead><tbody>
+            {sorted.map(([m,v])=><tr key={m} style={{borderBottom:"1px solid "+T.brd}}>
+              <td style={{padding:"8px 10px",fontWeight:700,fontSize:FS}}>{m}</td>
+              <td style={{padding:"8px 10px",fontWeight:700,color:T.ok}}>{fmt(r2(v.in))}</td>
+              <td style={{padding:"8px 10px",fontWeight:700,color:T.err}}>{fmt(r2(v.out))}</td>
+              <td style={{padding:"8px 10px",fontWeight:800,color:(v.in-v.out)>=0?T.ok:T.err}}>{fmt(r2(v.in-v.out))}</td>
+            </tr>)}
+          </tbody></table></div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد بيانات</div>})()}
+      </Card>
+    </div>}
+
+    {/* ══ ACCOUNTS VIEW ══ */}
+    {view==="accounts"&&<div>
+      <Card title="🏦 إدارة الحسابات">
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(2,1fr)",gap:12,marginBottom:16}}>
+          {accountsData.map(acc=>{const b=accBalances[acc.name]||{in:0,out:0};const bal=b.in-b.out;
+            return<div key={acc.id} style={{padding:16,borderRadius:14,background:T.cardSolid,border:"1px solid "+T.brd,boxShadow:T.shadow}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                <div>
+                  <div style={{fontSize:FS,fontWeight:800,color:T.text}}>{acc.name}</div>
+                  {acc.ownerEmail&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>👤 {acc.ownerEmail}</div>}
+                </div>
+                {canEdit&&<div style={{display:"flex",gap:4}}>
+                  <span onClick={()=>{setView("journal");setFilterAcc(acc.name)}} style={{cursor:"pointer",padding:"3px 8px",borderRadius:6,fontSize:FS-2,background:T.accent+"10",color:T.accent,border:"1px solid "+T.accent+"30"}} title="عرض السجل">📒</span>
+                  <span onClick={()=>editAccount(acc)} style={{cursor:"pointer",padding:"3px 6px",borderRadius:6,fontSize:11,background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>✏️</span>
+                  <span onClick={()=>{if(txns.some(t=>t.account===acc.name)){playBeep("error");showToast("⛔ لا يمكن الحذف — يوجد حركات مرتبطة");return}openConfirm({title:"حذف الحساب",message:"سيتم حذف الحساب: "+acc.name,variant:"danger",onConfirm:()=>delAccount(acc.id)})}} style={{cursor:"pointer",padding:"3px 6px",borderRadius:6,fontSize:11,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>🗑️</span>
+                </div>}
+              </div>
+              <div style={{display:"flex",gap:16,marginTop:4}}>
+                <div><div style={{fontSize:FS-2,color:T.textMut}}>وارد</div><div style={{fontSize:FS,fontWeight:700,color:T.ok}}>{fmt(r2(b.in))}</div></div>
+                <div><div style={{fontSize:FS-2,color:T.textMut}}>منصرف</div><div style={{fontSize:FS,fontWeight:700,color:T.err}}>{fmt(r2(b.out))}</div></div>
+                <div><div style={{fontSize:FS-2,color:T.textMut}}>الرصيد</div><div style={{fontSize:FS+2,fontWeight:800,color:bal>=0?"#0D9488":T.err}}>{fmt(r2(bal))}</div></div>
+              </div>
+            </div>})}
+        </div>
+        {canEdit&&<div style={{padding:12,borderRadius:12,background:T.bg,border:"1px dashed "+T.brd}}>
+          <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:8}}>{editAccId?"✏️ تعديل حساب":"+ إضافة حساب جديد"}</div>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr auto",gap:8,alignItems:"flex-end"}}>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>اسم الحساب</label><Inp value={newAccName} onChange={setNewAccName} placeholder="مثال: CIB WALLET"/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>إيميل المسؤول (اختياري)</label><Inp value={newAccOwner} onChange={setNewAccOwner} placeholder="user@example.com"/></div>
+            <div style={{display:"flex",gap:4}}>
+              <Btn primary onClick={addAccount} disabled={!newAccName.trim()}>{editAccId?"💾 حفظ":"+ إضافة"}</Btn>
+              {editAccId&&<Btn ghost onClick={()=>{setEditAccId(null);setNewAccName("");setNewAccOwner("")}}>✕</Btn>}
+            </div>
+          </div>
+        </div>}
+      </Card>
+
+      {/* ═══ DANGER ZONE — admin only ═══ */}
+      {isAdmin&&<Card style={{marginTop:20,border:"2px solid "+T.err+"40",background:T.err+"04"}}>
+        <div style={{padding:"4px 0"}}>
+          <div style={{fontSize:FS+1,fontWeight:800,color:T.err,marginBottom:8}}>⚠️ منطقة الخطر</div>
+          <div style={{fontSize:FS-1,color:T.textSec,marginBottom:14,lineHeight:1.7}}>
+            مسح كل حركات الخزنة والسلف والمرتبات بشكل نهائي. يفيد في البدء من نقطة الصفر أو مع بداية موسم جديد.
+            <br/>
+            <b style={{color:T.err}}>تنبيه:</b> هذا الإجراء لا يمكن التراجع عنه.
+          </div>
+          <Btn onClick={()=>{setResetConfirmText("");setShowResetPopup(true)}} style={{background:T.err,color:"#fff",border:"none",fontWeight:700,padding:"10px 20px"}}>🗑️ مسح كل حركات الخزنة + سلف ومرتبات HR</Btn>
+        </div>
+      </Card>}
+    </div>}
+
+    {/* ══ RESET CONFIRMATION POPUP ══ */}
+    {showResetPopup&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={()=>{setShowResetPopup(false);setResetConfirmText("")}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:28,width:"100%",maxWidth:520,border:"3px solid "+T.err,boxShadow:"0 25px 80px rgba(239,68,68,0.3)"}}>
+        <div style={{fontSize:56,textAlign:"center",marginBottom:10}}>⚠️</div>
+        <div style={{fontSize:FS+4,fontWeight:900,color:T.err,textAlign:"center",marginBottom:14}}>مسح شامل — لا رجعة فيه</div>
+        <div style={{fontSize:FS-1,color:T.textSec,marginBottom:14,lineHeight:1.8,padding:"12px 14px",background:T.err+"08",borderRadius:10,border:"1px solid "+T.err+"20"}}>
+          <b style={{color:T.err}}>سيتم حذف:</b><br/>
+          • كل حركات اليومية ({txns.length} حركة)<br/>
+          • كل التحويلات ({transfers.length} تحويل)<br/>
+          • كل دفعات العملاء والموردين<br/>
+          • كل السلف والمرتبات من HR<br/>
+          • كل المديونيات<br/>
+          • الأرصدة المرحّلة للموظفين<br/>
+          • الأيام المقفولة<br/>
+          <br/>
+          <b style={{color:T.ok}}>سيظل محفوظاً:</b> الشيكات • الموظفين • الأسابيع (سيتم فتحها) • بيانات الطلبات والعملاء
+        </div>
+        <div style={{marginBottom:16}}>
+          <label style={{fontSize:FS-1,color:T.textSec,fontWeight:700,display:"block",marginBottom:6}}>اكتب كلمة <b style={{color:T.err,fontSize:FS+1}}>حذف</b> للتأكيد:</label>
+          <Inp value={resetConfirmText} onChange={setResetConfirmText} placeholder="حذف" style={{fontSize:FS+1,textAlign:"center",fontWeight:700,border:"2px solid "+T.err+"40"}}/>
+        </div>
+        <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+          <Btn ghost onClick={()=>{setShowResetPopup(false);setResetConfirmText("")}}>إلغاء</Btn>
+          <Btn onClick={executeReset} disabled={resetConfirmText.trim()!=="حذف"} style={{background:resetConfirmText.trim()==="حذف"?T.err:T.textMut+"50",color:"#fff",border:"none",fontWeight:800,padding:"10px 22px",cursor:resetConfirmText.trim()==="حذف"?"pointer":"not-allowed"}}>🗑️ نفّذ المسح الشامل</Btn>
+        </div>
+      </div>
+    </div>}
+
+    {/* ══ PARTY PICKER POPUP (customer/supplier/workshop) ══ */}
+    {showPartyPicker&&(()=>{
+      const list=showPartyPicker==="customer"?customers:showPartyPicker==="supplier"?suppliers:workshops;
+      const title=showPartyPicker==="customer"?"🧑 اختيار عميل":showPartyPicker==="supplier"?"🏭 اختيار مورد":"🔧 اختيار ورشة";
+      const emptyMsg=showPartyPicker==="customer"?"لا يوجد عملاء":showPartyPicker==="supplier"?"لا يوجد موردين":"لا توجد ورش";
+      const filtered=list.filter(p=>!partySearch.trim()||(p.name||"").toLowerCase().includes(partySearch.toLowerCase())||(p.phone||"").includes(partySearch));
+      /* For workshops: compute balance */
+      const wsBalance=(wsName)=>{let due=0;(data.orders||[]).forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===wsName).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});const payments=(data.wsPayments||[]).filter(p=>p.wsName===wsName);const paid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);const purchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);return due+purchase-paid};
+      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>{setShowPartyPicker(null);if(!txPartyId){setTxCategory("")}}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:540,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>{title}</div>
+            <Btn ghost small onClick={()=>{setShowPartyPicker(null);if(!txPartyId){setTxCategory("")}}}>✕</Btn>
+          </div>
+          <Inp value={partySearch} onChange={setPartySearch} placeholder="🔍 بحث بالاسم أو التليفون..." style={{marginBottom:10}}/>
+          {filtered.length===0?<div style={{textAlign:"center",padding:30,color:T.textMut}}>{list.length===0?emptyMsg:"لا توجد نتائج"}</div>
+          :<div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:"50vh",overflowY:"auto"}}>
+            {filtered.map(p=>{
+              const bal=showPartyPicker==="workshop"?wsBalance(p.name):p.balance;
+              const keyId=p.id||p.name;
+              return<div key={keyId} onClick={()=>{
+                setTxPartyId(keyId);setTxPartyType(showPartyPicker);setShowPartyPicker(null);
+                if(!txDesc.trim()){
+                  if(showPartyPicker==="customer")setTxDesc("دفعة من "+p.name);
+                  else if(showPartyPicker==="supplier")setTxDesc("دفع لـ "+p.name);
+                  else setTxDesc((txCategory==="مشتريات"?"مشتريات ورشة ":"دفعة ورشة ")+p.name)
+                }
+              }} style={{padding:"10px 12px",borderRadius:10,cursor:"pointer",background:txPartyId===keyId?T.accent+"10":T.bg,border:"1px solid "+(txPartyId===keyId?T.accent+"40":T.brd),display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all 0.15s"}}>
+                <div>
+                  <div style={{fontSize:FS,fontWeight:700,color:T.text}}>{p.name}</div>
+                  {p.phone&&<div style={{fontSize:FS-2,color:T.textMut,direction:"ltr",textAlign:"right"}}>{p.phone}</div>}
+                </div>
+                {bal!=null&&bal!==0&&<span style={{fontSize:FS-1,fontWeight:700,color:bal>=0?T.err:T.ok}} title={showPartyPicker==="workshop"?"الرصيد المستحق للورشة":"الرصيد"}>{fmt(r2(bal))}</span>}
+              </div>})}
+          </div>}
+        </div>
+      </div>})()}
+
+    {/* ══ TRANSFER FORM POPUP ══ */}
+    {showTransfer&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setShowTransfer(false)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:480,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>🔄 تحويل بين الخزن</div>
+          <Btn ghost small onClick={()=>setShowTransfer(false)}>✕</Btn>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>من خزنة</label>
+            <Sel value={tfFrom} onChange={setTfFrom}><option value="">— اختر —</option>{accountsData.map(a=><option key={a.id} value={a.name}>{a.name}{a.ownerEmail?" ("+a.ownerEmail.split("@")[0]+")":""}</option>)}</Sel></div>
+          <div style={{display:"flex",justifyContent:"center",margin:"4px 0"}}><span style={{fontSize:22,color:"#8B5CF6"}}>↓</span></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>إلى خزنة</label>
+            <Sel value={tfTo} onChange={setTfTo}><option value="">— اختر —</option>{accountsData.filter(a=>a.name!==tfFrom).map(a=><option key={a.id} value={a.name}>{a.name}{a.ownerEmail?" ("+a.ownerEmail.split("@")[0]+")":""}</option>)}</Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المبلغ (ج.م)</label>
+            <Inp type="number" value={tfAmount} onChange={setTfAmount} placeholder="0"/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات (اختياري)</label>
+            <Inp value={tfNote} onChange={setTfNote} placeholder="سبب التحويل..."/></div>
+          {tfTo&&(()=>{const to=accountsData.find(a=>a.name===tfTo);return to?.ownerEmail?<div style={{padding:8,borderRadius:8,background:T.accent+"06",border:"1px solid "+T.accent+"20",fontSize:FS-2,color:T.accent}}>📩 سيتم إرسال إشعار إلى <b>{to.ownerEmail}</b> لتأكيد الاستلام</div>:<div style={{padding:8,borderRadius:8,background:T.warn+"06",border:"1px solid "+T.warn+"20",fontSize:FS-2,color:T.warn}}>⚠️ الخزنة الهدف ليس لها مسؤول — لن يتم إرسال إشعار</div>})()}
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
+          <Btn ghost onClick={()=>setShowTransfer(false)}>إلغاء</Btn>
+          <Btn onClick={submitTransfer} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:700}}>🔄 إرسال التحويل</Btn>
+        </div>
+      </div>
+    </div>}
+
+    {/* ══ GENERIC CONFIRM POPUP ══ */}
+    {confirmPopup&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setConfirmPopup(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:440,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)",textAlign:"center"}}>
+        <div style={{fontSize:44,marginBottom:10}}>{confirmPopup.variant==="danger"?"⚠️":confirmPopup.variant==="warn"?"⚠️":"❓"}</div>
+        <div style={{fontSize:FS+3,fontWeight:800,color:confirmPopup.variant==="danger"?T.err:confirmPopup.variant==="warn"?T.warn:T.text,marginBottom:8}}>{confirmPopup.title||"تأكيد"}</div>
+        <div style={{fontSize:FS,color:T.textSec,marginBottom:18,lineHeight:1.6,whiteSpace:"pre-line"}}>{confirmPopup.message||""}</div>
+        <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+          <Btn ghost onClick={()=>setConfirmPopup(null)}>إلغاء</Btn>
+          <Btn onClick={()=>{if(confirmPopup.onConfirm)confirmPopup.onConfirm();setConfirmPopup(null)}} style={{background:confirmPopup.variant==="danger"?T.err:confirmPopup.variant==="warn"?T.warn:T.accent,color:"#fff",border:"none",fontWeight:800,padding:"10px 24px"}}>{confirmPopup.variant==="danger"?"🗑️ حذف":"✅ تأكيد"}</Btn>
+        </div>
+      </div>
+    </div>}
+  </div>
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   HR PAGE — الموظفين والمرتبات الأسبوعية V2
+   مسحوبات أسبوعية + ماتركس دفعات + حساب صافي + سجل
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════
+   HR PAGE V3 — نظام الأسابيع الكامل
+   فتح أسبوع → لصق بصمة → حساب مرتبات → اعتماد → قفل
+   ═══════════════════════════════════════════════════════════════ */
+function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
+  const userName=user?.displayName||(user?.email||"").split("@")[0];
+  const employees=(data.employees||[]);
+  const hrWeeks=(data.hrWeeks||[]);
+  const hrLog=(data.hrLog||[]);
+  const activeEmps=employees.filter(e=>!e.inactive);
+  const today=new Date().toISOString().split("T")[0];
+  const hrs=data.hrSettings||{};
+  const OT_MULT=hrs.overtimeMultiplier||1.5;
+
+  const[view,setView]=useState("weeks");
+  const[openWeekId,setOpenWeekId]=useState(null);
+  /* Employee form */
+  const[showEmpForm,setShowEmpForm]=useState(false);
+  const[empName,setEmpName]=useState("");const[empJob,setEmpJob]=useState("");const[empCode,setEmpCode]=useState("");
+  const[empWeeklySalary,setEmpWeeklySalary]=useState("");const[empBaseHours,setEmpBaseHours]=useState("");
+  const[empPhone,setEmpPhone]=useState("");const[empDate,setEmpDate]=useState(today);const[empEditId,setEmpEditId]=useState(null);
+  const[empWeeklyBonus,setEmpWeeklyBonus]=useState("");
+  const[empNoBiometric,setEmpNoBiometric]=useState(false);
+  /* Inline row edit for employee table */
+  const[inlineEditId,setInlineEditId]=useState(null);
+  const[inlineDraft,setInlineDraft]=useState({});
+  /* Bulk import popup */
+  const[showBulkImport,setShowBulkImport]=useState(false);
+  const[bulkImportText,setBulkImportText]=useState("");
+  const[bulkImportParsed,setBulkImportParsed]=useState(null);
+  /* New week */
+  const[showNewWeek,setShowNewWeek]=useState(false);
+  const[nwStart,setNwStart]=useState("");const[nwEnd,setNwEnd]=useState("");const[nwBaseHours,setNwBaseHours]=useState(hrs.defaultBaseHours||48);
+  /* Paste */
+  const[pasteText,setPasteText]=useState("");const[pasteResult,setPasteResult]=useState(null);
+  /* Matrix popup */
+  const[showMatrix,setShowMatrix]=useState(false);const[matrixEmps,setMatrixEmps]=useState([]);const[matrixDate,setMatrixDate]=useState(today);const[matrixDesc,setMatrixDesc]=useState("سلفة");
+  /* Salary overrides per employee in active week */
+  const[salBonus,setSalBonus]=useState({});const[salSpecialDeduct,setSalSpecialDeduct]=useState({});const[salThursdayPay,setSalThursdayPay]=useState({});
+  const[salBaseHoursOverride,setSalBaseHoursOverride]=useState({});/* empId -> custom base hours for this week */
+  const[logLimit,setLogLimit]=useState(50);
+  const[openLog,setOpenLog]=useState(null);
+  const[selectedEmps,setSelectedEmps]=useState({});/* weekId -> [empIds] */
+  const[editingRow,setEditingRow]=useState(null);/* empId currently being edited */
+  const[rowDraft,setRowDraft]=useState({});/* temp hours while editing */
+  const[salDeductReason,setSalDeductReason]=useState({});/* empId -> reason string */
+  const[showEmpPicker,setShowEmpPicker]=useState(false);
+  const[showBulkPrint,setShowBulkPrint]=useState(false);
+  const[bulkPrintSel,setBulkPrintSel]=useState({});/* empId -> true */
+  /* Generic text popup: {title, value, onSave, placeholder, multiline} */
+  const[textPopup,setTextPopup]=useState(null);const[textValue,setTextValue]=useState("");
+  /* Confirm popup: {title, message, onConfirm, variant} */
+  const[confirmPopup,setConfirmPopup]=useState(null);
+  /* Debts management */
+  const debts=(data.empDebts||[]);
+  const[showDebtForm,setShowDebtForm]=useState(null);/* {empId, debtId?} */
+  const[debtTitle,setDebtTitle]=useState("");const[debtTotal,setDebtTotal]=useState("");
+  const[debtInstallments,setDebtInstallments]=useState("");const[debtPerWeek,setDebtPerWeek]=useState("");
+  const[debtStart,setDebtStart]=useState("");const[debtNotes,setDebtNotes]=useState("");
+  const[showEmpDebts,setShowEmpDebts]=useState(null);/* empId to view */
+  const[unlockedWeeks,setUnlockedWeeks]=useState({});/* weekId -> true if user explicitly unlocked */
+  const[summaryWeekId,setSummaryWeekId]=useState(null);/* for weekly summary tab */
+  const[empStatement,setEmpStatement]=useState(null);/* empId for statement popup */
+  const[stmtFrom,setStmtFrom]=useState("");const[stmtTo,setStmtTo]=useState("");
+
+  const openWeek=hrWeeks.find(w=>w.id===openWeekId);
+
+  /* ── Employee CRUD ── */
+  const resetEmpForm=()=>{setEmpName("");setEmpJob("");setEmpCode("");setEmpWeeklySalary("");setEmpBaseHours("");setEmpPhone("");setEmpDate(today);setEmpWeeklyBonus("");setEmpNoBiometric(false);setEmpEditId(null)};
+  const saveEmp=()=>{if(!empName.trim())return;
+    upConfig(d=>{if(!d.employees)d.employees=[];
+      if(empEditId){const e=d.employees.find(x=>x.id===empEditId);if(e){e.name=empName.trim();e.job=empJob;e.code=empCode;e.weeklySalary=parseFloat(empWeeklySalary)||0;e.baseHours=parseFloat(empBaseHours)||0;e.phone=empPhone;e.hireDate=empDate;e.weeklyBonus=parseFloat(empWeeklyBonus)||0;e.noBiometric=empNoBiometric}}
+      else{d.employees.push({id:gid(),name:empName.trim(),job:empJob,code:empCode,weeklySalary:parseFloat(empWeeklySalary)||0,baseHours:parseFloat(empBaseHours)||0,phone:empPhone,hireDate:empDate,weeklyBonus:parseFloat(empWeeklyBonus)||0,noBiometric:empNoBiometric,prevBalance:0})}});
+    setShowEmpForm(false);resetEmpForm();showToast("✓ تم الحفظ")};
+  const editEmp=(e)=>{setEmpEditId(e.id);setEmpName(e.name);setEmpJob(e.job||"");setEmpCode(e.code||"");setEmpWeeklySalary(String(e.weeklySalary||""));setEmpBaseHours(String(e.baseHours||""));setEmpPhone(e.phone||"");setEmpDate(e.hireDate||today);setEmpWeeklyBonus(String(e.weeklyBonus||""));setEmpNoBiometric(!!e.noBiometric);setShowEmpForm(true)};
+  const startInlineEdit=(e)=>{setInlineEditId(e.id);setInlineDraft({name:e.name||"",code:e.code||"",job:e.job||"",weeklySalary:String(e.weeklySalary||""),weeklyBonus:String(e.weeklyBonus||""),baseHours:String(e.baseHours||""),phone:e.phone||"",noBiometric:!!e.noBiometric})};
+  const saveInlineEdit=()=>{if(!inlineEditId)return;const d=inlineDraft;
+    upConfig(cfg=>{const e=(cfg.employees||[]).find(x=>x.id===inlineEditId);if(e){
+      e.name=(d.name||"").trim()||e.name;e.code=d.code||"";e.job=d.job||"";
+      e.weeklySalary=parseFloat(d.weeklySalary)||0;e.weeklyBonus=parseFloat(d.weeklyBonus)||0;
+      e.baseHours=parseFloat(d.baseHours)||0;e.phone=d.phone||"";e.noBiometric=!!d.noBiometric}});
+    setInlineEditId(null);setInlineDraft({});showToast("✓ تم التعديل")};
+  const cancelInlineEdit=()=>{setInlineEditId(null);setInlineDraft({})};
+  const toggleEmpActive=(id)=>{upConfig(d=>{const e=(d.employees||[]).find(x=>x.id===id);if(e)e.inactive=!e.inactive})};
+
+  /* ── Week CRUD ── */
+  const getWeekNum=(dateStr)=>{if(!dateStr)return"";const d=new Date(dateStr);const start=new Date(d.getFullYear(),0,1);return Math.ceil(((d-start)/86400000+start.getDay()+1)/7)};
+
+  const createWeek=()=>{if(!nwStart||!nwEnd)return;
+    upConfig(d=>{if(!d.hrWeeks)d.hrWeeks=[];
+      d.hrWeeks.unshift({id:gid(),weekNum:getWeekNum(nwStart),weekStart:nwStart,weekEnd:nwEnd,baseHours:Number(nwBaseHours)||48,attendance:{},status:"open",createdBy:userName,createdAt:new Date().toISOString()})});
+    setShowNewWeek(false);showToast("✓ تم فتح الأسبوع")};
+
+  /* ── Parse pasted fingerprint data ── */
+  const parsePaste=()=>{if(!pasteText.trim()||!openWeek)return;
+    const lines=pasteText.trim().split("\n").filter(l=>l.trim());
+    const parsed=[];const errors=[];
+    lines.forEach((line,i)=>{
+      const parts=line.split("\t").map(s=>s.trim());
+      if(parts.length<3){/* try comma or multiple spaces */
+        const p2=line.split(/[,;]|\s{2,}/).map(s=>s.trim()).filter(Boolean);
+        if(p2.length>=3){parts.length=0;parts.push(...p2)}
+      }
+      if(parts.length<3){if(i>0)errors.push("سطر "+(i+1)+": بيانات ناقصة");return}
+      let[code,dateStr,timeStr]=parts;
+      /* Clean code */
+      code=code.replace(/[^0-9]/g,"");if(!code){errors.push("سطر "+(i+1)+": كود غير صالح");return}
+      /* Parse date — supports DD.MM.YYYY, DD/MM/YYYY, YYYY-MM-DD */
+      if(!dateStr||dateStr.toLowerCase()==="date")return;/* header row */
+      let normalizedDate="";
+      if(/^\d{4}-\d{2}-\d{2}$/.test(dateStr)){normalizedDate=dateStr}
+      else if(/^\d{1,2}[.\/-]\d{1,2}[.\/-]\d{4}$/.test(dateStr)){
+        const parts_=dateStr.split(/[.\/-]/);const dd=parts_[0].padStart(2,"0");const mm=parts_[1].padStart(2,"0");const yyyy=parts_[2];
+        normalizedDate=yyyy+"-"+mm+"-"+dd}
+      else if(/^\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2}$/.test(dateStr)){
+        const parts_=dateStr.split(/[.\/-]/);const dd=parts_[0].padStart(2,"0");const mm=parts_[1].padStart(2,"0");const yy=parts_[2];const yyyy="20"+yy;
+        normalizedDate=yyyy+"-"+mm+"-"+dd}
+      else{errors.push("سطر "+(i+1)+": تاريخ غير معروف ("+dateStr+")");return}
+      /* Parse time — could be HH:MM (duration) or decimal hours */
+      let hours=0;
+      if(timeStr.includes(":")){const[h,m]=timeStr.split(":");hours=parseInt(h)+(parseInt(m||0)/60)}
+      else{hours=parseFloat(timeStr)||0}
+      if(hours<=0)return;
+      /* Find employee by code */
+      const emp=employees.find(e=>String(e.code)===String(code));
+      parsed.push({code,date:normalizedDate,hours:r2(hours),empId:emp?emp.id:null,empName:emp?emp.name:"❓ كود "+code,matched:!!emp})
+    });
+    /* Group by employee+date */
+    const grouped={};parsed.forEach(p=>{const k=p.code+"_"+p.date;if(!grouped[k])grouped[k]={...p};else grouped[k].hours=r2(grouped[k].hours+p.hours)});
+    setPasteResult({records:Object.values(grouped),errors,total:Object.values(grouped).length,matched:Object.values(grouped).filter(r=>r.matched).length,unmatched:Object.values(grouped).filter(r=>!r.matched).length})};
+
+  const applyPaste=()=>{if(!pasteResult||!openWeek)return;
+    upConfig(d=>{const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeekId);if(wi<0)return;
+      if(!d.hrWeeks[wi].attendance)d.hrWeeks[wi].attendance={};
+      pasteResult.records.filter(r=>r.matched).forEach(r=>{
+        const key=r.empId+"_"+r.date;d.hrWeeks[wi].attendance[key]={empId:r.empId,date:r.date,hours:r.hours}});
+      /* Auto-fill noBiometric employees with full daily hours for each day in the week */
+      const wk=d.hrWeeks[wi];const bh=wk.baseHours||48;
+      const start=new Date(wk.weekStart);const end=new Date(wk.weekEnd);
+      const numDays=Math.round((end-start)/86400000)+1;
+      const dailyHours=r2(bh/numDays);
+      (d.employees||[]).filter(e=>e.noBiometric&&!e.inactive).forEach(e=>{
+        for(let dd=new Date(start);dd<=end;dd.setDate(dd.getDate()+1)){
+          const ds=dd.toISOString().split("T")[0];const key=e.id+"_"+ds;
+          if(!wk.attendance[key])wk.attendance[key]={empId:e.id,date:ds,hours:dailyHours}}})});
+    setPasteText("");setPasteResult(null);showToast("✓ تم استيراد "+pasteResult.matched+" سجل بصمة"+(employees.filter(e=>e.noBiometric&&!e.inactive).length>0?" + موظفين بدون بصمة":""))};
+
+  /* ── Manual attendance edit ── */
+  const setWeekHours=(empId,date,hours)=>{
+    upConfig(d=>{const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeekId);if(wi<0)return;
+      if(!d.hrWeeks[wi].attendance)d.hrWeeks[wi].attendance={};
+      const key=empId+"_"+date;
+      d.hrWeeks[wi].attendance[key]={empId,date,hours:parseFloat(hours)||0}})};
+
+  /* ── Week base hours edit ── */
+  const setWeekBaseHours=(hours)=>{upConfig(d=>{const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeekId);if(wi<0)return;d.hrWeeks[wi].baseHours=Number(hours)||48})};
+
+  /* ── Advances (single + matrix) ── */
+  const addAdvance=(empId,amount,desc)=>{if(!amount)return;const emp=employees.find(e=>e.id===empId);if(!emp)return;
+    upConfig(d=>{if(!d.hrLog)d.hrLog=[];
+      const logId=gid();
+      d.hrLog.unshift({id:logId,type:"advance",empId,empName:emp.name,amount:Number(amount),desc:desc||"سلفة",weekId:openWeekId||"",date:today,by:userName,createdAt:new Date().toISOString()});
+      d.treasury.unshift({id:gid(),type:"out",amount:Number(amount),desc:"سلفة "+emp.name+(desc?" — "+desc:""),category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:today,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date().getDay()],sourceType:"hr_advance",hrLogId:logId,empId,by:userName,createdAt:new Date().toISOString()})});
+    showToast("✓ سلفة "+emp.name)};
+  const submitMatrix=()=>{const items=matrixEmps.filter(m=>m.amount>0);if(items.length===0)return;
+    upConfig(d=>{if(!d.hrLog)d.hrLog=[];if(!d.treasury)d.treasury=[];
+      items.forEach(m=>{const emp=employees.find(e=>e.id===m.empId);if(!emp)return;
+        const logId=gid();
+        d.hrLog.unshift({id:logId,type:"advance",empId:m.empId,empName:emp.name,amount:m.amount,desc:matrixDesc||"سلفة",weekId:openWeekId||"",date:matrixDate,by:userName,createdAt:new Date().toISOString()});
+        d.treasury.unshift({id:gid(),type:"out",amount:m.amount,desc:"سلفة "+emp.name+(matrixDesc?" — "+matrixDesc:""),category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:matrixDate,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(matrixDate).getDay()],sourceType:"hr_advance",hrLogId:logId,empId:m.empId,by:userName,createdAt:new Date().toISOString()})})});
+    showToast("✓ "+items.length+" دفعة");setShowMatrix(false);setMatrixEmps([])};
+
+  /* ── Salary Calc for a week ── */
+  const calcSalary=(empId,week)=>{if(!week)return null;
+    const emp=employees.find(e=>e.id===empId);if(!emp)return null;
+    const weeklySalary=emp.weeklySalary||0;
+    /* Per-employee base hours override, then week default */
+    const overrideH=salBaseHoursOverride[empId];
+    const baseHours=(overrideH!==undefined&&overrideH!=="")?Number(overrideH)||0:(week.baseHours||48);
+    const perHour=baseHours>0?r2(weeklySalary/baseHours):0;
+    /* Get attendance from week */
+    const att=week.attendance||{};
+    const days=[];let totalHours=0;let workDays=0;
+    const start=new Date(week.weekStart);const end=new Date(week.weekEnd);
+    for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){
+      const ds=d.toISOString().split("T")[0];const key=empId+"_"+ds;
+      const h=att[key]?att[key].hours:0;days.push({date:ds,hours:h});
+      if(h>0){totalHours+=h;workDays++}}
+    const basicHours=Math.min(totalHours,baseHours);const overtimeHours=Math.max(0,totalHours-baseHours);
+    const basicPay=r2(basicHours*perHour);const overtimePay=r2(overtimeHours*perHour*OT_MULT);const grossPay=r2(basicPay+overtimePay);
+    const prevBalance=emp.prevBalance||0;
+    /* Advances for this week:
+       - Strategy: union of everything in date range, dedupe by hrLogId
+       - hrLog advance entries (primary source)
+       - treasury entries marked as hr_advance (captures cases where hrLog wasn't written)
+       - treasury entries in category "مرتبات" with empId set (legacy) */
+    const inWeek=(dt)=>dt&&dt>=week.weekStart&&dt<=week.weekEnd;
+    const logAdvances=hrLog.filter(l=>l.type==="advance"&&l.empId===empId&&(l.weekId===week.id||inWeek(l.date)));
+    const seenLogIds=new Set(logAdvances.map(l=>l.id));
+    const treasuryAdvances=(data.treasury||[]).filter(t=>
+      t.empId===empId&&
+      t.type==="out"&&
+      inWeek(t.date)&&
+      !seenLogIds.has(t.hrLogId)&&
+      (t.sourceType==="hr_advance"||t.category==="مرتبات"));
+    const weekAdvances=logAdvances.reduce((s,l)=>s+(Number(l.amount)||0),0)+treasuryAdvances.reduce((s,t)=>s+(Number(t.amount)||0),0);
+    /* Bonus: use manual override from salBonus if set, otherwise use employee's fixed weeklyBonus */
+    const manualBonus=salBonus[empId];
+    const bonus=(manualBonus!==undefined&&manualBonus!=="")?(Number(manualBonus)||0):(Number(emp.weeklyBonus)||0);
+    const specialDeduct=Number(salSpecialDeduct[empId])||0;
+    /* Debt installment due this week (smart capped: can't exceed what's available after other deductions) */
+    const debtInfo=empDebtInstallment(empId,week);
+    const availableAfterBasics=r2(grossPay+prevBalance-weekAdvances-specialDeduct+bonus);
+    /* Cap installment at available amount (if negative, skip) */
+    const debtInstall=availableAfterBasics>0?Math.min(debtInfo.total,availableAfterBasics):0;
+    const debtCarried=r2(debtInfo.total-debtInstall);/* uncollected portion */
+    const netBalance=r2(availableAfterBasics-debtInstall);
+    /* Thursday cash payment — default to netBalance if not set (employee takes full amount) */
+    const thursdayPay=salThursdayPay[empId]!==undefined&&salThursdayPay[empId]!==""?Number(salThursdayPay[empId])||0:netBalance;
+    const remainingBalance=r2(netBalance-thursdayPay);
+    return{weeklySalary,baseHours,perHour,workDays,totalHours,basicHours,overtimeHours,basicPay,overtimePay,grossPay,prevBalance,weekAdvances,bonus,specialDeduct,debtInstall,debtCarried,debtItems:debtInfo.items,netBalance,thursdayPay,remainingBalance,days}};
+
+  /* ── Approve & Close Week ── */
+  const approveWeek=()=>{if(!openWeek||openWeek.status==="closed")return;
+    const weekSelected=selectedEmps[openWeek.id]||activeEmps.map(e=>e.id);
+    const shownEmps=activeEmps.filter(e=>weekSelected.includes(e.id));
+    const records=shownEmps.map(e=>{const c=calcSalary(e.id,openWeek);if(!c)return null;return{empId:e.id,empName:e.name,empCode:e.code||"",...c}}).filter(Boolean);
+    if(records.length===0)return;
+    const totalNet=records.reduce((s,r)=>s+r.netBalance,0);
+    const totalGross=records.reduce((s,r)=>s+r.grossPay,0);
+    const totalThursdayPay=records.reduce((s,r)=>s+r.thursdayPay,0);
+    const totalRemaining=records.reduce((s,r)=>s+r.remainingBalance,0);
+    /* Show overlay */
+    if(setSavingOverlay)setSavingOverlay({message:"جاري تسجيل مرتبات "+records.length+" موظف...",progress:10});
+    setTimeout(()=>{
+    if(setSavingOverlay)setSavingOverlay({message:"جاري حساب المرتبات والخصومات...",progress:30});
+    setTimeout(()=>{
+    if(setSavingOverlay)setSavingOverlay({message:"جاري تسجيل الحركات في الخزنة...",progress:60});
+    setTimeout(()=>{
+    upConfig(d=>{if(!d.hrLog)d.hrLog=[];if(!d.treasury)d.treasury=[];if(!d.empDebts)d.empDebts=[];
+      /* Log each salary */
+      records.forEach(r=>{d.hrLog.unshift({id:gid(),type:"salary",empId:r.empId,empName:r.empName,amount:r.netBalance,grossPay:r.grossPay,weeklySalary:r.weeklySalary,prevBalance:r.prevBalance,weekAdvances:r.weekAdvances,bonus:r.bonus,specialDeduct:r.specialDeduct,deductReason:salDeductReason[r.empId]||"",debtInstall:r.debtInstall,debtItems:r.debtItems,thursdayPay:r.thursdayPay,remainingBalance:r.remainingBalance,weekId:openWeek.id,weekStart:openWeek.weekStart,weekEnd:openWeek.weekEnd,date:today,by:userName,createdAt:new Date().toISOString()})});
+      /* Record debt installments paid — only if debtInstall covered everything */
+      records.forEach(r=>{if(r.debtInstall>0&&r.debtCarried===0){
+        /* Full installment paid for all debts this week */
+        r.debtItems.forEach(di=>{const debt=d.empDebts.find(x=>x.id===di.id);if(debt){
+          if(!debt.paidWeekIds)debt.paidWeekIds=[];
+          if(!debt.paidWeekIds.includes(openWeek.id)){debt.paidWeekIds.push(openWeek.id);
+            /* Check if fully paid */
+            if(debt.paidWeekIds.length>=debt.installments){debt.status="paid";debt.paidAt=today}}}})}});
+      /* Update balances — remaining balance carries to next week */
+      records.forEach(r=>{const e=(d.employees||[]).find(x=>x.id===r.empId);if(e)e.prevBalance=r.remainingBalance});
+      /* Treasury — individual entry per employee (thursday pay) */
+      const dayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date().getDay()];
+      records.forEach(r=>{if(r.thursdayPay>0)d.treasury.unshift({id:gid(),type:"out",amount:r2(r.thursdayPay),desc:"مرتب "+r.empName+" W"+openWeek.weekNum,category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:today,day:dayName,sourceType:"hr_salary",weekId:openWeek.id,empId:r.empId,by:userName,createdAt:new Date().toISOString()})});
+      /* Close week */
+      const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi>=0){d.hrWeeks[wi].status="closed";d.hrWeeks[wi].closedAt=today;d.hrWeeks[wi].closedBy=userName;d.hrWeeks[wi].totalGross=r2(totalGross);d.hrWeeks[wi].totalNet=r2(totalNet);d.hrWeeks[wi].totalThursdayPay=r2(totalThursdayPay);d.hrWeeks[wi].totalRemaining=r2(totalRemaining);d.hrWeeks[wi].empCount=records.length}});
+    showToast("✓ تم اعتماد وقفل الأسبوع W"+openWeek.weekNum);setSalBonus({});setSalSpecialDeduct({});setSalThursdayPay({});setSalBaseHoursOverride({});setOpenWeekId(null);
+    if(setSavingOverlay){setSavingOverlay({message:"✅ تم بنجاح!",progress:100});setTimeout(()=>setSavingOverlay(null),1200)}
+    },200)},400)},300)};
+
+  /* ── Print Slip ── */
+  /* Build slip HTML for one employee (without html/head wrapper) */
+  const buildSlipHTML=(empId)=>{if(!openWeek)return"";const c=calcSalary(empId,openWeek);const emp=employees.find(e=>e.id===empId);if(!c||!emp)return"";
+    const logo=(data.logo||"").trim();const reason=salDeductReason[empId]||"";
+    const dayNames=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"];
+    /* ── Performance: compare with previous week ── */
+    const sortedW=[...hrWeeks].sort((a,b)=>(b.weekStart||"").localeCompare(a.weekStart||""));
+    const curIdx=sortedW.findIndex(w=>w.id===openWeek.id);
+    const prevW=curIdx>=0&&curIdx<sortedW.length-1?sortedW[curIdx+1]:null;
+    let perfHTML="";
+    if(prevW){
+      const pAtt=prevW.attendance||{};let pH=0,pDays=0;
+      const ps=new Date(prevW.weekStart);const pe=new Date(prevW.weekEnd);
+      for(let d=new Date(ps);d<=pe;d.setDate(d.getDate()+1)){const k=empId+"_"+d.toISOString().split("T")[0];const v=pAtt[k]?pAtt[k].hours:0;pH+=v;if(v>0)pDays++}
+      pH=r2(pH);
+      if(pH>0){
+        const diffH=r2(c.totalHours-pH);const pct=pH>0?Math.round((diffH/pH)*100):0;
+        const isUp=diffH>0;const isEq=diffH===0;
+        const arrow=isUp?"▲":isEq?"■":"▼";
+        const color=isUp?"#10b981":isEq?"#64748b":"#ef4444";
+        const bgColor=isUp?"#f0fdf4":isEq?"#f8fafc":"#fef2f2";
+        const borderColor=isUp?"#bbf7d0":isEq?"#e2e8f0":"#fecaca";
+        const label=isUp?"تحسن في الأداء":isEq?"أداء مستقر":"تراجع في الأداء";
+        perfHTML=`<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;background:${bgColor};border:2px solid ${borderColor};margin:10px 0">
+          <div style="font-size:28px;color:${color};font-weight:900;line-height:1">${arrow}</div>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:800;color:${color}">${label}</div>
+            <div style="font-size:10px;color:#64748b;margin-top:2px">
+              الأسبوع الحالي: <b>${r2(c.totalHours)} ساعة</b> (${c.workDays} يوم) &nbsp;|&nbsp;
+              الأسبوع السابق W${prevW.weekNum}: <b>${pH} ساعة</b> (${pDays} يوم)
+            </div>
+          </div>
+          <div style="text-align:center;min-width:60px">
+            <div style="font-size:22px;font-weight:900;color:${color}">${isUp?"+":""}${pct}%</div>
+            <div style="font-size:8px;color:#94a3b8;font-weight:600">فرق الأداء</div>
+          </div>
+        </div>`}
+    }
+    return `<div class="slip-page">
+    <div class="hdr">
+      ${logo?'<img src="'+logo+'"/>':'<div style="font-size:20px;font-weight:900;color:#0ea5e9">CLARK</div>'}
+      <div class="tbox"><h1>كشف مرتب أسبوعي</h1><div class="wk">W${openWeek.weekNum}</div></div>
+    </div>
+    <div class="info">
+      <div><b>الاسم:</b> ${emp.name}</div><div><b>الكود:</b> ${emp.code||"—"}</div>
+      <div><b>الوظيفة:</b> ${emp.job||"—"}</div><div><b>التليفون:</b> ${emp.phone||"—"}</div>
+      <div><b>الأسبوع:</b> ${openWeek.weekStart} → ${openWeek.weekEnd}</div><div><b>ساعات أساسي:</b> ${c.baseHours}</div>
+      <div><b>المرتب الأسبوعي:</b> ${fmt(c.weeklySalary)} ج.م</div><div><b>سعر الساعة:</b> ${r2(c.perHour)} ج.م</div>
+    </div>
+    <h3 style="color:#0ea5e9;margin:10px 0 4px;font-size:12px">📋 الحضور اليومي</h3>
+    <table class="att-tbl"><thead><tr>${c.days.map(d=>"<th>"+dayNames[new Date(d.date).getDay()]+"<br/>"+d.date.slice(5)+"</th>").join("")}<th style="background:#0284c7;color:#fff">اجمالي</th></tr></thead>
+    <tbody><tr>${c.days.map(d=>"<td"+(d.hours>0?' class="has"':"")+">"+(d.hours>0?d.hours+"h":"—")+"</td>").join("")}<td style="background:#0ea5e9;color:#fff;font-weight:800">${r2(c.totalHours)}h</td></tr></tbody></table>
+    ${perfHTML}
+    <h3 style="color:#0ea5e9;margin:10px 0 4px;font-size:12px">💰 تفاصيل المرتب</h3>
+    <table class="calc-tbl">
+    <tr><td class="lbl">الراتب الأساسي في الأسبوع</td><td>${fmt(c.weeklySalary)} ج.م</td></tr>
+    <tr><td class="lbl">ساعات عمل أساسي / إضافي</td><td>${r2(c.basicHours)} / ${r2(c.overtimeHours)} (×${OT_MULT})</td></tr>
+    <tr><td class="lbl">الراتب المستحق بدون إضافي</td><td>${fmt(c.basicPay)} ج.م</td></tr>
+    <tr><td class="lbl">إضافي (+)</td><td class="add">${fmt(c.overtimePay)} ج.م</td></tr>
+    <tr style="background:#f0f9ff"><td class="lbl"><b>اجمالي الراتب المستحق</b></td><td style="font-weight:800;color:#0ea5e9;font-size:13px">${fmt(c.grossPay)} ج.م</td></tr>
+    <tr><td class="lbl">رصيد سابق (+)</td><td class="${c.prevBalance>=0?"add":"sub"}">${fmt(c.prevBalance)} ج.م</td></tr>
+    <tr><td class="lbl">مسحوبات الأسبوع (−)</td><td class="sub">${fmt(c.weekAdvances)} ج.م</td></tr>
+    <tr><td class="lbl">خصم خاص (−)${reason?" <span style='font-size:9px;color:#78350f'>["+reason+"]</span>":""}</td><td class="sub">${fmt(c.specialDeduct)} ج.م</td></tr>
+    ${c.debtInstall>0?'<tr><td class="lbl">خصم قسط مديونية (−)<br/><span style="font-size:9px;color:#78350f">'+(c.debtItems||[]).map(di=>di.title+" ("+(di.paid+1)+"/"+di.installments+")").join(" • ")+'</span></td><td class="sub">'+fmt(c.debtInstall)+' ج.م</td></tr>':""}
+    <tr><td class="lbl">حافز التزام (+)</td><td class="add">${fmt(c.bonus)} ج.م</td></tr>
+    <tr style="background:#f0fdf4"><td class="lbl"><b>صافي الرصيد</b></td><td style="font-weight:800;color:#0ea5e9;font-size:13px">${fmt(c.netBalance)} ج.م</td></tr>
+    <tr><td class="lbl">دفعة من الحساب (−)</td><td class="sub">${fmt(c.thursdayPay)} ج.م</td></tr>
+    <tr><td class="total">الرصيد المتبقي (يُرحّل للأسبوع القادم)</td><td class="total">${fmt(c.remainingBalance)} ج.م</td></tr>
+    </table>
+    ${reason?'<div class="reason"><b>📝 سبب الخصم:</b> '+reason+'</div>':""}
+    <div class="note">
+    <b>تعليمات:</b><br>
+    • برجاء عد النقدية ومطابقتها بصافي الراتب اعلاه والرجوع للمحاسب المختص فوراً حالة عدم التوافق.<br>
+    • للمراجعة مع المحاسب المختص بعد استلام الراتب بيومين على الاقل.<br>
+    • تقييم الراتب يتم بناءا على نسبة الحضور والالتزام بالدوام ومواعيد العمل الرسمية.<br>
+    • يتم تقليل الراتب المتفق عليه بدون الرجوع للعامل في حالة عدم الالتزام بالمتفق عليه من الانتاج والجودة.<br>
+    • يتم خصم يوم الغياب بدون اذن بيومين وأيضاً التأخير يوم السبت عن الحد الطبيعي الساعة 12 ظهراً.
+    </div>
+    <div class="sig"><div><div class="line">المحاسب</div></div><div><div class="line">المستلم: ${emp.name}</div></div></div>
+    </div>`};
+
+  const SLIP_STYLES=`<style>
+    @page{size:A5 portrait;margin:10mm}
+    *{box-sizing:border-box}
+    body{font-family:'Cairo',Arial,sans-serif;font-size:11px;padding:0;margin:0;color:#1a1a1a}
+    .slip-page{page-break-after:always;padding:0;margin:0}
+    .slip-page:last-child{page-break-after:auto}
+    .hdr{display:flex;justify-content:space-between;align-items:center;padding-bottom:10px;border-bottom:2px solid #0ea5e9;margin-bottom:12px}
+    .hdr img{max-height:50px;max-width:140px}
+    .hdr .tbox{text-align:left;color:#0ea5e9}
+    .hdr h1{font-size:16px;font-weight:800;margin:0 0 2px}
+    .hdr .wk{font-size:22px;font-weight:900;color:#0ea5e9}
+    .info{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;padding:10px;background:#f0f9ff;border-radius:8px;margin-bottom:10px;font-size:11px}
+    .info b{color:#0ea5e9}
+    table{width:100%;border-collapse:collapse;margin:8px 0}
+    td,th{border:1px solid #cbd5e1;padding:6px 8px;text-align:right;font-size:11px}
+    th{background:#0ea5e9;color:#fff;font-weight:700;text-align:center}
+    .att-tbl th,.att-tbl td{text-align:center;padding:4px 2px;font-size:10px}
+    .att-tbl th{background:#e0f2fe;color:#0284c7}
+    .att-tbl td{background:#f8fafc}
+    .att-tbl td.has{background:#dcfce7;color:#15803d;font-weight:700}
+    .calc-tbl td{padding:7px 10px}
+    .calc-tbl .lbl{background:#f1f5f9;font-weight:700;width:55%}
+    .calc-tbl .add{color:#10b981;font-weight:700}
+    .calc-tbl .sub{color:#ef4444;font-weight:700}
+    .calc-tbl .total{background:#0ea5e9;color:#fff;font-size:14px;font-weight:800}
+    .reason{background:#fef3c7;border-right:3px solid #f59e0b;padding:6px 10px;margin:6px 0;font-size:10px;border-radius:4px}
+    .note{background:#f8fafc;border:1px dashed #cbd5e1;padding:8px 10px;margin-top:12px;font-size:9px;color:#475569;line-height:1.7;border-radius:6px}
+    .sig{display:flex;justify-content:space-between;margin-top:20px;padding:0 10px}
+    .sig div{text-align:center;font-size:10px;color:#64748b}
+    .sig .line{border-top:1px solid #94a3b8;padding-top:4px;min-width:100px}
+    @media print{body{margin:0}}
+    </style>`;
+
+  const printSlip=(empId)=>{if(!openWeek)return;const html=buildSlipHTML(empId);if(!html)return;
+    const emp=employees.find(e=>e.id===empId);
+    const w=window.open("","_blank");if(!w)return;
+    w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>كشف مرتب — ${emp?.name||""}</title>${SLIP_STYLES}</head><body>${html}</body></html>`);
+    w.document.close();setTimeout(()=>w.print(),300)};
+
+  const bulkPrintSlips=()=>{if(!openWeek)return;
+    const selectedIds=Object.keys(bulkPrintSel).filter(id=>bulkPrintSel[id]);
+    if(selectedIds.length===0){showToast("⚠️ اختر موظف على الأقل");return}
+    const htmls=selectedIds.map(id=>buildSlipHTML(id)).filter(Boolean).join("\n");
+    if(!htmls){showToast("⛔ لا توجد بيانات");return}
+    const w=window.open("","_blank");if(!w)return;
+    w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>كشوفات مرتبات W${openWeek.weekNum}</title>${SLIP_STYLES}</head><body>${htmls}</body></html>`);
+    w.document.close();setTimeout(()=>w.print(),400);
+    setShowBulkPrint(false);showToast("🖨 جاري طباعة "+selectedIds.length+" كشف")};
+
+  const delLog=(lid)=>{upConfig(d=>{d.hrLog=(d.hrLog||[]).filter(l=>l.id!==lid)});showToast("✓ حذف")};
+
+  /* ── Popup helpers ── */
+  const openTextPopup=(cfg)=>{setTextValue(cfg.value||"");setTextPopup(cfg)};
+  const openConfirm=(cfg)=>setConfirmPopup(cfg);
+
+  /* ── Debts (installments) ── */
+  const empActiveDebts=(empId)=>debts.filter(d=>d.empId===empId&&d.status==="active");
+  const empAllDebts=(empId)=>debts.filter(d=>d.empId===empId).sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
+  /* Installment due this week for an employee */
+  const empDebtInstallment=(empId,week)=>{
+    if(!week)return{total:0,items:[]};
+    const active=empActiveDebts(empId);
+    const items=[];let total=0;
+    active.forEach(d=>{
+      const paid=(d.paidWeekIds||[]).length;
+      const remaining=d.installments-paid;
+      if(remaining<=0)return;
+      /* Check if this week already paid */
+      if((d.paidWeekIds||[]).includes(week.id))return;
+      /* Check start date — don't count installments before debt started */
+      if(d.startDate&&week.weekStart<d.startDate)return;
+      items.push({id:d.id,title:d.title,perWeek:d.perWeek,installments:d.installments,paid,remaining});
+      total+=d.perWeek||0});
+    return{total:r2(total),items}};
+
+  const resetDebtForm=()=>{setDebtTitle("");setDebtTotal("");setDebtInstallments("");setDebtPerWeek("");setDebtStart(today);setDebtNotes("")};
+  const saveDebt=(empId,editId)=>{
+    const total=parseFloat(debtTotal);const inst=parseInt(debtInstallments);const perWeek=parseFloat(debtPerWeek);
+    if(!debtTitle.trim()||!total||!inst||!perWeek){showToast("⚠️ أكمل البيانات");return}
+    const emp=employees.find(e=>e.id===empId);if(!emp)return;
+    upConfig(d=>{if(!d.empDebts)d.empDebts=[];
+      if(editId){const i=d.empDebts.findIndex(x=>x.id===editId);if(i>=0){
+        d.empDebts[i]={...d.empDebts[i],title:debtTitle.trim(),total,installments:inst,perWeek,startDate:debtStart,notes:debtNotes}}}
+      else{d.empDebts.push({id:gid(),empId,empName:emp.name,title:debtTitle.trim(),total,installments:inst,perWeek,startDate:debtStart,notes:debtNotes,status:"active",paidWeekIds:[],createdBy:userName,createdAt:new Date().toISOString()})}});
+    setShowDebtForm(null);resetDebtForm();showToast("✓ تم الحفظ")};
+  const cancelDebt=(debtId)=>{openConfirm({title:"إلغاء المديونية",message:"سيتم تعليم هذه المديونية كملغاة. هل أنت متأكد؟",variant:"warn",onConfirm:()=>{
+    upConfig(d=>{const i=(d.empDebts||[]).findIndex(x=>x.id===debtId);if(i>=0){d.empDebts[i].status="cancelled";d.empDebts[i].cancelledAt=today;d.empDebts[i].cancelledBy=userName}});showToast("✓ تم الإلغاء")}})};
+  const delDebt=(debtId)=>{openConfirm({title:"حذف المديونية",message:"سيتم حذف هذه المديونية نهائياً. لن يمكن استرجاعها.",variant:"danger",onConfirm:()=>{
+    upConfig(d=>{d.empDebts=(d.empDebts||[]).filter(x=>x.id!==debtId)});showToast("✓ تم الحذف")}})};
+
+  /* ── Current week boundaries (Sat→Thu) ── */
+  const _cwToday=new Date();const _cwDow=_cwToday.getDay();
+  const _cwToSat=_cwDow===6?0:(_cwDow+1);
+  const _cwSat=new Date(_cwToday);_cwSat.setDate(_cwToday.getDate()-_cwToSat);
+  const _cwThu=new Date(_cwSat);_cwThu.setDate(_cwSat.getDate()+5);
+  const cwStart=_cwSat.toISOString().split("T")[0];
+  const cwEnd=_cwThu.toISOString().split("T")[0];
+  const inCW=(dt)=>dt&&dt>=cwStart&&dt<=cwEnd;
+
+  /* Current week advances per employee */
+  const cwAdvances={};
+  hrLog.filter(l=>l.type==="advance"&&inCW(l.date)).forEach(l=>{cwAdvances[l.empId]=(cwAdvances[l.empId]||0)+(Number(l.amount)||0)});
+  /* Also check treasury for hr_advance entries not in hrLog */
+  const cwLogIds=new Set(hrLog.filter(l=>l.type==="advance"&&inCW(l.date)).map(l=>l.id));
+  (data.treasury||[]).filter(t=>t.type==="out"&&inCW(t.date)&&t.sourceType==="hr_advance"&&!cwLogIds.has(t.hrLogId)).forEach(t=>{cwAdvances[t.empId]=(cwAdvances[t.empId]||0)+(Number(t.amount)||0)});
+  const cwTotalAdv=Object.values(cwAdvances).reduce((s,v)=>s+v,0);
+  const cwTotalSalary=activeEmps.reduce((s,e)=>s+(e.weeklySalary||0),0);
+
+  return<div>
+    {/* ══ FIXED EMPLOYEE REGISTER — CURRENT WEEK ══ */}
+    <Card title={"📋 سجل الموظفين — الأسبوع الحالي"} extra={<span style={{fontSize:FS-1,color:T.navText||"#fff",fontWeight:700,direction:"ltr"}}>{cwStart+" → "+cwEnd}</span>} accent={T.accent} style={{marginBottom:16}}>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+          <thead><tr style={{background:T.bg}}>
+            <th style={{padding:"8px 10px",textAlign:"right",borderBottom:"2px solid "+T.brd,fontWeight:800,color:T.textSec,fontSize:FS-2}}>الاسم</th>
+            <th style={{padding:"8px 10px",textAlign:"center",borderBottom:"2px solid "+T.brd,fontWeight:800,color:T.textSec,fontSize:FS-2}}>الكود</th>
+            <th style={{padding:"8px 10px",textAlign:"center",borderBottom:"2px solid "+T.brd,fontWeight:800,color:T.textSec,fontSize:FS-2}}>المرتب الأساسي</th>
+            <th style={{padding:"8px 10px",textAlign:"center",borderBottom:"2px solid "+T.brd,fontWeight:800,color:T.textSec,fontSize:FS-2}}>سلف الأسبوع</th>
+            <th style={{padding:"8px 10px",textAlign:"center",borderBottom:"2px solid "+T.brd,fontWeight:800,color:T.textSec,fontSize:FS-2}}>الصافي</th>
+          </tr></thead>
+          <tbody>
+            {activeEmps.map(e=>{const adv=cwAdvances[e.id]||0;const net=(e.weeklySalary||0)-adv;
+              return<tr key={e.id} style={{borderBottom:"1px solid "+T.brd}}>
+                <td style={{padding:"7px 10px",fontWeight:700,color:T.text}}>{e.name}</td>
+                <td style={{padding:"7px 10px",textAlign:"center",color:T.textSec,fontWeight:600}}>{e.code||"—"}</td>
+                <td style={{padding:"7px 10px",textAlign:"center",fontWeight:700,color:T.accent}}>{fmt(e.weeklySalary||0)}</td>
+                <td style={{padding:"7px 10px",textAlign:"center",fontWeight:700,color:adv>0?T.err:T.textMut}}>{adv>0?fmt(adv):"—"}</td>
+                <td style={{padding:"7px 10px",textAlign:"center",fontWeight:800,color:net<0?T.err:T.ok}}>{fmt(net)}</td>
+              </tr>})}
+            {activeEmps.length===0&&<tr><td colSpan={5} style={{padding:16,textAlign:"center",color:T.textMut}}>لا يوجد موظفين نشطين</td></tr>}
+          </tbody>
+          {activeEmps.length>0&&<tfoot><tr style={{background:T.accentBg,borderTop:"2px solid "+T.accent+"40"}}>
+            <td style={{padding:"8px 10px",fontWeight:800,color:T.text}} colSpan={2}>{"الإجمالي ("+activeEmps.length+" موظف)"}</td>
+            <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:T.accent}}>{fmt(cwTotalSalary)}</td>
+            <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:cwTotalAdv>0?T.err:T.textMut}}>{cwTotalAdv>0?fmt(cwTotalAdv):"—"}</td>
+            <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:(cwTotalSalary-cwTotalAdv)<0?T.err:T.ok}}>{fmt(cwTotalSalary-cwTotalAdv)}</td>
+          </tr></tfoot>}
+        </table>
+      </div>
+    </Card>
+
+    <div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflow:"hidden",border:"1px solid "+T.brd}}>
+      {[{k:"weeks",l:"📅 الأسابيع",c:hrWeeks.length},{k:"weeklySummary",l:"📊 سجل أسبوعي"},{k:"employees",l:"👷 الموظفين",c:activeEmps.length},{k:"log",l:"📒 السجل",c:hrLog.length}].map(v=>
+        <div key={v.k} onClick={()=>{setView(v.k);setOpenWeekId(null)}} style={{flex:1,padding:"10px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-1,background:view===v.k?T.accent:T.cardSolid,color:view===v.k?"#fff":T.textSec,transition:"all 0.15s"}}>{v.l}{v.c!=null?" ("+v.c+")":""}</div>)}
+    </div>
+
+    {/* ══ WEEKS LIST ══ */}
+    {view==="weeks"&&!openWeekId&&<div>
+      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+        {canEdit&&<Btn primary onClick={()=>{
+          /* Auto-calc current week sat→thu */
+          const tdy=new Date();const dow=tdy.getDay();/* 0=Sun 1=Mon...6=Sat */
+          const toSat=dow===6?0:(dow+1);/* back to last Saturday */
+          const sat=new Date(tdy);sat.setDate(tdy.getDate()-toSat);
+          const thu=new Date(sat);thu.setDate(sat.getDate()+5);
+          setNwStart(sat.toISOString().split("T")[0]);
+          setNwEnd(thu.toISOString().split("T")[0]);
+          setNwBaseHours(hrs.defaultBaseHours||48);
+          setShowNewWeek(!showNewWeek)
+        }}>{showNewWeek?"✕":"+ أسبوع جديد"}</Btn>}
+        {canEdit&&<Btn onClick={()=>{setMatrixEmps(activeEmps.map(e=>({empId:e.id,name:e.name,amount:0})));setMatrixDate(today);setMatrixDesc("سلفة");setShowMatrix(true)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>💸 دفعات مجمعة</Btn>}
+      </div>
+      {showNewWeek&&<Card title="+ فتح أسبوع جديد" style={{marginBottom:16}}>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:10}}>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>بداية الأسبوع</label><Inp type="date" value={nwStart} onChange={setNwStart}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نهاية الأسبوع</label><Inp type="date" value={nwEnd} onChange={setNwEnd}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ساعات أساسي هذا الأسبوع</label><Inp type="number" value={nwBaseHours} onChange={setNwBaseHours} placeholder="48"/></div>
+        </div>
+        <div style={{marginTop:10}}><Btn primary onClick={createWeek}>📅 فتح الأسبوع</Btn></div>
+      </Card>}
+      {/* Weeks list */}
+      {hrWeeks.length>0?<div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {hrWeeks.map(w=><div key={w.id} style={{padding:16,borderRadius:14,background:T.cardSolid,border:"2px solid "+(w.status==="closed"?T.ok+"30":T.accent+"30"),boxShadow:T.shadow,display:"flex",justifyContent:"space-between",alignItems:"center",transition:"transform 0.15s"}}>
+          <div onClick={()=>{if(w.status==="open"||w.status==="closed")setOpenWeekId(w.id)}} style={{display:"flex",alignItems:"center",gap:12,flex:1,cursor:"pointer"}}>
+            <span style={{fontSize:24,fontWeight:800,color:w.status==="closed"?T.ok:T.accent}}>{"W"+w.weekNum}</span>
+            <div>
+              <div style={{fontSize:FS,fontWeight:700}}>{w.weekStart+" → "+w.weekEnd}</div>
+              <div style={{fontSize:FS-2,color:T.textMut}}>{"ساعات أساسي: "+w.baseHours+(w.empCount?" | "+w.empCount+" موظف":"")}</div>
+            </div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            {w.totalGross!=null&&<div style={{textAlign:"left"}}><div style={{fontSize:FS-2,color:T.textSec}}>صافي</div><div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>{fmt(r2(w.totalNet||0))}</div></div>}
+            <span style={{padding:"4px 12px",borderRadius:8,fontSize:FS-2,fontWeight:700,background:w.status==="closed"?T.ok+"12":T.warn+"12",color:w.status==="closed"?T.ok:T.warn}}>{w.status==="closed"?"✅ مقفول":"🔓 مفتوح"}</span>
+            {canEdit&&(w.status!=="closed"||unlockedWeeks[w.id])&&<span onClick={()=>{
+              /* Check for linked treasury entries (salary payouts) */
+              const linkedTreasury=(data.treasury||[]).filter(t=>t.category==="مرتبات"&&t.desc&&(t.desc.includes("W"+w.weekNum+" ("+w.weekStart)||t.desc.includes("مرتبات W"+w.weekNum)));
+              if(linkedTreasury.length>0){
+                const total=linkedTreasury.reduce((s,t)=>s+(Number(t.amount)||0),0);
+                openConfirm({title:"⛔ لا يمكن الحذف",message:"لا يمكن حذف الأسبوع W"+w.weekNum+" لأنه مرتبط بـ "+linkedTreasury.length+" حركة في اليومية بإجمالي "+fmt(total)+" ج.م.\n\nاحذف الحركات من الخزنة أولاً إن كنت متأكد.",variant:"danger",onConfirm:()=>{}});
+                return}
+              openConfirm({title:"حذف أسبوع W"+w.weekNum,message:"البيانات المسجلة (بصمة + حضور + بيانات المرتبات) هتنحذف.\nالسلف المرتبطة بالأسبوع لن تتأثر.",variant:"danger",onConfirm:()=>{
+                upConfig(d=>{
+                  d.hrWeeks=(d.hrWeeks||[]).filter(x=>x.id!==w.id);
+                  /* Clean up hrLog salary entries linked to this week */
+                  d.hrLog=(d.hrLog||[]).filter(l=>!(l.type==="salary"&&l.weekId===w.id));
+                });
+                showToast("✓ تم حذف الأسبوع")}})
+            }} style={{cursor:"pointer",padding:"4px 10px",borderRadius:8,background:T.err+"12",color:T.err,fontSize:FS-1,fontWeight:700,border:"1px solid "+T.err+"30"}} title="حذف الأسبوع">🗑️</span>}
+          </div>
+        </div>)}
+      </div>:<div style={{textAlign:"center",padding:40,color:T.textMut}}>لم يتم فتح أسابيع بعد — اضغط "+ أسبوع جديد"</div>}
+    </div>}
+
+    {/* ══ OPEN WEEK DETAIL ══ */}
+    {view==="weeks"&&openWeek&&(()=>{
+      const isClosed=openWeek.status==="closed";
+      const isLocked=isClosed&&!unlockedWeeks[openWeek.id];
+      const att=openWeek.attendance||{};
+      /* Build date range */
+      const dates=[];const s=new Date(openWeek.weekStart);const e=new Date(openWeek.weekEnd);
+      for(let d=new Date(s);d<=e;d.setDate(d.getDate()+1))dates.push(d.toISOString().split("T")[0]);
+      const dayNames=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"];
+      return<div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <Btn ghost onClick={()=>setOpenWeekId(null)}>← رجوع</Btn>
+            <span style={{fontSize:20,fontWeight:800,color:isClosed?T.ok:T.accent}}>{"W"+openWeek.weekNum}</span>
+            <span style={{fontSize:FS,color:T.textSec}}>{openWeek.weekStart+" → "+openWeek.weekEnd}</span>
+            <span style={{padding:"3px 10px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:isClosed&&!unlockedWeeks[openWeek.id]?T.ok+"12":unlockedWeeks[openWeek.id]?T.warn+"12":T.warn+"12",color:isClosed&&!unlockedWeeks[openWeek.id]?T.ok:T.warn}}>{isClosed&&!unlockedWeeks[openWeek.id]?"✅ مقفول":unlockedWeeks[openWeek.id]?"🔓 تعديل":"🔓 مفتوح"}</span>
+            {canEdit&&isClosed&&!unlockedWeeks[openWeek.id]&&<Btn small onClick={()=>openConfirm({title:"تفعيل تعديل الأسبوع",message:"هذا الأسبوع مقفول بالفعل. تفعيل التعديل يسمح لك بتعديل البيانات، لكن الحركات المالية (خزنة / سجل) لن تتحدث تلقائياً. لإعادة الاعتماد والتأثير على الخزنة، اضغط على اعتماد من جديد.",variant:"warn",onConfirm:()=>setUnlockedWeeks(p=>({...p,[openWeek.id]:true}))})} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30",fontWeight:700,fontSize:FS-2}}>🔓 تفعيل التعديل</Btn>}
+            {canEdit&&unlockedWeeks[openWeek.id]&&<Btn small onClick={()=>setUnlockedWeeks(p=>{const n={...p};delete n[openWeek.id];return n})} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd,fontSize:FS-2}}>🔒 إيقاف التعديل</Btn>}
+          </div>
+          {!isLocked&&<div style={{display:"flex",alignItems:"center",gap:6}}>
+            <span style={{fontSize:FS-2,color:T.textSec}}>ساعات أساسي:</span>
+            <input type="number" value={openWeek.baseHours||48} onChange={ev=>setWeekBaseHours(ev.target.value)} style={{width:60,padding:"4px 6px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text,fontWeight:700}}/>
+          </div>}
+        </div>
+
+        {/* Paste fingerprint data */}
+        {!isLocked&&<Card title="📋 لصق بيانات البصمة" style={{marginBottom:14}}>
+          <div style={{fontSize:FS-2,color:T.textMut,marginBottom:6}}>انسخ من برنامج البصمة (كود، تاريخ، ساعات) والصقه هنا:</div>
+          <textarea value={pasteText} onChange={ev=>setPasteText(ev.target.value)} placeholder={"AC-No.\tDate\tTotal in time\n1486\t2026-04-12\t8:30\n1474\t2026-04-12\t7:45"} rows={5} style={{width:"100%",padding:10,borderRadius:10,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"monospace",background:T.inputBg,color:T.text,resize:"vertical",boxSizing:"border-box",direction:"ltr",textAlign:"left"}}/>
+          <div style={{display:"flex",gap:8,marginTop:8}}>
+            <Btn primary onClick={parsePaste} disabled={!pasteText.trim()}>📊 تحليل البيانات</Btn>
+            {pasteText&&<Btn ghost onClick={()=>{setPasteText("");setPasteResult(null)}}>مسح</Btn>}
+          </div>
+          {pasteResult&&<div style={{marginTop:10,padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
+            <div style={{display:"flex",gap:12,marginBottom:8}}>
+              <span style={{fontSize:FS-1,fontWeight:700,color:T.ok}}>{"✅ متطابق: "+pasteResult.matched}</span>
+              {pasteResult.unmatched>0&&<span style={{fontSize:FS-1,fontWeight:700,color:T.err}}>{"❓ غير متطابق: "+pasteResult.unmatched}</span>}
+              <span style={{fontSize:FS-1,color:T.textMut}}>{"اجمالي: "+pasteResult.total+" سجل"}</span>
+            </div>
+            {pasteResult.errors.length>0&&<div style={{fontSize:FS-2,color:T.err,marginBottom:6}}>{pasteResult.errors.join(" | ")}</div>}
+            {pasteResult.unmatched>0&&<div style={{fontSize:FS-2,color:T.err,marginBottom:6}}>{"أكواد غير معروفة: "+[...new Set(pasteResult.records.filter(r=>!r.matched).map(r=>r.code))].join(", ")}</div>}
+            <Btn primary onClick={applyPaste}>{"✅ استيراد "+pasteResult.matched+" سجل"}</Btn>
+          </div>}
+        </Card>}
+
+        {/* Attendance grid with selectable employees + edit-per-row */}
+        {(()=>{
+          const weekSelected=selectedEmps[openWeek.id]||activeEmps.map(e=>e.id);
+          const shownEmps=activeEmps.filter(e=>weekSelected.includes(e.id));
+          const saveRow=(empId)=>{const draft=rowDraft[empId]||{};
+            upConfig(d=>{const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeekId);if(wi<0)return;
+              if(!d.hrWeeks[wi].attendance)d.hrWeeks[wi].attendance={};
+              dates.forEach(dt=>{const key=empId+"_"+dt;const val=draft[dt];
+                if(val!==undefined&&val!==""){d.hrWeeks[wi].attendance[key]={empId,date:dt,hours:parseFloat(val)||0}}
+                else if(val===""){delete d.hrWeeks[wi].attendance[key]}})});
+            setEditingRow(null);setRowDraft(p=>{const n={...p};delete n[empId];return n});showToast("✓ تم الحفظ")};
+          const startEdit=(empId)=>{const existing={};dates.forEach(dt=>{const key=empId+"_"+dt;if(att[key])existing[dt]=String(att[key].hours)});
+            setRowDraft(p=>({...p,[empId]:existing}));setEditingRow(empId)};
+          const cancelEdit=(empId)=>{setEditingRow(null);setRowDraft(p=>{const n={...p};delete n[empId];return n})};
+          return<Card title={"📋 جدول الحضور — "+shownEmps.length+"/"+activeEmps.length+" موظف × "+dates.length+" أيام"} style={{marginBottom:14}}>
+            {canEdit&&!isLocked&&<div style={{marginBottom:10}}><Btn small onClick={()=>setShowEmpPicker(true)} style={{background:T.accent+"10",color:T.accent,border:"1px solid "+T.accent+"30"}}>👥 اختيار الموظفين ({weekSelected.length})</Btn></div>}
+            <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+              <th style={{padding:"8px 10px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,position:"sticky",right:0,background:T.cardSolid,zIndex:1,minWidth:130}}>الموظف</th>
+              {dates.map(d=><th key={d} style={{padding:"8px 4px",textAlign:"center",fontSize:FS-3,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:600,minWidth:70}}>
+                <div style={{fontWeight:700,fontSize:FS-2}}>{dayNames[new Date(d).getDay()]}</div>
+                <div style={{fontSize:FS-3,color:T.textMut,direction:"ltr"}}>{d.slice(2).replace(/-/g,"-")}</div>
+              </th>)}
+              <th style={{padding:"8px 6px",textAlign:"center",fontSize:FS-2,color:T.accent,borderBottom:"2px solid "+T.brd,fontWeight:800,minWidth:70}}>اجمالي</th>
+              {canEdit&&!isLocked&&<th style={{padding:"8px 6px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,minWidth:90}}></th>}
+            </tr></thead><tbody>
+              {shownEmps.map((emp,ri)=>{let total=0;const isEditing=editingRow===emp.id;const draft=rowDraft[emp.id]||{};const zebra=ri%2===1?T.bg:T.cardSolid;
+                dates.forEach(d=>{const val=isEditing?parseFloat(draft[d]||0):(att[emp.id+"_"+d]?att[emp.id+"_"+d].hours:0);if(val>0)total+=val});
+                return<tr key={emp.id} style={{borderBottom:"1px solid "+T.brd,background:isEditing?T.accent+"04":zebra}}>
+                  <td style={{padding:"6px 10px",fontSize:FS-1,fontWeight:700,position:"sticky",right:0,background:isEditing?T.accent+"04":zebra,zIndex:1}}>{emp.name}<div style={{fontSize:FS-3,color:T.textMut,direction:"ltr",textAlign:"right"}}>{emp.code?"#"+emp.code:""}</div></td>
+                  {dates.map(d=>{const key=emp.id+"_"+d;const h=att[key]?att[key].hours:0;const dval=isEditing?(draft[d]!==undefined?draft[d]:(h||"")):h;
+                    return<td key={d} style={{padding:"4px 3px",textAlign:"center"}}>
+                      {isEditing?<input type="number" step="0.5" value={dval} onChange={ev=>setRowDraft(p=>({...p,[emp.id]:{...(p[emp.id]||{}),[d]:ev.target.value}}))} placeholder="—" style={{width:60,padding:"6px 4px",borderRadius:8,border:"1px solid "+T.accent+"50",fontSize:FS-1,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text,fontWeight:700,boxSizing:"border-box"}}/>
+                      :<span style={{display:"inline-block",minWidth:50,padding:"4px 6px",fontSize:FS-1,fontWeight:h>0?700:400,color:h>0?T.ok:T.textMut,background:h>0?T.ok+"08":"transparent",borderRadius:6}}>{h>0?h:"—"}</span>}
+                    </td>})}
+                  <td style={{padding:"6px 6px",textAlign:"center",fontSize:FS,fontWeight:800,color:total>0?T.accent:T.textMut}}>{total>0?r2(total):"—"}</td>
+                  {canEdit&&!isLocked&&<td style={{padding:"6px 6px",textAlign:"center"}}>
+                    {isEditing?<div style={{display:"flex",gap:4,justifyContent:"center"}}>
+                      <span onClick={()=>saveRow(emp.id)} style={{cursor:"pointer",padding:"3px 8px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>💾 حفظ</span>
+                      <span onClick={()=>cancelEdit(emp.id)} style={{cursor:"pointer",padding:"3px 8px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>✕</span>
+                    </div>:<span onClick={()=>startEdit(emp.id)} style={{cursor:"pointer",padding:"3px 10px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>✏️ تعديل</span>}
+                  </td>}
+                </tr>})}
+              {/* Totals row */}
+              {(()=>{const totals={};let grand=0;dates.forEach(d=>{let s=0;shownEmps.forEach(e=>{const v=editingRow===e.id?parseFloat((rowDraft[e.id]||{})[d]||0):(att[e.id+"_"+d]?att[e.id+"_"+d].hours:0);if(v>0)s+=v});totals[d]=s;grand+=s});
+                return<tr style={{background:T.accent+"06",fontWeight:800,borderTop:"2px solid "+T.accent+"30"}}>
+                  <td style={{padding:"8px 10px",fontSize:FS-1,fontWeight:800,position:"sticky",right:0,background:T.accent+"06",zIndex:1}}>اجمالي اليوم</td>
+                  {dates.map(d=><td key={d} style={{padding:"6px 3px",textAlign:"center",fontSize:FS-1,fontWeight:700,color:totals[d]>0?T.accent:T.textMut}}>{totals[d]>0?r2(totals[d]):"—"}</td>)}
+                  <td style={{padding:"6px 6px",textAlign:"center",fontSize:FS+1,fontWeight:800,color:T.accent}}>{grand>0?r2(grand):"—"}</td>
+                  {canEdit&&!isLocked&&<td></td>}
+                </tr>})()}
+            </tbody></table></div>
+          </Card>})()}
+
+        {/* ── Attendance Comparison Chart: Current vs Previous Week ── */}
+        {(()=>{
+          const weekSelected=selectedEmps[openWeek.id]||activeEmps.map(e=>e.id);
+          const shownEmps=activeEmps.filter(e=>weekSelected.includes(e.id));
+          const att_=openWeek.attendance||{};
+          /* Current week totals */
+          const curData=shownEmps.map(e=>{let h=0;const s=new Date(openWeek.weekStart);const en=new Date(openWeek.weekEnd);let wd=0;
+            for(let d=new Date(s);d<=en;d.setDate(d.getDate()+1)){const k=e.id+"_"+d.toISOString().split("T")[0];const v=att_[k]?att_[k].hours:0;h+=v;if(v>0)wd++}
+            return{empId:e.id,name:e.name,hours:r2(h),days:wd}});
+          const hasData=curData.some(d=>d.hours>0);
+          if(!hasData)return null;
+          /* Find previous week */
+          const sortedWeeks=[...hrWeeks].sort((a,b)=>(b.weekStart||"").localeCompare(a.weekStart||""));
+          const curIdx=sortedWeeks.findIndex(w=>w.id===openWeek.id);
+          const prevWeek=curIdx>=0&&curIdx<sortedWeeks.length-1?sortedWeeks[curIdx+1]:null;
+          const prevAtt=prevWeek?prevWeek.attendance||{}:{};
+          const prevData={};
+          if(prevWeek){shownEmps.forEach(e=>{let h=0;let wd=0;const ps=new Date(prevWeek.weekStart);const pe=new Date(prevWeek.weekEnd);
+            for(let d=new Date(ps);d<=pe;d.setDate(d.getDate()+1)){const k=e.id+"_"+d.toISOString().split("T")[0];const v=prevAtt[k]?prevAtt[k].hours:0;h+=v;if(v>0)wd++}
+            prevData[e.id]={hours:r2(h),days:wd}})}
+          const maxH=Math.max(...curData.map(d=>d.hours),...Object.values(prevData).map(d=>d.hours),1);
+          return<Card title={"📊 مقارنة الحضور — W"+openWeek.weekNum+(prevWeek?" vs W"+prevWeek.weekNum:"")} style={{marginBottom:14}}>
+            <div style={{overflowX:"auto"}}>
+              <div style={{display:"flex",alignItems:"flex-end",gap:isMob?6:10,minHeight:200,padding:"10px 0"}}>
+                {curData.map(d=>{const pv=prevData[d.empId];const barH=maxH>0?(d.hours/maxH)*160:0;const pvH=pv&&maxH>0?(pv.hours/maxH)*160:0;
+                  const diff=pv?r2(d.hours-pv.hours):0;
+                  return<div key={d.empId} style={{display:"flex",flexDirection:"column",alignItems:"center",flex:1,minWidth:isMob?50:65}}>
+                    {/* Diff label */}
+                    {pv&&<div style={{fontSize:FS-3,fontWeight:700,marginBottom:4,color:diff>0?T.ok:diff<0?T.err:T.textMut}}>{diff>0?"+"+diff:diff<0?diff:"="}</div>}
+                    {/* Bars container */}
+                    <div style={{display:"flex",gap:3,alignItems:"flex-end",height:170}}>
+                      {/* Previous week bar */}
+                      {pv&&<div style={{width:isMob?14:20,height:Math.max(pvH,4),borderRadius:"6px 6px 0 0",background:T.textMut+"40",transition:"height 0.6s ease",position:"relative"}} title={"W"+(prevWeek?.weekNum||"?")+" — "+pv.hours+" ساعة / "+pv.days+" يوم"}>
+                        <div style={{position:"absolute",top:-18,left:"50%",transform:"translateX(-50%)",fontSize:FS-3,color:T.textMut,fontWeight:600,whiteSpace:"nowrap"}}>{pv.hours}</div>
+                      </div>}
+                      {/* Current week bar */}
+                      <div style={{width:isMob?14:20,height:Math.max(barH,4),borderRadius:"6px 6px 0 0",background:d.hours>=openWeek.baseHours?"linear-gradient(180deg,"+T.ok+","+T.ok+"99)":"linear-gradient(180deg,"+T.accent+","+T.accent+"99)",transition:"height 0.6s ease",position:"relative"}}>
+                        <div style={{position:"absolute",top:-18,left:"50%",transform:"translateX(-50%)",fontSize:FS-3,color:T.accent,fontWeight:700,whiteSpace:"nowrap"}}>{d.hours}</div>
+                      </div>
+                    </div>
+                    {/* Name + days */}
+                    <div style={{marginTop:6,textAlign:"center"}}>
+                      <div style={{fontSize:FS-3,fontWeight:700,color:T.text,maxWidth:60,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name.split(" ")[0]}</div>
+                      <div style={{fontSize:FS-3,color:T.textMut}}>{d.days+" يوم"}</div>
+                    </div>
+                  </div>})}
+              </div>
+              {/* Legend */}
+              <div style={{display:"flex",gap:16,justifyContent:"center",marginTop:8,fontSize:FS-2,color:T.textSec}}>
+                <div style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:12,height:12,borderRadius:3,background:T.accent}}/> {"الأسبوع الحالي W"+openWeek.weekNum}</div>
+                {prevWeek&&<div style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:12,height:12,borderRadius:3,background:T.textMut+"40"}}/> {"الأسبوع السابق W"+prevWeek.weekNum}</div>}
+              </div>
+            </div>
+          </Card>})()}
+
+        {/* Salary calculation — aligned, centered, with deduct reason */}
+        {(()=>{
+          const weekSelected=selectedEmps[openWeek.id]||activeEmps.map(e=>e.id);
+          const shownEmps=activeEmps.filter(e=>weekSelected.includes(e.id));
+          const cols=[
+            {label:"#",align:"center",w:30},
+            {label:"الاسم",align:"right",w:"auto"},
+            {label:"مرتب",align:"center"},
+            {label:"أساسي",align:"center"},
+            {label:"ساعات",align:"center"},
+            {label:"إضافي",align:"center"},
+            {label:"مستحق",align:"center"},
+            {label:"رصيد سابق",align:"center"},
+            {label:"مسحوبات",align:"center"},
+            {label:"خصم",align:"center"},
+            {label:"خصم خاص (قسط)",align:"center"},
+            {label:"حافز",align:"center"},
+            {label:"صافي",align:"center"},
+            {label:"دفعة من الحساب",align:"center"},
+            {label:"الرصيد (يُرحّل)",align:"center"},
+            {label:"",align:"center",w:40}
+          ];
+          let tG=0,tN=0,tA=0,tD=0,tB=0,tH=0,tO=0,tTP=0,tRB=0,tDI=0;
+          shownEmps.forEach(e=>{const c=calcSalary(e.id,openWeek);if(c){tG+=c.grossPay;tN+=c.netBalance;tA+=c.weekAdvances;tD+=c.specialDeduct;tB+=c.bonus;tH+=c.totalHours;tO+=c.overtimeHours;tTP+=c.thursdayPay;tRB+=c.remainingBalance;tDI+=c.debtInstall||0}});
+          return<Card title={"💰 حساب المرتبات — W"+openWeek.weekNum+" ("+shownEmps.length+" موظف)"}>
+            <div style={{marginBottom:10,display:"flex",justifyContent:"flex-end"}}>
+              <Btn small onClick={()=>{const sel={};shownEmps.forEach(e=>{sel[e.id]=true});setBulkPrintSel(sel);setShowBulkPrint(true)}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}}>🖨 طباعة مجمعة</Btn>
+            </div>
+            <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+              {cols.map((c,i)=><th key={i} style={{padding:"8px 6px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap",width:c.w||"auto"}}>{c.label}</th>)}
+            </tr></thead><tbody>
+              {shownEmps.map((emp,i)=>{const c=calcSalary(emp.id,openWeek);if(!c)return null;const zebra=i%2===1?T.bg:T.cardSolid;
+                return<tr key={emp.id} style={{borderBottom:"1px solid "+T.brd,background:zebra}}>
+                  <td style={{padding:"6px",fontSize:FS-2,color:T.textMut,textAlign:"center"}}>{i+1}</td>
+                  <td style={{padding:"6px 10px",fontSize:FS-1,fontWeight:700,textAlign:"right"}}>{emp.name}</td>
+                  <td style={{padding:"6px",fontSize:FS-2,color:T.accent,textAlign:"center",fontWeight:700}}>{fmt(c.weeklySalary)}</td>
+                  <td style={{padding:"6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salBaseHoursOverride[emp.id]!==undefined?salBaseHoursOverride[emp.id]:""} onChange={ev=>setSalBaseHoursOverride(p=>({...p,[emp.id]:ev.target.value}))} placeholder={String(openWeek.baseHours||48)} style={{width:50,padding:"4px",borderRadius:6,border:"1px solid "+T.accent+"40",fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:salBaseHoursOverride[emp.id]?T.warn:T.text,fontWeight:salBaseHoursOverride[emp.id]?700:400}}/>:<span style={{fontSize:FS-2,color:c.baseHours!==(openWeek.baseHours||48)?T.warn:T.textMut,fontWeight:c.baseHours!==(openWeek.baseHours||48)?700:400}}>{c.baseHours}</span>}</td>
+                  <td style={{padding:"6px",fontSize:FS-2,textAlign:"center"}}>{r2(c.totalHours)}</td>
+                  <td style={{padding:"6px",fontSize:FS-2,color:c.overtimeHours>0?"#8B5CF6":T.textMut,textAlign:"center",fontWeight:c.overtimeHours>0?700:400}}>{r2(c.overtimeHours)}</td>
+                  <td style={{padding:"6px",fontSize:FS-1,fontWeight:700,color:T.ok,textAlign:"center"}}>{fmt(c.grossPay)}</td>
+                  <td style={{padding:"6px",fontSize:FS-2,color:c.prevBalance>=0?T.ok:T.err,textAlign:"center"}}>{fmt(c.prevBalance)}</td>
+                  <td style={{padding:"6px",fontSize:FS-1,fontWeight:700,color:c.weekAdvances>0?T.err:T.textMut,textAlign:"center"}}>{c.weekAdvances>0?fmt(c.weekAdvances):"—"}</td>
+                  <td style={{padding:"6px",textAlign:"center"}}>{!isLocked?<div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
+                    <input type="number" value={salSpecialDeduct[emp.id]||""} onChange={ev=>setSalSpecialDeduct(p=>({...p,[emp.id]:ev.target.value}))} placeholder="0" style={{width:60,padding:"4px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text}}/>
+                    <span onClick={()=>openTextPopup({title:"سبب الخصم",subtitle:emp.name,value:salDeductReason[emp.id]||"",placeholder:"اكتب سبب الخصم...",multiline:true,onSave:v=>setSalDeductReason(p=>({...p,[emp.id]:v}))})} style={{cursor:"pointer",fontSize:11,padding:"2px 5px",borderRadius:4,background:salDeductReason[emp.id]?T.warn+"15":T.bg,color:salDeductReason[emp.id]?T.warn:T.textMut,border:"1px solid "+(salDeductReason[emp.id]?T.warn+"30":T.brd)}} title={salDeductReason[emp.id]||"إضافة سبب"}>📝</span>
+                  </div>:<span style={{fontSize:FS-2,color:T.err}}>{c.specialDeduct||""}</span>}</td>
+                  <td style={{padding:"6px",textAlign:"center"}}>
+                    {c.debtInstall>0?<div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
+                      <span style={{fontSize:FS-1,fontWeight:700,color:"#F97316",background:"#F9731610",padding:"3px 8px",borderRadius:6,border:"1px solid #F9731630"}}>{fmt(c.debtInstall)}</span>
+                      <span onClick={()=>setShowEmpDebts(emp.id)} style={{cursor:"pointer",fontSize:11,padding:"2px 5px",borderRadius:4,background:"#F9731615",color:"#F97316",border:"1px solid #F9731630"}} title="عرض الأقساط">📝</span>
+                    </div>:empActiveDebts(emp.id).length>0?<span style={{fontSize:FS-2,color:T.textMut}}>—</span>:<span onClick={()=>{if(!isLocked){setShowDebtForm({empId:emp.id});resetDebtForm();setDebtStart(today)}}} style={{cursor:isLocked?"default":"pointer",fontSize:FS-2,color:T.textMut,padding:"2px 8px",borderRadius:6,border:"1px dashed "+T.brd}}>+</span>}
+                  </td>
+                  <td style={{padding:"6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salBonus[emp.id]!==undefined?salBonus[emp.id]:""} onChange={ev=>setSalBonus(p=>({...p,[emp.id]:ev.target.value}))} placeholder={emp.weeklyBonus>0?String(emp.weeklyBonus):"0"} title={emp.weeklyBonus>0?"الافتراضي: "+emp.weeklyBonus+" (تلقائي)":""} style={{width:60,padding:"4px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text}}/>:<span style={{fontSize:FS-2,color:T.ok}}>{c.bonus||""}</span>}</td>
+                  <td style={{padding:"6px",fontSize:FS,fontWeight:800,color:c.netBalance>=0?T.accent:T.err,textAlign:"center"}}>{fmt(c.netBalance)}</td>
+                  <td style={{padding:"6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salThursdayPay[emp.id]!==undefined?salThursdayPay[emp.id]:""} onChange={ev=>setSalThursdayPay(p=>({...p,[emp.id]:ev.target.value}))} placeholder={String(c.netBalance)} style={{width:70,padding:"4px",borderRadius:6,border:"1px solid "+T.ok+"40",fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.ok,fontWeight:700}}/>:<span style={{fontSize:FS-1,fontWeight:700,color:T.ok}}>{fmt(c.thursdayPay)}</span>}</td>
+                  <td style={{padding:"6px",fontSize:FS-1,fontWeight:800,color:c.remainingBalance>0?T.warn:c.remainingBalance<0?T.err:T.textMut,textAlign:"center",background:c.remainingBalance!==0?T.warn+"06":""}}>{fmt(c.remainingBalance)}</td>
+                  <td style={{padding:"6px",textAlign:"center"}}><span onClick={()=>printSlip(emp.id)} style={{cursor:"pointer",fontSize:14}} title="طباعة">🖨</span></td>
+                </tr>})}
+              {/* Grand totals */}
+              <tr style={{background:T.accent+"08",fontWeight:800,borderTop:"2px solid "+T.accent+"30"}}>
+                <td colSpan={2} style={{padding:"8px 10px",textAlign:"right",fontSize:FS-1,fontWeight:800}}>الاجمالي</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,color:T.accent}}>{fmt(shownEmps.reduce((s,e)=>s+(e.weeklySalary||0),0))}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,color:T.textMut}}>{openWeek.baseHours||48}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2}}>{r2(tH)}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,color:"#8B5CF6"}}>{r2(tO)}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.ok,fontWeight:800}}>{fmt(r2(tG))}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2}}>—</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.err,fontWeight:800}}>{fmt(r2(tA))}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.err,fontWeight:800}}>{fmt(r2(tD))}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:"#F97316",fontWeight:800}}>{fmt(r2(tDI))}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.ok,fontWeight:800}}>{fmt(r2(tB))}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS+1,color:T.accent,fontWeight:800}}>{fmt(r2(tN))}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS,color:T.ok,fontWeight:800}}>{fmt(r2(tTP))}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS,color:T.warn,fontWeight:800}}>{fmt(r2(tRB))}</td>
+                <td></td>
+              </tr>
+            </tbody></table></div>
+            {canEdit&&!isClosed&&<div style={{marginTop:14,textAlign:"center"}}><Btn primary onClick={()=>{
+              /* Build summary for confirmation */
+              let tG_=0,tN_=0,tA_=0,tTP_=0,tRB_=0,tDI_=0;
+              shownEmps.forEach(e=>{const cc=calcSalary(e.id,openWeek);if(cc){tG_+=cc.grossPay;tN_+=cc.netBalance;tA_+=cc.weekAdvances;tTP_+=cc.thursdayPay;tRB_+=cc.remainingBalance;tDI_+=cc.debtInstall||0}});
+              openConfirm({
+                title:"اعتماد وقفل أسبوع W"+openWeek.weekNum,
+                message:"الفترة: "+openWeek.weekStart+" → "+openWeek.weekEnd+"\n"+
+                  "عدد الموظفين: "+shownEmps.length+"\n\n"+
+                  "💰 اجمالي المستحق: "+fmt(r2(tG_))+" ج.م\n"+
+                  "💸 اجمالي المسحوبات: "+fmt(r2(tA_))+" ج.م\n"+
+                  (tDI_>0?"🧾 اجمالي أقساط: "+fmt(r2(tDI_))+" ج.م\n":"")+
+                  "💵 سيخرج من الخزنة: "+fmt(r2(tTP_))+" ج.م\n"+
+                  "🔄 يُرحّل للأسبوع القادم: "+fmt(r2(tRB_))+" ج.م\n\n"+
+                  "سيتم: تحديث أرصدة الموظفين، تسجيل المرتبات في السجل، خصم الأقساط، تسجيل دفعة الخزنة، وقفل الأسبوع.",
+                variant:"warn",
+                onConfirm:()=>approveWeek()
+              })
+            }} style={{fontSize:FS+1,padding:"12px 30px"}}>💰 اعتماد وقفل الأسبوع W{openWeek.weekNum}</Btn></div>}
+            {isClosed&&<div style={{marginTop:10,textAlign:"center",padding:12,borderRadius:10,background:T.ok+"08",color:T.ok,fontWeight:700}}>{"✅ هذا الأسبوع مقفول — تم الاعتماد "+openWeek.closedAt+" بواسطة "+openWeek.closedBy}</div>}
+          </Card>})()}
+      </div>})()}
+
+    {/* ══ GENERIC TEXT POPUP (reusable for notes/reasons) ══ */}
+    {textPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setTextPopup(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:500,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+          <div>
+            <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{textPopup.title||"ملاحظات"}</div>
+            {textPopup.subtitle&&<div style={{fontSize:FS-1,color:T.textMut,marginTop:2}}>{textPopup.subtitle}</div>}
+          </div>
+          <Btn ghost small onClick={()=>setTextPopup(null)}>✕</Btn>
+        </div>
+        {textPopup.multiline?<textarea value={textValue} onChange={e=>setTextValue(e.target.value)} placeholder={textPopup.placeholder||""} autoFocus rows={5} style={{width:"100%",padding:12,borderRadius:10,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.inputBg,color:T.text,resize:"vertical",boxSizing:"border-box"}}/>
+        :<input type="text" value={textValue} onChange={e=>setTextValue(e.target.value)} placeholder={textPopup.placeholder||""} autoFocus style={{width:"100%",padding:12,borderRadius:10,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.inputBg,color:T.text,boxSizing:"border-box"}}/>}
+        <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
+          <Btn ghost onClick={()=>setTextPopup(null)}>إلغاء</Btn>
+          <Btn primary onClick={()=>{if(textPopup.onSave)textPopup.onSave(textValue);setTextPopup(null)}}>💾 حفظ</Btn>
+        </div>
+      </div>
+    </div>}
+
+    {/* ══ GENERIC CONFIRM POPUP ══ */}
+    {confirmPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setConfirmPopup(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:440,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)",textAlign:"center"}}>
+        <div style={{fontSize:44,marginBottom:10}}>{confirmPopup.variant==="danger"?"⚠️":confirmPopup.variant==="warn"?"⚠️":"❓"}</div>
+        <div style={{fontSize:FS+3,fontWeight:800,color:confirmPopup.variant==="danger"?T.err:confirmPopup.variant==="warn"?T.warn:T.text,marginBottom:8}}>{confirmPopup.title||"تأكيد"}</div>
+        <div style={{fontSize:FS,color:T.textSec,marginBottom:18,lineHeight:1.6,whiteSpace:"pre-line"}}>{confirmPopup.message||""}</div>
+        <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+          <Btn ghost onClick={()=>setConfirmPopup(null)}>إلغاء</Btn>
+          <Btn onClick={()=>{if(confirmPopup.onConfirm)confirmPopup.onConfirm();setConfirmPopup(null)}} style={{background:confirmPopup.variant==="danger"?T.err:confirmPopup.variant==="warn"?T.warn:T.accent,color:"#fff",border:"none",fontWeight:800,padding:"10px 24px"}}>{confirmPopup.variant==="danger"?"🗑️ حذف":"✅ تأكيد"}</Btn>
+        </div>
+      </div>
+    </div>}
+
+    {/* ══ DEBT FORM POPUP (add/edit installment debt) ══ */}
+    {showDebtForm&&(()=>{const emp=employees.find(e=>e.id===showDebtForm.empId);if(!emp)return null;
+      const total=parseFloat(debtTotal);const inst=parseInt(debtInstallments);
+      /* Auto-calc per-week if user changed total or installments */
+      const autoPerWeek=(total&&inst&&inst>0)?r2(total/inst):0;
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>{setShowDebtForm(null);resetDebtForm()}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:520,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div>
+              <div style={{fontSize:FS+2,fontWeight:800,color:"#F97316"}}>🧾 {showDebtForm.debtId?"تعديل":"إضافة"} مديونية</div>
+              <div style={{fontSize:FS-1,color:T.textMut,marginTop:2}}>الموظف: <b>{emp.name}</b></div>
+            </div>
+            <Btn ghost small onClick={()=>{setShowDebtForm(null);resetDebtForm()}}>✕</Btn>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div style={{gridColumn:"1 / span 2"}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>البيان / المنتج</label><Inp value={debtTitle} onChange={setDebtTitle} placeholder="مثال: شراء قماش، ماكينة..."/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المبلغ الإجمالي (ج.م)</label><Inp type="number" value={debtTotal} onChange={v=>{setDebtTotal(v);if(inst>0)setDebtPerWeek(String(r2(parseFloat(v)/inst)))}} placeholder="0"/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>عدد الأقساط</label><Inp type="number" value={debtInstallments} onChange={v=>{setDebtInstallments(v);const i=parseInt(v);if(i>0&&total)setDebtPerWeek(String(r2(total/i)))}} placeholder="5"/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>قيمة القسط الأسبوعي (ج.م)</label><Inp type="number" value={debtPerWeek} onChange={setDebtPerWeek} placeholder={String(autoPerWeek||"0")}/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تاريخ البداية</label><Inp type="date" value={debtStart} onChange={setDebtStart}/></div>
+            <div style={{gridColumn:"1 / span 2"}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات</label><Inp value={debtNotes} onChange={setDebtNotes} placeholder="..."/></div>
+          </div>
+          {autoPerWeek>0&&parseFloat(debtPerWeek)!==autoPerWeek&&<div style={{marginTop:10,padding:8,borderRadius:8,background:T.warn+"08",border:"1px solid "+T.warn+"20",fontSize:FS-2,color:T.warn}}>💡 القسط المقترح: {fmt(autoPerWeek)} ج.م ({inst} قسط × {fmt(autoPerWeek)})</div>}
+          <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
+            <Btn ghost onClick={()=>{setShowDebtForm(null);resetDebtForm()}}>إلغاء</Btn>
+            <Btn primary onClick={()=>saveDebt(showDebtForm.empId,showDebtForm.debtId)} style={{background:"#F97316",color:"#fff",border:"none"}}>💾 حفظ المديونية</Btn>
+          </div>
+        </div>
+      </div>})()}
+
+    {/* ══ EMP DEBTS VIEWER POPUP ══ */}
+    {showEmpDebts&&(()=>{const emp=employees.find(e=>e.id===showEmpDebts);if(!emp)return null;
+      const allD=empAllDebts(showEmpDebts);
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setShowEmpDebts(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:640,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div>
+              <div style={{fontSize:FS+2,fontWeight:800,color:"#F97316"}}>🧾 مديونيات الموظف</div>
+              <div style={{fontSize:FS-1,color:T.textMut,marginTop:2}}>{emp.name}{emp.code?" #"+emp.code:""}</div>
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              {canEdit&&<Btn small onClick={()=>{setShowEmpDebts(null);setShowDebtForm({empId:showEmpDebts});resetDebtForm();setDebtStart(today)}} style={{background:"#F9731612",color:"#F97316",border:"1px solid #F9731630",fontWeight:700}}>+ جديدة</Btn>}
+              <Btn ghost small onClick={()=>setShowEmpDebts(null)}>✕</Btn>
+            </div>
+          </div>
+          {allD.length===0?<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا يوجد مديونيات</div>
+          :<div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {allD.map(d=>{const paid=(d.paidWeekIds||[]).length;const remaining=d.installments-paid;const paidAmt=paid*d.perWeek;const remainAmt=d.total-paidAmt;const pct=d.installments>0?Math.round(paid/d.installments*100):0;
+              const statusColor=d.status==="paid"?T.ok:d.status==="cancelled"?T.textMut:"#F97316";
+              return<div key={d.id} style={{padding:14,borderRadius:12,border:"2px solid "+statusColor+"30",background:statusColor+"06"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8,gap:8}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:FS+1,fontWeight:800,color:T.text}}>{d.title}</div>
+                    {d.notes&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{d.notes}</div>}
+                    <div style={{fontSize:FS-2,color:T.textMut,marginTop:4}}>{"بداية: "+d.startDate+(d.paidAt?" | مدفوع بالكامل: "+d.paidAt:d.cancelledAt?" | ملغي: "+d.cancelledAt:"")}</div>
+                  </div>
+                  <span style={{padding:"3px 10px",borderRadius:8,fontSize:FS-2,fontWeight:700,background:statusColor+"15",color:statusColor,whiteSpace:"nowrap"}}>{d.status==="paid"?"✅ مدفوع":d.status==="cancelled"?"❌ ملغي":"🔓 نشط"}</span>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:10}}>
+                  <div style={{padding:"6px 8px",borderRadius:8,background:T.bg,textAlign:"center"}}>
+                    <div style={{fontSize:FS-3,color:T.textMut}}>الإجمالي</div>
+                    <div style={{fontSize:FS,fontWeight:800,color:T.text}}>{fmt(d.total)}</div>
+                  </div>
+                  <div style={{padding:"6px 8px",borderRadius:8,background:T.bg,textAlign:"center"}}>
+                    <div style={{fontSize:FS-3,color:T.textMut}}>القسط</div>
+                    <div style={{fontSize:FS,fontWeight:800,color:"#F97316"}}>{fmt(d.perWeek)}</div>
+                  </div>
+                  <div style={{padding:"6px 8px",borderRadius:8,background:T.ok+"08",textAlign:"center"}}>
+                    <div style={{fontSize:FS-3,color:T.textMut}}>مدفوع</div>
+                    <div style={{fontSize:FS,fontWeight:800,color:T.ok}}>{fmt(paidAmt)}</div>
+                  </div>
+                  <div style={{padding:"6px 8px",borderRadius:8,background:T.err+"08",textAlign:"center"}}>
+                    <div style={{fontSize:FS-3,color:T.textMut}}>متبقي</div>
+                    <div style={{fontSize:FS,fontWeight:800,color:T.err}}>{fmt(remainAmt)}</div>
+                  </div>
+                </div>
+                {/* Progress bar */}
+                <div style={{marginBottom:8}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-2,marginBottom:4}}>
+                    <span style={{color:T.textSec}}>{paid+" / "+d.installments+" قسط"}</span>
+                    <span style={{color:statusColor,fontWeight:700}}>{pct+"%"}</span>
+                  </div>
+                  <div style={{height:8,borderRadius:4,background:T.bg,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:statusColor,transition:"width 0.3s"}}/></div>
+                </div>
+                {canEdit&&d.status==="active"&&<div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+                  <Btn small onClick={()=>{setDebtTitle(d.title);setDebtTotal(String(d.total));setDebtInstallments(String(d.installments));setDebtPerWeek(String(d.perWeek));setDebtStart(d.startDate||today);setDebtNotes(d.notes||"");setShowEmpDebts(null);setShowDebtForm({empId:showEmpDebts,debtId:d.id})}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd,fontSize:FS-2}}>✏️ تعديل</Btn>
+                  <Btn small onClick={()=>cancelDebt(d.id)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30",fontSize:FS-2}}>إلغاء</Btn>
+                  <Btn small onClick={()=>delDebt(d.id)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",fontSize:FS-2}}>🗑️ حذف</Btn>
+                </div>}
+              </div>})}
+          </div>}
+        </div>
+      </div>})()}
+
+    {/* ══ BULK IMPORT POPUP — إدخال جماعي للموظفين ══ */}
+    {showBulkImport&&(()=>{
+      const parseBulk=()=>{
+        const lines=bulkImportText.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+        const existingCodes=new Set(employees.map(e=>String(e.code||"").trim()).filter(Boolean));
+        const rows=lines.map((line,i)=>{
+          /* Split by tabs, commas, or 2+ spaces */
+          const parts=line.split(/\t|,|\s{2,}/).map(s=>s.trim()).filter(Boolean);
+          if(parts.length<2)return{line:i+1,raw:line,status:"error",err:"ناقص بيانات"};
+          const[name,code,salary,job,phone,baseHours,bonus]=parts;
+          const salaryNum=parseFloat(salary)||0;
+          if(!name||!code){return{line:i+1,raw:line,status:"error",err:"اسم أو كود ناقص"}}
+          if(existingCodes.has(String(code).trim())){return{line:i+1,name,code,salary:salaryNum,job:job||"",phone:phone||"",baseHours:parseFloat(baseHours)||(hrs.defaultBaseHours||48),bonus:parseFloat(bonus)||0,status:"exists",err:"كود موجود"}}
+          return{line:i+1,name,code,salary:salaryNum,job:job||"",phone:phone||"",baseHours:parseFloat(baseHours)||(hrs.defaultBaseHours||48),bonus:parseFloat(bonus)||0,status:"new"};
+        });
+        setBulkImportParsed(rows);
+      };
+      const saveBulk=()=>{
+        if(!bulkImportParsed)return;
+        const toAdd=bulkImportParsed.filter(r=>r.status==="new");
+        if(toAdd.length===0){showToast("⚠️ لا يوجد موظفين جدد للإضافة");return}
+        upConfig(d=>{if(!d.employees)d.employees=[];
+          toAdd.forEach(r=>{
+            d.employees.push({id:gid(),name:r.name,code:r.code,job:r.job,phone:r.phone,weeklySalary:r.salary,baseHours:r.baseHours,weeklyBonus:r.bonus,hireDate:today,prevBalance:0})
+          })
+        });
+        showToast("✅ تم إضافة "+toAdd.length+" موظف");
+        setShowBulkImport(false);setBulkImportText("");setBulkImportParsed(null);
+      };
+      const newCount=bulkImportParsed?bulkImportParsed.filter(r=>r.status==="new").length:0;
+      const existsCount=bulkImportParsed?bulkImportParsed.filter(r=>r.status==="exists").length:0;
+      const errCount=bulkImportParsed?bulkImportParsed.filter(r=>r.status==="error").length:0;
+      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setShowBulkImport(false)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:860,maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={{fontSize:FS+1,fontWeight:800,color:"#8B5CF6"}}>📋 إدخال جماعي للموظفين</div>
+            <Btn ghost small onClick={()=>setShowBulkImport(false)}>✕</Btn>
+          </div>
+          <div style={{padding:10,borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF620",fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.7}}>
+            الصق البيانات من Excel أو Google Sheets. كل سطر = موظف واحد.<br/>
+            <b>الأعمدة بالترتيب:</b> الاسم | كود البصمة | المرتب الأسبوعي | <span style={{opacity:0.7}}>[الوظيفة] | [التليفون] | [ساعات] | [حافز]</span><br/>
+            <b>الفواصل:</b> Tab أو فواصل أو 2+ مسافات — مش محتاج تحديد.
+          </div>
+          <textarea value={bulkImportText} onChange={e=>setBulkImportText(e.target.value)} placeholder={"محمود حدوتة	1234	4500	خياط	01012345678\nيوسف عبدالله	5678	3200\nأحمد علي	9012	2800	مساعد"} style={{width:"100%",minHeight:160,padding:12,borderRadius:10,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"monospace",background:T.inputBg,color:T.text,direction:"ltr",textAlign:"right"}}/>
+          <div style={{display:"flex",gap:8,marginTop:10}}>
+            <Btn onClick={parseBulk} disabled={!bulkImportText.trim()} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}}>🔍 معاينة</Btn>
+            {bulkImportParsed&&newCount>0&&<Btn primary onClick={saveBulk}>✅ إضافة {newCount} موظف</Btn>}
+          </div>
+          {bulkImportParsed&&<div style={{marginTop:14}}>
+            <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+              <span style={{padding:"4px 10px",borderRadius:8,background:T.ok+"12",color:T.ok,fontSize:FS-2,fontWeight:700}}>🟢 جديد: {newCount}</span>
+              <span style={{padding:"4px 10px",borderRadius:8,background:T.warn+"12",color:T.warn,fontSize:FS-2,fontWeight:700}}>🟡 موجود: {existsCount}</span>
+              <span style={{padding:"4px 10px",borderRadius:8,background:T.err+"12",color:T.err,fontSize:FS-2,fontWeight:700}}>🔴 خطأ: {errCount}</span>
+            </div>
+            <div style={{maxHeight:"45vh",overflowY:"auto",border:"1px solid "+T.brd,borderRadius:10}}>
+              <table style={{width:"100%",borderCollapse:"collapse"}}><thead style={{position:"sticky",top:0,background:T.bg,zIndex:1}}><tr>
+                {["#","الحالة","الاسم","الكود","المرتب","الوظيفة","التليفون","ساعات","حافز"].map(h=><th key={h} style={{padding:"8px 6px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700}}>{h}</th>)}
+              </tr></thead><tbody>
+                {bulkImportParsed.map((r,i)=>{
+                  const color=r.status==="new"?T.ok:r.status==="exists"?T.warn:T.err;
+                  const icon=r.status==="new"?"🟢":r.status==="exists"?"🟡":"🔴";
+                  return<tr key={i} style={{borderBottom:"1px solid "+T.brd+"40",background:i%2===1?T.bg:""}}>
+                    <td style={{padding:"5px 6px",textAlign:"center",fontSize:FS-2,color:T.textMut}}>{r.line}</td>
+                    <td style={{padding:"5px 6px",textAlign:"center"}}><span title={r.err||""} style={{padding:"2px 8px",borderRadius:5,fontSize:FS-3,fontWeight:700,background:color+"15",color}}>{icon} {r.status==="new"?"جديد":r.status==="exists"?"موجود":"خطأ"}</span></td>
+                    <td style={{padding:"5px 8px",fontSize:FS-1,fontWeight:600}}>{r.name||<span style={{color:T.err}}>—</span>}</td>
+                    <td style={{padding:"5px 6px",textAlign:"center",fontSize:FS-2,fontFamily:"monospace"}}>{r.code||"—"}</td>
+                    <td style={{padding:"5px 6px",textAlign:"center",fontSize:FS-1,fontWeight:700,color:T.accent}}>{r.salary?fmt(r.salary):"—"}</td>
+                    <td style={{padding:"5px 6px",fontSize:FS-2}}>{r.job||""}</td>
+                    <td style={{padding:"5px 6px",fontSize:FS-3,color:T.textMut,direction:"ltr"}}>{r.phone||""}</td>
+                    <td style={{padding:"5px 6px",textAlign:"center",fontSize:FS-2}}>{r.baseHours||""}</td>
+                    <td style={{padding:"5px 6px",textAlign:"center",fontSize:FS-2,color:T.ok}}>{r.bonus>0?fmt(r.bonus):""}</td>
+                  </tr>})}
+              </tbody></table>
+            </div>
+          </div>}
+        </div>
+      </div>})()}
+
+    {/* ══ BULK PRINT POPUP ══ */}
+    {showBulkPrint&&openWeek&&(()=>{const weekSelected=selectedEmps[openWeek.id]||activeEmps.map(e=>e.id);const inWeek=activeEmps.filter(e=>weekSelected.includes(e.id));
+      const selCount=Object.values(bulkPrintSel).filter(Boolean).length;
+      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setShowBulkPrint(false)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>🖨 طباعة مجمعة للكشوفات</div>
+            <Btn ghost small onClick={()=>setShowBulkPrint(false)}>✕</Btn>
+          </div>
+          <div style={{fontSize:FS-2,color:T.textMut,marginBottom:8}}>اختر الموظفين (كل كشف في صفحة منفصلة):</div>
+          <div style={{display:"flex",gap:6,marginBottom:10}}>
+            <Btn small onClick={()=>{const s={};inWeek.forEach(e=>{s[e.id]=true});setBulkPrintSel(s)}} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>☑ الكل</Btn>
+            <Btn small onClick={()=>setBulkPrintSel({})} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>☐ لا شيء</Btn>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:"50vh",overflowY:"auto"}}>
+            {inWeek.map(e=>{const sel=bulkPrintSel[e.id];const c=calcSalary(e.id,openWeek);
+              return<div key={e.id} onClick={()=>setBulkPrintSel(p=>({...p,[e.id]:!p[e.id]}))} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:10,cursor:"pointer",background:sel?T.accent+"08":T.bg,border:"1px solid "+(sel?T.accent+"30":T.brd)}}>
+                <span style={{fontSize:18}}>{sel?"☑":"☐"}</span>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:FS,fontWeight:700}}>{e.name}</div>
+                  <div style={{fontSize:FS-2,color:T.textMut}}>{(e.code?"#"+e.code:"")+(e.job?" — "+e.job:"")}</div>
+                </div>
+                {c&&<span style={{fontSize:FS-1,color:T.accent,fontWeight:700}}>{fmt(c.netBalance)}</span>}
+              </div>})}
+          </div>
+          <div style={{marginTop:10,padding:10,borderRadius:8,background:T.accent+"06",textAlign:"center",fontSize:FS-1,fontWeight:700,color:T.accent}}>{selCount+" كشف سيتم طباعته"}</div>
+          <div style={{marginTop:10,display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <Btn ghost onClick={()=>setShowBulkPrint(false)}>إلغاء</Btn>
+            <Btn primary onClick={bulkPrintSlips} disabled={selCount===0}>🖨 طباعة {selCount>0?"("+selCount+")":""}</Btn>
+          </div>
+        </div>
+      </div>})()}
+
+    {/* ══ EMPLOYEE STATEMENT POPUP ══ */}
+    {empStatement&&(()=>{const emp=employees.find(e=>e.id===empStatement);if(!emp)return null;
+      const inRange=(d)=>{if(stmtFrom&&d<stmtFrom)return false;if(stmtTo&&d>stmtTo)return false;return true};
+      /* Gather all movements */
+      const movements=[];
+      /* Advances */
+      hrLog.filter(l=>l.empId===emp.id&&l.type==="advance"&&inRange(l.date||"")).forEach(l=>{
+        movements.push({date:l.date,type:"advance",desc:(l.desc||"سلفة"),debit:Number(l.amount)||0,credit:0,by:l.by||""})});
+      /* Salary approvals */
+      hrLog.filter(l=>l.empId===emp.id&&l.type==="salary"&&inRange(l.date||"")).forEach(l=>{
+        movements.push({date:l.date,type:"salary",desc:"اعتماد مرتب W"+(l.weekStart||"")+" → "+(l.weekEnd||""),grossPay:l.grossPay||0,weekAdvances:l.weekAdvances||0,specialDeduct:l.specialDeduct||0,bonus:l.bonus||0,debtInstall:l.debtInstall||0,thursdayPay:l.thursdayPay||0,remainingBalance:l.remainingBalance,credit:l.grossPay||0,debit:l.thursdayPay||0,by:l.by||""})});
+      movements.sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+      /* Running balance */
+      let bal=0;const rows=movements.map(m=>{bal+=(m.credit||0)-(m.debit||0);return{...m,bal:r2(bal)}});
+      const currentBal=emp.prevBalance||0;
+      const totalAdv=rows.filter(r=>r.type==="advance").reduce((s,r)=>s+r.debit,0);
+      const totalGross=rows.filter(r=>r.type==="salary").reduce((s,r)=>s+(r.grossPay||0),0);
+      const totalPaid=rows.filter(r=>r.type==="salary").reduce((s,r)=>s+(r.thursdayPay||0),0);
+      const salaryCount=rows.filter(r=>r.type==="salary").length;
+      const printStmt=()=>{const w=window.open("","_blank");if(!w)return;
+        const logo=(data.logo||"").trim();
+        let html=`<html dir="rtl"><head><meta charset="utf-8"><title>كشف حساب — ${emp.name}</title>
+        <style>@page{size:A4;margin:10mm}body{font-family:'Cairo',Arial,sans-serif;font-size:11px;margin:0;padding:0;color:#1a1a1a}
+        .hdr{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:2px solid #0ea5e9;margin-bottom:10px}
+        .hdr img{max-height:45px}.hdr h1{font-size:15px;margin:0;color:#0ea5e9}
+        .info{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;padding:10px;background:#f0f9ff;border-radius:8px;margin-bottom:10px;font-size:11px}
+        .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+        .stat{padding:8px;border-radius:8px;text-align:center;border:1px solid #e2e8f0}
+        .stat .lbl{font-size:9px;color:#64748b}.stat .val{font-size:13px;font-weight:800;margin-top:2px}
+        .st-sal{background:#f0f9ff}.st-sal .val{color:#0ea5e9}
+        .st-adv{background:#fef2f2}.st-adv .val{color:#ef4444}
+        .st-paid{background:#f0fdf4}.st-paid .val{color:#10b981}
+        .st-bal{background:#faf5ff}.st-bal .val{color:#8b5cf6}
+        table{width:100%;border-collapse:collapse;font-size:10px}
+        th,td{border:1px solid #cbd5e1;padding:5px 7px;text-align:right}
+        th{background:#0ea5e9;color:#fff;text-align:center}
+        tr:nth-child(even){background:#f8fafc}
+        .num{text-align:center}.pos{color:#10b981;font-weight:700}.neg{color:#ef4444;font-weight:700}
+        .type-sal{background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px;font-weight:700;font-size:9px}
+        .type-adv{background:#fee2e2;color:#b91c1c;padding:2px 6px;border-radius:4px;font-weight:700;font-size:9px}
+        @media print{body{margin:0}}</style></head><body>
+        <div class="hdr">${logo?'<img src="'+logo+'"/>':'<div style="font-size:20px;font-weight:900;color:#0ea5e9">CLARK</div>'}
+          <div style="text-align:left"><h1>كشف حساب موظف</h1><div style="font-size:10px;color:#64748b">${new Date().toISOString().split("T")[0]}</div></div></div>
+        <div class="info">
+          <div><b>الاسم:</b> ${emp.name}</div><div><b>الكود:</b> ${emp.code||"—"}</div>
+          <div><b>الوظيفة:</b> ${emp.job||"—"}</div><div><b>المرتب الأسبوعي:</b> ${fmt(emp.weeklySalary||0)} ج.م</div>
+          <div><b>التليفون:</b> ${emp.phone||"—"}</div><div><b>الفترة:</b> ${stmtFrom||"البداية"} → ${stmtTo||"حتى الآن"}</div>
+        </div>
+        <div class="stats">
+          <div class="stat st-sal"><div class="lbl">اجمالي المستحقات</div><div class="val">${fmt(r2(totalGross))}</div></div>
+          <div class="stat st-adv"><div class="lbl">اجمالي السلف</div><div class="val">${fmt(r2(totalAdv))}</div></div>
+          <div class="stat st-paid"><div class="lbl">اجمالي المدفوع</div><div class="val">${fmt(r2(totalPaid))}</div></div>
+          <div class="stat st-bal"><div class="lbl">الرصيد الحالي</div><div class="val">${fmt(r2(currentBal))}</div></div>
+        </div>
+        <table><thead><tr><th>التاريخ</th><th>النوع</th><th>البيان</th><th>مدين (عليه)</th><th>دائن (له)</th><th>الرصيد</th></tr></thead><tbody>`;
+        rows.forEach(r=>{html+=`<tr><td class="num">${r.date||""}</td>
+          <td class="num"><span class="${r.type==="salary"?"type-sal":"type-adv"}">${r.type==="salary"?"مرتب":"سلفة"}</span></td>
+          <td>${r.desc||""}</td>
+          <td class="num neg">${r.debit>0?fmt(r2(r.debit)):"—"}</td>
+          <td class="num pos">${r.credit>0?fmt(r2(r.credit)):"—"}</td>
+          <td class="num" style="font-weight:800;color:${r.bal>=0?"#10b981":"#ef4444"}">${fmt(r.bal)}</td></tr>`});
+        html+=`</tbody></table>
+        <div style="margin-top:12px;padding:10px;background:#f0f9ff;border-radius:8px;text-align:center;font-size:12px;font-weight:700;color:#0ea5e9">
+          الرصيد النهائي المستحق للموظف: ${fmt(r2(currentBal))} ج.م
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:30px;padding:0 40px;font-size:10px">
+          <div style="text-align:center;border-top:1px solid #94a3b8;padding-top:4px;min-width:120px">المحاسب</div>
+          <div style="text-align:center;border-top:1px solid #94a3b8;padding-top:4px;min-width:120px">${emp.name}</div>
+        </div></body></html>`;
+        w.document.write(html);w.document.close();setTimeout(()=>w.print(),300)};
+      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setEmpStatement(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:800,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div>
+              <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>📄 كشف حساب — {emp.name}</div>
+              <div style={{fontSize:FS-1,color:T.textMut,marginTop:2}}>{(emp.code?"#"+emp.code+" • ":"")+emp.job||""}</div>
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              <Btn small onClick={printStmt} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}}>🖨 طباعة</Btn>
+              <Btn ghost small onClick={()=>setEmpStatement(null)}>✕</Btn>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"flex-end",marginBottom:12,flexWrap:"wrap"}}>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>من تاريخ</label><Inp type="date" value={stmtFrom} onChange={setStmtFrom}/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>إلى تاريخ</label><Inp type="date" value={stmtTo} onChange={setStmtTo}/></div>
+            {(stmtFrom||stmtTo)&&<Btn small ghost onClick={()=>{setStmtFrom("");setStmtTo("")}}>مسح</Btn>}
+          </div>
+          {/* Summary cards */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:12}}>
+            <div style={{padding:10,borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center"}}>
+              <div style={{fontSize:FS-2,color:T.textMut}}>اجمالي المستحقات</div>
+              <div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>{fmt(r2(totalGross))}</div>
+              <div style={{fontSize:FS-3,color:T.textMut}}>{salaryCount+" مرتب"}</div>
+            </div>
+            <div style={{padding:10,borderRadius:10,background:T.err+"08",border:"1px solid "+T.err+"20",textAlign:"center"}}>
+              <div style={{fontSize:FS-2,color:T.textMut}}>اجمالي السلف</div>
+              <div style={{fontSize:FS+1,fontWeight:800,color:T.err}}>{fmt(r2(totalAdv))}</div>
+            </div>
+            <div style={{padding:10,borderRadius:10,background:T.ok+"08",border:"1px solid "+T.ok+"20",textAlign:"center"}}>
+              <div style={{fontSize:FS-2,color:T.textMut}}>اجمالي المدفوع</div>
+              <div style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>{fmt(r2(totalPaid))}</div>
+            </div>
+            <div style={{padding:10,borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF620",textAlign:"center"}}>
+              <div style={{fontSize:FS-2,color:T.textMut}}>الرصيد الحالي</div>
+              <div style={{fontSize:FS+1,fontWeight:800,color:"#8B5CF6"}}>{fmt(r2(currentBal))}</div>
+            </div>
+          </div>
+          {rows.length===0?<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد حركات في الفترة المحددة</div>
+          :<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+            {["التاريخ","النوع","البيان","مدين (عليه)","دائن (له)","الرصيد"].map(h=><th key={h} style={{padding:"6px 8px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700}}>{h}</th>)}
+          </tr></thead><tbody>
+            {rows.map((r,i)=><tr key={i} style={{borderBottom:"1px solid "+T.brd,background:i%2===1?T.bg:""}}>
+              <td style={{padding:"6px 8px",fontSize:FS-2,textAlign:"center"}}>{r.date}</td>
+              <td style={{padding:"6px 8px",textAlign:"center"}}><span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-3,fontWeight:700,background:r.type==="salary"?T.accent+"12":T.err+"12",color:r.type==="salary"?T.accent:T.err}}>{r.type==="salary"?"مرتب":"سلفة"}</span></td>
+              <td style={{padding:"6px 8px",fontSize:FS-2}}>{r.desc}</td>
+              <td style={{padding:"6px 8px",fontSize:FS-1,textAlign:"center",color:T.err,fontWeight:700}}>{r.debit>0?fmt(r2(r.debit)):"—"}</td>
+              <td style={{padding:"6px 8px",fontSize:FS-1,textAlign:"center",color:T.ok,fontWeight:700}}>{r.credit>0?fmt(r2(r.credit)):"—"}</td>
+              <td style={{padding:"6px 8px",fontSize:FS,textAlign:"center",fontWeight:800,color:r.bal>=0?T.ok:T.err}}>{fmt(r.bal)}</td>
+            </tr>)}
+          </tbody></table></div>}
+        </div>
+      </div>})()}
+
+    {/* ══ EMPLOYEE PICKER POPUP ══ */}
+    {showEmpPicker&&openWeek&&(()=>{const current=selectedEmps[openWeek.id]||activeEmps.map(e=>e.id);
+      const toggle=(id)=>{setSelectedEmps(p=>{const cur=p[openWeek.id]||activeEmps.map(e=>e.id);const has=cur.includes(id);return{...p,[openWeek.id]:has?cur.filter(x=>x!==id):[...cur,id]}})};
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowEmpPicker(false)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>👥 اختر موظفي هذا الأسبوع</div>
+            <Btn ghost small onClick={()=>setShowEmpPicker(false)}>✕</Btn>
+          </div>
+          <div style={{display:"flex",gap:6,marginBottom:10}}>
+            <Btn small onClick={()=>setSelectedEmps(p=>({...p,[openWeek.id]:activeEmps.map(e=>e.id)}))} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>☑ الكل</Btn>
+            <Btn small onClick={()=>setSelectedEmps(p=>({...p,[openWeek.id]:[]}))} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>☐ لا شيء</Btn>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:"50vh",overflowY:"auto"}}>
+            {activeEmps.map(e=>{const sel=current.includes(e.id);
+              return<div key={e.id} onClick={()=>toggle(e.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:10,cursor:"pointer",background:sel?T.accent+"08":T.bg,border:"1px solid "+(sel?T.accent+"30":T.brd),transition:"all 0.15s"}}>
+                <span style={{fontSize:18}}>{sel?"☑":"☐"}</span>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:FS,fontWeight:700}}>{e.name}</div>
+                  <div style={{fontSize:FS-2,color:T.textMut}}>{(e.code?"#"+e.code:"")+(e.job?" — "+e.job:"")}</div>
+                </div>
+                <span style={{fontSize:FS-1,color:T.accent,fontWeight:700}}>{fmt(e.weeklySalary||0)}</span>
+              </div>})}
+          </div>
+          <div style={{marginTop:10,padding:8,borderRadius:8,background:T.accent+"06",textAlign:"center",fontSize:FS-1,fontWeight:700,color:T.accent}}>{current.length+" من "+activeEmps.length+" موظف"}</div>
+          <div style={{marginTop:10,textAlign:"center"}}><Btn primary onClick={()=>setShowEmpPicker(false)}>✅ تم</Btn></div>
+        </div>
+      </div>})()}
+
+    {/* ══ MATRIX POPUP ══ */}
+    {showMatrix&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowMatrix(false)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <span style={{fontSize:FS+1,fontWeight:800,color:"#F59E0B"}}>💸 دفعات مجمعة</span><Btn ghost small onClick={()=>setShowMatrix(false)}>✕</Btn>
+        </div>
+        <div style={{display:"flex",gap:8,marginBottom:10}}>
+          <div style={{flex:1}}><Inp value={matrixDesc} onChange={setMatrixDesc} placeholder="البيان"/></div>
+          <div><Inp type="date" value={matrixDate} onChange={setMatrixDate}/></div>
+        </div>
+        {activeEmps.filter(e=>!matrixEmps.some(m=>m.empId===e.id)).length>0&&<Sel value="" onChange={v=>{if(v)setMatrixEmps(p=>[...p,{empId:v,name:(employees.find(e=>e.id===v)||{}).name,amount:0}])}} style={{width:"100%",marginBottom:8}}>
+          <option value="">+ إضافة موظف</option>{activeEmps.filter(e=>!matrixEmps.some(m=>m.empId===e.id)).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</Sel>}
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>{matrixEmps.map((m,i)=><div key={m.empId} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
+          <span style={{flex:1,fontSize:FS,fontWeight:700}}>{m.name}</span>
+          <input type="number" value={m.amount||""} onChange={e=>{const v=Number(e.target.value)||0;setMatrixEmps(p=>p.map((x,j)=>j===i?{...x,amount:v}:x))}} placeholder="المبلغ" style={{width:90,padding:"6px 8px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text}}/>
+          <span onClick={()=>setMatrixEmps(p=>p.filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err}}>✕</span>
+        </div>)}</div>
+        {matrixEmps.filter(m=>m.amount>0).length>0&&<div style={{marginTop:10,padding:8,borderRadius:8,background:T.err+"06",textAlign:"center",fontWeight:800,color:T.err}}>{"اجمالي: "+fmt(matrixEmps.reduce((s,m)=>s+m.amount,0))+" — "+matrixEmps.filter(m=>m.amount>0).length+" موظف"}</div>}
+        <div style={{marginTop:10,textAlign:"center"}}><Btn primary onClick={submitMatrix}>💰 تسجيل</Btn></div>
+      </div>
+    </div>}
+
+    {/* ══ EMPLOYEES ══ */}
+    {/* ══ WEEKLY SUMMARY ══ */}
+    {view==="weeklySummary"&&(()=>{
+      const selectedWeek=summaryWeekId?hrWeeks.find(w=>w.id===summaryWeekId):hrWeeks[0];
+      if(!selectedWeek)return<div style={{textAlign:"center",padding:40,color:T.textMut}}>لا توجد أسابيع بعد — افتح أسبوع من تاب "📅 الأسابيع"</div>;
+      const wStart=selectedWeek.weekStart;const wEnd=selectedWeek.weekEnd;
+      /* Calculate per-employee advance total for this week (from hrLog advances by weekId OR by date) */
+      const rows=activeEmps.map(e=>{
+        const logAdvances=hrLog.filter(l=>l.type==="advance"&&l.empId===e.id&&(l.weekId===selectedWeek.id||(l.date>=wStart&&l.date<=wEnd)));
+        const logIds=new Set(logAdvances.map(l=>l.id));
+        const treasuryAdvances=(data.treasury||[]).filter(t=>t.sourceType==="hr_advance"&&t.empId===e.id&&t.date>=wStart&&t.date<=wEnd&&!logIds.has(t.hrLogId));
+        const weekAdvances=logAdvances.reduce((s,l)=>s+(Number(l.amount)||0),0)+treasuryAdvances.reduce((s,t)=>s+(Number(t.amount)||0),0);
+        return{id:e.id,name:e.name,code:e.code||"",salary:e.weeklySalary||0,advances:weekAdvances}});
+      const totalSalary=rows.reduce((s,r)=>s+r.salary,0);
+      const totalAdvances=rows.reduce((s,r)=>s+r.advances,0);
+      return<div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:FS,fontWeight:700,color:T.textSec}}>اختر الأسبوع:</span>
+            <Sel value={selectedWeek.id} onChange={setSummaryWeekId} style={{minWidth:240}}>
+              {hrWeeks.map(w=><option key={w.id} value={w.id}>{"W"+w.weekNum+" — "+w.weekStart+" → "+w.weekEnd+(w.status==="closed"?" ✅":" 🔓")}</option>)}
+            </Sel>
+          </div>
+          <Btn small onClick={()=>{
+            const w=window.open("","_blank");if(!w)return;
+            const logo=(data.logo||"").trim();
+            let html=`<html dir="rtl"><head><meta charset="utf-8"><title>سجل أسبوعي W${selectedWeek.weekNum}</title>
+            <style>@page{size:A4;margin:10mm}body{font-family:'Cairo',Arial,sans-serif;font-size:11px;margin:0;padding:0}
+            .hdr{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:2px solid #0ea5e9;margin-bottom:12px}
+            .hdr img{max-height:45px}.hdr h1{font-size:15px;margin:0;color:#0ea5e9}
+            table{width:100%;border-collapse:collapse;font-size:11px}
+            th,td{border:1px solid #cbd5e1;padding:6px 8px;text-align:right}
+            th{background:#0ea5e9;color:#fff;text-align:center}
+            tr:nth-child(even){background:#f8fafc}
+            .num{text-align:center;font-weight:700}
+            tfoot tr{background:#0ea5e9;color:#fff;font-weight:800}
+            @media print{body{margin:0}}</style></head><body>
+            <div class="hdr">${logo?'<img src="'+logo+'"/>':'<div style="font-size:20px;font-weight:900;color:#0ea5e9">CLARK</div>'}
+              <div style="text-align:left"><h1>سجل أسبوعي W${selectedWeek.weekNum}</h1><div style="font-size:10px;color:#64748b">${selectedWeek.weekStart} → ${selectedWeek.weekEnd}</div></div></div>
+            <table><thead><tr><th>#</th><th>الموظف</th><th>الكود</th><th>المرتب الأساسي</th><th>سلف هذا الأسبوع</th></tr></thead><tbody>`;
+            rows.forEach((r,i)=>{html+=`<tr><td class="num">${i+1}</td><td>${r.name}</td><td class="num">${r.code||"—"}</td><td class="num" style="color:#0ea5e9">${fmt(r.salary)}</td><td class="num" style="color:${r.advances>0?"#ef4444":"#94a3b8"}">${r.advances>0?fmt(r.advances):"—"}</td></tr>`});
+            html+=`</tbody><tfoot><tr><td colspan="3" style="text-align:center">الإجمالي</td><td class="num">${fmt(totalSalary)}</td><td class="num">${fmt(totalAdvances)}</td></tr></tfoot></table></body></html>`;
+            w.document.write(html);w.document.close();setTimeout(()=>w.print(),300)
+          }} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}}>🖨 طباعة</Btn>
+        </div>
+        <Card title={"📊 W"+selectedWeek.weekNum+" — "+selectedWeek.weekStart+" → "+selectedWeek.weekEnd+" ("+(selectedWeek.status==="closed"?"✅ مقفول":"🔓 مفتوح")+")"}>
+          <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+            {["#","الموظف","الكود","المرتب الأساسي","سلف هذا الأسبوع"].map(h=><th key={h} style={{padding:"10px 8px",textAlign:"center",fontSize:FS-1,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700}}>{h}</th>)}
+          </tr></thead><tbody>
+            {rows.map((r,i)=><tr key={r.id} style={{borderBottom:"1px solid "+T.brd,background:i%2===1?T.bg:T.cardSolid}}>
+              <td style={{padding:"8px",textAlign:"center",fontSize:FS-2,color:T.textMut}}>{i+1}</td>
+              <td style={{padding:"8px 12px",fontSize:FS,fontWeight:700,textAlign:"right"}}>{r.name}</td>
+              <td style={{padding:"8px",textAlign:"center",fontSize:FS-1,color:T.accent,fontWeight:700}}>{r.code||"—"}</td>
+              <td style={{padding:"8px",textAlign:"center",fontSize:FS,fontWeight:800,color:T.accent}}>{fmt(r.salary)}</td>
+              <td style={{padding:"8px",textAlign:"center",fontSize:FS,fontWeight:800,color:r.advances>0?T.err:T.textMut}}>{r.advances>0?fmt(r.advances):"—"}</td>
+            </tr>)}
+            <tr style={{background:T.accent+"08",fontWeight:800,borderTop:"2px solid "+T.accent+"30"}}>
+              <td colSpan={3} style={{padding:"10px",textAlign:"right",fontSize:FS,fontWeight:800}}>الإجمالي</td>
+              <td style={{padding:"10px",textAlign:"center",fontSize:FS+1,fontWeight:800,color:T.accent}}>{fmt(r2(totalSalary))}</td>
+              <td style={{padding:"10px",textAlign:"center",fontSize:FS+1,fontWeight:800,color:T.err}}>{fmt(r2(totalAdvances))}</td>
+            </tr>
+          </tbody></table></div>
+        </Card>
+      </div>})()}
+
+    {/* ══ EMPLOYEES ══ */}
+    {view==="employees"&&<div>
+      {canEdit&&<div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+        <Btn primary onClick={()=>{resetEmpForm();setShowEmpForm(!showEmpForm)}}>{showEmpForm?"✕":"+ موظف جديد"}</Btn>
+        <Btn onClick={()=>{setBulkImportText("");setBulkImportParsed(null);setShowBulkImport(true)}} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700}}>📋 إدخال جماعي</Btn>
+      </div>}
+      {showEmpForm&&<Card title={empEditId?"✏️ تعديل":"+ موظف جديد"} style={{marginBottom:16}}>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(4,1fr)",gap:10}}>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الاسم</label><Inp value={empName} onChange={setEmpName}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>كود البصمة</label><Inp value={empCode} onChange={setEmpCode} placeholder="رقم من جهاز البصمة"/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الوظيفة</label><Inp value={empJob} onChange={setEmpJob}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>مرتب أسبوعي</label><Inp type="number" value={empWeeklySalary} onChange={setEmpWeeklySalary}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>حافز أسبوعي ثابت</label><Inp type="number" value={empWeeklyBonus} onChange={setEmpWeeklyBonus} placeholder="0"/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ساعات أساسي (افتراضي)</label><Inp type="number" value={empBaseHours} onChange={setEmpBaseHours} placeholder={String(hrs.defaultBaseHours||48)}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تليفون</label><Inp value={empPhone} onChange={setEmpPhone}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تاريخ التعيين</label><Inp type="date" value={empDate} onChange={setEmpDate}/></div>
+          <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
+            <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:FS-1,fontWeight:600,color:empNoBiometric?T.accent:T.textSec,padding:"6px 12px",borderRadius:8,background:empNoBiometric?T.accent+"12":T.bg,border:"1px solid "+(empNoBiometric?T.accent+"40":T.brd)}}>
+              <input type="checkbox" checked={empNoBiometric} onChange={e=>setEmpNoBiometric(e.target.checked)} style={{accentColor:T.accent}}/>
+              بدون بصمة
+            </label>
+          </div>
+          <div style={{display:"flex",alignItems:"flex-end"}}><Btn primary onClick={saveEmp} style={{width:"100%"}}>💾</Btn></div>
+        </div>
+      </Card>}
+      <Card title={"👷 الموظفين ("+employees.length+")"}>
+        {employees.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+          {["#","الاسم","الكود","الوظيفة","مرتب","حافز","ساعات","تليفون","رصيد","مديونيات","حالة",""].map(h=><th key={h} style={{padding:"7px 6px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
+        </tr></thead><tbody>
+          {employees.map((e,i)=>{const activeD=empActiveDebts(e.id);const totalRemaining=activeD.reduce((s,d)=>{const paid=(d.paidWeekIds||[]).length;return s+(d.total-paid*d.perWeek)},0);
+            const isEditing=inlineEditId===e.id;const d_=inlineDraft;
+            const inpStyle={width:"100%",padding:"3px 6px",borderRadius:6,border:"1px solid "+T.accent+"40",fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text};
+            return<tr key={e.id} style={{borderBottom:"1px solid "+T.brd,opacity:e.inactive?0.4:1,background:isEditing?T.accent+"06":""}}>
+              <td style={{padding:"5px 6px",fontSize:FS-2,color:T.textMut}}>{i+1}</td>
+              <td style={{padding:"5px 6px",fontSize:FS,fontWeight:700,minWidth:120}}>
+                {isEditing?<input value={d_.name} onChange={ev=>setInlineDraft(p=>({...p,name:ev.target.value}))} style={{...inpStyle,textAlign:"right",fontWeight:700,fontSize:FS}}/>:<>{e.name}{e.noBiometric&&<span style={{fontSize:FS-3,marginRight:4,padding:"1px 5px",borderRadius:4,background:"#8B5CF612",color:"#8B5CF6",fontWeight:600}}>إدارة</span>}</>}</td>
+              <td style={{padding:"5px 6px",fontSize:FS-1,color:T.accent,fontWeight:700,minWidth:70}}>
+                {isEditing?<input value={d_.code} onChange={ev=>setInlineDraft(p=>({...p,code:ev.target.value}))} style={{...inpStyle,width:70}}/>:e.code||"—"}</td>
+              <td style={{padding:"5px 6px",fontSize:FS-2,color:T.textSec,minWidth:80}}>
+                {isEditing?<input value={d_.job} onChange={ev=>setInlineDraft(p=>({...p,job:ev.target.value}))} style={{...inpStyle,width:80}}/>:e.job||"—"}</td>
+              <td style={{padding:"5px 6px",fontSize:FS-1,fontWeight:700,color:T.accent,minWidth:70}}>
+                {isEditing?<input type="number" value={d_.weeklySalary} onChange={ev=>setInlineDraft(p=>({...p,weeklySalary:ev.target.value}))} style={{...inpStyle,width:70}}/>:fmt(e.weeklySalary||0)}</td>
+              <td style={{padding:"5px 6px",fontSize:FS-2,color:T.ok,minWidth:60}}>
+                {isEditing?<input type="number" value={d_.weeklyBonus} onChange={ev=>setInlineDraft(p=>({...p,weeklyBonus:ev.target.value}))} style={{...inpStyle,width:60}} placeholder="0"/>:(e.weeklyBonus>0?fmt(e.weeklyBonus):"—")}</td>
+              <td style={{padding:"5px 6px",fontSize:FS-2,color:T.textMut,minWidth:50}}>
+                {isEditing?<input type="number" value={d_.baseHours} onChange={ev=>setInlineDraft(p=>({...p,baseHours:ev.target.value}))} style={{...inpStyle,width:50}}/>:(e.baseHours||hrs.defaultBaseHours||48)}</td>
+              <td style={{padding:"5px 6px",fontSize:FS-3,color:T.textMut,direction:"ltr",minWidth:90}}>
+                {isEditing?<input value={d_.phone} onChange={ev=>setInlineDraft(p=>({...p,phone:ev.target.value}))} style={{...inpStyle,width:90,direction:"ltr"}}/>:e.phone||"—"}</td>
+              <td style={{padding:"5px 6px",fontSize:FS-1,fontWeight:800,color:(e.prevBalance||0)>=0?T.ok:T.err}}>{fmt(e.prevBalance||0)}</td>
+              <td style={{padding:"5px 6px"}}>
+                {activeD.length>0?<span onClick={()=>setShowEmpDebts(e.id)} style={{cursor:"pointer",padding:"3px 10px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:"#F9731612",color:"#F97316",border:"1px solid #F9731630",display:"inline-flex",alignItems:"center",gap:4}} title="عرض المديونيات">🧾 {activeD.length} | {fmt(totalRemaining)}</span>
+                :<span onClick={()=>{if(canEdit){setShowDebtForm({empId:e.id});resetDebtForm();setDebtStart(today)}}} style={{cursor:canEdit?"pointer":"default",padding:"2px 8px",borderRadius:6,fontSize:FS-2,color:T.textMut,border:"1px dashed "+T.brd}}>—</span>}
+              </td>
+              <td style={{padding:"5px 6px"}}><span style={{padding:"2px 6px",borderRadius:5,fontSize:FS-3,fontWeight:700,background:e.inactive?T.err+"12":T.ok+"12",color:e.inactive?T.err:T.ok}}>{e.inactive?"متوقف":"نشط"}</span></td>
+              <td style={{padding:"5px 6px"}}>{canEdit&&<div style={{display:"flex",gap:3,alignItems:"center",flexWrap:"nowrap"}}>
+                {isEditing?<>
+                  <span onClick={saveInlineEdit} style={{cursor:"pointer",padding:"3px 8px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>💾</span>
+                  <span onClick={cancelInlineEdit} style={{cursor:"pointer",padding:"3px 6px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>✕</span>
+                </>:<>
+                  <span onClick={()=>{setEmpStatement(e.id);setStmtFrom("");setStmtTo("")}} style={{cursor:"pointer",fontSize:13,padding:"3px 8px",borderRadius:6,background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}} title="كشف حساب تفصيلي">📄</span>
+                  <span onClick={()=>startInlineEdit(e)} style={{cursor:"pointer",fontSize:11}} title="تعديل لحظي">✏️</span>
+                  <span onClick={()=>{setShowDebtForm({empId:e.id});resetDebtForm();setDebtStart(today)}} style={{cursor:"pointer",fontSize:11}} title="+ مديونية">🧾</span>
+                  <span onClick={()=>toggleEmpActive(e.id)} style={{cursor:"pointer",fontSize:11}}>{e.inactive?"▶️":"⏸"}</span>
+                  <span onClick={()=>{
+                    const inLog=hrLog.filter(l=>l.empId===e.id).length;
+                    const inDebts=debts.filter(dx=>dx.empId===e.id).length;
+                    let inAttendance=0;
+                    hrWeeks.forEach(w=>{Object.keys(w.attendance||{}).forEach(k=>{if(k.startsWith(e.id+"_"))inAttendance++})});
+                    if(inLog>0||inDebts>0||inAttendance>0){
+                      openConfirm({title:"⛔ لا يمكن الحذف",message:"الموظف "+e.name+" مرتبط بـ:\n• "+[inLog>0?inLog+" حركة في السجل":"",inDebts>0?inDebts+" مديونية":"",inAttendance>0?inAttendance+" سجل حضور":""].filter(Boolean).join("\n• ")+"\n\nيمكنك إيقافه بدلاً من ذلك باستخدام زر ⏸",variant:"danger",onConfirm:()=>{}});return}
+                    openConfirm({title:"حذف الموظف",message:"سيتم حذف "+e.name+" نهائياً.",variant:"danger",onConfirm:()=>{upConfig(d=>{d.employees=(d.employees||[]).filter(x=>x.id!==e.id)});showToast("✓ تم حذف الموظف")}})
+                  }} style={{cursor:"pointer",fontSize:11,color:T.err}} title="حذف">🗑️</span>
+                </>}
+              </div>}</td>
+            </tr>})}
+        </tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>أضف موظفين</div>}
+      </Card>
+    </div>}
+
+    {/* ══ LOG ══ */}
+    {view==="log"&&(()=>{
+      const salaryEntries=hrLog.filter(l=>l.type==="salary");
+      const advanceEntries=hrLog.filter(l=>l.type==="advance").sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
+      const weeksMap={};salaryEntries.forEach(l=>{const k=(l.weekStart||"")+"_"+(l.weekEnd||"");if(!weeksMap[k])weeksMap[k]={weekStart:l.weekStart,weekEnd:l.weekEnd,weekNum:getWeekNum(l.weekStart),date:l.date,by:l.by,records:[],totalGross:0,totalNet:0,totalAdvances:0};weeksMap[k].records.push(l);weeksMap[k].totalGross+=l.grossPay||0;weeksMap[k].totalNet+=l.amount||0;weeksMap[k].totalAdvances+=l.weekAdvances||0});
+      const weeks=Object.values(weeksMap).sort((a,b)=>(b.weekStart||"").localeCompare(a.weekStart||""));
+      return<div>
+        <Card title={"📊 سجل المرتبات ("+weeks.length+" أسبوع)"} style={{marginBottom:16}}>
+          {weeks.length>0?<div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {weeks.map(w=>{const isOpen=openLog===(w.weekStart+"_"+w.weekEnd);
+              return<div key={w.weekStart+"_"+w.weekEnd} style={{borderRadius:12,border:"1px solid "+T.brd,overflow:"hidden"}}>
+                <div onClick={()=>setOpenLog(isOpen?null:(w.weekStart+"_"+w.weekEnd))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",cursor:"pointer",background:isOpen?T.accent+"06":T.bg}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:18,fontWeight:800,color:T.accent}}>{"W"+w.weekNum}</span>
+                    <div><div style={{fontSize:FS-1,fontWeight:700}}>{w.weekStart+" → "+w.weekEnd}</div><div style={{fontSize:FS-3,color:T.textMut}}>{w.date+" | "+w.records.length+" موظف"}</div></div>
+                    <span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-3,fontWeight:700,background:T.ok+"12",color:T.ok}}>✅ مقفول</span>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>{fmt(r2(w.totalNet))}</span>
+                    <span style={{fontSize:14,color:T.textMut,transform:isOpen?"rotate(180deg)":"",transition:"transform 0.2s"}}>▼</span>
+                  </div>
+                </div>
+                {isOpen&&<div style={{padding:"0 14px 12px",borderTop:"1px solid "+T.brd}}>
+                  <div style={{overflowX:"auto",marginTop:8}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+                    {["الموظف","مستحق","رصيد سابق","مسحوبات","خصم","حافز","صافي","دفعة","الرصيد المُرحّل"].map(h=><th key={h} style={{padding:"5px 6px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"1px solid "+T.brd,fontWeight:700}}>{h}</th>)}
+                  </tr></thead><tbody>
+                    {w.records.map(r=><tr key={r.id} style={{borderBottom:"1px solid "+T.brd+"40"}}>
+                      <td style={{padding:"4px 6px",fontWeight:600,fontSize:FS-1,textAlign:"right"}}>{r.empName}</td>
+                      <td style={{padding:"4px 6px",color:T.ok,fontSize:FS-1,textAlign:"center"}}>{fmt(r.grossPay||0)}</td>
+                      <td style={{padding:"4px 6px",fontSize:FS-2,textAlign:"center"}}>{fmt(r.prevBalance||0)}</td>
+                      <td style={{padding:"4px 6px",color:T.err,fontSize:FS-2,textAlign:"center"}}>{r.weekAdvances?fmt(r.weekAdvances):""}</td>
+                      <td style={{padding:"4px 6px",color:T.err,fontSize:FS-2,textAlign:"center"}} title={r.deductReason||""}>{r.specialDeduct?fmt(r.specialDeduct)+(r.deductReason?" 📝":""):""}</td>
+                      <td style={{padding:"4px 6px",color:T.ok,fontSize:FS-2,textAlign:"center"}}>{r.bonus?fmt(r.bonus):""}</td>
+                      <td style={{padding:"4px 6px",fontWeight:800,color:T.accent,textAlign:"center"}}>{fmt(r2(r.amount))}</td>
+                      <td style={{padding:"4px 6px",color:T.ok,fontWeight:700,fontSize:FS-1,textAlign:"center"}}>{r.thursdayPay!=null?fmt(r.thursdayPay):fmt(r.amount)}</td>
+                      <td style={{padding:"4px 6px",fontWeight:800,color:(r.remainingBalance||0)>0?T.warn:T.textMut,textAlign:"center"}}>{r.remainingBalance!=null?fmt(r.remainingBalance):"0"}</td>
+                    </tr>)}
+                  </tbody></table></div>
+                </div>}
+              </div>})}
+          </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لم يتم اعتماد مرتبات بعد</div>}
+        </Card>
+        <Card title={"💸 سجل السلف ("+advanceEntries.length+")"}>
+          {advanceEntries.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+            {["التاريخ","الموظف","المبلغ","البيان","بواسطة",""].map(h=><th key={h} style={{padding:"6px 8px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700}}>{h}</th>)}
+          </tr></thead><tbody>
+            {advanceEntries.slice(0,logLimit).map(l=><tr key={l.id} style={{borderBottom:"1px solid "+T.brd}}>
+              <td style={{padding:"5px 8px",fontSize:FS-1}}>{l.date}</td>
+              <td style={{padding:"5px 8px",fontSize:FS-1,fontWeight:700}}>{l.empName}</td>
+              <td style={{padding:"5px 8px",fontSize:FS,fontWeight:800,color:T.err}}>{fmt(r2(l.amount))}</td>
+              <td style={{padding:"5px 8px",fontSize:FS-2,color:T.textSec}}>{l.desc||"سلفة"}</td>
+              <td style={{padding:"5px 8px",fontSize:FS-3,color:T.textMut}}>{l.by}</td>
+              <td style={{padding:"5px 8px"}}>{canEdit&&<span onClick={()=>openConfirm({title:"حذف سلفة",message:"سيتم حذف سلفة "+l.empName+"\nالمبلغ: "+fmt(l.amount)+" ج.م\nالتاريخ: "+l.date+(l.desc?"\nالبيان: "+l.desc:"")+"\n\nملاحظة: الحركة المرتبطة في الخزنة لن تُحذف تلقائياً.",variant:"danger",onConfirm:()=>delLog(l.id)})} style={{cursor:"pointer",fontSize:11,color:T.err}}>✕</span>}</td>
+            </tr>)}
+          </tbody></table></div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد سلف</div>}
+          {advanceEntries.length>logLimit&&<div style={{textAlign:"center",marginTop:8}}><Btn small onClick={()=>setLogLimit(p=>p+50)}>عرض المزيد</Btn></div>}
+        </Card>
+      </div>})()}
   </div>
 }
