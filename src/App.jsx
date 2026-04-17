@@ -7670,6 +7670,8 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[chkAmount,setChkAmount]=useState("");const[chkParty,setChkParty]=useState("");const[chkBank,setChkBank]=useState("");
   const[chkNumber,setChkNumber]=useState("");const[chkDate,setChkDate]=useState("");const[chkDueDate,setChkDueDate]=useState("");
   const[chkNotes,setChkNotes]=useState("");const[chkEditId,setChkEditId]=useState(null);const[chkFilter,setChkFilter]=useState("الكل");
+  /* Endorse */
+  const[endorsePopup,setEndorsePopup]=useState(null);const[endorseSearch,setEndorseSearch]=useState("");
 
   /* Danger zone: reset */
   const[showResetPopup,setShowResetPopup]=useState(false);
@@ -8113,8 +8115,6 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         const delCheck=(id)=>{upConfig(d=>{d.checks=(d.checks||[]).filter(c=>c.id!==id)})};
         const filteredChecks=chkFilter==="الكل"?checks:checks.filter(c=>chkFilter==="أوراق قبض"?c.type==="receivable":c.type==="payable");
         const STATUS_COLORS={معلق:"#F59E0B",محصل:"#10B981",مدفوع:"#10B981","مُظهّر":"#8B5CF6",مرتجع:"#EF4444",ملغي:"#94A3B8"};
-        const[endorsePopup,setEndorsePopup]=useState(null);/* checkId to endorse */
-        const[endorseSearch,setEndorseSearch]=useState("");
         const endorseCheck=(checkId,supplierId)=>{
           const sup=suppliers.find(s=>s.id===supplierId);if(!sup)return;
           upConfig(d=>{
