@@ -1603,7 +1603,7 @@ export default function App(){
       </div>
     </div>}
     {/* Barcode Print Popup */}
-    {barcodePopup&&(()=>{const allOrders=data.orders||[];const ps=data.printSettings||{};const lw=ps.labelWidth||50;const lh=ps.labelHeight||40;const mg=ps.margins||2;const fl=ps.fields||{};
+    {barcodePopup&&(()=>{const allOrders=data.orders||[];const ps=data.printSettings||{};const lw=ps.labelWidth||40;const lh=ps.labelHeight||50;const mg=ps.margins||2;const fl=ps.fields||{};
       const selOrder=allOrders.find(o=>o.id===barcodePopup.modelId);const rs=selOrder?Number(selOrder.rackSize)||1:1;
       const sizes=selOrder?.sizeLabel?selOrder.sizeLabel.split(/[-/,]/).map(s=>s.trim()).filter(Boolean):[];
       const qtyPerSize=sizes.length>0?Math.floor((selOrder?.cutQty||0)/sizes.length):(selOrder?.cutQty||0);
@@ -6813,7 +6813,7 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
       const clQty=(typeof customLabel==="object"?customLabel._qty:null)||rs;
       const clCopies=(typeof customLabel==="object"?customLabel._copies:null)||1;
       const setClField=(f,v)=>setCustomLabel(p=>{const base=typeof p==="object"?p:{_id:p};return{...base,[f]:v}});
-      const printQRLabels=(qty,copies)=>{const qrText="CLARK:"+o.id+":"+qty;const ps=config.printSettings||{};const lw=ps.labelWidth||50;const lh=ps.labelHeight||40;const mg=ps.margins||2;const fl=ps.fields||{};
+      const printQRLabels=(qty,copies)=>{const qrText="CLARK:"+o.id+":"+qty;const ps=config.printSettings||{};const lw=ps.labelWidth||40;const lh=ps.labelHeight||50;const mg=ps.margins||2;const fl=ps.fields||{};
         const qrMM=Math.min(lw-mg*2,lh-mg*2)-8;
         let h="";for(let i=0;i<copies;i++){h+="<div class='lbl'>";
           if(fl.brand?.show)h+="<div style='font-weight:900;font-size:"+((fl.brand?.size||14)/2.5)+"mm;letter-spacing:2px;line-height:1'>CLARK</div>";
@@ -7127,7 +7127,7 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
       {(()=>{const ps=config.printSettings||{labelWidth:50,labelHeight:40,orientation:"portrait",margins:2,qrLevel:"M",qrMargin:1,qrColor:"#000000",showBorder:false,fields:{brand:{show:false,size:14},modelNo:{show:true,size:16},desc:{show:false,size:10},qr:{show:true,size:80},series:{show:true,size:12},sizeLabel:{show:true,size:12},price:{show:false,size:10}}};
         const savePS=(fn)=>upConfig(d=>{if(!d.printSettings)d.printSettings={...ps};fn(d.printSettings)});
         const fields=[{key:"brand",label:"اسم الشركة (CLARK)"},{key:"modelNo",label:"رقم الموديل"},{key:"desc",label:"الوصف"},{key:"qr",label:"كود QR"},{key:"series",label:"عدد القطع (سيري)"},{key:"sizeLabel",label:"المقاس"},{key:"price",label:"السعر"}];
-        const printTest=()=>{const w=ps.labelWidth||50;const h=ps.labelHeight||40;const m=ps.margins||2;const qrMM=Math.min(w-m*2,h-m*2)-8;
+        const printTest=()=>{const w=ps.labelWidth||40;const h=ps.labelHeight||50;const m=ps.margins||2;const qrMM=Math.min(w-m*2,h-m*2)-8;
           const pw_=window.open("","_blank");let html="<html dir='rtl'><head><title>طباعة تجريبية</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><style>@page{size:"+w+"mm "+h+"mm;margin:"+m+"mm}*{margin:0;padding:0}body{margin:0;padding:0;font-family:'Cairo',Arial,sans-serif}.lbl{width:"+(w-m*2)+"mm;height:"+(h-m*2)+"mm;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center"+(ps.showBorder?";border:1px dashed #999":"")+"}</style></head><body><div class='lbl'>";
           if(ps.fields?.brand?.show)html+="<div style='font-weight:900;font-size:"+((ps.fields?.brand?.size||14)/2.5)+"mm;letter-spacing:2px;line-height:1'>CLARK</div>";
           if(ps.fields?.modelNo?.show!==false)html+="<div style='font-weight:800;font-size:"+((ps.fields?.modelNo?.size||16)/2.5)+"mm;line-height:1.1'>3262114</div>";
@@ -7140,8 +7140,8 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
           pw_.document.write(html);pw_.document.close()};
         return<div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginBottom:8}}>
-            <div><label style={{fontSize:FS-3,color:T.textSec}}>العرض مم</label><Inp type="number" value={ps.labelWidth||50} onChange={v=>savePS(s=>{s.labelWidth=Number(v)||50})}/></div>
-            <div><label style={{fontSize:FS-3,color:T.textSec}}>الارتفاع مم</label><Inp type="number" value={ps.labelHeight||40} onChange={v=>savePS(s=>{s.labelHeight=Number(v)||40})}/></div>
+            <div><label style={{fontSize:FS-3,color:T.textSec}}>العرض مم</label><Inp type="number" value={ps.labelWidth||40} onChange={v=>savePS(s=>{s.labelWidth=Number(v)||40})}/></div>
+            <div><label style={{fontSize:FS-3,color:T.textSec}}>الارتفاع مم</label><Inp type="number" value={ps.labelHeight||50} onChange={v=>savePS(s=>{s.labelHeight=Number(v)||50})}/></div>
             <div><label style={{fontSize:FS-3,color:T.textSec}}>هوامش مم</label><Inp type="number" value={ps.margins||2} onChange={v=>savePS(s=>{s.margins=Number(v)||2})}/></div>
             <div><label style={{fontSize:FS-3,color:T.textSec}}>تصحيح</label><Sel value={ps.qrLevel||"M"} onChange={v=>savePS(s=>{s.qrLevel=v})}><option value="L">L</option><option value="M">M</option><option value="Q">Q</option><option value="H">H</option></Sel></div>
           </div>
@@ -10188,7 +10188,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                     hrWeeks.forEach(w=>{Object.keys(w.attendance||{}).forEach(k=>{if(k.startsWith(e.id+"_"))inAttendance++})});
                     if(inLog>0||inDebts>0||inAttendance>0){
                       openConfirm({title:"⛔ لا يمكن الحذف",message:"الموظف "+e.name+" مرتبط بـ:\n• "+[inLog>0?inLog+" حركة في السجل":"",inDebts>0?inDebts+" مديونية":"",inAttendance>0?inAttendance+" سجل حضور":""].filter(Boolean).join("\n• ")+"\n\nيمكنك إيقافه بدلاً من ذلك باستخدام زر ⏸",variant:"danger",onConfirm:()=>{}});return}
-                    openConfirm({title:"حذف الموظف",message:"سيتم حذف "+e.name+" نهائياً.",variant:"danger",onConfirm:()=>{upConfig(d=>{d.employees=(d.employees||[]).filter(x=>x.id!==e.id)});showToast("✓ تم حذف الموظف")}})
+                    openConfirm({title:"حذف الموظف",message:"سيتم حذف "+e.name+" نهائياً.",variant:"danger",onConfirm:()=>{upConfig(d=>{if(!d.recycleBin)d.recycleBin=[];const emp=(d.employees||[]).find(x=>x.id===e.id);if(emp)d.recycleBin.unshift({...emp,_type:"موظف",_collection:"employees",_deletedAt:new Date().toISOString()});if(d.recycleBin.length>100)d.recycleBin=d.recycleBin.slice(0,100);d.employees=(d.employees||[]).filter(x=>x.id!==e.id)});showToast("✓ تم حذف الموظف — يمكن الاستعادة من سلة المحذوفات")}})
                   }} style={{cursor:"pointer",fontSize:11,color:T.err}} title="حذف">🗑️</span>
                 </>}
               </div>}</td>
