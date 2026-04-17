@@ -7635,7 +7635,7 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           ]
         })
       }
-      if(entries.length===0){setOdooResult({ok:false,msg:"⚠️ لا توجد حركات جديدة بحسابات مربوطة ("+skipped+" بدون ربط"+(missingCats.size>0?": "+[...missingCats].join("، "):"")+"). اربط التصنيفات من الإعدادات."});setOdooSyncing(false);return}
+      if(entries.length===0){const mappedCats=Object.keys(accCache).join("، ")||"لا يوجد";setOdooResult({ok:false,msg:"⚠️ لا توجد حركات بحسابات مربوطة ("+skipped+" بدون ربط"+(missingCats.size>0?": "+[...missingCats].join("، "):"")+"). الربط الحالي: ["+mappedCats+"]. تأكد من حفظ الربط في الإعدادات."});setOdooSyncing(false);return}
       /* 7. Create in batches of 10 */
       let totalCreated=0;const allErrors=[];
       for(let i=0;i<entries.length;i+=10){
@@ -7683,6 +7683,9 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[chkNotes,setChkNotes]=useState("");const[chkEditId,setChkEditId]=useState(null);const[chkFilter,setChkFilter]=useState("الكل");
   /* Endorse */
   const[endorsePopup,setEndorsePopup]=useState(null);const[endorseSearch,setEndorseSearch]=useState("");
+  /* Inline edit journal row */
+  const[inlineEdit,setInlineEdit]=useState(null);/* tx id */
+  const[inlineDraft,setInlineDraft]=useState({});
 
   /* Danger zone: reset */
   const[showResetPopup,setShowResetPopup]=useState(false);
@@ -8058,24 +8061,30 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         {withBalance.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
           {["الرصيد","تاريخ","اليوم","وارد","منصرف","بيان","ملاحظات","نوع الحركة","حساب جاري","موسم",""].map(h=><th key={h} style={{padding:"7px 8px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
         </tr></thead><tbody>
-          {withBalance.slice(0,limit).map(t=>{const locked=isDayLocked(t.date);
-            return<tr key={t.id} style={{borderBottom:"1px solid "+T.brd,opacity:locked?0.8:1,background:locked?T.bg:""}}>
+          {withBalance.slice(0,limit).map(t=>{const locked=isDayLocked(t.date);const isEd=inlineEdit===t.id;const d_=inlineDraft;
+            const inpS={padding:"3px 6px",borderRadius:6,border:"1px solid "+T.accent+"40",fontSize:FS-2,fontFamily:"inherit",background:T.inputBg,color:T.text};
+            const startEdit=()=>{setInlineEdit(t.id);setInlineDraft({type:t.type,amount:String(t.amount||""),desc:t.desc||"",notes:t.notes||"",category:t.category||"",date:t.date||"",account:t.account||""})};
+            const saveInline=()=>{upConfig(cfg=>{const tx=(cfg.treasury||[]).find(x=>x.id===t.id);if(tx){tx.type=d_.type||tx.type;tx.amount=parseFloat(d_.amount)||tx.amount;tx.desc=d_.desc;tx.notes=d_.notes;tx.category=d_.category;tx.date=d_.date||tx.date;tx.account=d_.account||tx.account;tx.day=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(d_.date||tx.date).getDay()];tx.updatedBy=userName;tx.updatedAt=new Date().toISOString()}});setInlineEdit(null);setInlineDraft({});showToast("✓ تم التعديل")};
+            const cancelInline=()=>{setInlineEdit(null);setInlineDraft({})};
+            return<tr key={t.id} style={{borderBottom:"1px solid "+T.brd,opacity:locked?0.8:1,background:isEd?T.accent+"06":locked?T.bg:""}}>
             <td style={{padding:"6px 8px",fontSize:FS-1,fontWeight:800,color:t.runBal>=0?"#0D9488":T.err}}>{fmt(r2(t.runBal))}</td>
-            <td style={{padding:"6px 8px",fontSize:FS-1}}>{t.date}{locked?" 🔒":""}</td>
+            <td style={{padding:"6px 8px",fontSize:FS-1}}>{isEd?<input type="date" value={d_.date} onChange={e=>setInlineDraft(p=>({...p,date:e.target.value}))} style={{...inpS,width:120}}/>:<>{t.date}{locked?" 🔒":""}</>}</td>
             <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut}}>{t.day||""}</td>
-            <td style={{padding:"6px 8px",fontSize:FS,fontWeight:700,color:T.ok}}>{t.type==="in"?fmt(r2(t.amount)):""}</td>
-            <td style={{padding:"6px 8px",fontSize:FS,fontWeight:700,color:T.err}}>{t.type==="out"?fmt(r2(t.amount)):""}</td>
-            <td style={{padding:"6px 8px",fontSize:FS-1,maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.desc||"—"}</td>
-            <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.notes||""}</td>
-            <td style={{padding:"6px 8px"}}><span style={{padding:"2px 6px",borderRadius:5,fontSize:FS-2,fontWeight:600,background:t.type==="in"?T.ok+"12":T.err+"12",color:t.type==="in"?T.ok:T.err}}>{t.category||"—"}</span></td>
-            <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textSec}}>{t.account||""}</td>
+            <td style={{padding:"6px 8px",fontSize:FS,fontWeight:700,color:T.ok}}>{isEd?(d_.type==="in"?<input type="number" value={d_.amount} onChange={e=>setInlineDraft(p=>({...p,amount:e.target.value}))} style={{...inpS,width:80,color:T.ok,fontWeight:700}}/>:<span onClick={()=>setInlineDraft(p=>({...p,type:"in"}))} style={{cursor:"pointer",color:T.textMut,fontSize:FS-2}}>↓</span>):(t.type==="in"?fmt(r2(t.amount)):"")}</td>
+            <td style={{padding:"6px 8px",fontSize:FS,fontWeight:700,color:T.err}}>{isEd?(d_.type==="out"?<input type="number" value={d_.amount} onChange={e=>setInlineDraft(p=>({...p,amount:e.target.value}))} style={{...inpS,width:80,color:T.err,fontWeight:700}}/>:<span onClick={()=>setInlineDraft(p=>({...p,type:"out"}))} style={{cursor:"pointer",color:T.textMut,fontSize:FS-2}}>↑</span>):(t.type==="out"?fmt(r2(t.amount)):"")}</td>
+            <td style={{padding:"6px 8px",fontSize:FS-1,maxWidth:180}}>{isEd?<input value={d_.desc} onChange={e=>setInlineDraft(p=>({...p,desc:e.target.value}))} style={{...inpS,width:"100%"}}/>:<span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block",maxWidth:180}}>{t.desc||"—"}</span>}</td>
+            <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut,maxWidth:120}}>{isEd?<input value={d_.notes} onChange={e=>setInlineDraft(p=>({...p,notes:e.target.value}))} style={{...inpS,width:"100%"}} placeholder="ملاحظات"/>:<span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block",maxWidth:120}}>{t.notes||""}</span>}</td>
+            <td style={{padding:"6px 8px"}}>{isEd?<select value={d_.category} onChange={e=>setInlineDraft(p=>({...p,category:e.target.value}))} style={{...inpS,width:100}}><option value="">—</option>{(d_.type==="in"?IN_CATS:OUT_CATS).map(c=><option key={c}>{c}</option>)}</select>:<span style={{padding:"2px 6px",borderRadius:5,fontSize:FS-2,fontWeight:600,background:t.type==="in"?T.ok+"12":T.err+"12",color:t.type==="in"?T.ok:T.err}}>{t.category||"—"}</span>}</td>
+            <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textSec}}>{isEd?<select value={d_.account} onChange={e=>setInlineDraft(p=>({...p,account:e.target.value}))} style={{...inpS,width:90}}>{accounts.map(a=><option key={a}>{a}</option>)}</select>:t.account||""}</td>
             <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut}}>{t.season||""}</td>
-            <td style={{padding:"6px 8px"}}>{canEdit&&(()=>{const locked=isDayLocked(t.date);const allow=canModify(t);const external=isExternalTx(t);
+            <td style={{padding:"6px 8px"}}>{canEdit&&(()=>{
+              if(isEd)return<div style={{display:"flex",gap:3}}><span onClick={saveInline} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:T.ok+"12",color:T.ok,fontWeight:700}}>💾</span><span onClick={cancelInline} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:T.err+"12",color:T.err,fontWeight:700}}>✕</span></div>;
+              const allow=canModify(t);const external=isExternalTx(t);
               if(locked&&!isAdmin)return<span style={{fontSize:11,color:T.textMut}} title="اليوم مقفول — للمدير فقط">🔒</span>;
               return<div style={{display:"flex",gap:3,alignItems:"center"}}>
                 {locked&&isAdmin&&<span style={{fontSize:10,color:T.warn}} title="اليوم مقفول — وصول المدير">🔒</span>}
                 {external&&<span style={{fontSize:10,color:"#8B5CF6"}} title={"حركة من "+externalSourceLabel(t)}>🔗</span>}
-                <span onClick={()=>{if(!allow){showToast("⛔ اليوم مقفول — للمدير فقط");return}editTx(t)}} style={{cursor:"pointer",fontSize:11}}>✏️</span>
+                <span onClick={()=>{if(!allow){showToast("⛔ اليوم مقفول — للمدير فقط");return}startEdit()}} style={{cursor:"pointer",fontSize:11}}>✏️</span>
                 <span onClick={()=>{if(!allow){showToast("⛔ اليوم مقفول — للمدير فقط");return}openConfirm({title:"حذف حركة",message:(external?"⚠️ حركة مرتبطة بـ "+externalSourceLabel(t)+" — الحذف هنا لن يؤثر على المصدر.\n\n":"")+"سيتم حذف الحركة نهائياً.\n"+(t.desc||"")+"\nالمبلغ: "+fmt(t.amount)+" ج.م",variant:"danger",onConfirm:()=>delTx(t.id)})}} style={{cursor:"pointer",fontSize:11,color:T.err}}>✕</span>
               </div>})()}</td>
           </tr>})}
@@ -8901,6 +8910,11 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const cwTotalSalary=activeEmps.reduce((s,e)=>s+(e.weeklySalary||0),0);
 
   return<div>
+    <div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflow:"hidden",border:"1px solid "+T.brd}}>
+      {[{k:"weeks",l:"📅 الأسابيع",c:hrWeeks.length},{k:"weeklySummary",l:"📊 سجل أسبوعي"},{k:"employees",l:"👷 الموظفين",c:activeEmps.length},{k:"log",l:"📒 السجل",c:hrLog.length}].map(v=>
+        <div key={v.k} onClick={()=>{setView(v.k);setOpenWeekId(null)}} style={{flex:1,padding:"10px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-1,background:view===v.k?T.accent:T.cardSolid,color:view===v.k?"#fff":T.textSec,transition:"all 0.15s"}}>{v.l}{v.c!=null?" ("+v.c+")":""}</div>)}
+    </div>
+
     {/* ══ FIXED EMPLOYEE REGISTER — CURRENT WEEK ══ */}
     <Card title={"📋 سجل الموظفين — الأسبوع الحالي"} extra={<span style={{fontSize:FS-1,color:T.navText||"#fff",fontWeight:700,direction:"ltr"}}>{cwStart+" → "+cwEnd}</span>} accent={T.accent} style={{marginBottom:16}}>
       <div style={{overflowX:"auto"}}>
@@ -8932,11 +8946,6 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         </table>
       </div>
     </Card>
-
-    <div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflow:"hidden",border:"1px solid "+T.brd}}>
-      {[{k:"weeks",l:"📅 الأسابيع",c:hrWeeks.length},{k:"weeklySummary",l:"📊 سجل أسبوعي"},{k:"employees",l:"👷 الموظفين",c:activeEmps.length},{k:"log",l:"📒 السجل",c:hrLog.length}].map(v=>
-        <div key={v.k} onClick={()=>{setView(v.k);setOpenWeekId(null)}} style={{flex:1,padding:"10px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-1,background:view===v.k?T.accent:T.cardSolid,color:view===v.k?"#fff":T.textSec,transition:"all 0.15s"}}>{v.l}{v.c!=null?" ("+v.c+")":""}</div>)}
-    </div>
 
     {/* ══ WEEKS LIST ══ */}
     {view==="weeks"&&!openWeekId&&<div>
