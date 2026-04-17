@@ -8870,6 +8870,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const[empPhone,setEmpPhone]=useState("");const[empDate,setEmpDate]=useState(today);const[empEditId,setEmpEditId]=useState(null);
   const[empWeeklyBonus,setEmpWeeklyBonus]=useState("");
   const[empNoBiometric,setEmpNoBiometric]=useState(false);
+  const[empSalaryType,setEmpSalaryType]=useState("weekly");/* weekly | monthly */
   /* Inline row edit for employee table */
   const[inlineEditId,setInlineEditId]=useState(null);
   const[inlineDraft,setInlineDraft]=useState({});
@@ -8910,19 +8911,20 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const[unlockedWeeks,setUnlockedWeeks]=useState({});/* weekId -> true if user explicitly unlocked */
   const[previewWeekId,setPreviewWeekId]=useState(null);/* for side panel advances view */
   const[summaryWeekId,setSummaryWeekId]=useState(null);/* for weekly summary tab */
+  const[selMonth,setSelMonth]=useState(()=>new Date().toISOString().slice(0,7));/* for monthly summary */
   const[empStatement,setEmpStatement]=useState(null);/* empId for statement popup */
   const[stmtFrom,setStmtFrom]=useState("");const[stmtTo,setStmtTo]=useState("");
 
   const openWeek=hrWeeks.find(w=>w.id===openWeekId);
 
   /* ── Employee CRUD ── */
-  const resetEmpForm=()=>{setEmpName("");setEmpJob("");setEmpCode("");setEmpWeeklySalary("");setEmpBaseHours("");setEmpPhone("");setEmpDate(today);setEmpWeeklyBonus("");setEmpNoBiometric(false);setEmpEditId(null)};
+  const resetEmpForm=()=>{setEmpName("");setEmpJob("");setEmpCode("");setEmpWeeklySalary("");setEmpBaseHours("");setEmpPhone("");setEmpDate(today);setEmpWeeklyBonus("");setEmpNoBiometric(false);setEmpSalaryType("weekly");setEmpEditId(null)};
   const saveEmp=()=>{if(!empName.trim())return;
     upConfig(d=>{if(!d.employees)d.employees=[];
-      if(empEditId){const e=d.employees.find(x=>x.id===empEditId);if(e){e.name=empName.trim();e.job=empJob;e.code=empCode;e.weeklySalary=parseFloat(empWeeklySalary)||0;e.baseHours=parseFloat(empBaseHours)||0;e.phone=empPhone;e.hireDate=empDate;e.weeklyBonus=parseFloat(empWeeklyBonus)||0;e.noBiometric=empNoBiometric}}
-      else{d.employees.push({id:gid(),name:empName.trim(),job:empJob,code:empCode,weeklySalary:parseFloat(empWeeklySalary)||0,baseHours:parseFloat(empBaseHours)||0,phone:empPhone,hireDate:empDate,weeklyBonus:parseFloat(empWeeklyBonus)||0,noBiometric:empNoBiometric,prevBalance:0})}});
+      if(empEditId){const e=d.employees.find(x=>x.id===empEditId);if(e){e.name=empName.trim();e.job=empJob;e.code=empCode;e.weeklySalary=parseFloat(empWeeklySalary)||0;e.baseHours=parseFloat(empBaseHours)||0;e.phone=empPhone;e.hireDate=empDate;e.weeklyBonus=parseFloat(empWeeklyBonus)||0;e.noBiometric=empNoBiometric;e.salaryType=empSalaryType}}
+      else{d.employees.push({id:gid(),name:empName.trim(),job:empJob,code:empCode,weeklySalary:parseFloat(empWeeklySalary)||0,baseHours:parseFloat(empBaseHours)||0,phone:empPhone,hireDate:empDate,weeklyBonus:parseFloat(empWeeklyBonus)||0,noBiometric:empNoBiometric,salaryType:empSalaryType,prevBalance:0})}});
     setShowEmpForm(false);resetEmpForm();showToast("✓ تم الحفظ")};
-  const editEmp=(e)=>{setEmpEditId(e.id);setEmpName(e.name);setEmpJob(e.job||"");setEmpCode(e.code||"");setEmpWeeklySalary(String(e.weeklySalary||""));setEmpBaseHours(String(e.baseHours||""));setEmpPhone(e.phone||"");setEmpDate(e.hireDate||today);setEmpWeeklyBonus(String(e.weeklyBonus||""));setEmpNoBiometric(!!e.noBiometric);setShowEmpForm(true)};
+  const editEmp=(e)=>{setEmpEditId(e.id);setEmpName(e.name);setEmpJob(e.job||"");setEmpCode(e.code||"");setEmpWeeklySalary(String(e.weeklySalary||""));setEmpBaseHours(String(e.baseHours||""));setEmpPhone(e.phone||"");setEmpDate(e.hireDate||today);setEmpWeeklyBonus(String(e.weeklyBonus||""));setEmpNoBiometric(!!e.noBiometric);setEmpSalaryType(e.salaryType||"weekly");setShowEmpForm(true)};
   const startInlineEdit=(e)=>{setInlineEditId(e.id);setInlineDraft({name:e.name||"",code:e.code||"",job:e.job||"",weeklySalary:String(e.weeklySalary||""),weeklyBonus:String(e.weeklyBonus||""),baseHours:String(e.baseHours||""),phone:e.phone||"",noBiometric:!!e.noBiometric})};
   const saveInlineEdit=()=>{if(!inlineEditId)return;const d=inlineDraft;
     upConfig(cfg=>{const e=(cfg.employees||[]).find(x=>x.id===inlineEditId);if(e){
@@ -9303,7 +9305,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
 
   return<div>
     <div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflow:"hidden",border:"1px solid "+T.brd}}>
-      {[{k:"weeks",l:"📅 الأسابيع",c:hrWeeks.length},{k:"weeklySummary",l:"📊 سجل أسبوعي"},{k:"employees",l:"👷 الموظفين",c:activeEmps.length},{k:"log",l:"📒 السجل",c:hrLog.length}].map(v=>
+      {[{k:"weeks",l:"📅 الأسابيع",c:hrWeeks.length},{k:"weeklySummary",l:"📊 سجل أسبوعي"},{k:"monthlySummary",l:"📅 سجل شهري"},{k:"employees",l:"👷 الموظفين",c:activeEmps.length},{k:"log",l:"📒 السجل",c:hrLog.length}].map(v=>
         <div key={v.k} onClick={()=>{setView(v.k);setOpenWeekId(null)}} style={{flex:1,padding:"10px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-1,background:view===v.k?T.accent:T.cardSolid,color:view===v.k?"#fff":T.textSec,transition:"all 0.15s"}}>{v.l}{v.c!=null?" ("+v.c+")":""}</div>)}
     </div>
 
@@ -10093,8 +10095,12 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     {/* ══ EMPLOYEES ══ */}
     {/* ══ WEEKLY SUMMARY ══ */}
     {view==="weeklySummary"&&(()=>{
-      /* ══ EMPLOYEE REGISTER — CURRENT WEEK ══ */
-      const registerCard=<Card title={"📋 سجل الموظفين — الأسبوع الحالي"} extra={<span style={{fontSize:FS-1,color:T.navText||"#fff",fontWeight:700,direction:"ltr"}}>{cwStart+" → "+cwEnd}</span>} accent={T.accent} style={{marginBottom:16}}>
+      const weeklyEmps=activeEmps.filter(e=>(e.salaryType||"weekly")==="weekly");
+      const wCwAdvances={};weeklyEmps.forEach(e=>{wCwAdvances[e.id]=hrLog.filter(l=>l.type==="advance"&&l.empId===e.id&&l.date>=cwStart&&l.date<=cwEnd).reduce((s,l)=>s+(Number(l.amount)||0),0)});
+      const wCwTotalAdv=Object.values(wCwAdvances).reduce((s,v)=>s+v,0);
+      const wCwTotalSalary=weeklyEmps.reduce((s,e)=>s+(e.weeklySalary||0),0);
+      /* ══ EMPLOYEE REGISTER — CURRENT WEEK (weekly only) ══ */
+      const registerCard=<Card title={"📋 سجل الموظفين الأسبوعيين — الأسبوع الحالي"} extra={<span style={{fontSize:FS-1,color:T.navText||"#fff",fontWeight:700,direction:"ltr"}}>{cwStart+" → "+cwEnd}</span>} accent={T.accent} style={{marginBottom:16}}>
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
             <thead><tr style={{background:T.bg}}>
@@ -10105,7 +10111,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               <th style={{padding:"8px 10px",textAlign:"center",borderBottom:"2px solid "+T.brd,fontWeight:800,color:T.textSec,fontSize:FS-2}}>الصافي</th>
             </tr></thead>
             <tbody>
-              {activeEmps.map(e=>{const adv=cwAdvances[e.id]||0;const net=(e.weeklySalary||0)-adv;
+              {weeklyEmps.map(e=>{const adv=wCwAdvances[e.id]||0;const net=(e.weeklySalary||0)-adv;
                 return<tr key={e.id} style={{borderBottom:"1px solid "+T.brd}}>
                   <td style={{padding:"7px 10px",fontWeight:700,color:T.text}}>{e.name}</td>
                   <td style={{padding:"7px 10px",textAlign:"center",color:T.textSec,fontWeight:600}}>{e.code||"—"}</td>
@@ -10113,13 +10119,13 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                   <td style={{padding:"7px 10px",textAlign:"center",fontWeight:700,color:adv>0?T.err:T.textMut}}>{adv>0?fmt(adv):"—"}</td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontWeight:800,color:net<0?T.err:T.ok}}>{fmt(net)}</td>
                 </tr>})}
-              {activeEmps.length===0&&<tr><td colSpan={5} style={{padding:16,textAlign:"center",color:T.textMut}}>لا يوجد موظفين نشطين</td></tr>}
+              {weeklyEmps.length===0&&<tr><td colSpan={5} style={{padding:16,textAlign:"center",color:T.textMut}}>لا يوجد موظفين أسبوعيين نشطين</td></tr>}
             </tbody>
-            {activeEmps.length>0&&<tfoot><tr style={{background:T.accentBg,borderTop:"2px solid "+T.accent+"40"}}>
-              <td style={{padding:"8px 10px",fontWeight:800,color:T.text}} colSpan={2}>{"الإجمالي ("+activeEmps.length+" موظف)"}</td>
-              <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:T.accent}}>{fmt(cwTotalSalary)}</td>
-              <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:cwTotalAdv>0?T.err:T.textMut}}>{cwTotalAdv>0?fmt(cwTotalAdv):"—"}</td>
-              <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:(cwTotalSalary-cwTotalAdv)<0?T.err:T.ok}}>{fmt(cwTotalSalary-cwTotalAdv)}</td>
+            {weeklyEmps.length>0&&<tfoot><tr style={{background:T.accentBg,borderTop:"2px solid "+T.accent+"40"}}>
+              <td style={{padding:"8px 10px",fontWeight:800,color:T.text}} colSpan={2}>{"الإجمالي ("+weeklyEmps.length+" موظف)"}</td>
+              <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:T.accent}}>{fmt(wCwTotalSalary)}</td>
+              <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:wCwTotalAdv>0?T.err:T.textMut}}>{wCwTotalAdv>0?fmt(wCwTotalAdv):"—"}</td>
+              <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:(wCwTotalSalary-wCwTotalAdv)<0?T.err:T.ok}}>{fmt(wCwTotalSalary-wCwTotalAdv)}</td>
             </tr></tfoot>}
           </table>
         </div>
@@ -10129,7 +10135,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       if(!selectedWeek)return<div>{registerCard}<div style={{textAlign:"center",padding:40,color:T.textMut}}>لا توجد أسابيع بعد — افتح أسبوع من تاب "📅 الأسابيع"</div></div>;
       const wStart=selectedWeek.weekStart;const wEnd=selectedWeek.weekEnd;
       /* Calculate per-employee advance total for this week (from hrLog advances by weekId OR by date) */
-      const rows=activeEmps.map(e=>{
+      const rows=weeklyEmps.map(e=>{
         const logAdvances=hrLog.filter(l=>l.type==="advance"&&l.empId===e.id&&(l.weekId===selectedWeek.id||(l.date>=wStart&&l.date<=wEnd)));
         const logIds=new Set(logAdvances.map(l=>l.id));
         const treasuryAdvances=(data.treasury||[]).filter(t=>t.sourceType==="hr_advance"&&t.empId===e.id&&t.date>=wStart&&t.date<=wEnd&&!logIds.has(t.hrLogId));
@@ -10188,6 +10194,67 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         </Card>
       </div>})()}
 
+    {/* ══ MONTHLY SUMMARY ══ */}
+    {view==="monthlySummary"&&(()=>{
+      const monthlyEmps=activeEmps.filter(e=>(e.salaryType||"weekly")==="monthly");
+      const mStart=selMonth+"-01";
+      const mEndDate=new Date(Number(selMonth.slice(0,4)),Number(selMonth.slice(5,7)),0);
+      const mEnd=selMonth+"-"+String(mEndDate.getDate()).padStart(2,"0");
+      const mDays=mEndDate.getDate();
+
+      const rows=monthlyEmps.map(e=>{
+        const advs=hrLog.filter(l=>l.type==="advance"&&l.empId===e.id&&l.date>=mStart&&l.date<=mEnd);
+        const advTotal=advs.reduce((s,l)=>s+(Number(l.amount)||0),0);
+        const tAdv=(data.treasury||[]).filter(t=>t.sourceType==="hr_advance"&&t.empId===e.id&&t.date>=mStart&&t.date<=mEnd&&!advs.some(a=>a.id===t.hrLogId));
+        const tAdvTotal=tAdv.reduce((s,t)=>s+(Number(t.amount)||0),0);
+        const totalAdv=advTotal+tAdvTotal;
+        return{id:e.id,name:e.name,code:e.code||"",salary:e.weeklySalary||0,advances:totalAdv,net:r2((e.weeklySalary||0)-totalAdv),advDetails:[...advs,...tAdv.map(t=>({date:t.date,amount:t.amount,desc:t.desc||"سلفة"}))]}});
+      const totalSalary=rows.reduce((s,r)=>s+r.salary,0);
+      const totalAdvances=rows.reduce((s,r)=>s+r.advances,0);
+
+      const printMonthly=()=>{let h="<h2 style='text-align:center'>📅 سجل المرتبات الشهري — "+selMonth+"</h2><div style='text-align:center;margin-bottom:12px;color:#666'>من "+mStart+" إلى "+mEnd+" ("+mDays+" يوم)</div>";
+        h+="<table><thead><tr><th>#</th><th>الاسم</th><th>الكود</th><th>المرتب</th><th>السلف</th><th>الصافي</th></tr></thead><tbody>";
+        rows.forEach((r,i)=>{h+="<tr><td style='text-align:center'>"+(i+1)+"</td><td style='font-weight:700'>"+r.name+"</td><td style='text-align:center'>"+r.code+"</td><td style='text-align:center;font-weight:700'>"+fmt(r.salary)+"</td><td style='text-align:center;color:#EF4444'>"+fmt(r.advances)+"</td><td style='text-align:center;font-weight:800;color:"+(r.net>=0?"#10B981":"#EF4444")+"'>"+fmt(r.net)+"</td></tr>"});
+        h+="<tr style='background:#EFF6FF;font-weight:800'><td colspan='3'>الإجمالي ("+rows.length+" موظف)</td><td style='text-align:center'>"+fmt(totalSalary)+"</td><td style='text-align:center;color:#EF4444'>"+fmt(totalAdvances)+"</td><td style='text-align:center;font-size:14px;color:"+(totalSalary-totalAdvances>=0?"#10B981":"#EF4444")+"'>"+fmt(r2(totalSalary-totalAdvances))+"</td></tr></tbody></table>";
+        h+="<div class='sig'><div class='sig-box'>المحاسب</div><div class='sig-box'>المدير</div></div>";printPage("سجل شهري — "+selMonth,h)};
+
+      return<div>
+        {/* Month selector */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:FS,fontWeight:700,color:T.textSec}}>الشهر:</span>
+            <input type="month" value={selMonth} onChange={e=>setSelMonth(e.target.value)} style={{padding:"6px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.inputBg,color:T.text}}/>
+            <span style={{fontSize:FS-2,color:T.textMut}}>{"("+mDays+" يوم)"}</span>
+          </div>
+          <Btn small onClick={printMonthly} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة</Btn>
+        </div>
+        {monthlyEmps.length===0?<div style={{textAlign:"center",padding:40,color:T.textMut}}>لا يوجد موظفين بنظام شهري — غيّر نوع المرتب من كارت الموظف</div>
+        :<Card title={"📅 سجل الموظفين الشهريين — "+selMonth} accent="#059669">
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
+            <div style={{padding:8,borderRadius:10,background:T.accent+"08",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>إجمالي المرتبات</div><div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{fmt(totalSalary)}</div></div>
+            <div style={{padding:8,borderRadius:10,background:T.err+"08",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>إجمالي السلف</div><div style={{fontSize:FS+2,fontWeight:800,color:T.err}}>{fmt(totalAdvances)}</div></div>
+            <div style={{padding:8,borderRadius:10,background:T.ok+"08",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>صافي المستحق</div><div style={{fontSize:FS+2,fontWeight:800,color:T.ok}}>{fmt(r2(totalSalary-totalAdvances))}</div></div>
+          </div>
+          <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+            {["#","الاسم","الكود","المرتب الشهري","السلف","الصافي"].map(h=><th key={h} style={TH}>{h}</th>)}
+          </tr></thead><tbody>
+            {rows.map((r,i)=><tr key={r.id} style={{borderBottom:"1px solid "+T.brd}}>
+              <td style={{...TD,textAlign:"center"}}>{i+1}</td>
+              <td style={{...TD,fontWeight:700}}>{r.name}</td>
+              <td style={{...TD,textAlign:"center",color:T.textSec}}>{r.code||"—"}</td>
+              <td style={{...TDB,color:T.accent}}>{fmt(r.salary)}</td>
+              <td style={{...TDB,color:r.advances>0?T.err:T.textMut}}>{r.advances>0?fmt(r.advances):"—"}</td>
+              <td style={{...TDB,color:r.net>=0?T.ok:T.err,fontWeight:800}}>{fmt(r.net)}</td>
+            </tr>)}
+            <tr style={{background:T.accent+"06"}}><td colSpan={3} style={{...TD,fontWeight:800}}>{"الإجمالي ("+rows.length+" موظف)"}</td>
+              <td style={{...TDB,fontWeight:800}}>{fmt(totalSalary)}</td>
+              <td style={{...TDB,color:T.err,fontWeight:800}}>{fmt(totalAdvances)}</td>
+              <td style={{...TDB,color:T.ok,fontWeight:900,fontSize:FS+2}}>{fmt(r2(totalSalary-totalAdvances))}</td>
+            </tr>
+          </tbody></table></div>
+        </Card>}
+      </div>})()}
+
     {/* ══ EMPLOYEES ══ */}
     {view==="employees"&&<div>
       {canEdit&&<div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
@@ -10199,7 +10266,8 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الاسم</label><Inp value={empName} onChange={setEmpName}/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>كود البصمة</label><Inp value={empCode} onChange={setEmpCode} placeholder="رقم من جهاز البصمة"/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الوظيفة</label><Inp value={empJob} onChange={setEmpJob}/></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>مرتب أسبوعي</label><Inp type="number" value={empWeeklySalary} onChange={setEmpWeeklySalary}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نظام المرتب</label><Sel value={empSalaryType} onChange={setEmpSalaryType}><option value="weekly">أسبوعي</option><option value="monthly">شهري</option></Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{empSalaryType==="monthly"?"مرتب شهري":"مرتب أسبوعي"}</label><Inp type="number" value={empWeeklySalary} onChange={setEmpWeeklySalary}/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>حافز أسبوعي ثابت</label><Inp type="number" value={empWeeklyBonus} onChange={setEmpWeeklyBonus} placeholder="0"/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ساعات أساسي (افتراضي)</label><Inp type="number" value={empBaseHours} onChange={setEmpBaseHours} placeholder={String(hrs.defaultBaseHours||48)}/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تليفون</label><Inp value={empPhone} onChange={setEmpPhone}/></div>
