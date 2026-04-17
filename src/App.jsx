@@ -8316,25 +8316,25 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             <div onClick={()=>setTxType("out")} style={{flex:1,padding:"12px 0",borderRadius:10,textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:txType==="out"?T.err+"15":"transparent",border:"2px solid "+(txType==="out"?T.err:T.brd),color:txType==="out"?T.err:T.textSec}}>↑ منصرف</div>
           </div></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المبلغ</label><Inp type="number" value={txAmount} onChange={setTxAmount} placeholder="0.00"/></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع الحركة</label><Sel value={txCategory} onChange={v=>{setTxCategory(v);setTxPartyId("");setTxPartyType("");setPartySearch("");
+          <div style={{gridColumn:"1 / -1"}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع الحركة</label><Sel value={txCategory} onChange={v=>{setTxCategory(v);setTxPartyId("");setTxPartyType("");setPartySearch("");
             if(v==="دفعة عميل")setTxPartyType("customer");
             else if(v==="دفع مورد")setTxPartyType("supplier");
-            else if(v==="تشغيل خارجي"||v==="مشتريات")setTxPartyType("workshop");
+            else if(v==="تشغيل خارجي")setTxPartyType("workshop");
             else if(v==="مرتبات")setTxPartyType("employee");
           }}><option value="">— اختر —</option>{(txType==="in"?IN_CATS:OUT_CATS).map(c=><option key={c} value={c}>{c}</option>)}</Sel>
-          {txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفع مورد"||txCategory==="تشغيل خارجي"||txCategory==="مشتريات"||txCategory==="مرتبات")&&(()=>{const list=txPartyType==="customer"?customers:txPartyType==="supplier"?suppliers:txPartyType==="employee"?(data.employees||[]).filter(e=>!e.inactive):workshops;const p=list.find(x=>x.id===txPartyId||x.name===txPartyId);if(!p)return null;
+          {txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفع مورد"||txCategory==="تشغيل خارجي"||txCategory==="مرتبات")&&(()=>{const list=txPartyType==="customer"?customers:txPartyType==="supplier"?suppliers:txPartyType==="employee"?(data.employees||[]).filter(e=>!e.inactive):workshops;const p=list.find(x=>x.id===txPartyId||x.name===txPartyId);if(!p)return null;
             const icon=txPartyType==="customer"?"🧑 العميل:":txPartyType==="supplier"?"🏭 المورد:":txPartyType==="employee"?"👷 الموظف:":"🔧 الورشة:";
-            return<div style={{gridColumn:"1 / -1",padding:"6px 10px",borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"30",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
+            return<div style={{padding:"6px 10px",borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"30",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,marginTop:6}}>
               <div><span style={{fontSize:FS-2,color:T.textMut}}>{icon}</span> <b style={{color:T.accent,fontSize:FS-1}}>{p.name}</b>{p.phone&&<span style={{fontSize:FS-3,color:T.textMut,marginRight:6}}> • {p.phone}</span>}</div>
               <span onClick={()=>{setTxPartyId("");setPartySearch("")}} style={{cursor:"pointer",fontSize:FS-2,color:T.err,padding:"2px 8px",borderRadius:6,background:T.err+"08",border:"1px solid "+T.err+"20"}}>✕ تغيير</span>
             </div>})()}
           {/* Inline party list */}
-          {!txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفع مورد"||txCategory==="تشغيل خارجي"||txCategory==="مشتريات"||txCategory==="مرتبات")&&(()=>{
+          {!txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفع مورد"||txCategory==="تشغيل خارجي"||txCategory==="مرتبات")&&(()=>{
             const list=txPartyType==="customer"?customers:txPartyType==="supplier"?suppliers:txPartyType==="employee"?(data.employees||[]).filter(e=>!e.inactive):workshops;
             const title=txPartyType==="customer"?"اختر عميل":txPartyType==="supplier"?"اختر مورد":txPartyType==="employee"?"اختر موظف":"اختر ورشة";
             const q=partySearch.toLowerCase();
             const filtered=list.filter(p=>!q||(p.name||"").toLowerCase().includes(q)||(p.phone||"").includes(q));
-            return<div style={{gridColumn:"1 / -1",border:"1px solid "+T.accent+"30",borderRadius:10,padding:10,background:T.bg}}>
+            return<div style={{border:"1px solid "+T.accent+"30",borderRadius:10,padding:10,background:T.bg,marginTop:6}}>
               <div style={{fontSize:FS-1,fontWeight:700,color:T.accent,marginBottom:6}}>{title}</div>
               <input value={partySearch} onChange={e=>setPartySearch(e.target.value)} placeholder="🔍 بحث..." style={{width:"100%",padding:"6px 10px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text,marginBottom:6,boxSizing:"border-box"}}/>
               <div style={{maxHeight:150,overflowY:"auto",display:"flex",flexDirection:"column",gap:3}}>
@@ -8345,7 +8345,7 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                       if(txPartyType==="customer")setTxDesc("دفعة من "+p.name);
                       else if(txPartyType==="supplier")setTxDesc("دفع لـ "+p.name);
                       else if(txPartyType==="employee")setTxDesc("سلفة "+p.name);
-                      else setTxDesc((txCategory==="مشتريات"?"مشتريات ورشة ":"دفعة ورشة ")+p.name)}
+                      else setTxDesc("دفعة ورشة "+p.name)}
                   }} style={{padding:"7px 10px",borderRadius:8,border:"1px solid "+T.brd,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",background:T.cardSolid,transition:"all 0.1s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"08"} onMouseLeave={e=>e.currentTarget.style.background=T.cardSolid}>
                     <span style={{fontWeight:600,fontSize:FS-1}}>{p.name}</span>
                     {p.phone&&<span style={{fontSize:FS-3,color:T.textMut,direction:"ltr"}}>{p.phone}</span>}
