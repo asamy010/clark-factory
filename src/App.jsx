@@ -7614,13 +7614,15 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(newTxns.length===0){setOdooResult({ok:true,msg:"✅ كل الحركات متزامنة بالفعل ("+subTxns.length+" حركة)"});setOdooSyncing(false);return}
       /* 5. Build account mapping cache */
       const mapping=os.accountMapping||{};
-      const accCache={};
+      const accCache={};const accErrors=[];
       for(const cat of Object.keys(mapping)){
         const code=(mapping[cat]||"").trim();
         if(code){
           const r=await api({action:"find_account",payload:{accountCode:code}});
-          if(r.accountId)accCache[cat.trim()]=r.accountId}
+          if(r.accountId){accCache[cat.trim()]=r.accountId;console.log("✅ Account found:",cat,"→",code,"→ ID:",r.accountId)}
+          else{accErrors.push(cat+":"+code+"→"+(r.error||"not found"));console.warn("❌ Account NOT found:",cat,"→",code,r)}}
       }
+      if(accErrors.length>0)console.warn("⚠️ Account lookup errors:",accErrors);
       /* 6. Build entries */
       const entries=[];let skipped=0;const missingCats=new Set();
       const defaultAccCode=(os.defaultAccountCode||"").trim();
@@ -9929,21 +9931,6 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                 </div>}
               </div>})}
           </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لم يتم اعتماد مرتبات بعد</div>}
-        </Card>
-        <Card title={"💸 سجل السلف ("+advanceEntries.length+")"}>
-          {advanceEntries.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
-            {["التاريخ","الموظف","المبلغ","البيان","بواسطة",""].map(h=><th key={h} style={{padding:"6px 8px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700}}>{h}</th>)}
-          </tr></thead><tbody>
-            {advanceEntries.slice(0,logLimit).map(l=><tr key={l.id} style={{borderBottom:"1px solid "+T.brd}}>
-              <td style={{padding:"5px 8px",fontSize:FS-1}}>{l.date}</td>
-              <td style={{padding:"5px 8px",fontSize:FS-1,fontWeight:700}}>{l.empName}</td>
-              <td style={{padding:"5px 8px",fontSize:FS,fontWeight:800,color:T.err}}>{fmt(r2(l.amount))}</td>
-              <td style={{padding:"5px 8px",fontSize:FS-2,color:T.textSec}}>{l.desc||"سلفة"}</td>
-              <td style={{padding:"5px 8px",fontSize:FS-3,color:T.textMut}}>{l.by}</td>
-              <td style={{padding:"5px 8px"}}>{canEdit&&<span onClick={()=>openConfirm({title:"حذف سلفة",message:"سيتم حذف سلفة "+l.empName+"\nالمبلغ: "+fmt(l.amount)+" ج.م\nالتاريخ: "+l.date+(l.desc?"\nالبيان: "+l.desc:"")+"\n\nملاحظة: الحركة المرتبطة في الخزنة لن تُحذف تلقائياً.",variant:"danger",onConfirm:()=>delLog(l.id)})} style={{cursor:"pointer",fontSize:11,color:T.err}}>✕</span>}</td>
-            </tr>)}
-          </tbody></table></div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد سلف</div>}
-          {advanceEntries.length>logLimit&&<div style={{textAlign:"center",marginTop:8}}><Btn small onClick={()=>setLogLimit(p=>p+50)}>عرض المزيد</Btn></div>}
         </Card>
       </div>})()}
   </div>

@@ -81,11 +81,26 @@ export default async function handler(req, res) {
       const uid = await rpcCall("/xmlrpc/2/common", "authenticate", [odooDb, odooUser, odooKey, {}]);
       if (!uid) return res.status(401).json({ error: "Auth failed" });
       const { accountCode } = payload;
-      const ids = await rpcCall("/xmlrpc/2/object", "execute_kw", [
+      /* Try exact match first, then =like, then ilike */
+      let ids = await rpcCall("/xmlrpc/2/object", "execute_kw", [
         odooDb, uid, odooKey, "account.account", "search",
         [[["code", "=", accountCode]]],
         { limit: 1 }
       ]);
+      if (!ids || ids.length === 0) {
+        ids = await rpcCall("/xmlrpc/2/object", "execute_kw", [
+          odooDb, uid, odooKey, "account.account", "search",
+          [[["code", "=like", accountCode + "%"]]],
+          { limit: 1 }
+        ]);
+      }
+      if (!ids || ids.length === 0) {
+        ids = await rpcCall("/xmlrpc/2/object", "execute_kw", [
+          odooDb, uid, odooKey, "account.account", "search",
+          [[["code", "ilike", accountCode]]],
+          { limit: 1 }
+        ]);
+      }
       if (!ids || ids.length === 0) return res.status(404).json({ error: "Account '" + accountCode + "' not found" });
       return res.status(200).json({ accountId: ids[0] });
     }
