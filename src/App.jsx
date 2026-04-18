@@ -7443,7 +7443,8 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
         const saveTS=(fn)=>upConfig(d=>{if(!d.treasurySettings)d.treasurySettings={};fn(d.treasurySettings)});
         const outCats=ts.outCategories||["تكلفة","مشتريات","مرتبات","قطع غيار","صيانة ماكينات","خيط","تشغيل خارجي","نقل","كهرباء","ايجار المصنع","نثريات","اكسسوار","مستلزمات تشغيل","ورق ماركر","خدمات","أصول ثابتة","تكاليف أخرى"];
         const inCats=ts.inCategories||["وارد","إيرادات","دفعة عميل","رأس مال","تحويل"];
-        const[newOutCat,setNewOutCat]=useState("");const[newInCat,setNewInCat]=useState("");
+        const checkCats=ts.checkCategories||["رصيد افتتاحي","دفعة عميل","دفع مورد","تسوية مبالغ","تحويل بين الحسابات","أخرى"];
+        const[newOutCat,setNewOutCat]=useState("");const[newInCat,setNewInCat]=useState("");const[newCheckCat,setNewCheckCat]=useState("");
         return<div>
           <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12}}>
             <div><label style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:6,display:"block"}}>رصيد أول المدة</label>
@@ -7465,6 +7466,15 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
               </span>)}</div>
               <div style={{display:"flex",gap:4}}><Inp value={newInCat} onChange={setNewInCat} placeholder="بند جديد..." style={{flex:1}}/><Btn small onClick={()=>{if(newInCat.trim()){saveTS(s=>{if(!s.inCategories)s.inCategories=[...inCats];if(!s.inCategories.includes(newInCat.trim()))s.inCategories.push(newInCat.trim())});setNewInCat("")}}}>+</Btn></div>
             </div>
+          </div>
+          {/* Check categories — independent list for receivables/payables */}
+          <div style={{marginTop:12,padding:12,borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF620"}}>
+            <div style={{fontSize:FS-1,fontWeight:700,color:"#8B5CF6",marginBottom:6}}>📝 بنود الشيكات ({checkCats.length})</div>
+            <div style={{fontSize:FS-3,color:T.textMut,marginBottom:8,lineHeight:1.6}}>تُستخدم في فورم الشيكات فقط (أوراق قبض/دفع). مثلاً "رصيد افتتاحي" لفتح موسم جديد.</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>{checkCats.map(c=><span key={c} style={{padding:"3px 8px",borderRadius:6,fontSize:FS-2,background:"#8B5CF612",color:"#8B5CF6",display:"flex",alignItems:"center",gap:4}}>
+              {c}<span onClick={()=>saveTS(s=>{s.checkCategories=(s.checkCategories||checkCats).filter(x=>x!==c)})} style={{cursor:"pointer",fontSize:10}}>✕</span>
+            </span>)}</div>
+            <div style={{display:"flex",gap:4}}><Inp value={newCheckCat} onChange={setNewCheckCat} placeholder="بند جديد (مثلاً: رصيد افتتاحي)..." style={{flex:1}}/><Btn small onClick={()=>{if(newCheckCat.trim()){saveTS(s=>{if(!s.checkCategories)s.checkCategories=[...checkCats];if(!s.checkCategories.includes(newCheckCat.trim()))s.checkCategories.push(newCheckCat.trim())});setNewCheckCat("")}}}>+</Btn></div>
           </div>
         </div>})()}
     </Card>
@@ -8348,6 +8358,8 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[chkAmount,setChkAmount]=useState("");const[chkParty,setChkParty]=useState("");const[chkBank,setChkBank]=useState("");
   const[chkNumber,setChkNumber]=useState("");const[chkDate,setChkDate]=useState("");const[chkDueDate,setChkDueDate]=useState("");
   const[chkNotes,setChkNotes]=useState("");const[chkEditId,setChkEditId]=useState(null);const[chkFilter,setChkFilter]=useState("الكل");
+  const[chkCategory,setChkCategory]=useState("");/* category for the check — drives treasury registration */
+  const[chkPartyId,setChkPartyId]=useState("");/* linked customer or supplier id */
   /* Endorse */
   const[endorsePopup,setEndorsePopup]=useState(null);const[endorseSearch,setEndorseSearch]=useState("");
   /* Inline edit journal row */
@@ -8835,7 +8847,7 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             else if(v==="دفع مورد")setTxPartyType("supplier");
             else if(v==="تشغيل خارجي")setTxPartyType("workshop");
             else if(v==="مرتبات")setTxPartyType("employee");
-          }}><option value="">— اختر —</option>{(txType==="in"?IN_CATS:OUT_CATS).map(c=><option key={c} value={c}>{c}</option>)}</Sel>
+          }}><option value="">— اختر —</option>{(txType==="in"?((data.treasurySettings||{}).inCategories||IN_CATS):((data.treasurySettings||{}).outCategories||OUT_CATS)).map(c=><option key={c} value={c}>{c}</option>)}</Sel>
           {txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفع مورد"||txCategory==="تشغيل خارجي"||txCategory==="مرتبات")&&(()=>{const list=txPartyType==="customer"?customers:txPartyType==="supplier"?suppliers:txPartyType==="employee"?(data.employees||[]).filter(e=>!e.inactive):workshops;const p=list.find(x=>x.id===txPartyId||x.name===txPartyId);if(!p)return null;
             const icon=txPartyType==="customer"?"🧑 العميل:":txPartyType==="supplier"?"🏭 المورد:":txPartyType==="employee"?"👷 الموظف:":"🔧 الورشة:";
             return<div style={{padding:"6px 10px",borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"30",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,marginTop:6}}>
@@ -8962,15 +8974,16 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         const totalPay=payable.filter(c=>c.status!=="مدفوع"&&c.status!=="ملغي").reduce((s,c)=>s+(Number(c.amount)||0),0);
         const saveCheck=()=>{const amt=parseFloat(chkAmount);if(!amt||!chkParty.trim()){playBeep("error");return}
           upConfig(d=>{if(!d.checks)d.checks=[];
-            if(chkEditId){const ch=d.checks.find(c=>c.id===chkEditId);if(ch){ch.type=chkType;ch.amount=amt;ch.party=chkParty;ch.bank=chkBank;ch.checkNo=chkNumber;ch.date=chkDate;ch.dueDate=chkDueDate;ch.notes=chkNotes;ch.updatedBy=userName}}
-            else{d.checks.push({id:gid(),type:chkType,amount:amt,party:chkParty.trim(),bank:chkBank,checkNo:chkNumber,date:chkDate||today,dueDate:chkDueDate,notes:chkNotes,status:"معلق",by:userName,createdAt:new Date().toISOString()})}});
-          setShowCheckForm(false);setChkAmount("");setChkParty("");setChkBank("");setChkNumber("");setChkDate("");setChkDueDate("");setChkNotes("");setChkEditId(null);showToast("✓ تم الحفظ")};
-        const editCheck=(c)=>{setChkEditId(c.id);setChkType(c.type);setChkAmount(String(c.amount));setChkParty(c.party||"");setChkBank(c.bank||"");setChkNumber(c.checkNo||"");setChkDate(c.date||"");setChkDueDate(c.dueDate||"");setChkNotes(c.notes||"");setShowCheckForm(true)};
+            if(chkEditId){const ch=d.checks.find(c=>c.id===chkEditId);if(ch){ch.type=chkType;ch.amount=amt;ch.party=chkParty;ch.partyId=chkPartyId||null;ch.bank=chkBank;ch.checkNo=chkNumber;ch.date=chkDate;ch.dueDate=chkDueDate;ch.notes=chkNotes;ch.category=chkCategory||"";ch.updatedBy=userName}}
+            else{d.checks.push({id:gid(),type:chkType,amount:amt,party:chkParty.trim(),partyId:chkPartyId||null,bank:chkBank,checkNo:chkNumber,date:chkDate||today,dueDate:chkDueDate,notes:chkNotes,category:chkCategory||"",status:"معلق",by:userName,createdAt:new Date().toISOString()})}});
+          setShowCheckForm(false);setChkAmount("");setChkParty("");setChkPartyId("");setChkBank("");setChkNumber("");setChkDate("");setChkDueDate("");setChkNotes("");setChkCategory("");setChkEditId(null);showToast("✓ تم الحفظ")};
+        const editCheck=(c)=>{setChkEditId(c.id);setChkType(c.type);setChkAmount(String(c.amount));setChkParty(c.party||"");setChkPartyId(c.partyId||"");setChkBank(c.bank||"");setChkNumber(c.checkNo||"");setChkDate(c.date||"");setChkDueDate(c.dueDate||"");setChkNotes(c.notes||"");setChkCategory(c.category||"");setShowCheckForm(true)};
         const updateStatus=(id,status)=>{upConfig(d=>{const ch=(d.checks||[]).find(c=>c.id===id);if(ch){ch.status=status;ch.statusDate=today;ch.statusBy=userName;
           /* Auto-register in treasury when collected/paid */
           if(!d.treasury)d.treasury=[];
-          if(status==="محصل"){d.treasury.unshift({id:gid(),type:"in",amount:ch.amount,desc:"تحصيل شيك من "+ch.party+(ch.checkNo?" #"+ch.checkNo:""),category:"دفعة عميل",account:ch.bank||"MAIN CASH",season:d.activeSeason||"",date:today,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date().getDay()],by:userName,createdAt:new Date().toISOString()})}
-          if(status==="مدفوع"){d.treasury.unshift({id:gid(),type:"out",amount:ch.amount,desc:"صرف شيك لـ "+ch.party+(ch.checkNo?" #"+ch.checkNo:""),category:"تشغيل خارجي",account:ch.bank||"MAIN CASH",season:d.activeSeason||"",date:today,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date().getDay()],by:userName,createdAt:new Date().toISOString()})}}});showToast("✓ تم التحديث")};
+          const chkCat=ch.category||(ch.type==="receivable"?"دفعة عميل":"دفع مورد");
+          if(status==="محصل"){d.treasury.unshift({id:gid(),type:"in",amount:ch.amount,desc:"تحصيل شيك من "+ch.party+(ch.checkNo?" #"+ch.checkNo:""),category:chkCat,account:ch.bank||"MAIN CASH",season:d.activeSeason||"",date:today,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date().getDay()],custId:ch.type==="receivable"?ch.partyId||null:null,supplierId:ch.type==="payable"?ch.partyId||null:null,sourceType:"check_collect",checkId:ch.id,by:userName,createdAt:new Date().toISOString()})}
+          if(status==="مدفوع"){d.treasury.unshift({id:gid(),type:"out",amount:ch.amount,desc:"صرف شيك لـ "+ch.party+(ch.checkNo?" #"+ch.checkNo:""),category:chkCat,account:ch.bank||"MAIN CASH",season:d.activeSeason||"",date:today,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date().getDay()],custId:ch.type==="receivable"?ch.partyId||null:null,supplierId:ch.type==="payable"?ch.partyId||null:null,sourceType:"check_pay",checkId:ch.id,by:userName,createdAt:new Date().toISOString()})}}});showToast("✓ تم التحديث")};
         const delCheck=(id)=>{upConfig(d=>{d.checks=(d.checks||[]).filter(c=>c.id!==id)})};
         const filteredChecks=chkFilter==="الكل"?checks:checks.filter(c=>chkFilter==="أوراق قبض"?c.type==="receivable":c.type==="payable");
         const STATUS_COLORS={معلق:"#F59E0B",محصل:"#10B981",مدفوع:"#10B981","مُظهّر":"#8B5CF6",مرتجع:"#EF4444",ملغي:"#94A3B8"};
@@ -9014,22 +9027,38 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             <Sel value={chkFilter} onChange={setChkFilter} style={{width:130}}><option>الكل</option><option>أوراق قبض</option><option>أوراق دفع</option></Sel>
           </div>
           {/* Form */}
-          {showCheckForm&&<Card title={chkEditId?"✏️ تعديل شيك":"+ شيك جديد"} style={{marginBottom:16}}>
+          {showCheckForm&&(()=>{
+            const checkCats=(data.treasurySettings||{}).checkCategories||["رصيد افتتاحي","دفعة عميل","دفع مورد","تسوية مبالغ","تحويل بين الحسابات","أخرى"];
+            const partyList=chkType==="receivable"?customers:suppliers;
+            const selectedParty=chkPartyId?partyList.find(p=>p.id===chkPartyId):null;
+            return<Card title={chkEditId?"✏️ تعديل شيك":"+ شيك جديد"} style={{marginBottom:16}}>
             <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(4,1fr)",gap:10}}>
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label><div style={{display:"flex",gap:6,marginTop:4}}>
-                <div onClick={()=>setChkType("receivable")} style={{flex:1,padding:"8px 0",borderRadius:8,textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-1,background:chkType==="receivable"?T.ok+"15":"transparent",border:"2px solid "+(chkType==="receivable"?T.ok:T.brd),color:chkType==="receivable"?T.ok:T.textSec}}>أوراق قبض</div>
-                <div onClick={()=>setChkType("payable")} style={{flex:1,padding:"8px 0",borderRadius:8,textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-1,background:chkType==="payable"?T.err+"15":"transparent",border:"2px solid "+(chkType==="payable"?T.err:T.brd),color:chkType==="payable"?T.err:T.textSec}}>أوراق دفع</div>
+                <div onClick={()=>{setChkType("receivable");setChkPartyId("");setChkParty("")}} style={{flex:1,padding:"8px 0",borderRadius:8,textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-1,background:chkType==="receivable"?T.ok+"15":"transparent",border:"2px solid "+(chkType==="receivable"?T.ok:T.brd),color:chkType==="receivable"?T.ok:T.textSec}}>أوراق قبض</div>
+                <div onClick={()=>{setChkType("payable");setChkPartyId("");setChkParty("")}} style={{flex:1,padding:"8px 0",borderRadius:8,textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-1,background:chkType==="payable"?T.err+"15":"transparent",border:"2px solid "+(chkType==="payable"?T.err:T.brd),color:chkType==="payable"?T.err:T.textSec}}>أوراق دفع</div>
               </div></div>
-              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المبلغ</label><Inp type="number" value={chkAmount} onChange={setChkAmount} placeholder="0.00"/></div>
-              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{chkType==="receivable"?"اسم العميل / الجهة":"اسم المستفيد"}</label><Inp value={chkParty} onChange={setChkParty} placeholder="الاسم"/></div>
+              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>فئة الشيك</label><Sel value={chkCategory} onChange={setChkCategory}>
+                <option value="">— اختر الفئة —</option>
+                {checkCats.map(c=><option key={c} value={c}>{c}</option>)}
+              </Sel></div>
+              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المبلغ</label><Inp type="number" value={chkAmount} onChange={setChkAmount} placeholder="0"/></div>
+              <div>
+                <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{chkType==="receivable"?"العميل":"المورد"}</label>
+                <Sel value={chkPartyId} onChange={v=>{setChkPartyId(v);const p=partyList.find(x=>x.id===v);if(p)setChkParty(p.name)}}>
+                  <option value="">— اختر من القائمة —</option>
+                  {partyList.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                </Sel>
+                {!chkPartyId&&<Inp value={chkParty} onChange={setChkParty} placeholder="أو اكتب الاسم يدوياً..." style={{marginTop:4}}/>}
+                {selectedParty&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{selectedParty.phone?"📞 "+selectedParty.phone:""}</div>}
+              </div>
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>البنك</label><Inp value={chkBank} onChange={setChkBank} placeholder="اسم البنك"/></div>
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رقم الشيك</label><Inp value={chkNumber} onChange={setChkNumber} placeholder="رقم"/></div>
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تاريخ التحرير</label><Inp type="date" value={chkDate} onChange={setChkDate}/></div>
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تاريخ الاستحقاق</label><Inp type="date" value={chkDueDate} onChange={setChkDueDate}/></div>
-              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات</label><Inp value={chkNotes} onChange={setChkNotes} placeholder="ملاحظات"/></div>
+              <div style={{gridColumn:isMob?"1":"1/-1"}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات</label><Inp value={chkNotes} onChange={setChkNotes} placeholder="ملاحظات"/></div>
             </div>
             <div style={{marginTop:10}}><Btn primary onClick={saveCheck}>{chkEditId?"💾 حفظ التعديل":"💾 حفظ"}</Btn></div>
-          </Card>}
+          </Card>})()}
           {/* Checks table */}
           <Card title={"📝 سجل الشيكات ("+filteredChecks.length+")"}>
             {filteredChecks.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
@@ -9335,6 +9364,8 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const[showMatrix,setShowMatrix]=useState(false);const[matrixEmps,setMatrixEmps]=useState([]);const[matrixDate,setMatrixDate]=useState(today);const[matrixDesc,setMatrixDesc]=useState("سلفة");
   /* Salary overrides per employee in active week */
   const[salBonus,setSalBonus]=useState({});const[salSpecialDeduct,setSalSpecialDeduct]=useState({});const[salThursdayPay,setSalThursdayPay]=useState({});
+  /* Quick advance popup from salary table — {empId, empName, amount, date, note} */
+  const[quickAdvance,setQuickAdvance]=useState(null);
   const[salBaseHoursOverride,setSalBaseHoursOverride]=useState({});/* empId -> custom base hours for this week */
   const[logLimit,setLogLimit]=useState(50);
   const[openLog,setOpenLog]=useState(null);
@@ -9382,6 +9413,43 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       e.baseHours=parseFloat(d.baseHours)||0;e.phone=d.phone||"";e.noBiometric=!!d.noBiometric}});
     setInlineEditId(null);setInlineDraft({});showToast("✓ تم التعديل")};
   const cancelInlineEdit=()=>{setInlineEditId(null);setInlineDraft({})};
+  /* Save quick advance from salary table popup — writes to treasury + hrLog atomically */
+  const saveQuickAdvance=()=>{
+    if(!quickAdvance)return;
+    const amt=parseFloat(quickAdvance.amount);
+    if(!amt||amt<=0){showToast("⚠️ ادخل مبلغ صحيح");playBeep("error");return}
+    const dt=quickAdvance.date||today;
+    /* Validate date is within the current week boundaries (warning only, not blocking) */
+    if(openWeek&&(dt<openWeek.weekStart||dt>openWeek.weekEnd)){
+      /* Date is outside week — still allow but warn */
+      if(!confirm("⚠️ التاريخ خارج نطاق الأسبوع الحالي ("+openWeek.weekStart+" → "+openWeek.weekEnd+").\nهل تريد المتابعة؟"))return;
+    }
+    const emp=employees.find(e=>e.id===quickAdvance.empId);
+    if(!emp){showToast("⚠️ الموظف غير موجود");return}
+    const day=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(dt).getDay()];
+    const treasuryTxId=gid();const logId=gid();
+    const desc="سلفة "+emp.name+(quickAdvance.note?" — "+quickAdvance.note:"");
+    upConfig(d=>{
+      /* 1. Treasury entry (out) */
+      if(!d.treasury)d.treasury=[];
+      d.treasury.unshift({
+        id:treasuryTxId,type:"out",amount:amt,desc,notes:quickAdvance.note||"",
+        category:"مرتبات",account:"MAIN CASH",season:d.activeSeason||"",
+        date:dt,day,empId:emp.id,empName:emp.name,
+        sourceType:"hr_advance",hrLogId:logId,
+        by:userName,createdAt:new Date().toISOString()
+      });
+      /* 2. HR log entry (advance) */
+      if(!d.hrLog)d.hrLog=[];
+      d.hrLog.unshift({
+        id:logId,empId:emp.id,empName:emp.name,type:"advance",
+        amount:amt,date:dt,desc,
+        treasuryTxId,by:userName,createdAt:new Date().toISOString()
+      });
+    });
+    setQuickAdvance(null);
+    showToast("✅ تم تسجيل سلفة "+fmt0(amt)+" ج.م لـ "+emp.name);
+  };
   /* Save full employee edit from popup */
   const saveEditPopup=()=>{if(!editPopup||!editPopup.id)return;
     const d=editPopup;
@@ -10034,7 +10102,12 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                   <td style={{padding:"6px",fontSize:FS-2,color:c.overtimeHours>0?"#8B5CF6":T.textMut,textAlign:"center",fontWeight:c.overtimeHours>0?700:400,direction:"ltr"}} title={c.overtimeHours>0?"("+r2(c.overtimeHours)+" ساعة عشرية)":""}>{c.overtimeHours>0?hrsToHM(c.overtimeHours):"—"}</td>
                   <td style={{padding:"6px",fontSize:FS-1,fontWeight:700,color:T.ok,textAlign:"center"}}>{fmt0(c.grossPay)}</td>
                   <td style={{padding:"6px",fontSize:FS-2,color:c.prevBalance>=0?T.ok:T.err,textAlign:"center"}}>{fmt0(c.prevBalance)}</td>
-                  <td style={{padding:"6px",fontSize:FS-1,fontWeight:700,color:c.weekAdvances>0?T.err:T.textMut,textAlign:"center"}}>{c.weekAdvances>0?fmt0(c.weekAdvances):"—"}</td>
+                  <td style={{padding:"6px",fontSize:FS-1,fontWeight:700,color:c.weekAdvances>0?T.err:T.textMut,textAlign:"center"}}>
+                    <div style={{display:"flex",gap:4,justifyContent:"center",alignItems:"center"}}>
+                      <span>{c.weekAdvances>0?fmt0(c.weekAdvances):"—"}</span>
+                      {!isLocked&&canEdit&&<span onClick={()=>setQuickAdvance({empId:emp.id,empName:emp.name,amount:"",date:today,note:""})} title="تسجيل سلفة سريعة" style={{cursor:"pointer",padding:"3px 7px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",whiteSpace:"nowrap"}}>➕ سلفة</span>}
+                    </div>
+                  </td>
                   <td style={{padding:"6px",textAlign:"center"}}>{!isLocked?<div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
                     <input type="number" value={salSpecialDeduct[emp.id]||""} onChange={ev=>setSalSpecialDeduct(p=>({...p,[emp.id]:ev.target.value}))} placeholder="0" style={{width:60,padding:"4px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text}}/>
                     <span onClick={()=>openTextPopup({title:"سبب الخصم",subtitle:emp.name,value:salDeductReason[emp.id]||"",placeholder:"اكتب سبب الخصم...",multiline:true,onSave:v=>setSalDeductReason(p=>({...p,[emp.id]:v}))})} style={{cursor:"pointer",fontSize:11,padding:"2px 5px",borderRadius:4,background:salDeductReason[emp.id]?T.warn+"15":T.bg,color:salDeductReason[emp.id]?T.warn:T.textMut,border:"1px solid "+(salDeductReason[emp.id]?T.warn+"30":T.brd)}} title={salDeductReason[emp.id]||"إضافة سبب"}>📝</span>
@@ -10709,6 +10782,46 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           <div style={{marginTop:10,textAlign:"center"}}><Btn primary onClick={()=>setShowEmpPicker(false)}>✅ تم</Btn></div>
         </div>
       </div>})()}
+
+    {/* ══ QUICK ADVANCE POPUP — سلفة سريعة من جدول المرتبات ══ */}
+    {quickAdvance&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setQuickAdvance(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:440,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"1px solid "+T.brd}}>
+          <div style={{fontSize:FS+1,fontWeight:800,color:T.err,display:"flex",alignItems:"center",gap:8}}>
+            <span>💸</span><span>سلفة سريعة</span>
+          </div>
+          <Btn ghost small onClick={()=>setQuickAdvance(null)}>✕</Btn>
+        </div>
+        <div style={{padding:10,borderRadius:10,background:T.err+"06",border:"1px solid "+T.err+"20",marginBottom:12}}>
+          <div style={{fontSize:FS-2,color:T.textMut,marginBottom:2}}>الموظف</div>
+          <div style={{fontSize:FS+1,fontWeight:800,color:T.text}}>{quickAdvance.empName}</div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>المبلغ *</label>
+            <Inp type="number" value={quickAdvance.amount} onChange={v=>setQuickAdvance(p=>({...p,amount:v}))} placeholder="0"/>
+          </div>
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>التاريخ</label>
+            <Inp type="date" value={quickAdvance.date} onChange={v=>setQuickAdvance(p=>({...p,date:v}))}/>
+          </div>
+        </div>
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>ملاحظة (اختياري)</label>
+          <Inp value={quickAdvance.note} onChange={v=>setQuickAdvance(p=>({...p,note:v}))} placeholder="مثلاً: مقدم مرتب، أو سبب السلفة..."/>
+        </div>
+        <div style={{padding:10,borderRadius:8,background:T.warn+"06",border:"1px solid "+T.warn+"20",fontSize:FS-2,color:T.textSec,marginBottom:12,lineHeight:1.6}}>
+          ℹ️ هيتم تسجيل السلفة في:<br/>
+          • الخزنة (MAIN CASH) — حركة خروج بفئة مرتبات<br/>
+          • سجل الموظف (سلفة)<br/>
+          • هتظهر تلقائياً في عمود "دفعة من الحساب" في جدول المرتبات
+        </div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <Btn onClick={()=>setQuickAdvance(null)} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>إلغاء</Btn>
+          <Btn primary onClick={saveQuickAdvance} style={{background:T.err,color:"#fff"}}>💰 تسجيل السلفة</Btn>
+        </div>
+      </div>
+    </div>}
 
     {/* ══ MATRIX POPUP ══ */}
     {showMatrix&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowMatrix(false)}>
