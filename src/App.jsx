@@ -10111,26 +10111,33 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           }
         }
         const rows=lines.map((line,i)=>{
-          /* Split by Tab ONLY (Excel default), OR comma (CSV). NOT by multi-space — that breaks names like "محمود  حدوتة". */
-          /* Keep empty cells in place so columns don't shift when Excel cell is empty. */
-          const parts=line.split(/\t|,/).map(s=>s.trim());
+          /* Split by Tab ONLY. Commas are NOT used as delimiters because numbers
+             with thousands-separators (e.g., "4,500" or "2,500") would get split
+             into two columns, shifting every column to the right. Tab is the
+             default delimiter when pasting from Excel or Google Sheets. */
+          const parts=line.split(/\t/).map(s=>s.trim());
           /* Only filter fully-empty RIGHTMOST cells, keep middle empty cells as "" */
           while(parts.length>0&&parts[parts.length-1]==="")parts.pop();
-          if(parts.length<2)return{line:i+1,raw:line,status:"error",err:"ناقص بيانات — يلزم على الأقل اسم + كود أو مرتب"};
+          if(parts.length<2)return{line:i+1,raw:line,status:"error",err:"ناقص بيانات — يلزم على الأقل اسم + كود (افصل الأعمدة بـ Tab)"};
+          /* Helper: clean thousands separators from numbers like "4,500" → "4500" or "١,٢٣٤" → "1234" */
+          const cleanNum=(s)=>{if(!s)return"";return String(s).replace(/[,،\s]/g,"").replace(/[٠١٢٣٤٥٦٧٨٩]/g,d=>String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))};
           const name=parts[0]||"";
           const code=parts[1]||"";
-          const salary=parts[2]||"";
+          const salaryRaw=parts[2]||"";
           const job=parts[3]||"";
           const phone=parts[4]||"";
-          const baseHours=parts[5]||"";
-          const bonus=parts[6]||"";
-          const salaryNum=parseFloat(salary)||0;
+          const baseHoursRaw=parts[5]||"";
+          const bonusRaw=parts[6]||"";
+          const salaryClean=cleanNum(salaryRaw);
+          const salaryNum=parseFloat(salaryClean)||0;
+          const baseHoursClean=cleanNum(baseHoursRaw);
+          const bonusClean=cleanNum(bonusRaw);
           if(!name||!name.trim()){return{line:i+1,raw:line,status:"error",err:"الاسم ناقص"}}
-          /* Validate salary looks numeric if provided */
-          if(salary&&isNaN(parseFloat(salary))){return{line:i+1,raw:line,name,code,status:"error",err:"المرتب (عمود 3) غير رقمي: \""+salary+"\""}}
-          if(!code||!code.trim()){return{line:i+1,raw:line,name,code:"",salary:salaryNum,job,phone,baseHours:parseFloat(baseHours)||(hrs.defaultBaseHours||48),bonus:parseFloat(bonus)||0,status:"warn",err:"⚠️ كود البصمة فاضي — سيتم إضافة الموظف بدون كود"}}
-          if(existingCodes.has(String(code).trim())){return{line:i+1,raw:line,name,code,salary:salaryNum,job,phone,baseHours:parseFloat(baseHours)||(hrs.defaultBaseHours||48),bonus:parseFloat(bonus)||0,status:"exists",err:"كود موجود"}}
-          return{line:i+1,raw:line,name,code,salary:salaryNum,job,phone,baseHours:parseFloat(baseHours)||(hrs.defaultBaseHours||48),bonus:parseFloat(bonus)||0,status:"new"};
+          /* Validate salary looks numeric if provided (after cleaning separators) */
+          if(salaryRaw&&salaryClean&&isNaN(parseFloat(salaryClean))){return{line:i+1,raw:line,name,code,status:"error",err:"المرتب (عمود 3) غير رقمي: \""+salaryRaw+"\""}}
+          if(!code||!code.trim()){return{line:i+1,raw:line,name,code:"",salary:salaryNum,job,phone,baseHours:parseFloat(baseHoursClean)||(hrs.defaultBaseHours||48),bonus:parseFloat(bonusClean)||0,status:"warn",err:"⚠️ كود البصمة فاضي — سيتم إضافة الموظف بدون كود"}}
+          if(existingCodes.has(String(code).trim())){return{line:i+1,raw:line,name,code,salary:salaryNum,job,phone,baseHours:parseFloat(baseHoursClean)||(hrs.defaultBaseHours||48),bonus:parseFloat(bonusClean)||0,status:"exists",err:"كود موجود"}}
+          return{line:i+1,raw:line,name,code,salary:salaryNum,job,phone,baseHours:parseFloat(baseHoursClean)||(hrs.defaultBaseHours||48),bonus:parseFloat(bonusClean)||0,status:"new"};
         });
         /* Attach header-skipped flag as a hidden row 0 so UI can show notice */
         if(headerSkipped)rows._headerSkipped=true;
@@ -10161,7 +10168,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           <div style={{padding:10,borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF620",fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.7}}>
             الصق البيانات من Excel أو Google Sheets. كل سطر = موظف واحد.<br/>
             <b>الأعمدة بالترتيب:</b> الاسم | كود البصمة | المرتب الأسبوعي | <span style={{opacity:0.7}}>[الوظيفة] | [التليفون] | [ساعات] | [حافز]</span><br/>
-            <b>الفواصل:</b> Tab (من Excel) أو فاصلة (,). الخلايا الفاضية في Excel تُحفظ مكانها.<br/>
+            <b>الفاصل:</b> Tab فقط (من Excel). الأرقام بفواصل الآلاف زي <b style={{color:T.accent}}>2,500</b> تُحفظ تلقائياً كـ 2500.<br/>
             <b style={{color:"#F59E0B"}}>ملاحظة:</b> لو الصف الأول فيه عناوين (اسم، كود، ...) سيتم تجاهله تلقائياً.
           </div>
           <textarea value={bulkImportText} onChange={e=>setBulkImportText(e.target.value)} placeholder={"محمود حدوتة	1234	4500	خياط	01012345678\nيوسف عبدالله	5678	3200\nأحمد علي	9012	2800	مساعد"} style={{width:"100%",minHeight:160,padding:12,borderRadius:10,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"monospace",background:T.inputBg,color:T.text,direction:"ltr",textAlign:"right"}}/>
