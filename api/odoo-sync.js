@@ -146,33 +146,71 @@ function parseXmlResponse(xml) {
 }
 
 function parseValue(v) {
+  v = (v || "").trim();
   var m;
-  m = v.match(/<(?:int|i4)>(-?\d+)<\/(?:int|i4)>/);
-  if (m) return parseInt(m[1]);
-  m = v.match(/<double>([^<]+)<\/double>/);
-  if (m) return parseFloat(m[1]);
-  m = v.match(/<boolean>([01])<\/boolean>/);
-  if (m) return m[1] === "1";
-  m = v.match(/<string>([^<]*)<\/string>/);
-  if (m) return m[1].replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"');
-  if (v.includes("<nil") || v.includes("<boolean>0</boolean>")) return false;
-  if (v.includes("<array>")) {
+  /* Compound types FIRST — check structure before scalar regexes. */
+  /* This prevents matching nested int/string inside array/struct. */
+  if (v.indexOf("<array>") === 0 || v.indexOf("<array ") === 0) {
     var dataMatch = v.match(/<data>([\s\S]*?)<\/data>/);
     if (!dataMatch) return [];
     var values = [];
-    var re = /<value>([\s\S]*?)<\/value>/g;
-    var vm;
-    while ((vm = re.exec(dataMatch[1])) !== null) values.push(parseValue(vm[1].trim()));
+    /* Depth-tracked value extraction — handles nested struct/array inside array. */
+    var inner = dataMatch[1];
+    var idx = 0, depth = 0, vstart = -1;
+    while (idx < inner.length) {
+      if (inner.substr(idx, 7) === "<value>") {
+        if (depth === 0) vstart = idx + 7;
+        depth++;
+        idx += 7;
+      } else if (inner.substr(idx, 8) === "</value>") {
+        depth--;
+        if (depth === 0 && vstart !== -1) {
+          values.push(parseValue(inner.substring(vstart, idx)));
+          vstart = -1;
+        }
+        idx += 8;
+      } else {
+        idx++;
+      }
+    }
     return values;
   }
-  if (v.includes("<struct>")) {
+  if (v.indexOf("<struct>") === 0 || v.indexOf("<struct ") === 0) {
     var obj = {};
-    var re2 = /<member>\s*<name>([^<]+)<\/name>\s*<value>([\s\S]*?)<\/value>\s*<\/member>/g;
-    var sm;
-    while ((sm = re2.exec(v)) !== null) obj[sm[1]] = parseValue(sm[2].trim());
+    /* Depth-tracked struct member parser — handles nested struct/array values. */
+    var sStart = v.indexOf("<struct>") + 8;
+    var sEnd = v.lastIndexOf("</struct>");
+    var body = v.substring(sStart, sEnd);
+    var i = 0;
+    while (i < body.length) {
+      var memStart = body.indexOf("<member>", i);
+      if (memStart === -1) break;
+      var memEnd = body.indexOf("</member>", memStart);
+      if (memEnd === -1) break;
+      var mem = body.substring(memStart + 8, memEnd);
+      var nameMatch = mem.match(/<name>([^<]+)<\/name>/);
+      if (!nameMatch) { i = memEnd + 9; continue; }
+      var valStart = mem.indexOf("<value>", nameMatch.index + nameMatch[0].length);
+      var valEnd = mem.lastIndexOf("</value>");
+      if (valStart !== -1 && valEnd > valStart) {
+        obj[nameMatch[1]] = parseValue(mem.substring(valStart + 7, valEnd));
+      }
+      i = memEnd + 9;
+    }
     return obj;
   }
-  var bare = v.trim();
-  if (/^-?\d+$/.test(bare)) return parseInt(bare);
-  return bare || null;
+  if (v.indexOf("<nil") === 0 || v === "<nil/>") return null;
+  /* Scalar types — safe now because compound types are already handled above. */
+  m = v.match(/^<(?:int|i4)>(-?\d+)<\/(?:int|i4)>$/);
+  if (m) return parseInt(m[1]);
+  m = v.match(/^<double>(-?[0-9.eE+\-]+)<\/double>$/);
+  if (m) return parseFloat(m[1]);
+  m = v.match(/^<boolean>([01])<\/boolean>$/);
+  if (m) return m[1] === "1";
+  m = v.match(/^<string>([\s\S]*)<\/string>$/);
+  if (m) return m[1].replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"');
+  /* Bare value (no wrapping element) — XML-RPC allows this for strings. */
+  if (/^-?\d+$/.test(v)) return parseInt(v);
+  if (/^-?\d+\.\d+$/.test(v)) return parseFloat(v);
+  return v || null;
 }

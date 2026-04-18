@@ -47,8 +47,8 @@ let T = THEMES.light;
 const DEFAULT_STATUSES = [
   {id:1,name:"تم القص",color:"#0EA5E9"},{id:2,name:"في التشغيل",color:"#F59E0B"},
   {id:3,name:"ملغي",color:"#EF4444"},{id:4,name:"في الغسيل",color:"#EC4899"},
-  {id:5,name:"تشطيب وتعبئة",color:"#10B981"},{id:6,name:"تم الشحن",color:"#059669"},
-  {id:7,name:"شحن جزئي",color:"#D97706"},{id:8,name:"تشغيل خارجي",color:"#8B5CF6"},
+  {id:5,name:"تشطيب وتعبئة",color:"#10B981"},{id:6,name:"تم التسليم لمخزن الجاهز",color:"#059669"},
+  {id:7,name:"في مخزن الجاهز جزئي",color:"#D97706"},{id:8,name:"تشغيل خارجي",color:"#8B5CF6"},
   {id:9,name:"في الطباعة",color:"#EF4444"},{id:10,name:"في التطريز",color:"#F59E0B"},
   {id:11,name:"تشطيب وتعبئة خارجي",color:"#14B8A6"},
 ];
@@ -102,10 +102,12 @@ function sortOrders(orders){return[...orders].filter(o=>o&&o.id).sort((a,b)=>(b.
 
 /* Smart status recompute based on data state */
 function recomputeStatus(o){
+  /* Closed orders always show as delivered to ready-stock. Highest priority. */
+  if(o.closed)return"تم التسليم لمخزن الجاهز";
   const t=calcOrder(o);const wds=o.workshopDeliveries||[];const dels=o.deliveries||[];
   const stockDel=dels.filter(d=>d.status!=="pending").reduce((s,d)=>s+(Number(d.qty)||0),0);
-  if(stockDel>=t.cutQty&&t.cutQty>0)return"تم الشحن";
-  if(stockDel>0)return"شحن جزئي";
+  if(stockDel>=t.cutQty&&t.cutQty>0)return"تم التسليم لمخزن الجاهز";
+  if(stockDel>0)return"في مخزن الجاهز جزئي";
   const pieces=o.orderPieces||[];
   if(wds.length>0){
     let totalWsDel=0,totalWsRcv=0;
@@ -131,6 +133,15 @@ function recomputeStatus(o){
     }
   }
   return"تم القص"
+}
+
+/* Migration helper: convert legacy status names to new ones.
+   Used on load (from Firestore) and as safety-net in aging/filter logic.
+   Non-destructive: returns the new name without modifying the order object. */
+function migrateStatus(status){
+  if(status==="تم التسليم"||status==="تم الشحن")return"تم التسليم لمخزن الجاهز";
+  if(status==="شحن جزئي")return"في مخزن الجاهز جزئي";
+  return status
 }
 
 function compressImage(file,maxW,quality){
@@ -771,7 +782,7 @@ export default function App(){
   const isDismissed=(key)=>dismissedAlerts.some(d=>d.key===key);
   const aiAlerts=useMemo(()=>{const a=[];const now=Date.now();const workshops=config.workshops||[];const wsPayments=config.wsPayments||[];
     /* 1. أوردرات متأخرة */
-    orders.forEach(o=>{if(o.closed||o.settlement||o.status==="تم التسليم"||o.status==="تم الشحن")return;const _t=calcOrder(o);const _stk=getConfirmedStock(o);if(_t.cutQty>0&&_stk>=_t.cutQty*0.85)return;const wds=o.workshopDeliveries||[];let lastDate=o.date;wds.forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});const days=Math.floor((now-new Date(lastDate))/(86400000));
+    orders.forEach(o=>{if(o.closed||o.settlement||o.status==="تم التسليم لمخزن الجاهز")return;const _t=calcOrder(o);const _stk=getConfirmedStock(o);if(_t.cutQty>0&&_stk>=_t.cutQty*0.85)return;const wds=o.workshopDeliveries||[];let lastDate=o.date;wds.forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});const days=Math.floor((now-new Date(lastDate))/(86400000));
       if(days>7)a.push({icon:"🔴",text:"موديل "+o.modelNo+" واقف من "+days+" يوم",type:"late",orderId:o.id,key:"late_"+o.id})});
     /* 2. أوردرات جاهزة للغلق */
     const _userName=user?.displayName||user?.email?.split("@")[0]||"";
@@ -843,7 +854,7 @@ export default function App(){
       newTasks.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),text,done:false,date:new Date().toISOString().split("T")[0],fromUid:"bot",fromEmail:"bot@clark",fromName:"🤖 CLARK Bot",toEmail,toName:toName||toEmail.split("@")[0],botKey:key})};
     atUsers.forEach(au=>{if(!au.email)return;const rules=au.rules||{};
       orders.forEach(o=>{
-        if(o.closed||o.settlement||o.status==="تم التسليم"||o.status==="تم الشحن")return;
+        if(o.closed||o.settlement||o.status==="تم التسليم لمخزن الجاهز")return;
         const t=calcOrder(o);const wds=o.workshopDeliveries||[];const hasFab=FKEYS.some(k=>o["fabric"+k]);
         if(!hasFab||t.cutQty===0)return;
         const daysSinceCut=Math.floor((now-new Date(o.date))/(86400000));
@@ -876,74 +887,225 @@ export default function App(){
   useEffect(()=>{const unsub=onAuthStateChanged(auth,u=>{setUser(u);setAuthLoading(false)});return unsub},[]);
   useEffect(()=>{if(!user)return;
     let salesReady=false;let tasksReady=false;
-    /* Main config */
-    const u1=onSnapshot(doc(db,"factory","config"),snap=>{if(snap.exists()){const d=snap.data();
-      /* One-time migration: swap MAIN CASH ↔ SUB CASH names */
-      if(!d._cashSwapDone){
-        const TEMP="__SWAP_TMP__";
-        const swap=(name)=>name==="MAIN CASH"?"SUB CASH":name==="SUB CASH"?"MAIN CASH":name;
-        let changed=false;
-        /* Accounts */
-        if(Array.isArray(d.treasuryAccounts)){
-          d.treasuryAccounts=d.treasuryAccounts.map(a=>{
-            if(typeof a==="string"){const ns=swap(a);if(ns!==a)changed=true;return ns}
-            const obj={...a};const nn=swap(obj.name);if(nn!==obj.name){obj.name=nn;obj.id=nn;changed=true}return obj});
+    /* ═══════════════════════════════════════════════════════════════════
+       🛡️ MIGRATION SAFETY FRAMEWORK
+       
+       Problem (V10 and earlier): Firestore offline persistence caches the
+       config doc locally. When a device that was offline for days reconnects,
+       onSnapshot fires FIRST with cached (stale) data, THEN with server data.
+       Migrations that ran on the cached data would blindly setDoc() to
+       Firestore — OVERWRITING newer data that existed on the server.
+       
+       Fix: Three layers of protection:
+       
+       1. Show cached data to user immediately (good UX), BUT only run
+          migrations when snap.metadata.fromCache === false — i.e. we are
+          confirmed to be reading from the live server.
+       
+       2. Before any migration writes, create a backup in Firestore:
+          backups/pre-migration-{type}-{timestamp}
+       
+       3. Every migration uses runTransaction() — the transaction re-reads
+          the config from the server inside the transaction, applies the
+          migration to THAT fresh data, and writes it back atomically.
+          This guarantees we never overwrite a newer version.
+       ═══════════════════════════════════════════════════════════════════ */
+
+    /* Helper: save a backup of the current config BEFORE running a migration */
+    const saveBackupBeforeMigration=async(migrationType,configData)=>{
+      try{
+        const ts=new Date().toISOString().replace(/[:.]/g,"-");
+        const backupId="pre-migration-"+migrationType+"-"+ts;
+        await setDoc(doc(db,"backups",backupId),{
+          label:"قبل ميجريشن: "+migrationType,
+          autoGenerated:true,
+          migrationType,
+          createdAt:new Date().toISOString(),
+          createdBy:user.email||"system",
+          config:configData||{},
+          counts:{
+            treasury:(configData?.treasury||[]).length,
+            employees:(configData?.employees||[]).length,
+            customers:(configData?.customers||[]).length,
+            wsPayments:(configData?.wsPayments||[]).length
+          }
+        });
+        console.log("🛡️ Pre-migration backup saved:",backupId);
+        return backupId;
+      }catch(e){
+        console.error("❌ Pre-migration backup FAILED:",e);
+        /* Critical: if we can't back up, we should NOT run the migration */
+        throw e;
+      }
+    };
+
+    /* Helper: log migration events to Firestore for audit trail */
+    const logMigration=async(migrationType,status,details)=>{
+      try{
+        await setDoc(doc(db,"migrationLog",migrationType+"-"+Date.now()),{
+          type:migrationType,status,details:details||"",
+          by:user.email||"system",at:new Date().toISOString()
+        });
+      }catch(e){console.warn("Migration log failed:",e)}
+    };
+
+    /* Helper: run a migration safely using a Firestore transaction.
+       - Reads config from SERVER inside transaction (not from cache)
+       - Calls shouldRun(server_data) to verify migration is still needed
+       - Calls applyFn(server_data) to apply the change (mutates server_data)
+       - Writes back atomically */
+    const runMigration=async(migrationType,d,shouldRun,applyFn)=>{
+      if(!shouldRun(d))return;/* Quick pre-check on cached data — skip if obviously done */
+      try{
+        /* Step 1: backup the current (cached) snapshot before touching anything */
+        await saveBackupBeforeMigration(migrationType,d);
+        /* Step 2: run inside transaction — re-reads from server to avoid stale writes */
+        let didRun=false;let details="";
+        await runTransaction(db,async(tx)=>{
+          const ref=doc(db,"factory","config");
+          const snap=await tx.get(ref);
+          if(!snap.exists())return;
+          const fresh=snap.data();
+          /* Re-check on fresh server data — maybe another device already did it */
+          if(!shouldRun(fresh)){console.log("⏭️ Migration "+migrationType+" already done on server, skipping");return}
+          const result=applyFn(fresh);/* mutates fresh, may return details string */
+          if(typeof result==="string")details=result;
+          tx.set(ref,fresh);
+          didRun=true;
+        });
+        if(didRun){
+          console.log("✅ Migration "+migrationType+" completed"+(details?": "+details:""));
+          await logMigration(migrationType,"success",details);
         }
-        /* Treasury entries */
-        if(Array.isArray(d.treasury)){d.treasury=d.treasury.map(t=>{const na=swap(t.account);if(na!==t.account){changed=true;return{...t,account:na}}return t})}
-        /* Transfers */
-        if(Array.isArray(d.treasuryTransfers)){d.treasuryTransfers=d.treasuryTransfers.map(tf=>{const nf=swap(tf.fromAccount);const nt=swap(tf.toAccount);if(nf!==tf.fromAccount||nt!==tf.toAccount){changed=true;return{...tf,fromAccount:nf,toAccount:nt}}return tf})}
-        /* Update transfer desc in treasury (contains account names in desc like "تحويل إلى MAIN CASH") */
-        if(Array.isArray(d.treasury)){d.treasury=d.treasury.map(t=>{if(t.desc&&(t.desc.includes("MAIN CASH")||t.desc.includes("SUB CASH"))){return{...t,desc:t.desc.replace(/MAIN CASH/g,TEMP).replace(/SUB CASH/g,"MAIN CASH").replace(new RegExp(TEMP,"g"),"SUB CASH")}}return t})}
-        d._cashSwapDone=true;
-        setDoc(doc(db,"factory","config"),d).then(()=>console.log("✅ MAIN/SUB CASH swap migration done, changed="+changed)).catch(e=>console.error("Swap migration error:",e));
+      }catch(e){
+        console.error("❌ Migration "+migrationType+" FAILED:",e);
+        await logMigration(migrationType,"failed",e.message||String(e));
       }
-      /* One-time migration: fix incomplete transfers (make sure every transfer has both IN and OUT entries) */
-      if(!d._transfersRepaired&&Array.isArray(d.treasuryTransfers)){
-        let repaired=false;
-        (d.treasuryTransfers||[]).forEach(tf=>{
-          if(tf.status==="cancelled")return;
-          const entries=(d.treasury||[]).filter(t=>t.transferId===tf.id);
-          const hasOut=entries.some(t=>t.type==="out");
-          const hasIn=entries.some(t=>t.type==="in");
-          const dayN=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(tf.date||new Date()).getDay()];
-          if(!hasOut&&tf.fromAccount){d.treasury=d.treasury||[];d.treasury.unshift({id:Math.random().toString(36).slice(2)+Date.now(),type:"out",amount:tf.amount,desc:"تحويل إلى "+tf.toAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.fromAccount,season:d.activeSeason||"",date:tf.date||new Date().toISOString().split("T")[0],day:dayN,transferId:tf.id,by:tf.sentBy||"",createdAt:new Date().toISOString()});repaired=true}
-          if(!hasIn&&tf.toAccount){d.treasury=d.treasury||[];d.treasury.unshift({id:Math.random().toString(36).slice(2)+Date.now(),type:"in",amount:tf.amount,desc:"تحويل من "+tf.fromAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.toAccount,season:d.activeSeason||"",date:tf.date||new Date().toISOString().split("T")[0],day:dayN,transferId:tf.id,by:tf.sentBy||"",createdAt:new Date().toISOString()});repaired=true}
-          /* Force status to confirmed */
-          if(tf.status!=="confirmed"){tf.status="confirmed";repaired=true}
-        });
-        d._transfersRepaired=true;
-        if(repaired)setDoc(doc(db,"factory","config"),d).then(()=>console.log("✅ Transfers repaired: missing entries added")).catch(e=>console.error("Transfer repair error:",e));
-      }
-      /* One-time migration: link ws payments with their treasury entries (by date + amount + workshop name in desc) */
-      if(!d._wsPayLinked&&Array.isArray(d.wsPayments)&&Array.isArray(d.treasury)){
-        let linked=0;
-        d.wsPayments.forEach(p=>{
-          if(p.treasuryTxId)return;/* already linked */
-          const candidate=(d.treasury||[]).find(t=>
-            !t.wsPaymentId&&
-            t.type==="out"&&
-            Number(t.amount)===Number(p.amount)&&
-            t.date===p.date&&
-            t.desc&&t.desc.includes(p.wsName)&&
-            (t.category==="تشغيل خارجي"||t.category==="مشتريات"));
-          if(candidate){p.treasuryTxId=candidate.id;candidate.wsPaymentId=p.id;candidate.wsName=p.wsName;candidate.sourceType="ws_payment";linked++}
-        });
-        d._wsPayLinked=true;
-        if(linked>0)setDoc(doc(db,"factory","config"),d).then(()=>console.log("✅ Linked "+linked+" ws payments")).catch(e=>console.error("WS link error:",e));
-      }
-      /* Phase 1: Copy data to separate docs (first time only) */
+    };
+
+    /* Main config listener */
+    const u1=onSnapshot(doc(db,"factory","config"),snap=>{
+      if(!snap.exists()){setDoc(doc(db,"factory","config"),INIT_CONFIG);return}
+      const d=snap.data();
+      /* ALWAYS show the data to the user (even if cached — that's fine for display) */
+      setConfigDoc(d);
+      /* ⛔ Skip ALL migrations if data is from local cache or has pending writes.
+         Wait for the first confirmed server snapshot before running any migration. */
+      if(snap.metadata.fromCache){console.log("📦 Config from cache — migrations deferred until server sync");return}
+      if(snap.metadata.hasPendingWrites)return;
+
+      /* ═══ Migration 1: swap MAIN CASH ↔ SUB CASH names ═══ */
+      runMigration("cash-swap",d,
+        (data)=>!data._cashSwapDone,
+        (data)=>{
+          const TEMP="__SWAP_TMP__";
+          const swap=(name)=>name==="MAIN CASH"?"SUB CASH":name==="SUB CASH"?"MAIN CASH":name;
+          let changed=false;
+          if(Array.isArray(data.treasuryAccounts)){
+            data.treasuryAccounts=data.treasuryAccounts.map(a=>{
+              if(typeof a==="string"){const ns=swap(a);if(ns!==a)changed=true;return ns}
+              const obj={...a};const nn=swap(obj.name);if(nn!==obj.name){obj.name=nn;obj.id=nn;changed=true}return obj});
+          }
+          if(Array.isArray(data.treasury))data.treasury=data.treasury.map(t=>{const na=swap(t.account);if(na!==t.account){changed=true;return{...t,account:na}}return t});
+          if(Array.isArray(data.treasuryTransfers))data.treasuryTransfers=data.treasuryTransfers.map(tf=>{const nf=swap(tf.fromAccount);const nt=swap(tf.toAccount);if(nf!==tf.fromAccount||nt!==tf.toAccount){changed=true;return{...tf,fromAccount:nf,toAccount:nt}}return tf});
+          if(Array.isArray(data.treasury))data.treasury=data.treasury.map(t=>{if(t.desc&&(t.desc.includes("MAIN CASH")||t.desc.includes("SUB CASH"))){return{...t,desc:t.desc.replace(/MAIN CASH/g,TEMP).replace(/SUB CASH/g,"MAIN CASH").replace(new RegExp(TEMP,"g"),"SUB CASH")}}return t});
+          data._cashSwapDone=true;
+          return"changed="+changed;
+        }
+      );
+
+      /* ═══ Migration 2: fix incomplete transfers ═══ */
+      runMigration("transfers-repair",d,
+        (data)=>!data._transfersRepaired&&Array.isArray(data.treasuryTransfers),
+        (data)=>{
+          let repaired=false;
+          (data.treasuryTransfers||[]).forEach(tf=>{
+            if(tf.status==="cancelled")return;
+            const entries=(data.treasury||[]).filter(t=>t.transferId===tf.id);
+            const hasOut=entries.some(t=>t.type==="out");
+            const hasIn=entries.some(t=>t.type==="in");
+            const dayN=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(tf.date||new Date()).getDay()];
+            if(!hasOut&&tf.fromAccount){data.treasury=data.treasury||[];data.treasury.unshift({id:Math.random().toString(36).slice(2)+Date.now(),type:"out",amount:tf.amount,desc:"تحويل إلى "+tf.toAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.fromAccount,season:data.activeSeason||"",date:tf.date||new Date().toISOString().split("T")[0],day:dayN,transferId:tf.id,by:tf.sentBy||"",createdAt:new Date().toISOString()});repaired=true}
+            if(!hasIn&&tf.toAccount){data.treasury=data.treasury||[];data.treasury.unshift({id:Math.random().toString(36).slice(2)+Date.now(),type:"in",amount:tf.amount,desc:"تحويل من "+tf.fromAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.toAccount,season:data.activeSeason||"",date:tf.date||new Date().toISOString().split("T")[0],day:dayN,transferId:tf.id,by:tf.sentBy||"",createdAt:new Date().toISOString()});repaired=true}
+            if(tf.status!=="confirmed"){tf.status="confirmed";repaired=true}
+          });
+          data._transfersRepaired=true;
+          return"repaired="+repaired;
+        }
+      );
+
+      /* ═══ Migration 3: link ws payments with treasury entries ═══ */
+      runMigration("ws-payment-linking",d,
+        (data)=>!data._wsPayLinked&&Array.isArray(data.wsPayments)&&Array.isArray(data.treasury),
+        (data)=>{
+          let linked=0;
+          data.wsPayments.forEach(p=>{
+            if(p.treasuryTxId)return;
+            const candidate=(data.treasury||[]).find(t=>
+              !t.wsPaymentId&&t.type==="out"&&Number(t.amount)===Number(p.amount)&&t.date===p.date&&t.desc&&t.desc.includes(p.wsName)&&(t.category==="تشغيل خارجي"||t.category==="مشتريات"));
+            if(candidate){p.treasuryTxId=candidate.id;candidate.wsPaymentId=p.id;candidate.wsName=p.wsName;candidate.sourceType="ws_payment";linked++}
+          });
+          data._wsPayLinked=true;
+          return"linked="+linked;
+        }
+      );
+
+      /* ═══ Migration 4: rename legacy status cards ═══ */
+      runMigration("status-rename",d,
+        (data)=>!data._statusRenameDone&&Array.isArray(data.statusCards),
+        (data)=>{
+          let renamed=false;
+          data.statusCards=data.statusCards.map(c=>{
+            if(!c||!c.name)return c;
+            if(c.name==="تم الشحن"||c.name==="تم التسليم"){renamed=true;return{...c,name:"تم التسليم لمخزن الجاهز"}}
+            if(c.name==="شحن جزئي"){renamed=true;return{...c,name:"في مخزن الجاهز جزئي"}}
+            return c;
+          });
+          const seen=new Set();
+          data.statusCards=data.statusCards.filter(c=>{if(!c||!c.name)return false;if(seen.has(c.name))return false;seen.add(c.name);return true});
+          data._statusRenameDone=true;
+          return"renamed="+renamed;
+        }
+      );
+
+      /* ═══ Migration 5: Phase 1 — copy data to separate docs ═══
+         Note: this migration writes to sales/tasks docs (not config) before
+         setting _splitDone. We handle it differently from the others. */
       if(!d._splitDone&&(d.custDeliverySessions||d.packages||d.tasks||d.stickyNotes||d.inventoryAudits)){
-        const salesData={custDeliverySessions:d.custDeliverySessions||[],packages:d.packages||[]};
-        const tasksData={tasks:d.tasks||[],stickyNotes:d.stickyNotes||[],inventoryAudits:d.inventoryAudits||[]};
-        Promise.all([setDoc(doc(db,"factory","sales"),salesData),setDoc(doc(db,"factory","tasks"),tasksData)]).then(()=>{
-          /* Mark as split but KEEP data until phase 2 */
-          setDoc(doc(db,"factory","config"),{...d,_splitDone:true});console.log("✅ Phase 1: data copied to sales+tasks")}).catch(e=>console.error("Split error:",e))}
-      /* Phase 2: Clean config ONLY if sales+tasks docs already loaded */
+        (async()=>{
+          try{
+            await saveBackupBeforeMigration("split-phase-1",d);
+            await runTransaction(db,async(tx)=>{
+              const ref=doc(db,"factory","config");
+              const snap=await tx.get(ref);
+              if(!snap.exists())return;
+              const fresh=snap.data();
+              if(fresh._splitDone)return;
+              const salesData={custDeliverySessions:fresh.custDeliverySessions||[],packages:fresh.packages||[]};
+              const tasksData={tasks:fresh.tasks||[],stickyNotes:fresh.stickyNotes||[],inventoryAudits:fresh.inventoryAudits||[]};
+              tx.set(doc(db,"factory","sales"),salesData);
+              tx.set(doc(db,"factory","tasks"),tasksData);
+              tx.set(ref,{...fresh,_splitDone:true});
+            });
+            console.log("✅ Migration split-phase-1 completed");
+            await logMigration("split-phase-1","success","");
+          }catch(e){console.error("❌ split-phase-1 FAILED:",e);await logMigration("split-phase-1","failed",e.message||String(e))}
+        })();
+      }
+
+      /* ═══ Migration 6: Phase 2 — clean config after split is verified ═══ */
       if(d._splitDone&&d.custDeliverySessions&&salesReady&&tasksReady){
-        const clean={...d};delete clean.custDeliverySessions;delete clean.packages;delete clean.tasks;delete clean.stickyNotes;delete clean.inventoryAudits;
-        setDoc(doc(db,"factory","config"),clean);console.log("✅ Phase 2: config cleaned")}
-      setConfigDoc(d)}else setDoc(doc(db,"factory","config"),INIT_CONFIG)});
+        runMigration("split-phase-2",d,
+          (data)=>data._splitDone&&data.custDeliverySessions!==undefined,
+          (data)=>{
+            delete data.custDeliverySessions;delete data.packages;
+            delete data.tasks;delete data.stickyNotes;delete data.inventoryAudits;
+            return"cleaned";
+          }
+        );
+      }
+    });
+
     /* Sales doc */
     const u2=onSnapshot(doc(db,"factory","sales"),snap=>{if(snap.exists()){if(snap.metadata.hasPendingWrites)return;salesReady=true;setSalesDoc(snap.data())}});
     /* Tasks doc */
@@ -954,7 +1116,7 @@ export default function App(){
   useEffect(()=>{if(!configDoc||!configDoc.accessories)return;
     try{const snap={workshops:configDoc.workshops||[],customers:configDoc.customers||[],suppliers:configDoc.suppliers||[],fabrics:configDoc.fabrics||[],accessories:configDoc.accessories||[],sizeSets:configDoc.sizeSets||[],garmentTypes:configDoc.garmentTypes||[],statusCards:configDoc.statusCards||[],employees:configDoc.employees||[],treasuryAccounts:configDoc.treasuryAccounts||[],savedAt:new Date().toISOString()};
       localStorage.setItem("clark-data-snapshot",JSON.stringify(snap))}catch(e){}},[configDoc]);
-  useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>({_docId:d.id,...d.data()})).filter(o=>o.id));setDataLoading(false)});return()=>unsub()},[user,season]);
+  useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>{const o={_docId:d.id,...d.data()};if(o.status)o.status=migrateStatus(o.status);return o}).filter(o=>o.id));setDataLoading(false)});return()=>unsub()},[user,season]);
 
   /* ═══ AUTO-BACKUP: once per day per user ═══ */
   useEffect(()=>{
@@ -1175,7 +1337,7 @@ export default function App(){
       if(pieces.length>0){const t=calcOrder(o);pieces.forEach(p=>{if(!linkedPieces.has(p))return;const delivered=wds.some(wd=>wd.garmentType===p);if(!delivered)a.push({msg:o.modelNo+" — "+p+" ("+t.cutQty+" قطعة) متاح للتسليم والتشغيل",color:T.warn,icon:"🏭",orderId:o.id})})}
     });
     /* Delay alerts */
-    const now=new Date();data.orders.filter(o=>o.status!=="تم الشحن").forEach(o=>{let lastDate=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});const diff=Math.floor((now-new Date(lastDate))/(1000*60*60*24));if(diff>7&&!a.find(x=>x.orderId===o.id))a.push({msg:o.modelNo+" بدون حركة منذ "+diff+" يوم",color:T.err,icon:"🔴",orderId:o.id})});
+    const now=new Date();data.orders.filter(o=>o.status!=="تم التسليم لمخزن الجاهز").forEach(o=>{let lastDate=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});const diff=Math.floor((now-new Date(lastDate))/(1000*60*60*24));if(diff>7&&!a.find(x=>x.orderId===o.id))a.push({msg:o.modelNo+" بدون حركة منذ "+diff+" يوم",color:T.err,icon:"🔴",orderId:o.id})});
     /* Completion */
     const _cutQ=data.orders.reduce((s,o)=>s+calcOrder(o).cutQty,0);const _delQ=data.orders.reduce((s,o)=>s+(o.deliveredQty||0),0);if(_cutQ&&Math.round(_delQ/_cutQ*100)>=100)a.push({msg:"تم الانتهاء من جميع الأوردرات!",color:T.ok,icon:"🎉"});
     /* Workshop limit */
@@ -1375,9 +1537,9 @@ export default function App(){
             {/* ── Center 50%: App Grid + Actions ── */}
             <div style={{flex:"0 0 50%",minWidth:0}}>
               <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10}}>
-                {[...TABS.filter(t=>canViewTab(t.key))].sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0).map(t=>{const perm=getTabPerm(t.key);const isOdoo=!!T.navBg;return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:isOdoo?10:12,padding:isOdoo?"10px 6px":"8px 6px",border:"1px solid "+T.brd,boxShadow:isOdoo?"0 1px 4px rgba(0,0,0,0.04)":T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s",opacity:perm==="view"?0.75:1,position:"relative",aspectRatio:"1",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow=isOdoo?"0 6px 20px rgba(113,75,103,0.12)":"0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=isOdoo?"0 1px 4px rgba(0,0,0,0.04)":T.shadow}}>
-                  <div style={{width:isOdoo?42:38,height:isOdoo?42:38,borderRadius:isOdoo?12:10,background:isOdoo?t.color+"15":t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 6px",fontSize:isOdoo?22:20,...(isOdoo?{border:"1px solid "+t.color+"20"}:{})}}>{t.icon}</div>
-                  <div style={{fontSize:FS-2,fontWeight:700,color:T.text}}>{t.label}</div>
+                {[...TABS.filter(t=>canViewTab(t.key))].sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0).map(t=>{const perm=getTabPerm(t.key);const isOdoo=!!T.navBg;return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:isOdoo?12:14,padding:"14px 8px",border:"1px solid "+T.brd,boxShadow:isOdoo?"0 1px 4px rgba(0,0,0,0.04)":T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s,box-shadow 0.15s",opacity:perm==="view"?0.75:1,position:"relative",aspectRatio:"1",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow=isOdoo?"0 6px 20px rgba(113,75,103,0.12)":"0 8px 30px rgba(0,0,0,0.12)"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=isOdoo?"0 1px 4px rgba(0,0,0,0.04)":T.shadow}}>
+                  <div style={{width:isOdoo?58:54,height:isOdoo?58:54,borderRadius:isOdoo?14:12,background:isOdoo?t.color+"15":t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px",fontSize:isOdoo?30:28,...(isOdoo?{border:"1px solid "+t.color+"20"}:{})}}>{t.icon}</div>
+                  <div style={{fontSize:FS+1,fontWeight:800,color:T.text,lineHeight:1.2}}>{t.label}</div>
                   {perm==="view"&&<div style={{position:"absolute",top:4,left:4,fontSize:8,padding:"1px 4px",borderRadius:3,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
                 </div>})}
               </div>
@@ -1415,9 +1577,9 @@ export default function App(){
           </div>
           :<div>{/* ══ Mobile + Tablet ══ */}
             <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:10}}>
-              {[...TABS.filter(t=>canViewTab(t.key))].sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0).map(t=>{const perm=getTabPerm(t.key);const isOdoo=!!T.navBg;return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:isOdoo?10:12,padding:isOdoo?"10px 6px":"8px 6px",border:"1px solid "+T.brd,boxShadow:isOdoo?"0 1px 4px rgba(0,0,0,0.04)":T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",opacity:perm==="view"?0.75:1,position:"relative",width:isTab?"calc(25% - 8px)":"calc(33.33% - 8px)",boxSizing:"border-box",aspectRatio:"1",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
-                <div style={{width:isOdoo?40:36,height:isOdoo?40:36,borderRadius:isOdoo?12:10,background:isOdoo?t.color+"15":t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 6px",fontSize:isOdoo?20:18,...(isOdoo?{border:"1px solid "+t.color+"20"}:{})}}>{t.icon}</div>
-                <div style={{fontSize:FS-3,fontWeight:700,color:T.text}}>{t.label}</div>
+              {[...TABS.filter(t=>canViewTab(t.key))].sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0).map(t=>{const perm=getTabPerm(t.key);const isOdoo=!!T.navBg;return<div key={t.key} onClick={()=>goTo(t.key)} style={{background:T.cardSolid,borderRadius:isOdoo?12:14,padding:"14px 8px",border:"1px solid "+T.brd,boxShadow:isOdoo?"0 1px 4px rgba(0,0,0,0.04)":T.shadow,cursor:"pointer",textAlign:"center",transition:"transform 0.15s",opacity:perm==="view"?0.75:1,position:"relative",width:isTab?"calc(25% - 8px)":"calc(33.33% - 8px)",boxSizing:"border-box",aspectRatio:"1",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+                <div style={{width:isOdoo?56:52,height:isOdoo?56:52,borderRadius:isOdoo?14:12,background:isOdoo?t.color+"15":t.bg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px",fontSize:isOdoo?28:26,...(isOdoo?{border:"1px solid "+t.color+"20"}:{})}}>{t.icon}</div>
+                <div style={{fontSize:FS,fontWeight:800,color:T.text,lineHeight:1.2}}>{t.label}</div>
                 {perm==="view"&&<div style={{position:"absolute",top:6,left:6,fontSize:9,padding:"1px 6px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
               </div>})}
             </div>
@@ -1969,7 +2131,7 @@ function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,setCardPo
       </Card>})()}
 
     {/* ═══ DELAYS BOARD ═══ */}
-    {(()=>{const now=new Date();const delayed=orders.filter(o=>{if(o.status==="تم التسليم"||o.status==="تم الشحن")return false;let ld=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>ld)ld=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>ld)ld=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>ld)ld=d.date});return Math.floor((now-new Date(ld))/(1000*60*60*24))>7}).map(o=>{let ld=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>ld)ld=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>ld)ld=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>ld)ld=d.date});return{...o,ageDays:Math.floor((now-new Date(ld))/(1000*60*60*24))}}).sort((a,b)=>b.ageDays-a.ageDays);
+    {(()=>{const now=new Date();const delayed=orders.filter(o=>{if(o.status==="تم التسليم لمخزن الجاهز")return false;let ld=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>ld)ld=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>ld)ld=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>ld)ld=d.date});return Math.floor((now-new Date(ld))/(1000*60*60*24))>7}).map(o=>{let ld=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>ld)ld=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>ld)ld=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>ld)ld=d.date});return{...o,ageDays:Math.floor((now-new Date(ld))/(1000*60*60*24))}}).sort((a,b)=>b.ageDays-a.ageDays);
       return delayed.length>0&&<Card title={"🚨 لوحة المتأخرات ("+delayed.length+")"} style={{marginTop:16}}>
         <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","الوصف","الحالة","آخر حركة","أيام التأخر"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
         <tbody>{delayed.map(o=><tr key={o.id} style={{cursor:"pointer",background:o.ageDays>14?T.err+"06":""}} onClick={()=>goD(o.id)}>
@@ -2516,7 +2678,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
 
   if(!order){
     const filtered=data.orders.filter(o=>{
-      if(detSt==="⚠️"){const _now=new Date();let _ld=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>_ld)_ld=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>_ld)_ld=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>_ld)_ld=d.date});if(Math.floor((_now-new Date(_ld))/(1000*60*60*24))<=7||o.status==="تم التسليم"||o.status==="تم الشحن")return false}
+      if(detSt==="⚠️"){const _now=new Date();let _ld=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>_ld)_ld=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>_ld)_ld=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>_ld)_ld=d.date});if(Math.floor((_now-new Date(_ld))/(1000*60*60*24))<=7||o.status==="تم التسليم لمخزن الجاهز")return false}
       if(detSt!=="الكل"&&detSt!=="⚠️"&&o.status!==detSt)return false;
       if(detQ.trim()){const s=detQ.trim().toLowerCase();const h=[o.modelNo,o.modelDesc,o.sizeLabel,o.status].filter(Boolean).join(" ").toLowerCase();if(!h.includes(s))return false}
       return true
@@ -2540,7 +2702,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
           /* Age coloring */
           const now=new Date();let lastDate=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});
           const ageDays=Math.floor((now-new Date(lastDate))/(1000*60*60*24));
-          const isStale=ageDays>7&&o.status!=="تم التسليم"&&o.status!=="تم الشحن";
+          const isStale=ageDays>7&&o.status!=="تم التسليم لمخزن الجاهز";
           const isSent=waSent[o.id]&&(Date.now()-waSent[o.id]<60000);
           return<div key={o.id} data-oid={o.id} style={{display:"flex",gap:16,padding:16,background:isSent?T.ok+"08":T.cardSolid,borderRadius:16,border:isSent?"2px solid "+T.ok+"40":isStale?"2px solid "+T.err+"60":"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",alignItems:"flex-start",position:"relative",transition:"all 0.3s"}} onClick={()=>setSel(o.id)}>
           {canEdit&&!hasData&&<div onClick={e=>{e.stopPropagation()}} style={{position:"absolute",top:8,left:8}}><DelBtn onConfirm={()=>delOrder(o.id)}/></div>}
@@ -2643,7 +2805,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
           {canEdit&&<div onClick={()=>{if(confirm("حذف صورة الأوردر؟"))updOrder(sel,o=>{o.image=""})}} style={{position:"absolute",top:2,right:2,width:18,height:18,borderRadius:9,background:"rgba(0,0,0,0.6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:9}}>✕</div>}
         </div>}
         <div style={{flex:1,display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(2,1fr)":"repeat(4,1fr)",gap:isMob?6:12}}>
-          <MetricCard label="كمية القص" value={t.cutQty} icon="✂️" color={T.accent}/><MetricCard label="تم التسليم" value={order.deliveredQty||0} icon="📦" color={T.ok}/><MetricCard label="الرصيد" value={t.balance} icon="📊" color={t.balance>0?T.warn:T.ok}/><MetricCard label="تكلفة القطعة" value={t.costPer+" ج.م"} icon="💰" color={T.accent}/>
+          <MetricCard label="كمية القص" value={t.cutQty} icon="✂️" color={T.accent}/><MetricCard label="في المخزن الجاهز" value={order.deliveredQty||0} icon="📦" color={T.ok}/><MetricCard label="الرصيد" value={t.balance} icon="📊" color={t.balance>0?T.warn:T.ok}/><MetricCard label="تكلفة القطعة" value={t.costPer+" ج.م"} icon="💰" color={T.accent}/>
         </div>
         {/* Cost warning */}
         {(()=>{const pieces=order.orderPieces||[];if(pieces.length<=1)return null;const linked=new Set();FKEYS.forEach(k=>{if(gf(order,k))(order["fabricPieces"+k]||[]).forEach(p=>linked.add(p))});const missing=pieces.filter(p=>!linked.has(p));if(missing.length===0)return null;
@@ -2834,7 +2996,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
                 <div style={{padding:12,borderRadius:10,background:T.ok+"08",border:"1px solid "+T.ok+"20",marginBottom:10,textAlign:"center"}}>
                   <span style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>✅ تم تسليم كامل الكمية للمخزن</span>
                 </div>
-                {canEdit&&<Btn primary onClick={()=>updOrder(sel,o=>{o.closed=true;o.status="تم التسليم"})}>🔒 غلق الأوردر</Btn>}
+                {canEdit&&<Btn primary onClick={()=>updOrder(sel,o=>{o.closed=true;o.status="تم التسليم لمخزن الجاهز"})}>🔒 غلق الأوردر</Btn>}
               </div>
               :<div>
                 <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12,marginBottom:12}}>
@@ -2881,7 +3043,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
                             if(bal>0){if(!wd.receives)wd.receives=[];wd.receives.push({date:new Date().toISOString().split("T")[0],qty:bal,notes:"⚖️ تسوية — "+settReason,price:Number(wd.price)||0,amount:r2(bal*(Number(wd.price)||0)),quality:"تسوية",createdBy:userName||"",isSettlement:true});
                               wsSettled.push({wsName:wd.wsName,garment:wd.garmentType||"",qty:bal})}});
                           o.settlement={qty:remain,reason:settReason,notes:settNotes,cost:settCost,date:new Date().toISOString().split("T")[0],createdBy:userName||"",wsSettled};
-                          o.closed=true;o.status="تم التسليم"});setSettReason("");setSettNotes("")}} style={{background:T.err,color:"#fff",border:"none",fontWeight:700}}>⚖️ تسوية + غلق</Btn>
+                          o.closed=true;o.status="تم التسليم لمخزن الجاهز"});setSettReason("");setSettNotes("")}} style={{background:T.err,color:"#fff",border:"none",fontWeight:700}}>⚖️ تسوية + غلق</Btn>
                       <Btn onClick={()=>{if(!settReason){showToast("⚠️ اختر سبب التسوية");return}
                         updOrder(sel,o=>{
                           const wsSettled=[];
@@ -4026,7 +4188,7 @@ function UncutReport({data,isMob,season}){
           </div>}
         </div>
         <Btn onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>
-        <Btn onClick={exportXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}} title="تحليل المبيعات" title="تصدير اكسل">📊</Btn>
+        <Btn onClick={exportXls} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}} title="تصدير اكسل">📊</Btn>
       </div>
     </div>
     {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
@@ -4432,9 +4594,9 @@ function RepPg({data,isMob,season,statusCards}){
     <div id="rep-area">
       <h1 style={{fontSize:isMob?18:24,fontWeight:800,margin:"0 0 4px",color:T.accent}}>تقرير قص وانتاج المصنع</h1>
       <div className="sub" style={{fontSize:FS-1,color:T.textSec,marginBottom:12}}>{"الموسم: "+season+" | "+list.length+" موديل | "+today}</div>
-      {(()=>{const inProd=list.filter(o=>o.status==="في التشغيل").length;const finishing=list.filter(o=>o.status==="تشطيب وتعبئة").length;const shipped=list.filter(o=>o.status==="تم الشحن").length;const balance=cutQ-delQ;
+      {(()=>{const inProd=list.filter(o=>o.status==="في التشغيل").length;const finishing=list.filter(o=>o.status==="تشطيب وتعبئة").length;const shipped=list.filter(o=>o.status==="تم التسليم لمخزن الجاهز").length;const balance=cutQ-delQ;
         return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(5,1fr)",gap:8,marginBottom:14}}>
-          {[["عدد الموديلات",list.length,"📋",T.accent],["تسليم مخزن",fmt(delQ),"📦",T.ok],["تشطيب وتعبئة",finishing,"🏭","#8B5CF6"],["في التشغيل",inProd,"⚡","#F59E0B"],["رصيد المصنع",fmt(balance),"📊",balance>0?T.err:T.ok]].map(([l,v,ic,c],i)=>
+          {[["عدد الموديلات",list.length,"📋",T.accent],["في المخزن الجاهز",shipped,"✅","#059669"],["تشطيب وتعبئة",finishing,"🏭","#8B5CF6"],["في التشغيل",inProd,"⚡","#F59E0B"],["رصيد المصنع",fmt(balance),"📊",balance>0?T.err:T.ok]].map(([l,v,ic,c],i)=>
             <div key={i} style={{padding:"10px 8px",borderRadius:10,border:"1px solid "+T.brd,background:T.cardSolid,textAlign:"center"}}><div style={{fontSize:16,marginBottom:2}}>{ic}</div><div style={{fontSize:FS+4,fontWeight:800,color:c}}>{v}</div><div style={{fontSize:FS-2,color:T.textSec}}>{l}</div></div>)}
         </div>})()}
       <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
@@ -4559,7 +4721,7 @@ function TasksPg({data,upConfig,upTasks,isMob,user,userRole}){
 /* ══ ORDER AGE REPORT ══ */
 function OrderAgeReport({data,isMob,season,statusCards}){
   const orders=data.orders||[];const now=new Date();
-  const rows=orders.filter(o=>o.status!=="تم التسليم"&&o.status!=="تم الشحن").map(o=>{
+  const rows=orders.filter(o=>o.status!=="تم التسليم لمخزن الجاهز").map(o=>{
     const startDate=new Date(o.date||o.createdAt||now);const days=Math.max(0,Math.floor((now-startDate)/(1000*60*60*24)));
     let lastMove=o.date||"";(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>lastMove)lastMove=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastMove)lastMove=r.date})});
     const stale=Math.max(0,Math.floor((now-new Date(lastMove||o.date))/(1000*60*60*24)));
@@ -5739,7 +5901,7 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
                   <div style={{fontSize:FS-2,color:T.textMut}}>{(a.fromDate||"")+(a.fromDate?" → "+(a.toDate||""):"")+" | "+totalQ+" قطعة مباعة"}</div></div>
               </div>
               <div style={{display:"flex",gap:4}} onClick={e=>e.stopPropagation()}>
-                <Btn small onClick={()=>setShowAuditAnalysis(a.id)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="تحليل المبيعات" title="تصدير اكسل">📊</Btn>
+                <Btn small onClick={()=>setShowAuditAnalysis(a.id)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="تحليل المبيعات">📊</Btn>
                 {canEdit&&<DelBtn onConfirm={()=>delAudit(a.id)}/>}
               </div>
             </div>
@@ -7070,6 +7232,9 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
   /* Odoo account mapping — local state to avoid live-save issues */
   const[localMap,setLocalMap]=useState(()=>({...(config.odooSettings?.accountMapping||{})}));
   const[mapSaved,setMapSaved]=useState(false);
+  /* Odoo mapping test state — per-category result: {status:'ok'|'bad'|'empty', msg?} */
+  const[mapTestResults,setMapTestResults]=useState({});
+  const[mapTesting,setMapTesting]=useState(false);
   /* Keep localMap in sync when config loads/changes (e.g. on page reload) */
   useEffect(()=>{const m=config.odooSettings?.accountMapping;if(m&&Object.keys(m).length>0){setLocalMap(prev=>{const merged={...prev};Object.entries(m).forEach(([k,v])=>{if(!merged[k])merged[k]=v});return merged})}},[config.odooSettings?.accountMapping]);
   /* Admin password gate */
@@ -7321,17 +7486,53 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
           </div>
           <div style={{marginTop:12,borderTop:"1px solid "+T.brd,paddingTop:12}}>
             <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>📋 ربط التصنيفات بحسابات Odoo</div>
-            <div style={{fontSize:FS-2,color:T.textMut,marginBottom:8}}>اكتب كود الحساب في Odoo لكل تصنيف ثم اضغط حفظ.</div>
+            <div style={{fontSize:FS-2,color:T.textMut,marginBottom:8}}>اكتب كود الحساب في Odoo لكل تصنيف، اضغط حفظ، ثم اضغط "اختبار الربط" للتأكد من وجود كل الحسابات في Odoo قبل التزامن.</div>
             {(()=>{
               const saveMap=()=>{upConfig(d=>{if(!d.odooSettings)d.odooSettings={};d.odooSettings.accountMapping={...localMap}});setMapSaved(true);showToast("✅ تم حفظ ربط الحسابات");setTimeout(()=>setMapSaved(false),2000)};
+              /* Test mapping: call find_account for each non-empty code and record result */
+              const testMapping=async()=>{
+                if(!os.url||!os.db||!os.user||!os.apiKey){showToast("⚠️ أكمل إعدادات Odoo أولاً");return}
+                setMapTesting(true);setMapTestResults({});
+                const results={};
+                const entries=Object.entries(localMap).filter(([k,v])=>v&&v.trim());
+                if(entries.length===0){showToast("⚠️ لا توجد أكواد حسابات للاختبار");setMapTesting(false);return}
+                /* Also test the default account + cash account if set */
+                const extraTests=[];
+                if(os.cashAccountCode&&os.cashAccountCode.trim())extraTests.push(["__cash__",os.cashAccountCode.trim()]);
+                if(os.defaultAccountCode&&os.defaultAccountCode.trim())extraTests.push(["__default__",os.defaultAccountCode.trim()]);
+                const allTests=[...entries,...extraTests];
+                for(const[cat,code]of allTests){
+                  try{
+                    const r=await fetch("/api/odoo-sync",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"find_account",odooUrl:os.url,odooDb:os.db,odooUser:os.user,odooKey:os.apiKey,payload:{accountCode:code.trim()}})});
+                    const d=await r.json();
+                    if(r.ok&&d.accountId){results[cat]={status:"ok",msg:"ID: "+d.accountId}}
+                    else{results[cat]={status:"bad",msg:d.error||"غير موجود"}}
+                  }catch(e){results[cat]={status:"bad",msg:e.message}}
+                  setMapTestResults({...results});/* Update UI progressively */
+                }
+                setMapTesting(false);
+                const okCount=Object.values(results).filter(r=>r.status==="ok").length;
+                const badCount=Object.values(results).filter(r=>r.status==="bad").length;
+                if(badCount===0)showToast("✅ كل الحسابات موجودة في Odoo ("+okCount+")");
+                else showToast("⚠️ "+okCount+" ناجح، "+badCount+" فشل — راجع النتائج")
+              };
               return<div>
                 <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:6}}>
-                  {allCats.map(cat=><div key={cat} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 0"}}>
+                  {allCats.map(cat=>{const res=mapTestResults[cat];return<div key={cat} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 0"}}>
                     <span style={{fontSize:FS-2,fontWeight:600,color:outCats.includes(cat)?T.err:T.ok,minWidth:130,textAlign:"right"}}>{outCats.includes(cat)?"📤":"📥"} {cat}</span>
-                    <input value={localMap[cat]||""} onChange={e=>setLocalMap(p=>({...p,[cat]:e.target.value}))} placeholder="كود الحساب" style={{flex:1,padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg,color:T.text,maxWidth:120,direction:"ltr",textAlign:"center"}}/>
-                  </div>)}
+                    <input value={localMap[cat]||""} onChange={e=>setLocalMap(p=>({...p,[cat]:e.target.value}))} placeholder="كود الحساب" style={{flex:1,padding:"4px 8px",borderRadius:6,border:"1px solid "+(res?.status==="ok"?T.ok:res?.status==="bad"?T.err:T.brd),fontSize:FS-2,fontFamily:"inherit",background:T.inputBg,color:T.text,maxWidth:120,direction:"ltr",textAlign:"center"}}/>
+                    {res&&<span style={{fontSize:FS-3,fontWeight:700,color:res.status==="ok"?T.ok:T.err,minWidth:20}} title={res.msg}>{res.status==="ok"?"✅":"❌"}</span>}
+                  </div>})}
                 </div>
-                <div style={{marginTop:10}}><Btn primary onClick={saveMap}>{mapSaved?"✅ تم الحفظ":"💾 حفظ ربط الحسابات"}</Btn></div>
+                {/* Extra tests for cash + default accounts */}
+                {(mapTestResults.__cash__||mapTestResults.__default__)&&<div style={{marginTop:8,padding:8,background:T.bg,borderRadius:6,fontSize:FS-2}}>
+                  {mapTestResults.__cash__&&<div style={{color:mapTestResults.__cash__.status==="ok"?T.ok:T.err,fontWeight:600}}>{mapTestResults.__cash__.status==="ok"?"✅":"❌"} حساب الخزينة ({os.cashAccountCode}): {mapTestResults.__cash__.msg}</div>}
+                  {mapTestResults.__default__&&<div style={{color:mapTestResults.__default__.status==="ok"?T.ok:T.err,fontWeight:600}}>{mapTestResults.__default__.status==="ok"?"✅":"❌"} الحساب الافتراضي ({os.defaultAccountCode}): {mapTestResults.__default__.msg}</div>}
+                </div>}
+                <div style={{marginTop:10,display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <Btn primary onClick={saveMap}>{mapSaved?"✅ تم الحفظ":"💾 حفظ ربط الحسابات"}</Btn>
+                  <Btn onClick={testMapping} disabled={mapTesting||!os.url||!os.apiKey} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}}>{mapTesting?"⏳ جاري اختبار الحسابات...":"🧪 اختبار ربط الحسابات"}</Btn>
+                </div>
               </div>})()}
           </div>
         </div>})()}
