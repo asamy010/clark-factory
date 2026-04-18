@@ -9619,16 +9619,51 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     const totalGross=records.reduce((s,r)=>s+r.grossPay,0);
     const totalThursdayPay=records.reduce((s,r)=>s+r.thursdayPay,0);
     const totalRemaining=records.reduce((s,r)=>s+r.remainingBalance,0);
+    /* ═══════════════════════════════════════════════════════════════════
+       🛡️ PRE-APPROVAL SNAPSHOT
+       
+       Save a complete snapshot of the state BEFORE the week is closed.
+       This allows the user to restore the week to its pre-closure state
+       during the SAME DAY (safety cutoff — after that, too much may have
+       changed downstream to safely restore).
+       
+       Snapshot contains everything we'd need to reverse:
+       • weekData        — full openWeek object (attendance, baseHours, etc)
+       • empBalances     — each affected employee's prevBalance before update
+       • debtsState      — each affected debt's paidWeekIds before update
+       • records         — computed salary records (for audit)
+       ═══════════════════════════════════════════════════════════════════ */
+    const snapshotId="pre-approval-"+openWeek.id+"-"+Date.now();
+    const empBalancesBefore={};records.forEach(r=>{empBalancesBefore[r.empId]=r.prevBalance||0});
+    const debtIds=new Set();records.forEach(r=>{(r.debtItems||[]).forEach(di=>{if(di&&di.id)debtIds.add(di.id)})});
+    const debtsStateBefore={};debts.forEach(d=>{if(debtIds.has(d.id))debtsStateBefore[d.id]={paidWeekIds:[...(d.paidWeekIds||[])],status:d.status||"active"}});
+    const snapshot={
+      id:snapshotId,type:"pre-approval",weekId:openWeek.id,weekNum:openWeek.weekNum,
+      weekStart:openWeek.weekStart,weekEnd:openWeek.weekEnd,
+      savedAt:new Date().toISOString(),savedAtDate:today,savedBy:userName||user?.email||"",
+      weekData:JSON.parse(JSON.stringify(openWeek)),
+      empBalancesBefore,debtsStateBefore,
+      records:JSON.parse(JSON.stringify(records)),
+      totals:{totalNet:r2(totalNet),totalGross:r2(totalGross),totalThursdayPay:r2(totalThursdayPay),totalRemaining:r2(totalRemaining)}
+    };
+    /* Save snapshot to Firestore (non-blocking — proceed with approval even if snapshot fails) */
+    setDoc(doc(db,"backups",snapshotId),snapshot).then(()=>{
+      console.log("🛡️ Pre-approval snapshot saved:",snapshotId);
+    }).catch(e=>{
+      console.error("⚠️ Snapshot save failed (approval will continue):",e);
+    });
     /* Show overlay */
-    if(setSavingOverlay)setSavingOverlay({message:"جاري تسجيل مرتبات "+records.length+" موظف...",progress:10});
+    if(setSavingOverlay)setSavingOverlay({message:"جاري حفظ نسخة احتياطية...",progress:5});
     setTimeout(()=>{
-    if(setSavingOverlay)setSavingOverlay({message:"جاري حساب المرتبات والخصومات...",progress:30});
+    if(setSavingOverlay)setSavingOverlay({message:"جاري تسجيل مرتبات "+records.length+" موظف...",progress:20});
+    setTimeout(()=>{
+    if(setSavingOverlay)setSavingOverlay({message:"جاري حساب المرتبات والخصومات...",progress:40});
     setTimeout(()=>{
     if(setSavingOverlay)setSavingOverlay({message:"جاري تسجيل الحركات في الخزنة...",progress:60});
     setTimeout(()=>{
     upConfig(d=>{if(!d.hrLog)d.hrLog=[];if(!d.treasury)d.treasury=[];if(!d.empDebts)d.empDebts=[];
       /* Log each salary */
-      records.forEach(r=>{d.hrLog.unshift({id:gid(),type:"salary",empId:r.empId,empName:r.empName,amount:r.netBalance,grossPay:r.grossPay,weeklySalary:r.weeklySalary,prevBalance:r.prevBalance,weekAdvances:r.weekAdvances,bonus:r.bonus,specialDeduct:r.specialDeduct,deductReason:salDeductReason[r.empId]||"",debtInstall:r.debtInstall,debtItems:r.debtItems,thursdayPay:r.thursdayPay,remainingBalance:r.remainingBalance,weekId:openWeek.id,weekStart:openWeek.weekStart,weekEnd:openWeek.weekEnd,date:today,by:userName,createdAt:new Date().toISOString()})});
+      records.forEach(r=>{d.hrLog.unshift({id:gid(),type:"salary",empId:r.empId,empName:r.empName,amount:r.netBalance,grossPay:r.grossPay,weeklySalary:r.weeklySalary,prevBalance:r.prevBalance,weekAdvances:r.weekAdvances,bonus:r.bonus,specialDeduct:r.specialDeduct,deductReason:salDeductReason[r.empId]||"",debtInstall:r.debtInstall,debtItems:r.debtItems,thursdayPay:r.thursdayPay,remainingBalance:r.remainingBalance,weekId:openWeek.id,weekStart:openWeek.weekStart,weekEnd:openWeek.weekEnd,date:today,by:userName,createdAt:new Date().toISOString(),snapshotId})});
       /* Record debt installments paid — only if debtInstall covered everything */
       records.forEach(r=>{if(r.debtInstall>0&&r.debtCarried===0){
         /* Full installment paid for all debts this week */
@@ -9641,12 +9676,78 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       records.forEach(r=>{const e=(d.employees||[]).find(x=>x.id===r.empId);if(e)e.prevBalance=r.remainingBalance});
       /* Treasury — individual entry per employee (thursday pay) */
       const dayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date().getDay()];
-      records.forEach(r=>{if(r.thursdayPay>0)d.treasury.unshift({id:gid(),type:"out",amount:r2(r.thursdayPay),desc:"مرتب "+r.empName+" W"+openWeek.weekNum,category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:today,day:dayName,sourceType:"hr_salary",weekId:openWeek.id,empId:r.empId,by:userName,createdAt:new Date().toISOString()})});
-      /* Close week */
-      const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi>=0){d.hrWeeks[wi].status="closed";d.hrWeeks[wi].closedAt=today;d.hrWeeks[wi].closedBy=userName;d.hrWeeks[wi].totalGross=r2(totalGross);d.hrWeeks[wi].totalNet=r2(totalNet);d.hrWeeks[wi].totalThursdayPay=r2(totalThursdayPay);d.hrWeeks[wi].totalRemaining=r2(totalRemaining);d.hrWeeks[wi].empCount=records.length}});
+      records.forEach(r=>{if(r.thursdayPay>0)d.treasury.unshift({id:gid(),type:"out",amount:r2(r.thursdayPay),desc:"مرتب "+r.empName+" W"+openWeek.weekNum,category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:today,day:dayName,sourceType:"hr_salary",weekId:openWeek.id,empId:r.empId,by:userName,createdAt:new Date().toISOString(),snapshotId})});
+      /* Close week — also save snapshotId for restore lookup */
+      const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi>=0){d.hrWeeks[wi].status="closed";d.hrWeeks[wi].closedAt=today;d.hrWeeks[wi].closedBy=userName;d.hrWeeks[wi].totalGross=r2(totalGross);d.hrWeeks[wi].totalNet=r2(totalNet);d.hrWeeks[wi].totalThursdayPay=r2(totalThursdayPay);d.hrWeeks[wi].totalRemaining=r2(totalRemaining);d.hrWeeks[wi].empCount=records.length;d.hrWeeks[wi].snapshotId=snapshotId;d.hrWeeks[wi].snapshotDate=today}});
     showToast("✓ تم اعتماد وقفل الأسبوع W"+openWeek.weekNum);setSalBonus({});setSalSpecialDeduct({});setSalThursdayPay({});setSalBaseHoursOverride({});setOpenWeekId(null);
     if(setSavingOverlay){setSavingOverlay({message:"✅ تم بنجاح!",progress:100});setTimeout(()=>setSavingOverlay(null),1200)}
-    },200)},400)},300)};
+    },200)},400)},300)},200)};
+
+  /* Restore week to pre-approval state (same-day only). Reverses all effects of approveWeek. */
+  const[restorePopup,setRestorePopup]=useState(null);/* {snapshotId, week, confirmText} */
+  const restoreWeekFromSnapshot=async()=>{
+    if(!restorePopup||!restorePopup.week||!restorePopup.snapshotId)return;
+    const weekId=restorePopup.week.id;
+    const snapId=restorePopup.snapshotId;
+    if(setSavingOverlay)setSavingOverlay({message:"جاري جلب النسخة الاحتياطية...",progress:20});
+    try{
+      /* 1. Fetch snapshot from Firestore */
+      const snapSnap=await getDoc(doc(db,"backups",snapId));
+      if(!snapSnap.exists()){
+        if(setSavingOverlay)setSavingOverlay(null);
+        showToast("⚠️ النسخة الاحتياطية غير موجودة");setRestorePopup(null);return;
+      }
+      const snap=snapSnap.data();
+      /* Safety: same-day check (redundant with UI but defence in depth) */
+      if(snap.savedAtDate!==today){
+        if(setSavingOverlay)setSavingOverlay(null);
+        showToast("⚠️ لا يمكن الاستعادة — النسخة من يوم مختلف");setRestorePopup(null);return;
+      }
+      if(setSavingOverlay)setSavingOverlay({message:"جاري عكس الحركات المالية...",progress:50});
+      /* 2. Reverse all changes */
+      upConfig(d=>{
+        /* a) Remove hrLog entries linked to this snapshot */
+        if(Array.isArray(d.hrLog))d.hrLog=d.hrLog.filter(l=>l.snapshotId!==snapId);
+        /* b) Remove treasury entries linked to this snapshot */
+        if(Array.isArray(d.treasury))d.treasury=d.treasury.filter(t=>t.snapshotId!==snapId);
+        /* c) Restore employee balances from snapshot */
+        const balances=snap.empBalancesBefore||{};
+        (d.employees||[]).forEach(e=>{if(e.id in balances)e.prevBalance=balances[e.id]});
+        /* d) Restore debt states (paidWeekIds + status) */
+        const debtStates=snap.debtsStateBefore||{};
+        (d.empDebts||[]).forEach(debt=>{if(debt.id in debtStates){
+          debt.paidWeekIds=[...(debtStates[debt.id].paidWeekIds||[])];
+          debt.status=debtStates[debt.id].status||"active";
+          if(debt.status==="active")delete debt.paidAt;
+        }});
+        /* e) Reopen the week */
+        const wi=(d.hrWeeks||[]).findIndex(w=>w.id===weekId);
+        if(wi>=0){
+          d.hrWeeks[wi].status="open";
+          delete d.hrWeeks[wi].closedAt;delete d.hrWeeks[wi].closedBy;
+          delete d.hrWeeks[wi].totalGross;delete d.hrWeeks[wi].totalNet;
+          delete d.hrWeeks[wi].totalThursdayPay;delete d.hrWeeks[wi].totalRemaining;
+          delete d.hrWeeks[wi].empCount;delete d.hrWeeks[wi].snapshotId;delete d.hrWeeks[wi].snapshotDate;
+        }
+      });
+      /* 3. Log the restoration for audit */
+      try{
+        await setDoc(doc(db,"migrationLog","restore-week-"+weekId+"-"+Date.now()),{
+          type:"week-restore",status:"success",
+          weekId,weekNum:restorePopup.week.weekNum,snapshotId:snapId,
+          by:userName||user?.email||"",at:new Date().toISOString(),
+          details:"Restored week W"+restorePopup.week.weekNum+" from snapshot"
+        });
+      }catch(e){console.warn("Restore log failed:",e)}
+      if(setSavingOverlay){setSavingOverlay({message:"✅ تمت الاستعادة بنجاح!",progress:100});setTimeout(()=>setSavingOverlay(null),1200)}
+      showToast("✅ تم استعادة الأسبوع W"+restorePopup.week.weekNum+" للحالة قبل الإقفال");
+      setRestorePopup(null);
+    }catch(e){
+      console.error("Restore error:",e);
+      if(setSavingOverlay)setSavingOverlay(null);
+      showToast("❌ خطأ في الاستعادة: "+e.message);
+    }
+  };
 
   /* ── Print Slip ── */
   /* Build slip HTML for one employee (without html/head wrapper) */
@@ -9981,6 +10082,8 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             <span style={{padding:"3px 10px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:isClosed&&!unlockedWeeks[openWeek.id]?T.ok+"12":unlockedWeeks[openWeek.id]?T.warn+"12":T.warn+"12",color:isClosed&&!unlockedWeeks[openWeek.id]?T.ok:T.warn}}>{isClosed&&!unlockedWeeks[openWeek.id]?"✅ مقفول":unlockedWeeks[openWeek.id]?"🔓 تعديل":"🔓 مفتوح"}</span>
             {canEdit&&isClosed&&!unlockedWeeks[openWeek.id]&&<Btn small onClick={()=>openConfirm({title:"تفعيل تعديل الأسبوع",message:"هذا الأسبوع مقفول بالفعل. تفعيل التعديل يسمح لك بتعديل البيانات، لكن الحركات المالية (خزنة / سجل) لن تتحدث تلقائياً. لإعادة الاعتماد والتأثير على الخزنة، اضغط على اعتماد من جديد.",variant:"warn",onConfirm:()=>setUnlockedWeeks(p=>({...p,[openWeek.id]:true}))})} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30",fontWeight:700,fontSize:FS-2}}>🔓 تفعيل التعديل</Btn>}
             {canEdit&&unlockedWeeks[openWeek.id]&&<Btn small onClick={()=>setUnlockedWeeks(p=>{const n={...p};delete n[openWeek.id];return n})} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd,fontSize:FS-2}}>🔒 إيقاف التعديل</Btn>}
+            {/* Restore button — only shown if week was closed TODAY and has a snapshot */}
+            {canEdit&&isClosed&&openWeek.snapshotId&&openWeek.snapshotDate===today&&<Btn small onClick={()=>setRestorePopup({snapshotId:openWeek.snapshotId,week:openWeek,confirmText:""})} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700,fontSize:FS-2}} title="استعادة الأسبوع للحالة قبل الإقفال (متاح في نفس اليوم فقط)">⏪ استعادة قبل الإقفال</Btn>}
           </div>
           {!isLocked&&<div style={{display:"flex",alignItems:"center",gap:6}}>
             <span style={{fontSize:FS-2,color:T.textSec}}>ساعات أساسي:</span>
@@ -10782,6 +10885,43 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           <div style={{marginTop:10,textAlign:"center"}}><Btn primary onClick={()=>setShowEmpPicker(false)}>✅ تم</Btn></div>
         </div>
       </div>})()}
+
+    {/* ══ RESTORE WEEK POPUP — استعادة الأسبوع للحالة قبل الإقفال ══ */}
+    {restorePopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setRestorePopup(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:22,width:"100%",maxWidth:560,maxHeight:"92vh",overflowY:"auto",border:"2px solid #8B5CF6",boxShadow:"0 25px 70px rgba(0,0,0,0.5)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,paddingBottom:12,borderBottom:"2px solid #8B5CF620"}}>
+          <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6",display:"flex",alignItems:"center",gap:8}}>
+            <span>⏪</span><span>استعادة الأسبوع W{restorePopup.week.weekNum}</span>
+          </div>
+          <Btn ghost small onClick={()=>setRestorePopup(null)}>✕</Btn>
+        </div>
+        <div style={{padding:12,borderRadius:10,background:T.warn+"08",border:"1px solid "+T.warn+"40",marginBottom:14,lineHeight:1.8,fontSize:FS-1}}>
+          <div style={{fontWeight:800,color:T.warn,marginBottom:8,fontSize:FS}}>⚠️ تحذير — هذه عملية غير قابلة للتراجع</div>
+          <div style={{color:T.text}}>استعادة الأسبوع ستؤدي إلى:</div>
+          <ul style={{margin:"6px 0",paddingRight:20,color:T.textSec}}>
+            <li>عكس كل حركات الخزنة الخاصة بالأسبوع</li>
+            <li>حذف كل سجلات المرتبات من سجل الموظفين</li>
+            <li>إرجاع أرصدة الموظفين للحالة قبل الإقفال</li>
+            <li>إعادة فتح الأسبوع للتعديل</li>
+          </ul>
+        </div>
+        <div style={{padding:10,borderRadius:10,background:T.bg,border:"1px solid "+T.brd,marginBottom:14,fontSize:FS-1}}>
+          <div style={{color:T.textSec,marginBottom:4}}>ℹ️ معلومات النسخة الاحتياطية:</div>
+          <div style={{color:T.text,fontWeight:600}}>• الأسبوع: W{restorePopup.week.weekNum} ({restorePopup.week.weekStart} → {restorePopup.week.weekEnd})</div>
+          <div style={{color:T.text,fontWeight:600}}>• تم الإقفال: {restorePopup.week.closedAt} بواسطة {restorePopup.week.closedBy||"—"}</div>
+          <div style={{color:T.ok,fontWeight:700,marginTop:4}}>✅ النسخة متاحة للاستعادة (نفس اليوم)</div>
+        </div>
+        <div style={{padding:14,borderRadius:10,background:T.err+"06",border:"2px dashed "+T.err+"40",marginBottom:14}}>
+          <div style={{fontSize:FS-1,fontWeight:700,color:T.err,marginBottom:8}}>للتأكيد، اكتب كلمة <b>"استعادة"</b> في الخانة:</div>
+          <input value={restorePopup.confirmText} onChange={e=>setRestorePopup(p=>({...p,confirmText:e.target.value}))} placeholder="اكتب: استعادة" style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"2px solid "+(restorePopup.confirmText==="استعادة"?T.ok:T.brd),fontSize:FS,fontFamily:"inherit",background:T.inputBg,color:T.text,fontWeight:700,textAlign:"center",boxSizing:"border-box"}}/>
+          {restorePopup.confirmText&&restorePopup.confirmText!=="استعادة"&&<div style={{fontSize:FS-2,color:T.err,marginTop:4,textAlign:"center"}}>يجب أن تكتب كلمة "استعادة" تماماً</div>}
+        </div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <Btn onClick={()=>setRestorePopup(null)} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>إلغاء</Btn>
+          <Btn primary onClick={restoreWeekFromSnapshot} disabled={restorePopup.confirmText!=="استعادة"} style={{background:restorePopup.confirmText==="استعادة"?"#8B5CF6":T.textMut,color:"#fff",opacity:restorePopup.confirmText==="استعادة"?1:0.5}}>⏪ تأكيد الاستعادة</Btn>
+        </div>
+      </div>
+    </div>}
 
     {/* ══ QUICK ADVANCE POPUP — سلفة سريعة من جدول المرتبات ══ */}
     {quickAdvance&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setQuickAdvance(null)}>
