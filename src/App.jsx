@@ -6571,10 +6571,16 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
     {/* Stock Receive from Finishing - استلام مخزن جاهز */}
     {stockRcv&&(()=>{const rcvItems=stockRcv.items||{};
       const available=orders.filter(o=>{const wds=o.workshopDeliveries||[];const rcvFromWs=wds.reduce((s,wd)=>s+(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0),0);const allDel=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return rcvFromWs-allDel>0}).map(o=>{const wds=o.workshopDeliveries||[];const rcvFromWs=wds.reduce((s,wd)=>s+(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0),0);const allDel=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const pending=(o.deliveries||[]).filter(d=>d.status==="pending").reduce((s,d)=>s+(Number(d.qty)||0),0);return{id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,fromFinishing:rcvFromWs-allDel,pendingQty:pending,rackSize:getRackSize(o.id)}});
+      const stockScanMode=stockRcv.scanMode||"series";/* "series" | "piece" */
+      /* Ref to keep live scanMode for the camera scanner closure (avoids stale closure bug) */
+      const stockScanModeRef=useRef(stockScanMode);stockScanModeRef.current=stockScanMode;
       const handleStockScan=(text)=>{try{const parts=text.split(":");if(parts[0]!=="CLARK"||!parts[1])return;const orderId=parts[1];const qrRs=Number(parts[2])||1;
         const o=orders.find(x=>x.id===orderId);if(!o){playBeep("error");showToast("⛔ موديل غير موجود");return}
         const _sz=o.sizeLabel?o.sizeLabel.split(/[-\/,]/).map(s=>s.trim()).filter(Boolean):[];const rs=_sz.length>1?Math.max(qrRs,_sz.length):qrRs;
-        setStockRcv(p=>({...p,items:{...p.items,[orderId]:(p.items[orderId]||0)+rs}}));playBeep("ok");showToast("✅ "+o.modelNo+" +"+rs)}catch(e){}};
+        /* Read current mode from ref to support live toggling */
+        const currentMode=stockScanModeRef.current;
+        const addQty=currentMode==="piece"?1:rs;
+        setStockRcv(p=>({...p,items:{...p.items,[orderId]:(p.items[orderId]||0)+addQty}}));playBeep("ok");showToast("✅ "+o.modelNo+" +"+(currentMode==="piece"?"1 قطعة":rs+" سيري"))}catch(e){}};
       const closeStockCam=()=>{try{const v=document.getElementById("stock-rcv-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setStockRcv(p=>({...p,scanning:false}))};
       const totalRcv=Object.values(rcvItems).reduce((s,v)=>s+v,0);
       const confirmStockRcv=()=>{if(totalRcv<=0){showToast("⚠️ لا توجد كميات للاستلام");return}
@@ -6592,16 +6598,19 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
               <div style={{fontSize:FS+2,fontWeight:800,color:"#0EA5E9"}}>📥 استلام مخزن الجاهز</div>
               <div style={{display:"flex",gap:4}}><Btn small onClick={printStockRcv} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn ghost small onClick={()=>{closeStockCam();setStockRcv(null)}}>✕</Btn></div>
             </div>
-            <div style={{display:"flex",gap:6}}>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
               <Btn small onClick={()=>{if(stockRcv.scanning){closeStockCam()}else{setStockRcv(p=>({...p,scanning:true}))}}} style={{background:stockRcv.scanning?"#EF444412":"#0EA5E912",color:stockRcv.scanning?"#EF4444":"#0EA5E9",border:"1px solid "+(stockRcv.scanning?"#EF444430":"#0EA5E930")}}>{stockRcv.scanning?"⏹ Stop":"📷 Scan"}</Btn>
-              <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(!v)return;const _o=orders.find(x=>x.id===v);const _szz=_o?.sizeLabel?_o.sizeLabel.split(/[-\/,]/).map(s=>s.trim()).filter(Boolean):[];const rs=_szz.length>1?Math.max(getRackSize(v),_szz.length):getRackSize(v);setStockRcv(p=>({...p,items:{...p.items,[v]:(p.items[v]||0)+rs}}));playBeep("ok")}} options={available.map(m=>({value:m.id,label:m.modelNo+" — "+m.modelDesc+" ("+m.fromFinishing+")"}))} placeholder="اضف يدوي..."/></div>
+              <div style={{display:"flex",gap:0,borderRadius:8,overflow:"hidden",border:"1px solid "+T.brd}}>
+                {[{k:"series",l:"سيري",ic:"📦"},{k:"piece",l:"قطعة",ic:"👕"}].map(m=><div key={m.k} onClick={()=>setStockRcv(p=>({...p,scanMode:m.k}))} style={{padding:"4px 10px",fontSize:FS-2,fontWeight:700,cursor:"pointer",background:stockScanMode===m.k?"#0EA5E9":"transparent",color:stockScanMode===m.k?"#fff":T.textSec,transition:"all 0.15s"}}>{m.ic+" "+m.l}</div>)}
+              </div>
+              <div style={{flex:1,minWidth:150}}><SearchSel value="" onChange={v=>{if(!v)return;const _o=orders.find(x=>x.id===v);const _szz=_o?.sizeLabel?_o.sizeLabel.split(/[-\/,]/).map(s=>s.trim()).filter(Boolean):[];const rs=_szz.length>1?Math.max(getRackSize(v),_szz.length):getRackSize(v);const addQty=stockScanMode==="piece"?1:rs;setStockRcv(p=>({...p,items:{...p.items,[v]:(p.items[v]||0)+addQty}}));playBeep("ok")}} options={available.map(m=>({value:m.id,label:m.modelNo+" — "+m.modelDesc+" ("+m.fromFinishing+")"}))} placeholder="اضف يدوي..."/></div>
             </div>
             {stockRcv.scanning&&<div style={{marginTop:8}}>
               <div style={{position:"relative",width:"100%",maxWidth:200,margin:"0 auto",borderRadius:12,overflow:"hidden",background:"#000"}}>
                 <video id="stock-rcv-video" playsInline muted autoPlay style={{width:"100%",display:"block"}} ref={el=>{if(!el||el.srcObject)return;(async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:640}}});el.srcObject=stream;
                   const hasBD=typeof BarcodeDetector!=="undefined";const detector=hasBD?new BarcodeDetector({formats:["qr_code"]}):null;const canvas=document.createElement("canvas");let lastScan="";let lastTime=0;
                   const scan=async()=>{if(!el.srcObject)return;if(el.readyState<2){requestAnimationFrame(scan);return}canvas.width=el.videoWidth;canvas.height=el.videoHeight;canvas.getContext("2d").drawImage(el,0,0);
-                    {const _qr=await scanQR(canvas);if(_qr){const now=Date.now();if(_qr!==lastScan||now-lastTime>2000){lastScan=_qr;lastTime=now;handleStockScan(t)}}}
+                    {const _qr=await scanQR(canvas);if(_qr){const now=Date.now();if(_qr!==lastScan||now-lastTime>2000){lastScan=_qr;lastTime=now;handleStockScan(_qr)}}}
                     if(el.srcObject)requestAnimationFrame(scan)};setTimeout(scan,500)}catch(e){showToast("⚠️ تعذر فتح الكاميرا");closeStockCam()}})()}}/>
                 <div style={{position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",width:100,height:100,border:"2px solid #0EA5E9",borderRadius:10,boxShadow:"0 0 0 999px rgba(0,0,0,0.4)"}}/>
               </div>
@@ -6633,6 +6642,10 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
     {/* Inventory Audit - جرد المخزن */}
     {invAudit&&(()=>{const auditItems=invAudit.items||{};
       const scanMode=invAudit.scanMode||"series";/* "series" | "piece" | "auto" */
+      /* Keep a live ref to scanMode so the camera scanner closure always reads the current value.
+         Without this, the ref callback captures scanMode from first render and toggling the switch
+         has no effect until the scanner restarts. */
+      const scanModeRef=useRef(scanMode);scanModeRef.current=scanMode;
       const allStock=stockModels.filter(m=>m.stockQty>0||auditItems[m.id]);
       const handleAuditScan=(text)=>{try{
         /* 1. Try package QR (carton) */
@@ -6645,8 +6658,10 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
         const parts=text.split(":");if(parts[0]!=="CLARK"||!parts[1])return;const orderId=parts[1];const qrRs=Number(parts[2])||1;
         const o=orders.find(x=>x.id===orderId);if(!o){playBeep("error");showToast("⛔ موديل غير موجود");return}
         const _sz=o.sizeLabel?o.sizeLabel.split(/[-\/,]/).map(s=>s.trim()).filter(Boolean):[];const rs=_sz.length>1?Math.max(qrRs,_sz.length):qrRs;
-        const addQty=scanMode==="piece"?1:rs;
-        setInvAudit(p=>{const items={...p.items};items[orderId]=(items[orderId]||0)+addQty;return{...p,items}});playBeep("ok");showToast("✅ "+o.modelNo+" +"+(scanMode==="piece"?"1 قطعة":rs+" سيري"))}catch(e){}};
+        /* Read current scan mode from ref (not from closure) to support live toggling */
+        const currentMode=scanModeRef.current;
+        const addQty=currentMode==="piece"?1:rs;
+        setInvAudit(p=>{const items={...p.items};items[orderId]=(items[orderId]||0)+addQty;return{...p,items}});playBeep("ok");showToast("✅ "+o.modelNo+" +"+(currentMode==="piece"?"1 قطعة":rs+" سيري"))}catch(e){}};
       const closeAuditCam=()=>{try{const v=document.getElementById("audit-scan-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setInvAudit(p=>({...p,scanning:false}))};
       const totalSystem=allStock.reduce((s,m)=>s+m.avail,0);const totalCounted=allStock.reduce((s,m)=>s+(auditItems[m.id]||0),0);const totalDiff=totalCounted-totalSystem;
       const applyAdjust=()=>{let adj=0;allStock.forEach(m=>{const counted=auditItems[m.id];if(counted===undefined)return;const diff=counted-m.avail;if(diff===0)return;adj++;
@@ -8351,6 +8366,7 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[showTransfer,setShowTransfer]=useState(false);
   const[tfFrom,setTfFrom]=useState("");const[tfTo,setTfTo]=useState("");
   const[tfAmount,setTfAmount]=useState("");const[tfNote,setTfNote]=useState("");
+  const[tfDate,setTfDate]=useState("");/* custom date for transfer (defaults to today when popup opens) */
   /* Checks */
   const checks=(data.checks||[]);
   const[showCheckForm,setShowCheckForm]=useState(false);
@@ -8534,7 +8550,8 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     if(!amt||amt<=0){showToast("⚠️ أدخل المبلغ");return}
     const toAcc=accountsData.find(a=>a.name===tfTo);
     const tfId=gid();
-    const d_=new Date().toISOString().split("T")[0];
+    /* Use user-selected date (defaults to today if blank) */
+    const d_=tfDate||new Date().toISOString().split("T")[0];
     const dayN=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(d_).getDay()];
     upConfig(d=>{
       if(!d.treasuryTransfers)d.treasuryTransfers=[];
@@ -8549,7 +8566,7 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       /* Notification to owner of destination account (info only, no action needed) */
       if(toAcc?.ownerEmail){d.notifications.unshift({id:gid(),type:"treasury_transfer",msg:"💸 وصلك تحويل "+fmt(amt)+" ج.م من "+tfFrom+(tfNote?" — "+tfNote:""),toEmail:toAcc.ownerEmail,transferId:tfId,read:false,by:userName,createdAt:new Date().toISOString()})}
     });
-    setShowTransfer(false);setTfFrom("");setTfTo("");setTfAmount("");setTfNote("");showToast("✓ تم التحويل — منصرف من "+tfFrom+" ووارد في "+tfTo)};
+    setShowTransfer(false);setTfFrom("");setTfTo("");setTfAmount("");setTfNote("");setTfDate("");showToast("✓ تم التحويل — منصرف من "+tfFrom+" ووارد في "+tfTo)};
   /* Delete a transfer — removes both entries */
   const deleteTransfer=(tfId)=>{const tf=transfers.find(t=>t.id===tfId);if(!tf)return;
     upConfig(d=>{
@@ -8660,7 +8677,7 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         </Card>})()}
       {canEdit&&<div style={{marginBottom:14,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
         <Btn primary onClick={()=>{setEditId(null);setTxType("out");setTxAmount("");setTxDesc("");setTxNotes("");setTxCategory("");setTxAccount(view.startsWith("acc_")?(accountsData.find(a=>a.id===view.slice(4))?.name||"SUB CASH"):"SUB CASH");setTxSeason(data.activeSeason||"");setTxDate(today);setTxPartyId("");setTxPartyType("");setShowForm(!showForm)}}>{showForm?"✕ إغلاق":"+ حركة جديدة"}</Btn>
-        {accountsData.length>=2&&<Btn onClick={()=>setShowTransfer(true)} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700}}>🔄 تحويل بين الخزن</Btn>}
+        {accountsData.length>=2&&<Btn onClick={()=>{setTfDate(new Date().toISOString().split("T")[0]);setShowTransfer(true)}} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700}}>🔄 تحويل بين الخزن</Btn>}
         {(data.odooSettings||{}).url&&<Btn onClick={openOdooSyncPopup} disabled={odooSyncing} style={{background:"#71486712",color:"#714867",border:"1px solid #71486730",fontWeight:700}}>{odooSyncing?"⏳ جاري التزامن...":"🔗 تزامن Odoo"}</Btn>}
         {odooResult&&<span style={{fontSize:FS-1,fontWeight:700,color:odooResult.ok?T.ok:T.err,padding:"4px 10px",borderRadius:6,background:odooResult.ok?T.ok+"08":T.err+"08"}}>{odooResult.msg}</span>}
       </div>}
@@ -8939,7 +8956,7 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
 
     {/* ══ TRANSFERS VIEW ══ */}
     {view==="transfers"&&<div>
-      {canEdit&&accountsData.length>=2&&<div style={{marginBottom:14}}><Btn onClick={()=>setShowTransfer(true)} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700}}>+ تحويل جديد</Btn></div>}
+      {canEdit&&accountsData.length>=2&&<div style={{marginBottom:14}}><Btn onClick={()=>{setTfDate(new Date().toISOString().split("T")[0]);setShowTransfer(true)}} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700}}>+ تحويل جديد</Btn></div>}
       {transfers.length===0?<Card><div style={{textAlign:"center",padding:40,color:T.textMut}}>لا يوجد تحويلات بعد — اضغط "+ تحويل جديد"</div></Card>
       :<Card title={"🔄 سجل التحويلات ("+transfers.length+")"}>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -9281,6 +9298,11 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           <Btn ghost small onClick={()=>setShowTransfer(false)}>✕</Btn>
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>📅 تاريخ التحويل</label>
+            <Inp type="date" value={tfDate} onChange={setTfDate}/>
+            <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>افتراضياً اليوم — غيّره لو التحويل تم في تاريخ سابق</div>
+          </div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>من خزنة</label>
             <Sel value={tfFrom} onChange={setTfFrom}><option value="">— اختر —</option>{accountsData.map(a=><option key={a.id} value={a.name}>{a.name}{a.ownerEmail?" ("+a.ownerEmail.split("@")[0]+")":""}</option>)}</Sel></div>
           <div style={{display:"flex",justifyContent:"center",margin:"4px 0"}}><span style={{fontSize:22,color:"#8B5CF6"}}>↓</span></div>
@@ -9369,7 +9391,31 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const[salBaseHoursOverride,setSalBaseHoursOverride]=useState({});/* empId -> custom base hours for this week */
   const[logLimit,setLogLimit]=useState(50);
   const[openLog,setOpenLog]=useState(null);
-  const[selectedEmps,setSelectedEmps]=useState({});/* weekId -> [empIds] */
+  /* Local draft for selectedEmps. Source of truth is hrWeeks[i].selectedEmps in Firestore.
+     This state holds any unsaved changes while the emp picker popup is open.
+     When popup closes (by any means), we flush this draft to Firestore. */
+  const[selectedEmps,setSelectedEmps]=useState({});/* weekId -> [empIds] — LOCAL DRAFT */
+  /* Read selected employees for a week: local draft if exists, otherwise from Firestore */
+  const getSelectedEmps=(weekId)=>{
+    if(!weekId)return[];
+    if(selectedEmps[weekId]!==undefined)return selectedEmps[weekId];
+    const w=hrWeeks.find(x=>x.id===weekId);
+    return(w&&Array.isArray(w.selectedEmps))?w.selectedEmps:[];
+  };
+  /* Flush pending local draft for a given week to Firestore (one write) */
+  const flushSelectedEmps=(weekId)=>{
+    if(!weekId)return;
+    if(selectedEmps[weekId]===undefined)return;/* nothing to flush */
+    const draft=selectedEmps[weekId];
+    upConfig(d=>{
+      if(!Array.isArray(d.hrWeeks))return;
+      const i=d.hrWeeks.findIndex(w=>w.id===weekId);
+      if(i<0)return;
+      d.hrWeeks[i].selectedEmps=[...draft];
+    });
+    /* Clear the local draft after save — subsequent reads will come from Firestore */
+    setSelectedEmps(p=>{const n={...p};delete n[weekId];return n});
+  };
   const[editingRow,setEditingRow]=useState(null);/* empId currently being edited */
   const[rowDraft,setRowDraft]=useState({});/* temp hours while editing */
   const[salDeductReason,setSalDeductReason]=useState({});/* empId -> reason string */
@@ -9612,7 +9658,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
 
   /* ── Approve & Close Week ── */
   const approveWeek=()=>{if(!openWeek||openWeek.status==="closed")return;
-    const weekSelected=(selectedEmps[openWeek.id]!==undefined?selectedEmps[openWeek.id]:[]);
+    const weekSelected=getSelectedEmps(openWeek.id);
     const shownEmps=activeEmps.filter(e=>weekSelected.includes(e.id));
     const records=shownEmps.map(e=>{const c=calcSalary(e.id,openWeek);if(!c)return null;return{empId:e.id,empName:e.name,empCode:e.code||"",...c}}).filter(Boolean);
     if(records.length===0)return;
@@ -10092,6 +10138,44 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           </div>}
         </div>
 
+        {/* ── Week Summary Cards (4 cards above paste) ── */}
+        {(()=>{
+          const weekSelected=getSelectedEmps(openWeek.id);
+          const shownEmps=activeEmps.filter(e=>weekSelected.includes(e.id));
+          /* Aggregate stats */
+          let baseSal=0,advances=0,deductions=0,specialDeductions=0,net=0;
+          shownEmps.forEach(e=>{
+            const c=calcSalary(e.id,openWeek);
+            if(!c)return;
+            baseSal+=(e.weeklySalary||0);
+            advances+=c.weekAdvances||0;
+            deductions+=c.debtInstall||0;/* "خصم" = أقساط المديونيات */
+            specialDeductions+=c.specialDeduct||0;
+            net+=c.netBalance||0;
+          });
+          return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)",gap:10,marginBottom:14}}>
+            <div style={{padding:12,borderRadius:12,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center"}}>
+              <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>💵 إجمالي المرتب الأساسي</div>
+              <div style={{fontSize:FS+3,fontWeight:800,color:T.accent}}>{fmt0(baseSal)}</div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{shownEmps.length+" موظف"}</div>
+            </div>
+            <div style={{padding:12,borderRadius:12,background:T.err+"08",border:"1px solid "+T.err+"20",textAlign:"center"}}>
+              <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>💸 إجمالي السلف</div>
+              <div style={{fontSize:FS+3,fontWeight:800,color:T.err}}>{fmt0(advances)}</div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>خلال الأسبوع</div>
+            </div>
+            <div style={{padding:12,borderRadius:12,background:"#F9731608",border:"1px solid #F9731620",textAlign:"center"}}>
+              <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>📉 الخصم والخصم الخاص</div>
+              <div style={{fontSize:FS+3,fontWeight:800,color:"#F97316"}}>{fmt0(deductions+specialDeductions)}</div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{"أقساط: "+fmt0(deductions)+" • خاص: "+fmt0(specialDeductions)}</div>
+            </div>
+            <div style={{padding:12,borderRadius:12,background:T.ok+"08",border:"1px solid "+T.ok+"20",textAlign:"center"}}>
+              <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>✅ إجمالي الرصيد المستحق</div>
+              <div style={{fontSize:FS+3,fontWeight:800,color:T.ok}}>{fmt0(net)}</div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>صافي</div>
+            </div>
+          </div>})()}
+
         {/* Paste fingerprint data */}
         {!isLocked&&<Card title="📋 لصق بيانات البصمة" style={{marginBottom:14}}>
           <div style={{fontSize:FS-2,color:T.textMut,marginBottom:6}}>انسخ من برنامج البصمة (كود، تاريخ، ساعات) والصقه هنا:</div>
@@ -10114,7 +10198,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
 
         {/* Attendance grid with selectable employees + edit-per-row */}
         {(()=>{
-          const weekSelected=(selectedEmps[openWeek.id]!==undefined?selectedEmps[openWeek.id]:[]);
+          const weekSelected=getSelectedEmps(openWeek.id);
           const shownEmps=activeEmps.filter(e=>weekSelected.includes(e.id));
           const saveRow=(empId)=>{const draft=rowDraft[empId]||{};
             upConfig(d=>{const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeekId);if(wi<0)return;
@@ -10129,25 +10213,35 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           return<Card title={"📋 جدول الحضور — "+shownEmps.length+"/"+activeEmps.length+" موظف × "+dates.length+" أيام"} style={{marginBottom:14}}>
             {canEdit&&!isLocked&&<div style={{marginBottom:10}}><Btn small onClick={()=>setShowEmpPicker(true)} style={{background:T.accent+"10",color:T.accent,border:"1px solid "+T.accent+"30"}}>👥 اختيار الموظفين ({weekSelected.length})</Btn></div>}
             <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
-              <th style={{padding:"8px 10px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,position:"sticky",right:0,background:T.cardSolid,zIndex:1,minWidth:130}}>الموظف</th>
-              {dates.map(d=><th key={d} style={{padding:"8px 4px",textAlign:"center",fontSize:FS-3,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:600,minWidth:70}}>
+              <th style={{padding:"5px 10px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,position:"sticky",right:0,background:T.cardSolid,zIndex:1,minWidth:130}}>الموظف</th>
+              {dates.map(d=><th key={d} style={{padding:"4px 4px",textAlign:"center",fontSize:FS-3,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:600,minWidth:70}}>
                 <div style={{fontWeight:700,fontSize:FS-2}}>{dayNames[new Date(d).getDay()]}</div>
                 <div style={{fontSize:FS-3,color:T.textMut,direction:"ltr"}}>{d.slice(2).replace(/-/g,"-")}</div>
               </th>)}
-              <th style={{padding:"8px 6px",textAlign:"center",fontSize:FS-2,color:T.accent,borderBottom:"2px solid "+T.brd,fontWeight:800,minWidth:70}}>اجمالي</th>
-              {canEdit&&!isLocked&&<th style={{padding:"8px 6px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,minWidth:90}}></th>}
+              <th style={{padding:"5px 6px",textAlign:"center",fontSize:FS-2,color:T.accent,borderBottom:"2px solid "+T.brd,fontWeight:800,minWidth:70}}>اجمالي</th>
+              {canEdit&&!isLocked&&<th style={{padding:"5px 6px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,minWidth:90}}></th>}
             </tr></thead><tbody>
               {shownEmps.map((emp,ri)=>{let total=0;const isEditing=editingRow===emp.id;const draft=rowDraft[emp.id]||{};const zebra=ri%2===1?T.bg:T.cardSolid;
                 dates.forEach(d=>{const val=isEditing?parseHrs(draft[d]||0):(att[emp.id+"_"+d]?att[emp.id+"_"+d].hours:0);if(val>0)total+=val});
-                return<tr key={emp.id} style={{borderBottom:"1px solid "+T.brd,background:isEditing?T.accent+"04":zebra}}>
-                  <td style={{padding:"3px 10px",fontSize:FS,fontWeight:700,position:"sticky",right:0,background:isEditing?T.accent+"04":zebra,zIndex:1}}>{emp.name}<div style={{fontSize:FS-3,color:T.textMut,direction:"ltr",textAlign:"right"}}>{emp.code?"#"+emp.code:""}</div></td>
+                /* Red highlight: employee marked as noBiometric (attends but can't punch fingerprint) */
+                const noBio=!!emp.noBiometric;
+                const rowBg=isEditing?T.accent+"04":(noBio?"#EF444408":zebra);
+                const rowStickyBg=isEditing?T.accent+"04":(noBio?"#EF444410":zebra);
+                return<tr key={emp.id} style={{borderBottom:"1px solid "+(noBio?"#EF444420":T.brd),background:rowBg}}>
+                  <td style={{padding:"2px 10px",fontSize:FS,fontWeight:700,position:"sticky",right:0,background:rowStickyBg,zIndex:1,color:noBio?"#EF4444":T.text}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      {noBio&&<span style={{fontSize:12,padding:"1px 5px",borderRadius:4,background:"#EF444418",color:"#EF4444",fontSize:10,fontWeight:800,lineHeight:1.2}} title="بدون بصمة (إدخال يدوي)">📝</span>}
+                      <span>{emp.name}</span>
+                    </div>
+                    <div style={{fontSize:FS-3,color:noBio?"#EF4444CC":T.textMut,direction:"ltr",textAlign:"right"}}>{emp.code?"#"+emp.code:""}</div>
+                  </td>
                   {dates.map(d=>{const key=emp.id+"_"+d;const h=att[key]?att[key].hours:0;const dval=isEditing?(draft[d]!==undefined?draft[d]:(h>0?hrsToHM(h):"")):h;
-                    return<td key={d} style={{padding:"2px 3px",textAlign:"center"}}>
-                      {isEditing?<input type="text" value={dval} onChange={ev=>setRowDraft(p=>({...p,[emp.id]:{...(p[emp.id]||{}),[d]:ev.target.value}}))} placeholder="—" title="8:30 أو 8.5" style={{width:60,padding:"4px 4px",borderRadius:8,border:"1px solid "+T.accent+"50",fontSize:FS,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text,fontWeight:700,boxSizing:"border-box"}}/>
-                      :<span style={{display:"inline-block",minWidth:50,padding:"2px 6px",fontSize:FS,fontWeight:h>0?700:400,color:h>0?T.ok:T.textMut,background:h>0?T.ok+"08":"transparent",borderRadius:6,direction:"ltr"}} title={h>0?"("+r2(h)+" ساعة عشرية)":""}>{h>0?hrsToHM(h):"—"}</span>}
+                    return<td key={d} style={{padding:"1px 3px",textAlign:"center"}}>
+                      {isEditing?<input type="text" value={dval} onChange={ev=>setRowDraft(p=>({...p,[emp.id]:{...(p[emp.id]||{}),[d]:ev.target.value}}))} placeholder="—" title="8:30 أو 8.5" style={{width:60,padding:"3px 4px",borderRadius:8,border:"1px solid "+T.accent+"50",fontSize:FS,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text,fontWeight:700,boxSizing:"border-box"}}/>
+                      :<span style={{display:"inline-block",minWidth:50,padding:"1px 6px",fontSize:FS,fontWeight:h>0?700:400,color:h>0?(noBio?"#EF4444":T.ok):T.textMut,background:h>0?(noBio?"#EF444410":T.ok+"08"):"transparent",borderRadius:6,direction:"ltr"}} title={h>0?"("+r2(h)+" ساعة عشرية)":""}>{h>0?hrsToHM(h):"—"}</span>}
                     </td>})}
-                  <td style={{padding:"3px 6px",textAlign:"center",fontSize:FS+1,fontWeight:800,color:total>0?T.accent:T.textMut,direction:"ltr"}} title={total>0?"("+r2(total)+" ساعة عشرية)":""}>{total>0?hrsToHM(total):"—"}</td>
-                  {canEdit&&!isLocked&&<td style={{padding:"3px 6px",textAlign:"center"}}>
+                  <td style={{padding:"2px 6px",textAlign:"center",fontSize:FS+1,fontWeight:800,color:total>0?(noBio?"#EF4444":T.accent):T.textMut,direction:"ltr"}} title={total>0?"("+r2(total)+" ساعة عشرية)":""}>{total>0?hrsToHM(total):"—"}</td>
+                  {canEdit&&!isLocked&&<td style={{padding:"2px 6px",textAlign:"center"}}>
                     {isEditing?<div style={{display:"flex",gap:4,justifyContent:"center"}}>
                       <span onClick={()=>saveRow(emp.id)} style={{cursor:"pointer",padding:"2px 8px",borderRadius:6,fontSize:FS-1,fontWeight:700,background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>💾 حفظ</span>
                       <span onClick={()=>cancelEdit(emp.id)} style={{cursor:"pointer",padding:"2px 8px",borderRadius:6,fontSize:FS-1,fontWeight:700,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>✕</span>
@@ -10167,7 +10261,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
 
         {/* Salary calculation — aligned, centered, with deduct reason */}
         {(()=>{
-          const weekSelected=(selectedEmps[openWeek.id]!==undefined?selectedEmps[openWeek.id]:[]);
+          const weekSelected=getSelectedEmps(openWeek.id);
           const shownEmps=activeEmps.filter(e=>weekSelected.includes(e.id));
           const cols=[
             {label:"#",align:"center",w:30},
@@ -10270,7 +10364,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
 
         {/* ── Attendance Comparison Chart: Current vs Previous Week (moved to bottom) ── */}
         {(()=>{
-          const weekSelected=(selectedEmps[openWeek.id]!==undefined?selectedEmps[openWeek.id]:[]);
+          const weekSelected=getSelectedEmps(openWeek.id);
           const shownEmps=activeEmps.filter(e=>weekSelected.includes(e.id));
           const att_=openWeek.attendance||{};
           /* Current week totals */
@@ -10629,7 +10723,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       </div>})()}
 
     {/* ══ BULK PRINT POPUP ══ */}
-    {showBulkPrint&&openWeek&&(()=>{const weekSelected=(selectedEmps[openWeek.id]!==undefined?selectedEmps[openWeek.id]:[]);const inWeek=activeEmps.filter(e=>weekSelected.includes(e.id));
+    {showBulkPrint&&openWeek&&(()=>{const weekSelected=getSelectedEmps(openWeek.id);const inWeek=activeEmps.filter(e=>weekSelected.includes(e.id));
       const selCount=Object.values(bulkPrintSel).filter(Boolean).length;
       return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setShowBulkPrint(false)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
@@ -10785,8 +10879,16 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       </div>})()}
 
     {/* ══ EMPLOYEE PICKER POPUP ══ */}
-    {showEmpPicker&&openWeek&&(()=>{const current=(selectedEmps[openWeek.id]!==undefined?selectedEmps[openWeek.id]:[]);
-      const toggle=(id)=>{setSelectedEmps(p=>{const cur=p[openWeek.id]!==undefined?p[openWeek.id]:[];const has=cur.includes(id);return{...p,[openWeek.id]:has?cur.filter(x=>x!==id):[...cur,id]}})};
+    {showEmpPicker&&openWeek&&(()=>{const current=getSelectedEmps(openWeek.id);
+      /* Initialize local draft from Firestore if it doesn't exist yet, so toggling doesn't start from empty */
+      const toggle=(id)=>{setSelectedEmps(p=>{
+        /* If draft missing, seed it from Firestore so existing selections are preserved */
+        let cur;
+        if(p[openWeek.id]!==undefined){cur=p[openWeek.id]}
+        else{const w=hrWeeks.find(x=>x.id===openWeek.id);cur=(w&&Array.isArray(w.selectedEmps))?w.selectedEmps:[]}
+        const has=cur.includes(id);
+        return{...p,[openWeek.id]:has?cur.filter(x=>x!==id):[...cur,id]}
+      })};
       /* Compute attendance status for each employee in this week */
       const weekAtt=openWeek.attendance||{};
       const getEmpStatus=(emp)=>{
@@ -10811,40 +10913,44 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       const weeklyAbsent=weeklyEmps.filter(e=>getEmpStatus(e).type==="absent").length;
       const weeklySelCount=weeklyEmps.filter(e=>current.includes(e.id)).length;
       const monthlySelCount=monthlyEmps.filter(e=>current.includes(e.id)).length;
+      /* Helper: read current value from draft or seed from Firestore */
+      const _seed=(p)=>{if(p[openWeek.id]!==undefined)return p[openWeek.id];const w=hrWeeks.find(x=>x.id===openWeek.id);return(w&&Array.isArray(w.selectedEmps))?w.selectedEmps:[]};
       /* Auto-select actions — per tab */
       const selectTabPresent=()=>{
         if(empPickerTab==="weekly"){
           /* Weekly tab: add all present + admin (noBiometric) in weekly, keep monthly selection as-is */
           const addIds=weeklyEmps.filter(e=>{const s=getEmpStatus(e);return s.type==="present"||s.type==="admin"}).map(e=>e.id);
-          setSelectedEmps(p=>{const cur=p[openWeek.id]!==undefined?p[openWeek.id]:[];
+          setSelectedEmps(p=>{const cur=_seed(p);
             /* Keep non-weekly selections, replace weekly ones */
             const keepNonWeekly=cur.filter(id=>!weeklyEmps.some(e=>e.id===id));
             return{...p,[openWeek.id]:[...keepNonWeekly,...addIds]}
           });
         }else{
           /* Monthly tab: select all monthly */
-          setSelectedEmps(p=>{const cur=p[openWeek.id]!==undefined?p[openWeek.id]:[];
+          setSelectedEmps(p=>{const cur=_seed(p);
             const keepNonMonthly=cur.filter(id=>!monthlyEmps.some(e=>e.id===id));
             return{...p,[openWeek.id]:[...keepNonMonthly,...monthlyEmps.map(e=>e.id)]}
           });
         }
       };
       const selectTabAll=()=>{
-        setSelectedEmps(p=>{const cur=p[openWeek.id]!==undefined?p[openWeek.id]:[];
+        setSelectedEmps(p=>{const cur=_seed(p);
           const others=cur.filter(id=>!tabEmps.some(e=>e.id===id));
           return{...p,[openWeek.id]:[...others,...tabEmps.map(e=>e.id)]}
         });
       };
       const selectTabNone=()=>{
-        setSelectedEmps(p=>{const cur=p[openWeek.id]!==undefined?p[openWeek.id]:[];
+        setSelectedEmps(p=>{const cur=_seed(p);
           return{...p,[openWeek.id]:cur.filter(id=>!tabEmps.some(e=>e.id===id))}
         });
       };
-      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowEmpPicker(false)}>
+      /* Close the popup AND flush pending draft to Firestore (saves once, not per toggle) */
+      const closeEmpPicker=()=>{flushSelectedEmps(openWeek.id);setShowEmpPicker(false)};
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={closeEmpPicker}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:580,maxHeight:"88vh",overflowY:"auto",border:"1px solid "+T.brd}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>👥 اختر موظفي هذا الأسبوع</div>
-            <Btn ghost small onClick={()=>setShowEmpPicker(false)}>✕</Btn>
+            <Btn ghost small onClick={closeEmpPicker}>✕</Btn>
           </div>
           {/* Tabs */}
           <div style={{display:"flex",gap:0,marginBottom:12,borderBottom:"2px solid "+T.brd}}>
@@ -10883,7 +10989,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               </div>})}
           </div>}
           <div style={{marginTop:10,padding:8,borderRadius:8,background:T.accent+"06",textAlign:"center",fontSize:FS-1,fontWeight:700,color:T.accent}}>{current.length+" من "+activeEmps.length+" موظف"}</div>
-          <div style={{marginTop:10,textAlign:"center"}}><Btn primary onClick={()=>setShowEmpPicker(false)}>✅ تم</Btn></div>
+          <div style={{marginTop:10,textAlign:"center"}}><Btn primary onClick={closeEmpPicker}>✅ تم</Btn></div>
         </div>
       </div>})()}
 
