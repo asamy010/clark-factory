@@ -2818,7 +2818,28 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
           {canEdit&&<div onClick={()=>{if(confirm("حذف صورة الأوردر؟"))updOrder(sel,o=>{o.image=""})}} style={{position:"absolute",top:2,right:2,width:18,height:18,borderRadius:9,background:"rgba(0,0,0,0.6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:9}}>✕</div>}
         </div>}
         <div style={{flex:1,display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(2,1fr)":"repeat(4,1fr)",gap:isMob?6:12}}>
-          <MetricCard label="كمية القص" value={t.cutQty} icon="✂️" color={T.accent}/><MetricCard label="في المخزن الجاهز" value={order.deliveredQty||0} icon="📦" color={T.ok}/><MetricCard label="الرصيد" value={t.balance} icon="📊" color={t.balance>0?T.warn:T.ok}/><MetricCard label="تكلفة القطعة" value={t.costPer+" ج.م"} icon="💰" color={T.accent}/>
+          <MetricCard label="كمية القص" value={t.cutQty} icon="✂️" color={T.accent}/>
+          <MetricCard label="في المخزن الجاهز" value={order.deliveredQty||0} icon="📦" color={T.ok}/>
+          <MetricCard label="الرصيد" value={t.balance} icon="📊" color={t.balance>0?T.warn:T.ok}/>
+          {(()=>{
+            /* Show actual cost (including settlement loss) if order has a settlement,
+               otherwise show the theoretical cost. Sub shows breakdown when settlement exists. */
+            const hasSettlement=!!order.settlement;
+            const delivered=order.deliveredQty||0;
+            const originalCostPer=r2(t.costPer);
+            if(hasSettlement&&delivered>0){
+              const actualCostPer=r2((t.costAll+(order.settlement.cost||0))/delivered);
+              const diff=r2(actualCostPer-originalCostPer);
+              return<MetricCard
+                label="تكلفة القطعة الفعلية"
+                value={Math.ceil(actualCostPer)+" ج.م"}
+                icon="💰"
+                color={T.err}
+                sub={"الأصلية: "+Math.ceil(originalCostPer)+" ج.م • فرق +"+Math.ceil(diff)+" ج.م (هالك)"}
+              />;
+            }
+            return<MetricCard label="تكلفة القطعة" value={originalCostPer+" ج.م"} icon="💰" color={T.accent}/>;
+          })()}
         </div>
         {/* Cost warning */}
         {(()=>{const pieces=order.orderPieces||[];if(pieces.length<=1)return null;const linked=new Set();FKEYS.forEach(k=>{if(gf(order,k))(order["fabricPieces"+k]||[]).forEach(p=>linked.add(p))});const missing=pieces.filter(p=>!linked.has(p));if(missing.length===0)return null;
@@ -3199,12 +3220,28 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
   const saveEditMov=()=>{if(!editMov)return;
     if(editMov.type==="deliver"){updOrder(editMov.orderId,o=>{const wd=o.workshopDeliveries[editMov.wdIdx];if(wd){const newPrice=Number(editPrice)||0;const oldPrice=Number(wd.price)||0;
       wd.qty=Number(editQty)||0;wd.notes=editNote;wd.price=newPrice;if(editDate)wd.date=editDate;
-      /* Cascade price change to all receives */
-      if(newPrice!==oldPrice&&wd.receives){wd.receives.forEach(r=>{r.price=newPrice;r.amount=r2((Number(r.qty)||0)*newPrice)})}};o.status=recomputeStatus(o)})}
+      /* Cascade price change to all receives under this delivery.
+         Run ALWAYS (not just when newPrice !== oldPrice) to fix any existing inconsistencies
+         in legacy data where receives might have stale prices. */
+      if(Array.isArray(wd.receives)&&wd.receives.length>0){
+        wd.receives.forEach(r=>{
+          r.price=newPrice;
+          r.amount=r2((Number(r.qty)||0)*newPrice);
+        });
+      }
+      /* Tag the cascade for user feedback */
+      if(newPrice!==oldPrice)wd._priceChangedAt=new Date().toISOString();
+      };o.status=recomputeStatus(o)})}
     else{updOrder(editMov.orderId,o=>{const wd=o.workshopDeliveries[editMov.wdIdx];const r=wd?.receives?.[editMov.rIdx];if(r){r.qty=Number(editQty)||0;r.notes=editNote;if(editDate)r.date=editDate;if(editQuality)r.quality=editQuality;
       /* Update receive price from delivery price */
       r.price=Number(wd.price)||0;r.amount=r2((Number(r.qty)||0)*r.price)};o.status=recomputeStatus(o)})}
-    setEditMov(null);showToast("✓ تم التعديل — الحسابات محدّثة")};
+    setEditMov(null);
+    if(editMov.type==="deliver"){
+      const oldP=Number(editMov.price)||0;const newP=Number(editPrice)||0;
+      if(oldP!==newP){showToast("✅ تم التعديل — حساب الورشة تحدث تلقائياً (السعر: "+oldP+" → "+newP+")")}
+      else{showToast("✓ تم التعديل — الحسابات محدّثة")}
+    }else{showToast("✓ تم التعديل — الحسابات محدّثة")}
+  };
   const printMov=(m)=>{
     const ord=data.orders.find(o=>o.id===m.orderId);
     const ws=(data.workshops||[]).find(w=>w.name===m.wsName);
@@ -3500,7 +3537,47 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
       </div>:<p style={{color:T.textSec,textAlign:"center",padding:30}}>لا توجد أوردرات متاحة للتسليم</p>}
     </Card>}
     {/* Workshop-specific movements */}
-    {selWs&&wsMoves.length>0&&<Card title={"حركات ورشة "+selWs+" (آخر "+Math.min(10,wsMoves.length)+" من "+wsMoves.length+")"}>
+    {/* Workshop-specific movements */}
+    {selWs&&wsMoves.length>0&&(()=>{
+      /* Recalculate all receives' price + amount from their delivery's current wd.price. */
+      const recalcWsPrices=()=>{
+        let touched=0;let deliveriesTouched=0;
+        data.orders.forEach(o=>{
+          (o.workshopDeliveries||[]).forEach(wd=>{
+            if(wd.wsName!==selWs)return;
+            if(!Array.isArray(wd.receives)||wd.receives.length===0)return;
+            const newPrice=Number(wd.price)||0;
+            let thisWdTouched=false;
+            wd.receives.forEach(r=>{
+              const oldP=Number(r.price)||0;
+              const oldAmt=Number(r.amount)||0;
+              const newAmt=r2((Number(r.qty)||0)*newPrice);
+              if(oldP!==newPrice||oldAmt!==newAmt){touched++;thisWdTouched=true}
+            });
+            if(thisWdTouched)deliveriesTouched++;
+          });
+        });
+        if(touched===0){showToast("✅ كل الاستلامات محدّثة بالفعل");return}
+        if(!confirm("سيتم تحديث "+touched+" استلام من "+deliveriesTouched+" تسليم. هل تريد المتابعة؟"))return;
+        upConfig(d=>{
+          (d.orders||[]).forEach(o=>{
+            (o.workshopDeliveries||[]).forEach(wd=>{
+              if(wd.wsName!==selWs)return;
+              if(!Array.isArray(wd.receives))return;
+              const newPrice=Number(wd.price)||0;
+              wd.receives.forEach(r=>{
+                r.price=newPrice;
+                r.amount=r2((Number(r.qty)||0)*newPrice);
+              });
+            });
+          });
+        });
+        showToast("✅ تم إعادة حساب "+touched+" استلام — حساب الورشة محدّث");
+      };
+      return<Card title={"حركات ورشة "+selWs+" (آخر "+Math.min(10,wsMoves.length)+" من "+wsMoves.length+")"}>
+      <div style={{marginBottom:10,display:"flex",justifyContent:"flex-end"}}>
+        {canEdit&&!isInternal(selWs)&&<Btn small onClick={recalcWsPrices} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700}} title="يعيد حساب كل الاستلامات بناءً على الأسعار الحالية">🔄 إعادة حساب الأسعار</Btn>}
+      </div>
       <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:550}}>
         <thead><tr>{["نوع الحركة","التاريخ","موديل","الوصف","نوع القطعة","الكمية",...(isInternal(selWs)?[]:["سعر"]),"ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
         <tbody>{wsMoves.slice(0,10).map((m,i)=>{const isEd=editMov&&editMov.orderId===m.orderId&&editMov.wdIdx===m.wdIdx&&editMov.type===m.type&&(m.type==="deliver"||editMov.rIdx===m.rIdx);
@@ -3520,7 +3597,7 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
             <Btn small onClick={()=>{const phone=wsObj?.phone||"";const msg=m.type==="deliver"?"*CLARK — تسليم*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• الوصف: "+(m.orderDesc||"-")+"%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — استلام*%0A%0A• الورشة: *"+selWs+"*%0A• موديل: *"+m.orderNo+"*%0A• الوصف: "+(m.orderDesc||"-")+"%0A• القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"*%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال واتساب">📱</Btn></>}
           </div>}</td></tr>})}</tbody>
       </table></div>
-    </Card>}
+    </Card>})()}
   </div>;
 
   /* ── BATCH DELIVER MODE ── */
@@ -4967,6 +5044,15 @@ function LaborCostReport({data,isMob}){
   </Card>
 }
 
+
+/* ═══════════════════════════════════════════════════════════════════
+   Module-level scan mode trackers.
+   Kept OUTSIDE any component to avoid React hook violations.
+   These are mutable variables that the camera scanner closures can
+   read from at scan time to support live toggling of series/piece mode.
+   ═══════════════════════════════════════════════════════════════════ */
+let _auditScanMode="series";
+let _stockRcvScanMode="series";
 
 function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEdit,user,season}){
   const config=data;const orders=data.orders||[];const customers=config.customers||[];const sessions=config.custDeliverySessions||[];
@@ -6572,13 +6658,13 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
     {stockRcv&&(()=>{const rcvItems=stockRcv.items||{};
       const available=orders.filter(o=>{const wds=o.workshopDeliveries||[];const rcvFromWs=wds.reduce((s,wd)=>s+(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0),0);const allDel=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return rcvFromWs-allDel>0}).map(o=>{const wds=o.workshopDeliveries||[];const rcvFromWs=wds.reduce((s,wd)=>s+(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0),0);const allDel=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const pending=(o.deliveries||[]).filter(d=>d.status==="pending").reduce((s,d)=>s+(Number(d.qty)||0),0);return{id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,fromFinishing:rcvFromWs-allDel,pendingQty:pending,rackSize:getRackSize(o.id)}});
       const stockScanMode=stockRcv.scanMode||"series";/* "series" | "piece" */
-      /* Ref to keep live scanMode for the camera scanner closure (avoids stale closure bug) */
-      const stockScanModeRef=useRef(stockScanMode);stockScanModeRef.current=stockScanMode;
+      /* Update module-level variable (not a hook — safe inside IIFE) */
+      _stockRcvScanMode=stockScanMode;
       const handleStockScan=(text)=>{try{const parts=text.split(":");if(parts[0]!=="CLARK"||!parts[1])return;const orderId=parts[1];const qrRs=Number(parts[2])||1;
         const o=orders.find(x=>x.id===orderId);if(!o){playBeep("error");showToast("⛔ موديل غير موجود");return}
         const _sz=o.sizeLabel?o.sizeLabel.split(/[-\/,]/).map(s=>s.trim()).filter(Boolean):[];const rs=_sz.length>1?Math.max(qrRs,_sz.length):qrRs;
-        /* Read current mode from ref to support live toggling */
-        const currentMode=stockScanModeRef.current;
+        /* Read current mode from module-level variable */
+        const currentMode=_stockRcvScanMode;
         const addQty=currentMode==="piece"?1:rs;
         setStockRcv(p=>({...p,items:{...p.items,[orderId]:(p.items[orderId]||0)+addQty}}));playBeep("ok");showToast("✅ "+o.modelNo+" +"+(currentMode==="piece"?"1 قطعة":rs+" سيري"))}catch(e){}};
       const closeStockCam=()=>{try{const v=document.getElementById("stock-rcv-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setStockRcv(p=>({...p,scanning:false}))};
@@ -6642,10 +6728,9 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
     {/* Inventory Audit - جرد المخزن */}
     {invAudit&&(()=>{const auditItems=invAudit.items||{};
       const scanMode=invAudit.scanMode||"series";/* "series" | "piece" | "auto" */
-      /* Keep a live ref to scanMode so the camera scanner closure always reads the current value.
-         Without this, the ref callback captures scanMode from first render and toggling the switch
-         has no effect until the scanner restarts. */
-      const scanModeRef=useRef(scanMode);scanModeRef.current=scanMode;
+      /* Update module-level variable on every render so scanner closure reads latest value.
+         This is safe — it's not a hook, just a plain assignment to a module variable. */
+      _auditScanMode=scanMode;
       const allStock=stockModels.filter(m=>m.stockQty>0||auditItems[m.id]);
       const handleAuditScan=(text)=>{try{
         /* 1. Try package QR (carton) */
@@ -6658,8 +6743,8 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
         const parts=text.split(":");if(parts[0]!=="CLARK"||!parts[1])return;const orderId=parts[1];const qrRs=Number(parts[2])||1;
         const o=orders.find(x=>x.id===orderId);if(!o){playBeep("error");showToast("⛔ موديل غير موجود");return}
         const _sz=o.sizeLabel?o.sizeLabel.split(/[-\/,]/).map(s=>s.trim()).filter(Boolean):[];const rs=_sz.length>1?Math.max(qrRs,_sz.length):qrRs;
-        /* Read current scan mode from ref (not from closure) to support live toggling */
-        const currentMode=scanModeRef.current;
+        /* Read current scan mode from module-level variable (always current) */
+        const currentMode=_auditScanMode;
         const addQty=currentMode==="piece"?1:rs;
         setInvAudit(p=>{const items={...p.items};items[orderId]=(items[orderId]||0)+addQty;return{...p,items}});playBeep("ok");showToast("✅ "+o.modelNo+" +"+(currentMode==="piece"?"1 قطعة":rs+" سيري"))}catch(e){}};
       const closeAuditCam=()=>{try{const v=document.getElementById("audit-scan-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setInvAudit(p=>({...p,scanning:false}))};
