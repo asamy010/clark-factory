@@ -9075,6 +9075,10 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   /* Inline row edit for employee table */
   const[inlineEditId,setInlineEditId]=useState(null);
   const[inlineDraft,setInlineDraft]=useState({});
+  /* Employee search filter */
+  const[empSearch,setEmpSearch]=useState("");
+  /* Edit employee popup — holds full employee data for editing */
+  const[editPopup,setEditPopup]=useState(null);/* {id, name, code, job, weeklySalary, weeklyBonus, baseHours, phone, noBiometric, salaryType, hireDate} */
   /* Bulk import popup */
   const[showBulkImport,setShowBulkImport]=useState(false);
   const[bulkImportText,setBulkImportText]=useState("");
@@ -9134,6 +9138,25 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       e.baseHours=parseFloat(d.baseHours)||0;e.phone=d.phone||"";e.noBiometric=!!d.noBiometric}});
     setInlineEditId(null);setInlineDraft({});showToast("✓ تم التعديل")};
   const cancelInlineEdit=()=>{setInlineEditId(null);setInlineDraft({})};
+  /* Save full employee edit from popup */
+  const saveEditPopup=()=>{if(!editPopup||!editPopup.id)return;
+    const d=editPopup;
+    if(!d.name||!d.name.trim()){showToast("⚠️ الاسم مطلوب");return}
+    upConfig(cfg=>{const e=(cfg.employees||[]).find(x=>x.id===d.id);if(e){
+      e.name=d.name.trim();
+      e.code=(d.code||"").trim();
+      e.job=d.job||"";
+      e.weeklySalary=parseFloat(d.weeklySalary)||0;
+      e.weeklyBonus=parseFloat(d.weeklyBonus)||0;
+      e.baseHours=parseFloat(d.baseHours)||0;
+      e.phone=d.phone||"";
+      e.noBiometric=!!d.noBiometric;
+      e.salaryType=d.salaryType||"weekly";
+      if(d.hireDate)e.hireDate=d.hireDate;
+    }});
+    setEditPopup(null);showToast("✓ تم التعديل")
+  };
+  const openEditPopup=(e)=>setEditPopup({id:e.id,name:e.name||"",code:e.code||"",job:e.job||"",weeklySalary:String(e.weeklySalary||""),weeklyBonus:String(e.weeklyBonus||""),baseHours:String(e.baseHours||""),phone:e.phone||"",noBiometric:!!e.noBiometric,salaryType:e.salaryType||"weekly",hireDate:e.hireDate||today});
   const toggleEmpActive=(id)=>{upConfig(d=>{const e=(d.employees||[]).find(x=>x.id===id);if(e)e.inactive=!e.inactive})};
 
   /* ── Week CRUD ── */
@@ -10008,40 +10031,129 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         </div>
       </div>})()}
 
+    {/* ══ EDIT EMPLOYEE POPUP — تعديل كل تفاصيل الموظف ══ */}
+    {editPopup&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setEditPopup(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:720,maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"1px solid "+T.brd}}>
+          <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6",display:"flex",alignItems:"center",gap:8}}>
+            <span>✏️</span>
+            <span>تعديل بيانات الموظف</span>
+          </div>
+          <Btn ghost small onClick={()=>setEditPopup(null)}>✕</Btn>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(2,1fr)",gap:12}}>
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,marginBottom:4,display:"block"}}>الاسم</label>
+            <Inp value={editPopup.name} onChange={v=>setEditPopup(p=>({...p,name:v}))}/>
+          </div>
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,marginBottom:4,display:"block"}}>كود البصمة</label>
+            <Inp value={editPopup.code} onChange={v=>setEditPopup(p=>({...p,code:v}))} placeholder="رقم من جهاز البصمة"/>
+          </div>
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,marginBottom:4,display:"block"}}>الوظيفة</label>
+            <Inp value={editPopup.job} onChange={v=>setEditPopup(p=>({...p,job:v}))}/>
+          </div>
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,marginBottom:4,display:"block"}}>نظام المرتب</label>
+            <Sel value={editPopup.salaryType} onChange={v=>setEditPopup(p=>({...p,salaryType:v}))}>
+              <option value="weekly">أسبوعي</option>
+              <option value="monthly">شهري</option>
+            </Sel>
+          </div>
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,marginBottom:4,display:"block"}}>{editPopup.salaryType==="monthly"?"مرتب شهري":"مرتب أسبوعي"}</label>
+            <Inp type="number" value={editPopup.weeklySalary} onChange={v=>setEditPopup(p=>({...p,weeklySalary:v}))}/>
+          </div>
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,marginBottom:4,display:"block"}}>حافز أسبوعي ثابت</label>
+            <Inp type="number" value={editPopup.weeklyBonus} onChange={v=>setEditPopup(p=>({...p,weeklyBonus:v}))} placeholder="0"/>
+          </div>
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,marginBottom:4,display:"block"}}>ساعات أساسي</label>
+            <Inp type="number" value={editPopup.baseHours} onChange={v=>setEditPopup(p=>({...p,baseHours:v}))} placeholder={String(hrs.defaultBaseHours||48)}/>
+          </div>
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,marginBottom:4,display:"block"}}>تليفون</label>
+            <Inp value={editPopup.phone} onChange={v=>setEditPopup(p=>({...p,phone:v}))}/>
+          </div>
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,marginBottom:4,display:"block"}}>تاريخ التعيين</label>
+            <Inp type="date" value={editPopup.hireDate} onChange={v=>setEditPopup(p=>({...p,hireDate:v}))}/>
+          </div>
+          <div style={{display:"flex",alignItems:"flex-end"}}>
+            <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:FS-1,fontWeight:700,color:editPopup.noBiometric?"#8B5CF6":T.textSec,padding:"8px 14px",borderRadius:8,background:editPopup.noBiometric?"#8B5CF612":T.bg,border:"1px solid "+(editPopup.noBiometric?"#8B5CF640":T.brd),width:"100%",justifyContent:"center"}}>
+              <input type="checkbox" checked={!!editPopup.noBiometric} onChange={e=>setEditPopup(p=>({...p,noBiometric:e.target.checked}))} style={{accentColor:"#8B5CF6",width:16,height:16}}/>
+              بدون بصمة (إدارة)
+            </label>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:18,justifyContent:"flex-end",paddingTop:14,borderTop:"1px solid "+T.brd}}>
+          <Btn onClick={()=>setEditPopup(null)} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>إلغاء</Btn>
+          <Btn primary onClick={saveEditPopup}>💾 حفظ التعديلات</Btn>
+        </div>
+      </div>
+    </div>}
+
     {/* ══ BULK IMPORT POPUP — إدخال جماعي للموظفين ══ */}
     {showBulkImport&&(()=>{
       const parseBulk=()=>{
-        const lines=bulkImportText.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+        const lines=bulkImportText.split(/\r?\n/).map(l=>l.replace(/\s+$/,"")).filter(l=>l.trim().length>0);
         const existingCodes=new Set(employees.map(e=>String(e.code||"").trim()).filter(Boolean));
+        /* Detect header row — common column names */
+        const headerKeywords=["اسم","name","كود","code","بصمة","مرتب","salary","راتب","وظيفة","job","تليفون","phone","هاتف","ساعات","hours","حافز","bonus"];
+        let headerSkipped=false;
+        if(lines.length>0){
+          const firstLower=lines[0].toLowerCase();
+          const hitCount=headerKeywords.filter(k=>firstLower.includes(k.toLowerCase())).length;
+          if(hitCount>=2){/* Likely a header row */
+            lines.shift();headerSkipped=true;
+          }
+        }
         const rows=lines.map((line,i)=>{
-          /* Split by tabs, commas, or 2+ spaces */
-          const parts=line.split(/\t|,|\s{2,}/).map(s=>s.trim()).filter(Boolean);
-          if(parts.length<2)return{line:i+1,raw:line,status:"error",err:"ناقص بيانات"};
-          const[name,code,salary,job,phone,baseHours,bonus]=parts;
+          /* Split by Tab ONLY (Excel default), OR comma (CSV). NOT by multi-space — that breaks names like "محمود  حدوتة". */
+          /* Keep empty cells in place so columns don't shift when Excel cell is empty. */
+          const parts=line.split(/\t|,/).map(s=>s.trim());
+          /* Only filter fully-empty RIGHTMOST cells, keep middle empty cells as "" */
+          while(parts.length>0&&parts[parts.length-1]==="")parts.pop();
+          if(parts.length<2)return{line:i+1,raw:line,status:"error",err:"ناقص بيانات — يلزم على الأقل اسم + كود أو مرتب"};
+          const name=parts[0]||"";
+          const code=parts[1]||"";
+          const salary=parts[2]||"";
+          const job=parts[3]||"";
+          const phone=parts[4]||"";
+          const baseHours=parts[5]||"";
+          const bonus=parts[6]||"";
           const salaryNum=parseFloat(salary)||0;
-          if(!name||!code){return{line:i+1,raw:line,status:"error",err:"اسم أو كود ناقص"}}
-          if(existingCodes.has(String(code).trim())){return{line:i+1,name,code,salary:salaryNum,job:job||"",phone:phone||"",baseHours:parseFloat(baseHours)||(hrs.defaultBaseHours||48),bonus:parseFloat(bonus)||0,status:"exists",err:"كود موجود"}}
-          return{line:i+1,name,code,salary:salaryNum,job:job||"",phone:phone||"",baseHours:parseFloat(baseHours)||(hrs.defaultBaseHours||48),bonus:parseFloat(bonus)||0,status:"new"};
+          if(!name||!name.trim()){return{line:i+1,raw:line,status:"error",err:"الاسم ناقص"}}
+          /* Validate salary looks numeric if provided */
+          if(salary&&isNaN(parseFloat(salary))){return{line:i+1,raw:line,name,code,status:"error",err:"المرتب (عمود 3) غير رقمي: \""+salary+"\""}}
+          if(!code||!code.trim()){return{line:i+1,raw:line,name,code:"",salary:salaryNum,job,phone,baseHours:parseFloat(baseHours)||(hrs.defaultBaseHours||48),bonus:parseFloat(bonus)||0,status:"warn",err:"⚠️ كود البصمة فاضي — سيتم إضافة الموظف بدون كود"}}
+          if(existingCodes.has(String(code).trim())){return{line:i+1,raw:line,name,code,salary:salaryNum,job,phone,baseHours:parseFloat(baseHours)||(hrs.defaultBaseHours||48),bonus:parseFloat(bonus)||0,status:"exists",err:"كود موجود"}}
+          return{line:i+1,raw:line,name,code,salary:salaryNum,job,phone,baseHours:parseFloat(baseHours)||(hrs.defaultBaseHours||48),bonus:parseFloat(bonus)||0,status:"new"};
         });
+        /* Attach header-skipped flag as a hidden row 0 so UI can show notice */
+        if(headerSkipped)rows._headerSkipped=true;
         setBulkImportParsed(rows);
       };
       const saveBulk=()=>{
         if(!bulkImportParsed)return;
-        const toAdd=bulkImportParsed.filter(r=>r.status==="new");
+        const toAdd=bulkImportParsed.filter(r=>r.status==="new"||r.status==="warn");
         if(toAdd.length===0){showToast("⚠️ لا يوجد موظفين جدد للإضافة");return}
         upConfig(d=>{if(!d.employees)d.employees=[];
           toAdd.forEach(r=>{
-            d.employees.push({id:gid(),name:r.name,code:r.code,job:r.job,phone:r.phone,weeklySalary:r.salary,baseHours:r.baseHours,weeklyBonus:r.bonus,hireDate:today,prevBalance:0})
+            d.employees.push({id:gid(),name:r.name,code:r.code||"",job:r.job||"",phone:r.phone||"",weeklySalary:r.salary||0,baseHours:r.baseHours||(hrs.defaultBaseHours||48),weeklyBonus:r.bonus||0,hireDate:today,prevBalance:0,salaryType:"weekly"})
           })
         });
         showToast("✅ تم إضافة "+toAdd.length+" موظف");
         setShowBulkImport(false);setBulkImportText("");setBulkImportParsed(null);
       };
       const newCount=bulkImportParsed?bulkImportParsed.filter(r=>r.status==="new").length:0;
+      const warnCount=bulkImportParsed?bulkImportParsed.filter(r=>r.status==="warn").length:0;
       const existsCount=bulkImportParsed?bulkImportParsed.filter(r=>r.status==="exists").length:0;
       const errCount=bulkImportParsed?bulkImportParsed.filter(r=>r.status==="error").length:0;
       return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setShowBulkImport(false)}>
-        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:860,maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:900,maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div style={{fontSize:FS+1,fontWeight:800,color:"#8B5CF6"}}>📋 إدخال جماعي للموظفين</div>
             <Btn ghost small onClick={()=>setShowBulkImport(false)}>✕</Btn>
@@ -10049,16 +10161,19 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           <div style={{padding:10,borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF620",fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.7}}>
             الصق البيانات من Excel أو Google Sheets. كل سطر = موظف واحد.<br/>
             <b>الأعمدة بالترتيب:</b> الاسم | كود البصمة | المرتب الأسبوعي | <span style={{opacity:0.7}}>[الوظيفة] | [التليفون] | [ساعات] | [حافز]</span><br/>
-            <b>الفواصل:</b> Tab أو فواصل أو 2+ مسافات — مش محتاج تحديد.
+            <b>الفواصل:</b> Tab (من Excel) أو فاصلة (,). الخلايا الفاضية في Excel تُحفظ مكانها.<br/>
+            <b style={{color:"#F59E0B"}}>ملاحظة:</b> لو الصف الأول فيه عناوين (اسم، كود، ...) سيتم تجاهله تلقائياً.
           </div>
           <textarea value={bulkImportText} onChange={e=>setBulkImportText(e.target.value)} placeholder={"محمود حدوتة	1234	4500	خياط	01012345678\nيوسف عبدالله	5678	3200\nأحمد علي	9012	2800	مساعد"} style={{width:"100%",minHeight:160,padding:12,borderRadius:10,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"monospace",background:T.inputBg,color:T.text,direction:"ltr",textAlign:"right"}}/>
           <div style={{display:"flex",gap:8,marginTop:10}}>
             <Btn onClick={parseBulk} disabled={!bulkImportText.trim()} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}}>🔍 معاينة</Btn>
-            {bulkImportParsed&&newCount>0&&<Btn primary onClick={saveBulk}>✅ إضافة {newCount} موظف</Btn>}
+            {bulkImportParsed&&(newCount+warnCount)>0&&<Btn primary onClick={saveBulk}>✅ إضافة {newCount+warnCount} موظف</Btn>}
           </div>
+          {bulkImportParsed&&bulkImportParsed._headerSkipped&&<div style={{marginTop:10,padding:8,borderRadius:8,background:"#F59E0B10",border:"1px solid #F59E0B30",fontSize:FS-2,color:"#92400E",fontWeight:600}}>ℹ️ تم تخطي الصف الأول لأنه يحتوي على عناوين أعمدة</div>}
           {bulkImportParsed&&<div style={{marginTop:14}}>
             <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
               <span style={{padding:"4px 10px",borderRadius:8,background:T.ok+"12",color:T.ok,fontSize:FS-2,fontWeight:700}}>🟢 جديد: {newCount}</span>
+              {warnCount>0&&<span style={{padding:"4px 10px",borderRadius:8,background:"#F59E0B12",color:"#F59E0B",fontSize:FS-2,fontWeight:700}}>🟠 جديد بدون كود: {warnCount}</span>}
               <span style={{padding:"4px 10px",borderRadius:8,background:T.warn+"12",color:T.warn,fontSize:FS-2,fontWeight:700}}>🟡 موجود: {existsCount}</span>
               <span style={{padding:"4px 10px",borderRadius:8,background:T.err+"12",color:T.err,fontSize:FS-2,fontWeight:700}}>🔴 خطأ: {errCount}</span>
             </div>
@@ -10067,13 +10182,14 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                 {["#","الحالة","الاسم","الكود","المرتب","الوظيفة","التليفون","ساعات","حافز"].map(h=><th key={h} style={{padding:"8px 6px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700}}>{h}</th>)}
               </tr></thead><tbody>
                 {bulkImportParsed.map((r,i)=>{
-                  const color=r.status==="new"?T.ok:r.status==="exists"?T.warn:T.err;
-                  const icon=r.status==="new"?"🟢":r.status==="exists"?"🟡":"🔴";
+                  const color=r.status==="new"?T.ok:r.status==="warn"?"#F59E0B":r.status==="exists"?T.warn:T.err;
+                  const icon=r.status==="new"?"🟢":r.status==="warn"?"🟠":r.status==="exists"?"🟡":"🔴";
+                  const statusLabel=r.status==="new"?"جديد":r.status==="warn"?"جديد⚠️":r.status==="exists"?"موجود":"خطأ";
                   return<tr key={i} style={{borderBottom:"1px solid "+T.brd+"40",background:i%2===1?T.bg:""}}>
                     <td style={{padding:"5px 6px",textAlign:"center",fontSize:FS-2,color:T.textMut}}>{r.line}</td>
-                    <td style={{padding:"5px 6px",textAlign:"center"}}><span title={r.err||""} style={{padding:"2px 8px",borderRadius:5,fontSize:FS-3,fontWeight:700,background:color+"15",color}}>{icon} {r.status==="new"?"جديد":r.status==="exists"?"موجود":"خطأ"}</span></td>
+                    <td style={{padding:"5px 6px",textAlign:"center"}}><span title={r.err||""} style={{padding:"2px 8px",borderRadius:5,fontSize:FS-3,fontWeight:700,background:color+"15",color}}>{icon} {statusLabel}</span></td>
                     <td style={{padding:"5px 8px",fontSize:FS-1,fontWeight:600}}>{r.name||<span style={{color:T.err}}>—</span>}</td>
-                    <td style={{padding:"5px 6px",textAlign:"center",fontSize:FS-2,fontFamily:"monospace"}}>{r.code||"—"}</td>
+                    <td style={{padding:"5px 6px",textAlign:"center",fontSize:FS-2,fontFamily:"monospace"}}>{r.code||<span style={{color:r.status==="warn"?"#F59E0B":T.textMut}}>—</span>}</td>
                     <td style={{padding:"5px 6px",textAlign:"center",fontSize:FS-1,fontWeight:700,color:T.accent}}>{r.salary?fmt(r.salary):"—"}</td>
                     <td style={{padding:"5px 6px",fontSize:FS-2}}>{r.job||""}</td>
                     <td style={{padding:"5px 6px",fontSize:FS-3,color:T.textMut,direction:"ltr"}}>{r.phone||""}</td>
@@ -10482,11 +10598,33 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           <div style={{display:"flex",alignItems:"flex-end"}}><Btn primary onClick={saveEmp} style={{width:"100%"}}>💾</Btn></div>
         </div>
       </Card>}
-      <Card title={"👷 الموظفين ("+employees.length+")"}>
-        {employees.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+      {(()=>{
+        /* Filter employees by search query across multiple fields */
+        const q=(empSearch||"").trim().toLowerCase();
+        const filteredEmps=q?employees.filter(e=>{
+          const fields=[
+            e.name||"",
+            e.code||"",
+            e.job||"",
+            e.phone||"",
+            (e.salaryType||"weekly")==="monthly"?"شهري":"أسبوعي",
+            e.noBiometric?"بدون بصمة إدارة":"بصمة",
+            e.inactive?"متوقف":"نشط"
+          ].join(" ").toLowerCase();
+          return fields.includes(q);
+        }):employees;
+      return<Card title={"👷 الموظفين ("+(q?filteredEmps.length+"/"+employees.length:employees.length)+")"}>
+        <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center"}}>
+          <div style={{flex:1,position:"relative"}}>
+            <span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:T.textMut,pointerEvents:"none"}}>🔍</span>
+            <input value={empSearch} onChange={e=>setEmpSearch(e.target.value)} placeholder="ابحث بالاسم، الكود، الوظيفة، التليفون، نوع المرتب..." style={{width:"100%",padding:"8px 34px 8px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text,boxSizing:"border-box"}}/>
+          </div>
+          {empSearch&&<Btn small onClick={()=>setEmpSearch("")} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",whiteSpace:"nowrap"}}>✕ مسح</Btn>}
+        </div>
+        {filteredEmps.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
           {["#","الاسم","الكود","الوظيفة","مرتب","حافز","ساعات","تليفون","رصيد","مديونيات","حالة",""].map(h=><th key={h} style={{padding:"7px 6px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
         </tr></thead><tbody>
-          {employees.map((e,i)=>{const activeD=empActiveDebts(e.id);const totalRemaining=activeD.reduce((s,d)=>{const paid=(d.paidWeekIds||[]).length;return s+(d.total-paid*d.perWeek)},0);
+          {filteredEmps.map((e,i)=>{const activeD=empActiveDebts(e.id);const totalRemaining=activeD.reduce((s,d)=>{const paid=(d.paidWeekIds||[]).length;return s+(d.total-paid*d.perWeek)},0);
             const isEditing=inlineEditId===e.id;const d_=inlineDraft;
             const inpStyle={width:"100%",padding:"3px 6px",borderRadius:6,border:"1px solid "+T.accent+"40",fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text};
             return<tr key={e.id} style={{borderBottom:"1px solid "+T.brd,opacity:e.inactive?0.4:1,background:isEditing?T.accent+"06":""}}>
@@ -10517,7 +10655,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                   <span onClick={cancelInlineEdit} style={{cursor:"pointer",padding:"3px 6px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>✕</span>
                 </>:<>
                   <span onClick={()=>{setEmpStatement(e.id);setStmtFrom("");setStmtTo("")}} style={{cursor:"pointer",fontSize:13,padding:"3px 8px",borderRadius:6,background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}} title="كشف حساب تفصيلي">📄</span>
-                  <span onClick={()=>startInlineEdit(e)} style={{cursor:"pointer",fontSize:11}} title="تعديل لحظي">✏️</span>
+                  <span onClick={()=>openEditPopup(e)} style={{cursor:"pointer",fontSize:13,padding:"3px 8px",borderRadius:6,background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}} title="تعديل كل التفاصيل">✏️</span>
                   <span onClick={()=>{setShowDebtForm({empId:e.id});resetDebtForm();setDebtStart(today)}} style={{cursor:"pointer",fontSize:11}} title="+ مديونية">🧾</span>
                   <span onClick={()=>toggleEmpActive(e.id)} style={{cursor:"pointer",fontSize:11}}>{e.inactive?"▶️":"⏸"}</span>
                   <span onClick={()=>{
@@ -10532,8 +10670,8 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                 </>}
               </div>}</td>
             </tr>})}
-        </tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>أضف موظفين</div>}
-      </Card>
+        </tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>{q?"لا يوجد نتائج للبحث عن \""+empSearch+"\"":"أضف موظفين"}</div>}
+      </Card>})()}
     </div>}
 
     {/* ══ LOG ══ */}
