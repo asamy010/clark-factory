@@ -86,7 +86,11 @@ function playBeep(type){try{if(!_audioCtx.c)_audioCtx.c=new(window.AudioContext|
   else{o.frequency.value=1200;g.gain.value=0.2;o.start();setTimeout(()=>{const o2=c.createOscillator();const g2=c.createGain();o2.connect(g2);g2.connect(c.destination);o2.frequency.value=1500;g2.gain.value=0.2;o2.start();o2.stop(c.currentTime+0.1)},150);o.stop(c.currentTime+0.1)}
 }catch(e){}}
 function fmt(n){return Number(n||0).toLocaleString("en-US")}
+/* Format as integer with thousands separator — always rounds to whole number. Use for money. */
+function fmt0(n){return Math.round(Number(n||0)).toLocaleString("en-US")}
 function r2(n){return Math.round((n||0)*100)/100}
+/* Format ISO date (YYYY-MM-DD) as Arabic-friendly (D-M-YYYY) for RTL display */
+function fmtDate(iso){if(!iso)return"";const parts=String(iso).split("-");if(parts.length!==3)return iso;return parseInt(parts[2])+"-"+parseInt(parts[1])+"-"+parts[0]}
 /* Convert decimal hours (e.g., 13.95) to display format "HH:MM" (e.g., "13:57").
    - 13.95 → "13:57"  (0.95 * 60 = 57 minutes)
    - 8.5   → "8:30"
@@ -5273,7 +5277,15 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
     pw.document.close();if(window.innerWidth>1024)setTimeout(()=>{pw.focus();pw.print()},500)
   };
 
-  return<div>
+  return<div className="sales-page-buttons">
+    {/* Scoped CSS: enlarge all action buttons on sales page by ~25% (excludes cards/tiles). */}
+    <style>{`
+      .sales-page-buttons button{font-size:1.15em;padding:10px 20px}
+      .sales-page-buttons button[style*="padding: 4px"],.sales-page-buttons button[style*="padding:4px"]{padding:6px 14px !important}
+      .sales-page-buttons button[style*="padding: 6px 12px"],.sales-page-buttons button[style*="padding:6px 12px"]{padding:8px 16px !important}
+      .sales-page-buttons button[style*="padding: 7px 16px"],.sales-page-buttons button[style*="padding:7px 16px"]{padding:9px 20px !important}
+      .sales-page-buttons button[style*="padding: 9px 18px"],.sales-page-buttons button[style*="padding:9px 18px"]{padding:12px 24px !important}
+    `}</style>
     {(()=>{const crd=(icon,label,color,onClick,sub)=><div onClick={onClick} style={{background:T.cardSolid,borderRadius:10,padding:"4px",border:"1px solid "+color+"20",boxShadow:"0 1px 3px rgba(0,0,0,0.04)",cursor:"pointer",textAlign:"center",transition:"transform 0.15s",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,aspectRatio:"1"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}><div style={{fontSize:isMob?18:22,lineHeight:1}}>{icon}</div><div style={{fontSize:isMob?9:FS-3,fontWeight:700,color,lineHeight:1.2,textAlign:"center"}}>{label}</div>{sub&&<div style={{fontSize:8,color:T.textMut}}>{sub}</div>}</div>;
       return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(4,1fr)":"repeat(auto-fill,minmax(70px,1fr))",gap:6,marginBottom:14}}>
         {canEdit&&crd("👥","العملاء",T.text,()=>setShowCustList(true),customers.length+"")}
@@ -8177,7 +8189,59 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[view,setView]=useState(subAccKey);
   /* ── Odoo Sync ── */
   const[odooSyncing,setOdooSyncing]=useState(false);const[odooResult,setOdooResult]=useState(null);
-  const syncToOdoo=async()=>{
+  /* Selective sync popup state */
+  const[odooSyncPopup,setOdooSyncPopup]=useState(null);/* null | {step:"filters"|"confirm", fromDate, toDate, selectedCats:{cat:bool}, confirmText} */
+  const[odooSyncPreview,setOdooSyncPreview]=useState(null);/* cached preview: {newTxns, skipped, existing, total, byCategory} */
+  /* Open the selective sync popup — initializes filters to "this month" and all categories selected */
+  const openOdooSyncPopup=()=>{
+    const os=data.odooSettings||{};
+    if(!os.url||!os.db||!os.user||!os.apiKey||!os.journalName||!os.cashAccountCode){showToast("⚠️ أكمل إعدادات Odoo في الاعدادات أولاً");return}
+    const subName=accountsData.find(a=>a.name.toUpperCase().includes("SUB"))?.name||"SUB CASH";
+    const subTxns=txns.filter(t=>(t.account||"")===subName);
+    if(subTxns.length===0){showToast("⚠️ لا توجد حركات في الخزينة الفرعية");return}
+    /* Default: this month range */
+    const now=new Date();const y=now.getFullYear();const m=String(now.getMonth()+1).padStart(2,"0");
+    const firstDay=y+"-"+m+"-01";const todayStr=now.toISOString().split("T")[0];
+    /* Collect all unique categories from SUB CASH txns */
+    const cats={};subTxns.forEach(t=>{const c=t.category||"بدون تصنيف";cats[c]=true});
+    setOdooSyncPopup({step:"filters",fromDate:firstDay,toDate:todayStr,selectedCats:cats,confirmText:""});
+    setOdooSyncPreview(null);
+    setOdooResult(null);
+  };
+  /* Build preview of what will be synced based on current filters */
+  const buildOdooPreview=async()=>{
+    if(!odooSyncPopup)return;
+    const os=data.odooSettings||{};
+    const subName=accountsData.find(a=>a.name.toUpperCase().includes("SUB"))?.name||"SUB CASH";
+    const subTxns=txns.filter(t=>(t.account||"")===subName);
+    /* Apply date filter */
+    const{fromDate,toDate,selectedCats}=odooSyncPopup;
+    const filtered=subTxns.filter(t=>{
+      const d=t.date||"";
+      if(fromDate&&d<fromDate)return false;
+      if(toDate&&d>toDate)return false;
+      const cat=t.category||"بدون تصنيف";
+      if(!selectedCats[cat])return false;
+      return true;
+    });
+    if(filtered.length===0){setOdooSyncPreview({total:0,newTxns:[],existing:0,byCategory:{},unmapped:[]});return}
+    /* Check Odoo for existing refs */
+    try{
+      const api=async(body)=>{const r=await fetch("/api/odoo-sync",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({odooUrl:os.url,odooDb:os.db,odooUser:os.user,odooKey:os.apiKey,...body})});return r.json()};
+      const refs=filtered.map(t=>"CLARK-"+t.id);
+      const refRes=await api({action:"search_refs",payload:{refs}});
+      const existingRefs=new Set(refRes.existing||[]);
+      const newTxns=filtered.filter(t=>!existingRefs.has("CLARK-"+t.id));
+      /* Group by category */
+      const byCategory={};newTxns.forEach(t=>{const c=t.category||"بدون تصنيف";if(!byCategory[c])byCategory[c]={count:0,total:0};byCategory[c].count++;byCategory[c].total+=Number(t.amount)||0});
+      /* Flag unmapped categories */
+      const mapping=os.accountMapping||{};const defaultSet=!!(os.defaultAccountCode||"").trim();
+      const unmapped=Object.keys(byCategory).filter(c=>!mapping[c]&&!mapping[c.trim()]&&!defaultSet);
+      setOdooSyncPreview({total:filtered.length,newTxns,existing:existingRefs.size,byCategory,unmapped,totalAmount:newTxns.reduce((s,t)=>s+(Number(t.amount)||0),0)});
+    }catch(e){showToast("⚠️ خطأ في جلب المعاينة: "+e.message);setOdooSyncPreview(null)}
+  };
+
+  const syncToOdoo=async(filteredTxnsArg)=>{
     const os=data.odooSettings||{};
     console.log("🔗 Odoo sync — accountMapping:",JSON.stringify(os.accountMapping||{}));
     if(!os.url||!os.db||!os.user||!os.apiKey||!os.journalName||!os.cashAccountCode){showToast("⚠️ أكمل إعدادات Odoo في الاعدادات أولاً");return}
@@ -8192,10 +8256,15 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       const aRes=await api({action:"find_account",payload:{accountCode:os.cashAccountCode}});
       if(aRes.error){setOdooResult({ok:false,msg:"❌ حساب الخزينة: "+aRes.error});setOdooSyncing(false);return}
       const cashAccId=aRes.accountId;
-      /* 3. Get SUB CASH transactions only */
-      const subName=accountsData.find(a=>a.name.toUpperCase().includes("SUB"))?.name||"SUB CASH";
-      const subTxns=txns.filter(t=>(t.account||"")=== subName);
-      if(subTxns.length===0){setOdooResult({ok:false,msg:"⚠️ لا توجد حركات في الخزينة الفرعية"});setOdooSyncing(false);return}
+      /* 3. Get transactions — either filtered ones from popup, or all SUB CASH */
+      let subTxns;
+      if(Array.isArray(filteredTxnsArg)){
+        subTxns=filteredTxnsArg;
+      }else{
+        const subName=accountsData.find(a=>a.name.toUpperCase().includes("SUB"))?.name||"SUB CASH";
+        subTxns=txns.filter(t=>(t.account||"")===subName);
+      }
+      if(subTxns.length===0){setOdooResult({ok:false,msg:"⚠️ لا توجد حركات للتزامن"});setOdooSyncing(false);return}
       /* 4. Check for existing refs (prevent duplicates) */
       const refs=subTxns.map(t=>"CLARK-"+t.id);
       const refRes=await api({action:"search_refs",payload:{refs}});
@@ -8580,9 +8649,174 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       {canEdit&&<div style={{marginBottom:14,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
         <Btn primary onClick={()=>{setEditId(null);setTxType("out");setTxAmount("");setTxDesc("");setTxNotes("");setTxCategory("");setTxAccount(view.startsWith("acc_")?(accountsData.find(a=>a.id===view.slice(4))?.name||"SUB CASH"):"SUB CASH");setTxSeason(data.activeSeason||"");setTxDate(today);setTxPartyId("");setTxPartyType("");setShowForm(!showForm)}}>{showForm?"✕ إغلاق":"+ حركة جديدة"}</Btn>
         {accountsData.length>=2&&<Btn onClick={()=>setShowTransfer(true)} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700}}>🔄 تحويل بين الخزن</Btn>}
-        {(data.odooSettings||{}).url&&<Btn onClick={syncToOdoo} disabled={odooSyncing} style={{background:"#71486712",color:"#714867",border:"1px solid #71486730",fontWeight:700}}>{odooSyncing?"⏳ جاري التزامن...":"🔗 تزامن Odoo"}</Btn>}
+        {(data.odooSettings||{}).url&&<Btn onClick={openOdooSyncPopup} disabled={odooSyncing} style={{background:"#71486712",color:"#714867",border:"1px solid #71486730",fontWeight:700}}>{odooSyncing?"⏳ جاري التزامن...":"🔗 تزامن Odoo"}</Btn>}
         {odooResult&&<span style={{fontSize:FS-1,fontWeight:700,color:odooResult.ok?T.ok:T.err,padding:"4px 10px",borderRadius:6,background:odooResult.ok?T.ok+"08":T.err+"08"}}>{odooResult.msg}</span>}
       </div>}
+
+      {/* ══ ODOO SELECTIVE SYNC POPUP ══ */}
+      {odooSyncPopup&&(()=>{
+        const subName=accountsData.find(a=>a.name.toUpperCase().includes("SUB"))?.name||"SUB CASH";
+        const subTxns=txns.filter(t=>(t.account||"")===subName);
+        /* Category stats (for checkbox list) */
+        const catStats={};subTxns.forEach(t=>{const c=t.category||"بدون تصنيف";const d=t.date||"";
+          if(odooSyncPopup.fromDate&&d<odooSyncPopup.fromDate)return;
+          if(odooSyncPopup.toDate&&d>odooSyncPopup.toDate)return;
+          if(!catStats[c])catStats[c]={count:0,total:0};catStats[c].count++;catStats[c].total+=Number(t.amount)||0});
+        const mapping=(data.odooSettings||{}).accountMapping||{};
+        const defaultSet=!!((data.odooSettings||{}).defaultAccountCode||"").trim();
+        /* Date quick-ranges */
+        const now=new Date();const y=now.getFullYear();const m=now.getMonth();const d0=now.getDate();
+        const pad=(x)=>String(x).padStart(2,"0");
+        const qRanges=[
+          {label:"هذا الشهر",from:y+"-"+pad(m+1)+"-01",to:y+"-"+pad(m+1)+"-"+pad(d0)},
+          {label:"الشهر السابق",from:(m===0?y-1:y)+"-"+pad(m===0?12:m)+"-01",to:(m===0?y-1:y)+"-"+pad(m===0?12:m)+"-"+pad(new Date(m===0?y-1:y,m===0?12:m,0).getDate())},
+          {label:"آخر 7 أيام",from:new Date(Date.now()-6*86400000).toISOString().split("T")[0],to:now.toISOString().split("T")[0]},
+          {label:"آخر 30 يوم",from:new Date(Date.now()-29*86400000).toISOString().split("T")[0],to:now.toISOString().split("T")[0]},
+          {label:"الكل",from:"",to:""}
+        ];
+        const closePopup=()=>{setOdooSyncPopup(null);setOdooSyncPreview(null)};
+        /* STEP 1: Filters */
+        if(odooSyncPopup.step==="filters"){
+          const toggleCat=(c)=>setOdooSyncPopup(p=>({...p,selectedCats:{...p.selectedCats,[c]:!p.selectedCats[c]}}));
+          const selectAllCats=(val)=>setOdooSyncPopup(p=>{const n={};Object.keys(catStats).forEach(c=>{n[c]=val});return{...p,selectedCats:n}});
+          const goPreview=async()=>{await buildOdooPreview();setOdooSyncPopup(p=>({...p,step:"preview"}))};
+          const selectedCount=Object.keys(odooSyncPopup.selectedCats).filter(c=>odooSyncPopup.selectedCats[c]&&catStats[c]).length;
+          return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={closePopup}>
+            <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:720,maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"1px solid "+T.brd}}>
+                <div style={{fontSize:FS+2,fontWeight:800,color:"#714867",display:"flex",alignItems:"center",gap:8}}>
+                  <span>🔗</span><span>تزامن Odoo — اختر ما تريد تزامنه</span>
+                </div>
+                <Btn ghost small onClick={closePopup}>✕</Btn>
+              </div>
+              {/* Date filter */}
+              <div style={{marginBottom:16,padding:12,borderRadius:10,background:"#71486708",border:"1px solid #71486720"}}>
+                <div style={{fontSize:FS-1,fontWeight:700,color:"#714867",marginBottom:8}}>📅 الفترة الزمنية</div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+                  {qRanges.map(q=><Btn key={q.label} small onClick={()=>setOdooSyncPopup(p=>({...p,fromDate:q.from,toDate:q.to}))} style={{background:(odooSyncPopup.fromDate===q.from&&odooSyncPopup.toDate===q.to)?"#714867":"#71486715",color:(odooSyncPopup.fromDate===q.from&&odooSyncPopup.toDate===q.to)?"#fff":"#714867",border:"1px solid #71486740",fontWeight:700}}>{q.label}</Btn>)}
+                </div>
+                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                  <div style={{flex:1,minWidth:150}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:2}}>من تاريخ</label><Inp type="date" value={odooSyncPopup.fromDate} onChange={v=>setOdooSyncPopup(p=>({...p,fromDate:v}))}/></div>
+                  <div style={{flex:1,minWidth:150}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:2}}>إلى تاريخ</label><Inp type="date" value={odooSyncPopup.toDate} onChange={v=>setOdooSyncPopup(p=>({...p,toDate:v}))}/></div>
+                </div>
+              </div>
+              {/* Category filter */}
+              <div style={{marginBottom:16,padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <div style={{fontSize:FS-1,fontWeight:700,color:T.text}}>🏷️ الفئات ({selectedCount}/{Object.keys(catStats).length})</div>
+                  <div style={{display:"flex",gap:6}}>
+                    <Btn small onClick={()=>selectAllCats(true)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>☑ الكل</Btn>
+                    <Btn small onClick={()=>selectAllCats(false)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>☐ لا شيء</Btn>
+                  </div>
+                </div>
+                {Object.keys(catStats).length===0?<div style={{textAlign:"center",padding:20,color:T.textMut,fontSize:FS-1}}>لا توجد حركات في هذه الفترة</div>
+                :<div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:"35vh",overflowY:"auto"}}>
+                  {Object.keys(catStats).sort().map(c=>{const st=catStats[c];const sel=!!odooSyncPopup.selectedCats[c];const mapped=!!mapping[c]||!!mapping[c.trim()]||defaultSet;
+                    return<div key={c} onClick={()=>toggleCat(c)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:10,cursor:"pointer",background:sel?"#71486708":T.bg,border:"1px solid "+(sel?"#71486730":T.brd),opacity:mapped?1:0.7}}>
+                      <span style={{fontSize:18}}>{sel?"☑":"☐"}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                          <span style={{fontSize:FS,fontWeight:700}}>{c}</span>
+                          {!mapped&&<span style={{padding:"1px 6px",borderRadius:4,fontSize:FS-3,fontWeight:700,background:T.warn+"15",color:T.warn,border:"1px solid "+T.warn+"30"}}>⚠️ غير مربوطة</span>}
+                        </div>
+                        <div style={{fontSize:FS-2,color:T.textMut}}>{st.count+" حركة"}</div>
+                      </div>
+                      <span style={{fontSize:FS-1,color:"#714867",fontWeight:700,whiteSpace:"nowrap"}}>{fmt(st.total)}</span>
+                    </div>})}
+                </div>}
+              </div>
+              {/* Actions */}
+              <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:12,borderTop:"1px solid "+T.brd}}>
+                <Btn onClick={closePopup} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>إلغاء</Btn>
+                <Btn primary onClick={goPreview} disabled={selectedCount===0} style={{background:"#714867",color:"#fff"}}>🔍 معاينة →</Btn>
+              </div>
+            </div>
+          </div>;
+        }
+        /* STEP 2: Preview + confirm */
+        if(odooSyncPopup.step==="preview"){
+          const pv=odooSyncPreview;
+          const canSync=pv&&pv.newTxns&&pv.newTxns.length>0&&odooSyncPopup.confirmText==="تزامن";
+          const doSync=async()=>{
+            closePopup();
+            await syncToOdoo(pv.newTxns);
+          };
+          return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={closePopup}>
+            <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:720,maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"1px solid "+T.brd}}>
+                <div style={{fontSize:FS+2,fontWeight:800,color:"#714867",display:"flex",alignItems:"center",gap:8}}>
+                  <span>🔍</span><span>معاينة التزامن</span>
+                </div>
+                <Btn ghost small onClick={closePopup}>✕</Btn>
+              </div>
+              {!pv?<div style={{textAlign:"center",padding:40,color:T.textMut}}>⏳ جاري جلب المعاينة...</div>
+              :pv.total===0?<div style={{textAlign:"center",padding:40,color:T.textMut}}>لا توجد حركات مطابقة للفلاتر</div>
+              :<>
+                {/* Summary */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:14}}>
+                  <div style={{padding:12,borderRadius:10,background:T.ok+"08",border:"1px solid "+T.ok+"20",textAlign:"center"}}>
+                    <div style={{fontSize:FS-2,color:T.textSec,marginBottom:3}}>جديد هيتزامن</div>
+                    <div style={{fontSize:FS+4,fontWeight:800,color:T.ok}}>{pv.newTxns.length}</div>
+                  </div>
+                  <div style={{padding:12,borderRadius:10,background:"#714867"+"08",border:"1px solid #714867"+"20",textAlign:"center"}}>
+                    <div style={{fontSize:FS-2,color:T.textSec,marginBottom:3}}>اجمالي المبلغ</div>
+                    <div style={{fontSize:FS+2,fontWeight:800,color:"#714867"}}>{fmt(pv.totalAmount)}</div>
+                  </div>
+                  {pv.existing>0&&<div style={{padding:12,borderRadius:10,background:T.warn+"08",border:"1px solid "+T.warn+"20",textAlign:"center"}}>
+                    <div style={{fontSize:FS-2,color:T.textSec,marginBottom:3}}>متزامن قبل كده</div>
+                    <div style={{fontSize:FS+2,fontWeight:800,color:T.warn}}>{pv.existing}</div>
+                  </div>}
+                  {pv.unmapped&&pv.unmapped.length>0&&<div style={{padding:12,borderRadius:10,background:T.err+"08",border:"1px solid "+T.err+"20",textAlign:"center"}}>
+                    <div style={{fontSize:FS-2,color:T.textSec,marginBottom:3}}>بدون ربط</div>
+                    <div style={{fontSize:FS+2,fontWeight:800,color:T.err}}>{pv.unmapped.length}</div>
+                  </div>}
+                </div>
+                {/* Unmapped warning */}
+                {pv.unmapped&&pv.unmapped.length>0&&<div style={{marginBottom:12,padding:10,borderRadius:8,background:T.err+"08",border:"1px solid "+T.err+"30"}}>
+                  <div style={{fontSize:FS-1,fontWeight:700,color:T.err,marginBottom:4}}>⚠️ فئات بدون ربط حساب Odoo (هتُتخطى):</div>
+                  <div style={{fontSize:FS-2,color:T.err}}>{pv.unmapped.join("، ")}</div>
+                </div>}
+                {/* Preview table */}
+                {pv.newTxns.length>0&&<div style={{marginBottom:14,border:"1px solid "+T.brd,borderRadius:10,overflow:"hidden"}}>
+                  <div style={{padding:10,background:T.bg,fontSize:FS-1,fontWeight:700,color:T.text,borderBottom:"1px solid "+T.brd}}>أول {Math.min(pv.newTxns.length,10)} حركات</div>
+                  <div style={{maxHeight:"30vh",overflowY:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-2}}>
+                      <thead style={{position:"sticky",top:0,background:T.cardSolid,zIndex:1}}><tr>
+                        {["التاريخ","النوع","الفئة","البيان","المبلغ"].map(h=><th key={h} style={{padding:"6px 8px",textAlign:"center",color:T.textSec,borderBottom:"1px solid "+T.brd,fontWeight:700}}>{h}</th>)}
+                      </tr></thead>
+                      <tbody>
+                        {pv.newTxns.slice(0,10).map((t,i)=><tr key={t.id} style={{borderBottom:"1px solid "+T.brd+"40",background:i%2===1?T.bg:""}}>
+                          <td style={{padding:"5px 8px",textAlign:"center",direction:"ltr"}}>{t.date||"—"}</td>
+                          <td style={{padding:"5px 8px",textAlign:"center"}}><span style={{padding:"1px 6px",borderRadius:4,fontSize:FS-3,fontWeight:700,background:t.type==="in"?T.ok+"15":T.err+"15",color:t.type==="in"?T.ok:T.err}}>{t.type==="in"?"داخل":"خارج"}</span></td>
+                          <td style={{padding:"5px 8px",textAlign:"center"}}>{t.category||"—"}</td>
+                          <td style={{padding:"5px 8px",textAlign:"right",maxWidth:250,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.desc||"—"}</td>
+                          <td style={{padding:"5px 8px",textAlign:"center",fontWeight:700,color:"#714867"}}>{fmt(t.amount)}</td>
+                        </tr>)}
+                      </tbody>
+                    </table>
+                  </div>
+                  {pv.newTxns.length>10&&<div style={{padding:8,background:T.bg,fontSize:FS-2,color:T.textMut,textAlign:"center",borderTop:"1px solid "+T.brd}}>+{pv.newTxns.length-10} حركة أخرى</div>}
+                </div>}
+                {/* Confirmation input */}
+                {pv.newTxns.length>0&&<div style={{padding:14,borderRadius:10,background:T.warn+"06",border:"2px dashed "+T.warn+"40",marginBottom:14}}>
+                  <div style={{fontSize:FS-1,fontWeight:700,color:T.warn,marginBottom:8}}>⚠️ للتأكيد، اكتب كلمة <b>"تزامن"</b> في الخانة تحت:</div>
+                  <input value={odooSyncPopup.confirmText} onChange={e=>setOdooSyncPopup(p=>({...p,confirmText:e.target.value}))} placeholder="اكتب: تزامن" style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"2px solid "+(canSync?T.ok:T.brd),fontSize:FS,fontFamily:"inherit",background:T.inputBg,color:T.text,fontWeight:700,textAlign:"center",boxSizing:"border-box"}}/>
+                  {odooSyncPopup.confirmText&&odooSyncPopup.confirmText!=="تزامن"&&<div style={{fontSize:FS-2,color:T.err,marginTop:4,textAlign:"center"}}>يجب أن تكتب كلمة "تزامن" تماماً</div>}
+                </div>}
+              </>}
+              {/* Actions */}
+              <div style={{display:"flex",gap:8,justifyContent:"space-between",paddingTop:12,borderTop:"1px solid "+T.brd}}>
+                <Btn onClick={()=>setOdooSyncPopup(p=>({...p,step:"filters",confirmText:""}))} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>← رجوع للفلاتر</Btn>
+                <div style={{display:"flex",gap:8}}>
+                  <Btn onClick={closePopup} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>إلغاء</Btn>
+                  <Btn primary onClick={doSync} disabled={!canSync} style={{background:canSync?T.ok:T.textMut,color:"#fff",opacity:canSync?1:0.5}}>🔗 تأكيد التزامن</Btn>
+                </div>
+              </div>
+            </div>
+          </div>;
+        }
+        return null;
+      })()}
 
       {showForm&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>{setShowForm(false);setEditId(null)}}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:600,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
@@ -9109,6 +9343,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const[rowDraft,setRowDraft]=useState({});/* temp hours while editing */
   const[salDeductReason,setSalDeductReason]=useState({});/* empId -> reason string */
   const[showEmpPicker,setShowEmpPicker]=useState(false);
+  const[empPickerTab,setEmpPickerTab]=useState("weekly");/* "weekly" | "monthly" */
   const[showBulkPrint,setShowBulkPrint]=useState(false);
   const[bulkPrintSel,setBulkPrintSel]=useState({});/* empId -> true */
   /* Generic text popup: {title, value, onSave, placeholder, multiline} */
@@ -9733,84 +9968,29 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               {shownEmps.map((emp,ri)=>{let total=0;const isEditing=editingRow===emp.id;const draft=rowDraft[emp.id]||{};const zebra=ri%2===1?T.bg:T.cardSolid;
                 dates.forEach(d=>{const val=isEditing?parseHrs(draft[d]||0):(att[emp.id+"_"+d]?att[emp.id+"_"+d].hours:0);if(val>0)total+=val});
                 return<tr key={emp.id} style={{borderBottom:"1px solid "+T.brd,background:isEditing?T.accent+"04":zebra}}>
-                  <td style={{padding:"6px 10px",fontSize:FS-1,fontWeight:700,position:"sticky",right:0,background:isEditing?T.accent+"04":zebra,zIndex:1}}>{emp.name}<div style={{fontSize:FS-3,color:T.textMut,direction:"ltr",textAlign:"right"}}>{emp.code?"#"+emp.code:""}</div></td>
+                  <td style={{padding:"3px 10px",fontSize:FS,fontWeight:700,position:"sticky",right:0,background:isEditing?T.accent+"04":zebra,zIndex:1}}>{emp.name}<div style={{fontSize:FS-3,color:T.textMut,direction:"ltr",textAlign:"right"}}>{emp.code?"#"+emp.code:""}</div></td>
                   {dates.map(d=>{const key=emp.id+"_"+d;const h=att[key]?att[key].hours:0;const dval=isEditing?(draft[d]!==undefined?draft[d]:(h>0?hrsToHM(h):"")):h;
-                    return<td key={d} style={{padding:"4px 3px",textAlign:"center"}}>
-                      {isEditing?<input type="text" value={dval} onChange={ev=>setRowDraft(p=>({...p,[emp.id]:{...(p[emp.id]||{}),[d]:ev.target.value}}))} placeholder="—" title="8:30 أو 8.5" style={{width:60,padding:"6px 4px",borderRadius:8,border:"1px solid "+T.accent+"50",fontSize:FS-1,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text,fontWeight:700,boxSizing:"border-box"}}/>
-                      :<span style={{display:"inline-block",minWidth:50,padding:"4px 6px",fontSize:FS-1,fontWeight:h>0?700:400,color:h>0?T.ok:T.textMut,background:h>0?T.ok+"08":"transparent",borderRadius:6,direction:"ltr"}} title={h>0?"("+r2(h)+" ساعة عشرية)":""}>{h>0?hrsToHM(h):"—"}</span>}
+                    return<td key={d} style={{padding:"2px 3px",textAlign:"center"}}>
+                      {isEditing?<input type="text" value={dval} onChange={ev=>setRowDraft(p=>({...p,[emp.id]:{...(p[emp.id]||{}),[d]:ev.target.value}}))} placeholder="—" title="8:30 أو 8.5" style={{width:60,padding:"4px 4px",borderRadius:8,border:"1px solid "+T.accent+"50",fontSize:FS,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text,fontWeight:700,boxSizing:"border-box"}}/>
+                      :<span style={{display:"inline-block",minWidth:50,padding:"2px 6px",fontSize:FS,fontWeight:h>0?700:400,color:h>0?T.ok:T.textMut,background:h>0?T.ok+"08":"transparent",borderRadius:6,direction:"ltr"}} title={h>0?"("+r2(h)+" ساعة عشرية)":""}>{h>0?hrsToHM(h):"—"}</span>}
                     </td>})}
-                  <td style={{padding:"6px 6px",textAlign:"center",fontSize:FS,fontWeight:800,color:total>0?T.accent:T.textMut,direction:"ltr"}} title={total>0?"("+r2(total)+" ساعة عشرية)":""}>{total>0?hrsToHM(total):"—"}</td>
-                  {canEdit&&!isLocked&&<td style={{padding:"6px 6px",textAlign:"center"}}>
+                  <td style={{padding:"3px 6px",textAlign:"center",fontSize:FS+1,fontWeight:800,color:total>0?T.accent:T.textMut,direction:"ltr"}} title={total>0?"("+r2(total)+" ساعة عشرية)":""}>{total>0?hrsToHM(total):"—"}</td>
+                  {canEdit&&!isLocked&&<td style={{padding:"3px 6px",textAlign:"center"}}>
                     {isEditing?<div style={{display:"flex",gap:4,justifyContent:"center"}}>
-                      <span onClick={()=>saveRow(emp.id)} style={{cursor:"pointer",padding:"3px 8px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>💾 حفظ</span>
-                      <span onClick={()=>cancelEdit(emp.id)} style={{cursor:"pointer",padding:"3px 8px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>✕</span>
-                    </div>:<span onClick={()=>startEdit(emp.id)} style={{cursor:"pointer",padding:"3px 10px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>✏️ تعديل</span>}
+                      <span onClick={()=>saveRow(emp.id)} style={{cursor:"pointer",padding:"2px 8px",borderRadius:6,fontSize:FS-1,fontWeight:700,background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>💾 حفظ</span>
+                      <span onClick={()=>cancelEdit(emp.id)} style={{cursor:"pointer",padding:"2px 8px",borderRadius:6,fontSize:FS-1,fontWeight:700,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>✕</span>
+                    </div>:<span onClick={()=>startEdit(emp.id)} style={{cursor:"pointer",padding:"2px 10px",borderRadius:6,fontSize:FS-1,fontWeight:700,background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>✏️ تعديل</span>}
                   </td>}
                 </tr>})}
               {/* Totals row */}
               {(()=>{const totals={};let grand=0;dates.forEach(d=>{let s=0;shownEmps.forEach(e=>{const v=editingRow===e.id?parseHrs((rowDraft[e.id]||{})[d]||0):(att[e.id+"_"+d]?att[e.id+"_"+d].hours:0);if(v>0)s+=v});totals[d]=s;grand+=s});
                 return<tr style={{background:T.accent+"06",fontWeight:800,borderTop:"2px solid "+T.accent+"30"}}>
-                  <td style={{padding:"8px 10px",fontSize:FS-1,fontWeight:800,position:"sticky",right:0,background:T.accent+"06",zIndex:1}}>اجمالي اليوم</td>
-                  {dates.map(d=><td key={d} style={{padding:"6px 3px",textAlign:"center",fontSize:FS-1,fontWeight:700,color:totals[d]>0?T.accent:T.textMut,direction:"ltr"}} title={totals[d]>0?"("+r2(totals[d])+" ساعة عشرية)":""}>{totals[d]>0?hrsToHM(totals[d]):"—"}</td>)}
-                  <td style={{padding:"6px 6px",textAlign:"center",fontSize:FS+1,fontWeight:800,color:T.accent,direction:"ltr"}} title={grand>0?"("+r2(grand)+" ساعة عشرية)":""}>{grand>0?hrsToHM(grand):"—"}</td>
+                  <td style={{padding:"6px 10px",fontSize:FS,fontWeight:800,position:"sticky",right:0,background:T.accent+"06",zIndex:1}}>اجمالي اليوم</td>
+                  {dates.map(d=><td key={d} style={{padding:"4px 3px",textAlign:"center",fontSize:FS,fontWeight:700,color:totals[d]>0?T.accent:T.textMut,direction:"ltr"}} title={totals[d]>0?"("+r2(totals[d])+" ساعة عشرية)":""}>{totals[d]>0?hrsToHM(totals[d]):"—"}</td>)}
+                  <td style={{padding:"4px 6px",textAlign:"center",fontSize:FS+2,fontWeight:800,color:T.accent,direction:"ltr"}} title={grand>0?"("+r2(grand)+" ساعة عشرية)":""}>{grand>0?hrsToHM(grand):"—"}</td>
                   {canEdit&&!isLocked&&<td></td>}
                 </tr>})()}
             </tbody></table></div>
-          </Card>})()}
-
-        {/* ── Attendance Comparison Chart: Current vs Previous Week ── */}
-        {(()=>{
-          const weekSelected=(selectedEmps[openWeek.id]!==undefined?selectedEmps[openWeek.id]:[]);
-          const shownEmps=activeEmps.filter(e=>weekSelected.includes(e.id));
-          const att_=openWeek.attendance||{};
-          /* Current week totals */
-          const curData=shownEmps.map(e=>{let h=0;const s=new Date(openWeek.weekStart);const en=new Date(openWeek.weekEnd);let wd=0;
-            for(let d=new Date(s);d<=en;d.setDate(d.getDate()+1)){const k=e.id+"_"+d.toISOString().split("T")[0];const v=att_[k]?att_[k].hours:0;h+=v;if(v>0)wd++}
-            return{empId:e.id,name:e.name,hours:r2(h),days:wd}});
-          const hasData=curData.some(d=>d.hours>0);
-          if(!hasData)return null;
-          /* Find previous week */
-          const sortedWeeks=[...hrWeeks].sort((a,b)=>(b.weekStart||"").localeCompare(a.weekStart||""));
-          const curIdx=sortedWeeks.findIndex(w=>w.id===openWeek.id);
-          const prevWeek=curIdx>=0&&curIdx<sortedWeeks.length-1?sortedWeeks[curIdx+1]:null;
-          const prevAtt=prevWeek?prevWeek.attendance||{}:{};
-          const prevData={};
-          if(prevWeek){shownEmps.forEach(e=>{let h=0;let wd=0;const ps=new Date(prevWeek.weekStart);const pe=new Date(prevWeek.weekEnd);
-            for(let d=new Date(ps);d<=pe;d.setDate(d.getDate()+1)){const k=e.id+"_"+d.toISOString().split("T")[0];const v=prevAtt[k]?prevAtt[k].hours:0;h+=v;if(v>0)wd++}
-            prevData[e.id]={hours:r2(h),days:wd}})}
-          const maxH=Math.max(...curData.map(d=>d.hours),...Object.values(prevData).map(d=>d.hours),1);
-          return<Card title={"📊 مقارنة الحضور — W"+openWeek.weekNum+(prevWeek?" vs W"+prevWeek.weekNum:"")} style={{marginBottom:14}}>
-            <div style={{overflowX:"auto"}}>
-              <div style={{display:"flex",alignItems:"flex-end",gap:isMob?6:10,minHeight:200,padding:"10px 0"}}>
-                {curData.map(d=>{const pv=prevData[d.empId];const barH=maxH>0?(d.hours/maxH)*160:0;const pvH=pv&&maxH>0?(pv.hours/maxH)*160:0;
-                  const diff=pv?r2(d.hours-pv.hours):0;
-                  return<div key={d.empId} style={{display:"flex",flexDirection:"column",alignItems:"center",flex:1,minWidth:isMob?50:65}}>
-                    {/* Diff label */}
-                    {pv&&<div style={{fontSize:FS-3,fontWeight:700,marginBottom:4,color:diff>0?T.ok:diff<0?T.err:T.textMut}}>{diff>0?"+"+diff:diff<0?diff:"="}</div>}
-                    {/* Bars container */}
-                    <div style={{display:"flex",gap:3,alignItems:"flex-end",height:170}}>
-                      {/* Previous week bar */}
-                      {pv&&<div style={{width:isMob?14:20,height:Math.max(pvH,4),borderRadius:"6px 6px 0 0",background:T.textMut+"40",transition:"height 0.6s ease",position:"relative"}} title={"W"+(prevWeek?.weekNum||"?")+" — "+pv.hours+" ساعة / "+pv.days+" يوم"}>
-                        <div style={{position:"absolute",top:-18,left:"50%",transform:"translateX(-50%)",fontSize:FS-3,color:T.textMut,fontWeight:600,whiteSpace:"nowrap"}}>{pv.hours}</div>
-                      </div>}
-                      {/* Current week bar */}
-                      <div style={{width:isMob?14:20,height:Math.max(barH,4),borderRadius:"6px 6px 0 0",background:d.hours>=openWeek.baseHours?"linear-gradient(180deg,"+T.ok+","+T.ok+"99)":"linear-gradient(180deg,"+T.accent+","+T.accent+"99)",transition:"height 0.6s ease",position:"relative"}}>
-                        <div style={{position:"absolute",top:-18,left:"50%",transform:"translateX(-50%)",fontSize:FS-3,color:T.accent,fontWeight:700,whiteSpace:"nowrap"}}>{d.hours}</div>
-                      </div>
-                    </div>
-                    {/* Name + days */}
-                    <div style={{marginTop:6,textAlign:"center"}}>
-                      <div style={{fontSize:FS-3,fontWeight:700,color:T.text,maxWidth:60,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name.split(" ")[0]}</div>
-                      <div style={{fontSize:FS-3,color:T.textMut}}>{d.days+" يوم"}</div>
-                    </div>
-                  </div>})}
-              </div>
-              {/* Legend */}
-              <div style={{display:"flex",gap:16,justifyContent:"center",marginTop:8,fontSize:FS-2,color:T.textSec}}>
-                <div style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:12,height:12,borderRadius:3,background:T.accent}}/> {"الأسبوع الحالي W"+openWeek.weekNum}</div>
-                {prevWeek&&<div style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:12,height:12,borderRadius:3,background:T.textMut+"40"}}/> {"الأسبوع السابق W"+prevWeek.weekNum}</div>}
-              </div>
-            </div>
           </Card>})()}
 
         {/* Salary calculation — aligned, centered, with deduct reason */}
@@ -9848,45 +10028,45 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                 return<tr key={emp.id} style={{borderBottom:"1px solid "+T.brd,background:zebra}}>
                   <td style={{padding:"6px",fontSize:FS-2,color:T.textMut,textAlign:"center"}}>{i+1}</td>
                   <td style={{padding:"6px 10px",fontSize:FS-1,fontWeight:700,textAlign:"right"}}>{emp.name}</td>
-                  <td style={{padding:"6px",fontSize:FS-2,color:T.accent,textAlign:"center",fontWeight:700}}>{fmt(c.weeklySalary)}</td>
+                  <td style={{padding:"6px",fontSize:FS-2,color:T.accent,textAlign:"center",fontWeight:700}}>{fmt0(c.weeklySalary)}</td>
                   <td style={{padding:"6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salBaseHoursOverride[emp.id]!==undefined?salBaseHoursOverride[emp.id]:""} onChange={ev=>setSalBaseHoursOverride(p=>({...p,[emp.id]:ev.target.value}))} placeholder={String(openWeek.baseHours||48)} style={{width:50,padding:"4px",borderRadius:6,border:"1px solid "+T.accent+"40",fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:salBaseHoursOverride[emp.id]?T.warn:T.text,fontWeight:salBaseHoursOverride[emp.id]?700:400}}/>:<span style={{fontSize:FS-2,color:c.baseHours!==(openWeek.baseHours||48)?T.warn:T.textMut,fontWeight:c.baseHours!==(openWeek.baseHours||48)?700:400}}>{c.baseHours}</span>}</td>
-                  <td style={{padding:"6px",fontSize:FS-2,textAlign:"center"}}>{r2(c.totalHours)}</td>
-                  <td style={{padding:"6px",fontSize:FS-2,color:c.overtimeHours>0?"#8B5CF6":T.textMut,textAlign:"center",fontWeight:c.overtimeHours>0?700:400}}>{r2(c.overtimeHours)}</td>
-                  <td style={{padding:"6px",fontSize:FS-1,fontWeight:700,color:T.ok,textAlign:"center"}}>{fmt(c.grossPay)}</td>
-                  <td style={{padding:"6px",fontSize:FS-2,color:c.prevBalance>=0?T.ok:T.err,textAlign:"center"}}>{fmt(c.prevBalance)}</td>
-                  <td style={{padding:"6px",fontSize:FS-1,fontWeight:700,color:c.weekAdvances>0?T.err:T.textMut,textAlign:"center"}}>{c.weekAdvances>0?fmt(c.weekAdvances):"—"}</td>
+                  <td style={{padding:"6px",fontSize:FS-2,textAlign:"center",direction:"ltr"}} title={"("+r2(c.totalHours)+" ساعة عشرية)"}>{c.totalHours>0?hrsToHM(c.totalHours):"—"}</td>
+                  <td style={{padding:"6px",fontSize:FS-2,color:c.overtimeHours>0?"#8B5CF6":T.textMut,textAlign:"center",fontWeight:c.overtimeHours>0?700:400,direction:"ltr"}} title={c.overtimeHours>0?"("+r2(c.overtimeHours)+" ساعة عشرية)":""}>{c.overtimeHours>0?hrsToHM(c.overtimeHours):"—"}</td>
+                  <td style={{padding:"6px",fontSize:FS-1,fontWeight:700,color:T.ok,textAlign:"center"}}>{fmt0(c.grossPay)}</td>
+                  <td style={{padding:"6px",fontSize:FS-2,color:c.prevBalance>=0?T.ok:T.err,textAlign:"center"}}>{fmt0(c.prevBalance)}</td>
+                  <td style={{padding:"6px",fontSize:FS-1,fontWeight:700,color:c.weekAdvances>0?T.err:T.textMut,textAlign:"center"}}>{c.weekAdvances>0?fmt0(c.weekAdvances):"—"}</td>
                   <td style={{padding:"6px",textAlign:"center"}}>{!isLocked?<div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
                     <input type="number" value={salSpecialDeduct[emp.id]||""} onChange={ev=>setSalSpecialDeduct(p=>({...p,[emp.id]:ev.target.value}))} placeholder="0" style={{width:60,padding:"4px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text}}/>
                     <span onClick={()=>openTextPopup({title:"سبب الخصم",subtitle:emp.name,value:salDeductReason[emp.id]||"",placeholder:"اكتب سبب الخصم...",multiline:true,onSave:v=>setSalDeductReason(p=>({...p,[emp.id]:v}))})} style={{cursor:"pointer",fontSize:11,padding:"2px 5px",borderRadius:4,background:salDeductReason[emp.id]?T.warn+"15":T.bg,color:salDeductReason[emp.id]?T.warn:T.textMut,border:"1px solid "+(salDeductReason[emp.id]?T.warn+"30":T.brd)}} title={salDeductReason[emp.id]||"إضافة سبب"}>📝</span>
                   </div>:<span style={{fontSize:FS-2,color:T.err}}>{c.specialDeduct||""}</span>}</td>
                   <td style={{padding:"6px",textAlign:"center"}}>
                     {c.debtInstall>0?<div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
-                      <span style={{fontSize:FS-1,fontWeight:700,color:"#F97316",background:"#F9731610",padding:"3px 8px",borderRadius:6,border:"1px solid #F9731630"}}>{fmt(c.debtInstall)}</span>
+                      <span style={{fontSize:FS-1,fontWeight:700,color:"#F97316",background:"#F9731610",padding:"3px 8px",borderRadius:6,border:"1px solid #F9731630"}}>{fmt0(c.debtInstall)}</span>
                       <span onClick={()=>setShowEmpDebts(emp.id)} style={{cursor:"pointer",fontSize:11,padding:"2px 5px",borderRadius:4,background:"#F9731615",color:"#F97316",border:"1px solid #F9731630"}} title="عرض الأقساط">📝</span>
                     </div>:empActiveDebts(emp.id).length>0?<span style={{fontSize:FS-2,color:T.textMut}}>—</span>:<span onClick={()=>{if(!isLocked){setShowDebtForm({empId:emp.id});resetDebtForm();setDebtStart(today)}}} style={{cursor:isLocked?"default":"pointer",fontSize:FS-2,color:T.textMut,padding:"2px 8px",borderRadius:6,border:"1px dashed "+T.brd}}>+</span>}
                   </td>
                   <td style={{padding:"6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salBonus[emp.id]!==undefined?salBonus[emp.id]:""} onChange={ev=>setSalBonus(p=>({...p,[emp.id]:ev.target.value}))} placeholder={emp.weeklyBonus>0?String(emp.weeklyBonus):"0"} title={emp.weeklyBonus>0?"الافتراضي: "+emp.weeklyBonus+" (تلقائي)":""} style={{width:60,padding:"4px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text}}/>:<span style={{fontSize:FS-2,color:T.ok}}>{c.bonus||""}</span>}</td>
-                  <td style={{padding:"6px",fontSize:FS,fontWeight:800,color:c.netBalance>=0?T.accent:T.err,textAlign:"center"}}>{fmt(c.netBalance)}</td>
-                  <td style={{padding:"6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salThursdayPay[emp.id]!==undefined?salThursdayPay[emp.id]:""} onChange={ev=>setSalThursdayPay(p=>({...p,[emp.id]:ev.target.value}))} placeholder={String(c.netBalance)} style={{width:70,padding:"4px",borderRadius:6,border:"1px solid "+T.ok+"40",fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.ok,fontWeight:700}}/>:<span style={{fontSize:FS-1,fontWeight:700,color:T.ok}}>{fmt(c.thursdayPay)}</span>}</td>
-                  <td style={{padding:"6px",fontSize:FS-1,fontWeight:800,color:c.remainingBalance>0?T.warn:c.remainingBalance<0?T.err:T.textMut,textAlign:"center",background:c.remainingBalance!==0?T.warn+"06":""}}>{fmt(c.remainingBalance)}</td>
+                  <td style={{padding:"6px",fontSize:FS,fontWeight:800,color:c.netBalance>=0?T.accent:T.err,textAlign:"center"}}>{fmt0(c.netBalance)}</td>
+                  <td style={{padding:"6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salThursdayPay[emp.id]!==undefined?salThursdayPay[emp.id]:""} onChange={ev=>setSalThursdayPay(p=>({...p,[emp.id]:ev.target.value}))} placeholder={String(Math.round(c.netBalance))} style={{width:70,padding:"4px",borderRadius:6,border:"1px solid "+T.ok+"40",fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.ok,fontWeight:700}}/>:<span style={{fontSize:FS-1,fontWeight:700,color:T.ok}}>{fmt0(c.thursdayPay)}</span>}</td>
+                  <td style={{padding:"6px",fontSize:FS-1,fontWeight:800,color:c.remainingBalance>0?T.warn:c.remainingBalance<0?T.err:T.textMut,textAlign:"center",background:c.remainingBalance!==0?T.warn+"06":""}}>{fmt0(c.remainingBalance)}</td>
                   <td style={{padding:"6px",textAlign:"center"}}><span onClick={()=>printSlip(emp.id)} style={{cursor:"pointer",fontSize:14}} title="طباعة">🖨</span></td>
                 </tr>})}
               {/* Grand totals */}
               <tr style={{background:T.accent+"08",fontWeight:800,borderTop:"2px solid "+T.accent+"30"}}>
                 <td colSpan={2} style={{padding:"8px 10px",textAlign:"right",fontSize:FS-1,fontWeight:800}}>الاجمالي</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,color:T.accent}}>{fmt(shownEmps.reduce((s,e)=>s+(e.weeklySalary||0),0))}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,color:T.accent}}>{fmt0(shownEmps.reduce((s,e)=>s+(e.weeklySalary||0),0))}</td>
                 <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,color:T.textMut}}>{openWeek.baseHours||48}</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2}}>{r2(tH)}</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,color:"#8B5CF6"}}>{r2(tO)}</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.ok,fontWeight:800}}>{fmt(r2(tG))}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,direction:"ltr"}}>{hrsToHM(tH)}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,color:"#8B5CF6",direction:"ltr"}}>{hrsToHM(tO)}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.ok,fontWeight:800}}>{fmt0(tG)}</td>
                 <td style={{padding:"6px",textAlign:"center",fontSize:FS-2}}>—</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.err,fontWeight:800}}>{fmt(r2(tA))}</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.err,fontWeight:800}}>{fmt(r2(tD))}</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:"#F97316",fontWeight:800}}>{fmt(r2(tDI))}</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.ok,fontWeight:800}}>{fmt(r2(tB))}</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS+1,color:T.accent,fontWeight:800}}>{fmt(r2(tN))}</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS,color:T.ok,fontWeight:800}}>{fmt(r2(tTP))}</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS,color:T.warn,fontWeight:800}}>{fmt(r2(tRB))}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.err,fontWeight:800}}>{fmt0(tA)}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.err,fontWeight:800}}>{fmt0(tD)}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:"#F97316",fontWeight:800}}>{fmt0(tDI)}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.ok,fontWeight:800}}>{fmt0(tB)}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS+1,color:T.accent,fontWeight:800}}>{fmt0(tN)}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS,color:T.ok,fontWeight:800}}>{fmt0(tTP)}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS,color:T.warn,fontWeight:800}}>{fmt0(tRB)}</td>
                 <td></td>
               </tr>
             </tbody></table></div>
@@ -9898,17 +10078,72 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                 title:"اعتماد وقفل أسبوع W"+openWeek.weekNum,
                 message:"الفترة: "+openWeek.weekStart+" → "+openWeek.weekEnd+"\n"+
                   "عدد الموظفين: "+shownEmps.length+"\n\n"+
-                  "💰 اجمالي المستحق: "+fmt(r2(tG_))+" ج.م\n"+
-                  "💸 اجمالي المسحوبات: "+fmt(r2(tA_))+" ج.م\n"+
-                  (tDI_>0?"🧾 اجمالي أقساط: "+fmt(r2(tDI_))+" ج.م\n":"")+
-                  "💵 سيخرج من الخزنة: "+fmt(r2(tTP_))+" ج.م\n"+
-                  "🔄 يُرحّل للأسبوع القادم: "+fmt(r2(tRB_))+" ج.م\n\n"+
+                  "💰 اجمالي المستحق: "+fmt0(tG_)+" ج.م\n"+
+                  "💸 اجمالي المسحوبات: "+fmt0(tA_)+" ج.م\n"+
+                  (tDI_>0?"🧾 اجمالي أقساط: "+fmt0(tDI_)+" ج.م\n":"")+
+                  "💵 سيخرج من الخزنة: "+fmt0(tTP_)+" ج.م\n"+
+                  "🔄 يُرحّل للأسبوع القادم: "+fmt0(tRB_)+" ج.م\n\n"+
                   "سيتم: تحديث أرصدة الموظفين، تسجيل المرتبات في السجل، خصم الأقساط، تسجيل دفعة الخزنة، وقفل الأسبوع.",
                 variant:"warn",
                 onConfirm:()=>approveWeek()
               })
             }} style={{fontSize:FS+1,padding:"12px 30px"}}>💰 اعتماد وقفل الأسبوع W{openWeek.weekNum}</Btn></div>}
             {isClosed&&<div style={{marginTop:10,textAlign:"center",padding:12,borderRadius:10,background:T.ok+"08",color:T.ok,fontWeight:700}}>{"✅ هذا الأسبوع مقفول — تم الاعتماد "+openWeek.closedAt+" بواسطة "+openWeek.closedBy}</div>}
+          </Card>})()}
+
+        {/* ── Attendance Comparison Chart: Current vs Previous Week (moved to bottom) ── */}
+        {(()=>{
+          const weekSelected=(selectedEmps[openWeek.id]!==undefined?selectedEmps[openWeek.id]:[]);
+          const shownEmps=activeEmps.filter(e=>weekSelected.includes(e.id));
+          const att_=openWeek.attendance||{};
+          /* Current week totals */
+          const curData=shownEmps.map(e=>{let h=0;const s=new Date(openWeek.weekStart);const en=new Date(openWeek.weekEnd);let wd=0;
+            for(let d=new Date(s);d<=en;d.setDate(d.getDate()+1)){const k=e.id+"_"+d.toISOString().split("T")[0];const v=att_[k]?att_[k].hours:0;h+=v;if(v>0)wd++}
+            return{empId:e.id,name:e.name,hours:r2(h),days:wd}});
+          const hasData=curData.some(d=>d.hours>0);
+          if(!hasData)return null;
+          /* Find previous week */
+          const sortedWeeks=[...hrWeeks].sort((a,b)=>(b.weekStart||"").localeCompare(a.weekStart||""));
+          const curIdx=sortedWeeks.findIndex(w=>w.id===openWeek.id);
+          const prevWeek=curIdx>=0&&curIdx<sortedWeeks.length-1?sortedWeeks[curIdx+1]:null;
+          const prevAtt=prevWeek?prevWeek.attendance||{}:{};
+          const prevData={};
+          if(prevWeek){shownEmps.forEach(e=>{let h=0;let wd=0;const ps=new Date(prevWeek.weekStart);const pe=new Date(prevWeek.weekEnd);
+            for(let d=new Date(ps);d<=pe;d.setDate(d.getDate()+1)){const k=e.id+"_"+d.toISOString().split("T")[0];const v=prevAtt[k]?prevAtt[k].hours:0;h+=v;if(v>0)wd++}
+            prevData[e.id]={hours:r2(h),days:wd}})}
+          const maxH=Math.max(...curData.map(d=>d.hours),...Object.values(prevData).map(d=>d.hours),1);
+          return<Card title={"📊 مقارنة الحضور — W"+openWeek.weekNum+(prevWeek?" vs W"+prevWeek.weekNum:"")} style={{marginBottom:14}}>
+            <div style={{overflowX:"auto"}}>
+              <div style={{display:"flex",alignItems:"flex-end",gap:isMob?6:10,minHeight:200,padding:"10px 0"}}>
+                {curData.map(d=>{const pv=prevData[d.empId];const barH=maxH>0?(d.hours/maxH)*160:0;const pvH=pv&&maxH>0?(pv.hours/maxH)*160:0;
+                  const diff=pv?r2(d.hours-pv.hours):0;
+                  return<div key={d.empId} style={{display:"flex",flexDirection:"column",alignItems:"center",flex:1,minWidth:isMob?50:65}}>
+                    {/* Diff label */}
+                    {pv&&<div style={{fontSize:FS-3,fontWeight:700,marginBottom:4,color:diff>0?T.ok:diff<0?T.err:T.textMut}}>{diff>0?"+"+hrsToHM(diff):diff<0?"-"+hrsToHM(-diff):"="}</div>}
+                    {/* Bars container */}
+                    <div style={{display:"flex",gap:3,alignItems:"flex-end",height:170}}>
+                      {/* Previous week bar */}
+                      {pv&&<div style={{width:isMob?14:20,height:Math.max(pvH,4),borderRadius:"6px 6px 0 0",background:T.textMut+"40",transition:"height 0.6s ease",position:"relative"}} title={"W"+(prevWeek?.weekNum||"?")+" — "+hrsToHM(pv.hours)+" / "+pv.days+" يوم"}>
+                        <div style={{position:"absolute",top:-18,left:"50%",transform:"translateX(-50%)",fontSize:FS-3,color:T.textMut,fontWeight:600,whiteSpace:"nowrap",direction:"ltr"}}>{hrsToHM(pv.hours)}</div>
+                      </div>}
+                      {/* Current week bar */}
+                      <div style={{width:isMob?14:20,height:Math.max(barH,4),borderRadius:"6px 6px 0 0",background:d.hours>=openWeek.baseHours?"linear-gradient(180deg,"+T.ok+","+T.ok+"99)":"linear-gradient(180deg,"+T.accent+","+T.accent+"99)",transition:"height 0.6s ease",position:"relative"}}>
+                        <div style={{position:"absolute",top:-18,left:"50%",transform:"translateX(-50%)",fontSize:FS-3,color:T.accent,fontWeight:700,whiteSpace:"nowrap",direction:"ltr"}}>{hrsToHM(d.hours)}</div>
+                      </div>
+                    </div>
+                    {/* Name + days */}
+                    <div style={{marginTop:6,textAlign:"center"}}>
+                      <div style={{fontSize:FS-3,fontWeight:700,color:T.text,maxWidth:60,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name.split(" ")[0]}</div>
+                      <div style={{fontSize:FS-3,color:T.textMut}}>{d.days+" يوم"}</div>
+                    </div>
+                  </div>})}
+              </div>
+              {/* Legend */}
+              <div style={{display:"flex",gap:16,justifyContent:"center",marginTop:8,fontSize:FS-2,color:T.textSec}}>
+                <div style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:12,height:12,borderRadius:3,background:T.accent}}/> {"الأسبوع الحالي W"+openWeek.weekNum}</div>
+                {prevWeek&&<div style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:12,height:12,borderRadius:3,background:T.textMut+"40"}}/> {"الأسبوع السابق W"+prevWeek.weekNum}</div>}
+              </div>
+            </div>
           </Card>})()}
       </div>})()}
 
@@ -10291,28 +10526,28 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         .type-adv{background:#fee2e2;color:#b91c1c;padding:2px 6px;border-radius:4px;font-weight:700;font-size:9px}
         @media print{body{margin:0}}</style></head><body>
         <div class="hdr">${logo?'<img src="'+logo+'"/>':'<div style="font-size:20px;font-weight:900;color:#0ea5e9">CLARK</div>'}
-          <div style="text-align:left"><h1>كشف حساب موظف</h1><div style="font-size:10px;color:#64748b">${new Date().toISOString().split("T")[0]}</div></div></div>
+          <div style="text-align:left"><h1>كشف حساب موظف</h1><div style="font-size:10px;color:#64748b">${fmtDate(new Date().toISOString().split("T")[0])}</div></div></div>
         <div class="info">
           <div><b>الاسم:</b> ${emp.name}</div><div><b>الكود:</b> ${emp.code||"—"}</div>
-          <div><b>الوظيفة:</b> ${emp.job||"—"}</div><div><b>المرتب الأسبوعي:</b> ${fmt(emp.weeklySalary||0)} ج.م</div>
-          <div><b>التليفون:</b> ${emp.phone||"—"}</div><div><b>الفترة:</b> ${stmtFrom||"البداية"} → ${stmtTo||"حتى الآن"}</div>
+          <div><b>الوظيفة:</b> ${emp.job||"—"}</div><div><b>المرتب الأسبوعي:</b> ${fmt0(emp.weeklySalary||0)} ج.م</div>
+          <div><b>التليفون:</b> ${emp.phone||"—"}</div><div><b>الفترة:</b> ${stmtFrom?fmtDate(stmtFrom):"البداية"} → ${stmtTo?fmtDate(stmtTo):"حتى الآن"}</div>
         </div>
         <div class="stats">
-          <div class="stat st-sal"><div class="lbl">اجمالي المستحقات</div><div class="val">${fmt(r2(totalGross))}</div></div>
-          <div class="stat st-adv"><div class="lbl">اجمالي السلف</div><div class="val">${fmt(r2(totalAdv))}</div></div>
-          <div class="stat st-paid"><div class="lbl">اجمالي المدفوع</div><div class="val">${fmt(r2(totalPaid))}</div></div>
-          <div class="stat st-bal"><div class="lbl">الرصيد الحالي</div><div class="val">${fmt(r2(currentBal))}</div></div>
+          <div class="stat st-sal"><div class="lbl">اجمالي المستحقات</div><div class="val">${fmt0(totalGross)}</div></div>
+          <div class="stat st-adv"><div class="lbl">اجمالي السلف</div><div class="val">${fmt0(totalAdv)}</div></div>
+          <div class="stat st-paid"><div class="lbl">اجمالي المدفوع</div><div class="val">${fmt0(totalPaid)}</div></div>
+          <div class="stat st-bal"><div class="lbl">الرصيد الحالي</div><div class="val">${fmt0(currentBal)}</div></div>
         </div>
         <table><thead><tr><th>التاريخ</th><th>النوع</th><th>البيان</th><th>مدين (عليه)</th><th>دائن (له)</th><th>الرصيد</th></tr></thead><tbody>`;
-        rows.forEach(r=>{html+=`<tr><td class="num">${r.date||""}</td>
+        rows.forEach(r=>{html+=`<tr><td class="num">${fmtDate(r.date||"")}</td>
           <td class="num"><span class="${r.type==="salary"?"type-sal":"type-adv"}">${r.type==="salary"?"مرتب":"سلفة"}</span></td>
           <td>${r.desc||""}</td>
-          <td class="num neg">${r.debit>0?fmt(r2(r.debit)):"—"}</td>
-          <td class="num pos">${r.credit>0?fmt(r2(r.credit)):"—"}</td>
-          <td class="num" style="font-weight:800;color:${r.bal>=0?"#10b981":"#ef4444"}">${fmt(r.bal)}</td></tr>`});
+          <td class="num neg">${r.debit>0?fmt0(r.debit):"—"}</td>
+          <td class="num pos">${r.credit>0?fmt0(r.credit):"—"}</td>
+          <td class="num" style="font-weight:800;color:${r.bal>=0?"#10b981":"#ef4444"}">${fmt0(r.bal)}</td></tr>`});
         html+=`</tbody></table>
         <div style="margin-top:12px;padding:10px;background:#f0f9ff;border-radius:8px;text-align:center;font-size:12px;font-weight:700;color:#0ea5e9">
-          الرصيد النهائي المستحق للموظف: ${fmt(r2(currentBal))} ج.م
+          الرصيد النهائي المستحق للموظف: ${fmt0(currentBal)} ج.م
         </div>
         <div style="display:flex;justify-content:space-between;margin-top:30px;padding:0 40px;font-size:10px">
           <div style="text-align:center;border-top:1px solid #94a3b8;padding-top:4px;min-width:120px">المحاسب</div>
@@ -10340,20 +10575,20 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:12}}>
             <div style={{padding:10,borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center"}}>
               <div style={{fontSize:FS-2,color:T.textMut}}>اجمالي المستحقات</div>
-              <div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>{fmt(r2(totalGross))}</div>
+              <div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>{fmt0(totalGross)}</div>
               <div style={{fontSize:FS-3,color:T.textMut}}>{salaryCount+" مرتب"}</div>
             </div>
             <div style={{padding:10,borderRadius:10,background:T.err+"08",border:"1px solid "+T.err+"20",textAlign:"center"}}>
               <div style={{fontSize:FS-2,color:T.textMut}}>اجمالي السلف</div>
-              <div style={{fontSize:FS+1,fontWeight:800,color:T.err}}>{fmt(r2(totalAdv))}</div>
+              <div style={{fontSize:FS+1,fontWeight:800,color:T.err}}>{fmt0(totalAdv)}</div>
             </div>
             <div style={{padding:10,borderRadius:10,background:T.ok+"08",border:"1px solid "+T.ok+"20",textAlign:"center"}}>
               <div style={{fontSize:FS-2,color:T.textMut}}>اجمالي المدفوع</div>
-              <div style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>{fmt(r2(totalPaid))}</div>
+              <div style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>{fmt0(totalPaid)}</div>
             </div>
             <div style={{padding:10,borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF620",textAlign:"center"}}>
               <div style={{fontSize:FS-2,color:T.textMut}}>الرصيد الحالي</div>
-              <div style={{fontSize:FS+1,fontWeight:800,color:"#8B5CF6"}}>{fmt(r2(currentBal))}</div>
+              <div style={{fontSize:FS+1,fontWeight:800,color:"#8B5CF6"}}>{fmt0(currentBal)}</div>
             </div>
           </div>
           {rows.length===0?<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد حركات في الفترة المحددة</div>
@@ -10361,12 +10596,12 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             {["التاريخ","النوع","البيان","مدين (عليه)","دائن (له)","الرصيد"].map(h=><th key={h} style={{padding:"6px 8px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700}}>{h}</th>)}
           </tr></thead><tbody>
             {rows.map((r,i)=><tr key={i} style={{borderBottom:"1px solid "+T.brd,background:i%2===1?T.bg:""}}>
-              <td style={{padding:"6px 8px",fontSize:FS-2,textAlign:"center"}}>{r.date}</td>
+              <td style={{padding:"6px 8px",fontSize:FS-2,textAlign:"center"}}>{fmtDate(r.date)}</td>
               <td style={{padding:"6px 8px",textAlign:"center"}}><span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-3,fontWeight:700,background:r.type==="salary"?T.accent+"12":T.err+"12",color:r.type==="salary"?T.accent:T.err}}>{r.type==="salary"?"مرتب":"سلفة"}</span></td>
               <td style={{padding:"6px 8px",fontSize:FS-2}}>{r.desc}</td>
-              <td style={{padding:"6px 8px",fontSize:FS-1,textAlign:"center",color:T.err,fontWeight:700}}>{r.debit>0?fmt(r2(r.debit)):"—"}</td>
-              <td style={{padding:"6px 8px",fontSize:FS-1,textAlign:"center",color:T.ok,fontWeight:700}}>{r.credit>0?fmt(r2(r.credit)):"—"}</td>
-              <td style={{padding:"6px 8px",fontSize:FS,textAlign:"center",fontWeight:800,color:r.bal>=0?T.ok:T.err}}>{fmt(r.bal)}</td>
+              <td style={{padding:"6px 8px",fontSize:FS-1,textAlign:"center",color:T.err,fontWeight:700}}>{r.debit>0?fmt0(r.debit):"—"}</td>
+              <td style={{padding:"6px 8px",fontSize:FS-1,textAlign:"center",color:T.ok,fontWeight:700}}>{r.credit>0?fmt0(r.credit):"—"}</td>
+              <td style={{padding:"6px 8px",fontSize:FS,textAlign:"center",fontWeight:800,color:r.bal>=0?T.ok:T.err}}>{fmt0(r.bal)}</td>
             </tr>)}
           </tbody></table></div>}
         </div>
@@ -10390,32 +10625,74 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         if(totalHours>0)return{type:"present",label:"✅ حاضر",color:T.ok,totalHours:r2(totalHours),daysPresent};
         return{type:"absent",label:"❌ غائب",color:T.err};
       };
-      /* Auto-select present button: adds present employees + admin + monthly, removes absent ones */
-      const selectPresent=()=>{
-        const idsToSelect=activeEmps.filter(e=>{const s=getEmpStatus(e);return s.type==="present"||s.type==="admin"||s.type==="monthly"}).map(e=>e.id);
-        setSelectedEmps(p=>({...p,[openWeek.id]:idsToSelect}));
+      /* Split employees by salary type. "admin" (noBiometric) goes into weekly unless explicitly monthly. */
+      const weeklyEmps=activeEmps.filter(e=>(e.salaryType||"weekly")!=="monthly");
+      const monthlyEmps=activeEmps.filter(e=>(e.salaryType||"weekly")==="monthly");
+      const tabEmps=empPickerTab==="monthly"?monthlyEmps:weeklyEmps;
+      /* Counters per tab */
+      const weeklyPresent=weeklyEmps.filter(e=>getEmpStatus(e).type==="present").length;
+      const weeklyAbsent=weeklyEmps.filter(e=>getEmpStatus(e).type==="absent").length;
+      const weeklySelCount=weeklyEmps.filter(e=>current.includes(e.id)).length;
+      const monthlySelCount=monthlyEmps.filter(e=>current.includes(e.id)).length;
+      /* Auto-select actions — per tab */
+      const selectTabPresent=()=>{
+        if(empPickerTab==="weekly"){
+          /* Weekly tab: add all present + admin (noBiometric) in weekly, keep monthly selection as-is */
+          const addIds=weeklyEmps.filter(e=>{const s=getEmpStatus(e);return s.type==="present"||s.type==="admin"}).map(e=>e.id);
+          setSelectedEmps(p=>{const cur=p[openWeek.id]!==undefined?p[openWeek.id]:[];
+            /* Keep non-weekly selections, replace weekly ones */
+            const keepNonWeekly=cur.filter(id=>!weeklyEmps.some(e=>e.id===id));
+            return{...p,[openWeek.id]:[...keepNonWeekly,...addIds]}
+          });
+        }else{
+          /* Monthly tab: select all monthly */
+          setSelectedEmps(p=>{const cur=p[openWeek.id]!==undefined?p[openWeek.id]:[];
+            const keepNonMonthly=cur.filter(id=>!monthlyEmps.some(e=>e.id===id));
+            return{...p,[openWeek.id]:[...keepNonMonthly,...monthlyEmps.map(e=>e.id)]}
+          });
+        }
       };
-      const presentCount=activeEmps.filter(e=>getEmpStatus(e).type==="present").length;
-      const absentCount=activeEmps.filter(e=>getEmpStatus(e).type==="absent").length;
+      const selectTabAll=()=>{
+        setSelectedEmps(p=>{const cur=p[openWeek.id]!==undefined?p[openWeek.id]:[];
+          const others=cur.filter(id=>!tabEmps.some(e=>e.id===id));
+          return{...p,[openWeek.id]:[...others,...tabEmps.map(e=>e.id)]}
+        });
+      };
+      const selectTabNone=()=>{
+        setSelectedEmps(p=>{const cur=p[openWeek.id]!==undefined?p[openWeek.id]:[];
+          return{...p,[openWeek.id]:cur.filter(id=>!tabEmps.some(e=>e.id===id))}
+        });
+      };
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowEmpPicker(false)}>
-        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:560,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:580,maxHeight:"88vh",overflowY:"auto",border:"1px solid "+T.brd}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>👥 اختر موظفي هذا الأسبوع</div>
             <Btn ghost small onClick={()=>setShowEmpPicker(false)}>✕</Btn>
           </div>
-          {/* Summary badges */}
-          <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
-            <span style={{padding:"4px 10px",borderRadius:8,background:T.ok+"12",color:T.ok,fontSize:FS-2,fontWeight:700}}>✅ حاضر: {presentCount}</span>
-            <span style={{padding:"4px 10px",borderRadius:8,background:T.err+"12",color:T.err,fontSize:FS-2,fontWeight:700}}>❌ غائب: {absentCount}</span>
+          {/* Tabs */}
+          <div style={{display:"flex",gap:0,marginBottom:12,borderBottom:"2px solid "+T.brd}}>
+            <div onClick={()=>setEmpPickerTab("weekly")} style={{cursor:"pointer",padding:"10px 16px",fontSize:FS,fontWeight:800,color:empPickerTab==="weekly"?T.accent:T.textSec,borderBottom:empPickerTab==="weekly"?"3px solid "+T.accent:"3px solid transparent",marginBottom:"-2px",display:"flex",alignItems:"center",gap:6}}>
+              <span>👷</span><span>أسبوعي ({weeklySelCount}/{weeklyEmps.length})</span>
+            </div>
+            <div onClick={()=>setEmpPickerTab("monthly")} style={{cursor:"pointer",padding:"10px 16px",fontSize:FS,fontWeight:800,color:empPickerTab==="monthly"?"#3B82F6":T.textSec,borderBottom:empPickerTab==="monthly"?"3px solid #3B82F6":"3px solid transparent",marginBottom:"-2px",display:"flex",alignItems:"center",gap:6}}>
+              <span>📅</span><span>شهري ({monthlySelCount}/{monthlyEmps.length})</span>
+            </div>
           </div>
+          {/* Summary badges — only for weekly tab */}
+          {empPickerTab==="weekly"&&<div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+            <span style={{padding:"4px 10px",borderRadius:8,background:T.ok+"12",color:T.ok,fontSize:FS-2,fontWeight:700}}>✅ حاضر: {weeklyPresent}</span>
+            <span style={{padding:"4px 10px",borderRadius:8,background:T.err+"12",color:T.err,fontSize:FS-2,fontWeight:700}}>❌ غائب: {weeklyAbsent}</span>
+          </div>}
           {/* Quick-select buttons */}
           <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
-            <Btn small onClick={selectPresent} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"40",fontWeight:700}} title="يختار الموظفين اللي عندهم حضور + الإدارة + الشهريين">⚡ اختر الحاضرين ({presentCount})</Btn>
-            <Btn small onClick={()=>setSelectedEmps(p=>({...p,[openWeek.id]:activeEmps.map(e=>e.id)}))} style={{background:T.accent+"10",color:T.accent,border:"1px solid "+T.accent+"30"}}>☑ الكل</Btn>
-            <Btn small onClick={()=>setSelectedEmps(p=>({...p,[openWeek.id]:[]}))} style={{background:T.err+"10",color:T.err,border:"1px solid "+T.err+"30"}}>☐ لا شيء</Btn>
+            {empPickerTab==="weekly"?<Btn small onClick={selectTabPresent} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"40",fontWeight:700}} title="يختار الحاضرين + الإدارة في التاب الأسبوعي">⚡ اختر الحاضرين ({weeklyPresent})</Btn>
+            :<Btn small onClick={selectTabPresent} style={{background:"#3B82F615",color:"#3B82F6",border:"1px solid #3B82F640",fontWeight:700}} title="اختر كل الموظفين الشهريين">⚡ اختر كل الشهريين ({monthlyEmps.length})</Btn>}
+            <Btn small onClick={selectTabAll} style={{background:T.accent+"10",color:T.accent,border:"1px solid "+T.accent+"30"}}>☑ كل التاب</Btn>
+            <Btn small onClick={selectTabNone} style={{background:T.err+"10",color:T.err,border:"1px solid "+T.err+"30"}}>☐ إلغاء التاب</Btn>
           </div>
-          <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:"50vh",overflowY:"auto"}}>
-            {activeEmps.map(e=>{const sel=current.includes(e.id);const st=getEmpStatus(e);
+          {tabEmps.length===0?<div style={{textAlign:"center",padding:30,color:T.textMut,fontSize:FS-1}}>{empPickerTab==="monthly"?"لا يوجد موظفين شهريين":"لا يوجد موظفين أسبوعيين"}</div>
+          :<div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:"48vh",overflowY:"auto"}}>
+            {tabEmps.map(e=>{const sel=current.includes(e.id);const st=getEmpStatus(e);
               return<div key={e.id} onClick={()=>toggle(e.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:10,cursor:"pointer",background:sel?T.accent+"08":T.bg,border:"1px solid "+(sel?T.accent+"30":T.brd),transition:"all 0.15s"}}>
                 <span style={{fontSize:18}}>{sel?"☑":"☐"}</span>
                 <div style={{flex:1,minWidth:0}}>
@@ -10423,11 +10700,11 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                     <span style={{fontSize:FS,fontWeight:700}}>{e.name}</span>
                     <span style={{padding:"1px 8px",borderRadius:5,fontSize:FS-3,fontWeight:700,background:st.color+"15",color:st.color,border:"1px solid "+st.color+"30",whiteSpace:"nowrap"}}>{st.label}</span>
                   </div>
-                  <div style={{fontSize:FS-2,color:T.textMut}}>{(e.code?"#"+e.code:"")+(e.job?" — "+e.job:"")}{st.type==="present"&&st.totalHours?" • "+st.daysPresent+" يوم • "+st.totalHours+" س":""}</div>
+                  <div style={{fontSize:FS-2,color:T.textMut}}>{(e.code?"#"+e.code:"")+(e.job?" — "+e.job:"")}{st.type==="present"&&st.totalHours?" • "+st.daysPresent+" يوم • "+hrsToHM(st.totalHours):""}</div>
                 </div>
                 <span style={{fontSize:FS-1,color:T.accent,fontWeight:700,whiteSpace:"nowrap"}}>{fmt(e.weeklySalary||0)}</span>
               </div>})}
-          </div>
+          </div>}
           <div style={{marginTop:10,padding:8,borderRadius:8,background:T.accent+"06",textAlign:"center",fontSize:FS-1,fontWeight:700,color:T.accent}}>{current.length+" من "+activeEmps.length+" موظف"}</div>
           <div style={{marginTop:10,textAlign:"center"}}><Btn primary onClick={()=>setShowEmpPicker(false)}>✅ تم</Btn></div>
         </div>
