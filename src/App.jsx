@@ -9418,6 +9418,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     if(!quickAdvance)return;
     const amt=parseFloat(quickAdvance.amount);
     if(!amt||amt<=0){showToast("⚠️ ادخل مبلغ صحيح");playBeep("error");return}
+    if(!quickAdvance.account){showToast("⚠️ اختر الخزنة");playBeep("error");return}
     const dt=quickAdvance.date||today;
     /* Validate date is within the current week boundaries (warning only, not blocking) */
     if(openWeek&&(dt<openWeek.weekStart||dt>openWeek.weekEnd)){
@@ -9434,7 +9435,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       if(!d.treasury)d.treasury=[];
       d.treasury.unshift({
         id:treasuryTxId,type:"out",amount:amt,desc,notes:quickAdvance.note||"",
-        category:"مرتبات",account:"MAIN CASH",season:d.activeSeason||"",
+        category:"مرتبات",account:quickAdvance.account||"MAIN CASH",season:d.activeSeason||"",
         date:dt,day,empId:emp.id,empName:emp.name,
         sourceType:"hr_advance",hrLogId:logId,
         by:userName,createdAt:new Date().toISOString()
@@ -10197,35 +10198,35 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             </tr></thead><tbody>
               {shownEmps.map((emp,i)=>{const c=calcSalary(emp.id,openWeek);if(!c)return null;const zebra=i%2===1?T.bg:T.cardSolid;
                 return<tr key={emp.id} style={{borderBottom:"1px solid "+T.brd,background:zebra}}>
-                  <td style={{padding:"6px",fontSize:FS-2,color:T.textMut,textAlign:"center"}}>{i+1}</td>
-                  <td style={{padding:"6px 10px",fontSize:FS-1,fontWeight:700,textAlign:"right"}}>{emp.name}</td>
-                  <td style={{padding:"6px",fontSize:FS-2,color:T.accent,textAlign:"center",fontWeight:700}}>{fmt0(c.weeklySalary)}</td>
-                  <td style={{padding:"6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salBaseHoursOverride[emp.id]!==undefined?salBaseHoursOverride[emp.id]:""} onChange={ev=>setSalBaseHoursOverride(p=>({...p,[emp.id]:ev.target.value}))} placeholder={String(openWeek.baseHours||48)} style={{width:50,padding:"4px",borderRadius:6,border:"1px solid "+T.accent+"40",fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:salBaseHoursOverride[emp.id]?T.warn:T.text,fontWeight:salBaseHoursOverride[emp.id]?700:400}}/>:<span style={{fontSize:FS-2,color:c.baseHours!==(openWeek.baseHours||48)?T.warn:T.textMut,fontWeight:c.baseHours!==(openWeek.baseHours||48)?700:400}}>{c.baseHours}</span>}</td>
-                  <td style={{padding:"6px",fontSize:FS-2,textAlign:"center",direction:"ltr"}} title={"("+r2(c.totalHours)+" ساعة عشرية)"}>{c.totalHours>0?hrsToHM(c.totalHours):"—"}</td>
-                  <td style={{padding:"6px",fontSize:FS-2,color:c.overtimeHours>0?"#8B5CF6":T.textMut,textAlign:"center",fontWeight:c.overtimeHours>0?700:400,direction:"ltr"}} title={c.overtimeHours>0?"("+r2(c.overtimeHours)+" ساعة عشرية)":""}>{c.overtimeHours>0?hrsToHM(c.overtimeHours):"—"}</td>
-                  <td style={{padding:"6px",fontSize:FS-1,fontWeight:700,color:T.ok,textAlign:"center"}}>{fmt0(c.grossPay)}</td>
-                  <td style={{padding:"6px",fontSize:FS-2,color:c.prevBalance>=0?T.ok:T.err,textAlign:"center"}}>{fmt0(c.prevBalance)}</td>
-                  <td style={{padding:"6px",fontSize:FS-1,fontWeight:700,color:c.weekAdvances>0?T.err:T.textMut,textAlign:"center"}}>
+                  <td style={{padding:"3px 6px",fontSize:FS-2,color:T.textMut,textAlign:"center"}}>{i+1}</td>
+                  <td style={{padding:"3px 10px",fontSize:FS-1,fontWeight:700,textAlign:"right"}}>{emp.name}</td>
+                  <td style={{padding:"3px 6px",fontSize:FS-2,color:T.accent,textAlign:"center",fontWeight:700}}>{fmt0(c.weeklySalary)}</td>
+                  <td style={{padding:"3px 6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salBaseHoursOverride[emp.id]!==undefined?salBaseHoursOverride[emp.id]:""} onChange={ev=>setSalBaseHoursOverride(p=>({...p,[emp.id]:ev.target.value}))} placeholder={String(openWeek.baseHours||48)} style={{width:50,padding:"3px",borderRadius:6,border:"1px solid "+T.accent+"40",fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:salBaseHoursOverride[emp.id]?T.warn:T.text,fontWeight:salBaseHoursOverride[emp.id]?700:400}}/>:<span style={{fontSize:FS-2,color:c.baseHours!==(openWeek.baseHours||48)?T.warn:T.textMut,fontWeight:c.baseHours!==(openWeek.baseHours||48)?700:400}}>{c.baseHours}</span>}</td>
+                  <td style={{padding:"3px 6px",fontSize:FS-2,textAlign:"center",direction:"ltr"}} title={"("+r2(c.totalHours)+" ساعة عشرية)"}>{c.totalHours>0?hrsToHM(c.totalHours):"—"}</td>
+                  <td style={{padding:"3px 6px",fontSize:FS-2,color:c.overtimeHours>0?"#8B5CF6":T.textMut,textAlign:"center",fontWeight:c.overtimeHours>0?700:400,direction:"ltr"}} title={c.overtimeHours>0?"("+r2(c.overtimeHours)+" ساعة عشرية)":""}>{c.overtimeHours>0?hrsToHM(c.overtimeHours):"—"}</td>
+                  <td style={{padding:"3px 6px",fontSize:FS-1,fontWeight:700,color:T.ok,textAlign:"center"}}>{fmt0(c.grossPay)}</td>
+                  <td style={{padding:"3px 6px",fontSize:FS-2,color:c.prevBalance>=0?T.ok:T.err,textAlign:"center"}}>{fmt0(c.prevBalance)}</td>
+                  <td style={{padding:"3px 6px",fontSize:FS-1,fontWeight:700,color:c.weekAdvances>0?T.err:T.textMut,textAlign:"center"}}>
                     <div style={{display:"flex",gap:4,justifyContent:"center",alignItems:"center"}}>
                       <span>{c.weekAdvances>0?fmt0(c.weekAdvances):"—"}</span>
-                      {!isLocked&&canEdit&&<span onClick={()=>setQuickAdvance({empId:emp.id,empName:emp.name,amount:"",date:today,note:""})} title="تسجيل سلفة سريعة" style={{cursor:"pointer",padding:"3px 7px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",whiteSpace:"nowrap"}}>➕ سلفة</span>}
+                      {!isLocked&&canEdit&&<span onClick={()=>setQuickAdvance({empId:emp.id,empName:emp.name,amount:"",date:today,note:"",account:(()=>{const acc=(data.treasuryAccounts||[]).find(a=>{const n=typeof a==="string"?a:(a.name||a.id||"");return n.toUpperCase().includes("SUB")});return acc?(typeof acc==="string"?acc:(acc.name||acc.id)):"SUB CASH"})()})} title="تسجيل سلفة سريعة" style={{cursor:"pointer",width:22,height:22,display:"inline-flex",alignItems:"center",justifyContent:"center",borderRadius:"50%",fontSize:13,fontWeight:700,background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"40",lineHeight:1}}>➕</span>}
                     </div>
                   </td>
-                  <td style={{padding:"6px",textAlign:"center"}}>{!isLocked?<div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
-                    <input type="number" value={salSpecialDeduct[emp.id]||""} onChange={ev=>setSalSpecialDeduct(p=>({...p,[emp.id]:ev.target.value}))} placeholder="0" style={{width:60,padding:"4px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text}}/>
+                  <td style={{padding:"3px 6px",textAlign:"center"}}>{!isLocked?<div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
+                    <input type="number" value={salSpecialDeduct[emp.id]||""} onChange={ev=>setSalSpecialDeduct(p=>({...p,[emp.id]:ev.target.value}))} placeholder="0" style={{width:60,padding:"3px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text}}/>
                     <span onClick={()=>openTextPopup({title:"سبب الخصم",subtitle:emp.name,value:salDeductReason[emp.id]||"",placeholder:"اكتب سبب الخصم...",multiline:true,onSave:v=>setSalDeductReason(p=>({...p,[emp.id]:v}))})} style={{cursor:"pointer",fontSize:11,padding:"2px 5px",borderRadius:4,background:salDeductReason[emp.id]?T.warn+"15":T.bg,color:salDeductReason[emp.id]?T.warn:T.textMut,border:"1px solid "+(salDeductReason[emp.id]?T.warn+"30":T.brd)}} title={salDeductReason[emp.id]||"إضافة سبب"}>📝</span>
                   </div>:<span style={{fontSize:FS-2,color:T.err}}>{c.specialDeduct||""}</span>}</td>
-                  <td style={{padding:"6px",textAlign:"center"}}>
+                  <td style={{padding:"3px 6px",textAlign:"center"}}>
                     {c.debtInstall>0?<div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
                       <span style={{fontSize:FS-1,fontWeight:700,color:"#F97316",background:"#F9731610",padding:"3px 8px",borderRadius:6,border:"1px solid #F9731630"}}>{fmt0(c.debtInstall)}</span>
                       <span onClick={()=>setShowEmpDebts(emp.id)} style={{cursor:"pointer",fontSize:11,padding:"2px 5px",borderRadius:4,background:"#F9731615",color:"#F97316",border:"1px solid #F9731630"}} title="عرض الأقساط">📝</span>
                     </div>:empActiveDebts(emp.id).length>0?<span style={{fontSize:FS-2,color:T.textMut}}>—</span>:<span onClick={()=>{if(!isLocked){setShowDebtForm({empId:emp.id});resetDebtForm();setDebtStart(today)}}} style={{cursor:isLocked?"default":"pointer",fontSize:FS-2,color:T.textMut,padding:"2px 8px",borderRadius:6,border:"1px dashed "+T.brd}}>+</span>}
                   </td>
-                  <td style={{padding:"6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salBonus[emp.id]!==undefined?salBonus[emp.id]:""} onChange={ev=>setSalBonus(p=>({...p,[emp.id]:ev.target.value}))} placeholder={emp.weeklyBonus>0?String(emp.weeklyBonus):"0"} title={emp.weeklyBonus>0?"الافتراضي: "+emp.weeklyBonus+" (تلقائي)":""} style={{width:60,padding:"4px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text}}/>:<span style={{fontSize:FS-2,color:T.ok}}>{c.bonus||""}</span>}</td>
-                  <td style={{padding:"6px",fontSize:FS,fontWeight:800,color:c.netBalance>=0?T.accent:T.err,textAlign:"center"}}>{fmt0(c.netBalance)}</td>
-                  <td style={{padding:"6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salThursdayPay[emp.id]!==undefined?salThursdayPay[emp.id]:""} onChange={ev=>setSalThursdayPay(p=>({...p,[emp.id]:ev.target.value}))} placeholder={String(Math.round(c.netBalance))} style={{width:70,padding:"4px",borderRadius:6,border:"1px solid "+T.ok+"40",fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.ok,fontWeight:700}}/>:<span style={{fontSize:FS-1,fontWeight:700,color:T.ok}}>{fmt0(c.thursdayPay)}</span>}</td>
-                  <td style={{padding:"6px",fontSize:FS-1,fontWeight:800,color:c.remainingBalance>0?T.warn:c.remainingBalance<0?T.err:T.textMut,textAlign:"center",background:c.remainingBalance!==0?T.warn+"06":""}}>{fmt0(c.remainingBalance)}</td>
-                  <td style={{padding:"6px",textAlign:"center"}}><span onClick={()=>printSlip(emp.id)} style={{cursor:"pointer",fontSize:14}} title="طباعة">🖨</span></td>
+                  <td style={{padding:"3px 6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salBonus[emp.id]!==undefined?salBonus[emp.id]:""} onChange={ev=>setSalBonus(p=>({...p,[emp.id]:ev.target.value}))} placeholder={emp.weeklyBonus>0?String(emp.weeklyBonus):"0"} title={emp.weeklyBonus>0?"الافتراضي: "+emp.weeklyBonus+" (تلقائي)":""} style={{width:60,padding:"3px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text}}/>:<span style={{fontSize:FS-2,color:T.ok}}>{c.bonus||""}</span>}</td>
+                  <td style={{padding:"3px 6px",fontSize:FS,fontWeight:800,color:c.netBalance>=0?T.accent:T.err,textAlign:"center"}}>{fmt0(c.netBalance)}</td>
+                  <td style={{padding:"3px 6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salThursdayPay[emp.id]!==undefined?salThursdayPay[emp.id]:""} onChange={ev=>setSalThursdayPay(p=>({...p,[emp.id]:ev.target.value}))} placeholder={String(Math.round(c.netBalance))} style={{width:70,padding:"3px",borderRadius:6,border:"1px solid "+T.ok+"40",fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.ok,fontWeight:700}}/>:<span style={{fontSize:FS-1,fontWeight:700,color:T.ok}}>{fmt0(c.thursdayPay)}</span>}</td>
+                  <td style={{padding:"3px 6px",fontSize:FS-1,fontWeight:800,color:c.remainingBalance>0?T.warn:c.remainingBalance<0?T.err:T.textMut,textAlign:"center",background:c.remainingBalance!==0?T.warn+"06":""}}>{fmt0(c.remainingBalance)}</td>
+                  <td style={{padding:"3px 6px",textAlign:"center"}}><span onClick={()=>printSlip(emp.id)} style={{cursor:"pointer",fontSize:14}} title="طباعة">🖨</span></td>
                 </tr>})}
               {/* Grand totals */}
               <tr style={{background:T.accent+"08",fontWeight:800,borderTop:"2px solid "+T.accent+"30"}}>
@@ -10946,13 +10947,20 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             <Inp type="date" value={quickAdvance.date} onChange={v=>setQuickAdvance(p=>({...p,date:v}))}/>
           </div>
         </div>
+        <div style={{marginBottom:10}}>
+          <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>💵 الخزنة (الصرف منها) *</label>
+          <Sel value={quickAdvance.account||""} onChange={v=>setQuickAdvance(p=>({...p,account:v}))}>
+            <option value="">— اختر الخزنة —</option>
+            {((data.treasuryAccounts||[]).length>0?data.treasuryAccounts:[{id:"MAIN CASH",name:"MAIN CASH"},{id:"SUB CASH",name:"SUB CASH"}]).map(a=>{const n=typeof a==="string"?a:(a.name||a.id);return<option key={n} value={n}>{n}</option>})}
+          </Sel>
+        </div>
         <div style={{marginBottom:12}}>
           <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>ملاحظة (اختياري)</label>
           <Inp value={quickAdvance.note} onChange={v=>setQuickAdvance(p=>({...p,note:v}))} placeholder="مثلاً: مقدم مرتب، أو سبب السلفة..."/>
         </div>
         <div style={{padding:10,borderRadius:8,background:T.warn+"06",border:"1px solid "+T.warn+"20",fontSize:FS-2,color:T.textSec,marginBottom:12,lineHeight:1.6}}>
           ℹ️ هيتم تسجيل السلفة في:<br/>
-          • الخزنة (MAIN CASH) — حركة خروج بفئة مرتبات<br/>
+          • الخزنة ({quickAdvance.account||"اختر خزنة"}) — حركة خروج بفئة مرتبات<br/>
           • سجل الموظف (سلفة)<br/>
           • هتظهر تلقائياً في عمود "دفعة من الحساب" في جدول المرتبات
         </div>
