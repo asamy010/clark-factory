@@ -12928,7 +12928,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   /* Matrix popup */
   const[showMatrix,setShowMatrix]=useState(false);const[matrixEmps,setMatrixEmps]=useState([]);const[matrixDate,setMatrixDate]=useState(today);const[matrixDesc,setMatrixDesc]=useState("سلفة");
   /* Salary overrides per employee in active week */
-  const[salBonus,setSalBonus]=useState({});const[salSpecialDeduct,setSalSpecialDeduct]=useState({});const[salThursdayPay,setSalThursdayPay]=useState({});const[salPrevBalanceOverride,setSalPrevBalanceOverride]=useState({});
+  const[salBonus,setSalBonus]=useState({});const[salSpecialDeduct,setSalSpecialDeduct]=useState({});const[salThursdayPay,setSalThursdayPay]=useState({});const[salPrevBalanceOverride,setSalPrevBalanceOverride]=useState({});const[salManualInstallDeduct,setSalManualInstallDeduct]=useState({});
   /* Quick advance popup from salary table — {empId, empName, amount, date, note} */
   const[quickAdvance,setQuickAdvance]=useState(null);
   const[salBaseHoursOverride,setSalBaseHoursOverride]=useState({});/* empId -> custom base hours for this week */
@@ -13192,15 +13192,17 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     const specialDeduct=Number(salSpecialDeduct[empId])||0;
     /* Debt installment due this week (smart capped: can't exceed what's available after other deductions) */
     const debtInfo=empDebtInstallment(empId,week);
+    /* Manual direct deduction — used when employee has NO active debts but needs a one-time deduction */
+    const manualInstallDeduct=(debtInfo.total===0)?(Number(salManualInstallDeduct[empId])||0):0;
     const availableAfterBasics=r2(grossPay+prevBalance-weekAdvances-specialDeduct+bonus);
     /* Cap installment at available amount (if negative, skip) */
-    const debtInstall=availableAfterBasics>0?Math.min(debtInfo.total,availableAfterBasics):0;
+    const debtInstall=debtInfo.total>0?(availableAfterBasics>0?Math.min(debtInfo.total,availableAfterBasics):0):manualInstallDeduct;
     const debtCarried=r2(debtInfo.total-debtInstall);/* uncollected portion */
     const netBalance=r2(availableAfterBasics-debtInstall);
     /* Thursday cash payment — default to netBalance if not set (employee takes full amount) */
     const thursdayPay=salThursdayPay[empId]!==undefined&&salThursdayPay[empId]!==""?Number(salThursdayPay[empId])||0:netBalance;
     const remainingBalance=r2(netBalance-thursdayPay);
-    return{weeklySalary,baseHours,perHour,workDays,totalHours,basicHours,overtimeHours,basicPay,overtimePay,grossPay,prevBalance,prevBalanceIsManual,weekAdvances,bonus,specialDeduct,debtInstall,debtCarried,debtItems:debtInfo.items,netBalance,thursdayPay,remainingBalance,days}};
+    return{weeklySalary,baseHours,perHour,workDays,totalHours,basicHours,overtimeHours,basicPay,overtimePay,grossPay,prevBalance,prevBalanceIsManual,weekAdvances,bonus,specialDeduct,debtInstall,debtCarried,debtItems:debtInfo.items,manualInstallDeduct,netBalance,thursdayPay,remainingBalance,days}};
 
   /* ── Approve & Close Week ── */
   const approveWeek=()=>{if(!openWeek||openWeek.status==="closed")return;
@@ -13851,7 +13853,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                   <td style={{padding:"3px 6px",fontSize:FS-1,fontWeight:700,color:c.weekAdvances>0?T.err:T.textMut,textAlign:"center"}}>
                     <div style={{display:"flex",gap:4,justifyContent:"center",alignItems:"center"}}>
                       <span>{c.weekAdvances>0?fmt0(c.weekAdvances):"—"}</span>
-                      {!isLocked&&canEdit&&<span onClick={()=>setQuickAdvance({empId:emp.id,empName:emp.name,amount:"",date:today,note:"",account:(()=>{const acc=(data.treasuryAccounts||[]).find(a=>{const n=typeof a==="string"?a:(a.name||a.id||"");return n.toUpperCase().includes("SUB")});return acc?(typeof acc==="string"?acc:(acc.name||acc.id)):"SUB CASH"})()})} title="تسجيل سلفة سريعة" style={{cursor:"pointer",width:22,height:22,display:"inline-flex",alignItems:"center",justifyContent:"center",borderRadius:"50%",fontSize:13,fontWeight:700,background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"40",lineHeight:1}}>➕</span>}
+                      {!isLocked&&canEdit&&<span onClick={()=>setQuickAdvance({empId:emp.id,empName:emp.name,amount:"",date:today,note:"",account:(()=>{const acc=(data.treasuryAccounts||[]).find(a=>{const n=typeof a==="string"?a:(a.name||a.id||"");return n.toUpperCase().includes("SUB")});return acc?(typeof acc==="string"?acc:(acc.name||acc.id)):"SUB CASH"})()})} title="تسجيل سلفة سريعة" style={{cursor:"pointer",fontSize:11,padding:"2px 5px",borderRadius:4,background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>+</span>}
                     </div>
                   </td>
                   <td style={{padding:"3px 6px",textAlign:"center"}}>{!isLocked?<div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
@@ -13862,7 +13864,10 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                     {c.debtInstall>0?<div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
                       <span style={{fontSize:FS-1,fontWeight:700,color:"#F97316",background:"#F9731610",padding:"3px 8px",borderRadius:6,border:"1px solid #F9731630"}}>{fmt0(c.debtInstall)}</span>
                       <span onClick={()=>setShowEmpDebts(emp.id)} style={{cursor:"pointer",fontSize:11,padding:"2px 5px",borderRadius:4,background:"#F9731615",color:"#F97316",border:"1px solid #F9731630"}} title="عرض الأقساط">📝</span>
-                    </div>:empActiveDebts(emp.id).length>0?<span style={{fontSize:FS-2,color:T.textMut}}>—</span>:<span onClick={()=>{if(!isLocked){setShowDebtForm({empId:emp.id});resetDebtForm();setDebtStart(today)}}} style={{cursor:isLocked?"default":"pointer",fontSize:FS-2,color:T.textMut,padding:"2px 8px",borderRadius:6,border:"1px dashed "+T.brd}}>+</span>}
+                    </div>:empActiveDebts(emp.id).length>0?<span style={{fontSize:FS-2,color:T.textMut}} title="يوجد أقساط لهذا الموظف غير مستحقة في هذا الأسبوع">—</span>:(!isLocked?<div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
+                      <input type="number" value={salManualInstallDeduct[emp.id]||""} onChange={ev=>setSalManualInstallDeduct(p=>({...p,[emp.id]:ev.target.value}))} placeholder="0" title="خصم مباشر (مش قسط)" style={{width:60,padding:"3px",borderRadius:6,border:"1px solid "+(salManualInstallDeduct[emp.id]?"#F9731660":T.brd),fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:salManualInstallDeduct[emp.id]?"#F97316":T.text,fontWeight:salManualInstallDeduct[emp.id]?700:400}}/>
+                      <span onClick={()=>{setShowDebtForm({empId:emp.id});resetDebtForm();setDebtStart(today)}} style={{cursor:"pointer",fontSize:11,padding:"2px 5px",borderRadius:4,background:T.bg,color:T.textMut,border:"1px dashed "+T.brd}} title="إضافة قسط/مديونية">+</span>
+                    </div>:<span style={{fontSize:FS-2,color:T.err}}>{c.manualInstallDeduct||""}</span>)}
                   </td>
                   <td style={{padding:"3px 6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salBonus[emp.id]!==undefined?salBonus[emp.id]:""} onChange={ev=>setSalBonus(p=>({...p,[emp.id]:ev.target.value}))} placeholder={emp.weeklyBonus>0?String(emp.weeklyBonus):"0"} title={emp.weeklyBonus>0?"الافتراضي: "+emp.weeklyBonus+" (تلقائي)":""} style={{width:60,padding:"3px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text}}/>:<span style={{fontSize:FS-2,color:T.ok}}>{c.bonus||""}</span>}</td>
                   <td style={{padding:"3px 6px",fontSize:FS,fontWeight:800,color:c.netBalance>=0?T.accent:T.err,textAlign:"center"}}>{fmt0(c.netBalance)}</td>
