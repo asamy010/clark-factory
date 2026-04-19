@@ -13764,19 +13764,20 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     return flags.filter(f=>!dismissedFor.includes(f.type+"|"+(f.emp||"")+"|"+(f.msg||"")));
   };
   
-  /* Dismiss all flags or specific flag for the open week */
+  /* Dismiss all flags or specific flag for the currently-open week (works from both salary page and security tab) */
+  const _getActiveOpenWeek=()=>openWeek||hrWeeks.find(w=>w.status!=="closed");
   const dismissFlag=(flagKey)=>{
-    if(!openWeek)return;
+    const w=_getActiveOpenWeek();if(!w)return;
     upConfig(d=>{
-      const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
+      const wi=(d.hrWeeks||[]).findIndex(x=>x.id===w.id);if(wi<0)return;
       if(!d.hrWeeks[wi].dismissedFlags)d.hrWeeks[wi].dismissedFlags=[];
       if(!d.hrWeeks[wi].dismissedFlags.includes(flagKey))d.hrWeeks[wi].dismissedFlags.push(flagKey);
     });
     showToast("✓ تم إخفاء التنبيه");
   };
   const dismissAllFlags=()=>{
-    if(!openWeek)return;
-    const flags=computeSecurityFlags(openWeek);
+    const w=_getActiveOpenWeek();if(!w)return;
+    const flags=computeSecurityFlags(w);
     if(flags.length===0)return;
     openConfirm({
       title:"تجاهل كل التنبيهات",
@@ -13784,7 +13785,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       variant:"warn",confirmText:"تجاهل الكل",
       onConfirm:()=>{
         upConfig(d=>{
-          const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
+          const wi=(d.hrWeeks||[]).findIndex(x=>x.id===w.id);if(wi<0)return;
           if(!d.hrWeeks[wi].dismissedFlags)d.hrWeeks[wi].dismissedFlags=[];
           flags.forEach(f=>{
             const key=f.type+"|"+(f.emp||"")+"|"+(f.msg||"");
@@ -13796,9 +13797,9 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     });
   };
   const restoreDismissedFlags=()=>{
-    if(!openWeek)return;
+    const w=_getActiveOpenWeek();if(!w)return;
     upConfig(d=>{
-      const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
+      const wi=(d.hrWeeks||[]).findIndex(x=>x.id===w.id);if(wi<0)return;
       d.hrWeeks[wi].dismissedFlags=[];
     });
     showToast("✓ تم استعادة التنبيهات المخفية");
@@ -14830,21 +14831,25 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         {hrWeeks.map(w=>{const isSelected=previewWeekId===w.id;
           /* Compute live stats for open week (if not closed, recalculate from current data) */
           let wGross=w.totalGross||0,wThursday=w.totalThursdayPay||0,wRemaining=w.totalRemaining||0,wEmpCount=w.empCount||0,wWeeklyAdv=w.totalWeeklyAdvances||0;
-          /* Sum of prev balances from employees in the week — these are carried-over balances from PREVIOUS weeks */
+          /* Sum of prev balances — use the SAME value that calcSalary uses (respects manual overrides + excludes employees not in this week) */
           let wPrevBalances=0;
           if(w.status!=="closed"){
             /* Live calculation for open weeks */
             const wSelected=(w.selectedEmps&&Array.isArray(w.selectedEmps))?w.selectedEmps:[];
             const wShown=activeEmps.filter(e=>wSelected.includes(e.id));
             wEmpCount=wShown.length;
-            let liveG=0,liveT=0,liveR=0;
+            let liveG=0,liveT=0,liveR=0,livePB=0;
             wShown.forEach(e=>{
               const c=calcSalary(e.id,w);
-              if(c){liveG+=c.grossPay||0;liveT+=c.thursdayPay||0;liveR+=c.remainingBalance||0}
-              /* Accumulate current prevBalance from employee record (carried from previous weeks) */
-              wPrevBalances+=Number(e.prevBalance)||0;
+              if(c){
+                liveG+=c.grossPay||0;
+                liveT+=c.thursdayPay||0;
+                liveR+=c.remainingBalance||0;
+                /* Use prevBalance from calcSalary — same value shown in salary table row */
+                livePB+=Number(c.prevBalance)||0;
+              }
             });
-            wGross=liveG;wThursday=liveT;wRemaining=liveR;
+            wGross=liveG;wThursday=liveT;wRemaining=liveR;wPrevBalances=livePB;
             wWeeklyAdv=(w.weeklyAdvances||[]).reduce((s,a)=>s+(Number(a.amount)||0),0);
           }
           const isClosedW=w.status==="closed";
@@ -15075,48 +15080,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             </div>
           </div>})()}
 
-        {/* Security flags — show if there are any suspicious patterns */}
-        {(()=>{const flags=computeSecurityFlags(openWeek);const hasDismissed=(openWeek.dismissedFlags||[]).length>0;
-          if(flags.length===0){
-            if(hasDismissed)return<Card style={{marginBottom:14,background:T.ok+"04",border:"1px solid "+T.ok+"30"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0"}}>
-                <span style={{fontSize:FS-1,color:T.ok,fontWeight:700}}>✅ لا توجد تنبيهات نشطة — {(openWeek.dismissedFlags||[]).length} تنبيه مخفي</span>
-                <Btn small onClick={restoreDismissedFlags} style={{background:T.textSec+"12",color:T.textSec,border:"1px solid "+T.textSec+"30",fontWeight:700}}>🔄 استرجاع المخفية</Btn>
-              </div>
-            </Card>;
-            return null;
-          }
-          const byType={danger:flags.filter(f=>f.severity==="danger"),warning:flags.filter(f=>f.severity==="warning")};
-          return<Card title={"🛡️ تنبيهات أمنية ("+flags.length+")"} style={{marginBottom:14,border:"2px solid "+(byType.danger.length>0?T.err+"60":T.warn+"60"),background:(byType.danger.length>0?T.err:T.warn)+"04"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,paddingBottom:8,borderBottom:"1px solid "+T.brd}}>
-              <div style={{fontSize:FS-2,color:T.textSec}}>
-                {byType.danger.length>0&&<span style={{color:T.err,fontWeight:700}}>{byType.danger.length} خطر • </span>}
-                {byType.warning.length>0&&<span style={{color:T.warn,fontWeight:700}}>{byType.warning.length} تحذير</span>}
-              </div>
-              <div style={{display:"flex",gap:6}}>
-                {hasDismissed&&<Btn small onClick={restoreDismissedFlags} style={{background:T.textSec+"12",color:T.textSec,border:"1px solid "+T.textSec+"30",fontSize:FS-2,padding:"3px 8px"}}>🔄 استرجاع ({(openWeek.dismissedFlags||[]).length})</Btn>}
-                <Btn small onClick={dismissAllFlags} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",fontWeight:700,fontSize:FS-2,padding:"3px 8px"}}>🗑️ تجاهل الكل</Btn>
-              </div>
-            </div>
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {flags.slice(0,15).map((f,i)=>{
-                const flagKey=f.type+"|"+(f.emp||"")+"|"+(f.msg||"");
-                return<div key={i} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",borderRadius:10,background:(f.severity==="danger"?T.err:T.warn)+"08",border:"1px solid "+(f.severity==="danger"?T.err:T.warn)+"25"}}>
-                <div style={{fontSize:18,flexShrink:0}}>{f.icon}</div>
-                <div style={{flex:1}}>
-                  <div style={{fontSize:FS-1,fontWeight:700,color:f.severity==="danger"?T.err:T.warn}}>{f.msg}</div>
-                  {f.code&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2,direction:"ltr",textAlign:"right"}}>كود البصمة: {f.code}</div>}
-                </div>
-                <span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-3,fontWeight:800,background:(f.severity==="danger"?T.err:T.warn)+"18",color:f.severity==="danger"?T.err:T.warn,flexShrink:0}}>
-                  {f.severity==="danger"?"خطر":"تحذير"}
-                </span>
-                <span onClick={()=>dismissFlag(flagKey)} title="إخفاء هذا التنبيه" style={{cursor:"pointer",padding:"3px 8px",borderRadius:6,fontSize:FS-2,fontWeight:800,background:T.textMut+"15",color:T.textMut,flexShrink:0,border:"1px solid "+T.textMut+"30"}}>✕</span>
-              </div>;
-              })}
-              {flags.length>15&&<div style={{textAlign:"center",fontSize:FS-2,color:T.textMut,padding:6}}>+ {flags.length-15} تنبيه إضافي</div>}
-            </div>
-          </Card>;
-        })()}
+        {/* Security flags moved to dedicated Security tab — to keep salary page clean */}
 
         {/* Paste fingerprint data */}
         {!isLocked&&<Card title="📋 لصق بيانات البصمة" style={{marginBottom:14}}>
@@ -16895,18 +16859,47 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           </div>
         </div>
 
-        {/* Active Flags from open week */}
-        {activeFlags.length>0&&<Card title={"🚩 تنبيهات نشطة — W"+activeOpenWeek.weekNum+" ("+activeFlags.length+")"} style={{marginBottom:14,border:"2px solid "+T.warn+"40"}}>
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {activeFlags.map((f,i)=><div key={i} style={{display:"flex",gap:10,padding:"10px 12px",borderRadius:10,background:(f.severity==="danger"?T.err:T.warn)+"08",border:"1px solid "+(f.severity==="danger"?T.err:T.warn)+"25"}}>
-              <span style={{fontSize:18}}>{f.icon}</span>
-              <div style={{flex:1,fontSize:FS-1,fontWeight:700,color:f.severity==="danger"?T.err:T.warn}}>{f.msg}</div>
-              <span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-3,fontWeight:800,background:(f.severity==="danger"?T.err:T.warn)+"18",color:f.severity==="danger"?T.err:T.warn}}>
-                {f.severity==="danger"?"خطر":"تحذير"}
-              </span>
-            </div>)}
-          </div>
-        </Card>}
+        {/* Active Flags from open week — with dismiss controls */}
+        {activeOpenWeek&&(()=>{const hasDismissed=(activeOpenWeek.dismissedFlags||[]).length>0;
+          if(activeFlags.length===0){
+            if(hasDismissed)return<Card style={{marginBottom:14,background:T.ok+"04",border:"1px solid "+T.ok+"30"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0"}}>
+                <span style={{fontSize:FS-1,color:T.ok,fontWeight:700}}>✅ لا توجد تنبيهات نشطة — {(activeOpenWeek.dismissedFlags||[]).length} تنبيه مخفي</span>
+                <Btn small onClick={restoreDismissedFlags} style={{background:T.textSec+"12",color:T.textSec,border:"1px solid "+T.textSec+"30",fontWeight:700}}>🔄 استرجاع المخفية</Btn>
+              </div>
+            </Card>;
+            return null;
+          }
+          const byType={danger:activeFlags.filter(f=>f.severity==="danger"),warning:activeFlags.filter(f=>f.severity==="warning")};
+          return<Card title={"🚩 تنبيهات نشطة — W"+activeOpenWeek.weekNum+" ("+activeFlags.length+")"} style={{marginBottom:14,border:"2px solid "+(byType.danger.length>0?T.err+"60":T.warn+"40")}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,paddingBottom:8,borderBottom:"1px solid "+T.brd}}>
+              <div style={{fontSize:FS-2,color:T.textSec}}>
+                {byType.danger.length>0&&<span style={{color:T.err,fontWeight:700}}>{byType.danger.length} خطر • </span>}
+                {byType.warning.length>0&&<span style={{color:T.warn,fontWeight:700}}>{byType.warning.length} تحذير</span>}
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                {hasDismissed&&<Btn small onClick={restoreDismissedFlags} style={{background:T.textSec+"12",color:T.textSec,border:"1px solid "+T.textSec+"30",fontSize:FS-2,padding:"3px 8px"}}>🔄 استرجاع ({(activeOpenWeek.dismissedFlags||[]).length})</Btn>}
+                <Btn small onClick={dismissAllFlags} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",fontWeight:700,fontSize:FS-2,padding:"3px 8px"}}>🗑️ تجاهل الكل</Btn>
+              </div>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {activeFlags.map((f,i)=>{
+                const flagKey=f.type+"|"+(f.emp||"")+"|"+(f.msg||"");
+                return<div key={i} style={{display:"flex",gap:10,padding:"10px 12px",borderRadius:10,background:(f.severity==="danger"?T.err:T.warn)+"08",border:"1px solid "+(f.severity==="danger"?T.err:T.warn)+"25"}}>
+                  <span style={{fontSize:18}}>{f.icon}</span>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:FS-1,fontWeight:700,color:f.severity==="danger"?T.err:T.warn}}>{f.msg}</div>
+                    {f.code&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2,direction:"ltr",textAlign:"right"}}>كود البصمة: {f.code}</div>}
+                  </div>
+                  <span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-3,fontWeight:800,background:(f.severity==="danger"?T.err:T.warn)+"18",color:f.severity==="danger"?T.err:T.warn,flexShrink:0}}>
+                    {f.severity==="danger"?"خطر":"تحذير"}
+                  </span>
+                  <span onClick={()=>dismissFlag(flagKey)} title="إخفاء هذا التنبيه" style={{cursor:"pointer",padding:"3px 8px",borderRadius:6,fontSize:FS-2,fontWeight:800,background:T.textMut+"15",color:T.textMut,flexShrink:0,border:"1px solid "+T.textMut+"30"}}>✕</span>
+                </div>;
+              })}
+            </div>
+          </Card>;
+        })()}
 
         {/* Top 5 Overtime + Top 5 Advances */}
         {refWeek&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12,marginBottom:14}}>
