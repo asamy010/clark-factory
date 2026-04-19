@@ -12929,6 +12929,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const[showMatrix,setShowMatrix]=useState(false);const[matrixEmps,setMatrixEmps]=useState([]);const[matrixDate,setMatrixDate]=useState(today);const[matrixDesc,setMatrixDesc]=useState("سلفة");
   /* Salary overrides per employee in active week */
   const[salBonus,setSalBonus]=useState({});const[salSpecialDeduct,setSalSpecialDeduct]=useState({});const[salThursdayPay,setSalThursdayPay]=useState({});const[salPrevBalanceOverride,setSalPrevBalanceOverride]=useState({});const[salManualInstallDeduct,setSalManualInstallDeduct]=useState({});
+  const[focusedEmpId,setFocusedEmpId]=useState(null);
   /* Quick advance popup from salary table — {empId, empName, amount, date, note} */
   const[quickAdvance,setQuickAdvance]=useState(null);
   const[salBaseHoursOverride,setSalBaseHoursOverride]=useState({});/* empId -> custom base hours for this week */
@@ -13884,13 +13885,13 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             <div style={{marginBottom:10,display:"flex",justifyContent:"flex-end"}}>
               <Btn small onClick={()=>{const sel={};shownEmps.forEach(e=>{sel[e.id]=true});setBulkPrintSel(sel);setShowBulkPrint(true)}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}}>🖨 طباعة مجمعة</Btn>
             </div>
-            <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
-              {cols.map((c,i)=><th key={i} style={{padding:"8px 6px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap",width:c.w||"auto"}}>{c.label}</th>)}
+            <div style={{overflowX:"auto",overflowY:"auto",maxHeight:"calc(100vh - 260px)",border:"1px solid "+T.brd,borderRadius:10}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead style={{position:"sticky",top:0,zIndex:10}}><tr>
+              {cols.map((c,i)=><th key={i} style={{padding:"10px 6px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap",width:c.w||"auto",background:T.cardSolid,boxShadow:"0 2px 4px rgba(0,0,0,0.05)"}}>{c.label}</th>)}
             </tr></thead><tbody>
-              {shownEmps.map((emp,i)=>{const c=calcSalary(emp.id,openWeek);if(!c)return null;const zebra=i%2===1?T.bg:T.cardSolid;
-                return<tr key={emp.id} style={{borderBottom:"1px solid "+T.brd,background:zebra}}>
-                  <td style={{padding:"3px 6px",fontSize:FS-2,color:T.textMut,textAlign:"center"}}>{i+1}</td>
-                  <td style={{padding:"3px 10px",fontSize:FS-1,fontWeight:700,textAlign:"right"}}>{emp.name}</td>
+              {shownEmps.map((emp,i)=>{const c=calcSalary(emp.id,openWeek);if(!c)return null;const zebra=i%2===1?T.bg:T.cardSolid;const isFocused=focusedEmpId===emp.id;
+                return<tr key={emp.id} onFocus={()=>setFocusedEmpId(emp.id)} onBlur={(e)=>{if(!e.currentTarget.contains(e.relatedTarget))setFocusedEmpId(null)}} style={{borderBottom:"1px solid "+T.brd,background:isFocused?T.accent+"12":zebra,boxShadow:isFocused?"inset 4px 0 0 "+T.accent:"none",transition:"background 0.15s, box-shadow 0.15s"}}>
+                  <td style={{padding:"3px 6px",fontSize:FS-2,color:isFocused?T.accent:T.textMut,textAlign:"center",fontWeight:isFocused?800:400}}>{i+1}</td>
+                  <td style={{padding:"3px 10px",fontSize:isFocused?FS+2:FS-1,fontWeight:isFocused?800:700,textAlign:"right",color:isFocused?T.accent:T.text,transition:"font-size 0.15s, color 0.15s"}}>{emp.name}</td>
                   <td style={{padding:"3px 6px",fontSize:FS-2,color:T.accent,textAlign:"center",fontWeight:700}}>{fmt0(c.weeklySalary)}</td>
                   <td style={{padding:"3px 6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salBaseHoursOverride[emp.id]!==undefined?salBaseHoursOverride[emp.id]:""} onChange={ev=>setSalBaseHoursOverride(p=>({...p,[emp.id]:ev.target.value}))} placeholder={String(openWeek.baseHours||48)} style={{width:50,padding:"3px",borderRadius:6,border:"1px solid "+T.accent+"40",fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:salBaseHoursOverride[emp.id]?T.warn:T.text,fontWeight:salBaseHoursOverride[emp.id]?700:400}}/>:<span style={{fontSize:FS-2,color:c.baseHours!==(openWeek.baseHours||48)?T.warn:T.textMut,fontWeight:c.baseHours!==(openWeek.baseHours||48)?700:400}}>{c.baseHours}</span>}</td>
                   <td style={{padding:"3px 6px",fontSize:FS-2,textAlign:"center",direction:"ltr"}} title={"("+r2(c.totalHours)+" ساعة عشرية)"}>{c.totalHours>0?hrsToHM(c.totalHours):"—"}</td>
@@ -13923,26 +13924,27 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                   <td style={{padding:"3px 6px",fontSize:FS-1,fontWeight:800,color:c.remainingBalance>0?T.warn:c.remainingBalance<0?T.err:T.textMut,textAlign:"center",background:c.remainingBalance!==0?T.warn+"06":""}}>{fmt0(c.remainingBalance)}</td>
                   <td style={{padding:"3px 6px",textAlign:"center"}}><span onClick={()=>printSlip(emp.id)} style={{cursor:"pointer",fontSize:14}} title="طباعة">🖨</span></td>
                 </tr>})}
-              {/* Grand totals */}
-              <tr style={{background:T.accent+"08",fontWeight:800,borderTop:"2px solid "+T.accent+"30"}}>
-                <td colSpan={2} style={{padding:"8px 10px",textAlign:"right",fontSize:FS-1,fontWeight:800}}>الاجمالي</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,color:T.accent}}>{fmt0(shownEmps.reduce((s,e)=>s+(e.weeklySalary||0),0))}</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,color:T.textMut}}>{openWeek.baseHours||48}</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,direction:"ltr"}}>{hrsToHM(tH)}</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,color:"#8B5CF6",direction:"ltr"}}>{hrsToHM(tO)}</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,color:"#8B5CF6",fontWeight:800}}>{fmt0(tOP)}</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.ok,fontWeight:800}}>{fmt0(tG)}</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2}}>—</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.err,fontWeight:800}}>{fmt0(tA)}</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.err,fontWeight:800}}>{fmt0(tD)}</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:"#F97316",fontWeight:800}}>{fmt0(tDI)}</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.ok,fontWeight:800}}>{fmt0(tB)}</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS+1,color:T.accent,fontWeight:800}}>{fmt0(tN)}</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS,color:T.ok,fontWeight:800}}>{fmt0(tTP)}</td>
-                <td style={{padding:"6px",textAlign:"center",fontSize:FS,color:T.warn,fontWeight:800}}>{fmt0(tRB)}</td>
-                <td></td>
-              </tr>
-            </tbody></table></div>
+              </tbody>
+              {/* Grand totals — sticky footer */}
+              <tfoot style={{position:"sticky",bottom:0,zIndex:10}}><tr style={{background:T.accent+"15",fontWeight:800,borderTop:"2px solid "+T.accent+"40",boxShadow:"0 -2px 4px rgba(0,0,0,0.05)"}}>
+                <td colSpan={2} style={{padding:"8px 10px",textAlign:"right",fontSize:FS-1,fontWeight:800,background:T.accent+"15"}}>الاجمالي</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,color:T.accent,background:T.accent+"15"}}>{fmt0(shownEmps.reduce((s,e)=>s+(e.weeklySalary||0),0))}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,color:T.textMut,background:T.accent+"15"}}>{openWeek.baseHours||48}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,direction:"ltr",background:T.accent+"15"}}>{hrsToHM(tH)}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,color:"#8B5CF6",direction:"ltr",background:T.accent+"15"}}>{hrsToHM(tO)}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,color:"#8B5CF6",fontWeight:800,background:T.accent+"15"}}>{fmt0(tOP)}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.ok,fontWeight:800,background:T.accent+"15"}}>{fmt0(tG)}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,background:T.accent+"15"}}>—</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.err,fontWeight:800,background:T.accent+"15"}}>{fmt0(tA)}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.err,fontWeight:800,background:T.accent+"15"}}>{fmt0(tD)}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:"#F97316",fontWeight:800,background:T.accent+"15"}}>{fmt0(tDI)}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.ok,fontWeight:800,background:T.accent+"15"}}>{fmt0(tB)}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS+1,color:T.accent,fontWeight:800,background:T.accent+"15"}}>{fmt0(tN)}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS,color:T.ok,fontWeight:800,background:T.accent+"15"}}>{fmt0(tTP)}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS,color:T.warn,fontWeight:800,background:T.accent+"15"}}>{fmt0(tRB)}</td>
+                <td style={{background:T.accent+"15"}}></td>
+              </tr></tfoot>
+            </table></div>
             {canEdit&&!isClosed&&<div style={{marginTop:14,display:"flex",gap:10,justifyContent:"center",alignItems:"center",flexWrap:"wrap"}}>
               <Btn onClick={saveDraftInputs} style={{fontSize:FS,padding:"10px 20px",background:hasUnsavedChanges?T.warn:T.ok+"15",color:hasUnsavedChanges?"#fff":T.ok,border:hasUnsavedChanges?"1px solid "+T.warn:"1px solid "+T.ok+"40",fontWeight:700}}>{hasUnsavedChanges?"💾 حفظ التعديلات":"✓ محفوظ"}</Btn>
               {openWeek.draftInputs?.lastSaved&&<span style={{fontSize:FS-2,color:T.textMut}} title={"آخر حفظ: "+new Date(openWeek.draftInputs.lastSaved).toLocaleString("ar-EG")}>{"آخر حفظ: "+(()=>{const d=new Date(openWeek.draftInputs.lastSaved);const now=new Date();const diffMs=now-d;const mins=Math.floor(diffMs/60000);if(mins<1)return"الآن";if(mins<60)return"منذ "+mins+" دقيقة";const hrs=Math.floor(mins/60);if(hrs<24)return"منذ "+hrs+" ساعة";return d.toLocaleDateString("ar-EG")})()}</span>}
