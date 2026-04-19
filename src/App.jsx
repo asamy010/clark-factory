@@ -14074,7 +14074,65 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                 </Sel>
               </div>
               {(salSearch||salJobFilter||salShowOnly)&&<Btn small ghost onClick={()=>{setSalSearch("");setSalJobFilter("");setSalShowOnly("")}} style={{padding:"4px 10px",fontSize:FS-2}}>✕ مسح الفلاتر</Btn>}
-              <div style={{flex:"0 0 auto",marginInlineStart:"auto"}}>
+              <div style={{flex:"0 0 auto",marginInlineStart:"auto",display:"flex",gap:6}}>
+                <Btn small onClick={()=>{
+                  /* Print the current filtered table as a single-page overview */
+                  const rows=filteredShown.map((emp,i)=>{const c=calcSalary(emp.id,openWeek);if(!c)return"";
+                    return"<tr>"+
+                      "<td class='center'>"+(i+1)+"</td>"+
+                      "<td>"+(emp.name||"")+(emp.code?" <span style='color:#94A3B8;font-size:10px'>#"+emp.code+"</span>":"")+"</td>"+
+                      "<td class='center'>"+(emp.job||"—")+"</td>"+
+                      "<td class='center'>"+fmt0(c.weeklySalary)+"</td>"+
+                      "<td class='center' style='direction:ltr'>"+(c.totalHours>0?hrsToHM(c.totalHours):"—")+"</td>"+
+                      "<td class='center' style='direction:ltr;color:#8B5CF6'>"+(c.overtimeHours>0?hrsToHM(c.overtimeHours):"—")+"</td>"+
+                      "<td class='center ok'>"+fmt0(c.grossPay)+"</td>"+
+                      "<td class='center'>"+(c.prevBalance!==0?(c.prevBalance>0?"+":"")+fmt0(c.prevBalance):"—")+"</td>"+
+                      "<td class='center err'>"+(c.weekAdvances>0?fmt0(c.weekAdvances):"—")+"</td>"+
+                      "<td class='center err'>"+(c.specialDeduct>0?fmt0(c.specialDeduct):"—")+"</td>"+
+                      "<td class='center' style='color:#F97316'>"+(c.debtInstall>0?fmt0(c.debtInstall)+(c.isPartialInstall?" ⚠":""):c.isSkippedInstall?"⏭":"—")+"</td>"+
+                      "<td class='center ok'>"+(c.bonus>0?fmt0(c.bonus):"—")+"</td>"+
+                      "<td class='center info'><b>"+fmt0(c.netBalance)+"</b></td>"+
+                      "<td class='center ok'><b>"+fmt0(c.thursdayPay)+"</b></td>"+
+                      "<td class='center warn'>"+(c.remainingBalance!==0?fmt0(c.remainingBalance):"—")+"</td>"+
+                    "</tr>";
+                  }).join("");
+                  /* Totals from filtered list */
+                  let fG=0,fA=0,fD=0,fB=0,fTP=0,fRB=0,fDI=0;
+                  filteredShown.forEach(e=>{const cc=calcSalary(e.id,openWeek);if(cc){fG+=cc.grossPay;fA+=cc.weekAdvances;fD+=cc.specialDeduct;fB+=cc.bonus;fTP+=cc.thursdayPay;fRB+=cc.remainingBalance;fDI+=cc.debtInstall||0}});
+                  const totalsRow="<tr style='background:#E0F2FE;font-weight:800;border-top:2px solid #0284C7'>"+
+                    "<td class='center' colspan='3'>الإجمالي — "+filteredShown.length+" موظف</td>"+
+                    "<td class='center'>"+fmt0(filteredShown.reduce((s,e)=>s+(e.weeklySalary||0),0))+"</td>"+
+                    "<td></td><td></td>"+
+                    "<td class='center ok'>"+fmt0(fG)+"</td>"+
+                    "<td></td>"+
+                    "<td class='center err'>"+fmt0(fA)+"</td>"+
+                    "<td class='center err'>"+fmt0(fD)+"</td>"+
+                    "<td class='center' style='color:#F97316'>"+fmt0(fDI)+"</td>"+
+                    "<td class='center ok'>"+fmt0(fB)+"</td>"+
+                    "<td class='center info'>"+fmt0(filteredShown.reduce((s,e)=>{const cc=calcSalary(e.id,openWeek);return s+(cc?cc.netBalance:0)},0))+"</td>"+
+                    "<td class='center ok'>"+fmt0(fTP)+"</td>"+
+                    "<td class='center warn'>"+fmt0(fRB)+"</td>"+
+                  "</tr>";
+                  /* Filter summary */
+                  const filterParts=[];
+                  if(salSearchDeb)filterParts.push("بحث: \""+salSearchDeb+"\"");
+                  if(salJobFilter)filterParts.push("وظيفة: "+salJobFilter);
+                  if(salShowOnly){const labels={hasBonus:"لهم حافز",hasAdvances:"لهم مسحوبات",hasDeduct:"لهم خصم",hasInstall:"لهم قسط",hasBalance:"لهم رصيد"};filterParts.push("عرض: "+(labels[salShowOnly]||salShowOnly))}
+                  const filterLine=filterParts.length>0?"<div style='background:#FEF3C7;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:11px;color:#92400E'><b>الفلاتر المطبقة:</b> "+filterParts.join(" • ")+"</div>":"";
+                  const title="جدول المرتبات — W"+openWeek.weekNum;
+                  const html="<html dir='rtl'><head><meta charset='UTF-8'><title>"+title+"</title><style>"+PRINT_CSS+".center{text-align:center}table{font-size:10px}th{padding:6px 4px;font-size:10px}td{padding:4px 4px;font-size:10px}@page{size:A4 landscape;margin:8mm}</style></head><body>"+
+                    "<div class='hdr'><div style='font-size:18px;font-weight:800;color:#0284C7'>💰 "+title+"</div><div class='hdr-info'><div>الفترة: "+openWeek.weekStart+" → "+openWeek.weekEnd+"</div><div>تاريخ الطباعة: "+today+"</div></div></div>"+
+                    filterLine+
+                    "<table><thead><tr><th>#</th><th>الاسم</th><th>الوظيفة</th><th>مرتب</th><th>ساعات</th><th>إضافي</th><th>مستحق</th><th>رصيد سابق</th><th>سلف</th><th>خصم</th><th>قسط</th><th>حافز</th><th>صافي</th><th>يُصرَف</th><th>رصيد مرحل</th></tr></thead><tbody>"+
+                    (rows||"<tr><td colspan='15' class='center' style='padding:20px;color:#94A3B8'>لا توجد نتائج</td></tr>")+
+                    totalsRow+
+                    "</tbody></table>"+
+                    "<div class='sig' style='margin-top:30px'><div class='sig-box'>المحاسب</div><div class='sig-box'>المدير</div></div>"+
+                    "<div class='foot'>CLARK Factory Management — جدول مرتبات "+title+" — "+today+"</div>"+
+                    "<script>setTimeout(function(){window.print()},500)</"+"script></body></html>";
+                  const w=window.open("","_blank");if(!w)return;
+                  w.document.write(html);w.document.close();
+                }} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}}>🖨 طباعة الجدول</Btn>
                 <Btn small onClick={()=>{const sel={};shownEmps.forEach(e=>{sel[e.id]=true});setBulkPrintSel(sel);setShowBulkPrint(true)}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}}>🖨 طباعة مجمعة</Btn>
               </div>
             </div>
