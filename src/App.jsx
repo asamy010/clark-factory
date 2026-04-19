@@ -8651,6 +8651,69 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
         </div>})()}
     </Card>
 
+    {/* Security Flags Settings */}
+    <Card title="🛡️ إعدادات التنبيهات الأمنية" style={{marginBottom:16}}>
+      {(()=>{const sec=config.securitySettings||{};
+        const saveSec=(fn)=>upConfig(d=>{if(!d.securitySettings)d.securitySettings={};fn(d.securitySettings)});
+        const FlagRow=({icon,label,desc,children,enabled,onToggle})=><div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",borderRadius:10,background:enabled!==false?T.cardSolid:T.bg,border:"1px solid "+(enabled!==false?T.brd:T.textMut+"20"),marginBottom:8,opacity:enabled!==false?1:0.6}}>
+          <div style={{fontSize:24,flexShrink:0}}>{icon}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:FS,fontWeight:700,color:T.text}}>{label}</div>
+            <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{desc}</div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+            {children}
+            <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer"}}><input type="checkbox" checked={enabled!==false} onChange={ev=>onToggle(ev.target.checked)} style={{width:18,height:18,cursor:"pointer"}}/></label>
+          </div>
+        </div>;
+        return<div>
+          <div style={{fontSize:FS-2,color:T.textSec,marginBottom:12,padding:"10px 14px",background:T.accent+"06",borderRadius:8,border:"1px solid "+T.accent+"20",lineHeight:1.7}}>
+            ℹ️ فعّل/عطّل كل تنبيه حسب حاجتك. لو التنبيه مفعّل، يظهر في صفحة الأسبوع المفتوح + Dashboard الأمن.
+          </div>
+          <FlagRow icon="⏰" label="ساعات يومية مرتفعة" desc="تنبيه لو موظف بصم أكتر من الحد ده في يوم واحد" enabled={sec.flagExcessiveHours!==false} onToggle={v=>saveSec(s=>{s.flagExcessiveHours=v})}>
+            <Inp type="number" step="0.5" value={sec.maxDailyHours||""} onChange={v=>saveSec(s=>{s.maxDailyHours=Number(v)||14})} placeholder="14" style={{width:70,textAlign:"center"}}/>
+            <span style={{fontSize:FS-3,color:T.textMut}}>ساعة</span>
+          </FlagRow>
+          <FlagRow icon="🔄" label="ساعات متطابقة كل الأيام" desc="ساعات متطابقة بالظبط كل يوم (مشبوه: buddy punching)" enabled={sec.flagIdenticalHours!==false} onToggle={v=>saveSec(s=>{s.flagIdenticalHours=v})}/>
+          <FlagRow icon="👥" label="تطابق جماعي في يوم واحد" desc="أكثر من الحد ده من الموظفين بنفس الساعات في نفس اليوم" enabled={sec.flagSameHoursMultiple!==false} onToggle={v=>saveSec(s=>{s.flagSameHoursMultiple=v})}>
+            <Inp type="number" value={sec.minEmpsForSameHours||""} onChange={v=>saveSec(s=>{s.minEmpsForSameHours=Number(v)||3})} placeholder="3" style={{width:60,textAlign:"center"}}/>
+            <span style={{fontSize:FS-3,color:T.textMut}}>موظف+</span>
+          </FlagRow>
+          <FlagRow icon="📈" label="ارتفاع فجائي في الساعات" desc="ساعات الموظف ارتفعت بنسبة أكبر من الحد مقارنة بالمتوسط" enabled={sec.flagSuddenSpike!==false} onToggle={v=>saveSec(s=>{s.flagSuddenSpike=v})}>
+            <Inp type="number" value={sec.spikePercent||""} onChange={v=>saveSec(s=>{s.spikePercent=Number(v)||50})} placeholder="50" style={{width:60,textAlign:"center"}}/>
+            <span style={{fontSize:FS-3,color:T.textMut}}>%+</span>
+          </FlagRow>
+          <FlagRow icon="🔑" label="تغيير كود بصمة حديث" desc="موظف تغير كود بصمته مؤخراً (30 يوم) وبياخد ساعات" enabled={sec.flagCodeChange!==false} onToggle={v=>saveSec(s=>{s.flagCodeChange=v})}/>
+          <FlagRow icon="✏️" label="نسبة التعديل اليدوي العالية" desc="نسبة التعديلات اليدوية في الأسبوع أكبر من الحد" enabled={sec.flagManualEditHigh!==false} onToggle={v=>saveSec(s=>{s.flagManualEditHigh=v})}>
+            <Inp type="number" value={sec.manualEditRatio||""} onChange={v=>saveSec(s=>{s.manualEditRatio=Number(v)||30})} placeholder="30" style={{width:60,textAlign:"center"}}/>
+            <span style={{fontSize:FS-3,color:T.textMut}}>%+</span>
+          </FlagRow>
+          <FlagRow icon="💸" label="سلفة شاذة" desc="سلفة الموظف أكبر من الحد × متوسطه التاريخي" enabled={sec.flagAdvanceAnomaly!==false} onToggle={v=>saveSec(s=>{s.flagAdvanceAnomaly=v})}>
+            <Inp type="number" step="0.5" value={sec.advanceMultiplier||""} onChange={v=>saveSec(s=>{s.advanceMultiplier=Number(v)||3})} placeholder="3" style={{width:60,textAlign:"center"}}/>
+            <span style={{fontSize:FS-3,color:T.textMut}}>× متوسط</span>
+          </FlagRow>
+          <FlagRow icon="🌙" label="ساعات إضافي أسبوعية مرتفعة" desc="إجمالي الإضافي الأسبوعي للموظف فوق الحد" enabled={sec.flagHighOvertime!==false} onToggle={v=>saveSec(s=>{s.flagHighOvertime=v})}>
+            <Inp type="number" value={sec.maxWeeklyOvertime||""} onChange={v=>saveSec(s=>{s.maxWeeklyOvertime=Number(v)||30})} placeholder="30" style={{width:60,textAlign:"center"}}/>
+            <span style={{fontSize:FS-3,color:T.textMut}}>ساعة</span>
+          </FlagRow>
+          <FlagRow icon="⚡" label="ساعات تساوي الأساسي بالظبط" desc="ساعات كل يوم = عدد الساعات الأساسي (مشبوه: إدخال يدوي)" enabled={sec.flagExactBaseHours===true} onToggle={v=>saveSec(s=>{s.flagExactBaseHours=v})}/>
+          <FlagRow icon="📅" label="أيام عمل قليلة جداً" desc="الموظف بصم أقل من الحد ده من الأيام" enabled={sec.flagFewWorkDays!==false} onToggle={v=>saveSec(s=>{s.flagFewWorkDays=v})}>
+            <Inp type="number" value={sec.minWorkDays||""} onChange={v=>saveSec(s=>{s.minWorkDays=Number(v)||3})} placeholder="3" style={{width:60,textAlign:"center"}}/>
+            <span style={{fontSize:FS-3,color:T.textMut}}>يوم</span>
+          </FlagRow>
+          <FlagRow icon="🔁" label="تكرار تعديل نفس الموظف" desc="نفس الموظف تم تعديل ساعاته يدوياً أكتر من الحد" enabled={sec.flagRepeatEdits!==false} onToggle={v=>saveSec(s=>{s.flagRepeatEdits=v})}>
+            <Inp type="number" value={sec.maxEditsPerEmp||""} onChange={v=>saveSec(s=>{s.maxEditsPerEmp=Number(v)||3})} placeholder="3" style={{width:60,textAlign:"center"}}/>
+            <span style={{fontSize:FS-3,color:T.textMut}}>تعديل</span>
+          </FlagRow>
+          <FlagRow icon="💰" label="سلفة + ساعات زيادة" desc="سلفة + ارتفاع ساعات في نفس الأسبوع (مشبوه: محاباة)" enabled={sec.flagAdvancePlusSpike!==false} onToggle={v=>saveSec(s=>{s.flagAdvancePlusSpike=v})}/>
+          <FlagRow icon="🚫" label="غياب جماعي مفاجئ" desc="نسبة الموظفين اللي ما بصموش في يوم واحد زادت عن الحد" enabled={sec.flagMassAbsence!==false} onToggle={v=>saveSec(s=>{s.flagMassAbsence=v})}>
+            <Inp type="number" value={sec.massAbsencePercent||""} onChange={v=>saveSec(s=>{s.massAbsencePercent=Number(v)||30})} placeholder="30" style={{width:60,textAlign:"center"}}/>
+            <span style={{fontSize:FS-3,color:T.textMut}}>%+</span>
+          </FlagRow>
+        </div>;
+      })()}
+    </Card>
+
     {/* Sales Settings */}
     <Card title="💰 إعدادات المبيعات" style={{marginBottom:16}}>
       {(()=>{const ss=config.salesSettings||{};
@@ -13459,113 +13522,286 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const computeSecurityFlags=(week)=>{
     const flags=[];
     if(!week)return flags;
+    const sec=data.securitySettings||{};
+    /* Filter: exclude dismissed flag types for this week */
+    const dismissedFor=(week.dismissedFlags||[]);
     const att=week.attendance||{};
     const wSelected=(week.selectedEmps&&Array.isArray(week.selectedEmps))?week.selectedEmps:[];
     const shownInWeek=activeEmps.filter(e=>wSelected.includes(e.id));
     const dates=[];const s=new Date(week.weekStart);const e=new Date(week.weekEnd);
     for(let d=new Date(s);d<=e;d.setDate(d.getDate()+1))dates.push(d.toISOString().split("T")[0]);
+    const numDays=dates.length;
+    const hoursPerDay=(week.hoursPerDay!=null?Number(week.hoursPerDay):Number(hrs.hoursPerDay))||9;
     
-    /* FLAG 1: Excessive daily hours (> 14 hours) */
-    shownInWeek.forEach(emp=>{
-      dates.forEach(dt=>{const h=att[emp.id+"_"+dt]?att[emp.id+"_"+dt].hours:0;
-        if(h>14)flags.push({severity:"danger",icon:"⏰",emp:emp.name,code:emp.code,
-          msg:emp.name+" بصم "+hrsToHM(h)+" ساعة في يوم "+dt+" (غير منطقي)",
-          type:"excessive_hours"});
+    /* FLAG 1: Excessive daily hours */
+    if(sec.flagExcessiveHours!==false){
+      const maxDaily=Number(sec.maxDailyHours)||14;
+      shownInWeek.forEach(emp=>{
+        dates.forEach(dt=>{const h=att[emp.id+"_"+dt]?att[emp.id+"_"+dt].hours:0;
+          if(h>maxDaily)flags.push({severity:"danger",icon:"⏰",emp:emp.name,code:emp.code,
+            msg:emp.name+" بصم "+hrsToHM(h)+" ساعة في يوم "+dt+" (فوق الحد "+maxDaily+")",
+            type:"excessive_hours"});
+        });
       });
-    });
+    }
     
-    /* FLAG 2: Identical hours every day (buddy punching suspect) */
-    shownInWeek.forEach(emp=>{
-      const hrsList=dates.map(dt=>att[emp.id+"_"+dt]?att[emp.id+"_"+dt].hours:0).filter(h=>h>0);
-      if(hrsList.length>=4){
-        const allSame=hrsList.every(h=>Math.abs(h-hrsList[0])<0.01);
-        if(allSame&&hrsList[0]>0)flags.push({severity:"warning",icon:"🔄",emp:emp.name,code:emp.code,
-          msg:emp.name+" ساعاته نفسها بالظبط ("+hrsToHM(hrsList[0])+") كل الأيام — مشبوه",
-          type:"identical_hours"});
-      }
-    });
-    
-    /* FLAG 3: Same exact hours for 2+ employees on same day */
-    dates.forEach(dt=>{
-      const empHours={};
-      shownInWeek.forEach(emp=>{const h=att[emp.id+"_"+dt]?att[emp.id+"_"+dt].hours:0;if(h>0){
-        const key=h.toFixed(2);if(!empHours[key])empHours[key]=[];empHours[key].push(emp);
-      }});
-      Object.entries(empHours).forEach(([hKey,emps])=>{
-        if(emps.length>=3){
-          flags.push({severity:"warning",icon:"👥",emp:emps.map(e=>e.name).join(", "),
-            msg:emps.length+" موظفين بنفس الساعات ("+hrsToHM(Number(hKey))+") يوم "+dt,
-            type:"same_hours_multiple"});
+    /* FLAG 2: Identical hours every day */
+    if(sec.flagIdenticalHours!==false){
+      shownInWeek.forEach(emp=>{
+        const hrsList=dates.map(dt=>att[emp.id+"_"+dt]?att[emp.id+"_"+dt].hours:0).filter(h=>h>0);
+        if(hrsList.length>=4){
+          const allSame=hrsList.every(h=>Math.abs(h-hrsList[0])<0.01);
+          if(allSame&&hrsList[0]>0)flags.push({severity:"warning",icon:"🔄",emp:emp.name,code:emp.code,
+            msg:emp.name+" ساعاته نفسها بالظبط ("+hrsToHM(hrsList[0])+") كل الأيام — مشبوه",
+            type:"identical_hours"});
         }
       });
-    });
+    }
     
-    /* FLAG 4: Sudden spike compared to employee's history (prev 2 weeks) */
-    const prevWeeks=hrWeeks.filter(w=>w.status==="closed"&&w.weekEnd<week.weekStart).slice(0,2);
-    if(prevWeeks.length>=1){
-      shownInWeek.forEach(emp=>{
-        /* Current week total */
-        let currentTotal=0;dates.forEach(dt=>{const h=att[emp.id+"_"+dt]?att[emp.id+"_"+dt].hours:0;if(h>0)currentTotal+=h});
-        /* Previous weeks avg */
-        let prevTotal=0,prevCount=0;
-        prevWeeks.forEach(pw=>{const pAtt=pw.attendance||{};let pT=0;
-          const pDates=[];const ps=new Date(pw.weekStart);const pe=new Date(pw.weekEnd);
-          for(let d=new Date(ps);d<=pe;d.setDate(d.getDate()+1))pDates.push(d.toISOString().split("T")[0]);
-          pDates.forEach(dt=>{const h=pAtt[emp.id+"_"+dt]?pAtt[emp.id+"_"+dt].hours:0;if(h>0)pT+=h});
-          if(pT>0){prevTotal+=pT;prevCount++}
+    /* FLAG 3: Same exact hours for multiple employees */
+    if(sec.flagSameHoursMultiple!==false){
+      const minEmps=Number(sec.minEmpsForSameHours)||3;
+      dates.forEach(dt=>{
+        const empHours={};
+        shownInWeek.forEach(emp=>{const h=att[emp.id+"_"+dt]?att[emp.id+"_"+dt].hours:0;if(h>0){
+          const key=h.toFixed(2);if(!empHours[key])empHours[key]=[];empHours[key].push(emp);
+        }});
+        Object.entries(empHours).forEach(([hKey,emps])=>{
+          if(emps.length>=minEmps){
+            flags.push({severity:"warning",icon:"👥",emp:emps.map(e=>e.name).join(", "),
+              msg:emps.length+" موظفين بنفس الساعات ("+hrsToHM(Number(hKey))+") يوم "+dt,
+              type:"same_hours_multiple"});
+          }
         });
-        if(prevCount>0&&currentTotal>0){
-          const avg=prevTotal/prevCount;
-          if(currentTotal>avg*1.5&&currentTotal-avg>10){
-            flags.push({severity:"warning",icon:"📈",emp:emp.name,code:emp.code,
-              msg:emp.name+" ساعاته ارتفعت فجأة: "+hrsToHM(currentTotal)+" (متوسط الأسابيع السابقة: "+hrsToHM(r2(avg))+")",
-              type:"sudden_spike"});
+      });
+    }
+    
+    /* FLAG 4: Sudden spike */
+    if(sec.flagSuddenSpike!==false){
+      const spikePercent=(Number(sec.spikePercent)||50)/100;
+      const prevWeeks=hrWeeks.filter(w=>w.status==="closed"&&w.weekEnd<week.weekStart).slice(0,2);
+      if(prevWeeks.length>=1){
+        shownInWeek.forEach(emp=>{
+          let currentTotal=0;dates.forEach(dt=>{const h=att[emp.id+"_"+dt]?att[emp.id+"_"+dt].hours:0;if(h>0)currentTotal+=h});
+          let prevTotal=0,prevCount=0;
+          prevWeeks.forEach(pw=>{const pAtt=pw.attendance||{};let pT=0;
+            const pDates=[];const ps=new Date(pw.weekStart);const pe=new Date(pw.weekEnd);
+            for(let d=new Date(ps);d<=pe;d.setDate(d.getDate()+1))pDates.push(d.toISOString().split("T")[0]);
+            pDates.forEach(dt=>{const h=pAtt[emp.id+"_"+dt]?pAtt[emp.id+"_"+dt].hours:0;if(h>0)pT+=h});
+            if(pT>0){prevTotal+=pT;prevCount++}
+          });
+          if(prevCount>0&&currentTotal>0){
+            const avg=prevTotal/prevCount;
+            if(currentTotal>avg*(1+spikePercent)&&currentTotal-avg>10){
+              flags.push({severity:"warning",icon:"📈",emp:emp.name,code:emp.code,
+                msg:emp.name+" ساعاته ارتفعت فجأة: "+hrsToHM(currentTotal)+" (متوسط: "+hrsToHM(r2(avg))+")",
+                type:"sudden_spike"});
+            }
+          }
+        });
+      }
+    }
+    
+    /* FLAG 5: Recent code change */
+    if(sec.flagCodeChange!==false){
+      const recentCodeChanges=auditLog.filter(a=>a.category==="employee"&&a.action==="code_change"&&
+        new Date(a.ts).getTime()>Date.now()-30*86400000);
+      recentCodeChanges.forEach(ac=>{
+        const emp=activeEmps.find(em=>em.name===ac.target);
+        if(emp){
+          let currentTotal=0;dates.forEach(dt=>{const h=att[emp.id+"_"+dt]?att[emp.id+"_"+dt].hours:0;if(h>0)currentTotal+=h});
+          if(currentTotal>0)flags.push({severity:"danger",icon:"🔑",emp:emp.name,code:emp.code,
+            msg:emp.name+" تم تغيير كوده مؤخراً ("+ac.oldValue+" → "+ac.newValue+") — تحقق من الساعات",
+            type:"code_change_active"});
+        }
+      });
+    }
+    
+    /* FLAG 6: High manual edit ratio */
+    if(sec.flagManualEditHigh!==false){
+      const threshold=(Number(sec.manualEditRatio)||30)/100;
+      const auditManual=auditLog.filter(a=>a.category==="attendance"&&a.action==="manual_edit"&&
+        a.target&&a.target.includes("W"+week.weekNum));
+      const auditPaste=auditLog.filter(a=>a.category==="attendance"&&a.action==="paste_biometric"&&
+        a.target&&a.target.includes("W"+week.weekNum));
+      if(auditManual.length>0&&auditPaste.length>0){
+        const ratio=auditManual.length/(auditManual.length+auditPaste.length);
+        if(ratio>threshold)flags.push({severity:"warning",icon:"✏️",
+          msg:"نسبة التعديل اليدوي: "+Math.round(ratio*100)+"% ("+auditManual.length+" تعديل) — فوق الحد "+(threshold*100)+"%",
+          type:"manual_edit_high"});
+      }
+    }
+    
+    /* FLAG 7: Advance anomaly */
+    if(sec.flagAdvanceAnomaly!==false){
+      const multiplier=Number(sec.advanceMultiplier)||3;
+      const wAdvs=week.weeklyAdvances||[];
+      wAdvs.forEach(a=>{
+        const empAdvances=hrLog.filter(l=>l.type==="weekly_advance"&&l.empId===a.empId);
+        if(empAdvances.length>=3){
+          const avg=empAdvances.reduce((s,l)=>s+(Number(l.amount)||0),0)/empAdvances.length;
+          if(a.amount>avg*multiplier&&a.amount-avg>500){
+            flags.push({severity:"warning",icon:"💸",emp:a.empName,
+              msg:a.empName+" سلفة "+fmt0(a.amount)+" ج ("+multiplier+"× من متوسطه "+fmt0(r2(avg))+" ج)",
+              type:"advance_anomaly"});
           }
         }
       });
     }
     
-    /* FLAG 5: Recent code change + attendance active */
-    const recentCodeChanges=auditLog.filter(a=>a.category==="employee"&&a.action==="code_change"&&
-      new Date(a.ts).getTime()>Date.now()-30*86400000);
-    recentCodeChanges.forEach(ac=>{
-      const emp=activeEmps.find(e=>e.name===ac.target);
-      if(emp){
-        let currentTotal=0;dates.forEach(dt=>{const h=att[emp.id+"_"+dt]?att[emp.id+"_"+dt].hours:0;if(h>0)currentTotal+=h});
-        if(currentTotal>0)flags.push({severity:"danger",icon:"🔑",emp:emp.name,code:emp.code,
-          msg:emp.name+" تم تغيير كود بصمته مؤخراً ("+ac.oldValue+" → "+ac.newValue+") — تحقق من الساعات",
-          type:"code_change_active"});
-      }
-    });
-    
-    /* FLAG 6: High percentage of manual edits */
-    const auditManual=auditLog.filter(a=>a.category==="attendance"&&a.action==="manual_edit"&&
-      a.target&&a.target.includes("W"+week.weekNum));
-    const auditPaste=auditLog.filter(a=>a.category==="attendance"&&a.action==="paste_biometric"&&
-      a.target&&a.target.includes("W"+week.weekNum));
-    if(auditManual.length>0&&auditPaste.length>0){
-      const ratio=auditManual.length/(auditManual.length+auditPaste.length);
-      if(ratio>0.3)flags.push({severity:"warning",icon:"✏️",
-        msg:"نسبة التعديل اليدوي في هذا الأسبوع: "+Math.round(ratio*100)+"% ("+auditManual.length+" تعديل) — المفروض أقل من 30%",
-        type:"manual_edit_high"});
+    /* FLAG 8 (NEW): High weekly overtime */
+    if(sec.flagHighOvertime!==false){
+      const maxOT=Number(sec.maxWeeklyOvertime)||30;
+      shownInWeek.forEach(emp=>{
+        const c=calcSalary(emp.id,week);
+        if(c&&c.overtimeHours>maxOT){
+          flags.push({severity:"warning",icon:"🌙",emp:emp.name,code:emp.code,
+            msg:emp.name+" إضافي "+hrsToHM(c.overtimeHours)+" — فوق الحد "+maxOT+" ساعة",
+            type:"high_overtime"});
+        }
+      });
     }
     
-    /* FLAG 7: Weekly advance far above employee's average */
-    const wAdvs=week.weeklyAdvances||[];
-    wAdvs.forEach(a=>{
-      /* Calculate average from hrLog */
-      const empAdvances=hrLog.filter(l=>l.type==="weekly_advance"&&l.empId===a.empId);
-      if(empAdvances.length>=3){
-        const avg=empAdvances.reduce((s,l)=>s+(Number(l.amount)||0),0)/empAdvances.length;
-        if(a.amount>avg*3&&a.amount-avg>500){
-          flags.push({severity:"warning",icon:"💸",emp:a.empName,
-            msg:a.empName+" سلفة "+fmt0(a.amount)+" ج (3× من متوسطه "+fmt0(r2(avg))+" ج)",
-            type:"advance_anomaly"});
+    /* FLAG 9 (NEW): Exact base hours (suspect manual entry) */
+    if(sec.flagExactBaseHours===true){
+      shownInWeek.forEach(emp=>{
+        let exactDays=0,workDays=0;
+        dates.forEach(dt=>{const h=att[emp.id+"_"+dt]?att[emp.id+"_"+dt].hours:0;
+          if(h>0){workDays++;if(Math.abs(h-hoursPerDay)<0.01)exactDays++}});
+        if(workDays>=4&&exactDays===workDays){
+          flags.push({severity:"warning",icon:"⚡",emp:emp.name,code:emp.code,
+            msg:emp.name+" ساعاته تساوي "+hoursPerDay+" ساعة بالظبط كل يوم ("+workDays+" أيام) — مشبوه",
+            type:"exact_base_hours"});
         }
+      });
+    }
+    
+    /* FLAG 10 (NEW): Very few work days */
+    if(sec.flagFewWorkDays!==false){
+      const minDays=Number(sec.minWorkDays)||3;
+      shownInWeek.forEach(emp=>{
+        let workDays=0;
+        dates.forEach(dt=>{const h=att[emp.id+"_"+dt]?att[emp.id+"_"+dt].hours:0;if(h>0)workDays++});
+        if(workDays>0&&workDays<minDays){
+          flags.push({severity:"warning",icon:"📅",emp:emp.name,code:emp.code,
+            msg:emp.name+" بصم "+workDays+" يوم فقط (أقل من "+minDays+") — تحقق من الأهلية للمرتب",
+            type:"few_work_days"});
+        }
+      });
+    }
+    
+    /* FLAG 11 (NEW): Repeat edits on same employee */
+    if(sec.flagRepeatEdits!==false){
+      const maxEdits=Number(sec.maxEditsPerEmp)||3;
+      const editsByEmp={};
+      auditLog.filter(a=>a.category==="attendance"&&a.action==="manual_edit"&&
+        a.target&&a.target.includes("W"+week.weekNum)).forEach(a=>{
+        /* Extract employee name from target (format: "Name — W##") */
+        const m=(a.target||"").split("—")[0].trim();
+        if(!editsByEmp[m])editsByEmp[m]=0;
+        editsByEmp[m]++;
+      });
+      Object.entries(editsByEmp).forEach(([name,count])=>{
+        if(count>=maxEdits){
+          flags.push({severity:"warning",icon:"🔁",emp:name,
+            msg:name+" تم تعديل ساعاته "+count+" مرة يدوياً — مشبوه",
+            type:"repeat_edits"});
+        }
+      });
+    }
+    
+    /* FLAG 12 (NEW): Advance + hours spike combo */
+    if(sec.flagAdvancePlusSpike!==false){
+      const wAdvs=week.weeklyAdvances||[];
+      const empsWithAdv=new Set(wAdvs.map(a=>a.empId));
+      const prevWeeks=hrWeeks.filter(w=>w.status==="closed"&&w.weekEnd<week.weekStart).slice(0,2);
+      if(prevWeeks.length>=1){
+        empsWithAdv.forEach(empId=>{
+          const emp=activeEmps.find(e=>e.id===empId);if(!emp)return;
+          let currentTotal=0;dates.forEach(dt=>{const h=att[empId+"_"+dt]?att[empId+"_"+dt].hours:0;if(h>0)currentTotal+=h});
+          let prevTotal=0,prevCount=0;
+          prevWeeks.forEach(pw=>{const pAtt=pw.attendance||{};let pT=0;
+            const pDates=[];const ps=new Date(pw.weekStart);const pe=new Date(pw.weekEnd);
+            for(let d=new Date(ps);d<=pe;d.setDate(d.getDate()+1))pDates.push(d.toISOString().split("T")[0]);
+            pDates.forEach(dt=>{const h=pAtt[empId+"_"+dt]?pAtt[empId+"_"+dt].hours:0;if(h>0)pT+=h});
+            if(pT>0){prevTotal+=pT;prevCount++}
+          });
+          if(prevCount>0&&currentTotal>0){
+            const avg=prevTotal/prevCount;
+            if(currentTotal>avg*1.3&&currentTotal-avg>8){
+              const advAmt=wAdvs.filter(a=>a.empId===empId).reduce((s,a)=>s+(Number(a.amount)||0),0);
+              flags.push({severity:"danger",icon:"💰",emp:emp.name,code:emp.code,
+                msg:emp.name+" أخد سلفة "+fmt0(advAmt)+" ج + ساعاته زادت ("+hrsToHM(r2(avg))+" → "+hrsToHM(currentTotal)+") — مشبوه",
+                type:"advance_plus_spike"});
+            }
+          }
+        });
+      }
+    }
+    
+    /* FLAG 13 (NEW): Mass absence on a day */
+    if(sec.flagMassAbsence!==false){
+      const threshold=(Number(sec.massAbsencePercent)||30)/100;
+      if(shownInWeek.length>=5){/* Only meaningful if we have enough staff */
+        dates.forEach(dt=>{
+          /* Skip Fridays (usually off-day) */
+          if(new Date(dt).getDay()===5)return;
+          let absent=0;shownInWeek.forEach(emp=>{
+            const h=att[emp.id+"_"+dt]?att[emp.id+"_"+dt].hours:0;
+            if(h===0)absent++;
+          });
+          const ratio=absent/shownInWeek.length;
+          if(ratio>=threshold&&absent>=3){
+            flags.push({severity:"warning",icon:"🚫",
+              msg:"غياب جماعي يوم "+dt+": "+absent+" من "+shownInWeek.length+" موظف غابوا ("+Math.round(ratio*100)+"%)",
+              type:"mass_absence"});
+          }
+        });
+      }
+    }
+    
+    /* Filter out dismissed flags */
+    return flags.filter(f=>!dismissedFor.includes(f.type+"|"+(f.emp||"")+"|"+(f.msg||"")));
+  };
+  
+  /* Dismiss all flags or specific flag for the open week */
+  const dismissFlag=(flagKey)=>{
+    if(!openWeek)return;
+    upConfig(d=>{
+      const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
+      if(!d.hrWeeks[wi].dismissedFlags)d.hrWeeks[wi].dismissedFlags=[];
+      if(!d.hrWeeks[wi].dismissedFlags.includes(flagKey))d.hrWeeks[wi].dismissedFlags.push(flagKey);
+    });
+    showToast("✓ تم إخفاء التنبيه");
+  };
+  const dismissAllFlags=()=>{
+    if(!openWeek)return;
+    const flags=computeSecurityFlags(openWeek);
+    if(flags.length===0)return;
+    openConfirm({
+      title:"تجاهل كل التنبيهات",
+      message:"سيتم إخفاء "+flags.length+" تنبيه لهذا الأسبوع. لن تظهر مرة تانية حتى لو حصلت تغييرات جديدة.",
+      variant:"warn",confirmText:"تجاهل الكل",
+      onConfirm:()=>{
+        upConfig(d=>{
+          const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
+          if(!d.hrWeeks[wi].dismissedFlags)d.hrWeeks[wi].dismissedFlags=[];
+          flags.forEach(f=>{
+            const key=f.type+"|"+(f.emp||"")+"|"+(f.msg||"");
+            if(!d.hrWeeks[wi].dismissedFlags.includes(key))d.hrWeeks[wi].dismissedFlags.push(key);
+          });
+        });
+        showToast("✓ تم تجاهل "+flags.length+" تنبيه");
       }
     });
-    
-    return flags;
+  };
+  const restoreDismissedFlags=()=>{
+    if(!openWeek)return;
+    upConfig(d=>{
+      const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
+      d.hrWeeks[wi].dismissedFlags=[];
+    });
+    showToast("✓ تم استعادة التنبيهات المخفية");
   };
 
   const[view,setView]=useState("weeks");
@@ -14840,11 +15076,32 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           </div>})()}
 
         {/* Security flags — show if there are any suspicious patterns */}
-        {(()=>{const flags=computeSecurityFlags(openWeek);if(flags.length===0)return null;
+        {(()=>{const flags=computeSecurityFlags(openWeek);const hasDismissed=(openWeek.dismissedFlags||[]).length>0;
+          if(flags.length===0){
+            if(hasDismissed)return<Card style={{marginBottom:14,background:T.ok+"04",border:"1px solid "+T.ok+"30"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0"}}>
+                <span style={{fontSize:FS-1,color:T.ok,fontWeight:700}}>✅ لا توجد تنبيهات نشطة — {(openWeek.dismissedFlags||[]).length} تنبيه مخفي</span>
+                <Btn small onClick={restoreDismissedFlags} style={{background:T.textSec+"12",color:T.textSec,border:"1px solid "+T.textSec+"30",fontWeight:700}}>🔄 استرجاع المخفية</Btn>
+              </div>
+            </Card>;
+            return null;
+          }
           const byType={danger:flags.filter(f=>f.severity==="danger"),warning:flags.filter(f=>f.severity==="warning")};
           return<Card title={"🛡️ تنبيهات أمنية ("+flags.length+")"} style={{marginBottom:14,border:"2px solid "+(byType.danger.length>0?T.err+"60":T.warn+"60"),background:(byType.danger.length>0?T.err:T.warn)+"04"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,paddingBottom:8,borderBottom:"1px solid "+T.brd}}>
+              <div style={{fontSize:FS-2,color:T.textSec}}>
+                {byType.danger.length>0&&<span style={{color:T.err,fontWeight:700}}>{byType.danger.length} خطر • </span>}
+                {byType.warning.length>0&&<span style={{color:T.warn,fontWeight:700}}>{byType.warning.length} تحذير</span>}
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                {hasDismissed&&<Btn small onClick={restoreDismissedFlags} style={{background:T.textSec+"12",color:T.textSec,border:"1px solid "+T.textSec+"30",fontSize:FS-2,padding:"3px 8px"}}>🔄 استرجاع ({(openWeek.dismissedFlags||[]).length})</Btn>}
+                <Btn small onClick={dismissAllFlags} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",fontWeight:700,fontSize:FS-2,padding:"3px 8px"}}>🗑️ تجاهل الكل</Btn>
+              </div>
+            </div>
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {flags.slice(0,10).map((f,i)=><div key={i} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",borderRadius:10,background:(f.severity==="danger"?T.err:T.warn)+"08",border:"1px solid "+(f.severity==="danger"?T.err:T.warn)+"25"}}>
+              {flags.slice(0,15).map((f,i)=>{
+                const flagKey=f.type+"|"+(f.emp||"")+"|"+(f.msg||"");
+                return<div key={i} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",borderRadius:10,background:(f.severity==="danger"?T.err:T.warn)+"08",border:"1px solid "+(f.severity==="danger"?T.err:T.warn)+"25"}}>
                 <div style={{fontSize:18,flexShrink:0}}>{f.icon}</div>
                 <div style={{flex:1}}>
                   <div style={{fontSize:FS-1,fontWeight:700,color:f.severity==="danger"?T.err:T.warn}}>{f.msg}</div>
@@ -14853,8 +15110,10 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                 <span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-3,fontWeight:800,background:(f.severity==="danger"?T.err:T.warn)+"18",color:f.severity==="danger"?T.err:T.warn,flexShrink:0}}>
                   {f.severity==="danger"?"خطر":"تحذير"}
                 </span>
-              </div>)}
-              {flags.length>10&&<div style={{textAlign:"center",fontSize:FS-2,color:T.textMut,padding:6}}>+ {flags.length-10} تنبيه إضافي</div>}
+                <span onClick={()=>dismissFlag(flagKey)} title="إخفاء هذا التنبيه" style={{cursor:"pointer",padding:"3px 8px",borderRadius:6,fontSize:FS-2,fontWeight:800,background:T.textMut+"15",color:T.textMut,flexShrink:0,border:"1px solid "+T.textMut+"30"}}>✕</span>
+              </div>;
+              })}
+              {flags.length>15&&<div style={{textAlign:"center",fontSize:FS-2,color:T.textMut,padding:6}}>+ {flags.length-15} تنبيه إضافي</div>}
             </div>
           </Card>;
         })()}
