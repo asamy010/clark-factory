@@ -13446,6 +13446,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const[advAmount,setAdvAmount]=useState("");
   const[advDate,setAdvDate]=useState("");
   const[advNote,setAdvNote]=useState("");
+  const[advSearch,setAdvSearch]=useState("");
 
   const openWeek=hrWeeks.find(w=>w.id===openWeekId);
   
@@ -13740,7 +13741,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   /* ── Weekly Advances (for monthly/admin staff) ── */
   const weeklyAdvances=openWeek?(openWeek.weeklyAdvances||[]):[];
   const totalWeeklyAdvances=weeklyAdvances.reduce((s,a)=>s+(Number(a.amount)||0),0);
-  const resetAdvForm=()=>{setAdvEmpId("");setAdvAmount("");setAdvDate(openWeek?.weekStart||today);setAdvNote("")};
+  const resetAdvForm=()=>{setAdvEmpId("");setAdvAmount("");setAdvDate(openWeek?.weekStart||today);setAdvNote("");setAdvSearch("")};
   const saveWeeklyAdvance=()=>{
     if(!openWeek||!advEmpId||!advAmount)return;
     const emp=employees.find(e=>e.id===advEmpId);if(!emp)return;
@@ -14249,33 +14250,72 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       <div style={{display:isMob?"block":"flex",gap:16,alignItems:"flex-start"}}>
         {/* ── LEFT: Weeks list ── */}
         <div style={{flex:isMob?"auto":"1 1 55%",minWidth:0}}>
-      {hrWeeks.length>0?<div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {hrWeeks.map(w=>{const isSelected=previewWeekId===w.id;return<div key={w.id} style={{padding:isMob?12:16,borderRadius:14,background:isSelected?T.accent+"08":T.cardSolid,border:"2px solid "+(isSelected?T.accent:w.status==="closed"?T.ok+"30":T.accent+"30"),boxShadow:T.shadow,display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all 0.15s",cursor:"pointer"}} onClick={()=>setPreviewWeekId(isSelected?null:w.id)}>
-          <div style={{display:"flex",alignItems:"center",gap:12,flex:1}}>
-            <span style={{fontSize:isMob?18:24,fontWeight:800,color:w.status==="closed"?T.ok:T.accent}}>{"W"+w.weekNum}</span>
-            <div>
-              <div style={{fontSize:FS,fontWeight:700}}>{w.weekStart+" → "+w.weekEnd}</div>
-              <div style={{fontSize:FS-2,color:T.textMut}}>{"ساعات أساسي: "+w.baseHours+(w.empCount?" | "+w.empCount+" موظف":"")}</div>
+      {hrWeeks.length>0?<div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {hrWeeks.map(w=>{const isSelected=previewWeekId===w.id;
+          /* Compute live stats for open week (if not closed, recalculate from current data) */
+          let wGross=w.totalGross||0,wThursday=w.totalThursdayPay||0,wRemaining=w.totalRemaining||0,wEmpCount=w.empCount||0,wWeeklyAdv=w.totalWeeklyAdvances||0;
+          if(w.status!=="closed"){
+            /* Live calculation for open weeks */
+            const wSelected=(w.selectedEmps&&Array.isArray(w.selectedEmps))?w.selectedEmps:[];
+            const wShown=activeEmps.filter(e=>wSelected.includes(e.id));
+            wEmpCount=wShown.length;
+            let liveG=0,liveT=0,liveR=0;
+            wShown.forEach(e=>{const c=calcSalary(e.id,w);if(c){liveG+=c.grossPay||0;liveT+=c.thursdayPay||0;liveR+=c.remainingBalance||0}});
+            wGross=liveG;wThursday=liveT;wRemaining=liveR;
+            wWeeklyAdv=(w.weeklyAdvances||[]).reduce((s,a)=>s+(Number(a.amount)||0),0);
+          }
+          const isClosedW=w.status==="closed";
+          return<div key={w.id} style={{padding:isMob?14:20,borderRadius:16,background:isSelected?T.accent+"06":T.cardSolid,border:"2px solid "+(isSelected?T.accent:isClosedW?T.ok+"30":T.accent+"30"),boxShadow:T.shadow,transition:"all 0.15s",cursor:"pointer"}} onClick={()=>setPreviewWeekId(isSelected?null:w.id)}>
+          {/* Header row */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:isMob?10:14,gap:10,flexWrap:"wrap"}}>
+            <div style={{display:"flex",alignItems:"center",gap:isMob?10:16,flex:1}}>
+              <span style={{fontSize:isMob?20:28,fontWeight:900,color:isClosedW?T.ok:T.accent,lineHeight:1}}>{"W"+w.weekNum}</span>
+              <div>
+                <div style={{fontSize:FS+1,fontWeight:800,color:T.text}}>{w.weekStart+" → "+w.weekEnd}</div>
+                <div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{"ساعات أساسي: "+w.baseHours+(isClosedW?" • أُقفل: "+w.closedAt:"")}</div>
+              </div>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:isMob?6:10,flexWrap:"wrap"}}>
+              <span style={{padding:"6px 14px",borderRadius:10,fontSize:FS-1,fontWeight:800,background:isClosedW?T.ok+"15":T.warn+"15",color:isClosedW?T.ok:T.warn,border:"1px solid "+(isClosedW?T.ok+"30":T.warn+"30")}}>{isClosedW?"✅ مقفول":"🔓 مفتوح"}</span>
+              <span onClick={e=>{e.stopPropagation();setOpenWeekId(w.id)}} style={{cursor:"pointer",padding:"6px 18px",borderRadius:10,background:T.accent,color:"#fff",fontSize:FS-1,fontWeight:800,border:"none"}}>فتح</span>
+              {canEdit&&(!isClosedW||unlockedWeeks[w.id])&&<span onClick={e=>{e.stopPropagation();
+                const linkedTreasury=(data.treasury||[]).filter(t=>t.category==="مرتبات"&&t.desc&&(t.desc.includes("W"+w.weekNum+" ("+w.weekStart)||t.desc.includes("مرتبات W"+w.weekNum)));
+                if(linkedTreasury.length>0){
+                  const total=linkedTreasury.reduce((s,t)=>s+(Number(t.amount)||0),0);
+                  openConfirm({title:"⛔ لا يمكن الحذف",message:"لا يمكن حذف الأسبوع W"+w.weekNum+" لأنه مرتبط بـ "+linkedTreasury.length+" حركة في اليومية بإجمالي "+fmt(total)+" ج.م.\n\nاحذف الحركات من الخزنة أولاً إن كنت متأكد.",variant:"danger",onConfirm:()=>{}});
+                  return}
+                openConfirm({title:"حذف أسبوع W"+w.weekNum,message:"البيانات المسجلة (بصمة + حضور + بيانات المرتبات) هتنحذف.\nالسلف المرتبطة بالأسبوع لن تتأثر.",variant:"danger",onConfirm:()=>{
+                  upConfig(d=>{
+                    d.hrWeeks=(d.hrWeeks||[]).filter(x=>x.id!==w.id);
+                    d.hrLog=(d.hrLog||[]).filter(l=>!(l.type==="salary"&&l.weekId===w.id));
+                  });
+                  if(previewWeekId===w.id)setPreviewWeekId(null);
+                  showToast("✓ تم حذف الأسبوع")}})
+              }} style={{cursor:"pointer",padding:"6px 12px",borderRadius:10,background:T.err+"12",color:T.err,fontSize:FS-1,fontWeight:700,border:"1px solid "+T.err+"30"}} title="حذف الأسبوع">🗑️</span>}
             </div>
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:isMob?6:10,flexWrap:"wrap"}}>
-            {w.totalGross!=null&&!isMob&&<div style={{textAlign:"left"}}><div style={{fontSize:FS-2,color:T.textSec}}>صافي</div><div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>{fmt(r2(w.totalNet||0))}</div></div>}
-            <span style={{padding:"4px 12px",borderRadius:8,fontSize:FS-2,fontWeight:700,background:w.status==="closed"?T.ok+"12":T.warn+"12",color:w.status==="closed"?T.ok:T.warn}}>{w.status==="closed"?"✅ مقفول":"🔓 مفتوح"}</span>
-            <span onClick={e=>{e.stopPropagation();setOpenWeekId(w.id)}} style={{cursor:"pointer",padding:"4px 10px",borderRadius:8,background:T.accent+"12",color:T.accent,fontSize:FS-2,fontWeight:700,border:"1px solid "+T.accent+"30"}}>فتح</span>
-            {canEdit&&(w.status!=="closed"||unlockedWeeks[w.id])&&<span onClick={e=>{e.stopPropagation();
-              const linkedTreasury=(data.treasury||[]).filter(t=>t.category==="مرتبات"&&t.desc&&(t.desc.includes("W"+w.weekNum+" ("+w.weekStart)||t.desc.includes("مرتبات W"+w.weekNum)));
-              if(linkedTreasury.length>0){
-                const total=linkedTreasury.reduce((s,t)=>s+(Number(t.amount)||0),0);
-                openConfirm({title:"⛔ لا يمكن الحذف",message:"لا يمكن حذف الأسبوع W"+w.weekNum+" لأنه مرتبط بـ "+linkedTreasury.length+" حركة في اليومية بإجمالي "+fmt(total)+" ج.م.\n\nاحذف الحركات من الخزنة أولاً إن كنت متأكد.",variant:"danger",onConfirm:()=>{}});
-                return}
-              openConfirm({title:"حذف أسبوع W"+w.weekNum,message:"البيانات المسجلة (بصمة + حضور + بيانات المرتبات) هتنحذف.\nالسلف المرتبطة بالأسبوع لن تتأثر.",variant:"danger",onConfirm:()=>{
-                upConfig(d=>{
-                  d.hrWeeks=(d.hrWeeks||[]).filter(x=>x.id!==w.id);
-                  d.hrLog=(d.hrLog||[]).filter(l=>!(l.type==="salary"&&l.weekId===w.id));
-                });
-                if(previewWeekId===w.id)setPreviewWeekId(null);
-                showToast("✓ تم حذف الأسبوع")}})
-            }} style={{cursor:"pointer",padding:"4px 10px",borderRadius:8,background:T.err+"12",color:T.err,fontSize:FS-1,fontWeight:700,border:"1px solid "+T.err+"30"}} title="حذف الأسبوع">🗑️</span>}
+          {/* Stats grid — week details */}
+          <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(5,1fr)",gap:8,paddingTop:isMob?10:12,borderTop:"1px solid "+T.brd}}>
+            <div style={{textAlign:"center",padding:"6px 4px",background:T.accent+"06",borderRadius:8,border:"1px solid "+T.accent+"15"}}>
+              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2}}>👷 عدد العمال</div>
+              <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{wEmpCount||"—"}</div>
+            </div>
+            <div style={{textAlign:"center",padding:"6px 4px",background:"#06B6D408",borderRadius:8,border:"1px solid #06B6D418"}}>
+              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2}}>💰 المستحق</div>
+              <div style={{fontSize:FS+1,fontWeight:800,color:"#06B6D4"}}>{wGross?fmt0(wGross):"—"}</div>
+            </div>
+            <div style={{textAlign:"center",padding:"6px 4px",background:T.ok+"08",borderRadius:8,border:"1px solid "+T.ok+"20"}}>
+              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2}}>💵 المدفوع</div>
+              <div style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>{wThursday?fmt0(wThursday):"—"}</div>
+            </div>
+            <div style={{textAlign:"center",padding:"6px 4px",background:"#EC489908",borderRadius:8,border:"1px solid #EC489918"}}>
+              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2}}>🏢 سلف إدارة</div>
+              <div style={{fontSize:FS+1,fontWeight:800,color:"#EC4899"}}>{wWeeklyAdv?fmt0(wWeeklyAdv):"—"}</div>
+            </div>
+            <div style={{textAlign:"center",padding:"6px 4px",background:T.warn+"08",borderRadius:8,border:"1px solid "+T.warn+"20"}}>
+              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2}}>🔄 مرحّل</div>
+              <div style={{fontSize:FS+1,fontWeight:800,color:wRemaining>0?T.warn:T.textMut}}>{wRemaining?fmt0(wRemaining):"—"}</div>
+            </div>
           </div>
         </div>})}
       </div>:<div style={{textAlign:"center",padding:40,color:T.textMut}}>لم يتم فتح أسابيع بعد — اضغط "+ أسبوع جديد"</div>}
@@ -14384,48 +14424,54 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             overtimePay+=c.overtimePay||0;/* قيمة الوقت الإضافي */
             grossPay+=c.grossPay||0;/* إجمالي المستحق = أساسي + إضافي */
           });
-          return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)",gap:10,marginBottom:14}}>
+          return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(8,1fr)",gap:8,marginBottom:14}}>
             {/* 1. إجمالي المرتب الأساسي */}
-            <div style={{padding:12,borderRadius:12,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center"}}>
-              <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>💵 إجمالي المرتب الأساسي</div>
-              <div style={{fontSize:FS+3,fontWeight:800,color:T.accent}}>{fmt0(baseSal)}</div>
-              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{shownEmps.length+" موظف"}</div>
+            <div style={{padding:"10px 8px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center"}}>
+              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2,fontWeight:600}}>💵 المرتب الأساسي</div>
+              <div style={{fontSize:FS+4,fontWeight:800,color:T.accent,lineHeight:1.1}}>{fmt0(baseSal)}</div>
+              <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>{shownEmps.length+" موظف"}</div>
             </div>
-            {/* 2. إجمالي المرتب المستحق بدون إضافي */}
-            <div style={{padding:12,borderRadius:12,background:"#0284C708",border:"1px solid #0284C720",textAlign:"center"}}>
-              <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>📊 المستحق بدون إضافي</div>
-              <div style={{fontSize:FS+3,fontWeight:800,color:"#0284C7"}}>{fmt0(basicEntitled)}</div>
-              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>على الساعات الأساسية</div>
+            {/* 2. المستحق بدون إضافي */}
+            <div style={{padding:"10px 8px",borderRadius:10,background:"#0284C708",border:"1px solid #0284C720",textAlign:"center"}}>
+              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2,fontWeight:600}}>📊 بدون إضافي</div>
+              <div style={{fontSize:FS+4,fontWeight:800,color:"#0284C7",lineHeight:1.1}}>{fmt0(basicEntitled)}</div>
+              <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>ساعات أساسية</div>
             </div>
-            {/* 3. إجمالي الإضافي */}
-            <div style={{padding:12,borderRadius:12,background:"#8B5CF608",border:"1px solid #8B5CF620",textAlign:"center"}}>
-              <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>⏰ إجمالي الإضافي</div>
-              <div style={{fontSize:FS+3,fontWeight:800,color:"#8B5CF6"}}>{fmt0(overtimePay)}</div>
-              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>قيمة الوقت الإضافي</div>
+            {/* 3. الإضافي */}
+            <div style={{padding:"10px 8px",borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF620",textAlign:"center"}}>
+              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2,fontWeight:600}}>⏰ إجمالي الإضافي</div>
+              <div style={{fontSize:FS+4,fontWeight:800,color:"#8B5CF6",lineHeight:1.1}}>{fmt0(overtimePay)}</div>
+              <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>×{OT_MULT}</div>
             </div>
-            {/* 4. إجمالي مستحق */}
-            <div style={{padding:12,borderRadius:12,background:"#06B6D408",border:"1px solid #06B6D420",textAlign:"center"}}>
-              <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>💰 إجمالي المستحق</div>
-              <div style={{fontSize:FS+3,fontWeight:800,color:"#06B6D4"}}>{fmt0(grossPay)}</div>
-              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>أساسي + إضافي</div>
+            {/* 4. إجمالي المستحق */}
+            <div style={{padding:"10px 8px",borderRadius:10,background:"#06B6D408",border:"1px solid #06B6D420",textAlign:"center"}}>
+              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2,fontWeight:600}}>💰 إجمالي المستحق</div>
+              <div style={{fontSize:FS+4,fontWeight:800,color:"#06B6D4",lineHeight:1.1}}>{fmt0(grossPay)}</div>
+              <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>أساسي+إضافي</div>
             </div>
-            {/* 5. إجمالي السلف والمسحوبات */}
-            <div style={{padding:12,borderRadius:12,background:T.err+"08",border:"1px solid "+T.err+"20",textAlign:"center"}}>
-              <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>💸 إجمالي السلف والمسحوبات</div>
-              <div style={{fontSize:FS+3,fontWeight:800,color:T.err}}>{fmt0(advances+totalWeeklyAdvances)}</div>
-              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{"أسبوعية: "+fmt0(advances)+(totalWeeklyAdvances>0?" • شهريين: "+fmt0(totalWeeklyAdvances):"")}</div>
+            {/* 5. السلف والمسحوبات */}
+            <div style={{padding:"10px 8px",borderRadius:10,background:T.err+"08",border:"1px solid "+T.err+"20",textAlign:"center"}}>
+              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2,fontWeight:600}}>💸 السلف الأسبوعية</div>
+              <div style={{fontSize:FS+4,fontWeight:800,color:T.err,lineHeight:1.1}}>{fmt0(advances)}</div>
+              <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>من الموظفين</div>
             </div>
             {/* 6. الخصم والخصم الخاص */}
-            <div style={{padding:12,borderRadius:12,background:"#F9731608",border:"1px solid #F9731620",textAlign:"center"}}>
-              <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>📉 الخصم والخصم الخاص</div>
-              <div style={{fontSize:FS+3,fontWeight:800,color:"#F97316"}}>{fmt0(deductions+specialDeductions)}</div>
-              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{"أقساط: "+fmt0(deductions)+" • خاص: "+fmt0(specialDeductions)}</div>
+            <div style={{padding:"10px 8px",borderRadius:10,background:"#F9731608",border:"1px solid #F9731620",textAlign:"center"}}>
+              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2,fontWeight:600}}>📉 الخصم والخاص</div>
+              <div style={{fontSize:FS+4,fontWeight:800,color:"#F97316",lineHeight:1.1}}>{fmt0(deductions+specialDeductions)}</div>
+              <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>{"ق:"+fmt0(deductions)+" • خ:"+fmt0(specialDeductions)}</div>
             </div>
-            {/* 7. إجمالي رصيد مستحق (صافي) */}
-            <div style={{padding:12,borderRadius:12,background:T.ok+"08",border:"1px solid "+T.ok+"20",textAlign:"center",gridColumn:isMob?"1 / -1":"span 2"}}>
-              <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>✅ إجمالي الرصيد المستحق</div>
-              <div style={{fontSize:FS+5,fontWeight:800,color:T.ok}}>{fmt0(net)}</div>
-              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>صافي بعد كل الخصومات</div>
+            {/* 7. سلف الإدارة والشهريين */}
+            <div style={{padding:"10px 8px",borderRadius:10,background:"#EC489908",border:"1px solid #EC489920",textAlign:"center"}}>
+              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2,fontWeight:600}}>🏢 سلف إدارة/شهريين</div>
+              <div style={{fontSize:FS+4,fontWeight:800,color:"#EC4899",lineHeight:1.1}}>{fmt0(totalWeeklyAdvances)}</div>
+              <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>{weeklyAdvances.length+" سلفة"}</div>
+            </div>
+            {/* 8. إجمالي الرصيد المستحق (صافي نهائي + شامل سلف الشهريين) */}
+            <div style={{padding:"10px 8px",borderRadius:10,background:T.ok+"12",border:"2px solid "+T.ok+"40",textAlign:"center"}}>
+              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2,fontWeight:700}}>✅ الإجمالي النهائي</div>
+              <div style={{fontSize:FS+5,fontWeight:900,color:T.ok,lineHeight:1.1}}>{fmt0(net+totalWeeklyAdvances)}</div>
+              <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>كل اللي هيندفع</div>
             </div>
           </div>})()}
 
@@ -14506,13 +14552,52 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           };
           return<Card title={"📋 جدول الحضور — "+shownEmps.length+"/"+activeEmps.length+" موظف × "+dates.length+" أيام"} style={{marginBottom:14}}>
             {/* Top filter: search by name or fingerprint code — affects BOTH attendance table above AND salary table below */}
-            {canEdit&&!isLocked&&<div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
-              <div style={{flex:1,minWidth:200}}>
+            <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
+              {canEdit&&!isLocked&&<><div style={{flex:1,minWidth:200}}>
                 <Inp value={attSearch} onChange={setAttSearch} placeholder="🔍 بحث بالاسم أو كود البصمة — يفلتر الجدولين..."/>
               </div>
               {attSearch&&<Btn small ghost onClick={()=>setAttSearch("")} style={{padding:"4px 10px",fontSize:FS-2}}>✕</Btn>}
-              <Btn small onClick={()=>setShowEmpPicker(true)} style={{background:T.accent+"10",color:T.accent,border:"1px solid "+T.accent+"30"}}>👥 اختيار الموظفين ({weekSelected.length})</Btn>
-            </div>}
+              <Btn small onClick={()=>setShowEmpPicker(true)} style={{background:T.accent+"10",color:T.accent,border:"1px solid "+T.accent+"30"}}>👥 اختيار الموظفين ({weekSelected.length})</Btn></>}
+              <div style={{marginInlineStart:"auto"}}>
+                <Btn small onClick={()=>{
+                  /* Print attendance table as displayed */
+                  const topQ=attSearchDeb.trim().toLowerCase();
+                  const printEmps=topQ?shownEmps.filter(e=>((e.name||"").toLowerCase().includes(topQ)||(e.code||"").toLowerCase().includes(topQ))):shownEmps;
+                  /* Build rows */
+                  const rows=printEmps.map((emp,ri)=>{let total=0;
+                    const cells=dates.map(d=>{const h=att[emp.id+"_"+d]?att[emp.id+"_"+d].hours:0;if(h>0)total+=h;return"<td class='center' style='"+(h>0?"color:#10B981;font-weight:700":"color:#CBD5E1")+"'>"+(h>0?hrsToHM(h):"—")+"</td>"}).join("");
+                    const noBio=!!emp.noBiometric;
+                    return"<tr"+(noBio?" style='background:#FEF2F2'":"")+">"+
+                      "<td class='center' style='color:#64748B'>"+(ri+1)+"</td>"+
+                      "<td style='font-weight:700'"+(noBio?" style='color:#EF4444'":"")+">"+(noBio?"📝 ":"")+emp.name+(emp.code?" <span style=\"color:#94A3B8;font-size:9px;font-weight:400\">#"+emp.code+"</span>":"")+"</td>"+
+                      cells+
+                      "<td class='center' style='color:#0284C7;font-weight:800;font-size:12px'>"+(total>0?hrsToHM(total):"—")+"</td>"+
+                    "</tr>";
+                  }).join("");
+                  /* Day totals */
+                  const dayTotals=dates.map(d=>{let s=0;printEmps.forEach(e=>{const h=att[e.id+"_"+d]?att[e.id+"_"+d].hours:0;if(h>0)s+=h});return s});
+                  const grandTotal=dayTotals.reduce((a,b)=>a+b,0);
+                  const totalsCells=dayTotals.map(s=>"<td class='center' style='font-weight:800;color:"+(s>0?"#0284C7":"#CBD5E1")+"'>"+(s>0?hrsToHM(s):"—")+"</td>").join("");
+                  const totalsRow="<tr style='background:#F0F9FF;border-top:2px solid #0284C7;font-weight:800'><td class='center' colspan='2'>اجمالي اليوم</td>"+totalsCells+"<td class='center' style='color:#0284C7;font-size:13px'>"+(grandTotal>0?hrsToHM(grandTotal):"—")+"</td></tr>";
+                  /* Header columns */
+                  const dayNames=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"];
+                  const dayCols=dates.map(d=>"<th class='center'><div style='font-weight:800'>"+dayNames[new Date(d).getDay()]+"</div><div style='font-size:9px;color:#94A3B8;font-weight:400;direction:ltr'>"+d.slice(5)+"</div></th>").join("");
+                  const filterLine=topQ?"<div style='background:#FEF3C7;padding:6px 10px;border-radius:6px;margin-bottom:10px;font-size:10px;color:#92400E'><b>الفلتر:</b> \""+topQ+"\"</div>":"";
+                  const title="جدول الحضور — W"+openWeek.weekNum;
+                  const html="<html dir='rtl'><head><meta charset='UTF-8'><title>"+title+"</title><style>"+PRINT_CSS+".center{text-align:center}table{font-size:10px}th{padding:6px 3px;font-size:10px}td{padding:4px 3px;font-size:10px}@page{size:A4 landscape;margin:8mm}</style></head><body>"+
+                    "<div class='hdr'><div style='font-size:18px;font-weight:800;color:#0284C7'>📋 "+title+"</div><div class='hdr-info'><div>الفترة: "+openWeek.weekStart+" → "+openWeek.weekEnd+"</div><div>ساعات أساسي: "+(openWeek.baseHours||48)+"</div><div>تاريخ الطباعة: "+today+"</div></div></div>"+
+                    filterLine+
+                    "<table><thead><tr><th style='width:30px'>#</th><th>الموظف</th>"+dayCols+"<th>اجمالي</th></tr></thead><tbody>"+
+                    (rows||"<tr><td colspan='"+(dates.length+3)+"' class='center' style='padding:20px;color:#94A3B8'>لا توجد نتائج</td></tr>")+
+                    totalsRow+
+                    "</tbody></table>"+
+                    "<div class='foot'>CLARK Factory Management — "+title+" — "+today+"</div>"+
+                    "<script>setTimeout(function(){window.print()},500)</"+"script></body></html>";
+                  const w=window.open("","_blank");if(!w)return;
+                  w.document.write(html);w.document.close();
+                }} style={{background:"#0284C712",color:"#0284C7",border:"1px solid #0284C730",fontWeight:700}}>🖨 طباعة الحضور</Btn>
+              </div>
+            </div>
             {(()=>{
               /* Apply top-level filter (affects both attendance + salary tables below via shared filter) */
               const topQ=attSearchDeb.trim().toLowerCase();
@@ -15698,10 +15783,33 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         </div>
         <div style={{marginBottom:10}}>
           <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>الموظف *</label>
-          <Sel value={advEmpId} onChange={setAdvEmpId}>
-            <option value="">اختر موظف...</option>
-            {activeEmps.slice().sort((a,b)=>(a.name||"").localeCompare(b.name||"")).map(e=><option key={e.id} value={e.id}>{e.name}{e.job?" — "+e.job:""}</option>)}
-          </Sel>
+          {(()=>{
+            const sortedEmps=activeEmps.slice().sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+            const q=(advNote&&false)||"";/* placeholder */
+            const searchQ=advEmpId?"":(window._advSearch||"");
+            const selected=sortedEmps.find(e=>e.id===advEmpId);
+            if(selected){
+              return<div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:10,background:T.ok+"10",border:"1px solid "+T.ok+"40"}}>
+                <span style={{flex:1,fontWeight:700,fontSize:FS,color:T.text}}>✓ {selected.name}{selected.job?" — "+selected.job:""}</span>
+                <span onClick={()=>{setAdvEmpId("");window._advSearch=""}} style={{cursor:"pointer",padding:"4px 10px",borderRadius:6,fontSize:FS-2,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",fontWeight:700}}>✕ تغيير</span>
+              </div>;
+            }
+            return<div>
+              <Inp value={advSearch||""} onChange={v=>setAdvSearch(v)} placeholder="🔍 ابحث بالاسم أو الوظيفة..." autoFocus/>
+              {(()=>{
+                const qLower=(advSearch||"").trim().toLowerCase();
+                const filtered=qLower?sortedEmps.filter(e=>(e.name||"").toLowerCase().includes(qLower)||(e.job||"").toLowerCase().includes(qLower)||(e.code||"").toString().includes(qLower)):sortedEmps;
+                return<div style={{marginTop:6,maxHeight:200,overflowY:"auto",border:"1px solid "+T.brd,borderRadius:8,background:T.bg}}>
+                  {filtered.length===0?<div style={{padding:14,textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد نتائج</div>:filtered.map(e=>
+                    <div key={e.id} onClick={()=>{setAdvEmpId(e.id);setAdvSearch("")}} style={{padding:"8px 12px",cursor:"pointer",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:FS-1,transition:"background 0.15s"}} onMouseEnter={ev=>ev.currentTarget.style.background=T.accent+"10"} onMouseLeave={ev=>ev.currentTarget.style.background="transparent"}>
+                      <span style={{fontWeight:700,color:T.text}}>{e.name}</span>
+                      {e.job&&<span style={{fontSize:FS-3,color:T.textMut,background:T.cardSolid,padding:"2px 8px",borderRadius:4}}>{e.job}</span>}
+                    </div>
+                  )}
+                </div>;
+              })()}
+            </div>;
+          })()}
         </div>
         <div style={{display:"flex",gap:10,marginBottom:10}}>
           <div style={{flex:1}}>
