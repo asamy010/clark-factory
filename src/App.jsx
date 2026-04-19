@@ -66,7 +66,7 @@ const INIT_CONFIG = {
   customers:[], suppliers:[],
   treasury:[], treasuryAccounts:[], treasuryTransfers:[],
   custPayments:[], supplierPayments:[], checks:[], lockedDays:[],
-  employees:[], hrLog:[], hrWeeks:[], empDebts:[],
+  employees:[], hrLog:[], hrWeeks:[], empDebts:[], auditLog:[],
   /* Purchase module — Session 1 */
   stockMovements:[], purchaseReceipts:[], purchaseOrders:[],
   purchaseSettings:{
@@ -196,6 +196,34 @@ function compressImg43(file,maxW,quality){
 
 /* Toast notification - no hooks */
 function showToast(msg){const el=document.createElement("div");el.textContent=msg;el.style.cssText="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#10B981;color:#fff;padding:10px 28px;border-radius:10px;font-family:'Cairo',sans-serif;font-size:13px;font-weight:700;z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,0.2);direction:rtl;animation:toastIn 0.3s ease";document.body.appendChild(el);const style=document.createElement("style");style.textContent="@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}";document.head.appendChild(style);setTimeout(()=>{el.style.opacity="0";el.style.transition="opacity 0.3s";setTimeout(()=>{el.remove();style.remove()},300)},2000)}
+
+/* ═══════════════════════════════════════════════════════════════
+   Audit Log — Security tracking for sensitive operations
+   
+   Usage (inside upConfig):
+     addAudit(d, { category, action, target, oldValue, newValue, user, notes })
+   
+   Categories: "attendance", "salary", "advance", "employee", "week", "settings"
+   Each entry is timestamped and immutable (append-only).
+   ═══════════════════════════════════════════════════════════════ */
+function addAudit(d,{category,action,target,oldValue,newValue,user,notes,severity}){
+  if(!d.auditLog)d.auditLog=[];
+  /* Keep only last 5000 entries to prevent bloat */
+  if(d.auditLog.length>5000)d.auditLog=d.auditLog.slice(0,5000);
+  d.auditLog.unshift({
+    id:"aud_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,7),
+    ts:new Date().toISOString(),
+    date:new Date().toISOString().split("T")[0],
+    category:category||"general",
+    action:action||"",
+    target:target||"",
+    oldValue:oldValue!==undefined?String(oldValue).slice(0,200):"",
+    newValue:newValue!==undefined?String(newValue).slice(0,200):"",
+    user:user||"",
+    notes:(notes||"").slice(0,200),
+    severity:severity||"info"/* info, warning, danger */
+  });
+}
 
 /* ═══════════════════════════════════════════════════════════════
    Loading System — unified spinners and loading buttons
@@ -12376,6 +12404,9 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   /* Inline edit journal row */
   const[inlineEdit,setInlineEdit]=useState(null);/* tx id */
   const[inlineDraft,setInlineDraft]=useState({});
+  /* Bulk selection for journal entries */
+  const[selectedTxIds,setSelectedTxIds]=useState(new Set());
+  const toggleTxSel=(id)=>{setSelectedTxIds(prev=>{const n=new Set(prev);if(n.has(id))n.delete(id);else n.add(id);return n})};
 
   /* Danger zone: reset */
   const[showResetPopup,setShowResetPopup]=useState(false);
@@ -12521,6 +12552,36 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       /* Remove linked hrLog advance entry */
       if(tx.hrLogId&&d.hrLog)d.hrLog=d.hrLog.filter(l=>l.id!==tx.hrLogId);
       if(tx.sourceType==="hr_advance"&&tx.empId&&d.hrLog)d.hrLog=d.hrLog.filter(l=>!(l.type==="advance"&&l.empId===tx.empId&&l.date===tx.date&&Math.abs((Number(l.amount)||0)-(Number(tx.amount)||0))<0.01))}});showToast("✓ تم الحذف")};
+  /* Bulk delete multiple transactions — respects day lock + audit log */
+  const bulkDeleteTxs=(ids)=>{
+    if(!ids||ids.length===0)return;
+    upConfig(d=>{
+      const toDelete=(d.treasury||[]).filter(t=>ids.includes(t.id));
+      let deletedCount=0,skippedCount=0,totalAmount=0;
+      toDelete.forEach(tx=>{
+        /* Skip if day is locked and user is not admin */
+        if(isDayLocked(tx.date)&&!isAdmin){skippedCount++;return}
+        d.treasury=(d.treasury||[]).filter(t=>t.id!==tx.id);
+        if(d.custPayments)d.custPayments=d.custPayments.filter(p=>p.treasuryTxId!==tx.id);
+        if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>p.treasuryTxId!==tx.id);
+        if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>p.treasuryTxId!==tx.id);
+        if(tx.hrLogId&&d.hrLog)d.hrLog=d.hrLog.filter(l=>l.id!==tx.hrLogId);
+        if(tx.sourceType==="hr_advance"&&tx.empId&&d.hrLog)d.hrLog=d.hrLog.filter(l=>!(l.type==="advance"&&l.empId===tx.empId&&l.date===tx.date&&Math.abs((Number(l.amount)||0)-(Number(tx.amount)||0))<0.01));
+        deletedCount++;totalAmount+=Number(tx.amount)||0;
+      });
+      /* Audit log: bulk delete */
+      if(deletedCount>0&&typeof addAudit==="function"){
+        addAudit(d,{category:"settings",action:"bulk_delete_journal",
+          target:"اليومية",oldValue:deletedCount+" حركة",
+          newValue:"إجمالي: "+fmt0(totalAmount)+" ج.م",
+          user:userName,severity:"danger",
+          notes:"🗑️ حذف مجمع من سجل اليومية"+(skippedCount>0?" ("+skippedCount+" تم تخطيها لقفل اليوم)":"")});
+      }
+      if(skippedCount>0)showToast("⚠️ "+deletedCount+" حذف • "+skippedCount+" متخطي (أيام مقفولة)");
+      else showToast("✓ تم حذف "+deletedCount+" حركة");
+    });
+    setSelectedTxIds(new Set());
+  };
   const editTx=(t)=>{setEditId(t.id);setTxType(t.type);setTxAmount(String(t.amount));setTxDesc(t.desc||"");setTxNotes(t.notes||"");setTxCategory(t.category||"");setTxAccount(t.account||"MAIN CASH");setTxSeason(t.season||"");setTxDate(t.date||today);
     setTxPartyId(t.custId||t.supplierId||t.wsName||"");
     setTxPartyType(t.custId?"customer":t.supplierId?"supplier":t.wsName?"workshop":"");
@@ -12914,7 +12975,45 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           {filterSearch&&<Btn small ghost onClick={()=>setFilterSearch("")} style={{marginBottom:2}}>✕</Btn>}
           {filterDay&&<span onClick={()=>printDaily(filterDay)} style={{cursor:"pointer",padding:"6px 12px",borderRadius:8,background:T.accent+"10",color:T.accent,fontWeight:700,fontSize:FS-1,marginBottom:2}}>🖨 طباعة</span>}
         </div>
-        {withBalance.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+        {withBalance.length>0?<div style={{overflowX:"auto"}}>
+          {/* Bulk actions bar — appears when selections exist */}
+          {selectedTxIds.size>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",marginBottom:10,borderRadius:10,background:T.err+"10",border:"1px solid "+T.err+"40"}}>
+            <div style={{fontSize:FS-1,fontWeight:700,color:T.err}}>
+              ☑️ محدد: <b>{selectedTxIds.size}</b> حركة
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              <Btn small ghost onClick={()=>setSelectedTxIds(new Set())} style={{fontSize:FS-2}}>✕ إلغاء التحديد</Btn>
+              {canEdit&&<Btn small onClick={()=>{
+                const selTxs=withBalance.filter(t=>selectedTxIds.has(t.id));
+                const totalAmt=selTxs.reduce((s,t)=>s+(Number(t.amount)||0),0);
+                const lockedCount=selTxs.filter(t=>isDayLocked(t.date)).length;
+                const externalCount=selTxs.filter(t=>isExternalTx(t)).length;
+                openConfirm({
+                  title:"حذف "+selTxs.length+" حركة",
+                  message:"سيتم حذف "+selTxs.length+" حركة بإجمالي مبلغ "+fmt0(totalAmt)+" ج.م نهائياً.\n\n"+
+                    (externalCount>0?"⚠️ "+externalCount+" حركة مرتبطة بمصادر خارجية (الحذف هنا لن يؤثر على المصدر).\n":"")+
+                    (lockedCount>0&&!isAdmin?"🔒 "+lockedCount+" حركة في أيام مقفولة (سيتم تخطيها).\n":"")+
+                    (lockedCount>0&&isAdmin?"🔒 "+lockedCount+" حركة في أيام مقفولة (وصول المدير).\n":"")+
+                    "\nهل أنت متأكد؟",
+                  variant:"danger",confirmText:"حذف الكل",
+                  onConfirm:()=>bulkDeleteTxs([...selectedTxIds])
+                });
+              }} style={{background:T.err,color:"#fff",border:"none",fontWeight:700}}>🗑️ حذف المحدد ({selectedTxIds.size})</Btn>}
+            </div>
+          </div>}
+          <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+          {canEdit&&<th style={{padding:"7px 8px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,width:30}}>
+            <input type="checkbox"
+              checked={withBalance.slice(0,limit).length>0&&withBalance.slice(0,limit).every(t=>selectedTxIds.has(t.id))}
+              onChange={()=>{
+                const visibleIds=withBalance.slice(0,limit).map(t=>t.id);
+                const allSelected=visibleIds.every(id=>selectedTxIds.has(id));
+                if(allSelected){setSelectedTxIds(prev=>{const n=new Set(prev);visibleIds.forEach(id=>n.delete(id));return n})}
+                else{setSelectedTxIds(prev=>{const n=new Set(prev);visibleIds.forEach(id=>n.add(id));return n})}
+              }}
+              title="تحديد/إلغاء الكل"
+              style={{cursor:"pointer",width:16,height:16}}/>
+          </th>}
           {["الرصيد","تاريخ","اليوم","وارد","منصرف","بيان","ملاحظات","نوع الحركة","حساب جاري","موسم",""].map(h=><th key={h} style={{padding:"7px 8px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
         </tr></thead><tbody>
           {withBalance.slice(0,limit).map(t=>{const locked=isDayLocked(t.date);const isEd=inlineEdit===t.id;const d_=inlineDraft;
@@ -12922,7 +13021,11 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             const startEdit=()=>{setInlineEdit(t.id);setInlineDraft({type:t.type,amount:String(t.amount||""),desc:t.desc||"",notes:t.notes||"",category:t.category||"",date:t.date||"",account:t.account||""})};
             const saveInline=()=>{upConfig(cfg=>{const tx=(cfg.treasury||[]).find(x=>x.id===t.id);if(tx){tx.type=d_.type||tx.type;tx.amount=parseFloat(d_.amount)||tx.amount;tx.desc=d_.desc;tx.notes=d_.notes;tx.category=d_.category;tx.date=d_.date||tx.date;tx.account=d_.account||tx.account;tx.day=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(d_.date||tx.date).getDay()];tx.updatedBy=userName;tx.updatedAt=new Date().toISOString()}});setInlineEdit(null);setInlineDraft({});showToast("✓ تم التعديل")};
             const cancelInline=()=>{setInlineEdit(null);setInlineDraft({})};
-            return<tr key={t.id} style={{borderBottom:"1px solid "+T.brd,opacity:locked?0.8:1,background:isEd?T.accent+"06":locked?T.bg:""}}>
+            const isChecked=selectedTxIds.has(t.id);
+            return<tr key={t.id} style={{borderBottom:"1px solid "+T.brd,opacity:locked?0.8:1,background:isChecked?T.err+"06":isEd?T.accent+"06":locked?T.bg:""}}>
+            {canEdit&&<td style={{padding:"6px 8px",textAlign:"center"}}>
+              <input type="checkbox" checked={isChecked} onChange={()=>toggleTxSel(t.id)} style={{cursor:"pointer",width:16,height:16}} title="تحديد للحذف المجمع"/>
+            </td>}
             <td style={{padding:"6px 8px",fontSize:FS-1,fontWeight:800,color:t.runBal>=0?"#0D9488":T.err}}>{fmt(r2(t.runBal))}</td>
             <td style={{padding:"6px 8px",fontSize:FS-1}}>{isEd?<input type="date" value={d_.date} onChange={e=>setInlineDraft(p=>({...p,date:e.target.value}))} style={{...inpS,width:120}}/>:<>{t.date}{locked?" 🔒":""}</>}</td>
             <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut}}>{t.day||""}</td>
@@ -13346,10 +13449,124 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const employees=(data.employees||[]);
   const hrWeeks=(data.hrWeeks||[]);
   const hrLog=(data.hrLog||[]);
+  const auditLog=(data.auditLog||[]);
   const activeEmps=employees.filter(e=>!e.inactive);
   const today=new Date().toISOString().split("T")[0];
   const hrs=data.hrSettings||{};
   const OT_MULT=hrs.overtimeMultiplier||1.5;
+  
+  /* Compute security flags for the given week (or all recent weeks if null) */
+  const computeSecurityFlags=(week)=>{
+    const flags=[];
+    if(!week)return flags;
+    const att=week.attendance||{};
+    const wSelected=(week.selectedEmps&&Array.isArray(week.selectedEmps))?week.selectedEmps:[];
+    const shownInWeek=activeEmps.filter(e=>wSelected.includes(e.id));
+    const dates=[];const s=new Date(week.weekStart);const e=new Date(week.weekEnd);
+    for(let d=new Date(s);d<=e;d.setDate(d.getDate()+1))dates.push(d.toISOString().split("T")[0]);
+    
+    /* FLAG 1: Excessive daily hours (> 14 hours) */
+    shownInWeek.forEach(emp=>{
+      dates.forEach(dt=>{const h=att[emp.id+"_"+dt]?att[emp.id+"_"+dt].hours:0;
+        if(h>14)flags.push({severity:"danger",icon:"⏰",emp:emp.name,code:emp.code,
+          msg:emp.name+" بصم "+hrsToHM(h)+" ساعة في يوم "+dt+" (غير منطقي)",
+          type:"excessive_hours"});
+      });
+    });
+    
+    /* FLAG 2: Identical hours every day (buddy punching suspect) */
+    shownInWeek.forEach(emp=>{
+      const hrsList=dates.map(dt=>att[emp.id+"_"+dt]?att[emp.id+"_"+dt].hours:0).filter(h=>h>0);
+      if(hrsList.length>=4){
+        const allSame=hrsList.every(h=>Math.abs(h-hrsList[0])<0.01);
+        if(allSame&&hrsList[0]>0)flags.push({severity:"warning",icon:"🔄",emp:emp.name,code:emp.code,
+          msg:emp.name+" ساعاته نفسها بالظبط ("+hrsToHM(hrsList[0])+") كل الأيام — مشبوه",
+          type:"identical_hours"});
+      }
+    });
+    
+    /* FLAG 3: Same exact hours for 2+ employees on same day */
+    dates.forEach(dt=>{
+      const empHours={};
+      shownInWeek.forEach(emp=>{const h=att[emp.id+"_"+dt]?att[emp.id+"_"+dt].hours:0;if(h>0){
+        const key=h.toFixed(2);if(!empHours[key])empHours[key]=[];empHours[key].push(emp);
+      }});
+      Object.entries(empHours).forEach(([hKey,emps])=>{
+        if(emps.length>=3){
+          flags.push({severity:"warning",icon:"👥",emp:emps.map(e=>e.name).join(", "),
+            msg:emps.length+" موظفين بنفس الساعات ("+hrsToHM(Number(hKey))+") يوم "+dt,
+            type:"same_hours_multiple"});
+        }
+      });
+    });
+    
+    /* FLAG 4: Sudden spike compared to employee's history (prev 2 weeks) */
+    const prevWeeks=hrWeeks.filter(w=>w.status==="closed"&&w.weekEnd<week.weekStart).slice(0,2);
+    if(prevWeeks.length>=1){
+      shownInWeek.forEach(emp=>{
+        /* Current week total */
+        let currentTotal=0;dates.forEach(dt=>{const h=att[emp.id+"_"+dt]?att[emp.id+"_"+dt].hours:0;if(h>0)currentTotal+=h});
+        /* Previous weeks avg */
+        let prevTotal=0,prevCount=0;
+        prevWeeks.forEach(pw=>{const pAtt=pw.attendance||{};let pT=0;
+          const pDates=[];const ps=new Date(pw.weekStart);const pe=new Date(pw.weekEnd);
+          for(let d=new Date(ps);d<=pe;d.setDate(d.getDate()+1))pDates.push(d.toISOString().split("T")[0]);
+          pDates.forEach(dt=>{const h=pAtt[emp.id+"_"+dt]?pAtt[emp.id+"_"+dt].hours:0;if(h>0)pT+=h});
+          if(pT>0){prevTotal+=pT;prevCount++}
+        });
+        if(prevCount>0&&currentTotal>0){
+          const avg=prevTotal/prevCount;
+          if(currentTotal>avg*1.5&&currentTotal-avg>10){
+            flags.push({severity:"warning",icon:"📈",emp:emp.name,code:emp.code,
+              msg:emp.name+" ساعاته ارتفعت فجأة: "+hrsToHM(currentTotal)+" (متوسط الأسابيع السابقة: "+hrsToHM(r2(avg))+")",
+              type:"sudden_spike"});
+          }
+        }
+      });
+    }
+    
+    /* FLAG 5: Recent code change + attendance active */
+    const recentCodeChanges=auditLog.filter(a=>a.category==="employee"&&a.action==="code_change"&&
+      new Date(a.ts).getTime()>Date.now()-30*86400000);
+    recentCodeChanges.forEach(ac=>{
+      const emp=activeEmps.find(e=>e.name===ac.target);
+      if(emp){
+        let currentTotal=0;dates.forEach(dt=>{const h=att[emp.id+"_"+dt]?att[emp.id+"_"+dt].hours:0;if(h>0)currentTotal+=h});
+        if(currentTotal>0)flags.push({severity:"danger",icon:"🔑",emp:emp.name,code:emp.code,
+          msg:emp.name+" تم تغيير كود بصمته مؤخراً ("+ac.oldValue+" → "+ac.newValue+") — تحقق من الساعات",
+          type:"code_change_active"});
+      }
+    });
+    
+    /* FLAG 6: High percentage of manual edits */
+    const auditManual=auditLog.filter(a=>a.category==="attendance"&&a.action==="manual_edit"&&
+      a.target&&a.target.includes("W"+week.weekNum));
+    const auditPaste=auditLog.filter(a=>a.category==="attendance"&&a.action==="paste_biometric"&&
+      a.target&&a.target.includes("W"+week.weekNum));
+    if(auditManual.length>0&&auditPaste.length>0){
+      const ratio=auditManual.length/(auditManual.length+auditPaste.length);
+      if(ratio>0.3)flags.push({severity:"warning",icon:"✏️",
+        msg:"نسبة التعديل اليدوي في هذا الأسبوع: "+Math.round(ratio*100)+"% ("+auditManual.length+" تعديل) — المفروض أقل من 30%",
+        type:"manual_edit_high"});
+    }
+    
+    /* FLAG 7: Weekly advance far above employee's average */
+    const wAdvs=week.weeklyAdvances||[];
+    wAdvs.forEach(a=>{
+      /* Calculate average from hrLog */
+      const empAdvances=hrLog.filter(l=>l.type==="weekly_advance"&&l.empId===a.empId);
+      if(empAdvances.length>=3){
+        const avg=empAdvances.reduce((s,l)=>s+(Number(l.amount)||0),0)/empAdvances.length;
+        if(a.amount>avg*3&&a.amount-avg>500){
+          flags.push({severity:"warning",icon:"💸",emp:a.empName,
+            msg:a.empName+" سلفة "+fmt0(a.amount)+" ج (3× من متوسطه "+fmt0(r2(avg))+" ج)",
+            type:"advance_anomaly"});
+        }
+      }
+    });
+    
+    return flags;
+  };
 
   const[view,setView]=useState("weeks");
   const[openWeekId,setOpenWeekId]=useState(null);
@@ -13440,6 +13657,9 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const[selMonth,setSelMonth]=useState(()=>new Date().toISOString().slice(0,7));/* for monthly summary */
   const[empStatement,setEmpStatement]=useState(null);/* empId for statement popup */
   const[stmtFrom,setStmtFrom]=useState("");const[stmtTo,setStmtTo]=useState("");
+  /* Close date popup */
+  const[showCloseDate,setShowCloseDate]=useState(false);
+  const[closeDateValue,setCloseDateValue]=useState("");
   /* Weekly advances for salaried/admin staff — stored inline in week */
   const[showAdvForm,setShowAdvForm]=useState(false);/* true = add new */
   const[advEmpId,setAdvEmpId]=useState("");
@@ -13504,15 +13724,50 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const resetEmpForm=()=>{setEmpName("");setEmpJob("");setEmpCode("");setEmpWeeklySalary("");setEmpBaseHours("");setEmpPhone("");setEmpDate(today);setEmpWeeklyBonus("");setEmpNoBiometric(false);setEmpSalaryType("weekly");setEmpEditId(null)};
   const saveEmp=()=>{if(!empName.trim())return;
     upConfig(d=>{if(!d.employees)d.employees=[];
-      if(empEditId){const e=d.employees.find(x=>x.id===empEditId);if(e){e.name=empName.trim();e.job=empJob;e.code=empCode;e.weeklySalary=parseFloat(empWeeklySalary)||0;e.baseHours=parseFloat(empBaseHours)||0;e.phone=empPhone;e.hireDate=empDate;e.weeklyBonus=parseFloat(empWeeklyBonus)||0;e.noBiometric=empNoBiometric;e.salaryType=empSalaryType}}
-      else{d.employees.push({id:gid(),name:empName.trim(),job:empJob,code:empCode,weeklySalary:parseFloat(empWeeklySalary)||0,baseHours:parseFloat(empBaseHours)||0,phone:empPhone,hireDate:empDate,weeklyBonus:parseFloat(empWeeklyBonus)||0,noBiometric:empNoBiometric,salaryType:empSalaryType,prevBalance:0})}});
+      if(empEditId){const e=d.employees.find(x=>x.id===empEditId);if(e){
+        /* Audit — track code changes (fingerprint) + salary changes (high risk) */
+        const oldCode=e.code||"";const newCode=empCode||"";
+        const oldSalary=Number(e.weeklySalary)||0;const newSalary=parseFloat(empWeeklySalary)||0;
+        if(oldCode!==newCode){
+          addAudit(d,{category:"employee",action:"code_change",
+            target:e.name,oldValue:oldCode||"(فارغ)",newValue:newCode||"(فارغ)",
+            user:userName,severity:"danger",notes:"⚠️ تغيير كود بصمة الموظف"});
+        }
+        if(oldSalary!==newSalary){
+          addAudit(d,{category:"employee",action:"salary_change",
+            target:e.name,oldValue:fmt0(oldSalary)+" ج",newValue:fmt0(newSalary)+" ج",
+            user:userName,severity:"warning",notes:"تغيير المرتب الأسبوعي"});
+        }
+        e.name=empName.trim();e.job=empJob;e.code=empCode;e.weeklySalary=newSalary;e.baseHours=parseFloat(empBaseHours)||0;e.phone=empPhone;e.hireDate=empDate;e.weeklyBonus=parseFloat(empWeeklyBonus)||0;e.noBiometric=empNoBiometric;e.salaryType=empSalaryType;
+      }}
+      else{
+        const newEmp={id:gid(),name:empName.trim(),job:empJob,code:empCode,weeklySalary:parseFloat(empWeeklySalary)||0,baseHours:parseFloat(empBaseHours)||0,phone:empPhone,hireDate:empDate,weeklyBonus:parseFloat(empWeeklyBonus)||0,noBiometric:empNoBiometric,salaryType:empSalaryType,prevBalance:0};
+        d.employees.push(newEmp);
+        addAudit(d,{category:"employee",action:"add",
+          target:newEmp.name,newValue:"كود: "+(newEmp.code||"-")+" • مرتب: "+fmt0(newEmp.weeklySalary),
+          user:userName,severity:"info",notes:"إضافة موظف جديد"});
+      }
+    });
     setShowEmpForm(false);resetEmpForm();showToast("✓ تم الحفظ")};
   const editEmp=(e)=>{setEmpEditId(e.id);setEmpName(e.name);setEmpJob(e.job||"");setEmpCode(e.code||"");setEmpWeeklySalary(String(e.weeklySalary||""));setEmpBaseHours(String(e.baseHours||""));setEmpPhone(e.phone||"");setEmpDate(e.hireDate||today);setEmpWeeklyBonus(String(e.weeklyBonus||""));setEmpNoBiometric(!!e.noBiometric);setEmpSalaryType(e.salaryType||"weekly");setShowEmpForm(true)};
   const startInlineEdit=(e)=>{setInlineEditId(e.id);setInlineDraft({name:e.name||"",code:e.code||"",job:e.job||"",weeklySalary:String(e.weeklySalary||""),weeklyBonus:String(e.weeklyBonus||""),baseHours:String(e.baseHours||""),phone:e.phone||"",noBiometric:!!e.noBiometric})};
   const saveInlineEdit=()=>{if(!inlineEditId)return;const d=inlineDraft;
     upConfig(cfg=>{const e=(cfg.employees||[]).find(x=>x.id===inlineEditId);if(e){
+      /* Audit code/salary changes */
+      const oldCode=e.code||"";const newCode=d.code||"";
+      const oldSalary=Number(e.weeklySalary)||0;const newSalary=parseFloat(d.weeklySalary)||0;
+      if(oldCode!==newCode){
+        addAudit(cfg,{category:"employee",action:"code_change",
+          target:e.name,oldValue:oldCode||"(فارغ)",newValue:newCode||"(فارغ)",
+          user:userName,severity:"danger",notes:"⚠️ تغيير كود بصمة"});
+      }
+      if(oldSalary!==newSalary){
+        addAudit(cfg,{category:"employee",action:"salary_change",
+          target:e.name,oldValue:fmt0(oldSalary)+" ج",newValue:fmt0(newSalary)+" ج",
+          user:userName,severity:"warning",notes:"تغيير المرتب"});
+      }
       e.name=(d.name||"").trim()||e.name;e.code=d.code||"";e.job=d.job||"";
-      e.weeklySalary=parseFloat(d.weeklySalary)||0;e.weeklyBonus=parseFloat(d.weeklyBonus)||0;
+      e.weeklySalary=newSalary;e.weeklyBonus=parseFloat(d.weeklyBonus)||0;
       e.baseHours=parseFloat(d.baseHours)||0;e.phone=d.phone||"";e.noBiometric=!!d.noBiometric}});
     setInlineEditId(null);setInlineDraft({});showToast("✓ تم التعديل")};
   const cancelInlineEdit=()=>{setInlineEditId(null);setInlineDraft({})};
@@ -13627,6 +13882,14 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       if(!d.hrWeeks[wi].attendance)d.hrWeeks[wi].attendance={};
       pasteResult.records.filter(r=>r.matched).forEach(r=>{
         const key=r.empId+"_"+r.date;d.hrWeeks[wi].attendance[key]={empId:r.empId,date:r.date,hours:r.hours}});
+      /* Audit — paste operation with summary */
+      addAudit(d,{
+        category:"attendance",action:"paste_biometric",
+        target:"W"+d.hrWeeks[wi].weekNum,
+        newValue:pasteResult.matched+" سجل مُطابق / "+pasteResult.total+" إجمالي",
+        user:userName,severity:"info",
+        notes:"لصق بيانات البصمة"+(pasteResult.unmatched>0?" ⚠️ "+pasteResult.unmatched+" غير مطابق":"")
+      });
       /* Auto-fill noBiometric employees with full daily hours for each day in the week */
       const wk=d.hrWeeks[wi];const bh=wk.baseHours||48;
       const start=new Date(wk.weekStart);const end=new Date(wk.weekEnd);
@@ -13747,31 +14010,97 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     if(!openWeek||!advEmpId||!advAmount)return;
     const emp=employees.find(e=>e.id===advEmpId);if(!emp)return;
     const amt=Number(advAmount)||0;if(amt<=0)return;
+    /* Warning for unusually large advance (> 50% of weekly salary) */
+    const weeklySalary=Number(emp.weeklySalary)||0;
+    if(weeklySalary>0&&amt>weeklySalary*0.5){
+      openConfirm({
+        title:"⚠️ مبلغ السلفة كبير",
+        message:"السلفة ("+fmt0(amt)+" ج) أكبر من 50% من مرتب "+emp.name+" الأسبوعي ("+fmt0(weeklySalary)+" ج).\n\nهل أنت متأكد من المبلغ؟",
+        variant:"warn",confirmText:"نعم، متأكد",
+        onConfirm:()=>_doSaveWeeklyAdvance(emp,amt)
+      });
+      return;
+    }
+    _doSaveWeeklyAdvance(emp,amt);
+  };
+  const _doSaveWeeklyAdvance=(emp,amt)=>{
+    const advId=gid();
+    const txId=gid();
+    const useDateSave=advDate||today;
+    const dayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(useDateSave).getDay()];
     upConfig(d=>{
       const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
       if(!d.hrWeeks[wi].weeklyAdvances)d.hrWeeks[wi].weeklyAdvances=[];
       d.hrWeeks[wi].weeklyAdvances.push({
-        id:gid(),empId:advEmpId,empName:emp.name,empJob:emp.job||"",
-        amount:amt,date:advDate||today,note:advNote||"",
-        createdBy:userName||"",createdAt:new Date().toISOString()
+        id:advId,empId:emp.id,empName:emp.name,empJob:emp.job||"",
+        amount:amt,date:useDateSave,note:advNote||"",
+        createdBy:userName||"",createdAt:new Date().toISOString(),
+        treasuryTxId:txId/* Link to treasury entry for reversal on delete */
+      });
+      /* Register in treasury IMMEDIATELY — cash leaves the account the moment advance is given */
+      if(!d.treasury)d.treasury=[];
+      d.treasury.unshift({
+        id:txId,type:"out",amount:r2(amt),
+        desc:"سلفة "+emp.name+" W"+d.hrWeeks[wi].weekNum+(advNote?" — "+advNote:""),
+        category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",
+        date:useDateSave,day:dayName,
+        sourceType:"hr_weekly_advance",weekId:openWeek.id,empId:emp.id,
+        weeklyAdvanceId:advId,
+        by:userName,createdAt:new Date().toISOString()
+      });
+      /* hrLog entry — immediate */
+      if(!d.hrLog)d.hrLog=[];
+      d.hrLog.unshift({
+        id:gid(),type:"weekly_advance",empId:emp.id,empName:emp.name,empJob:emp.job||"",
+        amount:amt,note:advNote||"",
+        weekId:openWeek.id,weekStart:openWeek.weekStart,weekEnd:openWeek.weekEnd,
+        date:useDateSave,by:userName,createdAt:new Date().toISOString(),
+        weeklyAdvanceId:advId,treasuryTxId:txId
+      });
+      /* Audit log */
+      addAudit(d,{
+        category:"advance",action:"add_weekly",
+        target:emp.name+" — W"+d.hrWeeks[wi].weekNum,
+        newValue:fmt0(amt)+" ج"+(advNote?" ("+advNote+")":""),
+        user:userName,severity:amt>1000?"warning":"info",
+        notes:"سلفة أسبوعية — مسجلة في الخزنة فوراً"
       });
     });
-    setShowAdvForm(false);resetAdvForm();showToast("✓ تم إضافة السلفة");
+    setShowAdvForm(false);resetAdvForm();showToast("✓ تم إضافة السلفة وتسجيلها في الخزنة");
   };
   const deleteWeeklyAdvance=(advId)=>{
     if(!openWeek)return;
+    const adv=(openWeek.weeklyAdvances||[]).find(a=>a.id===advId);
+    const linkedTx=adv&&adv.treasuryTxId?(data.treasury||[]).find(t=>t.id===adv.treasuryTxId):null;
     openConfirm({
-      title:"حذف السلفة",message:"هل أنت متأكد من حذف هذه السلفة؟",variant:"warn",confirmText:"حذف",
+      title:"حذف السلفة",
+      message:adv?"هل أنت متأكد من حذف سلفة "+adv.empName+" ("+fmt0(adv.amount)+" ج)؟\n\n"+(linkedTx?"⚠️ سيتم حذف الحركة المالية المرتبطة من الخزنة (سيُعاد المبلغ للرصيد).":"")+"\n\nهذا الإجراء لا يمكن التراجع عنه.":"هل أنت متأكد من حذف هذه السلفة؟",
+      variant:"warn",confirmText:"حذف",
       onConfirm:()=>{upConfig(d=>{
         const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
         if(!d.hrWeeks[wi].weeklyAdvances)return;
         d.hrWeeks[wi].weeklyAdvances=d.hrWeeks[wi].weeklyAdvances.filter(a=>a.id!==advId);
-      });showToast("✓ تم الحذف")}
+        /* Reverse linked treasury + hrLog entries */
+        if(adv){
+          if(adv.treasuryTxId&&d.treasury)d.treasury=d.treasury.filter(t=>t.id!==adv.treasuryTxId);
+          if(d.hrLog)d.hrLog=d.hrLog.filter(l=>l.weeklyAdvanceId!==advId);
+          addAudit(d,{
+            category:"advance",action:"delete_weekly",
+            target:adv.empName+" — W"+d.hrWeeks[wi].weekNum,
+            oldValue:fmt0(adv.amount)+" ج"+(adv.note?" ("+adv.note+")":""),
+            user:userName,severity:"danger",
+            notes:"حذف سلفة أسبوعية + عكس حركة الخزنة"
+          });
+        }
+      });showToast("✓ تم الحذف — المبلغ رُد للخزنة")}
     });
   };
 
   /* ── Approve & Close Week ── */
-  const approveWeek=()=>{if(!openWeek||openWeek.status==="closed")return;
+  const approveWeek=(customCloseDate)=>{if(!openWeek||openWeek.status==="closed")return;
+    const actualCloseDate=new Date().toISOString().split("T")[0];/* The REAL date, not editable */
+    const actualCloseTs=new Date().toISOString();
+    const useDate=(customCloseDate&&customCloseDate.trim())?customCloseDate.trim():actualCloseDate;
     const weekSelected=getSelectedEmps(openWeek.id);
     const shownEmps=activeEmps.filter(e=>weekSelected.includes(e.id));
     const records=shownEmps.map(e=>{const c=calcSalary(e.id,openWeek);if(!c)return null;return{empId:e.id,empName:e.name,empCode:e.code||"",...c}}).filter(Boolean);
@@ -13868,32 +14197,42 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       });
       /* Update balances — remaining balance carries to next week */
       records.forEach(r=>{const e=(d.employees||[]).find(x=>x.id===r.empId);if(e)e.prevBalance=r.remainingBalance});
-      /* Treasury — individual entry per employee (thursday pay) */
-      const dayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date().getDay()];
-      records.forEach(r=>{if(r.thursdayPay>0)d.treasury.unshift({id:gid(),type:"out",amount:r2(r.thursdayPay),desc:"مرتب "+r.empName+" W"+openWeek.weekNum,category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:today,day:dayName,sourceType:"hr_salary",weekId:openWeek.id,empId:r.empId,by:userName,createdAt:new Date().toISOString(),snapshotId})});
-      /* Weekly advances (for monthly/admin staff) — register in treasury + hrLog */
+      /* Treasury — individual entry per employee (thursday pay). Uses useDate (editable close date). */
+      const dayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(useDate).getDay()];
+      records.forEach(r=>{if(r.thursdayPay>0)d.treasury.unshift({id:gid(),type:"out",amount:r2(r.thursdayPay),desc:"مرتب "+r.empName+" W"+openWeek.weekNum,category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:useDate,day:dayName,sourceType:"hr_salary",weekId:openWeek.id,empId:r.empId,by:userName,createdAt:new Date().toISOString(),snapshotId,actualCloseDate,backdated:useDate!==actualCloseDate})});
+      /* Weekly advances — already registered in treasury + hrLog at the moment they were added.
+         Just reference them in the snapshot for audit trail. No re-registration. */
       const wAdvs=(openWeek.weeklyAdvances||[]);
+      /* Mark existing treasury entries with snapshotId so they can be rolled back if week is restored */
       wAdvs.forEach(a=>{
-        const advDayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(a.date||today).getDay()];
-        /* Treasury out */
-        d.treasury.unshift({
-          id:gid(),type:"out",amount:r2(Number(a.amount)||0),
-          desc:"سلفة "+a.empName+" W"+openWeek.weekNum+(a.note?" — "+a.note:""),
-          category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",
-          date:a.date||today,day:advDayName,
-          sourceType:"hr_weekly_advance",weekId:openWeek.id,empId:a.empId,
-          by:userName,createdAt:new Date().toISOString(),snapshotId
-        });
-        /* hrLog entry */
-        d.hrLog.unshift({
-          id:gid(),type:"weekly_advance",empId:a.empId,empName:a.empName,empJob:a.empJob||"",
-          amount:Number(a.amount)||0,note:a.note||"",
-          weekId:openWeek.id,weekStart:openWeek.weekStart,weekEnd:openWeek.weekEnd,
-          date:a.date||today,by:userName,createdAt:new Date().toISOString(),snapshotId
-        });
+        if(a.treasuryTxId&&d.treasury){
+          const tx=d.treasury.find(t=>t.id===a.treasuryTxId);
+          if(tx)tx.snapshotId=snapshotId;
+        }
       });
-      /* Close week — also save snapshotId for restore lookup */
-      const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi>=0){d.hrWeeks[wi].status="closed";d.hrWeeks[wi].closedAt=today;d.hrWeeks[wi].closedBy=userName;d.hrWeeks[wi].totalGross=r2(totalGross);d.hrWeeks[wi].totalNet=r2(totalNet);d.hrWeeks[wi].totalThursdayPay=r2(totalThursdayPay);d.hrWeeks[wi].totalRemaining=r2(totalRemaining);d.hrWeeks[wi].totalWeeklyAdvances=r2(wAdvs.reduce((s,a)=>s+(Number(a.amount)||0),0));d.hrWeeks[wi].empCount=records.length;d.hrWeeks[wi].snapshotId=snapshotId;d.hrWeeks[wi].snapshotDate=today}});
+      /* Close week — store BOTH user-selected date (closedAt) AND actual close date (actualClosedAt, immutable) */
+      const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi>=0){
+        d.hrWeeks[wi].status="closed";
+        d.hrWeeks[wi].closedAt=useDate;/* User-selected close date (can be backdated) */
+        d.hrWeeks[wi].actualClosedAt=actualCloseDate;/* REAL close date — immutable, for audit */
+        d.hrWeeks[wi].actualClosedTs=actualCloseTs;/* Timestamp with time */
+        d.hrWeeks[wi].closedBy=userName;
+        d.hrWeeks[wi].totalGross=r2(totalGross);
+        d.hrWeeks[wi].totalNet=r2(totalNet);
+        d.hrWeeks[wi].totalThursdayPay=r2(totalThursdayPay);
+        d.hrWeeks[wi].totalRemaining=r2(totalRemaining);
+        d.hrWeeks[wi].totalWeeklyAdvances=r2(wAdvs.reduce((s,a)=>s+(Number(a.amount)||0),0));
+        d.hrWeeks[wi].empCount=records.length;
+        d.hrWeeks[wi].snapshotId=snapshotId;
+        d.hrWeeks[wi].snapshotDate=actualCloseDate;
+        /* Audit — week closure — always logs the REAL actual date */
+        const backdated=useDate!==actualCloseDate;
+        addAudit(d,{category:"week",action:"close",
+          target:"W"+d.hrWeeks[wi].weekNum+" ("+d.hrWeeks[wi].weekStart+" → "+d.hrWeeks[wi].weekEnd+")",
+          newValue:records.length+" موظف • مستحق: "+fmt0(totalGross)+" • مدفوع: "+fmt0(totalThursdayPay)+(backdated?" ⚠️ مُرحَّل لتاريخ "+useDate:""),
+          user:userName,severity:backdated?"warning":"info",
+          notes:backdated?"⚠️ إقفال بتاريخ مختلف عن التاريخ الحقيقي ("+actualCloseDate+")":"إقفال أسبوع"});
+      }});
     showToast("✓ تم اعتماد وقفل الأسبوع W"+openWeek.weekNum);setSalBonus({});setSalSpecialDeduct({});setSalThursdayPay({});setSalBaseHoursOverride({});setSalPrevBalanceOverride({});setSalManualInstallDeduct({});setSalInstallOverride({});setOpenWeekId(null);
     if(setSavingOverlay){setSavingOverlay({message:"✅ تم بنجاح!",progress:100});setTimeout(()=>setSavingOverlay(null),1200)}
     },200)},400)},300)},200)};
@@ -14213,7 +14552,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
 
   return<div>
     <div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflow:"hidden",border:"1px solid "+T.brd}}>
-      {[{k:"weeks",l:"📅 الأسابيع",c:hrWeeks.length},{k:"weeklySummary",l:"📊 سجل أسبوعي"},{k:"monthlySummary",l:"📅 سجل شهري"},{k:"employees",l:"👷 الموظفين",c:activeEmps.length}].map(v=>
+      {[{k:"weeks",l:"📅 الأسابيع",c:hrWeeks.length},{k:"weeklySummary",l:"📊 سجل أسبوعي"},{k:"monthlySummary",l:"📅 سجل شهري"},{k:"employees",l:"👷 الموظفين",c:activeEmps.length},{k:"security",l:"🛡️ الأمن والرقابة",c:auditLog.length}].map(v=>
         <div key={v.k} onClick={()=>{setView(v.k);setOpenWeekId(null)}} style={{flex:1,padding:"10px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-1,background:view===v.k?T.accent:T.cardSolid,color:view===v.k?"#fff":T.textSec,transition:"all 0.15s"}}>{v.l}{v.c!=null?" ("+v.c+")":""}</div>)}
     </div>
 
@@ -14430,7 +14769,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           const weekSelected=getSelectedEmps(openWeek.id);
           const shownEmps=activeEmps.filter(e=>weekSelected.includes(e.id));
           /* Aggregate stats */
-          let baseSal=0,advances=0,deductions=0,specialDeductions=0,net=0;
+          let baseSal=0,advances=0,deductions=0,specialDeductions=0,net=0,thursdayPay=0;
           shownEmps.forEach(e=>{
             const c=calcSalary(e.id,openWeek);
             if(!c)return;
@@ -14439,6 +14778,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             deductions+=c.debtInstall||0;/* "خصم" = أقساط المديونيات */
             specialDeductions+=c.specialDeduct||0;
             net+=c.netBalance||0;
+            thursdayPay+=c.thursdayPay||0;/* ما سيُدفع فعلياً يوم الإقفال */
           });
           /* Additional aggregates for new cards */
           let basicEntitled=0,overtimePay=0,grossPay=0;
@@ -14490,13 +14830,34 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               <div style={{fontSize:FS+4,fontWeight:800,color:"#EC4899",lineHeight:1.1}}>{fmt0(totalWeeklyAdvances)}</div>
               <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>{weeklyAdvances.length+" سلفة"}</div>
             </div>
-            {/* 8. إجمالي الرصيد المستحق (صافي نهائي + شامل سلف الشهريين) */}
-            <div style={{padding:"10px 8px",borderRadius:10,background:T.ok+"12",border:"2px solid "+T.ok+"40",textAlign:"center"}}>
+            {/* 8. الإجمالي النهائي — ما سيُدفع فعلياً يوم الإقفال فقط (thursdayPay)
+                 بدون السلف الأسبوعية اللي اتدفعت خلال الأسبوع (لأنها خرجت من الخزنة قبل كده) */}
+            <div style={{padding:"10px 8px",borderRadius:10,background:T.ok+"12",border:"2px solid "+T.ok+"40",textAlign:"center"}} title={"الإجمالي الذي سيُدفع يوم الإقفال فقط.\nالسلف الأسبوعية ("+fmt0(advances)+" ج) + سلف الإدارة ("+fmt0(totalWeeklyAdvances)+" ج) تم دفعها خلال الأسبوع بالفعل من الخزنة."}>
               <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2,fontWeight:700}}>✅ الإجمالي النهائي</div>
-              <div style={{fontSize:FS+5,fontWeight:900,color:T.ok,lineHeight:1.1}}>{fmt0(net+totalWeeklyAdvances)}</div>
-              <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>كل اللي هيندفع</div>
+              <div style={{fontSize:FS+5,fontWeight:900,color:T.ok,lineHeight:1.1}}>{fmt0(thursdayPay)}</div>
+              <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>يوم الإقفال فقط</div>
             </div>
           </div>})()}
+
+        {/* Security flags — show if there are any suspicious patterns */}
+        {(()=>{const flags=computeSecurityFlags(openWeek);if(flags.length===0)return null;
+          const byType={danger:flags.filter(f=>f.severity==="danger"),warning:flags.filter(f=>f.severity==="warning")};
+          return<Card title={"🛡️ تنبيهات أمنية ("+flags.length+")"} style={{marginBottom:14,border:"2px solid "+(byType.danger.length>0?T.err+"60":T.warn+"60"),background:(byType.danger.length>0?T.err:T.warn)+"04"}}>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {flags.slice(0,10).map((f,i)=><div key={i} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",borderRadius:10,background:(f.severity==="danger"?T.err:T.warn)+"08",border:"1px solid "+(f.severity==="danger"?T.err:T.warn)+"25"}}>
+                <div style={{fontSize:18,flexShrink:0}}>{f.icon}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:FS-1,fontWeight:700,color:f.severity==="danger"?T.err:T.warn}}>{f.msg}</div>
+                  {f.code&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2,direction:"ltr",textAlign:"right"}}>كود البصمة: {f.code}</div>}
+                </div>
+                <span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-3,fontWeight:800,background:(f.severity==="danger"?T.err:T.warn)+"18",color:f.severity==="danger"?T.err:T.warn,flexShrink:0}}>
+                  {f.severity==="danger"?"خطر":"تحذير"}
+                </span>
+              </div>)}
+              {flags.length>10&&<div style={{textAlign:"center",fontSize:FS-2,color:T.textMut,padding:6}}>+ {flags.length-10} تنبيه إضافي</div>}
+            </div>
+          </Card>;
+        })()}
 
         {/* Paste fingerprint data */}
         {!isLocked&&<Card title="📋 لصق بيانات البصمة" style={{marginBottom:14}}>
@@ -14523,11 +14884,33 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           const weekSelected=getSelectedEmps(openWeek.id);
           const shownEmps=activeEmps.filter(e=>weekSelected.includes(e.id));
           const saveRow=(empId)=>{const draft=rowDraft[empId]||{};
+            const emp=employees.find(e=>e.id===empId);
             upConfig(d=>{const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeekId);if(wi<0)return;
               if(!d.hrWeeks[wi].attendance)d.hrWeeks[wi].attendance={};
+              const changes=[];
               dates.forEach(dt=>{const key=empId+"_"+dt;const val=draft[dt];
-                if(val!==undefined&&val!==""){d.hrWeeks[wi].attendance[key]={empId,date:dt,hours:parseHrs(val)}}
-                else if(val===""){delete d.hrWeeks[wi].attendance[key]}})});
+                const oldH=d.hrWeeks[wi].attendance[key]?d.hrWeeks[wi].attendance[key].hours:0;
+                if(val!==undefined&&val!==""){
+                  const newH=parseHrs(val);
+                  d.hrWeeks[wi].attendance[key]={empId,date:dt,hours:newH};
+                  if(Math.abs(oldH-newH)>0.01)changes.push(dt+": "+hrsToHM(oldH)+" → "+hrsToHM(newH));
+                }
+                else if(val===""){
+                  if(oldH>0)changes.push(dt+": "+hrsToHM(oldH)+" → حذف");
+                  delete d.hrWeeks[wi].attendance[key];
+                }
+              });
+              /* Audit log: manual attendance edit */
+              if(changes.length>0){
+                addAudit(d,{
+                  category:"attendance",action:"manual_edit",
+                  target:(emp?emp.name:"موظف #"+empId)+" — W"+d.hrWeeks[wi].weekNum,
+                  newValue:changes.join(" | "),
+                  user:userName,severity:"warning",
+                  notes:"تعديل يدوي لساعات الحضور"
+                });
+              }
+            });
             setEditingRow(null);setRowDraft(p=>{const n={...p};delete n[empId];return n});showToast("✓ تم الحفظ")};
           const startEdit=(empId)=>{const existing={};dates.forEach(dt=>{const key=empId+"_"+dt;if(att[key]&&att[key].hours>0)existing[dt]=hrsToHM(att[key].hours)});
             setRowDraft(p=>({...p,[empId]:existing}));setEditingRow(empId)};
@@ -15054,30 +15437,14 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             {canEdit&&!isClosed&&<div style={{marginTop:14,display:"flex",gap:10,justifyContent:"center",alignItems:"center",flexWrap:"wrap"}}>
               <Btn onClick={saveDraftInputs} style={{fontSize:FS,padding:"10px 20px",background:hasUnsavedChanges?T.warn:T.ok+"15",color:hasUnsavedChanges?"#fff":T.ok,border:hasUnsavedChanges?"1px solid "+T.warn:"1px solid "+T.ok+"40",fontWeight:700}}>{hasUnsavedChanges?"💾 حفظ التعديلات":"✓ محفوظ"}</Btn>
               {openWeek.draftInputs?.lastSaved&&<span style={{fontSize:FS-2,color:T.textMut}} title={"آخر حفظ: "+new Date(openWeek.draftInputs.lastSaved).toLocaleString("ar-EG")}>{"آخر حفظ: "+(()=>{const d=new Date(openWeek.draftInputs.lastSaved);const now=new Date();const diffMs=now-d;const mins=Math.floor(diffMs/60000);if(mins<1)return"الآن";if(mins<60)return"منذ "+mins+" دقيقة";const hrs=Math.floor(mins/60);if(hrs<24)return"منذ "+hrs+" ساعة";return d.toLocaleDateString("ar-EG")})()}</span>}
-              <Btn primary onClick={()=>{
-                /* Build summary for confirmation */
-                let tG_=0,tN_=0,tA_=0,tTP_=0,tRB_=0,tDI_=0;
-                shownEmps.forEach(e=>{const cc=calcSalary(e.id,openWeek);if(cc){tG_+=cc.grossPay;tN_+=cc.netBalance;tA_+=cc.weekAdvances;tTP_+=cc.thursdayPay;tRB_+=cc.remainingBalance;tDI_+=cc.debtInstall||0}});
-                const totalCashOut=r2(tTP_+totalWeeklyAdvances);
-                openConfirm({
-                  title:"اعتماد وقفل أسبوع W"+openWeek.weekNum,
-                  message:"الفترة: "+openWeek.weekStart+" → "+openWeek.weekEnd+"\n"+
-                    "عدد الموظفين: "+shownEmps.length+"\n\n"+
-                    "💰 اجمالي المستحق: "+fmt0(tG_)+" ج.م\n"+
-                    "💸 اجمالي المسحوبات: "+fmt0(tA_)+" ج.م\n"+
-                    (tDI_>0?"🧾 اجمالي أقساط: "+fmt0(tDI_)+" ج.م\n":"")+
-                    "💵 دفعات المرتبات: "+fmt0(tTP_)+" ج.م\n"+
-                    (totalWeeklyAdvances>0?"💵 سلف الأسبوع (شهريين/إدارة): "+fmt0(totalWeeklyAdvances)+" ج.م ("+weeklyAdvances.length+" سلفة)\n":"")+
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"+
-                    "🏦 إجمالي سيخرج من الخزنة: "+fmt0(totalCashOut)+" ج.م\n"+
-                    "🔄 يُرحّل للأسبوع القادم: "+fmt0(tRB_)+" ج.م\n\n"+
-                    "سيتم: تحديث أرصدة الموظفين، تسجيل المرتبات والسلف في السجل، خصم الأقساط، تسجيل دفعات الخزنة، وقفل الأسبوع.",
-                  variant:"warn",
-                  onConfirm:()=>approveWeek()
-                })
-              }} style={{fontSize:FS+1,padding:"12px 30px"}}>💰 اعتماد وقفل الأسبوع W{openWeek.weekNum}</Btn>
+              <Btn primary onClick={()=>{setCloseDateValue(today);setShowCloseDate(true)}} style={{fontSize:FS+1,padding:"12px 30px"}}>💰 اعتماد وقفل الأسبوع W{openWeek.weekNum}</Btn>
             </div>}
-            {isClosed&&<div style={{marginTop:10,textAlign:"center",padding:12,borderRadius:10,background:T.ok+"08",color:T.ok,fontWeight:700}}>{"✅ هذا الأسبوع مقفول — تم الاعتماد "+openWeek.closedAt+" بواسطة "+openWeek.closedBy}</div>}
+            {isClosed&&<div style={{marginTop:10,textAlign:"center",padding:12,borderRadius:10,background:T.ok+"08",color:T.ok,fontWeight:700}}>
+              {"✅ هذا الأسبوع مقفول — تم الاعتماد "+openWeek.closedAt+" بواسطة "+openWeek.closedBy}
+              {openWeek.actualClosedAt&&openWeek.actualClosedAt!==openWeek.closedAt&&<div style={{fontSize:FS-2,color:T.warn,marginTop:6,fontWeight:700,padding:"4px 10px",background:T.warn+"10",borderRadius:6,display:"inline-block"}} title="التاريخ الحقيقي للإقفال — غير قابل للتعديل">
+                ⚠️ تاريخ الإقفال الفعلي: {openWeek.actualClosedAt}{openWeek.actualClosedTs?" "+new Date(openWeek.actualClosedTs).toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit"}):""}
+              </div>}
+            </div>}
           </Card>})()}
 
         {/* ── Attendance Comparison Chart: Current vs Previous Week (moved to bottom) ── */}
@@ -15858,6 +16225,68 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       </div>
     </div>}
 
+    {/* ══ CLOSE DATE POPUP — اعتماد وقفل الأسبوع مع اختيار التاريخ ══ */}
+    {showCloseDate&&openWeek&&(()=>{
+      const weekSelectedCD=getSelectedEmps(openWeek.id);
+      const shownEmpsCD=activeEmps.filter(e=>weekSelectedCD.includes(e.id));
+      let tG_=0,tA_=0,tTP_=0,tRB_=0,tDI_=0;
+      shownEmpsCD.forEach(e=>{const cc=calcSalary(e.id,openWeek);if(cc){tG_+=cc.grossPay;tA_+=cc.weekAdvances;tTP_+=cc.thursdayPay;tRB_+=cc.remainingBalance;tDI_+=cc.debtInstall||0}});
+      const totalCashOut=r2(tTP_);/* فقط مرتبات الخميس — السلف خرجت من الخزنة خلال الأسبوع */
+      const isBackdated=closeDateValue&&closeDateValue!==today;
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={()=>setShowCloseDate(false)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:22,width:"100%",maxWidth:500,maxHeight:"90vh",overflowY:"auto",border:"2px solid "+T.accent,boxShadow:"0 25px 80px rgba(0,0,0,0.4)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"1px solid "+T.brd}}>
+            <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,display:"flex",alignItems:"center",gap:8}}>
+              <span>💰</span><span>اعتماد وقفل أسبوع W{openWeek.weekNum}</span>
+            </div>
+            <Btn ghost small onClick={()=>setShowCloseDate(false)}>✕</Btn>
+          </div>
+
+          {/* Summary */}
+          <div style={{padding:12,background:T.bg,borderRadius:10,marginBottom:14,fontSize:FS-1,lineHeight:1.8}}>
+            <div style={{fontWeight:700,marginBottom:6,color:T.accent}}>📋 ملخص الأسبوع:</div>
+            <div>الفترة: <b>{openWeek.weekStart} → {openWeek.weekEnd}</b></div>
+            <div>عدد الموظفين: <b>{shownEmpsCD.length}</b></div>
+            <div>💰 اجمالي المستحق: <b style={{color:T.ok}}>{fmt0(tG_)} ج</b></div>
+            <div>💸 اجمالي المسحوبات الأسبوعية: <b style={{color:T.err}}>{fmt0(tA_)} ج</b> <span style={{fontSize:FS-3,color:T.textMut}}>(خرجت من الخزنة بالفعل)</span></div>
+            {tDI_>0&&<div>🧾 اجمالي أقساط: <b>{fmt0(tDI_)} ج</b></div>}
+            {totalWeeklyAdvances>0&&<div>🏢 سلف الإدارة/الشهريين: <b style={{color:"#EC4899"}}>{fmt0(totalWeeklyAdvances)} ج</b> <span style={{fontSize:FS-3,color:T.textMut}}>(خرجت من الخزنة بالفعل)</span></div>}
+            <div style={{borderTop:"2px solid "+T.brd,marginTop:10,paddingTop:10}}>
+              💵 دفعات يوم الإقفال: <b style={{color:T.ok,fontSize:FS+1}}>{fmt0(tTP_)} ج</b>
+            </div>
+            <div>
+              🏦 إجمالي سيخرج من الخزنة الآن: <b style={{color:T.accent,fontSize:FS+2}}>{fmt0(totalCashOut)} ج</b>
+            </div>
+            {tRB_!==0&&<div>🔄 يُرحّل للأسبوع القادم: <b style={{color:T.warn}}>{fmt0(tRB_)} ج</b></div>}
+          </div>
+
+          {/* Close date selector */}
+          <div style={{marginBottom:14}}>
+            <label style={{fontSize:FS-1,color:T.textSec,fontWeight:700,display:"block",marginBottom:6}}>📅 تاريخ إقفال الأسبوع (يظهر في الحركات المالية):</label>
+            <Inp type="date" value={closeDateValue} onChange={setCloseDateValue} max={today}/>
+            <div style={{fontSize:FS-3,color:T.textMut,marginTop:4,lineHeight:1.5}}>
+              ℹ️ يمكن ترحيل التاريخ لأسبوع سابق إذا احتجت تسجيل الإقفال بأثر رجعي.<br/>
+              التاريخ الحقيقي ({today}) سيُسجل بشكل ثابت في سجل التدقيق.
+            </div>
+          </div>
+
+          {/* Backdated warning */}
+          {isBackdated&&<div style={{padding:12,background:T.warn+"10",border:"2px solid "+T.warn+"40",borderRadius:10,marginBottom:14,fontSize:FS-1,lineHeight:1.7,color:T.warn}}>
+            <div style={{fontWeight:800,marginBottom:4}}>⚠️ إقفال بتاريخ سابق:</div>
+            <div style={{color:T.text}}>الحركات المالية ستُسجل بتاريخ <b style={{color:T.warn}}>{closeDateValue}</b></div>
+            <div style={{color:T.text}}>التاريخ الحقيقي <b>{today}</b> سيُحفظ في الأسبوع وسجل التدقيق</div>
+            <div style={{color:T.textSec,fontSize:FS-2,marginTop:6}}>سيظهر علامة "⚠️ تاريخ الإقفال الفعلي" في صفحة الأسبوع.</div>
+          </div>}
+
+          {/* Actions */}
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <Btn onClick={()=>setShowCloseDate(false)} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>إلغاء</Btn>
+            <Btn primary onClick={()=>{setShowCloseDate(false);approveWeek(closeDateValue)}} style={{fontSize:FS,padding:"10px 24px"}}>💰 اعتماد الإقفال</Btn>
+          </div>
+        </div>
+      </div>;
+    })()}
+
     {/* ══ MATRIX POPUP ══ */}
     {showMatrix&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowMatrix(false)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd}}>
@@ -16144,6 +16573,163 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         </tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>{q?"لا يوجد نتائج للبحث عن \""+empSearch+"\"":"أضف موظفين"}</div>}
       </Card>})()}
     </div>}
+
+    {/* ══ SECURITY & AUDIT — Dashboard, Flags, Audit Log ══ */}
+    {view==="security"&&(()=>{
+      /* KPIs — this week */
+      const activeOpenWeek=hrWeeks.find(w=>w.status!=="closed");
+      /* Manual edits count (attendance) in last 30 days */
+      const cutoff=Date.now()-30*86400000;
+      const recentAudits=auditLog.filter(a=>new Date(a.ts).getTime()>cutoff);
+      const manualEditsCount=recentAudits.filter(a=>a.category==="attendance"&&a.action==="manual_edit").length;
+      const pasteCount=recentAudits.filter(a=>a.category==="attendance"&&a.action==="paste_biometric").length;
+      const codeChanges=recentAudits.filter(a=>a.category==="employee"&&a.action==="code_change").length;
+      const salaryChanges=recentAudits.filter(a=>a.category==="employee"&&a.action==="salary_change").length;
+      const advDeletes=recentAudits.filter(a=>a.category==="advance"&&a.action==="delete_weekly").length;
+      const dangerEvents=recentAudits.filter(a=>a.severity==="danger").length;
+      /* Top overtime employees (current open week or last closed) */
+      const refWeek=activeOpenWeek||hrWeeks.find(w=>w.status==="closed");
+      const topOT=[];const topAdv=[];
+      if(refWeek){
+        activeEmps.forEach(emp=>{const c=calcSalary(emp.id,refWeek);if(c){
+          if(c.overtimeHours>0)topOT.push({name:emp.name,code:emp.code,hours:c.overtimeHours,pay:c.overtimePay});
+          if(c.weekAdvances>0)topAdv.push({name:emp.name,code:emp.code,amount:c.weekAdvances});
+        }});
+        topOT.sort((a,b)=>b.hours-a.hours);
+        topAdv.sort((a,b)=>b.amount-a.amount);
+      }
+      /* Active flags from open week */
+      const activeFlags=activeOpenWeek?computeSecurityFlags(activeOpenWeek):[];
+      /* Audit log filters */
+      return<div>
+        {/* KPIs Grid */}
+        <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(6,1fr)",gap:10,marginBottom:14}}>
+          <div style={{padding:12,borderRadius:12,background:T.warn+"08",border:"1px solid "+T.warn+"20",textAlign:"center"}}>
+            <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2}}>✏️ تعديلات يدوية</div>
+            <div style={{fontSize:FS+4,fontWeight:800,color:T.warn}}>{manualEditsCount}</div>
+            <div style={{fontSize:FS-4,color:T.textMut}}>آخر 30 يوم</div>
+          </div>
+          <div style={{padding:12,borderRadius:12,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center"}}>
+            <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2}}>📋 لصق بصمة</div>
+            <div style={{fontSize:FS+4,fontWeight:800,color:T.accent}}>{pasteCount}</div>
+            <div style={{fontSize:FS-4,color:T.textMut}}>آخر 30 يوم</div>
+          </div>
+          <div style={{padding:12,borderRadius:12,background:T.err+"08",border:"1px solid "+T.err+"20",textAlign:"center"}}>
+            <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2}}>🔑 تغيير كود</div>
+            <div style={{fontSize:FS+4,fontWeight:800,color:T.err}}>{codeChanges}</div>
+            <div style={{fontSize:FS-4,color:T.textMut}}>آخر 30 يوم</div>
+          </div>
+          <div style={{padding:12,borderRadius:12,background:"#F9731608",border:"1px solid #F9731620",textAlign:"center"}}>
+            <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2}}>💰 تغيير مرتب</div>
+            <div style={{fontSize:FS+4,fontWeight:800,color:"#F97316"}}>{salaryChanges}</div>
+            <div style={{fontSize:FS-4,color:T.textMut}}>آخر 30 يوم</div>
+          </div>
+          <div style={{padding:12,borderRadius:12,background:"#DC262608",border:"1px solid #DC262620",textAlign:"center"}}>
+            <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2}}>🗑️ حذف سلف</div>
+            <div style={{fontSize:FS+4,fontWeight:800,color:"#DC2626"}}>{advDeletes}</div>
+            <div style={{fontSize:FS-4,color:T.textMut}}>آخر 30 يوم</div>
+          </div>
+          <div style={{padding:12,borderRadius:12,background:dangerEvents>0?T.err+"15":T.ok+"08",border:"2px solid "+(dangerEvents>0?T.err+"40":T.ok+"30"),textAlign:"center"}}>
+            <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2}}>🚨 أحداث خطرة</div>
+            <div style={{fontSize:FS+4,fontWeight:800,color:dangerEvents>0?T.err:T.ok}}>{dangerEvents}</div>
+            <div style={{fontSize:FS-4,color:T.textMut}}>آخر 30 يوم</div>
+          </div>
+        </div>
+
+        {/* Active Flags from open week */}
+        {activeFlags.length>0&&<Card title={"🚩 تنبيهات نشطة — W"+activeOpenWeek.weekNum+" ("+activeFlags.length+")"} style={{marginBottom:14,border:"2px solid "+T.warn+"40"}}>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {activeFlags.map((f,i)=><div key={i} style={{display:"flex",gap:10,padding:"10px 12px",borderRadius:10,background:(f.severity==="danger"?T.err:T.warn)+"08",border:"1px solid "+(f.severity==="danger"?T.err:T.warn)+"25"}}>
+              <span style={{fontSize:18}}>{f.icon}</span>
+              <div style={{flex:1,fontSize:FS-1,fontWeight:700,color:f.severity==="danger"?T.err:T.warn}}>{f.msg}</div>
+              <span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-3,fontWeight:800,background:(f.severity==="danger"?T.err:T.warn)+"18",color:f.severity==="danger"?T.err:T.warn}}>
+                {f.severity==="danger"?"خطر":"تحذير"}
+              </span>
+            </div>)}
+          </div>
+        </Card>}
+
+        {/* Top 5 Overtime + Top 5 Advances */}
+        {refWeek&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12,marginBottom:14}}>
+          <Card title={"⏰ أعلى 5 في الإضافي — W"+refWeek.weekNum}>
+            {topOT.length===0?<div style={{padding:14,textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا يوجد إضافي</div>:<div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {topOT.slice(0,5).map((e,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",borderRadius:8,background:i===0?"#8B5CF612":T.bg,border:"1px solid "+(i===0?"#8B5CF630":T.brd)}}>
+                <div>
+                  <div style={{fontSize:FS-1,fontWeight:700}}>{i+1}. {e.name}</div>
+                  {e.code&&<div style={{fontSize:FS-3,color:T.textMut,direction:"ltr",textAlign:"right"}}>#{e.code}</div>}
+                </div>
+                <div style={{textAlign:"left"}}>
+                  <div style={{fontSize:FS,fontWeight:800,color:"#8B5CF6"}}>{hrsToHM(e.hours)}</div>
+                  <div style={{fontSize:FS-3,color:T.textMut}}>{fmt0(e.pay)} ج</div>
+                </div>
+              </div>)}
+            </div>}
+          </Card>
+          <Card title={"💸 أعلى 5 في السلف — W"+refWeek.weekNum}>
+            {topAdv.length===0?<div style={{padding:14,textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد سلف</div>:<div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {topAdv.slice(0,5).map((e,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",borderRadius:8,background:i===0?T.err+"12":T.bg,border:"1px solid "+(i===0?T.err+"30":T.brd)}}>
+                <div>
+                  <div style={{fontSize:FS-1,fontWeight:700}}>{i+1}. {e.name}</div>
+                  {e.code&&<div style={{fontSize:FS-3,color:T.textMut,direction:"ltr",textAlign:"right"}}>#{e.code}</div>}
+                </div>
+                <div style={{fontSize:FS+1,fontWeight:800,color:T.err}}>{fmt0(e.amount)} ج</div>
+              </div>)}
+            </div>}
+          </Card>
+        </div>}
+
+        {/* Audit Log table */}
+        <Card title={"📜 سجل التدقيق ("+auditLog.length+" حركة)"}>
+          {auditLog.length===0?<div style={{padding:40,textAlign:"center",color:T.textMut}}>
+            <div style={{fontSize:48,marginBottom:8}}>📜</div>
+            <div style={{fontSize:FS}}>لا توجد حركات مسجلة بعد</div>
+            <div style={{fontSize:FS-2,marginTop:4}}>كل تعديل حساس سيُسجل هنا تلقائياً</div>
+          </div>:<div style={{overflowX:"auto",maxHeight:500,overflowY:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+              <thead style={{position:"sticky",top:0,zIndex:1,background:T.cardSolid}}>
+                <tr>
+                  <th style={TH}>الوقت</th>
+                  <th style={TH}>النوع</th>
+                  <th style={TH}>الهدف</th>
+                  <th style={TH}>القيم</th>
+                  <th style={TH}>المستخدم</th>
+                </tr>
+              </thead>
+              <tbody>
+                {auditLog.slice(0,300).map((a,i)=>{
+                  const cats={attendance:{icon:"📋",label:"حضور",color:"#0284C7"},salary:{icon:"💰",label:"مرتب",color:T.ok},
+                    advance:{icon:"💸",label:"سلفة",color:T.err},employee:{icon:"👤",label:"موظف",color:"#8B5CF6"},
+                    week:{icon:"📅",label:"أسبوع",color:"#06B6D4"},settings:{icon:"⚙️",label:"إعدادات",color:T.textMut},general:{icon:"📝",label:"عام",color:T.textMut}};
+                  const cat=cats[a.category]||cats.general;
+                  const sevColor=a.severity==="danger"?T.err:a.severity==="warning"?T.warn:T.textSec;
+                  return<tr key={a.id||i} style={{borderBottom:"1px solid "+T.brd,background:i%2===1?T.bg:"transparent"}}>
+                    <td style={{...TD,whiteSpace:"nowrap",fontSize:FS-3,color:T.textMut,direction:"ltr",textAlign:"right"}}>
+                      <div>{a.date}</div>
+                      <div>{new Date(a.ts).toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</div>
+                    </td>
+                    <td style={TD}>
+                      <span style={{padding:"3px 8px",borderRadius:6,fontSize:FS-3,fontWeight:700,background:cat.color+"15",color:cat.color,whiteSpace:"nowrap"}}>
+                        {cat.icon} {cat.label}
+                      </span>
+                    </td>
+                    <td style={{...TD,fontWeight:700}}>{a.target}</td>
+                    <td style={{...TD,color:sevColor,fontSize:FS-2}}>
+                      {a.oldValue&&<div>قبل: <span style={{color:T.textMut}}>{a.oldValue}</span></div>}
+                      {a.newValue&&<div>{a.oldValue?"بعد":""}: <span style={{fontWeight:700}}>{a.newValue}</span></div>}
+                      {a.notes&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{a.notes}</div>}
+                    </td>
+                    <td style={{...TD,fontSize:FS-2,color:T.textSec}}>{a.user||"—"}</td>
+                  </tr>;
+                })}
+              </tbody>
+            </table>
+            {auditLog.length>300&&<div style={{padding:10,textAlign:"center",fontSize:FS-2,color:T.textMut}}>
+              عرض أحدث 300 حركة • الإجمالي: {auditLog.length}
+            </div>}
+          </div>}
+        </Card>
+      </div>;
+    })()}
 
     {/* ══ LOG ══ */}
     {view==="log"&&(()=>{
