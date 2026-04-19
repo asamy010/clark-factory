@@ -13440,6 +13440,12 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const[selMonth,setSelMonth]=useState(()=>new Date().toISOString().slice(0,7));/* for monthly summary */
   const[empStatement,setEmpStatement]=useState(null);/* empId for statement popup */
   const[stmtFrom,setStmtFrom]=useState("");const[stmtTo,setStmtTo]=useState("");
+  /* Weekly advances for salaried/admin staff — stored inline in week */
+  const[showAdvForm,setShowAdvForm]=useState(false);/* true = add new */
+  const[advEmpId,setAdvEmpId]=useState("");
+  const[advAmount,setAdvAmount]=useState("");
+  const[advDate,setAdvDate]=useState("");
+  const[advNote,setAdvNote]=useState("");
 
   const openWeek=hrWeeks.find(w=>w.id===openWeekId);
   
@@ -13731,6 +13737,37 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     const remainingBalance=r2(netBalance-thursdayPay);
     return{weeklySalary,baseHours,perHour,workDays,totalHours,basicHours,overtimeHours,basicPay,overtimePay,grossPay,prevBalance,prevBalanceIsManual,weekAdvances,bonus,specialDeduct,debtInstall,debtCarried,debtItems:debtInfo.items,debtInfoTotal:debtInfo.total,manualInstallDeduct,isPartialInstall,isSkippedInstall,netBalance,thursdayPay,remainingBalance,days}};
 
+  /* ── Weekly Advances (for monthly/admin staff) ── */
+  const weeklyAdvances=openWeek?(openWeek.weeklyAdvances||[]):[];
+  const totalWeeklyAdvances=weeklyAdvances.reduce((s,a)=>s+(Number(a.amount)||0),0);
+  const resetAdvForm=()=>{setAdvEmpId("");setAdvAmount("");setAdvDate(openWeek?.weekStart||today);setAdvNote("")};
+  const saveWeeklyAdvance=()=>{
+    if(!openWeek||!advEmpId||!advAmount)return;
+    const emp=employees.find(e=>e.id===advEmpId);if(!emp)return;
+    const amt=Number(advAmount)||0;if(amt<=0)return;
+    upConfig(d=>{
+      const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
+      if(!d.hrWeeks[wi].weeklyAdvances)d.hrWeeks[wi].weeklyAdvances=[];
+      d.hrWeeks[wi].weeklyAdvances.push({
+        id:gid(),empId:advEmpId,empName:emp.name,empJob:emp.job||"",
+        amount:amt,date:advDate||today,note:advNote||"",
+        createdBy:userName||"",createdAt:new Date().toISOString()
+      });
+    });
+    setShowAdvForm(false);resetAdvForm();showToast("✓ تم إضافة السلفة");
+  };
+  const deleteWeeklyAdvance=(advId)=>{
+    if(!openWeek)return;
+    openConfirm({
+      title:"حذف السلفة",message:"هل أنت متأكد من حذف هذه السلفة؟",variant:"warn",confirmText:"حذف",
+      onConfirm:()=>{upConfig(d=>{
+        const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
+        if(!d.hrWeeks[wi].weeklyAdvances)return;
+        d.hrWeeks[wi].weeklyAdvances=d.hrWeeks[wi].weeklyAdvances.filter(a=>a.id!==advId);
+      });showToast("✓ تم الحذف")}
+    });
+  };
+
   /* ── Approve & Close Week ── */
   const approveWeek=()=>{if(!openWeek||openWeek.status==="closed")return;
     const weekSelected=getSelectedEmps(openWeek.id);
@@ -13832,8 +13869,29 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       /* Treasury — individual entry per employee (thursday pay) */
       const dayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date().getDay()];
       records.forEach(r=>{if(r.thursdayPay>0)d.treasury.unshift({id:gid(),type:"out",amount:r2(r.thursdayPay),desc:"مرتب "+r.empName+" W"+openWeek.weekNum,category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:today,day:dayName,sourceType:"hr_salary",weekId:openWeek.id,empId:r.empId,by:userName,createdAt:new Date().toISOString(),snapshotId})});
+      /* Weekly advances (for monthly/admin staff) — register in treasury + hrLog */
+      const wAdvs=(openWeek.weeklyAdvances||[]);
+      wAdvs.forEach(a=>{
+        const advDayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(a.date||today).getDay()];
+        /* Treasury out */
+        d.treasury.unshift({
+          id:gid(),type:"out",amount:r2(Number(a.amount)||0),
+          desc:"سلفة "+a.empName+" W"+openWeek.weekNum+(a.note?" — "+a.note:""),
+          category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",
+          date:a.date||today,day:advDayName,
+          sourceType:"hr_weekly_advance",weekId:openWeek.id,empId:a.empId,
+          by:userName,createdAt:new Date().toISOString(),snapshotId
+        });
+        /* hrLog entry */
+        d.hrLog.unshift({
+          id:gid(),type:"weekly_advance",empId:a.empId,empName:a.empName,empJob:a.empJob||"",
+          amount:Number(a.amount)||0,note:a.note||"",
+          weekId:openWeek.id,weekStart:openWeek.weekStart,weekEnd:openWeek.weekEnd,
+          date:a.date||today,by:userName,createdAt:new Date().toISOString(),snapshotId
+        });
+      });
       /* Close week — also save snapshotId for restore lookup */
-      const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi>=0){d.hrWeeks[wi].status="closed";d.hrWeeks[wi].closedAt=today;d.hrWeeks[wi].closedBy=userName;d.hrWeeks[wi].totalGross=r2(totalGross);d.hrWeeks[wi].totalNet=r2(totalNet);d.hrWeeks[wi].totalThursdayPay=r2(totalThursdayPay);d.hrWeeks[wi].totalRemaining=r2(totalRemaining);d.hrWeeks[wi].empCount=records.length;d.hrWeeks[wi].snapshotId=snapshotId;d.hrWeeks[wi].snapshotDate=today}});
+      const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi>=0){d.hrWeeks[wi].status="closed";d.hrWeeks[wi].closedAt=today;d.hrWeeks[wi].closedBy=userName;d.hrWeeks[wi].totalGross=r2(totalGross);d.hrWeeks[wi].totalNet=r2(totalNet);d.hrWeeks[wi].totalThursdayPay=r2(totalThursdayPay);d.hrWeeks[wi].totalRemaining=r2(totalRemaining);d.hrWeeks[wi].totalWeeklyAdvances=r2(wAdvs.reduce((s,a)=>s+(Number(a.amount)||0),0));d.hrWeeks[wi].empCount=records.length;d.hrWeeks[wi].snapshotId=snapshotId;d.hrWeeks[wi].snapshotDate=today}});
     showToast("✓ تم اعتماد وقفل الأسبوع W"+openWeek.weekNum);setSalBonus({});setSalSpecialDeduct({});setSalThursdayPay({});setSalBaseHoursOverride({});setSalPrevBalanceOverride({});setSalManualInstallDeduct({});setSalInstallOverride({});setOpenWeekId(null);
     if(setSavingOverlay){setSavingOverlay({message:"✅ تم بنجاح!",progress:100});setTimeout(()=>setSavingOverlay(null),1200)}
     },200)},400)},300)},200)};
@@ -14153,7 +14211,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
 
   return<div>
     <div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflow:"hidden",border:"1px solid "+T.brd}}>
-      {[{k:"weeks",l:"📅 الأسابيع",c:hrWeeks.length},{k:"weeklySummary",l:"📊 سجل أسبوعي"},{k:"monthlySummary",l:"📅 سجل شهري"},{k:"employees",l:"👷 الموظفين",c:activeEmps.length},{k:"log",l:"📒 السجل",c:hrLog.length}].map(v=>
+      {[{k:"weeks",l:"📅 الأسابيع",c:hrWeeks.length},{k:"weeklySummary",l:"📊 سجل أسبوعي"},{k:"monthlySummary",l:"📅 سجل شهري"},{k:"employees",l:"👷 الموظفين",c:activeEmps.length}].map(v=>
         <div key={v.k} onClick={()=>{setView(v.k);setOpenWeekId(null)}} style={{flex:1,padding:"10px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-1,background:view===v.k?T.accent:T.cardSolid,color:view===v.k?"#fff":T.textSec,transition:"all 0.15s"}}>{v.l}{v.c!=null?" ("+v.c+")":""}</div>)}
     </div>
 
@@ -14319,26 +14377,55 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             specialDeductions+=c.specialDeduct||0;
             net+=c.netBalance||0;
           });
+          /* Additional aggregates for new cards */
+          let basicEntitled=0,overtimePay=0,grossPay=0;
+          shownEmps.forEach(e=>{const c=calcSalary(e.id,openWeek);if(!c)return;
+            basicEntitled+=c.basicPay||0;/* المستحق على الساعات الأساسية فقط */
+            overtimePay+=c.overtimePay||0;/* قيمة الوقت الإضافي */
+            grossPay+=c.grossPay||0;/* إجمالي المستحق = أساسي + إضافي */
+          });
           return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)",gap:10,marginBottom:14}}>
+            {/* 1. إجمالي المرتب الأساسي */}
             <div style={{padding:12,borderRadius:12,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center"}}>
               <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>💵 إجمالي المرتب الأساسي</div>
               <div style={{fontSize:FS+3,fontWeight:800,color:T.accent}}>{fmt0(baseSal)}</div>
               <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{shownEmps.length+" موظف"}</div>
             </div>
-            <div style={{padding:12,borderRadius:12,background:T.err+"08",border:"1px solid "+T.err+"20",textAlign:"center"}}>
-              <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>💸 إجمالي السلف</div>
-              <div style={{fontSize:FS+3,fontWeight:800,color:T.err}}>{fmt0(advances)}</div>
-              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>خلال الأسبوع</div>
+            {/* 2. إجمالي المرتب المستحق بدون إضافي */}
+            <div style={{padding:12,borderRadius:12,background:"#0284C708",border:"1px solid #0284C720",textAlign:"center"}}>
+              <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>📊 المستحق بدون إضافي</div>
+              <div style={{fontSize:FS+3,fontWeight:800,color:"#0284C7"}}>{fmt0(basicEntitled)}</div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>على الساعات الأساسية</div>
             </div>
+            {/* 3. إجمالي الإضافي */}
+            <div style={{padding:12,borderRadius:12,background:"#8B5CF608",border:"1px solid #8B5CF620",textAlign:"center"}}>
+              <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>⏰ إجمالي الإضافي</div>
+              <div style={{fontSize:FS+3,fontWeight:800,color:"#8B5CF6"}}>{fmt0(overtimePay)}</div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>قيمة الوقت الإضافي</div>
+            </div>
+            {/* 4. إجمالي مستحق */}
+            <div style={{padding:12,borderRadius:12,background:"#06B6D408",border:"1px solid #06B6D420",textAlign:"center"}}>
+              <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>💰 إجمالي المستحق</div>
+              <div style={{fontSize:FS+3,fontWeight:800,color:"#06B6D4"}}>{fmt0(grossPay)}</div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>أساسي + إضافي</div>
+            </div>
+            {/* 5. إجمالي السلف والمسحوبات */}
+            <div style={{padding:12,borderRadius:12,background:T.err+"08",border:"1px solid "+T.err+"20",textAlign:"center"}}>
+              <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>💸 إجمالي السلف والمسحوبات</div>
+              <div style={{fontSize:FS+3,fontWeight:800,color:T.err}}>{fmt0(advances+totalWeeklyAdvances)}</div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{"أسبوعية: "+fmt0(advances)+(totalWeeklyAdvances>0?" • شهريين: "+fmt0(totalWeeklyAdvances):"")}</div>
+            </div>
+            {/* 6. الخصم والخصم الخاص */}
             <div style={{padding:12,borderRadius:12,background:"#F9731608",border:"1px solid #F9731620",textAlign:"center"}}>
               <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>📉 الخصم والخصم الخاص</div>
               <div style={{fontSize:FS+3,fontWeight:800,color:"#F97316"}}>{fmt0(deductions+specialDeductions)}</div>
               <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{"أقساط: "+fmt0(deductions)+" • خاص: "+fmt0(specialDeductions)}</div>
             </div>
-            <div style={{padding:12,borderRadius:12,background:T.ok+"08",border:"1px solid "+T.ok+"20",textAlign:"center"}}>
+            {/* 7. إجمالي رصيد مستحق (صافي) */}
+            <div style={{padding:12,borderRadius:12,background:T.ok+"08",border:"1px solid "+T.ok+"20",textAlign:"center",gridColumn:isMob?"1 / -1":"span 2"}}>
               <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>✅ إجمالي الرصيد المستحق</div>
-              <div style={{fontSize:FS+3,fontWeight:800,color:T.ok}}>{fmt0(net)}</div>
-              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>صافي</div>
+              <div style={{fontSize:FS+5,fontWeight:800,color:T.ok}}>{fmt0(net)}</div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>صافي بعد كل الخصومات</div>
             </div>
           </div>})()}
 
@@ -14486,6 +14573,45 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             </tbody></table></div>;
             })()}
           </Card>})()}
+
+        {/* Weekly Advances — for monthly/admin staff (not in attendance) */}
+        <Card title={"💵 سلف الأسبوع (للشهريين والإدارة) — "+weeklyAdvances.length+" سلفة — الإجمالي "+fmt0(totalWeeklyAdvances)+" ج"} style={{marginBottom:14}} extra={canEdit&&!isLocked?<Btn small onClick={()=>{resetAdvForm();setShowAdvForm(true)}} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",fontWeight:700}}>+ إضافة سلفة</Btn>:null}>
+          {weeklyAdvances.length===0?<div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-1}}>
+            <div style={{fontSize:28,marginBottom:6}}>💵</div>
+            <div>لا توجد سلف مسجلة في هذا الأسبوع</div>
+            {canEdit&&!isLocked&&<div style={{fontSize:FS-2,marginTop:4}}>اضغط "+ إضافة سلفة" لتسجيل سلفة لموظف شهري أو إداري</div>}
+          </div>:<div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+              <thead><tr>
+                <th style={{...TH,width:30}}>#</th>
+                <th style={TH}>الموظف</th>
+                <th style={TH}>الوظيفة</th>
+                <th style={{...TH,textAlign:"center"}}>المبلغ</th>
+                <th style={{...TH,textAlign:"center"}}>التاريخ</th>
+                <th style={TH}>ملاحظة</th>
+                {canEdit&&!isLocked&&<th style={{...TH,width:40}}></th>}
+              </tr></thead>
+              <tbody>
+                {weeklyAdvances.map((a,i)=><tr key={a.id} style={{borderBottom:"1px solid "+T.brd,background:i%2===1?T.bg:"transparent"}}>
+                  <td style={{...TD,textAlign:"center",color:T.textMut}}>{i+1}</td>
+                  <td style={{...TD,fontWeight:700}}>{a.empName}</td>
+                  <td style={{...TD,color:T.textSec}}>{a.empJob||"—"}</td>
+                  <td style={{...TD,textAlign:"center",fontWeight:800,color:T.err}}>{fmt0(a.amount)}</td>
+                  <td style={{...TD,textAlign:"center",color:T.textMut,fontSize:FS-2,direction:"ltr"}}>{a.date}</td>
+                  <td style={{...TD,color:T.textSec,fontSize:FS-2}}>{a.note||"—"}</td>
+                  {canEdit&&!isLocked&&<td style={{...TD,textAlign:"center"}}>
+                    <span onClick={()=>deleteWeeklyAdvance(a.id)} style={{cursor:"pointer",padding:"2px 8px",borderRadius:6,fontSize:FS-1,background:T.err+"10",color:T.err,border:"1px solid "+T.err+"25"}} title="حذف">🗑</span>
+                  </td>}
+                </tr>)}
+                <tr style={{background:T.err+"08",fontWeight:800,borderTop:"2px solid "+T.err+"30"}}>
+                  <td colSpan={3} style={{...TD,textAlign:"right",fontWeight:800}}>الإجمالي</td>
+                  <td style={{...TD,textAlign:"center",color:T.err,fontSize:FS+1}}>{fmt0(totalWeeklyAdvances)}</td>
+                  <td colSpan={canEdit&&!isLocked?3:2}></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>}
+        </Card>
 
         {/* Salary calculation — aligned, centered, with deduct reason */}
         {(()=>{
@@ -14698,6 +14824,37 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                         totalsRow+
                       "</tbody>"+
                     "</table>"+
+                    /* Weekly advances section (for monthly/admin staff) */
+                    (weeklyAdvances.length>0?
+                      "<h2 style='font-size:14px;color:#10B981;margin:16px 0 8px;border-bottom:2px solid #A7F3D0;padding-bottom:4px'>💵 سلف الأسبوع (الشهريين والإدارة)</h2>"+
+                      "<table style='margin-bottom:14px'>"+
+                        "<thead><tr>"+
+                          "<th style='width:30px'>#</th>"+
+                          "<th>الموظف</th>"+
+                          "<th>الوظيفة</th>"+
+                          "<th>التاريخ</th>"+
+                          "<th style='background:linear-gradient(180deg,#D1FAE5,#A7F3D0)'>المبلغ المستلم</th>"+
+                          "<th>ملاحظة</th>"+
+                          "<th class='sig-col'>التوقيع</th>"+
+                        "</tr></thead>"+
+                        "<tbody>"+
+                          weeklyAdvances.map((a,i)=>"<tr>"+
+                            "<td class='center' style='font-weight:700'>"+(i+1)+"</td>"+
+                            "<td style='font-weight:700'>"+(a.empName||"")+"</td>"+
+                            "<td>"+(a.empJob||"—")+"</td>"+
+                            "<td class='center' style='direction:ltr;font-size:10px'>"+a.date+"</td>"+
+                            "<td class='center' style='color:#10B981;font-weight:800;font-size:13px'>"+fmt0(a.amount)+"</td>"+
+                            "<td style='font-size:10px'>"+(a.note||"—")+"</td>"+
+                            "<td style='min-height:40px;border-bottom:1px solid #CBD5E1'></td>"+
+                          "</tr>").join("")+
+                          "<tr style='background:#F0FDF4;font-weight:800;border-top:2px solid #10B981'>"+
+                            "<td class='center' colspan='4' style='font-size:12px'>إجمالي السلف الأسبوعية — "+weeklyAdvances.length+" سلفة</td>"+
+                            "<td class='center' style='color:#10B981;font-size:14px'>"+fmt0(totalWeeklyAdvances)+"</td>"+
+                            "<td colspan='2'></td>"+
+                          "</tr>"+
+                        "</tbody>"+
+                      "</table>"
+                    :"")+
                     "<div class='notice'>"+
                       "<b>⚠️ تنبيه:</b> بالتوقيع أمام اسمي أعلاه، أُقرّ باستلام المبلغ المذكور تحت خانة \"المدفوع\" بالكامل ودون أي خصم أو نقصان، وأنه لا يوجد لي أي مطالبات أخرى متعلقة بهذا الأسبوع."+
                     "</div>"+
@@ -14793,6 +14950,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                 /* Build summary for confirmation */
                 let tG_=0,tN_=0,tA_=0,tTP_=0,tRB_=0,tDI_=0;
                 shownEmps.forEach(e=>{const cc=calcSalary(e.id,openWeek);if(cc){tG_+=cc.grossPay;tN_+=cc.netBalance;tA_+=cc.weekAdvances;tTP_+=cc.thursdayPay;tRB_+=cc.remainingBalance;tDI_+=cc.debtInstall||0}});
+                const totalCashOut=r2(tTP_+totalWeeklyAdvances);
                 openConfirm({
                   title:"اعتماد وقفل أسبوع W"+openWeek.weekNum,
                   message:"الفترة: "+openWeek.weekStart+" → "+openWeek.weekEnd+"\n"+
@@ -14800,9 +14958,12 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                     "💰 اجمالي المستحق: "+fmt0(tG_)+" ج.م\n"+
                     "💸 اجمالي المسحوبات: "+fmt0(tA_)+" ج.م\n"+
                     (tDI_>0?"🧾 اجمالي أقساط: "+fmt0(tDI_)+" ج.م\n":"")+
-                    "💵 سيخرج من الخزنة: "+fmt0(tTP_)+" ج.م\n"+
+                    "💵 دفعات المرتبات: "+fmt0(tTP_)+" ج.م\n"+
+                    (totalWeeklyAdvances>0?"💵 سلف الأسبوع (شهريين/إدارة): "+fmt0(totalWeeklyAdvances)+" ج.م ("+weeklyAdvances.length+" سلفة)\n":"")+
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"+
+                    "🏦 إجمالي سيخرج من الخزنة: "+fmt0(totalCashOut)+" ج.م\n"+
                     "🔄 يُرحّل للأسبوع القادم: "+fmt0(tRB_)+" ج.م\n\n"+
-                    "سيتم: تحديث أرصدة الموظفين، تسجيل المرتبات في السجل، خصم الأقساط، تسجيل دفعة الخزنة، وقفل الأسبوع.",
+                    "سيتم: تحديث أرصدة الموظفين، تسجيل المرتبات والسلف في السجل، خصم الأقساط، تسجيل دفعات الخزنة، وقفل الأسبوع.",
                   variant:"warn",
                   onConfirm:()=>approveWeek()
                 })
@@ -15522,6 +15683,46 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
           <Btn onClick={()=>setQuickAdvance(null)} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>إلغاء</Btn>
           <Btn primary onClick={saveQuickAdvance} style={{background:T.err,color:"#fff"}}>💰 تسجيل السلفة</Btn>
+        </div>
+      </div>
+    </div>}
+
+    {/* ══ WEEKLY ADVANCE POPUP — سلفة أسبوعية للشهريين والإدارة ══ */}
+    {showAdvForm&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setShowAdvForm(false)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:440,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"1px solid "+T.brd}}>
+          <div style={{fontSize:FS+1,fontWeight:800,color:T.ok,display:"flex",alignItems:"center",gap:8}}>
+            <span>💵</span><span>سلفة أسبوعية</span>
+          </div>
+          <Btn ghost small onClick={()=>setShowAdvForm(false)}>✕</Btn>
+        </div>
+        <div style={{marginBottom:10}}>
+          <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>الموظف *</label>
+          <Sel value={advEmpId} onChange={setAdvEmpId}>
+            <option value="">اختر موظف...</option>
+            {activeEmps.slice().sort((a,b)=>(a.name||"").localeCompare(b.name||"")).map(e=><option key={e.id} value={e.id}>{e.name}{e.job?" — "+e.job:""}</option>)}
+          </Sel>
+        </div>
+        <div style={{display:"flex",gap:10,marginBottom:10}}>
+          <div style={{flex:1}}>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>المبلغ *</label>
+            <Inp type="number" value={advAmount} onChange={setAdvAmount} placeholder="0"/>
+          </div>
+          <div style={{flex:1}}>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>التاريخ</label>
+            <Inp type="date" value={advDate||openWeek?.weekStart||today} onChange={setAdvDate}/>
+          </div>
+        </div>
+        <div style={{marginBottom:14}}>
+          <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>ملاحظة</label>
+          <Inp value={advNote} onChange={setAdvNote} placeholder="سلفة أسبوعية، طوارئ، إلخ..."/>
+        </div>
+        <div style={{padding:10,background:T.accent+"08",borderRadius:8,marginBottom:14,fontSize:FS-2,color:T.textSec,lineHeight:1.6}}>
+          💡 هذه السلفة ستُسجَّل في الخزنة وسجل الموظف عند إقفال الأسبوع.
+        </div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <Btn onClick={()=>setShowAdvForm(false)} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>إلغاء</Btn>
+          <Btn primary onClick={saveWeeklyAdvance} disabled={!advEmpId||!advAmount} style={{background:advEmpId&&advAmount?T.ok:T.bg,color:advEmpId&&advAmount?"#fff":T.textMut,border:"none"}}>💾 حفظ السلفة</Btn>
         </div>
       </div>
     </div>}
