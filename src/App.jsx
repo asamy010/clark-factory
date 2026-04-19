@@ -12928,7 +12928,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   /* Matrix popup */
   const[showMatrix,setShowMatrix]=useState(false);const[matrixEmps,setMatrixEmps]=useState([]);const[matrixDate,setMatrixDate]=useState(today);const[matrixDesc,setMatrixDesc]=useState("سلفة");
   /* Salary overrides per employee in active week */
-  const[salBonus,setSalBonus]=useState({});const[salSpecialDeduct,setSalSpecialDeduct]=useState({});const[salThursdayPay,setSalThursdayPay]=useState({});
+  const[salBonus,setSalBonus]=useState({});const[salSpecialDeduct,setSalSpecialDeduct]=useState({});const[salThursdayPay,setSalThursdayPay]=useState({});const[salPrevBalanceOverride,setSalPrevBalanceOverride]=useState({});
   /* Quick advance popup from salary table — {empId, empName, amount, date, note} */
   const[quickAdvance,setQuickAdvance]=useState(null);
   const[salBaseHoursOverride,setSalBaseHoursOverride]=useState({});/* empId -> custom base hours for this week */
@@ -13167,7 +13167,10 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       if(h>0){totalHours+=h;workDays++}}
     const basicHours=Math.min(totalHours,baseHours);const overtimeHours=Math.max(0,totalHours-baseHours);
     const basicPay=r2(basicHours*perHour);const overtimePay=r2(overtimeHours*perHour*OT_MULT);const grossPay=r2(basicPay+overtimePay);
-    const prevBalance=emp.prevBalance||0;
+    /* Prev balance: use manual override from salPrevBalanceOverride if set, otherwise use employee's stored balance */
+    const manualPrevBal=salPrevBalanceOverride[empId];
+    const prevBalance=(manualPrevBal!==undefined&&manualPrevBal!=="")?(Number(manualPrevBal)||0):(Number(emp.prevBalance)||0);
+    const prevBalanceIsManual=(manualPrevBal!==undefined&&manualPrevBal!=="")&&(Number(manualPrevBal)!==Number(emp.prevBalance||0));
     /* Advances for this week:
        - Strategy: union of everything in date range, dedupe by hrLogId
        - hrLog advance entries (primary source)
@@ -13197,7 +13200,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     /* Thursday cash payment — default to netBalance if not set (employee takes full amount) */
     const thursdayPay=salThursdayPay[empId]!==undefined&&salThursdayPay[empId]!==""?Number(salThursdayPay[empId])||0:netBalance;
     const remainingBalance=r2(netBalance-thursdayPay);
-    return{weeklySalary,baseHours,perHour,workDays,totalHours,basicHours,overtimeHours,basicPay,overtimePay,grossPay,prevBalance,weekAdvances,bonus,specialDeduct,debtInstall,debtCarried,debtItems:debtInfo.items,netBalance,thursdayPay,remainingBalance,days}};
+    return{weeklySalary,baseHours,perHour,workDays,totalHours,basicHours,overtimeHours,basicPay,overtimePay,grossPay,prevBalance,prevBalanceIsManual,weekAdvances,bonus,specialDeduct,debtInstall,debtCarried,debtItems:debtInfo.items,netBalance,thursdayPay,remainingBalance,days}};
 
   /* ── Approve & Close Week ── */
   const approveWeek=()=>{if(!openWeek||openWeek.status==="closed")return;
@@ -13253,7 +13256,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     setTimeout(()=>{
     upConfig(d=>{if(!d.hrLog)d.hrLog=[];if(!d.treasury)d.treasury=[];if(!d.empDebts)d.empDebts=[];
       /* Log each salary */
-      records.forEach(r=>{d.hrLog.unshift({id:gid(),type:"salary",empId:r.empId,empName:r.empName,amount:r.netBalance,grossPay:r.grossPay,weeklySalary:r.weeklySalary,prevBalance:r.prevBalance,weekAdvances:r.weekAdvances,bonus:r.bonus,specialDeduct:r.specialDeduct,deductReason:salDeductReason[r.empId]||"",debtInstall:r.debtInstall,debtItems:r.debtItems,thursdayPay:r.thursdayPay,remainingBalance:r.remainingBalance,weekId:openWeek.id,weekStart:openWeek.weekStart,weekEnd:openWeek.weekEnd,date:today,by:userName,createdAt:new Date().toISOString(),snapshotId})});
+      records.forEach(r=>{d.hrLog.unshift({id:gid(),type:"salary",empId:r.empId,empName:r.empName,amount:r.netBalance,grossPay:r.grossPay,weeklySalary:r.weeklySalary,prevBalance:r.prevBalance,prevBalanceManualOverride:!!r.prevBalanceIsManual,overtimePay:r.overtimePay||0,weekAdvances:r.weekAdvances,bonus:r.bonus,specialDeduct:r.specialDeduct,deductReason:salDeductReason[r.empId]||"",debtInstall:r.debtInstall,debtItems:r.debtItems,thursdayPay:r.thursdayPay,remainingBalance:r.remainingBalance,weekId:openWeek.id,weekStart:openWeek.weekStart,weekEnd:openWeek.weekEnd,date:today,by:userName,createdAt:new Date().toISOString(),snapshotId})});
       /* Record debt installments paid — only if debtInstall covered everything */
       records.forEach(r=>{if(r.debtInstall>0&&r.debtCarried===0){
         /* Full installment paid for all debts this week */
@@ -13269,7 +13272,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       records.forEach(r=>{if(r.thursdayPay>0)d.treasury.unshift({id:gid(),type:"out",amount:r2(r.thursdayPay),desc:"مرتب "+r.empName+" W"+openWeek.weekNum,category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:today,day:dayName,sourceType:"hr_salary",weekId:openWeek.id,empId:r.empId,by:userName,createdAt:new Date().toISOString(),snapshotId})});
       /* Close week — also save snapshotId for restore lookup */
       const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi>=0){d.hrWeeks[wi].status="closed";d.hrWeeks[wi].closedAt=today;d.hrWeeks[wi].closedBy=userName;d.hrWeeks[wi].totalGross=r2(totalGross);d.hrWeeks[wi].totalNet=r2(totalNet);d.hrWeeks[wi].totalThursdayPay=r2(totalThursdayPay);d.hrWeeks[wi].totalRemaining=r2(totalRemaining);d.hrWeeks[wi].empCount=records.length;d.hrWeeks[wi].snapshotId=snapshotId;d.hrWeeks[wi].snapshotDate=today}});
-    showToast("✓ تم اعتماد وقفل الأسبوع W"+openWeek.weekNum);setSalBonus({});setSalSpecialDeduct({});setSalThursdayPay({});setSalBaseHoursOverride({});setOpenWeekId(null);
+    showToast("✓ تم اعتماد وقفل الأسبوع W"+openWeek.weekNum);setSalBonus({});setSalSpecialDeduct({});setSalThursdayPay({});setSalBaseHoursOverride({});setSalPrevBalanceOverride({});setOpenWeekId(null);
     if(setSavingOverlay){setSavingOverlay({message:"✅ تم بنجاح!",progress:100});setTimeout(()=>setSavingOverlay(null),1200)}
     },200)},400)},300)},200)};
 
@@ -13813,6 +13816,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             {label:"أساسي",align:"center"},
             {label:"ساعات",align:"center"},
             {label:"إضافي",align:"center"},
+            {label:"إضافي مستحق",align:"center"},
             {label:"مستحق",align:"center"},
             {label:"رصيد سابق",align:"center"},
             {label:"مسحوبات",align:"center"},
@@ -13824,8 +13828,8 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             {label:"الرصيد (يُرحّل)",align:"center"},
             {label:"",align:"center",w:40}
           ];
-          let tG=0,tN=0,tA=0,tD=0,tB=0,tH=0,tO=0,tTP=0,tRB=0,tDI=0;
-          shownEmps.forEach(e=>{const c=calcSalary(e.id,openWeek);if(c){tG+=c.grossPay;tN+=c.netBalance;tA+=c.weekAdvances;tD+=c.specialDeduct;tB+=c.bonus;tH+=c.totalHours;tO+=c.overtimeHours;tTP+=c.thursdayPay;tRB+=c.remainingBalance;tDI+=c.debtInstall||0}});
+          let tG=0,tN=0,tA=0,tD=0,tB=0,tH=0,tO=0,tOP=0,tTP=0,tRB=0,tDI=0;
+          shownEmps.forEach(e=>{const c=calcSalary(e.id,openWeek);if(c){tG+=c.grossPay;tN+=c.netBalance;tA+=c.weekAdvances;tD+=c.specialDeduct;tB+=c.bonus;tH+=c.totalHours;tO+=c.overtimeHours;tOP+=c.overtimePay;tTP+=c.thursdayPay;tRB+=c.remainingBalance;tDI+=c.debtInstall||0}});
           return<Card title={"💰 حساب المرتبات — W"+openWeek.weekNum+" ("+shownEmps.length+" موظف)"}>
             <div style={{marginBottom:10,display:"flex",justifyContent:"flex-end"}}>
               <Btn small onClick={()=>{const sel={};shownEmps.forEach(e=>{sel[e.id]=true});setBulkPrintSel(sel);setShowBulkPrint(true)}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}}>🖨 طباعة مجمعة</Btn>
@@ -13841,8 +13845,9 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                   <td style={{padding:"3px 6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salBaseHoursOverride[emp.id]!==undefined?salBaseHoursOverride[emp.id]:""} onChange={ev=>setSalBaseHoursOverride(p=>({...p,[emp.id]:ev.target.value}))} placeholder={String(openWeek.baseHours||48)} style={{width:50,padding:"3px",borderRadius:6,border:"1px solid "+T.accent+"40",fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:salBaseHoursOverride[emp.id]?T.warn:T.text,fontWeight:salBaseHoursOverride[emp.id]?700:400}}/>:<span style={{fontSize:FS-2,color:c.baseHours!==(openWeek.baseHours||48)?T.warn:T.textMut,fontWeight:c.baseHours!==(openWeek.baseHours||48)?700:400}}>{c.baseHours}</span>}</td>
                   <td style={{padding:"3px 6px",fontSize:FS-2,textAlign:"center",direction:"ltr"}} title={"("+r2(c.totalHours)+" ساعة عشرية)"}>{c.totalHours>0?hrsToHM(c.totalHours):"—"}</td>
                   <td style={{padding:"3px 6px",fontSize:FS-2,color:c.overtimeHours>0?"#8B5CF6":T.textMut,textAlign:"center",fontWeight:c.overtimeHours>0?700:400,direction:"ltr"}} title={c.overtimeHours>0?"("+r2(c.overtimeHours)+" ساعة عشرية)":""}>{c.overtimeHours>0?hrsToHM(c.overtimeHours):"—"}</td>
+                  <td style={{padding:"3px 6px",fontSize:FS-2,color:c.overtimePay>0?"#8B5CF6":T.textMut,textAlign:"center",fontWeight:c.overtimePay>0?700:400}} title={c.overtimePay>0?"قيمة الوقت الإضافي ("+OT_MULT+"×)":""}>{c.overtimePay>0?fmt0(c.overtimePay):"—"}</td>
                   <td style={{padding:"3px 6px",fontSize:FS-1,fontWeight:700,color:T.ok,textAlign:"center"}}>{fmt0(c.grossPay)}</td>
-                  <td style={{padding:"3px 6px",fontSize:FS-2,color:c.prevBalance>=0?T.ok:T.err,textAlign:"center"}}>{fmt0(c.prevBalance)}</td>
+                  <td style={{padding:"3px 6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salPrevBalanceOverride[emp.id]!==undefined?salPrevBalanceOverride[emp.id]:""} onChange={ev=>setSalPrevBalanceOverride(p=>({...p,[emp.id]:ev.target.value}))} placeholder={String(emp.prevBalance||0)} title={"الافتراضي: "+(emp.prevBalance||0)+" (من الأسبوع السابق)"} style={{width:70,padding:"3px",borderRadius:6,border:"1px solid "+(c.prevBalanceIsManual?T.warn+"60":T.brd),fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:c.prevBalanceIsManual?T.warn:(c.prevBalance>=0?T.ok:T.err),fontWeight:c.prevBalanceIsManual?700:400}}/>:<span style={{fontSize:FS-2,color:c.prevBalanceIsManual?T.warn:(c.prevBalance>=0?T.ok:T.err),fontWeight:c.prevBalanceIsManual?700:400}}>{fmt0(c.prevBalance)}</span>}</td>
                   <td style={{padding:"3px 6px",fontSize:FS-1,fontWeight:700,color:c.weekAdvances>0?T.err:T.textMut,textAlign:"center"}}>
                     <div style={{display:"flex",gap:4,justifyContent:"center",alignItems:"center"}}>
                       <span>{c.weekAdvances>0?fmt0(c.weekAdvances):"—"}</span>
@@ -13872,6 +13877,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                 <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,color:T.textMut}}>{openWeek.baseHours||48}</td>
                 <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,direction:"ltr"}}>{hrsToHM(tH)}</td>
                 <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,color:"#8B5CF6",direction:"ltr"}}>{hrsToHM(tO)}</td>
+                <td style={{padding:"6px",textAlign:"center",fontSize:FS-2,color:"#8B5CF6",fontWeight:800}}>{fmt0(tOP)}</td>
                 <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.ok,fontWeight:800}}>{fmt0(tG)}</td>
                 <td style={{padding:"6px",textAlign:"center",fontSize:FS-2}}>—</td>
                 <td style={{padding:"6px",textAlign:"center",fontSize:FS-1,color:T.err,fontWeight:800}}>{fmt0(tA)}</td>
