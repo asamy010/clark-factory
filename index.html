@@ -20,7 +20,9 @@
     #landscape-block .icon{font-size:48px;animation:rotatePhone 2s ease infinite}
     @keyframes rotatePhone{0%,100%{transform:rotate(0deg)}50%{transform:rotate(-90deg)}}</style>
   </head>
-  <body><div id="landscape-block"><div class="icon">📱</div><div style="font-size:18px;font-weight:700">يرجى تدوير الجهاز</div><div style="font-size:13px;color:#94A3B8">CLARK يعمل في الوضع الرأسي فقط</div></div><div id="root"></div><script type="module" src="/src/main.jsx"></script>
+  <body><div id="landscape-block"><div class="icon">📱</div><div style="font-size:18px;font-weight:700">يرجى تدوير الجهاز</div><div style="font-size:13px;color:#94A3B8">CLARK يعمل في الوضع الرأسي فقط</div></div><div id="root"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <script type="module" src="/src/main.jsx"></script>
   <script>if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js')})}
   try{screen.orientation&&screen.orientation.lock&&screen.orientation.lock('portrait-primary').catch(()=>{})}catch(e){}</script></body>
 </html>

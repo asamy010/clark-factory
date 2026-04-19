@@ -8618,6 +8618,95 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
         </div>})()}
     </Card>
 
+    {/* WhatsApp Report Contacts Settings */}
+    <Card title="📱 جهات تواصل التقارير (واتساب)" style={{marginBottom:16}}>
+      {(()=>{
+        const contacts=config.waContacts||[];
+        const saveContacts=(fn)=>upConfig(d=>{if(!Array.isArray(d.waContacts))d.waContacts=[];fn(d.waContacts)});
+        const REPORT_TYPES=[
+          {k:"treasuryDaily",l:"📊 يومية الخزنة"},
+          {k:"customerStatement",l:"👤 كشف حساب عميل"},
+          {k:"workshopReport",l:"🏭 تقرير ورشة"},
+          {k:"hrWeekly",l:"👷 تقرير المرتبات الأسبوعية"},
+          {k:"general",l:"📋 تقارير عامة"}
+        ];
+        return<div>
+          <div style={{fontSize:FS-2,color:T.textSec,marginBottom:12,padding:"8px 12px",background:T.accent+"08",borderRadius:8,border:"1px solid "+T.accent+"20",lineHeight:1.6}}>
+            💡 أضف أرقام الواتساب اللي بتبعتلها التقارير (المدير، المحاسب، الشركاء... إلخ).<br/>
+            ✔️ اختر أنواع التقارير اللي الجهة دي تستقبلها — أو سيب فاضي لتظهر في كل التقارير.
+          </div>
+
+          {/* Add new contact form */}
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 2fr 2fr",gap:8,marginBottom:10,padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
+            <div><label style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>الاسم *</label>
+              <Inp value={config._newWaName||""} onChange={v=>upConfig(d=>{d._newWaName=v})} placeholder="مثال: أحمد المدير"/></div>
+            <div><label style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>رقم الواتساب *</label>
+              <Inp value={config._newWaPhone||""} onChange={v=>upConfig(d=>{d._newWaPhone=v})} placeholder="01012345678"/></div>
+            <div><label style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>الصفة / الدور (اختياري)</label>
+              <Inp value={config._newWaRole||""} onChange={v=>upConfig(d=>{d._newWaRole=v})} placeholder="مدير / محاسب / شريك..."/></div>
+          </div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8,alignItems:"center"}}>
+            <span style={{fontSize:FS-2,color:T.textSec,fontWeight:700,marginLeft:4}}>📋 التقارير:</span>
+            {REPORT_TYPES.map(rt=>{
+              const sel=(config._newWaReports||[]).includes(rt.k);
+              return<span key={rt.k} onClick={()=>upConfig(d=>{const cur=(d._newWaReports||[]);if(cur.includes(rt.k))d._newWaReports=cur.filter(x=>x!==rt.k);else d._newWaReports=[...cur,rt.k]})} style={{cursor:"pointer",padding:"4px 10px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:sel?T.accent:T.bg,color:sel?"#fff":T.textSec,border:"1px solid "+(sel?T.accent:T.brd)}}>{rt.l}</span>
+            })}
+          </div>
+          <div style={{display:"flex",gap:6,justifyContent:"flex-end",marginBottom:16}}>
+            <Btn primary onClick={()=>{
+              const name=(config._newWaName||"").trim();
+              const phone=(config._newWaPhone||"").trim();
+              if(!name||!phone){showToast("⚠️ ادخل الاسم والرقم");return}
+              const cleanPhone=phone.replace(/[^0-9]/g,"");
+              if(cleanPhone.length<10){showToast("⚠️ رقم غير صالح");return}
+              if(contacts.some(c=>c.phone===cleanPhone)){showToast("⚠️ هذا الرقم مضاف بالفعل");return}
+              saveContacts(arr=>arr.push({
+                id:Math.random().toString(36).slice(2)+Date.now(),
+                name,phone:cleanPhone,role:(config._newWaRole||"").trim(),
+                reports:config._newWaReports||[],
+                createdAt:new Date().toISOString()
+              }));
+              upConfig(d=>{d._newWaName="";d._newWaPhone="";d._newWaRole="";d._newWaReports=[]});
+              showToast("✅ تم الإضافة")
+            }}>+ إضافة جهة</Btn>
+          </div>
+
+          {/* Contacts list */}
+          {contacts.length>0?<div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {contacts.map((c,i)=><div key={c.id} style={{padding:"10px 14px",borderRadius:10,background:T.cardSolid,border:"1px solid "+T.brd}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:6}}>
+                <div>
+                  <div style={{fontSize:FS,fontWeight:800,color:T.text}}>{c.name}</div>
+                  <div style={{display:"flex",gap:10,alignItems:"center",marginTop:2}}>
+                    <span style={{fontSize:FS-2,color:T.textSec,direction:"ltr"}}>{c.phone}</span>
+                    {c.role&&<span style={{fontSize:FS-3,color:T.textMut}}>• {c.role}</span>}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:4}}>
+                  <Btn small onClick={()=>{window.open("https://wa.me/"+c.phone,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="اختبار فتح واتساب">📱</Btn>
+                  <Btn small danger onClick={()=>{
+                    if(!confirm("حذف جهة «"+c.name+"»؟"))return;
+                    saveContacts(arr=>arr.splice(i,1));
+                    showToast("✓ تم الحذف")
+                  }}>🗑️</Btn>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                {REPORT_TYPES.map(rt=>{
+                  const sel=(c.reports||[]).includes(rt.k);
+                  return<span key={rt.k} onClick={()=>saveContacts(arr=>{const cur=arr[i].reports||[];if(cur.includes(rt.k))arr[i].reports=cur.filter(x=>x!==rt.k);else arr[i].reports=[...cur,rt.k]})} style={{cursor:"pointer",padding:"3px 8px",borderRadius:5,fontSize:FS-3,fontWeight:600,background:sel?T.accent+"15":T.bg,color:sel?T.accent:T.textMut,border:"1px solid "+(sel?T.accent+"40":T.brd)}}>{rt.l}</span>
+                })}
+                {(!c.reports||c.reports.length===0)&&<span style={{fontSize:FS-3,color:T.warn,fontStyle:"italic",padding:"3px 8px"}}>⚠️ لم تُحدد تقارير — ستظهر في جميع التقارير</span>}
+              </div>
+            </div>)}
+          </div>:<div style={{textAlign:"center",padding:30,color:T.textMut,background:T.bg,borderRadius:10,border:"1px dashed "+T.brd}}>
+            <div style={{fontSize:32,marginBottom:6}}>📱</div>
+            <div style={{fontSize:FS-1}}>لم تُضف جهات بعد — استخدم النموذج أعلاه لإضافة أول جهة</div>
+          </div>}
+        </div>
+      })()}
+    </Card>
+
     {/* HR Settings */}
     <Card title="👷 إعدادات الموظفين" style={{marginBottom:16}}>
       {(()=>{const hrs=config.hrSettings||{};
@@ -12731,6 +12820,114 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       ${accounts.map(acc=>{const ab=accBalances[acc]||{in:0,out:0};return`<div class="sbox"><div style="font-size:10px;color:#666">${acc}</div><div class="blue" style="font-weight:700">${fmt(r2(ab.in-ab.out))}</div></div>`}).join("")}
     </div></body></html>`);w.document.close();setTimeout(()=>w.print(),300)};
 
+  /* ── Build daily report HTML (shared between PDF and WA) ── */
+  const buildDailyReportHtml=(date)=>{
+    const dayTxns=txns.filter(t=>t.date===date).sort((a,b)=>(a.createdAt||"").localeCompare(b.createdAt||""));
+    const dIn=dayTxns.filter(t=>t.type==="in").reduce((s,t)=>s+(Number(t.amount)||0),0);
+    const dOut=dayTxns.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0);
+    const prevTxns=txns.filter(t=>t.date<date);
+    const openBal=prevTxns.reduce((s,t)=>t.type==="in"?s+(Number(t.amount)||0):s-(Number(t.amount)||0),0);
+    const closeBal=openBal+dIn-dOut;
+    let rows="";let runBal=openBal;
+    dayTxns.forEach(t=>{if(t.type==="in")runBal+=(Number(t.amount)||0);else runBal-=(Number(t.amount)||0);
+      rows+=`<tr><td style="font-weight:700">${fmt(r2(runBal))}</td><td>${t.date}</td><td class="green">${t.type==="in"?fmt(r2(t.amount)):""}</td><td class="red">${t.type==="out"?fmt(r2(t.amount)):""}</td><td>${t.desc||"—"}</td><td style="font-size:10px;color:#666">${t.notes||""}</td><td>${t.category||"—"}</td><td>${t.account||""}</td></tr>`});
+    const accFoot=accounts.map(acc=>{const ab=accBalances[acc]||{in:0,out:0};return`<div class="sbox"><div style="font-size:10px;color:#666">${acc}</div><div class="blue" style="font-weight:700">${fmt(r2(ab.in-ab.out))}</div></div>`}).join("");
+    const html=`<div id="daily-report-content" style="font-family:'Cairo',sans-serif;padding:15px;direction:rtl;background:#fff;color:#1E293B">
+      <div style="font-size:18px;font-weight:800;text-align:center;margin-bottom:10px">🏦 تقرير يومية صندوق — ${date}</div>
+      <div style="display:flex;gap:20px;justify-content:center;margin:10px 0;flex-wrap:wrap">
+        <div style="padding:8px 20px;border-radius:8px;text-align:center;border:1px solid #ddd"><div style="font-size:10px;color:#666">رصيد افتتاحي</div><div style="font-size:16px;font-weight:800;color:#0ea5e9">${fmt(r2(openBal))}</div></div>
+        <div style="padding:8px 20px;border-radius:8px;text-align:center;border:1px solid #ddd"><div style="font-size:10px;color:#666">وارد</div><div style="font-size:16px;font-weight:800;color:#10b981">${fmt(r2(dIn))}</div></div>
+        <div style="padding:8px 20px;border-radius:8px;text-align:center;border:1px solid #ddd"><div style="font-size:10px;color:#666">منصرف</div><div style="font-size:16px;font-weight:800;color:#ef4444">${fmt(r2(dOut))}</div></div>
+        <div style="padding:8px 20px;border-radius:8px;text-align:center;border:1px solid #ddd"><div style="font-size:10px;color:#666">رصيد اقفال</div><div style="font-size:18px;font-weight:800;color:#0ea5e9">${fmt(r2(closeBal))}</div></div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;margin:10px 0;font-size:11px">
+        <thead><tr style="background:#f0f0f0">
+          <th style="border:1px solid #ccc;padding:6px 8px;text-align:right;font-weight:700">رصيد</th>
+          <th style="border:1px solid #ccc;padding:6px 8px;text-align:right;font-weight:700">تاريخ</th>
+          <th style="border:1px solid #ccc;padding:6px 8px;text-align:right;font-weight:700">وارد</th>
+          <th style="border:1px solid #ccc;padding:6px 8px;text-align:right;font-weight:700">منصرف</th>
+          <th style="border:1px solid #ccc;padding:6px 8px;text-align:right;font-weight:700">بيان</th>
+          <th style="border:1px solid #ccc;padding:6px 8px;text-align:right;font-weight:700">ملاحظات</th>
+          <th style="border:1px solid #ccc;padding:6px 8px;text-align:right;font-weight:700">نوع الحركة</th>
+          <th style="border:1px solid #ccc;padding:6px 8px;text-align:right;font-weight:700">حساب جاري</th>
+        </tr></thead>
+        <tbody>${rows.replace(/<td/g,'<td style="border:1px solid #ccc;padding:6px 8px;text-align:right"')}</tbody>
+      </table>
+      <div style="margin-top:15px;display:flex;gap:15px;flex-wrap:wrap">${accFoot}</div>
+      <div style="margin-top:20px;padding-top:10px;border-top:1px solid #ccc;text-align:center;font-size:10px;color:#94A3B8">CLARK Factory Management — ${new Date().toLocaleDateString("ar-EG")}</div>
+    </div>`;
+    return{html,dIn,dOut,openBal,closeBal,txnCount:dayTxns.length};
+  };
+
+  /* ── Save daily report as PDF ── */
+  const savePdfDaily=async(date)=>{
+    if(typeof window.html2pdf==="undefined"){showToast("⚠️ مكتبة PDF لم تُحمّل بعد — أعد تحميل الصفحة");return}
+    const{html}=buildDailyReportHtml(date);
+    /* Create temp container */
+    const container=document.createElement("div");
+    container.innerHTML=html;
+    container.style.position="absolute";container.style.left="-10000px";container.style.top="0";
+    container.style.width="210mm";/* A4 width for consistent rendering */
+    document.body.appendChild(container);
+    showToast("⏳ جاري إنشاء PDF...");
+    try{
+      await window.html2pdf().set({
+        margin:[10,10,10,10],
+        filename:"يومية_"+date+".pdf",
+        image:{type:"jpeg",quality:0.95},
+        html2canvas:{scale:2,useCORS:true,letterRendering:true},
+        jsPDF:{unit:"mm",format:"a4",orientation:"portrait"}
+      }).from(container.firstChild).save();
+      showToast("✅ تم حفظ الـ PDF");
+    }catch(e){showToast("❌ فشل إنشاء PDF: "+e.message)}
+    finally{document.body.removeChild(container)}
+  };
+
+  /* ── Build WhatsApp text summary message ── */
+  const buildDailyWaMessage=(date)=>{
+    const{dIn,dOut,openBal,closeBal,txnCount}=buildDailyReportHtml(date);
+    const net=dIn-dOut;
+    const dateFmt=new Date(date).toLocaleDateString("ar-EG");
+    const lines=[
+      "📊 *تقرير يومية الخزنة*",
+      "━━━━━━━━━━━━━━━━",
+      "📅 التاريخ: "+dateFmt,
+      "",
+      "💰 *رصيد افتتاحي:* "+fmt(r2(openBal))+" ج.م",
+      "",
+      "🟢 وارد: "+fmt(r2(dIn))+" ج.م",
+      "🔴 منصرف: "+fmt(r2(dOut))+" ج.م",
+      "━━━━━━━━━━━━━━━━",
+      "💵 *صافي اليوم:* "+(net>=0?"+":"")+fmt(r2(net))+" ج.م",
+      "📊 *رصيد الإقفال:* "+fmt(r2(closeBal))+" ج.م",
+      "",
+      "📝 عدد الحركات: "+txnCount,
+      "",
+      "━━━━━━━━━━━━━━━━",
+      "📎 *تفاصيل كاملة في ملف PDF المرفق*",
+      "ارفع الملف مع هذه الرسالة",
+      "",
+      "🏭 CLARK Factory Management"
+    ];
+    return lines.join("\n");
+  };
+
+  /* ── State for WhatsApp contact picker popup ── */
+  const[waPopupDate,setWaPopupDate]=useState(null);/* date string or null */
+
+  /* ── Share daily report via WhatsApp ── */
+  const shareDailyWhatsApp=async(date,phone)=>{
+    /* 1. Save PDF first */
+    await savePdfDaily(date);
+    /* 2. Build message and open WhatsApp */
+    const msg=buildDailyWaMessage(date);
+    const cleanPhone=(phone||"").replace(/[^0-9]/g,"");
+    const url="https://wa.me/"+cleanPhone+"?text="+encodeURIComponent(msg);
+    /* Give the PDF a moment to finish downloading before opening WA */
+    setTimeout(()=>{window.open(url,"_blank")},800);
+    setWaPopupDate(null);
+  };
+
   return<div>
     {/* View Tabs */}
     <div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflow:"hidden",border:"1px solid "+T.brd}}>
@@ -12773,6 +12970,12 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         </div>
         <div onClick={()=>printDaily(today)} style={{padding:"8px 20px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center",cursor:"pointer"}}>
           <div style={{fontSize:FS-2,color:T.textSec}}>طباعة تقرير اليوم</div><div style={{fontSize:FS+1,fontWeight:700,color:T.accent}}>🖨️</div>
+        </div>
+        <div onClick={()=>savePdfDaily(today)} style={{padding:"8px 20px",borderRadius:10,background:"#EF444408",border:"1px solid #EF444420",textAlign:"center",cursor:"pointer"}} title="حفظ كـ PDF">
+          <div style={{fontSize:FS-2,color:T.textSec}}>PDF</div><div style={{fontSize:FS+1,fontWeight:700,color:"#EF4444"}}>📄</div>
+        </div>
+        <div onClick={()=>setWaPopupDate(today)} style={{padding:"8px 20px",borderRadius:10,background:"#25D36608",border:"1px solid #25D36620",textAlign:"center",cursor:"pointer"}} title="إرسال عبر واتساب">
+          <div style={{fontSize:FS-2,color:T.textSec}}>واتساب</div><div style={{fontSize:FS+1,fontWeight:700,color:"#25D366"}}>📤</div>
         </div>
       </div>})()}
 
@@ -13494,6 +13697,50 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         </div>
       </div>
     </div>}
+
+    {/* ══ WHATSAPP CONTACT PICKER POPUP ══ */}
+    {waPopupDate&&(()=>{
+      const contacts=(data.waContacts||[]).filter(c=>(c.reports||[]).includes("treasuryDaily")||(c.reports||[]).length===0);
+      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setWaPopupDate(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:10,borderBottom:"2px solid "+T.brd}}>
+            <div style={{fontSize:FS+3,fontWeight:800,color:"#25D366"}}>📤 إرسال تقرير يومية الخزنة</div>
+            <span onClick={()=>setWaPopupDate(null)} style={{cursor:"pointer",fontSize:22,color:T.textMut,padding:"0 6px"}}>✕</span>
+          </div>
+          <div style={{fontSize:FS-1,color:T.textSec,marginBottom:12,padding:"10px 12px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"20"}}>
+            📅 <b>تاريخ التقرير:</b> {waPopupDate}<br/>
+            ℹ️ سيتم حفظ PDF تلقائياً ثم فتح واتساب برسالة جاهزة. ارفع الـ PDF في المحادثة.
+          </div>
+          {contacts.length>0?<div style={{marginBottom:12}}>
+            <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:8}}>اختر جهة من دفتر العناوين:</div>
+            <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:260,overflowY:"auto"}}>
+              {contacts.map(c=><div key={c.id} onClick={()=>shareDailyWhatsApp(waPopupDate,c.phone)} style={{cursor:"pointer",padding:"10px 14px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.background="#25D36608";e.currentTarget.style.borderColor="#25D36640"}} onMouseLeave={e=>{e.currentTarget.style.background=T.bg;e.currentTarget.style.borderColor=T.brd}}>
+                <div>
+                  <div style={{fontSize:FS,fontWeight:700,color:T.text}}>{c.name}</div>
+                  {c.role&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{c.role}</div>}
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:FS-2,color:T.textSec,direction:"ltr"}}>{c.phone}</span>
+                  <span style={{fontSize:18,color:"#25D366"}}>📲</span>
+                </div>
+              </div>)}
+            </div>
+          </div>:<div style={{padding:"16px 12px",borderRadius:10,background:T.warn+"10",border:"1px solid "+T.warn+"30",textAlign:"center",marginBottom:12}}>
+            <div style={{fontSize:FS,color:T.warn,fontWeight:700,marginBottom:4}}>⚠️ دفتر العناوين فارغ</div>
+            <div style={{fontSize:FS-2,color:T.textSec}}>أضف جهات من الإعدادات ← جهات تواصل التقارير</div>
+          </div>}
+          <div style={{marginTop:10,paddingTop:14,borderTop:"1px solid "+T.brd}}>
+            <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:6}}>أو ادخل رقم يدوياً:</div>
+            <div style={{display:"flex",gap:6}}>
+              <input id="wa-manual-phone" type="tel" placeholder="مثال: 01012345678" style={{flex:1,padding:"10px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,direction:"ltr",textAlign:"right",fontFamily:"inherit",background:T.inputBg,color:T.text}}/>
+              <Btn onClick={()=>{const el=document.getElementById("wa-manual-phone");const ph=(el?.value||"").trim();if(!ph){showToast("⚠️ ادخل رقم الواتساب");return}shareDailyWhatsApp(waPopupDate,ph)}} style={{background:"#25D366",color:"#fff",border:"none",fontWeight:700,padding:"10px 16px"}}>📤 إرسال</Btn>
+            </div>
+          </div>
+          <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid "+T.brd}}>
+            <Btn ghost onClick={()=>shareDailyWhatsApp(waPopupDate,"")} style={{width:"100%",fontSize:FS-1}} title="يفتح واتساب بدون رقم محدد">📱 فتح واتساب بدون رقم (اختر من جهات واتساب)</Btn>
+          </div>
+        </div>
+      </div>})()}
   </div>
 }
 
