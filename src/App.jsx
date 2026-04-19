@@ -4932,7 +4932,7 @@ function ReportsHub({data,isMob,season,statusCards}){
       {key:"capacity",label:"الطاقة الإنتاجية",icon:"📊",color:"#7C3AED"},
     ]},
     {title:"🏭 الورش",color:"#F59E0B",reports:[
-      {key:"wsFullAccount",label:"الحساب الشامل للورش",icon:"📊",color:"#8B5CF6"},
+      {key:"wsFullAccount",label:"تقرير تشغيل خارجي",icon:"📊",color:"#8B5CF6"},
       {key:"wsPerf",label:"انتاجية الورش",icon:"⚡",color:"#F59E0B"},
       {key:"delivery",label:"معدل التسليم",icon:"📦",color:"#10B981"},
       {key:"wsCostPerPiece",label:"تكلفة القطعة بالورشة",icon:"💲",color:"#EC4899"},
@@ -5082,10 +5082,19 @@ function WsFullAccountReport({data,isMob,season}){
       const balance=r2(totalDue-totalPaid);
       const qtyBalance=totalDelivered-totalReceived;
       
+      /* 5. EXPECTED — if workshop delivers ALL remaining pieces */
+      /* For each garment type, use its avgPrice to value the balance (pieces not yet delivered back) */
+      let expectedExtra=0;
+      garmentList.forEach(g=>{
+        if(g.balance>0&&g.avgPrice>0){expectedExtra+=r2(g.balance*g.avgPrice)}
+      });
+      const expectedBalance=r2(balance+expectedExtra);
+      
       accounts.push({
         ws,garmentList,paymentsList,timeline,
         totalDelivered,totalReceived,qtyBalance,
-        totalValue,totalPurchase,totalPaid,totalDue,balance
+        totalValue,totalPurchase,totalPaid,totalDue,balance,
+        expectedExtra,expectedBalance
       });
     });
     return accounts;
@@ -5093,14 +5102,14 @@ function WsFullAccountReport({data,isMob,season}){
   
   /* Grand totals */
   const grand=useMemo(()=>{
-    let gDel=0,gRcv=0,gVal=0,gPaid=0,gPurch=0,gBal=0;
-    wsAccounts.forEach(a=>{gDel+=a.totalDelivered;gRcv+=a.totalReceived;gVal+=a.totalValue;gPaid+=a.totalPaid;gPurch+=a.totalPurchase;gBal+=a.balance});
-    return{gDel,gRcv,gVal,gPaid,gPurch,gBal,count:wsAccounts.length};
+    let gDel=0,gRcv=0,gVal=0,gPaid=0,gPurch=0,gBal=0,gExpExtra=0,gExpBal=0;
+    wsAccounts.forEach(a=>{gDel+=a.totalDelivered;gRcv+=a.totalReceived;gVal+=a.totalValue;gPaid+=a.totalPaid;gPurch+=a.totalPurchase;gBal+=a.balance;gExpExtra+=a.expectedExtra;gExpBal+=a.expectedBalance});
+    return{gDel,gRcv,gVal,gPaid,gPurch,gBal,gExpExtra,gExpBal,count:wsAccounts.length};
   },[wsAccounts]);
   
   /* Export to Excel */
   const exportReport=()=>{
-    const rows=[["تقرير الحساب الشامل للورش"]];
+    const rows=[["تقرير تشغيل خارجي"]];
     rows.push(["تاريخ الطباعة:",today]);
     if(dateFrom||dateTo)rows.push(["الفترة:",(dateFrom||"البداية")+" → "+(dateTo||"النهاية")]);
     rows.push([]);
@@ -5127,17 +5136,21 @@ function WsFullAccountReport({data,isMob,season}){
       rows.push(["مشتريات",a.totalPurchase]);
       rows.push(["المستحق الإجمالي",a.totalDue]);
       rows.push(["المدفوع",a.totalPaid]);
-      rows.push(["الرصيد المستحق",a.balance]);
-      rows.push(["الرصيد المتبقي عند الورشة",a.qtyBalance+" قطعة"]);
+      rows.push(["🟢 الرصيد الحالي المستحق",a.balance]);
+      if(a.expectedExtra>0){
+        rows.push(["🔴 متوقع إضافي (لو سلّمت الباقي)",a.expectedExtra]);
+        rows.push(["🟣 إجمالي متوقع",a.expectedBalance]);
+      }
+      rows.push(["عدد القطع عند الورشة",a.qtyBalance+" قطعة"]);
       rows.push([]);rows.push([]);
     });
-    exportExcel(rows,"الحساب_الشامل_للورش_"+today);
+    exportExcel(rows,"تقرير_تشغيل_خارجي_"+today);
   };
   
   /* Print */
   const printReport=()=>{
-    let html="<div class='hdr'><div style='font-size:18px;font-weight:800;color:#8B5CF6'>📊 الحساب الشامل للورش</div><div class='hdr-info'><div>تاريخ الطباعة: "+today+"</div>"+(dateFrom||dateTo?"<div>الفترة: "+(dateFrom||"البداية")+" → "+(dateTo||"النهاية")+"</div>":"")+"</div></div>";
-    html+="<table style='margin-bottom:20px'><tr><th>إجمالي الورش</th><td class='info'>"+grand.count+"</td><th>مُسلَّم</th><td>"+fmt(grand.gDel)+"</td><th>مُستلم</th><td>"+fmt(grand.gRcv)+"</td></tr><tr><th>قيمة الإنتاج</th><td class='ok'>"+fmt(r2(grand.gVal))+"</td><th>مدفوع</th><td>"+fmt(r2(grand.gPaid))+"</td><th>رصيد مستحق</th><td class='err'>"+fmt(r2(grand.gBal))+"</td></tr></table>";
+    let html="<div class='hdr'><div style='font-size:18px;font-weight:800;color:#8B5CF6'>📊 تقرير تشغيل خارجي</div><div class='hdr-info'><div>تاريخ الطباعة: "+today+"</div>"+(dateFrom||dateTo?"<div>الفترة: "+(dateFrom||"البداية")+" → "+(dateTo||"النهاية")+"</div>":"")+"</div></div>";
+    html+="<table style='margin-bottom:20px'><tr><th>إجمالي الورش</th><td class='info'>"+grand.count+"</td><th>مُسلَّم</th><td>"+fmt(grand.gDel)+"</td><th>مُستلم</th><td>"+fmt(grand.gRcv)+"</td></tr><tr><th>قيمة الإنتاج</th><td class='ok'>"+fmt(r2(grand.gVal))+"</td><th>🟢 الرصيد الحالي</th><td class='err'><b>"+fmt(r2(grand.gBal))+"</b></td>"+(grand.gExpExtra>0?"<th style='color:#DC2626'>🔴 متوقع إضافي</th><td style='color:#DC2626'><b>+"+fmt(r2(grand.gExpExtra))+"</b></td>":"<th></th><td></td>")+"</tr></table>";
     wsAccounts.forEach(a=>{
       html+="<h2 style='color:#8B5CF6;page-break-before:avoid'>🏭 "+a.ws.name+(a.ws.owner?" — "+a.ws.owner:"")+"</h2>";
       /* Garment breakdown */
@@ -5167,14 +5180,18 @@ function WsFullAccountReport({data,isMob,season}){
       html+="<tr><th>قيمة الإنتاج المستلم</th><td class='center ok'>"+fmt(r2(a.totalValue))+" ج.م</td></tr>";
       if(a.totalPurchase>0)html+="<tr><th>مشتريات الورشة</th><td class='center'>"+fmt(r2(a.totalPurchase))+" ج.م</td></tr>";
       html+="<tr><th>المستحق الإجمالي</th><td class='center info'><b>"+fmt(r2(a.totalDue))+" ج.م</b></td></tr>";
-      html+="<tr><th>إجمالي المدفوع</th><td class='center'>"+fmt(r2(a.totalPaid))+" ج.م</td></tr>";
-      html+="<tr style='background:"+(a.balance>0?"#FEF2F2":"#ECFDF5")+"'><th><b>الرصيد المستحق</b></th><td class='center "+(a.balance>0?"err":"ok")+"'><b style='font-size:14px'>"+fmt(r2(a.balance))+" ج.م</b></td></tr>";
-      if(a.qtyBalance>0)html+="<tr style='background:#FFF7ED'><th>الرصيد المتبقي عند الورشة</th><td class='center warn'><b>"+fmt(a.qtyBalance)+" قطعة</b></td></tr>";
+      html+="<tr><th>إجمالي المدفوع</th><td class='center'>("+fmt(r2(a.totalPaid))+") ج.م</td></tr>";
+      html+="<tr style='background:"+(a.balance>0?"#FEF2F2":"#ECFDF5")+"'><th><b>🟢 الرصيد الحالي المستحق</b></th><td class='center "+(a.balance>0?"err":"ok")+"'><b style='font-size:14px'>"+fmt(r2(a.balance))+" ج.م</b></td></tr>";
+      if(a.expectedExtra>0){
+        html+="<tr style='background:#FEE2E2;border-top:2px dashed #DC2626'><th style='color:#DC2626'>🔴 متوقع إضافي (لو سلّمت "+fmt(a.qtyBalance)+" قطعة)</th><td class='center' style='color:#DC2626;font-weight:800'>+"+fmt(r2(a.expectedExtra))+" ج.م</td></tr>";
+        html+="<tr style='background:#F3E8FF'><th style='color:#8B5CF6'>🟣 إجمالي متوقع</th><td class='center' style='color:#8B5CF6;font-weight:800;font-size:14px'>"+fmt(r2(a.expectedBalance))+" ج.م</td></tr>";
+      }
+      if(a.qtyBalance>0)html+="<tr style='background:#FFF7ED'><th>عدد القطع عند الورشة</th><td class='center warn'><b>"+fmt(a.qtyBalance)+" قطعة</b></td></tr>";
       html+="</tbody></table>";
       html+="<div style='page-break-after:auto;margin-bottom:20px'></div>";
     });
-    html+="<div class='foot'>CLARK Factory Management — الحساب الشامل للورش — "+today+"</div>";
-    printPage("الحساب الشامل للورش",html);
+    html+="<div class='foot'>CLARK Factory Management — تقرير تشغيل خارجي — "+today+"</div>";
+    printPage("تقرير تشغيل خارجي",html);
   };
   
   return<div>
@@ -5210,7 +5227,7 @@ function WsFullAccountReport({data,isMob,season}){
     
     {/* Grand summary */}
     {wsAccounts.length>0&&<Card title={"📊 ملخص إجمالي — "+grand.count+" ورشة"} style={{marginBottom:14}}>
-      <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(5,1fr)",gap:10}}>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(3,1fr)",gap:10,marginBottom:10}}>
         <div style={{padding:12,borderRadius:10,background:"#3B82F608",border:"1px solid #3B82F620",textAlign:"center"}}>
           <div style={{fontSize:FS-3,color:T.textSec}}>مُسلَّم للورش</div>
           <div style={{fontSize:FS+4,fontWeight:800,color:"#3B82F6"}}>{fmt(grand.gDel)}</div>
@@ -5226,16 +5243,27 @@ function WsFullAccountReport({data,isMob,season}){
           <div style={{fontSize:FS+4,fontWeight:800,color:T.warn}}>{fmt(grand.gDel-grand.gRcv)}</div>
           <div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div>
         </div>
+      </div>
+      {/* Financial summary */}
+      <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(3,1fr)",gap:10}}>
         <div style={{padding:12,borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF620",textAlign:"center"}}>
-          <div style={{fontSize:FS-3,color:T.textSec}}>قيمة الإنتاج</div>
+          <div style={{fontSize:FS-3,color:T.textSec}}>قيمة الإنتاج المستلم</div>
           <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>{fmt(r2(grand.gVal))}</div>
           <div style={{fontSize:FS-3,color:T.textMut}}>ج.م</div>
         </div>
-        <div style={{padding:12,borderRadius:10,background:grand.gBal>0?T.err+"08":T.ok+"08",border:"1px solid "+(grand.gBal>0?T.err+"20":T.ok+"20"),textAlign:"center"}}>
-          <div style={{fontSize:FS-3,color:T.textSec}}>الرصيد المستحق</div>
-          <div style={{fontSize:FS+2,fontWeight:800,color:grand.gBal>0?T.err:T.ok}}>{fmt(r2(grand.gBal))}</div>
+        <div style={{padding:12,borderRadius:10,background:grand.gBal>0?T.err+"08":T.ok+"08",border:"2px solid "+(grand.gBal>0?T.err+"30":T.ok+"30"),textAlign:"center"}}>
+          <div style={{fontSize:FS-3,color:T.textSec,fontWeight:700}}>🟢 الرصيد الحالي المستحق</div>
+          <div style={{fontSize:FS+4,fontWeight:800,color:grand.gBal>0?T.err:T.ok}}>{fmt(r2(grand.gBal))}</div>
           <div style={{fontSize:FS-3,color:T.textMut}}>ج.م</div>
         </div>
+        {grand.gExpExtra>0?<div style={{padding:12,borderRadius:10,background:T.err+"05",border:"2px dashed "+T.err+"40",textAlign:"center"}}>
+          <div style={{fontSize:FS-3,color:T.textSec,fontWeight:700}}>🔴 متوقع لو سلّموا الباقي</div>
+          <div style={{fontSize:FS+2,fontWeight:800,color:T.err}}>+{fmt(r2(grand.gExpExtra))}</div>
+          <div style={{fontSize:FS-3,color:"#8B5CF6",fontWeight:700,marginTop:2}}>= {fmt(r2(grand.gExpBal))} ج.م</div>
+        </div>:<div style={{padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd,textAlign:"center"}}>
+          <div style={{fontSize:FS-3,color:T.textSec}}>✅ لا يوجد شغل معلق</div>
+          <div style={{fontSize:FS,fontWeight:700,color:T.ok,marginTop:4}}>الورش ملتزمة بالتسليم</div>
+        </div>}
       </div>
     </Card>}
     
@@ -5254,9 +5282,13 @@ function WsFullAccountReport({data,isMob,season}){
             {a.ws.rating&&<span>⭐ {a.ws.rating}/10</span>}
           </div>
         </div>
-        <div style={{textAlign:"center",padding:"8px 14px",borderRadius:10,background:a.balance>0?T.err+"12":T.ok+"12",border:"1px solid "+(a.balance>0?T.err+"30":T.ok+"30")}}>
-          <div style={{fontSize:FS-3,color:T.textSec}}>الرصيد</div>
+        <div style={{textAlign:"center",padding:"8px 14px",borderRadius:10,background:a.balance>0?T.err+"12":T.ok+"12",border:"1px solid "+(a.balance>0?T.err+"30":T.ok+"30"),minWidth:180}}>
+          <div style={{fontSize:FS-3,color:T.textSec}}>الرصيد الحالي</div>
           <div style={{fontSize:FS+2,fontWeight:800,color:a.balance>0?T.err:T.ok}}>{fmt(r2(a.balance))} ج</div>
+          {a.expectedExtra>0&&<div style={{marginTop:6,paddingTop:6,borderTop:"1px dashed "+T.err+"40"}}>
+            <div style={{fontSize:FS-3,color:T.err,fontWeight:700}}>+ متوقع: <span style={{fontSize:FS,fontWeight:800}}>{fmt(r2(a.expectedExtra))} ج</span></div>
+            <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>الإجمالي: {fmt(r2(a.expectedBalance))} ج</div>
+          </div>}
         </div>
       </div>
       
@@ -5372,11 +5404,24 @@ function WsFullAccountReport({data,isMob,season}){
           <span style={{fontWeight:700}}>{"("+fmt(r2(a.totalPaid))+") ج.م"}</span>
         </div>
         <div style={{display:"flex",justifyContent:"space-between",padding:"10px 0",background:a.balance>0?T.err+"08":T.ok+"08",marginTop:6,borderRadius:8,paddingInline:10}}>
-          <span style={{fontWeight:800}}>الرصيد المستحق</span>
+          <span style={{fontWeight:800}}>🟢 الرصيد المستحق حالياً</span>
           <span style={{fontWeight:800,fontSize:FS+2,color:a.balance>0?T.err:T.ok}}>{fmt(r2(a.balance))} ج.م</span>
         </div>
+        {a.expectedExtra>0&&<>
+          <div style={{marginTop:10,paddingTop:10,borderTop:"2px dashed "+T.err+"40"}}>
+            <div style={{fontSize:FS-2,color:T.err,fontWeight:700,marginBottom:6,textAlign:"center"}}>━━━ لو الورشة سلّمت الباقي ━━━</div>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",padding:"6px 10px"}}>
+            <span style={{color:T.textSec,fontSize:FS-1}}>🔴 متوقع إضافي ({fmt(a.qtyBalance)} قطعة)</span>
+            <span style={{fontWeight:700,color:T.err}}>+ {fmt(r2(a.expectedExtra))} ج.م</span>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",padding:"10px",background:"#8B5CF608",marginTop:4,borderRadius:8,border:"1px solid #8B5CF625"}}>
+            <span style={{fontWeight:800,color:"#8B5CF6"}}>🟣 إجمالي متوقع</span>
+            <span style={{fontWeight:800,fontSize:FS+2,color:"#8B5CF6"}}>{fmt(r2(a.expectedBalance))} ج.م</span>
+          </div>
+        </>}
         {a.qtyBalance>0&&<div style={{display:"flex",justifyContent:"space-between",padding:"8px 10px",background:T.warn+"08",marginTop:6,borderRadius:8}}>
-          <span style={{fontWeight:700,color:T.warn}}>⚠️ الرصيد المتبقي عند الورشة</span>
+          <span style={{fontWeight:700,color:T.warn}}>⚠️ عدد القطع عند الورشة</span>
           <span style={{fontWeight:800,color:T.warn}}>{fmt(a.qtyBalance)} قطعة</span>
         </div>}
       </div>
@@ -8549,8 +8594,18 @@ function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,theme,setTheme,s
     <Card title="👷 إعدادات الموظفين" style={{marginBottom:16}}>
       {(()=>{const hrs=config.hrSettings||{};
         const saveHR=(fn)=>upConfig(d=>{if(!d.hrSettings)d.hrSettings={};fn(d.hrSettings)});
+        const workDays=Number(hrs.workDays)||6;
+        const hoursPerDay=Number(hrs.hoursPerDay)||9;
+        const standardHours=workDays*hoursPerDay;
         return<div>
           <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:10}}>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>أيام العمل الأسبوعية</label>
+              <Inp type="number" value={hrs.workDays||""} onChange={v=>saveHR(s=>{s.workDays=Number(v)||6})} placeholder="6"/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ساعات العمل اليومية</label>
+              <Inp type="number" step="0.5" value={hrs.hoursPerDay||""} onChange={v=>saveHR(s=>{s.hoursPerDay=Number(v)||9})} placeholder="9"/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>إجمالي ساعات الأسبوع (تلقائي)</label>
+              <div style={{padding:"8px 12px",borderRadius:8,background:T.accent+"12",color:T.accent,fontWeight:800,fontSize:FS+2,border:"1px solid "+T.accent+"30",textAlign:"center"}}>{standardHours} ساعة</div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:4,textAlign:"center"}}>سعر الساعة = المرتب ÷ {standardHours}</div></div>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ساعات أساسي افتراضية (أسبوعي)</label>
               <Inp type="number" value={hrs.defaultBaseHours||""} onChange={v=>saveHR(s=>{s.defaultBaseHours=Number(v)||0})} placeholder="48"/></div>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>معامل الإضافي</label>
@@ -13608,7 +13663,12 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     /* Per-employee base hours override, then week default */
     const overrideH=salBaseHoursOverride[empId];
     const baseHours=(overrideH!==undefined&&overrideH!=="")?Number(overrideH)||0:(week.baseHours||48);
-    const perHour=baseHours>0?r2(weeklySalary/baseHours):0;
+    /* Hour rate is calculated from STANDARD work week (days × hours/day) from HR settings.
+       This keeps the rate consistent regardless of baseHours override for individual employees. */
+    const stdDays=Number(hrs.workDays)||6;
+    const stdHoursPerDay=Number(hrs.hoursPerDay)||9;
+    const standardWeekHours=stdDays*stdHoursPerDay;
+    const perHour=standardWeekHours>0?r2(weeklySalary/standardWeekHours):0;
     /* Get attendance from week */
     const att=week.attendance||{};
     const days=[];let totalHours=0;let workDays=0;
@@ -14552,6 +14612,105 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                   const w=window.open("","_blank");if(!w)return;
                   w.document.write(html);w.document.close();
                 }} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}}>🖨 طباعة الجدول</Btn>
+                <Btn small onClick={()=>{
+                  /* Signature sheet — formal document for employees to sign upon receiving salary */
+                  const rows=filteredShown.map((emp,i)=>{const c=calcSalary(emp.id,openWeek);if(!c)return"";
+                    /* Combined deductions = special deduct + installment */
+                    const totalDeduct=(c.specialDeduct||0)+(c.debtInstall||0);
+                    return"<tr>"+
+                      "<td class='center' style='font-weight:700'>"+(i+1)+"</td>"+
+                      "<td style='font-weight:700;font-size:12px'>"+(emp.name||"")+(emp.code?"<br/><span style='color:#94A3B8;font-size:10px;font-weight:400'>#"+emp.code+"</span>":"")+"</td>"+
+                      "<td class='center' style='font-weight:700'>"+fmt0(c.grossPay)+"</td>"+
+                      "<td class='center' style='color:#EF4444'>"+(c.weekAdvances>0?fmt0(c.weekAdvances):"—")+"</td>"+
+                      "<td class='center' style='color:#EF4444'>"+(totalDeduct>0?fmt0(totalDeduct):"—")+"</td>"+
+                      "<td class='center' style='color:#10B981;font-weight:800;font-size:13px'>"+fmt0(c.thursdayPay)+"</td>"+
+                      "<td class='center' style='color:"+(c.remainingBalance>0?"#F59E0B":c.remainingBalance<0?"#EF4444":"#64748B")+";font-weight:"+(c.remainingBalance!==0?800:400)+"'>"+(c.remainingBalance!==0?fmt0(c.remainingBalance):"0")+"</td>"+
+                      "<td style='min-height:40px;border-bottom:1px solid #CBD5E1'></td>"+
+                    "</tr>";
+                  }).join("");
+                  /* Totals */
+                  let tG=0,tA=0,tDeduct=0,tPay=0,tBal=0;
+                  filteredShown.forEach(e=>{const cc=calcSalary(e.id,openWeek);if(cc){tG+=cc.grossPay;tA+=cc.weekAdvances;tDeduct+=(cc.specialDeduct||0)+(cc.debtInstall||0);tPay+=cc.thursdayPay;tBal+=cc.remainingBalance}});
+                  const totalsRow="<tr style='background:#F1F5F9;font-weight:800;border-top:3px double #0284C7'>"+
+                    "<td class='center' colspan='2' style='font-size:13px'>الإجمالي — "+filteredShown.length+" موظف</td>"+
+                    "<td class='center' style='font-size:13px'>"+fmt0(tG)+"</td>"+
+                    "<td class='center' style='color:#EF4444'>"+fmt0(tA)+"</td>"+
+                    "<td class='center' style='color:#EF4444'>"+fmt0(tDeduct)+"</td>"+
+                    "<td class='center' style='color:#10B981;font-size:14px'>"+fmt0(tPay)+"</td>"+
+                    "<td class='center' style='color:"+(tBal>0?"#F59E0B":"#64748B")+"'>"+fmt0(tBal)+"</td>"+
+                    "<td></td>"+
+                  "</tr>";
+                  /* Filter info */
+                  const filterParts=[];
+                  if(salSearchDeb)filterParts.push("بحث: \""+salSearchDeb+"\"");
+                  if(attSearchDeb)filterParts.push("بحث علوي: \""+attSearchDeb+"\"");
+                  if(salJobFilter)filterParts.push("وظيفة: "+salJobFilter);
+                  if(salShowOnly){const labels={hasBonus:"لهم حافز",hasAdvances:"لهم مسحوبات",hasDeduct:"لهم خصم",hasInstall:"لهم قسط",hasBalance:"لهم رصيد"};filterParts.push("عرض: "+(labels[salShowOnly]||salShowOnly))}
+                  const filterLine=filterParts.length>0?"<div style='background:#FEF3C7;padding:6px 10px;border-radius:6px;margin-bottom:10px;font-size:10px;color:#92400E'><b>الفلاتر:</b> "+filterParts.join(" • ")+"</div>":"";
+                  const title="كشف توقيع استلام المرتبات — W"+openWeek.weekNum;
+                  const html="<html dir='rtl'><head><meta charset='UTF-8'><title>"+title+"</title>"+
+                    "<style>"+
+                    "*{margin:0;padding:0;box-sizing:border-box}"+
+                    "body{font-family:'Cairo',Arial,sans-serif;padding:18px 22px;font-size:11px;direction:rtl;color:#1E293B;line-height:1.5}"+
+                    ".hdr-sig{text-align:center;border-bottom:3px solid #0284C7;padding-bottom:12px;margin-bottom:14px}"+
+                    ".hdr-sig h1{font-size:20px;color:#0284C7;margin-bottom:4px;font-weight:800}"+
+                    ".hdr-sig .sub{font-size:13px;color:#334155;font-weight:700}"+
+                    ".hdr-sig .meta{display:flex;justify-content:space-around;margin-top:12px;font-size:11px}"+
+                    ".hdr-sig .meta-item{background:#F0F9FF;padding:6px 14px;border-radius:8px;border:1px solid #E0F2FE}"+
+                    ".hdr-sig .meta-item b{color:#0284C7}"+
+                    "table{width:100%;border-collapse:collapse;margin:10px 0;border:1.5px solid #64748B}"+
+                    "th{background:linear-gradient(180deg,#E2E8F0,#CBD5E1);font-weight:800;font-size:11px;color:#1E293B;padding:8px 6px;text-align:center;border:1px solid #94A3B8}"+
+                    "td{padding:8px 6px;text-align:right;border:1px solid #CBD5E1;font-size:11px;vertical-align:middle}"+
+                    ".center{text-align:center}"+
+                    "tr:nth-child(even){background:#F8FAFC}"+
+                    ".sig-col{min-width:130px;width:130px}"+
+                    ".notice{background:#FEF3C7;padding:8px 12px;border-radius:6px;border-right:4px solid #F59E0B;margin:12px 0;font-size:10px;color:#78350F}"+
+                    ".sig-boxes{margin-top:30px;display:flex;justify-content:space-around;gap:40px}"+
+                    ".sig-box{flex:1;text-align:center;padding-top:14px;border-top:2px solid #1E293B;font-weight:700;font-size:12px}"+
+                    ".sig-box .role{font-size:10px;color:#64748B;margin-top:3px;font-weight:400}"+
+                    ".foot{margin-top:25px;padding-top:8px;border-top:1px solid #CBD5E1;text-align:center;font-size:9px;color:#94A3B8;font-weight:600}"+
+                    "@page{size:A4 portrait;margin:10mm}"+
+                    "@media print{body{padding:10px}tr{page-break-inside:avoid}}"+
+                    "</style></head><body>"+
+                    "<div class='hdr-sig'>"+
+                      "<h1>✍️ كشف توقيع استلام المرتبات</h1>"+
+                      "<div class='sub'>CLARK Factory — "+(data.factoryName||"مصنع كلارك")+"</div>"+
+                      "<div class='meta'>"+
+                        "<div class='meta-item'>الأسبوع: <b>W"+openWeek.weekNum+"</b></div>"+
+                        "<div class='meta-item'>الفترة: <b>"+openWeek.weekStart+" → "+openWeek.weekEnd+"</b></div>"+
+                        "<div class='meta-item'>تاريخ الصرف: <b>"+today+"</b></div>"+
+                      "</div>"+
+                    "</div>"+
+                    filterLine+
+                    "<table>"+
+                      "<thead><tr>"+
+                        "<th style='width:30px'>#</th>"+
+                        "<th style='min-width:130px'>اسم الموظف</th>"+
+                        "<th>المستحق</th>"+
+                        "<th>سلف</th>"+
+                        "<th>خصم</th>"+
+                        "<th style='background:linear-gradient(180deg,#D1FAE5,#A7F3D0)'>المدفوع</th>"+
+                        "<th>الرصيد</th>"+
+                        "<th class='sig-col'>التوقيع</th>"+
+                      "</tr></thead>"+
+                      "<tbody>"+
+                        (rows||"<tr><td colspan='8' class='center' style='padding:30px;color:#94A3B8'>لا توجد موظفين</td></tr>")+
+                        totalsRow+
+                      "</tbody>"+
+                    "</table>"+
+                    "<div class='notice'>"+
+                      "<b>⚠️ تنبيه:</b> بالتوقيع أمام اسمي أعلاه، أُقرّ باستلام المبلغ المذكور تحت خانة \"المدفوع\" بالكامل ودون أي خصم أو نقصان، وأنه لا يوجد لي أي مطالبات أخرى متعلقة بهذا الأسبوع."+
+                    "</div>"+
+                    "<div class='sig-boxes'>"+
+                      "<div class='sig-box'>المحاسب<div class='role'>التوقيع والختم</div></div>"+
+                      "<div class='sig-box'>المدير المسؤول<div class='role'>التوقيع والختم</div></div>"+
+                    "</div>"+
+                    "<div class='foot'>CLARK Factory Management — كشف توقيع W"+openWeek.weekNum+" — تم الإصدار "+today+"</div>"+
+                    "<script>setTimeout(function(){window.print()},500)</"+"script>"+
+                    "</body></html>";
+                  const w=window.open("","_blank");if(!w)return;
+                  w.document.write(html);w.document.close();
+                }} style={{background:"#059669"+"12",color:"#059669",border:"1px solid #05966930",fontWeight:700}}>✍️ كشف توقيع</Btn>
                 <Btn small onClick={()=>{const sel={};shownEmps.forEach(e=>{sel[e.id]=true});setBulkPrintSel(sel);setShowBulkPrint(true)}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}}>🖨 طباعة مجمعة</Btn>
               </div>
             </div>
