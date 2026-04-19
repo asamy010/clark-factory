@@ -14262,37 +14262,17 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   };
   const _doSaveWeeklyAdvance=(emp,amt)=>{
     const advId=gid();
-    const txId=gid();
     const useDateSave=advDate||today;
-    const dayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(useDateSave).getDay()];
     upConfig(d=>{
       const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
       if(!d.hrWeeks[wi].weeklyAdvances)d.hrWeeks[wi].weeklyAdvances=[];
+      /* Planned advance — NOT recorded in treasury until week is closed.
+         This is just a plan/draft that will be executed on week closure. */
       d.hrWeeks[wi].weeklyAdvances.push({
         id:advId,empId:emp.id,empName:emp.name,empJob:emp.job||"",
         amount:amt,date:useDateSave,note:advNote||"",
         createdBy:userName||"",createdAt:new Date().toISOString(),
-        treasuryTxId:txId/* Link to treasury entry for reversal on delete */
-      });
-      /* Register in treasury IMMEDIATELY — cash leaves the account the moment advance is given */
-      if(!d.treasury)d.treasury=[];
-      d.treasury.unshift({
-        id:txId,type:"out",amount:r2(amt),
-        desc:"سلفة "+emp.name+" W"+d.hrWeeks[wi].weekNum+(advNote?" — "+advNote:""),
-        category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",
-        date:useDateSave,day:dayName,
-        sourceType:"hr_weekly_advance",weekId:openWeek.id,empId:emp.id,
-        weeklyAdvanceId:advId,
-        by:userName,createdAt:new Date().toISOString()
-      });
-      /* hrLog entry — immediate */
-      if(!d.hrLog)d.hrLog=[];
-      d.hrLog.unshift({
-        id:gid(),type:"weekly_advance",empId:emp.id,empName:emp.name,empJob:emp.job||"",
-        amount:amt,note:advNote||"",
-        weekId:openWeek.id,weekStart:openWeek.weekStart,weekEnd:openWeek.weekEnd,
-        date:useDateSave,by:userName,createdAt:new Date().toISOString(),
-        weeklyAdvanceId:advId,treasuryTxId:txId
+        planned:true/* Flag: will be registered in treasury on week close */
       });
       /* Audit log */
       addAudit(d,{
@@ -14300,24 +14280,25 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         target:emp.name+" — W"+d.hrWeeks[wi].weekNum,
         newValue:fmt0(amt)+" ج"+(advNote?" ("+advNote+")":""),
         user:userName,severity:amt>1000?"warning":"info",
-        notes:"سلفة أسبوعية — مسجلة في الخزنة فوراً"
+        notes:"سلفة أسبوعية (خطة — ستُسجَّل في الخزنة عند الإقفال)"
       });
     });
-    setShowAdvForm(false);resetAdvForm();showToast("✓ تم إضافة السلفة وتسجيلها في الخزنة");
+    setShowAdvForm(false);resetAdvForm();showToast("✓ تم إضافة السلفة للخطة");
   };
   const deleteWeeklyAdvance=(advId)=>{
     if(!openWeek)return;
     const adv=(openWeek.weeklyAdvances||[]).find(a=>a.id===advId);
+    /* Some legacy advances may still have treasuryTxId (registered in old system) */
     const linkedTx=adv&&adv.treasuryTxId?(data.treasury||[]).find(t=>t.id===adv.treasuryTxId):null;
     openConfirm({
       title:"حذف السلفة",
-      message:adv?"هل أنت متأكد من حذف سلفة "+adv.empName+" ("+fmt0(adv.amount)+" ج)؟\n\n"+(linkedTx?"⚠️ سيتم حذف الحركة المالية المرتبطة من الخزنة (سيُعاد المبلغ للرصيد).":"")+"\n\nهذا الإجراء لا يمكن التراجع عنه.":"هل أنت متأكد من حذف هذه السلفة؟",
+      message:adv?"هل أنت متأكد من حذف سلفة "+adv.empName+" ("+fmt0(adv.amount)+" ج)؟"+(linkedTx?"\n\n⚠️ هذه السلفة مسجلة في الخزنة (نظام قديم) — سيتم حذف الحركة المالية المرتبطة.":""):"هل أنت متأكد من حذف هذه السلفة؟",
       variant:"warn",confirmText:"حذف",
       onConfirm:()=>{upConfig(d=>{
         const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
         if(!d.hrWeeks[wi].weeklyAdvances)return;
         d.hrWeeks[wi].weeklyAdvances=d.hrWeeks[wi].weeklyAdvances.filter(a=>a.id!==advId);
-        /* Reverse linked treasury + hrLog entries */
+        /* Legacy cleanup: if this advance was registered in treasury (old system), reverse it */
         if(adv){
           if(adv.treasuryTxId&&d.treasury)d.treasury=d.treasury.filter(t=>t.id!==adv.treasuryTxId);
           if(d.hrLog)d.hrLog=d.hrLog.filter(l=>l.weeklyAdvanceId!==advId);
@@ -14326,10 +14307,10 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             target:adv.empName+" — W"+d.hrWeeks[wi].weekNum,
             oldValue:fmt0(adv.amount)+" ج"+(adv.note?" ("+adv.note+")":""),
             user:userName,severity:"danger",
-            notes:"حذف سلفة أسبوعية + عكس حركة الخزنة"
+            notes:"حذف سلفة أسبوعية من الخطة"
           });
         }
-      });showToast("✓ تم الحذف — المبلغ رُد للخزنة")}
+      });showToast("✓ تم الحذف")}
     });
   };
 
@@ -14437,14 +14418,38 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       /* Treasury — individual entry per employee (thursday pay). Uses useDate (editable close date). */
       const dayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(useDate).getDay()];
       records.forEach(r=>{if(r.thursdayPay>0)d.treasury.unshift({id:gid(),type:"out",amount:r2(r.thursdayPay),desc:"مرتب "+r.empName+" W"+openWeek.weekNum,category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:useDate,day:dayName,sourceType:"hr_salary",weekId:openWeek.id,empId:r.empId,by:userName,createdAt:new Date().toISOString(),snapshotId,actualCloseDate,backdated:useDate!==actualCloseDate})});
-      /* Weekly advances — already registered in treasury + hrLog at the moment they were added.
-         Just reference them in the snapshot for audit trail. No re-registration. */
+      /* Weekly advances (planned) — register in treasury + hrLog NOW at week closure.
+         Legacy advances that were already registered (treasuryTxId exists) are just tagged with snapshotId. */
       const wAdvs=(openWeek.weeklyAdvances||[]);
-      /* Mark existing treasury entries with snapshotId so they can be rolled back if week is restored */
       wAdvs.forEach(a=>{
         if(a.treasuryTxId&&d.treasury){
+          /* Legacy advance — already in treasury, just tag for rollback support */
           const tx=d.treasury.find(t=>t.id===a.treasuryTxId);
           if(tx)tx.snapshotId=snapshotId;
+        }else{
+          /* New planned advance — register in treasury on close */
+          const advTxId=gid();
+          const advDayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(a.date||useDate).getDay()];
+          d.treasury.unshift({
+            id:advTxId,type:"out",amount:r2(Number(a.amount)||0),
+            desc:"سلفة "+a.empName+" W"+openWeek.weekNum+(a.note?" — "+a.note:""),
+            category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",
+            date:a.date||useDate,day:advDayName,
+            sourceType:"hr_weekly_advance",weekId:openWeek.id,empId:a.empId,
+            weeklyAdvanceId:a.id,
+            by:userName,createdAt:new Date().toISOString(),snapshotId,actualCloseDate,backdated:useDate!==actualCloseDate
+          });
+          d.hrLog.unshift({
+            id:gid(),type:"weekly_advance",empId:a.empId,empName:a.empName,empJob:a.empJob||"",
+            amount:Number(a.amount)||0,note:a.note||"",
+            weekId:openWeek.id,weekStart:openWeek.weekStart,weekEnd:openWeek.weekEnd,
+            date:a.date||useDate,by:userName,createdAt:new Date().toISOString(),
+            weeklyAdvanceId:a.id,treasuryTxId:advTxId,snapshotId
+          });
+          /* Link back: store txId on the advance itself so delete after close can reverse */
+          const wiUpd=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);
+          if(wiUpd>=0){const advUpd=(d.hrWeeks[wiUpd].weeklyAdvances||[]).find(x=>x.id===a.id);
+            if(advUpd){advUpd.treasuryTxId=advTxId;advUpd.planned=false}}
         }
       });
       /* Close week — store BOTH user-selected date (closedAt) AND actual close date (actualClosedAt, immutable) */
@@ -15071,12 +15076,13 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               <div style={{fontSize:FS+4,fontWeight:800,color:"#EC4899",lineHeight:1.1}}>{fmt0(totalWeeklyAdvances)}</div>
               <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>{weeklyAdvances.length+" سلفة"}</div>
             </div>
-            {/* 8. الإجمالي النهائي — ما سيُدفع فعلياً يوم الإقفال فقط (thursdayPay)
-                 بدون السلف الأسبوعية اللي اتدفعت خلال الأسبوع (لأنها خرجت من الخزنة قبل كده) */}
-            <div style={{padding:"10px 8px",borderRadius:10,background:T.ok+"12",border:"2px solid "+T.ok+"40",textAlign:"center"}} title={"الإجمالي الذي سيُدفع يوم الإقفال فقط.\nالسلف الأسبوعية ("+fmt0(advances)+" ج) + سلف الإدارة ("+fmt0(totalWeeklyAdvances)+" ج) تم دفعها خلال الأسبوع بالفعل من الخزنة."}>
+            {/* 8. الإجمالي النهائي — ما سيُدفع فعلياً يوم الإقفال:
+                 thursdayPay (مرتبات) + totalWeeklyAdvances (سلف إدارة — خطة تُنفَّذ عند الإقفال)
+                 بدون السلف الأسبوعية اللي اتدفعت خلال الأسبوع من الموظفين العاديين (لأنها خرجت من الخزنة) */}
+            <div style={{padding:"10px 8px",borderRadius:10,background:T.ok+"12",border:"2px solid "+T.ok+"40",textAlign:"center"}} title={"الإجمالي الذي سيُدفع/يخرج من الخزنة يوم الإقفال:\n• مرتبات: "+fmt0(thursdayPay)+" ج\n• سلف إدارة (خطة): "+fmt0(totalWeeklyAdvances)+" ج\n\nالسلف الأسبوعية للموظفين العاديين ("+fmt0(advances)+" ج) خرجت من الخزنة خلال الأسبوع بالفعل."}>
               <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2,fontWeight:700}}>✅ الإجمالي النهائي</div>
-              <div style={{fontSize:FS+5,fontWeight:900,color:T.ok,lineHeight:1.1}}>{fmt0(thursdayPay)}</div>
-              <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>يوم الإقفال فقط</div>
+              <div style={{fontSize:FS+5,fontWeight:900,color:T.ok,lineHeight:1.1}}>{fmt0(thursdayPay+totalWeeklyAdvances)}</div>
+              <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>يخرج يوم الإقفال</div>
             </div>
           </div>})()}
 
@@ -16454,7 +16460,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       const shownEmpsCD=activeEmps.filter(e=>weekSelectedCD.includes(e.id));
       let tG_=0,tA_=0,tTP_=0,tRB_=0,tDI_=0;
       shownEmpsCD.forEach(e=>{const cc=calcSalary(e.id,openWeek);if(cc){tG_+=cc.grossPay;tA_+=cc.weekAdvances;tTP_+=cc.thursdayPay;tRB_+=cc.remainingBalance;tDI_+=cc.debtInstall||0}});
-      const totalCashOut=r2(tTP_);/* فقط مرتبات الخميس — السلف خرجت من الخزنة خلال الأسبوع */
+      const totalCashOut=r2(tTP_+totalWeeklyAdvances);/* مرتبات الخميس + سلف الإدارة المخططة (تُنفَّذ الآن) */
       const isBackdated=closeDateValue&&closeDateValue!==today;
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={()=>setShowCloseDate(false)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:22,width:"100%",maxWidth:500,maxHeight:"90vh",overflowY:"auto",border:"2px solid "+T.accent,boxShadow:"0 25px 80px rgba(0,0,0,0.4)"}}>
@@ -16473,12 +16479,13 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             <div>💰 اجمالي المستحق: <b style={{color:T.ok}}>{fmt0(tG_)} ج</b></div>
             <div>💸 اجمالي المسحوبات الأسبوعية: <b style={{color:T.err}}>{fmt0(tA_)} ج</b> <span style={{fontSize:FS-3,color:T.textMut}}>(خرجت من الخزنة بالفعل)</span></div>
             {tDI_>0&&<div>🧾 اجمالي أقساط: <b>{fmt0(tDI_)} ج</b></div>}
-            {totalWeeklyAdvances>0&&<div>🏢 سلف الإدارة/الشهريين: <b style={{color:"#EC4899"}}>{fmt0(totalWeeklyAdvances)} ج</b> <span style={{fontSize:FS-3,color:T.textMut}}>(خرجت من الخزنة بالفعل)</span></div>}
             <div style={{borderTop:"2px solid "+T.brd,marginTop:10,paddingTop:10}}>
-              💵 دفعات يوم الإقفال: <b style={{color:T.ok,fontSize:FS+1}}>{fmt0(tTP_)} ج</b>
+              <div style={{fontWeight:700,marginBottom:4,color:T.accent}}>💸 سيخرج من الخزنة الآن:</div>
+              <div>💵 مرتبات الإقفال: <b style={{color:T.ok}}>{fmt0(tTP_)} ج</b></div>
+              {totalWeeklyAdvances>0&&<div>🏢 سلف الإدارة/الشهريين: <b style={{color:"#EC4899"}}>{fmt0(totalWeeklyAdvances)} ج</b> <span style={{fontSize:FS-3,color:T.textMut}}>(خطة — ستُنفَّذ الآن)</span></div>}
             </div>
-            <div>
-              🏦 إجمالي سيخرج من الخزنة الآن: <b style={{color:T.accent,fontSize:FS+2}}>{fmt0(totalCashOut)} ج</b>
+            <div style={{borderTop:"2px solid "+T.accent+"40",marginTop:8,paddingTop:8}}>
+              🏦 إجمالي سيخرج من الخزنة: <b style={{color:T.accent,fontSize:FS+2}}>{fmt0(totalCashOut)} ج</b>
             </div>
             {tRB_!==0&&<div>🔄 يُرحّل للأسبوع القادم: <b style={{color:T.warn}}>{fmt0(tRB_)} ج</b></div>}
           </div>
