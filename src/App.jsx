@@ -12985,6 +12985,54 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const[stmtFrom,setStmtFrom]=useState("");const[stmtTo,setStmtTo]=useState("");
 
   const openWeek=hrWeeks.find(w=>w.id===openWeekId);
+  
+  /* ── Draft inputs: auto-load when week opens ── */
+  const[draftLoadedForWeek,setDraftLoadedForWeek]=useState(null);
+  useEffect(()=>{
+    if(!openWeek||openWeek.status==="closed")return;
+    if(draftLoadedForWeek===openWeek.id)return;/* already loaded for this week */
+    const d=openWeek.draftInputs||{};
+    setSalBonus(d.bonus||{});
+    setSalSpecialDeduct(d.specialDeduct||{});
+    setSalManualInstallDeduct(d.manualInstallDeduct||{});
+    setSalThursdayPay(d.thursdayPay||{});
+    setSalPrevBalanceOverride(d.prevBalanceOverride||{});
+    setSalDeductReason(d.deductReason||{});
+    setSalBaseHoursOverride(d.baseHoursOverride||{});
+    setDraftLoadedForWeek(openWeek.id);
+  },[openWeek?.id,openWeek?.status]);
+  
+  /* ── Save draft inputs to Firebase (without closing week) ── */
+  const[lastSavedAt,setLastSavedAt]=useState(null);
+  const saveDraftInputs=async()=>{
+    if(!openWeek||openWeek.status==="closed")return;
+    const draftInputs={
+      bonus:salBonus,
+      specialDeduct:salSpecialDeduct,
+      manualInstallDeduct:salManualInstallDeduct,
+      thursdayPay:salThursdayPay,
+      prevBalanceOverride:salPrevBalanceOverride,
+      deductReason:salDeductReason,
+      baseHoursOverride:salBaseHoursOverride,
+      lastSaved:new Date().toISOString(),
+      savedBy:userName||""
+    };
+    upConfig(d=>{
+      if(!d.hrWeeks)d.hrWeeks=[];
+      const w=d.hrWeeks.find(x=>x.id===openWeek.id);
+      if(w)w.draftInputs=draftInputs;
+    });
+    setLastSavedAt(new Date());
+    showToast("✅ تم حفظ التعديلات — يمكنك العودة للتعديل لاحقاً");
+  };
+  
+  /* Track "unsaved changes" marker: if any input differs from last saved */
+  const hasUnsavedChanges=useMemo(()=>{
+    if(!openWeek||openWeek.status==="closed")return false;
+    const d=openWeek.draftInputs||{};
+    const eq=(a,b)=>{const ak=Object.keys(a||{});const bk=Object.keys(b||{});if(ak.length!==bk.length)return false;for(const k of ak){if(String((a[k]??""))!==String((b[k]??"")))return false}return true};
+    return!eq(salBonus,d.bonus||{})||!eq(salSpecialDeduct,d.specialDeduct||{})||!eq(salManualInstallDeduct,d.manualInstallDeduct||{})||!eq(salThursdayPay,d.thursdayPay||{})||!eq(salPrevBalanceOverride,d.prevBalanceOverride||{})||!eq(salDeductReason,d.deductReason||{})||!eq(salBaseHoursOverride,d.baseHoursOverride||{});
+  },[salBonus,salSpecialDeduct,salManualInstallDeduct,salThursdayPay,salPrevBalanceOverride,salDeductReason,salBaseHoursOverride,openWeek?.draftInputs,openWeek?.status]);
 
   /* ── Employee CRUD ── */
   const resetEmpForm=()=>{setEmpName("");setEmpJob("");setEmpCode("");setEmpWeeklySalary("");setEmpBaseHours("");setEmpPhone("");setEmpDate(today);setEmpWeeklyBonus("");setEmpNoBiometric(false);setEmpSalaryType("weekly");setEmpEditId(null)};
@@ -13202,7 +13250,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     /* Thursday cash payment — default to netBalance if not set (employee takes full amount) */
     const thursdayPay=salThursdayPay[empId]!==undefined&&salThursdayPay[empId]!==""?Number(salThursdayPay[empId])||0:netBalance;
     const remainingBalance=r2(netBalance-thursdayPay);
-    return{weeklySalary,baseHours,perHour,workDays,totalHours,basicHours,overtimeHours,basicPay,overtimePay,grossPay,prevBalance,prevBalanceIsManual,weekAdvances,bonus,specialDeduct,debtInstall,debtCarried,debtItems:debtInfo.items,manualInstallDeduct,netBalance,thursdayPay,remainingBalance,days}};
+    return{weeklySalary,baseHours,perHour,workDays,totalHours,basicHours,overtimeHours,basicPay,overtimePay,grossPay,prevBalance,prevBalanceIsManual,weekAdvances,bonus,specialDeduct,debtInstall,debtCarried,debtItems:debtInfo.items,debtInfoTotal:debtInfo.total,manualInstallDeduct,netBalance,thursdayPay,remainingBalance,days}};
 
   /* ── Approve & Close Week ── */
   const approveWeek=()=>{if(!openWeek||openWeek.status==="closed")return;
@@ -13861,7 +13909,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                     <span onClick={()=>openTextPopup({title:"سبب الخصم",subtitle:emp.name,value:salDeductReason[emp.id]||"",placeholder:"اكتب سبب الخصم...",multiline:true,onSave:v=>setSalDeductReason(p=>({...p,[emp.id]:v}))})} style={{cursor:"pointer",fontSize:11,padding:"2px 5px",borderRadius:4,background:salDeductReason[emp.id]?T.warn+"15":T.bg,color:salDeductReason[emp.id]?T.warn:T.textMut,border:"1px solid "+(salDeductReason[emp.id]?T.warn+"30":T.brd)}} title={salDeductReason[emp.id]||"إضافة سبب"}>📝</span>
                   </div>:<span style={{fontSize:FS-2,color:T.err}}>{c.specialDeduct||""}</span>}</td>
                   <td style={{padding:"3px 6px",textAlign:"center"}}>
-                    {c.debtInstall>0?<div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
+                    {c.debtInfoTotal>0?<div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
                       <span style={{fontSize:FS-1,fontWeight:700,color:"#F97316",background:"#F9731610",padding:"3px 8px",borderRadius:6,border:"1px solid #F9731630"}}>{fmt0(c.debtInstall)}</span>
                       <span onClick={()=>setShowEmpDebts(emp.id)} style={{cursor:"pointer",fontSize:11,padding:"2px 5px",borderRadius:4,background:"#F9731615",color:"#F97316",border:"1px solid #F9731630"}} title="عرض الأقساط">📝</span>
                     </div>:empActiveDebts(emp.id).length>0?<span style={{fontSize:FS-2,color:T.textMut}} title="يوجد أقساط لهذا الموظف غير مستحقة في هذا الأسبوع">—</span>:(!isLocked?<div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
@@ -13895,24 +13943,28 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                 <td></td>
               </tr>
             </tbody></table></div>
-            {canEdit&&!isClosed&&<div style={{marginTop:14,textAlign:"center"}}><Btn primary onClick={()=>{
-              /* Build summary for confirmation */
-              let tG_=0,tN_=0,tA_=0,tTP_=0,tRB_=0,tDI_=0;
-              shownEmps.forEach(e=>{const cc=calcSalary(e.id,openWeek);if(cc){tG_+=cc.grossPay;tN_+=cc.netBalance;tA_+=cc.weekAdvances;tTP_+=cc.thursdayPay;tRB_+=cc.remainingBalance;tDI_+=cc.debtInstall||0}});
-              openConfirm({
-                title:"اعتماد وقفل أسبوع W"+openWeek.weekNum,
-                message:"الفترة: "+openWeek.weekStart+" → "+openWeek.weekEnd+"\n"+
-                  "عدد الموظفين: "+shownEmps.length+"\n\n"+
-                  "💰 اجمالي المستحق: "+fmt0(tG_)+" ج.م\n"+
-                  "💸 اجمالي المسحوبات: "+fmt0(tA_)+" ج.م\n"+
-                  (tDI_>0?"🧾 اجمالي أقساط: "+fmt0(tDI_)+" ج.م\n":"")+
-                  "💵 سيخرج من الخزنة: "+fmt0(tTP_)+" ج.م\n"+
-                  "🔄 يُرحّل للأسبوع القادم: "+fmt0(tRB_)+" ج.م\n\n"+
-                  "سيتم: تحديث أرصدة الموظفين، تسجيل المرتبات في السجل، خصم الأقساط، تسجيل دفعة الخزنة، وقفل الأسبوع.",
-                variant:"warn",
-                onConfirm:()=>approveWeek()
-              })
-            }} style={{fontSize:FS+1,padding:"12px 30px"}}>💰 اعتماد وقفل الأسبوع W{openWeek.weekNum}</Btn></div>}
+            {canEdit&&!isClosed&&<div style={{marginTop:14,display:"flex",gap:10,justifyContent:"center",alignItems:"center",flexWrap:"wrap"}}>
+              <Btn onClick={saveDraftInputs} style={{fontSize:FS,padding:"10px 20px",background:hasUnsavedChanges?T.warn:T.ok+"15",color:hasUnsavedChanges?"#fff":T.ok,border:hasUnsavedChanges?"1px solid "+T.warn:"1px solid "+T.ok+"40",fontWeight:700}}>{hasUnsavedChanges?"💾 حفظ التعديلات":"✓ محفوظ"}</Btn>
+              {openWeek.draftInputs?.lastSaved&&<span style={{fontSize:FS-2,color:T.textMut}} title={"آخر حفظ: "+new Date(openWeek.draftInputs.lastSaved).toLocaleString("ar-EG")}>{"آخر حفظ: "+(()=>{const d=new Date(openWeek.draftInputs.lastSaved);const now=new Date();const diffMs=now-d;const mins=Math.floor(diffMs/60000);if(mins<1)return"الآن";if(mins<60)return"منذ "+mins+" دقيقة";const hrs=Math.floor(mins/60);if(hrs<24)return"منذ "+hrs+" ساعة";return d.toLocaleDateString("ar-EG")})()}</span>}
+              <Btn primary onClick={()=>{
+                /* Build summary for confirmation */
+                let tG_=0,tN_=0,tA_=0,tTP_=0,tRB_=0,tDI_=0;
+                shownEmps.forEach(e=>{const cc=calcSalary(e.id,openWeek);if(cc){tG_+=cc.grossPay;tN_+=cc.netBalance;tA_+=cc.weekAdvances;tTP_+=cc.thursdayPay;tRB_+=cc.remainingBalance;tDI_+=cc.debtInstall||0}});
+                openConfirm({
+                  title:"اعتماد وقفل أسبوع W"+openWeek.weekNum,
+                  message:"الفترة: "+openWeek.weekStart+" → "+openWeek.weekEnd+"\n"+
+                    "عدد الموظفين: "+shownEmps.length+"\n\n"+
+                    "💰 اجمالي المستحق: "+fmt0(tG_)+" ج.م\n"+
+                    "💸 اجمالي المسحوبات: "+fmt0(tA_)+" ج.م\n"+
+                    (tDI_>0?"🧾 اجمالي أقساط: "+fmt0(tDI_)+" ج.م\n":"")+
+                    "💵 سيخرج من الخزنة: "+fmt0(tTP_)+" ج.م\n"+
+                    "🔄 يُرحّل للأسبوع القادم: "+fmt0(tRB_)+" ج.م\n\n"+
+                    "سيتم: تحديث أرصدة الموظفين، تسجيل المرتبات في السجل، خصم الأقساط، تسجيل دفعة الخزنة، وقفل الأسبوع.",
+                  variant:"warn",
+                  onConfirm:()=>approveWeek()
+                })
+              }} style={{fontSize:FS+1,padding:"12px 30px"}}>💰 اعتماد وقفل الأسبوع W{openWeek.weekNum}</Btn>
+            </div>}
             {isClosed&&<div style={{marginTop:10,textAlign:"center",padding:12,borderRadius:10,background:T.ok+"08",color:T.ok,fontWeight:700}}>{"✅ هذا الأسبوع مقفول — تم الاعتماد "+openWeek.closedAt+" بواسطة "+openWeek.closedBy}</div>}
           </Card>})()}
 
