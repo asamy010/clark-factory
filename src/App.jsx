@@ -13670,10 +13670,11 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     /* Per-employee base hours override, then week default */
     const overrideH=salBaseHoursOverride[empId];
     const baseHours=(overrideH!==undefined&&overrideH!=="")?Number(overrideH)||0:(week.baseHours||48);
-    /* Hour rate is calculated from STANDARD work week (days × hours/day) from HR settings.
-       This keeps the rate consistent regardless of baseHours override for individual employees. */
-    const stdDays=Number(hrs.workDays)||6;
-    const stdHoursPerDay=Number(hrs.hoursPerDay)||9;
+    /* Hour rate is calculated from STANDARD work week (days × hours/day).
+       Priority: week-level override → HR settings → defaults (6×9).
+       This allows per-week adjustments (e.g., Ramadan, holidays) without changing global settings. */
+    const stdDays=Number(week.workDays)||Number(hrs.workDays)||6;
+    const stdHoursPerDay=(week.hoursPerDay!=null?Number(week.hoursPerDay):Number(hrs.hoursPerDay))||9;
     const standardWeekHours=stdDays*stdHoursPerDay;
     const perHour=standardWeekHours>0?r2(weeklySalary/standardWeekHours):0;
     /* Get attendance from week */
@@ -14254,17 +14255,27 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         {hrWeeks.map(w=>{const isSelected=previewWeekId===w.id;
           /* Compute live stats for open week (if not closed, recalculate from current data) */
           let wGross=w.totalGross||0,wThursday=w.totalThursdayPay||0,wRemaining=w.totalRemaining||0,wEmpCount=w.empCount||0,wWeeklyAdv=w.totalWeeklyAdvances||0;
+          /* Sum of prev balances from employees in the week — these are carried-over balances from PREVIOUS weeks */
+          let wPrevBalances=0;
           if(w.status!=="closed"){
             /* Live calculation for open weeks */
             const wSelected=(w.selectedEmps&&Array.isArray(w.selectedEmps))?w.selectedEmps:[];
             const wShown=activeEmps.filter(e=>wSelected.includes(e.id));
             wEmpCount=wShown.length;
             let liveG=0,liveT=0,liveR=0;
-            wShown.forEach(e=>{const c=calcSalary(e.id,w);if(c){liveG+=c.grossPay||0;liveT+=c.thursdayPay||0;liveR+=c.remainingBalance||0}});
+            wShown.forEach(e=>{
+              const c=calcSalary(e.id,w);
+              if(c){liveG+=c.grossPay||0;liveT+=c.thursdayPay||0;liveR+=c.remainingBalance||0}
+              /* Accumulate current prevBalance from employee record (carried from previous weeks) */
+              wPrevBalances+=Number(e.prevBalance)||0;
+            });
             wGross=liveG;wThursday=liveT;wRemaining=liveR;
             wWeeklyAdv=(w.weeklyAdvances||[]).reduce((s,a)=>s+(Number(a.amount)||0),0);
           }
           const isClosedW=w.status==="closed";
+          /* For display: show prev balances sum if exists (carried from previous weeks), otherwise remaining from this week */
+          const wCarriedDisplay=w.status!=="closed"&&wPrevBalances>0?wPrevBalances:wRemaining;
+          const wCarriedLabel=w.status!=="closed"&&wPrevBalances>0?"🔄 مرحّل سابق":"🔄 للأسبوع القادم";
           return<div key={w.id} style={{padding:isMob?14:20,borderRadius:16,background:isSelected?T.accent+"06":T.cardSolid,border:"2px solid "+(isSelected?T.accent:isClosedW?T.ok+"30":T.accent+"30"),boxShadow:T.shadow,transition:"all 0.15s",cursor:"pointer"}} onClick={()=>setPreviewWeekId(isSelected?null:w.id)}>
           {/* Header row */}
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:isMob?10:14,gap:10,flexWrap:"wrap"}}>
@@ -14312,9 +14323,9 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2}}>🏢 سلف إدارة</div>
               <div style={{fontSize:FS+1,fontWeight:800,color:"#EC4899"}}>{wWeeklyAdv?fmt0(wWeeklyAdv):"—"}</div>
             </div>
-            <div style={{textAlign:"center",padding:"6px 4px",background:T.warn+"08",borderRadius:8,border:"1px solid "+T.warn+"20"}}>
-              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2}}>🔄 مرحّل</div>
-              <div style={{fontSize:FS+1,fontWeight:800,color:wRemaining>0?T.warn:T.textMut}}>{wRemaining?fmt0(wRemaining):"—"}</div>
+            <div style={{textAlign:"center",padding:"6px 4px",background:T.warn+"08",borderRadius:8,border:"1px solid "+T.warn+"20"}} title={w.status!=="closed"&&wPrevBalances>0?"أرصدة مرحّلة من أسابيع سابقة ("+fmt0(wPrevBalances)+")\nالمتوقع ترحيله بعد الإقفال: "+fmt0(wRemaining):"الرصيد اللي هيترحّل للأسبوع القادم"}>
+              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2}}>{wCarriedLabel}</div>
+              <div style={{fontSize:FS+1,fontWeight:800,color:wCarriedDisplay>0?T.warn:T.textMut}}>{wCarriedDisplay?fmt0(wCarriedDisplay):"—"}</div>
             </div>
           </div>
         </div>})}
@@ -14396,9 +14407,21 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             {/* Restore button — only shown if week was closed TODAY and has a snapshot */}
             {canEdit&&isClosed&&openWeek.snapshotId&&openWeek.snapshotDate===today&&<Btn small onClick={()=>setRestorePopup({snapshotId:openWeek.snapshotId,week:openWeek,confirmText:""})} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700,fontSize:FS-2}} title="استعادة الأسبوع للحالة قبل الإقفال (متاح في نفس اليوم فقط)">⏪ استعادة قبل الإقفال</Btn>}
           </div>
-          {!isLocked&&<div style={{display:"flex",alignItems:"center",gap:6}}>
-            <span style={{fontSize:FS-2,color:T.textSec}}>ساعات أساسي:</span>
-            <input type="number" value={openWeek.baseHours||48} onChange={ev=>setWeekBaseHours(ev.target.value)} style={{width:60,padding:"4px 6px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text,fontWeight:700}}/>
+          {!isLocked&&<div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:FS-2,color:T.textSec}}>ساعات أساسي:</span>
+              <input type="number" value={openWeek.baseHours||48} onChange={ev=>setWeekBaseHours(ev.target.value)} style={{width:60,padding:"4px 6px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text,fontWeight:700}}/>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:6}} title="ساعات اليوم لهذا الأسبوع (استثناء). لو فارغ بيستخدم الإعدادات العامة.">
+              <span style={{fontSize:FS-2,color:T.textSec}}>ساعات يومي:</span>
+              <input type="number" step="0.5" value={openWeek.hoursPerDay!=null?openWeek.hoursPerDay:""} onChange={ev=>{
+                const v=ev.target.value;
+                upConfig(d=>{const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeekId);if(wi<0)return;
+                  if(v===""||v==null)delete d.hrWeeks[wi].hoursPerDay;
+                  else d.hrWeeks[wi].hoursPerDay=Number(v)||0});
+              }} placeholder={String(Number(hrs.hoursPerDay)||9)} style={{width:60,padding:"4px 6px",borderRadius:6,border:"1px solid "+(openWeek.hoursPerDay!=null?T.warn+"50":T.brd),fontSize:FS,fontFamily:"inherit",textAlign:"center",background:openWeek.hoursPerDay!=null?T.warn+"08":T.inputBg,color:openWeek.hoursPerDay!=null?T.warn:T.text,fontWeight:700}}/>
+              {openWeek.hoursPerDay!=null&&<span onClick={()=>upConfig(d=>{const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeekId);if(wi<0)return;delete d.hrWeeks[wi].hoursPerDay})} title="استخدم الافتراضي من الإعدادات" style={{cursor:"pointer",fontSize:FS-2,color:T.textMut,padding:"2px 6px"}}>↺</span>}
+            </div>
           </div>}
         </div>
 
