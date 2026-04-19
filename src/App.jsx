@@ -14858,12 +14858,12 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             wWeeklyAdv=(w.weeklyAdvances||[]).reduce((s,a)=>s+(Number(a.amount)||0),0);
           }
           const isClosedW=w.status==="closed";
-          /* For display: show prev balances sum if exists (carried from previous weeks), otherwise remaining from this week */
-          const wCarriedDisplay=w.status!=="closed"&&wPrevBalances>0?wPrevBalances:wRemaining;
-          const wCarriedLabel=w.status!=="closed"&&wPrevBalances>0?"🔄 مرحّل سابق":"🔄 للأسبوع القادم";
-          return<div key={w.id} style={{padding:isMob?14:20,borderRadius:16,background:isSelected?T.accent+"06":T.cardSolid,border:"2px solid "+(isSelected?T.accent:isClosedW?T.ok+"30":T.accent+"30"),boxShadow:T.shadow,transition:"all 0.15s",cursor:"pointer"}} onClick={()=>setPreviewWeekId(isSelected?null:w.id)}>
+          /* Carried balances — show BOTH: prev (from previous weeks) and next (to be rolled to next week) */
+          const wPrev=wPrevBalances;/* مرحّل سابق — من أسابيع قديمة */
+          const wNext=wRemaining;/* مرحّل للأسبوع القادم — متبقي بعد مدفوعات هذا الأسبوع */
+          return<div key={w.id} style={{padding:isMob?10:14,borderRadius:16,background:isSelected?T.accent+"06":T.cardSolid,border:"2px solid "+(isSelected?T.accent:isClosedW?T.ok+"30":T.accent+"30"),boxShadow:T.shadow,transition:"all 0.15s",cursor:"pointer"}} onClick={()=>setPreviewWeekId(isSelected?null:w.id)}>
           {/* Header row */}
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:isMob?10:14,gap:10,flexWrap:"wrap"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
             <div style={{display:"flex",alignItems:"center",gap:isMob?10:16,flex:1}}>
               <span style={{fontSize:isMob?20:28,fontWeight:900,color:isClosedW?T.ok:T.accent,lineHeight:1}}>{"W"+w.weekNum}</span>
               <div>
@@ -14890,28 +14890,31 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               }} style={{cursor:"pointer",padding:"6px 12px",borderRadius:10,background:T.err+"12",color:T.err,fontSize:FS-1,fontWeight:700,border:"1px solid "+T.err+"30"}} title="حذف الأسبوع">🗑️</span>}
             </div>
           </div>
-          {/* Stats grid — week details */}
-          <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(5,1fr)",gap:8,paddingTop:isMob?10:12,borderTop:"1px solid "+T.brd}}>
-            <div style={{textAlign:"center",padding:"6px 4px",background:T.accent+"06",borderRadius:8,border:"1px solid "+T.accent+"15"}}>
-              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2}}>👷 عدد العمال</div>
-              <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{wEmpCount||"—"}</div>
-            </div>
-            <div style={{textAlign:"center",padding:"6px 4px",background:"#06B6D408",borderRadius:8,border:"1px solid #06B6D418"}}>
-              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2}}>💰 المستحق</div>
-              <div style={{fontSize:FS+1,fontWeight:800,color:"#06B6D4"}}>{wGross?fmt0(wGross):"—"}</div>
-            </div>
-            <div style={{textAlign:"center",padding:"6px 4px",background:T.ok+"08",borderRadius:8,border:"1px solid "+T.ok+"20"}}>
-              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2}}>💵 المدفوع</div>
-              <div style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>{wThursday?fmt0(wThursday):"—"}</div>
-            </div>
-            <div style={{textAlign:"center",padding:"6px 4px",background:"#EC489908",borderRadius:8,border:"1px solid #EC489918"}}>
-              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2}}>🏢 سلف إدارة</div>
-              <div style={{fontSize:FS+1,fontWeight:800,color:"#EC4899"}}>{wWeeklyAdv?fmt0(wWeeklyAdv):"—"}</div>
-            </div>
-            <div style={{textAlign:"center",padding:"6px 4px",background:T.warn+"08",borderRadius:8,border:"1px solid "+T.warn+"20"}} title={w.status!=="closed"&&wPrevBalances>0?"أرصدة مرحّلة من أسابيع سابقة ("+fmt0(wPrevBalances)+")\nالمتوقع ترحيله بعد الإقفال: "+fmt0(wRemaining):"الرصيد اللي هيترحّل للأسبوع القادم"}>
-              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2}}>{wCarriedLabel}</div>
-              <div style={{fontSize:FS+1,fontWeight:800,color:wCarriedDisplay>0?T.warn:T.textMut}}>{wCarriedDisplay?fmt0(wCarriedDisplay):"—"}</div>
-            </div>
+          {/* Compact stats row — inline summary */}
+          <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:isMob?8:14,paddingTop:isMob?8:10,marginTop:isMob?8:10,borderTop:"1px solid "+T.brd,fontSize:FS-1}}>
+            <span style={{display:"inline-flex",alignItems:"center",gap:4}} title="عدد العمال">
+              <span style={{color:T.textSec}}>👷</span>
+              <span style={{fontWeight:800,color:T.accent}}>{wEmpCount||"—"}</span>
+              <span style={{color:T.textMut,fontSize:FS-2}}>عامل</span>
+            </span>
+            <span style={{color:T.brd}}>•</span>
+            <span style={{display:"inline-flex",alignItems:"center",gap:4}} title="إجمالي المستحق للأسبوع">
+              <span style={{color:T.textSec}}>💰</span>
+              <span style={{color:T.textMut,fontSize:FS-2}}>مستحق</span>
+              <span style={{fontWeight:800,color:"#06B6D4"}}>{wGross?fmt0(wGross):"—"}</span>
+            </span>
+            <span style={{color:T.brd}}>•</span>
+            <span style={{display:"inline-flex",alignItems:"center",gap:4}} title={"مرحّل من أسابيع سابقة: "+fmt0(wPrev)+"\n(موجب = عليهم فلوس، سالب = ليهم فلوس)"}>
+              <span style={{color:T.textSec}}>🔄</span>
+              <span style={{color:T.textMut,fontSize:FS-2}}>سابق</span>
+              <span style={{fontWeight:800,color:wPrev>0?T.warn:wPrev<0?T.ok:T.textMut}}>{wPrev?fmt0(wPrev):"—"}</span>
+            </span>
+            <span style={{color:T.brd}}>•</span>
+            <span style={{display:"inline-flex",alignItems:"center",gap:4}} title={"المتوقع ترحيله للأسبوع القادم بعد الإقفال: "+fmt0(wNext)+"\n(موجب = عليهم فلوس، سالب = ليهم فلوس)"}>
+              <span style={{color:T.textSec}}>⏭️</span>
+              <span style={{color:T.textMut,fontSize:FS-2}}>قادم</span>
+              <span style={{fontWeight:800,color:wNext>0?T.warn:wNext<0?T.ok:T.textMut}}>{wNext?fmt0(wNext):"—"}</span>
+            </span>
           </div>
         </div>})}
       </div>:<div style={{textAlign:"center",padding:40,color:T.textMut}}>لم يتم فتح أسابيع بعد — اضغط "+ أسبوع جديد"</div>}
