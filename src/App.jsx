@@ -12928,8 +12928,11 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   /* Matrix popup */
   const[showMatrix,setShowMatrix]=useState(false);const[matrixEmps,setMatrixEmps]=useState([]);const[matrixDate,setMatrixDate]=useState(today);const[matrixDesc,setMatrixDesc]=useState("سلفة");
   /* Salary overrides per employee in active week */
-  const[salBonus,setSalBonus]=useState({});const[salSpecialDeduct,setSalSpecialDeduct]=useState({});const[salThursdayPay,setSalThursdayPay]=useState({});const[salPrevBalanceOverride,setSalPrevBalanceOverride]=useState({});const[salManualInstallDeduct,setSalManualInstallDeduct]=useState({});
+  const[salBonus,setSalBonus]=useState({});const[salSpecialDeduct,setSalSpecialDeduct]=useState({});const[salThursdayPay,setSalThursdayPay]=useState({});const[salPrevBalanceOverride,setSalPrevBalanceOverride]=useState({});const[salManualInstallDeduct,setSalManualInstallDeduct]=useState({});const[salInstallOverride,setSalInstallOverride]=useState({});
   const[focusedEmpId,setFocusedEmpId]=useState(null);
+  const[salSearch,setSalSearch]=useState("");const salSearchDeb=useDebounced(salSearch,200);
+  const[salJobFilter,setSalJobFilter]=useState("");
+  const[salShowOnly,setSalShowOnly]=useState("");/* ""|"hasDeduct"|"hasBonus"|"hasInstall"|"hasBalance" */
   /* Quick advance popup from salary table — {empId, empName, amount, date, note} */
   const[quickAdvance,setQuickAdvance]=useState(null);
   const[salBaseHoursOverride,setSalBaseHoursOverride]=useState({});/* empId -> custom base hours for this week */
@@ -12996,6 +12999,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     setSalBonus(d.bonus||{});
     setSalSpecialDeduct(d.specialDeduct||{});
     setSalManualInstallDeduct(d.manualInstallDeduct||{});
+    setSalInstallOverride(d.installOverride||{});
     setSalThursdayPay(d.thursdayPay||{});
     setSalPrevBalanceOverride(d.prevBalanceOverride||{});
     setSalDeductReason(d.deductReason||{});
@@ -13011,6 +13015,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       bonus:salBonus,
       specialDeduct:salSpecialDeduct,
       manualInstallDeduct:salManualInstallDeduct,
+      installOverride:salInstallOverride,
       thursdayPay:salThursdayPay,
       prevBalanceOverride:salPrevBalanceOverride,
       deductReason:salDeductReason,
@@ -13032,8 +13037,8 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     if(!openWeek||openWeek.status==="closed")return false;
     const d=openWeek.draftInputs||{};
     const eq=(a,b)=>{const ak=Object.keys(a||{});const bk=Object.keys(b||{});if(ak.length!==bk.length)return false;for(const k of ak){if(String((a[k]??""))!==String((b[k]??"")))return false}return true};
-    return!eq(salBonus,d.bonus||{})||!eq(salSpecialDeduct,d.specialDeduct||{})||!eq(salManualInstallDeduct,d.manualInstallDeduct||{})||!eq(salThursdayPay,d.thursdayPay||{})||!eq(salPrevBalanceOverride,d.prevBalanceOverride||{})||!eq(salDeductReason,d.deductReason||{})||!eq(salBaseHoursOverride,d.baseHoursOverride||{});
-  },[salBonus,salSpecialDeduct,salManualInstallDeduct,salThursdayPay,salPrevBalanceOverride,salDeductReason,salBaseHoursOverride,openWeek?.draftInputs,openWeek?.status]);
+    return!eq(salBonus,d.bonus||{})||!eq(salSpecialDeduct,d.specialDeduct||{})||!eq(salManualInstallDeduct,d.manualInstallDeduct||{})||!eq(salInstallOverride,d.installOverride||{})||!eq(salThursdayPay,d.thursdayPay||{})||!eq(salPrevBalanceOverride,d.prevBalanceOverride||{})||!eq(salDeductReason,d.deductReason||{})||!eq(salBaseHoursOverride,d.baseHoursOverride||{});
+  },[salBonus,salSpecialDeduct,salManualInstallDeduct,salInstallOverride,salThursdayPay,salPrevBalanceOverride,salDeductReason,salBaseHoursOverride,openWeek?.draftInputs,openWeek?.status]);
 
   /* ── Employee CRUD ── */
   const resetEmpForm=()=>{setEmpName("");setEmpJob("");setEmpCode("");setEmpWeeklySalary("");setEmpBaseHours("");setEmpPhone("");setEmpDate(today);setEmpWeeklyBonus("");setEmpNoBiometric(false);setEmpSalaryType("weekly");setEmpEditId(null)};
@@ -13243,15 +13248,30 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     const debtInfo=empDebtInstallment(empId,week);
     /* Manual direct deduction — used when employee has NO active debts but needs a one-time deduction */
     const manualInstallDeduct=(debtInfo.total===0)?(Number(salManualInstallDeduct[empId])||0):0;
+    /* Install override — user may pay partial (or 0 = skip) */
+    const installOverrideRaw=salInstallOverride[empId];
+    const hasInstallOverride=(installOverrideRaw!==undefined&&installOverrideRaw!=="");
+    const installOverrideValue=hasInstallOverride?(Number(installOverrideRaw)||0):null;
     const availableAfterBasics=r2(grossPay+prevBalance-weekAdvances-specialDeduct+bonus);
     /* Cap installment at available amount (if negative, skip) */
-    const debtInstall=debtInfo.total>0?(availableAfterBasics>0?Math.min(debtInfo.total,availableAfterBasics):0):manualInstallDeduct;
-    const debtCarried=r2(debtInfo.total-debtInstall);/* uncollected portion */
+    let debtInstall;
+    if(debtInfo.total>0){
+      /* Has debt installment: apply override if set, else use full perWeek */
+      const requested=hasInstallOverride?installOverrideValue:debtInfo.total;
+      debtInstall=availableAfterBasics>0?Math.min(requested,availableAfterBasics):0;
+    }else{
+      /* No debt: use manual direct deduction */
+      debtInstall=manualInstallDeduct;
+    }
+    /* Carried = original perWeek total - what was actually paid (positive means deferred to next weeks) */
+    const debtCarried=r2(Math.max(0,debtInfo.total-debtInstall));
+    const isPartialInstall=debtInfo.total>0&&debtInstall<debtInfo.total&&debtInstall>0;
+    const isSkippedInstall=debtInfo.total>0&&debtInstall===0&&hasInstallOverride;
     const netBalance=r2(availableAfterBasics-debtInstall);
     /* Thursday cash payment — default to netBalance if not set (employee takes full amount) */
     const thursdayPay=salThursdayPay[empId]!==undefined&&salThursdayPay[empId]!==""?Number(salThursdayPay[empId])||0:netBalance;
     const remainingBalance=r2(netBalance-thursdayPay);
-    return{weeklySalary,baseHours,perHour,workDays,totalHours,basicHours,overtimeHours,basicPay,overtimePay,grossPay,prevBalance,prevBalanceIsManual,weekAdvances,bonus,specialDeduct,debtInstall,debtCarried,debtItems:debtInfo.items,debtInfoTotal:debtInfo.total,manualInstallDeduct,netBalance,thursdayPay,remainingBalance,days}};
+    return{weeklySalary,baseHours,perHour,workDays,totalHours,basicHours,overtimeHours,basicPay,overtimePay,grossPay,prevBalance,prevBalanceIsManual,weekAdvances,bonus,specialDeduct,debtInstall,debtCarried,debtItems:debtInfo.items,debtInfoTotal:debtInfo.total,manualInstallDeduct,isPartialInstall,isSkippedInstall,netBalance,thursdayPay,remainingBalance,days}};
 
   /* ── Approve & Close Week ── */
   const approveWeek=()=>{if(!openWeek||openWeek.status==="closed")return;
@@ -13308,14 +13328,47 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     upConfig(d=>{if(!d.hrLog)d.hrLog=[];if(!d.treasury)d.treasury=[];if(!d.empDebts)d.empDebts=[];
       /* Log each salary */
       records.forEach(r=>{d.hrLog.unshift({id:gid(),type:"salary",empId:r.empId,empName:r.empName,amount:r.netBalance,grossPay:r.grossPay,weeklySalary:r.weeklySalary,prevBalance:r.prevBalance,prevBalanceManualOverride:!!r.prevBalanceIsManual,overtimePay:r.overtimePay||0,weekAdvances:r.weekAdvances,bonus:r.bonus,specialDeduct:r.specialDeduct,deductReason:salDeductReason[r.empId]||"",debtInstall:r.debtInstall,debtItems:r.debtItems,thursdayPay:r.thursdayPay,remainingBalance:r.remainingBalance,weekId:openWeek.id,weekStart:openWeek.weekStart,weekEnd:openWeek.weekEnd,date:today,by:userName,createdAt:new Date().toISOString(),snapshotId})});
-      /* Record debt installments paid — only if debtInstall covered everything */
-      records.forEach(r=>{if(r.debtInstall>0&&r.debtCarried===0){
-        /* Full installment paid for all debts this week */
-        r.debtItems.forEach(di=>{const debt=d.empDebts.find(x=>x.id===di.id);if(debt){
+      /* Record debt installments — supports full/partial/skip
+         - Full payment: debtInstall === debtInfoTotal → mark week as paid (paidWeekIds)
+         - Partial: debtInstall > 0 AND < debtInfoTotal → split pro-rata between debts, 
+                    add to paidWeekIds + track in partialPayments
+         - Skip (0): don't touch the debt — week NOT counted, carries to future weeks */
+      records.forEach(r=>{
+        if(!r.debtItems||r.debtItems.length===0)return;
+        if(r.debtInstall<=0)return;/* skipped — nothing to record */
+        /* Calculate total perWeek across all this employee's debts */
+        const totalPerWeek=r.debtItems.reduce((s,di)=>s+(Number(di.perWeek)||0),0);
+        if(totalPerWeek<=0)return;
+        /* Distribute debtInstall proportionally across debts */
+        r.debtItems.forEach(di=>{
+          const debt=d.empDebts.find(x=>x.id===di.id);if(!debt)return;
+          const ratio=(Number(di.perWeek)||0)/totalPerWeek;
+          const portionForThisDebt=r2(r.debtInstall*ratio);
+          if(portionForThisDebt<=0)return;
           if(!debt.paidWeekIds)debt.paidWeekIds=[];
-          if(!debt.paidWeekIds.includes(openWeek.id)){debt.paidWeekIds.push(openWeek.id);
-            /* Check if fully paid */
-            if(debt.paidWeekIds.length>=debt.installments){debt.status="paid";debt.paidAt=today}}}})}});
+          if(!debt.partialPayments)debt.partialPayments={};/* weekId → amount paid (if partial) */
+          if(debt.paidWeekIds.includes(openWeek.id))return;/* already recorded */
+          debt.paidWeekIds.push(openWeek.id);
+          /* If this was a partial payment, store the shortage */
+          const expectedForThisWeek=Number(di.perWeek)||0;
+          if(portionForThisDebt<expectedForThisWeek){
+            debt.partialPayments[openWeek.id]={
+              paid:portionForThisDebt,
+              expected:expectedForThisWeek,
+              shortage:r2(expectedForThisWeek-portionForThisDebt)
+            };
+            /* Extend installments: add extra weeks to cover the shortage */
+            const extraInstallments=Math.ceil(r2(expectedForThisWeek-portionForThisDebt)/(Number(debt.perWeek)||1));
+            debt.installments=(debt.installments||0)+extraInstallments;
+          }
+          /* Check if fully paid: sum all actual payments vs debt.total */
+          const totalPaid=r2(debt.paidWeekIds.reduce((s,wid)=>{
+            const pp=(debt.partialPayments||{})[wid];
+            return s+(pp?Number(pp.paid)||0:(Number(debt.perWeek)||0));
+          },0));
+          if(totalPaid>=(Number(debt.total)||0)-0.5){debt.status="paid";debt.paidAt=today}
+        });
+      });
       /* Update balances — remaining balance carries to next week */
       records.forEach(r=>{const e=(d.employees||[]).find(x=>x.id===r.empId);if(e)e.prevBalance=r.remainingBalance});
       /* Treasury — individual entry per employee (thursday pay) */
@@ -13323,7 +13376,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       records.forEach(r=>{if(r.thursdayPay>0)d.treasury.unshift({id:gid(),type:"out",amount:r2(r.thursdayPay),desc:"مرتب "+r.empName+" W"+openWeek.weekNum,category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:today,day:dayName,sourceType:"hr_salary",weekId:openWeek.id,empId:r.empId,by:userName,createdAt:new Date().toISOString(),snapshotId})});
       /* Close week — also save snapshotId for restore lookup */
       const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi>=0){d.hrWeeks[wi].status="closed";d.hrWeeks[wi].closedAt=today;d.hrWeeks[wi].closedBy=userName;d.hrWeeks[wi].totalGross=r2(totalGross);d.hrWeeks[wi].totalNet=r2(totalNet);d.hrWeeks[wi].totalThursdayPay=r2(totalThursdayPay);d.hrWeeks[wi].totalRemaining=r2(totalRemaining);d.hrWeeks[wi].empCount=records.length;d.hrWeeks[wi].snapshotId=snapshotId;d.hrWeeks[wi].snapshotDate=today}});
-    showToast("✓ تم اعتماد وقفل الأسبوع W"+openWeek.weekNum);setSalBonus({});setSalSpecialDeduct({});setSalThursdayPay({});setSalBaseHoursOverride({});setSalPrevBalanceOverride({});setOpenWeekId(null);
+    showToast("✓ تم اعتماد وقفل الأسبوع W"+openWeek.weekNum);setSalBonus({});setSalSpecialDeduct({});setSalThursdayPay({});setSalBaseHoursOverride({});setSalPrevBalanceOverride({});setSalManualInstallDeduct({});setSalInstallOverride({});setOpenWeekId(null);
     if(setSavingOverlay){setSavingOverlay({message:"✅ تم بنجاح!",progress:100});setTimeout(()=>setSavingOverlay(null),1200)}
     },200)},400)},300)},200)};
 
@@ -13512,6 +13565,66 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     const w=window.open("","_blank");if(!w)return;
     w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>كشف مرتب — ${emp?.name||""}</title>${SLIP_STYLES}</head><body>${html}</body></html>`);
     w.document.close();setTimeout(()=>w.print(),300)};
+
+  /* Send salary slip via WhatsApp */
+  const whatsAppSlip=(empId)=>{
+    if(!openWeek)return;
+    const emp=employees.find(e=>e.id===empId);if(!emp)return;
+    const c=calcSalary(empId,openWeek);if(!c)return;
+    /* Clean phone number: remove spaces, +, -, and parens; prepend 20 if Egyptian and missing */
+    let phone=(emp.phone||"").toString().replace(/[\s\-\(\)\+]/g,"");
+    if(!phone){showToast("⚠️ لا يوجد رقم تليفون لهذا الموظف");return}
+    if(phone.startsWith("0"))phone="20"+phone.slice(1);/* Egyptian: 01xxx → 201xxx */
+    else if(!phone.startsWith("20")&&phone.length===10)phone="20"+phone;
+    /* Build message */
+    const weekLabel="W"+openWeek.weekNum+" ("+openWeek.weekStart+" → "+openWeek.weekEnd+")";
+    const lines=[];
+    lines.push("*💰 كشف مرتب*");
+    lines.push("━━━━━━━━━━━━━━━━━━");
+    lines.push("👤 *"+emp.name+"*");
+    if(emp.job)lines.push("💼 "+emp.job);
+    lines.push("📅 "+weekLabel);
+    lines.push("━━━━━━━━━━━━━━━━━━");
+    lines.push("");
+    lines.push("*تفاصيل الحساب:*");
+    lines.push("• الأساسي: "+fmt0(c.weeklySalary)+" ج");
+    lines.push("• ساعات الأسبوع: "+hrsToHM(c.totalHours));
+    if(c.overtimeHours>0){
+      lines.push("• وقت إضافي: "+hrsToHM(c.overtimeHours)+" = "+fmt0(c.overtimePay)+" ج");
+    }
+    lines.push("• إجمالي المستحق: *"+fmt0(c.grossPay)+" ج*");
+    lines.push("");
+    if(c.prevBalance!==0){
+      lines.push("• رصيد سابق: "+(c.prevBalance>0?"+":"")+fmt0(c.prevBalance)+" ج");
+    }
+    if(c.bonus>0)lines.push("• حافز (+): "+fmt0(c.bonus)+" ج");
+    if(c.weekAdvances>0)lines.push("• مسحوبات (−): "+fmt0(c.weekAdvances)+" ج");
+    if(c.specialDeduct>0){
+      let dLine="• خصم (−): "+fmt0(c.specialDeduct)+" ج";
+      const reason=salDeductReason[emp.id];
+      if(reason)dLine+=" — "+reason;
+      lines.push(dLine);
+    }
+    if(c.debtInstall>0){
+      let iLine="• قسط (−): "+fmt0(c.debtInstall)+" ج";
+      if(c.isPartialInstall)iLine+=" (جزئي — "+fmt0(c.debtInfoTotal-c.debtInstall)+" أُجِّل)";
+      lines.push(iLine);
+    }
+    if(c.isSkippedInstall)lines.push("• القسط: ⏭️ تم تخطيه هذا الأسبوع");
+    lines.push("");
+    lines.push("━━━━━━━━━━━━━━━━━━");
+    lines.push("💵 *الصافي: "+fmt0(c.netBalance)+" ج*");
+    lines.push("💰 يُصرَف: *"+fmt0(c.thursdayPay)+" ج*");
+    if(c.remainingBalance!==0){
+      lines.push("🔄 يُرحَّل: "+fmt0(c.remainingBalance)+" ج");
+    }
+    lines.push("━━━━━━━━━━━━━━━━━━");
+    lines.push("");
+    lines.push("_CLARK Factory — "+today+"_");
+    const msg=lines.join("\n");
+    const url="https://wa.me/"+phone+"?text="+encodeURIComponent(msg);
+    window.open(url,"_blank");
+  };
 
   const bulkPrintSlips=()=>{if(!openWeek)return;
     const selectedIds=Object.keys(bulkPrintSel).filter(id=>bulkPrintSel[id]);
@@ -13881,14 +13994,54 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           ];
           let tG=0,tN=0,tA=0,tD=0,tB=0,tH=0,tO=0,tOP=0,tTP=0,tRB=0,tDI=0;
           shownEmps.forEach(e=>{const c=calcSalary(e.id,openWeek);if(c){tG+=c.grossPay;tN+=c.netBalance;tA+=c.weekAdvances;tD+=c.specialDeduct;tB+=c.bonus;tH+=c.totalHours;tO+=c.overtimeHours;tOP+=c.overtimePay;tTP+=c.thursdayPay;tRB+=c.remainingBalance;tDI+=c.debtInstall||0}});
-          return<Card title={"💰 حساب المرتبات — W"+openWeek.weekNum+" ("+shownEmps.length+" موظف)"}>
-            <div style={{marginBottom:10,display:"flex",justifyContent:"flex-end"}}>
-              <Btn small onClick={()=>{const sel={};shownEmps.forEach(e=>{sel[e.id]=true});setBulkPrintSel(sel);setShowBulkPrint(true)}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}}>🖨 طباعة مجمعة</Btn>
+          /* Apply filters */
+          const sQ=salSearchDeb.trim().toLowerCase();
+          const filteredShown=shownEmps.filter(e=>{
+            if(sQ){const name=(e.name||"").toLowerCase();const code=(e.code||"").toLowerCase();const job=(e.job||"").toLowerCase();if(!name.includes(sQ)&&!code.includes(sQ)&&!job.includes(sQ))return false}
+            if(salJobFilter&&(e.job||"")!==salJobFilter)return false;
+            if(salShowOnly){const cc=calcSalary(e.id,openWeek);if(!cc)return false;
+              if(salShowOnly==="hasDeduct"&&!(cc.specialDeduct>0))return false;
+              if(salShowOnly==="hasBonus"&&!(cc.bonus>0))return false;
+              if(salShowOnly==="hasInstall"&&!(cc.debtInstall>0))return false;
+              if(salShowOnly==="hasBalance"&&!(cc.prevBalance!==0||cc.remainingBalance!==0))return false;
+              if(salShowOnly==="hasAdvances"&&!(cc.weekAdvances>0))return false;
+            }
+            return true;
+          });
+          const uniqueJobs=Array.from(new Set(shownEmps.map(e=>e.job).filter(Boolean))).sort();
+          return<Card title={"💰 حساب المرتبات — W"+openWeek.weekNum+" ("+shownEmps.length+" موظف"+(filteredShown.length!==shownEmps.length?" — ظاهر "+filteredShown.length:"")+")"}>
+            {/* Filters toolbar */}
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:10,padding:10,background:T.bg,borderRadius:10,border:"1px solid "+T.brd}}>
+              <div style={{flex:1,minWidth:180}}>
+                <Inp value={salSearch} onChange={setSalSearch} placeholder="🔍 بحث بالاسم، الكود، الوظيفة..."/>
+              </div>
+              {uniqueJobs.length>1&&<div style={{minWidth:130}}>
+                <Sel value={salJobFilter} onChange={setSalJobFilter}>
+                  <option value="">كل الوظائف</option>
+                  {uniqueJobs.map(j=><option key={j} value={j}>{j}</option>)}
+                </Sel>
+              </div>}
+              <div style={{minWidth:140}}>
+                <Sel value={salShowOnly} onChange={setSalShowOnly}>
+                  <option value="">عرض: الكل</option>
+                  <option value="hasBonus">لهم حافز</option>
+                  <option value="hasAdvances">لهم مسحوبات</option>
+                  <option value="hasDeduct">لهم خصم</option>
+                  <option value="hasInstall">لهم قسط</option>
+                  <option value="hasBalance">لهم رصيد</option>
+                </Sel>
+              </div>
+              {(salSearch||salJobFilter||salShowOnly)&&<Btn small ghost onClick={()=>{setSalSearch("");setSalJobFilter("");setSalShowOnly("")}} style={{padding:"4px 10px",fontSize:FS-2}}>✕ مسح الفلاتر</Btn>}
+              <div style={{flex:"0 0 auto",marginInlineStart:"auto"}}>
+                <Btn small onClick={()=>{const sel={};shownEmps.forEach(e=>{sel[e.id]=true});setBulkPrintSel(sel);setShowBulkPrint(true)}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}}>🖨 طباعة مجمعة</Btn>
+              </div>
             </div>
             <div style={{overflowX:"auto",overflowY:"auto",maxHeight:"calc(100vh - 260px)",border:"1px solid "+T.brd,borderRadius:10}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead style={{position:"sticky",top:0,zIndex:10}}><tr>
               {cols.map((c,i)=><th key={i} style={{padding:"10px 6px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap",width:c.w||"auto",background:T.cardSolid,boxShadow:"0 2px 4px rgba(0,0,0,0.05)"}}>{c.label}</th>)}
             </tr></thead><tbody>
-              {shownEmps.map((emp,i)=>{const c=calcSalary(emp.id,openWeek);if(!c)return null;const zebra=i%2===1?T.bg:T.cardSolid;const isFocused=focusedEmpId===emp.id;
+              {filteredShown.length===0?<tr><td colSpan={cols.length} style={{padding:30,textAlign:"center",color:T.textMut,fontSize:FS-1}}>
+                {shownEmps.length===0?"لا يوجد موظفين":"لا توجد نتائج للفلاتر الحالية"}
+              </td></tr>:filteredShown.map((emp,i)=>{const c=calcSalary(emp.id,openWeek);if(!c)return null;const zebra=i%2===1?T.bg:T.cardSolid;const isFocused=focusedEmpId===emp.id;
                 return<tr key={emp.id} onFocus={()=>setFocusedEmpId(emp.id)} onBlur={(e)=>{if(!e.currentTarget.contains(e.relatedTarget))setFocusedEmpId(null)}} style={{borderBottom:"1px solid "+T.brd,background:isFocused?T.accent+"12":zebra,boxShadow:isFocused?"inset 4px 0 0 "+T.accent:"none",transition:"background 0.15s, box-shadow 0.15s"}}>
                   <td style={{padding:"3px 6px",fontSize:FS-2,color:isFocused?T.accent:T.textMut,textAlign:"center",fontWeight:isFocused?800:400}}>{i+1}</td>
                   <td style={{padding:"3px 10px",fontSize:isFocused?FS+2:FS-1,fontWeight:isFocused?800:700,textAlign:"right",color:isFocused?T.accent:T.text,transition:"font-size 0.15s, color 0.15s"}}>{emp.name}</td>
@@ -13910,10 +14063,15 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                     <span onClick={()=>openTextPopup({title:"سبب الخصم",subtitle:emp.name,value:salDeductReason[emp.id]||"",placeholder:"اكتب سبب الخصم...",multiline:true,onSave:v=>setSalDeductReason(p=>({...p,[emp.id]:v}))})} style={{cursor:"pointer",fontSize:11,padding:"2px 5px",borderRadius:4,background:salDeductReason[emp.id]?T.warn+"15":T.bg,color:salDeductReason[emp.id]?T.warn:T.textMut,border:"1px solid "+(salDeductReason[emp.id]?T.warn+"30":T.brd)}} title={salDeductReason[emp.id]||"إضافة سبب"}>📝</span>
                   </div>:<span style={{fontSize:FS-2,color:T.err}}>{c.specialDeduct||""}</span>}</td>
                   <td style={{padding:"3px 6px",textAlign:"center"}}>
-                    {c.debtInfoTotal>0?<div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
-                      <span style={{fontSize:FS-1,fontWeight:700,color:"#F97316",background:"#F9731610",padding:"3px 8px",borderRadius:6,border:"1px solid #F9731630"}}>{fmt0(c.debtInstall)}</span>
+                    {c.debtInfoTotal>0?(!isLocked?<div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
+                      <input type="number" value={salInstallOverride[emp.id]!==undefined?salInstallOverride[emp.id]:""} onChange={ev=>setSalInstallOverride(p=>({...p,[emp.id]:ev.target.value}))} placeholder={String(c.debtInfoTotal)} title={"القسط الأسبوعي: "+fmt0(c.debtInfoTotal)+" ج.م\nاكتب رقم أقل لدفع جزئي\n0 = تخطي (يتأجل للأسبوع القادم)"} style={{width:65,padding:"3px",borderRadius:6,border:"1px solid "+(c.isSkippedInstall?T.err+"60":c.isPartialInstall?T.warn+"60":"#F9731660"),fontSize:FS-1,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:c.isSkippedInstall?T.err:c.isPartialInstall?T.warn:"#F97316",fontWeight:800}}/>
+                      <span onClick={()=>setSalInstallOverride(p=>({...p,[emp.id]:"0"}))} style={{cursor:"pointer",fontSize:11,padding:"2px 5px",borderRadius:4,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}} title="تخطي القسط (يتأجل للأسبوع القادم)">⏭</span>
                       <span onClick={()=>setShowEmpDebts(emp.id)} style={{cursor:"pointer",fontSize:11,padding:"2px 5px",borderRadius:4,background:"#F9731615",color:"#F97316",border:"1px solid #F9731630"}} title="عرض الأقساط">📝</span>
-                    </div>:empActiveDebts(emp.id).length>0?<span style={{fontSize:FS-2,color:T.textMut}} title="يوجد أقساط لهذا الموظف غير مستحقة في هذا الأسبوع">—</span>:(!isLocked?<div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
+                    </div>:<div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
+                      <span style={{fontSize:FS-1,fontWeight:700,color:c.isSkippedInstall?T.err:c.isPartialInstall?T.warn:"#F97316",background:(c.isSkippedInstall?T.err:c.isPartialInstall?T.warn:"#F97316")+"10",padding:"3px 8px",borderRadius:6,border:"1px solid "+(c.isSkippedInstall?T.err:c.isPartialInstall?T.warn:"#F97316")+"30"}}>{fmt0(c.debtInstall)}</span>
+                      {c.isPartialInstall&&<span title={"دفع جزئي — المتبقي "+fmt0(c.debtInfoTotal-c.debtInstall)+" أُجِّل"} style={{fontSize:10,color:T.warn}}>⚠️</span>}
+                      {c.isSkippedInstall&&<span title="تم تخطي هذا القسط" style={{fontSize:10,color:T.err}}>⏭</span>}
+                    </div>):empActiveDebts(emp.id).length>0?<span style={{fontSize:FS-2,color:T.textMut}} title="يوجد أقساط لهذا الموظف غير مستحقة في هذا الأسبوع">—</span>:(!isLocked?<div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
                       <input type="number" value={salManualInstallDeduct[emp.id]||""} onChange={ev=>setSalManualInstallDeduct(p=>({...p,[emp.id]:ev.target.value}))} placeholder="0" title="خصم مباشر (مش قسط)" style={{width:60,padding:"3px",borderRadius:6,border:"1px solid "+(salManualInstallDeduct[emp.id]?"#F9731660":T.brd),fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:salManualInstallDeduct[emp.id]?"#F97316":T.text,fontWeight:salManualInstallDeduct[emp.id]?700:400}}/>
                       <span onClick={()=>{setShowDebtForm({empId:emp.id});resetDebtForm();setDebtStart(today)}} style={{cursor:"pointer",fontSize:11,padding:"2px 5px",borderRadius:4,background:T.bg,color:T.textMut,border:"1px dashed "+T.brd}} title="إضافة قسط/مديونية">+</span>
                     </div>:<span style={{fontSize:FS-2,color:T.err}}>{c.manualInstallDeduct||""}</span>)}
@@ -13922,7 +14080,12 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                   <td style={{padding:"3px 6px",fontSize:FS,fontWeight:800,color:c.netBalance>=0?T.accent:T.err,textAlign:"center"}}>{fmt0(c.netBalance)}</td>
                   <td style={{padding:"3px 6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salThursdayPay[emp.id]!==undefined?salThursdayPay[emp.id]:""} onChange={ev=>setSalThursdayPay(p=>({...p,[emp.id]:ev.target.value}))} placeholder={String(Math.round(c.netBalance))} style={{width:70,padding:"3px",borderRadius:6,border:"1px solid "+T.ok+"40",fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.ok,fontWeight:700}}/>:<span style={{fontSize:FS-1,fontWeight:700,color:T.ok}}>{fmt0(c.thursdayPay)}</span>}</td>
                   <td style={{padding:"3px 6px",fontSize:FS-1,fontWeight:800,color:c.remainingBalance>0?T.warn:c.remainingBalance<0?T.err:T.textMut,textAlign:"center",background:c.remainingBalance!==0?T.warn+"06":""}}>{fmt0(c.remainingBalance)}</td>
-                  <td style={{padding:"3px 6px",textAlign:"center"}}><span onClick={()=>printSlip(emp.id)} style={{cursor:"pointer",fontSize:14}} title="طباعة">🖨</span></td>
+                  <td style={{padding:"3px 6px",textAlign:"center"}}>
+                    <div style={{display:"flex",gap:6,justifyContent:"center",alignItems:"center"}}>
+                      <span onClick={()=>printSlip(emp.id)} style={{cursor:"pointer",fontSize:14}} title="طباعة كشف المرتب">🖨</span>
+                      <span onClick={()=>whatsAppSlip(emp.id)} style={{cursor:"pointer",fontSize:14}} title={emp.phone?"إرسال للواتساب: "+emp.phone:"لا يوجد رقم تليفون"}>💬</span>
+                    </div>
+                  </td>
                 </tr>})}
               </tbody>
               {/* Grand totals — sticky footer */}
