@@ -4932,6 +4932,7 @@ function ReportsHub({data,isMob,season,statusCards}){
       {key:"capacity",label:"الطاقة الإنتاجية",icon:"📊",color:"#7C3AED"},
     ]},
     {title:"🏭 الورش",color:"#F59E0B",reports:[
+      {key:"wsFullAccount",label:"الحساب الشامل للورش",icon:"📊",color:"#8B5CF6"},
       {key:"wsPerf",label:"انتاجية الورش",icon:"⚡",color:"#F59E0B"},
       {key:"delivery",label:"معدل التسليم",icon:"📦",color:"#10B981"},
       {key:"wsCostPerPiece",label:"تكلفة القطعة بالورشة",icon:"💲",color:"#EC4899"},
@@ -4961,6 +4962,7 @@ function ReportsHub({data,isMob,season,statusCards}){
   if(sub==="cost")return<div>{back}<CostPg data={data} isMob={isMob} statusCards={statusCards}/></div>;
   if(sub==="fabrics")return<div>{back}<FabricReport data={data} isMob={isMob} season={season}/></div>;
   if(sub==="wsPerf")return<div>{back}<WsPerfReport data={data} isMob={isMob} season={season}/></div>;
+  if(sub==="wsFullAccount")return<div>{back}<WsFullAccountReport data={data} isMob={isMob} season={season}/></div>;
   if(sub==="delivery")return<div>{back}<DeliveryReport data={data} isMob={isMob} season={season}/></div>;
   if(sub==="summary")return<div>{back}<SeasonSummary data={data} isMob={isMob} season={season} statusCards={statusCards}/></div>;
   /* ── New reports ── */
@@ -4985,6 +4987,401 @@ function ReportsHub({data,isMob,season,statusCards}){
       </div>
     </div>)}
   </div>
+}
+
+/* ══ WORKSHOP FULL ACCOUNT REPORT ══
+   Comprehensive workshop accounting: deliveries by garment type, payments, 
+   timeline of all movements, and full reconciliation per workshop. */
+function WsFullAccountReport({data,isMob,season}){
+  const today=new Date().toLocaleDateString("ar-EG",{year:"numeric",month:"long",day:"numeric"});
+  const orders=data.orders||[];
+  const workshops=(data.workshops||[]).filter(w=>w&&w.name);
+  const wsPayments=data.wsPayments||[];
+  const[selectedWs,setSelectedWs]=useState("");/* "" = all */
+  const[dateFrom,setDateFrom]=useState("");
+  const[dateTo,setDateTo]=useState("");
+  const[hideInternal,setHideInternal]=useState(true);
+  
+  /* Helper: is date in range */
+  const inRange=(d)=>{if(!d)return true;if(dateFrom&&d<dateFrom)return false;if(dateTo&&d>dateTo)return false;return true};
+  
+  /* Build per-workshop account */
+  const wsAccounts=useMemo(()=>{
+    const accounts=[];
+    workshops.forEach(ws=>{
+      if(hideInternal&&(ws.type==="خياطة داخلي"||ws.type==="internal"))return;
+      if(selectedWs&&ws.name!==selectedWs)return;
+      
+      /* 1. Build garment breakdown: deliveries + receives per garmentType */
+      const byGarment={};/* "بنطلون" → {delivered, received, balance, price, value} */
+      const timeline=[];/* chronological movements: deliveries + receives */
+      let totalDelivered=0,totalReceived=0,totalValue=0;
+      
+      orders.forEach(o=>{
+        (o.workshopDeliveries||[]).filter(wd=>wd.wsName===ws.name).forEach(wd=>{
+          const gt=wd.garmentType||"عام";
+          const delQty=Number(wd.qty)||0;
+          const price=Number(wd.price)||0;
+          /* Delivery entry */
+          if(inRange(wd.date)){
+            if(!byGarment[gt])byGarment[gt]={delivered:0,received:0,balance:0,totalValue:0,avgPrice:0,_prices:[]};
+            byGarment[gt].delivered+=delQty;
+            byGarment[gt]._prices.push({qty:delQty,price});
+            totalDelivered+=delQty;
+            timeline.push({
+              date:wd.date,type:"delivery",modelNo:o.modelNo||"—",
+              garmentType:gt,qty:delQty,price,
+              orderId:o.id,note:"تسليم للورشة"
+            });
+          }
+          /* Receives entries */
+          (wd.receives||[]).forEach(r=>{
+            if(!inRange(r.date))return;
+            const rQty=Number(r.qty)||0;
+            const rPrice=Number(r.price)||price;
+            if(!byGarment[gt])byGarment[gt]={delivered:0,received:0,balance:0,totalValue:0,avgPrice:0,_prices:[]};
+            byGarment[gt].received+=rQty;
+            byGarment[gt].totalValue+=r2(rQty*rPrice);
+            totalReceived+=rQty;
+            totalValue+=r2(rQty*rPrice);
+            timeline.push({
+              date:r.date,type:"receive",modelNo:o.modelNo||"—",
+              garmentType:gt,qty:rQty,price:rPrice,
+              orderId:o.id,note:"استلام من الورشة"
+            });
+          });
+        });
+      });
+      
+      /* Finalize garment stats */
+      const garmentList=Object.entries(byGarment).map(([gt,g])=>{
+        const totalDelQty=g._prices.reduce((s,p)=>s+p.qty,0);
+        const totalDelPrice=g._prices.reduce((s,p)=>s+p.qty*p.price,0);
+        const avgPrice=totalDelQty>0?r2(totalDelPrice/totalDelQty):0;
+        return{
+          garmentType:gt,
+          delivered:g.delivered,
+          received:g.received,
+          balance:g.delivered-g.received,
+          avgPrice,
+          totalValue:r2(g.totalValue)
+        };
+      }).sort((a,b)=>b.totalValue-a.totalValue);
+      
+      /* 2. Payments */
+      const wsPays=wsPayments.filter(p=>p.wsName===ws.name&&inRange(p.date));
+      const totalPaid=wsPays.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);
+      const totalPurchase=wsPays.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);
+      const paymentsList=wsPays.slice().sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+      
+      /* 3. Sort timeline */
+      timeline.sort((a,b)=>(a.date||"").localeCompare(b.date||"")||(a.type==="delivery"?-1:1));
+      
+      /* 4. Reconciliation */
+      const totalDue=r2(totalValue+totalPurchase);
+      const balance=r2(totalDue-totalPaid);
+      const qtyBalance=totalDelivered-totalReceived;
+      
+      accounts.push({
+        ws,garmentList,paymentsList,timeline,
+        totalDelivered,totalReceived,qtyBalance,
+        totalValue,totalPurchase,totalPaid,totalDue,balance
+      });
+    });
+    return accounts;
+  },[orders,workshops,wsPayments,selectedWs,dateFrom,dateTo,hideInternal]);
+  
+  /* Grand totals */
+  const grand=useMemo(()=>{
+    let gDel=0,gRcv=0,gVal=0,gPaid=0,gPurch=0,gBal=0;
+    wsAccounts.forEach(a=>{gDel+=a.totalDelivered;gRcv+=a.totalReceived;gVal+=a.totalValue;gPaid+=a.totalPaid;gPurch+=a.totalPurchase;gBal+=a.balance});
+    return{gDel,gRcv,gVal,gPaid,gPurch,gBal,count:wsAccounts.length};
+  },[wsAccounts]);
+  
+  /* Export to Excel */
+  const exportReport=()=>{
+    const rows=[["تقرير الحساب الشامل للورش"]];
+    rows.push(["تاريخ الطباعة:",today]);
+    if(dateFrom||dateTo)rows.push(["الفترة:",(dateFrom||"البداية")+" → "+(dateTo||"النهاية")]);
+    rows.push([]);
+    wsAccounts.forEach(a=>{
+      rows.push(["════════════════════════"]);
+      rows.push(["الورشة:",a.ws.name,"المالك:",a.ws.owner||"—"]);
+      rows.push([]);
+      rows.push(["── القطع حسب النوع ──"]);
+      rows.push(["نوع القطعة","مُسلَّم","مستلم","متبقي","متوسط السعر","القيمة"]);
+      a.garmentList.forEach(g=>rows.push([g.garmentType,g.delivered,g.received,g.balance,g.avgPrice,g.totalValue]));
+      rows.push(["الإجمالي",a.totalDelivered,a.totalReceived,a.qtyBalance,"",a.totalValue]);
+      rows.push([]);
+      rows.push(["── Timeline الحركات ──"]);
+      rows.push(["التاريخ","النوع","الموديل","القطعة","الكمية","السعر"]);
+      a.timeline.forEach(t=>rows.push([t.date,t.type==="delivery"?"تسليم":"استلام",t.modelNo,t.garmentType,t.qty,t.price]));
+      rows.push([]);
+      rows.push(["── الدفعات ──"]);
+      rows.push(["التاريخ","النوع","المبلغ","ملاحظات"]);
+      a.paymentsList.forEach(p=>rows.push([p.date,p.type==="payment"?"دفعة":"مشتريات",p.amount,p.notes||""]));
+      rows.push(["الإجمالي المدفوع","","",a.totalPaid]);
+      rows.push([]);
+      rows.push(["── كشف الحساب ──"]);
+      rows.push(["قيمة الإنتاج المستلم",a.totalValue]);
+      rows.push(["مشتريات",a.totalPurchase]);
+      rows.push(["المستحق الإجمالي",a.totalDue]);
+      rows.push(["المدفوع",a.totalPaid]);
+      rows.push(["الرصيد المستحق",a.balance]);
+      rows.push(["الرصيد المتبقي عند الورشة",a.qtyBalance+" قطعة"]);
+      rows.push([]);rows.push([]);
+    });
+    exportExcel(rows,"الحساب_الشامل_للورش_"+today);
+  };
+  
+  /* Print */
+  const printReport=()=>{
+    let html="<div class='hdr'><div style='font-size:18px;font-weight:800;color:#8B5CF6'>📊 الحساب الشامل للورش</div><div class='hdr-info'><div>تاريخ الطباعة: "+today+"</div>"+(dateFrom||dateTo?"<div>الفترة: "+(dateFrom||"البداية")+" → "+(dateTo||"النهاية")+"</div>":"")+"</div></div>";
+    html+="<table style='margin-bottom:20px'><tr><th>إجمالي الورش</th><td class='info'>"+grand.count+"</td><th>مُسلَّم</th><td>"+fmt(grand.gDel)+"</td><th>مُستلم</th><td>"+fmt(grand.gRcv)+"</td></tr><tr><th>قيمة الإنتاج</th><td class='ok'>"+fmt(r2(grand.gVal))+"</td><th>مدفوع</th><td>"+fmt(r2(grand.gPaid))+"</td><th>رصيد مستحق</th><td class='err'>"+fmt(r2(grand.gBal))+"</td></tr></table>";
+    wsAccounts.forEach(a=>{
+      html+="<h2 style='color:#8B5CF6;page-break-before:avoid'>🏭 "+a.ws.name+(a.ws.owner?" — "+a.ws.owner:"")+"</h2>";
+      /* Garment breakdown */
+      html+="<h3>القطع حسب النوع</h3>";
+      html+="<table><thead><tr><th>نوع القطعة</th><th>مُسلَّم</th><th>مُستلم</th><th>متبقي</th><th>متوسط السعر</th><th>القيمة</th></tr></thead><tbody>";
+      a.garmentList.forEach(g=>{html+="<tr><td><b>"+g.garmentType+"</b></td><td class='center'>"+fmt(g.delivered)+"</td><td class='center'>"+fmt(g.received)+"</td><td class='center "+(g.balance>0?"warn":"")+"'>"+fmt(g.balance)+"</td><td class='center'>"+fmt(g.avgPrice)+"</td><td class='center ok'>"+fmt(g.totalValue)+"</td></tr>"});
+      html+="<tr style='background:#F3E8FF;font-weight:800'><td>الإجمالي</td><td class='center'>"+fmt(a.totalDelivered)+"</td><td class='center'>"+fmt(a.totalReceived)+"</td><td class='center'>"+fmt(a.qtyBalance)+"</td><td></td><td class='center'>"+fmt(a.totalValue)+"</td></tr>";
+      html+="</tbody></table>";
+      /* Timeline */
+      if(a.timeline.length>0){
+        html+="<h3>Timeline الحركات</h3>";
+        html+="<table><thead><tr><th>التاريخ</th><th>النوع</th><th>الموديل</th><th>القطعة</th><th>الكمية</th><th>السعر</th></tr></thead><tbody>";
+        a.timeline.forEach(t=>{const col=t.type==="delivery"?"#3B82F6":"#10B981";const lbl=t.type==="delivery"?"↗ تسليم":"↙ استلام";html+="<tr><td>"+t.date+"</td><td style='color:"+col+";font-weight:700'>"+lbl+"</td><td>"+t.modelNo+"</td><td>"+t.garmentType+"</td><td class='center'>"+fmt(t.qty)+"</td><td class='center'>"+fmt(t.price)+"</td></tr>"});
+        html+="</tbody></table>";
+      }
+      /* Payments */
+      if(a.paymentsList.length>0){
+        html+="<h3>الدفعات</h3>";
+        html+="<table><thead><tr><th>التاريخ</th><th>النوع</th><th>المبلغ</th><th>ملاحظات</th></tr></thead><tbody>";
+        a.paymentsList.forEach(p=>{const col=p.type==="payment"?"#10B981":"#F59E0B";const lbl=p.type==="payment"?"💵 دفعة":"🛒 مشتريات";html+="<tr><td>"+p.date+"</td><td style='color:"+col+";font-weight:700'>"+lbl+"</td><td class='center'>"+fmt(Number(p.amount))+"</td><td>"+(p.notes||"—")+"</td></tr>"});
+        html+="<tr style='background:#ECFDF5;font-weight:800'><td colspan='2'>الإجمالي المدفوع</td><td class='center ok'>"+fmt(r2(a.totalPaid))+"</td><td></td></tr>";
+        html+="</tbody></table>";
+      }
+      /* Reconciliation */
+      html+="<h3>كشف الحساب</h3>";
+      html+="<table><tbody>";
+      html+="<tr><th>قيمة الإنتاج المستلم</th><td class='center ok'>"+fmt(r2(a.totalValue))+" ج.م</td></tr>";
+      if(a.totalPurchase>0)html+="<tr><th>مشتريات الورشة</th><td class='center'>"+fmt(r2(a.totalPurchase))+" ج.م</td></tr>";
+      html+="<tr><th>المستحق الإجمالي</th><td class='center info'><b>"+fmt(r2(a.totalDue))+" ج.م</b></td></tr>";
+      html+="<tr><th>إجمالي المدفوع</th><td class='center'>"+fmt(r2(a.totalPaid))+" ج.م</td></tr>";
+      html+="<tr style='background:"+(a.balance>0?"#FEF2F2":"#ECFDF5")+"'><th><b>الرصيد المستحق</b></th><td class='center "+(a.balance>0?"err":"ok")+"'><b style='font-size:14px'>"+fmt(r2(a.balance))+" ج.م</b></td></tr>";
+      if(a.qtyBalance>0)html+="<tr style='background:#FFF7ED'><th>الرصيد المتبقي عند الورشة</th><td class='center warn'><b>"+fmt(a.qtyBalance)+" قطعة</b></td></tr>";
+      html+="</tbody></table>";
+      html+="<div style='page-break-after:auto;margin-bottom:20px'></div>";
+    });
+    html+="<div class='foot'>CLARK Factory Management — الحساب الشامل للورش — "+today+"</div>";
+    printPage("الحساب الشامل للورش",html);
+  };
+  
+  return<div>
+    {/* Filters */}
+    <Card>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end",marginBottom:10}}>
+        <div style={{minWidth:160}}>
+          <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>الورشة</label>
+          <Sel value={selectedWs} onChange={setSelectedWs}>
+            <option value="">كل الورش</option>
+            {workshops.map(w=><option key={w.id||w.name} value={w.name}>{w.name}</option>)}
+          </Sel>
+        </div>
+        <div style={{minWidth:130}}>
+          <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>من تاريخ</label>
+          <Inp type="date" value={dateFrom} onChange={setDateFrom}/>
+        </div>
+        <div style={{minWidth:130}}>
+          <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>إلى تاريخ</label>
+          <Inp type="date" value={dateTo} onChange={setDateTo}/>
+        </div>
+        <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",padding:"8px 12px",borderRadius:8,background:hideInternal?"#8B5CF612":T.bg,border:"1px solid "+(hideInternal?"#8B5CF630":T.brd)}}>
+          <input type="checkbox" checked={hideInternal} onChange={e=>setHideInternal(e.target.checked)}/>
+          <span style={{fontSize:FS-1,fontWeight:600,color:hideInternal?"#8B5CF6":T.textSec}}>إخفاء الورش الداخلية</span>
+        </label>
+        {(dateFrom||dateTo||selectedWs)&&<Btn small ghost onClick={()=>{setDateFrom("");setDateTo("");setSelectedWs("")}}>✕ مسح</Btn>}
+        <div style={{marginInlineStart:"auto",display:"flex",gap:8}}>
+          <Btn small onClick={printReport} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}}>🖨 طباعة</Btn>
+          <Btn small onClick={exportReport} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",fontWeight:700}}>📊 Excel</Btn>
+        </div>
+      </div>
+    </Card>
+    
+    {/* Grand summary */}
+    {wsAccounts.length>0&&<Card title={"📊 ملخص إجمالي — "+grand.count+" ورشة"} style={{marginBottom:14}}>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(5,1fr)",gap:10}}>
+        <div style={{padding:12,borderRadius:10,background:"#3B82F608",border:"1px solid #3B82F620",textAlign:"center"}}>
+          <div style={{fontSize:FS-3,color:T.textSec}}>مُسلَّم للورش</div>
+          <div style={{fontSize:FS+4,fontWeight:800,color:"#3B82F6"}}>{fmt(grand.gDel)}</div>
+          <div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div>
+        </div>
+        <div style={{padding:12,borderRadius:10,background:"#10B98108",border:"1px solid #10B98120",textAlign:"center"}}>
+          <div style={{fontSize:FS-3,color:T.textSec}}>مُستلَم من الورش</div>
+          <div style={{fontSize:FS+4,fontWeight:800,color:T.ok}}>{fmt(grand.gRcv)}</div>
+          <div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div>
+        </div>
+        <div style={{padding:12,borderRadius:10,background:"#F59E0B08",border:"1px solid #F59E0B20",textAlign:"center"}}>
+          <div style={{fontSize:FS-3,color:T.textSec}}>متبقي عند الورش</div>
+          <div style={{fontSize:FS+4,fontWeight:800,color:T.warn}}>{fmt(grand.gDel-grand.gRcv)}</div>
+          <div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div>
+        </div>
+        <div style={{padding:12,borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF620",textAlign:"center"}}>
+          <div style={{fontSize:FS-3,color:T.textSec}}>قيمة الإنتاج</div>
+          <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>{fmt(r2(grand.gVal))}</div>
+          <div style={{fontSize:FS-3,color:T.textMut}}>ج.م</div>
+        </div>
+        <div style={{padding:12,borderRadius:10,background:grand.gBal>0?T.err+"08":T.ok+"08",border:"1px solid "+(grand.gBal>0?T.err+"20":T.ok+"20"),textAlign:"center"}}>
+          <div style={{fontSize:FS-3,color:T.textSec}}>الرصيد المستحق</div>
+          <div style={{fontSize:FS+2,fontWeight:800,color:grand.gBal>0?T.err:T.ok}}>{fmt(r2(grand.gBal))}</div>
+          <div style={{fontSize:FS-3,color:T.textMut}}>ج.م</div>
+        </div>
+      </div>
+    </Card>}
+    
+    {/* Per-workshop detail */}
+    {wsAccounts.length===0?<Card><div style={{padding:40,textAlign:"center",color:T.textMut}}>
+      <div style={{fontSize:40,marginBottom:10}}>📊</div>
+      <div style={{fontSize:FS+1}}>لا توجد ورش مطابقة للفلاتر</div>
+    </div></Card>:wsAccounts.map(a=><Card key={a.ws.id||a.ws.name} style={{marginBottom:14}}>
+      {/* Workshop header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,paddingBottom:10,borderBottom:"2px solid #8B5CF630"}}>
+        <div>
+          <div style={{fontSize:FS+4,fontWeight:800,color:"#8B5CF6"}}>🏭 {a.ws.name}</div>
+          <div style={{fontSize:FS-1,color:T.textMut,marginTop:4,display:"flex",gap:10,flexWrap:"wrap"}}>
+            {a.ws.owner&&<span>👤 {a.ws.owner}</span>}
+            {a.ws.type&&<span style={{padding:"2px 8px",borderRadius:6,background:"#8B5CF615",color:"#8B5CF6",fontWeight:700}}>{a.ws.type}</span>}
+            {a.ws.rating&&<span>⭐ {a.ws.rating}/10</span>}
+          </div>
+        </div>
+        <div style={{textAlign:"center",padding:"8px 14px",borderRadius:10,background:a.balance>0?T.err+"12":T.ok+"12",border:"1px solid "+(a.balance>0?T.err+"30":T.ok+"30")}}>
+          <div style={{fontSize:FS-3,color:T.textSec}}>الرصيد</div>
+          <div style={{fontSize:FS+2,fontWeight:800,color:a.balance>0?T.err:T.ok}}>{fmt(r2(a.balance))} ج</div>
+        </div>
+      </div>
+      
+      {/* Garment breakdown table */}
+      <div style={{fontSize:FS+1,fontWeight:800,color:T.text,marginBottom:6}}>🧵 القطع حسب النوع</div>
+      {a.garmentList.length===0?<div style={{padding:20,textAlign:"center",color:T.textMut,background:T.bg,borderRadius:8,marginBottom:12}}>لا توجد حركات في هذه الفترة</div>:<div style={{overflowX:"auto",marginBottom:14}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+          <thead><tr>
+            <th style={TH}>نوع القطعة</th>
+            <th style={{...TH,textAlign:"center"}}>مُسلَّم</th>
+            <th style={{...TH,textAlign:"center"}}>مُستلَم</th>
+            <th style={{...TH,textAlign:"center"}}>متبقي</th>
+            <th style={{...TH,textAlign:"center"}}>متوسط السعر</th>
+            <th style={{...TH,textAlign:"center"}}>القيمة</th>
+          </tr></thead>
+          <tbody>
+            {a.garmentList.map((g,i)=><tr key={i} style={{borderBottom:"1px solid "+T.brd,background:i%2===1?T.bg:"transparent"}}>
+              <td style={{...TD,fontWeight:700}}>{g.garmentType}</td>
+              <td style={{...TD,textAlign:"center"}}>{fmt(g.delivered)}</td>
+              <td style={{...TD,textAlign:"center",color:T.ok,fontWeight:700}}>{fmt(g.received)}</td>
+              <td style={{...TD,textAlign:"center",color:g.balance>0?T.warn:T.textMut,fontWeight:700}}>{fmt(g.balance)}</td>
+              <td style={{...TD,textAlign:"center"}}>{fmt(g.avgPrice)}</td>
+              <td style={{...TD,textAlign:"center",color:"#8B5CF6",fontWeight:800}}>{fmt(g.totalValue)}</td>
+            </tr>)}
+            <tr style={{background:"#8B5CF612",fontWeight:800,borderTop:"2px solid #8B5CF640"}}>
+              <td style={{...TD,fontWeight:800}}>الإجمالي</td>
+              <td style={{...TD,textAlign:"center"}}>{fmt(a.totalDelivered)}</td>
+              <td style={{...TD,textAlign:"center",color:T.ok}}>{fmt(a.totalReceived)}</td>
+              <td style={{...TD,textAlign:"center",color:T.warn}}>{fmt(a.qtyBalance)}</td>
+              <td style={TD}></td>
+              <td style={{...TD,textAlign:"center",color:"#8B5CF6",fontSize:FS+1}}>{fmt(r2(a.totalValue))}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>}
+      
+      {/* Timeline of movements */}
+      {a.timeline.length>0&&<><div style={{fontSize:FS+1,fontWeight:800,color:T.text,marginBottom:6}}>📅 Timeline الحركات</div>
+      <div style={{overflowX:"auto",maxHeight:300,overflowY:"auto",border:"1px solid "+T.brd,borderRadius:8,marginBottom:14}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+          <thead style={{position:"sticky",top:0,background:T.cardSolid,zIndex:1}}><tr>
+            <th style={{...TH,whiteSpace:"nowrap"}}>التاريخ</th>
+            <th style={{...TH,textAlign:"center"}}>النوع</th>
+            <th style={TH}>الموديل</th>
+            <th style={TH}>القطعة</th>
+            <th style={{...TH,textAlign:"center"}}>الكمية</th>
+            <th style={{...TH,textAlign:"center"}}>السعر</th>
+          </tr></thead>
+          <tbody>
+            {a.timeline.map((t,i)=><tr key={i} style={{borderBottom:"1px solid "+T.brd,background:i%2===1?T.bg:"transparent"}}>
+              <td style={{...TD,fontSize:FS-2,color:T.textMut,whiteSpace:"nowrap"}}>{t.date}</td>
+              <td style={{...TD,textAlign:"center"}}>
+                <span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-3,fontWeight:700,background:(t.type==="delivery"?"#3B82F6":T.ok)+"15",color:t.type==="delivery"?"#3B82F6":T.ok}}>
+                  {t.type==="delivery"?"↗ تسليم":"↙ استلام"}
+                </span>
+              </td>
+              <td style={{...TD,fontWeight:700}}>{t.modelNo}</td>
+              <td style={{...TD}}>{t.garmentType}</td>
+              <td style={{...TD,textAlign:"center",fontWeight:700,color:t.type==="delivery"?"#3B82F6":T.ok}}>{(t.type==="delivery"?"→ ":"← ")+fmt(t.qty)}</td>
+              <td style={{...TD,textAlign:"center"}}>{fmt(t.price)}</td>
+            </tr>)}
+          </tbody>
+        </table>
+      </div></>}
+      
+      {/* Payments */}
+      {a.paymentsList.length>0&&<><div style={{fontSize:FS+1,fontWeight:800,color:T.text,marginBottom:6}}>💵 الدفعات والمشتريات</div>
+      <div style={{overflowX:"auto",marginBottom:14}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+          <thead><tr>
+            <th style={TH}>التاريخ</th>
+            <th style={{...TH,textAlign:"center"}}>النوع</th>
+            <th style={{...TH,textAlign:"center"}}>المبلغ</th>
+            <th style={TH}>ملاحظات</th>
+          </tr></thead>
+          <tbody>
+            {a.paymentsList.map((p,i)=><tr key={i} style={{borderBottom:"1px solid "+T.brd,background:i%2===1?T.bg:"transparent"}}>
+              <td style={{...TD,whiteSpace:"nowrap"}}>{p.date}</td>
+              <td style={{...TD,textAlign:"center"}}>
+                <span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-3,fontWeight:700,background:(p.type==="payment"?T.ok:T.warn)+"15",color:p.type==="payment"?T.ok:T.warn}}>
+                  {p.type==="payment"?"💵 دفعة":"🛒 مشتريات"}
+                </span>
+              </td>
+              <td style={{...TD,textAlign:"center",fontWeight:800,color:p.type==="payment"?T.ok:T.warn}}>{fmt(Number(p.amount))}</td>
+              <td style={{...TD,color:T.textSec}}>{p.notes||"—"}</td>
+            </tr>)}
+            <tr style={{background:T.ok+"08",fontWeight:800,borderTop:"2px solid "+T.ok+"40"}}>
+              <td style={{...TD,fontWeight:800}} colSpan={2}>الإجمالي المدفوع</td>
+              <td style={{...TD,textAlign:"center",color:T.ok,fontSize:FS+1}}>{fmt(r2(a.totalPaid))}</td>
+              <td style={TD}></td>
+            </tr>
+          </tbody>
+        </table>
+      </div></>}
+      
+      {/* Reconciliation summary */}
+      <div style={{fontSize:FS+1,fontWeight:800,color:T.text,marginBottom:6}}>🧮 كشف الحساب</div>
+      <div style={{padding:14,background:T.bg,borderRadius:10,border:"1px solid "+T.brd}}>
+        <div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+T.brd}}>
+          <span style={{color:T.textSec}}>قيمة الإنتاج المستلم</span>
+          <span style={{fontWeight:700,color:T.ok}}>{fmt(r2(a.totalValue))} ج.م</span>
+        </div>
+        {a.totalPurchase>0&&<div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+T.brd}}>
+          <span style={{color:T.textSec}}>مشتريات الورشة</span>
+          <span style={{fontWeight:700,color:T.warn}}>{fmt(r2(a.totalPurchase))} ج.م</span>
+        </div>}
+        <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"2px solid "+T.brd,fontWeight:800}}>
+          <span>المستحق الإجمالي</span>
+          <span style={{color:T.accent,fontSize:FS+1}}>{fmt(r2(a.totalDue))} ج.م</span>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+T.brd}}>
+          <span style={{color:T.textSec}}>إجمالي المدفوع</span>
+          <span style={{fontWeight:700}}>{"("+fmt(r2(a.totalPaid))+") ج.م"}</span>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",padding:"10px 0",background:a.balance>0?T.err+"08":T.ok+"08",marginTop:6,borderRadius:8,paddingInline:10}}>
+          <span style={{fontWeight:800}}>الرصيد المستحق</span>
+          <span style={{fontWeight:800,fontSize:FS+2,color:a.balance>0?T.err:T.ok}}>{fmt(r2(a.balance))} ج.م</span>
+        </div>
+        {a.qtyBalance>0&&<div style={{display:"flex",justifyContent:"space-between",padding:"8px 10px",background:T.warn+"08",marginTop:6,borderRadius:8}}>
+          <span style={{fontWeight:700,color:T.warn}}>⚠️ الرصيد المتبقي عند الورشة</span>
+          <span style={{fontWeight:800,color:T.warn}}>{fmt(a.qtyBalance)} قطعة</span>
+        </div>}
+      </div>
+    </Card>)}
+  </div>;
 }
 
 /* ══ FABRIC CONSUMPTION REPORT ══ */
@@ -12931,6 +13328,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const[salBonus,setSalBonus]=useState({});const[salSpecialDeduct,setSalSpecialDeduct]=useState({});const[salThursdayPay,setSalThursdayPay]=useState({});const[salPrevBalanceOverride,setSalPrevBalanceOverride]=useState({});const[salManualInstallDeduct,setSalManualInstallDeduct]=useState({});const[salInstallOverride,setSalInstallOverride]=useState({});
   const[focusedEmpId,setFocusedEmpId]=useState(null);
   const[salSearch,setSalSearch]=useState("");const salSearchDeb=useDebounced(salSearch,200);
+  const[attSearch,setAttSearch]=useState("");const attSearchDeb=useDebounced(attSearch,200);
   const[salJobFilter,setSalJobFilter]=useState("");
   const[salShowOnly,setSalShowOnly]=useState("");/* ""|"hasDeduct"|"hasBonus"|"hasInstall"|"hasBalance" */
   /* Quick advance popup from salary table — {empId, empName, amount, date, note} */
@@ -13960,8 +14358,23 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             });
           };
           return<Card title={"📋 جدول الحضور — "+shownEmps.length+"/"+activeEmps.length+" موظف × "+dates.length+" أيام"} style={{marginBottom:14}}>
-            {canEdit&&!isLocked&&<div style={{marginBottom:10}}><Btn small onClick={()=>setShowEmpPicker(true)} style={{background:T.accent+"10",color:T.accent,border:"1px solid "+T.accent+"30"}}>👥 اختيار الموظفين ({weekSelected.length})</Btn></div>}
-            <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+            {/* Top filter: search by name or fingerprint code — affects BOTH attendance table above AND salary table below */}
+            {canEdit&&!isLocked&&<div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:200}}>
+                <Inp value={attSearch} onChange={setAttSearch} placeholder="🔍 بحث بالاسم أو كود البصمة — يفلتر الجدولين..."/>
+              </div>
+              {attSearch&&<Btn small ghost onClick={()=>setAttSearch("")} style={{padding:"4px 10px",fontSize:FS-2}}>✕</Btn>}
+              <Btn small onClick={()=>setShowEmpPicker(true)} style={{background:T.accent+"10",color:T.accent,border:"1px solid "+T.accent+"30"}}>👥 اختيار الموظفين ({weekSelected.length})</Btn>
+            </div>}
+            {(()=>{
+              /* Apply top-level filter (affects both attendance + salary tables below via shared filter) */
+              const topQ=attSearchDeb.trim().toLowerCase();
+              const attFilteredEmps=topQ?shownEmps.filter(e=>{
+                const name=(e.name||"").toLowerCase();
+                const code=(e.code||"").toLowerCase();
+                return name.includes(topQ)||code.includes(topQ);
+              }):shownEmps;
+              return<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
               <th style={{padding:"5px 10px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,position:"sticky",right:0,background:T.cardSolid,zIndex:1,minWidth:130}}>الموظف</th>
               {dates.map(d=><th key={d} style={{padding:"4px 4px",textAlign:"center",fontSize:FS-3,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:600,minWidth:70}}>
                 <div style={{fontWeight:700,fontSize:FS-2}}>{dayNames[new Date(d).getDay()]}</div>
@@ -13970,7 +14383,9 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               <th style={{padding:"5px 6px",textAlign:"center",fontSize:FS-2,color:T.accent,borderBottom:"2px solid "+T.brd,fontWeight:800,minWidth:70}}>اجمالي</th>
               {canEdit&&!isLocked&&<th style={{padding:"5px 6px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,minWidth:90}}></th>}
             </tr></thead><tbody>
-              {shownEmps.map((emp,ri)=>{let total=0;const isEditing=editingRow===emp.id;const draft=rowDraft[emp.id]||{};const zebra=ri%2===1?T.bg:T.cardSolid;
+              {attFilteredEmps.length===0?<tr><td colSpan={dates.length+2+(canEdit&&!isLocked?1:0)} style={{padding:30,textAlign:"center",color:T.textMut,fontSize:FS-1}}>
+                لا توجد نتائج لـ "{attSearchDeb}"
+              </td></tr>:attFilteredEmps.map((emp,ri)=>{let total=0;const isEditing=editingRow===emp.id;const draft=rowDraft[emp.id]||{};const zebra=ri%2===1?T.bg:T.cardSolid;
                 dates.forEach(d=>{const val=isEditing?parseHrs(draft[d]||0):(att[emp.id+"_"+d]?att[emp.id+"_"+d].hours:0);if(val>0)total+=val});
                 /* Red highlight: employee marked as noBiometric (attends but can't punch fingerprint) */
                 const noBio=!!emp.noBiometric;
@@ -14000,15 +14415,16 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                     </div>}
                   </td>}
                 </tr>})}
-              {/* Totals row */}
-              {(()=>{const totals={};let grand=0;dates.forEach(d=>{let s=0;shownEmps.forEach(e=>{const v=editingRow===e.id?parseHrs((rowDraft[e.id]||{})[d]||0):(att[e.id+"_"+d]?att[e.id+"_"+d].hours:0);if(v>0)s+=v});totals[d]=s;grand+=s});
+              {/* Totals row — calculated from filtered employees */}
+              {(()=>{const totals={};let grand=0;dates.forEach(d=>{let s=0;attFilteredEmps.forEach(e=>{const v=editingRow===e.id?parseHrs((rowDraft[e.id]||{})[d]||0):(att[e.id+"_"+d]?att[e.id+"_"+d].hours:0);if(v>0)s+=v});totals[d]=s;grand+=s});
                 return<tr style={{background:T.accent+"06",fontWeight:800,borderTop:"2px solid "+T.accent+"30"}}>
-                  <td style={{padding:"6px 10px",fontSize:FS,fontWeight:800,position:"sticky",right:0,background:T.accent+"06",zIndex:1}}>اجمالي اليوم</td>
+                  <td style={{padding:"6px 10px",fontSize:FS,fontWeight:800,position:"sticky",right:0,background:T.accent+"06",zIndex:1}}>{attSearchDeb?"اجمالي (ظاهر)":"اجمالي اليوم"}</td>
                   {dates.map(d=><td key={d} style={{padding:"4px 3px",textAlign:"center",fontSize:FS,fontWeight:700,color:totals[d]>0?T.accent:T.textMut,direction:"ltr"}} title={totals[d]>0?"("+r2(totals[d])+" ساعة عشرية)":""}>{totals[d]>0?hrsToHM(totals[d]):"—"}</td>)}
                   <td style={{padding:"4px 6px",textAlign:"center",fontSize:FS+2,fontWeight:800,color:T.accent,direction:"ltr"}} title={grand>0?"("+r2(grand)+" ساعة عشرية)":""}>{grand>0?hrsToHM(grand):"—"}</td>
                   {canEdit&&!isLocked&&<td></td>}
                 </tr>})()}
-            </tbody></table></div>
+            </tbody></table></div>;
+            })()}
           </Card>})()}
 
         {/* Salary calculation — aligned, centered, with deduct reason */}
@@ -14038,7 +14454,10 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           shownEmps.forEach(e=>{const c=calcSalary(e.id,openWeek);if(c){tG+=c.grossPay;tN+=c.netBalance;tA+=c.weekAdvances;tD+=c.specialDeduct;tB+=c.bonus;tH+=c.totalHours;tO+=c.overtimeHours;tOP+=c.overtimePay;tTP+=c.thursdayPay;tRB+=c.remainingBalance;tDI+=c.debtInstall||0}});
           /* Apply filters */
           const sQ=salSearchDeb.trim().toLowerCase();
+          const topQ=attSearchDeb.trim().toLowerCase();
           const filteredShown=shownEmps.filter(e=>{
+            /* Top-level search (shared with attendance table) — filters by name or code */
+            if(topQ){const name=(e.name||"").toLowerCase();const code=(e.code||"").toLowerCase();if(!name.includes(topQ)&&!code.includes(topQ))return false}
             if(sQ){const name=(e.name||"").toLowerCase();const code=(e.code||"").toLowerCase();const job=(e.job||"").toLowerCase();if(!name.includes(sQ)&&!code.includes(sQ)&&!job.includes(sQ))return false}
             if(salJobFilter&&(e.job||"")!==salJobFilter)return false;
             if(salShowOnly){const cc=calcSalary(e.id,openWeek);if(!cc)return false;
