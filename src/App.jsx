@@ -1256,7 +1256,7 @@ const TABS=[
   {key:"purchase",label:"مشتريات",icon:"🛍️",color:"#D97706",bg:"#FEF3C7",svg:<><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></>},
   {key:"warehouse",label:"المخازن",icon:"📦",color:"#0D9488",bg:"#CCFBF1",svg:<><path d="M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35a2 2 0 0 1 1.26-1.86l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35z"/><path d="M6 18V10"/><path d="M18 18V10"/><path d="M6 14h12"/></>},
   {key:"treasury",label:"الخزنة",icon:"💵",color:"#0D9488",bg:"#CCFBF1",svg:<><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01 M18 12h.01"/></>},
-  {key:"hr",label:"موظفين",icon:"🧑‍💼",color:"#7C3AED",bg:"#EDE9FE",svg:<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>},
+  {key:"hr",label:"مرتبات + موظفين",icon:"🧑‍💼",color:"#7C3AED",bg:"#EDE9FE",svg:<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>},
   {key:"settings",label:"الاعدادات",icon:"⚙️",color:"#64748B",bg:"#F1F5F9",svg:<><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></>}
 ];
 
@@ -14723,37 +14723,54 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const cancelTransfer=deleteTransfer;
 
   /* ── Print daily report ── */
-  const printDaily=(date)=>{
-    const dayTxns=txns.filter(t=>t.date===date).sort((a,b)=>(a.createdAt||"").localeCompare(b.createdAt||""));
+  const printDaily=(date,accountName)=>{
+    /* V14.54: filter by account if specified — only print shown treasury's data */
+    const scopeTxns=accountName?txns.filter(t=>(t.account||"")===accountName):txns;
+    const dayTxns=scopeTxns.filter(t=>t.date===date).sort((a,b)=>(a.createdAt||"").localeCompare(b.createdAt||""));
     const dIn=dayTxns.filter(t=>t.type==="in").reduce((s,t)=>s+(Number(t.amount)||0),0);
     const dOut=dayTxns.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0);
-    /* opening balance = all txns before this date */
-    const prevTxns=txns.filter(t=>t.date<date);const openBal=prevTxns.reduce((s,t)=>t.type==="in"?s+(Number(t.amount)||0):s-(Number(t.amount)||0),0);
+    /* opening balance = all txns before this date (for this account scope) */
+    const prevTxns=scopeTxns.filter(t=>t.date<date);const openBal=prevTxns.reduce((s,t)=>t.type==="in"?s+(Number(t.amount)||0):s-(Number(t.amount)||0),0);
     const closeBal=openBal+dIn-dOut;
+    const scopeLabel=accountName||"كل الحسابات";
     const w=window.open("","_blank");if(!w)return;
-    w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>تقرير يومية — ${date}</title>
-    <style>@page{size:A4;margin:10mm}body{font-family:'Cairo',sans-serif;font-size:11px;padding:15px}
-    table{width:100%;border-collapse:collapse;margin:10px 0}td,th{border:1px solid #ccc;padding:6px 8px;text-align:right}
-    th{background:#f0f0f0;font-weight:700}.title{font-size:18px;font-weight:800;text-align:center;margin-bottom:10px}
-    .summary{display:flex;gap:20px;justify-content:center;margin:10px 0;flex-wrap:wrap}
-    .sbox{padding:8px 20px;border-radius:8px;text-align:center;border:1px solid #ddd}
+    w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>تقرير يومية — ${scopeLabel} — ${date}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap" rel="stylesheet"/>
+    <style>@page{size:A4;margin:10mm}body{font-family:'Cairo',sans-serif;font-size:11px;padding:20px;line-height:1.6}
+    table{width:100%;border-collapse:collapse;margin:10px 0}td,th{border:1px solid #ccc;padding:7px 8px;text-align:right}
+    th{background:#f0f0f0;font-weight:700}.title{font-size:20px;font-weight:800;text-align:center;margin-bottom:6px;line-height:1.4}
+    .subtitle{font-size:14px;text-align:center;color:#0ea5e9;font-weight:700;margin-bottom:14px}
+    .summary{display:flex;gap:12px;justify-content:center;margin:14px 0;flex-wrap:wrap}
+    .sbox{padding:10px 20px;border-radius:8px;text-align:center;border:1px solid #ddd;min-width:130px}
+    .sbox .lbl{font-size:10px;color:#666;margin-bottom:4px}
+    .sbox .val{font-size:16px;font-weight:800}
+    .sbox.highlight{border:2px solid #0ea5e9;background:#F0F9FF}
+    .sbox.highlight .val{font-size:18px}
     .green{color:#10b981}.red{color:#ef4444}.blue{color:#0ea5e9}
+    .foot{margin-top:40px;padding-top:12px;border-top:1px solid #ccc;display:flex;justify-content:space-between;align-items:center;font-size:10px;color:#94A3B8}
     @media print{body{margin:0}}</style></head><body>
-    <div class="title">🏦 تقرير يومية صندوق — ${date}</div>
+    <div class="title">🏦 &nbsp; تقرير يومية الصندوق</div>
+    <div class="subtitle">${scopeLabel} &nbsp;—&nbsp; ${date}</div>
     <div class="summary">
-      <div class="sbox"><div style="font-size:10px;color:#666">رصيد افتتاحي</div><div class="blue" style="font-size:16px;font-weight:800">${fmt(r2(openBal))}</div></div>
-      <div class="sbox"><div style="font-size:10px;color:#666">وارد</div><div class="green" style="font-size:16px;font-weight:800">${fmt(r2(dIn))}</div></div>
-      <div class="sbox"><div style="font-size:10px;color:#666">منصرف</div><div class="red" style="font-size:16px;font-weight:800">${fmt(r2(dOut))}</div></div>
-      <div class="sbox"><div style="font-size:10px;color:#666">رصيد اقفال</div><div class="blue" style="font-size:18px;font-weight:800">${fmt(r2(closeBal))}</div></div>
+      <div class="sbox"><div class="lbl">رصيد افتتاحي</div><div class="val blue">${fmt(r2(openBal))}</div></div>
+      <div class="sbox"><div class="lbl">وارد</div><div class="val green">${fmt(r2(dIn))}</div></div>
+      <div class="sbox"><div class="lbl">منصرف</div><div class="val red">${fmt(r2(dOut))}</div></div>
+      <div class="sbox highlight"><div class="lbl">رصيد اقفال</div><div class="val blue">${fmt(r2(closeBal))}</div></div>
     </div>
     <table><thead><tr><th>رصيد</th><th>تاريخ</th><th>وارد</th><th>منصرف</th><th>بيان</th><th>ملاحظات</th><th>نوع الحركة</th><th>حساب جاري</th></tr></thead><tbody>`);
     let runBal=openBal;
     dayTxns.forEach(t=>{if(t.type==="in")runBal+=(Number(t.amount)||0);else runBal-=(Number(t.amount)||0);
       w.document.write(`<tr><td style="font-weight:700">${fmt(r2(runBal))}</td><td>${t.date}</td><td class="green">${t.type==="in"?fmt(r2(t.amount)):""}</td><td class="red">${t.type==="out"?fmt(r2(t.amount)):""}</td><td>${t.desc||"—"}</td><td style="font-size:10px;color:#666">${t.notes||""}</td><td>${t.category||"—"}</td><td>${t.account||""}</td></tr>`)});
-    w.document.write(`</tbody></table>
-    <div style="margin-top:15px;display:flex;gap:15px">
-      ${accounts.map(acc=>{const ab=accBalances[acc]||{in:0,out:0};return`<div class="sbox"><div style="font-size:10px;color:#666">${acc}</div><div class="blue" style="font-weight:700">${fmt(r2(ab.in-ab.out))}</div></div>`}).join("")}
-    </div></body></html>`);w.document.close();setTimeout(()=>w.print(),300)};
+    if(dayTxns.length===0){w.document.write(`<tr><td colspan="8" style="padding:20px;text-align:center;color:#94A3B8">لا توجد حركات في هذا اليوم</td></tr>`)}
+    w.document.write(`</tbody></table>`);
+    /* Show accounts summary footer ONLY when printing "all accounts" */
+    if(!accountName){
+      w.document.write(`<div style="margin-top:15px;display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
+        ${accounts.map(acc=>{const ab=accBalances[acc]||{in:0,out:0};return`<div class="sbox"><div class="lbl">${acc}</div><div class="val blue" style="font-size:13px">${fmt(r2(ab.in-ab.out))}</div></div>`}).join("")}
+      </div>`);
+    }
+    w.document.write(`<div class="foot"><span>CLARK Factory Management</span><span>${new Date().toLocaleDateString("ar-EG")}</span></div>
+    </body></html>`);w.document.close();setTimeout(()=>w.print(),300)};
 
   /* ── Build daily report HTML (shared between PDF and WA) ── */
   /* accountName: filter by specific account, or null = all accounts */
@@ -14770,32 +14787,36 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     dayTxns.forEach(t=>{if(t.type==="in")runBal+=(Number(t.amount)||0);else runBal-=(Number(t.amount)||0);
       rows+=`<tr><td style="border:1px solid #ccc;padding:6px 8px;text-align:right;font-weight:700">${fmt(r2(runBal))}</td><td style="border:1px solid #ccc;padding:6px 8px;text-align:right">${t.date}</td><td style="border:1px solid #ccc;padding:6px 8px;text-align:right;color:#10b981">${t.type==="in"?fmt(r2(t.amount)):""}</td><td style="border:1px solid #ccc;padding:6px 8px;text-align:right;color:#ef4444">${t.type==="out"?fmt(r2(t.amount)):""}</td><td style="border:1px solid #ccc;padding:6px 8px;text-align:right">${t.desc||"—"}</td><td style="border:1px solid #ccc;padding:6px 8px;text-align:right;font-size:10px;color:#666">${t.notes||""}</td><td style="border:1px solid #ccc;padding:6px 8px;text-align:right">${t.category||"—"}</td><td style="border:1px solid #ccc;padding:6px 8px;text-align:right">${t.account||""}</td></tr>`});
     /* Show accounts footer only when showing all accounts */
-    const accFoot=accountName?"":accounts.map(acc=>{const ab=accBalances[acc]||{in:0,out:0};return`<div style="padding:8px 20px;border-radius:8px;text-align:center;border:1px solid #ddd"><div style="font-size:10px;color:#666">${acc}</div><div style="font-weight:700;color:#0ea5e9">${fmt(r2(ab.in-ab.out))}</div></div>`}).join("");
-    const accFootBlock=accFoot?`<div style="margin-top:15px;display:flex;gap:15px;flex-wrap:wrap">${accFoot}</div>`:"";
-    const html=`<div id="daily-report-content" style="font-family:'Cairo',sans-serif;padding:15px;direction:rtl;background:#fff;color:#1E293B">
-      <div style="font-size:18px;font-weight:800;text-align:center;margin-bottom:4px">🏦 تقرير يومية صندوق</div>
-      <div style="font-size:14px;text-align:center;color:#0ea5e9;font-weight:700;margin-bottom:10px">${scopeLabel} — ${date}</div>
-      <div style="display:flex;gap:20px;justify-content:center;margin:10px 0;flex-wrap:wrap">
-        <div style="padding:8px 20px;border-radius:8px;text-align:center;border:1px solid #ddd"><div style="font-size:10px;color:#666">رصيد افتتاحي</div><div style="font-size:16px;font-weight:800;color:#0ea5e9">${fmt(r2(openBal))}</div></div>
-        <div style="padding:8px 20px;border-radius:8px;text-align:center;border:1px solid #ddd"><div style="font-size:10px;color:#666">وارد</div><div style="font-size:16px;font-weight:800;color:#10b981">${fmt(r2(dIn))}</div></div>
-        <div style="padding:8px 20px;border-radius:8px;text-align:center;border:1px solid #ddd"><div style="font-size:10px;color:#666">منصرف</div><div style="font-size:16px;font-weight:800;color:#ef4444">${fmt(r2(dOut))}</div></div>
-        <div style="padding:8px 20px;border-radius:8px;text-align:center;border:1px solid #ddd"><div style="font-size:10px;color:#666">رصيد اقفال</div><div style="font-size:18px;font-weight:800;color:#0ea5e9">${fmt(r2(closeBal))}</div></div>
+    const accFoot=accountName?"":accounts.map(acc=>{const ab=accBalances[acc]||{in:0,out:0};return`<div style="padding:8px 20px;border-radius:8px;text-align:center;border:1px solid #ddd;min-width:120px"><div style="font-size:10px;color:#666;margin-bottom:4px">${acc}</div><div style="font-weight:700;color:#0ea5e9;font-size:13px">${fmt(r2(ab.in-ab.out))}</div></div>`}).join("");
+    const accFootBlock=accFoot?`<div style="margin-top:15px;display:flex;gap:10px;flex-wrap:wrap;justify-content:center">${accFoot}</div>`:"";
+    /* V14.54: Clean HTML with proper spacing, no duplicate footer, proper gap between words */
+    const html=`<div id="daily-report-content" style="font-family:'Cairo',sans-serif;padding:20px;direction:rtl;background:#fff;color:#1E293B;line-height:1.6">
+      <div style="font-size:20px;font-weight:800;text-align:center;margin-bottom:6px;line-height:1.4">🏦 &nbsp; تقرير يومية الصندوق</div>
+      <div style="font-size:14px;text-align:center;color:#0ea5e9;font-weight:700;margin-bottom:14px">${scopeLabel} &nbsp;—&nbsp; ${date}</div>
+      <div style="display:flex;gap:12px;justify-content:center;margin:14px 0;flex-wrap:wrap">
+        <div style="padding:10px 20px;border-radius:8px;text-align:center;border:1px solid #ddd;min-width:130px"><div style="font-size:10px;color:#666;margin-bottom:4px">رصيد افتتاحي</div><div style="font-size:16px;font-weight:800;color:#0ea5e9">${fmt(r2(openBal))}</div></div>
+        <div style="padding:10px 20px;border-radius:8px;text-align:center;border:1px solid #ddd;min-width:130px"><div style="font-size:10px;color:#666;margin-bottom:4px">وارد</div><div style="font-size:16px;font-weight:800;color:#10b981">${fmt(r2(dIn))}</div></div>
+        <div style="padding:10px 20px;border-radius:8px;text-align:center;border:1px solid #ddd;min-width:130px"><div style="font-size:10px;color:#666;margin-bottom:4px">منصرف</div><div style="font-size:16px;font-weight:800;color:#ef4444">${fmt(r2(dOut))}</div></div>
+        <div style="padding:10px 20px;border-radius:8px;text-align:center;border:2px solid #0ea5e9;min-width:130px;background:#F0F9FF"><div style="font-size:10px;color:#666;margin-bottom:4px">رصيد اقفال</div><div style="font-size:18px;font-weight:800;color:#0ea5e9">${fmt(r2(closeBal))}</div></div>
       </div>
-      <table style="width:100%;border-collapse:collapse;margin:10px 0;font-size:11px">
+      <table style="width:100%;border-collapse:collapse;margin:14px 0;font-size:11px">
         <thead><tr style="background:#f0f0f0">
-          <th style="border:1px solid #ccc;padding:6px 8px;text-align:right;font-weight:700">رصيد</th>
-          <th style="border:1px solid #ccc;padding:6px 8px;text-align:right;font-weight:700">تاريخ</th>
-          <th style="border:1px solid #ccc;padding:6px 8px;text-align:right;font-weight:700">وارد</th>
-          <th style="border:1px solid #ccc;padding:6px 8px;text-align:right;font-weight:700">منصرف</th>
-          <th style="border:1px solid #ccc;padding:6px 8px;text-align:right;font-weight:700">بيان</th>
-          <th style="border:1px solid #ccc;padding:6px 8px;text-align:right;font-weight:700">ملاحظات</th>
-          <th style="border:1px solid #ccc;padding:6px 8px;text-align:right;font-weight:700">نوع الحركة</th>
-          <th style="border:1px solid #ccc;padding:6px 8px;text-align:right;font-weight:700">حساب جاري</th>
+          <th style="border:1px solid #ccc;padding:8px;text-align:right;font-weight:700">رصيد</th>
+          <th style="border:1px solid #ccc;padding:8px;text-align:right;font-weight:700">تاريخ</th>
+          <th style="border:1px solid #ccc;padding:8px;text-align:right;font-weight:700">وارد</th>
+          <th style="border:1px solid #ccc;padding:8px;text-align:right;font-weight:700">منصرف</th>
+          <th style="border:1px solid #ccc;padding:8px;text-align:right;font-weight:700">بيان</th>
+          <th style="border:1px solid #ccc;padding:8px;text-align:right;font-weight:700">ملاحظات</th>
+          <th style="border:1px solid #ccc;padding:8px;text-align:right;font-weight:700">نوع الحركة</th>
+          <th style="border:1px solid #ccc;padding:8px;text-align:right;font-weight:700">حساب جاري</th>
         </tr></thead>
-        <tbody>${rows}</tbody>
+        <tbody>${rows||'<tr><td colspan="8" style="border:1px solid #ccc;padding:20px;text-align:center;color:#94A3B8">لا توجد حركات في هذا اليوم</td></tr>'}</tbody>
       </table>
       ${accFootBlock}
-      <div style="margin-top:20px;padding-top:10px;border-top:1px solid #ccc;text-align:center;font-size:10px;color:#94A3B8">CLARK Factory Management — ${new Date().toLocaleDateString("ar-EG")}</div>
+      <div style="margin-top:40px;padding-top:12px;border-top:1px solid #ccc;display:flex;justify-content:space-between;align-items:center;font-size:10px;color:#94A3B8">
+        <span>CLARK Factory Management</span>
+        <span>${new Date().toLocaleDateString("ar-EG")}</span>
+      </div>
     </div>`;
     return{html,dIn,dOut,openBal,closeBal,txnCount:dayTxns.length,scopeLabel};
   };
@@ -14958,8 +14979,8 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         <div style={{padding:"8px 20px",borderRadius:10,background:"#0D948808",border:"1px solid #0D948820",textAlign:"center"}}>
           <div style={{fontSize:FS-2,color:T.textSec}}>صافي اليوم</div><div style={{fontSize:FS+2,fontWeight:800,color:"#0D9488"}}>{fmt(r2(tIn-tOut))}</div>
         </div>
-        <div onClick={()=>printDaily(today)} style={{padding:"8px 20px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center",cursor:"pointer"}} title={currentAccName?"طباعة "+currentAccName:"طباعة الكل"}>
-          <div style={{fontSize:FS-2,color:T.textSec}}>طباعة</div><div style={{fontSize:FS+1,fontWeight:700,color:T.accent}}>🖨️</div>
+        <div onClick={()=>printDaily(today,currentAccName)} style={{padding:"8px 20px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center",cursor:"pointer"}} title={"طباعة — "+scopeLabel}>
+          <div style={{fontSize:FS-2,color:T.textSec}}>طباعة {currentAccName?"("+currentAccName+")":""}</div><div style={{fontSize:FS+1,fontWeight:700,color:T.accent}}>🖨️</div>
         </div>
         <div onClick={()=>savePdfDaily(today,currentAccName)} style={{padding:"8px 20px",borderRadius:10,background:"#EF444408",border:"1px solid #EF444420",textAlign:"center",cursor:"pointer"}} title={"حفظ PDF — "+scopeLabel}>
           <div style={{fontSize:FS-2,color:T.textSec}}>PDF {currentAccName?"("+currentAccName+")":""}</div><div style={{fontSize:FS+1,fontWeight:700,color:"#EF4444"}}>📄</div>
@@ -16509,6 +16530,30 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     const remainingBalance=r2(netBalance-thursdayPay);
     return{weeklySalary,baseHours,perHour,workDays,totalHours,basicHours,overtimeHours,basicPay,overtimePay,grossPay,prevBalance,prevBalanceIsManual,weekAdvances,bonus,specialDeduct,debtInstall,debtCarried,debtItems:debtInfo.items,debtInfoTotal:debtInfo.total,manualInstallDeduct,isPartialInstall,isSkippedInstall,netBalance,thursdayPay,remainingBalance,days}};
 
+  /* ═══ V14.55: Read salary row from closedRecords snapshot if week is closed ═══
+     This ensures closed weeks display their ORIGINAL values at close time,
+     regardless of any subsequent changes to advances, deductions, prevBalance, etc. */
+  const getEmpSalary=(empId,week)=>{
+    if(!week)return null;
+    /* For closed weeks with snapshot: use saved record */
+    if(week.status==="closed"&&Array.isArray(week.closedRecords)){
+      const saved=week.closedRecords.find(r=>r.empId===empId);
+      if(saved){
+        /* Return saved record with `days` calculated from attendance (for display only) */
+        const att=week.attendance||{};
+        const days=[];
+        const start=new Date(week.weekStart);const end=new Date(week.weekEnd);
+        for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){
+          const ds=d.toISOString().split("T")[0];const key=empId+"_"+ds;
+          const h=att[key]?att[key].hours:0;days.push({date:ds,hours:h});
+        }
+        return{...saved,days};
+      }
+    }
+    /* For open weeks OR closed without snapshot: fall back to live calc */
+    return calcSalary(empId,week);
+  };
+
   /* ── Weekly Advances (for monthly/admin staff) ── */
   const weeklyAdvances=openWeek?(openWeek.weeklyAdvances||[]):[];
   const totalWeeklyAdvances=weeklyAdvances.reduce((s,a)=>s+(Number(a.amount)||0),0);
@@ -16762,6 +16807,40 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           weeklyAdvancesCount:wAdvs.length,
           savedAt:actualCloseTs
         };
+        /* ═══ V14.55: SAVE closedRecords — full salary table snapshot per employee ═══
+           This prevents any future edits (advances, deductions, etc.) from changing
+           the displayed values in a closed week's salary table. */
+        d.hrWeeks[wi].closedRecords=records.map(r=>({
+          empId:r.empId,
+          empName:r.empName,
+          empCode:r.empCode||"",
+          weeklySalary:r.weeklySalary||0,
+          baseHours:r.baseHours||0,
+          perHour:r.perHour||0,
+          totalHours:r.totalHours||0,
+          basicHours:r.basicHours||0,
+          overtimeHours:r.overtimeHours||0,
+          basicPay:r2(r.basicPay||0),
+          overtimePay:r2(r.overtimePay||0),
+          grossPay:r2(r.grossPay||0),
+          prevBalance:r2(r.prevBalance||0),
+          prevBalanceIsManual:!!r.prevBalanceIsManual,
+          weekAdvances:r2(r.weekAdvances||0),
+          bonus:r2(r.bonus||0),
+          specialDeduct:r2(r.specialDeduct||0),
+          deductReason:salDeductReason[r.empId]||"",
+          debtInstall:r2(r.debtInstall||0),
+          debtCarried:r2(r.debtCarried||0),
+          debtInfoTotal:r2(r.debtInfoTotal||0),
+          manualInstallDeduct:r.manualInstallDeduct,
+          isPartialInstall:!!r.isPartialInstall,
+          isSkippedInstall:!!r.isSkippedInstall,
+          netBalance:r2(r.netBalance||0),
+          thursdayPay:r2(r.thursdayPay||0),
+          remainingBalance:r2(r.remainingBalance||0),
+          /* Keep debt items snapshot for display */
+          debtItems:Array.isArray(r.debtItems)?r.debtItems.map(d=>({...d})):[]
+        }));
         /* Audit — week closure — always logs the REAL actual date */
         const backdated=useDate!==actualCloseDate;
         addAudit(d,{category:"week",action:"close",
@@ -16856,6 +16935,9 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       });
     });
   },[hrWeeks.length,canEdit]);/* eslint-disable-line */
+
+  /* V14.55: Clean delete popup for weeks */
+  const[cleanDeletePopup,setCleanDeletePopup]=useState(null);
 
   /* Restore week to pre-approval state (same-day only). Reverses all effects of approveWeek. */
   const[restorePopup,setRestorePopup]=useState(null);/* {snapshotId, week, confirmText} */
@@ -17253,18 +17335,33 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               <span style={{padding:"6px 14px",borderRadius:10,fontSize:FS-1,fontWeight:800,background:isClosedW?T.ok+"15":T.warn+"15",color:isClosedW?T.ok:T.warn,border:"1px solid "+(isClosedW?T.ok+"30":T.warn+"30")}}>{isClosedW?"✅ مقفول":"🔓 مفتوح"}</span>
               <span onClick={e=>{e.stopPropagation();setOpenWeekId(w.id)}} style={{cursor:"pointer",padding:"6px 18px",borderRadius:10,background:T.accent,color:"#fff",fontSize:FS-1,fontWeight:800,border:"none"}}>فتح</span>
               {canEdit&&(!isClosedW||unlockedWeeks[w.id])&&<span onClick={e=>{e.stopPropagation();
-                const linkedTreasury=(data.treasury||[]).filter(t=>t.category==="مرتبات"&&t.desc&&(t.desc.includes("W"+w.weekNum+" ("+w.weekStart)||t.desc.includes("مرتبات W"+w.weekNum)));
-                if(linkedTreasury.length>0){
-                  const total=linkedTreasury.reduce((s,t)=>s+(Number(t.amount)||0),0);
-                  openConfirm({title:"⛔ لا يمكن الحذف",message:"لا يمكن حذف الأسبوع W"+w.weekNum+" لأنه مرتبط بـ "+linkedTreasury.length+" حركة في اليومية بإجمالي "+fmt(total)+" ج.م.\n\nاحذف الحركات من الخزنة أولاً إن كنت متأكد.",variant:"danger",onConfirm:()=>{}});
-                  return}
-                openConfirm({title:"حذف أسبوع W"+w.weekNum,message:"البيانات المسجلة (بصمة + حضور + بيانات المرتبات) هتنحذف.\nالسلف المرتبطة بالأسبوع لن تتأثر.",variant:"danger",onConfirm:()=>{
-                  upConfig(d=>{
-                    d.hrWeeks=(d.hrWeeks||[]).filter(x=>x.id!==w.id);
-                    d.hrLog=(d.hrLog||[]).filter(l=>!(l.type==="salary"&&l.weekId===w.id));
-                  });
-                  if(previewWeekId===w.id)setPreviewWeekId(null);
-                  showToast("✓ تم حذف الأسبوع")}})
+                /* V14.55: Compute full impact analysis for clean-delete option */
+                const wSelectedDel=(w.selectedEmps&&Array.isArray(w.selectedEmps))?w.selectedEmps:[];
+                const linkedTreasurySalaries=(data.treasury||[]).filter(t=>t.sourceType==="hr_salary"&&t.weekId===w.id);
+                const linkedTreasuryAdvances=(data.treasury||[]).filter(t=>(t.sourceType==="hr_weekly_advance"||t.sourceType==="hr_advance")&&t.weekId===w.id);
+                const linkedHrAdvances=(data.hrLog||[]).filter(l=>l.type==="advance"&&l.weekId===w.id);
+                const linkedHrWeeklyAdv=(data.hrLog||[]).filter(l=>l.type==="weekly_advance"&&l.weekId===w.id);
+                const linkedHrSalary=(data.hrLog||[]).filter(l=>l.type==="salary"&&l.weekId===w.id);
+                const debtsWithPayment=(data.empDebts||[]).filter(debt=>(debt.partialPayments||{})[w.id]);
+                const totalSalaries=linkedTreasurySalaries.reduce((s,t)=>s+(Number(t.amount)||0),0);
+                const totalAdvances=linkedTreasuryAdvances.reduce((s,t)=>s+(Number(t.amount)||0),0);
+                const hasTreasuryLinks=linkedTreasurySalaries.length>0||linkedTreasuryAdvances.length>0;
+                setCleanDeletePopup({
+                  week:w,
+                  hasTreasuryLinks,
+                  linkedTreasurySalaries,
+                  linkedTreasuryAdvances,
+                  linkedHrAdvances,
+                  linkedHrWeeklyAdv,
+                  linkedHrSalary,
+                  debtsWithPayment,
+                  totalSalaries,
+                  totalAdvances,
+                  empCount:wSelectedDel.length,
+                  attendanceCount:Object.keys(w.attendance||{}).length,
+                  confirmStep:0,
+                  confirmText:""
+                });
               }} style={{cursor:"pointer",padding:"6px 12px",borderRadius:10,background:T.err+"12",color:T.err,fontSize:FS-1,fontWeight:700,border:"1px solid "+T.err+"30"}} title="حذف الأسبوع">🗑️</span>}
             </div>
           </div>
@@ -17759,7 +17856,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             {label:"",align:"center",w:40}
           ];
           let tG=0,tN=0,tA=0,tD=0,tB=0,tH=0,tO=0,tOP=0,tTP=0,tRB=0,tDI=0;
-          shownEmps.forEach(e=>{const c=calcSalary(e.id,openWeek);if(c){tG+=c.grossPay;tN+=c.netBalance;tA+=c.weekAdvances;tD+=c.specialDeduct;tB+=c.bonus;tH+=c.totalHours;tO+=c.overtimeHours;tOP+=c.overtimePay;tTP+=c.thursdayPay;tRB+=c.remainingBalance;tDI+=c.debtInstall||0}});
+          shownEmps.forEach(e=>{const c=getEmpSalary(e.id,openWeek);if(c){tG+=c.grossPay;tN+=c.netBalance;tA+=c.weekAdvances;tD+=c.specialDeduct;tB+=c.bonus;tH+=c.totalHours;tO+=c.overtimeHours;tOP+=c.overtimePay;tTP+=c.thursdayPay;tRB+=c.remainingBalance;tDI+=c.debtInstall||0}});
           /* Apply filters */
           const sQ=salSearchDeb.trim().toLowerCase();
           const topQ=attSearchDeb.trim().toLowerCase();
@@ -17768,7 +17865,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             if(topQ){const name=(e.name||"").toLowerCase();const code=(e.code||"").toLowerCase();if(!name.includes(topQ)&&!code.includes(topQ))return false}
             if(sQ){const name=(e.name||"").toLowerCase();const code=(e.code||"").toLowerCase();const job=(e.job||"").toLowerCase();if(!name.includes(sQ)&&!code.includes(sQ)&&!job.includes(sQ))return false}
             if(salJobFilter&&(e.job||"")!==salJobFilter)return false;
-            if(salShowOnly){const cc=calcSalary(e.id,openWeek);if(!cc)return false;
+            if(salShowOnly){const cc=getEmpSalary(e.id,openWeek);if(!cc)return false;
               if(salShowOnly==="hasDeduct"&&!(cc.specialDeduct>0))return false;
               if(salShowOnly==="hasBonus"&&!(cc.bonus>0))return false;
               if(salShowOnly==="hasInstall"&&!(cc.debtInstall>0))return false;
@@ -17804,7 +17901,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               <div style={{flex:"0 0 auto",marginInlineStart:"auto",display:"flex",gap:6}}>
                 <Btn small onClick={()=>{
                   /* Print the current filtered table as a single-page overview */
-                  const rows=filteredShown.map((emp,i)=>{const c=calcSalary(emp.id,openWeek);if(!c)return"";
+                  const rows=filteredShown.map((emp,i)=>{const c=getEmpSalary(emp.id,openWeek);if(!c)return"";
                     return"<tr>"+
                       "<td class='center'>"+(i+1)+"</td>"+
                       "<td>"+(emp.name||"")+(emp.code?" <span style='color:#94A3B8;font-size:10px'>#"+emp.code+"</span>":"")+"</td>"+
@@ -17825,7 +17922,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                   }).join("");
                   /* Totals from filtered list */
                   let fG=0,fA=0,fD=0,fB=0,fTP=0,fRB=0,fDI=0;
-                  filteredShown.forEach(e=>{const cc=calcSalary(e.id,openWeek);if(cc){fG+=cc.grossPay;fA+=cc.weekAdvances;fD+=cc.specialDeduct;fB+=cc.bonus;fTP+=cc.thursdayPay;fRB+=cc.remainingBalance;fDI+=cc.debtInstall||0}});
+                  filteredShown.forEach(e=>{const cc=getEmpSalary(e.id,openWeek);if(cc){fG+=cc.grossPay;fA+=cc.weekAdvances;fD+=cc.specialDeduct;fB+=cc.bonus;fTP+=cc.thursdayPay;fRB+=cc.remainingBalance;fDI+=cc.debtInstall||0}});
                   const totalsRow="<tr style='background:#E0F2FE;font-weight:800;border-top:2px solid #0284C7'>"+
                     "<td class='center' colspan='3'>الإجمالي — "+filteredShown.length+" موظف</td>"+
                     "<td class='center'>"+fmt0(filteredShown.reduce((s,e)=>s+(e.weeklySalary||0),0))+"</td>"+
@@ -17836,7 +17933,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                     "<td class='center err'>"+fmt0(fD)+"</td>"+
                     "<td class='center' style='color:#F97316'>"+fmt0(fDI)+"</td>"+
                     "<td class='center ok'>"+fmt0(fB)+"</td>"+
-                    "<td class='center info'>"+fmt0(filteredShown.reduce((s,e)=>{const cc=calcSalary(e.id,openWeek);return s+(cc?cc.netBalance:0)},0))+"</td>"+
+                    "<td class='center info'>"+fmt0(filteredShown.reduce((s,e)=>{const cc=getEmpSalary(e.id,openWeek);return s+(cc?cc.netBalance:0)},0))+"</td>"+
                     "<td class='center ok'>"+fmt0(fTP)+"</td>"+
                     "<td class='center warn'>"+fmt0(fRB)+"</td>"+
                   "</tr>";
@@ -17862,7 +17959,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                 }} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}}>🖨 طباعة الجدول</Btn>
                 <Btn small onClick={()=>{
                   /* Signature sheet — formal document for employees to sign upon receiving salary */
-                  const rows=filteredShown.map((emp,i)=>{const c=calcSalary(emp.id,openWeek);if(!c)return"";
+                  const rows=filteredShown.map((emp,i)=>{const c=getEmpSalary(emp.id,openWeek);if(!c)return"";
                     /* Combined deductions = special deduct + installment */
                     const totalDeduct=(c.specialDeduct||0)+(c.debtInstall||0);
                     return"<tr>"+
@@ -17878,7 +17975,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                   }).join("");
                   /* Totals */
                   let tG=0,tA=0,tDeduct=0,tPay=0,tBal=0;
-                  filteredShown.forEach(e=>{const cc=calcSalary(e.id,openWeek);if(cc){tG+=cc.grossPay;tA+=cc.weekAdvances;tDeduct+=(cc.specialDeduct||0)+(cc.debtInstall||0);tPay+=cc.thursdayPay;tBal+=cc.remainingBalance}});
+                  filteredShown.forEach(e=>{const cc=getEmpSalary(e.id,openWeek);if(cc){tG+=cc.grossPay;tA+=cc.weekAdvances;tDeduct+=(cc.specialDeduct||0)+(cc.debtInstall||0);tPay+=cc.thursdayPay;tBal+=cc.remainingBalance}});
                   const totalsRow="<tr style='background:#F1F5F9;font-weight:800;border-top:3px double #0284C7'>"+
                     "<td class='center' colspan='2' style='font-size:13px'>الإجمالي — "+filteredShown.length+" موظف</td>"+
                     "<td class='center' style='font-size:13px'>"+fmt0(tG)+"</td>"+
@@ -17998,7 +18095,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             </tr></thead><tbody>
               {filteredShown.length===0?<tr><td colSpan={cols.length} style={{padding:30,textAlign:"center",color:T.textMut,fontSize:FS-1}}>
                 {shownEmps.length===0?"لا يوجد موظفين":"لا توجد نتائج للفلاتر الحالية"}
-              </td></tr>:filteredShown.map((emp,i)=>{const c=calcSalary(emp.id,openWeek);if(!c)return null;const zebra=i%2===1?T.bg:T.cardSolid;const isFocused=focusedEmpId===emp.id;
+              </td></tr>:filteredShown.map((emp,i)=>{const c=getEmpSalary(emp.id,openWeek);if(!c)return null;const zebra=i%2===1?T.bg:T.cardSolid;const isFocused=focusedEmpId===emp.id;
                 return<tr key={emp.id} onFocus={()=>setFocusedEmpId(emp.id)} onBlur={(e)=>{if(!e.currentTarget.contains(e.relatedTarget))setFocusedEmpId(null)}} style={{borderBottom:"1px solid "+T.brd,background:isFocused?T.accent+"12":zebra,boxShadow:isFocused?"inset 4px 0 0 "+T.accent:"none",transition:"background 0.15s, box-shadow 0.15s"}}>
                   <td style={{padding:"3px 6px",fontSize:FS-2,color:isFocused?T.accent:T.textMut,textAlign:"center",fontWeight:isFocused?800:400}}>{i+1}</td>
                   <td style={{padding:"3px 10px",fontSize:isFocused?FS+2:FS-1,fontWeight:isFocused?800:700,textAlign:"right",color:isFocused?T.accent:T.text,transition:"font-size 0.15s, color 0.15s"}}>{emp.name}</td>
@@ -18453,7 +18550,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             <Btn small onClick={()=>setBulkPrintSel({})} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>☐ لا شيء</Btn>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:"50vh",overflowY:"auto"}}>
-            {inWeek.map(e=>{const sel=bulkPrintSel[e.id];const c=calcSalary(e.id,openWeek);
+            {inWeek.map(e=>{const sel=bulkPrintSel[e.id];const c=getEmpSalary(e.id,openWeek);
               return<div key={e.id} onClick={()=>setBulkPrintSel(p=>({...p,[e.id]:!p[e.id]}))} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:10,cursor:"pointer",background:sel?T.accent+"08":T.bg,border:"1px solid "+(sel?T.accent+"30":T.brd)}}>
                 <span style={{fontSize:18}}>{sel?"☑":"☐"}</span>
                 <div style={{flex:1}}>
@@ -18709,6 +18806,151 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         </div>
       </div>})()}
 
+    {/* ══ V14.55: CLEAN DELETE WEEK POPUP ══ */}
+    {cleanDeletePopup&&(()=>{const cd=cleanDeletePopup;const w=cd.week;
+      const executeCleanDelete=()=>{
+        upConfig(d=>{
+          const wi=(d.hrWeeks||[]).findIndex(x=>x.id===w.id);
+          if(wi<0)return;
+          /* 1. Capture prevBalance restoration data from snapshot if available */
+          const snapshot=(d.hrWeeks||[])[wi];
+          /* 2. Delete treasury entries linked to this week (salaries + advances) */
+          d.treasury=(d.treasury||[]).filter(t=>!(t.weekId===w.id&&(t.sourceType==="hr_salary"||t.sourceType==="hr_weekly_advance"||t.sourceType==="hr_advance")));
+          /* 3. Delete hrLog entries linked to this week */
+          d.hrLog=(d.hrLog||[]).filter(l=>!(l.weekId===w.id&&(l.type==="salary"||l.type==="advance"||l.type==="weekly_advance")));
+          /* 4. Clear debt partial payments for this week */
+          (d.empDebts||[]).forEach(debt=>{
+            if(debt.partialPayments&&debt.partialPayments[w.id]){
+              delete debt.partialPayments[w.id];
+              /* Reset status to active if it was marked paid due to this week */
+              if(debt.status==="paid")debt.status="active";
+            }
+          });
+          /* 5. Restore prevBalance for each affected employee */
+          const empIds=(snapshot.selectedEmps||[]);
+          empIds.forEach(eid=>{
+            const emp=(d.employees||[]).find(x=>x.id===eid);
+            if(!emp)return;
+            /* Use closedRecords if available (has original prevBalance), else leave as-is and user will need to fix manually */
+            if(Array.isArray(snapshot.closedRecords)){
+              const rec=snapshot.closedRecords.find(r=>r.empId===eid);
+              if(rec){emp.prevBalance=Number(rec.prevBalance)||0}
+            }
+          });
+          /* 6. Audit log — full impact */
+          if(!Array.isArray(d.auditLog))d.auditLog=[];
+          d.auditLog.unshift({
+            id:Math.random().toString(36).slice(2)+Date.now(),
+            category:"week",
+            action:"clean_delete",
+            target:"W"+w.weekNum+" ("+w.weekStart+" → "+w.weekEnd+")",
+            newValue:"حذف كامل: "+cd.empCount+" موظف • "+cd.linkedTreasurySalaries.length+" مرتب ("+fmt(cd.totalSalaries)+" ج) • "+cd.linkedTreasuryAdvances.length+" سلفة ("+fmt(cd.totalAdvances)+" ج)",
+            notes:"استعادة prevBalance لـ "+empIds.length+" موظف + تنظيف "+cd.debtsWithPayment.length+" قسط",
+            at:new Date().toISOString(),
+            severity:"warning"
+          });
+          /* 7. Finally, delete the week itself */
+          d.hrWeeks=(d.hrWeeks||[]).filter(x=>x.id!==w.id);
+        });
+        if(previewWeekId===w.id)setPreviewWeekId(null);
+        setCleanDeletePopup(null);
+        showToast("✅ تم الحذف والتنظيف الكامل لأسبوع W"+w.weekNum);
+      };
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setCleanDeletePopup(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:22,width:"100%",maxWidth:640,maxHeight:"92vh",overflowY:"auto",border:"2px solid "+T.err,boxShadow:"0 25px 70px rgba(0,0,0,0.5)"}}>
+          {/* Header */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,paddingBottom:12,borderBottom:"2px solid "+T.err+"30"}}>
+            <div style={{fontSize:FS+3,fontWeight:900,color:T.err,display:"flex",alignItems:"center",gap:8}}>
+              <span>🧹</span><span>حذف وتنظيف كامل — W{w.weekNum}</span>
+            </div>
+            <span onClick={()=>setCleanDeletePopup(null)} style={{cursor:"pointer",fontSize:20,color:T.textMut}}>✕</span>
+          </div>
+
+          {/* Step 0: Impact preview */}
+          {cd.confirmStep===0&&<div>
+            <div style={{padding:12,borderRadius:10,background:T.warn+"08",border:"1px solid "+T.warn+"30",marginBottom:14,display:"flex",gap:10}}>
+              <span style={{fontSize:22,flexShrink:0}}>⚠️</span>
+              <div style={{fontSize:FS-1,color:T.text,lineHeight:1.7}}>
+                <b style={{color:T.warn}}>تحذير مهم:</b> هذه العملية <b>لا يمكن التراجع عنها</b>. 
+                سيتم حذف الأسبوع بالكامل <b>مع كل الحركات المالية المرتبطة به</b> في الخزنة والسجلات.
+              </div>
+            </div>
+
+            <div style={{fontSize:FS+1,fontWeight:800,color:T.text,marginBottom:10,paddingBottom:8,borderBottom:"1px solid "+T.brd}}>
+              📋 ملخص ما سيتم حذفه:
+            </div>
+
+            {/* Grid of impact stats */}
+            <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:14}}>
+              {/* Week data */}
+              <div style={{padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
+                <div style={{fontSize:FS-2,color:T.textMut,fontWeight:600,marginBottom:6}}>📅 بيانات الأسبوع</div>
+                <div style={{fontSize:FS-1,lineHeight:1.9}}>
+                  <div>• الموظفين في الأسبوع: <b style={{color:T.accent}}>{cd.empCount}</b></div>
+                  <div>• سجلات البصمة/الحضور: <b style={{color:T.accent}}>{cd.attendanceCount}</b></div>
+                  <div>• سجلات المرتبات (hrLog): <b style={{color:T.accent}}>{cd.linkedHrSalary.length}</b></div>
+                </div>
+              </div>
+
+              {/* Treasury movements */}
+              <div style={{padding:12,borderRadius:10,background:T.err+"06",border:"1px solid "+T.err+"20"}}>
+                <div style={{fontSize:FS-2,color:T.textMut,fontWeight:600,marginBottom:6}}>💰 حركات الخزنة</div>
+                <div style={{fontSize:FS-1,lineHeight:1.9}}>
+                  <div>• مرتبات موظفين: <b style={{color:T.err}}>{cd.linkedTreasurySalaries.length}</b> حركة</div>
+                  <div style={{paddingInlineStart:10,fontSize:FS-2,color:T.textMut}}>بإجمالي {fmt(cd.totalSalaries)} ج.م</div>
+                  <div>• سلف أسبوعية: <b style={{color:T.err}}>{cd.linkedTreasuryAdvances.length}</b> حركة</div>
+                  <div style={{paddingInlineStart:10,fontSize:FS-2,color:T.textMut}}>بإجمالي {fmt(cd.totalAdvances)} ج.م</div>
+                </div>
+              </div>
+
+              {/* HR advances */}
+              <div style={{padding:12,borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF620"}}>
+                <div style={{fontSize:FS-2,color:T.textMut,fontWeight:600,marginBottom:6}}>📝 سجلات الإدارة (hrLog)</div>
+                <div style={{fontSize:FS-1,lineHeight:1.9}}>
+                  <div>• سلف موظفين عاديين: <b style={{color:"#8B5CF6"}}>{cd.linkedHrAdvances.length}</b></div>
+                  <div>• سلف إدارة/شهريين: <b style={{color:"#8B5CF6"}}>{cd.linkedHrWeeklyAdv.length}</b></div>
+                </div>
+              </div>
+
+              {/* Debts */}
+              <div style={{padding:12,borderRadius:10,background:T.warn+"08",border:"1px solid "+T.warn+"20"}}>
+                <div style={{fontSize:FS-2,color:T.textMut,fontWeight:600,marginBottom:6}}>📉 أقساط المديونيات</div>
+                <div style={{fontSize:FS-1,lineHeight:1.9}}>
+                  <div>• مديونيات فيها قسط لهذا الأسبوع: <b style={{color:T.warn}}>{cd.debtsWithPayment.length}</b></div>
+                  <div style={{fontSize:FS-2,color:T.textMut,marginTop:3}}>سيتم تصفير قسط هذا الأسبوع فقط</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Restoration info */}
+            <div style={{padding:12,borderRadius:10,background:T.ok+"06",border:"1px solid "+T.ok+"20",marginBottom:14}}>
+              <div style={{fontSize:FS,fontWeight:800,color:T.ok,marginBottom:6}}>✅ سيتم استرجاع:</div>
+              <div style={{fontSize:FS-1,lineHeight:1.8,color:T.text}}>
+                • رصيد سابق (prevBalance) لـ <b>{cd.empCount}</b> موظف
+                {!Array.isArray(w.closedRecords)&&<div style={{fontSize:FS-2,color:T.warn,marginTop:4}}>⚠️ الأسبوع بدون snapshot — الرصيد السابق للموظفين لن يُسترجع تلقائياً</div>}
+              </div>
+            </div>
+
+            {/* Confirm checkbox */}
+            <div style={{padding:14,borderRadius:10,background:T.err+"08",border:"2px dashed "+T.err+"40",marginBottom:14}}>
+              <div style={{fontSize:FS-1,color:T.text,marginBottom:10,lineHeight:1.7}}>
+                <b style={{color:T.err}}>للمتابعة:</b> اكتب <b style={{fontFamily:"monospace",background:T.bg,padding:"2px 8px",borderRadius:4}}>حذف W{w.weekNum}</b> في الخانة أدناه
+              </div>
+              <input type="text" value={cd.confirmText} onChange={e=>setCleanDeletePopup(p=>({...p,confirmText:e.target.value}))} placeholder={"حذف W"+w.weekNum} style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"2px solid "+(cd.confirmText==="حذف W"+w.weekNum?T.ok:T.brd),fontSize:FS,fontFamily:"inherit",background:T.inputBg,color:T.text,boxSizing:"border-box",transition:"border 0.15s"}}/>
+            </div>
+
+            {/* Actions */}
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <Btn ghost onClick={()=>setCleanDeletePopup(null)}>إلغاء</Btn>
+              <Btn onClick={executeCleanDelete} disabled={cd.confirmText!=="حذف W"+w.weekNum} style={{background:cd.confirmText==="حذف W"+w.weekNum?T.err:T.err+"40",color:"#fff",border:"none",fontWeight:800,padding:"10px 22px",cursor:cd.confirmText==="حذف W"+w.weekNum?"pointer":"not-allowed"}}>
+                🧹 حذف وتنظيف كامل
+              </Btn>
+            </div>
+          </div>}
+        </div>
+      </div>;
+    })()}
+
     {/* ══ RESTORE WEEK POPUP — استعادة الأسبوع للحالة قبل الإقفال ══ */}
     {restorePopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setRestorePopup(null)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:22,width:"100%",maxWidth:560,maxHeight:"92vh",overflowY:"auto",border:"2px solid #8B5CF6",boxShadow:"0 25px 70px rgba(0,0,0,0.5)"}}>
@@ -18861,7 +19103,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       const weekSelectedCD=getSelectedEmps(openWeek.id);
       const shownEmpsCD=activeEmps.filter(e=>weekSelectedCD.includes(e.id));
       let tG_=0,tA_=0,tTP_=0,tRB_=0,tDI_=0;
-      shownEmpsCD.forEach(e=>{const cc=calcSalary(e.id,openWeek);if(cc){tG_+=cc.grossPay;tA_+=cc.weekAdvances;tTP_+=cc.thursdayPay;tRB_+=cc.remainingBalance;tDI_+=cc.debtInstall||0}});
+      shownEmpsCD.forEach(e=>{const cc=getEmpSalary(e.id,openWeek);if(cc){tG_+=cc.grossPay;tA_+=cc.weekAdvances;tTP_+=cc.thursdayPay;tRB_+=cc.remainingBalance;tDI_+=cc.debtInstall||0}});
       const totalCashOut=r2(tTP_+totalWeeklyAdvances);/* مرتبات الخميس + سلف الإدارة المخططة (تُنفَّذ الآن) */
       const isBackdated=closeDateValue&&closeDateValue!==today;
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={()=>setShowCloseDate(false)}>
