@@ -480,8 +480,9 @@ function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,createdB
 function printEmpQrCards(empsList){
   const pw=window.open("","_blank");if(!pw)return;
   let cards="";
-  empsList.forEach(e=>{
+  empsList.forEach((e,i)=>{
     const qr=("CLARK:EMP:"+e.id).replace(/'/g,"\\'");
+    /* Each card is its own thermal page — no sheet grid */
     cards+="<div class='card'>"
       +"<div class='brand'>CLARK</div>"
       +"<canvas class='qr' data-qr='"+qr+"'></canvas>"
@@ -493,22 +494,24 @@ function printEmpQrCards(empsList){
     +"<script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script>"
     +"<link href='https://fonts.googleapis.com/css2?family=Cairo:wght@600;800;900&display=swap' rel='stylesheet'/>"
     +"<style>"
-    +"@page{size:A4;margin:5mm}*{margin:0;padding:0;box-sizing:border-box}"
+    /* V14.58: Thermal 40×50mm — one card per page (like printPkgLabel pattern) */
+    +"@page{size:40mm 50mm;margin:0}"
+    +"*{margin:0;padding:0;box-sizing:border-box}"
     +"body{font-family:'Cairo',sans-serif;color:#000;background:#fff}"
-    +".sheet{display:flex;flex-wrap:wrap;gap:2mm;padding:2mm}"
-    +".card{width:40mm;height:50mm;border:1px dashed #888;padding:2mm;display:flex;flex-direction:column;align-items:center;justify-content:space-between;page-break-inside:avoid}"
-    +".brand{font-size:8pt;font-weight:900;letter-spacing:2px;border-bottom:1.5px solid #000;width:100%;text-align:center;padding-bottom:1mm}"
-    +".qr{width:24mm!important;height:24mm!important}"
-    +".nm{font-size:9pt;font-weight:800;text-align:center;width:100%;line-height:1.2;margin-top:1mm}"
-    +".cd{font-size:8pt;font-weight:700;color:#0EA5E9;text-align:center;font-family:monospace}"
+    +".card{width:40mm;height:50mm;padding:2mm;display:flex;flex-direction:column;align-items:center;justify-content:space-between;page-break-after:always;overflow:hidden}"
+    +".card:last-child{page-break-after:auto}"
+    +".brand{font-size:9pt;font-weight:900;letter-spacing:2.5px;border-bottom:2px solid #000;width:100%;text-align:center;padding-bottom:1mm}"
+    +".qr{width:26mm!important;height:26mm!important;margin:1mm 0}"
+    +".nm{font-size:10pt;font-weight:800;text-align:center;width:100%;line-height:1.15;padding:0 1mm}"
+    +".cd{font-size:9pt;font-weight:700;color:#000;text-align:center;font-family:monospace;border-top:1px dashed #000;width:100%;padding-top:1mm}"
     +".pbar{position:sticky;top:0;background:#fff;padding:6px;display:none;justify-content:center;gap:8px;border-bottom:2px solid #ccc;z-index:10}"
     +".pbar button{padding:6px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:11px;font-weight:700;background:#fff}"
     +".pbar .pr{background:#000;color:#fff}"
     +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
     +"</style></head><body>"
-    +"<div class='pbar'><button onclick='window.close()'>↩ رجوع</button><button class='pr' onclick='window.print()'>🖨 طباعة</button></div>"
-    +"<div class='sheet'>"+cards+"</div>"
-    +"<script>document.querySelectorAll('.qr').forEach(c=>{QRCode.toCanvas(c,c.dataset.qr,{width:90,margin:0,errorCorrectionLevel:'M'},()=>{})});setTimeout(()=>window.print(),1000)</"+"script></body></html>");
+    +"<div class='pbar'><button onclick='window.close()'>↩ رجوع</button><button class='pr' onclick='window.print()'>🖨 طباعة حرارية</button></div>"
+    +cards
+    +"<script>document.querySelectorAll('.qr').forEach(c=>{QRCode.toCanvas(c,c.dataset.qr,{width:98,margin:0,errorCorrectionLevel:'M'},()=>{})});setTimeout(()=>window.print(),1000)</"+"script></body></html>");
   pw.document.close()}
 function printPage(title,bodyHtml){const pw=window.open("","_blank");if(!pw)return;const today=new Date().toLocaleDateString("ar-EG");const safeTitle=String(title||"تقرير").replace(/[\\/:*?"<>|]/g,"_").slice(0,80);pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><script src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'></"+"script><title>"+title+"</title><style>"+PRINT_CSS+".pbar{position:sticky;top:0;background:#fff;padding:8px 16px;border-bottom:2px solid #E2E8F0;display:none;justify-content:center;gap:10px;z-index:999}.pbar button{padding:8px 22px;border-radius:8px;border:none;cursor:pointer;font-family:'Cairo',sans-serif;font-size:13px;font-weight:700}.pb-back{background:#F1F5F9;color:#475569}.pb-print{background:#0EA5E9;color:#fff}.pb-pdf{background:#EF4444;color:#fff}.pb-pdf:disabled{opacity:0.6;cursor:wait}@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}</style></head><body><div class='pbar'><button class='pb-back' onclick='window.close()'>↩ رجوع</button><button class='pb-print' onclick='window.print()'>🖨 طباعة</button><button class='pb-pdf' id='pdf-btn' onclick='savePdf()'>📄 حفظ PDF</button></div><div id='report-content'><div class='hdr'><div><img src='"+CLARK_LOGO+"'/></div><div class='hdr-info'>"+title+"<br/>"+today+"</div></div>"+bodyHtml+"<div class='foot'>CLARK Factory Management — "+today+"</div></div><script>function savePdf(){var btn=document.getElementById('pdf-btn');if(!window.html2pdf){alert('مكتبة PDF لم تُحمّل بعد — انتظر قليلاً ثم أعد المحاولة');return}var el=document.getElementById('report-content');if(!el){alert('محتوى التقرير غير موجود');return}var orig=btn.textContent;btn.disabled=true;btn.textContent='⏳ جاري الإنشاء...';window.html2pdf().set({margin:[8,8,8,8],filename:'"+safeTitle.replace(/'/g,"\\'")+".pdf',image:{type:'jpeg',quality:0.95},html2canvas:{scale:2,useCORS:true,letterRendering:true},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css','legacy']}}).from(el).save().then(function(){btn.disabled=false;btn.textContent=orig}).catch(function(e){alert('فشل إنشاء PDF: '+e.message);btn.disabled=false;btn.textContent=orig})}</"+"script></body></html>");pw.document.close();if(window.innerWidth>1024)setTimeout(()=>{pw.focus();pw.print()},500)}
 
@@ -2595,7 +2598,32 @@ export default function App(){
             <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"manual"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="manual"?"#F59E0B":"transparent",color:mode==="manual"?"#fff":T.textSec}}>يدوية</div>
             <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"series"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="series"?"#F59E0B":"transparent",color:mode==="series"?"#fff":T.textSec}}>سيري</div>
             <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"auto"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="auto"?"#F59E0B":"transparent",color:mode==="auto"?"#fff":T.textSec}}>تلقائية</div>
+            <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"piece"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="piece"?"#8B5CF6":"transparent",color:mode==="piece"?"#fff":T.textSec}} title="قطعة واحدة — للكسور">قطعة</div>
           </div>
+          {/* V14.59: Single piece QR mode — for fractional pieces less than a full rack */}
+          {mode==="piece"&&<div>
+            {selOrder?<div>
+              <div style={{padding:12,borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF625",marginBottom:12,fontSize:FS-1,color:T.text,lineHeight:1.7}}>
+                <b style={{color:"#8B5CF6"}}>💡 ليبل قطعة واحدة:</b> يستخدم للكسور (قطع منفردة أقل من سيري كامل). كل ليبل يمسح على أنه قطعة واحدة فقط.
+              </div>
+              <div style={{marginBottom:12}}><label style={{fontSize:FS,fontWeight:700,color:T.text}}>عدد القطع المنفردة</label><input type="number" value={barcodePopup._pieceQty!=null?barcodePopup._pieceQty:1} onChange={e=>setBarcodePopup(p=>({...p,_pieceQty:Math.max(1,Number(e.target.value)||1)}))} style={{display:"block",margin:"8px auto",width:120,textAlign:"center",fontSize:24,fontWeight:800,border:"3px solid #8B5CF6",borderRadius:10,padding:"8px",fontFamily:"Cairo",background:T.bg,color:T.text}}/></div>
+              {sizes.length>0&&<div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المقاس (اختياري)</label>
+                <select value={barcodePopup._pieceSize||""} onChange={e=>setBarcodePopup(p=>({...p,_pieceSize:e.target.value}))} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.inputBg,color:T.text,marginTop:4}}>
+                  <option value="">— بدون مقاس محدد —</option>
+                  {sizes.map(sz=><option key={sz} value={sz}>{sz}</option>)}
+                </select>
+              </div>}
+              <Btn onClick={()=>{if(!selOrder){showToast("⚠️ اختر موديل");return}
+                const qty=barcodePopup._pieceQty||1;
+                const qrText="CLARK:"+selOrder.id+":1";/* ← KEY: always ":1" for single piece */
+                const sz=barcodePopup._pieceSize||"";
+                const labels=[];
+                for(let i=0;i<qty;i++)labels.push(buildLabel(qrText,selOrder.modelNo,selOrder.modelDesc||"",sz?"مقاس: "+sz:"","🔹 قطعة"));
+                doPrint(labels);
+              }} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+(barcodePopup._pieceQty||1)+" ليبل قطعة"}</Btn>
+            </div>
+            :<div style={{padding:20,textAlign:"center",color:T.textMut}}>اختر موديل أولاً</div>}
+          </div>}
           {mode==="manual"&&<div>
             {selOrder?<div>
               {sizes.length>0?<div>
@@ -7058,6 +7086,9 @@ let _stockRcvScanMode="series";
 function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEdit,user,season}){
   const config=data;const orders=data.orders||[];const customers=config.customers||[];const sessions=config.custDeliverySessions||[];
   const[showCustForm,setShowCustForm]=useState(false);const[showCustList,setShowCustList]=useState(false);const[custSalesLog,setCustSalesLog]=useState(null);const[editSaleIdx,setEditSaleIdx]=useState(null);const[editSaleQty,setEditSaleQty]=useState(0);const[logCustF,setLogCustF]=useState("");const[logModelF,setLogModelF]=useState("");const[logDateF,setLogDateF]=useState("");const[logTypeFilter,setLogTypeFilter]=useState("");const[logLimit,setLogLimit]=useState(50);const[quoteCust,setQuoteCust]=useState(null);const[balReview,setBalReview]=useState(false);const[pendingRcv,setPendingRcv]=useState(null);
+  /* V14.59: Receipt report — after confirmation, show the summary */
+  const[lastReceiptReport,setLastReceiptReport]=useState(null);/* {items:[{orderId,modelNo,desc,confirmedQty,pendingQty,diff}], total, confirmedBy, at} */
+  const[showReceiptLog,setShowReceiptLog]=useState(false);
   const[cName,setCName]=useState("");const[cPhone,setCPhone]=useState("");const[cAddr,setCAddr]=useState("");const[cEditId,setCEditId]=useState(null);const[cType,setCType]=useState("مكتب");const[custFilter,setCustFilter]=useState("");
   const[showNewSession,setShowNewSession]=useState(false);
   const[selModels,setSelModels]=useState({});const[selCusts,setSelCusts]=useState({});
@@ -7478,6 +7509,8 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
           {canEdit&&secBtn(I.clipboard,"جرد مبيعات","#F59E0B",()=>{setAuditDate(new Date().toISOString().split("T")[0]);setAuditFrom("");setAuditTo("");setAuditNote("");setShowNewAudit(true)})}
           {secBtn(I.package,"الكراتين","#0EA5E9",()=>setPkgPopup("list"))}
           {secBtn(I.inbox,pendingRcvCount>0?"تأكيد استلام":"تأكيد استلام","#10B981",()=>setPendingRcv({items:{}}),pendingRcvCount>0?pendingRcvCount:null)}
+          {/* V14.59: Receipt log — historical receipts with comparison */}
+          {secBtn(I.fileText,"سجل الاستلامات","#059669",()=>setShowReceiptLog(true))}
         </div>
 
         {/* ── GROUP 4: OTHER TOOLS ── */}
@@ -8948,9 +8981,21 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
       const rcvItems=pendingRcv.items||{};const totalRcv=Object.values(rcvItems).reduce((s,v)=>s+(Number(v)||0),0);const totalPending=pendings.reduce((s,p)=>s+p.pendingQty,0);
       const closePendCam=()=>{try{const v=document.getElementById("pend-rcv-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setPendingRcv(p=>({...p,scanning:false}))};
       const confirmPending=()=>{if(totalRcv<=0){showToast("⚠️ ادخل كمية واحدة على الأقل");return}
+        /* V14.59: Build report data BEFORE the update (to capture pending qty) */
+        const reportItems=[];
         pendings.forEach(p=>{const qty=Number(rcvItems[p.orderId])||0;if(qty<=0)return;
+          reportItems.push({orderId:p.orderId,modelNo:p.modelNo,modelDesc:p.modelDesc,pendingQty:p.pendingQty,confirmedQty:qty,diff:qty-p.pendingQty});
           updOrder(p.orderId,o=>{let remaining=qty;p.pendingIdxs.forEach(idx=>{if(o.deliveries&&o.deliveries[idx]&&remaining>0){const dQty=Number(o.deliveries[idx].qty)||0;const take=Math.min(remaining,dQty);o.deliveries[idx].status="confirmed";o.deliveries[idx].confirmedQty=take;o.deliveries[idx].confirmedBy=userName||"";o.deliveries[idx].confirmedAt=new Date().toISOString();if(take!==dQty)o.deliveries[idx].notes=(o.deliveries[idx].notes||"")+" | فرق: "+(dQty-take);o.deliveries[idx].qty=take;remaining-=take}});o.deliveredQty=getConfirmedStock(o);o.status=recomputeStatus(o)})});
-        playBeep("done");showToast("✅ تم تأكيد استلام "+totalRcv+" قطعة — الرصيد تحدّث");closePendCam();setPendingRcv(null)};
+        playBeep("done");showToast("✅ تم تأكيد استلام "+totalRcv+" قطعة — الرصيد تحدّث");closePendCam();setPendingRcv(null);
+        /* Show the report automatically */
+        setLastReceiptReport({
+          items:reportItems,
+          total:totalRcv,
+          totalPending:pendings.reduce((s,p)=>s+p.pendingQty,0),
+          confirmedBy:userName||"",
+          at:new Date().toISOString()
+        });
+      };
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>{closePendCam();setPendingRcv(null)}}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,width:"100%",maxWidth:isMob?"100%":650,maxHeight:"92vh",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
           <div style={{padding:isMob?"12px 16px":"16px 24px",borderBottom:"1px solid "+T.brd,flexShrink:0}}>
@@ -8994,6 +9039,193 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
             <Btn onClick={confirmPending} disabled={totalRcv<=0} style={{background:"#10B981",color:"#fff",border:"none",fontWeight:700,padding:"8px 24px"}}>{"✅ تأكيد الاستلام ("+totalRcv+")"}</Btn>
           </div>
         </div></div>})()}
+
+    {/* ══ V14.59: RECEIPT REPORT POPUP — shown after confirmation ══ */}
+    {lastReceiptReport&&(()=>{
+      const rep=lastReceiptReport;
+      const dateStr=new Date(rep.at).toLocaleString("ar-EG");
+      const dateShort=new Date(rep.at).toISOString().split("T")[0];
+      /* Build shareable text summary (for WhatsApp) */
+      const buildWaMsg=()=>{
+        const lines=[
+          "*📦 CLARK — تقرير استلام مخزن الجاهز*",
+          "━━━━━━━━━━━━━━━━",
+          "📅 التاريخ: "+dateStr,
+          "👤 بواسطة: "+(rep.confirmedBy||"—"),
+          "",
+          "*الإجمالي:*",
+          "• تسليم معلّق: *"+rep.totalPending+"* قطعة",
+          "• تم استلام: *"+rep.total+"* قطعة",
+          "• الفرق: *"+(rep.total-rep.totalPending)+"* قطعة",
+          "",
+          "*التفاصيل:*"
+        ];
+        rep.items.forEach(it=>{
+          lines.push("• *"+it.modelNo+"* — "+it.modelDesc);
+          lines.push("  معلّق: "+it.pendingQty+" | مستلم: "+it.confirmedQty+(it.diff!==0?" | فرق: "+(it.diff>0?"+":"")+it.diff:""));
+        });
+        lines.push("");
+        lines.push("🏭 CLARK Factory Management");
+        return lines.join("\n");
+      };
+      /* Print as thermal/A4 report */
+      const doPrint=()=>{
+        let rows="";
+        rep.items.forEach(it=>{
+          const diffColor=it.diff===0?"#10B981":it.diff<0?"#EF4444":"#0EA5E9";
+          const diffLabel=it.diff===0?"مطابق":it.diff>0?"زيادة +"+it.diff:"نقص "+it.diff;
+          rows+="<tr><td style='border:1px solid #ccc;padding:6px;font-weight:800;color:#0284C7'>"+it.modelNo+"</td><td style='border:1px solid #ccc;padding:6px;font-size:10px;color:#555'>"+it.modelDesc+"</td><td style='border:1px solid #ccc;padding:6px;text-align:center;font-weight:700;color:#F59E0B'>"+it.pendingQty+"</td><td style='border:1px solid #ccc;padding:6px;text-align:center;font-weight:700;color:#10B981'>"+it.confirmedQty+"</td><td style='border:1px solid #ccc;padding:6px;text-align:center;font-weight:800;color:"+diffColor+"'>"+diffLabel+"</td></tr>";
+        });
+        const html="<html dir='rtl'><head><meta charset='utf-8'><title>تقرير استلام — "+dateShort+"</title><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><style>@page{size:A4;margin:12mm}body{font-family:'Cairo',sans-serif;padding:0;color:#1E293B;line-height:1.6;font-size:11px}.hdr{text-align:center;border-bottom:3px solid #10B981;padding-bottom:10px;margin-bottom:14px}.hdr h1{color:#10B981;font-size:20px;margin-bottom:6px}.hdr .sub{font-size:14px;color:#0EA5E9;font-weight:700}.meta{display:flex;justify-content:space-between;margin-bottom:12px;font-size:11px;color:#475569}.summary{display:flex;gap:10px;margin-bottom:14px;justify-content:center}.card{padding:10px 16px;border-radius:10px;border:1px solid #ddd;text-align:center;min-width:120px}.card .lbl{font-size:10px;color:#666}.card .val{font-size:18px;font-weight:800;margin-top:4px}table{width:100%;border-collapse:collapse;margin:10px 0}th{background:#F0FDF4;border:1px solid #10B98140;padding:8px;font-weight:800;text-align:right;color:#059669}.sig{margin-top:50px;display:flex;justify-content:space-around;gap:20px}.sig-box{text-align:center;min-width:150px;border-top:2px solid #1E293B;padding-top:10px;font-weight:700;font-size:12px}.foot{margin-top:30px;padding-top:10px;border-top:1px solid #ccc;display:flex;justify-content:space-between;font-size:10px;color:#94A3B8}.pbar{position:sticky;top:0;background:#fff;padding:8px;border-bottom:2px solid #ccc;display:flex;justify-content:center;gap:10px;z-index:99}.pbar button{padding:6px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:12px;font-weight:700;background:#fff}.pbar .pr{background:#10B981;color:#fff;border-color:#10B981}@media print{.pbar{display:none}}</style></head><body><div class='pbar'><button onclick='window.close()'>↩ رجوع</button><button class='pr' onclick='window.print()'>🖨 طباعة</button></div><div class='hdr'><h1>📦 تقرير استلام مخزن الجاهز</h1><div class='sub'>"+dateShort+"</div></div><div class='meta'><span>👤 بواسطة: <b>"+(rep.confirmedBy||"—")+"</b></span><span>📅 "+dateStr+"</span></div><div class='summary'><div class='card'><div class='lbl'>تسليم معلّق</div><div class='val' style='color:#F59E0B'>"+rep.totalPending+"</div></div><div class='card'><div class='lbl'>تم استلام</div><div class='val' style='color:#10B981'>"+rep.total+"</div></div><div class='card'><div class='lbl'>الفرق</div><div class='val' style='color:"+(rep.total===rep.totalPending?"#10B981":rep.total<rep.totalPending?"#EF4444":"#0EA5E9")+"'>"+(rep.total-rep.totalPending)+"</div></div></div><table><thead><tr><th>الموديل</th><th>الوصف</th><th style='text-align:center'>معلّق</th><th style='text-align:center'>مستلم</th><th style='text-align:center'>الفرق</th></tr></thead><tbody>"+rows+"</tbody></table><div class='sig'><div class='sig-box'>أمين المخزن</div><div class='sig-box'>المدير</div></div><div class='foot'><span>CLARK Factory Management</span><span>"+dateStr+"</span></div></body></html>";
+        const pw=window.open("","_blank");if(!pw)return;pw.document.write(html);pw.document.close();setTimeout(()=>pw.print(),500);
+      };
+      /* Share via WhatsApp */
+      const doWhatsapp=()=>{
+        const msg=encodeURIComponent(buildWaMsg());
+        window.open("https://wa.me/?text="+msg,"_blank");
+      };
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setLastReceiptReport(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:640,maxHeight:"92vh",display:"flex",flexDirection:"column",border:"2px solid #10B981",boxShadow:"0 25px 70px rgba(0,0,0,0.45)"}}>
+          {/* Header */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,paddingBottom:10,borderBottom:"2px solid #10B98125"}}>
+            <div style={{fontSize:FS+2,fontWeight:900,color:"#10B981",display:"flex",alignItems:"center",gap:8}}>
+              <span>📦</span><span>تقرير استلام — {dateShort}</span>
+            </div>
+            <span onClick={()=>setLastReceiptReport(null)} style={{cursor:"pointer",fontSize:22,color:T.textMut,padding:4}}>✕</span>
+          </div>
+          {/* Meta */}
+          <div style={{display:"flex",gap:8,marginBottom:12,fontSize:FS-1,color:T.textMut,flexWrap:"wrap"}}>
+            <span>👤 <b style={{color:T.text}}>{rep.confirmedBy||"—"}</b></span>
+            <span>•</span>
+            <span>📅 {dateStr}</span>
+          </div>
+          {/* Summary */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:14}}>
+            <div style={{padding:"10px 12px",borderRadius:10,background:"#F59E0B08",border:"1px solid #F59E0B30",textAlign:"center"}}>
+              <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>تسليم معلّق</div>
+              <div style={{fontSize:FS+5,fontWeight:900,color:"#F59E0B"}}>{rep.totalPending}</div>
+            </div>
+            <div style={{padding:"10px 12px",borderRadius:10,background:"#10B98108",border:"1px solid #10B98130",textAlign:"center"}}>
+              <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>تم استلام</div>
+              <div style={{fontSize:FS+5,fontWeight:900,color:"#10B981"}}>{rep.total}</div>
+            </div>
+            <div style={{padding:"10px 12px",borderRadius:10,background:(rep.total===rep.totalPending?"#10B98108":rep.total<rep.totalPending?"#EF444408":"#0EA5E908"),border:"1px solid "+(rep.total===rep.totalPending?"#10B98130":rep.total<rep.totalPending?"#EF444430":"#0EA5E930"),textAlign:"center"}}>
+              <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>الفرق</div>
+              <div style={{fontSize:FS+5,fontWeight:900,color:rep.total===rep.totalPending?"#10B981":rep.total<rep.totalPending?"#EF4444":"#0EA5E9"}}>{rep.total-rep.totalPending>0?"+":""}{rep.total-rep.totalPending}</div>
+            </div>
+          </div>
+          {/* Items table */}
+          <div style={{flex:1,overflowY:"auto",background:T.bg,borderRadius:10,border:"1px solid "+T.brd,padding:4,marginBottom:12}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr style={{background:"#10B98108"}}>{["الموديل","الوصف","معلّق","مستلم","الفرق"].map(h=><th key={h} style={{padding:"7px",textAlign:h==="الموديل"||h==="الوصف"?"right":"center",fontSize:FS-2,color:T.textSec,borderBottom:"1px solid #10B98130",fontWeight:700}}>{h}</th>)}</tr></thead><tbody>
+              {rep.items.map((it,i)=><tr key={i} style={{background:i%2===1?T.bg:"transparent",borderBottom:"1px solid "+T.brd}}>
+                <td style={{padding:"7px",fontWeight:800,color:T.accent,fontSize:FS-1}}>{it.modelNo}</td>
+                <td style={{padding:"7px",fontSize:FS-2,color:T.textMut}}>{it.modelDesc}</td>
+                <td style={{padding:"7px",textAlign:"center",fontWeight:700,color:"#F59E0B"}}>{it.pendingQty}</td>
+                <td style={{padding:"7px",textAlign:"center",fontWeight:800,color:"#10B981"}}>{it.confirmedQty}</td>
+                <td style={{padding:"7px",textAlign:"center",fontWeight:800,color:it.diff===0?T.ok:it.diff<0?T.err:"#0EA5E9"}}>{it.diff===0?"✓":(it.diff>0?"+":"")+it.diff}</td>
+              </tr>)}
+            </tbody></table>
+          </div>
+          {/* Actions */}
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:10,borderTop:"1px solid "+T.brd}}>
+            <Btn onClick={doWhatsapp} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",fontWeight:700}}>📱 واتساب</Btn>
+            <Btn onClick={doPrint} style={{background:"#10B98112",color:"#10B981",border:"1px solid #10B98130",fontWeight:700}}>🖨 طباعة / PDF</Btn>
+            <Btn ghost onClick={()=>setLastReceiptReport(null)}>إغلاق</Btn>
+          </div>
+        </div>
+      </div>;
+    })()}
+
+    {/* ══ V14.59: RECEIPT LOG POPUP — all historical receipts ══ */}
+    {showReceiptLog&&(()=>{
+      /* Build log: all confirmed deliveries grouped by date */
+      const allConfirmed=[];
+      orders.forEach(o=>{(o.deliveries||[]).forEach(d=>{
+        if(d.confirmedAt){
+          allConfirmed.push({
+            orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc||"",
+            qty:Number(d.confirmedQty||d.qty)||0,
+            originalQty:Number(d.qty)||0,
+            date:d.date||"",
+            confirmedAt:d.confirmedAt,
+            confirmedBy:d.confirmedBy||"",
+            createdBy:d.createdBy||"",
+            notes:d.notes||""
+          });
+        }
+      })});
+      allConfirmed.sort((a,b)=>(b.confirmedAt||"").localeCompare(a.confirmedAt||""));
+      /* Group by model for totals */
+      const modelTotals={};
+      allConfirmed.forEach(r=>{
+        if(!modelTotals[r.orderId])modelTotals[r.orderId]={modelNo:r.modelNo,modelDesc:r.modelDesc,totalDelivered:0,totalConfirmed:0,count:0};
+        modelTotals[r.orderId].totalConfirmed+=r.qty;
+        modelTotals[r.orderId].totalDelivered+=r.originalQty;
+        modelTotals[r.orderId].count++;
+      });
+      const sortedModels=Object.values(modelTotals).sort((a,b)=>b.totalConfirmed-a.totalConfirmed);
+      /* Print full log */
+      const printLog=()=>{
+        let summRows="";
+        sortedModels.forEach(m=>{
+          const diff=m.totalConfirmed-m.totalDelivered;
+          summRows+="<tr><td style='border:1px solid #ccc;padding:6px;font-weight:800;color:#0284C7'>"+m.modelNo+"</td><td style='border:1px solid #ccc;padding:6px;font-size:10px;color:#555'>"+m.modelDesc+"</td><td style='border:1px solid #ccc;padding:6px;text-align:center;font-weight:700;color:#F59E0B'>"+m.totalDelivered+"</td><td style='border:1px solid #ccc;padding:6px;text-align:center;font-weight:800;color:#10B981'>"+m.totalConfirmed+"</td><td style='border:1px solid #ccc;padding:6px;text-align:center;font-weight:800;color:"+(diff===0?"#10B981":diff<0?"#EF4444":"#0EA5E9")+"'>"+(diff===0?"✓":(diff>0?"+":"")+diff)+"</td><td style='border:1px solid #ccc;padding:6px;text-align:center;color:#666'>"+m.count+"</td></tr>";
+        });
+        let detRows="";
+        allConfirmed.forEach(r=>{
+          const dStr=new Date(r.confirmedAt).toLocaleString("ar-EG");
+          const diff=r.qty-r.originalQty;
+          detRows+="<tr><td style='border:1px solid #eee;padding:5px;font-size:9px'>"+dStr+"</td><td style='border:1px solid #eee;padding:5px;font-weight:700;color:#0284C7'>"+r.modelNo+"</td><td style='border:1px solid #eee;padding:5px;font-size:9px;color:#555'>"+r.modelDesc+"</td><td style='border:1px solid #eee;padding:5px;text-align:center;font-weight:700;color:#F59E0B'>"+r.originalQty+"</td><td style='border:1px solid #eee;padding:5px;text-align:center;font-weight:700;color:#10B981'>"+r.qty+"</td><td style='border:1px solid #eee;padding:5px;text-align:center;font-weight:700;color:"+(diff===0?"#10B981":diff<0?"#EF4444":"#0EA5E9")+"'>"+(diff===0?"✓":(diff>0?"+":"")+diff)+"</td><td style='border:1px solid #eee;padding:5px;font-size:9px;color:#666'>"+(r.confirmedBy||"—")+"</td></tr>";
+        });
+        const html="<html dir='rtl'><head><meta charset='utf-8'><title>سجل الاستلامات</title><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><style>@page{size:A4;margin:12mm}body{font-family:'Cairo',sans-serif;color:#1E293B;font-size:11px;line-height:1.6}.hdr{text-align:center;border-bottom:3px solid #10B981;padding-bottom:10px;margin-bottom:14px}.hdr h1{color:#10B981;font-size:20px}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:11px}th{background:#F0FDF4;border:1px solid #10B98140;padding:7px;font-weight:800;text-align:right;color:#059669}.detail th{background:#EFF6FF;border:1px solid #0EA5E940;padding:5px;font-size:10px}h2{color:#0284C7;font-size:14px;margin:14px 0 8px;padding-bottom:4px;border-bottom:2px solid #0284C730}.foot{margin-top:20px;padding-top:10px;border-top:1px solid #ccc;text-align:center;font-size:10px;color:#94A3B8}.pbar{position:sticky;top:0;background:#fff;padding:8px;border-bottom:2px solid #ccc;display:flex;justify-content:center;gap:10px}.pbar button{padding:6px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:12px;font-weight:700;background:#fff}.pbar .pr{background:#10B981;color:#fff;border-color:#10B981}@media print{.pbar{display:none}}</style></head><body><div class='pbar'><button onclick='window.close()'>↩ رجوع</button><button class='pr' onclick='window.print()'>🖨 طباعة</button></div><div class='hdr'><h1>📦 سجل الاستلامات الكامل</h1><div style='font-size:12px;color:#666'>"+new Date().toLocaleDateString("ar-EG")+" — "+sortedModels.length+" موديل • "+allConfirmed.length+" استلام</div></div><h2>📊 الإجماليات لكل موديل</h2><table><thead><tr><th>الموديل</th><th>الوصف</th><th style='text-align:center'>مسلّم</th><th style='text-align:center'>مستلم</th><th style='text-align:center'>الفرق</th><th style='text-align:center'>عدد مرات</th></tr></thead><tbody>"+summRows+"</tbody></table><h2>📋 التفاصيل (بالتاريخ)</h2><table class='detail'><thead><tr><th>التاريخ</th><th>الموديل</th><th>الوصف</th><th style='text-align:center'>مسلّم</th><th style='text-align:center'>مستلم</th><th style='text-align:center'>فرق</th><th>بواسطة</th></tr></thead><tbody>"+detRows+"</tbody></table><div class='foot'>CLARK Factory Management — سجل الاستلامات — "+new Date().toLocaleString("ar-EG")+"</div></body></html>";
+        const pw=window.open("","_blank");if(!pw)return;pw.document.write(html);pw.document.close();setTimeout(()=>pw.print(),500);
+      };
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowReceiptLog(false)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:isMob?"100%":900,maxHeight:"92vh",display:"flex",flexDirection:"column",border:"2px solid #10B981",boxShadow:"0 25px 70px rgba(0,0,0,0.45)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,paddingBottom:10,borderBottom:"2px solid #10B98125"}}>
+            <div style={{fontSize:FS+2,fontWeight:900,color:"#10B981",display:"flex",alignItems:"center",gap:8}}>
+              <span>📋</span><span>سجل الاستلامات</span>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <Btn small onClick={printLog} disabled={allConfirmed.length===0} style={{background:"#10B98112",color:"#10B981",border:"1px solid #10B98130",fontWeight:700}}>🖨 طباعة السجل</Btn>
+              <span onClick={()=>setShowReceiptLog(false)} style={{cursor:"pointer",fontSize:22,color:T.textMut,padding:4}}>✕</span>
+            </div>
+          </div>
+          {allConfirmed.length===0?<div style={{padding:40,textAlign:"center",color:T.textMut,fontSize:FS}}>لا توجد استلامات مؤكدة حتى الآن</div>:
+            <div style={{flex:1,overflowY:"auto"}}>
+              {/* Model totals */}
+              <div style={{fontSize:FS,fontWeight:800,color:T.accent,marginBottom:8,padding:"6px 10px",borderRadius:8,background:T.accent+"08"}}>📊 الإجماليات لكل موديل ({sortedModels.length})</div>
+              <div style={{overflowX:"auto",marginBottom:16}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-2}}><thead><tr style={{background:"#10B98108"}}>{["الموديل","الوصف","مسلّم","مستلم","الفرق","مرات"].map(h=><th key={h} style={{padding:"6px",textAlign:h==="الموديل"||h==="الوصف"?"right":"center",fontWeight:800,color:T.textSec,borderBottom:"2px solid #10B98130"}}>{h}</th>)}</tr></thead>
+                <tbody>{sortedModels.map(m=>{const diff=m.totalConfirmed-m.totalDelivered;
+                  return<tr key={m.modelNo} style={{borderBottom:"1px solid "+T.brd}}>
+                    <td style={{padding:"6px",fontWeight:800,color:T.accent}}>{m.modelNo}</td>
+                    <td style={{padding:"6px",color:T.textMut}}>{m.modelDesc}</td>
+                    <td style={{padding:"6px",textAlign:"center",fontWeight:700,color:"#F59E0B"}}>{m.totalDelivered}</td>
+                    <td style={{padding:"6px",textAlign:"center",fontWeight:800,color:"#10B981"}}>{m.totalConfirmed}</td>
+                    <td style={{padding:"6px",textAlign:"center",fontWeight:800,color:diff===0?T.ok:diff<0?T.err:"#0EA5E9"}}>{diff===0?"✓":(diff>0?"+":"")+diff}</td>
+                    <td style={{padding:"6px",textAlign:"center",color:T.textMut}}>{m.count}</td>
+                  </tr>})}</tbody></table>
+              </div>
+              {/* Details */}
+              <div style={{fontSize:FS,fontWeight:800,color:"#0EA5E9",marginBottom:8,padding:"6px 10px",borderRadius:8,background:"#0EA5E908"}}>📋 التفاصيل ({allConfirmed.length} استلام)</div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-2}}><thead><tr style={{background:"#0EA5E908"}}>{["التاريخ","الموديل","مسلّم","مستلم","فرق","بواسطة"].map(h=><th key={h} style={{padding:"6px",textAlign:h==="الموديل"?"right":"center",fontWeight:800,color:T.textSec,borderBottom:"2px solid #0EA5E930"}}>{h}</th>)}</tr></thead>
+                <tbody>{allConfirmed.slice(0,100).map((r,i)=>{const diff=r.qty-r.originalQty;
+                  return<tr key={i} style={{borderBottom:"1px solid "+T.brd,background:i%2===1?T.bg:"transparent"}}>
+                    <td style={{padding:"5px",fontSize:FS-3,color:T.textMut,textAlign:"center",whiteSpace:"nowrap"}}>{new Date(r.confirmedAt).toLocaleString("ar-EG",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})}</td>
+                    <td style={{padding:"5px",fontWeight:700,color:T.accent}}>{r.modelNo}</td>
+                    <td style={{padding:"5px",textAlign:"center",fontWeight:700,color:"#F59E0B"}}>{r.originalQty}</td>
+                    <td style={{padding:"5px",textAlign:"center",fontWeight:800,color:"#10B981"}}>{r.qty}</td>
+                    <td style={{padding:"5px",textAlign:"center",fontWeight:700,color:diff===0?T.ok:diff<0?T.err:"#0EA5E9"}}>{diff===0?"✓":(diff>0?"+":"")+diff}</td>
+                    <td style={{padding:"5px",fontSize:FS-3,color:T.textMut}}>{r.confirmedBy||"—"}</td>
+                  </tr>})}</tbody></table>
+                {allConfirmed.length>100&&<div style={{padding:8,textAlign:"center",fontSize:FS-2,color:T.textMut}}>يظهر أحدث 100 استلام — اضغط "🖨 طباعة السجل" للسجل الكامل</div>}
+              </div>
+            </div>}
+        </div>
+      </div>;
+    })()}
 
     {balReview&&(()=>{
       const rows=orders.filter(o=>{const t=calcOrder(o);return t.cutQty>0}).map(o=>{
@@ -16225,6 +16457,9 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const[showEmpQrScanner,setShowEmpQrScanner]=useState(null);/* {weekId} for opening scanner */
   const[showEmpCardPrint,setShowEmpCardPrint]=useState(null);/* empId OR "all" for bulk */
   const[fraudListPopup,setFraudListPopup]=useState(null);/* {weekId, emps:[]} */
+  /* V14.60: QR view popup (for employee who forgot card) + Fraud warning popup */
+  const[empQrView,setEmpQrView]=useState(null);/* empId — show QR on screen */
+  const[fraudWarning,setFraudWarning]=useState(null);/* {empName, previousAt, previousBy, attemptAt, attemptBy} */
   const[stmtFrom,setStmtFrom]=useState("");const[stmtTo,setStmtTo]=useState("");
   /* Close date popup */
   const[showCloseDate,setShowCloseDate]=useState(false);
@@ -18876,12 +19111,39 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       const handleScan=(text)=>{
         /* Expected format: CLARK:EMP:<empId> */
         const m=/^CLARK:EMP:(.+)$/.exec(text);
-        if(!m){showToast("❌ QR غير صحيح — يجب أن يكون كارت موظف");return}
+        if(!m){playBeep("error");showToast("❌ QR غير صحيح — يجب أن يكون كارت موظف");return}
         const empId=m[1];
         const emp=employees.find(e=>e.id===empId);
-        if(!emp){showToast("❌ الموظف غير موجود");return}
-        if(!wkSelected.includes(empId)){showToast("⚠️ "+emp.name+" غير مدرج في هذا الأسبوع");return}
-        if(receipts[empId]){showToast("ℹ️ "+emp.name+" استلم بالفعل ✅");return}
+        if(!emp){playBeep("error");showToast("❌ الموظف غير موجود");return}
+        if(!wkSelected.includes(empId)){playBeep("error");showToast("⚠️ "+emp.name+" غير مدرج في هذا الأسبوع");return}
+        /* V14.60: DUPLICATE SCAN — FRAUD ALERT */
+        if(receipts[empId]){
+          playBeep("error");
+          const prev=receipts[empId];
+          setFraudWarning({
+            empName:emp.name,
+            empCode:emp.code||"",
+            previousAt:prev.at,
+            previousBy:prev.by||"—",
+            attemptAt:new Date().toISOString(),
+            attemptBy:userName||"—",
+            weekId:w.id,
+            weekNum:w.weekNum
+          });
+          /* Log the attempt in audit as a FRAUD warning */
+          upConfig(d=>{
+            if(!Array.isArray(d.auditLog))d.auditLog=[];
+            d.auditLog.unshift({
+              id:Math.random().toString(36).slice(2)+Date.now(),
+              category:"week",action:"duplicate_scan_attempt",
+              target:"W"+w.weekNum+" — "+emp.name,
+              newValue:"🚨 محاولة سكان مكررة",
+              notes:"الاستلام الأصلي: "+new Date(prev.at).toLocaleString("ar-EG")+" بواسطة "+(prev.by||"—")+" | محاولة جديدة بواسطة "+(userName||"—"),
+              at:new Date().toISOString(),severity:"warning"
+            });
+          });
+          return;
+        }
         /* Register the receipt */
         upConfig(d=>{
           const wi=(d.hrWeeks||[]).findIndex(x=>x.id===w.id);if(wi<0)return;
@@ -18898,6 +19160,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             at:new Date().toISOString(),severity:"info"
           });
         });
+        playBeep("done");
         showToast("✅ تم تسجيل استلام "+emp.name);
       };
       return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowEmpQrScanner(null)}>
@@ -18969,6 +19232,115 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             <Btn ghost onClick={()=>setFraudListPopup(null)}>إغلاق</Btn>
           </div>
         </div>
+      </div>;
+    })()}
+
+    {/* ══ V14.60: EMPLOYEE QR VIEW POPUP — for when employee forgot their card ══ */}
+    {empQrView&&(()=>{
+      const emp=employees.find(e=>e.id===empQrView);
+      if(!emp)return null;
+      const qrText="CLARK:EMP:"+emp.id;
+      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:10003,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={()=>setEmpQrView(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:24,padding:isMob?20:32,width:"100%",maxWidth:480,boxShadow:"0 25px 70px rgba(0,0,0,0.5)",display:"flex",flexDirection:"column",alignItems:"center",gap:16}}>
+          {/* Header */}
+          <div style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",paddingBottom:12,borderBottom:"2px solid #0EA5E925"}}>
+            <div style={{fontSize:FS+2,fontWeight:900,color:"#0EA5E9",display:"flex",alignItems:"center",gap:8}}>
+              <span>👁</span><span>عرض QR</span>
+            </div>
+            <span onClick={()=>setEmpQrView(null)} style={{cursor:"pointer",fontSize:26,color:"#64748B",padding:4,lineHeight:1}}>✕</span>
+          </div>
+
+          {/* Brand header like the physical card */}
+          <div style={{fontSize:16,fontWeight:900,letterSpacing:4,color:"#000",borderBottom:"2px solid #000",paddingBottom:8,width:"100%",textAlign:"center"}}>CLARK</div>
+
+          {/* Big QR */}
+          <div style={{padding:16,background:"#fff",border:"3px solid #000",borderRadius:12}}>
+            <QRImg text={qrText} size={isMob?220:280}/>
+          </div>
+
+          {/* Name and code */}
+          <div style={{textAlign:"center",width:"100%"}}>
+            <div style={{fontSize:FS+6,fontWeight:900,color:"#000",marginBottom:6,lineHeight:1.2}}>{emp.name}</div>
+            <div style={{fontSize:FS+2,fontWeight:800,color:"#0EA5E9",fontFamily:"monospace",borderTop:"1px dashed #000",paddingTop:8,marginTop:8}}>{emp.code?"#"+emp.code:"—"}</div>
+            {emp.job&&<div style={{fontSize:FS-1,color:"#64748B",marginTop:4}}>{emp.job}</div>}
+          </div>
+
+          {/* Instructions */}
+          <div style={{padding:10,borderRadius:10,background:"#F0F9FF",border:"1px solid #0EA5E925",fontSize:FS-2,color:"#334155",textAlign:"center",lineHeight:1.6,width:"100%"}}>
+            💡 <b>وجّه الكاميرا على الـ QR أعلاه</b> لتسجيل الاستلام.<br/>
+            المحاسب يستخدم هذا العرض لو الموظف نسي كارته.
+          </div>
+
+          {/* Actions */}
+          <div style={{display:"flex",gap:8,width:"100%",justifyContent:"center"}}>
+            <Btn onClick={()=>{printEmpQrCards([emp]);setEmpQrView(null)}} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}}>🎫 طباعة كارت بديل</Btn>
+            <Btn ghost onClick={()=>setEmpQrView(null)} style={{background:"#F1F5F9",color:"#475569"}}>إغلاق</Btn>
+          </div>
+        </div>
+      </div>;
+    })()}
+
+    {/* ══ V14.60: FRAUD WARNING POPUP — duplicate scan attempt ══ */}
+    {fraudWarning&&(()=>{
+      const fw=fraudWarning;
+      const prevDate=new Date(fw.previousAt).toLocaleString("ar-EG");
+      const attemptDate=new Date(fw.attemptAt).toLocaleString("ar-EG");
+      const diffMs=new Date(fw.attemptAt)-new Date(fw.previousAt);
+      const diffHr=Math.floor(diffMs/(1000*60*60));
+      const diffMin=Math.floor((diffMs%(1000*60*60))/(1000*60));
+      const diffTxt=diffHr>0?diffHr+" ساعة و "+diffMin+" دقيقة":diffMin+" دقيقة";
+      return<div style={{position:"fixed",inset:0,background:"rgba(220,38,38,0.7)",zIndex:10004,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setFraudWarning(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:520,border:"4px solid "+T.err,boxShadow:"0 25px 70px rgba(220,38,38,0.4)",animation:"fraudShake 0.4s"}}>
+          {/* Big warning header */}
+          <div style={{textAlign:"center",marginBottom:18}}>
+            <div style={{fontSize:56,lineHeight:1,marginBottom:8}}>🚨</div>
+            <div style={{fontSize:FS+5,fontWeight:900,color:T.err,lineHeight:1.2}}>محاولة احتيال محتملة!</div>
+            <div style={{fontSize:FS,color:T.textSec,marginTop:6,fontWeight:600}}>تم مسح هذا الكارت من قبل</div>
+          </div>
+
+          {/* Employee info */}
+          <div style={{padding:14,borderRadius:12,background:T.err+"08",border:"2px solid "+T.err+"30",marginBottom:12}}>
+            <div style={{fontSize:FS-2,color:T.textMut,fontWeight:600,marginBottom:4}}>الموظف:</div>
+            <div style={{fontSize:FS+3,fontWeight:900,color:T.text}}>{fw.empName}</div>
+            {fw.empCode&&<div style={{fontSize:FS,fontWeight:700,color:T.accent,fontFamily:"monospace",marginTop:2}}>#{fw.empCode}</div>}
+          </div>
+
+          {/* Previous receipt info */}
+          <div style={{padding:12,borderRadius:10,background:T.ok+"06",border:"1px solid "+T.ok+"25",marginBottom:10}}>
+            <div style={{fontSize:FS-2,color:T.ok,fontWeight:800,marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
+              <span>✅</span><span>الاستلام الأصلي:</span>
+            </div>
+            <div style={{fontSize:FS-1,color:T.text,lineHeight:1.8}}>
+              <div>📅 <b>{prevDate}</b></div>
+              <div>👤 بواسطة: <b>{fw.previousBy}</b></div>
+            </div>
+          </div>
+
+          {/* Current attempt info */}
+          <div style={{padding:12,borderRadius:10,background:T.err+"06",border:"1px solid "+T.err+"25",marginBottom:10}}>
+            <div style={{fontSize:FS-2,color:T.err,fontWeight:800,marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
+              <span>⚠️</span><span>المحاولة الحالية:</span>
+            </div>
+            <div style={{fontSize:FS-1,color:T.text,lineHeight:1.8}}>
+              <div>📅 <b>{attemptDate}</b></div>
+              <div>👤 بواسطة: <b>{fw.attemptBy}</b></div>
+              <div>⏱ الفرق الزمني: <b style={{color:T.err}}>{diffTxt}</b></div>
+            </div>
+          </div>
+
+          {/* Warning note */}
+          <div style={{padding:12,borderRadius:10,background:T.warn+"08",border:"1px solid "+T.warn+"30",marginBottom:14,fontSize:FS-1,color:T.text,lineHeight:1.6}}>
+            💡 <b>ملاحظة:</b> تم تسجيل هذه المحاولة في سجل التدقيق (Audit Log) للمراجعة لاحقاً.
+            <br/>
+            <b>لم يتم تسجيل الاستلام مرة أخرى</b> — الموظف استلم بالفعل.
+          </div>
+
+          {/* Close button */}
+          <div style={{textAlign:"center"}}>
+            <Btn onClick={()=>setFraudWarning(null)} style={{background:T.err,color:"#fff",border:"none",fontWeight:800,padding:"12px 40px",fontSize:FS+1}}>✕ فهمت، أغلق</Btn>
+          </div>
+        </div>
+        <style>{`@keyframes fraudShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-5px)}80%{transform:translateX(5px)}}`}</style>
       </div>;
     })()}
 
@@ -19885,6 +20257,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                 </>:<>
                   <span onClick={()=>{setEmpStatement(e.id);setStmtFrom("");setStmtTo("")}} style={{cursor:"pointer",fontSize:13,padding:"3px 8px",borderRadius:6,background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}} title="كشف حساب تفصيلي">📄</span>
                   <span onClick={()=>printEmpQrCards([e])} style={{cursor:"pointer",fontSize:13,padding:"3px 8px",borderRadius:6,background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}} title="طباعة كارت QR">🎫</span>
+                  <span onClick={()=>setEmpQrView(e.id)} style={{cursor:"pointer",fontSize:13,padding:"3px 8px",borderRadius:6,background:"#0EA5E912",color:"#0EA5E9",border:"1px solid #0EA5E930",fontWeight:700}} title="عرض QR على الشاشة (لو الموظف نسي كارته)">👁</span>
                   <span onClick={()=>openEditPopup(e)} style={{cursor:"pointer",fontSize:13,padding:"3px 8px",borderRadius:6,background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}} title="تعديل كل التفاصيل">✏️</span>
                   <span onClick={()=>{setShowDebtForm({empId:e.id});resetDebtForm();setDebtStart(today)}} style={{cursor:"pointer",fontSize:11}} title="+ مديونية">🧾</span>
                   <span onClick={()=>toggleEmpActive(e.id)} style={{cursor:"pointer",fontSize:11}}>{e.inactive?"▶️":"⏸"}</span>
