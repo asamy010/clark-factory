@@ -7438,12 +7438,13 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
       };
 
       /* ═══ Primary action button — large, prominent ═══ */
-      const primaryBtn=(icon,label,subtitle,bgColor,darkColor,onClick)=><div onClick={onClick} className="sales-primary-btn" style={{"--glow":bgColor+"60",background:"linear-gradient(135deg, "+bgColor+" 0%, "+darkColor+" 100%)",color:"#fff",borderRadius:14,padding:isMob?"12px 10px":"18px 16px",cursor:"pointer",boxShadow:"0 6px 12px -4px "+bgColor+"50",display:"flex",flexDirection:isMob?"column":"row",alignItems:"center",gap:isMob?6:14,minHeight:isMob?90:100,position:"relative"}}>
+      const primaryBtn=(icon,label,subtitle,bgColor,darkColor,onClick,badge)=><div onClick={onClick} className="sales-primary-btn" style={{"--glow":bgColor+"60",background:"linear-gradient(135deg, "+bgColor+" 0%, "+darkColor+" 100%)",color:"#fff",borderRadius:14,padding:isMob?"12px 10px":"18px 16px",cursor:"pointer",boxShadow:"0 6px 12px -4px "+bgColor+"50",display:"flex",flexDirection:isMob?"column":"row",alignItems:"center",gap:isMob?6:14,minHeight:isMob?90:100,position:"relative"}}>
         <div style={{background:"rgba(255,255,255,0.18)",borderRadius:12,padding:isMob?8:12,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(4px)"}}>{icon}</div>
         <div style={{flex:1,textAlign:isMob?"center":"right",minWidth:0}}>
           <div style={{fontSize:isMob?FS:FS+3,fontWeight:900,lineHeight:1.2,marginBottom:isMob?0:3}}>{label}</div>
           {!isMob&&subtitle&&<div style={{fontSize:FS-3,opacity:0.85,fontWeight:500}}>{subtitle}</div>}
         </div>
+        {badge!=null&&badge>0&&<div style={{position:"absolute",top:-6,insetInlineStart:-6,background:"#fff",color:bgColor,minWidth:22,height:22,borderRadius:11,padding:"0 7px",fontSize:11,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 2px 6px rgba(0,0,0,0.25)"}}>{badge}</div>}
       </div>;
 
       /* ═══ Secondary action button — grouped tiles ═══ */
@@ -7477,10 +7478,12 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
         {/* ── PRIMARY ACTIONS ── */}
         {canEdit&&<>
           <div className="sales-group-title">⚡ إجراءات سريعة</div>
-          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:isMob?8:12,marginBottom:18}}>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(4,1fr)",gap:isMob?8:12,marginBottom:18}}>
             {primaryBtn(I.scan,"بيع سريع","مسح QR وتسجيل البيع","#10B981","#059669",()=>setQrSale({mode:"sale",custId:null,items:[],note:""}))}
             {primaryBtn(I.truck,"تسليم جديد","إنشاء جلسة توزيعة","#0EA5E9","#0284C7",()=>{setSelModels({});setSelCusts({});setShowNewSession(true)})}
             {primaryBtn(I.undo,"مرتجع سريع","مسح QR وتسجيل مرتجع","#EF4444","#DC2626",()=>setQrSale({mode:"return",custId:null,items:[],note:"",linkedSession:"free"}))}
+            {/* V14.62: Quick access to receipt confirmation with toggle mode */}
+            {primaryBtn(I.inbox,"تأكيد استلام","مسح QR كسيري أو قطعة","#F59E0B","#D97706",()=>setPendingRcv({items:{},scanMode:"series"}),pendingRcvCount>0?pendingRcvCount:null)}
           </div>
         </>}
 
@@ -9003,9 +9006,20 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
               <div style={{fontSize:FS+2,fontWeight:800,color:"#10B981"}}>{"📥 تأكيد استلام المخزن"}</div>
               <Btn ghost small onClick={()=>{closePendCam();setPendingRcv(null)}}>✕</Btn>
             </div>
+            {/* V14.62: Series/Piece toggle — controls how QR values are interpreted */}
+            {(()=>{const curMode=pendingRcv.scanMode||"series";
+              return<div style={{display:"flex",gap:0,marginBottom:10,borderRadius:10,overflow:"hidden",border:"2px solid "+(curMode==="series"?"#10B981":"#8B5CF6")}}>
+                <div onClick={()=>setPendingRcv(p=>({...p,scanMode:"series"}))} style={{flex:1,textAlign:"center",padding:"10px 0",cursor:"pointer",fontWeight:800,fontSize:FS-1,background:curMode==="series"?"#10B981":"transparent",color:curMode==="series"?"#fff":T.textSec,transition:"all 0.15s"}}>
+                  📦 سيري {curMode==="series"?<span style={{fontSize:FS-3,opacity:0.9,marginInlineStart:6}}>(يضيف الكمية في QR)</span>:""}
+                </div>
+                <div onClick={()=>setPendingRcv(p=>({...p,scanMode:"piece"}))} style={{flex:1,textAlign:"center",padding:"10px 0",cursor:"pointer",fontWeight:800,fontSize:FS-1,background:curMode==="piece"?"#8B5CF6":"transparent",color:curMode==="piece"?"#fff":T.textSec,transition:"all 0.15s"}}>
+                  🔹 قطعة {curMode==="piece"?<span style={{fontSize:FS-3,opacity:0.9,marginInlineStart:6}}>(قطعة واحدة لكل مسح)</span>:""}
+                </div>
+              </div>;
+            })()}
             <div style={{display:"flex",gap:6}}>
               <Btn small onClick={()=>{if(pendingRcv.scanning){closePendCam()}else{setPendingRcv(p=>({...p,scanning:true}))}}} style={{background:pendingRcv.scanning?"#EF444412":"#10B98112",color:pendingRcv.scanning?"#EF4444":"#10B981",border:"1px solid "+(pendingRcv.scanning?"#EF444430":"#10B98130")}}>{pendingRcv.scanning?"⏹ Stop":"📷 Scan"}</Btn>
-              <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(!v)return;const p=pendings.find(x=>x.orderId===v);if(p){const rs=p.rackSize||1;setPendingRcv(pr=>({...pr,items:{...pr.items,[v]:(pr.items[v]||0)+rs}}));playBeep("ok")}else{showToast("⚠️ هذا الموديل ليس معلّق")}}} options={pendings.map(p=>({value:p.orderId,label:p.modelNo+" — "+p.modelDesc+" (⏳"+p.pendingQty+")"}))} placeholder="اضف يدوي..."/></div>
+              <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(!v)return;const p=pendings.find(x=>x.orderId===v);if(p){const mode=pendingRcv.scanMode||"series";const addQty=mode==="piece"?1:(p.rackSize||1);setPendingRcv(pr=>({...pr,items:{...pr.items,[v]:(pr.items[v]||0)+addQty}}));playBeep("ok")}else{showToast("⚠️ هذا الموديل ليس معلّق")}}} options={pendings.map(p=>({value:p.orderId,label:p.modelNo+" — "+p.modelDesc+" (⏳"+p.pendingQty+")"}))} placeholder="اضف يدوي..."/></div>
             </div>
             {pendingRcv.scanning&&<div style={{marginTop:8}}>
               <div style={{position:"relative",width:"100%",maxWidth:200,margin:"0 auto",borderRadius:12,overflow:"hidden",background:"#000"}}>
@@ -9014,7 +9028,14 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
                   const scan=async()=>{if(!el.srcObject)return;if(el.readyState<2){requestAnimationFrame(scan);return}canvas.width=el.videoWidth;canvas.height=el.videoHeight;canvas.getContext("2d").drawImage(el,0,0);
                     {const _qr=await scanQR(canvas);if(_qr){const now=Date.now();if(_qr!==lastScan||now-lastTime>2000){lastScan=_qr;lastTime=now;
                       try{const parts=_qr.split(":");if(parts[0]==="CLARK"&&parts[1]){const oid=parts[1];const rs=Number(parts[2])||1;const p=pendings.find(x=>x.orderId===oid);
-                        if(p){setPendingRcv(pr=>({...pr,items:{...pr.items,[oid]:(pr.items[oid]||0)+rs}}));playBeep("ok");showToast("✅ "+p.modelNo+" +"+rs)}
+                        if(p){
+                          /* V14.62: Use scanMode to determine qty */
+                          const curMode=pendingRcv.scanMode||"series";
+                          const addQty=curMode==="piece"?1:rs;
+                          setPendingRcv(pr=>({...pr,items:{...pr.items,[oid]:(pr.items[oid]||0)+addQty}}));
+                          playBeep("ok");
+                          showToast("✅ "+p.modelNo+" +"+addQty+(curMode==="piece"?" قطعة":" سيري"));
+                        }
                         else{playBeep("error");showToast("⚠️ موديل غير معلّق")}}}catch(e){}}}}
                     requestAnimationFrame(scan)};scan()}catch(e){}})()}}/>
               </div></div>}
@@ -16460,6 +16481,16 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   /* V14.60: QR view popup (for employee who forgot card) + Fraud warning popup */
   const[empQrView,setEmpQrView]=useState(null);/* empId — show QR on screen */
   const[fraudWarning,setFraudWarning]=useState(null);/* {empName, previousAt, previousBy, attemptAt, attemptBy} */
+  /* V14.61: Verify tab — dedicated screen for second accountant */
+  const[verifySelectedWeekId,setVerifySelectedWeekId]=useState(null);
+  const[verifyScanning,setVerifyScanning]=useState(false);
+  const[verifyLastScan,setVerifyLastScan]=useState(null);/* {emp, amount, at, canUndo:true} */
+  const[verifyQuickReport,setVerifyQuickReport]=useState(false);
+  /* V14.63: Verify mode toggle + employee review popup */
+  const[verifyMode,setVerifyMode]=useState(()=>{
+    try{return localStorage.getItem("clark_verifyMode")||"detailed"}catch(e){return"detailed"}
+  });/* "detailed" | "fast" */
+  const[verifyReview,setVerifyReview]=useState(null);/* {emp, salary, week} — for detailed mode popup */
   const[stmtFrom,setStmtFrom]=useState("");const[stmtTo,setStmtTo]=useState("");
   /* Close date popup */
   const[showCloseDate,setShowCloseDate]=useState(false);
@@ -17530,7 +17561,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
 
   return<div>
     <div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflow:"hidden",border:"1px solid "+T.brd}}>
-      {[{k:"weeks",l:"📅 الأسابيع",c:hrWeeks.length},{k:"weeklySummary",l:"📊 سجل أسبوعي"},{k:"monthlySummary",l:"📅 سجل شهري"},{k:"employees",l:"👷 الموظفين",c:activeEmps.length},{k:"security",l:"🛡️ الأمن والرقابة",c:auditLog.length}].map(v=>
+      {[{k:"weeks",l:"📅 الأسابيع",c:hrWeeks.length},{k:"weeklySummary",l:"📊 سجل أسبوعي"},{k:"monthlySummary",l:"📅 سجل شهري"},{k:"employees",l:"👷 الموظفين",c:activeEmps.length},{k:"verify",l:"🔐 تأكيد الاستلام"},{k:"security",l:"🛡️ الأمن والرقابة",c:auditLog.length}].map(v=>
         <div key={v.k} onClick={()=>{setView(v.k);setOpenWeekId(null)}} style={{flex:1,padding:"10px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-1,background:view===v.k?T.accent:T.cardSolid,color:view===v.k?"#fff":T.textSec,transition:"all 0.15s"}}>{v.l}{v.c!=null?" ("+v.c+")":""}</div>)}
     </div>
 
@@ -17667,6 +17698,52 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               <span style={{fontWeight:800,color:wNext>0?T.warn:wNext<0?T.ok:T.textMut}}>{wNext?fmt0(wNext):"—"}</span>
             </span>
           </div>
+          {/* V14.62: Receipt verification status row (closed weeks only) */}
+          {isClosedW&&(()=>{
+            const wkSelected=(w.selectedEmps&&Array.isArray(w.selectedEmps))?w.selectedEmps:[];
+            const wkEmps=activeEmps.filter(e=>wkSelected.includes(e.id));
+            const receipts=w.receipts||{};
+            const issues=w.receiptIssues||{};
+            const received=wkEmps.filter(e=>receipts[e.id]);
+            const withIssues=wkEmps.filter(e=>issues[e.id]);
+            const notReceived=wkEmps.length-received.length;
+            const totalDue=wkEmps.reduce((s,e)=>{const c=getEmpSalary(e.id,w);return s+(c?c.thursdayPay:0)},0);
+            const totalConfirmed=received.reduce((s,e)=>{const c=getEmpSalary(e.id,w);return s+(c?c.thursdayPay:0)},0);
+            const pctDone=wkEmps.length>0?Math.round((received.length/wkEmps.length)*100):0;
+            const isFullMatch=wkEmps.length>0&&received.length===wkEmps.length&&withIssues.length===0;
+            const isNone=received.length===0&&withIssues.length===0;
+            const hasIssues=withIssues.length>0;
+            /* Status: match / issues / partial / none */
+            const statusColor=hasIssues?T.err:isFullMatch?T.ok:isNone?T.textMut:T.warn;
+            const statusBg=hasIssues?T.err+"08":isFullMatch?T.ok+"08":isNone?T.textMut+"08":T.warn+"08";
+            const statusBorder=hasIssues?T.err+"40":isFullMatch?T.ok+"35":isNone?T.textMut+"20":T.warn+"35";
+            const statusIcon=hasIssues?"🚨":isFullMatch?"✅":isNone?"⏳":"⚠️";
+            const statusLabel=hasIssues?"يوجد مشاكل ("+withIssues.length+")":isFullMatch?"تم التطابق الكامل":isNone?"لم يبدأ التأكيد":"تأكيد جزئي";
+            return<div style={{marginTop:10,padding:"10px 12px",borderRadius:10,background:statusBg,border:"1.5px solid "+statusBorder,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+              <span style={{fontSize:isMob?18:22}}>{statusIcon}</span>
+              <div style={{flex:1,minWidth:150}}>
+                <div style={{fontSize:FS-1,fontWeight:800,color:statusColor,lineHeight:1.2}}>{statusLabel}</div>
+                <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>
+                  {received.length}/{wkEmps.length} موظف • {pctDone}%{hasIssues?" • مشاكل: "+withIssues.length:""}
+                </div>
+              </div>
+              {/* Progress bar */}
+              <div style={{flex:2,minWidth:100,height:8,background:T.brd,borderRadius:4,overflow:"hidden",position:"relative"}}>
+                <div style={{position:"absolute",top:0,insetInlineEnd:0,height:"100%",width:pctDone+"%",background:statusColor,transition:"width 0.3s"}}></div>
+              </div>
+              <div style={{display:"flex",gap:6,alignItems:"center",fontSize:FS-2}}>
+                <span style={{color:T.textMut}}>💰</span>
+                <span style={{fontWeight:800,color:statusColor,fontFamily:"monospace"}}>{fmt0(totalConfirmed)}</span>
+                <span style={{color:T.textMut}}>/</span>
+                <span style={{fontWeight:700,color:T.textSec,fontFamily:"monospace"}}>{fmt0(totalDue)}</span>
+              </div>
+              {(notReceived>0||hasIssues)&&<>
+                {/* V14.63: Direct scan button — jumps to verify tab + opens camera */}
+                <span onClick={e=>{e.stopPropagation();setView("verify");setVerifySelectedWeekId(w.id);setTimeout(()=>setVerifyScanning(true),200)}} style={{cursor:"pointer",padding:"5px 12px",borderRadius:6,background:T.ok,color:"#fff",border:"none",fontSize:FS-2,fontWeight:800,display:"inline-flex",alignItems:"center",gap:4}} title="فتح الكاميرا والسكان مباشرة">📷 سكان</span>
+                <span onClick={e=>{e.stopPropagation();setView("verify");setVerifySelectedWeekId(w.id)}} style={{cursor:"pointer",padding:"5px 10px",borderRadius:6,background:statusColor+"15",color:statusColor,border:"1px solid "+statusColor+"30",fontSize:FS-2,fontWeight:800}} title="انتقل لشاشة التأكيد">→ تأكيد</span>
+              </>}
+            </div>;
+          })()}
         </div>})}
       </div>:<div style={{textAlign:"center",padding:40,color:T.textMut}}>لم يتم فتح أسابيع بعد — اضغط "+ أسبوع جديد"</div>}
         </div>
@@ -20276,6 +20353,470 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         </tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>{q?"لا يوجد نتائج للبحث عن \""+empSearch+"\"":"أضف موظفين"}</div>}
       </Card>})()}
     </div>}
+
+    {/* ══ V14.61: VERIFY TAB — Dedicated screen for second accountant ══ */}
+    {view==="verify"&&(()=>{
+      /* Pick the active closed week if not yet selected */
+      const closedWeeks=hrWeeks.filter(w=>w.status==="closed").sort((a,b)=>(b.weekNum||0)-(a.weekNum||0));
+      if(closedWeeks.length===0){
+        return<Card title="🔐 تأكيد الاستلام">
+          <div style={{padding:40,textAlign:"center",color:T.textMut}}>
+            <div style={{fontSize:48,marginBottom:10}}>🔒</div>
+            <div style={{fontSize:FS+1,fontWeight:700,marginBottom:6}}>لا توجد أسابيع مقفولة</div>
+            <div style={{fontSize:FS-1}}>يجب قفل الأسبوع أولاً قبل تأكيد الاستلام</div>
+          </div>
+        </Card>;
+      }
+      const activeWeekId=verifySelectedWeekId||closedWeeks[0].id;
+      const week=closedWeeks.find(w=>w.id===activeWeekId)||closedWeeks[0];
+      const receipts=week.receipts||{};
+      const wkSelected=(week.selectedEmps&&Array.isArray(week.selectedEmps))?week.selectedEmps:[];
+      const wkEmps=activeEmps.filter(e=>wkSelected.includes(e.id));
+      const received=wkEmps.filter(e=>receipts[e.id]);
+      const notReceived=wkEmps.filter(e=>!receipts[e.id]);
+      /* Total paid (from saved records if week closed) */
+      const totalPaid=received.reduce((s,e)=>{const c=getEmpSalary(e.id,week);return s+(c?c.thursdayPay:0)},0);
+      const totalDue=wkEmps.reduce((s,e)=>{const c=getEmpSalary(e.id,week);return s+(c?c.thursdayPay:0)},0);
+      /* Close camera helper */
+      const closeVerifyCam=()=>{try{const v=document.getElementById("verify-scan-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setVerifyScanning(false)};
+      /* Scan handler — instant register */
+      const handleVerifyScan=(text)=>{
+        const m=/^CLARK:EMP:(.+)$/.exec(text);
+        if(!m){playBeep("error");showToast("❌ QR غير صحيح");return}
+        const empId=m[1];
+        const emp=employees.find(e=>e.id===empId);
+        if(!emp){playBeep("error");showToast("❌ الموظف غير موجود");return}
+        if(!wkSelected.includes(empId)){playBeep("error");showToast("⚠️ "+emp.name+" ليس في هذا الأسبوع");return}
+        if(receipts[empId]){
+          /* DUPLICATE — show fraud warning */
+          playBeep("error");
+          const prev=receipts[empId];
+          setFraudWarning({
+            empName:emp.name,
+            empCode:emp.code||"",
+            previousAt:prev.at,
+            previousBy:prev.by||"—",
+            attemptAt:new Date().toISOString(),
+            attemptBy:userName||"—",
+            weekId:week.id,
+            weekNum:week.weekNum
+          });
+          upConfig(d=>{
+            if(!Array.isArray(d.auditLog))d.auditLog=[];
+            d.auditLog.unshift({
+              id:Math.random().toString(36).slice(2)+Date.now(),
+              category:"week",action:"duplicate_scan_attempt",
+              target:"W"+week.weekNum+" — "+emp.name,
+              newValue:"🚨 محاولة سكان مكررة (تاب تأكيد)",
+              notes:"الأصل: "+new Date(prev.at).toLocaleString("ar-EG")+" بواسطة "+(prev.by||"—")+" | محاولة: "+(userName||"—"),
+              at:new Date().toISOString(),severity:"warning"
+            });
+          });
+          return;
+        }
+        /* V14.63: Check mode — if detailed, show review popup; if fast, register instantly */
+        const empSalary=getEmpSalary(empId,week);
+        if(verifyMode==="detailed"){
+          /* Stop camera, show review popup */
+          playBeep("ok");
+          closeVerifyCam();
+          setVerifyReview({emp,salary:empSalary,week});
+          return;
+        }
+        /* FAST MODE — register instantly */
+        const amount=empSalary?empSalary.thursdayPay:0;
+        const nowIso=new Date().toISOString();
+        upConfig(d=>{
+          const wi=(d.hrWeeks||[]).findIndex(x=>x.id===week.id);if(wi<0)return;
+          if(!d.hrWeeks[wi].receipts)d.hrWeeks[wi].receipts={};
+          d.hrWeeks[wi].receipts[empId]={at:nowIso,by:userName||"",verifiedAt:nowIso,verifiedBy:userName||"",mode:"fast"};
+          if(!Array.isArray(d.auditLog))d.auditLog=[];
+          d.auditLog.unshift({
+            id:Math.random().toString(36).slice(2)+Date.now(),
+            category:"week",action:"salary_receipt_verified",
+            target:"W"+week.weekNum+" — "+emp.name,
+            newValue:"✅ تأكيد استلام مرتب — "+fmt0(amount)+" ج (سريع)",
+            notes:"المحاسب الثاني (التأكيد): "+(userName||"—")+" | وضع: سريع",
+            at:nowIso,severity:"info"
+          });
+        });
+        playBeep("done");
+        setVerifyLastScan({emp,amount,at:nowIso,canUndo:true});
+        /* Auto-clear undo after 10 seconds */
+        setTimeout(()=>setVerifyLastScan(prev=>prev&&prev.emp.id===emp.id?null:prev),10000);
+      };
+      /* Undo last scan */
+      const undoLastScan=()=>{
+        if(!verifyLastScan||!verifyLastScan.emp)return;
+        const empId=verifyLastScan.emp.id;
+        upConfig(d=>{
+          const wi=(d.hrWeeks||[]).findIndex(x=>x.id===week.id);if(wi<0)return;
+          if(d.hrWeeks[wi].receipts&&d.hrWeeks[wi].receipts[empId]){
+            delete d.hrWeeks[wi].receipts[empId];
+          }
+          if(!Array.isArray(d.auditLog))d.auditLog=[];
+          d.auditLog.unshift({
+            id:Math.random().toString(36).slice(2)+Date.now(),
+            category:"week",action:"salary_receipt_undo",
+            target:"W"+week.weekNum+" — "+verifyLastScan.emp.name,
+            newValue:"↩ تراجع عن تسجيل استلام",
+            notes:"تراجع بواسطة: "+(userName||"—"),
+            at:new Date().toISOString(),severity:"warning"
+          });
+        });
+        showToast("↩ تم التراجع عن "+verifyLastScan.emp.name);
+        setVerifyLastScan(null);
+      };
+      /* Build detail text for WhatsApp */
+      const buildWaText=()=>{
+        const lines=[
+          "*🔐 CLARK — تقرير تأكيد استلام المرتبات*",
+          "━━━━━━━━━━━━━━━━",
+          "📅 الأسبوع: *W"+week.weekNum+"* ("+week.weekStart+" → "+week.weekEnd+")",
+          "👤 المحاسب المؤكِّد: *"+(userName||"—")+"*",
+          "🕐 تاريخ التقرير: "+new Date().toLocaleString("ar-EG"),
+          "",
+          "*📊 الإحصائيات:*",
+          "• إجمالي الموظفين: *"+wkEmps.length+"*",
+          "• ✅ تأكّد الاستلام: *"+received.length+"*",
+          "• ❌ لم يتأكد بعد: *"+notReceived.length+"*",
+          "",
+          "*💰 المبالغ:*",
+          "• إجمالي المستحق: *"+fmt(r2(totalDue))+"* ج.م",
+          "• ✅ تم تأكيده: *"+fmt(r2(totalPaid))+"* ج.م",
+          "• ⚠️ غير مؤكد: *"+fmt(r2(totalDue-totalPaid))+"* ج.م"
+        ];
+        if(notReceived.length>0){
+          lines.push("");
+          lines.push("*⚠️ الموظفين الذين لم يتأكدوا:*");
+          notReceived.slice(0,15).forEach(e=>{
+            const c=getEmpSalary(e.id,week);
+            lines.push("• "+e.name+(e.code?" (#"+e.code+")":"")+" — "+fmt0(c?c.thursdayPay:0)+" ج");
+          });
+          if(notReceived.length>15)lines.push("... و "+(notReceived.length-15)+" آخرين");
+        }
+        lines.push("");
+        lines.push("🏭 CLARK Factory Management");
+        return lines.join("\n");
+      };
+      /* Print full report as PDF */
+      const printVerifyReport=()=>{
+        let receivedRows="";
+        received.forEach(e=>{
+          const c=getEmpSalary(e.id,week);
+          const r=receipts[e.id];
+          const dt=r?new Date(r.at).toLocaleString("ar-EG"):"—";
+          receivedRows+="<tr><td style='border:1px solid #ccc;padding:6px;font-weight:800;color:#0284C7'>"+e.name+"</td><td style='border:1px solid #ccc;padding:6px;font-family:monospace;text-align:center'>"+(e.code||"—")+"</td><td style='border:1px solid #ccc;padding:6px;font-size:10px;color:#555'>"+(e.job||"—")+"</td><td style='border:1px solid #ccc;padding:6px;text-align:center;font-weight:800;color:#10B981'>"+fmt0(c?c.thursdayPay:0)+" ج</td><td style='border:1px solid #ccc;padding:6px;font-size:10px;color:#555;text-align:center'>"+dt+"</td></tr>";
+        });
+        let notRows="";
+        notReceived.forEach(e=>{
+          const c=getEmpSalary(e.id,week);
+          notRows+="<tr><td style='border:1px solid #ccc;padding:6px;font-weight:800;color:#0284C7'>"+e.name+"</td><td style='border:1px solid #ccc;padding:6px;font-family:monospace;text-align:center'>"+(e.code||"—")+"</td><td style='border:1px solid #ccc;padding:6px;font-size:10px;color:#555'>"+(e.job||"—")+"</td><td style='border:1px solid #ccc;padding:6px;text-align:center;font-weight:800;color:#EF4444'>"+fmt0(c?c.thursdayPay:0)+" ج</td></tr>";
+        });
+        const html="<html dir='rtl'><head><meta charset='utf-8'><title>تقرير تأكيد استلام — W"+week.weekNum+"</title><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><style>@page{size:A4;margin:12mm}body{font-family:'Cairo',sans-serif;color:#1E293B;font-size:11px;line-height:1.6}.hdr{text-align:center;border-bottom:3px solid #10B981;padding-bottom:10px;margin-bottom:14px}.hdr h1{color:#10B981;font-size:20px;margin-bottom:4px}.meta{display:flex;justify-content:space-between;margin-bottom:12px;font-size:11px;color:#475569}.summary{display:flex;gap:10px;margin-bottom:14px;justify-content:center;flex-wrap:wrap}.card{padding:10px 16px;border-radius:10px;border:1px solid #ddd;text-align:center;min-width:130px}.card .lbl{font-size:10px;color:#666;margin-bottom:3px}.card .val{font-size:18px;font-weight:800}table{width:100%;border-collapse:collapse;margin:10px 0}th{padding:8px;font-weight:800;text-align:right;border:1px solid #ccc}.ok th{background:#F0FDF4;color:#059669;border-color:#10B98140}.err th{background:#FEF2F2;color:#DC2626;border-color:#EF444440}h2{font-size:14px;margin:16px 0 6px}.sig{margin-top:40px;display:flex;justify-content:space-around;gap:20px}.sig-box{text-align:center;min-width:150px;border-top:2px solid #1E293B;padding-top:8px;font-weight:700;font-size:11px}.foot{margin-top:20px;padding-top:8px;border-top:1px solid #ccc;display:flex;justify-content:space-between;font-size:10px;color:#94A3B8}.pbar{position:sticky;top:0;background:#fff;padding:8px;border-bottom:2px solid #ccc;display:flex;justify-content:center;gap:10px;z-index:99}.pbar button{padding:6px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:12px;font-weight:700;background:#fff}.pbar .pr{background:#10B981;color:#fff;border-color:#10B981}@media print{.pbar{display:none}}</style></head><body><div class='pbar'><button onclick='window.close()'>↩ رجوع</button><button class='pr' onclick='window.print()'>🖨 طباعة / حفظ PDF</button></div><div class='hdr'><h1>🔐 تقرير تأكيد استلام المرتبات</h1><div style='font-size:14px;color:#0EA5E9;font-weight:700'>W"+week.weekNum+" — ("+week.weekStart+" → "+week.weekEnd+")</div></div><div class='meta'><span>👤 المحاسب المؤكِّد: <b>"+(userName||"—")+"</b></span><span>📅 "+new Date().toLocaleString("ar-EG")+"</span></div><div class='summary'><div class='card'><div class='lbl'>إجمالي الموظفين</div><div class='val' style='color:#0EA5E9'>"+wkEmps.length+"</div></div><div class='card'><div class='lbl'>✅ تأكّد الاستلام</div><div class='val' style='color:#10B981'>"+received.length+"</div></div><div class='card'><div class='lbl'>❌ لم يتأكد</div><div class='val' style='color:#EF4444'>"+notReceived.length+"</div></div><div class='card'><div class='lbl'>💰 تم تأكيده</div><div class='val' style='color:#10B981;font-size:14px'>"+fmt0(totalPaid)+" ج</div></div><div class='card'><div class='lbl'>⚠️ غير مؤكد</div><div class='val' style='color:#EF4444;font-size:14px'>"+fmt0(totalDue-totalPaid)+" ج</div></div></div>"+(received.length>0?"<h2 style='color:#10B981'>✅ الموظفين الذين تأكّد استلامهم ("+received.length+")</h2><table class='ok'><thead><tr><th>الاسم</th><th style='text-align:center'>الكود</th><th>الوظيفة</th><th style='text-align:center'>المبلغ</th><th style='text-align:center'>وقت التأكيد</th></tr></thead><tbody>"+receivedRows+"</tbody></table>":"")+(notReceived.length>0?"<h2 style='color:#EF4444'>⚠️ الموظفين الذين لم يتأكدوا ("+notReceived.length+")</h2><table class='err'><thead><tr><th>الاسم</th><th style='text-align:center'>الكود</th><th>الوظيفة</th><th style='text-align:center'>المبلغ المستحق</th></tr></thead><tbody>"+notRows+"</tbody></table>":"")+"<div class='sig'><div class='sig-box'>المحاسب المؤكِّد<br/><small style='color:#64748B'>"+(userName||"—")+"</small></div><div class='sig-box'>المحاسب الأول</div><div class='sig-box'>المدير</div></div><div class='foot'><span>CLARK Factory Management</span><span>"+new Date().toLocaleString("ar-EG")+"</span></div></body></html>";
+        const pw=window.open("","_blank");if(!pw)return;pw.document.write(html);pw.document.close();setTimeout(()=>pw.print(),500);
+      };
+      const doWhatsapp=()=>{window.open("https://wa.me/?text="+encodeURIComponent(buildWaText()),"_blank")};
+      return<div>
+        {/* Week selector */}
+        <Card style={{marginBottom:12}}>
+          <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+            <span style={{fontSize:FS,fontWeight:800,color:T.accent}}>🔐 شاشة المحاسب المؤكِّد</span>
+            <div style={{flex:1,minWidth:200}}>
+              <Sel value={activeWeekId} onChange={v=>{setVerifySelectedWeekId(v);setVerifyLastScan(null);closeVerifyCam()}}>
+                {closedWeeks.map(w=><option key={w.id} value={w.id}>{"W"+w.weekNum+" ("+w.weekStart+" → "+w.weekEnd+")"}</option>)}
+              </Sel>
+            </div>
+            <span style={{fontSize:FS-2,color:T.textMut,background:T.bg,padding:"4px 10px",borderRadius:6}}>
+              👤 {userName||"—"}
+            </span>
+          </div>
+        </Card>
+
+        {/* V14.63: Mode toggle — detailed (default, safer) vs fast (quick) */}
+        <Card style={{marginBottom:12,padding:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+            <span style={{fontSize:FS-1,fontWeight:700,color:T.textSec,flexShrink:0}}>وضع التأكيد:</span>
+            <div style={{display:"flex",gap:0,flex:1,minWidth:260,borderRadius:10,overflow:"hidden",border:"2px solid "+(verifyMode==="fast"?T.warn:T.ok)}}>
+              <div onClick={()=>{setVerifyMode("detailed");try{localStorage.setItem("clark_verifyMode","detailed")}catch(e){}}} style={{flex:1,padding:"12px 10px",textAlign:"center",cursor:"pointer",background:verifyMode==="detailed"?T.ok:"transparent",color:verifyMode==="detailed"?"#fff":T.textSec,transition:"all 0.15s"}}>
+                <div style={{fontSize:FS,fontWeight:800}}>📋 مفصّل</div>
+                <div style={{fontSize:FS-3,opacity:0.85,marginTop:2}}>عرض التفاصيل + تأكيد</div>
+              </div>
+              <div onClick={()=>{setVerifyMode("fast");try{localStorage.setItem("clark_verifyMode","fast")}catch(e){}}} style={{flex:1,padding:"12px 10px",textAlign:"center",cursor:"pointer",background:verifyMode==="fast"?T.warn:"transparent",color:verifyMode==="fast"?"#fff":T.textSec,transition:"all 0.15s"}}>
+                <div style={{fontSize:FS,fontWeight:800}}>⚡ سريع</div>
+                <div style={{fontSize:FS-3,opacity:0.85,marginTop:2}}>سكان وتأكيد مباشر</div>
+              </div>
+            </div>
+          </div>
+          {verifyMode==="fast"&&<div style={{marginTop:8,padding:"8px 12px",borderRadius:8,background:T.warn+"08",border:"1px solid "+T.warn+"30",fontSize:FS-2,color:T.text,lineHeight:1.5}}>
+            ⚠️ <b>تنبيه:</b> في الوضع السريع، التأكيد يحدث فوراً بجرد السكان بدون مراجعة التفاصيل مع الموظف.
+          </div>}
+        </Card>
+
+        {/* Live stats cards */}
+        <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(5,1fr)",gap:10,marginBottom:14}}>
+          <div style={{padding:"12px 14px",borderRadius:12,background:T.accent+"08",border:"1px solid "+T.accent+"30",textAlign:"center"}}>
+            <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>👥 إجمالي</div>
+            <div style={{fontSize:FS+5,fontWeight:900,color:T.accent,lineHeight:1}}>{wkEmps.length}</div>
+          </div>
+          <div style={{padding:"12px 14px",borderRadius:12,background:T.ok+"08",border:"1px solid "+T.ok+"30",textAlign:"center"}}>
+            <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>✅ تأكّد</div>
+            <div style={{fontSize:FS+5,fontWeight:900,color:T.ok,lineHeight:1}}>{received.length}</div>
+          </div>
+          <div style={{padding:"12px 14px",borderRadius:12,background:T.err+"08",border:"1px solid "+T.err+"30",textAlign:"center"}}>
+            <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>⏳ متبقي</div>
+            <div style={{fontSize:FS+5,fontWeight:900,color:T.err,lineHeight:1}}>{notReceived.length}</div>
+          </div>
+          <div style={{padding:"12px 14px",borderRadius:12,background:T.ok+"08",border:"1px solid "+T.ok+"30",textAlign:"center"}}>
+            <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>💰 تم تأكيده</div>
+            <div style={{fontSize:FS+3,fontWeight:900,color:T.ok,lineHeight:1}}>{fmt0(totalPaid)}</div>
+          </div>
+          <div style={{padding:"12px 14px",borderRadius:12,background:T.warn+"08",border:"1px solid "+T.warn+"30",textAlign:"center"}}>
+            <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>⚠️ غير مؤكد</div>
+            <div style={{fontSize:FS+3,fontWeight:900,color:T.warn,lineHeight:1}}>{fmt0(totalDue-totalPaid)}</div>
+          </div>
+        </div>
+
+        {/* Main scanner section */}
+        <Card style={{marginBottom:12,background:verifyScanning?T.ok+"04":T.cardSolid,border:"2px solid "+(verifyScanning?T.ok:T.brd)}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+            <div style={{fontSize:FS+1,fontWeight:800,color:verifyScanning?T.ok:T.text,display:"flex",alignItems:"center",gap:8}}>
+              <span>{verifyScanning?"🟢":"📱"}</span>
+              <span>{verifyScanning?"الكاميرا نشطة — جاهز للسكان":"ابدأ الكاميرا لمسح QR الموظف"}</span>
+            </div>
+            <Btn onClick={()=>{if(verifyScanning){closeVerifyCam()}else{setVerifyScanning(true)}}} style={{background:verifyScanning?T.err:T.ok,color:"#fff",border:"none",fontWeight:800,padding:"10px 24px",fontSize:FS+1}}>
+              {verifyScanning?"⏹ إيقاف الكاميرا":"▶ تشغيل الكاميرا"}
+            </Btn>
+          </div>
+          {verifyScanning&&<div>
+            <div style={{position:"relative",width:"100%",maxWidth:isMob?"100%":360,margin:"0 auto",borderRadius:14,overflow:"hidden",background:"#000",aspectRatio:"4/3"}}>
+              <video id="verify-scan-video" playsInline muted autoPlay style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}} ref={el=>{if(!el||el.srcObject)return;(async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:640}}});el.srcObject=stream;
+                loadJsQR();const canvas=document.createElement("canvas");let lastScan="";let lastTime=0;
+                const scan=async()=>{if(!el.srcObject)return;if(el.readyState<2){requestAnimationFrame(scan);return}canvas.width=el.videoWidth;canvas.height=el.videoHeight;canvas.getContext("2d").drawImage(el,0,0);
+                  {const _qr=await scanQR(canvas);if(_qr){const now=Date.now();if(_qr!==lastScan||now-lastTime>3000){lastScan=_qr;lastTime=now;handleVerifyScan(_qr)}}}
+                  requestAnimationFrame(scan)};scan()}catch(e){showToast("⚠️ تعذر فتح الكاميرا")}})()}}/>
+              {/* Scan frame overlay */}
+              <div style={{position:"absolute",inset:"15%",border:"3px dashed "+T.ok,borderRadius:12,pointerEvents:"none"}}></div>
+            </div>
+            <div style={{textAlign:"center",marginTop:10,fontSize:FS-1,color:T.textMut}}>وجّه الكاميرا على كارت QR الموظف</div>
+          </div>}
+        </Card>
+
+        {/* Last scan confirmation — big visible toast */}
+        {verifyLastScan&&(()=>{
+          const s=verifyLastScan;
+          const agoSec=Math.floor((Date.now()-new Date(s.at))/1000);
+          return<Card style={{marginBottom:12,background:T.ok+"08",border:"3px solid "+T.ok,animation:"fadeSlide 0.3s"}}>
+            <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+              <div style={{width:60,height:60,borderRadius:12,background:T.ok,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:30,flexShrink:0}}>✓</div>
+              <div style={{flex:1,minWidth:200}}>
+                <div style={{fontSize:FS+4,fontWeight:900,color:T.text,lineHeight:1.2}}>{s.emp.name}</div>
+                <div style={{fontSize:FS,color:T.textSec,marginTop:3}}>
+                  {s.emp.code?<span style={{color:T.accent,fontFamily:"monospace",marginInlineEnd:10}}>#{s.emp.code}</span>:null}
+                  <span style={{color:T.ok,fontWeight:800,fontSize:FS+3}}>{fmt0(s.amount)} ج.م</span>
+                </div>
+                <div style={{fontSize:FS-2,color:T.textMut,marginTop:4}}>✅ تم التأكيد • منذ {agoSec<5?"لحظات":agoSec+" ثواني"}</div>
+              </div>
+              {s.canUndo&&<Btn onClick={undoLastScan} style={{background:T.err+"15",color:T.err,border:"1px solid "+T.err+"40",fontWeight:800,padding:"8px 18px"}}>↩ تراجع (10ث)</Btn>}
+            </div>
+            <style>{`@keyframes fadeSlide{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}`}</style>
+          </Card>;
+        })()}
+
+        {/* Quick report toggle */}
+        <Card>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:verifyQuickReport?12:0}}>
+            <Btn onClick={()=>setVerifyQuickReport(p=>!p)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}}>
+              {verifyQuickReport?"▲":"▼"} {verifyQuickReport?"إخفاء":"عرض"} القائمة ({wkEmps.length})
+            </Btn>
+            <Btn onClick={printVerifyReport} style={{background:"#10B98112",color:"#10B981",border:"1px solid #10B98130",fontWeight:700}}>📄 تقرير + PDF</Btn>
+            <Btn onClick={doWhatsapp} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",fontWeight:700}}>📱 واتساب المدير</Btn>
+          </div>
+          {verifyQuickReport&&<div style={{maxHeight:"50vh",overflowY:"auto",border:"1px solid "+T.brd,borderRadius:10}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}><thead style={{position:"sticky",top:0,background:T.bg,zIndex:1}}><tr>
+              {["الاسم","الكود","المبلغ","الحالة","التأكيد"].map(h=><th key={h} style={{padding:"8px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:800}}>{h}</th>)}
+            </tr></thead><tbody>
+              {wkEmps.sort((a,b)=>{const ra=!!receipts[a.id];const rb=!!receipts[b.id];if(ra!==rb)return ra?1:-1;return (a.name||"").localeCompare(b.name||"")}).map((e,i)=>{
+                const c=getEmpSalary(e.id,week);
+                const r=receipts[e.id];
+                return<tr key={e.id} style={{borderBottom:"1px solid "+T.brd,background:i%2===0?"transparent":T.bg+"50"}}>
+                  <td style={{padding:"7px",fontWeight:700,color:T.text,textAlign:"right"}}>{e.name}{e.job?<span style={{fontSize:FS-3,color:T.textMut,marginInlineStart:6}}>({e.job})</span>:""}</td>
+                  <td style={{padding:"7px",textAlign:"center",fontFamily:"monospace",color:T.accent,fontWeight:700}}>{e.code||"—"}</td>
+                  <td style={{padding:"7px",textAlign:"center",fontWeight:800,color:r?T.ok:T.err}}>{fmt0(c?c.thursdayPay:0)}</td>
+                  <td style={{padding:"7px",textAlign:"center"}}>
+                    {r?<span style={{padding:"3px 10px",borderRadius:6,background:T.ok+"15",color:T.ok,fontSize:FS-2,fontWeight:800}}>✓ تأكّد</span>
+                       :<span style={{padding:"3px 10px",borderRadius:6,background:T.err+"15",color:T.err,fontSize:FS-2,fontWeight:800}}>⏳ متبقي</span>}
+                  </td>
+                  <td style={{padding:"7px",textAlign:"center",fontSize:FS-3,color:T.textMut}}>
+                    {r?new Date(r.at).toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit"}):"—"}
+                  </td>
+                </tr>;
+              })}
+            </tbody></table>
+          </div>}
+        </Card>
+      </div>;
+    })()}
+
+    {/* ══ V14.63: DETAILED REVIEW POPUP — shows full salary details to employee ══ */}
+    {verifyReview&&(()=>{
+      const{emp,salary,week:w}=verifyReview;
+      if(!salary)return null;
+      const close=()=>{setVerifyReview(null);setTimeout(()=>setVerifyScanning(true),100)};
+      /* Inline handlers — popup is outside IIFE scope so helpers must live here */
+      const confirmReview=()=>{
+        const amount=salary?salary.thursdayPay:0;
+        const nowIso=new Date().toISOString();
+        upConfig(d=>{
+          const wi=(d.hrWeeks||[]).findIndex(x=>x.id===w.id);if(wi<0)return;
+          if(!d.hrWeeks[wi].receipts)d.hrWeeks[wi].receipts={};
+          d.hrWeeks[wi].receipts[emp.id]={at:nowIso,by:userName||"",verifiedAt:nowIso,verifiedBy:userName||"",mode:"detailed"};
+          if(!Array.isArray(d.auditLog))d.auditLog=[];
+          d.auditLog.unshift({
+            id:Math.random().toString(36).slice(2)+Date.now(),
+            category:"week",action:"salary_receipt_verified",
+            target:"W"+w.weekNum+" — "+emp.name,
+            newValue:"✅ تأكيد استلام مرتب — "+fmt0(amount)+" ج (مفصّل - الموظف راجع التفاصيل)",
+            notes:"المحاسب الثاني (التأكيد): "+(userName||"—")+" | وضع: مفصّل",
+            at:nowIso,severity:"info"
+          });
+        });
+        playBeep("done");
+        setVerifyLastScan({emp,amount,at:nowIso,canUndo:true});
+        setTimeout(()=>setVerifyLastScan(prev=>prev&&prev.emp.id===emp.id?null:prev),10000);
+        setVerifyReview(null);
+        setTimeout(()=>setVerifyScanning(true),100);
+      };
+      const reportIssueReview=()=>{
+        const amount=salary?salary.thursdayPay:0;
+        const nowIso=new Date().toISOString();
+        upConfig(d=>{
+          const wi=(d.hrWeeks||[]).findIndex(x=>x.id===w.id);if(wi<0)return;
+          if(!d.hrWeeks[wi].receiptIssues)d.hrWeeks[wi].receiptIssues={};
+          d.hrWeeks[wi].receiptIssues[emp.id]={at:nowIso,by:userName||"",amount};
+          if(!Array.isArray(d.auditLog))d.auditLog=[];
+          d.auditLog.unshift({
+            id:Math.random().toString(36).slice(2)+Date.now(),
+            category:"week",action:"salary_receipt_issue",
+            target:"W"+w.weekNum+" — "+emp.name,
+            newValue:"⚠️ مشكلة في الاستلام — "+fmt0(amount)+" ج",
+            notes:"المحاسب الثاني رفع مشكلة: "+(userName||"—")+" | تحتاج مراجعة مع المحاسب الأول",
+            at:nowIso,severity:"warning"
+          });
+        });
+        playBeep("error");
+        showToast("⚠️ تم تسجيل مشكلة في استلام "+emp.name+" — يتم المراجعة");
+        setVerifyReview(null);
+        setTimeout(()=>setVerifyScanning(true),100);
+      };
+      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:10005,display:"flex",alignItems:"center",justifyContent:"center",padding:12,backdropFilter:"blur(6px)"}} onClick={close}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,width:"100%",maxWidth:isMob?"100%":620,maxHeight:"95vh",overflowY:"auto",border:"3px solid "+T.ok,boxShadow:"0 25px 70px rgba(0,0,0,0.5)",display:"flex",flexDirection:"column"}}>
+          {/* Sticky header */}
+          <div style={{padding:"14px 20px",borderBottom:"2px solid "+T.ok+"25",display:"flex",justifyContent:"space-between",alignItems:"center",background:T.cardSolid,position:"sticky",top:0,zIndex:2}}>
+            <div style={{fontSize:FS+3,fontWeight:900,color:T.ok,display:"flex",alignItems:"center",gap:8}}>
+              <span>📄</span><span>مراجعة مرتب — W{w.weekNum}</span>
+            </div>
+            <span onClick={close} style={{cursor:"pointer",fontSize:26,color:T.textMut,padding:4,lineHeight:1}}>✕</span>
+          </div>
+
+          <div style={{padding:20}}>
+            {/* Employee header — blue card */}
+            <div style={{padding:"16px 18px",borderRadius:14,background:T.accent+"08",border:"2px solid "+T.accent+"25",marginBottom:14}}>
+              <div style={{fontSize:FS+10,fontWeight:900,color:T.text,lineHeight:1.2,marginBottom:8}}>👤 {emp.name}</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:isMob?8:14,fontSize:FS,color:T.textSec,fontWeight:600}}>
+                {emp.job&&<span>🏭 <b style={{color:T.text}}>{emp.job}</b></span>}
+                {emp.code&&<span>🔢 كود: <b style={{color:T.accent,fontFamily:"monospace"}}>{emp.code}</b></span>}
+                {emp.code&&<span>🖐️ بصمة: <b style={{color:T.accent,fontFamily:"monospace"}}>{emp.code}</b></span>}
+              </div>
+            </div>
+
+            {/* Earnings — green card */}
+            <div style={{padding:"14px 16px",borderRadius:14,background:T.ok+"06",border:"2px solid "+T.ok+"25",marginBottom:12}}>
+              <div style={{fontSize:FS+1,fontWeight:900,color:T.ok,marginBottom:10,paddingBottom:6,borderBottom:"1px solid "+T.ok+"25"}}>💰 الاستحقاقات</div>
+              {/* Basic salary */}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",fontSize:FS+1,fontWeight:700,color:T.text}}>
+                <div>
+                  <div>المرتب الأساسي</div>
+                  <div style={{fontSize:FS-2,color:T.textMut,fontWeight:500,marginTop:2}}>({r2(salary.basicHours)} ساعة × {r2(salary.perHour)} ج)</div>
+                </div>
+                <div style={{fontFamily:"monospace",color:T.ok,fontSize:FS+3,fontWeight:900}}>{fmt0(salary.basicPay)} ج</div>
+              </div>
+              {/* Overtime */}
+              {salary.overtimeHours>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",fontSize:FS+1,fontWeight:700,color:T.text,borderTop:"1px dashed "+T.brd}}>
+                <div>
+                  <div>الإضافي ({r2(salary.overtimeHours)} ساعة)</div>
+                  <div style={{fontSize:FS-2,color:T.textMut,fontWeight:500,marginTop:2}}>(× {OT_MULT || 1.5})</div>
+                </div>
+                <div style={{fontFamily:"monospace",color:T.ok,fontSize:FS+3,fontWeight:900}}>{fmt0(salary.overtimePay)} ج</div>
+              </div>}
+              {/* Bonus */}
+              {salary.bonus>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",fontSize:FS+1,fontWeight:700,color:T.text,borderTop:"1px dashed "+T.brd}}>
+                <div>🎁 الحافز</div>
+                <div style={{fontFamily:"monospace",color:T.ok,fontSize:FS+3,fontWeight:900}}>{fmt0(salary.bonus)} ج</div>
+              </div>}
+              {/* Total earnings */}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0 0",marginTop:6,borderTop:"2px solid "+T.ok+"40",fontSize:FS+2,fontWeight:900,color:T.ok}}>
+                <span>الإجمالي المستحق</span>
+                <span style={{fontFamily:"monospace",fontSize:FS+5}}>{fmt0(salary.grossPay+salary.bonus)} ج</span>
+              </div>
+            </div>
+
+            {/* Deductions — orange card */}
+            {(salary.weekAdvances>0||salary.specialDeduct>0||salary.debtInstall>0)&&<div style={{padding:"14px 16px",borderRadius:14,background:T.warn+"06",border:"2px solid "+T.warn+"30",marginBottom:12}}>
+              <div style={{fontSize:FS+1,fontWeight:900,color:T.warn,marginBottom:10,paddingBottom:6,borderBottom:"1px solid "+T.warn+"25"}}>📉 المخصومات</div>
+              {salary.weekAdvances>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",fontSize:FS+1,fontWeight:700,color:T.text}}>
+                <span>سلفة</span>
+                <span style={{fontFamily:"monospace",color:T.warn,fontSize:FS+2,fontWeight:900}}>- {fmt0(salary.weekAdvances)} ج</span>
+              </div>}
+              {salary.debtInstall>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",fontSize:FS+1,fontWeight:700,color:T.text,borderTop:"1px dashed "+T.brd}}>
+                <span>خصم (قسط)</span>
+                <span style={{fontFamily:"monospace",color:T.warn,fontSize:FS+2,fontWeight:900}}>- {fmt0(salary.debtInstall)} ج</span>
+              </div>}
+              {salary.specialDeduct>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",fontSize:FS+1,fontWeight:700,color:T.text,borderTop:"1px dashed "+T.brd}}>
+                <span>خصم خاص</span>
+                <span style={{fontFamily:"monospace",color:T.warn,fontSize:FS+2,fontWeight:900}}>- {fmt0(salary.specialDeduct)} ج</span>
+              </div>}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0 0",marginTop:6,borderTop:"2px solid "+T.warn+"40",fontSize:FS+1,fontWeight:900,color:T.warn}}>
+                <span>إجمالي المخصوم</span>
+                <span style={{fontFamily:"monospace",fontSize:FS+2}}>- {fmt0((salary.weekAdvances||0)+(salary.specialDeduct||0)+(salary.debtInstall||0))} ج</span>
+              </div>
+            </div>}
+
+            {/* Previous balance / Carried — info card */}
+            {(salary.prevBalance!==0||salary.remainingBalance!==0)&&<div style={{padding:"10px 14px",borderRadius:12,background:T.bg,border:"1px solid "+T.brd,marginBottom:12,display:"flex",flexWrap:"wrap",gap:12,justifyContent:"space-around",fontSize:FS,fontWeight:700}}>
+              {salary.prevBalance!==0&&<div>
+                <div style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>🔄 رصيد سابق</div>
+                <div style={{fontFamily:"monospace",fontWeight:900,color:salary.prevBalance>0?T.warn:T.ok,fontSize:FS+2}}>{salary.prevBalance>0?"+":""}{fmt0(salary.prevBalance)} ج</div>
+              </div>}
+              {salary.remainingBalance!==0&&<div>
+                <div style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>⏭️ مرحّل للأسبوع القادم</div>
+                <div style={{fontFamily:"monospace",fontWeight:900,color:salary.remainingBalance>0?T.warn:T.ok,fontSize:FS+2}}>{salary.remainingBalance>0?"+":""}{fmt0(salary.remainingBalance)} ج</div>
+              </div>}
+            </div>}
+
+            {/* BIG NET AMOUNT — the main focus */}
+            <div style={{padding:"20px 24px",borderRadius:18,background:"linear-gradient(135deg, "+T.ok+"15, "+T.ok+"08)",border:"3px solid "+T.ok,marginBottom:16,textAlign:"center"}}>
+              <div style={{fontSize:FS,color:T.textSec,fontWeight:700,marginBottom:8}}>💵 المطلوب دفعه للموظف</div>
+              <div style={{fontSize:isMob?38:48,fontWeight:900,color:T.ok,lineHeight:1,fontFamily:"monospace"}}>{fmt0(salary.thursdayPay)}</div>
+              <div style={{fontSize:FS+1,color:T.ok,fontWeight:800,marginTop:4}}>ج.م</div>
+            </div>
+
+            {/* Confirmation prompt */}
+            <div style={{padding:"12px 16px",borderRadius:12,background:T.accent+"08",border:"1px solid "+T.accent+"25",marginBottom:14,textAlign:"center"}}>
+              <div style={{fontSize:FS+1,fontWeight:800,color:T.text,lineHeight:1.5}}>
+                هل استلم <b style={{color:T.accent}}>{emp.name}</b> مبلغ <b style={{color:T.ok,fontFamily:"monospace"}}>{fmt0(salary.thursdayPay)} ج.م</b> كاملاً؟
+              </div>
+            </div>
+
+            {/* Action buttons — big and clear */}
+            <div style={{display:"flex",gap:10,flexDirection:isMob?"column":"row"}}>
+              <Btn onClick={reportIssueReview} style={{flex:1,background:T.err,color:"#fff",border:"none",fontWeight:900,padding:"14px 20px",fontSize:FS+2}}>⚠️ مشكلة — للمراجعة</Btn>
+              <Btn onClick={confirmReview} style={{flex:2,background:T.ok,color:"#fff",border:"none",fontWeight:900,padding:"14px 20px",fontSize:FS+2}}>✅ تأكيد الاستلام</Btn>
+            </div>
+          </div>
+        </div>
+      </div>;
+    })()}
 
     {/* ══ SECURITY & AUDIT — Dashboard, Flags, Audit Log ══ */}
     {view==="security"&&(()=>{
