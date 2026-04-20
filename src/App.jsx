@@ -7132,6 +7132,46 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
     setActiveSession(sess.id);setShowNewSession(false);setSelModels({});setSelCusts({});showToast("✓ تم انشاء التسليم")};
 
   const saveCell=(sessId,orderId,custId,newQty)=>{
+    /* V14.64: Check if orderId is a virtual group id (starts with "GRP:") */
+    if(typeof orderId==="string"&&orderId.startsWith("GRP:")){
+      const groupKey=orderId.substring(4);
+      const group=aMods.find(g=>g.key===groupKey);
+      if(!group){setCellError("مجموعة غير موجودة");return}
+      /* Validate — rackSize must match across all sub-orders (safety) */
+      const rackSize=group.rackSize||1;
+      if(newQty>0&&newQty%rackSize!==0){setCellError("الكمية "+newQty+" مش من مضاعفات السيري ("+rackSize+") — جرب "+Math.round(newQty/rackSize)*rackSize);return}
+      setCellError("");
+      /* FIFO distribution: take from oldest sub-order first */
+      let remaining=Math.max(0,newQty);
+      const distribution={};/* orderId → qty to set */
+      for(const so of group.subOrders){
+        if(remaining<=0){distribution[so.id]=0;continue}
+        const sm=stockModels.find(m=>m.id===so.id);
+        if(!sm){distribution[so.id]=0;continue}
+        /* Calculate available capacity in this sub-order (stock - already planned in OTHER cells for this order) */
+        const sess=sessions.find(s=>s.id===sessId);
+        const otherCellsPlan=Object.entries(sess?.grid||{}).filter(([k])=>{const[oid,cid]=k.split("_");return oid===so.id&&cid!==custId}).reduce((s,[_,v])=>s+(Number(v)||0),0);
+        const capacity=Math.max(0,(sm.avail||0)-otherCellsPlan);
+        const take=Math.min(remaining,capacity);
+        distribution[so.id]=take;
+        remaining-=take;
+      }
+      /* If still remaining after all sub-orders — put overflow in oldest sub-order (warn) */
+      if(remaining>0){
+        distribution[group.subOrders[0].id]=(distribution[group.subOrders[0].id]||0)+remaining;
+        showToast("⚠️ الكمية ("+newQty+") أكبر من المتاح — تحذير فقط (مخطط)");
+      }
+      /* Apply all updates in one upSales call */
+      upSales(d=>{const si=d.custDeliverySessions.findIndex(s=>s.id===sessId);if(si<0)return;if(!d.custDeliverySessions[si].grid)d.custDeliverySessions[si].grid={};
+        Object.entries(distribution).forEach(([oid,q])=>{
+          if(q>0)d.custDeliverySessions[si].grid[oid+"_"+custId]=q;
+          else delete d.custDeliverySessions[si].grid[oid+"_"+custId];
+        });
+      });
+      setEditCell(null);
+      return;
+    }
+    /* LEGACY PATH — direct orderId (for single-order groups, kept for safety) */
     const rackSize=getRackSize(orderId);
     if(newQty>0&&newQty%rackSize!==0){setCellError("الكمية "+newQty+" مش من مضاعفات السيري ("+rackSize+") — جرب "+Math.round(newQty/rackSize)*rackSize);return}
     setCellError("");
@@ -7182,11 +7222,50 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
   const getCustTotal=(custId)=>custTotalsMap.get(custId)||orders.reduce((s,o)=>{const del=(o.customerDeliveries||[]).filter(d=>d.custId===custId).reduce((ss,d)=>ss+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).filter(r=>r.custId===custId).reduce((ss,r)=>ss+(Number(r.qty)||0),0);return s+del-ret},0);
   const sortedSessions=useMemo(()=>[...sessions].sort((a,b)=>(b.createdAt||b.date||"").localeCompare(a.createdAt||a.date||"")),[sessions]);
   const activeSess=sessions.find(s=>s.id===activeSession);
-  const aMods=activeSess?activeSess.modelIds.map(id=>{const sm=stockModels.find(m=>m.id===id);const o=orders.find(x=>x.id===id);if(!o)return null;const sd=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return sm||{id,modelNo:o.modelNo,modelDesc:o.modelDesc,stockQty:sd,rackSize:getRackSize(id)}}).filter(Boolean):[];
+  /* V14.64: Group models by modelNo — FIFO (oldest order first). Each group has virtual id and sub-orders sorted oldest→newest. */
+  const aModsRaw=activeSess?activeSess.modelIds.map(id=>{const sm=stockModels.find(m=>m.id===id);const o=orders.find(x=>x.id===id);if(!o)return null;const sd=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return sm||{id,modelNo:o.modelNo,modelDesc:o.modelDesc,stockQty:sd,rackSize:getRackSize(id)}}).filter(Boolean):[];
+  /* Build grouped view — one entry per modelNo, with subOrders sorted by createdAt (FIFO) */
+  const aMods=useMemo(()=>{
+    if(!activeSess)return[];
+    const groups={};
+    aModsRaw.forEach(m=>{
+      const o=orders.find(x=>x.id===m.id);if(!o)return;
+      const key=o.modelNo||m.id;
+      if(!groups[key])groups[key]={key,modelNo:o.modelNo,modelDesc:o.modelDesc||m.modelDesc,rackSize:m.rackSize,subOrders:[]};
+      groups[key].subOrders.push({id:m.id,stockQty:m.stockQty,createdAt:o.createdAt||o.id,modelDesc:o.modelDesc||m.modelDesc});
+    });
+    /* Return array with subOrders sorted FIFO (oldest first), totals aggregated */
+    return Object.values(groups).map(g=>{
+      g.subOrders.sort((a,b)=>(a.createdAt||"").localeCompare(b.createdAt||""));
+      g.id="GRP:"+g.key;/* Virtual grouped id */
+      g.orderIds=g.subOrders.map(s=>s.id);
+      g.stockQty=g.subOrders.reduce((s,x)=>s+(Number(x.stockQty)||0),0);
+      g.isGrouped=g.subOrders.length>1;
+      return g;
+    });
+  },[activeSess,aModsRaw,orders]);
   const aCusts=activeSess?activeSess.custIds.map(id=>customers.find(c=>c.id===id)).filter(Boolean):[];
   const fMods=gridModelF.trim()?aMods.filter(m=>(m.modelNo||"").includes(gridModelF)||(m.modelDesc||"").includes(gridModelF)):aMods;
   const fCusts=gridCustF.trim()?aCusts.filter(c=>(c.name||"").includes(gridCustF)||(c.phone||"").includes(gridCustF)):aCusts;
   const aGrid=activeSess?.grid||{};
+  /* V14.64: Helper to get merged quantity for a group + customer (sum of all sub-orders) */
+  const getGroupQty=(group,custId)=>{
+    if(!group.isGrouped)return Number(aGrid[group.orderIds[0]+"_"+custId])||0;
+    return group.orderIds.reduce((s,oid)=>s+(Number(aGrid[oid+"_"+custId])||0),0);
+  };
+  /* V14.64: Helper to build breakdown string (tooltip) */
+  const getGroupBreakdown=(group,custId)=>{
+    if(!group.isGrouped)return"";
+    const parts=[];
+    group.subOrders.forEach((so,i)=>{
+      const q=Number(aGrid[so.id+"_"+custId])||0;
+      if(q>0){
+        const dt=so.createdAt?(so.createdAt.split("T")[0]||so.createdAt.substring(0,10)):"—";
+        parts.push("تشغيل "+(i+1)+" ("+dt+"): "+q+" قطعة");
+      }
+    });
+    return parts.length>0?parts.join("\n"):"لم يتم التوزيع بعد";
+  };
   const isSessClosed=activeSess?.status==="تم التسليم";
   const sessCanEdit=canEdit&&!isSessClosed;/* Allow editing after sales — stock validation handles limits. Block only if closed */
   const closeMatrix=(forceKeep)=>{if(!activeSess){setActiveSession(null);return}
@@ -7646,42 +7725,58 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:fMods.length*90+180}}>
           <thead style={{position:"sticky",top:0,zIndex:10,background:T.cardSolid}}><tr>
             <th style={{...TH,minWidth:130}}>العميل</th>
-            {fMods.map(m=><th key={m.id} style={{...TH,textAlign:"center",minWidth:60,fontSize:FS-2,padding:"4px 6px"}}><div style={{fontWeight:800,color:T.accent,whiteSpace:"nowrap"}}>{m.modelNo}</div><div style={{fontSize:FS-3,color:T.textMut,whiteSpace:"nowrap"}}>{(m.rackSize||getRackSize(m.id))+"س"}</div>
-              {sessCanEdit&&<div onClick={async()=>{const hasDeliveries=orders.some(o=>o.id===m.id&&(o.customerDeliveries||[]).some(d=>d.sessionId===activeSess.id));
+            {fMods.map(m=><th key={m.id} style={{...TH,textAlign:"center",minWidth:60,fontSize:FS-2,padding:"4px 6px"}}><div style={{fontWeight:800,color:T.accent,whiteSpace:"nowrap"}}>{m.modelNo}{m.isGrouped&&<span style={{fontSize:FS-3,color:"#8B5CF6",marginInlineStart:4,fontWeight:700}} title={"مدموج من "+m.subOrders.length+" تشغيلات (FIFO)"}>⧉{m.subOrders.length}</span>}</div><div style={{fontSize:FS-3,color:T.textMut,whiteSpace:"nowrap"}}>{(m.rackSize||getRackSize(m.orderIds?.[0]||m.id))+"س"}</div>
+              {sessCanEdit&&<div onClick={async()=>{
+                /* V14.64: Check all sub-orders for deliveries */
+                const orderIdsToCheck=m.orderIds||[m.id];
+                const hasDeliveries=orderIdsToCheck.some(oid=>orders.some(o=>o.id===oid&&(o.customerDeliveries||[]).some(d=>d.sessionId===activeSess.id)));
                 if(hasDeliveries){showToast("⛔ لا يمكن حذف موديل لديه بيع فعلي");return}
-                if(!await ask("حذف موديل","حذف موديل "+m.modelNo+" من التوزيعة؟",{danger:true}))return;
-                upSales(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===activeSess.id);if(si>=0){d.custDeliverySessions[si].modelIds=d.custDeliverySessions[si].modelIds.filter(id=>id!==m.id);const g=d.custDeliverySessions[si].grid||{};Object.keys(g).forEach(k=>{if(k.startsWith(m.id+"_"))delete g[k]})}});showToast("✓ تم حذف "+m.modelNo)}} style={{cursor:"pointer",fontSize:9,color:T.err,marginTop:2}}>✕ حذف</div>}
+                if(!await ask("حذف موديل","حذف موديل "+m.modelNo+(m.isGrouped?" ("+m.subOrders.length+" تشغيلات)":"")+" من التوزيعة؟",{danger:true}))return;
+                upSales(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===activeSess.id);if(si>=0){
+                  d.custDeliverySessions[si].modelIds=d.custDeliverySessions[si].modelIds.filter(id=>!orderIdsToCheck.includes(id));
+                  const g=d.custDeliverySessions[si].grid||{};
+                  Object.keys(g).forEach(k=>{const[oid]=k.split("_");if(orderIdsToCheck.includes(oid))delete g[k]});
+                }});
+                showToast("✓ تم حذف "+m.modelNo);
+              }} style={{cursor:"pointer",fontSize:9,color:T.err,marginTop:2}}>✕ حذف</div>}
             </th>)}
             <th style={{...TH,textAlign:"center",background:"#0284C715",color:T.accent,fontWeight:800}}>اجمالي</th>
             <th style={{...TH,width:70}}></th>
           </tr></thead>
           <tbody>
-            {fCusts.map((c,ci)=>{const rowTotal=fMods.reduce((s,m)=>s+(Number(aGrid[m.id+"_"+c.id])||0),0);
+            {fCusts.map((c,ci)=>{const rowTotal=fMods.reduce((s,m)=>s+getGroupQty(m,c.id),0);
               return<tr key={c.id} style={{background:ci%2===0?"transparent":T.bg+"80"}}>
                 <td style={{...TD,fontWeight:700}}>{c.name}<div style={{fontSize:FS-3,color:T.textMut}}>{c.phone}</div></td>
-                {fMods.map((m,mi)=>{const k=m.id+"_"+c.id;const q=Number(aGrid[k])||0;const isEd=editCell===k;
+                {fMods.map((m,mi)=>{const k=m.id+"_"+c.id;const q=getGroupQty(m,c.id);const isEd=editCell===k;
+                  const breakdown=m.isGrouped?getGroupBreakdown(m,c.id):"";
                   return<td key={m.id} style={{...TD,textAlign:"center",padding:2,cursor:canEdit?"pointer":"default",background:isEd?T.warn+"10":q>0?T.ok+"04":"transparent"}}
+                    title={m.isGrouped&&q>0?breakdown:undefined}
                     onClick={()=>{if(!sessCanEdit||isEd)return;setEditCell(k);setEditVal(q);setCellError("")}}>
                     {isEd?<div style={{display:"flex",alignItems:"center",gap:1}}><input type="number" autoFocus value={editVal}
                       onFocus={e=>e.target.select()}
                       onChange={e=>{setEditVal(Number(e.target.value)||0);setCellError("")}}
                       onBlur={()=>{setTimeout(()=>{if(editCell===k)saveCell(activeSess.id,m.id,c.id,editVal)},150)}}
                       onKeyDown={e=>{if(e.key==="Enter"){saveCell(activeSess.id,m.id,c.id,editVal)}
-                        if(e.key==="Tab"){e.preventDefault();saveCell(activeSess.id,m.id,c.id,editVal);const nextMi=mi+1;if(nextMi<fMods.length){const nk=fMods[nextMi].id+"_"+c.id;setTimeout(()=>{setEditCell(nk);setEditVal(Number(aGrid[nk])||0)},50)}}
+                        if(e.key==="Tab"){e.preventDefault();saveCell(activeSess.id,m.id,c.id,editVal);const nextMi=mi+1;if(nextMi<fMods.length){const nk=fMods[nextMi].id+"_"+c.id;setTimeout(()=>{setEditCell(nk);setEditVal(getGroupQty(fMods[nextMi],c.id))},50)}}
                         if(e.key==="Escape"){setEditCell(null);setCellError("")}}}
                       style={{width:"100%",textAlign:"center",border:"2px solid "+T.accent,borderRadius:6,padding:"4px 2px",fontSize:FS,fontWeight:700,fontFamily:"inherit",outline:"none",background:T.bg,color:T.text,boxSizing:"border-box"}}/>
                       <span onMouseDown={e=>{e.preventDefault();setEditCell(null);setCellError("")}} style={{cursor:"pointer",fontSize:10,color:T.err,flexShrink:0,padding:"0 2px"}}>✕</span></div>
                     :<div><span style={{fontWeight:q>0?800:400,color:q>0?T.accent:T.textMut+"50",fontSize:q>0?FS:FS-2}}>{q||"—"}</span>
-                    {(()=>{const delivered=getDeliveredForSess(c.id,activeSess.id,m.id);if(delivered>0){const rem=q-delivered;return<div style={{fontSize:FS-3,lineHeight:1}}><span style={{color:"#10B981"}}>{"✓"+delivered}</span>{rem>0&&<span style={{color:"#F59E0B"}}>{" ⏳"+rem}</span>}</div>}return null})()}</div>}
+                      {m.isGrouped&&q>0&&<span style={{fontSize:FS-4,color:"#8B5CF6",marginInlineStart:3,fontWeight:700}} title={breakdown}>ⓘ</span>}
+                    {(()=>{
+                      /* V14.64: Sum delivered across all sub-orders */
+                      const orderIds=m.orderIds||[m.id];
+                      const delivered=orderIds.reduce((s,oid)=>s+getDeliveredForSess(c.id,activeSess.id,oid),0);
+                      if(delivered>0){const rem=q-delivered;return<div style={{fontSize:FS-3,lineHeight:1}}><span style={{color:"#10B981"}}>{"✓"+delivered}</span>{rem>0&&<span style={{color:"#F59E0B"}}>{" ⏳"+rem}</span>}</div>}return null})()}</div>}
                   </td>})}
                 <td style={{...TD,textAlign:"center",fontWeight:800,color:T.accent,background:"#0284C706",fontSize:FS+1}}>{rowTotal||"—"}</td>
                 <td style={{...TD,whiteSpace:"nowrap",padding:"2px 4px"}}>{rowTotal>0&&<div style={{display:"flex",gap:2}}>
                   <Btn small onClick={()=>{let h="<h2>🚚 اذن تسليم عميل</h2><table><tr><th>العميل</th><td><b>"+c.name+"</b></td><th>التليفون</th><td>"+c.phone+"</td></tr><tr><th>التاريخ</th><td>"+activeSess.date+"</td><th>العنوان</th><td>"+(c.address||"—")+"</td></tr></table><h2>تفاصيل الاستلام</h2><table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th></tr></thead><tbody>";
-                    aMods.forEach(m=>{const q=Number(aGrid[m.id+"_"+c.id])||0;if(q>0)h+="<tr><td><b>"+m.modelNo+"</b></td><td>"+(m.modelDesc||"")+"</td><td style='font-weight:800;color:#0284C7'>"+q+"</td></tr>"});
+                    aMods.forEach(m=>{const q=getGroupQty(m,c.id);if(q>0)h+="<tr><td><b>"+m.modelNo+"</b></td><td>"+(m.modelDesc||"")+"</td><td style='font-weight:800;color:#0284C7'>"+q+"</td></tr>"});
                     h+="<tr style='background:#F1F5F9'><td colspan='2' style='font-weight:800'>الاجمالي</td><td style='font-weight:800;color:#0284C7;font-size:14px'>"+rowTotal+" قطعة</td></tr></tbody></table>";
                     h+="<div class='sig'><div class='sig-box'>مسؤول التسليم</div><div class='sig-box'>توقيع العميل<br/>"+c.name+"</div></div>";
                     printPage("اذن تسليم — "+c.name,h)}} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30",fontSize:9,padding:"2px 5px"}} title="طباعة">🖨</Btn>
-                  <Btn small onClick={()=>{const lines=aMods.map(m=>{const q=Number(aGrid[m.id+"_"+c.id])||0;return q>0?"• موديل *"+m.modelNo+"*: *"+q+"* قطعة":null}).filter(Boolean).join("%0A");
+                  <Btn small onClick={()=>{const lines=aMods.map(m=>{const q=getGroupQty(m,c.id);return q>0?"• موديل *"+m.modelNo+"*: *"+q+"* قطعة":null}).filter(Boolean).join("%0A");
                     const msg="*CLARK — اذن تسليم عميل*%0A%0A• العميل: *"+c.name+"*%0A• التاريخ: *"+activeSess.date+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+rowTotal+"* قطعة%0A%0A*برجاء التأكيد*";
                     window.open("https://wa.me/"+(c.phone?c.phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",fontSize:9,padding:"2px 5px"}} title="ارسال واتساب">📱</Btn>
                   <Btn small onClick={()=>{setShipPopup({cust:c,total:rowTotal});setShipCount(1)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30",fontSize:9,padding:"2px 5px"}} title="طباعة ليبل">🏷️</Btn>
@@ -7691,8 +7786,8 @@ function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEd
                 </div>}</td>
               </tr>})}
             <tr style={{background:T.ok+"08"}}><td style={{...TD,fontWeight:800,color:T.ok}}>اجمالي توزيع</td>
-              {fMods.map(m=>{const mt=fCusts.reduce((s,c)=>s+(Number(aGrid[m.id+"_"+c.id])||0),0);return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,color:T.ok}}>{mt||"—"}</td>})}
-              <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#fff",background:T.ok}}>{fCusts.reduce((s,c)=>s+fMods.reduce((ss,m)=>ss+(Number(aGrid[m.id+"_"+c.id])||0),0),0)}</td><td style={TD}></td></tr>
+              {fMods.map(m=>{const mt=fCusts.reduce((s,c)=>s+getGroupQty(m,c.id),0);return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,color:T.ok}}>{mt||"—"}</td>})}
+              <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#fff",background:T.ok}}>{fCusts.reduce((s,c)=>s+fMods.reduce((ss,m)=>ss+getGroupQty(m,c.id),0),0)}</td><td style={TD}></td></tr>
             <tr><td style={{...TD,fontWeight:700,color:T.textSec}}>استلام مخزن جاهز</td>
               {aMods.map(m=><td key={m.id} style={{...TD,textAlign:"center",fontWeight:700}}>{m.stockQty}</td>)}
               <td style={TD}></td><td style={TD}></td></tr>
@@ -16937,7 +17032,26 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   };
 
   /* ── Approve & Close Week ── */
-  const approveWeek=(customCloseDate)=>{if(!openWeek||openWeek.status==="closed")return;
+  /* V14.66: Pre-approval receipt check popup */
+  const[preApprovalBlocker,setPreApprovalBlocker]=useState(null);/* {week, notSigned:[], customCloseDate} */
+  const[overrideConfirmText,setOverrideConfirmText]=useState("");
+  /* V14.66: Wrapper — checks all employees signed before approval. If not, shows blocker popup. */
+  const tryApproveWeek=(customCloseDate)=>{
+    if(!openWeek||openWeek.status==="closed")return;
+    const weekSelected=getSelectedEmps(openWeek.id);
+    const wkEmps=activeEmps.filter(e=>weekSelected.includes(e.id));
+    const receipts=openWeek.receipts||{};
+    const notSigned=wkEmps.filter(e=>!receipts[e.id]);
+    if(notSigned.length===0){
+      /* All signed — proceed */
+      approveWeek(customCloseDate);
+      return;
+    }
+    /* Some haven't signed — block and show popup */
+    setOverrideConfirmText("");
+    setPreApprovalBlocker({week:openWeek,notSigned,customCloseDate:customCloseDate||""});
+  };
+  const approveWeek=(customCloseDate,overrideReason)=>{if(!openWeek||openWeek.status==="closed")return;
     const actualCloseDate=new Date().toISOString().split("T")[0];/* The REAL date, not editable */
     const actualCloseTs=new Date().toISOString();
     const useDate=(customCloseDate&&customCloseDate.trim())?customCloseDate.trim():actualCloseDate;
@@ -17081,6 +17195,22 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         d.hrWeeks[wi].actualClosedAt=actualCloseDate;/* REAL close date — immutable, for audit */
         d.hrWeeks[wi].actualClosedTs=actualCloseTs;/* Timestamp with time */
         d.hrWeeks[wi].closedBy=userName;
+        /* V14.66: Track if closed with override (some employees didn't sign) */
+        if(overrideReason){
+          d.hrWeeks[wi].closedWithOverride=true;
+          d.hrWeeks[wi].overrideReason=overrideReason;
+          /* Audit entry — danger severity */
+          if(!Array.isArray(d.auditLog))d.auditLog=[];
+          d.auditLog.unshift({
+            id:Math.random().toString(36).slice(2)+Date.now(),
+            category:"week",
+            action:"approval_without_verification",
+            target:"W"+openWeek.weekNum+" ("+openWeek.weekStart+" → "+openWeek.weekEnd+")",
+            newValue:"🚨 إقفال بدون توقيعات مكتملة",
+            notes:"تم الإقفال رغم وجود موظفين لم يوقعوا — المبرر: "+overrideReason+" — بواسطة: "+(userName||"—"),
+            at:new Date().toISOString(),severity:"danger"
+          });
+        }
         d.hrWeeks[wi].totalGross=r2(totalGross);
         d.hrWeeks[wi].totalNet=r2(totalNet);
         d.hrWeeks[wi].totalThursdayPay=r2(totalThursdayPay);
@@ -17698,8 +17828,8 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               <span style={{fontWeight:800,color:wNext>0?T.warn:wNext<0?T.ok:T.textMut}}>{wNext?fmt0(wNext):"—"}</span>
             </span>
           </div>
-          {/* V14.62: Receipt verification status row (closed weeks only) */}
-          {isClosedW&&(()=>{
+          {/* V14.62: Receipt verification status row — V14.66: Show for both closed AND open weeks */}
+          {(isClosedW||Object.keys(w.receipts||{}).length>0)&&(()=>{
             const wkSelected=(w.selectedEmps&&Array.isArray(w.selectedEmps))?w.selectedEmps:[];
             const wkEmps=activeEmps.filter(e=>wkSelected.includes(e.id));
             const receipts=w.receipts||{};
@@ -19640,6 +19770,10 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             <div style={{flex:1,minWidth:180}}>
               <Inp value={qe.search} onChange={v=>setQuickEntryPopup(p=>({...p,search:v}))} placeholder="🔍 ابحث بالاسم، الكود، الوظيفة..."/>
             </div>
+            {/* V14.65: Paste from Excel button */}
+            <Btn small onClick={()=>setQuickEntryPopup(p=>({...p,showPaste:!p.showPaste,pasteText:""}))} style={{background:qe.showPaste?"#10B981":"#10B98112",color:qe.showPaste?"#fff":"#10B981",border:"1px solid #10B98130",fontWeight:700,whiteSpace:"nowrap"}} title="نسخ كود + مبلغ من Excel">
+              📋 لصق من Excel
+            </Btn>
             <Btn small onClick={toggleAll} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>
               {filtered.every(e=>qe.selected[e.id])&&filtered.length>0?"☑ إلغاء الكل":"☐ اختر الكل"}
             </Btn>
@@ -19647,6 +19781,60 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               المحدد: {selCount}
             </span>}
           </div>
+
+          {/* V14.65: Paste from Excel panel */}
+          {qe.showPaste&&(()=>{
+            const applyPaste=()=>{
+              const text=(qe.pasteText||"").trim();
+              if(!text){showToast("⚠️ الصق البيانات أولاً");return}
+              const lines=text.split(/\r?\n/).filter(l=>l.trim());
+              const matched=[];
+              const unmatched=[];
+              lines.forEach((line,i)=>{
+                const parts=line.split(/[\t,;]|\s{2,}/).map(p=>p.trim()).filter(Boolean);
+                if(parts.length<2){
+                  unmatched.push({line:i+1,raw:line,reason:"سطر غير مفهوم"});
+                  return;
+                }
+                const tryCode=parts[0];
+                const tryAmount=parts[parts.length-1];
+                const emp=shownEmps.find(e=>(e.code||"").toString().trim()===tryCode.toString().trim());
+                if(!emp){
+                  const alt=shownEmps.find(e=>(e.code||"").toString().trim()===tryAmount.toString().trim());
+                  if(alt){
+                    const amt=Number(tryCode.replace(/[^\d.-]/g,""));
+                    if(!isNaN(amt))matched.push({emp:alt,amount:amt});
+                    else unmatched.push({line:i+1,raw:line,reason:"مبلغ غير صحيح"});
+                  }else{
+                    unmatched.push({line:i+1,raw:line,reason:"كود غير موجود: "+tryCode});
+                  }
+                  return;
+                }
+                const amt=Number(tryAmount.replace(/[^\d.-]/g,""));
+                if(isNaN(amt)){unmatched.push({line:i+1,raw:line,reason:"مبلغ غير صحيح"});return}
+                matched.push({emp,amount:amt});
+              });
+              if(matched.length===0){showToast("⚠️ لم يتم التعرف على أي سطر صحيح");return}
+              const newSel={...qe.selected};
+              const newVals={...qe.values};
+              matched.forEach(m=>{newSel[m.emp.id]=true;newVals[m.emp.id]=String(m.amount)});
+              setQuickEntryPopup(p=>({...p,selected:newSel,values:newVals,showPaste:false,pasteText:""}));
+              showToast("✅ تم لصق "+matched.length+" سطر"+(unmatched.length>0?" ("+unmatched.length+" غير متطابق)":""));
+            };
+            return<div style={{marginBottom:10,padding:12,borderRadius:10,background:"#10B98108",border:"2px dashed #10B98140"}}>
+              <div style={{fontSize:FS-1,fontWeight:800,color:"#10B981",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
+                <span>📋</span><span>لصق من Excel — كود + مبلغ</span>
+              </div>
+              <div style={{fontSize:FS-2,color:T.textSec,lineHeight:1.7,marginBottom:8}}>
+                انسخ عمودين من Excel: <b>الكود</b> ثم <b>المبلغ</b>. كل سطر موظف واحد.
+              </div>
+              <textarea value={qe.pasteText||""} onChange={ev=>setQuickEntryPopup(p=>({...p,pasteText:ev.target.value}))} placeholder={"1466\t200\n1477\t150\n1493\t300\n..."} rows={4} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"monospace",background:T.inputBg,color:T.text,resize:"vertical",direction:"ltr",textAlign:"left",boxSizing:"border-box"}}/>
+              <div style={{display:"flex",gap:8,marginTop:8,justifyContent:"flex-end"}}>
+                <Btn small ghost onClick={()=>setQuickEntryPopup(p=>({...p,showPaste:false,pasteText:""}))}>إلغاء</Btn>
+                <Btn small onClick={applyPaste} style={{background:"#10B981",color:"#fff",border:"none",fontWeight:800}}>✅ تطبيق اللصق</Btn>
+              </div>
+            </div>;
+          })()}
 
           {/* Employees list */}
           <div style={{flex:1,overflowY:"auto",background:T.bg,borderRadius:10,border:"1px solid "+T.brd,padding:4,minHeight:200}}>
@@ -19708,6 +19896,100 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       </div>;
     })()}
 
+    {/* ══ V14.66: PRE-APPROVAL BLOCKER — prevents closing week when employees haven't signed ══ */}
+    {preApprovalBlocker&&(()=>{
+      const pb=preApprovalBlocker;
+      const w=pb.week;
+      const notSigned=pb.notSigned||[];
+      const totalUnsigned=notSigned.reduce((s,e)=>{const c=calcSalary(e.id,w);return s+(c?c.thursdayPay:0)},0);
+      const requiredText="تأكيد الإقفال";
+      const canOverride=overrideConfirmText.trim()===requiredText;
+      const close=()=>{setPreApprovalBlocker(null);setOverrideConfirmText("")};
+      const copyList=()=>{
+        const text=notSigned.map(e=>{const c=calcSalary(e.id,w);return e.name+(e.code?" (#"+e.code+")":"")+" — "+fmt0(c?c.thursdayPay:0)+" ج"}).join("\n");
+        try{navigator.clipboard.writeText(text);showToast("✅ تم نسخ القائمة")}catch(e){showToast("⚠️ تعذر النسخ")}
+      };
+      const doOverride=()=>{
+        if(!canOverride){showToast("⚠️ اكتب كلمة التأكيد بالضبط");return}
+        close();
+        /* Pass override reason to approveWeek */
+        approveWeek(pb.customCloseDate,"تخطي التحقق من التوقيعات — "+notSigned.length+" موظف بدون توقيع");
+      };
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(220,38,38,0.15)",zIndex:10003,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={close}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:22,width:"100%",maxWidth:580,maxHeight:"92vh",overflowY:"auto",border:"3px solid "+T.err,boxShadow:"0 25px 70px rgba(220,38,38,0.35)"}}>
+          {/* Header */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:10,borderBottom:"2px solid "+T.err+"30"}}>
+            <div style={{fontSize:FS+3,fontWeight:900,color:T.err,display:"flex",alignItems:"center",gap:8}}>
+              <span>🚫</span><span>لا يمكن الإقفال</span>
+            </div>
+            <span onClick={close} style={{cursor:"pointer",fontSize:22,color:T.textMut,padding:4}}>✕</span>
+          </div>
+
+          {/* Warning message */}
+          <div style={{padding:14,borderRadius:12,background:T.err+"08",border:"2px solid "+T.err+"25",marginBottom:14,display:"flex",gap:12}}>
+            <span style={{fontSize:28,flexShrink:0}}>⚠️</span>
+            <div style={{fontSize:FS,color:T.text,lineHeight:1.7}}>
+              <b style={{color:T.err}}>يوجد {notSigned.length} موظف لم يوقّعوا</b> على استلام المرتب.<br/>
+              <span style={{fontSize:FS-1,color:T.textSec}}>المحاسب الثاني لم يسجّل توقيعهم الإلكتروني بالـ QR بعد.</span>
+            </div>
+          </div>
+
+          {/* List */}
+          <div style={{marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <span style={{fontSize:FS-1,fontWeight:700,color:T.textSec}}>الموظفين بدون توقيع:</span>
+              <Btn small onClick={copyList} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontSize:FS-2,padding:"3px 10px",fontWeight:700}}>📋 نسخ القائمة</Btn>
+            </div>
+            <div style={{maxHeight:200,overflowY:"auto",background:T.bg,borderRadius:10,border:"1px solid "+T.brd}}>
+              {notSigned.map((e,i)=>{const c=calcSalary(e.id,w);
+                return<div key={e.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",borderBottom:i===notSigned.length-1?"none":"1px solid "+T.brd,background:i%2===0?"transparent":T.cardSolid}}>
+                  <div>
+                    <div style={{fontSize:FS-1,fontWeight:700,color:T.text}}>{e.name}</div>
+                    <div style={{fontSize:FS-3,color:T.textMut}}>{e.code?"#"+e.code:""}{e.job?" • "+e.job:""}</div>
+                  </div>
+                  <div style={{fontSize:FS,fontWeight:800,color:T.err,fontFamily:"monospace"}}>{fmt0(c?c.thursdayPay:0)} ج</div>
+                </div>;
+              })}
+            </div>
+            <div style={{display:"flex",justifyContent:"flex-end",padding:"6px 12px 0",fontSize:FS-1,color:T.textSec}}>
+              الإجمالي: <b style={{color:T.err,fontFamily:"monospace",marginInlineStart:6}}>{fmt0(totalUnsigned)} ج</b>
+            </div>
+          </div>
+
+          {/* Recommendation */}
+          <div style={{padding:10,borderRadius:10,background:T.ok+"06",border:"1px solid "+T.ok+"25",marginBottom:14,fontSize:FS-1,color:T.text,lineHeight:1.6}}>
+            💡 <b>التوصية:</b> اطلب من المحاسب الثاني يسجّل توقيع هؤلاء الموظفين بالـ QR قبل الإقفال.<br/>
+            <span style={{fontSize:FS-2,color:T.textMut}}>يمكنه فتح تاب "🔐 تأكيد الاستلام" والسكان الآن.</span>
+          </div>
+
+          {/* Override section — hidden until user expands */}
+          <details style={{marginBottom:14}}>
+            <summary style={{cursor:"pointer",padding:10,borderRadius:10,background:T.warn+"08",border:"1px dashed "+T.warn+"40",fontSize:FS-1,fontWeight:700,color:T.warn}}>
+              ⚠️ تجاوز وإقفال (للطوارئ فقط) — اضغط للعرض
+            </summary>
+            <div style={{padding:12,borderRadius:10,background:T.err+"04",border:"2px dashed "+T.err+"40",marginTop:8}}>
+              <div style={{fontSize:FS-1,color:T.text,lineHeight:1.7,marginBottom:10}}>
+                <b style={{color:T.err}}>تحذير:</b> الإقفال بدون توقيع كامل <b>عملية خطرة</b> وستُسجّل في Audit Log بوضوح.<br/>
+                <span style={{fontSize:FS-2,color:T.textMut}}>قد تُؤدي لنزاع مع الموظفين أو اتهامات باختلاس.</span>
+              </div>
+              <div style={{fontSize:FS-1,color:T.text,marginBottom:6}}>
+                للتأكيد، اكتب: <code style={{fontFamily:"monospace",background:T.bg,padding:"2px 8px",borderRadius:4,fontWeight:800,color:T.err}}>{requiredText}</code>
+              </div>
+              <input type="text" value={overrideConfirmText} onChange={e=>setOverrideConfirmText(e.target.value)} placeholder="اكتب كلمة التأكيد..." style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"2px solid "+(canOverride?T.ok:T.err+"40"),fontSize:FS,fontFamily:"inherit",background:T.inputBg,color:T.text,textAlign:"center",fontWeight:700,boxSizing:"border-box"}}/>
+              <Btn onClick={doOverride} disabled={!canOverride} style={{background:canOverride?T.err:T.err+"40",color:"#fff",border:"none",fontWeight:900,padding:"12px 20px",fontSize:FS+1,width:"100%",marginTop:10,cursor:canOverride?"pointer":"not-allowed"}}>
+                🚨 تخطي والإقفال على مسؤوليتي
+              </Btn>
+            </div>
+          </details>
+
+          {/* Actions */}
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:12,borderTop:"1px solid "+T.brd}}>
+            <Btn onClick={close} style={{background:T.accent,color:"#fff",border:"none",fontWeight:800,padding:"10px 24px",fontSize:FS+1}}>✓ فهمت، إلغاء الإقفال</Btn>
+          </div>
+        </div>
+      </div>;
+    })()}
+
     {/* ══ V14.55: CLEAN DELETE WEEK POPUP ══ */}
     {cleanDeletePopup&&(()=>{const cd=cleanDeletePopup;const w=cd.week;
       const executeCleanDelete=()=>{
@@ -19730,14 +20012,33 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           });
           /* 5. Restore prevBalance for each affected employee */
           const empIds=(snapshot.selectedEmps||[]);
+          /* V14.65: ENHANCED FIX — find the last closed week BEFORE the deleted one.
+             If found, use its remainingBalance as the new prevBalance (the TRUE value).
+             This fixes the bug where prevBalance remained inflated after deleting a closed week. */
+          const allClosedWeeks=(d.hrWeeks||[]).filter(x=>x.status==="closed"&&x.id!==w.id).sort((a,b)=>{
+            /* Sort by weekEnd DESC (most recent closed first) */
+            return (b.weekEnd||"").localeCompare(a.weekEnd||"");
+          });
+          /* Find the most recent closed week that ended BEFORE the deleted week started */
+          const prevClosedWeek=allClosedWeeks.find(x=>(x.weekEnd||"")<(snapshot.weekStart||""));
           empIds.forEach(eid=>{
             const emp=(d.employees||[]).find(x=>x.id===eid);
             if(!emp)return;
-            /* Use closedRecords if available (has original prevBalance), else leave as-is and user will need to fix manually */
+            /* Priority 1: Use prevClosedWeek's remainingBalance (most accurate) */
+            if(prevClosedWeek&&Array.isArray(prevClosedWeek.closedRecords)){
+              const prevRec=prevClosedWeek.closedRecords.find(r=>r.empId===eid);
+              if(prevRec){
+                emp.prevBalance=Number(prevRec.remainingBalance)||0;
+                return;
+              }
+            }
+            /* Priority 2: Use deleted week's closedRecords.prevBalance (the value BEFORE it was closed) */
             if(Array.isArray(snapshot.closedRecords)){
               const rec=snapshot.closedRecords.find(r=>r.empId===eid);
-              if(rec){emp.prevBalance=Number(rec.prevBalance)||0}
+              if(rec){emp.prevBalance=Number(rec.prevBalance)||0;return}
             }
+            /* Priority 3: No data available — reset to 0 as safe fallback */
+            emp.prevBalance=0;
           });
           /* 6. Audit log — full impact */
           if(!Array.isArray(d.auditLog))d.auditLog=[];
@@ -20057,7 +20358,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           {/* Actions */}
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
             <Btn onClick={()=>setShowCloseDate(false)} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>إلغاء</Btn>
-            <Btn primary onClick={()=>{setShowCloseDate(false);approveWeek(closeDateValue)}} style={{fontSize:FS,padding:"10px 24px"}}>💰 اعتماد الإقفال</Btn>
+            <Btn primary onClick={()=>{setShowCloseDate(false);tryApproveWeek(closeDateValue)}} style={{fontSize:FS,padding:"10px 24px"}}>💰 اعتماد الإقفال</Btn>
           </div>
         </div>
       </div>;
@@ -20356,19 +20657,27 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
 
     {/* ══ V14.61: VERIFY TAB — Dedicated screen for second accountant ══ */}
     {view==="verify"&&(()=>{
-      /* Pick the active closed week if not yet selected */
-      const closedWeeks=hrWeeks.filter(w=>w.status==="closed").sort((a,b)=>(b.weekNum||0)-(a.weekNum||0));
-      if(closedWeeks.length===0){
+      /* V14.66: Include BOTH open and closed weeks — open weeks allow receipt scanning during the day */
+      const allWeeks=[...hrWeeks].sort((a,b)=>{
+        /* Open weeks first (for default selection), then by weekNum desc */
+        if(a.status!=="closed"&&b.status==="closed")return -1;
+        if(a.status==="closed"&&b.status!=="closed")return 1;
+        return (b.weekNum||0)-(a.weekNum||0);
+      });
+      const closedWeeks=allWeeks.filter(w=>w.status==="closed");
+      const openWeeks=allWeeks.filter(w=>w.status!=="closed");
+      if(allWeeks.length===0){
         return<Card title="🔐 تأكيد الاستلام">
           <div style={{padding:40,textAlign:"center",color:T.textMut}}>
             <div style={{fontSize:48,marginBottom:10}}>🔒</div>
-            <div style={{fontSize:FS+1,fontWeight:700,marginBottom:6}}>لا توجد أسابيع مقفولة</div>
-            <div style={{fontSize:FS-1}}>يجب قفل الأسبوع أولاً قبل تأكيد الاستلام</div>
+            <div style={{fontSize:FS+1,fontWeight:700,marginBottom:6}}>لا توجد أسابيع بعد</div>
+            <div style={{fontSize:FS-1}}>يجب فتح أسبوع أولاً</div>
           </div>
         </Card>;
       }
-      const activeWeekId=verifySelectedWeekId||closedWeeks[0].id;
-      const week=closedWeeks.find(w=>w.id===activeWeekId)||closedWeeks[0];
+      /* Default: active open week (for scanning during work day), fallback to most recent closed */
+      const activeWeekId=verifySelectedWeekId||(openWeeks[0]?openWeeks[0].id:closedWeeks[0]?.id);
+      const week=allWeeks.find(w=>w.id===activeWeekId)||allWeeks[0];
       const receipts=week.receipts||{};
       const wkSelected=(week.selectedEmps&&Array.isArray(week.selectedEmps))?week.selectedEmps:[];
       const wkEmps=activeEmps.filter(e=>wkSelected.includes(e.id));
@@ -20524,7 +20833,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             <span style={{fontSize:FS,fontWeight:800,color:T.accent}}>🔐 شاشة المحاسب المؤكِّد</span>
             <div style={{flex:1,minWidth:200}}>
               <Sel value={activeWeekId} onChange={v=>{setVerifySelectedWeekId(v);setVerifyLastScan(null);closeVerifyCam()}}>
-                {closedWeeks.map(w=><option key={w.id} value={w.id}>{"W"+w.weekNum+" ("+w.weekStart+" → "+w.weekEnd+")"}</option>)}
+                {allWeeks.map(w=><option key={w.id} value={w.id}>{(w.status==="closed"?"✅ ":"🔓 ")+"W"+w.weekNum+" ("+w.weekStart+" → "+w.weekEnd+")"}</option>)}
               </Sel>
             </div>
             <span style={{fontSize:FS-2,color:T.textMut,background:T.bg,padding:"4px 10px",borderRadius:6}}>
