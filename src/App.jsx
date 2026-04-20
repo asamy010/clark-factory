@@ -16126,6 +16126,8 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const[showMatrix,setShowMatrix]=useState(false);const[matrixEmps,setMatrixEmps]=useState([]);const[matrixDate,setMatrixDate]=useState(today);const[matrixDesc,setMatrixDesc]=useState("سلفة");
   /* Salary overrides per employee in active week */
   const[salBonus,setSalBonus]=useState({});const[salSpecialDeduct,setSalSpecialDeduct]=useState({});const[salThursdayPay,setSalThursdayPay]=useState({});const[salPrevBalanceOverride,setSalPrevBalanceOverride]=useState({});const[salManualInstallDeduct,setSalManualInstallDeduct]=useState({});const[salInstallOverride,setSalInstallOverride]=useState({});
+  /* V14.56: Quick entry popup for bulk data entry — {type, selected:{empId:true}, values:{empId:number}, search} */
+  const[quickEntryPopup,setQuickEntryPopup]=useState(null);
   const[focusedEmpId,setFocusedEmpId]=useState(null);
   const[salSearch,setSalSearch]=useState("");const salSearchDeb=useDebounced(salSearch,200);
   const[attSearch,setAttSearch]=useState("");const attSearchDeb=useDebounced(attSearch,200);
@@ -17899,6 +17901,17 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               </div>
               {(salSearch||salJobFilter||salShowOnly)&&<Btn small ghost onClick={()=>{setSalSearch("");setSalJobFilter("");setSalShowOnly("")}} style={{padding:"4px 10px",fontSize:FS-2}}>✕ مسح الفلاتر</Btn>}
               <div style={{flex:"0 0 auto",marginInlineStart:"auto",display:"flex",gap:6}}>
+                {/* V14.56: Quick entry button — bulk edit for all employees */}
+                {!isLocked&&canEdit&&<Btn small onClick={()=>{
+                  /* Default type: prevBalance (رصيد سابق) — auto-check & pre-fill employees with existing values */
+                  const type="prevBalance";
+                  const initSel={};const initVals={};
+                  shownEmps.forEach(e=>{
+                    const v=salPrevBalanceOverride[e.id];
+                    if(v!==undefined&&v!==""&&Number(v)!==0){initSel[e.id]=true;initVals[e.id]=String(v)}
+                  });
+                  setQuickEntryPopup({type,selected:initSel,values:initVals,search:""});
+                }} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}} title="إدخال سريع — دفعة واحدة لعدة موظفين">⚡ إدخال سريع</Btn>}
                 <Btn small onClick={()=>{
                   /* Print the current filtered table as a single-page overview */
                   const rows=filteredShown.map((emp,i)=>{const c=getEmpSalary(emp.id,openWeek);if(!c)return"";
@@ -18805,6 +18818,178 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           <div style={{marginTop:10,textAlign:"center"}}><Btn primary onClick={closeEmpPicker}>✅ تم</Btn></div>
         </div>
       </div>})()}
+
+    {/* ══ V14.56: QUICK ENTRY POPUP — bulk data entry for salary fields ══ */}
+    {quickEntryPopup&&openWeek&&(()=>{
+      const qe=quickEntryPopup;
+      /* Quick entry works only on employees in this week */
+      const weekSelected=getSelectedEmps(openWeek.id);
+      const shownEmps=activeEmps.filter(e=>weekSelected.includes(e.id));
+      /* Types config */
+      const TYPES=[
+        {key:"prevBalance",label:"رصيد سابق",icon:"🔄",color:T.warn,desc:"الرصيد المرحّل من أسابيع سابقة"},
+        {key:"specialDeduct",label:"خصم خاص",icon:"📉",color:"#F97316",desc:"خصم من الصافي"},
+        {key:"installDeduct",label:"خصم/قسط",icon:"💸",color:T.err,desc:"قسط مديونية (يدوي)"},
+        {key:"bonus",label:"حافز",icon:"🎁",color:T.ok,desc:"مكافأة للموظف"}
+      ];
+      const currentType=TYPES.find(t=>t.key===qe.type)||TYPES[0];
+      /* Get current stored value for an employee based on type */
+      const getCurrentVal=(empId)=>{
+        if(qe.type==="prevBalance")return salPrevBalanceOverride[empId];
+        if(qe.type==="specialDeduct")return salSpecialDeduct[empId];
+        if(qe.type==="installDeduct")return salManualInstallDeduct[empId];
+        if(qe.type==="bonus")return salBonus[empId];
+        return undefined;
+      };
+      /* Change type: clear values + re-select employees with existing values of NEW type */
+      const changeType=(newType)=>{
+        const initSel={};const initVals={};
+        shownEmps.forEach(e=>{
+          let v;
+          if(newType==="prevBalance")v=salPrevBalanceOverride[e.id];
+          else if(newType==="specialDeduct")v=salSpecialDeduct[e.id];
+          else if(newType==="installDeduct")v=salManualInstallDeduct[e.id];
+          else if(newType==="bonus")v=salBonus[e.id];
+          if(v!==undefined&&v!==""&&Number(v)!==0){initSel[e.id]=true;initVals[e.id]=String(v)}
+        });
+        setQuickEntryPopup(p=>({...p,type:newType,selected:initSel,values:initVals}));
+      };
+      /* Filter employees by search */
+      const q=(qe.search||"").trim().toLowerCase();
+      const filtered=q?shownEmps.filter(e=>{
+        const name=(e.name||"").toLowerCase();const code=(e.code||"").toLowerCase();const job=(e.job||"").toLowerCase();
+        return name.includes(q)||code.includes(q)||job.includes(q);
+      }):shownEmps;
+      /* Counts and totals */
+      const selIds=Object.keys(qe.selected).filter(id=>qe.selected[id]);
+      const selCount=selIds.length;
+      const totalVal=selIds.reduce((s,id)=>s+(Number(qe.values[id])||0),0);
+      /* Select/deselect all (filtered) */
+      const toggleAll=()=>{
+        const allSelected=filtered.every(e=>qe.selected[e.id]);
+        const newSel={...qe.selected};
+        filtered.forEach(e=>{if(allSelected)delete newSel[e.id];else newSel[e.id]=true});
+        setQuickEntryPopup(p=>({...p,selected:newSel}));
+      };
+      /* Copy to all filtered+selected */
+      const copyToAll=(val)=>{
+        const newVals={...qe.values};
+        filtered.forEach(e=>{if(qe.selected[e.id])newVals[e.id]=String(val)});
+        setQuickEntryPopup(p=>({...p,values:newVals}));
+      };
+      /* Save handler */
+      const doSave=()=>{
+        if(selCount===0){showToast("⚠️ حدد موظف واحد على الأقل");return}
+        const setter=qe.type==="prevBalance"?setSalPrevBalanceOverride:qe.type==="specialDeduct"?setSalSpecialDeduct:qe.type==="installDeduct"?setSalManualInstallDeduct:setSalBonus;
+        setter(prev=>{
+          const n={...prev};
+          /* For each selected emp: set new value (or remove if empty) */
+          selIds.forEach(id=>{
+            const v=qe.values[id];
+            if(v===undefined||v===""||Number(v)===0)delete n[id];
+            else n[id]=Number(v);
+          });
+          /* For each UNSELECTED emp in the current filter view that had a value of this type previously,
+             DO NOT touch — user may have unchecked them but we preserve existing values. */
+          return n;
+        });
+        setQuickEntryPopup(null);
+        showToast("✅ تم حفظ "+selCount+" سجل ("+currentType.label+")");
+      };
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setQuickEntryPopup(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:640,maxHeight:"92vh",display:"flex",flexDirection:"column",border:"2px solid #8B5CF6",boxShadow:"0 25px 70px rgba(0,0,0,0.45)"}}>
+          {/* Header */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"2px solid #8B5CF620"}}>
+            <div style={{fontSize:FS+3,fontWeight:900,color:"#8B5CF6",display:"flex",alignItems:"center",gap:8}}>
+              <span>⚡</span><span>إدخال سريع — W{openWeek.weekNum}</span>
+            </div>
+            <span onClick={()=>setQuickEntryPopup(null)} style={{cursor:"pointer",fontSize:22,color:T.textMut,padding:4}}>✕</span>
+          </div>
+
+          {/* Type selector */}
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:FS-2,color:T.textSec,marginBottom:6,fontWeight:700}}>نوع البيان:</div>
+            <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)",gap:6}}>
+              {TYPES.map(t=><div key={t.key} onClick={()=>changeType(t.key)} style={{padding:"10px 8px",borderRadius:10,border:"2px solid "+(qe.type===t.key?t.color:T.brd),background:qe.type===t.key?t.color+"12":T.bg,cursor:"pointer",transition:"all 0.15s",textAlign:"center"}}>
+                <div style={{fontSize:18,marginBottom:2}}>{t.icon}</div>
+                <div style={{fontSize:FS-1,fontWeight:800,color:qe.type===t.key?t.color:T.text}}>{t.label}</div>
+              </div>)}
+            </div>
+            <div style={{fontSize:FS-3,color:T.textMut,marginTop:6,padding:"4px 8px"}}>💡 {currentType.desc}</div>
+          </div>
+
+          {/* Search + Controls */}
+          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8,flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:180}}>
+              <Inp value={qe.search} onChange={v=>setQuickEntryPopup(p=>({...p,search:v}))} placeholder="🔍 ابحث بالاسم، الكود، الوظيفة..."/>
+            </div>
+            <Btn small onClick={toggleAll} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>
+              {filtered.every(e=>qe.selected[e.id])&&filtered.length>0?"☑ إلغاء الكل":"☐ اختر الكل"}
+            </Btn>
+            {selCount>0&&<span style={{padding:"5px 10px",borderRadius:8,background:currentType.color+"15",color:currentType.color,fontWeight:800,fontSize:FS-2,whiteSpace:"nowrap"}}>
+              المحدد: {selCount}
+            </span>}
+          </div>
+
+          {/* Employees list */}
+          <div style={{flex:1,overflowY:"auto",background:T.bg,borderRadius:10,border:"1px solid "+T.brd,padding:4,minHeight:200}}>
+            {filtered.length===0?<div style={{padding:40,textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد نتائج</div>:
+              filtered.map(e=>{
+                const isSel=!!qe.selected[e.id];
+                const existingVal=getCurrentVal(e.id);
+                const hasExisting=existingVal!==undefined&&existingVal!==""&&Number(existingVal)!==0;
+                return<div key={e.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:8,background:isSel?currentType.color+"06":"transparent",borderBottom:"1px solid "+T.brd,transition:"background 0.12s"}}>
+                  {/* Checkbox */}
+                  <div onClick={()=>setQuickEntryPopup(p=>{const n={...p.selected};if(n[e.id])delete n[e.id];else n[e.id]=true;return{...p,selected:n}})} style={{cursor:"pointer",width:22,height:22,borderRadius:6,border:"2px solid "+(isSel?currentType.color:T.brd),background:isSel?currentType.color:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:14,color:"#fff",fontWeight:900}}>
+                    {isSel?"✓":""}
+                  </div>
+                  {/* Name + code */}
+                  <div style={{flex:1,minWidth:0}} onClick={()=>setQuickEntryPopup(p=>{const n={...p.selected};if(n[e.id])delete n[e.id];else n[e.id]=true;return{...p,selected:n}})}>
+                    <div style={{fontSize:FS-1,fontWeight:700,color:T.text,cursor:"pointer"}}>
+                      {e.name}
+                      {e.code?<span style={{color:T.textMut,fontSize:FS-3,marginInlineStart:6}}>#{e.code}</span>:""}
+                      {hasExisting&&!isSel?<span style={{marginInlineStart:6,padding:"1px 6px",borderRadius:4,background:currentType.color+"15",color:currentType.color,fontSize:FS-3,fontWeight:700}}>موجود: {fmt(existingVal)}</span>:null}
+                    </div>
+                    {e.job?<div style={{fontSize:FS-3,color:T.textMut}}>{e.job}</div>:null}
+                  </div>
+                  {/* Input */}
+                  <div style={{flexShrink:0,display:"flex",gap:4,alignItems:"center"}}>
+                    <input type="number" inputMode="decimal" value={qe.values[e.id]||""} onChange={ev=>setQuickEntryPopup(p=>{
+                      const v=ev.target.value;
+                      const newVals={...p.values,[e.id]:v};
+                      /* Auto-check when user types a value */
+                      const newSel={...p.selected};
+                      if(v!==""&&Number(v)!==0)newSel[e.id]=true;
+                      return{...p,values:newVals,selected:newSel};
+                    })} placeholder="0" style={{width:90,padding:"7px 10px",borderRadius:8,border:"1px solid "+(isSel?currentType.color+"50":T.brd),fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text,textAlign:"center",fontWeight:700,boxSizing:"border-box",direction:"ltr"}}/>
+                    <span style={{fontSize:FS-3,color:T.textMut,minWidth:24}}>ج.م</span>
+                    {/* Copy to all button (only for first row) */}
+                    {filtered.indexOf(e)===0&&qe.values[e.id]&&selCount>1&&<button onClick={()=>copyToAll(qe.values[e.id])} title="نسخ لكل المحدد" style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.accent+"40",background:T.accent+"12",color:T.accent,fontSize:FS-3,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                      📋
+                    </button>}
+                  </div>
+                </div>;
+              })}
+          </div>
+
+          {/* Summary + Actions */}
+          <div style={{marginTop:12,paddingTop:12,borderTop:"1px solid "+T.brd}}>
+            {selCount>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,padding:"8px 12px",borderRadius:8,background:currentType.color+"08",border:"1px solid "+currentType.color+"25"}}>
+              <span style={{fontSize:FS-1,color:T.textSec,fontWeight:600}}>
+                الإجمالي: <b style={{color:currentType.color,fontSize:FS+1}}>{fmt(r2(totalVal))}</b> ج.م لـ <b style={{color:currentType.color}}>{selCount}</b> موظف
+              </span>
+              <span style={{fontSize:FS-3,color:T.textMut}}>متوسط: {selCount>0?fmt(r2(totalVal/selCount)):0} ج.م</span>
+            </div>}
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <Btn ghost onClick={()=>setQuickEntryPopup(null)}>إلغاء</Btn>
+              <Btn onClick={doSave} disabled={selCount===0} style={{background:selCount>0?currentType.color:currentType.color+"40",color:"#fff",border:"none",fontWeight:800,padding:"10px 24px",cursor:selCount>0?"pointer":"not-allowed"}}>
+                💾 حفظ في الجدول
+              </Btn>
+            </div>
+          </div>
+        </div>
+      </div>;
+    })()}
 
     {/* ══ V14.55: CLEAN DELETE WEEK POPUP ══ */}
     {cleanDeletePopup&&(()=>{const cd=cleanDeletePopup;const w=cd.week;
