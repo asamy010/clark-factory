@@ -125,7 +125,13 @@ function gcons(o,k){return parseFloat(o["cons"+k])||0}
 function gdate(o,k){return o["cutDate"+k]||""}
 function useWin(){const[w,setW]=useState(typeof window!=="undefined"?window.innerWidth:1200);useEffect(()=>{const h=()=>setW(window.innerWidth);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h)},[]);return w}
 function getStatusColor(name,cards){const c=(cards||DEFAULT_STATUSES).find(s=>s.name===name);return c?c.color:"#94A3B8"}
-function sortOrders(orders){return[...orders].filter(o=>o&&o.id).sort((a,b)=>(b.createdAt||b.date||"").localeCompare(a.createdAt||a.date||""))}
+function sortOrders(orders,mode){const valid=[...orders].filter(o=>o&&o.id);
+  if(mode==="oldest")return valid.sort((a,b)=>(a.createdAt||a.date||"").localeCompare(b.createdAt||b.date||""));
+  if(mode==="qty")return valid.sort((a,b)=>(calcOrder(b).cutQty||0)-(calcOrder(a).cutQty||0));
+  if(mode==="name")return valid.sort((a,b)=>(a.modelNo||"").localeCompare(b.modelNo||"","ar"));
+  /* default: recent */
+  return valid.sort((a,b)=>(b.createdAt||b.date||"").localeCompare(a.createdAt||a.date||""));
+}
 
 /* Smart status recompute based on data state */
 function recomputeStatus(o){
@@ -960,6 +966,65 @@ function validateOrder(form){
   return e
 }
 
+
+/* ═══ V14.51: Print workshop activity report for an order ═══ */
+async function printWorkshopReport(order,filterWsName){
+  const wds=(order.workshopDeliveries||[]).filter(wd=>!filterWsName||wd.wsName===filterWsName);
+  if(wds.length===0){printPage("كشف تشغيل خارجي","<p>لا توجد حركات</p>");return}
+  /* Group by workshop */
+  const wsGroup={};
+  wds.forEach(wd=>{if(!wsGroup[wd.wsName])wsGroup[wd.wsName]=[];wsGroup[wd.wsName].push(wd)});
+  const title=filterWsName?("كشف تشغيل خارجي — "+filterWsName):"كشف تشغيل خارجي (جميع الورش)";
+  let h="<div style='margin-bottom:14px'><h2 style='font-size:16px;margin:0 0 4px;color:#0284C7'>"+title+"</h2>";
+  h+="<div style='font-size:12px;color:#64748B'>موديل: <b>"+order.modelNo+"</b> — "+(order.modelDesc||"")+(order.poNumber?" • PO: <b>"+order.poNumber+"</b>":"")+"</div>";
+  h+="<div style='font-size:11px;color:#94A3B8;margin-top:3px'>تاريخ الطباعة: "+new Date().toLocaleString("ar-EG")+"</div></div>";
+
+  Object.entries(wsGroup).forEach(([wsName,items])=>{
+    const totalDel=items.reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+    const totalRcv=items.reduce((s,wd)=>s+(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0),0);
+    const bal=totalDel-totalRcv;
+    const progress=totalDel>0?Math.round((totalRcv/totalDel)*100):0;
+    h+="<div style='margin-bottom:16px;border:1px solid #E2E8F0;border-radius:8px;overflow:hidden;break-inside:avoid'>";
+    /* Workshop header */
+    h+="<div style='background:linear-gradient(135deg,#8B5CF608,#8B5CF604);padding:10px 14px;border-bottom:1px solid #E2E8F0'>";
+    h+="<div style='display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px'>";
+    h+="<div><span style='font-weight:800;font-size:14px;color:#8B5CF6'>🏭 "+wsName+"</span></div>";
+    h+="<div style='display:flex;gap:8px;font-size:11px;flex-wrap:wrap'>";
+    h+="<span style='padding:3px 10px;border-radius:6px;background:#8B5CF612;color:#8B5CF6;font-weight:700'>تسليم: "+totalDel+"</span>";
+    h+="<span style='padding:3px 10px;border-radius:6px;background:#10B98112;color:#10B981;font-weight:700'>استلام: "+totalRcv+"</span>";
+    h+="<span style='padding:3px 10px;border-radius:6px;background:"+(bal>0?"#EF444412":"#10B98112")+";color:"+(bal>0?"#EF4444":"#10B981")+";font-weight:700'>"+(bal>0?"رصيد: "+bal:"✓ مكتمل")+"</span>";
+    h+="<span style='padding:3px 10px;border-radius:6px;background:"+(progress>=80?"#10B98112":progress>=50?"#F59E0B12":"#EF444412")+";color:"+(progress>=80?"#10B981":progress>=50?"#F59E0B":"#EF4444")+";font-weight:700'>"+progress+"%</span>";
+    h+="</div></div></div>";
+    /* Movements */
+    items.forEach(wd=>{
+      const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
+      h+="<div style='padding:10px 14px;border-bottom:1px solid #F1F5F9'>";
+      h+="<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:6px'>";
+      h+="<span style='font-weight:700;font-size:13px;color:#1E293B'>"+(wd.garmentType||"عام")+"</span>";
+      h+="<span style='font-size:11px;color:#64748B'>تسليم: "+wd.date+"</span>";
+      h+="</div>";
+      h+="<table style='width:100%;border-collapse:collapse;font-size:11px;margin-top:6px'>";
+      h+="<thead><tr style='background:#F8FAFC'><th style='padding:5px 8px;text-align:right;border:1px solid #E2E8F0'>نوع الحركة</th><th style='padding:5px 8px;border:1px solid #E2E8F0'>التاريخ</th><th style='padding:5px 8px;border:1px solid #E2E8F0'>الكمية</th><th style='padding:5px 8px;border:1px solid #E2E8F0'>الجودة</th><th style='padding:5px 8px;border:1px solid #E2E8F0'>ملاحظات</th></tr></thead><tbody>";
+      /* Delivery row */
+      h+="<tr style='background:#F5F3FF'><td style='padding:5px 8px;border:1px solid #E2E8F0;font-weight:700;color:#8B5CF6'>📤 تسليم</td><td style='padding:5px 8px;text-align:center;border:1px solid #E2E8F0'>"+wd.date+"</td><td style='padding:5px 8px;text-align:center;border:1px solid #E2E8F0;font-weight:700'>"+wd.qty+"</td><td style='padding:5px 8px;text-align:center;border:1px solid #E2E8F0'>-</td><td style='padding:5px 8px;border:1px solid #E2E8F0'>"+(wd.notes||"-")+"</td></tr>";
+      /* Receives rows */
+      (wd.receives||[]).forEach(r=>{
+        const isSet=!!r.isSettlement;
+        h+="<tr style='background:"+(isSet?"#FEF2F2":"#F0FDF4")+"'><td style='padding:5px 8px;border:1px solid #E2E8F0;font-weight:700;color:"+(isSet?"#EF4444":"#10B981")+"'>"+(isSet?"⚖️ تسوية":"📥 استلام")+"</td><td style='padding:5px 8px;text-align:center;border:1px solid #E2E8F0'>"+r.date+"</td><td style='padding:5px 8px;text-align:center;border:1px solid #E2E8F0;font-weight:700'>"+r.qty+"</td><td style='padding:5px 8px;text-align:center;border:1px solid #E2E8F0'>"+(r.quality||"-")+"</td><td style='padding:5px 8px;border:1px solid #E2E8F0'>"+(r.notes||"-")+"</td></tr>";
+      });
+      if((wd.receives||[]).length===0){
+        h+="<tr><td colspan='5' style='padding:5px 8px;border:1px solid #E2E8F0;text-align:center;color:#94A3B8;font-style:italic'>لم يتم استلام أي كمية بعد</td></tr>";
+      }
+      h+="</tbody></table>";
+      /* Balance for this item */
+      const itemBal=(Number(wd.qty)||0)-rcvd;
+      if(itemBal>0){h+="<div style='margin-top:5px;padding:4px 10px;background:#FEF2F2;border-radius:5px;font-size:11px;color:#EF4444;font-weight:700;display:inline-block'>⚠️ رصيد باقي: "+itemBal+" قطعة</div>"}
+      h+="</div>";
+    });
+    h+="</div>";
+  });
+  printPage(title,h);
+}
 
 async function printOrderSheet(order,t,activeFabs,statusCards){
   let wsRows="";(order.workshopDeliveries||[]).forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);wsRows+="<tr><td>"+wd.wsName+"</td><td>"+(wd.garmentType||"-")+"</td><td>"+wd.qty+"</td><td>"+rcvd+"</td><td>"+(wd.qty-rcvd)+"</td></tr>"});
@@ -3586,6 +3651,14 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
   const order=data.orders.find(o=>o.id===sel);const[editing,setEditing]=useState(false);
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
   const[detQ,setDetQ]=useState("");const[detSt,setDetSt]=useState("الكل");const[waSent,setWaSent]=useState({});const[waPopup,setWaPopup]=useState(null);
+  /* V14.50: view mode + smart filters */
+  const[detView,setDetView]=useState(()=>localStorage.getItem("clark_det_view")||"cards");/* "cards"|"table" */
+  const[detWs,setDetWs]=useState("");/* workshop filter */
+  const[detSort,setDetSort]=useState("recent");/* recent|oldest|qty|cost|name */
+  /* V14.51: expandable workshop timelines + print dropdown */
+  const[wsExpand,setWsExpand]=useState({});/* {wsKey: bool} - auto-open for incomplete */
+  const[showPrintMenu,setShowPrintMenu]=useState(false);
+  const[printWsName,setPrintWsName]=useState("");
   const[editStockIdx,setEditStockIdx]=useState(null);
   const[settReason,setSettReason]=useState("");const[settNotes,setSettNotes]=useState("");
   const[showNew,setShowNew]=useState(false);
@@ -3605,75 +3678,326 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
     const filtered=data.orders.filter(o=>{
       if(detSt==="⚠️"){const _now=new Date();let _ld=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>_ld)_ld=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>_ld)_ld=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>_ld)_ld=d.date});if(Math.floor((_now-new Date(_ld))/(1000*60*60*24))<=7||o.status==="تم التسليم لمخزن الجاهز")return false}
       if(detSt!=="الكل"&&detSt!=="⚠️"&&o.status!==detSt)return false;
-      if(detQ.trim()){const s=detQ.trim().toLowerCase();const h=[o.modelNo,o.modelDesc,o.sizeLabel,o.status].filter(Boolean).join(" ").toLowerCase();if(!h.includes(s))return false}
+      if(detWs){const wds=o.workshopDeliveries||[];if(!wds.some(wd=>wd.wsName===detWs))return false}
+      if(detQ.trim()){const s=detQ.trim().toLowerCase();const h=[o.modelNo,o.modelDesc,o.sizeLabel,o.status,o.poNumber].filter(Boolean).join(" ").toLowerCase();if(!h.includes(s))return false}
       return true
     });
     return<div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
-        <h2 style={{fontSize:FS+1,fontWeight:700,margin:0,color:T.textSec}}>{"اختر أوردر ("+filtered.length+")"}</h2>
-        {canEdit&&<Btn primary onClick={()=>setShowNew(true)}>+ أمر قص جديد</Btn>}
+      <style>{`
+        .det-tile{transition:all 0.2s cubic-bezier(0.4,0,0.2,1);cursor:pointer}
+        .det-tile:hover{transform:translateY(-3px);box-shadow:0 10px 30px -8px rgba(0,0,0,0.12);border-color:${T.accent}40!important}
+        .det-stat-tile{transition:all 0.15s ease;cursor:default}
+        .det-stat-tile.clickable{cursor:pointer}
+        .det-stat-tile.clickable:hover{transform:translateY(-2px);box-shadow:0 6px 16px -4px rgba(0,0,0,0.08)}
+        .det-chip{cursor:pointer;transition:all 0.15s ease;user-select:none;white-space:nowrap}
+        .det-chip:hover{transform:translateY(-1px)}
+        .det-chip.active{box-shadow:0 2px 8px -2px currentColor}
+        .det-section-title{font-size:${FS-1}px;font-weight:800;color:${T.textSec};margin:0 0 10px;padding:0 4px;display:flex;align-items:center;gap:8px;text-transform:uppercase;letter-spacing:0.5px}
+        .det-section-title::after{content:"";flex:1;height:1px;background:linear-gradient(to left,${T.brd},transparent);margin-right:4px}
+        .det-progress-bar{height:6px;border-radius:3px;background:${T.bg};overflow:hidden;position:relative}
+        .det-progress-fill{height:100%;border-radius:3px;transition:width 0.8s cubic-bezier(0.4,0,0.2,1)}
+        .det-row:hover{background:${T.accent}06!important}
+        .det-view-btn{padding:6px 12px;border-radius:8px;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;gap:6px;font-size:${FS-2}px;font-weight:700;border:1px solid ${T.brd}}
+        .det-view-btn.active{background:${T.accent};color:#fff;border-color:${T.accent}}
+        .det-view-btn:not(.active){background:${T.cardSolid};color:${T.textSec}}
+      `}</style>
+
+      {/* ═══════════════════════════════════════════════════════════════
+          1. HERO HEADER — Title + Add button
+         ═══════════════════════════════════════════════════════════════ */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+        <div>
+          <h2 style={{fontSize:isMob?FS+3:FS+6,fontWeight:900,margin:0,color:T.text,letterSpacing:"-0.5px"}}>أوامر القص</h2>
+          <div style={{fontSize:FS-1,color:T.textSec,marginTop:2}}>إدارة أوامر الإنتاج والتسليم</div>
+        </div>
+        {canEdit&&<Btn primary onClick={()=>setShowNew(true)} style={{display:"flex",alignItems:"center",gap:6}}>
+          <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span>أمر قص جديد</span>
+        </Btn>}
       </div>
-      <div style={{display:"grid",gridTemplateColumns:isMob||isTab?"1fr":"2fr 1fr",gap:8,marginBottom:10}}>
-        <Inp value={detQ} onChange={setDetQ} placeholder="بحث بالرقم أو الوصف أو المقاسات..."/>
-        <Sel value={detSt} onChange={setDetSt}><option value="الكل">كل الحالات</option>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel>
+
+      {/* ═══════════════════════════════════════════════════════════════
+          2. HERO STATS — 4 quick metrics
+         ═══════════════════════════════════════════════════════════════ */}
+      {(()=>{
+        const allOrders=data.orders;
+        const totalCut=allOrders.reduce((s,o)=>s+calcOrder(o).cutQty,0);
+        const totalDel=allOrders.reduce((s,o)=>s+(o.deliveredQty||0),0);
+        const comp=totalCut?Math.round((totalDel/totalCut)*100):0;
+        const now=new Date();
+        const lateCount=allOrders.filter(o=>{
+          if(o.status==="تم التسليم لمخزن الجاهز")return false;
+          let ld=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>ld)ld=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>ld)ld=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>ld)ld=d.date});
+          return Math.floor((now-new Date(ld))/(1000*60*60*24))>7;
+        }).length;
+        return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)",gap:10,marginBottom:16}}>
+          <div className="det-stat-tile" style={{padding:"14px 16px",borderRadius:12,border:"1px solid "+T.brd,background:T.cardSolid,display:"flex",alignItems:"center",gap:12}}>
+            <div style={{width:40,height:40,borderRadius:10,background:T.accent+"12",display:"flex",alignItems:"center",justifyContent:"center",color:T.accent,flexShrink:0}}>
+              <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            </div>
+            <div><div style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>إجمالي الأوامر</div><div style={{fontSize:isMob?FS+4:FS+8,fontWeight:900,color:T.text,lineHeight:1}}>{allOrders.length}</div></div>
+          </div>
+          <div className="det-stat-tile" style={{padding:"14px 16px",borderRadius:12,border:"1px solid "+T.brd,background:T.cardSolid,display:"flex",alignItems:"center",gap:12}}>
+            <div style={{width:40,height:40,borderRadius:10,background:"#8B5CF612",display:"flex",alignItems:"center",justifyContent:"center",color:"#8B5CF6",flexShrink:0}}>
+              <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
+            </div>
+            <div><div style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>كمية القص</div><div style={{fontSize:isMob?FS+4:FS+8,fontWeight:900,color:T.text,lineHeight:1}}>{fmt(totalCut)}</div></div>
+          </div>
+          <div className={"det-stat-tile"+(lateCount>0?" clickable":"")} onClick={lateCount>0?()=>setDetSt(detSt==="⚠️"?"الكل":"⚠️"):undefined} style={{padding:"14px 16px",borderRadius:12,border:"1px solid "+(detSt==="⚠️"?T.err:T.brd),background:detSt==="⚠️"?T.err+"06":T.cardSolid,display:"flex",alignItems:"center",gap:12}}>
+            <div style={{width:40,height:40,borderRadius:10,background:T.err+"12",display:"flex",alignItems:"center",justifyContent:"center",color:T.err,flexShrink:0}}>
+              <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div><div style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>متأخر</div><div style={{fontSize:isMob?FS+4:FS+8,fontWeight:900,color:lateCount>0?T.err:T.text,lineHeight:1}}>{lateCount}</div></div>
+          </div>
+          <div className="det-stat-tile" style={{padding:"14px 16px",borderRadius:12,border:"1px solid "+T.brd,background:T.cardSolid,display:"flex",alignItems:"center",gap:12}}>
+            <div style={{width:40,height:40,borderRadius:10,background:T.ok+"12",display:"flex",alignItems:"center",justifyContent:"center",color:T.ok,flexShrink:0}}>
+              <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            </div>
+            <div style={{flex:1,minWidth:0}}><div style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>الإنجاز</div><div style={{fontSize:isMob?FS+4:FS+8,fontWeight:900,color:T.text,lineHeight:1}}>{comp+"%"}</div>
+              <div className="det-progress-bar" style={{marginTop:4,height:3}}><div className="det-progress-fill" style={{width:comp+"%",background:comp>=80?T.ok:comp>=50?T.warn:T.err}}/></div>
+            </div>
+          </div>
+        </div>;
+      })()}
+
+      {/* ═══════════════════════════════════════════════════════════════
+          3. SEARCH + FILTERS BAR
+         ═══════════════════════════════════════════════════════════════ */}
+      <div style={{background:T.cardSolid,borderRadius:14,border:"1px solid "+T.brd,padding:14,marginBottom:14}}>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr 1fr 1fr",gap:8,marginBottom:10}}>
+          <div style={{position:"relative"}}>
+            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",color:T.textMut,pointerEvents:"none",zIndex:1}}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <Inp value={detQ} onChange={setDetQ} placeholder="ابحث بالرقم، الوصف، المقاس..." sx={{paddingRight:36}}/>
+          </div>
+          <Sel value={detSt} onChange={setDetSt}><option value="الكل">كل الحالات</option>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel>
+          <Sel value={detWs} onChange={setDetWs}><option value="">كل الورش</option>{workshops.map(w=><option key={w.id} value={w.name}>{w.name}</option>)}</Sel>
+          <Sel value={detSort} onChange={setDetSort}>
+            <option value="recent">🕐 الأحدث أولاً</option>
+            <option value="oldest">📅 الأقدم أولاً</option>
+            <option value="qty">📊 الكمية الأكبر</option>
+            <option value="name">🔤 اسم الموديل</option>
+          </Sel>
+        </div>
+
+        {/* Status chips row */}
+        {(()=>{const counts={};statuses.forEach(s=>{counts[s]=data.orders.filter(o=>o.status===s).length});
+          const lateOrders=data.orders.filter(o=>{if(o.status==="تم التسليم لمخزن الجاهز")return false;const _now=new Date();let _ld=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>_ld)_ld=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>_ld)_ld=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>_ld)_ld=d.date});return Math.floor((_now-new Date(_ld))/(1000*60*60*24))>7});
+          return<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            <span onClick={()=>setDetSt("الكل")} className={"det-chip"+(detSt==="الكل"?" active":"")} style={{padding:"5px 12px",borderRadius:20,background:detSt==="الكل"?T.accent:T.bg,border:"1px solid "+(detSt==="الكل"?T.accent:T.brd),fontSize:FS-2,fontWeight:700,color:detSt==="الكل"?"#fff":T.textSec,display:"inline-flex",alignItems:"center",gap:5}}>
+              <span>الكل</span><span style={{fontSize:FS-3,opacity:0.9}}>{data.orders.length}</span>
+            </span>
+            {statuses.filter(s=>counts[s]>0).map(s=>{const sc=(statusCards||[]).find(x=>x.name===s);const color=sc?.color||T.accent;
+              return<span key={s} onClick={()=>setDetSt(detSt===s?"الكل":s)} className={"det-chip"+(detSt===s?" active":"")} style={{padding:"5px 12px",borderRadius:20,background:detSt===s?color:color+"12",border:"1px solid "+(detSt===s?color:color+"30"),fontSize:FS-2,fontWeight:700,color:detSt===s?"#fff":color,display:"inline-flex",alignItems:"center",gap:5}}>
+                <span>{s}</span><span style={{fontSize:FS-3,opacity:0.9}}>{counts[s]}</span>
+              </span>;
+            })}
+            {lateOrders.length>0&&<span onClick={()=>setDetSt(detSt==="⚠️"?"الكل":"⚠️")} className={"det-chip"+(detSt==="⚠️"?" active":"")} style={{padding:"5px 12px",borderRadius:20,background:detSt==="⚠️"?T.err:T.err+"12",border:"1px solid "+(detSt==="⚠️"?T.err:T.err+"30"),fontSize:FS-2,fontWeight:700,color:detSt==="⚠️"?"#fff":T.err,display:"inline-flex",alignItems:"center",gap:5}}>
+              <span>⚠️ متأخر</span><span style={{fontSize:FS-3,opacity:0.9}}>{lateOrders.length}</span>
+            </span>}
+          </div>;
+        })()}
       </div>
-      <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
-        <span onClick={()=>setDetSt(detSt==="⚠️"?"الكل":"⚠️")} style={{padding:"4px 10px",borderRadius:6,background:detSt==="⚠️"?T.err+"20":T.bg,border:"1px solid "+(detSt==="⚠️"?T.err:T.brd),cursor:"pointer",fontSize:FS-1,fontWeight:600,color:detSt==="⚠️"?T.err:T.textSec}}>⚠️ متأخرة</span>
+
+      {/* ═══════════════════════════════════════════════════════════════
+          4. VIEW TOGGLE + RESULT COUNT
+         ═══════════════════════════════════════════════════════════════ */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+        <div style={{fontSize:FS-1,color:T.textSec,fontWeight:600}}>
+          <span style={{color:T.text,fontWeight:800}}>{filtered.length}</span>
+          <span> من </span>
+          <span>{data.orders.length}</span>
+          <span> أمر</span>
+        </div>
+        <div style={{display:"flex",gap:4,padding:3,background:T.bg,borderRadius:10,border:"1px solid "+T.brd}}>
+          <div onClick={()=>{setDetView("cards");localStorage.setItem("clark_det_view","cards")}} className={"det-view-btn"+(detView==="cards"?" active":"")} style={{border:"none"}}>
+            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            <span>بطاقات</span>
+          </div>
+          <div onClick={()=>{setDetView("table");localStorage.setItem("clark_det_view","table")}} className={"det-view-btn"+(detView==="table"?" active":"")} style={{border:"none"}}>
+            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            <span>جدول</span>
+          </div>
+        </div>
       </div>
-      {filtered.length===0&&<Card><p style={{color:T.textSec,textAlign:"center",padding:30}}>لا توجد نتائج</p></Card>}
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(4,1fr)",gap:12}}>
-        {sortOrders(filtered).map(o=>{const t=calcOrder(o);
+
+      {/* ═══════════════════════════════════════════════════════════════
+          5. EMPTY STATE or RESULTS
+         ═══════════════════════════════════════════════════════════════ */}
+      {filtered.length===0?<div style={{background:T.cardSolid,borderRadius:14,border:"1px dashed "+T.brd,padding:"50px 20px",textAlign:"center"}}>
+        <div style={{fontSize:56,marginBottom:12,opacity:0.3}}>
+          {data.orders.length===0?"✂️":"🔍"}
+        </div>
+        <div style={{fontSize:FS+2,fontWeight:800,color:T.text,marginBottom:6}}>
+          {data.orders.length===0?"لا توجد أوامر قص بعد":"لا توجد نتائج"}
+        </div>
+        <div style={{fontSize:FS-1,color:T.textMut,marginBottom:16}}>
+          {data.orders.length===0?"ابدأ بإضافة أول أمر قص للمصنع":"جرب تعديل الفلاتر أو البحث"}
+        </div>
+        {data.orders.length===0&&canEdit&&<Btn primary onClick={()=>setShowNew(true)} style={{padding:"10px 22px",fontSize:FS}}>+ أمر قص جديد</Btn>}
+      </div>:null}
+
+      {/* ═══════════════════════════════════════════════════════════════
+          6A. TABLE VIEW
+         ═══════════════════════════════════════════════════════════════ */}
+      {filtered.length>0&&detView==="table"&&<div style={{background:T.cardSolid,borderRadius:14,border:"1px solid "+T.brd,overflow:"hidden"}}>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+            <thead style={{background:T.bg}}>
+              <tr>
+                <th style={{...TH,textAlign:"right",paddingRight:16}}>الموديل</th>
+                <th style={{...TH,textAlign:"right"}}>الوصف</th>
+                <th style={TH}>المقاس</th>
+                <th style={TH}>الحالة</th>
+                <th style={TH}>الكمية</th>
+                <th style={TH}>التسليم</th>
+                <th style={TH}>الرصيد</th>
+                <th style={TH}>الإنجاز</th>
+                <th style={TH}>التكلفة</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortOrders(filtered,detSort).map(o=>{const t=calcOrder(o);
+                const progress=t.cutQty>0?Math.round(((o.deliveredQty||0)/t.cutQty)*100):0;
+                const now=new Date();let lastDate=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});
+                const ageDays=Math.floor((now-new Date(lastDate))/(1000*60*60*24));
+                const isStale=ageDays>7&&o.status!=="تم التسليم لمخزن الجاهز";
+                return<tr key={o.id} className="det-row" onClick={()=>setSel(o.id)} style={{borderBottom:"1px solid "+T.brd,cursor:"pointer",transition:"background 0.15s"}}>
+                  <td style={{...TD,paddingRight:16}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      {o.image?<img src={o.image} alt="" style={{width:36,height:44,borderRadius:6,objectFit:"cover",flexShrink:0}}/>:<div style={{width:36,height:44,borderRadius:6,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",color:T.textMut,fontSize:16,flexShrink:0}}>📷</div>}
+                      <div style={{minWidth:0}}>
+                        {o.poNumber&&<div style={{fontSize:FS-3,color:T.accent,fontFamily:"monospace",fontWeight:700}}>{o.poNumber}</div>}
+                        <div style={{fontWeight:800,color:T.text}}>{o.modelNo}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td style={{...TD,color:T.textSec,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.modelDesc}</td>
+                  <td style={{...TD,textAlign:"center",fontSize:FS-2,color:T.textMut}}>{o.sizeLabel}</td>
+                  <td style={{...TD,textAlign:"center"}}><Badge t={o.status} cards={statusCards}/></td>
+                  <td style={{...TDB,textAlign:"center",color:T.accent}}>{t.cutQty}</td>
+                  <td style={{...TDB,textAlign:"center",color:T.ok}}>{o.deliveredQty||0}</td>
+                  <td style={{...TDB,textAlign:"center",color:t.balance>0?T.err:T.ok}}>{t.balance}</td>
+                  <td style={{...TD,textAlign:"center",minWidth:90}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      <div className="det-progress-bar" style={{flex:1,height:5}}><div className="det-progress-fill" style={{width:progress+"%",background:progress>=80?T.ok:progress>=50?T.warn:T.err}}/></div>
+                      <span style={{fontSize:FS-3,fontWeight:700,color:progress>=80?T.ok:progress>=50?T.warn:T.err,minWidth:32}}>{progress}%</span>
+                    </div>
+                    {isStale&&<div style={{fontSize:FS-3,color:T.err,fontWeight:700,marginTop:3}}>🔴 {ageDays} يوم</div>}
+                  </td>
+                  <td style={{...TDB,textAlign:"center",color:"#8B5CF6"}}>{Math.ceil(t.costPer)+" ج"}</td>
+                </tr>;
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>}
+
+      {/* ═══════════════════════════════════════════════════════════════
+          6B. CARDS VIEW — Modern minimal
+         ═══════════════════════════════════════════════════════════════ */}
+      {filtered.length>0&&detView==="cards"&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":isTab?"repeat(2,1fr)":"repeat(3,1fr)",gap:14}}>
+        {sortOrders(filtered,detSort).map(o=>{const t=calcOrder(o);
           const wds=o.workshopDeliveries||[];const hasData=wds.length>0||(o.deliveries||[]).length>0;
-          /* Age coloring */
+          /* Progress */
+          const progress=t.cutQty>0?Math.round(((o.deliveredQty||0)/t.cutQty)*100):0;
+          /* Age */
           const now=new Date();let lastDate=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});
           const ageDays=Math.floor((now-new Date(lastDate))/(1000*60*60*24));
           const isStale=ageDays>7&&o.status!=="تم التسليم لمخزن الجاهز";
           const isSent=waSent[o.id]&&(Date.now()-waSent[o.id]<60000);
-          return<div key={o.id} data-oid={o.id} style={{display:"flex",gap:16,padding:16,background:isSent?T.ok+"08":T.cardSolid,borderRadius:16,border:isSent?"2px solid "+T.ok+"40":isStale?"2px solid "+T.err+"60":"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",alignItems:"flex-start",position:"relative",transition:"all 0.3s"}} onClick={()=>setSel(o.id)}>
-          {canEdit&&!hasData&&<div onClick={e=>{e.stopPropagation()}} style={{position:"absolute",top:8,left:8}}><DelBtn onConfirm={()=>delOrder(o.id)}/></div>}
-          {isSent&&<div style={{position:"absolute",bottom:8,left:8,fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.ok+"15",color:T.ok,fontWeight:700}}>✅ تم الارسال</div>}
-          {/* Priority removed */}
-          {isStale&&!isSent&&<div style={{position:"absolute",bottom:8,left:8,fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.err+"15",color:T.err,fontWeight:700}}>{ageDays+" يوم"}</div>}
-          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,flexShrink:0}}>
-            {o.image?<img src={o.image} alt="" style={{width:80,height:107,borderRadius:10,objectFit:"cover",border:"1px solid "+T.brd}}/>:<div style={{width:80,height:107,borderRadius:10,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,color:T.textMut}}>📷</div>}
-            <div onClick={e=>{e.stopPropagation();setWaPopup({order:o,t:calcOrder(o),fromCard:true})}} title="ارسال واتساب" style={{width:80,height:28,borderRadius:6,background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12,fontWeight:700,gap:4}}>📱</div>
-          </div>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6,gap:8}}>
-              <div style={{flex:1,minWidth:0}}>
-                {o.poNumber&&<div style={{fontSize:FS,fontWeight:800,color:T.accent,fontFamily:"monospace",letterSpacing:0.5,marginBottom:1}}>{"📋 "+o.poNumber}</div>}
-                <div style={{fontSize:o.poNumber?FS-1:FS+1,fontWeight:700,color:o.poNumber?T.textSec:T.accent,marginBottom:2}}>{"🏷 "+o.modelNo}</div>
-                <div style={{fontSize:FS+2,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis"}}>{o.modelDesc}</div>
-                <div style={{fontSize:FS-1,color:T.textSec}}>{"مقاس "+o.sizeLabel}</div>
+          const sc=(statusCards||[]).find(x=>x.name===o.status);const statusColor=sc?.color||T.accent;
+          return<div key={o.id} data-oid={o.id} className="det-tile" style={{background:T.cardSolid,borderRadius:14,border:"1px solid "+T.brd,overflow:"hidden",position:"relative",display:"flex",flexDirection:"column"}} onClick={()=>setSel(o.id)}>
+            {/* Status accent line */}
+            <div style={{height:3,background:statusColor,flexShrink:0}}/>
+
+            <div style={{padding:14,display:"flex",flexDirection:"column",gap:10,flex:1}}>
+              {/* Top row: image + main info + delete */}
+              <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+                {/* Image */}
+                <div style={{position:"relative",flexShrink:0}}>
+                  {o.image?<img src={o.image} alt="" style={{width:72,height:96,borderRadius:10,objectFit:"cover",background:T.bg}}/>:<div style={{width:72,height:96,borderRadius:10,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",color:T.textMut,fontSize:26}}>📷</div>}
+                </div>
+
+                {/* Title block */}
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:6,marginBottom:4}}>
+                    {o.poNumber?<span style={{fontSize:FS-3,fontWeight:700,color:T.accent,fontFamily:"monospace",letterSpacing:0.5,padding:"2px 8px",borderRadius:6,background:T.accent+"10",border:"1px solid "+T.accent+"20"}}>{o.poNumber}</span>:<span/>}
+                    {canEdit&&!hasData&&<div onClick={e=>e.stopPropagation()}><DelBtn onConfirm={()=>delOrder(o.id)}/></div>}
+                  </div>
+                  <div style={{fontSize:FS+1,fontWeight:800,color:T.text,marginBottom:2,lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.modelNo}</div>
+                  <div style={{fontSize:FS-1,color:T.textSec,marginBottom:3,lineHeight:1.3,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{o.modelDesc}</div>
+                  <div style={{fontSize:FS-3,color:T.textMut,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                    <span>📐 {o.sizeLabel}</span>
+                    {o.closed&&<span style={{fontWeight:700,color:"#64748B"}}>🔒 مغلق</span>}
+                  </div>
+                </div>
+              </div>
+
+              {/* Status + Stale badge row */}
+              <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                <Badge t={o.status} cards={statusCards}/>
+                {isStale&&!isSent&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:5,background:T.err+"12",color:T.err,fontWeight:700,border:"1px solid "+T.err+"25",display:"inline-flex",alignItems:"center",gap:3}}>🔴 {ageDays} يوم</span>}
+                {isSent&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:5,background:T.ok+"12",color:T.ok,fontWeight:700,border:"1px solid "+T.ok+"25"}}>✅ تم الارسال</span>}
+              </div>
+
+              {/* Progress bar */}
+              <div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+                  <span style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>نسبة الإنجاز</span>
+                  <span style={{fontSize:FS-1,fontWeight:800,color:progress>=80?T.ok:progress>=50?T.warn:T.err}}>{progress}%</span>
+                </div>
+                <div className="det-progress-bar" style={{height:7}}>
+                  <div className="det-progress-fill" style={{width:progress+"%",background:progress>=80?"linear-gradient(90deg,"+T.ok+","+T.ok+"CC)":progress>=50?"linear-gradient(90deg,"+T.warn+","+T.warn+"CC)":"linear-gradient(90deg,"+T.err+","+T.err+"CC)"}}/>
+                </div>
+              </div>
+
+              {/* Stats grid — 3 cols */}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
+                <div style={{padding:"8px 6px",borderRadius:8,background:T.accent+"06",border:"1px solid "+T.accent+"12",textAlign:"center"}}>
+                  <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginBottom:1}}>الكمية</div>
+                  <div style={{fontSize:FS,fontWeight:800,color:T.accent,lineHeight:1}}>{t.cutQty}</div>
+                </div>
+                <div style={{padding:"8px 6px",borderRadius:8,background:T.ok+"06",border:"1px solid "+T.ok+"12",textAlign:"center"}}>
+                  <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginBottom:1}}>تسليم</div>
+                  <div style={{fontSize:FS,fontWeight:800,color:T.ok,lineHeight:1}}>{o.deliveredQty||0}</div>
+                </div>
+                <div style={{padding:"8px 6px",borderRadius:8,background:(t.balance>0?T.err:T.ok)+"06",border:"1px solid "+(t.balance>0?T.err:T.ok)+"12",textAlign:"center"}}>
+                  <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginBottom:1}}>رصيد</div>
+                  <div style={{fontSize:FS,fontWeight:800,color:t.balance>0?T.err:T.ok,lineHeight:1}}>{t.balance}</div>
+                </div>
+              </div>
+
+              {/* Cost row */}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",borderRadius:8,background:"#8B5CF606",border:"1px solid #8B5CF612"}}>
+                <span style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>💰 التكلفة</span>
+                <span style={{fontSize:FS-1,fontWeight:800,color:"#8B5CF6"}}>{Math.ceil(t.costPer)} ج.م</span>
+              </div>
+
+              {/* Workshop chips (if any) */}
+              {wds.length>0&&(()=>{const wsGroup={};wds.forEach(wd=>{if(!wsGroup[wd.wsName])wsGroup[wd.wsName]=[];wsGroup[wd.wsName].push(wd)});
+                const names=Object.keys(wsGroup);
+                return<div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                  {names.slice(0,3).map(name=>{const items=wsGroup[name];const totalDel=items.reduce((s,wd)=>s+(Number(wd.qty)||0),0);const totalRcv=items.reduce((s,wd)=>s+(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0),0);const bal=totalDel-totalRcv;
+                    return<span key={name} style={{fontSize:FS-3,padding:"3px 8px",borderRadius:5,background:bal>0?T.warn+"10":T.ok+"10",color:bal>0?T.warn:T.ok,border:"1px solid "+(bal>0?T.warn:T.ok)+"20",fontWeight:700,display:"inline-flex",alignItems:"center",gap:3,whiteSpace:"nowrap"}}>
+                      <span>🏭</span><span>{name}</span><span style={{opacity:0.7}}>({bal>0?bal+" متبقي":"✓"})</span>
+                    </span>;
+                  })}
+                  {names.length>3&&<span style={{fontSize:FS-3,padding:"3px 8px",borderRadius:5,background:T.bg,color:T.textMut,fontWeight:700}}>+{names.length-3}</span>}
+                </div>;
+              })()}
+
+              {/* Footer actions */}
+              <div style={{display:"flex",gap:6,marginTop:"auto",paddingTop:4,borderTop:"1px solid "+T.brd}}>
+                <div onClick={e=>{e.stopPropagation();setWaPopup({order:o,t:calcOrder(o),fromCard:true})}} title="ارسال واتساب" style={{flex:1,padding:"6px",borderRadius:8,background:"#25D36608",color:"#25D366",border:"1px solid #25D36620",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:FS-2,fontWeight:700,gap:5,transition:"all 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.background="#25D36615"}} onMouseLeave={e=>{e.currentTarget.style.background="#25D36608"}}>
+                  <svg width={14} height={14} viewBox="0 0 24 24" fill="currentColor"><path d="M20.5 3.5A11.5 11.5 0 0 0 12 0a12 12 0 0 0-10.4 18L0 24l6.2-1.6A12 12 0 0 0 12 24c6.6 0 12-5.4 12-12 0-3.2-1.2-6.2-3.5-8.5zm-8.5 18.5a10 10 0 0 1-5-1.4l-.4-.2-3.7 1 1-3.6-.2-.4a10 10 0 1 1 18.4-5.4c0 5.5-4.5 10-10 10zm5.5-7.5c-.3-.2-1.8-.9-2-1-.3-.1-.5-.2-.7.1-.2.3-.8 1-1 1.2-.2.2-.4.2-.7.1a8 8 0 0 1-2.3-1.4 8.8 8.8 0 0 1-1.6-2c-.2-.3 0-.4.1-.6l.3-.4.2-.3.1-.3a.3.3 0 0 0 0-.3l-1-2.2c-.2-.5-.4-.5-.6-.5H8c-.3 0-.6.1-.8.4-.3.4-1 1-1 2.3s1 2.7 1.2 2.9c.1.2 2.1 3.2 5 4.4 2.4 1 2.9.8 3.4.8.6-.1 1.8-.8 2-1.5.3-.8.3-1.4.2-1.5-.1-.1-.3-.2-.6-.3z"/></svg>
+                  <span>واتساب</span>
+                </div>
               </div>
             </div>
-            <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:wds.length>0?8:0}}>
-              <Badge t={o.status} cards={statusCards}/>
-              <span style={{fontSize:FS,color:T.textSec}}>{"الكمية: "}<b style={{color:T.accent}}>{t.cutQty}</b></span>
-              <span style={{fontSize:FS,color:T.textSec}}>{"تسليم: "}<b style={{color:T.ok}}>{o.deliveredQty||0}</b></span>
-              <span style={{fontSize:FS,color:T.textSec}}>{"رصيد: "}<b style={{color:t.balance>0?T.err:T.ok}}>{t.balance}</b></span>
-              <span style={{fontSize:FS,color:T.textSec}}>{"تكلفة: "}<b style={{color:"#8B5CF6"}}>{Math.ceil(t.costPer)+" ج.م"}</b></span>
-              {(()=>{const pieces=o.orderPieces||[];if(pieces.length<=1)return null;const linked=new Set();FKEYS.forEach(k=>{if(gf(o,k))(o["fabricPieces"+k]||[]).forEach(p=>linked.add(p))});const missing=pieces.filter(p=>!linked.has(p));if(missing.length===0)return null;return<span style={{fontSize:FS-2,padding:"2px 8px",borderRadius:6,background:"#F59E0B12",color:"#F59E0B",fontWeight:700,border:"1px solid #F59E0B30"}}>{"⚠️ تكلفة غير مكتملة ("+missing.join("، ")+")"}</span>})()}
-              {o.settlement&&<span style={{fontSize:FS-1,color:T.err,fontWeight:700}}>{"الفعلية: "+Math.ceil(o.deliveredQty>0?(t.costAll+o.settlement.cost)/o.deliveredQty:t.costPer)+" ج.م"}</span>}
-              {o.closed&&<span style={{fontSize:FS-1,padding:"2px 8px",borderRadius:6,background:"#64748B15",color:"#64748B",fontWeight:700}}>🔒 مغلق</span>}
-            </div>
-            {wds.length>0&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
-              {(()=>{const wsGroup={};wds.forEach(wd=>{if(!wsGroup[wd.wsName])wsGroup[wd.wsName]=[];wsGroup[wd.wsName].push(wd)});
-                return Object.entries(wsGroup).map(([name,items])=><div key={name} style={{display:"flex",flexDirection:"column",gap:2}}>
-                  <div style={{display:"flex",alignItems:"center",gap:6}}>
-                    <span style={{fontSize:FS-2,padding:"2px 8px",borderRadius:6,background:T.purple+"12",color:T.purple,fontWeight:700}}>{"🏭 "+name}</span>
-                  </div>
-                  <div style={{display:"flex",gap:4,flexWrap:"wrap",paddingRight:20}}>
-                    {items.map((wd,wi)=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=wd.qty-rcvd;
-                      return<span key={wi} style={{fontSize:FS-3,padding:"3px 8px",borderRadius:6,background:bal>0?T.warn+"10":T.ok+"10",border:"1px solid "+(bal>0?T.warn:T.ok)+"25"}}>
-                        {wd.garmentType?<b style={{color:T.purple}}>{wd.garmentType+": "}</b>:""}<span style={{color:T.accent}}>{"تسليم ورشة "+wd.qty}</span>{" | "}<span style={{color:T.ok}}>{"استلام مصنع "+rcvd}</span>{bal>0&&<span style={{color:T.err}}>{" | رصيد "+bal}</span>}{bal===0&&<span style={{color:T.ok}}>{" ✓"}</span>}
-                      </span>})}
-                  </div>
-                </div>)})()}
-            </div>}
-          </div>
-        </div>})}
-      </div>
+          </div>;
+        })}
+      </div>}
+
     {waPopup&&(()=>{const wo=waPopup.order;const wt=waPopup.t||calcOrder(wo);const timeline=getOrderTimeline(wo,wt);const hasTimeline=!!timeline;
       const sendWa=async(withTimeline)=>{let text=getOrderDetails(wo,wt);if(withTimeline&&timeline)text+=timeline;
         if(wo.image&&navigator.canShare){try{const res=await fetch(wo.image);const blob=await res.blob();const file=new File([blob],wo.modelNo+".jpg",{type:blob.type||"image/jpeg"});if(navigator.canShare({files:[file]})){await navigator.share({title:"CLARK — "+wo.modelNo,text,files:[file]});setWaSent(p=>({...p,[wo.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[wo.id];return n}),60000);setWaPopup(null);return}}catch(e){}}
@@ -3839,6 +4163,254 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
           </tbody>
         </table></div>
       </Card>
+
+      {/* ══════════════════════════════════════════════════════════════
+          🏭 EXTERNAL WORKSHOP SECTION V14.51 — Professional redesign
+         ══════════════════════════════════════════════════════════════ */}
+      {(()=>{const wds=order.workshopDeliveries||[];
+        if(wds.length===0){
+          /* Empty state — still show card to encourage action */
+          if(!canEdit)return null;
+          return<div style={{marginBottom:16,padding:18,borderRadius:14,border:"1px dashed "+T.brd,background:T.cardSolid,textAlign:"center"}}>
+            <div style={{fontSize:36,opacity:0.4,marginBottom:8}}>🏭</div>
+            <div style={{fontSize:FS+1,fontWeight:800,color:T.text,marginBottom:4}}>التشغيل الخارجي</div>
+            <div style={{fontSize:FS-1,color:T.textMut,marginBottom:12}}>لم يتم تسليم أي قطعة لورشة بعد</div>
+            {t.cutQty>0&&activeFabs.length>0&&<Btn primary onClick={()=>{setShowDeliver(true);setDWs("");setDType("");setDQty(0);setDPrice("");setDNote("")}} style={{padding:"8px 18px"}}>
+              📤 تسليم أول ورشة
+            </Btn>}
+          </div>;
+        }
+        /* Group deliveries by workshop */
+        const wsGroup={};
+        wds.forEach((wd,idx)=>{if(!wsGroup[wd.wsName])wsGroup[wd.wsName]={items:[],idxs:[]};wsGroup[wd.wsName].items.push(wd);wsGroup[wd.wsName].idxs.push(idx)});
+        const wsNames=Object.keys(wsGroup);
+        /* Summary totals */
+        const totalDel=wds.reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+        const totalRcv=wds.reduce((s,wd)=>s+(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0),0);
+        const totalBal=totalDel-totalRcv;
+        const overallProgress=totalDel>0?Math.round((totalRcv/totalDel)*100):0;
+
+        return<div style={{marginBottom:16}}>
+          <style>{`
+            .ws-card{transition:all 0.2s ease;overflow:hidden}
+            .ws-card:hover{box-shadow:0 6px 20px -6px rgba(139,92,246,0.15)}
+            .ws-progress-bar{height:6px;border-radius:3px;background:${T.bg};overflow:hidden}
+            .ws-progress-fill{height:100%;border-radius:3px;transition:width 0.8s cubic-bezier(0.4,0,0.2,1)}
+            .ws-expand-btn{cursor:pointer;padding:6px 12px;border-radius:8px;background:${T.bg};color:${T.textSec};font-size:${FS-2}px;font-weight:700;border:1px solid ${T.brd};display:inline-flex;align-items:center;gap:6px;transition:all 0.15s}
+            .ws-expand-btn:hover{background:${T.accent}08;color:${T.accent};border-color:${T.accent}30}
+            .ws-timeline-item{display:grid;grid-template-columns:auto 1fr auto;gap:10px;padding:8px 12px;border-radius:8px;align-items:center;font-size:${FS-1}px}
+            .ws-action-btn{padding:5px 10px;border-radius:7px;font-size:${FS-2}px;font-weight:700;cursor:pointer;border:1px solid transparent;transition:all 0.15s;display:inline-flex;align-items:center;gap:4px}
+            .print-menu-item{padding:10px 14px;cursor:pointer;transition:background 0.15s;font-size:${FS-1}px;display:flex;align-items:center;gap:8px;border-bottom:1px solid ${T.brd}}
+            .print-menu-item:last-child{border-bottom:none}
+            .print-menu-item:hover{background:${T.accent}08}
+          `}</style>
+
+          <div style={{background:T.cardSolid,borderRadius:14,border:"1px solid "+T.brd,overflow:"hidden"}}>
+            {/* Header */}
+            <div style={{padding:"14px 18px",borderBottom:"1px solid "+T.brd,background:"linear-gradient(135deg,#8B5CF606,#8B5CF602)",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:36,height:36,borderRadius:10,background:"#8B5CF612",display:"flex",alignItems:"center",justifyContent:"center",color:"#8B5CF6"}}>
+                  <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 18a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2"/><rect x="2" y="6" width="20" height="16" rx="2"/><path d="M2 10h20"/></svg>
+                </div>
+                <div>
+                  <div style={{fontSize:FS+2,fontWeight:800,color:T.text}}>التشغيل الخارجي</div>
+                  <div style={{fontSize:FS-2,color:T.textMut}}>{wsNames.length+" ورشة • "+wds.length+" حركة"}</div>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {canEdit&&!order.closed&&t.cutQty>0&&activeFabs.length>0&&<Btn small onClick={()=>{setShowDeliver(true);setDWs("");setDType("");setDQty(0);setDPrice("");setDNote("")}} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:700}}>
+                  <span style={{marginLeft:4}}>📤</span>تسليم جديد
+                </Btn>}
+                {/* Print menu */}
+                <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
+                  <Btn small onClick={()=>setShowPrintMenu(!showPrintMenu)} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd,fontWeight:700}}>
+                    <span style={{marginLeft:4}}>🖨</span>كشف
+                    <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{marginRight:4}}><polyline points="6 9 12 15 18 9"/></svg>
+                  </Btn>
+                  {showPrintMenu&&<><div onClick={()=>setShowPrintMenu(false)} style={{position:"fixed",inset:0,zIndex:998}}/>
+                    <div style={{position:"absolute",top:"100%",left:0,marginTop:4,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,0.12)",zIndex:999,minWidth:220,overflow:"hidden"}}>
+                      <div className="print-menu-item" onClick={()=>{printWorkshopReport(order,"");setShowPrintMenu(false)}}>
+                        <span>🏭</span>
+                        <div><div style={{fontWeight:700,color:T.text}}>كشف الأوردر كامل</div><div style={{fontSize:FS-3,color:T.textMut}}>جميع الورش والحركات</div></div>
+                      </div>
+                      {wsNames.map(name=><div key={name} className="print-menu-item" onClick={()=>{printWorkshopReport(order,name);setShowPrintMenu(false)}}>
+                        <span>🏭</span>
+                        <div><div style={{fontWeight:700,color:T.text}}>{name}</div><div style={{fontSize:FS-3,color:T.textMut}}>كشف ورشة محددة</div></div>
+                      </div>)}
+                    </div></>}
+                </div>
+              </div>
+            </div>
+
+            {/* Summary stats row */}
+            <div style={{padding:14,borderBottom:"1px solid "+T.brd,background:T.bg+"40"}}>
+              <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)",gap:10,marginBottom:12}}>
+                <div style={{padding:"10px 12px",borderRadius:10,background:T.cardSolid,border:"1px solid "+T.brd,display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{width:32,height:32,borderRadius:8,background:"#8B5CF612",color:"#8B5CF6",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                  </div>
+                  <div><div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>الورش</div><div style={{fontSize:FS+3,fontWeight:800,color:T.text,lineHeight:1}}>{wsNames.length}</div></div>
+                </div>
+                <div style={{padding:"10px 12px",borderRadius:10,background:T.cardSolid,border:"1px solid "+T.brd,display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{width:32,height:32,borderRadius:8,background:T.accent+"12",color:T.accent,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
+                  </div>
+                  <div><div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>تسليم</div><div style={{fontSize:FS+3,fontWeight:800,color:T.accent,lineHeight:1}}>{totalDel}</div></div>
+                </div>
+                <div style={{padding:"10px 12px",borderRadius:10,background:T.cardSolid,border:"1px solid "+T.brd,display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{width:32,height:32,borderRadius:8,background:T.ok+"12",color:T.ok,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="17" y1="7" x2="7" y2="17"/><polyline points="17 17 7 17 7 7"/></svg>
+                  </div>
+                  <div><div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>استلام</div><div style={{fontSize:FS+3,fontWeight:800,color:T.ok,lineHeight:1}}>{totalRcv}</div></div>
+                </div>
+                <div style={{padding:"10px 12px",borderRadius:10,background:T.cardSolid,border:"1px solid "+T.brd,display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{width:32,height:32,borderRadius:8,background:(totalBal>0?T.err:T.ok)+"12",color:totalBal>0?T.err:T.ok,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{totalBal>0?<><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>:<><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></>}</svg>
+                  </div>
+                  <div><div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>الرصيد</div><div style={{fontSize:FS+3,fontWeight:800,color:totalBal>0?T.err:T.ok,lineHeight:1}}>{totalBal}</div></div>
+                </div>
+              </div>
+              {/* Overall progress */}
+              <div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+                  <span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نسبة الإنجاز الإجمالية</span>
+                  <span style={{fontSize:FS-1,fontWeight:800,color:overallProgress>=80?T.ok:overallProgress>=50?T.warn:T.err}}>{overallProgress}%</span>
+                </div>
+                <div className="ws-progress-bar"><div className="ws-progress-fill" style={{width:overallProgress+"%",background:overallProgress>=80?"linear-gradient(90deg,"+T.ok+","+T.ok+"CC)":overallProgress>=50?"linear-gradient(90deg,"+T.warn+","+T.warn+"CC)":"linear-gradient(90deg,"+T.err+","+T.err+"CC)"}}/></div>
+              </div>
+            </div>
+
+            {/* Workshop cards */}
+            <div style={{padding:14,display:"flex",flexDirection:"column",gap:12}}>
+              {wsNames.map(wsName=>{const grp=wsGroup[wsName];const items=grp.items;
+                const wsObj=workshops.find(w=>w.name===wsName);
+                const wsDel=items.reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+                const wsRcv=items.reduce((s,wd)=>s+(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0),0);
+                const wsBal=wsDel-wsRcv;
+                const wsProgress=wsDel>0?Math.round((wsRcv/wsDel)*100):0;
+                /* Auto-expand incomplete workshops; user can toggle */
+                const wsKey=order.id+":"+wsName;
+                const isExpanded=wsExpand[wsKey]!==undefined?wsExpand[wsKey]:wsBal>0;
+                /* Latest dates */
+                const lastDel=items.map(wd=>wd.date).sort().slice(-1)[0]||"-";
+                const allRcv=items.flatMap(wd=>(wd.receives||[]).map(r=>({...r,piece:wd.garmentType,wdIdx:grp.idxs[items.indexOf(wd)]})));
+                const lastRcv=allRcv.length>0?allRcv.map(r=>r.date).sort().slice(-1)[0]:"-";
+                /* Days since last activity */
+                const lastActivity=[lastDel,lastRcv].filter(d=>d&&d!=="-").sort().slice(-1)[0]||lastDel;
+                const ageDays=lastActivity&&lastActivity!=="-"?Math.floor((new Date()-new Date(lastActivity))/(1000*60*60*24)):0;
+                const isStale=ageDays>7&&wsBal>0;
+                /* Status color */
+                const statusColor=wsBal===0?T.ok:wsProgress>=50?T.warn:T.err;
+
+                return<div key={wsName} className="ws-card" style={{background:T.cardSolid,borderRadius:12,border:"1px solid "+T.brd,borderRight:"3px solid "+statusColor}}>
+                  {/* Card header */}
+                  <div style={{padding:"12px 14px",cursor:"pointer"}} onClick={()=>setWsExpand(p=>({...p,[wsKey]:!isExpanded}))}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8,marginBottom:8}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:3}}>
+                          <span style={{fontSize:FS+1,fontWeight:800,color:T.text}}>🏭 {wsName}</span>
+                          {wsObj?.owner&&<span style={{fontSize:FS-3,color:T.textMut}}>• {wsObj.owner}</span>}
+                          {isStale&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:5,background:T.err+"12",color:T.err,fontWeight:700,border:"1px solid "+T.err+"25"}}>🔴 {ageDays} يوم بدون حركة</span>}
+                        </div>
+                        {/* Pieces breakdown */}
+                        <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                          {items.map((wd,i)=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;
+                            return<span key={i} style={{fontSize:FS-3,padding:"2px 8px",borderRadius:5,background:bal>0?T.warn+"10":T.ok+"10",color:bal>0?T.warn:T.ok,border:"1px solid "+(bal>0?T.warn:T.ok)+"25",fontWeight:700}}>
+                              {wd.garmentType?wd.garmentType+": ":""}{wd.qty}/{rcvd}{bal>0?" ("+bal+" متبقي)":" ✓"}
+                            </span>;
+                          })}
+                        </div>
+                      </div>
+                      <div style={{fontSize:FS+2,fontWeight:800,color:statusColor}}>{wsProgress}%</div>
+                    </div>
+                    {/* Stats row */}
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:8}}>
+                      <div style={{padding:"6px 8px",borderRadius:6,background:T.accent+"06",border:"1px solid "+T.accent+"15",textAlign:"center"}}>
+                        <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>تسليم</div>
+                        <div style={{fontSize:FS,fontWeight:800,color:T.accent}}>{wsDel}</div>
+                      </div>
+                      <div style={{padding:"6px 8px",borderRadius:6,background:T.ok+"06",border:"1px solid "+T.ok+"15",textAlign:"center"}}>
+                        <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>استلام</div>
+                        <div style={{fontSize:FS,fontWeight:800,color:T.ok}}>{wsRcv}</div>
+                      </div>
+                      <div style={{padding:"6px 8px",borderRadius:6,background:(wsBal>0?T.err:T.ok)+"06",border:"1px solid "+(wsBal>0?T.err:T.ok)+"15",textAlign:"center"}}>
+                        <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>رصيد</div>
+                        <div style={{fontSize:FS,fontWeight:800,color:wsBal>0?T.err:T.ok}}>{wsBal}</div>
+                      </div>
+                    </div>
+                    {/* Progress bar */}
+                    <div className="ws-progress-bar"><div className="ws-progress-fill" style={{width:wsProgress+"%",background:wsProgress>=80?"linear-gradient(90deg,"+T.ok+","+T.ok+"CC)":wsProgress>=50?"linear-gradient(90deg,"+T.warn+","+T.warn+"CC)":"linear-gradient(90deg,"+T.err+","+T.err+"CC)"}}/></div>
+                    {/* Dates + expand indicator */}
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8,flexWrap:"wrap",gap:6}}>
+                      <div style={{display:"flex",gap:10,fontSize:FS-3,color:T.textMut,flexWrap:"wrap"}}>
+                        <span>📤 آخر تسليم: <b style={{color:T.textSec}}>{lastDel}</b></span>
+                        {lastRcv!=="-"&&<span>📥 آخر استلام: <b style={{color:T.textSec}}>{lastRcv}</b></span>}
+                      </div>
+                      <div className="ws-expand-btn">
+                        <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{transform:isExpanded?"rotate(180deg)":"",transition:"transform 0.2s"}}><polyline points="6 9 12 15 18 9"/></svg>
+                        <span>{isExpanded?"إخفاء السجل":"عرض السجل ("+(items.length+allRcv.length)+" حركة)"}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Expanded timeline */}
+                  {isExpanded&&<div style={{padding:"0 14px 14px",borderTop:"1px solid "+T.brd}}>
+                    <div style={{fontSize:FS-2,fontWeight:700,color:T.textSec,margin:"10px 0 8px",padding:"0 4px",textTransform:"uppercase",letterSpacing:"0.5px"}}>السجل التفصيلي</div>
+                    {items.map((wd,wdi)=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const pieceBal=(Number(wd.qty)||0)-rcvd;
+                      return<div key={wdi} style={{marginBottom:10,padding:10,borderRadius:10,background:T.bg+"60",border:"1px solid "+T.brd}}>
+                        {/* Piece header */}
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
+                          <div style={{fontWeight:700,color:T.text}}>
+                            {wd.garmentType?gIcon(wd.garmentType,data.garmentTypes)+" "+wd.garmentType:"عام"}
+                          </div>
+                          <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                            {wd.agreedDays>0&&<span style={{fontSize:FS-3,color:T.textMut}}>⏱ متفق: {wd.agreedDays} يوم</span>}
+                            <span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:5,background:pieceBal>0?T.err+"10":T.ok+"10",color:pieceBal>0?T.err:T.ok,fontWeight:700}}>{pieceBal>0?"باقي "+pieceBal:"✓ مكتمل"}</span>
+                          </div>
+                        </div>
+                        {/* Timeline */}
+                        <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                          {/* Delivery event */}
+                          <div className="ws-timeline-item" style={{background:"#8B5CF608",border:"1px solid #8B5CF615"}}>
+                            <span style={{fontSize:FS-2,padding:"3px 8px",borderRadius:5,background:"#8B5CF6",color:"#fff",fontWeight:700,whiteSpace:"nowrap"}}>📤 تسليم</span>
+                            <div style={{display:"flex",flexDirection:"column",minWidth:0}}>
+                              <div style={{fontSize:FS-1,color:T.text,fontWeight:700}}>{wd.qty} قطعة</div>
+                              <div style={{fontSize:FS-3,color:T.textMut}}>{wd.date}{wd.notes?" • "+wd.notes:""}</div>
+                            </div>
+                            <div/>
+                          </div>
+                          {/* Receive events */}
+                          {(wd.receives||[]).map((r,ri)=>{const isSet=!!r.isSettlement;
+                            return<div key={ri} className="ws-timeline-item" style={{background:isSet?T.err+"06":T.ok+"06",border:"1px solid "+(isSet?T.err:T.ok)+"15"}}>
+                              <span style={{fontSize:FS-2,padding:"3px 8px",borderRadius:5,background:isSet?T.err:T.ok,color:"#fff",fontWeight:700,whiteSpace:"nowrap"}}>{isSet?"⚖️ تسوية":"📥 استلام"}</span>
+                              <div style={{display:"flex",flexDirection:"column",minWidth:0}}>
+                                <div style={{fontSize:FS-1,color:T.text,fontWeight:700}}>{r.qty} قطعة{r.quality?" • "+r.quality:""}</div>
+                                <div style={{fontSize:FS-3,color:T.textMut,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.date}{r.notes?" • "+r.notes:""}</div>
+                              </div>
+                              <div/>
+                            </div>;
+                          })}
+                          {(wd.receives||[]).length===0&&<div style={{padding:"6px 12px",borderRadius:8,background:T.bg,textAlign:"center",fontSize:FS-2,color:T.textMut,fontStyle:"italic"}}>لم يتم استلام أي كمية بعد</div>}
+                        </div>
+                      </div>;
+                    })}
+                    {/* Action buttons for this workshop */}
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:10,paddingTop:10,borderTop:"1px solid "+T.brd}}>
+                      <div onClick={e=>{e.stopPropagation();printWorkshopReport(order,wsName)}} className="ws-action-btn" style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>
+                        <span>🖨</span><span>طباعة الكشف</span>
+                      </div>
+                      {wsObj?.phone&&<div onClick={e=>{e.stopPropagation();const msg="*CLARK — متابعة تشغيل*%0A%0A• الورشة: *"+wsName+"*%0A• الموديل: *"+order.modelNo+"*%0A• تسليم: *"+wsDel+"*%0A• استلام: *"+wsRcv+"*%0A• رصيد: *"+wsBal+"*%0A"+(wsBal>0?"%0A⚠️ *برجاء الاهتمام بالتسليم*":"%0A✅ *الحمد لله - مكتمل*");window.open("https://wa.me/"+(wsObj.phone.replace(/[^0-9]/g,""))+"?text="+msg,"_blank")}} className="ws-action-btn" style={{background:"#25D36608",color:"#25D366",border:"1px solid #25D36625"}}>
+                        <span>📱</span><span>واتساب للورشة</span>
+                      </div>}
+                    </div>
+                  </div>}
+                </div>;
+              })}
+            </div>
+          </div>
+        </div>;
+      })()}
+
       <div style={{display:"grid",gridTemplateColumns:isMob||isTab?"1fr":"1.5fr 1fr",gap:16,marginBottom:16}}>
         <Card title="تكاليف الاكسسوار">{accItems.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><thead><tr>{["الوصف","السعر","اجمالي"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
           {accItems.map((a,i)=><tr key={i}><td style={{...TD,fontWeight:600}}>{a.name}</td><td style={TD}>{a.price+" ج.م"}</td><td style={{...TDB,color:T.accent}}>{fmt(a.price*t.cutQty)+" ج.م"}</td></tr>)}
