@@ -3895,7 +3895,7 @@ function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,is
       {/* ═══════════════════════════════════════════════════════════════
           6B. CARDS VIEW — Modern minimal
          ═══════════════════════════════════════════════════════════════ */}
-      {filtered.length>0&&detView==="cards"&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":isTab?"repeat(2,1fr)":"repeat(3,1fr)",gap:14}}>
+      {filtered.length>0&&detView==="cards"&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":isTab?"repeat(2,1fr)":"repeat(4,1fr)",gap:16}}>
         {sortOrders(filtered,detSort).map(o=>{const t=calcOrder(o);
           const wds=o.workshopDeliveries||[];const hasData=wds.length>0||(o.deliveries||[]).length>0;
           /* Progress */
@@ -4828,28 +4828,68 @@ function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,seaso
     setPayAmt("");setPayNote("");setPayDate(new Date().toISOString().split("T")[0])};
 
   if(!mode)return<div>
+    {/* ═══ V14.53: Hero stats for external processing ═══ */}
+    {(()=>{
+      const totalDel=movements.filter(m=>m.type==="deliver").reduce((s,m)=>s+(Number(m.qty)||0),0);
+      const totalRcv=movements.filter(m=>m.type==="receive").reduce((s,m)=>s+(Number(m.qty)||0),0);
+      const totalBal=totalDel-totalRcv;
+      const activeWs=new Set();
+      data.orders.forEach(ord=>(ord.workshopDeliveries||[]).forEach(wd=>{
+        const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
+        if((Number(wd.qty)||0)-rcvd>0)activeWs.add(wd.wsName);
+      }));
+      /* Count late */
+      const _now=new Date();let lateCount=0;
+      data.orders.forEach(ord=>(ord.workshopDeliveries||[]).forEach(wd=>{
+        const rcvd=(wd.receives||[]).filter(r=>!r.isSettlement).reduce((s,r)=>s+(Number(r.qty)||0),0);
+        const bal=(Number(wd.qty)||0)-rcvd;if(bal<=0)return;
+        const days=Math.floor((_now-new Date(wd.date))/(86400000));
+        const agreed=Number(wd.agreedDays)||0;
+        if((agreed>0?days>agreed:days>14))lateCount++;
+      }));
+      return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)",gap:12,marginBottom:18}}>
+        <div style={{padding:"14px 16px",borderRadius:12,border:"1px solid "+T.brd,background:T.cardSolid,display:"flex",alignItems:"center",gap:12,boxShadow:T.shadow}}>
+          <div style={{width:40,height:40,borderRadius:10,background:"#8B5CF612",display:"flex",alignItems:"center",justifyContent:"center",color:"#8B5CF6",flexShrink:0,fontSize:20}}>🏭</div>
+          <div><div style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>ورش نشطة</div><div style={{fontSize:isMob?FS+4:FS+8,fontWeight:900,color:T.text,lineHeight:1}}>{activeWs.size}</div></div>
+        </div>
+        <div style={{padding:"14px 16px",borderRadius:12,border:"1px solid "+T.brd,background:T.cardSolid,display:"flex",alignItems:"center",gap:12,boxShadow:T.shadow}}>
+          <div style={{width:40,height:40,borderRadius:10,background:T.accent+"12",display:"flex",alignItems:"center",justifyContent:"center",color:T.accent,flexShrink:0,fontSize:20}}>📤</div>
+          <div><div style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>إجمالي التسليم</div><div style={{fontSize:isMob?FS+4:FS+8,fontWeight:900,color:T.accent,lineHeight:1}}>{fmt(totalDel)}</div></div>
+        </div>
+        <div style={{padding:"14px 16px",borderRadius:12,border:"1px solid "+T.brd,background:T.cardSolid,display:"flex",alignItems:"center",gap:12,boxShadow:T.shadow}}>
+          <div style={{width:40,height:40,borderRadius:10,background:T.ok+"12",display:"flex",alignItems:"center",justifyContent:"center",color:T.ok,flexShrink:0,fontSize:20}}>📥</div>
+          <div><div style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>إجمالي الاستلام</div><div style={{fontSize:isMob?FS+4:FS+8,fontWeight:900,color:T.ok,lineHeight:1}}>{fmt(totalRcv)}</div></div>
+        </div>
+        <div onClick={lateCount>0?()=>setMovTypeF("late"):undefined} style={{padding:"14px 16px",borderRadius:12,border:"1px solid "+(lateCount>0?T.err+"40":T.brd),background:lateCount>0?T.err+"04":T.cardSolid,display:"flex",alignItems:"center",gap:12,boxShadow:T.shadow,cursor:lateCount>0?"pointer":"default",transition:"all 0.15s"}}>
+          <div style={{width:40,height:40,borderRadius:10,background:(lateCount>0?T.err:T.warn)+"12",display:"flex",alignItems:"center",justifyContent:"center",color:lateCount>0?T.err:T.warn,flexShrink:0,fontSize:20}}>⏰</div>
+          <div><div style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>متأخرات</div><div style={{fontSize:isMob?FS+4:FS+8,fontWeight:900,color:lateCount>0?T.err:T.text,lineHeight:1}}>{lateCount}</div></div>
+        </div>
+      </div>;
+    })()}
+
+    {/* Mode buttons row */}
     <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(3,1fr)":"repeat(6,1fr)",gap:12,marginBottom:20}}>
-      <div onClick={()=>setMode("deliver")} style={{background:T.card,borderRadius:14,padding:isMob?16:24,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center"}}>
+      <div onClick={()=>setMode("deliver")} style={{background:T.card,borderRadius:14,padding:isMob?16:22,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"all 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 10px 25px -8px "+T.accent+"30";e.currentTarget.style.borderColor=T.accent+"40"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow;e.currentTarget.style.borderColor=T.brd}}>
         <div style={{fontSize:32,marginBottom:8}}>📤</div>
         <div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>تسليم ورشة</div>
       </div>
-      <div onClick={()=>setMode("receive")} style={{background:T.card,borderRadius:14,padding:isMob?16:24,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center"}}>
+      <div onClick={()=>setMode("receive")} style={{background:T.card,borderRadius:14,padding:isMob?16:22,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"all 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 10px 25px -8px "+T.ok+"30";e.currentTarget.style.borderColor=T.ok+"40"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow;e.currentTarget.style.borderColor=T.brd}}>
         <div style={{fontSize:32,marginBottom:8}}>📥</div>
         <div style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>استلام من ورشة</div>
       </div>
-      <div onClick={()=>setMode("payment")} style={{background:T.card,borderRadius:14,padding:isMob?16:24,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center"}}>
+      <div onClick={()=>setMode("payment")} style={{background:T.card,borderRadius:14,padding:isMob?16:22,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"all 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 10px 25px -8px "+T.purple+"30";e.currentTarget.style.borderColor=T.purple+"40"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow;e.currentTarget.style.borderColor=T.brd}}>
         <div style={{fontSize:32,marginBottom:8}}>💳</div>
         <div style={{fontSize:FS+1,fontWeight:800,color:T.purple}}>اضافة دفعة</div>
       </div>
-      <div onClick={()=>setMode("accounts")} style={{background:T.card,borderRadius:14,padding:isMob?16:24,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center"}}>
+      <div onClick={()=>setMode("accounts")} style={{background:T.card,borderRadius:14,padding:isMob?16:22,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"all 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 10px 25px -8px "+T.warn+"30";e.currentTarget.style.borderColor=T.warn+"40"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow;e.currentTarget.style.borderColor=T.brd}}>
         <div style={{fontSize:32,marginBottom:8}}>📊</div>
         <div style={{fontSize:FS+1,fontWeight:800,color:T.warn}}>حسابات الورش</div>
       </div>
-      <div onClick={()=>{setMode("batch");setSelWs("");setBatchItems([]);setBatchDate(new Date().toISOString().split("T")[0])}} style={{background:T.card,borderRadius:14,padding:isMob?16:24,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center"}}>
+      <div onClick={()=>{setMode("batch");setSelWs("");setBatchItems([]);setBatchDate(new Date().toISOString().split("T")[0])}} style={{background:T.card,borderRadius:14,padding:isMob?16:22,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"all 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 10px 25px -8px #8B5CF630";e.currentTarget.style.borderColor="#8B5CF640"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow;e.currentTarget.style.borderColor=T.brd}}>
         <div style={{fontSize:32,marginBottom:8}}>📦</div>
         <div style={{fontSize:FS+1,fontWeight:800,color:"#8B5CF6"}}>تسليم مُجمع</div>
       </div>
-      <div onClick={()=>{setMode("batchRcv");setSelWs("");setBatchItems([]);setBatchDate(new Date().toISOString().split("T")[0])}} style={{background:T.card,borderRadius:14,padding:isMob?16:24,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center"}}>
+      <div onClick={()=>{setMode("batchRcv");setSelWs("");setBatchItems([]);setBatchDate(new Date().toISOString().split("T")[0])}} style={{background:T.card,borderRadius:14,padding:isMob?16:22,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"all 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 10px 25px -8px "+T.ok+"30";e.currentTarget.style.borderColor=T.ok+"40"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow;e.currentTarget.style.borderColor=T.brd}}>
         <div style={{fontSize:32,marginBottom:8}}>📥</div>
         <div style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>استلام مُجمع</div>
       </div>
@@ -9372,6 +9412,8 @@ function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Sel,
   const DEFAULT_IN=["وارد","إيرادات","دفعة عميل","رأس مال","تحويل"];
   const DEFAULT_CHECK=["رصيد افتتاحي","دفعة عميل","دفع مورد","تسوية مبالغ","تحويل بين الحسابات","أخرى"];
   const savedTS=config.treasurySettings||{};
+  /* V14.52: List of all non-admin users (candidates for whitelist) */
+  const allUsers=(config.usersList||[]).filter(u=>u.role!=="admin");
   /* Build the "saved snapshot" used for comparison */
   const buildSnapshot=(ts)=>({
     openingBalance:Number(ts.openingBalance)||0,
@@ -9379,8 +9421,11 @@ function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Sel,
     outCategories:ts.outCategories||DEFAULT_OUT,
     inCategories:ts.inCategories||DEFAULT_IN,
     checkCategories:ts.checkCategories||DEFAULT_CHECK,
-    lockEdit:!!ts.lockEdit,
-    lockDelete:!!ts.lockDelete
+    /* V14.52: default-on for locks (undefined → true), whitelists default to empty */
+    lockEdit:ts.lockEdit===false?false:true,
+    lockDelete:ts.lockDelete===false?false:true,
+    allowedEditors:Array.isArray(ts.allowedEditors)?[...ts.allowedEditors]:[],
+    allowedDeleters:Array.isArray(ts.allowedDeleters)?[...ts.allowedDeleters]:[]
   });
   const[draft,setDraft]=useState(()=>buildSnapshot(savedTS));
   const[newOutCat,setNewOutCat]=useState("");
@@ -9405,10 +9450,18 @@ function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Sel,
       d.treasurySettings.checkCategories=[...draft.checkCategories];
       /* Only admin can save lock changes */
       if(isAdmin){
-        const lockEditChanged=!!draft.lockEdit!==!!savedTS.lockEdit;
-        const lockDeleteChanged=!!draft.lockDelete!==!!savedTS.lockDelete;
-        d.treasurySettings.lockEdit=!!draft.lockEdit;
-        d.treasurySettings.lockDelete=!!draft.lockDelete;
+        const oldLockEdit=savedTS.lockEdit===false?false:true;
+        const oldLockDelete=savedTS.lockDelete===false?false:true;
+        const oldEditors=Array.isArray(savedTS.allowedEditors)?savedTS.allowedEditors:[];
+        const oldDeleters=Array.isArray(savedTS.allowedDeleters)?savedTS.allowedDeleters:[];
+        const lockEditChanged=draft.lockEdit!==oldLockEdit;
+        const lockDeleteChanged=draft.lockDelete!==oldLockDelete;
+        const editorsChanged=JSON.stringify([...oldEditors].sort())!==JSON.stringify([...draft.allowedEditors].sort());
+        const deletersChanged=JSON.stringify([...oldDeleters].sort())!==JSON.stringify([...draft.allowedDeleters].sort());
+        d.treasurySettings.lockEdit=draft.lockEdit;
+        d.treasurySettings.lockDelete=draft.lockDelete;
+        d.treasurySettings.allowedEditors=[...draft.allowedEditors];
+        d.treasurySettings.allowedDeleters=[...draft.allowedDeleters];
         /* Log lock changes to audit */
         if(lockEditChanged||lockDeleteChanged){
           if(!Array.isArray(d.auditLog))d.auditLog=[];
@@ -9417,8 +9470,21 @@ function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Sel,
             category:"security",
             action:"lock_setting_changed",
             target:"treasury_lock",
-            oldValue:"تعديل:"+(savedTS.lockEdit?"مقفول":"مفتوح")+" | حذف:"+(savedTS.lockDelete?"مقفول":"مفتوح"),
+            oldValue:"تعديل:"+(oldLockEdit?"مقفول":"مفتوح")+" | حذف:"+(oldLockDelete?"مقفول":"مفتوح"),
             newValue:"تعديل:"+(draft.lockEdit?"مقفول":"مفتوح")+" | حذف:"+(draft.lockDelete?"مقفول":"مفتوح"),
+            at:new Date().toISOString()
+          });
+        }
+        /* V14.52: Log whitelist changes */
+        if(editorsChanged||deletersChanged){
+          if(!Array.isArray(d.auditLog))d.auditLog=[];
+          d.auditLog.unshift({
+            id:Math.random().toString(36).slice(2)+Date.now(),
+            category:"security",
+            action:"whitelist_changed",
+            target:"treasury_whitelist",
+            oldValue:"تعديل:["+oldEditors.join(",")+"] | حذف:["+oldDeleters.join(",")+"]",
+            newValue:"تعديل:["+draft.allowedEditors.join(",")+"] | حذف:["+draft.allowedDeleters.join(",")+"]",
             at:new Date().toISOString()
           });
         }
@@ -9476,47 +9542,137 @@ function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Sel,
         <div style={{display:"flex",gap:4}}><Inp value={newCheckCat} onChange={setNewCheckCat} placeholder="بند جديد (مثلاً: رصيد افتتاحي)..." style={{flex:1}}/><Btn small onClick={addCheck}>+</Btn></div>
       </div>
 
-      {/* Lock Edit/Delete section — admin only */}
-      {isAdmin&&<div style={{marginTop:12,padding:14,borderRadius:10,background:T.err+"06",border:"2px solid "+T.err+"30"}}>
+      {/* ═══ V14.52: Lock Edit/Delete + Whitelist — admin only ═══ */}
+      {isAdmin&&<div style={{marginTop:12,padding:14,borderRadius:12,background:"linear-gradient(135deg,"+T.err+"06,"+T.err+"02)",border:"2px solid "+T.err+"30"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
-          <span style={{fontSize:18}}>🔒</span>
-          <div style={{fontSize:FS,fontWeight:800,color:T.err}}>قفل تعديل وحذف الحركات</div>
+          <span style={{fontSize:20}}>🔒</span>
+          <div style={{fontSize:FS+1,fontWeight:800,color:T.err}}>قفل تعديل وحذف الحركات</div>
         </div>
-        <div style={{fontSize:FS-2,color:T.textMut,marginBottom:12,lineHeight:1.6}}>
-          يمنع المستخدمين العاديين من تعديل أو حذف الحركات المسجلة. المدير يتجاوز القفل دائماً — ويُسجَّل تجاوزه في سجل الأمان.
+        <div style={{fontSize:FS-2,color:T.textSec,marginBottom:14,lineHeight:1.6}}>
+          لما القفل يبقى مفعّل، بس المدير والمستخدمين المصرح لهم يقدروا يعدلوا/يحذفوا. كل عملية بتتسجل في سجل الأمان.
         </div>
-        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10}}>
+
+        {/* Lock toggles */}
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:14}}>
           {/* Lock Edit */}
-          <div style={{padding:"10px 12px",borderRadius:8,background:draft.lockEdit?T.err+"12":T.ok+"08",border:"1px solid "+(draft.lockEdit?T.err+"40":T.ok+"30"),cursor:"pointer"}} onClick={()=>setDraft(p=>({...p,lockEdit:!p.lockEdit}))}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+          <div style={{padding:"12px 14px",borderRadius:10,background:draft.lockEdit?T.err+"12":T.ok+"08",border:"1px solid "+(draft.lockEdit?T.err+"40":T.ok+"30"),cursor:"pointer",transition:"all 0.15s"}} onClick={()=>setDraft(p=>({...p,lockEdit:!p.lockEdit}))}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
               <div style={{fontSize:FS,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:6}}>
-                <span>✏️</span><span>تعديل الحركات</span>
+                <span>✏️</span><span>قفل التعديل</span>
               </div>
               <div style={{fontSize:FS-1,fontWeight:800,padding:"3px 10px",borderRadius:6,background:draft.lockEdit?T.err:T.ok,color:"#fff"}}>
-                {draft.lockEdit?"🔴 مقفول":"🟢 مسموح"}
+                {draft.lockEdit?"🔴 مفعّل":"🟢 مفتوح"}
               </div>
             </div>
-            <div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>
-              {draft.lockEdit?"المستخدمون العاديون لا يقدرون يعدلوا — المدير فقط":"كل المستخدمين يقدروا يعدلوا حسب صلاحياتهم"}
+            <div style={{fontSize:FS-3,color:T.textMut,marginTop:4,lineHeight:1.5}}>
+              {draft.lockEdit?"المدير + المصرّح لهم فقط":"الكل يقدر يعدّل حسب صلاحياته"}
             </div>
           </div>
           {/* Lock Delete */}
-          <div style={{padding:"10px 12px",borderRadius:8,background:draft.lockDelete?T.err+"12":T.ok+"08",border:"1px solid "+(draft.lockDelete?T.err+"40":T.ok+"30"),cursor:"pointer"}} onClick={()=>setDraft(p=>({...p,lockDelete:!p.lockDelete}))}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+          <div style={{padding:"12px 14px",borderRadius:10,background:draft.lockDelete?T.err+"12":T.ok+"08",border:"1px solid "+(draft.lockDelete?T.err+"40":T.ok+"30"),cursor:"pointer",transition:"all 0.15s"}} onClick={()=>setDraft(p=>({...p,lockDelete:!p.lockDelete}))}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
               <div style={{fontSize:FS,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:6}}>
-                <span>🗑️</span><span>حذف الحركات</span>
+                <span>🗑️</span><span>قفل الحذف</span>
               </div>
               <div style={{fontSize:FS-1,fontWeight:800,padding:"3px 10px",borderRadius:6,background:draft.lockDelete?T.err:T.ok,color:"#fff"}}>
-                {draft.lockDelete?"🔴 مقفول":"🟢 مسموح"}
+                {draft.lockDelete?"🔴 مفعّل":"🟢 مفتوح"}
               </div>
             </div>
-            <div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>
-              {draft.lockDelete?"المستخدمون العاديون لا يقدرون يحذفوا — المدير فقط":"كل المستخدمين يقدروا يحذفوا حسب صلاحياتهم"}
+            <div style={{fontSize:FS-3,color:T.textMut,marginTop:4,lineHeight:1.5}}>
+              {draft.lockDelete?"المدير + المصرّح لهم فقط":"الكل يقدر يحذف حسب صلاحياته"}
             </div>
           </div>
         </div>
-        <div style={{marginTop:10,padding:"6px 10px",borderRadius:6,background:T.warn+"08",fontSize:FS-3,color:T.warn,lineHeight:1.5}}>
-          👑 <b>ملاحظة:</b> كل تعديل أو حذف تقوم به كمدير أثناء تفعيل القفل سيُسجَّل في سجل الأمان (audit log) مع البيان والمبلغ والتاريخ.
+
+        {/* ═══ Whitelists — show only when at least one lock is active ═══ */}
+        {(draft.lockEdit||draft.lockDelete)&&<div style={{padding:14,borderRadius:10,background:T.cardSolid,border:"1px solid "+T.brd}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+            <span style={{fontSize:16}}>👥</span>
+            <div style={{fontSize:FS,fontWeight:800,color:T.text}}>قائمة المستخدمين المصرّح لهم</div>
+          </div>
+          <div style={{fontSize:FS-2,color:T.textMut,marginBottom:12,lineHeight:1.6}}>
+            اختار المستخدمين اللي تثق فيهم ليقدروا يتجاوزوا القفل. 
+            <b style={{color:T.text}}> ملحوظة:</b> كل واحد في قائمة "الحذف" بيقدر يعدّل تلقائياً (الحذف يشمل التعديل).
+          </div>
+
+          {allUsers.length===0?<div style={{padding:"20px 14px",textAlign:"center",background:T.bg,borderRadius:8,color:T.textMut,fontSize:FS-1}}>
+            <div style={{fontSize:30,opacity:0.4,marginBottom:6}}>👤</div>
+            <div>لا يوجد مستخدمين إضافيين — أضف مستخدمين من قسم "إدارة المستخدمين" أولاً</div>
+          </div>:<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":draft.lockEdit&&draft.lockDelete?"1fr 1fr":"1fr",gap:10}}>
+            {/* Allowed Editors */}
+            {draft.lockEdit&&<div style={{padding:12,borderRadius:10,background:T.accent+"04",border:"1px solid "+T.accent+"20"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                <div style={{fontSize:FS-1,fontWeight:800,color:T.accent,display:"flex",alignItems:"center",gap:6}}>
+                  <span>✏️</span><span>مصرّح لهم التعديل</span>
+                </div>
+                <div style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,background:T.accent+"15",color:T.accent,fontWeight:700}}>
+                  {draft.allowedEditors.length+draft.allowedDeleters.filter(e=>!draft.allowedEditors.includes(e)).length}
+                </div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:240,overflowY:"auto"}}>
+                {allUsers.map(u=>{
+                  const inEditors=draft.allowedEditors.includes(u.email);
+                  const inDeleters=draft.allowedDeleters.includes(u.email);
+                  const hasAccess=inEditors||inDeleters;/* delete implies edit */
+                  const isLocked=inDeleters&&!inEditors;/* can't uncheck here — must uncheck from deleters */
+                  return<div key={u.email} onClick={()=>{
+                    if(isLocked)return;/* delete implies edit, can't remove */
+                    setDraft(p=>({...p,allowedEditors:inEditors?p.allowedEditors.filter(e=>e!==u.email):[...p.allowedEditors,u.email]}));
+                  }} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:8,cursor:isLocked?"not-allowed":"pointer",background:hasAccess?T.accent+"10":T.bg,border:"1px solid "+(hasAccess?T.accent+"30":T.brd),opacity:isLocked?0.7:1,transition:"all 0.15s"}}>
+                    <div style={{width:18,height:18,borderRadius:5,border:"2px solid "+(hasAccess?T.accent:T.textMut),background:hasAccess?T.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                      {hasAccess&&<svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:FS-1,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name||u.email.split("@")[0]}</div>
+                      <div style={{fontSize:FS-3,color:T.textMut,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                        {u.email}
+                        {isLocked&&<span style={{marginRight:6,color:T.warn,fontWeight:700}}>• تلقائي من قائمة الحذف</span>}
+                      </div>
+                    </div>
+                  </div>;
+                })}
+              </div>
+            </div>}
+
+            {/* Allowed Deleters */}
+            {draft.lockDelete&&<div style={{padding:12,borderRadius:10,background:T.err+"04",border:"1px solid "+T.err+"20"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                <div style={{fontSize:FS-1,fontWeight:800,color:T.err,display:"flex",alignItems:"center",gap:6}}>
+                  <span>🗑️</span><span>مصرّح لهم الحذف</span>
+                </div>
+                <div style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,background:T.err+"15",color:T.err,fontWeight:700}}>
+                  {draft.allowedDeleters.length}
+                </div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:240,overflowY:"auto"}}>
+                {allUsers.map(u=>{
+                  const inDeleters=draft.allowedDeleters.includes(u.email);
+                  return<div key={u.email} onClick={()=>{
+                    setDraft(p=>({...p,allowedDeleters:inDeleters?p.allowedDeleters.filter(e=>e!==u.email):[...p.allowedDeleters,u.email]}));
+                  }} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:8,cursor:"pointer",background:inDeleters?T.err+"10":T.bg,border:"1px solid "+(inDeleters?T.err+"30":T.brd),transition:"all 0.15s"}}>
+                    <div style={{width:18,height:18,borderRadius:5,border:"2px solid "+(inDeleters?T.err:T.textMut),background:inDeleters?T.err:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                      {inDeleters&&<svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:FS-1,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name||u.email.split("@")[0]}</div>
+                      <div style={{fontSize:FS-3,color:T.textMut,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.email}</div>
+                    </div>
+                  </div>;
+                })}
+              </div>
+            </div>}
+          </div>}
+
+          {/* Summary */}
+          {allUsers.length>0&&(draft.allowedEditors.length>0||draft.allowedDeleters.length>0)&&<div style={{marginTop:10,padding:"8px 12px",borderRadius:8,background:T.ok+"08",border:"1px solid "+T.ok+"20",fontSize:FS-2,color:T.ok,lineHeight:1.5}}>
+            ✅ <b>الخلاصة:</b>
+            {draft.lockEdit&&<span> تعديل = مدير + {Array.from(new Set([...draft.allowedEditors,...draft.allowedDeleters])).length} مستخدم</span>}
+            {draft.lockDelete&&<span> • حذف = مدير + {draft.allowedDeleters.length} مستخدم</span>}
+          </div>}
+        </div>}
+
+        <div style={{marginTop:10,padding:"8px 12px",borderRadius:8,background:T.warn+"08",border:"1px solid "+T.warn+"20",fontSize:FS-3,color:T.warn,lineHeight:1.5}}>
+          ⚠️ <b>ملاحظة أمان:</b> كل تعديل أو حذف (سواء بواسطة مدير أو مصرّح له) سيُسجَّل في سجل الأمان (audit log) مع البيان والمبلغ والتاريخ.
         </div>
       </div>}
 
@@ -14045,37 +14201,49 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const isAdmin=userRole==="admin";
   const lockedDays=(data.lockedDays||[]);/* ["2026-04-15", ...] */
   const isDayLocked=(dt)=>lockedDays.includes(dt);
-  /* Edit/Delete locks from settings — admin always bypasses (with audit log) */
-  const lockEdit=!!(data.treasurySettings||{}).lockEdit;
-  const lockDelete=!!(data.treasurySettings||{}).lockDelete;
+  /* ═══ V14.52: Edit/Delete locks with whitelist ═══
+     Default behavior: lock is ON (undefined = ON) — admin always works.
+     Allowed editors/deleters can also work. Delete permission implies edit. */
+  const ts=data.treasurySettings||{};
+  /* undefined/null → default to ON (locked for non-admins after update) */
+  const lockEdit=ts.lockEdit===false?false:true;/* default: locked */
+  const lockDelete=ts.lockDelete===false?false:true;/* default: locked */
+  const allowedEditors=Array.isArray(ts.allowedEditors)?ts.allowedEditors:[];
+  const allowedDeleters=Array.isArray(ts.allowedDeleters)?ts.allowedDeleters:[];
+  /* Delete grants edit: anyone in allowedDeleters is implicitly in allowedEditors */
+  const effectiveAllowedEditors=Array.from(new Set([...allowedEditors,...allowedDeleters]));
+  const isAllowedEditor=effectiveAllowedEditors.includes(userEmail);
+  const isAllowedDeleter=allowedDeleters.includes(userEmail);
   const canModify=(t)=>{
     if(!canEdit)return false;
-    if(isAdmin)return true;/* Admin always bypasses */
-    if(lockEdit)return false;/* Global edit lock */
-    if(isDayLocked(t.date))return false;/* Day lock */
-    return true;
+    if(isAdmin)return true;/* Admin always allowed */
+    if(isDayLocked(t.date))return false;/* Day lock applies to everyone (except admin) */
+    if(!lockEdit)return true;/* Lock is off — everyone can edit per role */
+    return isAllowedEditor;/* Lock is on — only whitelisted users */
   };
   const canDelete=(t)=>{
     if(!canEdit)return false;
-    if(isAdmin)return true;/* Admin always bypasses */
-    if(lockDelete)return false;/* Global delete lock */
-    if(isDayLocked(t.date))return false;/* Day lock */
-    return true;
+    if(isAdmin)return true;/* Admin always allowed */
+    if(isDayLocked(t.date))return false;
+    if(!lockDelete)return true;
+    return isAllowedDeleter;
   };
-  /* Log admin bypass events — called when admin edits/deletes while lock is on */
+  /* Log lock-related events — for admin bypass OR whitelisted user action */
   const logLockBypass=(action,tx)=>{
-    if(!isAdmin)return;/* Only log admin bypasses */
     const isLockActive=(action==="edit"&&lockEdit)||(action==="delete"&&lockDelete);
-    if(!isLockActive)return;/* Lock is off — no bypass happened */
+    if(!isLockActive)return;/* Lock is off — nothing to log */
+    /* Log only when lock is on: admin bypass OR whitelisted user action */
+    const isWhitelisted=action==="edit"?isAllowedEditor:isAllowedDeleter;
+    if(!isAdmin&&!isWhitelisted)return;/* Unauthorized — will be blocked by canModify/canDelete anyway */
     upConfig(d=>{
       if(!Array.isArray(d.auditLog))d.auditLog=[];
       d.auditLog.unshift({
         id:Math.random().toString(36).slice(2)+Date.now(),
         category:"security",
-        action:"lock_bypass",
+        action:isAdmin?"lock_bypass":"lock_whitelisted",
         target:action==="edit"?"treasury_edit":"treasury_delete",
         oldValue:"مقفول من الإعدادات",
-        newValue:(action==="edit"?"تعديل":"حذف")+" بواسطة مدير",
+        newValue:(action==="edit"?"تعديل":"حذف")+" بواسطة "+(isAdmin?"مدير":"مستخدم مصرّح له"),
         notes:"الحركة: "+(tx?.desc||"—")+" | المبلغ: "+(tx?.amount||0)+" | التاريخ: "+(tx?.date||"—")+" | حساب: "+(tx?.account||"—"),
         by:userEmail,
         at:new Date().toISOString()
@@ -14085,6 +14253,19 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   /* Confirm popup */
   const[confirmPopup,setConfirmPopup]=useState(null);
   const openConfirm=(cfg)=>setConfirmPopup(cfg);
+  /* V14.52: First-visit warning for non-admin users when lock is active and they are NOT whitelisted */
+  const[showFirstVisitWarning,setShowFirstVisitWarning]=useState(false);
+  useEffect(()=>{
+    if(isAdmin)return;/* admins never see warning */
+    if(!lockEdit&&!lockDelete)return;/* no lock active */
+    const hasAnyAccess=isAllowedEditor||isAllowedDeleter;
+    if(hasAnyAccess)return;/* whitelisted — no need to warn */
+    /* Show once per session, not each load */
+    const key="clark_treasury_lock_warning_"+userEmail+"_"+new Date().toDateString();
+    if(sessionStorage.getItem(key))return;
+    setShowFirstVisitWarning(true);
+    sessionStorage.setItem(key,"1");
+  },[isAdmin,lockEdit,lockDelete,isAllowedEditor,isAllowedDeleter,userEmail]);
   const txns=(data.treasury||[]);
   /* Accounts are now objects: {id, name, ownerEmail, type} — auto-migrate from old strings */
   const rawAccounts=(data.treasuryAccounts||[]);
@@ -14694,29 +14875,49 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   };
 
   return<div>
-    {/* Lock status banner — shown when edit or delete lock is active */}
-    {(lockEdit||lockDelete)&&<div style={{padding:"10px 14px",marginBottom:12,borderRadius:10,background:isAdmin?T.warn+"12":T.err+"10",border:"1px solid "+(isAdmin?T.warn+"40":T.err+"30"),display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
-      <div style={{display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0}}>
-        <span style={{fontSize:20}}>{isAdmin?"⚠️":"🔒"}</span>
-        <div>
-          <div style={{fontSize:FS,fontWeight:800,color:isAdmin?T.warn:T.err}}>
-            {isAdmin?"قفل نشط — لديك صلاحية التجاوز كمدير":"وضع قراءة فقط"}
-          </div>
-          <div style={{fontSize:FS-2,color:T.textSec,marginTop:2}}>
-            {lockEdit&&lockDelete?"التعديل والحذف مقفولين من الإعدادات":lockEdit?"التعديل مقفول من الإعدادات":"الحذف مقفول من الإعدادات"}
-            {isAdmin&&" — كل تعديل/حذف سيُسجل في سجل الأمان"}
+    {/* ═══ V14.52: Whitelist-aware lock banner ═══ */}
+    {(lockEdit||lockDelete)&&(()=>{
+      /* Determine user status: admin / whitelisted / blocked */
+      const canEditNow=isAdmin||(!lockEdit)||isAllowedEditor;
+      const canDeleteNow=isAdmin||(!lockDelete)||isAllowedDeleter;
+      const isFullyBlocked=!canEditNow&&!canDeleteNow;
+      const isPartialAccess=!isAdmin&&(isAllowedEditor||isAllowedDeleter);
+      /* Pick visual style based on user's effective access */
+      let bgColor,borderColor,iconColor,icon,title,subtitle;
+      if(isAdmin){
+        bgColor=T.warn+"12";borderColor=T.warn+"40";iconColor=T.warn;icon="👑";
+        title="قفل نشط — لديك صلاحية التجاوز كمدير";
+        subtitle=(lockEdit&&lockDelete?"التعديل والحذف مقفولين":lockEdit?"التعديل مقفول":"الحذف مقفول")+" — كل تعديل/حذف سيُسجل في سجل الأمان";
+      } else if(isPartialAccess){
+        bgColor=T.ok+"10";borderColor=T.ok+"30";iconColor=T.ok;icon="🔓";
+        title="لديك صلاحية خاصة — مصرّح لك بالتعديل/الحذف";
+        const parts=[];
+        if(lockEdit&&isAllowedEditor)parts.push("✅ تقدر تعدل");
+        if(lockDelete&&isAllowedDeleter)parts.push("✅ تقدر تحذف");
+        subtitle=parts.join(" • ")+" — كل عملية ستُسجل في سجل الأمان";
+      } else {
+        bgColor=T.err+"10";borderColor=T.err+"30";iconColor=T.err;icon="🔒";
+        title="وضع قراءة فقط";
+        subtitle="القفل مفعّل — لا تملك صلاحية التعديل أو الحذف. تواصل مع المدير لإضافتك للقائمة.";
+      }
+      return<div style={{padding:"12px 16px",marginBottom:12,borderRadius:12,background:bgColor,border:"1px solid "+borderColor,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,flex:1,minWidth:0}}>
+          <span style={{fontSize:22,flexShrink:0}}>{icon}</span>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:FS,fontWeight:800,color:iconColor}}>{title}</div>
+            <div style={{fontSize:FS-2,color:T.textSec,marginTop:3,lineHeight:1.5}}>{subtitle}</div>
           </div>
         </div>
-      </div>
-      {isAdmin&&<Btn small onClick={()=>{
-        upConfig(d=>{
-          if(!d.treasurySettings)d.treasurySettings={};
-          d.treasurySettings.lockEdit=false;
-          d.treasurySettings.lockDelete=false;
-        });
-        showToast("✅ تم فتح القفل");
-      }} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"40",fontWeight:700,whiteSpace:"nowrap"}} title="فتح القفل (للمدير فقط)">🔓 فتح القفل</Btn>}
-    </div>}
+        {isAdmin&&<Btn small onClick={()=>{
+          upConfig(d=>{
+            if(!d.treasurySettings)d.treasurySettings={};
+            d.treasurySettings.lockEdit=false;
+            d.treasurySettings.lockDelete=false;
+          });
+          showToast("✅ تم فتح القفل");
+        }} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"40",fontWeight:700,whiteSpace:"nowrap"}} title="فتح القفل (للمدير فقط)">🔓 فتح القفل</Btn>}
+      </div>;
+    })()}
 
     {/* View Tabs */}
     <div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflow:"hidden",border:"1px solid "+T.brd}}>
@@ -15474,6 +15675,33 @@ function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           <Btn ghost onClick={()=>setShowTransfer(false)}>إلغاء</Btn>
           <Btn onClick={submitTransfer} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:700}}>🔄 إرسال التحويل</Btn>
         </div>
+      </div>
+    </div>}
+
+    {/* ═══ V14.52: First-visit warning popup for non-whitelisted users ═══ */}
+    {showFirstVisitWarning&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setShowFirstVisitWarning(false)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:28,width:"100%",maxWidth:460,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.45)",textAlign:"center"}}>
+        <div style={{fontSize:54,marginBottom:14}}>🔒</div>
+        <div style={{fontSize:FS+4,fontWeight:900,color:T.err,marginBottom:10}}>وضع قراءة فقط</div>
+        <div style={{fontSize:FS+1,color:T.text,marginBottom:14,lineHeight:1.7}}>
+          تم تفعيل قفل تعديل وحذف الحركات في هذا الحساب.
+        </div>
+        <div style={{padding:"12px 16px",background:T.bg,borderRadius:12,border:"1px solid "+T.brd,marginBottom:18,textAlign:"right"}}>
+          <div style={{fontSize:FS-1,color:T.textSec,lineHeight:1.9}}>
+            <div style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:6}}>
+              <span style={{fontSize:16,flexShrink:0}}>✅</span>
+              <span><b style={{color:T.text}}>تقدر:</b> عرض الحركات • إضافة حركات جديدة</span>
+            </div>
+            <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+              <span style={{fontSize:16,flexShrink:0}}>❌</span>
+              <span><b style={{color:T.text}}>مش تقدر:</b> تعديل حركات قديمة • حذف حركات</span>
+            </div>
+          </div>
+        </div>
+        <div style={{fontSize:FS-1,color:T.textMut,marginBottom:18,lineHeight:1.6}}>
+          لو محتاج صلاحية تعديل أو حذف، تواصل مع المدير ليضيفك لقائمة المصرّح لهم.
+        </div>
+        <Btn primary onClick={()=>setShowFirstVisitWarning(false)} style={{padding:"10px 32px",fontSize:FS+1,fontWeight:700}}>فهمت</Btn>
       </div>
     </div>}
 
@@ -16509,6 +16737,31 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         d.hrWeeks[wi].empCount=records.length;
         d.hrWeeks[wi].snapshotId=snapshotId;
         d.hrWeeks[wi].snapshotDate=actualCloseDate;
+        /* ═══ V14.53: SAVE ALL 8 CARDS snapshot — to prevent future edits from changing closed week display ═══ */
+        const _baseSal=records.reduce((s,r)=>{const e=(d.employees||[]).find(x=>x.id===r.empId);return s+((e?.weeklySalary)||0)},0);
+        const _basicEntitled=records.reduce((s,r)=>s+(r.basicPay||0),0);
+        const _overtimePay=records.reduce((s,r)=>s+(r.overtimePay||0),0);
+        const _grossPay=records.reduce((s,r)=>s+(r.grossPay||0),0);
+        const _advances=records.reduce((s,r)=>s+(r.weekAdvances||0),0);
+        const _deductions=records.reduce((s,r)=>s+(r.debtInstall||0),0);
+        const _specialDeductions=records.reduce((s,r)=>s+(r.specialDeduct||0),0);
+        const _totalWeeklyAdv=r2(wAdvs.reduce((s,a)=>s+(Number(a.amount)||0),0));
+        const _thursdayPaySum=records.reduce((s,r)=>s+(r.thursdayPay||0),0);
+        d.hrWeeks[wi].closedStats={
+          baseSal:r2(_baseSal),
+          basicEntitled:r2(_basicEntitled),
+          overtimePay:r2(_overtimePay),
+          grossPay:r2(_grossPay),
+          advances:r2(_advances),
+          deductions:r2(_deductions),
+          specialDeductions:r2(_specialDeductions),
+          totalWeeklyAdvances:_totalWeeklyAdv,
+          thursdayPay:r2(_thursdayPaySum),
+          finalTotal:r2(_thursdayPaySum+_totalWeeklyAdv),
+          empCount:records.length,
+          weeklyAdvancesCount:wAdvs.length,
+          savedAt:actualCloseTs
+        };
         /* Audit — week closure — always logs the REAL actual date */
         const backdated=useDate!==actualCloseDate;
         addAudit(d,{category:"week",action:"close",
@@ -16520,6 +16773,89 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     showToast("✓ تم اعتماد وقفل الأسبوع W"+openWeek.weekNum);setSalBonus({});setSalSpecialDeduct({});setSalThursdayPay({});setSalBaseHoursOverride({});setSalPrevBalanceOverride({});setSalManualInstallDeduct({});setSalInstallOverride({});setOpenWeekId(null);
     if(setSavingOverlay){setSavingOverlay({message:"✅ تم بنجاح!",progress:100});setTimeout(()=>setSavingOverlay(null),1200)}
     },200)},400)},300)},200)};
+
+  /* ═══════════════════════════════════════════════════════════════════
+     V14.53 MIGRATION: Compute closedStats for legacy closed weeks
+     
+     For weeks that were closed BEFORE V14.53 (no closedStats field),
+     compute snapshot ONCE based on current data. This freezes the values
+     so subsequent edits don't affect the display.
+     
+     Strategy: use simplified calc (without local state overrides like
+     salBonus/salThursdayPay). For legacy closed weeks, those overrides
+     were cleared at close time anyway.
+     ═══════════════════════════════════════════════════════════════════ */
+  useEffect(()=>{
+    if(!canEdit)return;
+    const legacyWeeks=hrWeeks.filter(w=>w.status==="closed"&&!w.closedStats);
+    if(legacyWeeks.length===0)return;
+    /* Compute synchronously and update */
+    upConfig(d=>{
+      (d.hrWeeks||[]).forEach((w,wi)=>{
+        if(w.status!=="closed"||w.closedStats)return;/* skip already-migrated */
+        const weekSelected=(w.selectedEmps&&Array.isArray(w.selectedEmps))?w.selectedEmps:[];
+        const shownEmps=(d.employees||[]).filter(e=>!e.inactive&&weekSelected.includes(e.id));
+        /* Simplified salary calc for legacy closed weeks — no state overrides */
+        const stdDays=Number(w.workDays)||Number((d.hrSettings||{}).workDays)||6;
+        const stdHoursPerDay=(w.hoursPerDay!=null?Number(w.hoursPerDay):Number((d.hrSettings||{}).hoursPerDay))||9;
+        const stdWeekHours=stdDays*stdHoursPerDay;
+        const baseHrs=w.baseHours||48;
+        const otMult=(d.hrSettings||{}).overtimeMultiplier||1.5;
+        const att=w.attendance||{};
+        let baseSal=0,basicEntitled=0,overtimePay=0,grossPay=0;
+        let advances=0,deductions=0,specialDeductions=0,thursdayPay=0;
+        shownEmps.forEach(e=>{
+          const ws=e.weeklySalary||0;
+          baseSal+=ws;
+          const perHr=stdWeekHours>0?ws/stdWeekHours:0;
+          /* Sum hours from attendance */
+          let totalHours=0;
+          const start=new Date(w.weekStart);const end=new Date(w.weekEnd);
+          for(let dt=new Date(start);dt<=end;dt.setDate(dt.getDate()+1)){
+            const ds=dt.toISOString().split("T")[0];const key=e.id+"_"+ds;
+            if(att[key])totalHours+=(att[key].hours||0);
+          }
+          const basicHrs=Math.min(totalHours,baseHrs);
+          const overHrs=Math.max(0,totalHours-baseHrs);
+          const bp=basicHrs*perHr,op=overHrs*perHr*otMult;
+          basicEntitled+=bp;overtimePay+=op;grossPay+=(bp+op);
+          /* Advances — sum from hrLog (only "advance" type with this weekId) */
+          const empAdv=(d.hrLog||[]).filter(l=>l.type==="advance"&&l.empId===e.id&&l.weekId===w.id).reduce((s,l)=>s+(Number(l.amount)||0),0);
+          advances+=empAdv;
+          /* Debt installments — sum per week from empDebts */
+          const empDebts=(d.empDebts||[]).filter(x=>x.empId===e.id&&x.status!=="paid");
+          const wid=w.id;
+          let debtInstall=0;
+          empDebts.forEach(debt=>{
+            const pp=(debt.partialPayments||{})[wid];
+            if(pp)debtInstall+=Number(pp.paid)||0;
+            else debtInstall+=Number(debt.perWeek)||0;
+          });
+          deductions+=debtInstall;
+          /* thursdayPay ≈ grossPay - advances - debtInstall (simplified) */
+          const net=(bp+op)-empAdv-debtInstall;
+          thursdayPay+=Math.max(0,net);
+        });
+        const totalWeeklyAdv=(w.weeklyAdvances||[]).reduce((s,a)=>s+(Number(a.amount)||0),0);
+        d.hrWeeks[wi].closedStats={
+          baseSal:r2(baseSal),
+          basicEntitled:r2(basicEntitled),
+          overtimePay:r2(overtimePay),
+          grossPay:r2(grossPay),
+          advances:r2(advances),
+          deductions:r2(deductions),
+          specialDeductions:r2(specialDeductions),
+          totalWeeklyAdvances:r2(totalWeeklyAdv),
+          thursdayPay:r2(thursdayPay),
+          finalTotal:r2(thursdayPay+totalWeeklyAdv),
+          empCount:shownEmps.length,
+          weeklyAdvancesCount:(w.weeklyAdvances||[]).length,
+          savedAt:new Date().toISOString(),
+          migrated:true/* flag: computed by migration, not actual close */
+        };
+      });
+    });
+  },[hrWeeks.length,canEdit]);/* eslint-disable-line */
 
   /* Restore week to pre-approval state (same-day only). Reverses all effects of approveWeek. */
   const[restorePopup,setRestorePopup]=useState(null);/* {snapshotId, week, confirmText} */
@@ -17055,35 +17391,53 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           </div>}
         </div>
 
-        {/* ── Week Summary Cards (4 cards above paste) ── */}
+        {/* ── Week Summary Cards (8 cards above paste) ── */}
         {(()=>{
           const weekSelected=getSelectedEmps(openWeek.id);
           const shownEmps=activeEmps.filter(e=>weekSelected.includes(e.id));
-          /* Aggregate stats */
-          let baseSal=0,advances=0,deductions=0,specialDeductions=0,net=0,thursdayPay=0;
-          shownEmps.forEach(e=>{
-            const c=calcSalary(e.id,openWeek);
-            if(!c)return;
-            baseSal+=(e.weeklySalary||0);
-            advances+=c.weekAdvances||0;
-            deductions+=c.debtInstall||0;/* "خصم" = أقساط المديونيات */
-            specialDeductions+=c.specialDeduct||0;
-            net+=c.netBalance||0;
-            thursdayPay+=c.thursdayPay||0;/* ما سيُدفع فعلياً يوم الإقفال */
-          });
-          /* Additional aggregates for new cards */
-          let basicEntitled=0,overtimePay=0,grossPay=0;
-          shownEmps.forEach(e=>{const c=calcSalary(e.id,openWeek);if(!c)return;
-            basicEntitled+=c.basicPay||0;/* المستحق على الساعات الأساسية فقط */
-            overtimePay+=c.overtimePay||0;/* قيمة الوقت الإضافي */
-            grossPay+=c.grossPay||0;/* إجمالي المستحق = أساسي + إضافي */
-          });
+          /* V14.53: Use saved closedStats for closed weeks (prevents changes from affecting display) */
+          const isWeekClosed=openWeek.status==="closed";
+          const savedStats=openWeek.closedStats;
+          let baseSal,basicEntitled,overtimePay,grossPay,advances,deductions,specialDeductions,thursdayPay;
+          let displayEmpCount,displayAdvCount;
+          if(isWeekClosed&&savedStats){
+            /* Use saved values from when the week was closed */
+            baseSal=savedStats.baseSal||0;
+            basicEntitled=savedStats.basicEntitled||0;
+            overtimePay=savedStats.overtimePay||0;
+            grossPay=savedStats.grossPay||0;
+            advances=savedStats.advances||0;
+            deductions=savedStats.deductions||0;
+            specialDeductions=savedStats.specialDeductions||0;
+            thursdayPay=savedStats.thursdayPay||0;
+            displayEmpCount=savedStats.empCount||shownEmps.length;
+            displayAdvCount=savedStats.weeklyAdvancesCount||weeklyAdvances.length;
+          } else {
+            /* Live calculation for open weeks OR closed weeks without snapshot (legacy) */
+            baseSal=0;advances=0;deductions=0;specialDeductions=0;thursdayPay=0;
+            basicEntitled=0;overtimePay=0;grossPay=0;
+            shownEmps.forEach(e=>{
+              const c=calcSalary(e.id,openWeek);
+              if(!c)return;
+              baseSal+=(e.weeklySalary||0);
+              advances+=c.weekAdvances||0;
+              deductions+=c.debtInstall||0;
+              specialDeductions+=c.specialDeduct||0;
+              thursdayPay+=c.thursdayPay||0;
+              basicEntitled+=c.basicPay||0;
+              overtimePay+=c.overtimePay||0;
+              grossPay+=c.grossPay||0;
+            });
+            displayEmpCount=shownEmps.length;
+            displayAdvCount=weeklyAdvances.length;
+          }
           return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(8,1fr)",gap:8,marginBottom:14}}>
+            {isWeekClosed&&savedStats&&<div style={{gridColumn:"1/-1",padding:"6px 10px",borderRadius:6,background:T.ok+"06",border:"1px solid "+T.ok+"20",fontSize:FS-3,color:T.ok,fontWeight:600,marginBottom:-2}}>🔒 أسبوع مقفول — القيم المعروضة ثابتة من وقت الإقفال ولا تتأثر بأي تعديل لاحق</div>}
             {/* 1. إجمالي المرتب الأساسي */}
             <div style={{padding:"10px 8px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center"}}>
               <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2,fontWeight:600}}>💵 المرتب الأساسي</div>
               <div style={{fontSize:FS+4,fontWeight:800,color:T.accent,lineHeight:1.1}}>{fmt0(baseSal)}</div>
-              <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>{shownEmps.length+" موظف"}</div>
+              <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>{displayEmpCount+" موظف"}</div>
             </div>
             {/* 2. المستحق بدون إضافي */}
             <div style={{padding:"10px 8px",borderRadius:10,background:"#0284C708",border:"1px solid #0284C720",textAlign:"center"}}>
@@ -17118,17 +17472,20 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             {/* 7. سلف الإدارة والشهريين */}
             <div style={{padding:"10px 8px",borderRadius:10,background:"#EC489908",border:"1px solid #EC489920",textAlign:"center"}}>
               <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2,fontWeight:600}}>🏢 سلف إدارة/شهريين</div>
-              <div style={{fontSize:FS+4,fontWeight:800,color:"#EC4899",lineHeight:1.1}}>{fmt0(totalWeeklyAdvances)}</div>
-              <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>{weeklyAdvances.length+" سلفة"}</div>
+              <div style={{fontSize:FS+4,fontWeight:800,color:"#EC4899",lineHeight:1.1}}>{fmt0(isWeekClosed&&savedStats?savedStats.totalWeeklyAdvances:totalWeeklyAdvances)}</div>
+              <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>{displayAdvCount+" سلفة"}</div>
             </div>
             {/* 8. الإجمالي النهائي — ما سيُدفع فعلياً يوم الإقفال:
                  thursdayPay (مرتبات) + totalWeeklyAdvances (سلف إدارة — خطة تُنفَّذ عند الإقفال)
                  بدون السلف الأسبوعية اللي اتدفعت خلال الأسبوع من الموظفين العاديين (لأنها خرجت من الخزنة) */}
-            <div style={{padding:"10px 8px",borderRadius:10,background:T.ok+"12",border:"2px solid "+T.ok+"40",textAlign:"center"}} title={"الإجمالي الذي سيُدفع/يخرج من الخزنة يوم الإقفال:\n• مرتبات: "+fmt0(thursdayPay)+" ج\n• سلف إدارة (خطة): "+fmt0(totalWeeklyAdvances)+" ج\n\nالسلف الأسبوعية للموظفين العاديين ("+fmt0(advances)+" ج) خرجت من الخزنة خلال الأسبوع بالفعل."}>
-              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2,fontWeight:700}}>✅ الإجمالي النهائي</div>
-              <div style={{fontSize:FS+5,fontWeight:900,color:T.ok,lineHeight:1.1}}>{fmt0(thursdayPay+totalWeeklyAdvances)}</div>
-              <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>يخرج يوم الإقفال</div>
-            </div>
+            {(()=>{const effTotalWeekAdv=isWeekClosed&&savedStats?savedStats.totalWeeklyAdvances:totalWeeklyAdvances;
+              const finalTotal=isWeekClosed&&savedStats?(savedStats.finalTotal||(savedStats.thursdayPay+savedStats.totalWeeklyAdvances)):(thursdayPay+totalWeeklyAdvances);
+              return<div style={{padding:"10px 8px",borderRadius:10,background:T.ok+"12",border:"2px solid "+T.ok+"40",textAlign:"center"}} title={"الإجمالي الذي سيُدفع/يخرج من الخزنة يوم الإقفال:\n• مرتبات: "+fmt0(thursdayPay)+" ج\n• سلف إدارة (خطة): "+fmt0(effTotalWeekAdv)+" ج\n\nالسلف الأسبوعية للموظفين العاديين ("+fmt0(advances)+" ج) خرجت من الخزنة خلال الأسبوع بالفعل."}>
+                <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2,fontWeight:700}}>✅ الإجمالي النهائي</div>
+                <div style={{fontSize:FS+5,fontWeight:900,color:T.ok,lineHeight:1.1}}>{fmt0(finalTotal)}</div>
+                <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>يخرج يوم الإقفال</div>
+              </div>;
+            })()}
           </div>})()}
 
         {/* Security flags moved to dedicated Security tab — to keep salary page clean */}
