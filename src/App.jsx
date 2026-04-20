@@ -475,6 +475,41 @@ function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,createdB
   +"</div>"
   +"<script>QRCode.toCanvas(document.getElementById('qr'),'"+qrData.replace("'","\\'")+"',{width:120,margin:1},()=>{});setTimeout(()=>window.print(),800)</"+"script></body></html>");
   pw.document.close()}
+
+/* V14.57: Print employee QR cards — 40×50mm (half the size of package labels) */
+function printEmpQrCards(empsList){
+  const pw=window.open("","_blank");if(!pw)return;
+  let cards="";
+  empsList.forEach(e=>{
+    const qr=("CLARK:EMP:"+e.id).replace(/'/g,"\\'");
+    cards+="<div class='card'>"
+      +"<div class='brand'>CLARK</div>"
+      +"<canvas class='qr' data-qr='"+qr+"'></canvas>"
+      +"<div class='nm'>"+(e.name||"")+"</div>"
+      +"<div class='cd'>"+(e.code?"#"+e.code:"")+"</div>"
+    +"</div>";
+  });
+  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/>"
+    +"<script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script>"
+    +"<link href='https://fonts.googleapis.com/css2?family=Cairo:wght@600;800;900&display=swap' rel='stylesheet'/>"
+    +"<style>"
+    +"@page{size:A4;margin:5mm}*{margin:0;padding:0;box-sizing:border-box}"
+    +"body{font-family:'Cairo',sans-serif;color:#000;background:#fff}"
+    +".sheet{display:flex;flex-wrap:wrap;gap:2mm;padding:2mm}"
+    +".card{width:40mm;height:50mm;border:1px dashed #888;padding:2mm;display:flex;flex-direction:column;align-items:center;justify-content:space-between;page-break-inside:avoid}"
+    +".brand{font-size:8pt;font-weight:900;letter-spacing:2px;border-bottom:1.5px solid #000;width:100%;text-align:center;padding-bottom:1mm}"
+    +".qr{width:24mm!important;height:24mm!important}"
+    +".nm{font-size:9pt;font-weight:800;text-align:center;width:100%;line-height:1.2;margin-top:1mm}"
+    +".cd{font-size:8pt;font-weight:700;color:#0EA5E9;text-align:center;font-family:monospace}"
+    +".pbar{position:sticky;top:0;background:#fff;padding:6px;display:none;justify-content:center;gap:8px;border-bottom:2px solid #ccc;z-index:10}"
+    +".pbar button{padding:6px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:11px;font-weight:700;background:#fff}"
+    +".pbar .pr{background:#000;color:#fff}"
+    +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
+    +"</style></head><body>"
+    +"<div class='pbar'><button onclick='window.close()'>↩ رجوع</button><button class='pr' onclick='window.print()'>🖨 طباعة</button></div>"
+    +"<div class='sheet'>"+cards+"</div>"
+    +"<script>document.querySelectorAll('.qr').forEach(c=>{QRCode.toCanvas(c,c.dataset.qr,{width:90,margin:0,errorCorrectionLevel:'M'},()=>{})});setTimeout(()=>window.print(),1000)</"+"script></body></html>");
+  pw.document.close()}
 function printPage(title,bodyHtml){const pw=window.open("","_blank");if(!pw)return;const today=new Date().toLocaleDateString("ar-EG");const safeTitle=String(title||"تقرير").replace(/[\\/:*?"<>|]/g,"_").slice(0,80);pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><script src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'></"+"script><title>"+title+"</title><style>"+PRINT_CSS+".pbar{position:sticky;top:0;background:#fff;padding:8px 16px;border-bottom:2px solid #E2E8F0;display:none;justify-content:center;gap:10px;z-index:999}.pbar button{padding:8px 22px;border-radius:8px;border:none;cursor:pointer;font-family:'Cairo',sans-serif;font-size:13px;font-weight:700}.pb-back{background:#F1F5F9;color:#475569}.pb-print{background:#0EA5E9;color:#fff}.pb-pdf{background:#EF4444;color:#fff}.pb-pdf:disabled{opacity:0.6;cursor:wait}@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}</style></head><body><div class='pbar'><button class='pb-back' onclick='window.close()'>↩ رجوع</button><button class='pb-print' onclick='window.print()'>🖨 طباعة</button><button class='pb-pdf' id='pdf-btn' onclick='savePdf()'>📄 حفظ PDF</button></div><div id='report-content'><div class='hdr'><div><img src='"+CLARK_LOGO+"'/></div><div class='hdr-info'>"+title+"<br/>"+today+"</div></div>"+bodyHtml+"<div class='foot'>CLARK Factory Management — "+today+"</div></div><script>function savePdf(){var btn=document.getElementById('pdf-btn');if(!window.html2pdf){alert('مكتبة PDF لم تُحمّل بعد — انتظر قليلاً ثم أعد المحاولة');return}var el=document.getElementById('report-content');if(!el){alert('محتوى التقرير غير موجود');return}var orig=btn.textContent;btn.disabled=true;btn.textContent='⏳ جاري الإنشاء...';window.html2pdf().set({margin:[8,8,8,8],filename:'"+safeTitle.replace(/'/g,"\\'")+".pdf',image:{type:'jpeg',quality:0.95},html2canvas:{scale:2,useCORS:true,letterRendering:true},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css','legacy']}}).from(el).save().then(function(){btn.disabled=false;btn.textContent=orig}).catch(function(e){alert('فشل إنشاء PDF: '+e.message);btn.disabled=false;btn.textContent=orig})}</"+"script></body></html>");pw.document.close();if(window.innerWidth>1024)setTimeout(()=>{pw.focus();pw.print()},500)}
 
 async function exportExcel(rows,fileName){const X=await loadXLSX();if(!X){await tell("مكتبة Excel غير متوفرة","يرجى المحاولة مرة أخرى لاحقاً",{type:"error"});return}const ws=X.utils.aoa_to_sheet(rows);ws["!cols"]=rows[0].map(()=>({wch:18}));const wb=X.utils.book_new();X.utils.book_append_sheet(wb,ws,"Sheet1");X.writeFile(wb,fileName+".xlsx")}
@@ -16186,6 +16221,10 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const[summaryWeekId,setSummaryWeekId]=useState(null);/* for weekly summary tab */
   const[selMonth,setSelMonth]=useState(()=>new Date().toISOString().slice(0,7));/* for monthly summary */
   const[empStatement,setEmpStatement]=useState(null);/* empId for statement popup */
+  /* V14.57: QR receipt scanning — per-week per-employee receipt tracking */
+  const[showEmpQrScanner,setShowEmpQrScanner]=useState(null);/* {weekId} for opening scanner */
+  const[showEmpCardPrint,setShowEmpCardPrint]=useState(null);/* empId OR "all" for bulk */
+  const[fraudListPopup,setFraudListPopup]=useState(null);/* {weekId, emps:[]} */
   const[stmtFrom,setStmtFrom]=useState("");const[stmtTo,setStmtTo]=useState("");
   /* Close date popup */
   const[showCloseDate,setShowCloseDate]=useState(false);
@@ -17597,16 +17636,106 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             <Btn primary onClick={parsePaste} disabled={!pasteText.trim()}>📊 تحليل البيانات</Btn>
             {pasteText&&<Btn ghost onClick={()=>{setPasteText("");setPasteResult(null)}}>مسح</Btn>}
           </div>
-          {pasteResult&&<div style={{marginTop:10,padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
-            <div style={{display:"flex",gap:12,marginBottom:8}}>
-              <span style={{fontSize:FS-1,fontWeight:700,color:T.ok}}>{"✅ متطابق: "+pasteResult.matched}</span>
-              {pasteResult.unmatched>0&&<span style={{fontSize:FS-1,fontWeight:700,color:T.err}}>{"❓ غير متطابق: "+pasteResult.unmatched}</span>}
-              <span style={{fontSize:FS-1,color:T.textMut}}>{"اجمالي: "+pasteResult.total+" سجل"}</span>
-            </div>
-            {pasteResult.errors.length>0&&<div style={{fontSize:FS-2,color:T.err,marginBottom:6}}>{pasteResult.errors.join(" | ")}</div>}
-            {pasteResult.unmatched>0&&<div style={{fontSize:FS-2,color:T.err,marginBottom:6}}>{"أكواد غير معروفة: "+[...new Set(pasteResult.records.filter(r=>!r.matched).map(r=>r.code))].join(", ")}</div>}
-            <Btn primary onClick={applyPaste}>{"✅ استيراد "+pasteResult.matched+" سجل"}</Btn>
-          </div>}
+          {pasteResult&&(()=>{
+            /* V14.57: Enhanced paste report */
+            const weekSelected=getSelectedEmps(openWeek.id);
+            const shownEmps=activeEmps.filter(e=>weekSelected.includes(e.id));
+            /* Group matched records by empId */
+            const byEmp={};
+            pasteResult.records.filter(r=>r.matched).forEach(r=>{
+              if(!byEmp[r.empId])byEmp[r.empId]={empId:r.empId,empName:r.empName,code:r.code,days:0,totalHours:0};
+              byEmp[r.empId].days++;
+              byEmp[r.empId].totalHours+=(r.hours||0);
+            });
+            const matchedEmps=Object.values(byEmp).sort((a,b)=>(b.totalHours||0)-(a.totalHours||0));
+            /* Group unmatched records by code */
+            const byCode={};
+            pasteResult.records.filter(r=>!r.matched).forEach(r=>{
+              if(!byCode[r.code])byCode[r.code]={code:r.code,days:0,totalHours:0};
+              byCode[r.code].days++;
+              byCode[r.code].totalHours+=(r.hours||0);
+            });
+            const unmatchedCodes=Object.values(byCode);
+            /* Find absent: employees in week selection but no matched records */
+            const matchedEmpIds=new Set(matchedEmps.map(m=>m.empId));
+            const absentEmps=shownEmps.filter(e=>!matchedEmpIds.has(e.id));
+            return<div style={{marginTop:10,padding:14,borderRadius:12,background:T.bg,border:"1px solid "+T.brd}}>
+              {/* Stats cards */}
+              <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)",gap:8,marginBottom:14}}>
+                <div style={{padding:"10px 12px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center"}}>
+                  <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginBottom:2}}>📊 إجمالي السجلات</div>
+                  <div style={{fontSize:FS+4,fontWeight:900,color:T.accent}}>{pasteResult.total}</div>
+                </div>
+                <div style={{padding:"10px 12px",borderRadius:10,background:T.ok+"08",border:"1px solid "+T.ok+"20",textAlign:"center"}}>
+                  <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginBottom:2}}>✅ مطابق</div>
+                  <div style={{fontSize:FS+4,fontWeight:900,color:T.ok}}>{matchedEmps.length}</div>
+                  <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>موظف</div>
+                </div>
+                <div style={{padding:"10px 12px",borderRadius:10,background:(pasteResult.unmatched>0?T.err:T.textMut)+"08",border:"1px solid "+(pasteResult.unmatched>0?T.err:T.textMut)+"20",textAlign:"center"}}>
+                  <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginBottom:2}}>⚠️ غير مطابق</div>
+                  <div style={{fontSize:FS+4,fontWeight:900,color:pasteResult.unmatched>0?T.err:T.textMut}}>{unmatchedCodes.length}</div>
+                  <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>كود</div>
+                </div>
+                <div style={{padding:"10px 12px",borderRadius:10,background:(absentEmps.length>0?T.warn:T.textMut)+"08",border:"1px solid "+(absentEmps.length>0?T.warn:T.textMut)+"20",textAlign:"center"}}>
+                  <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginBottom:2}}>🟡 غائب</div>
+                  <div style={{fontSize:FS+4,fontWeight:900,color:absentEmps.length>0?T.warn:T.textMut}}>{absentEmps.length}</div>
+                  <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>موظف</div>
+                </div>
+              </div>
+
+              {/* Errors */}
+              {pasteResult.errors.length>0&&<div style={{padding:10,borderRadius:8,background:T.err+"08",border:"1px solid "+T.err+"25",marginBottom:10,fontSize:FS-2,color:T.err,fontWeight:600}}>
+                <div style={{marginBottom:4}}>⛔ أخطاء في التحليل:</div>
+                {pasteResult.errors.join(" | ")}
+              </div>}
+
+              {/* Unmatched codes — CRITICAL fraud warning */}
+              {unmatchedCodes.length>0&&<div style={{padding:12,borderRadius:10,background:T.err+"06",border:"2px solid "+T.err+"35",marginBottom:10}}>
+                <div style={{fontSize:FS-1,fontWeight:800,color:T.err,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+                  <span>🚨</span><span>أكواد غير مربوطة بأي موظف — تحذير احتيال محتمل</span>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(2,1fr)",gap:6}}>
+                  {unmatchedCodes.map(u=><div key={u.code} style={{padding:"8px 10px",borderRadius:6,background:T.cardSolid,border:"1px solid "+T.err+"25"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                      <span style={{fontSize:FS,fontWeight:800,color:T.err,fontFamily:"monospace"}}>كود: {u.code}</span>
+                      <span style={{fontSize:FS-3,color:T.textMut}}>•</span>
+                      <span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{u.days} سجل</span>
+                      <span style={{fontSize:FS-3,color:T.textMut}}>•</span>
+                      <span style={{fontSize:FS-2,color:T.textSec,fontWeight:700}}>{hrsToHM(u.totalHours)} ساعة</span>
+                    </div>
+                  </div>)}
+                </div>
+              </div>}
+
+              {/* Absent employees */}
+              {absentEmps.length>0&&<div style={{padding:12,borderRadius:10,background:T.warn+"06",border:"1px solid "+T.warn+"30",marginBottom:10}}>
+                <div style={{fontSize:FS-1,fontWeight:800,color:T.warn,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+                  <span>🟡</span><span>موظفين في الأسبوع لكن لم تظهر بصمتهم ({absentEmps.length})</span>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:6}}>
+                  {absentEmps.map(e=><div key={e.id} style={{padding:"6px 10px",borderRadius:6,background:T.cardSolid,border:"1px solid "+T.warn+"25",fontSize:FS-2}}>
+                    <span style={{fontWeight:700,color:T.text}}>{e.name}</span>
+                    {e.code?<span style={{color:T.textMut,marginInlineStart:4,fontSize:FS-3}}>#{e.code}</span>:""}
+                  </div>)}
+                </div>
+              </div>}
+
+              {/* Matched employees (collapsed by default, expandable) */}
+              {matchedEmps.length>0&&<details style={{padding:10,borderRadius:10,background:T.ok+"04",border:"1px solid "+T.ok+"20",marginBottom:10}}>
+                <summary style={{cursor:"pointer",fontSize:FS-1,fontWeight:800,color:T.ok,display:"flex",alignItems:"center",gap:6}}>
+                  <span>🟢</span><span>الموظفين المطابقين ({matchedEmps.length}) — اضغط للتفاصيل</span>
+                </summary>
+                <div style={{marginTop:10,display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(2,1fr)",gap:6}}>
+                  {matchedEmps.map(m=><div key={m.empId} style={{padding:"6px 10px",borderRadius:6,background:T.cardSolid,border:"1px solid "+T.ok+"20",display:"flex",justifyContent:"space-between",alignItems:"center",gap:6,fontSize:FS-2}}>
+                    <span><span style={{fontWeight:700,color:T.text}}>{m.empName}</span><span style={{color:T.textMut,marginInlineStart:4,fontSize:FS-3}}>#{m.code}</span></span>
+                    <span style={{color:T.textSec,fontWeight:600,fontSize:FS-3}}>{m.days} يوم • {hrsToHM(m.totalHours)}</span>
+                  </div>)}
+                </div>
+              </details>}
+
+              <Btn primary onClick={applyPaste}>{"✅ استيراد "+pasteResult.matched+" سجل مطابق"}</Btn>
+            </div>;
+          })()}
         </Card>}
 
         {/* Attendance grid with selectable employees + edit-per-row */}
@@ -17855,6 +17984,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             {label:"صافي",align:"center"},
             {label:"دفعة من الحساب",align:"center"},
             {label:"الرصيد (يُرحّل)",align:"center"},
+            ...(openWeek.status==="closed"?[{label:"✓ استلم",align:"center",w:60}]:[]),
             {label:"",align:"center",w:40}
           ];
           let tG=0,tN=0,tA=0,tD=0,tB=0,tH=0,tO=0,tOP=0,tTP=0,tRB=0,tDI=0;
@@ -17878,6 +18008,26 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           });
           const uniqueJobs=Array.from(new Set(shownEmps.map(e=>e.job).filter(Boolean))).sort();
           return<Card title={"💰 حساب المرتبات — W"+openWeek.weekNum+" ("+shownEmps.length+" موظف"+(filteredShown.length!==shownEmps.length?" — ظاهر "+filteredShown.length:"")+")"}>
+            {/* V14.57: Receipt summary cards — only for closed weeks */}
+            {openWeek.status==="closed"&&(()=>{
+              const receipts=openWeek.receipts||{};
+              const received=shownEmps.filter(e=>receipts[e.id]);
+              const notReceived=shownEmps.filter(e=>!receipts[e.id]);
+              return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(3,1fr)",gap:10,marginBottom:12}}>
+                <div style={{padding:"10px 14px",borderRadius:12,background:T.cardSolid,border:"1px solid "+T.brd,display:"flex",alignItems:"center",gap:12,boxShadow:T.shadow}}>
+                  <div style={{width:40,height:40,borderRadius:10,background:T.accent+"12",display:"flex",alignItems:"center",justifyContent:"center",color:T.accent,flexShrink:0,fontSize:20}}>👥</div>
+                  <div><div style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>الإجمالي</div><div style={{fontSize:FS+6,fontWeight:900,color:T.text,lineHeight:1}}>{shownEmps.length}</div></div>
+                </div>
+                <div style={{padding:"10px 14px",borderRadius:12,background:T.cardSolid,border:"1px solid "+T.ok+"30",display:"flex",alignItems:"center",gap:12,boxShadow:T.shadow}}>
+                  <div style={{width:40,height:40,borderRadius:10,background:T.ok+"15",display:"flex",alignItems:"center",justifyContent:"center",color:T.ok,flexShrink:0,fontSize:20}}>✅</div>
+                  <div><div style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>استلموا</div><div style={{fontSize:FS+6,fontWeight:900,color:T.ok,lineHeight:1}}>{received.length}</div></div>
+                </div>
+                <div onClick={notReceived.length>0?()=>setFraudListPopup({week:openWeek,emps:notReceived}):undefined} style={{padding:"10px 14px",borderRadius:12,background:T.cardSolid,border:"1px solid "+(notReceived.length>0?T.err+"40":T.brd),display:"flex",alignItems:"center",gap:12,boxShadow:T.shadow,cursor:notReceived.length>0?"pointer":"default",transition:"all 0.15s"}}>
+                  <div style={{width:40,height:40,borderRadius:10,background:(notReceived.length>0?T.err:T.textMut)+"15",display:"flex",alignItems:"center",justifyContent:"center",color:notReceived.length>0?T.err:T.textMut,flexShrink:0,fontSize:20}}>⚠️</div>
+                  <div><div style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>لم يستلموا{notReceived.length>0?" (اضغط للتفاصيل)":""}</div><div style={{fontSize:FS+6,fontWeight:900,color:notReceived.length>0?T.err:T.textMut,lineHeight:1}}>{notReceived.length}</div></div>
+                </div>
+              </div>;
+            })()}
             {/* Filters toolbar */}
             <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:10,padding:10,background:T.bg,borderRadius:10,border:"1px solid "+T.brd}}>
               <div style={{flex:1,minWidth:180}}>
@@ -17901,6 +18051,8 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               </div>
               {(salSearch||salJobFilter||salShowOnly)&&<Btn small ghost onClick={()=>{setSalSearch("");setSalJobFilter("");setSalShowOnly("")}} style={{padding:"4px 10px",fontSize:FS-2}}>✕ مسح الفلاتر</Btn>}
               <div style={{flex:"0 0 auto",marginInlineStart:"auto",display:"flex",gap:6}}>
+                {/* V14.57: Scan QR to register salary receipt — only for closed weeks */}
+                {openWeek.status==="closed"&&canEdit&&<Btn small onClick={()=>setShowEmpQrScanner({weekId:openWeek.id})} style={{background:"#10B98112",color:"#10B981",border:"1px solid #10B98130",fontWeight:700}} title="مسح QR الموظف لتسجيل استلام المرتب">📱 تسجيل استلام</Btn>}
                 {/* V14.56: Quick entry button — bulk edit for all employees */}
                 {!isLocked&&canEdit&&<Btn small onClick={()=>{
                   /* Default type: prevBalance (رصيد سابق) — auto-check & pre-fill employees with existing values */
@@ -18147,6 +18299,14 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                   <td style={{padding:"3px 6px",fontSize:FS,fontWeight:800,color:c.netBalance>=0?T.accent:T.err,textAlign:"center"}}>{fmt0(c.netBalance)}</td>
                   <td style={{padding:"3px 6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salThursdayPay[emp.id]!==undefined?salThursdayPay[emp.id]:""} onChange={ev=>setSalThursdayPay(p=>({...p,[emp.id]:ev.target.value}))} placeholder={String(Math.round(c.netBalance))} style={{width:70,padding:"3px",borderRadius:6,border:"1px solid "+T.ok+"40",fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.ok,fontWeight:700}}/>:<span style={{fontSize:FS-1,fontWeight:700,color:T.ok}}>{fmt0(c.thursdayPay)}</span>}</td>
                   <td style={{padding:"3px 6px",fontSize:FS-1,fontWeight:800,color:c.remainingBalance>0?T.warn:c.remainingBalance<0?T.err:T.textMut,textAlign:"center",background:c.remainingBalance!==0?T.warn+"06":""}}>{fmt0(c.remainingBalance)}</td>
+                  {/* V14.57: Receipt column — only shown for closed weeks */}
+                  {openWeek.status==="closed"&&(()=>{
+                    const rec=((openWeek.receipts||{})[emp.id]);
+                    return<td style={{padding:"3px 6px",textAlign:"center"}} title={rec?"استلم بواسطة "+(rec.by||"—")+" في "+(rec.at?new Date(rec.at).toLocaleString("ar-EG"):"—"):"لم يستلم بعد"}>
+                      {rec?<span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:28,height:28,borderRadius:8,background:T.ok+"15",color:T.ok,fontSize:16,fontWeight:900}}>✓</span>
+                        :<span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:28,height:28,borderRadius:8,background:T.err+"10",color:T.err,fontSize:16,fontWeight:900}}>✕</span>}
+                    </td>;
+                  })()}
                   <td style={{padding:"3px 6px",textAlign:"center"}}>
                     <div style={{display:"flex",gap:6,justifyContent:"center",alignItems:"center"}}>
                       <span onClick={()=>printSlip(emp.id)} style={{cursor:"pointer",fontSize:14}} title="طباعة كشف المرتب">🖨</span>
@@ -18703,6 +18863,114 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           </tbody></table></div>}
         </div>
       </div>})()}
+
+    {/* ══ V14.57: QR RECEIPT SCANNER POPUP ══ */}
+    {showEmpQrScanner&&(()=>{
+      const w=hrWeeks.find(x=>x.id===showEmpQrScanner.weekId);
+      if(!w)return null;
+      const receipts=w.receipts||{};
+      const wkSelected=(w.selectedEmps&&Array.isArray(w.selectedEmps))?w.selectedEmps:[];
+      const wkEmps=activeEmps.filter(e=>wkSelected.includes(e.id));
+      const received=wkEmps.filter(e=>receipts[e.id]);
+      const notReceived=wkEmps.filter(e=>!receipts[e.id]);
+      const handleScan=(text)=>{
+        /* Expected format: CLARK:EMP:<empId> */
+        const m=/^CLARK:EMP:(.+)$/.exec(text);
+        if(!m){showToast("❌ QR غير صحيح — يجب أن يكون كارت موظف");return}
+        const empId=m[1];
+        const emp=employees.find(e=>e.id===empId);
+        if(!emp){showToast("❌ الموظف غير موجود");return}
+        if(!wkSelected.includes(empId)){showToast("⚠️ "+emp.name+" غير مدرج في هذا الأسبوع");return}
+        if(receipts[empId]){showToast("ℹ️ "+emp.name+" استلم بالفعل ✅");return}
+        /* Register the receipt */
+        upConfig(d=>{
+          const wi=(d.hrWeeks||[]).findIndex(x=>x.id===w.id);if(wi<0)return;
+          if(!d.hrWeeks[wi].receipts)d.hrWeeks[wi].receipts={};
+          d.hrWeeks[wi].receipts[empId]={at:new Date().toISOString(),by:userName||""};
+          /* Audit */
+          if(!Array.isArray(d.auditLog))d.auditLog=[];
+          d.auditLog.unshift({
+            id:Math.random().toString(36).slice(2)+Date.now(),
+            category:"week",action:"salary_receipt",
+            target:"W"+w.weekNum+" — "+emp.name,
+            newValue:"استلم المرتب",
+            notes:"QR سكان بواسطة "+(userName||"—"),
+            at:new Date().toISOString(),severity:"info"
+          });
+        });
+        showToast("✅ تم تسجيل استلام "+emp.name);
+      };
+      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowEmpQrScanner(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:560,maxHeight:"92vh",display:"flex",flexDirection:"column",border:"2px solid "+T.ok,boxShadow:"0 25px 70px rgba(0,0,0,0.45)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:10,borderBottom:"2px solid "+T.ok+"25"}}>
+            <div style={{fontSize:FS+3,fontWeight:900,color:T.ok,display:"flex",alignItems:"center",gap:8}}>
+              <span>📱</span><span>تسجيل استلام — W{w.weekNum}</span>
+            </div>
+            <span onClick={()=>setShowEmpQrScanner(null)} style={{cursor:"pointer",fontSize:22,color:T.textMut,padding:4}}>✕</span>
+          </div>
+          {/* Progress */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
+            <div style={{padding:"8px 10px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center"}}>
+              <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>الكل</div>
+              <div style={{fontSize:FS+4,fontWeight:900,color:T.accent}}>{wkEmps.length}</div>
+            </div>
+            <div style={{padding:"8px 10px",borderRadius:10,background:T.ok+"08",border:"1px solid "+T.ok+"30",textAlign:"center"}}>
+              <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>✅ استلم</div>
+              <div style={{fontSize:FS+4,fontWeight:900,color:T.ok}}>{received.length}</div>
+            </div>
+            <div style={{padding:"8px 10px",borderRadius:10,background:T.err+"08",border:"1px solid "+T.err+"30",textAlign:"center"}}>
+              <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>⏳ متبقي</div>
+              <div style={{fontSize:FS+4,fontWeight:900,color:T.err}}>{notReceived.length}</div>
+            </div>
+          </div>
+          {/* Scanner */}
+          <div style={{borderRadius:12,overflow:"hidden",border:"2px solid "+T.ok+"40",marginBottom:12}}>
+            <QRScanner onScan={handleScan} onClose={()=>{}}/>
+          </div>
+          <div style={{fontSize:FS-2,color:T.textMut,textAlign:"center",padding:"8px 0"}}>
+            💡 وجّه الكاميرا على كارت QR الموظف
+          </div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:10,borderTop:"1px solid "+T.brd}}>
+            <Btn ghost onClick={()=>setShowEmpQrScanner(null)}>إغلاق</Btn>
+          </div>
+        </div>
+      </div>;
+    })()}
+
+    {/* ══ V14.57: FRAUD LIST POPUP — employees who did NOT receive salary ══ */}
+    {fraudListPopup&&(()=>{
+      const w=fraudListPopup.week;
+      const emps=fraudListPopup.emps||[];
+      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setFraudListPopup(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:600,maxHeight:"92vh",display:"flex",flexDirection:"column",border:"2px solid "+T.err,boxShadow:"0 25px 70px rgba(0,0,0,0.45)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:10,borderBottom:"2px solid "+T.err+"25"}}>
+            <div style={{fontSize:FS+2,fontWeight:900,color:T.err,display:"flex",alignItems:"center",gap:8}}>
+              <span>⚠️</span><span>لم يستلموا المرتب — W{w.weekNum}</span>
+            </div>
+            <span onClick={()=>setFraudListPopup(null)} style={{cursor:"pointer",fontSize:22,color:T.textMut,padding:4}}>✕</span>
+          </div>
+          <div style={{padding:10,borderRadius:8,background:T.err+"06",border:"1px solid "+T.err+"25",marginBottom:12,fontSize:FS-1,color:T.text,lineHeight:1.6}}>
+            {emps.length} موظف لم يُسجّل استلامهم للمرتب بالـ QR — قد يكون احتيال أو لسه ما استلموش.
+          </div>
+          <div style={{flex:1,overflowY:"auto",background:T.bg,borderRadius:10,border:"1px solid "+T.brd,padding:4}}>
+            {emps.map((e,i)=>{
+              const c=getEmpSalary(e.id,w);
+              return<div key={e.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",borderBottom:"1px solid "+T.brd,background:i%2===0?"transparent":T.cardSolid}}>
+                <div>
+                  <div style={{fontSize:FS,fontWeight:700,color:T.text}}>{e.name}</div>
+                  <div style={{fontSize:FS-3,color:T.textMut}}>{(e.code?"#"+e.code:"")}{e.job?" • "+e.job:""}</div>
+                </div>
+                <div style={{fontSize:FS,fontWeight:800,color:T.err,fontFamily:"monospace"}}>{c?fmt0(c.thursdayPay)+" ج":"—"}</div>
+              </div>;
+            })}
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:12,borderTop:"1px solid "+T.brd,marginTop:10}}>
+            <span style={{fontSize:FS-1,color:T.textSec}}>الإجمالي: <b style={{color:T.err,fontSize:FS+1}}>{fmt0(emps.reduce((s,e)=>{const c=getEmpSalary(e.id,w);return s+(c?c.thursdayPay:0)},0))}</b> ج.م</span>
+            <Btn ghost onClick={()=>setFraudListPopup(null)}>إغلاق</Btn>
+          </div>
+        </div>
+      </div>;
+    })()}
 
     {/* ══ EMPLOYEE PICKER POPUP ══ */}
     {showEmpPicker&&openWeek&&(()=>{const current=getSelectedEmps(openWeek.id);
@@ -19579,6 +19847,8 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             <input value={empSearch} onChange={e=>setEmpSearch(e.target.value)} placeholder="ابحث بالاسم، الكود، الوظيفة، التليفون، نوع المرتب..." style={{width:"100%",padding:"8px 34px 8px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text,boxSizing:"border-box"}}/>
           </div>
           {empSearch&&<Btn small onClick={()=>setEmpSearch("")} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",whiteSpace:"nowrap"}}>✕ مسح</Btn>}
+          {/* V14.57: Bulk print QR cards */}
+          {canEdit&&activeEmps.length>0&&<Btn small onClick={()=>printEmpQrCards(activeEmps)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",whiteSpace:"nowrap",fontWeight:700}} title={"طباعة كروت QR لكل الموظفين النشطين ("+activeEmps.length+")"}>🎫 كروت QR</Btn>}
         </div>
         {filteredEmps.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
           {["#","الاسم","الكود","الوظيفة","مرتب","حافز","ساعات","تليفون","رصيد","مديونيات","حالة",""].map(h=><th key={h} style={{padding:"7px 6px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
@@ -19614,6 +19884,7 @@ function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                   <span onClick={cancelInlineEdit} style={{cursor:"pointer",padding:"3px 6px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>✕</span>
                 </>:<>
                   <span onClick={()=>{setEmpStatement(e.id);setStmtFrom("");setStmtTo("")}} style={{cursor:"pointer",fontSize:13,padding:"3px 8px",borderRadius:6,background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}} title="كشف حساب تفصيلي">📄</span>
+                  <span onClick={()=>printEmpQrCards([e])} style={{cursor:"pointer",fontSize:13,padding:"3px 8px",borderRadius:6,background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}} title="طباعة كارت QR">🎫</span>
                   <span onClick={()=>openEditPopup(e)} style={{cursor:"pointer",fontSize:13,padding:"3px 8px",borderRadius:6,background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}} title="تعديل كل التفاصيل">✏️</span>
                   <span onClick={()=>{setShowDebtForm({empId:e.id});resetDebtForm();setDebtStart(today)}} style={{cursor:"pointer",fontSize:11}} title="+ مديونية">🧾</span>
                   <span onClick={()=>toggleEmpActive(e.id)} style={{cursor:"pointer",fontSize:11}}>{e.inactive?"▶️":"⏸"}</span>
