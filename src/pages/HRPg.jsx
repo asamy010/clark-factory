@@ -1434,27 +1434,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     @media print{body{margin:0}}
     </style>`;
 
-  /* V15.23: Helper to open a print window with iframe fallback for popup-blocked browsers
-     FIX: Previous version had infinite recursion (self-call). Now correctly calls window.open. */
-  const _openPrintWin=()=>{
-    const w=window.open("","_blank");
-    if(w)return w;
-    /* Create hidden iframe as fallback */
-    const iframe=document.createElement("iframe");
-    iframe.style.cssText="position:fixed;left:-9999px;top:0;width:1px;height:1px;border:0;opacity:0";
-    document.body.appendChild(iframe);
-    const doc=iframe.contentDocument||iframe.contentWindow.document;
-    /* Mimic window.open API: expose document + print() + close + focus */
-    const fakeWin={
-      document:doc,
-      print:()=>{try{iframe.contentWindow.focus();iframe.contentWindow.print()}catch(e){alert("المتصفح بيمنع الطباعة — فعّل النوافذ المنبثقة (pop-ups) من إعدادات المتصفح")}},
-      focus:()=>{try{iframe.contentWindow.focus()}catch(e){}},
-      close:()=>{setTimeout(()=>{try{iframe.remove()}catch(e){}},60000)},
-    };
-    /* Auto-cleanup iframe after 60s to let print dialog finish */
-    setTimeout(()=>{try{iframe.remove()}catch(e){}},60000);
-    return fakeWin;
-  };
+  /* V15.23: Use centralized openPrintWindow from utils/print.js (handles popup-block + iframe fallback) */
+  const _openPrintWin=openPrintWindow;
 
   const printSlip=(empId)=>{if(!openWeek)return;const html=buildSlipHTML(empId);if(!html)return;
     const emp=employees.find(e=>e.id===empId);

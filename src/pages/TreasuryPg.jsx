@@ -11,6 +11,7 @@ import { gid, fmt, fmt0, r2 } from "../utils/format.js";
 import { playBeep } from "../utils/audio.js";
 import { addAudit } from "../utils/audit.js";
 import { showToast } from "../utils/popups.js";
+import { openPrintWindow } from "../utils/print.js";
 import { Spinner, InlineLoading, Btn, Inp, Sel, Card, useDebounced } from "../components/ui.jsx";
 import { T } from "../theme.js";
 import { db } from "../firebase";
@@ -568,7 +569,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const prevTxns=scopeTxns.filter(t=>t.date<date);const openBal=prevTxns.reduce((s,t)=>t.type==="in"?s+(Number(t.amount)||0):s-(Number(t.amount)||0),0);
     const closeBal=openBal+dIn-dOut;
     const scopeLabel=accountName||"كل الحسابات";
-    const w=window.open("","_blank");if(!w)return;
+    const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
     w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>تقرير يومية — ${scopeLabel} — ${date}</title>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap" rel="stylesheet"/>
     <style>@page{size:A4;margin:10mm}body{font-family:'Cairo',sans-serif;font-size:11px;padding:20px;line-height:1.6}

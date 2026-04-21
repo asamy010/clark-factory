@@ -8,11 +8,11 @@ import { PRINT_CSS } from "../constants/index.js";
 import { CLARK_LOGO } from "../constants/logo.js";
 
 /* Full-page report printing with CLARK header, print/PDF buttons, and footer */
-export function printPage(title,bodyHtml){const pw=window.open("","_blank");if(!pw)return;const today=new Date().toLocaleDateString("ar-EG");const safeTitle=String(title||"تقرير").replace(/[\\/:*?"<>|]/g,"_").slice(0,80);pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><script src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'></"+"script><title>"+title+"</title><style>"+PRINT_CSS+".pbar{position:sticky;top:0;background:#fff;padding:8px 16px;border-bottom:2px solid #E2E8F0;display:none;justify-content:center;gap:10px;z-index:999}.pbar button{padding:8px 22px;border-radius:8px;border:none;cursor:pointer;font-family:'Cairo',sans-serif;font-size:13px;font-weight:700}.pb-back{background:#F1F5F9;color:#475569}.pb-print{background:#0EA5E9;color:#fff}.pb-pdf{background:#EF4444;color:#fff}.pb-pdf:disabled{opacity:0.6;cursor:wait}@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}</style></head><body><div class='pbar'><button class='pb-back' onclick='window.close()'>↩ رجوع</button><button class='pb-print' onclick='window.print()'>🖨 طباعة</button><button class='pb-pdf' id='pdf-btn' onclick='savePdf()'>📄 حفظ PDF</button></div><div id='report-content'><div class='hdr'><div><img src='"+CLARK_LOGO+"'/></div><div class='hdr-info'>"+title+"<br/>"+today+"</div></div>"+bodyHtml+"<div class='foot'>CLARK Factory Management — "+today+"</div></div><script>function savePdf(){var btn=document.getElementById('pdf-btn');if(!window.html2pdf){alert('مكتبة PDF لم تُحمّل بعد — انتظر قليلاً ثم أعد المحاولة');return}var el=document.getElementById('report-content');if(!el){alert('محتوى التقرير غير موجود');return}var orig=btn.textContent;btn.disabled=true;btn.textContent='⏳ جاري الإنشاء...';window.html2pdf().set({margin:[8,8,8,8],filename:'"+safeTitle.replace(/'/g,"\\'")+".pdf',image:{type:'jpeg',quality:0.95},html2canvas:{scale:2,useCORS:true,letterRendering:true},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css','legacy']}}).from(el).save().then(function(){btn.disabled=false;btn.textContent=orig}).catch(function(e){alert('فشل إنشاء PDF: '+e.message);btn.disabled=false;btn.textContent=orig})}</"+"script></body></html>");pw.document.close();if(window.innerWidth>1024)setTimeout(()=>{pw.focus();pw.print()},500)}
+export function printPage(title,bodyHtml){const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة (pop-ups) من إعدادات المتصفح");return}const today=new Date().toLocaleDateString("ar-EG");const safeTitle=String(title||"تقرير").replace(/[\\/:*?"<>|]/g,"_").slice(0,80);pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><script src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'></"+"script><title>"+title+"</title><style>"+PRINT_CSS+".pbar{position:sticky;top:0;background:#fff;padding:8px 16px;border-bottom:2px solid #E2E8F0;display:none;justify-content:center;gap:10px;z-index:999}.pbar button{padding:8px 22px;border-radius:8px;border:none;cursor:pointer;font-family:'Cairo',sans-serif;font-size:13px;font-weight:700}.pb-back{background:#F1F5F9;color:#475569}.pb-print{background:#0EA5E9;color:#fff}.pb-pdf{background:#EF4444;color:#fff}.pb-pdf:disabled{opacity:0.6;cursor:wait}@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}</style></head><body><div class='pbar'><button class='pb-back' onclick='window.close()'>↩ رجوع</button><button class='pb-print' onclick='window.print()'>🖨 طباعة</button><button class='pb-pdf' id='pdf-btn' onclick='savePdf()'>📄 حفظ PDF</button></div><div id='report-content'><div class='hdr'><div><img src='"+CLARK_LOGO+"'/></div><div class='hdr-info'>"+title+"<br/>"+today+"</div></div>"+bodyHtml+"<div class='foot'>CLARK Factory Management — "+today+"</div></div><script>function savePdf(){var btn=document.getElementById('pdf-btn');if(!window.html2pdf){alert('مكتبة PDF لم تُحمّل بعد — انتظر قليلاً ثم أعد المحاولة');return}var el=document.getElementById('report-content');if(!el){alert('محتوى التقرير غير موجود');return}var orig=btn.textContent;btn.disabled=true;btn.textContent='⏳ جاري الإنشاء...';window.html2pdf().set({margin:[8,8,8,8],filename:'"+safeTitle.replace(/'/g,"\\'")+".pdf',image:{type:'jpeg',quality:0.95},html2canvas:{scale:2,useCORS:true,letterRendering:true},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css','legacy']}}).from(el).save().then(function(){btn.disabled=false;btn.textContent=orig}).catch(function(e){alert('فشل إنشاء PDF: '+e.message);btn.disabled=false;btn.textContent=orig})}</"+"script></body></html>");pw.document.close();if(window.innerWidth>1024)setTimeout(()=>{try{pw.focus();pw.print()}catch(e){}},500)}
 
 /* Thermal package label — 10x15cm with QR and movement log */
 export function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,createdBy,qrData){
-  const pw=window.open("","_blank");if(!pw)return;
+  const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
   const totalQ=pkgItems.reduce((s,it)=>s+(Number(it.qty)||0),0);
   const totalSeries=pkgItems.reduce((s,it)=>s+(Number(it.count)||0),0);
   const stLabel=status==="مغلقة"?"مغلقة ❌":status==="مباعة"?"مباعة 💰":"مفتوحة ✅";
@@ -53,7 +53,7 @@ export function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,c
 
 /* V14.57: Print employee QR cards — 40×50mm (half the size of package labels) */
 export function printEmpQrCards(empsList){
-  const pw=window.open("","_blank");if(!pw)return;
+  const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
   let cards="";
   empsList.forEach((e,i)=>{
     const qr=("CLARK:EMP:"+e.id).replace(/'/g,"\\'");
@@ -91,7 +91,7 @@ export function printEmpQrCards(empsList){
 
 /* Render workshop delivery/receive label pages (10cm × 15cm) */
 export function renderLabelPages(d,n){
-  const pw=window.open("","_blank");if(!pw)return;
+  const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
   pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@600;800&display=swap' rel='stylesheet'/><title>"+d.title+"</title><style>"
   +"@page{size:10cm 15cm;margin:0}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Cairo',sans-serif;color:#000}"
   +".pg{width:10cm;min-height:15cm;padding:4mm;display:flex;flex-direction:column;page-break-after:always;overflow:hidden}.pg:last-child{page-break-after:auto}"
@@ -116,45 +116,48 @@ export function renderLabelPages(d,n){
     +"<div class='bot'>"+(n>1?"<div class='bags'>"+i+"/"+n+"</div>":"")+"</div>"
     +"<div class='foot'>"+d.modelNo+" | "+d.piece+" | "+d.wsName+"</div></div>"}
   pw.document.write(h+"</body></html>");pw.document.close();
-  if(window.innerWidth>1024)setTimeout(()=>{pw.focus();pw.print()},500)
+  if(window.innerWidth>1024)setTimeout(()=>{try{pw.focus();pw.print()}catch(e){}},500)
 }
 
-/* V15.22: openPrintWindow — opens a window for printing with automatic fallback to iframe
-   if the browser blocks popups. Returns an object: {write, close, print} with a safe unified API.
-   Writes the given full HTML string and triggers print. Closes/removes itself after printing. */
-export function openPrintWindow(html){
-  /* First try the traditional popup */
-  const pw=window.open("","_blank");
+/* V15.23: openPrintWindow — returns a window-like object that works with the
+   classic `const pw = window.open(...); pw.document.write(...); pw.document.close(); pw.print();`
+   pattern used throughout the codebase. If the browser blocks popups, falls back to a hidden
+   iframe inside the current page — both paths expose the same {document, print, close, focus} API.
+   Returns null only if everything fails (document.body missing etc.). */
+export function openPrintWindow(){
+  /* Try the traditional popup first */
+  let pw=null;
+  try{pw=window.open("","_blank")}catch(e){pw=null}
   if(pw){
-    try{
-      pw.document.write(html);
-      pw.document.close();
-      setTimeout(()=>{try{pw.focus();pw.print()}catch(e){}},300);
-      return{ok:true,mode:"window"};
-    }catch(e){
-      try{pw.close()}catch(_){}
-    }
+    /* Real window — already has document/print/close/focus */
+    return pw;
   }
-  /* Fallback: hidden iframe inside current page — works even when popups blocked */
+  /* Fallback: hidden iframe inside current page */
   try{
+    if(!document.body)return null;
     const iframe=document.createElement("iframe");
     iframe.style.cssText="position:fixed;left:-9999px;top:0;width:1px;height:1px;border:0;opacity:0";
     document.body.appendChild(iframe);
     const doc=iframe.contentDocument||iframe.contentWindow.document;
-    doc.open();doc.write(html);doc.close();
-    setTimeout(()=>{
-      try{
-        iframe.contentWindow.focus();
-        iframe.contentWindow.print();
-      }catch(e){
-        alert("المتصفح بيمنع الطباعة — فعّل النوافذ المنبثقة (pop-ups) من إعدادات المتصفح");
-      }
-      /* Clean up after a delay — allow user to finish the print dialog */
-      setTimeout(()=>{try{iframe.remove()}catch(_){}},60000);
-    },400);
-    return{ok:true,mode:"iframe"};
+    /* Auto-cleanup iframe after 60s to allow print dialog to finish */
+    let cleanupTimer=setTimeout(()=>{try{iframe.remove()}catch(_){}},60000);
+    /* Build a window-like wrapper so all existing callers work without changes */
+    const fakeWin={
+      document:doc,
+      print:()=>{try{iframe.contentWindow.focus();iframe.contentWindow.print()}catch(e){
+        alert("المتصفح بيمنع الطباعة — فعّل النوافذ المنبثقة (pop-ups) من إعدادات المتصفح")
+      }},
+      focus:()=>{try{iframe.contentWindow.focus()}catch(e){}},
+      close:()=>{/* extend cleanup window a bit, then remove */
+        clearTimeout(cleanupTimer);
+        cleanupTimer=setTimeout(()=>{try{iframe.remove()}catch(_){}},60000);
+      },
+      /* Flag so callers can detect fallback mode if needed */
+      _isIframeFallback:true,
+    };
+    return fakeWin;
   }catch(e){
-    alert("فشل فتح نافذة الطباعة: "+e.message);
-    return{ok:false,mode:"failed"};
+    try{alert("فشل فتح نافذة الطباعة: "+(e.message||e))}catch(_){}
+    return null;
   }
 }
