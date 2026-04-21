@@ -793,12 +793,21 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     const isPartialInstall=debtInfo.total>0&&debtInstall<debtInfo.total&&debtInstall>0;
     const isSkippedInstall=debtInfo.total>0&&debtInstall===0&&hasInstallOverride;
     const netBalance=r2(availableAfterBasics-debtInstall);
-    /* V15.20: totalDue = netBalance (for backward compat). prevBalance is informational only. */
-    const totalDue=netBalance;
-    /* Thursday cash payment — default to netBalance (pay full amount this week only; prevBalance carries separately) */
-    const thursdayPay=salThursdayPay[empId]!==undefined&&salThursdayPay[empId]!==""?Number(salThursdayPay[empId])||0:netBalance;
-    /* remainingBalance = netBalance - thursdayPay (what's left of THIS WEEK's net, becomes prevBalance next week) */
-    const remainingBalance=r2(netBalance-thursdayPay);
+    /* V15.21 FINAL FIX: The correct model for محمود ربيع W16 example:
+       - netBalance = 4,002 (this week's earnings after deductions, WITHOUT prevBalance)
+       - prevBalance = 30 (carried from W15, still owed)
+       - totalDue (what employee SHOULD receive) = netBalance + prevBalance = 4,032
+       - thursdayPay = 4,000 (what accountant actually pays — cash constraint)
+       - remainingBalance (carries to W17) = totalDue - thursdayPay = 32
+       
+       So: netBalance is PURE this week. prevBalance is SEPARATE CARRY. 
+       totalDue = their SUM (the amount employee is actually owed right now).
+       remainingBalance = whatever of totalDue wasn't paid. */
+    const totalDue=r2(netBalance+prevBalance);
+    /* Thursday cash payment — default to totalDue (what employee is owed total) */
+    const thursdayPay=salThursdayPay[empId]!==undefined&&salThursdayPay[empId]!==""?Number(salThursdayPay[empId])||0:totalDue;
+    /* remainingBalance = totalDue - thursdayPay (what carries to next week as new prevBalance) */
+    const remainingBalance=r2(totalDue-thursdayPay);
     return{weeklySalary,baseHours,perHour,workDays,totalHours,basicHours,overtimeHours,basicPay,overtimePay,grossPay,prevBalance,prevBalanceIsManual,weekAdvances,bonus,specialDeduct,debtInstall,debtCarried,debtItems:debtInfo.items,debtInfoTotal:debtInfo.total,manualInstallDeduct,isPartialInstall,isSkippedInstall,netBalance,totalDue,thursdayPay,remainingBalance,days}};
 
   /* ═══ V14.55: Read salary row from closedRecords snapshot if week is closed ═══
@@ -5552,14 +5561,15 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             </div>
 
             {/* BIG NUMBER = thursdayPay (actual amount accountant will pay TO HAND to employee).
-               V15.16: This is the amount shown for the employee to confirm receipt of.
-               The 'remainingBalance' (صافي - thursdayPay) carries over to next week. */}
+               V15.21: Subtext shows totalDue (= netBalance + prevBalance) = what employee is truly owed. */}
             <div style={{padding:"20px 24px",borderRadius:18,background:"linear-gradient(135deg, "+T.ok+"15, "+T.ok+"08)",border:"3px solid "+T.ok,marginBottom:16,textAlign:"center"}}>
               <div style={{fontSize:FS,color:T.textSec,fontWeight:700,marginBottom:8}}>💵 المبلغ الفعلي اللي هيستلمه</div>
               <div style={{fontSize:isMob?38:48,fontWeight:900,color:T.ok,lineHeight:1,fontFamily:"monospace"}}>{fmt0(salary.thursdayPay)}</div>
               <div style={{fontSize:FS+1,color:T.ok,fontWeight:800,marginTop:4}}>ج.م</div>
               <div style={{fontSize:FS-2,color:T.textMut,marginTop:6,fontWeight:600}}>
-                (من أصل صافي {fmt0(salary.netBalance)} ج.م)
+                {salary.prevBalance!==0?
+                  "(من أصل "+fmt0(salary.totalDue)+" ج.م = صافي "+fmt0(salary.netBalance)+" + رصيد سابق "+fmt0(salary.prevBalance)+")"
+                :"(من أصل صافي "+fmt0(salary.netBalance)+" ج.م)"}
               </div>
             </div>
 

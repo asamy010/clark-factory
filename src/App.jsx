@@ -871,7 +871,7 @@ export default function App(){
         </div>}
         <img src={config.logo||CLARK_LOGO} alt="CLARK" style={{height:isMob?24:32,objectFit:"contain",...(T.navBg?{filter:"brightness(0) invert(1)"}:{})}}/>
         {!isMob&&<div style={{display:"flex",flexDirection:"column",lineHeight:1}}>
-          <span style={{fontSize:FS-1,color:T.navText||T.textSec,fontWeight:700}}>{season}</span>
+          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V15.21</span>
           <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444",marginTop:3,display:"inline-block",width:"fit-content"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}
           </span>
