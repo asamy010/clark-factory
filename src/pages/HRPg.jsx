@@ -768,12 +768,16 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     const installOverrideRaw=salInstallOverride[empId];
     const hasInstallOverride=(installOverrideRaw!==undefined&&installOverrideRaw!=="");
     const installOverrideValue=hasInstallOverride?(Number(installOverrideRaw)||0):null;
-    /* V15.15: availableAfterBasics = grossPay + prevBalance - weekAdvances - specialDeduct + bonus
-       Per user's model: "صافي" column = مستحق + رصيد سابق - خصومات + حافز.
-       This is what the employee is OWED this week in total.
-       The accountant then enters "دفعة من الحساب" (thursdayPay) — the actual amount paid.
-       The remainder ("يترحل") = صافي - دفعة, becomes next week's "رصيد سابق". */
-    const availableAfterBasics=r2(grossPay+prevBalance-weekAdvances-specialDeduct+bonus);
+    /* V15.20 FIX: netBalance does NOT include prevBalance.
+       prevBalance stays separate and is only shown as informational in the popup.
+       Per user's clarification (W16 Ahmed Karim example):
+       - Basic 800 + Overtime 136 + Bonus 200 - Advances 70 = netBalance 1,066
+       - Accountant pays thursdayPay = 1,000 (no change)
+       - remainingBalance = netBalance - thursdayPay = 66 (carries to next week as prevBalance)
+       - prevBalance (65 from previous week) is shown separately but NOT added to this week's payment.
+       
+       This matches the Excel "صافي" column which = grossPay - deductions + bonus (no prevBalance). */
+    const availableAfterBasics=r2(grossPay-weekAdvances-specialDeduct+bonus);
     /* Cap installment at available amount (if negative, skip) */
     let debtInstall;
     if(debtInfo.total>0){
@@ -789,12 +793,11 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     const isPartialInstall=debtInfo.total>0&&debtInstall<debtInfo.total&&debtInstall>0;
     const isSkippedInstall=debtInfo.total>0&&debtInstall===0&&hasInstallOverride;
     const netBalance=r2(availableAfterBasics-debtInstall);
-    /* V15.15: totalDue = netBalance (prevBalance is already included in netBalance via availableAfterBasics).
-       The popup shows totalDue as the big "المطلوب دفعه" number. */
+    /* V15.20: totalDue = netBalance (for backward compat). prevBalance is informational only. */
     const totalDue=netBalance;
-    /* Thursday cash payment — default to netBalance (pay full amount owed including carried balance) */
+    /* Thursday cash payment — default to netBalance (pay full amount this week only; prevBalance carries separately) */
     const thursdayPay=salThursdayPay[empId]!==undefined&&salThursdayPay[empId]!==""?Number(salThursdayPay[empId])||0:netBalance;
-    /* remainingBalance = netBalance - thursdayPay (what's left, becomes prevBalance next week) */
+    /* remainingBalance = netBalance - thursdayPay (what's left of THIS WEEK's net, becomes prevBalance next week) */
     const remainingBalance=r2(netBalance-thursdayPay);
     return{weeklySalary,baseHours,perHour,workDays,totalHours,basicHours,overtimeHours,basicPay,overtimePay,grossPay,prevBalance,prevBalanceIsManual,weekAdvances,bonus,specialDeduct,debtInstall,debtCarried,debtItems:debtInfo.items,debtInfoTotal:debtInfo.total,manualInstallDeduct,isPartialInstall,isSkippedInstall,netBalance,totalDue,thursdayPay,remainingBalance,days}};
 
