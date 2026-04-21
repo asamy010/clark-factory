@@ -14,7 +14,21 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
     <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Cairo',sans-serif;background:#EFF6FF}
-    @media(max-width:768px){table{font-size:12px!important}th,td{padding:6px 8px!important}input,select{font-size:13px!important;padding:8px 10px!important}button{font-size:12px!important}h1{font-size:20px!important}}
+    @media(max-width:768px){table{font-size:12px!important}th,td{padding:6px 8px!important}input,select{font-size:13px!important;padding:8px 10px!important}button{font-size:12px!important}h1{font-size:20px!important}
+      /* V15.10: MetricCard responsive — icon shrinks, value text adjusts so label/value both visible */
+      .metric-card{padding:10px 12px!important;gap:8px!important}
+      .metric-card > div:first-child{width:32px!important;height:32px!important;font-size:16px!important}
+      .metric-card .metric-value{font-size:18px!important}
+      .metric-card .metric-label{font-size:11px!important}
+      .metric-card .metric-sub{font-size:10px!important}
+      /* V15.10: Top-bar action buttons — scroll horizontally on mobile instead of wrapping/cropping */
+      .action-row-scroll{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;flex-wrap:nowrap!important;scrollbar-width:thin}
+      .action-row-scroll::-webkit-scrollbar{height:4px}
+      .action-row-scroll::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:2px}
+      .action-row-scroll > *{flex-shrink:0}
+      /* V15.10: Warning cards should not squish vertically — allow full width wrapping */
+      .warn-card{flex-direction:column!important;align-items:stretch!important}
+    }
     @media(max-width:900px) and (orientation:landscape){#landscape-block{display:flex!important}}
     #landscape-block{display:none;position:fixed;inset:0;background:#1E293B;z-index:999999;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:#fff;font-family:'Cairo',sans-serif;text-align:center}
     #landscape-block .icon{font-size:48px;animation:rotatePhone 2s ease infinite}

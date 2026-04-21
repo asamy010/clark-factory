@@ -24,8 +24,7 @@ export const db = getFirestore(app);
 
 /* Enable offline persistence */
 enableIndexedDbPersistence(db).catch(err=>{
-  if(err.code==="failed-precondition")console.log("Offline: multiple tabs open");
-  else if(err.code==="unimplemented")console.log("Offline: browser not supported");
+  /* Silently ignore - multi-tab or unsupported browser */
 });
 
 /* Secondary auth for admin creating users without logging out */
