@@ -9,7 +9,7 @@ import { useState, useEffect, useMemo } from "react";
 import { FS, PRINT_CSS } from "../constants/index.js";
 import { gid, fmt, fmt0, r2, fmtDate, hrsToHM, parseHrs } from "../utils/format.js";
 import { playBeep } from "../utils/audio.js";
-import { loadJsQR, scanQR } from "../utils/qr.js";
+import { loadJsQR, scanQR, loadXLSX } from "../utils/qr.js";
 import { addAudit } from "../utils/audit.js";
 import { ask, showToast } from "../utils/popups.js";
 import { printPage, printEmpQrCards } from "../utils/print.js";
@@ -393,6 +393,12 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   /* V15.17: tentative selection for emp picker — changes don't commit until user clicks "تم" */
   const[empPickerTentative,setEmpPickerTentative]=useState(null);/* null = not open | [empIds] = current tentative */
   const[empPickerFilter,setEmpPickerFilter]=useState("");/* V15.17: search in emp picker */
+  /* V15.18: Excel import states */
+  const[showExcelImport,setShowExcelImport]=useState(false);
+  const[excelImportStage,setExcelImportStage]=useState("upload");/* upload | preview | importing | done */
+  const[excelImportData,setExcelImportData]=useState(null);/* parsed data from Excel */
+  const[excelImportNewEmps,setExcelImportNewEmps]=useState({});/* code -> true (add as new employee) */
+  const[excelImportError,setExcelImportError]=useState("");
   const[showBulkPrint,setShowBulkPrint]=useState(false);
   const[bulkPrintSel,setBulkPrintSel]=useState({});/* empId -> true */
   /* Generic text popup: {title, value, onSave, placeholder, multiline} */
@@ -1495,6 +1501,336 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
 
   const delLog=(lid)=>{upConfig(d=>{d.hrLog=(d.hrLog||[]).filter(l=>l.id!==lid)});showToast("✓ حذف")};
 
+  /* ── V15.18: Excel Import for HR Weekly Data ── */
+  /* Parses date value from openpyxl (might be Date obj, serial number, or string) */
+  const _parseXlsxDate=(v)=>{
+    if(!v)return null;
+    if(v instanceof Date){const y=v.getFullYear();const m=String(v.getMonth()+1).padStart(2,"0");const d=String(v.getDate()).padStart(2,"0");return y+"-"+m+"-"+d}
+    if(typeof v==="number"){/* Excel serial date */
+      const d=new Date((v-25569)*86400*1000);
+      const y=d.getFullYear();const m=String(d.getMonth()+1).padStart(2,"0");const dd=String(d.getDate()).padStart(2,"0");
+      return y+"-"+m+"-"+dd;
+    }
+    const s=String(v).trim();
+    /* ISO format: YYYY-MM-DD */
+    if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.substring(0,10);
+    /* DD-MM-YYYY or DD/MM/YYYY (4-digit year) */
+    let m=s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+    if(m)return m[3]+"-"+String(m[2]).padStart(2,"0")+"-"+String(m[1]).padStart(2,"0");
+    /* M/D/YY or MM/DD/YY format (US, 2-digit year) — assume 20YY */
+    m=s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2})$/);
+    if(m){
+      const yy=parseInt(m[3]);const yr=(yy<50?2000+yy:1900+yy);
+      return yr+"-"+String(m[1]).padStart(2,"0")+"-"+String(m[2]).padStart(2,"0");
+    }
+    return null;
+  };
+  /* Parses time string "HH:MM:SS" or "HH:MM" into decimal hours */
+  const _parseXlsxTime=(v)=>{
+    if(v===null||v===undefined||v==="")return 0;
+    if(typeof v==="number"){/* Excel time as fraction of day */
+      return v*24;
+    }
+    const s=String(v).trim();
+    if(!s||s==="0:00:00"||s==="0:00")return 0;
+    const parts=s.split(":");
+    const h=parseInt(parts[0])||0;
+    const m=parseInt(parts[1])||0;
+    return h+m/60;
+  };
+  /* Parse number — handle null/undefined/NaN/thousand-separators gracefully */
+  const _parseXlsxNum=(v)=>{
+    if(v===null||v===undefined||v==="")return 0;
+    if(typeof v==="number")return isNaN(v)?0:v;
+    /* String: strip thousand separators (commas) */
+    const s=String(v).replace(/,/g,"").trim();
+    if(!s)return 0;
+    const n=Number(s);
+    return isNaN(n)?0:n;
+  };
+  /* Main parser — takes ArrayBuffer, returns structured data or throws on error.
+     V15.18: Uses HEADER-BASED column detection (not fixed indices) because SheetJS and
+     pandas produce different shapes based on leading blank columns. */
+  const parseHRExcel=async(fileArrayBuffer)=>{
+    const XLSX=await loadXLSX();
+    if(!XLSX)throw new Error("مكتبة قراءة Excel غير متوفرة");
+    const wb=XLSX.read(fileArrayBuffer,{type:"array",cellDates:true});
+    /* Find required sheets */
+    const dbSheet=wb.Sheets["DB"];
+    const fSheet=wb.Sheets["F"];
+    const s0Sheet=wb.Sheets["0"];
+    const s1Sheet=wb.Sheets["1"];
+    if(!dbSheet)throw new Error("شيت DB غير موجود في الملف");
+    if(!fSheet)throw new Error("شيت F (البصمة) غير موجود في الملف");
+    /* Helper: find column index by header text (case-insensitive, trimmed) */
+    const findCol=(headerRow,nameVariations)=>{
+      if(!headerRow)return-1;
+      for(let c=0;c<headerRow.length;c++){
+        const h=(headerRow[c]||"").toString().trim();
+        if(!h)continue;
+        for(const n of nameVariations){
+          if(h===n||h.includes(n))return c;
+        }
+      }
+      return-1;
+    };
+    /* ─── Parse DB sheet ─── header row contains "اسم العامل" + "كود العامل" etc. */
+    const dbRows=XLSX.utils.sheet_to_json(dbSheet,{header:1,raw:false,defval:null});
+    /* Find header row: the one containing "اسم العامل" */
+    let dbHeaderIdx=-1;
+    for(let r=0;r<Math.min(10,dbRows.length);r++){
+      if(dbRows[r]&&dbRows[r].some(c=>c&&String(c).trim().includes("اسم العامل"))){dbHeaderIdx=r;break}
+    }
+    if(dbHeaderIdx<0)throw new Error("لم يتم العثور على رأس الجدول في شيت DB");
+    const dbHeader=dbRows[dbHeaderIdx];
+    const colName=findCol(dbHeader,["اسم العامل","الاسم"]);
+    const colCode=findCol(dbHeader,["كود العامل","الكود"]);
+    const colSalary=findCol(dbHeader,["مرتب أساسي","المرتب"]);
+    const colAdv=findCol(dbHeader,["سلف","السلف"]);
+    const colSpec=findCol(dbHeader,["خصم خاص","خصم"]);
+    const colBonus=findCol(dbHeader,["حافز التزام","حافز"]);
+    const colPay=findCol(dbHeader,["دفعة الخميس","دفعة"]);
+    const colBaseH=findCol(dbHeader,["ساعات أساسي","ساعات"]);
+    const colBal=findCol(dbHeader,["رصيد حالي","رصيد"]);
+    if(colName<0||colCode<0)throw new Error("لم يتم العثور على أعمدة الاسم/الكود في شيت DB");
+    const empList=[];
+    for(let i=dbHeaderIdx+1;i<dbRows.length;i++){
+      const row=dbRows[i];
+      if(!row)continue;
+      const name=row[colName]?String(row[colName]).trim():"";
+      const code=row[colCode]?String(row[colCode]).trim():"";
+      if(!name||!code)continue;
+      empList.push({
+        code,name,
+        weeklySalary:colSalary>=0?_parseXlsxNum(row[colSalary]):0,
+        baseHoursDaily:colBaseH>=0?_parseXlsxNum(row[colBaseH]):9,
+        advances:colAdv>=0?_parseXlsxNum(row[colAdv]):0,
+        specialDeduct:colSpec>=0?_parseXlsxNum(row[colSpec]):0,
+        bonus:colBonus>=0?_parseXlsxNum(row[colBonus]):0,
+        thursdayPay:colPay>=0?_parseXlsxNum(row[colPay]):0,
+        remainingBalance:colBal>=0?_parseXlsxNum(row[colBal]):0,
+      });
+    }
+    /* ─── Parse F (attendance) sheet ─── headers: AC-No., Date, Total in time */
+    const fRows=XLSX.utils.sheet_to_json(fSheet,{header:1,raw:false,defval:null});
+    let fHeaderIdx=-1;
+    for(let r=0;r<Math.min(5,fRows.length);r++){
+      if(fRows[r]&&fRows[r].some(c=>c&&String(c).trim().match(/AC-?No/i))){fHeaderIdx=r;break}
+    }
+    if(fHeaderIdx<0)throw new Error("لم يتم العثور على رأس الجدول في شيت F");
+    const fHeader=fRows[fHeaderIdx];
+    const colFCode=findCol(fHeader,["AC-No.","AC-No","AC No","كود"]);
+    const colFDate=findCol(fHeader,["Date","التاريخ"]);
+    const colFHours=findCol(fHeader,["Total in time","Total","ساعات","الوقت"]);
+    if(colFCode<0||colFDate<0||colFHours<0)throw new Error("أعمدة البصمة (AC-No, Date, Total in time) غير موجودة في شيت F");
+    const attendance=[];
+    for(let i=fHeaderIdx+1;i<fRows.length;i++){
+      const row=fRows[i];
+      if(!row)continue;
+      const code=row[colFCode]?String(row[colFCode]).trim():"";
+      const date=_parseXlsxDate(row[colFDate]);
+      const hours=_parseXlsxTime(row[colFHours]);
+      if(!code||!date)continue;
+      attendance.push({code,date,hours});
+    }
+    /* ─── Extract week metadata from sheet 0 or 1, OR derive from attendance dates ─── */
+    let weekNumFromFile=null;let weekStart=null;let weekEnd=null;
+    /* Try sheet 0: look for the row with a number between 1 and 99 in a numeric context */
+    if(s0Sheet){
+      const s0=XLSX.utils.sheet_to_json(s0Sheet,{header:1,raw:false,defval:null});
+      /* The metadata row is typically before the header row. Look for a row containing dates and a small number. */
+      for(let r=0;r<Math.min(8,s0.length);r++){
+        const row=s0[r];
+        if(!row)continue;
+        /* Look for a cell with a small integer (1-99) — likely the week number */
+        for(let c=0;c<row.length;c++){
+          const v=row[c];
+          if(v==null)continue;
+          const n=_parseXlsxNum(v);
+          if(n>0&&n<=99&&Number.isInteger(n)&&String(v).length<=3){
+            weekNumFromFile=n;
+            break;
+          }
+        }
+        /* Look for dates in same row */
+        for(let c=0;c<row.length;c++){
+          const d=_parseXlsxDate(row[c]);
+          if(d){
+            if(!weekStart||d<weekStart)weekStart=d;
+            if(!weekEnd||d>weekEnd)weekEnd=d;
+          }
+        }
+        if(weekNumFromFile)break;
+      }
+    }
+    /* Fallback: derive week range from attendance dates */
+    if(!weekStart||!weekEnd){
+      const allDates=attendance.map(a=>a.date).filter(Boolean).sort();
+      if(allDates.length>0){
+        weekStart=allDates[0];
+        weekEnd=allDates[allDates.length-1];
+      }
+    }
+    return{weekNumFromFile,weekStart,weekEnd,employees:empList,attendance};
+  };
+  /* Match employees from Excel with employees in DB */
+  const matchExcelEmployees=(excelEmps)=>{
+    const matched=[];const unmatched=[];
+    excelEmps.forEach(xe=>{
+      /* Primary match: by fingerprint code */
+      let found=activeEmps.find(e=>String(e.code||"").trim()===String(xe.code).trim());
+      /* Fallback: by name (exact match) */
+      if(!found){found=activeEmps.find(e=>String(e.name||"").trim()===String(xe.name).trim())}
+      if(found){matched.push({excel:xe,emp:found})}
+      else{unmatched.push(xe)}
+    });
+    return{matched,unmatched};
+  };
+  /* Execute import: create week, attendance, advances, draftInputs; optionally add new employees */
+  const executeExcelImport=async(parsed,newEmpsToAdd,overwriteExisting)=>{
+    /* Calculate next week number */
+    const existingNums=hrWeeks.map(w=>Number(w.weekNum)||0);
+    const maxWeekNum=existingNums.length>0?Math.max(...existingNums):0;
+    const nextWeekNum=maxWeekNum+1;
+    /* Check for date overlap — same weekStart means "same week imported" */
+    const existingWeek=hrWeeks.find(w=>w.weekStart===parsed.weekStart);
+    if(existingWeek&&!overwriteExisting){
+      return{needsConfirm:true,existingWeek};
+    }
+    const weekId=existingWeek?existingWeek.id:gid();
+    /* Match employees */
+    const{matched,unmatched}=matchExcelEmployees(parsed.employees);
+    /* Build attendance map */
+    const attendanceMap={};
+    parsed.attendance.forEach(a=>{
+      const emp=activeEmps.find(e=>String(e.code||"").trim()===String(a.code).trim());
+      if(emp){attendanceMap[emp.id+"_"+a.date]={hours:r2(a.hours)}}
+    });
+    /* Build draftInputs */
+    const salSpecialDeduct={};const salBonus={};const salThursdayPay={};
+    matched.forEach(m=>{
+      if(m.excel.specialDeduct>0)salSpecialDeduct[m.emp.id]=String(m.excel.specialDeduct);
+      if(m.excel.bonus>0)salBonus[m.emp.id]=String(m.excel.bonus);
+      if(m.excel.thursdayPay>0)salThursdayPay[m.emp.id]=String(m.excel.thursdayPay);
+    });
+    /* Build selectedEmps — include all matched + new added */
+    const selectedEmps=matched.map(m=>m.emp.id);
+    /* Build advances hrLog entries + treasury entries (only for matched emps with advance>0) */
+    const newLogEntries=[];const newTreasuryEntries=[];
+    matched.forEach(m=>{
+      if(m.excel.advances>0){
+        const logId=gid();
+        newLogEntries.push({
+          id:logId,type:"advance",empId:m.emp.id,empName:m.emp.name,
+          amount:m.excel.advances,desc:"سلفة أسبوع W"+nextWeekNum+" (مستورد من Excel)",
+          weekId,date:parsed.weekStart,by:userName,createdAt:new Date().toISOString(),
+          importSource:"excel-"+(parsed.weekNumFromFile||"xlsx"),
+        });
+        newTreasuryEntries.push({
+          id:gid(),type:"out",amount:m.excel.advances,
+          desc:"سلفة "+m.emp.name+" — W"+nextWeekNum+" (مستورد)",
+          category:"مرتبات",account:"SUB CASH",season:data.activeSeason||"",
+          date:parsed.weekStart,day:new Date(parsed.weekStart).toLocaleDateString("ar-EG",{weekday:"long"}),
+          sourceType:"hr_advance",hrLogId:logId,weekId,empId:m.emp.id,
+          by:userName,createdAt:new Date().toISOString(),
+          importSource:"excel-"+(parsed.weekNumFromFile||"xlsx"),
+        });
+      }
+    });
+    /* NEW: determine what new employees to add, and add their advances too */
+    const newEmpIds={};/* code -> newly created id */
+    const newEmpsData=[];
+    unmatched.forEach(xe=>{
+      if(newEmpsToAdd[xe.code]){
+        const newId=gid();
+        newEmpIds[xe.code]=newId;
+        /* baseHours: assume 9 hours/day * 6 days = 54 per week */
+        const baseHours=xe.baseHoursDaily>0?(xe.baseHoursDaily*6):54;
+        newEmpsData.push({
+          id:newId,name:xe.name,code:xe.code,job:"",
+          weeklySalary:xe.weeklySalary,baseHours,
+          phone:"",hireDate:parsed.weekStart,weeklyBonus:0,
+          noBiometric:false,salaryType:"weekly",nationalId:"",prevBalance:0,
+          createdFrom:"excel-import-v15-18",
+        });
+        selectedEmps.push(newId);
+        /* Also add their attendance, advances, draft inputs */
+        parsed.attendance.filter(a=>String(a.code).trim()===String(xe.code).trim()).forEach(a=>{
+          attendanceMap[newId+"_"+a.date]={hours:r2(a.hours)};
+        });
+        if(xe.specialDeduct>0)salSpecialDeduct[newId]=String(xe.specialDeduct);
+        if(xe.bonus>0)salBonus[newId]=String(xe.bonus);
+        if(xe.thursdayPay>0)salThursdayPay[newId]=String(xe.thursdayPay);
+        if(xe.advances>0){
+          const logId=gid();
+          newLogEntries.push({
+            id:logId,type:"advance",empId:newId,empName:xe.name,
+            amount:xe.advances,desc:"سلفة أسبوع W"+nextWeekNum+" (مستورد من Excel)",
+            weekId,date:parsed.weekStart,by:userName,createdAt:new Date().toISOString(),
+            importSource:"excel-"+(parsed.weekNumFromFile||"xlsx"),
+          });
+          newTreasuryEntries.push({
+            id:gid(),type:"out",amount:xe.advances,
+            desc:"سلفة "+xe.name+" — W"+nextWeekNum+" (مستورد)",
+            category:"مرتبات",account:"SUB CASH",season:data.activeSeason||"",
+            date:parsed.weekStart,day:new Date(parsed.weekStart).toLocaleDateString("ar-EG",{weekday:"long"}),
+            sourceType:"hr_advance",hrLogId:logId,weekId,empId:newId,
+            by:userName,createdAt:new Date().toISOString(),
+            importSource:"excel-"+(parsed.weekNumFromFile||"xlsx"),
+          });
+        }
+      }
+    });
+    /* Calculate baseHours for the week — 9 hours * 6 days = 54 is common */
+    const weekBaseHours=54;/* TODO: could be derived from xe.baseHoursDaily */
+    /* Execute upConfig */
+    upConfig(d=>{
+      if(!Array.isArray(d.hrWeeks))d.hrWeeks=[];
+      if(!Array.isArray(d.employees))d.employees=[];
+      if(!Array.isArray(d.hrLog))d.hrLog=[];
+      if(!Array.isArray(d.treasury))d.treasury=[];
+      /* Add new employees */
+      newEmpsData.forEach(ne=>{d.employees.push(ne)});
+      /* Find or create the week */
+      const wIdx=d.hrWeeks.findIndex(w=>w.id===weekId);
+      const weekData={
+        id:weekId,weekNum:nextWeekNum,
+        weekStart:parsed.weekStart,weekEnd:parsed.weekEnd,
+        baseHours:weekBaseHours,
+        status:"open",
+        attendance:attendanceMap,
+        selectedEmps,
+        draftInputs:{
+          salSpecialDeduct,salBonus,salThursdayPay,
+          salPrevBalanceOverride:{},salManualInstallDeduct:{},
+          salInstallOverride:{},salDeductReason:{},salBaseHoursOverride:{},
+          lastSaved:new Date().toISOString(),
+        },
+        createdFrom:"excel-import-v15-18",
+        excelWeekNum:parsed.weekNumFromFile,
+      };
+      if(wIdx>=0){
+        /* Overwrite: preserve id and close status only */
+        d.hrWeeks[wIdx]={...d.hrWeeks[wIdx],...weekData};
+        /* Clear existing advances for this week to avoid duplicates */
+        d.hrLog=(d.hrLog||[]).filter(l=>!(l.weekId===weekId&&l.importSource&&l.importSource.startsWith("excel-")));
+        d.treasury=(d.treasury||[]).filter(t=>!(t.weekId===weekId&&t.importSource&&t.importSource.startsWith("excel-")));
+      }else{
+        d.hrWeeks.push(weekData);
+      }
+      /* Insert new advances */
+      newLogEntries.forEach(l=>d.hrLog.unshift(l));
+      newTreasuryEntries.forEach(t=>d.treasury.unshift(t));
+      /* Audit */
+      addAudit(d,{category:"hr",action:"excel_import",
+        target:"W"+nextWeekNum+(parsed.weekNumFromFile?" (Excel W"+parsed.weekNumFromFile+")":""),
+        newValue:matched.length+" موظف مطابق • "+newEmpsData.length+" موظف جديد • "+newLogEntries.length+" سلفة",
+        user:userName,severity:"info",notes:"استيراد بيانات أسبوع من Excel"});
+    });
+    return{success:true,matched:matched.length,newEmps:newEmpsData.length,
+      advances:newLogEntries.length,weekNum:nextWeekNum,weekStart:parsed.weekStart};
+  };
+
   /* ── Popup helpers ── */
   const openTextPopup=(cfg)=>{setTextValue(cfg.value||"");setTextPopup(cfg)};
   const openConfirm=(cfg)=>setConfirmPopup(cfg);
@@ -2377,6 +2713,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                   });
                   setQuickEntryPopup({type:"prevBalance",tabData:initTabData,search:""});
                 }} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}} title="إدخال سريع — دفعة واحدة لعدة موظفين بكل الحقول">⚡ إدخال سريع</Btn>}
+                {!isLocked&&canEdit&&<Btn small onClick={()=>setShowExcelImport(true)} style={{background:"#10B98112",color:"#10B981",border:"1px solid #10B98130",fontWeight:700}} title="استيراد بيانات أسبوع كامل من Excel">📥 استيراد Excel</Btn>}
                 <Btn small onClick={()=>{
                   /* Print the current filtered table as a single-page overview */
                   const rows=filteredShown.map((emp,i)=>{const c=getEmpSalary(emp.id,openWeek);if(!c)return"";
@@ -3578,6 +3915,155 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           </div>
         </div>
       </div>})()}
+
+    {/* ══ V15.18: EXCEL IMPORT POPUP ══ */}
+    {showExcelImport&&(()=>{
+      const close=()=>{setShowExcelImport(false);setExcelImportStage("upload");setExcelImportData(null);setExcelImportNewEmps({});setExcelImportError("")};
+      const handleFile=async(file)=>{
+        setExcelImportError("");
+        if(!file){return}
+        try{
+          const ab=await file.arrayBuffer();
+          const parsed=await parseHRExcel(ab);
+          if(!parsed.weekStart||!parsed.weekEnd){
+            setExcelImportError("لم نتمكن من قراءة تواريخ الأسبوع من الملف. تأكد من شيت '0'.");
+            return;
+          }
+          if(parsed.employees.length===0){
+            setExcelImportError("لم نجد أي موظف في شيت DB.");
+            return;
+          }
+          setExcelImportData(parsed);
+          setExcelImportStage("preview");
+        }catch(err){
+          setExcelImportError("خطأ في قراءة الملف: "+(err.message||String(err)));
+        }
+      };
+      const doImport=async(overwrite)=>{
+        if(!excelImportData)return;
+        setExcelImportStage("importing");
+        try{
+          const res=await executeExcelImport(excelImportData,excelImportNewEmps,overwrite);
+          if(res.needsConfirm){
+            const existingWeek=res.existingWeek;
+            const ok=await ask({
+              title:"الأسبوع موجود بالفعل",
+              message:"يوجد أسبوع بنفس التاريخ (W"+existingWeek.weekNum+" — "+existingWeek.weekStart+" إلى "+existingWeek.weekEnd+").\n\nهل تريد الكتابة فوقه؟ سيتم مسح البيانات الحالية واستبدالها بالبيانات من الملف.",
+              okText:"نعم، اكتب فوقه",cancelText:"إلغاء",type:"warning"
+            });
+            if(ok){
+              const res2=await executeExcelImport(excelImportData,excelImportNewEmps,true);
+              if(res2.success){
+                showToast("✓ تم استيراد W"+res2.weekNum+" — "+res2.matched+" موظف");
+                close();
+                return;
+              }
+            }
+            setExcelImportStage("preview");
+            return;
+          }
+          if(res.success){
+            showToast("✓ تم استيراد W"+res.weekNum+" — "+res.matched+" موظف + "+res.newEmps+" جديد");
+            close();
+          }
+        }catch(err){
+          setExcelImportError("خطأ في الاستيراد: "+(err.message||String(err)));
+          setExcelImportStage("preview");
+        }
+      };
+      const matching=excelImportData?matchExcelEmployees(excelImportData.employees):{matched:[],unmatched:[]};
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={close}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:680,maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div style={{fontSize:FS+2,fontWeight:800,color:"#10B981"}}>📥 استيراد بيانات أسبوع من Excel</div>
+            <Btn ghost small onClick={close}>✕</Btn>
+          </div>
+          {excelImportError&&<div style={{padding:"10px 14px",marginBottom:12,borderRadius:10,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",fontSize:FS-1,fontWeight:700}}>⚠️ {excelImportError}</div>}
+          
+          {excelImportStage==="upload"&&<div>
+            <div style={{padding:"16px",borderRadius:12,background:T.accent+"06",border:"1px solid "+T.accent+"20",marginBottom:14,fontSize:FS-1,color:T.textSec,lineHeight:1.8}}>
+              <div style={{fontWeight:800,color:T.accent,marginBottom:6}}>📋 تنسيق الملف المطلوب:</div>
+              <div>• شيت <b>DB</b>: بيانات الموظفين (الكود، الاسم، المرتب، السلف، الخصومات، الحوافز، دفعة الخميس)</div>
+              <div>• شيت <b>F</b>: سجل البصمة (AC-No، Date، Total in time)</div>
+              <div>• شيت <b>0</b>: ملخص الأسبوع (للتواريخ ورقم الأسبوع)</div>
+              <div style={{marginTop:8,fontSize:FS-2,color:T.textMut}}>💡 شيت A وشيت 1 اختياريان</div>
+            </div>
+            <label style={{display:"block",padding:"30px 20px",borderRadius:14,background:T.bg,border:"2px dashed "+T.accent+"60",textAlign:"center",cursor:"pointer",transition:"all 0.2s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"08"} onMouseLeave={e=>e.currentTarget.style.background=T.bg}>
+              <div style={{fontSize:48,marginBottom:10}}>📂</div>
+              <div style={{fontSize:FS+1,fontWeight:800,color:T.accent,marginBottom:4}}>اختر ملف Excel</div>
+              <div style={{fontSize:FS-2,color:T.textMut}}>.xlsx فقط</div>
+              <input type="file" accept=".xlsx,.xls" onChange={e=>{const f=e.target.files?.[0];if(f)handleFile(f)}} style={{display:"none"}}/>
+            </label>
+          </div>}
+
+          {excelImportStage==="preview"&&excelImportData&&<div>
+            {/* Week info */}
+            <div style={{padding:"12px 14px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"30",marginBottom:12}}>
+              <div style={{fontSize:FS,fontWeight:800,color:T.accent,marginBottom:4}}>📅 معلومات الأسبوع</div>
+              <div style={{fontSize:FS-1,color:T.textSec}}>
+                {excelImportData.weekNumFromFile&&<span>رقم الأسبوع في الإكسيل: <b>W{excelImportData.weekNumFromFile}</b> • </span>}
+                التاريخ: <b>{excelImportData.weekStart}</b> → <b>{excelImportData.weekEnd}</b>
+              </div>
+              <div style={{fontSize:FS-2,color:T.textMut,marginTop:4}}>سيتم إنشاء الأسبوع برقم تلقائي (التالي بعد الأسابيع الموجودة)</div>
+            </div>
+
+            {/* Stats */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3, 1fr)",gap:10,marginBottom:12}}>
+              <div style={{padding:"10px",borderRadius:10,background:T.ok+"12",border:"1px solid "+T.ok+"30",textAlign:"center"}}>
+                <div style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>✅ مطابق</div>
+                <div style={{fontSize:FS+6,fontWeight:900,color:T.ok}}>{matching.matched.length}</div>
+              </div>
+              <div style={{padding:"10px",borderRadius:10,background:T.warn+"12",border:"1px solid "+T.warn+"30",textAlign:"center"}}>
+                <div style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>⚠️ غير مطابق</div>
+                <div style={{fontSize:FS+6,fontWeight:900,color:T.warn}}>{matching.unmatched.length}</div>
+              </div>
+              <div style={{padding:"10px",borderRadius:10,background:T.accent+"12",border:"1px solid "+T.accent+"30",textAlign:"center"}}>
+                <div style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>📍 سجلات بصمة</div>
+                <div style={{fontSize:FS+6,fontWeight:900,color:T.accent}}>{excelImportData.attendance.length}</div>
+              </div>
+            </div>
+
+            {/* Unmatched employees with checkbox */}
+            {matching.unmatched.length>0&&<div style={{padding:"10px 12px",borderRadius:10,background:T.warn+"06",border:"1px solid "+T.warn+"25",marginBottom:12}}>
+              <div style={{fontSize:FS-1,fontWeight:800,color:T.warn,marginBottom:6}}>⚠️ موظفين غير مطابقين ({matching.unmatched.length})</div>
+              <div style={{fontSize:FS-2,color:T.textSec,marginBottom:8}}>اختر الموظفين الذين تريد إضافتهم كموظفين جدد. الباقي سيتم تجاهله.</div>
+              <div style={{display:"flex",gap:6,marginBottom:8}}>
+                <Btn small onClick={()=>{const all={};matching.unmatched.forEach(u=>{all[u.code]=true});setExcelImportNewEmps(all)}} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>☑ إضافة الكل</Btn>
+                <Btn small onClick={()=>setExcelImportNewEmps({})} style={{background:T.err+"10",color:T.err,border:"1px solid "+T.err+"30"}}>☐ تجاهل الكل</Btn>
+              </div>
+              <div style={{maxHeight:180,overflowY:"auto",display:"flex",flexDirection:"column",gap:4}}>
+                {matching.unmatched.map(u=><div key={u.code} onClick={()=>setExcelImportNewEmps(p=>({...p,[u.code]:!p[u.code]}))} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderRadius:8,cursor:"pointer",background:excelImportNewEmps[u.code]?T.ok+"10":T.bg,border:"1px solid "+(excelImportNewEmps[u.code]?T.ok+"40":T.brd)}}>
+                  <span style={{fontSize:16}}>{excelImportNewEmps[u.code]?"☑":"☐"}</span>
+                  <div style={{flex:1,fontSize:FS-1}}>
+                    <b>{u.name}</b> <span style={{color:T.textMut,fontSize:FS-2}}>#{u.code} • مرتب: {fmt0(u.weeklySalary)} ج</span>
+                  </div>
+                </div>)}
+              </div>
+            </div>}
+
+            {/* Summary of what will be imported */}
+            <div style={{padding:"10px 12px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd,marginBottom:14,fontSize:FS-1,lineHeight:1.8}}>
+              <div style={{fontWeight:800,color:T.text,marginBottom:4}}>📦 ما سيتم استيراده:</div>
+              <div>• <b>{matching.matched.length+Object.keys(excelImportNewEmps).filter(c=>excelImportNewEmps[c]).length}</b> موظف (مطابق + جديد)</div>
+              <div>• <b>{excelImportData.attendance.length}</b> سجل بصمة</div>
+              <div>• السلف والخصومات والحوافز ودفعات الخميس</div>
+              <div>• السلف ستُسجل في الخزنة بتاريخ بداية الأسبوع ({excelImportData.weekStart})</div>
+              <div style={{marginTop:6,color:T.textMut,fontSize:FS-2}}>الأسبوع سيُنشأ بحالة "مفتوح" للمراجعة قبل الإقفال</div>
+            </div>
+
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <Btn ghost onClick={close}>إلغاء</Btn>
+              <Btn primary onClick={()=>doImport(false)} style={{background:"#10B981",color:"#fff",fontWeight:800}}>✅ استيراد</Btn>
+            </div>
+          </div>}
+
+          {excelImportStage==="importing"&&<div style={{padding:40,textAlign:"center"}}>
+            <div style={{fontSize:48,marginBottom:14}}>⏳</div>
+            <div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>جاري الاستيراد...</div>
+          </div>}
+        </div>
+      </div>;
+    })()}
 
     {/* ══ V15.8: QUICK ENTRY POPUP — bulk data entry for 5 salary fields with persistent tabs ══ */}
     {quickEntryPopup&&openWeek&&(()=>{
@@ -4918,7 +5404,11 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
 
     {/* ══ V14.63: DETAILED REVIEW POPUP — shows full salary details to employee ══ */}
     {verifyReview&&(()=>{
-      const{emp,salary,week:w}=verifyReview;
+      const{emp,week:w}=verifyReview;
+      /* V15.19: ALWAYS read salary fresh from getEmpSalary() instead of using the snapshot 
+         that was captured when scanning. This ensures the popup reflects the SAME values 
+         shown in the salary table at render time — not stale data from when the scan happened. */
+      const salary=getEmpSalary(emp.id,w);
       if(!salary)return null;
       const close=()=>{setVerifyReview(null);setTimeout(()=>setVerifyScanning(true),100)};
       /* Inline handlers — popup is outside IIFE scope so helpers must live here */
