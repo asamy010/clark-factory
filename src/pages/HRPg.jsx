@@ -327,6 +327,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const[empWeeklyBonus,setEmpWeeklyBonus]=useState("");
   const[empNoBiometric,setEmpNoBiometric]=useState(false);
   const[empSalaryType,setEmpSalaryType]=useState("weekly");/* weekly | monthly */
+  const[empNationalId,setEmpNationalId]=useState("");/* V15.17: 14-digit national ID */
   /* Inline row edit for employee table */
   const[inlineEditId,setInlineEditId]=useState(null);
   const[inlineDraft,setInlineDraft]=useState({});
@@ -389,6 +390,9 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const[salDeductReason,setSalDeductReason]=useState({});/* empId -> reason string */
   const[showEmpPicker,setShowEmpPicker]=useState(false);
   const[empPickerTab,setEmpPickerTab]=useState("weekly");/* "weekly" | "monthly" */
+  /* V15.17: tentative selection for emp picker — changes don't commit until user clicks "تم" */
+  const[empPickerTentative,setEmpPickerTentative]=useState(null);/* null = not open | [empIds] = current tentative */
+  const[empPickerFilter,setEmpPickerFilter]=useState("");/* V15.17: search in emp picker */
   const[showBulkPrint,setShowBulkPrint]=useState(false);
   const[bulkPrintSel,setBulkPrintSel]=useState({});/* empId -> true */
   /* Generic text popup: {title, value, onSave, placeholder, multiline} */
@@ -489,8 +493,17 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   },[salBonus,salSpecialDeduct,salManualInstallDeduct,salInstallOverride,salThursdayPay,salPrevBalanceOverride,salDeductReason,salBaseHoursOverride,openWeek?.draftInputs,openWeek?.status]);
 
   /* ── Employee CRUD ── */
-  const resetEmpForm=()=>{setEmpName("");setEmpJob("");setEmpCode("");setEmpWeeklySalary("");setEmpBaseHours("");setEmpPhone("");setEmpDate(today);setEmpWeeklyBonus("");setEmpNoBiometric(false);setEmpSalaryType("weekly");setEmpEditId(null)};
+  const resetEmpForm=()=>{setEmpName("");setEmpJob("");setEmpCode("");setEmpWeeklySalary("");setEmpBaseHours("");setEmpPhone("");setEmpDate(today);setEmpWeeklyBonus("");setEmpNoBiometric(false);setEmpSalaryType("weekly");setEmpNationalId("");setEmpEditId(null)};
   const saveEmp=()=>{if(!empName.trim())return;
+    /* V15.17: National ID validation — must be exactly 14 digits if provided */
+    const natIdClean=(empNationalId||"").replace(/\D/g,"");
+    if(natIdClean&&natIdClean.length!==14){
+      showToast("⚠️ الرقم القومي يجب أن يكون 14 رقم بالظبط");
+      return;
+    }
+    /* V15.17: Phone auto-prefix +2 if not already prefixed */
+    const normalizePhone=(p)=>{const s=(p||"").trim();if(!s)return"";if(s.startsWith("+"))return s;const d=s.replace(/\D/g,"");return d?"+2"+d:""};
+    const phoneClean=normalizePhone(empPhone);
     upConfig(d=>{if(!d.employees)d.employees=[];
       if(empEditId){const e=d.employees.find(x=>x.id===empEditId);if(e){
         /* Audit — track code changes (fingerprint) + salary changes (high risk) */
@@ -506,10 +519,10 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             target:e.name,oldValue:fmt0(oldSalary)+" ج",newValue:fmt0(newSalary)+" ج",
             user:userName,severity:"warning",notes:"تغيير المرتب الأسبوعي"});
         }
-        e.name=empName.trim();e.job=empJob;e.code=empCode;e.weeklySalary=newSalary;e.baseHours=parseFloat(empBaseHours)||0;e.phone=empPhone;e.hireDate=empDate;e.weeklyBonus=parseFloat(empWeeklyBonus)||0;e.noBiometric=empNoBiometric;e.salaryType=empSalaryType;
+        e.name=empName.trim();e.job=empJob;e.code=empCode;e.weeklySalary=newSalary;e.baseHours=parseFloat(empBaseHours)||0;e.phone=phoneClean;e.hireDate=empDate;e.weeklyBonus=parseFloat(empWeeklyBonus)||0;e.noBiometric=empNoBiometric;e.salaryType=empSalaryType;e.nationalId=natIdClean;
       }}
       else{
-        const newEmp={id:gid(),name:empName.trim(),job:empJob,code:empCode,weeklySalary:parseFloat(empWeeklySalary)||0,baseHours:parseFloat(empBaseHours)||0,phone:empPhone,hireDate:empDate,weeklyBonus:parseFloat(empWeeklyBonus)||0,noBiometric:empNoBiometric,salaryType:empSalaryType,prevBalance:0};
+        const newEmp={id:gid(),name:empName.trim(),job:empJob,code:empCode,weeklySalary:parseFloat(empWeeklySalary)||0,baseHours:parseFloat(empBaseHours)||0,phone:phoneClean,hireDate:empDate,weeklyBonus:parseFloat(empWeeklyBonus)||0,noBiometric:empNoBiometric,salaryType:empSalaryType,nationalId:natIdClean,prevBalance:0};
         d.employees.push(newEmp);
         addAudit(d,{category:"employee",action:"add",
           target:newEmp.name,newValue:"كود: "+(newEmp.code||"-")+" • مرتب: "+fmt0(newEmp.weeklySalary),
@@ -517,7 +530,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       }
     });
     setShowEmpForm(false);resetEmpForm();showToast("✓ تم الحفظ")};
-  const editEmp=(e)=>{setEmpEditId(e.id);setEmpName(e.name);setEmpJob(e.job||"");setEmpCode(e.code||"");setEmpWeeklySalary(String(e.weeklySalary||""));setEmpBaseHours(String(e.baseHours||""));setEmpPhone(e.phone||"");setEmpDate(e.hireDate||today);setEmpWeeklyBonus(String(e.weeklyBonus||""));setEmpNoBiometric(!!e.noBiometric);setEmpSalaryType(e.salaryType||"weekly");setShowEmpForm(true)};
+  const editEmp=(e)=>{setEmpEditId(e.id);setEmpName(e.name);setEmpJob(e.job||"");setEmpCode(e.code||"");setEmpWeeklySalary(String(e.weeklySalary||""));setEmpBaseHours(String(e.baseHours||""));setEmpPhone(e.phone||"");setEmpDate(e.hireDate||today);setEmpWeeklyBonus(String(e.weeklyBonus||""));setEmpNoBiometric(!!e.noBiometric);setEmpSalaryType(e.salaryType||"weekly");setEmpNationalId(e.nationalId||"");setShowEmpForm(true)};
   const startInlineEdit=(e)=>{setInlineEditId(e.id);setInlineDraft({name:e.name||"",code:e.code||"",job:e.job||"",weeklySalary:String(e.weeklySalary||""),weeklyBonus:String(e.weeklyBonus||""),baseHours:String(e.baseHours||""),phone:e.phone||"",noBiometric:!!e.noBiometric})};
   const saveInlineEdit=()=>{if(!inlineEditId)return;const d=inlineDraft;
     upConfig(cfg=>{const e=(cfg.employees||[]).find(x=>x.id===inlineEditId);if(e){
@@ -749,11 +762,12 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     const installOverrideRaw=salInstallOverride[empId];
     const hasInstallOverride=(installOverrideRaw!==undefined&&installOverrideRaw!=="");
     const installOverrideValue=hasInstallOverride?(Number(installOverrideRaw)||0):null;
-    /* V15.6: prevBalance is NO LONGER added to netBalance.
-       Reason: prevBalance represents carried-over cash the employee hasn't received yet
-       (due to change/fekka issues). It stays separate and keeps accumulating until paid.
-       netBalance = this week's earned salary only. */
-    const availableAfterBasics=r2(grossPay-weekAdvances-specialDeduct+bonus);
+    /* V15.15: availableAfterBasics = grossPay + prevBalance - weekAdvances - specialDeduct + bonus
+       Per user's model: "صافي" column = مستحق + رصيد سابق - خصومات + حافز.
+       This is what the employee is OWED this week in total.
+       The accountant then enters "دفعة من الحساب" (thursdayPay) — the actual amount paid.
+       The remainder ("يترحل") = صافي - دفعة, becomes next week's "رصيد سابق". */
+    const availableAfterBasics=r2(grossPay+prevBalance-weekAdvances-specialDeduct+bonus);
     /* Cap installment at available amount (if negative, skip) */
     let debtInstall;
     if(debtInfo.total>0){
@@ -769,13 +783,13 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     const isPartialInstall=debtInfo.total>0&&debtInstall<debtInfo.total&&debtInstall>0;
     const isSkippedInstall=debtInfo.total>0&&debtInstall===0&&hasInstallOverride;
     const netBalance=r2(availableAfterBasics-debtInstall);
-    /* V15.6: totalDue = this week's net + any carried balance from previous weeks.
-       prevBalance stays shown separately but IS part of what employee should receive today. */
-    const totalDue=r2(netBalance+prevBalance);
-    /* Thursday cash payment — default to totalDue (employee takes everything including old carry) */
-    const thursdayPay=salThursdayPay[empId]!==undefined&&salThursdayPay[empId]!==""?Number(salThursdayPay[empId])||0:totalDue;
-    /* remainingBalance = totalDue - thursdayPay (what's left to carry over to next week) */
-    const remainingBalance=r2(totalDue-thursdayPay);
+    /* V15.15: totalDue = netBalance (prevBalance is already included in netBalance via availableAfterBasics).
+       The popup shows totalDue as the big "المطلوب دفعه" number. */
+    const totalDue=netBalance;
+    /* Thursday cash payment — default to netBalance (pay full amount owed including carried balance) */
+    const thursdayPay=salThursdayPay[empId]!==undefined&&salThursdayPay[empId]!==""?Number(salThursdayPay[empId])||0:netBalance;
+    /* remainingBalance = netBalance - thursdayPay (what's left, becomes prevBalance next week) */
+    const remainingBalance=r2(netBalance-thursdayPay);
     return{weeklySalary,baseHours,perHour,workDays,totalHours,basicHours,overtimeHours,basicPay,overtimePay,grossPay,prevBalance,prevBalanceIsManual,weekAdvances,bonus,specialDeduct,debtInstall,debtCarried,debtItems:debtInfo.items,debtInfoTotal:debtInfo.total,manualInstallDeduct,isPartialInstall,isSkippedInstall,netBalance,totalDue,thursdayPay,remainingBalance,days}};
 
   /* ═══ V14.55: Read salary row from closedRecords snapshot if week is closed ═══
@@ -1334,7 +1348,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       <div><b>الاسم:</b> ${emp.name}</div><div><b>الكود:</b> ${emp.code||"—"}</div>
       <div><b>الوظيفة:</b> ${emp.job||"—"}</div><div><b>التليفون:</b> ${emp.phone||"—"}</div>
       <div><b>الأسبوع:</b> ${openWeek.weekStart} → ${openWeek.weekEnd}</div><div><b>ساعات أساسي:</b> ${c.baseHours}</div>
-      <div><b>المرتب الأسبوعي:</b> ${fmt(c.weeklySalary)} ج.م</div><div><b>سعر الساعة:</b> ${r2(c.perHour)} ج.م</div>
+      <div><b>المرتب الأسبوعي:</b> ${fmt0(c.weeklySalary)} ج.م</div><div><b>سعر الساعة:</b> ${r2(c.perHour)} ج.م</div>
     </div>
     <h3 style="color:#0ea5e9;margin:10px 0 4px;font-size:12px">📋 الحضور اليومي</h3>
     <table class="att-tbl"><thead><tr>${c.days.map(d=>"<th>"+dayNames[new Date(d.date).getDay()]+"<br/>"+d.date.slice(5)+"</th>").join("")}<th style="background:#0284c7;color:#fff">اجمالي</th></tr></thead>
@@ -1342,20 +1356,20 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     ${perfHTML}
     <h3 style="color:#0ea5e9;margin:10px 0 4px;font-size:12px">💰 تفاصيل المرتب</h3>
     <table class="calc-tbl">
-    <tr><td class="lbl">الراتب الأساسي في الأسبوع</td><td>${fmt(c.weeklySalary)} ج.م</td></tr>
+    <tr><td class="lbl">الراتب الأساسي في الأسبوع</td><td>${fmt0(c.weeklySalary)} ج.م</td></tr>
     <tr><td class="lbl">ساعات عمل أساسي / إضافي</td><td>${r2(c.basicHours)} / ${r2(c.overtimeHours)} (×${OT_MULT})</td></tr>
-    <tr><td class="lbl">الراتب المستحق بدون إضافي</td><td>${fmt(c.basicPay)} ج.م</td></tr>
-    <tr><td class="lbl">إضافي (+)</td><td class="add">${fmt(c.overtimePay)} ج.م</td></tr>
-    <tr style="background:#f0f9ff"><td class="lbl"><b>اجمالي الراتب المستحق</b></td><td style="font-weight:800;color:#0ea5e9;font-size:13px">${fmt(c.grossPay)} ج.م</td></tr>
-    <tr><td class="lbl">مسحوبات الأسبوع (−)</td><td class="sub">${fmt(c.weekAdvances)} ج.م</td></tr>
-    <tr><td class="lbl">خصم خاص (−)${reason?" <span style='font-size:9px;color:#78350f'>["+reason+"]</span>":""}</td><td class="sub">${fmt(c.specialDeduct)} ج.م</td></tr>
-    ${c.debtInstall>0?'<tr><td class="lbl">خصم قسط مديونية (−)<br/><span style="font-size:9px;color:#78350f">'+(c.debtItems||[]).map(di=>di.title+" ("+(di.paid+1)+"/"+di.installments+")").join(" • ")+'</span></td><td class="sub">'+fmt(c.debtInstall)+' ج.م</td></tr>':""}
-    <tr><td class="lbl">حافز التزام (+)</td><td class="add">${fmt(c.bonus)} ج.م</td></tr>
-    <tr style="background:#f0fdf4"><td class="lbl"><b>صافي الأسبوع</b></td><td style="font-weight:800;color:#0ea5e9;font-size:13px">${fmt(c.netBalance)} ج.م</td></tr>
-    ${c.prevBalance!==0?'<tr style="background:#eff6ff"><td class="lbl" style="color:#1e40af">🔄 رصيد مرحل من الأسبوع السابق (+)</td><td class="add" style="color:#1e40af">'+fmt(c.prevBalance)+' ج.م</td></tr>':""}
-    ${c.prevBalance!==0?'<tr style="background:#dbeafe"><td class="lbl"><b>إجمالي المستحق</b></td><td style="font-weight:800;color:#1e40af;font-size:13px">'+fmt(c.totalDue)+' ج.م</td></tr>':""}
-    <tr><td class="lbl">دفعة من الحساب (−)</td><td class="sub">${fmt(c.thursdayPay)} ج.م</td></tr>
-    <tr><td class="total">الرصيد المتبقي (يُرحّل للأسبوع القادم)</td><td class="total">${fmt(c.remainingBalance)} ج.م</td></tr>
+    <tr><td class="lbl">الراتب المستحق بدون إضافي</td><td>${fmt0(c.basicPay)} ج.م</td></tr>
+    <tr><td class="lbl">إضافي (+)</td><td class="add">${fmt0(c.overtimePay)} ج.م</td></tr>
+    <tr style="background:#f0f9ff"><td class="lbl"><b>اجمالي الراتب المستحق</b></td><td style="font-weight:800;color:#0ea5e9;font-size:13px">${fmt0(c.grossPay)} ج.م</td></tr>
+    <tr><td class="lbl">مسحوبات الأسبوع (−)</td><td class="sub">${fmt0(c.weekAdvances)} ج.م</td></tr>
+    <tr><td class="lbl">خصم خاص (−)${reason?" <span style='font-size:9px;color:#78350f'>["+reason+"]</span>":""}</td><td class="sub">${fmt0(c.specialDeduct)} ج.م</td></tr>
+    ${c.debtInstall>0?'<tr><td class="lbl">خصم قسط مديونية (−)<br/><span style="font-size:9px;color:#78350f">'+(c.debtItems||[]).map(di=>di.title+" ("+(di.paid+1)+"/"+di.installments+")").join(" • ")+'</span></td><td class="sub">'+fmt0(c.debtInstall)+' ج.م</td></tr>':""}
+    <tr><td class="lbl">حافز التزام (+)</td><td class="add">${fmt0(c.bonus)} ج.م</td></tr>
+    <tr style="background:#f0fdf4"><td class="lbl"><b>صافي الأسبوع</b></td><td style="font-weight:800;color:#0ea5e9;font-size:13px">${fmt0(c.netBalance)} ج.م</td></tr>
+    ${c.prevBalance!==0?'<tr style="background:#eff6ff"><td class="lbl" style="color:#1e40af">🔄 رصيد مرحل من الأسبوع السابق (+)</td><td class="add" style="color:#1e40af">'+fmt0(c.prevBalance)+' ج.م</td></tr>':""}
+    ${c.prevBalance!==0?'<tr style="background:#dbeafe"><td class="lbl"><b>إجمالي المستحق</b></td><td style="font-weight:800;color:#1e40af;font-size:13px">'+fmt0(c.totalDue)+' ج.م</td></tr>':""}
+    <tr><td class="lbl">دفعة من الحساب (−)</td><td class="sub">${fmt0(c.thursdayPay)} ج.م</td></tr>
+    <tr><td class="total">الرصيد المتبقي (يُرحّل للأسبوع القادم)</td><td class="total">${fmt0(c.remainingBalance)} ج.م</td></tr>
     </table>
     ${reason?'<div class="reason"><b>📝 سبب الخصم:</b> '+reason+'</div>':""}
     <div class="note">
@@ -1745,17 +1759,17 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               {allAdv.length>0?<div>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,padding:"8px 12px",borderRadius:8,background:T.err+"08",border:"1px solid "+T.err+"20"}}>
                   <span style={{fontSize:FS,fontWeight:700,color:T.text}}>إجمالي السلف</span>
-                  <span style={{fontSize:FS+2,fontWeight:800,color:T.err}}>{fmt(r2(totalAdv))+" ج.م"}</span>
+                  <span style={{fontSize:FS+2,fontWeight:800,color:T.err}}>{fmt0(r2(totalAdv))+" ج.م"}</span>
                 </div>
                 <div style={{display:"flex",flexDirection:"column",gap:6}}>
                   {Object.entries(byEmp).map(([empId,d])=><div key={empId} style={{padding:"8px 12px",borderRadius:10,border:"1px solid "+T.brd,background:T.bg}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
                       <span style={{fontSize:FS,fontWeight:700}}>{d.name}</span>
-                      <span style={{fontSize:FS,fontWeight:800,color:T.err}}>{fmt(r2(d.total))}</span>
+                      <span style={{fontSize:FS,fontWeight:800,color:T.err}}>{fmt0(r2(d.total))}</span>
                     </div>
                     {d.items.map((it,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:FS-2,color:T.textSec,padding:"2px 0"}}>
                       <span>{it.date+" — "+(it.desc||"سلفة")}</span>
-                      <span style={{fontWeight:600,color:T.err}}>{fmt(it.amount)}</span>
+                      <span style={{fontWeight:600,color:T.err}}>{fmt0(it.amount)}</span>
                     </div>)}
                   </div>)}
                 </div>
@@ -1772,10 +1786,10 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         const totalAdv=wAdv.reduce((s,a)=>s+(Number(a.amount)||0),0);
         return<Card title={"💸 سلف "+pLabel} style={{marginTop:12}}>
           {wAdv.length>0?<div>
-            <div style={{fontSize:FS,fontWeight:800,color:T.err,marginBottom:8}}>{"إجمالي: "+fmt(r2(totalAdv))+" ج.م"}</div>
+            <div style={{fontSize:FS,fontWeight:800,color:T.err,marginBottom:8}}>{"إجمالي: "+fmt0(r2(totalAdv))+" ج.م"}</div>
             {wAdv.map((a,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+T.brd,fontSize:FS-1}}>
               <span style={{fontWeight:600}}>{a.empName}</span>
-              <span style={{color:T.err,fontWeight:700}}>{fmt(a.amount)+" — "+a.date}</span>
+              <span style={{color:T.err,fontWeight:700}}>{fmt0(a.amount)+" — "+a.date}</span>
             </div>)}
           </div>:<div style={{textAlign:"center",padding:16,color:T.textMut}}>لا توجد سلف</div>}
         </Card>})()}
@@ -2278,8 +2292,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             ...(openWeek.status==="closed"?[{label:"✓ استلم",align:"center",w:60}]:[]),
             {label:"",align:"center",w:40}
           ];
-          let tG=0,tN=0,tA=0,tD=0,tB=0,tH=0,tO=0,tOP=0,tTP=0,tRB=0,tDI=0;
-          shownEmps.forEach(e=>{const c=getEmpSalary(e.id,openWeek);if(c){tG+=c.grossPay;tN+=c.netBalance;tA+=c.weekAdvances;tD+=c.specialDeduct;tB+=c.bonus;tH+=c.totalHours;tO+=c.overtimeHours;tOP+=c.overtimePay;tTP+=c.thursdayPay;tRB+=c.remainingBalance;tDI+=c.debtInstall||0}});
+          let tG=0,tN=0,tA=0,tD=0,tB=0,tH=0,tO=0,tOP=0,tTP=0,tRB=0,tDI=0,tPB=0;
+          shownEmps.forEach(e=>{const c=getEmpSalary(e.id,openWeek);if(c){tG+=c.grossPay;tN+=c.netBalance;tA+=c.weekAdvances;tD+=c.specialDeduct;tB+=c.bonus;tH+=c.totalHours;tO+=c.overtimeHours;tOP+=c.overtimePay;tTP+=c.thursdayPay;tRB+=c.remainingBalance;tDI+=c.debtInstall||0;tPB+=c.prevBalance||0}});
           /* Apply filters */
           const sQ=salSearchDeb.trim().toLowerCase();
           const topQ=attSearchDeb.trim().toLowerCase();
@@ -2623,7 +2637,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                 <td style={{padding:"8px 6px",textAlign:"center",fontSize:FS-2,color:"#8B5CF6",direction:"ltr",background:T.accent+"15"}}>{hrsToHM(tO)}</td>
                 <td style={{padding:"8px 6px",textAlign:"center",fontSize:FS-2,color:"#8B5CF6",fontWeight:800,background:T.accent+"15"}}>{fmt0(tOP)}</td>
                 <td style={{padding:"8px 6px",textAlign:"center",fontSize:FS-1,color:T.ok,fontWeight:800,background:T.accent+"15"}}>{fmt0(tG)}</td>
-                <td style={{padding:"8px 6px",textAlign:"center",fontSize:FS-2,background:T.accent+"15"}}>—</td>
+                <td style={{padding:"8px 6px",textAlign:"center",fontSize:FS-1,color:tPB>0?T.warn:tPB<0?T.err:T.textMut,fontWeight:800,background:T.accent+"15"}}>{tPB!==0?fmt0(tPB):"—"}</td>
                 <td style={{padding:"8px 6px",textAlign:"center",fontSize:FS-1,color:T.err,fontWeight:800,background:T.accent+"15"}}>{fmt0(tA)}</td>
                 <td style={{padding:"8px 6px",textAlign:"center",fontSize:FS-1,color:T.err,fontWeight:800,background:T.accent+"15"}}>{fmt0(tD)}</td>
                 <td style={{padding:"8px 6px",textAlign:"center",fontSize:FS-1,color:"#F97316",fontWeight:800,background:T.accent+"15"}}>{fmt0(tDI)}</td>
@@ -2757,7 +2771,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تاريخ البداية</label><Inp type="date" value={debtStart} onChange={setDebtStart}/></div>
             <div style={{gridColumn:"1 / span 2"}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات</label><Inp value={debtNotes} onChange={setDebtNotes} placeholder="..."/></div>
           </div>
-          {autoPerWeek>0&&parseFloat(debtPerWeek)!==autoPerWeek&&<div style={{marginTop:10,padding:8,borderRadius:8,background:T.warn+"08",border:"1px solid "+T.warn+"20",fontSize:FS-2,color:T.warn}}>💡 القسط المقترح: {fmt(autoPerWeek)} ج.م ({inst} قسط × {fmt(autoPerWeek)})</div>}
+          {autoPerWeek>0&&parseFloat(debtPerWeek)!==autoPerWeek&&<div style={{marginTop:10,padding:8,borderRadius:8,background:T.warn+"08",border:"1px solid "+T.warn+"20",fontSize:FS-2,color:T.warn}}>💡 القسط المقترح: {fmt0(autoPerWeek)} ج.م ({inst} قسط × {fmt0(autoPerWeek)})</div>}
           <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
             <Btn ghost onClick={()=>{setShowDebtForm(null);resetDebtForm()}}>إلغاء</Btn>
             <Btn primary onClick={()=>saveDebt(showDebtForm.empId,showDebtForm.debtId)} style={{background:"#F97316",color:"#fff",border:"none"}}>💾 حفظ المديونية</Btn>
@@ -2796,19 +2810,19 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                 <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:10}}>
                   <div style={{padding:"6px 8px",borderRadius:8,background:T.bg,textAlign:"center"}}>
                     <div style={{fontSize:FS-3,color:T.textMut}}>الإجمالي</div>
-                    <div style={{fontSize:FS,fontWeight:800,color:T.text}}>{fmt(d.total)}</div>
+                    <div style={{fontSize:FS,fontWeight:800,color:T.text}}>{fmt0(d.total)}</div>
                   </div>
                   <div style={{padding:"6px 8px",borderRadius:8,background:T.bg,textAlign:"center"}}>
                     <div style={{fontSize:FS-3,color:T.textMut}}>القسط</div>
-                    <div style={{fontSize:FS,fontWeight:800,color:"#F97316"}}>{fmt(d.perWeek)}</div>
+                    <div style={{fontSize:FS,fontWeight:800,color:"#F97316"}}>{fmt0(d.perWeek)}</div>
                   </div>
                   <div style={{padding:"6px 8px",borderRadius:8,background:T.ok+"08",textAlign:"center"}}>
                     <div style={{fontSize:FS-3,color:T.textMut}}>مدفوع</div>
-                    <div style={{fontSize:FS,fontWeight:800,color:T.ok}}>{fmt(paidAmt)}</div>
+                    <div style={{fontSize:FS,fontWeight:800,color:T.ok}}>{fmt0(paidAmt)}</div>
                   </div>
                   <div style={{padding:"6px 8px",borderRadius:8,background:T.err+"08",textAlign:"center"}}>
                     <div style={{fontSize:FS-3,color:T.textMut}}>متبقي</div>
-                    <div style={{fontSize:FS,fontWeight:800,color:T.err}}>{fmt(remainAmt)}</div>
+                    <div style={{fontSize:FS,fontWeight:800,color:T.err}}>{fmt0(remainAmt)}</div>
                   </div>
                 </div>
                 {/* Progress bar */}
@@ -2995,11 +3009,11 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                     <td style={{padding:"5px 6px",textAlign:"center"}}><span title={r.err||""} style={{padding:"2px 8px",borderRadius:5,fontSize:FS-3,fontWeight:700,background:color+"15",color}}>{icon} {statusLabel}</span></td>
                     <td style={{padding:"5px 8px",fontSize:FS-1,fontWeight:600}}>{r.name||<span style={{color:T.err}}>—</span>}</td>
                     <td style={{padding:"5px 6px",textAlign:"center",fontSize:FS-2,fontFamily:"monospace"}}>{r.code||<span style={{color:r.status==="warn"?"#F59E0B":T.textMut}}>—</span>}</td>
-                    <td style={{padding:"5px 6px",textAlign:"center",fontSize:FS-1,fontWeight:700,color:T.accent}}>{r.salary?fmt(r.salary):"—"}</td>
+                    <td style={{padding:"5px 6px",textAlign:"center",fontSize:FS-1,fontWeight:700,color:T.accent}}>{r.salary?fmt0(r.salary):"—"}</td>
                     <td style={{padding:"5px 6px",fontSize:FS-2}}>{r.job||""}</td>
                     <td style={{padding:"5px 6px",fontSize:FS-3,color:T.textMut,direction:"ltr"}}>{r.phone||""}</td>
                     <td style={{padding:"5px 6px",textAlign:"center",fontSize:FS-2}}>{r.baseHours||""}</td>
-                    <td style={{padding:"5px 6px",textAlign:"center",fontSize:FS-2,color:T.ok}}>{r.bonus>0?fmt(r.bonus):""}</td>
+                    <td style={{padding:"5px 6px",textAlign:"center",fontSize:FS-2,color:T.ok}}>{r.bonus>0?fmt0(r.bonus):""}</td>
                   </tr>})}
               </tbody></table>
             </div>
@@ -3029,7 +3043,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                   <div style={{fontSize:FS,fontWeight:700}}>{e.name}</div>
                   <div style={{fontSize:FS-2,color:T.textMut}}>{(e.code?"#"+e.code:"")+(e.job?" — "+e.job:"")}</div>
                 </div>
-                {c&&<span style={{fontSize:FS-1,color:T.accent,fontWeight:700}}>{fmt(c.netBalance)}</span>}
+                {c&&<span style={{fontSize:FS-1,color:T.accent,fontWeight:700}}>{fmt0(c.netBalance)}</span>}
               </div>})}
           </div>
           <div style={{marginTop:10,padding:10,borderRadius:8,background:T.accent+"06",textAlign:"center",fontSize:FS-1,fontWeight:700,color:T.accent}}>{selCount+" كشف سيتم طباعته"}</div>
@@ -3409,16 +3423,21 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     })()}
 
     {/* ══ EMPLOYEE PICKER POPUP ══ */}
-    {showEmpPicker&&openWeek&&(()=>{const current=getSelectedEmps(openWeek.id);
-      /* Initialize local draft from Firestore if it doesn't exist yet, so toggling doesn't start from empty */
-      const toggle=(id)=>{setSelectedEmps(p=>{
-        /* If draft missing, seed it from Firestore so existing selections are preserved */
-        let cur;
-        if(p[openWeek.id]!==undefined){cur=p[openWeek.id]}
-        else{const w=hrWeeks.find(x=>x.id===openWeek.id);cur=(w&&Array.isArray(w.selectedEmps))?w.selectedEmps:[]}
-        const has=cur.includes(id);
-        return{...p,[openWeek.id]:has?cur.filter(x=>x!==id):[...cur,id]}
-      })};
+    {showEmpPicker&&openWeek&&(()=>{
+      /* V15.17: initialize tentative from current state on first render of popup */
+      if(empPickerTentative===null){
+        const current=getSelectedEmps(openWeek.id);
+        setEmpPickerTentative([...current]);
+        return null;/* will re-render next frame with tentative set */
+      }
+      const current=empPickerTentative;
+      /* Toggle only updates local tentative — does NOT commit */
+      const toggle=(id)=>{
+        setEmpPickerTentative(cur=>{
+          const has=cur.includes(id);
+          return has?cur.filter(x=>x!==id):[...cur,id];
+        });
+      };
       /* Compute attendance status for each employee in this week */
       const weekAtt=openWeek.attendance||{};
       const getEmpStatus=(emp)=>{
@@ -3438,49 +3457,75 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       const weeklyEmps=activeEmps.filter(e=>(e.salaryType||"weekly")!=="monthly");
       const monthlyEmps=activeEmps.filter(e=>(e.salaryType||"weekly")==="monthly");
       const tabEmps=empPickerTab==="monthly"?monthlyEmps:weeklyEmps;
+      /* V15.17: Apply search filter */
+      const fq=(empPickerFilter||"").trim().toLowerCase();
+      const filteredTabEmps=fq?tabEmps.filter(e=>{
+        const name=(e.name||"").toLowerCase();
+        const code=(e.code||"").toLowerCase();
+        const fp=(e.fingerprintCode||e.code||"").toLowerCase();
+        const job=(e.job||"").toLowerCase();
+        return name.includes(fq)||code.includes(fq)||fp.includes(fq)||job.includes(fq);
+      }):tabEmps;
       /* Counters per tab */
       const weeklyPresent=weeklyEmps.filter(e=>getEmpStatus(e).type==="present").length;
       const weeklyAbsent=weeklyEmps.filter(e=>getEmpStatus(e).type==="absent").length;
       const weeklySelCount=weeklyEmps.filter(e=>current.includes(e.id)).length;
       const monthlySelCount=monthlyEmps.filter(e=>current.includes(e.id)).length;
-      /* Helper: read current value from draft or seed from Firestore */
-      const _seed=(p)=>{if(p[openWeek.id]!==undefined)return p[openWeek.id];const w=hrWeeks.find(x=>x.id===openWeek.id);return(w&&Array.isArray(w.selectedEmps))?w.selectedEmps:[]};
-      /* Auto-select actions — per tab */
+      /* Auto-select actions — per tab — all operate on tentative only */
       const selectTabPresent=()=>{
         if(empPickerTab==="weekly"){
-          /* Weekly tab: add all present + admin (noBiometric) in weekly, keep monthly selection as-is */
           const addIds=weeklyEmps.filter(e=>{const s=getEmpStatus(e);return s.type==="present"||s.type==="admin"}).map(e=>e.id);
-          setSelectedEmps(p=>{const cur=_seed(p);
-            /* Keep non-weekly selections, replace weekly ones */
+          setEmpPickerTentative(cur=>{
             const keepNonWeekly=cur.filter(id=>!weeklyEmps.some(e=>e.id===id));
-            return{...p,[openWeek.id]:[...keepNonWeekly,...addIds]}
+            return[...keepNonWeekly,...addIds];
           });
         }else{
-          /* Monthly tab: select all monthly */
-          setSelectedEmps(p=>{const cur=_seed(p);
+          setEmpPickerTentative(cur=>{
             const keepNonMonthly=cur.filter(id=>!monthlyEmps.some(e=>e.id===id));
-            return{...p,[openWeek.id]:[...keepNonMonthly,...monthlyEmps.map(e=>e.id)]}
+            return[...keepNonMonthly,...monthlyEmps.map(e=>e.id)];
           });
         }
       };
       const selectTabAll=()=>{
-        setSelectedEmps(p=>{const cur=_seed(p);
+        setEmpPickerTentative(cur=>{
           const others=cur.filter(id=>!tabEmps.some(e=>e.id===id));
-          return{...p,[openWeek.id]:[...others,...tabEmps.map(e=>e.id)]}
+          return[...others,...tabEmps.map(e=>e.id)];
         });
       };
       const selectTabNone=()=>{
-        setSelectedEmps(p=>{const cur=_seed(p);
-          return{...p,[openWeek.id]:cur.filter(id=>!tabEmps.some(e=>e.id===id))}
-        });
+        setEmpPickerTentative(cur=>cur.filter(id=>!tabEmps.some(e=>e.id===id)));
       };
-      /* Close the popup AND flush pending draft to Firestore (saves once, not per toggle) */
-      const closeEmpPicker=()=>{flushSelectedEmps(openWeek.id);setShowEmpPicker(false)};
-      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={closeEmpPicker}>
+      /* Commit: save tentative → selectedEmps → Firestore */
+      const commitAndClose=()=>{
+        const draft=[...empPickerTentative];
+        /* Save to local draft state */
+        setSelectedEmps(p=>({...p,[openWeek.id]:draft}));
+        /* Also flush to Firestore immediately */
+        upConfig(d=>{
+          if(!Array.isArray(d.hrWeeks))return;
+          const i=d.hrWeeks.findIndex(w=>w.id===openWeek.id);
+          if(i<0)return;
+          d.hrWeeks[i].selectedEmps=[...draft];
+        });
+        /* Clear local draft after flush — subsequent reads come from Firestore */
+        setTimeout(()=>{
+          setSelectedEmps(p=>{const n={...p};delete n[openWeek.id];return n});
+        },100);
+        setEmpPickerTentative(null);
+        setEmpPickerFilter("");
+        setShowEmpPicker(false);
+      };
+      /* Cancel: discard tentative */
+      const cancelAndClose=()=>{
+        setEmpPickerTentative(null);
+        setEmpPickerFilter("");
+        setShowEmpPicker(false);
+      };
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={cancelAndClose}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:580,maxHeight:"88vh",overflowY:"auto",border:"1px solid "+T.brd}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>👥 اختر موظفي هذا الأسبوع</div>
-            <Btn ghost small onClick={closeEmpPicker}>✕</Btn>
+            <Btn ghost small onClick={cancelAndClose}>✕</Btn>
           </div>
           {/* Tabs */}
           <div style={{display:"flex",gap:0,marginBottom:12,borderBottom:"2px solid "+T.brd}}>
@@ -3491,21 +3536,29 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               <span>📅</span><span>شهري ({monthlySelCount}/{monthlyEmps.length})</span>
             </div>
           </div>
+          {/* V15.17: Search filter */}
+          <div style={{marginBottom:10,position:"relative"}}>
+            <span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontSize:FS-1,color:T.textMut,pointerEvents:"none"}}>🔍</span>
+            <input type="text" value={empPickerFilter} onChange={e=>setEmpPickerFilter(e.target.value)} placeholder="ابحث بالاسم، الكود، كود البصمة، الوظيفة..." style={{width:"100%",padding:"8px 34px 8px 12px",borderRadius:10,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text,boxSizing:"border-box"}}/>
+            {empPickerFilter&&<span onClick={()=>setEmpPickerFilter("")} style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",cursor:"pointer",color:T.textMut,fontSize:FS-1,fontWeight:700}}>✕</span>}
+          </div>
           {/* Summary badges — only for weekly tab */}
           {empPickerTab==="weekly"&&<div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
             <span style={{padding:"4px 10px",borderRadius:8,background:T.ok+"12",color:T.ok,fontSize:FS-2,fontWeight:700}}>✅ حاضر: {weeklyPresent}</span>
             <span style={{padding:"4px 10px",borderRadius:8,background:T.err+"12",color:T.err,fontSize:FS-2,fontWeight:700}}>❌ غائب: {weeklyAbsent}</span>
           </div>}
-          {/* Quick-select buttons */}
+          {/* Quick-select buttons — V15.17: renamed */}
           <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
             {empPickerTab==="weekly"?<Btn small onClick={selectTabPresent} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"40",fontWeight:700}} title="يختار الحاضرين + الإدارة في التاب الأسبوعي">⚡ اختر الحاضرين ({weeklyPresent})</Btn>
             :<Btn small onClick={selectTabPresent} style={{background:"#3B82F615",color:"#3B82F6",border:"1px solid #3B82F640",fontWeight:700}} title="اختر كل الموظفين الشهريين">⚡ اختر كل الشهريين ({monthlyEmps.length})</Btn>}
-            <Btn small onClick={selectTabAll} style={{background:T.accent+"10",color:T.accent,border:"1px solid "+T.accent+"30"}}>☑ كل التاب</Btn>
-            <Btn small onClick={selectTabNone} style={{background:T.err+"10",color:T.err,border:"1px solid "+T.err+"30"}}>☐ إلغاء التاب</Btn>
+            <Btn small onClick={selectTabAll} style={{background:T.accent+"10",color:T.accent,border:"1px solid "+T.accent+"30"}}>☑ اختيار الكل</Btn>
+            <Btn small onClick={selectTabNone} style={{background:T.err+"10",color:T.err,border:"1px solid "+T.err+"30"}}>☐ إلغاء الكل</Btn>
           </div>
-          {tabEmps.length===0?<div style={{textAlign:"center",padding:30,color:T.textMut,fontSize:FS-1}}>{empPickerTab==="monthly"?"لا يوجد موظفين شهريين":"لا يوجد موظفين أسبوعيين"}</div>
-          :<div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:"48vh",overflowY:"auto"}}>
-            {tabEmps.map(e=>{const sel=current.includes(e.id);const st=getEmpStatus(e);
+          {filteredTabEmps.length===0?<div style={{textAlign:"center",padding:30,color:T.textMut,fontSize:FS-1}}>
+            {fq?"لا توجد نتائج مطابقة للبحث":(empPickerTab==="monthly"?"لا يوجد موظفين شهريين":"لا يوجد موظفين أسبوعيين")}
+          </div>
+          :<div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:"42vh",overflowY:"auto"}}>
+            {filteredTabEmps.map(e=>{const sel=current.includes(e.id);const st=getEmpStatus(e);
               return<div key={e.id} onClick={()=>toggle(e.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:10,cursor:"pointer",background:sel?T.accent+"08":T.bg,border:"1px solid "+(sel?T.accent+"30":T.brd),transition:"all 0.15s"}}>
                 <span style={{fontSize:18}}>{sel?"☑":"☐"}</span>
                 <div style={{flex:1,minWidth:0}}>
@@ -3515,11 +3568,14 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                   </div>
                   <div style={{fontSize:FS-2,color:T.textMut}}>{(e.code?"#"+e.code:"")+(e.job?" — "+e.job:"")}{st.type==="present"&&st.totalHours?" • "+st.daysPresent+" يوم • "+hrsToHM(st.totalHours):""}</div>
                 </div>
-                <span style={{fontSize:FS-1,color:T.accent,fontWeight:700,whiteSpace:"nowrap"}}>{fmt(e.weeklySalary||0)}</span>
+                <span style={{fontSize:FS-1,color:T.accent,fontWeight:700,whiteSpace:"nowrap"}}>{fmt0(e.weeklySalary||0)}</span>
               </div>})}
           </div>}
-          <div style={{marginTop:10,padding:8,borderRadius:8,background:T.accent+"06",textAlign:"center",fontSize:FS-1,fontWeight:700,color:T.accent}}>{current.length+" من "+activeEmps.length+" موظف"}</div>
-          <div style={{marginTop:10,textAlign:"center"}}><Btn primary onClick={closeEmpPicker}>✅ تم</Btn></div>
+          <div style={{marginTop:10,padding:8,borderRadius:8,background:T.accent+"06",textAlign:"center",fontSize:FS-1,fontWeight:700,color:T.accent}}>{current.length+" من "+activeEmps.length+" موظف"}{fq&&" • يعرض "+filteredTabEmps.length+" نتيجة"}</div>
+          <div style={{marginTop:10,display:"flex",gap:8,justifyContent:"center"}}>
+            <Btn ghost onClick={cancelAndClose} style={{fontWeight:700}}>إلغاء</Btn>
+            <Btn primary onClick={commitAndClose}>✅ تم</Btn>
+          </div>
         </div>
       </div>})()}
 
@@ -3740,7 +3796,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                     <div style={{fontSize:FS-1,fontWeight:700,color:T.text,cursor:"pointer"}}>
                       {e.name}
                       {e.code?<span style={{color:T.textMut,fontSize:FS-3,marginInlineStart:6}}>#{e.code}</span>:""}
-                      {hasExisting&&!isSel?<span style={{marginInlineStart:6,padding:"1px 6px",borderRadius:4,background:currentType.color+"15",color:currentType.color,fontSize:FS-3,fontWeight:700}}>موجود: {fmt(existingVal)}</span>:null}
+                      {hasExisting&&!isSel?<span style={{marginInlineStart:6,padding:"1px 6px",borderRadius:4,background:currentType.color+"15",color:currentType.color,fontSize:FS-3,fontWeight:700}}>موجود: {fmt0(existingVal)}</span>:null}
                     </div>
                     {e.job?<div style={{fontSize:FS-3,color:T.textMut}}>{e.job}</div>:null}
                   </div>
@@ -3761,9 +3817,9 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           <div style={{marginTop:12,paddingTop:12,borderTop:"1px solid "+T.brd}}>
             {selCount>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,padding:"8px 12px",borderRadius:8,background:currentType.color+"08",border:"1px solid "+currentType.color+"25"}}>
               <span style={{fontSize:FS-1,color:T.textSec,fontWeight:600}}>
-                في هذا التاب: <b style={{color:currentType.color,fontSize:FS+1}}>{fmt(r2(totalVal))}</b> ج.م لـ <b style={{color:currentType.color}}>{selCount}</b> موظف
+                في هذا التاب: <b style={{color:currentType.color,fontSize:FS+1}}>{fmt0(r2(totalVal))}</b> ج.م لـ <b style={{color:currentType.color}}>{selCount}</b> موظف
               </span>
-              <span style={{fontSize:FS-3,color:T.textMut}}>متوسط: {selCount>0?fmt(r2(totalVal/selCount)):0} ج.م</span>
+              <span style={{fontSize:FS-3,color:T.textMut}}>متوسط: {selCount>0?fmt0(r2(totalVal/selCount)):0} ج.م</span>
             </div>}
             {/* V15.8: Summary of ALL tabs (so user knows what will be saved) */}
             {totalAcrossAllTabs>0&&<div style={{marginBottom:10,padding:"8px 12px",borderRadius:8,background:T.accent+"06",border:"1px dashed "+T.accent+"40",fontSize:FS-2,color:T.textSec}}>
@@ -3939,7 +3995,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             category:"week",
             action:"clean_delete",
             target:"W"+w.weekNum+" ("+w.weekStart+" → "+w.weekEnd+")",
-            newValue:"حذف كامل: "+cd.empCount+" موظف • "+cd.linkedTreasurySalaries.length+" مرتب ("+fmt(cd.totalSalaries)+" ج) • "+cd.linkedTreasuryAdvances.length+" سلفة ("+fmt(cd.totalAdvances)+" ج)",
+            newValue:"حذف كامل: "+cd.empCount+" موظف • "+cd.linkedTreasurySalaries.length+" مرتب ("+fmt0(cd.totalSalaries)+" ج) • "+cd.linkedTreasuryAdvances.length+" سلفة ("+fmt0(cd.totalAdvances)+" ج)",
             notes:"استعادة prevBalance لـ "+empIds.length+" موظف + تنظيف "+cd.debtsWithPayment.length+" قسط",
             at:new Date().toISOString(),
             severity:"warning"
@@ -3992,9 +4048,9 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                 <div style={{fontSize:FS-2,color:T.textMut,fontWeight:600,marginBottom:6}}>💰 حركات الخزنة</div>
                 <div style={{fontSize:FS-1,lineHeight:1.9}}>
                   <div>• مرتبات موظفين: <b style={{color:T.err}}>{cd.linkedTreasurySalaries.length}</b> حركة</div>
-                  <div style={{paddingInlineStart:10,fontSize:FS-2,color:T.textMut}}>بإجمالي {fmt(cd.totalSalaries)} ج.م</div>
+                  <div style={{paddingInlineStart:10,fontSize:FS-2,color:T.textMut}}>بإجمالي {fmt0(cd.totalSalaries)} ج.م</div>
                   <div>• سلف أسبوعية: <b style={{color:T.err}}>{cd.linkedTreasuryAdvances.length}</b> حركة</div>
-                  <div style={{paddingInlineStart:10,fontSize:FS-2,color:T.textMut}}>بإجمالي {fmt(cd.totalAdvances)} ج.م</div>
+                  <div style={{paddingInlineStart:10,fontSize:FS-2,color:T.textMut}}>بإجمالي {fmt0(cd.totalAdvances)} ج.م</div>
                 </div>
               </div>
 
@@ -4273,7 +4329,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           <input type="number" value={m.amount||""} onChange={e=>{const v=Number(e.target.value)||0;setMatrixEmps(p=>p.map((x,j)=>j===i?{...x,amount:v}:x))}} placeholder="المبلغ" style={{width:90,padding:"6px 8px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text}}/>
           <span onClick={()=>setMatrixEmps(p=>p.filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err}}>✕</span>
         </div>)}</div>
-        {matrixEmps.filter(m=>m.amount>0).length>0&&<div style={{marginTop:10,padding:8,borderRadius:8,background:T.err+"06",textAlign:"center",fontWeight:800,color:T.err}}>{"اجمالي: "+fmt(matrixEmps.reduce((s,m)=>s+m.amount,0))+" — "+matrixEmps.filter(m=>m.amount>0).length+" موظف"}</div>}
+        {matrixEmps.filter(m=>m.amount>0).length>0&&<div style={{marginTop:10,padding:8,borderRadius:8,background:T.err+"06",textAlign:"center",fontWeight:800,color:T.err}}>{"اجمالي: "+fmt0(matrixEmps.reduce((s,m)=>s+m.amount,0))+" — "+matrixEmps.filter(m=>m.amount>0).length+" موظف"}</div>}
         <div style={{marginTop:10,textAlign:"center"}}><Btn primary onClick={submitMatrix}>💰 تسجيل</Btn></div>
       </div>
     </div>}
@@ -4301,17 +4357,17 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                 return<tr key={e.id} style={{borderBottom:"1px solid "+T.brd}}>
                   <td style={{padding:"7px 10px",fontWeight:700,color:T.text}}>{e.name}</td>
                   <td style={{padding:"7px 10px",textAlign:"center",color:T.textSec,fontWeight:600}}>{e.code||"—"}</td>
-                  <td style={{padding:"7px 10px",textAlign:"center",fontWeight:700,color:T.accent}}>{fmt(e.weeklySalary||0)}</td>
-                  <td style={{padding:"7px 10px",textAlign:"center",fontWeight:700,color:adv>0?T.err:T.textMut}}>{adv>0?fmt(adv):"—"}</td>
-                  <td style={{padding:"7px 10px",textAlign:"center",fontWeight:800,color:net<0?T.err:T.ok}}>{fmt(net)}</td>
+                  <td style={{padding:"7px 10px",textAlign:"center",fontWeight:700,color:T.accent}}>{fmt0(e.weeklySalary||0)}</td>
+                  <td style={{padding:"7px 10px",textAlign:"center",fontWeight:700,color:adv>0?T.err:T.textMut}}>{adv>0?fmt0(adv):"—"}</td>
+                  <td style={{padding:"7px 10px",textAlign:"center",fontWeight:800,color:net<0?T.err:T.ok}}>{fmt0(net)}</td>
                 </tr>})}
               {weeklyEmps.length===0&&<tr><td colSpan={5} style={{padding:16,textAlign:"center",color:T.textMut}}>لا يوجد موظفين أسبوعيين نشطين</td></tr>}
             </tbody>
             {weeklyEmps.length>0&&<tfoot><tr style={{background:T.accentBg,borderTop:"2px solid "+T.accent+"40"}}>
               <td style={{padding:"8px 10px",fontWeight:800,color:T.text}} colSpan={2}>{"الإجمالي ("+weeklyEmps.length+" موظف)"}</td>
-              <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:T.accent}}>{fmt(wCwTotalSalary)}</td>
-              <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:wCwTotalAdv>0?T.err:T.textMut}}>{wCwTotalAdv>0?fmt(wCwTotalAdv):"—"}</td>
-              <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:(wCwTotalSalary-wCwTotalAdv)<0?T.err:T.ok}}>{fmt(wCwTotalSalary-wCwTotalAdv)}</td>
+              <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:T.accent}}>{fmt0(wCwTotalSalary)}</td>
+              <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:wCwTotalAdv>0?T.err:T.textMut}}>{wCwTotalAdv>0?fmt0(wCwTotalAdv):"—"}</td>
+              <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:(wCwTotalSalary-wCwTotalAdv)<0?T.err:T.ok}}>{fmt0(wCwTotalSalary-wCwTotalAdv)}</td>
             </tr></tfoot>}
           </table>
         </div>
@@ -4355,8 +4411,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             <div class="hdr">${logo?'<img src="'+logo+'"/>':'<div style="font-size:20px;font-weight:900;color:#0ea5e9">CLARK</div>'}
               <div style="text-align:left"><h1>سجل أسبوعي W${selectedWeek.weekNum}</h1><div style="font-size:10px;color:#64748b">${selectedWeek.weekStart} → ${selectedWeek.weekEnd}</div></div></div>
             <table><thead><tr><th>#</th><th>الموظف</th><th>الكود</th><th>المرتب الأساسي</th><th>سلف هذا الأسبوع</th></tr></thead><tbody>`;
-            rows.forEach((r,i)=>{html+=`<tr><td class="num">${i+1}</td><td>${r.name}</td><td class="num">${r.code||"—"}</td><td class="num" style="color:#0ea5e9">${fmt(r.salary)}</td><td class="num" style="color:${r.advances>0?"#ef4444":"#94a3b8"}">${r.advances>0?fmt(r.advances):"—"}</td></tr>`});
-            html+=`</tbody><tfoot><tr><td colspan="3" style="text-align:center">الإجمالي</td><td class="num">${fmt(totalSalary)}</td><td class="num">${fmt(totalAdvances)}</td></tr></tfoot></table></body></html>`;
+            rows.forEach((r,i)=>{html+=`<tr><td class="num">${i+1}</td><td>${r.name}</td><td class="num">${r.code||"—"}</td><td class="num" style="color:#0ea5e9">${fmt0(r.salary)}</td><td class="num" style="color:${r.advances>0?"#ef4444":"#94a3b8"}">${r.advances>0?fmt0(r.advances):"—"}</td></tr>`});
+            html+=`</tbody><tfoot><tr><td colspan="3" style="text-align:center">الإجمالي</td><td class="num">${fmt0(totalSalary)}</td><td class="num">${fmt0(totalAdvances)}</td></tr></tfoot></table></body></html>`;
             w.document.write(html);w.document.close();setTimeout(()=>w.print(),300)
           }} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}}>🖨 طباعة</Btn>
         </div>
@@ -4368,13 +4424,13 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               <td style={{padding:"8px",textAlign:"center",fontSize:FS-2,color:T.textMut}}>{i+1}</td>
               <td style={{padding:"8px 12px",fontSize:FS,fontWeight:700,textAlign:"right"}}>{r.name}</td>
               <td style={{padding:"8px",textAlign:"center",fontSize:FS-1,color:T.accent,fontWeight:700}}>{r.code||"—"}</td>
-              <td style={{padding:"8px",textAlign:"center",fontSize:FS,fontWeight:800,color:T.accent}}>{fmt(r.salary)}</td>
-              <td style={{padding:"8px",textAlign:"center",fontSize:FS,fontWeight:800,color:r.advances>0?T.err:T.textMut}}>{r.advances>0?fmt(r.advances):"—"}</td>
+              <td style={{padding:"8px",textAlign:"center",fontSize:FS,fontWeight:800,color:T.accent}}>{fmt0(r.salary)}</td>
+              <td style={{padding:"8px",textAlign:"center",fontSize:FS,fontWeight:800,color:r.advances>0?T.err:T.textMut}}>{r.advances>0?fmt0(r.advances):"—"}</td>
             </tr>)}
             <tr style={{background:T.accent+"08",fontWeight:800,borderTop:"2px solid "+T.accent+"30"}}>
               <td colSpan={3} style={{padding:"10px",textAlign:"right",fontSize:FS,fontWeight:800}}>الإجمالي</td>
-              <td style={{padding:"10px",textAlign:"center",fontSize:FS+1,fontWeight:800,color:T.accent}}>{fmt(r2(totalSalary))}</td>
-              <td style={{padding:"10px",textAlign:"center",fontSize:FS+1,fontWeight:800,color:T.err}}>{fmt(r2(totalAdvances))}</td>
+              <td style={{padding:"10px",textAlign:"center",fontSize:FS+1,fontWeight:800,color:T.accent}}>{fmt0(r2(totalSalary))}</td>
+              <td style={{padding:"10px",textAlign:"center",fontSize:FS+1,fontWeight:800,color:T.err}}>{fmt0(r2(totalAdvances))}</td>
             </tr>
           </tbody></table></div>
         </Card>
@@ -4400,8 +4456,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
 
       const printMonthly=()=>{let h="<h2 style='text-align:center'>📅 سجل المرتبات الشهري — "+selMonth+"</h2><div style='text-align:center;margin-bottom:12px;color:#666'>من "+mStart+" إلى "+mEnd+" ("+mDays+" يوم)</div>";
         h+="<table><thead><tr><th>#</th><th>الاسم</th><th>الكود</th><th>المرتب</th><th>السلف</th><th>الصافي</th></tr></thead><tbody>";
-        rows.forEach((r,i)=>{h+="<tr><td style='text-align:center'>"+(i+1)+"</td><td style='font-weight:700'>"+r.name+"</td><td style='text-align:center'>"+r.code+"</td><td style='text-align:center;font-weight:700'>"+fmt(r.salary)+"</td><td style='text-align:center;color:#EF4444'>"+fmt(r.advances)+"</td><td style='text-align:center;font-weight:800;color:"+(r.net>=0?"#10B981":"#EF4444")+"'>"+fmt(r.net)+"</td></tr>"});
-        h+="<tr style='background:#EFF6FF;font-weight:800'><td colspan='3'>الإجمالي ("+rows.length+" موظف)</td><td style='text-align:center'>"+fmt(totalSalary)+"</td><td style='text-align:center;color:#EF4444'>"+fmt(totalAdvances)+"</td><td style='text-align:center;font-size:14px;color:"+(totalSalary-totalAdvances>=0?"#10B981":"#EF4444")+"'>"+fmt(r2(totalSalary-totalAdvances))+"</td></tr></tbody></table>";
+        rows.forEach((r,i)=>{h+="<tr><td style='text-align:center'>"+(i+1)+"</td><td style='font-weight:700'>"+r.name+"</td><td style='text-align:center'>"+r.code+"</td><td style='text-align:center;font-weight:700'>"+fmt0(r.salary)+"</td><td style='text-align:center;color:#EF4444'>"+fmt0(r.advances)+"</td><td style='text-align:center;font-weight:800;color:"+(r.net>=0?"#10B981":"#EF4444")+"'>"+fmt0(r.net)+"</td></tr>"});
+        h+="<tr style='background:#EFF6FF;font-weight:800'><td colspan='3'>الإجمالي ("+rows.length+" موظف)</td><td style='text-align:center'>"+fmt0(totalSalary)+"</td><td style='text-align:center;color:#EF4444'>"+fmt0(totalAdvances)+"</td><td style='text-align:center;font-size:14px;color:"+(totalSalary-totalAdvances>=0?"#10B981":"#EF4444")+"'>"+fmt0(r2(totalSalary-totalAdvances))+"</td></tr></tbody></table>";
         h+="<div class='sig'><div class='sig-box'>المحاسب</div><div class='sig-box'>المدير</div></div>";printPage("سجل شهري — "+selMonth,h)};
 
       return<div>
@@ -4417,9 +4473,9 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         {monthlyEmps.length===0?<div style={{textAlign:"center",padding:40,color:T.textMut}}>لا يوجد موظفين بنظام شهري — غيّر نوع المرتب من كارت الموظف</div>
         :<Card title={"📅 سجل الموظفين الشهريين — "+selMonth} accent="#059669">
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
-            <div style={{padding:8,borderRadius:10,background:T.accent+"08",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>إجمالي المرتبات</div><div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{fmt(totalSalary)}</div></div>
-            <div style={{padding:8,borderRadius:10,background:T.err+"08",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>إجمالي السلف</div><div style={{fontSize:FS+2,fontWeight:800,color:T.err}}>{fmt(totalAdvances)}</div></div>
-            <div style={{padding:8,borderRadius:10,background:T.ok+"08",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>صافي المستحق</div><div style={{fontSize:FS+2,fontWeight:800,color:T.ok}}>{fmt(r2(totalSalary-totalAdvances))}</div></div>
+            <div style={{padding:8,borderRadius:10,background:T.accent+"08",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>إجمالي المرتبات</div><div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{fmt0(totalSalary)}</div></div>
+            <div style={{padding:8,borderRadius:10,background:T.err+"08",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>إجمالي السلف</div><div style={{fontSize:FS+2,fontWeight:800,color:T.err}}>{fmt0(totalAdvances)}</div></div>
+            <div style={{padding:8,borderRadius:10,background:T.ok+"08",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>صافي المستحق</div><div style={{fontSize:FS+2,fontWeight:800,color:T.ok}}>{fmt0(r2(totalSalary-totalAdvances))}</div></div>
           </div>
           <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
             {["#","الاسم","الكود","المرتب الشهري","السلف","الصافي"].map(h=><th key={h} style={TH}>{h}</th>)}
@@ -4428,14 +4484,14 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               <td style={{...TD,textAlign:"center"}}>{i+1}</td>
               <td style={{...TD,fontWeight:700}}>{r.name}</td>
               <td style={{...TD,textAlign:"center",color:T.textSec}}>{r.code||"—"}</td>
-              <td style={{...TDB,color:T.accent}}>{fmt(r.salary)}</td>
-              <td style={{...TDB,color:r.advances>0?T.err:T.textMut}}>{r.advances>0?fmt(r.advances):"—"}</td>
-              <td style={{...TDB,color:r.net>=0?T.ok:T.err,fontWeight:800}}>{fmt(r.net)}</td>
+              <td style={{...TDB,color:T.accent}}>{fmt0(r.salary)}</td>
+              <td style={{...TDB,color:r.advances>0?T.err:T.textMut}}>{r.advances>0?fmt0(r.advances):"—"}</td>
+              <td style={{...TDB,color:r.net>=0?T.ok:T.err,fontWeight:800}}>{fmt0(r.net)}</td>
             </tr>)}
             <tr style={{background:T.accent+"06"}}><td colSpan={3} style={{...TD,fontWeight:800}}>{"الإجمالي ("+rows.length+" موظف)"}</td>
-              <td style={{...TDB,fontWeight:800}}>{fmt(totalSalary)}</td>
-              <td style={{...TDB,color:T.err,fontWeight:800}}>{fmt(totalAdvances)}</td>
-              <td style={{...TDB,color:T.ok,fontWeight:900,fontSize:FS+2}}>{fmt(r2(totalSalary-totalAdvances))}</td>
+              <td style={{...TDB,fontWeight:800}}>{fmt0(totalSalary)}</td>
+              <td style={{...TDB,color:T.err,fontWeight:800}}>{fmt0(totalAdvances)}</td>
+              <td style={{...TDB,color:T.ok,fontWeight:900,fontSize:FS+2}}>{fmt0(r2(totalSalary-totalAdvances))}</td>
             </tr>
           </tbody></table></div>
         </Card>}
@@ -4456,7 +4512,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{empSalaryType==="monthly"?"مرتب شهري":"مرتب أسبوعي"}</label><Inp type="number" value={empWeeklySalary} onChange={setEmpWeeklySalary}/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>حافز أسبوعي ثابت</label><Inp type="number" value={empWeeklyBonus} onChange={setEmpWeeklyBonus} placeholder="0"/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ساعات أساسي (افتراضي)</label><Inp type="number" value={empBaseHours} onChange={setEmpBaseHours} placeholder={String(hrs.defaultBaseHours||48)}/></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تليفون</label><Inp value={empPhone} onChange={setEmpPhone}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تليفون</label><Inp value={empPhone} onChange={setEmpPhone} placeholder="+201xxxxxxxxx" style={{direction:"ltr",textAlign:"left",fontFamily:"monospace"}}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الرقم القومي (14 رقم) {empNationalId&&empNationalId.replace(/\D/g,"").length!==14&&<span style={{color:T.err,fontSize:FS-3}}>— {empNationalId.replace(/\D/g,"").length}/14</span>}</label><Inp value={empNationalId} onChange={v=>setEmpNationalId(v.replace(/\D/g,"").slice(0,14))} placeholder="14 رقم" maxLength={14} style={{direction:"ltr",textAlign:"left",fontFamily:"monospace"}}/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تاريخ التعيين</label><Inp type="date" value={empDate} onChange={setEmpDate}/></div>
           <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
             <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:FS-1,fontWeight:600,color:empNoBiometric?T.accent:T.textSec,padding:"6px 12px",borderRadius:8,background:empNoBiometric?T.accent+"12":T.bg,border:"1px solid "+(empNoBiometric?T.accent+"40":T.brd)}}>
@@ -4507,16 +4564,16 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               <td style={{padding:"5px 6px",fontSize:FS-2,color:T.textSec,minWidth:80,textAlign:"center"}}>
                 {isEditing?<input value={d_.job} onChange={ev=>setInlineDraft(p=>({...p,job:ev.target.value}))} style={{...inpStyle,width:80}}/>:e.job||"—"}</td>
               <td style={{padding:"5px 6px",fontSize:FS-1,fontWeight:700,color:T.accent,minWidth:70,textAlign:"center"}}>
-                {isEditing?<input type="number" value={d_.weeklySalary} onChange={ev=>setInlineDraft(p=>({...p,weeklySalary:ev.target.value}))} style={{...inpStyle,width:70}}/>:fmt(e.weeklySalary||0)}</td>
+                {isEditing?<input type="number" value={d_.weeklySalary} onChange={ev=>setInlineDraft(p=>({...p,weeklySalary:ev.target.value}))} style={{...inpStyle,width:70}}/>:fmt0(e.weeklySalary||0)}</td>
               <td style={{padding:"5px 6px",fontSize:FS-2,color:T.ok,minWidth:60,textAlign:"center"}}>
-                {isEditing?<input type="number" value={d_.weeklyBonus} onChange={ev=>setInlineDraft(p=>({...p,weeklyBonus:ev.target.value}))} style={{...inpStyle,width:60}} placeholder="0"/>:(e.weeklyBonus>0?fmt(e.weeklyBonus):"—")}</td>
+                {isEditing?<input type="number" value={d_.weeklyBonus} onChange={ev=>setInlineDraft(p=>({...p,weeklyBonus:ev.target.value}))} style={{...inpStyle,width:60}} placeholder="0"/>:(e.weeklyBonus>0?fmt0(e.weeklyBonus):"—")}</td>
               <td style={{padding:"5px 6px",fontSize:FS-2,color:T.textMut,minWidth:50,textAlign:"center"}}>
                 {isEditing?<input type="number" value={d_.baseHours} onChange={ev=>setInlineDraft(p=>({...p,baseHours:ev.target.value}))} style={{...inpStyle,width:50}}/>:(e.baseHours||hrs.defaultBaseHours||48)}</td>
               <td style={{padding:"5px 6px",fontSize:FS-3,color:T.textMut,direction:"ltr",minWidth:90,textAlign:"center"}}>
                 {isEditing?<input value={d_.phone} onChange={ev=>setInlineDraft(p=>({...p,phone:ev.target.value}))} style={{...inpStyle,width:90,direction:"ltr"}}/>:e.phone||"—"}</td>
-              <td style={{padding:"5px 6px",fontSize:FS-1,fontWeight:800,color:(e.prevBalance||0)>=0?T.ok:T.err,textAlign:"center"}}>{fmt(e.prevBalance||0)}</td>
+              <td style={{padding:"5px 6px",fontSize:FS-1,fontWeight:800,color:(e.prevBalance||0)>=0?T.ok:T.err,textAlign:"center"}}>{fmt0(e.prevBalance||0)}</td>
               <td style={{padding:"5px 6px",textAlign:"center"}}>
-                {activeD.length>0?<span onClick={()=>setShowEmpDebts(e.id)} style={{cursor:"pointer",padding:"3px 10px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:"#F9731612",color:"#F97316",border:"1px solid #F9731630",display:"inline-flex",alignItems:"center",gap:4}} title="عرض المديونيات">🧾 {activeD.length} | {fmt(totalRemaining)}</span>
+                {activeD.length>0?<span onClick={()=>setShowEmpDebts(e.id)} style={{cursor:"pointer",padding:"3px 10px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:"#F9731612",color:"#F97316",border:"1px solid #F9731630",display:"inline-flex",alignItems:"center",gap:4}} title="عرض المديونيات">🧾 {activeD.length} | {fmt0(totalRemaining)}</span>
                 :<span onClick={()=>{if(canEdit){setShowDebtForm({empId:e.id});resetDebtForm();setDebtStart(today)}}} style={{cursor:canEdit?"pointer":"default",padding:"2px 8px",borderRadius:6,fontSize:FS-2,color:T.textMut,border:"1px dashed "+T.brd}}>—</span>}
               </td>
               <td style={{padding:"5px 6px"}}><span style={{padding:"2px 6px",borderRadius:5,fontSize:FS-3,fontWeight:700,background:e.inactive?T.err+"12":T.ok+"12",color:e.inactive?T.err:T.ok}}>{e.inactive?"متوقف":"نشط"}</span></td>
@@ -4683,9 +4740,9 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           "• ❌ لم يتأكد بعد: *"+notReceived.length+"*",
           "",
           "*💰 المبالغ:*",
-          "• إجمالي المستحق: *"+fmt(r2(totalDue))+"* ج.م",
-          "• ✅ تم تأكيده: *"+fmt(r2(totalPaid))+"* ج.م",
-          "• ⚠️ غير مؤكد: *"+fmt(r2(totalDue-totalPaid))+"* ج.م"
+          "• إجمالي المستحق: *"+fmt0(r2(totalDue))+"* ج.م",
+          "• ✅ تم تأكيده: *"+fmt0(r2(totalPaid))+"* ج.م",
+          "• ⚠️ غير مؤكد: *"+fmt0(r2(totalDue-totalPaid))+"* ج.م"
         ];
         if(notReceived.length>0){
           lines.push("");
@@ -4983,32 +5040,40 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               </div>
             </div>}
 
-            {/* Previous balance / Carried — info card */}
-            {(salary.prevBalance!==0||salary.remainingBalance!==0)&&<div style={{padding:"10px 14px",borderRadius:12,background:T.bg,border:"1px solid "+T.brd,marginBottom:12,display:"flex",flexWrap:"wrap",gap:12,justifyContent:"space-around",fontSize:FS,fontWeight:700}}>
-              {salary.prevBalance!==0&&<div>
-                <div style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>🔄 رصيد سابق</div>
-                <div style={{fontFamily:"monospace",fontWeight:900,color:salary.prevBalance>0?T.warn:T.ok,fontSize:FS+2}}>{salary.prevBalance>0?"+":""}{fmt0(salary.prevBalance)} ج</div>
-              </div>}
-              {salary.remainingBalance!==0&&<div>
-                <div style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>⏭️ رصيد مرحل للأسبوع القادم</div>
-                <div style={{fontFamily:"monospace",fontWeight:900,color:salary.remainingBalance>0?T.warn:T.ok,fontSize:FS+2}}>{salary.remainingBalance>0?"+":""}{fmt0(salary.remainingBalance)} ج</div>
-              </div>}
-            </div>}
+            {/* V15.15: Previous balance + Next week carry — info boxes (always show for clarity) */}
+            <div style={{padding:"12px 14px",borderRadius:12,background:T.bg,border:"1px solid "+T.brd,marginBottom:12,display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,fontSize:FS,fontWeight:700}}>
+              <div style={{textAlign:"center"}}>
+                <div style={{fontSize:FS-2,color:T.textMut,fontWeight:600,marginBottom:4}}>🔄 رصيد سابق</div>
+                <div style={{fontFamily:"monospace",fontWeight:900,color:salary.prevBalance>0?T.warn:salary.prevBalance<0?T.err:T.textMut,fontSize:FS+2}}>
+                  {salary.prevBalance>0?"+":""}{fmt0(salary.prevBalance)} ج
+                </div>
+                <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>(من الأسبوع السابق)</div>
+              </div>
+              <div style={{textAlign:"center",borderInlineStart:"1px solid "+T.brd,paddingInlineStart:12}}>
+                <div style={{fontSize:FS-2,color:T.textMut,fontWeight:600,marginBottom:4}}>⏭️ يترحل للأسبوع القادم</div>
+                <div style={{fontFamily:"monospace",fontWeight:900,color:salary.remainingBalance>0?T.warn:salary.remainingBalance<0?T.err:T.textMut,fontSize:FS+2}}>
+                  {salary.remainingBalance>0?"+":""}{fmt0(salary.remainingBalance)} ج
+                </div>
+                <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>(= صافي − دفعة من الحساب)</div>
+              </div>
+            </div>
 
-            {/* BIG NET AMOUNT — the main focus. V15.6: show totalDue (which equals netBalance when no prevBalance) */}
+            {/* BIG NUMBER = thursdayPay (actual amount accountant will pay TO HAND to employee).
+               V15.16: This is the amount shown for the employee to confirm receipt of.
+               The 'remainingBalance' (صافي - thursdayPay) carries over to next week. */}
             <div style={{padding:"20px 24px",borderRadius:18,background:"linear-gradient(135deg, "+T.ok+"15, "+T.ok+"08)",border:"3px solid "+T.ok,marginBottom:16,textAlign:"center"}}>
-              <div style={{fontSize:FS,color:T.textSec,fontWeight:700,marginBottom:8}}>💵 المطلوب دفعه للموظف</div>
-              <div style={{fontSize:isMob?38:48,fontWeight:900,color:T.ok,lineHeight:1,fontFamily:"monospace"}}>{fmt0(salary.totalDue)}</div>
+              <div style={{fontSize:FS,color:T.textSec,fontWeight:700,marginBottom:8}}>💵 المبلغ الفعلي اللي هيستلمه</div>
+              <div style={{fontSize:isMob?38:48,fontWeight:900,color:T.ok,lineHeight:1,fontFamily:"monospace"}}>{fmt0(salary.thursdayPay)}</div>
               <div style={{fontSize:FS+1,color:T.ok,fontWeight:800,marginTop:4}}>ج.م</div>
-              {salary.prevBalance!==0&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:6,fontWeight:600}}>
-                ({fmt0(salary.netBalance)} صافي الأسبوع {salary.prevBalance>0?"+":"−"} {fmt0(Math.abs(salary.prevBalance))} مرحّل)
-              </div>}
+              <div style={{fontSize:FS-2,color:T.textMut,marginTop:6,fontWeight:600}}>
+                (من أصل صافي {fmt0(salary.netBalance)} ج.م)
+              </div>
             </div>
 
             {/* Confirmation prompt */}
             <div style={{padding:"12px 16px",borderRadius:12,background:T.accent+"08",border:"1px solid "+T.accent+"25",marginBottom:14,textAlign:"center"}}>
               <div style={{fontSize:FS+1,fontWeight:800,color:T.text,lineHeight:1.5}}>
-                هل استلم <b style={{color:T.accent}}>{emp.name}</b> مبلغ <b style={{color:T.ok,fontFamily:"monospace"}}>{fmt0(salary.totalDue)} ج.م</b> كاملاً؟
+                هل استلم <b style={{color:T.accent}}>{emp.name}</b> مبلغ <b style={{color:T.ok,fontFamily:"monospace"}}>{fmt0(salary.thursdayPay)} ج.م</b> كاملاً؟
               </div>
             </div>
 
@@ -5226,7 +5291,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                     <span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-3,fontWeight:700,background:T.ok+"12",color:T.ok}}>✅ مقفول</span>
                   </div>
                   <div style={{display:"flex",alignItems:"center",gap:8}}>
-                    <span style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>{fmt(r2(w.totalNet))}</span>
+                    <span style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>{fmt0(r2(w.totalNet))}</span>
                     <span style={{fontSize:14,color:T.textMut,transform:isOpen?"rotate(180deg)":"",transition:"transform 0.2s"}}>▼</span>
                   </div>
                 </div>
@@ -5236,14 +5301,14 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                   </tr></thead><tbody>
                     {w.records.map(r=><tr key={r.id} style={{borderBottom:"1px solid "+T.brd+"40"}}>
                       <td style={{padding:"4px 6px",fontWeight:600,fontSize:FS-1,textAlign:"right"}}>{r.empName}</td>
-                      <td style={{padding:"4px 6px",color:T.ok,fontSize:FS-1,textAlign:"center"}}>{fmt(r.grossPay||0)}</td>
-                      <td style={{padding:"4px 6px",fontSize:FS-2,textAlign:"center"}}>{fmt(r.prevBalance||0)}</td>
-                      <td style={{padding:"4px 6px",color:T.err,fontSize:FS-2,textAlign:"center"}}>{r.weekAdvances?fmt(r.weekAdvances):""}</td>
-                      <td style={{padding:"4px 6px",color:T.err,fontSize:FS-2,textAlign:"center"}} title={r.deductReason||""}>{r.specialDeduct?fmt(r.specialDeduct)+(r.deductReason?" 📝":""):""}</td>
-                      <td style={{padding:"4px 6px",color:T.ok,fontSize:FS-2,textAlign:"center"}}>{r.bonus?fmt(r.bonus):""}</td>
-                      <td style={{padding:"4px 6px",fontWeight:800,color:T.accent,textAlign:"center"}}>{fmt(r2(r.amount))}</td>
-                      <td style={{padding:"4px 6px",color:T.ok,fontWeight:700,fontSize:FS-1,textAlign:"center"}}>{r.thursdayPay!=null?fmt(r.thursdayPay):fmt(r.amount)}</td>
-                      <td style={{padding:"4px 6px",fontWeight:800,color:(r.remainingBalance||0)>0?T.warn:T.textMut,textAlign:"center"}}>{r.remainingBalance!=null?fmt(r.remainingBalance):"0"}</td>
+                      <td style={{padding:"4px 6px",color:T.ok,fontSize:FS-1,textAlign:"center"}}>{fmt0(r.grossPay||0)}</td>
+                      <td style={{padding:"4px 6px",fontSize:FS-2,textAlign:"center"}}>{fmt0(r.prevBalance||0)}</td>
+                      <td style={{padding:"4px 6px",color:T.err,fontSize:FS-2,textAlign:"center"}}>{r.weekAdvances?fmt0(r.weekAdvances):""}</td>
+                      <td style={{padding:"4px 6px",color:T.err,fontSize:FS-2,textAlign:"center"}} title={r.deductReason||""}>{r.specialDeduct?fmt0(r.specialDeduct)+(r.deductReason?" 📝":""):""}</td>
+                      <td style={{padding:"4px 6px",color:T.ok,fontSize:FS-2,textAlign:"center"}}>{r.bonus?fmt0(r.bonus):""}</td>
+                      <td style={{padding:"4px 6px",fontWeight:800,color:T.accent,textAlign:"center"}}>{fmt0(r2(r.amount))}</td>
+                      <td style={{padding:"4px 6px",color:T.ok,fontWeight:700,fontSize:FS-1,textAlign:"center"}}>{r.thursdayPay!=null?fmt0(r.thursdayPay):fmt0(r.amount)}</td>
+                      <td style={{padding:"4px 6px",fontWeight:800,color:(r.remainingBalance||0)>0?T.warn:T.textMut,textAlign:"center"}}>{r.remainingBalance!=null?fmt0(r.remainingBalance):"0"}</td>
                     </tr>)}
                   </tbody></table></div>
                 </div>}

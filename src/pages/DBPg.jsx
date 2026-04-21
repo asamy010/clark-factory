@@ -10,7 +10,7 @@ import { collection } from "firebase/firestore";
 import { Btn, Card, DelBtn, Inp, QRImg, Sel } from "../components/ui.jsx";
 import { DEFAULT_STATUSES, FKEYS, FS, GARMENT_ICONS, WS_TYPES } from "../constants/index.js";
 import { T, TD, TDB, TH } from "../theme.js";
-import { gIcon, setF } from "../utils/format.js";
+import { gIcon, setF, normalizePhone } from "../utils/format.js";
 import { compressImage, compressImg43 } from "../utils/image.js";
 import { calcWsRating, wsTypeInfo } from "../utils/orders.js";
 import { ask, askInput, showToast } from "../utils/popups.js";
@@ -188,12 +188,14 @@ export function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrder
   const handleIdCard=async e=>{const file=e.target.files[0];if(!file)return;const compressed=await compressImg43(file,300,0.5);setF(p=>({...p,idCard:compressed}))};
   const handleOwnerPhoto=async e=>{const file=e.target.files[0];if(!file)return;const compressed=await compressImage(file,200,0.5);setF(p=>({...p,ownerPhoto:compressed}))};
   const save=()=>{if(!f.name.trim())return;
+    /* V15.17: normalize phone to +2 format */
+    const normalized={...f,phone:normalizePhone(f.phone||"")};
     let oldName=null;
-    if(editId){const old=workshops.find(w=>w.id===editId);if(old&&old.name!==f.name.trim())oldName=old.name}
-    upConfig(d=>{if(!Array.isArray(d.workshops))d.workshops=[];if(editId){const idx=d.workshops.findIndex(w=>w.id===editId);if(idx>=0)d.workshops[idx]={...f,id:editId}}else{d.workshops.push({...f,id:Date.now()})}
-      if(oldName){(d.wsPayments||[]).forEach(p=>{if(p.wsId===editId||p.wsName===oldName){p.wsName=f.name.trim();p.wsId=editId}});(d.notifications||[]).forEach(n=>{if(n.msg&&n.msg.includes(oldName))n.msg=n.msg.replace(new RegExp(oldName,"g"),f.name.trim())})}
+    if(editId){const old=workshops.find(w=>w.id===editId);if(old&&old.name!==normalized.name.trim())oldName=old.name}
+    upConfig(d=>{if(!Array.isArray(d.workshops))d.workshops=[];if(editId){const idx=d.workshops.findIndex(w=>w.id===editId);if(idx>=0)d.workshops[idx]={...normalized,id:editId}}else{d.workshops.push({...normalized,id:Date.now()})}
+      if(oldName){(d.wsPayments||[]).forEach(p=>{if(p.wsId===editId||p.wsName===oldName){p.wsName=normalized.name.trim();p.wsId=editId}});(d.notifications||[]).forEach(n=>{if(n.msg&&n.msg.includes(oldName))n.msg=n.msg.replace(new RegExp(oldName,"g"),normalized.name.trim())})}
     });
-    if(oldName)renameInOrders("ws",oldName,f.name.trim(),editId);
+    if(oldName)renameInOrders("ws",oldName,normalized.name.trim(),editId);
     setShowForm(false);setEditId(null)};
   const del=(id)=>safeDelete("workshops",id,"ورشة");
   const wsBlock=(ws)=>{const hasOrders=(orders||[]).some(o=>(o.workshopDeliveries||[]).some(wd=>wd.wsName===ws.name));if(hasOrders)return"يوجد تسليمات مرتبطة بهذه الورشة";const hasPay=(wsPayments||[]).some(p=>p.wsName===ws.name);if(hasPay)return"يوجد دفعات مرتبطة بهذه الورشة";return null};
@@ -283,7 +285,7 @@ export function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrder
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:12}}>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع الورشة *</label><Sel value={f.type||"خياطة خارجي"} onChange={v=>setF({...f,type:v})}>{WS_TYPES.map(t=><option key={t.key} value={t.key}>{t.icon+" "+t.key}</option>)}</Sel></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النسبة من الدفعات</label><Sel value={f.payPercent||60} onChange={v=>setF({...f,payPercent:Number(v)})}>{[30,40,50,60,70,80,90,100].map(p=><option key={p} value={p}>{p+"%"}</option>)}</Sel></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رقم التليفون</label><Inp value={f.phone} onChange={v=>setF({...f,phone:v})} type="tel"/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رقم التليفون</label><Inp value={f.phone} onChange={v=>setF({...f,phone:v})} type="tel" placeholder="+201xxxxxxxxx" style={{direction:"ltr",textAlign:"left",fontFamily:"monospace"}}/></div>
         </div>
         <div style={{marginBottom:12}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>العنوان</label><textarea value={f.address||""} onChange={e=>setF({...f,address:e.target.value})} style={{width:"100%",height:60,padding:10,borderRadius:10,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",resize:"vertical"}}/></div>
         <div style={{marginBottom:14}}>

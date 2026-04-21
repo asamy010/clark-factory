@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { FKEYS, FS } from "../constants/index.js";
-import { gid, fmt, r2, gf } from "../utils/format.js";
+import { gid, fmt, r2, gf, parseSizes } from "../utils/format.js";
 import { playBeep } from "../utils/audio.js";
 import { loadQR, loadJsQR, scanQR } from "../utils/qr.js";
 import { ask, askForm, showToast } from "../utils/popups.js";
@@ -48,14 +48,15 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   useEffect(()=>{const h=()=>{const mode=window.__qrSaleMode;if(mode){delete window.__qrSaleMode;setQrSale({mode,custId:null,items:[],note:"",linkedSession:mode==="return"?"free":undefined})}};const h2=()=>{const pkgId=window.__openPkg;if(pkgId){delete window.__openPkg;setPkgAction({id:pkgId,mode:"menu"})}};window.addEventListener("qr-sale-trigger",h);window.addEventListener("open-pkg",h2);return()=>{window.removeEventListener("qr-sale-trigger",h);window.removeEventListener("open-pkg",h2)}},[]);
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
 
-  const getRackSize=(orderId)=>{const o=orders.find(x=>x.id===orderId);if(!o||!o.sizeLabel)return 1;const parts=o.sizeLabel.split(/[-\/]/).map(s=>s.trim()).filter(Boolean);return parts.length||1};
+  const getRackSize=(orderId)=>{const o=orders.find(x=>x.id===orderId);if(!o)return 1;const parts=parseSizes(o.sizeLabel);return parts.length||1};
 
   const orderCalcs=useMemo(()=>{const m=new Map();orders.forEach(o=>m.set(o.id,calcOrder(o)));return m},[orders]);
   const getCalc=(oid)=>orderCalcs.get(oid)||calcOrder({});
   const stockModels=useMemo(()=>orders.filter(o=>{const sd=getConfirmedStock(o);return sd>0}).map(o=>{const sd=getConfirmedStock(o);const cd=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);return{id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,stockQty:sd,custDel:cd-ret,avail:sd-(cd-ret),rackSize:getRackSize(o.id),sellPrice:Number(o.sellPrice)||0,returns:ret}}),[orders]);
 
   const saveCust=()=>{if(!cName.trim()||!cPhone.trim()){showToast("⚠️ الاسم والتليفون مطلوبين");return}
-    upConfig(d=>{if(!d.customers)d.customers=[];if(cEditId){const idx=d.customers.findIndex(c=>c.id===cEditId);if(idx>=0){d.customers[idx].name=cName.trim();d.customers[idx].phone=cPhone.trim();d.customers[idx].address=cAddr.trim();d.customers[idx].type=cType}}else{d.customers.push({id:gid(),name:cName.trim(),phone:cPhone.trim(),address:cAddr.trim(),type:cType})}});
+    const phoneClean=normalizePhone(cPhone.trim());
+    upConfig(d=>{if(!d.customers)d.customers=[];if(cEditId){const idx=d.customers.findIndex(c=>c.id===cEditId);if(idx>=0){d.customers[idx].name=cName.trim();d.customers[idx].phone=phoneClean;d.customers[idx].address=cAddr.trim();d.customers[idx].type=cType}}else{d.customers.push({id:gid(),name:cName.trim(),phone:phoneClean,address:cAddr.trim(),type:cType})}});
     setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCEditId(null);setShowCustForm(false);showToast("✓ تم الحفظ")};
 
   const createSession=()=>{const mIds=Object.keys(selModels).filter(k=>selModels[k]);const cIds=Object.keys(selCusts).filter(k=>selCusts[k]);
@@ -1453,7 +1454,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         const parts=text.split(":");if(parts[0]!=="CLARK"||parts.length<3)return;const orderId=parts[1];const qrRs=Number(parts[2])||1;
         const o=orders.find(x=>x.id===orderId);if(!o){playBeep("error");showToast("⛔ موديل غير موجود");return}
         /* Always scan as full series: max(QR value, number of sizes) */
-        const sizes=o.sizeLabel?o.sizeLabel.split(/[-/,]/).map(s=>s.trim()).filter(Boolean):[];
+        const sizes=parseSizes(o.sizeLabel);
         const rs=sizes.length>1?Math.max(qrRs,sizes.length):qrRs;
         if(isSale){/* Check stock + planned limit */
           const currentActual={};qrSale.items.forEach(it=>{currentActual[it.orderId]=(currentActual[it.orderId]||0)+(Number(it.qty)||0)});
@@ -1838,7 +1839,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       _stockRcvScanMode=stockScanMode;
       const handleStockScan=(text)=>{try{const parts=text.split(":");if(parts[0]!=="CLARK"||!parts[1])return;const orderId=parts[1];const qrRs=Number(parts[2])||1;
         const o=orders.find(x=>x.id===orderId);if(!o){playBeep("error");showToast("⛔ موديل غير موجود");return}
-        const _sz=o.sizeLabel?o.sizeLabel.split(/[-\/,]/).map(s=>s.trim()).filter(Boolean):[];const rs=_sz.length>1?Math.max(qrRs,_sz.length):qrRs;
+        const _sz=parseSizes(o.sizeLabel);const rs=_sz.length>1?Math.max(qrRs,_sz.length):qrRs;
         /* Read current mode from module-level variable */
         const currentMode=_stockRcvScanMode;
         const addQty=currentMode==="piece"?1:rs;
@@ -1865,7 +1866,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <div style={{display:"flex",gap:0,borderRadius:8,overflow:"hidden",border:"1px solid "+T.brd}}>
                 {[{k:"series",l:"سيري",ic:"📦"},{k:"piece",l:"قطعة",ic:"👕"}].map(m=><div key={m.k} onClick={()=>setStockRcv(p=>({...p,scanMode:m.k}))} style={{padding:"4px 10px",fontSize:FS-2,fontWeight:700,cursor:"pointer",background:stockScanMode===m.k?"#0EA5E9":"transparent",color:stockScanMode===m.k?"#fff":T.textSec,transition:"all 0.15s"}}>{m.ic+" "+m.l}</div>)}
               </div>
-              <div style={{flex:1,minWidth:150}}><SearchSel value="" onChange={v=>{if(!v)return;const _o=orders.find(x=>x.id===v);const _szz=_o?.sizeLabel?_o.sizeLabel.split(/[-\/,]/).map(s=>s.trim()).filter(Boolean):[];const rs=_szz.length>1?Math.max(getRackSize(v),_szz.length):getRackSize(v);const addQty=stockScanMode==="piece"?1:rs;setStockRcv(p=>({...p,items:{...p.items,[v]:(p.items[v]||0)+addQty}}));playBeep("ok")}} options={available.map(m=>({value:m.id,label:m.modelNo+" — "+m.modelDesc+" ("+m.fromFinishing+")"}))} placeholder="اضف يدوي..."/></div>
+              <div style={{flex:1,minWidth:150}}><SearchSel value="" onChange={v=>{if(!v)return;const _o=orders.find(x=>x.id===v);const _szz=parseSizes(_o?.sizeLabel);const rs=_szz.length>1?Math.max(getRackSize(v),_szz.length):getRackSize(v);const addQty=stockScanMode==="piece"?1:rs;setStockRcv(p=>({...p,items:{...p.items,[v]:(p.items[v]||0)+addQty}}));playBeep("ok")}} options={available.map(m=>({value:m.id,label:m.modelNo+" — "+m.modelDesc+" ("+m.fromFinishing+")"}))} placeholder="اضف يدوي..."/></div>
             </div>
             {stockRcv.scanning&&<div style={{marginTop:8}}>
               <div style={{position:"relative",width:"100%",maxWidth:200,margin:"0 auto",borderRadius:12,overflow:"hidden",background:"#000"}}>
@@ -1918,7 +1919,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         /* 2. Model QR: CLARK:orderId:rackSize */
         const parts=text.split(":");if(parts[0]!=="CLARK"||!parts[1])return;const orderId=parts[1];const qrRs=Number(parts[2])||1;
         const o=orders.find(x=>x.id===orderId);if(!o){playBeep("error");showToast("⛔ موديل غير موجود");return}
-        const _sz=o.sizeLabel?o.sizeLabel.split(/[-\/,]/).map(s=>s.trim()).filter(Boolean):[];const rs=_sz.length>1?Math.max(qrRs,_sz.length):qrRs;
+        const _sz=parseSizes(o.sizeLabel);const rs=_sz.length>1?Math.max(qrRs,_sz.length):qrRs;
         /* Read current scan mode from module-level variable (always current) */
         const currentMode=_auditScanMode;
         const addQty=currentMode==="piece"?1:rs;
@@ -1965,7 +1966,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               {[{k:"series",l:"سيري",ic:"📦"},{k:"piece",l:"قطعة",ic:"👕"}].map(m=><div key={m.k} onClick={()=>setInvAudit(p=>({...p,scanMode:m.k}))} style={{padding:"4px 10px",fontSize:FS-2,fontWeight:700,cursor:"pointer",background:scanMode===m.k?"#8B5CF6":"transparent",color:scanMode===m.k?"#fff":T.textSec,transition:"all 0.15s"}}>{m.ic+" "+m.l}</div>)}
             </div>
             <span style={{fontSize:FS-3,color:T.textMut}}>📦 كرتونة/Package = أوتو</span>
-            <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(!v)return;const _o2=orders.find(x=>x.id===v);const _szz2=_o2?.sizeLabel?_o2.sizeLabel.split(/[-\/,]/).map(s=>s.trim()).filter(Boolean):[];const rs=_szz2.length>1?Math.max(getRackSize(v),_szz2.length):getRackSize(v);const addQty=scanMode==="piece"?1:rs;setInvAudit(p=>{const items={...p.items};items[v]=(items[v]||0)+addQty;return{...p,items}});playBeep("ok")}} options={(auditTab==="compare"?stockModels:orders).map(m=>({value:m.id,label:(m.modelNo||"")+" — "+(m.modelDesc||"")+(auditTab==="compare"?" ("+m.avail+")":"")}))} placeholder="اضف يدوي..."/></div>
+            <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(!v)return;const _o2=orders.find(x=>x.id===v);const _szz2=parseSizes(_o2?.sizeLabel);const rs=_szz2.length>1?Math.max(getRackSize(v),_szz2.length):getRackSize(v);const addQty=scanMode==="piece"?1:rs;setInvAudit(p=>{const items={...p.items};items[v]=(items[v]||0)+addQty;return{...p,items}});playBeep("ok")}} options={(auditTab==="compare"?stockModels:orders).map(m=>({value:m.id,label:(m.modelNo||"")+" — "+(m.modelDesc||"")+(auditTab==="compare"?" ("+m.avail+")":"")}))} placeholder="اضف يدوي..."/></div>
           </div>
           {invAudit.scanning&&<div style={{marginBottom:10}}>
             <div style={{position:"relative",width:"100%",maxWidth:260,margin:"0 auto",borderRadius:12,overflow:"hidden",background:"#000"}}>
@@ -2609,7 +2610,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,marginBottom:16}}>{cEditId?"✏️ تعديل عميل":"+ تسجيل عميل جديد"}</div>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>اسم العميل *</label><Inp value={cName} onChange={setCName} placeholder="الاسم بالكامل..."/></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رقم التليفون *</label><Inp value={cPhone} onChange={setCPhone} placeholder="01xxxxxxxxx"/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رقم التليفون *</label><Inp value={cPhone} onChange={setCPhone} placeholder="+201xxxxxxxxx" style={{direction:"ltr",textAlign:"left",fontFamily:"monospace"}}/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع العميل</label><Sel value={cType} onChange={setCType}><option value="مكتب">🏢 مكتب</option><option value="محل">🏪 محل</option><option value="أونلاين">🌐 أونلاين</option><option value="أخرى">📦 أخرى</option></Sel></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>العنوان</label><Inp value={cAddr} onChange={setCAddr} placeholder="اختياري..."/></div>
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setShowCustForm(false)}>الغاء</Btn><Btn primary onClick={saveCust} title="حفظ التعديلات">💾 حفظ</Btn></div>

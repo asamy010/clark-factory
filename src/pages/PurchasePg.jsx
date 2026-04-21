@@ -7,7 +7,7 @@
 
 import { useState, useMemo } from "react";
 import { FS, PRINT_CSS } from "../constants/index.js";
-import { gid, fmt, r2 } from "../utils/format.js";
+import { gid, fmt, r2, normalizePhone } from "../utils/format.js";
 import { ask, tell, showToast } from "../utils/popups.js";
 import { Btn, Inp, Sel, SearchSel, Card, useDebounced } from "../components/ui.jsx";
 import { T, TH, TD } from "../theme.js";
@@ -132,7 +132,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
     /* Check duplicate name (case-insensitive, exclude self when editing) */
     const dup=suppliers.find(s=>((s.name||"").trim().toLowerCase()===name.toLowerCase())&&s.id!==supForm.id);
     if(dup){await tell("اسم مكرر","هذا الاسم مستخدم لمورد آخر",{type:"warning"});return}
-    const phone=(supForm.phone||"").trim();
+    const phone=normalizePhone((supForm.phone||"").trim());
     const address=(supForm.address||"").trim();
     const notes=(supForm.notes||"").trim();
     upConfig(d=>{
@@ -1261,7 +1261,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
             <label style={{fontSize:FS-1,color:T.textSec,fontWeight:700,marginBottom:4,display:"block"}}>
               التليفون <span style={{color:T.textMut,fontWeight:500}}>(اختياري)</span>
             </label>
-            <Inp value={supForm.phone} onChange={v=>setSupForm(p=>({...p,phone:v}))} placeholder="01xxxxxxxxx"/>
+            <Inp value={supForm.phone} onChange={v=>setSupForm(p=>({...p,phone:v}))} placeholder="+201xxxxxxxxx" style={{direction:"ltr",textAlign:"left",fontFamily:"monospace"}}/>
           </div>
           
           <div>

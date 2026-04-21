@@ -7,7 +7,7 @@ import { doc, setDoc, onSnapshot, collection, addDoc, updateDoc, deleteDoc, getD
 /* ─── V15.0 Module imports (refactored from monolith) ─── */
 import { FKEYS, FCOL, WS_TYPES, COLORS_DB, THEMES, DEFAULT_STATUSES, INIT_CONFIG, GARMENT_ICONS, QUALITY_MAP, FS, PRINT_CSS } from "./constants/index.js";
 import { CLARK_LOGO } from "./constants/logo.js";
-import { gid, fmt, fmt0, r2, fmtDate, hrsToHM, parseHrs, sqty, slay, setF, gf, gc, gcons, gdate, safeCalc, _esc, gIcon } from "./utils/format.js";
+import { gid, fmt, fmt0, r2, fmtDate, hrsToHM, parseHrs, sqty, slay, setF, gf, gc, gcons, gdate, safeCalc, _esc, gIcon, parseSizes } from "./utils/format.js";
 import { playBeep } from "./utils/audio.js";
 import { compressImage, compressImg43 } from "./utils/image.js";
 import { loadXLSX, loadQR, loadJsQR, scanQR, compressFile } from "./utils/qr.js";
@@ -429,6 +429,27 @@ export default function App(){
           data.statusCards=data.statusCards.filter(c=>{if(!c||!c.name)return false;if(seen.has(c.name))return false;seen.add(c.name);return true});
           data._statusRenameDone=true;
           return"renamed="+renamed;
+        }
+      );
+
+      /* ═══ Migration: V15.17 — normalize all phone numbers to +2 prefix ═══ */
+      runMigration("phone-normalize-v15-17",d,
+        (data)=>!data._phoneNormalizedV1517,
+        (data)=>{
+          const norm=(p)=>{const s=(p||"").toString().trim();if(!s)return"";if(s.startsWith("+"))return s;const dd=s.replace(/\D/g,"");if(!dd)return"";if(dd.startsWith("2")&&dd.length>=12)return"+"+dd;return"+2"+dd};
+          let count=0;
+          /* Employees */
+          (data.employees||[]).forEach(e=>{const old=e.phone||"";const n=norm(old);if(n!==old){e.phone=n;count++}});
+          /* Customers */
+          (data.customers||[]).forEach(c=>{const old=c.phone||"";const n=norm(old);if(n!==old){c.phone=n;count++}});
+          /* Suppliers */
+          (data.suppliers||[]).forEach(s=>{const old=s.phone||"";const n=norm(old);if(n!==old){s.phone=n;count++}});
+          /* Workshops */
+          (data.workshops||[]).forEach(w=>{const old=w.phone||"";const n=norm(old);if(n!==old){w.phone=n;count++}});
+          /* Users (if they have phone) */
+          (data.usersList||[]).forEach(u=>{if(u.phone){const old=u.phone;const n=norm(old);if(n!==old){u.phone=n;count++}}});
+          data._phoneNormalizedV1517=true;
+          return"normalized="+count+" phone numbers";
         }
       );
 
@@ -861,16 +882,21 @@ export default function App(){
       {/* ═══ CENTER: Search (desktop only) ═══ */}
       {!isMob&&<div onClick={e=>e.stopPropagation()} style={{flex:1,maxWidth:440,position:"relative"}}>
         <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",color:T.navText?"rgba(255,255,255,0.6)":T.textMut,pointerEvents:"none"}}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input value={gSearch} onChange={e=>setGSearch(e.target.value)} placeholder="بحث عن موديل، ورشة، خامة، عميل..." className="tb-search" style={{paddingRight:36,paddingLeft:14}}/>
+        <input value={gSearch} onChange={e=>setGSearch(e.target.value)} placeholder="بحث شامل: موديل، ورشة، خامة، عميل، مورد، موظف..." className="tb-search" style={{paddingRight:36,paddingLeft:14}}/>
         {gSearchDeb.trim()&&(()=>{const q=gSearchDeb.trim().toLowerCase();const res=[];
-          data.orders.forEach(o=>{if([o.modelNo,o.modelDesc].join(" ").toLowerCase().includes(q))res.push({type:"أوردر",label:o.modelNo+" — "+o.modelDesc,action:()=>{goD(o.id);setGSearch("")}})});
-          (data.workshops||[]).forEach(w=>{if(w.name.toLowerCase().includes(q))res.push({type:"ورشة",label:w.name+(w.owner?" — "+w.owner:""),action:()=>{setDbSub("ws");setTab("db");setGSearch("")}})});
-          (data.fabrics||[]).forEach(f=>{if(f.name.toLowerCase().includes(q))res.push({type:"خامة",label:f.name,action:()=>{setDbSub("fab");setTab("db");setGSearch("")}})});
-          (data.accessories||[]).forEach(a=>{if(a.name.toLowerCase().includes(q))res.push({type:"اكسسوار",label:a.name,action:()=>{setDbSub("acc");setTab("db");setGSearch("")}})});
+          data.orders.forEach(o=>{if([o.modelNo,o.modelDesc,o.poNumber||""].join(" ").toLowerCase().includes(q))res.push({type:"أوردر",label:(o.poNumber?o.poNumber+" — ":"")+o.modelNo+" — "+o.modelDesc,action:()=>{goD(o.id);setGSearch("")}})});
+          (data.workshops||[]).forEach(w=>{if([w.name,w.owner||"",w.phone||""].join(" ").toLowerCase().includes(q))res.push({type:"ورشة",label:w.name+(w.owner?" — "+w.owner:""),action:()=>{setDbSub("ws");setTab("db");setGSearch("")}})});
+          (data.fabrics||[]).forEach(f=>{if((f.name||"").toLowerCase().includes(q))res.push({type:"خامة",label:f.name,action:()=>{setDbSub("fab");setTab("db");setGSearch("")}})});
+          (data.accessories||[]).forEach(a=>{if((a.name||"").toLowerCase().includes(q))res.push({type:"اكسسوار",label:a.name,action:()=>{setDbSub("acc");setTab("db");setGSearch("")}})});
+          /* V15.14: Customer, Supplier, Employee search */
+          (data.customers||[]).forEach(c=>{if([c.name||"",c.phone||"",c.address||"",c.type||""].join(" ").toLowerCase().includes(q))res.push({type:"عميل",label:c.name+(c.phone?" — "+c.phone:""),action:()=>{setTab("custDeliver");setGSearch("")}})});
+          (data.suppliers||[]).forEach(s=>{if([s.name||"",s.phone||"",s.type||""].join(" ").toLowerCase().includes(q))res.push({type:"مورد",label:s.name+(s.phone?" — "+s.phone:""),action:()=>{setTab("purchase");setGSearch("")}})});
+          (data.employees||[]).filter(e=>!e.inactive).forEach(e=>{if([e.name||"",e.code||"",e.job||"",e.phone||"",e.fingerprintCode||""].join(" ").toLowerCase().includes(q))res.push({type:"موظف",label:e.name+(e.code?" #"+e.code:"")+(e.job?" — "+e.job:""),action:()=>{setTab("hr");setGSearch("")}})});
           return<div style={{position:"absolute",top:"100%",right:0,left:0,marginTop:6,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:12,boxShadow:"0 12px 40px rgba(0,0,0,0.15)",zIndex:999,maxHeight:360,overflow:"auto"}}>
-            {res.slice(0,8).map((r,i)=><div key={i} onClick={r.action} style={{padding:"10px 14px",cursor:"pointer",borderBottom:i<res.slice(0,8).length-1?"1px solid "+T.brd:"none",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:FS-1,transition:"background 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accentBg} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+            {res.slice(0,12).map((r,i)=><div key={i} onClick={r.action} style={{padding:"10px 14px",cursor:"pointer",borderBottom:i<res.slice(0,12).length-1?"1px solid "+T.brd:"none",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:FS-1,transition:"background 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accentBg} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
               <span style={{color:T.text,fontWeight:600}}>{r.label}</span><span style={{fontSize:FS-3,color:T.textMut,background:T.bg,padding:"2px 8px",borderRadius:6,fontWeight:700}}>{r.type}</span>
             </div>)}
+            {res.length>12&&<div style={{padding:"6px 14px",textAlign:"center",color:T.textMut,fontSize:FS-3,fontWeight:600,background:T.bg}}>{"+ "+(res.length-12)+" نتيجة أخرى — حدّد البحث"}</div>}
             {res.length===0&&<div style={{padding:16,textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد نتائج</div>}
           </div>})()}
       </div>}
@@ -1394,7 +1420,7 @@ export default function App(){
     {/* Barcode Print Popup */}
     {barcodePopup&&(()=>{const allOrders=data.orders||[];const ps=data.printSettings||{};const lw=ps.labelWidth||40;const lh=ps.labelHeight||50;const mg=ps.margins||2;const fl=ps.fields||{};
       const selOrder=allOrders.find(o=>o.id===barcodePopup.modelId);const rs=selOrder?Number(selOrder.rackSize)||1:1;
-      const sizes=selOrder?.sizeLabel?selOrder.sizeLabel.split(/[-/,]/).map(s=>s.trim()).filter(Boolean):[];
+      const sizes=selOrder?parseSizes(selOrder.sizeLabel):[];
       const qtyPerSize=sizes.length>0?Math.floor((selOrder?.cutQty||0)/sizes.length):(selOrder?.cutQty||0);
       const labelsPerSize=rs>0?Math.floor(qtyPerSize/rs):qtyPerSize;
       const totalLabels=sizes.length>0?labelsPerSize*sizes.length:(rs>0?Math.floor((selOrder?.cutQty||0)/rs):(selOrder?.cutQty||0));
