@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updateProfile } from "firebase/auth";
 import { collection, deleteDoc, doc, getDocs, setDoc, updateDoc } from "firebase/firestore";
 import { Btn, Card, DelBtn, Inp, Sel, Spinner } from "../components/ui.jsx";
+import { TABS } from "../components/LoginScreen.jsx";
 import { FKEYS, FS } from "../constants/index.js";
 import { CLARK_LOGO } from "../constants/logo.js";
 import { auth, db, getSecondaryAuth } from "../firebase";

@@ -28,7 +28,7 @@ import { HRPg } from "./pages/HRPg.jsx";
 
 /* V15.1 phase 3: page/component imports */
 import { exportExcel, printReceipt, printLabel, printReceiveReceipt, printWorkshopReport, printOrderSheet, printStockDelivery } from "./utils/print-extras.js";
-import { LoginScreen } from "./components/LoginScreen.jsx";
+import { LoginScreen, TABS } from "./components/LoginScreen.jsx";
 import { ActivityFeed } from "./components/ActivityFeed.jsx";
 import { DashPg } from "./pages/DashPg.jsx";
 import { DBPg } from "./pages/DBPg.jsx";
