@@ -38,6 +38,7 @@ import { ExtProdPg } from "./pages/ExtProdPg.jsx";
 import { CalcPg } from "./pages/CalcPg.jsx";
 import { StockPg } from "./pages/StockPg.jsx";
 import { RepPg } from "./pages/RepPg.jsx";
+import { ReportsHub } from "./pages/reports.jsx";
 import { CostPg } from "./pages/CostPg.jsx";
 import { TasksPg } from "./pages/TasksPg.jsx";
 import { SettingsPg } from "./pages/SettingsPg.jsx";
