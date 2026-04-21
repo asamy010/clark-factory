@@ -12,7 +12,7 @@ import { playBeep } from "../utils/audio.js";
 import { loadJsQR, scanQR, loadXLSX } from "../utils/qr.js";
 import { addAudit } from "../utils/audit.js";
 import { ask, showToast } from "../utils/popups.js";
-import { printPage, printEmpQrCards } from "../utils/print.js";
+import { printPage, printEmpQrCards, openPrintWindow } from "../utils/print.js";
 import { Btn, Inp, Sel, Card, QRImg, QRScanner, useDebounced } from "../components/ui.jsx";
 import { T, TH, TD, TDB } from "../theme.js";
 import { db } from "../firebase";
@@ -1434,9 +1434,34 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     @media print{body{margin:0}}
     </style>`;
 
+  /* V15.22: Helper to open a print window with iframe fallback for popup-blocked browsers */
+  const _openPrintWin=()=>{
+    const w=_openPrintWin();
+    if(w)return w;
+    /* Create hidden iframe as fallback */
+    const iframe=document.createElement("iframe");
+    iframe.style.cssText="position:fixed;left:-9999px;top:0;width:1px;height:1px;border:0;opacity:0";
+    document.body.appendChild(iframe);
+    const doc=iframe.contentDocument||iframe.contentWindow.document;
+    /* Mimic window.open API: expose document + print() + close + focus */
+    const fakeWin={
+      document:doc,
+      print:()=>{try{iframe.contentWindow.focus();iframe.contentWindow.print()}catch(e){alert("المتصفح بيمنع الطباعة — فعّل النوافذ المنبثقة (pop-ups) من إعدادات المتصفح")}},
+      focus:()=>{try{iframe.contentWindow.focus()}catch(e){}},
+      close:()=>{setTimeout(()=>{try{iframe.remove()}catch(e){}},60000)},
+    };
+    /* Auto-cleanup iframe after 60s to let print dialog finish */
+    setTimeout(()=>{try{iframe.remove()}catch(e){}},60000);
+    return fakeWin;
+  };
+
   const printSlip=(empId)=>{if(!openWeek)return;const html=buildSlipHTML(empId);if(!html)return;
     const emp=employees.find(e=>e.id===empId);
-    const w=window.open("","_blank");if(!w)return;
+    const w=_openPrintWin();
+    if(!w){
+      showToast("⚠️ المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة (pop-ups) من إعدادات المتصفح");
+      return;
+    }
     w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>كشف مرتب — ${emp?.name||""}</title>${SLIP_STYLES}</head><body>${html}</body></html>`);
     w.document.close();setTimeout(()=>w.print(),300)};
 
@@ -1506,7 +1531,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     if(selectedIds.length===0){showToast("⚠️ اختر موظف على الأقل");return}
     const htmls=selectedIds.map(id=>buildSlipHTML(id)).filter(Boolean).join("\n");
     if(!htmls){showToast("⛔ لا توجد بيانات");return}
-    const w=window.open("","_blank");if(!w)return;
+    const w=_openPrintWin();if(!w)return;
     w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>كشوفات مرتبات W${openWeek.weekNum}</title>${SLIP_STYLES}</head><body>${htmls}</body></html>`);
     w.document.close();setTimeout(()=>w.print(),400);
     setShowBulkPrint(false);showToast("🖨 جاري طباعة "+selectedIds.length+" كشف")};
@@ -2511,7 +2536,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                     "</tbody></table>"+
                     "<div class='foot'>CLARK Factory Management — "+title+" — "+today+"</div>"+
                     "<script>setTimeout(function(){window.print()},500)</"+"script></body></html>";
-                  const w=window.open("","_blank");if(!w)return;
+                  const w=_openPrintWin();if(!w)return;
                   w.document.write(html);w.document.close();
                 }} style={{background:"#0284C712",color:"#0284C7",border:"1px solid #0284C730",fontWeight:700}}>🖨 طباعة الحضور</Btn>
               </div>
@@ -2781,7 +2806,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                     "<div class='sig' style='margin-top:30px'><div class='sig-box'>المحاسب</div><div class='sig-box'>المدير</div></div>"+
                     "<div class='foot'>CLARK Factory Management — جدول مرتبات "+title+" — "+today+"</div>"+
                     "<script>setTimeout(function(){window.print()},500)</"+"script></body></html>";
-                  const w=window.open("","_blank");if(!w)return;
+                  const w=_openPrintWin();if(!w)return;
                   w.document.write(html);w.document.close();
                 }} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}}>🖨 طباعة الجدول</Btn>
                 <Btn small onClick={()=>{
@@ -2911,7 +2936,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                     "<div class='foot'>CLARK Factory Management — كشف توقيع W"+openWeek.weekNum+" — تم الإصدار "+today+"</div>"+
                     "<script>setTimeout(function(){window.print()},500)</"+"script>"+
                     "</body></html>";
-                  const w=window.open("","_blank");if(!w)return;
+                  const w=_openPrintWin();if(!w)return;
                   w.document.write(html);w.document.close();
                 }} style={{background:"#059669"+"12",color:"#059669",border:"1px solid #05966930",fontWeight:700}}>✍️ كشف توقيع</Btn>
                 <Btn small onClick={()=>{const sel={};shownEmps.forEach(e=>{sel[e.id]=true});setBulkPrintSel(sel);setShowBulkPrint(true)}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}}>🖨 طباعة مجمعة</Btn>
@@ -3422,7 +3447,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       const totalGross=rows.filter(r=>r.type==="salary").reduce((s,r)=>s+(r.grossPay||0),0);
       const totalPaid=rows.filter(r=>r.type==="salary").reduce((s,r)=>s+(r.thursdayPay||0),0);
       const salaryCount=rows.filter(r=>r.type==="salary").length;
-      const printStmt=()=>{const w=window.open("","_blank");if(!w)return;
+      const printStmt=()=>{const w=_openPrintWin();if(!w)return;
         const logo=(data.logo||"").trim();
         let html=`<html dir="rtl"><head><meta charset="utf-8"><title>كشف حساب — ${emp.name}</title>
         <style>@page{size:A4;margin:10mm}body{font-family:'Cairo',Arial,sans-serif;font-size:11px;margin:0;padding:0;color:#1a1a1a}
@@ -4893,7 +4918,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             </Sel>
           </div>
           <Btn small onClick={()=>{
-            const w=window.open("","_blank");if(!w)return;
+            const w=_openPrintWin();if(!w)return;
             const logo=(data.logo||"").trim();
             let html=`<html dir="rtl"><head><meta charset="utf-8"><title>سجل أسبوعي W${selectedWeek.weekNum}</title>
             <style>@page{size:A4;margin:10mm}body{font-family:'Cairo',Arial,sans-serif;font-size:11px;margin:0;padding:0}
@@ -5270,7 +5295,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           notRows+="<tr><td style='border:1px solid #ccc;padding:6px;font-weight:800;color:#0284C7'>"+e.name+"</td><td style='border:1px solid #ccc;padding:6px;font-family:monospace;text-align:center'>"+(e.code||"—")+"</td><td style='border:1px solid #ccc;padding:6px;font-size:10px;color:#555'>"+(e.job||"—")+"</td><td style='border:1px solid #ccc;padding:6px;text-align:center;font-weight:800;color:#EF4444'>"+fmt0(c?c.thursdayPay:0)+" ج</td></tr>";
         });
         const html="<html dir='rtl'><head><meta charset='utf-8'><title>تقرير تأكيد استلام — W"+week.weekNum+"</title><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><style>@page{size:A4;margin:12mm}body{font-family:'Cairo',sans-serif;color:#1E293B;font-size:11px;line-height:1.6}.hdr{text-align:center;border-bottom:3px solid #10B981;padding-bottom:10px;margin-bottom:14px}.hdr h1{color:#10B981;font-size:20px;margin-bottom:4px}.meta{display:flex;justify-content:space-between;margin-bottom:12px;font-size:11px;color:#475569}.summary{display:flex;gap:10px;margin-bottom:14px;justify-content:center;flex-wrap:wrap}.card{padding:10px 16px;border-radius:10px;border:1px solid #ddd;text-align:center;min-width:130px}.card .lbl{font-size:10px;color:#666;margin-bottom:3px}.card .val{font-size:18px;font-weight:800}table{width:100%;border-collapse:collapse;margin:10px 0}th{padding:8px;font-weight:800;text-align:right;border:1px solid #ccc}.ok th{background:#F0FDF4;color:#059669;border-color:#10B98140}.err th{background:#FEF2F2;color:#DC2626;border-color:#EF444440}h2{font-size:14px;margin:16px 0 6px}.sig{margin-top:40px;display:flex;justify-content:space-around;gap:20px}.sig-box{text-align:center;min-width:150px;border-top:2px solid #1E293B;padding-top:8px;font-weight:700;font-size:11px}.foot{margin-top:20px;padding-top:8px;border-top:1px solid #ccc;display:flex;justify-content:space-between;font-size:10px;color:#94A3B8}.pbar{position:sticky;top:0;background:#fff;padding:8px;border-bottom:2px solid #ccc;display:flex;justify-content:center;gap:10px;z-index:99}.pbar button{padding:6px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:12px;font-weight:700;background:#fff}.pbar .pr{background:#10B981;color:#fff;border-color:#10B981}@media print{.pbar{display:none}}</style></head><body><div class='pbar'><button onclick='window.close()'>↩ رجوع</button><button class='pr' onclick='window.print()'>🖨 طباعة / حفظ PDF</button></div><div class='hdr'><h1>🔐 تقرير تأكيد استلام المرتبات</h1><div style='font-size:14px;color:#0EA5E9;font-weight:700'>W"+week.weekNum+" — ("+week.weekStart+" → "+week.weekEnd+")</div></div><div class='meta'><span>👤 المحاسب المؤكِّد: <b>"+(userName||"—")+"</b></span><span>📅 "+new Date().toLocaleString("ar-EG")+"</span></div><div class='summary'><div class='card'><div class='lbl'>إجمالي الموظفين</div><div class='val' style='color:#0EA5E9'>"+wkEmps.length+"</div></div><div class='card'><div class='lbl'>✅ تأكّد الاستلام</div><div class='val' style='color:#10B981'>"+received.length+"</div></div><div class='card'><div class='lbl'>❌ لم يتأكد</div><div class='val' style='color:#EF4444'>"+notReceived.length+"</div></div><div class='card'><div class='lbl'>💰 تم تأكيده</div><div class='val' style='color:#10B981;font-size:14px'>"+fmt0(totalPaid)+" ج</div></div><div class='card'><div class='lbl'>⚠️ غير مؤكد</div><div class='val' style='color:#EF4444;font-size:14px'>"+fmt0(totalDue-totalPaid)+" ج</div></div></div>"+(received.length>0?"<h2 style='color:#10B981'>✅ الموظفين الذين تأكّد استلامهم ("+received.length+")</h2><table class='ok'><thead><tr><th>الاسم</th><th style='text-align:center'>الكود</th><th>الوظيفة</th><th style='text-align:center'>المبلغ</th><th style='text-align:center'>وقت التأكيد</th></tr></thead><tbody>"+receivedRows+"</tbody></table>":"")+(notReceived.length>0?"<h2 style='color:#EF4444'>⚠️ الموظفين الذين لم يتأكدوا ("+notReceived.length+")</h2><table class='err'><thead><tr><th>الاسم</th><th style='text-align:center'>الكود</th><th>الوظيفة</th><th style='text-align:center'>المبلغ المستحق</th></tr></thead><tbody>"+notRows+"</tbody></table>":"")+"<div class='sig'><div class='sig-box'>المحاسب المؤكِّد<br/><small style='color:#64748B'>"+(userName||"—")+"</small></div><div class='sig-box'>المحاسب الأول</div><div class='sig-box'>المدير</div></div><div class='foot'><span>CLARK Factory Management</span><span>"+new Date().toLocaleString("ar-EG")+"</span></div></body></html>";
-        const pw=window.open("","_blank");if(!pw)return;pw.document.write(html);pw.document.close();setTimeout(()=>pw.print(),500);
+        const pw=_openPrintWin();if(!pw)return;pw.document.write(html);pw.document.close();setTimeout(()=>pw.print(),500);
       };
       const doWhatsapp=()=>{window.open("https://wa.me/?text="+encodeURIComponent(buildWaText()),"_blank")};
       return<div>

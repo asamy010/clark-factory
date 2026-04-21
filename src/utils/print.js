@@ -118,3 +118,43 @@ export function renderLabelPages(d,n){
   pw.document.write(h+"</body></html>");pw.document.close();
   if(window.innerWidth>1024)setTimeout(()=>{pw.focus();pw.print()},500)
 }
+
+/* V15.22: openPrintWindow — opens a window for printing with automatic fallback to iframe
+   if the browser blocks popups. Returns an object: {write, close, print} with a safe unified API.
+   Writes the given full HTML string and triggers print. Closes/removes itself after printing. */
+export function openPrintWindow(html){
+  /* First try the traditional popup */
+  const pw=window.open("","_blank");
+  if(pw){
+    try{
+      pw.document.write(html);
+      pw.document.close();
+      setTimeout(()=>{try{pw.focus();pw.print()}catch(e){}},300);
+      return{ok:true,mode:"window"};
+    }catch(e){
+      try{pw.close()}catch(_){}
+    }
+  }
+  /* Fallback: hidden iframe inside current page — works even when popups blocked */
+  try{
+    const iframe=document.createElement("iframe");
+    iframe.style.cssText="position:fixed;left:-9999px;top:0;width:1px;height:1px;border:0;opacity:0";
+    document.body.appendChild(iframe);
+    const doc=iframe.contentDocument||iframe.contentWindow.document;
+    doc.open();doc.write(html);doc.close();
+    setTimeout(()=>{
+      try{
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      }catch(e){
+        alert("المتصفح بيمنع الطباعة — فعّل النوافذ المنبثقة (pop-ups) من إعدادات المتصفح");
+      }
+      /* Clean up after a delay — allow user to finish the print dialog */
+      setTimeout(()=>{try{iframe.remove()}catch(_){}},60000);
+    },400);
+    return{ok:true,mode:"iframe"};
+  }catch(e){
+    alert("فشل فتح نافذة الطباعة: "+e.message);
+    return{ok:false,mode:"failed"};
+  }
+}
