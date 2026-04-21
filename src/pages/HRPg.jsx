@@ -1434,9 +1434,10 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     @media print{body{margin:0}}
     </style>`;
 
-  /* V15.22: Helper to open a print window with iframe fallback for popup-blocked browsers */
+  /* V15.23: Helper to open a print window with iframe fallback for popup-blocked browsers
+     FIX: Previous version had infinite recursion (self-call). Now correctly calls window.open. */
   const _openPrintWin=()=>{
-    const w=_openPrintWin();
+    const w=window.open("","_blank");
     if(w)return w;
     /* Create hidden iframe as fallback */
     const iframe=document.createElement("iframe");
