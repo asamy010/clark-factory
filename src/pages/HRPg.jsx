@@ -399,6 +399,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const[excelImportData,setExcelImportData]=useState(null);/* parsed data from Excel */
   const[excelImportNewEmps,setExcelImportNewEmps]=useState({});/* code -> true (add as new employee) */
   const[excelImportError,setExcelImportError]=useState("");
+  /* V15.24: Import mode — "normal" (writes to treasury/hrLog) or "analysis" (display only) */
+  const[excelImportMode,setExcelImportMode]=useState("normal");
   const[showBulkPrint,setShowBulkPrint]=useState(false);
   const[bulkPrintSel,setBulkPrintSel]=useState({});/* empId -> true */
   /* Generic text popup: {title, value, onSave, placeholder, multiline} */
@@ -983,6 +985,12 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     if(setSavingOverlay)setSavingOverlay({message:"جاري تسجيل الحركات في الخزنة...",progress:60});
     setTimeout(()=>{
     upConfig(d=>{if(!d.hrLog)d.hrLog=[];if(!d.treasury)d.treasury=[];if(!d.empDebts)d.empDebts=[];
+      /* V15.24: Analysis-only week — SKIP all hrLog/treasury writes + prevBalance updates.
+         Snapshot (closedRecords) is still saved inside the week itself for display. */
+      const isAnalysisWeek=!!openWeek.isAnalysisOnly;
+      if(isAnalysisWeek){
+        /* Skip all hrLog/treasury/prevBalance updates. Jump to week-closure snapshot below. */
+      }else{
       /* Log each salary */
       records.forEach(r=>{d.hrLog.unshift({id:gid(),type:"salary",empId:r.empId,empName:r.empName,amount:r.netBalance,grossPay:r.grossPay,weeklySalary:r.weeklySalary,prevBalance:r.prevBalance,prevBalanceManualOverride:!!r.prevBalanceIsManual,overtimePay:r.overtimePay||0,weekAdvances:r.weekAdvances,bonus:r.bonus,specialDeduct:r.specialDeduct,deductReason:salDeductReason[r.empId]||"",debtInstall:r.debtInstall,debtItems:r.debtItems,thursdayPay:r.thursdayPay,remainingBalance:r.remainingBalance,weekId:openWeek.id,weekStart:openWeek.weekStart,weekEnd:openWeek.weekEnd,date:today,by:userName,createdAt:new Date().toISOString(),snapshotId})});
       /* Record debt installments — supports full/partial/skip
@@ -1065,6 +1073,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             if(advUpd){advUpd.treasuryTxId=advTxId;advUpd.planned=false}}
         }
       });
+      }/* V15.24: end of non-analysis block — analysis week skips all treasury/hrLog/prevBalance updates */
       /* Close week — store BOTH user-selected date (closedAt) AND actual close date (actualClosedAt, immutable) */
       const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi>=0){
         d.hrWeeks[wi].status="closed";
@@ -1157,9 +1166,10 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         }));
         /* Audit — week closure — always logs the REAL actual date */
         const backdated=useDate!==actualCloseDate;
-        addAudit(d,{category:"week",action:"close",
-          target:"W"+d.hrWeeks[wi].weekNum+" ("+d.hrWeeks[wi].weekStart+" → "+d.hrWeeks[wi].weekEnd+")",
-          newValue:records.length+" موظف • مستحق: "+fmt0(totalGross)+" • مدفوع: "+fmt0(totalThursdayPay)+(backdated?" ⚠️ مُرحَّل لتاريخ "+useDate:""),
+        const isAnalysisClose=!!d.hrWeeks[wi].isAnalysisOnly;
+        addAudit(d,{category:"week",action:isAnalysisClose?"close_analysis":"close",
+          target:"W"+d.hrWeeks[wi].weekNum+" ("+d.hrWeeks[wi].weekStart+" → "+d.hrWeeks[wi].weekEnd+")"+(isAnalysisClose?" [تحليلي]":""),
+          newValue:records.length+" موظف • مستحق: "+fmt0(totalGross)+" • مدفوع: "+fmt0(totalThursdayPay)+(backdated?" ⚠️ مُرحَّل لتاريخ "+useDate:"")+(isAnalysisClose?" (تحليلي — لم يؤثر على الخزنة)":""),
           user:userName,severity:backdated?"warning":"info",
           notes:backdated?"⚠️ إقفال بتاريخ مختلف عن التاريخ الحقيقي ("+actualCloseDate+")":"إقفال أسبوع"});
       }});
@@ -1706,11 +1716,12 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     return{matched,unmatched};
   };
   /* Execute import: create week, attendance, advances, draftInputs; optionally add new employees */
-  const executeExcelImport=async(parsed,newEmpsToAdd,overwriteExisting)=>{
-    /* Calculate next week number */
-    const existingNums=hrWeeks.map(w=>Number(w.weekNum)||0);
-    const maxWeekNum=existingNums.length>0?Math.max(...existingNums):0;
-    const nextWeekNum=maxWeekNum+1;
+  const executeExcelImport=async(parsed,newEmpsToAdd,overwriteExisting,importMode="normal")=>{
+    /* V15.24: Calculate week number from DATE, not sequential. Prevents imported weeks
+       (e.g. 15/4) from getting higher numbers than existing newer weeks (e.g. 22/4). */
+    const nextWeekNum=getWeekNum(parsed.weekStart);
+    /* V15.24: Flag for analysis-only mode (no treasury/hrLog side effects) */
+    const isAnalysisOnly=importMode==="analysis";
     /* Check for date overlap — same weekStart means "same week imported" */
     const existingWeek=hrWeeks.find(w=>w.weekStart===parsed.weekStart);
     if(existingWeek&&!overwriteExisting){
@@ -1825,8 +1836,12 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           salInstallOverride:{},salDeductReason:{},salBaseHoursOverride:{},
           lastSaved:new Date().toISOString(),
         },
-        createdFrom:"excel-import-v15-18",
+        createdFrom:isAnalysisOnly?"excel-analysis-v15-24":"excel-import-v15-18",
         excelWeekNum:parsed.weekNumFromFile,
+        /* V15.24: Analysis-only flag — prevents this week from writing to treasury/hrLog on close */
+        isAnalysisOnly:isAnalysisOnly||false,
+        /* V15.24: In analysis mode, advances are stored INSIDE the week (for display) — not in hrLog/treasury */
+        ...(isAnalysisOnly?{analysisAdvances:newLogEntries.map(l=>({...l,weekId}))}:{}),
       };
       if(wIdx>=0){
         /* Overwrite: preserve id and close status only */
@@ -1837,17 +1852,19 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       }else{
         d.hrWeeks.push(weekData);
       }
-      /* Insert new advances */
-      newLogEntries.forEach(l=>d.hrLog.unshift(l));
-      newTreasuryEntries.forEach(t=>d.treasury.unshift(t));
+      /* V15.24: Only write to hrLog/treasury in NORMAL import mode — analysis mode keeps data inside week only */
+      if(!isAnalysisOnly){
+        newLogEntries.forEach(l=>d.hrLog.unshift(l));
+        newTreasuryEntries.forEach(t=>d.treasury.unshift(t));
+      }
       /* Audit */
-      addAudit(d,{category:"hr",action:"excel_import",
-        target:"W"+nextWeekNum+(parsed.weekNumFromFile?" (Excel W"+parsed.weekNumFromFile+")":""),
-        newValue:matched.length+" موظف مطابق • "+newEmpsData.length+" موظف جديد • "+newLogEntries.length+" سلفة",
-        user:userName,severity:"info",notes:"استيراد بيانات أسبوع من Excel"});
+      addAudit(d,{category:"hr",action:isAnalysisOnly?"excel_import_analysis":"excel_import",
+        target:"W"+nextWeekNum+(parsed.weekNumFromFile?" (Excel W"+parsed.weekNumFromFile+")":"")+(isAnalysisOnly?" [تحليلي]":""),
+        newValue:matched.length+" موظف مطابق • "+newEmpsData.length+" موظف جديد • "+newLogEntries.length+" سلفة"+(isAnalysisOnly?" (تحليلي — لم تدخل الخزنة)":""),
+        user:userName,severity:"info",notes:isAnalysisOnly?"استيراد تحليلي من Excel — لم يؤثر على الخزنة أو السلف":"استيراد بيانات أسبوع من Excel"});
     });
     return{success:true,matched:matched.length,newEmps:newEmpsData.length,
-      advances:newLogEntries.length,weekNum:nextWeekNum,weekStart:parsed.weekStart};
+      advances:newLogEntries.length,weekNum:nextWeekNum,weekStart:parsed.weekStart,isAnalysisOnly};
   };
 
   /* ── Popup helpers ── */
@@ -1930,6 +1947,9 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           setShowNewWeek(!showNewWeek)
         }}>{showNewWeek?"✕":"+ أسبوع جديد"}</Btn>}
         {canEdit&&<Btn onClick={()=>{setMatrixEmps(activeEmps.map(e=>({empId:e.id,name:e.name,amount:0})));setMatrixDate(today);setMatrixDesc("سلفة");setShowMatrix(true)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>💸 دفعات مجمعة</Btn>}
+        {/* V15.24: Excel import buttons available at overview level — no need to open a week first */}
+        {canEdit&&<Btn onClick={()=>{setExcelImportMode("normal");setShowExcelImport(true)}} style={{background:"#10B98112",color:"#10B981",border:"1px solid #10B98130",fontWeight:700}} title="استيراد أسبوع كامل من Excel — يسجل السلف في الخزنة عادي">📥 استيراد Excel</Btn>}
+        {canEdit&&<Btn onClick={()=>{setExcelImportMode("analysis");setShowExcelImport(true)}} style={{background:"#3B82F612",color:"#3B82F6",border:"1px solid #3B82F630",fontWeight:700}} title="استيراد أسبوع للتحليل والعرض فقط — لن يؤثر على الخزنة أو السلف">📊 استيراد تحليلي</Btn>}
       </div>
       {showNewWeek&&<Card title="+ فتح أسبوع جديد" style={{marginBottom:16}}>
         <div style={{display:"flex",gap:6,marginBottom:10}}>
@@ -1948,7 +1968,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         {/* ── LEFT: Weeks list ── */}
         <div style={{flex:isMob?"auto":"1 1 55%",minWidth:0}}>
       {hrWeeks.length>0?<div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {hrWeeks.map(w=>{const isSelected=previewWeekId===w.id;
+        {/* V15.24: Sort weeks by date DESC (newest first) regardless of insertion order */}
+        {[...hrWeeks].sort((a,b)=>(b.weekStart||"").localeCompare(a.weekStart||"")).map(w=>{const isSelected=previewWeekId===w.id;
           /* Compute live stats for open week (if not closed, recalculate from current data) */
           let wGross=w.totalGross||0,wThursday=w.totalThursdayPay||0,wRemaining=w.totalRemaining||0,wEmpCount=w.empCount||0,wWeeklyAdv=w.totalWeeklyAdvances||0;
           /* Sum of prev balances — use the SAME value that calcSalary uses (respects manual overrides + excludes employees not in this week) */
@@ -1988,6 +2009,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             </div>
             <div style={{display:"flex",alignItems:"center",gap:isMob?6:10,flexWrap:"wrap"}}>
               <span style={{padding:"6px 14px",borderRadius:10,fontSize:FS-1,fontWeight:800,background:isClosedW?T.ok+"15":T.warn+"15",color:isClosedW?T.ok:T.warn,border:"1px solid "+(isClosedW?T.ok+"30":T.warn+"30")}}>{isClosedW?"✅ مقفول":"🔓 مفتوح"}</span>
+              {/* V15.24: Analysis-only badge — makes it immediately obvious this week is display-only */}
+              {w.isAnalysisOnly&&<span style={{padding:"6px 12px",borderRadius:10,fontSize:FS-1,fontWeight:800,background:"#3B82F615",color:"#3B82F6",border:"1px solid #3B82F640"}} title="هذا الأسبوع مستورد للتحليل فقط — لا يؤثر على الخزنة أو السلف">📊 تحليلي</span>}
               <span onClick={e=>{e.stopPropagation();setOpenWeekId(w.id)}} style={{cursor:"pointer",padding:"6px 18px",borderRadius:10,background:T.accent,color:"#fff",fontSize:FS-1,fontWeight:800,border:"none"}}>فتح</span>
               {canEdit&&(!isClosedW||unlockedWeeks[w.id])&&<span onClick={e=>{e.stopPropagation();
                 /* V14.55: Compute full impact analysis for clean-delete option */
@@ -2166,6 +2189,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             <span style={{fontSize:20,fontWeight:800,color:isClosed?T.ok:T.accent}}>{"W"+openWeek.weekNum}</span>
             <span style={{fontSize:FS,color:T.textSec}}>{openWeek.weekStart+" → "+openWeek.weekEnd}</span>
             <span style={{padding:"3px 10px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:isClosed&&!unlockedWeeks[openWeek.id]?T.ok+"12":unlockedWeeks[openWeek.id]?T.warn+"12":T.warn+"12",color:isClosed&&!unlockedWeeks[openWeek.id]?T.ok:T.warn}}>{isClosed&&!unlockedWeeks[openWeek.id]?"✅ مقفول":unlockedWeeks[openWeek.id]?"🔓 تعديل":"🔓 مفتوح"}</span>
+            {/* V15.24: Analysis-only badge inside open week header */}
+            {openWeek.isAnalysisOnly&&<span style={{padding:"3px 10px",borderRadius:6,fontSize:FS-2,fontWeight:800,background:"#3B82F615",color:"#3B82F6",border:"1px solid #3B82F640"}}>📊 تحليلي</span>}
             {canEdit&&isClosed&&!unlockedWeeks[openWeek.id]&&<Btn small onClick={()=>openConfirm({title:"تفعيل تعديل الأسبوع",message:"هذا الأسبوع مقفول بالفعل. تفعيل التعديل يسمح لك بتعديل البيانات، لكن الحركات المالية (خزنة / سجل) لن تتحدث تلقائياً. لإعادة الاعتماد والتأثير على الخزنة، اضغط على اعتماد من جديد.",variant:"warn",onConfirm:()=>setUnlockedWeeks(p=>({...p,[openWeek.id]:true}))})} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30",fontWeight:700,fontSize:FS-2}}>🔓 تفعيل التعديل</Btn>}
             {canEdit&&unlockedWeeks[openWeek.id]&&<Btn small onClick={()=>setUnlockedWeeks(p=>{const n={...p};delete n[openWeek.id];return n})} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd,fontSize:FS-2}}>🔒 إيقاف التعديل</Btn>}
             {/* Restore button — only shown if week was closed TODAY and has a snapshot */}
@@ -2188,6 +2213,21 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             </div>
           </div>}
         </div>
+
+        {/* V15.24: Analysis-only warning banner — prominent visual indicator */}
+        {openWeek.isAnalysisOnly&&<div style={{padding:"12px 16px",marginBottom:14,borderRadius:12,background:"#3B82F610",border:"1.5px solid #3B82F640",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+          <span style={{fontSize:24}}>📊</span>
+          <div style={{flex:1,minWidth:200}}>
+            <div style={{fontSize:FS,fontWeight:800,color:"#3B82F6",marginBottom:2}}>أسبوع تحليلي — للعرض والتقارير فقط</div>
+            <div style={{fontSize:FS-2,color:T.textSec,lineHeight:1.6}}>
+              ✗ السلف والمرتبات لن تدخل الخزنة عند الإقفال
+              {" • "}
+              ✗ لن يؤثر على رصيد الموظفين
+              {" • "}
+              ✓ قابل للتعديل والإقفال والحذف
+            </div>
+          </div>
+        </div>}
 
         {/* ── Week Summary Cards (8 cards above paste) ── */}
         {(()=>{
@@ -2732,7 +2772,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                   });
                   setQuickEntryPopup({type:"prevBalance",tabData:initTabData,search:""});
                 }} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}} title="إدخال سريع — دفعة واحدة لعدة موظفين بكل الحقول">⚡ إدخال سريع</Btn>}
-                {!isLocked&&canEdit&&<Btn small onClick={()=>setShowExcelImport(true)} style={{background:"#10B98112",color:"#10B981",border:"1px solid #10B98130",fontWeight:700}} title="استيراد بيانات أسبوع كامل من Excel">📥 استيراد Excel</Btn>}
+                {!isLocked&&canEdit&&<Btn small onClick={()=>{setExcelImportMode("normal");setShowExcelImport(true)}} style={{background:"#10B98112",color:"#10B981",border:"1px solid #10B98130",fontWeight:700}} title="استيراد بيانات أسبوع كامل من Excel">📥 استيراد Excel</Btn>}
                 <Btn small onClick={()=>{
                   /* Print the current filtered table as a single-page overview */
                   const rows=filteredShown.map((emp,i)=>{const c=getEmpSalary(emp.id,openWeek);if(!c)return"";
@@ -3962,7 +4002,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         if(!excelImportData)return;
         setExcelImportStage("importing");
         try{
-          const res=await executeExcelImport(excelImportData,excelImportNewEmps,overwrite);
+          /* V15.24: Pass the selected import mode (normal or analysis) */
+          const res=await executeExcelImport(excelImportData,excelImportNewEmps,overwrite,excelImportMode);
           if(res.needsConfirm){
             const existingWeek=res.existingWeek;
             const ok=await ask({
@@ -3971,9 +4012,9 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               okText:"نعم، اكتب فوقه",cancelText:"إلغاء",type:"warning"
             });
             if(ok){
-              const res2=await executeExcelImport(excelImportData,excelImportNewEmps,true);
+              const res2=await executeExcelImport(excelImportData,excelImportNewEmps,true,excelImportMode);
               if(res2.success){
-                showToast("✓ تم استيراد W"+res2.weekNum+" — "+res2.matched+" موظف");
+                showToast((res2.isAnalysisOnly?"📊 ":"✓ ")+"تم استيراد W"+res2.weekNum+" — "+res2.matched+" موظف"+(res2.isAnalysisOnly?" (تحليلي)":""));
                 close();
                 return;
               }
@@ -3982,7 +4023,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             return;
           }
           if(res.success){
-            showToast("✓ تم استيراد W"+res.weekNum+" — "+res.matched+" موظف + "+res.newEmps+" جديد");
+            showToast((res.isAnalysisOnly?"📊 ":"✓ ")+"تم استيراد W"+res.weekNum+" — "+res.matched+" موظف + "+res.newEmps+" جديد"+(res.isAnalysisOnly?" (تحليلي)":""));
             close();
           }
         }catch(err){
@@ -3994,9 +4035,16 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={close}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:680,maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-            <div style={{fontSize:FS+2,fontWeight:800,color:"#10B981"}}>📥 استيراد بيانات أسبوع من Excel</div>
+            <div style={{fontSize:FS+2,fontWeight:800,color:excelImportMode==="analysis"?"#3B82F6":"#10B981"}}>{excelImportMode==="analysis"?"📊 استيراد تحليلي — أسبوع للعرض فقط":"📥 استيراد بيانات أسبوع من Excel"}</div>
             <Btn ghost small onClick={close}>✕</Btn>
           </div>
+          {/* V15.24: Analysis mode banner — explicit warning about non-effect on treasury */}
+          {excelImportMode==="analysis"&&<div style={{padding:"10px 14px",marginBottom:12,borderRadius:10,background:"#3B82F612",color:"#3B82F6",border:"1px solid #3B82F640",fontSize:FS-1,fontWeight:700,lineHeight:1.7}}>
+            📊 <b>وضع التحليل:</b> هذا الأسبوع سيتم حفظه للعرض والتقارير فقط.
+            <div style={{fontSize:FS-2,fontWeight:500,marginTop:4,opacity:0.85}}>
+              ✗ السلف لن تدخل الخزنة • ✗ لن يؤثر على رصيد الموظفين • ✓ الموظفين الجدد سيُضافون للنظام • ✓ قابل للتعديل والإقفال
+            </div>
+          </div>}
           {excelImportError&&<div style={{padding:"10px 14px",marginBottom:12,borderRadius:10,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",fontSize:FS-1,fontWeight:700}}>⚠️ {excelImportError}</div>}
           
           {excelImportStage==="upload"&&<div>
