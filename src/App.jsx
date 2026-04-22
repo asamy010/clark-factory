@@ -44,6 +44,10 @@ import { TasksPg } from "./pages/TasksPg.jsx";
 import { SettingsPg } from "./pages/SettingsPg.jsx";
 import { WarehousePg } from "./pages/WarehousePg.jsx";
 
+/* V15.50: Public delivery confirmation page — opened when customer scans QR from delivery receipt.
+   Rendered BEFORE auth check so it works without login. */
+import { ConfirmPage } from "./components/ConfirmPage.jsx";
+
 
 /* Optional libs - loaded dynamically */
 
@@ -87,6 +91,15 @@ import { WarehousePg } from "./pages/WarehousePg.jsx";
 
 
 export default function App(){
+  /* V15.50: Public delivery confirmation — checked FIRST so customer QR scans don't require login.
+     URL format: /?dc=1&s=<sessionId>&c=<custId>&sig=<hmac> */
+  const urlParams=new URLSearchParams(window.location.search);
+  if(urlParams.get("dc")==="1"){
+    const s=urlParams.get("s"),c=urlParams.get("c"),sig=urlParams.get("sig");
+    if(s&&c&&sig){
+      return <ConfirmPage params={{s,c,sig}}/>;
+    }
+  }
   /* QR scan: ?o=modelNo → order details, ?act=rcv&oid=ID&wdi=IDX → receive mode */
   const qrParams=new URLSearchParams(window.location.search);
   const qrModelNo=qrParams.get("o");
@@ -877,7 +890,12 @@ export default function App(){
       if(!n.readBy.includes(userEmail))n.readBy.push(userEmail);
     }
   });
-  const allAlerts=[...userNotifs.map(n=>({msg:n.msg,color:n.type==="طلب"?"#8B5CF6":n.type==="مهمة"?T.accent:T.warn,icon:n.type==="طلب"?"📩":n.type==="مهمة"?"📌":"💬",orderId:n.orderId||null,isNotif:true,notifId:n.id,from:n.fromName,date:n.createdAt})),...appAlerts];
+  const allAlerts=[...userNotifs.map(n=>{
+    /* V15.50: Delivery confirmation notification types get specific styling + link to custDelivery */
+    if(n.type==="delivery_confirmed")return{msg:n.msg,color:"#10B981",icon:"✅",orderId:null,isNotif:true,notifId:n.id,from:n.fromName,date:n.createdAt,goTo:"custDelivery"};
+    if(n.type==="delivery_issue")return{msg:n.msg,color:"#EF4444",icon:"⚠️",orderId:null,isNotif:true,notifId:n.id,from:n.fromName,date:n.createdAt,goTo:"custDelivery"};
+    return{msg:n.msg,color:n.type==="طلب"?"#8B5CF6":n.type==="مهمة"?T.accent:T.warn,icon:n.type==="طلب"?"📩":n.type==="مهمة"?"📌":"💬",orderId:n.orderId||null,isNotif:true,notifId:n.id,from:n.fromName,date:n.createdAt};
+  }),...appAlerts];
   const alertCount=allAlerts.length;
   /* Urgent tasks - separate from bell */
   const urgentTasks=(config.notifications||[]).filter(n=>n.type==="مهمة عاجلة"&&(n.toEmail===userEmail||n.toEmail==="all")&&!(n.doneBy||[]).includes(userEmail));
@@ -912,7 +930,7 @@ export default function App(){
           <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}
           </span>
-          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V15.49</span>
+          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V15.50</span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -970,7 +988,7 @@ export default function App(){
               <span>التنبيهات</span>
               {alertCount>0&&<span style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>{alertCount}</span>}
             </div>
-            {alertCount>0?allAlerts.map((a,i)=><div key={i} onClick={()=>{if(a.isNotif)markRead(a.notifId);if(a.orderId){goD(a.orderId);setShowAlerts(false)}else if(a.isNotif)setShowAlerts(false)}} style={{padding:"10px 14px",borderBottom:"1px solid "+T.brd,display:"flex",gap:10,alignItems:"flex-start",cursor:a.orderId||a.isNotif?"pointer":"default",background:a.isNotif?a.color+"06":"transparent",transition:"background 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=a.color+"12"} onMouseLeave={e=>e.currentTarget.style.background=a.isNotif?a.color+"06":"transparent"}>
+            {alertCount>0?allAlerts.map((a,i)=><div key={i} onClick={()=>{if(a.isNotif)markRead(a.notifId);if(a.orderId){goD(a.orderId);setShowAlerts(false)}else if(a.goTo==="custDelivery"){setPage("custDelivery");setShowAlerts(false)}else if(a.isNotif)setShowAlerts(false)}} style={{padding:"10px 14px",borderBottom:"1px solid "+T.brd,display:"flex",gap:10,alignItems:"flex-start",cursor:a.orderId||a.isNotif?"pointer":"default",background:a.isNotif?a.color+"06":"transparent",transition:"background 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=a.color+"12"} onMouseLeave={e=>e.currentTarget.style.background=a.isNotif?a.color+"06":"transparent"}>
               <span style={{fontSize:16,flexShrink:0}}>{a.icon}</span>
               <div style={{flex:1}}><span style={{fontSize:FS-1,color:a.color,fontWeight:600,lineHeight:1.5}}>{a.msg}</span>{a.from&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{"من: "+a.from+(a.date?" — "+a.date:"")}</div>}{a.orderId&&!a.isNotif&&!a.wsPhone&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>اضغط لفتح الأوردر</div>}</div>
               {a.wsPhone&&<span onClick={e=>{e.stopPropagation();const lines=(a.wsDetails||[]).map(d=>"• موديل *"+d.modelNo+"*: *"+d.qty+"* قطعة — "+d.days+" يوم"+(d.agreed?" (متفق "+d.agreed+" يوم)":"")).join("%0A");const msg="*CLARK — تنبيه تأخير*%0A%0A• الورشة: *"+a.wsName+"*%0A%0A"+lines+"%0A%0A⚠️ *برجاء الاهتمام بالتسليم في أقرب وقت*";window.open("https://wa.me/"+(a.wsPhone.replace(/[^0-9]/g,""))+"?text="+msg,"_blank")}} style={{cursor:"pointer",fontSize:14,color:"#25D366",flexShrink:0,padding:"2px 4px"}}>📱</span>}

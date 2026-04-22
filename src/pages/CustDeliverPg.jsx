@@ -848,7 +848,15 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           <tbody>
             {fCusts.map((c,ci)=>{const rowTotal=fMods.reduce((s,m)=>s+getGroupQty(m,c.id),0);
               return<tr key={c.id} style={{background:ci%2===0?"transparent":T.bg+"80"}}>
-                <td style={{...TD,fontWeight:700}}>{c.name}<div style={{fontSize:FS-3,color:T.textMut}}>{c.phone}</div></td>
+                <td style={{...TD,fontWeight:700}}>{c.name}{(()=>{
+                  /* V15.50: Confirmation badge — shows customer's scan result */
+                  const cf=(activeSess.confirmations||{})[c.id];
+                  if(!cf)return<span title="في انتظار تأكيد العميل" style={{marginInlineStart:6,padding:"1px 6px",borderRadius:6,background:"#94A3B812",color:"#64748B",fontSize:FS-3,fontWeight:700,verticalAlign:"middle"}}>⏳</span>;
+                  const ageMs=Date.now()-new Date(cf.at).getTime();
+                  const locked=ageMs>=24*60*60*1000;
+                  if(cf.status==="confirm")return<span title={"أكد في "+new Date(cf.at).toLocaleString("ar-EG")+(locked?" • مقفول":"")} style={{marginInlineStart:6,padding:"1px 6px",borderRadius:6,background:"#10B98115",color:"#10B981",fontSize:FS-3,fontWeight:700,verticalAlign:"middle"}}>{locked?"🔒":""}✅</span>;
+                  return<span title={"أبلغ عن مشكلة: "+(cf.note||"—")+" • "+new Date(cf.at).toLocaleString("ar-EG")} style={{marginInlineStart:6,padding:"1px 6px",borderRadius:6,background:"#EF444415",color:"#EF4444",fontSize:FS-3,fontWeight:700,verticalAlign:"middle"}}>{locked?"🔒":""}⚠️</span>;
+                })()}<div style={{fontSize:FS-3,color:T.textMut}}>{c.phone}</div></td>
                 {fMods.map((m,mi)=>{const k=m.id+"_"+c.id;const q=getGroupQty(m,c.id);const isEd=editCell===k;
                   const breakdown=m.isGrouped?getGroupBreakdown(m,c.id):"";
                   return<td key={m.id} style={{...TD,textAlign:"center",padding:2,cursor:canEdit?"pointer":"default",background:isEd?T.warn+"10":q>0?T.ok+"04":"transparent"}}
@@ -964,16 +972,64 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const gMods=groupSessionModels(sess);
       const g=sess.grid||{};const selCount=Object.values(groupPrint.selCusts).filter(Boolean).length;
       const selTotal=gCusts.filter(c=>groupPrint.selCusts[c.id]).reduce((s,c)=>gMods.reduce((ss,m)=>ss+getGroupQtyForPrint(m,c.id,g),0)+s,0);
-      const doPrintGroup=()=>{const selC=gCusts.filter(c=>groupPrint.selCusts[c.id]);if(selC.length===0){showToast("⚠️ اختار عميل واحد على الأقل");return}
-        let h="<h2 style='text-align:center'>CLARK — إذن تسليم مجمع</h2>";
+      const doPrintGroup=async()=>{const selC=gCusts.filter(c=>groupPrint.selCusts[c.id]);if(selC.length===0){showToast("⚠️ اختار عميل واحد على الأقل");return}
+        /* V15.50: Fetch signed URLs from backend — one per customer */
+        let signatures={};
+        try{
+          const pairs=selC.map(c=>({sessionId:sess.id,custId:c.id}));
+          const r=await fetch("/api/delivery-sign",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pairs})});
+          const j=await r.json();
+          if(r.ok&&Array.isArray(j.signatures)){
+            j.signatures.forEach(s=>{signatures[s.custId]=s.sig});
+          }else{
+            showToast("⚠️ تعذر توليد روابط التأكيد — سيتم الطباعة بدون QR");
+          }
+        }catch(e){
+          showToast("⚠️ تعذر الاتصال بخدمة التوقيع — سيتم الطباعة بدون QR");
+        }
+        const origin=window.location.origin;
+        let h="<h2 style='text-align:center'>CLARK — إذن تسليم</h2>";
         h+="<table style='margin:0 auto 16px;font-size:12px'><tr><td style='padding:4px 12px;font-weight:700'>التاريخ</td><td style='padding:4px 12px'>"+sess.date+"</td>"+(groupPrint.receiver?"<td style='padding:4px 12px;font-weight:700'>المستلم</td><td style='padding:4px 12px;font-weight:800;font-size:14px'>"+groupPrint.receiver+"</td>":"")+"</tr></table>";
-        let grandTotal=0;selC.forEach(c=>{let custTotal=0;
-          h+="<h3 style='margin-top:14px;padding:4px 8px;background:#EFF6FF;border-right:4px solid #0EA5E9'>"+c.name+"</h3>";
-          h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th></tr></thead><tbody>";
-          gMods.forEach(m=>{const q=getGroupQtyForPrint(m,c.id,g);if(q>0){custTotal+=q;h+="<tr><td style='font-weight:800'>"+m.modelNo+(m.isGrouped?" <span style='font-size:9px;color:#8B5CF6'>⧉"+m.orderIds.length+"</span>":"")+"</td><td>"+m.modelDesc+"</td><td style='text-align:center;font-weight:800;color:#0EA5E9'>"+q+"</td></tr>"}});
-          h+="<tr style='background:#F0F9FF;font-weight:800'><td colspan='2'>اجمالي "+c.name+"</td><td style='text-align:center;color:#0EA5E9'>"+custTotal+"</td></tr></tbody></table>";grandTotal+=custTotal});
-        h+="<div style='margin-top:16px;padding:10px;background:#F1F5F9;border-radius:8px;text-align:center;font-weight:800;font-size:16px'>الاجمالي الكلي: "+selCount+" عملاء | "+grandTotal+" قطعة</div>";
+        let grandTotal=0,grandMoney=0;
+        selC.forEach((c,ci)=>{let custTotal=0,custMoney=0;
+          const sig=signatures[c.id]||"";
+          const confirmUrl=sig?origin+"/?dc=1&s="+encodeURIComponent(sess.id)+"&c="+encodeURIComponent(c.id)+"&sig="+encodeURIComponent(sig):"";
+          const pageBreak=ci>0?"page-break-before:always;":"";
+          h+="<div style='"+pageBreak+"padding-top:10px'>";
+          h+="<h3 style='margin-top:14px;padding:4px 8px;background:#EFF6FF;border-right:4px solid #0EA5E9'>"+c.name+(c.phone?"  <span style='font-size:11px;color:#64748B;font-weight:600'>"+c.phone+"</span>":"")+"</h3>";
+          h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>";
+          gMods.forEach(m=>{const q=getGroupQtyForPrint(m,c.id,g);if(q>0){
+            /* Price: use the first matching order's sellPrice (or per-delivery price if one exists) */
+            const oids=m.orderIds||[m.id];
+            let price=0;
+            for(const oid of oids){const o=orders.find(x=>x.id===oid);if(o){
+              /* Check for discounted delivery in this session for this customer first */
+              const dd=(o.customerDeliveries||[]).find(d=>d.custId===c.id&&d.sessionId===sess.id&&Number(d.price)>0);
+              if(dd){price=Number(dd.price);break}
+              if(Number(o.sellPrice)>0){price=Number(o.sellPrice);break}
+            }}
+            const lineTotal=q*price;custTotal+=q;custMoney+=lineTotal;
+            h+="<tr><td style='font-weight:800'>"+m.modelNo+(m.isGrouped?" <span style='font-size:9px;color:#8B5CF6'>⧉"+m.orderIds.length+"</span>":"")+"</td><td>"+m.modelDesc+"</td><td style='text-align:center;font-weight:800;color:#0EA5E9'>"+q+"</td><td style='text-align:center'>"+(price?fmt(price):"—")+"</td><td style='text-align:center;font-weight:700'>"+fmt(lineTotal)+"</td></tr>";
+          }});
+          h+="<tr style='background:#F0F9FF;font-weight:800'><td colspan='2'>اجمالي "+c.name+"</td><td style='text-align:center;color:#0EA5E9'>"+custTotal+"</td><td></td><td style='text-align:center;color:#0EA5E9'>"+fmt(custMoney)+"</td></tr></tbody></table>";
+          /* V15.50: QR confirmation block — one per customer */
+          if(confirmUrl){
+            h+="<div style='margin-top:12px;padding:10px;border:2px dashed #0EA5E9;border-radius:10px;display:flex;align-items:center;gap:14px;background:#F0F9FF;page-break-inside:avoid'>"
+              +"<canvas class='confirm-qr' data-qr='"+confirmUrl.replace(/'/g,"&#39;")+"' style='width:80px;height:80px;flex-shrink:0'></canvas>"
+              +"<div style='flex:1;font-size:11px;line-height:1.6'>"
+              +"<div style='font-size:13px;font-weight:800;color:#0369A1;margin-bottom:3px'>📱 تأكيد الاستلام</div>"
+              +"<div style='color:#475569'>بعد مطابقة البضاعة، امسح الكود للتأكيد أو الإبلاغ عن مشكلة.</div>"
+              +"<div style='color:#94A3B8;font-size:10px;margin-top:3px'>الرابط صالح لمدة 24 ساعة من التأكيد</div>"
+              +"</div></div>";
+          }
+          grandTotal+=custTotal;grandMoney+=custMoney;
+          h+="</div>";/* end per-customer block */
+        });
+        h+="<div style='margin-top:16px;padding:10px;background:#F1F5F9;border-radius:8px;text-align:center;font-weight:800;font-size:16px'>الاجمالي الكلي: "+selC.length+" عملاء | "+grandTotal+" قطعة | "+fmt(grandMoney)+" ج.م</div>";
         h+="<div class='sig'><div class='sig-box'>مسؤول التسليم</div><div class='sig-box'>المستلم"+(groupPrint.receiver?"<br><b>"+groupPrint.receiver+"</b>":"")+"</div><div class='sig-box'>المراجع</div></div>";
+        /* V15.50: Load QRCode.js and render all QR canvases */
+        h+="<script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script>";
+        h+="<script>function _renderCLARKqrs(){if(typeof QRCode==='undefined'){setTimeout(_renderCLARKqrs,100);return}document.querySelectorAll('.confirm-qr').forEach(function(c){QRCode.toCanvas(c,c.dataset.qr,{width:160,margin:0,errorCorrectionLevel:'M'},function(){})})}_renderCLARKqrs();</"+"script>";
         printPage("تسليم مجمع — "+sess.date,h);setGroupPrint(null)};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setGroupPrint(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:450,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
