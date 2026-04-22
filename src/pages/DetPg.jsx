@@ -496,26 +496,31 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         </div>
         {/* V15.10: Old separate warning card removed — merged into cost card above for a cleaner layout */}
       </div>
-      {/* V15.45: Cut/workshop sync banner — appears when cutQty ≠ sum(workshopDeliveries.qty) */}
+      {/* V15.46: Cut/workshop sync banner — per-piece mismatch detection.
+          Business logic: order is a SET; each piece (shirt/shorts/etc) goes to own workshops.
+          Sum of deliveries per piece should equal cutQty, NOT sum of ALL deliveries. */}
       {(()=>{const m=detectQtyMismatch(order);if(!m.hasMismatch||order.closed)return null;
-        const diffLabel=m.diff>0?"القص أكبر":"التسليم أكبر";
-        const diffColor=m.diff>0?"#F59E0B":"#EF4444";
-        /* V15.45: Find last cut-sync entry to show who last changed it */
         const lastSync=(order.cutSyncHistory||[]).slice(-1)[0];
-        return<div style={{padding:"10px 14px",marginBottom:14,borderRadius:12,background:diffColor+"08",border:"1.5px solid "+diffColor+"35",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
-          <div style={{display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0}}>
-            <span style={{fontSize:20,flexShrink:0}}>⚠️</span>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:FS-1,fontWeight:800,color:diffColor}}>عدم تطابق بين كمية القص وإجمالي التسليم للورش</div>
-              <div style={{fontSize:FS-2,color:T.textSec,marginTop:3,display:"flex",gap:10,flexWrap:"wrap"}}>
-                <span>القص: <b style={{color:T.text}}>{m.cutQty}</b></span>
-                <span>التسليم للورش: <b style={{color:T.text}}>{m.totalDelivered}</b></span>
-                <span style={{color:diffColor,fontWeight:700}}>فرق: {m.diff>0?"+":""}{m.diff} ({diffLabel})</span>
+        return<div style={{padding:"10px 14px",marginBottom:14,borderRadius:12,background:"#F59E0B08",border:"1.5px solid #F59E0B35"}}>
+          <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+            <div style={{display:"flex",alignItems:"flex-start",gap:10,flex:1,minWidth:0}}>
+              <span style={{fontSize:20,flexShrink:0,marginTop:2}}>⚠️</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:FS-1,fontWeight:800,color:"#B45309"}}>عدم تطابق بين كمية القص والتسليم للورش</div>
+                <div style={{fontSize:FS-2,color:T.textSec,marginTop:2}}>القص: <b style={{color:T.text}}>{m.cutQty}</b> طقم — {m.mismatchedPieces.length} قطعة/قطع غير متطابقة:</div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:6}}>
+                  {m.mismatchedPieces.map(p=>{const col=p.diff>0?"#F59E0B":"#EF4444";return<div key={p.piece} style={{padding:"4px 10px",borderRadius:8,background:col+"12",border:"1px solid "+col+"35",fontSize:FS-2}}>
+                    <b style={{color:col}}>{p.piece}</b>
+                    <span style={{color:T.textMut,margin:"0 4px"}}>•</span>
+                    <span>تسليم <b>{p.totalDelivered}</b></span>
+                    <span style={{color:col,fontWeight:700,marginInlineStart:6}}>({p.diff>0?"+":""}{-p.diff})</span>
+                  </div>})}
+                </div>
+                {lastSync&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:6}}>آخر مزامنة: {lastSync.by||"—"} • {lastSync.at?new Date(lastSync.at).toLocaleString("ar-EG"):"—"}</div>}
               </div>
-              {lastSync&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>آخر مزامنة: {lastSync.by||"—"} • {lastSync.at?new Date(lastSync.at).toLocaleString("ar-EG"):"—"}</div>}
             </div>
+            {canEdit&&<Btn small onClick={()=>{const pl=planCutSync(order);setSyncPopup({...pl,manual:{}})}} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,whiteSpace:"nowrap",flexShrink:0}}>🔄 مزامنة</Btn>}
           </div>
-          {canEdit&&<Btn small onClick={()=>{const pl=planCutSync(order);setSyncPopup({...pl,manual:{}})}} style={{background:diffColor,color:"#fff",border:"none",fontWeight:700,whiteSpace:"nowrap"}}>🔄 مزامنة</Btn>}
         </div>
       })()}
       {/* Timeline - phases */}
@@ -1195,81 +1200,84 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         </div>
       </div>;
     })()}
-    {/* V15.45: Cut/workshop sync popup — shows proposed plan, allows manual overrides, logs changes */}
-    {syncPopup&&(()=>{const plan=syncPopup.plan;const m=syncPopup.m;
-      /* Build effective plan using manual overrides where set */
-      const effPlan=plan.map(p=>{const ov=syncPopup.manual[p.wdIdx];const eff=ov!==undefined&&ov!==""?Number(ov):p.newQty;return{...p,newQty:eff,delta:eff-p.currentQty,belowReceived:eff<p.receivedQty}});
-      const sumNew=effPlan.reduce((s,p)=>s+(Number(p.newQty)||0),0);
-      const matchesCut=sumNew===m.cutQty;
-      const anyBelowRcv=effPlan.some(p=>p.belowReceived);
-      const canApply=matchesCut&&!anyBelowRcv;
+    {/* V15.46: Cut/workshop sync popup — PER PIECE plan. Each piece group sums to cutQty. */}
+    {syncPopup&&(()=>{const piecePlans=syncPopup.pieces;const m=syncPopup.m;
+      /* Apply manual overrides and compute effective state per piece */
+      const effPieces=piecePlans.map(pp=>{
+        const wds=pp.wds.map(w=>{const key=pp.piece+"_"+w.wdIdx;const ov=syncPopup.manual[key];const eff=ov!==undefined&&ov!==""?Number(ov):w.newQty;return{...w,newQty:eff,delta:eff-w.currentQty,belowReceived:eff<w.receivedQty}});
+        const sumNew=wds.reduce((s,w)=>s+(Number(w.newQty)||0),0);
+        return{...pp,wds,sumNew,matchesCut:sumNew===m.cutQty,anyBelowRcv:wds.some(w=>w.belowReceived)};
+      });
+      const allMatch=effPieces.every(p=>p.matchesCut);
+      const anyBelowRcv=effPieces.some(p=>p.anyBelowRcv);
+      const canApply=allMatch&&!anyBelowRcv;
       const applyPlan=()=>{
         if(!canApply)return;
-        /* Build snapshot for history */
-        const changes=effPlan.filter(p=>p.delta!==0).map(p=>({wsName:p.wsName,from:p.currentQty,to:p.newQty,delta:p.delta}));
+        const changes=[];
+        effPieces.forEach(pp=>{pp.wds.forEach(w=>{if(w.delta!==0)changes.push({piece:pp.piece,wsName:w.wsName,from:w.currentQty,to:w.newQty,delta:w.delta})})});
         updOrder(sel,o=>{
-          effPlan.forEach(p=>{if(o.workshopDeliveries&&o.workshopDeliveries[p.wdIdx]){o.workshopDeliveries[p.wdIdx].qty=p.newQty}});
+          effPieces.forEach(pp=>{pp.wds.forEach(w=>{if(o.workshopDeliveries&&o.workshopDeliveries[w.wdIdx]){o.workshopDeliveries[w.wdIdx].qty=w.newQty}})});
           if(!o.cutSyncHistory)o.cutSyncHistory=[];
-          o.cutSyncHistory.push({at:new Date().toISOString(),by:userName,cutQty:m.cutQty,totalBefore:m.totalDelivered,totalAfter:sumNew,changes});
+          o.cutSyncHistory.push({at:new Date().toISOString(),by:userName,cutQty:m.cutQty,pieces:effPieces.map(p=>({piece:p.piece,before:p.currentTotal,after:p.sumNew})),changes});
           o.status=recomputeStatus(o);
         });
-        /* Audit log (global) */
-        upConfig(d=>{addAudit(d,{category:"order",action:"cut_sync",target:"موديل "+order.modelNo,oldValue:"التسليم="+m.totalDelivered,newValue:"التسليم="+sumNew+" (القص="+m.cutQty+")",user:userName,notes:changes.map(c=>c.wsName+": "+c.from+"→"+c.to).join(" | "),severity:"warning"})});
-        showToast("✓ تمت مزامنة "+changes.length+" تسليم");
+        upConfig(d=>{addAudit(d,{category:"order",action:"cut_sync",target:"موديل "+order.modelNo,oldValue:"قبل: "+effPieces.map(p=>p.piece+"="+p.currentTotal).join(", "),newValue:"بعد: "+effPieces.map(p=>p.piece+"="+p.sumNew).join(", ")+" (القص="+m.cutQty+")",user:userName,notes:changes.map(c=>c.piece+"/"+c.wsName+": "+c.from+"→"+c.to).join(" | "),severity:"warning"})});
+        showToast("✓ تمت مزامنة "+changes.length+" تسليم لـ "+effPieces.length+" قطعة");
         setSyncPopup(null);
       };
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setSyncPopup(null)}>
-        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:720,maxHeight:"88vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:780,maxHeight:"88vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div>
               <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>🔄 مزامنة التسليم للورش</div>
-              <div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>توزيع الفرق على الورش الخارجية تناسبياً — تقدر تعدّل يدوياً</div>
+              <div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>كل قطعة (قميص/شورت/إلخ) لازم يكون إجمالي تسليمها = كمية القص ({m.cutQty})</div>
             </div>
             <Btn ghost small onClick={()=>setSyncPopup(null)} title="إغلاق">✕</Btn>
           </div>
-          {/* Summary */}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
-            <div style={{padding:"8px 10px",borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center"}}>
-              <div style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>كمية القص</div>
-              <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{m.cutQty}</div>
-            </div>
-            <div style={{padding:"8px 10px",borderRadius:8,background:T.bg,border:"1px solid "+T.brd,textAlign:"center"}}>
-              <div style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>التسليم الحالي</div>
-              <div style={{fontSize:FS+2,fontWeight:800}}>{m.totalDelivered}</div>
-            </div>
-            <div style={{padding:"8px 10px",borderRadius:8,background:matchesCut?T.ok+"08":T.err+"08",border:"1.5px solid "+(matchesCut?T.ok+"50":T.err+"50"),textAlign:"center"}}>
-              <div style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>التسليم بعد المزامنة</div>
-              <div style={{fontSize:FS+2,fontWeight:800,color:matchesCut?T.ok:T.err}}>{sumNew} {matchesCut?"✓":"≠"+m.cutQty}</div>
-            </div>
-          </div>
-          {/* Plan table */}
-          <div style={{border:"1px solid "+T.brd,borderRadius:12,overflow:"hidden",marginBottom:14}}>
-            <table style={{width:"100%",borderCollapse:"collapse"}}>
-              <thead><tr style={{background:T.bg}}>
-                {["الورشة","الكمية الحالية","المستلم","الجديد (مقترح)","الفرق",""].map(h=><th key={h} style={{...TH,fontSize:FS-2,padding:"6px 8px"}}>{h}</th>)}
-              </tr></thead>
-              <tbody>
-                {effPlan.map(p=><tr key={p.wdIdx} style={{background:p.belowReceived?T.err+"08":"transparent"}}>
-                  <td style={{...TD,fontWeight:700,color:T.accent}}>{p.wsName||"—"}</td>
-                  <td style={{...TD,textAlign:"center"}}>{p.currentQty}</td>
-                  <td style={{...TD,textAlign:"center",color:T.textMut}}>{p.receivedQty}</td>
-                  <td style={{...TD,textAlign:"center"}}>
-                    <input type="number" min={p.receivedQty} value={syncPopup.manual[p.wdIdx]!==undefined?syncPopup.manual[p.wdIdx]:p.newQty} onChange={e=>setSyncPopup(sp=>({...sp,manual:{...sp.manual,[p.wdIdx]:e.target.value}}))} style={{width:70,padding:"3px 6px",borderRadius:6,border:"1px solid "+(p.belowReceived?T.err:T.brd),fontSize:FS,fontWeight:700,fontFamily:"inherit",background:T.cardSolid,color:T.text,textAlign:"center"}}/>
-                  </td>
-                  <td style={{...TD,textAlign:"center",fontWeight:800,color:p.delta===0?T.textMut:p.delta>0?T.ok:T.err}}>{p.delta>0?"+":""}{p.delta}</td>
-                  <td style={{...TD,textAlign:"center"}}>
-                    {p.belowReceived&&<span style={{fontSize:FS-2,color:T.err,fontWeight:700}} title="أقل من المستلم">⛔</span>}
-                    {p.capped&&!p.belowReceived&&<span style={{fontSize:FS-2,color:T.warn,fontWeight:700}} title="مُقيّد بالمستلم">⚠</span>}
-                  </td>
-                </tr>)}
-              </tbody>
-            </table>
-          </div>
+          {/* Per-piece plan tables */}
+          {effPieces.map(pp=>{const pieceColor=pp.matchesCut&&!pp.anyBelowRcv?T.ok:pp.anyBelowRcv?T.err:T.warn;
+            return<div key={pp.piece} style={{marginBottom:14,border:"1.5px solid "+pieceColor+"35",borderRadius:12,overflow:"hidden"}}>
+              <div style={{padding:"8px 12px",background:pieceColor+"10",borderBottom:"1px solid "+pieceColor+"25",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:FS,fontWeight:800,color:pieceColor}}>📦 {pp.piece}</span>
+                  <span style={{fontSize:FS-2,color:T.textMut}}>({pp.wds.length} ورشة)</span>
+                </div>
+                <div style={{display:"flex",gap:10,fontSize:FS-2,flexWrap:"wrap"}}>
+                  <span>قبل: <b>{pp.currentTotal}</b></span>
+                  <span>→</span>
+                  <span>بعد: <b style={{color:pieceColor}}>{pp.sumNew}</b></span>
+                  <span style={{color:pp.matchesCut?T.ok:T.err,fontWeight:800}}>{pp.matchesCut?"✓ مطابق للقص":"≠ "+m.cutQty}</span>
+                </div>
+              </div>
+              <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <thead><tr style={{background:T.bg}}>
+                  {["الورشة","الحالي","المستلم","الجديد","الفرق",""].map(h=><th key={h} style={{...TH,fontSize:FS-2,padding:"5px 8px"}}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {pp.wds.map(w=>{const key=pp.piece+"_"+w.wdIdx;const inputVal=syncPopup.manual[key]!==undefined?syncPopup.manual[key]:w.newQty;
+                    return<tr key={key} style={{background:w.belowReceived?T.err+"08":"transparent"}}>
+                      <td style={{...TD,fontWeight:700,color:T.accent,fontSize:FS-1}}>{w.wsName||"—"}</td>
+                      <td style={{...TD,textAlign:"center",fontSize:FS-1}}>{w.currentQty}</td>
+                      <td style={{...TD,textAlign:"center",color:T.textMut,fontSize:FS-1}}>{w.receivedQty}</td>
+                      <td style={{...TD,textAlign:"center"}}>
+                        <input type="number" min={w.receivedQty} value={inputVal} onChange={e=>setSyncPopup(sp=>({...sp,manual:{...sp.manual,[key]:e.target.value}}))} style={{width:70,padding:"3px 6px",borderRadius:6,border:"1px solid "+(w.belowReceived?T.err:T.brd),fontSize:FS,fontWeight:700,fontFamily:"inherit",background:T.cardSolid,color:T.text,textAlign:"center"}}/>
+                      </td>
+                      <td style={{...TD,textAlign:"center",fontWeight:800,color:w.delta===0?T.textMut:w.delta>0?T.ok:T.err,fontSize:FS-1}}>{w.delta>0?"+":""}{w.delta}</td>
+                      <td style={{...TD,textAlign:"center"}}>
+                        {w.belowReceived&&<span style={{fontSize:FS-2,color:T.err,fontWeight:700}} title="أقل من المستلم">⛔</span>}
+                        {w.capped&&!w.belowReceived&&<span style={{fontSize:FS-2,color:T.warn,fontWeight:700}} title="مُقيّد بالمستلم">⚠</span>}
+                      </td>
+                    </tr>;
+                  })}
+                </tbody>
+              </table>
+            </div>;
+          })}
           {/* Warnings */}
           {anyBelowRcv&&<div style={{padding:"8px 12px",borderRadius:8,background:T.err+"10",border:"1px solid "+T.err+"30",color:T.err,fontSize:FS-1,fontWeight:700,marginBottom:10}}>⛔ فيه ورشة/ورش كميتها أقل من اللي استلموها — عدّل يدوياً قبل الحفظ</div>}
-          {!matchesCut&&!anyBelowRcv&&<div style={{padding:"8px 12px",borderRadius:8,background:T.warn+"10",border:"1px solid "+T.warn+"30",color:T.warn,fontSize:FS-1,fontWeight:700,marginBottom:10}}>⚠️ مجموع التسليم ({sumNew}) مش = القص ({m.cutQty}) — الفرق: {m.cutQty-sumNew}</div>}
+          {!allMatch&&!anyBelowRcv&&<div style={{padding:"8px 12px",borderRadius:8,background:T.warn+"10",border:"1px solid "+T.warn+"30",color:T.warn,fontSize:FS-1,fontWeight:700,marginBottom:10}}>⚠️ فيه قطعة/قطع مجموع تسليمها مش = القص ({m.cutQty}) — عدّل يدوياً</div>}
           <div style={{padding:"8px 10px",borderRadius:8,background:T.accent+"06",border:"1px dashed "+T.accent+"30",fontSize:FS-2,color:T.textSec,marginBottom:12,lineHeight:1.5}}>
-            💡 <b>إزاي الحساب بيشتغل؟</b> البرنامج بيقسم الفرق على الورش تناسبياً بناءً على كمية التسليم الأصلية. لو كمية ورشة مش ممكن تنزل أقل من اللي استلمته (الباقي عندها)، البرنامج بيوقف عند هذا الحد ويضيف الفرق على الورش الباقية.
+            💡 <b>كل قطعة مستقلة:</b> إجمالي الشورت لازم = القص، وإجمالي القميص لازم = القص، وهكذا. التوزيع داخل كل قطعة تناسبي بناءً على الكميات الحالية، وكل ورشة ما تنزلش أقل من اللي استلمته فعلاً.
           </div>
           {/* Actions */}
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
