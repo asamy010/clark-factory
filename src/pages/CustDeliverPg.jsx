@@ -926,12 +926,15 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                     printPage("اذن تسليم — "+c.name,h);
                   }} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30",fontSize:9,padding:"2px 5px"}} title="طباعة">🖨</Btn>
                   <Btn small onClick={async()=>{
-                    /* V15.51: Validate phone first */
+                    /* V15.54: Validate phone first */
                     let rawPhone=(c.phone||"").replace(/[^0-9]/g,"");
                     if(!rawPhone){showToast("⚠️ "+c.name+" — مفيش رقم تليفون");return}
                     /* Normalize Egyptian numbers: if starts with "0" (local), prepend "2" for country code */
                     if(rawPhone.length===11&&rawPhone.startsWith("0"))rawPhone="2"+rawPhone;
                     else if(rawPhone.length===10&&!rawPhone.startsWith("20"))rawPhone="20"+rawPhone;
+                    /* V15.54 CRITICAL FIX: Open blank window SYNCHRONOUSLY (within user gesture).
+                       Browsers block window.open() called after await — so we open now and update URL later. */
+                    const waWin=window.open("about:blank","_blank");
                     /* V15.51: Fetch signed confirm URL to include in the message */
                     let confirmUrl="";
                     try{
@@ -961,7 +964,13 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                     }else{
                       msg+="\n\n*برجاء التأكيد*";
                     }
-                    window.open("https://wa.me/"+rawPhone+"?text="+encodeURIComponent(msg),"_blank");
+                    const waUrl="https://wa.me/"+rawPhone+"?text="+encodeURIComponent(msg);
+                    /* V15.54: Navigate the pre-opened window. If popup was blocked, fall back to current tab. */
+                    if(waWin&&!waWin.closed){
+                      try{waWin.location.href=waUrl}catch(e){window.location.href=waUrl}
+                    }else{
+                      window.location.href=waUrl;
+                    }
                   }} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",fontSize:9,padding:"2px 5px"}} title="ارسال واتساب مع رابط التأكيد">📱</Btn>
                   <Btn small onClick={()=>{setShipPopup({cust:c,total:rowTotal});setShipCount(1)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30",fontSize:9,padding:"2px 5px"}} title="طباعة ليبل">🏷️</Btn>
                   {sessCanEdit&&(()=>{const hasSalesInSess=orders.some(o=>(o.customerDeliveries||[]).some(d=>d.custId===c.id&&d.sessionId===activeSess.id));
