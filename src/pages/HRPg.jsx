@@ -4454,7 +4454,9 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     {/* ══ V15.48: SALARY ENVELOPE PRINT POPUP ══ */}
     {envelopePopup&&(()=>{
       const w=(data.hrWeeks||[]).find(x=>x.id===envelopePopup.weekId);if(!w)return null;
-      const wkEmps=activeEmps.filter(e=>(w.employees||[]).some(we=>we.id===e.id));
+      /* V15.48 FIX: use getSelectedEmps helper (matches existing pattern). Field is w.selectedEmps (IDs array), not w.employees. */
+      const wkSelIds=getSelectedEmps(envelopePopup.weekId);
+      const wkEmps=activeEmps.filter(e=>wkSelIds.includes(e.id));
       const printed=w.envelopesPrinted||{};
       const receipts=w.receipts||{};
       /* Apply filter */
