@@ -135,18 +135,38 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     upSales(d=>{d.custDeliverySessions=(d.custDeliverySessions||[]).filter(s=>s.id!==sessId)});
     if(activeSession===sessId)setActiveSession(null);showToast("✓ تم الحذف")};
 
+  /* V15.32: Group models by modelNo (same logic as aMods in the matrix popup).
+     Returns array of groups: [{modelNo, modelDesc, orderIds:[], stockQty, isGrouped}] */
+  const groupSessionModels=(sess)=>{
+    const raw=sess.modelIds.map(id=>{const sm=stockModels.find(m=>m.id===id);const o=orders.find(x=>x.id===id);return sm||(o?{id,modelNo:o.modelNo,modelDesc:o.modelDesc||"",stockQty:0}:null)}).filter(Boolean);
+    const groups={};
+    raw.forEach(m=>{
+      const o=orders.find(x=>x.id===m.id);if(!o)return;
+      const key=o.modelNo||m.id;
+      if(!groups[key])groups[key]={key,modelNo:o.modelNo,modelDesc:o.modelDesc||m.modelDesc||"",orderIds:[],stockQty:0,isGrouped:false};
+      groups[key].orderIds.push(m.id);
+      groups[key].stockQty+=(Number(m.stockQty)||0);
+    });
+    return Object.values(groups).map(g=>({...g,id:"GRP:"+g.key,isGrouped:g.orderIds.length>1}));
+  };
+  /* V15.32: Get merged quantity for a grouped model + customer (sums across sub-orders) */
+  const getGroupQtyForPrint=(group,custId,grid)=>{
+    return group.orderIds.reduce((s,oid)=>s+(Number(grid[oid+"_"+custId])||0),0);
+  };
+
   const printSession=(sessId)=>{const sess=sessions.find(s=>s.id===sessId);if(!sess)return;
-    const mods=sess.modelIds.map(id=>{const sm=stockModels.find(m=>m.id===id);const o=orders.find(x=>x.id===id);return sm||{id,modelNo:o?.modelNo||"",stockQty:0}}).filter(Boolean);
+    /* V15.32: Use grouped models so duplicate modelNo columns are merged (matches matrix popup) */
+    const mods=groupSessionModels(sess);
     const custs=sess.custIds.map(id=>customers.find(c=>c.id===id)).filter(Boolean);
     const g=sess.grid||{};
     let h="<h2>🚚 تسليم عملاء — "+sess.date+"</h2><table><thead><tr><th>المكتب / العميل</th>";
-    mods.forEach(m=>{h+="<th style='text-align:center'>"+m.modelNo+"</th>"});
+    mods.forEach(m=>{h+="<th style='text-align:center'>"+m.modelNo+(m.isGrouped?" <span style='font-size:10px;color:#8B5CF6'>⧉"+m.orderIds.length+"</span>":"")+"</th>"});
     h+="<th style='background:#0284C7;color:#fff;text-align:center'>اجمالي</th></tr></thead><tbody>";
     custs.forEach(c=>{let total=0;h+="<tr><td><b>"+c.name+"</b></td>";
-      mods.forEach(m=>{const q=Number(g[m.id+"_"+c.id])||0;total+=q;h+="<td style='text-align:center;"+(q>0?"font-weight:800;color:#0284C7":"color:#ccc")+"'>"+(q||"—")+"</td>"});
+      mods.forEach(m=>{const q=getGroupQtyForPrint(m,c.id,g);total+=q;h+="<td style='text-align:center;"+(q>0?"font-weight:800;color:#0284C7":"color:#ccc")+"'>"+(q||"—")+"</td>"});
       h+="<td style='text-align:center;font-weight:800;background:#F0F9FF;color:#0284C7'>"+total+"</td></tr>"});
     let gt=0;h+="<tr style='background:#F1F5F9;font-weight:800'><td>الاجمالي</td>";
-    mods.forEach(m=>{const mt=custs.reduce((s,c)=>s+(Number(g[m.id+"_"+c.id])||0),0);gt+=mt;h+="<td style='text-align:center;color:#059669'>"+mt+"</td>"});
+    mods.forEach(m=>{const mt=custs.reduce((s,c)=>s+getGroupQtyForPrint(m,c.id,g),0);gt+=mt;h+="<td style='text-align:center;color:#059669'>"+mt+"</td>"});
     h+="<td style='text-align:center;background:#059669;color:#fff;font-size:14px'>"+gt+"</td></tr></tbody></table>";
     h+="<div class='sig'><div class='sig-box'>مسؤول التسليم</div><div class='sig-box'>المستلم</div></div>";
     printPage("تسليم عملاء — "+sess.date,h)};
@@ -769,16 +789,18 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     </div></div>}
     {/* Grouped Print Popup */}
     {groupPrint&&(()=>{const sess=sessions.find(s=>s.id===groupPrint.sessId);if(!sess)return null;
-      const gCusts=sess.custIds.map(id=>customers.find(c=>c.id===id)).filter(Boolean);const gMods=sess.modelIds.map(id=>{const o=orders.find(x=>x.id===id);return o?{id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc||""}:null}).filter(Boolean);
+      /* V15.32: Use grouped models so same modelNo merges (matches matrix popup behavior) */
+      const gCusts=sess.custIds.map(id=>customers.find(c=>c.id===id)).filter(Boolean);
+      const gMods=groupSessionModels(sess);
       const g=sess.grid||{};const selCount=Object.values(groupPrint.selCusts).filter(Boolean).length;
-      const selTotal=gCusts.filter(c=>groupPrint.selCusts[c.id]).reduce((s,c)=>gMods.reduce((ss,m)=>ss+(Number(g[m.id+"_"+c.id])||0),0)+s,0);
+      const selTotal=gCusts.filter(c=>groupPrint.selCusts[c.id]).reduce((s,c)=>gMods.reduce((ss,m)=>ss+getGroupQtyForPrint(m,c.id,g),0)+s,0);
       const doPrintGroup=()=>{const selC=gCusts.filter(c=>groupPrint.selCusts[c.id]);if(selC.length===0){showToast("⚠️ اختار عميل واحد على الأقل");return}
         let h="<h2 style='text-align:center'>CLARK — إذن تسليم مجمع</h2>";
         h+="<table style='margin:0 auto 16px;font-size:12px'><tr><td style='padding:4px 12px;font-weight:700'>التاريخ</td><td style='padding:4px 12px'>"+sess.date+"</td>"+(groupPrint.receiver?"<td style='padding:4px 12px;font-weight:700'>المستلم</td><td style='padding:4px 12px;font-weight:800;font-size:14px'>"+groupPrint.receiver+"</td>":"")+"</tr></table>";
         let grandTotal=0;selC.forEach(c=>{let custTotal=0;
           h+="<h3 style='margin-top:14px;padding:4px 8px;background:#EFF6FF;border-right:4px solid #0EA5E9'>"+c.name+"</h3>";
           h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th></tr></thead><tbody>";
-          gMods.forEach(m=>{const q=Number(g[m.id+"_"+c.id])||0;if(q>0){custTotal+=q;h+="<tr><td style='font-weight:800'>"+m.modelNo+"</td><td>"+m.modelDesc+"</td><td style='text-align:center;font-weight:800;color:#0EA5E9'>"+q+"</td></tr>"}});
+          gMods.forEach(m=>{const q=getGroupQtyForPrint(m,c.id,g);if(q>0){custTotal+=q;h+="<tr><td style='font-weight:800'>"+m.modelNo+(m.isGrouped?" <span style='font-size:9px;color:#8B5CF6'>⧉"+m.orderIds.length+"</span>":"")+"</td><td>"+m.modelDesc+"</td><td style='text-align:center;font-weight:800;color:#0EA5E9'>"+q+"</td></tr>"}});
           h+="<tr style='background:#F0F9FF;font-weight:800'><td colspan='2'>اجمالي "+c.name+"</td><td style='text-align:center;color:#0EA5E9'>"+custTotal+"</td></tr></tbody></table>";grandTotal+=custTotal});
         h+="<div style='margin-top:16px;padding:10px;background:#F1F5F9;border-radius:8px;text-align:center;font-weight:800;font-size:16px'>الاجمالي الكلي: "+selCount+" عملاء | "+grandTotal+" قطعة</div>";
         h+="<div class='sig'><div class='sig-box'>مسؤول التسليم</div><div class='sig-box'>المستلم"+(groupPrint.receiver?"<br><b>"+groupPrint.receiver+"</b>":"")+"</div><div class='sig-box'>المراجع</div></div>";

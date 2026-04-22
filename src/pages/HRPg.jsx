@@ -15,7 +15,7 @@ import { ask, showToast } from "../utils/popups.js";
 import { printPage, printEmpQrCards, openPrintWindow } from "../utils/print.js";
 /* V15.25: Receipt queue — persistent storage for salary confirmation scans */
 import { addReceipt, removeReceipt, getPendingForWeek, getReadyForRetry, markAsFailed, getPendingCount, forceRetryAll } from "../utils/receiptQueue.js";
-import { Btn, Inp, Sel, Card, QRImg, QRScanner, useDebounced } from "../components/ui.jsx";
+import { Btn, Inp, Sel, Card, QRImg, QRScanner, SearchSel, useDebounced } from "../components/ui.jsx";
 import { T, TH, TD, TDB } from "../theme.js";
 import { db } from "../firebase";
 import { doc, setDoc, getDoc } from "firebase/firestore";
@@ -498,6 +498,14 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   const[wsPayType,setWsPayType]=useState("payment");/* payment | purchase */
   const[wsPayDate,setWsPayDate]=useState("");
   const[wsPayNote,setWsPayNote]=useState("");
+  /* V15.34: Weekly other expenses — planned, registered in treasury on week close (like ws payments) */
+  const[showOtherExpForm,setShowOtherExpForm]=useState(false);
+  const[otherExpDate,setOtherExpDate]=useState("");
+  const[otherExpCategory,setOtherExpCategory]=useState("");
+  const[otherExpCategoryCustom,setOtherExpCategoryCustom]=useState("");
+  const[otherExpAmount,setOtherExpAmount]=useState("");
+  const[otherExpDesc,setOtherExpDesc]=useState("");
+  const[otherExpAccount,setOtherExpAccount]=useState("MAIN CASH");
 
   const openWeek=hrWeeks.find(w=>w.id===openWeekId);
   
@@ -1186,6 +1194,60 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     });
   };
 
+  /* V15.34: Weekly other expenses — planned, registered in treasury on week close */
+  const weeklyOtherExpenses=openWeek?(openWeek.weeklyOtherExpenses||[]):[];
+  const totalWeeklyOtherExpenses=weeklyOtherExpenses.reduce((s,e)=>s+(Number(e.amount)||0),0);
+  const resetOtherExpForm=()=>{setOtherExpDate(openWeek?.weekStart||today);setOtherExpCategory("");setOtherExpCategoryCustom("");setOtherExpAmount("");setOtherExpDesc("");setOtherExpAccount("MAIN CASH")};
+  const saveWeeklyOtherExp=()=>{
+    if(!openWeek)return;
+    const amt=Number(otherExpAmount)||0;
+    if(amt<=0){showToast("⚠️ المبلغ لازم يكون أكبر من صفر");return}
+    const finalCat=(otherExpCategory==="__custom__"?otherExpCategoryCustom.trim():otherExpCategory).trim();
+    if(!finalCat){showToast("⚠️ التصنيف مطلوب");return}
+    const useDateSave=otherExpDate||openWeek.weekStart||today;
+    const expId=gid();
+    upConfig(d=>{
+      const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
+      if(!d.hrWeeks[wi].weeklyOtherExpenses)d.hrWeeks[wi].weeklyOtherExpenses=[];
+      d.hrWeeks[wi].weeklyOtherExpenses.push({
+        id:expId,date:useDateSave,category:finalCat,amount:amt,
+        desc:otherExpDesc||"",account:otherExpAccount||"MAIN CASH",
+        createdBy:userName||"",createdAt:new Date().toISOString(),
+        planned:true/* Flag: will be registered in treasury on week close */
+      });
+      addAudit(d,{
+        category:"other_expense",action:"add_weekly",
+        target:finalCat+" — W"+d.hrWeeks[wi].weekNum,
+        newValue:fmt0(amt)+" ج"+(otherExpDesc?" — "+otherExpDesc:""),
+        user:userName,severity:amt>5000?"warning":"info",
+        notes:"مصروف أسبوعي (خطة — سيُسجَّل في الخزنة عند الإقفال)"
+      });
+    });
+    setShowOtherExpForm(false);resetOtherExpForm();showToast("✓ تم إضافة المصروف للخطة");
+  };
+  const deleteWeeklyOtherExp=(expId)=>{
+    if(!openWeek)return;
+    const exp=(openWeek.weeklyOtherExpenses||[]).find(e=>e.id===expId);
+    if(!exp)return;
+    openConfirm({
+      title:"حذف المصروف",
+      message:"هل تريد حذف مصروف "+exp.category+" ("+fmt0(exp.amount)+" ج) من الخطة؟",
+      variant:"warn",confirmText:"حذف",
+      onConfirm:()=>{upConfig(d=>{
+        const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
+        if(!d.hrWeeks[wi].weeklyOtherExpenses)return;
+        d.hrWeeks[wi].weeklyOtherExpenses=d.hrWeeks[wi].weeklyOtherExpenses.filter(e=>e.id!==expId);
+        addAudit(d,{
+          category:"other_expense",action:"delete_weekly",
+          target:exp.category+" — W"+d.hrWeeks[wi].weekNum,
+          oldValue:fmt0(exp.amount)+" ج",
+          user:userName,severity:"danger",
+          notes:"حذف مصروف أسبوعي من الخطة"
+        });
+      });showToast("✓ تم الحذف")}
+    });
+  };
+
   /* ── Approve & Close Week ── */
   /* V14.66: Pre-approval receipt check popup */
   const[preApprovalBlocker,setPreApprovalBlocker]=useState(null);/* {week, notSigned:[], customCloseDate} */
@@ -1425,6 +1487,32 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             if(pUpd){pUpd.treasuryTxId=wsTxId;pUpd.wsPaymentId=wsPayId;pUpd.planned=false}}
         }
       });
+      /* V15.34: Weekly Other Expenses — register planned expenses in treasury (NOT in wsPayments) */
+      const wOtherExps=(openWeek.weeklyOtherExpenses||[]);
+      wOtherExps.forEach(ex=>{
+        if(ex.treasuryTxId&&d.treasury){
+          /* Already registered earlier — tag with snapshotId for rollback */
+          const tx=d.treasury.find(t=>t.id===ex.treasuryTxId);
+          if(tx)tx.snapshotId=snapshotId;
+        }else{
+          const exTxId=gid();
+          const exDayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(ex.date||useDate).getDay()];
+          /* Register in treasury as a regular expense (NOT in wsPayments) */
+          d.treasury.unshift({
+            id:exTxId,type:"out",amount:r2(Number(ex.amount)||0),
+            desc:"مصروف — "+ex.category+" W"+openWeek.weekNum+(ex.desc?" — "+ex.desc:""),
+            category:ex.category||"مصاريف أخرى",
+            account:ex.account||"MAIN CASH",season:d.activeSeason||"",
+            date:ex.date||useDate,day:exDayName,
+            sourceType:"hr_other_expense",weekId:openWeek.id,
+            by:userName,createdAt:new Date().toISOString(),snapshotId,actualCloseDate,backdated:useDate!==actualCloseDate
+          });
+          /* Link back: mark as registered on the planned entry */
+          const wiUpd=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);
+          if(wiUpd>=0){const exUpd=(d.hrWeeks[wiUpd].weeklyOtherExpenses||[]).find(x=>x.id===ex.id);
+            if(exUpd){exUpd.treasuryTxId=exTxId;exUpd.planned=false}}
+        }
+      });
       }/* V15.24: end of non-analysis block — analysis week skips all treasury/hrLog/prevBalance updates */
       /* Close week — store BOTH user-selected date (closedAt) AND actual close date (actualClosedAt, immutable) */
       const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi>=0){
@@ -1471,6 +1559,10 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
         const _wWsPays=(d.hrWeeks[wi].weeklyWsPayments||[]);
         const _totalWsPay=r2(_wWsPays.reduce((s,p)=>s+(Number(p.amount)||0),0));
         d.hrWeeks[wi].totalWeeklyWsPayments=_totalWsPay;
+        /* V15.34: snapshot other expenses totals */
+        const _wOtherExps=(d.hrWeeks[wi].weeklyOtherExpenses||[]);
+        const _totalOtherExps=r2(_wOtherExps.reduce((s,e)=>s+(Number(e.amount)||0),0));
+        d.hrWeeks[wi].totalWeeklyOtherExpenses=_totalOtherExps;
         d.hrWeeks[wi].closedStats={
           baseSal:r2(_baseSal),
           basicEntitled:r2(_basicEntitled),
@@ -1482,8 +1574,10 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           totalWeeklyAdvances:_totalWeeklyAdv,
           totalWeeklyWsPayments:_totalWsPay,/* V15.27 */
           weeklyWsPaymentsCount:_wWsPays.length,/* V15.27 */
+          totalWeeklyOtherExpenses:_totalOtherExps,/* V15.34 */
+          weeklyOtherExpensesCount:_wOtherExps.length,/* V15.34 */
           thursdayPay:r2(_thursdayPaySum),
-          finalTotal:r2(_thursdayPaySum+_totalWeeklyAdv+_totalWsPay),/* V15.27: include ws pay */
+          finalTotal:r2(_thursdayPaySum+_totalWeeklyAdv+_totalWsPay+_totalOtherExps),/* V15.34: include other expenses */
           empCount:records.length,
           weeklyAdvancesCount:wAdvs.length,
           savedAt:actualCloseTs
@@ -2999,45 +3093,6 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             })()}
           </Card>})()}
 
-        {/* Weekly Advances — for monthly/admin staff (not in attendance) */}
-        <Card title={"💵 سلف الأسبوع (للشهريين والإدارة) — "+weeklyAdvances.length+" سلفة — الإجمالي "+fmt0(totalWeeklyAdvances)+" ج"} style={{marginBottom:14}} extra={canEdit&&!isLocked?<Btn small onClick={()=>{resetAdvForm();setShowAdvForm(true)}} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",fontWeight:700}}>+ إضافة سلفة</Btn>:null}>
-          {weeklyAdvances.length===0?<div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-1}}>
-            <div style={{fontSize:28,marginBottom:6}}>💵</div>
-            <div>لا توجد سلف مسجلة في هذا الأسبوع</div>
-            {canEdit&&!isLocked&&<div style={{fontSize:FS-2,marginTop:4}}>اضغط "+ إضافة سلفة" لتسجيل سلفة لموظف شهري أو إداري</div>}
-          </div>:<div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
-              <thead><tr>
-                <th style={{...TH,width:30}}>#</th>
-                <th style={TH}>الموظف</th>
-                <th style={TH}>الوظيفة</th>
-                <th style={{...TH,textAlign:"center"}}>المبلغ</th>
-                <th style={{...TH,textAlign:"center"}}>التاريخ</th>
-                <th style={TH}>ملاحظة</th>
-                {canEdit&&!isLocked&&<th style={{...TH,width:40}}></th>}
-              </tr></thead>
-              <tbody>
-                {weeklyAdvances.map((a,i)=><tr key={a.id} style={{borderBottom:"1px solid "+T.brd,background:i%2===1?T.bg:"transparent"}}>
-                  <td style={{...TD,textAlign:"center",color:T.textMut}}>{i+1}</td>
-                  <td style={{...TD,fontWeight:700}}>{a.empName}</td>
-                  <td style={{...TD,color:T.textSec}}>{a.empJob||"—"}</td>
-                  <td style={{...TD,textAlign:"center",fontWeight:800,color:T.err}}>{fmt0(a.amount)}</td>
-                  <td style={{...TD,textAlign:"center",color:T.textMut,fontSize:FS-2,direction:"ltr"}}>{a.date}</td>
-                  <td style={{...TD,color:T.textSec,fontSize:FS-2}}>{a.note||"—"}</td>
-                  {canEdit&&!isLocked&&<td style={{...TD,textAlign:"center"}}>
-                    <span onClick={()=>deleteWeeklyAdvance(a.id)} style={{cursor:"pointer",padding:"2px 8px",borderRadius:6,fontSize:FS-1,background:T.err+"10",color:T.err,border:"1px solid "+T.err+"25"}} title="حذف">🗑</span>
-                  </td>}
-                </tr>)}
-                <tr style={{background:T.err+"08",fontWeight:800,borderTop:"2px solid "+T.err+"30"}}>
-                  <td colSpan={3} style={{...TD,textAlign:"right",fontWeight:800}}>الإجمالي</td>
-                  <td style={{...TD,textAlign:"center",color:T.err,fontSize:FS+1}}>{fmt0(totalWeeklyAdvances)}</td>
-                  <td colSpan={canEdit&&!isLocked?3:2}></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>}
-        </Card>
-
         {/* Salary calculation — aligned, centered, with deduct reason */}
         {(()=>{
           const weekSelected=getSelectedEmps(openWeek.id);
@@ -3433,6 +3488,45 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             </div>}
           </Card>})()}
 
+        {/* V15.34: Weekly Advances — moved here (after salary table, before ws payments) for better flow */}
+        <Card title={"💵 سلف الأسبوع (للشهريين والإدارة) — "+weeklyAdvances.length+" سلفة — الإجمالي "+fmt0(totalWeeklyAdvances)+" ج"} style={{marginBottom:14}} extra={canEdit&&!isLocked?<Btn small onClick={()=>{resetAdvForm();setShowAdvForm(true)}} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",fontWeight:700}}>+ إضافة سلفة</Btn>:null}>
+          {weeklyAdvances.length===0?<div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-1}}>
+            <div style={{fontSize:28,marginBottom:6}}>💵</div>
+            <div>لا توجد سلف مسجلة في هذا الأسبوع</div>
+            {canEdit&&!isLocked&&<div style={{fontSize:FS-2,marginTop:4}}>اضغط "+ إضافة سلفة" لتسجيل سلفة لموظف شهري أو إداري</div>}
+          </div>:<div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+              <thead><tr>
+                <th style={{...TH,width:30}}>#</th>
+                <th style={TH}>الموظف</th>
+                <th style={TH}>الوظيفة</th>
+                <th style={{...TH,textAlign:"center"}}>المبلغ</th>
+                <th style={{...TH,textAlign:"center"}}>التاريخ</th>
+                <th style={TH}>ملاحظة</th>
+                {canEdit&&!isLocked&&<th style={{...TH,width:40}}></th>}
+              </tr></thead>
+              <tbody>
+                {weeklyAdvances.map((a,i)=><tr key={a.id} style={{borderBottom:"1px solid "+T.brd,background:i%2===1?T.bg:"transparent"}}>
+                  <td style={{...TD,textAlign:"center",color:T.textMut}}>{i+1}</td>
+                  <td style={{...TD,fontWeight:700}}>{a.empName}</td>
+                  <td style={{...TD,color:T.textSec}}>{a.empJob||"—"}</td>
+                  <td style={{...TD,textAlign:"center",fontWeight:800,color:T.err}}>{fmt0(a.amount)}</td>
+                  <td style={{...TD,textAlign:"center",color:T.textMut,fontSize:FS-2,direction:"ltr"}}>{a.date}</td>
+                  <td style={{...TD,color:T.textSec,fontSize:FS-2}}>{a.note||"—"}</td>
+                  {canEdit&&!isLocked&&<td style={{...TD,textAlign:"center"}}>
+                    <span onClick={()=>deleteWeeklyAdvance(a.id)} style={{cursor:"pointer",padding:"2px 8px",borderRadius:6,fontSize:FS-1,background:T.err+"10",color:T.err,border:"1px solid "+T.err+"25"}} title="حذف">🗑</span>
+                  </td>}
+                </tr>)}
+                <tr style={{background:T.err+"08",fontWeight:800,borderTop:"2px solid "+T.err+"30"}}>
+                  <td colSpan={3} style={{...TD,textAlign:"right",fontWeight:800}}>الإجمالي</td>
+                  <td style={{...TD,textAlign:"center",color:T.err,fontSize:FS+1}}>{fmt0(totalWeeklyAdvances)}</td>
+                  <td colSpan={canEdit&&!isLocked?3:2}></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>}
+        </Card>
+
         {/* V15.27: Workshop Payments Card — between salary table and attendance chart */}
         {!isLocked&&(()=>{
           const selectedWs=wsPayWs?workshopsList.find(w=>w.name===wsPayWs):null;
@@ -3544,6 +3638,113 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
 
             <div style={{marginTop:10,padding:"8px 12px",background:T.accent+"08",borderRadius:8,fontSize:FS-2,color:T.textSec,lineHeight:1.6}}>
               💡 هذه دفعات <b>مخططة</b> — ستُسجَّل في الخزنة تلقائياً عند إقفال الأسبوع، مثل سلف الموظفين.
+            </div>
+          </Card>;
+        })()}
+
+        {/* V15.34: Weekly Other Expenses Card — works like ws payments, registers in treasury on close */}
+        {!isLocked&&(()=>{
+          const _ts=(config&&config.treasurySettings)||{};
+          const _defaultOutCats=["تكلفة","مشتريات","مرتبات","قطع غيار","صيانة ماكينات","خيط","تشغيل خارجي","نقل","كهرباء","ضيافة","ايجار المصنع","نثريات","اكسسوار","مستلزمات تشغيل","ورق ماركر","خدمات","أصول ثابتة","تكاليف أخرى","دفع مورد","تحويل داخلي"];
+          const _outCats=_ts.outCategories||_defaultOutCats;
+          return<Card title={"💼 مصاريف أخرى — W"+openWeek.weekNum+(weeklyOtherExpenses.length>0?" ("+weeklyOtherExpenses.length+")":"")} style={{marginBottom:14}}>
+            {/* Header with add button + total */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:12}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                <div style={{fontSize:FS-2,color:T.textSec}}>إجمالي مخطط:</div>
+                <div style={{fontSize:FS+2,fontWeight:800,color:"#DC2626"}}>{fmt0(totalWeeklyOtherExpenses)} ج</div>
+              </div>
+              {canEdit&&<Btn small onClick={()=>{if(showOtherExpForm){setShowOtherExpForm(false);resetOtherExpForm()}else{resetOtherExpForm();setOtherExpDate(openWeek.weekStart||today);setShowOtherExpForm(true)}}} style={{background:showOtherExpForm?T.err+"15":"#DC262612",color:showOtherExpForm?T.err:"#DC2626",border:"1px solid "+(showOtherExpForm?T.err+"30":"#DC262630"),fontWeight:700}}>
+                {showOtherExpForm?"✕ إلغاء":"➕ إضافة مصروف"}
+              </Btn>}
+            </div>
+
+            {/* Add form */}
+            {showOtherExpForm&&canEdit&&<div style={{padding:"14px",background:"#DC262608",border:"1px solid #DC262630",borderRadius:12,marginBottom:12}}>
+              <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:10}}>
+                {/* Date */}
+                <div>
+                  <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:700}}>التاريخ</div>
+                  <Inp type="date" value={otherExpDate} onChange={setOtherExpDate}/>
+                </div>
+                {/* Category */}
+                <div>
+                  <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:700}}>التصنيف</div>
+                  <Sel value={otherExpCategory} onChange={v=>{setOtherExpCategory(v);if(v!=="__custom__")setOtherExpCategoryCustom("")}}>
+                    <option value="">— اختر تصنيف —</option>
+                    {_outCats.map(c=><option key={c} value={c}>{c}</option>)}
+                    <option value="__custom__">✏️ تصنيف مخصص...</option>
+                  </Sel>
+                </div>
+              </div>
+              {otherExpCategory==="__custom__"&&<div style={{marginBottom:10}}>
+                <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:700}}>تصنيف مخصص</div>
+                <Inp value={otherExpCategoryCustom} onChange={setOtherExpCategoryCustom} placeholder="اكتب التصنيف..."/>
+              </div>}
+              <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:10}}>
+                {/* Amount */}
+                <div>
+                  <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:700}}>المبلغ (ج)</div>
+                  <Inp type="number" value={otherExpAmount} onChange={setOtherExpAmount} placeholder="0"/>
+                </div>
+                {/* Account */}
+                <div>
+                  <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:700}}>الحساب</div>
+                  <Sel value={otherExpAccount} onChange={setOtherExpAccount}>
+                    <option value="MAIN CASH">MAIN CASH</option>
+                    <option value="SUB CASH">SUB CASH</option>
+                  </Sel>
+                </div>
+              </div>
+              <div style={{marginBottom:10}}>
+                <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:700}}>الوصف / الملاحظة (اختياري)</div>
+                <Inp value={otherExpDesc} onChange={setOtherExpDesc} placeholder="مثال: دفعة لمورد الأكسسوار أحمد..."/>
+              </div>
+              <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                <Btn onClick={()=>{setShowOtherExpForm(false);resetOtherExpForm()}} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>إلغاء</Btn>
+                <Btn onClick={saveWeeklyOtherExp} style={{background:"#DC2626",color:"#fff",border:"none",fontWeight:700}}>💾 حفظ المصروف</Btn>
+              </div>
+            </div>}
+
+            {/* List of planned expenses */}
+            {weeklyOtherExpenses.length===0?<div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-1}}>
+              <div style={{fontSize:28,marginBottom:6}}>💼</div>
+              <div>لا توجد مصاريف مسجلة في هذا الأسبوع</div>
+              {canEdit&&<div style={{fontSize:FS-2,marginTop:4}}>اضغط "➕ إضافة مصروف" لتسجيل مصروف أو دفعة مورد</div>}
+            </div>:<div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+                <thead><tr>
+                  <th style={{...TH,width:30}}>#</th>
+                  <th style={TH}>التصنيف</th>
+                  <th style={TH}>الوصف</th>
+                  <th style={{...TH,textAlign:"center"}}>المبلغ</th>
+                  <th style={{...TH,textAlign:"center"}}>الحساب</th>
+                  <th style={{...TH,textAlign:"center"}}>التاريخ</th>
+                  {canEdit&&<th style={{...TH,width:40}}></th>}
+                </tr></thead>
+                <tbody>
+                  {weeklyOtherExpenses.map((ex,i)=><tr key={ex.id} style={{borderBottom:"1px solid "+T.brd,background:i%2===1?T.bg:"transparent"}}>
+                    <td style={{...TD,textAlign:"center",color:T.textMut}}>{i+1}</td>
+                    <td style={{...TD,fontWeight:700,color:"#DC2626"}}>{ex.category}</td>
+                    <td style={{...TD,color:T.textSec,fontSize:FS-2}}>{ex.desc||"—"}</td>
+                    <td style={{...TD,textAlign:"center",fontWeight:800,color:T.err}}>{fmt0(ex.amount)}</td>
+                    <td style={{...TD,textAlign:"center",color:T.textSec,fontSize:FS-2,fontFamily:"monospace"}}>{ex.account||"MAIN CASH"}</td>
+                    <td style={{...TD,textAlign:"center",color:T.textMut,fontSize:FS-2,direction:"ltr"}}>{ex.date}</td>
+                    {canEdit&&<td style={{...TD,textAlign:"center"}}>
+                      <span onClick={()=>deleteWeeklyOtherExp(ex.id)} style={{cursor:"pointer",padding:"2px 8px",borderRadius:6,fontSize:FS-1,background:T.err+"10",color:T.err,border:"1px solid "+T.err+"25"}} title="حذف">🗑</span>
+                    </td>}
+                  </tr>)}
+                  <tr style={{background:T.err+"08",fontWeight:800,borderTop:"2px solid "+T.err+"30"}}>
+                    <td colSpan={3} style={{...TD,textAlign:"right",fontWeight:800}}>الإجمالي</td>
+                    <td style={{...TD,textAlign:"center",color:T.err,fontSize:FS+1}}>{fmt0(totalWeeklyOtherExpenses)}</td>
+                    <td colSpan={canEdit?3:2}></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>}
+
+            <div style={{marginTop:10,padding:"8px 12px",background:T.accent+"08",borderRadius:8,fontSize:FS-2,color:T.textSec,lineHeight:1.6}}>
+              💡 هذه المصاريف <b>مخططة</b> — لن تظهر في حركات الخزنة إلا بعد إقفال وترحيل الأسبوع.
             </div>
           </Card>;
         })()}
