@@ -883,12 +883,18 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                 <td style={{...TD,whiteSpace:"nowrap",padding:"2px 4px"}}>{rowTotal>0&&<div style={{display:"flex",gap:2}}>
                   <Btn small onClick={async()=>{
                     /* V15.50: Per-customer delivery receipt — fetch signed URL, embed QR + prices */
-                    let sig="";
+                    let sig="";let signErr="";
                     try{
                       const r=await fetch("/api/delivery-sign",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pairs:[{sessionId:activeSess.id,custId:c.id}]})});
                       const j=await r.json();
                       if(r.ok&&j.signatures&&j.signatures[0])sig=j.signatures[0].sig||"";
-                    }catch(e){}
+                      else signErr=(j&&j.error)?j.error:"HTTP "+r.status;
+                    }catch(e){signErr="Network: "+(e.message||e)}
+                    /* V15.52: Show clear feedback when signing fails — so Ahmed knows exactly what's wrong */
+                    if(!sig){
+                      console.error("[CLARK] /api/delivery-sign failed:",signErr);
+                      showToast("⚠️ الـ QR مش هيظهر — تفاصيل الخطأ: "+signErr);
+                    }
                     const origin=window.location.origin;
                     const confirmUrl=sig?origin+"/?dc=1&s="+encodeURIComponent(activeSess.id)+"&c="+encodeURIComponent(c.id)+"&sig="+encodeURIComponent(sig):"";
                     let h="<h2>🚚 اذن تسليم عميل</h2><table><tr><th>العميل</th><td><b>"+c.name+"</b></td><th>التليفون</th><td>"+c.phone+"</td></tr><tr><th>التاريخ</th><td>"+activeSess.date+"</td><th>العنوان</th><td>"+(c.address||"—")+"</td></tr></table><h2>تفاصيل الاستلام</h2><table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>";
@@ -1042,7 +1048,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const selTotal=gCusts.filter(c=>groupPrint.selCusts[c.id]).reduce((s,c)=>gMods.reduce((ss,m)=>ss+getGroupQtyForPrint(m,c.id,g),0)+s,0);
       const doPrintGroup=async()=>{const selC=gCusts.filter(c=>groupPrint.selCusts[c.id]);if(selC.length===0){showToast("⚠️ اختار عميل واحد على الأقل");return}
         /* V15.50: Fetch signed URLs from backend — one per customer */
-        let signatures={};
+        let signatures={};let signErr="";
         try{
           const pairs=selC.map(c=>({sessionId:sess.id,custId:c.id}));
           const r=await fetch("/api/delivery-sign",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pairs})});
@@ -1050,10 +1056,15 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           if(r.ok&&Array.isArray(j.signatures)){
             j.signatures.forEach(s=>{signatures[s.custId]=s.sig});
           }else{
-            showToast("⚠️ تعذر توليد روابط التأكيد — سيتم الطباعة بدون QR");
+            signErr=(j&&j.error)?j.error:"HTTP "+r.status;
           }
         }catch(e){
-          showToast("⚠️ تعذر الاتصال بخدمة التوقيع — سيتم الطباعة بدون QR");
+          signErr="Network: "+(e.message||e);
+        }
+        /* V15.52: Clear diagnostic feedback */
+        if(Object.keys(signatures).length===0){
+          console.error("[CLARK] /api/delivery-sign failed:",signErr);
+          showToast("⚠️ QR مش هيظهر — "+signErr);
         }
         const origin=window.location.origin;
         let h="<h2 style='text-align:center'>CLARK — إذن تسليم</h2>";
