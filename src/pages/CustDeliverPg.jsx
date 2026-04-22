@@ -112,11 +112,13 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       plannedDetails={totalPlanned:0,totalDelivered:0,totalRemaining:0};
       for(const go of groupOrders){
         const planned=Number(linkedSessGrid[go.id+"_"+custId])||0;
-        const deliveredInSess=(go.customerDeliveries||[]).filter(d=>d.sessionId===sessId).reduce((s,d)=>s+(Number(d.qty)||0),0);
-        const returnedInSess=(go.customerReturns||[]).filter(r=>r.sessionId===sessId).reduce((s,r)=>s+(Number(r.qty)||0),0);
+        /* V15.42 FIX: Filter by BOTH sessionId AND custId — previously summed all customers in the session,
+           falsely triggering "plan complete" for customers who hadn't received anything yet.
+           Also: returns no longer subtracted here — returns happen end-of-season and are unrelated to plan completion. */
+        const deliveredInSess=(go.customerDeliveries||[]).filter(d=>d.sessionId===sessId&&d.custId===custId).reduce((s,d)=>s+(Number(d.qty)||0),0);
         plannedDetails.totalPlanned+=planned;
-        plannedDetails.totalDelivered+=(deliveredInSess-returnedInSess);
-        plannedDetails.totalRemaining+=Math.max(0,planned-(deliveredInSess-returnedInSess));
+        plannedDetails.totalDelivered+=deliveredInSess;
+        plannedDetails.totalRemaining+=Math.max(0,planned-deliveredInSess);
       }
       /* Subtract what's already in cart (across all sub-orders in group) */
       const alreadyInCartForGroup=perOrder.reduce((s,p)=>s+(Number(currentCart[p.go.id])||0),0);
@@ -146,7 +148,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         for(let i=0;i<groupOrders.length;i++){
           const go=groupOrders[i];const po=perOrder[i];
           const planned=linkedSessGrid?(Number(linkedSessGrid[go.id+"_"+custId])||0):0;
-          const delIn=sessId?(go.customerDeliveries||[]).filter(d=>d.sessionId===sessId).reduce((s,d)=>s+(Number(d.qty)||0),0):0;
+          const delIn=sessId?(go.customerDeliveries||[]).filter(d=>d.sessionId===sessId&&d.custId===custId).reduce((s,d)=>s+(Number(d.qty)||0),0):0;
           err+="\n• تشغيل "+(i+1)+": خطة="+planned+"، مسلّم="+delIn+"، مخزن="+po.stockAvail;
         }
       }
