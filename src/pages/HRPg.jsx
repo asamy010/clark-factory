@@ -3644,7 +3644,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
 
         {/* V15.34: Weekly Other Expenses Card — works like ws payments, registers in treasury on close */}
         {!isLocked&&(()=>{
-          const _ts=(config&&config.treasurySettings)||{};
+          const _ts=(data&&data.treasurySettings)||{};
           const _defaultOutCats=["تكلفة","مشتريات","مرتبات","قطع غيار","صيانة ماكينات","خيط","تشغيل خارجي","نقل","كهرباء","ضيافة","ايجار المصنع","نثريات","اكسسوار","مستلزمات تشغيل","ورق ماركر","خدمات","أصول ثابتة","تكاليف أخرى","دفع مورد","تحويل داخلي"];
           const _outCats=_ts.outCategories||_defaultOutCats;
           return<Card title={"💼 مصاريف أخرى — W"+openWeek.weekNum+(weeklyOtherExpenses.length>0?" ("+weeklyOtherExpenses.length+")":"")} style={{marginBottom:14}}>

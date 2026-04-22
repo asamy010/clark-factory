@@ -689,7 +689,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                 const wsProgress=wsDel>0?Math.round((wsRcv/wsDel)*100):0;
                 /* Auto-expand incomplete workshops; user can toggle */
                 const wsKey=order.id+":"+wsName;
-                const isExpanded=wsExpand[wsKey]!==undefined?wsExpand[wsKey]:wsBal>0;
+                const isExpanded=wsExpand[wsKey]===true;/* V15.36: Collapsed by default — user clicks to expand */
                 /* Latest dates */
                 const lastDel=items.map(wd=>wd.date).sort().slice(-1)[0]||"-";
                 const allRcv=items.flatMap(wd=>(wd.receives||[]).map(r=>({...r,piece:wd.garmentType,wdIdx:grp.idxs[items.indexOf(wd)]})));

@@ -42,6 +42,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const[payAmt,setPayAmt_]=useState("");const[payDate_,setPayDate_]=useState(new Date().toISOString().split("T")[0]);const[payNote_,setPayNote_]=useState("");const[payMethod,setPayMethod]=useState("كاش");
   /* Distribution grid filters */
   const[gridModelF,setGridModelF]=useState("");const[gridCustF,setGridCustF]=useState("");
+  /* V15.37: Draft sell prices — typed but not saved until user clicks "حفظ". Keyed by group key (modelNo). */
+  const[sellPriceDrafts,setSellPriceDrafts]=useState({});
   const[qrSale,setQrSale]=useState(null);/* {mode:"sale"|"return",custId,items:[{orderId,modelNo,modelDesc,rackSize,qty}],note,linkedSession} */
   const[qrScanActive,setQrScanActive]=useState(false);const[customLabel,setCustomLabel]=useState(null);
   const[pkgPopup,setPkgPopup]=useState(null);const[pkgItems,setPkgItems]=useState([]);const[pkgNote,setPkgNote]=useState("");const[pkgSearch,setPkgSearch]=useState("");const[pkgScan,setPkgScan]=useState(false);const[pkgAction,setPkgAction]=useState(null);/* {id,mode:"menu"|"add"|"remove"} */
@@ -50,6 +52,71 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
 
   /* V15.30: Use sizeSet.pcsPerSeries as source of truth (falls back to label parsing) */
   const getRackSize=(orderId)=>{const o=orders.find(x=>x.id===orderId);if(!o)return 1;const info=getSizesFromSet(o,data);return info.expectedCount||1};
+
+  /* V15.36: FIFO Auto-Distribution helpers for duplicate-modelNo orders.
+     Problem: scanning a QR for orderA (only 5 left) when orderB has 80 left but same modelNo
+              currently rejects. These helpers redistribute across same-modelNo orders. */
+  /* Returns all orders sharing this modelNo, sorted FIFO (oldest first) */
+  const getSameModelOrders=(orderId)=>{
+    const o=orders.find(x=>x.id===orderId);if(!o||!o.modelNo)return[];
+    return orders.filter(x=>x.modelNo===o.modelNo)
+      .sort((a,b)=>((a.createdAt||a.id||"")+"").localeCompare(((b.createdAt||b.id||"")+"")));
+  };
+  /* Check if a group of orders have consistent sell price — allow 0 as "unset" */
+  const checkGroupPriceConsistent=(groupOrders)=>{
+    const prices=groupOrders.map(o=>Number(o.sellPrice)||0).filter(p=>p>0);
+    if(prices.length<=1)return{consistent:true,prices};
+    const first=prices[0];
+    return{consistent:prices.every(p=>p===first),prices};
+  };
+  /* Distribute qty FIFO across same-modelNo orders.
+     mode: "sale" → use avail stock. "return" → use delivered-returned.
+     currentCart: {orderId: qtyAlreadyInCart}
+     linkedSessGrid: if provided, cap per-order by planned remaining
+     Returns: {ok: bool, allocations: [{orderId, qty}], error: string, grandAvail: number, modelNo: string} */
+  const distributeFIFO=(groupOrders,requestedQty,mode,currentCart,linkedSessGrid,custIdForReturn)=>{
+    const modelNo=groupOrders[0]?.modelNo||"?";
+    let remaining=requestedQty;
+    const allocations=[];
+    let grandAvail=0;
+    for(const go of groupOrders){
+      let availForOrder=0;
+      if(mode==="sale"){
+        const sm=stockModels.find(m=>m.id===go.id);
+        availForOrder=sm?sm.avail:0;
+        /* Apply planned-session cap if linked */
+        if(linkedSessGrid){
+          const planned=Number(linkedSessGrid[go.id+"_"+(currentCart.__custId||"")])||0;
+          const delivered=(go.customerDeliveries||[]).filter(d=>d.sessionId===currentCart.__sessId).reduce((s,d)=>s+(Number(d.qty)||0),0);
+          const returned=(go.customerReturns||[]).filter(r=>r.sessionId===currentCart.__sessId).reduce((s,r)=>s+(Number(r.qty)||0),0);
+          const remPlanned=Math.max(0,planned-(delivered-returned));
+          availForOrder=Math.min(availForOrder,remPlanned);
+        }
+      }else{/* return */
+        let cd=0,ret=0;
+        if(custIdForReturn){
+          cd=(go.customerDeliveries||[]).filter(d=>d.custId===custIdForReturn).reduce((s,d)=>s+(Number(d.qty)||0),0);
+          ret=(go.customerReturns||[]).filter(r=>r.custId===custIdForReturn).reduce((s,r)=>s+(Number(r.qty)||0),0);
+        }else{
+          cd=(go.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
+          ret=(go.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
+        }
+        availForOrder=cd-ret;
+      }
+      const alreadyInCart=Number(currentCart[go.id])||0;
+      const canTake=Math.max(0,availForOrder-alreadyInCart);
+      grandAvail+=canTake;
+      if(remaining>0&&canTake>0){
+        const take=Math.min(remaining,canTake);
+        allocations.push({orderId:go.id,qty:take});
+        remaining-=take;
+      }
+    }
+    if(remaining>0){
+      return{ok:false,allocations,error:"⛔ "+modelNo+": المطلوب "+requestedQty+" — المتاح الإجمالي "+(grandAvail)+" (ناقص "+remaining+" قطعة)",grandAvail,modelNo};
+    }
+    return{ok:true,allocations,grandAvail,modelNo};
+  };
 
   const orderCalcs=useMemo(()=>{const m=new Map();orders.forEach(o=>m.set(o.id,calcOrder(o)));return m},[orders]);
   const getCalc=(oid)=>orderCalcs.get(oid)||calcOrder({});
@@ -187,7 +254,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const o=orders.find(x=>x.id===m.id);if(!o)return;
       const key=o.modelNo||m.id;
       if(!groups[key])groups[key]={key,modelNo:o.modelNo,modelDesc:o.modelDesc||m.modelDesc,rackSize:m.rackSize,subOrders:[]};
-      groups[key].subOrders.push({id:m.id,stockQty:m.stockQty,createdAt:o.createdAt||o.id,modelDesc:o.modelDesc||m.modelDesc});
+      /* V15.37: Track sellPrice per sub-order so the group can expose FIFO-aggregate price + mixed flag */
+      groups[key].subOrders.push({id:m.id,stockQty:m.stockQty,createdAt:o.createdAt||o.id,modelDesc:o.modelDesc||m.modelDesc,sellPrice:Number(o.sellPrice)||0});
     });
     /* Return array with subOrders sorted FIFO (oldest first), totals aggregated */
     return Object.values(groups).map(g=>{
@@ -196,6 +264,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       g.orderIds=g.subOrders.map(s=>s.id);
       g.stockQty=g.subOrders.reduce((s,x)=>s+(Number(x.stockQty)||0),0);
       g.isGrouped=g.subOrders.length>1;
+      /* V15.37: Expose sellPrice (FIFO — oldest order's price) + detect mixed prices */
+      g.sellPrice=g.subOrders[0]?.sellPrice||0;
+      const nonZeroPrices=g.subOrders.map(s=>s.sellPrice).filter(p=>p>0);
+      g.sellPriceMixed=nonZeroPrices.length>1&&!nonZeroPrices.every(p=>p===nonZeroPrices[0]);
       return g;
     });
   },[activeSess,aModsRaw,orders]);
@@ -237,6 +309,24 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
 
   /* Sell price */
   const setSellPrice=(orderId,price)=>{updOrder(orderId,o=>{o.sellPrice=Number(price)||0})};
+  /* V15.37: Save draft sell prices to ALL sub-orders in the matching groups (syncs back to all linked quick sales) */
+  const saveSellPrices=async()=>{
+    const entries=Object.entries(sellPriceDrafts).filter(([,v])=>v!==""&&v!==null&&v!==undefined);
+    if(entries.length===0){showToast("⚠️ لا توجد تعديلات للحفظ");return}
+    let orderCount=0,modelCount=0;
+    for(const[key,price] of entries){
+      const p=Number(price);if(isNaN(p)||p<0)continue;
+      const m=aMods.find(mm=>mm.key===key);if(!m)continue;
+      for(const oid of m.orderIds){
+        await updOrder(oid,o=>{o.sellPrice=p});
+        orderCount++;
+      }
+      modelCount++;
+    }
+    setSellPriceDrafts({});
+    showToast("✅ تم حفظ أسعار "+modelCount+" موديل ("+orderCount+" تشغيل) — تم مزامنة البيع السريع");
+  };
+  const cancelSellPriceDrafts=()=>{setSellPriceDrafts({})};
 
   /* Period report */
   /* Floor stock report - قطع على الأرض */
@@ -750,33 +840,56 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             <tr><td style={{...TD,fontWeight:700,color:"#0EA5E9"}}>رصيد توزيع</td>
               {aMods.map(m=>{const mt=aCusts.reduce((s,c)=>s+getGroupQty(m,c.id),0);const bal=(Number(m.stockQty)||0)-mt;return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:700,color:bal>=0?"#0EA5E9":"#EF4444"}}>{bal}</td>})}
               <td style={{...TD,textAlign:"center",fontWeight:700,color:"#0EA5E9"}}>{aMods.reduce((s,m)=>{const mt=aCusts.reduce((ss,c)=>ss+getGroupQty(m,c.id),0);return s+((Number(m.stockQty)||0)-mt)},0)}</td><td style={TD}></td></tr>
-            {/* V15.30: مباع فعلي — aggregate across all sub-orders in the group */}
+            {/* V15.37: مباع فعلي — use m.orderIds unconditionally (m.id is virtual GRP:... which doesn't exist in orders) */}
             <tr><td style={{...TD,fontWeight:700,color:"#8B5CF6"}}>مباع فعلي</td>
               {aMods.map(m=>{
-                const oids=m.isGrouped?m.orderIds:[m.id];
+                const oids=m.orderIds||[m.id];
                 let cd=0,ret=0;
                 oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;cd+=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);ret+=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0)});
                 const net=cd-ret;
                 return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:700,color:net>0?"#8B5CF6":T.textMut}}>{net||"—"}{ret>0&&<span style={{fontSize:FS-3,color:T.ok}}>{" +"+ret+" مرتجع"}</span>}</td>;
               })}
-              <td style={{...TD,textAlign:"center",fontWeight:700,color:"#8B5CF6"}}>{(()=>{let total=0;aMods.forEach(m=>{const oids=m.isGrouped?m.orderIds:[m.id];oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;const cd=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);total+=(cd-ret)})});return total||"—"})()}</td><td style={TD}></td></tr>
-            {/* V15.30: رصيد متاح للبيع = stockQty - (مباع فعلي) — across all sub-orders */}
+              <td style={{...TD,textAlign:"center",fontWeight:700,color:"#8B5CF6"}}>{(()=>{let total=0;aMods.forEach(m=>{const oids=m.orderIds||[m.id];oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;const cd=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);total+=(cd-ret)})});return total||"—"})()}</td><td style={TD}></td></tr>
+            {/* V15.37: رصيد متاح للبيع = stockQty - (مباع فعلي) — use m.orderIds */}
             <tr style={{background:"#F59E0B06"}}><td style={{...TD,fontWeight:800,color:T.warn}}>رصيد متاح للبيع</td>
               {aMods.map(m=>{
-                const oids=m.isGrouped?m.orderIds:[m.id];
+                const oids=m.orderIds||[m.id];
                 let cd=0,ret=0;
                 oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;cd+=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);ret+=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0)});
                 const avail=(Number(m.stockQty)||0)-(cd-ret);
                 return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1,color:avail>0?"#F59E0B":"#EF4444"}}>{avail}</td>;
               })}
-              <td style={{...TD,textAlign:"center",fontWeight:800,color:T.warn}}>{(()=>{let total=0;aMods.forEach(m=>{const oids=m.isGrouped?m.orderIds:[m.id];let cd=0,ret=0;oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;cd+=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);ret+=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0)});total+=((Number(m.stockQty)||0)-(cd-ret))});return total})()}</td><td style={TD}></td></tr>
-            {sessCanEdit&&<tr><td style={{...TD,fontWeight:700,color:"#8B5CF6"}}>💰 سعر البيع</td>
-              {aMods.map(m=><td key={m.id} style={{...TD,textAlign:"center",padding:2}}>
-                <input type="number" value={m.sellPrice||""} onChange={e=>setSellPrice(m.id,e.target.value)} placeholder="0"
-                  style={{width:"100%",textAlign:"center",border:"1px solid "+T.brd,borderRadius:4,padding:"2px",fontSize:FS-2,fontWeight:700,fontFamily:"inherit",background:T.bg,color:"#8B5CF6"}}/>
-              </td>)}
+              <td style={{...TD,textAlign:"center",fontWeight:800,color:T.warn}}>{(()=>{let total=0;aMods.forEach(m=>{const oids=m.orderIds||[m.id];let cd=0,ret=0;oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;cd+=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);ret+=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0)});total+=((Number(m.stockQty)||0)-(cd-ret))});return total})()}</td><td style={TD}></td></tr>
+            {sessCanEdit&&<tr><td style={{...TD,fontWeight:700,color:"#8B5CF6"}}>💰 سعر البيع <span style={{color:T.err,fontSize:FS-2}}>*</span></td>
+              {aMods.map(m=>{
+                /* V15.37: Use draft value if present, else the saved price */
+                const draftVal=sellPriceDrafts[m.key];
+                const curVal=draftVal!==undefined?draftVal:(m.sellPrice||"");
+                const isDirty=draftVal!==undefined&&String(draftVal)!==String(m.sellPrice||"");
+                const isEmpty=!curVal||Number(curVal)<=0;
+                return<td key={m.id} style={{...TD,textAlign:"center",padding:2}}>
+                  <input type="number" value={curVal} onChange={e=>setSellPriceDrafts(p=>({...p,[m.key]:e.target.value}))} placeholder="0"
+                    title={m.sellPriceMixed?"⚠️ الأسعار مختلفة بين التشغيلات — الحفظ يوحّدها":""}
+                    style={{width:"100%",textAlign:"center",border:"1px solid "+(isEmpty?T.err+"60":isDirty?"#F59E0B":T.brd),borderRadius:4,padding:"2px",fontSize:FS-2,fontWeight:700,fontFamily:"inherit",background:isEmpty?T.err+"08":isDirty?"#F59E0B10":T.bg,color:"#8B5CF6"}}/>
+                  {m.sellPriceMixed&&!isDirty&&<div style={{fontSize:FS-3,color:T.warn,fontWeight:700,marginTop:2}} title="الأسعار مختلفة بين الأوردرات">⚠️ مختلط</div>}
+                </td>;
+              })}
               {/* V15.30: Total sell value — uses getGroupQty for group-aware quantity */}
-              <td style={{...TD,textAlign:"center",fontWeight:800,color:"#8B5CF6",minWidth:120,whiteSpace:"nowrap"}}>{fmt(aCusts.reduce((s,c)=>s+aMods.reduce((ss,m)=>ss+getGroupQty(m,c.id)*(m.sellPrice||0),0),0))+" ج.م"}</td><td style={TD}></td></tr>}
+              <td style={{...TD,textAlign:"center",fontWeight:800,color:"#8B5CF6",minWidth:120,whiteSpace:"nowrap"}}>{fmt(aCusts.reduce((s,c)=>s+aMods.reduce((ss,m)=>{const effPrice=sellPriceDrafts[m.key]!==undefined?(Number(sellPriceDrafts[m.key])||0):(m.sellPrice||0);return ss+getGroupQty(m,c.id)*effPrice},0),0))+" ج.م"}</td><td style={TD}></td></tr>}
+            {/* V15.37: Save/cancel row — shows only when there are draft changes */}
+            {sessCanEdit&&Object.keys(sellPriceDrafts).length>0&&<tr style={{background:"#F59E0B08"}}>
+              <td colSpan={fMods.length+2} style={{...TD,padding:"8px 12px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                  <div style={{fontSize:FS-1,color:T.warn,fontWeight:700}}>
+                    ⚠️ لديك {Object.keys(sellPriceDrafts).length} تعديل غير محفوظ في الأسعار
+                  </div>
+                  <div style={{display:"flex",gap:6}}>
+                    <Btn small onClick={cancelSellPriceDrafts} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd,fontSize:FS-2}}>إلغاء</Btn>
+                    <Btn small onClick={saveSellPrices} style={{background:"#8B5CF6",color:"#fff",border:"none",fontSize:FS-2,fontWeight:700}}>💾 حفظ الأسعار + مزامنة البيع</Btn>
+                  </div>
+                </div>
+              </td>
+            </tr>}
           </tbody>
         </table>
       </div>
@@ -1495,33 +1608,87 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         /* Always scan as full series: max(QR value, pcsPerSeries from sizeSet) — V15.30 uses source of truth */
         const info=getSizesFromSet(o,data);
         const rs=info.expectedCount>1?Math.max(qrRs,info.expectedCount):qrRs;
-        if(isSale){/* Check stock + planned limit */
-          const currentActual={};qrSale.items.forEach(it=>{currentActual[it.orderId]=(currentActual[it.orderId]||0)+(Number(it.qty)||0)});
-          const alreadyInCart=(currentActual[orderId]||0);const avail=getAvailStock(orderId);
-          if(avail<=0){playBeep("error");showToast("⛔ موديل "+o.modelNo+" غير متاح — الرصيد = 0");return}
-          if(alreadyInCart+rs>avail){playBeep("error");showToast("⚠️ "+o.modelNo+": المطلوب ("+(alreadyInCart+rs)+") أكبر من المتاح ("+avail+")");return}
-          /* Check planned limit for linked session */
-          const _ls=qrSale.linkedSession&&qrSale.linkedSession!=="free"?sessions.find(s=>s.id===qrSale.linkedSession):null;
-          if(_ls){const _rem=getRemainingForSess(qrSale.custId,_ls.id,orderId,_ls.grid||{});
-            if(_rem<=0){playBeep("error");showToast("⛔ "+o.modelNo+": تم تسليم كامل الخطة لهذا العميل");return}
-            if(alreadyInCart+rs>_rem){playBeep("error");showToast("⚠️ "+o.modelNo+": المتبقي في الخطة = "+_rem+" (المطلوب "+(alreadyInCart+rs)+")");return}}
-        }else{/* Check customer received this model - use latest items */
-          const currentActual={};qrSale.items.forEach(it=>{currentActual[it.orderId]=(currentActual[it.orderId]||0)+(Number(it.qty)||0)});
-          const delivered=getCustDelivered(orderId);const returned=getCustReturned(orderId);const net=delivered-returned;
-          const alreadyInCart=(currentActual[orderId]||0);
-          if(delivered<=0){playBeep("error");showToast("⛔ العميل لم يستلم موديل "+o.modelNo);return}
-          if(alreadyInCart+rs>net){playBeep("error");showToast("⚠️ "+o.modelNo+": المتاح للمرتجع = "+net+" (مسلّم "+delivered+" - مرتجع "+returned+")");return}
+        /* V15.36: FIFO Auto-Distribution — if multiple orders share the same modelNo,
+           distribute requested qty across them (oldest first). Only when prices are consistent. */
+        const sameModelOrders=getSameModelOrders(orderId);
+        const isGrouped=sameModelOrders.length>1;
+        if(isGrouped){
+          const priceCheck=checkGroupPriceConsistent(sameModelOrders);
+          if(!priceCheck.consistent){
+            playBeep("error");
+            showToast("⛔ "+o.modelNo+": الأسعار مختلفة في التشغيلات ("+priceCheck.prices.join("، ")+" ج) — لا يمكن الدمج. راجع أسعار الأوردرات.");
+            return;
+          }
         }
-        playBeep("ok");setQrSale(p=>({...p,items:[...p.items,{orderId,modelNo:o.modelNo,modelDesc:o.modelDesc,rackSize:rs,qty:rs}]}))}catch(e){}};
+        const currentCart={};qrSale.items.forEach(it=>{currentCart[it.orderId]=(currentCart[it.orderId]||0)+(Number(it.qty)||0)});
+        if(isSale){
+          /* Pass session context for planned-limit cap */
+          const _ls=qrSale.linkedSession&&qrSale.linkedSession!=="free"?sessions.find(s=>s.id===qrSale.linkedSession):null;
+          const cartWithCtx={...currentCart,__custId:qrSale.custId,__sessId:_ls?_ls.id:null};
+          const dist=distributeFIFO(sameModelOrders,rs,"sale",cartWithCtx,_ls?(_ls.grid||{}):null,null);
+          if(!dist.ok){playBeep("error");showToast(dist.error);return}
+          /* Success — add one item per allocation (keeps per-order accounting correct for pricing) */
+          playBeep("ok");
+          setQrSale(p=>{const newItems=[...p.items];dist.allocations.forEach(a=>{const oo=orders.find(x=>x.id===a.orderId);newItems.push({orderId:a.orderId,modelNo:oo.modelNo,modelDesc:oo.modelDesc,rackSize:rs,qty:a.qty})});return{...p,items:newItems}});
+        }else{/* return */
+          const dist=distributeFIFO(sameModelOrders,rs,"return",currentCart,null,qrSale.custId);
+          if(!dist.ok){playBeep("error");showToast(dist.error.replace("المتاح","المسلّم للعميل"));return}
+          playBeep("ok");
+          setQrSale(p=>{const newItems=[...p.items];dist.allocations.forEach(a=>{const oo=orders.find(x=>x.id===a.orderId);newItems.push({orderId:a.orderId,modelNo:oo.modelNo,modelDesc:oo.modelDesc,rackSize:rs,qty:a.qty})});return{...p,items:newItems}});
+        }
+        }catch(e){}};
       const total=qrSale.items.reduce((s,it)=>s+(Number(it.qty)||0),0);
       const updateQty=(idx,v)=>setQrSale(p=>{const items=[...p.items];items[idx]={...items[idx],qty:Math.max(0,Number(v)||0)};return{...p,items}});
       const removeItem=(idx)=>setQrSale(p=>({...p,items:p.items.filter((_,i)=>i!==idx)}));
+      /* V15.36: Group cart items by (modelNo + rackSize) so FIFO-distributed items appear as one merged row */
+      const groupedCartItems=(()=>{
+        const groups={};const order=[];
+        qrSale.items.forEach((it,idx)=>{
+          const key=(it.modelNo||"")+"__"+(it.rackSize||0);
+          if(!groups[key]){groups[key]={key,modelNo:it.modelNo,modelDesc:it.modelDesc,rackSize:it.rackSize,isBroken:it.isBroken,indices:[],totalQty:0,items:[]};order.push(key)}
+          groups[key].indices.push(idx);
+          groups[key].items.push(it);
+          groups[key].totalQty+=(Number(it.qty)||0);
+        });
+        return order.map(k=>groups[k]);
+      })();
+      const removeGroup=(grp)=>{const idxSet=new Set(grp.indices);setQrSale(p=>({...p,items:p.items.filter((_,i)=>!idxSet.has(i))}))};
+      const updateGroupQty=(grp,newTotal)=>{
+        const nt=Math.max(0,Number(newTotal)||0);
+        if(nt===0){removeGroup(grp);return}
+        /* Redistribute FIFO across the same orderIds (preserve ordering by createdAt) */
+        const orderedIds=grp.items.map(it=>it.orderId);
+        /* Sort by createdAt to guarantee FIFO */
+        const orderedOrders=orderedIds.map(id=>orders.find(x=>x.id===id)).filter(Boolean).sort((a,b)=>((a.createdAt||a.id||"")+"").localeCompare(((b.createdAt||b.id||"")+"")));
+        /* Build current-cart EXCLUDING this group (so the capacity check is fair) */
+        const otherCart={};qrSale.items.forEach((it,i)=>{if(grp.indices.includes(i))return;otherCart[it.orderId]=(otherCart[it.orderId]||0)+(Number(it.qty)||0)});
+        const _ls=isSale&&qrSale.linkedSession&&qrSale.linkedSession!=="free"?sessions.find(s=>s.id===qrSale.linkedSession):null;
+        const cartWithCtx={...otherCart,__custId:qrSale.custId,__sessId:_ls?_ls.id:null};
+        const dist=distributeFIFO(orderedOrders,nt,isSale?"sale":"return",cartWithCtx,isSale&&_ls?(_ls.grid||{}):null,!isSale?qrSale.custId:null);
+        if(!dist.ok){playBeep("error");showToast(dist.error);return}
+        /* Replace the group's items with the new allocations (preserve modelNo/rackSize/isBroken) */
+        setQrSale(p=>{const kept=p.items.filter((_,i)=>!grp.indices.includes(i));const newAllocs=dist.allocations.map(a=>{const oo=orders.find(x=>x.id===a.orderId);return{orderId:a.orderId,modelNo:oo.modelNo,modelDesc:oo.modelDesc,rackSize:grp.rackSize,qty:a.qty,isBroken:grp.isBroken||false}});return{...p,items:[...kept,...newAllocs]}});
+      };
       const closeQrSale=()=>{try{const v=document.getElementById("qr-sale-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setQrScanActive(false);setQrSale(null)};
       const linkedSess=isSale&&qrSale.linkedSession&&qrSale.linkedSession!=="free"?sessions.find(s=>s.id===qrSale.linkedSession):null;
       const plannedByModel={};if(linkedSess){Object.entries(linkedSess.grid||{}).forEach(([k,v])=>{const[oid,cid]=k.split("_");if(cid===qrSale.custId){plannedByModel[oid]=(plannedByModel[oid]||0)+(Number(v)||0)}})}
       const actualByModel={};qrSale.items.forEach(it=>{actualByModel[it.orderId]=(actualByModel[it.orderId]||0)+(Number(it.qty)||0)});
       const confirmSale=()=>{if(!qrSale.custId||total<=0)return;const cust=customers.find(c=>c.id===qrSale.custId);if(!cust)return;
         const byOrder={};qrSale.items.forEach(it=>{if(!byOrder[it.orderId])byOrder[it.orderId]=0;byOrder[it.orderId]+=(Number(it.qty)||0)});
+        /* V15.37: For sales, require sellPrice > 0 on every order */
+        if(isSale){
+          const missingPrice=[];
+          for(const oid of Object.keys(byOrder)){
+            const o=orders.find(x=>x.id===oid);
+            if(!o)continue;
+            if(!Number(o.sellPrice))missingPrice.push(o.modelNo||oid);
+          }
+          if(missingPrice.length>0){
+            playBeep("error");
+            showToast("⛔ لازم تحط سعر بيع في جدول التوزيعة قبل البيع: "+[...new Set(missingPrice)].join("، "));
+            return;
+          }
+        }
         /* Final validation */
         if(isSale){
           /* Determine if linked to a specific distribution session */
@@ -1635,17 +1802,50 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               if(v.srcObject)requestAnimationFrame(scan)};setTimeout(scan,500)}catch(e){showToast("⚠️ تعذر فتح الكاميرا")}};startCam()},300)}} style={{background:color+"12",color,border:"1px solid "+color+"30",padding:"12px 24px",fontSize:FS+1}}>📷 فتح الماسح</Btn>
             <div style={{fontSize:FS-2,color:T.textMut,marginTop:6}}>أو أضف يدوياً</div></div>}
           <div style={{marginBottom:12,display:"flex",gap:6,alignItems:"end"}}>
-            <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(!v)return;const rs=getRackSize(v);const o=orders.find(x=>x.id===v);const customQty=Number(qrSale._manualQty)||0;const qty=customQty>0?customQty:rs;
-              setQrSale(p=>({...p,items:[...p.items,{orderId:v,modelNo:o?.modelNo||"?",modelDesc:o?.modelDesc||"",rackSize:qty,qty}],_manualQty:0}));playBeep("ok")}} options={(linkedSess?stockModels.filter(m=>m.avail>0&&linkedSess.modelIds.includes(m.id)):stockModels.filter(m=>m.avail>0)).map(m=>({value:m.id,label:m.modelNo+" — "+m.modelDesc+" ("+m.avail+")"}))} placeholder={linkedSess?"موديلات التوزيعة...":"اختر موديل..."}/></div>
+            <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(!v)return;
+              /* V15.36: Manual add — use the earliest order's id, then FIFO-distribute across same-modelNo orders */
+              const pickedO=orders.find(x=>x.id===v);if(!pickedO)return;
+              const rs=getRackSize(v);const customQty=Number(qrSale._manualQty)||0;const qty=customQty>0?customQty:rs;
+              const sameModel=getSameModelOrders(v);
+              if(sameModel.length>1){
+                const pc=checkGroupPriceConsistent(sameModel);
+                if(!pc.consistent){playBeep("error");showToast("⛔ "+pickedO.modelNo+": الأسعار مختلفة ("+pc.prices.join("، ")+" ج) — لا يمكن الدمج");return}
+              }
+              const currentCart={};qrSale.items.forEach(it=>{currentCart[it.orderId]=(currentCart[it.orderId]||0)+(Number(it.qty)||0)});
+              const _ls=isSale&&qrSale.linkedSession&&qrSale.linkedSession!=="free"?sessions.find(s=>s.id===qrSale.linkedSession):null;
+              const cartWithCtx={...currentCart,__custId:qrSale.custId,__sessId:_ls?_ls.id:null};
+              const dist=distributeFIFO(sameModel,qty,isSale?"sale":"return",cartWithCtx,isSale&&_ls?(_ls.grid||{}):null,!isSale?qrSale.custId:null);
+              if(!dist.ok){playBeep("error");showToast(isSale?dist.error:dist.error.replace("المتاح","المسلّم للعميل"));return}
+              playBeep("ok");
+              setQrSale(p=>{const newItems=[...p.items];dist.allocations.forEach(a=>{const oo=orders.find(x=>x.id===a.orderId);newItems.push({orderId:a.orderId,modelNo:oo.modelNo,modelDesc:oo.modelDesc,rackSize:qty,qty:a.qty})});return{...p,items:newItems,_manualQty:0}});
+              }} options={(()=>{
+                /* V15.36: Group options by modelNo — show each unique model once with total avail across sub-orders (FIFO). value = earliest order id. */
+                const baseList=linkedSess?stockModels.filter(m=>m.avail>0&&linkedSess.modelIds.includes(m.id)):stockModels.filter(m=>m.avail>0);
+                const grouped={};
+                baseList.forEach(m=>{const o=orders.find(x=>x.id===m.id);if(!o)return;const key=o.modelNo||m.id;
+                  if(!grouped[key])grouped[key]={modelNo:o.modelNo,modelDesc:m.modelDesc,items:[]};
+                  grouped[key].items.push({orderId:m.id,avail:m.avail,createdAt:o.createdAt||o.id||""});
+                });
+                return Object.values(grouped).map(g=>{
+                  g.items.sort((a,b)=>((a.createdAt+"").localeCompare(b.createdAt+"")));
+                  const totalAvail=g.items.reduce((s,x)=>s+x.avail,0);
+                  const earliest=g.items[0].orderId;
+                  return{value:earliest,label:g.modelNo+" — "+g.modelDesc+" ("+totalAvail+")"+(g.items.length>1?" ⧉"+g.items.length:"")};
+                });
+              })()} placeholder={linkedSess?"موديلات التوزيعة...":"اختر موديل..."}/></div>
             <div style={{width:70}}><Inp type="number" value={qrSale._manualQty||""} onChange={v=>setQrSale(p=>({...p,_manualQty:Number(v)||0}))} placeholder="كمية"/></div>
             <Btn small onClick={async()=>{const result=await askForm("بيع كسر",[{key:"modelNo",label:"رقم الموديل",required:true,validate:v=>{const o=orders.find(x=>x.modelNo===v||x.id===v);return o?null:"موديل غير موجود"}},{key:"qty",label:"الكمية",type:"number",required:true,defaultValue:"1",validate:v=>{const n=Number(v);return n>0?null:"الكمية يجب أن تكون أكبر من صفر"}}]);if(!result)return;const o=orders.find(x=>x.modelNo===result.modelNo||x.id===result.modelNo);const q=Number(result.qty)||0;
               setQrSale(p=>({...p,items:[...p.items,{orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc||"",rackSize:q,qty:q,isBroken:true}]}));playBeep("ok");showToast("✅ كسر "+o.modelNo+" × "+q)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30",whiteSpace:"nowrap",fontSize:FS-2}}>🧩 كسر</Btn>
           </div>
           {qrSale.items.length>0&&<div style={{border:"1px solid "+T.brd,borderRadius:12,overflow:"hidden",marginBottom:10}}>
             <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th style={{...TH,fontSize:FS-2}}>الموديل</th><th style={{...TH,fontSize:FS-2}}>السيري</th><th style={{...TH,fontSize:FS-2}}>الكمية</th><th style={{...TH,width:30}}></th></tr></thead><tbody>
-              {qrSale.items.map((it,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={{...TD,fontWeight:700,color:T.accent}}>{it.modelNo}</td><td style={{...TD,textAlign:"center"}}>{it.rackSize}</td>
-                <td style={{...TD,textAlign:"center"}}><input type="number" value={it.qty} onChange={e=>updateQty(i,e.target.value)} style={{width:60,textAlign:"center",border:"1px solid "+T.brd,borderRadius:4,padding:"2px",fontSize:FS,fontWeight:700,fontFamily:"inherit",background:T.cardSolid,color:T.text}}/></td>
-                <td style={{...TD,textAlign:"center"}}><span onClick={()=>removeItem(i)} style={{cursor:"pointer",color:T.err,fontSize:14}}>🗑️</span></td></tr>)}
+              {/* V15.36: Render grouped by modelNo+rackSize to merge FIFO allocations */}
+              {groupedCartItems.map((grp,i)=><tr key={grp.key} style={{background:i%2===0?"transparent":T.bg+"80"}}>
+                <td style={{...TD,fontWeight:700,color:T.accent}}>{grp.modelNo}{grp.items.length>1&&<span style={{fontSize:FS-3,color:"#8B5CF6",marginInlineStart:6,fontWeight:700}} title={"موزع FIFO على "+grp.items.length+" تشغيل بنفس الموديل"}>⧉{grp.items.length}</span>}{grp.isBroken&&<span style={{fontSize:FS-3,color:"#F59E0B",marginInlineStart:6,fontWeight:700}} title="كسر">🧩</span>}</td>
+                <td style={{...TD,textAlign:"center"}}>{grp.rackSize}</td>
+                <td style={{...TD,textAlign:"center"}}><input type="number" value={grp.totalQty} onChange={e=>updateGroupQty(grp,e.target.value)} style={{width:60,textAlign:"center",border:"1px solid "+T.brd,borderRadius:4,padding:"2px",fontSize:FS,fontWeight:700,fontFamily:"inherit",background:T.cardSolid,color:T.text}}/></td>
+                <td style={{...TD,textAlign:"center"}}><span onClick={()=>removeGroup(grp)} style={{cursor:"pointer",color:T.err,fontSize:14}}>🗑️</span></td>
+              </tr>)}
               <tr style={{background:color+"10"}}><td style={{...TD,fontWeight:800}}>الاجمالي</td><td style={TD}></td><td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color}}>{total}</td><td style={TD}></td></tr>
             </tbody></table>
           </div>}
