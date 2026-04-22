@@ -161,3 +161,67 @@ export function openPrintWindow(){
     return null;
   }
 }
+
+/* V15.48: Print salary envelopes — DL size (220×110mm landscape), direct-to-envelope feed.
+   Each employee = one envelope page. QR format matches existing CLARK:EMP:<id> so scanning
+   works identically to the thermal ID cards (uses same receipt registration flow). */
+export function printSalaryEnvelopes(empsList,weekInfo,configInfo){
+  const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+  const logo=(configInfo&&configInfo.logo)||"";
+  const factoryName=(configInfo&&configInfo.factoryName)||"CLARK Factory";
+  const weekLabel=weekInfo?("W"+(weekInfo.weekNum||"")):"";
+  const weekDate=(weekInfo&&weekInfo.startDate)||"";
+  let envelopes="";
+  empsList.forEach(e=>{
+    const qr=("CLARK:EMP:"+e.id).replace(/'/g,"\\'");
+    envelopes+="<div class='env'>"
+      +"<div class='hdr'>"
+        +(logo?"<img src='"+logo+"' class='logo' alt=''/>":"<div class='logo-ph'></div>")
+        +"<div class='brand'>"+factoryName+"</div>"
+        +"<div class='wk'>"+weekLabel+(weekDate?" • "+weekDate:"")+"</div>"
+      +"</div>"
+      +"<div class='divider'></div>"
+      +"<div class='body'>"
+        +"<canvas class='qr' data-qr='"+qr+"'></canvas>"
+        +"<div class='emp-info'>"
+          +"<div class='emp-name'>"+(e.name||"")+"</div>"
+          +(e.code?"<div class='emp-code'>كود الموظف: <b>"+e.code+"</b></div>":"")
+        +"</div>"
+      +"</div>"
+    +"</div>";
+  });
+  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/>"
+    +"<script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script>"
+    +"<link href='https://fonts.googleapis.com/css2?family=Cairo:wght@500;700;800;900&display=swap' rel='stylesheet'/>"
+    +"<style>"
+    /* DL envelope — 220mm x 110mm landscape. Direct feed into printer. */
+    +"@page{size:220mm 110mm;margin:0}"
+    +"*{margin:0;padding:0;box-sizing:border-box}"
+    +"body{font-family:'Cairo',sans-serif;color:#000;background:#fff}"
+    +".env{width:220mm;height:110mm;padding:8mm 12mm;display:flex;flex-direction:column;page-break-after:always;overflow:hidden;position:relative}"
+    +".env:last-child{page-break-after:auto}"
+    /* Header: logo + factory name + week */
+    +".hdr{display:flex;align-items:center;gap:6mm;margin-bottom:3mm}"
+    +".logo{width:14mm;height:14mm;object-fit:contain;flex-shrink:0}"
+    +".logo-ph{width:14mm;height:14mm;flex-shrink:0}"
+    +".brand{font-size:16pt;font-weight:900;flex:1;letter-spacing:0.5px}"
+    +".wk{font-size:11pt;font-weight:700;color:#333;font-family:'Cairo',monospace;padding:2mm 5mm;border:1.5px solid #000;border-radius:3mm;white-space:nowrap}"
+    /* Divider */
+    +".divider{height:1.5px;background:#000;margin:1mm 0 4mm}"
+    /* Body: QR + employee info side by side */
+    +".body{flex:1;display:flex;align-items:center;gap:8mm}"
+    +".qr{width:32mm!important;height:32mm!important;flex-shrink:0}"
+    +".emp-info{flex:1;display:flex;flex-direction:column;gap:3mm}"
+    +".emp-name{font-size:22pt;font-weight:900;line-height:1.1}"
+    +".emp-code{font-size:12pt;font-weight:600;color:#333}"
+    +".emp-code b{font-family:monospace;font-size:13pt;font-weight:800}"
+    /* On-screen preview controls (hidden on print) */
+    +".pbar{position:sticky;top:0;background:#fff;padding:6px;display:none;justify-content:center;gap:8px;border-bottom:2px solid #ccc;z-index:10}"
+    +".pbar button{padding:6px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:11px;font-weight:700;background:#fff}"
+    +".pbar .pr{background:#000;color:#fff}"
+    +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
+    +"</style></head><body>"
+    +"<div class='pbar'><button onclick='window.close()'>↩ رجوع</button><button class='pr' onclick='window.print()'>🖨 طباعة مظاريف</button></div>"
+    +envelopes
+    +"<script>document.querySelectorAll('.qr').forEach(c=>{QRCode.toCanvas(c,c.dataset.qr,{width:121,margin:0,errorCorrectionLevel:'M'},()=>{})});setTimeout(()=>window.print(),1000)</"+"script></body></html>");
+  pw.document.close()}

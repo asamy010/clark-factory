@@ -12,7 +12,7 @@ import { playBeep } from "../utils/audio.js";
 import { loadJsQR, scanQR, loadXLSX } from "../utils/qr.js";
 import { addAudit } from "../utils/audit.js";
 import { ask, showToast } from "../utils/popups.js";
-import { printPage, printEmpQrCards, openPrintWindow } from "../utils/print.js";
+import { printPage, printEmpQrCards, printSalaryEnvelopes, openPrintWindow } from "../utils/print.js";
 /* V15.25: Receipt queue — persistent storage for salary confirmation scans */
 import { addReceipt, removeReceipt, getPendingForWeek, getReadyForRetry, markAsFailed, getPendingCount, forceRetryAll } from "../utils/receiptQueue.js";
 import { Btn, Inp, Sel, Card, QRImg, QRScanner, SearchSel, useDebounced } from "../components/ui.jsx";
@@ -439,6 +439,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   const[empStatement,setEmpStatement]=useState(null);/* empId for statement popup */
   /* V14.57: QR receipt scanning — per-week per-employee receipt tracking */
   const[showEmpQrScanner,setShowEmpQrScanner]=useState(null);/* {weekId} for opening scanner */
+  /* V15.48: Salary envelope print popup — per-week, select employees to print */
+  const[envelopePopup,setEnvelopePopup]=useState(null);/* {weekId, selected:Set<empId>, filter:"all"|"unprinted"|"uncollected", search} */
   const[showEmpCardPrint,setShowEmpCardPrint]=useState(null);/* empId OR "all" for bulk */
   const[fraudListPopup,setFraudListPopup]=useState(null);/* {weekId, emps:[]} */
   /* V14.60: QR view popup (for employee who forgot card) + Fraud warning popup */
@@ -3184,6 +3186,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
               <div style={{flex:"0 0 auto",marginInlineStart:"auto",display:"flex",gap:6}}>
                 {/* V14.57: Scan QR to register salary receipt — only for closed weeks */}
                 {openWeek.status==="closed"&&canEdit&&<Btn small onClick={()=>setShowEmpQrScanner({weekId:openWeek.id})} style={{background:"#10B98112",color:"#10B981",border:"1px solid #10B98130",fontWeight:700}} title="مسح QR الموظف لتسجيل استلام المرتب">📱 تسجيل استلام</Btn>}
+                {/* V15.48: Print salary envelopes (DL 220×110mm, direct envelope feed) */}
+                {canEdit&&<Btn small onClick={()=>{const wkEmpIds=new Set(shownEmps.map(e=>e.id));setEnvelopePopup({weekId:openWeek.id,selected:new Set(wkEmpIds),filter:"all",search:""})}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30",fontWeight:700}} title="طباعة مظاريف المرتبات على ظرف DL (220×110mm)">📮 مظاريف</Btn>}
                 {/* V15.8: Quick entry button — bulk edit with 5 tabs, data persists across tabs */}
                 {!isLocked&&canEdit&&<Btn small onClick={()=>{
                   /* V15.8: Initialize all 5 tabs with existing values. User can switch between tabs
@@ -4442,6 +4446,106 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           <div style={{display:"flex",gap:8,width:"100%",justifyContent:"center"}}>
             <Btn onClick={()=>{printEmpQrCards([emp]);setEmpQrView(null)}} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}}>🎫 طباعة كارت بديل</Btn>
             <Btn ghost onClick={()=>setEmpQrView(null)} style={{background:"#F1F5F9",color:"#475569"}}>إغلاق</Btn>
+          </div>
+        </div>
+      </div>;
+    })()}
+
+    {/* ══ V15.48: SALARY ENVELOPE PRINT POPUP ══ */}
+    {envelopePopup&&(()=>{
+      const w=(data.hrWeeks||[]).find(x=>x.id===envelopePopup.weekId);if(!w)return null;
+      const wkEmps=activeEmps.filter(e=>(w.employees||[]).some(we=>we.id===e.id));
+      const printed=w.envelopesPrinted||{};
+      const receipts=w.receipts||{};
+      /* Apply filter */
+      const q=(envelopePopup.search||"").trim().toLowerCase();
+      const filtered=wkEmps.filter(e=>{
+        if(envelopePopup.filter==="unprinted"&&printed[e.id])return false;
+        if(envelopePopup.filter==="uncollected"&&receipts[e.id])return false;
+        if(q&&!(e.name||"").toLowerCase().includes(q)&&!(e.code||"").toLowerCase().includes(q))return false;
+        return true;
+      });
+      const selectedEmps=wkEmps.filter(e=>envelopePopup.selected.has(e.id));
+      const toggleAll=(on)=>{setEnvelopePopup(p=>{const s=new Set(p.selected);filtered.forEach(e=>{if(on)s.add(e.id);else s.delete(e.id)});return{...p,selected:s}})};
+      const toggleOne=(id)=>{setEnvelopePopup(p=>{const s=new Set(p.selected);if(s.has(id))s.delete(id);else s.add(id);return{...p,selected:s}})};
+      const doPrint=()=>{
+        if(selectedEmps.length===0){showToast("⚠️ اختار موظف واحد على الأقل");return}
+        /* Print */
+        printSalaryEnvelopes(selectedEmps,{weekNum:w.weekNum,startDate:w.startDate},{logo:data.logo,factoryName:data.factoryName});
+        /* Mark as printed */
+        upConfig(d=>{
+          const wi=(d.hrWeeks||[]).findIndex(x=>x.id===w.id);if(wi<0)return;
+          if(!d.hrWeeks[wi].envelopesPrinted)d.hrWeeks[wi].envelopesPrinted={};
+          const now=new Date().toISOString();
+          selectedEmps.forEach(e=>{d.hrWeeks[wi].envelopesPrinted[e.id]={at:now,by:userName||""}});
+        });
+        showToast("✓ تم إرسال "+selectedEmps.length+" ظرف للطباعة");
+        setEnvelopePopup(null);
+      };
+      const allFilteredSelected=filtered.length>0&&filtered.every(e=>envelopePopup.selected.has(e.id));
+      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setEnvelopePopup(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:680,maxHeight:"92vh",display:"flex",flexDirection:"column",border:"2px solid #F59E0B",boxShadow:"0 25px 70px rgba(0,0,0,0.45)"}}>
+          {/* Header */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,paddingBottom:10,borderBottom:"2px solid #F59E0B25"}}>
+            <div>
+              <div style={{fontSize:FS+3,fontWeight:900,color:"#F59E0B",display:"flex",alignItems:"center",gap:8}}>
+                <span>📮</span><span>مظاريف المرتبات — W{w.weekNum}</span>
+              </div>
+              <div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>ظرف DL (220×110mm) — طباعة مباشرة على الظرف</div>
+            </div>
+            <span onClick={()=>setEnvelopePopup(null)} style={{cursor:"pointer",fontSize:22,color:T.textMut,padding:4}}>✕</span>
+          </div>
+          {/* Stats */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:12}}>
+            <div style={{padding:"6px 10px",borderRadius:8,background:T.bg,border:"1px solid "+T.brd,textAlign:"center"}}>
+              <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>كل الأسبوع</div>
+              <div style={{fontSize:FS+2,fontWeight:900,color:T.text}}>{wkEmps.length}</div>
+            </div>
+            <div style={{padding:"6px 10px",borderRadius:8,background:"#F59E0B08",border:"1px solid #F59E0B30",textAlign:"center"}}>
+              <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>مختار</div>
+              <div style={{fontSize:FS+2,fontWeight:900,color:"#F59E0B"}}>{envelopePopup.selected.size}</div>
+            </div>
+            <div style={{padding:"6px 10px",borderRadius:8,background:T.ok+"08",border:"1px solid "+T.ok+"30",textAlign:"center"}}>
+              <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>طُبعت</div>
+              <div style={{fontSize:FS+2,fontWeight:900,color:T.ok}}>{Object.keys(printed).length}</div>
+            </div>
+            <div style={{padding:"6px 10px",borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"30",textAlign:"center"}}>
+              <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>استلموا</div>
+              <div style={{fontSize:FS+2,fontWeight:900,color:T.accent}}>{Object.keys(receipts).length}</div>
+            </div>
+          </div>
+          {/* Filters */}
+          <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+            <Sel value={envelopePopup.filter} onChange={v=>setEnvelopePopup(p=>({...p,filter:v}))} style={{flex:"0 0 auto",minWidth:160}}>
+              <option value="all">كل موظفي الأسبوع</option>
+              <option value="unprinted">لم يُطبع لهم ظرف</option>
+              <option value="uncollected">لم يستلموا المرتب</option>
+            </Sel>
+            <input value={envelopePopup.search} onChange={e=>setEnvelopePopup(p=>({...p,search:e.target.value}))} placeholder="🔍 بحث بالاسم أو الكود..." style={{flex:1,minWidth:140,padding:"6px 10px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text}}/>
+            <Btn small ghost onClick={()=>toggleAll(!allFilteredSelected)} style={{whiteSpace:"nowrap"}}>{allFilteredSelected?"✕ إلغاء الكل":"☑ تحديد الكل"}</Btn>
+          </div>
+          {/* Employee list */}
+          <div style={{flex:1,overflowY:"auto",border:"1px solid "+T.brd,borderRadius:10,marginBottom:12}}>
+            {filtered.length===0?<div style={{padding:30,textAlign:"center",color:T.textMut}}>لا توجد نتائج</div>:
+              filtered.map(e=>{const sel=envelopePopup.selected.has(e.id);const wasP=!!printed[e.id];const wasR=!!receipts[e.id];
+                return<div key={e.id} onClick={()=>toggleOne(e.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderBottom:"1px solid "+T.brd,cursor:"pointer",background:sel?"#F59E0B08":"transparent",transition:"background 0.1s"}}>
+                  <div style={{width:20,height:20,borderRadius:5,border:"2px solid "+(sel?"#F59E0B":T.brd),background:sel?"#F59E0B":"transparent",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:12,fontWeight:900,flexShrink:0}}>{sel?"✓":""}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:FS,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                      <span>{e.name}</span>
+                      {e.code&&<span style={{fontSize:FS-3,color:T.accent,fontFamily:"monospace",fontWeight:700}}>#{e.code}</span>}
+                      {wasP&&<span style={{fontSize:FS-3,padding:"1px 6px",borderRadius:6,background:T.ok+"15",color:T.ok,fontWeight:700}} title={"طُبع: "+new Date(printed[e.id].at).toLocaleString("ar-EG")+(printed[e.id].by?" • "+printed[e.id].by:"")}>📮 طُبع</span>}
+                      {wasR&&<span style={{fontSize:FS-3,padding:"1px 6px",borderRadius:6,background:T.accent+"15",color:T.accent,fontWeight:700}} title={"استلم: "+new Date(receipts[e.id].at).toLocaleString("ar-EG")}>✅ استلم</span>}
+                    </div>
+                    {e.job&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:1}}>{e.job}</div>}
+                  </div>
+                </div>;
+              })}
+          </div>
+          {/* Actions */}
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <Btn ghost onClick={()=>setEnvelopePopup(null)}>إلغاء</Btn>
+            <Btn onClick={doPrint} disabled={envelopePopup.selected.size===0} style={{background:envelopePopup.selected.size>0?"#F59E0B":T.brd,color:"#fff",border:"none",fontWeight:800,padding:"8px 20px",opacity:envelopePopup.selected.size>0?1:0.5}}>📮 طباعة {envelopePopup.selected.size} ظرف</Btn>
           </div>
         </div>
       </div>;
