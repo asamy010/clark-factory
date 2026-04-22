@@ -10,7 +10,7 @@ import { collection } from "firebase/firestore";
 import { Btn, Card, DelBtn, Inp, QRImg, Sel } from "../components/ui.jsx";
 import { DEFAULT_STATUSES, FKEYS, FS, GARMENT_ICONS, WS_TYPES } from "../constants/index.js";
 import { T, TD, TDB, TH } from "../theme.js";
-import { gIcon, setF, normalizePhone } from "../utils/format.js";
+import { gIcon, setF, normalizePhone, parseSizes } from "../utils/format.js";
 import { compressImage, compressImg43 } from "../utils/image.js";
 import { calcWsRating, wsTypeInfo } from "../utils/orders.js";
 import { ask, askInput, showToast } from "../utils/popups.js";
@@ -47,7 +47,11 @@ export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,o
 
   const saveFab=()=>{if(!ff.name)return;upConfig(d=>{if(ff._eid){const idx=d.fabrics.findIndex(x=>x.id===ff._eid);if(idx>=0)d.fabrics[idx]={...d.fabrics[idx],name:ff.name,unit:ff.unit,price:Number(ff.price)||0}}else{d.fabrics.push({id:Date.now(),name:ff.name,unit:ff.unit,price:Number(ff.price)||0})}});setFf({name:"",unit:"كيلو",price:"",_eid:null})};
   const saveAcc=()=>{if(!af.name)return;upConfig(d=>{if(af._eid){const idx=d.accessories.findIndex(x=>x.id===af._eid);if(idx>=0)d.accessories[idx]={...d.accessories[idx],name:af.name,unit:af.unit,price:Number(af.price)||0}}else{d.accessories.push({id:Date.now(),name:af.name,unit:af.unit,price:Number(af.price)||0})}});setAf({name:"",unit:"قطعة",price:"",_eid:null})};
-  const saveSize=()=>{if(!sfld.label)return;upConfig(d=>{if(sfld._eid){const idx=d.sizeSets.findIndex(x=>x.id===sfld._eid);if(idx>=0)d.sizeSets[idx]={...d.sizeSets[idx],label:sfld.label,pcsPerSeries:Number(sfld.pcs)||0}}else{d.sizeSets.push({id:Date.now(),label:sfld.label,pcsPerSeries:Number(sfld.pcs)||0})}});setSfld({label:"",pcs:0,_eid:null})};
+  const saveSize=()=>{if(!sfld.label)return;
+    /* V15.30: pcsPerSeries is required — it's the source of truth for size count */
+    const pcs=Number(sfld.pcs)||0;
+    if(pcs<=0){showToast("⚠️ عدد قطع/سيري مطلوب وهو المرجع لعدد المقاسات");return}
+    upConfig(d=>{if(sfld._eid){const idx=d.sizeSets.findIndex(x=>x.id===sfld._eid);if(idx>=0)d.sizeSets[idx]={...d.sizeSets[idx],label:sfld.label,pcsPerSeries:pcs}}else{d.sizeSets.push({id:Date.now(),label:sfld.label,pcsPerSeries:pcs})}});setSfld({label:"",pcs:0,_eid:null})};
   const saveGarment=()=>{if(!gName.trim())return;const oldName=gEid?(data.garmentTypes||[]).find(x=>x.id===gEid)?.name:null;upConfig(d=>{if(!d.garmentTypes)d.garmentTypes=[];if(gEid){const idx=d.garmentTypes.findIndex(x=>x.id===gEid);if(idx>=0){d.garmentTypes[idx].name=gName.trim();d.garmentTypes[idx].icon=gIconSel;d.garmentTypes[idx].defaultPrice=Number(gPrice)||0}}else{d.garmentTypes.push({id:Date.now(),name:gName.trim(),icon:gIconSel,defaultPrice:Number(gPrice)||0})}});if(oldName&&oldName!==gName.trim())renameInOrders("garment",oldName,gName.trim());setGName("");setGEid(null);setGIconSel("👕");setGPrice("")};
   const saveStatus=()=>{if(!stName.trim())return;const oldName=stEid?(statusCards||[]).find(x=>x.id===stEid)?.name:null;upConfig(d=>{if(!d.statusCards)d.statusCards=[...DEFAULT_STATUSES];if(stEid){const idx=d.statusCards.findIndex(x=>x.id===stEid);if(idx>=0){d.statusCards[idx].name=stName.trim();d.statusCards[idx].color=stColor}}else{d.statusCards.push({id:Date.now(),name:stName.trim(),color:stColor})}});if(oldName&&oldName!==stName.trim())renameInOrders("status",oldName,stName.trim());setStName("");setStColor("#0EA5E9");setStEid(null)};
 
@@ -133,12 +137,45 @@ export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,o
       </div>
     </div></div>}</>}
     {sub==="size"&&<><Card title="المقاسات" extra={canEdit&&<Btn primary small onClick={()=>setSfld({label:"",pcs:0,_eid:null,_show:true})}>+ اضافة</Btn>}>
-      <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","المقاسات","قطع/سيري",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.sizeSets.map((s,i)=><tr key={s.id}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:600}}>{s.label}</td><td style={{...TDB,color:T.accent}}>{s.pcsPerSeries||"-"}</td>{canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:4}}>{eBtn(()=>setSfld({label:s.label,pcs:s.pcsPerSeries||0,_eid:s.id,_show:true}))}<DelBtn onConfirm={()=>safeDelete("sizeSets",s.id,"مقاسات")} blocked={sizeBlock(s)}/></div></td>}</tr>)}</tbody></table></Card>
+      <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","المقاسات","قطع/سيري",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.sizeSets.map((s,i)=>{
+        /* V15.30: Detect mismatch between label's parsed names and pcsPerSeries (source of truth) */
+        const _parsedCount=parseSizes(s.label||"").length;
+        const _expected=Number(s.pcsPerSeries)||0;
+        const _mismatch=_expected>0&&_parsedCount!==_expected;
+        const _noPcs=!_expected;
+        return<tr key={s.id} style={_mismatch?{background:"#F59E0B08"}:undefined}>
+          <td style={TD}>{i+1}</td>
+          <td style={{...TD,fontWeight:600}}>
+            {s.label}
+            {_mismatch&&<span title={"عدد الأسماء ("+_parsedCount+") لا يطابق قطع السيري ("+_expected+"). استخدم فاصلة ' | ' للنطاقات المعقدة."} style={{marginInlineStart:8,fontSize:FS-2,color:"#F59E0B",fontWeight:800,cursor:"help"}}>⚠️ تناقض</span>}
+            {_noPcs&&<span title="لم يُحدد عدد قطع/سيري" style={{marginInlineStart:8,fontSize:FS-2,color:T.err,fontWeight:800,cursor:"help"}}>⛔ ناقص</span>}
+          </td>
+          <td style={{...TDB,color:_noPcs?T.err:T.accent,fontWeight:800}}>{s.pcsPerSeries||"—"}</td>
+          {canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:4}}>{eBtn(()=>setSfld({label:s.label,pcs:s.pcsPerSeries||0,_eid:s.id,_show:true}))}<DelBtn onConfirm={()=>safeDelete("sizeSets",s.id,"مقاسات")} blocked={sizeBlock(s)}/></div></td>}
+        </tr>;
+      })}</tbody></table></Card>
     {sfld._show&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setSfld({...sfld,_show:false})}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:400,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
       <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,marginBottom:14}}>{sfld._eid?"✏️ تعديل المقاس":"+ مقاس جديد"}</div>
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        <div><label style={{fontSize:FS-2,color:T.textSec}}>المقاسات</label><Inp value={sfld.label} onChange={v=>setSfld({...sfld,label:v})} placeholder="S-M-L-XL"/></div>
-        <div><label style={{fontSize:FS-2,color:T.textSec}}>قطع/سيري</label><Inp type="number" value={sfld.pcs||""} onChange={v=>setSfld({...sfld,pcs:Number(v)||0})}/></div>
+        <div>
+          <label style={{fontSize:FS-2,color:T.textSec}}>المقاسات</label>
+          <Inp value={sfld.label} onChange={v=>setSfld({...sfld,label:v})} placeholder="6-9M | 9-12M | 12-18M"/>
+          <div style={{fontSize:FS-3,color:T.textMut,marginTop:4,lineHeight:1.5}}>
+            💡 للنطاقات اللي فيها حروف (زي 6-9M)، استخدم الفاصلة <b style={{color:T.accent}}> | </b> أو <b style={{color:T.accent}}>,</b> بين كل نطاق
+          </div>
+        </div>
+        <div>
+          <label style={{fontSize:FS-2,color:T.textSec}}>قطع/سيري <span style={{color:T.err}}>*</span></label>
+          <Inp type="number" value={sfld.pcs||""} onChange={v=>setSfld({...sfld,pcs:Number(v)||0})} placeholder="عدد المقاسات في السيري"/>
+        </div>
+        {/* V15.30: Live mismatch warning */}
+        {(()=>{
+          const _pc=parseSizes(sfld.label||"").length;
+          const _ex=Number(sfld.pcs)||0;
+          if(!sfld.label||!_ex)return null;
+          if(_pc===_ex)return<div style={{padding:"8px 12px",background:T.ok+"15",border:"1px solid "+T.ok+"40",borderRadius:8,fontSize:FS-2,color:T.ok,fontWeight:700}}>✓ الأسماء ({_pc}) تطابق قطع/سيري ({_ex})</div>;
+          return<div style={{padding:"8px 12px",background:"#F59E0B15",border:"1px solid #F59E0B40",borderRadius:8,fontSize:FS-2,color:"#B45309",fontWeight:600,lineHeight:1.5}}>⚠️ تناقض: الأسماء ({_pc}) ≠ قطع/سيري ({_ex}). راجع الفاصلة بين الأسماء.</div>;
+        })()}
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setSfld({label:"",pcs:0,_eid:null,_show:false})}>الغاء</Btn><Btn primary onClick={()=>{saveSize();setSfld({label:"",pcs:0,_eid:null,_show:false})}} title="حفظ التعديلات">💾 حفظ</Btn></div>
       </div>
     </div></div>}</>}

@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { FKEYS, FS } from "../constants/index.js";
-import { gid, fmt, r2, gf, parseSizes } from "../utils/format.js";
+import { gid, fmt, r2, gf, parseSizes, getSizesFromSet } from "../utils/format.js";
 import { playBeep } from "../utils/audio.js";
 import { loadQR, loadJsQR, scanQR } from "../utils/qr.js";
 import { ask, askForm, showToast } from "../utils/popups.js";
@@ -48,7 +48,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   useEffect(()=>{const h=()=>{const mode=window.__qrSaleMode;if(mode){delete window.__qrSaleMode;setQrSale({mode,custId:null,items:[],note:"",linkedSession:mode==="return"?"free":undefined})}};const h2=()=>{const pkgId=window.__openPkg;if(pkgId){delete window.__openPkg;setPkgAction({id:pkgId,mode:"menu"})}};window.addEventListener("qr-sale-trigger",h);window.addEventListener("open-pkg",h2);return()=>{window.removeEventListener("qr-sale-trigger",h);window.removeEventListener("open-pkg",h2)}},[]);
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
 
-  const getRackSize=(orderId)=>{const o=orders.find(x=>x.id===orderId);if(!o)return 1;const parts=parseSizes(o.sizeLabel);return parts.length||1};
+  /* V15.30: Use sizeSet.pcsPerSeries as source of truth (falls back to label parsing) */
+  const getRackSize=(orderId)=>{const o=orders.find(x=>x.id===orderId);if(!o)return 1;const info=getSizesFromSet(o,data);return info.expectedCount||1};
 
   const orderCalcs=useMemo(()=>{const m=new Map();orders.forEach(o=>m.set(o.id,calcOrder(o)));return m},[orders]);
   const getCalc=(oid)=>orderCalcs.get(oid)||calcOrder({});
@@ -724,22 +725,38 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#fff",background:T.ok}}>{fCusts.reduce((s,c)=>s+fMods.reduce((ss,m)=>ss+getGroupQty(m,c.id),0),0)}</td><td style={TD}></td></tr>
             <tr><td style={{...TD,fontWeight:700,color:T.textSec}}>استلام مخزن جاهز</td>
               {aMods.map(m=><td key={m.id} style={{...TD,textAlign:"center",fontWeight:700}}>{m.stockQty}</td>)}
-              <td style={TD}></td><td style={TD}></td></tr>
+              <td style={{...TD,textAlign:"center",fontWeight:700,color:T.textSec}}>{aMods.reduce((s,m)=>s+(Number(m.stockQty)||0),0)}</td><td style={TD}></td></tr>
+            {/* V15.30: رصيد توزيع = استلام مخزن جاهز - اجمالي توزيع (using group-aware getGroupQty) */}
             <tr><td style={{...TD,fontWeight:700,color:"#0EA5E9"}}>رصيد توزيع</td>
-              {aMods.map(m=>{const mt=aCusts.reduce((s,c)=>s+(Number(aGrid[m.id+"_"+c.id])||0),0);const bal=m.stockQty-mt;return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:700,color:bal>=0?"#0EA5E9":"#EF4444"}}>{bal}</td>})}
-              <td style={{...TD,textAlign:"center",fontWeight:700,color:"#0EA5E9"}}>{aMods.reduce((s,m)=>{const mt=aCusts.reduce((ss,c)=>ss+(Number(aGrid[m.id+"_"+c.id])||0),0);return s+(m.stockQty-mt)},0)}</td><td style={TD}></td></tr>
+              {aMods.map(m=>{const mt=aCusts.reduce((s,c)=>s+getGroupQty(m,c.id),0);const bal=(Number(m.stockQty)||0)-mt;return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:700,color:bal>=0?"#0EA5E9":"#EF4444"}}>{bal}</td>})}
+              <td style={{...TD,textAlign:"center",fontWeight:700,color:"#0EA5E9"}}>{aMods.reduce((s,m)=>{const mt=aCusts.reduce((ss,c)=>ss+getGroupQty(m,c.id),0);return s+((Number(m.stockQty)||0)-mt)},0)}</td><td style={TD}></td></tr>
+            {/* V15.30: مباع فعلي — aggregate across all sub-orders in the group */}
             <tr><td style={{...TD,fontWeight:700,color:"#8B5CF6"}}>مباع فعلي</td>
-              {aMods.map(m=>{const o=orders.find(x=>x.id===m.id);const cd=(o?.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o?.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const net=cd-ret;return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:700,color:net>0?"#8B5CF6":T.textMut}}>{net||"—"}{ret>0&&<span style={{fontSize:FS-3,color:T.ok}}>{" +"+ret+" مرتجع"}</span>}</td>})}
-              <td style={TD}></td><td style={TD}></td></tr>
+              {aMods.map(m=>{
+                const oids=m.isGrouped?m.orderIds:[m.id];
+                let cd=0,ret=0;
+                oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;cd+=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);ret+=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0)});
+                const net=cd-ret;
+                return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:700,color:net>0?"#8B5CF6":T.textMut}}>{net||"—"}{ret>0&&<span style={{fontSize:FS-3,color:T.ok}}>{" +"+ret+" مرتجع"}</span>}</td>;
+              })}
+              <td style={{...TD,textAlign:"center",fontWeight:700,color:"#8B5CF6"}}>{(()=>{let total=0;aMods.forEach(m=>{const oids=m.isGrouped?m.orderIds:[m.id];oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;const cd=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);total+=(cd-ret)})});return total||"—"})()}</td><td style={TD}></td></tr>
+            {/* V15.30: رصيد متاح للبيع = stockQty - (مباع فعلي) — across all sub-orders */}
             <tr style={{background:"#F59E0B06"}}><td style={{...TD,fontWeight:800,color:T.warn}}>رصيد متاح للبيع</td>
-              {aMods.map(m=>{const o=orders.find(x=>x.id===m.id);const cd=(o?.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o?.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const avail=m.stockQty-(cd-ret);return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1,color:avail>0?"#F59E0B":"#EF4444"}}>{avail}</td>})}
-              <td style={{...TD,textAlign:"center",fontWeight:800,color:T.warn}}>{aMods.reduce((s,m)=>{const o=orders.find(x=>x.id===m.id);const cd=(o?.customerDeliveries||[]).reduce((ss,d)=>ss+(Number(d.qty)||0),0);const ret=(o?.customerReturns||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0);return s+(m.stockQty-(cd-ret))},0)}</td><td style={TD}></td></tr>
+              {aMods.map(m=>{
+                const oids=m.isGrouped?m.orderIds:[m.id];
+                let cd=0,ret=0;
+                oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;cd+=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);ret+=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0)});
+                const avail=(Number(m.stockQty)||0)-(cd-ret);
+                return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1,color:avail>0?"#F59E0B":"#EF4444"}}>{avail}</td>;
+              })}
+              <td style={{...TD,textAlign:"center",fontWeight:800,color:T.warn}}>{(()=>{let total=0;aMods.forEach(m=>{const oids=m.isGrouped?m.orderIds:[m.id];let cd=0,ret=0;oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;cd+=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);ret+=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0)});total+=((Number(m.stockQty)||0)-(cd-ret))});return total})()}</td><td style={TD}></td></tr>
             {sessCanEdit&&<tr><td style={{...TD,fontWeight:700,color:"#8B5CF6"}}>💰 سعر البيع</td>
               {aMods.map(m=><td key={m.id} style={{...TD,textAlign:"center",padding:2}}>
                 <input type="number" value={m.sellPrice||""} onChange={e=>setSellPrice(m.id,e.target.value)} placeholder="0"
                   style={{width:"100%",textAlign:"center",border:"1px solid "+T.brd,borderRadius:4,padding:"2px",fontSize:FS-2,fontWeight:700,fontFamily:"inherit",background:T.bg,color:"#8B5CF6"}}/>
               </td>)}
-              <td style={{...TD,textAlign:"center",fontWeight:800,color:"#8B5CF6",minWidth:120,whiteSpace:"nowrap"}}>{fmt(aCusts.reduce((s,c)=>s+aMods.reduce((ss,m)=>ss+(Number(aGrid[m.id+"_"+c.id])||0)*(m.sellPrice||0),0),0))+" ج.م"}</td><td style={TD}></td></tr>}
+              {/* V15.30: Total sell value — uses getGroupQty for group-aware quantity */}
+              <td style={{...TD,textAlign:"center",fontWeight:800,color:"#8B5CF6",minWidth:120,whiteSpace:"nowrap"}}>{fmt(aCusts.reduce((s,c)=>s+aMods.reduce((ss,m)=>ss+getGroupQty(m,c.id)*(m.sellPrice||0),0),0))+" ج.م"}</td><td style={TD}></td></tr>}
           </tbody>
         </table>
       </div>
@@ -1453,9 +1470,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         /* Regular model QR */
         const parts=text.split(":");if(parts[0]!=="CLARK"||parts.length<3)return;const orderId=parts[1];const qrRs=Number(parts[2])||1;
         const o=orders.find(x=>x.id===orderId);if(!o){playBeep("error");showToast("⛔ موديل غير موجود");return}
-        /* Always scan as full series: max(QR value, number of sizes) */
-        const sizes=parseSizes(o.sizeLabel);
-        const rs=sizes.length>1?Math.max(qrRs,sizes.length):qrRs;
+        /* Always scan as full series: max(QR value, pcsPerSeries from sizeSet) — V15.30 uses source of truth */
+        const info=getSizesFromSet(o,data);
+        const rs=info.expectedCount>1?Math.max(qrRs,info.expectedCount):qrRs;
         if(isSale){/* Check stock + planned limit */
           const currentActual={};qrSale.items.forEach(it=>{currentActual[it.orderId]=(currentActual[it.orderId]||0)+(Number(it.qty)||0)});
           const alreadyInCart=(currentActual[orderId]||0);const avail=getAvailStock(orderId);

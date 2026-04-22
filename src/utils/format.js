@@ -59,16 +59,69 @@ export function gIcon(name,list){if(list){const g=list.find(x=>x.name===name);if
      "S/L/M/XL"                 → ["S","L","M","XL"]
      "FREE SIZE"                → ["FREE SIZE"]
 */
-export function parseSizes(label){
+export function parseSizes(label,expectedCount){
   if(!label)return[];
   const s=String(label).trim();
   if(!s)return[];
-  /* If label contains " - " (with spaces), "|", "/" or "," → split on those (preserves internal hyphens like "6-9M") */
+  /* Helper: run both splitting strategies and return the best match */
+  let result;
+  /* Strategy A: explicit separators (" - ", "|", "/", ",") — preserves ranges like "6-9M" */
   if(/ - |\||\/|,/.test(s)){
-    return s.split(/ - |\||\/|,/).map(x=>x.trim()).filter(Boolean);
+    result=s.split(/ - |\||\/|,/).map(x=>x.trim()).filter(Boolean);
+  }else{
+    /* Strategy B: split on "-" with smart range detection (V15.29 algorithm).
+       Merges back [pureNumber]-[numberThenLetter] pairs like "6-9M". */
+    const parts=s.split("-").map(x=>x.trim()).filter(Boolean);
+    const merged=[];
+    const isPureNum=(t)=>/^[0-9]+$/.test(t);
+    const isNumThenLetter=(t)=>/^[0-9]+[A-Za-z]/.test(t)&&/[A-Za-z]/.test(t);
+    let i=0;
+    while(i<parts.length){
+      if(i+1<parts.length&&isPureNum(parts[i])&&isNumThenLetter(parts[i+1])){
+        merged.push(parts[i]+"-"+parts[i+1]);i+=2;
+      }else{
+        merged.push(parts[i]);i+=1;
+      }
+    }
+    result=merged;
   }
-  /* Legacy format: split on single "-" (e.g., "2-3-4-5", "M-L-XL-2XL") */
-  return s.split("-").map(x=>x.trim()).filter(Boolean);
+  /* V15.30: If expectedCount is provided, adjust to match it so UI stays consistent.
+     - result too long: keep first N
+     - result too short: pad with generic "مقاس N" placeholders (caller can detect mismatch by comparing lengths) */
+  if(typeof expectedCount==="number"&&expectedCount>0){
+    if(result.length>expectedCount)return result.slice(0,expectedCount);
+    if(result.length<expectedCount){
+      const padded=[...result];
+      for(let k=result.length;k<expectedCount;k++)padded.push("مقاس "+(k+1));
+      return padded;
+    }
+  }
+  return result;
+}
+
+/* V15.30: Unified helper — returns sizes + expectedCount + mismatch flag for an order.
+   This is the SINGLE SOURCE OF TRUTH for "how many sizes does this order have?".
+   - `order`: the order object (needs sizeSetId or sizeLabel)
+   - `data`: the full config object (needs data.sizeSets array)
+   Returns: { sizes: string[], expectedCount: number, label: string, mismatch: boolean, sizeSet: object|null }
+   `expectedCount` is ALWAYS sizeSet.pcsPerSeries when available (the single source of truth).
+   `mismatch` is true when the label's parsed count differs from pcsPerSeries. */
+export function getSizesFromSet(order,data){
+  if(!order||!data)return{sizes:[],expectedCount:0,label:"",mismatch:false,sizeSet:null};
+  const sizeSets=Array.isArray(data.sizeSets)?data.sizeSets:[];
+  const ss=sizeSets.find(s=>Number(s.id)===Number(order.sizeSetId));
+  const label=ss?.label||order.sizeLabel||"";
+  const expectedCount=Number(ss?.pcsPerSeries)||0;
+  if(expectedCount>0){
+    /* pcsPerSeries is the source of truth — parseSizes will adjust to match */
+    const rawParsed=parseSizes(label);/* parse without expectedCount to detect actual mismatch */
+    const mismatch=rawParsed.length!==expectedCount;
+    const sizes=parseSizes(label,expectedCount);/* then get the adjusted array */
+    return{sizes,expectedCount,label,mismatch,sizeSet:ss||null};
+  }
+  /* Fallback: no pcsPerSeries set — use parseSizes result as-is, no mismatch detection */
+  const sizes=parseSizes(label);
+  return{sizes,expectedCount:sizes.length,label,mismatch:false,sizeSet:ss||null};
 }
 
 /* V15.17: Normalize phone to Egypt format with +2 prefix.

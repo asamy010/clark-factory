@@ -10,7 +10,7 @@ import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAx
 import { Badge, Btn, Card, Inp, Sel, Timeline } from "../components/ui.jsx";
 import { FKEYS, FS } from "../constants/index.js";
 import { T, TD, TDB, TH } from "../theme.js";
-import { fmt, gIcon, gc, gcons, gf, r2, slay, parseSizes } from "../utils/format.js";
+import { fmt, gIcon, gc, gcons, gf, r2, slay, parseSizes, getSizesFromSet } from "../utils/format.js";
 import { calcOrder, getStatusColor } from "../utils/orders.js";
 import { printPage } from "../utils/print.js";
 import { exportExcel } from "../utils/print-extras.js";
@@ -26,7 +26,8 @@ export function UncutReport({data,isMob,season}){
   data.orders.forEach(o=>{const pieces=o.orderPieces||[];if(pieces.length===0)return;
     const linkedPieces=new Set();FKEYS.forEach(k=>{if(gf(o,k))(o["fabricPieces"+k]||[]).forEach(p=>linkedPieces.add(p))});
     const linked=pieces.filter(p=>linkedPieces.has(p));const unlinked=pieces.filter(p=>!linkedPieces.has(p));const t=calcOrder(o);
-    const sizeCount=parseSizes(o.sizeLabel).length||1;
+    /* V15.30: Use pcsPerSeries from sizeSet (source of truth) */
+    const sizeCount=getSizesFromSet(o,data).expectedCount||1;
     const rackCount=sizeCount>0?Math.ceil(t.cutQty/sizeCount):t.cutQty;
     unlinked.forEach(p=>rows.push({modelNo:o.modelNo,modelDesc:o.modelDesc,sizeLabel:o.sizeLabel||"—",cutQty:t.cutQty,rackCount,piece:p,linked,id:o.id}))});
   const totalCutQty=rows.reduce((s,r)=>s+r.cutQty,0);

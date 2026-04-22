@@ -5,7 +5,7 @@
    Contains: PoMigConfirm, TreasurySettingsCard, HrSettingsCard, PrintSettingsCard, SalesSettingsCard, WaContactsCard, SettingsPg, BackupRestoreCard
    ═══════════════════════════════════════════════════════════════ */
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updateProfile } from "firebase/auth";
 import { collection, deleteDoc, doc, getDocs, setDoc, updateDoc } from "firebase/firestore";
 import { Btn, Card, DelBtn, Inp, Sel, Spinner } from "../components/ui.jsx";
@@ -979,7 +979,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:10}}>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>كلمة المرور *</label><Inp value={newUserPass} onChange={setNewUserPass} type="password" placeholder="6 حروف على الأقل"/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>تأكيد كلمة المرور *</label><Inp value={newUserPass2} onChange={setNewUserPass2} type="password" placeholder="أعد كتابة كلمة المرور"/></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>الصلاحية</label><Sel value={newUserRole} onChange={setNewUserRole}><option value="admin">مدير النظام</option><option value="manager">مدير انتاج</option><option value="sales_accountant">محاسب مبيعات</option><option value="purchase_accountant">محاسب مشتريات</option><option value="viewer">مشاهد فقط</option></Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>الصلاحية</label><Sel value={newUserRole} onChange={setNewUserRole}><option value="admin">مدير النظام</option><option value="manager">مدير انتاج</option><option value="sales_accountant">محاسب مبيعات</option><option value="purchase_accountant">محاسب مشتريات</option><option value="payroll_accountant">محاسب مرتبات</option><option value="payroll_verifier">مُؤكِّد استلام مرتبات</option><option value="viewer">مشاهد فقط</option></Sel></div>
         </div>
         {createErr&&<div style={{color:T.err,fontSize:FS,marginBottom:10,fontWeight:600}}>{"⚠️ "+createErr}</div>}
         {createOk&&<div style={{color:T.ok,fontSize:FS,marginBottom:10,fontWeight:600}}>{"✓ "+createOk}</div>}
@@ -988,7 +988,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
       {/* Existing users */}
       <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:10}}>المستخدمين الحاليين</div>
       {(config.usersList||[]).length>0&&<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}><thead><tr>{["الاسم","البريد","الصلاحية",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-        {(config.usersList||[]).map((u,i)=><tr key={i}><td style={{...TD,fontWeight:600}}>{u.name||"-"}</td><td style={TD}>{u.email}</td><td style={TD}><Sel value={u.role} onChange={v=>requirePass(()=>upConfig(d=>{const x=(d.usersList||[]).find(z=>z.email===u.email);if(x)x.role=v}))}><option value="admin">مدير النظام</option><option value="manager">مدير انتاج</option><option value="sales_accountant">محاسب مبيعات</option><option value="purchase_accountant">محاسب مشتريات</option><option value="viewer">مشاهد فقط</option></Sel></td><td style={TD}>{(()=>{const hasTasks=(Array.isArray(config.tasks)?config.tasks:[]).some(t=>t.toEmail===u.email&&!t.done);return<DelBtn onConfirm={()=>requirePass(()=>upConfig(d=>{d.usersList=(d.usersList||[]).filter(x=>x.email!==u.email)}))} blocked={hasTasks?"لديه مهام مفتوحة":null}/>})()}</td></tr>)}
+        {(config.usersList||[]).map((u,i)=><tr key={i}><td style={{...TD,fontWeight:600}}>{u.name||"-"}</td><td style={TD}>{u.email}</td><td style={TD}><Sel value={u.role} onChange={v=>requirePass(()=>upConfig(d=>{const x=(d.usersList||[]).find(z=>z.email===u.email);if(x)x.role=v}))}><option value="admin">مدير النظام</option><option value="manager">مدير انتاج</option><option value="sales_accountant">محاسب مبيعات</option><option value="purchase_accountant">محاسب مشتريات</option><option value="payroll_accountant">محاسب مرتبات</option><option value="payroll_verifier">مُؤكِّد استلام مرتبات</option><option value="viewer">مشاهد فقط</option></Sel></td><td style={TD}>{(()=>{const hasTasks=(Array.isArray(config.tasks)?config.tasks:[]).some(t=>t.toEmail===u.email&&!t.done);return<DelBtn onConfirm={()=>requirePass(()=>upConfig(d=>{d.usersList=(d.usersList||[]).filter(x=>x.email!==u.email)}))} blocked={hasTasks?"لديه مهام مفتوحة":null}/>})()}</td></tr>)}
       </tbody></table></div>}
       {(config.usersList||[]).length===0&&<div style={{textAlign:"center",padding:20,color:T.textSec}}>لم يتم اضافة مستخدمين</div>}
       <div style={{marginTop:16,display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:12}}>
@@ -1000,26 +1000,99 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     <Card title="🔐 صلاحيات المستخدمين" style={{marginBottom:16}}>
       {(()=>{
         const perms=config.permissions||{};
-        const roles=["admin","manager","sales_accountant","purchase_accountant","viewer"];
-        const roleLabels={admin:"أدمن",manager:"مدير",sales_accountant:"مبيعات",purchase_accountant:"مشتريات",viewer:"مشاهد"};
+        /* V15.28: Added payroll_accountant and payroll_verifier roles for separation of duties */
+        const roles=["admin","manager","sales_accountant","purchase_accountant","payroll_accountant","payroll_verifier","viewer"];
+        const roleLabels={admin:"أدمن",manager:"مدير",sales_accountant:"مبيعات",purchase_accountant:"مشتريات",payroll_accountant:"محاسب مرتبات",payroll_verifier:"مُؤكِّد استلام",viewer:"مشاهد"};
         const tabs=TABS;
         const levels=["edit","view","hide"];
         const levelLabels={edit:"✏️ تعديل",view:"👁 عرض",hide:"❌ مخفي"};
         const levelColors={edit:T.ok,view:T.warn,hide:T.err};
+        /* V15.28: HR has 4 sub-permissions. Setter supports both direct tab perms and nested hr sub-perms. */
         const setPerm=(role,tabKey,level)=>upConfig(d=>{if(!d.permissions)d.permissions={};if(!d.permissions[role])d.permissions[role]={};d.permissions[role][tabKey]=level});
-        return<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}>
-          <thead><tr><th style={TH}>الشاشة</th>{roles.map(r=><th key={r} style={{...TH,textAlign:"center"}}>{roleLabels[r]}</th>)}</tr></thead>
-          <tbody>{tabs.map(t=><tr key={t.key}>
-            <td style={{...TD,fontWeight:600}}><span style={{marginLeft:6}}>{t.icon}</span>{t.label}</td>
-            {roles.map(r=>{const defPerms={admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit",treasury:"edit",hr:"edit"},manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit",treasury:"view",hr:"view"},sales_accountant:{dashboard:"view",details:"view",external:"hide",stock:"view",reports:"edit",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit",treasury:"hide",hr:"hide"},purchase_accountant:{dashboard:"view",details:"view",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"hide",treasury:"edit",hr:"hide"},viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"hide",hr:"hide"}};const cur=(perms[r]||{})[t.key]||(defPerms[r]||{})[t.key]||"view";
-              return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px"}}>
-                {r==="admin"&&t.key==="settings"?<span style={{fontSize:FS-2,color:T.ok,fontWeight:600}}>✏️ دائماً</span>:
-                <select value={cur} onChange={e=>setPerm(r,t.key,e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:levelColors[cur],fontWeight:700,cursor:"pointer"}}>
-                  {levels.map(l=><option key={l} value={l}>{levelLabels[l]}</option>)}
-                </select>}
-              </td>})}
-          </tr>)}</tbody>
-        </table></div>
+        const setHrSubPerm=(role,subKey,level)=>upConfig(d=>{
+          if(!d.permissions)d.permissions={};
+          if(!d.permissions[role])d.permissions[role]={};
+          let hrPerm=d.permissions[role].hr;
+          /* Migrate from old string hr to object */
+          if(typeof hrPerm==="string"){hrPerm={weeks:hrPerm,verify:hrPerm,employees:hrPerm,security:hrPerm}}
+          if(!hrPerm||typeof hrPerm!=="object")hrPerm={};
+          hrPerm[subKey]=level;
+          d.permissions[role].hr=hrPerm;
+        });
+        /* V15.28: Default permissions for all roles (incl. new ones) */
+        const defPerms={
+          admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit",treasury:"edit",hr:{weeks:"edit",verify:"edit",employees:"edit",security:"edit"}},
+          manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit",treasury:"view",hr:{weeks:"view",verify:"view",employees:"view",security:"view"}},
+          sales_accountant:{dashboard:"view",details:"view",external:"hide",stock:"view",reports:"edit",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit",treasury:"hide",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"}},
+          purchase_accountant:{dashboard:"view",details:"view",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"hide",treasury:"edit",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"}},
+          payroll_accountant:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"view",hr:{weeks:"edit",verify:"hide",employees:"edit",security:"view"}},
+          payroll_verifier:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"view",hr:{weeks:"view",verify:"edit",employees:"view",security:"view"}},
+          viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"hide",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"}}
+        };
+        /* Helpers to read current HR sub-permission with backward compat */
+        const getHrCur=(r,subKey)=>{
+          const rp=perms[r]||{};
+          let hrPerm=rp.hr;
+          if(hrPerm===undefined||hrPerm===null)hrPerm=defPerms[r]?.hr;
+          if(typeof hrPerm==="string")return hrPerm;/* backward compat */
+          if(hrPerm&&typeof hrPerm==="object")return hrPerm[subKey]||defPerms[r]?.hr?.[subKey]||"hide";
+          return"hide";
+        };
+        /* HR sub-rows with labels */
+        const hrSubRows=[
+          {key:"weeks",label:"━ جدول المرتبات والأسابيع",icon:"📅"},
+          {key:"verify",label:"━ تأكيد استلام (QR)",icon:"🔐"},
+          {key:"employees",label:"━ إدارة الموظفين",icon:"👷"},
+          {key:"security",label:"━ الأمن والرقابة",icon:"🛡️"}
+        ];
+        return<div style={{overflowX:"auto"}}>
+          <div style={{fontSize:FS-2,color:T.textMut,marginBottom:10,padding:"8px 12px",background:T.accent+"08",borderRadius:8,lineHeight:1.7}}>
+            💡 <b>محاسب مرتبات</b>: يحسب المرتبات بس مش بيقدر يؤكد الاستلام.<br/>
+            💡 <b>مُؤكِّد استلام</b>: يسكن QR بس، ومش بيقدر يعدل أي مبلغ.<br/>
+            🛡️ <b>فصل الصلاحيات</b>: المحاسب اللي عدّل المرتب ممنوع يؤكد استلامه (إلا الأدمن).
+          </div>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
+            <thead><tr><th style={TH}>الشاشة</th>{roles.map(r=><th key={r} style={{...TH,textAlign:"center",fontSize:FS-2}}>{roleLabels[r]}</th>)}</tr></thead>
+            <tbody>{tabs.map(t=>{
+              /* If this tab is "hr", render the parent row + 4 sub-rows */
+              if(t.key==="hr"){
+                return<React.Fragment key="hr-group">
+                  <tr style={{background:T.accent+"08"}}>
+                    <td style={{...TD,fontWeight:800,color:T.accent}}>
+                      <span style={{marginLeft:6}}>{t.icon}</span>{t.label}
+                      <span style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginInlineStart:6}}>(4 أقسام)</span>
+                    </td>
+                    {roles.map(r=><td key={r} style={{...TD,textAlign:"center",color:T.textMut,fontSize:FS-3,fontStyle:"italic"}}>↓ أقسام فرعية</td>)}
+                  </tr>
+                  {hrSubRows.map(sub=><tr key={"hr-"+sub.key}>
+                    <td style={{...TD,paddingInlineStart:24,fontSize:FS-2,color:T.textSec}}>
+                      <span style={{marginLeft:6}}>{sub.icon}</span>{sub.label}
+                    </td>
+                    {roles.map(r=>{
+                      const cur=getHrCur(r,sub.key);
+                      return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px"}}>
+                        <select value={cur} onChange={e=>setHrSubPerm(r,sub.key,e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:levelColors[cur],fontWeight:700,cursor:"pointer"}}>
+                          {levels.map(l=><option key={l} value={l}>{levelLabels[l]}</option>)}
+                        </select>
+                      </td>;
+                    })}
+                  </tr>)}
+                </React.Fragment>;
+              }
+              /* Non-HR tab — regular rendering */
+              return<tr key={t.key}>
+                <td style={{...TD,fontWeight:600}}><span style={{marginLeft:6}}>{t.icon}</span>{t.label}</td>
+                {roles.map(r=>{const cur=(perms[r]||{})[t.key]||(defPerms[r]||{})[t.key]||"view";
+                  return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px"}}>
+                    {r==="admin"&&t.key==="settings"?<span style={{fontSize:FS-2,color:T.ok,fontWeight:600}}>✏️ دائماً</span>:
+                    <select value={cur} onChange={e=>setPerm(r,t.key,e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:levelColors[cur],fontWeight:700,cursor:"pointer"}}>
+                      {levels.map(l=><option key={l} value={l}>{levelLabels[l]}</option>)}
+                    </select>}
+                  </td>})}
+              </tr>;
+            })}</tbody>
+          </table>
+        </div>;
       })()}
     </Card>
     {/* Print Settings — draft pattern */}

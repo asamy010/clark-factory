@@ -5,7 +5,7 @@
    Dependencies imported explicitly — no code changes inside.
    ═══════════════════════════════════════════════════════════════ */
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { FS, PRINT_CSS } from "../constants/index.js";
 import { gid, fmt, fmt0, r2, fmtDate, hrsToHM, parseHrs } from "../utils/format.js";
 import { playBeep } from "../utils/audio.js";
@@ -13,13 +13,31 @@ import { loadJsQR, scanQR, loadXLSX } from "../utils/qr.js";
 import { addAudit } from "../utils/audit.js";
 import { ask, showToast } from "../utils/popups.js";
 import { printPage, printEmpQrCards, openPrintWindow } from "../utils/print.js";
+/* V15.25: Receipt queue — persistent storage for salary confirmation scans */
+import { addReceipt, removeReceipt, getPendingForWeek, getReadyForRetry, markAsFailed, getPendingCount, forceRetryAll } from "../utils/receiptQueue.js";
 import { Btn, Inp, Sel, Card, QRImg, QRScanner, useDebounced } from "../components/ui.jsx";
 import { T, TH, TD, TDB } from "../theme.js";
 import { db } from "../firebase";
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import { Legend } from "recharts";
 
-export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
+export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,setSavingOverlay}){
+  /* V15.28: Sub-tab permissions (Separation of Duties).
+     - canEditWeeks: can edit the salary table, add advances, close weeks
+     - canEditVerify: can scan QR codes and confirm salary receipt
+     - canEditEmployees: can add/edit employees
+     - Admin is NOT exempt from cross-tab permission — separation is enforced by role.
+     - However, admin IS exempt from the same-user "edit + verify" block (user's choice). */
+  const _hrSub=(k)=>getHrSubPerm?getHrSubPerm(k):(canEdit?"edit":"view");
+  const canEditWeeks=_hrSub("weeks")==="edit";
+  const canViewWeeks=_hrSub("weeks")!=="hide";
+  const canEditVerify=_hrSub("verify")==="edit";
+  const canViewVerify=_hrSub("verify")!=="hide";
+  const canEditEmployees=_hrSub("employees")==="edit";
+  const canViewEmployees=_hrSub("employees")!=="hide";
+  const canViewSecurity=_hrSub("security")!=="hide";
+  /* V15.28: "isAdmin" controls the edit+verify bypass for same-user rule */
+  const isAdmin=userRole==="admin";
   const userName=user?.displayName||(user?.email||"").split("@")[0];
   const employees=(data.employees||[]);
   const hrWeeks=(data.hrWeeks||[]);
@@ -436,6 +454,32 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     try{return localStorage.getItem("clark_verifyMode")||"detailed"}catch(e){return"detailed"}
   });/* "detailed" | "fast" */
   const[verifyReview,setVerifyReview]=useState(null);/* {emp, salary, week} — for detailed mode popup */
+  /* V15.26: Amounts review checkpoint — user must confirm amounts match before scanning starts.
+     Stored per-week so checkpoint is required once per week, not on every camera toggle. */
+  const[verifyAmountsReviewed,setVerifyAmountsReviewed]=useState({});/* {weekId: true} */
+  /* V15.25: Receipt queue UI state — reflects status of pending receipts */
+  const[receiptQueueStats,setReceiptQueueStats]=useState({pending:0,failed:0,isSyncing:false});
+  /* V15.25: Force re-render when queue changes (tick counter) */
+  const[queueTick,setQueueTick]=useState(0);
+  /* V15.25: Helper — merge Firestore receipts with pending (localStorage) receipts.
+     Queue receipts take precedence (more recent). Use this EVERYWHERE instead of
+     reading `week.receipts` directly, so the UI shows scans instantly. */
+  const mergedReceipts=(week)=>{
+    if(!week||!week.id)return{};
+    const fsReceipts=week.receipts||{};
+    const pending=getPendingForWeek(week.id);
+    if(Object.keys(pending).length===0)return fsReceipts;
+    /* Strip queue metadata from pending entries so downstream code doesn't see them */
+    const cleanPending={};
+    Object.keys(pending).forEach(empId=>{
+      const{_queuedAt,_retries,_nextAttempt,_lastFailedAt,...clean}=pending[empId];
+      cleanPending[empId]=clean;
+    });
+    return{...fsReceipts,...cleanPending};
+  };
+  /* Unused variable to tie rendering to queueTick — React will re-render when tick increments */
+  // eslint-disable-next-line no-unused-vars
+  const _rerenderTrigger=queueTick;
   const[stmtFrom,setStmtFrom]=useState("");const[stmtTo,setStmtTo]=useState("");
   /* Close date popup */
   const[showCloseDate,setShowCloseDate]=useState(false);
@@ -447,6 +491,13 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const[advDate,setAdvDate]=useState("");
   const[advNote,setAdvNote]=useState("");
   const[advSearch,setAdvSearch]=useState("");
+  /* V15.27: Weekly workshop payments — planned, registered in treasury on week close */
+  const[showWsPayForm,setShowWsPayForm]=useState(false);
+  const[wsPayWs,setWsPayWs]=useState("");
+  const[wsPayAmount,setWsPayAmount]=useState("");
+  const[wsPayType,setWsPayType]=useState("payment");/* payment | purchase */
+  const[wsPayDate,setWsPayDate]=useState("");
+  const[wsPayNote,setWsPayNote]=useState("");
 
   const openWeek=hrWeeks.find(w=>w.id===openWeekId);
   
@@ -466,17 +517,113 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     setSalBaseHoursOverride(d.baseHoursOverride||{});
     setDraftLoadedForWeek(openWeek.id);
   },[openWeek?.id,openWeek?.status]);
+
+  /* ═══════════════════════════════════════════════════════════════
+     V15.25: Receipt Queue Worker
+     
+     Runs every 500ms while the component is mounted. Picks up any
+     receipts that are "ready for retry" (nextAttempt <= now), sends
+     them to Firestore via upConfig, and updates the queue based on
+     success/failure.
+     
+     Uses a ref to prevent concurrent worker runs — if a previous
+     flush is still in progress, the next tick is skipped.
+  ═══════════════════════════════════════════════════════════════ */
+  const workerBusyRef=useRef(false);
+  useEffect(()=>{
+    /* Update stats on mount and when tick changes */
+    const updateStats=()=>{
+      const all=getReadyForRetry();const allPending=getPendingCount();
+      const failed=all.filter(r=>(r.data._retries||0)>=3).length;
+      setReceiptQueueStats({pending:allPending,failed,isSyncing:workerBusyRef.current});
+    };
+    updateStats();
+
+    const interval=setInterval(async()=>{
+      if(workerBusyRef.current)return;/* previous flush still running */
+      const ready=getReadyForRetry();
+      if(ready.length===0){updateStats();return}
+      workerBusyRef.current=true;
+      setReceiptQueueStats(s=>({...s,isSyncing:true}));
+      try{
+        /* Group by weekId so a single upConfig can flush multiple receipts at once */
+        const byWeek={};
+        ready.forEach(r=>{if(!byWeek[r.weekId])byWeek[r.weekId]=[];byWeek[r.weekId].push(r)});
+        for(const weekId of Object.keys(byWeek)){
+          const batch=byWeek[weekId];
+          /* Attempt to write this batch to Firestore */
+          try{
+            upConfig(d=>{
+              if(!Array.isArray(d.hrWeeks))return;
+              const wi=d.hrWeeks.findIndex(w=>w.id===weekId);
+              if(wi<0)return;
+              if(!d.hrWeeks[wi].receipts)d.hrWeeks[wi].receipts={};
+              if(!Array.isArray(d.auditLog))d.auditLog=[];
+              batch.forEach(r=>{
+                /* If the receipt already exists in Firestore (e.g. from another tab), skip */
+                if(d.hrWeeks[wi].receipts[r.empId])return;
+                /* Strip queue metadata before committing */
+                const{_queuedAt,_retries,_nextAttempt,_lastFailedAt,...cleanData}=r.data;
+                d.hrWeeks[wi].receipts[r.empId]=cleanData;
+                /* Log the audit entry for this receipt */
+                d.auditLog.unshift({
+                  id:Math.random().toString(36).slice(2)+Date.now()+r.empId,
+                  category:"week",action:"salary_receipt_verified",
+                  target:"W"+(d.hrWeeks[wi].weekNum||"?")+" — "+(cleanData.empName||r.empId),
+                  newValue:"✅ تأكيد استلام مرتب (من queue)",
+                  notes:"المحاسب: "+(cleanData.by||"—")+" | وضع: "+(cleanData.mode||"fast")+(_retries>0?" | بعد "+_retries+" محاولة":""),
+                  at:cleanData.at||new Date().toISOString(),severity:"info"
+                });
+              });
+            });
+            /* Optimistically remove from queue — upConfig is fire-and-forget but
+               has its own retry/fallback path. If the network is truly down, the
+               fallback setDoc will eventually succeed. */
+            batch.forEach(r=>removeReceipt(r.weekId,r.empId));
+          }catch(e){
+            console.error("[receiptQueue] batch flush failed:",e);
+            batch.forEach(r=>{
+              const res=markAsFailed(r.weekId,r.empId);
+              if(res.permanentlyFailed){
+                showToast("⚠️ تأكيد "+(r.data.empName||r.empId)+" فشل بعد 10 محاولات");
+              }
+            });
+          }
+        }
+      }finally{
+        workerBusyRef.current=false;
+        updateStats();
+        setQueueTick(t=>t+1);
+      }
+    },500);
+    return()=>clearInterval(interval);
+  /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  },[]);
   
   /* ── Save draft inputs to Firebase (without closing week) ── */
   const[lastSavedAt,setLastSavedAt]=useState(null);
   const saveDraftInputs=async()=>{
     if(!openWeek||openWeek.status==="closed")return;
+    /* V15.28: Track who last edited thursdayPay for each employee (for separation-of-duties enforcement).
+       Compare current salThursdayPay with saved draft — mark changed employees with current user. */
+    const prevDraft=openWeek.draftInputs||{};
+    const prevThursday=prevDraft.thursdayPay||{};
+    const prevEditedBy=prevDraft.thursdayPayLastEditedBy||{};
+    const newEditedBy={...prevEditedBy};
+    Object.keys(salThursdayPay).forEach(empId=>{
+      const newVal=String(salThursdayPay[empId]??"");
+      const oldVal=String(prevThursday[empId]??"");
+      if(newVal!==oldVal&&newVal!==""){
+        newEditedBy[empId]=userName||"";
+      }
+    });
     const draftInputs={
       bonus:salBonus,
       specialDeduct:salSpecialDeduct,
       manualInstallDeduct:salManualInstallDeduct,
       installOverride:salInstallOverride,
       thursdayPay:salThursdayPay,
+      thursdayPayLastEditedBy:newEditedBy,/* V15.28 */
       prevBalanceOverride:salPrevBalanceOverride,
       deductReason:salDeductReason,
       baseHoursOverride:salBaseHoursOverride,
@@ -719,8 +866,32 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
   const calcSalary=(empId,week)=>{if(!week)return null;
     const emp=employees.find(e=>e.id===empId);if(!emp)return null;
     const weeklySalary=emp.weeklySalary||0;
+    /* V15.26 FIX: Choose draft source based on whether this is the currently-open week.
+       BEFORE THIS FIX: calcSalary always read from React state (salBonus, salThursdayPay, etc.)
+       When called from OUTSIDE the open-week screen (e.g. verify tab), React state was empty
+       → all overrides were ignored → wrong amounts shown on scan.
+       AFTER FIX: If `week` IS the currently-open week, use React state (live edits).
+                  Otherwise, read from `week.draftInputs` stored in Firestore. */
+    const _isLive=openWeek&&week.id===openWeek.id&&draftLoadedForWeek===week.id;
+    const _src=_isLive?{
+      baseHoursOverride:salBaseHoursOverride,
+      prevBalanceOverride:salPrevBalanceOverride,
+      bonus:salBonus,
+      specialDeduct:salSpecialDeduct,
+      manualInstallDeduct:salManualInstallDeduct,
+      installOverride:salInstallOverride,
+      thursdayPay:salThursdayPay,
+    }:{
+      baseHoursOverride:(week.draftInputs||{}).baseHoursOverride||{},
+      prevBalanceOverride:(week.draftInputs||{}).prevBalanceOverride||{},
+      bonus:(week.draftInputs||{}).bonus||{},
+      specialDeduct:(week.draftInputs||{}).specialDeduct||{},
+      manualInstallDeduct:(week.draftInputs||{}).manualInstallDeduct||{},
+      installOverride:(week.draftInputs||{}).installOverride||{},
+      thursdayPay:(week.draftInputs||{}).thursdayPay||{},
+    };
     /* Per-employee base hours override, then week default */
-    const overrideH=salBaseHoursOverride[empId];
+    const overrideH=_src.baseHoursOverride[empId];
     const baseHours=(overrideH!==undefined&&overrideH!=="")?Number(overrideH)||0:(week.baseHours||48);
     /* Hour rate is calculated from STANDARD work week (days × hours/day).
        Priority: week-level override → HR settings → defaults (6×9).
@@ -739,8 +910,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       if(h>0){totalHours+=h;workDays++}}
     const basicHours=Math.min(totalHours,baseHours);const overtimeHours=Math.max(0,totalHours-baseHours);
     const basicPay=r2(basicHours*perHour);const overtimePay=r2(overtimeHours*perHour*OT_MULT);const grossPay=r2(basicPay+overtimePay);
-    /* Prev balance: use manual override from salPrevBalanceOverride if set, otherwise use employee's stored balance */
-    const manualPrevBal=salPrevBalanceOverride[empId];
+    /* Prev balance: use manual override (from _src, respects openWeek vs other weeks) */
+    const manualPrevBal=_src.prevBalanceOverride[empId];
     const prevBalance=(manualPrevBal!==undefined&&manualPrevBal!=="")?(Number(manualPrevBal)||0):(Number(emp.prevBalance)||0);
     const prevBalanceIsManual=(manualPrevBal!==undefined&&manualPrevBal!=="")&&(Number(manualPrevBal)!==Number(emp.prevBalance||0));
     /* Advances for this week:
@@ -758,16 +929,16 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       !seenLogIds.has(t.hrLogId)&&
       (t.sourceType==="hr_advance"||t.category==="مرتبات"));
     const weekAdvances=logAdvances.reduce((s,l)=>s+(Number(l.amount)||0),0)+treasuryAdvances.reduce((s,t)=>s+(Number(t.amount)||0),0);
-    /* Bonus: use manual override from salBonus if set, otherwise use employee's fixed weeklyBonus */
-    const manualBonus=salBonus[empId];
+    /* Bonus: use manual override (from _src, respects openWeek vs other weeks) */
+    const manualBonus=_src.bonus[empId];
     const bonus=(manualBonus!==undefined&&manualBonus!=="")?(Number(manualBonus)||0):(Number(emp.weeklyBonus)||0);
-    const specialDeduct=Number(salSpecialDeduct[empId])||0;
+    const specialDeduct=Number(_src.specialDeduct[empId])||0;
     /* Debt installment due this week (smart capped: can't exceed what's available after other deductions) */
     const debtInfo=empDebtInstallment(empId,week);
     /* Manual direct deduction — used when employee has NO active debts but needs a one-time deduction */
-    const manualInstallDeduct=(debtInfo.total===0)?(Number(salManualInstallDeduct[empId])||0):0;
+    const manualInstallDeduct=(debtInfo.total===0)?(Number(_src.manualInstallDeduct[empId])||0):0;
     /* Install override — user may pay partial (or 0 = skip) */
-    const installOverrideRaw=salInstallOverride[empId];
+    const installOverrideRaw=_src.installOverride[empId];
     const hasInstallOverride=(installOverrideRaw!==undefined&&installOverrideRaw!=="");
     const installOverrideValue=hasInstallOverride?(Number(installOverrideRaw)||0):null;
     /* V15.20 FIX: netBalance does NOT include prevBalance.
@@ -807,7 +978,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
        remainingBalance = whatever of totalDue wasn't paid. */
     const totalDue=r2(netBalance+prevBalance);
     /* Thursday cash payment — default to totalDue (what employee is owed total) */
-    const thursdayPay=salThursdayPay[empId]!==undefined&&salThursdayPay[empId]!==""?Number(salThursdayPay[empId])||0:totalDue;
+    const thursdayPay=_src.thursdayPay[empId]!==undefined&&_src.thursdayPay[empId]!==""?Number(_src.thursdayPay[empId])||0:totalDue;
     /* remainingBalance = totalDue - thursdayPay (what carries to next week as new prevBalance) */
     const remainingBalance=r2(totalDue-thursdayPay);
     return{weeklySalary,baseHours,perHour,workDays,totalHours,basicHours,overtimeHours,basicPay,overtimePay,grossPay,prevBalance,prevBalanceIsManual,weekAdvances,bonus,specialDeduct,debtInstall,debtCarried,debtItems:debtInfo.items,debtInfoTotal:debtInfo.total,manualInstallDeduct,isPartialInstall,isSkippedInstall,netBalance,totalDue,thursdayPay,remainingBalance,days}};
@@ -911,6 +1082,110 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     });
   };
 
+  /* ═════════════════════════════════════════════════════════════════
+     V15.27: Weekly Workshop Payments
+     
+     Planned payments to external workshops, registered in treasury
+     ONLY on week close (same pattern as weeklyAdvances).
+     Stored in openWeek.weeklyWsPayments[].
+  ═════════════════════════════════════════════════════════════════ */
+  const weeklyWsPayments=openWeek?(openWeek.weeklyWsPayments||[]):[];
+  const totalWeeklyWsPayments=weeklyWsPayments.reduce((s,p)=>s+(Number(p.amount)||0),0);
+  const workshopsList=(data.workshops||[]);
+  /* wsIsInternal inlined — mirrors the helper in ExtProdPg */
+  const _wsIsExternal=(wsName)=>{const w=workshopsList.find(x=>x.name===wsName);if(!w)return true;const t=w.type||"";return t!=="internal"&&t!==""};
+  /* Calculate workshop TOTAL balance up to now (across all time) */
+  const wsTotalBalance=(wsName)=>{
+    if(!wsName)return{due:0,paid:0,balance:0};
+    let due=0;
+    (data.orders||[]).forEach(o=>{
+      (o.workshopDeliveries||[]).filter(wd=>wd.wsName===wsName).forEach(wd=>{
+        (wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})
+      })
+    });
+    const payments=(data.wsPayments||[]).filter(p=>p.wsName===wsName);
+    const paid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);
+    const purchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);
+    return{due:r2(due),paid:r2(paid),purchase:r2(purchase),balance:r2(due+purchase-paid)};
+  };
+  /* Calculate workshop DUE within the current week range only */
+  const wsWeekDue=(wsName,week)=>{
+    if(!wsName||!week)return 0;
+    let due=0;
+    (data.orders||[]).forEach(o=>{
+      (o.workshopDeliveries||[]).filter(wd=>wd.wsName===wsName).forEach(wd=>{
+        (wd.receives||[]).filter(r=>r.date>=week.weekStart&&r.date<=week.weekEnd).forEach(r=>{
+          due+=r2((Number(r.qty)||0)*(Number(r.price)||0));
+        });
+      });
+    });
+    return r2(due);
+  };
+  const resetWsPayForm=()=>{setWsPayWs("");setWsPayAmount("");setWsPayType("payment");setWsPayDate(openWeek?.weekStart||today);setWsPayNote("")};
+  const saveWeeklyWsPayment=()=>{
+    if(!openWeek||!wsPayWs||!wsPayAmount)return;
+    const amt=Number(wsPayAmount)||0;if(amt<=0){showToast("⚠️ المبلغ لازم يكون أكبر من صفر");return}
+    const wsObj=workshopsList.find(w=>w.name===wsPayWs);
+    if(!wsObj){showToast("⚠️ الورشة غير موجودة");return}
+    const bal=wsTotalBalance(wsPayWs);
+    /* Warning if amount exceeds current balance (only for "payment" type) */
+    if(wsPayType==="payment"&&bal.balance>=0&&amt>bal.balance){
+      openConfirm({
+        title:"⚠️ المبلغ أكبر من رصيد الورشة",
+        message:"الدفعة ("+fmt0(amt)+" ج) أكبر من رصيد الورشة الحالي ("+fmt0(bal.balance)+" ج).\n\nهل أنت متأكد من المبلغ؟",
+        variant:"warn",confirmText:"نعم، متأكد",
+        onConfirm:()=>_doSaveWeeklyWsPayment(wsObj,amt)
+      });
+      return;
+    }
+    _doSaveWeeklyWsPayment(wsObj,amt);
+  };
+  const _doSaveWeeklyWsPayment=(wsObj,amt)=>{
+    const payId=gid();
+    const useDateSave=wsPayDate||openWeek.weekStart||today;
+    upConfig(d=>{
+      const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
+      if(!d.hrWeeks[wi].weeklyWsPayments)d.hrWeeks[wi].weeklyWsPayments=[];
+      /* Planned ws payment — NOT in treasury until week close */
+      d.hrWeeks[wi].weeklyWsPayments.push({
+        id:payId,wsName:wsObj.name,wsId:wsObj.id||null,
+        amount:amt,type:wsPayType,date:useDateSave,note:wsPayNote||"",
+        createdBy:userName||"",createdAt:new Date().toISOString(),
+        planned:true/* Flag: will be registered in treasury on week close */
+      });
+      addAudit(d,{
+        category:"ws_payment",action:"add_weekly",
+        target:wsObj.name+" — W"+d.hrWeeks[wi].weekNum,
+        newValue:fmt0(amt)+" ج "+(wsPayType==="payment"?"(دفعة)":"(مشتريات)")+(wsPayNote?" — "+wsPayNote:""),
+        user:userName,severity:amt>5000?"warning":"info",
+        notes:"دفعة ورشة أسبوعية (خطة — ستُسجَّل في الخزنة عند الإقفال)"
+      });
+    });
+    setShowWsPayForm(false);resetWsPayForm();showToast("✓ تم إضافة الدفعة للخطة");
+  };
+  const deleteWeeklyWsPayment=(payId)=>{
+    if(!openWeek)return;
+    const pay=(openWeek.weeklyWsPayments||[]).find(p=>p.id===payId);
+    if(!pay)return;
+    openConfirm({
+      title:"حذف دفعة الورشة",
+      message:"هل تريد حذف دفعة "+pay.wsName+" ("+fmt0(pay.amount)+" ج) من الخطة؟",
+      variant:"warn",confirmText:"حذف",
+      onConfirm:()=>{upConfig(d=>{
+        const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
+        if(!d.hrWeeks[wi].weeklyWsPayments)return;
+        d.hrWeeks[wi].weeklyWsPayments=d.hrWeeks[wi].weeklyWsPayments.filter(p=>p.id!==payId);
+        addAudit(d,{
+          category:"ws_payment",action:"delete_weekly",
+          target:pay.wsName+" — W"+d.hrWeeks[wi].weekNum,
+          oldValue:fmt0(pay.amount)+" ج",
+          user:userName,severity:"danger",
+          notes:"حذف دفعة ورشة أسبوعية من الخطة"
+        });
+      });showToast("✓ تم الحذف")}
+    });
+  };
+
   /* ── Approve & Close Week ── */
   /* V14.66: Pre-approval receipt check popup */
   const[preApprovalBlocker,setPreApprovalBlocker]=useState(null);/* {week, notSigned:[], customCloseDate} */
@@ -920,7 +1195,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     if(!openWeek||openWeek.status==="closed")return;
     const weekSelected=getSelectedEmps(openWeek.id);
     const wkEmps=activeEmps.filter(e=>weekSelected.includes(e.id));
-    const receipts=openWeek.receipts||{};
+    /* V15.25: Use merged receipts so pending scans count as signed */
+    const receipts=mergedReceipts(openWeek);
     const notSigned=wkEmps.filter(e=>!receipts[e.id]);
     if(notSigned.length===0){
       /* All signed — proceed */
@@ -932,6 +1208,46 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     setPreApprovalBlocker({week:openWeek,notSigned,customCloseDate:customCloseDate||""});
   };
   const approveWeek=(customCloseDate,overrideReason)=>{if(!openWeek||openWeek.status==="closed")return;
+    /* V15.27: Check for potential duplicate ws payments — same workshop + date range
+       already has a DIRECT payment in treasury + a PLANNED payment in this week.
+       Block approval until user confirms (safer default). */
+    const _wsPays=(openWeek.weeklyWsPayments||[]).filter(p=>!p.treasuryTxId);
+    if(_wsPays.length>0){
+      const _duplicates=[];
+      _wsPays.forEach(p=>{
+        /* Look for existing treasury entries for the same workshop within the week range */
+        const existing=(data.treasury||[]).filter(t=>
+          t.type==="out"&&
+          t.wsName===p.wsName&&
+          t.sourceType&&(t.sourceType==="ws_payment"||t.sourceType==="hr_weekly_ws_payment")&&
+          t.weekId!==openWeek.id&&/* not already from this week's earlier close attempt */
+          t.date>=openWeek.weekStart&&t.date<=openWeek.weekEnd
+        );
+        if(existing.length>0){
+          _duplicates.push({planned:p,existing:existing.map(t=>({amount:t.amount,date:t.date,desc:t.desc}))});
+        }
+      });
+      if(_duplicates.length>0&&!overrideReason){
+        /* Show blocker popup */
+        let msg="⚠️ تحذير: يوجد احتمال تكرار دفعات ورش\n\n";
+        _duplicates.forEach(d=>{
+          msg+="🏭 "+d.planned.wsName+"\n";
+          msg+="  • دفعة مخططة: "+fmt0(d.planned.amount)+" ج (جديدة)\n";
+          d.existing.forEach(e=>{
+            msg+="  • مسجلة مسبقاً: "+fmt0(e.amount)+" ج — "+e.date+"\n";
+          });
+          msg+="\n";
+        });
+        msg+="هل تريد المتابعة وتسجيل الدفعات المخططة؟ (سيكون هناك تكرار في الخزنة)";
+        openConfirm({
+          title:"⚠️ تكرار محتمل في دفعات الورش",
+          message:msg,
+          variant:"danger",confirmText:"نعم، سجّل رغم التكرار",
+          onConfirm:()=>approveWeek(customCloseDate,"user_confirmed_ws_payment_duplicates")
+        });
+        return;
+      }
+    }
     const actualCloseDate=new Date().toISOString().split("T")[0];/* The REAL date, not editable */
     const actualCloseTs=new Date().toISOString();
     const useDate=(customCloseDate&&customCloseDate.trim())?customCloseDate.trim():actualCloseDate;
@@ -1073,6 +1389,42 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             if(advUpd){advUpd.treasuryTxId=advTxId;advUpd.planned=false}}
         }
       });
+      /* V15.27: Weekly Workshop Payments — register planned ws payments in treasury + data.wsPayments */
+      const wWsPays=(openWeek.weeklyWsPayments||[]);
+      wWsPays.forEach(p=>{
+        if(p.treasuryTxId&&d.treasury){
+          /* Already registered earlier — tag with snapshotId for rollback */
+          const tx=d.treasury.find(t=>t.id===p.treasuryTxId);
+          if(tx)tx.snapshotId=snapshotId;
+        }else{
+          const wsPayId=gid();const wsTxId=gid();
+          const wsDayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(p.date||useDate).getDay()];
+          if(!Array.isArray(d.wsPayments))d.wsPayments=[];
+          /* Register in data.wsPayments (this is how ExtProdPg reads them) */
+          d.wsPayments.push({
+            id:wsPayId,wsName:p.wsName,wsId:p.wsId||null,
+            amount:Number(p.amount)||0,type:p.type||"payment",
+            notes:p.note||"",date:p.date||useDate,
+            createdBy:userName||"",treasuryTxId:wsTxId,
+            sourceWeekId:openWeek.id,/* V15.27: link back to week for cascade delete */
+          });
+          /* Register in treasury */
+          d.treasury.unshift({
+            id:wsTxId,type:"out",amount:r2(Number(p.amount)||0),
+            desc:(p.type==="payment"?"دفعة ورشة ":"مشتريات ورشة ")+p.wsName+" W"+openWeek.weekNum+(p.note?" — "+p.note:""),
+            category:p.type==="payment"?"تشغيل خارجي":"مشتريات",
+            account:"SUB CASH",season:d.activeSeason||"",
+            date:p.date||useDate,day:wsDayName,
+            sourceType:"hr_weekly_ws_payment",weekId:openWeek.id,
+            wsName:p.wsName,wsPaymentId:wsPayId,
+            by:userName,createdAt:new Date().toISOString(),snapshotId,actualCloseDate,backdated:useDate!==actualCloseDate
+          });
+          /* Link back: mark as registered on the planned entry */
+          const wiUpd=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);
+          if(wiUpd>=0){const pUpd=(d.hrWeeks[wiUpd].weeklyWsPayments||[]).find(x=>x.id===p.id);
+            if(pUpd){pUpd.treasuryTxId=wsTxId;pUpd.wsPaymentId=wsPayId;pUpd.planned=false}}
+        }
+      });
       }/* V15.24: end of non-analysis block — analysis week skips all treasury/hrLog/prevBalance updates */
       /* Close week — store BOTH user-selected date (closedAt) AND actual close date (actualClosedAt, immutable) */
       const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi>=0){
@@ -1115,6 +1467,10 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         const _specialDeductions=records.reduce((s,r)=>s+(r.specialDeduct||0),0);
         const _totalWeeklyAdv=r2(wAdvs.reduce((s,a)=>s+(Number(a.amount)||0),0));
         const _thursdayPaySum=records.reduce((s,r)=>s+(r.thursdayPay||0),0);
+        /* V15.27: snapshot ws payments totals */
+        const _wWsPays=(d.hrWeeks[wi].weeklyWsPayments||[]);
+        const _totalWsPay=r2(_wWsPays.reduce((s,p)=>s+(Number(p.amount)||0),0));
+        d.hrWeeks[wi].totalWeeklyWsPayments=_totalWsPay;
         d.hrWeeks[wi].closedStats={
           baseSal:r2(_baseSal),
           basicEntitled:r2(_basicEntitled),
@@ -1124,8 +1480,10 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           deductions:r2(_deductions),
           specialDeductions:r2(_specialDeductions),
           totalWeeklyAdvances:_totalWeeklyAdv,
+          totalWeeklyWsPayments:_totalWsPay,/* V15.27 */
+          weeklyWsPaymentsCount:_wWsPays.length,/* V15.27 */
           thursdayPay:r2(_thursdayPaySum),
-          finalTotal:r2(_thursdayPaySum+_totalWeeklyAdv),
+          finalTotal:r2(_thursdayPaySum+_totalWeeklyAdv+_totalWsPay),/* V15.27: include ws pay */
           empCount:records.length,
           weeklyAdvancesCount:wAdvs.length,
           savedAt:actualCloseTs
@@ -1926,7 +2284,14 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
 
   return<div>
     <div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflow:"hidden",border:"1px solid "+T.brd}}>
-      {[{k:"weeks",l:"📅 الأسابيع",c:hrWeeks.length},{k:"weeklySummary",l:"📊 سجل أسبوعي"},{k:"monthlySummary",l:"📅 سجل شهري"},{k:"employees",l:"👷 الموظفين",c:activeEmps.length},{k:"verify",l:"🔐 تأكيد الاستلام"},{k:"security",l:"🛡️ الأمن والرقابة",c:auditLog.length}].map(v=>
+      {[
+        {k:"weeks",l:"📅 الأسابيع",c:hrWeeks.length,show:canViewWeeks},
+        {k:"weeklySummary",l:"📊 سجل أسبوعي",show:canViewWeeks},
+        {k:"monthlySummary",l:"📅 سجل شهري",show:canViewWeeks},
+        {k:"employees",l:"👷 الموظفين",c:activeEmps.length,show:canViewEmployees},
+        {k:"verify",l:"🔐 تأكيد الاستلام",show:canViewVerify},
+        {k:"security",l:"🛡️ الأمن والرقابة",c:auditLog.length,show:canViewSecurity}
+      ].filter(v=>v.show).map(v=>
         <div key={v.k} onClick={()=>{setView(v.k);setOpenWeekId(null)}} style={{flex:1,padding:"10px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-1,background:view===v.k?T.accent:T.cardSolid,color:view===v.k?"#fff":T.textSec,transition:"all 0.15s"}}>{v.l}{v.c!=null?" ("+v.c+")":""}</div>)}
     </div>
 
@@ -2070,10 +2435,11 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             </span>
           </div>
           {/* V14.62: Receipt verification status row — V14.66: Show for both closed AND open weeks */}
-          {(isClosedW||Object.keys(w.receipts||{}).length>0)&&(()=>{
+          {(isClosedW||Object.keys(w.receipts||{}).length>0||Object.keys(getPendingForWeek(w.id)).length>0)&&(()=>{
             const wkSelected=(w.selectedEmps&&Array.isArray(w.selectedEmps))?w.selectedEmps:[];
             const wkEmps=activeEmps.filter(e=>wkSelected.includes(e.id));
-            const receipts=w.receipts||{};
+            /* V15.25: Use merged receipts (Firestore + queue) */
+            const receipts=mergedReceipts(w);
             const issues=w.receiptIssues||{};
             const received=wkEmps.filter(e=>receipts[e.id]);
             const withIssues=wkEmps.filter(e=>issues[e.id]);
@@ -2109,9 +2475,13 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
                 <span style={{fontWeight:700,color:T.textSec,fontFamily:"monospace"}}>{fmt0(totalDue)}</span>
               </div>
               {(notReceived>0||hasIssues)&&<>
-                {/* V14.63: Direct scan button — jumps to verify tab + opens camera */}
-                <span onClick={e=>{e.stopPropagation();setView("verify");setVerifySelectedWeekId(w.id);setTimeout(()=>setVerifyScanning(true),200)}} style={{cursor:"pointer",padding:"5px 12px",borderRadius:6,background:T.ok,color:"#fff",border:"none",fontSize:FS-2,fontWeight:800,display:"inline-flex",alignItems:"center",gap:4}} title="فتح الكاميرا والسكان مباشرة">📷 سكان</span>
-                <span onClick={e=>{e.stopPropagation();setView("verify");setVerifySelectedWeekId(w.id)}} style={{cursor:"pointer",padding:"5px 10px",borderRadius:6,background:statusColor+"15",color:statusColor,border:"1px solid "+statusColor+"30",fontSize:FS-2,fontWeight:800}} title="انتقل لشاشة التأكيد">→ تأكيد</span>
+                {/* V14.63: Direct scan button — jumps to verify tab. V15.26: Respects amounts-review checkpoint.
+                   V15.28: Only shown if user has verify edit permission (separation of duties) */}
+                {canEditVerify&&<span onClick={e=>{e.stopPropagation();setView("verify");setVerifySelectedWeekId(w.id);
+                  /* Only auto-open camera if amounts already reviewed for this week */
+                  setTimeout(()=>{if(verifyAmountsReviewed[w.id])setVerifyScanning(true)},200)
+                }} style={{cursor:"pointer",padding:"5px 12px",borderRadius:6,background:T.ok,color:"#fff",border:"none",fontSize:FS-2,fontWeight:800,display:"inline-flex",alignItems:"center",gap:4}} title="فتح الكاميرا والسكان مباشرة">📷 سكان</span>}
+                {canViewVerify&&<span onClick={e=>{e.stopPropagation();setView("verify");setVerifySelectedWeekId(w.id)}} style={{cursor:"pointer",padding:"5px 10px",borderRadius:6,background:statusColor+"15",color:statusColor,border:"1px solid "+statusColor+"30",fontSize:FS-2,fontWeight:800}} title="انتقل لشاشة التأكيد">→ تأكيد</span>}
               </>}
             </div>;
           })()}
@@ -2269,7 +2639,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             displayEmpCount=shownEmps.length;
             displayAdvCount=weeklyAdvances.length;
           }
-          return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(8,1fr)",gap:8,marginBottom:14}}>
+          return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(9,1fr)",gap:8,marginBottom:14}}>
             {isWeekClosed&&savedStats&&<div style={{gridColumn:"1/-1",padding:"6px 10px",borderRadius:6,background:T.ok+"06",border:"1px solid "+T.ok+"20",fontSize:FS-3,color:T.ok,fontWeight:600,marginBottom:-2}}>🔒 أسبوع مقفول — القيم المعروضة ثابتة من وقت الإقفال ولا تتأثر بأي تعديل لاحق</div>}
             {/* 1. إجمالي المرتب الأساسي */}
             <div style={{padding:"10px 8px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center"}}>
@@ -2313,12 +2683,17 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
               <div style={{fontSize:FS+4,fontWeight:800,color:"#EC4899",lineHeight:1.1}}>{fmt0(isWeekClosed&&savedStats?savedStats.totalWeeklyAdvances:totalWeeklyAdvances)}</div>
               <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>{displayAdvCount+" سلفة"}</div>
             </div>
-            {/* 8. الإجمالي النهائي — ما سيُدفع فعلياً يوم الإقفال:
-                 thursdayPay (مرتبات) + totalWeeklyAdvances (سلف إدارة — خطة تُنفَّذ عند الإقفال)
-                 بدون السلف الأسبوعية اللي اتدفعت خلال الأسبوع من الموظفين العاديين (لأنها خرجت من الخزنة) */}
+            {/* V15.27: 8. دفعات الورش (مخططة — تخرج عند الإقفال) */}
+            <div style={{padding:"10px 8px",borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF620",textAlign:"center"}} title="دفعات الورش المخططة لهذا الأسبوع — ستُسجَّل في الخزنة عند الإقفال">
+              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2,fontWeight:600}}>💸 دفعات الورش</div>
+              <div style={{fontSize:FS+4,fontWeight:800,color:"#8B5CF6",lineHeight:1.1}}>{fmt0(isWeekClosed&&savedStats?(savedStats.totalWeeklyWsPayments||0):totalWeeklyWsPayments)}</div>
+              <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>{(isWeekClosed&&savedStats?(savedStats.weeklyWsPaymentsCount||0):weeklyWsPayments.length)+" دفعة"}</div>
+            </div>
+            {/* 9. الإجمالي النهائي — V15.27: includes ws payments too */}
             {(()=>{const effTotalWeekAdv=isWeekClosed&&savedStats?savedStats.totalWeeklyAdvances:totalWeeklyAdvances;
-              const finalTotal=isWeekClosed&&savedStats?(savedStats.finalTotal||(savedStats.thursdayPay+savedStats.totalWeeklyAdvances)):(thursdayPay+totalWeeklyAdvances);
-              return<div style={{padding:"10px 8px",borderRadius:10,background:T.ok+"12",border:"2px solid "+T.ok+"40",textAlign:"center"}} title={"الإجمالي الذي سيُدفع/يخرج من الخزنة يوم الإقفال:\n• مرتبات: "+fmt0(thursdayPay)+" ج\n• سلف إدارة (خطة): "+fmt0(effTotalWeekAdv)+" ج\n\nالسلف الأسبوعية للموظفين العاديين ("+fmt0(advances)+" ج) خرجت من الخزنة خلال الأسبوع بالفعل."}>
+              const effWsPay=isWeekClosed&&savedStats?(savedStats.totalWeeklyWsPayments||0):totalWeeklyWsPayments;
+              const finalTotal=isWeekClosed&&savedStats?(savedStats.finalTotal||(savedStats.thursdayPay+savedStats.totalWeeklyAdvances+(savedStats.totalWeeklyWsPayments||0))):(thursdayPay+totalWeeklyAdvances+effWsPay);
+              return<div style={{padding:"10px 8px",borderRadius:10,background:T.ok+"12",border:"2px solid "+T.ok+"40",textAlign:"center"}} title={"الإجمالي الذي سيُدفع/يخرج من الخزنة يوم الإقفال:\n• مرتبات: "+fmt0(thursdayPay)+" ج\n• سلف إدارة (خطة): "+fmt0(effTotalWeekAdv)+" ج\n• دفعات ورش (خطة): "+fmt0(effWsPay)+" ج\n\nالسلف الأسبوعية للموظفين العاديين ("+fmt0(advances)+" ج) خرجت من الخزنة خلال الأسبوع بالفعل."}>
                 <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2,fontWeight:700}}>✅ الإجمالي النهائي</div>
                 <div style={{fontSize:FS+5,fontWeight:900,color:T.ok,lineHeight:1.1}}>{fmt0(finalTotal)}</div>
                 <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>يخرج يوم الإقفال</div>
@@ -2710,7 +3085,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           return<Card title={"💰 حساب المرتبات — W"+openWeek.weekNum+" ("+shownEmps.length+" موظف"+(filteredShown.length!==shownEmps.length?" — ظاهر "+filteredShown.length:"")+")"}>
             {/* V14.57: Receipt summary cards — only for closed weeks */}
             {openWeek.status==="closed"&&(()=>{
-              const receipts=openWeek.receipts||{};
+              /* V15.25: Use merged receipts */
+              const receipts=mergedReceipts(openWeek);
               const received=shownEmps.filter(e=>receipts[e.id]);
               const notReceived=shownEmps.filter(e=>!receipts[e.id]);
               return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(3,1fr)",gap:10,marginBottom:12}}>
@@ -3057,6 +3433,121 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             </div>}
           </Card>})()}
 
+        {/* V15.27: Workshop Payments Card — between salary table and attendance chart */}
+        {!isLocked&&(()=>{
+          const selectedWs=wsPayWs?workshopsList.find(w=>w.name===wsPayWs):null;
+          const selectedBal=selectedWs?wsTotalBalance(wsPayWs):null;
+          const selectedWeekDue=selectedWs?wsWeekDue(wsPayWs,openWeek):0;
+          return<Card title={"💸 دفعات الورش — W"+openWeek.weekNum+(weeklyWsPayments.length>0?" ("+weeklyWsPayments.length+")":"")} style={{marginBottom:14}}>
+            {/* Header with add button + total */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:12}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                <div style={{fontSize:FS-2,color:T.textSec}}>إجمالي مخطط:</div>
+                <div style={{fontSize:FS+2,fontWeight:800,color:T.warn}}>{fmt0(totalWeeklyWsPayments)} ج</div>
+              </div>
+              {canEdit&&<Btn small onClick={()=>{if(showWsPayForm){setShowWsPayForm(false);resetWsPayForm()}else{setWsPayDate(openWeek.weekStart||today);setShowWsPayForm(true)}}} style={{background:showWsPayForm?T.err+"15":"#8B5CF612",color:showWsPayForm?T.err:"#8B5CF6",border:"1px solid "+(showWsPayForm?T.err+"30":"#8B5CF630"),fontWeight:700}}>
+                {showWsPayForm?"✕ إلغاء":"➕ إضافة دفعة"}
+              </Btn>}
+            </div>
+
+            {/* Add form */}
+            {showWsPayForm&&canEdit&&<div style={{padding:"14px",background:"#8B5CF608",border:"1px solid #8B5CF630",borderRadius:12,marginBottom:12}}>
+              <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:10}}>
+                {/* Workshop selector */}
+                <div>
+                  <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:700}}>الورشة</div>
+                  <SearchSel value={wsPayWs} onChange={setWsPayWs} options={workshopsList.filter(w=>_wsIsExternal(w.name||w)).map(w=>({value:w.name||w,label:(w.name||w)+(w.owner?" — "+w.owner:"")}))} placeholder="ابحث عن ورشة..."/>
+                </div>
+                {/* Type */}
+                <div>
+                  <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:700}}>نوع العملية</div>
+                  <Sel value={wsPayType} onChange={setWsPayType}>
+                    <option value="payment">💰 دفعة</option>
+                    <option value="purchase">🛒 مشتريات</option>
+                  </Sel>
+                </div>
+              </div>
+
+              {/* Balance info when workshop is selected */}
+              {selectedWs&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"1fr 1fr 1fr",gap:8,marginBottom:12,padding:"10px 12px",background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:10}}>
+                <div style={{textAlign:"center"}}>
+                  <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginBottom:2}}>📊 الرصيد الإجمالي</div>
+                  <div style={{fontSize:FS,fontWeight:800,color:selectedBal.balance>0?T.err:T.ok}}>{fmt0(selectedBal.balance)} ج</div>
+                </div>
+                <div style={{textAlign:"center"}}>
+                  <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginBottom:2}}>📅 مستحق الأسبوع</div>
+                  <div style={{fontSize:FS,fontWeight:800,color:"#8B5CF6"}}>{fmt0(selectedWeekDue)} ج</div>
+                </div>
+                <div style={{textAlign:"center",gridColumn:isMob?"1/-1":"auto"}}>
+                  <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginBottom:2}}>💸 إجمالي المدفوع</div>
+                  <div style={{fontSize:FS,fontWeight:800,color:T.textSec}}>{fmt0(selectedBal.paid)} ج</div>
+                </div>
+              </div>}
+
+              <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"1fr 1fr 2fr",gap:10,marginBottom:12}}>
+                <div>
+                  <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:700}}>المبلغ</div>
+                  <Inp type="number" value={wsPayAmount} onChange={e=>setWsPayAmount(e.target.value)} placeholder="0" style={{textAlign:"center",fontWeight:800}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:700}}>التاريخ</div>
+                  <Inp type="date" value={wsPayDate} onChange={e=>setWsPayDate(e.target.value)} min={openWeek.weekStart} max={openWeek.weekEnd}/>
+                </div>
+                <div>
+                  <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:700}}>ملاحظة (اختياري)</div>
+                  <Inp type="text" value={wsPayNote} onChange={e=>setWsPayNote(e.target.value)} placeholder="مثل: دفعة منتصف الأسبوع"/>
+                </div>
+              </div>
+
+              <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                <Btn onClick={()=>{setShowWsPayForm(false);resetWsPayForm()}} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>إلغاء</Btn>
+                <Btn onClick={saveWeeklyWsPayment} disabled={!wsPayWs||!wsPayAmount||Number(wsPayAmount)<=0} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:800}}>✓ إضافة للخطة</Btn>
+              </div>
+            </div>}
+
+            {/* List of planned payments */}
+            {weeklyWsPayments.length===0?<div style={{padding:"20px",textAlign:"center",color:T.textMut,fontSize:FS-1,background:T.bg,borderRadius:10,border:"1px dashed "+T.brd}}>
+              لا توجد دفعات ورش مخططة لهذا الأسبوع
+            </div>:<div style={{border:"1px solid "+T.brd,borderRadius:10,overflow:"hidden"}}>
+              <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <thead><tr style={{background:T.bg}}>
+                  <th style={{padding:"8px",textAlign:"right",fontSize:FS-2,color:T.textSec,fontWeight:800,borderBottom:"2px solid "+T.brd}}>الورشة</th>
+                  <th style={{padding:"8px",textAlign:"center",fontSize:FS-2,color:T.textSec,fontWeight:800,borderBottom:"2px solid "+T.brd}}>النوع</th>
+                  <th style={{padding:"8px",textAlign:"center",fontSize:FS-2,color:T.textSec,fontWeight:800,borderBottom:"2px solid "+T.brd}}>المبلغ</th>
+                  <th style={{padding:"8px",textAlign:"center",fontSize:FS-2,color:T.textSec,fontWeight:800,borderBottom:"2px solid "+T.brd}}>التاريخ</th>
+                  <th style={{padding:"8px",textAlign:"right",fontSize:FS-2,color:T.textSec,fontWeight:800,borderBottom:"2px solid "+T.brd}}>ملاحظة</th>
+                  {canEdit&&<th style={{padding:"8px",textAlign:"center",fontSize:FS-2,color:T.textSec,fontWeight:800,borderBottom:"2px solid "+T.brd}}></th>}
+                </tr></thead>
+                <tbody>{weeklyWsPayments.map((p,i)=>
+                  <tr key={p.id} style={{borderBottom:"1px solid "+T.brd,background:i%2===0?"transparent":T.bg+"40"}}>
+                    <td style={{padding:"8px",fontWeight:700,color:T.text,textAlign:"right"}}>{p.wsName}</td>
+                    <td style={{padding:"8px",textAlign:"center",fontSize:FS-1}}>
+                      {p.type==="payment"?<span style={{color:"#8B5CF6",fontWeight:700}}>💰 دفعة</span>:<span style={{color:T.warn,fontWeight:700}}>🛒 مشتريات</span>}
+                    </td>
+                    <td style={{padding:"8px",textAlign:"center",fontWeight:800,color:T.warn,fontSize:FS}}>{fmt0(p.amount)}</td>
+                    <td style={{padding:"8px",textAlign:"center",fontSize:FS-2,color:T.textMut,fontFamily:"monospace"}}>{p.date}</td>
+                    <td style={{padding:"8px",fontSize:FS-2,color:T.textSec,textAlign:"right"}}>{p.note||"—"}</td>
+                    {canEdit&&<td style={{padding:"8px",textAlign:"center"}}>
+                      <Btn small onClick={()=>deleteWeeklyWsPayment(p.id)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",padding:"3px 8px"}}>🗑️</Btn>
+                    </td>}
+                  </tr>
+                )}
+                {/* Total row */}
+                <tr style={{background:T.warn+"12",fontWeight:800}}>
+                  <td colSpan={2} style={{padding:"10px",textAlign:"right",color:T.warn,fontSize:FS}}>الإجمالي</td>
+                  <td style={{padding:"10px",textAlign:"center",color:T.warn,fontSize:FS+1,fontWeight:800}}>{fmt0(totalWeeklyWsPayments)} ج</td>
+                  <td colSpan={canEdit?3:2}></td>
+                </tr>
+                </tbody>
+              </table>
+            </div>}
+
+            <div style={{marginTop:10,padding:"8px 12px",background:T.accent+"08",borderRadius:8,fontSize:FS-2,color:T.textSec,lineHeight:1.6}}>
+              💡 هذه دفعات <b>مخططة</b> — ستُسجَّل في الخزنة تلقائياً عند إقفال الأسبوع، مثل سلف الموظفين.
+            </div>
+          </Card>;
+        })()}
+
         {/* ── Attendance Comparison Chart: Current vs Previous Week (moved to bottom) ── */}
         {(()=>{
           const weekSelected=getSelectedEmps(openWeek.id);
@@ -3139,8 +3630,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
         <div style={{fontSize:FS+3,fontWeight:800,color:confirmPopup.variant==="danger"?T.err:confirmPopup.variant==="warn"?T.warn:T.text,marginBottom:8}}>{confirmPopup.title||"تأكيد"}</div>
         <div style={{fontSize:FS,color:T.textSec,marginBottom:18,lineHeight:1.6,whiteSpace:"pre-line"}}>{confirmPopup.message||""}</div>
         <div style={{display:"flex",gap:10,justifyContent:"center"}}>
-          <Btn ghost onClick={()=>setConfirmPopup(null)}>إلغاء</Btn>
-          <Btn onClick={()=>{if(confirmPopup.onConfirm)confirmPopup.onConfirm();setConfirmPopup(null)}} style={{background:confirmPopup.variant==="danger"?T.err:confirmPopup.variant==="warn"?T.warn:T.accent,color:"#fff",border:"none",fontWeight:800,padding:"10px 24px"}}>{confirmPopup.variant==="danger"?"🗑️ حذف":"✅ تأكيد"}</Btn>
+          {!confirmPopup.hideCancel&&<Btn ghost onClick={()=>setConfirmPopup(null)}>إلغاء</Btn>}
+          <Btn onClick={()=>{if(confirmPopup.onConfirm)confirmPopup.onConfirm();setConfirmPopup(null)}} style={{background:confirmPopup.variant==="danger"?T.err:confirmPopup.variant==="warn"?T.warn:T.accent,color:"#fff",border:"none",fontWeight:800,padding:"10px 24px"}}>{confirmPopup.confirmText||(confirmPopup.variant==="danger"?"🗑️ حذف":"✅ تأكيد")}</Btn>
         </div>
       </div>
     </div>}
@@ -3577,7 +4068,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
     {showEmpQrScanner&&(()=>{
       const w=hrWeeks.find(x=>x.id===showEmpQrScanner.weekId);
       if(!w)return null;
-      const receipts=w.receipts||{};
+      /* V15.25: Use merged receipts */
+      const receipts=mergedReceipts(w);
       const wkSelected=(w.selectedEmps&&Array.isArray(w.selectedEmps))?w.selectedEmps:[];
       const wkEmps=activeEmps.filter(e=>wkSelected.includes(e.id));
       const received=wkEmps.filter(e=>receipts[e.id]);
@@ -5180,7 +5672,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       /* Default: active open week (for scanning during work day), fallback to most recent closed */
       const activeWeekId=verifySelectedWeekId||(openWeeks[0]?openWeeks[0].id:closedWeeks[0]?.id);
       const week=allWeeks.find(w=>w.id===activeWeekId)||allWeeks[0];
-      const receipts=week.receipts||{};
+      /* V15.25: Use merged receipts (Firestore + pending queue) for instant UI feedback */
+      const receipts=mergedReceipts(week);
       const wkSelected=(week.selectedEmps&&Array.isArray(week.selectedEmps))?week.selectedEmps:[];
       const wkEmps=activeEmps.filter(e=>wkSelected.includes(e.id));
       const received=wkEmps.filter(e=>receipts[e.id]);
@@ -5192,12 +5685,55 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       const closeVerifyCam=()=>{try{const v=document.getElementById("verify-scan-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setVerifyScanning(false)};
       /* Scan handler — instant register */
       const handleVerifyScan=(text)=>{
+        /* V15.28: Permission check — refuse silently with audit if user lacks verify:edit */
+        if(!canEditVerify){
+          playBeep("error");
+          showToast("⛔ ليس لديك صلاحية تأكيد استلام المرتبات");
+          upConfig(d=>{
+            if(!Array.isArray(d.auditLog))d.auditLog=[];
+            d.auditLog.unshift({
+              id:Math.random().toString(36).slice(2)+Date.now(),
+              category:"security",action:"unauthorized_verify_attempt",
+              target:"W"+week.weekNum,
+              newValue:"🚨 محاولة سكان بدون صلاحية",
+              notes:"المستخدم: "+(userName||"—")+" | الدور: "+(userRole||"—"),
+              at:new Date().toISOString(),severity:"danger"
+            });
+          });
+          return;
+        }
         const m=/^CLARK:EMP:(.+)$/.exec(text);
         if(!m){playBeep("error");showToast("❌ QR غير صحيح");return}
         const empId=m[1];
         const emp=employees.find(e=>e.id===empId);
         if(!emp){playBeep("error");showToast("❌ الموظف غير موجود");return}
         if(!wkSelected.includes(empId)){playBeep("error");showToast("⚠️ "+emp.name+" ليس في هذا الأسبوع");return}
+        /* V15.28: Separation of Duties — block same user from editing salary AND verifying.
+           Admin is EXEMPT from this rule (user's choice). */
+        if(!isAdmin){
+          const editedBy=(week.draftInputs||{}).thursdayPayLastEditedBy||{};
+          const lastEditor=editedBy[empId];
+          if(lastEditor&&lastEditor===userName){
+            playBeep("error");
+            upConfig(d=>{
+              if(!Array.isArray(d.auditLog))d.auditLog=[];
+              d.auditLog.unshift({
+                id:Math.random().toString(36).slice(2)+Date.now(),
+                category:"security",action:"sod_violation_blocked",
+                target:"W"+week.weekNum+" — "+emp.name,
+                newValue:"🛡️ منع تلقائي — نفس المستخدم عدّل وأراد تأكيد",
+                notes:"المستخدم: "+(userName||"—")+" | فصل الصلاحيات فعّال",
+                at:new Date().toISOString(),severity:"danger"
+              });
+            });
+            openConfirm({
+              title:"⛔ مخالفة فصل الصلاحيات",
+              message:"لا يمكنك تأكيد استلام "+emp.name+"\n\nأنت عدَّلت مبلغ المرتب لهذا الموظف.\nيجب أن يؤكد الاستلام محاسب آخر (مبدأ الرقابة المزدوجة).",
+              variant:"danger",confirmText:"فهمت",hideCancel:true,onConfirm:()=>{}
+            });
+            return;
+          }
+        }
         if(receipts[empId]){
           /* DUPLICATE — show fraud warning */
           playBeep("error");
@@ -5234,23 +5770,35 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           setVerifyReview({emp,salary:empSalary,week});
           return;
         }
-        /* FAST MODE — register instantly */
+        /* FAST MODE — register instantly via receipt queue (V15.25) */
         const amount=empSalary?empSalary.thursdayPay:0;
         const nowIso=new Date().toISOString();
-        upConfig(d=>{
-          const wi=(d.hrWeeks||[]).findIndex(x=>x.id===week.id);if(wi<0)return;
-          if(!d.hrWeeks[wi].receipts)d.hrWeeks[wi].receipts={};
-          d.hrWeeks[wi].receipts[empId]={at:nowIso,by:userName||"",verifiedAt:nowIso,verifiedBy:userName||"",mode:"fast"};
-          if(!Array.isArray(d.auditLog))d.auditLog=[];
-          d.auditLog.unshift({
-            id:Math.random().toString(36).slice(2)+Date.now(),
-            category:"week",action:"salary_receipt_verified",
-            target:"W"+week.weekNum+" — "+emp.name,
-            newValue:"✅ تأكيد استلام مرتب — "+fmt0(amount)+" ج (سريع)",
-            notes:"المحاسب الثاني (التأكيد): "+(userName||"—")+" | وضع: سريع",
-            at:nowIso,severity:"info"
-          });
+        /* V15.25: Write to localStorage queue FIRST — instant, cannot fail, cannot conflict.
+           The background worker (every 500ms) will pick this up and push to Firestore safely. */
+        const queued=addReceipt(week.id,empId,{
+          at:nowIso,by:userName||"",verifiedAt:nowIso,verifiedBy:userName||"",mode:"fast",
+          empName:emp.name,empCode:emp.code||"",amount
         });
+        if(!queued){
+          /* localStorage unavailable — fall back to direct write (legacy behavior) */
+          console.warn("[verify] localStorage queue unavailable, falling back to direct write");
+          upConfig(d=>{
+            const wi=(d.hrWeeks||[]).findIndex(x=>x.id===week.id);if(wi<0)return;
+            if(!d.hrWeeks[wi].receipts)d.hrWeeks[wi].receipts={};
+            d.hrWeeks[wi].receipts[empId]={at:nowIso,by:userName||"",verifiedAt:nowIso,verifiedBy:userName||"",mode:"fast"};
+            if(!Array.isArray(d.auditLog))d.auditLog=[];
+            d.auditLog.unshift({
+              id:Math.random().toString(36).slice(2)+Date.now(),
+              category:"week",action:"salary_receipt_verified",
+              target:"W"+week.weekNum+" — "+emp.name,
+              newValue:"✅ تأكيد استلام مرتب — "+fmt0(amount)+" ج (سريع)",
+              notes:"المحاسب الثاني (التأكيد): "+(userName||"—")+" | وضع: سريع",
+              at:nowIso,severity:"info"
+            });
+          });
+        }
+        /* Trigger a UI refresh so the scan appears immediately in the pending list */
+        setQueueTick(t=>t+1);
         playBeep("done");
         setVerifyLastScan({emp,amount,at:nowIso,canUndo:true});
         /* Auto-clear undo after 10 seconds */
@@ -5260,6 +5808,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
       const undoLastScan=()=>{
         if(!verifyLastScan||!verifyLastScan.emp)return;
         const empId=verifyLastScan.emp.id;
+        /* V15.25: Remove from queue FIRST — handles case where receipt hasn't synced yet */
+        removeReceipt(week.id,empId);
         upConfig(d=>{
           const wi=(d.hrWeeks||[]).findIndex(x=>x.id===week.id);if(wi<0)return;
           if(d.hrWeeks[wi].receipts&&d.hrWeeks[wi].receipts[empId]){
@@ -5388,14 +5938,55 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           </div>
         </div>
 
+        {/* V15.26: Amounts Review Checkpoint — mandatory before scan can start */}
+        {!verifyAmountsReviewed[week.id]&&!verifyScanning&&(()=>{
+          /* Show a summary of amounts the accountant is about to confirm */
+          const toReview=wkEmps.map(e=>{const c=getEmpSalary(e.id,week);return{emp:e,amount:c?c.thursdayPay:0,hasIssue:!c||c.thursdayPay<=0}});
+          const totalToVerify=toReview.reduce((s,r)=>s+(r.amount||0),0);
+          return<Card style={{marginBottom:12,background:"#F59E0B08",border:"2px solid "+T.warn+"60"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+              <span style={{fontSize:26}}>⚠️</span>
+              <div>
+                <div style={{fontSize:FS+1,fontWeight:800,color:T.warn}}>مراجعة المبالغ قبل السكان</div>
+                <div style={{fontSize:FS-2,color:T.textSec,marginTop:2}}>راجع المبالغ أدناه وتأكد من مطابقتها قبل بدء تأكيد الاستلام</div>
+              </div>
+            </div>
+            <div style={{maxHeight:"32vh",overflowY:"auto",border:"1px solid "+T.brd,borderRadius:10,marginBottom:12,background:T.cardSolid}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+                <thead style={{position:"sticky",top:0,background:T.bg,zIndex:1}}><tr>
+                  <th style={{padding:"8px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:800}}>الموظف</th>
+                  <th style={{padding:"8px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:800}}>الكود</th>
+                  <th style={{padding:"8px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:800}}>المبلغ</th>
+                </tr></thead>
+                <tbody>{toReview.map((r,i)=>
+                  <tr key={r.emp.id} style={{borderBottom:"1px solid "+T.brd,background:i%2===0?"transparent":T.bg+"40"}}>
+                    <td style={{padding:"6px 8px",fontWeight:700,color:T.text,textAlign:"right"}}>{r.emp.name}</td>
+                    <td style={{padding:"6px 8px",textAlign:"center",fontSize:FS-2,color:T.textMut,fontFamily:"monospace"}}>{r.emp.code||"—"}</td>
+                    <td style={{padding:"6px 8px",textAlign:"center",fontWeight:800,color:r.hasIssue?T.err:T.ok}}>{fmt0(r.amount)}{r.hasIssue&&<span style={{marginInlineStart:4,fontSize:FS-3}}>⚠️</span>}</td>
+                  </tr>
+                )}
+                <tr style={{background:T.warn+"15",fontWeight:800}}>
+                  <td colSpan={2} style={{padding:"8px",textAlign:"right",color:T.warn}}>الإجمالي ({toReview.length} موظف)</td>
+                  <td style={{padding:"8px",textAlign:"center",color:T.warn,fontSize:FS+1}}>{fmt0(r2(totalToVerify))} ج</td>
+                </tr>
+                </tbody>
+              </table>
+            </div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+              <Btn onClick={()=>setVerifyAmountsReviewed(p=>({...p,[week.id]:true}))} style={{background:T.ok,color:"#fff",border:"none",fontWeight:800,padding:"10px 20px",fontSize:FS}} title="تأكيد مراجعة المبالغ لبدء السكان">✓ راجعت المبالغ وهي صحيحة</Btn>
+              <div style={{fontSize:FS-2,color:T.textMut,flex:1,minWidth:200}}>💡 بعد التأكيد، يمكنك بدء السكان</div>
+            </div>
+          </Card>;
+        })()}
+
         {/* Main scanner section */}
-        <Card style={{marginBottom:12,background:verifyScanning?T.ok+"04":T.cardSolid,border:"2px solid "+(verifyScanning?T.ok:T.brd)}}>
+        <Card style={{marginBottom:12,background:verifyScanning?T.ok+"04":T.cardSolid,border:"2px solid "+(verifyScanning?T.ok:T.brd),opacity:!verifyAmountsReviewed[week.id]?0.5:1,pointerEvents:!verifyAmountsReviewed[week.id]?"none":"auto"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
             <div style={{fontSize:FS+1,fontWeight:800,color:verifyScanning?T.ok:T.text,display:"flex",alignItems:"center",gap:8}}>
               <span>{verifyScanning?"🟢":"📱"}</span>
               <span>{verifyScanning?"الكاميرا نشطة — جاهز للسكان":"ابدأ الكاميرا لمسح QR الموظف"}</span>
             </div>
-            <Btn onClick={()=>{if(verifyScanning){closeVerifyCam()}else{setVerifyScanning(true)}}} style={{background:verifyScanning?T.err:T.ok,color:"#fff",border:"none",fontWeight:800,padding:"10px 24px",fontSize:FS+1}}>
+            <Btn onClick={()=>{if(!canEditVerify){showToast("⛔ ليس لديك صلاحية التأكيد");return}if(verifyScanning){closeVerifyCam()}else{setVerifyScanning(true)}}} disabled={!canEditVerify} style={{background:!canEditVerify?T.textMut+"40":(verifyScanning?T.err:T.ok),color:"#fff",border:"none",fontWeight:800,padding:"10px 24px",fontSize:FS+1,opacity:!canEditVerify?0.6:1,cursor:!canEditVerify?"not-allowed":"pointer"}} title={!canEditVerify?"ليس لديك صلاحية التأكيد":""}>
               {verifyScanning?"⏹ إيقاف الكاميرا":"▶ تشغيل الكاميرا"}
             </Btn>
           </div>
@@ -5434,6 +6025,29 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
           </Card>;
         })()}
 
+        {/* V15.25: Queue status indicator — shows pending/syncing/failed receipts for current week */}
+        {(()=>{
+          const weekPending=Object.values(getPendingForWeek(week.id));
+          if(weekPending.length===0)return null;
+          const failed=weekPending.filter(r=>(r._retries||0)>=3);
+          const syncing=weekPending.filter(r=>(r._retries||0)<3);
+          return<Card style={{marginBottom:12,border:"1.5px solid "+(failed.length>0?T.err+"40":T.warn+"40"),background:failed.length>0?T.err+"08":T.warn+"08"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+              <span style={{fontSize:22}}>{failed.length>0?"⚠️":"⏳"}</span>
+              <div style={{flex:1,minWidth:180}}>
+                {syncing.length>0&&<div style={{fontSize:FS-1,fontWeight:700,color:T.warn}}>
+                  ⏳ {syncing.length} تأكيد جاري حفظه...
+                </div>}
+                {failed.length>0&&<div style={{fontSize:FS-1,fontWeight:800,color:T.err,marginTop:syncing.length>0?4:0}}>
+                  ⚠️ {failed.length} تأكيد لم يُحفظ بعد {Math.max(...failed.map(f=>f._retries||0))} محاولات
+                </div>}
+                <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>البيانات محفوظة محلياً — ستُرفع تلقائياً عند استقرار الاتصال</div>
+              </div>
+              {failed.length>0&&<Btn small onClick={()=>{forceRetryAll(week.id);setQueueTick(t=>t+1);showToast("🔄 جاري إعادة المحاولة...")}} style={{background:T.err+"15",color:T.err,border:"1px solid "+T.err+"40",fontWeight:700}}>🔄 إعادة المحاولة</Btn>}
+            </div>
+          </Card>;
+        })()}
+
         {/* Quick report toggle */}
         <Card>
           <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:verifyQuickReport?12:0}}>
@@ -5442,6 +6056,29 @@ export function HRPg({data,upConfig,isMob,canEdit,user,setSavingOverlay}){
             </Btn>
             <Btn onClick={printVerifyReport} style={{background:"#10B98112",color:"#10B981",border:"1px solid #10B98130",fontWeight:700}}>📄 تقرير + PDF</Btn>
             <Btn onClick={doWhatsapp} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",fontWeight:700}}>📱 واتساب المدير</Btn>
+            {/* V15.25: Verification check — confirms all scanned receipts are safely in Firestore */}
+            <Btn onClick={async()=>{
+              const pending=Object.keys(getPendingForWeek(week.id)).length;
+              try{
+                /* Read fresh from Firestore to compare */
+                const freshSnap=await getDoc(doc(db,"factory","config"));
+                if(!freshSnap.exists()){showToast("⚠️ لا يمكن قراءة البيانات من السحابة");return}
+                const freshData=freshSnap.data();
+                const freshWeek=(freshData.hrWeeks||[]).find(w=>w.id===week.id);
+                const fsReceiptsCount=freshWeek?Object.keys(freshWeek.receipts||{}).length:0;
+                const uiReceiptsCount=received.length;
+                if(pending===0&&fsReceiptsCount===uiReceiptsCount){
+                  showToast("✅ كل التأكيدات محفوظة بأمان ("+fsReceiptsCount+" تأكيد)");
+                }else if(pending>0){
+                  showToast("⏳ "+pending+" تأكيد جاري الحفظ — في السحابة: "+fsReceiptsCount);
+                }else{
+                  showToast("⚠️ اختلاف: الشاشة="+uiReceiptsCount+" | السحابة="+fsReceiptsCount+" — جاري إعادة المزامنة");
+                  forceRetryAll(week.id);setQueueTick(t=>t+1);
+                }
+              }catch(e){
+                showToast("⚠️ فشل الفحص: "+(e.message||"خطأ غير معروف"));
+              }
+            }} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}} title="يقارن بين الشاشة والسحابة للتأكد من حفظ كل التأكيدات">🔍 فحص التأكيدات</Btn>
           </div>
           {verifyQuickReport&&<div style={{maxHeight:"50vh",overflowY:"auto",border:"1px solid "+T.brd,borderRadius:10}}>
             <table style={{width:"100%",borderCollapse:"collapse"}}><thead style={{position:"sticky",top:0,background:T.bg,zIndex:1}}><tr>

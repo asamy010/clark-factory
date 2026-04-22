@@ -7,7 +7,7 @@ import { doc, setDoc, onSnapshot, collection, addDoc, updateDoc, deleteDoc, getD
 /* ─── V15.0 Module imports (refactored from monolith) ─── */
 import { FKEYS, FCOL, WS_TYPES, COLORS_DB, THEMES, DEFAULT_STATUSES, INIT_CONFIG, GARMENT_ICONS, QUALITY_MAP, FS, PRINT_CSS } from "./constants/index.js";
 import { CLARK_LOGO } from "./constants/logo.js";
-import { gid, fmt, fmt0, r2, fmtDate, hrsToHM, parseHrs, sqty, slay, setF, gf, gc, gcons, gdate, safeCalc, _esc, gIcon, parseSizes } from "./utils/format.js";
+import { gid, fmt, fmt0, r2, fmtDate, hrsToHM, parseHrs, sqty, slay, setF, gf, gc, gcons, gdate, safeCalc, _esc, gIcon, parseSizes, getSizesFromSet } from "./utils/format.js";
 import { playBeep } from "./utils/audio.js";
 import { compressImage, compressImg43 } from "./utils/image.js";
 import { loadXLSX, loadQR, loadJsQR, scanQR, compressFile } from "./utils/qr.js";
@@ -752,10 +752,39 @@ export default function App(){
   const data={...config,orders:resolvedOrders||orders};
   const getUserRole=()=>{if(config.users&&config.users[user?.uid]){const r=config.users[user.uid];return typeof r==="string"?r:r?.role||"admin"}const byEmail=(config.usersList||[]).find(u=>u.email===user?.email);if(byEmail)return byEmail.role;return"admin"};
   const userRole=getUserRole();const canEdit=userRole==="admin"||userRole==="manager";
-  const DEFAULT_PERMS={admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit",treasury:"edit",hr:"edit",purchase:"edit",warehouse:"edit"},manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit",treasury:"view",hr:"view",purchase:"edit",warehouse:"edit"},sales_accountant:{dashboard:"view",details:"view",external:"hide",stock:"view",reports:"edit",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit",treasury:"hide",hr:"hide",purchase:"hide",warehouse:"view"},purchase_accountant:{dashboard:"view",details:"view",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"hide",treasury:"edit",hr:"hide",purchase:"edit",warehouse:"edit"},viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"hide",hr:"hide",purchase:"view",warehouse:"view"}};
-  const getTabPerm=(tabKey)=>{const perms=config.permissions||{};const defaults=DEFAULT_PERMS[userRole]||DEFAULT_PERMS.viewer;const rolePerm=perms[userRole]||{};return rolePerm[tabKey]||defaults[tabKey]||"view"};
-  const canEditTab=(tabKey)=>getTabPerm(tabKey)==="edit";
-  const canViewTab=(tabKey)=>getTabPerm(tabKey)!=="hide";
+  /* V15.28: HR permissions upgraded to granular sub-tab permissions.
+     - hr now contains 4 sub-keys: weeks (salary table), verify (QR scan screen),
+       employees (employee management), security (audit log).
+     - Backward compat: if hr is still a string (old config), it applies to all sub-tabs.
+     - Two new roles for separation of duties:
+       • payroll_accountant: edits salary, NO verify access (preparer)
+       • payroll_verifier: views salary (readonly), ONLY edits verify (reviewer) */
+  const DEFAULT_PERMS={
+    admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit",treasury:"edit",hr:{weeks:"edit",verify:"edit",employees:"edit",security:"edit"},purchase:"edit",warehouse:"edit"},
+    manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit",treasury:"view",hr:{weeks:"view",verify:"view",employees:"view",security:"view"},purchase:"edit",warehouse:"edit"},
+    sales_accountant:{dashboard:"view",details:"view",external:"hide",stock:"view",reports:"edit",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit",treasury:"hide",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"},purchase:"hide",warehouse:"view"},
+    purchase_accountant:{dashboard:"view",details:"view",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"hide",treasury:"edit",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"},purchase:"edit",warehouse:"edit"},
+    /* V15.28: New role — prepares salaries but CANNOT verify receipt (separation of duties) */
+    payroll_accountant:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"view",hr:{weeks:"edit",verify:"hide",employees:"edit",security:"view"},purchase:"hide",warehouse:"hide"},
+    /* V15.28: New role — verifies receipt (QR scan) ONLY. Cannot edit salary. */
+    payroll_verifier:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"view",hr:{weeks:"view",verify:"edit",employees:"view",security:"view"},purchase:"hide",warehouse:"hide"},
+    viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"hide",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"},purchase:"view",warehouse:"view"}
+  };
+  const getTabPerm=(tabKey)=>{const perms=config.permissions||{};const defaults=DEFAULT_PERMS[userRole]||DEFAULT_PERMS.viewer;const rolePerm=perms[userRole]||{};const fromConfig=rolePerm[tabKey];const fromDefault=defaults[tabKey];
+    /* If the permission is an object (e.g. hr), return it as-is */
+    if(fromConfig&&typeof fromConfig==="object")return fromConfig;
+    if(fromDefault&&typeof fromDefault==="object")return fromDefault;
+    return fromConfig||fromDefault||"view";
+  };
+  /* V15.28: Get HR sub-permission. Handles backward compat with string hr permission. */
+  const getHrSubPerm=(subKey)=>{
+    const hrPerm=getTabPerm("hr");
+    if(typeof hrPerm==="string")return hrPerm;/* Backward compat: old string applies to all */
+    if(hrPerm&&typeof hrPerm==="object")return hrPerm[subKey]||"hide";
+    return"hide";
+  };
+  const canEditTab=(tabKey)=>{const p=getTabPerm(tabKey);if(typeof p==="object")return Object.values(p).some(v=>v==="edit");return p==="edit"};
+  const canViewTab=(tabKey)=>{const p=getTabPerm(tabKey);if(typeof p==="object")return Object.values(p).some(v=>v!=="hide");return p!=="hide"};
   const statusCards=config.statusCards||DEFAULT_STATUSES;
 
   /* Status change notification */
@@ -874,7 +903,7 @@ export default function App(){
           <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}
           </span>
-          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V15.24</span>
+          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V15.31</span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -1297,7 +1326,7 @@ export default function App(){
         {tab==="purchase"&&<PurchasePg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("purchase")} user={user} userRole={userRole}/>}
         {tab==="warehouse"&&<WarehousePg data={data} upConfig={upConfig} updOrder={updOrder} isMob={isMob} isTab={isTab} canEdit={canEditTab("warehouse")} statusCards={statusCards} user={user} userRole={userRole}/>}
         {tab==="treasury"&&<TreasuryPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("treasury")} user={user} userRole={userRole}/>}
-        {tab==="hr"&&<HRPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("hr")} user={user} setSavingOverlay={setSavingOverlay}/>}
+        {tab==="hr"&&<HRPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("hr")} user={user} userRole={userRole} getHrSubPerm={getHrSubPerm} setSavingOverlay={setSavingOverlay}/>}
       </div>}
     </div>
     {/* Quick Task/Notification Popup */}
@@ -1420,7 +1449,10 @@ export default function App(){
     {/* Barcode Print Popup */}
     {barcodePopup&&(()=>{const allOrders=data.orders||[];const ps=data.printSettings||{};const lw=ps.labelWidth||40;const lh=ps.labelHeight||50;const mg=ps.margins||2;const fl=ps.fields||{};
       const selOrder=allOrders.find(o=>o.id===barcodePopup.modelId);const rs=selOrder?Number(selOrder.rackSize)||1:1;
-      const sizes=selOrder?parseSizes(selOrder.sizeLabel):[];
+      /* V15.30: Use getSizesFromSet — pcsPerSeries from sizeSets is the SOURCE OF TRUTH for size count */
+      const sizeInfo=selOrder?getSizesFromSet(selOrder,data):{sizes:[],expectedCount:0,mismatch:false};
+      const sizes=sizeInfo.sizes;
+      const sizeMismatch=sizeInfo.mismatch;
       const qtyPerSize=sizes.length>0?Math.floor((selOrder?.cutQty||0)/sizes.length):(selOrder?.cutQty||0);
       const labelsPerSize=rs>0?Math.floor(qtyPerSize/rs):qtyPerSize;
       const totalLabels=sizes.length>0?labelsPerSize*sizes.length:(rs>0?Math.floor((selOrder?.cutQty||0)/rs):(selOrder?.cutQty||0));
@@ -1449,7 +1481,8 @@ export default function App(){
           {selOrder&&<div style={{textAlign:"center",padding:8,background:T.bg+"60",borderRadius:10,marginBottom:10}}>
             <div style={{fontWeight:800,fontSize:FS+1,color:T.accent}}>{selOrder.modelNo}</div>
             <div style={{fontSize:FS-1,color:T.textMut}}>{selOrder.modelDesc}</div>
-            <div style={{fontSize:FS-2,color:T.textSec,marginTop:2}}>{"القص: "+(selOrder.cutQty||0)+" | المقاسات: "+(sizes.join("-")||"—")+" | سيري: "+rs}</div>
+            <div style={{fontSize:FS-2,color:T.textSec,marginTop:2}}>{"القص: "+(selOrder.cutQty||0)+" | المقاسات: "+(sizes.join(" | ")||"—")+" | سيري: "+rs}</div>
+            {sizeMismatch&&<div style={{marginTop:8,padding:"6px 10px",background:"#F59E0B15",border:"1px solid #F59E0B40",borderRadius:8,fontSize:FS-2,color:"#B45309",fontWeight:600,lineHeight:1.5}}>⚠️ عدد الأسماء في الـ label لا يطابق قطع السيري ({sizeInfo.expectedCount}). راجع كارت المقاسات في قاعدة البيانات.</div>}
           </div>}
           <div style={{display:"flex",gap:4,marginBottom:12,borderRadius:10,border:"1px solid "+T.brd,overflow:"hidden"}}>
             <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"manual"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="manual"?"#F59E0B":"transparent",color:mode==="manual"?"#fff":T.textSec}}>يدوية</div>
