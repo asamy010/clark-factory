@@ -429,7 +429,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       (o.customerDeliveries||[]).forEach(d=>{if(from&&d.date<from)return;if(to&&d.date>to)return;
         if(type==="customer"&&rptCust&&d.custId!==rptCust)return;if(type==="model"&&rptModel&&o.id!==rptModel)return;
         const q=Number(d.qty)||0;totalDel+=q;const cn=d.custName||"—";
-        if(!custMap[cn])custMap[cn]={del:0,ret:0,val:0,models:{}};custMap[cn].del+=q;custMap[cn].val+=q*sp;if(!custMap[cn].models[mn])custMap[cn].models[mn]={del:0,ret:0,price:sp};custMap[cn].models[mn].del+=q;
+        /* V15.45: Use per-delivery price when available (discounted sales) */
+        const effPrice=Number(d.price)||sp;
+        if(!custMap[cn])custMap[cn]={del:0,ret:0,val:0,models:{}};custMap[cn].del+=q;custMap[cn].val+=q*effPrice;if(!custMap[cn].models[mn])custMap[cn].models[mn]={del:0,ret:0,price:sp};custMap[cn].models[mn].del+=q;
         if(!modelMap[mn])modelMap[mn]={del:0,ret:0,price:sp};modelMap[mn].del+=q});
       (o.customerReturns||[]).forEach(r=>{if(from&&r.date<from)return;if(to&&r.date>to)return;
         if(type==="customer"&&rptCust&&r.custId!==rptCust)return;if(type==="model"&&rptModel&&o.id!==rptModel)return;
@@ -710,7 +712,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       let totalSales=0,totalReturns=0,totalCashPay=0,totalCheckPay=0,totalOtherPay=0;
       const perCust={};
       orders.forEach(o=>{const sp=Number(o.sellPrice)||0;
-        (o.customerDeliveries||[]).forEach(d=>{const v=(Number(d.qty)||0)*sp;totalSales+=v;
+        /* V15.45: Use per-delivery price when set (isDiscounted sales) — falls back to model sellPrice */
+        (o.customerDeliveries||[]).forEach(d=>{const effPrice=Number(d.price)||sp;const v=(Number(d.qty)||0)*effPrice;totalSales+=v;
           if(!perCust[d.custId])perCust[d.custId]={sales:0,returns:0,cash:0,check:0,other:0};perCust[d.custId].sales+=v});
         (o.customerReturns||[]).forEach(r=>{const v=(Number(r.qty)||0)*sp;totalReturns+=v;
           if(!perCust[r.custId])perCust[r.custId]={sales:0,returns:0,cash:0,check:0,other:0};perCust[r.custId].returns+=v})});
@@ -1792,7 +1795,14 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           if(!linkedSess){const grid={};Object.entries(byOrder).forEach(([oid,qty])=>{grid[oid+"_"+qrSale.custId]=qty});
             upSales(d=>{if(!d.custDeliverySessions)d.custDeliverySessions=[];d.custDeliverySessions.push({id:sessId,date:new Date().toISOString().split("T")[0],modelIds,custIds:[qrSale.custId],grid,createdBy:userName,createdAt:new Date().toISOString(),status:"تم التسليم",freeSale:true,saleConfirmed:true})})}
           else{upSales(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===sessId);if(si>=0){d.custDeliverySessions[si].actualSales=byOrder;d.custDeliverySessions[si].actualSaleDate=new Date().toISOString().split("T")[0];d.custDeliverySessions[si].actualSaleBy=userName;d.custDeliverySessions[si].saleConfirmed=true}})}
-          Object.entries(byOrder).forEach(([oid,qty])=>{updOrder(oid,o=>{if(!o.customerDeliveries)o.customerDeliveries=[];o.customerDeliveries.push({custId:qrSale.custId,custName:cust.name,qty,date:new Date().toISOString().split("T")[0],sessionId:sessId,createdBy:userName,...(qrSale.override===true?{isOverride:true,overrideReason:"بيع طوارئ خارج الخطة"}:{})})})});
+          Object.entries(byOrder).forEach(([oid,qty])=>{updOrder(oid,o=>{if(!o.customerDeliveries)o.customerDeliveries=[];
+            /* V15.45: Record custom price for free/discounted sales — enables accurate revenue reporting */
+            const cp=Number(qrSale.customPrice)||0;
+            const entry={custId:qrSale.custId,custName:cust.name,qty,date:new Date().toISOString().split("T")[0],sessionId:sessId,createdBy:userName};
+            if(qrSale.override===true){entry.isOverride=true;entry.overrideReason="بيع طوارئ خارج الخطة"}
+            if(cp>0){entry.price=cp;entry.isDiscounted=true;entry.originalPrice=Number(o.sellPrice)||0}
+            o.customerDeliveries.push(entry);
+          })});
           playBeep("done");showToast((qrSale.override===true?"⚠️ بيع طوارئ ":"✓ تم تسجيل بيع ")+total+" قطعة لـ "+cust.name);
           /* Archive package if sale was from package */
           if(qrSale._pkgId){upSales(d=>{const pi=(d.packages||[]).findIndex(p=>p.id===qrSale._pkgId);if(pi>=0){d.packages[pi].status="مباعة";d.packages[pi].closedAt=new Date().toISOString();if(!d.packages[pi].movements)d.packages[pi].movements=[];d.packages[pi].movements.push({date:new Date().toISOString().split("T")[0],type:"sell",custName:cust.name,totalQty:total,by:userName||""})}})}
@@ -1863,6 +1873,31 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{isOverride?"⚠️ الفحص مغلق — البيع يعتمد على المخزن فقط":"البيع محدود بخطة العميل في الجلسة"}</div>
             </div>
           </div>}
+          {/* V15.45: Price override — appears in emergency mode OR free sale (for end-of-season discounted resale) */}
+          {isSale&&(isOverride||qrSale.linkedSession==="free")&&(()=>{
+            /* Compute "reference" original price from items (weighted avg when mixed) */
+            const itemPrices=qrSale.items.map(it=>{const o=orders.find(x=>x.id===it.orderId);return{qty:Number(it.qty)||0,price:Number(o?.sellPrice)||0}}).filter(x=>x.price>0);
+            const origTotal=itemPrices.reduce((s,x)=>s+x.qty*x.price,0);
+            const origQty=itemPrices.reduce((s,x)=>s+x.qty,0);
+            const origAvg=origQty>0?Math.round(origTotal/origQty):0;
+            const cp=Number(qrSale.customPrice)||0;
+            const pct=origAvg>0&&cp>0?Math.round((cp/origAvg)*100):null;
+            const lowWarn=pct!==null&&pct<50;
+            return<div style={{padding:"10px 12px",marginBottom:10,borderRadius:10,background:"#F59E0B08",border:"1.5px dashed #F59E0B50"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                <span style={{fontSize:FS-1,fontWeight:700,color:"#B45309"}}>💰 سعر البيع المخفض (اختياري)</span>
+                {origAvg>0&&<span style={{fontSize:FS-3,color:T.textMut}}>السعر الأصلي: <b style={{color:T.text}}>{fmt(origAvg)}</b></span>}
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                <input type="number" min="0" value={qrSale.customPrice||""} onChange={e=>setQrSale(p=>({...p,customPrice:e.target.value}))} placeholder={origAvg>0?"السعر الأصلي: "+fmt(origAvg):"أدخل السعر لكل قطعة"} style={{flex:1,minWidth:140,padding:"6px 10px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.inputBg,color:T.text}}/>
+                {cp>0&&<span style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>ج.م × {total} = <b style={{color:"#B45309"}}>{fmt(cp*total)}</b></span>}
+                {cp>0&&<span onClick={()=>setQrSale(p=>({...p,customPrice:""}))} style={{cursor:"pointer",fontSize:FS-2,color:T.err,fontWeight:700}} title="إلغاء السعر المخفض">✕</span>}
+              </div>
+              {lowWarn&&<div style={{marginTop:6,padding:"4px 8px",borderRadius:6,background:T.err+"12",color:T.err,fontSize:FS-2,fontWeight:700}}>⚠️ السعر ({pct}% من الأصلي) أقل من نصف السعر الأصلي — تأكد إن ده قصدك</div>}
+              {cp>0&&!lowWarn&&pct!==null&&<div style={{marginTop:4,fontSize:FS-3,color:T.textMut}}>الخصم: <b style={{color:"#B45309"}}>{100-pct}%</b> من السعر الأصلي</div>}
+              {cp===0&&<div style={{marginTop:4,fontSize:FS-3,color:T.textMut}}>فارغ = استخدام السعر الأصلي للموديل</div>}
+            </div>
+          })()}
           {linkedSess&&(()=>{
             /* V15.39: Group planned models by modelNo — same merging logic as distribution matrix.
                Each row represents ONE model (sum of planned/delivered/cart across all sub-orders). */
@@ -2786,7 +2821,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
 
     {custSalesLog&&(()=>{const isAll=custSalesLog==="all";const cust=isAll?{name:"جميع العملاء",phone:"",type:""}:customers.find(c=>c.id===custSalesLog);if(!cust)return null;
       const moves=[];orders.forEach(o=>{
-        (o.customerDeliveries||[]).filter(d=>isAll||d.custId===custSalesLog).forEach((d,di)=>{moves.push({type:"sale",orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,qty:Number(d.qty)||0,date:d.date,sessId:d.sessionId,by:d.createdBy||"",idx:di,rackSize:Number(o.rackSize)||1,custName:d.custName||""})});
+        (o.customerDeliveries||[]).filter(d=>isAll||d.custId===custSalesLog).forEach((d,di)=>{moves.push({type:"sale",orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,qty:Number(d.qty)||0,date:d.date,sessId:d.sessionId,by:d.createdBy||"",idx:di,rackSize:Number(o.rackSize)||1,custName:d.custName||"",price:Number(d.price)||0,isDiscounted:d.isDiscounted===true,originalPrice:Number(d.originalPrice)||Number(o.sellPrice)||0,isOverride:d.isOverride===true})});
         (o.customerReturns||[]).filter(r=>isAll||r.custId===custSalesLog).forEach((r,ri)=>{moves.push({type:"return",orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,qty:Number(r.qty)||0,date:r.date,note:r.note||"",by:r.createdBy||"",idx:ri,custName:r.custName||""})})});
       moves.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
       const totalDel=moves.filter(m=>m.type==="sale").reduce((s,m)=>s+m.qty,0);
@@ -2830,7 +2865,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                 {isAll&&<td style={{...TD,fontWeight:600,fontSize:FS-2,color:T.text}}>{m.custName||"—"}</td>}
                 <td style={{...TD,fontSize:FS-2}}>{m.date}</td>
                 <td style={{...TD,fontWeight:800,color:isRet?"#EF4444":"#10B981",fontSize:FS-1}}>{isRet?"↩️ مرتجع":"💰 بيع"}</td>
-                <td style={{...TD,fontWeight:700,color:T.accent}}>{m.modelNo}</td>
+                <td style={{...TD,fontWeight:700,color:T.accent}}>{m.modelNo}{m.isDiscounted&&<span style={{marginInlineStart:6,padding:"1px 6px",borderRadius:8,background:"#F59E0B18",color:"#B45309",fontSize:FS-3,fontWeight:700}} title={"سعر مخفض: "+fmt(m.price)+(m.originalPrice?" (الأصلي: "+fmt(m.originalPrice)+")":"")}>💰 خصم</span>}{m.isOverride&&<span style={{marginInlineStart:4,padding:"1px 5px",borderRadius:8,background:"#EF444418",color:"#DC2626",fontSize:FS-3,fontWeight:700}} title="بيع طوارئ خارج الخطة">🚨</span>}</td>
                 <td style={{...TD,fontSize:FS-3,color:T.textMut}}>{m.modelDesc}</td>
                 <td style={{...TD,textAlign:"center"}}>{isEditing?<input type="number" value={editSaleQty} onChange={e=>setEditSaleQty(Number(e.target.value)||0)} style={{width:55,textAlign:"center",border:"2px solid "+T.accent,borderRadius:4,padding:"2px",fontSize:FS,fontWeight:700,fontFamily:"inherit"}} autoFocus/>:<span style={{fontWeight:800,color:isRet?"#EF4444":"#0EA5E9"}}>{(isRet?"-":"")+m.qty}</span>}</td>
                 <td style={{...TD,fontSize:FS-3,color:T.textMut}}>{m.by||"—"}</td>

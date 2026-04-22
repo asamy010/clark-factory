@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { FS } from "../constants/index.js";
-import { gid, fmt, fmt0, r2 } from "../utils/format.js";
+import { gid, fmt, fmt0, r2, _esc } from "../utils/format.js";
 import { playBeep } from "../utils/audio.js";
 import { addAudit } from "../utils/audit.js";
 import { showToast } from "../utils/popups.js";
@@ -21,6 +21,15 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const userName=user?.displayName||(user?.email||"").split("@")[0];
   const userEmail=user?.email||"";
   const isAdmin=userRole==="admin";
+  /* V15.44: Smart description builder for workshop transactions.
+     Avoids duplicate "ورشة" when workshop name already starts with "ورشة" or "ورشه".
+     Example: name="ورشه محمد ايمن" → "دفعة ورشه محمد ايمن" (not "دفعة ورشة ورشه محمد ايمن"). */
+  const wsDesc=(name,isPurchase)=>{
+    const cleaned=(name||"").trim();
+    const startsWithWorkshop=/^ورش[هة](\s|$)/.test(cleaned);
+    const body=startsWithWorkshop?cleaned:"ورشة "+cleaned;
+    return(isPurchase?"مشتريات ":"دفعة ")+body;
+  };
   const lockedDays=(data.lockedDays||[]);/* ["2026-04-15", ...] */
   const isDayLocked=(dt)=>lockedDays.includes(dt);
   /* ═══ V14.52: Edit/Delete locks with whitelist ═══
@@ -99,6 +108,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const transfers=(data.treasuryTransfers||[]);
   const notifications=(data.notifications||[]);
   const[showForm,setShowForm]=useState(false);
+  /* V15.44: Date picker for top-level print/PDF/WhatsApp buttons — defaults to today but user can pick any day */
+  const[printDate,setPrintDate]=useState(new Date().toISOString().split("T")[0]);
   const[txType,setTxType]=useState("in");
   const[txAmount,setTxAmount]=useState("");
   const[txDesc,setTxDesc]=useState("");
@@ -369,7 +380,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     let linkedCustId=null,linkedSupplierId=null,linkedWsName=null,linkedEmpId=null;
     if(txPartyId&&txPartyType==="customer"){const c=customers.find(x=>x.id===txPartyId);if(c){linkedCustId=c.id;if(!finalDesc.trim())finalDesc="دفعة من "+c.name}}
     if(txPartyId&&txPartyType==="supplier"){const s=suppliers.find(x=>x.id===txPartyId);if(s){linkedSupplierId=s.id;if(!finalDesc.trim())finalDesc="دفع لـ "+s.name}}
-    if(txPartyId&&txPartyType==="workshop"){const w=workshops.find(x=>x.id===txPartyId||x.name===txPartyId);if(w){linkedWsName=w.name;if(!finalDesc.trim())finalDesc=(txCategory==="مشتريات"?"مشتريات ورشة ":"دفعة ورشة ")+w.name}}
+    if(txPartyId&&txPartyType==="workshop"){const w=workshops.find(x=>x.id===txPartyId||x.name===txPartyId);if(w){linkedWsName=w.name;if(!finalDesc.trim())finalDesc=wsDesc(w.name,txCategory==="مشتريات")}}
     if(txPartyId&&txPartyType==="employee"){const e=(data.employees||[]).find(x=>x.id===txPartyId);if(e){linkedEmpId=e.id;if(!finalDesc.trim())finalDesc="سلفة "+e.name}}
     upConfig(d=>{if(!d.treasury)d.treasury=[];
       if(editId){const tx=d.treasury.find(t=>t.id===editId);
@@ -418,7 +429,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     if(/^سلفة /.test(d))return true;/* old advances without hrLogId */
     if(/^تحصيل شيك |^صرف شيك /.test(d))return true;
     if(/^تحويل إلى |^تحويل من /.test(d))return true;
-    if(/^دفعة ورشة |^مشتريات ورشة /.test(d))return true;
+    if(/^دفعة ورش[هة] |^مشتريات ورش[هة] /.test(d))return true;
     return false};
   const externalSourceLabel=(t)=>{
     if(t.transferId)return"تحويل بين الخزن";
@@ -428,7 +439,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     if(/^سلفة /.test(d))return"سلفة موظف";
     if(/^تحصيل شيك |^صرف شيك /.test(d))return"شيك";
     if(/^تحويل /.test(d))return"تحويل";
-    if(/^دفعة ورشة |^مشتريات ورشة /.test(d))return"دفعة ورشة";
+    if(/^دفعة ورش[هة] |^مشتريات ورش[هة] /.test(d))return"دفعة ورشة";
     return"حركة خارجية"};
 
   const delTx=(id)=>{
@@ -558,54 +569,124 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const confirmTransfer=(tfId)=>{/* no-op now — transfers are already confirmed */};
   const cancelTransfer=deleteTransfer;
 
-  /* ── Print daily report ── */
+  /* ── V15.44: Shared professional print styles — compact accounting-report look ── */
+  const _printStyles=`@page{size:A4;margin:12mm 10mm}
+    *{box-sizing:border-box}
+    body{font-family:'Cairo',sans-serif;font-size:10px;padding:0;margin:0;line-height:1.45;color:#1E293B}
+    .brand-bar{height:3px;background:linear-gradient(90deg,#0EA5E9,#8B5CF6);margin-bottom:10px}
+    .hdr{display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:8px;border-bottom:1px solid #CBD5E1;margin-bottom:10px}
+    .hdr-left .title{font-size:14px;font-weight:800;color:#0F172A;letter-spacing:0.2px}
+    .hdr-left .subtitle{font-size:10px;color:#64748B;margin-top:2px;font-weight:600}
+    .hdr-right{text-align:left;font-size:9px;color:#64748B;line-height:1.5}
+    .hdr-right b{color:#334155;font-weight:700}
+    .summary{display:flex;gap:6px;justify-content:space-between;margin:10px 0;flex-wrap:wrap}
+    .sbox{flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px}
+    .sbox .lbl{font-size:8.5px;color:#64748B;margin-bottom:1px;font-weight:600}
+    .sbox .val{font-size:12px;font-weight:800;letter-spacing:0.2px}
+    .sbox.hl{border-color:#0EA5E9;background:#F0F9FF}
+    .sbox.hl .val{color:#0369A1}
+    .green{color:#059669}.red{color:#DC2626}.blue{color:#0284C7}
+    table{width:100%;border-collapse:collapse;margin:8px 0;font-size:9.5px}
+    thead{display:table-header-group}
+    th{background:#F1F5F9;color:#334155;font-weight:700;padding:5px 6px;text-align:right;border-bottom:1.5px solid #94A3B8;font-size:9.5px}
+    td{padding:4px 6px;border-bottom:1px solid #F1F5F9;text-align:right;vertical-align:top}
+    tr:hover td{background:#F8FAFC}
+    .num{font-family:'Cairo',sans-serif;font-weight:700;font-variant-numeric:tabular-nums}
+    .muted{color:#94A3B8;font-size:8.5px}
+    .accounts-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:8px;border-top:1px dashed #CBD5E1}
+    .acc-chip{padding:4px 8px;border-radius:4px;background:#F8FAFC;border:1px solid #E2E8F0;font-size:9px}
+    .acc-chip b{display:block;font-weight:800;font-size:11px;color:#0284C7;margin-top:1px}
+    .foot{margin-top:14px;padding:6px 0;border-top:1px solid #E2E8F0;display:flex;justify-content:space-between;font-size:8.5px;color:#94A3B8}
+    .empty{padding:20px;text-align:center;color:#94A3B8;font-style:italic}
+    @media print{body{margin:0}.no-print{display:none}}`;
+
+  /* ── Print daily report (V15.44: professional layout) ── */
   const printDaily=(date,accountName)=>{
-    /* V14.54: filter by account if specified — only print shown treasury's data */
     const scopeTxns=accountName?txns.filter(t=>(t.account||"")===accountName):txns;
     const dayTxns=scopeTxns.filter(t=>t.date===date).sort((a,b)=>(a.createdAt||"").localeCompare(b.createdAt||""));
     const dIn=dayTxns.filter(t=>t.type==="in").reduce((s,t)=>s+(Number(t.amount)||0),0);
     const dOut=dayTxns.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0);
-    /* opening balance = all txns before this date (for this account scope) */
     const prevTxns=scopeTxns.filter(t=>t.date<date);const openBal=prevTxns.reduce((s,t)=>t.type==="in"?s+(Number(t.amount)||0):s-(Number(t.amount)||0),0);
     const closeBal=openBal+dIn-dOut;
     const scopeLabel=accountName||"كل الحسابات";
+    const dayN=["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"][new Date(date).getDay()];
     const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
-    w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>تقرير يومية — ${scopeLabel} — ${date}</title>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap" rel="stylesheet"/>
-    <style>@page{size:A4;margin:10mm}body{font-family:'Cairo',sans-serif;font-size:11px;padding:20px;line-height:1.6}
-    table{width:100%;border-collapse:collapse;margin:10px 0}td,th{border:1px solid #ccc;padding:7px 8px;text-align:right}
-    th{background:#f0f0f0;font-weight:700}.title{font-size:20px;font-weight:800;text-align:center;margin-bottom:6px;line-height:1.4}
-    .subtitle{font-size:14px;text-align:center;color:#0ea5e9;font-weight:700;margin-bottom:14px}
-    .summary{display:flex;gap:12px;justify-content:center;margin:14px 0;flex-wrap:wrap}
-    .sbox{padding:10px 20px;border-radius:8px;text-align:center;border:1px solid #ddd;min-width:130px}
-    .sbox .lbl{font-size:10px;color:#666;margin-bottom:4px}
-    .sbox .val{font-size:16px;font-weight:800}
-    .sbox.highlight{border:2px solid #0ea5e9;background:#F0F9FF}
-    .sbox.highlight .val{font-size:18px}
-    .green{color:#10b981}.red{color:#ef4444}.blue{color:#0ea5e9}
-    .foot{margin-top:40px;padding-top:12px;border-top:1px solid #ccc;display:flex;justify-content:space-between;align-items:center;font-size:10px;color:#94A3B8}
-    @media print{body{margin:0}}</style></head><body>
-    <div class="title">🏦 &nbsp; تقرير يومية الصندوق</div>
-    <div class="subtitle">${scopeLabel} &nbsp;—&nbsp; ${date}</div>
-    <div class="summary">
-      <div class="sbox"><div class="lbl">رصيد افتتاحي</div><div class="val blue">${fmt(r2(openBal))}</div></div>
-      <div class="sbox"><div class="lbl">وارد</div><div class="val green">${fmt(r2(dIn))}</div></div>
-      <div class="sbox"><div class="lbl">منصرف</div><div class="val red">${fmt(r2(dOut))}</div></div>
-      <div class="sbox highlight"><div class="lbl">رصيد اقفال</div><div class="val blue">${fmt(r2(closeBal))}</div></div>
+    w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>يومية ${scopeLabel} — ${date}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+    <style>${_printStyles}</style></head><body style="padding:14px">
+    <div class="brand-bar"></div>
+    <div class="hdr">
+      <div class="hdr-left">
+        <div class="title">تقرير يومية الصندوق</div>
+        <div class="subtitle">${scopeLabel}</div>
+      </div>
+      <div class="hdr-right">
+        <div>التاريخ: <b>${date}</b> — ${dayN}</div>
+        <div>عدد الحركات: <b>${dayTxns.length}</b></div>
+        <div>الطباعة: <b>${new Date().toLocaleString("ar-EG")}</b></div>
+      </div>
     </div>
-    <table><thead><tr><th>رصيد</th><th>تاريخ</th><th>وارد</th><th>منصرف</th><th>بيان</th><th>ملاحظات</th><th>نوع الحركة</th><th>حساب جاري</th></tr></thead><tbody>`);
+    <div class="summary">
+      <div class="sbox"><div class="lbl">رصيد افتتاحي</div><div class="val num blue">${fmt(r2(openBal))}</div></div>
+      <div class="sbox"><div class="lbl">وارد</div><div class="val num green">${fmt(r2(dIn))}</div></div>
+      <div class="sbox"><div class="lbl">منصرف</div><div class="val num red">${fmt(r2(dOut))}</div></div>
+      <div class="sbox"><div class="lbl">صافي اليوم</div><div class="val num">${fmt(r2(dIn-dOut))}</div></div>
+      <div class="sbox hl"><div class="lbl">رصيد اقفال</div><div class="val num">${fmt(r2(closeBal))}</div></div>
+    </div>
+    <table><thead><tr>
+      <th style="width:11%">الرصيد</th><th style="width:8%">التاريخ</th>
+      <th style="width:9%">وارد</th><th style="width:9%">منصرف</th>
+      <th>البيان</th><th style="width:15%">ملاحظات</th>
+      <th style="width:10%">التصنيف</th><th style="width:8%">الحساب</th>
+    </tr></thead><tbody>`);
     let runBal=openBal;
     dayTxns.forEach(t=>{if(t.type==="in")runBal+=(Number(t.amount)||0);else runBal-=(Number(t.amount)||0);
-      w.document.write(`<tr><td style="font-weight:700">${fmt(r2(runBal))}</td><td>${t.date}</td><td class="green">${t.type==="in"?fmt(r2(t.amount)):""}</td><td class="red">${t.type==="out"?fmt(r2(t.amount)):""}</td><td>${t.desc||"—"}</td><td style="font-size:10px;color:#666">${t.notes||""}</td><td>${t.category||"—"}</td><td>${t.account||""}</td></tr>`)});
-    if(dayTxns.length===0){w.document.write(`<tr><td colspan="8" style="padding:20px;text-align:center;color:#94A3B8">لا توجد حركات في هذا اليوم</td></tr>`)}
+      w.document.write(`<tr><td class="num">${fmt(r2(runBal))}</td><td>${t.date}</td><td class="num green">${t.type==="in"?fmt(r2(t.amount)):""}</td><td class="num red">${t.type==="out"?fmt(r2(t.amount)):""}</td><td>${_esc(t.desc||"—")}</td><td class="muted">${_esc(t.notes||"")}</td><td>${_esc(t.category||"—")}</td><td>${_esc(t.account||"")}</td></tr>`)});
+    if(dayTxns.length===0)w.document.write(`<tr><td colspan="8" class="empty">لا توجد حركات في هذا اليوم</td></tr>`);
     w.document.write(`</tbody></table>`);
-    /* Show accounts summary footer ONLY when printing "all accounts" */
     if(!accountName){
-      w.document.write(`<div style="margin-top:15px;display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
-        ${accounts.map(acc=>{const ab=accBalances[acc]||{in:0,out:0};return`<div class="sbox"><div class="lbl">${acc}</div><div class="val blue" style="font-size:13px">${fmt(r2(ab.in-ab.out))}</div></div>`}).join("")}
-      </div>`);
+      w.document.write(`<div class="accounts-row">${accounts.map(acc=>{const ab=accBalances[acc]||{in:0,out:0};return`<div class="acc-chip">${acc}<b class="num">${fmt(r2(ab.in-ab.out))}</b></div>`}).join("")}</div>`);
     }
-    w.document.write(`<div class="foot"><span>CLARK Factory Management</span><span>${new Date().toLocaleDateString("ar-EG")}</span></div>
+    w.document.write(`<div class="foot"><span>CLARK Factory Management System</span><span>صفحة 1</span></div>
+    </body></html>`);w.document.close();setTimeout(()=>w.print(),300)};
+
+  /* ── V15.44: Print filtered view — prints whatever's currently visible with active filters ── */
+  const printFiltered=(txList,filterSummary)=>{
+    const sorted=[...txList].sort((a,b)=>(a.date||"").localeCompare(b.date||"")||(a.createdAt||"").localeCompare(b.createdAt||""));
+    const tIn=sorted.filter(t=>t.type==="in").reduce((s,t)=>s+(Number(t.amount)||0),0);
+    const tOut=sorted.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0);
+    const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+    w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>تقرير حركات — ${sorted.length} حركة</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+    <style>${_printStyles}</style></head><body style="padding:14px">
+    <div class="brand-bar"></div>
+    <div class="hdr">
+      <div class="hdr-left">
+        <div class="title">تقرير حركات الخزنة</div>
+        <div class="subtitle">${filterSummary||"كل الحركات"}</div>
+      </div>
+      <div class="hdr-right">
+        <div>عدد الحركات: <b>${sorted.length}</b></div>
+        <div>الطباعة: <b>${new Date().toLocaleString("ar-EG")}</b></div>
+      </div>
+    </div>
+    <div class="summary">
+      <div class="sbox"><div class="lbl">عدد الحركات</div><div class="val num">${sorted.length}</div></div>
+      <div class="sbox"><div class="lbl">إجمالي الوارد</div><div class="val num green">${fmt(r2(tIn))}</div></div>
+      <div class="sbox"><div class="lbl">إجمالي المنصرف</div><div class="val num red">${fmt(r2(tOut))}</div></div>
+      <div class="sbox hl"><div class="lbl">الصافي</div><div class="val num">${fmt(r2(tIn-tOut))}</div></div>
+    </div>
+    <table><thead><tr>
+      <th style="width:8%">التاريخ</th>
+      <th style="width:10%">وارد</th><th style="width:10%">منصرف</th>
+      <th>البيان</th><th style="width:15%">ملاحظات</th>
+      <th style="width:12%">التصنيف</th><th style="width:9%">الحساب</th>
+    </tr></thead><tbody>`);
+    sorted.forEach(t=>{
+      w.document.write(`<tr><td>${t.date}</td><td class="num green">${t.type==="in"?fmt(r2(t.amount)):""}</td><td class="num red">${t.type==="out"?fmt(r2(t.amount)):""}</td><td>${_esc(t.desc||"—")}</td><td class="muted">${_esc(t.notes||"")}</td><td>${_esc(t.category||"—")}</td><td>${_esc(t.account||"")}</td></tr>`)});
+    if(sorted.length===0)w.document.write(`<tr><td colspan="7" class="empty">لا توجد حركات مطابقة للفلاتر</td></tr>`);
+    w.document.write(`</tbody></table>
+    <div class="foot"><span>CLARK Factory Management System</span><span>تقرير مخصص — الفلاتر المفعّلة مبينة أعلاه</span></div>
     </body></html>`);w.document.close();setTimeout(()=>w.print(),300)};
 
   /* ── Build daily report HTML (shared between PDF and WA) ── */
@@ -619,38 +700,53 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const openBal=prevTxns.reduce((s,t)=>t.type==="in"?s+(Number(t.amount)||0):s-(Number(t.amount)||0),0);
     const closeBal=openBal+dIn-dOut;
     const scopeLabel=accountName?accountName:"كل الحسابات";
+    const dayN=["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"][new Date(date).getDay()];
     let rows="";let runBal=openBal;
+    /* V15.44: Professional row style — compact padding (4-6px), thin borders, tabular numbers */
+    const cellBase="padding:4px 6px;border-bottom:1px solid #F1F5F9;text-align:right;vertical-align:top;font-size:9.5px";
+    const numCell=cellBase+";font-weight:700;font-variant-numeric:tabular-nums";
     dayTxns.forEach(t=>{if(t.type==="in")runBal+=(Number(t.amount)||0);else runBal-=(Number(t.amount)||0);
-      rows+=`<tr><td style="border:1px solid #ccc;padding:6px 8px;text-align:right;font-weight:700">${fmt(r2(runBal))}</td><td style="border:1px solid #ccc;padding:6px 8px;text-align:right">${t.date}</td><td style="border:1px solid #ccc;padding:6px 8px;text-align:right;color:#10b981">${t.type==="in"?fmt(r2(t.amount)):""}</td><td style="border:1px solid #ccc;padding:6px 8px;text-align:right;color:#ef4444">${t.type==="out"?fmt(r2(t.amount)):""}</td><td style="border:1px solid #ccc;padding:6px 8px;text-align:right">${t.desc||"—"}</td><td style="border:1px solid #ccc;padding:6px 8px;text-align:right;font-size:10px;color:#666">${t.notes||""}</td><td style="border:1px solid #ccc;padding:6px 8px;text-align:right">${t.category||"—"}</td><td style="border:1px solid #ccc;padding:6px 8px;text-align:right">${t.account||""}</td></tr>`});
-    /* Show accounts footer only when showing all accounts */
-    const accFoot=accountName?"":accounts.map(acc=>{const ab=accBalances[acc]||{in:0,out:0};return`<div style="padding:8px 20px;border-radius:8px;text-align:center;border:1px solid #ddd;min-width:120px"><div style="font-size:10px;color:#666;margin-bottom:4px">${acc}</div><div style="font-weight:700;color:#0ea5e9;font-size:13px">${fmt(r2(ab.in-ab.out))}</div></div>`}).join("");
-    const accFootBlock=accFoot?`<div style="margin-top:15px;display:flex;gap:10px;flex-wrap:wrap;justify-content:center">${accFoot}</div>`:"";
-    /* V14.54: Clean HTML with proper spacing, no duplicate footer, proper gap between words */
-    const html=`<div id="daily-report-content" style="font-family:'Cairo',sans-serif;padding:20px;direction:rtl;background:#fff;color:#1E293B;line-height:1.6">
-      <div style="font-size:20px;font-weight:800;text-align:center;margin-bottom:6px;line-height:1.4">🏦 &nbsp; تقرير يومية الصندوق</div>
-      <div style="font-size:14px;text-align:center;color:#0ea5e9;font-weight:700;margin-bottom:14px">${scopeLabel} &nbsp;—&nbsp; ${date}</div>
-      <div style="display:flex;gap:12px;justify-content:center;margin:14px 0;flex-wrap:wrap">
-        <div style="padding:10px 20px;border-radius:8px;text-align:center;border:1px solid #ddd;min-width:130px"><div style="font-size:10px;color:#666;margin-bottom:4px">رصيد افتتاحي</div><div style="font-size:16px;font-weight:800;color:#0ea5e9">${fmt(r2(openBal))}</div></div>
-        <div style="padding:10px 20px;border-radius:8px;text-align:center;border:1px solid #ddd;min-width:130px"><div style="font-size:10px;color:#666;margin-bottom:4px">وارد</div><div style="font-size:16px;font-weight:800;color:#10b981">${fmt(r2(dIn))}</div></div>
-        <div style="padding:10px 20px;border-radius:8px;text-align:center;border:1px solid #ddd;min-width:130px"><div style="font-size:10px;color:#666;margin-bottom:4px">منصرف</div><div style="font-size:16px;font-weight:800;color:#ef4444">${fmt(r2(dOut))}</div></div>
-        <div style="padding:10px 20px;border-radius:8px;text-align:center;border:2px solid #0ea5e9;min-width:130px;background:#F0F9FF"><div style="font-size:10px;color:#666;margin-bottom:4px">رصيد اقفال</div><div style="font-size:18px;font-weight:800;color:#0ea5e9">${fmt(r2(closeBal))}</div></div>
+      rows+=`<tr><td style="${numCell}">${fmt(r2(runBal))}</td><td style="${cellBase}">${t.date}</td><td style="${numCell};color:#059669">${t.type==="in"?fmt(r2(t.amount)):""}</td><td style="${numCell};color:#DC2626">${t.type==="out"?fmt(r2(t.amount)):""}</td><td style="${cellBase}">${_esc(t.desc||"—")}</td><td style="${cellBase};color:#94A3B8;font-size:8.5px">${_esc(t.notes||"")}</td><td style="${cellBase}">${_esc(t.category||"—")}</td><td style="${cellBase}">${_esc(t.account||"")}</td></tr>`});
+    /* Accounts footer (only when showing all accounts) */
+    const accFoot=accountName?"":accounts.map(acc=>{const ab=accBalances[acc]||{in:0,out:0};return`<div style="padding:4px 8px;border-radius:4px;background:#F8FAFC;border:1px solid #E2E8F0;font-size:9px">${acc}<b style="display:block;font-weight:800;font-size:11px;color:#0284C7;margin-top:1px;font-variant-numeric:tabular-nums">${fmt(r2(ab.in-ab.out))}</b></div>`}).join("");
+    const accFootBlock=accFoot?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:8px;border-top:1px dashed #CBD5E1">${accFoot}</div>`:"";
+    /* V15.44: Professional accounting-report layout — compact, clean, printer-ready */
+    const html=`<div id="daily-report-content" style="font-family:'Cairo',sans-serif;padding:14px;direction:rtl;background:#fff;color:#1E293B;line-height:1.45;font-size:10px">
+      <div style="height:3px;background:linear-gradient(90deg,#0EA5E9,#8B5CF6);margin-bottom:10px"></div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:8px;border-bottom:1px solid #CBD5E1;margin-bottom:10px">
+        <div>
+          <div style="font-size:14px;font-weight:800;color:#0F172A;letter-spacing:0.2px">تقرير يومية الصندوق</div>
+          <div style="font-size:10px;color:#64748B;margin-top:2px;font-weight:600">${scopeLabel}</div>
+        </div>
+        <div style="text-align:left;font-size:9px;color:#64748B;line-height:1.5">
+          <div>التاريخ: <b style="color:#334155;font-weight:700">${date}</b> — ${dayN}</div>
+          <div>عدد الحركات: <b style="color:#334155;font-weight:700">${dayTxns.length}</b></div>
+          <div>الطباعة: <b style="color:#334155;font-weight:700">${new Date().toLocaleDateString("ar-EG")}</b></div>
+        </div>
       </div>
-      <table style="width:100%;border-collapse:collapse;margin:14px 0;font-size:11px">
-        <thead><tr style="background:#f0f0f0">
-          <th style="border:1px solid #ccc;padding:8px;text-align:right;font-weight:700">رصيد</th>
-          <th style="border:1px solid #ccc;padding:8px;text-align:right;font-weight:700">تاريخ</th>
-          <th style="border:1px solid #ccc;padding:8px;text-align:right;font-weight:700">وارد</th>
-          <th style="border:1px solid #ccc;padding:8px;text-align:right;font-weight:700">منصرف</th>
-          <th style="border:1px solid #ccc;padding:8px;text-align:right;font-weight:700">بيان</th>
-          <th style="border:1px solid #ccc;padding:8px;text-align:right;font-weight:700">ملاحظات</th>
-          <th style="border:1px solid #ccc;padding:8px;text-align:right;font-weight:700">نوع الحركة</th>
-          <th style="border:1px solid #ccc;padding:8px;text-align:right;font-weight:700">حساب جاري</th>
+      <div style="display:flex;gap:6px;justify-content:space-between;margin:10px 0;flex-wrap:wrap">
+        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px"><div style="font-size:8.5px;color:#64748B;margin-bottom:1px;font-weight:600">رصيد افتتاحي</div><div style="font-size:12px;font-weight:800;color:#0284C7;font-variant-numeric:tabular-nums">${fmt(r2(openBal))}</div></div>
+        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px"><div style="font-size:8.5px;color:#64748B;margin-bottom:1px;font-weight:600">وارد</div><div style="font-size:12px;font-weight:800;color:#059669;font-variant-numeric:tabular-nums">${fmt(r2(dIn))}</div></div>
+        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px"><div style="font-size:8.5px;color:#64748B;margin-bottom:1px;font-weight:600">منصرف</div><div style="font-size:12px;font-weight:800;color:#DC2626;font-variant-numeric:tabular-nums">${fmt(r2(dOut))}</div></div>
+        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px"><div style="font-size:8.5px;color:#64748B;margin-bottom:1px;font-weight:600">صافي اليوم</div><div style="font-size:12px;font-weight:800;font-variant-numeric:tabular-nums">${fmt(r2(dIn-dOut))}</div></div>
+        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #0EA5E9;background:#F0F9FF;min-width:120px"><div style="font-size:8.5px;color:#64748B;margin-bottom:1px;font-weight:600">رصيد اقفال</div><div style="font-size:12px;font-weight:800;color:#0369A1;font-variant-numeric:tabular-nums">${fmt(r2(closeBal))}</div></div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;margin:8px 0;font-size:9.5px">
+        <thead><tr>
+          <th style="background:#F1F5F9;color:#334155;font-weight:700;padding:5px 6px;text-align:right;border-bottom:1.5px solid #94A3B8;font-size:9.5px;width:11%">الرصيد</th>
+          <th style="background:#F1F5F9;color:#334155;font-weight:700;padding:5px 6px;text-align:right;border-bottom:1.5px solid #94A3B8;font-size:9.5px;width:8%">التاريخ</th>
+          <th style="background:#F1F5F9;color:#334155;font-weight:700;padding:5px 6px;text-align:right;border-bottom:1.5px solid #94A3B8;font-size:9.5px;width:9%">وارد</th>
+          <th style="background:#F1F5F9;color:#334155;font-weight:700;padding:5px 6px;text-align:right;border-bottom:1.5px solid #94A3B8;font-size:9.5px;width:9%">منصرف</th>
+          <th style="background:#F1F5F9;color:#334155;font-weight:700;padding:5px 6px;text-align:right;border-bottom:1.5px solid #94A3B8;font-size:9.5px">البيان</th>
+          <th style="background:#F1F5F9;color:#334155;font-weight:700;padding:5px 6px;text-align:right;border-bottom:1.5px solid #94A3B8;font-size:9.5px;width:15%">ملاحظات</th>
+          <th style="background:#F1F5F9;color:#334155;font-weight:700;padding:5px 6px;text-align:right;border-bottom:1.5px solid #94A3B8;font-size:9.5px;width:10%">التصنيف</th>
+          <th style="background:#F1F5F9;color:#334155;font-weight:700;padding:5px 6px;text-align:right;border-bottom:1.5px solid #94A3B8;font-size:9.5px;width:8%">الحساب</th>
         </tr></thead>
-        <tbody>${rows||'<tr><td colspan="8" style="border:1px solid #ccc;padding:20px;text-align:center;color:#94A3B8">لا توجد حركات في هذا اليوم</td></tr>'}</tbody>
+        <tbody>${rows||'<tr><td colspan="8" style="padding:20px;text-align:center;color:#94A3B8;font-style:italic">لا توجد حركات في هذا اليوم</td></tr>'}</tbody>
       </table>
       ${accFootBlock}
-      <div style="margin-top:40px;padding-top:12px;border-top:1px solid #ccc;display:flex;justify-content:space-between;align-items:center;font-size:10px;color:#94A3B8">
-        <span>CLARK Factory Management</span>
+      <div style="margin-top:14px;padding:6px 0;border-top:1px solid #E2E8F0;display:flex;justify-content:space-between;font-size:8.5px;color:#94A3B8">
+        <span>CLARK Factory Management System</span>
         <span>${new Date().toLocaleDateString("ar-EG")}</span>
       </div>
     </div>`;
@@ -805,7 +901,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       const todayFiltered=todayTxns.filter(t=>!currentAccName||(t.account||"")===currentAccName);
       const tIn=todayFiltered.filter(t=>t.type==="in").reduce((s,t)=>s+(Number(t.amount)||0),0);
       const tOut=todayFiltered.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0);
-      return<div style={{display:"flex",gap:12,marginBottom:16,justifyContent:"center",flexWrap:"wrap"}}>
+      return<div style={{display:"flex",gap:12,marginBottom:16,justifyContent:"center",flexWrap:"wrap",alignItems:"center"}}>
         <div style={{padding:"8px 20px",borderRadius:10,background:T.ok+"08",border:"1px solid "+T.ok+"20",textAlign:"center"}}>
           <div style={{fontSize:FS-2,color:T.textSec}}>وارد اليوم {currentAccName?"("+scopeLabel+")":""}</div><div style={{fontSize:FS+2,fontWeight:800,color:T.ok}}>{"↓ "+fmt(r2(tIn))}</div>
         </div>
@@ -815,13 +911,19 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         <div style={{padding:"8px 20px",borderRadius:10,background:"#0D948808",border:"1px solid #0D948820",textAlign:"center"}}>
           <div style={{fontSize:FS-2,color:T.textSec}}>صافي اليوم</div><div style={{fontSize:FS+2,fontWeight:800,color:"#0D9488"}}>{fmt(r2(tIn-tOut))}</div>
         </div>
-        <div onClick={()=>printDaily(today,currentAccName)} style={{padding:"8px 20px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center",cursor:"pointer"}} title={"طباعة — "+scopeLabel}>
+        {/* V15.44: Date picker for selecting which day's report to print/export */}
+        <div style={{padding:"6px 12px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd,display:"flex",alignItems:"center",gap:6}} title="اختر اليوم للطباعة / PDF / واتساب">
+          <span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>📅 يوم</span>
+          <input type="date" value={printDate} onChange={e=>setPrintDate(e.target.value||today)} style={{padding:"4px 6px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text}}/>
+          {printDate!==today&&<span onClick={()=>setPrintDate(today)} style={{cursor:"pointer",fontSize:FS-2,color:T.accent,fontWeight:700}} title="العودة لليوم">↩</span>}
+        </div>
+        <div onClick={()=>printDaily(printDate,currentAccName)} style={{padding:"8px 20px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center",cursor:"pointer"}} title={"طباعة "+printDate+" — "+scopeLabel}>
           <div style={{fontSize:FS-2,color:T.textSec}}>طباعة {currentAccName?"("+currentAccName+")":""}</div><div style={{fontSize:FS+1,fontWeight:700,color:T.accent}}>🖨️</div>
         </div>
-        <div onClick={()=>savePdfDaily(today,currentAccName)} style={{padding:"8px 20px",borderRadius:10,background:"#EF444408",border:"1px solid #EF444420",textAlign:"center",cursor:"pointer"}} title={"حفظ PDF — "+scopeLabel}>
+        <div onClick={()=>savePdfDaily(printDate,currentAccName)} style={{padding:"8px 20px",borderRadius:10,background:"#EF444408",border:"1px solid #EF444420",textAlign:"center",cursor:"pointer"}} title={"حفظ PDF "+printDate+" — "+scopeLabel}>
           <div style={{fontSize:FS-2,color:T.textSec}}>PDF {currentAccName?"("+currentAccName+")":""}</div><div style={{fontSize:FS+1,fontWeight:700,color:"#EF4444"}}>📄</div>
         </div>
-        <div onClick={()=>setWaPopupData({date:today,account:currentAccName})} style={{padding:"8px 20px",borderRadius:10,background:"#25D36608",border:"1px solid #25D36620",textAlign:"center",cursor:"pointer"}} title={"إرسال واتساب — "+scopeLabel}>
+        <div onClick={()=>setWaPopupData({date:printDate,account:currentAccName})} style={{padding:"8px 20px",borderRadius:10,background:"#25D36608",border:"1px solid #25D36620",textAlign:"center",cursor:"pointer"}} title={"إرسال واتساب "+printDate+" — "+scopeLabel}>
           <div style={{fontSize:FS-2,color:T.textSec}}>واتساب {currentAccName?"("+currentAccName+")":""}</div><div style={{fontSize:FS+1,fontWeight:700,color:"#25D366"}}>📤</div>
         </div>
       </div>})()}
@@ -1057,7 +1159,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                       if(txPartyType==="customer")setTxDesc("دفعة من "+p.name);
                       else if(txPartyType==="supplier")setTxDesc("دفع لـ "+p.name);
                       else if(txPartyType==="employee")setTxDesc("سلفة "+p.name);
-                      else setTxDesc("دفعة ورشة "+p.name)}
+                      else setTxDesc(wsDesc(p.name,txCategory==="مشتريات"))}
                   }} style={{padding:"7px 10px",borderRadius:8,border:"1px solid "+T.brd,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",background:T.cardSolid,transition:"all 0.1s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"08"} onMouseLeave={e=>e.currentTarget.style.background=T.cardSolid}>
                     <span style={{fontWeight:600,fontSize:FS-1}}>{p.name}</span>
                     {p.phone&&<span style={{fontSize:FS-3,color:T.textMut,direction:"ltr"}}>{p.phone}</span>}
@@ -1086,7 +1188,21 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           {(filterMonth||filterDay)&&<Btn small ghost onClick={()=>{setFilterMonth("");setFilterDay("")}} style={{marginBottom:2}}>✕</Btn>}
           <div style={{flex:isMob?1:"0 0 auto"}}><div style={{fontSize:FS-3,color:T.textSec,fontWeight:600,marginBottom:2}}>بحث</div><Inp value={filterSearch} onChange={setFilterSearch} placeholder="🔍 بيان / ملاحظات..." style={{width:isMob?"100%":160}}/></div>
           {filterSearch&&<Btn small ghost onClick={()=>setFilterSearch("")} style={{marginBottom:2}}>✕</Btn>}
-          {filterDay&&<span onClick={()=>printDaily(filterDay)} style={{cursor:"pointer",padding:"6px 12px",borderRadius:8,background:T.accent+"10",color:T.accent,fontWeight:700,fontSize:FS-1,marginBottom:2}}>🖨 طباعة</span>}
+          {/* V15.44: Print-filtered button — always visible, prints whatever is currently shown */}
+          <span onClick={()=>{
+            /* Build filter summary for the report header */
+            const parts=[];
+            if(filterType&&filterType!=="الكل")parts.push("النوع: "+filterType);
+            if(filterCat&&filterCat!=="الكل")parts.push("التصنيف: "+filterCat);
+            if(filterAcc&&filterAcc!=="الكل")parts.push("الحساب: "+filterAcc);
+            if(filterDay)parts.push("اليوم: "+filterDay);
+            else if(filterMonth)parts.push("الشهر: "+filterMonth);
+            if(filterSearch.trim())parts.push("بحث: "+filterSearch.trim());
+            const summary=parts.length>0?parts.join(" • "):"كل الحركات";
+            /* Special case: single day with no other filters → use richer daily report (has opening/closing balance) */
+            if(filterDay&&parts.length===1){printDaily(filterDay,filterAcc&&filterAcc!=="الكل"?filterAcc:null);return}
+            printFiltered(filtered,summary);
+          }} style={{cursor:"pointer",padding:"6px 12px",borderRadius:8,background:T.accent+"10",color:T.accent,fontWeight:700,fontSize:FS-1,marginBottom:2,border:"1px solid "+T.accent+"30"}} title="طباعة الحركات المعروضة دلوقتي بالفلاتر المفعّلة">🖨 طباعة المعروض</span>
         </div>
         {withBalance.length>0?<div style={{overflowX:"auto"}}>
           {/* Bulk actions bar — appears when selections exist */}
@@ -1503,7 +1619,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                   if(showPartyPicker==="customer")setTxDesc("دفعة من "+p.name);
                   else if(showPartyPicker==="supplier")setTxDesc("دفع لـ "+p.name);
                   else if(showPartyPicker==="employee")setTxDesc("سلفة "+p.name);
-                  else setTxDesc((txCategory==="مشتريات"?"مشتريات ورشة ":"دفعة ورشة ")+p.name)
+                  else setTxDesc(wsDesc(p.name,txCategory==="مشتريات"))
                 }
               }} style={{padding:"10px 12px",borderRadius:10,cursor:"pointer",background:txPartyId===keyId?T.accent+"10":T.bg,border:"1px solid "+(txPartyId===keyId?T.accent+"40":T.brd),display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all 0.15s"}}>
                 <div>

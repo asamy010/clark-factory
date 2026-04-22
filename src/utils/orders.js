@@ -286,7 +286,7 @@ export function calcWsRating(wsName,orders){
   return r2(avgQ*0.4+avgT*0.25+delScore*0.2+consScore*0.15);
 }
 
-/* V15.44: Workshop Partnership Tier — measures relationship SIZE (not performance).
+/* V15.45: Workshop Partnership Tier — measures relationship SIZE (not performance).
    Based on total pieces the workshop has DELIVERED BACK to us (totalRcv).
    Kept separate from calcWsRating so ratings stay performance-focused.
    Caller should filter to external workshops only (use wsIsInternal). */
@@ -301,6 +301,66 @@ export function getWsPartnershipTier(wsName,orders){
   else if(totalRcv>=100){tier="small";icon="🥉";color="#CD7F32";label="شراكة صغيرة"}
   else{tier="new";icon="🌱";color="#10B981";label="شراكة جديدة"}
   return{tier,totalRcv,icon,color,label};
+}
+
+/* V15.45: Detect mismatch between cut qty and total workshop delivery qty.
+   Returns {cutQty, totalDelivered, diff, hasExternalWs, hasMismatch}.
+   - diff = cutQty - totalDelivered (positive means over-delivered to workshops vs cut, negative means under)
+   - Only considers orders with external workshop activity (internal workshops don't need sync).
+   - hasMismatch is true when |diff| > 0 AND hasExternalWs is true. */
+export function detectQtyMismatch(order){
+  if(!order)return{cutQty:0,totalDelivered:0,diff:0,hasExternalWs:false,hasMismatch:false};
+  const t=calcOrder(order);
+  const cutQty=t.cutQty||0;
+  const wds=order.workshopDeliveries||[];
+  /* Only external workshops (internal deliveries don't have the same matching semantics) */
+  const extWds=wds.filter(wd=>!wsIsInternal(wd.wsType));
+  const totalDelivered=extWds.reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+  const hasExternalWs=extWds.length>0;
+  const diff=cutQty-totalDelivered;
+  return{cutQty,totalDelivered,diff,hasExternalWs,hasMismatch:hasExternalWs&&diff!==0&&cutQty>0};
+}
+
+/* V15.45: Compute a sync plan — how to adjust each external workshop delivery to match cutQty.
+   Strategy: proportional reduction/expansion, BUT never reduce a workshop delivery below what it
+   already received back (to avoid negative balances).
+   Returns array of {wdIdx, wsName, currentQty, receivedQty, newQty, delta, capped}.
+   If a delivery is "capped", that means proportional math would go below received — we stop at received. */
+export function planCutSync(order){
+  const m=detectQtyMismatch(order);
+  if(!m.hasMismatch)return{plan:[],feasible:true,m};
+  const wds=order.workshopDeliveries||[];
+  const targets=[];
+  let totalCurrent=0;
+  wds.forEach((wd,idx)=>{
+    if(wsIsInternal(wd.wsType))return;
+    const cur=Number(wd.qty)||0;
+    const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
+    targets.push({wdIdx:idx,wsName:wd.wsName||"",currentQty:cur,receivedQty:rcvd});
+    totalCurrent+=cur;
+  });
+  if(totalCurrent<=0)return{plan:[],feasible:false,m,reason:"no_ws"};
+  /* Distribute new total proportionally */
+  const factor=m.cutQty/totalCurrent;
+  let plan=targets.map(t=>{
+    const proposed=Math.round(t.currentQty*factor);
+    const capped=proposed<t.receivedQty;
+    const newQty=Math.max(t.receivedQty,proposed);
+    return{...t,newQty,delta:newQty-t.currentQty,capped};
+  });
+  /* Rounding drift correction: force sum(newQty) == cutQty by adjusting largest non-capped */
+  const sum=plan.reduce((s,p)=>s+p.newQty,0);
+  const drift=m.cutQty-sum;
+  if(drift!==0){
+    /* Find non-capped with largest capacity to absorb drift */
+    const candidates=plan.filter(p=>!p.capped||drift>0).sort((a,b)=>b.newQty-a.newQty);
+    if(candidates[0])candidates[0].newQty+=drift;
+  }
+  /* Recompute delta after drift */
+  plan=plan.map(p=>({...p,delta:p.newQty-p.currentQty}));
+  const finalSum=plan.reduce((s,p)=>s+p.newQty,0);
+  const feasible=finalSum===m.cutQty&&plan.every(p=>p.newQty>=p.receivedQty);
+  return{plan,feasible,m};
 }
 
 /* Sort orders by various modes — returns new array.
@@ -404,6 +464,8 @@ export function getOrderDetails(o,t){
 export function getOrderTimeline(o,t){
   const evs=[];
   if(o.date)evs.push({d:o.date,t:"✂️ تم القص ("+(t?.cutQty||0)+" قطعة)"});
+  /* V15.45: Include cut-sync events to show who adjusted workshop deliveries */
+  (o.cutSyncHistory||[]).forEach(h=>{const date=(h.at||"").split("T")[0];const changes=(h.changes||[]).map(c=>c.wsName+":"+c.from+"→"+c.to).join(" • ");evs.push({d:date,t:"🔄 مزامنة "+h.by+" (التسليم "+h.totalBefore+"→"+h.totalAfter+(changes?" | "+changes:"")+")"})});
   (o.workshopDeliveries||[]).forEach(wd=>{evs.push({d:wd.date,t:"📦 تسليم "+wd.wsName+" — "+(wd.garmentType||"عام")+" ("+wd.qty+")"});
     (wd.receives||[]).forEach(r=>{if(r.isSettlement)evs.push({d:r.date,t:"⚖️ تسوية "+wd.wsName+" ("+r.qty+")"});
       else evs.push({d:r.date,t:"↙ استلام "+(wd.garmentType||"")+" من "+wd.wsName+" ("+r.qty+")"})})});
