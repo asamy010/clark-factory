@@ -692,9 +692,18 @@ export default function App(){
       if(type==="ws"){(upd.workshopDeliveries||[]).forEach(wd=>{if((entityId&&wd.wsId===entityId)||wd.wsName===oldName){wd.wsName=newName;if(entityId)wd.wsId=entityId;changed=true}})}
       if(type==="garment"){(upd.workshopDeliveries||[]).forEach(wd=>{if(wd.garmentType===oldName){wd.garmentType=newName;changed=true};(wd.receives||[]).forEach(r=>{if(r.garmentType===oldName){r.garmentType=newName;changed=true}})});if(upd.orderPieces){upd.orderPieces=upd.orderPieces.map(p=>p===oldName?(changed=true,newName):p)};FKEYS.forEach(k=>{if(upd["fabricPieces"+k]){upd["fabricPieces"+k]=upd["fabricPieces"+k].map(p=>p===oldName?(changed=true,newName):p)}})}
       if(type==="status"&&upd.status===oldName){upd.status=newName;changed=true}
+      /* V15.32: Sync sizeLabel when a sizeSet's label is edited.
+         Matches by sizeSetId (entityId) — the sizeLabel stored on each order is a snapshot of the sizeSet's label at creation time. */
+      if(type==="size"&&entityId&&Number(upd.sizeSetId)===Number(entityId)){
+        if(upd.sizeLabel!==newName){upd.sizeLabel=newName;changed=true}
+      }
       if(changed)await replaceOrder(o.id,upd);
     }
     if(type==="ws")showToast("✓ تم تحديث "+orders.filter(o=>(o.workshopDeliveries||[]).some(wd=>wd.wsName===oldName||(entityId&&wd.wsId===entityId))).length+" أوردر");
+    if(type==="size"&&entityId){
+      const cnt=orders.filter(o=>Number(o.sizeSetId)===Number(entityId)).length;
+      showToast("✓ تم تحديث مقاسات "+cnt+" أوردر");
+    }
   };
   /* Sync all existing data with workshop IDs. nameMap: {oldName: wsId} for orphan linking */
   const syncWsIds=async(nameMap)=>{
@@ -903,7 +912,7 @@ export default function App(){
           <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}
           </span>
-          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V15.31</span>
+          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V15.32</span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>

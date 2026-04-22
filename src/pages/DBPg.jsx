@@ -47,11 +47,44 @@ export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,o
 
   const saveFab=()=>{if(!ff.name)return;upConfig(d=>{if(ff._eid){const idx=d.fabrics.findIndex(x=>x.id===ff._eid);if(idx>=0)d.fabrics[idx]={...d.fabrics[idx],name:ff.name,unit:ff.unit,price:Number(ff.price)||0}}else{d.fabrics.push({id:Date.now(),name:ff.name,unit:ff.unit,price:Number(ff.price)||0})}});setFf({name:"",unit:"كيلو",price:"",_eid:null})};
   const saveAcc=()=>{if(!af.name)return;upConfig(d=>{if(af._eid){const idx=d.accessories.findIndex(x=>x.id===af._eid);if(idx>=0)d.accessories[idx]={...d.accessories[idx],name:af.name,unit:af.unit,price:Number(af.price)||0}}else{d.accessories.push({id:Date.now(),name:af.name,unit:af.unit,price:Number(af.price)||0})}});setAf({name:"",unit:"قطعة",price:"",_eid:null})};
-  const saveSize=()=>{if(!sfld.label)return;
+  /* V15.32: Track how many orders use this sizeSet (for sync confirmation) */
+  const countOrdersUsingSize=(sizeSetId)=>{
+    if(!sizeSetId)return 0;
+    return (data.orders||[]).filter(o=>Number(o.sizeSetId)===Number(sizeSetId)).length;
+  };
+  const saveSize=async()=>{if(!sfld.label)return;
     /* V15.30: pcsPerSeries is required — it's the source of truth for size count */
     const pcs=Number(sfld.pcs)||0;
     if(pcs<=0){showToast("⚠️ عدد قطع/سيري مطلوب وهو المرجع لعدد المقاسات");return}
-    upConfig(d=>{if(sfld._eid){const idx=d.sizeSets.findIndex(x=>x.id===sfld._eid);if(idx>=0)d.sizeSets[idx]={...d.sizeSets[idx],label:sfld.label,pcsPerSeries:pcs}}else{d.sizeSets.push({id:Date.now(),label:sfld.label,pcsPerSeries:pcs})}});setSfld({label:"",pcs:0,_eid:null})};
+    /* V15.32: If editing an existing sizeSet and the label changed,
+       ask for confirmation before syncing the new label to all linked orders. */
+    const newLabel=sfld.label.trim();
+    if(sfld._eid){
+      const existing=(data.sizeSets||[]).find(s=>s.id===sfld._eid);
+      const oldLabel=existing?.label||"";
+      if(oldLabel&&oldLabel!==newLabel){
+        const affectedCount=countOrdersUsingSize(sfld._eid);
+        if(affectedCount>0){
+          const ok=await ask(
+            "🔄 تأكيد المزامنة مع الأوردرات",
+            "سيتم تحديث مقاسات هذا الـ sizeSet في "+affectedCount+" أوردر مرتبط.\n\n"+
+            "من: "+oldLabel+"\n"+
+            "إلى: "+newLabel+"\n\n"+
+            "هل تريد المتابعة؟",
+            {confirmText:"نعم، حدّث الأوردرات",cancelText:"إلغاء"}
+          );
+          if(!ok)return;/* User cancelled — don't save anything */
+          /* User confirmed — save the sizeSet and then sync orders */
+          upConfig(d=>{const idx=d.sizeSets.findIndex(x=>x.id===sfld._eid);if(idx>=0)d.sizeSets[idx]={...d.sizeSets[idx],label:newLabel,pcsPerSeries:pcs}});
+          await renameInOrders("size",oldLabel,newLabel,sfld._eid);
+          setSfld({label:"",pcs:0,_eid:null});
+          return;
+        }
+      }
+    }
+    /* No confirmation needed — either new sizeSet or label unchanged */
+    upConfig(d=>{if(sfld._eid){const idx=d.sizeSets.findIndex(x=>x.id===sfld._eid);if(idx>=0)d.sizeSets[idx]={...d.sizeSets[idx],label:newLabel,pcsPerSeries:pcs}}else{d.sizeSets.push({id:Date.now(),label:newLabel,pcsPerSeries:pcs})}});
+    setSfld({label:"",pcs:0,_eid:null})};
   const saveGarment=()=>{if(!gName.trim())return;const oldName=gEid?(data.garmentTypes||[]).find(x=>x.id===gEid)?.name:null;upConfig(d=>{if(!d.garmentTypes)d.garmentTypes=[];if(gEid){const idx=d.garmentTypes.findIndex(x=>x.id===gEid);if(idx>=0){d.garmentTypes[idx].name=gName.trim();d.garmentTypes[idx].icon=gIconSel;d.garmentTypes[idx].defaultPrice=Number(gPrice)||0}}else{d.garmentTypes.push({id:Date.now(),name:gName.trim(),icon:gIconSel,defaultPrice:Number(gPrice)||0})}});if(oldName&&oldName!==gName.trim())renameInOrders("garment",oldName,gName.trim());setGName("");setGEid(null);setGIconSel("👕");setGPrice("")};
   const saveStatus=()=>{if(!stName.trim())return;const oldName=stEid?(statusCards||[]).find(x=>x.id===stEid)?.name:null;upConfig(d=>{if(!d.statusCards)d.statusCards=[...DEFAULT_STATUSES];if(stEid){const idx=d.statusCards.findIndex(x=>x.id===stEid);if(idx>=0){d.statusCards[idx].name=stName.trim();d.statusCards[idx].color=stColor}}else{d.statusCards.push({id:Date.now(),name:stName.trim(),color:stColor})}});if(oldName&&oldName!==stName.trim())renameInOrders("status",oldName,stName.trim());setStName("");setStColor("#0EA5E9");setStEid(null)};
 
@@ -143,15 +176,35 @@ export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,o
         const _expected=Number(s.pcsPerSeries)||0;
         const _mismatch=_expected>0&&_parsedCount!==_expected;
         const _noPcs=!_expected;
+        /* V15.32: Find linked orders with outdated sizeLabel (stale snapshot) */
+        const _linkedOrds=(data.orders||[]).filter(o=>Number(o.sizeSetId)===Number(s.id));
+        const _staleOrds=_linkedOrds.filter(o=>(o.sizeLabel||"")!==(s.label||""));
+        const _hasStale=_staleOrds.length>0;
         return<tr key={s.id} style={_mismatch?{background:"#F59E0B08"}:undefined}>
           <td style={TD}>{i+1}</td>
           <td style={{...TD,fontWeight:600}}>
             {s.label}
             {_mismatch&&<span title={"عدد الأسماء ("+_parsedCount+") لا يطابق قطع السيري ("+_expected+"). استخدم فاصلة ' | ' للنطاقات المعقدة."} style={{marginInlineStart:8,fontSize:FS-2,color:"#F59E0B",fontWeight:800,cursor:"help"}}>⚠️ تناقض</span>}
             {_noPcs&&<span title="لم يُحدد عدد قطع/سيري" style={{marginInlineStart:8,fontSize:FS-2,color:T.err,fontWeight:800,cursor:"help"}}>⛔ ناقص</span>}
+            {_hasStale&&<span title={_staleOrds.length+" أوردر عندهم sizeLabel قديم مختلف عن الكارت. اضغط زر المزامنة."} style={{marginInlineStart:8,fontSize:FS-2,color:"#0EA5E9",fontWeight:800,cursor:"help"}}>🔄 {_staleOrds.length} غير متزامنين</span>}
           </td>
           <td style={{...TDB,color:_noPcs?T.err:T.accent,fontWeight:800}}>{s.pcsPerSeries||"—"}</td>
-          {canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:4}}>{eBtn(()=>setSfld({label:s.label,pcs:s.pcsPerSeries||0,_eid:s.id,_show:true}))}<DelBtn onConfirm={()=>safeDelete("sizeSets",s.id,"مقاسات")} blocked={sizeBlock(s)}/></div></td>}
+          {canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:4}}>
+            {eBtn(()=>setSfld({label:s.label,pcs:s.pcsPerSeries||0,_eid:s.id,_show:true}))}
+            {_hasStale&&<Btn small onClick={async()=>{
+              const ok=await ask(
+                "🔄 مزامنة المقاسات مع الأوردرات",
+                "سيتم تحديث sizeLabel في "+_staleOrds.length+" أوردر مرتبط بهذا الكارت.\n\n"+
+                "الـ sizeLabel الحالي في الكارت:\n"+(s.label||"—")+"\n\n"+
+                "هل تريد المتابعة؟",
+                {confirmText:"نعم، زامن",cancelText:"إلغاء"}
+              );
+              if(!ok)return;
+              /* Use renameInOrders with empty oldName — matches by entityId (sizeSetId) */
+              await renameInOrders("size","(قديم)",s.label||"",s.id);
+            }} style={{background:"#0EA5E915",color:"#0EA5E9",border:"1px solid #0EA5E930"}} title={"مزامنة "+_staleOrds.length+" أوردر"}>🔄</Btn>}
+            <DelBtn onConfirm={()=>safeDelete("sizeSets",s.id,"مقاسات")} blocked={sizeBlock(s)}/>
+          </div></td>}
         </tr>;
       })}</tbody></table></Card>
     {sfld._show&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setSfld({...sfld,_show:false})}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:400,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
