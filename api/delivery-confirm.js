@@ -11,18 +11,20 @@
 
 import { setCors, verifySignature, getDb } from "./_firebase.js";
 
-/* Helpers for reading order data once, indexed by id */
+/* Helpers for reading order data — orders use Firestore auto-generated docIds,
+   NOT the internal `id` field. Must query by field, not fetch by docId. */
 async function loadOrdersByIds(db, ids, season) {
   if (!season || ids.length === 0) return {};
   const out = {};
-  /* Firestore allows up to 30 docs per chunked read — batch in groups of 10 for safety */
+  /* Firestore `in` operator supports up to 30 values per query */
   const chunks = [];
-  for (let i = 0; i < ids.length; i += 10) chunks.push(ids.slice(i, i + 10));
+  for (let i = 0; i < ids.length; i += 30) chunks.push(ids.slice(i, i + 30));
+  const col = db.collection("seasons").doc(season).collection("orders");
   for (const chunk of chunks) {
-    const refs = chunk.map((id) => db.collection("seasons").doc(season).collection("orders").doc(id));
-    const snaps = await db.getAll(...refs);
-    snaps.forEach((s) => {
-      if (s.exists) out[s.id] = s.data();
+    const snap = await col.where("id", "in", chunk).get();
+    snap.forEach((d) => {
+      const o = d.data();
+      if (o && o.id) out[o.id] = o;
     });
   }
   return out;
@@ -78,7 +80,7 @@ export default async function handler(req, res) {
     }
 
     /* ─── Load order/model data from seasons/<season>/orders ─── */
-    const season = sales.activeSeason || config.activeSeason || "";
+    const season = sales.activeSeason || config.activeSeason || "WS26";
     const modelIds = session.modelIds || [];
     const orders = await loadOrdersByIds(db, modelIds, season);
 
@@ -141,6 +143,15 @@ export default async function handler(req, res) {
         grandTotalMoney,
         currentConfirm,
         brand,
+        /* V15.54: Diagnostic info — helps troubleshoot empty tables.
+           These fields show what was loaded vs what's expected. */
+        _debug: {
+          season,
+          modelIdsInSession: modelIds.length,
+          ordersFound: Object.keys(orders).length,
+          gridKeysForCustomer: Object.keys(grid).filter((k) => k.endsWith("_" + custId)).length,
+          rowsBuilt: rows.length,
+        },
       });
     }
 
