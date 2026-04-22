@@ -881,14 +881,82 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                   </td>})}
                 <td style={{...TD,textAlign:"center",fontWeight:800,color:T.accent,background:"#0284C706",fontSize:FS+1}}>{rowTotal||"—"}</td>
                 <td style={{...TD,whiteSpace:"nowrap",padding:"2px 4px"}}>{rowTotal>0&&<div style={{display:"flex",gap:2}}>
-                  <Btn small onClick={()=>{let h="<h2>🚚 اذن تسليم عميل</h2><table><tr><th>العميل</th><td><b>"+c.name+"</b></td><th>التليفون</th><td>"+c.phone+"</td></tr><tr><th>التاريخ</th><td>"+activeSess.date+"</td><th>العنوان</th><td>"+(c.address||"—")+"</td></tr></table><h2>تفاصيل الاستلام</h2><table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th></tr></thead><tbody>";
-                    aMods.forEach(m=>{const q=getGroupQty(m,c.id);if(q>0)h+="<tr><td><b>"+m.modelNo+"</b></td><td>"+(m.modelDesc||"")+"</td><td style='font-weight:800;color:#0284C7'>"+q+"</td></tr>"});
-                    h+="<tr style='background:#F1F5F9'><td colspan='2' style='font-weight:800'>الاجمالي</td><td style='font-weight:800;color:#0284C7;font-size:14px'>"+rowTotal+" قطعة</td></tr></tbody></table>";
+                  <Btn small onClick={async()=>{
+                    /* V15.50: Per-customer delivery receipt — fetch signed URL, embed QR + prices */
+                    let sig="";
+                    try{
+                      const r=await fetch("/api/delivery-sign",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pairs:[{sessionId:activeSess.id,custId:c.id}]})});
+                      const j=await r.json();
+                      if(r.ok&&j.signatures&&j.signatures[0])sig=j.signatures[0].sig||"";
+                    }catch(e){}
+                    const origin=window.location.origin;
+                    const confirmUrl=sig?origin+"/?dc=1&s="+encodeURIComponent(activeSess.id)+"&c="+encodeURIComponent(c.id)+"&sig="+encodeURIComponent(sig):"";
+                    let h="<h2>🚚 اذن تسليم عميل</h2><table><tr><th>العميل</th><td><b>"+c.name+"</b></td><th>التليفون</th><td>"+c.phone+"</td></tr><tr><th>التاريخ</th><td>"+activeSess.date+"</td><th>العنوان</th><td>"+(c.address||"—")+"</td></tr></table><h2>تفاصيل الاستلام</h2><table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>";
+                    let custMoney=0;
+                    aMods.forEach(m=>{const q=getGroupQty(m,c.id);if(q>0){
+                      const oids=m.orderIds||[m.id];let price=0;
+                      for(const oid of oids){const o=orders.find(x=>x.id===oid);if(o){
+                        const dd=(o.customerDeliveries||[]).find(d=>d.custId===c.id&&d.sessionId===activeSess.id&&Number(d.price)>0);
+                        if(dd){price=Number(dd.price);break}
+                        if(Number(o.sellPrice)>0){price=Number(o.sellPrice);break}
+                      }}
+                      const lineTotal=q*price;custMoney+=lineTotal;
+                      h+="<tr><td><b>"+m.modelNo+"</b></td><td>"+(m.modelDesc||"")+"</td><td style='font-weight:800;color:#0284C7'>"+q+"</td><td style='text-align:center'>"+(price?fmt(price):"—")+"</td><td style='text-align:center;font-weight:700'>"+fmt(lineTotal)+"</td></tr>";
+                    }});
+                    h+="<tr style='background:#F1F5F9'><td colspan='2' style='font-weight:800'>الاجمالي</td><td style='font-weight:800;color:#0284C7;font-size:14px'>"+rowTotal+" قطعة</td><td></td><td style='font-weight:800;color:#0284C7;font-size:14px'>"+fmt(custMoney)+" ج.م</td></tr></tbody></table>";
+                    /* V15.50: QR block */
+                    if(confirmUrl){
+                      h+="<div style='margin-top:14px;padding:12px;border:2px dashed #0EA5E9;border-radius:10px;display:flex;align-items:center;gap:14px;background:#F0F9FF;page-break-inside:avoid'>"
+                        +"<canvas class='confirm-qr' data-qr='"+confirmUrl.replace(/'/g,"&#39;")+"' style='width:100px;height:100px;flex-shrink:0'></canvas>"
+                        +"<div style='flex:1;font-size:12px;line-height:1.6'>"
+                        +"<div style='font-size:14px;font-weight:800;color:#0369A1;margin-bottom:3px'>📱 تأكيد الاستلام</div>"
+                        +"<div style='color:#475569'>بعد مطابقة البضاعة، امسح الكود للتأكيد أو الإبلاغ عن مشكلة.</div>"
+                        +"<div style='color:#94A3B8;font-size:10px;margin-top:3px'>الرابط صالح لمدة 24 ساعة من التأكيد</div>"
+                        +"</div></div>";
+                    }
                     h+="<div class='sig'><div class='sig-box'>مسؤول التسليم</div><div class='sig-box'>توقيع العميل<br/>"+c.name+"</div></div>";
-                    printPage("اذن تسليم — "+c.name,h)}} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30",fontSize:9,padding:"2px 5px"}} title="طباعة">🖨</Btn>
-                  <Btn small onClick={()=>{const lines=aMods.map(m=>{const q=getGroupQty(m,c.id);return q>0?"• موديل *"+m.modelNo+"*: *"+q+"* قطعة":null}).filter(Boolean).join("%0A");
-                    const msg="*CLARK — اذن تسليم عميل*%0A%0A• العميل: *"+c.name+"*%0A• التاريخ: *"+activeSess.date+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+rowTotal+"* قطعة%0A%0A*برجاء التأكيد*";
-                    window.open("https://wa.me/"+(c.phone?c.phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",fontSize:9,padding:"2px 5px"}} title="ارسال واتساب">📱</Btn>
+                    h+="<script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script>";
+                    h+="<script>function _renderCLARKqrs(){if(typeof QRCode==='undefined'){setTimeout(_renderCLARKqrs,100);return}document.querySelectorAll('.confirm-qr').forEach(function(c){QRCode.toCanvas(c,c.dataset.qr,{width:200,margin:0,errorCorrectionLevel:'M'},function(){})})}_renderCLARKqrs();</"+"script>";
+                    printPage("اذن تسليم — "+c.name,h);
+                  }} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30",fontSize:9,padding:"2px 5px"}} title="طباعة">🖨</Btn>
+                  <Btn small onClick={async()=>{
+                    /* V15.51: Validate phone first */
+                    let rawPhone=(c.phone||"").replace(/[^0-9]/g,"");
+                    if(!rawPhone){showToast("⚠️ "+c.name+" — مفيش رقم تليفون");return}
+                    /* Normalize Egyptian numbers: if starts with "0" (local), prepend "2" for country code */
+                    if(rawPhone.length===11&&rawPhone.startsWith("0"))rawPhone="2"+rawPhone;
+                    else if(rawPhone.length===10&&!rawPhone.startsWith("20"))rawPhone="20"+rawPhone;
+                    /* V15.51: Fetch signed confirm URL to include in the message */
+                    let confirmUrl="";
+                    try{
+                      const r=await fetch("/api/delivery-sign",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pairs:[{sessionId:activeSess.id,custId:c.id}]})});
+                      const j=await r.json();
+                      if(r.ok&&j.signatures&&j.signatures[0]&&j.signatures[0].sig){
+                        confirmUrl=window.location.origin+"/?dc=1&s="+encodeURIComponent(activeSess.id)+"&c="+encodeURIComponent(c.id)+"&sig="+encodeURIComponent(j.signatures[0].sig);
+                      }
+                    }catch(e){}
+                    /* Build detailed message with prices if available */
+                    let custMoney=0;
+                    const linesArr=aMods.map(m=>{const q=getGroupQty(m,c.id);if(q<=0)return null;
+                      const oids=m.orderIds||[m.id];let price=0;
+                      for(const oid of oids){const o=orders.find(x=>x.id===oid);if(o){
+                        const dd=(o.customerDeliveries||[]).find(d=>d.custId===c.id&&d.sessionId===activeSess.id&&Number(d.price)>0);
+                        if(dd){price=Number(dd.price);break}
+                        if(Number(o.sellPrice)>0){price=Number(o.sellPrice);break}
+                      }}
+                      custMoney+=q*price;
+                      return"• *"+m.modelNo+"*: "+q+" قطعة"+(price?" × "+fmt(price)+" = "+fmt(q*price)+" ج.م":"");
+                    }).filter(Boolean);
+                    const lines=linesArr.join("\n");
+                    let msg="*CLARK — اذن تسليم عميل*\n\n• العميل: *"+c.name+"*\n• التاريخ: *"+activeSess.date+"*\n\n─────────────────\n"+lines+"\n─────────────────\n• الاجمالي: *"+rowTotal+"* قطعة";
+                    if(custMoney>0)msg+="\n• القيمة: *"+fmt(custMoney)+"* ج.م";
+                    if(confirmUrl){
+                      msg+="\n\n📱 *تأكيد الاستلام:*\n"+confirmUrl+"\n\nاضغط على الرابط أو امسح QR من إذن التسليم لتأكيد استلام البضاعة أو الإبلاغ عن مشكلة.";
+                    }else{
+                      msg+="\n\n*برجاء التأكيد*";
+                    }
+                    window.open("https://wa.me/"+rawPhone+"?text="+encodeURIComponent(msg),"_blank");
+                  }} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",fontSize:9,padding:"2px 5px"}} title="ارسال واتساب مع رابط التأكيد">📱</Btn>
                   <Btn small onClick={()=>{setShipPopup({cust:c,total:rowTotal});setShipCount(1)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30",fontSize:9,padding:"2px 5px"}} title="طباعة ليبل">🏷️</Btn>
                   {sessCanEdit&&(()=>{const hasSalesInSess=orders.some(o=>(o.customerDeliveries||[]).some(d=>d.custId===c.id&&d.sessionId===activeSess.id));
                     return hasSalesInSess?<Btn small disabled style={{background:"#EF444406",color:"#ccc",border:"1px solid #EF444415",fontSize:9,padding:"2px 5px",cursor:"not-allowed"}} title="لا يمكن الحذف — لديه بيع فعلي">🔒</Btn>
