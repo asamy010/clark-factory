@@ -72,26 +72,21 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   /* Distribute qty FIFO across same-modelNo orders.
      mode: "sale" → use avail stock. "return" → use delivered-returned.
      currentCart: {orderId: qtyAlreadyInCart}
-     linkedSessGrid: if provided, cap per-order by planned remaining
-     Returns: {ok: bool, allocations: [{orderId, qty}], error: string, grandAvail: number, modelNo: string} */
+     linkedSessGrid: if provided, cap BY GROUP SUM (not per-order) of planned remaining
+     Returns: {ok: bool, allocations: [{orderId, qty}], error: string, grandAvail: number, modelNo: string}
+     V15.38 FIX: Group-level caps — previously applied planned-per-order which failed when
+     one sub-order had stock but no planned (or vice versa). Now: planned_sum and stock_sum
+     are the effective caps, and FIFO distributes across available stock freely. */
   const distributeFIFO=(groupOrders,requestedQty,mode,currentCart,linkedSessGrid,custIdForReturn)=>{
     const modelNo=groupOrders[0]?.modelNo||"?";
-    let remaining=requestedQty;
-    const allocations=[];
-    let grandAvail=0;
-    for(const go of groupOrders){
-      let availForOrder=0;
+    const custId=currentCart.__custId||"";
+    const sessId=currentCart.__sessId||null;
+    /* Step 1: Per-order stock availability (FIFO order) */
+    const perOrder=groupOrders.map(go=>{
+      let stockAvail=0;
       if(mode==="sale"){
         const sm=stockModels.find(m=>m.id===go.id);
-        availForOrder=sm?sm.avail:0;
-        /* Apply planned-session cap if linked */
-        if(linkedSessGrid){
-          const planned=Number(linkedSessGrid[go.id+"_"+(currentCart.__custId||"")])||0;
-          const delivered=(go.customerDeliveries||[]).filter(d=>d.sessionId===currentCart.__sessId).reduce((s,d)=>s+(Number(d.qty)||0),0);
-          const returned=(go.customerReturns||[]).filter(r=>r.sessionId===currentCart.__sessId).reduce((s,r)=>s+(Number(r.qty)||0),0);
-          const remPlanned=Math.max(0,planned-(delivered-returned));
-          availForOrder=Math.min(availForOrder,remPlanned);
-        }
+        stockAvail=sm?sm.avail:0;
       }else{/* return */
         let cd=0,ret=0;
         if(custIdForReturn){
@@ -101,21 +96,55 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           cd=(go.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
           ret=(go.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
         }
-        availForOrder=cd-ret;
+        stockAvail=cd-ret;
       }
       const alreadyInCart=Number(currentCart[go.id])||0;
-      const canTake=Math.max(0,availForOrder-alreadyInCart);
-      grandAvail+=canTake;
-      if(remaining>0&&canTake>0){
-        const take=Math.min(remaining,canTake);
+      const canTake=Math.max(0,stockAvail-alreadyInCart);
+      return{go,stockAvail,canTake};
+    });
+    const stockLimit=perOrder.reduce((s,p)=>s+p.canTake,0);
+    /* Step 2: Planned limit (SUMMED across group) — only for linked sale sessions */
+    let plannedLimit=Infinity;
+    let plannedDetails=null;
+    if(linkedSessGrid&&mode==="sale"){
+      plannedDetails={totalPlanned:0,totalDelivered:0,totalRemaining:0};
+      for(const go of groupOrders){
+        const planned=Number(linkedSessGrid[go.id+"_"+custId])||0;
+        const deliveredInSess=(go.customerDeliveries||[]).filter(d=>d.sessionId===sessId).reduce((s,d)=>s+(Number(d.qty)||0),0);
+        const returnedInSess=(go.customerReturns||[]).filter(r=>r.sessionId===sessId).reduce((s,r)=>s+(Number(r.qty)||0),0);
+        plannedDetails.totalPlanned+=planned;
+        plannedDetails.totalDelivered+=(deliveredInSess-returnedInSess);
+        plannedDetails.totalRemaining+=Math.max(0,planned-(deliveredInSess-returnedInSess));
+      }
+      /* Subtract what's already in cart (across all sub-orders in group) */
+      const alreadyInCartForGroup=perOrder.reduce((s,p)=>s+(Number(currentCart[p.go.id])||0),0);
+      plannedLimit=Math.max(0,plannedDetails.totalRemaining-alreadyInCartForGroup);
+    }
+    const effectiveCap=Math.min(plannedLimit,stockLimit);
+    /* Step 3: Validation with detailed error */
+    if(requestedQty>effectiveCap){
+      let err="⛔ "+modelNo+": المطلوب "+requestedQty;
+      if(plannedDetails&&plannedLimit<stockLimit){
+        err+=" — المتبقي من الخطة "+plannedLimit+" قطعة (الخطة الكلية: "+plannedDetails.totalPlanned+")";
+      }else if(stockLimit<plannedLimit&&plannedDetails){
+        err+=" — المتاح في المخزن "+stockLimit+" قطعة (الخطة المتبقية: "+plannedLimit+")";
+      }else{
+        err+=" — المتاح "+effectiveCap+" قطعة";
+      }
+      return{ok:false,allocations:[],error:err,grandAvail:effectiveCap,modelNo};
+    }
+    /* Step 4: FIFO distribution — fill from oldest, respecting each order's stock ceiling */
+    let remaining=requestedQty;
+    const allocations=[];
+    for(const{go,canTake} of perOrder){
+      if(remaining<=0)break;
+      const take=Math.min(remaining,canTake);
+      if(take>0){
         allocations.push({orderId:go.id,qty:take});
         remaining-=take;
       }
     }
-    if(remaining>0){
-      return{ok:false,allocations,error:"⛔ "+modelNo+": المطلوب "+requestedQty+" — المتاح الإجمالي "+(grandAvail)+" (ناقص "+remaining+" قطعة)",grandAvail,modelNo};
-    }
-    return{ok:true,allocations,grandAvail,modelNo};
+    return{ok:true,allocations,grandAvail:effectiveCap,modelNo};
   };
 
   const orderCalcs=useMemo(()=>{const m=new Map();orders.forEach(o=>m.set(o.id,calcOrder(o)));return m},[orders]);
@@ -1632,7 +1661,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           setQrSale(p=>{const newItems=[...p.items];dist.allocations.forEach(a=>{const oo=orders.find(x=>x.id===a.orderId);newItems.push({orderId:a.orderId,modelNo:oo.modelNo,modelDesc:oo.modelDesc,rackSize:rs,qty:a.qty})});return{...p,items:newItems}});
         }else{/* return */
           const dist=distributeFIFO(sameModelOrders,rs,"return",currentCart,null,qrSale.custId);
-          if(!dist.ok){playBeep("error");showToast(dist.error.replace("المتاح","المسلّم للعميل"));return}
+          if(!dist.ok){playBeep("error");showToast(dist.error.replace(/المتاح/g,"المسلّم للعميل"));return}
           playBeep("ok");
           setQrSale(p=>{const newItems=[...p.items];dist.allocations.forEach(a=>{const oo=orders.find(x=>x.id===a.orderId);newItems.push({orderId:a.orderId,modelNo:oo.modelNo,modelDesc:oo.modelDesc,rackSize:rs,qty:a.qty})});return{...p,items:newItems}});
         }
@@ -1815,7 +1844,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               const _ls=isSale&&qrSale.linkedSession&&qrSale.linkedSession!=="free"?sessions.find(s=>s.id===qrSale.linkedSession):null;
               const cartWithCtx={...currentCart,__custId:qrSale.custId,__sessId:_ls?_ls.id:null};
               const dist=distributeFIFO(sameModel,qty,isSale?"sale":"return",cartWithCtx,isSale&&_ls?(_ls.grid||{}):null,!isSale?qrSale.custId:null);
-              if(!dist.ok){playBeep("error");showToast(isSale?dist.error:dist.error.replace("المتاح","المسلّم للعميل"));return}
+              if(!dist.ok){playBeep("error");showToast(isSale?dist.error:dist.error.replace(/المتاح/g,"المسلّم للعميل"));return}
               playBeep("ok");
               setQrSale(p=>{const newItems=[...p.items];dist.allocations.forEach(a=>{const oo=orders.find(x=>x.id===a.orderId);newItems.push({orderId:a.orderId,modelNo:oo.modelNo,modelDesc:oo.modelDesc,rackSize:qty,qty:a.qty})});return{...p,items:newItems,_manualQty:0}});
               }} options={(()=>{
