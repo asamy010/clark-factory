@@ -1807,14 +1807,47 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             <div><div style={{fontSize:FS+2,fontWeight:800,color}}>{title}</div><div style={{fontSize:FS-1,color:T.textMut}}>{custName+(linkedSess?" — مربوط بسجل "+linkedSess.date:isSale?" — بيع حر":"")}</div></div>
             <div style={{display:"flex",gap:4}}><Btn ghost small onClick={()=>setQrSale(p=>({...p,linkedSession:undefined,custId:null,items:[]}))}>{isSale?"← سجل":"← عميل"}</Btn><Btn ghost small onClick={closeQrSale}>✕</Btn></div>
           </div>
-          {linkedSess&&(()=>{const allModels=linkedSess.modelIds.filter(mid=>(Number((linkedSess.grid||{})[mid+"_"+qrSale.custId])||0)>0);if(allModels.length===0)return null;
+          {linkedSess&&(()=>{
+            /* V15.39: Group planned models by modelNo — same merging logic as distribution matrix.
+               Each row represents ONE model (sum of planned/delivered/cart across all sub-orders). */
+            const groups={};
+            const orderedKeys=[];
+            linkedSess.modelIds.forEach(oid=>{
+              const o=orders.find(x=>x.id===oid);if(!o)return;
+              const planned=Number((linkedSess.grid||{})[oid+"_"+qrSale.custId])||0;
+              if(planned<=0)return;
+              const key=o.modelNo||oid;
+              if(!groups[key]){
+                groups[key]={key,modelNo:o.modelNo||"?",orderIds:[],totalPlanned:0,subOrders:[]};
+                orderedKeys.push(key);
+              }
+              groups[key].orderIds.push(oid);
+              groups[key].totalPlanned+=planned;
+              groups[key].subOrders.push({oid,createdAt:o.createdAt||o.id||""});
+            });
+            /* Sort sub-orders FIFO inside each group — matches distributeFIFO ordering */
+            Object.values(groups).forEach(g=>g.subOrders.sort((a,b)=>(a.createdAt||"").localeCompare(b.createdAt||"")));
+            const allGrouped=orderedKeys.map(k=>groups[k]);
+            if(allGrouped.length===0)return null;
             return<div style={{border:"1px solid "+T.brd,borderRadius:10,overflow:"hidden",marginBottom:10}}>
               <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th style={{...TH,fontSize:FS-2}}>الموديل</th><th style={{...TH,fontSize:FS-2}}>الخطة</th><th style={{...TH,fontSize:FS-2}}>مسلّم</th><th style={{...TH,fontSize:FS-2}}>الحالي</th><th style={{...TH,fontSize:FS-2}}>الباقي</th></tr></thead><tbody>
-                {allModels.map(oid=>{const o=orders.find(x=>x.id===oid);const planned=plannedByModel[oid]||0;const prevDel=getDeliveredForSess(qrSale.custId,linkedSess.id,oid);const cartQty=actualByModel[oid]||0;const totalDel=prevDel+cartQty;const remaining=planned-totalDel;
-                  return<tr key={oid} style={{background:remaining<=0?"#10B98108":remaining<planned?"#0EA5E908":"transparent"}}><td style={{...TD,fontWeight:700,color:T.accent}}>{o?.modelNo||"?"}</td><td style={{...TD,textAlign:"center"}}>{planned}</td><td style={{...TD,textAlign:"center"}}>{prevDel>0?<span style={{color:"#10B981"}}>{prevDel}</span>:"—"}</td><td style={{...TD,textAlign:"center",fontWeight:800,color:"#0EA5E9"}}>{cartQty||"—"}</td>
-                    <td style={{...TD,textAlign:"center",fontWeight:700,color:remaining<=0?"#10B981":remaining<planned?"#F59E0B":"#EF4444"}}>{remaining<=0?"✅":"⏳ "+remaining}</td></tr>})}
+                {allGrouped.map(grp=>{
+                  const prevDel=grp.orderIds.reduce((s,oid)=>s+getDeliveredForSess(qrSale.custId,linkedSess.id,oid),0);
+                  const cartQty=grp.orderIds.reduce((s,oid)=>s+(actualByModel[oid]||0),0);
+                  const totalDel=prevDel+cartQty;
+                  const remaining=grp.totalPlanned-totalDel;
+                  const isGrouped=grp.orderIds.length>1;
+                  return<tr key={grp.key} style={{background:remaining<=0?"#10B98108":remaining<grp.totalPlanned?"#0EA5E908":"transparent"}}>
+                    <td style={{...TD,fontWeight:700,color:T.accent}}>{grp.modelNo}{isGrouped&&<span style={{fontSize:FS-3,color:"#8B5CF6",marginInlineStart:4,fontWeight:700}} title={"مدموج من "+grp.orderIds.length+" تشغيلات (FIFO)"}>⧉{grp.orderIds.length}</span>}</td>
+                    <td style={{...TD,textAlign:"center"}}>{grp.totalPlanned}</td>
+                    <td style={{...TD,textAlign:"center"}}>{prevDel>0?<span style={{color:"#10B981"}}>{prevDel}</span>:"—"}</td>
+                    <td style={{...TD,textAlign:"center",fontWeight:800,color:"#0EA5E9"}}>{cartQty||"—"}</td>
+                    <td style={{...TD,textAlign:"center",fontWeight:700,color:remaining<=0?"#10B981":remaining<grp.totalPlanned?"#F59E0B":"#EF4444"}}>{remaining<=0?"✅":"⏳ "+remaining}</td>
+                  </tr>;
+                })}
               </tbody></table>
-            </div>})()}
+            </div>;
+          })()}
           {qrScanActive?<div style={{marginBottom:12}}>
             <div style={{position:"relative",width:"100%",maxWidth:300,margin:"0 auto",borderRadius:12,overflow:"hidden",background:"#000"}}>
               <video id="qr-sale-video" playsInline muted autoPlay style={{width:"100%",display:"block"}}/>
