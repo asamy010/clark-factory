@@ -140,6 +140,16 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       if(cartSum>0)parts.push("في الـ cart: "+cartSum);
       let err="⛔ "+modelNo+": المطلوب "+requestedQty;
       if(parts.length>0)err+=" — "+parts.join("، ");
+      /* V15.41: Add per-order breakdown for diagnosis */
+      if(groupOrders.length>0){
+        err+="\n📊 التشخيص:";
+        for(let i=0;i<groupOrders.length;i++){
+          const go=groupOrders[i];const po=perOrder[i];
+          const planned=linkedSessGrid?(Number(linkedSessGrid[go.id+"_"+custId])||0):0;
+          const delIn=sessId?(go.customerDeliveries||[]).filter(d=>d.sessionId===sessId).reduce((s,d)=>s+(Number(d.qty)||0),0):0;
+          err+="\n• تشغيل "+(i+1)+": خطة="+planned+"، مسلّم="+delIn+"، مخزن="+po.stockAvail;
+        }
+      }
       /* Hint about override — only if planned is the limit */
       if(!overrideMode&&plannedDetails&&stockLimit>=requestedQty){
         err+="\n💡 فعّل \"وضع الطوارئ 🚨\" للبيع خارج الخطة";
@@ -1652,7 +1662,23 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         const rs=info.expectedCount>1?Math.max(qrRs,info.expectedCount):qrRs;
         /* V15.36: FIFO Auto-Distribution — if multiple orders share the same modelNo,
            distribute requested qty across them (oldest first). Only when prices are consistent. */
-        const sameModelOrders=getSameModelOrders(orderId);
+        let sameModelOrders=getSameModelOrders(orderId);
+        /* V15.41 FIX: When linked to a distribution session, restrict FIFO to orders in that session only.
+           Otherwise, the FIFO can allocate to orders outside the session (e.g., older orders with same modelNo),
+           which then fails confirmSale's group-planned check. */
+        if(isSale&&qrSale.linkedSession&&qrSale.linkedSession!=="free"){
+          const _sess=sessions.find(s=>s.id===qrSale.linkedSession);
+          if(_sess){
+            const sessionOrderIds=new Set(_sess.modelIds||[]);
+            const filtered=sameModelOrders.filter(o=>sessionOrderIds.has(o.id));
+            if(filtered.length===0){
+              playBeep("error");
+              showToast("⛔ "+o.modelNo+": الموديل غير موجود في سجل التوزيع الحالي");
+              return;
+            }
+            sameModelOrders=filtered;
+          }
+        }
         const isGrouped=sameModelOrders.length>1;
         if(isGrouped){
           const priceCheck=checkGroupPriceConsistent(sameModelOrders);
@@ -1896,7 +1922,17 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               /* V15.36: Manual add — use the earliest order's id, then FIFO-distribute across same-modelNo orders */
               const pickedO=orders.find(x=>x.id===v);if(!pickedO)return;
               const rs=getRackSize(v);const customQty=Number(qrSale._manualQty)||0;const qty=customQty>0?customQty:rs;
-              const sameModel=getSameModelOrders(v);
+              let sameModel=getSameModelOrders(v);
+              /* V15.41 FIX: Restrict to session orders when linked */
+              if(isSale&&qrSale.linkedSession&&qrSale.linkedSession!=="free"){
+                const _sess=sessions.find(s=>s.id===qrSale.linkedSession);
+                if(_sess){
+                  const sessionOrderIds=new Set(_sess.modelIds||[]);
+                  const filtered=sameModel.filter(o=>sessionOrderIds.has(o.id));
+                  if(filtered.length===0){playBeep("error");showToast("⛔ "+pickedO.modelNo+": الموديل غير موجود في سجل التوزيع الحالي");return}
+                  sameModel=filtered;
+                }
+              }
               if(sameModel.length>1){
                 const pc=checkGroupPriceConsistent(sameModel);
                 if(!pc.consistent){playBeep("error");showToast("⛔ "+pickedO.modelNo+": الأسعار مختلفة ("+pc.prices.join("، ")+" ج) — لا يمكن الدمج");return}
