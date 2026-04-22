@@ -12,7 +12,7 @@ import { DEFAULT_STATUSES, FKEYS, FS, GARMENT_ICONS, WS_TYPES } from "../constan
 import { T, TD, TDB, TH } from "../theme.js";
 import { gIcon, setF, normalizePhone, parseSizes } from "../utils/format.js";
 import { compressImage, compressImg43 } from "../utils/image.js";
-import { calcWsRating, wsTypeInfo } from "../utils/orders.js";
+import { calcWsRating, getWsPartnershipTier, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
 import { ask, askInput, showToast } from "../utils/popups.js";
 
 export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,onSubUsed,renameInOrders}){
@@ -346,10 +346,14 @@ export function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrder
             <div style={{height:6,borderRadius:3,background:"#E2E8F0",overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",borderRadius:3,background:pct>=80?T.ok:pct>=50?T.warn:T.err,transition:"width 0.5s"}}/></div>
           </div>
           {/* Info + Rating */}
-          {(()=>{const autoR=calcWsRating(ws.name,orders);const rating=ws.ratingManual?(ws.rating||0):autoR!==null?autoR:0;const label=ws.ratingManual?"يدوي":autoR!==null?"تلقائي":"بدون بيانات";return<div style={{padding:"4px 16px 10px",display:"flex",gap:10,flexWrap:"wrap",fontSize:FS-2,color:T.textSec,alignItems:"center"}}>
+          {(()=>{const autoR=calcWsRating(ws.name,orders);const rating=ws.ratingManual?(ws.rating||0):autoR!==null?autoR:0;const label=ws.ratingManual?"يدوي":autoR!==null?"تلقائي":"بدون بيانات";const isExt=!wsIsInternal(ws.type);const tier=isExt?getWsPartnershipTier(ws.name,orders):null;return<div style={{padding:"4px 16px 10px",display:"flex",gap:10,flexWrap:"wrap",fontSize:FS-2,color:T.textSec,alignItems:"center"}}>
             {ws.phone&&<span>{"📱 "+ws.phone}</span>}
             {ws.address&&<span style={{maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{"📍 "+ws.address}</span>}
             <span style={{fontWeight:700,color:rating>=7?T.ok:rating>=4?T.warn:rating>0?T.err:T.textMut}}>{"⭐ "+rating+"/10 ("+label+")"}</span>
+            {/* V15.44: Partnership tier — only for external workshops */}
+            {tier&&<span title={"إجمالي ما سلّمته: "+tier.totalRcv.toLocaleString("en-US")+" قطعة"} style={{padding:"2px 8px",borderRadius:20,background:tier.color+"15",border:"1px solid "+tier.color+"35",fontSize:FS-3,fontWeight:700,color:tier.color,display:"inline-flex",alignItems:"center",gap:4}}>
+              <span>{tier.icon}</span><span>{tier.label}</span><span style={{opacity:0.75,fontWeight:600}}>· {tier.totalRcv.toLocaleString("en-US")}</span>
+            </span>}
             {canEdit&&<span onClick={async e=>{e.stopPropagation();const v=await askInput("تعديل التقييم",{label:"التقييم (من 10):",defaultValue:String(rating),type:"number",validate:val=>{const n=Number(val);if(isNaN(n)||n<0||n>10)return"قيمة بين 0 و 10";return null}});if(v!==null){const n=Math.min(10,Math.max(0,Number(v)||0));upConfig(d=>{const idx=d.workshops.findIndex(x=>x.id===ws.id);if(idx>=0){d.workshops[idx].rating=n;d.workshops[idx].ratingManual=true}})}}} style={{cursor:"pointer",fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</span>}
             {canEdit&&ws.ratingManual&&<span onClick={e=>{e.stopPropagation();upConfig(d=>{const idx=d.workshops.findIndex(x=>x.id===ws.id);if(idx>=0){d.workshops[idx].ratingManual=false}})}} style={{cursor:"pointer",fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>↩ تلقائي</span>}
           </div>})()}

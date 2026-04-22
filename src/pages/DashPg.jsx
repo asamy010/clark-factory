@@ -11,7 +11,7 @@ import { Badge, Btn, Card } from "../components/ui.jsx";
 import { FS } from "../constants/index.js";
 import { T, TD, TDB, TH } from "../theme.js";
 import { fmt, r2 } from "../utils/format.js";
-import { calcOrder, calcWsRating, getStatusColor, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
+import { calcOrder, calcWsRating, getWsPartnershipTier, getStatusColor, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
 import { printPage } from "../utils/print.js";
 
 export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,setCardPopup,setWsAccPopup}){
@@ -573,7 +573,7 @@ export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,se
 
       {/* Top 3 workshops */}
       {(()=>{const wsList=(data.workshops||[]).filter(w=>!wsIsInternal(w.type));
-        const rated=wsList.map(w=>{const score=calcWsRating(w.name,orders);return{name:w.name,type:w.type,rating:w.rating||0,score,owner:w.owner||""}}).filter(w=>w.score!==null).sort((a,b)=>b.score-a.score).slice(0,3);
+        const rated=wsList.map(w=>{const score=calcWsRating(w.name,orders);const tier=getWsPartnershipTier(w.name,orders);return{name:w.name,type:w.type,rating:w.rating||0,score,owner:w.owner||"",tier}}).filter(w=>w.score!==null).sort((a,b)=>b.score-a.score).slice(0,3);
         if(rated.length===0)return null;
         const medals=["🥇","🥈","🥉"];const colors=["#F59E0B","#94A3B8","#CD7F32"];
         return<Card title="⭐ أعلى 3 ورش تقييماً" style={{marginBottom:0}}>
@@ -587,6 +587,12 @@ export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,se
                 {Array.from({length:10}).map((_,s)=><div key={s} style={{width:8,height:8,borderRadius:"50%",background:s<Math.round(w.score)?colors[i]:T.brd}}/>)}
               </div>
               <div style={{fontSize:FS-2,color:T.textSec,marginTop:6}}>{wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key}</div>
+              {/* V15.44: Partnership tier badge — separate from performance rating */}
+              <div title={"إجمالي ما سلّمته الورشة: "+fmt(w.tier.totalRcv)+" قطعة"} style={{marginTop:8,padding:"4px 10px",borderRadius:20,background:w.tier.color+"15",border:"1px solid "+w.tier.color+"35",fontSize:FS-2,fontWeight:700,color:w.tier.color,display:"inline-flex",alignItems:"center",gap:4}}>
+                <span>{w.tier.icon}</span>
+                <span>{w.tier.label}</span>
+                <span style={{fontSize:FS-3,opacity:0.8,fontWeight:600}}>· {fmt(w.tier.totalRcv)} قطعة</span>
+              </div>
             </div>)}
           </div>
         </Card>})()}

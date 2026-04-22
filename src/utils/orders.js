@@ -286,6 +286,23 @@ export function calcWsRating(wsName,orders){
   return r2(avgQ*0.4+avgT*0.25+delScore*0.2+consScore*0.15);
 }
 
+/* V15.44: Workshop Partnership Tier — measures relationship SIZE (not performance).
+   Based on total pieces the workshop has DELIVERED BACK to us (totalRcv).
+   Kept separate from calcWsRating so ratings stay performance-focused.
+   Caller should filter to external workshops only (use wsIsInternal). */
+export function getWsPartnershipTier(wsName,orders){
+  let totalRcv=0;
+  orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===wsName).forEach(wd=>{
+    totalRcv+=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
+  })});
+  let tier,icon,color,label;
+  if(totalRcv>=5000){tier="major";icon="🥇";color="#F59E0B";label="شراكة كبرى"}
+  else if(totalRcv>=1000){tier="medium";icon="🥈";color="#94A3B8";label="شراكة متوسطة"}
+  else if(totalRcv>=100){tier="small";icon="🥉";color="#CD7F32";label="شراكة صغيرة"}
+  else{tier="new";icon="🌱";color="#10B981";label="شراكة جديدة"}
+  return{tier,totalRcv,icon,color,label};
+}
+
 /* Sort orders by various modes — returns new array.
    V15.5: "recent" mode now prefers updatedAt over createdAt so recently-modified orders surface. */
 export function sortOrders(orders,mode){const valid=[...orders].filter(o=>o&&o.id);
