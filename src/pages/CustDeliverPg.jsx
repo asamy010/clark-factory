@@ -73,11 +73,13 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
      mode: "sale" → use avail stock. "return" → use delivered-returned.
      currentCart: {orderId: qtyAlreadyInCart}
      linkedSessGrid: if provided, cap BY GROUP SUM (not per-order) of planned remaining
+     overrideMode: if true, SKIP planned check (only stock limit applies) — emergency use
      Returns: {ok: bool, allocations: [{orderId, qty}], error: string, grandAvail: number, modelNo: string}
      V15.38 FIX: Group-level caps — previously applied planned-per-order which failed when
      one sub-order had stock but no planned (or vice versa). Now: planned_sum and stock_sum
-     are the effective caps, and FIFO distributes across available stock freely. */
-  const distributeFIFO=(groupOrders,requestedQty,mode,currentCart,linkedSessGrid,custIdForReturn)=>{
+     are the effective caps, and FIFO distributes across available stock freely.
+     V15.40: overrideMode skips planned limits for emergency sales beyond plan. */
+  const distributeFIFO=(groupOrders,requestedQty,mode,currentCart,linkedSessGrid,custIdForReturn,overrideMode)=>{
     const modelNo=groupOrders[0]?.modelNo||"?";
     const custId=currentCart.__custId||"";
     const sessId=currentCart.__sessId||null;
@@ -103,10 +105,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       return{go,stockAvail,canTake};
     });
     const stockLimit=perOrder.reduce((s,p)=>s+p.canTake,0);
-    /* Step 2: Planned limit (SUMMED across group) — only for linked sale sessions */
+    /* Step 2: Planned limit (SUMMED across group) — only for linked sale sessions, and only if NOT override */
     let plannedLimit=Infinity;
     let plannedDetails=null;
-    if(linkedSessGrid&&mode==="sale"){
+    if(linkedSessGrid&&mode==="sale"&&!overrideMode){
       plannedDetails={totalPlanned:0,totalDelivered:0,totalRemaining:0};
       for(const go of groupOrders){
         const planned=Number(linkedSessGrid[go.id+"_"+custId])||0;
@@ -121,15 +123,26 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       plannedLimit=Math.max(0,plannedDetails.totalRemaining-alreadyInCartForGroup);
     }
     const effectiveCap=Math.min(plannedLimit,stockLimit);
-    /* Step 3: Validation with detailed error */
+    /* Step 3: Validation with DETAILED error — diagnoses the limiting factor */
     if(requestedQty>effectiveCap){
+      const parts=[];
+      if(plannedDetails){
+        if(plannedDetails.totalRemaining<=0){
+          parts.push("الخطة اكتملت ("+plannedDetails.totalDelivered+"/"+plannedDetails.totalPlanned+")");
+        }else if(plannedLimit<stockLimit){
+          parts.push("المتبقي من الخطة "+plannedLimit);
+        }
+      }
+      if(stockLimit<requestedQty&&(!plannedDetails||stockLimit<plannedLimit)){
+        parts.push("المخزن المتاح "+stockLimit+" قطعة");
+      }
+      const cartSum=perOrder.reduce((s,p)=>s+(Number(currentCart[p.go.id])||0),0);
+      if(cartSum>0)parts.push("في الـ cart: "+cartSum);
       let err="⛔ "+modelNo+": المطلوب "+requestedQty;
-      if(plannedDetails&&plannedLimit<stockLimit){
-        err+=" — المتبقي من الخطة "+plannedLimit+" قطعة (الخطة الكلية: "+plannedDetails.totalPlanned+")";
-      }else if(stockLimit<plannedLimit&&plannedDetails){
-        err+=" — المتاح في المخزن "+stockLimit+" قطعة (الخطة المتبقية: "+plannedLimit+")";
-      }else{
-        err+=" — المتاح "+effectiveCap+" قطعة";
+      if(parts.length>0)err+=" — "+parts.join("، ");
+      /* Hint about override — only if planned is the limit */
+      if(!overrideMode&&plannedDetails&&stockLimit>=requestedQty){
+        err+="\n💡 فعّل \"وضع الطوارئ 🚨\" للبيع خارج الخطة";
       }
       return{ok:false,allocations:[],error:err,grandAvail:effectiveCap,modelNo};
     }
@@ -1654,11 +1667,12 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           /* Pass session context for planned-limit cap */
           const _ls=qrSale.linkedSession&&qrSale.linkedSession!=="free"?sessions.find(s=>s.id===qrSale.linkedSession):null;
           const cartWithCtx={...currentCart,__custId:qrSale.custId,__sessId:_ls?_ls.id:null};
-          const dist=distributeFIFO(sameModelOrders,rs,"sale",cartWithCtx,_ls?(_ls.grid||{}):null,null);
+          const dist=distributeFIFO(sameModelOrders,rs,"sale",cartWithCtx,_ls?(_ls.grid||{}):null,null,qrSale.override===true);
           if(!dist.ok){playBeep("error");showToast(dist.error);return}
           /* Success — add one item per allocation (keeps per-order accounting correct for pricing) */
           playBeep("ok");
-          setQrSale(p=>{const newItems=[...p.items];dist.allocations.forEach(a=>{const oo=orders.find(x=>x.id===a.orderId);newItems.push({orderId:a.orderId,modelNo:oo.modelNo,modelDesc:oo.modelDesc,rackSize:rs,qty:a.qty})});return{...p,items:newItems}});
+          if(qrSale.override===true)showToast("⚠️ "+o.modelNo+" — بيع طوارئ (خارج الخطة)");
+          setQrSale(p=>{const newItems=[...p.items];dist.allocations.forEach(a=>{const oo=orders.find(x=>x.id===a.orderId);newItems.push({orderId:a.orderId,modelNo:oo.modelNo,modelDesc:oo.modelDesc,rackSize:rs,qty:a.qty,isOverride:qrSale.override===true})});return{...p,items:newItems}});
         }else{/* return */
           const dist=distributeFIFO(sameModelOrders,rs,"return",currentCart,null,qrSale.custId);
           if(!dist.ok){playBeep("error");showToast(dist.error.replace(/المتاح/g,"المسلّم للعميل"));return}
@@ -1674,10 +1688,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         const groups={};const order=[];
         qrSale.items.forEach((it,idx)=>{
           const key=(it.modelNo||"")+"__"+(it.rackSize||0);
-          if(!groups[key]){groups[key]={key,modelNo:it.modelNo,modelDesc:it.modelDesc,rackSize:it.rackSize,isBroken:it.isBroken,indices:[],totalQty:0,items:[]};order.push(key)}
+          if(!groups[key]){groups[key]={key,modelNo:it.modelNo,modelDesc:it.modelDesc,rackSize:it.rackSize,isBroken:it.isBroken,isOverride:it.isOverride,indices:[],totalQty:0,items:[]};order.push(key)}
           groups[key].indices.push(idx);
           groups[key].items.push(it);
           groups[key].totalQty+=(Number(it.qty)||0);
+          if(it.isOverride)groups[key].isOverride=true;
         });
         return order.map(k=>groups[k]);
       })();
@@ -1718,23 +1733,26 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             return;
           }
         }
-        /* Final validation */
+        /* Final validation — V15.40: Group-level (not per-order) + override-aware */
         if(isSale){
-          /* Determine if linked to a specific distribution session */
           const linkSess=(qrSale.linkedSession&&qrSale.linkedSession!=="free")?sessions.find(s=>s.id===qrSale.linkedSession):null;
-          for(const[oid,qty] of Object.entries(byOrder)){const o=orders.find(x=>x.id===oid);
-            if(linkSess){
-              /* Option (ج): Limit to what was distributed in this session to this customer */
-              const distributed=Number(linkSess.grid?.[oid+"_"+qrSale.custId])||0;
-              if(distributed<=0){showToast("⛔ "+o?.modelNo+": لم يوزّع في هذه الجلسة للعميل");return}
-              /* Already sold in this session from this customer */
-              const alreadySold=(o?.customerDeliveries||[]).filter(d=>d.sessionId===linkSess.id&&d.custId===qrSale.custId).reduce((s,d)=>s+(Number(d.qty)||0),0);
-              const remaining=distributed-alreadySold;
-              if(qty>remaining){showToast("⛔ "+o?.modelNo+": الكمية ("+qty+") أكبر من المتبقي في التوزيعة ("+remaining+" من "+distributed+")");return}
-            }else{
-              /* Free sale: limit to available stock */
-              const avail=getAvailStock(oid);
-              if(qty>avail){showToast("⛔ "+o?.modelNo+": الكمية ("+qty+") أكبر من المتاح ("+avail+")");return}
+          const isOverride=qrSale.override===true;
+          /* Group byOrder by modelNo to match FIFO logic */
+          const byModel={};
+          Object.entries(byOrder).forEach(([oid,qty])=>{const o=orders.find(x=>x.id===oid);if(!o)return;const k=o.modelNo||oid;if(!byModel[k])byModel[k]={modelNo:o.modelNo,orderIds:[],totalQty:0};byModel[k].orderIds.push(oid);byModel[k].totalQty+=qty;});
+          for(const[modelNo,grp] of Object.entries(byModel)){
+            if(linkSess&&!isOverride){
+              /* Sum planned across all sub-orders for this customer */
+              const totalPlanned=grp.orderIds.reduce((s,oid)=>s+(Number(linkSess.grid?.[oid+"_"+qrSale.custId])||0),0);
+              const totalAlreadySold=grp.orderIds.reduce((s,oid)=>{const o=orders.find(x=>x.id===oid);return s+(o?.customerDeliveries||[]).filter(d=>d.sessionId===linkSess.id&&d.custId===qrSale.custId).reduce((ss,d)=>ss+(Number(d.qty)||0),0)},0);
+              const remaining=totalPlanned-totalAlreadySold;
+              if(totalPlanned<=0){showToast("⛔ "+modelNo+": لم يوزّع في هذه الجلسة — فعّل وضع الطوارئ للبيع");return}
+              if(grp.totalQty>remaining){showToast("⛔ "+modelNo+": الكمية ("+grp.totalQty+") أكبر من المتبقي في الخطة ("+remaining+" من "+totalPlanned+") — فعّل وضع الطوارئ للبيع خارج الخطة");return}
+            }else if(!linkSess||isOverride){
+              /* Free sale or override: check stock only (group-level) */
+              const totalStock=grp.orderIds.reduce((s,oid)=>s+getAvailStock(oid),0);
+              /* Plus already-sold-in-cart deductions not needed (getAvailStock already excludes customerDeliveries) */
+              if(grp.totalQty>totalStock){showToast("⛔ "+modelNo+": الكمية ("+grp.totalQty+") أكبر من المتاح في المخزن ("+totalStock+")");return}
             }
           }
         }
@@ -1746,8 +1764,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           if(!linkedSess){const grid={};Object.entries(byOrder).forEach(([oid,qty])=>{grid[oid+"_"+qrSale.custId]=qty});
             upSales(d=>{if(!d.custDeliverySessions)d.custDeliverySessions=[];d.custDeliverySessions.push({id:sessId,date:new Date().toISOString().split("T")[0],modelIds,custIds:[qrSale.custId],grid,createdBy:userName,createdAt:new Date().toISOString(),status:"تم التسليم",freeSale:true,saleConfirmed:true})})}
           else{upSales(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===sessId);if(si>=0){d.custDeliverySessions[si].actualSales=byOrder;d.custDeliverySessions[si].actualSaleDate=new Date().toISOString().split("T")[0];d.custDeliverySessions[si].actualSaleBy=userName;d.custDeliverySessions[si].saleConfirmed=true}})}
-          Object.entries(byOrder).forEach(([oid,qty])=>{updOrder(oid,o=>{if(!o.customerDeliveries)o.customerDeliveries=[];o.customerDeliveries.push({custId:qrSale.custId,custName:cust.name,qty,date:new Date().toISOString().split("T")[0],sessionId:sessId,createdBy:userName})})});
-          playBeep("done");showToast("✓ تم تسجيل بيع "+total+" قطعة لـ "+cust.name);
+          Object.entries(byOrder).forEach(([oid,qty])=>{updOrder(oid,o=>{if(!o.customerDeliveries)o.customerDeliveries=[];o.customerDeliveries.push({custId:qrSale.custId,custName:cust.name,qty,date:new Date().toISOString().split("T")[0],sessionId:sessId,createdBy:userName,...(qrSale.override===true?{isOverride:true,overrideReason:"بيع طوارئ خارج الخطة"}:{})})})});
+          playBeep("done");showToast((qrSale.override===true?"⚠️ بيع طوارئ ":"✓ تم تسجيل بيع ")+total+" قطعة لـ "+cust.name);
           /* Archive package if sale was from package */
           if(qrSale._pkgId){upSales(d=>{const pi=(d.packages||[]).findIndex(p=>p.id===qrSale._pkgId);if(pi>=0){d.packages[pi].status="مباعة";d.packages[pi].closedAt=new Date().toISOString();if(!d.packages[pi].movements)d.packages[pi].movements=[];d.packages[pi].movements.push({date:new Date().toISOString().split("T")[0],type:"sell",custName:cust.name,totalQty:total,by:userName||""})}})}
         }else{
@@ -1801,12 +1819,22 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         </div>
       </div>}
       const custName=customers.find(c=>c.id===qrSale.custId)?.name||"";
+      /* V15.40: Emergency override — toggled per-sale, disappears when popup closes */
+      const isOverride=qrSale.override===true;
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={closeQrSale}>
-        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?420:600,minHeight:isMob?"75vh":"60vh",maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?420:600,minHeight:isMob?"75vh":"60vh",maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"+(isOverride?",inset 0 0 0 3px #EF4444":"")}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-            <div><div style={{fontSize:FS+2,fontWeight:800,color}}>{title}</div><div style={{fontSize:FS-1,color:T.textMut}}>{custName+(linkedSess?" — مربوط بسجل "+linkedSess.date:isSale?" — بيع حر":"")}</div></div>
+            <div><div style={{fontSize:FS+2,fontWeight:800,color:isOverride?"#EF4444":color}}>{title}{isOverride&&<span style={{fontSize:FS-1,marginInlineStart:8,padding:"2px 8px",background:"#EF4444",color:"#fff",borderRadius:6}}>🚨 طوارئ</span>}</div><div style={{fontSize:FS-1,color:T.textMut}}>{custName+(linkedSess?" — مربوط بسجل "+linkedSess.date:isSale?" — بيع حر":"")}</div></div>
             <div style={{display:"flex",gap:4}}><Btn ghost small onClick={()=>setQrSale(p=>({...p,linkedSession:undefined,custId:null,items:[]}))}>{isSale?"← سجل":"← عميل"}</Btn><Btn ghost small onClick={closeQrSale}>✕</Btn></div>
           </div>
+          {/* V15.40: Emergency Override toggle — only for linked sales */}
+          {isSale&&linkedSess&&<div onClick={()=>setQrSale(p=>({...p,override:!p.override}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",marginBottom:10,borderRadius:10,cursor:"pointer",background:isOverride?"#EF444410":T.bg+"60",border:"1.5px solid "+(isOverride?"#EF4444":T.brd)}}>
+            <div style={{width:22,height:22,borderRadius:"50%",border:"2px solid "+(isOverride?"#EF4444":T.brd),background:isOverride?"#EF4444":"transparent",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:12,fontWeight:800,flexShrink:0}}>{isOverride?"✓":""}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:FS-1,fontWeight:700,color:isOverride?"#EF4444":T.text}}>🚨 وضع الطوارئ — تجاوز الخطة</div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{isOverride?"⚠️ الفحص مغلق — البيع يعتمد على المخزن فقط":"البيع محدود بخطة العميل في الجلسة"}</div>
+            </div>
+          </div>}
           {linkedSess&&(()=>{
             /* V15.39: Group planned models by modelNo — same merging logic as distribution matrix.
                Each row represents ONE model (sum of planned/delivered/cart across all sub-orders). */
@@ -1876,10 +1904,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               const currentCart={};qrSale.items.forEach(it=>{currentCart[it.orderId]=(currentCart[it.orderId]||0)+(Number(it.qty)||0)});
               const _ls=isSale&&qrSale.linkedSession&&qrSale.linkedSession!=="free"?sessions.find(s=>s.id===qrSale.linkedSession):null;
               const cartWithCtx={...currentCart,__custId:qrSale.custId,__sessId:_ls?_ls.id:null};
-              const dist=distributeFIFO(sameModel,qty,isSale?"sale":"return",cartWithCtx,isSale&&_ls?(_ls.grid||{}):null,!isSale?qrSale.custId:null);
+              const dist=distributeFIFO(sameModel,qty,isSale?"sale":"return",cartWithCtx,isSale&&_ls?(_ls.grid||{}):null,!isSale?qrSale.custId:null,isSale&&qrSale.override===true);
               if(!dist.ok){playBeep("error");showToast(isSale?dist.error:dist.error.replace(/المتاح/g,"المسلّم للعميل"));return}
               playBeep("ok");
-              setQrSale(p=>{const newItems=[...p.items];dist.allocations.forEach(a=>{const oo=orders.find(x=>x.id===a.orderId);newItems.push({orderId:a.orderId,modelNo:oo.modelNo,modelDesc:oo.modelDesc,rackSize:qty,qty:a.qty})});return{...p,items:newItems,_manualQty:0}});
+              if(isSale&&qrSale.override===true)showToast("⚠️ "+pickedO.modelNo+" — بيع طوارئ (خارج الخطة)");
+              setQrSale(p=>{const newItems=[...p.items];dist.allocations.forEach(a=>{const oo=orders.find(x=>x.id===a.orderId);newItems.push({orderId:a.orderId,modelNo:oo.modelNo,modelDesc:oo.modelDesc,rackSize:qty,qty:a.qty,isOverride:isSale&&qrSale.override===true})});return{...p,items:newItems,_manualQty:0}});
               }} options={(()=>{
                 /* V15.36: Group options by modelNo — show each unique model once with total avail across sub-orders (FIFO). value = earliest order id. */
                 const baseList=linkedSess?stockModels.filter(m=>m.avail>0&&linkedSess.modelIds.includes(m.id)):stockModels.filter(m=>m.avail>0);
@@ -1903,7 +1932,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th style={{...TH,fontSize:FS-2}}>الموديل</th><th style={{...TH,fontSize:FS-2}}>السيري</th><th style={{...TH,fontSize:FS-2}}>الكمية</th><th style={{...TH,width:30}}></th></tr></thead><tbody>
               {/* V15.36: Render grouped by modelNo+rackSize to merge FIFO allocations */}
               {groupedCartItems.map((grp,i)=><tr key={grp.key} style={{background:i%2===0?"transparent":T.bg+"80"}}>
-                <td style={{...TD,fontWeight:700,color:T.accent}}>{grp.modelNo}{grp.items.length>1&&<span style={{fontSize:FS-3,color:"#8B5CF6",marginInlineStart:6,fontWeight:700}} title={"موزع FIFO على "+grp.items.length+" تشغيل بنفس الموديل"}>⧉{grp.items.length}</span>}{grp.isBroken&&<span style={{fontSize:FS-3,color:"#F59E0B",marginInlineStart:6,fontWeight:700}} title="كسر">🧩</span>}</td>
+                <td style={{...TD,fontWeight:700,color:T.accent}}>{grp.modelNo}{grp.items.length>1&&<span style={{fontSize:FS-3,color:"#8B5CF6",marginInlineStart:6,fontWeight:700}} title={"موزع FIFO على "+grp.items.length+" تشغيل بنفس الموديل"}>⧉{grp.items.length}</span>}{grp.isBroken&&<span style={{fontSize:FS-3,color:"#F59E0B",marginInlineStart:6,fontWeight:700}} title="كسر">🧩</span>}{grp.isOverride&&<span style={{fontSize:FS-3,color:"#EF4444",marginInlineStart:6,fontWeight:700}} title="بيع طوارئ — خارج الخطة">🚨</span>}</td>
                 <td style={{...TD,textAlign:"center"}}>{grp.rackSize}</td>
                 <td style={{...TD,textAlign:"center"}}><input type="number" value={grp.totalQty} onChange={e=>updateGroupQty(grp,e.target.value)} style={{width:60,textAlign:"center",border:"1px solid "+T.brd,borderRadius:4,padding:"2px",fontSize:FS,fontWeight:700,fontFamily:"inherit",background:T.cardSolid,color:T.text}}/></td>
                 <td style={{...TD,textAlign:"center"}}><span onClick={()=>removeGroup(grp)} style={{cursor:"pointer",color:T.err,fontSize:14}}>🗑️</span></td>
@@ -1942,7 +1971,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               h+="</div>";
               h+="<div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>العميل: "+cust.name+"</div></div>";
               printPage("عرض سعر — "+cust.name,h)}} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>{"🧾 عرض سعر"}</Btn>}
-            <Btn onClick={confirmSale} disabled={total<=0} style={{background:color,color:"#fff",border:"none",fontWeight:700}}>{(isSale?"📦 تأكيد البيع":"↩️ تأكيد المرتجع")+" ("+total+")"}</Btn>
+            <Btn onClick={confirmSale} disabled={total<=0} style={{background:isOverride?"#EF4444":color,color:"#fff",border:"none",fontWeight:700}}>{(isOverride?"🚨 تأكيد بيع طوارئ":(isSale?"📦 تأكيد البيع":"↩️ تأكيد المرتجع"))+" ("+total+")"}</Btn>
           </div>
         </div>
       </div>})()}
