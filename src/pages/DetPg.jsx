@@ -14,6 +14,7 @@ import { calcOrder, detectQtyMismatch, getConfirmedStock, getOrderDetails, getOr
 import { addAudit } from "../utils/audit.js";
 import { ask, highlightRow, showToast } from "../utils/popups.js";
 import { printLabel, printOrderSheet, printReceipt, printWorkshopReport } from "../utils/print-extras.js";
+import { uploadMultiple, deleteAttachment, getFileIcon, formatFileSize, isAllowedFile, MAX_FILE_SIZE } from "../utils/attachments.js";
 import { OrdForm } from "./OrdForm.jsx";
 
 export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,isTab,canEdit,statusCards,goHome,upConfig,user}){
@@ -1039,6 +1040,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
             </Card>
           })()}
       {order.instructions&&<Card title="تعليمات التشغيل" style={{marginTop:16}}><div style={{whiteSpace:"pre-wrap",fontSize:FS+1,lineHeight:2}}>{order.instructions}</div></Card>}
+      {/* V15.90: Attachments card — files stored in Firebase Storage, metadata only in Firestore */}
+      <AttachmentsCard order={order} updOrder={updOrder} sel={sel} canEdit={canEdit} userName={userName} isMob={isMob}/>
     </div>
     {/* WhatsApp Choice Popup */}
     {waPopup&&(()=>{const wo=waPopup.order;const wt=waPopup.t||calcOrder(wo);const timeline=getOrderTimeline(wo,wt);const hasTimeline=!!timeline;
@@ -1288,6 +1291,147 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       </div>
     })()}
   </div>
+}
+
+/* ══ V15.90: ATTACHMENTS CARD — per-order file storage via Firebase Storage ══
+   Files stored at: orders/{orderId}/attachments/
+   Only metadata (name, type, size, storagePath, downloadURL) persisted in Firestore. */
+function AttachmentsCard({order,updOrder,sel,canEdit,userName,isMob}){
+  const attachments=order.attachments||[];
+  const[uploading,setUploading]=useState(false);
+  const[uploadProgress,setUploadProgress]=useState({});/* {idx: pct} */
+  const[uploadErrors,setUploadErrors]=useState([]);
+  const[deleteId,setDeleteId]=useState(null);
+
+  const onFilesSelected=async(e)=>{
+    const files=Array.from(e.target.files||[]);
+    if(files.length===0)return;
+    /* Validate all files first */
+    const invalid=files.filter(f=>!isAllowedFile(f.name));
+    if(invalid.length>0){
+      showToast("⛔ ملفات غير مدعومة: "+invalid.map(f=>f.name).join(", "));
+      e.target.value="";return;
+    }
+    const tooBig=files.filter(f=>f.size>MAX_FILE_SIZE);
+    if(tooBig.length>0){
+      showToast("⛔ ملفات أكبر من 10 MB: "+tooBig.map(f=>f.name).join(", "));
+      e.target.value="";return;
+    }
+    setUploading(true);
+    setUploadErrors([]);
+    setUploadProgress({});
+    try{
+      const results=await uploadMultiple(sel,files,userName,(idx,pct)=>{
+        setUploadProgress(p=>({...p,[idx]:pct}));
+      });
+      const successes=results.filter(r=>!r.error);
+      const failures=results.filter(r=>r.error);
+      if(successes.length>0){
+        updOrder(sel,o=>{
+          if(!Array.isArray(o.attachments))o.attachments=[];
+          successes.forEach(att=>o.attachments.push(att));
+        });
+        showToast("✅ تم رفع "+successes.length+" ملف");
+      }
+      if(failures.length>0){
+        setUploadErrors(failures.map(f=>f.fileName+": "+f.error));
+      }
+    }catch(err){
+      showToast("⛔ خطأ في الرفع: "+(err.message||String(err)));
+    }finally{
+      setUploading(false);
+      setUploadProgress({});
+      e.target.value="";
+    }
+  };
+
+  const doDelete=async(att)=>{
+    if(!att)return;
+    try{
+      await deleteAttachment(att.storagePath);
+      updOrder(sel,o=>{
+        o.attachments=(o.attachments||[]).filter(a=>a.id!==att.id);
+      });
+      showToast("✅ تم حذف المرفق");
+    }catch(err){
+      showToast("⛔ فشل الحذف: "+(err.message||String(err)));
+    }finally{
+      setDeleteId(null);
+    }
+  };
+
+  const totalSize=attachments.reduce((s,a)=>s+(Number(a.size)||0),0);
+
+  return<Card title={"📎 مرفقات الأوردر"+(attachments.length>0?" ("+attachments.length+")":"")} style={{marginTop:16}}>
+    {/* Upload button + info */}
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:12}}>
+      <div style={{fontSize:FS-2,color:T.textSec}}>
+        {attachments.length===0?"لا توجد مرفقات":"الإجمالي: "+formatFileSize(totalSize)}
+      </div>
+      {canEdit&&<label style={{cursor:uploading?"wait":"pointer",padding:"8px 16px",borderRadius:10,background:uploading?T.bg:T.accent+"12",color:uploading?T.textMut:T.accent,border:"1px solid "+(uploading?T.brd:T.accent+"30"),fontWeight:700,fontSize:FS-1,display:"inline-flex",alignItems:"center",gap:6}}>
+        {uploading?"⏳ جاري الرفع...":"➕ إضافة مرفقات"}
+        <input type="file" multiple disabled={uploading} onChange={onFilesSelected} accept=".jpg,.jpeg,.png,.webp,.gif,.pdf,.doc,.docx,.xls,.xlsx,.txt" style={{display:"none"}}/>
+      </label>}
+    </div>
+
+    {/* Upload progress */}
+    {uploading&&Object.keys(uploadProgress).length>0&&<div style={{padding:10,borderRadius:10,background:T.accent+"06",border:"1px solid "+T.accent+"20",marginBottom:12}}>
+      {Object.entries(uploadProgress).map(([idx,pct])=>
+        <div key={idx} style={{marginBottom:4}}>
+          <div style={{fontSize:FS-2,color:T.textSec,marginBottom:2}}>ملف {Number(idx)+1}: {pct}%</div>
+          <div style={{height:6,background:T.bg,borderRadius:3,overflow:"hidden"}}>
+            <div style={{height:"100%",width:pct+"%",background:T.accent,transition:"width 0.2s"}}></div>
+          </div>
+        </div>
+      )}
+    </div>}
+
+    {/* Upload errors */}
+    {uploadErrors.length>0&&<div style={{padding:10,borderRadius:10,background:T.err+"08",border:"1px solid "+T.err+"30",marginBottom:12,fontSize:FS-2,color:T.err}}>
+      <div style={{fontWeight:700,marginBottom:4}}>⛔ فشل رفع بعض الملفات:</div>
+      {uploadErrors.map((e,i)=><div key={i}>• {e}</div>)}
+    </div>}
+
+    {/* Attachments list */}
+    {attachments.length>0&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {attachments.map(att=>
+        <div key={att.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:T.bg,borderRadius:10,border:"1px solid "+T.brd}}>
+          <span style={{fontSize:22}}>{getFileIcon(att.type)}</span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:700,color:T.text,fontSize:FS-1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={att.name}>{att.name}</div>
+            <div style={{fontSize:FS-3,color:T.textMut,display:"flex",gap:8,flexWrap:"wrap"}}>
+              <span>{formatFileSize(att.size)}</span>
+              <span>•</span>
+              <span>{(att.uploadedAt||"").split("T")[0]}</span>
+              {att.uploadedBy&&<><span>•</span><span>{att.uploadedBy}</span></>}
+            </div>
+          </div>
+          <a href={att.downloadURL} target="_blank" rel="noopener noreferrer" style={{padding:"6px 10px",borderRadius:8,background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontSize:FS-2,fontWeight:700,textDecoration:"none"}} title="فتح/تحميل">👁 فتح</a>
+          {canEdit&&<Btn small onClick={()=>setDeleteId(att)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",padding:"6px 10px"}} title="حذف">🗑</Btn>}
+        </div>
+      )}
+    </div>}
+
+    {/* Info note */}
+    <div style={{marginTop:10,padding:"8px 12px",background:T.accent+"06",borderRadius:8,fontSize:FS-3,color:T.textMut,lineHeight:1.6}}>
+      💡 الملفات المدعومة: صور (jpg/png/webp/gif), PDF, Word, Excel. أقصى حجم: 10 MB للملف.
+    </div>
+
+    {/* Delete confirmation */}
+    {deleteId&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setDeleteId(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:22,width:"100%",maxWidth:420,border:"2px solid "+T.err,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{fontSize:FS+1,fontWeight:800,color:T.err,marginBottom:10}}>⛔ حذف مرفق</div>
+        <div style={{fontSize:FS,color:T.text,marginBottom:14,lineHeight:1.6}}>
+          هل تريد حذف <b>{deleteId.name}</b>؟
+          <div style={{fontSize:FS-2,color:T.textMut,marginTop:4}}>لا يمكن التراجع عن هذا الإجراء.</div>
+        </div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <Btn onClick={()=>setDeleteId(null)} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>إلغاء</Btn>
+          <Btn onClick={()=>doDelete(deleteId)} style={{background:T.err,color:"#fff",border:"none",fontWeight:700}}>🗑 حذف</Btn>
+        </div>
+      </div>
+    </div>}
+  </Card>;
 }
 
 /* ══ EXTERNAL PRODUCTION ══ */

@@ -360,7 +360,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   /* V15.82: Arabic-aware search.
      - Normalizes diacritics (tashkeel), tatweel, alef variants, ya, and ta-marbuta
      - Matches on party name (employee/customer/supplier/workshop) via ID lookup
-     - Matches numeric amount when user types a number */
+     - Matches numeric amount when user types a number
+     V15.90: Removed t.by (user who recorded the tx) — it was polluting search results
+     because every entry is recorded by the same logged-in user, making the filter useless.
+     Search now filters by transaction content (desc/party/category) only. */
   if(filterSearchDeb){
     const normAr=(s)=>(s==null?"":s.toString()).toLowerCase()
       .replace(/[\u064B-\u0652\u0670\u0640]/g,"")  /* tashkeel + tatweel */
@@ -382,7 +385,6 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(!partyName&&t.supplierName)partyName=t.supplierName;
       return normAr(t.desc).includes(q)
         ||normAr(t.notes).includes(q)
-        ||normAr(t.by).includes(q)
         ||normAr(t.category).includes(q)
         ||normAr(partyName).includes(q)
         ||(qNum!==""&&String(t.amount||"").includes(qNum));
