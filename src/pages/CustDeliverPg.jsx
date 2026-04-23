@@ -200,17 +200,20 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const rackSize=group.rackSize||1;
       if(newQty>0&&newQty%rackSize!==0){setCellError("الكمية "+newQty+" مش من مضاعفات السيري ("+rackSize+") — جرب "+Math.round(newQty/rackSize)*rackSize);return}
       setCellError("");
-      /* FIFO distribution: take from oldest sub-order first */
+      /* FIFO distribution: take from oldest sub-order first
+         V15.73: Allow planning even when stock is exhausted — if sub-order not in stockModels,
+         fall back to its group sub-order record (has id + stockQty) so the user's input is preserved.
+         Previously this caused quantities to silently reset to 0 on edit. */
       let remaining=Math.max(0,newQty);
       const distribution={};/* orderId → qty to set */
       for(const so of group.subOrders){
         if(remaining<=0){distribution[so.id]=0;continue}
         const sm=stockModels.find(m=>m.id===so.id);
-        if(!sm){distribution[so.id]=0;continue}
-        /* Calculate available capacity in this sub-order (stock - already planned in OTHER cells for this order) */
+        /* V15.73: Compute available capacity — fallback to so.stockQty when not in stockModels */
         const sess=sessions.find(s=>s.id===sessId);
         const otherCellsPlan=Object.entries(sess?.grid||{}).filter(([k])=>{const[oid,cid]=k.split("_");return oid===so.id&&cid!==custId}).reduce((s,[_,v])=>s+(Number(v)||0),0);
-        const capacity=Math.max(0,(sm.avail||0)-otherCellsPlan);
+        const subStock=sm?sm.avail:Math.max(0,(Number(so.stockQty)||0)-otherCellsPlan);
+        const capacity=Math.max(0,subStock);
         const take=Math.min(remaining,capacity);
         distribution[so.id]=take;
         remaining-=take;

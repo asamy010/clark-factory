@@ -1213,7 +1213,10 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     });
   };
 
-  /* V15.72: Bulk save all workshop payments at once from the popup */
+  /* V15.72: Bulk save all workshop payments at once from the popup.
+     V15.74: Changed behavior from APPEND to REPLACE for planned payments —
+     prevents duplication when editing the popup. Purchases (type==="purchase")
+     and already-registered payments (treasuryTxId exists) are preserved. */
   const saveBulkWsPayments=()=>{
     if(!openWeek)return;
     const useDateSave=openWeek.weekStart||today;
@@ -1224,31 +1227,39 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       if(!wsObj)return;
       toSave.push({wsObj,amt});
     });
-    if(toSave.length===0){showToast("⚠️ اكتب مبلغ لورشة واحدة على الأقل");return}
     upConfig(d=>{
       const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
-      if(!d.hrWeeks[wi].weeklyWsPayments)d.hrWeeks[wi].weeklyWsPayments=[];
-      let addedCount=0;let totalAdded=0;
-      toSave.forEach(({wsObj,amt})=>{
-        d.hrWeeks[wi].weeklyWsPayments.push({
-          id:gid(),wsName:wsObj.name,wsId:wsObj.id||null,
-          amount:amt,type:"payment",date:useDateSave,note:wsBulkNote||"",
-          createdBy:userName||"",createdAt:new Date().toISOString(),
-          planned:true
+      const existing=d.hrWeeks[wi].weeklyWsPayments||[];
+      /* V15.74: Keep purchases + already-registered payments, replace planned payments only */
+      const kept=existing.filter(p=>p.type!=="payment"||p.treasuryTxId);
+      const prevPlanned=existing.filter(p=>p.type==="payment"&&!p.treasuryTxId);
+      const prevCount=prevPlanned.length;
+      const prevTotal=prevPlanned.reduce((s,p)=>s+(Number(p.amount)||0),0);
+      /* Build new planned payments */
+      const newPayments=toSave.map(({wsObj,amt})=>({
+        id:gid(),wsName:wsObj.name,wsId:wsObj.id||null,
+        amount:amt,type:"payment",date:useDateSave,note:wsBulkNote||"",
+        createdBy:userName||"",createdAt:new Date().toISOString(),
+        planned:true
+      }));
+      const newTotal=toSave.reduce((s,{amt})=>s+amt,0);
+      d.hrWeeks[wi].weeklyWsPayments=[...kept,...newPayments];
+      /* Audit — only log if something actually changed */
+      const changed=prevCount!==toSave.length||Math.abs(prevTotal-newTotal)>0.5;
+      if(changed||toSave.length>0){
+        addAudit(d,{
+          category:"ws_payment",action:prevCount>0?"update_bulk":"add_bulk",
+          target:"W"+d.hrWeeks[wi].weekNum,
+          oldValue:prevCount>0?prevCount+" ورشة — إجمالي "+fmt0(prevTotal)+" ج":"لا يوجد",
+          newValue:toSave.length+" ورشة — إجمالي "+fmt0(newTotal)+" ج"+(wsBulkNote?" — "+wsBulkNote:""),
+          user:userName,severity:newTotal>20000?"warning":"info",
+          notes:prevCount>0?"تحديث دفعات ورش جماعية (استبدال الخطة)":"إضافة دفعات ورش جماعية (خطة)"
         });
-        addedCount++;totalAdded+=amt;
-      });
-      addAudit(d,{
-        category:"ws_payment",action:"add_bulk",
-        target:"W"+d.hrWeeks[wi].weekNum,
-        newValue:addedCount+" ورشة — إجمالي "+fmt0(totalAdded)+" ج"+(wsBulkNote?" — "+wsBulkNote:""),
-        user:userName,severity:totalAdded>20000?"warning":"info",
-        notes:"إضافة دفعات ورش جماعية (خطة — ستُسجَّل في الخزنة عند الإقفال)"
-      });
+      }
     });
     setShowWsBulkPopup(false);
     setWsBulkAmounts({});setWsBulkNote("");
-    showToast("✓ تم إضافة "+toSave.length+" دفعة للخطة");
+    showToast(toSave.length>0?"✓ تم حفظ "+toSave.length+" دفعة":"✓ تم مسح كل الدفعات المخططة");
   };
 
   /* V15.34: Weekly other expenses — planned, registered in treasury on week close */
@@ -1958,7 +1969,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
 
   /* V15.71: Weekly financial summary report — for CFO approval before cash disbursement */
   const printWeeklyFinancialSummary=(w)=>{
-    if(!w)return;
+    if(!w){showToast("⚠️ لا يوجد أسبوع محدد");return}
+    try{
     const wSelected=(w.selectedEmps&&Array.isArray(w.selectedEmps))?w.selectedEmps:[];
     const wShown=activeEmps.filter(e=>wSelected.includes(e.id));
     /* Compute records — use closedRecords snapshot for closed weeks, live calc for open */
@@ -2012,6 +2024,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     const today=new Date();
     const todayStr=today.toLocaleDateString("ar-EG",{year:"numeric",month:"long",day:"numeric",weekday:"long"});
     const timeStr=today.toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit"});
+    console.log("📊 تقرير مالي — W"+w.weekNum,{totalEmps,totalSalaries,totalMonthlyAdvs,totalWsPayments,totalOtherExps,grandTotal});
     /* Build HTML */
     const html=`<!DOCTYPE html><html dir="rtl" lang="ar"><head>
 <meta charset="UTF-8"/>
@@ -2221,9 +2234,15 @@ body{font-family:'Cairo',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
 
 </body></html>`;
     const pw=_openPrintWin();
-    if(!pw){showToast("⚠️ فعّل النوافذ المنبثقة");return}
+    if(!pw){showToast("⚠️ المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+    pw.document.open();
     pw.document.write(html);
     pw.document.close();
+    try{pw.focus()}catch(_){}
+    }catch(err){
+      console.error("Print weekly financial summary error:",err);
+      showToast("⚠️ خطأ في التقرير: "+(err?.message||"غير معروف"));
+    }
   };
 
   const printSlip=(empId)=>{if(!openWeek)return;const html=buildSlipHTML(empId);if(!html)return;
@@ -5722,6 +5741,11 @@ body{font-family:'Cairo',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
       const withoutBalance=wsData.filter(w=>w.balance<=0);
       const bulkTotal=Object.values(wsBulkAmounts).reduce((s,v)=>s+(Number(v)||0),0);
       const bulkCount=Object.values(wsBulkAmounts).filter(v=>Number(v)>0).length;
+      /* V15.74: Count existing planned payments for comparison */
+      const prevPlanned=(openWeek.weeklyWsPayments||[]).filter(p=>p.type==="payment"&&!p.treasuryTxId);
+      const prevCount=prevPlanned.length;
+      const prevTotal=prevPlanned.reduce((s,p)=>s+(Number(p.amount)||0),0);
+      const hasChanges=bulkCount!==prevCount||Math.abs(bulkTotal-prevTotal)>0.5;
       /* Helper: apply percentage limit to all workshops with balance */
       const applyAllLimits=()=>{
         const newAmounts={...wsBulkAmounts};
@@ -5865,9 +5889,12 @@ body{font-family:'Cairo',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
                   <div style={{fontSize:FS+4,fontWeight:900,color:bulkTotal>0?"#10B981":T.textMut}}>{fmt0(bulkTotal)} ج</div>
                 </div>
               </div>
-              <div style={{display:"flex",gap:8}}>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                {hasChanges&&<span style={{fontSize:FS-3,color:T.warn,fontWeight:700,padding:"4px 8px",borderRadius:6,background:T.warn+"12"}}>● فيه تعديلات</span>}
                 <Btn onClick={()=>setShowWsBulkPopup(false)} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>إلغاء</Btn>
-                <Btn onClick={saveBulkWsPayments} disabled={bulkCount===0} style={{background:bulkCount>0?"#8B5CF6":T.bg,color:bulkCount>0?"#fff":T.textMut,border:"none",fontWeight:800,fontSize:FS}}>✓ حفظ الدفعات ({bulkCount})</Btn>
+                <Btn onClick={saveBulkWsPayments} disabled={!hasChanges} style={{background:hasChanges?"#8B5CF6":T.bg,color:hasChanges?"#fff":T.textMut,border:"none",fontWeight:800,fontSize:FS}}>
+                  {bulkCount===0&&prevCount>0?"🗑️ مسح كل الدفعات":"✓ حفظ الدفعات ("+bulkCount+")"}
+                </Btn>
               </div>
             </div>
           </div>
