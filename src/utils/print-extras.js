@@ -40,8 +40,8 @@ export async function printReceipt(wsName,wsOwner,order,garmentType,qty,date,bal
   h+="<tr><th>رقم الموديل</th><td><b>"+modelNo+"</b></td><th>الوصف</th><td>"+modelDesc+"</td></tr>";
   h+="<tr><th>المقاسات</th><td>"+sizeLabel+"</td><th>كمية القص</th><td><b>"+t.cutQty+"</b></td></tr>";
   h+="<tr><th>الورشة</th><td><b style='color:#8B5CF6'>"+ws+"</b>"+(wsO?" — "+wsO:"")+"</td><th>التاريخ</th><td>"+(date||"")+"</td></tr>";
-  if(garmentType)h+="<tr><th>القطعة المسلمة</th><td><b style='color:#8B5CF6'>"+gi(garmentType)+" "+garmentType+"</b></td><th>الكمية المسلمة</th><td><b style='color:#0284C7;font-size:16px'>"+qty+"</b> قطعة</td></tr>";
-  else h+="<tr><th>الكمية المسلمة</th><td colspan='3'><b style='color:#0284C7;font-size:16px'>"+qty+"</b> قطعة</td></tr>";
+  if(garmentType)h+="<tr><th>قطعة التسليم</th><td><b style='color:#8B5CF6'>"+gi(garmentType)+" "+garmentType+"</b></td><th>كمية التسليم</th><td><b style='color:#0284C7;font-size:16px'>"+qty+"</b> قطعة</td></tr>";
+  else h+="<tr><th>كمية التسليم</th><td colspan='3'><b style='color:#0284C7;font-size:16px'>"+qty+"</b> قطعة</td></tr>";
   if(marker)h+="<tr><th>ماركر</th><td colspan='3'>"+marker+"</td></tr>";
   h+="</table></div></div>";
   /* Fabric details - only fabrics assigned to this garment piece */
@@ -97,8 +97,8 @@ export async function printReceiveReceipt(wsName,order,garmentType,qty,date,bala
   h+="<tr><th>رقم الموديل</th><td><b>"+modelNo+"</b></td><th>الوصف</th><td>"+modelDesc+"</td></tr>";
   h+="<tr><th>المقاسات</th><td>"+sizeLabel+"</td><th>كمية القص</th><td><b>"+t.cutQty+"</b></td></tr>";
   h+="<tr><th>الورشة</th><td><b style='color:#8B5CF6'>"+ws+"</b></td><th>التاريخ</th><td>"+(date||"")+"</td></tr>";
-  if(garmentType)h+="<tr><th>القطعة</th><td><b style='color:#8B5CF6'>"+gi(garmentType)+" "+garmentType+"</b></td><th>الكمية المستلمة</th><td><b style='color:#10B981;font-size:16px'>"+qty+"</b> قطعة</td></tr>";
-  else h+="<tr><th>الكمية المستلمة</th><td colspan='3'><b style='color:#10B981;font-size:16px'>"+qty+"</b> قطعة</td></tr>";
+  if(garmentType)h+="<tr><th>القطعة</th><td><b style='color:#8B5CF6'>"+gi(garmentType)+" "+garmentType+"</b></td><th>كمية الاستلام</th><td><b style='color:#10B981;font-size:16px'>"+qty+"</b> قطعة</td></tr>";
+  else h+="<tr><th>كمية الاستلام</th><td colspan='3'><b style='color:#10B981;font-size:16px'>"+qty+"</b> قطعة</td></tr>";
   if(marker)h+="<tr><th>ماركر</th><td colspan='3'>"+marker+"</td></tr>";
   h+="</table></div></div>";
   /* Fabric details */
@@ -256,8 +256,8 @@ export async function printStockDelivery(order,qty,date,note,totalDelivered,tota
     h+="<div style='flex:1'><table>";
   h+="<tr><th>رقم الموديل</th><td><b style='font-size:16px;color:#059669'>"+order.modelNo+"</b></td><th>الوصف</th><td>"+order.modelDesc+"</td></tr>";
   h+="<tr><th>المقاسات</th><td>"+order.sizeLabel+"</td><th>التاريخ</th><td><b>"+date+"</b></td></tr>";
-  h+="<tr><th>الكمية المسلمة</th><td><b style='font-size:18px;color:#059669'>"+qty+"</b> قطعة</td><th>اجمالي القص</th><td>"+totalCut+"</td></tr>";
-  h+="<tr><th>اجمالي المسلم للمخزن</th><td><b>"+totalDelivered+"</b></td><th>المتبقي</th><td><b style='color:"+(totalCut-totalDelivered>0?"#EF4444":"#10B981")+"'>"+(totalCut-totalDelivered)+"</b></td></tr>";
+  h+="<tr><th>كمية التسليم</th><td><b style='font-size:18px;color:#059669'>"+qty+"</b> قطعة</td><th>اجمالي القص</th><td>"+totalCut+"</td></tr>";
+  h+="<tr><th>اجمالي التسليم للمخزن</th><td><b>"+totalDelivered+"</b></td><th>المتبقي</th><td><b style='color:"+(totalCut-totalDelivered>0?"#EF4444":"#10B981")+"'>"+(totalCut-totalDelivered)+"</b></td></tr>";
   if(note)h+="<tr><th>ملاحظات</th><td colspan='3'>"+note+"</td></tr>";
   h+="</table></div></div>";
   /* Statement */

@@ -1087,7 +1087,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           showToast("✓ تم التسليم — "+dWs);setShowDeliver(false);
           if(print){setTimeout(()=>{const pOrd=data.orders.find(o=>o.id===sel)||order;printReceipt(dWs,wsObj?wsObj.owner:"",pOrd,saveType,saveQty,saveDate,maxQty-saveQty,data.garmentTypes)},400)}
           if(label){setTimeout(()=>{const pOrd=data.orders.find(o=>o.id===sel)||order;printLabel(dWs,pOrd,saveType,saveQty,saveDate,data.garmentTypes,{type:"deliver",delDate:saveDate,delQty:saveQty})},400)}
-          if(wa){const phone=wsObj?.phone||"";const msg="*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+dWs+"*%0A• رقم الموديل: *"+order.modelNo+"*%0A• الوصف: "+order.modelDesc+"%0A• نوع القطعة: *"+saveType+"*%0A• الكمية المستلمة: *"+saveQty+"* قطعة%0A• السعر: *"+(savePrice||0)+"* ج.م/قطعة%0A• التاريخ: *"+saveDate+"*"+(Number(dAgreed)>0?"%0A• مدة التسليم المتفق عليها: *"+dAgreed+"* يوم%0A• موعد التسليم المتوقع: *"+new Date(new Date(saveDate).getTime()+Number(dAgreed)*86400000).toISOString().split("T")[0]+"*":"")+"%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
+          if(wa){const phone=wsObj?.phone||"";const msg="*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+dWs+"*%0A• رقم الموديل: *"+order.modelNo+"*%0A• الوصف: "+order.modelDesc+"%0A• نوع القطعة: *"+saveType+"*%0A• كمية التسليم: *"+saveQty+"* قطعة%0A• السعر: *"+(savePrice||0)+"* ج.م/قطعة%0A• التاريخ: *"+saveDate+"*"+(Number(dAgreed)>0?"%0A• مدة التسليم المتفق عليها: *"+dAgreed+"* يوم%0A• موعد التسليم المتوقع: *"+new Date(new Date(saveDate).getTime()+Number(dAgreed)*86400000).toISOString().split("T")[0]+"*":"")+"%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
         }catch(e){console.error("doDeliver error:",e);showToast("⚠️ خطأ في حفظ التسليم")}
       };
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowDeliver(false)}>
@@ -1251,7 +1251,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
               </div>
               <table style={{width:"100%",borderCollapse:"collapse"}}>
                 <thead><tr style={{background:T.bg}}>
-                  {["الورشة","الحالي","المستلم","الجديد","الفرق",""].map(h=><th key={h} style={{...TH,fontSize:FS-2,padding:"5px 8px"}}>{h}</th>)}
+                  {["الورشة","الحالي","استلام مصنع","الجديد","الفرق",""].map(h=><th key={h} style={{...TH,fontSize:FS-2,padding:"5px 8px"}}>{h}</th>)}
                 </tr></thead>
                 <tbody>
                   {pp.wds.map(w=>{const key=pp.piece+"_"+w.wdIdx;const inputVal=syncPopup.manual[key]!==undefined?syncPopup.manual[key]:w.newQty;
@@ -1264,8 +1264,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                       </td>
                       <td style={{...TD,textAlign:"center",fontWeight:800,color:w.delta===0?T.textMut:w.delta>0?T.ok:T.err,fontSize:FS-1}}>{w.delta>0?"+":""}{w.delta}</td>
                       <td style={{...TD,textAlign:"center"}}>
-                        {w.belowReceived&&<span style={{fontSize:FS-2,color:T.err,fontWeight:700}} title="أقل من المستلم">⛔</span>}
-                        {w.capped&&!w.belowReceived&&<span style={{fontSize:FS-2,color:T.warn,fontWeight:700}} title="مُقيّد بالمستلم">⚠</span>}
+                        {w.belowReceived&&<span style={{fontSize:FS-2,color:T.err,fontWeight:700}} title="أقل من الاستلام">⛔</span>}
+                        {w.capped&&!w.belowReceived&&<span style={{fontSize:FS-2,color:T.warn,fontWeight:700}} title="مُقيّد بالاستلام">⚠</span>}
                       </td>
                     </tr>;
                   })}

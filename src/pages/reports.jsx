@@ -197,7 +197,7 @@ export function FloorStockReport({data,isMob,season}){
   const filtered=rows.filter(r=>{if(filter&&!r.modelNo.includes(filter)&&!(r.desc||"").toLowerCase().includes(filter.toLowerCase()))return false;if(pieceFilter&&r.piece!==pieceFilter)return false;return true});
   const totalFloor=filtered.reduce((s,r)=>s+r.floor,0);
   const printFloor=()=>{let h="<h2 style='text-align:center'>🏭 قطع على الأرض — "+season+"</h2>";
-    h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>القطعة</th><th>القص</th><th>مسلّم</th><th>الأرض</th><th>الأيام</th></tr></thead><tbody>";
+    h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>القطعة</th><th>القص</th><th>تسليم</th><th>الأرض</th><th>الأيام</th></tr></thead><tbody>";
     filtered.forEach(r=>{h+="<tr><td style='font-weight:800'>"+r.modelNo+"</td><td>"+r.desc+"</td><td>"+r.piece+"</td><td style='text-align:center'>"+r.cut+"</td><td style='text-align:center'>"+r.del+"</td><td style='text-align:center;font-weight:800;color:#F59E0B'>"+r.floor+"</td><td style='text-align:center'>"+r.days+"</td></tr>"});
     h+="</tbody></table>";printPage("قطع على الأرض",h)};
   return<div>
@@ -212,7 +212,7 @@ export function FloorStockReport({data,isMob,season}){
       <div style={{padding:10,borderRadius:10,background:"#EF444408",border:"1px solid #EF444415",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>{"> 7 أيام"}</div><div style={{fontSize:18,fontWeight:800,color:"#EF4444"}}>{filtered.filter(r=>r.days>7).length}</div></div>
     </div>
     {filtered.length===0?<div style={{textAlign:"center",padding:30,color:T.textMut}}>✅ لا توجد قطع</div>:
-    <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","الوصف","القطعة","القص","مسلّم","الأرض","أيام"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+    <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","الوصف","القطعة","القص","تسليم","الأرض","أيام"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
       <tbody>{filtered.map((r,i)=><tr key={i} style={{background:r.days>7?"#FEF2F2":"transparent"}}><td style={{...TD,fontWeight:800,color:T.accent}}>{r.modelNo}</td><td style={TD}>{r.desc}</td><td style={{...TD,color:"#8B5CF6"}}>{r.piece}</td><td style={TDB}>{r.cut}</td><td style={{...TDB,color:T.ok}}>{r.del}</td><td style={{...TDB,fontWeight:800,color:"#F59E0B"}}>{r.floor}</td><td style={{...TDB,color:r.days>7?"#EF4444":T.textMut}}>{r.days}</td></tr>)}
       </tbody></table></div>}
   </div>
@@ -421,7 +421,7 @@ export function WsFullAccountReport({data,isMob,season}){
       rows.push(["الورشة:",a.ws.name,"المالك:",a.ws.owner||"—"]);
       rows.push([]);
       rows.push(["── القطع حسب النوع ──"]);
-      rows.push(["نوع القطعة","مُسلَّم","مستلم","متبقي","متوسط السعر","القيمة"]);
+      rows.push(["نوع القطعة","تسليم","استلام مصنع","متبقي","متوسط السعر","القيمة"]);
       a.garmentList.forEach(g=>rows.push([g.garmentType,g.delivered,g.received,g.balance,g.avgPrice,g.totalValue]));
       rows.push(["الإجمالي",a.totalDelivered,a.totalReceived,a.qtyBalance,"",a.totalValue]);
       rows.push([]);
@@ -435,7 +435,7 @@ export function WsFullAccountReport({data,isMob,season}){
       rows.push(["الإجمالي المدفوع","","",a.totalPaid]);
       rows.push([]);
       rows.push(["── كشف الحساب ──"]);
-      rows.push(["قيمة الإنتاج المستلم",a.totalValue]);
+      rows.push(["قيمة استلام المصنع",a.totalValue]);
       rows.push(["مشتريات",a.totalPurchase]);
       rows.push(["المستحق الإجمالي",a.totalDue]);
       rows.push(["المدفوع",a.totalPaid]);
@@ -453,12 +453,12 @@ export function WsFullAccountReport({data,isMob,season}){
   /* Print */
   const printReport=()=>{
     let html="<div class='hdr'><div style='font-size:18px;font-weight:800;color:#8B5CF6'>📊 تقرير تشغيل خارجي</div><div class='hdr-info'><div>تاريخ الطباعة: "+today+"</div>"+(dateFrom||dateTo?"<div>الفترة: "+(dateFrom||"البداية")+" → "+(dateTo||"النهاية")+"</div>":"")+"</div></div>";
-    html+="<table style='margin-bottom:20px'><tr><th>إجمالي الورش</th><td class='info'>"+grand.count+"</td><th>مُسلَّم</th><td>"+fmt(grand.gDel)+"</td><th>مُستلم</th><td>"+fmt(grand.gRcv)+"</td></tr><tr><th>قيمة الإنتاج</th><td class='ok'>"+fmt(r2(grand.gVal))+"</td><th>🟢 الرصيد الحالي</th><td class='err'><b>"+fmt(r2(grand.gBal))+"</b></td>"+(grand.gExpExtra>0?"<th style='color:#DC2626'>🔴 متوقع إضافي</th><td style='color:#DC2626'><b>+"+fmt(r2(grand.gExpExtra))+"</b></td>":"<th></th><td></td>")+"</tr></table>";
+    html+="<table style='margin-bottom:20px'><tr><th>إجمالي الورش</th><td class='info'>"+grand.count+"</td><th>تسليم</th><td>"+fmt(grand.gDel)+"</td><th>استلام مصنع</th><td>"+fmt(grand.gRcv)+"</td></tr><tr><th>قيمة الإنتاج</th><td class='ok'>"+fmt(r2(grand.gVal))+"</td><th>🟢 الرصيد الحالي</th><td class='err'><b>"+fmt(r2(grand.gBal))+"</b></td>"+(grand.gExpExtra>0?"<th style='color:#DC2626'>🔴 متوقع إضافي</th><td style='color:#DC2626'><b>+"+fmt(r2(grand.gExpExtra))+"</b></td>":"<th></th><td></td>")+"</tr></table>";
     wsAccounts.forEach(a=>{
       html+="<h2 style='color:#8B5CF6;page-break-before:avoid'>🏭 "+a.ws.name+(a.ws.owner?" — "+a.ws.owner:"")+"</h2>";
       /* Garment breakdown */
       html+="<h3>القطع حسب النوع</h3>";
-      html+="<table><thead><tr><th>نوع القطعة</th><th>مُسلَّم</th><th>مُستلم</th><th>متبقي</th><th>متوسط السعر</th><th>القيمة</th></tr></thead><tbody>";
+      html+="<table><thead><tr><th>نوع القطعة</th><th>تسليم</th><th>استلام مصنع</th><th>متبقي</th><th>متوسط السعر</th><th>القيمة</th></tr></thead><tbody>";
       a.garmentList.forEach(g=>{html+="<tr><td><b>"+g.garmentType+"</b></td><td class='center'>"+fmt(g.delivered)+"</td><td class='center'>"+fmt(g.received)+"</td><td class='center "+(g.balance>0?"warn":"")+"'>"+fmt(g.balance)+"</td><td class='center'>"+fmt(g.avgPrice)+"</td><td class='center ok'>"+fmt(g.totalValue)+"</td></tr>"});
       html+="<tr style='background:#F3E8FF;font-weight:800'><td>الإجمالي</td><td class='center'>"+fmt(a.totalDelivered)+"</td><td class='center'>"+fmt(a.totalReceived)+"</td><td class='center'>"+fmt(a.qtyBalance)+"</td><td></td><td class='center'>"+fmt(a.totalValue)+"</td></tr>";
       html+="</tbody></table>";
@@ -480,7 +480,7 @@ export function WsFullAccountReport({data,isMob,season}){
       /* Reconciliation */
       html+="<h3>كشف الحساب</h3>";
       html+="<table><tbody>";
-      html+="<tr><th>قيمة الإنتاج المستلم</th><td class='center ok'>"+fmt(r2(a.totalValue))+" ج.م</td></tr>";
+      html+="<tr><th>قيمة استلام المصنع</th><td class='center ok'>"+fmt(r2(a.totalValue))+" ج.م</td></tr>";
       if(a.totalPurchase>0)html+="<tr><th>مشتريات الورشة</th><td class='center'>"+fmt(r2(a.totalPurchase))+" ج.م</td></tr>";
       html+="<tr><th>المستحق الإجمالي</th><td class='center info'><b>"+fmt(r2(a.totalDue))+" ج.م</b></td></tr>";
       html+="<tr><th>إجمالي المدفوع</th><td class='center'>("+fmt(r2(a.totalPaid))+") ج.م</td></tr>";
@@ -532,7 +532,7 @@ export function WsFullAccountReport({data,isMob,season}){
     {wsAccounts.length>0&&<Card title={"📊 ملخص إجمالي — "+grand.count+" ورشة"} style={{marginBottom:14}}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(3,1fr)",gap:10,marginBottom:10}}>
         <div style={{padding:12,borderRadius:10,background:"#3B82F608",border:"1px solid #3B82F620",textAlign:"center"}}>
-          <div style={{fontSize:FS-3,color:T.textSec}}>مُسلَّم للورش</div>
+          <div style={{fontSize:FS-3,color:T.textSec}}>تسليم للورش</div>
           <div style={{fontSize:FS+4,fontWeight:800,color:"#3B82F6"}}>{fmt(grand.gDel)}</div>
           <div style={{fontSize:FS-3,color:T.textMut}}>قطعة</div>
         </div>
@@ -550,7 +550,7 @@ export function WsFullAccountReport({data,isMob,season}){
       {/* Financial summary */}
       <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(3,1fr)",gap:10}}>
         <div style={{padding:12,borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF620",textAlign:"center"}}>
-          <div style={{fontSize:FS-3,color:T.textSec}}>قيمة الإنتاج المستلم</div>
+          <div style={{fontSize:FS-3,color:T.textSec}}>قيمة استلام المصنع</div>
           <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>{fmt(r2(grand.gVal))}</div>
           <div style={{fontSize:FS-3,color:T.textMut}}>ج.م</div>
         </div>
@@ -601,7 +601,7 @@ export function WsFullAccountReport({data,isMob,season}){
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
           <thead><tr>
             <th style={TH}>نوع القطعة</th>
-            <th style={{...TH,textAlign:"center"}}>مُسلَّم</th>
+            <th style={{...TH,textAlign:"center"}}>تسليم</th>
             <th style={{...TH,textAlign:"center"}}>مُستلَم</th>
             <th style={{...TH,textAlign:"center"}}>متبقي</th>
             <th style={{...TH,textAlign:"center"}}>متوسط السعر</th>
@@ -691,7 +691,7 @@ export function WsFullAccountReport({data,isMob,season}){
       <div style={{fontSize:FS+1,fontWeight:800,color:T.text,marginBottom:6}}>🧮 كشف الحساب</div>
       <div style={{padding:14,background:T.bg,borderRadius:10,border:"1px solid "+T.brd}}>
         <div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+T.brd}}>
-          <span style={{color:T.textSec}}>قيمة الإنتاج المستلم</span>
+          <span style={{color:T.textSec}}>قيمة استلام المصنع</span>
           <span style={{fontWeight:700,color:T.ok}}>{fmt(r2(a.totalValue))} ج.م</span>
         </div>
         {a.totalPurchase>0&&<div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+T.brd}}>
@@ -975,7 +975,7 @@ export function WsStuckReport({data,isMob,season}){
   const printRep=()=>{const el=document.getElementById("wsstuck-rep");if(el)printPage("بضاعة معلقة عند الورش — "+season,el.innerHTML)};
   return<Card id="wsstuck-rep" title={"🚨 بضاعة معلقة عند الورش — "+wsItems.length+" حركة ("+fmt(totalStuck)+" قطعة)"} extra={<Btn small onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>}>
     {wsItems.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
-      {["الورشة","الموديل","القطعة","المرسل","المستلم","المتبقي","تاريخ الإرسال","أيام"].map(h=><th key={h} style={TH}>{h}</th>)}
+      {["الورشة","الموديل","القطعة","المرسل","استلام مصنع","المتبقي","تاريخ الإرسال","أيام"].map(h=><th key={h} style={TH}>{h}</th>)}
     </tr></thead><tbody>{wsItems.map((r,i)=><tr key={i} style={{borderBottom:"1px solid "+T.brd,background:r.days>14?T.err+"06":""}}>
       <td style={{...TD,fontWeight:700}}>{r.ws}</td><td style={TDB}>{r.modelNo}</td><td style={TD}>{r.garment}</td>
       <td style={TDB}>{r.sent}</td><td style={{...TDB,color:T.ok}}>{r.rcvd}</td>

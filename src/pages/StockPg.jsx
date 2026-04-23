@@ -120,7 +120,7 @@ export function StockPg({data,updOrder,isMob,canEdit,statusCards,user}){
         </tr>})}</tbody></table></div>
         <div style={{marginTop:8,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
           <span style={{padding:"6px 14px",borderRadius:8,background:T.ok+"12",color:T.ok,fontWeight:800,fontSize:FS}}>{"🧩 الطقم الكامل المتاح: "+stockRemain}</span>
-          <span style={{padding:"4px 10px",borderRadius:6,background:T.accent+"10",color:T.accent,fontWeight:600,fontSize:FS-2}}>{"= أقل قطعة مستلمة ("+maxCompleteSet+") - تم تسليمه للمخزن ("+stockDel+")"}</span>
+          <span style={{padding:"4px 10px",borderRadius:6,background:T.accent+"10",color:T.accent,fontWeight:600,fontSize:FS-2}}>{"= أقل قطعة من الاستلام ("+maxCompleteSet+") - تم تسليمه للمخزن ("+stockDel+")"}</span>
         </div>
       </div>}
       {/* Simple summary for orders without pieces */}
@@ -137,8 +137,8 @@ export function StockPg({data,updOrder,isMob,canEdit,statusCards,user}){
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:480,border:"1px solid "+T.err+"40",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}><div style={{fontSize:FS+2,fontWeight:800,color:T.err}}>⚠️ لا يمكن تسليم {showLimitPopup.requested} طقم</div><Btn ghost small onClick={()=>setShowLimitPopup(null)}>✕</Btn></div>
         <div style={{fontSize:FS,color:T.text,marginBottom:12}}>{"الحد الأقصى للطقم الكامل: "+showLimitPopup.max+" طقم فقط"}</div>
-        <div style={{fontSize:FS-1,color:T.textSec,marginBottom:12}}>السبب: عدد القطع المستلمة من الورش غير متساوي. الطقم الكامل = أقل قطعة مستلمة.</div>
-        <div style={{overflowX:"auto",marginBottom:12}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["القطعة","مستلم من الورش","الحالة"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead>
+        <div style={{fontSize:FS-1,color:T.textSec,marginBottom:12}}>السبب: عدد القطع من الاستلام من الورش غير متساوي. الطقم الكامل = أقل قطعة من الاستلام.</div>
+        <div style={{overflowX:"auto",marginBottom:12}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["القطعة","استلام مصنع","الحالة"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead>
         <tbody>{showLimitPopup.details.map(p=>{const isMin=p.rcvFromWs===Math.min(...showLimitPopup.details.map(x=>x.rcvFromWs));
           return<tr key={p.piece}><td style={{...TD,fontWeight:700,color:"#8B5CF6"}}>{p.piece}</td><td style={{...TDB,color:isMin?T.err:T.ok}}>{p.rcvFromWs}</td><td style={{...TD,fontSize:FS-2}}>{isMin&&showLimitPopup.details.some(x=>x.rcvFromWs>p.rcvFromWs)?<span style={{color:T.err,fontWeight:700}}>{"⚠️ ناقص "+(Math.max(...showLimitPopup.details.map(x=>x.rcvFromWs))-p.rcvFromWs)+" قطعة"}</span>:<span style={{color:T.ok}}>✓</span>}</td></tr>})}</tbody>
         </table></div>
@@ -199,7 +199,7 @@ export function StockPg({data,updOrder,isMob,canEdit,statusCards,user}){
               </div></div>}
           </div>
           <div style={{flex:1,overflowY:"auto",padding:isMob?"8px 12px":"12px 24px"}}>
-            {available.length>0?<table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","الوصف","من التشطيب","المستلم","الفرق"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
+            {available.length>0?<table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","الوصف","من التشطيب","استلام مصنع","الفرق"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
               {available.map(m=>{const val=rcvItems[m.id]||0;const diff=val-m.fromFinishing;
                 return<tr key={m.id}><td style={{...TD,fontWeight:800,color:T.accent}}>{m.modelNo}</td><td style={{...TD,fontSize:FS-2,color:T.textMut}}>{m.modelDesc}</td>
                   <td style={{...TDB,color:"#059669"}}>{m.fromFinishing}</td>

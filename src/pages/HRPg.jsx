@@ -5711,7 +5711,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           {/* Quick actions toolbar */}
           <div style={{padding:"10px 22px",borderBottom:"1px solid "+T.brd,background:T.bg,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
             <div style={{fontSize:FS-2,color:T.textSec,fontWeight:700,marginInlineEnd:"auto"}}>
-              {withBalance.length} ورشة عليها فلوس • {withoutBalance.length} مدفوع لها بالكامل
+              {withBalance.length} ورشة ليها فلوس • {withoutBalance.length} مدفوع لها بالكامل
             </div>
             <Btn small onClick={applyAllLimits} style={{background:"#10B98112",color:"#10B981",border:"1px solid #10B98130",fontWeight:700,fontSize:FS-2}}>⚡ استخدم حد النسبة للكل</Btn>
             <Btn small onClick={clearAll} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd,fontSize:FS-2}}>🗑️ مسح الكل</Btn>
@@ -5722,7 +5722,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             {/* Workshops WITH balance — priority list */}
             {withBalance.length>0?<div>
               <div style={{fontSize:FS-1,fontWeight:800,color:T.err,marginBottom:8,padding:"6px 10px",background:T.err+"08",borderRadius:8,display:"inline-block"}}>
-                ⚠️ ورش عليها فلوس ({withBalance.length})
+                ⚠️ ورش ليها فلوس ({withBalance.length})
               </div>
               <div style={{overflowX:"auto",borderRadius:10,border:"1px solid "+T.brd}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
@@ -5782,7 +5782,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             {/* Workshops WITHOUT balance (collapsed, optional) */}
             {withoutBalance.length>0&&<details style={{marginTop:14}}>
               <summary style={{cursor:"pointer",padding:"8px 12px",background:T.bg,borderRadius:8,fontSize:FS-2,color:T.textSec,fontWeight:700}}>
-                ↓ عرض الورش اللي مفيش عليها فلوس ({withoutBalance.length})
+                ↓ عرض الورش اللي مفيش ليها فلوس ({withoutBalance.length})
               </summary>
               <div style={{marginTop:10,overflowX:"auto",borderRadius:10,border:"1px solid "+T.brd}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>

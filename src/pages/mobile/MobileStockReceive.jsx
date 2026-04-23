@@ -133,7 +133,7 @@ export function MobileStockReceive({ data, updOrder, user, onDone, setDirty }) {
         {items.length > 0 ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
             <div style={{ fontSize: 12, color: "#94A3B8", fontWeight: 700, paddingInlineStart: 4 }}>
-              المستلم ({items.length} موديل • {totalQty} قطعة)
+              استلام مصنع ({items.length} موديل • {totalQty} قطعة)
             </div>
             {items.map((it, i) => (
               <div key={i} style={{ ...S.card, display: "flex", alignItems: "center", gap: 10 }}>
