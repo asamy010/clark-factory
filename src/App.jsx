@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 import { auth, db, getSecondaryAuth } from "./firebase";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile } from "firebase/auth";
+import { signOut, onAuthStateChanged } from "firebase/auth";
 import { doc, setDoc, onSnapshot, collection, addDoc, updateDoc, deleteDoc, getDocs, runTransaction, getDoc } from "firebase/firestore";
 
 /* ─── V15.0 Module imports (refactored from monolith) ─── */
 import { FKEYS, FCOL, WS_TYPES, COLORS_DB, THEMES, DEFAULT_STATUSES, INIT_CONFIG, GARMENT_ICONS, QUALITY_MAP, FS, PRINT_CSS } from "./constants/index.js";
 import { CLARK_LOGO } from "./constants/logo.js";
-import { gid, fmt, fmt0, r2, fmtDate, hrsToHM, parseHrs, sqty, slay, setF, gf, gc, gcons, gdate, safeCalc, _esc, gIcon, parseSizes, getSizesFromSet } from "./utils/format.js";
+import { gid, fmt, r2, gf, getSizesFromSet } from "./utils/format.js";
 import { playBeep } from "./utils/audio.js";
 import { compressImage, compressImg43 } from "./utils/image.js";
 import { loadXLSX, loadQR, loadJsQR, scanQR, compressFile } from "./utils/qr.js";
@@ -15,7 +15,7 @@ import { addAudit } from "./utils/audit.js";
 import { enforceDataLimits } from "./utils/dataLimits.js";
 import { ask, tell, askInput, askForm, showToast, highlightRow } from "./utils/popups.js";
 import { printPage, printPkgLabel, printEmpQrCards, renderLabelPages, openPrintWindow } from "./utils/print.js";
-import { wsTypeInfo, wsIsInternal, getStatusColor, calcOrder, getConfirmedStock, getPendingStock, calcStockNeeded, checkStockAvailability, deductStockForOrder, calcWsRating, sortOrders, recomputeStatus, migrateStatus, mkOrder, validateOrder, getOrderDetails, getOrderTimeline } from "./utils/orders.js";
+import { wsIsInternal, calcOrder, getConfirmedStock, checkStockAvailability, deductStockForOrder, calcWsRating, migrateStatus } from "./utils/orders.js";
 
 /* T, TH, TD, TDB, TDL imported from theme.js (V15.0 phase 2) — mutable module-level objects.
    setActiveTheme() is called when user switches theme to refresh their properties. */
@@ -27,7 +27,7 @@ import { TreasuryPg } from "./pages/TreasuryPg.jsx";
 import { HRPg } from "./pages/HRPg.jsx";
 
 /* V15.1 phase 3: page/component imports */
-import { exportExcel, printReceipt, printLabel, printReceiveReceipt, printWorkshopReport, printOrderSheet, printStockDelivery } from "./utils/print-extras.js";
+/* V15.76: print-extras imports removed — none used in App.jsx (used in pages directly) */
 import { LoginScreen, TABS } from "./components/LoginScreen.jsx";
 import { ActivityFeed } from "./components/ActivityFeed.jsx";
 import { DashPg } from "./pages/DashPg.jsx";
@@ -251,11 +251,8 @@ export default function App(){
     return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off);clearInterval(interval)}
   },[]);
   useEffect(()=>{if(justReconnected){const t=setTimeout(()=>setJustReconnected(false),4000);return()=>clearTimeout(t)}},[justReconnected]);
-  /* ── Auto Bot Tasks ──
-     V15.63: Disabled permanently — user requested to remove all bot notifications/tasks.
-     Code kept for reference but the effect is a no-op. */
-  const botTasksRef=useRef(false);
-  /* V15.63: Bot tasks removed */
+  /* V15.63: Bot tasks permanently disabled — user requested removal.
+     V15.76: Dead ref removed — was never read anywhere. */
   const themeKey="clark-theme-"+(user?.uid||"default");
   const[theme,setTheme_]=useState(()=>{try{return localStorage.getItem("clark-theme-default")||"light"}catch(e){return"light"}});
   /* V15.3: themeTick forces re-render of all components when T/TH/TD/TDB/TDL mutate.
@@ -263,7 +260,12 @@ export default function App(){
   const[themeTick,setThemeTick]=useState(0);
   const setTheme=v=>{setTheme_(v);try{localStorage.setItem(themeKey,v)}catch(e){}setActiveTheme(v);setThemeTick(n=>n+1)};
   useEffect(()=>{try{const saved=localStorage.getItem(themeKey);if(saved&&saved!==theme)setTheme_(saved)}catch(e){}},[themeKey]);
-  setActiveTheme(theme);/* V15.0: mutates T/TH/TD/TDB/TDL in place via theme.js */
+  /* V15.76: Run setActiveTheme only when theme actually changes, not every render.
+     useRef lets us call synchronously before children render (so T is correct on first paint),
+     while skipping the expensive rebuild when theme is unchanged.
+     Previously this ran on EVERY render — ~20x/second during typing. */
+  const _appliedTheme=useRef(null);
+  if(_appliedTheme.current!==theme){setActiveTheme(theme);_appliedTheme.current=theme}
   useEffect(()=>{try{localStorage.setItem(themeKey,theme)}catch(e){}document.body.style.background=T.bodyBg||T.bg},[theme,themeKey]);
   const w=useWin();const isMob=w<768;const isTab=w>=768&&w<1100;const season=config.activeSeason||"WS26";
 
@@ -828,7 +830,9 @@ export default function App(){
       });
     }catch(e){console.error("resolvedOrders error:",e);return orders}
   },[orders,config.workshops]);
-  const data={...config,orders:resolvedOrders||orders};
+  /* V15.76: Memoize `data` — was creating a new object on every render,
+     triggering cascading re-renders in all child pages that receive it as prop. */
+  const data=useMemo(()=>({...config,orders:resolvedOrders||orders}),[config,resolvedOrders,orders]);
   const getUserRole=()=>{if(config.users&&config.users[user?.uid]){const r=config.users[user.uid];return typeof r==="string"?r:r?.role||"admin"}const byEmail=(config.usersList||[]).find(u=>u.email===user?.email);if(byEmail)return byEmail.role;return"admin"};
   const userRole=getUserRole();const canEdit=userRole==="admin"||userRole==="manager";
   /* V15.28: HR permissions upgraded to granular sub-tab permissions.
@@ -866,10 +870,11 @@ export default function App(){
   const canViewTab=(tabKey)=>{const p=getTabPerm(tabKey);if(typeof p==="object")return Object.values(p).some(v=>v!=="hide");return p!=="hide"};
   const statusCards=config.statusCards||DEFAULT_STATUSES;
 
-  /* Status change notification */
+  /* Status change notification — V15.76: timeout now has cleanup to prevent
+     leaks when the component unmounts or orders change before the 60s expires. */
   useEffect(()=>{if(orders.length===0)return;const prev=prevStatuses.current;let changed=null;
     orders.forEach(o=>{if(prev[o.id]&&prev[o.id]!==o.status)changed={modelNo:o.modelNo,from:prev[o.id],to:o.status};prev[o.id]=o.status});
-    if(changed){setStatusNotif(changed);setTimeout(()=>setStatusNotif(null),60000)}
+    if(changed){setStatusNotif(changed);const t=setTimeout(()=>setStatusNotif(null),60000);return()=>clearTimeout(t)}
   },[orders]);
 
   if(authLoading)return null;
@@ -992,7 +997,7 @@ export default function App(){
           <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}
           </span>
-          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V15.75</span>
+          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V15.77</span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>

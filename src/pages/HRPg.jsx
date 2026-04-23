@@ -1910,7 +1910,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     <tr><td class="lbl">إضافي (+)</td><td class="add">${fmt0(c.overtimePay)} ج.م</td></tr>
     <tr style="background:#f0f9ff"><td class="lbl"><b>اجمالي الراتب المستحق</b></td><td style="font-weight:800;color:#0ea5e9;font-size:13px">${fmt0(c.grossPay)} ج.م</td></tr>
     <tr><td class="lbl">مسحوبات الأسبوع (−)</td><td class="sub">${fmt0(c.weekAdvances)} ج.م</td></tr>
-    <tr><td class="lbl">خصم خاص (−)${reason?" <span style='font-size:9px;color:#78350f'>["+reason+"]</span>":""}</td><td class="sub">${fmt0(c.specialDeduct)} ج.م</td></tr>
+    <tr><td class="lbl">خصم جزاءات (−)${reason?" <span style='font-size:10px;color:#78350f'>["+reason+"]</span>":""}</td><td class="sub">${fmt0(c.specialDeduct)} ج.م</td></tr>
     ${c.debtInstall>0?'<tr><td class="lbl">خصم قسط مديونية (−)<br/><span style="font-size:9px;color:#78350f">'+(c.debtItems||[]).map(di=>di.title+" ("+(di.paid+1)+"/"+di.installments+")").join(" • ")+'</span></td><td class="sub">'+fmt0(c.debtInstall)+' ج.م</td></tr>':""}
     <tr><td class="lbl">حافز التزام (+)</td><td class="add">${fmt0(c.bonus)} ج.م</td></tr>
     <tr style="background:#f0fdf4"><td class="lbl"><b>صافي الأسبوع</b></td><td style="font-weight:800;color:#0ea5e9;font-size:13px">${fmt0(c.netBalance)} ج.م</td></tr>
@@ -1934,32 +1934,35 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   const SLIP_STYLES=`<style>
     @page{size:A5 portrait;margin:10mm}
     *{box-sizing:border-box}
-    body{font-family:'Cairo',Arial,sans-serif;font-size:11px;padding:0;margin:0;color:#1a1a1a}
+    /* V15.77: Fonts enlarged across the slip for better readability */
+    body{font-family:'Cairo',Arial,sans-serif;font-size:13px;padding:0;margin:0;color:#1a1a1a}
     .slip-page{page-break-after:always;padding:0;margin:0}
     .slip-page:last-child{page-break-after:auto}
     .hdr{display:flex;justify-content:space-between;align-items:center;padding-bottom:10px;border-bottom:2px solid #0ea5e9;margin-bottom:12px}
     .hdr img{max-height:50px;max-width:140px}
     .hdr .tbox{text-align:left;color:#0ea5e9}
-    .hdr h1{font-size:16px;font-weight:800;margin:0 0 2px}
-    .hdr .wk{font-size:22px;font-weight:900;color:#0ea5e9}
-    .info{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;padding:10px;background:#f0f9ff;border-radius:8px;margin-bottom:10px;font-size:11px}
+    .hdr h1{font-size:18px;font-weight:800;margin:0 0 2px}
+    .hdr .wk{font-size:24px;font-weight:900;color:#0ea5e9}
+    .info{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;padding:10px;background:#f0f9ff;border-radius:8px;margin-bottom:10px;font-size:12px}
     .info b{color:#0ea5e9}
     table{width:100%;border-collapse:collapse;margin:8px 0}
-    td,th{border:1px solid #cbd5e1;padding:6px 8px;text-align:right;font-size:11px}
+    td,th{border:1px solid #cbd5e1;padding:6px 8px;text-align:right;font-size:12px}
     th{background:#0ea5e9;color:#fff;font-weight:700;text-align:center}
-    .att-tbl th,.att-tbl td{text-align:center;padding:4px 2px;font-size:10px}
+    .att-tbl th,.att-tbl td{text-align:center;padding:4px 2px;font-size:11px}
     .att-tbl th{background:#e0f2fe;color:#0284c7}
     .att-tbl td{background:#f8fafc}
     .att-tbl td.has{background:#dcfce7;color:#15803d;font-weight:700}
-    .calc-tbl td{padding:7px 10px}
+    .calc-tbl td{padding:7px 10px;font-size:12px}
     .calc-tbl .lbl{background:#f1f5f9;font-weight:700;width:55%}
     .calc-tbl .add{color:#10b981;font-weight:700}
     .calc-tbl .sub{color:#ef4444;font-weight:700}
-    .calc-tbl .total{background:#0ea5e9;color:#fff;font-size:14px;font-weight:800}
-    .reason{background:#fef3c7;border-right:3px solid #f59e0b;padding:6px 10px;margin:6px 0;font-size:10px;border-radius:4px}
-    .note{background:#f8fafc;border:1px dashed #cbd5e1;padding:8px 10px;margin-top:12px;font-size:9px;color:#475569;line-height:1.7;border-radius:6px}
+    .calc-tbl .total{background:#0ea5e9;color:#fff;font-size:15px;font-weight:800}
+    .reason{background:#fef3c7;border-right:3px solid #f59e0b;padding:6px 10px;margin:6px 0;font-size:11px;border-radius:4px}
+    /* V15.77: Instructions note — font bumped 9→11 (22% larger) + line-height for readability */
+    .note{background:#f8fafc;border:1px dashed #cbd5e1;padding:10px 12px;margin-top:12px;font-size:11px;color:#334155;line-height:1.8;border-radius:6px}
+    .note b{color:#0ea5e9;font-size:12px}
     .sig{display:flex;justify-content:space-between;margin-top:20px;padding:0 10px}
-    .sig div{text-align:center;font-size:10px;color:#64748b}
+    .sig div{text-align:center;font-size:11px;color:#64748b}
     .sig .line{border-top:1px solid #94a3b8;padding-top:4px;min-width:100px}
     @media print{body{margin:0}}
     </style>`;
@@ -3371,8 +3374,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             ...(openWeek.status==="closed"?[{label:"✓ استلم",align:"center",w:60}]:[]),
             {label:"",align:"center",w:40}
           ];
-          let tG=0,tN=0,tA=0,tD=0,tB=0,tH=0,tO=0,tOP=0,tTP=0,tRB=0,tDI=0,tPB=0;
-          shownEmps.forEach(e=>{const c=getEmpSalary(e.id,openWeek);if(c){tG+=c.grossPay;tN+=c.netBalance;tA+=c.weekAdvances;tD+=c.specialDeduct;tB+=c.bonus;tH+=c.totalHours;tO+=c.overtimeHours;tOP+=c.overtimePay;tTP+=c.thursdayPay;tRB+=c.remainingBalance;tDI+=c.debtInstall||0;tPB+=c.prevBalance||0}});
+          let tG=0,tN=0,tTD=0,tA=0,tD=0,tB=0,tH=0,tO=0,tOP=0,tTP=0,tRB=0,tDI=0,tPB=0;
+          shownEmps.forEach(e=>{const c=getEmpSalary(e.id,openWeek);if(c){tG+=c.grossPay;tN+=c.netBalance;tTD+=c.totalDue;tA+=c.weekAdvances;tD+=c.specialDeduct;tB+=c.bonus;tH+=c.totalHours;tO+=c.overtimeHours;tOP+=c.overtimePay;tTP+=c.thursdayPay;tRB+=c.remainingBalance;tDI+=c.debtInstall||0;tPB+=c.prevBalance||0}});
           /* Apply filters */
           const sQ=salSearchDeb.trim().toLowerCase();
           const topQ=attSearchDeb.trim().toLowerCase();
@@ -3531,7 +3534,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                       "<td class='center err'>"+(c.specialDeduct>0?fmt0(c.specialDeduct):"—")+"</td>"+
                       "<td class='center' style='color:#F97316'>"+(c.debtInstall>0?fmt0(c.debtInstall)+(c.isPartialInstall?" ⚠":""):c.isSkippedInstall?"⏭":"—")+"</td>"+
                       "<td class='center ok'>"+(c.bonus>0?fmt0(c.bonus):"—")+"</td>"+
-                      "<td class='center info'><b>"+fmt0(c.netBalance)+"</b></td>"+
+                      "<td class='center info'><b>"+fmt0(c.totalDue)+"</b>"+(c.prevBalance!==0?"<div style='font-size:8px;color:#64748B;font-weight:500;margin-top:1px'>"+fmt0(c.netBalance)+" "+(c.prevBalance>0?"+":"−")+" "+fmt0(Math.abs(c.prevBalance))+"</div>":"")+"</td>"+
                       "<td class='center ok'><b>"+fmt0(c.thursdayPay)+"</b></td>"+
                       "<td class='center warn'>"+(c.remainingBalance!==0?fmt0(c.remainingBalance):"—")+"</td>"+
                     "</tr>";
@@ -3549,7 +3552,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                     "<td class='center err'>"+fmt0(fD)+"</td>"+
                     "<td class='center' style='color:#F97316'>"+fmt0(fDI)+"</td>"+
                     "<td class='center ok'>"+fmt0(fB)+"</td>"+
-                    "<td class='center info'>"+fmt0(filteredShown.reduce((s,e)=>{const cc=getEmpSalary(e.id,openWeek);return s+(cc?cc.netBalance:0)},0))+"</td>"+
+                    "<td class='center info'>"+fmt0(filteredShown.reduce((s,e)=>{const cc=getEmpSalary(e.id,openWeek);return s+(cc?cc.totalDue:0)},0))+"</td>"+
                     "<td class='center ok'>"+fmt0(fTP)+"</td>"+
                     "<td class='center warn'>"+fmt0(fRB)+"</td>"+
                   "</tr>";
@@ -3756,8 +3759,11 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                     })()}
                   </td>
                   <td style={{padding:"3px 6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salBonus[emp.id]!==undefined?salBonus[emp.id]:""} onChange={ev=>setSalBonus(p=>({...p,[emp.id]:ev.target.value}))} placeholder={emp.weeklyBonus>0?String(emp.weeklyBonus):"0"} title={emp.weeklyBonus>0?"الافتراضي: "+emp.weeklyBonus+" (تلقائي)":""} style={{width:60,padding:"3px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text}}/>:<span style={{fontSize:FS-2,color:T.ok}}>{c.bonus||""}</span>}</td>
-                  <td style={{padding:"3px 6px",fontSize:FS,fontWeight:800,color:c.netBalance>=0?T.accent:T.err,textAlign:"center"}}>{fmt0(c.netBalance)}</td>
-                  <td style={{padding:"3px 6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salThursdayPay[emp.id]!==undefined?salThursdayPay[emp.id]:""} onChange={ev=>setSalThursdayPay(p=>({...p,[emp.id]:ev.target.value}))} placeholder={String(Math.round(c.netBalance))} style={{width:70,padding:"3px",borderRadius:6,border:"1px solid "+T.ok+"40",fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.ok,fontWeight:700}}/>:<span style={{fontSize:FS-1,fontWeight:700,color:T.ok}}>{fmt0(c.thursdayPay)}</span>}</td>
+                  <td style={{padding:"3px 6px",fontSize:FS,fontWeight:800,color:c.totalDue>=0?T.accent:T.err,textAlign:"center"}} title={c.prevBalance!==0?("صافي الأسبوع: "+fmt0(c.netBalance)+" + رصيد سابق: "+(c.prevBalance>0?"+":"")+fmt0(c.prevBalance)+" = إجمالي المستحق: "+fmt0(c.totalDue)):"صافي المستحق = "+fmt0(c.netBalance)}>
+                    {fmt0(c.totalDue)}
+                    {c.prevBalance!==0&&<div style={{fontSize:FS-3,color:T.textMut,fontWeight:500,marginTop:2,lineHeight:1.2,whiteSpace:"nowrap"}}>{fmt0(c.netBalance)+" "+(c.prevBalance>0?"+":"−")+" "+fmt0(Math.abs(c.prevBalance))}</div>}
+                  </td>
+                  <td style={{padding:"3px 6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salThursdayPay[emp.id]!==undefined?salThursdayPay[emp.id]:""} onChange={ev=>setSalThursdayPay(p=>({...p,[emp.id]:ev.target.value}))} placeholder={String(Math.round(c.totalDue))} title={"الافتراضي: "+fmt0(c.totalDue)+" (= صافي "+fmt0(c.netBalance)+(c.prevBalance!==0?" "+(c.prevBalance>0?"+":"−")+" رصيد "+fmt0(Math.abs(c.prevBalance)):"")+")"} style={{width:70,padding:"3px",borderRadius:6,border:"1px solid "+T.ok+"40",fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.ok,fontWeight:700}}/>:<span style={{fontSize:FS-1,fontWeight:700,color:T.ok}}>{fmt0(c.thursdayPay)}</span>}</td>
                   <td style={{padding:"3px 6px",fontSize:FS-1,fontWeight:800,color:c.remainingBalance>0?T.warn:c.remainingBalance<0?T.err:T.textMut,textAlign:"center",background:c.remainingBalance!==0?T.warn+"06":""}}>{fmt0(c.remainingBalance)}</td>
                   {/* V14.57: Receipt column — only shown for closed weeks */}
                   {openWeek.status==="closed"&&(()=>{
@@ -3789,7 +3795,10 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                 <td style={{padding:"8px 6px",textAlign:"center",fontSize:FS-1,color:T.err,fontWeight:800,background:T.accent+"15"}}>{fmt0(tD)}</td>
                 <td style={{padding:"8px 6px",textAlign:"center",fontSize:FS-1,color:"#F97316",fontWeight:800,background:T.accent+"15"}}>{fmt0(tDI)}</td>
                 <td style={{padding:"8px 6px",textAlign:"center",fontSize:FS-1,color:T.ok,fontWeight:800,background:T.accent+"15"}}>{fmt0(tB)}</td>
-                <td style={{padding:"8px 6px",textAlign:"center",fontSize:FS+1,color:T.accent,fontWeight:800,background:T.accent+"15"}}>{fmt0(tN)}</td>
+                <td style={{padding:"8px 6px",textAlign:"center",fontSize:FS+1,color:T.accent,fontWeight:800,background:T.accent+"15"}} title={tPB!==0?("إجمالي صافي الأسبوع: "+fmt0(tN)+" + إجمالي الرصيد السابق: "+(tPB>0?"+":"")+fmt0(tPB)+" = إجمالي المستحق: "+fmt0(tTD)):"إجمالي صافي المستحق"}>
+                  {fmt0(tTD)}
+                  {tPB!==0&&<div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginTop:2,lineHeight:1.2,whiteSpace:"nowrap"}}>{fmt0(tN)+" "+(tPB>0?"+":"−")+" "+fmt0(Math.abs(tPB))}</div>}
+                </td>
                 <td style={{padding:"8px 6px",textAlign:"center",fontSize:FS,color:T.ok,fontWeight:800,background:T.accent+"15"}}>{fmt0(tTP)}</td>
                 <td style={{padding:"8px 6px",textAlign:"center",fontSize:FS,color:T.warn,fontWeight:800,background:T.accent+"15"}}>{fmt0(tRB)}</td>
                 <td style={{background:T.accent+"15"}}></td>
@@ -4464,7 +4473,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                   <div style={{fontSize:FS,fontWeight:700}}>{e.name}</div>
                   <div style={{fontSize:FS-2,color:T.textMut}}>{(e.code?"#"+e.code:"")+(e.job?" — "+e.job:"")}</div>
                 </div>
-                {c&&<span style={{fontSize:FS-1,color:T.accent,fontWeight:700}}>{fmt0(c.netBalance)}</span>}
+                {c&&<span style={{fontSize:FS-1,color:T.accent,fontWeight:700}} title={c.prevBalance!==0?("صافي: "+fmt0(c.netBalance)+" "+(c.prevBalance>0?"+":"−")+" رصيد: "+fmt0(Math.abs(c.prevBalance))+" = "+fmt0(c.totalDue)):""}>{fmt0(c.totalDue)}</span>}
               </div>})}
           </div>
           <div style={{marginTop:10,padding:10,borderRadius:8,background:T.accent+"06",textAlign:"center",fontSize:FS-1,fontWeight:700,color:T.accent}}>{selCount+" كشف سيتم طباعته"}</div>
