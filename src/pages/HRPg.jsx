@@ -1430,6 +1430,9 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     setTimeout(()=>{
     if(setSavingOverlay)setSavingOverlay({message:"جاري تسجيل الحركات في الخزنة...",progress:60});
     setTimeout(()=>{
+    /* V15.87: Wrap upConfig in try/catch to surface any unexpected exception that was
+       previously silenced by the try/catch inside upConfig (App.jsx line 613). */
+    try{
     upConfig(d=>{if(!d.hrLog)d.hrLog=[];if(!d.treasury)d.treasury=[];if(!d.empDebts)d.empDebts=[];
       /* V15.24: Analysis-only week — SKIP all hrLog/treasury writes + prevBalance updates.
          Snapshot (closedRecords) is still saved inside the week itself for display. */
@@ -1693,6 +1696,23 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           user:userName,severity:backdated?"warning":"info",
           notes:backdated?"⚠️ إقفال بتاريخ مختلف عن التاريخ الحقيقي ("+actualCloseDate+")":"إقفال أسبوع"});
       }});
+      /* V15.87: Check document size AFTER writes — Firestore hard limit is 1MB.
+         If we're over/near the limit, the write will have failed silently. */
+      try{
+        const docSize=new Blob([JSON.stringify(data||{})]).size;
+        const docSizeKB=Math.round(docSize/1024);
+        const pctOfLimit=Math.round(docSize/1048576*100);
+        console.log("[V15.87 close] Current doc size:",docSizeKB,"KB ("+pctOfLimit+"% of 1MB limit)");
+        if(pctOfLimit>85){
+          showToast("⚠️ حجم البيانات "+docSizeKB+" KB ("+pctOfLimit+"% من الحد). قد يسبب فشل الحفظ.");
+        }
+      }catch(sizeErr){console.error("Size check failed:",sizeErr)}
+    }catch(approveErr){
+      console.error("[V15.87] approveWeek upConfig threw:",approveErr);
+      showToast("⛔ خطأ في إقفال الأسبوع: "+((approveErr.message||String(approveErr)).substring(0,120)));
+      if(setSavingOverlay)setSavingOverlay(null);
+      return;
+    }
     showToast("✓ تم اعتماد وقفل الأسبوع W"+openWeek.weekNum);setSalBonus({});setSalSpecialDeduct({});setSalThursdayPay({});setSalBaseHoursOverride({});setSalPrevBalanceOverride({});setSalManualInstallDeduct({});setSalInstallOverride({});setOpenWeekId(null);
     if(setSavingOverlay){setSavingOverlay({message:"✅ تم بنجاح!",progress:100});setTimeout(()=>setSavingOverlay(null),1200)}
     },200)},400)},300)},200)};
@@ -6156,13 +6176,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       const shownEmpsCD=activeEmps.filter(e=>weekSelectedCD.includes(e.id));
       let tG_=0,tA_=0,tTP_=0,tRB_=0,tDI_=0;
       shownEmpsCD.forEach(e=>{const cc=getEmpSalary(e.id,openWeek);if(cc){tG_+=cc.grossPay;tA_+=cc.weekAdvances;tTP_+=cc.thursdayPay;tRB_+=cc.remainingBalance;tDI_+=cc.debtInstall||0}});
-      /* V15.85: Split monthly vs admin advances + include ws payments + other expenses in total */
-      const _wAdvs=(openWeek.weeklyAdvances||[]);
-      const _monthlyAdvs=_wAdvs.filter(a=>{const e=employees.find(x=>x.id===a.empId);return e&&e.salaryType==="monthly"});
-      const _adminAdvs=_wAdvs.filter(a=>{const e=employees.find(x=>x.id===a.empId);return !e||e.salaryType!=="monthly"});
-      const totalMonthlyAdvs=_monthlyAdvs.reduce((s,a)=>s+(Number(a.amount)||0),0);
-      const totalAdminAdvs=_adminAdvs.reduce((s,a)=>s+(Number(a.amount)||0),0);
-      const totalCashOut=r2(tTP_+totalWeeklyAdvances+totalWeeklyWsPayments+totalWeeklyOtherExpenses);
+      const totalCashOut=r2(tTP_+totalWeeklyAdvances);/* مرتبات الخميس + سلف الإدارة المخططة (تُنفَّذ الآن) */
       const isBackdated=closeDateValue&&closeDateValue!==today;
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={()=>setShowCloseDate(false)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:22,width:"100%",maxWidth:500,maxHeight:"90vh",overflowY:"auto",border:"2px solid "+T.accent,boxShadow:"0 25px 80px rgba(0,0,0,0.4)"}}>
@@ -6184,10 +6198,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             <div style={{borderTop:"2px solid "+T.brd,marginTop:10,paddingTop:10}}>
               <div style={{fontWeight:700,marginBottom:4,color:T.accent}}>💸 سيخرج من الخزنة الآن:</div>
               <div>💵 مرتبات الإقفال: <b style={{color:T.ok}}>{fmt0(tTP_)} ج</b></div>
-              <div>💼 سلف الإدارة: <b style={{color:"#EC4899"}}>{fmt0(totalAdminAdvs)} ج</b></div>
-              <div>📅 سلف شهريين: <b style={{color:"#EC4899"}}>{fmt0(totalMonthlyAdvs)} ج</b></div>
-              <div>🏭 دفعات الورش: <b style={{color:"#F59E0B"}}>{fmt0(totalWeeklyWsPayments)} ج</b></div>
-              <div>🧾 حركات منصرف أخرى: <b style={{color:"#F59E0B"}}>{fmt0(totalWeeklyOtherExpenses)} ج</b></div>
+              {totalWeeklyAdvances>0&&<div>🏢 سلف الإدارة/الشهريين: <b style={{color:"#EC4899"}}>{fmt0(totalWeeklyAdvances)} ج</b> <span style={{fontSize:FS-3,color:T.textMut}}>(خطة — ستُنفَّذ الآن)</span></div>}
             </div>
             <div style={{borderTop:"2px solid "+T.accent+"40",marginTop:8,paddingTop:8}}>
               🏦 إجمالي سيخرج من الخزنة: <b style={{color:T.accent,fontSize:FS+2}}>{fmt0(totalCashOut)} ج</b>

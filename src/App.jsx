@@ -601,11 +601,13 @@ export default function App(){
     }
     /* All retries exhausted — fallback to merge write and only then warn */
     console.error("upConfig tx error after retries:",lastErr);
+    /* V15.87: Make fallback failures VISIBLE to user (was silent console.error) */
+    showToast("⚠️ فشل حفظ البيانات — جاري المحاولة بطريقة بديلة...");
     try{
-      setConfigDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);enforceDataLimits(next);setDoc(ref,next,{merge:true}).catch(er=>console.error("Fallback error:",er));return next}catch(err){return prev}});
+      setConfigDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);enforceDataLimits(next);setDoc(ref,next,{merge:true}).then(()=>{showToast("✓ تم الحفظ (بطريقة بديلة)")}).catch(er=>{console.error("Fallback setDoc error:",er);showToast("⛔ فشل الحفظ نهائياً: "+((er.message||String(er)).substring(0,100)))});return next}catch(err){console.error("Fallback fn error:",err);showToast("⛔ خطأ في حفظ البيانات: "+((err.message||String(err)).substring(0,100)));return prev}});
     }catch(fallbackErr){
       console.error("Fallback failed:",fallbackErr);
-      showToast("⚠️ تعذر الحفظ — تأكد من الاتصال بالإنترنت");
+      showToast("⚠️ تعذر الحفظ — تأكد من الاتصال بالإنترنت: "+((fallbackErr.message||String(fallbackErr)).substring(0,80)));
     }
   },[]);
   const upConfig=useCallback(fn=>{
@@ -997,7 +999,7 @@ export default function App(){
           <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}
           </span>
-          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V15.85</span>
+          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V15.87</span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
