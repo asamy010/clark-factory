@@ -1240,7 +1240,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
         id:gid(),wsName:wsObj.name,wsId:wsObj.id||null,
         amount:amt,type:"payment",date:useDateSave,note:wsBulkNote||"",
         createdBy:userName||"",createdAt:new Date().toISOString(),
-        planned:true
+        planned:true,autoDate:true/* V15.89: date wasn't user-specified — on close, use closeDate instead of weekStart */
       }));
       const newTotal=toSave.reduce((s,{amt})=>s+amt,0);
       d.hrWeeks[wi].weeklyWsPayments=[...kept,...newPayments];
@@ -1535,13 +1535,16 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           if(tx)tx.snapshotId=snapshotId;
         }else{
           const wsPayId=gid();const wsTxId=gid();
-          const wsDayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(p.date||useDate).getDay()];
+          /* V15.89: If date was auto-assigned (user didn't pick it), use the actual close date
+             so treasury entry matches when cash physically left. Manually-set dates are respected. */
+          const effDate=p.autoDate?useDate:(p.date||useDate);
+          const wsDayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(effDate).getDay()];
           if(!Array.isArray(d.wsPayments))d.wsPayments=[];
           /* Register in data.wsPayments (this is how ExtProdPg reads them) */
           d.wsPayments.push({
             id:wsPayId,wsName:p.wsName,wsId:p.wsId||null,
             amount:Number(p.amount)||0,type:p.type||"payment",
-            notes:p.note||"",date:p.date||useDate,
+            notes:p.note||"",date:effDate,
             createdBy:userName||"",treasuryTxId:wsTxId,
             sourceWeekId:openWeek.id,/* V15.27: link back to week for cascade delete */
           });
@@ -1551,7 +1554,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             desc:(p.type==="payment"?"دفعة ورشة ":"مشتريات ورشة ")+p.wsName+" W"+openWeek.weekNum+(p.note?" — "+p.note:""),
             category:p.type==="payment"?"تشغيل خارجي":"مشتريات",
             account:"SUB CASH",season:d.activeSeason||"",
-            date:p.date||useDate,day:wsDayName,
+            date:effDate,day:wsDayName,
             sourceType:"hr_weekly_ws_payment",weekId:openWeek.id,
             wsName:p.wsName,wsPaymentId:wsPayId,
             by:userName,createdAt:new Date().toISOString(),snapshotId,actualCloseDate,backdated:useDate!==actualCloseDate
@@ -1806,6 +1809,62 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
 
   /* V14.55: Clean delete popup for weeks */
   const[cleanDeletePopup,setCleanDeletePopup]=useState(null);
+
+  /* V15.89: Retarget week dates — fix treasury entries that used weekStart instead of close date.
+     Updates date on: hr_weekly_ws_payment, hr_weekly_advance, hr_other_expense, hr_salary
+     entries for a closed week, AND the linked records in d.wsPayments + d.hrLog. */
+  const[retargetPopup,setRetargetPopup]=useState(null);/* {week, newDate, affected} */
+  const doRetargetDates=()=>{
+    if(!retargetPopup||!retargetPopup.week||!retargetPopup.newDate)return;
+    const wk=retargetPopup.week;
+    const newDate=retargetPopup.newDate;
+    const newDay=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(newDate).getDay()];
+    upConfig(d=>{
+      let count=0;
+      /* Update treasury entries linked to this week */
+      (d.treasury||[]).forEach(t=>{
+        if(t.weekId===wk.id&&["hr_weekly_ws_payment","hr_weekly_advance","hr_other_expense","hr_salary"].includes(t.sourceType)){
+          t.date=newDate;t.day=newDay;t.backdated=false;
+          count++;
+        }
+      });
+      /* Update matching d.wsPayments records (ExtProdPg reads from here) */
+      (d.wsPayments||[]).forEach(p=>{
+        if(p.sourceWeekId===wk.id){p.date=newDate}
+      });
+      /* Update hrLog entries for this week */
+      (d.hrLog||[]).forEach(l=>{
+        if(l.weekId===wk.id&&["salary","weekly_advance"].includes(l.type)){l.date=newDate}
+      });
+      /* Update week's closedAt */
+      const wi=(d.hrWeeks||[]).findIndex(w=>w.id===wk.id);
+      if(wi>=0){d.hrWeeks[wi].closedAt=newDate}
+      /* Audit */
+      addAudit(d,{
+        category:"week",action:"retarget_dates",
+        target:"W"+wk.weekNum+" ("+wk.weekStart+" → "+wk.weekEnd+")",
+        newValue:"تعديل تواريخ "+count+" حركة مالية إلى "+newDate,
+        user:userName,severity:"warning",
+        notes:"تم تعديل تواريخ الحركات المالية للأسبوع المقفول إلى تاريخ الإقفال الفعلي"
+      });
+    });
+    setRetargetPopup(null);
+    showToast("✓ تم تعديل تواريخ الحركات إلى "+newDate);
+  };
+  /* Count entries that would be affected — for preview */
+  const countAffectedByRetarget=(wk,newDate)=>{
+    if(!wk||!newDate)return{total:0,types:{}};
+    let counts={ws:0,adv:0,exp:0,sal:0};
+    (data.treasury||[]).forEach(t=>{
+      if(t.weekId!==wk.id)return;
+      if(t.date===newDate)return;/* already correct */
+      if(t.sourceType==="hr_weekly_ws_payment")counts.ws++;
+      else if(t.sourceType==="hr_weekly_advance")counts.adv++;
+      else if(t.sourceType==="hr_other_expense")counts.exp++;
+      else if(t.sourceType==="hr_salary")counts.sal++;
+    });
+    return{total:counts.ws+counts.adv+counts.exp+counts.sal,types:counts};
+  };
 
   /* Restore week to pre-approval state (same-day only). Reverses all effects of approveWeek. */
   const[restorePopup,setRestorePopup]=useState(null);/* {snapshotId, week, confirmText} */
@@ -2969,6 +3028,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             {canEdit&&unlockedWeeks[openWeek.id]&&<Btn small onClick={()=>setUnlockedWeeks(p=>{const n={...p};delete n[openWeek.id];return n})} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd,fontSize:FS-2}}>🔒 إيقاف التعديل</Btn>}
             {/* Restore button — only shown if week was closed TODAY and has a snapshot */}
             {canEdit&&isClosed&&openWeek.snapshotId&&openWeek.snapshotDate===today&&<Btn small onClick={()=>setRestorePopup({snapshotId:openWeek.snapshotId,week:openWeek,confirmText:""})} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700,fontSize:FS-2}} title="استعادة الأسبوع للحالة قبل الإقفال (متاح في نفس اليوم فقط)">⏪ استعادة قبل الإقفال</Btn>}
+            {/* V15.89: Retarget dates button — fix treasury dates that used weekStart instead of actual close date */}
+            {canEdit&&isClosed&&<Btn small onClick={()=>setRetargetPopup({week:openWeek,newDate:openWeek.closedAt||today,affected:countAffectedByRetarget(openWeek,openWeek.closedAt||today)})} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B40",fontWeight:700,fontSize:FS-2}} title="تعديل تواريخ الحركات المالية للأسبوع لتاريخ الإقفال">📅 تعديل التواريخ</Btn>}
           </div>
           {!isLocked&&<div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
@@ -3910,19 +3971,20 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
         </Card>
 
         {/* V15.27: Workshop Payments Card — between salary table and attendance chart */}
-        {!isLocked&&(()=>{
+        {/* V15.89: Card shown always; only edit buttons hidden when locked (was: whole card hidden) */}
+        {(()=>{
           const selectedWs=wsPayWs?workshopsList.find(w=>w.name===wsPayWs):null;
           const selectedBal=selectedWs?wsTotalBalance(wsPayWs):null;
           const selectedWeekDue=selectedWs?wsWeekDue(wsPayWs,openWeek):0;
-          return<Card title={"💸 دفعات الورش — W"+openWeek.weekNum+(weeklyWsPayments.length>0?" ("+weeklyWsPayments.length+")":"")} style={{marginBottom:14}}>
+          return<Card title={"💸 دفعات الورش — W"+openWeek.weekNum+(weeklyWsPayments.length>0?" ("+weeklyWsPayments.length+")":"")+(isLocked?" 🔒 مقفول":"")} style={{marginBottom:14}}>
             {/* Header with add button + total */}
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:12}}>
               <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                <div style={{fontSize:FS-2,color:T.textSec}}>إجمالي مخطط:</div>
+                <div style={{fontSize:FS-2,color:T.textSec}}>{isLocked?"إجمالي (مقفول):":"إجمالي مخطط:"}</div>
                 <div style={{fontSize:FS+2,fontWeight:800,color:T.warn}}>{fmt0(totalWeeklyWsPayments)} ج</div>
               </div>
               {/* V15.72: Single button opens bulk popup for all workshops at once */}
-              {canEdit&&<Btn small onClick={()=>{
+              {canEdit&&!isLocked&&<Btn small onClick={()=>{
                 /* Prefill amounts from existing week payments */
                 const existing={};
                 (openWeek.weeklyWsPayments||[]).filter(p=>p.type==="payment").forEach(p=>{
@@ -4005,7 +4067,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                   <th style={{padding:"8px",textAlign:"center",fontSize:FS-2,color:T.textSec,fontWeight:800,borderBottom:"2px solid "+T.brd}}>المبلغ</th>
                   <th style={{padding:"8px",textAlign:"center",fontSize:FS-2,color:T.textSec,fontWeight:800,borderBottom:"2px solid "+T.brd}}>التاريخ</th>
                   <th style={{padding:"8px",textAlign:"right",fontSize:FS-2,color:T.textSec,fontWeight:800,borderBottom:"2px solid "+T.brd}}>ملاحظة</th>
-                  {canEdit&&<th style={{padding:"8px",textAlign:"center",fontSize:FS-2,color:T.textSec,fontWeight:800,borderBottom:"2px solid "+T.brd}}></th>}
+                  {canEdit&&!isLocked&&<th style={{padding:"8px",textAlign:"center",fontSize:FS-2,color:T.textSec,fontWeight:800,borderBottom:"2px solid "+T.brd}}></th>}
                 </tr></thead>
                 <tbody>{weeklyWsPayments.map((p,i)=>
                   <tr key={p.id} style={{borderBottom:"1px solid "+T.brd,background:i%2===0?"transparent":T.bg+"40"}}>
@@ -4016,7 +4078,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                     <td style={{padding:"8px",textAlign:"center",fontWeight:800,color:T.warn,fontSize:FS}}>{fmt0(p.amount)}</td>
                     <td style={{padding:"8px",textAlign:"center",fontSize:FS-2,color:T.textMut,fontFamily:"monospace"}}>{p.date}</td>
                     <td style={{padding:"8px",fontSize:FS-2,color:T.textSec,textAlign:"right"}}>{p.note||"—"}</td>
-                    {canEdit&&<td style={{padding:"8px",textAlign:"center"}}>
+                    {canEdit&&!isLocked&&<td style={{padding:"8px",textAlign:"center"}}>
                       <Btn small onClick={()=>deleteWeeklyWsPayment(p.id)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",padding:"3px 8px"}}>🗑️</Btn>
                     </td>}
                   </tr>
@@ -4025,37 +4087,37 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                 <tr style={{background:T.warn+"12",fontWeight:800}}>
                   <td colSpan={2} style={{padding:"10px",textAlign:"right",color:T.warn,fontSize:FS}}>الإجمالي</td>
                   <td style={{padding:"10px",textAlign:"center",color:T.warn,fontSize:FS+1,fontWeight:800}}>{fmt0(totalWeeklyWsPayments)} ج</td>
-                  <td colSpan={canEdit?3:2}></td>
+                  <td colSpan={(canEdit&&!isLocked)?3:2}></td>
                 </tr>
                 </tbody>
               </table>
             </div>}
 
             <div style={{marginTop:10,padding:"8px 12px",background:T.accent+"08",borderRadius:8,fontSize:FS-2,color:T.textSec,lineHeight:1.6}}>
-              💡 هذه دفعات <b>مخططة</b> — ستُسجَّل في الخزنة تلقائياً عند إقفال الأسبوع، مثل سلف الموظفين.
+              {isLocked?"🔒 هذه الدفعات مسجلة في الخزنة — لا يمكن تعديلها من هنا بعد إقفال الأسبوع.":"💡 هذه دفعات مخططة — ستُسجَّل في الخزنة تلقائياً عند إقفال الأسبوع، مثل سلف الموظفين."}
             </div>
           </Card>;
         })()}
 
         {/* V15.34: Weekly Other Expenses Card — works like ws payments, registers in treasury on close */}
-        {!isLocked&&(()=>{
+        {(()=>{
           const _ts=(data&&data.treasurySettings)||{};
           const _defaultOutCats=["تكلفة","مشتريات","مرتبات","قطع غيار","صيانة ماكينات","خيط","تشغيل خارجي","نقل","كهرباء","ضيافة","ايجار المصنع","نثريات","اكسسوار","مستلزمات تشغيل","ورق ماركر","خدمات","أصول ثابتة","تكاليف أخرى","دفع مورد","تحويل داخلي"];
           const _outCats=_ts.outCategories||_defaultOutCats;
-          return<Card title={"💼 مصاريف أخرى — W"+openWeek.weekNum+(weeklyOtherExpenses.length>0?" ("+weeklyOtherExpenses.length+")":"")} style={{marginBottom:14}}>
+          return<Card title={"💼 مصاريف أخرى — W"+openWeek.weekNum+(weeklyOtherExpenses.length>0?" ("+weeklyOtherExpenses.length+")":"")+(isLocked?" 🔒 مقفول":"")} style={{marginBottom:14}}>
             {/* Header with add button + total */}
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:12}}>
               <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                <div style={{fontSize:FS-2,color:T.textSec}}>إجمالي مخطط:</div>
+                <div style={{fontSize:FS-2,color:T.textSec}}>{isLocked?"إجمالي (مقفول):":"إجمالي مخطط:"}</div>
                 <div style={{fontSize:FS+2,fontWeight:800,color:"#DC2626"}}>{fmt0(totalWeeklyOtherExpenses)} ج</div>
               </div>
-              {canEdit&&<Btn small onClick={()=>{if(showOtherExpForm){setShowOtherExpForm(false);resetOtherExpForm()}else{resetOtherExpForm();setOtherExpDate(openWeek.weekStart||today);setShowOtherExpForm(true)}}} style={{background:showOtherExpForm?T.err+"15":"#DC262612",color:showOtherExpForm?T.err:"#DC2626",border:"1px solid "+(showOtherExpForm?T.err+"30":"#DC262630"),fontWeight:700}}>
+              {canEdit&&!isLocked&&<Btn small onClick={()=>{if(showOtherExpForm){setShowOtherExpForm(false);resetOtherExpForm()}else{resetOtherExpForm();setOtherExpDate(openWeek.weekStart||today);setShowOtherExpForm(true)}}} style={{background:showOtherExpForm?T.err+"15":"#DC262612",color:showOtherExpForm?T.err:"#DC2626",border:"1px solid "+(showOtherExpForm?T.err+"30":"#DC262630"),fontWeight:700}}>
                 {showOtherExpForm?"✕ إلغاء":"➕ إضافة مصروف"}
               </Btn>}
             </div>
 
             {/* Add form */}
-            {showOtherExpForm&&canEdit&&<div style={{padding:"14px",background:"#DC262608",border:"1px solid #DC262630",borderRadius:12,marginBottom:12}}>
+            {showOtherExpForm&&canEdit&&!isLocked&&<div style={{padding:"14px",background:"#DC262608",border:"1px solid #DC262630",borderRadius:12,marginBottom:12}}>
               <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:10}}>
                 {/* Date */}
                 <div>
@@ -4115,7 +4177,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                   <th style={{...TH,textAlign:"center"}}>المبلغ</th>
                   <th style={{...TH,textAlign:"center"}}>الحساب</th>
                   <th style={{...TH,textAlign:"center"}}>التاريخ</th>
-                  {canEdit&&<th style={{...TH,width:40}}></th>}
+                  {canEdit&&!isLocked&&<th style={{...TH,width:40}}></th>}
                 </tr></thead>
                 <tbody>
                   {weeklyOtherExpenses.map((ex,i)=><tr key={ex.id} style={{borderBottom:"1px solid "+T.brd,background:i%2===1?T.bg:"transparent"}}>
@@ -4125,21 +4187,21 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                     <td style={{...TD,textAlign:"center",fontWeight:800,color:T.err}}>{fmt0(ex.amount)}</td>
                     <td style={{...TD,textAlign:"center",color:T.textSec,fontSize:FS-2,fontFamily:"monospace"}}>{ex.account||"MAIN CASH"}</td>
                     <td style={{...TD,textAlign:"center",color:T.textMut,fontSize:FS-2,direction:"ltr"}}>{ex.date}</td>
-                    {canEdit&&<td style={{...TD,textAlign:"center"}}>
+                    {canEdit&&!isLocked&&<td style={{...TD,textAlign:"center"}}>
                       <span onClick={()=>deleteWeeklyOtherExp(ex.id)} style={{cursor:"pointer",padding:"2px 8px",borderRadius:6,fontSize:FS-1,background:T.err+"10",color:T.err,border:"1px solid "+T.err+"25"}} title="حذف">🗑</span>
                     </td>}
                   </tr>)}
                   <tr style={{background:T.err+"08",fontWeight:800,borderTop:"2px solid "+T.err+"30"}}>
                     <td colSpan={3} style={{...TD,textAlign:"right",fontWeight:800}}>الإجمالي</td>
                     <td style={{...TD,textAlign:"center",color:T.err,fontSize:FS+1}}>{fmt0(totalWeeklyOtherExpenses)}</td>
-                    <td colSpan={canEdit?3:2}></td>
+                    <td colSpan={(canEdit&&!isLocked)?3:2}></td>
                   </tr>
                 </tbody>
               </table>
             </div>}
 
             <div style={{marginTop:10,padding:"8px 12px",background:T.accent+"08",borderRadius:8,fontSize:FS-2,color:T.textSec,lineHeight:1.6}}>
-              💡 هذه المصاريف <b>مخططة</b> — لن تظهر في حركات الخزنة إلا بعد إقفال وترحيل الأسبوع.
+              {isLocked?"🔒 هذه المصاريف مسجلة في الخزنة — لا يمكن تعديلها من هنا بعد إقفال الأسبوع.":"💡 هذه المصاريف مخططة — لن تظهر في حركات الخزنة إلا بعد إقفال وترحيل الأسبوع."}
             </div>
           </Card>;
         })()}
@@ -6232,6 +6294,54 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
             <Btn onClick={()=>setShowCloseDate(false)} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>إلغاء</Btn>
             <Btn primary onClick={()=>{setShowCloseDate(false);tryApproveWeek(closeDateValue)}} style={{fontSize:FS,padding:"10px 24px"}}>💰 اعتماد الإقفال</Btn>
+          </div>
+        </div>
+      </div>;
+    })()}
+
+    {/* ══ V15.89: RETARGET DATES POPUP — تعديل تواريخ حركات الأسبوع المقفول ══ */}
+    {retargetPopup&&(()=>{
+      const wk=retargetPopup.week;
+      const newDate=retargetPopup.newDate;
+      const affected=countAffectedByRetarget(wk,newDate);
+      const currentCloseDate=wk.closedAt||"—";
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={()=>setRetargetPopup(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:22,width:"100%",maxWidth:520,maxHeight:"90vh",overflowY:"auto",border:"2px solid #F59E0B",boxShadow:"0 25px 80px rgba(0,0,0,0.4)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"1px solid "+T.brd}}>
+            <div style={{fontSize:FS+2,fontWeight:800,color:"#F59E0B",display:"flex",alignItems:"center",gap:8}}>
+              <span>📅</span><span>تعديل تواريخ الحركات — W{wk.weekNum}</span>
+            </div>
+            <Btn ghost small onClick={()=>setRetargetPopup(null)}>✕</Btn>
+          </div>
+
+          <div style={{padding:12,background:T.bg,borderRadius:10,marginBottom:14,fontSize:FS-1,lineHeight:1.8}}>
+            <div style={{marginBottom:8,color:T.textSec}}>الفترة: <b style={{color:T.text}}>{wk.weekStart} → {wk.weekEnd}</b></div>
+            <div style={{marginBottom:8,color:T.textSec}}>تاريخ الإقفال المسجل: <b style={{color:T.text,fontFamily:"monospace"}}>{currentCloseDate}</b></div>
+          </div>
+
+          <div style={{marginBottom:14}}>
+            <label style={{fontSize:FS-1,color:T.textSec,fontWeight:700,display:"block",marginBottom:6}}>📅 التاريخ الجديد للحركات المالية:</label>
+            <Inp type="date" value={newDate} onChange={v=>setRetargetPopup(p=>({...p,newDate:v,affected:countAffectedByRetarget(wk,v)}))} max={today}/>
+            <div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>سيتم تحديث تاريخ كل الحركات المرتبطة بهذا الأسبوع.</div>
+          </div>
+
+          {affected.total>0?<div style={{padding:12,background:T.accent+"08",border:"1px solid "+T.accent+"30",borderRadius:10,marginBottom:14,fontSize:FS-1,lineHeight:1.8}}>
+            <div style={{fontWeight:700,marginBottom:6,color:T.accent}}>📊 الحركات التي ستتأثر ({affected.total}):</div>
+            {affected.types.sal>0&&<div>💵 مرتبات: <b>{affected.types.sal}</b></div>}
+            {affected.types.adv>0&&<div>💼 سلف أسبوعية: <b>{affected.types.adv}</b></div>}
+            {affected.types.ws>0&&<div>🏭 دفعات ورش: <b>{affected.types.ws}</b></div>}
+            {affected.types.exp>0&&<div>🧾 مصاريف أخرى: <b>{affected.types.exp}</b></div>}
+          </div>:<div style={{padding:12,background:T.ok+"08",border:"1px solid "+T.ok+"30",borderRadius:10,marginBottom:14,fontSize:FS-1,color:T.ok,fontWeight:700}}>
+            ✓ كل الحركات بالفعل بهذا التاريخ — لا يوجد ما يتم تعديله.
+          </div>}
+
+          <div style={{padding:10,background:T.warn+"10",border:"1px solid "+T.warn+"30",borderRadius:8,marginBottom:14,fontSize:FS-2,color:T.warn,lineHeight:1.6}}>
+            ⚠️ هذا التعديل لا يعكس حركة — فقط يُغيّر التاريخ المسجل للحركات في الخزنة والسجلات. لا يُلغي ولا يُضيف أي مبالغ.
+          </div>
+
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <Btn onClick={()=>setRetargetPopup(null)} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>إلغاء</Btn>
+            <Btn onClick={doRetargetDates} disabled={affected.total===0} style={{background:affected.total>0?"#F59E0B":T.bg,color:affected.total>0?"#fff":T.textMut,border:"none",fontWeight:700,padding:"10px 24px",opacity:affected.total>0?1:0.5,cursor:affected.total>0?"pointer":"not-allowed"}}>📅 تأكيد التعديل</Btn>
           </div>
         </div>
       </div>;
