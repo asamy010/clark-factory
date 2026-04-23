@@ -1423,10 +1423,19 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         if(del>0||ret>0){totalDel+=del;totalRet+=ret;rows.push({modelNo:o.modelNo,modelDesc:o.modelDesc,delivered:del,returned:ret,net:del-ret,sellPrice:Number(o.sellPrice)||0})}});
       const totalNet=totalDel-totalRet;const totalVal=rows.reduce((s,r)=>s+r.net*r.sellPrice,0);
       const retVal=rows.reduce((s,r)=>s+r.returned*r.sellPrice,0);
+      /* V15.85: Customer discount applied uniformly to both sales and returns (user request —
+         critical for accounting accuracy). Also fixes V15.84 balance bug where returns were
+         double-counted: totalVal = sum(net × price) = sum((del-ret) × price) already excludes
+         returns, so subtracting retVal again was wrong. */
+      const discPct=Number(cust.discount)||0;
+      const discAmt=Math.round(totalVal*discPct/100);        /* discount on net value */
+      const totalAfterDisc=totalVal-discAmt;
+      const retValAfterDisc=Math.round(retVal*(1-discPct/100)); /* returns at discounted rate (display only) */
       /* Customer payments */
       const custPayments=(config.custPayments||[]).filter(p=>p.custId===custStatement).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
       const totalPaid=custPayments.reduce((s,p)=>s+(Number(p.amount)||0),0);
-      const custBalance=r2(totalVal-retVal-totalPaid);
+      /* FIXED: totalVal already excludes returns, so balance = afterDisc - paid (no -retVal) */
+      const custBalance=r2(totalAfterDisc-totalPaid);
       const addCustPayment=()=>{const amt=parseFloat(payAmt);if(!amt||amt<=0){playBeep("error");return}
         /* V15.9: Link payment to treasury via shared IDs — needed for clean deletion later */
         const payId=gid();const txId=gid();
@@ -1452,7 +1461,16 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>تسليم</th><th>مرتجع</th><th>صافي</th><th>سعر</th><th>القيمة</th></tr></thead><tbody>";
         rows.forEach((r,i)=>{h+="<tr style='background:"+(i%2===0?"transparent":"#f8f8f8")+"'><td style='font-weight:800;color:#0EA5E9'>"+r.modelNo+"</td><td>"+r.modelDesc+"</td><td style='text-align:center'>"+r.delivered+"</td><td style='text-align:center;color:#EF4444'>"+(r.returned||"—")+"</td><td style='text-align:center;font-weight:800'>"+r.net+"</td><td style='text-align:center'>"+(r.sellPrice||"—")+"</td><td style='text-align:center;font-weight:700'>"+fmt(r.net*r.sellPrice)+"</td></tr>"});
         h+="<tr style='background:#EFF6FF;font-weight:800'><td colspan='2'>الاجمالي</td><td style='text-align:center;color:#0EA5E9'>"+totalDel+"</td><td style='text-align:center;color:#EF4444'>"+totalRet+"</td><td style='text-align:center;font-size:14px'>"+totalNet+"</td><td></td><td style='text-align:center;color:#0EA5E9;font-size:14px'>"+fmt(totalVal)+" ج.م</td></tr></tbody></table>";
-        h+="<h3>💳 ملخص الحساب</h3><table><tr><td>اجمالي المبيعات</td><td style='font-weight:800'>"+fmt(totalVal)+" ج.م</td></tr><tr><td>قيمة المرتجعات</td><td style='color:#EF4444'>-"+fmt(retVal)+" ج.م</td></tr><tr><td>اجمالي المدفوع</td><td style='color:#10B981'>-"+fmt(totalPaid)+" ج.م</td></tr><tr style='font-size:16px;font-weight:800'><td>الرصيد المتبقي</td><td style='color:"+(custBalance>0?"#EF4444":"#10B981")+"'>"+fmt(custBalance)+" ج.م</td></tr></table>";
+        h+="<h3>💳 ملخص الحساب</h3><table>";
+        h+="<tr><td>"+(discPct>0?"اجمالي المبيعات (قبل الخصم)":"اجمالي المبيعات")+"</td><td style='font-weight:800'>"+fmt(totalVal)+" ج.م</td></tr>";
+        if(discPct>0){
+          h+="<tr><td>قيمة الخصم ("+discPct+"%)</td><td style='color:#F59E0B;font-weight:700'>-"+fmt(discAmt)+" ج.م</td></tr>";
+          h+="<tr><td>المبيعات بعد الخصم</td><td style='font-weight:800;color:#0284C7'>"+fmt(totalAfterDisc)+" ج.م</td></tr>";
+          if(retVal>0)h+="<tr><td>قيمة المرتجعات (بعد الخصم)<div style='font-size:9px;color:#64748B'>قبل الخصم: "+fmt(retVal)+" ج.م — مخصومة أصلاً من المبيعات</div></td><td style='color:#EF4444'>-"+fmt(retValAfterDisc)+" ج.م</td></tr>";
+        }else if(retVal>0){
+          h+="<tr><td>قيمة المرتجعات<div style='font-size:9px;color:#64748B'>مخصومة أصلاً من المبيعات</div></td><td style='color:#EF4444'>-"+fmt(retVal)+" ج.م</td></tr>";
+        }
+        h+="<tr><td>اجمالي المدفوع</td><td style='color:#10B981'>-"+fmt(totalPaid)+" ج.م</td></tr><tr style='font-size:16px;font-weight:800'><td>الرصيد المتبقي</td><td style='color:"+(custBalance>0?"#EF4444":"#10B981")+"'>"+fmt(custBalance)+" ج.م</td></tr></table>";
         if(custPayments.length>0){h+="<h3>💰 سجل الدفعات</h3><table><thead><tr><th>التاريخ</th><th>المبلغ</th><th>الطريقة</th><th>ملاحظات</th><th>بواسطة</th></tr></thead><tbody>";custPayments.forEach(p=>{h+="<tr><td>"+p.date+"</td><td style='font-weight:700;color:#10B981'>"+fmt(p.amount)+"</td><td>"+(p.method||"")+"</td><td>"+(p.note||"")+"</td><td>"+(p.by||"")+"</td></tr>"});h+="</tbody></table>"}
         h+="<div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>العميل: "+cust.name+"</div></div>";
         printPage("كشف حساب — "+cust.name,h,{factoryName:config.factoryName,logo:config.logo})};
@@ -1462,10 +1480,12 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             <div><div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{"📄 كشف حساب — "+cust.name}</div><div style={{fontSize:FS-2,color:T.textMut}}>{(cust.type||"")+" | "+cust.phone}</div></div>
             <div style={{display:"flex",gap:4}}><Btn small onClick={printStatement} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn><Btn ghost small onClick={()=>setCustStatement("pick")}>← رجوع</Btn><Btn ghost small onClick={()=>setCustStatement(null)} title="إغلاق">✕</Btn></div>
           </div>
-          {/* Balance summary */}
-          <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(5,1fr)",gap:8,margin:"12px 0"}}>
-            <div style={{padding:10,borderRadius:10,background:T.accent+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>قيمة المبيعات</div><div style={{fontSize:16,fontWeight:800,color:T.accent}}>{fmt(totalVal)}</div></div>
-            <div style={{padding:10,borderRadius:10,background:T.err+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>قيمة المرتجعات</div><div style={{fontSize:16,fontWeight:800,color:T.err}}>{fmt(retVal)}</div></div>
+          {/* Balance summary — V15.84: conditional discount cards (only when discount > 0) */}
+          <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(auto-fit, minmax(140px, 1fr))",gap:8,margin:"12px 0"}}>
+            <div style={{padding:10,borderRadius:10,background:T.accent+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>{discPct>0?"المبيعات قبل الخصم":"قيمة المبيعات"}</div><div style={{fontSize:16,fontWeight:800,color:T.accent}}>{fmt(totalVal)}</div></div>
+            {discPct>0&&<div style={{padding:10,borderRadius:10,background:T.warn+"10",border:"1px solid "+T.warn+"30",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>{"قيمة الخصم ("+discPct+"%)"}</div><div style={{fontSize:16,fontWeight:800,color:T.warn}}>{"-"+fmt(discAmt)}</div></div>}
+            {discPct>0&&<div style={{padding:10,borderRadius:10,background:T.accent+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>المبيعات بعد الخصم</div><div style={{fontSize:16,fontWeight:800,color:T.accent}}>{fmt(totalAfterDisc)}</div></div>}
+            <div style={{padding:10,borderRadius:10,background:T.err+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>{discPct>0?"قيمة المرتجعات (بعد الخصم)":"قيمة المرتجعات"}</div><div style={{fontSize:16,fontWeight:800,color:T.err}}>{fmt(discPct>0?retValAfterDisc:retVal)}</div>{discPct>0&&retVal>0&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{"قبل الخصم: "+fmt(retVal)}</div>}</div>
             <div style={{padding:10,borderRadius:10,background:T.ok+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>اجمالي المدفوع</div><div style={{fontSize:16,fontWeight:800,color:T.ok}}>{fmt(totalPaid)}</div></div>
             <div style={{padding:10,borderRadius:10,background:custBalance>0?T.err+"10":T.ok+"10",border:"2px solid "+(custBalance>0?T.err:T.ok)+"30",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>الرصيد المتبقي</div><div style={{fontSize:20,fontWeight:800,color:custBalance>0?T.err:T.ok}}>{fmt(custBalance)+" ج.م"}</div></div>
             <div style={{padding:10,borderRadius:10,background:T.ok+"06",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>صافي القطع</div><div style={{fontSize:16,fontWeight:800,color:T.ok}}>{fmt(totalNet)}</div></div>

@@ -6156,7 +6156,13 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       const shownEmpsCD=activeEmps.filter(e=>weekSelectedCD.includes(e.id));
       let tG_=0,tA_=0,tTP_=0,tRB_=0,tDI_=0;
       shownEmpsCD.forEach(e=>{const cc=getEmpSalary(e.id,openWeek);if(cc){tG_+=cc.grossPay;tA_+=cc.weekAdvances;tTP_+=cc.thursdayPay;tRB_+=cc.remainingBalance;tDI_+=cc.debtInstall||0}});
-      const totalCashOut=r2(tTP_+totalWeeklyAdvances);/* مرتبات الخميس + سلف الإدارة المخططة (تُنفَّذ الآن) */
+      /* V15.85: Split monthly vs admin advances + include ws payments + other expenses in total */
+      const _wAdvs=(openWeek.weeklyAdvances||[]);
+      const _monthlyAdvs=_wAdvs.filter(a=>{const e=employees.find(x=>x.id===a.empId);return e&&e.salaryType==="monthly"});
+      const _adminAdvs=_wAdvs.filter(a=>{const e=employees.find(x=>x.id===a.empId);return !e||e.salaryType!=="monthly"});
+      const totalMonthlyAdvs=_monthlyAdvs.reduce((s,a)=>s+(Number(a.amount)||0),0);
+      const totalAdminAdvs=_adminAdvs.reduce((s,a)=>s+(Number(a.amount)||0),0);
+      const totalCashOut=r2(tTP_+totalWeeklyAdvances+totalWeeklyWsPayments+totalWeeklyOtherExpenses);
       const isBackdated=closeDateValue&&closeDateValue!==today;
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={()=>setShowCloseDate(false)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:22,width:"100%",maxWidth:500,maxHeight:"90vh",overflowY:"auto",border:"2px solid "+T.accent,boxShadow:"0 25px 80px rgba(0,0,0,0.4)"}}>
@@ -6178,7 +6184,10 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             <div style={{borderTop:"2px solid "+T.brd,marginTop:10,paddingTop:10}}>
               <div style={{fontWeight:700,marginBottom:4,color:T.accent}}>💸 سيخرج من الخزنة الآن:</div>
               <div>💵 مرتبات الإقفال: <b style={{color:T.ok}}>{fmt0(tTP_)} ج</b></div>
-              {totalWeeklyAdvances>0&&<div>🏢 سلف الإدارة/الشهريين: <b style={{color:"#EC4899"}}>{fmt0(totalWeeklyAdvances)} ج</b> <span style={{fontSize:FS-3,color:T.textMut}}>(خطة — ستُنفَّذ الآن)</span></div>}
+              <div>💼 سلف الإدارة: <b style={{color:"#EC4899"}}>{fmt0(totalAdminAdvs)} ج</b></div>
+              <div>📅 سلف شهريين: <b style={{color:"#EC4899"}}>{fmt0(totalMonthlyAdvs)} ج</b></div>
+              <div>🏭 دفعات الورش: <b style={{color:"#F59E0B"}}>{fmt0(totalWeeklyWsPayments)} ج</b></div>
+              <div>🧾 حركات منصرف أخرى: <b style={{color:"#F59E0B"}}>{fmt0(totalWeeklyOtherExpenses)} ج</b></div>
             </div>
             <div style={{borderTop:"2px solid "+T.accent+"40",marginTop:8,paddingTop:8}}>
               🏦 إجمالي سيخرج من الخزنة: <b style={{color:T.accent,fontSize:FS+2}}>{fmt0(totalCashOut)} ج</b>
