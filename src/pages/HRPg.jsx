@@ -1892,11 +1892,14 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       ${logo?'<img src="'+logo+'"/>':'<div style="font-size:20px;font-weight:900;color:#0ea5e9">CLARK</div>'}
       <div class="tbox"><h1>كشف مرتب أسبوعي</h1><div class="wk">W${openWeek.weekNum}</div></div>
     </div>
+    <div class="emp-box">
+      <div class="emp-name">${emp.name}</div>
+      ${emp.code||emp.job?'<div class="emp-meta">'+(emp.code?'كود: '+emp.code:'')+(emp.code&&emp.job?' &nbsp;•&nbsp; ':'')+(emp.job||'')+'</div>':''}
+    </div>
     <div class="info">
-      <div><b>الاسم:</b> ${emp.name}</div><div><b>الكود:</b> ${emp.code||"—"}</div>
-      <div><b>الوظيفة:</b> ${emp.job||"—"}</div><div><b>التليفون:</b> ${emp.phone||"—"}</div>
-      <div><b>الأسبوع:</b> ${openWeek.weekStart} → ${openWeek.weekEnd}</div><div><b>ساعات أساسي:</b> ${c.baseHours}</div>
-      <div><b>المرتب الأسبوعي:</b> ${fmt0(c.weeklySalary)} ج.م</div><div><b>سعر الساعة:</b> ${r2(c.perHour)} ج.م</div>
+      <div><b>التليفون:</b> ${emp.phone||"—"}</div><div><b>ساعات أساسي:</b> ${c.baseHours}</div>
+      <div><b>الأسبوع:</b> ${openWeek.weekStart} → ${openWeek.weekEnd}</div><div><b>سعر الساعة:</b> ${r2(c.perHour)} ج.م</div>
+      <div><b>المرتب الأسبوعي:</b> ${fmt0(c.weeklySalary)} ج.م</div><div></div>
     </div>
     <h3 style="color:#0ea5e9;margin:10px 0 4px;font-size:12px">📋 الحضور اليومي</h3>
     <table class="att-tbl"><thead><tr>${c.days.map(d=>"<th>"+dayNames[new Date(d.date).getDay()]+"<br/>"+d.date.slice(5)+"</th>").join("")}<th style="background:#0284c7;color:#fff">اجمالي</th></tr></thead>
@@ -1943,6 +1946,10 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     .hdr .tbox{text-align:left;color:#0ea5e9}
     .hdr h1{font-size:18px;font-weight:800;margin:0 0 2px}
     .hdr .wk{font-size:24px;font-weight:900;color:#0ea5e9}
+    /* V15.78: Prominent employee name box — large & distinct for quick identification */
+    .emp-box{background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#fff;padding:14px 20px;border-radius:12px;margin:6px 0 12px;text-align:center;box-shadow:0 4px 14px rgba(2,132,199,0.25);border:2px solid #0369a1}
+    .emp-name{font-size:22px;font-weight:900;letter-spacing:0.3px;line-height:1.2}
+    .emp-meta{font-size:12px;font-weight:600;opacity:0.92;margin-top:5px}
     .info{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;padding:10px;background:#f0f9ff;border-radius:8px;margin-bottom:10px;font-size:12px}
     .info b{color:#0ea5e9}
     table{width:100%;border-collapse:collapse;margin:8px 0}
