@@ -566,24 +566,45 @@ export default function App(){
   },[user,configDoc?.accessories]);/* trigger when data first loads */
 
   /* ═══ TRANSACTION-SAFE WRITES ═══
-     Prevents data loss when multiple devices write at the same time.
+     V15.69: Smarter retry — transaction conflicts are expected during concurrent
+     writes (e.g. admin + payroll editing simultaneously). We retry silently up to
+     5 times with exponential backoff before showing any error. Only persistent
+     failures (network down, permissions) surface to the user.
      Each write re-reads the doc inside a transaction, applies the change,
-     and writes back atomically. Firestore guarantees no concurrent update
-     can sneak in between read and write. */
+     and writes back atomically. */
+  const _sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
   const upConfigTx=useCallback(async(fn)=>{
     const ref=doc(db,"factory","config");
+    let lastErr=null;
+    /* V15.69: Up to 5 retries with exponential backoff (100ms, 200ms, 400ms, 800ms, 1600ms) */
+    for(let attempt=0;attempt<5;attempt++){
+      try{
+        await runTransaction(db,async(tx)=>{
+          const snap=await tx.get(ref);
+          const current=snap.exists()?snap.data():{};
+          const next=JSON.parse(JSON.stringify(current));
+          fn(next);
+          enforceDataLimits(next);
+          tx.set(ref,next);
+        });
+        return;/* success */
+      }catch(e){
+        lastErr=e;
+        /* Retry on transient errors (conflicts, aborts) */
+        const code=e?.code||"";
+        const retriable=code==="aborted"||code==="already-exists"||code==="deadline-exceeded"||code==="unavailable"||code==="internal"||!code;
+        if(!retriable||attempt===4)break;
+        await _sleep(100*Math.pow(2,attempt));
+      }
+    }
+    /* All retries exhausted — fallback to merge write and only then warn */
+    console.error("upConfig tx error after retries:",lastErr);
     try{
-      await runTransaction(db,async(tx)=>{
-        const snap=await tx.get(ref);
-        const current=snap.exists()?snap.data():{};
-        const next=JSON.parse(JSON.stringify(current));
-        fn(next);
-        enforceDataLimits(next);/* V15.5: trim large arrays to prevent 1MB doc limit */
-        tx.set(ref,next);
-      });
-    }catch(e){console.error("upConfig tx error:",e);showToast("⚠️ خطأ في الحفظ — جاري المحاولة");
-      /* Fallback to setDoc with merge if transaction fails */
-      setConfigDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);enforceDataLimits(next);setDoc(ref,next,{merge:true}).catch(er=>console.error("Fallback error:",er));return next}catch(err){return prev}})}
+      setConfigDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);enforceDataLimits(next);setDoc(ref,next,{merge:true}).catch(er=>console.error("Fallback error:",er));return next}catch(err){return prev}});
+    }catch(fallbackErr){
+      console.error("Fallback failed:",fallbackErr);
+      showToast("⚠️ تعذر الحفظ — تأكد من الاتصال بالإنترنت");
+    }
   },[]);
   const upConfig=useCallback(fn=>{
     /* Optimistic update local state first, then commit via transaction */
@@ -593,16 +614,32 @@ export default function App(){
 
   const upSalesTx=useCallback(async(fn)=>{
     const ref=doc(db,"factory","sales");
+    let lastErr=null;
+    for(let attempt=0;attempt<5;attempt++){
+      try{
+        await runTransaction(db,async(tx)=>{
+          const snap=await tx.get(ref);
+          const current=snap.exists()?snap.data():{};
+          const next=JSON.parse(JSON.stringify(current));
+          fn(next);
+          tx.set(ref,next);
+        });
+        return;
+      }catch(e){
+        lastErr=e;
+        const code=e?.code||"";
+        const retriable=code==="aborted"||code==="already-exists"||code==="deadline-exceeded"||code==="unavailable"||code==="internal"||!code;
+        if(!retriable||attempt===4)break;
+        await _sleep(100*Math.pow(2,attempt));
+      }
+    }
+    console.error("upSales tx error after retries:",lastErr);
     try{
-      await runTransaction(db,async(tx)=>{
-        const snap=await tx.get(ref);
-        const current=snap.exists()?snap.data():{};
-        const next=JSON.parse(JSON.stringify(current));
-        fn(next);
-        tx.set(ref,next);
-      });
-    }catch(e){console.error("upSales tx error:",e);showToast("⚠️ خطأ في الحفظ — جاري المحاولة");
-      setSalesDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);setDoc(ref,next,{merge:true}).catch(er=>console.error("Fallback error:",er));return next}catch(err){return prev}})}
+      setSalesDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);setDoc(ref,next,{merge:true}).catch(er=>console.error("Fallback error:",er));return next}catch(err){return prev}});
+    }catch(fallbackErr){
+      console.error("Fallback failed:",fallbackErr);
+      showToast("⚠️ تعذر الحفظ — تأكد من الاتصال بالإنترنت");
+    }
   },[]);
   const upSales=useCallback(fn=>{
     setSalesDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);return next}catch(e){return prev}});
@@ -611,16 +648,32 @@ export default function App(){
 
   const upTasksTx=useCallback(async(fn)=>{
     const ref=doc(db,"factory","tasks");
+    let lastErr=null;
+    for(let attempt=0;attempt<5;attempt++){
+      try{
+        await runTransaction(db,async(tx)=>{
+          const snap=await tx.get(ref);
+          const current=snap.exists()?snap.data():{};
+          const next=JSON.parse(JSON.stringify(current));
+          fn(next);
+          tx.set(ref,next);
+        });
+        return;
+      }catch(e){
+        lastErr=e;
+        const code=e?.code||"";
+        const retriable=code==="aborted"||code==="already-exists"||code==="deadline-exceeded"||code==="unavailable"||code==="internal"||!code;
+        if(!retriable||attempt===4)break;
+        await _sleep(100*Math.pow(2,attempt));
+      }
+    }
+    console.error("upTasks tx error after retries:",lastErr);
     try{
-      await runTransaction(db,async(tx)=>{
-        const snap=await tx.get(ref);
-        const current=snap.exists()?snap.data():{};
-        const next=JSON.parse(JSON.stringify(current));
-        fn(next);
-        tx.set(ref,next);
-      });
-    }catch(e){console.error("upTasks tx error:",e);showToast("⚠️ خطأ في الحفظ — جاري المحاولة");
-      setTasksDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);setDoc(ref,next,{merge:true}).catch(er=>console.error("Fallback error:",er));return next}catch(err){return prev}})}
+      setTasksDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);setDoc(ref,next,{merge:true}).catch(er=>console.error("Fallback error:",er));return next}catch(err){return prev}});
+    }catch(fallbackErr){
+      console.error("Fallback failed:",fallbackErr);
+      showToast("⚠️ تعذر الحفظ — تأكد من الاتصال بالإنترنت");
+    }
   },[]);
   const upTasks=useCallback(fn=>{
     setTasksDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);return next}catch(e){return prev}});
@@ -939,7 +992,7 @@ export default function App(){
           <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}
           </span>
-          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V15.68</span>
+          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V15.72</span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>

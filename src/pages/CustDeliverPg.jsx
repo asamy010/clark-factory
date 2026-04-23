@@ -729,7 +729,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             {primaryBtn(I.truck,"تسليم جديد","إنشاء جلسة توزيعة","#0EA5E9","#0284C7",()=>{setSelModels({});setSelCusts({});setShowNewSession(true)})}
             {primaryBtn(I.undo,"مرتجع سريع","مسح QR وتسجيل مرتجع","#EF4444","#DC2626",()=>setQrSale({mode:"return",custId:null,items:[],note:"",linkedSession:"free"}))}
             {/* V14.62: Quick access to receipt confirmation with toggle mode */}
-            {primaryBtn(I.inbox,"تأكيد استلام","مسح QR كسيري أو قطعة","#F59E0B","#D97706",()=>setPendingRcv({items:{},scanMode:"series"}),null)}
+            {primaryBtn(I.inbox,"تأكيد استلام","مسح QR كسيري أو قطعة","#F59E0B","#D97706",()=>setPendingRcv({items:{},scanMode:"series"}),pendingRcvCount)}
           </div>
         </>}
 
@@ -757,7 +757,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           {secBtn(I.warehouse,"جرد المخزن","#8B5CF6",()=>setInvAudit({items:{},scanning:false}))}
           {canEdit&&secBtn(I.clipboard,"جرد مبيعات","#F59E0B",()=>{setAuditDate(new Date().toISOString().split("T")[0]);setAuditFrom("");setAuditTo("");setAuditNote("");setShowNewAudit(true)})}
           {secBtn(I.package,"الكراتين","#0EA5E9",()=>setPkgPopup("list"))}
-          {secBtn(I.inbox,"تأكيد استلام","#10B981",()=>setPendingRcv({items:{}}),null)}
+          {secBtn(I.inbox,"تأكيد استلام","#10B981",()=>setPendingRcv({items:{}}),pendingRcvCount||null)}
           {/* V14.59: Receipt log — historical receipts with comparison */}
           {secBtn(I.fileText,"سجل الاستلامات","#059669",()=>setShowReceiptLog(true))}
         </div>

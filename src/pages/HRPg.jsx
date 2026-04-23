@@ -495,6 +495,10 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   const[advSearch,setAdvSearch]=useState("");
   /* V15.27: Weekly workshop payments — planned, registered in treasury on week close */
   const[showWsPayForm,setShowWsPayForm]=useState(false);
+  /* V15.72: Bulk workshop payments popup — all workshops in one table */
+  const[showWsBulkPopup,setShowWsBulkPopup]=useState(false);
+  const[wsBulkAmounts,setWsBulkAmounts]=useState({});/* wsName -> amount */
+  const[wsBulkNote,setWsBulkNote]=useState("");
   const[wsPayWs,setWsPayWs]=useState("");
   const[wsPayAmount,setWsPayAmount]=useState("");
   const[wsPayType,setWsPayType]=useState("payment");/* payment | purchase */
@@ -1209,6 +1213,44 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     });
   };
 
+  /* V15.72: Bulk save all workshop payments at once from the popup */
+  const saveBulkWsPayments=()=>{
+    if(!openWeek)return;
+    const useDateSave=openWeek.weekStart||today;
+    const toSave=[];
+    Object.entries(wsBulkAmounts).forEach(([wsName,val])=>{
+      const amt=Number(val)||0;if(amt<=0)return;
+      const wsObj=workshopsList.find(w=>w.name===wsName);
+      if(!wsObj)return;
+      toSave.push({wsObj,amt});
+    });
+    if(toSave.length===0){showToast("⚠️ اكتب مبلغ لورشة واحدة على الأقل");return}
+    upConfig(d=>{
+      const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
+      if(!d.hrWeeks[wi].weeklyWsPayments)d.hrWeeks[wi].weeklyWsPayments=[];
+      let addedCount=0;let totalAdded=0;
+      toSave.forEach(({wsObj,amt})=>{
+        d.hrWeeks[wi].weeklyWsPayments.push({
+          id:gid(),wsName:wsObj.name,wsId:wsObj.id||null,
+          amount:amt,type:"payment",date:useDateSave,note:wsBulkNote||"",
+          createdBy:userName||"",createdAt:new Date().toISOString(),
+          planned:true
+        });
+        addedCount++;totalAdded+=amt;
+      });
+      addAudit(d,{
+        category:"ws_payment",action:"add_bulk",
+        target:"W"+d.hrWeeks[wi].weekNum,
+        newValue:addedCount+" ورشة — إجمالي "+fmt0(totalAdded)+" ج"+(wsBulkNote?" — "+wsBulkNote:""),
+        user:userName,severity:totalAdded>20000?"warning":"info",
+        notes:"إضافة دفعات ورش جماعية (خطة — ستُسجَّل في الخزنة عند الإقفال)"
+      });
+    });
+    setShowWsBulkPopup(false);
+    setWsBulkAmounts({});setWsBulkNote("");
+    showToast("✓ تم إضافة "+toSave.length+" دفعة للخطة");
+  };
+
   /* V15.34: Weekly other expenses — planned, registered in treasury on week close */
   const weeklyOtherExpenses=openWeek?(openWeek.weeklyOtherExpenses||[]):[];
   const totalWeeklyOtherExpenses=weeklyOtherExpenses.reduce((s,e)=>s+(Number(e.amount)||0),0);
@@ -1914,6 +1956,276 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   /* V15.23: Use centralized openPrintWindow from utils/print.js (handles popup-block + iframe fallback) */
   const _openPrintWin=openPrintWindow;
 
+  /* V15.71: Weekly financial summary report — for CFO approval before cash disbursement */
+  const printWeeklyFinancialSummary=(w)=>{
+    if(!w)return;
+    const wSelected=(w.selectedEmps&&Array.isArray(w.selectedEmps))?w.selectedEmps:[];
+    const wShown=activeEmps.filter(e=>wSelected.includes(e.id));
+    /* Compute records — use closedRecords snapshot for closed weeks, live calc for open */
+    let records=[];
+    if(w.status==="closed"&&Array.isArray(w.closedRecords)){
+      records=w.closedRecords;
+    }else{
+      records=wShown.map(e=>{const c=calcSalary(e.id,w);return c?{empId:e.id,empName:e.name,empCode:e.code||"",...c}:null}).filter(Boolean);
+    }
+    /* Aggregate totals */
+    const totalEmps=records.length;
+    const totalSalaries=records.reduce((s,r)=>s+(Number(r.thursdayPay)||0),0);
+    const totalGross=records.reduce((s,r)=>s+(Number(r.grossPay)||0),0);
+    const totalPrevBalance=records.reduce((s,r)=>s+(Number(r.prevBalance)||0),0);
+    const totalAdvancesDeducted=records.reduce((s,r)=>s+(Number(r.weekAdvances)||0),0);
+    const totalBonus=records.reduce((s,r)=>s+(Number(r.bonus)||0),0);
+    const totalSpecialDeduct=records.reduce((s,r)=>s+(Number(r.specialDeduct)||0),0);
+    const totalInstallments=records.reduce((s,r)=>s+(Number(r.debtInstall)||0),0);
+    const totalRemaining=records.reduce((s,r)=>s+(Number(r.remainingBalance)||0),0);
+    /* Monthly advances (weeklyAdvances) */
+    const monthlyAdvs=(w.weeklyAdvances||[]);
+    const totalMonthlyAdvs=monthlyAdvs.reduce((s,a)=>s+(Number(a.amount)||0),0);
+    /* Workshop payments */
+    const wsPayments=(w.weeklyWsPayments||[]);
+    const totalWsPayments=wsPayments.reduce((s,p)=>s+(Number(p.amount)||0),0);
+    const wsByName={};
+    wsPayments.forEach(p=>{
+      const k=p.wsName||"غير محدد";
+      if(!wsByName[k])wsByName[k]={name:k,payment:0,purchase:0};
+      if(p.type==="purchase")wsByName[k].purchase+=Number(p.amount)||0;
+      else wsByName[k].payment+=Number(p.amount)||0;
+    });
+    const wsRows=Object.values(wsByName);
+    /* Other expenses */
+    const otherExps=(w.weeklyOtherExpenses||[]);
+    const totalOtherExps=otherExps.reduce((s,e)=>s+(Number(e.amount)||0),0);
+    const expsByCat={};
+    otherExps.forEach(e=>{
+      const k=e.category||"أخرى";
+      if(!expsByCat[k])expsByCat[k]=0;
+      expsByCat[k]+=Number(e.amount)||0;
+    });
+    const expsRows=Object.entries(expsByCat).map(([name,amount])=>({name,amount}));
+    /* GRAND TOTAL — what accountant needs to withdraw from treasury */
+    const grandTotal=totalSalaries+totalMonthlyAdvs+totalWsPayments+totalOtherExps;
+    /* Factory info */
+    const factoryName=data.factoryName||"CLARK Factory";
+    const logo=data.logo||"";
+    const address=data.address||"";
+    const phone=data.phone||"";
+    const today=new Date();
+    const todayStr=today.toLocaleDateString("ar-EG",{year:"numeric",month:"long",day:"numeric",weekday:"long"});
+    const timeStr=today.toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit"});
+    /* Build HTML */
+    const html=`<!DOCTYPE html><html dir="rtl" lang="ar"><head>
+<meta charset="UTF-8"/>
+<title>تقرير أسبوعي مالي — W${w.weekNum}</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
+<style>
+@page{size:A4;margin:14mm}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Cairo',sans-serif;color:#1E293B;font-size:12px;line-height:1.5;background:#fff}
+.pbar{position:sticky;top:0;background:#fff;padding:10px;border-bottom:2px solid #ddd;display:flex;justify-content:center;gap:10px;z-index:99}
+.pbar button{padding:8px 20px;border-radius:8px;border:1px solid #1E293B;cursor:pointer;font-family:'Cairo';font-size:13px;font-weight:800;background:#fff}
+.pbar .pr{background:#0EA5E9;color:#fff;border-color:#0EA5E9}
+@media print{.pbar{display:none}}
+
+/* Header */
+.hdr{text-align:center;padding-bottom:14px;border-bottom:3px solid #0EA5E9;margin-bottom:16px}
+.hdr .logo{max-width:60px;max-height:60px;margin-bottom:6px}
+.hdr .fname{font-size:20px;font-weight:900;color:#0EA5E9;margin-bottom:2px;letter-spacing:1px}
+.hdr .fmeta{font-size:10px;color:#64748B;margin-bottom:8px}
+.hdr .title-box{display:inline-block;background:linear-gradient(135deg,#0EA5E9,#8B5CF6);color:#fff;padding:8px 28px;border-radius:10px;margin-top:6px}
+.hdr .title-box h1{font-size:16px;font-weight:800;margin-bottom:2px}
+.hdr .title-box .subtitle{font-size:11px;opacity:0.95}
+
+/* Week info bar */
+.wk-info{display:flex;justify-content:space-between;align-items:center;background:#F1F5F9;border-radius:10px;padding:10px 16px;margin-bottom:14px;border:1px solid #CBD5E1}
+.wk-info .w-num{font-size:22px;font-weight:900;color:#0EA5E9}
+.wk-info .w-dates{text-align:center;font-size:12px}
+.wk-info .w-dates b{display:block;font-size:13px;color:#1E293B;margin-bottom:2px}
+.wk-info .w-dates span{color:#64748B;font-size:10px}
+.wk-info .w-meta{text-align:left;font-size:10px;color:#64748B}
+.wk-info .w-meta b{color:#1E293B;display:block;font-size:11px}
+
+/* Section */
+.sec{margin-bottom:14px;border:1px solid #E2E8F0;border-radius:10px;overflow:hidden}
+.sec-hdr{background:linear-gradient(90deg,var(--sc,#0EA5E9) 0%,var(--sc2,#8B5CF6) 100%);color:#fff;padding:8px 14px;display:flex;justify-content:space-between;align-items:center;font-weight:800}
+.sec-hdr .stitle{font-size:13px}
+.sec-hdr .stot{font-size:14px;font-weight:900;background:rgba(255,255,255,0.2);padding:3px 10px;border-radius:6px}
+.sec-body{padding:10px 14px;background:#fff}
+.sec-body table{width:100%;border-collapse:collapse}
+.sec-body th,.sec-body td{padding:6px 8px;text-align:right;font-size:11px;border-bottom:1px solid #F1F5F9}
+.sec-body th{background:#F8FAFC;font-weight:700;color:#475569}
+.sec-body td.num{text-align:center;font-weight:700;font-family:'Cairo'}
+.sec-body tr:last-child td{border-bottom:none}
+.sec-body tr.tot{background:#F8FAFC;font-weight:800}
+.sec-body tr.tot td{padding:8px;color:#1E293B}
+
+.empty{text-align:center;color:#94A3B8;padding:12px;font-style:italic;font-size:11px}
+
+/* Grand total */
+.grand{margin-top:18px;background:linear-gradient(135deg,#DC2626 0%,#991B1B 100%);color:#fff;border-radius:12px;padding:16px 22px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 6px 16px rgba(220,38,38,0.25)}
+.grand .gtitle{font-size:14px;font-weight:700;opacity:0.95}
+.grand .gval{font-size:28px;font-weight:900;letter-spacing:0.5px}
+.grand .gval small{font-size:14px;opacity:0.85;font-weight:700}
+
+/* Breakdown bar */
+.breakdown{margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;padding:10px 14px;background:#F1F5F9;border-radius:8px;font-size:10px}
+.breakdown .bd-item{background:#fff;padding:4px 10px;border-radius:6px;border:1px solid #E2E8F0}
+.breakdown .bd-item b{color:#0EA5E9}
+
+/* Signatures */
+.sigs{margin-top:22px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px}
+.sig-box{text-align:center;padding-top:30px;border-top:2px solid #1E293B}
+.sig-box .role{font-size:11px;font-weight:800;color:#1E293B;margin-bottom:3px}
+.sig-box .name{font-size:10px;color:#64748B}
+
+/* Footer */
+.foot{margin-top:22px;padding-top:10px;border-top:1px solid #E2E8F0;display:flex;justify-content:space-between;align-items:center;font-size:9px;color:#94A3B8}
+.foot .brand{font-weight:700;color:#64748B}
+
+/* Colors per section */
+.sec.salaries{--sc:#0EA5E9;--sc2:#0284C7}
+.sec.advs{--sc:#F59E0B;--sc2:#D97706}
+.sec.ws{--sc:#8B5CF6;--sc2:#7C3AED}
+.sec.exps{--sc:#10B981;--sc2:#059669}
+</style>
+</head><body>
+<div class="pbar">
+  <button onclick="window.close()">↩ رجوع</button>
+  <button class="pr" onclick="window.print()">🖨 طباعة / حفظ PDF</button>
+</div>
+
+<div class="hdr">
+  ${logo?`<img src="${logo}" class="logo" alt="Logo"/>`:""}
+  <div class="fname">${factoryName}</div>
+  <div class="fmeta">${[address,phone].filter(Boolean).join(" • ")||""}</div>
+  <div class="title-box">
+    <h1>💼 تقرير أسبوعي مالي</h1>
+    <div class="subtitle">للاعتماد من المدير المالي</div>
+  </div>
+</div>
+
+<div class="wk-info">
+  <div class="w-num">W${w.weekNum}</div>
+  <div class="w-dates">
+    <b>${w.weekStart} → ${w.weekEnd}</b>
+    <span>${totalEmps} عامل • ${w.status==="closed"?"✅ أسبوع مقفول":"🔓 أسبوع مفتوح"}</span>
+  </div>
+  <div class="w-meta">
+    <b>${todayStr}</b>
+    <span>${timeStr} • أعده: ${userName||"—"}</span>
+  </div>
+</div>
+
+<!-- 1. Salaries -->
+<div class="sec salaries">
+  <div class="sec-hdr">
+    <div class="stitle">💰 إجمالي المرتبات المستحقة</div>
+    <div class="stot">${fmt0(totalSalaries)} ج</div>
+  </div>
+  <div class="sec-body">
+    <table><tbody>
+      <tr><td>إجمالي الأجر الأساسي للعمال</td><td class="num">${fmt0(totalGross)} ج</td></tr>
+      ${totalPrevBalance!==0?`<tr><td>+ رصيد مرحّل من أسابيع سابقة</td><td class="num">${fmt0(totalPrevBalance)} ج</td></tr>`:""}
+      ${totalBonus>0?`<tr><td>+ حوافز</td><td class="num" style="color:#10B981">+${fmt0(totalBonus)} ج</td></tr>`:""}
+      ${totalAdvancesDeducted>0?`<tr><td>− سلف مخصومة هذا الأسبوع</td><td class="num" style="color:#EF4444">−${fmt0(totalAdvancesDeducted)} ج</td></tr>`:""}
+      ${totalSpecialDeduct>0?`<tr><td>− خصومات خاصة</td><td class="num" style="color:#EF4444">−${fmt0(totalSpecialDeduct)} ج</td></tr>`:""}
+      ${totalInstallments>0?`<tr><td>− أقساط مديونيات</td><td class="num" style="color:#EF4444">−${fmt0(totalInstallments)} ج</td></tr>`:""}
+      ${totalRemaining!==0?`<tr><td>− سيُرحّل للأسبوع القادم</td><td class="num" style="color:#F59E0B">${fmt0(totalRemaining)} ج</td></tr>`:""}
+      <tr class="tot"><td>= الصافي المطلوب للصرف (دفعة الخميس)</td><td class="num" style="color:#0EA5E9;font-size:14px">${fmt0(totalSalaries)} ج</td></tr>
+    </tbody></table>
+  </div>
+</div>
+
+<!-- 2. Monthly/Administrative Advances -->
+<div class="sec advs">
+  <div class="sec-hdr">
+    <div class="stitle">📋 السلف الشهرية والإدارية</div>
+    <div class="stot">${fmt0(totalMonthlyAdvs)} ج</div>
+  </div>
+  <div class="sec-body">
+    ${monthlyAdvs.length===0?'<div class="empty">لا توجد سلف مسجلة</div>':
+      `<table><thead><tr><th>#</th><th>الموظف</th><th style="text-align:center">المبلغ</th><th>ملاحظة</th></tr></thead><tbody>
+      ${monthlyAdvs.map((a,i)=>`<tr><td class="num">${i+1}</td><td>${a.empName||"—"}</td><td class="num">${fmt0(Number(a.amount)||0)} ج</td><td style="color:#64748B">${a.note||"—"}</td></tr>`).join("")}
+      <tr class="tot"><td colspan="2">الإجمالي (${monthlyAdvs.length})</td><td class="num" style="color:#F59E0B;font-size:14px">${fmt0(totalMonthlyAdvs)} ج</td><td></td></tr>
+      </tbody></table>`
+    }
+  </div>
+</div>
+
+<!-- 3. Workshop Payments -->
+<div class="sec ws">
+  <div class="sec-hdr">
+    <div class="stitle">🏭 دفعات الورش والمشتريات</div>
+    <div class="stot">${fmt0(totalWsPayments)} ج</div>
+  </div>
+  <div class="sec-body">
+    ${wsRows.length===0?'<div class="empty">لا توجد دفعات ورش مسجلة</div>':
+      `<table><thead><tr><th>#</th><th>الورشة</th><th style="text-align:center">دفعة</th><th style="text-align:center">مشتريات</th><th style="text-align:center">الإجمالي</th></tr></thead><tbody>
+      ${wsRows.map((r,i)=>`<tr><td class="num">${i+1}</td><td>${r.name}</td><td class="num">${r.payment>0?fmt0(r.payment)+" ج":"—"}</td><td class="num">${r.purchase>0?fmt0(r.purchase)+" ج":"—"}</td><td class="num">${fmt0(r.payment+r.purchase)} ج</td></tr>`).join("")}
+      <tr class="tot"><td colspan="2">الإجمالي (${wsRows.length} ورشة)</td><td class="num">${fmt0(wsRows.reduce((s,r)=>s+r.payment,0))} ج</td><td class="num">${fmt0(wsRows.reduce((s,r)=>s+r.purchase,0))} ج</td><td class="num" style="color:#8B5CF6;font-size:14px">${fmt0(totalWsPayments)} ج</td></tr>
+      </tbody></table>`
+    }
+  </div>
+</div>
+
+<!-- 4. Other Expenses -->
+<div class="sec exps">
+  <div class="sec-hdr">
+    <div class="stitle">📝 المصاريف الأخرى</div>
+    <div class="stot">${fmt0(totalOtherExps)} ج</div>
+  </div>
+  <div class="sec-body">
+    ${expsRows.length===0?'<div class="empty">لا توجد مصاريف مسجلة</div>':
+      `<table><thead><tr><th>#</th><th>الفئة</th><th style="text-align:center">المبلغ</th></tr></thead><tbody>
+      ${expsRows.map((r,i)=>`<tr><td class="num">${i+1}</td><td>${r.name}</td><td class="num">${fmt0(r.amount)} ج</td></tr>`).join("")}
+      <tr class="tot"><td colspan="2">الإجمالي (${expsRows.length} بند)</td><td class="num" style="color:#10B981;font-size:14px">${fmt0(totalOtherExps)} ج</td></tr>
+      </tbody></table>`
+    }
+  </div>
+</div>
+
+<!-- GRAND TOTAL -->
+<div class="grand">
+  <div class="gtitle">💵 إجمالي المبلغ المطلوب صرفه اليوم</div>
+  <div class="gval">${fmt0(grandTotal)} <small>جنيه مصري</small></div>
+</div>
+
+<!-- Breakdown Bar -->
+<div class="breakdown">
+  <div class="bd-item">💰 مرتبات: <b>${fmt0(totalSalaries)} ج</b> (${grandTotal?Math.round(totalSalaries/grandTotal*100):0}%)</div>
+  <div class="bd-item">📋 سلف: <b>${fmt0(totalMonthlyAdvs)} ج</b> (${grandTotal?Math.round(totalMonthlyAdvs/grandTotal*100):0}%)</div>
+  <div class="bd-item">🏭 ورش: <b>${fmt0(totalWsPayments)} ج</b> (${grandTotal?Math.round(totalWsPayments/grandTotal*100):0}%)</div>
+  <div class="bd-item">📝 مصاريف: <b>${fmt0(totalOtherExps)} ج</b> (${grandTotal?Math.round(totalOtherExps/grandTotal*100):0}%)</div>
+</div>
+
+<!-- Signatures -->
+<div class="sigs">
+  <div class="sig-box">
+    <div class="role">أعده: المحاسب</div>
+    <div class="name">${userName||"—"}</div>
+  </div>
+  <div class="sig-box">
+    <div class="role">اعتمده: المدير المالي</div>
+    <div class="name">التوقيع + التاريخ</div>
+  </div>
+  <div class="sig-box">
+    <div class="role">استلمه: المحاسب</div>
+    <div class="name">التوقيع + التاريخ</div>
+  </div>
+</div>
+
+<!-- Footer -->
+<div class="foot">
+  <span class="brand">${factoryName} — Powered by CLARK Factory Management</span>
+  <span>طُبع في ${todayStr} ${timeStr}</span>
+</div>
+
+</body></html>`;
+    const pw=_openPrintWin();
+    if(!pw){showToast("⚠️ فعّل النوافذ المنبثقة");return}
+    pw.document.write(html);
+    pw.document.close();
+  };
+
   const printSlip=(empId)=>{if(!openWeek)return;const html=buildSlipHTML(empId);if(!html)return;
     const emp=employees.find(e=>e.id===empId);
     const w=_openPrintWin();
@@ -2448,12 +2760,14 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           let wGross=w.totalGross||0,wThursday=w.totalThursdayPay||0,wRemaining=w.totalRemaining||0,wEmpCount=w.empCount||0,wWeeklyAdv=w.totalWeeklyAdvances||0;
           /* Sum of prev balances — use the SAME value that calcSalary uses (respects manual overrides + excludes employees not in this week) */
           let wPrevBalances=0;
+          /* V15.70: Net amount owed to employees after ALL deductions + carryover = Σ totalDue */
+          let wNetOwed=0;
           if(w.status!=="closed"){
             /* Live calculation for open weeks */
             const wSelected=(w.selectedEmps&&Array.isArray(w.selectedEmps))?w.selectedEmps:[];
             const wShown=activeEmps.filter(e=>wSelected.includes(e.id));
             wEmpCount=wShown.length;
-            let liveG=0,liveT=0,liveR=0,livePB=0;
+            let liveG=0,liveT=0,liveR=0,livePB=0,liveNet=0;
             wShown.forEach(e=>{
               const c=calcSalary(e.id,w);
               if(c){
@@ -2462,10 +2776,17 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                 liveR+=c.remainingBalance||0;
                 /* Use prevBalance from calcSalary — same value shown in salary table row */
                 livePB+=Number(c.prevBalance)||0;
+                /* totalDue = netBalance + prevBalance = final amount owed after all deductions */
+                liveNet+=Number(c.totalDue)||0;
               }
             });
-            wGross=liveG;wThursday=liveT;wRemaining=liveR;wPrevBalances=livePB;
+            wGross=liveG;wThursday=liveT;wRemaining=liveR;wPrevBalances=livePB;wNetOwed=liveNet;
             wWeeklyAdv=(w.weeklyAdvances||[]).reduce((s,a)=>s+(Number(a.amount)||0),0);
+          }else{
+            /* V15.70: For closed weeks, read from closedRecords snapshot */
+            const records=Array.isArray(w.closedRecords)?w.closedRecords:[];
+            wPrevBalances=records.reduce((s,r)=>s+(Number(r.prevBalance)||0),0);
+            wNetOwed=records.reduce((s,r)=>s+(Number(r.totalDue)||0),0);
           }
           const isClosedW=w.status==="closed";
           /* Carried balances — show BOTH: prev (from previous weeks) and next (to be rolled to next week) */
@@ -2486,6 +2807,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
               {/* V15.24: Analysis-only badge — makes it immediately obvious this week is display-only */}
               {w.isAnalysisOnly&&<span style={{padding:"6px 12px",borderRadius:10,fontSize:FS-1,fontWeight:800,background:"#3B82F615",color:"#3B82F6",border:"1px solid #3B82F640"}} title="هذا الأسبوع مستورد للتحليل فقط — لا يؤثر على الخزنة أو السلف">📊 تحليلي</span>}
               <span onClick={e=>{e.stopPropagation();setOpenWeekId(w.id)}} style={{cursor:"pointer",padding:"6px 18px",borderRadius:10,background:T.accent,color:"#fff",fontSize:FS-1,fontWeight:800,border:"none"}}>فتح</span>
+              {/* V15.71: Weekly financial summary for CFO */}
+              <span onClick={e=>{e.stopPropagation();printWeeklyFinancialSummary(w)}} style={{cursor:"pointer",padding:"6px 12px",borderRadius:10,background:"#DC262612",color:"#DC2626",fontSize:FS-1,fontWeight:700,border:"1px solid #DC262630",display:"inline-flex",alignItems:"center",gap:4}} title="طباعة تقرير أسبوعي مالي للمدير المالي">🖨️ تقرير مالي</span>
               {canEdit&&(!isClosedW||unlockedWeeks[w.id])&&<span onClick={e=>{e.stopPropagation();
                 /* V14.55: Compute full impact analysis for clean-delete option */
                 const wSelectedDel=(w.selectedEmps&&Array.isArray(w.selectedEmps))?w.selectedEmps:[];
@@ -2529,6 +2852,13 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
               <span style={{color:T.textSec}}>💰</span>
               <span style={{color:T.textMut,fontSize:FS-2}}>مستحق</span>
               <span style={{fontWeight:800,color:"#06B6D4"}}>{wGross?fmt0(wGross):"—"}</span>
+            </span>
+            <span style={{color:T.brd}}>•</span>
+            {/* V15.70: Net owed = totalDue = net after ALL deductions + previous carryover */}
+            <span style={{display:"inline-flex",alignItems:"center",gap:4}} title={"الصافي بعد كل الخصومات والترحيلات: "+fmt0(wNetOwed)+"\n(المبلغ اللي المفروض يصرف للعمال بالفعل)"}>
+              <span style={{color:T.textSec}}>💵</span>
+              <span style={{color:T.textMut,fontSize:FS-2}}>صافي</span>
+              <span style={{fontWeight:800,color:"#10B981"}}>{wNetOwed?fmt0(wNetOwed):"—"}</span>
             </span>
             <span style={{color:T.brd}}>•</span>
             <span style={{display:"inline-flex",alignItems:"center",gap:4}} title={"مرحّل من أسابيع سابقة: "+fmt0(wPrev)+"\n(موجب = عليهم فلوس، سالب = ليهم فلوس)"}>
@@ -3153,6 +3483,61 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           });
           const uniqueJobs=Array.from(new Set(shownEmps.map(e=>e.job).filter(Boolean))).sort();
           return<Card title={"💰 حساب المرتبات — W"+openWeek.weekNum+" ("+shownEmps.length+" موظف"+(filteredShown.length!==shownEmps.length?" — ظاهر "+filteredShown.length:"")+")"}>
+            {/* V15.69: PrevBalance carryover diagnostic — shows when previous closed week had
+                remainingBalance but current emp.prevBalance doesn't match. Caused by
+                approveWeek not completing balance update (e.g. analysis-only week,
+                transaction failure, or pre-V15.21 close). */}
+            {openWeek.status!=="closed"&&canEdit&&(()=>{
+              /* Find the most recent closed week BEFORE this one */
+              const prevClosed=hrWeeks.filter(w=>w.status==="closed"&&w.weekEnd<openWeek.weekStart&&!w.isAnalysisOnly).sort((a,b)=>(b.weekEnd||"").localeCompare(a.weekEnd||""))[0];
+              if(!prevClosed||!Array.isArray(prevClosed.closedRecords))return null;
+              /* For each shown employee, check if their remainingBalance in prevClosed != emp.prevBalance */
+              const mismatches=[];
+              shownEmps.forEach(e=>{
+                const rec=prevClosed.closedRecords.find(r=>r.empId===e.id);
+                if(!rec)return;
+                const expected=Number(rec.remainingBalance)||0;
+                const actual=Number(e.prevBalance)||0;
+                if(Math.abs(expected-actual)>0.5){
+                  mismatches.push({emp:e,expected,actual,diff:r2(expected-actual)});
+                }
+              });
+              if(mismatches.length===0)return null;
+              const total=mismatches.reduce((s,m)=>s+m.expected,0);
+              const fixCarryover=()=>{
+                openConfirm({
+                  title:"🔄 إصلاح الرصيد المرحّل",
+                  message:"هذا الإجراء سيقوم بتحديث \"الرصيد المرحّل\" لـ "+mismatches.length+" موظف بالقيم الصحيحة من W"+prevClosed.weekNum+".\n\nالقيم اللي هتتحدث:\n"+mismatches.slice(0,10).map(m=>"• "+m.emp.name+": "+fmt0(m.actual)+" → "+fmt0(m.expected)+" (فرق "+(m.diff>0?"+":"")+fmt0(m.diff)+")").join("\n")+(mismatches.length>10?"\n... و "+(mismatches.length-10)+" موظف آخر":"")+"\n\nالإجمالي اللي هيظهر في رصيد سابق: "+fmt0(total)+" ج\n\nهل تريد المتابعة؟",
+                  variant:"warn",confirmText:"نعم، أصلح القيم",
+                  onConfirm:()=>{
+                    upConfig(d=>{
+                      const mm=new Map(mismatches.map(m=>[m.emp.id,m.expected]));
+                      (d.employees||[]).forEach(e=>{if(mm.has(e.id))e.prevBalance=mm.get(e.id)});
+                      /* Audit log */
+                      addAudit(d,{
+                        category:"payroll",action:"fix_prev_balance_carryover",
+                        target:"W"+openWeek.weekNum,
+                        oldValue:mismatches.map(m=>m.emp.name+"="+fmt0(m.actual)).join("، "),
+                        newValue:mismatches.map(m=>m.emp.name+"="+fmt0(m.expected)).join("، "),
+                        user:userName,severity:"warn",
+                        notes:"إصلاح ترحيل الرصيد من W"+prevClosed.weekNum+" — "+mismatches.length+" موظف — إجمالي "+fmt0(total)+" ج"
+                      });
+                    });
+                    showToast("✓ تم تحديث الرصيد المرحّل لـ "+mismatches.length+" موظف");
+                  }
+                });
+              };
+              return <div style={{padding:"12px 14px",borderRadius:12,background:"#FEF3C7",border:"1px solid #F59E0B50",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                <div style={{flex:"1 1 400px"}}>
+                  <div style={{fontSize:FS,fontWeight:800,color:"#92400E",marginBottom:4}}>⚠️ تنبيه: الرصيد المرحّل من W{prevClosed.weekNum} غير مطابق</div>
+                  <div style={{fontSize:FS-2,color:"#78350F",lineHeight:1.6}}>
+                    فيه <b>{mismatches.length}</b> موظف المفروض عندهم رصيد مرحّل من الأسبوع السابق (إجمالي <b>{fmt0(total)} ج</b>) بس القيم الحالية مش مطابقة.
+                    <br/>ده بيحصل لو الأسبوع اتقفل بس تحديث الرصيد مكملش بسبب خطأ مؤقت.
+                  </div>
+                </div>
+                <Btn onClick={fixCarryover} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:800,whiteSpace:"nowrap"}}>🔄 إصلاح الرصيد</Btn>
+              </div>;
+            })()}
             {/* V14.57: Receipt summary cards — only for closed weeks */}
             {openWeek.status==="closed"&&(()=>{
               /* V15.25: Use merged receipts */
@@ -3556,13 +3941,22 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                 <div style={{fontSize:FS-2,color:T.textSec}}>إجمالي مخطط:</div>
                 <div style={{fontSize:FS+2,fontWeight:800,color:T.warn}}>{fmt0(totalWeeklyWsPayments)} ج</div>
               </div>
-              {canEdit&&<Btn small onClick={()=>{if(showWsPayForm){setShowWsPayForm(false);resetWsPayForm()}else{setWsPayDate(openWeek.weekStart||today);setShowWsPayForm(true)}}} style={{background:showWsPayForm?T.err+"15":"#8B5CF612",color:showWsPayForm?T.err:"#8B5CF6",border:"1px solid "+(showWsPayForm?T.err+"30":"#8B5CF630"),fontWeight:700}}>
-                {showWsPayForm?"✕ إلغاء":"➕ إضافة دفعة"}
+              {/* V15.72: Single button opens bulk popup for all workshops at once */}
+              {canEdit&&<Btn small onClick={()=>{
+                /* Prefill amounts from existing week payments */
+                const existing={};
+                (openWeek.weeklyWsPayments||[]).filter(p=>p.type==="payment").forEach(p=>{
+                  existing[p.wsName]=(existing[p.wsName]||0)+(Number(p.amount)||0);
+                });
+                setWsBulkAmounts(existing);setWsBulkNote("");
+                setShowWsBulkPopup(true);
+              }} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}}>
+                💸 تسجيل الدفعات
               </Btn>}
             </div>
 
-            {/* Add form */}
-            {showWsPayForm&&canEdit&&<div style={{padding:"14px",background:"#8B5CF608",border:"1px solid #8B5CF630",borderRadius:12,marginBottom:12}}>
+            {/* Add form — V15.72: hidden, replaced by bulk popup */}
+            {false&&showWsPayForm&&canEdit&&<div style={{padding:"14px",background:"#8B5CF608",border:"1px solid #8B5CF630",borderRadius:12,marginBottom:12}}>
               <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:10}}>
                 {/* Workshop selector */}
                 <div>
@@ -5302,6 +5696,180 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           {/* Actions */}
           <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:12,borderTop:"1px solid "+T.brd}}>
             <Btn onClick={close} style={{background:T.accent,color:"#fff",border:"none",fontWeight:800,padding:"10px 24px",fontSize:FS+1}}>✓ فهمت، إلغاء الإقفال</Btn>
+          </div>
+        </div>
+      </div>;
+    })()}
+
+    {/* ══ V15.72: BULK WORKSHOP PAYMENTS POPUP — all workshops in one screen ══ */}
+    {showWsBulkPopup&&openWeek&&(()=>{
+      /* Get all external workshops with their data */
+      const wsData=workshopsList.filter(w=>_wsIsExternal(w.name||w)).map(w=>{
+        const bal=wsTotalBalance(w.name);
+        const weekDue=wsWeekDue(w.name,openWeek);
+        const pct=Number(w.payPercent)||60;
+        const limit=r2(((bal.due||0)+(bal.purchase||0))*pct/100);
+        return{
+          name:w.name,owner:w.owner||"",
+          balance:bal.balance,paid:bal.paid,due:bal.due,purchase:bal.purchase||0,
+          pct,limit,weekDue,
+          amount:Number(wsBulkAmounts[w.name])||0,
+        };
+      });
+      /* Filter to only show workshops with a positive balance (owed money) by default,
+         but let user see all if they want */
+      const withBalance=wsData.filter(w=>w.balance>0);
+      const withoutBalance=wsData.filter(w=>w.balance<=0);
+      const bulkTotal=Object.values(wsBulkAmounts).reduce((s,v)=>s+(Number(v)||0),0);
+      const bulkCount=Object.values(wsBulkAmounts).filter(v=>Number(v)>0).length;
+      /* Helper: apply percentage limit to all workshops with balance */
+      const applyAllLimits=()=>{
+        const newAmounts={...wsBulkAmounts};
+        withBalance.forEach(w=>{
+          if(w.weekDue>0)newAmounts[w.name]=String(w.weekDue);
+        });
+        setWsBulkAmounts(newAmounts);
+      };
+      /* Helper: clear all amounts */
+      const clearAll=()=>setWsBulkAmounts({});
+      /* Helper: update single amount */
+      const updateAmount=(wsName,val)=>{
+        setWsBulkAmounts(p=>{const n={...p};if(!val||Number(val)<=0)delete n[wsName];else n[wsName]=val;return n});
+      };
+      return <div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowWsBulkPopup(false)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,width:"100%",maxWidth:isMob?"100%":900,maxHeight:"92vh",display:"flex",flexDirection:"column",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          {/* Header */}
+          <div style={{padding:"16px 22px",borderBottom:"1px solid "+T.brd,background:"linear-gradient(135deg,#8B5CF608,#7C3AED08)",borderRadius:"20px 20px 0 0",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+            <div>
+              <div style={{fontSize:FS+2,fontWeight:900,color:"#8B5CF6",marginBottom:2}}>💸 تسجيل دفعات الورش — W{openWeek.weekNum}</div>
+              <div style={{fontSize:FS-2,color:T.textMut}}>اكتب المبالغ اللي هتنزل لكل ورشة. الإجمالي هيظهر تحت.</div>
+            </div>
+            <Btn ghost small onClick={()=>setShowWsBulkPopup(false)}>✕</Btn>
+          </div>
+
+          {/* Quick actions toolbar */}
+          <div style={{padding:"10px 22px",borderBottom:"1px solid "+T.brd,background:T.bg,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+            <div style={{fontSize:FS-2,color:T.textSec,fontWeight:700,marginInlineEnd:"auto"}}>
+              {withBalance.length} ورشة عليها فلوس • {withoutBalance.length} مدفوع لها بالكامل
+            </div>
+            <Btn small onClick={applyAllLimits} style={{background:"#10B98112",color:"#10B981",border:"1px solid #10B98130",fontWeight:700,fontSize:FS-2}}>⚡ استخدم حد النسبة للكل</Btn>
+            <Btn small onClick={clearAll} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd,fontSize:FS-2}}>🗑️ مسح الكل</Btn>
+          </div>
+
+          {/* Body — scrollable table */}
+          <div style={{flex:1,overflowY:"auto",padding:"12px 22px"}}>
+            {/* Workshops WITH balance — priority list */}
+            {withBalance.length>0?<div>
+              <div style={{fontSize:FS-1,fontWeight:800,color:T.err,marginBottom:8,padding:"6px 10px",background:T.err+"08",borderRadius:8,display:"inline-block"}}>
+                ⚠️ ورش عليها فلوس ({withBalance.length})
+              </div>
+              <div style={{overflowX:"auto",borderRadius:10,border:"1px solid "+T.brd}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+                  <thead>
+                    <tr style={{background:T.bg}}>
+                      <th style={{padding:"10px 8px",textAlign:"right",fontWeight:800,color:T.textSec,borderBottom:"2px solid "+T.brd,minWidth:140}}>الورشة</th>
+                      <th style={{padding:"10px 8px",textAlign:"center",fontWeight:800,color:T.textSec,borderBottom:"2px solid "+T.brd}}>الرصيد</th>
+                      <th style={{padding:"10px 8px",textAlign:"center",fontWeight:800,color:T.textSec,borderBottom:"2px solid "+T.brd}}>المدفوع</th>
+                      <th style={{padding:"10px 8px",textAlign:"center",fontWeight:800,color:T.textSec,borderBottom:"2px solid "+T.brd}}>حد النسبة</th>
+                      <th style={{padding:"10px 8px",textAlign:"center",fontWeight:800,color:"#8B5CF6",borderBottom:"2px solid "+T.brd,minWidth:130}}>💰 المبلغ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {withBalance.map((w,i)=>{
+                      const amt=Number(wsBulkAmounts[w.name])||0;
+                      const overLimit=w.weekDue>0&&amt>w.weekDue;
+                      return <tr key={w.name} style={{background:i%2===0?"transparent":T.bg+"50",borderBottom:"1px solid "+T.brd}}>
+                        <td style={{padding:"8px"}}>
+                          <div style={{fontWeight:700,color:T.text}}>{w.name}</div>
+                          {w.owner&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{w.owner}</div>}
+                        </td>
+                        <td style={{padding:"8px",textAlign:"center",fontWeight:800,color:T.err}}>{fmt0(w.balance)}</td>
+                        <td style={{padding:"8px",textAlign:"center",color:T.textSec}}>{fmt0(w.paid)}</td>
+                        <td style={{padding:"8px",textAlign:"center"}}>
+                          {w.weekDue>0?<div>
+                            <div style={{fontWeight:800,color:"#8B5CF6"}}>{fmt0(w.weekDue)}</div>
+                            <div style={{fontSize:FS-3,color:T.textMut}}>{w.pct}%</div>
+                          </div>:<span style={{color:T.ok,fontWeight:700,fontSize:FS-2}}>✓ تم</span>}
+                        </td>
+                        <td style={{padding:"8px",textAlign:"center"}}>
+                          <input
+                            type="number" inputMode="decimal"
+                            value={wsBulkAmounts[w.name]||""}
+                            onChange={e=>updateAmount(w.name,e.target.value)}
+                            placeholder="0"
+                            style={{
+                              width:110,padding:"8px 10px",borderRadius:8,
+                              border:"2px solid "+(overLimit?T.warn:amt>0?"#8B5CF6":T.brd),
+                              background:amt>0?"#8B5CF608":T.inputBg,
+                              textAlign:"center",fontWeight:800,fontSize:FS,
+                              color:overLimit?T.warn:amt>0?"#8B5CF6":T.text,
+                              fontFamily:"inherit",outline:"none",
+                            }}
+                          />
+                          {overLimit&&<div style={{fontSize:FS-4,color:T.warn,marginTop:2,fontWeight:700}}>⚠️ فوق الحد</div>}
+                        </td>
+                      </tr>;
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>:<div style={{padding:"30px",textAlign:"center",color:T.textMut,background:T.bg,borderRadius:10}}>
+              <div style={{fontSize:30,marginBottom:8}}>✅</div>
+              <div style={{fontSize:FS}}>كل الورش مدفوع لها بالكامل</div>
+            </div>}
+
+            {/* Workshops WITHOUT balance (collapsed, optional) */}
+            {withoutBalance.length>0&&<details style={{marginTop:14}}>
+              <summary style={{cursor:"pointer",padding:"8px 12px",background:T.bg,borderRadius:8,fontSize:FS-2,color:T.textSec,fontWeight:700}}>
+                ↓ عرض الورش اللي مفيش عليها فلوس ({withoutBalance.length})
+              </summary>
+              <div style={{marginTop:10,overflowX:"auto",borderRadius:10,border:"1px solid "+T.brd}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+                  <thead><tr style={{background:T.bg}}>
+                    <th style={{padding:"8px",textAlign:"right",fontWeight:800,color:T.textSec}}>الورشة</th>
+                    <th style={{padding:"8px",textAlign:"center",fontWeight:800,color:T.textSec}}>الرصيد</th>
+                    <th style={{padding:"8px",textAlign:"center",fontWeight:800,color:"#8B5CF6",minWidth:130}}>💰 المبلغ (اختياري)</th>
+                  </tr></thead>
+                  <tbody>
+                    {withoutBalance.map((w,i)=><tr key={w.name} style={{background:i%2===0?"transparent":T.bg+"50"}}>
+                      <td style={{padding:"8px",color:T.textSec}}>{w.name}</td>
+                      <td style={{padding:"8px",textAlign:"center",color:T.ok,fontWeight:700}}>✓ {fmt0(w.balance)}</td>
+                      <td style={{padding:"8px",textAlign:"center"}}>
+                        <input type="number" inputMode="decimal" value={wsBulkAmounts[w.name]||""} onChange={e=>updateAmount(w.name,e.target.value)} placeholder="0"
+                          style={{width:110,padding:"6px 10px",borderRadius:8,border:"1px solid "+T.brd,background:T.inputBg,textAlign:"center",fontWeight:700,fontSize:FS-1,fontFamily:"inherit",outline:"none"}}/>
+                      </td>
+                    </tr>)}
+                  </tbody>
+                </table>
+              </div>
+            </details>}
+
+            {/* Optional note */}
+            <div style={{marginTop:14}}>
+              <label style={{fontSize:FS-2,color:T.textSec,fontWeight:700,display:"block",marginBottom:4}}>📝 ملاحظة (اختيارية — هتتطبق على كل الدفعات)</label>
+              <Inp type="text" value={wsBulkNote} onChange={e=>setWsBulkNote(e.target.value)} placeholder="مثل: دفعة الأسبوع 17"/>
+            </div>
+          </div>
+
+          {/* Footer — summary + actions */}
+          <div style={{padding:"14px 22px",borderTop:"1px solid "+T.brd,background:T.bg,borderRadius:"0 0 20px 20px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+              <div style={{display:"flex",gap:14,alignItems:"center",flexWrap:"wrap"}}>
+                <div>
+                  <div style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>عدد الدفعات</div>
+                  <div style={{fontSize:FS+2,fontWeight:900,color:"#8B5CF6"}}>{bulkCount}</div>
+                </div>
+                <div style={{width:1,height:34,background:T.brd}}/>
+                <div>
+                  <div style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>الإجمالي</div>
+                  <div style={{fontSize:FS+4,fontWeight:900,color:bulkTotal>0?"#10B981":T.textMut}}>{fmt0(bulkTotal)} ج</div>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <Btn onClick={()=>setShowWsBulkPopup(false)} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>إلغاء</Btn>
+                <Btn onClick={saveBulkWsPayments} disabled={bulkCount===0} style={{background:bulkCount>0?"#8B5CF6":T.bg,color:bulkCount>0?"#fff":T.textMut,border:"none",fontWeight:800,fontSize:FS}}>✓ حفظ الدفعات ({bulkCount})</Btn>
+              </div>
+            </div>
           </div>
         </div>
       </div>;
