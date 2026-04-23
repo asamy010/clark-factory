@@ -357,7 +357,37 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   if(filterAcc!=="الكل")filtered=filtered.filter(t=>(t.account||"MAIN CASH")===filterAcc);
   if(filterMonth)filtered=filtered.filter(t=>(t.date||"").startsWith(filterMonth));
   if(filterDay)filtered=filtered.filter(t=>t.date===filterDay);
-  if(filterSearchDeb){const q=filterSearchDeb.toLowerCase();filtered=filtered.filter(t=>(t.desc||"").toLowerCase().includes(q)||(t.notes||"").toLowerCase().includes(q)||(t.by||"").toLowerCase().includes(q)||(t.category||"").toLowerCase().includes(q))}
+  /* V15.82: Arabic-aware search.
+     - Normalizes diacritics (tashkeel), tatweel, alef variants, ya, and ta-marbuta
+     - Matches on party name (employee/customer/supplier/workshop) via ID lookup
+     - Matches numeric amount when user types a number */
+  if(filterSearchDeb){
+    const normAr=(s)=>(s==null?"":s.toString()).toLowerCase()
+      .replace(/[\u064B-\u0652\u0670\u0640]/g,"")  /* tashkeel + tatweel */
+      .replace(/[أإآٱ]/g,"ا")                       /* unify alef */
+      .replace(/ى/g,"ي")                            /* alef maksura → ya */
+      .replace(/ة/g,"ه")                            /* ta marbuta → ha */
+      .trim();
+    const q=normAr(filterSearchDeb);
+    const qNum=filterSearchDeb.replace(/[^\d.]/g,"");/* extract digits for amount match */
+    filtered=filtered.filter(t=>{
+      /* Look up party name from linked IDs */
+      let partyName="";
+      if(t.empId){const p=(data.employees||[]).find(e=>e.id===t.empId);if(p)partyName=p.name||"";}
+      if(!partyName&&t.custId){const p=customers.find(c=>c.id===t.custId);if(p)partyName=p.name||"";}
+      if(!partyName&&t.supplierId){const p=suppliers.find(s=>s.id===t.supplierId);if(p)partyName=p.name||"";}
+      if(!partyName&&t.wsName)partyName=t.wsName;
+      if(!partyName&&t.empName)partyName=t.empName;
+      if(!partyName&&t.custName)partyName=t.custName;
+      if(!partyName&&t.supplierName)partyName=t.supplierName;
+      return normAr(t.desc).includes(q)
+        ||normAr(t.notes).includes(q)
+        ||normAr(t.by).includes(q)
+        ||normAr(t.category).includes(q)
+        ||normAr(partyName).includes(q)
+        ||(qNum!==""&&String(t.amount||"").includes(qNum));
+    });
+  }
 
   /* Running balance for filtered view */
   const withBalance=useMemo(()=>{

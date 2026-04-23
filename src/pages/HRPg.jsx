@@ -6346,9 +6346,20 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       const mDays=mEndDate.getDate();
 
       const rows=monthlyEmps.map(e=>{
-        const advs=hrLog.filter(l=>l.type==="advance"&&l.empId===e.id&&l.date>=mStart&&l.date<=mEnd);
+        /* V15.82: Match calcSalary's proven advance filter logic (line ~939).
+           Old logic missed legacy treasury entries (category=مرتبات without sourceType=hr_advance).
+           New: same dedup strategy as weekly flow + accept legacy category="مرتبات" entries. */
+        const inMonth=(dt)=>dt&&dt>=mStart&&dt<=mEnd;
+        const advs=hrLog.filter(l=>l.type==="advance"&&l.empId===e.id&&inMonth(l.date));
+        const seenLogIds=new Set(advs.map(l=>l.id));
         const advTotal=advs.reduce((s,l)=>s+(Number(l.amount)||0),0);
-        const tAdv=(data.treasury||[]).filter(t=>t.sourceType==="hr_advance"&&t.empId===e.id&&t.date>=mStart&&t.date<=mEnd&&!advs.some(a=>a.id===t.hrLogId));
+        const tAdv=(data.treasury||[]).filter(t=>
+          t.empId===e.id&&
+          t.type==="out"&&
+          inMonth(t.date)&&
+          !seenLogIds.has(t.hrLogId)&&
+          (t.sourceType==="hr_advance"||t.category==="مرتبات")
+        );
         const tAdvTotal=tAdv.reduce((s,t)=>s+(Number(t.amount)||0),0);
         const totalAdv=advTotal+tAdvTotal;
         return{id:e.id,name:e.name,code:e.code||"",salary:e.weeklySalary||0,advances:totalAdv,net:r2((e.weeklySalary||0)-totalAdv),advDetails:[...advs,...tAdv.map(t=>({date:t.date,amount:t.amount,desc:t.desc||"سلفة"}))]}});

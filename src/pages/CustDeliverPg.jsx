@@ -1218,7 +1218,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             <Btn small onClick={()=>setGroupPrint(p=>({...p,selCusts:{}}))} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd,fontSize:FS-2}}>إلغاء الكل</Btn>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:12}}>
-            {gCusts.map(c=>{const t=gMods.reduce((s,m)=>s+(Number(g[m.id+"_"+c.id])||0),0);if(t<=0)return null;
+            {gCusts.map(c=>{const t=gMods.reduce((s,m)=>s+getGroupQtyForPrint(m,c.id,g),0);if(t<=0)return null;
               return<div key={c.id} onClick={()=>setGroupPrint(p=>({...p,selCusts:{...p.selCusts,[c.id]:!p.selCusts[c.id]}}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",borderRadius:10,cursor:"pointer",border:"1px solid "+(groupPrint.selCusts[c.id]?"#8B5CF640":T.brd),background:groupPrint.selCusts[c.id]?"#8B5CF608":"transparent"}}>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <span style={{fontSize:16}}>{groupPrint.selCusts[c.id]?"☑":"☐"}</span>
@@ -1228,9 +1228,6 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               </div>})}
           </div>
           
-    <div style={{display:"flex",gap:8,marginBottom:12}}>
-      <Btn onClick={()=>setStockScan({items:{},scanning:false})} style={{background:"#059669",color:"#fff",border:"none",fontWeight:700,padding:"10px 20px",flex:1}}>📷 سكان تسليم مخزن</Btn>
-    </div>
     <div style={{marginBottom:12}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>اسم المستلم</label><Inp value={groupPrint.receiver} onChange={v=>setGroupPrint(p=>({...p,receiver:v}))} placeholder="اسم المندوب / المستلم..."/></div>
           <div style={{padding:10,borderRadius:10,background:T.bg,textAlign:"center",marginBottom:12}}>
             <span style={{fontWeight:800,color:"#8B5CF6"}}>{selCount+" عملاء"}</span><span style={{color:T.textMut}}>{" | "}</span><span style={{fontWeight:800,color:T.accent}}>{selTotal+" قطعة"}</span>
