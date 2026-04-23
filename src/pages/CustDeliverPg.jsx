@@ -729,7 +729,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             {primaryBtn(I.truck,"تسليم جديد","إنشاء جلسة توزيعة","#0EA5E9","#0284C7",()=>{setSelModels({});setSelCusts({});setShowNewSession(true)})}
             {primaryBtn(I.undo,"مرتجع سريع","مسح QR وتسجيل مرتجع","#EF4444","#DC2626",()=>setQrSale({mode:"return",custId:null,items:[],note:"",linkedSession:"free"}))}
             {/* V14.62: Quick access to receipt confirmation with toggle mode */}
-            {primaryBtn(I.inbox,"تأكيد استلام","مسح QR كسيري أو قطعة","#F59E0B","#D97706",()=>setPendingRcv({items:{},scanMode:"series"}),pendingRcvCount>0?pendingRcvCount:null)}
+            {primaryBtn(I.inbox,"تأكيد استلام","مسح QR كسيري أو قطعة","#F59E0B","#D97706",()=>setPendingRcv({items:{},scanMode:"series"}),null)}
           </div>
         </>}
 
@@ -757,7 +757,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           {secBtn(I.warehouse,"جرد المخزن","#8B5CF6",()=>setInvAudit({items:{},scanning:false}))}
           {canEdit&&secBtn(I.clipboard,"جرد مبيعات","#F59E0B",()=>{setAuditDate(new Date().toISOString().split("T")[0]);setAuditFrom("");setAuditTo("");setAuditNote("");setShowNewAudit(true)})}
           {secBtn(I.package,"الكراتين","#0EA5E9",()=>setPkgPopup("list"))}
-          {secBtn(I.inbox,pendingRcvCount>0?"تأكيد استلام":"تأكيد استلام","#10B981",()=>setPendingRcv({items:{}}),pendingRcvCount>0?pendingRcvCount:null)}
+          {secBtn(I.inbox,"تأكيد استلام","#10B981",()=>setPendingRcv({items:{}}),null)}
           {/* V14.59: Receipt log — historical receipts with comparison */}
           {secBtn(I.fileText,"سجل الاستلامات","#059669",()=>setShowReceiptLog(true))}
         </div>
@@ -2765,16 +2765,47 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           </div>
           <div style={{flex:1,overflowY:"auto",padding:isMob?"8px 12px":"12px 24px"}}>
             {pendings.length>0?<div>
-              <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","الوصف","من التسليم","المستلم","الفرق","الحالة"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
-                {pendings.map(p=>{const val=rcvItems[p.orderId]||0;const diff=val-p.pendingQty;const hasVal=val>0;
-                  return<tr key={p.orderId} style={{background:hasVal&&diff!==0?"#FEF2F2":hasVal?"#F0FDF4":"transparent"}}>
-                    <td style={{...TD,fontWeight:800,color:T.accent}}>{p.modelNo}</td>
-                    <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{p.modelDesc}</td>
+              <div style={{fontSize:FS-2,color:T.textMut,marginBottom:8,padding:"8px 10px",background:"#F0F9FF",border:"1px solid #BAE6FD",borderRadius:8,lineHeight:1.6}}>
+                💡 <b>ملحوظة:</b> لو الموديل اتباع بالفعل للعميل وظهر هنا، يبقى فيه تسليم قديم مش متأكد. تقدر تحذفه من الزر الأحمر (🗑️).
+              </div>
+              <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","معلّق","مباع للعميل","المستلم","الفرق","إجراء"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
+                {pendings.map(p=>{
+                  const val=rcvItems[p.orderId]||0;
+                  const diff=val-p.pendingQty;
+                  const hasVal=val>0;
+                  /* V15.68: Detect already-sold pending — if the model has been distributed to customers beyond what's confirmed in stock */
+                  const o=orders.find(x=>x.id===p.orderId);
+                  const custDel=o?(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0):0;
+                  const custRet=o?(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0):0;
+                  const netSold=custDel-custRet;
+                  const confirmedStock=o?getConfirmedStock(o):0;
+                  const availableInStock=confirmedStock-netSold;
+                  const isAlreadySold=netSold>=confirmedStock+p.pendingQty;/* pending was likely already consumed by sales */
+                  const bg=isAlreadySold?"#FEE2E2":(hasVal&&diff!==0?"#FEF2F2":hasVal?"#F0FDF4":"transparent");
+                  const deletePending=()=>{
+                    if(!window.confirm("تأكد: حذف "+p.pendingQty+" قطعة معلّقة من موديل "+p.modelNo+"؟\n\nده هيشيل التسليم المعلّق بدون ما يضيفه للمخزن."))return;
+                    updOrder(p.orderId,ord=>{
+                      if(!ord.deliveries)return;
+                      /* Remove only the pending ones */
+                      ord.deliveries=ord.deliveries.filter((d,idx)=>!p.pendingIdxs.includes(idx));
+                    });
+                    showToast("✓ تم حذف التسليم المعلّق");
+                  };
+                  return<tr key={p.orderId} style={{background:bg}}>
+                    <td style={{...TD,fontWeight:800,color:T.accent}}>
+                      <div>{p.modelNo}</div>
+                      <div style={{fontSize:FS-3,color:T.textMut,fontWeight:500,marginTop:2}}>{p.modelDesc}</div>
+                      {isAlreadySold&&<div style={{fontSize:FS-3,color:"#DC2626",fontWeight:700,marginTop:3}}>⚠️ تسليم قديم — الموديل اتباع بالفعل</div>}
+                    </td>
                     <td style={{...TDB,fontWeight:800,color:"#F59E0B"}}>{p.pendingQty}</td>
-                    <td style={{...TD,textAlign:"center",padding:2}}><input type="number" value={val||""} onChange={e=>{const v=Math.max(0,Number(e.target.value)||0);setPendingRcv(pr=>({...pr,items:{...pr.items,[p.orderId]:v}}))}} placeholder="0" style={{width:80,textAlign:"center",border:"2px solid #10B981",borderRadius:6,padding:"6px",fontSize:FS+1,fontWeight:800,fontFamily:"inherit",background:T.bg,color:T.text}}/></td>
+                    <td style={{...TDB,fontSize:FS-1,fontWeight:700,color:netSold>0?"#10B981":T.textMut}}>{netSold}</td>
+                    <td style={{...TD,textAlign:"center",padding:2}}><input type="number" value={val||""} onChange={e=>{const v=Math.max(0,Number(e.target.value)||0);setPendingRcv(pr=>({...pr,items:{...pr.items,[p.orderId]:v}}))}} placeholder="0" style={{width:70,textAlign:"center",border:"2px solid "+(isAlreadySold?"#EF4444":"#10B981"),borderRadius:6,padding:"6px",fontSize:FS+1,fontWeight:800,fontFamily:"inherit",background:T.bg,color:T.text}}/></td>
                     <td style={{...TDB,fontWeight:800,color:diff<0?"#EF4444":diff===0?"#10B981":"#0EA5E9"}}>{hasVal?(diff>0?"+"+diff:diff):"—"}</td>
-                    <td style={{...TD,fontSize:FS-2,fontWeight:700,color:hasVal?"#10B981":T.textMut}}>{hasVal?"✅":"⏳"}</td>
-                  </tr>})}
+                    <td style={{...TD,textAlign:"center",padding:2}}>
+                      <Btn small onClick={deletePending} style={{background:"#EF444412",color:"#EF4444",border:"1px solid #EF444430",padding:"4px 8px",fontSize:FS-2}} title={"حذف التسليم المعلّق — "+p.pendingQty+" قطعة"}>🗑️</Btn>
+                    </td>
+                  </tr>;
+                })}
               </tbody></table>
             </div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>✅ لا توجد تسليمات معلّقة</div>}
           </div>

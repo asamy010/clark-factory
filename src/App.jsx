@@ -133,8 +133,29 @@ export default function App(){
   const[quickPopup,setQuickPopup]=useState(null);/* "task"|"notif"|null */
   const[qpTo,setQpTo]=useState("");const[qpText,setQpText]=useState("");const[qpType,setQpType]=useState("تذكير");
   const[aiMsgs,setAiMsgs]=useState([]);const[aiInput,setAiInput]=useState("");const[aiLoading,setAiLoading]=useState(false);const[aiOpen,setAiOpen]=useState(false);
-  const[dismissedAlerts,setDismissedAlerts]=useState(()=>{try{const raw=localStorage.getItem("clark_dismissed_alerts");if(!raw)return[];const arr=JSON.parse(raw);const now=Date.now();return arr.filter(d=>now-d.at<864000000).map(d=>d.key?d:{key:d.text,at:d.at})}catch(e){return[]}});
-  const dismissAlert=(key)=>{setDismissedAlerts(p=>{const n=[...p,{key,at:Date.now()}];try{localStorage.setItem("clark_dismissed_alerts",JSON.stringify(n))}catch(e){}return n})};
+  /* V15.68: Dismissed alerts moved to Firestore (per user) — syncs across all devices.
+     Structure: config.userDismissed[email] = [{key, at}]
+     Auto-prunes entries older than 10 days. */
+  const userEmailKey=(user?.email||"").toLowerCase();
+  const dismissedAlerts=useMemo(()=>{
+    const all=config.userDismissed||{};
+    const mine=all[userEmailKey]||[];
+    const now=Date.now();
+    return mine.filter(d=>d&&d.key&&now-(d.at||0)<864000000);
+  },[config.userDismissed,userEmailKey]);
+  const dismissAlert=(key)=>{
+    if(!key||!userEmailKey)return;
+    upConfig(d=>{
+      if(!d.userDismissed)d.userDismissed={};
+      const mine=Array.isArray(d.userDismissed[userEmailKey])?d.userDismissed[userEmailKey]:[];
+      /* Dedupe + prune old (>10 days) */
+      const now=Date.now();
+      const filtered=mine.filter(x=>x&&x.key&&x.key!==key&&now-(x.at||0)<864000000);
+      filtered.push({key,at:now});
+      /* Keep last 200 to avoid bloat */
+      d.userDismissed[userEmailKey]=filtered.slice(-200);
+    });
+  };
   const isDismissed=(key)=>dismissedAlerts.some(d=>d.key===key);
   const aiAlerts=useMemo(()=>{const a=[];const now=Date.now();const workshops=config.workshops||[];const wsPayments=config.wsPayments||[];
     /* 1. أوردرات متأخرة */
@@ -918,7 +939,7 @@ export default function App(){
           <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}
           </span>
-          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V15.67</span>
+          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V15.68</span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
