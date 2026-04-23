@@ -1967,278 +1967,168 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   /* V15.23: Use centralized openPrintWindow from utils/print.js (handles popup-block + iframe fallback) */
   const _openPrintWin=openPrintWindow;
 
-  /* V15.71: Weekly financial summary report — for CFO approval before cash disbursement */
+  /* V15.75: Weekly financial summary — rewritten to use printPage helper.
+     Previously it used openPrintWindow() directly which in popup-blocked browsers
+     fell back to a hidden 1x1 iframe (invisible). printPage() builds a proper
+     styled report and handles print/PDF buttons uniformly. */
   const printWeeklyFinancialSummary=(w)=>{
     if(!w){showToast("⚠️ لا يوجد أسبوع محدد");return}
     try{
-    const wSelected=(w.selectedEmps&&Array.isArray(w.selectedEmps))?w.selectedEmps:[];
-    const wShown=activeEmps.filter(e=>wSelected.includes(e.id));
-    /* Compute records — use closedRecords snapshot for closed weeks, live calc for open */
-    let records=[];
-    if(w.status==="closed"&&Array.isArray(w.closedRecords)){
-      records=w.closedRecords;
-    }else{
-      records=wShown.map(e=>{const c=calcSalary(e.id,w);return c?{empId:e.id,empName:e.name,empCode:e.code||"",...c}:null}).filter(Boolean);
-    }
-    /* Aggregate totals */
-    const totalEmps=records.length;
-    const totalSalaries=records.reduce((s,r)=>s+(Number(r.thursdayPay)||0),0);
-    const totalGross=records.reduce((s,r)=>s+(Number(r.grossPay)||0),0);
-    const totalPrevBalance=records.reduce((s,r)=>s+(Number(r.prevBalance)||0),0);
-    const totalAdvancesDeducted=records.reduce((s,r)=>s+(Number(r.weekAdvances)||0),0);
-    const totalBonus=records.reduce((s,r)=>s+(Number(r.bonus)||0),0);
-    const totalSpecialDeduct=records.reduce((s,r)=>s+(Number(r.specialDeduct)||0),0);
-    const totalInstallments=records.reduce((s,r)=>s+(Number(r.debtInstall)||0),0);
-    const totalRemaining=records.reduce((s,r)=>s+(Number(r.remainingBalance)||0),0);
-    /* Monthly advances (weeklyAdvances) */
-    const monthlyAdvs=(w.weeklyAdvances||[]);
-    const totalMonthlyAdvs=monthlyAdvs.reduce((s,a)=>s+(Number(a.amount)||0),0);
-    /* Workshop payments */
-    const wsPayments=(w.weeklyWsPayments||[]);
-    const totalWsPayments=wsPayments.reduce((s,p)=>s+(Number(p.amount)||0),0);
-    const wsByName={};
-    wsPayments.forEach(p=>{
-      const k=p.wsName||"غير محدد";
-      if(!wsByName[k])wsByName[k]={name:k,payment:0,purchase:0};
-      if(p.type==="purchase")wsByName[k].purchase+=Number(p.amount)||0;
-      else wsByName[k].payment+=Number(p.amount)||0;
-    });
-    const wsRows=Object.values(wsByName);
-    /* Other expenses */
-    const otherExps=(w.weeklyOtherExpenses||[]);
-    const totalOtherExps=otherExps.reduce((s,e)=>s+(Number(e.amount)||0),0);
-    const expsByCat={};
-    otherExps.forEach(e=>{
-      const k=e.category||"أخرى";
-      if(!expsByCat[k])expsByCat[k]=0;
-      expsByCat[k]+=Number(e.amount)||0;
-    });
-    const expsRows=Object.entries(expsByCat).map(([name,amount])=>({name,amount}));
-    /* GRAND TOTAL — what accountant needs to withdraw from treasury */
-    const grandTotal=totalSalaries+totalMonthlyAdvs+totalWsPayments+totalOtherExps;
-    /* Factory info */
-    const factoryName=data.factoryName||"CLARK Factory";
-    const logo=data.logo||"";
-    const address=data.address||"";
-    const phone=data.phone||"";
-    const today=new Date();
-    const todayStr=today.toLocaleDateString("ar-EG",{year:"numeric",month:"long",day:"numeric",weekday:"long"});
-    const timeStr=today.toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit"});
-    console.log("📊 تقرير مالي — W"+w.weekNum,{totalEmps,totalSalaries,totalMonthlyAdvs,totalWsPayments,totalOtherExps,grandTotal});
-    /* Build HTML */
-    const html=`<!DOCTYPE html><html dir="rtl" lang="ar"><head>
-<meta charset="UTF-8"/>
-<title>تقرير أسبوعي مالي — W${w.weekNum}</title>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
-<style>
-@page{size:A4;margin:14mm}
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Cairo',sans-serif;color:#1E293B;font-size:12px;line-height:1.5;background:#fff}
-.pbar{position:sticky;top:0;background:#fff;padding:10px;border-bottom:2px solid #ddd;display:flex;justify-content:center;gap:10px;z-index:99}
-.pbar button{padding:8px 20px;border-radius:8px;border:1px solid #1E293B;cursor:pointer;font-family:'Cairo';font-size:13px;font-weight:800;background:#fff}
-.pbar .pr{background:#0EA5E9;color:#fff;border-color:#0EA5E9}
-@media print{.pbar{display:none}}
-
-/* Header */
-.hdr{text-align:center;padding-bottom:14px;border-bottom:3px solid #0EA5E9;margin-bottom:16px}
-.hdr .logo{max-width:60px;max-height:60px;margin-bottom:6px}
-.hdr .fname{font-size:20px;font-weight:900;color:#0EA5E9;margin-bottom:2px;letter-spacing:1px}
-.hdr .fmeta{font-size:10px;color:#64748B;margin-bottom:8px}
-.hdr .title-box{display:inline-block;background:linear-gradient(135deg,#0EA5E9,#8B5CF6);color:#fff;padding:8px 28px;border-radius:10px;margin-top:6px}
-.hdr .title-box h1{font-size:16px;font-weight:800;margin-bottom:2px}
-.hdr .title-box .subtitle{font-size:11px;opacity:0.95}
-
-/* Week info bar */
-.wk-info{display:flex;justify-content:space-between;align-items:center;background:#F1F5F9;border-radius:10px;padding:10px 16px;margin-bottom:14px;border:1px solid #CBD5E1}
-.wk-info .w-num{font-size:22px;font-weight:900;color:#0EA5E9}
-.wk-info .w-dates{text-align:center;font-size:12px}
-.wk-info .w-dates b{display:block;font-size:13px;color:#1E293B;margin-bottom:2px}
-.wk-info .w-dates span{color:#64748B;font-size:10px}
-.wk-info .w-meta{text-align:left;font-size:10px;color:#64748B}
-.wk-info .w-meta b{color:#1E293B;display:block;font-size:11px}
-
-/* Section */
-.sec{margin-bottom:14px;border:1px solid #E2E8F0;border-radius:10px;overflow:hidden}
-.sec-hdr{background:linear-gradient(90deg,var(--sc,#0EA5E9) 0%,var(--sc2,#8B5CF6) 100%);color:#fff;padding:8px 14px;display:flex;justify-content:space-between;align-items:center;font-weight:800}
-.sec-hdr .stitle{font-size:13px}
-.sec-hdr .stot{font-size:14px;font-weight:900;background:rgba(255,255,255,0.2);padding:3px 10px;border-radius:6px}
-.sec-body{padding:10px 14px;background:#fff}
-.sec-body table{width:100%;border-collapse:collapse}
-.sec-body th,.sec-body td{padding:6px 8px;text-align:right;font-size:11px;border-bottom:1px solid #F1F5F9}
-.sec-body th{background:#F8FAFC;font-weight:700;color:#475569}
-.sec-body td.num{text-align:center;font-weight:700;font-family:'Cairo'}
-.sec-body tr:last-child td{border-bottom:none}
-.sec-body tr.tot{background:#F8FAFC;font-weight:800}
-.sec-body tr.tot td{padding:8px;color:#1E293B}
-
-.empty{text-align:center;color:#94A3B8;padding:12px;font-style:italic;font-size:11px}
-
-/* Grand total */
-.grand{margin-top:18px;background:linear-gradient(135deg,#DC2626 0%,#991B1B 100%);color:#fff;border-radius:12px;padding:16px 22px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 6px 16px rgba(220,38,38,0.25)}
-.grand .gtitle{font-size:14px;font-weight:700;opacity:0.95}
-.grand .gval{font-size:28px;font-weight:900;letter-spacing:0.5px}
-.grand .gval small{font-size:14px;opacity:0.85;font-weight:700}
-
-/* Breakdown bar */
-.breakdown{margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;padding:10px 14px;background:#F1F5F9;border-radius:8px;font-size:10px}
-.breakdown .bd-item{background:#fff;padding:4px 10px;border-radius:6px;border:1px solid #E2E8F0}
-.breakdown .bd-item b{color:#0EA5E9}
-
-/* Signatures */
-.sigs{margin-top:22px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px}
-.sig-box{text-align:center;padding-top:30px;border-top:2px solid #1E293B}
-.sig-box .role{font-size:11px;font-weight:800;color:#1E293B;margin-bottom:3px}
-.sig-box .name{font-size:10px;color:#64748B}
-
-/* Footer */
-.foot{margin-top:22px;padding-top:10px;border-top:1px solid #E2E8F0;display:flex;justify-content:space-between;align-items:center;font-size:9px;color:#94A3B8}
-.foot .brand{font-weight:700;color:#64748B}
-
-/* Colors per section */
-.sec.salaries{--sc:#0EA5E9;--sc2:#0284C7}
-.sec.advs{--sc:#F59E0B;--sc2:#D97706}
-.sec.ws{--sc:#8B5CF6;--sc2:#7C3AED}
-.sec.exps{--sc:#10B981;--sc2:#059669}
-</style>
-</head><body>
-<div class="pbar">
-  <button onclick="window.close()">↩ رجوع</button>
-  <button class="pr" onclick="window.print()">🖨 طباعة / حفظ PDF</button>
-</div>
-
-<div class="hdr">
-  ${logo?`<img src="${logo}" class="logo" alt="Logo"/>`:""}
-  <div class="fname">${factoryName}</div>
-  <div class="fmeta">${[address,phone].filter(Boolean).join(" • ")||""}</div>
-  <div class="title-box">
-    <h1>💼 تقرير أسبوعي مالي</h1>
-    <div class="subtitle">للاعتماد من المدير المالي</div>
-  </div>
-</div>
-
-<div class="wk-info">
-  <div class="w-num">W${w.weekNum}</div>
-  <div class="w-dates">
-    <b>${w.weekStart} → ${w.weekEnd}</b>
-    <span>${totalEmps} عامل • ${w.status==="closed"?"✅ أسبوع مقفول":"🔓 أسبوع مفتوح"}</span>
-  </div>
-  <div class="w-meta">
-    <b>${todayStr}</b>
-    <span>${timeStr} • أعده: ${userName||"—"}</span>
-  </div>
-</div>
-
-<!-- 1. Salaries -->
-<div class="sec salaries">
-  <div class="sec-hdr">
-    <div class="stitle">💰 إجمالي المرتبات المستحقة</div>
-    <div class="stot">${fmt0(totalSalaries)} ج</div>
-  </div>
-  <div class="sec-body">
-    <table><tbody>
-      <tr><td>إجمالي الأجر الأساسي للعمال</td><td class="num">${fmt0(totalGross)} ج</td></tr>
-      ${totalPrevBalance!==0?`<tr><td>+ رصيد مرحّل من أسابيع سابقة</td><td class="num">${fmt0(totalPrevBalance)} ج</td></tr>`:""}
-      ${totalBonus>0?`<tr><td>+ حوافز</td><td class="num" style="color:#10B981">+${fmt0(totalBonus)} ج</td></tr>`:""}
-      ${totalAdvancesDeducted>0?`<tr><td>− سلف مخصومة هذا الأسبوع</td><td class="num" style="color:#EF4444">−${fmt0(totalAdvancesDeducted)} ج</td></tr>`:""}
-      ${totalSpecialDeduct>0?`<tr><td>− خصومات خاصة</td><td class="num" style="color:#EF4444">−${fmt0(totalSpecialDeduct)} ج</td></tr>`:""}
-      ${totalInstallments>0?`<tr><td>− أقساط مديونيات</td><td class="num" style="color:#EF4444">−${fmt0(totalInstallments)} ج</td></tr>`:""}
-      ${totalRemaining!==0?`<tr><td>− سيُرحّل للأسبوع القادم</td><td class="num" style="color:#F59E0B">${fmt0(totalRemaining)} ج</td></tr>`:""}
-      <tr class="tot"><td>= الصافي المطلوب للصرف (دفعة الخميس)</td><td class="num" style="color:#0EA5E9;font-size:14px">${fmt0(totalSalaries)} ج</td></tr>
-    </tbody></table>
-  </div>
-</div>
-
-<!-- 2. Monthly/Administrative Advances -->
-<div class="sec advs">
-  <div class="sec-hdr">
-    <div class="stitle">📋 السلف الشهرية والإدارية</div>
-    <div class="stot">${fmt0(totalMonthlyAdvs)} ج</div>
-  </div>
-  <div class="sec-body">
-    ${monthlyAdvs.length===0?'<div class="empty">لا توجد سلف مسجلة</div>':
-      `<table><thead><tr><th>#</th><th>الموظف</th><th style="text-align:center">المبلغ</th><th>ملاحظة</th></tr></thead><tbody>
-      ${monthlyAdvs.map((a,i)=>`<tr><td class="num">${i+1}</td><td>${a.empName||"—"}</td><td class="num">${fmt0(Number(a.amount)||0)} ج</td><td style="color:#64748B">${a.note||"—"}</td></tr>`).join("")}
-      <tr class="tot"><td colspan="2">الإجمالي (${monthlyAdvs.length})</td><td class="num" style="color:#F59E0B;font-size:14px">${fmt0(totalMonthlyAdvs)} ج</td><td></td></tr>
-      </tbody></table>`
-    }
-  </div>
-</div>
-
-<!-- 3. Workshop Payments -->
-<div class="sec ws">
-  <div class="sec-hdr">
-    <div class="stitle">🏭 دفعات الورش والمشتريات</div>
-    <div class="stot">${fmt0(totalWsPayments)} ج</div>
-  </div>
-  <div class="sec-body">
-    ${wsRows.length===0?'<div class="empty">لا توجد دفعات ورش مسجلة</div>':
-      `<table><thead><tr><th>#</th><th>الورشة</th><th style="text-align:center">دفعة</th><th style="text-align:center">مشتريات</th><th style="text-align:center">الإجمالي</th></tr></thead><tbody>
-      ${wsRows.map((r,i)=>`<tr><td class="num">${i+1}</td><td>${r.name}</td><td class="num">${r.payment>0?fmt0(r.payment)+" ج":"—"}</td><td class="num">${r.purchase>0?fmt0(r.purchase)+" ج":"—"}</td><td class="num">${fmt0(r.payment+r.purchase)} ج</td></tr>`).join("")}
-      <tr class="tot"><td colspan="2">الإجمالي (${wsRows.length} ورشة)</td><td class="num">${fmt0(wsRows.reduce((s,r)=>s+r.payment,0))} ج</td><td class="num">${fmt0(wsRows.reduce((s,r)=>s+r.purchase,0))} ج</td><td class="num" style="color:#8B5CF6;font-size:14px">${fmt0(totalWsPayments)} ج</td></tr>
-      </tbody></table>`
-    }
-  </div>
-</div>
-
-<!-- 4. Other Expenses -->
-<div class="sec exps">
-  <div class="sec-hdr">
-    <div class="stitle">📝 المصاريف الأخرى</div>
-    <div class="stot">${fmt0(totalOtherExps)} ج</div>
-  </div>
-  <div class="sec-body">
-    ${expsRows.length===0?'<div class="empty">لا توجد مصاريف مسجلة</div>':
-      `<table><thead><tr><th>#</th><th>الفئة</th><th style="text-align:center">المبلغ</th></tr></thead><tbody>
-      ${expsRows.map((r,i)=>`<tr><td class="num">${i+1}</td><td>${r.name}</td><td class="num">${fmt0(r.amount)} ج</td></tr>`).join("")}
-      <tr class="tot"><td colspan="2">الإجمالي (${expsRows.length} بند)</td><td class="num" style="color:#10B981;font-size:14px">${fmt0(totalOtherExps)} ج</td></tr>
-      </tbody></table>`
-    }
-  </div>
-</div>
-
-<!-- GRAND TOTAL -->
-<div class="grand">
-  <div class="gtitle">💵 إجمالي المبلغ المطلوب صرفه اليوم</div>
-  <div class="gval">${fmt0(grandTotal)} <small>جنيه مصري</small></div>
-</div>
-
-<!-- Breakdown Bar -->
-<div class="breakdown">
-  <div class="bd-item">💰 مرتبات: <b>${fmt0(totalSalaries)} ج</b> (${grandTotal?Math.round(totalSalaries/grandTotal*100):0}%)</div>
-  <div class="bd-item">📋 سلف: <b>${fmt0(totalMonthlyAdvs)} ج</b> (${grandTotal?Math.round(totalMonthlyAdvs/grandTotal*100):0}%)</div>
-  <div class="bd-item">🏭 ورش: <b>${fmt0(totalWsPayments)} ج</b> (${grandTotal?Math.round(totalWsPayments/grandTotal*100):0}%)</div>
-  <div class="bd-item">📝 مصاريف: <b>${fmt0(totalOtherExps)} ج</b> (${grandTotal?Math.round(totalOtherExps/grandTotal*100):0}%)</div>
-</div>
-
-<!-- Signatures -->
-<div class="sigs">
-  <div class="sig-box">
-    <div class="role">أعده: المحاسب</div>
-    <div class="name">${userName||"—"}</div>
-  </div>
-  <div class="sig-box">
-    <div class="role">اعتمده: المدير المالي</div>
-    <div class="name">التوقيع + التاريخ</div>
-  </div>
-  <div class="sig-box">
-    <div class="role">استلمه: المحاسب</div>
-    <div class="name">التوقيع + التاريخ</div>
-  </div>
-</div>
-
-<!-- Footer -->
-<div class="foot">
-  <span class="brand">${factoryName} — Powered by CLARK Factory Management</span>
-  <span>طُبع في ${todayStr} ${timeStr}</span>
-</div>
-
-</body></html>`;
-    const pw=_openPrintWin();
-    if(!pw){showToast("⚠️ المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
-    pw.document.open();
-    pw.document.write(html);
-    pw.document.close();
-    try{pw.focus()}catch(_){}
+      const wSelected=(w.selectedEmps&&Array.isArray(w.selectedEmps))?w.selectedEmps:[];
+      const wShown=activeEmps.filter(e=>wSelected.includes(e.id));
+      let records=[];
+      if(w.status==="closed"&&Array.isArray(w.closedRecords)){
+        records=w.closedRecords;
+      }else{
+        records=wShown.map(e=>{const c=calcSalary(e.id,w);return c?{empId:e.id,empName:e.name,empCode:e.code||"",...c}:null}).filter(Boolean);
+      }
+      const totalEmps=records.length;
+      const totalSalaries=records.reduce((s,r)=>s+(Number(r.thursdayPay)||0),0);
+      const totalGross=records.reduce((s,r)=>s+(Number(r.grossPay)||0),0);
+      const totalPrevBalance=records.reduce((s,r)=>s+(Number(r.prevBalance)||0),0);
+      const totalAdvancesDeducted=records.reduce((s,r)=>s+(Number(r.weekAdvances)||0),0);
+      const totalBonus=records.reduce((s,r)=>s+(Number(r.bonus)||0),0);
+      const totalSpecialDeduct=records.reduce((s,r)=>s+(Number(r.specialDeduct)||0),0);
+      const totalInstallments=records.reduce((s,r)=>s+(Number(r.debtInstall)||0),0);
+      const totalRemaining=records.reduce((s,r)=>s+(Number(r.remainingBalance)||0),0);
+      const monthlyAdvs=(w.weeklyAdvances||[]);
+      const totalMonthlyAdvs=monthlyAdvs.reduce((s,a)=>s+(Number(a.amount)||0),0);
+      const wsPayments=(w.weeklyWsPayments||[]);
+      const totalWsPayments=wsPayments.reduce((s,p)=>s+(Number(p.amount)||0),0);
+      const wsByName={};
+      wsPayments.forEach(p=>{
+        const k=p.wsName||"غير محدد";
+        if(!wsByName[k])wsByName[k]={name:k,payment:0,purchase:0};
+        if(p.type==="purchase")wsByName[k].purchase+=Number(p.amount)||0;
+        else wsByName[k].payment+=Number(p.amount)||0;
+      });
+      const wsRows=Object.values(wsByName);
+      const otherExps=(w.weeklyOtherExpenses||[]);
+      const totalOtherExps=otherExps.reduce((s,e)=>s+(Number(e.amount)||0),0);
+      const expsByCat={};
+      otherExps.forEach(e=>{
+        const k=e.category||"أخرى";
+        expsByCat[k]=(expsByCat[k]||0)+(Number(e.amount)||0);
+      });
+      const expsRows=Object.entries(expsByCat).map(([name,amount])=>({name,amount}));
+      const grandTotal=totalSalaries+totalMonthlyAdvs+totalWsPayments+totalOtherExps;
+      let body="";
+      body+="<style>";
+      body+=".wk-info{display:flex;justify-content:space-between;align-items:center;background:#F1F5F9;border-radius:10px;padding:12px 18px;margin-bottom:16px;border:1px solid #CBD5E1}";
+      body+=".wk-info .w-num{font-size:24px;font-weight:900;color:#0EA5E9}";
+      body+=".wk-info .w-dates{text-align:center}";
+      body+=".wk-info .w-dates b{display:block;font-size:14px;color:#1E293B;margin-bottom:2px}";
+      body+=".wk-info .w-dates span{color:#64748B;font-size:11px}";
+      body+=".wk-info .w-meta{text-align:left;font-size:11px;color:#64748B}";
+      body+=".sec{margin-bottom:16px;border:1px solid #E2E8F0;border-radius:10px;overflow:hidden}";
+      body+=".sec-hdr{color:#fff;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;font-weight:800}";
+      body+=".sec-hdr .stitle{font-size:14px}";
+      body+=".sec-hdr .stot{font-size:15px;font-weight:900;background:rgba(255,255,255,0.2);padding:4px 12px;border-radius:6px}";
+      body+=".sec-body{padding:12px 16px;background:#fff}";
+      body+=".sec-body table{width:100%;border-collapse:collapse}";
+      body+=".sec-body th,.sec-body td{padding:7px 10px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9}";
+      body+=".sec-body th{background:#F8FAFC;font-weight:700;color:#475569}";
+      body+=".sec-body td.num{text-align:center;font-weight:700}";
+      body+=".sec-body tr.tot{background:#F8FAFC;font-weight:800}";
+      body+=".sec-body tr.tot td{padding:9px 10px;color:#1E293B}";
+      body+=".empty{text-align:center;color:#94A3B8;padding:14px;font-style:italic;font-size:12px}";
+      body+=".sec-salaries .sec-hdr{background:linear-gradient(90deg,#0EA5E9,#0284C7)}";
+      body+=".sec-advs .sec-hdr{background:linear-gradient(90deg,#F59E0B,#D97706)}";
+      body+=".sec-ws .sec-hdr{background:linear-gradient(90deg,#8B5CF6,#7C3AED)}";
+      body+=".sec-exps .sec-hdr{background:linear-gradient(90deg,#10B981,#059669)}";
+      body+=".grand{margin-top:20px;background:linear-gradient(135deg,#DC2626,#991B1B);color:#fff;border-radius:12px;padding:18px 24px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 6px 16px rgba(220,38,38,0.25)}";
+      body+=".grand .gtitle{font-size:15px;font-weight:700;opacity:0.95}";
+      body+=".grand .gval{font-size:30px;font-weight:900;letter-spacing:0.5px}";
+      body+=".grand .gval small{font-size:15px;opacity:0.85;font-weight:700}";
+      body+=".breakdown{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;padding:12px 16px;background:#F1F5F9;border-radius:8px;font-size:11px}";
+      body+=".breakdown .bd-item{background:#fff;padding:5px 12px;border-radius:6px;border:1px solid #E2E8F0}";
+      body+=".breakdown .bd-item b{color:#0EA5E9}";
+      body+=".sigs{margin-top:24px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px}";
+      body+=".sig-box{text-align:center;padding-top:36px;border-top:2px solid #1E293B}";
+      body+=".sig-box .role{font-size:12px;font-weight:800;color:#1E293B;margin-bottom:4px}";
+      body+=".sig-box .name{font-size:11px;color:#64748B}";
+      body+="</style>";
+      body+="<div class='wk-info'>";
+      body+="<div class='w-num'>W"+w.weekNum+"</div>";
+      body+="<div class='w-dates'><b>"+w.weekStart+" → "+w.weekEnd+"</b>";
+      body+="<span>"+totalEmps+" عامل • "+(w.status==="closed"?"✅ أسبوع مقفول":"🔓 أسبوع مفتوح")+"</span></div>";
+      body+="<div class='w-meta'><b>أعده: "+(userName||"—")+"</b></div>";
+      body+="</div>";
+      body+="<div class='sec sec-salaries'>";
+      body+="<div class='sec-hdr'><div class='stitle'>💰 إجمالي المرتبات المستحقة</div><div class='stot'>"+fmt0(totalSalaries)+" ج</div></div>";
+      body+="<div class='sec-body'><table><tbody>";
+      body+="<tr><td>إجمالي الأجر الأساسي للعمال</td><td class='num'>"+fmt0(totalGross)+" ج</td></tr>";
+      if(totalPrevBalance!==0)body+="<tr><td>+ رصيد مرحّل من أسابيع سابقة</td><td class='num'>"+fmt0(totalPrevBalance)+" ج</td></tr>";
+      if(totalBonus>0)body+="<tr><td>+ حوافز</td><td class='num' style='color:#10B981'>+"+fmt0(totalBonus)+" ج</td></tr>";
+      if(totalAdvancesDeducted>0)body+="<tr><td>− سلف مخصومة هذا الأسبوع</td><td class='num' style='color:#EF4444'>−"+fmt0(totalAdvancesDeducted)+" ج</td></tr>";
+      if(totalSpecialDeduct>0)body+="<tr><td>− خصومات خاصة</td><td class='num' style='color:#EF4444'>−"+fmt0(totalSpecialDeduct)+" ج</td></tr>";
+      if(totalInstallments>0)body+="<tr><td>− أقساط مديونيات</td><td class='num' style='color:#EF4444'>−"+fmt0(totalInstallments)+" ج</td></tr>";
+      if(totalRemaining!==0)body+="<tr><td>− سيُرحّل للأسبوع القادم</td><td class='num' style='color:#F59E0B'>"+fmt0(totalRemaining)+" ج</td></tr>";
+      body+="<tr class='tot'><td>= الصافي المطلوب للصرف (دفعة الخميس)</td><td class='num' style='color:#0EA5E9;font-size:14px'>"+fmt0(totalSalaries)+" ج</td></tr>";
+      body+="</tbody></table></div></div>";
+      body+="<div class='sec sec-advs'>";
+      body+="<div class='sec-hdr'><div class='stitle'>📋 السلف الشهرية والإدارية</div><div class='stot'>"+fmt0(totalMonthlyAdvs)+" ج</div></div>";
+      body+="<div class='sec-body'>";
+      if(monthlyAdvs.length===0){body+="<div class='empty'>لا توجد سلف مسجلة</div>"}
+      else{
+        body+="<table><thead><tr><th>#</th><th>الموظف</th><th style='text-align:center'>المبلغ</th><th>ملاحظة</th></tr></thead><tbody>";
+        monthlyAdvs.forEach((a,i)=>{
+          body+="<tr><td class='num'>"+(i+1)+"</td><td>"+(a.empName||"—")+"</td><td class='num'>"+fmt0(Number(a.amount)||0)+" ج</td><td style='color:#64748B'>"+(a.note||"—")+"</td></tr>";
+        });
+        body+="<tr class='tot'><td colspan='2'>الإجمالي ("+monthlyAdvs.length+")</td><td class='num' style='color:#F59E0B;font-size:14px'>"+fmt0(totalMonthlyAdvs)+" ج</td><td></td></tr>";
+        body+="</tbody></table>";
+      }
+      body+="</div></div>";
+      body+="<div class='sec sec-ws'>";
+      body+="<div class='sec-hdr'><div class='stitle'>🏭 دفعات الورش والمشتريات</div><div class='stot'>"+fmt0(totalWsPayments)+" ج</div></div>";
+      body+="<div class='sec-body'>";
+      if(wsRows.length===0){body+="<div class='empty'>لا توجد دفعات ورش مسجلة</div>"}
+      else{
+        body+="<table><thead><tr><th>#</th><th>الورشة</th><th style='text-align:center'>دفعة</th><th style='text-align:center'>مشتريات</th><th style='text-align:center'>الإجمالي</th></tr></thead><tbody>";
+        wsRows.forEach((r,i)=>{
+          body+="<tr><td class='num'>"+(i+1)+"</td><td>"+r.name+"</td>";
+          body+="<td class='num'>"+(r.payment>0?fmt0(r.payment)+" ج":"—")+"</td>";
+          body+="<td class='num'>"+(r.purchase>0?fmt0(r.purchase)+" ج":"—")+"</td>";
+          body+="<td class='num'>"+fmt0(r.payment+r.purchase)+" ج</td></tr>";
+        });
+        const tPay=wsRows.reduce((s,r)=>s+r.payment,0);
+        const tPur=wsRows.reduce((s,r)=>s+r.purchase,0);
+        body+="<tr class='tot'><td colspan='2'>الإجمالي ("+wsRows.length+" ورشة)</td>";
+        body+="<td class='num'>"+fmt0(tPay)+" ج</td><td class='num'>"+fmt0(tPur)+" ج</td>";
+        body+="<td class='num' style='color:#8B5CF6;font-size:14px'>"+fmt0(totalWsPayments)+" ج</td></tr>";
+        body+="</tbody></table>";
+      }
+      body+="</div></div>";
+      body+="<div class='sec sec-exps'>";
+      body+="<div class='sec-hdr'><div class='stitle'>📝 المصاريف الأخرى</div><div class='stot'>"+fmt0(totalOtherExps)+" ج</div></div>";
+      body+="<div class='sec-body'>";
+      if(expsRows.length===0){body+="<div class='empty'>لا توجد مصاريف مسجلة</div>"}
+      else{
+        body+="<table><thead><tr><th>#</th><th>الفئة</th><th style='text-align:center'>المبلغ</th></tr></thead><tbody>";
+        expsRows.forEach((r,i)=>{
+          body+="<tr><td class='num'>"+(i+1)+"</td><td>"+r.name+"</td><td class='num'>"+fmt0(r.amount)+" ج</td></tr>";
+        });
+        body+="<tr class='tot'><td colspan='2'>الإجمالي ("+expsRows.length+" بند)</td><td class='num' style='color:#10B981;font-size:14px'>"+fmt0(totalOtherExps)+" ج</td></tr>";
+        body+="</tbody></table>";
+      }
+      body+="</div></div>";
+      body+="<div class='grand'>";
+      body+="<div class='gtitle'>💵 إجمالي المبلغ المطلوب صرفه اليوم</div>";
+      body+="<div class='gval'>"+fmt0(grandTotal)+" <small>جنيه مصري</small></div>";
+      body+="</div>";
+      body+="<div class='breakdown'>";
+      body+="<div class='bd-item'>💰 مرتبات: <b>"+fmt0(totalSalaries)+" ج</b> ("+(grandTotal?Math.round(totalSalaries/grandTotal*100):0)+"%)</div>";
+      body+="<div class='bd-item'>📋 سلف: <b>"+fmt0(totalMonthlyAdvs)+" ج</b> ("+(grandTotal?Math.round(totalMonthlyAdvs/grandTotal*100):0)+"%)</div>";
+      body+="<div class='bd-item'>🏭 ورش: <b>"+fmt0(totalWsPayments)+" ج</b> ("+(grandTotal?Math.round(totalWsPayments/grandTotal*100):0)+"%)</div>";
+      body+="<div class='bd-item'>📝 مصاريف: <b>"+fmt0(totalOtherExps)+" ج</b> ("+(grandTotal?Math.round(totalOtherExps/grandTotal*100):0)+"%)</div>";
+      body+="</div>";
+      body+="<div class='sigs'>";
+      body+="<div class='sig-box'><div class='role'>أعده: المحاسب</div><div class='name'>"+(userName||"—")+"</div></div>";
+      body+="<div class='sig-box'><div class='role'>اعتمده: المدير المالي</div><div class='name'>التوقيع + التاريخ</div></div>";
+      body+="<div class='sig-box'><div class='role'>استلمه: المحاسب</div><div class='name'>التوقيع + التاريخ</div></div>";
+      body+="</div>";
+      const configInfo={factoryName:data.factoryName||"CLARK Factory",logo:data.logo||"",address:data.address||"",phone:data.phone||""};
+      printPage("تقرير أسبوعي مالي — W"+w.weekNum,body,configInfo);
     }catch(err){
       console.error("Print weekly financial summary error:",err);
       showToast("⚠️ خطأ في التقرير: "+(err?.message||"غير معروف"));
@@ -3851,10 +3741,19 @@ body{font-family:'Cairo',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
                       <span style={{fontSize:FS-1,fontWeight:700,color:c.isSkippedInstall?T.err:c.isPartialInstall?T.warn:"#F97316",background:(c.isSkippedInstall?T.err:c.isPartialInstall?T.warn:"#F97316")+"10",padding:"3px 8px",borderRadius:6,border:"1px solid "+(c.isSkippedInstall?T.err:c.isPartialInstall?T.warn:"#F97316")+"30"}}>{fmt0(c.debtInstall)}</span>
                       {c.isPartialInstall&&<span title={"دفع جزئي — المتبقي "+fmt0(c.debtInfoTotal-c.debtInstall)+" أُجِّل"} style={{fontSize:10,color:T.warn}}>⚠️</span>}
                       {c.isSkippedInstall&&<span title="تم تخطي هذا القسط" style={{fontSize:10,color:T.err}}>⏭</span>}
-                    </div>):empActiveDebts(emp.id).length>0?<span style={{fontSize:FS-2,color:T.textMut}} title="يوجد أقساط لهذا الموظف غير مستحقة في هذا الأسبوع">—</span>:(!isLocked?<div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
-                      <input type="number" value={salManualInstallDeduct[emp.id]||""} onChange={ev=>setSalManualInstallDeduct(p=>({...p,[emp.id]:ev.target.value}))} placeholder="0" title="خصم مباشر (مش قسط)" style={{width:60,padding:"3px",borderRadius:6,border:"1px solid "+(salManualInstallDeduct[emp.id]?"#F9731660":T.brd),fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:salManualInstallDeduct[emp.id]?"#F97316":T.text,fontWeight:salManualInstallDeduct[emp.id]?700:400}}/>
+                    </div>):(()=>{
+                      /* V15.75: Show manual input if no debts are DUE this week
+                         (even if debts exist but haven't started yet / already paid) */
+                      const hasAnyActive=empActiveDebts(emp.id).length>0;
+                      const hasNoDueThisWeek=c.debtInfoTotal===0;
+                      if(hasAnyActive&&!hasNoDueThisWeek){
+                        return<span style={{fontSize:FS-2,color:T.textMut}} title="يوجد أقساط لهذا الموظف غير مستحقة في هذا الأسبوع">—</span>;
+                      }
+                      return!isLocked?<div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
+                      <input type="number" value={salManualInstallDeduct[emp.id]||""} onChange={ev=>setSalManualInstallDeduct(p=>({...p,[emp.id]:ev.target.value}))} placeholder="0" title={hasAnyActive?"خصم مباشر الأسبوع ده (الأقساط لم تبدأ بعد)":"خصم مباشر (مش قسط)"} style={{width:60,padding:"3px",borderRadius:6,border:"1px solid "+(salManualInstallDeduct[emp.id]?"#F9731660":T.brd),fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:salManualInstallDeduct[emp.id]?"#F97316":T.text,fontWeight:salManualInstallDeduct[emp.id]?700:400}}/>
                       <span onClick={()=>{setShowDebtForm({empId:emp.id});resetDebtForm();setDebtStart(today)}} style={{cursor:"pointer",fontSize:11,padding:"2px 5px",borderRadius:4,background:T.bg,color:T.textMut,border:"1px dashed "+T.brd}} title="إضافة قسط/مديونية">+</span>
-                    </div>:<span style={{fontSize:FS-2,color:T.err}}>{c.manualInstallDeduct||""}</span>)}
+                    </div>:<span style={{fontSize:FS-2,color:T.err}}>{c.manualInstallDeduct||""}</span>;
+                    })()}
                   </td>
                   <td style={{padding:"3px 6px",textAlign:"center"}}>{!isLocked?<input type="number" value={salBonus[emp.id]!==undefined?salBonus[emp.id]:""} onChange={ev=>setSalBonus(p=>({...p,[emp.id]:ev.target.value}))} placeholder={emp.weeklyBonus>0?String(emp.weeklyBonus):"0"} title={emp.weeklyBonus>0?"الافتراضي: "+emp.weeklyBonus+" (تلقائي)":""} style={{width:60,padding:"3px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text}}/>:<span style={{fontSize:FS-2,color:T.ok}}>{c.bonus||""}</span>}</td>
                   <td style={{padding:"3px 6px",fontSize:FS,fontWeight:800,color:c.netBalance>=0?T.accent:T.err,textAlign:"center"}}>{fmt0(c.netBalance)}</td>
