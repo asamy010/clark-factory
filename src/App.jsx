@@ -918,7 +918,7 @@ export default function App(){
           <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}
           </span>
-          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V15.65</span>
+          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V15.67</span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -1103,11 +1103,6 @@ export default function App(){
                 <div onClick={()=>setBarcodePopup({mode:"manual",modelId:"",size:"",qty:1,serial:1})} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:"#F59E0B08",border:"1px solid #F59E0B25",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#F59E0B15"} onMouseLeave={e=>e.currentTarget.style.background="#F59E0B08"}>
                   <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="7" y1="7" x2="7" y2="17"/><line x1="11" y1="7" x2="11" y2="17"/><line x1="15" y1="7" x2="15" y2="17"/><line x1="17" y1="7" x2="17" y2="17"/></svg>
                   <span style={{fontSize:FS-1,fontWeight:700,color:"#F59E0B"}}>طباعة QR</span>
-                </div>
-                {/* V15.61: Mobile warehouse quick access */}
-                <div onClick={()=>window.open("/warehouse","_blank")} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:"#10B98108",border:"1px solid #10B98125",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#10B98115"} onMouseLeave={e=>e.currentTarget.style.background="#10B98108"} title="فتح وضع المخزن السريع في تبويب جديد">
-                  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg>
-                  <span style={{fontSize:FS-1,fontWeight:700,color:"#10B981"}}>📱 وضع المخزن السريع</span>
                 </div>
               </div>
 

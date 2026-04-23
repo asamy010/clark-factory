@@ -999,7 +999,12 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {/* Permissions Management */}
     <Card title="🔐 صلاحيات المستخدمين" style={{marginBottom:16}}>
       {(()=>{
-        const perms=config.permissions||{};
+        /* V15.66: Draft pattern — changes buffered locally, saved on explicit "حفظ" button */
+        const livePerms=config.permissions||{};
+        const[draftPerms,setDraftPerms]=useState(()=>JSON.parse(JSON.stringify(livePerms)));
+        const[permsDirty,setPermsDirty]=useState(false);
+        /* Re-sync draft from live whenever the upstream changes AND there are no unsaved changes */
+        useEffect(()=>{if(!permsDirty)setDraftPerms(JSON.parse(JSON.stringify(livePerms)))},[livePerms,permsDirty]);
         /* V15.28: Added payroll_accountant and payroll_verifier roles for separation of duties */
         const roles=["admin","manager","sales_accountant","purchase_accountant","payroll_accountant","payroll_verifier","viewer"];
         const roleLabels={admin:"أدمن",manager:"مدير",sales_accountant:"مبيعات",purchase_accountant:"مشتريات",payroll_accountant:"محاسب مرتبات",payroll_verifier:"مُؤكِّد استلام",viewer:"مشاهد"};
@@ -1007,18 +1012,33 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
         const levels=["edit","view","hide"];
         const levelLabels={edit:"✏️ تعديل",view:"👁 عرض",hide:"❌ مخفي"};
         const levelColors={edit:T.ok,view:T.warn,hide:T.err};
-        /* V15.28: HR has 4 sub-permissions. Setter supports both direct tab perms and nested hr sub-perms. */
-        const setPerm=(role,tabKey,level)=>upConfig(d=>{if(!d.permissions)d.permissions={};if(!d.permissions[role])d.permissions[role]={};d.permissions[role][tabKey]=level});
-        const setHrSubPerm=(role,subKey,level)=>upConfig(d=>{
-          if(!d.permissions)d.permissions={};
-          if(!d.permissions[role])d.permissions[role]={};
-          let hrPerm=d.permissions[role].hr;
-          /* Migrate from old string hr to object */
-          if(typeof hrPerm==="string"){hrPerm={weeks:hrPerm,verify:hrPerm,employees:hrPerm,security:hrPerm}}
-          if(!hrPerm||typeof hrPerm!=="object")hrPerm={};
-          hrPerm[subKey]=level;
-          d.permissions[role].hr=hrPerm;
-        });
+        /* V15.66: Draft setters — mutate local state only */
+        const setPerm=(role,tabKey,level)=>{
+          setDraftPerms(p=>{const n=JSON.parse(JSON.stringify(p));if(!n[role])n[role]={};n[role][tabKey]=level;return n});
+          setPermsDirty(true);
+        };
+        const setHrSubPerm=(role,subKey,level)=>{
+          setDraftPerms(p=>{
+            const n=JSON.parse(JSON.stringify(p));
+            if(!n[role])n[role]={};
+            let hrPerm=n[role].hr;
+            if(typeof hrPerm==="string")hrPerm={weeks:hrPerm,verify:hrPerm,employees:hrPerm,security:hrPerm};
+            if(!hrPerm||typeof hrPerm!=="object")hrPerm={};
+            hrPerm[subKey]=level;
+            n[role].hr=hrPerm;
+            return n;
+          });
+          setPermsDirty(true);
+        };
+        const savePerms=()=>{
+          upConfig(d=>{d.permissions=JSON.parse(JSON.stringify(draftPerms))});
+          setPermsDirty(false);
+          showToast("✓ تم حفظ الصلاحيات");
+        };
+        const resetPerms=()=>{
+          setDraftPerms(JSON.parse(JSON.stringify(livePerms)));
+          setPermsDirty(false);
+        };
         /* V15.28: Default permissions for all roles (incl. new ones) */
         const defPerms={
           admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit",treasury:"edit",hr:{weeks:"edit",verify:"edit",employees:"edit",security:"edit"}},
@@ -1029,9 +1049,9 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
           payroll_verifier:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"view",hr:{weeks:"view",verify:"edit",employees:"view",security:"view"}},
           viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"hide",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"}}
         };
-        /* Helpers to read current HR sub-permission with backward compat */
+        /* Helpers to read current HR sub-permission with backward compat — reads from DRAFT */
         const getHrCur=(r,subKey)=>{
-          const rp=perms[r]||{};
+          const rp=draftPerms[r]||{};
           let hrPerm=rp.hr;
           if(hrPerm===undefined||hrPerm===null)hrPerm=defPerms[r]?.hr;
           if(typeof hrPerm==="string")return hrPerm;/* backward compat */
@@ -1079,10 +1099,10 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
                   </tr>)}
                 </React.Fragment>;
               }
-              /* Non-HR tab — regular rendering */
+              /* Non-HR tab — regular rendering, reads from draft */
               return<tr key={t.key}>
                 <td style={{...TD,fontWeight:600}}><span style={{marginLeft:6}}>{t.icon}</span>{t.label}</td>
-                {roles.map(r=>{const cur=(perms[r]||{})[t.key]||(defPerms[r]||{})[t.key]||"view";
+                {roles.map(r=>{const cur=(draftPerms[r]||{})[t.key]||(defPerms[r]||{})[t.key]||"view";
                   return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px"}}>
                     {r==="admin"&&t.key==="settings"?<span style={{fontSize:FS-2,color:T.ok,fontWeight:600}}>✏️ دائماً</span>:
                     <select value={cur} onChange={e=>setPerm(r,t.key,e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:levelColors[cur],fontWeight:700,cursor:"pointer"}}>
@@ -1092,6 +1112,15 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
               </tr>;
             })}</tbody>
           </table>
+          {/* V15.66: Save/Cancel buttons — only visible when there are unsaved changes */}
+          <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:14,paddingTop:14,borderTop:"1px solid "+T.brd}}>
+            {permsDirty&&<span style={{padding:"6px 12px",borderRadius:8,background:T.warn+"12",color:T.warn,fontSize:FS-2,fontWeight:700,display:"flex",alignItems:"center",gap:6}}>
+              <span style={{width:8,height:8,borderRadius:"50%",background:T.warn,display:"inline-block"}}></span>
+              فيه تعديلات مش متحفظة
+            </span>}
+            <Btn ghost onClick={resetPerms} disabled={!permsDirty}>↩️ تراجع</Btn>
+            <Btn primary onClick={savePerms} disabled={!permsDirty} style={{fontWeight:800}}>💾 حفظ الصلاحيات</Btn>
+          </div>
         </div>;
       })()}
     </Card>

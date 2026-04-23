@@ -20,7 +20,9 @@ import { gid, fmt } from "../../utils/format.js";
 import { hapticLight, hapticMedium, hapticError, isDuplicateScan, searchOrders } from "./_shared.jsx";
 
 export function MobileQuickSale({ data, upConfig, upSales, updOrder, user, onDone, setDirty }) {
-  const [step, setStep] = useState("customer"); /* customer | scan | review */
+  const [step, setStep] = useState("session"); /* V15.67: session | customer | scan | review */
+  const [selectedSession, setSelectedSession] = useState(null); /* V15.67: null = free sale */
+  const [sessSearch, setSessSearch] = useState("");
   const [selectedCust, setSelectedCust] = useState(null);
   const [custSearch, setCustSearch] = useState("");
   const [items, setItems] = useState([]); /* [{orderId, modelNo, modelDesc, qty, price, rackSize}] */
@@ -36,6 +38,7 @@ export function MobileQuickSale({ data, upConfig, upSales, updOrder, user, onDon
   const userName = user?.displayName || user?.email?.split("@")[0] || "";
   const customers = data.customers || [];
   const orders = data.orders || [];
+  const sessions = data.custDeliverySessions || [];
 
   /* Show toast message for 2 seconds */
   const flash = (msg, type = "info") => {
@@ -43,12 +46,29 @@ export function MobileQuickSale({ data, upConfig, upSales, updOrder, user, onDon
     setTimeout(() => setToast(null), 2000);
   };
 
-  /* Filtered customers based on search */
+  /* V15.67: Sort sessions newest first, optional search */
+  const filteredSessions = useMemo(() => {
+    const sorted = [...sessions].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    const q = sessSearch.trim().toLowerCase();
+    if (!q) return sorted.slice(0, 20);
+    return sorted.filter((s) => {
+      const custNames = (s.custIds || []).map(id => customers.find(c => c.id === id)?.name || "").join(" ").toLowerCase();
+      const modelNos = (s.modelIds || []).map(id => orders.find(o => o.id === id)?.modelNo || "").join(" ").toLowerCase();
+      return (s.date || "").includes(q) || custNames.includes(q) || modelNos.includes(q);
+    });
+  }, [sessions, customers, orders, sessSearch]);
+
+  /* V15.67: Filtered customers — if session selected, restrict to session's customers */
   const filteredCusts = useMemo(() => {
+    let pool = customers;
+    if (selectedSession) {
+      const allowedIds = new Set(selectedSession.custIds || []);
+      pool = customers.filter((c) => allowedIds.has(c.id));
+    }
     const q = custSearch.trim().toLowerCase();
-    if (!q) return customers.slice(0, 30);
-    return customers.filter((c) => (c.name || "").toLowerCase().includes(q) || (c.phone || "").includes(q));
-  }, [customers, custSearch]);
+    if (!q) return pool.slice(0, 30);
+    return pool.filter((c) => (c.name || "").toLowerCase().includes(q) || (c.phone || "").includes(q));
+  }, [customers, custSearch, selectedSession]);
 
   /* Total pieces + money */
   const totals = useMemo(() => {
@@ -69,6 +89,15 @@ export function MobileQuickSale({ data, upConfig, upSales, updOrder, user, onDon
       playBeep("error"); hapticError();
       flash("⛔ موديل غير موجود", "error");
       return false;
+    }
+    /* V15.67: If a session is selected, only allow its models */
+    if (selectedSession) {
+      const allowedModels = new Set(selectedSession.modelIds || []);
+      if (!allowedModels.has(orderId)) {
+        playBeep("error"); hapticError();
+        flash("⛔ الموديل ده مش في التوزيعة", "error");
+        return false;
+      }
     }
     const stockQty = getConfirmedStock(order);
     const soldQty = (order.customerDeliveries || []).reduce((s, d) => s + (Number(d.qty) || 0), 0);
@@ -133,8 +162,14 @@ export function MobileQuickSale({ data, upConfig, upSales, updOrder, user, onDon
   /* V15.61: Manual search results */
   const manualResults = useMemo(() => {
     if (!showManualSearch) return [];
-    return searchOrders(orders.filter((o) => getConfirmedStock(o) > 0), manualSearch);
-  }, [orders, manualSearch, showManualSearch]);
+    let pool = orders.filter((o) => getConfirmedStock(o) > 0);
+    /* V15.67: Restrict to session models if a session is active */
+    if (selectedSession) {
+      const allowed = new Set(selectedSession.modelIds || []);
+      pool = pool.filter((o) => allowed.has(o.id));
+    }
+    return searchOrders(pool, manualSearch);
+  }, [orders, manualSearch, showManualSearch, selectedSession]);
 
   /* Remove item from cart */
   const removeItem = (idx) => {
@@ -165,6 +200,9 @@ export function MobileQuickSale({ data, upConfig, upSales, updOrder, user, onDon
     try {
       const today = new Date().toISOString().split("T")[0];
       const now = new Date().toISOString();
+      /* V15.67: Use actual session id if selected, else "free" for free sale */
+      const sessionId = selectedSession ? selectedSession.id : "free";
+      const sessionDate = selectedSession ? selectedSession.date : today;
       /* V15.61: Parallelize writes for speed */
       await Promise.all(items.map((it) =>
         updOrder(it.orderId, (o) => {
@@ -174,9 +212,9 @@ export function MobileQuickSale({ data, upConfig, upSales, updOrder, user, onDon
             custId: selectedCust.id,
             custName: selectedCust.name,
             qty: it.qty,
-            date: today,
+            date: sessionDate,
             price: it.price,
-            sessionId: "free",
+            sessionId: sessionId,
             createdBy: userName,
             createdAt: now,
           });
@@ -228,11 +266,137 @@ export function MobileQuickSale({ data, upConfig, upSales, updOrder, user, onDon
     },
   };
 
+  /* ══ STEP 0 (V15.67): SESSION PICKER ══ */
+  if (step === "session") {
+    return (
+      <div>
+        <StepHeader title="الخطوة 1 من 4" subtitle="اختر طريقة البيع" />
+
+        {/* V15.67: Two main options — with session or free sale */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10, marginBottom: 16 }}>
+          {/* Free sale card */}
+          <button
+            onClick={() => { setSelectedSession(null); setStep("customer"); }}
+            style={{
+              ...S.card,
+              padding: "18px 16px",
+              textAlign: "right",
+              cursor: "pointer",
+              color: "#fff",
+              fontFamily: "inherit",
+              width: "100%",
+              border: "2px solid #10B98140",
+              background: "linear-gradient(135deg, #10B98108, #10B98102)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ fontSize: 28 }}>💰</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: "#10B981" }}>بيع حر (بدون توزيعة)</div>
+                <div style={{ fontSize: 12, color: "#94A3B8", marginTop: 3 }}>أي عميل • أي موديل متاح في المخزن</div>
+              </div>
+              <div style={{ fontSize: 20, color: "#10B981" }}>←</div>
+            </div>
+          </button>
+        </div>
+
+        {/* Sessions list header */}
+        <div style={{ fontSize: 12, color: "#94A3B8", fontWeight: 700, padding: "4px 4px 8px", display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ flex: 1 }}>أو اختر توزيعة موجودة للمقارنة:</span>
+          <span style={{ fontSize: 11, color: "#64748B" }}>{sessions.length} توزيعة</span>
+        </div>
+
+        {/* Session search */}
+        {sessions.length > 5 && (
+          <input
+            style={{ ...S.input, marginBottom: 10, padding: "12px 14px", fontSize: 14 }}
+            placeholder="🔍 ابحث بالتاريخ أو الموديل أو العميل..."
+            value={sessSearch}
+            onChange={(e) => setSessSearch(e.target.value)}
+          />
+        )}
+
+        {/* Sessions list */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {filteredSessions.length === 0 ? (
+            <div style={{ textAlign: "center", padding: 30, color: "#64748B" }}>
+              <div style={{ fontSize: 36, marginBottom: 8 }}>📋</div>
+              {sessions.length === 0 ? "لا توجد توزيعات" : "لا توجد نتائج"}
+            </div>
+          ) : (
+            filteredSessions.map((s) => {
+              const custCount = (s.custIds || []).length;
+              const modelCount = (s.modelIds || []).length;
+              const custNames = (s.custIds || []).slice(0, 2).map(id => customers.find(c => c.id === id)?.name || "").filter(Boolean);
+              const modelNos = (s.modelIds || []).slice(0, 3).map(id => orders.find(o => o.id === id)?.modelNo || "").filter(Boolean);
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => { setSelectedSession(s); setStep("customer"); setCustSearch(""); }}
+                  style={{
+                    ...S.card,
+                    textAlign: "right",
+                    cursor: "pointer",
+                    color: "#fff",
+                    fontFamily: "inherit",
+                    width: "100%",
+                    borderColor: "#0EA5E950",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                    <div style={{ fontSize: 22, marginTop: 2 }}>📋</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: "#0EA5E9" }}>📅 {s.date || "—"}</div>
+                        <div style={{ fontSize: 11, color: "#94A3B8" }}>{custCount} عميل • {modelCount} موديل</div>
+                      </div>
+                      {custNames.length > 0 && (
+                        <div style={{ fontSize: 12, color: "#CBD5E1", marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          👥 {custNames.join("، ")}{custCount > 2 ? " +" + (custCount - 2) : ""}
+                        </div>
+                      )}
+                      {modelNos.length > 0 && (
+                        <div style={{ fontSize: 11, color: "#94A3B8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          🏷️ {modelNos.join("، ")}{modelCount > 3 ? " +" + (modelCount - 3) : ""}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        {toast && <Toast {...toast} />}
+      </div>
+    );
+  }
+
   /* ══ STEP 1: CUSTOMER PICKER ══ */
   if (step === "customer") {
     return (
       <div>
-        <StepHeader title="الخطوة 1 من 3" subtitle="اختر العميل" />
+        <StepHeader
+          title={selectedSession ? "الخطوة 2 من 4" : "الخطوة 2 من 3"}
+          subtitle={selectedSession ? "اختر العميل (من التوزيعة " + selectedSession.date + ")" : "اختر العميل"}
+        />
+
+        {/* V15.67: Session badge if selected */}
+        {selectedSession && (
+          <div style={{ ...S.card, marginBottom: 10, padding: "10px 12px", background: "#0EA5E915", border: "1px solid #0EA5E940", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div style={{ fontSize: 11, color: "#94A3B8", fontWeight: 700 }}>📋 التوزيعة النشطة</div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: "#0EA5E9", marginTop: 2 }}>{selectedSession.date}</div>
+            </div>
+            <button
+              onClick={() => { setSelectedSession(null); setStep("session"); setCustSearch(""); }}
+              style={{ padding: "6px 10px", borderRadius: 8, background: "#1E293B", border: "1px solid #334155", color: "#94A3B8", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
+            >
+              ✕ تغيير
+            </button>
+          </div>
+        )}
 
         <input
           style={S.input}
@@ -245,7 +409,7 @@ export function MobileQuickSale({ data, upConfig, upSales, updOrder, user, onDon
           {filteredCusts.length === 0 ? (
             <div style={{ textAlign: "center", padding: 30, color: "#64748B" }}>
               <div style={{ fontSize: 36, marginBottom: 8 }}>🔍</div>
-              لا توجد نتائج
+              {selectedSession ? "التوزيعة دي مفيهاش عملاء مطابقين" : "لا توجد نتائج"}
             </div>
           ) : (
             filteredCusts.map((c) => (
@@ -287,7 +451,53 @@ export function MobileQuickSale({ data, upConfig, upSales, updOrder, user, onDon
   if (step === "scan") {
     return (
       <div>
-        <StepHeader title="الخطوة 2 من 3" subtitle={"امسح QR الموديلات — " + selectedCust.name} />
+        <StepHeader
+          title={selectedSession ? "الخطوة 3 من 4" : "الخطوة 2 من 3"}
+          subtitle={"امسح QR الموديلات — " + selectedCust.name}
+        />
+        {/* V15.67: Session comparison badge */}
+        {selectedSession && (()=>{
+          const sessModels = (selectedSession.modelIds || []).map(id => {
+            const o = orders.find(x => x.id === id);
+            if (!o) return null;
+            const planned = (selectedSession.grid || {})[id + "_" + selectedCust.id] || 0;
+            const scanned = items.filter(it => it.orderId === id).reduce((s, it) => s + it.qty, 0);
+            return { id, modelNo: o.modelNo, planned: Number(planned) || 0, scanned };
+          }).filter(Boolean);
+          const totalPlanned = sessModels.reduce((s, m) => s + m.planned, 0);
+          const totalScanned = sessModels.reduce((s, m) => s + m.scanned, 0);
+          return (
+            <div style={{ ...S.card, marginBottom: 10, padding: "10px 12px", background: "#0EA5E908", border: "1px solid #0EA5E940" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: "#0EA5E9" }}>📋 مقارنة بالتوزيعة</div>
+                <div style={{ fontSize: 11, color: "#94A3B8", fontWeight: 700 }}>
+                  {totalScanned} / {totalPlanned} قطعة
+                </div>
+              </div>
+              {totalPlanned > 0 && (
+                <div style={{ height: 4, borderRadius: 2, background: "#0F172A", overflow: "hidden", marginBottom: 6 }}>
+                  <div style={{ height: "100%", width: Math.min(100, (totalScanned / totalPlanned) * 100) + "%", background: totalScanned > totalPlanned ? "#EF4444" : "#10B981", transition: "width 0.3s" }} />
+                </div>
+              )}
+              {sessModels.filter(m => m.planned > 0).length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 3, maxHeight: 120, overflowY: "auto" }}>
+                  {sessModels.filter(m => m.planned > 0).map(m => {
+                    const diff = m.scanned - m.planned;
+                    const color = diff === 0 && m.scanned > 0 ? "#10B981" : diff > 0 ? "#EF4444" : m.scanned > 0 ? "#F59E0B" : "#64748B";
+                    return (
+                      <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, padding: "2px 0" }}>
+                        <span style={{ color: "#CBD5E1", fontWeight: 700 }}>{m.modelNo}</span>
+                        <span style={{ color, fontWeight: 800 }}>
+                          {m.scanned} / {m.planned} {diff !== 0 && m.scanned > 0 ? `(${diff > 0 ? "+" : ""}${diff})` : ""}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Scanner area */}
         {showScanner ? (
@@ -470,7 +680,10 @@ export function MobileQuickSale({ data, upConfig, upSales, updOrder, user, onDon
   /* ══ STEP 3: REVIEW + CONFIRM ══ */
   return (
     <div>
-      <StepHeader title="الخطوة 3 من 3" subtitle="مراجعة وتأكيد" />
+      <StepHeader
+        title={selectedSession ? "الخطوة 4 من 4" : "الخطوة 3 من 3"}
+        subtitle="مراجعة وتأكيد"
+      />
 
       <div style={{ ...S.card, marginBottom: 14 }}>
         <div style={{ fontSize: 12, color: "#94A3B8", fontWeight: 700 }}>العميل</div>
