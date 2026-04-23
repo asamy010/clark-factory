@@ -899,7 +899,8 @@ export function OrderAgeReport({data,isMob,season,statusCards}){
     const stale=Math.max(0,Math.floor((now-new Date(lastMove||o.date))/(1000*60*60*24)));
     return{modelNo:o.modelNo,modelDesc:o.modelDesc,status:o.status,startDate:o.date,days,lastMove,stale,cutQty:calcOrder(o).cutQty}}).sort((a,b)=>b.days-a.days);
   const avgAge=rows.length>0?Math.round(rows.reduce((s,r)=>s+r.days,0)/rows.length):0;
-  return<Card title={"⏱️ عمر الأوردر — "+rows.length+" أوردر مفتوح (متوسط: "+avgAge+" يوم)"}>
+  const printRep=()=>{const el=document.getElementById("orderage-rep");if(el)printPage("تقرير عمر الأوردر — "+season,el.innerHTML)};
+  return<Card id="orderage-rep" title={"⏱️ عمر الأوردر — "+rows.length+" أوردر مفتوح (متوسط: "+avgAge+" يوم)"} extra={<Btn small onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>}>
     {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
       {["الموديل","الوصف","كمية القص","تاريخ البدء","عمر (يوم)","آخر حركة","ركود (يوم)","الحالة"].map(h=><th key={h} style={TH}>{h}</th>)}
     </tr></thead><tbody>{rows.map(r=><tr key={r.modelNo} style={{borderBottom:"1px solid "+T.brd,background:r.stale>14?T.err+"06":""}}>
@@ -921,7 +922,8 @@ export function CapacityReport({data,isMob,season}){
     (o.workshopDeliveries||[]).forEach(wd=>{const m=(wd.date||d).slice(0,7);if(!weekMap[m])weekMap[m]={cut:0,wsOut:0,wsIn:0,stock:0};weekMap[m].wsOut+=(Number(wd.qty)||0);
       (wd.receives||[]).forEach(r=>{const rm=(r.date||wd.date||d).slice(0,7);if(!weekMap[rm])weekMap[rm]={cut:0,wsOut:0,wsIn:0,stock:0};weekMap[rm].wsIn+=(Number(r.qty)||0)})})});
   const months=Object.keys(weekMap).sort();
-  return<Card title="📊 الطاقة الإنتاجية — شهري">
+  const printRep=()=>{const el=document.getElementById("capacity-rep");if(el)printPage("تقرير الطاقة الإنتاجية — "+season,el.innerHTML)};
+  return<Card id="capacity-rep" title="📊 الطاقة الإنتاجية — شهري" extra={<Btn small onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>}>
     {months.length>0?<div>
       <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
         {["الشهر","قص","تسليم ورش","استلام ورش","تسليم مخزن"].map(h=><th key={h} style={TH}>{h}</th>)}
@@ -947,7 +949,8 @@ export function WsCostReport({data,isMob,season}){
     (wd.receives||[]).forEach(r=>{wsMap[wd.wsName].totalQty+=(Number(r.qty)||0);wsMap[wd.wsName].totalAmt+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});
   const rows=Object.values(wsMap).filter(w=>w.totalQty>0).map(w=>({...w,avg:r2(w.totalAmt/w.totalQty)})).sort((a,b)=>a.avg-b.avg);
   const globalAvg=rows.length>0?r2(rows.reduce((s,r)=>s+r.totalAmt,0)/rows.reduce((s,r)=>s+r.totalQty,0)):0;
-  return<Card title={"💲 تكلفة القطعة بالورشة — متوسط عام: "+fmt(globalAvg)+" ج.م"}>
+  const printRep=()=>{const el=document.getElementById("wscost-rep");if(el)printPage("تكلفة القطعة بالورشة — "+season,el.innerHTML)};
+  return<Card id="wscost-rep" title={"💲 تكلفة القطعة بالورشة — متوسط عام: "+fmt(globalAvg)+" ج.م"} extra={<Btn small onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>}>
     {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
       {["الورشة","إجمالي القطع","إجمالي المبالغ","متوسط سعر القطعة","مقارنة بالمتوسط"].map(h=><th key={h} style={TH}>{h}</th>)}
     </tr></thead><tbody>{rows.map(r=>{const diff=r2(r.avg-globalAvg);return<tr key={r.name} style={{borderBottom:"1px solid "+T.brd}}>
@@ -969,7 +972,8 @@ export function WsStuckReport({data,isMob,season}){
     if(days>=7)wsItems.push({ws:wd.wsName,modelNo:o.modelNo,modelDesc:o.modelDesc,garment:wd.garmentType||"عام",sent,rcvd,remaining,date:wd.date,days})})});
   wsItems.sort((a,b)=>b.days-a.days);
   const totalStuck=wsItems.reduce((s,i)=>s+i.remaining,0);
-  return<Card title={"🚨 بضاعة معلقة عند الورش — "+wsItems.length+" حركة ("+fmt(totalStuck)+" قطعة)"}>
+  const printRep=()=>{const el=document.getElementById("wsstuck-rep");if(el)printPage("بضاعة معلقة عند الورش — "+season,el.innerHTML)};
+  return<Card id="wsstuck-rep" title={"🚨 بضاعة معلقة عند الورش — "+wsItems.length+" حركة ("+fmt(totalStuck)+" قطعة)"} extra={<Btn small onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>}>
     {wsItems.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
       {["الورشة","الموديل","القطعة","المرسل","المستلم","المتبقي","تاريخ الإرسال","أيام"].map(h=><th key={h} style={TH}>{h}</th>)}
     </tr></thead><tbody>{wsItems.map((r,i)=><tr key={i} style={{borderBottom:"1px solid "+T.brd,background:r.days>14?T.err+"06":""}}>
@@ -992,7 +996,8 @@ export function ModelProfitReport({data,isMob,season,statusCards}){
     return{modelNo:o.modelNo,modelDesc:o.modelDesc,sellPrice,costPrice,soldQty,revenue,cost,profit,margin,status:o.status}}).filter(r=>r.soldQty>0).sort((a,b)=>b.profit-a.profit);
   const totals={revenue:rows.reduce((s,r)=>s+r.revenue,0),cost:rows.reduce((s,r)=>s+r.cost,0),profit:rows.reduce((s,r)=>s+r.profit,0)};
   totals.margin=totals.revenue>0?Math.round((totals.profit/totals.revenue)*100):0;
-  return<Card title={"💎 أرباح الموديل — "+rows.length+" موديل | صافي ربح: "+fmt(r2(totals.profit))+" ج.م"}>
+  const printRep=()=>{const el=document.getElementById("modelprofit-rep");if(el)printPage("تقرير أرباح الموديل — "+season,el.innerHTML)};
+  return<Card id="modelprofit-rep" title={"💎 أرباح الموديل — "+rows.length+" موديل | صافي ربح: "+fmt(r2(totals.profit))+" ج.م"} extra={<Btn small onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>}>
     {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
       {["الموديل","الوصف","سعر بيع","تكلفة","كمية مباعة","إيراد","تكلفة إجمالية","الربح","هامش %"].map(h=><th key={h} style={TH}>{h}</th>)}
     </tr></thead><tbody>{rows.map(r=><tr key={r.modelNo} style={{borderBottom:"1px solid "+T.brd}}>
@@ -1025,7 +1030,8 @@ export function TopCustomersReport({data,isMob,season}){
   const rows=Object.values(custMap).map(c=>{const cust=customers.find(x=>x.id===c.id);const paid=payments.filter(p=>p.custId===c.id).reduce((s,p)=>s+(Number(p.amount)||0),0);
     const retPct=c.sales>0?Math.round((c.returns/c.sales)*100):0;
     return{...c,name:cust?.name||"غير معروف",phone:cust?.phone||"",paid,balance:r2(c.revenue-paid),retPct}}).sort((a,b)=>b.revenue-a.revenue).slice(0,10);
-  return<Card title="🏆 أعلى 10 عملاء">
+  const printRep=()=>{const el=document.getElementById("topcust-rep");if(el)printPage("أعلى 10 عملاء — "+season,el.innerHTML)};
+  return<Card id="topcust-rep" title="🏆 أعلى 10 عملاء" extra={<Btn small onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>}>
     {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
       {["#","العميل","مبيعات (قطعة)","مرتجعات","% مرتجع","إيراد","مدفوع","رصيد"].map(h=><th key={h} style={TH}>{h}</th>)}
     </tr></thead><tbody>{rows.map((r,i)=><tr key={r.id} style={{borderBottom:"1px solid "+T.brd,background:i<3?T.accent+"04":""}}>
@@ -1059,7 +1065,8 @@ export function AgingReport({data,isMob,season}){
     const bucketColor=days<=30?T.ok:days<=60?T.warn:days<=90?"#F97316":T.err;
     return{name:cust?.name||"غير معروف",phone:cust?.phone||"",balance,days,bucket,bucketColor,lastSale:c.lastSale}}).filter(Boolean).sort((a,b)=>b.days-a.days);
   const totalBalance=rows.reduce((s,r)=>s+r.balance,0);
-  return<Card title={"⏳ تقرير التحصيل (Aging) — "+rows.length+" عميل | إجمالي: "+fmt(r2(totalBalance))+" ج.م"}>
+  const printRep=()=>{const el=document.getElementById("aging-rep");if(el)printPage("تقرير التحصيل (Aging) — "+season,el.innerHTML)};
+  return<Card id="aging-rep" title={"⏳ تقرير التحصيل (Aging) — "+rows.length+" عميل | إجمالي: "+fmt(r2(totalBalance))+" ج.م"} extra={<Btn small onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>}>
     {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
       {["العميل","التليفون","الرصيد المستحق","آخر بيع","أيام التأخر","الفئة"].map(h=><th key={h} style={TH}>{h}</th>)}
     </tr></thead><tbody>{rows.map(r=><tr key={r.name} style={{borderBottom:"1px solid "+T.brd}}>
@@ -1079,7 +1086,8 @@ export function MonthlyExpensesReport({data,isMob}){
   const monthMap={};const catSet=new Set();
   outTxns.forEach(t=>{const m=(t.date||"").slice(0,7);if(!m)return;if(!monthMap[m])monthMap[m]={};const cat=t.category||"أخرى";catSet.add(cat);monthMap[m][cat]=(monthMap[m][cat]||0)+(Number(t.amount)||0)});
   const months=Object.keys(monthMap).sort();const cats=[...catSet].sort();
-  return<Card title={"📉 المصروفات الشهرية — "+months.length+" شهر"}>
+  const printRep=()=>{const el=document.getElementById("monthexp-rep");if(el)printPage("المصروفات الشهرية",el.innerHTML)};
+  return<Card id="monthexp-rep" title={"📉 المصروفات الشهرية — "+months.length+" شهر"} extra={<Btn small onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>}>
     {months.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
       <th style={TH}>الشهر</th>{cats.map(c=><th key={c} style={{...TH,fontSize:FS-3}}>{c}</th>)}<th style={TH}>الإجمالي</th>
     </tr></thead><tbody>{months.map((m,i)=>{const total=cats.reduce((s,c)=>s+(monthMap[m][c]||0),0);const prev=i>0?cats.reduce((s,c)=>s+(monthMap[months[i-1]][c]||0),0):null;
@@ -1100,7 +1108,8 @@ export function CashflowReport({data,isMob}){
     if(t.type==="in")monthMap[m].inflow+=(Number(t.amount)||0);else monthMap[m].outflow+=(Number(t.amount)||0)});
   const months=Object.keys(monthMap).sort();let runBal=(data.treasurySettings||{}).openingBalance||0;
   const rows=months.map(m=>{const d=monthMap[m];runBal+=d.inflow-d.outflow;return{month:m,...d,net:r2(d.inflow-d.outflow),balance:r2(runBal)}});
-  return<Card title="💹 التدفق النقدي — شهري">
+  const printRep=()=>{const el=document.getElementById("cashflow-rep");if(el)printPage("التدفق النقدي الشهري",el.innerHTML)};
+  return<Card id="cashflow-rep" title="💹 التدفق النقدي — شهري" extra={<Btn small onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>}>
     {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
       {["الشهر","وارد","منصرف","صافي الشهر","الرصيد التراكمي"].map(h=><th key={h} style={TH}>{h}</th>)}
     </tr></thead><tbody>{rows.map(r=><tr key={r.month} style={{borderBottom:"1px solid "+T.brd}}>
@@ -1127,7 +1136,8 @@ export function LaborCostReport({data,isMob}){
     const empCount=new Set(salaries.map(l=>l.empId)).size;
     return{weekNum:w.weekNum,period:w.weekStart+" → "+w.weekEnd,empCount,totalGross:r2(totalGross),totalAdv:r2(totalAdv),totalNet,costPerEmp:empCount>0?r2(totalGross/empCount):0}});
   const totals={gross:rows.reduce((s,r)=>s+r.totalGross,0),adv:rows.reduce((s,r)=>s+r.totalAdv,0),net:rows.reduce((s,r)=>s+r.totalNet,0)};
-  return<Card title={"👷 تكلفة العمالة — "+rows.length+" أسبوع | إجمالي: "+fmt(r2(totals.gross))+" ج.م"}>
+  const printRep=()=>{const el=document.getElementById("laborcost-rep");if(el)printPage("تكلفة العمالة",el.innerHTML)};
+  return<Card id="laborcost-rep" title={"👷 تكلفة العمالة — "+rows.length+" أسبوع | إجمالي: "+fmt(r2(totals.gross))+" ج.م"} extra={<Btn small onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>}>
     {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
       {["الأسبوع","الفترة","عدد الموظفين","إجمالي المرتبات","السلف","الصافي","تكلفة/موظف"].map(h=><th key={h} style={TH}>{h}</th>)}
     </tr></thead><tbody>{rows.map(r=><tr key={r.weekNum} style={{borderBottom:"1px solid "+T.brd}}>

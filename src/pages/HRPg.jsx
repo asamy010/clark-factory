@@ -1892,11 +1892,11 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       ${logo?'<img src="'+logo+'"/>':'<div style="font-size:20px;font-weight:900;color:#0ea5e9">CLARK</div>'}
       <div class="tbox"><h1>كشف مرتب أسبوعي</h1><div class="wk">W${openWeek.weekNum}</div></div>
     </div>
-    <div class="emp-box">
-      <div class="emp-name">${emp.name}</div>
-      ${emp.code||emp.job?'<div class="emp-meta">'+(emp.code?'كود: '+emp.code:'')+(emp.code&&emp.job?' &nbsp;•&nbsp; ':'')+(emp.job||'')+'</div>':''}
-    </div>
     <div class="info">
+      <div class="emp-row">
+        <span class="emp-name">${emp.name}</span>
+        ${emp.code||emp.job?'<span class="emp-meta">'+(emp.code?'كود: '+emp.code:'')+(emp.code&&emp.job?' • ':'')+(emp.job||'')+'</span>':''}
+      </div>
       <div><b>التليفون:</b> ${emp.phone||"—"}</div><div><b>ساعات أساسي:</b> ${c.baseHours}</div>
       <div><b>الأسبوع:</b> ${openWeek.weekStart} → ${openWeek.weekEnd}</div><div><b>سعر الساعة:</b> ${r2(c.perHour)} ج.م</div>
       <div><b>المرتب الأسبوعي:</b> ${fmt0(c.weeklySalary)} ج.م</div><div></div>
@@ -1946,10 +1946,10 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     .hdr .tbox{text-align:left;color:#0ea5e9}
     .hdr h1{font-size:18px;font-weight:800;margin:0 0 2px}
     .hdr .wk{font-size:24px;font-weight:900;color:#0ea5e9}
-    /* V15.78: Prominent employee name box — large & distinct for quick identification */
-    .emp-box{background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#fff;padding:14px 20px;border-radius:12px;margin:6px 0 12px;text-align:center;box-shadow:0 4px 14px rgba(2,132,199,0.25);border:2px solid #0369a1}
-    .emp-name{font-size:22px;font-weight:900;letter-spacing:0.3px;line-height:1.2}
-    .emp-meta{font-size:12px;font-weight:600;opacity:0.92;margin-top:5px}
+    /* V15.79: Compact inline employee name strip — spans both cols of info grid, doesn't add page height */
+    .emp-row{grid-column:1 / -1;display:flex;justify-content:space-between;align-items:baseline;gap:10px;background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#fff;padding:6px 12px;border-radius:6px;margin:-2px -2px 4px -2px;flex-wrap:wrap}
+    .emp-name{font-size:16px;font-weight:900;letter-spacing:0.2px;line-height:1.2}
+    .emp-meta{font-size:11px;font-weight:600;opacity:0.92;white-space:nowrap}
     .info{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;padding:10px;background:#f0f9ff;border-radius:8px;margin-bottom:10px;font-size:12px}
     .info b{color:#0ea5e9}
     table{width:100%;border-collapse:collapse;margin:8px 0}
@@ -2165,6 +2165,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     if(!phone){showToast("⚠️ لا يوجد رقم تليفون لهذا الموظف");return}
     if(phone.startsWith("0"))phone="20"+phone.slice(1);/* Egyptian: 01xxx → 201xxx */
     else if(!phone.startsWith("20")&&phone.length===10)phone="20"+phone;
+    /* V15.80: Validate length — Egyptian numbers should be 12 digits (20 + 10) */
+    if(phone.length<10||phone.length>15){showToast("⚠️ رقم التليفون غير صحيح: "+emp.phone);return}
     /* Build message */
     const weekLabel="W"+openWeek.weekNum+" ("+openWeek.weekStart+" → "+openWeek.weekEnd+")";
     const lines=[];
@@ -2213,7 +2215,27 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     lines.push("_CLARK Factory — "+today+"_");
     const msg=lines.join("\n");
     const url="https://wa.me/"+phone+"?text="+encodeURIComponent(msg);
-    window.open(url,"_blank");
+    /* V15.80: Use <a> click instead of window.open to bypass popup blockers.
+       window.open() silently fails on many browsers (esp. Chrome) when URL is long.
+       Anchor-click is treated as direct user navigation → always allowed. */
+    try{
+      const a=document.createElement("a");
+      a.href=url;a.target="_blank";a.rel="noopener noreferrer";
+      document.body.appendChild(a);a.click();document.body.removeChild(a);
+    }catch(e){
+      console.error("WhatsApp open error:",e);
+      /* Fallback: copy message to clipboard + open WhatsApp with phone only */
+      const shortUrl="https://wa.me/"+phone;
+      if(navigator.clipboard&&navigator.clipboard.writeText){
+        navigator.clipboard.writeText(msg).then(()=>{
+          const a2=document.createElement("a");a2.href=shortUrl;a2.target="_blank";a2.rel="noopener noreferrer";
+          document.body.appendChild(a2);a2.click();document.body.removeChild(a2);
+          showToast("✓ الرسالة اتنسخت — الصقها في محادثة الواتساب");
+        }).catch(()=>showToast("⚠️ تعذّر فتح الواتساب — افتح الرقم "+phone+" يدويًا"));
+      }else{
+        showToast("⚠️ تعذّر فتح الواتساب — تأكد من السماح بالنوافذ المنبثقة");
+      }
+    }
   };
 
   const bulkPrintSlips=()=>{if(!openWeek)return;

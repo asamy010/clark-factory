@@ -1353,11 +1353,22 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
         const oldNotifs=notifs.filter(n=>{const d=new Date(n.createdAt);return(now-d)/(1000*60*60*24)>30});
         const excessNotifs=notifs.length>50?notifs.length-50:0;
         const cleanNotifs=()=>upConfig(d=>{const cutoff=new Date();cutoff.setDate(cutoff.getDate()-30);d.notifications=(d.notifications||[]).filter(n=>new Date(n.createdAt)>=cutoff).slice(-50);showToast("✓ تم تنظيف الاشعارات")});
-        /* Storage stats */
-        const configSize=JSON.stringify(config).length;const ordersSize=JSON.stringify(orders).length;
-        const totalSize=configSize+ordersSize;
+        /* V15.80: Storage stats — accurate per-document breakdown.
+           Firestore's 1MB limit applies to EACH document independently, not the sum.
+           Orders live in `seasons/{season}/orders/{docId}` — each is its own doc. */
+        const configSize=JSON.stringify(config).length;
+        const salesSize=salesDoc?JSON.stringify(salesDoc).length:0;
+        const tasksSize=tasksDoc?JSON.stringify(tasksDoc).length:0;
+        const ordersSize=JSON.stringify(orders).length;/* sum of ALL order docs (not a single doc) */
+        const totalSize=configSize+ordersSize+salesSize+tasksSize;
         const imgSize=orders.reduce((s,o)=>{let sz=(o.image||"").length;(o.attachments||[]).forEach(a=>sz+=(a.data||"").length);return s+sz},0);
         const wsImgSize=(config.workshops||[]).reduce((s,w)=>s+(w.ownerPhoto||"").length+(w.idCard||"").length,0);
+        /* V15.80: Find largest single order doc (to catch individual docs approaching 1MB) */
+        const orderSizes=orders.map(o=>({modelNo:o.modelNo||"—",size:JSON.stringify(o).length}));
+        orderSizes.sort((a,b)=>b.size-a.size);
+        const largestOrder=orderSizes[0]||{modelNo:"—",size:0};
+        const top5Orders=orderSizes.slice(0,5);
+        const avgOrderSize=orders.length>0?Math.round(ordersSize/orders.length):0;
         /* Backup */
         const doBackup=()=>{const backup={config:configDoc,sales:salesDoc,tasks:tasksDoc,orders:orders.map(o=>{const c={...o};delete c._docId;return c}),exportDate:new Date().toISOString(),season};const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="CLARK_backup_"+season+"_"+new Date().toISOString().split("T")[0]+".json";a.click();URL.revokeObjectURL(url);showToast("✓ تم تنزيل النسخة الاحتياطية")};
         /* Compress images */
@@ -1431,28 +1442,63 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
             <span style={{fontSize:FS-3,color:T.textMut}}>يعيد ضغط صور الأوردرات الكبيرة (أكبر من 50KB)</span>
           </div>
 
-          {/* 7. Storage stats */}
-          <div style={{padding:14,borderRadius:12,background:T.bg,border:"1px solid "+T.brd}}>
-            <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:10}}>📊 احصائيات التخزين</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-              <div style={{textAlign:"center",padding:8,borderRadius:8,background:T.cardSolid}}>
-                <div style={{fontSize:FS-2,color:T.textSec}}>اجمالي</div>
-                <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{(totalSize/1024/1024).toFixed(2)+" MB"}</div>
+          {/* 7. Storage stats — V15.80 accurate per-document breakdown */}
+          {(()=>{
+            const MB=1024*1024;
+            const pctOfMB=(bytes)=>Math.min(100,(bytes/MB)*100);
+            const colorFor=(bytes)=>bytes>900000?T.err:bytes>700000?T.warn:T.ok;
+            const Bar=({bytes,label,info})=>{
+              const pct=pctOfMB(bytes);const c=colorFor(bytes);
+              return<div style={{marginBottom:10}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",fontSize:FS-2,marginBottom:3}}>
+                  <span style={{color:T.text,fontWeight:600}}>{label}</span>
+                  <span style={{color:c,fontWeight:700,fontFamily:"monospace"}}>{(bytes/1024).toFixed(0)+" KB / 1024 KB ("+pct.toFixed(0)+"%)"}</span>
+                </div>
+                <div style={{height:8,borderRadius:4,background:"#E2E8F0",overflow:"hidden"}}>
+                  <div style={{height:"100%",width:pct+"%",borderRadius:4,background:c,transition:"width 0.3s"}}/>
+                </div>
+                {info&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{info}</div>}
               </div>
-              <div style={{textAlign:"center",padding:8,borderRadius:8,background:T.cardSolid}}>
-                <div style={{fontSize:FS-2,color:T.textSec}}>الأوردرات</div>
-                <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>{(ordersSize/1024/1024).toFixed(2)+" MB"}</div>
+            };
+            return<div style={{padding:14,borderRadius:12,background:T.bg,border:"1px solid "+T.brd}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <div style={{fontSize:FS,fontWeight:700,color:T.text}}>📊 احصائيات التخزين (لكل مستند)</div>
+                <div style={{fontSize:FS-3,color:T.textMut,fontWeight:500}}>الحد: 1 MB لكل مستند منفصل</div>
               </div>
-              <div style={{textAlign:"center",padding:8,borderRadius:8,background:T.cardSolid}}>
-                <div style={{fontSize:FS-2,color:T.textSec}}>الصور</div>
-                <div style={{fontSize:FS+2,fontWeight:800,color:T.warn}}>{((imgSize+wsImgSize)/1024/1024).toFixed(2)+" MB"}</div>
+              {/* Per-doc bars */}
+              <Bar bytes={configSize} label="📄 مستند الإعدادات (factory/config)" info={"عملاء + موردين + ورش + موظفين + إعدادات — صور الورش: "+(wsImgSize/1024).toFixed(0)+" KB"}/>
+              {salesSize>0&&<Bar bytes={salesSize} label="💰 مستند المبيعات (factory/sales)" info="جلسات تسليم العملاء + الباكدجات"/>}
+              {tasksSize>0&&<Bar bytes={tasksSize} label="📌 مستند المهام (factory/tasks)" info="المهام + الملاحظات + جرد المخزن"/>}
+              {/* Orders summary */}
+              <div style={{padding:10,borderRadius:8,background:T.cardSolid,border:"1px solid "+T.brd,marginTop:12}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6}}>
+                  <span style={{fontSize:FS-1,fontWeight:700,color:T.text}}>📦 مستندات الأوردرات</span>
+                  <span style={{fontSize:FS-2,color:T.textMut,fontWeight:500}}>{orders.length+" أوردر — كل واحد مستند منفصل"}</span>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,fontSize:FS-2}}>
+                  <div><span style={{color:T.textMut}}>إجمالي: </span><b>{(ordersSize/1024).toFixed(0)+" KB"}</b></div>
+                  <div><span style={{color:T.textMut}}>متوسط/أوردر: </span><b>{(avgOrderSize/1024).toFixed(1)+" KB"}</b></div>
+                  <div><span style={{color:T.textMut}}>صور داخل الأوردرات: </span><b>{(imgSize/1024).toFixed(0)+" KB"}</b></div>
+                </div>
+                {largestOrder.size>500000&&<div style={{marginTop:8,padding:8,borderRadius:6,background:T.warn+"10",border:"1px solid "+T.warn+"30",fontSize:FS-2,color:T.warn,fontWeight:600}}>
+                  ⚠️ أكبر أوردر: {largestOrder.modelNo} — {(largestOrder.size/1024).toFixed(0)+" KB"} (اقترب من حد الـ 1MB)
+                </div>}
+                {top5Orders.length>0&&top5Orders[0].size>100000&&<details style={{marginTop:8,fontSize:FS-2}}>
+                  <summary style={{cursor:"pointer",color:T.textSec,fontWeight:600}}>🔍 أكبر 5 أوردرات حجمًا</summary>
+                  <div style={{marginTop:6,display:"flex",flexDirection:"column",gap:3}}>
+                    {top5Orders.map((o,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"3px 8px",borderRadius:4,background:T.bg}}>
+                      <span style={{fontWeight:600,color:T.text}}>{(i+1)+". "+o.modelNo}</span>
+                      <span style={{fontFamily:"monospace",color:o.size>500000?T.err:o.size>200000?T.warn:T.textSec,fontWeight:700}}>{(o.size/1024).toFixed(0)+" KB"}</span>
+                    </div>)}
+                  </div>
+                </details>}
               </div>
-            </div>
-            <div style={{marginTop:8}}>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-2,color:T.textSec,marginBottom:3}}><span>استهلاك التخزين</span><span>{(totalSize/1024/1024).toFixed(2)+" / 1.0 MB (حد المستند)"}</span></div>
-              <div style={{height:8,borderRadius:4,background:"#E2E8F0",overflow:"hidden"}}><div style={{height:"100%",width:Math.min(100,totalSize/1024/1024*100)+"%",borderRadius:4,background:totalSize>800000?T.err:totalSize>500000?T.warn:T.ok}}/></div>
-            </div>
-          </div>
+              {/* Info strip */}
+              <div style={{marginTop:12,padding:10,borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"20",fontSize:FS-2,color:T.textSec,lineHeight:1.7}}>
+                💡 <b>حد الـ 1MB بيطبّق على كل مستند لوحده، مش على المجموع.</b> كل أوردر في مستند منفصل، فلو عندك 200 أوردر بمتوسط 5KB، ده مش قريب من أي حد. <b>اللي يهم فعلاً:</b> مستند config (فيه الورش + موظفين) — لو اقترب من 900 KB لازم نضغط الصور.
+              </div>
+            </div>;
+          })()}
         </div>})()}
     </Card>
     {/* ── Data Maintenance ── */}

@@ -95,8 +95,8 @@ export function SearchSel({value,onChange,options,placeholder}){
 }
 
 /* ──────── Card / MetricCard / PBar / DelBtn ──────── */
-export function Card({children,title,extra,accent,style:sx}){
-  return<div style={{background:T.cardSolid,borderRadius:12,border:"1px solid "+T.brd,boxShadow:T.shadow,overflow:"visible",...(sx||{})}}>
+export function Card({id,children,title,extra,accent,style:sx}){
+  return<div id={id} style={{background:T.cardSolid,borderRadius:12,border:"1px solid "+T.brd,boxShadow:T.shadow,overflow:"visible",...(sx||{})}}>
     {(title||extra)&&<div style={{padding:"10px 16px",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",background:accent||T.bg,borderRadius:"12px 12px 0 0"}}><span style={{fontSize:FS+1,fontWeight:700,color:accent?"#fff":T.text}}>{title}</span>{extra}</div>}
     <div style={{padding:14}}>{children}</div>
   </div>
