@@ -15,7 +15,7 @@ import { MobileStockReceive } from "./MobileStockReceive.jsx";
 import { MobileQuickReturn } from "./MobileQuickReturn.jsx";
 import { MobilePackage } from "./MobilePackage.jsx";
 import { MobileStockCount } from "./MobileStockCount.jsx";
-import { hapticLight } from "./_shared.js";
+import { hapticLight } from "./_shared.jsx";
 
 export function MobileWarehouseShell(props) {
   const [screen, setScreen] = useState("home");

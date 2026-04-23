@@ -15,7 +15,7 @@ import { useState, useMemo, useEffect } from "react";
 import { QRScanner } from "../../components/ui.jsx";
 import { playBeep } from "../../utils/audio.js";
 import { fmt } from "../../utils/format.js";
-import { hapticMedium, hapticError, isDuplicateScan, RETURN_REASONS } from "./_shared.js";
+import { hapticMedium, hapticError, isDuplicateScan, RETURN_REASONS } from "./_shared.jsx";
 
 export function MobileQuickReturn({ data, updOrder, user, onDone, setDirty }) {
   const [step, setStep] = useState("customer"); /* customer | scan | entry | review */

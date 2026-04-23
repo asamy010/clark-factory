@@ -15,7 +15,7 @@ import { useState, useMemo, useEffect } from "react";
 import { QRScanner } from "../../components/ui.jsx";
 import { playBeep } from "../../utils/audio.js";
 import { gid } from "../../utils/format.js";
-import { hapticMedium, hapticError, isDuplicateScan } from "./_shared.js";
+import { hapticMedium, hapticError, isDuplicateScan } from "./_shared.jsx";
 
 export function MobilePackage({ data, upSales, user, onDone, setDirty }) {
   const [step, setStep] = useState("scan"); /* scan | review */

@@ -17,7 +17,7 @@ import { QRScanner } from "../../components/ui.jsx";
 import { playBeep } from "../../utils/audio.js";
 import { getConfirmedStock } from "../../utils/orders.js";
 import { gid, fmt } from "../../utils/format.js";
-import { hapticLight, hapticMedium, hapticError, isDuplicateScan, searchOrders } from "./_shared.js";
+import { hapticLight, hapticMedium, hapticError, isDuplicateScan, searchOrders } from "./_shared.jsx";
 
 export function MobileQuickSale({ data, upConfig, upSales, updOrder, user, onDone, setDirty }) {
   const [step, setStep] = useState("customer"); /* customer | scan | review */

@@ -18,7 +18,7 @@ import { QRScanner } from "../../components/ui.jsx";
 import { playBeep } from "../../utils/audio.js";
 import { getConfirmedStock } from "../../utils/orders.js";
 import { gid, fmt } from "../../utils/format.js";
-import { hapticMedium, hapticError, isDuplicateScan } from "./_shared.js";
+import { hapticMedium, hapticError, isDuplicateScan } from "./_shared.jsx";
 
 export function MobileStockCount({ data, upConfig, user, onDone, setDirty }) {
   const [step, setStep] = useState("scan"); /* scan | entry | review */
