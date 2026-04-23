@@ -1434,6 +1434,10 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
        previously silenced by the try/catch inside upConfig (App.jsx line 613). */
     try{
     upConfig(d=>{if(!d.hrLog)d.hrLog=[];if(!d.treasury)d.treasury=[];if(!d.empDebts)d.empDebts=[];
+      /* V15.88 FIX: Declare wAdvs HERE (outside if/else) — was declared inside else block at 
+         line 1493 but USED in snapshot code at line 1627 (outside block) → ReferenceError that
+         caused silent save failures. Bug from V15.24. */
+      const wAdvs=(openWeek.weeklyAdvances||[]);
       /* V15.24: Analysis-only week — SKIP all hrLog/treasury writes + prevBalance updates.
          Snapshot (closedRecords) is still saved inside the week itself for display. */
       const isAnalysisWeek=!!openWeek.isAnalysisOnly;
@@ -1489,8 +1493,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       const dayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(useDate).getDay()];
       records.forEach(r=>{if(r.thursdayPay>0)d.treasury.unshift({id:gid(),type:"out",amount:r2(r.thursdayPay),desc:"مرتب "+r.empName+" W"+openWeek.weekNum,category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:useDate,day:dayName,sourceType:"hr_salary",weekId:openWeek.id,empId:r.empId,by:userName,createdAt:new Date().toISOString(),snapshotId,actualCloseDate,backdated:useDate!==actualCloseDate})});
       /* Weekly advances (planned) — register in treasury + hrLog NOW at week closure.
-         Legacy advances that were already registered (treasuryTxId exists) are just tagged with snapshotId. */
-      const wAdvs=(openWeek.weeklyAdvances||[]);
+         Legacy advances that were already registered (treasuryTxId exists) are just tagged with snapshotId.
+         V15.88: wAdvs now declared outside if/else block (see line ~1437). */
       wAdvs.forEach(a=>{
         if(a.treasuryTxId&&d.treasury){
           /* Legacy advance — already in treasury, just tag for rollback support */
