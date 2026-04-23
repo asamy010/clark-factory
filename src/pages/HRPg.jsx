@@ -1118,18 +1118,31 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     const purchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);
     return{due:r2(due),paid:r2(paid),purchase:r2(purchase),balance:r2(due+purchase-paid)};
   };
-  /* Calculate workshop DUE within the current week range only */
+  /* V15.62: Workshop weekly available — based on the payment percentage limit.
+     Returns the maximum amount allowed to pay this week within the agreed percentage,
+     minus what's already been paid. This tells the user "how much can I pay now?"
+     
+     Formula:
+       limit = (due + purchase) × payPercent / 100
+       available = limit - paid
+   */
   const wsWeekDue=(wsName,week)=>{
-    if(!wsName||!week)return 0;
+    if(!wsName)return 0;
+    const wsObj=(data.workshops||[]).find(w=>w.name===wsName);
+    const pct=(wsObj&&Number(wsObj.payPercent))||60;
     let due=0;
     (data.orders||[]).forEach(o=>{
       (o.workshopDeliveries||[]).filter(wd=>wd.wsName===wsName).forEach(wd=>{
-        (wd.receives||[]).filter(r=>r.date>=week.weekStart&&r.date<=week.weekEnd).forEach(r=>{
+        (wd.receives||[]).forEach(r=>{
           due+=r2((Number(r.qty)||0)*(Number(r.price)||0));
         });
       });
     });
-    return r2(due);
+    const payments=(data.wsPayments||[]).filter(p=>p.wsName===wsName);
+    const paid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);
+    const purchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);
+    const limit=r2((due+purchase)*pct/100);
+    return r2(Math.max(0,limit-paid));
   };
   const resetWsPayForm=()=>{setWsPayWs("");setWsPayAmount("");setWsPayType("payment");setWsPayDate(openWeek?.weekStart||today);setWsPayNote("")};
   const saveWeeklyWsPayment=()=>{
@@ -3567,20 +3580,24 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
               </div>
 
               {/* Balance info when workshop is selected */}
-              {selectedWs&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"1fr 1fr 1fr",gap:8,marginBottom:12,padding:"10px 12px",background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:10}}>
+              {selectedWs&&(()=>{const pct=Number(selectedWs.payPercent)||60;const limit=r2(((selectedBal.due||0)+(selectedBal.purchase||0))*pct/100);
+                const allPaid=selectedWeekDue<=0;
+                return<div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"1fr 1fr 1fr",gap:8,marginBottom:12,padding:"10px 12px",background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:10}}>
                 <div style={{textAlign:"center"}}>
                   <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginBottom:2}}>📊 الرصيد الإجمالي</div>
                   <div style={{fontSize:FS,fontWeight:800,color:selectedBal.balance>0?T.err:T.ok}}>{fmt0(selectedBal.balance)} ج</div>
                 </div>
                 <div style={{textAlign:"center"}}>
-                  <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginBottom:2}}>📅 مستحق الأسبوع</div>
-                  <div style={{fontSize:FS,fontWeight:800,color:"#8B5CF6"}}>{fmt0(selectedWeekDue)} ج</div>
+                  <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginBottom:2}}>💰 {"حد "+pct+"%"}</div>
+                  {allPaid?<div style={{fontSize:FS-1,fontWeight:800,color:T.ok}}>✓ تم الدفع</div>
+                    :<div style={{fontSize:FS,fontWeight:800,color:"#8B5CF6"}}>{fmt0(selectedWeekDue)} ج</div>}
+                  <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>{"من "+fmt0(limit)}</div>
                 </div>
                 <div style={{textAlign:"center",gridColumn:isMob?"1/-1":"auto"}}>
                   <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginBottom:2}}>💸 إجمالي المدفوع</div>
                   <div style={{fontSize:FS,fontWeight:800,color:T.textSec}}>{fmt0(selectedBal.paid)} ج</div>
                 </div>
-              </div>}
+              </div>})()}
 
               <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"1fr 1fr 2fr",gap:10,marginBottom:12}}>
                 <div>

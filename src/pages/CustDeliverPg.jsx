@@ -22,7 +22,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   /* V14.59: Receipt report — after confirmation, show the summary */
   const[lastReceiptReport,setLastReceiptReport]=useState(null);/* {items:[{orderId,modelNo,desc,confirmedQty,pendingQty,diff}], total, confirmedBy, at} */
   const[showReceiptLog,setShowReceiptLog]=useState(false);
-  const[cName,setCName]=useState("");const[cPhone,setCPhone]=useState("");const[cAddr,setCAddr]=useState("");const[cEditId,setCEditId]=useState(null);const[cType,setCType]=useState("مكتب");const[custFilter,setCustFilter]=useState("");
+  const[cName,setCName]=useState("");const[cPhone,setCPhone]=useState("");const[cAddr,setCAddr]=useState("");const[cEditId,setCEditId]=useState(null);const[cType,setCType]=useState("مكتب");const[cDiscount,setCDiscount]=useState(0);const[custFilter,setCustFilter]=useState("");
   const[showNewSession,setShowNewSession]=useState(false);
   const[selModels,setSelModels]=useState({});const[selCusts,setSelCusts]=useState({});
   const[activeSession,setActiveSession]=useState(null);
@@ -35,6 +35,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const[showNewAudit,setShowNewAudit]=useState(false);const[auditDate,setAuditDate]=useState(new Date().toISOString().split("T")[0]);const[auditFrom,setAuditFrom]=useState("");const[auditTo,setAuditTo]=useState("");const[auditNote,setAuditNote]=useState("");const[auditSelCusts,setAuditSelCusts]=useState({});
   const[activeAudit,setActiveAudit]=useState(null);const[auditCell,setAuditCell]=useState(null);const[auditVal,setAuditVal]=useState(0);const[showAuditAnalysis,setShowAuditAnalysis]=useState(null);
   const[ocrCust,setOcrCust]=useState(null);const[ocrLoading,setOcrLoading]=useState(false);const[ocrResult,setOcrResult]=useState(null);const ocrRef=useRef(null);const[auditInclude,setAuditInclude]=useState(null);
+  /* V15.64: Enhanced OCR — preview + confidence */
+  const[ocrImageUrl,setOcrImageUrl]=useState(null);
   const[returnPopup,setReturnPopup]=useState(null);const[retQty,setRetQty]=useState(0);const[retNote,setRetNote]=useState("");
   const[freeReturn,setFreeReturn]=useState(null);const[freeRetItems,setFreeRetItems]=useState({});const[freeRetNote,setFreeRetNote]=useState("");
   const[custQR,setCustQR]=useState(null);const[salesDetail,setSalesDetail]=useState(null);const[custStatement,setCustStatement]=useState(null);const[salesAnalysis,setSalesAnalysis]=useState(false);const[seasonReport,setSeasonReport]=useState(false);const[editRetIdx,setEditRetIdx]=useState(null);const[editRetQty,setEditRetQty]=useState(0);const[editRetNote,setEditRetNote]=useState("");
@@ -178,8 +180,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
 
   const saveCust=()=>{if(!cName.trim()||!cPhone.trim()){showToast("⚠️ الاسم والتليفون مطلوبين");return}
     const phoneClean=normalizePhone(cPhone.trim());
-    upConfig(d=>{if(!d.customers)d.customers=[];if(cEditId){const idx=d.customers.findIndex(c=>c.id===cEditId);if(idx>=0){d.customers[idx].name=cName.trim();d.customers[idx].phone=phoneClean;d.customers[idx].address=cAddr.trim();d.customers[idx].type=cType}}else{d.customers.push({id:gid(),name:cName.trim(),phone:phoneClean,address:cAddr.trim(),type:cType})}});
-    setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCEditId(null);setShowCustForm(false);showToast("✓ تم الحفظ")};
+    const discVal=Math.max(0,Math.min(100,Number(cDiscount)||0));
+    upConfig(d=>{if(!d.customers)d.customers=[];if(cEditId){const idx=d.customers.findIndex(c=>c.id===cEditId);if(idx>=0){d.customers[idx].name=cName.trim();d.customers[idx].phone=phoneClean;d.customers[idx].address=cAddr.trim();d.customers[idx].type=cType;d.customers[idx].discount=discVal}}else{d.customers.push({id:gid(),name:cName.trim(),phone:phoneClean,address:cAddr.trim(),type:cType,discount:discVal})}});
+    setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCDiscount(0);setCEditId(null);setShowCustForm(false);showToast("✓ تم الحفظ")};
 
   const createSession=()=>{const mIds=Object.keys(selModels).filter(k=>selModels[k]);const cIds=Object.keys(selCusts).filter(k=>selCusts[k]);
     if(mIds.length===0||cIds.length===0){showToast("⚠️ اختر موديل وعميل على الأقل");return}
@@ -290,7 +293,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     mods.forEach(m=>{const mt=custs.reduce((s,c)=>s+getGroupQtyForPrint(m,c.id,g),0);gt+=mt;h+="<td style='text-align:center;color:#059669'>"+mt+"</td>"});
     h+="<td style='text-align:center;background:#059669;color:#fff;font-size:14px'>"+gt+"</td></tr></tbody></table>";
     h+="<div class='sig'><div class='sig-box'>مسؤول التسليم</div><div class='sig-box'>المستلم</div></div>";
-    printPage("تسليم عملاء — "+sess.date,h)};
+    printPage("تسليم عملاء — "+sess.date,h,{factoryName:config.factoryName,logo:config.logo})};
 
   const custTotalsMap=useMemo(()=>{const m=new Map();(config.customers||[]).forEach(c=>{let t=0;orders.forEach(o=>{const d=(o.customerDeliveries||[]).filter(x=>x.custId===c.id).reduce((s,x)=>s+(Number(x.qty)||0),0);const r=(o.customerReturns||[]).filter(x=>x.custId===c.id).reduce((s,x)=>s+(Number(x.qty)||0),0);t+=d-r});m.set(c.id,t)});return m},[orders,config.customers]);
   const getDeliveredForSess=(custId,sessId,orderId)=>{const o=orders.find(x=>x.id===orderId);if(!o)return 0;return(o.customerDeliveries||[]).filter(d=>d.custId===custId&&d.sessionId===sessId).reduce((s,d)=>s+(Number(d.qty)||0),0)};
@@ -397,7 +400,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>القطعة</th><th>القص</th><th>مسلّم</th><th>على الأرض</th><th>الأيام</th></tr></thead><tbody>";
     rows.forEach(r=>{const warn=r.days>7;h+="<tr style='background:"+(warn?"#FEF2F2":"transparent")+"'><td style='font-weight:800'>"+r.modelNo+"</td><td>"+r.desc+"</td><td>"+r.piece+"</td><td style='text-align:center'>"+r.cut+"</td><td style='text-align:center'>"+r.del+"</td><td style='text-align:center;font-weight:800;color:#F59E0B'>"+r.floor+(warn?" ⚠️":"")+"</td><td style='text-align:center;color:"+(warn?"#EF4444":"#666")+"'>"+r.days+"</td></tr>"});
     h+="<tr style='background:#F59E0B10;font-weight:800'><td colspan='5'>الاجمالي</td><td style='text-align:center;color:#F59E0B;font-size:16px'>"+totalFloor+"</td><td></td></tr></tbody></table>";
-    h+="<div class='sig'><div class='sig-box'>مسؤول التشغيل</div><div class='sig-box'>المدير</div></div>";printPage("قطع على الأرض",h)};
+    h+="<div class='sig'><div class='sig-box'>مسؤول التشغيل</div><div class='sig-box'>المدير</div></div>";printPage("قطع على الأرض",h,{factoryName:config.factoryName,logo:config.logo})};
 
   /* Production line report - خط الانتاج (per garment piece) */
   const printProductionLine=()=>{const rows=[];
@@ -421,7 +424,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>القطعة</th><th>القص</th><th>تسليم ورش</th><th>استلام ورش</th><th>رصيد ورش</th><th>عند التشطيب</th><th>مخزن جاهز</th></tr></thead><tbody>";
     rows.forEach(r=>{h+="<tr><td style='font-weight:800'>"+r.modelNo+"</td><td>"+r.desc+"</td><td style='color:#8B5CF6;font-weight:600'>"+r.piece+"</td><td style='text-align:center'>"+r.cut+"</td><td style='text-align:center'>"+r.delWs+"</td><td style='text-align:center'>"+r.rcvWs+"</td><td style='text-align:center;color:"+(r.wsBalance>0?"#EF4444":"#10B981")+";font-weight:700'>"+(r.wsBalance||"✅")+"</td><td style='text-align:center;color:"+(r.finishing>0?"#F59E0B":"#666")+";font-weight:700'>"+(r.finishing||"—")+"</td><td style='text-align:center;font-weight:800;color:#0EA5E9'>"+r.stock+"</td></tr>"});
     h+="<tr style='background:#F1F5F9;font-weight:800'><td colspan='3'>الاجمالي</td><td style='text-align:center'>"+totals.cut+"</td><td style='text-align:center'>"+totals.delWs+"</td><td style='text-align:center'>"+totals.rcvWs+"</td><td style='text-align:center;color:#EF4444'>"+totals.wsBalance+"</td><td style='text-align:center;color:#F59E0B'>"+totals.finishing+"</td><td style='text-align:center;color:#0EA5E9;font-size:14px'>"+totals.stock+"</td></tr></tbody></table>";
-    h+="<div class='sig'><div class='sig-box'>مسؤول الانتاج</div><div class='sig-box'>المدير</div></div>";printPage("خط الانتاج",h)};
+    h+="<div class='sig'><div class='sig-box'>مسؤول الانتاج</div><div class='sig-box'>المدير</div></div>";printPage("خط الانتاج",h,{factoryName:config.factoryName,logo:config.logo})};
 
   const printSalesReport=()=>{const{from,to}=reportRange;const type=rptType;
     let totalDel=0,totalRet=0,totalVal=0;const custMap={};const modelMap={};
@@ -461,7 +464,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         Object.entries(custMap).sort((a,b)=>(b[1].del-b[1].ret)-(a[1].del-a[1].ret)).forEach(([n,d])=>{const net=d.del-d.ret;h+="<tr><td style='font-weight:700'>"+n+"</td><td style='text-align:center'>"+fmt(d.del)+"</td><td style='text-align:center;color:#EF4444'>"+(d.ret||"—")+"</td><td style='text-align:center;font-weight:800'>"+fmt(net)+"</td><td style='text-align:center;font-weight:700;color:#8B5CF6'>"+fmt(r2(d.val))+" ج.م</td></tr>"});
         h+="<tr style='background:#F1F5F9;font-weight:800'><td>الاجمالي</td><td style='text-align:center'>"+fmt(totalDel)+"</td><td style='text-align:center;color:#EF4444'>"+fmt(totalRet)+"</td><td style='text-align:center;font-size:14px'>"+fmt(totalNet)+"</td><td style='text-align:center;color:#8B5CF6;font-size:14px'>"+fmt(r2(totalVal))+" ج.م</td></tr></tbody></table>"}}
     h+="<div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>المدير</div></div>";
-    printPage(titleParts.join(" — "),h);setShowReport(false)};
+    printPage(titleParts.join(" — "),h,{factoryName:config.factoryName,logo:config.logo});setShowReport(false)};
 
   /* Shipping label */
   const printShippingLabel=async(cust,sessDate,items,total,shipN)=>{
@@ -519,22 +522,85 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const delAudit=(audId)=>{upConfig(d=>{d.salesAudits=(d.salesAudits||[]).filter(a=>a.id!==audId)});if(activeAudit===audId)setActiveAudit(null);showToast("✓ تم الحذف")};
 
   const scanAuditImage=async(file,custId)=>{if(!file||!activeAudit)return;setOcrLoading(true);setOcrResult(null);
-    try{const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=()=>rej();r.readAsDataURL(file)});
-      const modelList=auditModels.map(m=>m.modelNo).join(", ");
-      const prompt="You are reading a sales inventory report image. Extract ONLY the model/product numbers and their SALES quantities.\n\nIMPORTANT RULES:\n1. Look for columns labeled: مبيعات, منصرف, مباع, sold, sales, or similar\n2. Do NOT use the 'quantity' or 'balance/رصيد' column — only the SALES column\n3. If there is no explicit sales column, calculate: sales = initial_quantity - remaining_balance\n4. Read each number VERY carefully — double check every digit\n5. The model numbers in our system are: "+modelList+"\n6. Match each model number from the image to the closest one in our system\n\nReturn ONLY valid JSON array, no markdown, no explanation:\n[{\"model\":\"3262101\",\"qty\":28},{\"model\":\"3261115\",\"qty\":14}]";
-      const res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system:"You are a precise OCR tool for reading sales inventory tables from images. Return ONLY JSON. Read numbers very carefully — accuracy is critical.",messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},{type:"text",text:prompt}]}]})});
+    try{
+      /* V15.64: Store image URL for side-by-side review */
+      const previewUrl=URL.createObjectURL(file);
+      setOcrImageUrl(previewUrl);
+      const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=()=>rej();r.readAsDataURL(file)});
+      const cust=auditCusts.find(c=>c.id===custId);
+      const custName=cust?.name||"العميل";
+      /* V15.64: List models WITH delivered quantities so AI can sanity-check */
+      const modelRefs=auditModels.map(m=>{
+        const o=orders.find(x=>x.id===m.id);
+        const del=o?(o.customerDeliveries||[]).filter(d=>d.custId===custId).reduce((s,d)=>s+(Number(d.qty)||0),0):0;
+        return{num:m.modelNo,delivered:del}
+      });
+      const modelListWithMax=modelRefs.map(r=>r.num+" (max "+r.delivered+")").join(", ");
+      /* V15.64: Much more specific, step-by-step prompt with examples */
+      const prompt="You are an expert at reading hand-written Arabic sales inventory reports for customer: "+custName+".\n\n"
+        +"TASK: Extract ONLY model numbers and their SALES/SOLD quantities. DO NOT make up numbers.\n\n"
+        +"STEP-BY-STEP INSTRUCTIONS:\n"
+        +"1. First, identify the table structure. Look for column headers like:\n"
+        +"   - المبيعات / مبيعات / منصرف / باع / sold / sales (THIS is the column you want)\n"
+        +"   - الكمية / قلتي / استلم / delivered (NOT this one)\n"
+        +"   - الرصيد / باقي / balance / remaining (NOT this one either)\n"
+        +"2. Read each row carefully, ONE digit at a time.\n"
+        +"3. Pay attention to Arabic/Indic numerals: ٠=0 ١=1 ٢=2 ٣=3 ٤=4 ٥=5 ٦=6 ٧=7 ٨=8 ٩=9\n"
+        +"4. Also handle Eastern Arabic: ۰=0 ۱=1 ۲=2 ۳=3 ۴=4 ۵=5 ۶=6 ۷=7 ۸=8 ۹=9\n"
+        +"5. If handwriting is unclear, SET confidence to 'low' — do NOT guess.\n"
+        +"6. Cross-check: a sales quantity CANNOT be greater than what was delivered.\n"
+        +"7. If no explicit sales column exists, calculate: sales = delivered - remaining_balance\n\n"
+        +"SANITY CHECK — our records show delivered quantities per model:\n"+modelListWithMax+"\n\n"
+        +"If you read a sales number HIGHER than 'max', something is wrong — lower confidence.\n\n"
+        +"OUTPUT FORMAT: Return ONLY a valid JSON array, no markdown fences, no explanation.\n"
+        +"Each item must have:\n"
+        +"- model: the model number as read from image\n"
+        +"- qty: the sales quantity (integer)\n"
+        +"- confidence: \"high\" (clearly readable), \"medium\" (some uncertainty), or \"low\" (unclear/guessed)\n\n"
+        +"EXAMPLE OUTPUT:\n"
+        +"[{\"model\":\"3262101\",\"qty\":28,\"confidence\":\"high\"},{\"model\":\"3261115\",\"qty\":14,\"confidence\":\"medium\"}]\n\n"
+        +"If you cannot read the image clearly, return: []";
+      const res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system:"You are a meticulous OCR assistant specialized in reading Arabic hand-written sales inventory tables. You NEVER invent numbers. When uncertain, you mark confidence as 'low'. You always return valid JSON only, no markdown.",messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},{type:"text",text:prompt}]}]})});
       const data2=await res.json();if(data2.error){showToast("⚠️ خطأ: "+(data2.error.message||""));setOcrLoading(false);return}
       const txt=(data2.content||[]).map(c=>c.text||"").join("").trim();
       const clean=txt.replace(/```json|```/g,"").trim();
-      const items=JSON.parse(clean);
-      const matched=items.map(it=>{const m=auditModels.find(x=>x.modelNo===it.model)||auditModels.find(x=>x.modelNo.includes(it.model)||it.model.includes(x.modelNo));return{input:it.model,qty:Number(it.qty)||0,matched:m?m.modelNo:null,matchedId:m?m.id:null}});
+      let items;
+      try{items=JSON.parse(clean)}catch(e){items=[]}
+      if(!Array.isArray(items)||items.length===0){
+        showToast("⚠️ الصورة غير واضحة — جرب صورة أوضح");
+        setOcrLoading(false);return;
+      }
+      /* V15.64: Match + flag suspicious values */
+      const matched=items.map(it=>{
+        const m=auditModels.find(x=>x.modelNo===it.model)||auditModels.find(x=>x.modelNo.includes(it.model)||it.model.includes(x.modelNo));
+        const qty=Number(it.qty)||0;
+        const confidence=it.confidence||"medium";
+        /* Check if qty exceeds delivered */
+        let warning=null;
+        if(m){
+          const o=orders.find(x=>x.id===m.id);
+          const del=o?(o.customerDeliveries||[]).filter(d=>d.custId===custId).reduce((s,d)=>s+(Number(d.qty)||0),0):0;
+          if(qty>del)warning="⚠️ الرقم أكبر من المسلم ("+del+")";
+          else if(qty<0)warning="⚠️ رقم سالب";
+        }
+        return{input:it.model,qty,confidence,matched:m?m.modelNo:null,matchedId:m?m.id:null,warning};
+      });
       setOcrResult({custId,items:matched})
-    }catch(e){showToast("⚠️ فشل قراءة الصورة: "+e.message)}
+    }catch(e){showToast("⚠️ فشل قراءة الصورة: "+(e.message||""))}
     setOcrLoading(false)};
 
   const applyOcr=()=>{if(!ocrResult||!activeAudit)return;const{custId,items}=ocrResult;
+    /* V15.64: Warn if low-confidence items still exist */
+    const lowConf=items.filter(it=>it.matchedId&&it.confidence==="low");
+    if(lowConf.length>0){
+      if(!window.confirm("فيه "+lowConf.length+" رقم بثقة منخفضة — متأكد إنك راجعتهم؟"))return;
+    }
     upConfig(d=>{const ai=(d.salesAudits||[]).findIndex(a=>a.id===activeAudit);if(ai>=0){if(!d.salesAudits[ai].grid)d.salesAudits[ai].grid={};items.filter(it=>it.matchedId).forEach(it=>{d.salesAudits[ai].grid[it.matchedId+"_"+custId]=it.qty})}});
-    const count=items.filter(it=>it.matchedId).length;showToast("✓ تم تسجيل "+count+" موديل");setOcrResult(null);setOcrCust(null)};
+    const count=items.filter(it=>it.matchedId).length;
+    showToast("✓ تم تسجيل "+count+" موديل");
+    setOcrResult(null);setOcrCust(null);
+    if(ocrImageUrl){URL.revokeObjectURL(ocrImageUrl);setOcrImageUrl(null)}
+  };
 
   const printCustLabels=async(cust,models,grid,sessDate,total,count)=>{
     const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
@@ -910,6 +976,17 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                       h+="<tr><td><b>"+m.modelNo+"</b></td><td>"+(m.modelDesc||"")+"</td><td style='font-weight:800;color:#0284C7'>"+q+"</td><td style='text-align:center'>"+(price?fmt(price):"—")+"</td><td style='text-align:center;font-weight:700'>"+fmt(lineTotal)+"</td></tr>";
                     }});
                     h+="<tr style='background:#F1F5F9'><td colspan='2' style='font-weight:800'>الاجمالي</td><td style='font-weight:800;color:#0284C7;font-size:14px'>"+rowTotal+" قطعة</td><td></td><td style='font-weight:800;color:#0284C7;font-size:14px'>"+fmt(custMoney)+" ج.م</td></tr></tbody></table>";
+                    /* V15.55: Discount breakdown from customer card */
+                    const discPct=Number(c.discount)||0;
+                    const discAmt=Math.round(custMoney*discPct/100);
+                    const netAmt=custMoney-discAmt;
+                    h+="<div style='margin-top:12px;padding:12px;border:2px solid #000;border-radius:8px'>"
+                      +"<div style='display:flex;justify-content:space-between;margin-bottom:6px'><span style='font-weight:700'>الاجمالي قبل الخصم</span><span style='font-weight:800'>"+fmt(custMoney)+" ج.م</span></div>";
+                    if(discPct>0){
+                      h+="<div style='display:flex;justify-content:space-between;margin-bottom:6px;color:#EF4444'><span style='font-weight:700'>خصم "+discPct+"%</span><span style='font-weight:800'>- "+fmt(discAmt)+" ج.م</span></div>";
+                    }
+                    h+="<div style='display:flex;justify-content:space-between;padding-top:8px;border-top:2px solid #000'><span style='font-weight:800;font-size:15px'>الصافي المستحق</span><span style='font-weight:900;font-size:17px;color:#059669'>"+fmt(netAmt)+" ج.م</span></div>"
+                      +"</div>";
                     /* V15.50: QR block */
                     if(confirmUrl){
                       h+="<div style='margin-top:14px;padding:12px;border:2px dashed #0EA5E9;border-radius:10px;display:flex;align-items:center;gap:14px;background:#F0F9FF;page-break-inside:avoid'>"
@@ -923,27 +1000,15 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                     h+="<div class='sig'><div class='sig-box'>مسؤول التسليم</div><div class='sig-box'>توقيع العميل<br/>"+c.name+"</div></div>";
                     h+="<script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script>";
                     h+="<script>function _renderCLARKqrs(){if(typeof QRCode==='undefined'){setTimeout(_renderCLARKqrs,100);return}document.querySelectorAll('.confirm-qr').forEach(function(c){QRCode.toCanvas(c,c.dataset.qr,{width:200,margin:0,errorCorrectionLevel:'M'},function(){})})}_renderCLARKqrs();</"+"script>";
-                    printPage("اذن تسليم — "+c.name,h);
+                    printPage("اذن تسليم — "+c.name,h,{factoryName:config.factoryName,logo:config.logo});
                   }} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30",fontSize:9,padding:"2px 5px"}} title="طباعة">🖨</Btn>
-                  <Btn small onClick={async()=>{
-                    /* V15.54: Validate phone first */
+                  <Btn small onClick={()=>{
+                    /* V15.55: Validate phone first */
                     let rawPhone=(c.phone||"").replace(/[^0-9]/g,"");
                     if(!rawPhone){showToast("⚠️ "+c.name+" — مفيش رقم تليفون");return}
                     /* Normalize Egyptian numbers: if starts with "0" (local), prepend "2" for country code */
                     if(rawPhone.length===11&&rawPhone.startsWith("0"))rawPhone="2"+rawPhone;
                     else if(rawPhone.length===10&&!rawPhone.startsWith("20"))rawPhone="20"+rawPhone;
-                    /* V15.54 CRITICAL FIX: Open blank window SYNCHRONOUSLY (within user gesture).
-                       Browsers block window.open() called after await — so we open now and update URL later. */
-                    const waWin=window.open("about:blank","_blank");
-                    /* V15.51: Fetch signed confirm URL to include in the message */
-                    let confirmUrl="";
-                    try{
-                      const r=await fetch("/api/delivery-sign",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pairs:[{sessionId:activeSess.id,custId:c.id}]})});
-                      const j=await r.json();
-                      if(r.ok&&j.signatures&&j.signatures[0]&&j.signatures[0].sig){
-                        confirmUrl=window.location.origin+"/?dc=1&s="+encodeURIComponent(activeSess.id)+"&c="+encodeURIComponent(c.id)+"&sig="+encodeURIComponent(j.signatures[0].sig);
-                      }
-                    }catch(e){}
                     /* Build detailed message with prices if available */
                     let custMoney=0;
                     const linesArr=aMods.map(m=>{const q=getGroupQty(m,c.id);if(q<=0)return null;
@@ -958,20 +1023,21 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                     }).filter(Boolean);
                     const lines=linesArr.join("\n");
                     let msg="*CLARK — اذن تسليم عميل*\n\n• العميل: *"+c.name+"*\n• التاريخ: *"+activeSess.date+"*\n\n─────────────────\n"+lines+"\n─────────────────\n• الاجمالي: *"+rowTotal+"* قطعة";
-                    if(custMoney>0)msg+="\n• القيمة: *"+fmt(custMoney)+"* ج.م";
-                    if(confirmUrl){
-                      msg+="\n\n📱 *تأكيد الاستلام:*\n"+confirmUrl+"\n\nاضغط على الرابط أو امسح QR من إذن التسليم لتأكيد استلام البضاعة أو الإبلاغ عن مشكلة.";
-                    }else{
-                      msg+="\n\n*برجاء التأكيد*";
+                    if(custMoney>0){
+                      /* V15.55: Include discount breakdown matching the delivery receipt */
+                      const discPct=Number(c.discount)||0;
+                      const discAmt=Math.round(custMoney*discPct/100);
+                      const netAmt=custMoney-discAmt;
+                      msg+="\n• الاجمالي: *"+fmt(custMoney)+"* ج.م";
+                      if(discPct>0){
+                        msg+="\n• خصم "+discPct+"%: *-"+fmt(discAmt)+"* ج.م";
+                        msg+="\n• *الصافي المستحق: "+fmt(netAmt)+" ج.م*";
+                      }
                     }
+                    msg+="\n\n📱 *برجاء مسح كود QR في إذن التسليم للتأكيد باستلام البضاعة كاملة*";
                     const waUrl="https://wa.me/"+rawPhone+"?text="+encodeURIComponent(msg);
-                    /* V15.54: Navigate the pre-opened window. If popup was blocked, fall back to current tab. */
-                    if(waWin&&!waWin.closed){
-                      try{waWin.location.href=waUrl}catch(e){window.location.href=waUrl}
-                    }else{
-                      window.location.href=waUrl;
-                    }
-                  }} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",fontSize:9,padding:"2px 5px"}} title="ارسال واتساب مع رابط التأكيد">📱</Btn>
+                    window.open(waUrl,"_blank");
+                  }} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",fontSize:9,padding:"2px 5px"}} title="ارسال واتساب">📱</Btn>
                   <Btn small onClick={()=>{setShipPopup({cust:c,total:rowTotal});setShipCount(1)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30",fontSize:9,padding:"2px 5px"}} title="طباعة ليبل">🏷️</Btn>
                   {sessCanEdit&&(()=>{const hasSalesInSess=orders.some(o=>(o.customerDeliveries||[]).some(d=>d.custId===c.id&&d.sessionId===activeSess.id));
                     return hasSalesInSess?<Btn small disabled style={{background:"#EF444406",color:"#ccc",border:"1px solid #EF444415",fontSize:9,padding:"2px 5px",cursor:"not-allowed"}} title="لا يمكن الحذف — لديه بيع فعلي">🔒</Btn>
@@ -1078,7 +1144,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         const origin=window.location.origin;
         let h="<h2 style='text-align:center'>CLARK — إذن تسليم</h2>";
         h+="<table style='margin:0 auto 16px;font-size:12px'><tr><td style='padding:4px 12px;font-weight:700'>التاريخ</td><td style='padding:4px 12px'>"+sess.date+"</td>"+(groupPrint.receiver?"<td style='padding:4px 12px;font-weight:700'>المستلم</td><td style='padding:4px 12px;font-weight:800;font-size:14px'>"+groupPrint.receiver+"</td>":"")+"</tr></table>";
-        let grandTotal=0,grandMoney=0;
+        let grandTotal=0,grandMoney=0,grandNetMoney=0;
         selC.forEach((c,ci)=>{let custTotal=0,custMoney=0;
           const sig=signatures[c.id]||"";
           const confirmUrl=sig?origin+"/?dc=1&s="+encodeURIComponent(sess.id)+"&c="+encodeURIComponent(c.id)+"&sig="+encodeURIComponent(sig):"";
@@ -1100,6 +1166,17 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             h+="<tr><td style='font-weight:800'>"+m.modelNo+(m.isGrouped?" <span style='font-size:9px;color:#8B5CF6'>⧉"+m.orderIds.length+"</span>":"")+"</td><td>"+m.modelDesc+"</td><td style='text-align:center;font-weight:800;color:#0EA5E9'>"+q+"</td><td style='text-align:center'>"+(price?fmt(price):"—")+"</td><td style='text-align:center;font-weight:700'>"+fmt(lineTotal)+"</td></tr>";
           }});
           h+="<tr style='background:#F0F9FF;font-weight:800'><td colspan='2'>اجمالي "+c.name+"</td><td style='text-align:center;color:#0EA5E9'>"+custTotal+"</td><td></td><td style='text-align:center;color:#0EA5E9'>"+fmt(custMoney)+"</td></tr></tbody></table>";
+          /* V15.55: Discount breakdown from customer card */
+          const discPct=Number(c.discount)||0;
+          const discAmt=Math.round(custMoney*discPct/100);
+          const netAmt=custMoney-discAmt;
+          h+="<div style='margin-top:10px;padding:10px;border:2px solid #000;border-radius:8px;page-break-inside:avoid'>"
+            +"<div style='display:flex;justify-content:space-between;margin-bottom:5px'><span style='font-weight:700'>الاجمالي قبل الخصم</span><span style='font-weight:800'>"+fmt(custMoney)+" ج.م</span></div>";
+          if(discPct>0){
+            h+="<div style='display:flex;justify-content:space-between;margin-bottom:5px;color:#EF4444'><span style='font-weight:700'>خصم "+discPct+"%</span><span style='font-weight:800'>- "+fmt(discAmt)+" ج.م</span></div>";
+          }
+          h+="<div style='display:flex;justify-content:space-between;padding-top:6px;border-top:2px solid #000'><span style='font-weight:800;font-size:14px'>الصافي المستحق</span><span style='font-weight:900;font-size:16px;color:#059669'>"+fmt(netAmt)+" ج.م</span></div>"
+            +"</div>";
           /* V15.50: QR confirmation block — one per customer */
           if(confirmUrl){
             h+="<div style='margin-top:12px;padding:10px;border:2px dashed #0EA5E9;border-radius:10px;display:flex;align-items:center;gap:14px;background:#F0F9FF;page-break-inside:avoid'>"
@@ -1110,15 +1187,22 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               +"<div style='color:#94A3B8;font-size:10px;margin-top:3px'>الرابط صالح لمدة 24 ساعة من التأكيد</div>"
               +"</div></div>";
           }
-          grandTotal+=custTotal;grandMoney+=custMoney;
+          grandTotal+=custTotal;grandMoney+=custMoney;grandNetMoney+=netAmt;
           h+="</div>";/* end per-customer block */
         });
-        h+="<div style='margin-top:16px;padding:10px;background:#F1F5F9;border-radius:8px;text-align:center;font-weight:800;font-size:16px'>الاجمالي الكلي: "+selC.length+" عملاء | "+grandTotal+" قطعة | "+fmt(grandMoney)+" ج.م</div>";
+        const grandDisc=grandMoney-grandNetMoney;
+        h+="<div style='margin-top:16px;padding:12px;background:#F1F5F9;border-radius:8px;text-align:center'>"
+          +"<div style='font-weight:800;font-size:14px;margin-bottom:4px'>الاجمالي الكلي: "+selC.length+" عملاء | "+grandTotal+" قطعة</div>"
+          +"<div style='font-weight:700;font-size:13px;color:#475569'>قبل الخصم: "+fmt(grandMoney)+" ج.م"
+          +(grandDisc>0?" • الخصم: <span style='color:#EF4444'>-"+fmt(grandDisc)+" ج.م</span>":"")
+          +"</div>"
+          +"<div style='font-weight:900;font-size:18px;color:#059669;margin-top:6px'>الصافي المستحق: "+fmt(grandNetMoney)+" ج.م</div>"
+          +"</div>";
         h+="<div class='sig'><div class='sig-box'>مسؤول التسليم</div><div class='sig-box'>المستلم"+(groupPrint.receiver?"<br><b>"+groupPrint.receiver+"</b>":"")+"</div><div class='sig-box'>المراجع</div></div>";
         /* V15.50: Load QRCode.js and render all QR canvases */
         h+="<script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script>";
         h+="<script>function _renderCLARKqrs(){if(typeof QRCode==='undefined'){setTimeout(_renderCLARKqrs,100);return}document.querySelectorAll('.confirm-qr').forEach(function(c){QRCode.toCanvas(c,c.dataset.qr,{width:160,margin:0,errorCorrectionLevel:'M'},function(){})})}_renderCLARKqrs();</"+"script>";
-        printPage("تسليم مجمع — "+sess.date,h);setGroupPrint(null)};
+        printPage("تسليم مجمع — "+sess.date,h,{factoryName:config.factoryName,logo:config.logo});setGroupPrint(null)};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setGroupPrint(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:450,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
@@ -1229,7 +1313,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             <Btn small onClick={()=>{let h="<h2>⚠️ تقرير الموديلات الراكدة</h2><p style='margin-bottom:12px'>موديلات في المخزن بدون حركة بيع لأكثر من 14 يوم</p>";
               h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>الرصيد</th><th>آخر حركة</th><th>الأيام</th><th>الحالة</th></tr></thead><tbody>";
               staleModels.forEach(m=>{h+="<tr style='background:"+(m.days>=30?"#FEF2F2":"transparent")+"'><td style='font-weight:800'>"+m.modelNo+"</td><td>"+m.modelDesc+"</td><td style='text-align:center;font-weight:700;color:#F59E0B'>"+m.avail+"</td><td style='text-align:center'>"+m.lastDate+"</td><td style='text-align:center;font-weight:800;color:"+(m.days>=30?"#EF4444":"#F59E0B")+"'>"+m.days+"</td><td style='text-align:center'>"+(m.days>=30?"🔴 حرج":"🟡 تحذير")+"</td></tr>"});
-              h+="</tbody></table>";printPage("تقرير الموديلات الراكدة",h)}} style={{background:"#EF444412",color:"#EF4444",border:"1px solid #EF444430"}}>🖨</Btn>
+              h+="</tbody></table>";printPage("تقرير الموديلات الراكدة",h,{factoryName:config.factoryName,logo:config.logo})}} style={{background:"#EF444412",color:"#EF4444",border:"1px solid #EF444430"}}>🖨</Btn>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:4}}>
             {staleModels.slice(0,5).map(m=><div key={m.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",borderRadius:8,background:"#fff",border:"1px solid #EF444410"}}>
@@ -1279,7 +1363,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         if(worstModels.length>0){h+="<h3>موديلات راكدة (أعلى رصيد)</h3><table><thead><tr><th>#</th><th>الموديل</th><th>الوصف</th><th>الرصيد</th></tr></thead><tbody>";
           worstModels.forEach((m,i)=>{h+="<tr style='background:#FEF2F2'><td>"+(i+1)+"</td><td style='font-weight:800'>"+m.modelNo+"</td><td>"+m.modelDesc+"</td><td style='text-align:center;font-weight:800;color:#EF4444'>"+m.avail+"</td></tr>"});
           h+="</tbody></table>"}
-        printPage("تقرير الموسم — "+season,h)};
+        printPage("تقرير الموسم — "+season,h,{factoryName:config.factoryName,logo:config.logo})};
       const mc=(label,val,color,sub)=><div style={{padding:12,borderRadius:12,background:color+"08",border:"1px solid "+color+"15",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>{label}</div><div style={{fontSize:isMob?16:22,fontWeight:800,color}}>{val}</div>{sub&&<div style={{fontSize:FS-3,color:T.textMut}}>{sub}</div>}</div>;
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setSeasonReport(false)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?"100%":800,maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
@@ -1371,7 +1455,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         h+="<h3>💳 ملخص الحساب</h3><table><tr><td>اجمالي المبيعات</td><td style='font-weight:800'>"+fmt(totalVal)+" ج.م</td></tr><tr><td>قيمة المرتجعات</td><td style='color:#EF4444'>-"+fmt(retVal)+" ج.م</td></tr><tr><td>اجمالي المدفوع</td><td style='color:#10B981'>-"+fmt(totalPaid)+" ج.م</td></tr><tr style='font-size:16px;font-weight:800'><td>الرصيد المتبقي</td><td style='color:"+(custBalance>0?"#EF4444":"#10B981")+"'>"+fmt(custBalance)+" ج.م</td></tr></table>";
         if(custPayments.length>0){h+="<h3>💰 سجل الدفعات</h3><table><thead><tr><th>التاريخ</th><th>المبلغ</th><th>الطريقة</th><th>ملاحظات</th><th>بواسطة</th></tr></thead><tbody>";custPayments.forEach(p=>{h+="<tr><td>"+p.date+"</td><td style='font-weight:700;color:#10B981'>"+fmt(p.amount)+"</td><td>"+(p.method||"")+"</td><td>"+(p.note||"")+"</td><td>"+(p.by||"")+"</td></tr>"});h+="</tbody></table>"}
         h+="<div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>العميل: "+cust.name+"</div></div>";
-        printPage("كشف حساب — "+cust.name,h)};
+        printPage("كشف حساب — "+cust.name,h,{factoryName:config.factoryName,logo:config.logo})};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setCustStatement(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?"100%":750,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
@@ -1435,7 +1519,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{"👥 العملاء ("+customers.length+")"}</div>
           <div style={{display:"flex",gap:4}}>
-            {canEdit&&<Btn small primary onClick={()=>{setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCEditId(null);setShowCustForm(true)}}>+ عميل جديد</Btn>}
+            {canEdit&&<Btn small primary onClick={()=>{setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCDiscount(0);setCEditId(null);setShowCustForm(true)}}>+ عميل جديد</Btn>}
             <Btn ghost small onClick={()=>setShowCustList(false)} title="إغلاق">✕</Btn>
           </div>
         </div>
@@ -1445,7 +1529,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           {fc.map((c,i)=>{const total=getCustTotal(c.id);return<tr key={c.id} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:700}}>{c.name}</td><td style={{...TD,fontSize:FS-2,color:T.textSec}}>{c.type==="محل"?"🏪 محل":c.type==="أونلاين"?"🌐 أونلاين":c.type==="أخرى"?"📦 أخرى":"🏢 مكتب"}</td><td style={TD}>{c.phone}</td><td style={TD}>{c.address||"—"}</td><td style={{...TD,fontWeight:700,color:T.accent}}>{total||"—"}</td>
             {canEdit&&<td style={TD}><div style={{display:"flex",gap:3}}>
               <Btn small onClick={()=>setCustSalesLog(c.id)} style={{background:"#059669"+"12",color:"#059669",border:"1px solid #05966930"}} title="سجل مبيعات">📋</Btn>
-              <Btn small onClick={()=>{setCName(c.name);setCPhone(c.phone);setCAddr(c.address||"");setCType(c.type||"مكتب");setCEditId(c.id);setShowCustForm(true)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
+              <Btn small onClick={()=>{setCName(c.name);setCPhone(c.phone);setCAddr(c.address||"");setCType(c.type||"مكتب");setCDiscount(Number(c.discount)||0);setCEditId(c.id);setShowCustForm(true)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
               <Btn small onClick={()=>showCustQR(c)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="عرض كود QR">QR</Btn>
               <DelBtn onConfirm={()=>safeDelete("customers",c.id,"عميل")} blocked={(()=>{if(total>0)return"لديه تسليمات";const inSess=(config.custDeliverySessions||[]).some(s=>(s.custIds||[]).includes(c.id));if(inSess)return"مرتبط بتوزيعة";const hasRet=orders.some(o=>(o.customerReturns||[]).some(r=>r.custId===c.id));if(hasRet)return"لديه مرتجعات";return null})()}/>
             </div></td>}</tr>})}
@@ -1493,7 +1577,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         h+="<h3 style='margin-top:20px'>ملخص المرتجعات حسب العميل</h3><table><thead><tr><th>العميل</th><th>عدد العمليات</th><th>اجمالي الكمية</th></tr></thead><tbody>";
         Object.entries(byCustomer).sort((a,b)=>b[1].reduce((s,r)=>s+r.qty,0)-a[1].reduce((s,r)=>s+r.qty,0)).forEach(([name,rets],i)=>{const tq=rets.reduce((s,r)=>s+(Number(r.qty)||0),0);h+="<tr style='background:"+(i%2===0?"transparent":"#f8f8f8")+"'><td style='font-weight:700'>"+name+"</td><td style='text-align:center'>"+rets.length+"</td><td style='text-align:center;font-weight:800;color:#EF4444'>"+tq+"</td></tr>"});
         h+="</tbody></table><div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>المراجع</div></div>";
-        printPage("سجل المرتجعات",h)};
+        printPage("سجل المرتجعات",h,{factoryName:config.factoryName,logo:config.logo})};
       return<Card title={"↩️ سجل المرتجعات ("+allReturns.length+")"} extra={<Btn small onClick={printReturns} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>}>
         {filteredRet.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","التاريخ","العميل","الموديل","الكمية","ملاحظات","بواسطة",...(canEdit?[""]:[])] .map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
           {filteredRet.slice(0,20).map((r,i)=>{const isEd=editRetIdx===i;
@@ -1504,7 +1588,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <td style={{...TD,fontSize:FS-3,color:T.textMut}}>{r.createdBy||"—"}</td>
             {canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}>
               {isEd?<><Btn small primary onClick={()=>{if(editRetQty<=0){showToast("⚠️ كمية غير صالحة");return}updOrder(r.orderId,o=>{const ret=(o.customerReturns||[]).find(x=>x.custId===r.custId&&x.date===r.date&&(x.note||"")===(r.note||""));if(ret){ret.qty=editRetQty;ret.note=editRetNote}});setEditRetIdx(null);showToast("✓ تم التعديل")}} title="حفظ">💾</Btn><Btn ghost small onClick={()=>setEditRetIdx(null)} title="إلغاء">✕</Btn></>
-              :<><Btn small onClick={()=>{const h="<h2 style='text-align:center'>↩️ إذن مرتجع</h2><table style='margin:0 auto 16px'><tr><th style='text-align:right;padding:4px 12px'>العميل</th><td style='padding:4px 12px;font-weight:800'>"+(r.custName||"—")+"</td><th style='text-align:right;padding:4px 12px'>التاريخ</th><td style='padding:4px 12px'>"+r.date+"</td></tr></table><table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th><th>ملاحظات</th></tr></thead><tbody><tr><td style='font-weight:800;color:#0EA5E9'>"+r.modelNo+"</td><td>"+(r.modelDesc||"")+"</td><td style='font-weight:800;color:#EF4444;text-align:center;font-size:16px'>"+r.qty+"</td><td>"+(r.note||"—")+"</td></tr></tbody></table><div style='margin-top:8px;font-size:11px;color:#888'>بواسطة: "+(r.createdBy||"—")+"</div><div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>العميل</div></div>";printPage("إذن مرتجع — "+(r.custName||""),h)}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة إذن مرتجع">🖨</Btn>
+              :<><Btn small onClick={()=>{const h="<h2 style='text-align:center'>↩️ إذن مرتجع</h2><table style='margin:0 auto 16px'><tr><th style='text-align:right;padding:4px 12px'>العميل</th><td style='padding:4px 12px;font-weight:800'>"+(r.custName||"—")+"</td><th style='text-align:right;padding:4px 12px'>التاريخ</th><td style='padding:4px 12px'>"+r.date+"</td></tr></table><table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th><th>ملاحظات</th></tr></thead><tbody><tr><td style='font-weight:800;color:#0EA5E9'>"+r.modelNo+"</td><td>"+(r.modelDesc||"")+"</td><td style='font-weight:800;color:#EF4444;text-align:center;font-size:16px'>"+r.qty+"</td><td>"+(r.note||"—")+"</td></tr></tbody></table><div style='margin-top:8px;font-size:11px;color:#888'>بواسطة: "+(r.createdBy||"—")+"</div><div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>العميل</div></div>";printPage("إذن مرتجع — "+(r.custName||""),h,{factoryName:config.factoryName,logo:config.logo})}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة إذن مرتجع">🖨</Btn>
               <Btn small onClick={()=>{setEditRetIdx(i);setEditRetQty(r.qty);setEditRetNote(r.note||"")}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
               <DelBtn onConfirm={()=>{updOrder(r.orderId,o=>{o.customerReturns=(o.customerReturns||[]).filter(x=>!(x.custId===r.custId&&x.date===r.date&&(x.note||"")===(r.note||"")))});showToast("✓ تم حذف المرتجع")}}/></>}
             </div></td>}</tr>})}
@@ -1661,14 +1745,24 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           </div>
         </div>
       </div>})()}
-    {/* OCR Audit Popup */}
-    {ocrCust&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setOcrCust(null);setOcrResult(null)}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+    {/* OCR Audit Popup — V15.64 Enhanced */}
+    {ocrCust&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setOcrCust(null);setOcrResult(null);if(ocrImageUrl){URL.revokeObjectURL(ocrImageUrl);setOcrImageUrl(null)}}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:ocrResult?780:500,maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           <div style={{fontSize:FS+1,fontWeight:800,color:"#8B5CF6"}}>{"📸 قراءة جرد — "+(auditCusts.find(c=>c.id===ocrCust)?.name||"")}</div>
-          <Btn ghost small onClick={()=>{setOcrCust(null);setOcrResult(null)}} title="إغلاق">✕</Btn>
+          <Btn ghost small onClick={()=>{setOcrCust(null);setOcrResult(null);if(ocrImageUrl){URL.revokeObjectURL(ocrImageUrl);setOcrImageUrl(null)}}} title="إغلاق">✕</Btn>
         </div>
         {!ocrResult&&!ocrLoading&&<div>
+          {/* V15.64: Pre-scan tips for better accuracy */}
+          <div style={{padding:"10px 12px",borderRadius:10,background:"#F0F9FF",border:"1px solid #BAE6FD",marginBottom:12}}>
+            <div style={{fontSize:FS-1,fontWeight:800,color:"#0369A1",marginBottom:6}}>📋 نصائح لدقة أعلى:</div>
+            <div style={{fontSize:FS-2,color:"#0C4A6E",lineHeight:1.7}}>
+              • صوّر في إضاءة جيدة بدون ظلال<br/>
+              • اتأكد إن الصورة واضحة ومش مايلة<br/>
+              • قرّب الصورة لعمود المبيعات بس<br/>
+              • اكتب الأرقام بخط واضح ومنفصل
+            </div>
+          </div>
           <div style={{border:"2px dashed "+T.brd,borderRadius:12,padding:30,textAlign:"center",cursor:"pointer",background:T.bg}} onClick={()=>ocrRef.current?.click()}>
             <div style={{fontSize:32,marginBottom:8}}>📸</div>
             <div style={{fontSize:FS,fontWeight:700,color:T.text}}>صوّر جرد العميل أو اختار صورة</div>
@@ -1683,21 +1777,49 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           <div style={{fontSize:FS,fontWeight:700,color:T.accent}}>جاري قراءة الجرد بالذكاء الاصطناعي...</div>
           <div style={{fontSize:FS-2,color:T.textMut,marginTop:4}}>قد يستغرق بضع ثواني</div>
         </div>}
-        {ocrResult&&<div>
-          <div style={{fontSize:FS,fontWeight:700,color:T.ok,marginBottom:4}}>{"✅ تم القراءة — "+ocrResult.items.length+" موديل"}</div>
-          <div style={{fontSize:FS-2,color:T.warn,marginBottom:10,fontWeight:600}}>⚠️ راجع الأرقام وعدّل لو فيه خطأ قبل التسجيل</div>
-          <table style={{width:"100%",borderCollapse:"collapse",marginBottom:12}}><thead><tr><th style={TH}>الموديل (من الصورة)</th><th style={TH}>المطابقة</th><th style={TH}>المبيعات</th></tr></thead><tbody>
-            {ocrResult.items.map((it,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}>
-              <td style={{...TD,fontWeight:600}}>{it.input}</td>
-              <td style={TD}>{it.matched?<span style={{color:T.ok,fontWeight:700}}>{"✅ "+it.matched}</span>:<span style={{color:T.err,fontWeight:700}}>⚠️ غير موجود</span>}</td>
-              <td style={{...TD,textAlign:"center"}}><input type="number" value={it.qty} onChange={e=>{const v=Number(e.target.value)||0;setOcrResult(p=>{const n={...p,items:[...p.items]};n.items[i]={...n.items[i],qty:v};return n})}} style={{width:70,textAlign:"center",border:"2px solid "+(it.matched?"#F59E0B":T.brd),borderRadius:6,padding:"4px",fontSize:FS,fontWeight:800,fontFamily:"inherit",background:it.matched?"#FFF":T.bg,color:it.matched?"#F59E0B":T.textMut}}/></td>
-            </tr>)}
-          </tbody></table>
-          <div style={{display:"flex",gap:8,justifyContent:"center"}}>
-            <Btn ghost onClick={()=>{setOcrResult(null)}}>📸 صورة أخرى</Btn>
+        {ocrResult&&(()=>{
+          const highCount=ocrResult.items.filter(it=>it.confidence==="high").length;
+          const medCount=ocrResult.items.filter(it=>it.confidence==="medium").length;
+          const lowCount=ocrResult.items.filter(it=>it.confidence==="low").length;
+          const warnCount=ocrResult.items.filter(it=>it.warning).length;
+          return <div>
+          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
+            <div style={{fontSize:FS,fontWeight:800,color:T.ok}}>{"✅ "+ocrResult.items.length+" موديل"}</div>
+            {highCount>0&&<span style={{padding:"2px 8px",borderRadius:6,background:"#10B98118",color:"#10B981",fontSize:FS-2,fontWeight:700}}>{"🟢 ثقة عالية: "+highCount}</span>}
+            {medCount>0&&<span style={{padding:"2px 8px",borderRadius:6,background:"#F59E0B18",color:"#F59E0B",fontSize:FS-2,fontWeight:700}}>{"🟡 ثقة متوسطة: "+medCount}</span>}
+            {lowCount>0&&<span style={{padding:"2px 8px",borderRadius:6,background:"#EF444418",color:"#EF4444",fontSize:FS-2,fontWeight:700}}>{"🔴 ثقة منخفضة: "+lowCount}</span>}
+            {warnCount>0&&<span style={{padding:"2px 8px",borderRadius:6,background:"#DC262618",color:"#DC2626",fontSize:FS-2,fontWeight:700}}>{"⚠️ تحذيرات: "+warnCount}</span>}
+          </div>
+          <div style={{fontSize:FS-2,color:T.warn,marginBottom:10,fontWeight:600}}>⚠️ راجع الأرقام الملونة (الصفراء والحمراء) وعدّل قبل التسجيل</div>
+          {/* V15.64: Side-by-side image + results */}
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":ocrImageUrl?"1fr 1fr":"1fr",gap:12,marginBottom:12}}>
+            {ocrImageUrl&&<div style={{border:"1px solid "+T.brd,borderRadius:10,overflow:"hidden",background:T.bg,maxHeight:400,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <img src={ocrImageUrl} alt="الجرد" style={{maxWidth:"100%",maxHeight:400,objectFit:"contain"}}/>
+            </div>}
+            <div style={{maxHeight:400,overflowY:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th style={TH}>الموديل</th><th style={TH}>المطابقة</th><th style={TH}>المبيعات</th><th style={TH}>ثقة</th></tr></thead><tbody>
+                {ocrResult.items.map((it,i)=>{
+                  const confColor=it.confidence==="high"?"#10B981":it.confidence==="low"?"#EF4444":"#F59E0B";
+                  const confIcon=it.confidence==="high"?"🟢":it.confidence==="low"?"🔴":"🟡";
+                  const rowBg=it.warning?"#FEE2E220":it.confidence==="low"?"#FEE2E210":it.confidence==="medium"?"#FEF3C710":(i%2===0?"transparent":T.bg+"80");
+                  return <tr key={i} style={{background:rowBg}}>
+                    <td style={{...TD,fontWeight:600}}>{it.input}</td>
+                    <td style={TD}>{it.matched?<span style={{color:T.ok,fontWeight:700,fontSize:FS-2}}>{"✅ "+it.matched}</span>:<span style={{color:T.err,fontWeight:700,fontSize:FS-2}}>⚠️ غير موجود</span>}</td>
+                    <td style={{...TD,textAlign:"center"}}>
+                      <input type="number" value={it.qty} onChange={e=>{const v=Number(e.target.value)||0;setOcrResult(p=>{const n={...p,items:[...p.items]};n.items[i]={...n.items[i],qty:v,confidence:"high"/*manual edit = high confidence*/};return n})}} style={{width:70,textAlign:"center",border:"2px solid "+confColor,borderRadius:6,padding:"4px",fontSize:FS,fontWeight:800,fontFamily:"inherit",background:"#FFF",color:confColor}}/>
+                      {it.warning&&<div style={{fontSize:FS-3,color:"#DC2626",marginTop:3,fontWeight:700}}>{it.warning}</div>}
+                    </td>
+                    <td style={{...TD,textAlign:"center",fontSize:FS-1}}>{confIcon}</td>
+                  </tr>;
+                })}
+              </tbody></table>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+            <Btn ghost onClick={()=>{setOcrResult(null);if(ocrImageUrl){URL.revokeObjectURL(ocrImageUrl);setOcrImageUrl(null)}}}>📸 صورة أخرى</Btn>
             <Btn onClick={applyOcr} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700}}>{"✓ تسجيل "+ocrResult.items.filter(it=>it.matchedId).length+" موديل"}</Btn>
           </div>
-        </div>}
+        </div>})()}
       </div>
     </div>}
     {/* Sales Detail Popup */}
@@ -2187,7 +2309,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               h+="<div style='display:flex;justify-content:space-between;padding-top:8px;border-top:2px solid #000'><span style='font-weight:800;font-size:16px'>المستحق</span><span style='font-weight:900;font-size:18px;color:#059669'>"+fmt(net)+" ج.م</span></div>";
               h+="</div>";
               h+="<div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>العميل: "+cust.name+"</div></div>";
-              printPage("عرض سعر — "+cust.name,h)}} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>{"🧾 عرض سعر"}</Btn>}
+              printPage("عرض سعر — "+cust.name,h,{factoryName:config.factoryName,logo:config.logo})}} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>{"🧾 عرض سعر"}</Btn>}
             <Btn onClick={confirmSale} disabled={total<=0} style={{background:isOverride?"#EF4444":color,color:"#fff",border:"none",fontWeight:700}}>{(isOverride?"🚨 تأكيد بيع طوارئ":(isSale?"📦 تأكيد البيع":"↩️ تأكيد المرتجع"))+" ("+total+")"}</Btn>
           </div>
         </div>
@@ -2933,17 +3055,17 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         qSess.modelIds.forEach(mid=>{const qty=Number((qSess.grid||{})[mid+"_"+qCustId])||0;if(qty<=0)return;const o=orders.find(x=>x.id===mid);const price=Number(o?.sellPrice)||0;if(!price)missingPrice=true;const lineTotal=qty*price;grandTotal+=lineTotal;rows.push({no:o?.modelNo||"?",desc:o?.modelDesc||"",qty,price,total:lineTotal})});
       }else{orders.forEach(o=>{const cd=(o.customerDeliveries||[]).filter(d=>d.custId===qCustId).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).filter(r=>r.custId===qCustId).reduce((s,r)=>s+(Number(r.qty)||0),0);const net=cd-ret;
         if(net>0){const price=Number(o.sellPrice)||0;if(!price)missingPrice=true;const lineTotal=net*price;grandTotal+=lineTotal;rows.push({no:o.modelNo,desc:o.modelDesc||"",qty:net,price,total:lineTotal})}});}
-      const disc=Math.round(grandTotal*0.1);const netTotal=grandTotal-disc;
+      const discPct=Number(cust.discount)||0;const disc=Math.round(grandTotal*discPct/100);const netTotal=grandTotal-disc;
       const printQuote=()=>{let h="<h2 style='text-align:center'>CLARK — بيان سعر</h2>";
         h+="<table style='margin:0 auto 12px'><tr><td style='padding:4px 12px;font-weight:700'>العميل</td><td style='padding:4px 12px;font-weight:800'>"+cust.name+"</td><td style='padding:4px 12px;font-weight:700'>التاريخ</td><td style='padding:4px 12px'>"+new Date().toISOString().split("T")[0]+"</td></tr></table>";
         h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th><th>سعر القطعة</th><th>الاجمالي</th></tr></thead><tbody>";
         rows.forEach(r=>{h+="<tr><td style='font-weight:800'>"+r.no+"</td><td>"+r.desc+"</td><td style='text-align:center;font-weight:700'>"+r.qty+"</td><td style='text-align:center'>"+fmt(r.price)+"</td><td style='text-align:center;font-weight:800'>"+fmt(r.total)+"</td></tr>"});
         h+="</tbody></table><div style='margin-top:16px;padding:12px;border:2px solid #000;border-radius:8px'>";
         h+="<div style='display:flex;justify-content:space-between;margin-bottom:6px'><span style='font-weight:700'>الاجمالي قبل الخصم</span><span style='font-weight:800;font-size:14px'>"+fmt(grandTotal)+" ج.م</span></div>";
-        h+="<div style='display:flex;justify-content:space-between;margin-bottom:6px;color:#EF4444'><span style='font-weight:700'>خصم 10%</span><span style='font-weight:800'>- "+fmt(disc)+" ج.م</span></div>";
+        if(discPct>0)h+="<div style='display:flex;justify-content:space-between;margin-bottom:6px;color:#EF4444'><span style='font-weight:700'>خصم "+discPct+"%</span><span style='font-weight:800'>- "+fmt(disc)+" ج.م</span></div>";
         h+="<div style='display:flex;justify-content:space-between;padding-top:8px;border-top:2px solid #000'><span style='font-weight:800;font-size:16px'>المستحق</span><span style='font-weight:900;font-size:18px;color:#059669'>"+fmt(netTotal)+" ج.م</span></div></div>";
         h+="<div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>العميل: "+cust.name+"</div></div>";
-        printPage("بيان سعر — "+cust.name,h)};
+        printPage("بيان سعر — "+cust.name,h,{factoryName:config.factoryName,logo:config.logo})};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setQuoteCust(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:600,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
@@ -2957,7 +3079,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             </tbody></table></div>
             <div style={{padding:14,borderRadius:12,border:"2px solid "+T.brd,background:T.bg}}>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><span style={{fontWeight:700}}>الاجمالي قبل الخصم</span><span style={{fontWeight:800,fontSize:FS+2}}>{fmt(grandTotal)+" ج.م"}</span></div>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:8,color:"#EF4444"}}><span style={{fontWeight:700}}>خصم 10%</span><span style={{fontWeight:800}}>{"- "+fmt(disc)+" ج.م"}</span></div>
+              {discPct>0&&<div style={{display:"flex",justifyContent:"space-between",marginBottom:8,color:"#EF4444"}}><span style={{fontWeight:700}}>{"خصم "+discPct+"%"}</span><span style={{fontWeight:800}}>{"- "+fmt(disc)+" ج.م"}</span></div>}
+              {discPct===0&&<div style={{padding:"6px 10px",borderRadius:6,background:T.warn+"08",border:"1px dashed "+T.warn+"30",fontSize:FS-2,color:T.textMut,marginBottom:8}}>💡 لا يوجد خصم — يمكنك تحديده من كارت العميل</div>}
               <div style={{display:"flex",justifyContent:"space-between",paddingTop:10,borderTop:"2px solid "+T.brd}}><span style={{fontWeight:800,fontSize:FS+2}}>المستحق</span><span style={{fontWeight:900,fontSize:FS+4,color:"#059669"}}>{fmt(netTotal)+" ج.م"}</span></div>
             </div>
           </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد مبيعات لهذا العميل</div>}
@@ -2980,7 +3103,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         h+="<table style='margin:0 auto 12px'><tr><th>اجمالي البيع</th><td style='font-weight:800;color:#0EA5E9'>"+totalDel+"</td><th>المرتجع</th><td style='font-weight:800;color:#EF4444'>"+totalRet+"</td><th>الصافي</th><td style='font-weight:800;color:#10B981'>"+(totalDel-totalRet)+"</td></tr></table>";
         h+="<table><thead><tr><th>التاريخ</th><th>النوع</th><th>الموديل</th><th>الوصف</th><th>الكمية</th><th>بواسطة</th></tr></thead><tbody>";
         moves.forEach(m=>{const isRet=m.type==="return";h+="<tr style='background:"+(isRet?"#FEF2F2":"transparent")+"'><td>"+m.date+"</td><td style='font-weight:800;color:"+(isRet?"#EF4444":"#10B981")+"'>"+(isRet?"↩️ مرتجع":"💰 بيع")+"</td><td style='font-weight:700'>"+m.modelNo+"</td><td style='font-size:10px'>"+m.modelDesc+"</td><td style='text-align:center;font-weight:800;color:"+(isRet?"#EF4444":"#0EA5E9")+"'>"+(isRet?"-":"")+m.qty+"</td><td>"+(m.by||"—")+"</td></tr>"});
-        h+="</tbody></table>";printPage("سجل مبيعات — "+cust.name,h)};
+        h+="</tbody></table>";printPage("سجل مبيعات — "+cust.name,h,{factoryName:config.factoryName,logo:config.logo})};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>{setCustSalesLog(null);setEditSaleIdx(null)}}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?"100%":700,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -3160,6 +3283,12 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رقم التليفون *</label><Inp value={cPhone} onChange={setCPhone} placeholder="+201xxxxxxxxx" style={{direction:"ltr",textAlign:"left",fontFamily:"monospace"}}/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع العميل</label><Sel value={cType} onChange={setCType}><option value="مكتب">🏢 مكتب</option><option value="محل">🏪 محل</option><option value="أونلاين">🌐 أونلاين</option><option value="أخرى">📦 أخرى</option></Sel></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>العنوان</label><Inp value={cAddr} onChange={setCAddr} placeholder="اختياري..."/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الخصم (%) <span style={{fontSize:FS-3,color:T.textMut,fontWeight:400}}>— يطبق على إذن التسليم وبيان السعر</span></label>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <input type="number" min={0} max={100} step="0.5" value={cDiscount} onChange={e=>setCDiscount(e.target.value)} placeholder="0" style={{flex:1,padding:"8px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.inputBg,color:T.text,boxSizing:"border-box"}}/>
+              <span style={{fontSize:FS,color:T.textMut,fontWeight:700}}>%</span>
+            </div>
+          </div>
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setShowCustForm(false)}>الغاء</Btn><Btn primary onClick={saveCust} title="حفظ التعديلات">💾 حفظ</Btn></div>
         </div>
       </div>

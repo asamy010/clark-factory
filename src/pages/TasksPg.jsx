@@ -17,6 +17,8 @@ export function TasksPg({data,upConfig,upTasks,isMob,user,userRole}){
   const allTasks=Array.isArray(data.tasks)?data.tasks:[];
   const myTasks=allTasks.filter(t=>t.toEmail===userEmail||t.toUid===uid);
   const sentTasks=allTasks.filter(t=>t.fromEmail===userEmail||t.fromUid===uid);
+  /* V15.64: Detect legacy bot tasks for cleanup */
+  const botTasks=allTasks.filter(t=>t.fromEmail==="bot@clark"||t.fromUid==="bot"||t.botKey||(t.fromName||"").includes("Bot"));
   const users=(data.usersList||[]);
   /* Ensure current user always in list */
   const allowedTargets=users.find(u=>u.email===userEmail)?users:[{email:userEmail,name:user?.displayName||userEmail.split("@")[0],role:userRole},...users];
@@ -25,7 +27,21 @@ export function TasksPg({data,upConfig,upTasks,isMob,user,userRole}){
     setTaskText("");showToast("✓ تم ارسال المهمة")};
   const toggleTask=(tid)=>{upTasks(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const t=arr.find(x=>String(x.id)===String(tid));if(t){t.done=!t.done;t.doneAt=t.done?new Date().toISOString():null}})};
   const delTask=(tid)=>{upTasks(d=>{d.tasks=Array.isArray(d.tasks)?d.tasks.filter(x=>String(x.id)!==String(tid)):[]})};
+  /* V15.64: Delete all bot tasks at once */
+  const clearBotTasks=()=>{
+    if(botTasks.length===0)return;
+    if(!window.confirm("هل تريد حذف "+botTasks.length+" مهمة من البوت القديم؟ هذا الإجراء لا يمكن التراجع عنه."))return;
+    upTasks(d=>{d.tasks=Array.isArray(d.tasks)?d.tasks.filter(t=>!(t.fromEmail==="bot@clark"||t.fromUid==="bot"||t.botKey||(t.fromName||"").includes("Bot"))):[]});
+    showToast("✓ تم حذف "+botTasks.length+" مهمة من البوت");
+  };
   return<div>
+    {/* V15.64: Bot cleanup banner — only shows if legacy bot tasks exist */}
+    {botTasks.length>0&&<div style={{padding:"12px 16px",borderRadius:12,background:"#F59E0B10",border:"1px solid #F59E0B35",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:14}}>
+      <div style={{fontSize:FS-1,color:"#92400E",fontWeight:700}}>
+        🤖 فيه <b>{botTasks.length}</b> مهمة من البوت القديم — تم إيقاف البوت، احذفهم لو مش محتاجهم.
+      </div>
+      <Btn small onClick={clearBotTasks} style={{background:"#EF4444",color:"#fff",border:"none",fontWeight:700}}>🗑️ حذف كل مهام البوت</Btn>
+    </div>}
     <Card title="📌 ارسال مهمة جديدة" style={{marginBottom:16}}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 2fr auto",gap:8,alignItems:"end"}}>
         <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ارسال الى</label><Sel value={taskTo} onChange={setTaskTo}><option value="">-- اختر مستخدم --</option>{allowedTargets.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+(u.email===userEmail?" (أنا)":"")+" — "+(u.role==="admin"?"مدير النظام":u.role==="manager"?"مدير انتاج":u.role==="sales_accountant"?"محاسب مبيعات":u.role==="purchase_accountant"?"محاسب مشتريات":"مشاهد")}</option>)}</Sel></div>

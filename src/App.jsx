@@ -42,6 +42,9 @@ import { ReportsHub } from "./pages/reports.jsx";
 import { CostPg } from "./pages/CostPg.jsx";
 import { TasksPg } from "./pages/TasksPg.jsx";
 import { SettingsPg } from "./pages/SettingsPg.jsx";
+import { AuditPg } from "./pages/AuditPg.jsx";
+/* V15.59: Mobile Warehouse — accessed via /warehouse URL */
+import { MobileWarehouseShell } from "./pages/mobile/MobileWarehouseShell.jsx";
 import { WarehousePg } from "./pages/WarehousePg.jsx";
 
 /* V15.50: Public delivery confirmation page — opened when customer scans QR from delivery receipt.
@@ -178,16 +181,31 @@ export default function App(){
   const visibleAlerts=aiAlerts.filter(a=>!isDismissed(a.key||a.text));
   const askAI=async()=>{if(!aiInput.trim()||aiLoading)return;const q=aiInput.trim();setAiInput("");setAiMsgs(p=>[...p,{role:"user",text:q}]);setAiLoading(true);
     try{
+      /* Workshop summary */
       const ws=(config.workshops||[]).map(w=>{let del=0,rcv=0;orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{del+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{rcv+=Number(r.qty)||0})})});
         const payments=(config.wsPayments||[]).filter(p=>p.wsName===w.name);const paid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);
         let due=0;orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});
-        return{name:w.name,type:w.type,delivered:del,received:rcv,balance:del-rcv,dueMoney:r2(due),paid:r2(paid),owedMoney:r2(due-paid)}});
+        return{name:w.name,type:w.type,delivered:del,received:rcv,balance:del-rcv,dueMoney:r2(due),paid:r2(paid),owedMoney:r2(due-paid),payPercent:Number(w.payPercent)||60}});
+      /* Orders summary */
       const ords=orders.map(o=>{const t=calcOrder(o);const wds=o.workshopDeliveries||[];const totalDel=wds.reduce((s,wd)=>s+(Number(wd.qty)||0),0);const totalRcv=wds.reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);const stockDel=getConfirmedStock(o);
+        const custDel=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const custRet=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
         const lastMove=wds.reduce((d,wd)=>{let ld=wd.date||"";(wd.receives||[]).forEach(r=>{if(r.date>ld)ld=r.date});return ld>d?ld:d},"");
         const days=lastMove?Math.floor((Date.now()-new Date(lastMove))/(86400000)):null;
-        return{modelNo:o.modelNo,desc:o.modelDesc,status:o.status,cutQty:t.cutQty,deliveredToWs:totalDel,receivedFromWs:totalRcv,wsBalance:totalDel-totalRcv,stockDelivered:stockDel,completeSet:stockDel,daysSinceLastMove:days,pieces:o.orderPieces||[],
+        return{modelNo:o.modelNo,desc:o.modelDesc,status:o.status,cutQty:t.cutQty,deliveredToWs:totalDel,receivedFromWs:totalRcv,wsBalance:totalDel-totalRcv,stockDelivered:stockDel,sold:custDel-custRet,availableInStock:stockDel-(custDel-custRet),sellPrice:Number(o.sellPrice)||0,daysSinceLastMove:days,pieces:o.orderPieces||[],
           wsDetails:wds.map(wd=>{const rcvd=(wd.receives||[]).filter(r=>!r.isSettlement).reduce((s,r)=>s+(Number(r.qty)||0),0);return{ws:wd.wsName,piece:wd.garmentType||"عام",delivered:Number(wd.qty)||0,received:rcvd,balance:(Number(wd.qty)||0)-rcvd,agreed:Number(wd.agreedDays)||0,date:wd.date}}).filter(w=>w.balance>0||w.received>0)}});
-      const ctx="أنت مساعد ذكي لنظام CLARK لإدارة مصانع الملابس.\n\nقواعد الرد:\n- رد بالمصري العامي (يعني، كده، خلاص، أهو)\n- اختصر اختصار غير مخل — بلاش كلام كتير\n- افصل بين كل أوردر أو معلومة بخط فاصل ─────\n- في الأرصدة المالية للورش: لو owedMoney سالب يبقى الورشة عليها فلوس (دفعنالها أكتر من المستحق)، لو موجب يبقى ليها فلوس عندنا\n- مصطلحات الورش مهمة جداً: workshopDeliveries.qty = الورشة استلمت منّنا (استلم)، workshopDeliveries.receives[].qty = الورشة سلّمت لنا (سلّم). يعني لما تكتب عن ورشة اكتب: استلم 508، سلّم 495، باقي 13. مش العكس!\n- في الآخر خالص حط سطر ─────── وبعده 💡 ملاحظتك أو نصيحتك من عندك كمدير انتاج خبرة\n\nبيانات الموسم "+season+":\n\nالأوردرات ("+ords.length+"):\n"+JSON.stringify(ords,null,0)+"\n\nالورش ("+ws.length+"):\n"+JSON.stringify(ws,null,0)+"\n\nالتاريخ: "+new Date().toISOString().split("T")[0];
+      /* V15.63: Customers summary */
+      const custs=(config.customers||[]).map(c=>{let totalDel=0,totalRet=0,totalMoney=0;
+        orders.forEach(o=>{const price=Number(o.sellPrice)||0;
+          (o.customerDeliveries||[]).filter(d=>d.custId===c.id).forEach(d=>{totalDel+=Number(d.qty)||0;totalMoney+=(Number(d.qty)||0)*(Number(d.price)||price)});
+          (o.customerReturns||[]).filter(r=>r.custId===c.id).forEach(r=>{totalRet+=Number(r.qty)||0})});
+        return{name:c.name,type:c.type||"",discount:Number(c.discount)||0,totalSold:totalDel-totalRet,totalMoney:r2(totalMoney)}}).filter(c=>c.totalSold>0||c.totalMoney>0);
+      /* V15.63: Overall summary */
+      const totalCut=ords.reduce((s,o)=>s+o.cutQty,0);
+      const totalStock=ords.reduce((s,o)=>s+o.stockDelivered,0);
+      const totalSold=ords.reduce((s,o)=>s+o.sold,0);
+      const totalRevenue=ords.reduce((s,o)=>s+o.sold*o.sellPrice,0);
+      const summary={totalCut,totalStock,totalSold,availableInStock:totalStock-totalSold,totalRevenue:r2(totalRevenue),ordersCount:ords.length,workshopsCount:ws.length,customersCount:custs.length};
+      const ctx="أنت مساعد ذكي لنظام CLARK لإدارة مصانع الملابس.\n\nقواعد الرد:\n- رد بالمصري العامي (يعني، كده، خلاص، أهو)\n- اختصر اختصار غير مخل — بلاش كلام كتير\n- افصل بين كل أوردر أو معلومة بخط فاصل ─────\n- في الأرصدة المالية للورش: لو owedMoney سالب يبقى الورشة عليها فلوس (دفعنالها أكتر من المستحق)، لو موجب يبقى ليها فلوس عندنا\n- نسبة الدفع payPercent = الحد الأقصى المسموح بدفعه من المستحق (عادي 60%)\n- مصطلحات الورش مهمة جداً: workshopDeliveries.qty = الورشة استلمت منّنا (استلم)، workshopDeliveries.receives[].qty = الورشة سلّمت لنا (سلّم). يعني لما تكتب عن ورشة اكتب: استلم 508، سلّم 495، باقي 13. مش العكس!\n- availableInStock = المتاح في مخزن الجاهز (بعد طرح اللي اتباع)\n- sold = اللي اتباع للعملاء (بعد طرح المرتجعات)\n- في الآخر خالص حط سطر ─────── وبعده 💡 ملاحظتك أو نصيحتك من عندك كمدير انتاج خبرة\n\nبيانات الموسم "+season+":\n\nملخص عام:\n"+JSON.stringify(summary,null,0)+"\n\nالأوردرات ("+ords.length+"):\n"+JSON.stringify(ords,null,0)+"\n\nالورش ("+ws.length+"):\n"+JSON.stringify(ws,null,0)+"\n\nالعملاء ("+custs.length+"):\n"+JSON.stringify(custs,null,0)+"\n\nالتاريخ: "+new Date().toISOString().split("T")[0];
       const msgs=[...aiMsgs.map(m=>({role:m.role==="user"?"user":"assistant",content:m.text})),{role:"user",content:q}];
       let data2;let retries=0;
       while(retries<2){
@@ -212,46 +230,11 @@ export default function App(){
     return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off);clearInterval(interval)}
   },[]);
   useEffect(()=>{if(justReconnected){const t=setTimeout(()=>setJustReconnected(false),4000);return()=>clearTimeout(t)}},[justReconnected]);
-  /* ── Auto Bot Tasks (multi-user) ──
-     V15.8: Disabled by default globally. Remains in code if user re-enables
-     via settings in future, but won't run unless explicitly toggled on. */
+  /* ── Auto Bot Tasks ──
+     V15.63: Disabled permanently — user requested to remove all bot notifications/tasks.
+     Code kept for reference but the effect is a no-op. */
   const botTasksRef=useRef(false);
-  useEffect(()=>{
-    if(!user||orders.length===0||botTasksRef.current)return;
-    const at=config.autoTasks;
-    /* V15.8: Hard disable — only run if both enabled AND explicitly allowed */
-    if(!at?.enabled||!at?.allowBot)return;
-    const atUsers=at.users||[];if(atUsers.length===0)return;
-    const tasks=Array.isArray(config.tasks)?config.tasks:[];const now=Date.now();
-    const newTasks=[];
-    const addBotTask=(key,text,toEmail,toName)=>{if(tasks.some(t=>t.botKey===key))return;if(newTasks.some(t=>t.botKey===key))return;
-      newTasks.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),text,done:false,date:new Date().toISOString().split("T")[0],fromUid:"bot",fromEmail:"bot@clark",fromName:"🤖 CLARK Bot",toEmail,toName:toName||toEmail.split("@")[0],botKey:key})};
-    atUsers.forEach(au=>{if(!au.email)return;const rules=au.rules||{};
-      orders.forEach(o=>{
-        if(o.closed||o.settlement||o.status==="تم التسليم لمخزن الجاهز")return;
-        const t=calcOrder(o);const wds=o.workshopDeliveries||[];const hasFab=FKEYS.some(k=>o["fabric"+k]);
-        if(!hasFab||t.cutQty===0)return;
-        const daysSinceCut=Math.floor((now-new Date(o.date))/(86400000));
-        if(rules.noDeliver?.enabled&&wds.length===0&&daysSinceCut>=(rules.noDeliver.days||5)){
-          addBotTask("nodeliver_"+o.id+"_"+au.email,"موديل "+o.modelNo+" مقصوص من "+daysSinceCut+" يوم ولم يتم تسليمه لأي ورشة",au.email,au.name)}
-        if(rules.availPiece?.enabled){const linkedPieces=new Set();FKEYS.forEach(k=>{if(o["fabric"+k])(o["fabricPieces"+k]||[]).forEach(p=>linkedPieces.add(p))});
-          const pieces=o.orderPieces||[];
-          pieces.forEach(p=>{const delForP=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);
-          /* V15.6: only consider piece "cut" if explicitly linked (or single piece order) */
-          const isCut=hasFab&&(pieces.length<=1||linkedPieces.has(p));
-          if(!isCut)return;/* قطعة لم تُقص بعد — لا تنبيه */
-          if(delForP===0&&daysSinceCut>=(rules.availPiece.days||5)){addBotTask("availpiece_"+o.id+"_"+p+"_"+au.email,"تم قص "+p+" موديل "+o.modelNo+" ولم يتم تسليمه للتشغيل من "+daysSinceCut+" يوم",au.email,au.name)}})}
-        if(rules.slowWorkshop?.enabled){wds.forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const bal=(Number(wd.qty)||0)-rcvd;
-          if(bal>0){const daysSinceDel=Math.floor((now-new Date(wd.date))/(86400000));
-            if(daysSinceDel>=(rules.slowWorkshop.days||14)){addBotTask("slowws_"+o.id+"_"+wd.wsName+"_"+(wd.garmentType||"")+"_"+au.email,
-              wd.wsName+" عندها "+bal+" "+(wd.garmentType||"قطعة")+" موديل "+o.modelNo+" من "+daysSinceDel+" يوم",au.email,au.name)}}})}
-        if(rules.stockNoSale?.enabled){const stockDel=getConfirmedStock(o);const custDel=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
-          if(stockDel>0&&custDel===0){const lastStock=o.deliveries.reduce((d,x)=>x.date>d?x.date:d,"");const daysSinceStock=lastStock?Math.floor((now-new Date(lastStock))/(86400000)):0;
-            if(daysSinceStock>=(rules.stockNoSale.days||7)){addBotTask("nosale_"+o.id+"_"+au.email,"موديل "+o.modelNo+" في المخزن "+stockDel+" قطعة من "+daysSinceStock+" يوم بدون تسليم عملاء",au.email,au.name)}}}
-      })});
-    if(newTasks.length>0){botTasksRef.current=true;upTasks(d=>{if(!Array.isArray(d.tasks))d.tasks=[];newTasks.forEach(t=>d.tasks.unshift(t))});
-      setTimeout(()=>{botTasksRef.current=false},60000)}
-  },[orders,config.autoTasks,config.tasks,user]);
+  /* V15.63: Bot tasks removed */
   const themeKey="clark-theme-"+(user?.uid||"default");
   const[theme,setTheme_]=useState(()=>{try{return localStorage.getItem("clark-theme-default")||"light"}catch(e){return"light"}});
   /* V15.3: themeTick forces re-render of all components when T/TH/TD/TDB/TDL mutate.
@@ -782,15 +765,15 @@ export default function App(){
        • payroll_accountant: edits salary, NO verify access (preparer)
        • payroll_verifier: views salary (readonly), ONLY edits verify (reviewer) */
   const DEFAULT_PERMS={
-    admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit",treasury:"edit",hr:{weeks:"edit",verify:"edit",employees:"edit",security:"edit"},purchase:"edit",warehouse:"edit"},
-    manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit",treasury:"view",hr:{weeks:"view",verify:"view",employees:"view",security:"view"},purchase:"edit",warehouse:"edit"},
-    sales_accountant:{dashboard:"view",details:"view",external:"hide",stock:"view",reports:"edit",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit",treasury:"hide",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"},purchase:"hide",warehouse:"view"},
-    purchase_accountant:{dashboard:"view",details:"view",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"hide",treasury:"edit",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"},purchase:"edit",warehouse:"edit"},
+    admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit",treasury:"edit",hr:{weeks:"edit",verify:"edit",employees:"edit",security:"edit"},purchase:"edit",warehouse:"edit",audit:"view"},
+    manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit",treasury:"view",hr:{weeks:"view",verify:"view",employees:"view",security:"view"},purchase:"edit",warehouse:"edit",audit:"view"},
+    sales_accountant:{dashboard:"view",details:"view",external:"hide",stock:"view",reports:"edit",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit",treasury:"hide",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"},purchase:"hide",warehouse:"view",audit:"hide"},
+    purchase_accountant:{dashboard:"view",details:"view",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"hide",treasury:"edit",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"},purchase:"edit",warehouse:"edit",audit:"hide"},
     /* V15.28: New role — prepares salaries but CANNOT verify receipt (separation of duties) */
-    payroll_accountant:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"view",hr:{weeks:"edit",verify:"hide",employees:"edit",security:"view"},purchase:"hide",warehouse:"hide"},
+    payroll_accountant:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"view",hr:{weeks:"edit",verify:"hide",employees:"edit",security:"view"},purchase:"hide",warehouse:"hide",audit:"hide"},
     /* V15.28: New role — verifies receipt (QR scan) ONLY. Cannot edit salary. */
-    payroll_verifier:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"view",hr:{weeks:"view",verify:"edit",employees:"view",security:"view"},purchase:"hide",warehouse:"hide"},
-    viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"hide",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"},purchase:"view",warehouse:"view"}
+    payroll_verifier:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"view",hr:{weeks:"view",verify:"edit",employees:"view",security:"view"},purchase:"hide",warehouse:"hide",audit:"hide"},
+    viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"hide",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"},purchase:"view",warehouse:"view",audit:"hide"}
   };
   const getTabPerm=(tabKey)=>{const perms=config.permissions||{};const defaults=DEFAULT_PERMS[userRole]||DEFAULT_PERMS.viewer;const rolePerm=perms[userRole]||{};const fromConfig=rolePerm[tabKey];const fromDefault=defaults[tabKey];
     /* If the permission is an object (e.g. hr), return it as-is */
@@ -826,6 +809,11 @@ export default function App(){
       <div style={{fontSize:11,color:"#94A3B8",marginTop:4}}>يرجى الانتظار قليلاً...</div>
     </div>
   </div>;
+  /* V15.59: Mobile Warehouse App — accessed via /warehouse URL.
+     Renders a separate mobile-first shell instead of the normal app. */
+  if(window.location.pathname==="/warehouse"){
+    return<MobileWarehouseShell data={data} upConfig={upConfig} upSales={upSales} upTasks={upTasks} updOrder={updOrder} user={user}/>;
+  }
   const userName=user.displayName||user.email.split("@")[0];
   /* Compute alerts */
   const appAlerts=(()=>{try{const a=[];
@@ -930,7 +918,7 @@ export default function App(){
           <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}
           </span>
-          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V15.55</span>
+          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V15.64</span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -999,49 +987,7 @@ export default function App(){
           </div></>}</>}
         </div>
 
-        {/* AI Assistant */}
-        <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
-          <div onClick={()=>setAiOpen(!aiOpen)} title="المساعد الذكي" className="tb-btn" style={{padding:8,color:aiOpen?"#8B5CF6":(T.navText||T.text),background:aiOpen?"linear-gradient(135deg,#0EA5E920,#8B5CF620)":visibleAlerts.length>0?"#EF444410":"transparent",position:"relative"}}>
-            <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
-            {visibleAlerts.length>0&&<span className="tb-badge" style={{background:"#EF4444"}}>{visibleAlerts.length}</span>}
-          </div>
-          {!isMob&&aiOpen&&<><div onClick={()=>setAiOpen(false)} style={{position:"fixed",inset:0,zIndex:9998}}/><div style={{position:"absolute",top:"100%",left:"50%",transform:"translateX(-50%)",marginTop:8,zIndex:9999}}>
-            <div style={{background:T.cardSolid,borderRadius:16,border:"1px solid "+T.brd,boxShadow:"0 8px 40px rgba(0,0,0,0.15)",display:"flex",flexDirection:"column",height:460,width:380}}>
-              <div style={{padding:"12px 16px",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",background:"linear-gradient(135deg,#0EA5E910,#8B5CF610)",borderRadius:"16px 16px 0 0"}}>
-                <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:20}}>🤖</span><span style={{fontWeight:800,fontSize:FS+1,color:T.text}}>مساعد CLARK</span></div>
-                <div style={{display:"flex",gap:4}}>
-                  {aiMsgs.length>0&&<span onClick={()=>setAiMsgs([])} style={{cursor:"pointer",fontSize:11,padding:"2px 8px",borderRadius:6,background:T.err+"10",color:T.err,fontWeight:600}}>مسح</span>}
-                  <span onClick={()=>setAiOpen(false)} style={{cursor:"pointer",fontSize:16,color:T.textMut}}>✕</span>
-                </div>
-              </div>
-              <div style={{flex:1,overflowY:"auto",padding:12,display:"flex",flexDirection:"column",gap:8}}>
-                {aiMsgs.length===0&&<div>
-                  {visibleAlerts.length>0&&<div style={{marginBottom:12}}>
-                    <div style={{fontSize:FS-1,fontWeight:800,color:T.text,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>{"⚡ "+visibleAlerts.length+" تنبيه"}</div>
-                    {visibleAlerts.map((al,i)=><div key={i} onClick={()=>{setAiInput(al.text);}} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"8px 10px",marginBottom:4,borderRadius:10,background:al.type==="late"?"#FEF2F2":al.type==="ready"?"#F0FDF4":al.type==="overpaid"?"#FFF7ED":al.type==="slow"?"#FFFBEB":"#F8FAFC",border:"1px solid "+(al.type==="late"?"#FECACA":al.type==="ready"?"#BBF7D0":al.type==="overpaid"?"#FED7AA":al.type==="slow"?"#FDE68A":"#E2E8F0"),cursor:"pointer",transition:"all 0.15s"}}>
-                      <span style={{fontSize:16,flexShrink:0}}>{al.icon}</span>
-                      <span style={{fontSize:FS-2,color:"#1E293B",fontWeight:600,lineHeight:1.5,flex:1}}>{al.text}</span>{al.wsPhone&&<span onClick={e=>{e.stopPropagation();const lines=(al.details||[]).map(d=>"• موديل *"+d.modelNo+"*: *"+d.qty+"* قطعة — "+d.days+" يوم"+(d.agreed?" (متفق "+d.agreed+" يوم)":"")).join("%0A");const msg="*CLARK — تنبيه تأخير*%0A%0A• الورشة: *"+al.wsName+"*%0A%0A"+lines+"%0A%0A⚠️ *برجاء الاهتمام بالتسليم في أقرب وقت*";window.open("https://wa.me/"+(al.wsPhone.replace(/[^0-9]/g,""))+"?text="+msg,"_blank");dismissAlert(al.key||al.text)}} style={{cursor:"pointer",fontSize:10,color:"#25D366",flexShrink:0,padding:"0 4px",fontWeight:700}}>📱</span>}<span onClick={e=>{e.stopPropagation();dismissAlert(al.key||al.text)}} style={{cursor:"pointer",fontSize:10,color:"#94A3B8",flexShrink:0,padding:"0 2px"}}>✕</span>
-                    </div>)}
-                    <div style={{textAlign:"center",margin:"10px 0",fontSize:FS-2,color:T.textMut,letterSpacing:4}}>— — —</div>
-                  </div>}
-                  <div style={{textAlign:"center",padding:visibleAlerts.length>0?8:20,color:T.textMut}}>
-                    {visibleAlerts.length===0&&<div style={{fontSize:32,marginBottom:8}}>🤖</div>}
-                    <div style={{fontSize:FS-1,fontWeight:600,marginBottom:4}}>اسألني عن أي حاجة</div>
-                    <div style={{fontSize:FS-2,lineHeight:1.8,whiteSpace:"pre-wrap"}}>{"• موديل 3262 فين؟\n• ملخص الورش\n• كام أوردر متأخر؟"}</div>
-                  </div>
-                </div>}
-                {aiMsgs.map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-start":"flex-end"}}>
-                  <div style={{maxWidth:"85%",padding:"8px 12px",borderRadius:m.role==="user"?"12px 12px 4px 12px":"12px 12px 12px 4px",background:m.role==="user"?T.accent:T.bg,color:m.role==="user"?"#fff":T.text,fontSize:FS-1,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{m.text}</div>
-                </div>)}
-                {aiLoading&&<div style={{display:"flex",justifyContent:"flex-end"}}><div style={{padding:"8px 16px",borderRadius:12,background:T.bg,fontSize:FS-1,color:T.textMut,display:"inline-flex",alignItems:"center",gap:8}}><Spinner size="small" inline/><span>جاري التحليل...</span></div></div>}
-              </div>
-              <div style={{padding:"8px 12px",borderTop:"1px solid "+T.brd,display:"flex",gap:6}}>
-                <input value={aiInput} onChange={e=>setAiInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")askAI()}} placeholder="اسأل عن أي حاجة..." style={{flex:1,padding:"8px 12px",borderRadius:10,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none",boxSizing:"border-box"}}/>
-                <button onClick={askAI} disabled={aiLoading||!aiInput.trim()} style={{padding:"8px 14px",borderRadius:10,border:"none",background:aiInput.trim()?"linear-gradient(135deg,#0EA5E9,#8B5CF6)":"#E2E8F0",color:aiInput.trim()?"#fff":"#94A3B8",cursor:aiInput.trim()?"pointer":"default",fontSize:14,fontWeight:700}}>📩</button>
-              </div>
-            </div>
-          </div></>}
-        </div>
+        {/* AI Assistant moved to floating button on home screen (V15.63) */}
 
         {/* User Menu Dropdown */}
         <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
@@ -1157,6 +1103,11 @@ export default function App(){
                 <div onClick={()=>setBarcodePopup({mode:"manual",modelId:"",size:"",qty:1,serial:1})} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:"#F59E0B08",border:"1px solid #F59E0B25",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#F59E0B15"} onMouseLeave={e=>e.currentTarget.style.background="#F59E0B08"}>
                   <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="7" y1="7" x2="7" y2="17"/><line x1="11" y1="7" x2="11" y2="17"/><line x1="15" y1="7" x2="15" y2="17"/><line x1="17" y1="7" x2="17" y2="17"/></svg>
                   <span style={{fontSize:FS-1,fontWeight:700,color:"#F59E0B"}}>طباعة QR</span>
+                </div>
+                {/* V15.61: Mobile warehouse quick access */}
+                <div onClick={()=>window.open("/warehouse","_blank")} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:"#10B98108",border:"1px solid #10B98125",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#10B98115"} onMouseLeave={e=>e.currentTarget.style.background="#10B98108"} title="فتح وضع المخزن السريع في تبويب جديد">
+                  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg>
+                  <span style={{fontSize:FS-1,fontWeight:700,color:"#10B981"}}>📱 وضع المخزن السريع</span>
                 </div>
               </div>
 
@@ -1299,6 +1250,11 @@ export default function App(){
                 <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="7" y1="7" x2="7" y2="17"/><line x1="11" y1="7" x2="11" y2="17"/><line x1="15" y1="7" x2="15" y2="17"/><line x1="17" y1="7" x2="17" y2="17"/></svg>
                 <span style={{fontSize:FS-2,fontWeight:700,color:"#F59E0B"}}>QR</span>
               </div>
+              {/* V15.61: Mobile warehouse quick access */}
+              <div onClick={()=>window.open("/warehouse","_blank")} style={{cursor:"pointer",padding:"8px 14px",borderRadius:10,background:"#10B98110",border:"1px solid #10B98125",display:"flex",alignItems:"center",gap:6}} title="فتح وضع المخزن السريع">
+                <span style={{fontSize:14}}>📱</span>
+                <span style={{fontSize:FS-2,fontWeight:700,color:"#10B981"}}>وضع المخزن</span>
+              </div>
             </div>
 
             {/* Mobile: tasks + activity inline */}
@@ -1336,6 +1292,57 @@ export default function App(){
               </div>;
             })()}
           </div>}
+
+          {/* V15.63: Floating AI Assistant button — home screen, desktop only */}
+          {!isMob&&<>
+            <div onClick={()=>setAiOpen(!aiOpen)} title="المساعد الذكي" style={{position:"fixed",bottom:30,right:30,zIndex:9997,width:60,height:60,borderRadius:"50%",background:aiOpen?"linear-gradient(135deg,#0EA5E9,#8B5CF6)":"linear-gradient(135deg,#0EA5E9,#8B5CF6)",boxShadow:aiOpen?"0 8px 30px rgba(139,92,246,0.5)":"0 6px 20px rgba(14,165,233,0.35)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"all 0.25s cubic-bezier(0.4,0,0.2,1)",transform:aiOpen?"scale(1.05)":"scale(1)",border:"3px solid #fff"}} onMouseEnter={e=>{e.currentTarget.style.transform="scale(1.08)"}} onMouseLeave={e=>{e.currentTarget.style.transform=aiOpen?"scale(1.05)":"scale(1)"}}>
+              <svg width={28} height={28} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
+              {visibleAlerts.length>0&&<span style={{position:"absolute",top:-4,right:-4,minWidth:22,height:22,padding:"0 6px",borderRadius:11,background:"#EF4444",color:"#fff",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"2px solid #fff"}}>{visibleAlerts.length}</span>}
+            </div>
+            {aiOpen&&<>
+              <div onClick={()=>setAiOpen(false)} style={{position:"fixed",inset:0,zIndex:9998}}/>
+              <div style={{position:"fixed",bottom:100,right:30,zIndex:9999}}>
+                <div style={{background:T.cardSolid,borderRadius:16,border:"1px solid "+T.brd,boxShadow:"0 12px 48px rgba(0,0,0,0.25)",display:"flex",flexDirection:"column",height:520,width:400}}>
+                  <div style={{padding:"12px 16px",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",background:"linear-gradient(135deg,#0EA5E915,#8B5CF615)",borderRadius:"16px 16px 0 0"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:22}}>🤖</span><div><div style={{fontWeight:800,fontSize:FS+1,color:T.text,lineHeight:1.1}}>مساعد CLARK</div><div style={{fontSize:FS-3,color:T.textMut,marginTop:1}}>اسألني عن المصنع</div></div></div>
+                    <div style={{display:"flex",gap:4}}>
+                      {aiMsgs.length>0&&<span onClick={()=>setAiMsgs([])} style={{cursor:"pointer",fontSize:11,padding:"3px 10px",borderRadius:6,background:T.err+"12",color:T.err,fontWeight:700}}>مسح</span>}
+                      <span onClick={()=>setAiOpen(false)} style={{cursor:"pointer",fontSize:18,color:T.textMut,padding:"0 6px"}}>✕</span>
+                    </div>
+                  </div>
+                  <div style={{flex:1,overflowY:"auto",padding:12,display:"flex",flexDirection:"column",gap:8}}>
+                    {aiMsgs.length===0&&<div>
+                      {visibleAlerts.length>0&&<div style={{marginBottom:12}}>
+                        <div style={{fontSize:FS-1,fontWeight:800,color:T.text,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>{"⚡ "+visibleAlerts.length+" تنبيه"}</div>
+                        {visibleAlerts.map((al,i)=><div key={i} onClick={()=>{setAiInput(al.text)}} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"8px 10px",marginBottom:4,borderRadius:10,background:al.type==="late"?"#FEF2F2":al.type==="ready"?"#F0FDF4":al.type==="overpaid"?"#FFF7ED":al.type==="slow"?"#FFFBEB":"#F8FAFC",border:"1px solid "+(al.type==="late"?"#FECACA":al.type==="ready"?"#BBF7D0":al.type==="overpaid"?"#FED7AA":al.type==="slow"?"#FDE68A":"#E2E8F0"),cursor:"pointer"}}>
+                          <span style={{fontSize:16,flexShrink:0}}>{al.icon}</span>
+                          <span style={{fontSize:FS-2,color:"#1E293B",fontWeight:600,lineHeight:1.5,flex:1}}>{al.text}</span>
+                          {al.wsPhone&&<span onClick={e=>{e.stopPropagation();const lines=(al.details||[]).map(d=>"• موديل *"+d.modelNo+"*: *"+d.qty+"* قطعة — "+d.days+" يوم"+(d.agreed?" (متفق "+d.agreed+" يوم)":"")).join("%0A");const msg="*CLARK — تنبيه تأخير*%0A%0A• الورشة: *"+al.wsName+"*%0A%0A"+lines+"%0A%0A⚠️ *برجاء الاهتمام بالتسليم في أقرب وقت*";window.open("https://wa.me/"+(al.wsPhone.replace(/[^0-9]/g,""))+"?text="+msg,"_blank");dismissAlert(al.key||al.text)}} style={{cursor:"pointer",fontSize:10,color:"#25D366",flexShrink:0,padding:"0 4px",fontWeight:700}}>📱</span>}
+                          <span onClick={e=>{e.stopPropagation();dismissAlert(al.key||al.text)}} style={{cursor:"pointer",fontSize:10,color:"#94A3B8",flexShrink:0,padding:"0 2px"}}>✕</span>
+                        </div>)}
+                        <div style={{textAlign:"center",margin:"10px 0",fontSize:FS-2,color:T.textMut,letterSpacing:4}}>— — —</div>
+                      </div>}
+                      <div style={{textAlign:"center",padding:visibleAlerts.length>0?8:20,color:T.textMut}}>
+                        {visibleAlerts.length===0&&<div style={{fontSize:38,marginBottom:10}}>🤖</div>}
+                        <div style={{fontSize:FS-1,fontWeight:700,marginBottom:10,color:T.text}}>جرب تسأل:</div>
+                        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                          {["📦 إيه الورش اللي متأخرة؟","📊 لخصلي أداء الأسبوع","🏭 كام أوردر جاهز للتسليم؟","💰 مين الورش المدفوع لها زيادة؟","🛒 إيه أكتر الموديلات مبيعاً؟"].map((s,i)=><div key={i} onClick={()=>setAiInput(s.replace(/^[^\s]+\s/,""))} style={{padding:"8px 12px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd,fontSize:FS-1,color:T.text,cursor:"pointer",textAlign:"right",fontWeight:600,transition:"all 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.background=T.accent+"10";e.currentTarget.style.borderColor=T.accent+"40"}} onMouseLeave={e=>{e.currentTarget.style.background=T.bg;e.currentTarget.style.borderColor=T.brd}}>{s}</div>)}
+                        </div>
+                      </div>
+                    </div>}
+                    {aiMsgs.map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-start":"flex-end"}}>
+                      <div style={{maxWidth:"85%",padding:"10px 14px",borderRadius:m.role==="user"?"12px 12px 4px 12px":"12px 12px 12px 4px",background:m.role==="user"?T.accent:T.bg,color:m.role==="user"?"#fff":T.text,fontSize:FS-1,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{m.text}</div>
+                    </div>)}
+                    {aiLoading&&<div style={{display:"flex",justifyContent:"flex-end"}}><div style={{padding:"10px 16px",borderRadius:12,background:T.bg,fontSize:FS-1,color:T.textMut,display:"inline-flex",alignItems:"center",gap:8}}><Spinner size="small" inline/><span>جاري التحليل...</span></div></div>}
+                  </div>
+                  <div style={{padding:"10px 12px",borderTop:"1px solid "+T.brd,display:"flex",gap:6}}>
+                    <input value={aiInput} onChange={e=>setAiInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")askAI()}} placeholder="اسأل عن أي حاجة..." style={{flex:1,padding:"10px 12px",borderRadius:10,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none",boxSizing:"border-box"}}/>
+                    <button onClick={askAI} disabled={aiLoading||!aiInput.trim()} style={{padding:"10px 16px",borderRadius:10,border:"none",background:aiInput.trim()?"linear-gradient(135deg,#0EA5E9,#8B5CF6)":"#E2E8F0",color:aiInput.trim()?"#fff":"#94A3B8",cursor:aiInput.trim()?"pointer":"default",fontSize:14,fontWeight:700}}>📩</button>
+                  </div>
+                </div>
+              </div>
+            </>}
+          </>}
         </div>;
       })()}
       {/* PAGES with back button */}
@@ -1354,6 +1361,7 @@ export default function App(){
         {tab==="warehouse"&&<WarehousePg data={data} upConfig={upConfig} updOrder={updOrder} isMob={isMob} isTab={isTab} canEdit={canEditTab("warehouse")} statusCards={statusCards} user={user} userRole={userRole}/>}
         {tab==="treasury"&&<TreasuryPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("treasury")} user={user} userRole={userRole}/>}
         {tab==="hr"&&<HRPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("hr")} user={user} userRole={userRole} getHrSubPerm={getHrSubPerm} setSavingOverlay={setSavingOverlay}/>}
+        {tab==="audit"&&canViewTab("audit")&&<AuditPg data={data} isMob={isMob} user={user}/>}
       </div>}
     </div>
     {/* Quick Task/Notification Popup */}

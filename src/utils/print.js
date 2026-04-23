@@ -7,8 +7,55 @@
 import { PRINT_CSS } from "../constants/index.js";
 import { CLARK_LOGO } from "../constants/logo.js";
 
-/* Full-page report printing with CLARK header, print/PDF buttons, and footer */
-export function printPage(title,bodyHtml){const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة (pop-ups) من إعدادات المتصفح");return}const today=new Date().toLocaleDateString("ar-EG");const safeTitle=String(title||"تقرير").replace(/[\\/:*?"<>|]/g,"_").slice(0,80);pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><script src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'></"+"script><title>"+title+"</title><style>"+PRINT_CSS+".pbar{position:sticky;top:0;background:#fff;padding:8px 16px;border-bottom:2px solid #E2E8F0;display:none;justify-content:center;gap:10px;z-index:999}.pbar button{padding:8px 22px;border-radius:8px;border:none;cursor:pointer;font-family:'Cairo',sans-serif;font-size:13px;font-weight:700}.pb-back{background:#F1F5F9;color:#475569}.pb-print{background:#0EA5E9;color:#fff}.pb-pdf{background:#EF4444;color:#fff}.pb-pdf:disabled{opacity:0.6;cursor:wait}@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}</style></head><body><div class='pbar'><button class='pb-back' onclick='window.close()'>↩ رجوع</button><button class='pb-print' onclick='window.print()'>🖨 طباعة</button><button class='pb-pdf' id='pdf-btn' onclick='savePdf()'>📄 حفظ PDF</button></div><div id='report-content'><div class='hdr'><div><img src='"+CLARK_LOGO+"'/></div><div class='hdr-info'>"+title+"<br/>"+today+"</div></div>"+bodyHtml+"<div class='foot'>CLARK Factory Management — "+today+"</div></div><script>function savePdf(){var btn=document.getElementById('pdf-btn');if(!window.html2pdf){alert('مكتبة PDF لم تُحمّل بعد — انتظر قليلاً ثم أعد المحاولة');return}var el=document.getElementById('report-content');if(!el){alert('محتوى التقرير غير موجود');return}var orig=btn.textContent;btn.disabled=true;btn.textContent='⏳ جاري الإنشاء...';window.html2pdf().set({margin:[8,8,8,8],filename:'"+safeTitle.replace(/'/g,"\\'")+".pdf',image:{type:'jpeg',quality:0.95},html2canvas:{scale:2,useCORS:true,letterRendering:true},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css','legacy']}}).from(el).save().then(function(){btn.disabled=false;btn.textContent=orig}).catch(function(e){alert('فشل إنشاء PDF: '+e.message);btn.disabled=false;btn.textContent=orig})}</"+"script></body></html>");pw.document.close();if(window.innerWidth>1024)setTimeout(()=>{try{pw.focus();pw.print()}catch(e){}},500)}
+/* Full-page report printing with professional header, print/PDF buttons, and footer.
+   V15.58: Accepts optional configInfo = {factoryName, logo, address, phone}
+   for branded output. Falls back to CLARK defaults for backward compatibility.
+   
+   PDF output is professional, suitable for external review/tax audit. */
+export function printPage(title,bodyHtml,configInfo){const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة (pop-ups) من إعدادات المتصفح");return}
+  const today=new Date().toLocaleDateString("ar-EG",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
+  const timeStr=new Date().toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit"});
+  const safeTitle=String(title||"تقرير").replace(/[\\/:*?"<>|]/g,"_").slice(0,80);
+  const factoryName=(configInfo&&configInfo.factoryName)||"CLARK Factory Management";
+  const factoryLogo=(configInfo&&configInfo.logo)||CLARK_LOGO;
+  const factoryAddr=(configInfo&&configInfo.address)||"";
+  const factoryPhone=(configInfo&&configInfo.phone)||"";
+  /* V15.58: Professional PDF-friendly header styles override the legacy .hdr */
+  const enhancedStyles=".hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #0284C7;padding-bottom:14px;margin-bottom:20px;gap:16px}"
+    +".hdr-brand{display:flex;align-items:center;gap:12px;flex:1}"
+    +".hdr-brand img{height:50px;max-width:90px;object-fit:contain}"
+    +".hdr-brand-text{line-height:1.3}"
+    +".hdr-brand-name{font-size:17px;font-weight:800;color:#0F172A}"
+    +".hdr-brand-sub{font-size:10px;color:#64748B;font-weight:600;margin-top:2px}"
+    +".hdr-title{text-align:left;flex-shrink:0;padding:8px 14px;background:#F0F9FF;border:1px solid #BAE6FD;border-radius:8px;min-width:160px}"
+    +".hdr-title-main{font-size:14px;font-weight:800;color:#0369A1;line-height:1.2}"
+    +".hdr-title-date{font-size:10px;color:#64748B;font-weight:600;margin-top:4px;font-family:monospace}"
+    +".foot{margin-top:30px;padding-top:10px;border-top:2px solid #CBD5E1;text-align:center;font-size:9px;color:#64748B;font-weight:600;display:flex;justify-content:space-between;gap:10px}"
+    +".foot-brand{font-weight:800;color:#0284C7}"
+    +".foot-meta{color:#94A3B8;font-weight:500}";
+  /* Build professional header */
+  let brandSub="نظام إدارة مصانع الملابس";
+  if(factoryAddr)brandSub=factoryAddr;
+  if(factoryAddr&&factoryPhone)brandSub=factoryAddr+" • "+factoryPhone;
+  else if(factoryPhone)brandSub=factoryPhone;
+  const header="<div class='hdr'>"
+    +"<div class='hdr-brand'>"
+      +"<img src='"+factoryLogo+"'/>"
+      +"<div class='hdr-brand-text'>"
+        +"<div class='hdr-brand-name'>"+factoryName+"</div>"
+        +"<div class='hdr-brand-sub'>"+brandSub+"</div>"
+      +"</div>"
+    +"</div>"
+    +"<div class='hdr-title'>"
+      +"<div class='hdr-title-main'>"+title+"</div>"
+      +"<div class='hdr-title-date'>"+today+" • "+timeStr+"</div>"
+    +"</div>"
+  +"</div>";
+  const footer="<div class='foot'>"
+    +"<span class='foot-brand'>"+factoryName+"</span>"
+    +"<span class='foot-meta'>"+today+" • Powered by CLARK Factory Management</span>"
+  +"</div>";
+  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><script src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'></"+"script><title>"+title+"</title><style>"+PRINT_CSS+enhancedStyles+".pbar{position:sticky;top:0;background:#fff;padding:8px 16px;border-bottom:2px solid #E2E8F0;display:none;justify-content:center;gap:10px;z-index:999}.pbar button{padding:8px 22px;border-radius:8px;border:none;cursor:pointer;font-family:'Cairo',sans-serif;font-size:13px;font-weight:700}.pb-back{background:#F1F5F9;color:#475569}.pb-print{background:#0EA5E9;color:#fff}.pb-pdf{background:#EF4444;color:#fff}.pb-pdf:disabled{opacity:0.6;cursor:wait}@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}</style></head><body><div class='pbar'><button class='pb-back' onclick='window.close()'>↩ رجوع</button><button class='pb-print' onclick='window.print()'>🖨 طباعة</button><button class='pb-pdf' id='pdf-btn' onclick='savePdf()'>📄 حفظ PDF</button></div><div id='report-content'>"+header+bodyHtml+footer+"</div><script>function savePdf(){var btn=document.getElementById('pdf-btn');if(!window.html2pdf){alert('مكتبة PDF لم تُحمّل بعد — انتظر قليلاً ثم أعد المحاولة');return}var el=document.getElementById('report-content');if(!el){alert('محتوى التقرير غير موجود');return}var orig=btn.textContent;btn.disabled=true;btn.textContent='⏳ جاري الإنشاء...';window.html2pdf().set({margin:[10,10,10,10],filename:'"+safeTitle.replace(/'/g,"\\'")+".pdf',image:{type:'jpeg',quality:0.95},html2canvas:{scale:2,useCORS:true,letterRendering:true,allowTaint:true},jsPDF:{unit:'mm',format:'a4',orientation:'portrait',compress:true},pagebreak:{mode:['css','legacy','avoid-all']}}).from(el).save().then(function(){btn.disabled=false;btn.textContent=orig}).catch(function(e){alert('فشل إنشاء PDF: '+e.message);btn.disabled=false;btn.textContent=orig})}</"+"script></body></html>");pw.document.close();if(window.innerWidth>1024)setTimeout(()=>{try{pw.focus();pw.print()}catch(e){}},500)}
 
 /* Thermal package label — 10x15cm with QR and movement log */
 export function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,createdBy,qrData){
@@ -164,7 +211,8 @@ export function openPrintWindow(){
 
 /* V15.48: Print salary envelopes — DL size (220×110mm landscape), direct-to-envelope feed.
    Each employee = one envelope page. QR format matches existing CLARK:EMP:<id> so scanning
-   works identically to the thermal ID cards (uses same receipt registration flow). */
+   works identically to the thermal ID cards (uses same receipt registration flow).
+   V15.57: Week number moved above QR as a professional "stamp" badge. */
 export function printSalaryEnvelopes(empsList,weekInfo,configInfo){
   const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
   const logo=(configInfo&&configInfo.logo)||"";
@@ -178,14 +226,21 @@ export function printSalaryEnvelopes(empsList,weekInfo,configInfo){
       +"<div class='hdr'>"
         +(logo?"<img src='"+logo+"' class='logo' alt=''/>":"<div class='logo-ph'></div>")
         +"<div class='brand'>"+factoryName+"</div>"
-        +"<div class='wk'>"+weekLabel+(weekDate?" • "+weekDate:"")+"</div>"
+        +(weekDate?"<div class='date'>"+weekDate+"</div>":"")
       +"</div>"
       +"<div class='divider'></div>"
       +"<div class='body'>"
-        +"<canvas class='qr' data-qr='"+qr+"'></canvas>"
+        +"<div class='qr-col'>"
+          +"<div class='week-badge'>"
+            +"<div class='week-label'>الأسبوع</div>"
+            +"<div class='week-num'>"+weekLabel+"</div>"
+          +"</div>"
+          +"<canvas class='qr' data-qr='"+qr+"'></canvas>"
+        +"</div>"
         +"<div class='emp-info'>"
           +"<div class='emp-name'>"+(e.name||"")+"</div>"
           +(e.code?"<div class='emp-code'>كود الموظف: <b>"+e.code+"</b></div>":"")
+          +"<div class='emp-cta'>💰 استلام المرتب<br/><span class='emp-cta-sub'>امسح كود QR للتأكيد</span></div>"
         +"</div>"
       +"</div>"
     +"</div>";
@@ -198,23 +253,31 @@ export function printSalaryEnvelopes(empsList,weekInfo,configInfo){
     +"@page{size:220mm 110mm;margin:0}"
     +"*{margin:0;padding:0;box-sizing:border-box}"
     +"body{font-family:'Cairo',sans-serif;color:#000;background:#fff}"
-    +".env{width:220mm;height:110mm;padding:8mm 12mm;display:flex;flex-direction:column;page-break-after:always;overflow:hidden;position:relative}"
+    +".env{width:220mm;height:110mm;padding:7mm 12mm;display:flex;flex-direction:column;page-break-after:always;overflow:hidden;position:relative}"
     +".env:last-child{page-break-after:auto}"
-    /* Header: logo + factory name + week */
-    +".hdr{display:flex;align-items:center;gap:6mm;margin-bottom:3mm}"
+    /* Header: logo + factory name + date */
+    +".hdr{display:flex;align-items:center;gap:6mm;margin-bottom:2mm}"
     +".logo{width:14mm;height:14mm;object-fit:contain;flex-shrink:0}"
     +".logo-ph{width:14mm;height:14mm;flex-shrink:0}"
     +".brand{font-size:16pt;font-weight:900;flex:1;letter-spacing:0.5px}"
-    +".wk{font-size:11pt;font-weight:700;color:#333;font-family:'Cairo',monospace;padding:2mm 5mm;border:1.5px solid #000;border-radius:3mm;white-space:nowrap}"
+    +".date{font-size:10pt;font-weight:600;color:#555;font-family:'Cairo',monospace;white-space:nowrap}"
     /* Divider */
-    +".divider{height:1.5px;background:#000;margin:1mm 0 4mm}"
-    /* Body: QR + employee info side by side */
+    +".divider{height:2px;background:linear-gradient(90deg,#000 0%,#000 20%,#888 50%,#000 80%,#000 100%);margin:1mm 0 4mm}"
+    /* Body: QR column on right, employee info on left */
     +".body{flex:1;display:flex;align-items:center;gap:8mm}"
-    +".qr{width:32mm!important;height:32mm!important;flex-shrink:0}"
-    +".emp-info{flex:1;display:flex;flex-direction:column;gap:3mm}"
+    +".qr-col{display:flex;flex-direction:column;align-items:center;gap:2mm;flex-shrink:0}"
+    /* Professional week badge — stamp-style above QR */
+    +".week-badge{display:flex;flex-direction:column;align-items:center;justify-content:center;width:32mm;padding:1.5mm 0;border:2.5px solid #000;border-radius:2mm;background:#000;color:#fff;line-height:1}"
+    +".week-label{font-size:7pt;font-weight:700;letter-spacing:1.5px;opacity:0.75;margin-bottom:0.5mm}"
+    +".week-num{font-size:16pt;font-weight:900;font-family:'Cairo',monospace;letter-spacing:1px}"
+    +".qr{width:32mm!important;height:32mm!important}"
+    /* Employee info */
+    +".emp-info{flex:1;display:flex;flex-direction:column;gap:2.5mm}"
     +".emp-name{font-size:22pt;font-weight:900;line-height:1.1}"
     +".emp-code{font-size:12pt;font-weight:600;color:#333}"
     +".emp-code b{font-family:monospace;font-size:13pt;font-weight:800}"
+    +".emp-cta{font-size:11pt;font-weight:800;color:#000;padding-top:2mm;border-top:1px dashed #999;margin-top:1mm;line-height:1.4}"
+    +".emp-cta-sub{font-size:9pt;font-weight:500;color:#666}"
     /* On-screen preview controls (hidden on print) */
     +".pbar{position:sticky;top:0;background:#fff;padding:6px;display:none;justify-content:center;gap:8px;border-bottom:2px solid #ccc;z-index:10}"
     +".pbar button{padding:6px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:11px;font-weight:700;background:#fff}"
