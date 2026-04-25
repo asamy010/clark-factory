@@ -14,7 +14,7 @@ import { FKEYS, FS } from "../constants/index.js";
 import { CLARK_LOGO } from "../constants/logo.js";
 import { auth, db, getSecondaryAuth } from "../firebase";
 import { T, TD, TH } from "../theme.js";
-import { gid } from "../utils/format.js";
+import { gid, openWA } from "../utils/format.js";
 import { compressImage } from "../utils/image.js";
 import { calcOrder, getConfirmedStock, recomputeStatus, wsTypeInfo } from "../utils/orders.js";
 import { ask, askForm, showToast, tell } from "../utils/popups.js";
@@ -1097,7 +1097,7 @@ export function WaContactsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Car
               </div>
             </div>
             <div style={{display:"flex",gap:4}}>
-              <Btn small onClick={()=>{window.open("https://wa.me/"+c.phone,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="اختبار فتح واتساب">📱</Btn>
+              <Btn small onClick={()=>{openWA("https://wa.me/"+c.phone,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="اختبار فتح واتساب">📱</Btn>
               <Btn small danger onClick={()=>handleDelete(i,c.name)}>🗑️</Btn>
             </div>
           </div>

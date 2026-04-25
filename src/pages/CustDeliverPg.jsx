@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { FKEYS, FS } from "../constants/index.js";
-import { gid, fmt, r2, gf, normalizePhone, parseSizes, getSizesFromSet, dayName } from "../utils/format.js";
+import { gid, fmt, r2, gf, normalizePhone, parseSizes, getSizesFromSet, dayName, openWA } from "../utils/format.js";
 import { playBeep } from "../utils/audio.js";
 import { loadQR, loadJsQR, scanQR } from "../utils/qr.js";
 import { ask, askForm, showToast } from "../utils/popups.js";
@@ -1068,7 +1068,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                     }
                     msg+="\n\n📱 *برجاء مسح كود QR في إذن التسليم للتأكيد باستلام البضاعة كاملة*";
                     const waUrl="https://wa.me/"+rawPhone+"?text="+encodeURIComponent(msg);
-                    window.open(waUrl,"_blank");
+                    openWA(waUrl);
                   }} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",fontSize:9,padding:"2px 5px"}} title="ارسال واتساب">📱</Btn>
                   <Btn small onClick={()=>{setShipPopup({cust:c,total:rowTotal});setShipCount(1)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30",fontSize:9,padding:"2px 5px"}} title="طباعة ليبل">🏷️</Btn>
                   {sessCanEdit&&(()=>{const hasSalesInSess=orders.some(o=>(o.customerDeliveries||[]).some(d=>d.custId===c.id&&d.sessionId===activeSess.id));
@@ -1339,23 +1339,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           <div style={{padding:12,borderRadius:12,background:T.warn+"08",border:"1px solid "+T.warn+"15",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>رصيد متاح</div><div style={{fontSize:isMob?18:24,fontWeight:800,color:T.warn}}>{fmt(totalRemain)}</div></div>
           <div style={{padding:12,borderRadius:12,background:"#8B5CF608",border:"1px solid #8B5CF615",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>الإيرادات</div><div style={{fontSize:isMob?18:24,fontWeight:800,color:"#8B5CF6"}}>{fmt(totalRevenue)}</div><div style={{fontSize:FS-3,color:T.textMut}}>ج.م</div></div>
         </div>
-        {/* Stale models alert */}
-        {staleModels.length>0&&<div style={{padding:12,borderRadius:12,background:"#FEF2F2",border:"1px solid #EF444420",marginBottom:14}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-            <div style={{fontWeight:800,color:"#EF4444",fontSize:FS}}>{"⚠️ موديلات راكدة ("+staleModels.length+")"}</div>
-            <Btn small onClick={()=>{let h="<h2>⚠️ تقرير الموديلات الراكدة</h2><p style='margin-bottom:12px'>موديلات في المخزن بدون حركة بيع لأكثر من 14 يوم</p>";
-              h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>الرصيد</th><th>آخر حركة</th><th>الأيام</th><th>الحالة</th></tr></thead><tbody>";
-              staleModels.forEach(m=>{h+="<tr style='background:"+(m.days>=30?"#FEF2F2":"transparent")+"'><td style='font-weight:800'>"+m.modelNo+"</td><td>"+m.modelDesc+"</td><td style='text-align:center;font-weight:700;color:#F59E0B'>"+m.avail+"</td><td style='text-align:center'>"+m.lastDate+"</td><td style='text-align:center;font-weight:800;color:"+(m.days>=30?"#EF4444":"#F59E0B")+"'>"+m.days+"</td><td style='text-align:center'>"+(m.days>=30?"🔴 حرج":"🟡 تحذير")+"</td></tr>"});
-              h+="</tbody></table>";printPage("تقرير الموديلات الراكدة",h,{factoryName:config.factoryName,logo:config.logo})}} style={{background:"#EF444412",color:"#EF4444",border:"1px solid #EF444430"}}>🖨</Btn>
-          </div>
-          <div style={{display:"flex",flexDirection:"column",gap:4}}>
-            {staleModels.slice(0,5).map(m=><div key={m.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",borderRadius:8,background:"#fff",border:"1px solid #EF444410"}}>
-              <div><span style={{fontWeight:700,color:T.accent}}>{m.modelNo}</span><span style={{fontSize:FS-3,color:T.textMut,marginRight:6}}>{" "+m.modelDesc}</span></div>
-              <div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{fontSize:FS-2,color:"#F59E0B",fontWeight:700}}>{m.avail+" قطعة"}</span><span style={{fontSize:FS-2,fontWeight:800,color:m.days>=30?"#EF4444":"#F59E0B"}}>{m.days+" يوم"}</span></div>
-            </div>)}
-            {staleModels.length>5&&<div style={{textAlign:"center",fontSize:FS-2,color:"#EF4444",fontWeight:600}}>{"و "+( staleModels.length-5)+" موديل آخر..."}</div>}
-          </div>
-        </div>}
+        {/* V16.17: Stale-models alert moved to bottom of page (rendered before closing div) */}
       </div>})()}
     {/* Season Report Popup */}
     {seasonReport&&(()=>{
@@ -2565,7 +2549,17 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       </div>})()}
     {/* Stock Receive from Finishing - استلام مخزن جاهز */}
     {stockRcv&&(()=>{const rcvItems=stockRcv.items||{};
-      const available=orders.filter(o=>{const wds=o.workshopDeliveries||[];const rcvFromWs=wds.reduce((s,wd)=>s+(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0),0);const allDel=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return rcvFromWs-allDel>0}).map(o=>{const wds=o.workshopDeliveries||[];const rcvFromWs=wds.reduce((s,wd)=>s+(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0),0);const allDel=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const pending=(o.deliveries||[]).filter(d=>d.status==="pending").reduce((s,d)=>s+(Number(d.qty)||0),0);return{id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,fromFinishing:rcvFromWs-allDel,pendingQty:pending,rackSize:getRackSize(o.id)}});
+      /* V16.18: compute once and filter on the same value displayed.
+         Old code had filter+map run rcvFromWs-allDel twice, which can drift
+         and let zero-balance rows leak in if the data has any inconsistency. */
+      const available=orders.map(o=>{
+        const wds=o.workshopDeliveries||[];
+        const rcvFromWs=wds.reduce((s,wd)=>s+(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0),0);
+        const allDel=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
+        const pending=(o.deliveries||[]).filter(d=>d.status==="pending").reduce((s,d)=>s+(Number(d.qty)||0),0);
+        const fromFinishing=Math.max(0,Math.round(rcvFromWs-allDel));
+        return{id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,fromFinishing,pendingQty:pending,rackSize:getRackSize(o.id)};
+      }).filter(m=>m.fromFinishing>0);
       const stockScanMode=stockRcv.scanMode||"series";/* "series" | "piece" */
       /* Update module-level variable (not a hook — safe inside IIFE) */
       _stockRcvScanMode=stockScanMode;
@@ -2920,7 +2914,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       /* Share via WhatsApp */
       const doWhatsapp=()=>{
         const msg=encodeURIComponent(buildWaMsg());
-        window.open("https://wa.me/?text="+msg,"_blank");
+        openWA("https://wa.me/?text="+msg,"_blank");
       };
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setLastReceiptReport(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:640,maxHeight:"92vh",display:"flex",flexDirection:"column",border:"2px solid #10B981",boxShadow:"0 25px 70px rgba(0,0,0,0.45)"}}>
@@ -3439,7 +3433,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           <Btn onClick={()=>{printCustLabels(shipPopup.cust,aMods,aGrid,activeSess.date,shipPopup.total,shipCount);setShipPopup(null)}} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700}}>{"🖨 طباعة "+shipCount+" ليبل"}</Btn>
           <Btn onClick={()=>{const lines=aMods.map(m=>{const q=Number(aGrid[m.id+"_"+shipPopup.cust.id])||0;return q>0?"• موديل *"+m.modelNo+"*: *"+q+"* قطعة":null}).filter(Boolean).join("%0A");
             const msg="*CLARK — تسليم عميل*%0A%0A• العميل: *"+shipPopup.cust.name+"*%0A• التاريخ: *"+activeSess.date+"*%0A• عدد الشحنات: *"+shipCount+"* شحنة%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+shipPopup.total+"* قطعة%0A%0A⚠️ *برجاء التأكد من استلام "+shipCount+" شحنات كاملة*%0A%0A*برجاء التأكيد*";
-            window.open("https://wa.me/"+(shipPopup.cust.phone?shipPopup.cust.phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank");setShipPopup(null)}} style={{background:"#25D366",color:"#fff",border:"none",fontWeight:700}} title="ارسال عبر واتساب">📱 واتساب</Btn>
+            openWA("https://wa.me/"+(shipPopup.cust.phone?shipPopup.cust.phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank");setShipPopup(null)}} style={{background:"#25D366",color:"#fff",border:"none",fontWeight:700}} title="ارسال عبر واتساب">📱 واتساب</Btn>
         </div>
       </div>
     </div>}
@@ -3542,6 +3536,35 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         </div>:null}
       </div>
     </div>}
+    {/* V16.17: Stale models alert — moved here from top of page so it sits at the very end of the dashboard, after the rest of the content */}
+    {(()=>{
+      const now=new Date();
+      const staleModels=stockModels.filter(m=>{if(m.avail<=0)return false;const o=orders.find(x=>x.id===m.id);if(!o)return false;
+        const lastSaleDate=(o.customerDeliveries||[]).reduce((latest,d)=>d.date>latest?d.date:latest,"");
+        const lastStockDate=(o.deliveries||[]).reduce((latest,d)=>d.date>latest?d.date:latest,"");
+        const refDate=lastSaleDate||lastStockDate||o.date;const days=Math.floor((now-new Date(refDate))/86400000);return days>=14}).map(m=>{
+        const o=orders.find(x=>x.id===m.id);const lastSaleDate=(o?.customerDeliveries||[]).reduce((latest,d)=>d.date>latest?d.date:latest,"");
+        const lastStockDate=(o?.deliveries||[]).reduce((latest,d)=>d.date>latest?d.date:latest,"");
+        const refDate=lastSaleDate||lastStockDate||o?.date||"";const days=Math.floor((now-new Date(refDate))/86400000);
+        return{...m,days,lastDate:refDate}}).sort((a,b)=>b.days-a.days);
+      if(staleModels.length===0)return null;
+      return<div style={{padding:12,borderRadius:12,background:"#FEF2F2",border:"1px solid #EF444420",marginTop:24,marginBottom:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div style={{fontWeight:800,color:"#EF4444",fontSize:FS}}>{"⚠️ موديلات راكدة ("+staleModels.length+")"}</div>
+          <Btn small onClick={()=>{let h="<h2>⚠️ تقرير الموديلات الراكدة</h2><p style='margin-bottom:12px'>موديلات في المخزن بدون حركة بيع لأكثر من 14 يوم</p>";
+            h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>الرصيد</th><th>آخر حركة</th><th>الأيام</th><th>الحالة</th></tr></thead><tbody>";
+            staleModels.forEach(m=>{h+="<tr style='background:"+(m.days>=30?"#FEF2F2":"transparent")+"'><td style='font-weight:800'>"+m.modelNo+"</td><td>"+m.modelDesc+"</td><td style='text-align:center;font-weight:700;color:#F59E0B'>"+m.avail+"</td><td style='text-align:center'>"+m.lastDate+"</td><td style='text-align:center;font-weight:800;color:"+(m.days>=30?"#EF4444":"#F59E0B")+"'>"+m.days+"</td><td style='text-align:center'>"+(m.days>=30?"🔴 حرج":"🟡 تحذير")+"</td></tr>"});
+            h+="</tbody></table>";printPage("تقرير الموديلات الراكدة",h,{factoryName:config.factoryName,logo:config.logo})}} style={{background:"#EF444412",color:"#EF4444",border:"1px solid #EF444430"}}>🖨</Btn>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          {staleModels.slice(0,5).map(m=><div key={m.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",borderRadius:8,background:"#fff",border:"1px solid #EF444410"}}>
+            <div><span style={{fontWeight:700,color:T.accent}}>{m.modelNo}</span><span style={{fontSize:FS-3,color:T.textMut,marginRight:6}}>{" "+m.modelDesc}</span></div>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{fontSize:FS-2,color:"#F59E0B",fontWeight:700}}>{m.avail+" قطعة"}</span><span style={{fontSize:FS-2,fontWeight:800,color:m.days>=30?"#EF4444":"#F59E0B"}}>{m.days+" يوم"}</span></div>
+          </div>)}
+          {staleModels.length>5&&<div style={{textAlign:"center",fontSize:FS-2,color:"#EF4444",fontWeight:600}}>{"و "+( staleModels.length-5)+" موديل آخر..."}</div>}
+        </div>
+      </div>;
+    })()}
   </div>
 }
 

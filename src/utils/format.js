@@ -32,6 +32,32 @@ function _dayIdx(dateStr){
 export function dayName(dateStr){return _DAYS_SHORT[_dayIdx(dateStr)]}
 export function dayNameFull(dateStr){return _DAYS_FULL[_dayIdx(dateStr)]}
 
+/* V16.18: Reliable WhatsApp opener — replaces direct window.open calls that were
+   silently popup-blocked across the app (workshops, customers, sales, treasury…).
+   Uses an anchor element click which Chrome/Edge/Safari treat as a direct user gesture
+   even when the click handler did expensive sync work first. Falls back to
+   window.open and finally writes the message to the clipboard so the user can
+   paste it manually. The url is "https://wa.me/<phone>?text=<encoded>". */
+export function openWA(url){
+  if(!url)return;
+  try{
+    const a=document.createElement("a");
+    a.href=url;a.target="_blank";a.rel="noopener noreferrer";
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+  }catch(e){
+    try{window.open(url,"_blank")}catch(e2){}
+  }
+  /* Best-effort clipboard fallback so the user can paste the message manually
+     if all open attempts were silently blocked. We extract the ?text= portion. */
+  try{
+    const i=url.indexOf("?text=");
+    if(i>=0&&navigator.clipboard){
+      const txt=decodeURIComponent(url.slice(i+6).replace(/%0A/g,"\n"));
+      navigator.clipboard.writeText(txt).catch(()=>{});
+    }
+  }catch(e){}
+}
+
 /* Convert decimal hours (e.g., 13.95) to display format "HH:MM" (e.g., "13:57").
    - 13.95 → "13:57"  (0.95 * 60 = 57 minutes)
    - 8.5   → "8:30"

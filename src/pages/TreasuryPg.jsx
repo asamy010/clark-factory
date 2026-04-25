@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { FS } from "../constants/index.js";
-import { gid, fmt, fmt0, r2, _esc, dayName, dayNameFull } from "../utils/format.js";
+import { gid, fmt, fmt0, r2, _esc, dayName, dayNameFull, openWA } from "../utils/format.js";
 import { playBeep } from "../utils/audio.js";
 import { addAudit } from "../utils/audit.js";
 import { showToast } from "../utils/popups.js";
@@ -1004,12 +1004,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const msg=buildDailyWaMessage(date,accountName);
     const cleanPhone=(phone||"").replace(/[^0-9]/g,"");
     const url="https://wa.me/"+cleanPhone+"?text="+encodeURIComponent(msg);
-    const waWin=window.open(url,"_blank");
-    if(!waWin){
-      /* Popup blocked — copy message to clipboard as a fallback so user can paste */
-      try{navigator.clipboard&&navigator.clipboard.writeText(msg)}catch(e){}
-      showToast("⛔ المتصفح يمنع النوافذ — تم نسخ الرسالة، الصقها يدوياً في واتساب");
-    }
+    openWA(url);
     setWaPopupData(null);
   };
 

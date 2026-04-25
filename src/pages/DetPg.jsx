@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import { Badge, Btn, Card, DelBtn, FCTable, Inp, MetricCard, SearchSel, Sel, Timeline } from "../components/ui.jsx";
 import { DEFAULT_STATUSES, FCOL, FKEYS, FS } from "../constants/index.js";
 import { T, TD, TDB, TDL, TH } from "../theme.js";
-import { fmt, gIcon, gc, gcons, gdate, gf, gid, r2, slay, sqty } from "../utils/format.js";
+import { fmt, gIcon, gc, gcons, gdate, gf, gid, r2, slay, sqty, openWA } from "../utils/format.js";
 import { calcOrder, detectQtyMismatch, getConfirmedStock, getOrderDetails, getOrderTimeline, mkOrder, planCutSync, recomputeStatus, sortOrders, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
 import { addAudit } from "../utils/audit.js";
 import { ask, highlightRow, showToast } from "../utils/popups.js";
@@ -42,6 +42,9 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   const[dWs,setDWs]=useState("");const[dType,setDType]=useState("");const[dQty,setDQty]=useState(0);const[dPrice,setDPrice]=useState("");const[dNote,setDNote]=useState("");const[dDate,setDDate]=useState(new Date().toISOString().split("T")[0]);const[dAgreed,setDAgreed]=useState("");
   const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
   const workshops=data.workshops||[];
+  const customers=data.customers||[];
+  /* V16.16: collapsible sales-to-customers section on order detail card */
+  const[salesExpand,setSalesExpand]=useState(false);
   const isInternal=(name)=>{const w=workshops.find(x=>x.name===name);return w?wsIsInternal(w.type):false};
   useEffect(()=>{const h=()=>{if(!window.__qrStock||!order)return;delete window.__qrStock;updOrder(sel,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty:0,notes:"",createdBy:userName||"",status:"pending"})});setTimeout(()=>{setEditStockIdx((order.deliveries||[]).length);setTimeout(()=>{const inp=document.querySelector("#stock-qty-input-wrap input");if(inp)inp.focus()},300)},200)};window.addEventListener("qr-stock",h);return()=>window.removeEventListener("qr-stock",h)},[order,sel]);
 
@@ -347,16 +350,35 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                 <span style={{fontSize:FS-1,fontWeight:800,color:"#8B5CF6"}}>{Math.ceil(t.costPer)} ج.م</span>
               </div>
 
-              {/* Workshop chips (if any) */}
-              {wds.length>0&&(()=>{const wsGroup={};wds.forEach(wd=>{if(!wsGroup[wd.wsName])wsGroup[wd.wsName]=[];wsGroup[wd.wsName].push(wd)});
-                const names=Object.keys(wsGroup);
-                return<div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-                  {names.slice(0,3).map(name=>{const items=wsGroup[name];const totalDel=items.reduce((s,wd)=>s+(Number(wd.qty)||0),0);const totalRcv=items.reduce((s,wd)=>s+(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0),0);const bal=totalDel-totalRcv;
-                    return<span key={name} style={{fontSize:FS-3,padding:"3px 8px",borderRadius:5,background:bal>0?T.warn+"10":T.ok+"10",color:bal>0?T.warn:T.ok,border:"1px solid "+(bal>0?T.warn:T.ok)+"20",fontWeight:700,display:"inline-flex",alignItems:"center",gap:3,whiteSpace:"nowrap"}}>
-                      <span>🏭</span><span>{name}</span><span style={{opacity:0.7}}>({bal>0?bal+" متبقي":"✓"})</span>
-                    </span>;
+              {/* Workshop chips (if any) — V16.14: grouped per workshop+piece type, with delivered/received/balance for in-card tracking */}
+              {wds.length>0&&(()=>{
+                /* Group by ws+garmentType to surface per-piece numbers on the card */
+                const grp={};
+                wds.forEach(wd=>{
+                  const ws=wd.wsName;const pc=wd.garmentType||"عام";
+                  const k=ws+"|"+pc;
+                  if(!grp[k])grp[k]={ws,piece:pc,del:0,rcv:0};
+                  grp[k].del+=Number(wd.qty)||0;
+                  (wd.receives||[]).forEach(r=>{grp[k].rcv+=Number(r.qty)||0});
+                });
+                const rows=Object.values(grp).map(g=>({...g,bal:g.del-g.rcv}))
+                  .sort((a,b)=>b.bal-a.bal);/* highest pending first */
+                return<div style={{display:"flex",flexDirection:"column",gap:4}}>
+                  {rows.slice(0,3).map((g,i)=>{
+                    const c=g.bal>0?T.warn:T.ok;
+                    return<div key={i} style={{padding:"5px 8px",borderRadius:6,background:c+"08",border:"1px solid "+c+"22",display:"flex",flexDirection:"column",gap:3}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
+                        <span style={{fontSize:FS-3,fontWeight:800,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>🏭 {g.ws}</span>
+                        <span style={{fontSize:FS-3,fontWeight:700,color:T.textMut,whiteSpace:"nowrap"}}>{g.piece}</span>
+                      </div>
+                      <div style={{display:"flex",gap:4,fontSize:FS-3,fontWeight:700,fontVariantNumeric:"tabular-nums"}}>
+                        <span style={{flex:1,padding:"2px 5px",borderRadius:4,background:T.accent+"10",color:T.accent,textAlign:"center"}} title="تسليم">📤 {g.del}</span>
+                        <span style={{flex:1,padding:"2px 5px",borderRadius:4,background:T.ok+"10",color:T.ok,textAlign:"center"}} title="استلام">📥 {g.rcv}</span>
+                        <span style={{flex:1,padding:"2px 5px",borderRadius:4,background:c+"15",color:c,textAlign:"center"}} title="رصيد عند الورشة">{g.bal>0?"⏳ "+g.bal:"✓ 0"}</span>
+                      </div>
+                    </div>;
                   })}
-                  {names.length>3&&<span style={{fontSize:FS-3,padding:"3px 8px",borderRadius:5,background:T.bg,color:T.textMut,fontWeight:700}}>+{names.length-3}</span>}
+                  {rows.length>3&&<span style={{fontSize:FS-3,padding:"3px 8px",borderRadius:5,background:T.bg,color:T.textMut,fontWeight:700,textAlign:"center"}}>+{rows.length-3} أخرى</span>}
                 </div>;
               })()}
 
@@ -375,7 +397,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
     {waPopup&&(()=>{const wo=waPopup.order;const wt=waPopup.t||calcOrder(wo);const timeline=getOrderTimeline(wo,wt);const hasTimeline=!!timeline;
       const sendWa=async(withTimeline)=>{let text=getOrderDetails(wo,wt);if(withTimeline&&timeline)text+=timeline;
         if(wo.image&&navigator.canShare){try{const res=await fetch(wo.image);const blob=await res.blob();const file=new File([blob],wo.modelNo+".jpg",{type:blob.type||"image/jpeg"});if(navigator.canShare({files:[file]})){await navigator.share({title:"CLARK — "+wo.modelNo,text,files:[file]});setWaSent(p=>({...p,[wo.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[wo.id];return n}),60000);setWaPopup(null);return}}catch(e){}}
-        window.open("https://wa.me/?text="+encodeURIComponent(text),"_blank");setWaSent(p=>({...p,[wo.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[wo.id];return n}),60000);setWaPopup(null)};
+        openWA("https://wa.me/?text="+encodeURIComponent(text),"_blank");setWaSent(p=>({...p,[wo.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[wo.id];return n}),60000);setWaPopup(null)};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setWaPopup(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:380,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{textAlign:"center",marginBottom:16}}><div style={{fontSize:20,marginBottom:4}}>📱</div><div style={{fontSize:FS+1,fontWeight:800,color:"#25D366"}}>ارسال واتساب</div><div style={{fontSize:FS-1,color:T.textSec}}>{wo.modelNo+" — "+wo.modelDesc}</div></div>
@@ -829,7 +851,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                       <div onClick={e=>{e.stopPropagation();printWorkshopReport(order,wsName)}} className="ws-action-btn" style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>
                         <span>🖨</span><span>طباعة الكشف</span>
                       </div>
-                      {wsObj?.phone&&<div onClick={e=>{e.stopPropagation();const msg="*CLARK — متابعة تشغيل*%0A%0A• الورشة: *"+wsName+"*%0A• الموديل: *"+order.modelNo+"*%0A• تسليم: *"+wsDel+"*%0A• استلام: *"+wsRcv+"*%0A• رصيد: *"+wsBal+"*%0A"+(wsBal>0?"%0A⚠️ *برجاء الاهتمام بالتسليم*":"%0A✅ *الحمد لله - مكتمل*");window.open("https://wa.me/"+(wsObj.phone.replace(/[^0-9]/g,""))+"?text="+msg,"_blank")}} className="ws-action-btn" style={{background:"#25D36608",color:"#25D366",border:"1px solid #25D36625"}}>
+                      {wsObj?.phone&&<div onClick={e=>{e.stopPropagation();const msg="*CLARK — متابعة تشغيل*%0A%0A• الورشة: *"+wsName+"*%0A• الموديل: *"+order.modelNo+"*%0A• تسليم: *"+wsDel+"*%0A• استلام: *"+wsRcv+"*%0A• رصيد: *"+wsBal+"*%0A"+(wsBal>0?"%0A⚠️ *برجاء الاهتمام بالتسليم*":"%0A✅ *الحمد لله - مكتمل*");openWA("https://wa.me/"+(wsObj.phone.replace(/[^0-9]/g,""))+"?text="+msg,"_blank")}} className="ws-action-btn" style={{background:"#25D36608",color:"#25D366",border:"1px solid #25D36625"}}>
                         <span>📱</span><span>واتساب للورشة</span>
                       </div>}
                     </div>
@@ -890,6 +912,71 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           </Card>})()}
           {/* ── Settlement & Close ── */}
       </div>
+
+      {/* V16.16: Sales to customers — collapsible block.
+          Reads o.customerDeliveries / o.customerReturns directly off the order
+          (already populated by the cust-deliver flow), so no scan of sessions. */}
+      {(()=>{
+        const dels=order.customerDeliveries||[];
+        const rets=order.customerReturns||[];
+        if(dels.length===0&&rets.length===0)return null;
+        /* Aggregate per customer */
+        const byCust={};
+        dels.forEach(d=>{
+          const k=d.custId||"_unknown";
+          if(!byCust[k])byCust[k]={custId:k,del:0,ret:0,lastDate:"",dels:[],rets:[]};
+          byCust[k].del+=Number(d.qty)||0;
+          byCust[k].dels.push(d);
+          if((d.date||"")>byCust[k].lastDate)byCust[k].lastDate=d.date||"";
+        });
+        rets.forEach(r=>{
+          const k=r.custId||"_unknown";
+          if(!byCust[k])byCust[k]={custId:k,del:0,ret:0,lastDate:"",dels:[],rets:[]};
+          byCust[k].ret+=Number(r.qty)||0;
+          byCust[k].rets.push(r);
+          if((r.date||"")>byCust[k].lastDate)byCust[k].lastDate=r.date||"";
+        });
+        const rows=Object.values(byCust).map(x=>({...x,net:x.del-x.ret}))
+          .filter(x=>x.del>0||x.ret>0)
+          .sort((a,b)=>b.net-a.net);
+        const totalDel=rows.reduce((s,x)=>s+x.del,0);
+        const totalRet=rows.reduce((s,x)=>s+x.ret,0);
+        const totalNet=totalDel-totalRet;
+        return<Card style={{marginBottom:16}}>
+          <div onClick={()=>setSalesExpand(!salesExpand)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",userSelect:"none",gap:10,flexWrap:"wrap"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:FS+4}}>{salesExpand?"▼":"◀"}</span>
+              <span style={{fontSize:FS+1,fontWeight:800,color:"#10B981"}}>📦 المبيعات للعملاء</span>
+              <span style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>({rows.length} عميل)</span>
+            </div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",fontSize:FS-2,fontWeight:700,fontVariantNumeric:"tabular-nums"}}>
+              <span style={{padding:"4px 10px",borderRadius:6,background:"#10B98110",color:"#047857",border:"1px solid #10B98130"}}>📤 تسليم: {fmt(totalDel)}</span>
+              {totalRet>0&&<span style={{padding:"4px 10px",borderRadius:6,background:"#EF444410",color:"#B91C1C",border:"1px solid #EF444430"}}>↩️ مرتجع: {fmt(totalRet)}</span>}
+              <span style={{padding:"4px 10px",borderRadius:6,background:"#0EA5E910",color:"#0369A1",border:"1px solid #0EA5E930"}}>🛒 صافي مبيع: {fmt(totalNet)}</span>
+            </div>
+          </div>
+          {salesExpand&&<div style={{marginTop:14,paddingTop:14,borderTop:"1px solid "+T.brd}}>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",minWidth:520}}>
+                <thead><tr>{["العميل","تليفون","تسليم","مرتجع","صافي","آخر حركة"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {rows.map(x=>{const c=customers.find(cc=>cc.id===x.custId);
+                    return<tr key={x.custId} style={{borderBottom:"1px solid "+T.brd}}>
+                      <td style={{...TD,fontWeight:700}}>{c?c.name:"— (عميل محذوف)"}</td>
+                      <td style={{...TD,fontSize:FS-2,color:T.textMut,direction:"ltr",textAlign:"right"}}>{c?.phone||"—"}</td>
+                      <td style={{...TD,color:"#047857",fontWeight:800,fontVariantNumeric:"tabular-nums"}}>{fmt(x.del)}</td>
+                      <td style={{...TD,color:x.ret>0?"#B91C1C":T.textMut,fontWeight:700,fontVariantNumeric:"tabular-nums"}}>{x.ret>0?fmt(x.ret):"—"}</td>
+                      <td style={{...TD,color:"#0369A1",fontWeight:800,fontVariantNumeric:"tabular-nums"}}>{fmt(x.net)}</td>
+                      <td style={{...TD,fontSize:FS-2,color:T.textMut,direction:"ltr",textAlign:"right"}}>{x.lastDate||"—"}</td>
+                    </tr>;
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>}
+        </Card>;
+      })()}
+
       {/* Attachments */}
       {(order.attachments||[]).length>0&&<Card title="ملفات مرفقة" style={{marginBottom:16}}><div style={{display:"flex",flexWrap:"wrap",gap:10}}>{order.attachments.map((a,i)=><a key={i} href={a.data} download={a.name} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"10px 16px",borderRadius:10,background:T.accentBg,border:"1px solid "+T.brd,fontSize:FS,color:T.accent,fontWeight:600,textDecoration:"none"}}>{"📎 "+a.name}</a>)}</div></Card>}
       <Card title="ملخص تكلفة الموديل" accent={"linear-gradient(135deg,"+T.accent+","+T.accent+"CC)"}>
@@ -1047,7 +1134,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
     {waPopup&&(()=>{const wo=waPopup.order;const wt=waPopup.t||calcOrder(wo);const timeline=getOrderTimeline(wo,wt);const hasTimeline=!!timeline;
       const sendWa=async(withTimeline)=>{let text=getOrderDetails(wo,wt);if(withTimeline&&timeline)text+=timeline;
         if(wo.image&&navigator.canShare){try{const res=await fetch(wo.image);const blob=await res.blob();const file=new File([blob],wo.modelNo+".jpg",{type:blob.type||"image/jpeg"});if(navigator.canShare({files:[file]})){await navigator.share({title:"CLARK — "+wo.modelNo,text,files:[file]});setWaSent(p=>({...p,[wo.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[wo.id];return n}),60000);setWaPopup(null);return}}catch(e){}}
-        window.open("https://wa.me/?text="+encodeURIComponent(text),"_blank");setWaSent(p=>({...p,[wo.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[wo.id];return n}),60000);setWaPopup(null)};
+        openWA("https://wa.me/?text="+encodeURIComponent(text),"_blank");setWaSent(p=>({...p,[wo.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[wo.id];return n}),60000);setWaPopup(null)};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setWaPopup(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:380,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{textAlign:"center",marginBottom:16}}>
@@ -1090,7 +1177,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           showToast("✓ تم التسليم — "+dWs);setShowDeliver(false);
           if(print){setTimeout(()=>{const pOrd=data.orders.find(o=>o.id===sel)||order;printReceipt(dWs,wsObj?wsObj.owner:"",pOrd,saveType,saveQty,saveDate,maxQty-saveQty,data.garmentTypes)},400)}
           if(label){setTimeout(()=>{const pOrd=data.orders.find(o=>o.id===sel)||order;printLabel(dWs,pOrd,saveType,saveQty,saveDate,data.garmentTypes,{type:"deliver",delDate:saveDate,delQty:saveQty})},400)}
-          if(wa){const phone=wsObj?.phone||"";const msg="*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+dWs+"*%0A• رقم الموديل: *"+order.modelNo+"*%0A• الوصف: "+order.modelDesc+"%0A• نوع القطعة: *"+saveType+"*%0A• كمية التسليم: *"+saveQty+"* قطعة%0A• السعر: *"+(savePrice||0)+"* ج.م/قطعة%0A• التاريخ: *"+saveDate+"*"+(Number(dAgreed)>0?"%0A• مدة التسليم المتفق عليها: *"+dAgreed+"* يوم%0A• موعد التسليم المتوقع: *"+new Date(new Date(saveDate).getTime()+Number(dAgreed)*86400000).toISOString().split("T")[0]+"*":"")+"%0A%0A*برجاء التأكيد*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
+          if(wa){const phone=wsObj?.phone||"";const msg="*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+dWs+"*%0A• رقم الموديل: *"+order.modelNo+"*%0A• الوصف: "+order.modelDesc+"%0A• نوع القطعة: *"+saveType+"*%0A• كمية التسليم: *"+saveQty+"* قطعة%0A• السعر: *"+(savePrice||0)+"* ج.م/قطعة%0A• التاريخ: *"+saveDate+"*"+(Number(dAgreed)>0?"%0A• مدة التسليم المتفق عليها: *"+dAgreed+"* يوم%0A• موعد التسليم المتوقع: *"+new Date(new Date(saveDate).getTime()+Number(dAgreed)*86400000).toISOString().split("T")[0]+"*":"")+"%0A%0A*برجاء التأكيد*";openWA("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
         }catch(e){console.error("doDeliver error:",e);showToast("⚠️ خطأ في حفظ التسليم")}
       };
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowDeliver(false)}>
