@@ -5,7 +5,7 @@
    Contains: DetPg
    ═══════════════════════════════════════════════════════════════ */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Badge, Btn, Card, DelBtn, FCTable, Inp, MetricCard, SearchSel, Sel, Timeline } from "../components/ui.jsx";
 import { DEFAULT_STATUSES, FCOL, FKEYS, FS } from "../constants/index.js";
 import { T, TD, TDB, TDL, TH } from "../theme.js";
@@ -48,7 +48,29 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   /* V16.16: collapsible sales-to-customers section on order detail card */
   const[salesExpand,setSalesExpand]=useState(false);
   const isInternal=(name)=>{const w=workshops.find(x=>x.name===name);return w?wsIsInternal(w.type):false};
-  useEffect(()=>{const h=()=>{if(!window.__qrStock||!order)return;delete window.__qrStock;updOrder(sel,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty:0,notes:"",createdBy:userName||"",status:"pending"})});setTimeout(()=>{setEditStockIdx((order.deliveries||[]).length);setTimeout(()=>{const inp=document.querySelector("#stock-qty-input-wrap input");if(inp)inp.focus()},300)},200)};window.addEventListener("qr-stock",h);return()=>window.removeEventListener("qr-stock",h)},[order,sel]);
+  /* V16.26: keep a fresh ref to data so the QR-stock listener can read the
+     latest order even when sel hasn't changed (effect captures closures). */
+  const dataRef=useRef(data);
+  useEffect(()=>{dataRef.current=data},[data]);
+  /* V16.26: QR-stock listener — uses dataRef to avoid stale closure on order.
+     Captures the deliveries length BEFORE the push so the new item's index
+     is deterministic regardless of how long the state update takes. */
+  useEffect(()=>{
+    const h=()=>{
+      if(!window.__qrStock)return;
+      const currentOrder=dataRef.current.orders.find(o=>o.id===sel);
+      if(!currentOrder)return;
+      delete window.__qrStock;
+      const newIdx=(currentOrder.deliveries||[]).length;/* index after push */
+      updOrder(sel,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty:0,notes:"",createdBy:userName||"",status:"pending"})});
+      setTimeout(()=>{
+        setEditStockIdx(newIdx);
+        setTimeout(()=>{const inp=document.querySelector("#stock-qty-input-wrap input");if(inp)inp.focus()},300);
+      },200);
+    };
+    window.addEventListener("qr-stock",h);
+    return()=>window.removeEventListener("qr-stock",h);
+  },[sel]);// eslint-disable-line react-hooks/exhaustive-deps
 
   if(dupInit)return<OrdForm data={data} initial={dupInit} onSave={o=>{addOrder(o);setDupInit(null);showToast("✓ تم تكرار الأوردر")}} onCancel={()=>setDupInit(null)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
   if(showNew)return<OrdForm data={data} initial={mkOrder()} onSave={o=>{addOrder(o);setShowNew(false);showToast("✓ تم اضافة أمر القص")}} onCancel={()=>setShowNew(false)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
@@ -899,7 +921,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
             else{canStock=true}
           }
           const stockDel=getConfirmedStock(order);const pendingDel=(order.deliveries||[]).filter(d=>d.status==="pending").reduce((s,d)=>s+(Number(d.qty)||0),0);const stockRemain=Math.max(0,t.cutQty-stockDel-pendingDel);
-          return<Card title={"تسليم مخزن جاهز"+((order.deliveries||[]).some(d=>d.status==="pending")?" ⏳":"")} extra={canEdit&&canStock&&<Btn primary small onClick={()=>updOrder(sel,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty:0,notes:"",createdBy:userName||"",status:"pending"});setTimeout(()=>setEditStockIdx(o.deliveries.length-1),100)})}>+ تسليم</Btn>}>
+          return<Card title={"تسليم مخزن جاهز"+((order.deliveries||[]).some(d=>d.status==="pending")?" ⏳":"")} extra={canEdit&&canStock&&<Btn primary small onClick={()=>updOrder(sel,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty:0,notes:"",createdBy:userName||"",status:"pending"});const newIdx=o.deliveries.length-1;/* V16.26: capture before setTimeout to avoid stale draft */setTimeout(()=>setEditStockIdx(newIdx),100)})}>+ تسليم</Btn>}>
             {!canStock&&<div style={{padding:10,background:T.err+"10",border:"1px solid "+T.err+"30",borderRadius:8,marginBottom:10,fontSize:FS,color:T.err,fontWeight:600}}>{blockMsg}</div>}
             <div style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap"}}>
               <span style={{padding:"6px 12px",borderRadius:8,background:T.err+"12",color:T.err,fontWeight:700,fontSize:FS}}>{"كمية القص: "+t.cutQty}</span>
@@ -1174,7 +1196,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       const linkedPieces=new Set();FKEYS.forEach(k=>{if(gf(order,k))(order["fabricPieces"+k]||[]).forEach(p=>linkedPieces.add(p))});
       const hasFabric=FKEYS.some(k=>gf(order,k));
       const isLinked=p=>hasFabric&&(linkedPieces.size===0||linkedPieces.has(p));
-      const availPieces=pieces.filter(p=>{if(!isLinked(p))return false;const delForP=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return delForP<t.cutQty});
+      const availPieces=pieces.filter(p=>{if(!isLinked(p))return false;const delForP=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return delForP<getPieceCutQty(order,p)});
       const totalDelForType=dType?(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===dType).reduce((s,wd)=>s+(Number(wd.qty)||0),0):0;
       /* V16.24: per-piece cut qty (falls back to global cutQty if no override set) */
       const pieceCutForType=dType?getPieceCutQty(order,dType):t.cutQty;
@@ -1314,10 +1336,15 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           if(!o.pieceCutQty)o.pieceCutQty={};
           pieces.forEach(p=>{
             const v=Number(pieceCutPopup.draft[p]);
-            if(isNaN(v)||v===globalCut)delete o.pieceCutQty[p];/* match global → clear override */
+            if(isNaN(v)){delete o.pieceCutQty[p];return}
+            /* V16.26: clear redundant overrides — if value equals what auto-derive
+               would yield without this override, no need to store. Prevents stale
+               overrides from sticking around if fabric cut changes later. */
+            const probeMap={...o.pieceCutQty};delete probeMap[p];
+            const auto=getPieceCutQty({...o,pieceCutQty:probeMap},p);
+            if(v===auto)delete o.pieceCutQty[p];
             else o.pieceCutQty[p]=v;
           });
-          /* Clean up empty map */
           if(Object.keys(o.pieceCutQty).length===0)delete o.pieceCutQty;
         });
         setPieceCutPopup(null);

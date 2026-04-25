@@ -291,6 +291,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[tfFrom,setTfFrom]=useState("");const[tfTo,setTfTo]=useState("");
   const[tfAmount,setTfAmount]=useState("");const[tfNote,setTfNote]=useState("");
   const[tfDate,setTfDate]=useState("");/* custom date for transfer (defaults to today when popup opens) */
+  /* V16.26: Edit transfer popup — null | {id, fromAccount, toAccount, amount, note, date} */
+  const[editTf,setEditTf]=useState(null);
   /* Checks */
   const checks=(data.checks||[]);
   const[showCheckForm,setShowCheckForm]=useState(false);
@@ -685,6 +687,46 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(tf.sentByEmail){d.notifications.unshift({id:gid(),type:"transfer_rejected",msg:"❌ تم رفض طلب التحويل: "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+" → "+tf.toAccount,toEmail:tf.sentByEmail,transferId:tfId,read:false,by:userName,createdAt:new Date().toISOString()})}
     });
     showToast("✓ تم رفض الطلب")};
+  /* V16.26: Edit a confirmed transfer — updates the transfer record AND
+     both treasury legs (out from source, in to target) atomically.
+     The desc strings are regenerated from current accounts so they stay
+     consistent with the new from/to. day is recomputed from new date. */
+  const editTransferSave=()=>{
+    if(!editTf)return;
+    const amt=parseFloat(editTf.amount);
+    if(!editTf.fromAccount||!editTf.toAccount){showToast("⚠️ اختر الخزنة المصدر والهدف");return}
+    if(editTf.fromAccount===editTf.toAccount){showToast("⛔ لا يمكن التحويل لنفس الخزنة");return}
+    if(!amt||amt<=0){showToast("⚠️ أدخل مبلغ صحيح");return}
+    if(!editTf.date){showToast("⚠️ أدخل التاريخ");return}
+    const dayN=dayName(editTf.date);
+    upConfig(d=>{
+      const tf=(d.treasuryTransfers||[]).find(t=>t.id===editTf.id);
+      if(!tf)return;
+      tf.fromAccount=editTf.fromAccount;
+      tf.toAccount=editTf.toAccount;
+      tf.amount=amt;
+      tf.note=editTf.note||"";
+      tf.date=editTf.date;
+      tf.editedBy=userName;
+      tf.editedAt=new Date().toISOString();
+      /* Sync both treasury legs */
+      (d.treasury||[]).forEach(t=>{
+        if(t.transferId!==editTf.id)return;
+        t.amount=amt;
+        t.date=editTf.date;
+        t.day=dayN;
+        if(t.type==="out"){
+          t.account=editTf.fromAccount;
+          t.desc="تحويل إلى "+editTf.toAccount+(editTf.note?" — "+editTf.note:"");
+        }else if(t.type==="in"){
+          t.account=editTf.toAccount;
+          t.desc="تحويل من "+editTf.fromAccount+(editTf.note?" — "+editTf.note:"");
+        }
+      });
+    });
+    setEditTf(null);
+    showToast("✓ تم تعديل التحويل وحركاته في السجلين");
+  };
   /* Delete a transfer — removes both entries */
   const deleteTransfer=(tfId)=>{const tf=transfers.find(t=>t.id===tfId);if(!tf)return;
     upConfig(d=>{
@@ -1522,7 +1564,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                     <span onClick={()=>openConfirm({title:"تأكيد التحويل",message:"سيتم تسجيل منصرف من "+tf.fromAccount+" ووارد على "+tf.toAccount+"\nالمبلغ: "+fmt(tf.amount)+" ج.م",variant:"success",onConfirm:()=>approveTransfer(tf.id)})} style={{cursor:"pointer",fontSize:11,color:"#fff",padding:"4px 10px",borderRadius:6,background:T.ok,fontWeight:700}}>✓ تأكيد</span>
                     <span onClick={()=>openConfirm({title:"رفض الطلب",message:"سيتم حذف طلب التحويل نهائياً.\nمن "+tf.fromAccount+" إلى "+tf.toAccount+"\nالمبلغ: "+fmt(tf.amount)+" ج.م",variant:"danger",onConfirm:()=>rejectTransfer(tf.id)})} style={{cursor:"pointer",fontSize:11,color:"#fff",padding:"4px 10px",borderRadius:6,background:T.err,fontWeight:700}}>✗ رفض</span>
                   </div>}
-                  {!isPending&&canEdit&&<span onClick={()=>openConfirm({title:"حذف التحويل",message:"سيتم حذف التحويل وحركاته في السجلين معاً.\nمن "+tf.fromAccount+" إلى "+tf.toAccount+"\nالمبلغ: "+fmt(tf.amount)+" ج.م",variant:"danger",onConfirm:()=>deleteTransfer(tf.id)})} style={{cursor:"pointer",fontSize:11,color:T.err,padding:"2px 8px",borderRadius:6,border:"1px solid "+T.err+"30",background:T.err+"08"}}>🗑️ حذف</span>}
+                  {!isPending&&canEdit&&<div style={{display:"flex",gap:6}}>
+                    <span onClick={()=>setEditTf({id:tf.id,fromAccount:tf.fromAccount,toAccount:tf.toAccount,amount:String(tf.amount),note:tf.note||"",date:tf.date})} style={{cursor:"pointer",fontSize:11,color:"#8B5CF6",padding:"2px 8px",borderRadius:6,border:"1px solid #8B5CF640",background:"#8B5CF608"}}>✏️ تعديل</span>
+                    <span onClick={()=>openConfirm({title:"حذف التحويل",message:"سيتم حذف التحويل وحركاته في السجلين معاً.\nمن "+tf.fromAccount+" إلى "+tf.toAccount+"\nالمبلغ: "+fmt(tf.amount)+" ج.م",variant:"danger",onConfirm:()=>deleteTransfer(tf.id)})} style={{cursor:"pointer",fontSize:11,color:T.err,padding:"2px 8px",borderRadius:6,border:"1px solid "+T.err+"30",background:T.err+"08"}}>🗑️ حذف</span>
+                  </div>}
                 </div>
               </div>
             </div>})}
@@ -1877,6 +1922,38 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
           <Btn ghost onClick={()=>setShowTransfer(false)}>إلغاء</Btn>
           <Btn onClick={submitTransfer} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:700}}>🔄 إرسال التحويل</Btn>
+        </div>
+      </div>
+    </div>}
+
+    {/* V16.26: Edit confirmed transfer — same fields as create, syncs both treasury legs on save */}
+    {editTf&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setEditTf(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:480,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>✏️ تعديل تحويل</div>
+          <Btn ghost small onClick={()=>setEditTf(null)}>✕</Btn>
+        </div>
+        <div style={{padding:"8px 12px",borderRadius:8,background:"#F59E0B10",border:"1px solid #F59E0B30",fontSize:FS-2,color:"#92400E",marginBottom:12,lineHeight:1.6}}>
+          ⚠️ التعديل بيحدّث التحويل والحركتين في الخزنتين معاً تلقائياً
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>📅 تاريخ التحويل</label>
+            <Inp type="date" value={editTf.date} onChange={v=>setEditTf({...editTf,date:v})}/>
+          </div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>من خزنة</label>
+            <Sel value={editTf.fromAccount} onChange={v=>setEditTf({...editTf,fromAccount:v})}><option value="">— اختر —</option>{accountsData.map(a=><option key={a.id} value={a.name}>{a.name}{a.ownerEmail?" ("+a.ownerEmail.split("@")[0]+")":""}</option>)}</Sel></div>
+          <div style={{display:"flex",justifyContent:"center",margin:"4px 0"}}><span style={{fontSize:22,color:"#8B5CF6"}}>↓</span></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>إلى خزنة</label>
+            <Sel value={editTf.toAccount} onChange={v=>setEditTf({...editTf,toAccount:v})}><option value="">— اختر —</option>{accountsData.filter(a=>a.name!==editTf.fromAccount).map(a=><option key={a.id} value={a.name}>{a.name}{a.ownerEmail?" ("+a.ownerEmail.split("@")[0]+")":""}</option>)}</Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المبلغ (ج.م)</label>
+            <Inp type="number" value={editTf.amount} onChange={v=>setEditTf({...editTf,amount:v})} placeholder="0"/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات (اختياري)</label>
+            <Inp value={editTf.note} onChange={v=>setEditTf({...editTf,note:v})} placeholder="سبب التحويل..."/></div>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
+          <Btn ghost onClick={()=>setEditTf(null)}>إلغاء</Btn>
+          <Btn onClick={editTransferSave} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:700}}>💾 حفظ التعديل</Btn>
         </div>
       </div>
     </div>}
