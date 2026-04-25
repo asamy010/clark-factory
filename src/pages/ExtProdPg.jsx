@@ -50,6 +50,10 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
   const[editPrice,setEditPrice]=useState(0);
   const[editDate,setEditDate]=useState("");
   const[editQuality,setEditQuality]=useState("");
+  /* V16.10: Transfer delivery between workshops state */
+  const[transferMov,setTransferMov]=useState(null);/* {orderId, wdIdx, from, modelNo, qty, garmentType} */
+  const[transferToWs,setTransferToWs]=useState("");
+  const[transferReason,setTransferReason]=useState("");
   const workshops=data.workshops||[];
   const isInternal=(name)=>{const w=workshops.find(x=>x.name===name);return w?wsIsInternal(w.type):false};
   const extWorkshops=workshops.filter(w=>!wsIsInternal(w.type));
@@ -90,6 +94,60 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
     const ws=(data.workshops||[]).find(w=>w.name===m.wsName);
     if(m.type==="deliver")printReceipt(m.wsName||"",ws?ws.owner:"",ord||{modelNo:m.orderNo||"",modelDesc:m.orderDesc||""},m.garmentType||"",m.qty,m.date,0,data.garmentTypes);
     else printReceiveReceipt(m.wsName||"",ord||{modelNo:m.orderNo||"",modelDesc:m.orderDesc||""},m.garmentType||"",m.qty,m.date,0,data.garmentTypes)
+  };
+
+  /* V16.10: Transfer a delivery from one workshop to another.
+     Updates wd.wsName + cascades to all receives. Logs the transfer in transferHistory. */
+  const startTransferMov=(m)=>{
+    if(m.type!=="deliver"){showToast("⚠️ يمكن نقل التسليمات فقط (وليس الاستلامات)");return}
+    setTransferMov(m);
+    setTransferToWs("");
+    setTransferReason("");
+  };
+  const saveTransferMov=()=>{
+    if(!transferMov)return;
+    const newWs=transferToWs.trim();
+    if(!newWs){showToast("⚠️ اختر الورشة الجديدة");return}
+    if(newWs===transferMov.wsName){showToast("⚠️ الورشة الجديدة هي نفسها الحالية");return}
+    const newWsObj=workshops.find(w=>w.name===newWs);
+    if(!newWsObj){showToast("⛔ الورشة غير موجودة");return}
+    const fromWs=transferMov.wsName;
+    const today=new Date().toISOString().split("T")[0];
+    const transferNote="🔀 نُقل من "+fromWs+" إلى "+newWs+" بتاريخ "+today+(transferReason?" — "+transferReason:"");
+    updOrder(transferMov.orderId,o=>{
+      const wd=o.workshopDeliveries[transferMov.wdIdx];
+      if(!wd)return;
+      /* Build transfer history entry (preserves audit trail) */
+      if(!Array.isArray(wd.transferHistory))wd.transferHistory=[];
+      wd.transferHistory.push({
+        from:fromWs,
+        fromId:wd.wsId||null,
+        to:newWs,
+        toId:newWsObj.id||null,
+        date:today,
+        reason:transferReason||"",
+        by:user?.displayName||user?.email||"",
+        at:new Date().toISOString(),
+      });
+      /* Update workshop assignment */
+      wd.wsName=newWs;
+      wd.wsId=newWsObj.id||null;
+      wd.wsType=newWsObj.type||"";
+      wd.wsOwner=newWsObj.owner||"";
+      /* Append transfer note to existing notes */
+      wd.notes=(wd.notes?wd.notes+" | ":"")+transferNote;
+      /* Cascade to receives — they're tied to the same wd, so wsName follows automatically.
+         But if any receive has its own wsName (legacy), update it too */
+      if(Array.isArray(wd.receives)){
+        wd.receives.forEach(r=>{
+          if(r.wsName)r.wsName=newWs;
+        });
+      }
+    });
+    setTransferMov(null);
+    setTransferToWs("");
+    setTransferReason("");
+    showToast("✅ تم نقل التسليم من "+fromWs+" إلى "+newWs+" — حسابات الورش تحدثت تلقائياً");
   };
 
   const wsObj=workshops.find(w=>(w.name||w)===(selWs));
@@ -494,6 +552,7 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
             <Btn small onClick={()=>{const ord=data.orders.find(o=>o.id===m.orderId);if(!ord)return;const wd=(ord.workshopDeliveries||[])[m.wdIdx];if(!wd)return;if(m.type==="deliver")printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"deliver",delDate:m.date,delQty:m.qty});else{printLabel(m.wsName,ord,m.garmentType,m.qty,m.date,data.garmentTypes,{type:"receive",delDate:wd.date,delQty:wd.qty,rcvDate:m.date,rcvQty:m.qty})}}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}} title="طباعة ليبل حراري">🏷️</Btn>
             <Btn small onClick={()=>{const wsObj=workshops.find(w=>w.name===m.wsName);const phone=wsObj?.phone||"";const _ord=data.orders.find(o=>o.id===m.orderId);const _wd=_ord?((_ord.workshopDeliveries||[])[m.wdIdx]):null;const _delQty=_wd?Number(_wd.qty)||0:0;const _allRcv=_wd?(_wd.receives||[]):[];const _totalRcv=_allRcv.reduce((s,r)=>s+(Number(r.qty)||0),0);const _wsBal=_delQty-_totalRcv;const msg=m.type==="deliver"?"*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+m.wsName+"*%0A• رقم الموديل: *"+m.orderNo+"*%0A• الوصف: "+m.orderDesc+"%0A• نوع القطعة: *"+(m.garmentType||"عام")+"*%0A• الكمية: *"+m.qty+"* قطعة%0A• السعر: *"+(m.price||0)+"* ج.م/قطعة%0A• التاريخ: *"+m.date+"*%0A%0A*برجاء التأكيد*":"*CLARK — اذن استلام من ورشة*%0A%0A• الورشة: *"+m.wsName+"*%0A• رقم الموديل: *"+m.orderNo+"*%0A• الوصف: "+m.orderDesc+"%0A• نوع القطعة: *"+(m.garmentType||"عام")+"*%0A%0A━━━━━━━━━━━━━━%0A📤 تسليم للورشة: *"+_delQty+"* قطعة%0A📥 استلام مصنع: *"+_totalRcv+"* قطعة%0A📥 استلام اليوم: *"+m.qty+"* قطعة%0A📊 الرصيد عند الورشة: *"+Math.max(0,_wsBal)+"* قطعة%0A━━━━━━━━━━━━━━%0A%0A• التاريخ: *"+m.date+"*";window.open("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال واتساب">📱</Btn>
             <Btn small onClick={()=>startEditMov(m)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
+            {m.type==="deliver"&&<Btn small onClick={()=>startTransferMov(m)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="نقل التسليم لورشة أخرى">🔀</Btn>}
             <DelBtn onConfirm={()=>delMovement(m)} blocked={getMovBlock(m)}/></>}
           </div>}</td>
         </tr>}):<tr><td colSpan={10} style={{...TD,textAlign:"center",color:T.textSec,padding:30}}>لا توجد حركات</td></tr>}</tbody>
@@ -503,6 +562,50 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
         {fMov.length>movLimit&&<Btn small onClick={()=>setMovLimit(p=>p+25)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>{"عرض المزيد (+25)"}</Btn>}
       </div></div>})()}
     </Card>
+    {/* V16.10: Transfer delivery between workshops popup */}
+    {transferMov&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={()=>setTransferMov(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:22,width:"100%",maxWidth:520,border:"2px solid #8B5CF6",boxShadow:"0 25px 80px rgba(0,0,0,0.4)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"1px solid "+T.brd}}>
+          <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>🔀 نقل التسليم لورشة أخرى</div>
+          <Btn ghost small onClick={()=>setTransferMov(null)}>✕</Btn>
+        </div>
+        <div style={{padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd,marginBottom:14}}>
+          <div style={{fontSize:FS-2,color:T.textMut,marginBottom:4}}>التسليم الحالي:</div>
+          <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:6}}>الموديل: <b style={{color:T.accent}}>{transferMov.orderNo}</b></div>
+          <div style={{fontSize:FS-1,color:T.textSec,lineHeight:1.7}}>
+            <div>📤 من: <b style={{color:T.warn}}>{transferMov.wsName}</b></div>
+            <div>📦 الكمية: <b>{transferMov.qty}</b> قطعة {transferMov.garmentType?"("+transferMov.garmentType+")":""}</div>
+            <div>📅 تاريخ التسليم الأصلي: {transferMov.date}</div>
+            {Number(transferMov.price)>0&&<div>💰 سعر التشغيل: {transferMov.price} ج.م/قطعة</div>}
+          </div>
+        </div>
+        <div style={{marginBottom:14}}>
+          <label style={{fontSize:FS-1,color:T.textSec,fontWeight:700,display:"block",marginBottom:6}}>الورشة الجديدة <span style={{color:T.err}}>*</span></label>
+          <Sel value={transferToWs} onChange={setTransferToWs}>
+            <option value="">-- اختر ورشة --</option>
+            {workshops.filter(w=>w.name!==transferMov.wsName&&!w.archived).map(w=>
+              <option key={w.id||w.name} value={w.name}>{w.name}{w.owner?" (صاحبها: "+w.owner+")":""}</option>
+            )}
+          </Sel>
+        </div>
+        <div style={{marginBottom:16}}>
+          <label style={{fontSize:FS-1,color:T.textSec,fontWeight:700,display:"block",marginBottom:6}}>سبب النقل (اختياري)</label>
+          <Inp value={transferReason} onChange={setTransferReason} placeholder="مثال: تأخر التسليم — تم سحبها لورشة أخرى"/>
+        </div>
+        <div style={{padding:10,borderRadius:8,background:T.warn+"08",border:"1px solid "+T.warn+"30",fontSize:FS-2,color:T.textSec,lineHeight:1.7,marginBottom:14}}>
+          <b style={{color:T.warn}}>⚠️ ما يحدث عند الحفظ:</b>
+          <div style={{marginTop:4}}>• حساب <b>{transferMov.wsName}</b> ينقص بقيمة هذا التسليم</div>
+          <div>• حساب الورشة الجديدة يزيد بنفس القيمة</div>
+          <div>• كل الاستلامات (إن وُجدت) تنتقل للورشة الجديدة</div>
+          <div>• يُسجَّل في "ملاحظات" التسليم: من أين وإلى أين النقل</div>
+          <div>• يُحفظ سجل كامل في تاريخ التسليم (audit trail)</div>
+        </div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <Btn ghost onClick={()=>setTransferMov(null)}>إلغاء</Btn>
+          <Btn primary onClick={saveTransferMov} disabled={!transferToWs} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:800,padding:"10px 20px"}}>🔀 تأكيد النقل</Btn>
+        </div>
+      </div>
+    </div>}
   </div>;
 
   /* ── DELIVER MODE ── */

@@ -490,12 +490,20 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       supplierPayments:JSON.parse(JSON.stringify(data.supplierPayments||[])),
       wsPayments:JSON.parse(JSON.stringify(data.wsPayments||[])),
       hrLog:JSON.parse(JSON.stringify(data.hrLog||[])),
+      treasuryTransfers:JSON.parse(JSON.stringify(data.treasuryTransfers||[])),
     };
     const _label="حذف حركة: "+(txCheck?.desc||"غير معروف").slice(0,40)+(txCheck?.amount?" ("+Number(txCheck.amount).toLocaleString()+" ج)":"");
     upConfig(d=>{
     /* Remove linked cust/supplier/ws payments + hrLog advances */
     const tx=(d.treasury||[]).find(t=>t.id===id);
-    d.treasury=(d.treasury||[]).filter(t=>t.id!==id);
+    /* V16.9: If this tx is part of a transfer, delete BOTH legs + the transfer record */
+    if(tx&&tx.transferId){
+      d.treasury=(d.treasury||[]).filter(t=>t.transferId!==tx.transferId);
+      d.treasuryTransfers=(d.treasuryTransfers||[]).filter(tf=>tf.id!==tx.transferId);
+      d.notifications=(d.notifications||[]).filter(n=>n.transferId!==tx.transferId);
+    }else{
+      d.treasury=(d.treasury||[]).filter(t=>t.id!==id);
+    }
     if(tx){if(d.custPayments)d.custPayments=d.custPayments.filter(p=>p.treasuryTxId!==id);
       if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>p.treasuryTxId!==id);
       if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>p.treasuryTxId!==id);
@@ -514,10 +522,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           d.supplierPayments=_snap.supplierPayments;
           d.wsPayments=_snap.wsPayments;
           d.hrLog=_snap.hrLog;
+          d.treasuryTransfers=_snap.treasuryTransfers;
         });
       }
     });
-    showToast("✓ تم الحذف")};
+    showToast(txCheck&&txCheck.transferId?"✓ تم حذف التحويل بالكامل":"✓ تم الحذف")};
   /* Bulk delete multiple transactions — respects day lock + audit log */
   const bulkDeleteTxs=(ids)=>{
     if(!ids||ids.length===0)return;
@@ -533,12 +542,19 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     upConfig(d=>{
       const toDelete=(d.treasury||[]).filter(t=>ids.includes(t.id));
       let deletedCount=0,skippedCount=0,totalAmount=0,adminBypassCount=0;
+      /* V16.9: Track transferIds to remove (so we delete the transfer record + paired leg only once) */
+      const transferIdsToDelete=new Set();
       toDelete.forEach(tx=>{
         /* Skip if day is locked and user is not admin */
         if(isDayLocked(tx.date)&&!isAdmin){skippedCount++;return}
         /* Track admin bypass of delete lock */
         if(isAdmin&&lockDelete)adminBypassCount++;
-        d.treasury=(d.treasury||[]).filter(t=>t.id!==tx.id);
+        /* V16.9: If this tx is part of a transfer, mark transferId for full removal */
+        if(tx.transferId){
+          transferIdsToDelete.add(tx.transferId);
+        }else{
+          d.treasury=(d.treasury||[]).filter(t=>t.id!==tx.id);
+        }
         if(d.custPayments)d.custPayments=d.custPayments.filter(p=>p.treasuryTxId!==tx.id);
         if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>p.treasuryTxId!==tx.id);
         if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>p.treasuryTxId!==tx.id);
@@ -546,6 +562,12 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         if(tx.sourceType==="hr_advance"&&tx.empId&&d.hrLog)d.hrLog=d.hrLog.filter(l=>!(l.type==="advance"&&l.empId===tx.empId&&l.date===tx.date&&Math.abs((Number(l.amount)||0)-(Number(tx.amount)||0))<0.01));
         deletedCount++;totalAmount+=Number(tx.amount)||0;
       });
+      /* V16.9: Now batch-remove all transfer records + their paired legs */
+      if(transferIdsToDelete.size>0){
+        d.treasury=(d.treasury||[]).filter(t=>!t.transferId||!transferIdsToDelete.has(t.transferId));
+        d.treasuryTransfers=(d.treasuryTransfers||[]).filter(tf=>!transferIdsToDelete.has(tf.id));
+        if(d.notifications)d.notifications=d.notifications.filter(n=>!n.transferId||!transferIdsToDelete.has(n.transferId));
+      }
       /* Audit log: bulk delete */
       if(deletedCount>0&&typeof addAudit==="function"){
         addAudit(d,{category:"settings",action:"bulk_delete_journal",
@@ -760,54 +782,54 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const scopeLabel=accountName?accountName:"كل الحسابات";
     const dayN=["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"][new Date(date).getDay()];
     let rows="";let runBal=openBal;
-    /* V16.7: Tighter rows + smaller text + alternating background colors for readability */
-    const cellBase="padding:3px 5px;border-bottom:1px solid #E2E8F0;text-align:right;vertical-align:middle;font-size:8.5px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
-    const cellWrap="padding:3px 5px;border-bottom:1px solid #E2E8F0;text-align:right;vertical-align:middle;font-size:8.5px;line-height:1.3;word-wrap:break-word";
-    const numCell=cellBase+";font-weight:700;font-variant-numeric:tabular-nums;direction:ltr;text-align:left";
+    /* V16.8: Tahoma/Arial render Arabic correctly in html2pdf. NO white-space:nowrap on description (causes letter breaks).
+       Removed text-overflow:ellipsis — let descriptions wrap naturally instead of being cut mid-letter. */
+    const cellBase="padding:4px 6px;border-bottom:1px solid #E2E8F0;text-align:right;vertical-align:middle;font-size:10px;line-height:1.5";
+    const cellNum="padding:4px 6px;border-bottom:1px solid #E2E8F0;text-align:left;vertical-align:middle;font-size:10px;line-height:1.5;font-weight:700;font-variant-numeric:tabular-nums;direction:ltr";
     dayTxns.forEach((t,idx)=>{
       if(t.type==="in")runBal+=(Number(t.amount)||0);else runBal-=(Number(t.amount)||0);
-      const rowBg=idx%2===0?"#FFFFFF":"#F8FAFC";
-      rows+=`<tr style="background:${rowBg}"><td style="${numCell}">${fmt(r2(runBal))}</td><td style="${cellBase}">${t.date}</td><td style="${numCell};color:#059669">${t.type==="in"?fmt(r2(t.amount)):"—"}</td><td style="${numCell};color:#DC2626">${t.type==="out"?fmt(r2(t.amount)):"—"}</td><td style="${cellWrap}">${_esc(t.desc||"—")}</td><td style="${cellWrap};color:#64748B;font-size:8px">${_esc(t.notes||"")}</td><td style="${cellBase};font-size:8px">${_esc(t.category||"—")}</td><td style="${cellBase};font-size:8px">${_esc(t.account||"")}</td></tr>`;
+      const rowBg=idx%2===0?"#FFFFFF":"#F1F5F9";
+      rows+=`<tr style="background:${rowBg}"><td style="${cellNum}">${fmt(r2(runBal))}</td><td style="${cellBase};direction:ltr;text-align:center">${t.date}</td><td style="${cellNum};color:#059669">${t.type==="in"?fmt(r2(t.amount)):"—"}</td><td style="${cellNum};color:#DC2626">${t.type==="out"?fmt(r2(t.amount)):"—"}</td><td style="${cellBase}">${_esc(t.desc||"—")}</td><td style="${cellBase};color:#64748B;font-size:9px">${_esc(t.notes||"")}</td><td style="${cellBase};font-size:9px">${_esc(t.category||"—")}</td><td style="${cellBase};font-size:9px">${_esc(t.account||"")}</td></tr>`;
     });
     /* Accounts footer (only when showing all accounts) */
     const accFoot=accountName?"":accounts.map(acc=>{const ab=accBalances[acc]||{in:0,out:0};return`<div style="padding:4px 8px;border-radius:4px;background:#F8FAFC;border:1px solid #E2E8F0;font-size:9px">${acc}<b style="display:block;font-weight:800;font-size:11px;color:#0284C7;margin-top:1px;font-variant-numeric:tabular-nums">${fmt(r2(ab.in-ab.out))}</b></div>`}).join("");
     const accFootBlock=accFoot?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:8px;border-top:1px dashed #CBD5E1">${accFoot}</div>`:"";
-    /* V16.7: Compact accounting layout — smaller text, tighter spacing, alternating rows */
-    const html=`<div id="daily-report-content" style="font-family:'Cairo',sans-serif;padding:12px;direction:rtl;background:#fff;color:#1E293B;line-height:1.4;font-size:9.5px">
-      <div style="height:3px;background:linear-gradient(90deg,#0EA5E9,#8B5CF6);margin-bottom:8px"></div>
-      <div style="display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:6px;border-bottom:1px solid #CBD5E1;margin-bottom:8px">
+    /* V16.8: Tahoma/Arial render Arabic correctly in html2pdf. Cairo (web font) breaks letter joining. */
+    const html=`<div id="daily-report-content" style="font-family:Tahoma,Arial,sans-serif;padding:14px;direction:rtl;background:#fff;color:#1E293B;line-height:1.5;font-size:10px">
+      <div style="height:3px;background:linear-gradient(90deg,#0EA5E9,#8B5CF6);margin-bottom:10px"></div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:8px;border-bottom:1px solid #CBD5E1;margin-bottom:10px">
         <div>
-          <div style="font-size:13px;font-weight:800;color:#0F172A;letter-spacing:0.2px">تقرير يومية الصندوق</div>
-          <div style="font-size:9px;color:#64748B;margin-top:2px;font-weight:600">${scopeLabel}</div>
+          <div style="font-size:14px;font-weight:800;color:#0F172A">تقرير يومية الصندوق</div>
+          <div style="font-size:10px;color:#64748B;margin-top:2px;font-weight:600">${scopeLabel}</div>
         </div>
-        <div style="text-align:left;font-size:8.5px;color:#64748B;line-height:1.5">
+        <div style="text-align:left;font-size:9.5px;color:#64748B;line-height:1.6">
           <div>التاريخ: <b style="color:#334155;font-weight:700">${date}</b> — ${dayN}</div>
           <div>عدد الحركات: <b style="color:#334155;font-weight:700">${dayTxns.length}</b></div>
           <div>الطباعة: <b style="color:#334155;font-weight:700">${new Date().toLocaleDateString("ar-EG")}</b></div>
         </div>
       </div>
-      <div style="display:flex;gap:5px;justify-content:space-between;margin:8px 0;flex-wrap:wrap">
-        <div style="flex:1;padding:5px 8px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:110px"><div style="font-size:8px;color:#64748B;margin-bottom:1px;font-weight:600">رصيد افتتاحي</div><div style="font-size:11px;font-weight:800;color:#0284C7;font-variant-numeric:tabular-nums">${fmt(r2(openBal))}</div></div>
-        <div style="flex:1;padding:5px 8px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:110px"><div style="font-size:8px;color:#64748B;margin-bottom:1px;font-weight:600">وارد</div><div style="font-size:11px;font-weight:800;color:#059669;font-variant-numeric:tabular-nums">${fmt(r2(dIn))}</div></div>
-        <div style="flex:1;padding:5px 8px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:110px"><div style="font-size:8px;color:#64748B;margin-bottom:1px;font-weight:600">منصرف</div><div style="font-size:11px;font-weight:800;color:#DC2626;font-variant-numeric:tabular-nums">${fmt(r2(dOut))}</div></div>
-        <div style="flex:1;padding:5px 8px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:110px"><div style="font-size:8px;color:#64748B;margin-bottom:1px;font-weight:600">صافي اليوم</div><div style="font-size:11px;font-weight:800;font-variant-numeric:tabular-nums">${fmt(r2(dIn-dOut))}</div></div>
-        <div style="flex:1;padding:5px 8px;border-radius:4px;border:1px solid #0EA5E9;background:#F0F9FF;min-width:110px"><div style="font-size:8px;color:#64748B;margin-bottom:1px;font-weight:600">رصيد اقفال</div><div style="font-size:11px;font-weight:800;color:#0369A1;font-variant-numeric:tabular-nums">${fmt(r2(closeBal))}</div></div>
+      <div style="display:flex;gap:6px;justify-content:space-between;margin:10px 0;flex-wrap:wrap">
+        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px"><div style="font-size:9px;color:#64748B;margin-bottom:2px;font-weight:600">رصيد افتتاحي</div><div style="font-size:12px;font-weight:800;color:#0284C7;font-variant-numeric:tabular-nums">${fmt(r2(openBal))}</div></div>
+        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px"><div style="font-size:9px;color:#64748B;margin-bottom:2px;font-weight:600">وارد</div><div style="font-size:12px;font-weight:800;color:#059669;font-variant-numeric:tabular-nums">${fmt(r2(dIn))}</div></div>
+        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px"><div style="font-size:9px;color:#64748B;margin-bottom:2px;font-weight:600">منصرف</div><div style="font-size:12px;font-weight:800;color:#DC2626;font-variant-numeric:tabular-nums">${fmt(r2(dOut))}</div></div>
+        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px"><div style="font-size:9px;color:#64748B;margin-bottom:2px;font-weight:600">صافي اليوم</div><div style="font-size:12px;font-weight:800;font-variant-numeric:tabular-nums">${fmt(r2(dIn-dOut))}</div></div>
+        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #0EA5E9;background:#F0F9FF;min-width:120px"><div style="font-size:9px;color:#64748B;margin-bottom:2px;font-weight:600">رصيد اقفال</div><div style="font-size:12px;font-weight:800;color:#0369A1;font-variant-numeric:tabular-nums">${fmt(r2(closeBal))}</div></div>
       </div>
-      <table style="width:100%;border-collapse:collapse;margin:6px 0;font-size:8.5px;table-layout:fixed">
+      <table style="width:100%;border-collapse:collapse;margin:8px 0;font-size:10px">
         <thead><tr>
-          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 4px;text-align:right;font-size:9px;width:11%">الرصيد</th>
-          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 4px;text-align:right;font-size:9px;width:9%">التاريخ</th>
-          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 4px;text-align:right;font-size:9px;width:9%">وارد</th>
-          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 4px;text-align:right;font-size:9px;width:9%">منصرف</th>
-          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 4px;text-align:right;font-size:9px;width:25%">البيان</th>
-          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 4px;text-align:right;font-size:9px;width:14%">ملاحظات</th>
-          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 4px;text-align:right;font-size:9px;width:13%">التصنيف</th>
-          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 4px;text-align:right;font-size:9px;width:10%">الحساب</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:6px 6px;text-align:right;font-size:10px;width:11%">الرصيد</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:6px 6px;text-align:center;font-size:10px;width:9%">التاريخ</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:6px 6px;text-align:right;font-size:10px;width:9%">وارد</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:6px 6px;text-align:right;font-size:10px;width:9%">منصرف</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:6px 6px;text-align:right;font-size:10px;width:25%">البيان</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:6px 6px;text-align:right;font-size:10px;width:14%">ملاحظات</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:6px 6px;text-align:right;font-size:10px;width:13%">التصنيف</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:6px 6px;text-align:right;font-size:10px;width:10%">الحساب</th>
         </tr></thead>
         <tbody>${rows||'<tr><td colspan="8" style="padding:20px;text-align:center;color:#94A3B8;font-style:italic">لا توجد حركات في هذا اليوم</td></tr>'}</tbody>
       </table>
       ${accFootBlock}
-      <div style="margin-top:10px;padding:5px 0;border-top:1px solid #E2E8F0;display:flex;justify-content:space-between;font-size:8px;color:#94A3B8">
+      <div style="margin-top:12px;padding:6px 0;border-top:1px solid #E2E8F0;display:flex;justify-content:space-between;font-size:9px;color:#94A3B8">
         <span>CLARK Factory Management System</span>
         <span>${new Date().toLocaleDateString("ar-EG")}</span>
       </div>
@@ -826,6 +848,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     container.style.width="210mm";/* A4 width for consistent rendering */
     document.body.appendChild(container);
     showToast("⏳ جاري إنشاء PDF...");
+    /* V16.8: Wait for Arabic web fonts to load before rendering — prevents broken letters */
+    try{if(document.fonts&&document.fonts.ready)await document.fonts.ready}catch(e){}
     /* Build filename: include account name if specified */
     const accSuffix=accountName?"_"+accountName.replace(/\s+/g,"-"):"";
     const filename="يومية"+accSuffix+"_"+date+".pdf";
@@ -833,9 +857,18 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       await window.html2pdf().set({
         margin:[10,10,10,10],
         filename,
-        image:{type:"jpeg",quality:0.95},
-        html2canvas:{scale:2,useCORS:true,letterRendering:true},
-        jsPDF:{unit:"mm",format:"a4",orientation:"portrait"}
+        image:{type:"jpeg",quality:0.98},
+        /* V16.8: letterRendering disabled — it BREAKS Arabic letter joining (causes split letters in PDF).
+           Higher scale (3x) compensates for sharpness loss. */
+        html2canvas:{
+          scale:3,
+          useCORS:true,
+          letterRendering:false,
+          allowTaint:false,
+          backgroundColor:"#ffffff",
+          logging:false,
+        },
+        jsPDF:{unit:"mm",format:"a4",orientation:"portrait",compress:true}
       }).from(container.firstChild).save();
       showToast("✅ تم حفظ الـ PDF");
     }catch(e){showToast("❌ فشل إنشاء PDF: "+e.message)}
