@@ -760,50 +760,54 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const scopeLabel=accountName?accountName:"كل الحسابات";
     const dayN=["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"][new Date(date).getDay()];
     let rows="";let runBal=openBal;
-    /* V15.44: Professional row style — compact padding (4-6px), thin borders, tabular numbers */
-    const cellBase="padding:4px 6px;border-bottom:1px solid #F1F5F9;text-align:right;vertical-align:top;font-size:9.5px";
-    const numCell=cellBase+";font-weight:700;font-variant-numeric:tabular-nums";
-    dayTxns.forEach(t=>{if(t.type==="in")runBal+=(Number(t.amount)||0);else runBal-=(Number(t.amount)||0);
-      rows+=`<tr><td style="${numCell}">${fmt(r2(runBal))}</td><td style="${cellBase}">${t.date}</td><td style="${numCell};color:#059669">${t.type==="in"?fmt(r2(t.amount)):""}</td><td style="${numCell};color:#DC2626">${t.type==="out"?fmt(r2(t.amount)):""}</td><td style="${cellBase}">${_esc(t.desc||"—")}</td><td style="${cellBase};color:#94A3B8;font-size:8.5px">${_esc(t.notes||"")}</td><td style="${cellBase}">${_esc(t.category||"—")}</td><td style="${cellBase}">${_esc(t.account||"")}</td></tr>`});
+    /* V16.7: Tighter rows + smaller text + alternating background colors for readability */
+    const cellBase="padding:3px 5px;border-bottom:1px solid #E2E8F0;text-align:right;vertical-align:middle;font-size:8.5px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
+    const cellWrap="padding:3px 5px;border-bottom:1px solid #E2E8F0;text-align:right;vertical-align:middle;font-size:8.5px;line-height:1.3;word-wrap:break-word";
+    const numCell=cellBase+";font-weight:700;font-variant-numeric:tabular-nums;direction:ltr;text-align:left";
+    dayTxns.forEach((t,idx)=>{
+      if(t.type==="in")runBal+=(Number(t.amount)||0);else runBal-=(Number(t.amount)||0);
+      const rowBg=idx%2===0?"#FFFFFF":"#F8FAFC";
+      rows+=`<tr style="background:${rowBg}"><td style="${numCell}">${fmt(r2(runBal))}</td><td style="${cellBase}">${t.date}</td><td style="${numCell};color:#059669">${t.type==="in"?fmt(r2(t.amount)):"—"}</td><td style="${numCell};color:#DC2626">${t.type==="out"?fmt(r2(t.amount)):"—"}</td><td style="${cellWrap}">${_esc(t.desc||"—")}</td><td style="${cellWrap};color:#64748B;font-size:8px">${_esc(t.notes||"")}</td><td style="${cellBase};font-size:8px">${_esc(t.category||"—")}</td><td style="${cellBase};font-size:8px">${_esc(t.account||"")}</td></tr>`;
+    });
     /* Accounts footer (only when showing all accounts) */
     const accFoot=accountName?"":accounts.map(acc=>{const ab=accBalances[acc]||{in:0,out:0};return`<div style="padding:4px 8px;border-radius:4px;background:#F8FAFC;border:1px solid #E2E8F0;font-size:9px">${acc}<b style="display:block;font-weight:800;font-size:11px;color:#0284C7;margin-top:1px;font-variant-numeric:tabular-nums">${fmt(r2(ab.in-ab.out))}</b></div>`}).join("");
     const accFootBlock=accFoot?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:8px;border-top:1px dashed #CBD5E1">${accFoot}</div>`:"";
-    /* V15.44: Professional accounting-report layout — compact, clean, printer-ready */
-    const html=`<div id="daily-report-content" style="font-family:'Cairo',sans-serif;padding:14px;direction:rtl;background:#fff;color:#1E293B;line-height:1.45;font-size:10px">
-      <div style="height:3px;background:linear-gradient(90deg,#0EA5E9,#8B5CF6);margin-bottom:10px"></div>
-      <div style="display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:8px;border-bottom:1px solid #CBD5E1;margin-bottom:10px">
+    /* V16.7: Compact accounting layout — smaller text, tighter spacing, alternating rows */
+    const html=`<div id="daily-report-content" style="font-family:'Cairo',sans-serif;padding:12px;direction:rtl;background:#fff;color:#1E293B;line-height:1.4;font-size:9.5px">
+      <div style="height:3px;background:linear-gradient(90deg,#0EA5E9,#8B5CF6);margin-bottom:8px"></div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:6px;border-bottom:1px solid #CBD5E1;margin-bottom:8px">
         <div>
-          <div style="font-size:14px;font-weight:800;color:#0F172A;letter-spacing:0.2px">تقرير يومية الصندوق</div>
-          <div style="font-size:10px;color:#64748B;margin-top:2px;font-weight:600">${scopeLabel}</div>
+          <div style="font-size:13px;font-weight:800;color:#0F172A;letter-spacing:0.2px">تقرير يومية الصندوق</div>
+          <div style="font-size:9px;color:#64748B;margin-top:2px;font-weight:600">${scopeLabel}</div>
         </div>
-        <div style="text-align:left;font-size:9px;color:#64748B;line-height:1.5">
+        <div style="text-align:left;font-size:8.5px;color:#64748B;line-height:1.5">
           <div>التاريخ: <b style="color:#334155;font-weight:700">${date}</b> — ${dayN}</div>
           <div>عدد الحركات: <b style="color:#334155;font-weight:700">${dayTxns.length}</b></div>
           <div>الطباعة: <b style="color:#334155;font-weight:700">${new Date().toLocaleDateString("ar-EG")}</b></div>
         </div>
       </div>
-      <div style="display:flex;gap:6px;justify-content:space-between;margin:10px 0;flex-wrap:wrap">
-        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px"><div style="font-size:8.5px;color:#64748B;margin-bottom:1px;font-weight:600">رصيد افتتاحي</div><div style="font-size:12px;font-weight:800;color:#0284C7;font-variant-numeric:tabular-nums">${fmt(r2(openBal))}</div></div>
-        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px"><div style="font-size:8.5px;color:#64748B;margin-bottom:1px;font-weight:600">وارد</div><div style="font-size:12px;font-weight:800;color:#059669;font-variant-numeric:tabular-nums">${fmt(r2(dIn))}</div></div>
-        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px"><div style="font-size:8.5px;color:#64748B;margin-bottom:1px;font-weight:600">منصرف</div><div style="font-size:12px;font-weight:800;color:#DC2626;font-variant-numeric:tabular-nums">${fmt(r2(dOut))}</div></div>
-        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px"><div style="font-size:8.5px;color:#64748B;margin-bottom:1px;font-weight:600">صافي اليوم</div><div style="font-size:12px;font-weight:800;font-variant-numeric:tabular-nums">${fmt(r2(dIn-dOut))}</div></div>
-        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #0EA5E9;background:#F0F9FF;min-width:120px"><div style="font-size:8.5px;color:#64748B;margin-bottom:1px;font-weight:600">رصيد اقفال</div><div style="font-size:12px;font-weight:800;color:#0369A1;font-variant-numeric:tabular-nums">${fmt(r2(closeBal))}</div></div>
+      <div style="display:flex;gap:5px;justify-content:space-between;margin:8px 0;flex-wrap:wrap">
+        <div style="flex:1;padding:5px 8px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:110px"><div style="font-size:8px;color:#64748B;margin-bottom:1px;font-weight:600">رصيد افتتاحي</div><div style="font-size:11px;font-weight:800;color:#0284C7;font-variant-numeric:tabular-nums">${fmt(r2(openBal))}</div></div>
+        <div style="flex:1;padding:5px 8px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:110px"><div style="font-size:8px;color:#64748B;margin-bottom:1px;font-weight:600">وارد</div><div style="font-size:11px;font-weight:800;color:#059669;font-variant-numeric:tabular-nums">${fmt(r2(dIn))}</div></div>
+        <div style="flex:1;padding:5px 8px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:110px"><div style="font-size:8px;color:#64748B;margin-bottom:1px;font-weight:600">منصرف</div><div style="font-size:11px;font-weight:800;color:#DC2626;font-variant-numeric:tabular-nums">${fmt(r2(dOut))}</div></div>
+        <div style="flex:1;padding:5px 8px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:110px"><div style="font-size:8px;color:#64748B;margin-bottom:1px;font-weight:600">صافي اليوم</div><div style="font-size:11px;font-weight:800;font-variant-numeric:tabular-nums">${fmt(r2(dIn-dOut))}</div></div>
+        <div style="flex:1;padding:5px 8px;border-radius:4px;border:1px solid #0EA5E9;background:#F0F9FF;min-width:110px"><div style="font-size:8px;color:#64748B;margin-bottom:1px;font-weight:600">رصيد اقفال</div><div style="font-size:11px;font-weight:800;color:#0369A1;font-variant-numeric:tabular-nums">${fmt(r2(closeBal))}</div></div>
       </div>
-      <table style="width:100%;border-collapse:collapse;margin:8px 0;font-size:9.5px">
+      <table style="width:100%;border-collapse:collapse;margin:6px 0;font-size:8.5px;table-layout:fixed">
         <thead><tr>
-          <th style="background:#F1F5F9;color:#334155;font-weight:700;padding:5px 6px;text-align:right;border-bottom:1.5px solid #94A3B8;font-size:9.5px;width:11%">الرصيد</th>
-          <th style="background:#F1F5F9;color:#334155;font-weight:700;padding:5px 6px;text-align:right;border-bottom:1.5px solid #94A3B8;font-size:9.5px;width:8%">التاريخ</th>
-          <th style="background:#F1F5F9;color:#334155;font-weight:700;padding:5px 6px;text-align:right;border-bottom:1.5px solid #94A3B8;font-size:9.5px;width:9%">وارد</th>
-          <th style="background:#F1F5F9;color:#334155;font-weight:700;padding:5px 6px;text-align:right;border-bottom:1.5px solid #94A3B8;font-size:9.5px;width:9%">منصرف</th>
-          <th style="background:#F1F5F9;color:#334155;font-weight:700;padding:5px 6px;text-align:right;border-bottom:1.5px solid #94A3B8;font-size:9.5px">البيان</th>
-          <th style="background:#F1F5F9;color:#334155;font-weight:700;padding:5px 6px;text-align:right;border-bottom:1.5px solid #94A3B8;font-size:9.5px;width:15%">ملاحظات</th>
-          <th style="background:#F1F5F9;color:#334155;font-weight:700;padding:5px 6px;text-align:right;border-bottom:1.5px solid #94A3B8;font-size:9.5px;width:10%">التصنيف</th>
-          <th style="background:#F1F5F9;color:#334155;font-weight:700;padding:5px 6px;text-align:right;border-bottom:1.5px solid #94A3B8;font-size:9.5px;width:8%">الحساب</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 4px;text-align:right;font-size:9px;width:11%">الرصيد</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 4px;text-align:right;font-size:9px;width:9%">التاريخ</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 4px;text-align:right;font-size:9px;width:9%">وارد</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 4px;text-align:right;font-size:9px;width:9%">منصرف</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 4px;text-align:right;font-size:9px;width:25%">البيان</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 4px;text-align:right;font-size:9px;width:14%">ملاحظات</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 4px;text-align:right;font-size:9px;width:13%">التصنيف</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 4px;text-align:right;font-size:9px;width:10%">الحساب</th>
         </tr></thead>
         <tbody>${rows||'<tr><td colspan="8" style="padding:20px;text-align:center;color:#94A3B8;font-style:italic">لا توجد حركات في هذا اليوم</td></tr>'}</tbody>
       </table>
       ${accFootBlock}
-      <div style="margin-top:14px;padding:6px 0;border-top:1px solid #E2E8F0;display:flex;justify-content:space-between;font-size:8.5px;color:#94A3B8">
+      <div style="margin-top:10px;padding:5px 0;border-top:1px solid #E2E8F0;display:flex;justify-content:space-between;font-size:8px;color:#94A3B8">
         <span>CLARK Factory Management System</span>
         <span>${new Date().toLocaleDateString("ar-EG")}</span>
       </div>
@@ -874,15 +878,22 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
 
   /* ── Share daily report via WhatsApp ── */
   const shareDailyWhatsApp=async(date,phone,accountName)=>{
-    /* 1. Save PDF first */
-    await savePdfDaily(date,accountName);
-    /* 2. Build message and open WhatsApp */
+    /* V16.7 fix: Browser blocks window.open if it's not in the same user gesture
+       as the click. So we open WhatsApp FIRST (synchronously), then generate PDF.
+       This way the user sees both: WhatsApp opens immediately, PDF saves in background. */
     const msg=buildDailyWaMessage(date,accountName);
     const cleanPhone=(phone||"").replace(/[^0-9]/g,"");
     const url="https://wa.me/"+cleanPhone+"?text="+encodeURIComponent(msg);
-    /* Give the PDF a moment to finish downloading before opening WA */
-    setTimeout(()=>{window.open(url,"_blank")},800);
+    /* Open WhatsApp window FIRST in the same click event — prevents popup block */
+    const waWin=window.open(url,"_blank");
+    if(!waWin){showToast("⛔ المتصفح يمنع النوافذ — اسمح بالـ popups أو افتح يدوياً")}
     setWaPopupData(null);
+    /* Now generate the PDF (this can take time) */
+    try{
+      await savePdfDaily(date,accountName);
+    }catch(e){
+      showToast("⚠️ تم فتح واتساب لكن فشل حفظ PDF — حمّل يدوياً");
+    }
   };
 
   return<div>
