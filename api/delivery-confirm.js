@@ -66,16 +66,19 @@ export default async function handler(req, res) {
     const sales = salesDoc.data();
     const config = configDoc.exists ? configDoc.data() : {};
     const sessions = sales.custDeliverySessions || [];
-    const session = sessions.find((s) => s.id === sessionId);
+    /* V16.12: Defensive String() compares — IDs from URL are always strings,
+       but legacy data may store them as numbers. Strict === would silently
+       fail to find the session/customer/membership. */
+    const session = sessions.find((s) => String(s.id) === String(sessionId));
     if (!session) return res.status(404).json({ error: "جلسة التسليم غير موجودة" });
 
     const customers = config.customers || [];
-    const customer = customers.find((c) => c.id === custId);
+    const customer = customers.find((c) => String(c.id) === String(custId));
     if (!customer) return res.status(404).json({ error: "العميل غير موجود" });
 
     /* ─── Check customer is part of this session ─── */
-    const custIds = session.custIds || [];
-    if (!custIds.includes(custId)) {
+    const custIds = (session.custIds || []).map(String);
+    if (!custIds.includes(String(custId))) {
       return res.status(403).json({ error: "العميل ليس ضمن هذه الجلسة" });
     }
 

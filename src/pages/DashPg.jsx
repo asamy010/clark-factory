@@ -13,7 +13,11 @@ import { T, TD, TDB, TH } from "../theme.js";
 import { fmt, r2 } from "../utils/format.js";
 import { calcOrder, calcWsRating, getWsPartnershipTier, getStatusColor, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
 import { printPage } from "../utils/print.js";
-import { computeAlerts, getSeverityStyle, getAlertsSummary } from "../utils/alerts.js";
+/* V16.12: alerts.js import removed — the engine used field names that don't
+   match the actual order/treasury schema (e.g. o.expectedDeliveryDate, wd.pieces,
+   o.cuts, t.ts), so SmartAlertsSection on the dashboard was effectively
+   rendering nothing. The real per-page alerts (App.jsx aiAlerts/appAlerts on
+   the alerts bell) cover the same ground correctly. */
 
 export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,setCardPopup,setWsAccPopup}){
   const orders=data.orders;
@@ -186,11 +190,9 @@ export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,se
       .section-title::after{content:"";flex:1;height:1px;background:linear-gradient(to left,${T.brd},transparent);margin-right:4px}
     `}</style>
 
-    {/* ═══════════════════════════════════════════════════════════════
-        V16.2 SMART ALERTS — Urgent actionable items across the factory
-        Replaces limited V15.5 alerts with full-coverage intelligence
-       ═══════════════════════════════════════════════════════════════ */}
-    <SmartAlertsSection data={data} goD={goD} isMob={isMob}/>
+    {/* V16.12: SmartAlertsSection removed — see comment at top of file.
+        The alerts bell in App.jsx (aiAlerts) covers the same ground using
+        the actual schema and works correctly. */}
 
     {/* ═══════════════════════════════════════════════════════════════
         V15.5 ALERTS SECTION — Low stock + Stuck orders
@@ -707,71 +709,9 @@ export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,se
   </div>
 }
 
-/* ══ V16.2: SMART ALERTS SECTION — compact dashboard banner with urgent items ══ */
-function SmartAlertsSection({data,goD,isMob}){
-  const alerts=useMemo(()=>computeAlerts(data),[data]);
-  const summary=useMemo(()=>getAlertsSummary(alerts),[alerts]);
-  const[expanded,setExpanded]=useState(false);
-  const[dismissed,setDismissed]=useState(()=>{
-    try{return new Set(JSON.parse(sessionStorage.getItem("clark_dismissed_alerts")||"[]"))}catch(e){return new Set()}
-  });
-
-  const visible=alerts.filter(a=>!dismissed.has(a.id));
-  if(visible.length===0)return null;
-
-  const dismiss=(id)=>{
-    const next=new Set(dismissed);next.add(id);
-    setDismissed(next);
-    try{sessionStorage.setItem("clark_dismissed_alerts",JSON.stringify([...next]))}catch(e){}
-  };
-
-  const displayed=expanded?visible:visible.slice(0,3);
-  const critical=visible.filter(a=>a.severity==="critical").length;
-  const bannerStyle=critical>0?{bg:"linear-gradient(135deg, #FEE2E2, #FEF3C7)",border:"#FCA5A5",icon:"🚨"}:
-                    {bg:"linear-gradient(135deg, #FFEDD5, #FEF3C7)",border:"#FDBA74",icon:"⚡"};
-
-  return<div style={{marginBottom:18,background:bannerStyle.bg,borderRadius:16,padding:isMob?14:18,border:"1px solid "+bannerStyle.border,boxShadow:"0 4px 12px -4px rgba(0,0,0,0.08)"}}>
-    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,flexWrap:"wrap"}}>
-      <div style={{width:40,height:40,borderRadius:10,background:critical>0?"#EF4444":"#F97316",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>{bannerStyle.icon}</div>
-      <div style={{flex:1,minWidth:180}}>
-        <div style={{fontSize:FS+2,fontWeight:800,color:"#1F2937"}}>تنبيهات عاجلة</div>
-        <div style={{fontSize:FS-2,color:"#6B7280",marginTop:2}}>
-          {summary.critical>0&&<span style={{color:"#DC2626",fontWeight:700}}>{summary.critical} حرج</span>}
-          {summary.critical>0&&summary.high>0&&<span> • </span>}
-          {summary.high>0&&<span style={{color:"#EA580C",fontWeight:700}}>{summary.high} مرتفع</span>}
-          {(summary.critical>0||summary.high>0)&&summary.medium>0&&<span> • </span>}
-          {summary.medium>0&&<span style={{color:"#D97706"}}>{summary.medium} متوسط</span>}
-          {visible.length!==summary.total&&<span style={{color:"#6B7280"}}> • {summary.total-visible.length} مؤجل</span>}
-        </div>
-      </div>
-    </div>
-
-    {/* Alerts list */}
-    <div style={{display:"flex",flexDirection:"column",gap:6}}>
-      {displayed.map(alert=>{
-        const style=getSeverityStyle(alert.severity);
-        return<div key={alert.id} style={{padding:"10px 12px",background:"rgba(255,255,255,0.7)",border:"1px solid "+style.border+"50",borderRadius:10,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-          <div style={{fontSize:22}}>{alert.icon}</div>
-          <div style={{flex:1,minWidth:200}}>
-            <div style={{fontSize:FS-1,fontWeight:800,color:"#1F2937"}}>{alert.title}</div>
-            <div style={{fontSize:FS-2,color:"#6B7280",marginTop:2,lineHeight:1.5}}>{alert.message}</div>
-          </div>
-          <span style={{padding:"3px 10px",borderRadius:8,background:style.bg,color:style.color,fontSize:FS-3,fontWeight:800,whiteSpace:"nowrap"}}>{style.label}</span>
-          <div style={{display:"flex",gap:4}}>
-            {alert.link&&alert.link.tab&&<Btn small onClick={()=>goD&&goD(alert.link.tab)} style={{background:"#fff",color:style.color,border:"1px solid "+style.border,fontSize:FS-2,padding:"4px 10px",fontWeight:700}}>→ افتح</Btn>}
-            <Btn small onClick={()=>dismiss(alert.id)} style={{background:"transparent",color:"#9CA3AF",border:"1px solid "+"#E5E7EB",fontSize:FS-2,padding:"4px 8px"}} title="تأجيل حتى إعادة الفتح">✕</Btn>
-          </div>
-        </div>;
-      })}
-    </div>
-
-    {/* Show more/less */}
-    {visible.length>3&&<div style={{textAlign:"center",marginTop:10}}>
-      <Btn small onClick={()=>setExpanded(!expanded)} style={{background:"rgba(255,255,255,0.7)",color:"#374151",border:"1px solid #E5E7EB",fontWeight:700}}>
-        {expanded?"▲ عرض أقل":"▼ عرض كل التنبيهات ("+visible.length+")"}
-      </Btn>
-    </div>}
-  </div>;
-}
+/* V16.12: SmartAlertsSection removed — relied on alerts.js which used a
+   schema that doesn't match real CLARK orders/treasury data. The function
+   silently rendered nothing in practice. The alerts bell in App.jsx
+   covers the same cases correctly. */
 
 /* ══ DB ══ */

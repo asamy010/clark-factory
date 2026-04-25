@@ -5,11 +5,16 @@
    Body: { custId: string, adminToken: string }
    
    Generates a signed URL for a customer's portal.
-   Requires admin Firebase ID token in body for auth.
+   Requires admin/manager Firebase ID token in body for auth.
    Returns: { url: string, sig: string }
+
+   V16.12 SECURITY: Now enforces role check (admin/manager only).
+   Previously it only verified the token was valid — meaning any
+   authenticated Firebase user (including viewers) could mint
+   portal links for any customer and leak their financial data.
    ═══════════════════════════════════════════════════════════════ */
 
-import { getAdminApp, setCors } from "./_firebase.js";
+import { setCors, verifyAdminToken } from "./_firebase.js";
 import { signCustomerId } from "./customer-portal.js";
 
 export default async function handler(req, res) {
@@ -20,17 +25,10 @@ export default async function handler(req, res) {
   try {
     const { custId, adminToken } = req.body || {};
     if (!custId) return res.status(400).json({ error: "custId مطلوب" });
-    if (!adminToken) return res.status(401).json({ error: "adminToken مطلوب" });
 
-    /* Verify the admin token */
-    const auth = getAdminApp().auth();
-    let decoded;
-    try {
-      decoded = await auth.verifyIdToken(adminToken);
-    } catch (e) {
-      return res.status(401).json({ error: "رمز غير صالح" });
-    }
-    if (!decoded.uid) return res.status(401).json({ error: "مستخدم غير مصرّح" });
+    /* V16.12: Verify token AND check role (admin/manager only) */
+    const auth = await verifyAdminToken(adminToken);
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
     /* Generate signature */
     const sig = signCustomerId(custId);

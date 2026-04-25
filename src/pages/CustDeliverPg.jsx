@@ -977,13 +977,17 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                 <td style={{...TD,whiteSpace:"nowrap",padding:"2px 4px"}}>{rowTotal>0&&<div style={{display:"flex",gap:2}}>
                   <Btn small onClick={async()=>{
                     /* V15.50: Per-customer delivery receipt — fetch signed URL, embed QR + prices */
+                    /* V16.12: include Firebase ID token (delivery-sign now requires admin/manager) */
                     let sig="";let signErr="";
                     try{
-                      const r=await fetch("/api/delivery-sign",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pairs:[{sessionId:activeSess.id,custId:c.id}]})});
+                      const _u=auth.currentUser;
+                      if(!_u){signErr="يرجى تسجيل الدخول";throw new Error(signErr)}
+                      const _tok=await _u.getIdToken();
+                      const r=await fetch("/api/delivery-sign",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+_tok},body:JSON.stringify({pairs:[{sessionId:activeSess.id,custId:c.id}]})});
                       const j=await r.json();
                       if(r.ok&&j.signatures&&j.signatures[0])sig=j.signatures[0].sig||"";
                       else signErr=(j&&j.error)?j.error:"HTTP "+r.status;
-                    }catch(e){signErr="Network: "+(e.message||e)}
+                    }catch(e){signErr=signErr||("Network: "+(e.message||e))}
                     /* V15.52: Show clear feedback when signing fails — so Ahmed knows exactly what's wrong */
                     if(!sig){
                       console.error("[CLARK] /api/delivery-sign failed:",signErr);
@@ -1151,10 +1155,14 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const selTotal=gCusts.filter(c=>groupPrint.selCusts[c.id]).reduce((s,c)=>gMods.reduce((ss,m)=>ss+getGroupQtyForPrint(m,c.id,g),0)+s,0);
       const doPrintGroup=async()=>{const selC=gCusts.filter(c=>groupPrint.selCusts[c.id]);if(selC.length===0){showToast("⚠️ اختار عميل واحد على الأقل");return}
         /* V15.50: Fetch signed URLs from backend — one per customer */
+        /* V16.12: include Firebase ID token (delivery-sign now requires admin/manager) */
         let signatures={};let signErr="";
         try{
+          const _u=auth.currentUser;
+          if(!_u){signErr="يرجى تسجيل الدخول";throw new Error(signErr)}
+          const _tok=await _u.getIdToken();
           const pairs=selC.map(c=>({sessionId:sess.id,custId:c.id}));
-          const r=await fetch("/api/delivery-sign",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pairs})});
+          const r=await fetch("/api/delivery-sign",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+_tok},body:JSON.stringify({pairs})});
           const j=await r.json();
           if(r.ok&&Array.isArray(j.signatures)){
             j.signatures.forEach(s=>{signatures[s.custId]=s.sig});
@@ -1162,7 +1170,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             signErr=(j&&j.error)?j.error:"HTTP "+r.status;
           }
         }catch(e){
-          signErr="Network: "+(e.message||e);
+          signErr=signErr||("Network: "+(e.message||e));
         }
         /* V15.52: Clear diagnostic feedback */
         if(Object.keys(signatures).length===0){

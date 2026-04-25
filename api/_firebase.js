@@ -65,5 +65,56 @@ export function verifySignature(sessionId, custId, sig) {
 export function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+}
+
+/* ── V16.12: Admin/manager auth helper ──
+   Verifies a Firebase ID token AND checks the user's role from factory/config.
+   Used by privileged endpoints (delivery-sign, customer-portal-sign) to
+   prevent unauthenticated forgery of customer signatures.
+
+   Returns { ok:true, uid, email, role } on success.
+   Returns { ok:false, status, error } on failure (caller should propagate).
+
+   Token can be passed in Authorization header ("Bearer <token>") or in body
+   as `idToken` — endpoints that already accept other body fields use body. */
+export async function verifyAdminToken(token) {
+  if (!token || typeof token !== "string") {
+    return { ok: false, status: 401, error: "رمز المصادقة مطلوب" };
+  }
+  /* Strip "Bearer " prefix if present */
+  const clean = token.startsWith("Bearer ") ? token.slice(7).trim() : token.trim();
+  if (!clean) {
+    return { ok: false, status: 401, error: "رمز المصادقة فارغ" };
+  }
+  let decoded;
+  try {
+    decoded = await getAdminApp().auth().verifyIdToken(clean);
+  } catch (e) {
+    return { ok: false, status: 401, error: "رمز غير صالح" };
+  }
+  if (!decoded || !decoded.uid) {
+    return { ok: false, status: 401, error: "مستخدم غير مصرّح" };
+  }
+  /* Look up role from config — same shape as getUserRole() in App.jsx */
+  let role = "viewer";
+  try {
+    const cfgSnap = await getDb().collection("factory").doc("config").get();
+    if (cfgSnap.exists) {
+      const cfg = cfgSnap.data() || {};
+      if (cfg.users && cfg.users[decoded.uid]) {
+        const r = cfg.users[decoded.uid];
+        role = typeof r === "string" ? r : (r && r.role) || "viewer";
+      } else if (Array.isArray(cfg.usersList)) {
+        const byEmail = cfg.usersList.find((u) => u.email === decoded.email);
+        if (byEmail) role = byEmail.role || "viewer";
+      }
+    }
+  } catch (e) {
+    return { ok: false, status: 500, error: "تعذر التحقق من الصلاحيات" };
+  }
+  if (role !== "admin" && role !== "manager") {
+    return { ok: false, status: 403, error: "صلاحيات غير كافية — مدير فقط" };
+  }
+  return { ok: true, uid: decoded.uid, email: decoded.email, role };
 }

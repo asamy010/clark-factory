@@ -71,7 +71,10 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "البيانات غير متاحة" });
     }
     const config = configSnap.data();
-    const customer = (config.customers || []).find(c => c.id === custId);
+    /* V16.12: Defensive String() compare — custId from URL is always a string,
+       but legacy data may have numeric c.id (or vice-versa). The strict ===
+       compare would silently fail to find the customer. */
+    const customer = (config.customers || []).find(c => String(c.id) === String(custId));
     if (!customer) {
       return res.status(404).json({ error: "العميل غير موجود" });
     }
