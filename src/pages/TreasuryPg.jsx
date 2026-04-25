@@ -1389,34 +1389,25 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             if(filterDay&&parts.length===1){printDaily(filterDay,filterAcc&&filterAcc!=="الكل"?filterAcc:null);return}
             printFiltered(filtered,summary);
           }} style={{cursor:"pointer",padding:"6px 12px",borderRadius:8,background:T.accent+"10",color:T.accent,fontWeight:700,fontSize:FS-1,marginBottom:2,border:"1px solid "+T.accent+"30"}} title="طباعة الحركات المعروضة دلوقتي بالفلاتر المفعّلة">🖨 طباعة المعروض</span>
-        </div>
 
-        {/* V16.13.1: Big filtered totals banner — for visual confirmation of what's filtered.
-            Shows green "إجمالي الوارد" and red "إجمالي المنصرف" when ANY filter is active. */}
-        {(()=>{
-          const filterActive=filterType!=="الكل"||filterCat!=="الكل"||filterAcc!=="الكل"||filterMonth||filterDay||filterSearchDeb;
-          if(!filterActive)return null;
-          const fIn=filtered.filter(t=>t.type==="in").reduce((s,t)=>s+(Number(t.amount)||0),0);
-          const fOut=filtered.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0);
-          const fNet=fIn-fOut;
-          return<div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
-            <div style={{flex:"1 1 200px",padding:"14px 18px",borderRadius:12,background:"#10B98115",border:"2px solid #10B981",display:"flex",flexDirection:"column",gap:4}}>
-              <div style={{fontSize:FS-2,color:"#047857",fontWeight:700}}>↓ إجمالي الوارد</div>
-              <div style={{fontSize:FS+12,fontWeight:900,color:"#047857",fontVariantNumeric:"tabular-nums",lineHeight:1.1}}>{fmt(r2(fIn))}</div>
-              <div style={{fontSize:FS-3,color:"#047857",opacity:0.7}}>ج.م • {filtered.filter(t=>t.type==="in").length} حركة</div>
-            </div>
-            <div style={{flex:"1 1 200px",padding:"14px 18px",borderRadius:12,background:"#EF444415",border:"2px solid #EF4444",display:"flex",flexDirection:"column",gap:4}}>
-              <div style={{fontSize:FS-2,color:"#B91C1C",fontWeight:700}}>↑ إجمالي المنصرف</div>
-              <div style={{fontSize:FS+12,fontWeight:900,color:"#B91C1C",fontVariantNumeric:"tabular-nums",lineHeight:1.1}}>{fmt(r2(fOut))}</div>
-              <div style={{fontSize:FS-3,color:"#B91C1C",opacity:0.7}}>ج.م • {filtered.filter(t=>t.type==="out").length} حركة</div>
-            </div>
-            <div style={{flex:"1 1 200px",padding:"14px 18px",borderRadius:12,background:fNet>=0?"#0EA5E915":"#F59E0B15",border:"2px solid "+(fNet>=0?"#0EA5E9":"#F59E0B"),display:"flex",flexDirection:"column",gap:4}}>
-              <div style={{fontSize:FS-2,color:fNet>=0?"#0369A1":"#92400E",fontWeight:700}}>{fNet>=0?"↗":"↘"} الصافي</div>
-              <div style={{fontSize:FS+12,fontWeight:900,color:fNet>=0?"#0369A1":"#92400E",fontVariantNumeric:"tabular-nums",lineHeight:1.1}}>{(fNet>=0?"+":"")+fmt(r2(fNet))}</div>
-              <div style={{fontSize:FS-3,color:fNet>=0?"#0369A1":"#92400E",opacity:0.7}}>ج.م • {filtered.length} إجمالي</div>
-            </div>
-          </div>;
-        })()}
+          {/* V16.20: compact filtered totals — inline with filters, only shown when any filter is active */}
+          {(()=>{
+            const filterActive=filterType!=="الكل"||filterCat!=="الكل"||filterAcc!=="الكل"||filterMonth||filterDay||filterSearchDeb;
+            if(!filterActive)return null;
+            const fIn=filtered.filter(t=>t.type==="in").reduce((s,t)=>s+(Number(t.amount)||0),0);
+            const fOut=filtered.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0);
+            return<>
+              <div style={{padding:"6px 12px",borderRadius:8,background:"#10B98112",border:"1px solid #10B98140",fontWeight:700,fontSize:FS-1,marginBottom:2,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
+                <span style={{color:"#047857"}}>↓ وارد</span>
+                <span style={{color:"#047857",fontWeight:800,fontVariantNumeric:"tabular-nums"}}>{fmt(r2(fIn))}</span>
+              </div>
+              <div style={{padding:"6px 12px",borderRadius:8,background:"#EF444412",border:"1px solid #EF444440",fontWeight:700,fontSize:FS-1,marginBottom:2,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
+                <span style={{color:"#B91C1C"}}>↑ منصرف</span>
+                <span style={{color:"#B91C1C",fontWeight:800,fontVariantNumeric:"tabular-nums"}}>{fmt(r2(fOut))}</span>
+              </div>
+            </>;
+          })()}
+        </div>
         {withBalance.length>0?<div style={{overflowX:"auto"}}>
           {/* Bulk actions bar — appears when selections exist */}
           {selectedTxIds.size>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",marginBottom:10,borderRadius:10,background:T.err+"10",border:"1px solid "+T.err+"40"}}>
