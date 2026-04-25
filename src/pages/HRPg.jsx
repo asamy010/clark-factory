@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { FS, PRINT_CSS } from "../constants/index.js";
-import { gid, fmt, fmt0, r2, fmtDate, hrsToHM, parseHrs } from "../utils/format.js";
+import { gid, fmt, fmt0, r2, fmtDate, hrsToHM, parseHrs, dayName } from "../utils/format.js";
 import { playBeep } from "../utils/audio.js";
 import { loadJsQR, scanQR, loadXLSX } from "../utils/qr.js";
 import { addAudit } from "../utils/audit.js";
@@ -736,7 +736,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     }
     const emp=employees.find(e=>e.id===quickAdvance.empId);
     if(!emp){showToast("⚠️ الموظف غير موجود");return}
-    const day=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(dt).getDay()];
+    const day=dayName(dt);
     const treasuryTxId=gid();const logId=gid();
     const desc="سلفة "+emp.name+(quickAdvance.note?" — "+quickAdvance.note:"");
     upConfig(d=>{
@@ -881,14 +881,14 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     upConfig(d=>{if(!d.hrLog)d.hrLog=[];
       const logId=gid();
       d.hrLog.unshift({id:logId,type:"advance",empId,empName:emp.name,amount:Number(amount),desc:desc||"سلفة",weekId:openWeekId||"",date:today,by:userName,createdAt:new Date().toISOString()});
-      d.treasury.unshift({id:gid(),type:"out",amount:Number(amount),desc:"سلفة "+emp.name+(desc?" — "+desc:""),category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:today,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date().getDay()],sourceType:"hr_advance",hrLogId:logId,empId,by:userName,createdAt:new Date().toISOString()})});
+      d.treasury.unshift({id:gid(),type:"out",amount:Number(amount),desc:"سلفة "+emp.name+(desc?" — "+desc:""),category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:today,day:dayName(today),sourceType:"hr_advance",hrLogId:logId,empId,by:userName,createdAt:new Date().toISOString()})});
     showToast("✓ سلفة "+emp.name)};
   const submitMatrix=()=>{const items=matrixEmps.filter(m=>m.amount>0);if(items.length===0)return;
     upConfig(d=>{if(!d.hrLog)d.hrLog=[];if(!d.treasury)d.treasury=[];
       items.forEach(m=>{const emp=employees.find(e=>e.id===m.empId);if(!emp)return;
         const logId=gid();
         d.hrLog.unshift({id:logId,type:"advance",empId:m.empId,empName:emp.name,amount:m.amount,desc:matrixDesc||"سلفة",weekId:openWeekId||"",date:matrixDate,by:userName,createdAt:new Date().toISOString()});
-        d.treasury.unshift({id:gid(),type:"out",amount:m.amount,desc:"سلفة "+emp.name+(matrixDesc?" — "+matrixDesc:""),category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:matrixDate,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(matrixDate).getDay()],sourceType:"hr_advance",hrLogId:logId,empId:m.empId,by:userName,createdAt:new Date().toISOString()})})});
+        d.treasury.unshift({id:gid(),type:"out",amount:m.amount,desc:"سلفة "+emp.name+(matrixDesc?" — "+matrixDesc:""),category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:matrixDate,day:dayName(matrixDate),sourceType:"hr_advance",hrLogId:logId,empId:m.empId,by:userName,createdAt:new Date().toISOString()})})});
     showToast("✓ "+items.length+" دفعة");setShowMatrix(false);setMatrixEmps([])};
 
   /* ── Salary Calc for a week ── */
@@ -1537,8 +1537,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       /* Update balances — remaining balance carries to next week */
       records.forEach(r=>{const e=(d.employees||[]).find(x=>x.id===r.empId);if(e)e.prevBalance=r.remainingBalance});
       /* Treasury — individual entry per employee (thursday pay). Uses useDate (editable close date). */
-      const dayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(useDate).getDay()];
-      records.forEach(r=>{if(r.thursdayPay>0)d.treasury.unshift({id:gid(),type:"out",amount:r2(r.thursdayPay),desc:"مرتب "+r.empName+" W"+openWeek.weekNum,category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:useDate,day:dayName,sourceType:"hr_salary",weekId:openWeek.id,empId:r.empId,by:userName,createdAt:new Date().toISOString(),snapshotId,actualCloseDate,backdated:useDate!==actualCloseDate})});
+      const dayN=dayName(useDate);
+      records.forEach(r=>{if(r.thursdayPay>0)d.treasury.unshift({id:gid(),type:"out",amount:r2(r.thursdayPay),desc:"مرتب "+r.empName+" W"+openWeek.weekNum,category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:useDate,day:dayN,sourceType:"hr_salary",weekId:openWeek.id,empId:r.empId,by:userName,createdAt:new Date().toISOString(),snapshotId,actualCloseDate,backdated:useDate!==actualCloseDate})});
       /* Weekly advances (planned) — register in treasury + hrLog NOW at week closure.
          Legacy advances that were already registered (treasuryTxId exists) are just tagged with snapshotId.
          V15.88: wAdvs now declared outside if/else block (see line ~1437). */
@@ -1550,7 +1550,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
         }else{
           /* New planned advance — register in treasury on close */
           const advTxId=gid();
-          const advDayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(a.date||useDate).getDay()];
+          const advDayName=dayName(a.date||useDate);
           d.treasury.unshift({
             id:advTxId,type:"out",amount:r2(Number(a.amount)||0),
             desc:"سلفة "+a.empName+" W"+openWeek.weekNum+(a.note?" — "+a.note:""),
@@ -1585,7 +1585,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           /* V15.89: If date was auto-assigned (user didn't pick it), use the actual close date
              so treasury entry matches when cash physically left. Manually-set dates are respected. */
           const effDate=p.autoDate?useDate:(p.date||useDate);
-          const wsDayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(effDate).getDay()];
+          const wsDayName=dayName(effDate);
           if(!Array.isArray(d.wsPayments))d.wsPayments=[];
           /* Register in data.wsPayments (this is how ExtProdPg reads them) */
           d.wsPayments.push({
@@ -1621,7 +1621,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           if(tx)tx.snapshotId=snapshotId;
         }else{
           const exTxId=gid();
-          const exDayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(ex.date||useDate).getDay()];
+          const exDayName=dayName(ex.date||useDate);
           /* Register in treasury as a regular expense (NOT in wsPayments) */
           d.treasury.unshift({
             id:exTxId,type:"out",amount:r2(Number(ex.amount)||0),
@@ -1865,7 +1865,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     if(!retargetPopup||!retargetPopup.week||!retargetPopup.newDate)return;
     const wk=retargetPopup.week;
     const newDate=retargetPopup.newDate;
-    const newDay=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(newDate).getDay()];
+    const newDay=dayName(newDate);
     upConfig(d=>{
       let count=0;
       /* Update treasury entries linked to this week */
@@ -1983,7 +1983,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   /* Build slip HTML for one employee (without html/head wrapper) */
   const buildSlipHTML=(empId)=>{if(!openWeek)return"";const c=calcSalary(empId,openWeek);const emp=employees.find(e=>e.id===empId);if(!c||!emp)return"";
     const logo=(data.logo||"").trim();const reason=salDeductReason[empId]||"";
-    const dayNames=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"];
+    
     /* ── Performance: compare with previous week ── */
     const sortedW=[...hrWeeks].sort((a,b)=>(b.weekStart||"").localeCompare(a.weekStart||""));
     const curIdx=sortedW.findIndex(w=>w.id===openWeek.id);
@@ -2032,7 +2032,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       <div><b>المرتب الأسبوعي:</b> ${fmt0(c.weeklySalary)} ج.م</div><div></div>
     </div>
     <h3 style="color:#0ea5e9;margin:10px 0 4px;font-size:12px">📋 الحضور اليومي</h3>
-    <table class="att-tbl"><thead><tr>${c.days.map(d=>"<th>"+dayNames[new Date(d.date).getDay()]+"<br/>"+d.date.slice(5)+"</th>").join("")}<th style="background:#0284c7;color:#fff">اجمالي</th></tr></thead>
+    <table class="att-tbl"><thead><tr>${c.days.map(d=>"<th>"+dayName(d.date)+"<br/>"+d.date.slice(5)+"</th>").join("")}<th style="background:#0284c7;color:#fff">اجمالي</th></tr></thead>
     <tbody><tr>${c.days.map(d=>"<td"+(d.hours>0?' class="has"':"")+">"+(d.hours>0?d.hours+"h":"—")+"</td>").join("")}<td style="background:#0ea5e9;color:#fff;font-weight:800">${r2(c.totalHours)}h</td></tr></tbody></table>
     ${perfHTML}
     <h3 style="color:#0ea5e9;margin:10px 0 4px;font-size:12px">💰 تفاصيل المرتب</h3>
@@ -3061,7 +3061,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       /* Build date range */
       const dates=[];const s=new Date(openWeek.weekStart);const e=new Date(openWeek.weekEnd);
       for(let d=new Date(s);d<=e;d.setDate(d.getDate()+1))dates.push(d.toISOString().split("T")[0]);
-      const dayNames=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"];
+      
       return<div>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
           <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
@@ -3432,8 +3432,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                   const totalsCells=dayTotals.map(s=>"<td class='center' style='font-weight:800;color:"+(s>0?"#0284C7":"#CBD5E1")+"'>"+(s>0?hrsToHM(s):"—")+"</td>").join("");
                   const totalsRow="<tr style='background:#F0F9FF;border-top:2px solid #0284C7;font-weight:800'><td class='center' colspan='2'>اجمالي اليوم</td>"+totalsCells+"<td class='center' style='color:#0284C7;font-size:13px'>"+(grandTotal>0?hrsToHM(grandTotal):"—")+"</td></tr>";
                   /* Header columns */
-                  const dayNames=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"];
-                  const dayCols=dates.map(d=>"<th class='center'><div style='font-weight:800'>"+dayNames[new Date(d).getDay()]+"</div><div style='font-size:9px;color:#94A3B8;font-weight:400;direction:ltr'>"+d.slice(5)+"</div></th>").join("");
+                  
+                  const dayCols=dates.map(d=>"<th class='center'><div style='font-weight:800'>"+dayName(d)+"</div><div style='font-size:9px;color:#94A3B8;font-weight:400;direction:ltr'>"+d.slice(5)+"</div></th>").join("");
                   const filterLine=topQ?"<div style='background:#FEF3C7;padding:6px 10px;border-radius:6px;margin-bottom:10px;font-size:10px;color:#92400E'><b>الفلتر:</b> \""+topQ+"\"</div>":"";
                   const title="جدول الحضور — W"+openWeek.weekNum;
                   const html="<html dir='rtl'><head><meta charset='UTF-8'><title>"+title+"</title><style>"+PRINT_CSS+".center{text-align:center}table{font-size:10px}th{padding:6px 3px;font-size:10px}td{padding:4px 3px;font-size:10px}@page{size:A4 landscape;margin:8mm}</style></head><body>"+
@@ -3461,7 +3461,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
               return<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
               <th style={{padding:"5px 10px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,position:"sticky",right:0,background:T.cardSolid,zIndex:1,minWidth:130}}>الموظف</th>
               {dates.map(d=><th key={d} style={{padding:"4px 4px",textAlign:"center",fontSize:FS-3,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:600,minWidth:70}}>
-                <div style={{fontWeight:700,fontSize:FS-2}}>{dayNames[new Date(d).getDay()]}</div>
+                <div style={{fontWeight:700,fontSize:FS-2}}>{dayName(d)}</div>
                 <div style={{fontSize:FS-3,color:T.textMut,direction:"ltr"}}>{d.slice(2).replace(/-/g,"-")}</div>
               </th>)}
               <th style={{padding:"5px 6px",textAlign:"center",fontSize:FS-2,color:T.accent,borderBottom:"2px solid "+T.brd,fontWeight:800,minWidth:70}}>اجمالي</th>

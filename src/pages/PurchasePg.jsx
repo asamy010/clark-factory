@@ -7,7 +7,7 @@
 
 import { useState, useMemo } from "react";
 import { FS, PRINT_CSS } from "../constants/index.js";
-import { gid, fmt, r2, normalizePhone } from "../utils/format.js";
+import { gid, fmt, r2, normalizePhone, dayName } from "../utils/format.js";
 import { ask, tell, showToast } from "../utils/popups.js";
 import { Btn, Inp, Sel, SearchSel, Card, useDebounced } from "../components/ui.jsx";
 import { T, TH, TD } from "../theme.js";
@@ -213,13 +213,13 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
       
       /* Cash: register in treasury */
       if(payForm.method==="cash"){
-        const dayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(payForm.date).getDay()];
+        const dayN=dayName(payForm.date);
         d.treasury.unshift({
           id:txId,type:"out",amount:r2(amt),
           desc:"دفعة مورد — "+(supplier?.name||""),
           notes:payForm.notes||"",category:"دفع مورد",
           account:payForm.treasuryAccount,season:d.activeSeason||"",
-          date:payForm.date,day:dayName,
+          date:payForm.date,day:dayN,
           sourceType:"supplier_payment",paymentId:payId,supplierId:payForm.supplierId,
           by:userName,createdAt:new Date().toISOString()
         });
@@ -602,13 +602,13 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
       if(rcpt.paymentMethod==="cash"&&paidAmt>0){
         /* Register in treasury (outflow) */
         const txId=gid();
-        const dayName=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(receipt.date).getDay()];
+        const dayN=dayName(receipt.date);
         d.treasury.unshift({
           id:txId,type:"out",amount:paidAmt,
           desc:"استلام "+receiptNo+" — "+(supplier?.name||""),
           notes:rcpt.notes||"",category:"مشتريات",
           account:rcpt.treasuryAccount,season:d.activeSeason||"",
-          date:receipt.date,day:dayName,
+          date:receipt.date,day:dayN,
           sourceType:"purchase_receipt",receiptId:rcptId,supplierId:rcpt.supplierId,
           by:userName,createdAt:new Date().toISOString()
         });

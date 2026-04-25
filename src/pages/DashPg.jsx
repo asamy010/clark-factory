@@ -10,7 +10,7 @@ import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveCo
 import { Badge, Btn, Card } from "../components/ui.jsx";
 import { FS } from "../constants/index.js";
 import { T, TD, TDB, TH } from "../theme.js";
-import { fmt, r2 } from "../utils/format.js";
+import { fmt, r2, dayName } from "../utils/format.js";
 import { calcOrder, calcWsRating, getWsPartnershipTier, getStatusColor, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
 import { printPage } from "../utils/print.js";
 /* V16.12: alerts.js import removed — the engine used field names that don't
@@ -518,10 +518,10 @@ export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,se
           {(()=>{const days=[];for(let i=6;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);days.push(d.toISOString().split("T")[0])}
             const dayData=days.map(d=>{let ops=0;orders.forEach(o=>{if(o.date===d)ops+=calcOrder(o).cutQty;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date===d)ops+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{if(r.date===d)ops+=Number(r.qty)||0})});(o.deliveries||[]).forEach(dl=>{if(dl.date===d)ops+=Number(dl.qty)||0})});return{date:d,ops}});
             const maxOps=Math.max(1,...dayData.map(x=>x.ops));
-            const dayNames=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"];
+            
             return<div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6}}>{dayData.map(d=>{const pct=d.ops/maxOps;const bg=d.ops===0?"#F1F5F9":pct>0.7?"#059669":pct>0.3?"#F59E0B":"#FCA5A5";
               return<div key={d.date} style={{textAlign:"center",padding:10,borderRadius:10,background:bg+"18",border:"1px solid "+bg+"30"}}>
-                <div style={{fontSize:FS-2,color:T.textSec}}>{dayNames[new Date(d.date).getDay()]}</div>
+                <div style={{fontSize:FS-2,color:T.textSec}}>{dayName(d.date)}</div>
                 <div style={{fontSize:FS+2,fontWeight:800,color:bg==="F1F5F9"?T.textMut:bg}}>{d.ops}</div>
                 <div style={{fontSize:FS-3,color:T.textMut}}>{d.date.slice(5)}</div>
               </div>})}</div>})()}

@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { FKEYS, FS } from "../constants/index.js";
-import { gid, fmt, r2, gf, normalizePhone, parseSizes, getSizesFromSet } from "../utils/format.js";
+import { gid, fmt, r2, gf, normalizePhone, parseSizes, getSizesFromSet, dayName } from "../utils/format.js";
 import { playBeep } from "../utils/audio.js";
 import { loadQR, loadJsQR, scanQR } from "../utils/qr.js";
 import { ask, askForm, showToast } from "../utils/popups.js";
@@ -1476,7 +1476,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           d.custPayments.push({id:payId,custId:custStatement,custName:cust.name,amount:amt,date:payDate_,note:payNote_,method:payMethod,by:userName,treasuryTxId:txId,createdAt:new Date().toISOString()});
           /* Auto-register in treasury as income — linked to the payment */
           if(!d.treasury)d.treasury=[];
-          d.treasury.unshift({id:txId,type:"in",amount:amt,desc:"دفعة من عميل "+cust.name+(payNote_?" — "+payNote_:""),notes:payMethod,category:"دفعة عميل",account:"SUB CASH",season:d.activeSeason||"",date:payDate_,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(payDate_).getDay()],sourceType:"cust_payment",custPaymentId:payId,custId:custStatement,by:userName,createdAt:new Date().toISOString()})});
+          d.treasury.unshift({id:txId,type:"in",amount:amt,desc:"دفعة من عميل "+cust.name+(payNote_?" — "+payNote_:""),notes:payMethod,category:"دفعة عميل",account:"SUB CASH",season:d.activeSeason||"",date:payDate_,day:dayName(payDate_),sourceType:"cust_payment",custPaymentId:payId,custId:custStatement,by:userName,createdAt:new Date().toISOString()})});
         setPayAmt_("");setPayNote_("");showToast("✓ تم تسجيل الدفعة في حساب العميل والخزنة")};
       const delCustPay=(pid)=>{upConfig(d=>{
         /* V15.9: Delete linked treasury transaction to keep cashbox in sync */

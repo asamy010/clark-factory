@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { FS } from "../constants/index.js";
-import { gid, fmt, fmt0, r2, _esc } from "../utils/format.js";
+import { gid, fmt, fmt0, r2, _esc, dayName, dayNameFull } from "../utils/format.js";
 import { playBeep } from "../utils/audio.js";
 import { addAudit } from "../utils/audit.js";
 import { showToast } from "../utils/popups.js";
@@ -423,7 +423,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         }}
       else{
         const txId=gid();
-        const baseEntry={id:txId,type:txType,amount:amt,desc:finalDesc,notes:txNotes,category:txCategory,account:txAccount,season:txSeason,date:txDate,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(txDate).getDay()],custId:linkedCustId,supplierId:linkedSupplierId,empId:linkedEmpId,by:userName,createdAt:new Date().toISOString()};
+        const baseEntry={id:txId,type:txType,amount:amt,desc:finalDesc,notes:txNotes,category:txCategory,account:txAccount,season:txSeason,date:txDate,day:dayName(txDate),custId:linkedCustId,supplierId:linkedSupplierId,empId:linkedEmpId,by:userName,createdAt:new Date().toISOString()};
         /* Auto-link to customer payments if customer selected */
         if(linkedCustId&&txType==="in"){if(!d.custPayments)d.custPayments=[];
           const c=customers.find(x=>x.id===linkedCustId);
@@ -613,30 +613,78 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const delAccount=(id)=>{if(txns.some(t=>t.account===id||(accountsData.find(a=>a.id===id)||{}).name===t.account)){playBeep("error");showToast("⛔ لا يمكن الحذف — يوجد حركات مرتبطة");return}
     upConfig(d=>{if(d.treasuryAccounts)d.treasuryAccounts=d.treasuryAccounts.filter(a=>(typeof a==="string"?a:a.id)!==id)});showToast("✓ تم الحذف")};
 
-  /* ── Transfer between accounts (immediate double-entry) ── */
+  /* ── Transfer between accounts ──
+     V16.13: Non-admin requests go through approval. Admin transfers stay
+     auto-confirmed. A pending transfer creates NO treasury entries until
+     the admin approves it; rejection deletes the request. */
   const submitTransfer=()=>{const amt=parseFloat(tfAmount);
     if(!tfFrom||!tfTo){showToast("⚠️ اختر الخزنة المصدر والهدف");return}
     if(tfFrom===tfTo){showToast("⛔ لا يمكن التحويل لنفس الخزنة");return}
     if(!amt||amt<=0){showToast("⚠️ أدخل المبلغ");return}
     const toAcc=accountsData.find(a=>a.name===tfTo);
     const tfId=gid();
-    /* Use user-selected date (defaults to today if blank) */
     const d_=tfDate||new Date().toISOString().split("T")[0];
-    const dayN=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(d_).getDay()];
+    const dayN=dayName(d_);
+    const isPending=!isAdmin;/* non-admin → needs approval */
     upConfig(d=>{
       if(!d.treasuryTransfers)d.treasuryTransfers=[];
       if(!d.treasury)d.treasury=[];
       if(!d.notifications)d.notifications=[];
-      /* Create transfer record (immediately confirmed) */
-      d.treasuryTransfers.unshift({id:tfId,fromAccount:tfFrom,toAccount:tfTo,amount:amt,note:tfNote||"",status:"confirmed",sentBy:userName,sentByEmail:userEmail,sentAt:new Date().toISOString(),date:d_,toOwnerEmail:toAcc?.ownerEmail||""});
-      /* 1. OUT entry in source account */
-      d.treasury.unshift({id:gid(),type:"out",amount:amt,desc:"تحويل إلى "+tfTo+(tfNote?" — "+tfNote:""),notes:"",category:"تحويل داخلي",account:tfFrom,season:d.activeSeason||"",date:d_,day:dayN,transferId:tfId,by:userName,createdAt:new Date().toISOString()});
-      /* 2. IN entry in destination account — SAME MOMENT */
-      d.treasury.unshift({id:gid(),type:"in",amount:amt,desc:"تحويل من "+tfFrom+(tfNote?" — "+tfNote:""),notes:"",category:"تحويل داخلي",account:tfTo,season:d.activeSeason||"",date:d_,day:dayN,transferId:tfId,by:userName,createdAt:new Date().toISOString()});
-      /* Notification to owner of destination account (info only, no action needed) */
-      if(toAcc?.ownerEmail){d.notifications.unshift({id:gid(),type:"treasury_transfer",msg:"💸 وصلك تحويل "+fmt(amt)+" ج.م من "+tfFrom+(tfNote?" — "+tfNote:""),toEmail:toAcc.ownerEmail,transferId:tfId,read:false,by:userName,createdAt:new Date().toISOString()})}
+      /* Create transfer record */
+      d.treasuryTransfers.unshift({
+        id:tfId,fromAccount:tfFrom,toAccount:tfTo,amount:amt,note:tfNote||"",
+        status:isPending?"pending":"confirmed",
+        sentBy:userName,sentByEmail:userEmail,sentAt:new Date().toISOString(),
+        date:d_,toOwnerEmail:toAcc?.ownerEmail||""
+      });
+      if(isPending){
+        /* No treasury entries yet — just an admin notification */
+        d.notifications.unshift({
+          id:gid(),type:"transfer_pending",
+          msg:"⏳ طلب تحويل جديد بانتظار موافقتك: "+fmt(amt)+" ج.م من "+tfFrom+" → "+tfTo+" • طلبه: "+userName,
+          adminOnly:true,transferId:tfId,read:false,by:userName,createdAt:new Date().toISOString()
+        });
+      }else{
+        /* Admin: immediate double-entry */
+        d.treasury.unshift({id:gid(),type:"out",amount:amt,desc:"تحويل إلى "+tfTo+(tfNote?" — "+tfNote:""),notes:"",category:"تحويل داخلي",account:tfFrom,season:d.activeSeason||"",date:d_,day:dayN,transferId:tfId,by:userName,createdAt:new Date().toISOString()});
+        d.treasury.unshift({id:gid(),type:"in",amount:amt,desc:"تحويل من "+tfFrom+(tfNote?" — "+tfNote:""),notes:"",category:"تحويل داخلي",account:tfTo,season:d.activeSeason||"",date:d_,day:dayN,transferId:tfId,by:userName,createdAt:new Date().toISOString()});
+        if(toAcc?.ownerEmail){d.notifications.unshift({id:gid(),type:"treasury_transfer",msg:"💸 وصلك تحويل "+fmt(amt)+" ج.م من "+tfFrom+(tfNote?" — "+tfNote:""),toEmail:toAcc.ownerEmail,transferId:tfId,read:false,by:userName,createdAt:new Date().toISOString()})}
+      }
     });
-    setShowTransfer(false);setTfFrom("");setTfTo("");setTfAmount("");setTfNote("");setTfDate("");showToast("✓ تم التحويل — منصرف من "+tfFrom+" ووارد في "+tfTo)};
+    setShowTransfer(false);setTfFrom("");setTfTo("");setTfAmount("");setTfNote("");setTfDate("");
+    showToast(isPending?"⏳ تم إرسال الطلب — بانتظار موافقة المدير":"✓ تم التحويل — منصرف من "+tfFrom+" ووارد في "+tfTo)};
+
+  /* V16.13: Admin approves a pending transfer → creates the double-entry */
+  const approveTransfer=(tfId)=>{if(!isAdmin)return;
+    upConfig(d=>{
+      const tf=(d.treasuryTransfers||[]).find(t=>t.id===tfId);
+      if(!tf||tf.status!=="pending")return;
+      const dayN=dayName(tf.date);
+      const toAcc=(d.treasuryAccounts||[]).find(a=>(typeof a==="string"?a:a.name)===tf.toAccount);
+      tf.status="confirmed";
+      tf.approvedBy=userName;tf.approvedByEmail=userEmail;tf.approvedAt=new Date().toISOString();
+      if(!d.treasury)d.treasury=[];
+      d.treasury.unshift({id:gid(),type:"out",amount:tf.amount,desc:"تحويل إلى "+tf.toAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.fromAccount,season:d.activeSeason||"",date:tf.date,day:dayN,transferId:tf.id,by:tf.sentBy||userName,createdAt:new Date().toISOString()});
+      d.treasury.unshift({id:gid(),type:"in",amount:tf.amount,desc:"تحويل من "+tf.fromAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.toAccount,season:d.activeSeason||"",date:tf.date,day:dayN,transferId:tf.id,by:tf.sentBy||userName,createdAt:new Date().toISOString()});
+      /* Mark pending notif as read; notify requester of approval */
+      (d.notifications||[]).forEach(n=>{if(n.transferId===tf.id&&n.type==="transfer_pending")n.read=true});
+      if(!d.notifications)d.notifications=[];
+      if(tf.sentByEmail){d.notifications.unshift({id:gid(),type:"transfer_approved",msg:"✅ تمت الموافقة على تحويلك "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+" → "+tf.toAccount,toEmail:tf.sentByEmail,transferId:tf.id,read:false,by:userName,createdAt:new Date().toISOString()})}
+      if(toAcc&&typeof toAcc==="object"&&toAcc.ownerEmail){d.notifications.unshift({id:gid(),type:"treasury_transfer",msg:"💸 وصلك تحويل "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+(tf.note?" — "+tf.note:""),toEmail:toAcc.ownerEmail,transferId:tf.id,read:false,by:userName,createdAt:new Date().toISOString()})}
+    });
+    showToast("✅ تم تأكيد التحويل")};
+
+  /* V16.13: Admin rejects a pending transfer → deletes the request */
+  const rejectTransfer=(tfId)=>{if(!isAdmin)return;
+    upConfig(d=>{
+      const tf=(d.treasuryTransfers||[]).find(t=>t.id===tfId);
+      if(!tf||tf.status!=="pending")return;
+      d.treasuryTransfers=(d.treasuryTransfers||[]).filter(t=>t.id!==tfId);
+      (d.notifications||[]).forEach(n=>{if(n.transferId===tfId&&n.type==="transfer_pending")n.read=true});
+      if(!d.notifications)d.notifications=[];
+      if(tf.sentByEmail){d.notifications.unshift({id:gid(),type:"transfer_rejected",msg:"❌ تم رفض طلب التحويل: "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+" → "+tf.toAccount,toEmail:tf.sentByEmail,transferId:tfId,read:false,by:userName,createdAt:new Date().toISOString()})}
+    });
+    showToast("✓ تم رفض الطلب")};
   /* Delete a transfer — removes both entries */
   const deleteTransfer=(tfId)=>{const tf=transfers.find(t=>t.id===tfId);if(!tf)return;
     upConfig(d=>{
@@ -689,7 +737,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const prevTxns=scopeTxns.filter(t=>t.date<date);const openBal=prevTxns.reduce((s,t)=>t.type==="in"?s+(Number(t.amount)||0):s-(Number(t.amount)||0),0);
     const closeBal=openBal+dIn-dOut;
     const scopeLabel=accountName||"كل الحسابات";
-    const dayN=["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"][new Date(date).getDay()];
+    const dayN=dayNameFull(date);
     const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
     w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>يومية ${scopeLabel} — ${date}</title>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet"/>
@@ -780,7 +828,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const openBal=prevTxns.reduce((s,t)=>t.type==="in"?s+(Number(t.amount)||0):s-(Number(t.amount)||0),0);
     const closeBal=openBal+dIn-dOut;
     const scopeLabel=accountName?accountName:"كل الحسابات";
-    const dayN=["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"][new Date(date).getDay()];
+    const dayN=dayNameFull(date);
     let rows="";let runBal=openBal;
     /* V16.8: Tahoma/Arial render Arabic correctly in html2pdf. NO white-space:nowrap on description (causes letter breaks).
        Removed text-overflow:ellipsis — let descriptions wrap naturally instead of being cut mid-letter. */
@@ -875,58 +923,68 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     finally{document.body.removeChild(container)}
   };
 
-  /* ── Build WhatsApp text summary message ── */
+  /* ── Build WhatsApp text summary message ──
+     V16.13: Full text report — no PDF attachment. Lists every transaction
+     of the day inline with running balance. */
   const buildDailyWaMessage=(date,accountName)=>{
     const{dIn,dOut,openBal,closeBal,txnCount,scopeLabel}=buildDailyReportHtml(date,accountName);
     const net=dIn-dOut;
-    const dateFmt=new Date(date).toLocaleDateString("ar-EG");
-    const lines=[
+    const dayN=dayNameFull(date);
+    /* Re-derive the same filtered txns (cheap; small list) */
+    const scopeTxns=accountName?txns.filter(t=>(t.account||"")===accountName):txns;
+    const dayTxns=scopeTxns.filter(t=>t.date===date).sort((a,b)=>(a.createdAt||"").localeCompare(b.createdAt||""));
+    /* Build per-transaction lines */
+    let runBal=openBal;const lines=[];
+    dayTxns.forEach((t,i)=>{
+      if(t.type==="in")runBal+=(Number(t.amount)||0);else runBal-=(Number(t.amount)||0);
+      const arrow=t.type==="in"?"🟢":"🔴";
+      const sign=t.type==="in"?"+":"-";
+      const amt=fmt(r2(t.amount));
+      const desc=(t.desc||"—").replace(/\*/g,"").slice(0,80);
+      const cat=t.category?" • "+t.category:"";
+      const acc=accountName?"":" • "+(t.account||"");
+      lines.push((i+1)+". "+arrow+" "+sign+amt+" ج.م"+acc+cat);
+      lines.push("    "+desc);
+      if(t.notes)lines.push("    📝 "+t.notes.slice(0,60));
+      lines.push("    رصيد بعد الحركة: "+fmt(r2(runBal)));
+      lines.push("");
+    });
+    const txBlock=dayTxns.length?lines.join("\n"):"لا توجد حركات في هذا اليوم";
+    const out=[
       "📊 *تقرير يومية الخزنة*",
       "🏦 *الحساب:* "+scopeLabel,
       "━━━━━━━━━━━━━━━━",
-      "📅 التاريخ: "+dateFmt,
+      "📅 "+date+" — "+dayN,
       "",
       "💰 *رصيد افتتاحي:* "+fmt(r2(openBal))+" ج.م",
-      "",
       "🟢 وارد: "+fmt(r2(dIn))+" ج.م",
       "🔴 منصرف: "+fmt(r2(dOut))+" ج.م",
-      "━━━━━━━━━━━━━━━━",
       "💵 *صافي اليوم:* "+(net>=0?"+":"")+fmt(r2(net))+" ج.م",
       "📊 *رصيد الإقفال:* "+fmt(r2(closeBal))+" ج.م",
-      "",
       "📝 عدد الحركات: "+txnCount,
-      "",
       "━━━━━━━━━━━━━━━━",
-      "📎 *تفاصيل كاملة في ملف PDF المرفق*",
-      "ارفع الملف مع هذه الرسالة",
+      "*تفاصيل الحركات*",
       "",
+      txBlock,
+      "━━━━━━━━━━━━━━━━",
       "🏭 CLARK Factory Management"
     ];
-    return lines.join("\n");
+    return out.join("\n");
   };
 
   /* ── State for WhatsApp contact picker popup ── */
   /* Stores {date, account} — account null = all */
   const[waPopupData,setWaPopupData]=useState(null);
 
-  /* ── Share daily report via WhatsApp ── */
+  /* ── Share daily report via WhatsApp ──
+     V16.13: Text-only — no PDF. Full transaction details in the message body. */
   const shareDailyWhatsApp=async(date,phone,accountName)=>{
-    /* V16.7 fix: Browser blocks window.open if it's not in the same user gesture
-       as the click. So we open WhatsApp FIRST (synchronously), then generate PDF.
-       This way the user sees both: WhatsApp opens immediately, PDF saves in background. */
     const msg=buildDailyWaMessage(date,accountName);
     const cleanPhone=(phone||"").replace(/[^0-9]/g,"");
     const url="https://wa.me/"+cleanPhone+"?text="+encodeURIComponent(msg);
-    /* Open WhatsApp window FIRST in the same click event — prevents popup block */
     const waWin=window.open(url,"_blank");
     if(!waWin){showToast("⛔ المتصفح يمنع النوافذ — اسمح بالـ popups أو افتح يدوياً")}
     setWaPopupData(null);
-    /* Now generate the PDF (this can take time) */
-    try{
-      await savePdfDaily(date,accountName);
-    }catch(e){
-      showToast("⚠️ تم فتح واتساب لكن فشل حفظ PDF — حمّل يدوياً");
-    }
   };
 
   return<div>
@@ -979,6 +1037,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       {(()=>{
         /* Dynamic tabs: general journal + one per account + tools */
         const unreadTransferNotifs=notifications.filter(n=>n.toEmail===userEmail&&!n.read&&(n.type==="treasury_transfer"||n.type==="treasury_transfer_confirmed")).length;
+        /* V16.13: pending transfers waiting for admin approval */
+        const pendingTransferCount=isAdmin?transfers.filter(t=>t.status==="pending").length:0;
+        const transferBadge=pendingTransferCount>0?" ⏳"+pendingTransferCount:(unreadTransferNotifs>0?" 🔴"+unreadTransferNotifs:"");
         const baseTabs=[];
         /* Sort accounts: SUB CASH first, then MAIN CASH, then others */
         const sortedAccounts=[...accountsData].sort((a,b)=>{const aS=a.name.toUpperCase().includes("SUB")?0:a.name.toUpperCase().includes("MAIN")?1:2;const bS=b.name.toUpperCase().includes("SUB")?0:b.name.toUpperCase().includes("MAIN")?1:2;return aS-bS});
@@ -987,7 +1048,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           baseTabs.push({k:"acc_"+a.id,l:icon+" "+a.name,accName:a.name})
         });
         baseTabs.push({k:"journal",l:"📒 الكل"});
-        baseTabs.push({k:"transfers",l:"🔄 التحويلات"+(unreadTransferNotifs>0?" 🔴"+unreadTransferNotifs:"")});
+        baseTabs.push({k:"transfers",l:"🔄 التحويلات"+transferBadge});
         baseTabs.push({k:"checks",l:"📝 الشيكات"});
         baseTabs.push({k:"analysis",l:"📊 التحليل"});
         baseTabs.push({k:"accounts",l:"🏦 الحسابات"});
@@ -1350,7 +1411,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           {withBalance.slice(0,limit).map(t=>{const locked=isDayLocked(t.date);const isEd=inlineEdit===t.id;const d_=inlineDraft;
             const inpS={padding:"3px 6px",borderRadius:6,border:"1px solid "+T.accent+"40",fontSize:FS-2,fontFamily:"inherit",background:T.inputBg,color:T.text};
             const startEdit=()=>{setInlineEdit(t.id);setInlineDraft({type:t.type,amount:String(t.amount||""),desc:t.desc||"",notes:t.notes||"",category:t.category||"",date:t.date||"",account:t.account||""})};
-            const saveInline=()=>{upConfig(cfg=>{const tx=(cfg.treasury||[]).find(x=>x.id===t.id);if(tx){tx.type=d_.type||tx.type;tx.amount=parseFloat(d_.amount)||tx.amount;tx.desc=d_.desc;tx.notes=d_.notes;tx.category=d_.category;tx.date=d_.date||tx.date;tx.account=d_.account||tx.account;tx.day=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(d_.date||tx.date).getDay()];tx.updatedBy=userName;tx.updatedAt=new Date().toISOString()}});setInlineEdit(null);setInlineDraft({});showToast("✓ تم التعديل")};
+            const saveInline=()=>{upConfig(cfg=>{const tx=(cfg.treasury||[]).find(x=>x.id===t.id);if(tx){tx.type=d_.type||tx.type;tx.amount=parseFloat(d_.amount)||tx.amount;tx.desc=d_.desc;tx.notes=d_.notes;tx.category=d_.category;tx.date=d_.date||tx.date;tx.account=d_.account||tx.account;tx.day=dayName(d_.date||tx.date);tx.updatedBy=userName;tx.updatedAt=new Date().toISOString()}});setInlineEdit(null);setInlineDraft({});showToast("✓ تم التعديل")};
             const cancelInline=()=>{setInlineEdit(null);setInlineDraft({})};
             const isChecked=selectedTxIds.has(t.id);
             return<tr key={t.id} style={{borderBottom:"1px solid "+T.brd,opacity:locked?0.8:1,background:isChecked?T.err+"06":isEd?T.accent+"06":locked?T.bg:""}}>
@@ -1391,26 +1452,40 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       {canEdit&&accountsData.length>=2&&<div style={{marginBottom:14}}><Btn onClick={()=>{setTfDate(new Date().toISOString().split("T")[0]);setShowTransfer(true)}} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700}}>+ تحويل جديد</Btn></div>}
       {transfers.length===0?<Card><div style={{textAlign:"center",padding:40,color:T.textMut}}>لا يوجد تحويلات بعد — اضغط "+ تحويل جديد"</div></Card>
       :<Card title={"🔄 سجل التحويلات ("+transfers.length+")"}>
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {transfers.map(tf=>{
-            return<div key={tf.id} style={{padding:14,borderRadius:12,border:"2px solid #8B5CF630",background:"#8B5CF606"}}>
+        {(()=>{
+          /* V16.13: pending first, then confirmed — both sorted newest-first within group */
+          const pending=transfers.filter(t=>t.status==="pending");
+          const confirmed=transfers.filter(t=>t.status!=="pending");
+          const ordered=[...pending,...confirmed];
+          return<div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {pending.length>0&&isAdmin&&<div style={{padding:"8px 12px",borderRadius:8,background:"#F59E0B15",border:"1px solid #F59E0B40",fontSize:FS-1,color:"#92400E",fontWeight:700}}>⏳ {pending.length} طلب{pending.length>1?"ات":""} تحويل بانتظار موافقتك</div>}
+          {ordered.map(tf=>{
+            const isPending=tf.status==="pending";
+            const borderColor=isPending?"#F59E0B":"#8B5CF630";
+            const bgColor=isPending?"#FEF3C7":"#8B5CF606";
+            return<div key={tf.id} style={{padding:14,borderRadius:12,border:"2px solid "+borderColor,background:bgColor}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
                 <div style={{flex:1}}>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+                    {isPending&&<span style={{fontSize:FS-2,fontWeight:800,color:"#92400E",padding:"2px 8px",borderRadius:6,background:"#F59E0B25",border:"1px solid #F59E0B"}}>⏳ بانتظار الموافقة</span>}
                     <span style={{fontSize:FS,fontWeight:800,color:T.err}}>{tf.fromAccount}</span>
                     <span style={{fontSize:18,color:"#8B5CF6"}}>→</span>
                     <span style={{fontSize:FS,fontWeight:800,color:T.ok}}>{tf.toAccount}</span>
                   </div>
                   {tf.note&&<div style={{fontSize:FS-2,color:T.textMut,marginBottom:4}}>💬 {tf.note}</div>}
-                  <div style={{fontSize:FS-3,color:T.textMut}}>{"📅 "+tf.date+" • أرسله: "+tf.sentBy}</div>
+                  <div style={{fontSize:FS-3,color:T.textMut}}>{"📅 "+tf.date+" • طلبه: "+tf.sentBy}{tf.approvedBy?" • وافق: "+tf.approvedBy:""}</div>
                 </div>
                 <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
-                  <span style={{fontSize:FS+4,fontWeight:800,color:"#8B5CF6"}}>{fmt(tf.amount)}</span>
-                  {canEdit&&<span onClick={()=>openConfirm({title:"حذف التحويل",message:"سيتم حذف التحويل وحركاته في السجلين معاً.\nمن "+tf.fromAccount+" إلى "+tf.toAccount+"\nالمبلغ: "+fmt(tf.amount)+" ج.م",variant:"danger",onConfirm:()=>deleteTransfer(tf.id)})} style={{cursor:"pointer",fontSize:11,color:T.err,padding:"2px 8px",borderRadius:6,border:"1px solid "+T.err+"30",background:T.err+"08"}}>🗑️ حذف</span>}
+                  <span style={{fontSize:FS+4,fontWeight:800,color:isPending?"#92400E":"#8B5CF6"}}>{fmt(tf.amount)}</span>
+                  {isPending&&isAdmin&&<div style={{display:"flex",gap:6}}>
+                    <span onClick={()=>openConfirm({title:"تأكيد التحويل",message:"سيتم تسجيل منصرف من "+tf.fromAccount+" ووارد على "+tf.toAccount+"\nالمبلغ: "+fmt(tf.amount)+" ج.م",variant:"success",onConfirm:()=>approveTransfer(tf.id)})} style={{cursor:"pointer",fontSize:11,color:"#fff",padding:"4px 10px",borderRadius:6,background:T.ok,fontWeight:700}}>✓ تأكيد</span>
+                    <span onClick={()=>openConfirm({title:"رفض الطلب",message:"سيتم حذف طلب التحويل نهائياً.\nمن "+tf.fromAccount+" إلى "+tf.toAccount+"\nالمبلغ: "+fmt(tf.amount)+" ج.م",variant:"danger",onConfirm:()=>rejectTransfer(tf.id)})} style={{cursor:"pointer",fontSize:11,color:"#fff",padding:"4px 10px",borderRadius:6,background:T.err,fontWeight:700}}>✗ رفض</span>
+                  </div>}
+                  {!isPending&&canEdit&&<span onClick={()=>openConfirm({title:"حذف التحويل",message:"سيتم حذف التحويل وحركاته في السجلين معاً.\nمن "+tf.fromAccount+" إلى "+tf.toAccount+"\nالمبلغ: "+fmt(tf.amount)+" ج.م",variant:"danger",onConfirm:()=>deleteTransfer(tf.id)})} style={{cursor:"pointer",fontSize:11,color:T.err,padding:"2px 8px",borderRadius:6,border:"1px solid "+T.err+"30",background:T.err+"08"}}>🗑️ حذف</span>}
                 </div>
               </div>
             </div>})}
-        </div>
+        </div>;})()}
       </Card>}
     </div>}
 
@@ -1435,8 +1510,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           /* Auto-register in treasury when collected/paid */
           if(!d.treasury)d.treasury=[];
           const chkCat=ch.category||(ch.type==="receivable"?"دفعة عميل":"دفع مورد");
-          if(status==="محصل"){d.treasury.unshift({id:gid(),type:"in",amount:ch.amount,desc:"تحصيل شيك من "+ch.party+(ch.checkNo?" #"+ch.checkNo:""),category:chkCat,account:ch.bank||"MAIN CASH",season:d.activeSeason||"",date:today,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date().getDay()],custId:ch.type==="receivable"?ch.partyId||null:null,supplierId:ch.type==="payable"?ch.partyId||null:null,sourceType:"check_collect",checkId:ch.id,by:userName,createdAt:new Date().toISOString()})}
-          if(status==="مدفوع"){d.treasury.unshift({id:gid(),type:"out",amount:ch.amount,desc:"صرف شيك لـ "+ch.party+(ch.checkNo?" #"+ch.checkNo:""),category:chkCat,account:ch.bank||"MAIN CASH",season:d.activeSeason||"",date:today,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date().getDay()],custId:ch.type==="receivable"?ch.partyId||null:null,supplierId:ch.type==="payable"?ch.partyId||null:null,sourceType:"check_pay",checkId:ch.id,by:userName,createdAt:new Date().toISOString()})}
+          if(status==="محصل"){d.treasury.unshift({id:gid(),type:"in",amount:ch.amount,desc:"تحصيل شيك من "+ch.party+(ch.checkNo?" #"+ch.checkNo:""),category:chkCat,account:ch.bank||"MAIN CASH",season:d.activeSeason||"",date:today,day:dayName(today),custId:ch.type==="receivable"?ch.partyId||null:null,supplierId:ch.type==="payable"?ch.partyId||null:null,sourceType:"check_collect",checkId:ch.id,by:userName,createdAt:new Date().toISOString()})}
+          if(status==="مدفوع"){d.treasury.unshift({id:gid(),type:"out",amount:ch.amount,desc:"صرف شيك لـ "+ch.party+(ch.checkNo?" #"+ch.checkNo:""),category:chkCat,account:ch.bank||"MAIN CASH",season:d.activeSeason||"",date:today,day:dayName(today),custId:ch.type==="receivable"?ch.partyId||null:null,supplierId:ch.type==="payable"?ch.partyId||null:null,sourceType:"check_pay",checkId:ch.id,by:userName,createdAt:new Date().toISOString()})}
         }});showToast("✓ تم التحديث")};
         const delCheck=(id)=>{upConfig(d=>{
           /* V15.9: Also remove linked treasury entries (if check was collected/paid) */
@@ -1458,7 +1533,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             d.supplierPayments.push({id:gid(),supplierId:sup.id,supplierName:sup.name,amount:ch.amount,date:today,note:"تظهير شيك"+(ch.party?" من "+ch.party:"")+(ch.checkNo?" #"+ch.checkNo:""),method:"شيك مُظهّر",by:userName,createdAt:new Date().toISOString()});
             /* Treasury entry */
             if(!d.treasury)d.treasury=[];
-            d.treasury.unshift({id:gid(),type:"out",amount:ch.amount,desc:"تظهير شيك لـ "+sup.name+(ch.party?" (شيك "+ch.party+")":"")+(ch.checkNo?" #"+ch.checkNo:""),category:"تشغيل خارجي",account:"CHECKS",season:d.activeSeason||"",date:today,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date().getDay()],sourceType:"check_endorse",checkId,by:userName,createdAt:new Date().toISOString()})});
+            d.treasury.unshift({id:gid(),type:"out",amount:ch.amount,desc:"تظهير شيك لـ "+sup.name+(ch.party?" (شيك "+ch.party+")":"")+(ch.checkNo?" #"+ch.checkNo:""),category:"تشغيل خارجي",account:"CHECKS",season:d.activeSeason||"",date:today,day:dayName(today),sourceType:"check_endorse",checkId,by:userName,createdAt:new Date().toISOString()})});
           setEndorsePopup(null);setEndorseSearch("");showToast("✅ تم تظهير الشيك لـ "+sup.name)};
         return<div>
           {/* Summary */}

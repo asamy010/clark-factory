@@ -7,7 +7,7 @@ import { doc, setDoc, onSnapshot, collection, addDoc, updateDoc, deleteDoc, getD
 /* ─── V15.0 Module imports (refactored from monolith) ─── */
 import { FKEYS, FCOL, WS_TYPES, COLORS_DB, THEMES, DEFAULT_STATUSES, INIT_CONFIG, GARMENT_ICONS, QUALITY_MAP, FS, PRINT_CSS } from "./constants/index.js";
 import { CLARK_LOGO } from "./constants/logo.js";
-import { gid, fmt, r2, gf, getSizesFromSet } from "./utils/format.js";
+import { gid, fmt, r2, gf, getSizesFromSet, dayName } from "./utils/format.js";
 import { playBeep } from "./utils/audio.js";
 import { compressImage, compressImg43 } from "./utils/image.js";
 import { loadXLSX, loadQR, loadJsQR, scanQR, compressFile } from "./utils/qr.js";
@@ -452,7 +452,7 @@ export default function App(){
             const entries=(data.treasury||[]).filter(t=>t.transferId===tf.id);
             const hasOut=entries.some(t=>t.type==="out");
             const hasIn=entries.some(t=>t.type==="in");
-            const dayN=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(tf.date||new Date()).getDay()];
+            const dayN=dayName(tf.date||new Date().toISOString().split("T")[0]);
             if(!hasOut&&tf.fromAccount){data.treasury=data.treasury||[];data.treasury.unshift({id:Math.random().toString(36).slice(2)+Date.now(),type:"out",amount:tf.amount,desc:"تحويل إلى "+tf.toAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.fromAccount,season:data.activeSeason||"",date:tf.date||new Date().toISOString().split("T")[0],day:dayN,transferId:tf.id,by:tf.sentBy||"",createdAt:new Date().toISOString()});repaired=true}
             if(!hasIn&&tf.toAccount){data.treasury=data.treasury||[];data.treasury.unshift({id:Math.random().toString(36).slice(2)+Date.now(),type:"in",amount:tf.amount,desc:"تحويل من "+tf.fromAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.toAccount,season:data.activeSeason||"",date:tf.date||new Date().toISOString().split("T")[0],day:dayN,transferId:tf.id,by:tf.sentBy||"",createdAt:new Date().toISOString()});repaired=true}
             if(tf.status!=="confirmed"){tf.status="confirmed";repaired=true}
@@ -514,6 +514,25 @@ export default function App(){
           (data.usersList||[]).forEach(u=>{if(u.phone){const old=u.phone;const n=norm(old);if(n!==old){u.phone=n;count++}}});
           data._phoneNormalizedV1517=true;
           return"normalized="+count+" phone numbers";
+        }
+      );
+
+      /* ═══ Migration: V16.13 — recompute tx.day with timezone-safe parser ═══
+         Old code used `new Date("YYYY-MM-DD").getDay()` which parses as UTC
+         midnight. Devices in negative-UTC zones got the previous weekday.
+         We now rebuild every treasury entry's `day` field from `date` using
+         the local-components parser. Idempotent: same date → same name. */
+      runMigration("day-name-tz-fix-v16-13",d,
+        (data)=>!data._dayNameTzFixV1613&&Array.isArray(data.treasury)&&data.treasury.length>0,
+        (data)=>{
+          let fixed=0;
+          (data.treasury||[]).forEach(t=>{
+            if(!t||!t.date)return;
+            const correct=dayName(t.date);
+            if(t.day!==correct){t.day=correct;fixed++}
+          });
+          data._dayNameTzFixV1613=true;
+          return"recomputed day for "+fixed+" treasury entries";
         }
       );
 
@@ -1227,7 +1246,7 @@ export default function App(){
           <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}
           </span>
-          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V16.12</span>
+          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V16.13</span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>

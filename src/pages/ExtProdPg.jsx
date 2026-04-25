@@ -12,7 +12,7 @@ import { FKEYS, FS } from "../constants/index.js";
 import { CLARK_LOGO } from "../constants/logo.js";
 import { db } from "../firebase";
 import { T, TD, TDB, TH } from "../theme.js";
-import { fmt, gIcon, gf, gid, r2 } from "../utils/format.js";
+import { fmt, gIcon, gf, gid, r2, dayName } from "../utils/format.js";
 import { calcOrder, recomputeStatus, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
 import { ask, showToast, tell } from "../utils/popups.js";
 import { printPage } from "../utils/print.js";
@@ -257,7 +257,7 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
     upConfig(d=>{if(!d.wsPayments)d.wsPayments=[];
       d.wsPayments.push({id:wsPayId,wsName:payWs,wsId:wsObj?wsObj.id:null,amount:Number(payAmt),type:payType,notes:payNote,date:payDate,createdBy:userName||"",treasuryTxId:txId});
       /* Auto-register in treasury — linked to ws payment */
-      if(!d.treasury)d.treasury=[];d.treasury.unshift({id:txId,type:"out",amount:Number(payAmt),desc:(payType==="payment"?"دفعة ورشة ":"مشتريات ورشة ")+payWs+(payNote?" — "+payNote:""),notes:"",category:payType==="payment"?"تشغيل خارجي":"مشتريات",account:"SUB CASH",season:d.activeSeason||"",date:payDate,day:["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(payDate).getDay()],sourceType:"ws_payment",wsPaymentId:wsPayId,wsName:payWs,by:userName||"",createdAt:new Date().toISOString()})});
+      if(!d.treasury)d.treasury=[];d.treasury.unshift({id:txId,type:"out",amount:Number(payAmt),desc:(payType==="payment"?"دفعة ورشة ":"مشتريات ورشة ")+payWs+(payNote?" — "+payNote:""),notes:"",category:payType==="payment"?"تشغيل خارجي":"مشتريات",account:"SUB CASH",season:d.activeSeason||"",date:payDate,day:dayName(payDate),sourceType:"ws_payment",wsPaymentId:wsPayId,wsName:payWs,by:userName||"",createdAt:new Date().toISOString()})});
     if(wa){const acc=wsAccounts(payWs);let del=0,rcv=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===payWs).forEach(wd=>{del+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{rcv+=Number(r.qty)||0})})});
       const allPay=(data.wsPayments||[]).filter(p=>p.wsName===payWs&&p.type==="payment");const totalPaid=allPay.reduce((s,p)=>s+(Number(p.amount)||0),0)+Number(payAmt);
       const phone=wsObj?.phone||"";
@@ -1049,7 +1049,7 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
           {isEd?<><Btn small primary onClick={()=>{upConfig(d=>{const t=(d.wsPayments||[]).find(x=>x.id===p.id);if(t){t.date=edPayDate;t.amount=Number(edPayAmt)||0;t.notes=edPayNote;t.type=edPayType;
             /* Sync linked treasury entry */
             const txId=t.treasuryTxId;const tx=txId?(d.treasury||[]).find(x=>x.id===txId):(d.treasury||[]).find(x=>x.wsPaymentId===t.id);
-            if(tx){tx.date=edPayDate;tx.amount=Number(edPayAmt)||0;tx.category=edPayType==="payment"?"تشغيل خارجي":"مشتريات";tx.desc=(edPayType==="payment"?"دفعة ورشة ":"مشتريات ورشة ")+t.wsName+(edPayNote?" — "+edPayNote:"");tx.day=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"][new Date(edPayDate).getDay()]}}
+            if(tx){tx.date=edPayDate;tx.amount=Number(edPayAmt)||0;tx.category=edPayType==="payment"?"تشغيل خارجي":"مشتريات";tx.desc=(edPayType==="payment"?"دفعة ورشة ":"مشتريات ورشة ")+t.wsName+(edPayNote?" — "+edPayNote:"");tx.day=dayName(edPayDate)}}
             });setEditPayId(null);showToast("✓ تم التعديل")}} title="حفظ">💾</Btn><Btn ghost small onClick={()=>setEditPayId(null)} title="إغلاق">✕</Btn></>
           :<><Btn small onClick={()=>{setEditPayId(p.id);setEdPayDate(p.date);setEdPayAmt(p.amount);setEdPayNote(p.notes||"");setEdPayType(p.type)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
           <Btn small onClick={()=>{const wsO=workshops.find(w=>w.name===payWs);const ph=wsO?.phone||"";const ac=wsAccounts(payWs);const mg="*CLARK — "+(p.type==="payment"?"اشعار دفعة":"اشعار مشتريات")+"*%0A%0A• الورشة: *"+payWs+"*%0A• المبلغ: *"+fmt(p.amount)+"* ج.م%0A• التاريخ: *"+p.date+"*%0A"+(p.notes?"• ملاحظات: "+p.notes+"%0A":"")+"%0A─────────────────%0A*الرصيد الحالي: "+fmt(r2(ac.balance))+" ج.م*";window.open("https://wa.me/"+(ph?ph.replace(/[^0-9]/g,""):"")+"?text="+mg,"_blank")}} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال واتساب">📱</Btn>

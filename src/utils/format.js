@@ -15,6 +15,23 @@ export function r2(n){return Math.round((n||0)*100)/100}
 /* Format ISO date (YYYY-MM-DD) as Arabic-friendly (D-M-YYYY) for RTL display */
 export function fmtDate(iso){if(!iso)return"";const parts=String(iso).split("-");if(parts.length!==3)return iso;return parseInt(parts[2])+"-"+parseInt(parts[1])+"-"+parts[0]}
 
+/* V16.13: Timezone-safe day-of-week from "YYYY-MM-DD".
+   `new Date("2026-04-23").getDay()` parses as UTC midnight, so devices in
+   negative-UTC timezones return the previous day's index. We build the date
+   from local components instead — getDay() always returns the correct day. */
+const _DAYS_SHORT=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"];
+const _DAYS_FULL=["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"];
+function _dayIdx(dateStr){
+  if(!dateStr)return new Date().getDay();
+  const s=String(dateStr);
+  const m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m)return new Date(+m[1],+m[2]-1,+m[3]).getDay();
+  /* Fallback for non-ISO inputs (Date objects, full timestamps) */
+  return new Date(dateStr).getDay();
+}
+export function dayName(dateStr){return _DAYS_SHORT[_dayIdx(dateStr)]}
+export function dayNameFull(dateStr){return _DAYS_FULL[_dayIdx(dateStr)]}
+
 /* Convert decimal hours (e.g., 13.95) to display format "HH:MM" (e.g., "13:57").
    - 13.95 → "13:57"  (0.95 * 60 = 57 minutes)
    - 8.5   → "8:30"
