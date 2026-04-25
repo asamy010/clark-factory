@@ -10,7 +10,7 @@ import { Badge, Btn, Card, DelBtn, FCTable, Inp, MetricCard, SearchSel, Sel, Tim
 import { DEFAULT_STATUSES, FCOL, FKEYS, FS } from "../constants/index.js";
 import { T, TD, TDB, TDL, TH } from "../theme.js";
 import { fmt, gIcon, gc, gcons, gdate, gf, gid, r2, slay, sqty, openWA } from "../utils/format.js";
-import { calcOrder, detectQtyMismatch, getConfirmedStock, getOrderDetails, getOrderTimeline, mkOrder, planCutSync, recomputeStatus, sortOrders, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
+import { calcOrder, detectQtyMismatch, getConfirmedStock, getOrderDetails, getOrderTimeline, getPieceCutQty, mkOrder, planCutSync, recomputeStatus, sortOrders, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
 import { addAudit } from "../utils/audit.js";
 import { ask, highlightRow, showToast } from "../utils/popups.js";
 import { printLabel, printOrderSheet, printReceipt, printWorkshopReport } from "../utils/print-extras.js";
@@ -38,6 +38,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   const[showDeliver,setShowDeliver]=useState(false);
   /* V15.45: Cut/workshop sync state */
   const[syncPopup,setSyncPopup]=useState(null);/* null | {plan, m, manual:{wdIdx:qty}} */
+  /* V16.24: per-piece cut quantity edit popup */
+  const[pieceCutPopup,setPieceCutPopup]=useState(null);/* null | {draft:{piece:qty}} */
   const[editStatusMode,setEditStatusMode]=useState(false);
   const[dWs,setDWs]=useState("");const[dType,setDType]=useState("");const[dQty,setDQty]=useState(0);const[dPrice,setDPrice]=useState("");const[dNote,setDNote]=useState("");const[dDate,setDDate]=useState(new Date().toISOString().split("T")[0]);const[dAgreed,setDAgreed]=useState("");
   const statuses=(statusCards||DEFAULT_STATUSES).map(s=>s.name);
@@ -462,7 +464,16 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           {canEdit&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true}))updOrder(sel,o=>{o.image=""})}} style={{position:"absolute",top:2,right:2,width:18,height:18,borderRadius:9,background:"rgba(0,0,0,0.6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:9}}>✕</div>}
         </div>}
         <div style={{flex:1,display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(2,1fr)":"repeat(4,1fr)",gap:isMob?6:12,minWidth:0}}>
-          <MetricCard label="كمية القص" value={t.cutQty} icon="✂️" color={T.accent}/>
+          {/* V16.24: Cut qty card — click to open per-piece edit popup */}
+          <div onClick={canEdit?()=>{
+            const pieces=order.orderPieces||[];
+            const draft={};
+            pieces.forEach(p=>{draft[p]=getPieceCutQty(order,p)});
+            setPieceCutPopup({draft})
+          }:undefined} style={{cursor:canEdit?"pointer":"default",position:"relative"}} title={canEdit?"اضغط لضبط كمية القص لكل قطعة على حدة":""}>
+            <MetricCard label="كمية القص" value={t.cutQty} icon="✂️" color={T.accent}/>
+            {canEdit&&(order.orderPieces||[]).some(p=>(order.pieceCutQty?.[p]!=null)&&Number(order.pieceCutQty[p])!==t.cutQty)&&<span style={{position:"absolute",top:4,insetInlineEnd:6,fontSize:9,color:T.warn,fontWeight:700,padding:"1px 5px",borderRadius:4,background:T.warn+"15"}} title="بعض القطع لها كمية قص يدوية مختلفة عن الإجمالي">يدوي</span>}
+          </div>
           <MetricCard label="في المخزن الجاهز" value={order.deliveredQty||0} icon="📦" color={T.ok}/>
           <MetricCard label="الرصيد" value={t.balance} icon="📊" color={t.balance>0?T.warn:T.ok}/>
           {(()=>{
@@ -1163,7 +1174,9 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       const isLinked=p=>hasFabric&&(linkedPieces.size===0||linkedPieces.has(p));
       const availPieces=pieces.filter(p=>{if(!isLinked(p))return false;const delForP=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return delForP<t.cutQty});
       const totalDelForType=dType?(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===dType).reduce((s,wd)=>s+(Number(wd.qty)||0),0):0;
-      const maxQty=dType?Math.max(0,t.cutQty-totalDelForType):t.cutQty;
+      /* V16.24: per-piece cut qty (falls back to global cutQty if no override set) */
+      const pieceCutForType=dType?getPieceCutQty(order,dType):t.cutQty;
+      const maxQty=dType?Math.max(0,pieceCutForType-totalDelForType):t.cutQty;
       const doDeliver=async(print,wa,label)=>{
         if(!dWs||!dType||!dQty)return;
         const wsObj=workshops.find(w=>w.name===dWs);
@@ -1188,7 +1201,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           </div>
           <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الورشة *</label><SearchSel value={dWs} onChange={v=>{setDWs(v);setDPrice("")}} options={workshops.map(w=>({value:w.name,label:wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — "+w.name+(w.owner?" - "+w.owner:"")}))} placeholder="ابحث عن ورشة..."/></div>
-            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع القطعة *</label><Sel value={dType} onChange={v=>{setDType(v);const delForP=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===v).reduce((s,wd)=>s+(Number(wd.qty)||0),0);setDQty(Math.max(0,t.cutQty-delForP));const gt=(data.garmentTypes||[]).find(g=>g.name===v);if(gt?.defaultPrice&&!dPrice)setDPrice(gt.defaultPrice)}}><option value="">-- اختر --</option>{(availPieces.length>0?availPieces:pieces.filter(p=>{const dp=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return dp<t.cutQty})).map(p=>{const dp=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return<option key={p} value={p}>{gIcon(p,data.garmentTypes)+" "+p+" (متاح: "+(t.cutQty-dp)+")"}</option>})}</Sel></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع القطعة *</label><Sel value={dType} onChange={v=>{setDType(v);const delForP=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===v).reduce((s,wd)=>s+(Number(wd.qty)||0),0);setDQty(Math.max(0,getPieceCutQty(order,v)-delForP));const gt=(data.garmentTypes||[]).find(g=>g.name===v);if(gt?.defaultPrice&&!dPrice)setDPrice(gt.defaultPrice)}}><option value="">-- اختر --</option>{(availPieces.length>0?availPieces:pieces.filter(p=>{const dp=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return dp<getPieceCutQty(order,p)})).map(p=>{const dp=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);return<option key={p} value={p}>{gIcon(p,data.garmentTypes)+" "+p+" (متاح: "+(getPieceCutQty(order,p)-dp)+")"}</option>})}</Sel></div>
           </div>
           <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:12}}>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الكمية *</label><Inp type="number" value={dQty} onChange={v=>setDQty(Math.min(Number(v)||0,maxQty))}/></div>
@@ -1198,7 +1211,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>التاريخ</label><Inp type="date" value={dDate} onChange={setDDate}/></div>
           </div>
           {dWs&&dType&&<div style={{padding:10,borderRadius:8,background:T.accentBg,marginBottom:12,fontSize:FS-1,color:T.textSec}}>
-            {"كمية القص: "+t.cutQty+" | تم تسليمه: "+totalDelForType+" | متاح: "+maxQty}
+            {"كمية القص (لـ "+dType+"): "+pieceCutForType+(pieceCutForType!==t.cutQty?" (يدوي)":"")+" | تم تسليمه: "+totalDelForType+" | متاح: "+maxQty}
           </div>}
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
             <Btn ghost onClick={()=>setShowDeliver(false)}>الغاء</Btn>
@@ -1286,6 +1299,52 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
             <Btn onClick={save} disabled={amt<=0} style={{background:amt>0?"#F59E0B":"#F59E0B40",color:"#fff",border:"none",fontWeight:800,padding:"10px 20px"}}>
               {isEdit?"💾 تحديث":"➕ إضافة التكلفة"}
             </Btn>
+          </div>
+        </div>
+      </div>;
+    })()}
+    {/* V16.24: Per-piece cut quantity edit popup */}
+    {pieceCutPopup&&(()=>{
+      const pieces=order.orderPieces||[];
+      const globalCut=t.cutQty||0;
+      const save=()=>{
+        updOrder(sel,o=>{
+          if(!o.pieceCutQty)o.pieceCutQty={};
+          pieces.forEach(p=>{
+            const v=Number(pieceCutPopup.draft[p]);
+            if(isNaN(v)||v===globalCut)delete o.pieceCutQty[p];/* match global → clear override */
+            else o.pieceCutQty[p]=v;
+          });
+          /* Clean up empty map */
+          if(Object.keys(o.pieceCutQty).length===0)delete o.pieceCutQty;
+        });
+        setPieceCutPopup(null);
+        showToast("✓ تم حفظ كميات القص");
+      };
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setPieceCutPopup(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:20,width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>✂️ ضبط كمية القص لكل قطعة</div>
+            <Btn ghost small onClick={()=>setPieceCutPopup(null)}>✕</Btn>
+          </div>
+          <div style={{padding:"8px 12px",borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"20",fontSize:FS-2,color:T.textSec,marginBottom:14,lineHeight:1.7}}>
+            💡 الكمية الإجمالية للأوردر: <b style={{color:T.text}}>{globalCut}</b> طقم. لو قطعة معيّنة لسه ماتقصتش بالكامل، عدّل قيمتها هنا. القيمة دي بتأثّر على "متاح" في تسليم الورش.
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
+            {pieces.map(p=>{
+              const dp=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+              const cur=Number(pieceCutPopup.draft[p])||0;
+              const avail=Math.max(0,cur-dp);
+              return<div key={p} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:8,border:"1px solid "+T.brd,background:T.bg}}>
+                <div style={{flex:1,fontWeight:700,fontSize:FS-1}}>{gIcon(p,data.garmentTypes)} {p}</div>
+                <Inp type="number" value={pieceCutPopup.draft[p]} onChange={v=>setPieceCutPopup(prev=>({...prev,draft:{...prev.draft,[p]:Number(v)||0}}))} style={{width:80,textAlign:"center"}}/>
+                <div style={{fontSize:FS-3,color:T.textMut,minWidth:90}}>تسليم: <b style={{color:T.accent}}>{dp}</b> • متاح: <b style={{color:avail>0?T.warn:T.ok}}>{avail}</b></div>
+              </div>;
+            })}
+          </div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <Btn ghost onClick={()=>setPieceCutPopup(null)}>إلغاء</Btn>
+            <Btn primary onClick={save}>💾 حفظ</Btn>
           </div>
         </div>
       </div>;

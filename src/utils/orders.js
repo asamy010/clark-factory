@@ -50,6 +50,20 @@ const _orderCache=new WeakMap();
 const _stockCache=new WeakMap();
 const _pendingCache=new WeakMap();
 
+/* V16.24: Per-piece cut quantity override.
+   The order has one global cutQty (e.g. 192 sets), but in practice individual
+   piece types may have a different actual cut quantity — for example the user
+   bumped cutQty in anticipation of cutting more, but only some pieces have
+   actually been re-cut. This helper returns the explicit override if set,
+   otherwise falls back to the global cut. */
+export function getPieceCutQty(order,piece){
+  if(!order||!piece)return 0;
+  const map=order.pieceCutQty;
+  if(map&&typeof map==="object"&&map[piece]!=null&&!isNaN(Number(map[piece])))return Number(map[piece]);
+  const t=calcOrder(order);
+  return t.cutQty||0;
+}
+
 export function calcOrder(o){
   if(!o||typeof o!=="object")return{cutQty:0,totalFab:0,fabPer:0,accPer:0,accAll:0,wsCostAll:0,wsCostPer:0,costPer:0,costAll:0,balance:0};
   const cached=_orderCache.get(o);
@@ -334,13 +348,14 @@ export function detectQtyMismatch(order){
     byPiece[piece].totalDelivered+=wdQty;
     byPiece[piece].wds.push({wdIdx:idx,wsName:wd.wsName||"",currentQty:wdQty,receivedQty:rcvd,isInternal:wsIsInternal(wd.wsType)});
   });
-  const pieces=Object.values(byPiece).map(p=>({...p,diff:cutQty-p.totalDelivered}));
-  /* V16.23: Only flag OVER-delivered pieces (totalDelivered > cutQty).
-     Under-delivery just means cutting/distribution is still in progress —
-     the deliver dialog already shows "متاح" so the user knows what's left.
-     Over-delivery is a real problem (workshop got more than cut) and needs sync. */
+  const pieces=Object.values(byPiece).map(p=>{
+    const pieceCut=getPieceCutQty(order,p.piece);
+    return{...p,pieceCutQty:pieceCut,diff:pieceCut-p.totalDelivered};
+  });
+  /* V16.23: Only flag OVER-delivered pieces (totalDelivered > pieceCutQty).
+     V16.24: Compare against per-piece cut qty, not global. */
   const mismatchedPieces=pieces.filter(p=>p.diff<0);
-  return{cutQty,pieces,mismatchedPieces,hasExternalWs:externalWds.length>0,hasMismatch:mismatchedPieces.length>0&&cutQty>0};
+  return{cutQty,pieces,mismatchedPieces,hasExternalWs:externalWds.length>0,hasMismatch:mismatchedPieces.length>0};
 }
 
 /* V15.45/46: Compute sync plan PER PIECE — adjust each piece's workshops independently to match cutQty.
