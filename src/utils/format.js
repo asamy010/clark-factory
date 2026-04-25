@@ -24,7 +24,19 @@ export function hrsToHM(h){if(!h||h<=0)return"";const n=Number(h);if(isNaN(n))re
 /* Parse user input as either decimal (8.5) or HH:MM (8:30) → decimal hours.
    Accepts: "8", "8.5", "8:30", "8:5" (= 8:05), "8:", empty.
    Returns a number; 0 for empty/invalid. */
-export function parseHrs(s){if(s===""||s===null||s===undefined)return 0;const str=String(s).trim();if(!str)return 0;if(str.includes(":")){const[h,m]=str.split(":");const hh=parseInt(h)||0;const mm=parseInt(m)||0;return r2(hh+mm/60)}return parseFloat(str)||0}
+export function parseHrs(s){if(s===""||s===null||s===undefined)return 0;
+  /* V15.91: Normalize Arabic-Indic digits (٠-٩, ۰-۹) + strip invisible Unicode chars
+     that biometric software often embeds (BOM, zero-width, non-breaking space). */
+  let str=String(s)
+    .replace(/[\u0660-\u0669]/g,d=>String.fromCharCode(d.charCodeAt(0)-0x0660+48))/* ٠-٩ → 0-9 */
+    .replace(/[\u06F0-\u06F9]/g,d=>String.fromCharCode(d.charCodeAt(0)-0x06F0+48))/* ۰-۹ → 0-9 */
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060\uFEFF\u00A0]/g," ")/* invisible chars → space */
+    .replace(/[،,]/g,".")/* Arabic comma or Latin comma as decimal → dot */
+    .trim();
+  if(!str)return 0;
+  if(str.includes(":")){const[h,m]=str.split(":");const hh=parseInt(h)||0;const mm=parseInt(m)||0;return r2(hh+mm/60)}
+  return parseFloat(str)||0
+}
 
 /* Sum by qty / layers for arrays of color rows */
 export function sqty(a){return(a||[]).reduce((s,c)=>s+(Number(c.qty)||0),0)}

@@ -5,7 +5,7 @@
    Contains: PoMigConfirm, TreasurySettingsCard, HrSettingsCard, PrintSettingsCard, SalesSettingsCard, WaContactsCard, SettingsPg, BackupRestoreCard
    ═══════════════════════════════════════════════════════════════ */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef, useMemo } from "react";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updateProfile } from "firebase/auth";
 import { collection, deleteDoc, doc, getDocs, setDoc, updateDoc } from "firebase/firestore";
 import { Btn, Card, DelBtn, Inp, Sel, Spinner } from "../components/ui.jsx";
@@ -19,6 +19,9 @@ import { compressImage } from "../utils/image.js";
 import { calcOrder, getConfirmedStock, recomputeStatus, wsTypeInfo } from "../utils/orders.js";
 import { ask, askForm, showToast, tell } from "../utils/popups.js";
 import { openPrintWindow } from "../utils/print.js";
+import { getDeviceInfo, getDeviceId, getDeviceNickname, setDeviceNickname, getCachedIpInfo } from "../utils/device.js";
+import { analyzeBudgets, getDocTotals, getBudgetSummary, getTopFeatures, fmt as fmtSize } from "../utils/sizeBudget.js";
+import { PrintTemplatesEditor } from "../components/PrintTemplatesEditor.jsx";
 import { StockPg } from "./StockPg.jsx";
 
 export function PoMigConfirm({onConfirm,onCancel,T,FS}){
@@ -61,7 +64,7 @@ export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,B
   const[newInCat,setNewInCat]=useState("");
   const[newCheckCat,setNewCheckCat]=useState("");
   /* Sync from config when NOT dirty */
-  const savedSnap=buildSnapshot(savedTS);
+  const savedSnap=useMemo(()=>buildSnapshot(savedTS),[JSON.stringify(savedTS)]);
   useEffect(()=>{
     const currentDirty=JSON.stringify(draft)!==JSON.stringify(savedSnap);
     if(!currentDirty)setDraft(buildSnapshot(savedTS));
@@ -328,7 +331,7 @@ export function HrSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Sel
     payDay:hrs.payDay||"thu"
   });
   const[draft,setDraft]=useState(()=>buildSnapshot(savedHR));
-  const savedSnap=buildSnapshot(savedHR);
+  const savedSnap=useMemo(()=>buildSnapshot(savedHR),[JSON.stringify(savedHR)]);
   useEffect(()=>{
     const currentDirty=JSON.stringify(draft)!==JSON.stringify(savedSnap);
     if(!currentDirty)setDraft(buildSnapshot(savedHR));
@@ -396,6 +399,84 @@ export function HrSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Sel
 
 
 
+/* V16.5: Inline live preview for label settings — uses QRCode lib dynamically loaded.
+   Renders at scale (10x for visibility) with same pixel relations as the actual print. */
+function LabelLivePreview({draft,T,FS}){
+  const canvasRef=useRef(null);
+  const[qrReady,setQrReady]=useState(false);
+  /* Load QRCode library once */
+  useEffect(()=>{
+    if(typeof window==="undefined")return;
+    if(window.QRCode){setQrReady(true);return}
+    const existing=document.querySelector("script[data-qr-lib]");
+    if(existing){
+      existing.addEventListener("load",()=>setQrReady(true));
+      return;
+    }
+    const s=document.createElement("script");
+    s.src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js";
+    s.setAttribute("data-qr-lib","1");
+    s.onload=()=>setQrReady(true);
+    s.onerror=()=>console.error("Failed to load QR lib");
+    document.head.appendChild(s);
+  },[]);
+  /* Render QR whenever draft changes */
+  useEffect(()=>{
+    if(!qrReady||!canvasRef.current||!window.QRCode)return;
+    const qrSize=draft.fields?.qr?.show!==false?(draft.fields?.qr?.size||80):0;
+    if(qrSize===0)return;
+    try{
+      window.QRCode.toCanvas(canvasRef.current,"CLARK:test:4",{
+        width:Math.min(200,qrSize*2),
+        margin:draft.qrMargin??1,
+        errorCorrectionLevel:draft.qrLevel||"M",
+        color:{dark:draft.qrColor||"#000000",light:"#ffffff"}
+      },()=>{});
+    }catch(e){}
+  },[qrReady,JSON.stringify(draft)]);
+
+  /* Scale: 3x for visibility on screen (actual print is at real mm) */
+  const SCALE=3;
+  const w=(draft.labelWidth||40)*SCALE;
+  const h=(draft.labelHeight||50)*SCALE;
+  const m=(draft.margins||2)*SCALE;
+  const qrShow=draft.fields?.qr?.show!==false;
+  const qrSizePx=qrShow?Math.min(w-m*2,h-m*2)*((draft.fields?.qr?.size||80)/100):0;
+
+  /* Font size helper: px size / 2.5 = mm in print; we display at SCALE pixels */
+  const fontPx=(sz)=>Math.round((sz||12)/2.5*SCALE);
+
+  return<div style={{marginTop:14,padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
+    <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:10,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      <span>👁 معاينة مباشرة</span>
+      <span style={{fontSize:FS-3,color:T.textMut,fontWeight:500}}>{draft.labelWidth||40}×{draft.labelHeight||50} مم</span>
+    </div>
+    <div style={{display:"flex",justifyContent:"center",padding:20,background:"#f8fafc",borderRadius:8,minHeight:h+40}}>
+      <div style={{
+        width:w,height:h,
+        background:"#fff",
+        border:draft.showBorder?"1px dashed #999":"1px solid #e2e8f0",
+        boxShadow:"0 2px 12px rgba(0,0,0,0.08)",
+        padding:m,
+        boxSizing:"border-box",
+        display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+        textAlign:"center",fontFamily:"'Cairo',Arial,sans-serif",
+        gap:2,
+        direction:"rtl",
+      }}>
+        {draft.fields?.brand?.show&&<div style={{fontWeight:900,fontSize:fontPx(draft.fields.brand.size||14),letterSpacing:2,lineHeight:1,color:"#111"}}>CLARK</div>}
+        {draft.fields?.modelNo?.show!==false&&<div style={{fontWeight:800,fontSize:fontPx(draft.fields?.modelNo?.size||12),lineHeight:1.1,color:"#111"}}>3262114</div>}
+        {draft.fields?.desc?.show&&<div style={{fontSize:fontPx(draft.fields.desc.size||10),color:"#444",lineHeight:1}}>توينز اولادي قطعتين</div>}
+        {draft.fields?.sizeLabel?.show&&<div style={{fontWeight:700,fontSize:fontPx(draft.fields.sizeLabel.size||10),lineHeight:1,color:"#111"}}>مقاس: 8</div>}
+        {qrShow&&<canvas ref={canvasRef} style={{width:qrSizePx,height:qrSizePx,maxWidth:"100%"}}/>}
+        {draft.fields?.series?.show&&<div style={{fontWeight:700,fontSize:fontPx(draft.fields.series.size||12),lineHeight:1,color:"#111"}}>سيري: 4</div>}
+        {draft.fields?.price?.show&&<div style={{fontSize:fontPx(draft.fields.price.size||10),lineHeight:1,color:"#111"}}>95 ج.م</div>}
+      </div>
+    </div>
+    <div style={{fontSize:FS-3,color:T.textMut,textAlign:"center",marginTop:6}}>المعاينة تعكس التعديلات الحالية — 3x حجم الطباعة الفعلي</div>
+  </div>;
+}
+
 export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Sel,Card,setDirty,CLARK_LOGO}){
   const DEFAULT_PS={labelWidth:40,labelHeight:50,orientation:"portrait",margins:2,qrLevel:"M",qrMargin:1,qrColor:"#000000",showBorder:false,fields:{brand:{show:false,size:14},modelNo:{show:true,size:12},desc:{show:false,size:10},qr:{show:true,size:80},series:{show:true,size:12},sizeLabel:{show:true,size:10},price:{show:false,size:10}},salaryPageSize:"A5-landscape",dailyReportSize:"A4"};
   const savedPS=config.printSettings||DEFAULT_PS;
@@ -412,7 +493,7 @@ export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
     dailyReportSize:ps.dailyReportSize||"A4"
   });
   const[draft,setDraft]=useState(()=>buildSnapshot(savedPS));
-  const savedSnap=buildSnapshot(savedPS);
+  const savedSnap=useMemo(()=>buildSnapshot(savedPS),[JSON.stringify(savedPS)]);
   useEffect(()=>{
     const currentDirty=JSON.stringify(draft)!==JSON.stringify(savedSnap);
     if(!currentDirty)setDraft(buildSnapshot(savedPS));
@@ -482,17 +563,17 @@ export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
       </div>
       <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>
         {fields.map(f=>{const fv=draft.fields?.[f.key]||{show:false,size:12};const isOn=f.key==="modelNo"||f.key==="qr"?fv.show!==false:fv.show;
-          return<div key={f.key} style={{display:"flex",flexDirection:"column",gap:2,padding:"6px 8px",borderRadius:8,background:isOn?T.accent+"06":"transparent",border:"1px solid "+(isOn?T.accent+"25":T.brd),minWidth:100}}>
+          return<div key={f.key} style={{display:"flex",flexDirection:"column",gap:2,padding:"6px 8px",borderRadius:8,background:isOn?T.accent+"06":"transparent",border:"1px solid "+(isOn?T.accent+"25":T.brd),minWidth:140}}>
             <div onClick={()=>toggleField(f.key)} style={{cursor:"pointer",fontSize:FS-2,fontWeight:600,color:isOn?T.accent:T.textMut}}>{isOn?"☑":"☐"} {f.label}</div>
-            {isOn&&f.key!=="qr"&&<div style={{display:"flex",alignItems:"center",gap:4}}>
-              <span style={{fontSize:FS-3,color:T.textMut}}>حجم</span>
-              <input type="range" min="6" max="28" value={fv.size||12} onChange={e=>updateFieldSize(f.key,e.target.value)} style={{width:60,accentColor:T.accent}}/>
-              <span style={{fontSize:FS-3,fontWeight:700,color:T.accent,minWidth:20}}>{fv.size||12}</span>
+            {isOn&&f.key!=="qr"&&<div style={{display:"flex",alignItems:"center",gap:6,marginTop:4}}>
+              <span style={{fontSize:FS-3,color:T.textMut,minWidth:35}}>الحجم:</span>
+              <input type="number" min="6" max="28" step="1" value={fv.size||12} onChange={e=>{const v=Number(e.target.value);if(isNaN(v))return;updateFieldSize(f.key,Math.max(6,Math.min(28,v)))}} style={{width:60,padding:"3px 6px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg,color:T.text,textAlign:"center"}}/>
+              <span style={{fontSize:FS-4,color:T.textMut}}>px</span>
             </div>}
-            {isOn&&f.key==="qr"&&<div style={{display:"flex",alignItems:"center",gap:4}}>
-              <span style={{fontSize:FS-3,color:T.textMut}}>حجم</span>
-              <input type="range" min="40" max="150" step="5" value={fv.size||80} onChange={e=>updateFieldSize("qr",e.target.value)} style={{width:60,accentColor:T.accent}}/>
-              <span style={{fontSize:FS-3,fontWeight:700,color:T.accent,minWidth:20}}>{fv.size||80}%</span>
+            {isOn&&f.key==="qr"&&<div style={{display:"flex",alignItems:"center",gap:6,marginTop:4}}>
+              <span style={{fontSize:FS-3,color:T.textMut,minWidth:35}}>الحجم:</span>
+              <input type="number" min="40" max="150" step="5" value={fv.size||80} onChange={e=>{const v=Number(e.target.value);if(isNaN(v))return;updateFieldSize("qr",Math.max(40,Math.min(150,v)))}} style={{width:60,padding:"3px 6px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg,color:T.text,textAlign:"center"}}/>
+              <span style={{fontSize:FS-4,color:T.textMut}}>%</span>
             </div>}
           </div>})}
       </div>
@@ -500,6 +581,8 @@ export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
         <Btn small onClick={printTest} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}} title="اختبار بالقيم الحالية (قبل الحفظ)">🖨 طباعة تجريبية</Btn>
         {isDirty&&<span style={{fontSize:FS-3,color:T.warn,fontStyle:"italic"}}>💡 الاختبار يستخدم التعديلات غير المحفوظة</span>}
       </div>
+      {/* V16.5: Live preview card — shows current draft in real-time */}
+      <LabelLivePreview draft={draft} T={T} FS={FS}/>
       {/* Print sizes for reports */}
       <div style={{marginTop:12,padding:10,borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
         <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:6}}>📄 إعدادات طباعة التقارير</div>
@@ -528,7 +611,7 @@ export function SalesSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
     defaultPayMethod:ss.defaultPayMethod||"كاش"
   });
   const[draft,setDraft]=useState(()=>buildSnapshot(savedSS));
-  const savedSnap=buildSnapshot(savedSS);
+  const savedSnap=useMemo(()=>buildSnapshot(savedSS),[JSON.stringify(savedSS)]);
   useEffect(()=>{
     const currentDirty=JSON.stringify(draft)!==JSON.stringify(savedSnap);
     if(!currentDirty)setDraft(buildSnapshot(savedSS));
@@ -583,6 +666,310 @@ export function SalesSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
 
 
 
+/* V16.6: SecurityFlagRow — module-level to avoid nested component issues */
+function SecurityFlagRow({T,FS,icon,label,desc,children,enabled,onToggle}){
+  return<div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",borderRadius:10,background:enabled!==false?T.cardSolid:T.bg,border:"1px solid "+(enabled!==false?T.brd:T.textMut+"20"),marginBottom:8,opacity:enabled!==false?1:0.6}}>
+    <div style={{fontSize:24,flexShrink:0}}>{icon}</div>
+    <div style={{flex:1,minWidth:0}}>
+      <div style={{fontSize:FS,fontWeight:700,color:T.text}}>{label}</div>
+      <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{desc}</div>
+    </div>
+    <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+      {children}
+      <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer"}}><input type="checkbox" checked={enabled!==false} onChange={ev=>onToggle(ev.target.checked)} style={{width:18,height:18,cursor:"pointer"}}/></label>
+    </div>
+  </div>;
+}
+
+/* V16.6: SecurityAlertsCard — draft + save pattern for all security flags */
+function SecurityAlertsCard({config,upConfig,T,FS,showToast,Inp,Btn,Card,setDirty}){
+  const savedJson=useMemo(()=>JSON.stringify(config.securitySettings||{}),[config.securitySettings]);
+  const[draft,setDraft]=useState(()=>JSON.parse(savedJson));
+  const draftJson=JSON.stringify(draft);
+  const isDirty=draftJson!==savedJson;
+  useEffect(()=>{if(!isDirty)setDraft(JSON.parse(savedJson))},[savedJson]);/* eslint-disable-line */
+  useEffect(()=>{setDirty(isDirty)},[isDirty]);/* eslint-disable-line */
+  const upd=(fn)=>setDraft(p=>{const n={...p};fn(n);return n});
+  const handleSave=()=>{upConfig(d=>{d.securitySettings=JSON.parse(draftJson)});showToast("✅ تم حفظ التنبيهات الأمنية")};
+  const handleDiscard=()=>{if(confirm("إلغاء التعديلات؟"))setDraft(JSON.parse(savedJson))};
+  const s=draft;
+
+  return<Card title={"🛡️ إعدادات التنبيهات الأمنية"+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
+    {isDirty?<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700}}>
+      ✨ تعديلات غير محفوظة — اضغط حفظ للتأكيد
+    </div>:null}
+    <div style={{fontSize:FS-2,color:T.textSec,marginBottom:12,padding:"10px 14px",background:T.accent+"06",borderRadius:8,border:"1px solid "+T.accent+"20",lineHeight:1.7}}>
+      ℹ️ فعّل/عطّل كل تنبيه حسب حاجتك. لو التنبيه مفعّل، يظهر في صفحة الأسبوع المفتوح + Dashboard الأمن.
+    </div>
+    <SecurityFlagRow T={T} FS={FS} icon="⏰" label="ساعات يومية مرتفعة" desc="تنبيه لو موظف بصم أكتر من الحد ده في يوم واحد" enabled={s.flagExcessiveHours!==false} onToggle={v=>upd(x=>{x.flagExcessiveHours=v})}>
+      <Inp type="number" step="0.5" value={s.maxDailyHours||""} onChange={v=>upd(x=>{x.maxDailyHours=Number(v)||14})} placeholder="14" style={{width:70,textAlign:"center"}}/>
+      <span style={{fontSize:FS-3,color:T.textMut}}>ساعة</span>
+    </SecurityFlagRow>
+    <SecurityFlagRow T={T} FS={FS} icon="🔄" label="ساعات متطابقة كل الأيام" desc="ساعات متطابقة بالظبط كل يوم (مشبوه: buddy punching)" enabled={s.flagIdenticalHours!==false} onToggle={v=>upd(x=>{x.flagIdenticalHours=v})}/>
+    <SecurityFlagRow T={T} FS={FS} icon="👥" label="تطابق جماعي في يوم واحد" desc="أكثر من الحد ده من الموظفين بنفس الساعات في نفس اليوم" enabled={s.flagSameHoursMultiple!==false} onToggle={v=>upd(x=>{x.flagSameHoursMultiple=v})}>
+      <Inp type="number" value={s.minEmpsForSameHours||""} onChange={v=>upd(x=>{x.minEmpsForSameHours=Number(v)||3})} placeholder="3" style={{width:60,textAlign:"center"}}/>
+      <span style={{fontSize:FS-3,color:T.textMut}}>موظف+</span>
+    </SecurityFlagRow>
+    <SecurityFlagRow T={T} FS={FS} icon="📈" label="ارتفاع فجائي في الساعات" desc="ساعات الموظف ارتفعت بنسبة أكبر من الحد مقارنة بالمتوسط" enabled={s.flagSuddenSpike!==false} onToggle={v=>upd(x=>{x.flagSuddenSpike=v})}>
+      <Inp type="number" value={s.spikePercent||""} onChange={v=>upd(x=>{x.spikePercent=Number(v)||50})} placeholder="50" style={{width:60,textAlign:"center"}}/>
+      <span style={{fontSize:FS-3,color:T.textMut}}>%+</span>
+    </SecurityFlagRow>
+    <SecurityFlagRow T={T} FS={FS} icon="🔑" label="تغيير كود بصمة حديث" desc="موظف تغير كود بصمته مؤخراً (30 يوم) وبياخد ساعات" enabled={s.flagCodeChange!==false} onToggle={v=>upd(x=>{x.flagCodeChange=v})}/>
+    <SecurityFlagRow T={T} FS={FS} icon="✏️" label="نسبة التعديل اليدوي العالية" desc="نسبة التعديلات اليدوية في الأسبوع أكبر من الحد" enabled={s.flagManualEditHigh!==false} onToggle={v=>upd(x=>{x.flagManualEditHigh=v})}>
+      <Inp type="number" value={s.manualEditRatio||""} onChange={v=>upd(x=>{x.manualEditRatio=Number(v)||30})} placeholder="30" style={{width:60,textAlign:"center"}}/>
+      <span style={{fontSize:FS-3,color:T.textMut}}>%+</span>
+    </SecurityFlagRow>
+    <SecurityFlagRow T={T} FS={FS} icon="💸" label="سلفة شاذة" desc="سلفة الموظف أكبر من الحد × متوسطه التاريخي" enabled={s.flagAdvanceAnomaly!==false} onToggle={v=>upd(x=>{x.flagAdvanceAnomaly=v})}>
+      <Inp type="number" step="0.5" value={s.advanceMultiplier||""} onChange={v=>upd(x=>{x.advanceMultiplier=Number(v)||3})} placeholder="3" style={{width:60,textAlign:"center"}}/>
+      <span style={{fontSize:FS-3,color:T.textMut}}>× متوسط</span>
+    </SecurityFlagRow>
+    <SecurityFlagRow T={T} FS={FS} icon="🌙" label="ساعات إضافي أسبوعية مرتفعة" desc="إجمالي الإضافي الأسبوعي للموظف فوق الحد" enabled={s.flagHighOvertime!==false} onToggle={v=>upd(x=>{x.flagHighOvertime=v})}>
+      <Inp type="number" value={s.maxWeeklyOvertime||""} onChange={v=>upd(x=>{x.maxWeeklyOvertime=Number(v)||30})} placeholder="30" style={{width:60,textAlign:"center"}}/>
+      <span style={{fontSize:FS-3,color:T.textMut}}>ساعة</span>
+    </SecurityFlagRow>
+    <SecurityFlagRow T={T} FS={FS} icon="⚡" label="ساعات تساوي الأساسي بالظبط" desc="ساعات كل يوم = عدد الساعات الأساسي (مشبوه: إدخال يدوي)" enabled={s.flagExactBaseHours===true} onToggle={v=>upd(x=>{x.flagExactBaseHours=v})}/>
+    <SecurityFlagRow T={T} FS={FS} icon="📅" label="أيام عمل قليلة جداً" desc="الموظف بصم أقل من الحد ده من الأيام" enabled={s.flagFewWorkDays!==false} onToggle={v=>upd(x=>{x.flagFewWorkDays=v})}>
+      <Inp type="number" value={s.minWorkDays||""} onChange={v=>upd(x=>{x.minWorkDays=Number(v)||3})} placeholder="3" style={{width:60,textAlign:"center"}}/>
+      <span style={{fontSize:FS-3,color:T.textMut}}>يوم</span>
+    </SecurityFlagRow>
+    <SecurityFlagRow T={T} FS={FS} icon="🔁" label="تكرار تعديل نفس الموظف" desc="نفس الموظف تم تعديل ساعاته يدوياً أكتر من الحد" enabled={s.flagRepeatEdits!==false} onToggle={v=>upd(x=>{x.flagRepeatEdits=v})}>
+      <Inp type="number" value={s.maxEditsPerEmp||""} onChange={v=>upd(x=>{x.maxEditsPerEmp=Number(v)||3})} placeholder="3" style={{width:60,textAlign:"center"}}/>
+      <span style={{fontSize:FS-3,color:T.textMut}}>تعديل</span>
+    </SecurityFlagRow>
+    <SecurityFlagRow T={T} FS={FS} icon="💰" label="سلفة + ساعات زيادة" desc="سلفة + ارتفاع ساعات في نفس الأسبوع (مشبوه: محاباة)" enabled={s.flagAdvancePlusSpike!==false} onToggle={v=>upd(x=>{x.flagAdvancePlusSpike=v})}/>
+    <SecurityFlagRow T={T} FS={FS} icon="🚫" label="غياب جماعي مفاجئ" desc="نسبة الموظفين اللي ما بصموش في يوم واحد زادت عن الحد" enabled={s.flagMassAbsence!==false} onToggle={v=>upd(x=>{x.flagMassAbsence=v})}>
+      <Inp type="number" value={s.massAbsencePercent||""} onChange={v=>upd(x=>{x.massAbsencePercent=Number(v)||30})} placeholder="30" style={{width:60,textAlign:"center"}}/>
+      <span style={{fontSize:FS-3,color:T.textMut}}>%+</span>
+    </SecurityFlagRow>
+    <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14,paddingTop:10,borderTop:"1px solid "+T.brd}}>
+      <Btn ghost onClick={handleDiscard} disabled={!isDirty} style={!isDirty?{opacity:0.4}:{}}>↩️ إلغاء</Btn>
+      <Btn primary onClick={handleSave} disabled={!isDirty} style={!isDirty?{opacity:0.4}:{background:T.ok,color:"#fff",border:"none",fontWeight:800,padding:"10px 24px"}}>💾 حفظ</Btn>
+    </div>
+  </Card>;
+}
+
+/* V16.6: PoSettingsCard — draft + save for PO prefix/digits, plus migration inside */
+function PoSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Card,poMigState,setPoMigState,poMigResult,setPoMigResult,requirePass,runPoMigration,setDirty}){
+  const savedJson=useMemo(()=>JSON.stringify({poPrefix:config.poPrefix||"PO-",poDigits:Number(config.poDigits)||3}),[config.poPrefix,config.poDigits]);
+  const[draft,setDraft]=useState(()=>JSON.parse(savedJson));
+  const draftJson=JSON.stringify(draft);
+  const isDirty=draftJson!==savedJson;
+  useEffect(()=>{if(!isDirty)setDraft(JSON.parse(savedJson))},[savedJson]);/* eslint-disable-line */
+  useEffect(()=>{setDirty(isDirty)},[isDirty]);/* eslint-disable-line */
+  const handleSave=()=>{upConfig(d=>{d.poPrefix=draft.poPrefix;d.poDigits=draft.poDigits});showToast("✅ تم حفظ إعدادات PO")};
+  const handleDiscard=()=>{if(confirm("إلغاء التعديلات؟"))setDraft(JSON.parse(savedJson))};
+
+  return<Card title={"📋 إعدادات أمر التشغيل (PO)"+(isDirty?" ✨":"")} style={{marginBottom:12,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
+    {isDirty?<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700}}>
+      ✨ تعديلات غير محفوظة — اضغط حفظ للتأكيد
+    </div>:null}
+    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12,marginBottom:14}}>
+      <div>
+        <label style={{fontSize:FS-1,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>البادئة (Prefix)</label>
+        <Inp value={draft.poPrefix} onChange={v=>setDraft(p=>({...p,poPrefix:v}))} placeholder="PO-"/>
+        <div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>مثال: PO- أو ORD- أو PROD-</div>
+      </div>
+      <div>
+        <label style={{fontSize:FS-1,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>عدد الأرقام</label>
+        <Inp type="number" value={draft.poDigits} onChange={v=>{const n=Math.max(2,Math.min(6,Number(v)||3));setDraft(p=>({...p,poDigits:n}))}}/>
+        <div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>من 2 إلى 6 أرقام</div>
+      </div>
+    </div>
+    <div style={{padding:"10px 14px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"20",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+      <span style={{fontSize:FS-1,color:T.textSec,fontWeight:600}}>معاينة الرقم الجديد:</span>
+      <span style={{fontSize:FS+3,fontWeight:800,color:T.accent,fontFamily:"monospace",letterSpacing:2}}>
+        {draft.poPrefix+String(1).padStart(draft.poDigits,"0")}
+      </span>
+    </div>
+    <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:10,borderTop:"1px solid "+T.brd,marginBottom:14}}>
+      <Btn ghost onClick={handleDiscard} disabled={!isDirty} style={!isDirty?{opacity:0.4}:{}}>↩️ إلغاء</Btn>
+      <Btn primary onClick={handleSave} disabled={!isDirty} style={!isDirty?{opacity:0.4}:{background:T.ok,color:"#fff",border:"none",fontWeight:800,padding:"10px 24px"}}>💾 حفظ</Btn>
+    </div>
+    <div style={{padding:14,borderRadius:10,background:T.err+"06",border:"1px solid "+T.err+"30"}}>
+      <div style={{fontSize:FS,fontWeight:800,color:T.err,marginBottom:6}}>⚠️ تحويل الأرقام القديمة (عملية خطيرة)</div>
+      <div style={{fontSize:FS-1,color:T.textSec,lineHeight:1.6,marginBottom:10}}>
+        هذه العملية ستعيد ترقيم <b>جميع</b> الأوامر في <b>جميع المواسم</b> بالصيغة المحفوظة.
+        <br/>الأرقام القديمة ستُحذف نهائياً ولن يمكن استرجاعها.
+      </div>
+      {isDirty?<div style={{padding:8,background:T.warn+"10",border:"1px solid "+T.warn+"30",borderRadius:6,marginBottom:10,fontSize:FS-2,color:T.warn,fontWeight:700}}>⚠️ احفظ التعديلات أولاً قبل التحويل</div>:null}
+      {poMigState===null?<Btn danger onClick={()=>setPoMigState("confirm1")} disabled={isDirty} style={isDirty?{opacity:0.5}:{}}>🔄 بدء تحويل الأرقام</Btn>:null}
+      {poMigState==="confirm1"?<div style={{padding:12,background:T.err+"10",borderRadius:8,border:"1px dashed "+T.err+"50"}}>
+        <div style={{fontSize:FS,fontWeight:700,color:T.err,marginBottom:8}}>⚠️ تأكيد أول</div>
+        <div style={{fontSize:FS-1,color:T.text,marginBottom:10}}>هل أنت متأكد أنك تريد إعادة ترقيم جميع الأوامر القديمة؟ هذه العملية <b>لا يمكن التراجع عنها</b>.</div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn danger small onClick={()=>setPoMigState("confirm2")}>نعم، متأكد</Btn>
+          <Btn ghost small onClick={()=>setPoMigState(null)}>إلغاء</Btn>
+        </div>
+      </div>:null}
+      {poMigState==="confirm2"?<div style={{padding:12,background:T.err+"15",borderRadius:8,border:"2px solid "+T.err+"60"}}>
+        <div style={{fontSize:FS,fontWeight:800,color:T.err,marginBottom:8}}>🚨 تأكيد نهائي</div>
+        <div style={{fontSize:FS-1,color:T.text,marginBottom:10}}>آخر فرصة للإلغاء. اكتب كلمة <b>"تحويل"</b> للمتابعة:</div>
+        <PoMigConfirm onConfirm={()=>requirePass(runPoMigration)} onCancel={()=>setPoMigState(null)} T={T} FS={FS}/>
+      </div>:null}
+      {poMigState==="running"?<div style={{padding:16,textAlign:"center",background:T.bg,borderRadius:8}}>
+        <div style={{fontSize:FS,fontWeight:700,color:T.accent,marginBottom:6}}>🔄 جاري التحويل...</div>
+        <div style={{fontSize:FS-1,color:T.textSec}}>لا تغلق النافذة حتى اكتمال العملية</div>
+      </div>:null}
+      {poMigState==="done"&&poMigResult?<div style={{padding:14,borderRadius:8,background:poMigResult.errors>0?T.warn+"10":T.ok+"10",border:"1px solid "+(poMigResult.errors>0?T.warn:T.ok)+"40"}}>
+        <div style={{fontSize:FS,fontWeight:800,color:poMigResult.errors>0?T.warn:T.ok,marginBottom:8}}>
+          {poMigResult.fatal?"❌ فشل التحويل":poMigResult.errors>0?"⚠️ اكتمل مع أخطاء":"✅ اكتمل التحويل بنجاح"}
+        </div>
+        <div style={{fontSize:FS-1,color:T.text,lineHeight:1.6}}>
+          <div>• إجمالي الأوامر: <b>{poMigResult.total}</b></div>
+          <div>• تم تحديثها: <b style={{color:T.ok}}>{poMigResult.updated}</b></div>
+          {poMigResult.errors>0?<div>• أخطاء: <b style={{color:T.err}}>{poMigResult.errors}</b></div>:null}
+          {poMigResult.fatal?<div style={{marginTop:6,color:T.err}}>الخطأ: {poMigResult.fatal}</div>:null}
+        </div>
+        <Btn small onClick={()=>{setPoMigState(null);setPoMigResult(null)}} style={{marginTop:10}}>إغلاق</Btn>
+      </div>:null}
+    </div>
+  </Card>;
+}
+
+/* V16.6: SeasonsCard — draft + save pattern */
+function SeasonsCard({config,upConfig,T,FS,showToast,Inp,Btn,Card,requirePass,setDirty}){
+  const savedJson=useMemo(()=>JSON.stringify({seasons:config.seasons||[],activeSeason:config.activeSeason||""}),[config.seasons,config.activeSeason]);
+  const[draft,setDraft]=useState(()=>JSON.parse(savedJson));
+  const[newName,setNewName]=useState("");
+  const[pendingDeletes,setPendingDeletes]=useState([]);
+  const draftJson=JSON.stringify(draft);
+  const isDirty=draftJson!==savedJson||pendingDeletes.length>0;
+  useEffect(()=>{if(!isDirty)setDraft(JSON.parse(savedJson))},[savedJson]);/* eslint-disable-line */
+  useEffect(()=>{setDirty(isDirty)},[isDirty]);/* eslint-disable-line */
+
+  const addSeasonDraft=()=>{
+    const n=newName.trim();
+    if(!n){showToast("⚠️ ادخل اسم الموسم");return}
+    if(draft.seasons.includes(n)){showToast("⚠️ موسم بنفس الاسم موجود");return}
+    setDraft(p=>({...p,seasons:[...p.seasons,n]}));
+    setNewName("");
+    showToast("✨ أُضيف للمسودة — اضغط حفظ");
+  };
+  const toggleDelete=(s)=>{
+    if(pendingDeletes.includes(s)){setPendingDeletes(p=>p.filter(x=>x!==s))}
+    else{
+      if(s===draft.activeSeason){showToast("⚠️ لا يمكن حذف الموسم النشط");return}
+      setPendingDeletes(p=>[...p,s]);
+    }
+  };
+  const activate=(s)=>{
+    if(pendingDeletes.includes(s))return;
+    setDraft(p=>({...p,activeSeason:s}));
+  };
+  const handleSave=()=>{
+    requirePass(async()=>{
+      /* V16.6 fix: Delete Firestore orders for each pending-delete season FIRST,
+         matching the behavior of the old deleteSeason function */
+      if(pendingDeletes.length>0){
+        for(const s of pendingDeletes){
+          try{
+            const snap=await getDocs(collection(db,"seasons",s,"orders"));
+            await Promise.all(snap.docs.map(d=>deleteDoc(doc(db,"seasons",s,"orders",d.id))));
+          }catch(e){console.error("Failed to delete season orders:",s,e)}
+        }
+      }
+      upConfig(d=>{
+        d.seasons=draft.seasons.filter(s=>!pendingDeletes.includes(s));
+        d.activeSeason=draft.activeSeason||(d.seasons[0]||"");
+      });
+      setPendingDeletes([]);
+      showToast("✅ تم حفظ إعدادات المواسم");
+    });
+  };
+  const handleDiscard=()=>{
+    if(!confirm("إلغاء كل التعديلات؟"))return;
+    setDraft(JSON.parse(savedJson));
+    setPendingDeletes([]);
+    setNewName("");
+  };
+
+  return<Card title={"📅 ادارة المواسم"+(isDirty?" ✨":"")} style={{marginBottom:12,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
+    {isDirty?<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700}}>
+      ✨ تعديلات غير محفوظة — اضغط حفظ للتأكيد
+    </div>:null}
+    <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
+      <Inp value={newName} onChange={setNewName} placeholder="اسم الموسم (مثال: SS27)" style={{width:220}}/>
+      <Btn primary onClick={addSeasonDraft}>+ موسم جديد</Btn>
+    </div>
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      {draft.seasons.map(s=>{
+        const isActive=s===draft.activeSeason;
+        const isPending=pendingDeletes.includes(s);
+        return<div key={s} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderRadius:12,border:isActive?"2px solid "+T.accent:"1px solid "+T.brd,background:isPending?T.err+"08":isActive?T.accentBg:T.cardSolid,flexWrap:"wrap",gap:8,opacity:isPending?0.5:1,textDecoration:isPending?"line-through":"none"}}>
+          <div onClick={()=>!isPending&&activate(s)} style={{cursor:isPending?"default":"pointer",display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontWeight:700,fontSize:FS+2,color:isActive?T.accent:T.text}}>{s}</span>
+            {isActive?<span style={{fontSize:FS-3,color:T.ok,background:T.ok+"15",padding:"2px 10px",borderRadius:12}}>نشط</span>:null}
+            {isPending?<span style={{fontSize:FS-3,color:T.err,background:T.err+"15",padding:"2px 10px",borderRadius:12}}>سيُحذف</span>:null}
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            {!isActive&&!isPending?<Btn small onClick={()=>activate(s)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>تفعيل</Btn>:null}
+            <Btn small onClick={()=>toggleDelete(s)} style={isPending?{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}:{background:T.err+"10",color:T.err,border:"1px solid "+T.err+"30"}}>{isPending?"↩️ تراجع":"🗑 حذف"}</Btn>
+          </div>
+        </div>;
+      })}
+    </div>
+    <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16,paddingTop:12,borderTop:"1px solid "+T.brd}}>
+      <Btn ghost onClick={handleDiscard} disabled={!isDirty} style={!isDirty?{opacity:0.4}:{}}>↩️ إلغاء</Btn>
+      <Btn primary onClick={handleSave} disabled={!isDirty} style={!isDirty?{opacity:0.4}:{background:T.ok,color:"#fff",border:"none",fontWeight:800,padding:"10px 24px"}}>💾 حفظ</Btn>
+    </div>
+  </Card>;
+}
+
+/* V16.5: LogoCard — draft + save pattern. Logo upload no longer saves instantly. */
+function LogoCard({config,upConfig,T,FS,showToast,Btn,Card,requirePass,compressImage,setDirty}){
+  const savedLogo=config.logo||"";
+  const[draftLogo,setDraftLogo]=useState(savedLogo);
+  const isDirty=draftLogo!==savedLogo;
+  useEffect(()=>{setDirty(isDirty)},[isDirty]);/* eslint-disable-line */
+  /* Sync when parent changes (unless user is editing) */
+  useEffect(()=>{if(!isDirty)setDraftLogo(savedLogo)},[savedLogo]);/* eslint-disable-line */
+  const handleFile=async e=>{
+    const f=e.target.files[0];
+    if(!f)return;
+    try{
+      const compressed=await compressImage(f,200,0.6);
+      setDraftLogo(compressed);
+      showToast("✨ تم تحميل اللوجو — اضغط حفظ للتأكيد");
+    }catch(err){showToast("⛔ فشل معالجة الصورة")}
+    finally{e.target.value=""}
+  };
+  const handleRemove=()=>{
+    if(!confirm("هل تريد حذف اللوجو؟"))return;
+    setDraftLogo("");
+  };
+  const handleSave=()=>{
+    requirePass(()=>{
+      upConfig(d=>{d.logo=draftLogo});
+      showToast("✅ تم حفظ اللوجو");
+    });
+  };
+  const handleDiscard=()=>{
+    if(!confirm("إلغاء التعديلات على اللوجو؟"))return;
+    setDraftLogo(savedLogo);
+  };
+  return<Card title={"لوجو المصنع"+(isDirty?" ✨":"")} style={{marginBottom:12,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
+    {isDirty&&<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700}}>
+      ✨ تعديلات غير محفوظة — اضغط حفظ للتأكيد
+    </div>}
+    <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
+      <div style={{width:80,height:80,borderRadius:12,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.inputBg||T.cardSolid,cursor:"pointer",position:"relative"}}>
+        {draftLogo?<img src={draftLogo} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-1,color:T.textMut}}>لوجو</span>}
+        <input type="file" accept="image/*" onChange={handleFile} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
+      </div>
+      <div style={{flex:1,minWidth:200}}>
+        <div style={{fontSize:FS,color:T.text,fontWeight:600,marginBottom:4}}>اضغط على الصورة لرفع اللوجو</div>
+        <div style={{fontSize:FS-3,color:T.textMut,marginBottom:6}}>الحد الأقصى للعرض: 200px</div>
+        {draftLogo&&<Btn danger small onClick={handleRemove} style={{marginTop:4}}>🗑 حذف اللوجو</Btn>}
+      </div>
+    </div>
+    {/* Save buttons */}
+    <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14,paddingTop:10,borderTop:"1px solid "+T.brd}}>
+      <Btn ghost onClick={handleDiscard} disabled={!isDirty} style={!isDirty?{opacity:0.4}:{}}>↩️ إلغاء</Btn>
+      <Btn primary onClick={handleSave} disabled={!isDirty} style={!isDirty?{opacity:0.4}:{background:T.ok,color:"#fff",border:"none",fontWeight:800,padding:"10px 24px"}}>💾 حفظ</Btn>
+    </div>
+  </Card>;
+}
+
 export function WaContactsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Card,setDirty}){
   const REPORT_TYPES=[
     {k:"treasuryDaily",l:"📊 يومية الخزنة"},
@@ -591,27 +978,30 @@ export function WaContactsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Car
     {k:"hrWeekly",l:"👷 تقرير المرتبات الأسبوعية"},
     {k:"general",l:"📋 تقارير عامة"}
   ];
-  /* Draft state — starts as clone of saved contacts */
-  const savedContacts=config.waContacts||[];
-  const[draftContacts,setDraftContacts]=useState(()=>JSON.parse(JSON.stringify(savedContacts)));
-  /* New contact form — always local (never live-saved) */
+  /* V16.5: Stable snapshot of saved contacts via useMemo — prevents phantom dirty
+     caused by new array reference on every parent re-render */
+  const savedContactsJson=useMemo(()=>JSON.stringify(config.waContacts||[]),[config.waContacts]);
+  const savedContacts=useMemo(()=>JSON.parse(savedContactsJson),[savedContactsJson]);
+
+  const[draftContacts,setDraftContacts]=useState(()=>JSON.parse(savedContactsJson));
+  /* New contact form — always local (never affects dirty state) */
   const[newName,setNewName]=useState("");
   const[newPhone,setNewPhone]=useState("");
   const[newRole,setNewRole]=useState("");
   const[newReports,setNewReports]=useState([]);
 
-  /* Sync draft when saved config changes from outside (e.g. another user) */
-  useEffect(()=>{
-    /* Only sync if NOT dirty to avoid overwriting user's work */
-    const currentDirty=JSON.stringify(draftContacts)!==JSON.stringify(savedContacts);
-    if(!currentDirty){
-      setDraftContacts(JSON.parse(JSON.stringify(savedContacts)));
-    }
-  },[JSON.stringify(savedContacts)]);/* eslint-disable-line */
+  /* Draft JSON for comparison */
+  const draftJson=JSON.stringify(draftContacts);
+  const isDirty=draftJson!==savedContactsJson;
 
-  /* Compare draft vs saved to determine dirty state */
-  const isDirty=JSON.stringify(draftContacts)!==JSON.stringify(savedContacts);
-  /* Report dirty state to parent */
+  /* Sync draft when saved config changes from outside AND user hasn't touched draft */
+  useEffect(()=>{
+    if(!isDirty){
+      setDraftContacts(JSON.parse(savedContactsJson));
+    }
+  },[savedContactsJson]);/* eslint-disable-line */
+
+  /* Report dirty state to parent — only when it actually changes */
   useEffect(()=>{setDirty(isDirty)},[isDirty]);/* eslint-disable-line */
 
   /* Save: commit draft to config */
@@ -735,8 +1125,223 @@ export function WaContactsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Car
 
 
 
+/* V16.0: SIZE BUDGET DASHBOARD — tracks feature sizes with per-feature limits + recommendations.
+   Helps plan data splitting and archival before hitting Firestore's 1MB doc limit. */
+function SizeBudgetDashboard({configDoc,salesDoc,tasksDoc}){
+  const[expanded,setExpanded]=useState(false);
+  const reports=React.useMemo(()=>analyzeBudgets(configDoc,salesDoc,tasksDoc),[configDoc,salesDoc,tasksDoc]);
+  const totals=React.useMemo(()=>getDocTotals(configDoc,salesDoc,tasksDoc),[configDoc,salesDoc,tasksDoc]);
+  const summary=React.useMemo(()=>getBudgetSummary(reports),[reports]);
+  const topFeatures=React.useMemo(()=>getTopFeatures(reports,5),[reports]);
+
+  /* Progress bar component (inline) */
+  const Bar=({pct,color,height})=>
+    <div style={{height:height||8,borderRadius:4,background:T.bg,overflow:"hidden",border:"1px solid "+T.brd}}>
+      <div style={{height:"100%",width:Math.min(100,pct)+"%",borderRadius:4,background:color,transition:"width 0.4s"}}/>
+    </div>;
+
+  /* Overall status banner */
+  const banner=summary.overall==="critical"?{bg:"#EF444408",border:"#EF444440",color:"#DC2626",icon:"🔴",msg:"توجد بيانات وصلت للحد الحرج — مطلوب تدخل فوري"}:
+    summary.overall==="high"?{bg:"#F9731608",border:"#F9731640",color:"#EA580C",icon:"🟠",msg:"توجد بيانات مرتفعة الحجم — يُنصح بالأرشفة قريباً"}:
+    summary.overall==="warn"?{bg:"#F59E0B08",border:"#F59E0B40",color:"#D97706",icon:"🟡",msg:"توجد بيانات تجاوزت 50% من الحدّ"}:
+    {bg:"#10B98108",border:"#10B98140",color:"#059669",icon:"🟢",msg:"كل البيانات في نطاق آمن"};
+
+  return<Card title="📊 لوحة مراقبة حجم البيانات" style={{marginBottom:14}}>
+    <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
+      راقب حجم كل ميزة في التطبيق ضد حدّها المخصص. يساعدك هذا على التخطيط للأرشفة قبل الوصول لحد Firestore (1 MB لكل مستند).
+    </div>
+
+    {/* Overall banner */}
+    <div style={{padding:12,borderRadius:10,background:banner.bg,border:"1px solid "+banner.border,marginBottom:14,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+      <span style={{fontSize:24}}>{banner.icon}</span>
+      <div style={{flex:1,minWidth:200}}>
+        <div style={{fontWeight:800,color:banner.color,fontSize:FS+1}}>{banner.msg}</div>
+        <div style={{fontSize:FS-2,color:T.textSec,marginTop:4}}>
+          {summary.ok} ممتاز • {summary.warn} تحذير • {summary.high} مرتفع • {summary.critical} حرج
+        </div>
+      </div>
+    </div>
+
+    {/* Per-document overview (3 docs) */}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))",gap:10,marginBottom:14}}>
+      {[
+        {name:"📄 config",data:totals.config,desc:"الموظفين + العملاء + الخزنة..."},
+        {name:"📦 sales",data:totals.sales,desc:"جلسات تسليم العملاء"},
+        {name:"📌 tasks",data:totals.tasks,desc:"المهام والملاحظات"},
+      ].map(doc=>
+        <div key={doc.name} style={{padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <span style={{fontWeight:700,color:T.text,fontSize:FS-1}}>{doc.name}</span>
+            <span style={{fontSize:FS-3,color:doc.data.status.color,fontWeight:700}}>{doc.data.status.icon} {doc.data.pct}%</span>
+          </div>
+          <div style={{fontSize:FS-2,color:T.textSec,marginBottom:6,fontFamily:"monospace",direction:"ltr",textAlign:"right"}}>
+            {doc.data.fmt} / 1 MB
+          </div>
+          <Bar pct={doc.data.pct} color={doc.data.status.color} height={6}/>
+          <div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>{doc.desc}</div>
+        </div>
+      )}
+    </div>
+
+    {/* Top 5 largest features — always shown */}
+    <div style={{marginBottom:expanded?14:0}}>
+      <div style={{fontSize:FS-1,fontWeight:700,color:T.text,marginBottom:8}}>🔝 أكبر 5 ميزات حجماً:</div>
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {topFeatures.map(f=>
+          <div key={f.key} style={{padding:10,borderRadius:8,background:T.bg,border:"1px solid "+T.brd}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6,marginBottom:6}}>
+              <span style={{fontWeight:700,color:T.text,fontSize:FS-1}}>{f.label}</span>
+              <div style={{display:"flex",alignItems:"center",gap:8,fontSize:FS-2}}>
+                <span style={{fontFamily:"monospace",color:T.textSec,direction:"ltr"}}>{f.sizeFmt} / {f.budgetFmt}</span>
+                <span style={{color:f.status.color,fontWeight:700}}>{f.status.icon} {f.pct}%</span>
+              </div>
+            </div>
+            <Bar pct={f.pct} color={f.status.color}/>
+            <div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>
+              {f.count} عنصر • متوسط: {f.avgPerItemFmt}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+
+    {/* Toggle expansion for full list */}
+    <div style={{textAlign:"center",marginTop:12}}>
+      <Btn small onClick={()=>setExpanded(!expanded)} style={{background:T.accent+"10",color:T.accent,border:"1px solid "+T.accent+"30"}}>
+        {expanded?"▲ إخفاء التفاصيل":"▼ عرض كل الميزات ("+reports.length+")"}
+      </Btn>
+    </div>
+
+    {/* Full list when expanded */}
+    {expanded&&<div style={{marginTop:14}}>
+      <div style={{fontSize:FS-1,fontWeight:700,color:T.text,marginBottom:8}}>📋 كل الميزات مرتبة حسب النسبة:</div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-2}}>
+          <thead>
+            <tr style={{borderBottom:"2px solid "+T.brd}}>
+              <th style={{...TH,textAlign:"right"}}>الميزة</th>
+              <th style={TH}>العدد</th>
+              <th style={TH}>الحجم الحالي</th>
+              <th style={TH}>الحد</th>
+              <th style={TH}>الاستخدام</th>
+              <th style={TH}>الحالة</th>
+            </tr>
+          </thead>
+          <tbody>
+            {reports.map((f,i)=>
+              <tr key={f.key} style={{borderBottom:"1px solid "+T.brd,background:i%2===1?T.bg:"transparent"}}>
+                <td style={{...TD,fontWeight:700,color:T.text,textAlign:"right"}}>{f.label}</td>
+                <td style={{...TD,textAlign:"center",color:T.textSec}}>{f.count.toLocaleString()}</td>
+                <td style={{...TD,textAlign:"center",fontFamily:"monospace",color:f.status.color,fontWeight:700,direction:"ltr"}}>{f.sizeFmt}</td>
+                <td style={{...TD,textAlign:"center",fontFamily:"monospace",color:T.textMut,direction:"ltr"}}>{f.budgetFmt}</td>
+                <td style={{...TD,minWidth:120}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{fontSize:FS-3,fontWeight:700,color:f.status.color,minWidth:35,textAlign:"right"}}>{f.pct}%</span>
+                    <div style={{flex:1}}><Bar pct={f.pct} color={f.status.color} height={6}/></div>
+                  </div>
+                </td>
+                <td style={{...TD,textAlign:"center"}}>
+                  <span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,background:f.status.color+"15",color:f.status.color,fontWeight:700,whiteSpace:"nowrap"}}>
+                    {f.status.icon} {f.status.label}
+                  </span>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Recommendations for high-usage features */}
+      {reports.filter(r=>r.pct>=70).length>0&&<div style={{marginTop:14}}>
+        <div style={{fontSize:FS-1,fontWeight:700,color:T.warn,marginBottom:8}}>💡 توصيات:</div>
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {reports.filter(r=>r.pct>=70).map(f=>
+            <div key={f.key} style={{padding:10,borderRadius:8,background:f.status.color+"08",border:"1px solid "+f.status.color+"25",fontSize:FS-2}}>
+              <div style={{fontWeight:700,color:f.status.color,marginBottom:4}}>{f.status.icon} {f.label} — {f.pct}%</div>
+              <div style={{color:T.textSec,lineHeight:1.6}}>{f.advice}</div>
+            </div>
+          )}
+        </div>
+      </div>}
+    </div>}
+
+    {/* Info footer */}
+    <div style={{marginTop:14,padding:"8px 12px",background:T.accent+"06",borderRadius:8,fontSize:FS-3,color:T.textMut,lineHeight:1.6}}>
+      💡 حد Firestore: 1 MB لكل مستند منفصل. التنبيهات تبدأ عند 70%. عند 85% يُنصح بالأرشفة للحفاظ على الأداء.
+    </div>
+  </Card>;
+}
+
+/* V15.92: Device info + IP info card — lets user view their device fingerprint
+   and optionally assign a friendly nickname (stored in localStorage). */
+function DeviceInfoCard(){
+  const[dev]=useState(()=>getDeviceInfo());
+  const[ipInfo,setIpInfo]=useState(()=>getCachedIpInfo());
+  const[nickname,setNickname]=useState(()=>getDeviceNickname());
+  const[editing,setEditing]=useState(false);
+  const[nickInput,setNickInput]=useState(nickname);
+  /* Refresh IP info if not yet cached */
+  useEffect(()=>{
+    if(!ipInfo){
+      import("../utils/device.js").then(m=>m.getIpInfo()).then(info=>setIpInfo(info)).catch(()=>{});
+    }
+  },[]);
+  const saveNick=()=>{setDeviceNickname(nickInput||"");setNickname(nickInput||"");setEditing(false);showToast("✓ تم حفظ اسم الجهاز")};
+  return<Card title="🖥️ بيانات هذا الجهاز" style={{marginBottom:14}}>
+    <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
+      يُسجَّل معرف الجهاز وعنوان IP تلقائياً في سجل الأحداث لكل عملية حساسة.
+      هذه البيانات تساعد على كشف محاولات الاحتيال (دخول مستخدم باسم مستخدم آخر).
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr",gap:8,padding:12,background:T.bg,borderRadius:10,border:"1px solid "+T.brd,fontSize:FS-1}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+        <span style={{color:T.textSec}}>معرف الجهاز:</span>
+        <span style={{fontFamily:"monospace",fontWeight:700,color:T.accent,direction:"ltr"}}>{dev.deviceId}</span>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+        <span style={{color:T.textSec}}>اسم الجهاز:</span>
+        {editing?<div style={{display:"flex",gap:4}}>
+          <Inp value={nickInput} onChange={setNickInput} placeholder="مثلاً: لابتوب أحمد" style={{fontSize:FS-2,padding:"4px 8px"}} autoFocus/>
+          <Btn small primary onClick={saveNick}>✓</Btn>
+          <Btn small onClick={()=>{setEditing(false);setNickInput(nickname)}}>✕</Btn>
+        </div>:<div style={{display:"flex",alignItems:"center",gap:6}}>
+          <span style={{fontWeight:700,color:T.text}}>{nickname||"(بدون اسم)"}</span>
+          <Btn small onClick={()=>{setNickInput(nickname);setEditing(true)}} style={{padding:"2px 8px",fontSize:FS-3}}>✏️</Btn>
+        </div>}
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+        <span style={{color:T.textSec}}>النظام / المتصفح:</span>
+        <span style={{fontWeight:600,color:T.text}}>{dev.browserInfo}</span>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+        <span style={{color:T.textSec}}>دقة الشاشة:</span>
+        <span style={{fontFamily:"monospace",color:T.text,direction:"ltr"}}>{dev.screenRes}</span>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+        <span style={{color:T.textSec}}>المنطقة الزمنية:</span>
+        <span style={{color:T.text,direction:"ltr"}}>{dev.timezone||"—"}</span>
+      </div>
+      {ipInfo&&ipInfo.ip?<>
+        <div style={{borderTop:"1px dashed "+T.brd,marginTop:4,paddingTop:8}}>
+          <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+            <span style={{color:T.textSec}}>عنوان IP:</span>
+            <span style={{fontFamily:"monospace",fontWeight:700,color:T.accent,direction:"ltr"}}>{ipInfo.ip}</span>
+          </div>
+          {ipInfo.city&&<div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8,marginTop:6}}>
+            <span style={{color:T.textSec}}>📍 الموقع:</span>
+            <span style={{color:T.text}}>{ipInfo.city}, {ipInfo.country}</span>
+          </div>}
+          {ipInfo.org&&<div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8,marginTop:6}}>
+            <span style={{color:T.textSec}}>مزود الإنترنت:</span>
+            <span style={{color:T.text,fontSize:FS-2}}>{ipInfo.org}</span>
+          </div>}
+        </div>
+      </>:<div style={{marginTop:4,fontSize:FS-2,color:T.textMut}}>⌛ جاري تحميل بيانات الشبكة...</div>}
+    </div>
+  </Card>;
+}
+
 export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,theme,setTheme,season,orders,syncWsIds,replaceOrder,updOrder,configDoc,salesDoc,tasksDoc}){
-  const[newSeason,setNewSeason]=useState("");
+  /* V16.6: newSeason state removed — now inside SeasonsCard */
   const[newUserEmail,setNewUserEmail]=useState("");const[newUserRole,setNewUserRole]=useState("viewer");
   const[newUserName,setNewUserName]=useState("");const[newUserPass,setNewUserPass]=useState("");const[newUserPass2,setNewUserPass2]=useState("");
   const[createErr,setCreateErr]=useState("");const[createOk,setCreateOk]=useState("");const[creating,setCreating]=useState(false);
@@ -780,9 +1385,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
   const confirmPass=async()=>{if(!adminPass){setPassErr("ادخل كلمة المرور");return}setPassLoading(true);setPassErr("");
     try{await signInWithEmailAndPassword(auth,user.email,adminPass);if(pendingAction)pendingAction();setPendingAction(null);setAdminPass("")}
     catch(e){setPassErr("كلمة المرور غير صحيحة")}finally{setPassLoading(false)}};
-  const handleLogo=async e=>{const f=e.target.files[0];if(!f)return;const compressed=await compressImage(f,200,0.6);requirePass(()=>upConfig(d=>{d.logo=compressed}))};
-  const addSeason=()=>{if(!newSeason.trim())return;requirePass(()=>{upConfig(d=>{if(!d.seasons)d.seasons=[];if(!d.seasons.includes(newSeason.trim()))d.seasons.push(newSeason.trim());d.activeSeason=newSeason.trim()});setNewSeason("")})};
-  const deleteSeason=(s)=>{requirePass(async()=>{try{const snap=await getDocs(collection(db,"seasons",s,"orders"));await Promise.all(snap.docs.map(d=>deleteDoc(doc(db,"seasons",s,"orders",d.id))))}catch(e){}upConfig(d=>{d.seasons=(d.seasons||[]).filter(x=>x!==s);if(d.activeSeason===s)d.activeSeason=d.seasons[0]||""})})};
+  /* V16.6: Logo + addSeason/deleteSeason now inside LogoCard/SeasonsCard components */
   const clearAllOrders=()=>{requirePass(async()=>{try{const snap=await getDocs(collection(db,"seasons",season,"orders"));await Promise.all(snap.docs.map(d=>deleteDoc(doc(db,"seasons",season,"orders",d.id))))}catch(e){}setClearConfirm(false)})};
 
   /* ═══ PO Migration V14.48 — Renumber all orders with new sequential format ═══ */
@@ -869,90 +1472,14 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
         </div>
       </div>
     </div>}
-    <Card title="ادارة المواسم" style={{marginBottom:12}}>
-      <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}><Inp value={newSeason} onChange={setNewSeason} placeholder="اسم الموسم (مثال: SS27)" style={{width:220}}/><Btn primary onClick={addSeason}>+ موسم جديد</Btn></div>
-      <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {(config.seasons||[]).map(s=><div key={s} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderRadius:12,border:s===config.activeSeason?"2px solid "+T.accent:"1px solid "+T.brd,background:s===config.activeSeason?T.accentBg:T.cardSolid,flexWrap:"wrap",gap:8}}>
-          <div onClick={()=>requirePass(()=>upConfig(d=>{d.activeSeason=s}))} style={{cursor:"pointer",display:"flex",alignItems:"center",gap:10}}><span style={{fontWeight:700,fontSize:FS+2,color:s===config.activeSeason?T.accent:T.text}}>{s}</span>{s===config.activeSeason&&<span style={{fontSize:FS-3,color:T.ok,background:T.ok+"15",padding:"2px 10px",borderRadius:12}}>نشط</span>}</div>
-          <div style={{display:"flex",gap:8}}>{s!==config.activeSeason&&<Btn small onClick={()=>requirePass(()=>upConfig(d=>{d.activeSeason=s}))} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>تفعيل</Btn>}<Btn danger small onClick={()=>deleteSeason(s)}>حذف</Btn></div>
-        </div>)}
-      </div>
-    </Card>
-    {/* ═══ PO NUMBER SETTINGS — V14.48 ═══ */}
-    <Card title="📋 إعدادات أمر التشغيل (PO)" style={{marginBottom:12}}>
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12,marginBottom:14}}>
-        <div>
-          <label style={{fontSize:FS-1,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>البادئة (Prefix)</label>
-          <Inp value={config.poPrefix||"PO-"} onChange={v=>upConfig(d=>{d.poPrefix=v})} placeholder="PO-" sx={{fontFamily:"monospace",fontWeight:700,letterSpacing:1}}/>
-          <div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>مثال: PO- أو ORD- أو PROD-</div>
-        </div>
-        <div>
-          <label style={{fontSize:FS-1,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>عدد الأرقام</label>
-          <Inp type="number" value={config.poDigits||3} onChange={v=>{const n=Math.max(2,Math.min(6,Number(v)||3));upConfig(d=>{d.poDigits=n})}} sx={{fontFamily:"monospace",fontWeight:700,textAlign:"center"}}/>
-          <div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>من 2 إلى 6 أرقام (مثال: 3 = PO-001)</div>
-        </div>
-      </div>
-      {/* Live preview */}
-      <div style={{padding:"10px 14px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"20",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <span style={{fontSize:FS-1,color:T.textSec,fontWeight:600}}>معاينة الرقم الجديد:</span>
-        <span style={{fontSize:FS+3,fontWeight:800,color:T.accent,fontFamily:"monospace",letterSpacing:2}}>
-          {(config.poPrefix||"PO-")+String(1).padStart(Number(config.poDigits)||3,"0")}
-        </span>
-      </div>
-
-      {/* Migration section */}
-      <div style={{padding:14,borderRadius:10,background:T.err+"06",border:"1px solid "+T.err+"30"}}>
-        <div style={{fontSize:FS,fontWeight:800,color:T.err,marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
-          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          <span>تحويل الأرقام القديمة (عملية خطيرة)</span>
-        </div>
-        <div style={{fontSize:FS-1,color:T.textSec,lineHeight:1.6,marginBottom:10}}>
-          هذه العملية ستعيد ترقيم <b>جميع</b> الأوامر في <b>جميع المواسم</b> بالصيغة الجديدة حسب تاريخ الإنشاء.
-          <br/>الأرقام القديمة ستُحذف نهائياً ولن يمكن استرجاعها.
-        </div>
-
-        {poMigState===null&&<Btn danger onClick={()=>setPoMigState("confirm1")}>
-          🔄 بدء تحويل الأرقام
-        </Btn>}
-
-        {poMigState==="confirm1"&&<div style={{padding:12,background:T.err+"10",borderRadius:8,border:"1px dashed "+T.err+"50"}}>
-          <div style={{fontSize:FS,fontWeight:700,color:T.err,marginBottom:8}}>⚠️ تأكيد أول</div>
-          <div style={{fontSize:FS-1,color:T.text,marginBottom:10}}>
-            هل أنت متأكد أنك تريد إعادة ترقيم جميع الأوامر القديمة؟ هذه العملية <b>لا يمكن التراجع عنها</b>.
-          </div>
-          <div style={{display:"flex",gap:8}}>
-            <Btn danger small onClick={()=>setPoMigState("confirm2")}>نعم، متأكد</Btn>
-            <Btn ghost small onClick={()=>setPoMigState(null)}>إلغاء</Btn>
-          </div>
-        </div>}
-
-        {poMigState==="confirm2"&&<div style={{padding:12,background:T.err+"15",borderRadius:8,border:"2px solid "+T.err+"60"}}>
-          <div style={{fontSize:FS,fontWeight:800,color:T.err,marginBottom:8}}>🚨 تأكيد نهائي</div>
-          <div style={{fontSize:FS-1,color:T.text,marginBottom:10}}>
-            آخر فرصة للإلغاء. اكتب كلمة <b>"تحويل"</b> للمتابعة:
-          </div>
-          <PoMigConfirm onConfirm={()=>requirePass(runPoMigration)} onCancel={()=>setPoMigState(null)} T={T} FS={FS}/>
-        </div>}
-
-        {poMigState==="running"&&<div style={{padding:16,textAlign:"center",background:T.bg,borderRadius:8}}>
-          <div style={{fontSize:FS,fontWeight:700,color:T.accent,marginBottom:6}}>🔄 جاري التحويل...</div>
-          <div style={{fontSize:FS-1,color:T.textSec}}>لا تغلق النافذة حتى اكتمال العملية</div>
-        </div>}
-
-        {poMigState==="done"&&poMigResult&&<div style={{padding:14,borderRadius:8,background:poMigResult.errors>0?T.warn+"10":T.ok+"10",border:"1px solid "+(poMigResult.errors>0?T.warn:T.ok)+"40"}}>
-          <div style={{fontSize:FS,fontWeight:800,color:poMigResult.errors>0?T.warn:T.ok,marginBottom:8}}>
-            {poMigResult.fatal?"❌ فشل التحويل":poMigResult.errors>0?"⚠️ اكتمل مع أخطاء":"✅ اكتمل التحويل بنجاح"}
-          </div>
-          <div style={{fontSize:FS-1,color:T.text,lineHeight:1.6}}>
-            <div>• إجمالي الأوامر: <b>{poMigResult.total}</b></div>
-            <div>• تم تحديثها: <b style={{color:T.ok}}>{poMigResult.updated}</b></div>
-            {poMigResult.errors>0&&<div>• أخطاء: <b style={{color:T.err}}>{poMigResult.errors}</b></div>}
-            {poMigResult.fatal&&<div style={{marginTop:6,color:T.err}}>الخطأ: {poMigResult.fatal}</div>}
-          </div>
-          <Btn small onClick={()=>{setPoMigState(null);setPoMigResult(null)}} style={{marginTop:10}}>إغلاق</Btn>
-        </div>}
-      </div>
-    </Card>
+    {/* V16.0: Size Budget Dashboard — tracks feature sizes against limits */}
+    <SizeBudgetDashboard configDoc={configDoc} salesDoc={salesDoc} tasksDoc={tasksDoc}/>
+    {/* V15.92: Device info card — shows deviceId, IP, location, and lets user name their device */}
+    <DeviceInfoCard/>
+    {/* V16.4: Print templates editor — customize all print templates with HTML/CSS */}
+    <PrintTemplatesEditor config={config} upConfig={upConfig} canEdit={userRole==="admin"||userRole==="accountant"}/>
+    <SeasonsCard config={config} upConfig={upConfig} T={T} FS={FS} showToast={showToast} Inp={Inp} Btn={Btn} Card={Card} requirePass={requirePass} setDirty={(d)=>setDirtyCards(p=>({...p,seasons:d}))}/>
+    <PoSettingsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Card={Card} poMigState={poMigState} setPoMigState={setPoMigState} poMigResult={poMigResult} setPoMigResult={setPoMigResult} requirePass={requirePass} runPoMigration={runPoMigration} setDirty={(d)=>setDirtyCards(p=>({...p,poSettings:d}))}/>
 
     <Card title="مسح بيانات الأوردرات" style={{marginBottom:12}}>
       <div style={{fontSize:FS,color:T.textSec,marginBottom:10}}>{"الموسم الحالي: "+season+" - عدد الأوردرات: "+(orders||[]).length}</div>
@@ -962,12 +1489,8 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
         <div style={{display:"flex",gap:8}}><Btn danger onClick={clearAllOrders}>تأكيد المسح</Btn><Btn ghost onClick={()=>setClearConfirm(false)}>الغاء</Btn></div>
       </div>}
     </Card>
-    <Card title="لوجو المصنع" style={{marginBottom:12}}>
-      <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
-        <div style={{width:80,height:80,borderRadius:12,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.inputBg||T.cardSolid,cursor:"pointer",position:"relative"}}>{config.logo?<img src={config.logo} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-1,color:T.textMut}}>لوجو</span>}<input type="file" accept="image/*" onChange={handleLogo} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/></div>
-        <div><div style={{fontSize:FS,color:T.text,fontWeight:600,marginBottom:4}}>اضغط لرفع اللوجو</div>{config.logo&&<Btn danger small onClick={()=>requirePass(()=>upConfig(d=>{d.logo=""}))} style={{marginTop:4}}>حذف اللوجو</Btn>}</div>
-      </div>
-    </Card>
+    {/* V16.5: Logo card with draft + save pattern */}
+    <LogoCard config={config} upConfig={upConfig} T={T} FS={FS} showToast={showToast} Btn={Btn} Card={Card} requirePass={requirePass} compressImage={compressImage} setDirty={(d)=>setDirtyCards(p=>({...p,logo:d}))}/>
     <Card title="ادارة المستخدمين" style={{marginBottom:16}}>
       {/* Create new user */}
       <div style={{padding:20,background:T.accentBg,borderRadius:14,marginBottom:20,border:"1px solid "+T.accent+"20"}}>
@@ -1226,67 +1749,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     <HrSettingsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,hrSettings:d}))}/>
 
     {/* Security Flags Settings */}
-    <Card title="🛡️ إعدادات التنبيهات الأمنية" style={{marginBottom:16}}>
-      {(()=>{const sec=config.securitySettings||{};
-        const saveSec=(fn)=>upConfig(d=>{if(!d.securitySettings)d.securitySettings={};fn(d.securitySettings)});
-        const FlagRow=({icon,label,desc,children,enabled,onToggle})=><div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",borderRadius:10,background:enabled!==false?T.cardSolid:T.bg,border:"1px solid "+(enabled!==false?T.brd:T.textMut+"20"),marginBottom:8,opacity:enabled!==false?1:0.6}}>
-          <div style={{fontSize:24,flexShrink:0}}>{icon}</div>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:FS,fontWeight:700,color:T.text}}>{label}</div>
-            <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{desc}</div>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
-            {children}
-            <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer"}}><input type="checkbox" checked={enabled!==false} onChange={ev=>onToggle(ev.target.checked)} style={{width:18,height:18,cursor:"pointer"}}/></label>
-          </div>
-        </div>;
-        return<div>
-          <div style={{fontSize:FS-2,color:T.textSec,marginBottom:12,padding:"10px 14px",background:T.accent+"06",borderRadius:8,border:"1px solid "+T.accent+"20",lineHeight:1.7}}>
-            ℹ️ فعّل/عطّل كل تنبيه حسب حاجتك. لو التنبيه مفعّل، يظهر في صفحة الأسبوع المفتوح + Dashboard الأمن.
-          </div>
-          <FlagRow icon="⏰" label="ساعات يومية مرتفعة" desc="تنبيه لو موظف بصم أكتر من الحد ده في يوم واحد" enabled={sec.flagExcessiveHours!==false} onToggle={v=>saveSec(s=>{s.flagExcessiveHours=v})}>
-            <Inp type="number" step="0.5" value={sec.maxDailyHours||""} onChange={v=>saveSec(s=>{s.maxDailyHours=Number(v)||14})} placeholder="14" style={{width:70,textAlign:"center"}}/>
-            <span style={{fontSize:FS-3,color:T.textMut}}>ساعة</span>
-          </FlagRow>
-          <FlagRow icon="🔄" label="ساعات متطابقة كل الأيام" desc="ساعات متطابقة بالظبط كل يوم (مشبوه: buddy punching)" enabled={sec.flagIdenticalHours!==false} onToggle={v=>saveSec(s=>{s.flagIdenticalHours=v})}/>
-          <FlagRow icon="👥" label="تطابق جماعي في يوم واحد" desc="أكثر من الحد ده من الموظفين بنفس الساعات في نفس اليوم" enabled={sec.flagSameHoursMultiple!==false} onToggle={v=>saveSec(s=>{s.flagSameHoursMultiple=v})}>
-            <Inp type="number" value={sec.minEmpsForSameHours||""} onChange={v=>saveSec(s=>{s.minEmpsForSameHours=Number(v)||3})} placeholder="3" style={{width:60,textAlign:"center"}}/>
-            <span style={{fontSize:FS-3,color:T.textMut}}>موظف+</span>
-          </FlagRow>
-          <FlagRow icon="📈" label="ارتفاع فجائي في الساعات" desc="ساعات الموظف ارتفعت بنسبة أكبر من الحد مقارنة بالمتوسط" enabled={sec.flagSuddenSpike!==false} onToggle={v=>saveSec(s=>{s.flagSuddenSpike=v})}>
-            <Inp type="number" value={sec.spikePercent||""} onChange={v=>saveSec(s=>{s.spikePercent=Number(v)||50})} placeholder="50" style={{width:60,textAlign:"center"}}/>
-            <span style={{fontSize:FS-3,color:T.textMut}}>%+</span>
-          </FlagRow>
-          <FlagRow icon="🔑" label="تغيير كود بصمة حديث" desc="موظف تغير كود بصمته مؤخراً (30 يوم) وبياخد ساعات" enabled={sec.flagCodeChange!==false} onToggle={v=>saveSec(s=>{s.flagCodeChange=v})}/>
-          <FlagRow icon="✏️" label="نسبة التعديل اليدوي العالية" desc="نسبة التعديلات اليدوية في الأسبوع أكبر من الحد" enabled={sec.flagManualEditHigh!==false} onToggle={v=>saveSec(s=>{s.flagManualEditHigh=v})}>
-            <Inp type="number" value={sec.manualEditRatio||""} onChange={v=>saveSec(s=>{s.manualEditRatio=Number(v)||30})} placeholder="30" style={{width:60,textAlign:"center"}}/>
-            <span style={{fontSize:FS-3,color:T.textMut}}>%+</span>
-          </FlagRow>
-          <FlagRow icon="💸" label="سلفة شاذة" desc="سلفة الموظف أكبر من الحد × متوسطه التاريخي" enabled={sec.flagAdvanceAnomaly!==false} onToggle={v=>saveSec(s=>{s.flagAdvanceAnomaly=v})}>
-            <Inp type="number" step="0.5" value={sec.advanceMultiplier||""} onChange={v=>saveSec(s=>{s.advanceMultiplier=Number(v)||3})} placeholder="3" style={{width:60,textAlign:"center"}}/>
-            <span style={{fontSize:FS-3,color:T.textMut}}>× متوسط</span>
-          </FlagRow>
-          <FlagRow icon="🌙" label="ساعات إضافي أسبوعية مرتفعة" desc="إجمالي الإضافي الأسبوعي للموظف فوق الحد" enabled={sec.flagHighOvertime!==false} onToggle={v=>saveSec(s=>{s.flagHighOvertime=v})}>
-            <Inp type="number" value={sec.maxWeeklyOvertime||""} onChange={v=>saveSec(s=>{s.maxWeeklyOvertime=Number(v)||30})} placeholder="30" style={{width:60,textAlign:"center"}}/>
-            <span style={{fontSize:FS-3,color:T.textMut}}>ساعة</span>
-          </FlagRow>
-          <FlagRow icon="⚡" label="ساعات تساوي الأساسي بالظبط" desc="ساعات كل يوم = عدد الساعات الأساسي (مشبوه: إدخال يدوي)" enabled={sec.flagExactBaseHours===true} onToggle={v=>saveSec(s=>{s.flagExactBaseHours=v})}/>
-          <FlagRow icon="📅" label="أيام عمل قليلة جداً" desc="الموظف بصم أقل من الحد ده من الأيام" enabled={sec.flagFewWorkDays!==false} onToggle={v=>saveSec(s=>{s.flagFewWorkDays=v})}>
-            <Inp type="number" value={sec.minWorkDays||""} onChange={v=>saveSec(s=>{s.minWorkDays=Number(v)||3})} placeholder="3" style={{width:60,textAlign:"center"}}/>
-            <span style={{fontSize:FS-3,color:T.textMut}}>يوم</span>
-          </FlagRow>
-          <FlagRow icon="🔁" label="تكرار تعديل نفس الموظف" desc="نفس الموظف تم تعديل ساعاته يدوياً أكتر من الحد" enabled={sec.flagRepeatEdits!==false} onToggle={v=>saveSec(s=>{s.flagRepeatEdits=v})}>
-            <Inp type="number" value={sec.maxEditsPerEmp||""} onChange={v=>saveSec(s=>{s.maxEditsPerEmp=Number(v)||3})} placeholder="3" style={{width:60,textAlign:"center"}}/>
-            <span style={{fontSize:FS-3,color:T.textMut}}>تعديل</span>
-          </FlagRow>
-          <FlagRow icon="💰" label="سلفة + ساعات زيادة" desc="سلفة + ارتفاع ساعات في نفس الأسبوع (مشبوه: محاباة)" enabled={sec.flagAdvancePlusSpike!==false} onToggle={v=>saveSec(s=>{s.flagAdvancePlusSpike=v})}/>
-          <FlagRow icon="🚫" label="غياب جماعي مفاجئ" desc="نسبة الموظفين اللي ما بصموش في يوم واحد زادت عن الحد" enabled={sec.flagMassAbsence!==false} onToggle={v=>saveSec(s=>{s.flagMassAbsence=v})}>
-            <Inp type="number" value={sec.massAbsencePercent||""} onChange={v=>saveSec(s=>{s.massAbsencePercent=Number(v)||30})} placeholder="30" style={{width:60,textAlign:"center"}}/>
-            <span style={{fontSize:FS-3,color:T.textMut}}>%+</span>
-          </FlagRow>
-        </div>;
-      })()}
-    </Card>
+    <SecurityAlertsCard config={config} upConfig={upConfig} T={T} FS={FS} showToast={showToast} Inp={Inp} Btn={Btn} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,securityAlerts:d}))}/>
 
     {/* Sales Settings */}
     {/* Sales Settings — draft pattern */}

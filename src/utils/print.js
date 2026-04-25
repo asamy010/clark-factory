@@ -6,6 +6,33 @@
 
 import { PRINT_CSS } from "../constants/index.js";
 import { CLARK_LOGO } from "../constants/logo.js";
+import { renderTemplate } from "./templateEngine.js";
+import { getTemplate } from "./printTemplates.js";
+
+/* V16.4: Template-based printing — uses user-customized template if available,
+   else falls back to default. Accepts context data and optional extra CSS. */
+export function printWithTemplate(templateId, context, printTemplates, options) {
+  const tpl = getTemplate(printTemplates || {}, templateId);
+  if (!tpl) { console.error("Unknown template:", templateId); return false; }
+  try {
+    const html = renderTemplate(tpl.template, context);
+    const fullHtml = "<!DOCTYPE html><html dir='rtl'><head><meta charset='UTF-8'><title>" +
+      ((options && options.title) || tpl.name || "طباعة") +
+      "</title><style>" + (tpl.css || "") + "</style></head><body>" + html +
+      "<script>setTimeout(function(){try{window.focus();window.print()}catch(e){}}, 400)</script>" +
+      "</body></html>";
+    const pw = openPrintWindow();
+    if (!pw) { alert("المتصفح يمنع النوافذ المنبثقة — فعّل الـ pop-ups"); return false; }
+    pw.document.open();
+    pw.document.write(fullHtml);
+    pw.document.close();
+    return true;
+  } catch (e) {
+    console.error("Template print failed:", e);
+    alert("فشل توليد الطباعة: " + e.message);
+    return false;
+  }
+}
 
 /* Full-page report printing with professional header, print/PDF buttons, and footer.
    V15.58: Accepts optional configInfo = {factoryName, logo, address, phone}

@@ -13,6 +13,8 @@ import { loadQR, loadJsQR, scanQR } from "../utils/qr.js";
 import { ask, askForm, showToast } from "../utils/popups.js";
 import { printPage, printPkgLabel, openPrintWindow } from "../utils/print.js";
 import { calcOrder, getConfirmedStock, recomputeStatus } from "../utils/orders.js";
+import { analyzeCustomer, fmtMonth } from "../utils/customerAnalytics.js";
+import { auth } from "../firebase";
 import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../components/ui.jsx";
 import { T, TH, TD, TDB } from "../theme.js";
 
@@ -40,6 +42,29 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const[returnPopup,setReturnPopup]=useState(null);const[retQty,setRetQty]=useState(0);const[retNote,setRetNote]=useState("");
   const[freeReturn,setFreeReturn]=useState(null);const[freeRetItems,setFreeRetItems]=useState({});const[freeRetNote,setFreeRetNote]=useState("");
   const[custQR,setCustQR]=useState(null);const[salesDetail,setSalesDetail]=useState(null);const[custStatement,setCustStatement]=useState(null);const[salesAnalysis,setSalesAnalysis]=useState(false);const[seasonReport,setSeasonReport]=useState(false);const[editRetIdx,setEditRetIdx]=useState(null);const[editRetQty,setEditRetQty]=useState(0);const[editRetNote,setEditRetNote]=useState("");
+  /* V16.3: Portal URL popup + Stats toggle */
+  const[portalUrlPopup,setPortalUrlPopup]=useState(null);/* {url, custName, loading, error} */
+  const[showCustStats,setShowCustStats]=useState(false);
+  
+  /* V16.3: Generate portal URL for a customer */
+  const generatePortalUrl=async(custId,custName)=>{
+    setPortalUrlPopup({loading:true,custName,url:"",error:""});
+    try{
+      const user=auth.currentUser;
+      if(!user){setPortalUrlPopup({loading:false,custName,url:"",error:"يرجى تسجيل الدخول"});return}
+      const token=await user.getIdToken();
+      const res=await fetch("/api/customer-portal-sign",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({custId,adminToken:token})
+      });
+      const json=await res.json();
+      if(!res.ok){setPortalUrlPopup({loading:false,custName,url:"",error:json.error||"فشل التوليد"});return}
+      setPortalUrlPopup({loading:false,custName,url:json.url,error:""});
+    }catch(err){
+      setPortalUrlPopup({loading:false,custName,url:"",error:err.message||String(err)});
+    }
+  };
   /* Customer statement payment form */
   const[payAmt,setPayAmt_]=useState("");const[payDate_,setPayDate_]=useState(new Date().toISOString().split("T")[0]);const[payNote_,setPayNote_]=useState("");const[payMethod,setPayMethod]=useState("كاش");
   /* Distribution grid filters */
@@ -1476,10 +1501,20 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         printPage("كشف حساب — "+cust.name,h,{factoryName:config.factoryName,logo:config.logo})};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setCustStatement(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?"100%":750,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4,flexWrap:"wrap",gap:8}}>
             <div><div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{"📄 كشف حساب — "+cust.name}</div><div style={{fontSize:FS-2,color:T.textMut}}>{(cust.type||"")+" | "+cust.phone}</div></div>
-            <div style={{display:"flex",gap:4}}><Btn small onClick={printStatement} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn><Btn ghost small onClick={()=>setCustStatement("pick")}>← رجوع</Btn><Btn ghost small onClick={()=>setCustStatement(null)} title="إغلاق">✕</Btn></div>
+            <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+              {/* V16.3: Customer stats toggle */}
+              <Btn small onClick={()=>setShowCustStats(!showCustStats)} style={{background:showCustStats?T.accent:T.accent+"15",color:showCustStats?"#fff":T.accent,border:"1px solid "+T.accent+"40"}} title="إحصاءات تفصيلية">📊 إحصاءات</Btn>
+              {/* V16.3: Generate portal URL */}
+              {canEdit&&<Btn small onClick={()=>generatePortalUrl(cust.id,cust.name)} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640"}} title="رابط الحساب للعميل">📱 رابط العميل</Btn>}
+              <Btn small onClick={printStatement} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>
+              <Btn ghost small onClick={()=>setCustStatement("pick")}>← رجوع</Btn>
+              <Btn ghost small onClick={()=>setCustStatement(null)} title="إغلاق">✕</Btn>
+            </div>
           </div>
+          {/* V16.3: Customer Stats Widget */}
+          {showCustStats&&<CustomerStatsWidget data={config} custId={cust.id}/>}
           {/* Balance summary — V15.84: conditional discount cards (only when discount > 0) */}
           <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(auto-fit, minmax(140px, 1fr))",gap:8,margin:"12px 0"}}>
             <div style={{padding:10,borderRadius:10,background:T.accent+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>{discPct>0?"المبيعات قبل الخصم":"قيمة المبيعات"}</div><div style={{fontSize:16,fontWeight:800,color:T.accent}}>{fmt(totalVal)}</div></div>
@@ -3459,7 +3494,133 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         <div style={{marginTop:12}}><Btn onClick={()=>{printPage("QR — "+custQR.name,"<div style='text-align:center;padding:20px'><h2 style='margin-bottom:10px'>"+custQR.name+"</h2><p style='margin-bottom:16px'>"+custQR.phone+"</p><img src='"+custQR.src+"' style='width:200px'/></div>")}} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة QR</Btn></div>
       </div>
     </div>}
+    {/* V16.3: Portal URL popup */}
+    {portalUrlPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:100000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={()=>setPortalUrlPopup(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:22,width:"100%",maxWidth:520,border:"2px solid #8B5CF6",boxShadow:"0 25px 80px rgba(0,0,0,0.4)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"1px solid "+T.brd}}>
+          <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6",display:"flex",alignItems:"center",gap:8}}>
+            <span>📱</span><span>رابط حساب العميل</span>
+          </div>
+          <Btn ghost small onClick={()=>setPortalUrlPopup(null)}>✕</Btn>
+        </div>
+        <div style={{fontSize:FS-1,color:T.textSec,marginBottom:14,lineHeight:1.6}}>
+          <b>{portalUrlPopup.custName}</b>
+          <div style={{fontSize:FS-2,color:T.textMut,marginTop:4}}>
+            يمكنك إرسال هذا الرابط للعميل عبر الواتساب. الرابط يعرض حسابه للقراءة فقط.
+          </div>
+        </div>
+        {portalUrlPopup.loading?<div style={{padding:20,textAlign:"center"}}><Spinner size="medium"/><div style={{marginTop:8,fontSize:FS-1,color:T.textSec}}>جاري التوليد...</div></div>:
+         portalUrlPopup.error?<div style={{padding:14,borderRadius:10,background:T.err+"10",border:"1px solid "+T.err+"30",color:T.err,fontSize:FS-1}}>⛔ {portalUrlPopup.error}</div>:
+         portalUrlPopup.url?<div>
+          <div style={{padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"monospace",direction:"ltr",textAlign:"right",wordBreak:"break-all",color:T.text,marginBottom:12}}>
+            {portalUrlPopup.url}
+          </div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <Btn primary onClick={()=>{
+              try{navigator.clipboard.writeText(portalUrlPopup.url);showToast("✓ تم نسخ الرابط")}
+              catch(e){showToast("⛔ فشل النسخ")}
+            }} style={{flex:1,minWidth:120}}>📋 نسخ الرابط</Btn>
+            <Btn onClick={()=>{
+              const cust=customers.find(c=>c.name===portalUrlPopup.custName);
+              const phone=cust?(cust.phone||"").replace(/[^\d]/g,""):"";
+              const msg=encodeURIComponent("أهلاً "+portalUrlPopup.custName+"،\n\nيمكنك متابعة حسابك معنا من خلال الرابط التالي:\n"+portalUrlPopup.url+"\n\nالرابط خاص بك ويعرض آخر البيانات.");
+              const wa=phone?"https://wa.me/"+(phone.startsWith("20")?phone:"20"+phone.replace(/^0+/,""))+"?text="+msg:"https://wa.me/?text="+msg;
+              const a=document.createElement("a");a.href=wa;a.target="_blank";a.rel="noopener noreferrer";a.click();
+            }} style={{background:"#25D366",color:"#fff",border:"none",flex:1,minWidth:120}}>💬 واتساب</Btn>
+          </div>
+          <div style={{marginTop:12,fontSize:FS-3,color:T.textMut,lineHeight:1.6,padding:10,background:T.warn+"08",borderRadius:8}}>
+            💡 الرابط ثابت لهذا العميل. يمكنك مشاركته مرة واحدة. لن يحتاج تسجيل دخول.
+          </div>
+        </div>:null}
+      </div>
+    </div>}
   </div>
+}
+
+/* ═══ V16.3: CUSTOMER STATS WIDGET — comprehensive analytics for one customer ═══ */
+function CustomerStatsWidget({data,custId}){
+  const stats=useMemo(()=>analyzeCustomer(custId,data),[custId,data]);
+  if(!stats)return null;
+  const {sales,finance,topModels,monthly,peakMonth,tier,growth}=stats;
+  /* Last 6 months for mini chart */
+  const recentMonths=monthly.slice(-6);
+  const maxMonthValue=recentMonths.reduce((m,x)=>Math.max(m,x.value),0)||1;
+
+  return<div style={{padding:14,borderRadius:14,background:"linear-gradient(135deg, "+T.accent+"05, "+T.bg+")",border:"1px solid "+T.accent+"25",marginBottom:14}}>
+    {/* Header — Tier + Growth */}
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:12}}>
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <span style={{fontSize:28}}>{tier.emoji}</span>
+        <div>
+          <div style={{fontSize:FS,fontWeight:800,color:tier.color}}>{tier.label}</div>
+          <div style={{fontSize:FS-2,color:T.textMut}}>{sales.netPieces.toLocaleString()} قطعة • {sales.orderCount} أوردر</div>
+        </div>
+      </div>
+      {growth!==null&&<div style={{padding:"6px 12px",borderRadius:8,background:growth>=0?T.ok+"15":T.err+"15",color:growth>=0?T.ok:T.err,fontSize:FS-1,fontWeight:800}}>
+        {growth>=0?"📈 +":"📉 "}{growth}%
+        <div style={{fontSize:FS-4,fontWeight:500}}>vs الفترة السابقة</div>
+      </div>}
+    </div>
+
+    {/* Quick metrics row */}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(120px, 1fr))",gap:8,marginBottom:12}}>
+      <div style={{padding:"10px 12px",borderRadius:10,background:T.cardSolid,border:"1px solid "+T.brd,textAlign:"center"}}>
+        <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>متوسط الأوردر</div>
+        <div style={{fontSize:FS+1,fontWeight:800,color:T.accent,direction:"ltr"}}>{fmt(sales.avgOrderValue)} ج</div>
+      </div>
+      <div style={{padding:"10px 12px",borderRadius:10,background:T.cardSolid,border:"1px solid "+T.brd,textAlign:"center"}}>
+        <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>سعر القطعة</div>
+        <div style={{fontSize:FS+1,fontWeight:800,color:"#0EA5E9",direction:"ltr"}}>{fmt(sales.avgPieceValue)} ج</div>
+      </div>
+      {finance.avgPaymentCycle!==null&&<div style={{padding:"10px 12px",borderRadius:10,background:T.cardSolid,border:"1px solid "+T.brd,textAlign:"center"}}>
+        <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>متوسط الدفع</div>
+        <div style={{fontSize:FS+1,fontWeight:800,color:"#8B5CF6"}}>{finance.avgPaymentCycle} يوم</div>
+      </div>}
+      {finance.daysSinceLastPayment!==null&&<div style={{padding:"10px 12px",borderRadius:10,background:T.cardSolid,border:"1px solid "+(finance.daysSinceLastPayment>45?T.err:T.brd),textAlign:"center"}}>
+        <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>آخر دفعة منذ</div>
+        <div style={{fontSize:FS+1,fontWeight:800,color:finance.daysSinceLastPayment>45?T.err:T.ok}}>{finance.daysSinceLastPayment} يوم</div>
+      </div>}
+    </div>
+
+    {/* 2-column: Top models + Monthly chart */}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(260px, 1fr))",gap:12}}>
+      {/* Top models */}
+      {topModels.length>0&&<div style={{padding:12,borderRadius:10,background:T.cardSolid,border:"1px solid "+T.brd}}>
+        <div style={{fontSize:FS-1,fontWeight:800,marginBottom:8,color:T.text}}>🏆 أكثر الموديلات</div>
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          {topModels.slice(0,4).map((m,i)=>{
+            const pct=topModels[0].pieces>0?(m.pieces/topModels[0].pieces)*100:0;
+            return<div key={i} style={{position:"relative"}}>
+              <div style={{position:"absolute",inset:0,background:T.accent+"10",width:pct+"%",borderRadius:6,transition:"width 0.3s"}}/>
+              <div style={{position:"relative",padding:"6px 10px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:FS-2}}>
+                <span style={{fontWeight:700,color:T.text,direction:"ltr",textAlign:"right"}}>{m.modelNo||"—"}</span>
+                <span style={{fontWeight:800,color:T.accent,fontFamily:"monospace"}}>{m.pieces} قطعة</span>
+              </div>
+            </div>;
+          })}
+        </div>
+      </div>}
+
+      {/* Monthly mini-chart */}
+      {recentMonths.length>0&&<div style={{padding:12,borderRadius:10,background:T.cardSolid,border:"1px solid "+T.brd}}>
+        <div style={{fontSize:FS-1,fontWeight:800,marginBottom:8,color:T.text}}>📅 آخر {recentMonths.length} أشهر</div>
+        <div style={{display:"flex",alignItems:"flex-end",gap:4,height:60,marginBottom:6}}>
+          {recentMonths.map((m,i)=>{
+            const h=Math.max(4,(m.value/maxMonthValue)*100);
+            return<div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}} title={fmtMonth(m.month)+": "+fmt(Math.round(m.value))+" ج"}>
+              <div style={{width:"100%",height:h+"%",background:"linear-gradient(to top,"+T.accent+","+T.accent+"80)",borderRadius:"4px 4px 0 0",minHeight:4}}/>
+            </div>;
+          })}
+        </div>
+        <div style={{display:"flex",gap:4,fontSize:FS-4,color:T.textMut,textAlign:"center",direction:"ltr"}}>
+          {recentMonths.map((m,i)=><div key={i} style={{flex:1}}>{m.month.slice(5)}</div>)}
+        </div>
+        {peakMonth&&<div style={{marginTop:8,fontSize:FS-3,color:T.textMut,textAlign:"center"}}>
+          🎯 أعلى شهر: <b>{fmtMonth(peakMonth.month)}</b> ({fmt(peakMonth.value)} ج)
+        </div>}
+      </div>}
+    </div>
+  </div>;
 }
 
 /* ═══ PO Migration Confirmation Component — V14.48 ═══ */

@@ -12,6 +12,7 @@ import { playBeep } from "./utils/audio.js";
 import { compressImage, compressImg43 } from "./utils/image.js";
 import { loadXLSX, loadQR, loadJsQR, scanQR, compressFile } from "./utils/qr.js";
 import { addAudit } from "./utils/audit.js";
+import { prefetchIpInfo } from "./utils/device.js";
 import { enforceDataLimits } from "./utils/dataLimits.js";
 import { ask, tell, askInput, askForm, showToast, highlightRow } from "./utils/popups.js";
 import { printPage, printPkgLabel, printEmpQrCards, renderLabelPages, openPrintWindow } from "./utils/print.js";
@@ -21,35 +22,44 @@ import { wsIsInternal, calcOrder, getConfirmedStock, checkStockAvailability, ded
    setActiveTheme() is called when user switches theme to refresh their properties. */
 import { T, TH, TD, TDB, TDL, setActiveTheme } from "./theme.js";
 import { Spinner, LoadingBtn, InlineLoading, Badge, Btn, Inp, Sel, SearchSel, Card, MetricCard, PBar, DelBtn, ColorPicker, FCTable, AccPicker, Timeline, QRImg, QRScanner, useDebounced, useWin } from "./components/ui.jsx";
-import { CustDeliverPg } from "./pages/CustDeliverPg.jsx";
-import { PurchasePg } from "./pages/PurchasePg.jsx";
-import { TreasuryPg } from "./pages/TreasuryPg.jsx";
-import { HRPg } from "./pages/HRPg.jsx";
+
+/* V16.1: Lazy loading for heavy pages — reduces initial bundle from ~3MB to ~500KB.
+   Pages load on-demand when user navigates to them. React.Suspense shows PageLoader.
+   Core pages (Dash, Login, UI) remain eager since they're needed on every session. */
+import { lazy, Suspense } from "react";
+import { lazyNamed, PageLoader, ChunkErrorBoundary } from "./utils/lazyLoad.jsx";
+
+const CustDeliverPg = lazyNamed(() => import("./pages/CustDeliverPg.jsx"), "CustDeliverPg");
+const PurchasePg = lazyNamed(() => import("./pages/PurchasePg.jsx"), "PurchasePg");
+const TreasuryPg = lazyNamed(() => import("./pages/TreasuryPg.jsx"), "TreasuryPg");
+const HRPg = lazyNamed(() => import("./pages/HRPg.jsx"), "HRPg");
 
 /* V15.1 phase 3: page/component imports */
 /* V15.76: print-extras imports removed — none used in App.jsx (used in pages directly) */
 import { LoginScreen, TABS } from "./components/LoginScreen.jsx";
 import { ActivityFeed } from "./components/ActivityFeed.jsx";
-import { DashPg } from "./pages/DashPg.jsx";
-import { DBPg } from "./pages/DBPg.jsx";
-import { OrdForm } from "./pages/OrdForm.jsx";
-import { DetPg } from "./pages/DetPg.jsx";
-import { ExtProdPg } from "./pages/ExtProdPg.jsx";
-import { CalcPg } from "./pages/CalcPg.jsx";
-import { StockPg } from "./pages/StockPg.jsx";
-import { RepPg } from "./pages/RepPg.jsx";
-import { ReportsHub } from "./pages/reports.jsx";
-import { CostPg } from "./pages/CostPg.jsx";
-import { TasksPg } from "./pages/TasksPg.jsx";
-import { SettingsPg } from "./pages/SettingsPg.jsx";
-import { AuditPg } from "./pages/AuditPg.jsx";
+import { UndoToast } from "./components/UndoToast.jsx";
+import { DashPg } from "./pages/DashPg.jsx";/* eager — always first screen */
+const DBPg = lazyNamed(() => import("./pages/DBPg.jsx"), "DBPg");
+import { OrdForm } from "./pages/OrdForm.jsx";/* eager — small, used within DetPg */
+const DetPg = lazyNamed(() => import("./pages/DetPg.jsx"), "DetPg");
+const ExtProdPg = lazyNamed(() => import("./pages/ExtProdPg.jsx"), "ExtProdPg");
+const CalcPg = lazyNamed(() => import("./pages/CalcPg.jsx"), "CalcPg");
+const StockPg = lazyNamed(() => import("./pages/StockPg.jsx"), "StockPg");
+const RepPg = lazyNamed(() => import("./pages/RepPg.jsx"), "RepPg");
+const ReportsHub = lazyNamed(() => import("./pages/reports.jsx"), "ReportsHub");
+const CostPg = lazyNamed(() => import("./pages/CostPg.jsx"), "CostPg");
+const TasksPg = lazyNamed(() => import("./pages/TasksPg.jsx"), "TasksPg");
+const SettingsPg = lazyNamed(() => import("./pages/SettingsPg.jsx"), "SettingsPg");
+const AuditPg = lazyNamed(() => import("./pages/AuditPg.jsx"), "AuditPg");
 /* V15.59: Mobile Warehouse — accessed via /warehouse URL */
 import { MobileWarehouseShell } from "./pages/mobile/MobileWarehouseShell.jsx";
-import { WarehousePg } from "./pages/WarehousePg.jsx";
+const WarehousePg = lazyNamed(() => import("./pages/WarehousePg.jsx"), "WarehousePg");
 
 /* V15.50: Public delivery confirmation page — opened when customer scans QR from delivery receipt.
    Rendered BEFORE auth check so it works without login. */
 import { ConfirmPage } from "./components/ConfirmPage.jsx";
+import { CustomerPortalPage } from "./components/CustomerPortalPage.jsx";
 
 
 /* Optional libs - loaded dynamically */
@@ -101,6 +111,14 @@ export default function App(){
     const s=urlParams.get("s"),c=urlParams.get("c"),sig=urlParams.get("sig");
     if(s&&c&&sig){
       return <ConfirmPage params={{s,c,sig}}/>;
+    }
+  }
+  /* V16.3: Customer portal — public read-only account page for customers.
+     URL format: /?portal=1&c=<custId>&sig=<hmac> */
+  if(urlParams.get("portal")==="1"){
+    const c=urlParams.get("c"),sig=urlParams.get("sig");
+    if(c&&sig){
+      return <CustomerPortalPage params={{c,sig}}/>;
     }
   }
   /* QR scan: ?o=modelNo → order details, ?act=rcv&oid=ID&wdi=IDX → receive mode */
@@ -270,6 +288,8 @@ export default function App(){
   const w=useWin();const isMob=w<768;const isTab=w>=768&&w<1100;const season=config.activeSeason||"WS26";
 
   useEffect(()=>{const unsub=onAuthStateChanged(auth,u=>{setUser(u);setAuthLoading(false)});return unsub},[]);
+  /* V15.92: Prefetch IP + location once per session (silent — no error if offline) */
+  useEffect(()=>{prefetchIpInfo().catch(()=>{})},[]);
   useEffect(()=>{if(!user)return;
     let salesReady=false;let tasksReady=false;
     /* ═══════════════════════════════════════════════════════════════════
@@ -999,7 +1019,7 @@ export default function App(){
           <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}
           </span>
-          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V15.90</span>
+          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V16.6</span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -1422,8 +1442,12 @@ export default function App(){
         </div>;
       })()}
       {/* PAGES with back button */}
+      {/* V16.1: All lazy pages wrapped in ChunkErrorBoundary + Suspense.
+         DashPg stays eager (always first screen), rest load on-demand. */}
       {tab!=="home"&&canViewTab(tab)&&<div>
         {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} isTab={isTab} season={season} statusCards={statusCards} upConfig={upConfig} user={user} setCardPopup={setCardPopup} setWsAccPopup={setWsAccPopup}/>}
+        <ChunkErrorBoundary>
+        <Suspense fallback={<PageLoader/>}>
         {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("db")} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
         {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} delOrder={delOrder} sel={sel} setSel={setSel} isMob={isMob} isTab={isTab} canEdit={canEditTab("details")} statusCards={statusCards} goHome={goHome} upConfig={upConfig} user={user}/>}
         {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("external")} statusCards={statusCards} season={season} user={user}/>}
@@ -1438,6 +1462,8 @@ export default function App(){
         {tab==="treasury"&&<TreasuryPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("treasury")} user={user} userRole={userRole}/>}
         {tab==="hr"&&<HRPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("hr")} user={user} userRole={userRole} getHrSubPerm={getHrSubPerm} setSavingOverlay={setSavingOverlay}/>}
         {tab==="audit"&&canViewTab("audit")&&<AuditPg data={data} isMob={isMob} user={user}/>}
+        </Suspense>
+        </ChunkErrorBoundary>
       </div>}
     </div>
     {/* Quick Task/Notification Popup */}
@@ -1691,6 +1717,8 @@ export default function App(){
         <div style={{fontSize:FS-2,color:T.textMut}}>برجاء الانتظار وعدم اغلاق الصفحة</div>
       </div>
     </div>}
+    {/* V16.2: Undo Toast — global, shown after any undoable action for 5 minutes */}
+    <UndoToast/>
   </div>
 }
 

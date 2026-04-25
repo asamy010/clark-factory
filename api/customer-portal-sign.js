@@ -1,0 +1,49 @@
+/* ═══════════════════════════════════════════════════════════════
+   CLARK — Generate Customer Portal Link (V16.3)
+   
+   POST /api/customer-portal-sign
+   Body: { custId: string, adminToken: string }
+   
+   Generates a signed URL for a customer's portal.
+   Requires admin Firebase ID token in body for auth.
+   Returns: { url: string, sig: string }
+   ═══════════════════════════════════════════════════════════════ */
+
+import { getAdminApp, setCors } from "./_firebase.js";
+import { signCustomerId } from "./customer-portal.js";
+
+export default async function handler(req, res) {
+  setCors(res);
+  if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  try {
+    const { custId, adminToken } = req.body || {};
+    if (!custId) return res.status(400).json({ error: "custId مطلوب" });
+    if (!adminToken) return res.status(401).json({ error: "adminToken مطلوب" });
+
+    /* Verify the admin token */
+    const auth = getAdminApp().auth();
+    let decoded;
+    try {
+      decoded = await auth.verifyIdToken(adminToken);
+    } catch (e) {
+      return res.status(401).json({ error: "رمز غير صالح" });
+    }
+    if (!decoded.uid) return res.status(401).json({ error: "مستخدم غير مصرّح" });
+
+    /* Generate signature */
+    const sig = signCustomerId(custId);
+    const baseUrl = req.headers["x-forwarded-host"]
+      ? "https://" + req.headers["x-forwarded-host"]
+      : req.headers.origin || req.headers.host || "";
+    const url = (baseUrl.startsWith("http") ? baseUrl : "https://" + baseUrl) +
+                "/?portal=1&c=" + encodeURIComponent(custId) +
+                "&sig=" + encodeURIComponent(sig);
+
+    return res.status(200).json({ url, sig });
+  } catch (err) {
+    console.error("customer-portal-sign error:", err);
+    return res.status(500).json({ error: err.message || "خطأ في الخادم" });
+  }
+}

@@ -11,6 +11,7 @@ import { gid, fmt, fmt0, r2, _esc } from "../utils/format.js";
 import { playBeep } from "../utils/audio.js";
 import { addAudit } from "../utils/audit.js";
 import { showToast } from "../utils/popups.js";
+import { pushUndo } from "../utils/undo.js";
 import { openPrintWindow } from "../utils/print.js";
 import { Spinner, InlineLoading, Btn, Inp, Sel, Card, useDebounced } from "../components/ui.jsx";
 import { T } from "../theme.js";
@@ -482,6 +483,15 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       showToast("⛔ لا يمكن حذف مرتب من هنا — احذف الأسبوع من صفحة الموظفين");
       return;
     }
+    /* V16.2: Snapshot for undo — capture arrays that will be modified */
+    const _snap={
+      treasury:JSON.parse(JSON.stringify(data.treasury||[])),
+      custPayments:JSON.parse(JSON.stringify(data.custPayments||[])),
+      supplierPayments:JSON.parse(JSON.stringify(data.supplierPayments||[])),
+      wsPayments:JSON.parse(JSON.stringify(data.wsPayments||[])),
+      hrLog:JSON.parse(JSON.stringify(data.hrLog||[])),
+    };
+    const _label="حذف حركة: "+(txCheck?.desc||"غير معروف").slice(0,40)+(txCheck?.amount?" ("+Number(txCheck.amount).toLocaleString()+" ج)":"");
     upConfig(d=>{
     /* Remove linked cust/supplier/ws payments + hrLog advances */
     const tx=(d.treasury||[]).find(t=>t.id===id);
@@ -491,7 +501,23 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>p.treasuryTxId!==id);
       /* Remove linked hrLog advance entry */
       if(tx.hrLogId&&d.hrLog)d.hrLog=d.hrLog.filter(l=>l.id!==tx.hrLogId);
-      if(tx.sourceType==="hr_advance"&&tx.empId&&d.hrLog)d.hrLog=d.hrLog.filter(l=>!(l.type==="advance"&&l.empId===tx.empId&&l.date===tx.date&&Math.abs((Number(l.amount)||0)-(Number(tx.amount)||0))<0.01))}});showToast("✓ تم الحذف")};
+      if(tx.sourceType==="hr_advance"&&tx.empId&&d.hrLog)d.hrLog=d.hrLog.filter(l=>!(l.type==="advance"&&l.empId===tx.empId&&l.date===tx.date&&Math.abs((Number(l.amount)||0)-(Number(tx.amount)||0))<0.01))}});
+    /* V16.2: Push undo AFTER the mutation */
+    pushUndo({
+      label:_label,
+      icon:"💰",
+      category:"treasury",
+      onUndo:async()=>{
+        upConfig(d=>{
+          d.treasury=_snap.treasury;
+          d.custPayments=_snap.custPayments;
+          d.supplierPayments=_snap.supplierPayments;
+          d.wsPayments=_snap.wsPayments;
+          d.hrLog=_snap.hrLog;
+        });
+      }
+    });
+    showToast("✓ تم الحذف")};
   /* Bulk delete multiple transactions — respects day lock + audit log */
   const bulkDeleteTxs=(ids)=>{
     if(!ids||ids.length===0)return;

@@ -12,6 +12,7 @@ import { playBeep } from "../utils/audio.js";
 import { loadJsQR, scanQR, loadXLSX } from "../utils/qr.js";
 import { addAudit } from "../utils/audit.js";
 import { ask, showToast } from "../utils/popups.js";
+import { pushUndo } from "../utils/undo.js";
 import { printPage, printEmpQrCards, printSalaryEnvelopes, openPrintWindow } from "../utils/print.js";
 /* V15.25: Receipt queue — persistent storage for salary confirmation scans */
 import { addReceipt, removeReceipt, getPendingForWeek, getReadyForRetry, markAsFailed, getPendingCount, forceRetryAll } from "../utils/receiptQueue.js";
@@ -793,7 +794,21 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
 
   /* ── Parse pasted fingerprint data ── */
   const parsePaste=()=>{if(!pasteText.trim()||!openWeek)return;
-    const lines=pasteText.trim().split("\n").filter(l=>l.trim());
+    /* V15.91: Normalize paste text BEFORE splitting. Biometric software often embeds:
+       - BOM (U+FEFF) at start
+       - Non-breaking spaces (U+00A0) instead of regular spaces
+       - Zero-width chars (U+200B-200F, U+202A-202E, U+2060) for RTL/LTR formatting
+       - Arabic-Indic digits (٠-٩ and ۰-۹)
+       - Old Mac line endings (\r only)
+       All of these break the split/parse logic unless normalized first. */
+    const cleanText=pasteText
+      .replace(/^\uFEFF/,"")                                    /* strip BOM */
+      .replace(/[\u0660-\u0669]/g,d=>String.fromCharCode(d.charCodeAt(0)-0x0660+48))/* Arabic digits → ASCII */
+      .replace(/[\u06F0-\u06F9]/g,d=>String.fromCharCode(d.charCodeAt(0)-0x06F0+48))/* Persian digits → ASCII */
+      .replace(/[\u200B-\u200F\u202A-\u202E\u2060]/g,"")         /* strip invisible direction marks */
+      .replace(/\u00A0/g," ")                                    /* non-breaking → regular space */
+      .replace(/\r\n/g,"\n").replace(/\r/g,"\n");                /* normalize line endings */
+    const lines=cleanText.trim().split("\n").filter(l=>l.trim());
     const parsed=[];const errors=[];
     lines.forEach((line,i)=>{
       const parts=line.split("\t").map(s=>s.trim());
@@ -1076,7 +1091,15 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       title:"حذف السلفة",
       message:adv?"هل أنت متأكد من حذف سلفة "+adv.empName+" ("+fmt0(adv.amount)+" ج)؟"+(linkedTx?"\n\n⚠️ هذه السلفة مسجلة في الخزنة (نظام قديم) — سيتم حذف الحركة المالية المرتبطة.":""):"هل أنت متأكد من حذف هذه السلفة؟",
       variant:"warn",confirmText:"حذف",
-      onConfirm:()=>{upConfig(d=>{
+      onConfirm:()=>{
+        /* V16.2: Snapshot for undo BEFORE mutation */
+        const _snap={
+          hrWeeks:JSON.parse(JSON.stringify(data.hrWeeks||[])),
+          treasury:JSON.parse(JSON.stringify(data.treasury||[])),
+          hrLog:JSON.parse(JSON.stringify(data.hrLog||[])),
+        };
+        const _label=adv?"حذف سلفة "+adv.empName+" ("+fmt0(adv.amount)+" ج)":"حذف سلفة";
+        upConfig(d=>{
         const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
         if(!d.hrWeeks[wi].weeklyAdvances)return;
         d.hrWeeks[wi].weeklyAdvances=d.hrWeeks[wi].weeklyAdvances.filter(a=>a.id!==advId);
@@ -1092,7 +1115,15 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             notes:"حذف سلفة أسبوعية من الخطة"
           });
         }
-      });showToast("✓ تم الحذف")}
+      });
+      /* V16.2: Push undo */
+      pushUndo({
+        label:_label,icon:"💼",category:"advance",
+        onUndo:async()=>{upConfig(d=>{
+          d.hrWeeks=_snap.hrWeeks;d.treasury=_snap.treasury;d.hrLog=_snap.hrLog;
+        })}
+      });
+      showToast("✓ تم الحذف")}
     });
   };
 
@@ -1198,7 +1229,11 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       title:"حذف دفعة الورشة",
       message:"هل تريد حذف دفعة "+pay.wsName+" ("+fmt0(pay.amount)+" ج) من الخطة؟",
       variant:"warn",confirmText:"حذف",
-      onConfirm:()=>{upConfig(d=>{
+      onConfirm:()=>{
+        /* V16.2: Snapshot for undo */
+        const _snap={hrWeeks:JSON.parse(JSON.stringify(data.hrWeeks||[]))};
+        const _label="حذف دفعة "+pay.wsName+" ("+fmt0(pay.amount)+" ج)";
+        upConfig(d=>{
         const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
         if(!d.hrWeeks[wi].weeklyWsPayments)return;
         d.hrWeeks[wi].weeklyWsPayments=d.hrWeeks[wi].weeklyWsPayments.filter(p=>p.id!==payId);
@@ -1209,7 +1244,11 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           user:userName,severity:"danger",
           notes:"حذف دفعة ورشة أسبوعية من الخطة"
         });
-      });showToast("✓ تم الحذف")}
+      });
+      pushUndo({label:_label,icon:"🏭",category:"ws_payment",
+        onUndo:async()=>{upConfig(d=>{d.hrWeeks=_snap.hrWeeks})}
+      });
+      showToast("✓ تم الحذف")}
     });
   };
 
@@ -1301,7 +1340,11 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       title:"حذف المصروف",
       message:"هل تريد حذف مصروف "+exp.category+" ("+fmt0(exp.amount)+" ج) من الخطة؟",
       variant:"warn",confirmText:"حذف",
-      onConfirm:()=>{upConfig(d=>{
+      onConfirm:()=>{
+        /* V16.2: Snapshot for undo */
+        const _snap={hrWeeks:JSON.parse(JSON.stringify(data.hrWeeks||[]))};
+        const _label="حذف مصروف "+exp.category+" ("+fmt0(exp.amount)+" ج)";
+        upConfig(d=>{
         const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
         if(!d.hrWeeks[wi].weeklyOtherExpenses)return;
         d.hrWeeks[wi].weeklyOtherExpenses=d.hrWeeks[wi].weeklyOtherExpenses.filter(e=>e.id!==expId);
@@ -1312,7 +1355,11 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           user:userName,severity:"danger",
           notes:"حذف مصروف أسبوعي من الخطة"
         });
-      });showToast("✓ تم الحذف")}
+      });
+      pushUndo({label:_label,icon:"🧾",category:"expense",
+        onUndo:async()=>{upConfig(d=>{d.hrWeeks=_snap.hrWeeks})}
+      });
+      showToast("✓ تم الحذف")}
     });
   };
 
@@ -7431,6 +7478,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                   <th style={TH}>الهدف</th>
                   <th style={TH}>القيم</th>
                   <th style={TH}>المستخدم</th>
+                  <th style={TH}>الجهاز / IP</th>
                 </tr>
               </thead>
               <tbody>
@@ -7457,6 +7505,15 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                       {a.notes&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{a.notes}</div>}
                     </td>
                     <td style={{...TD,fontSize:FS-2,color:T.textSec}}>{a.user||"—"}</td>
+                    {/* V15.92: Device + IP column — exposes cross-user fraud attempts */}
+                    <td style={{...TD,fontSize:FS-3,color:T.textMut,lineHeight:1.5}}>
+                      {a.deviceId?<>
+                        <div style={{fontFamily:"monospace",fontWeight:700,color:T.textSec}} title={a.deviceName?"الاسم: "+a.deviceName:""}>{a.deviceId}</div>
+                        {a.deviceInfo&&<div style={{fontSize:FS-3}}>{a.deviceInfo}</div>}
+                        {a.ip&&<div style={{fontFamily:"monospace",direction:"ltr",textAlign:"right"}}>{a.ip}</div>}
+                        {a.ipLocation&&<div style={{fontSize:FS-3,color:T.textMut}}>📍 {a.ipLocation}</div>}
+                      </>:<span style={{color:T.textMut}}>—</span>}
+                    </td>
                   </tr>;
                 })}
               </tbody>
