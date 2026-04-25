@@ -2758,9 +2758,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       </div>})()}
     {/* Customer Sales Log */}
                 {pendingRcv&&(()=>{
-      /* Group pending by orderId */
+      /* Group pending by orderId. V16.21: filter out entries whose pending qty
+         is zero — those are leftover/stale "pending" markers (e.g. from old
+         confirmations that flipped qty to 0) and shouldn't appear here. */
       const pendingMap={};orders.forEach(o=>{(o.deliveries||[]).forEach((d,di)=>{if(d.status==="pending"){const key=o.id;if(!pendingMap[key])pendingMap[key]={orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc||"",pendingQty:0,pendingIdxs:[],date:d.date,by:d.createdBy||"",rackSize:getRackSize(o.id)};pendingMap[key].pendingQty+=Number(d.qty)||0;pendingMap[key].pendingIdxs.push(di)}})});
-      const pendings=Object.values(pendingMap).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+      const pendings=Object.values(pendingMap).filter(p=>p.pendingQty>0).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
       const rcvItems=pendingRcv.items||{};const totalRcv=Object.values(rcvItems).reduce((s,v)=>s+(Number(v)||0),0);const totalPending=pendings.reduce((s,p)=>s+p.pendingQty,0);
       const closePendCam=()=>{try{const v=document.getElementById("pend-rcv-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setPendingRcv(p=>({...p,scanning:false}))};
       const confirmPending=()=>{if(totalRcv<=0){showToast("⚠️ ادخل كمية واحدة على الأقل");return}

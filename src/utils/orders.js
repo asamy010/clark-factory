@@ -318,22 +318,29 @@ export function detectQtyMismatch(order){
   if(!order)return{cutQty:0,pieces:[],mismatchedPieces:[],hasExternalWs:false,hasMismatch:false};
   const t=calcOrder(order);
   const cutQty=t.cutQty||0;
-  const wds=(order.workshopDeliveries||[]).filter(wd=>!wsIsInternal(wd.wsType));
-  /* Group deliveries by piece (garmentType) */
+  /* V16.22: count ALL deliveries (internal + external). Internal workshops
+     also consume cut pieces, so excluding them gave false-positive mismatches
+     when cut pieces went to in-house production. `hasExternalWs` still
+     reflects only external workshops for the UI flag. */
+  const allWds=(order.workshopDeliveries||[]);
+  const externalWds=allWds.filter(wd=>!wsIsInternal(wd.wsType));
+  /* Group deliveries by piece (garmentType) — ALL deliveries count */
   const byPiece={};
-  wds.forEach((wd,idx)=>{
+  allWds.forEach((wd,idx)=>{
     const piece=wd.garmentType||"عام";
     if(!byPiece[piece])byPiece[piece]={piece,totalDelivered:0,wds:[]};
     const wdQty=Number(wd.qty)||0;
     const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
     byPiece[piece].totalDelivered+=wdQty;
-    byPiece[piece].wds.push({wdIdx:idx,wsName:wd.wsName||"",currentQty:wdQty,receivedQty:rcvd});
+    byPiece[piece].wds.push({wdIdx:idx,wsName:wd.wsName||"",currentQty:wdQty,receivedQty:rcvd,isInternal:wsIsInternal(wd.wsType)});
   });
   const pieces=Object.values(byPiece).map(p=>({...p,diff:cutQty-p.totalDelivered}));
-  /* Only flag pieces that have SOME delivery AND don't match cutQty.
-     Pieces with 0 delivery are still in-progress — don't alarm. */
-  const mismatchedPieces=pieces.filter(p=>p.totalDelivered>0&&p.diff!==0);
-  return{cutQty,pieces,mismatchedPieces,hasExternalWs:wds.length>0,hasMismatch:mismatchedPieces.length>0&&cutQty>0};
+  /* V16.23: Only flag OVER-delivered pieces (totalDelivered > cutQty).
+     Under-delivery just means cutting/distribution is still in progress —
+     the deliver dialog already shows "متاح" so the user knows what's left.
+     Over-delivery is a real problem (workshop got more than cut) and needs sync. */
+  const mismatchedPieces=pieces.filter(p=>p.diff<0);
+  return{cutQty,pieces,mismatchedPieces,hasExternalWs:externalWds.length>0,hasMismatch:mismatchedPieces.length>0&&cutQty>0};
 }
 
 /* V15.45/46: Compute sync plan PER PIECE — adjust each piece's workshops independently to match cutQty.

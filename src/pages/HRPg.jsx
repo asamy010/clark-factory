@@ -3655,8 +3655,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
               </div>
               {(salSearch||salJobFilter||salShowOnly)&&<Btn small ghost onClick={()=>{setSalSearch("");setSalJobFilter("");setSalShowOnly("")}} style={{padding:"4px 10px",fontSize:FS-2}}>✕ مسح الفلاتر</Btn>}
               <div style={{flex:"0 0 auto",marginInlineStart:"auto",display:"flex",gap:6}}>
-                {/* V14.57: Scan QR to register salary receipt — only for closed weeks */}
-                {openWeek.status==="closed"&&canEdit&&<Btn small onClick={()=>setShowEmpQrScanner({weekId:openWeek.id})} style={{background:"#10B98112",color:"#10B981",border:"1px solid #10B98130",fontWeight:700}} title="مسح QR الموظف لتسجيل استلام المرتب">📱 تسجيل استلام</Btn>}
+                {/* V14.57: Scan QR to register salary receipt — only for closed weeks. V16.21: mobile-only (desktop has the per-row 'تأكيد' instead) */}
+                {openWeek.status==="closed"&&canEdit&&isMob&&<Btn small onClick={()=>setShowEmpQrScanner({weekId:openWeek.id})} style={{background:"#10B98112",color:"#10B981",border:"1px solid #10B98130",fontWeight:700}} title="مسح QR الموظف لتسجيل استلام المرتب">📱 تسجيل استلام</Btn>}
                 {/* V15.48: Print salary envelopes (DL 220×110mm, direct envelope feed) */}
                 {canEdit&&<Btn small onClick={()=>{const wkEmpIds=new Set(shownEmps.map(e=>e.id));setEnvelopePopup({weekId:openWeek.id,selected:new Set(wkEmpIds),filter:"all",search:""})}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30",fontWeight:700}} title="طباعة مظاريف المرتبات على ظرف DL (220×110mm)">📮 مظاريف</Btn>}
                 {/* V15.8: Quick entry button — bulk edit with 5 tabs, data persists across tabs */}
