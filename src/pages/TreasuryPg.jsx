@@ -925,7 +925,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
 
   /* ── Build WhatsApp text summary message ──
      V16.13: Full text report — no PDF attachment. Lists every transaction
-     of the day inline with running balance. */
+     of the day inline with running balance.
+     V16.13.1: Emphasized totals + per-category breakdown (in/out). */
   const buildDailyWaMessage=(date,accountName)=>{
     const{dIn,dOut,openBal,closeBal,txnCount,scopeLabel}=buildDailyReportHtml(date,accountName);
     const net=dIn-dOut;
@@ -933,6 +934,19 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     /* Re-derive the same filtered txns (cheap; small list) */
     const scopeTxns=accountName?txns.filter(t=>(t.account||"")===accountName):txns;
     const dayTxns=scopeTxns.filter(t=>t.date===date).sort((a,b)=>(a.createdAt||"").localeCompare(b.createdAt||""));
+    /* V16.13.1: Aggregate totals per category, separately for in/out */
+    const catIn={},catOut={};
+    dayTxns.forEach(t=>{
+      const k=t.category||"غير مصنّف";
+      const a=Number(t.amount)||0;
+      if(t.type==="in")catIn[k]=(catIn[k]||0)+a;
+      else catOut[k]=(catOut[k]||0)+a;
+    });
+    const buildBreakdown=(obj)=>{
+      const ks=Object.keys(obj).sort((a,b)=>obj[b]-obj[a]);
+      if(ks.length===0)return "  • لا يوجد";
+      return ks.map(k=>"  • "+k+": "+fmt(r2(obj[k]))+" ج.م").join("\n");
+    };
     /* Build per-transaction lines */
     let runBal=openBal;const lines=[];
     dayTxns.forEach((t,i)=>{
@@ -953,15 +967,21 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const out=[
       "📊 *تقرير يومية الخزنة*",
       "🏦 *الحساب:* "+scopeLabel,
-      "━━━━━━━━━━━━━━━━",
       "📅 "+date+" — "+dayN,
-      "",
-      "💰 *رصيد افتتاحي:* "+fmt(r2(openBal))+" ج.م",
-      "🟢 وارد: "+fmt(r2(dIn))+" ج.م",
-      "🔴 منصرف: "+fmt(r2(dOut))+" ج.م",
-      "💵 *صافي اليوم:* "+(net>=0?"+":"")+fmt(r2(net))+" ج.م",
-      "📊 *رصيد الإقفال:* "+fmt(r2(closeBal))+" ج.م",
+      "━━━━━━━━━━━━━━━━",
+      "*الإجماليات*",
+      "💰 رصيد افتتاحي: "+fmt(r2(openBal))+" ج.م",
+      "🟢 *إجمالي الوارد: "+fmt(r2(dIn))+" ج.م*",
+      "🔴 *إجمالي المنصرف: "+fmt(r2(dOut))+" ج.م*",
+      "💵 *صافي اليوم: "+(net>=0?"+":"")+fmt(r2(net))+" ج.م*",
+      "📊 *رصيد الإقفال: "+fmt(r2(closeBal))+" ج.م*",
       "📝 عدد الحركات: "+txnCount,
+      "━━━━━━━━━━━━━━━━",
+      "*🟢 الوارد حسب التصنيف*",
+      buildBreakdown(catIn),
+      "",
+      "*🔴 المنصرف حسب التصنيف*",
+      buildBreakdown(catOut),
       "━━━━━━━━━━━━━━━━",
       "*تفاصيل الحركات*",
       "",
@@ -977,13 +997,19 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[waPopupData,setWaPopupData]=useState(null);
 
   /* ── Share daily report via WhatsApp ──
-     V16.13: Text-only — no PDF. Full transaction details in the message body. */
-  const shareDailyWhatsApp=async(date,phone,accountName)=>{
+     V16.13: Text-only — no PDF. Full transaction details in the message body.
+     V16.13.1: Fully synchronous (no async) — keeps the call inside the user
+     gesture so popup blockers don't kill window.open. */
+  const shareDailyWhatsApp=(date,phone,accountName)=>{
     const msg=buildDailyWaMessage(date,accountName);
     const cleanPhone=(phone||"").replace(/[^0-9]/g,"");
     const url="https://wa.me/"+cleanPhone+"?text="+encodeURIComponent(msg);
     const waWin=window.open(url,"_blank");
-    if(!waWin){showToast("⛔ المتصفح يمنع النوافذ — اسمح بالـ popups أو افتح يدوياً")}
+    if(!waWin){
+      /* Popup blocked — copy message to clipboard as a fallback so user can paste */
+      try{navigator.clipboard&&navigator.clipboard.writeText(msg)}catch(e){}
+      showToast("⛔ المتصفح يمنع النوافذ — تم نسخ الرسالة، الصقها يدوياً في واتساب");
+    }
     setWaPopupData(null);
   };
 
@@ -1367,6 +1393,33 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             printFiltered(filtered,summary);
           }} style={{cursor:"pointer",padding:"6px 12px",borderRadius:8,background:T.accent+"10",color:T.accent,fontWeight:700,fontSize:FS-1,marginBottom:2,border:"1px solid "+T.accent+"30"}} title="طباعة الحركات المعروضة دلوقتي بالفلاتر المفعّلة">🖨 طباعة المعروض</span>
         </div>
+
+        {/* V16.13.1: Big filtered totals banner — for visual confirmation of what's filtered.
+            Shows green "إجمالي الوارد" and red "إجمالي المنصرف" when ANY filter is active. */}
+        {(()=>{
+          const filterActive=filterType!=="الكل"||filterCat!=="الكل"||filterAcc!=="الكل"||filterMonth||filterDay||filterSearchDeb;
+          if(!filterActive)return null;
+          const fIn=filtered.filter(t=>t.type==="in").reduce((s,t)=>s+(Number(t.amount)||0),0);
+          const fOut=filtered.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0);
+          const fNet=fIn-fOut;
+          return<div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
+            <div style={{flex:"1 1 200px",padding:"14px 18px",borderRadius:12,background:"#10B98115",border:"2px solid #10B981",display:"flex",flexDirection:"column",gap:4}}>
+              <div style={{fontSize:FS-2,color:"#047857",fontWeight:700}}>↓ إجمالي الوارد</div>
+              <div style={{fontSize:FS+12,fontWeight:900,color:"#047857",fontVariantNumeric:"tabular-nums",lineHeight:1.1}}>{fmt(r2(fIn))}</div>
+              <div style={{fontSize:FS-3,color:"#047857",opacity:0.7}}>ج.م • {filtered.filter(t=>t.type==="in").length} حركة</div>
+            </div>
+            <div style={{flex:"1 1 200px",padding:"14px 18px",borderRadius:12,background:"#EF444415",border:"2px solid #EF4444",display:"flex",flexDirection:"column",gap:4}}>
+              <div style={{fontSize:FS-2,color:"#B91C1C",fontWeight:700}}>↑ إجمالي المنصرف</div>
+              <div style={{fontSize:FS+12,fontWeight:900,color:"#B91C1C",fontVariantNumeric:"tabular-nums",lineHeight:1.1}}>{fmt(r2(fOut))}</div>
+              <div style={{fontSize:FS-3,color:"#B91C1C",opacity:0.7}}>ج.م • {filtered.filter(t=>t.type==="out").length} حركة</div>
+            </div>
+            <div style={{flex:"1 1 200px",padding:"14px 18px",borderRadius:12,background:fNet>=0?"#0EA5E915":"#F59E0B15",border:"2px solid "+(fNet>=0?"#0EA5E9":"#F59E0B"),display:"flex",flexDirection:"column",gap:4}}>
+              <div style={{fontSize:FS-2,color:fNet>=0?"#0369A1":"#92400E",fontWeight:700}}>{fNet>=0?"↗":"↘"} الصافي</div>
+              <div style={{fontSize:FS+12,fontWeight:900,color:fNet>=0?"#0369A1":"#92400E",fontVariantNumeric:"tabular-nums",lineHeight:1.1}}>{(fNet>=0?"+":"")+fmt(r2(fNet))}</div>
+              <div style={{fontSize:FS-3,color:fNet>=0?"#0369A1":"#92400E",opacity:0.7}}>ج.م • {filtered.length} إجمالي</div>
+            </div>
+          </div>;
+        })()}
         {withBalance.length>0?<div style={{overflowX:"auto"}}>
           {/* Bulk actions bar — appears when selections exist */}
           {selectedTxIds.size>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",marginBottom:10,borderRadius:10,background:T.err+"10",border:"1px solid "+T.err+"40"}}>
