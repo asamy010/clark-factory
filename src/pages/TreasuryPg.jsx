@@ -1078,8 +1078,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       })()}
     </div>
 
-    {/* Today mini summary — per-account when viewing specific account */}
-    {(()=>{
+    {/* Today mini summary — per-account when viewing specific account.
+        V16.19: Hidden on transfers/checks/analysis/accounts — these tabs have
+        their own controls and don't need the daily print/PDF/WA toolbar. */}
+    {!["transfers","checks","analysis","accounts"].includes(view)&&(()=>{
       const currentAccName=view.startsWith("acc_")?(accountsData.find(a=>a.id===view.slice(4))||{}).name:null;
       const scopeLabel=currentAccName||"الكل";
       const todayFiltered=todayTxns.filter(t=>!currentAccName||(t.account||"")===currentAccName);
