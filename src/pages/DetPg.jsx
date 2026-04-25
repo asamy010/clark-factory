@@ -607,7 +607,9 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         <span style={{fontSize:FS,fontWeight:700,color:T.text}}>{"قطع الموديل ("+order.orderPieces.length+"):"}</span>
         {order.orderPieces.map((p,i)=>{
           const delForP=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);
-          const avail=t.cutQty-delForP;
+          /* V16.25: use per-piece cut qty so 'متاح' reflects actual cut for this piece, not global cutQty */
+          const pieceCut=getPieceCutQty(order,p);
+          const avail=Math.max(0,pieceCut-delForP);
           return<span key={i} style={{padding:"8px 16px",borderRadius:12,background:avail>0?"#FEF3C7":"#D1FAE5",border:"1px solid "+(avail>0?T.warn:T.ok)+"40",fontSize:FS,fontWeight:600}}>{gIcon(p,data.garmentTypes)+" "+p}<span style={{fontSize:FS-2,color:T.textSec,marginRight:6}}>{" (تشغيل: "+delForP+" / متاح: "+avail+")"}</span></span>
         })}
       </div>}
@@ -1328,7 +1330,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
             <Btn ghost small onClick={()=>setPieceCutPopup(null)}>✕</Btn>
           </div>
           <div style={{padding:"8px 12px",borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"20",fontSize:FS-2,color:T.textSec,marginBottom:14,lineHeight:1.7}}>
-            💡 الكمية الإجمالية للأوردر: <b style={{color:T.text}}>{globalCut}</b> طقم. لو قطعة معيّنة لسه ماتقصتش بالكامل، عدّل قيمتها هنا. القيمة دي بتأثّر على "متاح" في تسليم الورش.
+            💡 الكمية الإجمالية للأوردر: <b style={{color:T.text}}>{globalCut}</b> طقم. القيم الافتراضية محسوبة من قص الخامات المرتبطة بكل قطعة. عدّل لو احتجت تتجاوز الحساب التلقائي.
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
             {pieces.map(p=>{

@@ -54,12 +54,27 @@ const _pendingCache=new WeakMap();
    The order has one global cutQty (e.g. 192 sets), but in practice individual
    piece types may have a different actual cut quantity — for example the user
    bumped cutQty in anticipation of cutting more, but only some pieces have
-   actually been re-cut. This helper returns the explicit override if set,
-   otherwise falls back to the global cut. */
+   actually been re-cut.
+   V16.25: Auto-derive from fabric data (which is the source of truth):
+     1. If user has set an explicit override → use it
+     2. Else, sum the cut qty of fabrics that have this piece linked
+        (e.g. t-shirt linked to fabric B with cut=128 → piece cut = 128,
+         even if global fabric A has cut=192)
+     3. Else fallback to global cutQty.
+   This means the per-piece accounting works with zero manual setup as long
+   as pieces are linked to fabrics correctly. */
 export function getPieceCutQty(order,piece){
   if(!order||!piece)return 0;
   const map=order.pieceCutQty;
   if(map&&typeof map==="object"&&map[piece]!=null&&!isNaN(Number(map[piece])))return Number(map[piece]);
+  /* Auto-derive from linked fabrics */
+  let total=0;let linked=false;
+  FKEYS.forEach(k=>{
+    const pieces=order["fabricPieces"+k]||[];
+    if(pieces.includes(piece)){linked=true;total+=sqty(gc(order,k))||0}
+  });
+  if(linked)return total;
+  /* No fabric link found → fall back to global cut */
   const t=calcOrder(order);
   return t.cutQty||0;
 }
