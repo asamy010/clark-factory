@@ -416,7 +416,7 @@ export function printCashReceipt(tx,partyInfo,configInfo){
   h+="<div style='font-size:11px;font-weight:700;color:#64748B;letter-spacing:1px;margin-bottom:4px'>المبلغ</div>";
   h+="<div style='font-size:38px;font-weight:900;color:"+amountColor+";line-height:1.1;font-family:monospace'>"+amountFmt+" <span style='font-size:18px'>ج.م</span></div>";
   h+="<div style='font-size:13px;color:#475569;margin-top:10px;line-height:1.7;padding:8px 14px;background:#fff;border-radius:8px;border:1px dashed #94A3B8;font-weight:600'>";
-  h+="<span style='color:#64748B;font-weight:700'>فقط بالحروف: </span><span style='color:#1E293B;font-weight:800'>"+amountWords+" جنيهاً مصرياً لا غير</span>";
+  h+="<span style='color:#64748B;font-weight:700'>فقط: </span><span style='color:#1E293B;font-weight:800'>"+amountWords+" جنيهاً مصرياً لا غير</span>";
   h+="</div></div>";
   /* Reason / category / treasury */
   h+="<table style='width:100%;border-collapse:collapse;margin-bottom:18px;font-size:12px'>";
@@ -506,7 +506,7 @@ export function printCheckReceipt(check,partyInfo,configInfo){
   h+="<div style='font-size:11px;color:#64748B;font-weight:700;letter-spacing:1px;margin-bottom:4px'>قيمة الشيك</div>";
   h+="<div style='font-size:34px;font-weight:900;color:"+accentColor+";line-height:1.1;font-family:monospace'>"+amountFmt+" <span style='font-size:16px'>ج.م</span></div>";
   h+="<div style='font-size:13px;color:#475569;margin-top:10px;line-height:1.6;padding:8px 14px;background:#fff;border-radius:8px;border:1px dashed #94A3B8;font-weight:600'>";
-  h+="<span style='color:#64748B;font-weight:700'>فقط بالحروف: </span><span style='color:#1E293B;font-weight:800'>"+amountWords+" جنيهاً مصرياً لا غير</span>";
+  h+="<span style='color:#64748B;font-weight:700'>فقط: </span><span style='color:#1E293B;font-weight:800'>"+amountWords+" جنيهاً مصرياً لا غير</span>";
   h+="</div></div>";
   h+="</div>";
   /* Reason / category */
