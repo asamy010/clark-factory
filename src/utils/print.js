@@ -195,12 +195,25 @@ export function printEmpQrCards(empsList,cfg,clarkLogoDataUrl){
   pw.document.close()}
 
 /* Render workshop delivery/receive label pages (10cm × 15cm) */
-export function renderLabelPages(d,n){
+export function renderLabelPages(d,n,cfg,clarkLogoDataUrl){
   const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
-  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@600;800&display=swap' rel='stylesheet'/><title>"+d.title+"</title><style>"
-  +"@page{size:10cm 15cm;margin:0}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Cairo',sans-serif;color:#000}"
+  /* V16.48: honor user printSettings — font, logo, optional fields visibility.
+     Callers should pass cfg=data.printSettings; old call signature still works
+     (the label just falls back to its previous defaults). */
+  const c=cfg||{};
+  const fontFam=c.fontFamily||"Cairo";
+  const fontUrl=_GOOGLE_FONT_URLS_QR[fontFam]||_GOOGLE_FONT_URLS_QR.Cairo;
+  const showLogo=!!c.showLogo;
+  /* fields: support per-field show toggles; default to historic behavior (all on) */
+  const fields=c.fields||{};
+  const showSize=fields.sizeLabel?.show!==false;
+  const showDesc=fields.desc?.show!==false;
+  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='"+fontUrl+"' rel='stylesheet'/><title>"+d.title+"</title><style>"
+  +"@page{size:10cm 15cm;margin:0}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'"+fontFam+"',Arial,sans-serif;color:#000}"
   +".pg{width:10cm;min-height:15cm;padding:4mm;display:flex;flex-direction:column;page-break-after:always;overflow:hidden}.pg:last-child{page-break-after:auto}"
-  +".brand{text-align:center;font-size:10pt;font-weight:800;letter-spacing:2px;color:#555;padding-bottom:1mm;border-bottom:2px solid #000;margin-bottom:2mm}"
+  +".brand{text-align:center;padding-bottom:1.5mm;border-bottom:2px solid #000;margin-bottom:2mm}"
+  +".brand-img{height:8mm;max-width:60%;filter:brightness(0) saturate(100%);display:inline-block;object-fit:contain;vertical-align:middle}"
+  +".brand-txt{font-size:11pt;font-weight:800;letter-spacing:2px;color:#000}"
   +".tp{text-align:center;font-size:11pt;font-weight:800;border:2.5px solid #000;display:block;width:fit-content;padding:1mm 6mm;border-radius:4px;margin:0 auto 2mm}"
   +".big{text-align:center;padding:2mm;border:2.5px solid #000;border-radius:6px;margin-bottom:2mm}.big .pc{font-size:13pt;font-weight:800}.big .qt{font-size:18pt;font-weight:800}"
   +"table{width:100%;border-collapse:collapse;margin-bottom:2mm}td{padding:1mm 3mm;font-size:9pt;font-weight:700;border:1px solid #000}td.k{font-weight:800;width:35%}"
@@ -209,13 +222,24 @@ export function renderLabelPages(d,n){
   +".bags{font-size:26pt;font-weight:800;border:3px solid #000;border-radius:8px;padding:1mm 5mm;line-height:1}"
   +".foot{text-align:center;font-size:7pt;color:#555;padding-top:1mm;border-top:1px dashed #000;margin-top:2mm}"
   +".pbar{position:sticky;top:0;background:#fff;padding:4px;display:none;justify-content:center;gap:6px;border-bottom:2px solid #ccc;z-index:99}"
-  +".pbar button{padding:5px 14px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:11px;font-weight:700;background:#fff}.pbar .pr{background:#000;color:#fff}"
+  +".pbar button{padding:5px 14px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'"+fontFam+"';font-size:11px;font-weight:700;background:#fff}.pbar .pr{background:#000;color:#fff}"
   +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
   +"</style></head><body>");
   let h="<div class='pbar'><button onclick='window.close()'>↩</button><button class='pr' onclick='window.print()'>🖨 "+n+"</button></div>";
-  for(let i=1;i<=n;i++){h+="<div class='pg'><div class='brand'>CLARK Factory</div><div class='tp'>"+d.arrow+" "+d.title+"</div>"
+  /* Brand row — logo image when enabled & available, else text */
+  const brandHtml="<div class='brand'>"+(showLogo&&clarkLogoDataUrl?"<img class='brand-img' src='"+clarkLogoDataUrl+"' alt='CLARK'/>":"<div class='brand-txt'>CLARK Factory</div>")+"</div>";
+  /* Build the data table dynamically so toggled-off fields disappear cleanly */
+  const dataRows=[
+    ["الموديل",d.modelNo||""],
+    ...(showDesc?[["الوصف",d.modelDesc||""]]:[]),
+    ...(showSize&&d.sizeLabel?[["المقاسات",d.sizeLabel]]:[]),
+    ["الورشة",d.wsName||""],
+    ["القص",String(d.cutQty||"")]
+  ];
+  const tableHtml="<table>"+dataRows.map(([k,v])=>"<tr><td class='k'>"+k+"</td><td>"+v+"</td></tr>").join("")+"</table>";
+  for(let i=1;i<=n;i++){h+="<div class='pg'>"+brandHtml+"<div class='tp'>"+d.arrow+" "+d.title+"</div>"
     +"<div class='big'><div class='pc'>"+d.piece+"</div><div class='qt'>"+d.qty+" قطعة</div></div>"
-    +"<table><tr><td class='k'>الموديل</td><td>"+d.modelNo+"</td></tr><tr><td class='k'>الوصف</td><td>"+d.modelDesc+"</td></tr><tr><td class='k'>المقاسات</td><td>"+d.sizeLabel+"</td></tr><tr><td class='k'>الورشة</td><td>"+d.wsName+"</td></tr><tr><td class='k'>القص</td><td>"+d.cutQty+"</td></tr></table>"
+    +tableHtml
     +"<div class='mv'><div class='mvr'><span>↗ تسليم</span><span>"+d.delQty+"</span><span>"+d.delDate+"</span></div>"
     +(d.isRcv?"<div class='mvr'><span>↙ استلام</span><span>"+d.rcvQty+"</span><span>"+d.rcvDate+"</span></div>":"")+"</div>"
     +"<div class='bot'>"+(n>1?"<div class='bags'>"+i+"/"+n+"</div>":"")+"</div>"
