@@ -806,11 +806,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       </div>
     </div>
     <div class="summary">
-      <div class="sbox"><div class="lbl">رصيد افتتاحي</div><div class="val num blue">${fmt(r2(openBal))}</div></div>
-      <div class="sbox"><div class="lbl">وارد</div><div class="val num green">${fmt(r2(dIn))}</div></div>
-      <div class="sbox"><div class="lbl">منصرف</div><div class="val num red">${fmt(r2(dOut))}</div></div>
-      <div class="sbox"><div class="lbl">صافي اليوم</div><div class="val num">${fmt(r2(dIn-dOut))}</div></div>
-      <div class="sbox hl"><div class="lbl">رصيد اقفال</div><div class="val num">${fmt(r2(closeBal))}</div></div>
+      <div class="sbox"><div class="lbl">رصيد افتتاحي</div><div class="val num blue">${fmt0(openBal)}</div></div>
+      <div class="sbox"><div class="lbl">وارد</div><div class="val num green">${fmt0(dIn)}</div></div>
+      <div class="sbox"><div class="lbl">منصرف</div><div class="val num red">${fmt0(dOut)}</div></div>
+      <div class="sbox"><div class="lbl">صافي اليوم</div><div class="val num">${fmt0(dIn-dOut)}</div></div>
+      <div class="sbox hl"><div class="lbl">رصيد اقفال</div><div class="val num">${fmt0(closeBal)}</div></div>
     </div>
     <table><thead><tr>
       <th style="width:11%">الرصيد</th><th style="width:8%">التاريخ</th>
@@ -820,11 +820,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     </tr></thead><tbody>`);
     let runBal=openBal;
     dayTxns.forEach(t=>{if(t.type==="in")runBal+=(Number(t.amount)||0);else runBal-=(Number(t.amount)||0);
-      w.document.write(`<tr><td class="num">${fmt(r2(runBal))}</td><td>${t.date}</td><td class="num green">${t.type==="in"?fmt(r2(t.amount)):""}</td><td class="num red">${t.type==="out"?fmt(r2(t.amount)):""}</td><td>${_esc(t.desc||"—")}</td><td class="muted">${_esc(t.notes||"")}</td><td>${_esc(t.category||"—")}</td><td>${_esc(t.account||"")}</td></tr>`)});
+      w.document.write(`<tr><td class="num">${fmt0(runBal)}</td><td>${t.date}</td><td class="num green">${t.type==="in"?fmt0(t.amount):""}</td><td class="num red">${t.type==="out"?fmt0(t.amount):""}</td><td>${_esc(t.desc||"—")}</td><td class="muted">${_esc(t.notes||"")}</td><td>${_esc(t.category||"—")}</td><td>${_esc(t.account||"")}</td></tr>`)});
     if(dayTxns.length===0)w.document.write(`<tr><td colspan="8" class="empty">لا توجد حركات في هذا اليوم</td></tr>`);
     w.document.write(`</tbody></table>`);
     if(!accountName){
-      w.document.write(`<div class="accounts-row">${accounts.map(acc=>{const ab=accBalances[acc]||{in:0,out:0};return`<div class="acc-chip">${acc}<b class="num">${fmt(r2(ab.in-ab.out))}</b></div>`}).join("")}</div>`);
+      w.document.write(`<div class="accounts-row">${accounts.map(acc=>{const ab=accBalances[acc]||{in:0,out:0};return`<div class="acc-chip">${acc}<b class="num">${fmt0(ab.in-ab.out)}</b></div>`}).join("")}</div>`);
     }
     w.document.write(`<div class="foot"><span>CLARK Factory Management System</span><span>صفحة 1</span></div>
     </body></html>`);w.document.close();setTimeout(()=>w.print(),300)};
@@ -851,9 +851,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     </div>
     <div class="summary">
       <div class="sbox"><div class="lbl">عدد الحركات</div><div class="val num">${sorted.length}</div></div>
-      <div class="sbox"><div class="lbl">إجمالي الوارد</div><div class="val num green">${fmt(r2(tIn))}</div></div>
-      <div class="sbox"><div class="lbl">إجمالي المنصرف</div><div class="val num red">${fmt(r2(tOut))}</div></div>
-      <div class="sbox hl"><div class="lbl">الصافي</div><div class="val num">${fmt(r2(tIn-tOut))}</div></div>
+      <div class="sbox"><div class="lbl">إجمالي الوارد</div><div class="val num green">${fmt0(tIn)}</div></div>
+      <div class="sbox"><div class="lbl">إجمالي المنصرف</div><div class="val num red">${fmt0(tOut)}</div></div>
+      <div class="sbox hl"><div class="lbl">الصافي</div><div class="val num">${fmt0(tIn-tOut)}</div></div>
     </div>
     <table><thead><tr>
       <th style="width:8%">التاريخ</th>
@@ -862,7 +862,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       <th style="width:12%">التصنيف</th><th style="width:9%">الحساب</th>
     </tr></thead><tbody>`);
     sorted.forEach(t=>{
-      w.document.write(`<tr><td>${t.date}</td><td class="num green">${t.type==="in"?fmt(r2(t.amount)):""}</td><td class="num red">${t.type==="out"?fmt(r2(t.amount)):""}</td><td>${_esc(t.desc||"—")}</td><td class="muted">${_esc(t.notes||"")}</td><td>${_esc(t.category||"—")}</td><td>${_esc(t.account||"")}</td></tr>`)});
+      w.document.write(`<tr><td>${t.date}</td><td class="num green">${t.type==="in"?fmt0(t.amount):""}</td><td class="num red">${t.type==="out"?fmt0(t.amount):""}</td><td>${_esc(t.desc||"—")}</td><td class="muted">${_esc(t.notes||"")}</td><td>${_esc(t.category||"—")}</td><td>${_esc(t.account||"")}</td></tr>`)});
     if(sorted.length===0)w.document.write(`<tr><td colspan="7" class="empty">لا توجد حركات مطابقة للفلاتر</td></tr>`);
     w.document.write(`</tbody></table>
     <div class="foot"><span>CLARK Factory Management System</span><span>تقرير مخصص — الفلاتر المفعّلة مبينة أعلاه</span></div>
@@ -888,10 +888,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     dayTxns.forEach((t,idx)=>{
       if(t.type==="in")runBal+=(Number(t.amount)||0);else runBal-=(Number(t.amount)||0);
       const rowBg=idx%2===0?"#FFFFFF":"#F1F5F9";
-      rows+=`<tr style="background:${rowBg}"><td style="${cellNum}">${fmt(r2(runBal))}</td><td style="${cellBase};direction:ltr;text-align:center">${t.date}</td><td style="${cellNum};color:#059669">${t.type==="in"?fmt(r2(t.amount)):"—"}</td><td style="${cellNum};color:#DC2626">${t.type==="out"?fmt(r2(t.amount)):"—"}</td><td style="${cellBase}">${_esc(t.desc||"—")}</td><td style="${cellBase};color:#64748B;font-size:9px">${_esc(t.notes||"")}</td><td style="${cellBase};font-size:9px">${_esc(t.category||"—")}</td><td style="${cellBase};font-size:9px">${_esc(t.account||"")}</td></tr>`;
+      rows+=`<tr style="background:${rowBg}"><td style="${cellNum}">${fmt0(runBal)}</td><td style="${cellBase};direction:ltr;text-align:center">${t.date}</td><td style="${cellNum};color:#059669">${t.type==="in"?fmt0(t.amount):"—"}</td><td style="${cellNum};color:#DC2626">${t.type==="out"?fmt0(t.amount):"—"}</td><td style="${cellBase}">${_esc(t.desc||"—")}</td><td style="${cellBase};color:#64748B;font-size:9px">${_esc(t.notes||"")}</td><td style="${cellBase};font-size:9px">${_esc(t.category||"—")}</td><td style="${cellBase};font-size:9px">${_esc(t.account||"")}</td></tr>`;
     });
     /* Accounts footer (only when showing all accounts) */
-    const accFoot=accountName?"":accounts.map(acc=>{const ab=accBalances[acc]||{in:0,out:0};return`<div style="padding:4px 8px;border-radius:4px;background:#F8FAFC;border:1px solid #E2E8F0;font-size:9px">${acc}<b style="display:block;font-weight:800;font-size:11px;color:#0284C7;margin-top:1px;font-variant-numeric:tabular-nums">${fmt(r2(ab.in-ab.out))}</b></div>`}).join("");
+    const accFoot=accountName?"":accounts.map(acc=>{const ab=accBalances[acc]||{in:0,out:0};return`<div style="padding:4px 8px;border-radius:4px;background:#F8FAFC;border:1px solid #E2E8F0;font-size:9px">${acc}<b style="display:block;font-weight:800;font-size:11px;color:#0284C7;margin-top:1px;font-variant-numeric:tabular-nums">${fmt0(ab.in-ab.out)}</b></div>`}).join("");
     const accFootBlock=accFoot?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:8px;border-top:1px dashed #CBD5E1">${accFoot}</div>`:"";
     /* V16.8: Tahoma/Arial render Arabic correctly in html2pdf. Cairo (web font) breaks letter joining. */
     const html=`<div id="daily-report-content" style="font-family:Tahoma,Arial,sans-serif;padding:14px;direction:rtl;background:#fff;color:#1E293B;line-height:1.5;font-size:10px">
@@ -908,11 +908,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         </div>
       </div>
       <div style="display:flex;gap:6px;justify-content:space-between;margin:10px 0;flex-wrap:wrap">
-        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px"><div style="font-size:9px;color:#64748B;margin-bottom:2px;font-weight:600">رصيد افتتاحي</div><div style="font-size:12px;font-weight:800;color:#0284C7;font-variant-numeric:tabular-nums">${fmt(r2(openBal))}</div></div>
-        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px"><div style="font-size:9px;color:#64748B;margin-bottom:2px;font-weight:600">وارد</div><div style="font-size:12px;font-weight:800;color:#059669;font-variant-numeric:tabular-nums">${fmt(r2(dIn))}</div></div>
-        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px"><div style="font-size:9px;color:#64748B;margin-bottom:2px;font-weight:600">منصرف</div><div style="font-size:12px;font-weight:800;color:#DC2626;font-variant-numeric:tabular-nums">${fmt(r2(dOut))}</div></div>
-        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px"><div style="font-size:9px;color:#64748B;margin-bottom:2px;font-weight:600">صافي اليوم</div><div style="font-size:12px;font-weight:800;font-variant-numeric:tabular-nums">${fmt(r2(dIn-dOut))}</div></div>
-        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #0EA5E9;background:#F0F9FF;min-width:120px"><div style="font-size:9px;color:#64748B;margin-bottom:2px;font-weight:600">رصيد اقفال</div><div style="font-size:12px;font-weight:800;color:#0369A1;font-variant-numeric:tabular-nums">${fmt(r2(closeBal))}</div></div>
+        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px"><div style="font-size:9px;color:#64748B;margin-bottom:2px;font-weight:600">رصيد افتتاحي</div><div style="font-size:12px;font-weight:800;color:#0284C7;font-variant-numeric:tabular-nums">${fmt0(openBal)}</div></div>
+        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px"><div style="font-size:9px;color:#64748B;margin-bottom:2px;font-weight:600">وارد</div><div style="font-size:12px;font-weight:800;color:#059669;font-variant-numeric:tabular-nums">${fmt0(dIn)}</div></div>
+        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px"><div style="font-size:9px;color:#64748B;margin-bottom:2px;font-weight:600">منصرف</div><div style="font-size:12px;font-weight:800;color:#DC2626;font-variant-numeric:tabular-nums">${fmt0(dOut)}</div></div>
+        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px"><div style="font-size:9px;color:#64748B;margin-bottom:2px;font-weight:600">صافي اليوم</div><div style="font-size:12px;font-weight:800;font-variant-numeric:tabular-nums">${fmt0(dIn-dOut)}</div></div>
+        <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #0EA5E9;background:#F0F9FF;min-width:120px"><div style="font-size:9px;color:#64748B;margin-bottom:2px;font-weight:600">رصيد اقفال</div><div style="font-size:12px;font-weight:800;color:#0369A1;font-variant-numeric:tabular-nums">${fmt0(closeBal)}</div></div>
       </div>
       <table style="width:100%;border-collapse:collapse;margin:8px 0;font-size:10px">
         <thead><tr>
@@ -996,7 +996,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const buildBreakdown=(obj)=>{
       const ks=Object.keys(obj).sort((a,b)=>obj[b]-obj[a]);
       if(ks.length===0)return "  • لا يوجد";
-      return ks.map(k=>"  • "+k+": "+fmt(r2(obj[k]))+" ج.م").join("\n");
+      return ks.map(k=>"  • "+k+": "+fmt0(obj[k])+" ج.م").join("\n");
     };
     /* Build per-transaction lines */
     let runBal=openBal;const lines=[];
@@ -1004,14 +1004,14 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(t.type==="in")runBal+=(Number(t.amount)||0);else runBal-=(Number(t.amount)||0);
       const arrow=t.type==="in"?"🟢":"🔴";
       const sign=t.type==="in"?"+":"-";
-      const amt=fmt(r2(t.amount));
+      const amt=fmt0(t.amount);
       const desc=(t.desc||"—").replace(/\*/g,"").slice(0,80);
       const cat=t.category?" • "+t.category:"";
       const acc=accountName?"":" • "+(t.account||"");
       lines.push((i+1)+". "+arrow+" "+sign+amt+" ج.م"+acc+cat);
       lines.push("    "+desc);
       if(t.notes)lines.push("    📝 "+t.notes.slice(0,60));
-      lines.push("    رصيد بعد الحركة: "+fmt(r2(runBal)));
+      lines.push("    رصيد بعد الحركة: "+fmt0(runBal));
       lines.push("");
     });
     const txBlock=dayTxns.length?lines.join("\n"):"لا توجد حركات في هذا اليوم";
@@ -1021,11 +1021,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       "📅 "+date+" — "+dayN,
       "━━━━━━━━━━━━━━━━",
       "*الإجماليات*",
-      "💰 رصيد افتتاحي: "+fmt(r2(openBal))+" ج.م",
-      "🟢 *إجمالي الوارد: "+fmt(r2(dIn))+" ج.م*",
-      "🔴 *إجمالي المنصرف: "+fmt(r2(dOut))+" ج.م*",
-      "💵 *صافي اليوم: "+(net>=0?"+":"")+fmt(r2(net))+" ج.م*",
-      "📊 *رصيد الإقفال: "+fmt(r2(closeBal))+" ج.م*",
+      "💰 رصيد افتتاحي: "+fmt0(openBal)+" ج.م",
+      "🟢 *إجمالي الوارد: "+fmt0(dIn)+" ج.م*",
+      "🔴 *إجمالي المنصرف: "+fmt0(dOut)+" ج.م*",
+      "💵 *صافي اليوم: "+(net>=0?"+":"")+fmt0(net)+" ج.م*",
+      "📊 *رصيد الإقفال: "+fmt0(closeBal)+" ج.م*",
       "📝 عدد الحركات: "+txnCount,
       "━━━━━━━━━━━━━━━━",
       "*🟢 الوارد حسب التصنيف*",
@@ -1140,13 +1140,13 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       const tOut=todayFiltered.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0);
       return<div style={{display:"flex",gap:12,marginBottom:16,justifyContent:"center",flexWrap:"wrap",alignItems:"center"}}>
         <div style={{padding:"8px 20px",borderRadius:10,background:T.ok+"08",border:"1px solid "+T.ok+"20",textAlign:"center"}}>
-          <div style={{fontSize:FS-2,color:T.textSec}}>وارد اليوم {currentAccName?"("+scopeLabel+")":""}</div><div style={{fontSize:FS+2,fontWeight:800,color:T.ok}}>{"↓ "+fmt(r2(tIn))}</div>
+          <div style={{fontSize:FS-2,color:T.textSec}}>وارد اليوم {currentAccName?"("+scopeLabel+")":""}</div><div style={{fontSize:FS+2,fontWeight:800,color:T.ok}}>{"↓ "+fmt0(tIn)}</div>
         </div>
         <div style={{padding:"8px 20px",borderRadius:10,background:T.err+"08",border:"1px solid "+T.err+"20",textAlign:"center"}}>
-          <div style={{fontSize:FS-2,color:T.textSec}}>منصرف اليوم {currentAccName?"("+scopeLabel+")":""}</div><div style={{fontSize:FS+2,fontWeight:800,color:T.err}}>{"↑ "+fmt(r2(tOut))}</div>
+          <div style={{fontSize:FS-2,color:T.textSec}}>منصرف اليوم {currentAccName?"("+scopeLabel+")":""}</div><div style={{fontSize:FS+2,fontWeight:800,color:T.err}}>{"↑ "+fmt0(tOut)}</div>
         </div>
         <div style={{padding:"8px 20px",borderRadius:10,background:"#0D948808",border:"1px solid #0D948820",textAlign:"center"}}>
-          <div style={{fontSize:FS-2,color:T.textSec}}>صافي اليوم</div><div style={{fontSize:FS+2,fontWeight:800,color:"#0D9488"}}>{fmt(r2(tIn-tOut))}</div>
+          <div style={{fontSize:FS-2,color:T.textSec}}>صافي اليوم</div><div style={{fontSize:FS+2,fontWeight:800,color:"#0D9488"}}>{fmt0(tIn-tOut)}</div>
         </div>
         {/* V15.44: Date picker for selecting which day's report to print/export */}
         <div style={{padding:"6px 12px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd,display:"flex",alignItems:"center",gap:6}} title="اختر اليوم للطباعة / PDF / واتساب">
@@ -1177,9 +1177,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               {acc.ownerEmail&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>👤 المسؤول: {acc.ownerEmail}</div>}
             </div>
             <div style={{display:"flex",gap:16}}>
-              <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut}}>وارد</div><div style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>{fmt(r2(b.in))}</div></div>
-              <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut}}>منصرف</div><div style={{fontSize:FS+1,fontWeight:800,color:T.err}}>{fmt(r2(b.out))}</div></div>
-              <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut}}>الرصيد</div><div style={{fontSize:FS+4,fontWeight:900,color:bal>=0?"#0D9488":T.err}}>{fmt(r2(bal))}</div></div>
+              <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut}}>وارد</div><div style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>{fmt0(b.in)}</div></div>
+              <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut}}>منصرف</div><div style={{fontSize:FS+1,fontWeight:800,color:T.err}}>{fmt0(b.out)}</div></div>
+              <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut}}>الرصيد</div><div style={{fontSize:FS+4,fontWeight:900,color:bal>=0?"#0D9488":T.err}}>{fmt0(bal)}</div></div>
             </div>
           </div>
         </Card>})()}
@@ -1450,11 +1450,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             return<>
               <div style={{padding:"6px 12px",borderRadius:8,background:"#10B98112",border:"1px solid #10B98140",fontWeight:700,fontSize:FS-1,marginBottom:2,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
                 <span style={{color:"#047857"}}>↓ وارد</span>
-                <span style={{color:"#047857",fontWeight:800,fontVariantNumeric:"tabular-nums"}}>{fmt(r2(fIn))}</span>
+                <span style={{color:"#047857",fontWeight:800,fontVariantNumeric:"tabular-nums"}}>{fmt0(fIn)}</span>
               </div>
               <div style={{padding:"6px 12px",borderRadius:8,background:"#EF444412",border:"1px solid #EF444440",fontWeight:700,fontSize:FS-1,marginBottom:2,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
                 <span style={{color:"#B91C1C"}}>↑ منصرف</span>
-                <span style={{color:"#B91C1C",fontWeight:800,fontVariantNumeric:"tabular-nums"}}>{fmt(r2(fOut))}</span>
+                <span style={{color:"#B91C1C",fontWeight:800,fontVariantNumeric:"tabular-nums"}}>{fmt0(fOut)}</span>
               </div>
             </>;
           })()}
@@ -1511,13 +1511,13 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             {canEdit&&<td style={{padding:"6px 8px",textAlign:"center"}}>
               <input type="checkbox" checked={isChecked} onChange={()=>toggleTxSel(t.id)} style={{cursor:"pointer",width:16,height:16}} title="تحديد للحذف المجمع"/>
             </td>}
-            <td style={{padding:"6px 8px",fontSize:FS-1,fontWeight:800,color:t.runBal>=0?"#0D9488":T.err}}>{fmt(r2(t.runBal))}</td>
-            <td style={{padding:"6px 8px",fontSize:FS-1}}>{isEd?<input type="date" value={d_.date} onChange={e=>setInlineDraft(p=>({...p,date:e.target.value}))} style={{...inpS,width:120}}/>:<>{t.date}{locked?" 🔒":""}</>}</td>
-            <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut}}>{t.day||""}</td>
-            <td style={{padding:"6px 8px",fontSize:FS,fontWeight:700,color:T.ok}}>{isEd?(d_.type==="in"?<input type="number" value={d_.amount} onChange={e=>setInlineDraft(p=>({...p,amount:e.target.value}))} style={{...inpS,width:80,color:T.ok,fontWeight:700}}/>:<span onClick={()=>setInlineDraft(p=>({...p,type:"in"}))} style={{cursor:"pointer",color:T.textMut,fontSize:FS-2}}>↓</span>):(t.type==="in"?fmt(r2(t.amount)):"")}</td>
-            <td style={{padding:"6px 8px",fontSize:FS,fontWeight:700,color:T.err}}>{isEd?(d_.type==="out"?<input type="number" value={d_.amount} onChange={e=>setInlineDraft(p=>({...p,amount:e.target.value}))} style={{...inpS,width:80,color:T.err,fontWeight:700}}/>:<span onClick={()=>setInlineDraft(p=>({...p,type:"out"}))} style={{cursor:"pointer",color:T.textMut,fontSize:FS-2}}>↑</span>):(t.type==="out"?fmt(r2(t.amount)):"")}</td>
+            <td style={{padding:"6px 8px",fontSize:FS-1,fontWeight:800,color:t.runBal>=0?"#0D9488":T.err,whiteSpace:"nowrap"}}>{fmt0(t.runBal)}</td>
+            <td style={{padding:"6px 8px",fontSize:FS-1,whiteSpace:"nowrap"}}>{isEd?<input type="date" value={d_.date} onChange={e=>setInlineDraft(p=>({...p,date:e.target.value}))} style={{...inpS,width:120}}/>:<>{t.date}{locked?" 🔒":""}</>}</td>
+            <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut,whiteSpace:"nowrap"}}>{t.day||""}</td>
+            <td style={{padding:"6px 8px",fontSize:FS,fontWeight:700,color:T.ok,whiteSpace:"nowrap"}}>{isEd?(d_.type==="in"?<input type="number" value={d_.amount} onChange={e=>setInlineDraft(p=>({...p,amount:e.target.value}))} style={{...inpS,width:80,color:T.ok,fontWeight:700}}/>:<span onClick={()=>setInlineDraft(p=>({...p,type:"in"}))} style={{cursor:"pointer",color:T.textMut,fontSize:FS-2}}>↓</span>):(t.type==="in"?fmt0(t.amount):"")}</td>
+            <td style={{padding:"6px 8px",fontSize:FS,fontWeight:700,color:T.err,whiteSpace:"nowrap"}}>{isEd?(d_.type==="out"?<input type="number" value={d_.amount} onChange={e=>setInlineDraft(p=>({...p,amount:e.target.value}))} style={{...inpS,width:80,color:T.err,fontWeight:700}}/>:<span onClick={()=>setInlineDraft(p=>({...p,type:"out"}))} style={{cursor:"pointer",color:T.textMut,fontSize:FS-2}}>↑</span>):(t.type==="out"?fmt0(t.amount):"")}</td>
             {/* V16.40: نوع الحركة (category) moved BEFORE بيان (desc); ملاحظات removed entirely. */}
-            <td style={{padding:"6px 8px"}}>{isEd?<select value={d_.category} onChange={e=>setInlineDraft(p=>({...p,category:e.target.value}))} style={{...inpS,width:100}}><option value="">—</option>{(d_.type==="in"?IN_CATS:OUT_CATS).map(c=><option key={c}>{c}</option>)}</select>:<span style={{padding:"2px 6px",borderRadius:5,fontSize:FS-2,fontWeight:600,background:t.type==="in"?T.ok+"12":T.err+"12",color:t.type==="in"?T.ok:T.err,whiteSpace:"nowrap"}}>{t.category||"—"}</span>}</td>
+            <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>{isEd?<select value={d_.category} onChange={e=>setInlineDraft(p=>({...p,category:e.target.value}))} style={{...inpS,width:100}}><option value="">—</option>{(d_.type==="in"?IN_CATS:OUT_CATS).map(c=><option key={c}>{c}</option>)}</select>:<span style={{padding:"2px 6px",borderRadius:5,fontSize:FS-2,fontWeight:600,background:t.type==="in"?T.ok+"12":T.err+"12",color:t.type==="in"?T.ok:T.err,whiteSpace:"nowrap"}}>{t.category||"—"}</span>}</td>
             {/* بيان — flex column, takes all remaining horizontal space; full text shown on hover via title */}
             <td style={{padding:"6px 8px",fontSize:FS-1,width:"100%"}}>{isEd?<input value={d_.desc} onChange={e=>setInlineDraft(p=>({...p,desc:e.target.value}))} style={{...inpS,width:"100%"}}/>:<span title={t.desc||""} style={{display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.desc||"—"}{t.notes?<span style={{color:T.textMut,fontWeight:500,marginInlineStart:6}}>· {t.notes}</span>:""}</span>}</td>
             <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>{isEd?<select value={d_.account} onChange={e=>setInlineDraft(p=>({...p,account:e.target.value}))} style={{...inpS,width:90}}>{accounts.map(a=><option key={a}>{a}</option>)}</select>:t.account||""}</td>
@@ -1777,7 +1777,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 <div style={{fontSize:FS,color:T.textSec,fontWeight:700}}>📥 محفظة شيكات القبض</div>
                 <span style={{fontSize:FS-2,padding:"2px 8px",borderRadius:10,background:T.ok+"20",color:T.ok,fontWeight:700}}>{receivable.filter(c=>c.status==="معلق").length} شيك</span>
               </div>
-              <div style={{fontSize:28,fontWeight:900,color:T.ok,fontVariantNumeric:"tabular-nums"}}>{fmt(r2(totalRcv))}<span style={{fontSize:FS,color:T.textMut,fontWeight:600,marginRight:6}}>ج.م</span></div>
+              <div style={{fontSize:28,fontWeight:900,color:T.ok,fontVariantNumeric:"tabular-nums"}}>{fmt0(totalRcv)}<span style={{fontSize:FS,color:T.textMut,fontWeight:600,marginRight:6}}>ج.م</span></div>
               <div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>الرصيد المعلق (لم يُحصَّل بعد)</div>
             </div>
             {/* Payable wallet */}
@@ -1786,7 +1786,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 <div style={{fontSize:FS,color:T.textSec,fontWeight:700}}>📤 محفظة شيكات الدفع</div>
                 <span style={{fontSize:FS-2,padding:"2px 8px",borderRadius:10,background:T.err+"20",color:T.err,fontWeight:700}}>{payable.filter(c=>c.status==="معلق").length} شيك</span>
               </div>
-              <div style={{fontSize:28,fontWeight:900,color:T.err,fontVariantNumeric:"tabular-nums"}}>{fmt(r2(totalPay))}<span style={{fontSize:FS,color:T.textMut,fontWeight:600,marginRight:6}}>ج.م</span></div>
+              <div style={{fontSize:28,fontWeight:900,color:T.err,fontVariantNumeric:"tabular-nums"}}>{fmt0(totalPay)}<span style={{fontSize:FS,color:T.textMut,fontWeight:600,marginRight:6}}>ج.م</span></div>
               <div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>الرصيد المعلق (لم يُدفع بعد)</div>
             </div>
           </div>
@@ -1805,7 +1805,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               ];
               return cards.map(c=><div key={c.label} style={{padding:"10px 12px",borderRadius:10,background:c.color+"08",border:"1px solid "+c.color+"20",textAlign:"center"}}>
                 <div style={{fontSize:FS-3,color:T.textMut,marginBottom:2}}>{c.icon} {c.label}</div>
-                <div style={{fontSize:FS+2,fontWeight:800,color:c.color,fontVariantNumeric:"tabular-nums"}}>{fmt(r2(c.value))}</div>
+                <div style={{fontSize:FS+2,fontWeight:800,color:c.color,fontVariantNumeric:"tabular-nums"}}>{fmt0(c.value)}</div>
               </div>);
             })()}
           </div>
@@ -1889,7 +1889,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               {filteredChecks.sort((a,b)=>(a.dueDate||"").localeCompare(b.dueDate||"")).map(c=>{const overdue=c.dueDate&&c.dueDate<today&&c.status==="معلق";
                 return<tr key={c.id} style={{borderBottom:"1px solid "+T.brd,background:overdue?T.err+"04":""}}>
                 <td style={{padding:"6px 8px"}}><span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:c.type==="receivable"?T.ok+"12":T.err+"12",color:c.type==="receivable"?T.ok:T.err}}>{c.type==="receivable"?"قبض":"دفع"}</span></td>
-                <td style={{padding:"6px 8px",fontSize:FS,fontWeight:800,color:c.type==="receivable"?T.ok:T.err}}>{fmt(r2(c.amount))}</td>
+                <td style={{padding:"6px 8px",fontSize:FS,fontWeight:800,color:c.type==="receivable"?T.ok:T.err}}>{fmt0(c.amount)}</td>
                 <td style={{padding:"6px 8px",fontSize:FS-1,fontWeight:600}}>{c.party}{c.status==="مُظهّر"&&c.endorsedTo&&<div style={{fontSize:FS-3,color:"#8B5CF6",fontWeight:700,marginTop:2}}>{"📤 مُظهّر لـ "+c.endorsedTo}</div>}</td>
                 <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textSec}}>{c.bank||"—"}</td>
                 <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut}}>{c.checkNo||"—"}{c.batchId&&c.batchTotal>1&&<span style={{marginRight:6,padding:"1px 6px",borderRadius:8,background:"#0EA5E915",color:"#0284C7",fontSize:9,fontWeight:700}} title={"شيك "+c.batchIdx+" من حافظة من "+c.batchTotal+" شيكات"}>{c.batchIdx}/{c.batchTotal}</span>}</td>
@@ -1933,7 +1933,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 </div>
                 <div style={{padding:12,borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF620",marginBottom:14}}>
                   <div style={{fontSize:FS-1,color:T.textSec}}>شيك من: <b style={{color:T.text}}>{ch.party}</b></div>
-                  <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6",marginTop:4}}>{fmt(r2(ch.amount))} ج.م</div>
+                  <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6",marginTop:4}}>{fmt0(ch.amount)} ج.م</div>
                   {ch.checkNo&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{"رقم: #"+ch.checkNo+(ch.dueDate?" | استحقاق: "+ch.dueDate:"")}</div>}
                 </div>
                 {/* V16.33: Optional endorsement date — defaults to today, editable */}
@@ -1966,9 +1966,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             return outCats.length>0?<div style={{display:"flex",flexDirection:"column",gap:6}}>
               {outCats.map(([cat,v])=>{const pct=totalOut?Math.round(v.out/totalOut*100):0;
                 return<div key={cat}><div style={{display:"flex",justifyContent:"space-between",fontSize:FS-1,marginBottom:2}}>
-                  <span style={{fontWeight:600}}>{cat}</span><span style={{fontWeight:700,color:T.err}}>{fmt(r2(v.out))+" ("+pct+"%)"}</span>
+                  <span style={{fontWeight:600}}>{cat}</span><span style={{fontWeight:700,color:T.err}}>{fmt0(v.out)+" ("+pct+"%)"}</span>
                 </div><div style={{height:6,borderRadius:3,background:T.bg}}><div style={{height:"100%",borderRadius:3,background:T.err,width:pct+"%"}}/></div></div>})}
-              <div style={{marginTop:8,padding:8,borderRadius:8,background:T.err+"06",textAlign:"center",fontWeight:800,color:T.err}}>{"اجمالي: "+fmt(r2(totalOut))+" ج.م"}</div>
+              <div style={{marginTop:8,padding:8,borderRadius:8,background:T.err+"06",textAlign:"center",fontWeight:800,color:T.err}}>{"اجمالي: "+fmt0(totalOut)+" ج.م"}</div>
             </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد بيانات</div>})()}
         </Card>
         {/* IN Analysis */}
@@ -1977,9 +1977,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             return inCats.length>0?<div style={{display:"flex",flexDirection:"column",gap:6}}>
               {inCats.map(([cat,v])=>{const pct=totalIn?Math.round(v.in/totalIn*100):0;
                 return<div key={cat}><div style={{display:"flex",justifyContent:"space-between",fontSize:FS-1,marginBottom:2}}>
-                  <span style={{fontWeight:600}}>{cat}</span><span style={{fontWeight:700,color:T.ok}}>{fmt(r2(v.in))+" ("+pct+"%)"}</span>
+                  <span style={{fontWeight:600}}>{cat}</span><span style={{fontWeight:700,color:T.ok}}>{fmt0(v.in)+" ("+pct+"%)"}</span>
                 </div><div style={{height:6,borderRadius:3,background:T.bg}}><div style={{height:"100%",borderRadius:3,background:T.ok,width:pct+"%"}}/></div></div>})}
-              <div style={{marginTop:8,padding:8,borderRadius:8,background:T.ok+"06",textAlign:"center",fontWeight:800,color:T.ok}}>{"اجمالي: "+fmt(r2(totalIn))+" ج.م"}</div>
+              <div style={{marginTop:8,padding:8,borderRadius:8,background:T.ok+"06",textAlign:"center",fontWeight:800,color:T.ok}}>{"اجمالي: "+fmt0(totalIn)+" ج.م"}</div>
             </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد بيانات</div>})()}
         </Card>
       </div>
@@ -1993,9 +1993,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           </tr></thead><tbody>
             {sorted.map(([m,v])=><tr key={m} style={{borderBottom:"1px solid "+T.brd}}>
               <td style={{padding:"8px 10px",fontWeight:700,fontSize:FS}}>{m}</td>
-              <td style={{padding:"8px 10px",fontWeight:700,color:T.ok}}>{fmt(r2(v.in))}</td>
-              <td style={{padding:"8px 10px",fontWeight:700,color:T.err}}>{fmt(r2(v.out))}</td>
-              <td style={{padding:"8px 10px",fontWeight:800,color:(v.in-v.out)>=0?T.ok:T.err}}>{fmt(r2(v.in-v.out))}</td>
+              <td style={{padding:"8px 10px",fontWeight:700,color:T.ok}}>{fmt0(v.in)}</td>
+              <td style={{padding:"8px 10px",fontWeight:700,color:T.err}}>{fmt0(v.out)}</td>
+              <td style={{padding:"8px 10px",fontWeight:800,color:(v.in-v.out)>=0?T.ok:T.err}}>{fmt0(v.in-v.out)}</td>
             </tr>)}
           </tbody></table></div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد بيانات</div>})()}
       </Card>
@@ -2019,9 +2019,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 </div>}
               </div>
               <div style={{display:"flex",gap:16,marginTop:4}}>
-                <div><div style={{fontSize:FS-2,color:T.textMut}}>وارد</div><div style={{fontSize:FS,fontWeight:700,color:T.ok}}>{fmt(r2(b.in))}</div></div>
-                <div><div style={{fontSize:FS-2,color:T.textMut}}>منصرف</div><div style={{fontSize:FS,fontWeight:700,color:T.err}}>{fmt(r2(b.out))}</div></div>
-                <div><div style={{fontSize:FS-2,color:T.textMut}}>الرصيد</div><div style={{fontSize:FS+2,fontWeight:800,color:bal>=0?"#0D9488":T.err}}>{fmt(r2(bal))}</div></div>
+                <div><div style={{fontSize:FS-2,color:T.textMut}}>وارد</div><div style={{fontSize:FS,fontWeight:700,color:T.ok}}>{fmt0(b.in)}</div></div>
+                <div><div style={{fontSize:FS-2,color:T.textMut}}>منصرف</div><div style={{fontSize:FS,fontWeight:700,color:T.err}}>{fmt0(b.out)}</div></div>
+                <div><div style={{fontSize:FS-2,color:T.textMut}}>الرصيد</div><div style={{fontSize:FS+2,fontWeight:800,color:bal>=0?"#0D9488":T.err}}>{fmt0(bal)}</div></div>
               </div>
             </div>})}
         </div>
@@ -2113,7 +2113,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                   <div style={{fontSize:FS,fontWeight:700,color:T.text}}>{p.name}</div>
                   {p.phone&&<div style={{fontSize:FS-2,color:T.textMut,direction:"ltr",textAlign:"right"}}>{p.phone}</div>}
                 </div>
-                {bal!=null&&bal!==0&&<span style={{fontSize:FS-1,fontWeight:700,color:bal>=0?T.err:T.ok}} title={showPartyPicker==="workshop"?"الرصيد المستحق للورشة":"الرصيد"}>{fmt(r2(bal))}</span>}
+                {bal!=null&&bal!==0&&<span style={{fontSize:FS-1,fontWeight:700,color:bal>=0?T.err:T.ok}} title={showPartyPicker==="workshop"?"الرصيد المستحق للورشة":"الرصيد"}>{fmt0(bal)}</span>}
               </div>})}
           </div>}
         </div>

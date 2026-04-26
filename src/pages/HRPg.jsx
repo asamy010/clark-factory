@@ -2029,7 +2029,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
         ${emp.code||emp.job?'<span class="emp-meta">'+(emp.code?'كود: '+emp.code:'')+(emp.code&&emp.job?' • ':'')+(emp.job||'')+'</span>':''}
       </div>
       <div><b>التليفون:</b> ${emp.phone||"—"}</div><div><b>ساعات أساسي:</b> ${c.baseHours}</div>
-      <div><b>الأسبوع:</b> ${openWeek.weekStart} → ${openWeek.weekEnd}</div><div><b>سعر الساعة:</b> ${r2(c.perHour)} ج.م</div>
+      <div><b>الأسبوع:</b> ${openWeek.weekStart} → ${openWeek.weekEnd}</div><div><b>سعر الساعة:</b> ${fmt0(c.perHour)} ج.م</div>
       <div><b>المرتب الأسبوعي:</b> ${fmt0(c.weeklySalary)} ج.م</div><div></div>
     </div>
     <h3 style="color:#0ea5e9;margin:10px 0 4px;font-size:12px">📋 الحضور اليومي</h3>
@@ -7238,7 +7238,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",fontSize:FS+1,fontWeight:700,color:T.text}}>
                 <div>
                   <div>المرتب الأساسي</div>
-                  <div style={{fontSize:FS-2,color:T.textMut,fontWeight:500,marginTop:2}}>({r2(salary.basicHours)} ساعة × {r2(salary.perHour)} ج)</div>
+                  <div style={{fontSize:FS-2,color:T.textMut,fontWeight:500,marginTop:2}}>({r2(salary.basicHours)} ساعة × {fmt0(salary.perHour)} ج)</div>
                 </div>
                 <div style={{fontFamily:"monospace",color:T.ok,fontSize:FS+3,fontWeight:900}}>{fmt0(salary.basicPay)} ج</div>
               </div>

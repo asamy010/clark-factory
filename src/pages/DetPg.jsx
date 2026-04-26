@@ -168,9 +168,9 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
          ═══════════════════════════════════════════════════════════════ */}
       <div style={{background:T.cardSolid,borderRadius:14,border:"1px solid "+T.brd,padding:14,marginBottom:14}}>
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr 1fr 1fr",gap:8,marginBottom:10}}>
-          <div style={{position:"relative"}}>
-            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",color:T.textMut,pointerEvents:"none",zIndex:1}}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <Inp value={detQ} onChange={setDetQ} placeholder="ابحث بالرقم، الوصف، المقاس..." sx={{paddingRight:36}}/>
+          <div style={{position:"relative",display:"flex",alignItems:"center",background:T.cardSolid,borderRadius:6,border:"1px solid "+T.brd}}>
+            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0,marginInlineStart:10,marginInlineEnd:6,color:T.textMut,pointerEvents:"none"}}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input value={detQ==null?"":detQ} onChange={e=>setDetQ(e.target.value)} placeholder="ابحث بالرقم، الوصف، المقاس..." style={{flex:1,minWidth:0,padding:"5px 8px 5px 0",border:"none",outline:"none",fontSize:FS,fontFamily:"inherit",background:"transparent",color:T.text,boxSizing:"border-box"}}/>
           </div>
           <Sel value={detSt} onChange={setDetSt}><option value="الكل">كل الحالات</option>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel>
           <Sel value={detWs} onChange={setDetWs}><option value="">كل الورش</option>{workshops.map(w=><option key={w.id} value={w.name}>{w.name}</option>)}</Sel>
