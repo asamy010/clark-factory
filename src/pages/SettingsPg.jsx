@@ -11,7 +11,7 @@ import { collection, deleteDoc, doc, getDocs, setDoc, updateDoc } from "firebase
 import { Btn, Card, DelBtn, Inp, Sel, Spinner } from "../components/ui.jsx";
 import { TABS } from "../components/LoginScreen.jsx";
 import { FKEYS, FS } from "../constants/index.js";
-import { CLARK_LOGO } from "../constants/logo.js";
+import { CLARK_LOGO, CLARK_LOGO_PRINT } from "../constants/logo.js";
 import { auth, db, getSecondaryAuth } from "../firebase";
 import { T, TD, TH } from "../theme.js";
 import { gid, openWA } from "../utils/format.js";
@@ -480,7 +480,7 @@ function LabelLivePreview({draft,T,FS}){
         direction:"rtl",
       }}>
         {/* V16.36: Logo at top — overrides brand text when enabled. brightness(0) forces pure black */}
-        {draft.showLogo&&<img src={CLARK_LOGO} alt="CLARK" style={{width:"75%",maxWidth:w*0.8,height:"auto",filter:"brightness(0) saturate(100%)",marginBottom:2,objectFit:"contain"}}/>}
+        {draft.showLogo&&<img src={CLARK_LOGO_PRINT} alt="CLARK" style={{width:"75%",maxWidth:w*0.8,height:"auto",filter:"brightness(0) saturate(100%)",marginBottom:2,objectFit:"contain"}}/>}
         {draft.fields?.brand?.show&&!draft.showLogo&&<div style={{fontWeight:900,fontSize:fontPx(draft.fields.brand.size||14),letterSpacing:2,lineHeight:1,color:"#111"}}>CLARK</div>}
         {draft.fields?.modelNo?.show!==false&&<div style={{fontWeight:800,fontSize:fontPx(draft.fields?.modelNo?.size||12),lineHeight:1.1,color:"#111"}}>3262114</div>}
         {draft.fields?.desc?.show&&<div style={{fontSize:fontPx(draft.fields.desc.size||10),color:"#444",lineHeight:1}}>توينز اولادي قطعتين</div>}
@@ -494,7 +494,7 @@ function LabelLivePreview({draft,T,FS}){
   </div>;
 }
 
-export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Sel,Card,setDirty,CLARK_LOGO}){
+export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Sel,Card,setDirty}){
   /* V16.36: Added fontFamily + showLogo for QR label customization */
   const DEFAULT_PS={labelWidth:40,labelHeight:50,orientation:"portrait",margins:2,qrLevel:"M",qrMargin:1,qrColor:"#000000",showBorder:false,fontFamily:"Cairo",showLogo:false,fields:{brand:{show:false,size:14},modelNo:{show:true,size:12},desc:{show:false,size:10},qr:{show:true,size:80},series:{show:true,size:12},sizeLabel:{show:true,size:10},price:{show:false,size:10}},salaryPageSize:"A5-landscape",dailyReportSize:"A4"};
   const savedPS=config.printSettings||DEFAULT_PS;
@@ -575,7 +575,7 @@ export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
     /* V16.36: Logo at top — overrides brand text when enabled.
        The brightness/saturate filter forces pure black on the gray logo
        so it prints crisp on thermal paper. */
-    if(ps.showLogo)html+="<img src='"+CLARK_LOGO+"' class='logo' alt='CLARK' style='filter:brightness(0) saturate(100%);width:80%;max-width:30mm;margin-bottom:1mm;height:auto;display:block;margin-left:auto;margin-right:auto'/>";
+    if(ps.showLogo)html+="<img src='"+CLARK_LOGO_PRINT+"' class='logo' alt='CLARK' style='filter:brightness(0) saturate(100%);width:80%;max-width:30mm;margin-bottom:1mm;height:auto;display:block;margin-left:auto;margin-right:auto'/>";
     if(ps.fields?.brand?.show&&!ps.showLogo)html+="<div style='font-weight:900;font-size:"+((ps.fields?.brand?.size||14)/2.5)+"mm;letter-spacing:2px;line-height:1'>CLARK</div>";
     if(ps.fields?.modelNo?.show!==false)html+="<div style='font-weight:800;font-size:"+((ps.fields?.modelNo?.size||12)/2.5)+"mm;line-height:1.1'>3262114</div>";
     if(ps.fields?.desc?.show)html+="<div style='font-size:"+((ps.fields?.desc?.size||10)/2.5)+"mm;color:#444;line-height:1'>توينز اولادي قطعتين</div>";
@@ -732,7 +732,7 @@ function LargeLabelLivePreview({draft,kind,T,FS}){
           {/* Brand row */}
           <div style={{textAlign:"center",paddingBottom:3,borderBottom:"2px solid #000",marginBottom:4}}>
             {showLogo
-              ?<img src={CLARK_LOGO} alt="CLARK" style={{height:16,maxWidth:"60%",filter:"brightness(0) saturate(100%)",objectFit:"contain"}}/>
+              ?<img src={CLARK_LOGO_PRINT} alt="CLARK" style={{height:16,maxWidth:"60%",filter:"brightness(0) saturate(100%)",objectFit:"contain"}}/>
               :<div style={{fontWeight:800,fontSize:11,letterSpacing:2}}>CLARK Factory</div>}
           </div>
           {/* Title chip */}
@@ -771,7 +771,7 @@ function LargeLabelLivePreview({draft,kind,T,FS}){
           {/* === Customer label preview === */}
           <div style={{textAlign:"center",fontWeight:900,letterSpacing:3,padding:"3px 0",borderBottom:"2px solid #000",fontSize:11}}>
             {showLogo
-              ?<img src={CLARK_LOGO} alt="CLARK" style={{height:18,maxWidth:"55%",filter:"brightness(0) saturate(100%)",objectFit:"contain"}}/>
+              ?<img src={CLARK_LOGO_PRINT} alt="CLARK" style={{height:18,maxWidth:"55%",filter:"brightness(0) saturate(100%)",objectFit:"contain"}}/>
               :<span>CLARK</span>}
           </div>
           {/* Top: QR + package info */}
@@ -1647,6 +1647,138 @@ function DeviceInfoCard(){
   </Card>;
 }
 
+/* V16.56: PermissionsCard — extracted from an inline IIFE that called React
+   hooks (useState/useEffect) directly inside JSX. When the parent SettingsPg
+   started rendering its content conditionally per-tab (V16.52), the IIFE was
+   sometimes invoked and sometimes not, causing the parent's hook count to
+   differ between renders → React error #310. Moving the hooks into a proper
+   component scoped at module top-level keeps each render consistent. */
+function PermissionsCard({config,upConfig,T,FS,TABS,Btn,showToast}){
+  /* V15.66: Draft pattern — changes buffered locally, saved on explicit "حفظ" button */
+  const livePerms=config.permissions||{};
+  const[draftPerms,setDraftPerms]=useState(()=>JSON.parse(JSON.stringify(livePerms)));
+  const[permsDirty,setPermsDirty]=useState(false);
+  /* Re-sync draft from live whenever the upstream changes AND there are no unsaved changes */
+  useEffect(()=>{if(!permsDirty)setDraftPerms(JSON.parse(JSON.stringify(livePerms)))},[livePerms,permsDirty]);
+  /* V15.28: Added payroll_accountant and payroll_verifier roles for separation of duties */
+  const roles=["admin","manager","sales_accountant","purchase_accountant","payroll_accountant","payroll_verifier","viewer"];
+  const roleLabels={admin:"أدمن",manager:"مدير",sales_accountant:"مبيعات",purchase_accountant:"مشتريات",payroll_accountant:"محاسب مرتبات",payroll_verifier:"مُؤكِّد استلام",viewer:"مشاهد"};
+  const tabs=TABS;
+  const levels=["edit","view","hide"];
+  const levelLabels={edit:"✏️ تعديل",view:"👁 عرض",hide:"❌ مخفي"};
+  const levelColors={edit:T.ok,view:T.warn,hide:T.err};
+  /* V15.66: Draft setters — mutate local state only */
+  const setPerm=(role,tabKey,level)=>{
+    setDraftPerms(p=>{const n=JSON.parse(JSON.stringify(p));if(!n[role])n[role]={};n[role][tabKey]=level;return n});
+    setPermsDirty(true);
+  };
+  const setHrSubPerm=(role,subKey,level)=>{
+    setDraftPerms(p=>{
+      const n=JSON.parse(JSON.stringify(p));
+      if(!n[role])n[role]={};
+      let hrPerm=n[role].hr;
+      if(typeof hrPerm==="string")hrPerm={weeks:hrPerm,verify:hrPerm,employees:hrPerm,security:hrPerm};
+      if(!hrPerm||typeof hrPerm!=="object")hrPerm={};
+      hrPerm[subKey]=level;
+      n[role].hr=hrPerm;
+      return n;
+    });
+    setPermsDirty(true);
+  };
+  const savePerms=()=>{
+    upConfig(d=>{d.permissions=JSON.parse(JSON.stringify(draftPerms))});
+    setPermsDirty(false);
+    showToast("✓ تم حفظ الصلاحيات");
+  };
+  const resetPerms=()=>{
+    setDraftPerms(JSON.parse(JSON.stringify(livePerms)));
+    setPermsDirty(false);
+  };
+  /* V15.28: Default permissions for all roles (incl. new ones) */
+  const defPerms={
+    admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit",treasury:"edit",hr:{weeks:"edit",verify:"edit",employees:"edit",security:"edit"}},
+    manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit",treasury:"view",hr:{weeks:"view",verify:"view",employees:"view",security:"view"}},
+    sales_accountant:{dashboard:"view",details:"view",external:"hide",stock:"view",reports:"edit",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit",treasury:"hide",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"}},
+    purchase_accountant:{dashboard:"view",details:"view",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"hide",treasury:"edit",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"}},
+    payroll_accountant:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"view",hr:{weeks:"edit",verify:"hide",employees:"edit",security:"view"}},
+    payroll_verifier:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"view",hr:{weeks:"view",verify:"edit",employees:"view",security:"view"}},
+    viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"hide",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"}}
+  };
+  /* Helpers to read current HR sub-permission with backward compat — reads from DRAFT */
+  const getHrCur=(r,subKey)=>{
+    const rp=draftPerms[r]||{};
+    let hrPerm=rp.hr;
+    if(hrPerm===undefined||hrPerm===null)hrPerm=defPerms[r]?.hr;
+    if(typeof hrPerm==="string")return hrPerm;/* backward compat */
+    if(hrPerm&&typeof hrPerm==="object")return hrPerm[subKey]||defPerms[r]?.hr?.[subKey]||"hide";
+    return"hide";
+  };
+  /* HR sub-rows with labels */
+  const hrSubRows=[
+    {key:"weeks",label:"━ جدول المرتبات والأسابيع",icon:"📅"},
+    {key:"verify",label:"━ تأكيد استلام (QR)",icon:"🔐"},
+    {key:"employees",label:"━ إدارة الموظفين",icon:"👷"},
+    {key:"security",label:"━ الأمن والرقابة",icon:"🛡️"}
+  ];
+  return<div style={{overflowX:"auto"}}>
+    <div style={{fontSize:FS-2,color:T.textMut,marginBottom:10,padding:"8px 12px",background:T.accent+"08",borderRadius:8,lineHeight:1.7}}>
+      💡 <b>محاسب مرتبات</b>: يحسب المرتبات بس مش بيقدر يؤكد الاستلام.<br/>
+      💡 <b>مُؤكِّد استلام</b>: يسكن QR بس، ومش بيقدر يعدل أي مبلغ.<br/>
+      🛡️ <b>فصل الصلاحيات</b>: المحاسب اللي عدّل المرتب ممنوع يؤكد استلامه (إلا الأدمن).
+    </div>
+    <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
+      <thead><tr><th style={TH}>الشاشة</th>{roles.map(r=><th key={r} style={{...TH,textAlign:"center",fontSize:FS-2}}>{roleLabels[r]}</th>)}</tr></thead>
+      <tbody>{tabs.map(t=>{
+        /* If this tab is "hr", render the parent row + 4 sub-rows */
+        if(t.key==="hr"){
+          return<React.Fragment key="hr-group">
+            <tr style={{background:T.accent+"08"}}>
+              <td style={{...TD,fontWeight:800,color:T.accent}}>
+                <span style={{marginLeft:6}}>{t.icon}</span>{t.label}
+                <span style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginInlineStart:6}}>(4 أقسام)</span>
+              </td>
+              {roles.map(r=><td key={r} style={{...TD,textAlign:"center",color:T.textMut,fontSize:FS-3,fontStyle:"italic"}}>↓ أقسام فرعية</td>)}
+            </tr>
+            {hrSubRows.map(sub=><tr key={"hr-"+sub.key}>
+              <td style={{...TD,paddingInlineStart:24,fontSize:FS-2,color:T.textSec}}>
+                <span style={{marginLeft:6}}>{sub.icon}</span>{sub.label}
+              </td>
+              {roles.map(r=>{
+                const cur=getHrCur(r,sub.key);
+                return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px"}}>
+                  <select value={cur} onChange={e=>setHrSubPerm(r,sub.key,e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:levelColors[cur],fontWeight:700,cursor:"pointer"}}>
+                    {levels.map(l=><option key={l} value={l}>{levelLabels[l]}</option>)}
+                  </select>
+                </td>;
+              })}
+            </tr>)}
+          </React.Fragment>;
+        }
+        /* Non-HR tab — regular rendering, reads from draft */
+        return<tr key={t.key}>
+          <td style={{...TD,fontWeight:600}}><span style={{marginLeft:6}}>{t.icon}</span>{t.label}</td>
+          {roles.map(r=>{const cur=(draftPerms[r]||{})[t.key]||(defPerms[r]||{})[t.key]||"view";
+            return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px"}}>
+              {r==="admin"&&t.key==="settings"?<span style={{fontSize:FS-2,color:T.ok,fontWeight:600}}>✏️ دائماً</span>:
+              <select value={cur} onChange={e=>setPerm(r,t.key,e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:levelColors[cur],fontWeight:700,cursor:"pointer"}}>
+                {levels.map(l=><option key={l} value={l}>{levelLabels[l]}</option>)}
+              </select>}
+            </td>})}
+        </tr>;
+      })}</tbody>
+    </table>
+    {/* V15.66: Save/Cancel buttons — only visible when there are unsaved changes */}
+    <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:14,paddingTop:14,borderTop:"1px solid "+T.brd}}>
+      {permsDirty&&<span style={{padding:"6px 12px",borderRadius:8,background:T.warn+"12",color:T.warn,fontSize:FS-2,fontWeight:700,display:"flex",alignItems:"center",gap:6}}>
+        <span style={{width:8,height:8,borderRadius:"50%",background:T.warn,display:"inline-block"}}></span>
+        فيه تعديلات مش متحفظة
+      </span>}
+      <Btn ghost onClick={resetPerms} disabled={!permsDirty}>↩️ تراجع</Btn>
+      <Btn primary onClick={savePerms} disabled={!permsDirty} style={{fontWeight:800}}>💾 حفظ الصلاحيات</Btn>
+    </div>
+  </div>;
+}
+
 export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,theme,setTheme,season,orders,syncWsIds,replaceOrder,updOrder,configDoc,salesDoc,tasksDoc}){
   /* V16.6: newSeason state removed — now inside SeasonsCard */
   const[newUserEmail,setNewUserEmail]=useState("");const[newUserRole,setNewUserRole]=useState("viewer");
@@ -1874,131 +2006,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {/* Send Notifications */}
     {/* Permissions Management */}
     <Card title="🔐 صلاحيات المستخدمين" style={{marginBottom:16}}>
-      {(()=>{
-        /* V15.66: Draft pattern — changes buffered locally, saved on explicit "حفظ" button */
-        const livePerms=config.permissions||{};
-        const[draftPerms,setDraftPerms]=useState(()=>JSON.parse(JSON.stringify(livePerms)));
-        const[permsDirty,setPermsDirty]=useState(false);
-        /* Re-sync draft from live whenever the upstream changes AND there are no unsaved changes */
-        useEffect(()=>{if(!permsDirty)setDraftPerms(JSON.parse(JSON.stringify(livePerms)))},[livePerms,permsDirty]);
-        /* V15.28: Added payroll_accountant and payroll_verifier roles for separation of duties */
-        const roles=["admin","manager","sales_accountant","purchase_accountant","payroll_accountant","payroll_verifier","viewer"];
-        const roleLabels={admin:"أدمن",manager:"مدير",sales_accountant:"مبيعات",purchase_accountant:"مشتريات",payroll_accountant:"محاسب مرتبات",payroll_verifier:"مُؤكِّد استلام",viewer:"مشاهد"};
-        const tabs=TABS;
-        const levels=["edit","view","hide"];
-        const levelLabels={edit:"✏️ تعديل",view:"👁 عرض",hide:"❌ مخفي"};
-        const levelColors={edit:T.ok,view:T.warn,hide:T.err};
-        /* V15.66: Draft setters — mutate local state only */
-        const setPerm=(role,tabKey,level)=>{
-          setDraftPerms(p=>{const n=JSON.parse(JSON.stringify(p));if(!n[role])n[role]={};n[role][tabKey]=level;return n});
-          setPermsDirty(true);
-        };
-        const setHrSubPerm=(role,subKey,level)=>{
-          setDraftPerms(p=>{
-            const n=JSON.parse(JSON.stringify(p));
-            if(!n[role])n[role]={};
-            let hrPerm=n[role].hr;
-            if(typeof hrPerm==="string")hrPerm={weeks:hrPerm,verify:hrPerm,employees:hrPerm,security:hrPerm};
-            if(!hrPerm||typeof hrPerm!=="object")hrPerm={};
-            hrPerm[subKey]=level;
-            n[role].hr=hrPerm;
-            return n;
-          });
-          setPermsDirty(true);
-        };
-        const savePerms=()=>{
-          upConfig(d=>{d.permissions=JSON.parse(JSON.stringify(draftPerms))});
-          setPermsDirty(false);
-          showToast("✓ تم حفظ الصلاحيات");
-        };
-        const resetPerms=()=>{
-          setDraftPerms(JSON.parse(JSON.stringify(livePerms)));
-          setPermsDirty(false);
-        };
-        /* V15.28: Default permissions for all roles (incl. new ones) */
-        const defPerms={
-          admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit",treasury:"edit",hr:{weeks:"edit",verify:"edit",employees:"edit",security:"edit"}},
-          manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit",treasury:"view",hr:{weeks:"view",verify:"view",employees:"view",security:"view"}},
-          sales_accountant:{dashboard:"view",details:"view",external:"hide",stock:"view",reports:"edit",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit",treasury:"hide",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"}},
-          purchase_accountant:{dashboard:"view",details:"view",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"hide",treasury:"edit",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"}},
-          payroll_accountant:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"view",hr:{weeks:"edit",verify:"hide",employees:"edit",security:"view"}},
-          payroll_verifier:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"view",hr:{weeks:"view",verify:"edit",employees:"view",security:"view"}},
-          viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"hide",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"}}
-        };
-        /* Helpers to read current HR sub-permission with backward compat — reads from DRAFT */
-        const getHrCur=(r,subKey)=>{
-          const rp=draftPerms[r]||{};
-          let hrPerm=rp.hr;
-          if(hrPerm===undefined||hrPerm===null)hrPerm=defPerms[r]?.hr;
-          if(typeof hrPerm==="string")return hrPerm;/* backward compat */
-          if(hrPerm&&typeof hrPerm==="object")return hrPerm[subKey]||defPerms[r]?.hr?.[subKey]||"hide";
-          return"hide";
-        };
-        /* HR sub-rows with labels */
-        const hrSubRows=[
-          {key:"weeks",label:"━ جدول المرتبات والأسابيع",icon:"📅"},
-          {key:"verify",label:"━ تأكيد استلام (QR)",icon:"🔐"},
-          {key:"employees",label:"━ إدارة الموظفين",icon:"👷"},
-          {key:"security",label:"━ الأمن والرقابة",icon:"🛡️"}
-        ];
-        return<div style={{overflowX:"auto"}}>
-          <div style={{fontSize:FS-2,color:T.textMut,marginBottom:10,padding:"8px 12px",background:T.accent+"08",borderRadius:8,lineHeight:1.7}}>
-            💡 <b>محاسب مرتبات</b>: يحسب المرتبات بس مش بيقدر يؤكد الاستلام.<br/>
-            💡 <b>مُؤكِّد استلام</b>: يسكن QR بس، ومش بيقدر يعدل أي مبلغ.<br/>
-            🛡️ <b>فصل الصلاحيات</b>: المحاسب اللي عدّل المرتب ممنوع يؤكد استلامه (إلا الأدمن).
-          </div>
-          <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
-            <thead><tr><th style={TH}>الشاشة</th>{roles.map(r=><th key={r} style={{...TH,textAlign:"center",fontSize:FS-2}}>{roleLabels[r]}</th>)}</tr></thead>
-            <tbody>{tabs.map(t=>{
-              /* If this tab is "hr", render the parent row + 4 sub-rows */
-              if(t.key==="hr"){
-                return<React.Fragment key="hr-group">
-                  <tr style={{background:T.accent+"08"}}>
-                    <td style={{...TD,fontWeight:800,color:T.accent}}>
-                      <span style={{marginLeft:6}}>{t.icon}</span>{t.label}
-                      <span style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginInlineStart:6}}>(4 أقسام)</span>
-                    </td>
-                    {roles.map(r=><td key={r} style={{...TD,textAlign:"center",color:T.textMut,fontSize:FS-3,fontStyle:"italic"}}>↓ أقسام فرعية</td>)}
-                  </tr>
-                  {hrSubRows.map(sub=><tr key={"hr-"+sub.key}>
-                    <td style={{...TD,paddingInlineStart:24,fontSize:FS-2,color:T.textSec}}>
-                      <span style={{marginLeft:6}}>{sub.icon}</span>{sub.label}
-                    </td>
-                    {roles.map(r=>{
-                      const cur=getHrCur(r,sub.key);
-                      return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px"}}>
-                        <select value={cur} onChange={e=>setHrSubPerm(r,sub.key,e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:levelColors[cur],fontWeight:700,cursor:"pointer"}}>
-                          {levels.map(l=><option key={l} value={l}>{levelLabels[l]}</option>)}
-                        </select>
-                      </td>;
-                    })}
-                  </tr>)}
-                </React.Fragment>;
-              }
-              /* Non-HR tab — regular rendering, reads from draft */
-              return<tr key={t.key}>
-                <td style={{...TD,fontWeight:600}}><span style={{marginLeft:6}}>{t.icon}</span>{t.label}</td>
-                {roles.map(r=>{const cur=(draftPerms[r]||{})[t.key]||(defPerms[r]||{})[t.key]||"view";
-                  return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px"}}>
-                    {r==="admin"&&t.key==="settings"?<span style={{fontSize:FS-2,color:T.ok,fontWeight:600}}>✏️ دائماً</span>:
-                    <select value={cur} onChange={e=>setPerm(r,t.key,e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:levelColors[cur],fontWeight:700,cursor:"pointer"}}>
-                      {levels.map(l=><option key={l} value={l}>{levelLabels[l]}</option>)}
-                    </select>}
-                  </td>})}
-              </tr>;
-            })}</tbody>
-          </table>
-          {/* V15.66: Save/Cancel buttons — only visible when there are unsaved changes */}
-          <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:14,paddingTop:14,borderTop:"1px solid "+T.brd}}>
-            {permsDirty&&<span style={{padding:"6px 12px",borderRadius:8,background:T.warn+"12",color:T.warn,fontSize:FS-2,fontWeight:700,display:"flex",alignItems:"center",gap:6}}>
-              <span style={{width:8,height:8,borderRadius:"50%",background:T.warn,display:"inline-block"}}></span>
-              فيه تعديلات مش متحفظة
-            </span>}
-            <Btn ghost onClick={resetPerms} disabled={!permsDirty}>↩️ تراجع</Btn>
-            <Btn primary onClick={savePerms} disabled={!permsDirty} style={{fontWeight:800}}>💾 حفظ الصلاحيات</Btn>
-          </div>
-        </div>;
-      })()}
+      <PermissionsCard config={config} upConfig={upConfig} T={T} FS={FS} TABS={TABS} Btn={Btn} showToast={showToast}/>
     </Card>
     </>}
     {activeTab==="printing" && <>

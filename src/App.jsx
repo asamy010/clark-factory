@@ -6,7 +6,7 @@ import { doc, setDoc, onSnapshot, collection, addDoc, updateDoc, deleteDoc, getD
 
 /* ─── V15.0 Module imports (refactored from monolith) ─── */
 import { FKEYS, FCOL, WS_TYPES, COLORS_DB, THEMES, DEFAULT_STATUSES, INIT_CONFIG, GARMENT_ICONS, QUALITY_MAP, FS, PRINT_CSS } from "./constants/index.js";
-import { CLARK_LOGO } from "./constants/logo.js";
+import { CLARK_LOGO, CLARK_LOGO_PRINT } from "./constants/logo.js";
 import { gid, fmt, r2, gf, getSizesFromSet, dayName, openWA } from "./utils/format.js";
 import { playBeep } from "./utils/audio.js";
 import { compressImage, compressImg43 } from "./utils/image.js";
@@ -1301,7 +1301,7 @@ export default function App(){
           <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}
           </span>
-          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V16.53</span>
+          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V16.56</span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -2092,7 +2092,7 @@ export default function App(){
               const origin=(typeof window!=="undefined"&&window.location)?window.location.origin:"";
               confirmUrl=origin+"/?act=wsdel&ord="+encodeURIComponent(labelPopup.orderId)+"&ws="+encodeURIComponent(labelPopup.wsId)+"&idx="+labelPopup.deliveryIdx;
             }
-            renderLabelPages(labelPopup,labelBags,data?.printSettings,CLARK_LOGO,confirmUrl)
+            renderLabelPages(labelPopup,labelBags,data?.printSettings,CLARK_LOGO_PRINT,confirmUrl)
           }} style={{background:T.accent,color:"#fff",border:"none",fontWeight:700}}>{"🖨 طباعة "+labelBags}</Btn>
         </div>
       </div>
@@ -2141,7 +2141,7 @@ export default function App(){
       const qrMM=Math.min(lw-mg*2,lh-mg*2)-8;
       const buildLabel=(qrText,modelNo,desc,sizeStr,seriesStr)=>{let h="<div class='lbl'>";
         /* V16.49: logo overrides brand-text when enabled. brightness(0) forces pure black for thermal print. */
-        if(showLogoFlag)h+="<img src='"+CLARK_LOGO+"' alt='CLARK' style='width:75%;max-width:30mm;height:auto;max-height:7mm;object-fit:contain;filter:brightness(0) saturate(100%);margin-bottom:0.5mm;display:block;margin-left:auto;margin-right:auto'/>";
+        if(showLogoFlag)h+="<img src='"+CLARK_LOGO_PRINT+"' alt='CLARK' style='width:75%;max-width:30mm;height:auto;max-height:7mm;object-fit:contain;filter:brightness(0) saturate(100%);margin-bottom:0.5mm;display:block;margin-left:auto;margin-right:auto'/>";
         else if(fl.brand?.show)h+="<div style='font-weight:900;font-size:"+((fl.brand?.size||14)/2.5)+"mm;letter-spacing:2px;line-height:1'>CLARK</div>";
         if(fl.modelNo?.show!==false)h+="<div style='font-weight:800;font-size:"+((fl.modelNo?.size||12)/2.5)+"mm;line-height:1.1'>"+modelNo+"</div>";
         if(fl.desc?.show)h+="<div style='font-size:"+((fl.desc?.size||10)/2.5)+"mm;color:#444;line-height:1'>"+desc+"</div>";

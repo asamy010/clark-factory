@@ -14,7 +14,7 @@ import { addAudit } from "../utils/audit.js";
 import { ask, showToast } from "../utils/popups.js";
 import { pushUndo } from "../utils/undo.js";
 import { printPage, printEmpQrCards, printSalaryEnvelopes, openPrintWindow } from "../utils/print.js";
-import { CLARK_LOGO } from "../constants/logo.js";
+import { CLARK_LOGO_PRINT } from "../constants/logo.js";
 /* V15.25: Receipt queue — persistent storage for salary confirmation scans */
 import { addReceipt, removeReceipt, getPendingForWeek, getReadyForRetry, markAsFailed, getPendingCount, forceRetryAll } from "../utils/receiptQueue.js";
 import { Btn, Inp, Sel, Card, QRImg, QRScanner, SearchSel, useDebounced } from "../components/ui.jsx";
@@ -4945,7 +4945,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
 
           {/* Actions */}
           <div style={{display:"flex",gap:8,width:"100%",justifyContent:"center"}}>
-            <Btn onClick={()=>{printEmpQrCards([emp],data.printSettings,CLARK_LOGO);setEmpQrView(null)}} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}}>🎫 طباعة كارت بديل</Btn>
+            <Btn onClick={()=>{printEmpQrCards([emp],data.printSettings,CLARK_LOGO_PRINT);setEmpQrView(null)}} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}}>🎫 طباعة كارت بديل</Btn>
             <Btn ghost onClick={()=>setEmpQrView(null)} style={{background:"#F1F5F9",color:"#475569"}}>إغلاق</Btn>
           </div>
         </div>
@@ -6641,7 +6641,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           </div>
           {empSearch&&<Btn small onClick={()=>setEmpSearch("")} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",whiteSpace:"nowrap"}}>✕ مسح</Btn>}
           {/* V14.57: Bulk print QR cards */}
-          {canEdit&&activeEmps.length>0&&<Btn small onClick={()=>printEmpQrCards(activeEmps,data.printSettings,CLARK_LOGO)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",whiteSpace:"nowrap",fontWeight:700}} title={"طباعة كروت QR لكل الموظفين النشطين ("+activeEmps.length+")"}>🎫 كروت QR</Btn>}
+          {canEdit&&activeEmps.length>0&&<Btn small onClick={()=>printEmpQrCards(activeEmps,data.printSettings,CLARK_LOGO_PRINT)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",whiteSpace:"nowrap",fontWeight:700}} title={"طباعة كروت QR لكل الموظفين النشطين ("+activeEmps.length+")"}>🎫 كروت QR</Btn>}
         </div>
         {filteredEmps.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
           {["#","الاسم","الكود","الوظيفة","مرتب","حافز","ساعات","تليفون","رصيد","مديونيات","حالة",""].map(h=><th key={h} style={{padding:"7px 6px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
@@ -6677,7 +6677,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                   <span onClick={cancelInlineEdit} style={{cursor:"pointer",padding:"3px 6px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>✕</span>
                 </>:<>
                   <span onClick={()=>{setEmpStatement(e.id);setStmtFrom("");setStmtTo("")}} style={{cursor:"pointer",fontSize:13,padding:"3px 8px",borderRadius:6,background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}} title="كشف حساب تفصيلي">📄</span>
-                  <span onClick={()=>printEmpQrCards([e],data.printSettings,CLARK_LOGO)} style={{cursor:"pointer",fontSize:13,padding:"3px 8px",borderRadius:6,background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}} title="طباعة كارت QR">🎫</span>
+                  <span onClick={()=>printEmpQrCards([e],data.printSettings,CLARK_LOGO_PRINT)} style={{cursor:"pointer",fontSize:13,padding:"3px 8px",borderRadius:6,background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}} title="طباعة كارت QR">🎫</span>
                   <span onClick={()=>setEmpQrView(e.id)} style={{cursor:"pointer",fontSize:13,padding:"3px 8px",borderRadius:6,background:"#0EA5E912",color:"#0EA5E9",border:"1px solid #0EA5E930",fontWeight:700}} title="عرض QR على الشاشة (لو الموظف نسي كارته)">👁</span>
                   <span onClick={()=>openEditPopup(e)} style={{cursor:"pointer",fontSize:13,padding:"3px 8px",borderRadius:6,background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}} title="تعديل كل التفاصيل">✏️</span>
                   <span onClick={()=>{setShowDebtForm({empId:e.id});resetDebtForm();setDebtStart(today)}} style={{cursor:"pointer",fontSize:11}} title="+ مديونية">🧾</span>

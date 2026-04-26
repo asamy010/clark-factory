@@ -5,7 +5,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { PRINT_CSS } from "../constants/index.js";
-import { CLARK_LOGO } from "../constants/logo.js";
+import { CLARK_LOGO, CLARK_LOGO_PRINT } from "../constants/logo.js";
 import { renderTemplate } from "./templateEngine.js";
 import { getTemplate } from "./printTemplates.js";
 
