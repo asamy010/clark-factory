@@ -677,7 +677,152 @@ const CUST_LABEL_FIELDS=[
   {k:"qr",        l:"📱 QR للكرتونة"}
 ];
 
-export function LargeLabelSettingsCard({kind,config,upConfig,T,FS,showToast,Btn,Sel,Card,setDirty}){
+/* V16.52: Inline preview for the 10×15 large labels (workshop + customer).
+   Uses CSS to scale a 100×150mm representation down to ~200×300px on screen.
+   Renders the same visual elements as renderLabelPages / printPkgLabel so the
+   user can see the effect of font/logo/field toggles without printing. */
+function LargeLabelLivePreview({draft,kind,T,FS}){
+  const isWs=kind==="workshopLabel";
+  const qrCanvasRef=useRef(null);
+  const[qrReady,setQrReady]=useState(false);
+  /* Load QR lib for the preview QR code */
+  useEffect(()=>{
+    if(typeof window==="undefined")return;
+    if(window.QRCode){setQrReady(true);return}
+    const existing=document.querySelector("script[data-qr-lib]");
+    if(existing){existing.addEventListener("load",()=>setQrReady(true));return}
+    const s=document.createElement("script");
+    s.src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js";
+    s.setAttribute("data-qr-lib","1");
+    s.onload=()=>setQrReady(true);
+    document.head.appendChild(s);
+  },[]);
+  /* Repaint QR whenever any visible setting changes */
+  useEffect(()=>{
+    if(!qrReady||!qrCanvasRef.current||!window.QRCode)return;
+    try{
+      const sample=isWs?"https://app.clark/?act=wsdel&ord=demo":"CLARK:PKG:demo";
+      window.QRCode.toCanvas(qrCanvasRef.current,sample,{width:80,margin:1,errorCorrectionLevel:"M"},()=>{});
+    }catch(e){}
+  },[qrReady,JSON.stringify(draft)]);
+
+  /* Sample data — reflects the same fields renderLabelPages/printPkgLabel use */
+  const fontFam=draft.fontFamily||"Cairo";
+  const showLogo=!!draft.showLogo;
+  const f=draft.fields||{};
+  /* Scale 2x: 10cm × 15cm → 200px × 300px (fits a side-by-side column). */
+  const SCALE=2;const W=100*SCALE;const H=150*SCALE;const PAD=4*SCALE;
+
+  return<div style={{padding:10,borderRadius:10,background:T.bg,border:"1px solid "+T.brd,height:"100%",display:"flex",flexDirection:"column"}}>
+    <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <span>👁 معاينة مباشرة</span>
+      <span style={{fontSize:FS-3,color:T.textMut,fontWeight:500}}>10×15 سم</span>
+    </div>
+    <div style={{flex:1,display:"flex",justifyContent:"center",alignItems:"flex-start",padding:"12px 0",background:"#f8fafc",borderRadius:8,overflow:"auto"}}>
+      <div style={{
+        width:W,minHeight:H,background:"#fff",
+        boxShadow:"0 2px 12px rgba(0,0,0,0.10)",
+        padding:PAD,boxSizing:"border-box",
+        display:"flex",flexDirection:"column",
+        fontFamily:"'"+fontFam+"',Arial,sans-serif",
+        color:"#000",direction:"rtl",fontSize:9
+      }}>
+        {/* === Workshop label preview === */}
+        {isWs?<>
+          {/* Brand row */}
+          <div style={{textAlign:"center",paddingBottom:3,borderBottom:"2px solid #000",marginBottom:4}}>
+            {showLogo
+              ?<img src={CLARK_LOGO} alt="CLARK" style={{height:16,maxWidth:"60%",filter:"brightness(0) saturate(100%)",objectFit:"contain"}}/>
+              :<div style={{fontWeight:800,fontSize:11,letterSpacing:2}}>CLARK Factory</div>}
+          </div>
+          {/* Title chip */}
+          <div style={{textAlign:"center",fontSize:11,fontWeight:800,border:"2px solid #000",display:"block",width:"fit-content",padding:"2px 14px",borderRadius:4,margin:"0 auto 4px"}}>↗ تسليم ورشة</div>
+          {/* Big piece+qty */}
+          <div style={{textAlign:"center",padding:4,border:"2px solid #000",borderRadius:5,marginBottom:4}}>
+            <div style={{fontSize:13,fontWeight:800}}>تيشيرت</div>
+            <div style={{fontSize:18,fontWeight:800}}>200 قطعة</div>
+          </div>
+          {/* Data table — only enabled fields */}
+          <table style={{width:"100%",borderCollapse:"collapse",marginBottom:4,fontSize:9}}>
+            <tbody>
+              <tr><td style={{padding:"2px 6px",fontWeight:800,border:"1px solid #000",width:"35%"}}>الموديل</td><td style={{padding:"2px 6px",fontWeight:700,border:"1px solid #000"}}>3261105</td></tr>
+              {f.modelDesc?.show!==false&&<tr><td style={{padding:"2px 6px",fontWeight:800,border:"1px solid #000"}}>الوصف</td><td style={{padding:"2px 6px",fontWeight:700,border:"1px solid #000"}}>سوت اولادي 3 قطع</td></tr>}
+              {f.sizeLabel?.show!==false&&<tr><td style={{padding:"2px 6px",fontWeight:800,border:"1px solid #000"}}>المقاسات</td><td style={{padding:"2px 6px",fontWeight:700,border:"1px solid #000"}}>2-3-4-5</td></tr>}
+              <tr><td style={{padding:"2px 6px",fontWeight:800,border:"1px solid #000"}}>الورشة</td><td style={{padding:"2px 6px",fontWeight:700,border:"1px solid #000"}}>زياد شرقية</td></tr>
+              {f.cutQty?.show!==false&&<tr><td style={{padding:"2px 6px",fontWeight:800,border:"1px solid #000"}}>القص</td><td style={{padding:"2px 6px",fontWeight:700,border:"1px solid #000"}}>480</td></tr>}
+            </tbody>
+          </table>
+          {/* Movement row */}
+          <div style={{border:"2px solid #000",borderRadius:4,marginBottom:4}}>
+            <div style={{display:"flex",justifyContent:"space-between",padding:"3px 6px",fontSize:9,fontWeight:800}}>
+              <span>↗ تسليم</span><span>200</span><span>2026-04-26</span>
+            </div>
+          </div>
+          {/* QR + spacer */}
+          <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",marginTop:"auto",paddingTop:6,gap:6}}>
+            {f.qrConfirm?.show!==false?<div style={{textAlign:"center",padding:2,border:"2px solid #000",borderRadius:4}}>
+              <canvas ref={qrCanvasRef} style={{width:44,height:44,display:"block"}}/>
+              <div style={{fontSize:6,fontWeight:700,marginTop:1}}>📱 امسح للتأكيد</div>
+            </div>:<div/>}
+            <div style={{flex:1}}/>
+          </div>
+          <div style={{textAlign:"center",fontSize:7,color:"#555",paddingTop:2,borderTop:"1px dashed #000",marginTop:4}}>3261105 | تيشيرت | زياد شرقية</div>
+        </>:<>
+          {/* === Customer label preview === */}
+          <div style={{textAlign:"center",fontWeight:900,letterSpacing:3,padding:"3px 0",borderBottom:"2px solid #000",fontSize:11}}>
+            {showLogo
+              ?<img src={CLARK_LOGO} alt="CLARK" style={{height:18,maxWidth:"55%",filter:"brightness(0) saturate(100%)",objectFit:"contain"}}/>
+              :<span>CLARK</span>}
+          </div>
+          {/* Top: QR + package info */}
+          <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 0",borderBottom:"1px solid #999"}}>
+            {f.qr?.show!==false&&<canvas ref={qrCanvasRef} style={{width:50,height:50,flexShrink:0}}/>}
+            <div style={{flex:1,textAlign:"center"}}>
+              <div style={{fontSize:14,fontWeight:900,color:"#0EA5E9"}}>📦 PKG-001</div>
+              <div style={{fontSize:8,color:"#555"}}>2026-04-26{f.note?.show!==false?" — للعميل أحمد":""}</div>
+              <div style={{fontSize:8,fontWeight:700,display:"inline-block",padding:"1px 5px",borderRadius:3,background:"#10B98115",color:"#10B981"}}>مفتوحة ✅</div>
+            </div>
+          </div>
+          {/* Items section */}
+          <div style={{fontSize:7,fontWeight:800,color:"#475569",margin:"4px 0 2px",paddingBottom:1,borderBottom:"1px solid #E2E8F0"}}>محتويات الكرتونة</div>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead><tr style={{background:"#E2E8F0"}}>
+              <th style={{padding:"2px 4px",fontWeight:800,fontSize:7,border:"1px solid #94A3B8",textAlign:"right"}}>الموديل</th>
+              <th style={{padding:"2px 4px",fontWeight:800,fontSize:7,border:"1px solid #94A3B8"}}>الوصف</th>
+              <th style={{padding:"2px 4px",fontWeight:800,fontSize:7,border:"1px solid #94A3B8"}}>سيري</th>
+              <th style={{padding:"2px 4px",fontWeight:800,fontSize:7,border:"1px solid #94A3B8"}}>الكمية</th>
+            </tr></thead>
+            <tbody>
+              <tr><td style={{padding:"2px 4px",fontSize:8,fontWeight:800,border:"1px solid #CBD5E1"}}>3261105</td><td style={{padding:"2px 4px",fontSize:7,color:"#444",border:"1px solid #CBD5E1"}}>سوت اولادي</td><td style={{padding:"2px 4px",fontSize:8,textAlign:"center",border:"1px solid #CBD5E1"}}>10</td><td style={{padding:"2px 4px",fontSize:9,fontWeight:800,color:"#0EA5E9",textAlign:"center",border:"1px solid #CBD5E1"}}>40</td></tr>
+              <tr><td style={{padding:"2px 4px",fontSize:8,fontWeight:800,border:"1px solid #CBD5E1"}}>3261110</td><td style={{padding:"2px 4px",fontSize:7,color:"#444",border:"1px solid #CBD5E1"}}>تيشيرت</td><td style={{padding:"2px 4px",fontSize:8,textAlign:"center",border:"1px solid #CBD5E1"}}>5</td><td style={{padding:"2px 4px",fontSize:9,fontWeight:800,color:"#0EA5E9",textAlign:"center",border:"1px solid #CBD5E1"}}>20</td></tr>
+              <tr style={{background:"#EFF6FF"}}><td colSpan={2} style={{padding:"2px 4px",fontSize:8,fontWeight:800,border:"1px solid #CBD5E1"}}>الاجمالي</td><td style={{padding:"2px 4px",fontSize:8,fontWeight:800,textAlign:"center",border:"1px solid #CBD5E1"}}>15</td><td style={{padding:"2px 4px",fontSize:10,fontWeight:800,color:"#0EA5E9",textAlign:"center",border:"1px solid #CBD5E1"}}>60</td></tr>
+            </tbody>
+          </table>
+          {/* Movements section (optional) */}
+          {f.movements?.show!==false&&<>
+            <div style={{fontSize:7,fontWeight:800,color:"#475569",margin:"4px 0 2px",paddingBottom:1,borderBottom:"1px solid #E2E8F0"}}>سجل الحركات</div>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead><tr style={{background:"#E2E8F0"}}><th style={{padding:"1px 4px",fontWeight:800,fontSize:6,border:"1px solid #94A3B8"}}>التاريخ</th><th style={{padding:"1px 4px",fontWeight:800,fontSize:6,border:"1px solid #94A3B8"}}>النوع</th><th style={{padding:"1px 4px",fontWeight:800,fontSize:6,border:"1px solid #94A3B8"}}>التفاصيل</th></tr></thead>
+              <tbody>
+                <tr><td style={{padding:"1px 4px",fontSize:6,border:"1px solid #E2E8F0"}}>2026-04-26</td><td style={{padding:"1px 4px",fontSize:6,color:"#10B981",fontWeight:800,border:"1px solid #E2E8F0"}}>📥 إضافة</td><td style={{padding:"1px 4px",fontSize:6,border:"1px solid #E2E8F0"}}>3261105 — 40</td></tr>
+              </tbody>
+            </table>
+          </>}
+          {/* Footer */}
+          <div style={{marginTop:"auto",paddingTop:3,borderTop:"1px solid #000",display:"flex",justifyContent:"space-between",fontSize:6,color:"#888",fontWeight:600}}>
+            <span>{f.createdBy?.show!==false?"التعبئة: أحمد":""}</span>
+            <span>CLARK Factory Management</span>
+          </div>
+        </>}
+      </div>
+    </div>
+    <div style={{fontSize:FS-3,color:T.textMut,textAlign:"center",marginTop:6,lineHeight:1.5}}>
+      المعاينة تعكس التعديلات الحالية — 2x حجم الطباعة الفعلي
+    </div>
+  </div>;
+}
+
+export function LargeLabelSettingsCard({kind,config,upConfig,T,FS,isMob,showToast,Btn,Sel,Card,setDirty}){
   const isWs=kind==="workshopLabel";
   const title=isWs?"🏭 إعدادات ليبل تسليم الورش (10×15)":"📦 إعدادات ليبل كراتين العملاء (10×15)";
   const fieldList=isWs?WS_LABEL_FIELDS:CUST_LABEL_FIELDS;
@@ -710,26 +855,35 @@ export function LargeLabelSettingsCard({kind,config,upConfig,T,FS,showToast,Btn,
       {isWs?"إعدادات ليبل التسليم للورش (الذي يطبع من بطاقة تسليم الورشة، حجم 10×15 سم).":
             "إعدادات ليبل كراتين العملاء (الذي يطبع مع كل كرتونة جاهزة، حجم 10×15 سم)."}
     </div>
-    {/* Font + Logo */}
-    <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:14,flexWrap:"wrap",padding:"10px 12px",borderRadius:10,background:T.accent+"06",border:"1px solid "+T.accent+"20"}}>
-      <span style={{fontSize:FS-2,fontWeight:700,color:T.textSec}}>🔤 الخط:</span>
-      <Sel value={draft.fontFamily||"Cairo"} onChange={v=>update(d=>{d.fontFamily=v})} style={{width:170,fontSize:FS-2,fontFamily:"'"+(draft.fontFamily||"Cairo")+"',Arial,sans-serif"}}>
-        {FONT_OPTIONS.map(f=><option key={f} value={f} style={{fontFamily:"'"+f+"',Arial,sans-serif"}}>{f}</option>)}
-      </Sel>
-      <span style={{width:1,height:24,background:T.brd}}/>
-      <span onClick={()=>update(d=>{d.showLogo=!d.showLogo})} style={{cursor:"pointer",fontSize:FS-1,color:draft.showLogo?T.accent:T.textMut,padding:"4px 10px",borderRadius:6,border:"1px solid "+(draft.showLogo?T.accent+"40":T.brd),fontWeight:700,display:"inline-flex",alignItems:"center",gap:6}}>
-        {draft.showLogo?"☑":"☐"} 🏷️ لوجو CLARK
-      </span>
-    </div>
-    {/* Per-field toggles */}
-    <div style={{fontSize:FS-2,fontWeight:700,color:T.textSec,marginBottom:8}}>الحقول التي تظهر على الليبل:</div>
-    <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
-      {fieldList.map(f=>{const isOn=draft.fields[f.k]?.show!==false;
-        return<div key={f.k} onClick={()=>toggleField(f.k)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:8,background:isOn?T.accent+"08":T.bg,border:"1px solid "+(isOn?T.accent+"30":T.brd),cursor:"pointer"}}>
-          <span style={{fontSize:18,color:isOn?T.accent:T.textMut,fontWeight:800}}>{isOn?"☑":"☐"}</span>
-          <span style={{fontSize:FS-1,color:isOn?T.text:T.textSec,fontWeight:isOn?700:500}}>{f.l}</span>
-        </div>;
-      })}
+    {/* V16.52: Settings (right) + live preview (left) on the same row.
+        On mobile, stacks vertically; on desktop, shares the row 60/40. */}
+    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 280px",gap:16,marginBottom:16,alignItems:"stretch"}}>
+      {/* Settings column */}
+      <div>
+        {/* Font + Logo */}
+        <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:14,flexWrap:"wrap",padding:"10px 12px",borderRadius:10,background:T.accent+"06",border:"1px solid "+T.accent+"20"}}>
+          <span style={{fontSize:FS-2,fontWeight:700,color:T.textSec}}>🔤 الخط:</span>
+          <Sel value={draft.fontFamily||"Cairo"} onChange={v=>update(d=>{d.fontFamily=v})} style={{width:170,fontSize:FS-2,fontFamily:"'"+(draft.fontFamily||"Cairo")+"',Arial,sans-serif"}}>
+            {FONT_OPTIONS.map(f=><option key={f} value={f} style={{fontFamily:"'"+f+"',Arial,sans-serif"}}>{f}</option>)}
+          </Sel>
+          <span style={{width:1,height:24,background:T.brd}}/>
+          <span onClick={()=>update(d=>{d.showLogo=!d.showLogo})} style={{cursor:"pointer",fontSize:FS-1,color:draft.showLogo?T.accent:T.textMut,padding:"4px 10px",borderRadius:6,border:"1px solid "+(draft.showLogo?T.accent+"40":T.brd),fontWeight:700,display:"inline-flex",alignItems:"center",gap:6}}>
+            {draft.showLogo?"☑":"☐"} 🏷️ لوجو CLARK
+          </span>
+        </div>
+        {/* Per-field toggles */}
+        <div style={{fontSize:FS-2,fontWeight:700,color:T.textSec,marginBottom:8}}>الحقول التي تظهر على الليبل:</div>
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {fieldList.map(f=>{const isOn=draft.fields[f.k]?.show!==false;
+            return<div key={f.k} onClick={()=>toggleField(f.k)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:8,background:isOn?T.accent+"08":T.bg,border:"1px solid "+(isOn?T.accent+"30":T.brd),cursor:"pointer"}}>
+              <span style={{fontSize:18,color:isOn?T.accent:T.textMut,fontWeight:800}}>{isOn?"☑":"☐"}</span>
+              <span style={{fontSize:FS-1,color:isOn?T.text:T.textSec,fontWeight:isOn?700:500}}>{f.l}</span>
+            </div>;
+          })}
+        </div>
+      </div>
+      {/* Preview column */}
+      <LargeLabelLivePreview draft={draft} kind={kind} T={T} FS={FS}/>
     </div>
     <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:12,borderTop:"1px solid "+T.brd}}>
       <Btn ghost onClick={handleDiscard} disabled={!isDirty} style={!isDirty?{opacity:0.4}:{}}>↩️ إلغاء</Btn>
@@ -1502,6 +1656,12 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
   const[atSelUser,setAtSelUser]=useState("");const[atEditIdx,setAtEditIdx]=useState(null);const[nfEditUser,setNfEditUser]=useState("");
   const[linkMap,setLinkMap]=useState({});
   const[compressing,setCompressing]=useState(false);
+  /* V16.52: Active tab — restored from localStorage so the user lands on the
+     same section after navigating away. */
+  const[activeTab,setActiveTab]=useState(()=>{
+    try{return localStorage.getItem("clark_settings_tab")||"general"}catch(_){return"general"}
+  });
+  useEffect(()=>{try{localStorage.setItem("clark_settings_tab",activeTab)}catch(_){}}, [activeTab]);
 
   /* ═══════════════════════════════════════════════════════════════
      UNSAVED CHANGES TRACKING FRAMEWORK
@@ -1625,12 +1785,50 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
         </div>
       </div>
     </div>}
+    {/* V16.52: Tab navigation — groups settings by purpose for easier discovery.
+        Active tab persists in localStorage. The dirty-changes tracking still
+        works across tabs, so users won't lose unsaved edits when switching. */}
+    {(()=>{
+      const TABS=[
+        {key:"general",     icon:"🏢",label:"عام"},
+        {key:"users",       icon:"🔐",label:"المستخدمين"},
+        {key:"printing",    icon:"🖨",label:"الطباعة"},
+        {key:"business",    icon:"💰",label:"المالية والمبيعات"},
+        {key:"hr",          icon:"👥",label:"الموظفين"},
+        {key:"comms",       icon:"📢",label:"التواصل والإشعارات"},
+        {key:"maintenance", icon:"🔧",label:"الصيانة والنسخ"}
+      ];
+      /* Compute dirty count per tab — shows ✨ next to tabs with unsaved edits.
+         We don't have per-tab cards mapping, so we just show ✨ on the global level. */
+      return<div style={{position:"sticky",top:0,zIndex:20,background:T.cardSolid,borderBottom:"2px solid "+T.brd,marginBottom:14,paddingBottom:0,display:"flex",overflowX:"auto",scrollbarWidth:"thin",WebkitOverflowScrolling:"touch"}}>
+        {TABS.map(t=>{const isActive=activeTab===t.key;
+          return<div key={t.key} onClick={()=>setActiveTab(t.key)} style={{
+            flexShrink:0,padding:isMob?"10px 12px":"12px 18px",
+            cursor:"pointer",fontSize:FS-1,fontWeight:isActive?900:600,
+            color:isActive?T.accent:T.textSec,
+            borderBottom:"3px solid "+(isActive?T.accent:"transparent"),
+            marginBottom:-2,
+            transition:"all 0.15s",whiteSpace:"nowrap",
+            display:"inline-flex",alignItems:"center",gap:6
+          }} onMouseEnter={e=>{if(!isActive)e.currentTarget.style.color=T.text}}
+             onMouseLeave={e=>{if(!isActive)e.currentTarget.style.color=T.textSec}}>
+            <span style={{fontSize:isMob?14:16}}>{t.icon}</span>
+            <span>{t.label}</span>
+          </div>;
+        })}
+      </div>;
+    })()}
+    {activeTab==="general" && <>
     {/* V16.0: Size Budget Dashboard — tracks feature sizes against limits */}
     <SizeBudgetDashboard configDoc={configDoc} salesDoc={salesDoc} tasksDoc={tasksDoc}/>
     {/* V15.92: Device info card — shows deviceId, IP, location, and lets user name their device */}
     <DeviceInfoCard/>
+    </>}
+    {activeTab==="printing" && <>
     {/* V16.4: Print templates editor — customize all print templates with HTML/CSS */}
     <PrintTemplatesEditor config={config} upConfig={upConfig} canEdit={userRole==="admin"||userRole==="accountant"}/>
+    </>}
+    {activeTab==="general" && <>
     <SeasonsCard config={config} upConfig={upConfig} T={T} FS={FS} showToast={showToast} Inp={Inp} Btn={Btn} Card={Card} requirePass={requirePass} setDirty={(d)=>setDirtyCards(p=>({...p,seasons:d}))}/>
     <PoSettingsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Card={Card} poMigState={poMigState} setPoMigState={setPoMigState} poMigResult={poMigResult} setPoMigResult={setPoMigResult} requirePass={requirePass} runPoMigration={runPoMigration} setDirty={(d)=>setDirtyCards(p=>({...p,poSettings:d}))}/>
 
@@ -1644,6 +1842,8 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     </Card>
     {/* V16.5: Logo card with draft + save pattern */}
     <LogoCard config={config} upConfig={upConfig} T={T} FS={FS} showToast={showToast} Btn={Btn} Card={Card} requirePass={requirePass} compressImage={compressImage} setDirty={(d)=>setDirtyCards(p=>({...p,logo:d}))}/>
+    </>}
+    {activeTab==="users" && <>
     <Card title="ادارة المستخدمين" style={{marginBottom:16}}>
       {/* Create new user */}
       <div style={{padding:20,background:T.accentBg,borderRadius:14,marginBottom:20,border:"1px solid "+T.accent+"20"}}>
@@ -1800,11 +2000,15 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
         </div>;
       })()}
     </Card>
+    </>}
+    {activeTab==="printing" && <>
     {/* Print Settings — draft pattern */}
     <PrintSettingsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,printSettings:d}))}/>
     {/* V16.50: Separate settings for the 10×15 large labels (workshop + customer) */}
-    <LargeLabelSettingsCard kind="workshopLabel" config={config} upConfig={upConfig} T={T} FS={FS} showToast={showToast} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,workshopLabel:d}))}/>
-    <LargeLabelSettingsCard kind="customerLabel" config={config} upConfig={upConfig} T={T} FS={FS} showToast={showToast} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,customerLabel:d}))}/>
+    <LargeLabelSettingsCard kind="workshopLabel" config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,workshopLabel:d}))}/>
+    <LargeLabelSettingsCard kind="customerLabel" config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,customerLabel:d}))}/>
+    </>}
+    {activeTab==="business" && <>
     {/* Treasury Settings — draft pattern */}
     <TreasurySettingsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,treasurySettings:d}))} userRole={userRole}/>
 
@@ -1897,20 +2101,28 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
           </div>
         </div>})()}
     </Card>
+    </>}
 
+    {activeTab==="comms" && <>
     {/* WhatsApp Report Contacts Settings — with draft pattern + save button */}
     <WaContactsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,waContacts:d}))}/>
+    </>}
 
+    {activeTab==="hr" && <>
     {/* HR Settings — draft pattern */}
     <HrSettingsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,hrSettings:d}))}/>
 
     {/* Security Flags Settings */}
     <SecurityAlertsCard config={config} upConfig={upConfig} T={T} FS={FS} showToast={showToast} Inp={Inp} Btn={Btn} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,securityAlerts:d}))}/>
+    </>}
 
     {/* Sales Settings */}
+    {activeTab==="business" && <>
     {/* Sales Settings — draft pattern */}
     <SalesSettingsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,salesSettings:d}))}/>
+    </>}
 
+    {activeTab==="maintenance" && <>
     {/* Data Maintenance */}
     <Card title="🔧 صيانة البيانات" style={{marginBottom:16}}>
       {(()=>{
@@ -2271,7 +2483,9 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
           :<div style={{fontSize:FS-1,color:T.ok,fontWeight:600}}>✅ البيانات نظيفة — لا توجد سجلات يتيمة</div>}
         </div>})()}
     </Card>
+    </>}
     {/* ── Auto Bot Tasks Settings (multi-user) ── */}
+    {activeTab==="comms" && <>
     {/* ── Notification Control ── */}
     <Card title="🔔 التحكم في الاشعارات" style={{marginTop:16}}>
       {(()=>{const users=config.usersList||[];const prefs=config.notifPrefs||{};
@@ -2367,8 +2581,10 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
           </div>}
         </div>})()}
     </Card>
+    </>}
 
     {/* ═══ BACKUP & RESTORE ═══ */}
+    {activeTab==="business" && <>
     {/* ═══ ODOO LINKS ═══ */}
     <Card title="🔗 Odoo — إدارة الاختصارات" style={{marginTop:16}}>
       {(()=>{
@@ -2409,8 +2625,11 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
           </div>
         </div>})()}
     </Card>
+    </>}
 
+    {activeTab==="maintenance" && <>
     <BackupRestoreCard config={config} salesDoc={salesDoc} tasksDoc={tasksDoc} orders={orders} isMob={isMob}/>
+    </>}
   </div>
 }
 
