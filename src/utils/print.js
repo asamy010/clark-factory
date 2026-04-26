@@ -129,15 +129,40 @@ export function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,c
   +"<script>QRCode.toCanvas(document.getElementById('qr'),'"+qrData.replace("'","\\'")+"',{width:120,margin:1},()=>{});setTimeout(()=>window.print(),800)</"+"script></body></html>");
   pw.document.close()}
 
-/* V14.57: Print employee QR cards — 40×50mm (half the size of package labels) */
-export function printEmpQrCards(empsList){
+/* V14.57: Print employee QR cards — 40×50mm (half the size of package labels)
+   V16.36: Accepts optional cfg + clarkLogoDataUrl from the caller. When cfg is
+   set, the cards render with the configured font (Cairo/Tajawal/Almarai/...)
+   and optionally the CLARK logo at the top in pure black instead of the
+   default "CLARK" text band. The logo image is forced to pure black via a CSS
+   filter so it prints crisp on thermal media. */
+const _GOOGLE_FONT_URLS_QR={
+  Cairo:"https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&display=swap",
+  Tajawal:"https://fonts.googleapis.com/css2?family=Tajawal:wght@500;700;800;900&display=swap",
+  Almarai:"https://fonts.googleapis.com/css2?family=Almarai:wght@700;800&display=swap",
+  "Noto Sans Arabic":"https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@600;700;800;900&display=swap",
+  "IBM Plex Sans Arabic":"https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@500;600;700&display=swap",
+  Amiri:"https://fonts.googleapis.com/css2?family=Amiri:wght@700&display=swap",
+  Lalezar:"https://fonts.googleapis.com/css2?family=Lalezar&display=swap"
+};
+export function printEmpQrCards(empsList,cfg,clarkLogoDataUrl){
   const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+  const c=cfg||{};
+  const fontFam=c.fontFamily||"Cairo";
+  const fontUrl=_GOOGLE_FONT_URLS_QR[fontFam]||_GOOGLE_FONT_URLS_QR.Cairo;
+  const showLogo=!!c.showLogo;
+  const w=Number(c.labelWidth)||40;
+  const h=Number(c.labelHeight)||50;
+  const qrColor=c.qrColor||"#000000";
+  const qrLevel=c.qrLevel||"M";
+  const qrMargin=c.qrMargin!==undefined?Number(c.qrMargin):0;
   let cards="";
   empsList.forEach((e,i)=>{
     const qr=("CLARK:EMP:"+e.id).replace(/'/g,"\\'");
     /* Each card is its own thermal page — no sheet grid */
     cards+="<div class='card'>"
-      +"<div class='brand'>CLARK</div>"
+      +(showLogo&&clarkLogoDataUrl
+        ?"<img class='logo' src='"+clarkLogoDataUrl+"' alt='CLARK'/>"
+        :"<div class='brand'>CLARK</div>")
       +"<canvas class='qr' data-qr='"+qr+"'></canvas>"
       +"<div class='nm'>"+(e.name||"")+"</div>"
       +"<div class='cd'>"+(e.code?"#"+e.code:"")+"</div>"
@@ -145,26 +170,28 @@ export function printEmpQrCards(empsList){
   });
   pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/>"
     +"<script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script>"
-    +"<link href='https://fonts.googleapis.com/css2?family=Cairo:wght@600;800;900&display=swap' rel='stylesheet'/>"
+    +"<link href='"+fontUrl+"' rel='stylesheet'/>"
     +"<style>"
-    /* V14.58: Thermal 40×50mm — one card per page (like printPkgLabel pattern) */
-    +"@page{size:40mm 50mm;margin:0}"
+    /* V14.58: Thermal 40×50mm — one card per page (like printPkgLabel pattern)
+       V16.36: dimensions, font, and optional logo from printSettings */
+    +"@page{size:"+w+"mm "+h+"mm;margin:0}"
     +"*{margin:0;padding:0;box-sizing:border-box}"
-    +"body{font-family:'Cairo',sans-serif;color:#000;background:#fff}"
-    +".card{width:40mm;height:50mm;padding:2mm;display:flex;flex-direction:column;align-items:center;justify-content:space-between;page-break-after:always;overflow:hidden}"
+    +"body{font-family:'"+fontFam+"',Arial,sans-serif;color:#000;background:#fff}"
+    +".card{width:"+w+"mm;height:"+h+"mm;padding:2mm;display:flex;flex-direction:column;align-items:center;justify-content:space-between;page-break-after:always;overflow:hidden}"
     +".card:last-child{page-break-after:auto}"
+    +".logo{width:80%;max-width:32mm;height:auto;max-height:7mm;object-fit:contain;filter:brightness(0) saturate(100%);margin-bottom:0.5mm}"
     +".brand{font-size:9pt;font-weight:900;letter-spacing:2.5px;border-bottom:2px solid #000;width:100%;text-align:center;padding-bottom:1mm}"
     +".qr{width:26mm!important;height:26mm!important;margin:1mm 0}"
     +".nm{font-size:10pt;font-weight:800;text-align:center;width:100%;line-height:1.15;padding:0 1mm}"
     +".cd{font-size:9pt;font-weight:700;color:#000;text-align:center;font-family:monospace;border-top:1px dashed #000;width:100%;padding-top:1mm}"
     +".pbar{position:sticky;top:0;background:#fff;padding:6px;display:none;justify-content:center;gap:8px;border-bottom:2px solid #ccc;z-index:10}"
-    +".pbar button{padding:6px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:11px;font-weight:700;background:#fff}"
+    +".pbar button{padding:6px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'"+fontFam+"';font-size:11px;font-weight:700;background:#fff}"
     +".pbar .pr{background:#000;color:#fff}"
     +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
     +"</style></head><body>"
     +"<div class='pbar'><button onclick='window.close()'>↩ رجوع</button><button class='pr' onclick='window.print()'>🖨 طباعة حرارية</button></div>"
     +cards
-    +"<script>document.querySelectorAll('.qr').forEach(c=>{QRCode.toCanvas(c,c.dataset.qr,{width:98,margin:0,errorCorrectionLevel:'M'},()=>{})});setTimeout(()=>window.print(),1000)</"+"script></body></html>");
+    +"<script>document.querySelectorAll('.qr').forEach(c=>{QRCode.toCanvas(c,c.dataset.qr,{width:98,margin:"+qrMargin+",errorCorrectionLevel:'"+qrLevel+"',color:{dark:'"+qrColor+"',light:'#ffffff'}},()=>{})});setTimeout(()=>window.print(),1000)</"+"script></body></html>");
   pw.document.close()}
 
 /* Render workshop delivery/receive label pages (10cm × 15cm) */

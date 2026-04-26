@@ -115,7 +115,7 @@ export function MobileStockReceive({ data, updOrder, user, onDone, setDirty }) {
   if (step === "scan") {
     return (
       <div>
-        <StepHeader title="استلام مخزن جاهز" subtitle="امسح الموديلات الواردة" />
+        <StepHeader title="تسليم مخزن جاهز" subtitle="امسح الموديلات الواردة" />
 
         {showScanner ? (
           <div style={{ position: "relative", borderRadius: 14, overflow: "hidden", marginBottom: 14, border: "2px solid #0EA5E9" }}>
@@ -133,7 +133,7 @@ export function MobileStockReceive({ data, updOrder, user, onDone, setDirty }) {
         {items.length > 0 ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
             <div style={{ fontSize: 12, color: "#94A3B8", fontWeight: 700, paddingInlineStart: 4 }}>
-              استلام مصنع ({items.length} موديل • {totalQty} قطعة)
+              تسليم مخزن جاهز ({items.length} موديل • {totalQty} قطعة)
             </div>
             {items.map((it, i) => (
               <div key={i} style={{ ...S.card, display: "flex", alignItems: "center", gap: 10 }}>

@@ -17,6 +17,7 @@ import { enforceDataLimits } from "./utils/dataLimits.js";
 import { ask, tell, askInput, askForm, showToast, highlightRow } from "./utils/popups.js";
 import { printPage, printPkgLabel, printEmpQrCards, renderLabelPages, openPrintWindow } from "./utils/print.js";
 import { wsIsInternal, calcOrder, getConfirmedStock, checkStockAvailability, deductStockForOrder, calcWsRating, migrateStatus } from "./utils/orders.js";
+import { ensureCategoriesInit } from "./utils/categories.js";
 
 /* T, TH, TD, TDB, TDL imported from theme.js (V15.0 phase 2) — mutable module-level objects.
    setActiveTheme() is called when user switches theme to refresh their properties. */
@@ -533,6 +534,34 @@ export default function App(){
           });
           data._dayNameTzFixV1613=true;
           return"recomputed day for "+fixed+" treasury entries";
+        }
+      );
+
+      /* ═══ Migration: V16.31 — initialize itemCategories + inventoryItems ═══
+         Seeds the two core categories (قماش + اكسسوار) backed by existing
+         data.fabrics / data.accessories. New categories like "قطع غيار" can
+         be added through the UI, with their items in data.inventoryItems[]. */
+      runMigration("init-item-categories-v16-31",d,
+        (data)=>!data._categoriesInitV1631,
+        (data)=>{
+          ensureCategoriesInit(data);
+          data._categoriesInitV1631=true;
+          return"seeded "+(data.itemCategories||[]).length+" categories";
+        }
+      );
+
+      /* ═══ Migration: V16.33 — remove erroneous endorse treasury entries ═══
+         The old endorse code created a fake "out" treasury entry on a "CHECKS"
+         account, which mis-counted endorsements as cash outflow. Conceptually,
+         endorsing a customer check just changes its owner — no treasury
+         movement. This pass removes those entries. */
+      runMigration("clean-endorse-treasury-v16-33",d,
+        (data)=>!data._cleanEndorseTreasuryV1633&&Array.isArray(data.treasury)&&data.treasury.some(t=>t&&t.sourceType==="check_endorse"),
+        (data)=>{
+          const before=(data.treasury||[]).length;
+          data.treasury=(data.treasury||[]).filter(t=>!(t&&t.sourceType==="check_endorse"));
+          data._cleanEndorseTreasuryV1633=true;
+          return"removed "+(before-data.treasury.length)+" stale endorse entries";
         }
       );
 
@@ -1246,7 +1275,7 @@ export default function App(){
           <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}
           </span>
-          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V16.26</span>
+          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V16.38</span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>

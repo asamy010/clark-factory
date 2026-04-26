@@ -677,11 +677,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       .sales-page-buttons button[style*="padding: 6px 12px"],.sales-page-buttons button[style*="padding:6px 12px"]{padding:8px 16px !important}
       .sales-page-buttons button[style*="padding: 7px 16px"],.sales-page-buttons button[style*="padding:7px 16px"]{padding:9px 20px !important}
       .sales-page-buttons button[style*="padding: 9px 18px"],.sales-page-buttons button[style*="padding:9px 18px"]{padding:12px 24px !important}
-      .sales-primary-btn{position:relative;overflow:hidden;transition:all 0.2s cubic-bezier(0.4,0,0.2,1)}
-      .sales-primary-btn:hover{transform:translateY(-3px);box-shadow:0 12px 24px -8px var(--glow)}
-      .sales-primary-btn:active{transform:translateY(-1px)}
-      .sales-primary-btn::before{content:"";position:absolute;top:0;left:-100%;width:100%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.3),transparent);transition:left 0.6s}
-      .sales-primary-btn:hover::before{left:100%}
+      /* V16.38: Duotone primary buttons — subtle hover, no white sweep
+         (the pastel background doesn't suit a white shimmer effect). */
+      .sales-primary-btn{position:relative;transition:all 0.2s cubic-bezier(0.4,0,0.2,1)}
+      .sales-primary-btn:hover{transform:translateY(-2px);box-shadow:0 6px 12px -4px rgba(0,0,0,0.10)}
+      .sales-primary-btn:active{transform:translateY(0)}
       .sales-secondary-btn{transition:all 0.15s ease}
       .sales-secondary-btn:hover{transform:translateY(-2px);box-shadow:0 6px 12px -4px rgba(0,0,0,0.1)}
       .sales-group-title{font-size:${FS-1}px;font-weight:800;color:${T.textSec};margin:0 0 10px;padding:0 4px;display:flex;align-items:center;gap:8px;text-transform:uppercase;letter-spacing:0.5px}
@@ -711,14 +711,20 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         refresh:ICON(<><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/></>)
       };
 
-      /* ═══ Primary action button — large, prominent ═══ */
-      const primaryBtn=(icon,label,subtitle,bgColor,darkColor,onClick,badge)=><div onClick={onClick} className="sales-primary-btn" style={{"--glow":bgColor+"60",background:"linear-gradient(135deg, "+bgColor+" 0%, "+darkColor+" 100%)",color:"#fff",borderRadius:14,padding:isMob?"12px 10px":"18px 16px",cursor:"pointer",boxShadow:"0 6px 12px -4px "+bgColor+"50",display:"flex",flexDirection:isMob?"column":"row",alignItems:"center",gap:isMob?6:14,minHeight:isMob?90:100,position:"relative"}}>
-        <div style={{background:"rgba(255,255,255,0.18)",borderRadius:12,padding:isMob?8:12,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(4px)"}}>{icon}</div>
-        <div style={{flex:1,textAlign:isMob?"center":"right",minWidth:0}}>
-          <div style={{fontSize:isMob?FS:FS+3,fontWeight:900,lineHeight:1.2,marginBottom:isMob?0:3}}>{label}</div>
-          {!isMob&&subtitle&&<div style={{fontSize:FS-3,opacity:0.85,fontWeight:500}}>{subtitle}</div>}
+      /* ═══ V16.38 Primary action button — Duotone (Option C):
+         - pastel background (15% of color)
+         - solid filled icon container in full color
+         - dark text label, color text subtitle
+         - single-line text using ellipsis on overflow
+         - badge: solid color circle on the corner
+      */
+      const primaryBtn=(icon,label,subtitle,bgColor,darkColor,onClick,badge)=><div onClick={onClick} className="sales-primary-btn" style={{background:bgColor+"15",borderRadius:14,padding:isMob?"10px 12px":"14px 16px",cursor:"pointer",display:"flex",flexDirection:"row",alignItems:"center",gap:isMob?10:14,minHeight:isMob?72:88,position:"relative",transition:"transform 0.15s, box-shadow 0.15s"}}>
+        <div style={{background:bgColor,color:"#fff",borderRadius:12,width:isMob?44:52,height:isMob?44:52,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:"0 4px 8px -2px "+bgColor+"40"}}>{icon}</div>
+        <div style={{flex:1,textAlign:"start",minWidth:0,overflow:"hidden"}}>
+          <div style={{fontSize:isMob?FS:FS+2,fontWeight:800,lineHeight:1.2,color:darkColor,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</div>
+          {subtitle&&<div style={{fontSize:FS-3,color:bgColor,fontWeight:600,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{subtitle}</div>}
         </div>
-        {badge!=null&&badge>0&&<div style={{position:"absolute",top:-6,insetInlineStart:-6,background:"#fff",color:bgColor,minWidth:22,height:22,borderRadius:11,padding:"0 7px",fontSize:11,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 2px 6px rgba(0,0,0,0.25)"}}>{badge}</div>}
+        {badge!=null&&badge>0&&<div style={{position:"absolute",top:-6,insetInlineStart:-6,background:bgColor,color:"#fff",minWidth:22,height:22,borderRadius:11,padding:"0 7px",fontSize:11,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 2px 6px "+bgColor+"60"}}>{badge}</div>}
       </div>;
 
       /* ═══ Secondary action button — grouped tiles ═══ */
@@ -736,7 +742,12 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         const k=o.id+"_"+d.custId;orp.grid[k]=(orp.grid[k]||0)+(Number(d.qty)||0);
         if(d.date)orp.dates.push(d.date);orp.total+=(Number(d.qty)||0)}})});
       const oList=Object.values(orphans);
-      const pendingRcvCount=orders.reduce((s,o)=>s+(o.deliveries||[]).filter(d=>d.status==="pending").length,0);
+      /* V16.27: count orders with non-zero pending — matches the popup filter
+         (entries with qty=0 are stale leftovers that don't appear in the list). */
+      const pendingRcvCount=orders.reduce((s,o)=>{
+        const totalPending=(o.deliveries||[]).filter(d=>d.status==="pending").reduce((ss,d)=>ss+(Number(d.qty)||0),0);
+        return s+(totalPending>0?1:0);
+      },0);
 
       const recoverAction=async()=>{
         if(!await ask("استعادة التوزيعات","تم العثور على "+oList.length+" توزيعة محذوفة ("+oList.reduce((s,o)=>s+o.total,0)+" قطعة).\n\nهل تريد استعادتها؟",{confirmText:"استعادة"}))return;
@@ -1079,10 +1090,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             <tr style={{background:T.ok+"08"}}><td style={{...TD,fontWeight:800,color:T.ok}}>اجمالي توزيع</td>
               {fMods.map(m=>{const mt=fCusts.reduce((s,c)=>s+getGroupQty(m,c.id),0);return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,color:T.ok}}>{mt||"—"}</td>})}
               <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#fff",background:T.ok}}>{fCusts.reduce((s,c)=>s+fMods.reduce((ss,m)=>ss+getGroupQty(m,c.id),0),0)}</td><td style={TD}></td></tr>
-            <tr><td style={{...TD,fontWeight:700,color:T.textSec}}>استلام مخزن جاهز</td>
+            <tr><td style={{...TD,fontWeight:700,color:T.textSec}}>تسليم مخزن جاهز</td>
               {aMods.map(m=><td key={m.id} style={{...TD,textAlign:"center",fontWeight:700}}>{m.stockQty}</td>)}
               <td style={{...TD,textAlign:"center",fontWeight:700,color:T.textSec}}>{aMods.reduce((s,m)=>s+(Number(m.stockQty)||0),0)}</td><td style={TD}></td></tr>
-            {/* V15.30: رصيد توزيع = استلام مخزن جاهز - اجمالي توزيع (using group-aware getGroupQty) */}
+            {/* V15.30: رصيد توزيع = تسليم مخزن جاهز - اجمالي توزيع (using group-aware getGroupQty) */}
             <tr><td style={{...TD,fontWeight:700,color:"#0EA5E9"}}>رصيد توزيع</td>
               {aMods.map(m=>{const mt=aCusts.reduce((s,c)=>s+getGroupQty(m,c.id),0);const bal=(Number(m.stockQty)||0)-mt;return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:700,color:bal>=0?"#0EA5E9":"#EF4444"}}>{bal}</td>})}
               <td style={{...TD,textAlign:"center",fontWeight:700,color:"#0EA5E9"}}>{aMods.reduce((s,m)=>{const mt=aCusts.reduce((ss,c)=>ss+getGroupQty(m,c.id),0);return s+((Number(m.stockQty)||0)-mt)},0)}</td><td style={TD}></td></tr>
@@ -2547,7 +2558,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           </div>}
         </div>
       </div>})()}
-    {/* Stock Receive from Finishing - استلام مخزن جاهز */}
+    {/* Stock Receive from Finishing - تسليم مخزن جاهز */}
     {stockRcv&&(()=>{const rcvItems=stockRcv.items||{};
       /* V16.18: compute once and filter on the same value displayed.
          Old code had filter+map run rcvFromWs-allDel twice, which can drift
@@ -2575,11 +2586,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const confirmStockRcv=()=>{if(totalRcv<=0){showToast("⚠️ لا توجد كميات للاستلام");return}
         Object.entries(rcvItems).forEach(([oid,qty])=>{if(qty<=0)return;updOrder(oid,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty,notes:"تسليم للمخزن",createdBy:userName||"",status:"pending"})})});
         playBeep("done");showToast("⏳ تم تسجيل "+totalRcv+" قطعة — في انتظار تأكيد أمين المخزن");closeStockCam();setStockRcv(null)};
-      const printStockRcv=()=>{let h="<h2 style='text-align:center'>📥 إذن استلام مخزن جاهز — "+new Date().toISOString().split("T")[0]+"</h2>";
-        h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>متاح من التشطيب</th><th>استلام مصنع</th><th>الفرق</th></tr></thead><tbody>";
+      const printStockRcv=()=>{let h="<h2 style='text-align:center'>📥 إذن تسليم مخزن جاهز — "+new Date().toISOString().split("T")[0]+"</h2>";
+        h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>متاح من التشطيب</th><th>تسليم مخزن جاهز</th><th>الفرق</th></tr></thead><tbody>";
         available.forEach(m=>{const rcv=rcvItems[m.id]||0;const diff=rcv-m.fromFinishing;h+="<tr><td style='font-weight:800'>"+m.modelNo+"</td><td>"+m.modelDesc+"</td><td style='text-align:center'>"+m.fromFinishing+"</td><td style='text-align:center;font-weight:800;color:#0EA5E9'>"+rcv+"</td><td style='text-align:center;font-weight:800;color:"+(diff===0?"#10B981":diff>0?"#0EA5E9":"#EF4444")+"'>"+diff+"</td></tr>"});
         h+="<tr style='background:#F1F5F9;font-weight:800'><td colspan='3'>الاجمالي</td><td style='text-align:center;color:#0EA5E9'>"+totalRcv+"</td><td></td></tr></tbody></table>";
-        h+="<div class='sig'><div class='sig-box'>مسؤول التشطيب</div><div class='sig-box'>أمين المخزن<br/>"+(userName||"")+"</div></div>";printPage("استلام مخزن جاهز",h)};
+        h+="<div class='sig'><div class='sig-box'>مسؤول التشطيب</div><div class='sig-box'>أمين المخزن<br/>"+(userName||"")+"</div></div>";printPage("تسليم مخزن جاهز",h)};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>{closeStockCam();setStockRcv(null)}}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,width:"100%",maxWidth:isMob?"100%":650,maxHeight:"92vh",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
           <div style={{padding:isMob?"12px 16px":"16px 24px",borderBottom:"1px solid "+T.brd,flexShrink:0}}>
@@ -2607,7 +2618,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           </div>
           <div style={{flex:1,overflowY:"auto",overflowX:"auto",padding:isMob?"8px 16px 16px":"8px 24px 24px"}}>
           <div style={{border:"1px solid "+T.brd,borderRadius:12,overflow:"hidden"}}>
-            <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","الوصف","من التشطيب","استلام مصنع","الفرق","الحالة"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
+            <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","الوصف","من التشطيب","تسليم مخزن جاهز","الفرق","الحالة"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
               {available.map((m,i)=>{const rcv=rcvItems[m.id]||0;const diff=rcv-m.fromFinishing;
                 return<tr key={m.id} style={{background:i%2===0?"transparent":T.bg+"80"}}>
                   <td style={{...TD,fontWeight:700,color:T.accent}}>{m.modelNo}</td>
@@ -2827,7 +2838,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <div style={{fontSize:FS-2,color:T.textMut,marginBottom:8,padding:"8px 10px",background:"#F0F9FF",border:"1px solid #BAE6FD",borderRadius:8,lineHeight:1.6}}>
                 💡 <b>ملحوظة:</b> لو الموديل اتباع بالفعل للعميل وظهر هنا، يبقى فيه تسليم قديم مش متأكد. تقدر تحذفه من الزر الأحمر (🗑️).
               </div>
-              <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","معلّق","مباع للعميل","استلام مصنع","الفرق","إجراء"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
+              <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","معلّق","مباع للعميل","تسليم مخزن جاهز","الفرق","إجراء"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
                 {pendings.map(p=>{
                   const val=rcvItems[p.orderId]||0;
                   const diff=val-p.pendingQty;
@@ -2869,7 +2880,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             </div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>✅ لا توجد تسليمات معلّقة</div>}
           </div>
           <div style={{padding:"12px 24px",borderTop:"1px solid "+T.brd,flexShrink:0,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div style={{fontSize:FS,color:T.textMut}}>{"معلّق: "+totalPending+" | استلام مصنع: "+totalRcv}</div>
+            <div style={{fontSize:FS,color:T.textMut}}>{"معلّق: "+totalPending+" | تسليم مخزن جاهز: "+totalRcv}</div>
             <Btn onClick={confirmPending} disabled={totalRcv<=0} style={{background:"#10B981",color:"#fff",border:"none",fontWeight:700,padding:"8px 24px"}}>{"✅ تأكيد الاستلام ("+totalRcv+")"}</Btn>
           </div>
         </div></div>})()}
@@ -2896,7 +2907,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         ];
         rep.items.forEach(it=>{
           lines.push("• *"+it.modelNo+"* — "+it.modelDesc);
-          lines.push("  معلّق: "+it.pendingQty+" | استلام مصنع: "+it.confirmedQty+(it.diff!==0?" | فرق: "+(it.diff>0?"+":"")+it.diff:""));
+          lines.push("  معلّق: "+it.pendingQty+" | تسليم مخزن جاهز: "+it.confirmedQty+(it.diff!==0?" | فرق: "+(it.diff>0?"+":"")+it.diff:""));
         });
         lines.push("");
         lines.push("🏭 CLARK Factory Management");
@@ -2910,7 +2921,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           const diffLabel=it.diff===0?"مطابق":it.diff>0?"زيادة +"+it.diff:"نقص "+it.diff;
           rows+="<tr><td style='border:1px solid #ccc;padding:6px;font-weight:800;color:#0284C7'>"+it.modelNo+"</td><td style='border:1px solid #ccc;padding:6px;font-size:10px;color:#555'>"+it.modelDesc+"</td><td style='border:1px solid #ccc;padding:6px;text-align:center;font-weight:700;color:#F59E0B'>"+it.pendingQty+"</td><td style='border:1px solid #ccc;padding:6px;text-align:center;font-weight:700;color:#10B981'>"+it.confirmedQty+"</td><td style='border:1px solid #ccc;padding:6px;text-align:center;font-weight:800;color:"+diffColor+"'>"+diffLabel+"</td></tr>";
         });
-        const html="<html dir='rtl'><head><meta charset='utf-8'><title>تقرير استلام — "+dateShort+"</title><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><style>@page{size:A4;margin:12mm}body{font-family:'Cairo',sans-serif;padding:0;color:#1E293B;line-height:1.6;font-size:11px}.hdr{text-align:center;border-bottom:3px solid #10B981;padding-bottom:10px;margin-bottom:14px}.hdr h1{color:#10B981;font-size:20px;margin-bottom:6px}.hdr .sub{font-size:14px;color:#0EA5E9;font-weight:700}.meta{display:flex;justify-content:space-between;margin-bottom:12px;font-size:11px;color:#475569}.summary{display:flex;gap:10px;margin-bottom:14px;justify-content:center}.card{padding:10px 16px;border-radius:10px;border:1px solid #ddd;text-align:center;min-width:120px}.card .lbl{font-size:10px;color:#666}.card .val{font-size:18px;font-weight:800;margin-top:4px}table{width:100%;border-collapse:collapse;margin:10px 0}th{background:#F0FDF4;border:1px solid #10B98140;padding:8px;font-weight:800;text-align:right;color:#059669}.sig{margin-top:50px;display:flex;justify-content:space-around;gap:20px}.sig-box{text-align:center;min-width:150px;border-top:2px solid #1E293B;padding-top:10px;font-weight:700;font-size:12px}.foot{margin-top:30px;padding-top:10px;border-top:1px solid #ccc;display:flex;justify-content:space-between;font-size:10px;color:#94A3B8}.pbar{position:sticky;top:0;background:#fff;padding:8px;border-bottom:2px solid #ccc;display:flex;justify-content:center;gap:10px;z-index:99}.pbar button{padding:6px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:12px;font-weight:700;background:#fff}.pbar .pr{background:#10B981;color:#fff;border-color:#10B981}@media print{.pbar{display:none}}</style></head><body><div class='pbar'><button onclick='window.close()'>↩ رجوع</button><button class='pr' onclick='window.print()'>🖨 طباعة</button></div><div class='hdr'><h1>📦 تقرير استلام مخزن الجاهز</h1><div class='sub'>"+dateShort+"</div></div><div class='meta'><span>👤 بواسطة: <b>"+(rep.confirmedBy||"—")+"</b></span><span>📅 "+dateStr+"</span></div><div class='summary'><div class='card'><div class='lbl'>تسليم معلّق</div><div class='val' style='color:#F59E0B'>"+rep.totalPending+"</div></div><div class='card'><div class='lbl'>تم استلام</div><div class='val' style='color:#10B981'>"+rep.total+"</div></div><div class='card'><div class='lbl'>الفرق</div><div class='val' style='color:"+(rep.total===rep.totalPending?"#10B981":rep.total<rep.totalPending?"#EF4444":"#0EA5E9")+"'>"+(rep.total-rep.totalPending)+"</div></div></div><table><thead><tr><th>الموديل</th><th>الوصف</th><th style='text-align:center'>معلّق</th><th style='text-align:center'>استلام مصنع</th><th style='text-align:center'>الفرق</th></tr></thead><tbody>"+rows+"</tbody></table><div class='sig'><div class='sig-box'>أمين المخزن</div><div class='sig-box'>المدير</div></div><div class='foot'><span>CLARK Factory Management</span><span>"+dateStr+"</span></div></body></html>";
+        const html="<html dir='rtl'><head><meta charset='utf-8'><title>تقرير استلام — "+dateShort+"</title><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><style>@page{size:A4;margin:12mm}body{font-family:'Cairo',sans-serif;padding:0;color:#1E293B;line-height:1.6;font-size:11px}.hdr{text-align:center;border-bottom:3px solid #10B981;padding-bottom:10px;margin-bottom:14px}.hdr h1{color:#10B981;font-size:20px;margin-bottom:6px}.hdr .sub{font-size:14px;color:#0EA5E9;font-weight:700}.meta{display:flex;justify-content:space-between;margin-bottom:12px;font-size:11px;color:#475569}.summary{display:flex;gap:10px;margin-bottom:14px;justify-content:center}.card{padding:10px 16px;border-radius:10px;border:1px solid #ddd;text-align:center;min-width:120px}.card .lbl{font-size:10px;color:#666}.card .val{font-size:18px;font-weight:800;margin-top:4px}table{width:100%;border-collapse:collapse;margin:10px 0}th{background:#F0FDF4;border:1px solid #10B98140;padding:8px;font-weight:800;text-align:right;color:#059669}.sig{margin-top:50px;display:flex;justify-content:space-around;gap:20px}.sig-box{text-align:center;min-width:150px;border-top:2px solid #1E293B;padding-top:10px;font-weight:700;font-size:12px}.foot{margin-top:30px;padding-top:10px;border-top:1px solid #ccc;display:flex;justify-content:space-between;font-size:10px;color:#94A3B8}.pbar{position:sticky;top:0;background:#fff;padding:8px;border-bottom:2px solid #ccc;display:flex;justify-content:center;gap:10px;z-index:99}.pbar button{padding:6px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:12px;font-weight:700;background:#fff}.pbar .pr{background:#10B981;color:#fff;border-color:#10B981}@media print{.pbar{display:none}}</style></head><body><div class='pbar'><button onclick='window.close()'>↩ رجوع</button><button class='pr' onclick='window.print()'>🖨 طباعة</button></div><div class='hdr'><h1>📦 تقرير استلام مخزن الجاهز</h1><div class='sub'>"+dateShort+"</div></div><div class='meta'><span>👤 بواسطة: <b>"+(rep.confirmedBy||"—")+"</b></span><span>📅 "+dateStr+"</span></div><div class='summary'><div class='card'><div class='lbl'>تسليم معلّق</div><div class='val' style='color:#F59E0B'>"+rep.totalPending+"</div></div><div class='card'><div class='lbl'>تم استلام</div><div class='val' style='color:#10B981'>"+rep.total+"</div></div><div class='card'><div class='lbl'>الفرق</div><div class='val' style='color:"+(rep.total===rep.totalPending?"#10B981":rep.total<rep.totalPending?"#EF4444":"#0EA5E9")+"'>"+(rep.total-rep.totalPending)+"</div></div></div><table><thead><tr><th>الموديل</th><th>الوصف</th><th style='text-align:center'>معلّق</th><th style='text-align:center'>تسليم مخزن جاهز</th><th style='text-align:center'>الفرق</th></tr></thead><tbody>"+rows+"</tbody></table><div class='sig'><div class='sig-box'>أمين المخزن</div><div class='sig-box'>المدير</div></div><div class='foot'><span>CLARK Factory Management</span><span>"+dateStr+"</span></div></body></html>";
         const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}pw.document.write(html);pw.document.close();setTimeout(()=>{try{pw.print()}catch(e){}},500);
       };
       /* Share via WhatsApp */
@@ -2950,7 +2961,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           </div>
           {/* Items table */}
           <div style={{flex:1,overflowY:"auto",background:T.bg,borderRadius:10,border:"1px solid "+T.brd,padding:4,marginBottom:12}}>
-            <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr style={{background:"#10B98108"}}>{["الموديل","الوصف","معلّق","استلام مصنع","الفرق"].map(h=><th key={h} style={{padding:"7px",textAlign:h==="الموديل"||h==="الوصف"?"right":"center",fontSize:FS-2,color:T.textSec,borderBottom:"1px solid #10B98130",fontWeight:700}}>{h}</th>)}</tr></thead><tbody>
+            <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr style={{background:"#10B98108"}}>{["الموديل","الوصف","معلّق","تسليم مخزن جاهز","الفرق"].map(h=><th key={h} style={{padding:"7px",textAlign:h==="الموديل"||h==="الوصف"?"right":"center",fontSize:FS-2,color:T.textSec,borderBottom:"1px solid #10B98130",fontWeight:700}}>{h}</th>)}</tr></thead><tbody>
               {rep.items.map((it,i)=><tr key={i} style={{background:i%2===1?T.bg:"transparent",borderBottom:"1px solid "+T.brd}}>
                 <td style={{padding:"7px",fontWeight:800,color:T.accent,fontSize:FS-1}}>{it.modelNo}</td>
                 <td style={{padding:"7px",fontSize:FS-2,color:T.textMut}}>{it.modelDesc}</td>
@@ -3011,7 +3022,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           const diff=r.qty-r.originalQty;
           detRows+="<tr><td style='border:1px solid #eee;padding:5px;font-size:9px'>"+dStr+"</td><td style='border:1px solid #eee;padding:5px;font-weight:700;color:#0284C7'>"+r.modelNo+"</td><td style='border:1px solid #eee;padding:5px;font-size:9px;color:#555'>"+r.modelDesc+"</td><td style='border:1px solid #eee;padding:5px;text-align:center;font-weight:700;color:#F59E0B'>"+r.originalQty+"</td><td style='border:1px solid #eee;padding:5px;text-align:center;font-weight:700;color:#10B981'>"+r.qty+"</td><td style='border:1px solid #eee;padding:5px;text-align:center;font-weight:700;color:"+(diff===0?"#10B981":diff<0?"#EF4444":"#0EA5E9")+"'>"+(diff===0?"✓":(diff>0?"+":"")+diff)+"</td><td style='border:1px solid #eee;padding:5px;font-size:9px;color:#666'>"+(r.confirmedBy||"—")+"</td></tr>";
         });
-        const html="<html dir='rtl'><head><meta charset='utf-8'><title>سجل الاستلامات</title><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><style>@page{size:A4;margin:12mm}body{font-family:'Cairo',sans-serif;color:#1E293B;font-size:11px;line-height:1.6}.hdr{text-align:center;border-bottom:3px solid #10B981;padding-bottom:10px;margin-bottom:14px}.hdr h1{color:#10B981;font-size:20px}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:11px}th{background:#F0FDF4;border:1px solid #10B98140;padding:7px;font-weight:800;text-align:right;color:#059669}.detail th{background:#EFF6FF;border:1px solid #0EA5E940;padding:5px;font-size:10px}h2{color:#0284C7;font-size:14px;margin:14px 0 8px;padding-bottom:4px;border-bottom:2px solid #0284C730}.foot{margin-top:20px;padding-top:10px;border-top:1px solid #ccc;text-align:center;font-size:10px;color:#94A3B8}.pbar{position:sticky;top:0;background:#fff;padding:8px;border-bottom:2px solid #ccc;display:flex;justify-content:center;gap:10px}.pbar button{padding:6px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:12px;font-weight:700;background:#fff}.pbar .pr{background:#10B981;color:#fff;border-color:#10B981}@media print{.pbar{display:none}}</style></head><body><div class='pbar'><button onclick='window.close()'>↩ رجوع</button><button class='pr' onclick='window.print()'>🖨 طباعة</button></div><div class='hdr'><h1>📦 سجل الاستلامات الكامل</h1><div style='font-size:12px;color:#666'>"+new Date().toLocaleDateString("ar-EG")+" — "+sortedModels.length+" موديل • "+allConfirmed.length+" استلام</div></div><h2>📊 الإجماليات لكل موديل</h2><table><thead><tr><th>الموديل</th><th>الوصف</th><th style='text-align:center'>تسليم</th><th style='text-align:center'>استلام مصنع</th><th style='text-align:center'>الفرق</th><th style='text-align:center'>عدد مرات</th></tr></thead><tbody>"+summRows+"</tbody></table><h2>📋 التفاصيل (بالتاريخ)</h2><table class='detail'><thead><tr><th>التاريخ</th><th>الموديل</th><th>الوصف</th><th style='text-align:center'>تسليم</th><th style='text-align:center'>استلام مصنع</th><th style='text-align:center'>فرق</th><th>بواسطة</th></tr></thead><tbody>"+detRows+"</tbody></table><div class='foot'>CLARK Factory Management — سجل الاستلامات — "+new Date().toLocaleString("ar-EG")+"</div></body></html>";
+        const html="<html dir='rtl'><head><meta charset='utf-8'><title>سجل الاستلامات</title><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><style>@page{size:A4;margin:12mm}body{font-family:'Cairo',sans-serif;color:#1E293B;font-size:11px;line-height:1.6}.hdr{text-align:center;border-bottom:3px solid #10B981;padding-bottom:10px;margin-bottom:14px}.hdr h1{color:#10B981;font-size:20px}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:11px}th{background:#F0FDF4;border:1px solid #10B98140;padding:7px;font-weight:800;text-align:right;color:#059669}.detail th{background:#EFF6FF;border:1px solid #0EA5E940;padding:5px;font-size:10px}h2{color:#0284C7;font-size:14px;margin:14px 0 8px;padding-bottom:4px;border-bottom:2px solid #0284C730}.foot{margin-top:20px;padding-top:10px;border-top:1px solid #ccc;text-align:center;font-size:10px;color:#94A3B8}.pbar{position:sticky;top:0;background:#fff;padding:8px;border-bottom:2px solid #ccc;display:flex;justify-content:center;gap:10px}.pbar button{padding:6px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:12px;font-weight:700;background:#fff}.pbar .pr{background:#10B981;color:#fff;border-color:#10B981}@media print{.pbar{display:none}}</style></head><body><div class='pbar'><button onclick='window.close()'>↩ رجوع</button><button class='pr' onclick='window.print()'>🖨 طباعة</button></div><div class='hdr'><h1>📦 سجل الاستلامات الكامل</h1><div style='font-size:12px;color:#666'>"+new Date().toLocaleDateString("ar-EG")+" — "+sortedModels.length+" موديل • "+allConfirmed.length+" استلام</div></div><h2>📊 الإجماليات لكل موديل</h2><table><thead><tr><th>الموديل</th><th>الوصف</th><th style='text-align:center'>تسليم</th><th style='text-align:center'>تسليم مخزن جاهز</th><th style='text-align:center'>الفرق</th><th style='text-align:center'>عدد مرات</th></tr></thead><tbody>"+summRows+"</tbody></table><h2>📋 التفاصيل (بالتاريخ)</h2><table class='detail'><thead><tr><th>التاريخ</th><th>الموديل</th><th>الوصف</th><th style='text-align:center'>تسليم</th><th style='text-align:center'>تسليم مخزن جاهز</th><th style='text-align:center'>فرق</th><th>بواسطة</th></tr></thead><tbody>"+detRows+"</tbody></table><div class='foot'>CLARK Factory Management — سجل الاستلامات — "+new Date().toLocaleString("ar-EG")+"</div></body></html>";
         const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}pw.document.write(html);pw.document.close();setTimeout(()=>{try{pw.print()}catch(e){}},500);
       };
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowReceiptLog(false)}>
@@ -3030,7 +3041,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               {/* Model totals */}
               <div style={{fontSize:FS,fontWeight:800,color:T.accent,marginBottom:8,padding:"6px 10px",borderRadius:8,background:T.accent+"08"}}>📊 الإجماليات لكل موديل ({sortedModels.length})</div>
               <div style={{overflowX:"auto",marginBottom:16}}>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-2}}><thead><tr style={{background:"#10B98108"}}>{["الموديل","الوصف","تسليم","استلام مصنع","الفرق","مرات"].map(h=><th key={h} style={{padding:"6px",textAlign:h==="الموديل"||h==="الوصف"?"right":"center",fontWeight:800,color:T.textSec,borderBottom:"2px solid #10B98130"}}>{h}</th>)}</tr></thead>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-2}}><thead><tr style={{background:"#10B98108"}}>{["الموديل","الوصف","تسليم","تسليم مخزن جاهز","الفرق","مرات"].map(h=><th key={h} style={{padding:"6px",textAlign:h==="الموديل"||h==="الوصف"?"right":"center",fontWeight:800,color:T.textSec,borderBottom:"2px solid #10B98130"}}>{h}</th>)}</tr></thead>
                 <tbody>{sortedModels.map(m=>{const diff=m.totalConfirmed-m.totalDelivered;
                   return<tr key={m.modelNo} style={{borderBottom:"1px solid "+T.brd}}>
                     <td style={{padding:"6px",fontWeight:800,color:T.accent}}>{m.modelNo}</td>
@@ -3044,7 +3055,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               {/* Details */}
               <div style={{fontSize:FS,fontWeight:800,color:"#0EA5E9",marginBottom:8,padding:"6px 10px",borderRadius:8,background:"#0EA5E908"}}>📋 التفاصيل ({allConfirmed.length} استلام)</div>
               <div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-2}}><thead><tr style={{background:"#0EA5E908"}}>{["التاريخ","الموديل","تسليم","استلام مصنع","فرق","بواسطة"].map(h=><th key={h} style={{padding:"6px",textAlign:h==="الموديل"?"right":"center",fontWeight:800,color:T.textSec,borderBottom:"2px solid #0EA5E930"}}>{h}</th>)}</tr></thead>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-2}}><thead><tr style={{background:"#0EA5E908"}}>{["التاريخ","الموديل","تسليم","تسليم مخزن جاهز","فرق","بواسطة"].map(h=><th key={h} style={{padding:"6px",textAlign:h==="الموديل"?"right":"center",fontWeight:800,color:T.textSec,borderBottom:"2px solid #0EA5E930"}}>{h}</th>)}</tr></thead>
                 <tbody>{allConfirmed.slice(0,100).map((r,i)=>{const diff=r.qty-r.originalQty;
                   return<tr key={i} style={{borderBottom:"1px solid "+T.brd,background:i%2===1?T.bg:"transparent"}}>
                     <td style={{padding:"5px",fontSize:FS-3,color:T.textMut,textAlign:"center",whiteSpace:"nowrap"}}>{new Date(r.confirmedAt).toLocaleString("ar-EG",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})}</td>

@@ -9,6 +9,7 @@ import { useState, useMemo } from "react";
 import { FS, PRINT_CSS } from "../constants/index.js";
 import { gid, fmt, r2, normalizePhone, dayName } from "../utils/format.js";
 import { ask, tell, showToast } from "../utils/popups.js";
+import { getCategories, getCategoryById, getItemsForCategory, addCategory, updateCategory, deleteCategory, addTypeToCategory, removeTypeFromCategory, addInventoryItem, updateInventoryItem, deleteInventoryItem, applyStockDelta } from "../utils/categories.js";
 import { Btn, Inp, Sel, SearchSel, Card, useDebounced } from "../components/ui.jsx";
 import { T, TH, TD } from "../theme.js";
 import { openPrintWindow } from "../utils/print.js";
@@ -17,6 +18,10 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   const userName=user?.displayName||(user?.email||"").split("@")[0];
   const today=new Date().toISOString().split("T")[0];
   const[subTab,setSubTab]=useState("receipts");
+  /* V16.31: categories management popups */
+  const[catEditPopup,setCatEditPopup]=useState(null);/* null | {id?,name,emoji} for create/edit */
+  const[catTypesPopup,setCatTypesPopup]=useState(null);/* null | {categoryId} */
+  const[itemEditPopup,setItemEditPopup]=useState(null);/* null | {id?,categoryId,name,type,unit,minStock,avgCost,defaultSupplierId,notes} */
   const[showActivate,setShowActivate]=useState(false);
   const[showOpeningBal,setShowOpeningBal]=useState(false);
   const[openingData,setOpeningData]=useState({});/* {itemId: {qty, cost}} */
@@ -109,8 +114,12 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
     });
     /* Standalone payments */
     supplierPayments.filter(p=>String(p.supplierId)===String(supplierId)&&!p.receiptId).forEach(p=>{
-      const methodLabel=p.method==="cash"?"كاش":p.method==="check"?"شيك":"تحويل";
-      entries.push({type:"payment",date:p.date,ref:p.checkId?("شيك #"+(checks.find(c=>c.id===p.checkId)?.checkNo||"")):methodLabel,desc:p.notes||"دفعة ("+methodLabel+")",debit:0,credit:Number(p.amount)||0,id:p.id,sortKey:(p.date||"")+"-3-"+(p.createdAt||""),paymentId:p.id});
+      /* V16.33: Added endorsed_check method (شيك عميل مُظهّر) */
+      const methodLabel=p.method==="cash"?"كاش":p.method==="check"?"شيك":p.method==="endorsed_check"?"شيك عميل مُظهّر":"تحويل";
+      const ref=p.method==="endorsed_check"&&p.checkId?
+        ("شيك مُظهّر #"+(checks.find(c=>c.id===p.checkId)?.checkNo||"")):
+        (p.checkId?("شيك #"+(checks.find(c=>c.id===p.checkId)?.checkNo||"")):methodLabel);
+      entries.push({type:"payment",date:p.date,ref,desc:p.notes||"دفعة ("+methodLabel+")",debit:0,credit:Number(p.amount)||0,id:p.id,sortKey:(p.date||"")+"-3-"+(p.createdAt||""),paymentId:p.id});
     });
     entries.sort((a,b)=>(a.sortKey||"").localeCompare(b.sortKey||""));
     let running=0;
@@ -280,7 +289,11 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
       const it={...items[idx]};
       it[field]=value;
       if(field==="itemId"){
-        const list=it.itemType==="fabric"?fabrics:accessories;
+        /* V16.31: itemType is either legacy "fabric"/"accessory" or a categoryId */
+        let catId=it.itemType;
+        if(catId==="fabric")catId="core_fabric";
+        else if(catId==="accessory")catId="core_accessory";
+        const list=getItemsForCategory(data,catId);
         const found=list.find(x=>String(x.id)===String(value));
         if(found){it.itemName=found.name;it.unit=found.unit||"";if(!it.price||it.price===0)it.price=Number(found.price)||Number(found.avgCost)||0}
       }
@@ -351,7 +364,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   const printPo=(p)=>{
     const supplier=suppliers.find(s=>String(s.id)===String(p.supplierId));
     const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
-    const rows=(p.items||[]).map(it=>"<tr><td>"+(it.itemType==="fabric"?"🧵":"🪡")+" "+it.itemName+"</td><td class='center'>"+fmt(it.qty)+"</td><td class='center'>"+(it.unit||"")+"</td><td class='center'>"+fmt(r2(it.price))+"</td><td class='center'><b>"+fmt(r2(it.amount))+"</b></td></tr>").join("");
+    const rows=(p.items||[]).map(it=>"<tr><td>"+((getCategoryById(data,it.itemType==="fabric"?"core_fabric":it.itemType==="accessory"?"core_accessory":it.itemType)?.emoji||"📦"))+" "+it.itemName+"</td><td class='center'>"+fmt(it.qty)+"</td><td class='center'>"+(it.unit||"")+"</td><td class='center'>"+fmt(r2(it.price))+"</td><td class='center'><b>"+fmt(r2(it.amount))+"</b></td></tr>").join("");
     const html="<html dir='rtl'><head><meta charset='UTF-8'><title>"+p.poNo+"</title><style>"+PRINT_CSS+".center{text-align:center}</style></head><body><div class='hdr'><div style='font-size:18px;font-weight:800;color:#0284C7'>📋 أمر شراء</div><div class='hdr-info'><div>رقم: "+p.poNo+"</div><div>التاريخ: "+p.date+"</div></div></div><h3>بيانات المورد</h3><table><tr><th style='width:30%'>اسم المورد</th><td>"+(supplier?.name||p.supplierName||"—")+"</td></tr>"+(supplier?.phone?"<tr><th>التليفون</th><td>"+supplier.phone+"</td></tr>":"")+"</table><h3>البنود المطلوبة</h3><table><thead><tr><th>الصنف</th><th>الكمية</th><th>الوحدة</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>"+rows+"<tr style='background:#EFF6FF;font-weight:800'><td colspan='4' style='text-align:left'>الإجمالي الكلي</td><td class='center info' style='font-size:14px'>"+fmt(r2(p.totalAmount))+" ج.م</td></tr></tbody></table>"+(p.notes?"<h3>ملاحظات</h3><p style='padding:8px;background:#FEF3C7;border-radius:6px'>"+p.notes+"</p>":"")+"<div class='sig'><div class='sig-box'>المشتريات</div><div class='sig-box'>المدير</div></div><div class='foot'>CLARK Factory Management — أمر شراء — للتوثيق فقط</div><script>setTimeout(function(){window.print()},500)</"+"script></body></html>";
     w.document.write(html);w.document.close();
   };
@@ -476,9 +489,13 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
       if(idx<0||idx>=items.length)return p;
       const it={...items[idx]};
       it[field]=value;
-      /* Auto-populate from selected item */
+      /* Auto-populate from selected item — V16.31: works for any category */
       if(field==="itemId"){
-        const list=it.itemType==="fabric"?fabrics:accessories;
+        /* itemType may be "fabric"/"accessory" (legacy) or a categoryId */
+        let catId=it.itemType;
+        if(catId==="fabric")catId="core_fabric";
+        else if(catId==="accessory")catId="core_accessory";
+        const list=getItemsForCategory(data,catId);
         const found=list.find(x=>String(x.id)===String(value));
         if(found){it.itemName=found.name;it.unit=found.unit||"";if(!it.price||it.price===0)it.price=Number(found.price)||Number(found.avgCost)||0}
       }
@@ -574,19 +591,19 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
       /* 2. Update stock + add stockMovement for each item (if stock enabled) */
       if(stockEnabled){
         validItems.forEach(it=>{
-          const list=it.itemType==="fabric"?(d.fabrics||[]):(d.accessories||[]);
-          const idx=list.findIndex(x=>String(x.id)===String(it.itemId));
-          if(idx<0)return;
-          const item=list[idx];
           const qty=Number(it.qty)||0;
           const price=Number(it.price)||0;
-          /* Weighted avg cost */
-          const oldStock=Number(item.stock)||0;
-          const oldAvg=Number(item.avgCost)||Number(item.price)||0;
-          const totalStock=oldStock+qty;
-          item.avgCost=totalStock>0?r2((oldStock*oldAvg+qty*price)/totalStock):price;
-          item.stock=totalStock;
-          item.lastReceiveDate=receipt.date;
+          /* V16.31: Use applyStockDelta to handle legacy + new categories uniformly.
+             The function does the weighted-avg cost calculation and stock update. */
+          let catId=it.itemType;
+          if(catId==="fabric")catId="core_fabric";
+          else if(catId==="accessory")catId="core_accessory";
+          applyStockDelta(d,catId,it.itemId,qty,price);
+          /* Update lastReceiveDate on the item directly (not handled by applyStockDelta) */
+          const cat=getCategoryById(d,catId);
+          if(cat?.legacy==="fabric"){const f=(d.fabrics||[]).find(x=>String(x.id)===String(it.itemId));if(f)f.lastReceiveDate=receipt.date}
+          else if(cat?.legacy==="accessory"){const a=(d.accessories||[]).find(x=>String(x.id)===String(it.itemId));if(a)a.lastReceiveDate=receipt.date}
+          else{const x=(d.inventoryItems||[]).find(y=>String(y.id)===String(it.itemId));if(x)x.lastReceiveDate=receipt.date}
           /* Movement */
           d.stockMovements.push({
             id:gid(),type:"in",itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,
@@ -654,7 +671,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   const printReceipt=(r)=>{
     const supplier=suppliers.find(s=>String(s.id)===String(r.supplierId));
     const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
-    const rowsHtml=(r.items||[]).map(it=>"<tr><td>"+(it.itemType==="fabric"?"🧵":"🪡")+" "+it.itemName+"</td><td class='center'>"+fmt(it.qty)+"</td><td class='center'>"+(it.unit||"")+"</td><td class='center'>"+fmt(r2(it.price))+"</td><td class='center'><b>"+fmt(r2(it.amount))+"</b></td></tr>").join("");
+    const rowsHtml=(r.items||[]).map(it=>"<tr><td>"+((getCategoryById(data,it.itemType==="fabric"?"core_fabric":it.itemType==="accessory"?"core_accessory":it.itemType)?.emoji||"📦"))+" "+it.itemName+"</td><td class='center'>"+fmt(it.qty)+"</td><td class='center'>"+(it.unit||"")+"</td><td class='center'>"+fmt(r2(it.price))+"</td><td class='center'><b>"+fmt(r2(it.amount))+"</b></td></tr>").join("");
     const paymentLabel=r.paymentMethod==="cash"?"كاش":r.paymentMethod==="check"?"شيك":"آجل";
     const html="<html dir='rtl'><head><meta charset='UTF-8'><title>"+r.receiptNo+"</title><style>"+PRINT_CSS+".center{text-align:center}</style></head><body><div class='hdr'><div style='font-size:18px;font-weight:800;color:#0284C7'>📥 إذن استلام مشتريات</div><div class='hdr-info'><div>رقم: "+r.receiptNo+"</div><div>التاريخ: "+r.date+"</div></div></div><h3>بيانات المورد</h3><table><tr><th style='width:30%'>اسم المورد</th><td>"+(supplier?.name||r.supplierName||"—")+"</td></tr>"+(supplier?.phone?"<tr><th>التليفون</th><td>"+supplier.phone+"</td></tr>":"")+(supplier?.address?"<tr><th>العنوان</th><td>"+supplier.address+"</td></tr>":"")+"</table><h3>البنود</h3><table><thead><tr><th>الصنف</th><th>الكمية</th><th>الوحدة</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>"+rowsHtml+"<tr style='background:#EFF6FF;font-weight:800'><td colspan='4' style='text-align:left'>الإجمالي الكلي</td><td class='center info' style='font-size:14px'>"+fmt(r2(r.totalAmount))+" ج.م</td></tr></tbody></table><h3>تفاصيل الدفع</h3><table><tr><th style='width:30%'>طريقة الدفع</th><td class='info'>"+paymentLabel+"</td></tr><tr><th>المدفوع</th><td class='ok'>"+fmt(r2(r.paidAmount||0))+" ج.م</td></tr><tr><th>المتبقي</th><td class='err'>"+fmt(r2((r.totalAmount||0)-(r.paidAmount||0)))+" ج.م</td></tr>"+(r.treasuryAccount?"<tr><th>الخزنة</th><td>"+r.treasuryAccount+"</td></tr>":"")+"</table>"+(r.notes?"<h3>ملاحظات</h3><p style='padding:8px;background:#FEF3C7;border-radius:6px'>"+r.notes+"</p>":"")+"<div class='sig'><div class='sig-box'>المستلم</div><div class='sig-box'>المحاسب</div><div class='sig-box'>المدير</div></div><div class='foot'>CLARK Factory Management — تم الإنشاء: "+new Date(r.createdAt||Date.now()).toLocaleString("ar-EG")+" — بواسطة: "+(r.createdBy||"—")+"</div><script>setTimeout(function(){window.print()},500)</"+"script></body></html>";
     w.document.write(html);w.document.close();
@@ -669,12 +686,19 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
       /* Reverse stock */
       if(stockEnabled&&r.items){
         r.items.forEach(it=>{
-          const list=it.itemType==="fabric"?(d.fabrics||[]):(d.accessories||[]);
-          const idx=list.findIndex(x=>String(x.id)===String(it.itemId));
-          if(idx<0)return;
-          const item=list[idx];
+          /* V16.31: Use applyStockDelta with negative qty to reverse */
+          let catId=it.itemType;
+          if(catId==="fabric")catId="core_fabric";
+          else if(catId==="accessory")catId="core_accessory";
           const qty=Number(it.qty)||0;
-          item.stock=Math.max(0,(Number(item.stock)||0)-qty);
+          /* Subtract — applyStockDelta handles legacy + new uniformly. We pass null
+             for unitCost since reversing shouldn't shift the avg cost. */
+          applyStockDelta(d,catId,it.itemId,-qty,null);
+          /* Clamp to zero (applyStockDelta doesn't enforce non-negative for refunds) */
+          const cat=getCategoryById(d,catId);
+          if(cat?.legacy==="fabric"){const f=(d.fabrics||[]).find(x=>String(x.id)===String(it.itemId));if(f&&f.stock<0)f.stock=0}
+          else if(cat?.legacy==="accessory"){const a=(d.accessories||[]).find(x=>String(x.id)===String(it.itemId));if(a&&a.stock<0)a.stock=0}
+          else{const x=(d.inventoryItems||[]).find(y=>String(y.id)===String(it.itemId));if(x&&x.stock<0)x.stock=0}
         });
       }
       /* Remove stock movements linked to this receipt */
@@ -692,19 +716,24 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   };
   
   /* ──────── FILTERED & SORTED STOCK LIST ──────── */
+  /* V16.31: stockTypeTab is now a categoryId — could be 'core_fabric', 'core_accessory', or any user-defined id */
   const filteredStock=useMemo(()=>{
-    const list=stockTypeTab==="fabric"?fabrics:accessories;
-    let f=list.map(x=>({...x,_stock:Number(x.stock)||0,_cost:Number(x.avgCost)||Number(x.price)||0}));
+    /* Translate legacy values for back-compat with any saved state */
+    let catId=stockTypeTab;
+    if(catId==="fabric")catId="core_fabric";
+    else if(catId==="accessory")catId="core_accessory";
+    const items=getItemsForCategory(data,catId);
+    let f=items.map(x=>({...x,_stock:Number(x.stock)||0,_cost:Number(x.avgCost)||Number(x.price)||0}));
     f=f.map(x=>({...x,_value:x._stock*x._cost}));
     if(hideZero)f=f.filter(x=>x._stock>0);
     const q=stockFilterDeb.trim().toLowerCase();
-    if(q)f=f.filter(x=>(x.name||"").toLowerCase().includes(q));
+    if(q)f=f.filter(x=>(x.name||"").toLowerCase().includes(q)||(x.type||"").toLowerCase().includes(q));
     if(sortBy==="name")f.sort((a,b)=>(a.name||"").localeCompare(b.name||"","ar"));
     else if(sortBy==="stock")f.sort((a,b)=>b._stock-a._stock);
     else if(sortBy==="value")f.sort((a,b)=>b._value-a._value);
     else if(sortBy==="low")f.sort((a,b)=>{const aLow=a.minStock&&a._stock<=a.minStock?0:1;const bLow=b.minStock&&b._stock<=b.minStock?0:1;return aLow-bLow});
     return f;
-  },[stockTypeTab,fabrics,accessories,hideZero,stockFilterDeb,sortBy]);
+  },[stockTypeTab,data,hideZero,stockFilterDeb,sortBy]);
   
   /* ──────── RENDER ──────── */
   return<div>
@@ -726,7 +755,8 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
     {/* Sub-tabs navigation */}
     <div style={{display:"flex",gap:4,marginBottom:12,borderBottom:"2px solid "+T.brd,flexWrap:"wrap"}}>
       {[
-        {key:"stock",label:"📦 المخزن",count:fabrics.length+accessories.length},
+        {key:"stock",label:"📦 المخزن",count:fabrics.length+accessories.length+(data.inventoryItems||[]).length},
+        {key:"categories",label:"🏷️ الأصناف",count:(data.itemCategories||[]).length},
         {key:"receipts",label:"📥 الاستلامات",count:purchaseReceipts.length},
         {key:"orders",label:"📋 أوامر شراء",count:(data.purchaseOrders||[]).length},
         {key:"suppliers",label:"👥 كشوف الموردين",count:suppliers.length}
@@ -763,10 +793,25 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
         </div>
       </div>
 
-      {/* Type tabs (Fabric / Accessory) */}
-      <div style={{display:"flex",gap:8,marginBottom:10}}>
-        <div onClick={()=>setStockTypeTab("fabric")} style={{padding:"8px 16px",borderRadius:10,cursor:"pointer",fontWeight:700,fontSize:FS-1,background:stockTypeTab==="fabric"?T.accent:T.bg,color:stockTypeTab==="fabric"?"#fff":T.text,border:"1px solid "+(stockTypeTab==="fabric"?T.accent:T.brd)}}>🧵 الخامات ({fabrics.length})</div>
-        <div onClick={()=>setStockTypeTab("accessory")} style={{padding:"8px 16px",borderRadius:10,cursor:"pointer",fontWeight:700,fontSize:FS-1,background:stockTypeTab==="accessory"?"#8B5CF6":T.bg,color:stockTypeTab==="accessory"?"#fff":T.text,border:"1px solid "+(stockTypeTab==="accessory"?"#8B5CF6":T.brd)}}>🪡 الإكسسوار ({accessories.length})</div>
+      {/* V16.31: Dynamic category tabs — fabric/accessory + any user-defined */}
+      <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+        {getCategories(data).map(cat=>{
+          const isActive=stockTypeTab===cat.id||(cat.legacy==="fabric"&&stockTypeTab==="fabric")||(cat.legacy==="accessory"&&stockTypeTab==="accessory");
+          const items=getItemsForCategory(data,cat.id);
+          const color=cat.legacy==="fabric"?T.accent:cat.legacy==="accessory"?"#8B5CF6":"#F59E0B";
+          return<div key={cat.id} onClick={()=>setStockTypeTab(cat.id)} style={{padding:"8px 16px",borderRadius:10,cursor:"pointer",fontWeight:700,fontSize:FS-1,background:isActive?color:T.bg,color:isActive?"#fff":T.text,border:"1px solid "+(isActive?color:T.brd)}}>
+            {cat.emoji||"📦"} {cat.name} ({items.length})
+          </div>;
+        })}
+        {/* Add inventory item button — only for non-legacy categories */}
+        {canEdit&&(()=>{
+          let catId=stockTypeTab;
+          if(catId==="fabric")catId="core_fabric";
+          else if(catId==="accessory")catId="core_accessory";
+          const cat=getCategoryById(data,catId);
+          if(!cat||cat.isCore)return null;/* legacy items are added in DBPg */
+          return<Btn small primary onClick={()=>setItemEditPopup({categoryId:cat.id,name:"",type:"",unit:"قطعة",minStock:0,avgCost:0,defaultSupplierId:"",notes:""})}>+ صنف للمخزن</Btn>;
+        })()}
       </div>
 
       {/* Filters */}
@@ -792,49 +837,81 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
         </div>
 
         {/* Stock table */}
-        {filteredStock.length===0?<div style={{padding:40,textAlign:"center",color:T.textMut}}>
-          {(stockTypeTab==="fabric"?fabrics.length:accessories.length)===0?
-            "لا توجد "+(stockTypeTab==="fabric"?"خامات":"إكسسوارات")+" مسجلة. أضفها من قاعدة البيانات أولاً.":
-            "لا توجد نتائج"}
-        </div>:<div style={{overflowX:"auto"}}>
-          <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
-            <thead><tr>
-              <th style={TH}>الاسم</th>
-              <th style={{...TH,textAlign:"center"}}>الرصيد</th>
-              <th style={{...TH,textAlign:"center"}}>الوحدة</th>
-              {stockTypeTab==="accessory"&&<th style={{...TH,textAlign:"center"}} title="كم قطعة إكسسوار لكل موديل">qty/قطعة</th>}
-              <th style={{...TH,textAlign:"center"}}>الحد الأدنى</th>
-              <th style={{...TH,textAlign:"center"}}>متوسط التكلفة</th>
-              <th style={{...TH,textAlign:"center"}}>القيمة</th>
-              <th style={{...TH,textAlign:"center"}}>آخر استلام</th>
-              <th style={{...TH,textAlign:"center"}}>الحالة</th>
-            </tr></thead>
-            <tbody>
-              {filteredStock.map(item=>{const stock=item._stock;const cost=item._cost;const value=item._value;
-                const isLow=item.minStock&&stock<=item.minStock;const isZero=stock===0;
-                const statusColor=isZero?T.err:isLow?T.warn:T.ok;
-                const statusLabel=isZero?"نافذ":isLow?"ناقص":"متاح";
-                return<tr key={item.id} style={{borderBottom:"1px solid "+T.brd,background:isZero?T.err+"04":isLow?T.warn+"04":"transparent"}}>
-                  <td style={{...TD,fontWeight:700}}>{item.name||"—"}</td>
-                  <td style={{...TD,textAlign:"center",fontWeight:800,color:statusColor,fontSize:FS}}>{fmt(stock)}</td>
-                  <td style={{...TD,textAlign:"center",color:T.textSec}}>{item.unit||"—"}</td>
-                  {stockTypeTab==="accessory"&&<td style={{...TD,textAlign:"center"}}>
-                    {canEdit?<Inp type="number" value={item.qtyPerPiece||1} onChange={v=>{upConfig(d=>{const idx=d.accessories.findIndex(x=>x.id===item.id);if(idx>=0)d.accessories[idx].qtyPerPiece=Number(v)||1})}} style={{width:60,padding:"3px 6px",fontSize:FS-1,textAlign:"center"}}/>:<span>{item.qtyPerPiece||1}</span>}
-                  </td>}
-                  <td style={{...TD,textAlign:"center"}}>
-                    {canEdit?<Inp type="number" value={item.minStock||""} onChange={v=>{const list=stockTypeTab==="fabric"?"fabrics":"accessories";upConfig(d=>{const idx=d[list].findIndex(x=>x.id===item.id);if(idx>=0)d[list][idx].minStock=Number(v)||0})}} placeholder="—" style={{width:70,padding:"3px 6px",fontSize:FS-1,textAlign:"center"}}/>:<span>{item.minStock||"—"}</span>}
-                  </td>
-                  <td style={{...TD,textAlign:"center",color:T.textSec}}>{fmt(r2(cost))}</td>
-                  <td style={{...TD,textAlign:"center",fontWeight:700,color:T.accent}}>{fmt(r2(value))}</td>
-                  <td style={{...TD,textAlign:"center",fontSize:FS-2,color:T.textMut}}>{item.lastReceiveDate||"—"}</td>
-                  <td style={{...TD,textAlign:"center"}}>
-                    <span style={{padding:"2px 10px",borderRadius:10,fontSize:FS-3,fontWeight:700,background:statusColor+"15",color:statusColor,border:"1px solid "+statusColor+"30"}}>{statusLabel}</span>
-                  </td>
-                </tr>;
-              })}
-            </tbody>
-          </table>
-        </div>}
+        {(()=>{
+          /* V16.31: resolve current category */
+          let curCatId=stockTypeTab;
+          if(curCatId==="fabric")curCatId="core_fabric";
+          else if(curCatId==="accessory")curCatId="core_accessory";
+          const curCat=getCategoryById(data,curCatId);
+          const isAccLegacy=curCat?.legacy==="accessory";
+          const isFabLegacy=curCat?.legacy==="fabric";
+          const allItemsCount=getItemsForCategory(data,curCatId).length;
+          return filteredStock.length===0?<div style={{padding:40,textAlign:"center",color:T.textMut}}>
+            {allItemsCount===0?
+              "لا توجد أصناف في «"+(curCat?.name||"")+"». "+(curCat?.isCore?"أضفها من قاعدة البيانات أولاً.":"اضغط زر «+ صنف للمخزن» لإضافة أول صنف."):
+              "لا توجد نتائج"}
+          </div>:<div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+              <thead><tr>
+                <th style={TH}>الاسم</th>
+                {!isFabLegacy&&!isAccLegacy&&<th style={TH}>النوع</th>}
+                <th style={{...TH,textAlign:"center"}}>الرصيد</th>
+                <th style={{...TH,textAlign:"center"}}>الوحدة</th>
+                {isAccLegacy&&<th style={{...TH,textAlign:"center"}} title="كم قطعة إكسسوار لكل موديل">qty/قطعة</th>}
+                <th style={{...TH,textAlign:"center"}}>الحد الأدنى</th>
+                <th style={{...TH,textAlign:"center"}}>متوسط التكلفة</th>
+                <th style={{...TH,textAlign:"center"}}>القيمة</th>
+                <th style={{...TH,textAlign:"center"}}>آخر استلام</th>
+                <th style={{...TH,textAlign:"center"}}>الحالة</th>
+                {!curCat?.isCore&&canEdit&&<th style={{...TH,textAlign:"center"}}></th>}
+              </tr></thead>
+              <tbody>
+                {filteredStock.map(item=>{const stock=item._stock;const cost=item._cost;const value=item._value;
+                  const isLow=item.minStock&&stock<=item.minStock;const isZero=stock===0;
+                  const statusColor=isZero?T.err:isLow?T.warn:T.ok;
+                  const statusLabel=isZero?"نافذ":isLow?"ناقص":"متاح";
+                  /* Resolve which array to mutate when saving inline edits */
+                  const saveMin=(v)=>{
+                    upConfig(d=>{
+                      if(isFabLegacy){const idx=(d.fabrics||[]).findIndex(x=>x.id===item.id);if(idx>=0)d.fabrics[idx].minStock=Number(v)||0}
+                      else if(isAccLegacy){const idx=(d.accessories||[]).findIndex(x=>x.id===item.id);if(idx>=0)d.accessories[idx].minStock=Number(v)||0}
+                      else{const idx=(d.inventoryItems||[]).findIndex(x=>x.id===item.id);if(idx>=0)d.inventoryItems[idx].minStock=Number(v)||0}
+                    });
+                  };
+                  return<tr key={item.id} style={{borderBottom:"1px solid "+T.brd,background:isZero?T.err+"04":isLow?T.warn+"04":"transparent"}}>
+                    <td style={{...TD,fontWeight:700}}>{item.name||"—"}</td>
+                    {!isFabLegacy&&!isAccLegacy&&<td style={{...TD,color:T.textSec}}>{item.type?<span style={{padding:"2px 8px",borderRadius:6,background:"#8B5CF610",color:"#8B5CF6",fontSize:FS-3,fontWeight:600}}>{item.type}</span>:"—"}</td>}
+                    <td style={{...TD,textAlign:"center",fontWeight:800,color:statusColor,fontSize:FS}}>{fmt(stock)}</td>
+                    <td style={{...TD,textAlign:"center",color:T.textSec}}>{item.unit||"—"}</td>
+                    {isAccLegacy&&<td style={{...TD,textAlign:"center"}}>
+                      {canEdit?<Inp type="number" value={item._orig?.qtyPerPiece||1} onChange={v=>{upConfig(d=>{const idx=d.accessories.findIndex(x=>x.id===item.id);if(idx>=0)d.accessories[idx].qtyPerPiece=Number(v)||1})}} style={{width:60,padding:"3px 6px",fontSize:FS-1,textAlign:"center"}}/>:<span>{item._orig?.qtyPerPiece||1}</span>}
+                    </td>}
+                    <td style={{...TD,textAlign:"center"}}>
+                      {canEdit?<Inp type="number" value={item.minStock||""} onChange={saveMin} placeholder="—" style={{width:70,padding:"3px 6px",fontSize:FS-1,textAlign:"center"}}/>:<span>{item.minStock||"—"}</span>}
+                    </td>
+                    <td style={{...TD,textAlign:"center",color:T.textSec}}>{fmt(r2(cost))}</td>
+                    <td style={{...TD,textAlign:"center",fontWeight:700,color:T.accent}}>{fmt(r2(value))}</td>
+                    <td style={{...TD,textAlign:"center",fontSize:FS-2,color:T.textMut}}>{item._orig?.lastReceiveDate||"—"}</td>
+                    <td style={{...TD,textAlign:"center"}}>
+                      <span style={{padding:"2px 10px",borderRadius:10,fontSize:FS-3,fontWeight:700,background:statusColor+"15",color:statusColor,border:"1px solid "+statusColor+"30"}}>{statusLabel}</span>
+                    </td>
+                    {!curCat?.isCore&&canEdit&&<td style={{...TD,textAlign:"center"}}>
+                      <div style={{display:"flex",gap:4,justifyContent:"center"}}>
+                        <Btn small ghost onClick={()=>setItemEditPopup({id:item.id,categoryId:curCatId,name:item.name,type:item.type,unit:item.unit,minStock:item.minStock,avgCost:item.avgCost,defaultSupplierId:item.defaultSupplierId,notes:item._orig?.notes||""})} title="تعديل">✏️</Btn>
+                        <Btn small ghost onClick={async()=>{
+                          if(stock!==0){await tell("لا يمكن الحذف","الصنف لسه عنده رصيد ("+stock+"). صفّر الرصيد أولاً.");return}
+                          if(!await ask("حذف الصنف","حذف \""+item.name+"\" نهائياً؟",{danger:true}))return;
+                          upConfig(d=>{deleteInventoryItem(d,item.id)});
+                          showToast("✓ تم الحذف");
+                        }} title="حذف">🗑️</Btn>
+                      </div>
+                    </td>}
+                  </tr>;
+                })}
+              </tbody>
+            </table>
+          </div>;
+        })()}
       </Card>
 
       {/* Recent movements (read-only for now) */}
@@ -1134,6 +1211,198 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
       </div>}
     </>}
     
+    {/* ════ V16.31: SUB-TAB: CATEGORIES (الأصناف) ════ */}
+    {subTab==="categories"&&(()=>{
+      const cats=getCategories(data);
+      return<>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+          <div style={{fontSize:FS-1,color:T.textSec,lineHeight:1.6}}>
+            💡 الأصناف بتنظّم المخزن والمشتريات. الأصناف الأساسية (قماش + اكسسوار) ثابتة لأنها مرتبطة بالأوردرات. تقدر تضيف أصناف جديدة (قطع غيار، مواد تنظيف، إلخ).
+          </div>
+          {canEdit&&<Btn primary small onClick={()=>setCatEditPopup({name:"",emoji:"📦"})}>+ صنف جديد</Btn>}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
+          {cats.map(cat=>{
+            const items=getItemsForCategory(data,cat.id);
+            const lowStock=items.filter(it=>it.minStock>0&&it.stock<=it.minStock).length;
+            return<Card key={cat.id}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10,gap:8}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:FS+6,fontWeight:800,color:T.text,display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:FS+10}}>{cat.emoji||"📦"}</span>
+                    <span>{cat.name}</span>
+                    {cat.isCore&&<span style={{fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.accent+"15",color:T.accent,fontWeight:700}} title="صنف أساسي">أساسي</span>}
+                  </div>
+                </div>
+                {canEdit&&!cat.isCore&&<div style={{display:"flex",gap:4}}>
+                  <Btn small ghost onClick={()=>setCatEditPopup({id:cat.id,name:cat.name,emoji:cat.emoji||"📦"})} title="تعديل">✏️</Btn>
+                  <Btn small ghost onClick={async()=>{
+                    if(items.length>0){await tell("لا يمكن الحذف","يحتوي الصنف على "+items.length+" أصناف فرعية. احذفها أولاً.");return}
+                    if(!await ask("حذف الصنف","سيتم حذف \""+cat.name+"\" — هل أنت متأكد؟",{danger:true}))return;
+                    upConfig(d=>{deleteCategory(d,cat.id)});
+                    showToast("✓ تم الحذف");
+                  }} title="حذف">🗑️</Btn>
+                </div>}
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:10}}>
+                <div style={{padding:"6px 8px",borderRadius:6,background:T.bg,textAlign:"center"}}>
+                  <div style={{fontSize:FS-3,color:T.textMut}}>الأنواع</div>
+                  <div style={{fontSize:FS+1,fontWeight:800,color:"#8B5CF6"}}>{(cat.types||[]).length}</div>
+                </div>
+                <div style={{padding:"6px 8px",borderRadius:6,background:T.bg,textAlign:"center"}}>
+                  <div style={{fontSize:FS-3,color:T.textMut}}>الأصناف</div>
+                  <div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>{items.length}</div>
+                </div>
+                <div style={{padding:"6px 8px",borderRadius:6,background:lowStock>0?T.warn+"15":T.bg,textAlign:"center"}}>
+                  <div style={{fontSize:FS-3,color:T.textMut}}>ناقص</div>
+                  <div style={{fontSize:FS+1,fontWeight:800,color:lowStock>0?T.warn:T.textMut}}>{lowStock}</div>
+                </div>
+              </div>
+              {(cat.types||[]).length>0&&<div style={{marginBottom:10,display:"flex",flexWrap:"wrap",gap:4}}>
+                {(cat.types||[]).slice(0,8).map(t=><span key={t} style={{padding:"2px 8px",borderRadius:4,background:"#8B5CF610",color:"#8B5CF6",fontSize:FS-3,fontWeight:600}}>{t}</span>)}
+                {(cat.types||[]).length>8&&<span style={{fontSize:FS-3,color:T.textMut}}>+{(cat.types||[]).length-8}</span>}
+              </div>}
+              {canEdit&&<Btn small onClick={()=>setCatTypesPopup({categoryId:cat.id})} style={{width:"100%",background:"#8B5CF610",color:"#8B5CF6",border:"1px solid #8B5CF640"}}>🏷️ إدارة الأنواع</Btn>}
+            </Card>;
+          })}
+        </div>
+      </>;
+    })()}
+    
+    {/* ════ V16.31: Category create/edit popup ════ */}
+    {catEditPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setCatEditPopup(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:420,border:"1px solid "+T.brd}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{catEditPopup.id?"✏️ تعديل صنف":"+ صنف جديد"}</div>
+          <Btn ghost small onClick={()=>setCatEditPopup(null)}>✕</Btn>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الإيموجي</label>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:4}}>
+              {["📦","🧵","🪡","🔧","🛠️","⚙️","🧴","📐","✂️","🎨","🧪","💡"].map(e=><span key={e} onClick={()=>setCatEditPopup({...catEditPopup,emoji:e})} style={{cursor:"pointer",fontSize:24,padding:6,borderRadius:8,background:catEditPopup.emoji===e?T.accent+"20":T.bg,border:"2px solid "+(catEditPopup.emoji===e?T.accent:"transparent")}}>{e}</span>)}
+            </div>
+          </div>
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>اسم الصنف *</label>
+            <Inp value={catEditPopup.name} onChange={v=>setCatEditPopup({...catEditPopup,name:v})} placeholder="مثلاً: قطع غيار"/>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
+          <Btn ghost onClick={()=>setCatEditPopup(null)}>إلغاء</Btn>
+          <Btn primary onClick={()=>{
+            const name=(catEditPopup.name||"").trim();
+            if(!name){showToast("⚠️ ادخل اسم الصنف");return}
+            upConfig(d=>{
+              if(catEditPopup.id)updateCategory(d,catEditPopup.id,{name,emoji:catEditPopup.emoji});
+              else addCategory(d,{name,emoji:catEditPopup.emoji});
+            });
+            setCatEditPopup(null);
+            showToast("✓ تم الحفظ");
+          }}>💾 حفظ</Btn>
+        </div>
+      </div>
+    </div>}
+
+    {/* ════ V16.31: Category types management popup ════ */}
+    {catTypesPopup&&(()=>{
+      const cat=getCategoryById(data,catTypesPopup.categoryId);
+      if(!cat)return null;
+      const newType=catTypesPopup.newType||"";
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setCatTypesPopup(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:480,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>🏷️ أنواع: {cat.emoji} {cat.name}</div>
+            <Btn ghost small onClick={()=>setCatTypesPopup(null)}>✕</Btn>
+          </div>
+          <div style={{padding:"8px 12px",borderRadius:8,background:"#8B5CF608",border:"1px solid #8B5CF620",fontSize:FS-2,color:T.textSec,marginBottom:12,lineHeight:1.6}}>
+            💡 الأنواع تنظّم الأصناف داخل الصنف. مثلاً صنف "قماش" أنواعه: قطن، تريكو، إلخ.
+          </div>
+          <div style={{display:"flex",gap:8,marginBottom:12}}>
+            <Inp value={newType} onChange={v=>setCatTypesPopup({...catTypesPopup,newType:v})} placeholder="نوع جديد..." style={{flex:1}}/>
+            <Btn small primary onClick={()=>{
+              const t=(newType||"").trim();
+              if(!t){showToast("⚠️ ادخل اسم النوع");return}
+              upConfig(d=>{
+                if(!addTypeToCategory(d,cat.id,t)){showToast("⚠️ النوع موجود بالفعل")}
+              });
+              setCatTypesPopup({...catTypesPopup,newType:""});
+            }}>+ إضافة</Btn>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {(cat.types||[]).length===0?<div style={{textAlign:"center",padding:20,color:T.textMut,fontSize:FS-1}}>لا توجد أنواع بعد — أضف أول نوع</div>
+            :(cat.types||[]).map(t=><div key={t} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",borderRadius:8,background:T.bg,border:"1px solid "+T.brd}}>
+              <span style={{fontWeight:600,fontSize:FS-1}}>🏷️ {t}</span>
+              <Btn small ghost onClick={async()=>{
+                if(!await ask("حذف النوع","حذف \""+t+"\" من أنواع "+cat.name+"؟",{danger:true}))return;
+                upConfig(d=>{removeTypeFromCategory(d,cat.id,t)});
+              }} title="حذف">🗑️</Btn>
+            </div>)}
+          </div>
+        </div>
+      </div>;
+    })()}
+
+    {/* ════ V16.31: Inventory item create/edit popup (non-legacy categories only) ════ */}
+    {itemEditPopup&&(()=>{
+      const cat=getCategoryById(data,itemEditPopup.categoryId);
+      if(!cat||cat.isCore)return null;
+      const isEdit=!!itemEditPopup.id;
+      const set=(patch)=>setItemEditPopup({...itemEditPopup,...patch});
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setItemEditPopup(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:520,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{isEdit?"✏️ تعديل صنف":"+ صنف جديد"}</div>
+            <Btn ghost small onClick={()=>setItemEditPopup(null)}>✕</Btn>
+          </div>
+          <div style={{padding:"6px 10px",borderRadius:6,background:T.bg,fontSize:FS-2,color:T.textSec,marginBottom:12}}>الصنف الرئيسي: <b>{cat.emoji} {cat.name}</b></div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div style={{gridColumn:"1 / -1"}}>
+              <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الاسم *</label>
+              <Inp value={itemEditPopup.name} onChange={v=>set({name:v})} placeholder="مثلاً: إبرة سنجر مقاس 12"/>
+            </div>
+            <div>
+              <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label>
+              <Sel value={itemEditPopup.type} onChange={v=>set({type:v})}><option value="">— بدون —</option>{(cat.types||[]).map(t=><option key={t} value={t}>{t}</option>)}</Sel>
+            </div>
+            <div>
+              <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الوحدة</label>
+              <Sel value={itemEditPopup.unit} onChange={v=>set({unit:v})}>{["قطعة","متر","كيلو","لتر","علبة","عبوة","شريط","رول"].map(u=><option key={u} value={u}>{u}</option>)}</Sel>
+            </div>
+            <div>
+              <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الحد الأدنى</label>
+              <Inp type="number" value={itemEditPopup.minStock} onChange={v=>set({minStock:v})} placeholder="0"/>
+            </div>
+            <div>
+              <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{isEdit?"متوسط التكلفة الحالي":"التكلفة الافتتاحية"}</label>
+              <Inp type="number" value={itemEditPopup.avgCost} onChange={v=>set({avgCost:v})} placeholder="0"/>
+            </div>
+            <div style={{gridColumn:"1 / -1"}}>
+              <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المورد الافتراضي (اختياري)</label>
+              <Sel value={itemEditPopup.defaultSupplierId} onChange={v=>set({defaultSupplierId:v})}><option value="">— بدون —</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</Sel>
+            </div>
+            <div style={{gridColumn:"1 / -1"}}>
+              <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات</label>
+              <Inp value={itemEditPopup.notes} onChange={v=>set({notes:v})} placeholder="..."/>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
+            <Btn ghost onClick={()=>setItemEditPopup(null)}>إلغاء</Btn>
+            <Btn primary onClick={()=>{
+              const name=(itemEditPopup.name||"").trim();
+              if(!name){showToast("⚠️ ادخل اسم الصنف");return}
+              upConfig(d=>{
+                if(isEdit)updateInventoryItem(d,itemEditPopup.id,{name,type:itemEditPopup.type,unit:itemEditPopup.unit,minStock:itemEditPopup.minStock,avgCost:itemEditPopup.avgCost,defaultSupplierId:itemEditPopup.defaultSupplierId,notes:itemEditPopup.notes});
+                else addInventoryItem(d,itemEditPopup.categoryId,{name,type:itemEditPopup.type,unit:itemEditPopup.unit,minStock:itemEditPopup.minStock,avgCost:itemEditPopup.avgCost,defaultSupplierId:itemEditPopup.defaultSupplierId,notes:itemEditPopup.notes,stock:0},userName);
+              });
+              setItemEditPopup(null);
+              showToast("✓ تم الحفظ");
+            }}>💾 حفظ</Btn>
+          </div>
+        </div>
+      </div>;
+    })()}
+
     {/* ════ SUB-TAB: SUPPLIERS ════ */}
     {subTab==="suppliers"&&<>
       {/* Supplier totals cards */}
@@ -1393,9 +1662,13 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
           <div style={{marginBottom:14}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
               <label style={{fontSize:FS,color:T.text,fontWeight:700}}>البنود <span style={{color:T.err}}>*</span></label>
-              <div style={{display:"flex",gap:6}}>
-                <Btn small onClick={()=>addRcptItem("fabric")} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>+ خامة</Btn>
-                <Btn small onClick={()=>addRcptItem("accessory")} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>+ إكسسوار</Btn>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {/* V16.31: One add button per category. Legacy stays as "fabric"/"accessory" string for back-compat */}
+                {getCategories(data).map(cat=>{
+                  const itemTypeKey=cat.legacy||cat.id;
+                  const color=cat.legacy==="fabric"?T.accent:cat.legacy==="accessory"?"#8B5CF6":"#F59E0B";
+                  return<Btn key={cat.id} small onClick={()=>addRcptItem(itemTypeKey)} style={{background:color+"12",color:color,border:"1px solid "+color+"30"}}>{"+ "+(cat.emoji||"📦")+" "+cat.name}</Btn>;
+                })}
               </div>
             </div>
             
@@ -1414,10 +1687,18 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
                   <th style={{...TH,fontSize:FS-3,width:40}}></th>
                 </tr></thead>
                 <tbody>
-                  {(rcpt.items||[]).map((it,idx)=>{const options=(it.itemType==="fabric"?fabrics:accessories).map(x=>({value:x.id,label:x.name+(x.unit?" ("+x.unit+")":"")}));
+                  {(rcpt.items||[]).map((it,idx)=>{
+                    /* V16.31: resolve category from itemType (legacy "fabric"/"accessory" or categoryId) */
+                    let catId=it.itemType;
+                    if(catId==="fabric")catId="core_fabric";
+                    else if(catId==="accessory")catId="core_accessory";
+                    const cat=getCategoryById(data,catId);
+                    const itemsForCat=getItemsForCategory(data,catId);
+                    const options=itemsForCat.map(x=>({value:x.id,label:x.name+(x.type?" — "+x.type:"")+(x.unit?" ("+x.unit+")":"")}));
+                    const badgeColor=cat?.legacy==="fabric"?T.accent:cat?.legacy==="accessory"?"#8B5CF6":"#F59E0B";
                     return<tr key={it.id} style={{borderBottom:"1px solid "+T.brd}}>
                       <td style={{...TD,padding:"4px 6px"}}>
-                        <span style={{padding:"2px 8px",borderRadius:8,fontSize:FS-3,fontWeight:700,background:it.itemType==="fabric"?T.accent+"15":"#8B5CF615",color:it.itemType==="fabric"?T.accent:"#8B5CF6"}}>{it.itemType==="fabric"?"🧵 خامة":"🪡 إكسسوار"}</span>
+                        <span style={{padding:"2px 8px",borderRadius:8,fontSize:FS-3,fontWeight:700,background:badgeColor+"15",color:badgeColor,whiteSpace:"nowrap"}}>{(cat?.emoji||"📦")+" "+(cat?.name||it.itemType)}</span>
                       </td>
                       <td style={{...TD,padding:"4px 6px"}}>
                         <SearchSel value={it.itemId} onChange={v=>updateRcptItem(idx,"itemId",v)} options={options} placeholder="اختر..."/>
@@ -1555,7 +1836,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
               <tbody>
                 {(viewReceipt.items||[]).map((it,i)=><tr key={i} style={{borderBottom:"1px solid "+T.brd}}>
                   <td style={{...TD,fontWeight:700}}>
-                    <span style={{padding:"1px 6px",borderRadius:6,fontSize:FS-3,marginLeft:4,background:it.itemType==="fabric"?T.accent+"15":"#8B5CF615",color:it.itemType==="fabric"?T.accent:"#8B5CF6"}}>{it.itemType==="fabric"?"🧵":"🪡"}</span>
+                    <span style={{padding:"1px 6px",borderRadius:6,fontSize:FS-3,marginLeft:4,background:it.itemType==="fabric"?T.accent+"15":"#8B5CF615",color:it.itemType==="fabric"?T.accent:"#8B5CF6"}}>{(getCategoryById(data,it.itemType==="fabric"?"core_fabric":it.itemType==="accessory"?"core_accessory":it.itemType)?.emoji||"📦")}</span>
                     {it.itemName}
                   </td>
                   <td style={{...TD,textAlign:"center"}}>{fmt(it.qty)}</td>
@@ -1697,9 +1978,12 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
           <div style={{marginBottom:14}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
               <label style={{fontSize:FS,color:T.text,fontWeight:700}}>البنود المطلوبة <span style={{color:T.err}}>*</span></label>
-              <div style={{display:"flex",gap:6}}>
-                <Btn small onClick={()=>addPoItem("fabric")} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>+ خامة</Btn>
-                <Btn small onClick={()=>addPoItem("accessory")} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>+ إكسسوار</Btn>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {getCategories(data).map(cat=>{
+                  const itemTypeKey=cat.legacy||cat.id;
+                  const color=cat.legacy==="fabric"?T.accent:cat.legacy==="accessory"?"#8B5CF6":"#F59E0B";
+                  return<Btn key={cat.id} small onClick={()=>addPoItem(itemTypeKey)} style={{background:color+"12",color:color,border:"1px solid "+color+"30"}}>{"+ "+(cat.emoji||"📦")+" "+cat.name}</Btn>;
+                })}
               </div>
             </div>
             
@@ -1718,9 +2002,17 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
                   <th style={{...TH,fontSize:FS-3,width:40}}></th>
                 </tr></thead>
                 <tbody>
-                  {(po.items||[]).map((it,idx)=>{const options=(it.itemType==="fabric"?fabrics:accessories).map(x=>({value:x.id,label:x.name+(x.unit?" ("+x.unit+")":"")}));
+                  {(po.items||[]).map((it,idx)=>{
+                    /* V16.31: resolve category from itemType */
+                    let catId=it.itemType;
+                    if(catId==="fabric")catId="core_fabric";
+                    else if(catId==="accessory")catId="core_accessory";
+                    const cat=getCategoryById(data,catId);
+                    const itemsForCat=getItemsForCategory(data,catId);
+                    const options=itemsForCat.map(x=>({value:x.id,label:x.name+(x.type?" — "+x.type:"")+(x.unit?" ("+x.unit+")":"")}));
+                    const badgeColor=cat?.legacy==="fabric"?T.accent:cat?.legacy==="accessory"?"#8B5CF6":"#F59E0B";
                     return<tr key={it.id} style={{borderBottom:"1px solid "+T.brd}}>
-                      <td style={{...TD,padding:"4px 6px"}}><span style={{padding:"2px 8px",borderRadius:8,fontSize:FS-3,fontWeight:700,background:it.itemType==="fabric"?T.accent+"15":"#8B5CF615",color:it.itemType==="fabric"?T.accent:"#8B5CF6"}}>{it.itemType==="fabric"?"🧵 خامة":"🪡 إكسسوار"}</span></td>
+                      <td style={{...TD,padding:"4px 6px"}}><span style={{padding:"2px 8px",borderRadius:8,fontSize:FS-3,fontWeight:700,background:badgeColor+"15",color:badgeColor,whiteSpace:"nowrap"}}>{(cat?.emoji||"📦")+" "+(cat?.name||it.itemType)}</span></td>
                       <td style={{...TD,padding:"4px 6px"}}><SearchSel value={it.itemId} onChange={v=>updatePoItem(idx,"itemId",v)} options={options} placeholder="اختر..."/></td>
                       <td style={{...TD,padding:"4px 6px"}}><Inp type="number" value={it.qty||""} onChange={v=>updatePoItem(idx,"qty",v)} style={{textAlign:"center",padding:"5px 6px"}}/></td>
                       <td style={{...TD,padding:"4px 6px",textAlign:"center",color:T.textMut,fontSize:FS-2}}>{it.unit||"—"}</td>
@@ -1797,7 +2089,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
               </tr></thead>
               <tbody>
                 {(viewPo.items||[]).map((it,i)=><tr key={i} style={{borderBottom:"1px solid "+T.brd}}>
-                  <td style={{...TD,fontWeight:700}}><span style={{padding:"1px 6px",borderRadius:6,fontSize:FS-3,marginLeft:4,background:it.itemType==="fabric"?T.accent+"15":"#8B5CF615",color:it.itemType==="fabric"?T.accent:"#8B5CF6"}}>{it.itemType==="fabric"?"🧵":"🪡"}</span>{it.itemName}</td>
+                  <td style={{...TD,fontWeight:700}}><span style={{padding:"1px 6px",borderRadius:6,fontSize:FS-3,marginLeft:4,background:it.itemType==="fabric"?T.accent+"15":"#8B5CF615",color:it.itemType==="fabric"?T.accent:"#8B5CF6"}}>{(getCategoryById(data,it.itemType==="fabric"?"core_fabric":it.itemType==="accessory"?"core_accessory":it.itemType)?.emoji||"📦")}</span>{it.itemName}</td>
                   <td style={{...TD,textAlign:"center"}}>{fmt(it.qty)}</td>
                   <td style={{...TD,textAlign:"center",color:T.textSec}}>{it.unit||"—"}</td>
                   <td style={{...TD,textAlign:"center"}}>{fmt(r2(it.price))}</td>

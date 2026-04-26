@@ -34,6 +34,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   /* V15.10: Extra cost popup state — tracks form fields for adding/editing additional costs */
   const[extraCostPopup,setExtraCostPopup]=useState(null);/* {editId?, category, customReason, amount, date, notes} */
   const[showNew,setShowNew]=useState(false);
+  /* V16.37: mobile-only overflow menu — collapses secondary actions into a list */
+  const[showActionsMenu,setShowActionsMenu]=useState(false);
   const[dupInit,setDupInit]=useState(null);
   const[showDeliver,setShowDeliver]=useState(false);
   /* V15.45: Cut/workshop sync state */
@@ -466,17 +468,26 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         <div style={{display:"flex",gap:4,alignItems:"center"}}>
         </div>
       </div>
-      <div className="action-row-scroll" style={{display:"flex",gap:4,alignItems:"center",maxWidth:"100%"}}>
+      {/* V16.37: Action row — desktop shows everything inline; mobile keeps
+          only prev/next nav + print, and folds secondary actions into a "⋯" menu. */}
+      <div className="action-row-scroll" style={{display:"flex",gap:4,alignItems:"center",maxWidth:"100%",position:"relative"}}>
         <Btn small onClick={()=>prevId&&setSel(prevId)} disabled={!prevId} style={{fontSize:18,padding:"2px 8px",opacity:prevId?1:0.3}}>→</Btn>
         <span style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>{(curIdx+1)+"/"+sortedIds.length}</span>
         <Btn small onClick={()=>nextId&&setSel(nextId)} disabled={!nextId} style={{fontSize:18,padding:"2px 8px",opacity:nextId?1:0.3}}>←</Btn>
         <div style={{width:1,height:20,background:T.brd,margin:"0 4px",flexShrink:0}}/>
         <Btn small onClick={()=>printOrderSheet(order,t,activeFabs,statusCards)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨</Btn>
-        {canEdit&&!order.closed&&<Btn small primary onClick={()=>setEditing(true)} title="تعديل">✏️</Btn>}
-        <Btn small onClick={()=>setWaPopup({order,t,fromCard:false})} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال واتساب">📱</Btn>
-        {canEdit&&!order.closed&&<Btn small onClick={()=>{const dup=JSON.parse(JSON.stringify(order));dup.id=gid();dup.date=new Date().toISOString().split("T")[0];dup.createdAt=new Date().toISOString();dup.modelNo="";dup.status="تم القص";dup.deliveredQty=0;dup.deliveries=[];dup.workshopDeliveries=[];dup._isDup=true;delete dup._docId;setDupInit(dup)}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630",whiteSpace:"nowrap"}} title="تكرار الأوردر">📋 تكرار</Btn>}
-        {canEdit&&!order.closed&&t.cutQty>0&&activeFabs.length>0&&<Btn small onClick={()=>{setShowDeliver(true);setDWs("");setDType("");setDQty(0);setDPrice("");setDNote("")}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630",whiteSpace:"nowrap"}}>📤 تسليم ورشة</Btn>}
-        {canEdit&&!order.closed&&<Btn small onClick={()=>setShowNew(true)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",whiteSpace:"nowrap"}}>+ جديد</Btn>}
+        {/* Desktop: inline buttons */}
+        {!isMob&&<>
+          {canEdit&&!order.closed&&<Btn small primary onClick={()=>setEditing(true)} title="تعديل">✏️</Btn>}
+          <Btn small onClick={()=>setWaPopup({order,t,fromCard:false})} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال واتساب">📱</Btn>
+          {canEdit&&!order.closed&&<Btn small onClick={()=>{const dup=JSON.parse(JSON.stringify(order));dup.id=gid();dup.date=new Date().toISOString().split("T")[0];dup.createdAt=new Date().toISOString();dup.modelNo="";dup.status="تم القص";dup.deliveredQty=0;dup.deliveries=[];dup.workshopDeliveries=[];dup._isDup=true;delete dup._docId;setDupInit(dup)}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630",whiteSpace:"nowrap"}} title="تكرار الأوردر">📋 تكرار</Btn>}
+          {canEdit&&!order.closed&&t.cutQty>0&&activeFabs.length>0&&<Btn small onClick={()=>{setShowDeliver(true);setDWs("");setDType("");setDQty(0);setDPrice("");setDNote("")}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630",whiteSpace:"nowrap"}}>📤 تسليم ورشة</Btn>}
+          {canEdit&&!order.closed&&<Btn small onClick={()=>setShowNew(true)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",whiteSpace:"nowrap"}}>+ جديد</Btn>}
+        </>}
+        {/* Mobile: overflow "⋯" menu */}
+        {isMob&&<>
+          <Btn small onClick={()=>setShowActionsMenu(true)} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd,fontSize:18,padding:"2px 10px",fontWeight:800}} title="المزيد">⋯</Btn>
+        </>}
         {order.closed&&<span style={{padding:"4px 12px",borderRadius:8,background:"#64748B12",color:"#64748B",fontWeight:700,fontSize:FS-1,whiteSpace:"nowrap"}}>🔒 مغلق</span>}
       </div>
     </div>
@@ -611,7 +622,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         if(isClosed)curIdx=phases.length-1;
         return<div style={{marginBottom:14,background:T.cardSolid,borderRadius:10,padding:"10px 14px",border:"1px solid "+T.brd,overflowX:"auto"}}><Timeline phases={phases} currentIdx={curIdx}/></div>})()}
       <div style={{display:"grid",gridTemplateColumns:order.image&&!isMob?"auto 1fr":"1fr",gap:16,marginBottom:16}}>
-        {!isMob&&order.image&&<div style={{position:"relative"}}><img src={order.image} alt="" style={{width:135,height:180,aspectRatio:"3/4",objectFit:"cover",borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow}}/>
+        {/* V16.37: doubled desktop image (270×360, 3:4 ratio) for clearer model preview */}
+        {!isMob&&order.image&&<div style={{position:"relative"}}><img src={order.image} alt="" style={{width:270,height:360,aspectRatio:"3/4",objectFit:"cover",borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow}}/>
           {canEdit&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true}))updOrder(sel,o=>{o.image=""})}} style={{position:"absolute",top:4,right:4,width:22,height:22,borderRadius:11,background:"rgba(0,0,0,0.6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11}}>✕</div>}
         </div>}
         <Card title="بيانات الموديل">
@@ -1328,6 +1340,35 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       </div>;
     })()}
     {/* V16.24: Per-piece cut quantity edit popup */}
+    {/* V16.37: Mobile actions menu — bottom-sheet style with stacked list items.
+        Renders the same actions as the desktop inline buttons, but vertically
+        and tap-friendly. Each item runs its handler then closes the sheet. */}
+    {showActionsMenu&&(()=>{
+      const close=()=>setShowActionsMenu(false);
+      const run=(fn)=>()=>{close();setTimeout(fn,50)};
+      const items=[];
+      if(canEdit&&!order.closed)items.push({icon:"✏️",label:"تعديل الأوردر",color:T.accent,onClick:run(()=>setEditing(true))});
+      items.push({icon:"📱",label:"إرسال واتساب",color:"#25D366",onClick:run(()=>setWaPopup({order,t,fromCard:false}))});
+      if(canEdit&&!order.closed)items.push({icon:"📋",label:"تكرار الأوردر",color:"#8B5CF6",onClick:run(()=>{const dup=JSON.parse(JSON.stringify(order));dup.id=gid();dup.date=new Date().toISOString().split("T")[0];dup.createdAt=new Date().toISOString();dup.modelNo="";dup.status="تم القص";dup.deliveredQty=0;dup.deliveries=[];dup.workshopDeliveries=[];dup._isDup=true;delete dup._docId;setDupInit(dup)})});
+      if(canEdit&&!order.closed&&t.cutQty>0&&activeFabs.length>0)items.push({icon:"📤",label:"تسليم ورشة",color:"#8B5CF6",onClick:run(()=>{setShowDeliver(true);setDWs("");setDType("");setDQty(0);setDPrice("");setDNote("")})});
+      if(canEdit&&!order.closed)items.push({icon:"➕",label:"أوردر جديد",color:T.ok,onClick:run(()=>setShowNew(true))});
+      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={close}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:"20px 20px 0 0",width:"100%",maxWidth:480,padding:"12px 0 20px",borderTop:"1px solid "+T.brd,boxShadow:"0 -8px 24px rgba(0,0,0,0.15)",animation:"slideUp 0.2s ease-out"}}>
+          {/* Drag handle */}
+          <div style={{width:40,height:4,borderRadius:2,background:T.brd,margin:"0 auto 12px"}}/>
+          <div style={{padding:"0 16px 8px",fontSize:FS-1,fontWeight:700,color:T.textSec,borderBottom:"1px solid "+T.brd,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span>إجراءات الأوردر</span>
+            <Btn ghost small onClick={close} title="إغلاق">✕</Btn>
+          </div>
+          {items.length===0&&<div style={{padding:"30px 16px",textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد إجراءات متاحة</div>}
+          {items.map((it,i)=><div key={i} onClick={it.onClick} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",cursor:"pointer",borderBottom:i<items.length-1?"1px solid "+T.brd:"none"}}>
+            <span style={{fontSize:22,width:32,textAlign:"center"}}>{it.icon}</span>
+            <span style={{flex:1,fontSize:FS,fontWeight:700,color:it.color}}>{it.label}</span>
+            <span style={{fontSize:FS,color:T.textMut}}>‹</span>
+          </div>)}
+        </div>
+      </div>;
+    })()}
     {pieceCutPopup&&(()=>{
       const pieces=order.orderPieces||[];
       const globalCut=t.cutQty||0;

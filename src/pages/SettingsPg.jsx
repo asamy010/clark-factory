@@ -399,6 +399,21 @@ export function HrSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Sel
 
 
 
+/* V16.36: Map of supported fonts → Google Fonts URLs for print and preview.
+   Cairo is our default app font; the others are popular Arabic-friendly choices.
+   When the user picks a font, both the live preview and the print stream load
+   the corresponding stylesheet. */
+const GOOGLE_FONT_URLS={
+  Cairo:    "https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&display=swap",
+  Tajawal:  "https://fonts.googleapis.com/css2?family=Tajawal:wght@500;700;800;900&display=swap",
+  Almarai:  "https://fonts.googleapis.com/css2?family=Almarai:wght@700;800&display=swap",
+  "Noto Sans Arabic":"https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@600;700;800;900&display=swap",
+  "IBM Plex Sans Arabic":"https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@500;600;700&display=swap",
+  Amiri:    "https://fonts.googleapis.com/css2?family=Amiri:wght@700&display=swap",
+  Lalezar:  "https://fonts.googleapis.com/css2?family=Lalezar&display=swap"
+};
+const FONT_OPTIONS=Object.keys(GOOGLE_FONT_URLS);
+
 /* V16.5: Inline live preview for label settings — uses QRCode lib dynamically loaded.
    Renders at scale (10x for visibility) with same pixel relations as the actual print. */
 function LabelLivePreview({draft,T,FS}){
@@ -460,11 +475,13 @@ function LabelLivePreview({draft,T,FS}){
         padding:m,
         boxSizing:"border-box",
         display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-        textAlign:"center",fontFamily:"'Cairo',Arial,sans-serif",
+        textAlign:"center",fontFamily:"'"+(draft.fontFamily||"Cairo")+"',Arial,sans-serif",
         gap:2,
         direction:"rtl",
       }}>
-        {draft.fields?.brand?.show&&<div style={{fontWeight:900,fontSize:fontPx(draft.fields.brand.size||14),letterSpacing:2,lineHeight:1,color:"#111"}}>CLARK</div>}
+        {/* V16.36: Logo at top — overrides brand text when enabled. brightness(0) forces pure black */}
+        {draft.showLogo&&<img src={CLARK_LOGO} alt="CLARK" style={{width:"75%",maxWidth:w*0.8,height:"auto",filter:"brightness(0) saturate(100%)",marginBottom:2,objectFit:"contain"}}/>}
+        {draft.fields?.brand?.show&&!draft.showLogo&&<div style={{fontWeight:900,fontSize:fontPx(draft.fields.brand.size||14),letterSpacing:2,lineHeight:1,color:"#111"}}>CLARK</div>}
         {draft.fields?.modelNo?.show!==false&&<div style={{fontWeight:800,fontSize:fontPx(draft.fields?.modelNo?.size||12),lineHeight:1.1,color:"#111"}}>3262114</div>}
         {draft.fields?.desc?.show&&<div style={{fontSize:fontPx(draft.fields.desc.size||10),color:"#444",lineHeight:1}}>توينز اولادي قطعتين</div>}
         {draft.fields?.sizeLabel?.show&&<div style={{fontWeight:700,fontSize:fontPx(draft.fields.sizeLabel.size||10),lineHeight:1,color:"#111"}}>مقاس: 8</div>}
@@ -478,7 +495,8 @@ function LabelLivePreview({draft,T,FS}){
 }
 
 export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Sel,Card,setDirty,CLARK_LOGO}){
-  const DEFAULT_PS={labelWidth:40,labelHeight:50,orientation:"portrait",margins:2,qrLevel:"M",qrMargin:1,qrColor:"#000000",showBorder:false,fields:{brand:{show:false,size:14},modelNo:{show:true,size:12},desc:{show:false,size:10},qr:{show:true,size:80},series:{show:true,size:12},sizeLabel:{show:true,size:10},price:{show:false,size:10}},salaryPageSize:"A5-landscape",dailyReportSize:"A4"};
+  /* V16.36: Added fontFamily + showLogo for QR label customization */
+  const DEFAULT_PS={labelWidth:40,labelHeight:50,orientation:"portrait",margins:2,qrLevel:"M",qrMargin:1,qrColor:"#000000",showBorder:false,fontFamily:"Cairo",showLogo:false,fields:{brand:{show:false,size:14},modelNo:{show:true,size:12},desc:{show:false,size:10},qr:{show:true,size:80},series:{show:true,size:12},sizeLabel:{show:true,size:10},price:{show:false,size:10}},salaryPageSize:"A5-landscape",dailyReportSize:"A4"};
   const savedPS=config.printSettings||DEFAULT_PS;
   const buildSnapshot=(ps)=>({
     labelWidth:Number(ps.labelWidth)||40,
@@ -488,6 +506,9 @@ export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
     qrColor:ps.qrColor||"#000000",
     qrMargin:ps.qrMargin!==undefined?Number(ps.qrMargin):1,
     showBorder:!!ps.showBorder,
+    /* V16.36: */
+    fontFamily:ps.fontFamily||"Cairo",
+    showLogo:!!ps.showLogo,
     fields:JSON.parse(JSON.stringify(ps.fields||DEFAULT_PS.fields)),
     salaryPageSize:ps.salaryPageSize||"A5-landscape",
     dailyReportSize:ps.dailyReportSize||"A4"
@@ -501,6 +522,18 @@ export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
   const isDirty=JSON.stringify(draft)!==JSON.stringify(savedSnap);
   useEffect(()=>{setDirty(isDirty)},[isDirty]);/* eslint-disable-line */
 
+  /* V16.36: Pre-load all label font options so the dropdown previews them
+     in their actual fonts, and the live preview always has the chosen one available. */
+  useEffect(()=>{
+    FONT_OPTIONS.forEach(f=>{
+      const tagId="font-loader-"+f.replace(/\s+/g,"-");
+      if(document.getElementById(tagId))return;
+      const link=document.createElement("link");
+      link.id=tagId;link.rel="stylesheet";link.href=GOOGLE_FONT_URLS[f];
+      document.head.appendChild(link);
+    });
+  },[]);
+
   const handleSave=()=>{
     upConfig(d=>{
       if(!d.printSettings)d.printSettings={};
@@ -511,6 +544,9 @@ export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
       d.printSettings.qrColor=draft.qrColor;
       d.printSettings.qrMargin=draft.qrMargin;
       d.printSettings.showBorder=draft.showBorder;
+      /* V16.36: */
+      d.printSettings.fontFamily=draft.fontFamily;
+      d.printSettings.showLogo=draft.showLogo;
       d.printSettings.fields=JSON.parse(JSON.stringify(draft.fields));
       d.printSettings.salaryPageSize=draft.salaryPageSize;
       d.printSettings.dailyReportSize=draft.dailyReportSize;
@@ -532,8 +568,15 @@ export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
   const printTest=()=>{
     const ps=draft;
     const w=ps.labelWidth||40;const h=ps.labelHeight||50;const m=ps.margins||2;const qrMM=Math.min(w-m*2,h-m*2)-8;
-    const pw_=openPrintWindow();if(!pw_){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}let html="<html dir='rtl'><head><title>طباعة تجريبية</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><style>@page{size:"+w+"mm "+h+"mm;margin:"+m+"mm}*{margin:0;padding:0}body{margin:0;padding:0;font-family:'Cairo',Arial,sans-serif}.lbl{width:"+(w-m*2)+"mm;height:"+(h-m*2)+"mm;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center"+(ps.showBorder?";border:1px dashed #999":"")+"}</style></head><body><div class='lbl'>";
-    if(ps.fields?.brand?.show)html+="<div style='font-weight:900;font-size:"+((ps.fields?.brand?.size||14)/2.5)+"mm;letter-spacing:2px;line-height:1'>CLARK</div>";
+    /* V16.36: chosen font family + Google Fonts mapping */
+    const fontFam=ps.fontFamily||"Cairo";
+    const fontUrl=GOOGLE_FONT_URLS[fontFam]||GOOGLE_FONT_URLS.Cairo;
+    const pw_=openPrintWindow();if(!pw_){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}let html="<html dir='rtl'><head><title>طباعة تجريبية</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><link href='"+fontUrl+"' rel='stylesheet'/><style>@page{size:"+w+"mm "+h+"mm;margin:"+m+"mm}*{margin:0;padding:0}body{margin:0;padding:0;font-family:'"+fontFam+"',Arial,sans-serif}.lbl{width:"+(w-m*2)+"mm;height:"+(h-m*2)+"mm;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center"+(ps.showBorder?";border:1px dashed #999":"")+"}.logo{width:80%;max-width:30mm;margin-bottom:1mm}</style></head><body><div class='lbl'>";
+    /* V16.36: Logo at top — overrides brand text when enabled.
+       The brightness/saturate filter forces pure black on the gray logo
+       so it prints crisp on thermal paper. */
+    if(ps.showLogo)html+="<img src='"+CLARK_LOGO+"' class='logo' alt='CLARK' style='filter:brightness(0) saturate(100%);width:80%;max-width:30mm;margin-bottom:1mm;height:auto;display:block;margin-left:auto;margin-right:auto'/>";
+    if(ps.fields?.brand?.show&&!ps.showLogo)html+="<div style='font-weight:900;font-size:"+((ps.fields?.brand?.size||14)/2.5)+"mm;letter-spacing:2px;line-height:1'>CLARK</div>";
     if(ps.fields?.modelNo?.show!==false)html+="<div style='font-weight:800;font-size:"+((ps.fields?.modelNo?.size||12)/2.5)+"mm;line-height:1.1'>3262114</div>";
     if(ps.fields?.desc?.show)html+="<div style='font-size:"+((ps.fields?.desc?.size||10)/2.5)+"mm;color:#444;line-height:1'>توينز اولادي قطعتين</div>";
     if(ps.fields?.sizeLabel?.show)html+="<div style='font-weight:700;font-size:"+((ps.fields?.sizeLabel?.size||10)/2.5)+"mm;line-height:1'>مقاس: 8</div>";
@@ -560,6 +603,18 @@ export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
         <Sel value={draft.qrColor||"#000000"} onChange={v=>updateDraft(d=>{d.qrColor=v})} style={{width:100,fontSize:FS-2}}><option value="#000000">⬛ أسود</option><option value="#1B2A4A">🟦 كحلي</option><option value="#1a1a1a">◼ رمادي</option></Sel>
         <Sel value={draft.qrMargin??1} onChange={v=>updateDraft(d=>{d.qrMargin=Number(v)})} style={{width:80,fontSize:FS-2}}><option value="0">هامش 0</option><option value="1">هامش 1</option><option value="2">هامش 2</option></Sel>
         <span onClick={()=>updateDraft(d=>{d.showBorder=!d.showBorder})} style={{cursor:"pointer",fontSize:FS-1,color:draft.showBorder?T.accent:T.textMut,padding:"4px 8px",borderRadius:6,border:"1px solid "+(draft.showBorder?T.accent+"40":T.brd)}}>{draft.showBorder?"☑":"☐"} إطار</span>
+      </div>
+      {/* V16.36: Font family + Logo toggle */}
+      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap",padding:"8px 10px",borderRadius:8,background:T.accent+"06",border:"1px solid "+T.accent+"20"}}>
+        <span style={{fontSize:FS-2,fontWeight:700,color:T.textSec}}>🔤 الخط:</span>
+        <Sel value={draft.fontFamily||"Cairo"} onChange={v=>updateDraft(d=>{d.fontFamily=v})} style={{width:170,fontSize:FS-2,fontFamily:"'"+(draft.fontFamily||"Cairo")+"',Arial,sans-serif"}}>
+          {FONT_OPTIONS.map(f=><option key={f} value={f} style={{fontFamily:"'"+f+"',Arial,sans-serif"}}>{f}</option>)}
+        </Sel>
+        <span style={{width:1,height:24,background:T.brd}}/>
+        <span onClick={()=>updateDraft(d=>{d.showLogo=!d.showLogo})} style={{cursor:"pointer",fontSize:FS-1,color:draft.showLogo?T.accent:T.textMut,padding:"4px 10px",borderRadius:6,border:"1px solid "+(draft.showLogo?T.accent+"40":T.brd),fontWeight:700,display:"inline-flex",alignItems:"center",gap:6}}>
+          {draft.showLogo?"☑":"☐"} 🏷️ لوجو CLARK (أعلى الليبل)
+        </span>
+        {draft.showLogo&&<span style={{fontSize:FS-3,color:T.textMut}}>(يستبدل نص "اسم الشركة")</span>}
       </div>
       <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>
         {fields.map(f=>{const fv=draft.fields?.[f.key]||{show:false,size:12};const isOn=f.key==="modelNo"||f.key==="qr"?fv.show!==false:fv.show;
