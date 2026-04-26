@@ -34,6 +34,40 @@ export function wsIsInternal(type){return wsTypeInfo(type).internal}
 /* Get status color from cards or fallback to default gray */
 export function getStatusColor(name,cards){const c=(cards||DEFAULT_STATUSES).find(s=>s.name===name);return c?c.color:"#94A3B8"}
 
+/* V16.47: Production stage timeline.
+   Maps a free-form status string to an index in a 5-stage production lifecycle:
+     0  قص
+     1  تشغيل (خياطة)
+     2  طباعة / تطريز / غسيل  (parallel, treated as same forward stage)
+     3  تشطيب وتعبئة
+     4  جاهز (تم التسليم لمخزن الجاهز)
+   Also returns a special-case "cancelled" flag for "ملغي".
+   Falls back to stage 0 for unknown statuses. */
+export const PRODUCTION_STAGES=[
+  {key:"cut",     short:"قص",      full:"تم القص"},
+  {key:"sew",     short:"تشغيل",   full:"في التشغيل"},
+  {key:"deco",    short:"طباعة",   full:"طباعة / تطريز / غسيل"},
+  {key:"finish",  short:"تشطيب",   full:"تشطيب وتعبئة"},
+  {key:"ready",   short:"جاهز",    full:"تم التسليم لمخزن الجاهز"}
+];
+export function getStageIndex(status){
+  const s=String(status||"").trim();
+  if(!s)return 0;
+  if(s==="ملغي")return-1;/* cancelled */
+  /* Stage 4: ready / partially-ready */
+  if(s==="تم التسليم لمخزن الجاهز")return 4;
+  if(s==="في مخزن الجاهز جزئي")return 4;
+  /* Stage 3: finishing */
+  if(s.indexOf("تشطيب")>=0)return 3;
+  /* Stage 2: print / embroidery / wash */
+  if(s.indexOf("طباعة")>=0||s.indexOf("تطريز")>=0||s.indexOf("غسيل")>=0)return 2;
+  /* Stage 1: sewing — internal or external */
+  if(s.indexOf("تشغيل")>=0)return 1;
+  /* Stage 0: cut */
+  if(s==="تم القص")return 0;
+  return 0;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    PERFORMANCE CACHES — WeakMap-based memoization for pure functions
    

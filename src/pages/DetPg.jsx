@@ -10,7 +10,7 @@ import { Badge, Btn, Card, DelBtn, FCTable, Inp, MetricCard, SearchSel, Sel, Tim
 import { DEFAULT_STATUSES, FCOL, FKEYS, FS } from "../constants/index.js";
 import { T, TD, TDB, TDL, TH } from "../theme.js";
 import { fmt, gIcon, gc, gcons, gdate, gf, gid, r2, slay, sqty, openWA } from "../utils/format.js";
-import { calcOrder, detectQtyMismatch, getConfirmedStock, getOrderDetails, getOrderTimeline, getPieceCutQty, mkOrder, planCutSync, recomputeStatus, sortOrders, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
+import { calcOrder, detectQtyMismatch, getConfirmedStock, getOrderDetails, getOrderTimeline, getPieceCutQty, getStageIndex, mkOrder, planCutSync, PRODUCTION_STAGES, recomputeStatus, sortOrders, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
 import { addAudit } from "../utils/audit.js";
 import { ask, highlightRow, showToast } from "../utils/popups.js";
 import { printLabel, printOrderSheet, printReceipt, printWorkshopReport } from "../utils/print-extras.js";
@@ -345,21 +345,64 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                 </div>
               </div>
 
-              {/* ── Row 2: PROGRESS BLOCK — the hero of the card ── */}
-              <div style={{padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                  <span style={{fontSize:FS-3,color:T.textMut,fontWeight:700,textTransform:"uppercase",letterSpacing:0.3}}>التقدم</span>
-                  <span style={{padding:"3px 10px",borderRadius:5,background:statusColor,color:"#fff",fontSize:FS-3,fontWeight:800,whiteSpace:"nowrap"}}>{o.status}</span>
-                </div>
-                <div style={{display:"flex",alignItems:"baseline",gap:6,marginBottom:6}}>
-                  <span style={{fontSize:FS+10,fontWeight:900,color:progress>=80?T.ok:progress>=50?T.warn:T.err,fontVariantNumeric:"tabular-nums",lineHeight:1}}>{o.deliveredQty||0}</span>
-                  <span style={{fontSize:FS,color:T.textMut,fontWeight:600,fontVariantNumeric:"tabular-nums"}}>/ {t.cutQty}</span>
-                  <span style={{marginInlineStart:"auto",fontSize:FS-1,fontWeight:800,color:progress>=80?T.ok:progress>=50?T.warn:T.err,fontVariantNumeric:"tabular-nums"}}>{progress}%</span>
-                </div>
-                <div className="det-progress-bar" style={{height:6,background:"#fff",borderRadius:3,overflow:"hidden",border:"1px solid "+T.brd}}>
-                  <div className="det-progress-fill" style={{width:progress+"%",height:"100%",background:progress>=80?"linear-gradient(90deg,"+T.ok+","+T.ok+"CC)":progress>=50?"linear-gradient(90deg,"+T.warn+","+T.warn+"CC)":"linear-gradient(90deg,"+T.err+","+T.err+"CC)",boxShadow:"0 0 6px "+(progress>=80?T.ok:progress>=50?T.warn:T.err)+"40"}}/>
-                </div>
-              </div>
+              {/* ── Row 2: STAGE TIMELINE — milestones (V16.47) ── 
+                  Shows where the order is in the 5-step production lifecycle
+                  (قص → تشغيل → طباعة → تشطيب → جاهز). Cancelled orders show
+                  a single red banner instead. */}
+              {(()=>{
+                const stageIdx=getStageIndex(o.status);
+                if(stageIdx<0){/* cancelled */
+                  return<div style={{padding:"10px 12px",borderRadius:10,background:T.err+"08",border:"1px solid "+T.err+"30",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                    <span style={{fontSize:FS-2,color:T.err,fontWeight:800}}>🚫 {o.status}</span>
+                    <span style={{fontSize:FS-3,color:T.textMut}}>تم إلغاء الأوردر</span>
+                  </div>;
+                }
+                /* Progress fill: percent from start to current stage */
+                const fillPct=stageIdx===0?5:(stageIdx/(PRODUCTION_STAGES.length-1))*100;
+                return<div style={{padding:"10px 12px 8px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                    <span style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>المرحلة الحالية</span>
+                    <span style={{padding:"2px 9px",borderRadius:5,background:statusColor,color:"#fff",fontSize:FS-3,fontWeight:800,whiteSpace:"nowrap"}}>{o.status||"—"}</span>
+                  </div>
+                  {/* Dots track */}
+                  <div style={{position:"relative",height:22,marginInline:6}}>
+                    {/* gray base line behind everything */}
+                    <div style={{position:"absolute",insetBlockStart:9,insetInlineStart:0,insetInlineEnd:0,height:2,background:T.brd,borderRadius:1}}/>
+                    {/* green fill line up to current stage */}
+                    <div style={{position:"absolute",insetBlockStart:9,insetInlineStart:0,height:2,background:T.ok,borderRadius:1,width:fillPct+"%",transition:"width 0.4s"}}/>
+                    {/* dots */}
+                    <div style={{position:"relative",display:"flex",justifyContent:"space-between",zIndex:1}}>
+                      {PRODUCTION_STAGES.map((st,i)=>{
+                        const isDone=i<stageIdx;
+                        const isCurrent=i===stageIdx;
+                        const isFuture=i>stageIdx;
+                        return<div key={st.key} style={{
+                          width:20,height:20,borderRadius:"50%",
+                          background:isDone?T.ok:isCurrent?statusColor:T.cardSolid,
+                          border:"2px solid "+(isDone?T.ok:isCurrent?statusColor:T.brd),
+                          color:isFuture?T.textMut:"#fff",
+                          display:"flex",alignItems:"center",justifyContent:"center",
+                          fontSize:11,fontWeight:900,lineHeight:1,
+                          ...(isCurrent?{boxShadow:"0 0 0 4px "+statusColor+"33"}:{})
+                        }}>{isDone?"✓":isCurrent?"●":""}</div>;
+                      })}
+                    </div>
+                  </div>
+                  {/* Stage labels under dots */}
+                  <div style={{display:"flex",justifyContent:"space-between",marginTop:6,marginInline:-2}}>
+                    {PRODUCTION_STAGES.map((st,i)=>{
+                      const isDone=i<stageIdx;const isCurrent=i===stageIdx;
+                      return<span key={st.key} style={{flex:1,textAlign:"center",fontSize:FS-4,fontWeight:isCurrent?800:isDone?700:500,color:isCurrent?statusColor:isDone?T.ok:T.textMut,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",padding:"0 1px"}}>{st.short}</span>;
+                    })}
+                  </div>
+                  {/* Numbers row — context made explicit so "0" stops being confusing */}
+                  <div style={{display:"flex",alignItems:"baseline",gap:6,marginTop:9,paddingTop:8,borderTop:"1px dashed "+T.brd}}>
+                    <span style={{fontSize:FS+4,fontWeight:900,color:progress>=80?T.ok:progress>=50?T.warn:T.textSec,fontVariantNumeric:"tabular-nums",lineHeight:1}}>{o.deliveredQty||0}</span>
+                    <span style={{fontSize:FS-2,color:T.textMut,fontWeight:600,fontVariantNumeric:"tabular-nums"}}>/ {t.cutQty} لمخزن الجاهز</span>
+                    <span style={{marginInlineStart:"auto",fontSize:FS-3,fontWeight:800,color:T.textSec,fontVariantNumeric:"tabular-nums"}}>{stageIdx+1}/{PRODUCTION_STAGES.length} مراحل</span>
+                  </div>
+                </div>;
+              })()}
 
               {/* ── Row 3: KPIs row — big numbers, lowercase labels ── */}
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>

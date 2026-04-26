@@ -1498,8 +1498,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               title="تحديد/إلغاء الكل"
               style={{cursor:"pointer",width:16,height:16}}/>
           </th>}
-          {/* V16.40: dropped ملاحظات, swapped order to: نوع الحركة then بيان (desc takes remaining width) */}
-          {["الرصيد","تاريخ","اليوم","وارد","منصرف","نوع الحركة","بيان","حساب جاري","موسم",""].map(h=><th key={h} style={{padding:"7px 8px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
+          {/* V16.40: dropped ملاحظات, swapped order to: نوع الحركة then بيان (desc takes remaining width)
+              V16.47: added "بواسطة" column showing who recorded the entry */}
+          {["الرصيد","تاريخ","اليوم","وارد","منصرف","نوع الحركة","بيان","حساب جاري","موسم","بواسطة",""].map(h=><th key={h} style={{padding:"7px 8px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
         </tr></thead><tbody>
           {withBalance.slice(0,limit).map(t=>{const locked=isDayLocked(t.date);const isEd=inlineEdit===t.id;const d_=inlineDraft;
             const inpS={padding:"3px 6px",borderRadius:6,border:"1px solid "+T.accent+"40",fontSize:FS-2,fontFamily:"inherit",background:T.inputBg,color:T.text};
@@ -1522,6 +1523,17 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             <td style={{padding:"6px 8px",fontSize:FS-1,width:"100%"}}>{isEd?<input value={d_.desc} onChange={e=>setInlineDraft(p=>({...p,desc:e.target.value}))} style={{...inpS,width:"100%"}}/>:<span title={t.desc||""} style={{display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.desc||"—"}{t.notes?<span style={{color:T.textMut,fontWeight:500,marginInlineStart:6}}>· {t.notes}</span>:""}</span>}</td>
             <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>{isEd?<select value={d_.account} onChange={e=>setInlineDraft(p=>({...p,account:e.target.value}))} style={{...inpS,width:90}}>{accounts.map(a=><option key={a}>{a}</option>)}</select>:t.account||""}</td>
             <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut,whiteSpace:"nowrap"}}>{t.season||""}</td>
+            {/* V16.47: who recorded this entry (and edited if changed) */}
+            <td style={{padding:"6px 8px",fontSize:FS-3,color:T.textSec,whiteSpace:"nowrap"}}>
+              {(()=>{
+                const by=t.by||"—";
+                const edited=t.updatedBy&&t.updatedBy!==t.by;
+                return<span title={edited?"أنشأ: "+by+" • عدّل: "+t.updatedBy:"أنشأ: "+by} style={{display:"inline-flex",alignItems:"center",gap:4}}>
+                  <span style={{padding:"2px 7px",borderRadius:5,background:T.bg,border:"1px solid "+T.brd,fontWeight:700,color:T.text}}>{by}</span>
+                  {edited&&<span style={{fontSize:FS-4,color:T.warn,fontWeight:800}} title={"عدّله: "+t.updatedBy}>✏️</span>}
+                </span>;
+              })()}
+            </td>
             <td style={{padding:"6px 8px"}}>{canEdit&&(()=>{
               if(isEd)return<div style={{display:"flex",gap:3}}><span onClick={()=>{if(isAdmin&&lockEdit)logLockBypass("edit",t);saveInline()}} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:T.ok+"12",color:T.ok,fontWeight:700}}>💾</span><span onClick={cancelInline} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:T.err+"12",color:T.err,fontWeight:700}}>✕</span></div>;
               const allowEdit=canModify(t);const allowDel=canDelete(t);const external=isExternalTx(t);
