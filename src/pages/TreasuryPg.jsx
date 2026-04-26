@@ -836,8 +836,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     .green{color:#059669}.red{color:#DC2626}.blue{color:#0284C7}
     table{width:100%;border-collapse:collapse;margin:8px 0;font-size:9.5px}
     thead{display:table-header-group}
-    th{background:#F1F5F9;color:#334155;font-weight:700;padding:5px 6px;text-align:right;border-bottom:1.5px solid #94A3B8;font-size:9.5px}
-    td{padding:4px 6px;border-bottom:1px solid #F1F5F9;text-align:right;vertical-align:top}
+    th{background:#F1F5F9;color:#334155;font-weight:700;padding:5px 6px;text-align:right;border-bottom:1.5px solid #94A3B8;font-size:9.5px;white-space:nowrap}
+    td{padding:3px 6px;border-bottom:1px solid #F1F5F9;text-align:right;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3}
+    td.wrap{white-space:normal;overflow:visible;text-overflow:clip}
     tr:hover td{background:#F8FAFC}
     .num{font-family:'Cairo',sans-serif;font-weight:700;font-variant-numeric:tabular-nums}
     .muted{color:#94A3B8;font-size:8.5px}
@@ -882,15 +883,15 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       <div class="sbox hl"><div class="lbl">رصيد اقفال</div><div class="val num">${fmt0(closeBal)}</div></div>
     </div>
     <table><thead><tr>
-      <th style="width:11%">الرصيد</th><th style="width:8%">التاريخ</th>
-      <th style="width:9%">وارد</th><th style="width:9%">منصرف</th>
-      <th>البيان</th><th style="width:15%">ملاحظات</th>
-      <th style="width:10%">التصنيف</th><th style="width:8%">الحساب</th>
+      <th style="width:12%">الرصيد</th><th style="width:10%">التاريخ</th>
+      <th style="width:10%">وارد</th><th style="width:10%">منصرف</th>
+      <th style="width:15%">التصنيف</th><th>البيان</th>
+      <th style="width:10%">الحساب</th>
     </tr></thead><tbody>`);
     let runBal=openBal;
     dayTxns.forEach(t=>{if(t.type==="in")runBal+=(Number(t.amount)||0);else runBal-=(Number(t.amount)||0);
-      w.document.write(`<tr><td class="num">${fmt0(runBal)}</td><td>${t.date}</td><td class="num green">${t.type==="in"?fmt0(t.amount):""}</td><td class="num red">${t.type==="out"?fmt0(t.amount):""}</td><td>${_esc(t.desc||"—")}</td><td class="muted">${_esc(t.notes||"")}</td><td>${_esc(t.category||"—")}</td><td>${_esc(t.account||"")}</td></tr>`)});
-    if(dayTxns.length===0)w.document.write(`<tr><td colspan="8" class="empty">لا توجد حركات في هذا اليوم</td></tr>`);
+      w.document.write(`<tr><td class="num">${fmt0(runBal)}</td><td>${t.date}</td><td class="num green">${t.type==="in"?fmt0(t.amount):""}</td><td class="num red">${t.type==="out"?fmt0(t.amount):""}</td><td>${_esc(t.category||"—")}</td><td>${_esc(t.desc||"—")}</td><td>${_esc(t.account||"")}</td></tr>`)});
+    if(dayTxns.length===0)w.document.write(`<tr><td colspan="7" class="empty">لا توجد حركات في هذا اليوم</td></tr>`);
     w.document.write(`</tbody></table>`);
     if(!accountName){
       w.document.write(`<div class="accounts-row">${accounts.map(acc=>{const ab=accBalances[acc]||{in:0,out:0};return`<div class="acc-chip">${acc}<b class="num">${fmt0(ab.in-ab.out)}</b></div>`}).join("")}</div>`);
@@ -925,14 +926,14 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       <div class="sbox hl"><div class="lbl">الصافي</div><div class="val num">${fmt0(tIn-tOut)}</div></div>
     </div>
     <table><thead><tr>
-      <th style="width:8%">التاريخ</th>
-      <th style="width:10%">وارد</th><th style="width:10%">منصرف</th>
-      <th>البيان</th><th style="width:15%">ملاحظات</th>
-      <th style="width:12%">التصنيف</th><th style="width:9%">الحساب</th>
+      <th style="width:10%">التاريخ</th>
+      <th style="width:11%">وارد</th><th style="width:11%">منصرف</th>
+      <th style="width:16%">التصنيف</th><th>البيان</th>
+      <th style="width:11%">الحساب</th>
     </tr></thead><tbody>`);
     sorted.forEach(t=>{
-      w.document.write(`<tr><td>${t.date}</td><td class="num green">${t.type==="in"?fmt0(t.amount):""}</td><td class="num red">${t.type==="out"?fmt0(t.amount):""}</td><td>${_esc(t.desc||"—")}</td><td class="muted">${_esc(t.notes||"")}</td><td>${_esc(t.category||"—")}</td><td>${_esc(t.account||"")}</td></tr>`)});
-    if(sorted.length===0)w.document.write(`<tr><td colspan="7" class="empty">لا توجد حركات مطابقة للفلاتر</td></tr>`);
+      w.document.write(`<tr><td>${t.date}</td><td class="num green">${t.type==="in"?fmt0(t.amount):""}</td><td class="num red">${t.type==="out"?fmt0(t.amount):""}</td><td>${_esc(t.category||"—")}</td><td>${_esc(t.desc||"—")}</td><td>${_esc(t.account||"")}</td></tr>`)});
+    if(sorted.length===0)w.document.write(`<tr><td colspan="6" class="empty">لا توجد حركات مطابقة للفلاتر</td></tr>`);
     w.document.write(`</tbody></table>
     <div class="foot"><span>CLARK Factory Management System</span><span>تقرير مخصص — الفلاتر المفعّلة مبينة أعلاه</span></div>
     </body></html>`);w.document.close();setTimeout(()=>w.print(),300)};
@@ -952,12 +953,12 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     let rows="";let runBal=openBal;
     /* V16.8: Tahoma/Arial render Arabic correctly in html2pdf. NO white-space:nowrap on description (causes letter breaks).
        Removed text-overflow:ellipsis — let descriptions wrap naturally instead of being cut mid-letter. */
-    const cellBase="padding:4px 6px;border-bottom:1px solid #E2E8F0;text-align:right;vertical-align:middle;font-size:10px;line-height:1.5";
-    const cellNum="padding:4px 6px;border-bottom:1px solid #E2E8F0;text-align:left;vertical-align:middle;font-size:10px;line-height:1.5;font-weight:700;font-variant-numeric:tabular-nums;direction:ltr";
+    const cellBase="padding:3px 6px;border-bottom:1px solid #E2E8F0;text-align:right;vertical-align:middle;font-size:10px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
+    const cellNum="padding:3px 6px;border-bottom:1px solid #E2E8F0;text-align:left;vertical-align:middle;font-size:10px;line-height:1.3;font-weight:700;font-variant-numeric:tabular-nums;direction:ltr;white-space:nowrap";
     dayTxns.forEach((t,idx)=>{
       if(t.type==="in")runBal+=(Number(t.amount)||0);else runBal-=(Number(t.amount)||0);
       const rowBg=idx%2===0?"#FFFFFF":"#F1F5F9";
-      rows+=`<tr style="background:${rowBg}"><td style="${cellNum}">${fmt0(runBal)}</td><td style="${cellBase};direction:ltr;text-align:center">${t.date}</td><td style="${cellNum};color:#059669">${t.type==="in"?fmt0(t.amount):"—"}</td><td style="${cellNum};color:#DC2626">${t.type==="out"?fmt0(t.amount):"—"}</td><td style="${cellBase}">${_esc(t.desc||"—")}</td><td style="${cellBase};color:#64748B;font-size:9px">${_esc(t.notes||"")}</td><td style="${cellBase};font-size:9px">${_esc(t.category||"—")}</td><td style="${cellBase};font-size:9px">${_esc(t.account||"")}</td></tr>`;
+      rows+=`<tr style="background:${rowBg}"><td style="${cellNum}">${fmt0(runBal)}</td><td style="${cellBase};direction:ltr;text-align:center">${t.date}</td><td style="${cellNum};color:#059669">${t.type==="in"?fmt0(t.amount):"—"}</td><td style="${cellNum};color:#DC2626">${t.type==="out"?fmt0(t.amount):"—"}</td><td style="${cellBase}">${_esc(t.category||"—")}</td><td style="${cellBase}">${_esc(t.desc||"—")}</td><td style="${cellBase}">${_esc(t.account||"")}</td></tr>`;
     });
     /* Accounts footer (only when showing all accounts) */
     const accFoot=accountName?"":accounts.map(acc=>{const ab=accBalances[acc]||{in:0,out:0};return`<div style="padding:4px 8px;border-radius:4px;background:#F8FAFC;border:1px solid #E2E8F0;font-size:9px">${acc}<b style="display:block;font-weight:800;font-size:11px;color:#0284C7;margin-top:1px;font-variant-numeric:tabular-nums">${fmt0(ab.in-ab.out)}</b></div>`}).join("");
@@ -983,18 +984,17 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #E2E8F0;background:#F8FAFC;min-width:120px"><div style="font-size:9px;color:#64748B;margin-bottom:2px;font-weight:600">صافي اليوم</div><div style="font-size:12px;font-weight:800;font-variant-numeric:tabular-nums">${fmt0(dIn-dOut)}</div></div>
         <div style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #0EA5E9;background:#F0F9FF;min-width:120px"><div style="font-size:9px;color:#64748B;margin-bottom:2px;font-weight:600">رصيد اقفال</div><div style="font-size:12px;font-weight:800;color:#0369A1;font-variant-numeric:tabular-nums">${fmt0(closeBal)}</div></div>
       </div>
-      <table style="width:100%;border-collapse:collapse;margin:8px 0;font-size:10px">
+      <table style="width:100%;border-collapse:collapse;margin:8px 0;font-size:10px;table-layout:fixed">
         <thead><tr>
-          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:6px 6px;text-align:right;font-size:10px;width:11%">الرصيد</th>
-          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:6px 6px;text-align:center;font-size:10px;width:9%">التاريخ</th>
-          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:6px 6px;text-align:right;font-size:10px;width:9%">وارد</th>
-          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:6px 6px;text-align:right;font-size:10px;width:9%">منصرف</th>
-          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:6px 6px;text-align:right;font-size:10px;width:25%">البيان</th>
-          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:6px 6px;text-align:right;font-size:10px;width:14%">ملاحظات</th>
-          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:6px 6px;text-align:right;font-size:10px;width:13%">التصنيف</th>
-          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:6px 6px;text-align:right;font-size:10px;width:10%">الحساب</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 6px;text-align:right;font-size:10px;width:12%;white-space:nowrap">الرصيد</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 6px;text-align:center;font-size:10px;width:10%;white-space:nowrap">التاريخ</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 6px;text-align:right;font-size:10px;width:10%;white-space:nowrap">وارد</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 6px;text-align:right;font-size:10px;width:10%;white-space:nowrap">منصرف</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 6px;text-align:right;font-size:10px;width:15%;white-space:nowrap">التصنيف</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 6px;text-align:right;font-size:10px;white-space:nowrap">البيان</th>
+          <th style="background:#0EA5E9;color:#fff;font-weight:700;padding:5px 6px;text-align:right;font-size:10px;width:10%;white-space:nowrap">الحساب</th>
         </tr></thead>
-        <tbody>${rows||'<tr><td colspan="8" style="padding:20px;text-align:center;color:#94A3B8;font-style:italic">لا توجد حركات في هذا اليوم</td></tr>'}</tbody>
+        <tbody>${rows||'<tr><td colspan="7" style="padding:20px;text-align:center;color:#94A3B8;font-style:italic">لا توجد حركات في هذا اليوم</td></tr>'}</tbody>
       </table>
       ${accFootBlock}
       <div style="margin-top:12px;padding:6px 0;border-top:1px solid #E2E8F0;display:flex;justify-content:space-between;font-size:9px;color:#94A3B8">
