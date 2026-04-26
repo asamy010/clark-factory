@@ -1,5 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
    CLARK - CustDeliverPg
+import { CLARK_LOGO } from "../constants/logo.js";
    
    Extracted from App.jsx in V15.0 phase 2.
    Dependencies imported explicitly — no code changes inside.
@@ -2414,7 +2415,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         upSales(d=>{if(!d.packages)d.packages=[];d.packages.push(pkg)});
         /* Print QR */
         const qrData=JSON.stringify({app:"clark",type:"pkg",id:pkg.id,num:pkgNum});
-        printPkgLabel(pkgNum,pkg.date,pkgNote,pkgItems.map(it=>({...it,desc:orders.find(o=>o.id===it.orderId)?.modelDesc||""})),[],pkg.status,userName,qrData);
+        printPkgLabel(pkgNum,pkg.date,pkgNote,pkgItems.map(it=>({...it,desc:orders.find(o=>o.id===it.orderId)?.modelDesc||""})),[],pkg.status,userName,qrData,data?.printSettings,CLARK_LOGO);
         playBeep("done");showToast("✓ تم حفظ كرتونة "+pkgNum);closePkgCreate()};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setPkgPopup("list")}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?420:550,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
@@ -2476,9 +2477,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         const totalRemain=d.packages[pi].items.reduce((s,x)=>s+(x.qty||0),0);
         if(totalRemain<=0){d.packages[pi].status="مغلقة";d.packages[pi].closedAt=new Date().toISOString()}});showToast("✓ تم الحذف")};
       const reprintQR=()=>{const qrData=JSON.stringify({app:"clark",type:"pkg",id:pkg.id,num:pkg.number});
-        printPkgLabel(pkg.number,pkg.date,pkg.note||"",(pkg.items||[]).map(it=>({...it,desc:orders.find(o=>o.id===it.orderId)?.modelDesc||""})),pkg.movements||[],pkg.status||"مخزن",pkg.createdBy||"",qrData)};
+        printPkgLabel(pkg.number,pkg.date,pkg.note||"",(pkg.items||[]).map(it=>({...it,desc:orders.find(o=>o.id===it.orderId)?.modelDesc||""})),pkg.movements||[],pkg.status||"مخزن",pkg.createdBy||"",qrData,data?.printSettings,CLARK_LOGO)};
       const printContents=()=>{const qrData=JSON.stringify({app:"clark",type:"pkg",id:pkg.id,num:pkg.number});
-        printPkgLabel(pkg.number,pkg.date,pkg.note||"",(pkg.items||[]).map(it=>({...it,desc:orders.find(o=>o.id===it.orderId)?.modelDesc||""})),pkg.movements||[],pkg.status||"مخزن",pkg.createdBy||"",qrData)};
+        printPkgLabel(pkg.number,pkg.date,pkg.note||"",(pkg.items||[]).map(it=>({...it,desc:orders.find(o=>o.id===it.orderId)?.modelDesc||""})),pkg.movements||[],pkg.status||"مخزن",pkg.createdBy||"",qrData,data?.printSettings,CLARK_LOGO)};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setPkgPopup("list")}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?"100%":600,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>

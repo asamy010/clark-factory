@@ -30,6 +30,21 @@ export async function printReceipt(wsName,wsOwner,order,garmentType,qty,date,bal
   let wsO=wsOwner||"";
   if(!wsO&&order.workshopDeliveries){const wd=order.workshopDeliveries.find(w=>w.wsName===ws);if(wd)wsO=wd.wsOwner||""}
   const gi=n=>gIcon(n,gtList);
+  /* V16.50: Generate QR for workshop self-confirmation flow.
+     Scanning the QR opens a mobile popup showing the order image, delivered
+     qty broken down by piece/color, and a "تأكيد الاستلام" button that
+     writes directly to wd.receives[]. Format:
+       CLARK:WSRCV:{orderId}:{wsName}:{wdIdx}
+     wsName is URL-encoded so spaces/Arabic survive both the QR and the
+     scanner's URL parser. */
+  let receiptQrSrc="";
+  try{
+    const QR=await loadQR();
+    if(QR&&order.id&&ws){
+      const qrPayload="CLARK:WSRCV:"+order.id+":"+encodeURIComponent(ws)+":"+wdIdx;
+      receiptQrSrc=await QR.toDataURL(qrPayload,{width:130,margin:1,errorCorrectionLevel:"M"});
+    }
+  }catch(e){}
   /* Generate receipt */
   const modelNo=order.modelNo||"";const modelDesc=order.modelDesc||"";const sizeLabel=order.sizeLabel||"";const marker=order.marker||"";
   let h="<h2>اذن تسليم ورشة</h2>";
@@ -61,8 +76,16 @@ export async function printReceipt(wsName,wsOwner,order,garmentType,qty,date,bal
   /* Receipt statement */
   h+="<div style='margin:20px 0;padding:16px;border:2px solid #CBD5E1;border-radius:10px;background:#F8FAFC;font-size:13px;line-height:2;text-align:center'>";
   h+="اقر أنا الموقع أدناه بأنني استلمت هذه البضاعة المذكورة عاليه وأتعهد بسداد قيمتها وقت طلبها. وأعتبر مسؤلاً مسئولية كاملة في حالة تبديد هذه البضاعة أو تلفها. وهذا اقرار مني بذلك</div>";
-  /* Signatures */
-  h+="<div class='sig'><div class='sig-box'>توقيع صاحب الورشة<br/><span style='font-size:11px;color:#8B5CF6'>"+ws+"</span></div><div class='sig-box'>مسؤول القص والتسليم</div></div>";
+  /* V16.50: Signatures + QR (workshop scans this from their phone to confirm) */
+  if(receiptQrSrc){
+    h+="<div style='display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-top:24px'>";
+    h+="<div class='sig-box' style='flex:1'>توقيع صاحب الورشة<br/><span style='font-size:11px;color:#8B5CF6'>"+ws+"</span></div>";
+    h+="<div class='sig-box' style='flex:1'>مسؤول القص والتسليم</div>";
+    h+="<div style='text-align:center;flex-shrink:0'><img src='"+receiptQrSrc+"' style='width:100px;height:100px;display:block'/><div style='font-size:9px;color:#475569;margin-top:3px;font-weight:700'>📱 امسح للتأكيد</div></div>";
+    h+="</div>";
+  }else{
+    h+="<div class='sig'><div class='sig-box'>توقيع صاحب الورشة<br/><span style='font-size:11px;color:#8B5CF6'>"+ws+"</span></div><div class='sig-box'>مسؤول القص والتسليم</div></div>";
+  }
   if(_returnHtml)return h;
   printPage("اذن تسليم ورشة — "+modelNo,h)
 }
@@ -75,7 +98,26 @@ export async function printLabel(wsName,order,garmentType,qty,date,gtList,opts){
   const t=calcOrder(order);
   const type=(opts?.type)||"deliver";const rcvDate=opts?.rcvDate||"";const delDate=opts?.delDate||date||"";const rcvQty=opts?.rcvQty||0;const delQty=opts?.delQty||qty;
   const isRcv=type==="receive";const title=isRcv?"استلام مصنع":"تسليم ورشة";const arrow=isRcv?"↙":"↗";
-  const d={title,arrow,qrSrc:"",piece:garmentType||"عام",qty:isRcv?rcvQty:delQty,modelNo:order.modelNo||"",modelDesc:order.modelDesc||"",sizeLabel:order.sizeLabel||"",wsName,cutQty:t.cutQty,delQty,delDate,rcvQty,rcvDate,isRcv};
+  /* V16.50: identify the workshop delivery being printed so the label can carry
+     a confirmation QR. wsId is found from the workshop list inside the order's
+     deliveries; deliveryIdx is the position of the matching deliver entry in the
+     order.workshopDeliveries array. Both are best-effort — if they can't be
+     resolved (legacy data), the QR simply won't render. */
+  let wsId="";let deliveryIdx=-1;
+  if(!isRcv&&Array.isArray(order.workshopDeliveries)){
+    /* Find most-recent matching deliver entry: same wsName, same garmentType (or both empty), same date+qty */
+    for(let i=order.workshopDeliveries.length-1;i>=0;i--){
+      const wd=order.workshopDeliveries[i];if(!wd)continue;
+      const gtMatch=(garmentType&&wd.garmentType===garmentType)||(!garmentType&&!wd.garmentType);
+      if(wd.wsName===wsName&&gtMatch&&Number(wd.qty)===Number(delQty)){deliveryIdx=i;wsId=wd.wsId||"";break}
+    }
+  }
+  const d={title,arrow,qrSrc:"",piece:garmentType||"عام",qty:isRcv?rcvQty:delQty,
+    modelNo:order.modelNo||"",modelDesc:order.modelDesc||"",sizeLabel:order.sizeLabel||"",
+    wsName,cutQty:t.cutQty,delQty,delDate,rcvQty,rcvDate,isRcv,
+    /* V16.50 — fields used by App.jsx to build the confirmation URL */
+    orderId:order.id||"",wsId,deliveryIdx
+  };
   /* Store data and trigger popup event */
   window.__labelData=d;window.dispatchEvent(new Event("show-label-popup"))
 }

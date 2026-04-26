@@ -657,6 +657,89 @@ export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
 
 
 
+/* V16.50: Settings card for the LARGE 10×15cm labels (workshop delivery receipt
+   and customer package label). These labels were hardcoded before — now each one
+   has its own font, logo toggle, and per-field show/hide.
+   The `kind` prop selects the schema slot:
+     - "workshopLabel" → renders settings for renderLabelPages()
+     - "customerLabel" → renders settings for printPkgLabel()
+   Field list differs by kind. */
+const WS_LABEL_FIELDS=[
+  {k:"modelDesc",l:"📝 وصف الموديل"},
+  {k:"sizeLabel",l:"📐 المقاسات"},
+  {k:"cutQty",   l:"✂️ كمية القص"},
+  {k:"qrConfirm",l:"📱 QR لتأكيد الاستلام (الورشة تمسحه من الموبايل)"}
+];
+const CUST_LABEL_FIELDS=[
+  {k:"note",      l:"📝 ملاحظات الكرتونة"},
+  {k:"movements", l:"📋 سجل حركات الكرتونة"},
+  {k:"createdBy", l:"👤 اسم منشئ الكرتونة"},
+  {k:"qr",        l:"📱 QR للكرتونة"}
+];
+
+export function LargeLabelSettingsCard({kind,config,upConfig,T,FS,showToast,Btn,Sel,Card,setDirty}){
+  const isWs=kind==="workshopLabel";
+  const title=isWs?"🏭 إعدادات ليبل تسليم الورش (10×15)":"📦 إعدادات ليبل كراتين العملاء (10×15)";
+  const fieldList=isWs?WS_LABEL_FIELDS:CUST_LABEL_FIELDS;
+  const defaults={
+    fontFamily:"Cairo",
+    showLogo:false,
+    fields:Object.fromEntries(fieldList.map(f=>[f.k,{show:true}]))
+  };
+  const slot=(config.printSettings||{})[kind]||defaults;
+  const savedJson=useMemo(()=>JSON.stringify({
+    fontFamily:slot.fontFamily||"Cairo",
+    showLogo:!!slot.showLogo,
+    fields:Object.fromEntries(fieldList.map(f=>[f.k,{show:slot.fields?.[f.k]?.show!==false}]))
+  }),[JSON.stringify(slot)]);
+  const[draft,setDraft]=useState(()=>JSON.parse(savedJson));
+  useEffect(()=>{const d=JSON.parse(savedJson);if(JSON.stringify(d)!==JSON.stringify(draft))setDraft(d)},[savedJson]);/* eslint-disable-line */
+  const draftJson=JSON.stringify(draft);
+  const isDirty=draftJson!==savedJson;
+  useEffect(()=>{setDirty(isDirty)},[isDirty]);/* eslint-disable-line */
+  const update=(fn)=>setDraft(p=>{const n=JSON.parse(JSON.stringify(p));fn(n);return n});
+  const handleSave=()=>{upConfig(d=>{if(!d.printSettings)d.printSettings={};d.printSettings[kind]=JSON.parse(draftJson)});showToast("✅ تم حفظ إعدادات الليبل")};
+  const handleDiscard=()=>{if(!confirm("إلغاء التعديلات؟"))return;setDraft(JSON.parse(savedJson))};
+  const toggleField=(k)=>update(d=>{if(!d.fields[k])d.fields[k]={show:false};d.fields[k].show=!d.fields[k].show});
+
+  return<Card title={title+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
+    {isDirty&&<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700,display:"flex",alignItems:"center",gap:8}}>
+      <span style={{fontSize:16}}>✨</span><span>لديك تعديلات غير محفوظة — اضغط "حفظ" للتأكيد أو "إلغاء" للرجوع</span>
+    </div>}
+    <div style={{fontSize:FS-2,color:T.textMut,marginBottom:14,lineHeight:1.7}}>
+      {isWs?"إعدادات ليبل التسليم للورش (الذي يطبع من بطاقة تسليم الورشة، حجم 10×15 سم).":
+            "إعدادات ليبل كراتين العملاء (الذي يطبع مع كل كرتونة جاهزة، حجم 10×15 سم)."}
+    </div>
+    {/* Font + Logo */}
+    <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:14,flexWrap:"wrap",padding:"10px 12px",borderRadius:10,background:T.accent+"06",border:"1px solid "+T.accent+"20"}}>
+      <span style={{fontSize:FS-2,fontWeight:700,color:T.textSec}}>🔤 الخط:</span>
+      <Sel value={draft.fontFamily||"Cairo"} onChange={v=>update(d=>{d.fontFamily=v})} style={{width:170,fontSize:FS-2,fontFamily:"'"+(draft.fontFamily||"Cairo")+"',Arial,sans-serif"}}>
+        {FONT_OPTIONS.map(f=><option key={f} value={f} style={{fontFamily:"'"+f+"',Arial,sans-serif"}}>{f}</option>)}
+      </Sel>
+      <span style={{width:1,height:24,background:T.brd}}/>
+      <span onClick={()=>update(d=>{d.showLogo=!d.showLogo})} style={{cursor:"pointer",fontSize:FS-1,color:draft.showLogo?T.accent:T.textMut,padding:"4px 10px",borderRadius:6,border:"1px solid "+(draft.showLogo?T.accent+"40":T.brd),fontWeight:700,display:"inline-flex",alignItems:"center",gap:6}}>
+        {draft.showLogo?"☑":"☐"} 🏷️ لوجو CLARK
+      </span>
+    </div>
+    {/* Per-field toggles */}
+    <div style={{fontSize:FS-2,fontWeight:700,color:T.textSec,marginBottom:8}}>الحقول التي تظهر على الليبل:</div>
+    <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
+      {fieldList.map(f=>{const isOn=draft.fields[f.k]?.show!==false;
+        return<div key={f.k} onClick={()=>toggleField(f.k)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:8,background:isOn?T.accent+"08":T.bg,border:"1px solid "+(isOn?T.accent+"30":T.brd),cursor:"pointer"}}>
+          <span style={{fontSize:18,color:isOn?T.accent:T.textMut,fontWeight:800}}>{isOn?"☑":"☐"}</span>
+          <span style={{fontSize:FS-1,color:isOn?T.text:T.textSec,fontWeight:isOn?700:500}}>{f.l}</span>
+        </div>;
+      })}
+    </div>
+    <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:12,borderTop:"1px solid "+T.brd}}>
+      <Btn ghost onClick={handleDiscard} disabled={!isDirty} style={!isDirty?{opacity:0.4}:{}}>↩️ إلغاء</Btn>
+      <Btn primary onClick={handleSave} disabled={!isDirty} style={!isDirty?{opacity:0.4}:{background:T.ok,color:"#fff",border:"none",fontWeight:800,padding:"10px 24px"}}>💾 حفظ</Btn>
+    </div>
+  </Card>;
+}
+
+
+
 export function SalesSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Sel,Card,setDirty}){
   const savedSS=config.salesSettings||{};
   const buildSnapshot=(ss)=>({
@@ -1719,6 +1802,9 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     </Card>
     {/* Print Settings — draft pattern */}
     <PrintSettingsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,printSettings:d}))}/>
+    {/* V16.50: Separate settings for the 10×15 large labels (workshop + customer) */}
+    <LargeLabelSettingsCard kind="workshopLabel" config={config} upConfig={upConfig} T={T} FS={FS} showToast={showToast} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,workshopLabel:d}))}/>
+    <LargeLabelSettingsCard kind="customerLabel" config={config} upConfig={upConfig} T={T} FS={FS} showToast={showToast} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,customerLabel:d}))}/>
     {/* Treasury Settings — draft pattern */}
     <TreasurySettingsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,treasurySettings:d}))} userRole={userRole}/>
 

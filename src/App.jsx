@@ -129,6 +129,10 @@ export default function App(){
   const qrOid=qrParams.get("oid");
   const qrWdi=qrParams.get("wdi");
   const qrWs=qrParams.get("ws");
+  /* V16.50: ?act=wsdel&ord=X&ws=Y&idx=Z → workshop scans the QR on a delivery
+     receipt to confirm receipt of that specific delivery */
+  const qrOrd=qrParams.get("ord");
+  const qrIdx=qrParams.get("idx");
 
   const[user,setUser]=useState(null);const[authLoading,setAuthLoading]=useState(true);
   const[configDoc,setConfigDoc]=useState(INIT_CONFIG);const[salesDoc,setSalesDoc]=useState({});const[tasksDoc,setTasksDoc]=useState({});const[orders,setOrders]=useState([]);const[dataLoading,setDataLoading]=useState(true);
@@ -145,7 +149,16 @@ export default function App(){
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
   /* Cross-page tab navigation via custom event (used by WarehousePg to open stock tab) */
   useEffect(()=>{const h=(e)=>{if(e?.detail)setTab(e.detail)};window.addEventListener("goto-tab",h);return()=>window.removeEventListener("goto-tab",h)},[]);
-  const[gSearch,setGSearch]=useState("");const gSearchDeb=useDebounced(gSearch,250);const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);const[cardPopup,setCardPopup]=useState(null);const[labelPopup,setLabelPopup]=useState(null);const[labelBags,setLabelBags]=useState(1);const[wsAccPopup,setWsAccPopup]=useState(null);const[barcodePopup,setBarcodePopup]=useState(null);const[showNotifs,setShowNotifs]=useState(false);
+  const[gSearch,setGSearch]=useState(""); const gSearchDeb=useDebounced(gSearch,250);const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);const[cardPopup,setCardPopup]=useState(null);const[labelPopup,setLabelPopup]=useState(null);const[labelBags,setLabelBags]=useState(1);const[wsAccPopup,setWsAccPopup]=useState(null);const[barcodePopup,setBarcodePopup]=useState(null);const[showNotifs,setShowNotifs]=useState(false);
+  /* V16.50: workshop delivery confirmation popup — opened when a workshop scans
+     the QR on a delivery receipt. Carries the order, the workshopDeliveries entry
+     (snapshot at scan time), and a flag for the confirm action. */
+  const[wsDelPopup,setWsDelPopup]=useState(null);
+  /* V16.50: Workshop self-confirm popup — opens when scanning a CLARK:WSRCV: QR
+     from a printed delivery receipt. Lets the workshop confirm receipt of
+     pieces without going through the desktop UI. */
+  const[wsRcvPopup,setWsRcvPopup]=useState(null);
+  const[wsRcvQty,setWsRcvQty]=useState(0);
   const[savingOverlay,setSavingOverlay]=useState(null);/* null or {message,progress} */
   const[stickyForm,setStickyForm]=useState(null);
   const[sidebarTab,setSidebarTab]=useState("notes");/* "notes"|"tasks"|"activity" — for home sidebar */
@@ -1085,8 +1098,21 @@ export default function App(){
     if(qrModelNo){const o=orders.find(x=>x.modelNo===qrModelNo);if(o){qrDone.current=true;goD(o.id);window.history.replaceState({},"",window.location.pathname)}}
     if(qrAction==="rcv"&&qrOid){const o=orders.find(x=>x.id===qrOid);if(o){qrDone.current=true;setTab("external");window.history.replaceState({},"",window.location.pathname);setTimeout(()=>{window.__qrReceive={oid:qrOid,wdi:Number(qrWdi)||0};window.dispatchEvent(new Event("qr-receive"))},600)}}
     if(qrAction==="wsacc"&&qrWs){qrDone.current=true;setTab("external");window.history.replaceState({},"",window.location.pathname);setTimeout(()=>{window.__qrWsAcc={ws:decodeURIComponent(qrWs)};window.dispatchEvent(new Event("qr-wsacc"))},600)}
+    /* V16.50: workshop scans the delivery-receipt QR */
+    if(qrAction==="wsdel"&&qrOrd&&qrIdx!=null){
+      const o=orders.find(x=>x.id===qrOrd);
+      if(o){
+        const i=Number(qrIdx);
+        const wd=(o.workshopDeliveries||[])[i];
+        if(wd){
+          qrDone.current=true;
+          window.history.replaceState({},"",window.location.pathname);
+          setWsDelPopup({order:o,wdIdx:i,wd:JSON.parse(JSON.stringify(wd))});
+        }
+      }
+    }
     if(qrAction==="stock"&&qrOid){const o=orders.find(x=>x.id===qrOid);if(o){qrDone.current=true;goD(o.id);window.history.replaceState({},"",window.location.pathname);setTimeout(()=>{window.__qrStock=true;window.dispatchEvent(new Event("qr-stock"))},800)}}
-  },[orders,qrModelNo,qrAction]);
+  },[orders,qrModelNo,qrAction,qrOrd]);
 
   /* Auto-resolve wsName from wsId */
   const resolvedOrders=useMemo(()=>{
@@ -1275,7 +1301,7 @@ export default function App(){
           <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}
           </span>
-          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V16.49</span>
+          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V16.51</span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -1806,6 +1832,23 @@ export default function App(){
       </div>
     </div>}
     {showScanner===true&&<QRScanner onClose={()=>setShowScanner(false)} onScan={url=>{setShowScanner(false);try{/* Smart scan — detect type */
+      /* V16.50: workshop receipt confirmation flow.
+         Format: CLARK:WSRCV:{orderId}:{wsName-encoded}:{wdIdx}
+         Opens a popup with order image + delivered breakdown + confirm button. */
+      if(url.startsWith("CLARK:WSRCV:")){
+        const parts=url.split(":");
+        const orderId=parts[2];const wsName=parts[3]?decodeURIComponent(parts[3]):"";const wdIdx=Number(parts[4])||0;
+        const o=orders.find(x=>x.id===orderId);
+        if(!o){showToast("⚠️ الأوردر غير موجود");return}
+        const wd=(o.workshopDeliveries||[])[wdIdx];
+        if(!wd||wd.wsName!==wsName){showToast("⚠️ بيانات التسليم غير متطابقة");return}
+        const totalDel=Number(wd.qty)||0;
+        const totalRcv=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
+        const remaining=Math.max(0,totalDel-totalRcv);
+        setWsRcvPopup({order:o,wd,wdIdx,wsName,totalDel,totalRcv,remaining});
+        setWsRcvQty(remaining);
+        return;
+      }
       if(url.startsWith("CLARK:")){const parts=url.split(":");const orderId=parts[1];const o=orders.find(x=>x.id===orderId);if(o){goD(o.id);showToast("📋 "+o.modelNo);return}}
       try{const j=JSON.parse(url);
         if(j.app==="clark"&&j.type==="pkg"){const pkg=(config.packages||[]).find(p=>p.id===j.id);if(pkg){setTab("custDeliver");setTimeout(()=>{window.__openPkg=j.id;window.dispatchEvent(new Event("open-pkg"))},500);showToast("📦 "+j.num);return}}
@@ -1813,6 +1856,227 @@ export default function App(){
       }catch(e2){}
       const u=new URL(url);const p=new URLSearchParams(u.search);if(p.get("o")){const o=orders.find(x=>x.modelNo===p.get("o"));if(o)goD(o.id)}else if(p.get("act")==="rcv"&&p.get("oid")){setTab("external");setTimeout(()=>{window.__qrReceive={oid:p.get("oid"),wdi:Number(p.get("wdi"))||0};window.dispatchEvent(new Event("qr-receive"))},600)}else if(p.get("act")==="stock"&&p.get("oid")){const o=orders.find(x=>x.id===p.get("oid"));if(o){goD(o.id);setTimeout(()=>{window.__qrStock=true;window.dispatchEvent(new Event("qr-stock"))},800)}}else if(p.get("act")==="wsacc"&&p.get("ws")){setTab("external");setTimeout(()=>{window.__qrWsAcc={ws:decodeURIComponent(p.get("ws"))};window.dispatchEvent(new Event("qr-wsacc"))},600)}else{showToast("QR غير معروف")}}catch(e){if(url.startsWith("CLARK:")){const parts=url.split(":");const orderId=parts[1];const o=orders.find(x=>x.id===orderId);if(o){goD(o.id);return}}showToast("QR غير صالح")}}}/>}
     {cardPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setCardPopup(null)}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:isMob?500:650,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><div style={{fontSize:FS+2,fontWeight:800,color:cardPopup.color}}>{cardPopup.title}</div><Btn ghost small onClick={()=>setCardPopup(null)} title="إغلاق">✕</Btn></div><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th style={TH}>البيان</th>{cardPopup.details?.[0]?.desc!==undefined&&<th style={TH}>الوصف</th>}<th style={TH}>الكمية</th></tr></thead><tbody>{(cardPopup.details||[]).map((d,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={{...TD,fontWeight:700,color:cardPopup.color}}>{d.model}</td>{d.desc!==undefined&&<td style={TD}>{d.desc}</td>}<td style={{...TD,textAlign:"center",fontWeight:800}}>{fmt(d.qty)}</td></tr>)}<tr style={{background:cardPopup.color+"10"}}><td style={{...TD,fontWeight:800}} colSpan={cardPopup.details?.[0]?.desc!==undefined?2:1}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:cardPopup.color}}>{fmt((cardPopup.details||[]).reduce((s,d)=>s+(Number(d.qty)||0),0))}</td></tr></tbody></table></div></div>}
+    {/* V16.50: Workshop self-confirm popup — invoked when scanning the QR
+        on a printed تسليم ورشة receipt. Shows the model image, delivered
+        details, current balance, and a "تأكيد الاستلام" button. The qty
+        defaults to the remaining (so the workshop just has to hit confirm
+        for the common "received in full" case), but can be edited for partials. */}
+    {wsRcvPopup&&(()=>{
+      const{order,wd,wdIdx,wsName,totalDel,totalRcv,remaining}=wsRcvPopup;
+      const t=calcOrder(order);
+      const close=()=>{setWsRcvPopup(null);setWsRcvQty(0)};
+      const confirm=async()=>{
+        const q=Math.max(0,Math.min(remaining,Number(wsRcvQty)||0));
+        if(q<=0){showToast("⚠️ ادخل كمية أكبر من صفر");return}
+        try{
+          const today=new Date().toISOString().split("T")[0];
+          await updOrder(order.id,o=>{
+            if(!o.workshopDeliveries||!o.workshopDeliveries[wdIdx])return;
+            if(!o.workshopDeliveries[wdIdx].receives)o.workshopDeliveries[wdIdx].receives=[];
+            o.workshopDeliveries[wdIdx].receives.push({date:today,qty:q,confirmedByQR:true,by:userName||""});
+          });
+          showToast("✅ تم تأكيد استلام "+q+" قطعة");
+          close();
+        }catch(e){
+          showToast("⚠️ فشل الحفظ — حاول مرة أخرى");
+        }
+      };
+      const piece=wd.garmentType||"عام";
+      /* Color/qty breakdown for this piece (from fabric color allocations) */
+      const fabRows=[];
+      ["A","B","C","D","E","F"].forEach(k=>{
+        const fab=order["fabric"+k];if(!fab)return;
+        const fp=order["fabricPieces"+k]||[];
+        if(piece!=="عام"&&fp.length>0&&!fp.includes(piece))return;
+        const colors=order["fabricColors"+k]||[];
+        colors.forEach(c=>{
+          const ly=Number(c.layers)||0;const pp=Number(c.pcsPerLayer)||0;const q=ly*pp;
+          if(q>0)fabRows.push({color:c.color||"-",qty:q});
+        });
+      });
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={close}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,width:"100%",maxWidth:480,maxHeight:"95vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+          {/* Header */}
+          <div style={{padding:"14px 16px",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:T.cardSolid,zIndex:1}}>
+            <div style={{fontSize:FS+1,fontWeight:800,color:"#8B5CF6"}}>📱 تأكيد استلام من الورشة</div>
+            <Btn ghost small onClick={close}>✕</Btn>
+          </div>
+          {/* Body */}
+          <div style={{padding:16,display:"flex",flexDirection:"column",gap:12}}>
+            {/* Model header — image + main info */}
+            <div style={{display:"flex",gap:12,padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
+              {order.image?<img src={order.image} alt="" style={{width:80,height:106,borderRadius:8,objectFit:"cover",flexShrink:0,border:"1px solid "+T.brd}}/>:<div style={{width:80,height:106,borderRadius:8,background:T.cardSolid,display:"flex",alignItems:"center",justifyContent:"center",fontSize:30,color:T.textMut,flexShrink:0}}>📷</div>}
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:FS+2,fontWeight:900,color:T.text,marginBottom:2}}>{order.modelNo}</div>
+                <div style={{fontSize:FS-1,color:T.textSec,marginBottom:6,lineHeight:1.3}}>{order.modelDesc}</div>
+                <div style={{fontSize:FS-2,color:T.textMut,display:"flex",flexDirection:"column",gap:2}}>
+                  <span>📐 {order.sizeLabel||"—"}</span>
+                  <span style={{color:"#8B5CF6",fontWeight:700}}>🏭 {wsName}</span>
+                  <span style={{color:"#0284C7",fontWeight:700}}>👕 {piece}</span>
+                </div>
+              </div>
+            </div>
+            {/* Color breakdown */}
+            {fabRows.length>0&&<div style={{padding:10,borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
+              <div style={{fontSize:FS-2,fontWeight:700,color:T.textSec,marginBottom:6}}>🎨 توزيع الألوان</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                {fabRows.map((r,i)=><span key={i} style={{padding:"3px 9px",borderRadius:6,background:T.cardSolid,border:"1px solid "+T.brd,fontSize:FS-2,fontWeight:700}}>{r.color}: <b style={{color:"#0284C7"}}>{r.qty}</b></span>)}
+              </div>
+            </div>}
+            {/* Delivery summary — 3 numbers stacked */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
+              <div style={{padding:"10px 6px",textAlign:"center",borderRadius:8,background:"#0284C715",border:"1px solid #0284C730"}}>
+                <div style={{fontSize:FS-3,color:T.textSec,fontWeight:700,marginBottom:2}}>تسليم</div>
+                <div style={{fontSize:FS+4,fontWeight:900,color:"#0284C7",fontVariantNumeric:"tabular-nums"}}>{totalDel}</div>
+              </div>
+              <div style={{padding:"10px 6px",textAlign:"center",borderRadius:8,background:T.ok+"15",border:"1px solid "+T.ok+"30"}}>
+                <div style={{fontSize:FS-3,color:T.textSec,fontWeight:700,marginBottom:2}}>مستلم</div>
+                <div style={{fontSize:FS+4,fontWeight:900,color:T.ok,fontVariantNumeric:"tabular-nums"}}>{totalRcv}</div>
+              </div>
+              <div style={{padding:"10px 6px",textAlign:"center",borderRadius:8,background:(remaining>0?T.warn:T.ok)+"15",border:"1px solid "+(remaining>0?T.warn:T.ok)+"30"}}>
+                <div style={{fontSize:FS-3,color:T.textSec,fontWeight:700,marginBottom:2}}>متبقي</div>
+                <div style={{fontSize:FS+4,fontWeight:900,color:remaining>0?T.warn:T.ok,fontVariantNumeric:"tabular-nums"}}>{remaining}</div>
+              </div>
+            </div>
+            {/* Confirm input */}
+            {remaining>0?<div style={{padding:14,borderRadius:10,background:T.ok+"08",border:"2px solid "+T.ok+"40"}}>
+              <label style={{fontSize:FS,fontWeight:800,color:T.text,display:"block",textAlign:"center",marginBottom:8}}>كمية الاستلام</label>
+              <input type="number" value={wsRcvQty} onChange={e=>setWsRcvQty(Math.max(0,Math.min(remaining,Number(e.target.value)||0)))} min="0" max={remaining} style={{display:"block",margin:"0 auto",width:140,textAlign:"center",fontSize:32,fontWeight:900,border:"3px solid "+T.ok,borderRadius:10,padding:"8px",fontFamily:"inherit",background:T.cardSolid,color:T.ok}}/>
+              <div style={{textAlign:"center",fontSize:FS-3,color:T.textMut,marginTop:6}}>(الحد الأقصى: {remaining})</div>
+            </div>:<div style={{padding:12,borderRadius:10,background:T.ok+"15",border:"1px solid "+T.ok+"40",textAlign:"center",fontSize:FS,fontWeight:800,color:T.ok}}>
+              ✓ تم استلام كل الكمية بالكامل
+            </div>}
+            {/* Action buttons */}
+            <div style={{display:"flex",gap:8,marginTop:4}}>
+              <Btn ghost onClick={close} style={{flex:1}}>إلغاء</Btn>
+              {remaining>0&&<Btn onClick={confirm} disabled={!wsRcvQty||wsRcvQty<=0} style={{flex:2,background:T.ok,color:"#fff",border:"none",fontWeight:800,fontSize:FS+1,padding:"12px"}}>✅ تأكيد الاستلام</Btn>}
+            </div>
+          </div>
+        </div>
+      </div>;
+    })()}
+    {/* V16.50: Workshop delivery-confirmation popup — shown when a workshop scans
+        the QR on a delivery receipt. Shows the model image (compressed), pieces
+        delivered, and a single button to acknowledge receipt. The confirmation
+        adds an entry to the workshopDelivery's receives[] array, which is what
+        the rest of the system already reads to compute workshop balances.
+        V16.51: race-safe — re-reads the live order at confirm time so concurrent
+        admin edits aren't overwritten by a stale snapshot. */}
+    {wsDelPopup&&(()=>{
+      const ord=wsDelPopup.order;
+      const wd=wsDelPopup.wd;
+      const idx=wsDelPopup.wdIdx;
+      /* Compute current ws balance from the LIVE order in state (not the snapshot)
+         so the displayed balance reflects any changes that landed after the scan. */
+      const liveOrd=orders.find(x=>x.id===ord.id)||ord;
+      const liveWd=(liveOrd.workshopDeliveries||[])[idx]||wd;
+      const wsName=liveWd.wsName||wd.wsName||"";
+      const sameWsDeliveries=(liveOrd.workshopDeliveries||[]).filter(x=>x.wsName===wsName);
+      const totalDel=sameWsDeliveries.reduce((s,x)=>s+(Number(x.qty)||0),0);
+      const totalRcv=sameWsDeliveries.reduce((s,x)=>s+(x.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0),0);
+      const wsBal=totalDel-totalRcv;
+      const alreadyConfirmed=(liveWd.receives||[]).some(r=>r.viaQR);
+      /* Sanity check: the snapshot delivery should still match the live one.
+         If admins deleted/replaced this delivery, refuse to confirm. */
+      const deliveryStillExists=!!liveWd&&liveWd.wsName===wd.wsName&&Number(liveWd.qty)===Number(wd.qty)&&liveWd.date===wd.date;
+      const close=()=>setWsDelPopup(null);
+      const confirmReceive=async()=>{
+        if(!deliveryStillExists){
+          alert("هذا التسليم لم يعد موجوداً أو تم تعديله بواسطة الإدارة. أعد مسح ليبل التسليم الجديد.");
+          setWsDelPopup(null);
+          return;
+        }
+        if(alreadyConfirmed){
+          showToast("سبق تأكيده");
+          setWsDelPopup(null);
+          return;
+        }
+        const today=new Date().toISOString().split("T")[0];
+        /* Build the new order from the LIVE order, not the snapshot.
+           This preserves any concurrent admin edits (other deliveries, status changes, etc.). */
+        const newOrd=JSON.parse(JSON.stringify(liveOrd));
+        if(!Array.isArray(newOrd.workshopDeliveries))newOrd.workshopDeliveries=[];
+        const targetWd=newOrd.workshopDeliveries[idx];
+        if(!targetWd){alert("التسليم غير موجود");setWsDelPopup(null);return}
+        if(!Array.isArray(targetWd.receives))targetWd.receives=[];
+        /* Re-check that this exact delivery hasn't been QR-confirmed since the popup opened */
+        if(targetWd.receives.some(r=>r.viaQR)){
+          showToast("سبق تأكيده");
+          setWsDelPopup(null);
+          return;
+        }
+        targetWd.receives.push({
+          date:today,
+          qty:Number(targetWd.qty)||0,/* use the LIVE qty, not the snapshot */
+          /* V16.51: full standard receive shape — same fields ExtProdPg/DetPg
+             create when receives are added manually. Without these, the QR
+             receives wouldn't show up in financial calculations
+             (wsAccounts.due uses r.qty * r.price). */
+          notes:"تأكيد QR من الورشة",
+          price:Number(targetWd.price)||0,
+          amount:r2((Number(targetWd.qty)||0)*(Number(targetWd.price)||0)),
+          quality:"استلام QR",
+          createdBy:wsName||"ورشة (QR)",
+          confirmedBy:wsName||"ورشة (QR)",
+          viaQR:true,
+          createdAt:new Date().toISOString()
+        });
+        try{
+          await replaceOrder(ord.id,newOrd);
+          showToast("✓ تم تأكيد الاستلام بواسطة الورشة");
+          setWsDelPopup(null);
+        }catch(e){
+          alert("فشل الحفظ: "+(e?.message||e));
+        }
+      };
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:99999,display:"flex",alignItems:"flex-end",justifyContent:"center",padding:0}} onClick={close}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:"20px 20px 0 0",width:"100%",maxWidth:520,padding:"20px 18px 24px",border:"1px solid "+T.brd,maxHeight:"95vh",overflowY:"auto"}}>
+          {/* Drag handle */}
+          <div style={{width:48,height:5,borderRadius:3,background:T.brd,margin:"0 auto 14px"}}/>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={{fontSize:FS+3,fontWeight:900,color:T.accent}}>📥 تأكيد استلام الورشة</div>
+            <Btn ghost small onClick={close}>✕</Btn>
+          </div>
+          {/* Compressed image — small for mobile bandwidth */}
+          {liveOrd.image&&<div style={{display:"flex",justifyContent:"center",marginBottom:12}}>
+            <img src={liveOrd.image} alt={liveOrd.modelNo} style={{width:120,height:160,objectFit:"cover",borderRadius:12,border:"1px solid "+T.brd,boxShadow:T.shadow}}/>
+          </div>}
+          {/* Order header */}
+          <div style={{textAlign:"center",marginBottom:14}}>
+            <div style={{fontSize:FS+5,fontWeight:900,color:T.text,letterSpacing:0.3}}>{liveOrd.modelNo}</div>
+            <div style={{fontSize:FS-1,color:T.textSec,marginTop:2}}>{liveOrd.modelDesc}</div>
+          </div>
+          {/* Delivery details — from LIVE data */}
+          <div style={{padding:14,borderRadius:12,background:T.accent+"08",border:"1px solid "+T.accent+"25",marginBottom:12}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <div><div style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>الورشة</div><div style={{fontSize:FS,fontWeight:800,color:T.text}}>🏭 {wsName}</div></div>
+              <div><div style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>القطعة</div><div style={{fontSize:FS,fontWeight:800,color:T.text}}>{liveWd.garmentType||"عام"}</div></div>
+              <div><div style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>تاريخ التسليم</div><div style={{fontSize:FS,fontWeight:700,color:T.text}}>📅 {liveWd.date||"—"}</div></div>
+              <div><div style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>الكمية</div><div style={{fontSize:FS+4,fontWeight:900,color:T.accent,fontVariantNumeric:"tabular-nums"}}>{liveWd.qty} قطعة</div></div>
+            </div>
+            {liveOrd.sizeLabel&&<div style={{marginTop:10,paddingTop:10,borderTop:"1px solid "+T.brd}}>
+              <span style={{fontSize:FS-2,color:T.textMut}}>المقاسات: </span>
+              <span style={{fontSize:FS-1,fontWeight:700,color:T.text}}>{liveOrd.sizeLabel}</span>
+            </div>}
+          </div>
+          {/* Workshop balance */}
+          <div style={{padding:12,borderRadius:10,background:wsBal>0?T.warn+"10":T.ok+"10",border:"1px solid "+(wsBal>0?T.warn:T.ok)+"30",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontSize:FS-1,color:T.textSec,fontWeight:700}}>رصيدك الحالي عند هذا الموديل:</span>
+            <span style={{fontSize:FS+3,fontWeight:900,color:wsBal>0?T.warn:T.ok,fontVariantNumeric:"tabular-nums"}}>{wsBal} قطعة</span>
+          </div>
+          {!deliveryStillExists?<div style={{padding:12,borderRadius:10,background:T.err+"15",color:T.err,fontWeight:800,textAlign:"center",fontSize:FS-1,lineHeight:1.7}}>
+            ⚠️ هذا التسليم لم يعد موجوداً أو تم تعديله من الإدارة. أعد مسح الليبل الحالي.
+          </div>:alreadyConfirmed?<div style={{padding:12,borderRadius:10,background:T.ok+"15",color:T.ok,fontWeight:800,textAlign:"center",fontSize:FS}}>
+            ✓ تم تأكيد استلام هذه الكمية مسبقاً عبر QR
+          </div>:<Btn primary onClick={confirmReceive} style={{background:T.ok,color:"#fff",border:"none",fontWeight:900,fontSize:FS+2,padding:"14px 0",width:"100%",borderRadius:12}}>
+            ✅ تأكيد استلام {liveWd.qty} قطعة
+          </Btn>}
+          <div style={{fontSize:FS-3,color:T.textMut,textAlign:"center",marginTop:10,lineHeight:1.6}}>
+            بالضغط على "تأكيد"، يتم تسجيل الاستلام في النظام مباشرة وتحديث رصيدك عند الإدارة.
+          </div>
+        </div>
+      </div>;
+    })()}
     {labelPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setLabelPopup(null);setLabelBags(1)}}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:320,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",textAlign:"center"}}>
         <div style={{fontSize:18,fontWeight:800,color:T.text,marginBottom:4}}>{"🏷️ "+labelPopup.arrow+" "+labelPopup.title}</div>
@@ -1820,7 +2084,16 @@ export default function App(){
         <div style={{marginBottom:12}}><label style={{fontSize:FS,fontWeight:700,color:T.text}}>عدد الأكياس</label><input type="number" value={labelBags} onChange={e=>setLabelBags(Math.max(1,Number(e.target.value)||1))} min="1" style={{display:"block",margin:"8px auto",width:100,textAlign:"center",fontSize:22,fontWeight:800,border:"3px solid "+T.accent,borderRadius:10,padding:"6px",fontFamily:"Cairo",background:T.bg,color:T.text}}/></div>
         <div style={{display:"flex",gap:8,justifyContent:"center"}}>
           <Btn ghost onClick={()=>{setLabelPopup(null);setLabelBags(1)}}>✕ إغلاق</Btn>
-          <Btn onClick={()=>{renderLabelPages(labelPopup,labelBags,data?.printSettings,CLARK_LOGO)}} style={{background:T.accent,color:"#fff",border:"none",fontWeight:700}}>{"🖨 طباعة "+labelBags}</Btn>
+          <Btn onClick={()=>{
+            /* V16.50: build confirm URL only when we have the trio (orderId + wsId + idx).
+               If wsId is missing (legacy), QR won't render — print still works. */
+            let confirmUrl="";
+            if(labelPopup.orderId&&labelPopup.wsId&&labelPopup.deliveryIdx>=0){
+              const origin=(typeof window!=="undefined"&&window.location)?window.location.origin:"";
+              confirmUrl=origin+"/?act=wsdel&ord="+encodeURIComponent(labelPopup.orderId)+"&ws="+encodeURIComponent(labelPopup.wsId)+"&idx="+labelPopup.deliveryIdx;
+            }
+            renderLabelPages(labelPopup,labelBags,data?.printSettings,CLARK_LOGO,confirmUrl)
+          }} style={{background:T.accent,color:"#fff",border:"none",fontWeight:700}}>{"🖨 طباعة "+labelBags}</Btn>
         </div>
       </div>
     </div>}

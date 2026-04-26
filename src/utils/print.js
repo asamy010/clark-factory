@@ -89,8 +89,22 @@ export function printPage(title,bodyHtml,configInfo){const pw=openPrintWindow();
     setTimeout(()=>{try{pw.focus();pw.print()}catch(e){}},500);}
 
 /* Thermal package label — 10x15cm with QR and movement log */
-export function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,createdBy,qrData){
+/* V14.x: 10×15 cm customer package label.
+   V16.50: now reads from `printSettings.customerLabel` slot — same shape as the
+   workshop label settings. Honors fontFamily, showLogo, and per-field toggles for
+   note / movements / createdBy / qr. Backward-compatible: callers that don't pass
+   cfg get the historic defaults. */
+export function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,createdBy,qrData,cfg,clarkLogoDataUrl){
   const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+  const cu=cfg&&cfg.customerLabel?cfg.customerLabel:(cfg||{});
+  const fontFam=cu.fontFamily||"Cairo";
+  const fontUrl=_GOOGLE_FONT_URLS_QR[fontFam]||_GOOGLE_FONT_URLS_QR.Cairo;
+  const showLogo=!!cu.showLogo;
+  const fields=cu.fields||{};
+  const showNote=fields.note?.show!==false;
+  const showMovements=fields.movements?.show!==false;
+  const showCreatedBy=fields.createdBy?.show!==false;
+  const showQr=fields.qr?.show!==false;
   const totalQ=pkgItems.reduce((s,it)=>s+(Number(it.qty)||0),0);
   const totalSeries=pkgItems.reduce((s,it)=>s+(Number(it.count)||0),0);
   const stLabel=status==="مغلقة"?"مغلقة ❌":status==="مباعة"?"مباعة 💰":"مفتوحة ✅";
@@ -98,8 +112,12 @@ export function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,c
   let itemRows="";pkgItems.forEach(it=>{itemRows+="<tr><td class='mn'>"+it.modelNo+"</td><td class='ds'>"+(it.desc||"")+"</td><td class='ct'>"+(it.count||"")+"</td><td class='qt'>"+it.qty+"</td></tr>"});
   let movRows="";(movements||[]).forEach(m=>{const icon=m.type==="add"?"📥":m.type==="remove"?"📤":m.type==="sell"?"💰":"📋";const color=m.type==="add"?"#10B981":m.type==="sell"?"#8B5CF6":"#EF4444";
     movRows+="<tr><td class='md'>"+m.date+"</td><td class='md' style='color:"+color+";font-weight:800'>"+icon+"</td><td class='md'>"+(m.modelNo||m.custName||"")+"</td><td class='md' style='font-weight:700'>"+(m.qty||"")+"</td><td class='md' style='color:#888'>"+(m.by||"")+"</td></tr>"});
-  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@600;800;900&display=swap' rel='stylesheet'/><style>"
-  +"@page{size:10cm 15cm;margin:0}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Cairo',sans-serif;color:#000}"
+  /* Brand row: image when enabled, else text */
+  const brandHtml=showLogo&&clarkLogoDataUrl
+    ?"<div class='brand'><img src='"+clarkLogoDataUrl+"' alt='CLARK' style='height:9mm;max-width:55%;filter:brightness(0) saturate(100%);object-fit:contain'/></div>"
+    :"<div class='brand'>CLARK</div>";
+  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><link href='"+fontUrl+"' rel='stylesheet'/><style>"
+  +"@page{size:10cm 15cm;margin:0}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'"+fontFam+"',Arial,sans-serif;color:#000}"
   +".pg{width:10cm;min-height:15cm;padding:3mm;display:flex;flex-direction:column}"
   +".brand{text-align:center;font-size:11pt;font-weight:900;letter-spacing:3px;padding:1.5mm 0;border-bottom:2px solid #000}"
   +".top{display:flex;align-items:center;gap:3mm;padding:2mm 0;border-bottom:1px solid #999}"
@@ -112,21 +130,24 @@ export function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,c
   +".md{padding:1mm 2mm;font-size:6.5pt;border:1px solid #E2E8F0}"
   +".ft{margin-top:auto;padding-top:1.5mm;border-top:1px solid #000;display:flex;justify-content:space-between;font-size:6pt;color:#888;font-weight:600}"
   +".pbar{position:sticky;top:0;background:#fff;padding:4px;display:none;justify-content:center;gap:6px;border-bottom:2px solid #ccc}"
-  +".pbar button{padding:5px 14px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:11px;font-weight:700;background:#fff}.pbar .pr{background:#000;color:#fff}"
+  +".pbar button{padding:5px 14px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'"+fontFam+"';font-size:11px;font-weight:700;background:#fff}.pbar .pr{background:#000;color:#fff}"
   +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
   +"</style></head><body>"
   +"<div class='pbar'><button onclick='window.close()'>↩</button><button class='pr' onclick='window.print()'>🖨</button></div>"
   +"<div class='pg'>"
-  +"<div class='brand'>CLARK</div>"
-  +"<div class='top'><canvas id='qr'></canvas><div class='top-info'><div class='pn'>📦 "+pkgNum+"</div><div class='pd'>"+pkgDate+(pkgNote?" — "+pkgNote:"")+"</div><div class='ps' style='background:"+stColor+"15;color:"+stColor+"'>"+stLabel+"</div></div></div>"
+  +brandHtml
+  +"<div class='top'>"
+  +(showQr?"<canvas id='qr'></canvas>":"")
+  +"<div class='top-info'><div class='pn'>📦 "+pkgNum+"</div><div class='pd'>"+pkgDate+(showNote&&pkgNote?" — "+pkgNote:"")+"</div><div class='ps' style='background:"+stColor+"15;color:"+stColor+"'>"+stLabel+"</div></div></div>"
   +"<div class='sec'>محتويات الكرتونة</div>"
   +"<table><thead><tr><th>الموديل</th><th>الوصف</th><th>سيري</th><th>الكمية</th></tr></thead><tbody>"
   +itemRows
   +"<tr class='tot'><td colspan='2'>الاجمالي</td><td class='ct'>"+totalSeries+"</td><td class='qt' style='font-size:11pt'>"+totalQ+"</td></tr></tbody></table>"
-  +(movRows?"<div class='sec'>سجل الحركات</div><table><thead><tr><th>التاريخ</th><th>النوع</th><th>التفاصيل</th><th>الكمية</th><th>بواسطة</th></tr></thead><tbody>"+movRows+"</tbody></table>":"")
-  +"<div class='ft'><span>"+(createdBy?"التعبئة: "+createdBy:"")+"</span><span>CLARK Factory Management</span></div>"
+  +(showMovements&&movRows?"<div class='sec'>سجل الحركات</div><table><thead><tr><th>التاريخ</th><th>النوع</th><th>التفاصيل</th><th>الكمية</th><th>بواسطة</th></tr></thead><tbody>"+movRows+"</tbody></table>":"")
+  +"<div class='ft'><span>"+(showCreatedBy&&createdBy?"التعبئة: "+createdBy:"")+"</span><span>CLARK Factory Management</span></div>"
   +"</div>"
-  +"<script>QRCode.toCanvas(document.getElementById('qr'),'"+qrData.replace("'","\\'")+"',{width:120,margin:1},()=>{});setTimeout(()=>window.print(),800)</"+"script></body></html>");
+  +(showQr?"<script>QRCode.toCanvas(document.getElementById('qr'),'"+qrData.replace(/'/g,"\\'")+"',{width:120,margin:1},function(){});setTimeout(function(){window.print()},800)</"+"script>":"<script>setTimeout(function(){window.print()},400)</"+"script>")
+  +"</body></html>");
   pw.document.close()}
 
 /* V14.57: Print employee QR cards — 40×50mm (half the size of package labels)
@@ -195,20 +216,27 @@ export function printEmpQrCards(empsList,cfg,clarkLogoDataUrl){
   pw.document.close()}
 
 /* Render workshop delivery/receive label pages (10cm × 15cm) */
-export function renderLabelPages(d,n,cfg,clarkLogoDataUrl){
+/* V16.48: 10x15 cm delivery label.
+   V16.50: now reads from `printSettings.workshopLabel` (separate from QR labels)
+   and embeds a confirmation QR code (when enabled) so the workshop can scan from
+   their phone to acknowledge receipt. The QR encodes a URL of the form:
+     {origin}/?act=wsdel&ord=<orderId>&ws=<wsId>&idx=<deliveryIdx>
+   Backward-compatible: callers that don't pass the workshop slot still get a
+   reasonable default. */
+export function renderLabelPages(d,n,cfg,clarkLogoDataUrl,confirmUrl){
   const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
-  /* V16.48: honor user printSettings — font, logo, optional fields visibility.
-     Callers should pass cfg=data.printSettings; old call signature still works
-     (the label just falls back to its previous defaults). */
-  const c=cfg||{};
-  const fontFam=c.fontFamily||"Cairo";
+  /* Pull workshopLabel slot if cfg is the full printSettings object,
+     otherwise treat cfg itself as the slot (back-compat with V16.48). */
+  const ws=cfg&&cfg.workshopLabel?cfg.workshopLabel:(cfg||{});
+  const fontFam=ws.fontFamily||"Cairo";
   const fontUrl=_GOOGLE_FONT_URLS_QR[fontFam]||_GOOGLE_FONT_URLS_QR.Cairo;
-  const showLogo=!!c.showLogo;
-  /* fields: support per-field show toggles; default to historic behavior (all on) */
-  const fields=c.fields||{};
+  const showLogo=!!ws.showLogo;
+  const fields=ws.fields||{};
+  const showDesc=fields.modelDesc?.show!==false&&fields.desc?.show!==false;/* legacy "desc" key support */
   const showSize=fields.sizeLabel?.show!==false;
-  const showDesc=fields.desc?.show!==false;
-  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='"+fontUrl+"' rel='stylesheet'/><title>"+d.title+"</title><style>"
+  const showCutQty=fields.cutQty?.show!==false;
+  const showQr=fields.qrConfirm?.show!==false&&!!confirmUrl;
+  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><link href='"+fontUrl+"' rel='stylesheet'/><title>"+d.title+"</title><style>"
   +"@page{size:10cm 15cm;margin:0}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'"+fontFam+"',Arial,sans-serif;color:#000}"
   +".pg{width:10cm;min-height:15cm;padding:4mm;display:flex;flex-direction:column;page-break-after:always;overflow:hidden}.pg:last-child{page-break-after:auto}"
   +".brand{text-align:center;padding-bottom:1.5mm;border-bottom:2px solid #000;margin-bottom:2mm}"
@@ -218,7 +246,9 @@ export function renderLabelPages(d,n,cfg,clarkLogoDataUrl){
   +".big{text-align:center;padding:2mm;border:2.5px solid #000;border-radius:6px;margin-bottom:2mm}.big .pc{font-size:13pt;font-weight:800}.big .qt{font-size:18pt;font-weight:800}"
   +"table{width:100%;border-collapse:collapse;margin-bottom:2mm}td{padding:1mm 3mm;font-size:9pt;font-weight:700;border:1px solid #000}td.k{font-weight:800;width:35%}"
   +".mv{border:2px solid #000;border-radius:4px;overflow:hidden;margin-bottom:2mm}.mvr{display:flex;justify-content:space-between;padding:1.5mm 3mm;font-size:9pt;font-weight:800;border-bottom:1px solid #000}.mvr:last-child{border-bottom:none}"
-  +".bot{display:flex;align-items:center;justify-content:center;gap:5mm;margin-top:auto;padding-top:2mm}.bot img{width:22mm;height:22mm}"
+  +".bot{display:flex;align-items:center;justify-content:space-between;gap:3mm;margin-top:auto;padding-top:2mm}"
+  +".qrbox{text-align:center;padding:1mm;border:2px solid #000;border-radius:4px}.qrbox canvas{width:22mm;height:22mm;display:block}"
+  +".qrbox .qrlbl{font-size:6pt;font-weight:700;margin-top:0.5mm;color:#333}"
   +".bags{font-size:26pt;font-weight:800;border:3px solid #000;border-radius:8px;padding:1mm 5mm;line-height:1}"
   +".foot{text-align:center;font-size:7pt;color:#555;padding-top:1mm;border-top:1px dashed #000;margin-top:2mm}"
   +".pbar{position:sticky;top:0;background:#fff;padding:4px;display:none;justify-content:center;gap:6px;border-bottom:2px solid #ccc;z-index:99}"
@@ -226,15 +256,13 @@ export function renderLabelPages(d,n,cfg,clarkLogoDataUrl){
   +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
   +"</style></head><body>");
   let h="<div class='pbar'><button onclick='window.close()'>↩</button><button class='pr' onclick='window.print()'>🖨 "+n+"</button></div>";
-  /* Brand row — logo image when enabled & available, else text */
   const brandHtml="<div class='brand'>"+(showLogo&&clarkLogoDataUrl?"<img class='brand-img' src='"+clarkLogoDataUrl+"' alt='CLARK'/>":"<div class='brand-txt'>CLARK Factory</div>")+"</div>";
-  /* Build the data table dynamically so toggled-off fields disappear cleanly */
   const dataRows=[
     ["الموديل",d.modelNo||""],
     ...(showDesc?[["الوصف",d.modelDesc||""]]:[]),
     ...(showSize&&d.sizeLabel?[["المقاسات",d.sizeLabel]]:[]),
     ["الورشة",d.wsName||""],
-    ["القص",String(d.cutQty||"")]
+    ...(showCutQty?[["القص",String(d.cutQty||"")]]:[])
   ];
   const tableHtml="<table>"+dataRows.map(([k,v])=>"<tr><td class='k'>"+k+"</td><td>"+v+"</td></tr>").join("")+"</table>";
   for(let i=1;i<=n;i++){h+="<div class='pg'>"+brandHtml+"<div class='tp'>"+d.arrow+" "+d.title+"</div>"
@@ -242,8 +270,12 @@ export function renderLabelPages(d,n,cfg,clarkLogoDataUrl){
     +tableHtml
     +"<div class='mv'><div class='mvr'><span>↗ تسليم</span><span>"+d.delQty+"</span><span>"+d.delDate+"</span></div>"
     +(d.isRcv?"<div class='mvr'><span>↙ استلام</span><span>"+d.rcvQty+"</span><span>"+d.rcvDate+"</span></div>":"")+"</div>"
-    +"<div class='bot'>"+(n>1?"<div class='bags'>"+i+"/"+n+"</div>":"")+"</div>"
+    +"<div class='bot'>"
+    +(showQr?"<div class='qrbox'><canvas class='conf-qr' data-url='"+confirmUrl.replace(/'/g,"\\'")+"'></canvas><div class='qrlbl'>📱 امسح للتأكيد</div></div>":"<div></div>")
+    +(n>1?"<div class='bags'>"+i+"/"+n+"</div>":"<div></div>")
+    +"</div>"
     +"<div class='foot'>"+d.modelNo+" | "+d.piece+" | "+d.wsName+"</div></div>"}
+  h+="<script>document.querySelectorAll('.conf-qr').forEach(function(c){QRCode.toCanvas(c,c.dataset.url,{width:120,margin:1,errorCorrectionLevel:'M'},function(){})});setTimeout(function(){window.print()},800)</"+"script>";
   pw.document.write(h+"</body></html>");pw.document.close();
   if(window.innerWidth>1024)setTimeout(()=>{try{pw.focus();pw.print()}catch(e){}},500)
 }
