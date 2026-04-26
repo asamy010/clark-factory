@@ -13,7 +13,7 @@ import { addAudit } from "../utils/audit.js";
 import { showToast } from "../utils/popups.js";
 import { pushUndo } from "../utils/undo.js";
 import { openPrintWindow } from "../utils/print.js";
-import { printCashReceipt } from "../utils/print-extras.js";
+import { printCashReceipt, printCheckReceipt } from "../utils/print-extras.js";
 import { Spinner, InlineLoading, Btn, Inp, Sel, Card, useDebounced } from "../components/ui.jsx";
 import { T } from "../theme.js";
 import { db } from "../firebase";
@@ -347,7 +347,40 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
 
   const OUT_CATS=["تكلفة","مشتريات","مرتبات","قطع غيار","صيانة ماكينات","خيط","تشغيل خارجي","نقل","كهرباء","ضيافة","ايجار المصنع","نثريات","اكسسوار","مستلزمات تشغيل","ورق ماركر","خدمات","أصول ثابتة","تكاليف أخرى","دفع مورد","تحويل داخلي"];
   const IN_CATS=["وارد","إيرادات","دفعة عميل","رأس مال","تحويل","تحويل داخلي"];
-  const ALL_CATS=[...IN_CATS,...OUT_CATS];
+  /* V16.61: Categories that have hard-wired behavior elsewhere in the app —
+     they trigger party pickers, link to other modules, etc. These MUST be in
+     every dropdown regardless of what the user saved in treasurySettings,
+     because removing them breaks the linked features (supplier picker, customer
+     picker, transfers system, etc.).
+     
+     Bug this fixes: SettingsPg's DEFAULT_OUT (in TreasurySettingsCard) doesn't
+     include "دفع مورد" or "تحويل داخلي" — so the first time a user opens
+     treasury settings and clicks save, those categories get dropped from the
+     saved list. The supplier picker stops working ("دفع مورد" never appears
+     in the dropdown), the filter doesn't list custom categories, and inline
+     edit has the same issue. The union here makes the dropdowns resilient
+     to whatever the user's saved list looks like. */
+  const REQUIRED_OUT=["دفع مورد","تشغيل خارجي","مرتبات","تحويل داخلي"];
+  const REQUIRED_IN=["دفعة عميل","تحويل داخلي"];
+  const resolvedOutCats=useMemo(()=>{
+    const saved=(data.treasurySettings||{}).outCategories;
+    const base=Array.isArray(saved)&&saved.length>0?[...saved]:[...OUT_CATS];
+    REQUIRED_OUT.forEach(c=>{if(!base.includes(c))base.push(c)});
+    return base;
+  },[data.treasurySettings?.outCategories]);/* eslint-disable-line */
+  const resolvedInCats=useMemo(()=>{
+    const saved=(data.treasurySettings||{}).inCategories;
+    const base=Array.isArray(saved)&&saved.length>0?[...saved]:[...IN_CATS];
+    REQUIRED_IN.forEach(c=>{if(!base.includes(c))base.push(c)});
+    return base;
+  },[data.treasurySettings?.inCategories]);/* eslint-disable-line */
+  /* V16.61: Filter dropdown shows a union of in+out resolved cats — used by the
+     filterCat <Sel> and the inline-edit category dropdown so user-added
+     categories appear everywhere, not just in the new-tx form. */
+  const ALL_CATS=useMemo(()=>{
+    const set=new Set([...resolvedInCats,...resolvedOutCats]);
+    return Array.from(set);
+  },[resolvedInCats,resolvedOutCats]);
   const today=new Date().toISOString().split("T")[0];
 
   /* ── Per-account balances ── */
@@ -1373,7 +1406,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             else if(v==="دفع مورد")setTxPartyType("supplier");
             else if(v==="تشغيل خارجي")setTxPartyType("workshop");
             else if(v==="مرتبات")setTxPartyType("employee");
-          }}><option value="">— اختر —</option>{(txType==="in"?((data.treasurySettings||{}).inCategories||IN_CATS):((data.treasurySettings||{}).outCategories||OUT_CATS)).map(c=><option key={c} value={c}>{c}</option>)}</Sel>
+          }}><option value="">— اختر —</option>{(txType==="in"?resolvedInCats:resolvedOutCats).map(c=><option key={c} value={c}>{c}</option>)}</Sel>
           {txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفع مورد"||txCategory==="تشغيل خارجي"||txCategory==="مرتبات")&&(()=>{const list=txPartyType==="customer"?customers:txPartyType==="supplier"?suppliers:txPartyType==="employee"?(data.employees||[]).filter(e=>!e.inactive):workshops;const p=list.find(x=>x.id===txPartyId||x.name===txPartyId);if(!p)return null;
             const icon=txPartyType==="customer"?"🧑 العميل:":txPartyType==="supplier"?"🏭 المورد:":txPartyType==="employee"?"👷 الموظف:":"🔧 الورشة:";
             return<div style={{padding:"6px 10px",borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"30",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,marginTop:6}}>
@@ -1519,7 +1552,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             <td style={{padding:"6px 8px",fontSize:FS,fontWeight:700,color:T.ok,whiteSpace:"nowrap"}}>{isEd?(d_.type==="in"?<input type="number" value={d_.amount} onChange={e=>setInlineDraft(p=>({...p,amount:e.target.value}))} style={{...inpS,width:80,color:T.ok,fontWeight:700}}/>:<span onClick={()=>setInlineDraft(p=>({...p,type:"in"}))} style={{cursor:"pointer",color:T.textMut,fontSize:FS-2}}>↓</span>):(t.type==="in"?fmt0(t.amount):"")}</td>
             <td style={{padding:"6px 8px",fontSize:FS,fontWeight:700,color:T.err,whiteSpace:"nowrap"}}>{isEd?(d_.type==="out"?<input type="number" value={d_.amount} onChange={e=>setInlineDraft(p=>({...p,amount:e.target.value}))} style={{...inpS,width:80,color:T.err,fontWeight:700}}/>:<span onClick={()=>setInlineDraft(p=>({...p,type:"out"}))} style={{cursor:"pointer",color:T.textMut,fontSize:FS-2}}>↑</span>):(t.type==="out"?fmt0(t.amount):"")}</td>
             {/* V16.40: نوع الحركة (category) moved BEFORE بيان (desc); ملاحظات removed entirely. */}
-            <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>{isEd?<select value={d_.category} onChange={e=>setInlineDraft(p=>({...p,category:e.target.value}))} style={{...inpS,width:100}}><option value="">—</option>{(d_.type==="in"?IN_CATS:OUT_CATS).map(c=><option key={c}>{c}</option>)}</select>:<span style={{padding:"2px 6px",borderRadius:5,fontSize:FS-2,fontWeight:600,background:t.type==="in"?T.ok+"12":T.err+"12",color:t.type==="in"?T.ok:T.err,whiteSpace:"nowrap"}}>{t.category||"—"}</span>}</td>
+            <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>{isEd?<select value={d_.category} onChange={e=>setInlineDraft(p=>({...p,category:e.target.value}))} style={{...inpS,width:100}}><option value="">—</option>{(d_.type==="in"?resolvedInCats:resolvedOutCats).map(c=><option key={c}>{c}</option>)}</select>:<span style={{padding:"2px 6px",borderRadius:5,fontSize:FS-2,fontWeight:600,background:t.type==="in"?T.ok+"12":T.err+"12",color:t.type==="in"?T.ok:T.err,whiteSpace:"nowrap"}}>{t.category||"—"}</span>}</td>
             {/* بيان — flex column, takes all remaining horizontal space; full text shown on hover via title */}
             <td style={{padding:"6px 8px",fontSize:FS-1,width:"100%"}}>{isEd?<input value={d_.desc} onChange={e=>setInlineDraft(p=>({...p,desc:e.target.value}))} style={{...inpS,width:"100%"}}/>:<span title={t.desc||""} style={{display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.desc||"—"}{t.notes?<span style={{color:T.textMut,fontWeight:500,marginInlineStart:6}}>· {t.notes}</span>:""}</span>}</td>
             <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>{isEd?<select value={d_.account} onChange={e=>setInlineDraft(p=>({...p,account:e.target.value}))} style={{...inpS,width:90}}>{accounts.map(a=><option key={a}>{a}</option>)}</select>:t.account||""}</td>
@@ -1547,12 +1580,15 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 {external&&<span style={{fontSize:10,color:"#8B5CF6"}} title={"حركة من "+externalSourceLabel(t)}>🔗</span>}
                 {/* V16.60: Print formal cash receipt for this entry. Resolves the
                     party (customer/supplier) from tx.custId/supplierId so the receipt
-                    includes their phone/address when known. */}
+                    includes their phone/address when known.
+                    V16.62: Use `data` not `config` — this component receives `data`
+                    as the merged config object; `config` was undefined and threw
+                    ReferenceError at runtime when the button was clicked. */}
                 <span onClick={()=>{
                   const partyInfo=t.custId?customers.find(c=>c.id===t.custId)
                     :t.supplierId?suppliers.find(s=>s.id===t.supplierId)
                     :null;
-                  printCashReceipt(t,partyInfo,{factoryName:config.factoryName,logo:config.logo,address:config.address,phone:config.phone});
+                  printCashReceipt(t,partyInfo,{factoryName:data.factoryName,logo:data.logo,address:data.address,phone:data.phone});
                 }} style={{cursor:"pointer",fontSize:11}} title={t.type==="in"?"طباعة إيصال استلام":"طباعة إيصال صرف"}>🧾</span>
                 {allowEdit&&<span onClick={()=>startEdit()} style={{cursor:"pointer",fontSize:11}} title={isAdmin&&lockEdit?"تعديل (تجاوز قفل)":"تعديل"}>✏️</span>}
                 {allowDel&&<span onClick={()=>openConfirm({title:"حذف حركة",message:(external?"⚠️ حركة مرتبطة بـ "+externalSourceLabel(t)+" — الحذف هنا لن يؤثر على المصدر.\n\n":"")+(isAdmin&&lockDelete?"⚠️ الحذف مقفول من الإعدادات — سيتم تسجيل تجاوزك في سجل الأمان.\n\n":"")+"سيتم حذف الحركة نهائياً.\n"+(t.desc||"")+"\nالمبلغ: "+fmt(t.amount)+" ج.م",variant:"danger",onConfirm:()=>{if(isAdmin&&lockDelete)logLockBypass("delete",t);delTx(t.id)}})} style={{cursor:"pointer",fontSize:11,color:T.err}} title={isAdmin&&lockDelete?"حذف (تجاوز قفل)":"حذف"}>✕</span>}
@@ -1917,7 +1953,19 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut}}>{c.checkNo||"—"}{c.batchId&&c.batchTotal>1&&<span style={{marginRight:6,padding:"1px 6px",borderRadius:8,background:"#0EA5E915",color:"#0284C7",fontSize:9,fontWeight:700}} title={"شيك "+c.batchIdx+" من حافظة من "+c.batchTotal+" شيكات"}>{c.batchIdx}/{c.batchTotal}</span>}</td>
                 <td style={{padding:"6px 8px",fontSize:FS-1,fontWeight:overdue?700:400,color:overdue?T.err:T.text}}>{c.dueDate||"—"}{overdue?" ⚠️":""}</td>
                 <td style={{padding:"6px 8px"}}><span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:(STATUS_COLORS[c.status]||T.textMut)+"15",color:STATUS_COLORS[c.status]||T.textMut}}>{c.status}</span></td>
-                <td style={{padding:"6px 8px"}}>{canEdit&&c.status==="معلق"&&<div style={{display:"flex",gap:3,flexWrap:"wrap"}}>
+                <td style={{padding:"6px 8px"}}>
+                {/* V16.62: Print check receipt voucher (إذن استلام/تسليم شيك).
+                    Always available regardless of status — useful both at the
+                    moment of handover (status=معلق) and as an archival reprint
+                    later. Resolves the party from check.partyId so the receipt
+                    includes phone/address when a customer/supplier record exists. */}
+                <span onClick={()=>{
+                  const partyInfo=c.partyId
+                    ?(c.type==="receivable"?customers.find(x=>x.id===c.partyId):suppliers.find(x=>x.id===c.partyId))
+                    :null;
+                  printCheckReceipt(c,partyInfo,{factoryName:data.factoryName,logo:data.logo,address:data.address,phone:data.phone});
+                }} style={{cursor:"pointer",fontSize:11,marginInlineEnd:6}} title={c.type==="receivable"?"طباعة إذن استلام شيك":"طباعة إذن تسليم شيك"}>🧾</span>
+                {canEdit&&c.status==="معلق"&&<div style={{display:"inline-flex",gap:3,flexWrap:"wrap"}}>
                   <span onClick={()=>updateStatus(c.id,c.type==="receivable"?"محصل":"مدفوع")} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:T.ok+"12",color:T.ok,fontWeight:700}}>{c.type==="receivable"?"✅ تحصيل":"✅ دفع"}</span>
                   {c.type==="receivable"&&<span onClick={()=>{setEndorsePopup(c.id);setEndorseSearch("");setEndorseDate(today)}} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:"#8B5CF612",color:"#8B5CF6",fontWeight:700}}>📤 تظهير</span>}
                   {/* V16.34: مرتد for receivables (bounced from bank — customer still owes us);
