@@ -310,6 +310,139 @@ export async function printStockDelivery(order,qty,date,note,totalDelivered,tota
   printPage("اذن تسليم مخزن — "+order.modelNo,h)
 }
 
+/* V16.60: Arabic number-to-words converter for cash receipts.
+   Handles 0 to 999,999,999 with reasonable Arabic grammar (the "بالحروف"
+   line on Egyptian cash receipts). Skips fractional piasters — amounts
+   are rounded to whole pounds since fmt0 (V16.45) drops decimals system-wide.
+   
+   Grammar shortcuts:
+   - 1×million = "مليون", 2 = "مليونان", 3-10 = "X ملايين", 11+ = "X مليوناً"
+   - same shape for thousands (ألف / ألفان / آلاف / ألف)
+   - tens use "X و Y" form (e.g. "خمسة و أربعون" not "أربعة وخمسة")
+   - parts joined with "و" so a real receipt reads naturally */
+const _ONES_AR=['','واحد','اثنان','ثلاثة','أربعة','خمسة','ستة','سبعة','ثمانية','تسعة'];
+const _TENS_AR=['','عشرة','عشرون','ثلاثون','أربعون','خمسون','ستون','سبعون','ثمانون','تسعون'];
+const _TEENS_AR=['عشرة','أحد عشر','اثنا عشر','ثلاثة عشر','أربعة عشر','خمسة عشر','ستة عشر','سبعة عشر','ثمانية عشر','تسعة عشر'];
+const _HUNDREDS_AR=['','مائة','مائتان','ثلاثمائة','أربعمائة','خمسمائة','ستمائة','سبعمائة','ثمانمائة','تسعمائة'];
+function _below1000Ar(n){
+  if(n===0)return'';
+  if(n<10)return _ONES_AR[n];
+  if(n<20)return _TEENS_AR[n-10];
+  if(n<100){const o=n%10,t=Math.floor(n/10);return o>0?(_ONES_AR[o]+' و'+_TENS_AR[t]):_TENS_AR[t]}
+  const h=Math.floor(n/100),rest=n%100;
+  return rest>0?(_HUNDREDS_AR[h]+' و'+_below1000Ar(rest)):_HUNDREDS_AR[h];
+}
+export function arabicNumberToWords(num){
+  num=Math.floor(Math.abs(Number(num)||0));
+  if(num===0)return'صفر';
+  const millions=Math.floor(num/1000000);
+  const thousands=Math.floor((num%1000000)/1000);
+  const ones=num%1000;
+  const parts=[];
+  if(millions>0){
+    if(millions===1)parts.push('مليون');
+    else if(millions===2)parts.push('مليونان');
+    else if(millions<=10)parts.push(_below1000Ar(millions)+' ملايين');
+    else parts.push(_below1000Ar(millions)+' مليوناً');
+  }
+  if(thousands>0){
+    if(thousands===1)parts.push('ألف');
+    else if(thousands===2)parts.push('ألفان');
+    else if(thousands<=10)parts.push(_below1000Ar(thousands)+' آلاف');
+    else parts.push(_below1000Ar(thousands)+' ألف');
+  }
+  if(ones>0)parts.push(_below1000Ar(ones));
+  return parts.join(' و');
+}
+
+/* V16.60: Print formal cash receipt for a treasury transaction.
+   Two flavors based on tx.type:
+   - "in"  → "إيصال استلام نقدية" (received cash from a customer / capital / etc.)
+   - "out" → "إيصال صرف نقدية"   (paid cash to a supplier / employee / expense)
+   
+   The receipt is A4 portrait, half-page (so two can be printed per sheet for
+   the customer copy + the office copy). Includes:
+   - Brand header (factory name + logo)
+   - Receipt # (derived from tx.id last 6 chars)
+   - Date + day name
+   - Party name + phone + address (if available)
+   - Amount in digits — large, prominent, color-coded green/red
+   - Amount in Arabic words ("بالحروف: ...")
+   - Reason/category/notes/treasury account
+   - Signature lines: المستلم — المحاسب — المدير
+   - Recorded-by / created-at footer */
+export function printCashReceipt(tx,partyInfo,configInfo){
+  if(!tx){alert("لا توجد بيانات حركة");return}
+  const isIn=tx.type==="in";
+  const title=isIn?"إيصال استلام نقدية":"إيصال صرف نقدية";
+  const accentColor=isIn?"#059669":"#DC2626";
+  const arrowIcon=isIn?"↓":"↑";
+  const partyLabel=isIn?"استلمت من السيد/الشركة":"دفعت إلى السيد/الشركة";
+  const amountColor=isIn?"#059669":"#DC2626";
+  /* Receipt number: short stable ID. tx.id is a string/number — take last 6 chars,
+     uppercase, prefix with R for "Receipt". Falls back to a date-based stamp. */
+  const idStr=String(tx.id||"");
+  const rcptNo="R-"+(idStr.length>=6?idStr.slice(-6).toUpperCase():(Date.now()%1000000).toString());
+  const amount=Math.round(Number(tx.amount)||0);
+  const amountFmt=amount.toLocaleString("en-US");
+  const amountWords=arabicNumberToWords(amount);
+  const partyName=(partyInfo&&partyInfo.name)||tx.custName||tx.supplierName||tx.empName||tx.wsName||"—";
+  const partyPhone=(partyInfo&&partyInfo.phone)||"";
+  const partyAddress=(partyInfo&&partyInfo.address)||"";
+  const reasonParts=[];
+  if(tx.desc)reasonParts.push(tx.desc);
+  if(tx.notes&&tx.notes!==tx.desc)reasonParts.push(tx.notes);
+  const reasonText=reasonParts.join(" — ")||"—";
+  /* Build the inner HTML — printPage wraps it with header + footer */
+  let h="<div style='max-width:170mm;margin:0 auto'>";
+  /* Top metadata bar */
+  h+="<div style='display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:"+accentColor+"08;border:2px solid "+accentColor+"40;border-radius:10px;margin-bottom:18px'>";
+  h+="<div style='display:flex;align-items:center;gap:10px'>";
+  h+="<span style='font-size:24px;color:"+accentColor+"'>"+arrowIcon+"</span>";
+  h+="<div><div style='font-size:18px;font-weight:900;color:"+accentColor+"'>"+title+"</div>";
+  h+="<div style='font-size:11px;color:#64748B;font-weight:600'>"+(tx.day||"")+" — "+(tx.date||"")+"</div></div></div>";
+  h+="<div style='text-align:left'><div style='font-size:10px;color:#64748B;font-weight:600'>رقم الإيصال</div>";
+  h+="<div style='font-size:14px;font-weight:800;color:#1E293B;font-family:monospace'>"+rcptNo+"</div></div>";
+  h+="</div>";
+  /* Party info */
+  h+="<table style='width:100%;border-collapse:collapse;margin-bottom:14px;font-size:13px'>";
+  h+="<tr><th style='text-align:right;padding:8px 12px;background:#F8FAFC;font-weight:700;width:30%;border:1px solid #E2E8F0'>"+partyLabel+"</th>";
+  h+="<td style='padding:8px 12px;font-weight:800;font-size:15px;border:1px solid #E2E8F0'>"+partyName+"</td></tr>";
+  if(partyPhone)h+="<tr><th style='text-align:right;padding:6px 12px;background:#F8FAFC;font-weight:700;border:1px solid #E2E8F0'>التليفون</th><td style='padding:6px 12px;font-weight:600;border:1px solid #E2E8F0;direction:ltr;text-align:right'>"+partyPhone+"</td></tr>";
+  if(partyAddress)h+="<tr><th style='text-align:right;padding:6px 12px;background:#F8FAFC;font-weight:700;border:1px solid #E2E8F0'>العنوان</th><td style='padding:6px 12px;font-weight:600;border:1px solid #E2E8F0'>"+partyAddress+"</td></tr>";
+  h+="</table>";
+  /* Amount block — prominent */
+  h+="<div style='border:3px solid "+amountColor+";border-radius:14px;padding:20px;margin-bottom:14px;background:linear-gradient(135deg,"+amountColor+"06,"+amountColor+"02);text-align:center'>";
+  h+="<div style='font-size:11px;font-weight:700;color:#64748B;letter-spacing:1px;margin-bottom:4px'>المبلغ</div>";
+  h+="<div style='font-size:38px;font-weight:900;color:"+amountColor+";line-height:1.1;font-family:monospace'>"+amountFmt+" <span style='font-size:18px'>ج.م</span></div>";
+  h+="<div style='font-size:13px;color:#475569;margin-top:10px;line-height:1.7;padding:8px 14px;background:#fff;border-radius:8px;border:1px dashed #94A3B8;font-weight:600'>";
+  h+="<span style='color:#64748B;font-weight:700'>فقط بالحروف: </span><span style='color:#1E293B;font-weight:800'>"+amountWords+" جنيهاً مصرياً لا غير</span>";
+  h+="</div></div>";
+  /* Reason / category / treasury */
+  h+="<table style='width:100%;border-collapse:collapse;margin-bottom:18px;font-size:12px'>";
+  h+="<tr><th style='text-align:right;padding:8px 12px;background:#F8FAFC;font-weight:700;width:30%;border:1px solid #E2E8F0'>وذلك مقابل</th>";
+  h+="<td style='padding:8px 12px;font-weight:600;border:1px solid #E2E8F0'>"+reasonText+"</td></tr>";
+  if(tx.category)h+="<tr><th style='text-align:right;padding:6px 12px;background:#F8FAFC;font-weight:700;border:1px solid #E2E8F0'>التصنيف</th><td style='padding:6px 12px;border:1px solid #E2E8F0'><span style='padding:2px 10px;border-radius:6px;background:"+accentColor+"15;color:"+accentColor+";font-weight:700'>"+tx.category+"</span></td></tr>";
+  if(tx.account)h+="<tr><th style='text-align:right;padding:6px 12px;background:#F8FAFC;font-weight:700;border:1px solid #E2E8F0'>الخزنة</th><td style='padding:6px 12px;font-weight:700;border:1px solid #E2E8F0'>"+tx.account+"</td></tr>";
+  if(tx.season)h+="<tr><th style='text-align:right;padding:6px 12px;background:#F8FAFC;font-weight:700;border:1px solid #E2E8F0'>الموسم</th><td style='padding:6px 12px;color:#64748B;border:1px solid #E2E8F0'>"+tx.season+"</td></tr>";
+  h+="</table>";
+  /* Signatures */
+  h+="<div style='margin-top:30px;display:flex;gap:14px;justify-content:space-between'>";
+  h+="<div style='flex:1;text-align:center'><div style='border-top:2px solid #1E293B;padding-top:8px;font-weight:800;font-size:12px;color:#475569'>"+(isIn?"المستلم":"المستلم النقدية")+"</div><div style='font-size:9px;color:#94A3B8;margin-top:2px'>("+(isIn?"المحاسب":partyName)+")</div></div>";
+  h+="<div style='flex:1;text-align:center'><div style='border-top:2px solid #1E293B;padding-top:8px;font-weight:800;font-size:12px;color:#475569'>المحاسب</div><div style='font-size:9px;color:#94A3B8;margin-top:2px'>("+(tx.by||"—")+")</div></div>";
+  h+="<div style='flex:1;text-align:center'><div style='border-top:2px solid #1E293B;padding-top:8px;font-weight:800;font-size:12px;color:#475569'>المدير</div><div style='font-size:9px;color:#94A3B8;margin-top:2px;color:transparent'>.</div></div>";
+  h+="</div>";
+  /* Audit footer */
+  h+="<div style='margin-top:20px;padding-top:8px;border-top:1px dashed #94A3B8;font-size:9px;color:#94A3B8;display:flex;justify-content:space-between'>";
+  h+="<span>أنشأ بواسطة: "+(tx.by||"—")+(tx.updatedBy&&tx.updatedBy!==tx.by?" • عدّل: "+tx.updatedBy:"")+"</span>";
+  h+="<span>تم الإنشاء: "+(tx.createdAt?new Date(tx.createdAt).toLocaleString("ar-EG"):"—")+"</span>";
+  h+="</div>";
+  h+="</div>";
+  printPage(title+" — "+rcptNo,h,configInfo);
+}
+
+
+
 /* ── UI Components (Light Glassmorphism) ── */
 /* FS imported from constants/index.js; TH/TD/TDB/TDL imported from theme.js (V15.0) */
 

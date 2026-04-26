@@ -13,6 +13,7 @@ import { addAudit } from "../utils/audit.js";
 import { showToast } from "../utils/popups.js";
 import { pushUndo } from "../utils/undo.js";
 import { openPrintWindow } from "../utils/print.js";
+import { printCashReceipt } from "../utils/print-extras.js";
 import { Spinner, InlineLoading, Btn, Inp, Sel, Card, useDebounced } from "../components/ui.jsx";
 import { T } from "../theme.js";
 import { db } from "../firebase";
@@ -1544,6 +1545,15 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 {locked&&isAdmin&&<span style={{fontSize:10,color:T.warn}} title="اليوم مقفول — وصول المدير">🔒</span>}
                 {isAdmin&&(lockEdit||lockDelete)&&<span style={{fontSize:10,color:T.warn}} title={"قفل من الإعدادات — وصول المدير"+(lockEdit?" (تعديل)":"")+(lockDelete?" (حذف)":"")}>⚠️</span>}
                 {external&&<span style={{fontSize:10,color:"#8B5CF6"}} title={"حركة من "+externalSourceLabel(t)}>🔗</span>}
+                {/* V16.60: Print formal cash receipt for this entry. Resolves the
+                    party (customer/supplier) from tx.custId/supplierId so the receipt
+                    includes their phone/address when known. */}
+                <span onClick={()=>{
+                  const partyInfo=t.custId?customers.find(c=>c.id===t.custId)
+                    :t.supplierId?suppliers.find(s=>s.id===t.supplierId)
+                    :null;
+                  printCashReceipt(t,partyInfo,{factoryName:config.factoryName,logo:config.logo,address:config.address,phone:config.phone});
+                }} style={{cursor:"pointer",fontSize:11}} title={t.type==="in"?"طباعة إيصال استلام":"طباعة إيصال صرف"}>🧾</span>
                 {allowEdit&&<span onClick={()=>startEdit()} style={{cursor:"pointer",fontSize:11}} title={isAdmin&&lockEdit?"تعديل (تجاوز قفل)":"تعديل"}>✏️</span>}
                 {allowDel&&<span onClick={()=>openConfirm({title:"حذف حركة",message:(external?"⚠️ حركة مرتبطة بـ "+externalSourceLabel(t)+" — الحذف هنا لن يؤثر على المصدر.\n\n":"")+(isAdmin&&lockDelete?"⚠️ الحذف مقفول من الإعدادات — سيتم تسجيل تجاوزك في سجل الأمان.\n\n":"")+"سيتم حذف الحركة نهائياً.\n"+(t.desc||"")+"\nالمبلغ: "+fmt(t.amount)+" ج.م",variant:"danger",onConfirm:()=>{if(isAdmin&&lockDelete)logLockBypass("delete",t);delTx(t.id)}})} style={{cursor:"pointer",fontSize:11,color:T.err}} title={isAdmin&&lockDelete?"حذف (تجاوز قفل)":"حذف"}>✕</span>}
               </div>})()}</td>

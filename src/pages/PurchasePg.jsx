@@ -804,14 +804,23 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
             {cat.emoji||"📦"} {cat.name} ({items.length})
           </div>;
         })}
-        {/* Add inventory item button — only for non-legacy categories */}
+        {/* V16.60: Add inventory item button — works for ALL categories now,
+            including legacy fabric/accessory. Legacy items get _legacy flag in
+            the popup so the save handler routes to data.fabrics / data.accessories
+            instead of data.inventoryItems. */}
         {canEdit&&(()=>{
           let catId=stockTypeTab;
           if(catId==="fabric")catId="core_fabric";
           else if(catId==="accessory")catId="core_accessory";
           const cat=getCategoryById(data,catId);
-          if(!cat||cat.isCore)return null;/* legacy items are added in DBPg */
-          return<Btn small primary onClick={()=>setItemEditPopup({categoryId:cat.id,name:"",type:"",unit:"قطعة",minStock:0,avgCost:0,defaultSupplierId:"",notes:""})}>+ صنف للمخزن</Btn>;
+          if(!cat)return null;
+          const label=cat.legacy==="fabric"?"+ خامة جديدة":cat.legacy==="accessory"?"+ إكسسوار جديد":"+ صنف للمخزن";
+          const defaultUnit=cat.legacy==="accessory"?"قطعة":(cat.legacy==="fabric"?"كيلو":"قطعة");
+          return<Btn small primary onClick={()=>setItemEditPopup({
+            _legacy:cat.legacy||undefined,/* "fabric" | "accessory" | undefined */
+            categoryId:cat.id,name:"",type:"",unit:defaultUnit,
+            minStock:0,avgCost:0,defaultSupplierId:"",notes:""
+          })}>{label}</Btn>;
         })()}
       </div>
 
@@ -864,7 +873,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
                 <th style={{...TH,textAlign:"center"}}>القيمة</th>
                 <th style={{...TH,textAlign:"center"}}>آخر استلام</th>
                 <th style={{...TH,textAlign:"center"}}>الحالة</th>
-                {!curCat?.isCore&&canEdit&&<th style={{...TH,textAlign:"center"}}></th>}
+                {canEdit&&<th style={{...TH,textAlign:"center"}}></th>}
               </tr></thead>
               <tbody>
                 {filteredStock.map(item=>{const stock=item._stock;const cost=item._cost;const value=item._value;
@@ -896,13 +905,30 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
                     <td style={{...TD,textAlign:"center"}}>
                       <span style={{padding:"2px 10px",borderRadius:10,fontSize:FS-3,fontWeight:700,background:statusColor+"15",color:statusColor,border:"1px solid "+statusColor+"30"}}>{statusLabel}</span>
                     </td>
-                    {!curCat?.isCore&&canEdit&&<td style={{...TD,textAlign:"center"}}>
+                    {/* V16.60: Edit/delete buttons now show for ALL categories
+                        including legacy fabric/accessory. The handlers route to
+                        the correct array based on item._legacy. */}
+                    {canEdit&&<td style={{...TD,textAlign:"center"}}>
                       <div style={{display:"flex",gap:4,justifyContent:"center"}}>
-                        <Btn small ghost onClick={()=>setItemEditPopup({id:item.id,categoryId:curCatId,name:item.name,type:item.type,unit:item.unit,minStock:item.minStock,avgCost:item.avgCost,defaultSupplierId:item.defaultSupplierId,notes:item._orig?.notes||""})} title="تعديل">✏️</Btn>
+                        <Btn small ghost onClick={()=>setItemEditPopup({
+                          _legacy:item._legacy||undefined,
+                          id:item.id,categoryId:curCatId,name:item.name,type:item.type,
+                          unit:item.unit,minStock:item.minStock,avgCost:item.avgCost,
+                          defaultSupplierId:item.defaultSupplierId,
+                          notes:item._orig?.notes||""
+                        })} title="تعديل">✏️</Btn>
                         <Btn small ghost onClick={async()=>{
                           if(stock!==0){await tell("لا يمكن الحذف","الصنف لسه عنده رصيد ("+stock+"). صفّر الرصيد أولاً.");return}
                           if(!await ask("حذف الصنف","حذف \""+item.name+"\" نهائياً؟",{danger:true}))return;
-                          upConfig(d=>{deleteInventoryItem(d,item.id)});
+                          upConfig(d=>{
+                            if(item._legacy==="fabric"){
+                              if(d.fabrics)d.fabrics=d.fabrics.filter(x=>x.id!==item.id);
+                            }else if(item._legacy==="accessory"){
+                              if(d.accessories)d.accessories=d.accessories.filter(x=>x.id!==item.id);
+                            }else{
+                              deleteInventoryItem(d,item.id);
+                            }
+                          });
                           showToast("✓ تم الحذف");
                         }} title="حذف">🗑️</Btn>
                       </div>
@@ -1344,28 +1370,33 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
       </div>;
     })()}
 
-    {/* ════ V16.31: Inventory item create/edit popup (non-legacy categories only) ════ */}
+    {/* ════ V16.31: Inventory item create/edit popup
+        V16.60: Now supports legacy fabric/accessory too. When _legacy is set,
+        the popup hides the type/notes fields (legacy records don't have them)
+        and the save handler writes to data.fabrics / data.accessories instead
+        of data.inventoryItems. ════ */}
     {itemEditPopup&&(()=>{
       const cat=getCategoryById(data,itemEditPopup.categoryId);
-      if(!cat||cat.isCore)return null;
+      if(!cat)return null;
+      const isLegacy=!!itemEditPopup._legacy;
       const isEdit=!!itemEditPopup.id;
       const set=(patch)=>setItemEditPopup({...itemEditPopup,...patch});
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setItemEditPopup(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:520,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-            <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{isEdit?"✏️ تعديل صنف":"+ صنف جديد"}</div>
+            <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{isEdit?"✏️ تعديل "+(itemEditPopup._legacy==="fabric"?"خامة":itemEditPopup._legacy==="accessory"?"إكسسوار":"صنف"):"+ "+(itemEditPopup._legacy==="fabric"?"خامة جديدة":itemEditPopup._legacy==="accessory"?"إكسسوار جديد":"صنف جديد")}</div>
             <Btn ghost small onClick={()=>setItemEditPopup(null)}>✕</Btn>
           </div>
           <div style={{padding:"6px 10px",borderRadius:6,background:T.bg,fontSize:FS-2,color:T.textSec,marginBottom:12}}>الصنف الرئيسي: <b>{cat.emoji} {cat.name}</b></div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             <div style={{gridColumn:"1 / -1"}}>
               <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الاسم *</label>
-              <Inp value={itemEditPopup.name} onChange={v=>set({name:v})} placeholder="مثلاً: إبرة سنجر مقاس 12"/>
+              <Inp value={itemEditPopup.name} onChange={v=>set({name:v})} placeholder={itemEditPopup._legacy==="fabric"?"مثلاً: قطن مفرد 30":itemEditPopup._legacy==="accessory"?"مثلاً: زرار بلاستيك ابيض":"مثلاً: إبرة سنجر مقاس 12"}/>
             </div>
-            <div>
+            {!isLegacy&&<div>
               <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label>
               <Sel value={itemEditPopup.type} onChange={v=>set({type:v})}><option value="">— بدون —</option>{(cat.types||[]).map(t=><option key={t} value={t}>{t}</option>)}</Sel>
-            </div>
+            </div>}
             <div>
               <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الوحدة</label>
               <Sel value={itemEditPopup.unit} onChange={v=>set({unit:v})}>{getUnits(data,itemEditPopup.unit).map(u=><option key={u} value={u}>{u}</option>)}</Sel>
@@ -1375,26 +1406,47 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
               <Inp type="number" value={itemEditPopup.minStock} onChange={v=>set({minStock:v})} placeholder="0"/>
             </div>
             <div>
-              <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{isEdit?"متوسط التكلفة الحالي":"التكلفة الافتتاحية"}</label>
+              <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{isEdit?"متوسط التكلفة الحالي":(isLegacy?"السعر":"التكلفة الافتتاحية")}</label>
               <Inp type="number" value={itemEditPopup.avgCost} onChange={v=>set({avgCost:v})} placeholder="0"/>
             </div>
             <div style={{gridColumn:"1 / -1"}}>
               <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المورد الافتراضي (اختياري)</label>
               <Sel value={itemEditPopup.defaultSupplierId} onChange={v=>set({defaultSupplierId:v})}><option value="">— بدون —</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</Sel>
             </div>
-            <div style={{gridColumn:"1 / -1"}}>
+            {!isLegacy&&<div style={{gridColumn:"1 / -1"}}>
               <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات</label>
               <Inp value={itemEditPopup.notes} onChange={v=>set({notes:v})} placeholder="..."/>
-            </div>
+            </div>}
           </div>
           <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
             <Btn ghost onClick={()=>setItemEditPopup(null)}>إلغاء</Btn>
             <Btn primary onClick={()=>{
               const name=(itemEditPopup.name||"").trim();
-              if(!name){showToast("⚠️ ادخل اسم الصنف");return}
+              if(!name){showToast("⚠️ ادخل الاسم");return}
               upConfig(d=>{
-                if(isEdit)updateInventoryItem(d,itemEditPopup.id,{name,type:itemEditPopup.type,unit:itemEditPopup.unit,minStock:itemEditPopup.minStock,avgCost:itemEditPopup.avgCost,defaultSupplierId:itemEditPopup.defaultSupplierId,notes:itemEditPopup.notes});
-                else addInventoryItem(d,itemEditPopup.categoryId,{name,type:itemEditPopup.type,unit:itemEditPopup.unit,minStock:itemEditPopup.minStock,avgCost:itemEditPopup.avgCost,defaultSupplierId:itemEditPopup.defaultSupplierId,notes:itemEditPopup.notes,stock:0},userName);
+                if(itemEditPopup._legacy==="fabric"){
+                  /* V16.60: Legacy fabric — write directly to d.fabrics */
+                  if(!d.fabrics)d.fabrics=[];
+                  if(isEdit){
+                    const idx=d.fabrics.findIndex(x=>x.id===itemEditPopup.id);
+                    if(idx>=0){const o=d.fabrics[idx];d.fabrics[idx]={...o,name,unit:itemEditPopup.unit,minStock:Number(itemEditPopup.minStock)||0,price:Number(itemEditPopup.avgCost)||0,avgCost:Number(itemEditPopup.avgCost)||0,defaultSupplierId:itemEditPopup.defaultSupplierId||""}}
+                  }else{
+                    d.fabrics.push({id:Date.now()+Math.floor(Math.random()*1000),name,unit:itemEditPopup.unit,minStock:Number(itemEditPopup.minStock)||0,price:Number(itemEditPopup.avgCost)||0,avgCost:Number(itemEditPopup.avgCost)||0,stock:0,defaultSupplierId:itemEditPopup.defaultSupplierId||""});
+                  }
+                }else if(itemEditPopup._legacy==="accessory"){
+                  /* V16.60: Legacy accessory — write directly to d.accessories */
+                  if(!d.accessories)d.accessories=[];
+                  if(isEdit){
+                    const idx=d.accessories.findIndex(x=>x.id===itemEditPopup.id);
+                    if(idx>=0){const o=d.accessories[idx];d.accessories[idx]={...o,name,unit:itemEditPopup.unit,minStock:Number(itemEditPopup.minStock)||0,price:Number(itemEditPopup.avgCost)||0,avgCost:Number(itemEditPopup.avgCost)||0,defaultSupplierId:itemEditPopup.defaultSupplierId||""}}
+                  }else{
+                    d.accessories.push({id:Date.now()+Math.floor(Math.random()*1000),name,unit:itemEditPopup.unit,minStock:Number(itemEditPopup.minStock)||0,price:Number(itemEditPopup.avgCost)||0,avgCost:Number(itemEditPopup.avgCost)||0,stock:0,qtyPerPiece:1,defaultSupplierId:itemEditPopup.defaultSupplierId||""});
+                  }
+                }else{
+                  /* Non-legacy inventoryItems[] — original path */
+                  if(isEdit)updateInventoryItem(d,itemEditPopup.id,{name,type:itemEditPopup.type,unit:itemEditPopup.unit,minStock:itemEditPopup.minStock,avgCost:itemEditPopup.avgCost,defaultSupplierId:itemEditPopup.defaultSupplierId,notes:itemEditPopup.notes});
+                  else addInventoryItem(d,itemEditPopup.categoryId,{name,type:itemEditPopup.type,unit:itemEditPopup.unit,minStock:itemEditPopup.minStock,avgCost:itemEditPopup.avgCost,defaultSupplierId:itemEditPopup.defaultSupplierId,notes:itemEditPopup.notes,stock:0},userName);
+                }
               });
               setItemEditPopup(null);
               showToast("✓ تم الحفظ");
