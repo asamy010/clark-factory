@@ -1485,7 +1485,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               }} style={{background:T.err,color:"#fff",border:"none",fontWeight:700}}>🗑️ حذف المحدد ({selectedTxIds.size})</Btn>}
             </div>
           </div>}
-          <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+          <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"auto"}}><thead><tr>
           {canEdit&&<th style={{padding:"7px 8px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,width:30}}>
             <input type="checkbox"
               checked={withBalance.slice(0,limit).length>0&&withBalance.slice(0,limit).every(t=>selectedTxIds.has(t.id))}
@@ -1498,7 +1498,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               title="تحديد/إلغاء الكل"
               style={{cursor:"pointer",width:16,height:16}}/>
           </th>}
-          {["الرصيد","تاريخ","اليوم","وارد","منصرف","بيان","ملاحظات","نوع الحركة","حساب جاري","موسم",""].map(h=><th key={h} style={{padding:"7px 8px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
+          {/* V16.40: dropped ملاحظات, swapped order to: نوع الحركة then بيان (desc takes remaining width) */}
+          {["الرصيد","تاريخ","اليوم","وارد","منصرف","نوع الحركة","بيان","حساب جاري","موسم",""].map(h=><th key={h} style={{padding:"7px 8px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
         </tr></thead><tbody>
           {withBalance.slice(0,limit).map(t=>{const locked=isDayLocked(t.date);const isEd=inlineEdit===t.id;const d_=inlineDraft;
             const inpS={padding:"3px 6px",borderRadius:6,border:"1px solid "+T.accent+"40",fontSize:FS-2,fontFamily:"inherit",background:T.inputBg,color:T.text};
@@ -1515,11 +1516,12 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut}}>{t.day||""}</td>
             <td style={{padding:"6px 8px",fontSize:FS,fontWeight:700,color:T.ok}}>{isEd?(d_.type==="in"?<input type="number" value={d_.amount} onChange={e=>setInlineDraft(p=>({...p,amount:e.target.value}))} style={{...inpS,width:80,color:T.ok,fontWeight:700}}/>:<span onClick={()=>setInlineDraft(p=>({...p,type:"in"}))} style={{cursor:"pointer",color:T.textMut,fontSize:FS-2}}>↓</span>):(t.type==="in"?fmt(r2(t.amount)):"")}</td>
             <td style={{padding:"6px 8px",fontSize:FS,fontWeight:700,color:T.err}}>{isEd?(d_.type==="out"?<input type="number" value={d_.amount} onChange={e=>setInlineDraft(p=>({...p,amount:e.target.value}))} style={{...inpS,width:80,color:T.err,fontWeight:700}}/>:<span onClick={()=>setInlineDraft(p=>({...p,type:"out"}))} style={{cursor:"pointer",color:T.textMut,fontSize:FS-2}}>↑</span>):(t.type==="out"?fmt(r2(t.amount)):"")}</td>
-            <td style={{padding:"6px 8px",fontSize:FS-1,maxWidth:180}}>{isEd?<input value={d_.desc} onChange={e=>setInlineDraft(p=>({...p,desc:e.target.value}))} style={{...inpS,width:"100%"}}/>:<span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block",maxWidth:180}}>{t.desc||"—"}</span>}</td>
-            <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut,maxWidth:120}}>{isEd?<input value={d_.notes} onChange={e=>setInlineDraft(p=>({...p,notes:e.target.value}))} style={{...inpS,width:"100%"}} placeholder="ملاحظات"/>:<span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block",maxWidth:120}}>{t.notes||""}</span>}</td>
-            <td style={{padding:"6px 8px"}}>{isEd?<select value={d_.category} onChange={e=>setInlineDraft(p=>({...p,category:e.target.value}))} style={{...inpS,width:100}}><option value="">—</option>{(d_.type==="in"?IN_CATS:OUT_CATS).map(c=><option key={c}>{c}</option>)}</select>:<span style={{padding:"2px 6px",borderRadius:5,fontSize:FS-2,fontWeight:600,background:t.type==="in"?T.ok+"12":T.err+"12",color:t.type==="in"?T.ok:T.err}}>{t.category||"—"}</span>}</td>
-            <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textSec}}>{isEd?<select value={d_.account} onChange={e=>setInlineDraft(p=>({...p,account:e.target.value}))} style={{...inpS,width:90}}>{accounts.map(a=><option key={a}>{a}</option>)}</select>:t.account||""}</td>
-            <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut}}>{t.season||""}</td>
+            {/* V16.40: نوع الحركة (category) moved BEFORE بيان (desc); ملاحظات removed entirely. */}
+            <td style={{padding:"6px 8px"}}>{isEd?<select value={d_.category} onChange={e=>setInlineDraft(p=>({...p,category:e.target.value}))} style={{...inpS,width:100}}><option value="">—</option>{(d_.type==="in"?IN_CATS:OUT_CATS).map(c=><option key={c}>{c}</option>)}</select>:<span style={{padding:"2px 6px",borderRadius:5,fontSize:FS-2,fontWeight:600,background:t.type==="in"?T.ok+"12":T.err+"12",color:t.type==="in"?T.ok:T.err,whiteSpace:"nowrap"}}>{t.category||"—"}</span>}</td>
+            {/* بيان — flex column, takes all remaining horizontal space; full text shown on hover via title */}
+            <td style={{padding:"6px 8px",fontSize:FS-1,width:"100%"}}>{isEd?<input value={d_.desc} onChange={e=>setInlineDraft(p=>({...p,desc:e.target.value}))} style={{...inpS,width:"100%"}}/>:<span title={t.desc||""} style={{display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.desc||"—"}{t.notes?<span style={{color:T.textMut,fontWeight:500,marginInlineStart:6}}>· {t.notes}</span>:""}</span>}</td>
+            <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>{isEd?<select value={d_.account} onChange={e=>setInlineDraft(p=>({...p,account:e.target.value}))} style={{...inpS,width:90}}>{accounts.map(a=><option key={a}>{a}</option>)}</select>:t.account||""}</td>
+            <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut,whiteSpace:"nowrap"}}>{t.season||""}</td>
             <td style={{padding:"6px 8px"}}>{canEdit&&(()=>{
               if(isEd)return<div style={{display:"flex",gap:3}}><span onClick={()=>{if(isAdmin&&lockEdit)logLockBypass("edit",t);saveInline()}} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:T.ok+"12",color:T.ok,fontWeight:700}}>💾</span><span onClick={cancelInline} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:T.err+"12",color:T.err,fontWeight:700}}>✕</span></div>;
               const allowEdit=canModify(t);const allowDel=canDelete(t);const external=isExternalTx(t);

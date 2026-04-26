@@ -1034,8 +1034,23 @@ export function WaContactsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Car
     {k:"general",l:"📋 تقارير عامة"}
   ];
   /* V16.5: Stable snapshot of saved contacts via useMemo — prevents phantom dirty
-     caused by new array reference on every parent re-render */
-  const savedContactsJson=useMemo(()=>JSON.stringify(config.waContacts||[]),[config.waContacts]);
+     caused by new array reference on every parent re-render
+     V16.41: Use canonical comparison — normalize each contact to a fixed shape
+     with all expected fields present, in a fixed order. This eliminates phantom
+     dirty caused by:
+       (a) different key insertion order between Firestore-loaded objects and
+           freshly-built drafts,
+       (b) missing optional fields (e.g. `reports` undefined vs []),
+       (c) extra metadata keys that may be added downstream (e.g. _docId). */
+  const canonicalize=(arr)=>JSON.stringify((arr||[]).map(c=>({
+    id:c.id||"",
+    name:c.name||"",
+    phone:String(c.phone||"").replace(/[^0-9]/g,""),
+    role:c.role||"",
+    reports:Array.isArray(c.reports)?[...c.reports].sort():[],
+    createdAt:c.createdAt||""
+  })));
+  const savedContactsJson=useMemo(()=>canonicalize(config.waContacts),[config.waContacts]);
   const savedContacts=useMemo(()=>JSON.parse(savedContactsJson),[savedContactsJson]);
 
   const[draftContacts,setDraftContacts]=useState(()=>JSON.parse(savedContactsJson));
@@ -1045,8 +1060,8 @@ export function WaContactsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Car
   const[newRole,setNewRole]=useState("");
   const[newReports,setNewReports]=useState([]);
 
-  /* Draft JSON for comparison */
-  const draftJson=JSON.stringify(draftContacts);
+  /* Draft JSON for comparison — same canonicalization to ensure apples-to-apples */
+  const draftJson=canonicalize(draftContacts);
   const isDirty=draftJson!==savedContactsJson;
 
   /* Sync draft when saved config changes from outside AND user hasn't touched draft */
@@ -1816,16 +1831,24 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
         const wsList=config.workshops||[];const wsNames=new Set(wsList.map(w=>w.name));
         const gtList=config.garmentTypes||[];const gtNames=new Set(gtList.map(g=>g.name));
         const stList=(config.statusCards||[]);const stNames=new Set(stList.map(s=>s.name));
+        /* V16.42: Normalize names before comparison to avoid phantom orphans
+           caused by stray whitespace, NBSP, or invisible Unicode chars. The
+           helper is applied to BOTH sides (config names + names found in data),
+           so equivalence is judged by the visible text only. */
+        const _norm=(s)=>String(s||"").replace(/\u00A0/g," ").replace(/\s+/g," ").trim();
+        const wsNamesNorm=new Set(wsList.map(w=>_norm(w.name)));
+        const gtNamesNorm=new Set(gtList.map(g=>_norm(g.name)));
+        const stNamesNorm=new Set(stList.map(s=>_norm(s.name)));
         /* Orphaned workshops */
         const orphanWs=new Map();
-        orders.forEach(o=>{(o.workshopDeliveries||[]).forEach(wd=>{if(!wd.wsId&&!wsNames.has(wd.wsName)&&wd.wsName)orphanWs.set(wd.wsName,(orphanWs.get(wd.wsName)||0)+1)})});
-        (config.wsPayments||[]).forEach(p=>{if(!p.wsId&&!wsNames.has(p.wsName)&&p.wsName)orphanWs.set(p.wsName,(orphanWs.get(p.wsName)||0)+1)});
+        orders.forEach(o=>{(o.workshopDeliveries||[]).forEach(wd=>{if(!wd.wsId&&!wsNamesNorm.has(_norm(wd.wsName))&&wd.wsName)orphanWs.set(wd.wsName,(orphanWs.get(wd.wsName)||0)+1)})});
+        (config.wsPayments||[]).forEach(p=>{if(!p.wsId&&!wsNamesNorm.has(_norm(p.wsName))&&p.wsName)orphanWs.set(p.wsName,(orphanWs.get(p.wsName)||0)+1)});
         /* Orphaned garment types */
         const orphanGt=new Map();
-        orders.forEach(o=>{(o.orderPieces||[]).forEach(p=>{if(!gtNames.has(p)&&p)orphanGt.set(p,(orphanGt.get(p)||0)+1)});(o.workshopDeliveries||[]).forEach(wd=>{if(wd.garmentType&&!gtNames.has(wd.garmentType))orphanGt.set(wd.garmentType,(orphanGt.get(wd.garmentType)||0)+1)})});
+        orders.forEach(o=>{(o.orderPieces||[]).forEach(p=>{if(!gtNamesNorm.has(_norm(p))&&p)orphanGt.set(p,(orphanGt.get(p)||0)+1)});(o.workshopDeliveries||[]).forEach(wd=>{if(wd.garmentType&&!gtNamesNorm.has(_norm(wd.garmentType)))orphanGt.set(wd.garmentType,(orphanGt.get(wd.garmentType)||0)+1)})});
         /* Orphaned statuses */
         const orphanSt=new Map();
-        orders.forEach(o=>{if(o.status&&!stNames.has(o.status))orphanSt.set(o.status,(orphanSt.get(o.status)||0)+1)});
+        orders.forEach(o=>{if(o.status&&!stNamesNorm.has(_norm(o.status)))orphanSt.set(o.status,(orphanSt.get(o.status)||0)+1)});
         const totalOrphans=orphanWs.size+orphanGt.size+orphanSt.size;
         /* Dolink */
         const doLink=async()=>{
@@ -1838,6 +1861,38 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
             if(orphanSt.has(oldName)&&newName){for(const o of orders){if(o.status===oldName){const u={...o};u.status=newName;await replaceOrder(o.id,u)}}}
           }
           setLinkMap({});showToast("✓ تم الربط والتحديث");
+        };
+
+        /* V16.42: auto-fix orphans whose normalized form already matches a real
+           name (whitespace, NBSP). The data has e.g. "تشطيب وتعبئة " (trailing space)
+           but the saved garmentType is "تشطيب وتعبئة" — we just canonicalize the
+           data to the saved value so the orphan disappears entirely. */
+        const autoFixable=[];
+        const findCanonical=(name,namesNorm,list)=>{
+          const norm=_norm(name);
+          if(name===norm)return null;/* already canonical */
+          if(!namesNorm.has(norm))return null;/* not a whitespace-only mismatch */
+          /* Find the original casing/spelling from the list */
+          const found=list.find(x=>_norm((x.name||""))===norm);
+          return found?(found.name||""):null;
+        };
+        [...orphanWs.keys()].forEach(name=>{const c=findCanonical(name,wsNamesNorm,wsList);if(c)autoFixable.push({type:"ws",from:name,to:c})});
+        [...orphanGt.keys()].forEach(name=>{const c=findCanonical(name,gtNamesNorm,gtList);if(c)autoFixable.push({type:"gt",from:name,to:c})});
+        [...orphanSt.keys()].forEach(name=>{const c=findCanonical(name,stNamesNorm,stList);if(c)autoFixable.push({type:"st",from:name,to:c})});
+        const doAutoFix=async()=>{
+          if(autoFixable.length===0)return;
+          let cnt=0;
+          for(const fix of autoFixable){
+            for(const o of orders){
+              const u=JSON.parse(JSON.stringify(o));let ch=false;
+              if(fix.type==="ws"){(u.workshopDeliveries||[]).forEach(wd=>{if(wd.wsName===fix.from){wd.wsName=fix.to;ch=true}})}
+              else if(fix.type==="gt"){(u.workshopDeliveries||[]).forEach(wd=>{if(wd.garmentType===fix.from){wd.garmentType=fix.to;ch=true}});u.orderPieces=(u.orderPieces||[]).map(p=>p===fix.from?(ch=true,fix.to):p);FKEYS.forEach(k=>{if(u["fabricPieces"+k])u["fabricPieces"+k]=u["fabricPieces"+k].map(p=>p===fix.from?(ch=true,fix.to):p)})}
+              else if(fix.type==="st"){if(u.status===fix.from){u.status=fix.to;ch=true}}
+              if(ch){await replaceOrder(o.id,u);cnt++}
+            }
+            if(fix.type==="ws"){upConfig(d=>{(d.wsPayments||[]).forEach(p=>{if(p.wsName===fix.from)p.wsName=fix.to})})}
+          }
+          showToast("✓ تم تصحيح "+autoFixable.length+" اسم في "+cnt+" سجل");
         };
         /* Data integrity */
         const issues=[];
@@ -1921,7 +1976,11 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
                 <span style={{color:T.accent,fontWeight:700}}>📌 {name}</span><span style={{fontSize:FS-3,color:T.textMut}}>{"("+count+")"}</span><span style={{color:T.textSec}}>→</span>
                 <Sel value={linkMap[name]||""} onChange={v=>setLinkMap(p=>({...p,[name]:v}))}><option value="">--</option>{stList.map(s=><option key={s.id} value={s.name}>{s.name}</option>)}</Sel>
               </div>)}
-              <Btn primary onClick={doLink} disabled={!Object.values(linkMap).some(v=>v)} style={{marginTop:8}}>✓ ربط وتحديث</Btn>
+              <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+                <Btn primary onClick={doLink} disabled={!Object.values(linkMap).some(v=>v)}>✓ ربط وتحديث</Btn>
+                {/* V16.42: One-click fix for whitespace/invisible-char orphans */}
+                {autoFixable.length>0&&<Btn onClick={doAutoFix} style={{background:"#0EA5E912",color:"#0EA5E9",border:"1px solid #0EA5E930",fontWeight:700}} title="تصحيح الأسماء التي تختلف عن الاسم الصحيح بمسافة فقط">✨ تصحيح تلقائي ({autoFixable.length})</Btn>}
+              </div>
             </div>:<div style={{marginTop:6,fontSize:FS-1,color:T.ok,fontWeight:600}}>✓ كل الأسماء مرتبطة</div>}
           </div>
 

@@ -310,75 +310,75 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           const isSent=waSent[o.id]&&(Date.now()-waSent[o.id]<60000);
           const sc=(statusCards||[]).find(x=>x.name===o.status);const statusColor=sc?.color||T.accent;
           return<div key={o.id} data-oid={o.id} className="det-tile" style={{background:T.cardSolid,borderRadius:14,border:"1px solid "+T.brd,overflow:"hidden",position:"relative",display:"flex",flexDirection:"column"}} onClick={()=>setSel(o.id)}>
-            {/* Status accent line */}
-            <div style={{height:3,background:statusColor,flexShrink:0}}/>
+            {/* V16.39: KPI Dashboard — thick status bar (6px) for stronger visual cue */}
+            <div style={{height:6,background:statusColor,flexShrink:0}}/>
 
-            <div style={{padding:14,display:"flex",flexDirection:"column",gap:10,flex:1}}>
-              {/* Top row: image + main info + delete */}
+            <div style={{padding:14,display:"flex",flexDirection:"column",gap:12,flex:1}}>
+              {/* ── Row 1: image + title block ── */}
               <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
-                {/* Image */}
+                {/* Image — slightly smaller than before to give room for KPIs */}
                 <div style={{position:"relative",flexShrink:0}}>
-                  {o.image?<img src={o.image} alt="" style={{width:72,height:96,borderRadius:10,objectFit:"cover",background:T.bg}}/>:<div style={{width:72,height:96,borderRadius:10,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",color:T.textMut,fontSize:26}}>📷</div>}
+                  {o.image?<img src={o.image} alt="" style={{width:64,height:80,borderRadius:10,objectFit:"cover",background:T.bg}}/>:<div style={{width:64,height:80,borderRadius:10,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",color:T.textMut,fontSize:24}}>📷</div>}
                 </div>
 
                 {/* Title block */}
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:6,marginBottom:4}}>
-                    {o.poNumber?<span style={{fontSize:FS-3,fontWeight:700,color:T.accent,fontFamily:"monospace",letterSpacing:0.5,padding:"2px 8px",borderRadius:6,background:T.accent+"10",border:"1px solid "+T.accent+"20"}}>{o.poNumber}</span>:<span/>}
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:6}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      {/* Inline modelNo + PO badge */}
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3,flexWrap:"wrap"}}>
+                        <span style={{fontSize:FS+2,fontWeight:900,color:T.text,lineHeight:1.1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.modelNo}</span>
+                        {o.poNumber&&<span style={{fontSize:FS-3,fontWeight:800,color:T.accent,fontFamily:"monospace",letterSpacing:0.4,padding:"2px 6px",borderRadius:4,background:T.accent+"10",border:"1px solid "+T.accent+"20"}}>{o.poNumber}</span>}
+                      </div>
+                      <div style={{fontSize:FS-1,color:T.textSec,marginBottom:5,lineHeight:1.3,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{o.modelDesc}</div>
+                      {/* Meta row — size, age, workshop count */}
+                      <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                        <span>📐 {o.sizeLabel}</span>
+                        {wds.length>0&&<span>🏭 {new Set(wds.map(w=>w.wsName)).size} ورش</span>}
+                        {o.closed&&<span style={{fontWeight:700,color:"#64748B"}}>🔒 مغلق</span>}
+                        {isStale&&!isSent&&<span style={{padding:"1px 6px",borderRadius:4,background:T.err+"12",color:T.err,fontWeight:700,border:"1px solid "+T.err+"25"}}>🔴 {ageDays}ي</span>}
+                        {isSent&&<span style={{padding:"1px 6px",borderRadius:4,background:T.ok+"12",color:T.ok,fontWeight:700,border:"1px solid "+T.ok+"25"}}>✅ تم</span>}
+                      </div>
+                    </div>
                     {canEdit&&!hasData&&<div onClick={e=>e.stopPropagation()}><DelBtn onConfirm={()=>delOrder(o.id)}/></div>}
                   </div>
-                  <div style={{fontSize:FS+1,fontWeight:800,color:T.text,marginBottom:2,lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.modelNo}</div>
-                  <div style={{fontSize:FS-1,color:T.textSec,marginBottom:3,lineHeight:1.3,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{o.modelDesc}</div>
-                  <div style={{fontSize:FS-3,color:T.textMut,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                    <span>📐 {o.sizeLabel}</span>
-                    {o.closed&&<span style={{fontWeight:700,color:"#64748B"}}>🔒 مغلق</span>}
-                  </div>
                 </div>
               </div>
 
-              {/* Status + Stale badge row */}
-              <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-                <Badge t={o.status} cards={statusCards}/>
-                {isStale&&!isSent&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:5,background:T.err+"12",color:T.err,fontWeight:700,border:"1px solid "+T.err+"25",display:"inline-flex",alignItems:"center",gap:3}}>🔴 {ageDays} يوم</span>}
-                {isSent&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:5,background:T.ok+"12",color:T.ok,fontWeight:700,border:"1px solid "+T.ok+"25"}}>✅ تم الارسال</span>}
-              </div>
-
-              {/* Progress bar */}
-              <div>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
-                  <span style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>نسبة الإنجاز</span>
-                  <span style={{fontSize:FS-1,fontWeight:800,color:progress>=80?T.ok:progress>=50?T.warn:T.err}}>{progress}%</span>
+              {/* ── Row 2: PROGRESS BLOCK — the hero of the card ── */}
+              <div style={{padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <span style={{fontSize:FS-3,color:T.textMut,fontWeight:700,textTransform:"uppercase",letterSpacing:0.3}}>التقدم</span>
+                  <span style={{padding:"3px 10px",borderRadius:5,background:statusColor,color:"#fff",fontSize:FS-3,fontWeight:800,whiteSpace:"nowrap"}}>{o.status}</span>
                 </div>
-                <div className="det-progress-bar" style={{height:7}}>
-                  <div className="det-progress-fill" style={{width:progress+"%",background:progress>=80?"linear-gradient(90deg,"+T.ok+","+T.ok+"CC)":progress>=50?"linear-gradient(90deg,"+T.warn+","+T.warn+"CC)":"linear-gradient(90deg,"+T.err+","+T.err+"CC)"}}/>
+                <div style={{display:"flex",alignItems:"baseline",gap:6,marginBottom:6}}>
+                  <span style={{fontSize:FS+10,fontWeight:900,color:progress>=80?T.ok:progress>=50?T.warn:T.err,fontVariantNumeric:"tabular-nums",lineHeight:1}}>{o.deliveredQty||0}</span>
+                  <span style={{fontSize:FS,color:T.textMut,fontWeight:600,fontVariantNumeric:"tabular-nums"}}>/ {t.cutQty}</span>
+                  <span style={{marginInlineStart:"auto",fontSize:FS-1,fontWeight:800,color:progress>=80?T.ok:progress>=50?T.warn:T.err,fontVariantNumeric:"tabular-nums"}}>{progress}%</span>
+                </div>
+                <div className="det-progress-bar" style={{height:6,background:"#fff",borderRadius:3,overflow:"hidden",border:"1px solid "+T.brd}}>
+                  <div className="det-progress-fill" style={{width:progress+"%",height:"100%",background:progress>=80?"linear-gradient(90deg,"+T.ok+","+T.ok+"CC)":progress>=50?"linear-gradient(90deg,"+T.warn+","+T.warn+"CC)":"linear-gradient(90deg,"+T.err+","+T.err+"CC)",boxShadow:"0 0 6px "+(progress>=80?T.ok:progress>=50?T.warn:T.err)+"40"}}/>
                 </div>
               </div>
 
-              {/* Stats grid — 3 cols */}
+              {/* ── Row 3: KPIs row — big numbers, lowercase labels ── */}
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
-                <div style={{padding:"8px 6px",borderRadius:8,background:T.accent+"06",border:"1px solid "+T.accent+"12",textAlign:"center"}}>
-                  <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginBottom:1}}>الكمية</div>
-                  <div style={{fontSize:FS,fontWeight:800,color:T.accent,lineHeight:1}}>{t.cutQty}</div>
+                <div style={{padding:"8px 4px",textAlign:"center"}}>
+                  <div style={{fontSize:FS-4,color:T.textMut,fontWeight:700,textTransform:"uppercase",letterSpacing:0.3,marginBottom:1}}>رصيد</div>
+                  <div style={{fontSize:FS+4,fontWeight:900,color:t.balance>0?T.err:T.ok,lineHeight:1,fontVariantNumeric:"tabular-nums"}}>{t.balance}</div>
                 </div>
-                <div style={{padding:"8px 6px",borderRadius:8,background:T.ok+"06",border:"1px solid "+T.ok+"12",textAlign:"center"}}>
-                  <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginBottom:1}}>تسليم</div>
-                  <div style={{fontSize:FS,fontWeight:800,color:T.ok,lineHeight:1}}>{o.deliveredQty||0}</div>
+                <div style={{padding:"8px 4px",textAlign:"center",borderInlineStart:"1px solid "+T.brd,borderInlineEnd:"1px solid "+T.brd}}>
+                  <div style={{fontSize:FS-4,color:T.textMut,fontWeight:700,textTransform:"uppercase",letterSpacing:0.3,marginBottom:1}}>مخزن</div>
+                  <div style={{fontSize:FS+4,fontWeight:900,color:T.purple||"#8B5CF6",lineHeight:1,fontVariantNumeric:"tabular-nums"}}>{getConfirmedStock(o)}</div>
                 </div>
-                <div style={{padding:"8px 6px",borderRadius:8,background:(t.balance>0?T.err:T.ok)+"06",border:"1px solid "+(t.balance>0?T.err:T.ok)+"12",textAlign:"center"}}>
-                  <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginBottom:1}}>رصيد</div>
-                  <div style={{fontSize:FS,fontWeight:800,color:t.balance>0?T.err:T.ok,lineHeight:1}}>{t.balance}</div>
+                <div style={{padding:"8px 4px",textAlign:"center"}}>
+                  <div style={{fontSize:FS-4,color:T.textMut,fontWeight:700,textTransform:"uppercase",letterSpacing:0.3,marginBottom:1}}>تكلفة</div>
+                  <div style={{fontSize:FS+4,fontWeight:900,color:"#8B5CF6",lineHeight:1,fontVariantNumeric:"tabular-nums"}}>{Math.ceil(t.costPer)}</div>
                 </div>
               </div>
 
-              {/* Cost row */}
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",borderRadius:8,background:"#8B5CF606",border:"1px solid #8B5CF612"}}>
-                <span style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>💰 التكلفة</span>
-                <span style={{fontSize:FS-1,fontWeight:800,color:"#8B5CF6"}}>{Math.ceil(t.costPer)} ج.م</span>
-              </div>
-
-              {/* Workshop chips (if any) — V16.14: grouped per workshop+piece type, with delivered/received/balance for in-card tracking */}
+              {/* ── Row 4: Workshop chips — preserved exactly as before ── */}
               {wds.length>0&&(()=>{
-                /* Group by ws+garmentType to surface per-piece numbers on the card */
                 const grp={};
                 wds.forEach(wd=>{
                   const ws=wd.wsName;const pc=wd.garmentType||"عام";
@@ -388,7 +388,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                   (wd.receives||[]).forEach(r=>{grp[k].rcv+=Number(r.qty)||0});
                 });
                 const rows=Object.values(grp).map(g=>({...g,bal:g.del-g.rcv}))
-                  .sort((a,b)=>b.bal-a.bal);/* highest pending first */
+                  .sort((a,b)=>b.bal-a.bal);
                 return<div style={{display:"flex",flexDirection:"column",gap:4}}>
                   {rows.slice(0,3).map((g,i)=>{
                     const c=g.bal>0?T.warn:T.ok;
@@ -408,7 +408,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                 </div>;
               })()}
 
-              {/* Footer actions */}
+              {/* ── Footer: WhatsApp ── */}
               <div style={{display:"flex",gap:6,marginTop:"auto",paddingTop:4,borderTop:"1px solid "+T.brd}}>
                 <div onClick={e=>{e.stopPropagation();setWaPopup({order:o,t:calcOrder(o),fromCard:true})}} title="ارسال واتساب" style={{flex:1,padding:"6px",borderRadius:8,background:"#25D36608",color:"#25D366",border:"1px solid #25D36620",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:FS-2,fontWeight:700,gap:5,transition:"all 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.background="#25D36615"}} onMouseLeave={e=>{e.currentTarget.style.background="#25D36608"}}>
                   <svg width={14} height={14} viewBox="0 0 24 24" fill="currentColor"><path d="M20.5 3.5A11.5 11.5 0 0 0 12 0a12 12 0 0 0-10.4 18L0 24l6.2-1.6A12 12 0 0 0 12 24c6.6 0 12-5.4 12-12 0-3.2-1.2-6.2-3.5-8.5zm-8.5 18.5a10 10 0 0 1-5-1.4l-.4-.2-3.7 1 1-3.6-.2-.4a10 10 0 1 1 18.4-5.4c0 5.5-4.5 10-10 10zm5.5-7.5c-.3-.2-1.8-.9-2-1-.3-.1-.5-.2-.7.1-.2.3-.8 1-1 1.2-.2.2-.4.2-.7.1a8 8 0 0 1-2.3-1.4 8.8 8.8 0 0 1-1.6-2c-.2-.3 0-.4.1-.6l.3-.4.2-.3.1-.3a.3.3 0 0 0 0-.3l-1-2.2c-.2-.5-.4-.5-.6-.5H8c-.3 0-.6.1-.8.4-.3.4-1 1-1 2.3s1 2.7 1.2 2.9c.1.2 2.1 3.2 5 4.4 2.4 1 2.9.8 3.4.8.6-.1 1.8-.8 2-1.5.3-.8.3-1.4.2-1.5-.1-.1-.3-.2-.6-.3z"/></svg>
@@ -492,8 +492,9 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       </div>
     </div>
     <div id="parea">
-      <div style={{display:"flex",flexDirection:isMob?"column":"row",gap:10,marginBottom:12}}>
-        {isMob&&order.image&&<div style={{flexShrink:0,position:"relative",alignSelf:"flex-start"}}><img src={order.image} alt="" style={{width:90,height:120,objectFit:"cover",borderRadius:10,border:"1px solid "+T.brd}}/>
+      {/* V16.43: Mobile layout — image inline next to the 2x2 stats grid (was stacked above on mobile, wasting vertical space). */}
+      <div style={{display:"flex",flexDirection:"row",gap:isMob?8:10,marginBottom:12,alignItems:"flex-start"}}>
+        {isMob&&order.image&&<div style={{flexShrink:0,position:"relative",alignSelf:"stretch"}}><img src={order.image} alt="" style={{width:90,height:"100%",maxHeight:"100%",minHeight:120,objectFit:"cover",borderRadius:10,border:"1px solid "+T.brd,display:"block"}}/>
           {canEdit&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true}))updOrder(sel,o=>{o.image=""})}} style={{position:"absolute",top:2,right:2,width:18,height:18,borderRadius:9,background:"rgba(0,0,0,0.6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:9}}>✕</div>}
         </div>}
         <div style={{flex:1,display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(2,1fr)":"repeat(4,1fr)",gap:isMob?6:12,minWidth:0}}>
@@ -622,8 +623,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         if(isClosed)curIdx=phases.length-1;
         return<div style={{marginBottom:14,background:T.cardSolid,borderRadius:10,padding:"10px 14px",border:"1px solid "+T.brd,overflowX:"auto"}}><Timeline phases={phases} currentIdx={curIdx}/></div>})()}
       <div style={{display:"grid",gridTemplateColumns:order.image&&!isMob?"auto 1fr":"1fr",gap:16,marginBottom:16}}>
-        {/* V16.37: doubled desktop image (270×360, 3:4 ratio) for clearer model preview */}
-        {!isMob&&order.image&&<div style={{position:"relative"}}><img src={order.image} alt="" style={{width:270,height:360,aspectRatio:"3/4",objectFit:"cover",borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow}}/>
+        {}
+        {!isMob&&order.image&&<div style={{position:"relative"}}><img src={order.image} alt="" style={{width:135,height:180,aspectRatio:"3/4",objectFit:"cover",borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow}}/>
           {canEdit&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true}))updOrder(sel,o=>{o.image=""})}} style={{position:"absolute",top:4,right:4,width:22,height:22,borderRadius:11,background:"rgba(0,0,0,0.6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11}}>✕</div>}
         </div>}
         <Card title="بيانات الموديل">
