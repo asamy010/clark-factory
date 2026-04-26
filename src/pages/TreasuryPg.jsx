@@ -14,6 +14,7 @@ import { showToast } from "../utils/popups.js";
 import { pushUndo } from "../utils/undo.js";
 import { openPrintWindow } from "../utils/print.js";
 import { printCashReceipt, printCheckReceipt } from "../utils/print-extras.js";
+import { getReferences } from "../utils/dataIntegrity.js";
 import { Spinner, InlineLoading, Btn, Inp, Sel, Card, useDebounced } from "../components/ui.jsx";
 import { T } from "../theme.js";
 import { db } from "../firebase";
@@ -465,6 +466,28 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         if(tx){tx.type=txType;tx.amount=amt;tx.desc=finalDesc;tx.notes=txNotes;tx.category=txCategory;tx.account=txAccount;tx.season=txSeason;tx.date=txDate;tx.custId=linkedCustId;tx.supplierId=linkedSupplierId;tx.updatedBy=userName;tx.updatedAt=new Date().toISOString();
           /* Sync linked wsPayment if exists */
           if(tx.wsPaymentId){const wp=(d.wsPayments||[]).find(p=>p.id===tx.wsPaymentId);if(wp){wp.amount=amt;wp.notes=txNotes;wp.date=txDate;wp.type=txCategory==="مشتريات"?"purchase":"payment"}}
+          /* V16.68: Sync custPayments / supplierPayments on edit too — previously
+             only the new-tx branch created these records, so editing an existing
+             tx to LINK a supplier (e.g. by changing category to "دفع مورد") set
+             tx.supplierId but never created the supplierPayment. The supplier's
+             account statement was missing the payment. Three rules:
+             1. If the tx was previously linked to a different party, remove the
+                old payment record (idempotent toggle).
+             2. If the tx is now linked to a customer/supplier, ensure exactly
+                one payment record exists with current values.
+             3. If the link was removed entirely, drop the payment record. */
+          if(d.custPayments)d.custPayments=d.custPayments.filter(p=>p.treasuryTxId!==editId);
+          if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>p.treasuryTxId!==editId);
+          if(linkedCustId&&txType==="in"){
+            if(!d.custPayments)d.custPayments=[];
+            const c=customers.find(x=>x.id===linkedCustId);
+            d.custPayments.push({id:gid(),custId:linkedCustId,custName:c?c.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:"كاش",by:userName,treasuryTxId:editId,createdAt:new Date().toISOString()});
+          }
+          if(linkedSupplierId&&txType==="out"){
+            if(!d.supplierPayments)d.supplierPayments=[];
+            const s=suppliers.find(x=>x.id===linkedSupplierId);
+            d.supplierPayments.push({id:gid(),supplierId:linkedSupplierId,supplierName:s?s.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:"كاش",by:userName,treasuryTxId:editId,createdAt:new Date().toISOString()});
+          }
         }}
       else{
         const txId=gid();
@@ -522,10 +545,22 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
 
   const delTx=(id)=>{
     /* V15.9: Block deletion of HR salary transactions — they're bound to week prevBalance.
-       User must use "delete week" in HR page which handles prevBalance restoration. */
+       User must use "delete week" in HR page which handles prevBalance restoration.
+       V16.65: Now also blocks any externally-linked tx via dataIntegrity.
+       The user is shown a clear message naming the source (check / hr advance /
+       transfer / receipt) and where to delete from instead. Cascade-delete used
+       to silently take down child records — that's data the user couldn't see
+       disappearing. Now they have to delete from the source side, which keeps
+       both sides consistent. */
     const txCheck=(data.treasury||[]).find(t=>t.id===id);
     if(txCheck&&txCheck.sourceType==="hr_salary"){
       showToast("⛔ لا يمكن حذف مرتب من هنا — احذف الأسبوع من صفحة الموظفين");
+      return;
+    }
+    const refs=getReferences(data,"treasuryTransaction",id);
+    if(refs.length>0){
+      const msg="هذه الحركة مرتبطة بـ:\n"+refs.map(r=>"• "+r.label).join("\n")+"\n\nاحذفها من المصدر الأصلي بدلاً من هنا.";
+      openConfirm({title:"⛔ حركة مرتبطة",message:msg,variant:"danger",onConfirm:()=>{}});
       return;
     }
     /* V16.2: Snapshot for undo — capture arrays that will be modified */
@@ -1769,7 +1804,20 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           });
           showToast(status==="مرتد"?"❌ تم تسجيل الشيك كمرتد":status==="محصل"?"✅ تم التحصيل":status==="مدفوع"?"✅ تم الدفع":"✓ تم التحديث");
         };
-        const delCheck=(id)=>{upConfig(d=>{
+        const delCheck=(id)=>{
+          /* V16.65: Block direct deletion of non-pending checks — those have
+             treasury/customer/supplier side effects that need unwinding via
+             status-revert (e.g. unmark "محصل" → returns to "معلق" + removes
+             the treasury entry). The cascade-on-delete used to do this implicitly,
+             but it left orphaned wsPayment/custPayment trails in some cases.
+             Forcing the user to revert first makes the data flow visible. */
+          const refs=getReferences(data,"check",id);
+          if(refs.length>0){
+            const msg="هذا الشيك مرتبط بحركات مالية:\n"+refs.map(r=>"• "+r.label).join("\n")+"\n\nأرجع الحالة لـ \"معلق\" أولاً (من الزر ↩ إلغاء أو ↻ إعادة) ثم احذف.";
+            openConfirm({title:"⛔ لا يمكن حذف الشيك",message:msg,variant:"danger",onConfirm:()=>{}});
+            return;
+          }
+          upConfig(d=>{
           /* V15.9: Also remove linked treasury entries (if check was collected/paid) */
           const ch=(d.checks||[]).find(c=>c.id===id);
           d.checks=(d.checks||[]).filter(c=>c.id!==id);

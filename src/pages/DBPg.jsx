@@ -92,10 +92,14 @@ export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,o
 
   const eBtn=(onClick)=><Btn small onClick={onClick} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>;
   const ords=data.orders||[];
-  const fabBlock=(f)=>ords.some(o=>FKEYS.some(k=>Number(o["fabric"+k])===f.id))?"مستخدم في أوردرات":null;
-  const accBlock=(a)=>ords.some(o=>(o.accItems||[]).some(x=>x.name===a.name))?"مستخدم في أوردرات":null;
-  const sizeBlock=(s)=>ords.some(o=>Number(o.sizeSetId)===s.id)?"مستخدم في أوردرات":null;
-  const garmentBlock=(g)=>ords.some(o=>(o.orderPieces||[]).includes(g.name))?"مستخدم في أوردرات":null;
+  /* V16.66: Use central dataIntegrity — also flags stock balance, stock movements,
+     and purchase receipts (the prior local check only covered orders usage). */
+  const fabBlock=(f)=>getDeleteBlocker(data,"fabric",f.id);
+  const accBlock=(a)=>getDeleteBlocker(data,"accessory",a.id);
+  /* V16.67: Use central dataIntegrity util — also checks workshopDeliveries
+     for garments (the prior local check missed those). */
+  const sizeBlock=(s)=>getDeleteBlocker(data,"sizeSet",s.id);
+  const garmentBlock=(g)=>getDeleteBlocker(data,"garmentType",g.id);
   return<div>
     <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>{[["fab","الأقمشة"],["acc","تشغيل + اكسسوار"],["size","المقاسات"],["garment","قطع الموديل"],["ws","الورش"],["status","حالات الأوردر"]].map(([k,l])=><Btn key={k} on={sub===k} onClick={()=>setSub(k)}>{l}</Btn>)}
       {canEdit&&<Btn onClick={()=>setShowRecycleBin(true)} style={{background:T.textMut+"12",color:T.textMut,border:"1px solid "+T.textMut+"25",marginRight:"auto"}}>{"🗑️ المحذوفات"+(data.recycleBin?.length>0?" ("+data.recycleBin.length+")":"")}</Btn>}
@@ -254,7 +258,7 @@ export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,o
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(2,1fr)":"repeat(4,1fr)",gap:12}}>
         {statusCards.map(s=><div key={s.id} style={{padding:16,borderRadius:14,border:"2px solid "+s.color+"40",background:s.color+"08",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:20,height:20,borderRadius:6,background:s.color}}/><span style={{fontWeight:700,fontSize:FS,color:T.text}}>{s.name}</span></div>
-          {canEdit&&<div style={{display:"flex",gap:4}}>{eBtn(()=>{setStName(s.name);setStColor(s.color);setStEid(s.id);setStShow(true)})}<DelBtn onConfirm={()=>safeDelete("statusCards",s.id,"حالة")} blocked={ords.some(o=>o.status===s.name)?"يوجد أوردرات بهذه الحالة":null}/></div>}
+          {canEdit&&<div style={{display:"flex",gap:4}}>{eBtn(()=>{setStName(s.name);setStColor(s.color);setStEid(s.id);setStShow(true)})}<DelBtn onConfirm={()=>safeDelete("statusCards",s.id,"حالة")} blocked={getDeleteBlocker(data,"status",s.id)}/></div>}
         </div>)}
       </div>
     </Card>

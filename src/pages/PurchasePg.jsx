@@ -686,6 +686,17 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   /* ──────── DELETE RECEIPT (admin only, rollback) ──────── */
   const deleteReceipt=async(r)=>{
     if(!canEdit||userRole!=="admin")return;
+    /* V16.65: Block if any of the linked checks have been collected/paid/endorsed.
+       The existing rollback removes only PENDING checks (line 717) — non-pending
+       ones would have left treasury entries that we can't safely undo, so the
+       caller is forced to revert those checks to "معلق" first. */
+    const linkedChecks=(data.checks||[]).filter(c=>c.receiptId===r.id);
+    const lockedChecks=linkedChecks.filter(c=>c.status&&c.status!=="معلق");
+    if(lockedChecks.length>0){
+      const list=lockedChecks.map(c=>"• شيك #"+(c.checkNo||"—")+" — حالته: "+c.status).join("\n");
+      await tell("⛔ لا يمكن حذف الاستلام","الاستلام مرتبط بشيكات تم تحصيلها أو دفعها:\n"+list+"\n\nأرجع الشيكات لـ \"معلق\" أولاً (من تاب الشيكات) ثم احذف الاستلام.",{type:"warning"});
+      return;
+    }
     const confirmed=await ask("حذف الاستلام","سيتم حذف الاستلام "+r.receiptNo+" وعكس كل التأثيرات:\n\n⚠️ سيتم خصم البنود من المخزن\n⚠️ سيتم حذف الحركات المالية المرتبطة\n\nهل تريد المتابعة؟",{danger:true,confirmText:"حذف"});
     if(!confirmed)return;
     upConfig(d=>{
@@ -923,7 +934,12 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
                           notes:item._orig?.notes||""
                         })} title="تعديل">✏️</Btn>
                         <Btn small ghost onClick={async()=>{
-                          if(stock!==0){await tell("لا يمكن الحذف","الصنف لسه عنده رصيد ("+stock+"). صفّر الرصيد أولاً.");return}
+                          /* V16.66: Comprehensive integrity check via dataIntegrity —
+                             previously this only checked stock balance, missing
+                             usage in orders / purchase receipts / stock movements. */
+                          const kind=item._legacy==="fabric"?"fabric":item._legacy==="accessory"?"accessory":"inventoryItem";
+                          const blocker=formatBlockerMessage(data,kind,item.id,item.name);
+                          if(blocker){await tell("لا يمكن حذف الصنف",blocker,{type:"warning"});return}
                           if(!await ask("حذف الصنف","حذف \""+item.name+"\" نهائياً؟",{danger:true}))return;
                           upConfig(d=>{
                             if(item._legacy==="fabric"){
@@ -1269,7 +1285,10 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
                 {canEdit&&!cat.isCore&&<div style={{display:"flex",gap:4}}>
                   <Btn small ghost onClick={()=>setCatEditPopup({id:cat.id,name:cat.name,emoji:cat.emoji||"📦"})} title="تعديل">✏️</Btn>
                   <Btn small ghost onClick={async()=>{
-                    if(items.length>0){await tell("لا يمكن الحذف","يحتوي الصنف على "+items.length+" أصناف فرعية. احذفها أولاً.");return}
+                    /* V16.67: Use central dataIntegrity — same check as before
+                       (items.length) plus future-proofing if more refs get added. */
+                    const blocker=formatBlockerMessage(data,"itemCategory",cat.id,cat.name);
+                    if(blocker){await tell("لا يمكن حذف الفئة",blocker,{type:"warning"});return}
                     if(!await ask("حذف الصنف","سيتم حذف \""+cat.name+"\" — هل أنت متأكد؟",{danger:true}))return;
                     upConfig(d=>{deleteCategory(d,cat.id)});
                     showToast("✓ تم الحذف");

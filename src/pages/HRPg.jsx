@@ -15,6 +15,7 @@ import { ask, showToast } from "../utils/popups.js";
 import { pushUndo } from "../utils/undo.js";
 import { printPage, printEmpQrCards, printSalaryEnvelopes, openPrintWindow } from "../utils/print.js";
 import { CLARK_LOGO_PRINT } from "../constants/logo.js";
+import { formatBlockerMessage } from "../utils/dataIntegrity.js";
 /* V15.25: Receipt queue — persistent storage for salary confirmation scans */
 import { addReceipt, removeReceipt, getPendingForWeek, getReadyForRetry, markAsFailed, getPendingCount, forceRetryAll } from "../utils/receiptQueue.js";
 import { Btn, Inp, Sel, Card, QRImg, QRScanner, SearchSel, useDebounced } from "../components/ui.jsx";
@@ -6683,12 +6684,15 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                   <span onClick={()=>{setShowDebtForm({empId:e.id});resetDebtForm();setDebtStart(today)}} style={{cursor:"pointer",fontSize:11}} title="+ مديونية">🧾</span>
                   <span onClick={()=>toggleEmpActive(e.id)} style={{cursor:"pointer",fontSize:11}}>{e.inactive?"▶️":"⏸"}</span>
                   <span onClick={()=>{
-                    const inLog=hrLog.filter(l=>l.empId===e.id).length;
-                    const inDebts=debts.filter(dx=>dx.empId===e.id).length;
-                    let inAttendance=0;
-                    hrWeeks.forEach(w=>{Object.keys(w.attendance||{}).forEach(k=>{if(k.startsWith(e.id+"_"))inAttendance++})});
-                    if(inLog>0||inDebts>0||inAttendance>0){
-                      openConfirm({title:"⛔ لا يمكن الحذف",message:"الموظف "+e.name+" مرتبط بـ:\n• "+[inLog>0?inLog+" حركة في السجل":"",inDebts>0?inDebts+" مديونية":"",inAttendance>0?inAttendance+" سجل حضور":""].filter(Boolean).join("\n• ")+"\n\nيمكنك إيقافه بدلاً من ذلك باستخدام زر ⏸",variant:"danger",onConfirm:()=>{}});return}
+                    /* V16.65: Use central data integrity utility — same check
+                       as before plus treasury entries (empId) which the local
+                       check missed. The recycleBin restore flow stays so admins
+                       can undo accidental deletions. */
+                    const blocker=formatBlockerMessage(data,"employee",e.id,e.name);
+                    if(blocker){
+                      openConfirm({title:"⛔ لا يمكن حذف الموظف",message:blocker+"\n\nيمكنك إيقافه بدلاً من ذلك باستخدام زر ⏸",variant:"danger",onConfirm:()=>{}});
+                      return;
+                    }
                     openConfirm({title:"حذف الموظف",message:"سيتم حذف "+e.name+" نهائياً.",variant:"danger",onConfirm:()=>{upConfig(d=>{if(!d.recycleBin)d.recycleBin=[];const emp=(d.employees||[]).find(x=>x.id===e.id);if(emp)d.recycleBin.unshift({...emp,_type:"موظف",_collection:"employees",_deletedAt:new Date().toISOString()});if(d.recycleBin.length>100)d.recycleBin=d.recycleBin.slice(0,100);d.employees=(d.employees||[]).filter(x=>x.id!==e.id)});showToast("✓ تم حذف الموظف — يمكن الاستعادة من سلة المحذوفات")}})
                   }} style={{cursor:"pointer",fontSize:11,color:T.err}} title="حذف">🗑️</span>
                 </>}

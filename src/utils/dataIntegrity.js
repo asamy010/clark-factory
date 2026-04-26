@@ -210,6 +210,155 @@ export function getReferences(data, kind, id) {
       break;
     }
 
+    case "fabric": {
+      /* V16.66: Fabrics live in data.fabrics[] and are referenced by id from
+         orders (fabricA/B/C/D fields) and by stock movements. */
+      const fab = (data.fabrics || []).find(f => f.id === id);
+      if (!fab) return [];
+
+      let inOrders = 0;
+      (data.orders || []).forEach(o => {
+        if (o.fabricA === id || o.fabricB === id ||
+            o.fabricC === id || o.fabricD === id) inOrders++;
+      });
+      if (inOrders) refs.push({ label: "أوردر", count: inOrders });
+
+      const stock = Number(fab.stock) || 0;
+      if (stock > 0) refs.push({ label: "رصيد بالمخزن (" + stock + ")", count: 1 });
+
+      const movs = (data.stockMovements || []).filter(
+        m => (m.itemType === "fabric" || m.itemType === "core_fabric") &&
+             String(m.itemId) === String(id)
+      ).length;
+      if (movs) refs.push({ label: "حركة مخزن", count: movs });
+
+      const inReceipts = (data.purchaseReceipts || []).filter(r =>
+        (r.items || []).some(it =>
+          (it.itemType === "fabric" || it.itemType === "core_fabric") &&
+          String(it.itemId) === String(id)
+        )
+      ).length;
+      if (inReceipts) refs.push({ label: "إذن استلام مشتريات", count: inReceipts });
+      break;
+    }
+
+    case "accessory": {
+      /* V16.66: Accessories live in data.accessories[] and are referenced by
+         id from orders.accessories[] entries. */
+      const acc = (data.accessories || []).find(a => a.id === id);
+      if (!acc) return [];
+
+      let inOrders = 0;
+      (data.orders || []).forEach(o => {
+        if (Array.isArray(o.accessories) &&
+            o.accessories.some(a => String(a.id) === String(id))) inOrders++;
+      });
+      if (inOrders) refs.push({ label: "أوردر", count: inOrders });
+
+      const stock = Number(acc.stock) || 0;
+      if (stock > 0) refs.push({ label: "رصيد بالمخزن (" + stock + ")", count: 1 });
+
+      const movs = (data.stockMovements || []).filter(
+        m => (m.itemType === "accessory" || m.itemType === "core_accessory") &&
+             String(m.itemId) === String(id)
+      ).length;
+      if (movs) refs.push({ label: "حركة مخزن", count: movs });
+
+      const inReceipts = (data.purchaseReceipts || []).filter(r =>
+        (r.items || []).some(it =>
+          (it.itemType === "accessory" || it.itemType === "core_accessory") &&
+          String(it.itemId) === String(id)
+        )
+      ).length;
+      if (inReceipts) refs.push({ label: "إذن استلام مشتريات", count: inReceipts });
+      break;
+    }
+
+    case "inventoryItem": {
+      /* V16.66: General inventory items in data.inventoryItems[] (categorized
+         by user-defined item categories, not core fabric/accessory). */
+      const item = (data.inventoryItems || []).find(i => i.id === id);
+      if (!item) return [];
+
+      const stock = Number(item.stock) || 0;
+      if (stock > 0) refs.push({ label: "رصيد بالمخزن (" + stock + ")", count: 1 });
+
+      const movs = (data.stockMovements || []).filter(
+        m => String(m.itemId) === String(id)
+      ).length;
+      if (movs) refs.push({ label: "حركة مخزن", count: movs });
+
+      const inReceipts = (data.purchaseReceipts || []).filter(r =>
+        (r.items || []).some(it => String(it.itemId) === String(id))
+      ).length;
+      if (inReceipts) refs.push({ label: "إذن استلام مشتريات", count: inReceipts });
+      break;
+    }
+
+    case "generalProduct": {
+      /* V16.66: General products are simpler than inventoryItems — they don't
+         link to stock movements (no stock tracking yet) or receipts. The only
+         realistic "reference" is having a non-zero balance set as opening stock. */
+      const p = (data.generalProducts || []).find(x => x.id === id);
+      if (!p) return [];
+      const stock = Number(p.stock) || 0;
+      if (stock > 0) refs.push({ label: "رصيد افتتاحي (" + stock + ")", count: 1 });
+      const movs = (data.stockMovements || []).filter(
+        m => String(m.itemId) === String(id)
+      ).length;
+      if (movs) refs.push({ label: "حركة مخزن", count: movs });
+      break;
+    }
+
+    case "status": {
+      /* V16.67: Status definitions in data.statusCards[] — referenced by orders.status
+         (a string match on the name). Block delete if any orders use this status. */
+      const st = (data.statusCards || []).find(x => x.id === id);
+      if (!st) return [];
+      const inOrders = (data.orders || []).filter(o => o.status === st.name).length;
+      if (inOrders) refs.push({ label: "أوردر", count: inOrders });
+      break;
+    }
+
+    case "garmentType": {
+      /* V16.67: Garment types in data.garmentTypes[] — referenced by orders.orderPieces[]
+         and by workshopDeliveries[].garmentType (both are name-based, not id-based). */
+      const g = (data.garmentTypes || []).find(x => x.id === id);
+      if (!g) return [];
+      let inOrders = 0;
+      let inDeliveries = 0;
+      (data.orders || []).forEach(o => {
+        if (Array.isArray(o.orderPieces) && o.orderPieces.includes(g.name)) inOrders++;
+        const wds = o.workshopDeliveries || [];
+        wds.forEach(wd => { if (wd.garmentType === g.name) inDeliveries++; });
+      });
+      if (inOrders) refs.push({ label: "أوردر", count: inOrders });
+      if (inDeliveries) refs.push({ label: "تسليم ورشة", count: inDeliveries });
+      break;
+    }
+
+    case "sizeSet": {
+      /* V16.67: Size sets in data.sizeSets[] — referenced by orders.sizeSetId. */
+      const s = (data.sizeSets || []).find(x => x.id === id);
+      if (!s) return [];
+      const inOrders = (data.orders || []).filter(
+        o => String(o.sizeSetId) === String(s.id) || Number(o.sizeSetId) === Number(s.id)
+      ).length;
+      if (inOrders) refs.push({ label: "أوردر", count: inOrders });
+      break;
+    }
+
+    case "itemCategory": {
+      /* V16.67: User-defined item categories in data.itemCategories[]. Block delete
+         if any inventoryItems are categorized under it. Core (legacy) categories
+         like fabric/accessory are protected by the categories util itself. */
+      const cat = (data.itemCategories || []).find(c => c.id === id);
+      if (!cat) return [];
+      const inItems = (data.inventoryItems || []).filter(i => i.categoryId === id).length;
+      if (inItems) refs.push({ label: "صنف داخل الفئة", count: inItems });
+      break;
+    }
+
     default:
       /* Unknown kind — fail-open to preserve existing UX while new entities
          are being added. Caller's own ad-hoc check (if any) still applies. */

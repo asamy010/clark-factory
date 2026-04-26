@@ -15,6 +15,7 @@ import { ask, askInput, showToast, tell } from "../utils/popups.js";
 import { loadQR } from "../utils/qr.js";
 import { openPrintWindow } from "../utils/print.js";
 import { countUnitUsage, DEFAULT_UNITS, getUnits } from "../utils/units.js";
+import { formatBlockerMessage } from "../utils/dataIntegrity.js";
 
 export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCards,user,userRole}){
   const userName=user?.displayName||(user?.email||"").split("@")[0];
@@ -298,7 +299,11 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   };
   const deleteProd=async(p)=>{
     if(!canEdit)return;
-    const confirmed=await ask("حذف المنتج","حذف المنتج "+p.name+"؟\nستبقى الحركات المرتبطة به في سجل الحركات.",{danger:true,confirmText:"حذف"});
+    /* V16.66: Block delete if product has stock or movements — prevents
+       silent loss of data referenced by stockMovements. */
+    const blocker=formatBlockerMessage(data,"generalProduct",p.id,p.name);
+    if(blocker){await tell("لا يمكن حذف المنتج",blocker,{type:"warning"});return}
+    const confirmed=await ask("حذف المنتج","حذف المنتج "+p.name+"؟",{danger:true,confirmText:"حذف"});
     if(!confirmed)return;
     upConfig(d=>{d.generalProducts=(d.generalProducts||[]).filter(x=>x.id!==p.id)});
     showToast("تم حذف المنتج");
