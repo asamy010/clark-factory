@@ -12,7 +12,7 @@ import { gid, fmt, r2, gf, normalizePhone, parseSizes, getSizesFromSet, dayName,
 import { playBeep } from "../utils/audio.js";
 import { loadQR, loadJsQR, scanQR } from "../utils/qr.js";
 import { ask, askForm, showToast } from "../utils/popups.js";
-import { printPage, printPkgLabel, openPrintWindow } from "../utils/print.js";
+import { printPage, printPkgLabel, printSalesDeliveryLabel, openPrintWindow } from "../utils/print.js";
 import { calcOrder, getConfirmedStock, recomputeStatus } from "../utils/orders.js";
 import { analyzeCustomer, fmtMonth } from "../utils/customerAnalytics.js";
 import { auth } from "../firebase";
@@ -1046,6 +1046,41 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                     h+="<script>function _renderCLARKqrs(){if(typeof QRCode==='undefined'){setTimeout(_renderCLARKqrs,100);return}document.querySelectorAll('.confirm-qr').forEach(function(c){QRCode.toCanvas(c,c.dataset.qr,{width:200,margin:0,errorCorrectionLevel:'M'},function(){})})}_renderCLARKqrs();</"+"script>";
                     printPage("اذن تسليم — "+c.name,h,{factoryName:config.factoryName,logo:config.logo});
                   }} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30",fontSize:9,padding:"2px 5px"}} title="طباعة">🖨</Btn>
+                  {/* V16.57: Thermal sales-delivery label (10×15) — printed from the
+                      same row as the A4 receipt above. Reuses the same /api/delivery-sign
+                      flow + the same items/totals computation, then routes to the new
+                      printSalesDeliveryLabel function instead of printPage. */}
+                  <Btn small onClick={async()=>{
+                    let sig="";let signErr="";
+                    try{
+                      const _u=auth.currentUser;
+                      if(!_u){signErr="يرجى تسجيل الدخول";throw new Error(signErr)}
+                      const _tok=await _u.getIdToken();
+                      const r=await fetch("/api/delivery-sign",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+_tok},body:JSON.stringify({pairs:[{sessionId:activeSess.id,custId:c.id}]})});
+                      const j=await r.json();
+                      if(r.ok&&j.signatures&&j.signatures[0])sig=j.signatures[0].sig||"";
+                      else signErr=(j&&j.error)?j.error:"HTTP "+r.status;
+                    }catch(e){signErr=signErr||("Network: "+(e.message||e))}
+                    if(!sig){console.error("[CLARK] /api/delivery-sign failed:",signErr);showToast("⚠️ الـ QR مش هيظهر — تفاصيل الخطأ: "+signErr)}
+                    const origin=window.location.origin;
+                    const confirmUrl=sig?origin+"/?dc=1&s="+encodeURIComponent(activeSess.id)+"&c="+encodeURIComponent(c.id)+"&sig="+encodeURIComponent(sig):"";
+                    /* Build items array — same loop as the 🖨 receipt button above. */
+                    const items=[];let custMoney=0;
+                    aMods.forEach(m=>{const q=getGroupQty(m,c.id);if(q>0){
+                      const oids=m.orderIds||[m.id];let price=0;
+                      for(const oid of oids){const o=orders.find(x=>x.id===oid);if(o){
+                        const dd=(o.customerDeliveries||[]).find(d=>d.custId===c.id&&d.sessionId===activeSess.id&&Number(d.price)>0);
+                        if(dd){price=Number(dd.price);break}
+                        if(Number(o.sellPrice)>0){price=Number(o.sellPrice);break}
+                      }}
+                      const lineTotal=q*price;custMoney+=lineTotal;
+                      items.push({modelNo:m.modelNo,modelDesc:m.modelDesc||"",qty:q,price:price,total:lineTotal});
+                    }});
+                    const discPct=Number(c.discount)||0;
+                    const discAmt=Math.round(custMoney*discPct/100);
+                    const netAmt=custMoney-discAmt;
+                    printSalesDeliveryLabel(c.name,c.phone||"",c.address||"",activeSess.date,items,{gross:custMoney,discPct,discAmt,netAmt},confirmUrl,data?.printSettings,CLARK_LOGO_PRINT);
+                  }} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontSize:9,padding:"2px 5px"}} title="طباعة ليبل حراري (10×15)">🏷️</Btn>
                   <Btn small onClick={()=>{
                     /* V15.55: Validate phone first */
                     let rawPhone=(c.phone||"").replace(/[^0-9]/g,"");

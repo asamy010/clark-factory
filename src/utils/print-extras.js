@@ -31,17 +31,17 @@ export async function printReceipt(wsName,wsOwner,order,garmentType,qty,date,bal
   if(!wsO&&order.workshopDeliveries){const wd=order.workshopDeliveries.find(w=>w.wsName===ws);if(wd)wsO=wd.wsOwner||""}
   const gi=n=>gIcon(n,gtList);
   /* V16.50: Generate QR for workshop self-confirmation flow.
-     Scanning the QR opens a mobile popup showing the order image, delivered
-     qty broken down by piece/color, and a "تأكيد الاستلام" button that
-     writes directly to wd.receives[]. Format:
-       CLARK:WSRCV:{orderId}:{wsName}:{wdIdx}
-     wsName is URL-encoded so spaces/Arabic survive both the QR and the
-     scanner's URL parser. */
+     V16.58: Switched from CLARK:WSRCV: payload to a URL with ?act=wsdel&ord&ws&idx
+     so this QR opens the same wsDelPopup the thermal label uses (V16.50–V16.51).
+     One confirmation flow for both prints means workshops see the same UX whether
+     they scan the A4 receipt or the thermal label, and we have a single popup
+     to maintain. */
   let receiptQrSrc="";
   try{
     const QR=await loadQR();
     if(QR&&order.id&&ws){
-      const qrPayload="CLARK:WSRCV:"+order.id+":"+encodeURIComponent(ws)+":"+wdIdx;
+      const origin=(typeof window!=="undefined"&&window.location)?window.location.origin:"";
+      const qrPayload=origin+"/?act=wsdel&ord="+encodeURIComponent(order.id)+"&ws="+encodeURIComponent(ws)+"&idx="+wdIdx;
       receiptQrSrc=await QR.toDataURL(qrPayload,{width:130,margin:1,errorCorrectionLevel:"M"});
     }
   }catch(e){}

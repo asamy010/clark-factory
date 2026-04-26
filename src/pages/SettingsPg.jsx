@@ -676,6 +676,15 @@ const CUST_LABEL_FIELDS=[
   {k:"createdBy", l:"👤 اسم منشئ الكرتونة"},
   {k:"qr",        l:"📱 QR للكرتونة"}
 ];
+/* V16.57: Sales delivery thermal label (10×15) printed from the distribution
+   popup per customer row. Shows customer info + items + totals + confirmation QR. */
+const SALES_DELIVERY_FIELDS=[
+  {k:"phone",     l:"📞 تليفون العميل"},
+  {k:"address",   l:"📍 عنوان العميل"},
+  {k:"prices",    l:"💰 الأسعار والإجماليات"},
+  {k:"itemsDesc", l:"📝 وصف الموديلات"},
+  {k:"qr",        l:"📱 QR لتأكيد التسليم (العميل يمسحه)"}
+];
 
 /* V16.52: Inline preview for the 10×15 large labels (workshop + customer).
    Uses CSS to scale a 100×150mm representation down to ~200×300px on screen.
@@ -701,10 +710,14 @@ function LargeLabelLivePreview({draft,kind,T,FS}){
   useEffect(()=>{
     if(!qrReady||!qrCanvasRef.current||!window.QRCode)return;
     try{
-      const sample=isWs?"https://app.clark/?act=wsdel&ord=demo":"CLARK:PKG:demo";
+      /* V16.57: 3 distinct sample URLs per kind so the preview QR reflects
+         what each label actually encodes when printed. */
+      const sample=kind==="workshopLabel"?"https://app.clark/?act=wsdel&ord=demo"
+        :kind==="salesDeliveryLabel"?"https://app.clark/?dc=1&s=demo&c=demo"
+        :"CLARK:PKG:demo";
       window.QRCode.toCanvas(qrCanvasRef.current,sample,{width:80,margin:1,errorCorrectionLevel:"M"},()=>{});
     }catch(e){}
-  },[qrReady,JSON.stringify(draft)]);
+  },[qrReady,JSON.stringify(draft),kind]);
 
   /* Sample data — reflects the same fields renderLabelPages/printPkgLabel use */
   const fontFam=draft.fontFamily||"Cairo";
@@ -728,7 +741,7 @@ function LargeLabelLivePreview({draft,kind,T,FS}){
         color:"#000",direction:"rtl",fontSize:9
       }}>
         {/* === Workshop label preview === */}
-        {isWs?<>
+        {kind==="workshopLabel"&&<>
           {/* Brand row */}
           <div style={{textAlign:"center",paddingBottom:3,borderBottom:"2px solid #000",marginBottom:4}}>
             {showLogo
@@ -767,8 +780,9 @@ function LargeLabelLivePreview({draft,kind,T,FS}){
             <div style={{flex:1}}/>
           </div>
           <div style={{textAlign:"center",fontSize:7,color:"#555",paddingTop:2,borderTop:"1px dashed #000",marginTop:4}}>3261105 | تيشيرت | زياد شرقية</div>
-        </>:<>
-          {/* === Customer label preview === */}
+        </>}
+        {/* === Customer/warehouse-package label preview === */}
+        {kind==="customerLabel"&&<>
           <div style={{textAlign:"center",fontWeight:900,letterSpacing:3,padding:"3px 0",borderBottom:"2px solid #000",fontSize:11}}>
             {showLogo
               ?<img src={CLARK_LOGO_PRINT} alt="CLARK" style={{height:18,maxWidth:"55%",filter:"brightness(0) saturate(100%)",objectFit:"contain"}}/>
@@ -814,6 +828,69 @@ function LargeLabelLivePreview({draft,kind,T,FS}){
             <span>CLARK Factory Management</span>
           </div>
         </>}
+        {/* === Sales delivery label preview (V16.57) === */}
+        {kind==="salesDeliveryLabel"&&<>
+          {/* Brand row */}
+          <div style={{textAlign:"center",paddingBottom:3,borderBottom:"2px solid #000",marginBottom:4}}>
+            {showLogo
+              ?<img src={CLARK_LOGO_PRINT} alt="CLARK" style={{height:16,maxWidth:"60%",filter:"brightness(0) saturate(100%)",objectFit:"contain"}}/>
+              :<div style={{fontWeight:800,fontSize:11,letterSpacing:2}}>CLARK Factory</div>}
+          </div>
+          {/* Title chip */}
+          <div style={{textAlign:"center",fontSize:11,fontWeight:800,border:"2px solid #000",display:"block",width:"fit-content",padding:"2px 14px",borderRadius:4,margin:"0 auto 4px"}}>🚚 إذن تسليم</div>
+          {/* Customer name */}
+          <div style={{textAlign:"center",padding:4,border:"2px solid #000",borderRadius:5,marginBottom:4}}>
+            <div style={{fontSize:9,fontWeight:700,color:"#555"}}>العميل</div>
+            <div style={{fontSize:14,fontWeight:800}}>أحمد محمد</div>
+          </div>
+          {/* Customer info table — only enabled fields */}
+          <table style={{width:"100%",borderCollapse:"collapse",marginBottom:4,fontSize:9}}>
+            <tbody>
+              <tr><td style={{padding:"2px 6px",fontWeight:800,border:"1px solid #000",width:"35%"}}>التاريخ</td><td style={{padding:"2px 6px",fontWeight:700,border:"1px solid #000"}}>2026-04-26</td></tr>
+              {f.phone?.show!==false&&<tr><td style={{padding:"2px 6px",fontWeight:800,border:"1px solid #000"}}>التليفون</td><td style={{padding:"2px 6px",fontWeight:700,border:"1px solid #000"}}>01001234567</td></tr>}
+              {f.address?.show!==false&&<tr><td style={{padding:"2px 6px",fontWeight:800,border:"1px solid #000"}}>العنوان</td><td style={{padding:"2px 6px",fontWeight:700,border:"1px solid #000",fontSize:8}}>15 شارع الجمهورية، القاهرة</td></tr>}
+            </tbody>
+          </table>
+          {/* Items table */}
+          <div style={{fontSize:7,fontWeight:800,color:"#475569",margin:"3px 0 2px"}}>الأصناف</div>
+          <table style={{width:"100%",borderCollapse:"collapse",marginBottom:4}}>
+            <thead><tr style={{background:"#E2E8F0"}}>
+              <th style={{padding:"2px 4px",fontWeight:800,fontSize:7,border:"1px solid #94A3B8",textAlign:"right"}}>الموديل</th>
+              {f.itemsDesc?.show!==false&&<th style={{padding:"2px 4px",fontWeight:800,fontSize:7,border:"1px solid #94A3B8"}}>الوصف</th>}
+              <th style={{padding:"2px 4px",fontWeight:800,fontSize:7,border:"1px solid #94A3B8"}}>الكمية</th>
+              {f.prices?.show!==false&&<><th style={{padding:"2px 4px",fontWeight:800,fontSize:7,border:"1px solid #94A3B8"}}>السعر</th><th style={{padding:"2px 4px",fontWeight:800,fontSize:7,border:"1px solid #94A3B8"}}>الإجمالي</th></>}
+            </tr></thead>
+            <tbody>
+              <tr>
+                <td style={{padding:"2px 4px",fontSize:8,fontWeight:800,border:"1px solid #CBD5E1"}}>3261105</td>
+                {f.itemsDesc?.show!==false&&<td style={{padding:"2px 4px",fontSize:7,color:"#444",border:"1px solid #CBD5E1"}}>سوت اولادي</td>}
+                <td style={{padding:"2px 4px",fontSize:9,fontWeight:800,color:"#0EA5E9",textAlign:"center",border:"1px solid #CBD5E1"}}>40</td>
+                {f.prices?.show!==false&&<><td style={{padding:"2px 4px",fontSize:8,textAlign:"center",border:"1px solid #CBD5E1"}}>120</td><td style={{padding:"2px 4px",fontSize:8,fontWeight:800,textAlign:"center",border:"1px solid #CBD5E1"}}>4800</td></>}
+              </tr>
+              <tr>
+                <td style={{padding:"2px 4px",fontSize:8,fontWeight:800,border:"1px solid #CBD5E1"}}>3261110</td>
+                {f.itemsDesc?.show!==false&&<td style={{padding:"2px 4px",fontSize:7,color:"#444",border:"1px solid #CBD5E1"}}>تيشيرت</td>}
+                <td style={{padding:"2px 4px",fontSize:9,fontWeight:800,color:"#0EA5E9",textAlign:"center",border:"1px solid #CBD5E1"}}>20</td>
+                {f.prices?.show!==false&&<><td style={{padding:"2px 4px",fontSize:8,textAlign:"center",border:"1px solid #CBD5E1"}}>80</td><td style={{padding:"2px 4px",fontSize:8,fontWeight:800,textAlign:"center",border:"1px solid #CBD5E1"}}>1600</td></>}
+              </tr>
+            </tbody>
+          </table>
+          {/* Totals — only when prices enabled */}
+          {f.prices?.show!==false&&<div style={{border:"2px solid #000",borderRadius:4,padding:"3px 6px",marginBottom:4,fontSize:9}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontWeight:700}}><span>الإجمالي</span><span>6400 ج.م</span></div>
+            <div style={{display:"flex",justifyContent:"space-between",color:"#EF4444",fontWeight:700}}><span>خصم 5%</span><span>- 320 ج.م</span></div>
+            <div style={{display:"flex",justifyContent:"space-between",borderTop:"1px solid #000",paddingTop:2,marginTop:2,fontWeight:900,fontSize:11,color:"#059669"}}><span>الصافي</span><span>6080 ج.م</span></div>
+          </div>}
+          {/* QR — only when enabled */}
+          <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",marginTop:"auto",paddingTop:6,gap:6}}>
+            {f.qr?.show!==false?<div style={{textAlign:"center",padding:2,border:"2px solid #000",borderRadius:4}}>
+              <canvas ref={qrCanvasRef} style={{width:44,height:44,display:"block"}}/>
+              <div style={{fontSize:6,fontWeight:700,marginTop:1}}>📱 امسح للتأكيد</div>
+            </div>:<div/>}
+            <div style={{flex:1}}/>
+          </div>
+          <div style={{textAlign:"center",fontSize:7,color:"#555",paddingTop:2,borderTop:"1px dashed #000",marginTop:4}}>أحمد محمد | 60 قطعة | 2026-04-26</div>
+        </>}
       </div>
     </div>
     <div style={{fontSize:FS-3,color:T.textMut,textAlign:"center",marginTop:6,lineHeight:1.5}}>
@@ -823,9 +900,19 @@ function LargeLabelLivePreview({draft,kind,T,FS}){
 }
 
 export function LargeLabelSettingsCard({kind,config,upConfig,T,FS,isMob,showToast,Btn,Sel,Card,setDirty}){
-  const isWs=kind==="workshopLabel";
-  const title=isWs?"🏭 إعدادات ليبل تسليم الورش (10×15)":"📦 إعدادات ليبل كراتين العملاء (10×15)";
-  const fieldList=isWs?WS_LABEL_FIELDS:CUST_LABEL_FIELDS;
+  /* V16.57: 3 kinds supported — workshopLabel, customerLabel (warehouse package),
+     and salesDeliveryLabel (sales delivery thermal label) */
+  const KIND_INFO={
+    workshopLabel:    {title:"🏭 إعدادات ليبل تسليم الورش (10×15)",       fields:WS_LABEL_FIELDS,
+                       desc:"إعدادات ليبل التسليم للورش (الذي يطبع من بطاقة تسليم الورشة، حجم 10×15 سم)."},
+    customerLabel:    {title:"📦 إعدادات ليبل كراتين مخزن الجاهز (10×15)", fields:CUST_LABEL_FIELDS,
+                       desc:"إعدادات ليبل كراتين مخزن الجاهز (الذي يطبع مع كل كرتونة جاهزة في المخزن، حجم 10×15 سم)."},
+    salesDeliveryLabel:{title:"🚚 إعدادات ليبل تسليم العملاء (10×15)",     fields:SALES_DELIVERY_FIELDS,
+                       desc:"إعدادات ليبل تسليم العملاء (الذي يطبع من شاشة المبيعات في بوب أب التوزيعة لكل عميل، حجم 10×15 سم)."}
+  };
+  const info=KIND_INFO[kind]||KIND_INFO.workshopLabel;
+  const title=info.title;
+  const fieldList=info.fields;
   const defaults={
     fontFamily:"Cairo",
     showLogo:false,
@@ -852,8 +939,7 @@ export function LargeLabelSettingsCard({kind,config,upConfig,T,FS,isMob,showToas
       <span style={{fontSize:16}}>✨</span><span>لديك تعديلات غير محفوظة — اضغط "حفظ" للتأكيد أو "إلغاء" للرجوع</span>
     </div>}
     <div style={{fontSize:FS-2,color:T.textMut,marginBottom:14,lineHeight:1.7}}>
-      {isWs?"إعدادات ليبل التسليم للورش (الذي يطبع من بطاقة تسليم الورشة، حجم 10×15 سم).":
-            "إعدادات ليبل كراتين العملاء (الذي يطبع مع كل كرتونة جاهزة، حجم 10×15 سم)."}
+      {info.desc}
     </div>
     {/* V16.52: Settings (right) + live preview (left) on the same row.
         On mobile, stacks vertically; on desktop, shares the row 60/40. */}
@@ -1822,6 +1908,24 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
   /* Odoo mapping test state — per-category result: {status:'ok'|'bad'|'empty', msg?} */
   const[mapTestResults,setMapTestResults]=useState({});
   const[mapTesting,setMapTesting]=useState(false);
+  /* V16.59: Odoo connection-test state — hoisted out of an IIFE inside the
+     business tab's JSX. The IIFE called useState/useEffect; when V16.52 made
+     the business tab content conditional (`activeTab==="business" && <>...</>`),
+     those hooks went from "always called" to "called only when tab active",
+     causing React error #310 (hook count differs between renders). Same root
+     cause as V16.56's PermissionsCard fix — the simplest correct fix is to
+     move the hooks to module-stable top-level scope. */
+  const[testResult,setTestResult]=useState(null);
+  const[testing,setTesting]=useState(false);
+  /* V16.59: Odoo shortcut-link form state — also hoisted out of an IIFE in JSX,
+     for the same reason as testResult/testing above. Lives at the top level so
+     the hook count is identical between renders, regardless of which tab is
+     active. */
+  const[oIcon,setOIcon]=useState("🔗");
+  const[oLabel,setOLabel]=useState("");
+  const[oUrl,setOUrl]=useState("");
+  const[oColor,setOColor]=useState("#8B5CF6");
+  const[oEditId,setOEditId]=useState(null);
   /* Keep localMap in sync when config loads/changes (e.g. on page reload) */
   useEffect(()=>{const m=config.odooSettings?.accountMapping;if(m&&Object.keys(m).length>0){setLocalMap(prev=>{const merged={...prev};Object.entries(m).forEach(([k,v])=>{if(!merged[k])merged[k]=v});return merged})}},[config.odooSettings?.accountMapping]);
   /* Admin password gate */
@@ -2015,6 +2119,8 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {/* V16.50: Separate settings for the 10×15 large labels (workshop + customer) */}
     <LargeLabelSettingsCard kind="workshopLabel" config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,workshopLabel:d}))}/>
     <LargeLabelSettingsCard kind="customerLabel" config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,customerLabel:d}))}/>
+    {/* V16.57: Sales delivery label — printed from sales screen distribution popup per customer */}
+    <LargeLabelSettingsCard kind="salesDeliveryLabel" config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,salesDeliveryLabel:d}))}/>
     </>}
     {activeTab==="business" && <>
     {/* Treasury Settings — draft pattern */}
@@ -2024,7 +2130,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     <Card title="🔗 ربط Odoo — تزامن الخزنة" style={{marginBottom:16}}>
       {(()=>{const os=config.odooSettings||{};
         const saveOS=(fn)=>upConfig(d=>{if(!d.odooSettings)d.odooSettings={};fn(d.odooSettings)});
-        const[testResult,setTestResult]=useState(null);const[testing,setTesting]=useState(false);
+        /* V16.59: testResult/testing useState hoisted to top-level — see comment there */
         const testConnection=async()=>{setTesting(true);setTestResult(null);
           try{const r=await fetch("/api/odoo-sync",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"authenticate",odooUrl:os.url||"",odooDb:os.db||"",odooUser:os.user||"",odooKey:os.apiKey||""})});
             const d=await r.json();if(r.ok&&d.uid){setTestResult({ok:true,msg:"✅ تم الاتصال بنجاح (UID: "+d.uid+")"})}else{setTestResult({ok:false,msg:"❌ فشل: "+(d.error||"خطأ غير معروف")})}}
@@ -2604,7 +2710,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
           {id:"invoices",icon:"🧾",label:"فواتير بيع",url:"https://clarkdb.odoo.com/odoo/accounting/customer-invoices",color:"#0EA5E9"},
         ];
         const links=config.odooLinks||defaultOdooLinks;
-        const[oIcon,setOIcon]=useState("🔗");const[oLabel,setOLabel]=useState("");const[oUrl,setOUrl]=useState("");const[oColor,setOColor]=useState("#8B5CF6");const[oEditId,setOEditId]=useState(null);
+        /* V16.59: oIcon/oLabel/oUrl/oColor/oEditId useState hoisted to top-level */
         const saveLink=()=>{if(!oLabel.trim()||!oUrl.trim())return;
           upConfig(d=>{if(!d.odooLinks)d.odooLinks=[...defaultOdooLinks];
           if(oEditId){const l=d.odooLinks.find(x=>x.id===oEditId);if(l){l.icon=oIcon;l.label=oLabel.trim();l.url=oUrl.trim();l.color=oColor}}

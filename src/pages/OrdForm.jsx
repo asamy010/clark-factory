@@ -14,6 +14,7 @@ import { compressImage } from "../utils/image.js";
 import { sortOrders, validateOrder } from "../utils/orders.js";
 import { askInput, showToast, tell } from "../utils/popups.js";
 import { compressFile } from "../utils/qr.js";
+import { getUnits } from "../utils/units.js";
 
 export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig}){
   const[form,setForm]=useState(initial);const[errs,setErrs]=useState([]);
@@ -154,7 +155,7 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           <div><label style={{fontSize:FS-2,color:T.textSec}}>اسم الخامة</label><Inp value={qfab.name} onChange={v=>setQfab({...qfab,name:v})} placeholder="مثال: شعييرات مازيراتي"/></div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-            <div><label style={{fontSize:FS-2,color:T.textSec}}>الوحدة</label><Sel value={qfab.unit} onChange={v=>setQfab({...qfab,unit:v})}><option value="كيلو">كيلو</option><option value="متر">متر</option><option value="يارد">يارد</option></Sel></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec}}>الوحدة</label><Sel value={qfab.unit} onChange={v=>setQfab({...qfab,unit:v})}>{getUnits(data,qfab.unit).map(u=><option key={u} value={u}>{u}</option>)}</Sel></div>
             <div><label style={{fontSize:FS-2,color:T.textSec}}>السعر</label><Inp type="number" value={qfab.price} onChange={v=>setQfab({...qfab,price:v})} placeholder="0"/></div>
           </div>
           <Btn primary onClick={()=>{if(!qfab.name.trim()||!qfab.price)return;const newId=Date.now();upConfig(d=>{if(!d.fabrics)d.fabrics=[];d.fabrics.push({id:newId,name:qfab.name.trim(),unit:qfab.unit,price:Number(qfab.price)||0})});updF("fabric"+qfab.forKey,String(newId));setQfab(null);showToast("✓ تم اضافة الخامة")}}>حفظ واختيار</Btn>

@@ -11,9 +11,10 @@ import { FS, PRINT_CSS } from "../constants/index.js";
 import { T, TD, TH } from "../theme.js";
 import { fmt, gid, r2 } from "../utils/format.js";
 import { calcOrder, getConfirmedStock } from "../utils/orders.js";
-import { ask, showToast, tell } from "../utils/popups.js";
+import { ask, askInput, showToast, tell } from "../utils/popups.js";
 import { loadQR } from "../utils/qr.js";
 import { openPrintWindow } from "../utils/print.js";
+import { countUnitUsage, DEFAULT_UNITS, getUnits } from "../utils/units.js";
 
 export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCards,user,userRole}){
   const userName=user?.displayName||(user?.email||"").split("@")[0];
@@ -560,7 +561,8 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         {key:"accessory",label:"🪡 الإكسسوار",count:accessories.length},
         {key:"finished",label:"👕 الجاهز",count:wStats.finished.count},
         {key:"general",label:"➕ منتجات عامة",count:generalProducts.length},
-        {key:"movements",label:"📊 سجل الحركات",count:stockMovements.length}
+        {key:"movements",label:"📊 سجل الحركات",count:stockMovements.length},
+        {key:"units",label:"📏 الوحدات",count:getUnits(data).length}
       ].map(st=>{const active=subTab===st.key;return<div key={st.key} onClick={()=>setSubTab(st.key)} style={{padding:"8px 14px",cursor:"pointer",borderBottom:active?"3px solid "+T.accent:"3px solid transparent",marginBottom:-2,fontWeight:active?800:600,color:active?T.accent:T.textSec,fontSize:FS-1,display:"inline-flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
         <span>{st.label}</span>
         {st.count!==undefined&&<span style={{fontSize:FS-3,padding:"1px 6px",borderRadius:10,background:active?T.accent+"15":T.bg,color:active?T.accent:T.textMut}}>{st.count}</span>}
@@ -844,6 +846,88 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
       </Card>
     </>}
     
+    {/* ════ UNITS SUB-TAB (V16.59) ════
+        Manages the master list of measurement units that appear in every
+        unit-selection dropdown across the app (warehouse products, fabric
+        defs, accessory defs, order form, purchase items). Backed by
+        config.inventoryUnits — a plain string array. The getUnits() helper
+        in src/utils/units.js handles the fallback to DEFAULT_UNITS plus any
+        units already in use across inventoryItems[], so dropdowns work
+        correctly even before this list is configured. */}
+    {subTab==="units"&&(()=>{
+      const currentList=getUnits(data);
+      const isCustom=Array.isArray(data.inventoryUnits);
+      const addUnit=async()=>{
+        const name=await askInput("إضافة وحدة جديدة",{label:"اكتب اسم الوحدة",placeholder:"مثلاً: ميلي، جرام، رول صغير...",defaultValue:""});
+        if(!name||!name.trim())return;
+        const trimmed=name.trim();
+        const list=isCustom?[...data.inventoryUnits]:[...currentList];
+        if(list.includes(trimmed)){showToast("⚠️ الوحدة موجودة بالفعل");return}
+        list.push(trimmed);
+        upConfig(d=>{d.inventoryUnits=list});
+        showToast("✓ تم إضافة الوحدة: "+trimmed);
+      };
+      const renameUnit=async(oldName)=>{
+        const usage=countUnitUsage(data,oldName);
+        const newName=await askInput("تعديل الوحدة",{label:"اكتب الاسم الجديد",defaultValue:oldName,message:usage>0?"هذه الوحدة مستخدمة في "+usage+" صنف — هيتم تحديث الأصناف تلقائياً":""});
+        if(!newName||!newName.trim()||newName.trim()===oldName)return;
+        const trimmed=newName.trim();
+        const list=isCustom?[...data.inventoryUnits]:[...currentList];
+        if(list.includes(trimmed)){showToast("⚠️ الوحدة الجديدة موجودة بالفعل");return}
+        const idx=list.indexOf(oldName);
+        if(idx>=0)list[idx]=trimmed;
+        else list.push(trimmed);
+        upConfig(d=>{
+          d.inventoryUnits=list;
+          /* Cascade rename: update any inventoryItems still using the old name. */
+          if(usage>0&&Array.isArray(d.inventoryItems)){
+            d.inventoryItems.forEach(it=>{if(it&&it.unit===oldName)it.unit=trimmed});
+          }
+        });
+        showToast(usage>0?"✓ تم تعديل الوحدة وتحديث "+usage+" صنف":"✓ تم تعديل الوحدة");
+      };
+      const deleteUnit=async(name)=>{
+        const usage=countUnitUsage(data,name);
+        const msg=usage>0
+          ?"⚠️ هذه الوحدة مستخدمة في "+usage+" صنف.\n\nالأصناف هتفضل بنفس الوحدة (مش هتتأثر) — هتختفي بس من القوائم المنسدلة.\n\nمتأكد؟"
+          :"احذف وحدة \""+name+"\"؟";
+        const ok=await ask("حذف وحدة",msg,{type:"warning",confirmText:"حذف"});
+        if(!ok)return;
+        const list=(isCustom?[...data.inventoryUnits]:[...currentList]).filter(u=>u!==name);
+        upConfig(d=>{d.inventoryUnits=list});
+        showToast("✓ تم الحذف");
+      };
+      const resetToDefaults=async()=>{
+        const ok=await ask("استعادة الوحدات الافتراضية","هيتم استبدال القائمة الحالية بالوحدات الافتراضية:\n\n"+DEFAULT_UNITS.join(" • ")+"\n\nمتأكد؟",{type:"warning",confirmText:"استعادة"});
+        if(!ok)return;
+        upConfig(d=>{d.inventoryUnits=[...DEFAULT_UNITS]});
+        showToast("✓ تم استعادة الوحدات الافتراضية");
+      };
+      return<Card title="📏 إدارة الوحدات">
+        <div style={{fontSize:FS-2,color:T.textMut,marginBottom:14,lineHeight:1.7,padding:"10px 14px",background:T.accent+"08",borderRadius:8,border:"1px solid "+T.accent+"20"}}>
+          💡 الوحدات اللي تضيفها هنا هتظهر في كل القوايم المنسدلة لاختيار الوحدة في كل البرنامج: المخزن، الخامات، الإكسسوار، أمر التشغيل، فاتورة المشتريات.
+          {!isCustom&&<><br/>📌 القائمة الحالية مأخوذة من الوحدات الافتراضية + اللي بتستخدمها فعلاً في الأصناف. أضف أي وحدة لتثبيت قائمتك الخاصة.</>}
+        </div>
+        <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+          <Btn primary onClick={addUnit}>➕ إضافة وحدة جديدة</Btn>
+          <Btn ghost onClick={resetToDefaults}>↻ استعادة الافتراضية</Btn>
+        </div>
+        {currentList.length===0
+          ?<div style={{padding:30,textAlign:"center",color:T.textMut}}>لا توجد وحدات — اضغط "إضافة" للبدء</div>
+          :<div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:8}}>
+            {currentList.map(u=>{
+              const usage=countUnitUsage(data,u);
+              return<div key={u} style={{display:"flex",alignItems:"center",gap:6,padding:"10px 12px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
+                <span style={{flex:1,fontWeight:700,fontSize:FS,color:T.text}}>{u}</span>
+                {usage>0&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:10,background:T.accent+"15",color:T.accent,fontWeight:700}} title="عدد الأصناف اللي بتستخدم الوحدة دي">{usage}</span>}
+                <span onClick={()=>renameUnit(u)} style={{cursor:"pointer",fontSize:13,padding:"4px 6px",color:T.textSec}} title="تعديل">✏️</span>
+                <span onClick={()=>deleteUnit(u)} style={{cursor:"pointer",fontSize:13,padding:"4px 6px",color:T.err}} title="حذف">🗑</span>
+              </div>;
+            })}
+          </div>}
+      </Card>;
+    })()}
+    
     {/* ════ MOVEMENTS SUB-TAB ════ */}
     {subTab==="movements"&&<Card>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end",marginBottom:10}}>
@@ -945,7 +1029,9 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
             </div>
             <div>
               <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>الوحدة</label>
-              <Inp value={prodForm.unit} onChange={v=>setProdForm(p=>({...p,unit:v}))} placeholder="قطعة، كيلو..."/>
+              <Sel value={prodForm.unit||""} onChange={v=>setProdForm(p=>({...p,unit:v}))}>
+                {getUnits(data,prodForm.unit).map(u=><option key={u} value={u}>{u}</option>)}
+              </Sel>
             </div>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>

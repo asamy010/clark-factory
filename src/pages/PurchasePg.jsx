@@ -13,6 +13,7 @@ import { getCategories, getCategoryById, getItemsForCategory, addCategory, updat
 import { Btn, Inp, Sel, SearchSel, Card, useDebounced } from "../components/ui.jsx";
 import { T, TH, TD } from "../theme.js";
 import { openPrintWindow } from "../utils/print.js";
+import { getUnits } from "../utils/units.js";
 
 export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   const userName=user?.displayName||(user?.email||"").split("@")[0];
@@ -1367,7 +1368,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
             </div>
             <div>
               <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الوحدة</label>
-              <Sel value={itemEditPopup.unit} onChange={v=>set({unit:v})}>{["قطعة","متر","كيلو","لتر","علبة","عبوة","شريط","رول"].map(u=><option key={u} value={u}>{u}</option>)}</Sel>
+              <Sel value={itemEditPopup.unit} onChange={v=>set({unit:v})}>{getUnits(data,itemEditPopup.unit).map(u=><option key={u} value={u}>{u}</option>)}</Sel>
             </div>
             <div>
               <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الحد الأدنى</label>

@@ -118,7 +118,10 @@ export function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,c
     :"<div class='brand'>CLARK</div>";
   pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><link href='"+fontUrl+"' rel='stylesheet'/><style>"
   +"@page{size:10cm 15cm;margin:0}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'"+fontFam+"',Arial,sans-serif;color:#000}"
-  +".pg{width:10cm;min-height:15cm;padding:3mm;display:flex;flex-direction:column}"
+  /* V16.58: Fixed page height + .pg-inner wrapper enables auto-fit scaling
+     when toggled fields cause overflow. Same pattern as renderLabelPages. */
+  +".pg{width:10cm;height:15cm;padding:3mm;display:flex;flex-direction:column;overflow:hidden;position:relative}"
+  +".pg-inner{display:flex;flex-direction:column;flex:1;transform-origin:top center;width:100%}"
   +".brand{text-align:center;font-size:11pt;font-weight:900;letter-spacing:3px;padding:1.5mm 0;border-bottom:2px solid #000}"
   +".top{display:flex;align-items:center;gap:3mm;padding:2mm 0;border-bottom:1px solid #999}"
   +".top canvas{flex-shrink:0}.top-info{flex:1;text-align:center}"
@@ -134,7 +137,7 @@ export function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,c
   +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
   +"</style></head><body>"
   +"<div class='pbar'><button onclick='window.close()'>↩</button><button class='pr' onclick='window.print()'>🖨</button></div>"
-  +"<div class='pg'>"
+  +"<div class='pg'><div class='pg-inner'>"
   +brandHtml
   +"<div class='top'>"
   +(showQr?"<canvas id='qr'></canvas>":"")
@@ -145,8 +148,118 @@ export function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,c
   +"<tr class='tot'><td colspan='2'>الاجمالي</td><td class='ct'>"+totalSeries+"</td><td class='qt' style='font-size:11pt'>"+totalQ+"</td></tr></tbody></table>"
   +(showMovements&&movRows?"<div class='sec'>سجل الحركات</div><table><thead><tr><th>التاريخ</th><th>النوع</th><th>التفاصيل</th><th>الكمية</th><th>بواسطة</th></tr></thead><tbody>"+movRows+"</tbody></table>":"")
   +"<div class='ft'><span>"+(showCreatedBy&&createdBy?"التعبئة: "+createdBy:"")+"</span><span>CLARK Factory Management</span></div>"
-  +"</div>"
-  +(showQr?"<script>QRCode.toCanvas(document.getElementById('qr'),'"+qrData.replace(/'/g,"\\'")+"',{width:120,margin:1},function(){});setTimeout(function(){window.print()},800)</"+"script>":"<script>setTimeout(function(){window.print()},400)</"+"script>")
+  +"</div></div>"
+  +"<script>(function(){"
+  +(showQr?"try{QRCode.toCanvas(document.getElementById('qr'),'"+qrData.replace(/'/g,"\\'")+"',{width:120,margin:1},function(){})}catch(e){}":"")
+  +"function autoFit(){document.querySelectorAll('.pg').forEach(function(pg){var inner=pg.querySelector('.pg-inner');if(!inner)return;var s=getComputedStyle(pg);var pad=(parseFloat(s.paddingTop)||0)+(parseFloat(s.paddingBottom)||0);var avail=pg.clientHeight-pad;var content=inner.scrollHeight;if(content>avail){var sc=(avail/content)*0.98;inner.style.transform='scale('+sc.toFixed(3)+')';inner.style.width=(100/sc).toFixed(2)+'%'}else{inner.style.transform='';inner.style.width='100%'}})}"
+  +"setTimeout(autoFit,300);setTimeout(autoFit,800);setTimeout(function(){window.print()},1000);"
+  +"})();</"+"script>"
+  +"</body></html>");
+  pw.document.close()}
+
+/* V16.57: Print thermal sales-delivery label (10×15 cm) — printed from the
+   sales screen distribution popup, one per customer row. Mirrors the structure
+   of printPkgLabel (brand row, info table, items table, totals box, QR) but
+   with customer-focused content (name, phone, address, delivered items, totals,
+   confirmation QR). Honors printSettings.salesDeliveryLabel for font / logo /
+   per-field toggles (phone, address, prices, itemsDesc, qr). 
+   
+   Args:
+     custName, custPhone, custAddr  - customer info (phone/addr may be hidden)
+     date                            - session date string
+     items[]                         - {modelNo, modelDesc, qty, price?, total?}
+     totals                          - {gross, discPct, discAmt, netAmt}
+     confirmUrl                      - optional URL encoded into the QR
+     cfg                             - data?.printSettings  (slot keyed by 'salesDeliveryLabel')
+     clarkLogoDataUrl                - CLARK_LOGO_PRINT */
+export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,totals,confirmUrl,cfg,clarkLogoDataUrl){
+  const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+  const sd=cfg&&cfg.salesDeliveryLabel?cfg.salesDeliveryLabel:(cfg||{});
+  const fontFam=sd.fontFamily||"Cairo";
+  const fontUrl=_GOOGLE_FONT_URLS_QR[fontFam]||_GOOGLE_FONT_URLS_QR.Cairo;
+  const showLogo=!!sd.showLogo;
+  const fields=sd.fields||{};
+  const showPhone=fields.phone?.show!==false;
+  const showAddress=fields.address?.show!==false;
+  const showPrices=fields.prices?.show!==false;
+  const showItemsDesc=fields.itemsDesc?.show!==false;
+  const showQr=fields.qr?.show!==false&&!!confirmUrl;
+  const totalQ=(items||[]).reduce((s,it)=>s+(Number(it.qty)||0),0);
+  const fmt=(n)=>Math.round(Number(n)||0).toLocaleString("en-US");
+  /* Items rows */
+  let itemRows="";(items||[]).forEach(it=>{
+    itemRows+="<tr><td class='mn'>"+(it.modelNo||"")+"</td>"
+      +(showItemsDesc?"<td class='ds'>"+(it.modelDesc||"")+"</td>":"")
+      +"<td class='qt'>"+(it.qty||0)+"</td>"
+      +(showPrices?"<td class='pr'>"+fmt(it.price)+"</td><td class='pr' style='font-weight:800'>"+fmt(it.total)+"</td>":"")
+      +"</tr>";
+  });
+  const colSpanForTotal=1+(showItemsDesc?1:0);
+  /* Brand row */
+  const brandHtml=showLogo&&clarkLogoDataUrl
+    ?"<div class='brand'><img src='"+clarkLogoDataUrl+"' alt='CLARK' style='height:9mm;max-width:55%;filter:brightness(0) saturate(100%);object-fit:contain'/></div>"
+    :"<div class='brand'>CLARK Factory</div>";
+  /* Customer info table — only enabled rows */
+  let custRows="<tr><td class='lbl'>التاريخ</td><td class='val'>"+date+"</td></tr>";
+  if(showPhone&&custPhone)custRows+="<tr><td class='lbl'>التليفون</td><td class='val'>"+custPhone+"</td></tr>";
+  if(showAddress&&custAddr)custRows+="<tr><td class='lbl'>العنوان</td><td class='val' style='font-size:7.5pt'>"+custAddr+"</td></tr>";
+  /* Totals box */
+  const t=totals||{};
+  const gross=Number(t.gross)||0;const discPct=Number(t.discPct)||0;const discAmt=Number(t.discAmt)||0;const netAmt=Number(t.netAmt)||gross;
+  const totalsBox=showPrices?"<div class='tbox'>"
+    +"<div class='trow'><span>الإجمالي</span><span>"+fmt(gross)+" ج.م</span></div>"
+    +(discPct>0?"<div class='trow' style='color:#EF4444'><span>خصم "+discPct+"%</span><span>- "+fmt(discAmt)+" ج.م</span></div>":"")
+    +"<div class='trow tnet'><span>الصافي</span><span>"+fmt(netAmt)+" ج.م</span></div>"
+    +"</div>":"";
+  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><link href='"+fontUrl+"' rel='stylesheet'/><style>"
+  +"@page{size:10cm 15cm;margin:0}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'"+fontFam+"',Arial,sans-serif;color:#000}"
+  /* V16.58: Fixed page height + .pg-inner for auto-fit (same as renderLabelPages). */
+  +".pg{width:10cm;height:15cm;padding:3mm;display:flex;flex-direction:column;overflow:hidden;position:relative}"
+  +".pg-inner{display:flex;flex-direction:column;flex:1;transform-origin:top center;width:100%}"
+  +".brand{text-align:center;font-size:11pt;font-weight:900;letter-spacing:3px;padding:1.5mm 0;border-bottom:2px solid #000;margin-bottom:1.5mm}"
+  +".chip{text-align:center;font-size:11pt;font-weight:800;border:2px solid #000;display:block;width:fit-content;padding:1mm 5mm;border-radius:2mm;margin:0 auto 1.5mm}"
+  +".cust{text-align:center;padding:1.5mm;border:2px solid #000;border-radius:2mm;margin-bottom:1.5mm}"
+  +".cust .lab{font-size:8pt;font-weight:700;color:#555}.cust .nm{font-size:14pt;font-weight:900}"
+  +".info{width:100%;border-collapse:collapse;margin-bottom:1.5mm}.info td{border:1px solid #000;padding:1mm 2mm;font-size:8.5pt}.info .lbl{font-weight:800;width:30%}.info .val{font-weight:700}"
+  +".sec{font-size:7pt;font-weight:800;color:#475569;margin:1.5mm 0 1mm}"
+  +"table.it{width:100%;border-collapse:collapse}table.it th{background:#E2E8F0;font-weight:800;font-size:7pt;padding:1mm 1.5mm;border:1px solid #94A3B8;text-align:right}"
+  +"table.it td{padding:1mm 1.5mm;border:1px solid #CBD5E1;font-size:8pt}.it .mn{font-weight:800;font-size:9pt}.it .ds{font-size:7pt;color:#444}.it .qt{text-align:center;font-weight:800;font-size:10pt;color:#0EA5E9}.it .pr{text-align:center;font-size:8pt}"
+  +".tbox{border:2px solid #000;border-radius:2mm;padding:1.5mm 2mm;margin-bottom:1.5mm;font-size:9pt}"
+  +".trow{display:flex;justify-content:space-between;font-weight:700;line-height:1.5}"
+  +".tnet{border-top:1px solid #000;padding-top:1mm;margin-top:1mm;font-weight:900;font-size:11pt;color:#059669}"
+  +".qrbox{display:flex;align-items:flex-end;justify-content:space-between;margin-top:auto;padding-top:2mm;gap:2mm}"
+  +".qrbox .qrc{text-align:center;padding:1mm;border:2px solid #000;border-radius:2mm}.qrbox .qrc .lab{font-size:6pt;font-weight:700;margin-top:0.5mm}"
+  +".ft{text-align:center;font-size:7pt;color:#555;padding-top:1mm;border-top:1px dashed #000;margin-top:1.5mm}"
+  +".pbar{position:sticky;top:0;background:#fff;padding:4px;display:none;justify-content:center;gap:6px;border-bottom:2px solid #ccc}"
+  +".pbar button{padding:5px 14px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'"+fontFam+"';font-size:11px;font-weight:700;background:#fff}.pbar .pr-btn{background:#000;color:#fff}"
+  +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
+  +"</style></head><body>"
+  +"<div class='pbar'><button onclick='window.close()'>↩</button><button class='pr-btn' onclick='window.print()'>🖨</button></div>"
+  +"<div class='pg'><div class='pg-inner'>"
+  +brandHtml
+  +"<div class='chip'>🚚 إذن تسليم</div>"
+  +"<div class='cust'><div class='lab'>العميل</div><div class='nm'>"+(custName||"—")+"</div></div>"
+  +"<table class='info'><tbody>"+custRows+"</tbody></table>"
+  +"<div class='sec'>الأصناف</div>"
+  +"<table class='it'><thead><tr><th>الموديل</th>"
+  +(showItemsDesc?"<th>الوصف</th>":"")
+  +"<th>الكمية</th>"
+  +(showPrices?"<th>السعر</th><th>الإجمالي</th>":"")
+  +"</tr></thead><tbody>"+itemRows
+  +"<tr style='background:#EFF6FF'><td colspan='"+colSpanForTotal+"' style='font-weight:800'>الإجمالي</td><td class='qt' style='font-size:11pt'>"+totalQ+"</td>"
+  +(showPrices?"<td colspan='2' class='pr' style='font-weight:900;color:#059669'>"+fmt(netAmt)+" ج.م</td>":"")
+  +"</tr></tbody></table>"
+  +totalsBox
+  +"<div class='qrbox'>"
+  +(showQr?"<div class='qrc'><canvas id='qr'></canvas><div class='lab'>📱 امسح للتأكيد</div></div>":"<div></div>")
+  +"<div style='flex:1'></div></div>"
+  +"<div class='ft'>"+(custName||"")+" | "+totalQ+" قطعة | "+date+"</div>"
+  +"</div></div>"
+  +"<script>(function(){"
+  +(showQr?"try{QRCode.toCanvas(document.getElementById('qr'),'"+confirmUrl.replace(/'/g,"\\'")+"',{width:120,margin:1,errorCorrectionLevel:'M'},function(){})}catch(e){}":"")
+  +"function autoFit(){document.querySelectorAll('.pg').forEach(function(pg){var inner=pg.querySelector('.pg-inner');if(!inner)return;var s=getComputedStyle(pg);var pad=(parseFloat(s.paddingTop)||0)+(parseFloat(s.paddingBottom)||0);var avail=pg.clientHeight-pad;var content=inner.scrollHeight;if(content>avail){var sc=(avail/content)*0.98;inner.style.transform='scale('+sc.toFixed(3)+')';inner.style.width=(100/sc).toFixed(2)+'%'}else{inner.style.transform='';inner.style.width='100%'}})}"
+  +"setTimeout(autoFit,300);setTimeout(autoFit,800);setTimeout(function(){window.print()},1000);"
+  +"})();</"+"script>"
   +"</body></html>");
   pw.document.close()}
 
@@ -238,7 +351,11 @@ export function renderLabelPages(d,n,cfg,clarkLogoDataUrl,confirmUrl){
   const showQr=fields.qrConfirm?.show!==false&&!!confirmUrl;
   pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><link href='"+fontUrl+"' rel='stylesheet'/><title>"+d.title+"</title><style>"
   +"@page{size:10cm 15cm;margin:0}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'"+fontFam+"',Arial,sans-serif;color:#000}"
-  +".pg{width:10cm;min-height:15cm;padding:4mm;display:flex;flex-direction:column;page-break-after:always;overflow:hidden}.pg:last-child{page-break-after:auto}"
+  /* V16.58: Page is FIXED 10×15cm (height not min-height) so .pg-inner can be
+     measured against a hard ceiling. Auto-fit JS later transforms .pg-inner
+     down by a scale factor when its scrollHeight exceeds the page height. */
+  +".pg{width:10cm;height:15cm;padding:4mm;display:flex;flex-direction:column;page-break-after:always;overflow:hidden;position:relative}.pg:last-child{page-break-after:auto}"
+  +".pg-inner{display:flex;flex-direction:column;flex:1;transform-origin:top center;width:100%}"
   +".brand{text-align:center;padding-bottom:1.5mm;border-bottom:2px solid #000;margin-bottom:2mm}"
   +".brand-img{height:8mm;max-width:60%;filter:brightness(0) saturate(100%);display:inline-block;object-fit:contain;vertical-align:middle}"
   +".brand-txt{font-size:11pt;font-weight:800;letter-spacing:2px;color:#000}"
@@ -265,7 +382,9 @@ export function renderLabelPages(d,n,cfg,clarkLogoDataUrl,confirmUrl){
     ...(showCutQty?[["القص",String(d.cutQty||"")]]:[])
   ];
   const tableHtml="<table>"+dataRows.map(([k,v])=>"<tr><td class='k'>"+k+"</td><td>"+v+"</td></tr>").join("")+"</table>";
-  for(let i=1;i<=n;i++){h+="<div class='pg'>"+brandHtml+"<div class='tp'>"+d.arrow+" "+d.title+"</div>"
+  /* V16.58: Each page wraps its content in `.pg-inner` so the auto-fit script
+     below can scale just the content while the page chrome stays put. */
+  for(let i=1;i<=n;i++){h+="<div class='pg'><div class='pg-inner'>"+brandHtml+"<div class='tp'>"+d.arrow+" "+d.title+"</div>"
     +"<div class='big'><div class='pc'>"+d.piece+"</div><div class='qt'>"+d.qty+" قطعة</div></div>"
     +tableHtml
     +"<div class='mv'><div class='mvr'><span>↗ تسليم</span><span>"+d.delQty+"</span><span>"+d.delDate+"</span></div>"
@@ -274,8 +393,24 @@ export function renderLabelPages(d,n,cfg,clarkLogoDataUrl,confirmUrl){
     +(showQr?"<div class='qrbox'><canvas class='conf-qr' data-url='"+confirmUrl.replace(/'/g,"\\'")+"'></canvas><div class='qrlbl'>📱 امسح للتأكيد</div></div>":"<div></div>")
     +(n>1?"<div class='bags'>"+i+"/"+n+"</div>":"<div></div>")
     +"</div>"
-    +"<div class='foot'>"+d.modelNo+" | "+d.piece+" | "+d.wsName+"</div></div>"}
-  h+="<script>document.querySelectorAll('.conf-qr').forEach(function(c){QRCode.toCanvas(c,c.dataset.url,{width:120,margin:1,errorCorrectionLevel:'M'},function(){})});setTimeout(function(){window.print()},800)</"+"script>";
+    +"<div class='foot'>"+d.modelNo+" | "+d.piece+" | "+d.wsName+"</div></div></div>"}
+  /* V16.58: Auto-fit script — runs after QR canvases render. For each page,
+     compares the inner content's scrollHeight against the available height
+     (page height minus padding). If overflowing, applies a transform:scale()
+     proportional to the overflow ratio so all the toggled content fits in
+     10×15cm regardless of which fields/logo/QR are enabled. The 0.98 multiplier
+     leaves a tiny visual margin so the printed edge doesn't touch the paper.
+     Two passes (QR-then-fit) are needed because QR canvas dims affect height. */
+  h+="<script>(function(){"
+    +"document.querySelectorAll('.conf-qr').forEach(function(c){try{QRCode.toCanvas(c,c.dataset.url,{width:120,margin:1,errorCorrectionLevel:'M'},function(){})}catch(e){}});"
+    +"function autoFit(){document.querySelectorAll('.pg').forEach(function(pg){var inner=pg.querySelector('.pg-inner');if(!inner)return;"
+    +"var pgStyle=getComputedStyle(pg);var padTop=parseFloat(pgStyle.paddingTop)||0;var padBot=parseFloat(pgStyle.paddingBottom)||0;"
+    +"var available=pg.clientHeight-padTop-padBot;var content=inner.scrollHeight;"
+    +"if(content>available){var scale=(available/content)*0.98;inner.style.transform='scale('+scale.toFixed(3)+')';inner.style.width=(100/scale).toFixed(2)+'%';}"
+    +"else{inner.style.transform='';inner.style.width='100%';}});}"
+    +"setTimeout(autoFit,300);setTimeout(autoFit,800);"  /* twice: once for fonts, once after QR/img */
+    +"setTimeout(function(){window.print()},1000);"
+    +"})();</"+"script>";
   pw.document.write(h+"</body></html>");pw.document.close();
   if(window.innerWidth>1024)setTimeout(()=>{try{pw.focus();pw.print()}catch(e){}},500)
 }

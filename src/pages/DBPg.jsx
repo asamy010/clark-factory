@@ -14,6 +14,7 @@ import { gIcon, setF, normalizePhone, parseSizes } from "../utils/format.js";
 import { compressImage, compressImg43 } from "../utils/image.js";
 import { calcWsRating, getWsPartnershipTier, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
 import { ask, askInput, showToast } from "../utils/popups.js";
+import { getUnits } from "../utils/units.js";
 
 export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,onSubUsed,renameInOrders}){
   const[sub,setSub]=useState(initialSub||"fab");
@@ -150,7 +151,7 @@ export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,o
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         <div><label style={{fontSize:FS-2,color:T.textSec}}>اسم القماش</label><Inp value={ff.name} onChange={v=>setFf({...ff,name:v})}/></div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-          <div><label style={{fontSize:FS-2,color:T.textSec}}>الوحدة</label><Sel value={ff.unit} onChange={v=>setFf({...ff,unit:v})}><option value="كيلو">كيلو</option><option value="متر">متر</option><option value="يارد">يارد</option></Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec}}>الوحدة</label><Sel value={ff.unit} onChange={v=>setFf({...ff,unit:v})}>{getUnits(data,ff.unit).map(u=><option key={u} value={u}>{u}</option>)}</Sel></div>
           <div><label style={{fontSize:FS-2,color:T.textSec}}>السعر</label><Inp value={ff.price} onChange={v=>setFf({...ff,price:v})} type="number"/></div>
         </div>
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setFf({name:"",unit:"كيلو",price:"",_eid:null,_show:false})}>الغاء</Btn><Btn primary onClick={()=>{saveFab();setFf({name:"",unit:"كيلو",price:"",_eid:null,_show:false})}} title="حفظ التعديلات">💾 حفظ</Btn></div>
@@ -163,7 +164,7 @@ export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,o
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         <div><label style={{fontSize:FS-2,color:T.textSec}}>الوصف</label><Inp value={af.name} onChange={v=>setAf({...af,name:v})}/></div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-          <div><label style={{fontSize:FS-2,color:T.textSec}}>الوحدة</label><Sel value={af.unit} onChange={v=>setAf({...af,unit:v})}><option value="قطعة">قطعة</option><option value="متر">متر</option></Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec}}>الوحدة</label><Sel value={af.unit} onChange={v=>setAf({...af,unit:v})}>{getUnits(data,af.unit).map(u=><option key={u} value={u}>{u}</option>)}</Sel></div>
           <div><label style={{fontSize:FS-2,color:T.textSec}}>السعر</label><Inp value={af.price} onChange={v=>setAf({...af,price:v})} type="number"/></div>
         </div>
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setAf({name:"",unit:"قطعة",price:"",_eid:null,_show:false})}>الغاء</Btn><Btn primary onClick={()=>{saveAcc();setAf({name:"",unit:"قطعة",price:"",_eid:null,_show:false})}} title="حفظ التعديلات">💾 حفظ</Btn></div>
