@@ -137,12 +137,47 @@ export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,B
     showToast("↩️ تم إلغاء التعديلات");
   };
   const updateDraft=(fn)=>setDraft(prev=>{const next={...prev};fn(next);return next});
-  const removeOut=(c)=>updateDraft(d=>{d.outCategories=d.outCategories.filter(x=>x!==c)});
-  const removeIn=(c)=>updateDraft(d=>{d.inCategories=d.inCategories.filter(x=>x!==c)});
-  const removeCheck=(c)=>updateDraft(d=>{d.checkCategories=d.checkCategories.filter(x=>x!==c)});
-  const addOut=()=>{const v=newOutCat.trim();if(!v)return;if(draft.outCategories.includes(v)){showToast("⚠️ البند موجود بالفعل");return}updateDraft(d=>{d.outCategories=[...d.outCategories,v]});setNewOutCat("")};
-  const addIn=()=>{const v=newInCat.trim();if(!v)return;if(draft.inCategories.includes(v)){showToast("⚠️ البند موجود بالفعل");return}updateDraft(d=>{d.inCategories=[...d.inCategories,v]});setNewInCat("")};
-  const addCheck=()=>{const v=newCheckCat.trim();if(!v)return;if(draft.checkCategories.includes(v)){showToast("⚠️ البند موجود بالفعل");return}updateDraft(d=>{d.checkCategories=[...d.checkCategories,v]});setNewCheckCat("")};
+  /* V16.64: add/remove of category lists now persists to config IMMEDIATELY
+     (not buffered in draft). Reason: users add categories one at a time and
+     don't think "I need to save this" — they expect the add to stick. With
+     the old draft-only approach, leaving the screen lost the additions and
+     they'd come back to find their list reset. Opening balance + autoSeason
+     + lock settings stay as draft because those genuinely benefit from a
+     "review before save" workflow. */
+  const persistCats=(fn)=>upConfig(d=>{
+    if(!d.treasurySettings)d.treasurySettings={};
+    fn(d.treasurySettings);
+  });
+  const removeOut=(c)=>{
+    const newList=draft.outCategories.filter(x=>x!==c);
+    updateDraft(d=>{d.outCategories=newList});
+    persistCats(ts=>{ts.outCategories=newList});
+  };
+  const removeIn=(c)=>{
+    const newList=draft.inCategories.filter(x=>x!==c);
+    updateDraft(d=>{d.inCategories=newList});
+    persistCats(ts=>{ts.inCategories=newList});
+  };
+  const removeCheck=(c)=>{
+    const newList=draft.checkCategories.filter(x=>x!==c);
+    updateDraft(d=>{d.checkCategories=newList});
+    persistCats(ts=>{ts.checkCategories=newList});
+  };
+  const addOut=()=>{const v=newOutCat.trim();if(!v)return;if(draft.outCategories.includes(v)){showToast("⚠️ البند موجود بالفعل");return}
+    const newList=[...draft.outCategories,v];
+    updateDraft(d=>{d.outCategories=newList});
+    persistCats(ts=>{ts.outCategories=newList});
+    setNewOutCat("");showToast("✓ تم الإضافة")};
+  const addIn=()=>{const v=newInCat.trim();if(!v)return;if(draft.inCategories.includes(v)){showToast("⚠️ البند موجود بالفعل");return}
+    const newList=[...draft.inCategories,v];
+    updateDraft(d=>{d.inCategories=newList});
+    persistCats(ts=>{ts.inCategories=newList});
+    setNewInCat("");showToast("✓ تم الإضافة")};
+  const addCheck=()=>{const v=newCheckCat.trim();if(!v)return;if(draft.checkCategories.includes(v)){showToast("⚠️ البند موجود بالفعل");return}
+    const newList=[...draft.checkCategories,v];
+    updateDraft(d=>{d.checkCategories=newList});
+    persistCats(ts=>{ts.checkCategories=newList});
+    setNewCheckCat("");showToast("✓ تم الإضافة")};
 
   return<Card title={"🏦 إعدادات الخزنة"+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
     <div>

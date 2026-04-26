@@ -15,6 +15,7 @@ import { compressImage, compressImg43 } from "../utils/image.js";
 import { calcWsRating, getWsPartnershipTier, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
 import { ask, askInput, showToast } from "../utils/popups.js";
 import { getUnits } from "../utils/units.js";
+import { getDeleteBlocker } from "../utils/dataIntegrity.js";
 
 export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,onSubUsed,renameInOrders}){
   const[sub,setSub]=useState(initialSub||"fab");
@@ -289,7 +290,9 @@ export function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrder
     if(oldName)renameInOrders("ws",oldName,normalized.name.trim(),editId);
     setShowForm(false);setEditId(null)};
   const del=(id)=>safeDelete("workshops",id,"ورشة");
-  const wsBlock=(ws)=>{const hasOrders=(orders||[]).some(o=>(o.workshopDeliveries||[]).some(wd=>wd.wsName===ws.name));if(hasOrders)return"يوجد تسليمات مرتبطة بهذه الورشة";const hasPay=(wsPayments||[]).some(p=>p.wsName===ws.name);if(hasPay)return"يوجد دفعات مرتبطة بهذه الورشة";return null};
+  /* V16.64: Use central dataIntegrity check — adds treasury transactions to
+     the existing orders+payments check so the user gets a fuller picture. */
+  const wsBlock=(ws)=>getDeleteBlocker(data,"workshop",ws.id);
   const[wsSearch,setWsSearch]=useState("");
   const filteredWs=wsSearch.trim()?(workshops||[]).filter(ws=>(ws.name||"").includes(wsSearch)||(ws.address||"").includes(wsSearch)||(ws.phone||"").includes(wsSearch)||(ws.owner||"").includes(wsSearch)):(workshops||[]);
 

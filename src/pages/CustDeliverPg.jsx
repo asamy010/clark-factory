@@ -15,6 +15,7 @@ import { ask, askForm, showToast } from "../utils/popups.js";
 import { printPage, printPkgLabel, printSalesDeliveryLabel, openPrintWindow } from "../utils/print.js";
 import { calcOrder, getConfirmedStock, recomputeStatus } from "../utils/orders.js";
 import { analyzeCustomer, fmtMonth } from "../utils/customerAnalytics.js";
+import { getDeleteBlocker } from "../utils/dataIntegrity.js";
 import { auth } from "../firebase";
 import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../components/ui.jsx";
 import { T, TH, TD, TDB } from "../theme.js";
@@ -1625,7 +1626,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <Btn small onClick={()=>setCustSalesLog(c.id)} style={{background:"#059669"+"12",color:"#059669",border:"1px solid #05966930"}} title="سجل مبيعات">📋</Btn>
               <Btn small onClick={()=>{setCName(c.name);setCPhone(c.phone);setCAddr(c.address||"");setCType(c.type||"مكتب");setCDiscount(Number(c.discount)||0);setCEditId(c.id);setShowCustForm(true)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
               <Btn small onClick={()=>showCustQR(c)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="عرض كود QR">QR</Btn>
-              <DelBtn onConfirm={()=>safeDelete("customers",c.id,"عميل")} blocked={(()=>{if(total>0)return"لديه تسليمات";const inSess=(config.custDeliverySessions||[]).some(s=>(s.custIds||[]).includes(c.id));if(inSess)return"مرتبط بتوزيعة";const hasRet=orders.some(o=>(o.customerReturns||[]).some(r=>r.custId===c.id));if(hasRet)return"لديه مرتجعات";return null})()}/>
+              <DelBtn onConfirm={()=>safeDelete("customers",c.id,"عميل")} blocked={getDeleteBlocker(data,"customer",c.id)}/>
             </div></td>}</tr>})}
         </tbody></table></div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>{custFilter?"لا توجد نتائج":"سجّل عملاء أولاً"}</div>})()}
       </div>

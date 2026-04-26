@@ -14,6 +14,7 @@ import { Btn, Inp, Sel, SearchSel, Card, useDebounced } from "../components/ui.j
 import { T, TH, TD } from "../theme.js";
 import { openPrintWindow } from "../utils/print.js";
 import { getUnits } from "../utils/units.js";
+import { formatBlockerMessage, getDeleteBlocker } from "../utils/dataIntegrity.js";
 
 export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   const userName=user?.displayName||(user?.email||"").split("@")[0];
@@ -164,9 +165,13 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
     setSupForm(null);
   };
   const deleteSupplier=async(supplier)=>{
-    const st=supplierStats[supplier.id]||{};
-    if((st.receiptCount||0)>0||Math.abs(st.balance||0)>0.01){
-      await tell("لا يمكن الحذف","هذا المورد عليه فواتير أو رصيد — لا يمكن حذفه\n\nلحذفه يجب تصفية الرصيد أولاً",{type:"warning"});
+    /* V16.64: Comprehensive reference check via dataIntegrity.js — replaces the
+       previous receipt-count-only check. Now also blocks if the supplier is
+       linked to orders, supplier payments, treasury transactions, checks, or
+       is a default supplier on inventory items. */
+    const blocker=formatBlockerMessage(data,"supplier",supplier.id,supplier.name);
+    if(blocker){
+      await tell("لا يمكن حذف المورد",blocker,{type:"warning"});
       return;
     }
     if(!await ask("حذف المورد","هل أنت متأكد من حذف المورد:\n• "+supplier.name+"\n\nلا يمكن التراجع عن هذه العملية",{danger:true,confirmText:"حذف"}))return;
