@@ -19,7 +19,6 @@ import { formatBlockerMessage } from "../utils/dataIntegrity.js";
 /* V15.25: Receipt queue — persistent storage for salary confirmation scans */
 import { addReceipt, removeReceipt, getPendingForWeek, getReadyForRetry, markAsFailed, getPendingCount, forceRetryAll } from "../utils/receiptQueue.js";
 import { Btn, Inp, Sel, Card, QRImg, QRScanner, SearchSel, useDebounced } from "../components/ui.jsx";
-import { CollectionHealthBar } from "../components/CollectionHealthBar.jsx";
 import { T, TH, TD, TDB } from "../theme.js";
 import { db } from "../firebase";
 import { doc, setDoc, getDoc } from "firebase/firestore";
@@ -2778,9 +2777,6 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   const cwTotalSalary=activeEmps.reduce((s,e)=>s+(e.weeklySalary||0),0);
 
   return<div>
-    {/* V16.75: Collection health bars — أسابيع المرتبات + سجل HR */}
-    <CollectionHealthBar collection="hrWeeksDocs" label="حجم أسابيع المرتبات" icon="📅" mode="partitioned"/>
-    <CollectionHealthBar collection="hrLogDays" label="حجم سجل HR" icon="📋" mode="split"/>
     <div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflow:"hidden",border:"1px solid "+T.brd}}>
       {[
         {k:"weeks",l:"📅 الأسابيع",c:hrWeeks.length,show:canViewWeeks},

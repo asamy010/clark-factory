@@ -1148,6 +1148,18 @@ export default function App(){
   const upConfigTx=useCallback(async(fn)=>{
     const ref=doc(db,"factory","config");
     let lastErr=null;
+    /* V16.75 CRITICAL SAFETY: refuse to write if split/partitioned data hasn't loaded yet.
+       Otherwise we'd inject empty arrays into config and lose all server data. */
+    if(configDoc&&configDoc._splitDaysV1674Done&&!splitLoaded){
+      console.error("[V16.75 SAFETY] Refusing upConfig — splitData not loaded yet");
+      showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
+      return;
+    }
+    if(configDoc&&configDoc._partitionedV1675Done&&!partitionedLoaded){
+      console.error("[V16.75 SAFETY] Refusing upConfig — partitionedData not loaded yet");
+      showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
+      return;
+    }
     /* V16.74: snapshot of split arrays BEFORE the fn runs */
     const splitBefore={
       treasury:splitDataRef.current.treasury||[],
@@ -1276,8 +1288,19 @@ export default function App(){
       console.error("Fallback failed:",fallbackErr);
       showToast("⚠️ تعذر الحفظ — تأكد من الاتصال بالإنترنت: "+((fallbackErr.message||String(fallbackErr)).substring(0,80)));
     }
-  },[]);
+  },[configDoc,splitLoaded,partitionedLoaded]);
   const upConfig=useCallback(fn=>{
+    /* V16.75 SAFETY: refuse if data not loaded */
+    if(configDoc&&configDoc._splitDaysV1674Done&&!splitLoaded){
+      console.error("[V16.75 SAFETY] Refusing upConfig — splitData not loaded yet");
+      showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
+      return;
+    }
+    if(configDoc&&configDoc._partitionedV1675Done&&!partitionedLoaded){
+      console.error("[V16.75 SAFETY] Refusing upConfig — partitionedData not loaded yet");
+      showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
+      return;
+    }
     /* V16.74 + V16.75: optimistic update with split + partitioned awareness */
     const sb={
       treasury:splitDataRef.current.treasury||[],
@@ -1323,7 +1346,7 @@ export default function App(){
       return stripped;
     }catch(e){return prev}});
     upConfigTx(fn);
-  },[upConfigTx]);
+  },[upConfigTx,configDoc,splitLoaded,partitionedLoaded]);
 
   const upSalesTx=useCallback(async(fn)=>{
     const ref=doc(db,"factory","sales");

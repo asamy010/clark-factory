@@ -24,7 +24,7 @@
    ════════════════════════════════════════════════════════════════════════ */
 
 import { 
-  collection, doc, getDocs, setDoc, deleteDoc, writeBatch
+  collection, doc, getDoc, getDocs, setDoc, deleteDoc, writeBatch
 } from "firebase/firestore";
 import { db } from "../firebase.js";
 
@@ -97,60 +97,126 @@ export async function readAllSplitCollections() {
  * بياخد old و new arrays، بيحدد إيه اللي اتغير، وبيكتب الـday docs المتأثرة.
  * النمط: لو حصل أي تغيير في يوم معيّن، نعيد كتابة الـdoc بتاع اليوم بالكامل.
  */
+/**
+ * V16.75 CRITICAL FIX: read existing day doc first, then merge.
+ * 
+ * Why: previously this function overwrote the day document with newEntries
+ * (computed from local splitDataRef + fn changes). If splitData was incomplete
+ * (listener still firing, race condition, multi-tab), the local snapshot was
+ * a SUBSET of the actual server state. Writing it back wiped real entries.
+ * 
+ * Now the strategy is delta-based: 
+ * 1. Compute which entry IDs were ADDED/REMOVED in the local fn diff
+ * 2. Read the day document from server
+ * 3. Apply ADD/REMOVE to the server's actual entries (not local)
+ * 4. Write merged result back
+ */
 export async function syncSplitCollection(collectionName, oldArr, newArr) {
   if (!Array.isArray(newArr)) newArr = [];
   if (!Array.isArray(oldArr)) oldArr = [];
   
-  /* group entries بـday */
-  const groupByDay = (arr) => {
-    const m = new Map();
-    arr.forEach(e => {
-      const d = _getEntryDate(e);
-      if (!m.has(d)) m.set(d, []);
-      m.get(d).push(e);
-    });
-    return m;
-  };
+  /* index entries by id for fast diff */
+  const oldById = new Map();
+  oldArr.forEach(e => { if (e && e.id) oldById.set(String(e.id), e); });
+  const newById = new Map();
+  newArr.forEach(e => { if (e && e.id) newById.set(String(e.id), e); });
   
-  const newByDay = groupByDay(newArr);
-  const oldByDay = groupByDay(oldArr);
-  const allDays = new Set([...newByDay.keys(), ...oldByDay.keys()]);
+  /* Compute deltas */
+  const addedOrModified = [];
+  const removedIds = new Set();
   
-  const batch = writeBatch(db);
-  let writeCount = 0;
+  for (const [id, newEntry] of newById) {
+    const oldEntry = oldById.get(id);
+    if (!oldEntry) {
+      addedOrModified.push(newEntry);
+    } else if (JSON.stringify(oldEntry) !== JSON.stringify(newEntry)) {
+      addedOrModified.push(newEntry);
+    }
+  }
+  for (const id of oldById.keys()) {
+    if (!newById.has(id)) removedIds.add(id);
+  }
   
+  /* No changes at all? */
+  if (addedOrModified.length === 0 && removedIds.size === 0) return 0;
+  
+  /* Group adds/mods by day */
+  const addsByDay = new Map();
+  for (const entry of addedOrModified) {
+    const date = _getEntryDate(entry);
+    if (!addsByDay.has(date)) addsByDay.set(date, []);
+    addsByDay.get(date).push(entry);
+  }
+  
+  /* Group removes by day — need to find which day each removed id belonged to.
+     We use oldById for that since it has the full entry. */
+  const removesByDay = new Map();
+  for (const id of removedIds) {
+    const oldEntry = oldById.get(id);
+    if (!oldEntry) continue;
+    const date = _getEntryDate(oldEntry);
+    if (!removesByDay.has(date)) removesByDay.set(date, new Set());
+    removesByDay.get(date).add(id);
+  }
+  
+  const allDays = new Set([...addsByDay.keys(), ...removesByDay.keys()]);
+  
+  /* For each affected day: read current server state, apply delta, write back */
+  const writes = [];
   for (const date of allDays) {
-    const newEntries = newByDay.get(date) || [];
-    const oldEntries = oldByDay.get(date) || [];
-    
-    /* skip لو ما تغيرش شيء */
-    if (oldEntries.length === newEntries.length &&
-        JSON.stringify(oldEntries) === JSON.stringify(newEntries)) {
-      continue;
-    }
-    
-    const dayRef = doc(db, collectionName, date);
-    
-    if (newEntries.length === 0) {
-      batch.delete(dayRef);
-    } else {
-      batch.set(dayRef, { 
-        entries: newEntries,
-        count: newEntries.length,
-        updatedAt: new Date().toISOString(),
-      });
-    }
-    writeCount++;
+    writes.push((async () => {
+      const dayRef = doc(db, collectionName, date);
+      
+      /* Read current server state for this day */
+      let serverEntries = [];
+      try {
+        const snap = await getDoc(dayRef);
+        if (snap.exists()) {
+          const data = snap.data();
+          serverEntries = Array.isArray(data?.entries) ? data.entries : [];
+        }
+      } catch (e) {
+        console.warn(`[splitCollections] Could not read ${collectionName}/${date}, treating as empty:`, e);
+      }
+      
+      /* Apply removes */
+      const removeIds = removesByDay.get(date) || new Set();
+      let merged = removeIds.size > 0
+        ? serverEntries.filter(e => !removeIds.has(String(e?.id || "")))
+        : [...serverEntries];
+      
+      /* Apply adds/modifications: for each new entry, replace if exists else prepend (treasury/audit/hrLog use unshift pattern) */
+      const addList = addsByDay.get(date) || [];
+      for (const newEntry of addList) {
+        const newId = String(newEntry?.id || "");
+        if (!newId) {
+          /* No id — just prepend (defensive) */
+          merged.unshift(newEntry);
+          continue;
+        }
+        const existingIdx = merged.findIndex(e => String(e?.id || "") === newId);
+        if (existingIdx >= 0) {
+          merged[existingIdx] = newEntry;  /* update in place */
+        } else {
+          merged.unshift(newEntry);  /* prepend new entry */
+        }
+      }
+      
+      /* Write the merged result */
+      if (merged.length === 0) {
+        await deleteDoc(dayRef);
+      } else {
+        await setDoc(dayRef, {
+          entries: merged,
+          count: merged.length,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    })());
   }
   
-  if (writeCount === 0) return 0;
-  
-  if (writeCount > 500) {
-    console.warn(`[splitCollections] ${writeCount} writes exceeds Firestore batch limit (500). Some may fail.`);
-  }
-  
-  await batch.commit();
-  return writeCount;
+  await Promise.all(writes);
+  return writes.length;
 }
 
 /* يحذف الـ3 arrays المقسّمة من config object قبل الكتابة لـfactory/config */

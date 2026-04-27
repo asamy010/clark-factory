@@ -74,6 +74,14 @@ export async function readAllPartitionedCollections() {
 /**
  * بياخد old & new arrays، بيحدد أي objects اتغيرت/اتضافت/اتحذفت،
  * ويكتب الـdocuments المتأثرة فقط.
+ *
+ * V16.75 CRITICAL FIX: only delete if the deletion is INTENTIONAL.
+ * 
+ * Why: previously if oldArr was incomplete (race condition, multi-tab), the function
+ * could not distinguish "intentionally deleted" from "missing because state was incomplete".
+ * 
+ * Now: writes are ALWAYS safe (just upsert). Deletes happen only if oldArr explicitly
+ * had the id AND newArr explicitly removed it. If oldArr is empty/undefined, NO deletes.
  */
 export async function syncPartitionedCollection(collectionName, oldArr, newArr) {
   if (!Array.isArray(newArr)) newArr = [];
@@ -85,42 +93,30 @@ export async function syncPartitionedCollection(collectionName, oldArr, newArr) 
   const newById = new Map();
   newArr.forEach(o => { if (o && o.id) newById.set(String(o.id), o); });
   
-  const allIds = new Set([...oldById.keys(), ...newById.keys()]);
+  const writes = [];
   
-  const batch = writeBatch(db);
-  let writeCount = 0;
+  /* SAFETY: only consider deletions if oldArr was non-empty.
+     Empty oldArr usually means we never loaded the data — never delete in that case. */
+  if (oldById.size > 0) {
+    for (const id of oldById.keys()) {
+      if (!newById.has(id)) {
+        /* explicit delete */
+        writes.push(deleteDoc(doc(db, collectionName, id)));
+      }
+    }
+  }
   
-  for (const id of allIds) {
+  /* writes: add or modify */
+  for (const [id, newObj] of newById) {
     const oldObj = oldById.get(id);
-    const newObj = newById.get(id);
-    
-    /* deleted */
-    if (oldObj && !newObj) {
-      batch.delete(doc(db, collectionName, id));
-      writeCount++;
-      continue;
-    }
-    
-    /* added or modified */
-    if (newObj) {
-      /* skip لو نفس الشيء بالظبط */
-      if (oldObj && JSON.stringify(oldObj) === JSON.stringify(newObj)) continue;
-      
-      batch.set(doc(db, collectionName, id), newObj);
-      writeCount++;
-    }
+    if (oldObj && JSON.stringify(oldObj) === JSON.stringify(newObj)) continue;
+    writes.push(setDoc(doc(db, collectionName, id), newObj));
   }
   
-  if (writeCount === 0) return 0;
+  if (writes.length === 0) return 0;
   
-  if (writeCount > 500) {
-    /* نقسم على عدة batches */
-    console.warn(`[partitioned] ${writeCount} writes, batching into chunks of 500`);
-    /* في الواقع لو وصلنا لده عند مصنع، ده غير منطقي — لكن نتعامل معه */
-  }
-  
-  await batch.commit();
-  return writeCount;
+  await Promise.all(writes);
+  return writes.length;
 }
 
 /* يحذف الـpartitioned arrays من config object قبل الكتابة لـfactory/config */

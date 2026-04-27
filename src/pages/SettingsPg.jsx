@@ -22,6 +22,7 @@ import { openPrintWindow } from "../utils/print.js";
 import { getDeviceInfo, getDeviceId, getDeviceNickname, setDeviceNickname, getCachedIpInfo } from "../utils/device.js";
 import { analyzeBudgets, getDocTotals, getBudgetSummary, getTopFeatures, fmt as fmtSize } from "../utils/sizeBudget.js";
 import { PrintTemplatesEditor } from "../components/PrintTemplatesEditor.jsx";
+import { CollectionHealthBar } from "../components/CollectionHealthBar.jsx";
 import { StockPg } from "./StockPg.jsx";
 
 export function PoMigConfirm({onConfirm,onCancel,T,FS}){
@@ -2428,6 +2429,16 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {activeTab==="general" && <>
     {/* V16.75: Storage notices — رسائل التخزين بدلاً من toasts للمستخدمين */}
     <StorageNoticesPanel/>
+    {/* V16.75: Quick health overview — الـbars اللي اتشالت من الشاشات (Treasury, HR, Audit) */}
+    <Card title="📊 نظرة سريعة على حالة التخزين" style={{marginBottom:14}}>
+      <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
+        ملخص حالة كل collection. الخطر مش في الإجمالي، بل في أكبر document منفرد (حد Firestore = 1MB لكل document).
+      </div>
+      <CollectionHealthBar collection="treasuryDays" label="حجم بيانات الخزنة"      icon="💰" mode="split"/>
+      <CollectionHealthBar collection="hrWeeksDocs"  label="حجم أسابيع المرتبات"   icon="📅" mode="partitioned"/>
+      <CollectionHealthBar collection="hrLogDays"    label="حجم سجل HR"             icon="📋" mode="split"/>
+      <CollectionHealthBar collection="auditDays"    label="حجم سجل الأحداث"        icon="📝" mode="split"/>
+    </Card>
     {/* V16.75: Partitioned docs monitor — يعرض حجم كل document في hrWeeksDocs */}
     <PartitionedDocsMonitor/>
     {/* V16.74: Split days monitor — يعرض حجم كل document يومي للخزنة وسجل HR والأحداث */}

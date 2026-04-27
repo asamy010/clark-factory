@@ -471,7 +471,12 @@ export function renderLabelPages(d,n,cfg,clarkLogoDataUrl,confirmUrl,existingWin
     +"setTimeout(function(){window.print()},1000);"
     +"})();</"+"script>";
   pw.document.write(h+"</body></html>");pw.document.close();
-  if(window.innerWidth>1024)setTimeout(()=>{try{pw.focus();pw.print()}catch(e){}},500)
+  /* V16.75: Removed duplicate external print() call — the internal script
+     at line ~471 (setTimeout window.print at 1000ms) already triggers print.
+     The external pw.print() at 500ms was firing FIRST, the dialog would close,
+     and then the internal script would re-trigger it 500ms later → "dialog
+     opens twice" symptom. Other print functions (printPkgLabel etc) only use
+     the internal script, so this brings renderLabelPages in line with them. */
 }
 
 /* V15.23: openPrintWindow — returns a window-like object that works with the
