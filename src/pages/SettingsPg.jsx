@@ -643,6 +643,11 @@ export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
         <span style={{fontSize:16}}>✨</span>
         <span>لديك تعديلات غير محفوظة — اضغط "حفظ" للتأكيد أو "إلغاء" للرجوع</span>
       </div>}
+      {/* V16.72: Inputs and live preview side-by-side on desktop (was stacked
+         vertically before — wasted half the screen). Mobile keeps the original
+         stacked layout because the preview needs its own room on narrow screens. */}
+      <div style={{display:"flex",flexDirection:isMob?"column":"row",gap:12,alignItems:"flex-start"}}>
+        <div style={{flex:1,minWidth:0}}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginBottom:8}}>
         <div><label style={{fontSize:FS-3,color:T.textSec}}>العرض مم</label><Inp type="number" value={draft.labelWidth||40} onChange={v=>updateDraft(d=>{d.labelWidth=Number(v)||40})}/></div>
         <div><label style={{fontSize:FS-3,color:T.textSec}}>الارتفاع مم</label><Inp type="number" value={draft.labelHeight||50} onChange={v=>updateDraft(d=>{d.labelHeight=Number(v)||50})}/></div>
@@ -686,8 +691,14 @@ export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
         <Btn small onClick={printTest} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}} title="اختبار بالقيم الحالية (قبل الحفظ)">🖨 طباعة تجريبية</Btn>
         {isDirty&&<span style={{fontSize:FS-3,color:T.warn,fontStyle:"italic"}}>💡 الاختبار يستخدم التعديلات غير المحفوظة</span>}
       </div>
+        </div>{/* V16.72: end of inputs column */}
+        {/* V16.72: live preview column — sticks to the right on desktop, sized
+           by the actual label width so it never balloons. */}
+        <div style={{flex:isMob?"none":"0 0 auto",alignSelf:"stretch"}}>
       {/* V16.5: Live preview card — shows current draft in real-time */}
       <LabelLivePreview draft={draft} T={T} FS={FS}/>
+        </div>
+      </div>{/* V16.72: end of side-by-side container */}
       {/* Print sizes for reports */}
       <div style={{marginTop:12,padding:10,borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
         <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:6}}>📄 إعدادات طباعة التقارير</div>

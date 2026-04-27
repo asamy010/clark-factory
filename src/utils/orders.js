@@ -37,16 +37,22 @@ export function getStatusColor(name,cards){const c=(cards||DEFAULT_STATUSES).fin
 /* V16.47: Production stage timeline.
    Maps a free-form status string to an index in a 5-stage production lifecycle:
      0  قص
-     1  تشغيل (خياطة)
-     2  طباعة / تطريز / غسيل  (parallel, treated as same forward stage)
-     3  تشطيب وتعبئة
-     4  جاهز (تم التسليم لمخزن الجاهز)
+     1  تشغيل (خياطة)  — also catches طباعة / تطريز / غسيل (V16.72: collapsed
+        into stage 1 because the factory doesn't run a separate decoration
+        phase. Statuses containing those keywords are still produced by
+        recomputeStatus when external workshops happen to be of those types,
+        so we map them here as a safety net rather than dropping them.)
+     2  تشطيب وتعبئة
+     3  جاهز (تم التسليم لمخزن الجاهز)
    Also returns a special-case "cancelled" flag for "ملغي".
    Falls back to stage 0 for unknown statuses. */
 export const PRODUCTION_STAGES=[
   {key:"cut",     short:"قص",      full:"تم القص"},
   {key:"sew",     short:"تشغيل",   full:"في التشغيل"},
-  {key:"deco",    short:"طباعة",   full:"طباعة / تطريز / غسيل"},
+  /* V16.72: removed {key:"deco",short:"طباعة",...} — factory doesn't run a
+     printing/embroidery phase, the dot in the order-card timeline was just
+     visual clutter. If decoration statuses ever reappear they'll fall back
+     onto the sewing stage in getStageIndex below. */
   {key:"finish",  short:"تشطيب",   full:"تشطيب وتعبئة"},
   {key:"ready",   short:"جاهز",    full:"تم التسليم لمخزن الجاهز"}
 ];
@@ -54,14 +60,16 @@ export function getStageIndex(status){
   const s=String(status||"").trim();
   if(!s)return 0;
   if(s==="ملغي")return-1;/* cancelled */
-  /* Stage 4: ready / partially-ready */
-  if(s==="تم التسليم لمخزن الجاهز")return 4;
-  if(s==="في مخزن الجاهز جزئي")return 4;
-  /* Stage 3: finishing */
-  if(s.indexOf("تشطيب")>=0)return 3;
-  /* Stage 2: print / embroidery / wash */
-  if(s.indexOf("طباعة")>=0||s.indexOf("تطريز")>=0||s.indexOf("غسيل")>=0)return 2;
-  /* Stage 1: sewing — internal or external */
+  /* V16.72: stage indices renumbered after removing the print/embroidery dot.
+     Keep this list in step with PRODUCTION_STAGES above. */
+  /* Stage 3: ready / partially-ready */
+  if(s==="تم التسليم لمخزن الجاهز")return 3;
+  if(s==="في مخزن الجاهز جزئي")return 3;
+  /* Stage 2: finishing */
+  if(s.indexOf("تشطيب")>=0)return 2;
+  /* Stage 1: sewing — internal, external, OR decoration (print/embroidery/wash)
+     all collapse here since there's no separate decoration stage anymore. */
+  if(s.indexOf("طباعة")>=0||s.indexOf("تطريز")>=0||s.indexOf("غسيل")>=0)return 1;
   if(s.indexOf("تشغيل")>=0)return 1;
   /* Stage 0: cut */
   if(s==="تم القص")return 0;

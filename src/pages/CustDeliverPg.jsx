@@ -39,6 +39,12 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const[activeSession,setActiveSession]=useState(null);
   const[editCell,setEditCell]=useState(null);const[editVal,setEditVal]=useState(0);const[cellError,setCellError]=useState("");
   const[shipPopup,setShipPopup]=useState(null);const[shipCount,setShipCount]=useState(1);
+  /* V16.72: Pre-fetched delivery-sign promise — populated when shipPopup opens
+     so the signature is being fetched WHILE the user is filling in the
+     shipment count. The print-button click handler just awaits this promise
+     instead of starting the fetch then. Saves ~500–1000ms of perceived latency
+     between clicking "🖨 طباعة N ليبل" and the print dialog appearing. */
+  const sigPromiseRef=useRef(null);
   const[sessFilterQ,setSessFilterQ]=useState("");
   const[reportRange,setReportRange]=useState({from:"",to:""});const[showReport,setShowReport]=useState(false);const[rptType,setRptType]=useState("all");const[rptCust,setRptCust]=useState("");const[rptModel,setRptModel]=useState("");
   const[invAudit,setInvAudit]=useState(null);/* {items:{orderId:{counted:n}},scanning:false} */
@@ -639,6 +645,24 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     if(ocrImageUrl){URL.revokeObjectURL(ocrImageUrl);setOcrImageUrl(null)}
   };
 
+  /* V16.72: Standalone helper for fetching the HMAC signature used in the
+     delivery-confirmation QR. Called twice now:
+       1. Pre-fetch when the user opens shipPopup (orange 🏷️ click below)
+       2. As a fallback inside the print handler if no pre-fetch is in flight
+     Returns {sig, err} (never throws) so callers can render the label even
+     when signing failed (the QR is just omitted in that case). */
+  const fetchDeliverySig=async(custId,sessionId)=>{
+    try{
+      const _u=auth.currentUser;
+      if(!_u)return{sig:"",err:"يرجى تسجيل الدخول"};
+      const _tok=await _u.getIdToken();
+      const r=await fetch("/api/delivery-sign",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+_tok},body:JSON.stringify({pairs:[{sessionId,custId}]})});
+      const j=await r.json();
+      if(r.ok&&j.signatures&&j.signatures[0])return{sig:j.signatures[0].sig||"",err:""};
+      return{sig:"",err:(j&&j.error)?j.error:"HTTP "+r.status};
+    }catch(e){return{sig:"",err:"Network: "+(e.message||e)}}
+  };
+
   /* V16.71: Removed `printCustLabels` — replaced by printSalesDeliveryLabel
      called from the shipPopup print button. The new flow produces a richer
      label (full customer info + prices + totals + confirmation QR) and reuses
@@ -1062,7 +1086,13 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                     const waUrl="https://wa.me/"+rawPhone+"?text="+encodeURIComponent(msg);
                     openWA(waUrl);
                   }} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",fontSize:9,padding:"2px 5px"}} title="ارسال واتساب">📱</Btn>
-                  <Btn small onClick={()=>{setShipPopup({cust:c,total:rowTotal});setShipCount(1)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30",fontSize:9,padding:"2px 5px"}} title="طباعة ليبل">🏷️</Btn>
+                  <Btn small onClick={()=>{
+                    setShipPopup({cust:c,total:rowTotal});setShipCount(1);
+                    /* V16.72: kick off the delivery-sign fetch immediately so
+                       it overlaps with the user filling in the shipment count.
+                       Stored in a ref (not state) — we don't need re-renders. */
+                    sigPromiseRef.current=fetchDeliverySig(c.id,activeSess.id);
+                  }} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30",fontSize:9,padding:"2px 5px"}} title="طباعة ليبل">🏷️</Btn>
                   {sessCanEdit&&(()=>{const hasSalesInSess=orders.some(o=>(o.customerDeliveries||[]).some(d=>d.custId===c.id&&d.sessionId===activeSess.id));
                     return hasSalesInSess?<Btn small disabled style={{background:"#EF444406",color:"#ccc",border:"1px solid #EF444415",fontSize:9,padding:"2px 5px",cursor:"not-allowed"}} title="لا يمكن الحذف — لديه بيع فعلي">🔒</Btn>
                     :<Btn small onClick={async()=>{if(!await ask("حذف عميل","حذف "+c.name+" من التوزيعة؟",{danger:true}))return;upSales(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===activeSess.id);if(si>=0){d.custDeliverySessions[si].custIds=d.custDeliverySessions[si].custIds.filter(id=>id!==c.id);const g=d.custDeliverySessions[si].grid||{};Object.keys(g).forEach(k=>{if(k.endsWith("_"+c.id))delete g[k]})}});showToast("✓ تم حذف "+c.name)}} style={{background:"#EF444412",color:"#EF4444",border:"1px solid #EF444430",fontSize:9,padding:"2px 5px"}} title="حذف العميل">🗑</Btn>})()}
@@ -3443,17 +3473,16 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             try{
               pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><title>جاري التحضير…</title><style>body{font-family:Cairo,Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f8fafc;color:#475569}.box{text-align:center}.sp{display:inline-block;width:36px;height:36px;border:4px solid #E2E8F0;border-top-color:#F59E0B;border-radius:50%;animation:s 0.8s linear infinite;margin-bottom:12px}@keyframes s{to{transform:rotate(360deg)}}</style></head><body><div class='box'><div class='sp'></div><div style='font-size:14px;font-weight:700'>جاري تحضير ليبل التسليم…</div></div></body></html>");
             }catch(e){}
-            /* STEP 2 — fetch delivery signature (for QR) */
-            let sig="",signErr="";
-            try{
-              const _u=auth.currentUser;
-              if(!_u){signErr="يرجى تسجيل الدخول";throw new Error(signErr)}
-              const _tok=await _u.getIdToken();
-              const r=await fetch("/api/delivery-sign",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+_tok},body:JSON.stringify({pairs:[{sessionId:activeSess.id,custId:cust.id}]})});
-              const j=await r.json();
-              if(r.ok&&j.signatures&&j.signatures[0])sig=j.signatures[0].sig||"";
-              else signErr=(j&&j.error)?j.error:"HTTP "+r.status;
-            }catch(e){signErr=signErr||("Network: "+(e.message||e))}
+            /* STEP 2 — await the pre-fetched delivery signature (V16.72).
+               The fetch was started when the orange 🏷️ button opened this
+               popup, so by the time the user clicked print it's usually done.
+               Fallback: if the ref is empty (e.g., HMR or direct popup open),
+               start the fetch now. Either way `sigPromiseRef.current` resolves
+               to {sig, err}. */
+            let sigP=sigPromiseRef.current;
+            if(!sigP)sigP=fetchDeliverySig(cust.id,activeSess.id);
+            sigPromiseRef.current=null;/* consume so a second print doesn't reuse a stale sig */
+            const{sig,err:signErr}=await sigP;
             if(!sig){console.error("[CLARK] /api/delivery-sign failed:",signErr);showToast("⚠️ الـ QR مش هيظهر — تفاصيل الخطأ: "+signErr)}
             const origin=window.location.origin;
             const confirmUrl=sig?origin+"/?dc=1&s="+encodeURIComponent(activeSess.id)+"&c="+encodeURIComponent(cust.id)+"&sig="+encodeURIComponent(sig):"";
