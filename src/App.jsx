@@ -61,6 +61,10 @@ const WarehousePg = lazyNamed(() => import("./pages/WarehousePg.jsx"), "Warehous
    Rendered BEFORE auth check so it works without login. */
 import { ConfirmPage } from "./components/ConfirmPage.jsx";
 import { CustomerPortalPage } from "./components/CustomerPortalPage.jsx";
+/* V16.73: Public workshop-delivery confirmation page — same idea as ConfirmPage
+   above but for workshops scanning the QR on a 10×15 cm delivery label. Routed
+   below at /?wd=1&ord=...&ws=...&idx=...&sig=..., before any login gate. */
+import { WorkshopConfirmPage } from "./components/WorkshopConfirmPage.jsx";
 
 
 /* Optional libs - loaded dynamically */
@@ -120,6 +124,18 @@ export default function App(){
     const c=urlParams.get("c"),sig=urlParams.get("sig");
     if(c&&sig){
       return <CustomerPortalPage params={{c,sig}}/>;
+    }
+  }
+  /* V16.73: Public workshop-delivery confirmation — opened when a workshop
+     scans the QR on a 10×15 cm delivery label printed in V16.73 or later.
+     URL format: /?wd=1&ord=<orderId>&ws=<wsId>&idx=<deliveryIdx>&sig=<hmac>
+     Checked BEFORE the login gate (same as `dc=1` and `portal=1` above) so
+     the workshop never sees a login prompt. The legacy `?act=wsdel&...` path
+     handled further down still works for old labels (login-gated). */
+  if(urlParams.get("wd")==="1"){
+    const ord=urlParams.get("ord"),ws=urlParams.get("ws"),idx=urlParams.get("idx"),sig=urlParams.get("sig");
+    if(ord&&ws&&idx!=null&&sig){
+      return <WorkshopConfirmPage params={{ord,ws,idx,sig}}/>;
     }
   }
   /* QR scan: ?o=modelNo → order details, ?act=rcv&oid=ID&wdi=IDX → receive mode */
@@ -1301,7 +1317,7 @@ export default function App(){
           <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}
           </span>
-          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V16.72</span>
+          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V16.73</span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -2084,15 +2100,51 @@ export default function App(){
         <div style={{marginBottom:12}}><label style={{fontSize:FS,fontWeight:700,color:T.text}}>عدد الأكياس</label><input type="number" value={labelBags} onChange={e=>setLabelBags(Math.max(1,Number(e.target.value)||1))} min="1" style={{display:"block",margin:"8px auto",width:100,textAlign:"center",fontSize:22,fontWeight:800,border:"3px solid "+T.accent,borderRadius:10,padding:"6px",fontFamily:"Cairo",background:T.bg,color:T.text}}/></div>
         <div style={{display:"flex",gap:8,justifyContent:"center"}}>
           <Btn ghost onClick={()=>{setLabelPopup(null);setLabelBags(1)}}>✕ إغلاق</Btn>
-          <Btn onClick={()=>{
-            /* V16.50: build confirm URL only when we have the trio (orderId + wsId + idx).
-               If wsId is missing (legacy), QR won't render — print still works. */
+          <Btn onClick={async()=>{
+            /* V16.73: Workshop QR now points at the PUBLIC WorkshopConfirmPage
+               (no login needed), so the URL must carry an HMAC signature. We
+               fetch that signature from /api/workshop-delivery-sign before
+               handing the data to renderLabelPages. Same popup-blocker workaround
+               as the customer flow: open the print window SYNCHRONOUSLY here,
+               show a loading placeholder, then write the real label after the
+               fetch completes.
+
+               Backwards-compat: if signing fails (network down, /api endpoint
+               not deployed yet, missing wsId for legacy data) we fall back to
+               the old `?act=wsdel&...` URL which still works inside the app
+               for logged-in users. So a failed sign just costs the workshop
+               the convenience of a no-login flow — it doesn't break printing. */
+            const lp=labelPopup;const bagsAtClick=labelBags;
+            setLabelPopup(null);setLabelBags(1);
+            const pw=openPrintWindow();
+            if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+            try{
+              pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><title>جاري التحضير…</title><style>body{font-family:Cairo,Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f8fafc;color:#475569}.box{text-align:center}.sp{display:inline-block;width:36px;height:36px;border:4px solid #E2E8F0;border-top-color:#0EA5E9;border-radius:50%;animation:s 0.8s linear infinite;margin-bottom:12px}@keyframes s{to{transform:rotate(360deg)}}</style></head><body><div class='box'><div class='sp'></div><div style='font-size:14px;font-weight:700'>جاري تحضير ليبل التسليم…</div></div></body></html>");
+            }catch(e){}
+            const origin=(typeof window!=="undefined"&&window.location)?window.location.origin:"";
             let confirmUrl="";
-            if(labelPopup.orderId&&labelPopup.wsId&&labelPopup.deliveryIdx>=0){
-              const origin=(typeof window!=="undefined"&&window.location)?window.location.origin:"";
-              confirmUrl=origin+"/?act=wsdel&ord="+encodeURIComponent(labelPopup.orderId)+"&ws="+encodeURIComponent(labelPopup.wsId)+"&idx="+labelPopup.deliveryIdx;
+            const haveTrio=lp.orderId&&lp.wsId&&lp.deliveryIdx>=0;
+            if(haveTrio){
+              /* Try to mint a public signed URL (V16.73). Fall back to the
+                 legacy in-app URL on any error so the print itself never blocks. */
+              let sig="",signErr="";
+              try{
+                const _u=auth.currentUser;
+                if(!_u){signErr="not logged in";throw new Error(signErr)}
+                const _tok=await _u.getIdToken();
+                const r=await fetch("/api/workshop-delivery-sign",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+_tok},body:JSON.stringify({triples:[{orderId:lp.orderId,wsId:lp.wsId,deliveryIdx:lp.deliveryIdx}]})});
+                const j=await r.json();
+                if(r.ok&&j.signatures&&j.signatures[0])sig=j.signatures[0].sig||"";
+                else signErr=(j&&j.error)?j.error:"HTTP "+r.status;
+              }catch(e){signErr=signErr||("Network: "+(e.message||e))}
+              if(sig){
+                confirmUrl=origin+"/?wd=1&ord="+encodeURIComponent(lp.orderId)+"&ws="+encodeURIComponent(lp.wsId)+"&idx="+lp.deliveryIdx+"&sig="+encodeURIComponent(sig);
+              }else{
+                console.warn("[CLARK] workshop-delivery-sign failed, using legacy URL:",signErr);
+                confirmUrl=origin+"/?act=wsdel&ord="+encodeURIComponent(lp.orderId)+"&ws="+encodeURIComponent(lp.wsId)+"&idx="+lp.deliveryIdx;
+              }
             }
-            renderLabelPages(labelPopup,labelBags,data?.printSettings,CLARK_LOGO_PRINT,confirmUrl)
+            renderLabelPages(lp,bagsAtClick,data?.printSettings,CLARK_LOGO_PRINT,confirmUrl,pw)
           }} style={{background:T.accent,color:"#fff",border:"none",fontWeight:700}}>{"🖨 طباعة "+labelBags}</Btn>
         </div>
       </div>

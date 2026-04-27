@@ -379,11 +379,24 @@ export function printEmpQrCards(empsList,cfg,clarkLogoDataUrl){
    V16.50: now reads from `printSettings.workshopLabel` (separate from QR labels)
    and embeds a confirmation QR code (when enabled) so the workshop can scan from
    their phone to acknowledge receipt. The QR encodes a URL of the form:
-     {origin}/?act=wsdel&ord=<orderId>&ws=<wsId>&idx=<deliveryIdx>
+     {origin}/?act=wsdel&ord=<orderId>&ws=<wsId>&idx=<deliveryIdx>     (legacy)
+   or, V16.73 onwards (when the caller has a signature):
+     {origin}/?wd=1&ord=<orderId>&ws=<wsId>&idx=<deliveryIdx>&sig=<hmac>
+   The new format opens a public WorkshopConfirmPage with NO login required.
    Backward-compatible: callers that don't pass the workshop slot still get a
-   reasonable default. */
-export function renderLabelPages(d,n,cfg,clarkLogoDataUrl,confirmUrl){
-  const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+   reasonable default.
+   V16.73: accepts optional `existingWin` — when the caller has already opened
+   a print window synchronously (to fetch the sig without tripping the popup
+   blocker), we reuse it. Same pattern as printSalesDeliveryLabel. */
+export function renderLabelPages(d,n,cfg,clarkLogoDataUrl,confirmUrl,existingWin){
+  let pw;
+  if(existingWin){
+    pw=existingWin;
+    /* Reset any loading placeholder content the caller wrote */
+    try{pw.document.open()}catch(e){}
+  }else{
+    pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+  }
   /* Pull workshopLabel slot if cfg is the full printSettings object,
      otherwise treat cfg itself as the slot (back-compat with V16.48). */
   const ws=cfg&&cfg.workshopLabel?cfg.workshopLabel:(cfg||{});
