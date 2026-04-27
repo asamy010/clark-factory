@@ -1,11 +1,18 @@
 /* ═══════════════════════════════════════════════════════════════
    CLARK - CustDeliverPg
-import { CLARK_LOGO_PRINT } from "../constants/logo.js";
    
    Extracted from App.jsx in V15.0 phase 2.
    Dependencies imported explicitly — no code changes inside.
+   V16.70: Moved CLARK_LOGO_PRINT import out of this comment block —
+   it was inside the block-comment delimiters since V15.0 so the
+   binding was never created at runtime. The bug was hidden because
+   (a) the sales-delivery label popup at line ~1100 was blocked by the browser before the reference
+   was reached, and (b) the warehouse-package-label call sites further
+   down were never exercised in the field. After the V16.70 popup-blocker
+   fix that line started executing and surfaced the dormant ReferenceError.
    ═══════════════════════════════════════════════════════════════ */
 
+import { CLARK_LOGO_PRINT } from "../constants/logo.js";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { FKEYS, FS } from "../constants/index.js";
 import { gid, fmt, r2, gf, normalizePhone, parseSizes, getSizesFromSet, dayName, openWA } from "../utils/format.js";
