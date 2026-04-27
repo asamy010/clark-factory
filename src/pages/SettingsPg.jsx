@@ -1579,6 +1579,108 @@ export function WaContactsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Car
 
 
 
+/* V16.74: SPLIT DAYS MONITOR — يعرض حجم كل document يومي للـ3 split collections */
+function SplitDaysMonitor(){
+  const[stats,setStats]=useState(null);
+  const[loading,setLoading]=useState(true);
+  const[expanded,setExpanded]=useState({treasury:false,auditLog:false,hrLog:false});
+  const[refreshKey,setRefreshKey]=useState(0);
+  
+  React.useEffect(()=>{
+    let cancelled=false;
+    setLoading(true);
+    import("../utils/splitCollections.js").then(mod=>{
+      mod.getAllSplitStats().then(data=>{
+        if(cancelled)return;
+        setStats(data);
+        setLoading(false);
+      });
+    });
+    return()=>{cancelled=true};
+  },[refreshKey]);
+  
+  const fmt=(b)=>{if(!b)return"0 B";if(b<1024)return b+" B";if(b<1024*1024)return(b/1024).toFixed(1)+" KB";return(b/(1024*1024)).toFixed(2)+" MB"};
+  
+  const collectionMeta={
+    treasury:{label:"💰 الخزنة (treasuryDays)",color:T.accent},
+    auditLog:{label:"📝 سجل الأحداث (auditDays)",color:"#F59E0B"},
+    hrLog:   {label:"📋 سجل HR (hrLogDays)",color:"#10B981"},
+  };
+  
+  return<Card title="📅 مراقبة التخزين اليومي (V16.74)" style={{marginBottom:14}}>
+    <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
+      الخزنة وسجل الأحداث وسجل HR متخزنين في documents يومية منفصلة بدل ملف واحد كبير.
+      كل document فيه حركات يوم واحد فقط. هذا يخلي البرنامج يستوعب نمو سنوي بدون مشاكل في الحجم.
+    </div>
+    
+    <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+      <Btn ghost small onClick={()=>setRefreshKey(k=>k+1)} style={{fontSize:FS-2}}>🔄 تحديث</Btn>
+    </div>
+    
+    {loading?<div style={{padding:20,textAlign:"center",color:T.textMut}}>جاري التحميل…</div>:
+     !stats?<div style={{padding:20,textAlign:"center",color:T.danger}}>تعذر قراءة البيانات</div>:
+    
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      {Object.entries(collectionMeta).map(([key,meta])=>{
+        const s=stats[key];
+        if(!s)return null;
+        const isExp=expanded[key];
+        const top10=s.days.slice(0,10);
+        return<div key={key} style={{border:"1px solid "+T.brd,borderRadius:10,overflow:"hidden"}}>
+          {/* header */}
+          <div style={{padding:12,background:meta.color+"08",borderBottom:isExp?"1px solid "+T.brd:"none",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",cursor:"pointer"}}
+               onClick={()=>setExpanded(e=>({...e,[key]:!e[key]}))}>
+            <div style={{fontWeight:700,fontSize:FS,flex:1,minWidth:160,color:meta.color}}>{meta.label}</div>
+            <div style={{fontSize:FS-1,color:T.textSec,display:"flex",gap:14,flexWrap:"wrap"}}>
+              <span><b style={{color:T.text}}>{s.dayCount}</b> يوم</span>
+              <span><b style={{color:T.text}}>{s.totalCount.toLocaleString("ar-EG")}</b> سجل</span>
+              <span><b style={{color:T.text}}>{fmt(s.totalSize)}</b></span>
+              <span style={{color:T.textMut}}>متوسط/يوم: {fmt(s.avgDaySize)}</span>
+            </div>
+            <span style={{fontSize:14,color:T.textMut}}>{isExp?"▾":"▸"}</span>
+          </div>
+          
+          {/* expanded: list of days */}
+          {isExp&&<div style={{padding:0}}>
+            {s.dayCount===0?
+              <div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-2}}>لا يوجد بيانات بعد</div>:
+              <div style={{maxHeight:340,overflowY:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-2}}>
+                  <thead style={{position:"sticky",top:0,background:T.bg}}>
+                    <tr style={{borderBottom:"1px solid "+T.brd}}>
+                      <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>اليوم</th>
+                      <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>عدد الحركات</th>
+                      <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>الحجم</th>
+                      <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>المتوسط/حركة</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {s.days.map(d=>{
+                      const avg=d.count>0?Math.round(d.size/d.count):0;
+                      const danger=d.size>800_000;/* قريب من حد 1MB */
+                      return<tr key={d.date} style={{borderBottom:"1px solid "+T.brd+"40"}}>
+                        <td style={{padding:"6px 10px",fontFamily:"monospace",color:danger?T.danger:T.text}}>{d.date}</td>
+                        <td style={{padding:"6px 10px"}}>{d.count}</td>
+                        <td style={{padding:"6px 10px",color:danger?T.danger:T.text,fontWeight:danger?700:400}}>{fmt(d.size)}{danger?" ⚠️":""}</td>
+                        <td style={{padding:"6px 10px",color:T.textMut}}>{fmt(avg)}</td>
+                      </tr>;
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>}
+        </div>;
+      })}
+    </div>}
+    
+    <div style={{marginTop:12,padding:"8px 12px",background:T.accent+"06",borderRadius:8,fontSize:FS-3,color:T.textMut,lineHeight:1.6}}>
+      💡 الميزة: كل يوم في document منفصل (≤ 5KB عادة) بدل ملف واحد كبير. لو يوم تخطى 800KB يظهر بلون أحمر — وقتها لازم نقسم الـcollection ده على فترات أصغر (نص يوم، ساعة، إلخ).
+    </div>
+  </Card>;
+}
+
+
 /* V16.0: SIZE BUDGET DASHBOARD — tracks feature sizes with per-feature limits + recommendations.
    Helps plan data splitting and archival before hitting Firestore's 1MB doc limit. */
 function SizeBudgetDashboard({configDoc,salesDoc,tasksDoc}){
@@ -2116,6 +2218,8 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
       </div>;
     })()}
     {activeTab==="general" && <>
+    {/* V16.74: Split days monitor — يعرض حجم كل document يومي للخزنة وسجل HR والأحداث */}
+    <SplitDaysMonitor/>
     {/* V16.0: Size Budget Dashboard — tracks feature sizes against limits */}
     <SizeBudgetDashboard configDoc={configDoc} salesDoc={salesDoc} tasksDoc={tasksDoc}/>
     {/* V15.92: Device info card — shows deviceId, IP, location, and lets user name their device */}

@@ -14,6 +14,7 @@ import { loadXLSX, loadQR, loadJsQR, scanQR, compressFile } from "./utils/qr.js"
 import { addAudit } from "./utils/audit.js";
 import { prefetchIpInfo } from "./utils/device.js";
 import { enforceDataLimits } from "./utils/dataLimits.js";
+import { syncAllSplitChanges, stripSplitArrays, SPLIT_COLLECTIONS, SPLIT_FIELDS } from "./utils/splitCollections.js";
 import { ask, tell, askInput, askForm, showToast, highlightRow } from "./utils/popups.js";
 import { printPage, printPkgLabel, printEmpQrCards, renderLabelPages, openPrintWindow } from "./utils/print.js";
 import { wsIsInternal, calcOrder, getConfirmedStock, checkStockAvailability, deductStockForOrder, calcWsRating, migrateStatus } from "./utils/orders.js";
@@ -152,6 +153,9 @@ export default function App(){
 
   const[user,setUser]=useState(null);const[authLoading,setAuthLoading]=useState(true);
   const[configDoc,setConfigDoc]=useState(INIT_CONFIG);const[salesDoc,setSalesDoc]=useState({});const[tasksDoc,setTasksDoc]=useState({});const[orders,setOrders]=useState([]);const[dataLoading,setDataLoading]=useState(true);
+  /* V16.74: split collections state — treasury, auditLog, hrLog من daily collections */
+  const[splitData,setSplitData]=useState({treasury:[],auditLog:[],hrLog:[]});
+  const[splitLoaded,setSplitLoaded]=useState(false);
   const config=useMemo(()=>{const merged={...configDoc,...salesDoc,...tasksDoc};
     /* Safety: if salesDoc has sessions, ALWAYS prefer it over configDoc */
     if(salesDoc.custDeliverySessions)merged.custDeliverySessions=salesDoc.custDeliverySessions;
@@ -159,7 +163,16 @@ export default function App(){
     if(tasksDoc.tasks)merged.tasks=tasksDoc.tasks;
     if(tasksDoc.stickyNotes)merged.stickyNotes=tasksDoc.stickyNotes;
     if(tasksDoc.inventoryAudits)merged.inventoryAudits=tasksDoc.inventoryAudits;
-    return merged},[configDoc,salesDoc,tasksDoc]);
+    /* V16.74: split collections override config equivalents — لكن فقط بعد:
+       1) listeners قرأت أول round trip (splitLoaded=true)
+       2) migration للـsplit days اشتغلت (_splitDaysV1674Done=true)
+       لو الـmigration ما اتعملتش لسه، نخلي البيانات الأصلية في config كما هي. */
+    if(splitLoaded&&configDoc._splitDaysV1674Done){
+      merged.treasury=splitData.treasury;
+      merged.auditLog=splitData.auditLog;
+      merged.hrLog=splitData.hrLog;
+    }
+    return merged},[configDoc,salesDoc,tasksDoc,splitData,splitLoaded]);
   const[tab,setTab_]=useState(()=>sessionStorage.getItem("clark_tab")||"home");const[sel,setSel_]=useState(()=>sessionStorage.getItem("clark_sel")||null);
   const setTab=v=>{setTab_(v);sessionStorage.setItem("clark_tab",v)};
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
@@ -742,10 +755,174 @@ export default function App(){
     })();
   },[user,configDoc,salesDoc,tasksDoc]);
 
+  /* ═══════════════════════════════════════════════════════════════════
+     V16.74: One-time migration — split treasury/auditLog/hrLog from
+     factory/config into daily collections (treasuryDays, auditDays, hrLogDays).
+     
+     Why: factory/config was approaching 1MB limit due to these 3 arrays
+     growing unbounded. Splitting them by day keeps each document small
+     (~5KB) and allows years of growth without hitting limits.
+     
+     Once flag _splitDaysV1674Done is set in config, this migration is skipped.
+     ═══════════════════════════════════════════════════════════════════ */
+  const splitDaysMigrationRef=useRef(false);
+  useEffect(()=>{
+    if(!user||splitDaysMigrationRef.current)return;
+    if(!configDoc||!configDoc.accessories)return;/* config not loaded yet */
+    if(configDoc._splitDaysV1674Done)return;/* already migrated */
+    
+    /* انتظار: لازم listeners الـsplit collections تكون اشتغلت كي لا نعمل dup */
+    if(!splitLoaded)return;
+    
+    /* Anything to migrate? */
+    const hasLegacyTreasury=Array.isArray(configDoc.treasury)&&configDoc.treasury.length>0;
+    const hasLegacyAudit=Array.isArray(configDoc.auditLog)&&configDoc.auditLog.length>0;
+    const hasLegacyHrLog=Array.isArray(configDoc.hrLog)&&configDoc.hrLog.length>0;
+    
+    splitDaysMigrationRef.current=true;/* lock to prevent re-runs */
+    
+    (async()=>{
+      try{
+        if(!hasLegacyTreasury&&!hasLegacyAudit&&!hasLegacyHrLog){
+          /* لا يوجد بيانات للـmigrate — فقط نحط الـflag */
+          await runTransaction(db,async(tx)=>{
+            const ref=doc(db,"factory","config");
+            const snap=await tx.get(ref);
+            if(!snap.exists())return;
+            const fresh=snap.data();
+            if(fresh._splitDaysV1674Done)return;
+            tx.set(ref,{...fresh,_splitDaysV1674Done:true});
+          });
+          return;
+        }
+        
+        /* Backup أولاً */
+        const ts=new Date().toISOString().replace(/[:.]/g,"-");
+        await setDoc(doc(db,"backups","pre-migration-split-days-v1674-"+ts),{
+          label:"قبل ميجريشن: split-days-v16.74",
+          autoGenerated:true,
+          migrationType:"split-days-v16.74",
+          createdAt:new Date().toISOString(),
+          createdBy:user.email||"system",
+          counts:{
+            treasury:(configDoc.treasury||[]).length,
+            auditLog:(configDoc.auditLog||[]).length,
+            hrLog:(configDoc.hrLog||[]).length,
+          },
+          /* النسخة الكاملة من config (يشمل treasury, auditLog, hrLog) */
+          config:JSON.parse(JSON.stringify(configDoc)),
+        });
+        
+        /* Sync to day collections */
+        await syncAllSplitChanges(
+          {treasury:[],auditLog:[],hrLog:[]},
+          {
+            treasury:configDoc.treasury||[],
+            auditLog:configDoc.auditLog||[],
+            hrLog:   configDoc.hrLog||[],
+          }
+        );
+        
+        /* الآن نحذف الـ3 arrays من factory/config ونحط flag */
+        await runTransaction(db,async(tx)=>{
+          const ref=doc(db,"factory","config");
+          const snap=await tx.get(ref);
+          if(!snap.exists())return;
+          const fresh=snap.data();
+          if(fresh._splitDaysV1674Done)return;
+          const next=stripSplitArrays(fresh);
+          next._splitDaysV1674Done=true;
+          tx.set(ref,next);
+        });
+        
+        try{
+          await setDoc(doc(db,"migrationLog","split-days-v16.74-"+Date.now()),{
+            type:"split-days-v16.74",status:"success",
+            counts:{
+              treasury:(configDoc.treasury||[]).length,
+              auditLog:(configDoc.auditLog||[]).length,
+              hrLog:(configDoc.hrLog||[]).length,
+            },
+            by:user.email||"system",at:new Date().toISOString(),
+          });
+        }catch(_){}
+        
+        showToast("✓ تم تحويل الخزنة وسجل الأحداث وسجل HR لتخزين يومي (V16.74)");
+      }catch(err){
+        console.error("[V16.74] Split days migration failed:",err);
+        try{
+          await setDoc(doc(db,"migrationLog","split-days-v16.74-"+Date.now()),{
+            type:"split-days-v16.74",status:"failed",
+            details:(err.message||String(err)).slice(0,300),
+            by:user.email||"system",at:new Date().toISOString(),
+          });
+        }catch(_){}
+        /* unlock فاحس يمكن نحاول ثانية */
+        splitDaysMigrationRef.current=false;
+      }
+    })();
+  },[user,configDoc,splitLoaded]);
+
   /* ── LOCAL SNAPSHOT: save critical collections to localStorage on every config update ── */
   useEffect(()=>{if(!configDoc||!configDoc.accessories)return;
     try{const snap={workshops:configDoc.workshops||[],customers:configDoc.customers||[],suppliers:configDoc.suppliers||[],fabrics:configDoc.fabrics||[],accessories:configDoc.accessories||[],sizeSets:configDoc.sizeSets||[],garmentTypes:configDoc.garmentTypes||[],statusCards:configDoc.statusCards||[],employees:configDoc.employees||[],treasuryAccounts:configDoc.treasuryAccounts||[],savedAt:new Date().toISOString()};
       localStorage.setItem("clark-data-snapshot",JSON.stringify(snap))}catch(e){}},[configDoc]);
+
+  /* ═══════════════════════════════════════════════════════════════════
+     V16.74: SPLIT COLLECTIONS LISTENERS
+     listeners على treasuryDays/, auditDays/, hrLogDays/.
+     كل ما حصل تغيير في أي day document، نعيد بناء الـmerged array
+     ونحطه في splitData state. الـconfig useMemo بيدمجه في data.treasury.
+     ═══════════════════════════════════════════════════════════════════ */
+  useEffect(()=>{if(!user)return;
+    const unsubs=[];
+    /* Maps: dayId → entries[] لكل collection */
+    const dayDocs={treasury:new Map(),auditLog:new Map(),hrLog:new Map()};
+    let firstFires={treasury:false,auditLog:false,hrLog:false};
+    const rebuild=()=>{
+      const flatten=(map)=>{
+        const all=[];
+        for(const entries of map.values())all.push(...entries);
+        return all;
+      };
+      setSplitData({
+        treasury:flatten(dayDocs.treasury),
+        auditLog:flatten(dayDocs.auditLog),
+        hrLog:flatten(dayDocs.hrLog),
+      });
+      /* mark loaded after first round trip from all 3 */
+      if(firstFires.treasury&&firstFires.auditLog&&firstFires.hrLog){
+        setSplitLoaded(true);
+      }
+    };
+    const subscribeCol=(field,collName)=>{
+      const map=dayDocs[field];
+      const unsub=onSnapshot(collection(db,collName),snap=>{
+        snap.docChanges().forEach(change=>{
+          const docData=change.doc.data();
+          const entries=(docData&&docData.entries)||[];
+          if(change.type==="removed"){
+            map.delete(change.doc.id);
+          }else{
+            map.set(change.doc.id,entries);
+          }
+        });
+        firstFires[field]=true;
+        rebuild();
+      },err=>{
+        console.error(`[V16.74] Listener error ${collName}:`,err);
+        /* even on error, mark as fired so UI doesn't hang */
+        firstFires[field]=true;
+        rebuild();
+      });
+      unsubs.push(unsub);
+    };
+    subscribeCol("treasury",SPLIT_COLLECTIONS.treasury);
+    subscribeCol("auditLog",SPLIT_COLLECTIONS.auditLog);
+    subscribeCol("hrLog",   SPLIT_COLLECTIONS.hrLog);
+    return()=>{unsubs.forEach(u=>u())};
+  },[user]);
+
   useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>{const o={_docId:d.id,...d.data()};if(o.status)o.status=migrateStatus(o.status);return o}).filter(o=>o.id));setDataLoading(false)});return()=>unsub()},[user,season]);
 
   /* ═══ AUTO-BACKUP: once per day per user ═══ */
@@ -802,44 +979,133 @@ export default function App(){
      Each write re-reads the doc inside a transaction, applies the change,
      and writes back atomically. */
   const _sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
+  /* V16.74: ref to current splitData للقراءة من داخل upConfigTx (transactions تشتغل بدون state freshness) */
+  const splitDataRef=useRef(splitData);
+  useEffect(()=>{splitDataRef.current=splitData},[splitData]);
   const upConfigTx=useCallback(async(fn)=>{
     const ref=doc(db,"factory","config");
     let lastErr=null;
-    /* V15.69: Up to 5 retries with exponential backoff (100ms, 200ms, 400ms, 800ms, 1600ms) */
+    /* V16.74: snapshot of split arrays BEFORE the fn runs — هنحتاجها لمقارنة التغييرات */
+    const splitBefore={
+      treasury:splitDataRef.current.treasury||[],
+      auditLog:splitDataRef.current.auditLog||[],
+      hrLog:   splitDataRef.current.hrLog||[],
+    };
+    let splitAfter=null;
+    let splitActive=false;/* set inside transaction based on _splitDaysV1674Done flag */
+    /* V15.69: Up to 5 retries with exponential backoff */
     for(let attempt=0;attempt<5;attempt++){
       try{
         await runTransaction(db,async(tx)=>{
           const snap=await tx.get(ref);
           const current=snap.exists()?snap.data():{};
           const next=JSON.parse(JSON.stringify(current));
+          /* V16.74: لو الـsplit migration اشتغلت، نحقن splitData قبل الـfn ونفصلها بعدها.
+             لو لسه ما اشتغلتش، نشتغل بالـlogic القديم (treasury في config مباشرة). */
+          splitActive=Boolean(current._splitDaysV1674Done);
+          if(splitActive){
+            next.treasury=JSON.parse(JSON.stringify(splitBefore.treasury));
+            next.auditLog=JSON.parse(JSON.stringify(splitBefore.auditLog));
+            next.hrLog=   JSON.parse(JSON.stringify(splitBefore.hrLog));
+          }
           fn(next);
           enforceDataLimits(next);
-          tx.set(ref,next);
+          if(splitActive){
+            splitAfter={
+              treasury:Array.isArray(next.treasury)?next.treasury:[],
+              auditLog:Array.isArray(next.auditLog)?next.auditLog:[],
+              hrLog:   Array.isArray(next.hrLog)   ?next.hrLog   :[],
+            };
+            const stripped=stripSplitArrays(next);
+            tx.set(ref,stripped);
+          }else{
+            tx.set(ref,next);
+          }
         });
+        /* V16.74: بعد ما الـconfig اتكتب بنجاح، نكتب التغييرات في الـday docs (لو split active) */
+        if(splitActive&&splitAfter){
+          try{
+            await syncAllSplitChanges(splitBefore,splitAfter);
+          }catch(syncErr){
+            console.error("[V16.74] Failed to sync split day docs:",syncErr);
+            showToast("⚠️ تعذر حفظ الأيام بشكل كامل — راجع الإعدادات");
+          }
+        }
         return;/* success */
       }catch(e){
         lastErr=e;
-        /* Retry on transient errors (conflicts, aborts) */
         const code=e?.code||"";
         const retriable=code==="aborted"||code==="already-exists"||code==="deadline-exceeded"||code==="unavailable"||code==="internal"||!code;
         if(!retriable||attempt===4)break;
         await _sleep(100*Math.pow(2,attempt));
       }
     }
-    /* All retries exhausted — fallback to merge write and only then warn */
+    /* All retries exhausted — fallback */
     console.error("upConfig tx error after retries:",lastErr);
-    /* V15.87: Make fallback failures VISIBLE to user (was silent console.error) */
     showToast("⚠️ فشل حفظ البيانات — جاري المحاولة بطريقة بديلة...");
     try{
-      setConfigDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);enforceDataLimits(next);setDoc(ref,next,{merge:true}).then(()=>{showToast("✓ تم الحفظ (بطريقة بديلة)")}).catch(er=>{console.error("Fallback setDoc error:",er);showToast("⛔ فشل الحفظ نهائياً: "+((er.message||String(er)).substring(0,100)))});return next}catch(err){console.error("Fallback fn error:",err);showToast("⛔ خطأ في حفظ البيانات: "+((err.message||String(err)).substring(0,100)));return prev}});
+      setConfigDoc(prev=>{try{
+        const next=JSON.parse(JSON.stringify(prev||{}));
+        const splitActiveFb=Boolean(prev?._splitDaysV1674Done);
+        if(splitActiveFb){
+          next.treasury=JSON.parse(JSON.stringify(splitBefore.treasury));
+          next.auditLog=JSON.parse(JSON.stringify(splitBefore.auditLog));
+          next.hrLog=   JSON.parse(JSON.stringify(splitBefore.hrLog));
+        }
+        fn(next);
+        enforceDataLimits(next);
+        if(splitActiveFb){
+          const splitAfterFb={
+            treasury:Array.isArray(next.treasury)?next.treasury:[],
+            auditLog:Array.isArray(next.auditLog)?next.auditLog:[],
+            hrLog:   Array.isArray(next.hrLog)   ?next.hrLog   :[],
+          };
+          const stripped=stripSplitArrays(next);
+          setDoc(ref,stripped,{merge:false}).then(()=>{
+            syncAllSplitChanges(splitBefore,splitAfterFb).catch(e=>console.error("Fallback split sync:",e));
+            showToast("✓ تم الحفظ (بطريقة بديلة)");
+          }).catch(er=>{console.error("Fallback setDoc error:",er);showToast("⛔ فشل الحفظ نهائياً: "+((er.message||String(er)).substring(0,100)))});
+          return stripped;
+        }else{
+          /* legacy path */
+          setDoc(ref,next,{merge:true}).then(()=>{showToast("✓ تم الحفظ (بطريقة بديلة)")}).catch(er=>{console.error("Fallback setDoc error:",er);showToast("⛔ فشل الحفظ نهائياً: "+((er.message||String(er)).substring(0,100)))});
+          return next;
+        }
+      }catch(err){console.error("Fallback fn error:",err);showToast("⛔ خطأ في حفظ البيانات: "+((err.message||String(err)).substring(0,100)));return prev}});
     }catch(fallbackErr){
       console.error("Fallback failed:",fallbackErr);
       showToast("⚠️ تعذر الحفظ — تأكد من الاتصال بالإنترنت: "+((fallbackErr.message||String(fallbackErr)).substring(0,80)));
     }
   },[]);
   const upConfig=useCallback(fn=>{
-    /* Optimistic update local state first, then commit via transaction */
-    setConfigDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);enforceDataLimits(next);return next}catch(e){return prev}});
+    /* V16.74: optimistic update */
+    const sb={
+      treasury:splitDataRef.current.treasury||[],
+      auditLog:splitDataRef.current.auditLog||[],
+      hrLog:   splitDataRef.current.hrLog||[],
+    };
+    setConfigDoc(prev=>{try{
+      const next=JSON.parse(JSON.stringify(prev||{}));
+      const splitActive=Boolean(prev?._splitDaysV1674Done);
+      if(splitActive){
+        next.treasury=JSON.parse(JSON.stringify(sb.treasury));
+        next.auditLog=JSON.parse(JSON.stringify(sb.auditLog));
+        next.hrLog=   JSON.parse(JSON.stringify(sb.hrLog));
+      }
+      fn(next);
+      enforceDataLimits(next);
+      if(splitActive){
+        const newSplit={
+          treasury:Array.isArray(next.treasury)?next.treasury:[],
+          auditLog:Array.isArray(next.auditLog)?next.auditLog:[],
+          hrLog:   Array.isArray(next.hrLog)   ?next.hrLog   :[],
+        };
+        setSplitData(newSplit);
+        splitDataRef.current=newSplit;
+        return stripSplitArrays(next);
+      }
+      return next;
+    }catch(e){return prev}});
     upConfigTx(fn);
   },[upConfigTx]);
 
@@ -1317,7 +1583,7 @@ export default function App(){
           <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}
           </span>
-          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V16.73</span>
+          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V16.74</span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>

@@ -34,25 +34,25 @@ export function getStatus(pct){
 export const FEATURE_BUDGETS=[
   {
     key:"treasury",
-    label:"💰 الخزنة",
-    docRef:"factory/config",
-    budget:200_000,/* 200 KB */
+    label:"💰 الخزنة (مقسّمة يومياً)",
+    docRef:"treasuryDays/*",
+    budget:5_000_000,/* 5 MB موزّعة على أيام — حد عملي وليس حد ملف */
     getData:(d)=>d?.treasury||[],
     getSize:(d)=>_bytes(d?.treasury),
     getCount:(d)=>(d?.treasury||[]).length,
-    advice:"يُفضل أرشفة سنوات سابقة عند تخطي 80%. كل حركة ≈ 250 بايت.",
-    dataType:"config",
+    advice:"V16.74: مخزّنة في collection يومية، كل يوم في document منفصل. لا تتأثر بحد الـ1MB.",
+    dataType:"split",
   },
   {
     key:"hrLog",
-    label:"📋 سجل HR",
-    docRef:"factory/config",
-    budget:150_000,/* 150 KB */
+    label:"📋 سجل HR (مقسّم يومياً)",
+    docRef:"hrLogDays/*",
+    budget:3_000_000,/* 3 MB موزّعة */
     getData:(d)=>d?.hrLog||[],
     getSize:(d)=>_bytes(d?.hrLog),
     getCount:(d)=>(d?.hrLog||[]).length,
-    advice:"سجل السلف والمرتبات. يُفضل أرشفة السنوات القديمة.",
-    dataType:"config",
+    advice:"V16.74: مخزّن في hrLogDays — كل يوم لوحده.",
+    dataType:"split",
   },
   {
     key:"hrWeeks",
@@ -67,14 +67,14 @@ export const FEATURE_BUDGETS=[
   },
   {
     key:"auditLog",
-    label:"📝 سجل الأحداث",
-    docRef:"factory/config",
-    budget:200_000,/* 200 KB */
+    label:"📝 سجل الأحداث (مقسّم يومياً)",
+    docRef:"auditDays/*",
+    budget:5_000_000,/* 5 MB موزّعة على أيام */
     getData:(d)=>d?.auditLog||[],
     getSize:(d)=>_bytes(d?.auditLog),
     getCount:(d)=>(d?.auditLog||[]).length,
-    advice:"محدود بـ 5000 حركة تلقائياً. مع V15.92 يشمل device+IP.",
-    dataType:"config",
+    advice:"V16.74: مخزّن في auditDays — كل يوم في document منفصل.",
+    dataType:"split",
   },
   {
     key:"custPayments",
