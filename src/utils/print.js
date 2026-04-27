@@ -121,7 +121,7 @@ export function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,c
   /* V16.58: Fixed page height + .pg-inner wrapper enables auto-fit scaling
      when toggled fields cause overflow. Same pattern as renderLabelPages. */
   +".pg{width:10cm;height:15cm;padding:3mm;display:flex;flex-direction:column;overflow:hidden;position:relative}"
-  +".pg-inner{display:flex;flex-direction:column;flex:1;transform-origin:top center;width:100%}"
+  +".pg-inner{display:flex;flex-direction:column;flex:1;transform-origin:top right;width:100%}"
   +".brand{text-align:center;font-size:11pt;font-weight:900;letter-spacing:3px;padding:1.5mm 0;border-bottom:2px solid #000}"
   +".top{display:flex;align-items:center;gap:3mm;padding:2mm 0;border-bottom:1px solid #999}"
   +".top canvas{flex-shrink:0}.top-info{flex:1;text-align:center}"
@@ -164,6 +164,11 @@ export function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,c
    confirmation QR). Honors printSettings.salesDeliveryLabel for font / logo /
    per-field toggles (phone, address, prices, itemsDesc, qr). 
    
+   V16.70: accepts optional `existingWin` — when caller has already opened a
+   print window synchronously (to avoid popup blocker after `await fetch`), we
+   reuse it instead of opening a new one. The caller may have written a loading
+   placeholder; we reset via document.open() before writing the real label.
+   
    Args:
      custName, custPhone, custAddr  - customer info (phone/addr may be hidden)
      date                            - session date string
@@ -171,9 +176,17 @@ export function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,c
      totals                          - {gross, discPct, discAmt, netAmt}
      confirmUrl                      - optional URL encoded into the QR
      cfg                             - data?.printSettings  (slot keyed by 'salesDeliveryLabel')
-     clarkLogoDataUrl                - CLARK_LOGO_PRINT */
-export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,totals,confirmUrl,cfg,clarkLogoDataUrl){
-  const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+     clarkLogoDataUrl                - CLARK_LOGO_PRINT
+     existingWin                     - optional pre-opened window (V16.70 popup-blocker fix) */
+export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,totals,confirmUrl,cfg,clarkLogoDataUrl,existingWin){
+  let pw;
+  if(existingWin){
+    pw=existingWin;
+    /* Reset any loading placeholder content the caller wrote */
+    try{pw.document.open()}catch(e){}
+  }else{
+    pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+  }
   const sd=cfg&&cfg.salesDeliveryLabel?cfg.salesDeliveryLabel:(cfg||{});
   const fontFam=sd.fontFamily||"Cairo";
   const fontUrl=_GOOGLE_FONT_URLS_QR[fontFam]||_GOOGLE_FONT_URLS_QR.Cairo;
@@ -215,7 +228,7 @@ export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,t
   +"@page{size:10cm 15cm;margin:0}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'"+fontFam+"',Arial,sans-serif;color:#000}"
   /* V16.58: Fixed page height + .pg-inner for auto-fit (same as renderLabelPages). */
   +".pg{width:10cm;height:15cm;padding:3mm;display:flex;flex-direction:column;overflow:hidden;position:relative}"
-  +".pg-inner{display:flex;flex-direction:column;flex:1;transform-origin:top center;width:100%}"
+  +".pg-inner{display:flex;flex-direction:column;flex:1;transform-origin:top right;width:100%}"
   +".brand{text-align:center;font-size:11pt;font-weight:900;letter-spacing:3px;padding:1.5mm 0;border-bottom:2px solid #000;margin-bottom:1.5mm}"
   +".chip{text-align:center;font-size:11pt;font-weight:800;border:2px solid #000;display:block;width:fit-content;padding:1mm 5mm;border-radius:2mm;margin:0 auto 1.5mm}"
   +".cust{text-align:center;padding:1.5mm;border:2px solid #000;border-radius:2mm;margin-bottom:1.5mm}"
@@ -261,7 +274,12 @@ export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,t
   +"setTimeout(autoFit,300);setTimeout(autoFit,800);setTimeout(function(){window.print()},1000);"
   +"})();</"+"script>"
   +"</body></html>");
-  pw.document.close()}
+  pw.document.close();
+  /* V16.70: Parent-side focus/print fallback for desktop (mirrors renderLabelPages
+     pattern) — helps when the in-document setTimeout(window.print, 1000) gets
+     swallowed in an iframe-fallback context. */
+  if(typeof window!=="undefined"&&window.innerWidth>1024)setTimeout(()=>{try{pw.focus();pw.print()}catch(e){}},500)
+}
 
 /* V14.57: Print employee QR cards — 40×50mm (half the size of package labels)
    V16.36: Accepts optional cfg + clarkLogoDataUrl from the caller. When cfg is
@@ -355,7 +373,7 @@ export function renderLabelPages(d,n,cfg,clarkLogoDataUrl,confirmUrl){
      measured against a hard ceiling. Auto-fit JS later transforms .pg-inner
      down by a scale factor when its scrollHeight exceeds the page height. */
   +".pg{width:10cm;height:15cm;padding:4mm;display:flex;flex-direction:column;page-break-after:always;overflow:hidden;position:relative}.pg:last-child{page-break-after:auto}"
-  +".pg-inner{display:flex;flex-direction:column;flex:1;transform-origin:top center;width:100%}"
+  +".pg-inner{display:flex;flex-direction:column;flex:1;transform-origin:top right;width:100%}"
   +".brand{text-align:center;padding-bottom:1.5mm;border-bottom:2px solid #000;margin-bottom:2mm}"
   +".brand-img{height:8mm;max-width:60%;filter:brightness(0) saturate(100%);display:inline-block;object-fit:contain;vertical-align:middle}"
   +".brand-txt{font-size:11pt;font-weight:800;letter-spacing:2px;color:#000}"

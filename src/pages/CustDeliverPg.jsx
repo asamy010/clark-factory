@@ -1050,8 +1050,24 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                   {/* V16.57: Thermal sales-delivery label (10×15) — printed from the
                       same row as the A4 receipt above. Reuses the same /api/delivery-sign
                       flow + the same items/totals computation, then routes to the new
-                      printSalesDeliveryLabel function instead of printPage. */}
+                      printSalesDeliveryLabel function instead of printPage.
+                      V16.70: Open the print window SYNCHRONOUSLY at the top of the click
+                      handler (before any `await`) so the browser's popup blocker keeps the
+                      user-gesture context. We show a loading placeholder, then after the
+                      delivery-sign fetch completes, hand the existing window to
+                      printSalesDeliveryLabel which resets it via document.open() and writes
+                      the real label. Without this, the previous flow (await → openPrintWindow)
+                      had its window.open silently blocked, leaving a hidden iframe fallback
+                      that often failed to print. */}
                   <Btn small onClick={async()=>{
+                    /* V16.70: STEP 1 — open window synchronously, before any await */
+                    const pw=openPrintWindow();
+                    if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+                    /* Loading placeholder — replaced when label HTML is written */
+                    try{
+                      pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><title>جاري التحضير…</title><style>body{font-family:Cairo,Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f8fafc;color:#475569}.box{text-align:center}.sp{display:inline-block;width:36px;height:36px;border:4px solid #E2E8F0;border-top-color:#8B5CF6;border-radius:50%;animation:s 0.8s linear infinite;margin-bottom:12px}@keyframes s{to{transform:rotate(360deg)}}</style></head><body><div class='box'><div class='sp'></div><div style='font-size:14px;font-weight:700'>جاري تحضير ليبل التسليم…</div></div></body></html>");
+                    }catch(e){}
+                    /* STEP 2 — async work (signature fetch) */
                     let sig="";let signErr="";
                     try{
                       const _u=auth.currentUser;
@@ -1080,7 +1096,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                     const discPct=Number(c.discount)||0;
                     const discAmt=Math.round(custMoney*discPct/100);
                     const netAmt=custMoney-discAmt;
-                    printSalesDeliveryLabel(c.name,c.phone||"",c.address||"",activeSess.date,items,{gross:custMoney,discPct,discAmt,netAmt},confirmUrl,data?.printSettings,CLARK_LOGO_PRINT);
+                    /* STEP 3 — pass the existing window so the function reuses it via document.open() */
+                    printSalesDeliveryLabel(c.name,c.phone||"",c.address||"",activeSess.date,items,{gross:custMoney,discPct,discAmt,netAmt},confirmUrl,data?.printSettings,CLARK_LOGO_PRINT,pw);
                   }} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontSize:9,padding:"2px 5px"}} title="طباعة ليبل حراري (10×15)">🏷️</Btn>
                   <Btn small onClick={()=>{
                     /* V15.55: Validate phone first */
