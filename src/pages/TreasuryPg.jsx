@@ -16,6 +16,7 @@ import { openPrintWindow } from "../utils/print.js";
 import { printCashReceipt, printCheckReceipt } from "../utils/print-extras.js";
 import { getReferences } from "../utils/dataIntegrity.js";
 import { Spinner, InlineLoading, Btn, Inp, Sel, Card, useDebounced } from "../components/ui.jsx";
+import { CollectionHealthBar } from "../components/CollectionHealthBar.jsx";
 import { T } from "../theme.js";
 import { db } from "../firebase";
 import { collection } from "firebase/firestore";
@@ -1129,6 +1130,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   };
 
   return<div>
+    {/* V16.75: Collection health bar — يظهر حالة تخزين الخزنة */}
+    <CollectionHealthBar collection="treasuryDays" label="حجم بيانات الخزنة" icon="💰" mode="split"/>
     {/* ═══ V14.52: Whitelist-aware lock banner ═══ */}
     {(lockEdit||lockDelete)&&(()=>{
       /* Determine user status: admin / whitelisted / blocked */

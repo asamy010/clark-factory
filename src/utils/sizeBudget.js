@@ -56,14 +56,14 @@ export const FEATURE_BUDGETS=[
   },
   {
     key:"hrWeeks",
-    label:"📅 أسابيع المرتبات",
-    docRef:"factory/config",
-    budget:300_000,/* 300 KB */
+    label:"📅 أسابيع المرتبات (مقسّم)",
+    docRef:"hrWeeksDocs/*",
+    budget:10_000_000,/* 10 MB موزّعة على documents — كل أسبوع document */
     getData:(d)=>d?.hrWeeks||[],
     getSize:(d)=>_bytes(d?.hrWeeks),
     getCount:(d)=>(d?.hrWeeks||[]).length,
-    advice:"كل أسبوع ≈ 5-10 KB مع الـ closedStats. أرشف بعد سنة.",
-    dataType:"config",
+    advice:"V16.75: كل أسبوع document منفصل في hrWeeksDocs. لا تتأثر بحد الـ1MB.",
+    dataType:"partitioned",
   },
   {
     key:"auditLog",

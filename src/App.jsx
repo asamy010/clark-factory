@@ -15,6 +15,8 @@ import { addAudit } from "./utils/audit.js";
 import { prefetchIpInfo } from "./utils/device.js";
 import { enforceDataLimits } from "./utils/dataLimits.js";
 import { syncAllSplitChanges, stripSplitArrays, SPLIT_COLLECTIONS, SPLIT_FIELDS } from "./utils/splitCollections.js";
+import { syncAllPartitionedChanges, stripPartitionedArrays, PARTITIONED_COLLECTIONS, PARTITIONED_FIELDS } from "./utils/partitionedCollections.js";
+import { noticeSuccess, noticeWarn, noticeError } from "./utils/storageNotices.js";
 import { ask, tell, askInput, askForm, showToast, highlightRow } from "./utils/popups.js";
 import { printPage, printPkgLabel, printEmpQrCards, renderLabelPages, openPrintWindow } from "./utils/print.js";
 import { wsIsInternal, calcOrder, getConfirmedStock, checkStockAvailability, deductStockForOrder, calcWsRating, migrateStatus } from "./utils/orders.js";
@@ -156,6 +158,9 @@ export default function App(){
   /* V16.74: split collections state — treasury, auditLog, hrLog من daily collections */
   const[splitData,setSplitData]=useState({treasury:[],auditLog:[],hrLog:[]});
   const[splitLoaded,setSplitLoaded]=useState(false);
+  /* V16.75: partitioned collections state — hrWeeks (each week is its own document) */
+  const[partitionedData,setPartitionedData]=useState({hrWeeks:[]});
+  const[partitionedLoaded,setPartitionedLoaded]=useState(false);
   const config=useMemo(()=>{const merged={...configDoc,...salesDoc,...tasksDoc};
     /* Safety: if salesDoc has sessions, ALWAYS prefer it over configDoc */
     if(salesDoc.custDeliverySessions)merged.custDeliverySessions=salesDoc.custDeliverySessions;
@@ -172,7 +177,11 @@ export default function App(){
       merged.auditLog=splitData.auditLog;
       merged.hrLog=splitData.hrLog;
     }
-    return merged},[configDoc,salesDoc,tasksDoc,splitData,splitLoaded]);
+    /* V16.75: partitioned collections (hrWeeks) — same pattern */
+    if(partitionedLoaded&&configDoc._partitionedV1675Done){
+      merged.hrWeeks=partitionedData.hrWeeks;
+    }
+    return merged},[configDoc,salesDoc,tasksDoc,splitData,splitLoaded,partitionedData,partitionedLoaded]);
   const[tab,setTab_]=useState(()=>sessionStorage.getItem("clark_tab")||"home");const[sel,setSel_]=useState(()=>sessionStorage.getItem("clark_sel")||null);
   const setTab=v=>{setTab_(v);sessionStorage.setItem("clark_tab",v)};
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
@@ -847,7 +856,11 @@ export default function App(){
           });
         }catch(_){}
         
-        showToast("✓ تم تحويل الخزنة وسجل الأحداث وسجل HR لتخزين يومي (V16.74)");
+        /* V16.75: الإعلام في الإعدادات بدلاً من toast popup عشان ما يقفزش لكل المستخدمين */
+        noticeSuccess(
+          "تم تطبيق تحديث V16.74",
+          "تم تحويل الخزنة وسجل الأحداث وسجل HR لتخزين يومي منفصل. هذا يسمح للنظام باستيعاب نمو سنوي بدون قيود الحجم."
+        );
       }catch(err){
         console.error("[V16.74] Split days migration failed:",err);
         try{
@@ -862,6 +875,106 @@ export default function App(){
       }
     })();
   },[user,configDoc,splitLoaded]);
+
+  /* ═══════════════════════════════════════════════════════════════════
+     V16.75: One-time migration — partition hrWeeks from factory/config
+     into individual documents in hrWeeksDocs collection.
+     
+     Why: hrWeeks objects are large (~67 KB each). With 50 weeks/year,
+     they would exceed the 1 MB Firestore document limit. By making each
+     week its own document, the system can scale indefinitely.
+     
+     Pattern differs from V16.74:
+     - V16.74: collection of small entries grouped BY DATE → daily doc
+     - V16.75: array of large objects → ONE document PER object.id
+     
+     Once flag _partitionedV1675Done is set in config, this is skipped.
+     ═══════════════════════════════════════════════════════════════════ */
+  const partitionedMigrationRef=useRef(false);
+  useEffect(()=>{
+    if(!user||partitionedMigrationRef.current)return;
+    if(!configDoc||!configDoc.accessories)return;
+    if(configDoc._partitionedV1675Done)return;
+    if(!partitionedLoaded)return;/* انتظر حتى listener يقرأ */
+    
+    const hasLegacyHrWeeks=Array.isArray(configDoc.hrWeeks)&&configDoc.hrWeeks.length>0;
+    
+    partitionedMigrationRef.current=true;
+    
+    (async()=>{
+      try{
+        if(!hasLegacyHrWeeks){
+          /* لا يوجد بيانات — نحط الـflag فقط */
+          await runTransaction(db,async(tx)=>{
+            const ref=doc(db,"factory","config");
+            const snap=await tx.get(ref);
+            if(!snap.exists())return;
+            const fresh=snap.data();
+            if(fresh._partitionedV1675Done)return;
+            tx.set(ref,{...fresh,_partitionedV1675Done:true});
+          });
+          return;
+        }
+        
+        /* Backup */
+        const ts=new Date().toISOString().replace(/[:.]/g,"-");
+        await setDoc(doc(db,"backups","pre-migration-partitioned-v1675-"+ts),{
+          label:"قبل ميجريشن: partitioned-v16.75 (hrWeeks)",
+          autoGenerated:true,
+          migrationType:"partitioned-v16.75",
+          createdAt:new Date().toISOString(),
+          createdBy:user.email||"system",
+          counts:{
+            hrWeeks:(configDoc.hrWeeks||[]).length,
+          },
+          /* النسخة الكاملة من config */
+          config:JSON.parse(JSON.stringify(configDoc)),
+        });
+        
+        /* Sync to partitioned collection */
+        await syncAllPartitionedChanges(
+          {hrWeeks:[]},
+          {hrWeeks:configDoc.hrWeeks||[]}
+        );
+        
+        /* احذف hrWeeks من config وحط الـflag */
+        await runTransaction(db,async(tx)=>{
+          const ref=doc(db,"factory","config");
+          const snap=await tx.get(ref);
+          if(!snap.exists())return;
+          const fresh=snap.data();
+          if(fresh._partitionedV1675Done)return;
+          const next=stripPartitionedArrays(fresh);
+          next._partitionedV1675Done=true;
+          tx.set(ref,next);
+        });
+        
+        try{
+          await setDoc(doc(db,"migrationLog","partitioned-v16.75-"+Date.now()),{
+            type:"partitioned-v16.75",status:"success",
+            counts:{hrWeeks:(configDoc.hrWeeks||[]).length},
+            by:user.email||"system",at:new Date().toISOString(),
+          });
+        }catch(_){}
+        
+        /* V16.75: الإعلام في الإعدادات بدلاً من toast popup */
+        noticeSuccess(
+          "تم تطبيق تحديث V16.75",
+          "تم تقسيم أسابيع المرتبات لـdocuments منفصلة (كل أسبوع document مستقل)."
+        );
+      }catch(err){
+        console.error("[V16.75] Partitioned migration failed:",err);
+        try{
+          await setDoc(doc(db,"migrationLog","partitioned-v16.75-"+Date.now()),{
+            type:"partitioned-v16.75",status:"failed",
+            details:(err.message||String(err)).slice(0,300),
+            by:user.email||"system",at:new Date().toISOString(),
+          });
+        }catch(_){}
+        partitionedMigrationRef.current=false;
+      }
+    })();
+  },[user,configDoc,partitionedLoaded]);
 
   /* ── LOCAL SNAPSHOT: save critical collections to localStorage on every config update ── */
   useEffect(()=>{if(!configDoc||!configDoc.accessories)return;
@@ -920,6 +1033,53 @@ export default function App(){
     subscribeCol("treasury",SPLIT_COLLECTIONS.treasury);
     subscribeCol("auditLog",SPLIT_COLLECTIONS.auditLog);
     subscribeCol("hrLog",   SPLIT_COLLECTIONS.hrLog);
+    return()=>{unsubs.forEach(u=>u())};
+  },[user]);
+
+  /* ═══════════════════════════════════════════════════════════════════
+     V16.75: PARTITIONED COLLECTIONS LISTENERS
+     hrWeeks → hrWeeksDocs/{weekId}
+     كل week.id يبقى document مستقل. listener بيحدث partitionedData.
+     ═══════════════════════════════════════════════════════════════════ */
+  useEffect(()=>{if(!user)return;
+    const unsubs=[];
+    const docsById={hrWeeks:new Map()};
+    const firstFires={hrWeeks:false};
+    const rebuild=()=>{
+      const flatten=(map)=>{
+        const all=[];
+        for(const obj of map.values())all.push(obj);
+        all.sort((a,b)=>String(a.id||"").localeCompare(String(b.id||"")));
+        return all;
+      };
+      setPartitionedData({
+        hrWeeks:flatten(docsById.hrWeeks),
+      });
+      if(firstFires.hrWeeks){
+        setPartitionedLoaded(true);
+      }
+    };
+    const subscribeCol=(field,collName)=>{
+      const map=docsById[field];
+      const unsub=onSnapshot(collection(db,collName),snap=>{
+        snap.docChanges().forEach(change=>{
+          const docData=change.doc.data();
+          if(change.type==="removed"){
+            map.delete(change.doc.id);
+          }else if(docData&&docData.id){
+            map.set(change.doc.id,docData);
+          }
+        });
+        firstFires[field]=true;
+        rebuild();
+      },err=>{
+        console.error(`[V16.75] Listener error ${collName}:`,err);
+        firstFires[field]=true;
+        rebuild();
+      });
+      unsubs.push(unsub);
+    };
+    subscribeCol("hrWeeks",PARTITIONED_COLLECTIONS.hrWeeks);
     return()=>{unsubs.forEach(u=>u())};
   },[user]);
 
@@ -982,17 +1142,26 @@ export default function App(){
   /* V16.74: ref to current splitData للقراءة من داخل upConfigTx (transactions تشتغل بدون state freshness) */
   const splitDataRef=useRef(splitData);
   useEffect(()=>{splitDataRef.current=splitData},[splitData]);
+  /* V16.75: ref to current partitionedData للقراءة من داخل upConfigTx */
+  const partitionedDataRef=useRef(partitionedData);
+  useEffect(()=>{partitionedDataRef.current=partitionedData},[partitionedData]);
   const upConfigTx=useCallback(async(fn)=>{
     const ref=doc(db,"factory","config");
     let lastErr=null;
-    /* V16.74: snapshot of split arrays BEFORE the fn runs — هنحتاجها لمقارنة التغييرات */
+    /* V16.74: snapshot of split arrays BEFORE the fn runs */
     const splitBefore={
       treasury:splitDataRef.current.treasury||[],
       auditLog:splitDataRef.current.auditLog||[],
       hrLog:   splitDataRef.current.hrLog||[],
     };
+    /* V16.75: snapshot of partitioned arrays */
+    const partBefore={
+      hrWeeks:partitionedDataRef.current.hrWeeks||[],
+    };
     let splitAfter=null;
-    let splitActive=false;/* set inside transaction based on _splitDaysV1674Done flag */
+    let partAfter=null;
+    let splitActive=false;
+    let partActive=false;
     /* V15.69: Up to 5 retries with exponential backoff */
     for(let attempt=0;attempt<5;attempt++){
       try{
@@ -1000,13 +1169,17 @@ export default function App(){
           const snap=await tx.get(ref);
           const current=snap.exists()?snap.data():{};
           const next=JSON.parse(JSON.stringify(current));
-          /* V16.74: لو الـsplit migration اشتغلت، نحقن splitData قبل الـfn ونفصلها بعدها.
-             لو لسه ما اشتغلتش، نشتغل بالـlogic القديم (treasury في config مباشرة). */
+          /* V16.74: حقن splitData قبل الـfn ونفصلها بعدها */
           splitActive=Boolean(current._splitDaysV1674Done);
           if(splitActive){
             next.treasury=JSON.parse(JSON.stringify(splitBefore.treasury));
             next.auditLog=JSON.parse(JSON.stringify(splitBefore.auditLog));
             next.hrLog=   JSON.parse(JSON.stringify(splitBefore.hrLog));
+          }
+          /* V16.75: حقن partitionedData قبل الـfn ونفصلها بعدها */
+          partActive=Boolean(current._partitionedV1675Done);
+          if(partActive){
+            next.hrWeeks=JSON.parse(JSON.stringify(partBefore.hrWeeks));
           }
           fn(next);
           enforceDataLimits(next);
@@ -1016,19 +1189,42 @@ export default function App(){
               auditLog:Array.isArray(next.auditLog)?next.auditLog:[],
               hrLog:   Array.isArray(next.hrLog)   ?next.hrLog   :[],
             };
-            const stripped=stripSplitArrays(next);
-            tx.set(ref,stripped);
-          }else{
-            tx.set(ref,next);
           }
+          if(partActive){
+            partAfter={
+              hrWeeks:Array.isArray(next.hrWeeks)?next.hrWeeks:[],
+            };
+          }
+          /* strip في الترتيب: split → partitioned */
+          let stripped=next;
+          if(splitActive)stripped=stripSplitArrays(stripped);
+          if(partActive)stripped=stripPartitionedArrays(stripped);
+          tx.set(ref,stripped);
         });
-        /* V16.74: بعد ما الـconfig اتكتب بنجاح، نكتب التغييرات في الـday docs (لو split active) */
+        /* V16.74: sync split day docs */
         if(splitActive&&splitAfter){
           try{
             await syncAllSplitChanges(splitBefore,splitAfter);
           }catch(syncErr){
             console.error("[V16.74] Failed to sync split day docs:",syncErr);
-            showToast("⚠️ تعذر حفظ الأيام بشكل كامل — راجع الإعدادات");
+            /* V16.75: notice فقط — لا توست عشان ما يقفزش للمستخدم */
+            noticeWarn(
+              "تعذر حفظ بعض البيانات في وضع التخزين اليومي",
+              "خطأ في كتابة documents الـsplit (treasury/audit/hrLog). البيانات الأساسية محفوظة في factory/config، لكن الـday docs قد لا تكون متزامنة. التفاصيل: "+(syncErr.message||String(syncErr)).slice(0,200)
+            );
+          }
+        }
+        /* V16.75: sync partitioned docs */
+        if(partActive&&partAfter){
+          try{
+            await syncAllPartitionedChanges(partBefore,partAfter);
+          }catch(syncErr){
+            console.error("[V16.75] Failed to sync partitioned docs:",syncErr);
+            /* V16.75: notice فقط */
+            noticeWarn(
+              "تعذر حفظ بعض الأسابيع في وضع التقسيم",
+              "خطأ في كتابة hrWeeksDocs. البيانات الأساسية محفوظة، لكن الـpartitioned docs قد لا تكون متزامنة. التفاصيل: "+(syncErr.message||String(syncErr)).slice(0,200)
+            );
           }
         }
         return;/* success */
@@ -1047,30 +1243,34 @@ export default function App(){
       setConfigDoc(prev=>{try{
         const next=JSON.parse(JSON.stringify(prev||{}));
         const splitActiveFb=Boolean(prev?._splitDaysV1674Done);
+        const partActiveFb=Boolean(prev?._partitionedV1675Done);
         if(splitActiveFb){
           next.treasury=JSON.parse(JSON.stringify(splitBefore.treasury));
           next.auditLog=JSON.parse(JSON.stringify(splitBefore.auditLog));
           next.hrLog=   JSON.parse(JSON.stringify(splitBefore.hrLog));
         }
+        if(partActiveFb){
+          next.hrWeeks=JSON.parse(JSON.stringify(partBefore.hrWeeks));
+        }
         fn(next);
         enforceDataLimits(next);
-        if(splitActiveFb){
-          const splitAfterFb={
-            treasury:Array.isArray(next.treasury)?next.treasury:[],
-            auditLog:Array.isArray(next.auditLog)?next.auditLog:[],
-            hrLog:   Array.isArray(next.hrLog)   ?next.hrLog   :[],
-          };
-          const stripped=stripSplitArrays(next);
-          setDoc(ref,stripped,{merge:false}).then(()=>{
-            syncAllSplitChanges(splitBefore,splitAfterFb).catch(e=>console.error("Fallback split sync:",e));
-            showToast("✓ تم الحفظ (بطريقة بديلة)");
-          }).catch(er=>{console.error("Fallback setDoc error:",er);showToast("⛔ فشل الحفظ نهائياً: "+((er.message||String(er)).substring(0,100)))});
-          return stripped;
-        }else{
-          /* legacy path */
-          setDoc(ref,next,{merge:true}).then(()=>{showToast("✓ تم الحفظ (بطريقة بديلة)")}).catch(er=>{console.error("Fallback setDoc error:",er);showToast("⛔ فشل الحفظ نهائياً: "+((er.message||String(er)).substring(0,100)))});
-          return next;
-        }
+        const splitAfterFb=splitActiveFb?{
+          treasury:Array.isArray(next.treasury)?next.treasury:[],
+          auditLog:Array.isArray(next.auditLog)?next.auditLog:[],
+          hrLog:   Array.isArray(next.hrLog)   ?next.hrLog   :[],
+        }:null;
+        const partAfterFb=partActiveFb?{
+          hrWeeks:Array.isArray(next.hrWeeks)?next.hrWeeks:[],
+        }:null;
+        let stripped=next;
+        if(splitActiveFb)stripped=stripSplitArrays(stripped);
+        if(partActiveFb)stripped=stripPartitionedArrays(stripped);
+        setDoc(ref,stripped,{merge:false}).then(()=>{
+          if(splitAfterFb)syncAllSplitChanges(splitBefore,splitAfterFb).catch(e=>console.error("Fallback split sync:",e));
+          if(partAfterFb)syncAllPartitionedChanges(partBefore,partAfterFb).catch(e=>console.error("Fallback partitioned sync:",e));
+          showToast("✓ تم الحفظ (بطريقة بديلة)");
+        }).catch(er=>{console.error("Fallback setDoc error:",er);showToast("⛔ فشل الحفظ نهائياً: "+((er.message||String(er)).substring(0,100)))});
+        return stripped;
       }catch(err){console.error("Fallback fn error:",err);showToast("⛔ خطأ في حفظ البيانات: "+((err.message||String(err)).substring(0,100)));return prev}});
     }catch(fallbackErr){
       console.error("Fallback failed:",fallbackErr);
@@ -1078,19 +1278,26 @@ export default function App(){
     }
   },[]);
   const upConfig=useCallback(fn=>{
-    /* V16.74: optimistic update */
+    /* V16.74 + V16.75: optimistic update with split + partitioned awareness */
     const sb={
       treasury:splitDataRef.current.treasury||[],
       auditLog:splitDataRef.current.auditLog||[],
       hrLog:   splitDataRef.current.hrLog||[],
     };
+    const pb={
+      hrWeeks:partitionedDataRef.current.hrWeeks||[],
+    };
     setConfigDoc(prev=>{try{
       const next=JSON.parse(JSON.stringify(prev||{}));
       const splitActive=Boolean(prev?._splitDaysV1674Done);
+      const partActive=Boolean(prev?._partitionedV1675Done);
       if(splitActive){
         next.treasury=JSON.parse(JSON.stringify(sb.treasury));
         next.auditLog=JSON.parse(JSON.stringify(sb.auditLog));
         next.hrLog=   JSON.parse(JSON.stringify(sb.hrLog));
+      }
+      if(partActive){
+        next.hrWeeks=JSON.parse(JSON.stringify(pb.hrWeeks));
       }
       fn(next);
       enforceDataLimits(next);
@@ -1102,9 +1309,18 @@ export default function App(){
         };
         setSplitData(newSplit);
         splitDataRef.current=newSplit;
-        return stripSplitArrays(next);
       }
-      return next;
+      if(partActive){
+        const newPart={
+          hrWeeks:Array.isArray(next.hrWeeks)?next.hrWeeks:[],
+        };
+        setPartitionedData(newPart);
+        partitionedDataRef.current=newPart;
+      }
+      let stripped=next;
+      if(splitActive)stripped=stripSplitArrays(stripped);
+      if(partActive)stripped=stripPartitionedArrays(stripped);
+      return stripped;
     }catch(e){return prev}});
     upConfigTx(fn);
   },[upConfigTx]);
@@ -1583,7 +1799,7 @@ export default function App(){
           <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}
           </span>
-          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V16.74</span>
+          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V16.75</span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>

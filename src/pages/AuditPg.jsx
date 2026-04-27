@@ -13,6 +13,7 @@
 
 import { useMemo, useState } from "react";
 import { Btn, Card, Inp, Sel } from "../components/ui.jsx";
+import { CollectionHealthBar } from "../components/CollectionHealthBar.jsx";
 import { FS } from "../constants/index.js";
 import { T, TD, TH } from "../theme.js";
 import { fmt } from "../utils/format.js";
@@ -181,6 +182,8 @@ export function AuditPg({ data, isMob, user }) {
   const hasFilter = fUser || fCategory || fAction || fSeverity || fFrom || fTo || fSearch;
 
   return <div>
+    {/* V16.75: Collection health bar */}
+    <CollectionHealthBar collection="auditDays" label="حجم سجل الأحداث" icon="📝" mode="split"/>
     <Card title={"🔍 سجل التدقيق والرقابة — " + fmt(auditLog.length) + " سجل"}>
       {/* Stats */}
       <div style={{ display: "grid", gridTemplateColumns: isMob ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: 10, marginBottom: 14 }}>

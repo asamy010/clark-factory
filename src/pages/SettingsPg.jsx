@@ -1579,6 +1579,214 @@ export function WaContactsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Car
 
 
 
+/* V16.75: STORAGE NOTICES PANEL — يعرض رسائل التخزين (نجاح/تحذير/خطأ) من أي مصدر */
+function StorageNoticesPanel(){
+  const[notices,setNotices]=useState([]);
+  const[refreshKey,setRefreshKey]=useState(0);
+  const[showSeen,setShowSeen]=useState(false);
+  
+  React.useEffect(()=>{
+    let mounted=true;
+    let unsub=null;
+    import("../utils/storageNotices.js").then(mod=>{
+      if(!mounted)return;
+      const refresh=()=>{
+        if(!mounted)return;
+        setNotices(mod.getStorageNotices());
+      };
+      refresh();
+      unsub=mod.subscribeToNotices(refresh);
+    });
+    return()=>{mounted=false;if(unsub)unsub()};
+  },[refreshKey]);
+  
+  const handleMarkAllSeen=async()=>{
+    const mod=await import("../utils/storageNotices.js");
+    mod.markAllNoticesSeen();
+  };
+  const handleClearSeen=async()=>{
+    const mod=await import("../utils/storageNotices.js");
+    mod.clearSeenNotices();
+  };
+  const handleClearAll=async()=>{
+    if(!confirm("حذف كل الرسائل؟"))return;
+    const mod=await import("../utils/storageNotices.js");
+    mod.clearStorageNotices();
+  };
+  const handleRemove=async(id)=>{
+    const mod=await import("../utils/storageNotices.js");
+    mod.removeStorageNotice(id);
+  };
+  const handleMarkSeen=async(id)=>{
+    const mod=await import("../utils/storageNotices.js");
+    mod.markNoticeSeen(id);
+  };
+  
+  const visibleNotices=showSeen?notices:notices.filter(n=>!n.seen);
+  const unseenCount=notices.filter(n=>!n.seen).length;
+  
+  if(notices.length===0)return null;/* لا تعرض الـcard لو فاضي */
+  
+  const levelMeta={
+    success:{bg:"#10B98108",border:"#10B98140",color:"#059669",icon:"✓"},
+    info:   {bg:"#3B82F608",border:"#3B82F640",color:"#2563EB",icon:"ℹ"},
+    warning:{bg:"#F59E0B08",border:"#F59E0B40",color:"#D97706",icon:"⚠"},
+    error:  {bg:"#EF444408",border:"#EF444440",color:"#DC2626",icon:"⛔"},
+  };
+  
+  return<Card title={"📬 رسائل نظام التخزين"+(unseenCount>0?" ("+unseenCount+" جديد)":"")} style={{marginBottom:14}}>
+    <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
+      رسائل عن تطبيق التحديثات وعمليات الـsync. هذه الرسائل تظهر هنا فقط (لا تظهر في صفحات الموظفين) لتجنب إزعاجهم.
+    </div>
+    
+    <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+      <Btn ghost small onClick={()=>setShowSeen(!showSeen)} style={{fontSize:FS-2}}>
+        {showSeen?"إخفاء المقروءة":"عرض المقروءة"}
+      </Btn>
+      {unseenCount>0&&<Btn ghost small onClick={handleMarkAllSeen} style={{fontSize:FS-2}}>تعليم الكل كمقروء</Btn>}
+      <Btn ghost small onClick={handleClearSeen} style={{fontSize:FS-2}}>حذف المقروءة</Btn>
+      <Btn ghost small onClick={handleClearAll} style={{fontSize:FS-2,color:T.danger}}>حذف الكل</Btn>
+      <Btn ghost small onClick={()=>setRefreshKey(k=>k+1)} style={{fontSize:FS-2}}>🔄</Btn>
+    </div>
+    
+    {visibleNotices.length===0?
+      <div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-2}}>
+        {showSeen?"لا توجد رسائل":"لا توجد رسائل جديدة"}
+      </div>:
+      <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:500,overflowY:"auto"}}>
+        {visibleNotices.map(n=>{
+          const m=levelMeta[n.level]||levelMeta.info;
+          return<div key={n.id} style={{
+            padding:10,borderRadius:8,
+            background:m.bg,
+            border:"1px solid "+m.border,
+            opacity:n.seen?0.65:1,
+            position:"relative",
+          }}>
+            <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
+              <span style={{fontSize:18,color:m.color,flexShrink:0,lineHeight:1}}>{m.icon}</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:700,color:m.color,fontSize:FS,marginBottom:2}}>{n.title}</div>
+                {n.details&&<div style={{fontSize:FS-2,color:T.textSec,lineHeight:1.6,marginTop:4,wordBreak:"break-word"}}>{n.details}</div>}
+                <div style={{fontSize:FS-3,color:T.textMut,marginTop:6}}>
+                  {(()=>{try{const d=new Date(n.at);return d.toLocaleString("ar-EG")}catch(e){return n.at}})()}
+                  {n.seen&&<span style={{marginInlineStart:8,opacity:0.6}}>(مقروء)</span>}
+                </div>
+              </div>
+              <div style={{display:"flex",gap:4,flexShrink:0}}>
+                {!n.seen&&<button onClick={()=>handleMarkSeen(n.id)} title="تعليم كمقروء"
+                  style={{padding:"2px 6px",borderRadius:4,border:"1px solid "+T.brd,background:"transparent",color:T.textSec,fontSize:FS-3,cursor:"pointer"}}>✓</button>}
+                <button onClick={()=>handleRemove(n.id)} title="حذف"
+                  style={{padding:"2px 6px",borderRadius:4,border:"1px solid "+T.brd,background:"transparent",color:T.danger,fontSize:FS-3,cursor:"pointer"}}>×</button>
+              </div>
+            </div>
+          </div>;
+        })}
+      </div>
+    }
+  </Card>;
+}
+
+
+/* V16.75: PARTITIONED DOCS MONITOR — يعرض حجم كل document في hrWeeksDocs */
+function PartitionedDocsMonitor(){
+  const[stats,setStats]=useState(null);
+  const[loading,setLoading]=useState(true);
+  const[expanded,setExpanded]=useState({hrWeeks:false});
+  const[refreshKey,setRefreshKey]=useState(0);
+  
+  React.useEffect(()=>{
+    let cancelled=false;
+    setLoading(true);
+    import("../utils/partitionedCollections.js").then(mod=>{
+      mod.getAllPartitionedStats().then(data=>{
+        if(cancelled)return;
+        setStats(data);
+        setLoading(false);
+      });
+    });
+    return()=>{cancelled=true};
+  },[refreshKey]);
+  
+  const fmt=(b)=>{if(!b)return"0 B";if(b<1024)return b+" B";if(b<1024*1024)return(b/1024).toFixed(1)+" KB";return(b/(1024*1024)).toFixed(2)+" MB"};
+  
+  const collectionMeta={
+    hrWeeks:{label:"📅 أسابيع المرتبات (hrWeeksDocs)",color:"#8B5CF6"},
+  };
+  
+  return<Card title="📑 مراقبة الـDocuments المُجزّأة (V16.75)" style={{marginBottom:14}}>
+    <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
+      أسابيع المرتبات (hrWeeks) متخزنة كـdocuments منفصلة، كل أسبوع document مستقل.
+      هذا يسمح بتراكم سنوات من البيانات بدون قيود الحجم.
+    </div>
+    
+    <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+      <Btn ghost small onClick={()=>setRefreshKey(k=>k+1)} style={{fontSize:FS-2}}>🔄 تحديث</Btn>
+    </div>
+    
+    {loading?<div style={{padding:20,textAlign:"center",color:T.textMut}}>جاري التحميل…</div>:
+     !stats?<div style={{padding:20,textAlign:"center",color:T.danger}}>تعذر قراءة البيانات</div>:
+    
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      {Object.entries(collectionMeta).map(([key,meta])=>{
+        const s=stats[key];
+        if(!s)return null;
+        const isExp=expanded[key];
+        return<div key={key} style={{border:"1px solid "+T.brd,borderRadius:10,overflow:"hidden"}}>
+          <div style={{padding:12,background:meta.color+"08",borderBottom:isExp?"1px solid "+T.brd:"none",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",cursor:"pointer"}}
+               onClick={()=>setExpanded(e=>({...e,[key]:!e[key]}))}>
+            <div style={{fontWeight:700,fontSize:FS,flex:1,minWidth:160,color:meta.color}}>{meta.label}</div>
+            <div style={{fontSize:FS-1,color:T.textSec,display:"flex",gap:14,flexWrap:"wrap"}}>
+              <span><b style={{color:T.text}}>{s.itemCount}</b> document</span>
+              <span><b style={{color:T.text}}>{fmt(s.totalSize)}</b></span>
+              <span style={{color:T.textMut}}>متوسط/document: {fmt(s.avgSize)}</span>
+            </div>
+            <span style={{fontSize:14,color:T.textMut}}>{isExp?"▾":"▸"}</span>
+          </div>
+          
+          {isExp&&<div style={{padding:0}}>
+            {s.itemCount===0?
+              <div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-2}}>لا يوجد بيانات</div>:
+              <div style={{maxHeight:340,overflowY:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-2}}>
+                  <thead style={{position:"sticky",top:0,background:T.bg}}>
+                    <tr style={{borderBottom:"1px solid "+T.brd}}>
+                      <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>الأسبوع</th>
+                      <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>التواريخ</th>
+                      <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>الحالة</th>
+                      <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>الحجم</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {s.items.map(it=>{
+                      const danger=it.size>800_000;
+                      const statusColors={"closed":"#10B981","open":"#3B82F6","draft":"#F59E0B"};
+                      const sc=statusColors[it.status]||T.textMut;
+                      return<tr key={it.id} style={{borderBottom:"1px solid "+T.brd+"40"}}>
+                        <td style={{padding:"6px 10px",fontWeight:600}}>{it.label}</td>
+                        <td style={{padding:"6px 10px",color:T.textMut,fontFamily:"monospace",fontSize:FS-3}}>{it.subLabel||"—"}</td>
+                        <td style={{padding:"6px 10px"}}>
+                          {it.status?<span style={{padding:"2px 8px",borderRadius:4,background:sc+"15",color:sc,fontSize:FS-3}}>{it.status}</span>:"—"}
+                        </td>
+                        <td style={{padding:"6px 10px",color:danger?T.danger:T.text,fontWeight:danger?700:400}}>{fmt(it.size)}{danger?" ⚠️":""}</td>
+                      </tr>;
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>}
+        </div>;
+      })}
+    </div>}
+    
+    <div style={{marginTop:12,padding:"8px 12px",background:T.accent+"06",borderRadius:8,fontSize:FS-3,color:T.textMut,lineHeight:1.6}}>
+      💡 كل document = أسبوع مرتبات كامل (~67 KB في المتوسط). لو document تخطى 800 KB يظهر بلون أحمر — وقتها نقسم تفاصيل الأسبوع لأكثر من document (مستحيل عملياً).
+    </div>
+  </Card>;
+}
+
+
 /* V16.74: SPLIT DAYS MONITOR — يعرض حجم كل document يومي للـ3 split collections */
 function SplitDaysMonitor(){
   const[stats,setStats]=useState(null);
@@ -2218,6 +2426,10 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
       </div>;
     })()}
     {activeTab==="general" && <>
+    {/* V16.75: Storage notices — رسائل التخزين بدلاً من toasts للمستخدمين */}
+    <StorageNoticesPanel/>
+    {/* V16.75: Partitioned docs monitor — يعرض حجم كل document في hrWeeksDocs */}
+    <PartitionedDocsMonitor/>
     {/* V16.74: Split days monitor — يعرض حجم كل document يومي للخزنة وسجل HR والأحداث */}
     <SplitDaysMonitor/>
     {/* V16.0: Size Budget Dashboard — tracks feature sizes against limits */}
