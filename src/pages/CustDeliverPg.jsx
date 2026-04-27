@@ -639,44 +639,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     if(ocrImageUrl){URL.revokeObjectURL(ocrImageUrl);setOcrImageUrl(null)}
   };
 
-  const printCustLabels=async(cust,models,grid,sessDate,total,count)=>{
-    const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
-    let pages="";const items=models.map(m=>({no:m.modelNo,desc:orders.find(o=>o.id===m.id)?.modelDesc||"",qty:Number(grid[m.id+"_"+cust.id])||0})).filter(x=>x.qty>0);
-    for(let i=1;i<=count;i++){
-      pages+="<div class='page'>"
-      +"<div class='brand'>CLARK</div>"
-      +"<div class='cust'>"+cust.name+"</div>"
-      +"<div class='dd'>"+(cust.phone||"")+" | "+sessDate+"</div>"
-      +"<table><thead><tr><th class='mn'>الموديل</th><th class='ds'>الوصف</th><th class='mq'>الكمية</th></tr></thead><tbody>";
-      items.forEach(it=>{pages+="<tr><td class='mn'>"+it.no+"</td><td class='ds'>"+it.desc+"</td><td class='mq'>"+it.qty+"</td></tr>"});
-      pages+="<tr class='tot'><td class='mn' colspan='2'>الاجمالي</td><td class='mq'>"+total+"</td></tr></tbody></table>"
-      +"<div class='mid'><div class='sl'>عدد الشحنات</div><div class='ship'>"+i+"/"+count+"</div></div>"
-      +"</div>"+(i<count?"<div style='page-break-after:always'></div>":"")
-    }
-    pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@600;800&display=swap' rel='stylesheet'/><title>ليبل</title><style>"
-    +"@page{size:10cm 15cm;margin:0}*{margin:0;padding:0;box-sizing:border-box}"
-    +"body{font-family:'Cairo',sans-serif;color:#000}"
-    +".page{width:10cm;height:15cm;padding:4mm;display:flex;flex-direction:column;align-items:center;overflow:hidden}"
-    +".brand{font-size:12pt;font-weight:900;letter-spacing:3px;margin-bottom:1mm}"
-    +".cust{font-size:16pt;font-weight:800;text-align:center;border:2.5px solid #000;border-radius:6px;padding:2mm 4mm;width:100%;margin-bottom:1mm}"
-    +".dd{font-size:9pt;text-align:center;color:#555;margin-bottom:2mm}"
-    +"table{width:100%;border-collapse:collapse}"
-    +"th{padding:1.5mm 2mm;border:1px solid #000;font-size:8pt;font-weight:800;background:#f0f0f0}"
-    +"td{padding:1.5mm 2mm;border:1px solid #000;font-size:10pt;font-weight:700}"
-    +".mn{text-align:right}.ds{font-size:8pt;color:#333}.mq{text-align:center;font-weight:800;font-size:11pt}"
-    +".tot td{background:#eee;font-size:12pt;font-weight:800}"
-    +".mid{text-align:center;margin:auto 0;padding:3mm 0}"
-    +".sl{font-size:9pt;font-weight:700;color:#555;margin-bottom:1mm}"
-    +".ship{font-size:28pt;font-weight:800;border:3px solid #000;border-radius:8px;padding:2mm 8mm;display:inline-block;line-height:1}"
-    +".pbar{position:sticky;top:0;background:#fff;padding:4px;display:none;justify-content:center;gap:6px;border-bottom:2px solid #ccc;z-index:99}"
-    +".pbar button{padding:5px 14px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:11px;font-weight:700;background:#fff}"
-    +".pbar .pr{background:#000;color:#fff}"
-    +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
-    +"</style></head><body>"
-    +"<div class='pbar'><button onclick='window.close()'>↩</button><button class='pr' onclick='window.print()'>🖨 طباعة "+count+"</button></div>"
-    +pages+"</body></html>");
-    pw.document.close();if(window.innerWidth>1024)setTimeout(()=>{pw.focus();pw.print()},500)
-  };
+  /* V16.71: Removed `printCustLabels` — replaced by printSalesDeliveryLabel
+     called from the shipPopup print button. The new flow produces a richer
+     label (full customer info + prices + totals + confirmation QR) and reuses
+     the existing 10×15 thermal layout instead of maintaining a second one. */
 
   return<div className="sales-page-buttons">
     {/* ═══ PROFESSIONAL SALES ACTION BAR — V14.45 ═══ */}
@@ -1054,58 +1020,12 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                     h+="<script>function _renderCLARKqrs(){if(typeof QRCode==='undefined'){setTimeout(_renderCLARKqrs,100);return}document.querySelectorAll('.confirm-qr').forEach(function(c){QRCode.toCanvas(c,c.dataset.qr,{width:200,margin:0,errorCorrectionLevel:'M'},function(){})})}_renderCLARKqrs();</"+"script>";
                     printPage("اذن تسليم — "+c.name,h,{factoryName:config.factoryName,logo:config.logo});
                   }} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30",fontSize:9,padding:"2px 5px"}} title="طباعة">🖨</Btn>
-                  {/* V16.57: Thermal sales-delivery label (10×15) — printed from the
-                      same row as the A4 receipt above. Reuses the same /api/delivery-sign
-                      flow + the same items/totals computation, then routes to the new
-                      printSalesDeliveryLabel function instead of printPage.
-                      V16.70: Open the print window SYNCHRONOUSLY at the top of the click
-                      handler (before any `await`) so the browser's popup blocker keeps the
-                      user-gesture context. We show a loading placeholder, then after the
-                      delivery-sign fetch completes, hand the existing window to
-                      printSalesDeliveryLabel which resets it via document.open() and writes
-                      the real label. Without this, the previous flow (await → openPrintWindow)
-                      had its window.open silently blocked, leaving a hidden iframe fallback
-                      that often failed to print. */}
-                  <Btn small onClick={async()=>{
-                    /* V16.70: STEP 1 — open window synchronously, before any await */
-                    const pw=openPrintWindow();
-                    if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
-                    /* Loading placeholder — replaced when label HTML is written */
-                    try{
-                      pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><title>جاري التحضير…</title><style>body{font-family:Cairo,Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f8fafc;color:#475569}.box{text-align:center}.sp{display:inline-block;width:36px;height:36px;border:4px solid #E2E8F0;border-top-color:#8B5CF6;border-radius:50%;animation:s 0.8s linear infinite;margin-bottom:12px}@keyframes s{to{transform:rotate(360deg)}}</style></head><body><div class='box'><div class='sp'></div><div style='font-size:14px;font-weight:700'>جاري تحضير ليبل التسليم…</div></div></body></html>");
-                    }catch(e){}
-                    /* STEP 2 — async work (signature fetch) */
-                    let sig="";let signErr="";
-                    try{
-                      const _u=auth.currentUser;
-                      if(!_u){signErr="يرجى تسجيل الدخول";throw new Error(signErr)}
-                      const _tok=await _u.getIdToken();
-                      const r=await fetch("/api/delivery-sign",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+_tok},body:JSON.stringify({pairs:[{sessionId:activeSess.id,custId:c.id}]})});
-                      const j=await r.json();
-                      if(r.ok&&j.signatures&&j.signatures[0])sig=j.signatures[0].sig||"";
-                      else signErr=(j&&j.error)?j.error:"HTTP "+r.status;
-                    }catch(e){signErr=signErr||("Network: "+(e.message||e))}
-                    if(!sig){console.error("[CLARK] /api/delivery-sign failed:",signErr);showToast("⚠️ الـ QR مش هيظهر — تفاصيل الخطأ: "+signErr)}
-                    const origin=window.location.origin;
-                    const confirmUrl=sig?origin+"/?dc=1&s="+encodeURIComponent(activeSess.id)+"&c="+encodeURIComponent(c.id)+"&sig="+encodeURIComponent(sig):"";
-                    /* Build items array — same loop as the 🖨 receipt button above. */
-                    const items=[];let custMoney=0;
-                    aMods.forEach(m=>{const q=getGroupQty(m,c.id);if(q>0){
-                      const oids=m.orderIds||[m.id];let price=0;
-                      for(const oid of oids){const o=orders.find(x=>x.id===oid);if(o){
-                        const dd=(o.customerDeliveries||[]).find(d=>d.custId===c.id&&d.sessionId===activeSess.id&&Number(d.price)>0);
-                        if(dd){price=Number(dd.price);break}
-                        if(Number(o.sellPrice)>0){price=Number(o.sellPrice);break}
-                      }}
-                      const lineTotal=q*price;custMoney+=lineTotal;
-                      items.push({modelNo:m.modelNo,modelDesc:m.modelDesc||"",qty:q,price:price,total:lineTotal});
-                    }});
-                    const discPct=Number(c.discount)||0;
-                    const discAmt=Math.round(custMoney*discPct/100);
-                    const netAmt=custMoney-discAmt;
-                    /* STEP 3 — pass the existing window so the function reuses it via document.open() */
-                    printSalesDeliveryLabel(c.name,c.phone||"",c.address||"",activeSess.date,items,{gross:custMoney,discPct,discAmt,netAmt},confirmUrl,data?.printSettings,CLARK_LOGO_PRINT,pw);
-                  }} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontSize:9,padding:"2px 5px"}} title="طباعة ليبل حراري (10×15)">🏷️</Btn>
+                  {/* V16.71: Removed the purple V16.57 thermal sales-delivery button.
+                      Its full-detail label (customer info, items with prices, totals,
+                      QR) is now produced by the orange 🏷️ button below via the
+                      shipPopup flow — which adds shipment count + WhatsApp on top.
+                      Two side-by-side 🏷️ buttons doing similar things was
+                      confusing UX, so the simpler/incomplete one was removed. */}
                   <Btn small onClick={()=>{
                     /* V15.55: Validate phone first */
                     let rawPhone=(c.phone||"").replace(/[^0-9]/g,"");
@@ -3504,7 +3424,57 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         </div>
         <div style={{display:"flex",gap:8}}>
           <Btn ghost onClick={()=>setShipPopup(null)}>الغاء</Btn>
-          <Btn onClick={()=>{printCustLabels(shipPopup.cust,aMods,aGrid,activeSess.date,shipPopup.total,shipCount);setShipPopup(null)}} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700}}>{"🖨 طباعة "+shipCount+" ليبل"}</Btn>
+          <Btn onClick={async()=>{
+            /* V16.71: Replaced the old printCustLabels (bare-bones name/items/total)
+               with printSalesDeliveryLabel — same full thermal layout that the
+               (now-removed) purple V16.57 button used: customer info, prices,
+               totals, discount, confirmation QR — repeated shipCount times with
+               a "i/N" badge on each. The popup blocker workaround from V16.70
+               applies here too: open the print window synchronously BEFORE any
+               await, write a loading placeholder, then hand the window to
+               printSalesDeliveryLabel after the /api/delivery-sign fetch. */
+            const cust=shipPopup.cust;
+            const sessDate=activeSess.date;
+            const shipN=shipCount;
+            setShipPopup(null);  /* close popup immediately so the user sees the print window */
+            /* STEP 1 — open window synchronously, before any await */
+            const pw=openPrintWindow();
+            if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+            try{
+              pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><title>جاري التحضير…</title><style>body{font-family:Cairo,Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f8fafc;color:#475569}.box{text-align:center}.sp{display:inline-block;width:36px;height:36px;border:4px solid #E2E8F0;border-top-color:#F59E0B;border-radius:50%;animation:s 0.8s linear infinite;margin-bottom:12px}@keyframes s{to{transform:rotate(360deg)}}</style></head><body><div class='box'><div class='sp'></div><div style='font-size:14px;font-weight:700'>جاري تحضير ليبل التسليم…</div></div></body></html>");
+            }catch(e){}
+            /* STEP 2 — fetch delivery signature (for QR) */
+            let sig="",signErr="";
+            try{
+              const _u=auth.currentUser;
+              if(!_u){signErr="يرجى تسجيل الدخول";throw new Error(signErr)}
+              const _tok=await _u.getIdToken();
+              const r=await fetch("/api/delivery-sign",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+_tok},body:JSON.stringify({pairs:[{sessionId:activeSess.id,custId:cust.id}]})});
+              const j=await r.json();
+              if(r.ok&&j.signatures&&j.signatures[0])sig=j.signatures[0].sig||"";
+              else signErr=(j&&j.error)?j.error:"HTTP "+r.status;
+            }catch(e){signErr=signErr||("Network: "+(e.message||e))}
+            if(!sig){console.error("[CLARK] /api/delivery-sign failed:",signErr);showToast("⚠️ الـ QR مش هيظهر — تفاصيل الخطأ: "+signErr)}
+            const origin=window.location.origin;
+            const confirmUrl=sig?origin+"/?dc=1&s="+encodeURIComponent(activeSess.id)+"&c="+encodeURIComponent(cust.id)+"&sig="+encodeURIComponent(sig):"";
+            /* STEP 3 — build items[] with prices (same loop the deleted purple button used) */
+            const items=[];let custMoney=0;
+            aMods.forEach(m=>{const q=getGroupQty(m,cust.id);if(q>0){
+              const oids=m.orderIds||[m.id];let price=0;
+              for(const oid of oids){const o=orders.find(x=>x.id===oid);if(o){
+                const dd=(o.customerDeliveries||[]).find(d=>d.custId===cust.id&&d.sessionId===activeSess.id&&Number(d.price)>0);
+                if(dd){price=Number(dd.price);break}
+                if(Number(o.sellPrice)>0){price=Number(o.sellPrice);break}
+              }}
+              const lineTotal=q*price;custMoney+=lineTotal;
+              items.push({modelNo:m.modelNo,modelDesc:m.modelDesc||"",qty:q,price:price,total:lineTotal});
+            }});
+            const discPct=Number(cust.discount)||0;
+            const discAmt=Math.round(custMoney*discPct/100);
+            const netAmt=custMoney-discAmt;
+            /* STEP 4 — render full label N times (existingWin = pw, shipN = shipCount) */
+            printSalesDeliveryLabel(cust.name,cust.phone||"",cust.address||"",sessDate,items,{gross:custMoney,discPct,discAmt,netAmt},confirmUrl,data?.printSettings,CLARK_LOGO_PRINT,pw,shipN);
+          }} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700}}>{"🖨 طباعة "+shipCount+" ليبل"}</Btn>
           <Btn onClick={()=>{const lines=aMods.map(m=>{const q=Number(aGrid[m.id+"_"+shipPopup.cust.id])||0;return q>0?"• موديل *"+m.modelNo+"*: *"+q+"* قطعة":null}).filter(Boolean).join("%0A");
             const msg="*CLARK — تسليم عميل*%0A%0A• العميل: *"+shipPopup.cust.name+"*%0A• التاريخ: *"+activeSess.date+"*%0A• عدد الشحنات: *"+shipCount+"* شحنة%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+shipPopup.total+"* قطعة%0A%0A⚠️ *برجاء التأكد من استلام "+shipCount+" شحنات كاملة*%0A%0A*برجاء التأكيد*";
             openWA("https://wa.me/"+(shipPopup.cust.phone?shipPopup.cust.phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank");setShipPopup(null)}} style={{background:"#25D366",color:"#fff",border:"none",fontWeight:700}} title="ارسال عبر واتساب">📱 واتساب</Btn>

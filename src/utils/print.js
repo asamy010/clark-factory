@@ -169,6 +169,16 @@ export function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,c
    reuse it instead of opening a new one. The caller may have written a loading
    placeholder; we reset via document.open() before writing the real label.
    
+   V16.71: accepts optional `shipN` — when > 1, the same label is repeated on
+   N pages with a "i/N" shipment-count indicator at the bottom (replaces the
+   old separate `printCustLabels` helper). The orange shipPopup button now
+   uses this so the printed labels carry full customer details + prices + QR
+   instead of the previous bare-bones format. The parent-side print fallback
+   added in V16.70 was removed because it was firing the print dialog twice
+   (once at 500ms from parent, once at 1000ms from inner script) which made
+   "cancel" reopen the dialog. The inner script's print is enough now that
+   the popup is opened synchronously.
+   
    Args:
      custName, custPhone, custAddr  - customer info (phone/addr may be hidden)
      date                            - session date string
@@ -177,8 +187,9 @@ export function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,c
      confirmUrl                      - optional URL encoded into the QR
      cfg                             - data?.printSettings  (slot keyed by 'salesDeliveryLabel')
      clarkLogoDataUrl                - CLARK_LOGO_PRINT
-     existingWin                     - optional pre-opened window (V16.70 popup-blocker fix) */
-export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,totals,confirmUrl,cfg,clarkLogoDataUrl,existingWin){
+     existingWin                     - optional pre-opened window (V16.70 popup-blocker fix)
+     shipN                           - optional shipment count; default 1 (V16.71) */
+export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,totals,confirmUrl,cfg,clarkLogoDataUrl,existingWin,shipN){
   let pw;
   if(existingWin){
     pw=existingWin;
@@ -187,6 +198,8 @@ export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,t
   }else{
     pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
   }
+  /* V16.71: clamp shipN to a sane integer ≥1; missing/invalid ⇒ 1 page (no badge) */
+  const N=Math.max(1,Math.floor(Number(shipN)||1));
   const sd=cfg&&cfg.salesDeliveryLabel?cfg.salesDeliveryLabel:(cfg||{});
   const fontFam=sd.fontFamily||"Cairo";
   const fontUrl=_GOOGLE_FONT_URLS_QR[fontFam]||_GOOGLE_FONT_URLS_QR.Cairo;
@@ -246,39 +259,54 @@ export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,t
   +".pbar{position:sticky;top:0;background:#fff;padding:4px;display:none;justify-content:center;gap:6px;border-bottom:2px solid #ccc}"
   +".pbar button{padding:5px 14px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'"+fontFam+"';font-size:11px;font-weight:700;background:#fff}.pbar .pr-btn{background:#000;color:#fff}"
   +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
+  /* V16.71: page-break for multi-page (shipN > 1) — each label on its own page */
+  +".pg{page-break-after:always}.pg:last-child{page-break-after:auto}"
+  /* V16.71: shipment count badge — appears next to QR when N>1 */
+  +".shipbadge{font-size:18pt;font-weight:800;border:3px solid #000;border-radius:8px;padding:1mm 5mm;line-height:1;text-align:center}"
   +"</style></head><body>"
-  +"<div class='pbar'><button onclick='window.close()'>↩</button><button class='pr-btn' onclick='window.print()'>🖨</button></div>"
-  +"<div class='pg'><div class='pg-inner'>"
-  +brandHtml
-  +"<div class='chip'>🚚 إذن تسليم</div>"
-  +"<div class='cust'><div class='lab'>العميل</div><div class='nm'>"+(custName||"—")+"</div></div>"
-  +"<table class='info'><tbody>"+custRows+"</tbody></table>"
-  +"<div class='sec'>الأصناف</div>"
-  +"<table class='it'><thead><tr><th>الموديل</th>"
-  +(showItemsDesc?"<th>الوصف</th>":"")
-  +"<th>الكمية</th>"
-  +(showPrices?"<th>السعر</th><th>الإجمالي</th>":"")
-  +"</tr></thead><tbody>"+itemRows
-  +"<tr style='background:#EFF6FF'><td colspan='"+colSpanForTotal+"' style='font-weight:800'>الإجمالي</td><td class='qt' style='font-size:11pt'>"+totalQ+"</td>"
-  +(showPrices?"<td colspan='2' class='pr' style='font-weight:900;color:#059669'>"+fmt(netAmt)+" ج.م</td>":"")
-  +"</tr></tbody></table>"
-  +totalsBox
-  +"<div class='qrbox'>"
-  +(showQr?"<div class='qrc'><canvas id='qr'></canvas><div class='lab'>📱 امسح للتأكيد</div></div>":"<div></div>")
-  +"<div style='flex:1'></div></div>"
-  +"<div class='ft'>"+(custName||"")+" | "+totalQ+" قطعة | "+date+"</div>"
-  +"</div></div>"
+  +"<div class='pbar'><button onclick='window.close()'>↩</button><button class='pr-btn' onclick='window.print()'>🖨</button></div>");
+  /* V16.71: Build one .pg per shipment. Each page carries the same content
+     plus a "i/N" badge (only when N>1) replacing the empty spacer in .qrbox.
+     Canvas IDs are unique per page (qr0, qr1, ...) so QR rendering can target
+     each one individually after document.close(). */
+  let bodyHtml="";
+  for(let i=1;i<=N;i++){
+    bodyHtml+="<div class='pg'><div class='pg-inner'>"
+      +brandHtml
+      +"<div class='chip'>🚚 إذن تسليم</div>"
+      +"<div class='cust'><div class='lab'>العميل</div><div class='nm'>"+(custName||"—")+"</div></div>"
+      +"<table class='info'><tbody>"+custRows+"</tbody></table>"
+      +"<div class='sec'>الأصناف</div>"
+      +"<table class='it'><thead><tr><th>الموديل</th>"
+      +(showItemsDesc?"<th>الوصف</th>":"")
+      +"<th>الكمية</th>"
+      +(showPrices?"<th>السعر</th><th>الإجمالي</th>":"")
+      +"</tr></thead><tbody>"+itemRows
+      +"<tr style='background:#EFF6FF'><td colspan='"+colSpanForTotal+"' style='font-weight:800'>الإجمالي</td><td class='qt' style='font-size:11pt'>"+totalQ+"</td>"
+      +(showPrices?"<td colspan='2' class='pr' style='font-weight:900;color:#059669'>"+fmt(netAmt)+" ج.م</td>":"")
+      +"</tr></tbody></table>"
+      +totalsBox
+      +"<div class='qrbox'>"
+      +(showQr?"<div class='qrc'><canvas id='qr"+i+"' class='conf-qr'></canvas><div class='lab'>📱 امسح للتأكيد</div></div>":"<div></div>")
+      /* V16.71: ship badge replaces the right-side spacer when N>1 */
+      +(N>1?"<div class='shipbadge'>"+i+"/"+N+"</div>":"<div style='flex:1'></div>")
+      +"</div>"
+      +"<div class='ft'>"+(custName||"")+" | "+totalQ+" قطعة | "+date+(N>1?" | "+i+"/"+N:"")+"</div>"
+      +"</div></div>";
+  }
+  pw.document.write(bodyHtml
   +"<script>(function(){"
-  +(showQr?"try{QRCode.toCanvas(document.getElementById('qr'),'"+confirmUrl.replace(/'/g,"\\'")+"',{width:120,margin:1,errorCorrectionLevel:'M'},function(){})}catch(e){}":"")
+  /* V16.71: render QR onto every page's canvas (same URL — same delivery) */
+  +(showQr?"document.querySelectorAll('.conf-qr').forEach(function(c){try{QRCode.toCanvas(c,'"+confirmUrl.replace(/'/g,"\\'")+"',{width:120,margin:1,errorCorrectionLevel:'M'},function(){})}catch(e){}});":"")
   +"function autoFit(){document.querySelectorAll('.pg').forEach(function(pg){var inner=pg.querySelector('.pg-inner');if(!inner)return;var s=getComputedStyle(pg);var pad=(parseFloat(s.paddingTop)||0)+(parseFloat(s.paddingBottom)||0);var avail=pg.clientHeight-pad;var content=inner.scrollHeight;if(content>avail){var sc=(avail/content)*0.98;inner.style.transform='scale('+sc.toFixed(3)+')';inner.style.width=(100/sc).toFixed(2)+'%'}else{inner.style.transform='';inner.style.width='100%'}})}"
   +"setTimeout(autoFit,300);setTimeout(autoFit,800);setTimeout(function(){window.print()},1000);"
   +"})();</"+"script>"
   +"</body></html>");
   pw.document.close();
-  /* V16.70: Parent-side focus/print fallback for desktop (mirrors renderLabelPages
-     pattern) — helps when the in-document setTimeout(window.print, 1000) gets
-     swallowed in an iframe-fallback context. */
-  if(typeof window!=="undefined"&&window.innerWidth>1024)setTimeout(()=>{try{pw.focus();pw.print()}catch(e){}},500)
+  /* V16.71: parent-side print fallback removed — was firing print at 500ms in
+     parallel with the inner script's print at 1000ms, causing the dialog to
+     re-open after the user pressed Cancel. Synchronous popup open + a single
+     in-document print call is sufficient. */
 }
 
 /* V14.57: Print employee QR cards — 40×50mm (half the size of package labels)
