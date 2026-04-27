@@ -993,9 +993,16 @@ export default function App(){
     const dayDocs={treasury:new Map(),auditLog:new Map(),hrLog:new Map()};
     let firstFires={treasury:false,auditLog:false,hrLog:false};
     const rebuild=()=>{
+      /* V16.75 FIX: flatten by sorting day keys DESC (newest day first), then concat each day's entries.
+         This matches the expectation in TreasuryPg/HRPg/AuditPg that array is newest-first.
+         Without this, Map insertion order leaks to the UI: oldest day's entries appear first. */
       const flatten=(map)=>{
+        const sortedDays=[...map.keys()].sort((a,b)=>b.localeCompare(a));/* "2026-04-27" before "2026-04-26" */
         const all=[];
-        for(const entries of map.values())all.push(...entries);
+        for(const dayKey of sortedDays){
+          const entries=map.get(dayKey)||[];
+          all.push(...entries);
+        }
         return all;
       };
       setSplitData({
@@ -1145,7 +1152,7 @@ export default function App(){
   /* V16.75: ref to current partitionedData للقراءة من داخل upConfigTx */
   const partitionedDataRef=useRef(partitionedData);
   useEffect(()=>{partitionedDataRef.current=partitionedData},[partitionedData]);
-  const upConfigTx=useCallback(async(fn)=>{
+  const upConfigTx=useCallback(async(fn,explicitSplitBefore,explicitPartBefore)=>{
     const ref=doc(db,"factory","config");
     let lastErr=null;
     /* V16.75 CRITICAL SAFETY: refuse to write if split/partitioned data hasn't loaded yet.
@@ -1160,14 +1167,18 @@ export default function App(){
       showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
       return;
     }
-    /* V16.74: snapshot of split arrays BEFORE the fn runs */
-    const splitBefore={
+    /* V16.75 FIX: explicit snapshots take precedence over splitDataRef.current.
+       When called from upConfig (optimistic), upConfig has already mutated splitDataRef
+       BEFORE this function runs. Reading splitDataRef here would give the post-mutation
+       state, making the diff (oldArr=newArr) produce zero changes — and the actual
+       server-side delete/add never happens. The optimistic update must capture the
+       pre-mutation state and pass it explicitly. */
+    const splitBefore=explicitSplitBefore||{
       treasury:splitDataRef.current.treasury||[],
       auditLog:splitDataRef.current.auditLog||[],
       hrLog:   splitDataRef.current.hrLog||[],
     };
-    /* V16.75: snapshot of partitioned arrays */
-    const partBefore={
+    const partBefore=explicitPartBefore||{
       hrWeeks:partitionedDataRef.current.hrWeeks||[],
     };
     let splitAfter=null;
@@ -1301,15 +1312,21 @@ export default function App(){
       showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
       return;
     }
+    /* V16.75 FIX: capture PRE-mutation snapshots NOW, pass them explicitly to upConfigTx.
+       The optimistic update below mutates splitDataRef.current, so by the time
+       upConfigTx runs (in next async tick), reading splitDataRef would give the
+       post-mutation state — making the diff produce zero changes. */
+    const explicitSplitBefore={
+      treasury:[...(splitDataRef.current.treasury||[])],
+      auditLog:[...(splitDataRef.current.auditLog||[])],
+      hrLog:   [...(splitDataRef.current.hrLog||[])],
+    };
+    const explicitPartBefore={
+      hrWeeks:[...(partitionedDataRef.current.hrWeeks||[])],
+    };
     /* V16.74 + V16.75: optimistic update with split + partitioned awareness */
-    const sb={
-      treasury:splitDataRef.current.treasury||[],
-      auditLog:splitDataRef.current.auditLog||[],
-      hrLog:   splitDataRef.current.hrLog||[],
-    };
-    const pb={
-      hrWeeks:partitionedDataRef.current.hrWeeks||[],
-    };
+    const sb=explicitSplitBefore;
+    const pb=explicitPartBefore;
     setConfigDoc(prev=>{try{
       const next=JSON.parse(JSON.stringify(prev||{}));
       const splitActive=Boolean(prev?._splitDaysV1674Done);
@@ -1345,7 +1362,8 @@ export default function App(){
       if(partActive)stripped=stripPartitionedArrays(stripped);
       return stripped;
     }catch(e){return prev}});
-    upConfigTx(fn);
+    /* V16.75: pass pre-mutation snapshots explicitly so the diff is computed correctly */
+    upConfigTx(fn,explicitSplitBefore,explicitPartBefore);
   },[upConfigTx,configDoc,splitLoaded,partitionedLoaded]);
 
   const upSalesTx=useCallback(async(fn)=>{
@@ -1822,7 +1840,7 @@ export default function App(){
           <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}
           </span>
-          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V16.75</span>
+          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V16.76</span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>

@@ -1,7 +1,7 @@
 {
   "name": "clark-factory-online",
   "private": true,
-  "version": "2.0.0",
+  "version": "16.76.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -20,12 +20,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.7.0",
-    "vite": "^5.4.21"
-  },
-  "description": "",
-  "main": "vite.config.js",
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+    "@vitejs/plugin-react": "^4.2.0",
+    "vite": "^5.0.0"
+  }
 }
