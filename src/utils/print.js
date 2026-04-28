@@ -212,14 +212,21 @@ export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,t
   const showQr=fields.qr?.show!==false&&!!confirmUrl;
   const totalQ=(items||[]).reduce((s,it)=>s+(Number(it.qty)||0),0);
   const fmt=(n)=>Math.round(Number(n)||0).toLocaleString("en-US");
-  /* Items rows */
-  let itemRows="";(items||[]).forEach(it=>{
-    itemRows+="<tr><td class='mn'>"+(it.modelNo||"")+"</td>"
-      +(showItemsDesc?"<td class='ds'>"+(it.modelDesc||"")+"</td>":"")
-      +"<td class='qt'>"+(it.qty||0)+"</td>"
-      +(showPrices?"<td class='pr'>"+fmt(it.price)+"</td><td class='pr' style='font-weight:800'>"+fmt(it.total)+"</td>":"")
-      +"</tr>";
-  });
+  /* V18.29: When items > 8, the items table forces the auto-fit to scale text down to unreadable.
+     Replace the table with a clean summary card (item count + total qty + date). */
+  const itemCount=(items||[]).length;
+  const useSummary=itemCount>8;
+  /* Items rows — only built when NOT in summary mode */
+  let itemRows="";
+  if(!useSummary){
+    (items||[]).forEach(it=>{
+      itemRows+="<tr><td class='mn'>"+(it.modelNo||"")+"</td>"
+        +(showItemsDesc?"<td class='ds'>"+(it.modelDesc||"")+"</td>":"")
+        +"<td class='qt'>"+(it.qty||0)+"</td>"
+        +(showPrices?"<td class='pr'>"+fmt(it.price)+"</td><td class='pr' style='font-weight:800'>"+fmt(it.total)+"</td>":"")
+        +"</tr>";
+    });
+  }
   const colSpanForTotal=1+(showItemsDesc?1:0);
   /* Brand row */
   const brandHtml=showLogo&&clarkLogoDataUrl
@@ -253,6 +260,10 @@ export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,t
   +".tbox{border:2px solid #000;border-radius:2mm;padding:1.5mm 2mm;margin-bottom:1.5mm;font-size:9pt}"
   +".trow{display:flex;justify-content:space-between;font-weight:700;line-height:1.5}"
   +".tnet{border-top:1px solid #000;padding-top:1mm;margin-top:1mm;font-weight:900;font-size:11pt;color:#059669}"
+  /* V18.29: Summary box — used when itemCount > 8 (replaces items table) */
+  +".sumbox{border:2px solid #0EA5E9;border-radius:3mm;padding:4mm 3mm;margin:3mm 0 2mm;background:#F0F9FF}"
+  +".sumrow{display:flex;justify-content:space-between;align-items:center;padding:2mm 0;border-bottom:1px dashed #0EA5E940;font-size:10pt}.sumrow:last-child{border-bottom:none}"
+  +".sumlbl{font-weight:700;color:#475569}.sumval{font-weight:900;font-size:13pt;color:#000}.sumval.acc{color:#0EA5E9}"
   +".qrbox{display:flex;align-items:flex-end;justify-content:space-between;margin-top:auto;padding-top:2mm;gap:2mm}"
   +".qrbox .qrc{text-align:center;padding:1mm;border:2px solid #000;border-radius:2mm}.qrbox .qrc .lab{font-size:6pt;font-weight:700;margin-top:0.5mm}"
   +".ft{text-align:center;font-size:7pt;color:#555;padding-top:1mm;border-top:1px dashed #000;margin-top:1.5mm}"
@@ -271,20 +282,28 @@ export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,t
      each one individually after document.close(). */
   let bodyHtml="";
   for(let i=1;i<=N;i++){
+    /* V18.29: Build the items section conditionally — summary card vs full table */
+    const itemsSection = useSummary
+      ? "<div class='sumbox'>"
+        +"<div class='sumrow'><span class='sumlbl'>عدد الأصناف</span><span class='sumval acc'>"+itemCount+"</span></div>"
+        +"<div class='sumrow'><span class='sumlbl'>إجمالي الكمية</span><span class='sumval acc'>"+totalQ+" قطعة</span></div>"
+        +"<div class='sumrow'><span class='sumlbl'>التاريخ</span><span class='sumval'>"+date+"</span></div>"
+        +"</div>"
+      : "<div class='sec'>الأصناف</div>"
+        +"<table class='it'><thead><tr><th>الموديل</th>"
+        +(showItemsDesc?"<th>الوصف</th>":"")
+        +"<th>الكمية</th>"
+        +(showPrices?"<th>السعر</th><th>الإجمالي</th>":"")
+        +"</tr></thead><tbody>"+itemRows
+        +"<tr style='background:#EFF6FF'><td colspan='"+colSpanForTotal+"' style='font-weight:800'>الإجمالي</td><td class='qt' style='font-size:11pt'>"+totalQ+"</td>"
+        +(showPrices?"<td colspan='2' class='pr' style='font-weight:900;color:#059669'>"+fmt(netAmt)+" ج.م</td>":"")
+        +"</tr></tbody></table>";
     bodyHtml+="<div class='pg'><div class='pg-inner'>"
       +brandHtml
       +"<div class='chip'>🚚 إذن تسليم</div>"
       +"<div class='cust'><div class='lab'>العميل</div><div class='nm'>"+(custName||"—")+"</div></div>"
       +"<table class='info'><tbody>"+custRows+"</tbody></table>"
-      +"<div class='sec'>الأصناف</div>"
-      +"<table class='it'><thead><tr><th>الموديل</th>"
-      +(showItemsDesc?"<th>الوصف</th>":"")
-      +"<th>الكمية</th>"
-      +(showPrices?"<th>السعر</th><th>الإجمالي</th>":"")
-      +"</tr></thead><tbody>"+itemRows
-      +"<tr style='background:#EFF6FF'><td colspan='"+colSpanForTotal+"' style='font-weight:800'>الإجمالي</td><td class='qt' style='font-size:11pt'>"+totalQ+"</td>"
-      +(showPrices?"<td colspan='2' class='pr' style='font-weight:900;color:#059669'>"+fmt(netAmt)+" ج.م</td>":"")
-      +"</tr></tbody></table>"
+      +itemsSection
       +totalsBox
       +"<div class='qrbox'>"
       +(showQr?"<div class='qrc'><canvas id='qr"+i+"' class='conf-qr'></canvas><div class='lab'>📱 امسح للتأكيد</div></div>":"<div></div>")
