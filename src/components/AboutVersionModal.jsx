@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V18.17",
+    date: "2026-04-28",
+    types: ["fix"],
+    title: "إصلاح crash صفحة 'جرد المخزن من المبيعات'",
+    changes: [
+      { type: "fix", text: "🚨 إصلاح ReferenceError: _auditScanMode is not defined — كان يكسر الصفحة بأكملها بمجرد فتح 'جرد المبيعات'" },
+      { type: "fix", text: "السبب: متغير module-level بيتم استخدامه للـscanner closure، بس متعرفش بـlet/var/const في أي مكان. ESM strict-mode بيرفض الإسناد لمتغيرات غير معرفة" },
+      { type: "fix", text: "الحل: إضافة `let _auditScanMode = \"series\"` في رأس CustDeliverPg.jsx على مستوى الـmodule" },
+    ]
+  },
+  {
     version: "V18.16",
     date: "2026-04-28",
     types: ["feature", "improvement"],
@@ -133,20 +144,6 @@ const CHANGELOG = [
     title: "إعادة بطاقة 'إجمالي الخصم' في رابط العميل",
     changes: [
       { type: "improvement", text: "🏷️ بطاقة 'إجمالي الخصم' رجعت في صفحة رابط العميل (تظهر فقط لو نسبة الخصم > 0). سطر الخصم في ملخص الحساب لا يزال محذوفاً" },
-    ]
-  },
-  {
-    version: "V18.7",
-    date: "2026-04-28",
-    types: ["feature"],
-    title: "نظام تقييم العملاء بـ 5 نجوم (نص نجمة)",
-    changes: [
-      { type: "feature", text: "⭐ نظام تقييم تلقائي للعميل بناءً على نسبة البيع: (تسليم − مرتجع) ÷ تسليم × 100%" },
-      { type: "feature", text: "5 شرائح: ممتاز ≥95% (أخضر) / جيد جداً 85-94% (تركواز) / متوسط 70-84% (أزرق) / ضعيف 50-69% (برتقالي) / سيء <50% (أحمر)" },
-      { type: "feature", text: "نجوم بدقة نص نجمة (4.5 ⭐) باستخدام تقنية overlay — مكوّن <Stars> reusable" },
-      { type: "feature", text: "التقييم يظهر في 4 أماكن: هيدر رابط العميل + بطاقة تفصيلية في إحصاءات الرابط + هيدر كشف الحساب الداخلي + قائمة العملاء (البوب-أب)" },
-      { type: "feature", text: "حالة 'لم يتم التقييم بعد' للعميل بدون تسليم" },
-      { type: "feature", text: "ملف utils/rating.jsx جديد فيه getCustRating() + مكوّن <Stars>" },
     ]
   },
 ];

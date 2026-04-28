@@ -28,6 +28,11 @@ import { auth } from "../firebase";
 import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../components/ui.jsx";
 import { T, TH, TD, TDB } from "../theme.js";
 
+/* V18.17: Module-level mutable variable used by inventory-audit scanner closure
+   to read latest scan mode. Was assigned but never declared — caused ReferenceError
+   when opening 'جرد المخزن من المبيعات' page after Vite/ESM strict-mode upgrade. */
+let _auditScanMode = "series";
+
 export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEdit,user,season}){
   const config=data;const orders=data.orders||[];const customers=config.customers||[];const sessions=config.custDeliverySessions||[];
   const[showCustForm,setShowCustForm]=useState(false);const[showCustList,setShowCustList]=useState(false);const[custSalesLog,setCustSalesLog]=useState(null);const[editSaleIdx,setEditSaleIdx]=useState(null);const[editSaleQty,setEditSaleQty]=useState(0);const[logCustF,setLogCustF]=useState("");const[logModelF,setLogModelF]=useState("");const[logDateF,setLogDateF]=useState("");const[logTypeFilter,setLogTypeFilter]=useState("");const[logLimit,setLogLimit]=useState(50);const[quoteCust,setQuoteCust]=useState(null);const[balReview,setBalReview]=useState(false);const[pendingRcv,setPendingRcv]=useState(null);
