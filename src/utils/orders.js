@@ -156,6 +156,17 @@ export function getConfirmedStock(o){
   return result;
 }
 
+/* V18.21: Series vs Broken stock distinction.
+   Default for legacy entries (no `type` field) = "series" — preserves backward compat. */
+export function getConfirmedSeriesStock(o){
+  if(!o||typeof o!=="object")return 0;
+  return (o.deliveries||[]).filter(d=>d.status!=="pending"&&(d.type||"series")==="series").reduce((s,d)=>s+(Number(d.qty)||0),0);
+}
+export function getConfirmedBrokenStock(o){
+  if(!o||typeof o!=="object")return 0;
+  return (o.deliveries||[]).filter(d=>d.status!=="pending"&&d.type==="broken").reduce((s,d)=>s+(Number(d.qty)||0),0);
+}
+
 export function getPendingStock(o){
   if(!o||typeof o!=="object")return 0;
   const cached=_pendingCache.get(o);
