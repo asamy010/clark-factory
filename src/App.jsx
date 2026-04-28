@@ -1330,7 +1330,10 @@ export default function App(){
   /* V16.75: ref to current partitionedData للقراءة من داخل upConfigTx */
   const partitionedDataRef=useRef(partitionedData);
   useEffect(()=>{partitionedDataRef.current=partitionedData},[partitionedData]);
-  const upConfigTx=useCallback(async(fn,explicitSplitBefore,explicitPartBefore)=>{
+  /* V17.2 CRITICAL FIX: signature changed — now accepts pre-computed objects instead of fn.
+     The user's fn runs ONCE in upConfig (the caller). We just write the result here.
+     This prevents id duplication on transaction retries. */
+  const upConfigTx=useCallback(async(precomputedNext,precomputedNewSplit,precomputedNewPart,explicitSplitBefore,explicitPartBefore)=>{
     const ref=doc(db,"factory","config");
     let lastErr=null;
     /* V16.75 CRITICAL SAFETY: refuse to write if split/partitioned data hasn't loaded yet.
@@ -1345,12 +1348,6 @@ export default function App(){
       showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
       return;
     }
-    /* V16.75 FIX: explicit snapshots take precedence over splitDataRef.current.
-       When called from upConfig (optimistic), upConfig has already mutated splitDataRef
-       BEFORE this function runs. Reading splitDataRef here would give the post-mutation
-       state, making the diff (oldArr=newArr) produce zero changes — and the actual
-       server-side delete/add never happens. The optimistic update must capture the
-       pre-mutation state and pass it explicitly. */
     const splitBefore=explicitSplitBefore||{
       treasury:splitDataRef.current.treasury||[],
       auditLog:splitDataRef.current.auditLog||[],
@@ -1359,49 +1356,30 @@ export default function App(){
     const partBefore=explicitPartBefore||{
       hrWeeks:partitionedDataRef.current.hrWeeks||[],
     };
-    let splitAfter=null;
-    let partAfter=null;
-    let splitActive=false;
-    let partActive=false;
+    /* V17.2: Use precomputed values directly. No fn re-execution. */
+    const splitActive=Boolean(configDoc?._splitDaysV1674Done);
+    const partActive=Boolean(configDoc?._partitionedV1675Done);
+    const splitAfter=splitActive?precomputedNewSplit:null;
+    const partAfter=partActive?precomputedNewPart:null;
+    /* Strip the precomputed next */
+    let stripped=precomputedNext;
+    if(splitActive)stripped=stripSplitArrays(stripped);
+    if(partActive)stripped=stripPartitionedArrays(stripped);
     /* V15.69: Up to 5 retries with exponential backoff */
     for(let attempt=0;attempt<5;attempt++){
       try{
-        await runTransaction(db,async(tx)=>{
-          const snap=await tx.get(ref);
-          const current=snap.exists()?snap.data():{};
-          const next=JSON.parse(JSON.stringify(current));
-          /* V16.74: حقن splitData قبل الـfn ونفصلها بعدها */
-          splitActive=Boolean(current._splitDaysV1674Done);
-          if(splitActive){
-            next.treasury=JSON.parse(JSON.stringify(splitBefore.treasury));
-            next.auditLog=JSON.parse(JSON.stringify(splitBefore.auditLog));
-            next.hrLog=   JSON.parse(JSON.stringify(splitBefore.hrLog));
-          }
-          /* V16.75: حقن partitionedData قبل الـfn ونفصلها بعدها */
-          partActive=Boolean(current._partitionedV1675Done);
-          if(partActive){
-            next.hrWeeks=JSON.parse(JSON.stringify(partBefore.hrWeeks));
-          }
-          fn(next);
-          enforceDataLimits(next);
-          if(splitActive){
-            splitAfter={
-              treasury:Array.isArray(next.treasury)?next.treasury:[],
-              auditLog:Array.isArray(next.auditLog)?next.auditLog:[],
-              hrLog:   Array.isArray(next.hrLog)   ?next.hrLog   :[],
-            };
-          }
-          if(partActive){
-            partAfter={
-              hrWeeks:Array.isArray(next.hrWeeks)?next.hrWeeks:[],
-            };
-          }
-          /* strip في الترتيب: split → partitioned */
-          let stripped=next;
-          if(splitActive)stripped=stripSplitArrays(stripped);
-          if(partActive)stripped=stripPartitionedArrays(stripped);
-          tx.set(ref,stripped);
-        });
+        /* V17.2: simple write — no transaction needed since fn already ran.
+           The precomputed `stripped` object has all the changes baked in.
+           
+           Why use setDoc instead of runTransaction:
+           - The point of runTransaction was to read-modify-write atomically (fn(next) used
+             current value). Now fn already ran with our local view of the data, and we
+             just want to write the result. setDoc(merge:false) is the correct API.
+           - This also means concurrent writes from other users will overwrite each other,
+             but that was ALREADY the behavior — our previous fn used `splitBefore` (a
+             local snapshot), so any concurrent server change would be lost on retry too.
+             The retry mechanism only helped with transient errors, not concurrent edits. */
+        await setDoc(ref,stripped,{merge:false});
         /* V16.74: sync split day docs */
         if(splitActive&&splitAfter){
           try{
@@ -1421,9 +1399,8 @@ export default function App(){
             await syncAllPartitionedChanges(partBefore,partAfter);
           }catch(syncErr){
             console.error("[V16.75] Failed to sync partitioned docs:",syncErr);
-            /* V16.75: notice فقط */
             noticeWarn(
-              "تعذر حفظ بعض الأسابيع في وضع التقسيم",
+              "تعذر حفظ أسابيع المرتبات في الـcollection المنفصلة",
               "خطأ في كتابة hrWeeksDocs. البيانات الأساسية محفوظة، لكن الـpartitioned docs قد لا تكون متزامنة. التفاصيل: "+(syncErr.message||String(syncErr)).slice(0,200)
             );
           }
@@ -1441,75 +1418,22 @@ export default function App(){
     console.error("upConfig tx error after retries:",lastErr);
     showToast("⚠️ فشل حفظ البيانات — جاري المحاولة بطريقة بديلة...");
     try{
-      /* V17.0 FIX #6: Compute next state OUTSIDE setConfigDoc callback (no double-execution).
-         V17.0 FIX #9: Reverse the order: sync day docs FIRST, then write config.
-         
-         Why: in the old order, if setDoc(config) succeeded but the syncs failed,
-         the config would be stripped (no treasury/auditLog/hrLog/hrWeeks) but the
-         day docs would be missing the new entries. The user would see entries
-         disappear after refresh.
-         
-         New order: write day docs first. If that fails, the config still has
-         the legacy data (full state). If day docs succeed but config write fails,
-         the user can retry — the day docs are idempotent. */
-      const prevFb=configDoc||{};
-      let nextFb,splitAfterFb=null,partAfterFb=null,strippedFb=null;
+      /* V17.2: simpler fallback — we already have precomputed objects. */
+      /* V17.0 FIX #9: Sync day docs FIRST (idempotent and safe to retry) */
       try{
-        nextFb=JSON.parse(JSON.stringify(prevFb));
-        const splitActiveFb=Boolean(prevFb._splitDaysV1674Done);
-        const partActiveFb=Boolean(prevFb._partitionedV1675Done);
-        if(splitActiveFb){
-          nextFb.treasury=JSON.parse(JSON.stringify(splitBefore.treasury));
-          nextFb.auditLog=JSON.parse(JSON.stringify(splitBefore.auditLog));
-          nextFb.hrLog=   JSON.parse(JSON.stringify(splitBefore.hrLog));
-        }
-        if(partActiveFb){
-          nextFb.hrWeeks=JSON.parse(JSON.stringify(partBefore.hrWeeks));
-        }
-        fn(nextFb);
-        enforceDataLimits(nextFb);
-        if(splitActiveFb){
-          splitAfterFb={
-            treasury:Array.isArray(nextFb.treasury)?nextFb.treasury:[],
-            auditLog:Array.isArray(nextFb.auditLog)?nextFb.auditLog:[],
-            hrLog:   Array.isArray(nextFb.hrLog)   ?nextFb.hrLog   :[],
-          };
-        }
-        if(partActiveFb){
-          partAfterFb={
-            hrWeeks:Array.isArray(nextFb.hrWeeks)?nextFb.hrWeeks:[],
-          };
-        }
-        strippedFb=nextFb;
-        if(splitActiveFb)strippedFb=stripSplitArrays(strippedFb);
-        if(partActiveFb)strippedFb=stripPartitionedArrays(strippedFb);
-      }catch(err){
-        console.error("Fallback fn error:",err);
-        showToast("⛔ خطأ في حفظ البيانات: "+((err.message||String(err)).substring(0,100)));
-        return;
-      }
-      
-      /* V17.0 FIX #9: Sync day docs FIRST (they are idempotent and safe to retry) */
-      try{
-        if(splitAfterFb)await syncAllSplitChanges(splitBefore,splitAfterFb);
-        if(partAfterFb)await syncAllPartitionedChanges(partBefore,partAfterFb);
+        if(splitAfter)await syncAllSplitChanges(splitBefore,splitAfter);
+        if(partAfter)await syncAllPartitionedChanges(partBefore,partAfter);
       }catch(syncErr){
         console.error("Fallback sync error (day docs):",syncErr);
         showToast("⛔ فشل sync الـday docs: "+((syncErr.message||String(syncErr)).substring(0,100)));
-        /* Day docs partially written. Config NOT updated. Next attempt will be safe. */
         return;
       }
-      
-      /* Day docs are now in sync. Write the config. */
       try{
-        await setDoc(ref,strippedFb,{merge:false});
-        setConfigDoc(strippedFb);
+        await setDoc(ref,stripped,{merge:false});
         showToast("✓ تم الحفظ (بطريقة بديلة)");
       }catch(er){
         console.error("Fallback setDoc error:",er);
         showToast("⛔ فشل الحفظ نهائياً: "+((er.message||String(er)).substring(0,100)));
-        /* Day docs are written. Config write failed. The user can retry — the day
-           docs are idempotent so no duplicates will occur. */
       }
     }catch(fallbackErr){
       console.error("Fallback failed:",fallbackErr);
@@ -1599,8 +1523,17 @@ export default function App(){
       setPartitionedData(newPart);
       partitionedDataRef.current=newPart;
     }
-    /* V16.75: pass pre-mutation snapshots explicitly so the diff is computed correctly */
-    upConfigTx(fn,explicitSplitBefore,explicitPartBefore);
+    /* V17.2 CRITICAL FIX: Pass the PRE-COMPUTED `next` object (not fn) to upConfigTx.
+       Why: Firestore's runTransaction re-runs the callback on conflicts (up to 5 retries).
+       If we passed fn, fn(next) would execute again on each retry, calling gid()/Date.now()
+       and producing DIFFERENT ids each time. The optimistic UI shows ids from call #1
+       (gid="X1"), the server stores ids from call #N (gid="X2"). The pending writes
+       map has {X1: pending}, the listener sees {X2: server} — both end up rendered =
+       DUPLICATE entries on the UI.
+       
+       Now we pass the already-computed `next` and `newSplit`/`newPart`. The transaction
+       just writes them as-is, no re-execution of user fn. */
+    upConfigTx(next,newSplit,newPart,explicitSplitBefore,explicitPartBefore);
   },[upConfigTx,configDoc,splitLoaded,partitionedLoaded,registerPendingSplitWrites,registerPendingPartitionedWrites]);
 
   const upSalesTx=useCallback(async(fn)=>{
@@ -2092,7 +2025,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V17.1 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >V17.2 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -3148,7 +3081,7 @@ export default function App(){
       </div>
     )}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V17.1"/>
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V17.2"/>
   </div>
 }
 

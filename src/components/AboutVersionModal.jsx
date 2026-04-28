@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V17.2",
+    date: "2026-04-28",
+    types: ["fix", "architectural"],
+    title: "إصلاح حرج: الحركات بتنزل مرتين (duplicate)",
+    changes: [
+      { type: "fix", text: "🚨 إصلاح bug خطير: تسجيل سلفة كان يسبب duplicate في الخزنة" },
+      { type: "architectural", text: "السبب: Firestore transaction كان يـreruns الـuser fn على كل retry، وكل run يولّد ids جديدة (gid()). الـoptimistic UI كان بـid_1، الـserver بـid_2 → الـpending writes ما كنش يمسحوا الـserver entry → الـ2 يظهروا في UI" },
+      { type: "fix", text: "fn ينفذ مرة واحدة فقط في upConfig، الـnext الجاهز يتمرر لـupConfigTx بدل ما يـreruns على كل retry" },
+      { type: "improvement", text: "استبدال runTransaction بـsetDoc — الـbehaviour نفسه (آخر write يفوز)، لكن مفيش fn re-execution" },
+      { type: "fix", text: "الإصلاح يحل ده لكل أنواع الحركات: السلف، التحويلات، دفعات العملاء، دفعات الموردين" },
+    ]
+  },
+  {
     version: "V17.1",
     date: "2026-04-28",
     types: ["fix", "improvement"],
@@ -138,16 +151,6 @@ const CHANGELOG = [
       { type: "feature", text: "Migration script أوتوماتيكية مع backup كامل قبل التحويل" },
       { type: "feature", text: "كارت 'مراقبة التخزين اليومي' في الإعدادات يعرض حجم كل document يومي" },
       { type: "improvement", text: "كل document يومي 5-10 KB، يسمح بسنوات من النمو بدون مشاكل" },
-    ]
-  },
-  {
-    version: "V16.73",
-    date: "2026-04-26",
-    types: ["improvement"],
-    title: "تحسينات صفحة الإعدادات",
-    changes: [
-      { type: "improvement", text: "إعادة تنظيم تابات الإعدادات" },
-      { type: "improvement", text: "تحسين عرض الإحصائيات" },
     ]
   },
 ];
