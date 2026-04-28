@@ -35,22 +35,14 @@ const exportPdf = (tabLabel) => {
   setTimeout(() => window.print(), 100);
 };
 
-/* WhatsApp share: prefer native share if available (mobile), else open wa.me */
-const shareWhatsApp = (custName, tabLabel) => {
-  const text = "📄 كشف حساب " + custName + " — " + tabLabel + "\n" + window.location.href;
-  if (navigator.share) {
-    navigator.share({ title: "كشف الحساب", text, url: window.location.href }).catch(()=>{});
-  } else {
-    window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank");
-  }
-};
-
 export function CustomerPortalPage({ params }) {
   const { c: custId, sig } = params;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
   const [tab, setTab] = useState("summary");
+  /* V18.4: Model number filter (applies to models, deliveries, returns tabs) */
+  const [modelFilter, setModelFilter] = useState("");
 
   useEffect(() => {
     const load = async () => {
@@ -107,8 +99,20 @@ export function CustomerPortalPage({ params }) {
   const { customer, summary, activeModels, deliveries, returns: rets, payments, factory } = data;
   /* V18.3: Flipped — positive=customer owes us=GREEN, negative=factory owes=RED */
   const balanceColor = summary.balance > 0 ? "#059669" : summary.balance < 0 ? "#DC2626" : "#6B7280";
-  const balanceLabel = summary.balance > 0 ? "💚 مستحق علي" : summary.balance < 0 ? "❤️ مستحق لي" : "✓ متعادل";
-  const tabLabels = { summary: "الملخص", models: "الموديلات", deliveries: "التسليمات", returns: "المرتجعات", payments: "المدفوعات" };
+  /* V18.4: Corrected balance labels */
+  const balanceLabel = summary.balance > 0 ? "💚 مستحق للمصنع" : summary.balance < 0 ? "❤️ مستحق للعميل" : "✓ متعادل";
+  const tabLabels = { summary: "الملخص", models: "الموديلات", transactions: "سجل التسليم والمرتجعات", payments: "المدفوعات" };
+  /* V18.4: Filter helper — case-insensitive substring match on model number */
+  const matchesModel = (modelNo) => !modelFilter.trim() || (modelNo || "").toLowerCase().includes(modelFilter.trim().toLowerCase());
+  const filteredModels = activeModels.filter(m => matchesModel(m.modelNo));
+  /* V18.5: Merged delivery + returns log, sorted chronologically (descending) */
+  const transactions = [
+    ...deliveries.map(d => ({ ...d, kind: "delivery" })),
+    ...rets.map(r => ({ ...r, kind: "return" })),
+  ].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const filteredTransactions = transactions.filter(t => matchesModel(t.modelNo));
+  /* V18.4: Compute gross sales after discount (for card display) */
+  const grossAfterDisc = customer.discount > 0 ? Math.round(summary.totalDelValue * (1 - customer.discount / 100)) : summary.totalDelValue;
 
   return <div style={wrapperStyle}>
     {/* Print-only CSS — hides everything except the printable area */}
@@ -146,9 +150,9 @@ export function CustomerPortalPage({ params }) {
 
     {/* V18.3: 6 compact cards mirroring in-app statement */}
     <div className="no-print" style={{ padding: "10px 12px 6px", display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
-      {/* Card 1: Total Sales (before/after discount) */}
-      <MiniCard icon="📤" label="إجمالي فواتير المبيعات" mainValue={fmt(summary.netSales)} mainSub={customer.discount > 0 ? "قبل الخصم" : "إجمالي البيع"} unit="ج.م" color="#6366F1"
-        secondary={customer.discount > 0 ? { value: fmt(summary.salesAfterDiscount), label: "بعد الخصم" } : null}/>
+      {/* Card 1: Total Sales (GROSS — V18.4: was netSales which is wrong, now totalDelValue) */}
+      <MiniCard icon="📤" label="إجمالي فواتير المبيعات" mainValue={fmt(summary.totalDelValue)} mainSub={customer.discount > 0 ? "قبل الخصم" : "إجمالي التسليم"} unit="ج.م" color="#6366F1"
+        secondary={customer.discount > 0 ? { value: fmt(grossAfterDisc), label: "بعد الخصم" } : null}/>
       {/* Card 2: Total Returns */}
       <MiniCard icon="↩️" label="إجمالي المرتجعات" mainValue={fmt(summary.returnsValue)} mainSub={customer.discount > 0 ? "قبل الخصم" : "قيمة المرتجعات"} unit="ج.م" color="#EF4444"
         secondary={customer.discount > 0 && summary.returnsValue > 0 ? { value: fmt(summary.returnsAfterDiscount), label: "بعد الخصم" } : null}/>
@@ -170,17 +174,16 @@ export function CustomerPortalPage({ params }) {
         <div style={{ fontSize: 22, fontWeight: 900, color: balanceColor, direction: "ltr", lineHeight: 1.1 }}>{fmt(summary.balance)} <span style={{ fontSize: 11, color: "#94A3B8" }}>ج.م</span></div>
         <div style={{ fontSize: 10, color: "#64748B", marginTop: 3, fontWeight: 600 }}>{balanceLabel}</div>
       </div>
-      {/* Card 6: Net pieces */}
-      <MiniCard icon="📦" label="صافي القطع" mainValue={fmt(summary.actualSold)} mainSub="تسليم - مرتجع" unit="قطعة" color="#0EA5E9"/>
+      {/* Card 6: Net sold quantity — V18.4 renamed */}
+      <MiniCard icon="📦" label="صافي الكمية المباعة" mainValue={fmt(summary.actualSold)} mainSub="تسليم - مرتجع" unit="قطعة" color="#0EA5E9"/>
     </div>
 
-    {/* Tabs */}
+    {/* Tabs — V18.5: merged transactions */}
     <div className="no-print" style={{ padding: "6px 12px", display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
       {[
         { id: "summary", label: "الملخص", icon: "📋" },
         { id: "models", label: "الموديلات (" + activeModels.length + ")", icon: "📦" },
-        { id: "deliveries", label: "التسليمات (" + deliveries.length + ")", icon: "🚚" },
-        { id: "returns", label: "المرتجعات (" + rets.length + ")", icon: "↩️" },
+        { id: "transactions", label: "سجل التسليم والمرتجعات (" + transactions.length + ")", icon: "🔄" },
         { id: "payments", label: "المدفوعات (" + payments.length + ")", icon: "💰" },
       ].map(t =>
         <button key={t.id} onClick={() => setTab(t.id)} style={{
@@ -201,10 +204,9 @@ export function CustomerPortalPage({ params }) {
       )}
     </div>
 
-    {/* Export buttons — V18.3: PDF + WhatsApp on every tab */}
+    {/* Export buttons — V18.5: PDF only (WhatsApp removed per user request) */}
     <div className="no-print" style={{ padding: "4px 12px 8px", display: "flex", gap: 6, justifyContent: "flex-end" }}>
       <button onClick={() => exportPdf(tabLabels[tab])} style={btnStyle("#EF4444")}>📄 PDF</button>
-      <button onClick={() => shareWhatsApp(customer.name, tabLabels[tab])} style={btnStyle("#25D366")}>📤 واتساب</button>
     </div>
 
     {/* Content (printable area gets cloned for print) */}
@@ -214,8 +216,8 @@ export function CustomerPortalPage({ params }) {
         <div style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
           <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 10, color: "#1E293B" }}>📋 ملخص الحساب</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13 }}>
-            <Row icon="📤" label="إجمالي فواتير المبيعات" value={fmt(summary.netSales)} unit="ج.م" color="#6366F1"
-              detail={customer.discount > 0 ? { label: "بعد الخصم", value: fmt(summary.salesAfterDiscount) } : null}/>
+            <Row icon="📤" label="إجمالي فواتير المبيعات" value={fmt(summary.totalDelValue)} unit="ج.م" color="#6366F1"
+              detail={customer.discount > 0 ? { label: "بعد الخصم", value: fmt(grossAfterDisc) } : null}/>
             <Row icon="↩️" label="إجمالي المرتجعات" value={fmt(summary.returnsValue)} unit="ج.م" color="#EF4444"
               detail={customer.discount > 0 && summary.returnsValue > 0 ? { label: "بعد الخصم", value: fmt(summary.returnsAfterDiscount) } : null}/>
             {customer.discount > 0 && <Row icon="🏷️" label={"إجمالي الخصم (" + customer.discount + "%)"} value={fmt(summary.discountAmount)} unit="ج.م" color="#F59E0B"/>}
@@ -226,7 +228,7 @@ export function CustomerPortalPage({ params }) {
               <Row icon="⚖️" label="الرصيد الحالي" value={fmt(summary.balance)} unit="ج.م" color={balanceColor} bold xlarge/>
               <div style={{ fontSize: 11, color: "#64748B", textAlign: "left", marginTop: 2 }}>{balanceLabel}</div>
             </div>
-            <Row icon="📦" label="صافي القطع (تسليم - مرتجع)" value={fmt(summary.actualSold)} unit="قطعة" color="#0EA5E9"/>
+            <Row icon="📦" label="صافي الكمية المباعة (تسليم - مرتجع)" value={fmt(summary.actualSold)} unit="قطعة" color="#0EA5E9"/>
           </div>
         </div>
 
@@ -242,10 +244,16 @@ export function CustomerPortalPage({ params }) {
         </div>
       </div>}
 
+      {/* V18.5: Model filter — shown on models + transactions tabs */}
+      {["models", "transactions"].includes(tab) && <div className="no-print" style={{ marginBottom: 8, display: "flex", gap: 6, alignItems: "center" }}>
+        <input type="text" value={modelFilter} onChange={e => setModelFilter(e.target.value)} placeholder="🔍 فلتر برقم الموديل..." style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, fontFamily: "inherit", direction: "ltr", textAlign: "right", background: "#fff" }}/>
+        {modelFilter && <button onClick={() => setModelFilter("")} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #CBD5E1", background: "#F1F5F9", color: "#475569", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>✕ مسح</button>}
+      </div>}
+
       {/* MODELS — V18.3: thumbnail + data side-by-side, "تسليم", math equation, no status badge */}
       {tab === "models" && <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {activeModels.length === 0 ? <EmptyMsg text="لا توجد موديلات"/> :
-          activeModels.map((m, i) => {
+        {filteredModels.length === 0 ? <EmptyMsg text={modelFilter ? "لا توجد موديلات بهذا الرقم" : "لا توجد موديلات"}/> :
+          filteredModels.map((m, i) => {
             const grossVal = m.delivered * m.sellPrice;
             const netVal = m.net * m.sellPrice;
             const discAmtModel = customer.discount > 0 ? Math.round(netVal * customer.discount / 100) : 0;
@@ -276,37 +284,38 @@ export function CustomerPortalPage({ params }) {
         }
       </div>}
 
-      {/* DELIVERIES — kept */}
-      {tab === "deliveries" && <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {deliveries.length === 0 ? <EmptyMsg text="لا توجد تسليمات"/> :
-          deliveries.map((d, i) => <div key={i} style={{ background: "#fff", borderRadius: 10, padding: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.04)", display: "flex", gap: 10, alignItems: "center" }}>
-            {d.image && <img src={d.image} alt="" style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover", flexShrink: 0 }}/>}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 800, color: "#6366F1", direction: "ltr", fontSize: 14 }}>{d.modelNo}</div>
-              <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 1 }}>{fmtDate(d.date)}</div>
-            </div>
-            <div style={{ textAlign: "left" }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "#059669" }}>{d.qty} قطعة</div>
-              <div style={{ fontSize: 11, color: "#64748B", direction: "ltr" }}>{fmt(d.value)} ج.م</div>
-            </div>
-          </div>)
-        }
-      </div>}
-
-      {/* RETURNS — kept */}
-      {tab === "returns" && <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {rets.length === 0 ? <EmptyMsg text="لا توجد مرتجعات"/> :
-          rets.map((r, i) => <div key={i} style={{ background: "#fff", borderRadius: 10, padding: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.04)", display: "flex", gap: 10, alignItems: "center" }}>
-            {r.image && <img src={r.image} alt="" style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover", flexShrink: 0 }}/>}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 800, color: "#6366F1", direction: "ltr", fontSize: 14 }}>{r.modelNo}</div>
-              <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 1 }}>{fmtDate(r.date)}</div>
-            </div>
-            <div style={{ textAlign: "left" }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "#EF4444" }}>{r.qty} قطعة</div>
-              <div style={{ fontSize: 11, color: "#64748B", direction: "ltr" }}>{fmt(r.value)} ج.م</div>
-            </div>
-          </div>)
+      {/* V18.5: TRANSACTIONS — merged delivery + returns chronological log */}
+      {tab === "transactions" && <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {filteredTransactions.length === 0 ? <EmptyMsg text={modelFilter ? "لا توجد حركات بهذا الرقم" : "لا توجد حركات"}/> :
+          filteredTransactions.map((t, i) => {
+            const isReturn = t.kind === "return";
+            const color = isReturn ? "#EF4444" : "#059669";
+            const bgTint = isReturn ? "#FEF2F2" : "#F0FDF4";
+            const borderTint = isReturn ? "#FEE2E2" : "#DCFCE7";
+            const label = isReturn ? "مرتجع" : "تسليم";
+            const icon = isReturn ? "↩️" : "📥";
+            return <div key={i} style={{ background: "#fff", borderRadius: 10, padding: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.04)", display: "flex", gap: 10, alignItems: "stretch", borderInlineStart: "3px solid " + color }}>
+              {/* Thumbnail */}
+              <div style={{ width: 56, minWidth: 56, borderRadius: 8, overflow: "hidden", background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {t.image ? <img src={t.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}/> : <span style={{ fontSize: 22, opacity: 0.3 }}>📦</span>}
+              </div>
+              {/* Data */}
+              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 3 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
+                  <div style={{ fontWeight: 800, color: "#6366F1", direction: "ltr", fontSize: 14 }}>{t.modelNo}</div>
+                  <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 5, background: bgTint, color, fontWeight: 800, border: "1px solid " + borderTint }}>{icon} {label}</span>
+                </div>
+                {t.modelDesc && <div style={{ fontSize: 11, color: "#64748B" }}>{t.modelDesc}</div>}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 2 }}>
+                  <span style={{ fontSize: 10, color: "#94A3B8" }}>{fmtDate(t.date)}</span>
+                  <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color }}>{t.qty} <span style={{ fontSize: 9, color: "#64748B", fontWeight: 600 }}>قطعة</span></span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "#475569", direction: "ltr" }}>{fmt(t.value)} <span style={{ fontSize: 9, color: "#94A3B8", fontWeight: 600 }}>ج.م</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>;
+          })
         }
       </div>}
 

@@ -26,18 +26,10 @@ const fmtDate = (d) => {
   } catch (e) { return d; }
 };
 
-/* V18.3: PDF via browser print + WhatsApp share */
+/* V18.3: PDF via browser print */
 const exportPdf = (tabLabel) => {
   document.title = "حساب الورشة — " + tabLabel;
   setTimeout(() => window.print(), 100);
-};
-const shareWhatsApp = (wsName, tabLabel) => {
-  const text = "🏭 حساب " + wsName + " — " + tabLabel + "\n" + window.location.href;
-  if (navigator.share) {
-    navigator.share({ title: "حساب الورشة", text, url: window.location.href }).catch(()=>{});
-  } else {
-    window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank");
-  }
 };
 
 export function WorkshopPortalPage({ params }) {
@@ -46,6 +38,8 @@ export function WorkshopPortalPage({ params }) {
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
   const [tab, setTab] = useState("summary");
+  /* V18.4: Model number filter (applies to transactions tab) */
+  const [modelFilter, setModelFilter] = useState("");
 
   useEffect(() => {
     const load = async () => {
@@ -105,7 +99,32 @@ export function WorkshopPortalPage({ params }) {
   const balanceColor = summary.balance > 0 ? "#F59E0B" : summary.balance < 0 ? "#DC2626" : "#6B7280";
   const totalPayments = payments.filter(p => p.type === "payment").reduce((s, p) => s + (Number(p.amount) || 0), 0);
   const totalPurchases = payments.filter(p => p.type === "purchase").reduce((s, p) => s + (Number(p.amount) || 0), 0);
-  const tabLabels = { summary: "الملخص", deliveries: "تسليم للورشة", receives: "استلام من الورشة", payments: "المدفوعات" };
+  const tabLabels = { summary: "الملخص", transactions: "سجل التسليم والاستلام", payments: "المدفوعات" };
+
+  /* V18.4: Merge deliveries + receives by modelNo into one card per model */
+  const matchesModel = (modelNo) => !modelFilter.trim() || (modelNo || "").toLowerCase().includes(modelFilter.trim().toLowerCase());
+  const modelMap = new Map();
+  deliveries.forEach(d => {
+    if (!modelMap.has(d.modelNo)) modelMap.set(d.modelNo, { modelNo: d.modelNo, modelDesc: d.modelDesc, image: d.image, pieces: new Set(), deliveries: [], receives: [], delQty: 0, recQty: 0, totalValue: 0 });
+    const m = modelMap.get(d.modelNo);
+    m.deliveries.push({ date: d.date, qty: d.qty, piece: d.piece });
+    if (d.piece) m.pieces.add(d.piece);
+    m.delQty += d.qty;
+    if (!m.image && d.image) m.image = d.image;
+  });
+  receives.forEach(r => {
+    if (!modelMap.has(r.modelNo)) modelMap.set(r.modelNo, { modelNo: r.modelNo, modelDesc: r.modelDesc, image: r.image, pieces: new Set(), deliveries: [], receives: [], delQty: 0, recQty: 0, totalValue: 0 });
+    const m = modelMap.get(r.modelNo);
+    m.receives.push({ date: r.date, qty: r.qty, price: r.price, value: r.value, piece: r.piece });
+    if (r.piece) m.pieces.add(r.piece);
+    m.recQty += r.qty;
+    m.totalValue += r.value;
+    if (!m.image && r.image) m.image = r.image;
+  });
+  const transactions = Array.from(modelMap.values())
+    .map(m => ({ ...m, pieces: Array.from(m.pieces), latestDate: [...m.deliveries.map(x => x.date), ...m.receives.map(x => x.date)].sort().reverse()[0] || "" }))
+    .sort((a, b) => (b.latestDate || "").localeCompare(a.latestDate || ""));
+  const filteredTransactions = transactions.filter(m => matchesModel(m.modelNo));
 
   return <div style={wrapperStyle}>
     {/* V18.3: Print-only CSS */}
@@ -144,12 +163,11 @@ export function WorkshopPortalPage({ params }) {
       <Card icon="📦" label="كمية تحت التشغيل" value={fmt(summary.pendingPieces)} unit="قطعة" color="#8B5CF6" hint={summary.pendingPieces > 0 ? "لم تسلّم بعد" : null}/>
     </div>
 
-    {/* Tabs */}
+    {/* V18.4: Tabs — deliveries + receives merged */}
     <div className="no-print" style={{ padding: "4px 12px", display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
       {[
         { id: "summary", label: "الملخص", icon: "📋" },
-        { id: "deliveries", label: "تسليم للورشة (" + deliveries.length + ")", icon: "📤" },
-        { id: "receives", label: "استلام من الورشة (" + receives.length + ")", icon: "📥" },
+        { id: "transactions", label: "سجل التسليم والاستلام (" + transactions.length + ")", icon: "🔄" },
         { id: "payments", label: "المدفوعات (" + payments.length + ")", icon: "💰" },
       ].map(t =>
         <button key={t.id} onClick={() => setTab(t.id)} style={{
@@ -170,10 +188,9 @@ export function WorkshopPortalPage({ params }) {
       )}
     </div>
 
-    {/* V18.3: Export buttons */}
+    {/* V18.5: Export buttons — PDF only */}
     <div className="no-print" style={{ padding: "4px 12px 6px", display: "flex", gap: 6, justifyContent: "flex-end" }}>
       <button onClick={() => exportPdf(tabLabels[tab])} style={{ padding: "5px 10px", borderRadius: 8, border: "1px solid #EF444430", background: "#EF444412", color: "#EF4444", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>📄 PDF</button>
-      <button onClick={() => shareWhatsApp(workshop.name, tabLabels[tab])} style={{ padding: "5px 10px", borderRadius: 8, border: "1px solid #25D36630", background: "#25D36612", color: "#25D366", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>📤 واتساب</button>
     </div>
 
     {/* Content */}
@@ -203,51 +220,61 @@ export function WorkshopPortalPage({ params }) {
         </div>}
       </div>}
 
-      {/* DELIVERIES — V18.1: model no / name / piece type / qty (date in corner) — V18.3: + thumbnail */}
-      {tab === "deliveries" && <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {deliveries.length === 0 ? <EmptyMsg text="لا توجد تسليمات للورشة"/> :
-          deliveries.map((d, i) => <div key={i} style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", position: "relative", display: "flex", gap: 12, alignItems: "stretch" }}>
-            <div style={{ position: "absolute", top: 6, left: 10, fontSize: 10, color: "#94A3B8" }}>{fmtDate(d.date)}</div>
-            {/* Thumbnail */}
-            <div style={{ width: 80, minWidth: 80, borderRadius: 10, overflow: "hidden", background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {d.image ? <img src={d.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}/> : <span style={{ fontSize: 24, opacity: 0.3 }}>📦</span>}
-            </div>
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 800, color: "#0EA5E9", direction: "ltr" }}>{d.modelNo}</div>
-              {d.modelDesc && <div style={{ fontSize: 12, color: "#1E293B", fontWeight: 600 }}>{d.modelDesc}</div>}
-              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 2 }}>
-                {d.piece && <span style={{ padding: "2px 8px", background: "#F1F5F9", borderRadius: 6, fontSize: 11, color: "#475569", fontWeight: 700 }}>{d.piece}</span>}
-                <span style={{ fontSize: 13, fontWeight: 800, color: "#0EA5E9" }}>{d.qty} <span style={{ fontSize: 10, color: "#64748B", fontWeight: 600 }}>قطعة</span></span>
-              </div>
-            </div>
-          </div>)
-        }
-      </div>}
-
-      {/* RECEIVES — V18.1: same as deliveries + standalone math equation row — V18.3: + thumbnail */}
-      {tab === "receives" && <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {receives.length === 0 ? <EmptyMsg text="لم يتم استلام قطع من الورشة بعد"/> :
-          receives.map((r, i) => <div key={i} style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", position: "relative", display: "flex", gap: 12, alignItems: "stretch" }}>
-            <div style={{ position: "absolute", top: 6, left: 10, fontSize: 10, color: "#94A3B8" }}>{fmtDate(r.date)}</div>
-            {/* Thumbnail */}
-            <div style={{ width: 80, minWidth: 80, borderRadius: 10, overflow: "hidden", background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {r.image ? <img src={r.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}/> : <span style={{ fontSize: 24, opacity: 0.3 }}>📦</span>}
-            </div>
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 800, color: "#059669", direction: "ltr" }}>{r.modelNo}</div>
-              {r.modelDesc && <div style={{ fontSize: 12, color: "#1E293B", fontWeight: 600 }}>{r.modelDesc}</div>}
-              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 2 }}>
-                {r.piece && <span style={{ padding: "2px 8px", background: "#F1F5F9", borderRadius: 6, fontSize: 11, color: "#475569", fontWeight: 700 }}>{r.piece}</span>}
-                <span style={{ fontSize: 13, fontWeight: 800, color: "#059669" }}>{r.qty} <span style={{ fontSize: 10, color: "#64748B", fontWeight: 600 }}>قطعة</span></span>
-              </div>
-              {/* Standalone math equation row */}
-              <div style={{ marginTop: 4, padding: "6px 10px", background: "linear-gradient(135deg, #ECFDF5, #F0FDF4)", borderRadius: 8, border: "1px dashed #05966940", textAlign: "center", direction: "ltr", fontFamily: "'Cairo', monospace", fontSize: 13, fontWeight: 800, color: "#065F46", letterSpacing: 0.5 }}>
-                {fmt(r.price)} × {r.qty} = {fmt(r.value)} <span style={{ fontSize: 11, opacity: 0.7 }}>ج.م</span>
-              </div>
-            </div>
-          </div>)
-        }
-      </div>}
+      {/* V18.4: TRANSACTIONS — merged deliveries + receives, grouped by model */}
+      {tab === "transactions" && <>
+        {/* Filter input */}
+        <div className="no-print" style={{ marginBottom: 8, display: "flex", gap: 6, alignItems: "center" }}>
+          <input type="text" value={modelFilter} onChange={e => setModelFilter(e.target.value)} placeholder="🔍 فلتر برقم الموديل..." style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, fontFamily: "inherit", direction: "ltr", textAlign: "right", background: "#fff" }}/>
+          {modelFilter && <button onClick={() => setModelFilter("")} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #CBD5E1", background: "#F1F5F9", color: "#475569", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>✕ مسح</button>}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {filteredTransactions.length === 0 ? <EmptyMsg text={modelFilter ? "لا يوجد موديل بهذا الرقم" : "لا توجد حركات"}/> :
+            filteredTransactions.map((m, i) => {
+              const wsBalance = m.delQty - m.recQty;
+              return <div key={i} style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", position: "relative", display: "flex", gap: 12, alignItems: "stretch" }}>
+                {/* Latest date — small in corner */}
+                {m.latestDate && <div style={{ position: "absolute", top: 6, left: 10, fontSize: 10, color: "#94A3B8" }}>{fmtDate(m.latestDate)}</div>}
+                {/* Thumbnail */}
+                <div style={{ width: 80, minWidth: 80, borderRadius: 10, overflow: "hidden", background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {m.image ? <img src={m.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}/> : <span style={{ fontSize: 24, opacity: 0.3 }}>📦</span>}
+                </div>
+                {/* Data */}
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}>
+                  {/* Model number ABOVE description */}
+                  <div style={{ fontSize: 15, fontWeight: 800, color: "#0EA5E9", direction: "ltr" }}>{m.modelNo}</div>
+                  {m.modelDesc && <div style={{ fontSize: 12, color: "#1E293B", fontWeight: 600 }}>{m.modelDesc}</div>}
+                  {/* Piece type as text */}
+                  {m.pieces.length > 0 && <div style={{ fontSize: 11, color: "#475569", display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+                    <span style={{ color: "#64748B", fontWeight: 600 }}>نوع القطعة:</span>
+                    {m.pieces.map((p, j) => <span key={j} style={{ padding: "1px 8px", background: "#F1F5F9", borderRadius: 4, fontWeight: 700, color: "#475569" }}>{p}</span>)}
+                  </div>}
+                  {/* Summary line: تسليم / استلام / رصيد */}
+                  <div style={{ display: "flex", gap: 10, fontSize: 11, marginTop: 2, flexWrap: "wrap" }}>
+                    <span style={{ color: "#0EA5E9" }}><b>📥 تسليم</b> {m.delQty}</span>
+                    <span style={{ color: "#059669" }}><b>📤 استلام</b> {m.recQty}</span>
+                    <span style={{ color: wsBalance > 0 ? "#8B5CF6" : "#64748B" }}><b>📦 رصيد بالورشة</b> {wsBalance}</span>
+                  </div>
+                  {/* Receive equations (مبلغ التشغيل per receive batch) */}
+                  {m.receives.length > 0 && <div style={{ marginTop: 4, padding: "6px 10px", background: "linear-gradient(135deg, #ECFDF5, #F0FDF4)", borderRadius: 8, border: "1px dashed #05966940" }}>
+                    <div style={{ fontSize: 10, color: "#065F46", fontWeight: 700, marginBottom: 4 }}>💰 مبلغ التشغيل</div>
+                    {m.receives.map((r, j) => <div key={j} style={{ direction: "ltr", fontFamily: "'Cairo', monospace", fontSize: 12, fontWeight: 700, color: "#065F46", textAlign: "center", padding: "1px 0" }}>
+                      {fmt(r.price)} × {r.qty} = {fmt(r.value)} <span style={{ fontSize: 10, opacity: 0.7 }}>ج.م</span>
+                      <span style={{ fontSize: 9, color: "#94A3B8", marginInlineStart: 6, fontFamily: "'Cairo', sans-serif" }}>({fmtDate(r.date)})</span>
+                    </div>)}
+                    {m.receives.length > 1 && <div style={{ borderTop: "1px solid #05966940", marginTop: 4, paddingTop: 4, direction: "ltr", textAlign: "center", fontSize: 13, fontWeight: 800, color: "#065F46" }}>
+                      المجموع: {fmt(m.totalValue)} <span style={{ fontSize: 10, opacity: 0.7 }}>ج.م</span>
+                    </div>}
+                  </div>}
+                  {/* Delivery dates (if no receives yet) */}
+                  {m.receives.length === 0 && m.deliveries.length > 0 && <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 2 }}>
+                    تواريخ التسليم: {m.deliveries.map(d => fmtDate(d.date)).join(" • ")}
+                  </div>}
+                </div>
+              </div>;
+            })
+          }
+        </div>
+      </>}
 
       {/* PAYMENTS — V18.1: same + notes + total at bottom */}
       {tab === "payments" && <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

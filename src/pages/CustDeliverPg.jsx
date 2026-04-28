@@ -1468,15 +1468,19 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const rows=[];let totalDel=0,totalRet=0;
       orders.forEach(o=>{const del=(o.customerDeliveries||[]).filter(d=>d.custId===custStatement).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).filter(r=>r.custId===custStatement).reduce((s,r)=>s+(Number(r.qty)||0),0);
         if(del>0||ret>0){totalDel+=del;totalRet+=ret;rows.push({modelNo:o.modelNo,modelDesc:o.modelDesc,delivered:del,returned:ret,net:del-ret,sellPrice:Number(o.sellPrice)||0})}});
-      const totalNet=totalDel-totalRet;const totalVal=rows.reduce((s,r)=>s+r.net*r.sellPrice,0);
+      const totalNet=totalDel-totalRet;
+      /* V18.4: totalValGross = ALL delivery value (ignoring returns) — what customer was billed */
+      const totalValGross=rows.reduce((s,r)=>s+r.delivered*r.sellPrice,0);
+      const totalVal=rows.reduce((s,r)=>s+r.net*r.sellPrice,0);     /* net of returns — used for table footer + balance */
       const retVal=rows.reduce((s,r)=>s+r.returned*r.sellPrice,0);
       /* V15.85: Customer discount applied uniformly to both sales and returns (user request —
          critical for accounting accuracy). Also fixes V15.84 balance bug where returns were
          double-counted: totalVal = sum(net × price) = sum((del-ret) × price) already excludes
          returns, so subtracting retVal again was wrong. */
       const discPct=Number(cust.discount)||0;
-      const discAmt=Math.round(totalVal*discPct/100);        /* discount on net value */
-      const totalAfterDisc=totalVal-discAmt;
+      const discAmt=Math.round(totalVal*discPct/100);        /* discount on net value (for balance) */
+      const totalAfterDisc=totalVal-discAmt;                  /* net after discount (used for balance) */
+      const totalGrossAfterDisc=Math.round(totalValGross*(1-discPct/100)); /* V18.4: gross after disc — for card display */
       const retValAfterDisc=Math.round(retVal*(1-discPct/100)); /* returns at discounted rate (display only) */
       /* Customer payments */
       const custPayments=(config.custPayments||[]).filter(p=>p.custId===custStatement).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
@@ -1512,13 +1516,13 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         rows.forEach((r,i)=>{h+="<tr style='background:"+(i%2===0?"transparent":"#f8f8f8")+"'><td style='font-weight:800;color:#0EA5E9'>"+r.modelNo+"</td><td>"+r.modelDesc+"</td><td style='text-align:center'>"+r.delivered+"</td><td style='text-align:center;color:#EF4444'>"+(r.returned||"—")+"</td><td style='text-align:center;font-weight:800'>"+r.net+"</td><td style='text-align:center'>"+(r.sellPrice||"—")+"</td><td style='text-align:center;font-weight:700'>"+fmt(r.net*r.sellPrice)+"</td></tr>"});
         h+="<tr style='background:#EFF6FF;font-weight:800'><td colspan='2'>الاجمالي</td><td style='text-align:center;color:#0EA5E9'>"+totalDel+"</td><td style='text-align:center;color:#EF4444'>"+totalRet+"</td><td style='text-align:center;font-size:14px'>"+totalNet+"</td><td></td><td style='text-align:center;color:#0EA5E9;font-size:14px'>"+fmt(totalVal)+" ج.م</td></tr></tbody></table>";
         h+="<h3>💳 ملخص الحساب</h3><table>";
-        h+="<tr><td>"+(discPct>0?"اجمالي المبيعات (قبل الخصم)":"اجمالي المبيعات")+"</td><td style='font-weight:800'>"+fmt(totalVal)+" ج.م</td></tr>";
+        h+="<tr><td>"+(discPct>0?"إجمالي فواتير المبيعات (قبل الخصم)":"إجمالي فواتير المبيعات")+"</td><td style='font-weight:800'>"+fmt(totalValGross)+" ج.م</td></tr>";
         if(discPct>0){
           h+="<tr><td>قيمة الخصم ("+discPct+"%)</td><td style='color:#F59E0B;font-weight:700'>-"+fmt(discAmt)+" ج.م</td></tr>";
-          h+="<tr><td>المبيعات بعد الخصم</td><td style='font-weight:800;color:#0284C7'>"+fmt(totalAfterDisc)+" ج.م</td></tr>";
-          if(retVal>0)h+="<tr><td>قيمة المرتجعات (بعد الخصم)<div style='font-size:9px;color:#64748B'>قبل الخصم: "+fmt(retVal)+" ج.م — مخصومة أصلاً من المبيعات</div></td><td style='color:#EF4444'>-"+fmt(retValAfterDisc)+" ج.م</td></tr>";
+          h+="<tr><td>إجمالي فواتير المبيعات (بعد الخصم)</td><td style='font-weight:800;color:#0284C7'>"+fmt(totalGrossAfterDisc)+" ج.م</td></tr>";
+          if(retVal>0)h+="<tr><td>قيمة المرتجعات (بعد الخصم)<div style='font-size:9px;color:#64748B'>قبل الخصم: "+fmt(retVal)+" ج.م</div></td><td style='color:#EF4444'>-"+fmt(retValAfterDisc)+" ج.م</td></tr>";
         }else if(retVal>0){
-          h+="<tr><td>قيمة المرتجعات<div style='font-size:9px;color:#64748B'>مخصومة أصلاً من المبيعات</div></td><td style='color:#EF4444'>-"+fmt(retVal)+" ج.م</td></tr>";
+          h+="<tr><td>قيمة المرتجعات</td><td style='color:#EF4444'>-"+fmt(retVal)+" ج.م</td></tr>";
         }
         h+="<tr><td>اجمالي المدفوع</td><td style='color:#10B981'>-"+fmt(totalPaid)+" ج.م</td></tr><tr style='font-size:16px;font-weight:800'><td>الرصيد المتبقي</td><td style='color:"+(custBalance>0?"#10B981":custBalance<0?"#EF4444":"#64748B")+"'>"+fmt(custBalance)+" ج.م</td></tr></table>";
         if(custPayments.length>0){h+="<h3>💰 سجل الدفعات</h3><table><thead><tr><th>التاريخ</th><th>المبلغ</th><th>الطريقة</th><th>ملاحظات</th><th>بواسطة</th></tr></thead><tbody>";custPayments.forEach(p=>{h+="<tr><td>"+p.date+"</td><td style='font-weight:700;color:#10B981'>"+fmt(p.amount)+"</td><td>"+(p.method||"")+"</td><td>"+(p.note||"")+"</td><td>"+(p.by||"")+"</td></tr>"});h+="</tbody></table>"}
@@ -1540,15 +1544,15 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           </div>
           {/* V16.3: Customer Stats Widget */}
           {showCustStats&&<CustomerStatsWidget data={config} custId={cust.id}/>}
-          {/* V18.1: Redesigned cards — 6 cards with grouped data + flipped balance colors */}
+          {/* V18.4: Card 1 uses GROSS delivery value (totalValGross), not net */}
           <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(auto-fit, minmax(180px, 1fr))",gap:10,margin:"12px 0"}}>
-            {/* Card 1: Total sales invoices (gross delivery, before/after discount) */}
+            {/* Card 1: Total sales invoices (GROSS delivery, before/after discount) */}
             <div style={{padding:12,borderRadius:12,background:"linear-gradient(135deg,"+T.accent+"12,"+T.accent+"04)",border:"1px solid "+T.accent+"30"}}>
               <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,fontSize:FS-2,color:T.textSec,fontWeight:700}}><span>📤</span><span>إجمالي فواتير المبيعات</span></div>
-              <div style={{fontSize:18,fontWeight:800,color:T.accent,lineHeight:1.2}}>{fmt(totalVal)} <span style={{fontSize:FS-2,fontWeight:600,color:T.textMut}}>ج.م</span></div>
+              <div style={{fontSize:18,fontWeight:800,color:T.accent,lineHeight:1.2}}>{fmt(totalValGross)} <span style={{fontSize:FS-2,fontWeight:600,color:T.textMut}}>ج.م</span></div>
               <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{discPct>0?"قبل الخصم":"إجمالي التسليم"}</div>
               {discPct>0&&<div style={{marginTop:6,paddingTop:6,borderTop:"1px dashed "+T.accent+"30"}}>
-                <div style={{fontSize:FS-1,fontWeight:800,color:T.accent}}>{fmt(totalAfterDisc)} <span style={{fontSize:FS-3,fontWeight:600,color:T.textMut}}>ج.م</span></div>
+                <div style={{fontSize:FS-1,fontWeight:800,color:T.accent}}>{fmt(totalGrossAfterDisc)} <span style={{fontSize:FS-3,fontWeight:600,color:T.textMut}}>ج.م</span></div>
                 <div style={{fontSize:FS-3,color:T.textMut}}>بعد الخصم</div>
               </div>}
             </div>
@@ -1587,15 +1591,15 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                 <span style={{fontSize:16,fontWeight:800,color:T.ok}}>{fmt(totalPaid)} <span style={{fontSize:FS-3,fontWeight:600,color:T.textMut}}>ج.م</span></span>
               </div>
             </div>
-            {/* Card 5: Current balance — V18.1 flipped: positive=GREEN (customer owes), negative=RED (factory owes) */}
+            {/* Card 5: Current balance — V18.1 flipped: positive=GREEN (customer owes), negative=RED (factory owes) — V18.4: corrected labels */}
             <div style={{padding:12,borderRadius:12,background:custBalance>0?"linear-gradient(135deg,"+T.ok+"15,"+T.ok+"05)":custBalance<0?"linear-gradient(135deg,"+T.err+"15,"+T.err+"05)":T.bg,border:"2px solid "+(custBalance>0?T.ok:custBalance<0?T.err:T.brd)+"50"}}>
               <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,fontSize:FS-2,color:T.textSec,fontWeight:700}}><span>⚖️</span><span>الرصيد الحالي</span></div>
               <div style={{fontSize:22,fontWeight:900,color:custBalance>0?T.ok:custBalance<0?T.err:T.text,lineHeight:1.1}}>{fmt(custBalance)} <span style={{fontSize:FS-1,fontWeight:600,color:T.textMut}}>ج.م</span></div>
-              <div style={{fontSize:FS-3,color:T.textMut,marginTop:4,fontWeight:600}}>{custBalance>0?"💚 مستحق على العميل":custBalance<0?"❤️ مستحق على المصنع":"✓ متعادل"}</div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:4,fontWeight:600}}>{custBalance>0?"💚 مستحق للمصنع":custBalance<0?"❤️ مستحق للعميل":"✓ متعادل"}</div>
             </div>
-            {/* Card 6: Net pieces (kept) */}
+            {/* Card 6: Net sold quantity — V18.4 renamed */}
             <div style={{padding:12,borderRadius:12,background:"linear-gradient(135deg,"+T.accent+"08,"+T.accent+"02)",border:"1px solid "+T.accent+"20"}}>
-              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,fontSize:FS-2,color:T.textSec,fontWeight:700}}><span>📦</span><span>صافي القطع</span></div>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,fontSize:FS-2,color:T.textSec,fontWeight:700}}><span>📦</span><span>صافي الكمية المباعة</span></div>
               <div style={{fontSize:22,fontWeight:900,color:T.accent,lineHeight:1.1}}>{fmt(totalNet)}</div>
               <div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>قطعة (تسليم - مرتجع)</div>
             </div>
