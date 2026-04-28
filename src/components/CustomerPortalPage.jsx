@@ -101,10 +101,9 @@ export function CustomerPortalPage({ params }) {
   const balanceColor = summary.balance > 0 ? "#059669" : summary.balance < 0 ? "#DC2626" : "#6B7280";
   /* V18.4: Corrected balance labels */
   const balanceLabel = summary.balance > 0 ? "💚 مستحق للمصنع" : summary.balance < 0 ? "❤️ مستحق للعميل" : "✓ متعادل";
-  const tabLabels = { summary: "الملخص", models: "الموديلات", transactions: "سجل التسليم والمرتجعات", payments: "المدفوعات" };
+  const tabLabels = { summary: "الملخص", transactions: "سجل التسليم والمرتجعات", payments: "المدفوعات" };
   /* V18.4: Filter helper — case-insensitive substring match on model number */
   const matchesModel = (modelNo) => !modelFilter.trim() || (modelNo || "").toLowerCase().includes(modelFilter.trim().toLowerCase());
-  const filteredModels = activeModels.filter(m => matchesModel(m.modelNo));
   /* V18.5: Merged delivery + returns log, sorted chronologically (descending) */
   const transactions = [
     ...deliveries.map(d => ({ ...d, kind: "delivery" })),
@@ -126,13 +125,15 @@ export function CustomerPortalPage({ params }) {
       }
     `}</style>
 
-    {/* COMPACT Header — V18.3: reduced height */}
+    {/* COMPACT Header — V18.3: reduced height — V18.6: + season badge */}
     <div className="no-print" style={{
       background: "linear-gradient(135deg, #6366F1, #8B5CF6)",
       padding: "12px 20px",
       color: "#fff",
+      position: "relative",
       textAlign: "center",
     }}>
+      {data.activeSeason && <div style={{ position: "absolute", top: 10, insetInlineStart: 14, padding: "4px 10px", background: "rgba(255,255,255,0.2)", borderRadius: 8, fontSize: 11, fontWeight: 700, backdropFilter: "blur(4px)", border: "1px solid rgba(255,255,255,0.25)" }}>📅 موسم {data.activeSeason}</div>}
       <div style={{ fontSize: 11, opacity: 0.85 }}>{factory.name}</div>
       <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>{customer.name}</div>
       {customer.phone && <div style={{ fontSize: 11, opacity: 0.8, marginTop: 2, direction: "ltr" }}>{customer.phone}</div>}
@@ -156,9 +157,7 @@ export function CustomerPortalPage({ params }) {
       {/* Card 2: Total Returns */}
       <MiniCard icon="↩️" label="إجمالي المرتجعات" mainValue={fmt(summary.returnsValue)} mainSub={customer.discount > 0 ? "قبل الخصم" : "قيمة المرتجعات"} unit="ج.م" color="#EF4444"
         secondary={customer.discount > 0 && summary.returnsValue > 0 ? { value: fmt(summary.returnsAfterDiscount), label: "بعد الخصم" } : null}/>
-      {/* Card 3: Discount (only if > 0) */}
-      {customer.discount > 0 && <MiniCard icon="🏷️" label="إجمالي الخصم" mainValue={fmt(summary.discountAmount)} mainSub={"نسبة " + customer.discount + "%"} unit="ج.م" color="#F59E0B" badge={customer.discount + "%"}/>}
-      {/* Card 4: Paid (cash + checks) */}
+      {/* Card 4: Paid (cash + checks) — V18.6: Card 3 (discount) removed per user request */}
       <div style={{ background: "#fff", borderRadius: 10, padding: 10, boxShadow: "0 2px 6px rgba(0,0,0,0.04)", border: "1px solid #05966920" }}>
         <div style={{ fontSize: 10, color: "#64748B", fontWeight: 700, marginBottom: 6 }}>💰 إجمالي المدفوع</div>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#475569", marginBottom: 2 }}><span>💵 نقدي</span><span style={{ fontWeight: 700, color: "#059669", direction: "ltr" }}>{fmt(summary.cashPaid)}</span></div>
@@ -178,11 +177,10 @@ export function CustomerPortalPage({ params }) {
       <MiniCard icon="📦" label="صافي الكمية المباعة" mainValue={fmt(summary.actualSold)} mainSub="تسليم - مرتجع" unit="قطعة" color="#0EA5E9"/>
     </div>
 
-    {/* Tabs — V18.5: merged transactions */}
+    {/* Tabs — V18.6: models tab removed (transactions log is enough) */}
     <div className="no-print" style={{ padding: "6px 12px", display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
       {[
         { id: "summary", label: "الملخص", icon: "📋" },
-        { id: "models", label: "الموديلات (" + activeModels.length + ")", icon: "📦" },
         { id: "transactions", label: "سجل التسليم والمرتجعات (" + transactions.length + ")", icon: "🔄" },
         { id: "payments", label: "المدفوعات (" + payments.length + ")", icon: "💰" },
       ].map(t =>
@@ -220,7 +218,6 @@ export function CustomerPortalPage({ params }) {
               detail={customer.discount > 0 ? { label: "بعد الخصم", value: fmt(grossAfterDisc) } : null}/>
             <Row icon="↩️" label="إجمالي المرتجعات" value={fmt(summary.returnsValue)} unit="ج.م" color="#EF4444"
               detail={customer.discount > 0 && summary.returnsValue > 0 ? { label: "بعد الخصم", value: fmt(summary.returnsAfterDiscount) } : null}/>
-            {customer.discount > 0 && <Row icon="🏷️" label={"إجمالي الخصم (" + customer.discount + "%)"} value={fmt(summary.discountAmount)} unit="ج.م" color="#F59E0B"/>}
             <Row icon="💵" label="مدفوع نقدي" value={fmt(summary.cashPaid)} unit="ج.م" color="#059669"/>
             <Row icon="📝" label="مدفوع شيكات" value={fmt(summary.checksPaid)} unit="ج.م" color="#059669"/>
             <Row icon="💰" label="إجمالي المدفوع" value={fmt(summary.totalPaid)} unit="ج.م" color="#059669" bold/>
@@ -244,44 +241,10 @@ export function CustomerPortalPage({ params }) {
         </div>
       </div>}
 
-      {/* V18.5: Model filter — shown on models + transactions tabs */}
-      {["models", "transactions"].includes(tab) && <div className="no-print" style={{ marginBottom: 8, display: "flex", gap: 6, alignItems: "center" }}>
+      {/* V18.6: Model filter — shown on transactions tab only (models tab removed) */}
+      {tab === "transactions" && <div className="no-print" style={{ marginBottom: 8, display: "flex", gap: 6, alignItems: "center" }}>
         <input type="text" value={modelFilter} onChange={e => setModelFilter(e.target.value)} placeholder="🔍 فلتر برقم الموديل..." style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, fontFamily: "inherit", direction: "ltr", textAlign: "right", background: "#fff" }}/>
         {modelFilter && <button onClick={() => setModelFilter("")} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #CBD5E1", background: "#F1F5F9", color: "#475569", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>✕ مسح</button>}
-      </div>}
-
-      {/* MODELS — V18.3: thumbnail + data side-by-side, "تسليم", math equation, no status badge */}
-      {tab === "models" && <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {filteredModels.length === 0 ? <EmptyMsg text={modelFilter ? "لا توجد موديلات بهذا الرقم" : "لا توجد موديلات"}/> :
-          filteredModels.map((m, i) => {
-            const grossVal = m.delivered * m.sellPrice;
-            const netVal = m.net * m.sellPrice;
-            const discAmtModel = customer.discount > 0 ? Math.round(netVal * customer.discount / 100) : 0;
-            const finalVal = netVal - discAmtModel;
-            return <div key={i} style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", display: "flex", gap: 12, alignItems: "stretch" }}>
-              {/* Thumbnail — fills row height */}
-              <div style={{ width: 90, minWidth: 90, borderRadius: 10, overflow: "hidden", background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {m.image ? <img src={m.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}/> : <span style={{ fontSize: 28, opacity: 0.3 }}>📦</span>}
-              </div>
-              {/* Data */}
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 800, color: "#6366F1", direction: "ltr" }}>{m.modelNo}</div>
-                {m.modelDesc && <div style={{ fontSize: 12, color: "#64748B" }}>{m.modelDesc}</div>}
-                <div style={{ display: "flex", gap: 10, fontSize: 12, flexWrap: "wrap", marginTop: 2 }}>
-                  <span><b style={{ color: "#059669" }}>{m.delivered}</b> تسليم</span>
-                  {m.returned > 0 && <span><b style={{ color: "#EF4444" }}>{m.returned}</b> مرتجع</span>}
-                  <span><b style={{ color: "#0EA5E9" }}>{m.net}</b> صافي</span>
-                </div>
-                {/* Math equation row */}
-                <div style={{ marginTop: 4, padding: "6px 10px", background: "linear-gradient(135deg, #EEF2FF, #F5F3FF)", borderRadius: 8, border: "1px dashed #6366F140", direction: "ltr", fontFamily: "'Cairo', monospace", fontSize: 13, fontWeight: 800, color: "#3730A3", textAlign: "center" }}>
-                  {m.net} × {fmt(m.sellPrice)}
-                  {customer.discount > 0 && <span> − {fmt(discAmtModel)}</span>}
-                  = {fmt(finalVal)} <span style={{ fontSize: 11, opacity: 0.7 }}>ج.م</span>
-                </div>
-              </div>
-            </div>;
-          })
-        }
       </div>}
 
       {/* V18.5: TRANSACTIONS — merged delivery + returns chronological log */}

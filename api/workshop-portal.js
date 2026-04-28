@@ -172,6 +172,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       factory: { name: factoryName },
+      activeSeason: config.activeSeason || "",
       workshop: {
         id: workshop.id,
         name: workshop.name,

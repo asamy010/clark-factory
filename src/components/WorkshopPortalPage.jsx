@@ -138,20 +138,22 @@ export function WorkshopPortalPage({ params }) {
       }
     `}</style>
 
-    {/* V18.3: COMPACT Header */}
+    {/* V18.6: Even more compact header + season badge */}
     <div className="no-print" style={{
       background: "linear-gradient(135deg, #F59E0B 0%, #D97706 100%)",
       color: "#fff",
-      padding: "12px 16px 14px",
+      padding: "10px 14px 11px",
       textAlign: "center",
+      position: "relative",
       boxShadow: "0 4px 12px rgba(245, 158, 11, 0.25)",
     }}>
-      <div style={{ fontSize: 11, opacity: 0.9 }}>{factory.name}</div>
-      <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>🏭 {workshop.name}</div>
-      {workshop.owner && <div style={{ fontSize: 12, opacity: 0.95, marginTop: 2 }}>صاحب الورشة: {workshop.owner}</div>}
-      <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 4, flexWrap: "wrap", alignItems: "center" }}>
-        {workshop.phone && <div style={{ fontSize: 11, opacity: 0.85, direction: "ltr" }}>{workshop.phone}</div>}
-        {workshop.type && <div style={{ fontSize: 10, opacity: 0.9, padding: "1px 8px", background: "rgba(255,255,255,0.2)", borderRadius: 10 }}>{workshop.type}</div>}
+      {data.activeSeason && <div style={{ position: "absolute", top: 8, insetInlineStart: 12, padding: "3px 9px", background: "rgba(255,255,255,0.2)", borderRadius: 8, fontSize: 11, fontWeight: 700, border: "1px solid rgba(255,255,255,0.25)" }}>📅 موسم {data.activeSeason}</div>}
+      <div style={{ fontSize: 10, opacity: 0.9 }}>{factory.name}</div>
+      <div style={{ fontSize: 16, fontWeight: 800, marginTop: 1 }}>🏭 {workshop.name}</div>
+      {workshop.owner && <div style={{ fontSize: 11, opacity: 0.95, marginTop: 1 }}>صاحب الورشة: {workshop.owner}</div>}
+      <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 2, flexWrap: "wrap", alignItems: "center" }}>
+        {workshop.phone && <div style={{ fontSize: 10, opacity: 0.85, direction: "ltr" }}>{workshop.phone}</div>}
+        {workshop.type && <div style={{ fontSize: 9, opacity: 0.9, padding: "1px 8px", background: "rgba(255,255,255,0.2)", borderRadius: 10 }}>{workshop.type}</div>}
       </div>
     </div>
 
@@ -231,31 +233,38 @@ export function WorkshopPortalPage({ params }) {
           {filteredTransactions.length === 0 ? <EmptyMsg text={modelFilter ? "لا يوجد موديل بهذا الرقم" : "لا توجد حركات"}/> :
             filteredTransactions.map((m, i) => {
               const wsBalance = m.delQty - m.recQty;
-              return <div key={i} style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", position: "relative", display: "flex", gap: 12, alignItems: "stretch" }}>
-                {/* Latest date — small in corner */}
-                {m.latestDate && <div style={{ position: "absolute", top: 6, left: 10, fontSize: 10, color: "#94A3B8" }}>{fmtDate(m.latestDate)}</div>}
-                {/* Thumbnail */}
-                <div style={{ width: 80, minWidth: 80, borderRadius: 10, overflow: "hidden", background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  {m.image ? <img src={m.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}/> : <span style={{ fontSize: 24, opacity: 0.3 }}>📦</span>}
+              /* V18.6: Last delivery / receive dates for inline display */
+              const lastDelDate = m.deliveries.length ? [...m.deliveries].sort((a,b)=>(b.date||"").localeCompare(a.date||""))[0].date : "";
+              const lastRecDate = m.receives.length ? [...m.receives].sort((a,b)=>(b.date||"").localeCompare(a.date||""))[0].date : "";
+              return <div key={i} style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", display: "flex", gap: 14, alignItems: "stretch", minHeight: 130 }}>
+                {/* Thumbnail — bigger to match taller card */}
+                <div style={{ width: 100, minWidth: 100, borderRadius: 10, overflow: "hidden", background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {m.image ? <img src={m.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}/> : <span style={{ fontSize: 28, opacity: 0.3 }}>📦</span>}
                 </div>
                 {/* Data */}
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}>
-                  {/* Model number ABOVE description */}
-                  <div style={{ fontSize: 15, fontWeight: 800, color: "#0EA5E9", direction: "ltr" }}>{m.modelNo}</div>
-                  {m.modelDesc && <div style={{ fontSize: 12, color: "#1E293B", fontWeight: 600 }}>{m.modelDesc}</div>}
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
+                  {/* Model number ABOVE description (V18.6: explicit text-align right) */}
+                  <div style={{ fontSize: 16, fontWeight: 800, color: "#0EA5E9", direction: "ltr", textAlign: "right" }}>{m.modelNo}</div>
+                  {m.modelDesc && <div style={{ fontSize: 13, color: "#1E293B", fontWeight: 600 }}>{m.modelDesc}</div>}
                   {/* Piece type as text */}
                   {m.pieces.length > 0 && <div style={{ fontSize: 11, color: "#475569", display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                     <span style={{ color: "#64748B", fontWeight: 600 }}>نوع القطعة:</span>
                     {m.pieces.map((p, j) => <span key={j} style={{ padding: "1px 8px", background: "#F1F5F9", borderRadius: 4, fontWeight: 700, color: "#475569" }}>{p}</span>)}
                   </div>}
-                  {/* Summary line: تسليم / استلام / رصيد */}
-                  <div style={{ display: "flex", gap: 10, fontSize: 11, marginTop: 2, flexWrap: "wrap" }}>
-                    <span style={{ color: "#0EA5E9" }}><b>📥 تسليم</b> {m.delQty}</span>
-                    <span style={{ color: "#059669" }}><b>📤 استلام</b> {m.recQty}</span>
-                    <span style={{ color: wsBalance > 0 ? "#8B5CF6" : "#64748B" }}><b>📦 رصيد بالورشة</b> {wsBalance}</span>
+                  {/* V18.6: Summary line with inline dates */}
+                  <div style={{ display: "flex", gap: 10, fontSize: 11, marginTop: 2, flexWrap: "wrap", alignItems: "center" }}>
+                    <span style={{ color: "#0EA5E9", display: "inline-flex", alignItems: "center", gap: 3 }}>
+                      <b>📥 تسليم {m.delQty}</b>
+                      {lastDelDate && <span style={{ fontSize: 10, color: "#94A3B8", fontWeight: 600 }}>({fmtDate(lastDelDate)})</span>}
+                    </span>
+                    <span style={{ color: "#059669", display: "inline-flex", alignItems: "center", gap: 3 }}>
+                      <b>📤 استلام {m.recQty}</b>
+                      {lastRecDate && <span style={{ fontSize: 10, color: "#94A3B8", fontWeight: 600 }}>({fmtDate(lastRecDate)})</span>}
+                    </span>
+                    <span style={{ color: wsBalance > 0 ? "#8B5CF6" : "#64748B" }}><b>📦 رصيد بالورشة {wsBalance}</b></span>
                   </div>
                   {/* Receive equations (مبلغ التشغيل per receive batch) */}
-                  {m.receives.length > 0 && <div style={{ marginTop: 4, padding: "6px 10px", background: "linear-gradient(135deg, #ECFDF5, #F0FDF4)", borderRadius: 8, border: "1px dashed #05966940" }}>
+                  {m.receives.length > 0 && <div style={{ marginTop: 4, padding: "7px 10px", background: "linear-gradient(135deg, #ECFDF5, #F0FDF4)", borderRadius: 8, border: "1px dashed #05966940" }}>
                     <div style={{ fontSize: 10, color: "#065F46", fontWeight: 700, marginBottom: 4 }}>💰 مبلغ التشغيل</div>
                     {m.receives.map((r, j) => <div key={j} style={{ direction: "ltr", fontFamily: "'Cairo', monospace", fontSize: 12, fontWeight: 700, color: "#065F46", textAlign: "center", padding: "1px 0" }}>
                       {fmt(r.price)} × {r.qty} = {fmt(r.value)} <span style={{ fontSize: 10, opacity: 0.7 }}>ج.م</span>
@@ -264,10 +273,6 @@ export function WorkshopPortalPage({ params }) {
                     {m.receives.length > 1 && <div style={{ borderTop: "1px solid #05966940", marginTop: 4, paddingTop: 4, direction: "ltr", textAlign: "center", fontSize: 13, fontWeight: 800, color: "#065F46" }}>
                       المجموع: {fmt(m.totalValue)} <span style={{ fontSize: 10, opacity: 0.7 }}>ج.م</span>
                     </div>}
-                  </div>}
-                  {/* Delivery dates (if no receives yet) */}
-                  {m.receives.length === 0 && m.deliveries.length > 0 && <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 2 }}>
-                    تواريخ التسليم: {m.deliveries.map(d => fmtDate(d.date)).join(" • ")}
                   </div>}
                 </div>
               </div>;
