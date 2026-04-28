@@ -28,6 +28,16 @@ const fmtDate = (d) => {
     return date.toLocaleDateString("ar-EG", { year: "numeric", month: "short", day: "numeric" });
   } catch (e) { return d; }
 };
+/* V18.28: Compact date format for tight tables (e.g. "22 أبر") — drops the year for space */
+const AR_MONTHS_SHORT = ["ينا","فبر","مار","أبر","ماي","يون","يول","أغس","سبت","أكت","نوف","ديس"];
+const fmtDateCompact = (d) => {
+  if (!d) return "—";
+  try {
+    const date = new Date(d);
+    if (isNaN(date.getTime())) return d;
+    return date.getDate() + " " + AR_MONTHS_SHORT[date.getMonth()];
+  } catch (e) { return d; }
+};
 
 /* PDF = browser print dialog (user picks Save as PDF). Print CSS in <style> below
    hides everything except the active content panel and a header banner. */
@@ -36,9 +46,10 @@ const exportPdf = (tabLabel) => {
   setTimeout(() => window.print(), 100);
 };
 
-/* V18.26: Compact, professional table styles for invoice tables */
-const tblTh = { padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 800, color: "#475569", borderBottom: "1px solid #E2E8F0", whiteSpace: "nowrap", letterSpacing: "0.02em" };
-const tblTd = { padding: "8px 10px", fontSize: 12, color: "#1E293B", whiteSpace: "nowrap" };
+/* V18.26+V18.28: Compact, professional table styles. Padding/font come from `.inv-table` CSS class
+   for responsive control — these inline styles only set type/color/border. */
+const tblTh = { textAlign: "right", fontWeight: 800, color: "#475569", borderBottom: "1px solid #E2E8F0", whiteSpace: "nowrap", letterSpacing: "0.02em" };
+const tblTd = { color: "#1E293B", whiteSpace: "nowrap" };
 
 export function CustomerPortalPage({ params }) {
   const { c: custId, sig } = params;
@@ -166,6 +177,20 @@ export function CustomerPortalPage({ params }) {
         .printable { position: absolute; inset: 0; padding: 20px; background: #fff !important; }
         .no-print { display: none !important; }
         @page { size: A4; margin: 12mm; }
+      }
+      /* V18.28: Responsive invoice tables — compact on mobile, no horizontal scroll */
+      .inv-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+      .inv-table th, .inv-table td { padding: 7px 6px; font-size: 11.5px; }
+      .inv-table .col-num { width: 11%; text-align: center; }
+      .inv-table .col-date { width: 22%; }
+      .inv-table .col-qty { width: 17%; text-align: center; }
+      .inv-table .col-pre, .inv-table .col-post { width: 25%; text-align: center; direction: ltr; font-variant-numeric: tabular-nums; }
+      @media (max-width: 480px) {
+        .inv-table th, .inv-table td { padding: 5px 3px; font-size: 10.5px; }
+        .inv-table .col-num { width: 10%; }
+        .inv-table .col-date { width: 24%; }
+        .inv-table .col-qty { width: 16%; }
+        .inv-table .col-pre, .inv-table .col-post { width: 25%; }
       }
     `}</style>
 
@@ -321,28 +346,28 @@ export function CustomerPortalPage({ params }) {
           <span style={{ fontSize: 11, color: "#64748B" }}>({salesInvoices.length} فاتورة)</span>
         </div>
         {salesInvoices.length === 0 ? <div style={{ padding: 16, textAlign: "center", background: "#fff", borderRadius: 10, color: "#94A3B8", fontSize: 12, border: "1px solid #E2E8F0" }}>لا توجد مبيعات</div> :
-          <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #E2E8F0", overflowX: "auto", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 540 }}>
+          <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #E2E8F0", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+            <table className="inv-table">
               <thead><tr style={{ background: "#F0FDF4" }}>
-                <th style={tblTh}>#</th>
-                <th style={tblTh}>التاريخ</th>
-                <th style={{ ...tblTh, textAlign: "center" }}>الكمية</th>
-                <th style={{ ...tblTh, textAlign: "center" }}>القيمة قبل الخصم</th>
-                <th style={{ ...tblTh, textAlign: "center" }}>القيمة بعد الخصم</th>
+                <th className="col-num" style={tblTh}>#</th>
+                <th className="col-date" style={tblTh}>التاريخ</th>
+                <th className="col-qty" style={tblTh}>الكمية</th>
+                <th className="col-pre" style={tblTh}>قبل الخصم</th>
+                <th className="col-post" style={tblTh}>بعد الخصم</th>
               </tr></thead>
               <tbody>{salesInvoices.map((inv, i) => <tr key={inv.sessionId} style={{ background: i % 2 === 0 ? "#fff" : "#F8FAFC", borderTop: "1px solid #F1F5F9" }}>
-                <td style={{ ...tblTd, fontWeight: 800, color: "#059669" }}>#{inv.invoiceNo}</td>
-                <td style={tblTd}>{fmtDate(inv.date)}</td>
-                <td style={{ ...tblTd, textAlign: "center", fontWeight: 700 }}>{fmt(inv.qty)} <span style={{ fontSize: 9, color: "#94A3B8", fontWeight: 600 }}>قطعة</span></td>
-                <td style={{ ...tblTd, textAlign: "center", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(inv.value)}</td>
-                <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#059669", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(inv.valueAfterDisc)}</td>
+                <td className="col-num" style={{ ...tblTd, fontWeight: 800, color: "#059669" }}>#{inv.invoiceNo}</td>
+                <td className="col-date" style={tblTd}>{fmtDateCompact(inv.date)}</td>
+                <td className="col-qty" style={{ ...tblTd, fontWeight: 700 }}>{fmt(inv.qty)}</td>
+                <td className="col-pre" style={tblTd}>{fmt(inv.value)}</td>
+                <td className="col-post" style={{ ...tblTd, fontWeight: 800, color: "#059669" }}>{fmt(inv.valueAfterDisc)}</td>
               </tr>)}
               {/* Totals row */}
               <tr style={{ background: "#ECFDF5", borderTop: "2px solid #10B981" }}>
-                <td colSpan={2} style={{ ...tblTd, fontWeight: 800, color: "#059669" }}>الإجمالي</td>
-                <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#059669" }}>{fmt(salesInvoices.reduce((s, x) => s + x.qty, 0))}</td>
-                <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#059669", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(salesInvoices.reduce((s, x) => s + x.value, 0))}</td>
-                <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#059669", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(salesInvoices.reduce((s, x) => s + x.valueAfterDisc, 0))}</td>
+                <td colSpan={2} className="col-num" style={{ ...tblTd, fontWeight: 800, color: "#059669", textAlign: "right" }}>الإجمالي</td>
+                <td className="col-qty" style={{ ...tblTd, fontWeight: 800, color: "#059669" }}>{fmt(salesInvoices.reduce((s, x) => s + x.qty, 0))}</td>
+                <td className="col-pre" style={{ ...tblTd, fontWeight: 800, color: "#059669" }}>{fmt(salesInvoices.reduce((s, x) => s + x.value, 0))}</td>
+                <td className="col-post" style={{ ...tblTd, fontWeight: 800, color: "#059669" }}>{fmt(salesInvoices.reduce((s, x) => s + x.valueAfterDisc, 0))}</td>
               </tr>
               </tbody>
             </table>
@@ -356,28 +381,28 @@ export function CustomerPortalPage({ params }) {
           <span style={{ fontSize: 11, color: "#64748B" }}>({returnInvoices.length})</span>
         </div>
         {returnInvoices.length === 0 ? <div style={{ padding: 16, textAlign: "center", background: "#fff", borderRadius: 10, color: "#94A3B8", fontSize: 12, border: "1px solid #E2E8F0" }}>لا توجد مرتجعات</div> :
-          <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #E2E8F0", overflowX: "auto", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 540 }}>
+          <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #E2E8F0", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+            <table className="inv-table">
               <thead><tr style={{ background: "#FEF2F2" }}>
-                <th style={tblTh}>#</th>
-                <th style={tblTh}>التاريخ</th>
-                <th style={{ ...tblTh, textAlign: "center" }}>الكمية</th>
-                <th style={{ ...tblTh, textAlign: "center" }}>القيمة قبل الخصم</th>
-                <th style={{ ...tblTh, textAlign: "center" }}>القيمة بعد الخصم</th>
+                <th className="col-num" style={tblTh}>#</th>
+                <th className="col-date" style={tblTh}>التاريخ</th>
+                <th className="col-qty" style={tblTh}>الكمية</th>
+                <th className="col-pre" style={tblTh}>قبل الخصم</th>
+                <th className="col-post" style={tblTh}>بعد الخصم</th>
               </tr></thead>
               <tbody>{returnInvoices.map((inv, i) => <tr key={inv.sessionId} style={{ background: i % 2 === 0 ? "#fff" : "#F8FAFC", borderTop: "1px solid #F1F5F9" }}>
-                <td style={{ ...tblTd, fontWeight: 800, color: "#EF4444" }}>#{inv.invoiceNo}</td>
-                <td style={tblTd}>{fmtDate(inv.date)}</td>
-                <td style={{ ...tblTd, textAlign: "center", fontWeight: 700 }}>{fmt(inv.qty)} <span style={{ fontSize: 9, color: "#94A3B8", fontWeight: 600 }}>قطعة</span></td>
-                <td style={{ ...tblTd, textAlign: "center", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(inv.value)}</td>
-                <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#EF4444", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(inv.valueAfterDisc)}</td>
+                <td className="col-num" style={{ ...tblTd, fontWeight: 800, color: "#EF4444" }}>#{inv.invoiceNo}</td>
+                <td className="col-date" style={tblTd}>{fmtDateCompact(inv.date)}</td>
+                <td className="col-qty" style={{ ...tblTd, fontWeight: 700 }}>{fmt(inv.qty)}</td>
+                <td className="col-pre" style={tblTd}>{fmt(inv.value)}</td>
+                <td className="col-post" style={{ ...tblTd, fontWeight: 800, color: "#EF4444" }}>{fmt(inv.valueAfterDisc)}</td>
               </tr>)}
               {/* Totals row */}
               <tr style={{ background: "#FEF2F2", borderTop: "2px solid #EF4444" }}>
-                <td colSpan={2} style={{ ...tblTd, fontWeight: 800, color: "#EF4444" }}>الإجمالي</td>
-                <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#EF4444" }}>{fmt(returnInvoices.reduce((s, x) => s + x.qty, 0))}</td>
-                <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#EF4444", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(returnInvoices.reduce((s, x) => s + x.value, 0))}</td>
-                <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#EF4444", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(returnInvoices.reduce((s, x) => s + x.valueAfterDisc, 0))}</td>
+                <td colSpan={2} className="col-num" style={{ ...tblTd, fontWeight: 800, color: "#EF4444", textAlign: "right" }}>الإجمالي</td>
+                <td className="col-qty" style={{ ...tblTd, fontWeight: 800, color: "#EF4444" }}>{fmt(returnInvoices.reduce((s, x) => s + x.qty, 0))}</td>
+                <td className="col-pre" style={{ ...tblTd, fontWeight: 800, color: "#EF4444" }}>{fmt(returnInvoices.reduce((s, x) => s + x.value, 0))}</td>
+                <td className="col-post" style={{ ...tblTd, fontWeight: 800, color: "#EF4444" }}>{fmt(returnInvoices.reduce((s, x) => s + x.valueAfterDisc, 0))}</td>
               </tr>
               </tbody>
             </table>
