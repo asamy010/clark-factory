@@ -1478,6 +1478,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       /* Customer payments */
       const custPayments=(config.custPayments||[]).filter(p=>p.custId===custStatement).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
       const totalPaid=custPayments.reduce((s,p)=>s+(Number(p.amount)||0),0);
+      /* V18.1: Split paid into checks vs cash (cash = everything except شيك) */
+      const totalPaidChecks=custPayments.filter(p=>(p.method||"")==="شيك").reduce((s,p)=>s+(Number(p.amount)||0),0);
+      const totalPaidCash=totalPaid-totalPaidChecks;
       /* FIXED: totalVal already excludes returns, so balance = afterDisc - paid (no -retVal) */
       const custBalance=r2(totalAfterDisc-totalPaid);
       const addCustPayment=()=>{const amt=parseFloat(payAmt);if(!amt||amt<=0){playBeep("error");return}
@@ -1514,7 +1517,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         }else if(retVal>0){
           h+="<tr><td>قيمة المرتجعات<div style='font-size:9px;color:#64748B'>مخصومة أصلاً من المبيعات</div></td><td style='color:#EF4444'>-"+fmt(retVal)+" ج.م</td></tr>";
         }
-        h+="<tr><td>اجمالي المدفوع</td><td style='color:#10B981'>-"+fmt(totalPaid)+" ج.م</td></tr><tr style='font-size:16px;font-weight:800'><td>الرصيد المتبقي</td><td style='color:"+(custBalance>0?"#EF4444":"#10B981")+"'>"+fmt(custBalance)+" ج.م</td></tr></table>";
+        h+="<tr><td>اجمالي المدفوع</td><td style='color:#10B981'>-"+fmt(totalPaid)+" ج.م</td></tr><tr style='font-size:16px;font-weight:800'><td>الرصيد المتبقي</td><td style='color:"+(custBalance>0?"#10B981":custBalance<0?"#EF4444":"#64748B")+"'>"+fmt(custBalance)+" ج.م</td></tr></table>";
         if(custPayments.length>0){h+="<h3>💰 سجل الدفعات</h3><table><thead><tr><th>التاريخ</th><th>المبلغ</th><th>الطريقة</th><th>ملاحظات</th><th>بواسطة</th></tr></thead><tbody>";custPayments.forEach(p=>{h+="<tr><td>"+p.date+"</td><td style='font-weight:700;color:#10B981'>"+fmt(p.amount)+"</td><td>"+(p.method||"")+"</td><td>"+(p.note||"")+"</td><td>"+(p.by||"")+"</td></tr>"});h+="</tbody></table>"}
         h+="<div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>العميل: "+cust.name+"</div></div>";
         printPage("كشف حساب — "+cust.name,h,{factoryName:config.factoryName,logo:config.logo})};
@@ -1534,15 +1537,65 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           </div>
           {/* V16.3: Customer Stats Widget */}
           {showCustStats&&<CustomerStatsWidget data={config} custId={cust.id}/>}
-          {/* Balance summary — V15.84: conditional discount cards (only when discount > 0) */}
-          <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(auto-fit, minmax(140px, 1fr))",gap:8,margin:"12px 0"}}>
-            <div style={{padding:10,borderRadius:10,background:T.accent+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>{discPct>0?"المبيعات قبل الخصم":"قيمة المبيعات"}</div><div style={{fontSize:16,fontWeight:800,color:T.accent}}>{fmt(totalVal)}</div></div>
-            {discPct>0&&<div style={{padding:10,borderRadius:10,background:T.warn+"10",border:"1px solid "+T.warn+"30",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>{"قيمة الخصم ("+discPct+"%)"}</div><div style={{fontSize:16,fontWeight:800,color:T.warn}}>{"-"+fmt(discAmt)}</div></div>}
-            {discPct>0&&<div style={{padding:10,borderRadius:10,background:T.accent+"12",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>المبيعات بعد الخصم</div><div style={{fontSize:16,fontWeight:800,color:T.accent}}>{fmt(totalAfterDisc)}</div></div>}
-            <div style={{padding:10,borderRadius:10,background:T.err+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>{discPct>0?"قيمة المرتجعات (بعد الخصم)":"قيمة المرتجعات"}</div><div style={{fontSize:16,fontWeight:800,color:T.err}}>{fmt(discPct>0?retValAfterDisc:retVal)}</div>{discPct>0&&retVal>0&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{"قبل الخصم: "+fmt(retVal)}</div>}</div>
-            <div style={{padding:10,borderRadius:10,background:T.ok+"08",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>اجمالي المدفوع</div><div style={{fontSize:16,fontWeight:800,color:T.ok}}>{fmt(totalPaid)}</div></div>
-            <div style={{padding:10,borderRadius:10,background:custBalance>0?T.err+"10":T.ok+"10",border:"2px solid "+(custBalance>0?T.err:T.ok)+"30",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>الرصيد المتبقي</div><div style={{fontSize:20,fontWeight:800,color:custBalance>0?T.err:T.ok}}>{fmt(custBalance)+" ج.م"}</div></div>
-            <div style={{padding:10,borderRadius:10,background:T.ok+"06",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>صافي القطع</div><div style={{fontSize:16,fontWeight:800,color:T.ok}}>{fmt(totalNet)}</div></div>
+          {/* V18.1: Redesigned cards — 6 cards with grouped data + flipped balance colors */}
+          <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(auto-fit, minmax(180px, 1fr))",gap:10,margin:"12px 0"}}>
+            {/* Card 1: Total sales invoices (gross delivery, before/after discount) */}
+            <div style={{padding:12,borderRadius:12,background:"linear-gradient(135deg,"+T.accent+"12,"+T.accent+"04)",border:"1px solid "+T.accent+"30"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,fontSize:FS-2,color:T.textSec,fontWeight:700}}><span>📤</span><span>إجمالي فواتير المبيعات</span></div>
+              <div style={{fontSize:18,fontWeight:800,color:T.accent,lineHeight:1.2}}>{fmt(totalVal)} <span style={{fontSize:FS-2,fontWeight:600,color:T.textMut}}>ج.م</span></div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{discPct>0?"قبل الخصم":"إجمالي التسليم"}</div>
+              {discPct>0&&<div style={{marginTop:6,paddingTop:6,borderTop:"1px dashed "+T.accent+"30"}}>
+                <div style={{fontSize:FS-1,fontWeight:800,color:T.accent}}>{fmt(totalAfterDisc)} <span style={{fontSize:FS-3,fontWeight:600,color:T.textMut}}>ج.م</span></div>
+                <div style={{fontSize:FS-3,color:T.textMut}}>بعد الخصم</div>
+              </div>}
+            </div>
+            {/* Card 2: Total returns (before/after discount) */}
+            <div style={{padding:12,borderRadius:12,background:"linear-gradient(135deg,"+T.err+"10,"+T.err+"03)",border:"1px solid "+T.err+"30"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,fontSize:FS-2,color:T.textSec,fontWeight:700}}><span>↩️</span><span>إجمالي المرتجعات</span></div>
+              <div style={{fontSize:18,fontWeight:800,color:T.err,lineHeight:1.2}}>{fmt(retVal)} <span style={{fontSize:FS-2,fontWeight:600,color:T.textMut}}>ج.م</span></div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{discPct>0?"قبل الخصم":"قيمة المرتجعات"}</div>
+              {discPct>0&&<div style={{marginTop:6,paddingTop:6,borderTop:"1px dashed "+T.err+"30"}}>
+                <div style={{fontSize:FS-1,fontWeight:800,color:T.err}}>{fmt(retValAfterDisc)} <span style={{fontSize:FS-3,fontWeight:600,color:T.textMut}}>ج.م</span></div>
+                <div style={{fontSize:FS-3,color:T.textMut}}>بعد الخصم</div>
+              </div>}
+            </div>
+            {/* Card 3: Total discount (only when discount > 0) */}
+            {discPct>0&&<div style={{padding:12,borderRadius:12,background:"linear-gradient(135deg,"+T.warn+"12,"+T.warn+"03)",border:"1px solid "+T.warn+"30"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,fontSize:FS-2,color:T.textSec,fontWeight:700}}>
+                <span>🏷️</span><span>إجمالي الخصم</span>
+                <span style={{marginInlineStart:"auto",padding:"2px 8px",borderRadius:6,background:T.warn+"25",color:T.warn,fontSize:FS-3,fontWeight:800}}>{discPct}%</span>
+              </div>
+              <div style={{fontSize:18,fontWeight:800,color:T.warn,lineHeight:1.2}}>{fmt(discAmt)} <span style={{fontSize:FS-2,fontWeight:600,color:T.textMut}}>ج.م</span></div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>قيمة الخصم المطبق</div>
+            </div>}
+            {/* Card 4: Total paid (cash + checks split) */}
+            <div style={{padding:12,borderRadius:12,background:"linear-gradient(135deg,"+T.ok+"10,"+T.ok+"03)",border:"1px solid "+T.ok+"30"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,fontSize:FS-2,color:T.textSec,fontWeight:700}}><span>💰</span><span>إجمالي المدفوع</span></div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:3}}>
+                <span style={{fontSize:FS-2,color:T.textMut}}>💵 نقدي</span>
+                <span style={{fontSize:FS-1,fontWeight:800,color:T.ok}}>{fmt(totalPaidCash)}</span>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6}}>
+                <span style={{fontSize:FS-2,color:T.textMut}}>📝 شيكات</span>
+                <span style={{fontSize:FS-1,fontWeight:800,color:T.ok}}>{fmt(totalPaidChecks)}</span>
+              </div>
+              <div style={{paddingTop:6,borderTop:"1px solid "+T.ok+"30",display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
+                <span style={{fontSize:FS-2,color:T.textSec,fontWeight:700}}>الإجمالي</span>
+                <span style={{fontSize:16,fontWeight:800,color:T.ok}}>{fmt(totalPaid)} <span style={{fontSize:FS-3,fontWeight:600,color:T.textMut}}>ج.م</span></span>
+              </div>
+            </div>
+            {/* Card 5: Current balance — V18.1 flipped: positive=GREEN (customer owes), negative=RED (factory owes) */}
+            <div style={{padding:12,borderRadius:12,background:custBalance>0?"linear-gradient(135deg,"+T.ok+"15,"+T.ok+"05)":custBalance<0?"linear-gradient(135deg,"+T.err+"15,"+T.err+"05)":T.bg,border:"2px solid "+(custBalance>0?T.ok:custBalance<0?T.err:T.brd)+"50"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,fontSize:FS-2,color:T.textSec,fontWeight:700}}><span>⚖️</span><span>الرصيد الحالي</span></div>
+              <div style={{fontSize:22,fontWeight:900,color:custBalance>0?T.ok:custBalance<0?T.err:T.text,lineHeight:1.1}}>{fmt(custBalance)} <span style={{fontSize:FS-1,fontWeight:600,color:T.textMut}}>ج.م</span></div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:4,fontWeight:600}}>{custBalance>0?"💚 مستحق على العميل":custBalance<0?"❤️ مستحق على المصنع":"✓ متعادل"}</div>
+            </div>
+            {/* Card 6: Net pieces (kept) */}
+            <div style={{padding:12,borderRadius:12,background:"linear-gradient(135deg,"+T.accent+"08,"+T.accent+"02)",border:"1px solid "+T.accent+"20"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,fontSize:FS-2,color:T.textSec,fontWeight:700}}><span>📦</span><span>صافي القطع</span></div>
+              <div style={{fontSize:22,fontWeight:900,color:T.accent,lineHeight:1.1}}>{fmt(totalNet)}</div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>قطعة (تسليم - مرتجع)</div>
+            </div>
           </div>
           {/* Add payment form */}
           {canEdit&&<div style={{padding:12,borderRadius:12,background:T.ok+"06",border:"1px solid "+T.ok+"20",marginBottom:12}}>

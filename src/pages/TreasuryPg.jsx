@@ -152,6 +152,39 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     });
     showToast("⚠️ تم إرجاع "+orphans.length+" شيك لحالة معلق (الحركة المرتبطة كانت محذوفة)");
   },[data.checks,data.treasury,data.supplierPayments,upConfig]);
+  /* V18.1: Auto-recovery for orphaned treasury accounts.
+     Bug: defaults (MAIN CASH / SUB CASH) were rendered virtually only when
+     treasuryAccounts was empty. Once a real account got added (e.g. CIB bank),
+     the defaults vanished from tabs while their transactions remained orphaned.
+     Fix: scan transactions/transfers/checks for any account name not present
+     in treasuryAccounts and auto-restore it (typed as cash). Also persist
+     MAIN+SUB CASH the first time treasuryAccounts is empty. */
+  useEffect(()=>{
+    const raw=(data.treasuryAccounts||[]);
+    const existingNames=new Set(raw.map(a=>typeof a==="string"?a:(a&&a.name)).filter(Boolean));
+    const referencedNames=new Set();
+    (data.treasury||[]).forEach(t=>{if(t&&t.account)referencedNames.add(t.account)});
+    (data.treasuryTransfers||[]).forEach(tf=>{if(tf){if(tf.fromAccount)referencedNames.add(tf.fromAccount);if(tf.toAccount)referencedNames.add(tf.toAccount)}});
+    const missing=[...referencedNames].filter(n=>n&&!existingNames.has(n));
+    const needsDefaults=raw.length===0;
+    if(!missing.length&&!needsDefaults)return;
+    upConfig(d=>{
+      if(!Array.isArray(d.treasuryAccounts))d.treasuryAccounts=[];
+      d.treasuryAccounts=d.treasuryAccounts.map(a=>typeof a==="string"?{id:a,name:a,ownerEmail:"",type:"cash"}:a);
+      const have=new Set(d.treasuryAccounts.map(a=>a.name));
+      if(d.treasuryAccounts.length===0){
+        if(!have.has("MAIN CASH")){d.treasuryAccounts.push({id:"MAIN CASH",name:"MAIN CASH",ownerEmail:"",type:"cash"});have.add("MAIN CASH")}
+        if(!have.has("SUB CASH")){d.treasuryAccounts.push({id:"SUB CASH",name:"SUB CASH",ownerEmail:"",type:"cash"});have.add("SUB CASH")}
+      }
+      missing.forEach(n=>{
+        if(have.has(n))return;
+        const isCash=/CASH|كاش|نقد/i.test(n);
+        d.treasuryAccounts.push({id:n,name:n,ownerEmail:"",type:isCash?"cash":"bank",autoRestored:new Date().toISOString()});
+        have.add(n);
+      });
+    });
+    if(missing.length)showToast("✓ تم استرجاع "+missing.length+" حساب: "+missing.join("، "));
+  },[data.treasuryAccounts,data.treasury,data.treasuryTransfers,upConfig]);
   const txns=(data.treasury||[]);
   /* Accounts are now objects: {id, name, ownerEmail, type} — auto-migrate from old strings */
   const rawAccounts=(data.treasuryAccounts||[]);
