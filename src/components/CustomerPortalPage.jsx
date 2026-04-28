@@ -18,7 +18,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { useEffect, useState } from "react";
-import { Stars } from "../utils/rating.js";
+import { Stars } from "../utils/rating.jsx";
 
 const fmt = (n) => (n == null ? "0" : Math.round(Number(n)).toLocaleString("en-US"));
 const fmtDate = (d) => {
@@ -165,7 +165,9 @@ export function CustomerPortalPage({ params }) {
       {/* Card 2: Total Returns */}
       <MiniCard icon="↩️" label="إجمالي المرتجعات" mainValue={fmt(summary.returnsValue)} mainSub={customer.discount > 0 ? "قبل الخصم" : "قيمة المرتجعات"} unit="ج.م" color="#EF4444"
         secondary={customer.discount > 0 && summary.returnsValue > 0 ? { value: fmt(summary.returnsAfterDiscount), label: "بعد الخصم" } : null}/>
-      {/* Card 4: Paid (cash + checks) — V18.6: Card 3 (discount) removed per user request */}
+      {/* Card 3: Discount — V18.8: restored per user request */}
+      {customer.discount > 0 && <MiniCard icon="🏷️" label="إجمالي الخصم" mainValue={fmt(summary.discountAmount)} mainSub={"نسبة " + customer.discount + "%"} unit="ج.م" color="#F59E0B" badge={customer.discount + "%"}/>}
+      {/* Card 4: Paid (cash + checks) */}
       <div style={{ background: "#fff", borderRadius: 10, padding: 10, boxShadow: "0 2px 6px rgba(0,0,0,0.04)", border: "1px solid #05966920" }}>
         <div style={{ fontSize: 10, color: "#64748B", fontWeight: 700, marginBottom: 6 }}>💰 إجمالي المدفوع</div>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#475569", marginBottom: 2 }}><span>💵 نقدي</span><span style={{ fontWeight: 700, color: "#059669", direction: "ltr" }}>{fmt(summary.cashPaid)}</span></div>

@@ -22,7 +22,7 @@ import { ask, askForm, showToast } from "../utils/popups.js";
 import { printPage, printPkgLabel, printSalesDeliveryLabel, openPrintWindow } from "../utils/print.js";
 import { calcOrder, getConfirmedStock, recomputeStatus } from "../utils/orders.js";
 import { analyzeCustomer, fmtMonth } from "../utils/customerAnalytics.js";
-import { getCustRating, Stars } from "../utils/rating.js";
+import { getCustRating, Stars } from "../utils/rating.jsx";
 import { getDeleteBlocker } from "../utils/dataIntegrity.js";
 import { auth } from "../firebase";
 import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../components/ui.jsx";
