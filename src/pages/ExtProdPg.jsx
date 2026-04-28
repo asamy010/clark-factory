@@ -54,7 +54,8 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
   const[transferMov,setTransferMov]=useState(null);/* {orderId, wdIdx, from, modelNo, qty, garmentType} */
   const[transferToWs,setTransferToWs]=useState("");
   const[transferReason,setTransferReason]=useState("");
-  const workshops=data.workshops||[];
+  /* V18.16: Hide archived workshops from all pickers/dropdowns */
+  const workshops=(data.workshops||[]).filter(w=>!w.archived);
   const isInternal=(name)=>{const w=workshops.find(x=>x.name===name);return w?wsIsInternal(w.type):false};
   const extWorkshops=workshops.filter(w=>!wsIsInternal(w.type));
 

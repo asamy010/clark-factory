@@ -99,7 +99,7 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: "العميل غير موجود" });
     }
     if (customer.archived) {
-      return res.status(403).json({ error: "الحساب غير نشط" });
+      return res.status(403).json({ error: "🔒 تم إيقاف التعامل مع " + (customer.name || "هذا العميل") + "، يُرجى التواصل مع المصنع", archived: true, name: customer.name || "" });
     }
 
     /* If action=sign — just return the URL (admin only, requires separate auth)

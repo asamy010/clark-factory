@@ -93,6 +93,10 @@ export default async function handler(req, res) {
     if (!workshop) {
       return res.status(404).json({ error: "الورشة غير موجودة" });
     }
+    /* V18.16: Block archived workshops with a clear message */
+    if (workshop.archived) {
+      return res.status(403).json({ error: "🔒 تم إيقاف التعامل مع " + (workshop.name || "هذه الورشة") + "، يُرجى التواصل مع المصنع", archived: true, name: workshop.name || "" });
+    }
     const wsName = workshop.name;
 
     /* Iterate orders in all seasons */

@@ -251,7 +251,9 @@ export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,o
 
 export function WsManager({data,workshops,upConfig,canEdit,isMob,orders,renameInOrders,wsPayments,safeDelete}){
   const[showForm,setShowForm]=useState(false);const[editId,setEditId]=useState(null);
-  const[f,setF]=useState({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خياطة خارجي",payPercent:60});
+  const[f,setF]=useState({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خياطة خارجي",payPercent:60,archived:false});
+  /* V18.16: Show archived workshops toggle (admin convenience) */
+  const[showArchivedWs,setShowArchivedWs]=useState(false);
   /* V17.9: Workshop portal link generator (mirrors customer portal pattern in CustDeliverPg) */
   const[wsPortalPopup,setWsPortalPopup]=useState(null);/* {url, wsName, wsPhone, loading, error} */
   const generateWsPortalUrl=async(ws)=>{
@@ -272,8 +274,8 @@ export function WsManager({data,workshops,upConfig,canEdit,isMob,orders,renameIn
       setWsPortalPopup({loading:false,wsName:ws.name,wsPhone:ws.phone||"",url:"",error:err.message||String(err)});
     }
   };
-  const startEdit=(ws)=>{setF({...ws,type:ws.type==="خارجي"?"خياطة خارجي":ws.type==="داخلي"?"خياطة داخلي":ws.type||"خياطة خارجي",payPercent:ws.payPercent||60});setEditId(ws.id);setShowForm(true)};
-  const startNew=()=>{setF({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خياطة خارجي",payPercent:60});setEditId(null);setShowForm(true)};
+  const startEdit=(ws)=>{setF({...ws,type:ws.type==="خارجي"?"خياطة خارجي":ws.type==="داخلي"?"خياطة داخلي":ws.type||"خياطة خارجي",payPercent:ws.payPercent||60,archived:!!ws.archived});setEditId(ws.id);setShowForm(true)};
+  const startNew=()=>{setF({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خياطة خارجي",payPercent:60,archived:false});setEditId(null);setShowForm(true)};
   const handleIdCard=async e=>{const file=e.target.files[0];if(!file)return;const compressed=await compressImg43(file,300,0.5);setF(p=>({...p,idCard:compressed}))};
   const handleOwnerPhoto=async e=>{const file=e.target.files[0];if(!file)return;const compressed=await compressImage(file,200,0.5);setF(p=>({...p,ownerPhoto:compressed}))};
   const save=()=>{if(!f.name.trim())return;
@@ -291,7 +293,11 @@ export function WsManager({data,workshops,upConfig,canEdit,isMob,orders,renameIn
      the existing orders+payments check so the user gets a fuller picture. */
   const wsBlock=(ws)=>getDeleteBlocker(data,"workshop",ws.id);
   const[wsSearch,setWsSearch]=useState("");
-  const filteredWs=wsSearch.trim()?(workshops||[]).filter(ws=>(ws.name||"").includes(wsSearch)||(ws.address||"").includes(wsSearch)||(ws.phone||"").includes(wsSearch)||(ws.owner||"").includes(wsSearch)):(workshops||[]);
+  /* V18.16: Filter out archived workshops by default */
+  const filteredWs=(()=>{const list=(workshops||[]).filter(ws=>showArchivedWs||!ws.archived);
+    return wsSearch.trim()?list.filter(ws=>(ws.name||"").includes(wsSearch)||(ws.address||"").includes(wsSearch)||(ws.phone||"").includes(wsSearch)||(ws.owner||"").includes(wsSearch)):list;
+  })();
+  const archivedCount=(workshops||[]).filter(ws=>ws.archived).length;
 
   return<div>
     {/* ── Recover missing workshops ── */}
@@ -314,7 +320,11 @@ export function WsManager({data,workshops,upConfig,canEdit,isMob,orders,renameIn
         </div>
       </Card>})()}
     <Card title="ادارة الورش" extra={canEdit&&<Btn primary small onClick={startNew}>+ ورشة جديدة</Btn>}>
-      <div style={{marginBottom:12}}><Inp value={wsSearch} onChange={setWsSearch} placeholder="بحث باسم الورشة أو العنوان أو التليفون..."/></div>
+      <div style={{marginBottom:12,display:"flex",gap:8,alignItems:"center"}}>
+        <div style={{flex:1}}><Inp value={wsSearch} onChange={setWsSearch} placeholder="بحث باسم الورشة أو العنوان أو التليفون..."/></div>
+        {/* V18.16: Show archived workshops toggle */}
+        {archivedCount>0&&<Btn small onClick={()=>setShowArchivedWs(!showArchivedWs)} style={{background:showArchivedWs?T.err+"15":T.bg,color:showArchivedWs?T.err:T.textSec,border:"1px solid "+(showArchivedWs?T.err+"40":T.brd),whiteSpace:"nowrap"}}>{showArchivedWs?"🔒 يظهر الموقوفين":"الموقوفين ("+archivedCount+")"}</Btn>}
+      </div>
       {/* Workshop Cards */}
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:14}}>
         {filteredWs.map(ws=>{
@@ -323,7 +333,9 @@ export function WsManager({data,workshops,upConfig,canEdit,isMob,orders,renameIn
           orders.forEach(o=>{let hasWs=false;(o.workshopDeliveries||[]).filter(wd=>wd.wsName===ws.name).forEach(wd=>{hasWs=true;totalDel+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{totalRcv+=Number(r.qty)||0})});if(hasWs)orderCount++});
           const pct=totalDel>0?Math.round(totalRcv/totalDel*100):0;
           const bal=totalDel-totalRcv;
-          return<div key={ws.id} onClick={()=>{if(canEdit)startEdit(ws)}} style={{background:T.cardSolid,borderRadius:16,border:"1px solid "+T.brd,overflow:"hidden",boxShadow:"0 2px 12px rgba(0,0,0,0.06)",cursor:canEdit?"pointer":"default",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
+          return<div key={ws.id} onClick={()=>{if(canEdit)startEdit(ws)}} style={{background:T.cardSolid,borderRadius:16,border:"1px solid "+(ws.archived?T.err+"40":T.brd),overflow:"hidden",boxShadow:"0 2px 12px rgba(0,0,0,0.06)",cursor:canEdit?"pointer":"default",transition:"transform 0.15s",opacity:ws.archived?0.7:1,position:"relative"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
+          {/* V18.16: Archived badge on card */}
+          {ws.archived&&<div style={{position:"absolute",top:8,insetInlineStart:8,padding:"3px 10px",borderRadius:6,background:T.err,color:"#fff",fontSize:FS-3,fontWeight:800,zIndex:2,boxShadow:"0 2px 4px rgba(0,0,0,0.2)"}}>🔒 موقوفة</div>}
           {/* Header */}
           {(()=>{const wt=wsTypeInfo(ws.type);return<div style={{padding:"14px 16px",background:wt.color+"08",borderBottom:"1px solid "+T.brd}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -391,6 +403,14 @@ export function WsManager({data,workshops,upConfig,canEdit,isMob,orders,renameIn
             <input type="file" accept="image/*" onChange={handleOwnerPhoto} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
           </div>
         </div>
+        {/* V18.16: Archive toggle for workshop */}
+        {editId&&<div style={{padding:10,borderRadius:10,background:f.archived?T.err+"08":T.bg,border:"1px solid "+(f.archived?T.err+"30":T.brd),marginBottom:14}}>
+          <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
+            <input type="checkbox" checked={!!f.archived} onChange={e=>setF({...f,archived:e.target.checked})} style={{width:18,height:18,cursor:"pointer",accentColor:T.err}}/>
+            <span style={{fontSize:FS-1,fontWeight:700,color:f.archived?T.err:T.text}}>{f.archived?"🔒 موقوفة":"🔓 نشطة"} — إيقاف التعامل مع الورشة</span>
+          </label>
+          {f.archived&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:6,lineHeight:1.6}}>⚠️ الورشة الموقوفة هتختفي من القوائم والاختيارات في الأوردرات، ولو فتحت رابط حسابها هتظهر رسالة "تم إيقاف التعامل". الكشف الكامل لسه متاح للمراجعة.</div>}
+        </div>}
         <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn ghost onClick={()=>{setShowForm(false);setEditId(null)}}>الغاء</Btn><Btn primary onClick={save} title="حفظ التعديلات">💾 حفظ</Btn></div>
       </div>
     </div>}

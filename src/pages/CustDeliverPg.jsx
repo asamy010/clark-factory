@@ -35,6 +35,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const[lastReceiptReport,setLastReceiptReport]=useState(null);/* {items:[{orderId,modelNo,desc,confirmedQty,pendingQty,diff}], total, confirmedBy, at} */
   const[showReceiptLog,setShowReceiptLog]=useState(false);
   const[cName,setCName]=useState("");const[cPhone,setCPhone]=useState("");const[cAddr,setCAddr]=useState("");const[cEditId,setCEditId]=useState(null);const[cType,setCType]=useState("مكتب");const[cDiscount,setCDiscount]=useState(0);const[custFilter,setCustFilter]=useState("");
+  /* V18.16: Archive flag for customer form */
+  const[cArchived,setCArchived]=useState(false);
+  /* V18.16: Show-archived toggle (admin only — defaults off so archived are hidden everywhere) */
+  const[showArchivedCusts,setShowArchivedCusts]=useState(false);
   const[showNewSession,setShowNewSession]=useState(false);
   const[selModels,setSelModels]=useState({});const[selCusts,setSelCusts]=useState({});
   const[activeSession,setActiveSession]=useState(null);
@@ -227,8 +231,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const saveCust=()=>{if(!cName.trim()||!cPhone.trim()){showToast("⚠️ الاسم والتليفون مطلوبين");return}
     const phoneClean=normalizePhone(cPhone.trim());
     const discVal=Math.max(0,Math.min(100,Number(cDiscount)||0));
-    upConfig(d=>{if(!d.customers)d.customers=[];if(cEditId){const idx=d.customers.findIndex(c=>c.id===cEditId);if(idx>=0){d.customers[idx].name=cName.trim();d.customers[idx].phone=phoneClean;d.customers[idx].address=cAddr.trim();d.customers[idx].type=cType;d.customers[idx].discount=discVal}}else{d.customers.push({id:gid(),name:cName.trim(),phone:phoneClean,address:cAddr.trim(),type:cType,discount:discVal})}});
-    setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCDiscount(0);setCEditId(null);setShowCustForm(false);showToast("✓ تم الحفظ")};
+    upConfig(d=>{if(!d.customers)d.customers=[];if(cEditId){const idx=d.customers.findIndex(c=>c.id===cEditId);if(idx>=0){d.customers[idx].name=cName.trim();d.customers[idx].phone=phoneClean;d.customers[idx].address=cAddr.trim();d.customers[idx].type=cType;d.customers[idx].discount=discVal;d.customers[idx].archived=!!cArchived}}else{d.customers.push({id:gid(),name:cName.trim(),phone:phoneClean,address:cAddr.trim(),type:cType,discount:discVal,archived:!!cArchived})}});
+    setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCDiscount(0);setCArchived(false);setCEditId(null);setShowCustForm(false);showToast("✓ تم الحفظ")};
 
   const createSession=()=>{const mIds=Object.keys(selModels).filter(k=>selModels[k]);const cIds=Object.keys(selCusts).filter(k=>selCusts[k]);
     if(mIds.length===0||cIds.length===0){showToast("⚠️ اختر موديل وعميل على الأقل");return}
@@ -1457,7 +1461,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         </div>
         <div style={{marginBottom:10}}><Inp value={custFilter} onChange={setCustFilter} placeholder="بحث بالاسم أو التليفون..."/></div>
         <div style={{display:"flex",flexDirection:"column",gap:4}}>
-          {customers.filter(c=>{if(!custFilter.trim())return true;const q=custFilter.trim().toLowerCase();return(c.name||"").toLowerCase().includes(q)||(c.phone||"").includes(q)}).map(c=>{
+          {customers.filter(c=>{
+            /* V18.16: Hide archived from picker — admin can still view via customers-list popup with toggle */
+            if(c.archived)return false;
+            if(!custFilter.trim())return true;const q=custFilter.trim().toLowerCase();return(c.name||"").toLowerCase().includes(q)||(c.phone||"").includes(q)
+          }).map(c=>{
             /* V18.7: Compute rating for picker row */
             const dr=custDelRetMap.get(c.id)||{del:0,ret:0};
             const rating=getCustRating(dr.del,dr.ret);
@@ -1672,17 +1680,25 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:10}}>
           <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,whiteSpace:"nowrap"}}>{"👥 العملاء ("+customers.length+")"}</div>
           <div style={{display:"flex",gap:4}}>
-            {canEdit&&<Btn small primary onClick={()=>{setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCDiscount(0);setCEditId(null);setShowCustForm(true)}}>+ عميل جديد</Btn>}
+            {canEdit&&<Btn small primary onClick={()=>{setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCDiscount(0);setCArchived(false);setCEditId(null);setShowCustForm(true)}}>+ عميل جديد</Btn>}
             <Btn ghost small onClick={()=>setShowCustList(false)} title="إغلاق">✕</Btn>
           </div>
         </div>
-        <div style={{marginBottom:10}}><Inp value={custFilter} onChange={setCustFilter} placeholder="بحث بالاسم أو رقم التليفون..."/></div>
-        {(()=>{const fc=customers.filter(c=>{if(!custFilter.trim())return true;const q=custFilter.trim().toLowerCase();return(c.name||"").toLowerCase().includes(q)||(c.phone||"").includes(q)||(c.type||"").includes(q)});
+        <div style={{marginBottom:10,display:"flex",gap:8,alignItems:"center"}}>
+          <div style={{flex:1}}><Inp value={custFilter} onChange={setCustFilter} placeholder="بحث بالاسم أو رقم التليفون..."/></div>
+          {/* V18.16: Toggle to show archived customers (admin convenience for review) */}
+          <Btn small onClick={()=>setShowArchivedCusts(!showArchivedCusts)} style={{background:showArchivedCusts?T.err+"15":T.bg,color:showArchivedCusts?T.err:T.textSec,border:"1px solid "+(showArchivedCusts?T.err+"40":T.brd),whiteSpace:"nowrap"}} title="إظهار/إخفاء العملاء الموقوفين">{showArchivedCusts?"🔒 يظهر الموقوفين":"إظهار الموقوفين"}</Btn>
+        </div>
+        {(()=>{const fc=customers.filter(c=>{
+          /* V18.16: Hide archived unless toggle is on */
+          if(c.archived&&!showArchivedCusts)return false;
+          if(!custFilter.trim())return true;const q=custFilter.trim().toLowerCase();return(c.name||"").toLowerCase().includes(q)||(c.phone||"").includes(q)||(c.type||"").includes(q)
+        });
           return fc.length>0?<table style={{width:"auto",borderCollapse:"collapse",whiteSpace:"nowrap"}}><thead><tr>{["#","الاسم","النوع","التليفون","العنوان","اجمالي",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-          {fc.map((c,i)=>{const total=getCustTotal(c.id);return<tr key={c.id} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:700}}>{c.name}</td><td style={{...TD,fontSize:FS-2,color:T.textSec}}>{c.type==="محل"?"🏪 محل":c.type==="أونلاين"?"🌐 أونلاين":c.type==="أخرى"?"📦 أخرى":"🏢 مكتب"}</td><td style={TD}>{c.phone}</td><td style={TD}>{c.address||"—"}</td><td style={{...TD,fontWeight:700,color:T.accent}}>{total||"—"}</td>
+          {fc.map((c,i)=>{const total=getCustTotal(c.id);return<tr key={c.id} style={{background:c.archived?T.err+"06":(i%2===0?"transparent":T.bg+"80"),opacity:c.archived?0.7:1}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:700}}><span style={{textDecoration:c.archived?"line-through":"none"}}>{c.name}</span>{c.archived&&<span style={{marginInlineStart:6,padding:"1px 6px",borderRadius:4,background:T.err+"20",color:T.err,fontSize:FS-3,fontWeight:800}}>🔒 موقوف</span>}</td><td style={{...TD,fontSize:FS-2,color:T.textSec}}>{c.type==="محل"?"🏪 محل":c.type==="أونلاين"?"🌐 أونلاين":c.type==="أخرى"?"📦 أخرى":"🏢 مكتب"}</td><td style={TD}>{c.phone}</td><td style={TD}>{c.address||"—"}</td><td style={{...TD,fontWeight:700,color:T.accent}}>{total||"—"}</td>
             {canEdit&&<td style={TD}><div style={{display:"flex",gap:3}}>
               <Btn small onClick={()=>setCustSalesLog(c.id)} style={{background:"#059669"+"12",color:"#059669",border:"1px solid #05966930"}} title="سجل مبيعات">📋</Btn>
-              <Btn small onClick={()=>{setCName(c.name);setCPhone(c.phone);setCAddr(c.address||"");setCType(c.type||"مكتب");setCDiscount(Number(c.discount)||0);setCEditId(c.id);setShowCustForm(true)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
+              <Btn small onClick={()=>{setCName(c.name);setCPhone(c.phone);setCAddr(c.address||"");setCType(c.type||"مكتب");setCDiscount(Number(c.discount)||0);setCArchived(!!c.archived);setCEditId(c.id);setShowCustForm(true)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
               <Btn small onClick={()=>showCustQR(c)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="عرض كود QR">QR</Btn>
               <Btn small onClick={()=>generatePortalUrl(c.id,c.name)} style={{background:"#0EA5E912",color:"#0EA5E9",border:"1px solid #0EA5E930"}} title="رابط حساب العميل">📱</Btn>
               <DelBtn onConfirm={()=>safeDelete("customers",c.id,"عميل")} blocked={getDeleteBlocker(data,"customer",c.id)}/>
@@ -3644,6 +3660,14 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <span style={{fontSize:FS,color:T.textMut,fontWeight:700}}>%</span>
             </div>
           </div>
+          {/* V18.16: Archive toggle — block customer from new transactions, hide from lists/portal */}
+          {cEditId&&<div style={{padding:10,borderRadius:10,background:cArchived?T.err+"08":T.bg,border:"1px solid "+(cArchived?T.err+"30":T.brd),display:"flex",alignItems:"center",gap:10}}>
+            <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",flex:1}}>
+              <input type="checkbox" checked={cArchived} onChange={e=>setCArchived(e.target.checked)} style={{width:18,height:18,cursor:"pointer",accentColor:T.err}}/>
+              <span style={{fontSize:FS-1,fontWeight:700,color:cArchived?T.err:T.text}}>{cArchived?"🔒 موقوف":"🔓 نشط"} — إيقاف التعامل مع العميل</span>
+            </label>
+          </div>}
+          {cEditId&&cArchived&&<div style={{fontSize:FS-3,color:T.textMut,padding:"4px 8px",lineHeight:1.6}}>⚠️ العميل الموقوف هيختفي من القوائم والتقارير، ولو فتح رابط حسابه هيظهر رسالة "تم إيقاف التعامل". الكشف الكامل لسه متاح للمراجعة من الأدمن.</div>}
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setShowCustForm(false)}>الغاء</Btn><Btn primary onClick={saveCust} title="حفظ التعديلات">💾 حفظ</Btn></div>
         </div>
       </div>

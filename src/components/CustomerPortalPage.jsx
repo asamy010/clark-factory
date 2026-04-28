@@ -40,6 +40,7 @@ export function CustomerPortalPage({ params }) {
   const { c: custId, sig } = params;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [errorMeta, setErrorMeta] = useState(null);/* V18.16: holds {archived, name} when archived */
   const [data, setData] = useState(null);
   const [tab, setTab] = useState("summary");
   /* V18.4: Model number filter (applies to models, deliveries, returns tabs) */
@@ -54,6 +55,8 @@ export function CustomerPortalPage({ params }) {
         const j = await r.json();
         if (!r.ok) {
           setError(j.error || "خطأ في التحميل");
+          /* V18.16: store archived metadata for tailored UI */
+          if (j.archived) setErrorMeta({ archived: true, name: j.name || "" });
         } else {
           setData(j);
         }
@@ -85,6 +88,16 @@ export function CustomerPortalPage({ params }) {
   }
 
   if (error) {
+    /* V18.16: Detect archived state from API and show a tailored message */
+    if (errorMeta && errorMeta.archived) {
+      return <div style={wrapperStyle}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", gap: 18, padding: 24, textAlign: "center" }}>
+          <div style={{ fontSize: 72 }}>🔒</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#DC2626", lineHeight: 1.5, maxWidth: 420 }}>تم إيقاف التعامل مع {errorMeta.name || "هذا الحساب"}</div>
+          <div style={{ fontSize: 14, color: "#475569", maxWidth: 420, lineHeight: 1.7, padding: "10px 16px", background: "#FEE2E2", borderRadius: 12, border: "1px solid #FECACA" }}>يُرجى التواصل مع المصنع لمزيد من المعلومات</div>
+        </div>
+      </div>;
+    }
     return <div style={wrapperStyle}>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", gap: 14, padding: 20, textAlign: "center" }}>
         <div style={{ fontSize: 56 }}>🔒</div>
