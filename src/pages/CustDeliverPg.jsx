@@ -1118,33 +1118,35 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             <tr style={{background:T.ok+"08"}}><td style={{...TD,fontWeight:800,color:T.ok}}>اجمالي توزيع</td>
               {fMods.map(m=>{const mt=fCusts.reduce((s,c)=>s+getGroupQty(m,c.id),0);return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,color:T.ok}}>{mt||"—"}</td>})}
               <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#fff",background:T.ok}}>{fCusts.reduce((s,c)=>s+fMods.reduce((ss,m)=>ss+getGroupQty(m,c.id),0),0)}</td><td style={TD}></td></tr>
-            <tr><td style={{...TD,fontWeight:700,color:T.textSec}}>تسليم مخزن جاهز</td>
-              {aMods.map(m=><td key={m.id} style={{...TD,textAlign:"center",fontWeight:700}}>{m.stockQty}</td>)}
-              <td style={{...TD,textAlign:"center",fontWeight:700,color:T.textSec}}>{aMods.reduce((s,m)=>s+(Number(m.stockQty)||0),0)}</td><td style={TD}></td></tr>
-            {/* V15.30: رصيد توزيع = تسليم مخزن جاهز - اجمالي توزيع (using group-aware getGroupQty) */}
+            {/* V18.18: 'تسليم مخزن جاهز' row removed — redundant. Calculations below isolated to THIS session only. */}
+            {/* رصيد توزيع = stockQty - مجموع توزيع التوزيعة دي (isolated, ignores other sessions) */}
             <tr><td style={{...TD,fontWeight:700,color:"#0EA5E9"}}>رصيد توزيع</td>
               {aMods.map(m=>{const mt=aCusts.reduce((s,c)=>s+getGroupQty(m,c.id),0);const bal=(Number(m.stockQty)||0)-mt;return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:700,color:bal>=0?"#0EA5E9":"#EF4444"}}>{bal}</td>})}
               <td style={{...TD,textAlign:"center",fontWeight:700,color:"#0EA5E9"}}>{aMods.reduce((s,m)=>{const mt=aCusts.reduce((ss,c)=>ss+getGroupQty(m,c.id),0);return s+((Number(m.stockQty)||0)-mt)},0)}</td><td style={TD}></td></tr>
-            {/* V15.37: مباع فعلي — use m.orderIds unconditionally (m.id is virtual GRP:... which doesn't exist in orders) */}
+            {/* V18.18: مباع فعلي — ISOLATED to this session only (filter by sessionId/sessId === activeSess.id) */}
             <tr><td style={{...TD,fontWeight:700,color:"#8B5CF6"}}>مباع فعلي</td>
               {aMods.map(m=>{
                 const oids=m.orderIds||[m.id];
                 let cd=0,ret=0;
-                oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;cd+=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);ret+=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0)});
+                oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;
+                  cd+=(o.customerDeliveries||[]).filter(d=>d.sessionId===activeSess.id).reduce((s,d)=>s+(Number(d.qty)||0),0);
+                  ret+=(o.customerReturns||[]).filter(r=>(r.sessId||r.sessionId)===activeSess.id).reduce((s,r)=>s+(Number(r.qty)||0),0)});
                 const net=cd-ret;
                 return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:700,color:net>0?"#8B5CF6":T.textMut}}>{net||"—"}{ret>0&&<span style={{fontSize:FS-3,color:T.ok}}>{" +"+ret+" مرتجع"}</span>}</td>;
               })}
-              <td style={{...TD,textAlign:"center",fontWeight:700,color:"#8B5CF6"}}>{(()=>{let total=0;aMods.forEach(m=>{const oids=m.orderIds||[m.id];oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;const cd=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);total+=(cd-ret)})});return total||"—"})()}</td><td style={TD}></td></tr>
-            {/* V15.37: رصيد متاح للبيع = stockQty - (مباع فعلي) — use m.orderIds */}
+              <td style={{...TD,textAlign:"center",fontWeight:700,color:"#8B5CF6"}}>{(()=>{let total=0;aMods.forEach(m=>{const oids=m.orderIds||[m.id];oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;const cd=(o.customerDeliveries||[]).filter(d=>d.sessionId===activeSess.id).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).filter(r=>(r.sessId||r.sessionId)===activeSess.id).reduce((s,r)=>s+(Number(r.qty)||0),0);total+=(cd-ret)})});return total||"—"})()}</td><td style={TD}></td></tr>
+            {/* V18.18: رصيد متاح للبيع = stockQty - مباع فعلي للتوزيعة دي بس (isolated) */}
             <tr style={{background:"#F59E0B06"}}><td style={{...TD,fontWeight:800,color:T.warn}}>رصيد متاح للبيع</td>
               {aMods.map(m=>{
                 const oids=m.orderIds||[m.id];
                 let cd=0,ret=0;
-                oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;cd+=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);ret+=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0)});
+                oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;
+                  cd+=(o.customerDeliveries||[]).filter(d=>d.sessionId===activeSess.id).reduce((s,d)=>s+(Number(d.qty)||0),0);
+                  ret+=(o.customerReturns||[]).filter(r=>(r.sessId||r.sessionId)===activeSess.id).reduce((s,r)=>s+(Number(r.qty)||0),0)});
                 const avail=(Number(m.stockQty)||0)-(cd-ret);
                 return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1,color:avail>0?"#F59E0B":"#EF4444"}}>{avail}</td>;
               })}
-              <td style={{...TD,textAlign:"center",fontWeight:800,color:T.warn}}>{(()=>{let total=0;aMods.forEach(m=>{const oids=m.orderIds||[m.id];let cd=0,ret=0;oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;cd+=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);ret+=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0)});total+=((Number(m.stockQty)||0)-(cd-ret))});return total})()}</td><td style={TD}></td></tr>
+              <td style={{...TD,textAlign:"center",fontWeight:800,color:T.warn}}>{(()=>{let total=0;aMods.forEach(m=>{const oids=m.orderIds||[m.id];let cd=0,ret=0;oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;cd+=(o.customerDeliveries||[]).filter(d=>d.sessionId===activeSess.id).reduce((s,d)=>s+(Number(d.qty)||0),0);ret+=(o.customerReturns||[]).filter(r=>(r.sessId||r.sessionId)===activeSess.id).reduce((s,r)=>s+(Number(r.qty)||0),0)});total+=((Number(m.stockQty)||0)-(cd-ret))});return total})()}</td><td style={TD}></td></tr>
             {sessCanEdit&&<tr><td style={{...TD,fontWeight:700,color:"#8B5CF6"}}>💰 سعر البيع <span style={{color:T.err,fontSize:FS-2}}>*</span></td>
               {aMods.map(m=>{
                 /* V15.37: Use draft value if present, else the saved price */

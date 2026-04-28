@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V18.18",
+    date: "2026-04-28",
+    types: ["fix", "improvement"],
+    title: "جدول التوزيعة — عزل الحسابات لكل توزيعة منفصلة",
+    changes: [
+      { type: "fix", text: "🚨 إصلاح حساب 'مباع فعلي' — كان بيجمع كل المبيعات التاريخية لكل موديل (من جميع التوزيعات السابقة). دلوقتي بيحسب المبيعات للتوزيعة الحالية بس (filter by sessionId === activeSess.id)" },
+      { type: "fix", text: "نفس الإصلاح لـ'رصيد متاح للبيع' — كان متأثر بمبيعات توزيعات تانية. دلوقتي = stockQty - (مباع فعلي للتوزيعة دي بس)" },
+      { type: "fix", text: "المرتجعات بقت تتحسب فقط لو المرتجع من التوزيعة دي (filter by sessId/sessionId === activeSess.id)" },
+      { type: "improvement", text: "🗑️ حذف صف 'تسليم مخزن جاهز' من جدول التوزيعة — كان مكرر مع m.stockQty المعروض في رصيد توزيع وملوش داعي" },
+      { type: "improvement", text: "💡 المنطق الجديد: كل توزيعة معزولة تماماً — مش بتتأثر ولا تأثر بغيرها. اعتبارها 'خطة + متابعة لحظية' للمقارنة بين الخطة والتنفيذ الفعلي" },
+    ]
+  },
+  {
     version: "V18.17",
     date: "2026-04-28",
     types: ["fix"],
@@ -135,15 +148,6 @@ const CHANGELOG = [
     title: "إصلاح بناء Vercel — تسمية ملف utils/rating",
     changes: [
       { type: "fix", text: "🚨 إصلاح فشل البيلد على Vercel: ملف rating.js كان يحتوي على JSX (مكوّن <Stars>)، لكن إعدادات Vite الافتراضية لا تحوّل JSX إلا داخل ملفات .jsx — إعادة تسمية إلى rating.jsx وتحديث جميع الـimports" },
-    ]
-  },
-  {
-    version: "V18.8",
-    date: "2026-04-28",
-    types: ["improvement"],
-    title: "إعادة بطاقة 'إجمالي الخصم' في رابط العميل",
-    changes: [
-      { type: "improvement", text: "🏷️ بطاقة 'إجمالي الخصم' رجعت في صفحة رابط العميل (تظهر فقط لو نسبة الخصم > 0). سطر الخصم في ملخص الحساب لا يزال محذوفاً" },
     ]
   },
 ];
