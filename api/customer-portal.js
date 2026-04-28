@@ -195,9 +195,10 @@ export default async function handler(req, res) {
       }))
       .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
-    /* V18.23: Receivable checks — count as customer payments (any status except bounced/cancelled) */
+    /* V18.23+V18.24: Receivable checks — count only when category = 'دفعة عميل' (real customer payment).
+       Excludes opening balances, settlements, transfers, other types — those aren't sales-related. */
     const receivableChecks = (config.checks || [])
-      .filter(c => c.type === "receivable" && String(c.partyId) === String(custId) && c.status !== "مرتد" && c.status !== "ملغي")
+      .filter(c => c.type === "receivable" && String(c.partyId) === String(custId) && c.status !== "مرتد" && c.status !== "ملغي" && ((c.category || "دفعة عميل") === "دفعة عميل"))
       .map(c => ({
         date: c.date || c.dueDate || "",
         amount: Number(c.amount) || 0,

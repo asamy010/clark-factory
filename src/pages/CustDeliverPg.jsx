@@ -853,10 +853,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         if(isCheck)totalCheckPay+=amt;else if(isCash)totalCashPay+=amt;else totalOtherPay+=amt;
         if(!perCust[p.custId])perCust[p.custId]={sales:0,returns:0,cash:0,check:0,other:0};
         if(isCheck)perCust[p.custId].check+=amt;else if(isCash)perCust[p.custId].cash+=amt;else perCust[p.custId].other+=amt});
-      /* V18.23: Include receivable checks (شيكات قبض من عملاء) — ANY status except bounced/cancelled.
-         Pending checks DO count as customer payment (customer paid us with a check, just not cashed yet).
-         The check system stores these in data.checks separately from custPayments. */
-      (config.checks||[]).filter(c=>c.type==="receivable"&&c.status!=="مرتد"&&c.status!=="ملغي").forEach(c=>{
+      /* V18.23+V18.24: Include receivable checks ONLY when category = 'دفعة عميل' (real customer payment).
+         Excludes: رصيد افتتاحي (carried from old season), تسوية مبالغ, تحويل بين الحسابات, أخرى — none of these are sales-related.
+         Empty category defaults to 'دفعة عميل' for receivable checks (matches the helper default). */
+      (config.checks||[]).filter(c=>c.type==="receivable"&&c.status!=="مرتد"&&c.status!=="ملغي"&&((c.category||"دفعة عميل")==="دفعة عميل")).forEach(c=>{
         const amt=Number(c.amount)||0;
         totalCheckPay+=amt;
         if(c.partyId){
@@ -1564,8 +1564,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const retValAfterDisc=Math.round(retVal*(1-discPct/100)); /* returns at discounted rate (display only) */
       /* Customer payments */
       const custPayments=(config.custPayments||[]).filter(p=>p.custId===custStatement).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-      /* V18.23: Include receivable checks for this customer (any status except bounced/cancelled) */
-      const custReceivableChecks=(config.checks||[]).filter(c=>c.type==="receivable"&&c.partyId===custStatement&&c.status!=="مرتد"&&c.status!=="ملغي");
+      /* V18.23+V18.24: Include receivable checks for this customer where category = 'دفعة عميل' only */
+      const custReceivableChecks=(config.checks||[]).filter(c=>c.type==="receivable"&&c.partyId===custStatement&&c.status!=="مرتد"&&c.status!=="ملغي"&&((c.category||"دفعة عميل")==="دفعة عميل"));
       const totalReceivableChecks=custReceivableChecks.reduce((s,c)=>s+(Number(c.amount)||0),0);
       const totalPaidFromCustPayments=custPayments.reduce((s,p)=>s+(Number(p.amount)||0),0);
       const totalPaid=totalPaidFromCustPayments+totalReceivableChecks;
