@@ -42,6 +42,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   /* V15.28: "isAdmin" controls the edit+verify bypass for same-user rule */
   const isAdmin=userRole==="admin";
   const userName=user?.displayName||(user?.email||"").split("@")[0];
+  const userEmail=user?.email||"";
   const employees=(data.employees||[]);
   const hrWeeks=(data.hrWeeks||[]);
   const hrLog=(data.hrLog||[]);
@@ -367,6 +368,10 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   const[pasteText,setPasteText]=useState("");const[pasteResult,setPasteResult]=useState(null);
   /* Matrix popup */
   const[showMatrix,setShowMatrix]=useState(false);const[matrixEmps,setMatrixEmps]=useState([]);const[matrixDate,setMatrixDate]=useState(today);const[matrixDesc,setMatrixDesc]=useState("سلفة");
+  /* V18.15: Bulk payment approval workflow */
+  const[matrixEmpFilter,setMatrixEmpFilter]=useState("");
+  const[showBulkApprovalReview,setShowBulkApprovalReview]=useState(null);/* approval object being reviewed */
+  const[rejectReason,setRejectReason]=useState("");
   /* Salary overrides per employee in active week */
   const[salBonus,setSalBonus]=useState({});const[salSpecialDeduct,setSalSpecialDeduct]=useState({});const[salThursdayPay,setSalThursdayPay]=useState({});const[salPrevBalanceOverride,setSalPrevBalanceOverride]=useState({});const[salManualInstallDeduct,setSalManualInstallDeduct]=useState({});const[salInstallOverride,setSalInstallOverride]=useState({});
   /* V14.56: Quick entry popup for bulk data entry — {type, selected:{empId:true}, values:{empId:number}, search} */
@@ -885,6 +890,56 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       d.hrLog.unshift({id:logId,type:"advance",empId,empName:emp.name,amount:Number(amount),desc:desc||"سلفة",weekId:openWeekId||"",date:today,by:userName,createdAt:new Date().toISOString()});
       d.treasury.unshift({id:gid(),type:"out",amount:Number(amount),desc:"سلفة "+emp.name+(desc?" — "+desc:""),category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:today,day:dayName(today),sourceType:"hr_advance",hrLogId:logId,empId,by:userName,createdAt:new Date().toISOString()})});
     showToast("✓ سلفة "+emp.name)};
+  /* V18.15: Bulk payment approval workflow — direct register replaced by request-approval flow */
+  const bulkApprovals=Array.isArray(data.bulkPaymentApprovals)?data.bulkPaymentApprovals:[];
+  const pendingBulkApprovals=bulkApprovals.filter(a=>a.status==="pending");
+
+  /* Submit matrix for approval (replaces direct register) */
+  const submitMatrixForApproval=()=>{const items=matrixEmps.filter(m=>m.amount>0);if(items.length===0){playBeep("error");showToast("⛔ ادخل مبلغ لموظف واحد على الأقل");return}
+    const total=items.reduce((s,m)=>s+m.amount,0);
+    const reqId=gid();
+    const request={id:reqId,requestedBy:userEmail||"",requestedByName:userName||"",date:matrixDate,
+      items:items.map(m=>({empId:m.empId,name:m.name,amount:m.amount})),total,
+      status:"pending",submittedAt:new Date().toISOString(),
+      reviewedBy:null,reviewedAt:null,rejectReason:null,hrLogIds:[]};
+    upConfig(d=>{if(!Array.isArray(d.bulkPaymentApprovals))d.bulkPaymentApprovals=[];
+      d.bulkPaymentApprovals.unshift(request)});
+    showToast("📤 تم إرسال "+items.length+" دفعة للأدمن للاعتماد");
+    setShowMatrix(false);setMatrixEmps([]);setMatrixEmpFilter("")};
+
+  /* Print bulk payment sheet (uses existing printPage util) */
+  const printBulkPaymentSheet=()=>{const items=matrixEmps.filter(m=>m.amount>0);if(items.length===0){playBeep("error");showToast("⛔ مفيش بيانات للطباعة");return}
+    const total=items.reduce((s,m)=>s+m.amount,0);
+    let h="<h2 style='text-align:center;margin:0 0 8px'>💸 كشف دفعات مجمعة</h2>";
+    h+="<table style='margin:0 auto 16px'><tr><th style='text-align:right;padding:4px 12px'>التاريخ</th><td style='padding:4px 12px;font-weight:800'>"+matrixDate+"</td><th style='text-align:right;padding:4px 12px'>أعدّه</th><td style='padding:4px 12px'>"+(userName||"—")+"</td></tr></table>";
+    h+="<table><thead><tr><th>#</th><th>الموظف</th><th>المبلغ</th><th>التوقيع</th></tr></thead><tbody>";
+    items.forEach((m,i)=>{h+="<tr style='background:"+(i%2===0?"transparent":"#f8f8f8")+"'><td style='text-align:center'>"+(i+1)+"</td><td style='font-weight:700'>"+m.name+"</td><td style='text-align:center;font-weight:800;color:#0EA5E9'>"+fmt0(m.amount)+" ج.م</td><td style='width:140px;border-bottom:1px dashed #CBD5E1'></td></tr>"});
+    h+="<tr style='background:#FEF3C7;font-weight:800;font-size:14px'><td colspan='2' style='text-align:right;padding-right:12px'>الإجمالي</td><td style='text-align:center;color:#EF4444'>"+fmt0(total)+" ج.م</td><td></td></tr>";
+    h+="</tbody></table>";
+    h+="<div class='sig'><div class='sig-box'>المُعِد: "+(userName||"")+"</div><div class='sig-box'>اعتماد الإدارة</div></div>";
+    printPage("كشف دفعات مجمعة — "+matrixDate,h,{factoryName:data.factoryName,logo:data.logo})};
+
+  /* Admin: approve a pending bulk payment — runs the original submitMatrix logic on stored items */
+  const approveBulkPayment=(approval)=>{
+    upConfig(d=>{if(!d.hrLog)d.hrLog=[];if(!d.treasury)d.treasury=[];
+      const hrLogIds=[];
+      approval.items.forEach(m=>{const emp=(d.employees||[]).find(e=>e.id===m.empId);if(!emp)return;
+        const logId=gid();hrLogIds.push(logId);
+        d.hrLog.unshift({id:logId,type:"advance",empId:m.empId,empName:emp.name,amount:m.amount,desc:"دفعة مجمعة (طلب "+(approval.requestedByName||"")+")",weekId:openWeekId||"",date:approval.date,by:userName,createdAt:new Date().toISOString()});
+        d.treasury.unshift({id:gid(),type:"out",amount:m.amount,desc:"سلفة "+emp.name+" — دفعة مجمعة",category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:approval.date,day:dayName(approval.date),sourceType:"hr_advance",hrLogId:logId,empId:m.empId,by:userName,createdAt:new Date().toISOString()})});
+      /* Mark approval as approved */
+      const i=(d.bulkPaymentApprovals||[]).findIndex(a=>a.id===approval.id);
+      if(i>=0){d.bulkPaymentApprovals[i]={...d.bulkPaymentApprovals[i],status:"approved",reviewedBy:userEmail||"",reviewedAt:new Date().toISOString(),hrLogIds}}});
+    showToast("✅ تم الاعتماد ونقل "+approval.items.length+" دفعة للخزنة");
+    setShowBulkApprovalReview(null)};
+
+  /* Admin: reject a pending bulk payment */
+  const rejectBulkPayment=(approval,reason)=>{
+    upConfig(d=>{const i=(d.bulkPaymentApprovals||[]).findIndex(a=>a.id===approval.id);
+      if(i>=0){d.bulkPaymentApprovals[i]={...d.bulkPaymentApprovals[i],status:"rejected",reviewedBy:userEmail||"",reviewedAt:new Date().toISOString(),rejectReason:reason||""}}});
+    showToast("❌ تم رفض الطلب");
+    setShowBulkApprovalReview(null);setRejectReason("")};
+
   const submitMatrix=()=>{const items=matrixEmps.filter(m=>m.amount>0);if(items.length===0)return;
     upConfig(d=>{if(!d.hrLog)d.hrLog=[];if(!d.treasury)d.treasury=[];
       items.forEach(m=>{const emp=employees.find(e=>e.id===m.empId);if(!emp)return;
@@ -2805,7 +2860,11 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           setNwBaseHours(hrs.defaultBaseHours||48);
           setShowNewWeek(!showNewWeek)
         }}>{showNewWeek?"✕":"+ أسبوع جديد"}</Btn>}
-        {canEdit&&<Btn onClick={()=>{setMatrixEmps(activeEmps.map(e=>({empId:e.id,name:e.name,amount:0})));setMatrixDate(today);setMatrixDesc("سلفة");setShowMatrix(true)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>💸 دفعات مجمعة</Btn>}
+        {canEdit&&<div style={{position:"relative",display:"inline-block"}}>
+          <Btn onClick={()=>{setMatrixEmps(activeEmps.map(e=>({empId:e.id,name:e.name,amount:0})));setMatrixDate(today);setMatrixDesc("سلفة");setMatrixEmpFilter("");setShowMatrix(true)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>💸 دفعات مجمعة</Btn>
+          {/* V18.15: Red badge for admin showing pending approval count */}
+          {isAdmin&&pendingBulkApprovals.length>0&&<span style={{position:"absolute",top:-6,insetInlineEnd:-6,minWidth:20,height:20,padding:"0 6px",borderRadius:10,background:"#EF4444",color:"#fff",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 2px 4px rgba(239,68,68,0.4)",border:"2px solid "+T.cardSolid,animation:"pulse 2s ease-in-out infinite"}} title={pendingBulkApprovals.length+" طلب اعتماد بانتظار المراجعة"}>{pendingBulkApprovals.length}</span>}
+        </div>}
         {/* V15.24: Excel import buttons available at overview level — no need to open a week first */}
         {canEdit&&<Btn onClick={()=>{setExcelImportMode("normal");setShowExcelImport(true)}} style={{background:"#10B98112",color:"#10B981",border:"1px solid #10B98130",fontWeight:700}} title="استيراد أسبوع كامل من Excel — يسجل السلف في الخزنة عادي">📥 استيراد Excel</Btn>}
         {canEdit&&<Btn onClick={()=>{setExcelImportMode("analysis");setShowExcelImport(true)}} style={{background:"#3B82F612",color:"#3B82F6",border:"1px solid #3B82F630",fontWeight:700}} title="استيراد أسبوع للتحليل والعرض فقط — لن يؤثر على الخزنة أو السلف">📊 استيراد تحليلي</Btn>}
@@ -6398,23 +6457,88 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
 
     {/* ══ MATRIX POPUP ══ */}
     {showMatrix&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowMatrix(false)}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:560,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <span style={{fontSize:FS+1,fontWeight:800,color:"#F59E0B"}}>💸 دفعات مجمعة</span><Btn ghost small onClick={()=>setShowMatrix(false)}>✕</Btn>
         </div>
-        <div style={{display:"flex",gap:8,marginBottom:10}}>
-          <div style={{flex:1}}><Inp value={matrixDesc} onChange={setMatrixDesc} placeholder="البيان"/></div>
-          <div><Inp type="date" value={matrixDate} onChange={setMatrixDate}/></div>
+
+        {/* V18.15: Pending approvals section — admin only */}
+        {isAdmin&&pendingBulkApprovals.length>0&&<div style={{marginBottom:14,padding:10,borderRadius:10,background:"#EF444408",border:"1px solid #EF444430"}}>
+          <div style={{fontSize:FS-1,fontWeight:800,color:"#EF4444",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>⏳ طلبات بانتظار اعتمادك ({pendingBulkApprovals.length})</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {pendingBulkApprovals.map(a=><div key={a.id} onClick={()=>setShowBulkApprovalReview(a)} style={{padding:"8px 10px",borderRadius:8,background:T.cardSolid,border:"1px solid "+T.brd,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}} onMouseEnter={e=>e.currentTarget.style.background="#EF444412"} onMouseLeave={e=>e.currentTarget.style.background=T.cardSolid}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:FS-1,fontWeight:700}}>{a.requestedByName||"—"}</div>
+                <div style={{fontSize:FS-3,color:T.textMut}}>{a.date+" • "+a.items.length+" موظف • "+fmt0(a.total)+" ج.م"}</div>
+              </div>
+              <span style={{fontSize:FS-2,color:"#EF4444",fontWeight:700}}>راجع ←</span>
+            </div>)}
+          </div>
+        </div>}
+
+        {/* Form: date only (desc box removed) */}
+        <div style={{marginBottom:10}}>
+          <Inp type="date" value={matrixDate} onChange={setMatrixDate}/>
         </div>
+
+        {/* V18.15: Employee name filter */}
+        <div style={{marginBottom:8}}>
+          <Inp value={matrixEmpFilter} onChange={setMatrixEmpFilter} placeholder="🔍 فلتر باسم الموظف..."/>
+        </div>
+
         {activeEmps.filter(e=>!matrixEmps.some(m=>m.empId===e.id)).length>0&&<Sel value="" onChange={v=>{if(v)setMatrixEmps(p=>[...p,{empId:v,name:(employees.find(e=>e.id===v)||{}).name,amount:0}])}} style={{width:"100%",marginBottom:8}}>
           <option value="">+ إضافة موظف</option>{activeEmps.filter(e=>!matrixEmps.some(m=>m.empId===e.id)).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</Sel>}
-        <div style={{display:"flex",flexDirection:"column",gap:6}}>{matrixEmps.map((m,i)=><div key={m.empId} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
-          <span style={{flex:1,fontSize:FS,fontWeight:700}}>{m.name}</span>
-          <input type="number" value={m.amount||""} onChange={e=>{const v=Number(e.target.value)||0;setMatrixEmps(p=>p.map((x,j)=>j===i?{...x,amount:v}:x))}} placeholder="المبلغ" style={{width:90,padding:"6px 8px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text}}/>
-          <span onClick={()=>setMatrixEmps(p=>p.filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err}}>✕</span>
-        </div>)}</div>
+
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>{matrixEmps.map((m,i)=>{
+          /* V18.15: Apply name filter */
+          if(matrixEmpFilter.trim()&&!(m.name||"").toLowerCase().includes(matrixEmpFilter.trim().toLowerCase()))return null;
+          return<div key={m.empId} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
+            <span style={{flex:1,fontSize:FS,fontWeight:700}}>{m.name}</span>
+            <input type="number" value={m.amount||""} onChange={e=>{const v=Number(e.target.value)||0;setMatrixEmps(p=>p.map((x,j)=>j===i?{...x,amount:v}:x))}} placeholder="المبلغ" style={{width:90,padding:"6px 8px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text}}/>
+            <span onClick={()=>setMatrixEmps(p=>p.filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err}}>✕</span>
+          </div>
+        })}</div>
+
         {matrixEmps.filter(m=>m.amount>0).length>0&&<div style={{marginTop:10,padding:8,borderRadius:8,background:T.err+"06",textAlign:"center",fontWeight:800,color:T.err}}>{"اجمالي: "+fmt0(matrixEmps.reduce((s,m)=>s+m.amount,0))+" — "+matrixEmps.filter(m=>m.amount>0).length+" موظف"}</div>}
-        <div style={{marginTop:10,textAlign:"center"}}><Btn primary onClick={submitMatrix}>💰 تسجيل</Btn></div>
+
+        {/* V18.15: Two action buttons — print + request approval (direct register removed) */}
+        <div style={{marginTop:14,display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+          <Btn onClick={printBulkPaymentSheet} style={{background:"#0EA5E912",color:"#0EA5E9",border:"1px solid #0EA5E930"}}>🖨 طباعة</Btn>
+          <Btn primary onClick={submitMatrixForApproval} style={{background:"#F59E0B",color:"#fff"}}>📤 طلب اعتماد</Btn>
+        </div>
+      </div>
+    </div>}
+
+    {/* V18.15: Approval review popup (admin only) */}
+    {showBulkApprovalReview&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setShowBulkApprovalReview(null);setRejectReason("")}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:520,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <span style={{fontSize:FS+1,fontWeight:800,color:"#F59E0B"}}>📋 مراجعة طلب اعتماد</span>
+          <Btn ghost small onClick={()=>{setShowBulkApprovalReview(null);setRejectReason("")}}>✕</Btn>
+        </div>
+        <div style={{padding:10,borderRadius:10,background:T.bg,border:"1px solid "+T.brd,marginBottom:12,display:"grid",gridTemplateColumns:"auto 1fr",gap:6,fontSize:FS-1}}>
+          <span style={{color:T.textMut}}>المُرسِل:</span><span style={{fontWeight:700}}>{showBulkApprovalReview.requestedByName||"—"}</span>
+          <span style={{color:T.textMut}}>تاريخ الدفعة:</span><span style={{fontWeight:700,direction:"ltr"}}>{showBulkApprovalReview.date}</span>
+          <span style={{color:T.textMut}}>وقت الإرسال:</span><span style={{fontSize:FS-2,color:T.textSec,direction:"ltr"}}>{new Date(showBulkApprovalReview.submittedAt).toLocaleString("ar-EG")}</span>
+        </div>
+        <div style={{marginBottom:10}}>
+          <div style={{fontSize:FS-1,fontWeight:700,marginBottom:6}}>تفاصيل الدفعات ({showBulkApprovalReview.items.length} موظف):</div>
+          <div style={{maxHeight:240,overflowY:"auto",display:"flex",flexDirection:"column",gap:4,padding:8,borderRadius:8,background:T.bg,border:"1px solid "+T.brd}}>
+            {showBulkApprovalReview.items.map((it,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 8px",borderRadius:6,background:T.cardSolid,fontSize:FS-1}}>
+              <span style={{fontWeight:600}}>{it.name}</span>
+              <span style={{fontWeight:800,color:"#0EA5E9",direction:"ltr"}}>{fmt0(it.amount)} ج.م</span>
+            </div>)}
+          </div>
+          <div style={{marginTop:8,padding:8,borderRadius:8,background:"#F59E0B12",border:"1px solid #F59E0B40",textAlign:"center",fontWeight:800,fontSize:FS,color:"#F59E0B"}}>الإجمالي: {fmt0(showBulkApprovalReview.total)} ج.م</div>
+        </div>
+        <div style={{marginBottom:10}}>
+          <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>سبب الرفض (اختياري — في حالة الرفض)</label>
+          <Inp value={rejectReason} onChange={setRejectReason} placeholder="..."/>
+        </div>
+        <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+          <Btn onClick={()=>rejectBulkPayment(showBulkApprovalReview,rejectReason)} style={{background:T.err+"15",color:T.err,border:"1px solid "+T.err+"40"}}>❌ رفض</Btn>
+          <Btn primary onClick={()=>approveBulkPayment(showBulkApprovalReview)} style={{background:T.ok,color:"#fff"}}>✅ اعتماد ونقل للخزنة</Btn>
+        </div>
       </div>
     </div>}
 

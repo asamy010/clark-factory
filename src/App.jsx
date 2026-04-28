@@ -125,7 +125,7 @@ export default function App(){
     }
   }
   /* V16.3: Customer portal — public read-only account page for customers.
-     V18.14: Now supports two URL formats (backward compat):
+     V18.15: Now supports two URL formats (backward compat):
        Legacy:   /?portal=1&c=<custId>&sig=<hmac_hex>
        Short:    /?p=c&i=<custId>&s=<hmac_b64url> */
   if(urlParams.get("portal")==="1"||urlParams.get("p")==="c"){
@@ -135,7 +135,7 @@ export default function App(){
     }
   }
   /* V17.9: Workshop portal — public read-only account page for workshops.
-     V18.14: Now supports two URL formats (backward compat):
+     V18.15: Now supports two URL formats (backward compat):
        Legacy:   /?wsportal=1&w=<wsId>&sig=<hmac_hex>
        Short:    /?p=w&i=<wsId>&s=<hmac_b64url> */
   if(urlParams.get("wsportal")==="1"||urlParams.get("p")==="w"){
@@ -2067,7 +2067,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V18.14 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >V18.15 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -3123,7 +3123,7 @@ export default function App(){
       </div>
     )}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.14"/>
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.15"/>
   </div>
 }
 
