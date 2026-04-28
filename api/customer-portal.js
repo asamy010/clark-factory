@@ -195,6 +195,19 @@ export default async function handler(req, res) {
       }))
       .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
+    /* V18.23: Receivable checks — count as customer payments (any status except bounced/cancelled) */
+    const receivableChecks = (config.checks || [])
+      .filter(c => c.type === "receivable" && String(c.partyId) === String(custId) && c.status !== "مرتد" && c.status !== "ملغي")
+      .map(c => ({
+        date: c.date || c.dueDate || "",
+        amount: Number(c.amount) || 0,
+        method: "شيك",
+        notes: ("شيك" + (c.checkNo ? " #" + c.checkNo : "") + (c.bank ? " — " + c.bank : "") + (c.status && c.status !== "محصل" ? " (" + c.status + ")" : "")),
+      }));
+    /* Merge into payments list so the sorted log shows them too */
+    receivableChecks.forEach(rc => payments.push(rc));
+    payments.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+
     /* Calculate balance */
     const discPct = Number(customer.discount) || 0;
     const totalDelValue = deliveries.reduce((s, d) => s + d.value, 0);
@@ -204,7 +217,7 @@ export default async function handler(req, res) {
     const salesAfterDiscount = netSales - discountAmount;
     const returnsAfterDiscount = Math.round(totalRetValue * (1 - discPct / 100));
     const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
-    /* V18.3: Split paid into cash (everything except شيك) and checks */
+    /* V18.3+V18.23: Split paid into cash (everything except شيك) and checks (incl. pending receivable checks) */
     const checksPaid = payments.filter(p => p.method === "شيك").reduce((s, p) => s + p.amount, 0);
     const cashPaid = totalPaid - checksPaid;
     const balance = Math.round(salesAfterDiscount - totalPaid);

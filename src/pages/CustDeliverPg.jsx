@@ -853,6 +853,17 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         if(isCheck)totalCheckPay+=amt;else if(isCash)totalCashPay+=amt;else totalOtherPay+=amt;
         if(!perCust[p.custId])perCust[p.custId]={sales:0,returns:0,cash:0,check:0,other:0};
         if(isCheck)perCust[p.custId].check+=amt;else if(isCash)perCust[p.custId].cash+=amt;else perCust[p.custId].other+=amt});
+      /* V18.23: Include receivable checks (شيكات قبض من عملاء) — ANY status except bounced/cancelled.
+         Pending checks DO count as customer payment (customer paid us with a check, just not cashed yet).
+         The check system stores these in data.checks separately from custPayments. */
+      (config.checks||[]).filter(c=>c.type==="receivable"&&c.status!=="مرتد"&&c.status!=="ملغي").forEach(c=>{
+        const amt=Number(c.amount)||0;
+        totalCheckPay+=amt;
+        if(c.partyId){
+          if(!perCust[c.partyId])perCust[c.partyId]={sales:0,returns:0,cash:0,check:0,other:0};
+          perCust[c.partyId].check+=amt;
+        }
+      });
       const totalBalance=totalSales-totalReturns-totalCashPay-totalCheckPay-totalOtherPay;
       const printSalesReport=()=>{const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
         const logo=(config.logo||"").trim();
@@ -956,11 +967,20 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         <div style={{flex:1,overflowY:"auto",overflowX:"auto",padding:isMob?"8px 16px 16px":"8px 24px 24px"}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:fMods.length*90+180}}>
           <thead style={{position:"sticky",top:0,zIndex:10,background:T.cardSolid}}><tr>
-            <th style={{...TH,minWidth:130}}>العميل</th>
-            {fMods.map(m=><th key={m.id} style={{...TH,textAlign:"center",minWidth:60,fontSize:FS-2,padding:"4px 6px"}}><div style={{fontWeight:800,color:T.accent,whiteSpace:"nowrap"}}>{m.modelNo}{m.isGrouped&&<span style={{fontSize:FS-3,color:"#8B5CF6",marginInlineStart:4,fontWeight:700}} title={"مدموج من "+m.subOrders.length+" تشغيلات (FIFO)"}>⧉{m.subOrders.length}</span>}</div><div style={{fontSize:FS-3,color:T.textMut,whiteSpace:"nowrap"}}>{(m.rackSize||getRackSize(m.orderIds?.[0]||m.id))+"س"}</div>
-              {/* V18.21: Show series and broken qty split (broken NOT distributable) */}
+            {/* V18.22: Sticky customer column — stays visible when scrolling horizontally */}
+            <th style={{...TH,minWidth:130,position:"sticky",insetInlineStart:0,zIndex:11,background:T.cardSolid,borderInlineEnd:"2px solid "+T.brd}}>العميل</th>
+            {fMods.map(m=>{
+              /* V18.22: Compute CURRENT available series (live, after global sales/returns) */
+              const oids=m.orderIds||[m.id];
+              let gCd=0,gRet=0;
+              oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;
+                gCd+=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
+                gRet+=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0)});
+              const currentSeries=(Number(m.seriesQty)||0)-(gCd-gRet);
+              return <th key={m.id} style={{...TH,textAlign:"center",minWidth:60,fontSize:FS-2,padding:"4px 6px"}}><div style={{fontWeight:800,color:T.accent,whiteSpace:"nowrap"}}>{m.modelNo}{m.isGrouped&&<span style={{fontSize:FS-3,color:"#8B5CF6",marginInlineStart:4,fontWeight:700}} title={"مدموج من "+m.subOrders.length+" تشغيلات (FIFO)"}>⧉{m.subOrders.length}</span>}</div><div style={{fontSize:FS-3,color:T.textMut,whiteSpace:"nowrap"}}>{(m.rackSize||getRackSize(m.orderIds?.[0]||m.id))+"س"}</div>
+              {/* V18.21+V18.22: Series shown is CURRENT available (not gross). Broken stays gross since it doesn't move. */}
               {((m.seriesQty||0)>0||(m.brokenQty||0)>0)&&<div style={{display:"flex",gap:3,justifyContent:"center",marginTop:2,flexWrap:"wrap"}}>
-                <span style={{fontSize:FS-3,padding:"1px 5px",borderRadius:4,background:"#0EA5E915",color:"#0EA5E9",fontWeight:700,whiteSpace:"nowrap"}} title="سيري — متاح للتوزيع">📦{m.seriesQty||0}</span>
+                <span style={{fontSize:FS-3,padding:"1px 5px",borderRadius:4,background:"#0EA5E915",color:"#0EA5E9",fontWeight:700,whiteSpace:"nowrap"}} title="السيري المتاح حالياً للتوزيع (بعد المبيعات والمرتجعات)">📦{currentSeries}</span>
                 {(m.brokenQty||0)>0&&<span style={{fontSize:FS-3,padding:"1px 5px",borderRadius:4,background:"#8B5CF615",color:"#8B5CF6",fontWeight:700,whiteSpace:"nowrap"}} title="كسر — مش للتوزيع">🧩{m.brokenQty}</span>}
               </div>}
               {sessCanEdit&&<div onClick={async()=>{
@@ -976,14 +996,17 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                 }});
                 showToast("✓ تم حذف "+m.modelNo);
               }} style={{cursor:"pointer",fontSize:9,color:T.err,marginTop:2}}>✕ حذف</div>}
-            </th>)}
+            </th>;
+            })}
             <th style={{...TH,textAlign:"center",background:"#0284C715",color:T.accent,fontWeight:800}}>اجمالي</th>
             <th style={{...TH,width:70}}></th>
           </tr></thead>
           <tbody>
             {fCusts.map((c,ci)=>{const rowTotal=fMods.reduce((s,m)=>s+getGroupQty(m,c.id),0);
+              const rowBg=ci%2===0?T.cardSolid:T.bg;
               return<tr key={c.id} style={{background:ci%2===0?"transparent":T.bg+"80"}}>
-                <td style={{...TD,fontWeight:700}}>{c.name}{(()=>{
+                {/* V18.22: Sticky customer column */}
+                <td style={{...TD,fontWeight:700,position:"sticky",insetInlineStart:0,zIndex:5,background:rowBg,borderInlineEnd:"2px solid "+T.brd}}>{c.name}{(()=>{
                   /* V15.50: Confirmation badge — shows customer's scan result */
                   const cf=(activeSess.confirmations||{})[c.id];
                   if(!cf)return<span title="في انتظار تأكيد العميل" style={{marginInlineStart:6,padding:"1px 6px",borderRadius:6,background:"#94A3B812",color:"#64748B",fontSize:FS-3,fontWeight:700,verticalAlign:"middle"}}>⏳</span>;
@@ -1129,7 +1152,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                     :<Btn small onClick={async()=>{if(!await ask("حذف عميل","حذف "+c.name+" من التوزيعة؟",{danger:true}))return;upSales(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===activeSess.id);if(si>=0){d.custDeliverySessions[si].custIds=d.custDeliverySessions[si].custIds.filter(id=>id!==c.id);const g=d.custDeliverySessions[si].grid||{};Object.keys(g).forEach(k=>{if(k.endsWith("_"+c.id))delete g[k]})}});showToast("✓ تم حذف "+c.name)}} style={{background:"#EF444412",color:"#EF4444",border:"1px solid #EF444430",fontSize:9,padding:"2px 5px"}} title="حذف العميل">🗑</Btn>})()}
                 </div>}</td>
               </tr>})}
-            <tr style={{background:T.ok+"08"}}><td style={{...TD,fontWeight:800,color:T.ok}}>اجمالي توزيع</td>
+            <tr style={{background:T.ok+"08"}}><td style={{...TD,fontWeight:800,color:T.ok,position:"sticky",insetInlineStart:0,zIndex:5,background:T.cardSolid,borderInlineEnd:"2px solid "+T.brd}}>اجمالي توزيع</td>
               {fMods.map(m=>{const mt=fCusts.reduce((s,c)=>s+getGroupQty(m,c.id),0);return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,color:T.ok}}>{mt||"—"}</td>})}
               <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#fff",background:T.ok}}>{fCusts.reduce((s,c)=>s+fMods.reduce((ss,m)=>ss+getGroupQty(m,c.id),0),0)}</td><td style={TD}></td></tr>
             {/* V18.21: All rows use seriesQty (broken excluded from distribution).
@@ -1137,7 +1160,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                  - مباع فعلي = this_session_net_sold (filtered by sessionId)
                  - رصيد متاح للبيع = current_series_stock (live; reaches 0 when all session sales confirmed) */}
             {/* رصيد توزيع = (الرصيد السيري الحالي + مبيعات التوزيعة) − اجمالي التوزيع */}
-            <tr><td style={{...TD,fontWeight:700,color:"#0EA5E9"}}>رصيد توزيع</td>
+            <tr><td style={{...TD,fontWeight:700,color:"#0EA5E9",position:"sticky",insetInlineStart:0,zIndex:5,background:T.cardSolid,borderInlineEnd:"2px solid "+T.brd}}>رصيد توزيع</td>
               {aMods.map(m=>{
                 const oids=m.orderIds||[m.id];
                 let gCd=0,gRet=0,sCd=0,sRet=0;
@@ -1154,7 +1177,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               })}
               <td style={{...TD,textAlign:"center",fontWeight:700,color:"#0EA5E9"}}>{(()=>{let total=0;aMods.forEach(m=>{const oids=m.orderIds||[m.id];let gCd=0,gRet=0,sCd=0,sRet=0;oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;(o.customerDeliveries||[]).forEach(d=>{const q=Number(d.qty)||0;gCd+=q;if(d.sessionId===activeSess.id)sCd+=q});(o.customerReturns||[]).forEach(r=>{const q=Number(r.qty)||0;gRet+=q;if((r.sessId||r.sessionId)===activeSess.id)sRet+=q})});const currentSeries=(Number(m.seriesQty)||0)-(gCd-gRet);const sessInitSeries=currentSeries+(sCd-sRet);const plan=aCusts.reduce((s,c)=>s+getGroupQty(m,c.id),0);total+=sessInitSeries-plan});return total})()}</td><td style={TD}></td></tr>
             {/* مباع فعلي = this_session_net_sold (NO change from V18.18) */}
-            <tr><td style={{...TD,fontWeight:700,color:"#8B5CF6"}}>مباع فعلي</td>
+            <tr><td style={{...TD,fontWeight:700,color:"#8B5CF6",position:"sticky",insetInlineStart:0,zIndex:5,background:T.cardSolid,borderInlineEnd:"2px solid "+T.brd}}>مباع فعلي</td>
               {aMods.map(m=>{
                 const oids=m.orderIds||[m.id];
                 let cd=0,ret=0;
@@ -1166,7 +1189,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               })}
               <td style={{...TD,textAlign:"center",fontWeight:700,color:"#8B5CF6"}}>{(()=>{let total=0;aMods.forEach(m=>{const oids=m.orderIds||[m.id];oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;const cd=(o.customerDeliveries||[]).filter(d=>d.sessionId===activeSess.id).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).filter(r=>(r.sessId||r.sessionId)===activeSess.id).reduce((s,r)=>s+(Number(r.qty)||0),0);total+=(cd-ret)})});return total||"—"})()}</td><td style={TD}></td></tr>
             {/* رصيد متاح للبيع = الرصيد السيري الفعلي الحالي = seriesQty − global_net_sold */}
-            <tr style={{background:"#F59E0B06"}}><td style={{...TD,fontWeight:800,color:T.warn}}>رصيد متاح للبيع</td>
+            <tr style={{background:"#F59E0B06"}}><td style={{...TD,fontWeight:800,color:T.warn,position:"sticky",insetInlineStart:0,zIndex:5,background:T.cardSolid,borderInlineEnd:"2px solid "+T.brd}}>رصيد متاح للبيع</td>
               {aMods.map(m=>{
                 const oids=m.orderIds||[m.id];
                 let gCd=0,gRet=0;
@@ -1178,7 +1201,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                 return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1,color:currentSeries>0?"#F59E0B":currentSeries<0?"#EF4444":T.textMut}}>{currentSeries}</td>;
               })}
               <td style={{...TD,textAlign:"center",fontWeight:800,color:T.warn}}>{(()=>{let total=0;aMods.forEach(m=>{const oids=m.orderIds||[m.id];let gCd=0,gRet=0;oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;gCd+=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);gRet+=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0)});total+=((Number(m.seriesQty)||0)-(gCd-gRet))});return total})()}</td><td style={TD}></td></tr>
-            {sessCanEdit&&<tr><td style={{...TD,fontWeight:700,color:"#8B5CF6"}}>💰 سعر البيع <span style={{color:T.err,fontSize:FS-2}}>*</span></td>
+            {sessCanEdit&&<tr><td style={{...TD,fontWeight:700,color:"#8B5CF6",position:"sticky",insetInlineStart:0,zIndex:5,background:T.cardSolid,borderInlineEnd:"2px solid "+T.brd}}>💰 سعر البيع <span style={{color:T.err,fontSize:FS-2}}>*</span></td>
               {aMods.map(m=>{
                 /* V15.37: Use draft value if present, else the saved price */
                 const draftVal=sellPriceDrafts[m.key];
@@ -1541,10 +1564,15 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const retValAfterDisc=Math.round(retVal*(1-discPct/100)); /* returns at discounted rate (display only) */
       /* Customer payments */
       const custPayments=(config.custPayments||[]).filter(p=>p.custId===custStatement).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-      const totalPaid=custPayments.reduce((s,p)=>s+(Number(p.amount)||0),0);
-      /* V18.1: Split paid into checks vs cash (cash = everything except شيك) */
-      const totalPaidChecks=custPayments.filter(p=>(p.method||"")==="شيك").reduce((s,p)=>s+(Number(p.amount)||0),0);
-      const totalPaidCash=totalPaid-totalPaidChecks;
+      /* V18.23: Include receivable checks for this customer (any status except bounced/cancelled) */
+      const custReceivableChecks=(config.checks||[]).filter(c=>c.type==="receivable"&&c.partyId===custStatement&&c.status!=="مرتد"&&c.status!=="ملغي");
+      const totalReceivableChecks=custReceivableChecks.reduce((s,c)=>s+(Number(c.amount)||0),0);
+      const totalPaidFromCustPayments=custPayments.reduce((s,p)=>s+(Number(p.amount)||0),0);
+      const totalPaid=totalPaidFromCustPayments+totalReceivableChecks;
+      /* V18.1+V18.23: Split paid into checks (custPayments method=شيك + receivable checks) vs cash */
+      const totalPaidChecksFromPayments=custPayments.filter(p=>(p.method||"")==="شيك").reduce((s,p)=>s+(Number(p.amount)||0),0);
+      const totalPaidChecks=totalPaidChecksFromPayments+totalReceivableChecks;
+      const totalPaidCash=totalPaidFromCustPayments-totalPaidChecksFromPayments;
       /* FIXED: totalVal already excludes returns, so balance = afterDisc - paid (no -retVal) */
       const custBalance=r2(totalAfterDisc-totalPaid);
       const addCustPayment=()=>{const amt=parseFloat(payAmt);if(!amt||amt<=0){playBeep("error");return}
