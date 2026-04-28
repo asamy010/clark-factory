@@ -7,7 +7,8 @@
 
 import { useEffect, useState } from "react";
 import { collection } from "firebase/firestore";
-import { Btn, Card, DelBtn, Inp, QRImg, Sel } from "../components/ui.jsx";
+import { auth } from "../firebase";
+import { Btn, Card, DelBtn, Inp, QRImg, Sel, Spinner } from "../components/ui.jsx";
 import { DEFAULT_STATUSES, FKEYS, FS, GARMENT_ICONS, WS_TYPES } from "../constants/index.js";
 import { T, TD, TDB, TH } from "../theme.js";
 import { gIcon, setF, normalizePhone, parseSizes } from "../utils/format.js";
@@ -251,6 +252,26 @@ export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,o
 export function WsManager({data,workshops,upConfig,canEdit,isMob,orders,renameInOrders,wsPayments,safeDelete}){
   const[showForm,setShowForm]=useState(false);const[editId,setEditId]=useState(null);
   const[f,setF]=useState({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خياطة خارجي",payPercent:60});
+  /* V17.9: Workshop portal link generator (mirrors customer portal pattern in CustDeliverPg) */
+  const[wsPortalPopup,setWsPortalPopup]=useState(null);/* {url, wsName, wsPhone, loading, error} */
+  const generateWsPortalUrl=async(ws)=>{
+    setWsPortalPopup({loading:true,wsName:ws.name,wsPhone:ws.phone||"",url:"",error:""});
+    try{
+      const user=auth.currentUser;
+      if(!user){setWsPortalPopup({loading:false,wsName:ws.name,wsPhone:ws.phone||"",url:"",error:"يرجى تسجيل الدخول"});return}
+      const token=await user.getIdToken();
+      const res=await fetch("/api/workshop-portal-sign",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({wsId:ws.id,adminToken:token})
+      });
+      const json=await res.json();
+      if(!res.ok){setWsPortalPopup({loading:false,wsName:ws.name,wsPhone:ws.phone||"",url:"",error:json.error||"فشل التوليد"});return}
+      setWsPortalPopup({loading:false,wsName:ws.name,wsPhone:ws.phone||"",url:json.url,error:""});
+    }catch(err){
+      setWsPortalPopup({loading:false,wsName:ws.name,wsPhone:ws.phone||"",url:"",error:err.message||String(err)});
+    }
+  };
   const startEdit=(ws)=>{setF({...ws,type:ws.type==="خارجي"?"خياطة خارجي":ws.type==="داخلي"?"خياطة داخلي":ws.type||"خياطة خارجي",payPercent:ws.payPercent||60});setEditId(ws.id);setShowForm(true)};
   const startNew=()=>{setF({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خياطة خارجي",payPercent:60});setEditId(null);setShowForm(true)};
   const handleIdCard=async e=>{const file=e.target.files[0];if(!file)return;const compressed=await compressImg43(file,300,0.5);setF(p=>({...p,idCard:compressed}))};
@@ -337,8 +358,9 @@ export function WsManager({data,workshops,upConfig,canEdit,isMob,orders,renameIn
             {canEdit&&<span onClick={async e=>{e.stopPropagation();const v=await askInput("تعديل التقييم",{label:"التقييم (من 10):",defaultValue:String(rating),type:"number",validate:val=>{const n=Number(val);if(isNaN(n)||n<0||n>10)return"قيمة بين 0 و 10";return null}});if(v!==null){const n=Math.min(10,Math.max(0,Number(v)||0));upConfig(d=>{const idx=d.workshops.findIndex(x=>x.id===ws.id);if(idx>=0){d.workshops[idx].rating=n;d.workshops[idx].ratingManual=true}})}}} style={{cursor:"pointer",fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</span>}
             {canEdit&&ws.ratingManual&&<span onClick={e=>{e.stopPropagation();upConfig(d=>{const idx=d.workshops.findIndex(x=>x.id===ws.id);if(idx>=0){d.workshops[idx].ratingManual=false}})}} style={{cursor:"pointer",fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>↩ تلقائي</span>}
           </div>})()}
-          {/* Delete only */}
-          <div style={{padding:"0 16px 10px",display:"flex",gap:6}} onClick={e=>e.stopPropagation()}>
+          {/* V17.9: Actions row — link button + delete */}
+          <div style={{padding:"0 16px 10px",display:"flex",gap:6,flexWrap:"wrap"}} onClick={e=>e.stopPropagation()}>
+            {!wsIsInternal(ws.type)&&<Btn small onClick={()=>generateWsPortalUrl(ws)} style={{background:"#F59E0B12",color:"#D97706",border:"1px solid #F59E0B40",fontWeight:700}} title="توليد رابط حساب الورشة">📱 رابط حساب الورشة</Btn>}
             {canEdit&&<DelBtn onConfirm={()=>del(ws.id)} blocked={wsBlock(ws)}/>}
           </div>
         </div>})}
@@ -370,6 +392,45 @@ export function WsManager({data,workshops,upConfig,canEdit,isMob,orders,renameIn
           </div>
         </div>
         <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn ghost onClick={()=>{setShowForm(false);setEditId(null)}}>الغاء</Btn><Btn primary onClick={save} title="حفظ التعديلات">💾 حفظ</Btn></div>
+      </div>
+    </div>}
+    {/* V17.9: Workshop Portal URL popup — mirrors customer portal popup pattern */}
+    {wsPortalPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:100000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={()=>setWsPortalPopup(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:22,width:"100%",maxWidth:520,border:"2px solid #F59E0B",boxShadow:"0 25px 80px rgba(0,0,0,0.4)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"1px solid "+T.brd}}>
+          <div style={{fontSize:FS+2,fontWeight:800,color:"#D97706",display:"flex",alignItems:"center",gap:8}}>
+            <span>🏭</span><span>رابط حساب الورشة</span>
+          </div>
+          <Btn ghost small onClick={()=>setWsPortalPopup(null)}>✕</Btn>
+        </div>
+        <div style={{fontSize:FS-1,color:T.textSec,marginBottom:14,lineHeight:1.6}}>
+          <b>{wsPortalPopup.wsName}</b>
+          <div style={{fontSize:FS-2,color:T.textMut,marginTop:4}}>
+            رابط للقراءة فقط يعرض حساب الورشة بالكامل: المستحق، التسليم، الاستلام، والمدفوعات. يمكنك مشاركته عبر الواتساب — لن يحتاج تسجيل دخول.
+          </div>
+        </div>
+        {wsPortalPopup.loading?<div style={{padding:20,textAlign:"center"}}><Spinner size="medium"/><div style={{marginTop:8,fontSize:FS-1,color:T.textSec}}>جاري التوليد...</div></div>:
+         wsPortalPopup.error?<div style={{padding:14,borderRadius:10,background:T.err+"10",border:"1px solid "+T.err+"30",color:T.err,fontSize:FS-1}}>⛔ {wsPortalPopup.error}</div>:
+         wsPortalPopup.url?<div>
+          <div style={{padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"monospace",direction:"ltr",textAlign:"right",wordBreak:"break-all",color:T.text,marginBottom:12}}>
+            {wsPortalPopup.url}
+          </div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <Btn primary onClick={()=>{
+              try{navigator.clipboard.writeText(wsPortalPopup.url);showToast("✓ تم نسخ الرابط")}
+              catch(e){showToast("⛔ فشل النسخ")}
+            }} style={{flex:1,minWidth:120}}>📋 نسخ الرابط</Btn>
+            <Btn onClick={()=>{
+              const phone=(wsPortalPopup.wsPhone||"").replace(/[^\d]/g,"");
+              const msg=encodeURIComponent("أهلاً "+wsPortalPopup.wsName+"،\n\nيمكنك متابعة حساب الورشة معنا من خلال الرابط التالي:\n"+wsPortalPopup.url+"\n\nالرابط خاص بك ويعرض آخر البيانات بالتفصيل (المستحق، التسليم، الاستلام، المدفوعات).");
+              const wa=phone?"https://wa.me/"+(phone.startsWith("20")?phone:"20"+phone.replace(/^0+/,""))+"?text="+msg:"https://wa.me/?text="+msg;
+              const a=document.createElement("a");a.href=wa;a.target="_blank";a.rel="noopener noreferrer";a.click();
+            }} style={{background:"#25D366",color:"#fff",border:"none",flex:1,minWidth:120}}>💬 واتساب</Btn>
+          </div>
+          <div style={{marginTop:12,fontSize:FS-3,color:T.textMut,lineHeight:1.6,padding:10,background:"#F59E0B08",borderRadius:8}}>
+            💡 الرابط ثابت لهذه الورشة. يمكنك مشاركته مرة واحدة. لن يحتاج تسجيل دخول.
+          </div>
+        </div>:null}
       </div>
     </div>}
   </div>

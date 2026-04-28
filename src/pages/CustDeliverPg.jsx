@@ -60,6 +60,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   /* V17.7: Returns log grouped by customer — popup shows full return history */
   const[returnsPopupCustId,setReturnsPopupCustId]=useState(null);
   const[returnsLogFilter,setReturnsLogFilter]=useState("");
+  /* V17.9: Tab system for the 4 main lists at the bottom of sales page (sessions / returns / audits / stale) */
+  const[salesTab,setSalesTab]=useState("sessions");
   /* V16.3: Portal URL popup + Stats toggle */
   const[portalUrlPopup,setPortalUrlPopup]=useState(null);/* {url, custName, loading, error} */
   const[showCustStats,setShowCustStats]=useState(false);
@@ -1608,8 +1610,40 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         </tbody></table></div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>{custFilter?"لا توجد نتائج":"سجّل عملاء أولاً"}</div>})()}
       </div>
     </div>}
+    {/* V17.9: Tabs for the 4 main lists — instead of stacking them vertically (which forced scrolling) */}
+    {(()=>{
+      /* Pre-compute counts for tab labels */
+      const sessCount=sessions.length;
+      const _allRet=[];orders.forEach(o=>{(o.customerReturns||[]).forEach(r=>_allRet.push(r))});
+      const _retCustIds=new Set(_allRet.map(r=>r.custId||"_unknown"));
+      const retCustCount=_retCustIds.size;
+      const retTotalQty=_allRet.reduce((s,r)=>s+(Number(r.qty)||0),0);
+      const audCount=audits.length;
+      /* Stale models: in stock 14+ days without sale */
+      const _now=new Date();
+      const _stale=stockModels.filter(m=>{if(m.avail<=0)return false;const o=orders.find(x=>x.id===m.id);if(!o)return false;
+        const lastSaleDate=(o.customerDeliveries||[]).reduce((latest,d)=>d.date>latest?d.date:latest,"");
+        const lastStockDate=(o.deliveries||[]).reduce((latest,d)=>d.date>latest?d.date:latest,"");
+        const refDate=lastSaleDate||lastStockDate||o.date;const days=Math.floor((_now-new Date(refDate))/86400000);
+        return days>=14;
+      });
+      const staleCount=_stale.length;
+      const tabs=[
+        {key:"sessions",label:"📦 سجل التسليمات",count:sessCount,color:T.accent},
+        {key:"returns",label:"↩️ سجل المرتجعات",count:retCustCount>0?retCustCount+" عميل ("+retTotalQty+")":0,color:T.err},
+        {key:"audits",label:"📋 جرد المبيعات",count:audCount,color:"#F59E0B"},
+        {key:"stale",label:"⚠️ موديلات راكدة",count:staleCount,color:"#EF4444",hidden:staleCount===0},
+      ];
+      return<div style={{display:"flex",gap:0,marginBottom:12,borderRadius:12,overflow:"hidden",border:"1px solid "+T.brd,background:T.cardSolid,boxShadow:T.shadow,flexWrap:isMob?"wrap":"nowrap"}}>
+        {tabs.filter(t=>!t.hidden).map(t=>{const isActive=salesTab===t.key;
+          return<div key={t.key} onClick={()=>setSalesTab(t.key)} style={{flex:1,minWidth:isMob?"50%":"auto",padding:isMob?"10px 8px":"12px 14px",cursor:"pointer",textAlign:"center",fontWeight:isActive?800:600,fontSize:isMob?FS-2:FS-1,background:isActive?t.color+"12":"transparent",color:isActive?t.color:T.textSec,borderBottom:isActive?"3px solid "+t.color:"3px solid transparent",transition:"all 0.15s",userSelect:"none"}} onMouseEnter={e=>{if(!isActive)e.currentTarget.style.background=T.bg+"50"}} onMouseLeave={e=>{if(!isActive)e.currentTarget.style.background="transparent"}}>
+            <div>{t.label}</div>
+            {t.count!==0&&<div style={{fontSize:FS-3,marginTop:2,fontWeight:isActive?800:700,opacity:isActive?1:0.7}}>{typeof t.count==="number"?"("+t.count+")":t.count}</div>}
+          </div>})}
+      </div>;
+    })()}
     {/* Sessions Log */}
-    <Card title={"📦 سجل التسليمات ("+sessions.length+")"}>
+    {salesTab==="sessions"&&<Card title={"📦 سجل التسليمات ("+sessions.length+")"}>
       <div style={{marginBottom:10}}><Inp value={sessFilterQ} onChange={setSessFilterQ} placeholder="فلتر بالتاريخ أو اسم العميل أو رقم الموديل..."/></div>
       {(()=>{const fSess=sortedSessions.filter(s=>{if(!sessFilterQ.trim())return true;const q=sessFilterQ.trim().toLowerCase();const mNos=s.modelIds.map(id=>{const o=orders.find(x=>x.id===id);return o?.modelNo||""}).join(" ").toLowerCase();const cNames=s.custIds.map(id=>{const c=customers.find(x=>x.id===id);return c?.name||""}).join(" ").toLowerCase();return(s.date||"").includes(q)||mNos.includes(q)||cNames.includes(q)});
         return fSess.length>0?<div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -1634,10 +1668,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             </div>
           </div>})}
       </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد تسليمات — اضغط "🚚 تسليم جديد"</div>})()}
-    </Card>
+    </Card>}
     {/* ── V17.7: Returns Log — grouped by customer ── */}
-    {(()=>{const allReturns=[];orders.forEach(o=>{(o.customerReturns||[]).forEach(r=>{allReturns.push({...r,orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc})})});
-      if(allReturns.length===0)return null;
+    {salesTab==="returns"&&(()=>{const allReturns=[];orders.forEach(o=>{(o.customerReturns||[]).forEach(r=>{allReturns.push({...r,orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc})})});
+      if(allReturns.length===0)return<Card title={"↩️ سجل المرتجعات"}><div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد مرتجعات بعد</div></Card>;
       /* Group by custId — collect each customer's full return history */
       const byCust={};
       allReturns.forEach(r=>{
@@ -1779,7 +1813,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       </div>;
     })()}
     {/* ── Sales Audits Section ── */}
-    <Card title={"📋 جرد المبيعات ("+audits.length+")"} style={{marginBottom:16}}>
+    {salesTab==="audits"&&<Card title={"📋 جرد المبيعات ("+audits.length+")"} style={{marginBottom:16}}>
       {sortedAudits.length>0?<div style={{display:"flex",flexDirection:"column",gap:8}}>
         {sortedAudits.map(a=>{const totalQ=Object.values(a.grid||{}).reduce((s,v)=>s+(Number(v)||0),0);const isActive=activeAudit===a.id;
           return<div key={a.id} style={{padding:"10px 14px",borderRadius:10,background:isActive?T.accent+"08":T.cardSolid,border:isActive?"2px solid "+T.accent:"1px solid "+T.brd,cursor:"pointer"}} onClick={()=>{if(isActive){setActiveAudit(null);setAuditInclude(null)}else{setActiveAudit(a.id);const g=a.grid||{};const custIds=[...new Set(Object.keys(g).map(k=>k.split("_")[1]))].filter(id=>auditCusts.some(c=>c.id===id));setAuditInclude(custIds.length>0?custIds:null)}}}>
@@ -1796,7 +1830,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             </div>
           </div>})}
       </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا يوجد جرد — اضغط "📋 جرد مبيعات"</div>}
-    </Card>
+    </Card>}
     {/* Audit Matrix Popup */}
     {activeAud&&!auditInclude&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setActiveAudit(null)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:450,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
@@ -3738,8 +3772,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         </div>:null}
       </div>
     </div>}
-    {/* V16.17: Stale models alert — moved here from top of page so it sits at the very end of the dashboard, after the rest of the content */}
-    {(()=>{
+    {/* V16.17: Stale models alert — V17.9: now in its own tab */}
+    {salesTab==="stale"&&(()=>{
       const now=new Date();
       const staleModels=stockModels.filter(m=>{if(m.avail<=0)return false;const o=orders.find(x=>x.id===m.id);if(!o)return false;
         const lastSaleDate=(o.customerDeliveries||[]).reduce((latest,d)=>d.date>latest?d.date:latest,"");
@@ -3749,23 +3783,34 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         const lastStockDate=(o?.deliveries||[]).reduce((latest,d)=>d.date>latest?d.date:latest,"");
         const refDate=lastSaleDate||lastStockDate||o?.date||"";const days=Math.floor((now-new Date(refDate))/86400000);
         return{...m,days,lastDate:refDate}}).sort((a,b)=>b.days-a.days);
-      if(staleModels.length===0)return null;
-      return<div style={{padding:12,borderRadius:12,background:"#FEF2F2",border:"1px solid #EF444420",marginTop:24,marginBottom:16}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-          <div style={{fontWeight:800,color:"#EF4444",fontSize:FS}}>{"⚠️ موديلات راكدة ("+staleModels.length+")"}</div>
-          <Btn small onClick={()=>{let h="<h2>⚠️ تقرير الموديلات الراكدة</h2><p style='margin-bottom:12px'>موديلات في المخزن بدون حركة بيع لأكثر من 14 يوم</p>";
+      if(staleModels.length===0)return<Card title="⚠️ موديلات راكدة"><div style={{textAlign:"center",padding:30,color:T.textMut}}>✅ مفيش موديلات راكدة — كل المخزون عليه حركة في آخر 14 يوم</div></Card>;
+      return<Card title={"⚠️ موديلات راكدة ("+staleModels.length+")"} extra={<Btn small onClick={()=>{let h="<h2>⚠️ تقرير الموديلات الراكدة</h2><p style='margin-bottom:12px'>موديلات في المخزن بدون حركة بيع لأكثر من 14 يوم</p>";
             h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>الرصيد</th><th>آخر حركة</th><th>الأيام</th><th>الحالة</th></tr></thead><tbody>";
             staleModels.forEach(m=>{h+="<tr style='background:"+(m.days>=30?"#FEF2F2":"transparent")+"'><td style='font-weight:800'>"+m.modelNo+"</td><td>"+m.modelDesc+"</td><td style='text-align:center;font-weight:700;color:#F59E0B'>"+m.avail+"</td><td style='text-align:center'>"+m.lastDate+"</td><td style='text-align:center;font-weight:800;color:"+(m.days>=30?"#EF4444":"#F59E0B")+"'>"+m.days+"</td><td style='text-align:center'>"+(m.days>=30?"🔴 حرج":"🟡 تحذير")+"</td></tr>"});
-            h+="</tbody></table>";printPage("تقرير الموديلات الراكدة",h,{factoryName:config.factoryName,logo:config.logo})}} style={{background:"#EF444412",color:"#EF4444",border:"1px solid #EF444430"}}>🖨</Btn>
+            h+="</tbody></table>";printPage("تقرير الموديلات الراكدة",h,{factoryName:config.factoryName,logo:config.logo})}} style={{background:"#EF444412",color:"#EF4444",border:"1px solid #EF444430"}}>🖨 طباعة</Btn>}>
+        <div style={{fontSize:FS-2,color:T.textMut,marginBottom:10,padding:"6px 10px",background:"#FEF2F2",borderRadius:8,border:"1px solid #EF444420"}}>
+          ℹ️ موديلات في المخزن بدون حركة بيع لأكثر من 14 يوم — راجعها وفكر في طريقة تصريفها
         </div>
-        <div style={{display:"flex",flexDirection:"column",gap:4}}>
-          {staleModels.slice(0,5).map(m=><div key={m.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",borderRadius:8,background:"#fff",border:"1px solid #EF444410"}}>
-            <div><span style={{fontWeight:700,color:T.accent}}>{m.modelNo}</span><span style={{fontSize:FS-3,color:T.textMut,marginRight:6}}>{" "+m.modelDesc}</span></div>
-            <div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{fontSize:FS-2,color:"#F59E0B",fontWeight:700}}>{m.avail+" قطعة"}</span><span style={{fontSize:FS-2,fontWeight:800,color:m.days>=30?"#EF4444":"#F59E0B"}}>{m.days+" يوم"}</span></div>
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {staleModels.map(m=><div key={m.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",borderRadius:10,background:m.days>=30?"#FEF2F2":T.cardSolid,border:"1px solid "+(m.days>=30?"#EF444430":"#F59E0B30")}}>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:800,color:T.accent,fontSize:FS}}>{m.modelNo}</div>
+              <div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{m.modelDesc}</div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>{"آخر حركة: "+(m.lastDate||"—")}</div>
+            </div>
+            <div style={{display:"flex",gap:12,alignItems:"center"}}>
+              <div style={{textAlign:"center"}}>
+                <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>الرصيد</div>
+                <div style={{fontSize:FS+2,fontWeight:800,color:"#F59E0B"}}>{m.avail}</div>
+              </div>
+              <div style={{textAlign:"center",padding:"4px 10px",borderRadius:8,background:m.days>=30?"#EF444415":"#F59E0B15"}}>
+                <div style={{fontSize:FS-3,fontWeight:700,color:m.days>=30?"#EF4444":"#F59E0B"}}>{m.days>=30?"🔴 حرج":"🟡 تحذير"}</div>
+                <div style={{fontSize:FS,fontWeight:800,color:m.days>=30?"#EF4444":"#F59E0B"}}>{m.days+" يوم"}</div>
+              </div>
+            </div>
           </div>)}
-          {staleModels.length>5&&<div style={{textAlign:"center",fontSize:FS-2,color:"#EF4444",fontWeight:600}}>{"و "+( staleModels.length-5)+" موديل آخر..."}</div>}
         </div>
-      </div>;
+      </Card>;
     })()}
   </div>
 }

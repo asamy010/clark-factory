@@ -113,6 +113,45 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       }
     });
   },[data.treasury,upConfig]);
+  /* V18.0: Orphan check reconciliation — if a check has status "محصل" / "مدفوع" / "مُظهّر"
+     but the linked treasury entry (or supplier payment for endorsed) was deleted somehow,
+     auto-revert the check to "معلق" so the books stay consistent.
+     This handles cases where a user deleted the treasury entry directly, or a bulk reset
+     left orphans. Safe to re-run — only acts when an orphan is detected. */
+  useEffect(()=>{
+    if(!Array.isArray(data.checks)||data.checks.length===0)return;
+    const treasuryByCheckId=new Set((data.treasury||[]).filter(t=>t&&t.checkId).map(t=>t.checkId));
+    const supPayByCheckId=new Set((data.supplierPayments||[]).filter(p=>p&&p.checkId&&p.method==="endorsed_check").map(p=>p.checkId));
+    const orphans=data.checks.filter(c=>{
+      if(!c)return false;
+      /* محصل / مدفوع need a treasury entry with checkId === c.id */
+      if((c.status==="محصل"||c.status==="مدفوع")&&!treasuryByCheckId.has(c.id))return true;
+      /* مُظهّر needs a supplier payment with checkId === c.id and method=endorsed_check */
+      if(c.status==="مُظهّر"&&!supPayByCheckId.has(c.id))return true;
+      return false;
+    });
+    if(orphans.length===0)return;
+    upConfig(d=>{
+      if(!Array.isArray(d.checks))return;
+      const treasuryIds=new Set((d.treasury||[]).filter(t=>t&&t.checkId).map(t=>t.checkId));
+      const supPayIds=new Set((d.supplierPayments||[]).filter(p=>p&&p.checkId&&p.method==="endorsed_check").map(p=>p.checkId));
+      d.checks.forEach(c=>{
+        if(!c)return;
+        let isOrphan=false;
+        if((c.status==="محصل"||c.status==="مدفوع")&&!treasuryIds.has(c.id))isOrphan=true;
+        if(c.status==="مُظهّر"&&!supPayIds.has(c.id))isOrphan=true;
+        if(isOrphan){
+          c.status="معلق";
+          delete c.statusDate;delete c.statusBy;
+          delete c.endorsedTo;delete c.endorsedToId;delete c.endorsedAt;
+          delete c.bouncedAt;
+          c.autoReverted=new Date().toISOString();
+          c.autoRevertReason="حركة الخزنة المرتبطة تم حذفها من مكان آخر";
+        }
+      });
+    });
+    showToast("⚠️ تم إرجاع "+orphans.length+" شيك لحالة معلق (الحركة المرتبطة كانت محذوفة)");
+  },[data.checks,data.treasury,data.supplierPayments,upConfig]);
   const txns=(data.treasury||[]);
   /* Accounts are now objects: {id, name, ownerEmail, type} — auto-migrate from old strings */
   const rawAccounts=(data.treasuryAccounts||[]);
@@ -301,6 +340,12 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[newAccName,setNewAccName]=useState("");
   const[newAccOwner,setNewAccOwner]=useState("");
   const[editAccId,setEditAccId]=useState(null);
+  /* V18.0: Banks management — list of bank names used in checks */
+  const[newBankName,setNewBankName]=useState("");
+  const[editBankIdx,setEditBankIdx]=useState(null);
+  /* V18.0: Account-picker popups for check collect/pay (asks where money goes/comes from) */
+  const[collectAccountPopup,setCollectAccountPopup]=useState(null);/* {checkId, ch} */
+  const[payAccountPopup,setPayAccountPopup]=useState(null);/* {checkId, ch} */
   /* Transfer */
   const[showTransfer,setShowTransfer]=useState(false);
   const[tfFrom,setTfFrom]=useState("");const[tfTo,setTfTo]=useState("");
@@ -772,6 +817,21 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const editAccount=(a)=>{setEditAccId(a.id);setNewAccName(a.name);setNewAccOwner(a.ownerEmail||"")};
   const delAccount=(id)=>{if(txns.some(t=>t.account===id||(accountsData.find(a=>a.id===id)||{}).name===t.account)){playBeep("error");showToast("⛔ لا يمكن الحذف — يوجد حركات مرتبطة");return}
     upConfig(d=>{if(d.treasuryAccounts)d.treasuryAccounts=d.treasuryAccounts.filter(a=>(typeof a==="string"?a:a.id)!==id)});showToast("✓ تم الحذف")};
+
+  /* V18.0: Banks list management — banks used in checks form (auto-suggested in dropdown) */
+  const banksList=Array.isArray(data.banks)?data.banks:[];
+  const addBank=()=>{const n=newBankName.trim();if(!n)return;
+    upConfig(d=>{if(!Array.isArray(d.banks))d.banks=[];
+      if(editBankIdx!=null){d.banks[editBankIdx]=n}
+      else if(!d.banks.includes(n))d.banks.push(n)});
+    setNewBankName("");setEditBankIdx(null);showToast("✓ تم الحفظ")};
+  const editBank=(idx)=>{setEditBankIdx(idx);setNewBankName(banksList[idx]||"")};
+  const delBank=(idx)=>{const bankName=banksList[idx];if(!bankName)return;
+    /* Block delete if any check uses this bank */
+    if((data.checks||[]).some(c=>(c.bank||"")===bankName)){
+      playBeep("error");showToast("⛔ لا يمكن الحذف — يوجد شيكات مسجلة على هذا البنك");return}
+    upConfig(d=>{if(Array.isArray(d.banks))d.banks=d.banks.filter((_,i)=>i!==idx)});
+    showToast("✓ تم الحذف")};
 
   /* ── Transfer between accounts ──
      V16.13: Non-admin requests go through approval. Admin transfers stay
@@ -1860,7 +1920,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                    the wallet. We add a "check_bounce" customer entry so the
                    customer statement reflects the reversal.
            - ملغي / مرتجع: just status flip, no treasury, no customer entry */
-        const updateStatus=(id,status,statusDate)=>{
+        const updateStatus=(id,status,statusDate,chosenAccount)=>{
           const dt=statusDate||today;
           upConfig(d=>{
             const ch=(d.checks||[]).find(c=>c.id===id);
@@ -1869,15 +1929,20 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                before applying the new status (idempotent re-toggle). */
             if(d.treasury)d.treasury=d.treasury.filter(t=>t.checkId!==id);
             ch.status=status;ch.statusDate=dt;ch.statusBy=userName;
+            /* V18.0: Record which account the user chose (so we can show it on the check) */
+            if(chosenAccount)ch.depositAccount=chosenAccount;
             if(!d.treasury)d.treasury=[];
             const chkCat=ch.category||(ch.type==="receivable"?"دفعة عميل":"دفعة مورد");
             /* Build a rich desc that surfaces check details where it matters */
             const det=(ch.checkNo?" #"+ch.checkNo:"")+(ch.bank?" — "+ch.bank:"")+(ch.dueDate?" — استحقاق "+ch.dueDate:"");
+            /* V18.0: If the user picked a specific account at collect/pay time, use it.
+               Otherwise fall back to the bank name (legacy behavior) or MAIN CASH. */
+            const targetAccount=chosenAccount||ch.bank||"MAIN CASH";
             if(status==="محصل"){
               d.treasury.unshift({
                 id:gid(),type:"in",amount:Number(ch.amount)||0,
                 desc:"تحصيل شيك من "+(ch.party||"")+det,
-                category:chkCat,account:ch.bank||"MAIN CASH",season:d.activeSeason||"",
+                category:chkCat,account:targetAccount,season:d.activeSeason||"",
                 date:dt,day:dayName(dt),
                 custId:ch.type==="receivable"?ch.partyId||null:null,
                 supplierId:ch.type==="payable"?ch.partyId||null:null,
@@ -1889,7 +1954,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               d.treasury.unshift({
                 id:gid(),type:"out",amount:Number(ch.amount)||0,
                 desc:"صرف شيك لـ "+(ch.party||"")+det,
-                category:chkCat,account:ch.bank||"MAIN CASH",season:d.activeSeason||"",
+                category:chkCat,account:targetAccount,season:d.activeSeason||"",
                 date:dt,day:dayName(dt),
                 custId:ch.type==="receivable"?ch.partyId||null:null,
                 supplierId:ch.type==="payable"?ch.partyId||null:null,
@@ -2057,7 +2122,20 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 {!chkPartyId&&<Inp value={chkParty} onChange={setChkParty} placeholder="أو اكتب الاسم يدوياً..." style={{marginTop:4}}/>}
                 {selectedParty&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{selectedParty.phone?"📞 "+selectedParty.phone:""}</div>}
               </div>
-              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>البنك</label><Inp value={chkBank} onChange={setChkBank} placeholder="اسم البنك"/></div>
+              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>البنك</label>
+                {banksList.length>0?<>
+                  <Sel value={banksList.includes(chkBank)?chkBank:"_other"} onChange={v=>{if(v==="_other")setChkBank("");else setChkBank(v)}}>
+                    <option value="">— اختر البنك —</option>
+                    {banksList.map(b=><option key={b} value={b}>{b}</option>)}
+                    <option value="_other">✏️ بنك آخر (يدوياً)</option>
+                  </Sel>
+                  {!banksList.includes(chkBank)&&chkBank!==""&&<Inp value={chkBank} onChange={setChkBank} placeholder="اسم البنك" style={{marginTop:4}}/>}
+                  {chkBank===""&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:3}}>💡 أضف البنوك من تاب 🏦 الحسابات → قائمة البنوك</div>}
+                </>:<>
+                  <Inp value={chkBank} onChange={setChkBank} placeholder="اسم البنك"/>
+                  <div style={{fontSize:FS-3,color:T.textMut,marginTop:3}}>💡 سجل البنوك من تاب 🏦 الحسابات → قائمة البنوك ليتم اقتراحها تلقائياً</div>
+                </>}
+              </div>
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رقم الشيك</label><Inp value={chkNumber} onChange={setChkNumber} placeholder="رقم"/></div>
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تاريخ التحرير</label><Inp type="date" value={chkDate} onChange={setChkDate}/></div>
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تاريخ الاستحقاق</label><Inp type="date" value={chkDueDate} onChange={setChkDueDate}/></div>
@@ -2126,13 +2204,20 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                   printCheckReceipt(c,partyInfo,{factoryName:data.factoryName,logo:data.logo,address:data.address,phone:data.phone});
                 }} style={{cursor:"pointer",fontSize:11,marginInlineEnd:6}} title={c.type==="receivable"?"طباعة إذن استلام شيك":"طباعة إذن تسليم شيك"}>🧾</span>
                 {canEdit&&c.status==="معلق"&&<div style={{display:"inline-flex",gap:3,flexWrap:"wrap"}}>
-                  <span onClick={()=>updateStatus(c.id,c.type==="receivable"?"محصل":"مدفوع")} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:T.ok+"12",color:T.ok,fontWeight:700}}>{c.type==="receivable"?"✅ تحصيل":"✅ دفع"}</span>
-                  {c.type==="receivable"&&<span onClick={()=>{setEndorsePopup(c.id);setEndorseSearch("");setEndorseDate(today)}} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:"#8B5CF612",color:"#8B5CF6",fontWeight:700}}>📤 تظهير</span>}
+                  {/* V18.0: Collect/pay opens account picker popup (asks where money goes/comes from) */}
+                  <span onClick={()=>{
+                    if(c.type==="receivable"){
+                      setCollectAccountPopup({checkId:c.id,ch:c});
+                    }else{
+                      setPayAccountPopup({checkId:c.id,ch:c});
+                    }
+                  }} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:T.ok+"12",color:T.ok,fontWeight:700}}>{c.type==="receivable"?"✅ تحصيل":"✅ دفع"}</span>
+                  {c.type==="receivable"&&<span onClick={()=>openConfirm({title:"تظهير الشيك",message:"سيتم نقل ملكية الشيك للمورد المختار. لن يتم تسجيل أي حركة خزنة.\nالعميل: "+c.party+"\nالمبلغ: "+fmt(c.amount)+" ج.م",confirmText:"اختر المورد",onConfirm:()=>{setEndorsePopup(c.id);setEndorseSearch("");setEndorseDate(today)}})} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:"#8B5CF612",color:"#8B5CF6",fontWeight:700}}>📤 تظهير</span>}
                   {/* V16.34: مرتد for receivables (bounced from bank — customer still owes us);
                        مرتجع stays for payable cancellations */}
                   {c.type==="receivable"
                     ?<span onClick={()=>openConfirm({title:"شيك مرتد",message:"سيتم تسجيل الشيك كمرتد ورجوع المبلغ على العميل.\nالعميل: "+c.party+"\nالمبلغ: "+fmt(c.amount)+" ج.م",variant:"danger",confirmText:"تأكيد الارتداد",onConfirm:()=>updateStatus(c.id,"مرتد")})} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:"#DC262612",color:"#DC2626",fontWeight:700}} title="شيك مرتد من البنك">❌ مرتد</span>
-                    :<span onClick={()=>updateStatus(c.id,"مرتجع")} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:T.warn+"12",color:T.warn,fontWeight:700}}>↩ مرتجع</span>}
+                    :<span onClick={()=>openConfirm({title:"إلغاء الشيك",message:"سيتم إلغاء الشيك (مرتجع للمورد).\nالمورد: "+c.party+"\nالمبلغ: "+fmt(c.amount)+" ج.م",variant:"warn",confirmText:"تأكيد الإلغاء",onConfirm:()=>updateStatus(c.id,"مرتجع")})} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:T.warn+"12",color:T.warn,fontWeight:700}}>↩ مرتجع</span>}
                   <span onClick={()=>editCheck(c)} style={{cursor:"pointer",fontSize:11}}>✏️</span>
                   <span onClick={()=>openConfirm({title:"حذف الشيك",message:"سيتم حذف الشيك:\n"+c.party+" — "+fmt(c.amount)+" ج.م",variant:"danger",onConfirm:()=>delCheck(c.id)})} style={{cursor:"pointer",fontSize:11,color:T.err}}>✕</span>
                 </div>}
@@ -2151,6 +2236,94 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               </tr>})}
             </tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد شيكات</div>}
           </Card>
+          {/* V18.0: Collect account picker — opens after user clicks "✅ تحصيل" on a receivable check */}
+          {collectAccountPopup&&(()=>{const ch=collectAccountPopup.ch;
+            return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setCollectAccountPopup(null)}>
+              <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:480,maxHeight:"85vh",overflowY:"auto",border:"2px solid "+T.ok+"40",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                  <div style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>✅ تحصيل شيك</div>
+                  <Btn ghost small onClick={()=>setCollectAccountPopup(null)}>✕</Btn>
+                </div>
+                <div style={{padding:12,borderRadius:10,background:T.ok+"08",border:"1px solid "+T.ok+"25",marginBottom:14}}>
+                  <div style={{fontSize:FS-1,color:T.textSec}}>شيك من: <b style={{color:T.text}}>{ch.party}</b></div>
+                  <div style={{fontSize:FS+2,fontWeight:800,color:T.ok,marginTop:4}}>{fmt0(ch.amount)} ج.م</div>
+                  {ch.checkNo&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{"رقم: #"+ch.checkNo+(ch.bank?" — "+ch.bank:"")+(ch.dueDate?" | استحقاق: "+ch.dueDate:"")}</div>}
+                </div>
+                <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>اختر الخزنة/البنك المُودَع فيه:</div>
+                {accountsData.length>0&&<div style={{marginBottom:12}}>
+                  <div style={{fontSize:FS-2,fontWeight:700,color:T.textMut,marginBottom:6}}>💰 الخزائن</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    {accountsData.map(a=><div key={a.id} onClick={()=>{
+                      const accName=a.name;const checkId=collectAccountPopup.checkId;
+                      setCollectAccountPopup(null);
+                      openConfirm({title:"تأكيد التحصيل",message:"سيتم تحصيل "+fmt(ch.amount)+" ج.م وإيداعها في: "+accName+"\nالشيك: "+ch.party+(ch.checkNo?" #"+ch.checkNo:""),variant:"primary",confirmText:"✅ تأكيد التحصيل",onConfirm:()=>updateStatus(checkId,"محصل",null,accName)});
+                    }} style={{padding:"10px 14px",borderRadius:10,border:"1px solid "+T.brd,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.ok+"08"} onMouseLeave={e=>e.currentTarget.style.background=""}>
+                      <div style={{fontSize:FS,fontWeight:700,color:T.text}}>💰 {a.name}</div>
+                      <span style={{fontSize:FS-2,color:T.textMut}}>›</span>
+                    </div>)}
+                  </div>
+                </div>}
+                {banksList.length>0&&<div style={{marginBottom:12}}>
+                  <div style={{fontSize:FS-2,fontWeight:700,color:T.textMut,marginBottom:6}}>🏦 البنوك</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    {banksList.map(b=><div key={b} onClick={()=>{
+                      const checkId=collectAccountPopup.checkId;
+                      setCollectAccountPopup(null);
+                      openConfirm({title:"تأكيد التحصيل",message:"سيتم تحصيل "+fmt(ch.amount)+" ج.م وإيداعها في: 🏦 "+b+"\nالشيك: "+ch.party+(ch.checkNo?" #"+ch.checkNo:""),variant:"primary",confirmText:"✅ تأكيد التحصيل",onConfirm:()=>updateStatus(checkId,"محصل",null,b)});
+                    }} style={{padding:"10px 14px",borderRadius:10,border:"1px solid "+T.brd,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.ok+"08"} onMouseLeave={e=>e.currentTarget.style.background=""}>
+                      <div style={{fontSize:FS,fontWeight:700,color:T.text}}>🏦 {b}</div>
+                      <span style={{fontSize:FS-2,color:T.textMut}}>›</span>
+                    </div>)}
+                  </div>
+                </div>}
+                {accountsData.length===0&&banksList.length===0&&<div style={{padding:14,borderRadius:10,background:T.warn+"10",color:T.warn,fontSize:FS-1,textAlign:"center"}}>⚠️ لا توجد خزائن أو بنوك مسجلة</div>}
+              </div>
+            </div>;
+          })()}
+          {/* V18.0: Pay account picker — opens after user clicks "✅ دفع" on a payable check */}
+          {payAccountPopup&&(()=>{const ch=payAccountPopup.ch;
+            return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setPayAccountPopup(null)}>
+              <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:480,maxHeight:"85vh",overflowY:"auto",border:"2px solid "+T.err+"40",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                  <div style={{fontSize:FS+1,fontWeight:800,color:T.err}}>✅ صرف شيك</div>
+                  <Btn ghost small onClick={()=>setPayAccountPopup(null)}>✕</Btn>
+                </div>
+                <div style={{padding:12,borderRadius:10,background:T.err+"08",border:"1px solid "+T.err+"25",marginBottom:14}}>
+                  <div style={{fontSize:FS-1,color:T.textSec}}>شيك لـ: <b style={{color:T.text}}>{ch.party}</b></div>
+                  <div style={{fontSize:FS+2,fontWeight:800,color:T.err,marginTop:4}}>{fmt0(ch.amount)} ج.م</div>
+                  {ch.checkNo&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{"رقم: #"+ch.checkNo+(ch.bank?" — "+ch.bank:"")+(ch.dueDate?" | استحقاق: "+ch.dueDate:"")}</div>}
+                </div>
+                <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>اختر الخزنة/البنك المسحوب منه:</div>
+                {accountsData.length>0&&<div style={{marginBottom:12}}>
+                  <div style={{fontSize:FS-2,fontWeight:700,color:T.textMut,marginBottom:6}}>💰 الخزائن</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    {accountsData.map(a=><div key={a.id} onClick={()=>{
+                      const accName=a.name;const checkId=payAccountPopup.checkId;
+                      setPayAccountPopup(null);
+                      openConfirm({title:"تأكيد الصرف",message:"سيتم صرف "+fmt(ch.amount)+" ج.م من: "+accName+"\nالشيك: "+ch.party+(ch.checkNo?" #"+ch.checkNo:""),variant:"warn",confirmText:"✅ تأكيد الصرف",onConfirm:()=>updateStatus(checkId,"مدفوع",null,accName)});
+                    }} style={{padding:"10px 14px",borderRadius:10,border:"1px solid "+T.brd,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.err+"08"} onMouseLeave={e=>e.currentTarget.style.background=""}>
+                      <div style={{fontSize:FS,fontWeight:700,color:T.text}}>💰 {a.name}</div>
+                      <span style={{fontSize:FS-2,color:T.textMut}}>›</span>
+                    </div>)}
+                  </div>
+                </div>}
+                {banksList.length>0&&<div style={{marginBottom:12}}>
+                  <div style={{fontSize:FS-2,fontWeight:700,color:T.textMut,marginBottom:6}}>🏦 البنوك</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    {banksList.map(b=><div key={b} onClick={()=>{
+                      const checkId=payAccountPopup.checkId;
+                      setPayAccountPopup(null);
+                      openConfirm({title:"تأكيد الصرف",message:"سيتم صرف "+fmt(ch.amount)+" ج.م من: 🏦 "+b+"\nالشيك: "+ch.party+(ch.checkNo?" #"+ch.checkNo:""),variant:"warn",confirmText:"✅ تأكيد الصرف",onConfirm:()=>updateStatus(checkId,"مدفوع",null,b)});
+                    }} style={{padding:"10px 14px",borderRadius:10,border:"1px solid "+T.brd,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.err+"08"} onMouseLeave={e=>e.currentTarget.style.background=""}>
+                      <div style={{fontSize:FS,fontWeight:700,color:T.text}}>🏦 {b}</div>
+                      <span style={{fontSize:FS-2,color:T.textMut}}>›</span>
+                    </div>)}
+                  </div>
+                </div>}
+                {accountsData.length===0&&banksList.length===0&&<div style={{padding:14,borderRadius:10,background:T.warn+"10",color:T.warn,fontSize:FS-1,textAlign:"center"}}>⚠️ لا توجد خزائن أو بنوك مسجلة</div>}
+              </div>
+            </div>;
+          })()}
           {/* ── Endorse popup — select supplier ── */}
           {endorsePopup&&(()=>{const ch=checks.find(c=>c.id===endorsePopup);if(!ch)return null;
             const q=endorseSearch.toLowerCase();
@@ -2184,6 +2357,76 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>{suppliers.length===0?"لا يوجد موردين — أضف موردين من قاعدة البيانات":"لا توجد نتائج"}</div>}
               </div>
             </div>})()}
+
+          {/* V18.0: Collect Account Picker — asks user where to deposit the collected money */}
+          {collectAccountPopup&&(()=>{const ch=collectAccountPopup.ch;
+            return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setCollectAccountPopup(null)}>
+              <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"2px solid "+T.ok,boxShadow:"0 25px 80px rgba(0,0,0,0.4)"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"1px solid "+T.brd}}>
+                  <div style={{fontSize:FS+2,fontWeight:800,color:T.ok}}>✅ تحصيل الشيك — اختر الحساب</div>
+                  <Btn ghost small onClick={()=>setCollectAccountPopup(null)}>✕</Btn>
+                </div>
+                <div style={{padding:"10px 14px",background:T.ok+"08",borderRadius:10,marginBottom:14,fontSize:FS-1,lineHeight:1.7}}>
+                  <div><b>العميل:</b> {ch.party}</div>
+                  <div><b>المبلغ:</b> <span style={{color:T.ok,fontWeight:800,fontSize:FS+2}}>{fmt(ch.amount)} ج.م</span></div>
+                  {ch.bank&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:4}}>📋 شيك على {ch.bank} {ch.checkNo?"#"+ch.checkNo:""}</div>}
+                </div>
+                <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:8}}>أين سيتم إيداع المبلغ؟</div>
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {accountsData.map(acc=><div key={acc.id} onClick={()=>{
+                    const accountName=acc.name;setCollectAccountPopup(null);
+                    openConfirm({title:"تأكيد التحصيل",message:"سيتم تحصيل الشيك وإضافة المبلغ لحساب: "+accountName+"\n\nالمبلغ: "+fmt(ch.amount)+" ج.م\nالعميل: "+ch.party,variant:"success",confirmText:"✅ تأكيد التحصيل",onConfirm:()=>updateStatus(ch.id,"محصل",null,accountName)});
+                  }} style={{padding:"12px 16px",borderRadius:10,border:"1px solid "+T.brd,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.ok+"08"} onMouseLeave={e=>e.currentTarget.style.background=""}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <span style={{fontSize:22}}>{acc.name.toUpperCase().includes("SUB")?"🏪":acc.name.toUpperCase().includes("MAIN")?"💰":"🏦"}</span>
+                      <div>
+                        <div style={{fontSize:FS,fontWeight:700}}>{acc.name}</div>
+                        {acc.ownerEmail&&<div style={{fontSize:FS-3,color:T.textMut}}>{acc.ownerEmail}</div>}
+                      </div>
+                    </div>
+                    <span style={{fontSize:FS-1,color:T.ok,fontWeight:700}}>← إيداع هنا</span>
+                  </div>)}
+                </div>
+                {accountsData.length===0&&<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد حسابات — أضف حسابات من تاب 🏦 الحسابات</div>}
+              </div>
+            </div>;
+          })()}
+
+          {/* V18.0: Pay Account Picker — asks user from which account to pay */}
+          {payAccountPopup&&(()=>{const ch=payAccountPopup.ch;
+            return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setPayAccountPopup(null)}>
+              <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"2px solid "+T.ok,boxShadow:"0 25px 80px rgba(0,0,0,0.4)"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"1px solid "+T.brd}}>
+                  <div style={{fontSize:FS+2,fontWeight:800,color:T.err}}>✅ صرف الشيك — اختر الحساب</div>
+                  <Btn ghost small onClick={()=>setPayAccountPopup(null)}>✕</Btn>
+                </div>
+                <div style={{padding:"10px 14px",background:T.err+"08",borderRadius:10,marginBottom:14,fontSize:FS-1,lineHeight:1.7}}>
+                  <div><b>المورد:</b> {ch.party}</div>
+                  <div><b>المبلغ:</b> <span style={{color:T.err,fontWeight:800,fontSize:FS+2}}>{fmt(ch.amount)} ج.م</span></div>
+                  {ch.bank&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:4}}>📋 شيك على {ch.bank} {ch.checkNo?"#"+ch.checkNo:""}</div>}
+                </div>
+                <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:8}}>من أي حساب سيتم خصم المبلغ؟</div>
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {accountsData.map(acc=>{const b=accBalances[acc.name]||{in:0,out:0};const bal=b.in-b.out;
+                    return<div key={acc.id} onClick={()=>{
+                      const accountName=acc.name;setPayAccountPopup(null);
+                      openConfirm({title:"تأكيد الدفع",message:"سيتم صرف الشيك من حساب: "+accountName+"\n\nالمبلغ: "+fmt(ch.amount)+" ج.م\nالمورد: "+ch.party+"\nالرصيد الحالي للحساب: "+fmt0(bal)+" ج.م",variant:"warn",confirmText:"✅ تأكيد الدفع",onConfirm:()=>updateStatus(ch.id,"مدفوع",null,accountName)});
+                    }} style={{padding:"12px 16px",borderRadius:10,border:"1px solid "+T.brd,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.err+"08"} onMouseLeave={e=>e.currentTarget.style.background=""}>
+                      <div style={{display:"flex",alignItems:"center",gap:10}}>
+                        <span style={{fontSize:22}}>{acc.name.toUpperCase().includes("SUB")?"🏪":acc.name.toUpperCase().includes("MAIN")?"💰":"🏦"}</span>
+                        <div>
+                          <div style={{fontSize:FS,fontWeight:700}}>{acc.name}</div>
+                          <div style={{fontSize:FS-3,color:bal>=0?T.ok:T.err,fontWeight:600}}>الرصيد: {fmt0(bal)} ج.م</div>
+                        </div>
+                      </div>
+                      <span style={{fontSize:FS-1,color:T.err,fontWeight:700}}>← خصم من هنا</span>
+                    </div>;
+                  })}
+                </div>
+                {accountsData.length===0&&<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد حسابات — أضف حسابات من تاب 🏦 الحسابات</div>}
+              </div>
+            </div>;
+          })()}
         </div>})()}
     </div>}
 
@@ -2264,6 +2507,42 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               <Btn primary onClick={addAccount} disabled={!newAccName.trim()}>{editAccId?"💾 حفظ":"+ إضافة"}</Btn>
               {editAccId&&<Btn ghost onClick={()=>{setEditAccId(null);setNewAccName("");setNewAccOwner("")}}>✕</Btn>}
             </div>
+          </div>
+        </div>}
+      </Card>
+
+      {/* V18.0: Banks list — used in checks form bank dropdown */}
+      <Card title="🏦 قائمة البنوك" style={{marginTop:16}}>
+        <div style={{fontSize:FS-2,color:T.textMut,marginBottom:12,padding:"8px 12px",background:T.accent+"08",borderRadius:8,border:"1px solid "+T.accent+"20"}}>
+          ℹ️ البنوك المُسجَّلة هنا تظهر كـقائمة منسدلة في حقل "البنك" عند تسجيل أو تعديل أي شيك (في تاب 📝 الشيكات).
+        </div>
+        {banksList.length>0?<div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:12}}>
+          {banksList.map((b,i)=>{
+            const checkCount=(data.checks||[]).filter(c=>(c.bank||"")===b).length;
+            return<div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",borderRadius:8,background:T.cardSolid,border:"1px solid "+T.brd}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,flex:1}}>
+                <span style={{fontSize:18}}>🏦</span>
+                <div>
+                  <div style={{fontSize:FS,fontWeight:700}}>{b}</div>
+                  {checkCount>0&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{checkCount+" شيك مرتبط"}</div>}
+                </div>
+              </div>
+              {canEdit&&<div style={{display:"flex",gap:4}}>
+                <span onClick={()=>editBank(i)} style={{cursor:"pointer",padding:"3px 6px",borderRadius:6,fontSize:11,background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>✏️</span>
+                <span onClick={()=>{
+                  if(checkCount>0){playBeep("error");showToast("⛔ لا يمكن الحذف — يوجد "+checkCount+" شيك مرتبط");return}
+                  openConfirm({title:"حذف البنك",message:"سيتم حذف البنك: "+b,variant:"danger",onConfirm:()=>delBank(i)});
+                }} style={{cursor:"pointer",padding:"3px 6px",borderRadius:6,fontSize:11,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>🗑️</span>
+              </div>}
+            </div>;
+          })}
+        </div>:<div style={{textAlign:"center",padding:20,color:T.textMut,fontSize:FS-1}}>لا توجد بنوك مسجلة بعد</div>}
+        {canEdit&&<div style={{padding:12,borderRadius:12,background:T.bg,border:"1px dashed "+T.brd}}>
+          <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:8}}>{editBankIdx!=null?"✏️ تعديل البنك":"+ إضافة بنك جديد"}</div>
+          <div style={{display:"flex",gap:8,alignItems:"flex-end",flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:200}}><Inp value={newBankName} onChange={setNewBankName} placeholder="مثال: CIB / NBE / QNB"/></div>
+            <Btn primary onClick={addBank} disabled={!newBankName.trim()}>{editBankIdx!=null?"💾 حفظ":"+ إضافة"}</Btn>
+            {editBankIdx!=null&&<Btn ghost onClick={()=>{setEditBankIdx(null);setNewBankName("")}}>✕</Btn>}
           </div>
         </div>}
       </Card>

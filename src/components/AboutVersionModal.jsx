@@ -25,6 +25,46 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V18.0",
+    date: "2026-04-28",
+    types: ["feature", "fix", "improvement"],
+    title: "نظام البنوك + popups تأكيد للشيكات + ربط الشيكات بالحركات",
+    changes: [
+      { type: "feature", text: "🆕 قائمة بنوك في تاب الحسابات بالخزنة — أضف بنوكك (الأهلي، CIB، QNB، إلخ) وتظهر تلقائياً في قائمة البنك عند إضافة شيك جديد" },
+      { type: "feature", text: "إمكانية تعديل وحذف البنوك. منع حذف بنك مستخدم في شيكات (يطلع رسالة بعدد الشيكات المرتبطة)" },
+      { type: "improvement", text: "حقل البنك في فورم الشيك بقا dropdown يعرض البنوك المسجلة + خيار 'أخرى' للكتابة اليدوية لو الـbank مش في القائمة" },
+      { type: "feature", text: "🆕 popup تأكيد عند تحصيل شيك القبض — يسأل: على أي حساب تودع المبلغ؟ يعرض كل الخزائن (رئيسية/فرعية/أي حساب مسجل) + كل البنوك المسجلة" },
+      { type: "feature", text: "🆕 popup تأكيد عند صرف شيك الدفع — يسأل: من أي حساب يخصم المبلغ؟ نفس الخيارات" },
+      { type: "improvement", text: "بعد اختيار الحساب، يطلع popup تأكيد ثاني يعرض الملخص قبل التنفيذ النهائي (مبلغ + جهة + الحساب)" },
+      { type: "improvement", text: "popup تأكيد لكل تغيير حالة شيك: تحصيل / دفع / مرتد / مرتجع / تظهير / حذف — مفيش تغيير حالة بدون تأكيد" },
+      { type: "improvement", text: "الحساب المختار يتسجل في الشيك (depositAccount) عشان نقدر نعرضه بعدين" },
+      { type: "fix", text: "🚨 إصلاح bug خطير: لو الـuser حذف حركة الخزنة المرتبطة بشيك من مكان آخر (مثلاً تجاوز قفل، reset قديم، إلخ)، الشيك كان يفضل status='محصل/مدفوع/مُظهّر' مع إنه مفيش حركة فعلية" },
+      { type: "fix", text: "Reconciliation تلقائي: لما تفتح صفحة الخزنة، النظام بيفحص كل الشيكات. لو لقى شيك بحالة محصل/مدفوع بدون حركة خزنة، يرجعه تلقائياً لـ'معلق' ويوضّح السبب (autoRevertReason)" },
+      { type: "fix", text: "نفس الـreconciliation للشيكات المُظهّرة: لو دفعة المورد المرتبطة محذوفة، الشيك يرجع لمعلق" },
+      { type: "improvement", text: "تأكيد منع حذف الشيك لو مرتبط بحركة خزنة (موجود من V16.65) — الـuser لازم يرجع الحالة لمعلق أولاً" },
+      { type: "improvement", text: "تأكيد منع حذف حركة الخزنة المرتبطة بشيك (موجود من V16.65) — الـuser لازم يحذف الشيك من تابه" },
+    ]
+  },
+  {
+    version: "V17.9",
+    date: "2026-04-28",
+    types: ["feature", "improvement"],
+    title: "Tabs لصفحة المبيعات + رابط عام للورشة",
+    changes: [
+      { type: "feature", text: "🆕 صفحة المبيعات بقت بـTabs بدل ما الأقسام تكون متراصة فوق بعض — Tabs ظاهرة: 📦 سجل التسليمات، ↩️ سجل المرتجعات، 📋 جرد المبيعات، ⚠️ موديلات راكدة" },
+      { type: "feature", text: "كل تاب يعرض العداد بتاعه بجانب اسمه (مثلاً 'سجل المرتجعات (3 عميل، 196 قطعة)')" },
+      { type: "feature", text: "تاب 'موديلات راكدة' يختفي تلقائياً لو مفيش موديلات راكدة" },
+      { type: "improvement", text: "تاب الموديلات الراكدة بقا يعرض القائمة كاملة بدل أحدث 5 — مع زر طباعة" },
+      { type: "improvement", text: "Mobile-friendly: الـtabs تتفاف على شاشتين في الموبايل بدل ما تكسر التصميم" },
+      { type: "feature", text: "🆕 رابط عام للورشة (مثل رابط العميل) — بدون تسجيل دخول، يعرض حساب الورشة كامل بـHMAC signature" },
+      { type: "feature", text: "صفحة الورشة تعرض: المستحق، المدفوع، الرصيد، عدد القطع تحت التشغيل، حد الدفع الأسبوعي بناءً على نسبة الاتفاق (payPercent)" },
+      { type: "feature", text: "4 تابات في صفحة الورشة: 📊 الملخص، 📤 تسليم للورشة، 📥 استلام من الورشة (مع الأسعار والقيمة)، 💰 المدفوعات" },
+      { type: "feature", text: "زر '📱 رابط حساب الورشة' في كارت كل ورشة خارجية في 'قاعدة البيانات → الورش' — توليد + نسخ + إرسال واتساب" },
+      { type: "feature", text: "API endpoints جديدة: POST /api/workshop-portal-sign + GET /api/workshop-portal" },
+      { type: "improvement", text: "Mobile-first design لصفحة الورشة بنفس روح صفحة العميل، باللون الذهبي 🏭" },
+    ]
+  },
+  {
     version: "V17.8",
     date: "2026-04-28",
     types: ["fix", "improvement"],
@@ -130,31 +170,6 @@ const CHANGELOG = [
       { type: "improvement", text: "Deep equality check بدل JSON.stringify — يمنع 5-10× writes غير ضرورية للأسابيع المعقدة" },
       { type: "feature", text: "Migration loading screen — يمنع المستخدم من إضافة بيانات أثناء الـmigration ويظهر progress" },
       { type: "fix", text: "Migration race fix — مفيش data loss لو user يفتح البرنامج أثناء التحديث" },
-    ]
-  },
-  {
-    version: "V17.0",
-    date: "2026-04-28",
-    types: ["architectural", "fix"],
-    title: "إصلاحات معمارية كبيرة (data integrity)",
-    changes: [
-      { type: "fix", text: "إصلاح race condition في الـlistener — entries جديدة كانت تختفي مؤقتاً (flicker) لما الـserver يرد متأخر" },
-      { type: "architectural", text: "نظام pending writes tracking — كل optimistic update يتسجّل ويتحمّى من الـoverride" },
-      { type: "fix", text: "عكس ترتيب الـfallback path: sync الـday docs أولاً، ثم write config — يمنع data loss في حالة network failure" },
-      { type: "improvement", text: "تقوية gid() — 12 random char بدل 4 (4.7 quintillion combinations لكل ms)" },
-      { type: "improvement", text: "Pending writes تتنظف تلقائياً بعد 30 ثانية (لو الـserver أكدها أو ضاعت)" },
-    ]
-  },
-  {
-    version: "V16.80",
-    date: "2026-04-28",
-    types: ["fix"],
-    title: "إصلاحات صغيرة في split sync",
-    changes: [
-      { type: "fix", text: "تعديل تاريخ entry لا يسبب duplicate — الـentry تتنقل من اليوم القديم لليوم الجديد بشكل صحيح" },
-      { type: "fix", text: "Entry بدون date تترفض بدل ما تتحط في يوم today بصمت — يمنع silent data corruption" },
-      { type: "fix", text: "Side effects خارج setState callback — يمنع double-execution في React Strict Mode" },
-      { type: "improvement", text: "تحذيرات في الـconsole لـentries بدون id (كانت skipped بصمت)" },
     ]
   },
 ];

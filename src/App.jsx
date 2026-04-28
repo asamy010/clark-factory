@@ -65,6 +65,8 @@ const WarehousePg = lazyNamed(() => import("./pages/WarehousePg.jsx"), "Warehous
    Rendered BEFORE auth check so it works without login. */
 import { ConfirmPage } from "./components/ConfirmPage.jsx";
 import { CustomerPortalPage } from "./components/CustomerPortalPage.jsx";
+/* V17.9: Workshop portal — public read-only page for workshops via signed URL */
+import { WorkshopPortalPage } from "./components/WorkshopPortalPage.jsx";
 /* V16.73: Public workshop-delivery confirmation page — same idea as ConfirmPage
    above but for workshops scanning the QR on a 10×15 cm delivery label. Routed
    below at /?wd=1&ord=...&ws=...&idx=...&sig=..., before any login gate. */
@@ -128,6 +130,15 @@ export default function App(){
     const c=urlParams.get("c"),sig=urlParams.get("sig");
     if(c&&sig){
       return <CustomerPortalPage params={{c,sig}}/>;
+    }
+  }
+  /* V17.9: Workshop portal — public read-only account page for workshops.
+     URL format: /?wsportal=1&w=<wsId>&sig=<hmac>
+     Mirrors the customer portal but for workshops (deliveries, receives, payments). */
+  if(urlParams.get("wsportal")==="1"){
+    const w=urlParams.get("w"),sig=urlParams.get("sig");
+    if(w&&sig){
+      return <WorkshopPortalPage params={{w,sig}}/>;
     }
   }
   /* V16.73: Public workshop-delivery confirmation — opened when a workshop
@@ -2053,7 +2064,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V17.8 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >V18.0 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -3109,7 +3120,7 @@ export default function App(){
       </div>
     )}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V17.8"/>
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.0"/>
   </div>
 }
 
