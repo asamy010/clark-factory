@@ -28,21 +28,38 @@ function getPortalSecret() {
   return s;
 }
 
+/* V18.12: Short signature — 96 bits as base64url (16 chars) instead of 256-bit hex (64 chars). */
 export function signWorkshopId(wsId) {
+  return crypto.createHmac("sha256", getPortalSecret()).update("wsportal:" + wsId).digest()
+    .slice(0, 12)
+    .toString("base64url");
+}
+
+function signWorkshopIdHex(wsId) {
   return crypto.createHmac("sha256", getPortalSecret()).update("wsportal:" + wsId).digest("hex");
 }
 
 function verifyWorkshopSig(wsId, sig) {
   if (!wsId || !sig) return false;
-  const expected = signWorkshopId(wsId);
-  try {
-    const a = Buffer.from(sig, "hex");
-    const b = Buffer.from(expected, "hex");
-    if (a.length !== b.length) return false;
-    return crypto.timingSafeEqual(a, b);
-  } catch (e) {
-    return false;
+  if (sig.length === 16) {
+    const expected = signWorkshopId(wsId);
+    try {
+      const a = Buffer.from(sig, "base64url");
+      const b = Buffer.from(expected, "base64url");
+      if (a.length !== b.length) return false;
+      return crypto.timingSafeEqual(a, b);
+    } catch (e) { return false; }
   }
+  if (sig.length === 64) {
+    const expected = signWorkshopIdHex(wsId);
+    try {
+      const a = Buffer.from(sig, "hex");
+      const b = Buffer.from(expected, "hex");
+      if (a.length !== b.length) return false;
+      return crypto.timingSafeEqual(a, b);
+    } catch (e) { return false; }
+  }
+  return false;
 }
 
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;

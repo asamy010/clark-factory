@@ -29,21 +29,41 @@ function getPortalSecret() {
   return s;
 }
 
+/* V18.12: Short signature — 96 bits as base64url (16 chars) instead of 256-bit hex (64 chars).
+   Still cryptographically secure for read-only portal access. */
 export function signCustomerId(custId) {
+  return crypto.createHmac("sha256", getPortalSecret()).update("portal:" + custId).digest()
+    .slice(0, 12) /* 12 bytes = 96 bits */
+    .toString("base64url");
+}
+
+/* Legacy full-hex signature — kept for backward compat verification only. */
+function signCustomerIdHex(custId) {
   return crypto.createHmac("sha256", getPortalSecret()).update("portal:" + custId).digest("hex");
 }
 
 function verifyCustomerSig(custId, sig) {
   if (!custId || !sig) return false;
-  const expected = signCustomerId(custId);
-  try {
-    const a = Buffer.from(sig, "hex");
-    const b = Buffer.from(expected, "hex");
-    if (a.length !== b.length) return false;
-    return crypto.timingSafeEqual(a, b);
-  } catch (e) {
-    return false;
+  /* V18.12: Try short (base64url 16 chars) first, then fall back to legacy hex (64 chars) */
+  if (sig.length === 16) {
+    const expected = signCustomerId(custId);
+    try {
+      const a = Buffer.from(sig, "base64url");
+      const b = Buffer.from(expected, "base64url");
+      if (a.length !== b.length) return false;
+      return crypto.timingSafeEqual(a, b);
+    } catch (e) { return false; }
   }
+  if (sig.length === 64) {
+    const expected = signCustomerIdHex(custId);
+    try {
+      const a = Buffer.from(sig, "hex");
+      const b = Buffer.from(expected, "hex");
+      if (a.length !== b.length) return false;
+      return crypto.timingSafeEqual(a, b);
+    } catch (e) { return false; }
+  }
+  return false;
 }
 
 export default async function handler(req, res) {

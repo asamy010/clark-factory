@@ -30,14 +30,14 @@ export default async function handler(req, res) {
     const auth = await verifyAdminToken(adminToken);
     if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
-    /* Generate signature */
+    /* V18.12: Generate short URL format ?p=c&i=<id>&s=<short_sig> */
     const sig = signCustomerId(custId);
     const baseUrl = req.headers["x-forwarded-host"]
       ? "https://" + req.headers["x-forwarded-host"]
       : req.headers.origin || req.headers.host || "";
     const url = (baseUrl.startsWith("http") ? baseUrl : "https://" + baseUrl) +
-                "/?portal=1&c=" + encodeURIComponent(custId) +
-                "&sig=" + encodeURIComponent(sig);
+                "/?p=c&i=" + encodeURIComponent(custId) +
+                "&s=" + encodeURIComponent(sig);
 
     return res.status(200).json({ url, sig });
   } catch (err) {

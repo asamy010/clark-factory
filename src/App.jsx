@@ -125,18 +125,21 @@ export default function App(){
     }
   }
   /* V16.3: Customer portal — public read-only account page for customers.
-     URL format: /?portal=1&c=<custId>&sig=<hmac> */
-  if(urlParams.get("portal")==="1"){
-    const c=urlParams.get("c"),sig=urlParams.get("sig");
+     V18.13: Now supports two URL formats (backward compat):
+       Legacy:   /?portal=1&c=<custId>&sig=<hmac_hex>
+       Short:    /?p=c&i=<custId>&s=<hmac_b64url> */
+  if(urlParams.get("portal")==="1"||urlParams.get("p")==="c"){
+    const c=urlParams.get("c")||urlParams.get("i"),sig=urlParams.get("sig")||urlParams.get("s");
     if(c&&sig){
       return <CustomerPortalPage params={{c,sig}}/>;
     }
   }
   /* V17.9: Workshop portal — public read-only account page for workshops.
-     URL format: /?wsportal=1&w=<wsId>&sig=<hmac>
-     Mirrors the customer portal but for workshops (deliveries, receives, payments). */
-  if(urlParams.get("wsportal")==="1"){
-    const w=urlParams.get("w"),sig=urlParams.get("sig");
+     V18.13: Now supports two URL formats (backward compat):
+       Legacy:   /?wsportal=1&w=<wsId>&sig=<hmac_hex>
+       Short:    /?p=w&i=<wsId>&s=<hmac_b64url> */
+  if(urlParams.get("wsportal")==="1"||urlParams.get("p")==="w"){
+    const w=urlParams.get("w")||urlParams.get("i"),sig=urlParams.get("sig")||urlParams.get("s");
     if(w&&sig){
       return <WorkshopPortalPage params={{w,sig}}/>;
     }
@@ -2064,7 +2067,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V18.11 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >V18.13 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -3120,7 +3123,7 @@ export default function App(){
       </div>
     )}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.11"/>
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.13"/>
   </div>
 }
 
