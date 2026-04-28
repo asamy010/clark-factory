@@ -44,6 +44,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const[cArchived,setCArchived]=useState(false);
   /* V18.16: Show-archived toggle (admin only — defaults off so archived are hidden everywhere) */
   const[showArchivedCusts,setShowArchivedCusts]=useState(false);
+  /* V18.19: Item card (كارت صنف) — full movement history per model */
+  const[itemCard,setItemCard]=useState(null);/* null | "pick" | {orderId} */
+  const[itemCardFilter,setItemCardFilter]=useState("");
   const[showNewSession,setShowNewSession]=useState(false);
   const[selModels,setSelModels]=useState({});const[selCusts,setSelCusts]=useState({});
   const[activeSession,setActiveSession]=useState(null);
@@ -815,6 +818,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           {secBtn(I.inbox,"تأكيد استلام","#10B981",()=>setPendingRcv({items:{}}),pendingRcvCount||null)}
           {/* V14.59: Receipt log — historical receipts with comparison */}
           {secBtn(I.fileText,"سجل الاستلامات","#059669",()=>setShowReceiptLog(true))}
+          {/* V18.19: Item card — full movement history for any model */}
+          {secBtn(I.activity,"كارت صنف","#0EA5E9",()=>{setItemCard("pick");setItemCardFilter("")})}
         </div>
 
         {/* ── GROUP 4: OTHER TOOLS ── */}
@@ -3254,6 +3259,148 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             <Btn onClick={doPrint} style={{background:"#10B98112",color:"#10B981",border:"1px solid #10B98130",fontWeight:700}}>🖨 طباعة / PDF</Btn>
             <Btn ghost onClick={()=>setLastReceiptReport(null)}>إغلاق</Btn>
           </div>
+        </div>
+      </div>;
+    })()}
+
+    {/* ══ V18.19: ITEM CARD (كارت صنف) — full movement history for any model ══ */}
+    {itemCard&&(()=>{
+      /* Universe: all orders that have any movement (receipt, sale, or return) */
+      const movingOrders=orders.filter(o=>{
+        const hasRcv=(o.deliveries||[]).length>0;
+        const hasSale=(o.customerDeliveries||[]).length>0;
+        const hasRet=(o.customerReturns||[]).length>0;
+        return hasRcv||hasSale||hasRet;
+      });
+      /* Picker view */
+      if(itemCard==="pick"){
+        const filtered=itemCardFilter.trim()
+          ? movingOrders.filter(o=>(o.modelNo||"").toLowerCase().includes(itemCardFilter.trim().toLowerCase())||(o.modelDesc||"").toLowerCase().includes(itemCardFilter.trim().toLowerCase()))
+          : movingOrders;
+        return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:24}} onClick={()=>setItemCard(null)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?14:20,width:"100%",maxWidth:560,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div style={{fontSize:FS+2,fontWeight:800,color:"#0EA5E9",display:"flex",alignItems:"center",gap:8}}>📇 <span>كارت صنف — اختر الموديل</span></div>
+              <Btn ghost small onClick={()=>setItemCard(null)}>✕</Btn>
+            </div>
+            <div style={{marginBottom:10}}><Inp value={itemCardFilter} onChange={setItemCardFilter} placeholder="🔍 ابحث برقم الموديل أو الوصف..."/></div>
+            {filtered.length===0?<div style={{textAlign:"center",padding:24,color:T.textMut}}>{itemCardFilter?"لا توجد نتائج":"لا توجد موديلات بحركات"}</div>:
+              <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:"60vh",overflowY:"auto"}}>
+                {filtered.map(o=>{
+                  const sd=(o.deliveries||[]).filter(d=>d.status!=="pending").reduce((s,d)=>s+(Number(d.qty)||0),0);
+                  const cd=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
+                  const ret=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
+                  const bal=sd-(cd-ret);
+                  return<div key={o.id} onClick={()=>setItemCard({orderId:o.id})} style={{padding:"10px 12px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}} onMouseEnter={e=>e.currentTarget.style.background="#0EA5E912"} onMouseLeave={e=>e.currentTarget.style.background=T.bg}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:FS,fontWeight:800,color:T.text}}>{o.modelNo||"—"}</div>
+                      <div style={{fontSize:FS-2,color:T.textMut,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{o.modelDesc||"—"}</div>
+                    </div>
+                    <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
+                      <div style={{textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textMut}}>الرصيد</div><div style={{fontSize:FS+1,fontWeight:800,color:bal>0?T.ok:bal<0?T.err:T.textMut}}>{bal}</div></div>
+                      <span style={{color:T.accent,fontSize:FS}}>←</span>
+                    </div>
+                  </div>;
+                })}
+              </div>}
+          </div>
+        </div>;
+      }
+      /* Detail view: full card for selected model */
+      const o=orders.find(x=>x.id===itemCard.orderId);
+      if(!o){setItemCard("pick");return null;}
+      const dels=(o.deliveries||[]).filter(d=>d.status!=="pending");
+      const sales=o.customerDeliveries||[];
+      const rets=o.customerReturns||[];
+      const totalRcv=dels.reduce((s,d)=>s+(Number(d.qty)||0),0);
+      const totalSold=sales.reduce((s,d)=>s+(Number(d.qty)||0),0);
+      const totalRet=rets.reduce((s,r)=>s+(Number(r.qty)||0),0);
+      const currentBal=totalRcv-(totalSold-totalRet);
+      /* Build chronological movement log */
+      const movements=[];
+      dels.forEach(d=>movements.push({date:d.date||"",type:"رصيد",qty:Number(d.qty)||0,sign:1,note:d.notes||(d.isAdjustment?"تسوية جرد":""),by:d.createdBy||""}));
+      sales.forEach(d=>movements.push({date:d.date||"",type:"بيع",qty:Number(d.qty)||0,sign:-1,note:d.note||(d.isAdjustment?"تسوية جرد":""),by:d.createdBy||"",party:d.custName||""}));
+      rets.forEach(r=>movements.push({date:r.date||"",type:"مرتجع",qty:Number(r.qty)||0,sign:1,note:r.note||"",by:r.createdBy||"",party:r.custName||""}));
+      movements.sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+      let running=0;movements.forEach(m=>{running+=m.sign*m.qty;m.balance=running});
+      const printItemCard=()=>{
+        let h="<h2 style='text-align:center;margin:0 0 6px'>📇 كارت صنف</h2>";
+        h+="<div style='text-align:center;font-size:14px;font-weight:700;color:#0EA5E9;margin-bottom:14px'>"+(o.modelNo||"—")+"</div>";
+        h+="<table style='margin:0 auto 14px;font-size:12px'><tr><th style='padding:4px 12px;text-align:right'>الوصف</th><td style='padding:4px 12px'>"+(o.modelDesc||"—")+"</td></tr></table>";
+        h+="<table style='margin:0 auto 16px'><thead><tr>";
+        h+="<th>إجمالي وارد</th><th>إجمالي مبيعات</th><th>إجمالي مرتجعات</th><th>الرصيد الحالي</th>";
+        h+="</tr></thead><tbody><tr style='font-weight:800;font-size:14px;text-align:center'>";
+        h+="<td style='color:#0EA5E9'>"+totalRcv+"</td>";
+        h+="<td style='color:#EF4444'>"+totalSold+"</td>";
+        h+="<td style='color:#10B981'>"+totalRet+"</td>";
+        h+="<td style='color:"+(currentBal>0?"#0EA5E9":"#94A3B8")+";background:#FEF3C7'>"+currentBal+"</td>";
+        h+="</tr></tbody></table>";
+        h+="<h3 style='margin:16px 0 6px'>📋 سجل الحركات ("+movements.length+")</h3>";
+        h+="<table><thead><tr><th>التاريخ</th><th>النوع</th><th>الجهة</th><th>الكمية</th><th>الرصيد</th><th>ملاحظة</th></tr></thead><tbody>";
+        movements.forEach((m,i)=>{
+          const typeColor=m.type==="رصيد"?"#0EA5E9":m.type==="بيع"?"#EF4444":"#10B981";
+          const typeIcon=m.type==="رصيد"?"📥":m.type==="بيع"?"📤":"↩";
+          h+="<tr style='background:"+(i%2===0?"transparent":"#f8f8f8")+"'>";
+          h+="<td style='text-align:center;direction:ltr'>"+(m.date||"—")+"</td>";
+          h+="<td style='text-align:center;color:"+typeColor+";font-weight:700'>"+typeIcon+" "+m.type+"</td>";
+          h+="<td>"+(m.party||"—")+"</td>";
+          h+="<td style='text-align:center;font-weight:700;color:"+(m.sign>0?"#10B981":"#EF4444")+"'>"+(m.sign>0?"+":"-")+m.qty+"</td>";
+          h+="<td style='text-align:center;font-weight:800'>"+m.balance+"</td>";
+          h+="<td style='font-size:11px;color:#666'>"+(m.note||"—")+"</td>";
+          h+="</tr>";
+        });
+        h+="</tbody></table>";
+        h+="<div class='sig'><div class='sig-box'>أمين المخزن</div><div class='sig-box'>المدير</div></div>";
+        printPage("كارت صنف — "+(o.modelNo||""),h,{factoryName:data.factoryName,logo:data.logo});
+      };
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?6:24}} onClick={()=>setItemCard(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?12:20,width:"100%",maxWidth:760,maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          {/* Header */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8,flexWrap:"wrap"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:0}}>
+              <Btn ghost small onClick={()=>{setItemCard("pick");setItemCardFilter("")}} title="رجوع للقائمة">←</Btn>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:FS+2,fontWeight:800,color:"#0EA5E9",display:"flex",alignItems:"center",gap:6}}>📇 <span>كارت صنف</span></div>
+                <div style={{fontSize:FS-1,fontWeight:700,color:T.text,marginTop:2}}>{o.modelNo||"—"}</div>
+                <div style={{fontSize:FS-2,color:T.textMut,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{o.modelDesc||""}</div>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              <Btn small onClick={printItemCard} style={{background:"#0EA5E912",color:"#0EA5E9",border:"1px solid #0EA5E930"}}>🖨 طباعة</Btn>
+              <Btn ghost small onClick={()=>setItemCard(null)}>✕</Btn>
+            </div>
+          </div>
+          {/* Summary cards */}
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"1fr 1fr 1fr 1fr",gap:8,marginBottom:14}}>
+            <div style={{padding:"10px 12px",borderRadius:10,background:"#0EA5E908",border:"1px solid #0EA5E920",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>📥 إجمالي وارد</div><div style={{fontSize:FS+4,fontWeight:800,color:"#0EA5E9"}}>{totalRcv}</div></div>
+            <div style={{padding:"10px 12px",borderRadius:10,background:"#EF444408",border:"1px solid #EF444420",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>📤 إجمالي مبيعات</div><div style={{fontSize:FS+4,fontWeight:800,color:"#EF4444"}}>{totalSold}</div></div>
+            <div style={{padding:"10px 12px",borderRadius:10,background:"#10B98108",border:"1px solid #10B98120",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>↩ إجمالي مرتجعات</div><div style={{fontSize:FS+4,fontWeight:800,color:"#10B981"}}>{totalRet}</div></div>
+            <div style={{padding:"10px 12px",borderRadius:10,background:"#FEF3C7",border:"1px solid #F59E0B40",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec,fontWeight:700}}>📦 الرصيد الحالي</div><div style={{fontSize:FS+4,fontWeight:900,color:currentBal>0?"#0EA5E9":currentBal<0?"#EF4444":T.textMut}}>{currentBal}</div></div>
+          </div>
+          {/* Movements log */}
+          <div style={{fontSize:FS-1,fontWeight:800,color:T.text,marginBottom:8,paddingTop:8,borderTop:"1px solid "+T.brd}}>📋 سجل الحركات ({movements.length})</div>
+          {movements.length===0?<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد حركات</div>:
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+                <thead><tr style={{background:T.bg}}>
+                  {["التاريخ","النوع","الجهة","الكمية","الرصيد","ملاحظة"].map(h=><th key={h} style={{...TH,fontSize:FS-2,padding:"6px 8px"}}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {movements.map((m,i)=>{
+                    const typeColor=m.type==="رصيد"?"#0EA5E9":m.type==="بيع"?"#EF4444":"#10B981";
+                    const typeIcon=m.type==="رصيد"?"📥":m.type==="بيع"?"📤":"↩";
+                    return<tr key={i} style={{background:i%2===0?"transparent":T.bg+"60"}}>
+                      <td style={{...TD,fontSize:FS-2,direction:"ltr",textAlign:"center"}}>{m.date||"—"}</td>
+                      <td style={{...TD,textAlign:"center",fontWeight:700,color:typeColor}}>{typeIcon} {m.type}</td>
+                      <td style={{...TD,fontSize:FS-2}}>{m.party||"—"}</td>
+                      <td style={{...TD,textAlign:"center",fontWeight:800,color:m.sign>0?T.ok:T.err}}>{m.sign>0?"+":"-"}{m.qty}</td>
+                      <td style={{...TD,textAlign:"center",fontWeight:800}}>{m.balance}</td>
+                      <td style={{...TD,fontSize:FS-3,color:T.textMut}}>{m.note||"—"}</td>
+                    </tr>;
+                  })}
+                </tbody>
+              </table>
+            </div>}
         </div>
       </div>;
     })()}
