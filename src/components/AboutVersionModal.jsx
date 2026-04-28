@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V18.27",
+    date: "2026-04-28",
+    types: ["fix", "improvement"],
+    title: "تطبيق الخصم على بطاقات المبيعات + حذف عمود النوع من رابط العميل",
+    changes: [
+      { type: "fix", text: "🚨 بطاقات الإحصاءات في صفحة المبيعات (المبيعات / مرتجعات / رصيد عند العملاء) كانت بتعرض الأرقام قبل الخصم — وكانت بتعطي رصيد عملاء مغلوط" },
+      { type: "fix", text: "✅ تطبيق نسبة الخصم لكل عميل على حدة على المبيعات والمرتجعات → الرصيد النهائي يطلع صح" },
+      { type: "improvement", text: "📝 تيب صغير 'بعد الخصم' تحت كل من بطاقات: المبيعات، المرتجعات، رصيد عند العملاء" },
+      { type: "improvement", text: "🖨 تقرير المبيعات المطبوع: العنوان يوضح أن جميع الأرقام بعد الخصم + إضافة عمود 'الخصم %' لكل عميل + الأعمدة بقت 'بعد الخصم'" },
+      { type: "improvement", text: "🗑️ حذف عمود 'النوع' من جدولي مبيعات ومرتجعات في رابط العميل (سجل الحركات) — البادج ميتكررش، اللون ولون الـheader يكفوا للتمييز" },
+    ]
+  },
+  {
     version: "V18.26",
     date: "2026-04-28",
     types: ["feature", "improvement"],
@@ -147,17 +160,6 @@ const CHANGELOG = [
       { type: "fix", text: "المرتجعات بقت تتحسب فقط لو المرتجع من التوزيعة دي (filter by sessId/sessionId === activeSess.id)" },
       { type: "improvement", text: "🗑️ حذف صف 'تسليم مخزن جاهز' من جدول التوزيعة — كان مكرر مع m.stockQty المعروض في رصيد توزيع وملوش داعي" },
       { type: "improvement", text: "💡 المنطق الجديد: كل توزيعة معزولة تماماً — مش بتتأثر ولا تأثر بغيرها. اعتبارها 'خطة + متابعة لحظية' للمقارنة بين الخطة والتنفيذ الفعلي" },
-    ]
-  },
-  {
-    version: "V18.17",
-    date: "2026-04-28",
-    types: ["fix"],
-    title: "إصلاح crash صفحة 'جرد المخزن من المبيعات'",
-    changes: [
-      { type: "fix", text: "🚨 إصلاح ReferenceError: _auditScanMode is not defined — كان يكسر الصفحة بأكملها بمجرد فتح 'جرد المبيعات'" },
-      { type: "fix", text: "السبب: متغير module-level بيتم استخدامه للـscanner closure، بس متعرفش بـlet/var/const في أي مكان. ESM strict-mode بيرفض الإسناد لمتغيرات غير معرفة" },
-      { type: "fix", text: "الحل: إضافة `let _auditScanMode = \"series\"` في رأس CustDeliverPg.jsx على مستوى الـmodule" },
     ]
   },
 ];

@@ -329,7 +329,6 @@ export function CustomerPortalPage({ params }) {
                 <th style={{ ...tblTh, textAlign: "center" }}>الكمية</th>
                 <th style={{ ...tblTh, textAlign: "center" }}>القيمة قبل الخصم</th>
                 <th style={{ ...tblTh, textAlign: "center" }}>القيمة بعد الخصم</th>
-                <th style={{ ...tblTh, textAlign: "center" }}>النوع</th>
               </tr></thead>
               <tbody>{salesInvoices.map((inv, i) => <tr key={inv.sessionId} style={{ background: i % 2 === 0 ? "#fff" : "#F8FAFC", borderTop: "1px solid #F1F5F9" }}>
                 <td style={{ ...tblTd, fontWeight: 800, color: "#059669" }}>#{inv.invoiceNo}</td>
@@ -337,9 +336,6 @@ export function CustomerPortalPage({ params }) {
                 <td style={{ ...tblTd, textAlign: "center", fontWeight: 700 }}>{fmt(inv.qty)} <span style={{ fontSize: 9, color: "#94A3B8", fontWeight: 600 }}>قطعة</span></td>
                 <td style={{ ...tblTd, textAlign: "center", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(inv.value)}</td>
                 <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#059669", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(inv.valueAfterDisc)}</td>
-                <td style={{ ...tblTd, textAlign: "center" }}>
-                  <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 5, background: "#F0FDF4", color: "#059669", fontWeight: 800, border: "1px solid #DCFCE7", whiteSpace: "nowrap" }}>📄 فاتورة بيع</span>
-                </td>
               </tr>)}
               {/* Totals row */}
               <tr style={{ background: "#ECFDF5", borderTop: "2px solid #10B981" }}>
@@ -347,7 +343,6 @@ export function CustomerPortalPage({ params }) {
                 <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#059669" }}>{fmt(salesInvoices.reduce((s, x) => s + x.qty, 0))}</td>
                 <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#059669", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(salesInvoices.reduce((s, x) => s + x.value, 0))}</td>
                 <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#059669", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(salesInvoices.reduce((s, x) => s + x.valueAfterDisc, 0))}</td>
-                <td style={tblTd}></td>
               </tr>
               </tbody>
             </table>
@@ -369,7 +364,6 @@ export function CustomerPortalPage({ params }) {
                 <th style={{ ...tblTh, textAlign: "center" }}>الكمية</th>
                 <th style={{ ...tblTh, textAlign: "center" }}>القيمة قبل الخصم</th>
                 <th style={{ ...tblTh, textAlign: "center" }}>القيمة بعد الخصم</th>
-                <th style={{ ...tblTh, textAlign: "center" }}>النوع</th>
               </tr></thead>
               <tbody>{returnInvoices.map((inv, i) => <tr key={inv.sessionId} style={{ background: i % 2 === 0 ? "#fff" : "#F8FAFC", borderTop: "1px solid #F1F5F9" }}>
                 <td style={{ ...tblTd, fontWeight: 800, color: "#EF4444" }}>#{inv.invoiceNo}</td>
@@ -377,9 +371,6 @@ export function CustomerPortalPage({ params }) {
                 <td style={{ ...tblTd, textAlign: "center", fontWeight: 700 }}>{fmt(inv.qty)} <span style={{ fontSize: 9, color: "#94A3B8", fontWeight: 600 }}>قطعة</span></td>
                 <td style={{ ...tblTd, textAlign: "center", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(inv.value)}</td>
                 <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#EF4444", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(inv.valueAfterDisc)}</td>
-                <td style={{ ...tblTd, textAlign: "center" }}>
-                  <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 5, background: "#FEF2F2", color: "#EF4444", fontWeight: 800, border: "1px solid #FEE2E2", whiteSpace: "nowrap" }}>↩️ مرتجع</span>
-                </td>
               </tr>)}
               {/* Totals row */}
               <tr style={{ background: "#FEF2F2", borderTop: "2px solid #EF4444" }}>
@@ -387,7 +378,6 @@ export function CustomerPortalPage({ params }) {
                 <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#EF4444" }}>{fmt(returnInvoices.reduce((s, x) => s + x.qty, 0))}</td>
                 <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#EF4444", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(returnInvoices.reduce((s, x) => s + x.value, 0))}</td>
                 <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#EF4444", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(returnInvoices.reduce((s, x) => s + x.valueAfterDisc, 0))}</td>
-                <td style={tblTd}></td>
               </tr>
               </tbody>
             </table>

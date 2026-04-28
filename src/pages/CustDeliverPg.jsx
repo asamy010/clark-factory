@@ -839,18 +839,21 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     })()}
     {/* ═══ SALES STATS CARDS ═══ */}
     {(()=>{
-      let totalSales=0,totalReturns=0,totalCashPay=0,totalCheckPay=0,totalOtherPay=0;
+      /* V18.27: Apply per-customer discount to sales/returns/balance.
+         Step 1: Build perCust GROSS sales/returns first (no discount).
+         Step 2: Build perCust payments (cash/check/other).
+         Step 3: For each customer, apply their discount % → compute net values.
+         Step 4: Sum across customers for the totals shown in cards. */
       const perCust={};
       orders.forEach(o=>{const sp=Number(o.sellPrice)||0;
         /* V15.45: Use per-delivery price when set (isDiscounted sales) — falls back to model sellPrice */
-        (o.customerDeliveries||[]).forEach(d=>{const effPrice=Number(d.price)||sp;const v=(Number(d.qty)||0)*effPrice;totalSales+=v;
+        (o.customerDeliveries||[]).forEach(d=>{const effPrice=Number(d.price)||sp;const v=(Number(d.qty)||0)*effPrice;
           if(!perCust[d.custId])perCust[d.custId]={sales:0,returns:0,cash:0,check:0,other:0};perCust[d.custId].sales+=v});
-        (o.customerReturns||[]).forEach(r=>{const v=(Number(r.qty)||0)*sp;totalReturns+=v;
+        (o.customerReturns||[]).forEach(r=>{const v=(Number(r.qty)||0)*sp;
           if(!perCust[r.custId])perCust[r.custId]={sales:0,returns:0,cash:0,check:0,other:0};perCust[r.custId].returns+=v})});
       (config.custPayments||[]).forEach(p=>{const amt=Number(p.amount)||0;const m=(p.method||"").toLowerCase();
         const isCheck=m.includes("شيك")||m.includes("check");
         const isCash=m.includes("كاش")||m.includes("cash")||!m;
-        if(isCheck)totalCheckPay+=amt;else if(isCash)totalCashPay+=amt;else totalOtherPay+=amt;
         if(!perCust[p.custId])perCust[p.custId]={sales:0,returns:0,cash:0,check:0,other:0};
         if(isCheck)perCust[p.custId].check+=amt;else if(isCash)perCust[p.custId].cash+=amt;else perCust[p.custId].other+=amt});
       /* V18.23+V18.24: Include receivable checks ONLY when category = 'دفعة عميل' (real customer payment).
@@ -858,17 +861,43 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
          Empty category defaults to 'دفعة عميل' for receivable checks (matches the helper default). */
       (config.checks||[]).filter(c=>c.type==="receivable"&&c.status!=="مرتد"&&c.status!=="ملغي"&&((c.category||"دفعة عميل")==="دفعة عميل")).forEach(c=>{
         const amt=Number(c.amount)||0;
-        totalCheckPay+=amt;
         if(c.partyId){
           if(!perCust[c.partyId])perCust[c.partyId]={sales:0,returns:0,cash:0,check:0,other:0};
           perCust[c.partyId].check+=amt;
         }
       });
+      /* V18.27: Apply discount per customer + build totals */
+      let totalSales=0,totalReturns=0,totalCashPay=0,totalCheckPay=0,totalOtherPay=0;
+      let totalSalesGross=0,totalReturnsGross=0;/* For tooltip detail */
+      Object.keys(perCust).forEach(cid=>{
+        const cust=customers.find(c=>c.id===cid);
+        const discPct=cust?(Number(cust.discount)||0):0;
+        const p=perCust[cid];
+        const salesAfter=Math.round(p.sales*(1-discPct/100));
+        const returnsAfter=Math.round(p.returns*(1-discPct/100));
+        totalSalesGross+=p.sales;
+        totalReturnsGross+=p.returns;
+        totalSales+=salesAfter;
+        totalReturns+=returnsAfter;
+        totalCashPay+=p.cash;
+        totalCheckPay+=p.check;
+        totalOtherPay+=p.other;
+        /* Annotate perCust for use in print report */
+        p.discPct=discPct;
+        p.salesGross=p.sales;
+        p.returnsGross=p.returns;
+        p.salesAfter=salesAfter;
+        p.returnsAfter=returnsAfter;
+      });
       const totalBalance=totalSales-totalReturns-totalCashPay-totalCheckPay-totalOtherPay;
       const printSalesReport=()=>{const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
         const logo=(config.logo||"").trim();
-        const rows=customers.map(c=>{const p=perCust[c.id]||{sales:0,returns:0,cash:0,check:0,other:0};const bal=p.sales-p.returns-p.cash-p.check-p.other;
-          return{name:c.name,phone:c.phone||"—",...p,bal}}).filter(r=>r.sales>0||r.returns>0||r.cash>0||r.check>0||r.other>0||r.bal!==0).sort((a,b)=>b.bal-a.bal);
+        /* V18.27: Use AFTER-discount values per customer for the printed report (balance = sales_after - returns_after - paid) */
+        const rows=customers.map(c=>{const p=perCust[c.id]||{sales:0,returns:0,cash:0,check:0,other:0,salesAfter:0,returnsAfter:0,discPct:Number(c.discount)||0};
+          const sales=p.salesAfter||Math.round(p.sales*(1-(Number(c.discount)||0)/100));
+          const returns=p.returnsAfter||Math.round(p.returns*(1-(Number(c.discount)||0)/100));
+          const bal=sales-returns-p.cash-p.check-p.other;
+          return{name:c.name,phone:c.phone||"—",sales,returns,cash:p.cash,check:p.check,other:p.other,discPct:p.discPct||(Number(c.discount)||0),bal}}).filter(r=>r.sales>0||r.returns>0||r.cash>0||r.check>0||r.other>0||r.bal!==0).sort((a,b)=>b.bal-a.bal);
         let html=`<html dir="rtl"><head><meta charset="utf-8"><title>تقرير المبيعات</title>
         <style>@page{size:A4;margin:10mm}*{box-sizing:border-box}body{font-family:'Cairo',Arial,sans-serif;font-size:11px;margin:0;padding:0;color:#1a1a1a}
         .hdr{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:2px solid #0ea5e9;margin-bottom:12px}
@@ -889,23 +918,24 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         tfoot tr{background:#0ea5e9;color:#fff;font-weight:800}
         @media print{body{margin:0}}</style></head><body>
         <div class="hdr">${logo?'<img src="'+logo+'"/>':'<div style="font-size:22px;font-weight:900;color:#0ea5e9">CLARK</div>'}
-          <div style="text-align:left"><h1>📊 تقرير المبيعات الموسم: ${season}</h1><div style="font-size:10px;color:#64748b">تاريخ: ${new Date().toISOString().split("T")[0]}</div></div></div>
+          <div style="text-align:left"><h1>📊 تقرير المبيعات الموسم: ${season}</h1><div style="font-size:10px;color:#64748b">تاريخ: ${new Date().toISOString().split("T")[0]} • <strong style="color:#0ea5e9">جميع الأرقام بعد تطبيق خصم كل عميل</strong></div></div></div>
         <div class="stats">
-          <div class="stat s-sales"><div class="label">اجمالي المبيعات</div><div class="val">${fmt(r2(totalSales))}</div></div>
-          <div class="stat s-ret"><div class="label">المرتجعات</div><div class="val">${fmt(r2(totalReturns))}</div></div>
+          <div class="stat s-sales"><div class="label">اجمالي المبيعات</div><div class="val">${fmt(r2(totalSales))}</div><div style="font-size:8px;color:#94a3b8;margin-top:2px">بعد الخصم</div></div>
+          <div class="stat s-ret"><div class="label">المرتجعات</div><div class="val">${fmt(r2(totalReturns))}</div><div style="font-size:8px;color:#94a3b8;margin-top:2px">بعد الخصم</div></div>
           <div class="stat s-cash"><div class="label">دفعات كاش</div><div class="val">${fmt(r2(totalCashPay))}</div></div>
           <div class="stat s-chk"><div class="label">دفعات شيكات</div><div class="val">${fmt(r2(totalCheckPay))}</div></div>
-          <div class="stat s-bal"><div class="label">رصيد عند العملاء</div><div class="val">${fmt(r2(totalBalance))}</div></div>
+          <div class="stat s-bal"><div class="label">رصيد عند العملاء</div><div class="val">${fmt(r2(totalBalance))}</div><div style="font-size:8px;color:#94a3b8;margin-top:2px">بعد الخصم</div></div>
         </div>
-        <table><thead><tr><th>العميل</th><th>تليفون</th><th>المبيعات</th><th>مرتجعات</th><th>دفعات كاش</th><th>دفعات شيكات</th><th>أخرى</th><th>الرصيد</th></tr></thead><tbody>`;
+        <table><thead><tr><th>العميل</th><th>تليفون</th><th>الخصم %</th><th>المبيعات بعد الخصم</th><th>مرتجعات بعد الخصم</th><th>دفعات كاش</th><th>دفعات شيكات</th><th>أخرى</th><th>الرصيد</th></tr></thead><tbody>`;
         rows.forEach(r=>{html+=`<tr><td>${r.name}</td><td class="num">${r.phone}</td>
+          <td class="num">${r.discPct>0?r.discPct+"%":"—"}</td>
           <td class="num">${fmt(r2(r.sales))}</td>
           <td class="num ${r.returns>0?"neg":""}">${r.returns>0?fmt(r2(r.returns)):"—"}</td>
           <td class="num ${r.cash>0?"pos":""}">${r.cash>0?fmt(r2(r.cash)):"—"}</td>
           <td class="num ${r.check>0?"pos":""}">${r.check>0?fmt(r2(r.check)):"—"}</td>
           <td class="num">${r.other>0?fmt(r2(r.other)):"—"}</td>
           <td class="num" style="font-weight:800;color:${r.bal>0?"#ef4444":r.bal<0?"#10b981":"#64748b"}">${fmt(r2(r.bal))}</td></tr>`});
-        html+=`</tbody><tfoot><tr><td colspan="2" style="text-align:right">الاجمالي</td>
+        html+=`</tbody><tfoot><tr><td colspan="3" style="text-align:right">الاجمالي</td>
           <td class="num">${fmt(r2(totalSales))}</td>
           <td class="num">${fmt(r2(totalReturns))}</td>
           <td class="num">${fmt(r2(totalCashPay))}</td>
@@ -915,13 +945,15 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         </body></html>`;
         w.document.write(html);w.document.close();setTimeout(()=>w.print(),300)};
       return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(5,1fr)",gap:10,marginBottom:16}}>
-        <div style={{padding:12,borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"15",textAlign:"center"}}>
+        <div style={{padding:12,borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"15",textAlign:"center"}} title={"الإجمالي قبل الخصم: "+fmt(r2(totalSalesGross))+" — بعد تطبيق الخصم لكل عميل: "+fmt(r2(totalSales))}>
           <div style={{fontSize:FS-1,color:T.textSec,marginBottom:4}}>💰 المبيعات</div>
           <div style={{fontSize:isMob?16:19,fontWeight:800,color:T.accent}}>{fmt(r2(totalSales))}</div>
+          <div style={{fontSize:FS-3,color:T.textMut,marginTop:2,fontWeight:600}}>بعد الخصم</div>
         </div>
-        <div style={{padding:12,borderRadius:10,background:T.err+"08",border:"1px solid "+T.err+"15",textAlign:"center"}}>
+        <div style={{padding:12,borderRadius:10,background:T.err+"08",border:"1px solid "+T.err+"15",textAlign:"center"}} title={"الإجمالي قبل الخصم: "+fmt(r2(totalReturnsGross))+" — بعد تطبيق الخصم لكل عميل: "+fmt(r2(totalReturns))}>
           <div style={{fontSize:FS-1,color:T.textSec,marginBottom:4}}>↩️ مرتجعات</div>
           <div style={{fontSize:isMob?16:19,fontWeight:800,color:T.err}}>{fmt(r2(totalReturns))}</div>
+          <div style={{fontSize:FS-3,color:T.textMut,marginTop:2,fontWeight:600}}>بعد الخصم</div>
         </div>
         <div style={{padding:12,borderRadius:10,background:T.ok+"08",border:"1px solid "+T.ok+"15",textAlign:"center"}}>
           <div style={{fontSize:FS-1,color:T.textSec,marginBottom:4}}>💵 دفعات كاش</div>
@@ -931,10 +963,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           <div style={{fontSize:FS-1,color:T.textSec,marginBottom:4}}>📝 دفعات شيكات</div>
           <div style={{fontSize:isMob?16:19,fontWeight:800,color:T.warn}}>{fmt(r2(totalCheckPay))}</div>
         </div>
-        <div onClick={printSalesReport} style={{padding:12,borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF615",textAlign:"center",cursor:"pointer",position:"relative"}} title="طباعة تقرير تفصيلي بكل العملاء">
+        <div onClick={printSalesReport} style={{padding:12,borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF615",textAlign:"center",cursor:"pointer",position:"relative"}} title={"اضغط لطباعة تقرير تفصيلي بكل العملاء (الأرقام بعد الخصم)"}>
           <div style={{position:"absolute",top:6,left:8,fontSize:13}}>🖨</div>
           <div style={{fontSize:FS-1,color:T.textSec,marginBottom:4}}>⚖️ رصيد عند العملاء</div>
           <div style={{fontSize:isMob?16:19,fontWeight:800,color:totalBalance>0?T.err:"#8B5CF6"}}>{fmt(r2(totalBalance))}</div>
+          <div style={{fontSize:FS-3,color:T.textMut,marginTop:2,fontWeight:600}}>بعد الخصم</div>
         </div>
       </div>})()}
     {/* Active Session Matrix - Popup */}
