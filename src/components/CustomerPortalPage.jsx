@@ -18,6 +18,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { useEffect, useState } from "react";
+import { Stars } from "../utils/rating.js";
 
 const fmt = (n) => (n == null ? "0" : Math.round(Number(n)).toLocaleString("en-US"));
 const fmtDate = (d) => {
@@ -125,10 +126,10 @@ export function CustomerPortalPage({ params }) {
       }
     `}</style>
 
-    {/* COMPACT Header — V18.3: reduced height — V18.6: + season badge */}
+    {/* COMPACT Header — V18.3: reduced height — V18.6: + season badge — V18.7: + rating */}
     <div className="no-print" style={{
       background: "linear-gradient(135deg, #6366F1, #8B5CF6)",
-      padding: "12px 20px",
+      padding: "12px 20px 14px",
       color: "#fff",
       position: "relative",
       textAlign: "center",
@@ -137,6 +138,13 @@ export function CustomerPortalPage({ params }) {
       <div style={{ fontSize: 11, opacity: 0.85 }}>{factory.name}</div>
       <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>{customer.name}</div>
       {customer.phone && <div style={{ fontSize: 11, opacity: 0.8, marginTop: 2, direction: "ltr" }}>{customer.phone}</div>}
+      {/* V18.7: Rating badge */}
+      {summary.rating && <div style={{ marginTop: 8, display: "inline-flex", alignItems: "center", gap: 8, padding: "5px 14px", background: "rgba(255,255,255,0.18)", borderRadius: 999, border: "1px solid rgba(255,255,255,0.3)", backdropFilter: "blur(4px)" }}>
+        <span style={{ fontSize: 11, opacity: 0.95, fontWeight: 700 }}>تقييم العميل:</span>
+        <Stars value={summary.rating.stars} size={14} gap={1}/>
+        {summary.rating.rated && <span style={{ fontSize: 11, fontWeight: 800, direction: "ltr" }}>{summary.rating.stars}</span>}
+        <span style={{ fontSize: 10, padding: "1px 7px", background: "rgba(255,255,255,0.25)", borderRadius: 6, fontWeight: 800 }}>{summary.rating.label}</span>
+      </div>}
     </div>
 
     {/* Print-only banner (visible during print) */}
@@ -239,6 +247,29 @@ export function CustomerPortalPage({ params }) {
             <StatBox label="الكمية المباعة الفعلية" value={summary.actualSold} color="#8B5CF6" wide/>
           </div>
         </div>
+
+        {/* V18.7: Rating card with details */}
+        {summary.rating && <div style={{ background: "linear-gradient(135deg, " + summary.rating.color + "10, " + summary.rating.color + "03)", borderRadius: 12, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", border: "1px solid " + summary.rating.color + "30" }}>
+          <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 10, color: "#1E293B" }}>⭐ تقييم العميل</div>
+          {summary.rating.rated ? <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "center", textAlign: "center" }}>
+            <Stars value={summary.rating.stars} size={26} gap={2}/>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+              <span style={{ fontSize: 22, fontWeight: 900, color: summary.rating.color, direction: "ltr" }}>{summary.rating.stars}</span>
+              <span style={{ fontSize: 12, color: "#94A3B8", fontWeight: 600 }}>/ 5</span>
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: summary.rating.color, padding: "3px 12px", background: summary.rating.color + "15", borderRadius: 999 }}>{summary.rating.label}</div>
+            <div style={{ fontSize: 12, color: "#475569", marginTop: 4, display: "flex", flexDirection: "column", gap: 3, width: "100%" }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span>نسبة البيع:</span><b style={{ color: summary.rating.color, direction: "ltr" }}>{summary.rating.pct}%</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span>كمية مسلمة:</span><b style={{ direction: "ltr" }}>{summary.piecesDelivered}</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span>كمية مرتجعة:</span><b style={{ color: "#EF4444", direction: "ltr" }}>{summary.piecesReturned}</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px dashed #E2E8F0", paddingTop: 4 }}><span>كمية مباعة فعلياً:</span><b style={{ color: "#059669", direction: "ltr" }}>{summary.actualSold}</b></div>
+            </div>
+          </div> : <div style={{ textAlign: "center", padding: "16px 0", color: "#94A3B8" }}>
+            <div style={{ fontSize: 30, marginBottom: 6 }}>📊</div>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>{summary.rating.label}</div>
+            <div style={{ fontSize: 11, marginTop: 4 }}>التقييم يبدأ بعد أول تسليم</div>
+          </div>}
+        </div>}
       </div>}
 
       {/* V18.6: Model filter — shown on transactions tab only (models tab removed) */}

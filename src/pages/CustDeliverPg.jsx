@@ -22,6 +22,7 @@ import { ask, askForm, showToast } from "../utils/popups.js";
 import { printPage, printPkgLabel, printSalesDeliveryLabel, openPrintWindow } from "../utils/print.js";
 import { calcOrder, getConfirmedStock, recomputeStatus } from "../utils/orders.js";
 import { analyzeCustomer, fmtMonth } from "../utils/customerAnalytics.js";
+import { getCustRating, Stars } from "../utils/rating.js";
 import { getDeleteBlocker } from "../utils/dataIntegrity.js";
 import { auth } from "../firebase";
 import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../components/ui.jsx";
@@ -344,6 +345,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     printPage("تسليم عملاء — "+sess.date,h,{factoryName:config.factoryName,logo:config.logo})};
 
   const custTotalsMap=useMemo(()=>{const m=new Map();(config.customers||[]).forEach(c=>{let t=0;orders.forEach(o=>{const d=(o.customerDeliveries||[]).filter(x=>x.custId===c.id).reduce((s,x)=>s+(Number(x.qty)||0),0);const r=(o.customerReturns||[]).filter(x=>x.custId===c.id).reduce((s,x)=>s+(Number(x.qty)||0),0);t+=d-r});m.set(c.id,t)});return m},[orders,config.customers]);
+  /* V18.7: Per-customer delivered/returned breakdown — used for rating in customer picker */
+  const custDelRetMap=useMemo(()=>{const m=new Map();(config.customers||[]).forEach(c=>{let del=0,ret=0;orders.forEach(o=>{del+=(o.customerDeliveries||[]).filter(x=>x.custId===c.id).reduce((s,x)=>s+(Number(x.qty)||0),0);ret+=(o.customerReturns||[]).filter(x=>x.custId===c.id).reduce((s,x)=>s+(Number(x.qty)||0),0)});m.set(c.id,{del,ret})});return m},[orders,config.customers]);
   const getDeliveredForSess=(custId,sessId,orderId)=>{const o=orders.find(x=>x.id===orderId);if(!o)return 0;return(o.customerDeliveries||[]).filter(d=>d.custId===custId&&d.sessionId===sessId).reduce((s,d)=>s+(Number(d.qty)||0),0)};
   const getRemainingForSess=(custId,sessId,orderId,grid)=>{const planned=Number(grid[orderId+"_"+custId])||0;const delivered=getDeliveredForSess(custId,sessId,orderId);return Math.max(0,planned-delivered)};
   const getCustTotal=(custId)=>custTotalsMap.get(custId)||orders.reduce((s,o)=>{const del=(o.customerDeliveries||[]).filter(d=>d.custId===custId).reduce((ss,d)=>ss+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).filter(r=>r.custId===custId).reduce((ss,r)=>ss+(Number(r.qty)||0),0);return s+del-ret},0);
@@ -1454,13 +1457,22 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         </div>
         <div style={{marginBottom:10}}><Inp value={custFilter} onChange={setCustFilter} placeholder="بحث بالاسم أو التليفون..."/></div>
         <div style={{display:"flex",flexDirection:"column",gap:4}}>
-          {customers.filter(c=>{if(!custFilter.trim())return true;const q=custFilter.trim().toLowerCase();return(c.name||"").toLowerCase().includes(q)||(c.phone||"").includes(q)}).map(c=><div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",borderRadius:10,border:"1px solid "+T.brd,gap:10,flexWrap:"nowrap"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"08"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-            <div onClick={()=>{setCustStatement(c.id);setCustFilter("")}} style={{flex:1,minWidth:0,cursor:"pointer",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-              <span style={{fontWeight:700}}>{c.name}</span>{c.type&&<span style={{fontSize:FS-3,color:T.textMut,marginRight:6}}>{" ("+c.type+")"}</span>}
+          {customers.filter(c=>{if(!custFilter.trim())return true;const q=custFilter.trim().toLowerCase();return(c.name||"").toLowerCase().includes(q)||(c.phone||"").includes(q)}).map(c=>{
+            /* V18.7: Compute rating for picker row */
+            const dr=custDelRetMap.get(c.id)||{del:0,ret:0};
+            const rating=getCustRating(dr.del,dr.ret);
+            return<div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",borderRadius:10,border:"1px solid "+T.brd,gap:10,flexWrap:"nowrap"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"08"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+            <div onClick={()=>{setCustStatement(c.id);setCustFilter("")}} style={{flex:1,minWidth:0,cursor:"pointer",overflow:"hidden",whiteSpace:"nowrap"}}>
+              <div style={{textOverflow:"ellipsis",overflow:"hidden"}}><span style={{fontWeight:700}}>{c.name}</span>{c.type&&<span style={{fontSize:FS-3,color:T.textMut,marginRight:6}}>{" ("+c.type+")"}</span>}</div>
+              {rating.rated&&<div style={{display:"flex",alignItems:"center",gap:5,marginTop:2}}>
+                <Stars value={rating.stars} size={11} gap={1}/>
+                <span style={{fontSize:FS-3,fontWeight:700,color:rating.color,direction:"ltr"}}>{rating.stars}</span>
+                <span style={{fontSize:FS-3,color:rating.color,fontWeight:600}}>{rating.label}</span>
+              </div>}
             </div>
             <span onClick={()=>{setCustStatement(c.id);setCustFilter("")}} style={{fontSize:FS-1,color:T.accent,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>{"صافي: "+getCustTotal(c.id)}</span>
             {canEdit&&<Btn small onClick={(e)=>{e.stopPropagation();generatePortalUrl(c.id,c.name)}} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640",whiteSpace:"nowrap"}} title="رابط الحساب للعميل">📱 رابط</Btn>}
-          </div>)}
+          </div>})}
         </div>
       </div>
     </div>}
@@ -1531,7 +1543,18 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setCustStatement(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?"100%":750,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4,flexWrap:"wrap",gap:8}}>
-            <div><div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{"📄 كشف حساب — "+cust.name}</div><div style={{fontSize:FS-2,color:T.textMut}}>{(cust.type||"")+" | "+cust.phone}</div></div>
+            <div>
+              <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{"📄 كشف حساب — "+cust.name}</div>
+              <div style={{fontSize:FS-2,color:T.textMut}}>{(cust.type||"")+" | "+cust.phone}</div>
+              {/* V18.7: Customer rating in statement header */}
+              {(()=>{const rating=getCustRating(totalDel,totalRet);return<div style={{marginTop:6,display:"inline-flex",alignItems:"center",gap:8,padding:"4px 12px",background:rating.color+"12",borderRadius:999,border:"1px solid "+rating.color+"30"}}>
+                <span style={{fontSize:FS-3,color:T.textSec,fontWeight:700}}>تقييم العميل:</span>
+                <Stars value={rating.stars} size={13} gap={1}/>
+                {rating.rated&&<span style={{fontSize:FS-3,fontWeight:800,color:rating.color,direction:"ltr"}}>{rating.stars}</span>}
+                <span style={{fontSize:FS-3,fontWeight:800,color:rating.color}}>{rating.label}</span>
+                {rating.rated&&<span style={{fontSize:FS-3,color:T.textMut,direction:"ltr"}}>({rating.pct}%)</span>}
+              </div>})()}
+            </div>
             <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
               {/* V16.3: Customer stats toggle */}
               <Btn small onClick={()=>setShowCustStats(!showCustStats)} style={{background:showCustStats?T.accent:T.accent+"15",color:showCustStats?"#fff":T.accent,border:"1px solid "+T.accent+"40"}} title="إحصاءات تفصيلية">📊 إحصاءات</Btn>

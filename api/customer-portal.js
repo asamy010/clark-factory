@@ -196,6 +196,25 @@ export default async function handler(req, res) {
     deliveries.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     returns.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
+    /* V18.7: Customer rating based on retention rate */
+    const piecesDeliveredTotal = deliveries.reduce((s, d) => s + d.qty, 0);
+    const piecesReturnedTotal = returns.reduce((s, r) => s + r.qty, 0);
+    let rating;
+    if (piecesDeliveredTotal <= 0) {
+      rating = { rated: false, stars: 0, label: "لم يتم التقييم بعد", color: "#94A3B8", pct: 0 };
+    } else {
+      const sold = Math.max(0, piecesDeliveredTotal - piecesReturnedTotal);
+      const pct = (sold / piecesDeliveredTotal) * 100;
+      const stars = Math.max(0, Math.min(5, Math.round((pct / 100) * 10) / 2));
+      let label, color;
+      if (pct >= 95) { label = "ممتاز"; color = "#059669"; }
+      else if (pct >= 85) { label = "جيد جداً"; color = "#0D9488"; }
+      else if (pct >= 70) { label = "متوسط"; color = "#0EA5E9"; }
+      else if (pct >= 50) { label = "ضعيف"; color = "#F59E0B"; }
+      else { label = "سيء"; color = "#DC2626"; }
+      rating = { rated: true, stars, label, color, pct: Math.round(pct * 10) / 10 };
+    }
+
     return res.status(200).json({
       factory: { name: factoryName },
       activeSeason: config.activeSeason || "",
@@ -216,11 +235,12 @@ export default async function handler(req, res) {
         cashPaid: Math.round(cashPaid),
         checksPaid: Math.round(checksPaid),
         balance,
-        piecesDelivered: deliveries.reduce((s, d) => s + d.qty, 0),
-        piecesReturned: returns.reduce((s, r) => s + r.qty, 0),
-        actualSold: deliveries.reduce((s, d) => s + d.qty, 0) - returns.reduce((s, r) => s + r.qty, 0),
+        piecesDelivered: piecesDeliveredTotal,
+        piecesReturned: piecesReturnedTotal,
+        actualSold: piecesDeliveredTotal - piecesReturnedTotal,
         deliveryCount: deliveries.length,
         orderCount: activeModels.size,
+        rating,
       },
       activeModels: Array.from(activeModels.values()),
       deliveries: deliveries.slice(0, 100), /* limit to last 100 */
