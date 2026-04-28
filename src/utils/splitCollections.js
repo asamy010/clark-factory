@@ -155,18 +155,27 @@ export async function syncSplitCollection(collectionName, oldArr, newArr) {
   if (!Array.isArray(newArr)) newArr = [];
   if (!Array.isArray(oldArr)) oldArr = [];
   
+  /* V17.5 FIX: Auto-generate id for any entry without one. Previously these were
+     silently skipped (only a console warning), causing data loss when buggy callers
+     created entries without ids. Now we generate a deterministic id based on the
+     entry's content + position, so the same input always produces the same id
+     (preventing duplicates on retry). */
+  const _genIdFor = (entry, idx) => {
+    const ts = (entry?.date || entry?.ts || entry?.createdAt || "no-date").toString().slice(0, 19);
+    const amt = String(entry?.amount || entry?.action || "");
+    const hash = (ts + "|" + amt + "|" + idx).split("").reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
+    return "auto-" + Math.abs(hash).toString(36) + "-" + idx;
+  };
+  newArr = newArr.map((e, i) => (e && !e.id) ? { ...e, id: _genIdFor(e, i) } : e);
+  oldArr = oldArr.map((e, i) => (e && !e.id) ? { ...e, id: _genIdFor(e, i) } : e);
+  
   /* index entries by id for fast diff */
   const oldById = new Map();
   oldArr.forEach(e => { if (e && e.id) oldById.set(String(e.id), e); });
   const newById = new Map();
   newArr.forEach(e => { if (e && e.id) newById.set(String(e.id), e); });
   
-  /* V16.80 FIX #1: Warn about entries without id (silently skipped before) */
-  const noIdOld = oldArr.filter(e => e && !e.id).length;
-  const noIdNew = newArr.filter(e => e && !e.id).length;
-  if (noIdOld > 0 || noIdNew > 0) {
-    console.warn(`[splitCollections] ${collectionName}: ${noIdNew} new entries and ${noIdOld} old entries without id — these will be SKIPPED. Always provide an id.`);
-  }
+  /* (No more silent skipping — all entries now have ids via auto-gen above) */
   
   /* Compute deltas:
      - addedOrModified: new + modified (same id, different content)

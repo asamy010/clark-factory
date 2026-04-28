@@ -25,6 +25,44 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V17.5",
+    date: "2026-04-28",
+    types: ["fix"],
+    title: "إصلاحات نهائية: Transfer cascade + Auto-id",
+    changes: [
+      { type: "fix", text: "Transfer delete (single + bulk + deleteTransfer) دلوقتي يـcascade-cleanup للـcustPayments / supplierPayments / wsPayments المرتبطة بـ**كلا** الـlegs" },
+      { type: "fix", text: "Bulk delete مع selection جزئي لـtransfer دلوقتي ينظف الـlinked records على الـleg الثانية اللي ما اتختارتش" },
+      { type: "fix", text: "Entry بدون id ما تتـskip بصمت — تتولّد لها id deterministic بناءً على الـcontent (آمن من duplicates)" },
+      { type: "improvement", text: "إزالة الـdead warning code للـentries بدون id" },
+    ]
+  },
+  {
+    version: "V17.4",
+    date: "2026-04-28",
+    types: ["fix"],
+    title: "إصلاح UI flicker في تأكيد التحويل + إزالة زر حذف خطر",
+    changes: [
+      { type: "fix", text: "🚨 إصلاح bug: لما تضغط 'تأكيد التحويل'، التحويل كان يتم → يرجع زي قبل ثانية → يتم تاني. السبب: الـconfig listener كان يـoverride الـoptimistic state بـcached snap قبل ما الـserver يأكد" },
+      { type: "fix", text: "Listener دلوقتي يتجاهل الـsnaps اللي عندها hasPendingWrites=true لو عندنا config محمّل بالفعل (الـpending IS local state)" },
+      { type: "fix", text: "إضافة configDocRef للوصول للقيمة الحالية من داخل listener closure (بدل الـstale closure value)" },
+      { type: "fix", text: "إزالة زر الحذف 🗑️ من popup تأكيد استلام مخزن الجاهز — كان يسبب حذف صدفة لتسليمات معلّقة" },
+      { type: "improvement", text: "تنظيف: حذف الـtip النصي اللي كان يشير للزر، وحذف الـ'إجراء' column" },
+    ]
+  },
+  {
+    version: "V17.3",
+    date: "2026-04-28",
+    types: ["fix"],
+    title: "إصلاحات إضافية في الخزنة (audit مركّز)",
+    changes: [
+      { type: "fix", text: "🚨 Bulk delete السلف: كان يحذف كل السلف المتطابقة في hrLog (نفس bug #11 لكن في bulk delete)" },
+      { type: "fix", text: "Inline edit في اليومية: بقا يـsync الـcustPayments / supplierPayments / wsPayments / hrLog (كان يحدّث الـtreasury فقط)" },
+      { type: "fix", text: "Edit popup للسلفة: لو غيّرت الموظف، الـhrLog القديم يتحذف ويتنشئ واحد جديد. لو شلت الموظف، الـhrLog يتحذف والـlink يتنظف" },
+      { type: "fix", text: "Edit popup: لو الـtx ما كنش سلفة وأضفت موظف، يتنشأ hrLog جديد تلقائياً" },
+      { type: "fix", text: "Edit popup: tx.empId الآن يتحدث بشكل صحيح (كان مش بيتحدث في القديم)" },
+    ]
+  },
+  {
     version: "V17.2",
     date: "2026-04-28",
     types: ["fix", "architectural"],
@@ -108,49 +146,6 @@ const CHANGELOG = [
       { type: "feature", text: "إدارة الأقمشة والإكسسوارات بقت من المخزن مباشرة (إضافة/تعديل/حذف)" },
       { type: "feature", text: "كارت 'وضع المخزن' في الإعدادات بـ4 أوضاع: مغلق / عرض فقط / السماح بالسالب / صارم" },
       { type: "improvement", text: "كل وضع له شرح واضح وconfirmation قبل التفعيل" },
-    ]
-  },
-  {
-    version: "V16.76",
-    date: "2026-04-27",
-    types: ["fix"],
-    title: "إصلاحات حرجة في split/partitioned",
-    changes: [
-      { type: "fix", text: "إصلاح bug خطير: الحذف كان يرجع بعد refresh لأن splitDataRef كان يتحدث قبل ما upConfigTx يقرا الـsnapshot الأصلي" },
-      { type: "fix", text: "تمرير explicitSplitBefore و explicitPartBefore من upConfig لـupConfigTx لضمان dif صحيح" },
-      { type: "fix", text: "ترتيب حركات الخزنة مرتبة حسب اليوم (الأحدث فوق) بدل insertion order للـMap" },
-      { type: "improvement", text: "syncSplitCollection بقت تقرأ الـserver day doc أولاً ثم تطبّق delta — مفيش data loss حتى لو local state غير كامل" },
-      { type: "improvement", text: "syncPartitionedCollection بقت ما تحذفش لو oldArr فاضي (race protection)" },
-      { type: "fix", text: "Safety check في upConfig يمنع الكتابة قبل تحميل splitData/partitionedData" },
-    ]
-  },
-  {
-    version: "V16.75",
-    date: "2026-04-27",
-    types: ["architectural", "feature"],
-    title: "تقسيم أسابيع المرتبات + Storage Notices",
-    changes: [
-      { type: "architectural", text: "تقسيم hrWeeks إلى collection منفصلة hrWeeksDocs — كل أسبوع document مستقل" },
-      { type: "architectural", text: "هذا يسمح بنمو سنوي بدون حدود الـ1MB لكل document" },
-      { type: "feature", text: "نظام Storage Notices — رسائل نظام التخزين تظهر في الإعدادات بدل toasts للموظفين" },
-      { type: "feature", text: "كارت في الإعدادات يعرض كل أسبوع وحالته وحجمه" },
-      { type: "fix", text: "إصلاح مشكلة الطباعة المكررة (نافذة طباعة كانت تفتح مرتين)" },
-      { type: "improvement", text: "نقل الإحصائيات من الشاشات (Treasury, HR, Audit) للإعدادات فقط" },
-    ]
-  },
-  {
-    version: "V16.74",
-    date: "2026-04-27",
-    types: ["architectural"],
-    title: "تقسيم Treasury + AuditLog + HRLog",
-    changes: [
-      { type: "architectural", text: "تقسيم بيانات الخزنة إلى collection يومية treasuryDays/{YYYY-MM-DD}" },
-      { type: "architectural", text: "تقسيم سجل الأحداث إلى auditDays/{YYYY-MM-DD}" },
-      { type: "architectural", text: "تقسيم سجل HR إلى hrLogDays/{YYYY-MM-DD}" },
-      { type: "architectural", text: "factory/config صغر بنسبة 56% (من ~450 KB إلى ~199 KB)" },
-      { type: "feature", text: "Migration script أوتوماتيكية مع backup كامل قبل التحويل" },
-      { type: "feature", text: "كارت 'مراقبة التخزين اليومي' في الإعدادات يعرض حجم كل document يومي" },
-      { type: "improvement", text: "كل document يومي 5-10 KB، يسمح بسنوات من النمو بدون مشاكل" },
     ]
   },
 ];

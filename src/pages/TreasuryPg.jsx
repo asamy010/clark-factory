@@ -463,19 +463,39 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     if(txPartyId&&txPartyType==="employee"){const e=(data.employees||[]).find(x=>x.id===txPartyId);if(e){linkedEmpId=e.id;if(!finalDesc.trim())finalDesc="سلفة "+e.name}}
     upConfig(d=>{if(!d.treasury)d.treasury=[];
       if(editId){const tx=d.treasury.find(t=>t.id===editId);
-        if(tx){tx.type=txType;tx.amount=amt;tx.desc=finalDesc;tx.notes=txNotes;tx.category=txCategory;tx.account=txAccount;tx.season=txSeason;tx.date=txDate;tx.custId=linkedCustId;tx.supplierId=linkedSupplierId;tx.updatedBy=userName;tx.updatedAt=new Date().toISOString();
+        if(tx){
+          /* V17.3 FIX: Capture old empId BEFORE overwriting it, so we can sync hrLog */
+          const oldEmpId=tx.empId;
+          const oldHrLogId=tx.hrLogId;
+          const oldSourceType=tx.sourceType;
+          tx.type=txType;tx.amount=amt;tx.desc=finalDesc;tx.notes=txNotes;tx.category=txCategory;tx.account=txAccount;tx.season=txSeason;tx.date=txDate;tx.custId=linkedCustId;tx.supplierId=linkedSupplierId;tx.empId=linkedEmpId;tx.updatedBy=userName;tx.updatedAt=new Date().toISOString();
           /* Sync linked wsPayment if exists */
           if(tx.wsPaymentId){const wp=(d.wsPayments||[]).find(p=>p.id===tx.wsPaymentId);if(wp){wp.amount=amt;wp.notes=txNotes;wp.date=txDate;wp.type=txCategory==="مشتريات"?"purchase":"payment"}}
-          /* V16.68: Sync custPayments / supplierPayments on edit too — previously
-             only the new-tx branch created these records, so editing an existing
-             tx to LINK a supplier (e.g. by changing category to "دفع مورد") set
-             tx.supplierId but never created the supplierPayment. The supplier's
-             account statement was missing the payment. Three rules:
-             1. If the tx was previously linked to a different party, remove the
-                old payment record (idempotent toggle).
-             2. If the tx is now linked to a customer/supplier, ensure exactly
-                one payment record exists with current values.
-             3. If the link was removed entirely, drop the payment record. */
+          /* V17.3 FIX: Sync linked hrLog if this was an advance.
+             Three cases:
+             1. Was advance + still has same employee: update hrLog amount/date/desc
+             2. Was advance + employee removed/changed: delete old hrLog, create new if new emp
+             3. Was NOT advance + now has employee: create new hrLog (handled below) */
+          if(oldHrLogId&&d.hrLog){
+            const oldLog=d.hrLog.find(l=>l.id===oldHrLogId);
+            if(oldLog){
+              if(linkedEmpId===oldEmpId&&txType==="out"){
+                /* Same employee — just update */
+                const emp=(d.employees||[]).find(x=>x.id===linkedEmpId);
+                oldLog.amount=amt;
+                oldLog.empName=emp?emp.name:oldLog.empName;
+                oldLog.desc=txNotes||finalDesc||oldLog.desc;
+                oldLog.date=txDate;
+              }else{
+                /* Employee changed or removed — delete old hrLog */
+                d.hrLog=d.hrLog.filter(l=>l.id!==oldHrLogId);
+                /* And clear the now-stale link from tx */
+                delete tx.hrLogId;
+                if(oldSourceType==="hr_advance")delete tx.sourceType;
+              }
+            }
+          }
+          /* V16.68: Sync custPayments / supplierPayments on edit too */
           if(d.custPayments)d.custPayments=d.custPayments.filter(p=>p.treasuryTxId!==editId);
           if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>p.treasuryTxId!==editId);
           if(linkedCustId&&txType==="in"){
@@ -487,6 +507,14 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             if(!d.supplierPayments)d.supplierPayments=[];
             const s=suppliers.find(x=>x.id===linkedSupplierId);
             d.supplierPayments.push({id:gid(),supplierId:linkedSupplierId,supplierName:s?s.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:"كاش",by:userName,treasuryTxId:editId,createdAt:new Date().toISOString()});
+          }
+          /* V17.3 FIX: If the edit added an employee link (was no advance, now is one), create hrLog */
+          if(linkedEmpId&&txType==="out"&&!tx.hrLogId&&linkedEmpId!==oldEmpId){
+            if(!d.hrLog)d.hrLog=[];
+            const emp=(d.employees||[]).find(x=>x.id===linkedEmpId);
+            const logId=gid();
+            d.hrLog.unshift({id:logId,type:"advance",empId:linkedEmpId,empName:emp?emp.name:"",amount:amt,desc:txNotes||finalDesc||"سلفة",weekId:"",date:txDate,by:userName,createdAt:new Date().toISOString()});
+            tx.sourceType="hr_advance";tx.hrLogId=logId;
           }
         }}
       else{
@@ -578,15 +606,27 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const tx=(d.treasury||[]).find(t=>t.id===id);
     /* V16.9: If this tx is part of a transfer, delete BOTH legs + the transfer record */
     if(tx&&tx.transferId){
+      /* V17.5 FIX: Cascade-clean linked records from BOTH transfer legs (out + in).
+         Previously the cleanup below only used `id` (the single tx the user clicked),
+         missing any linked records on the OTHER leg. Internal transfers rarely have
+         such links, but it's possible if a tx category was misset and later corrected.
+         Capture both legs' ids before deleting the treasury entries. */
+      const transferLegIds=(d.treasury||[]).filter(t=>t.transferId===tx.transferId).map(t=>t.id);
       d.treasury=(d.treasury||[]).filter(t=>t.transferId!==tx.transferId);
       d.treasuryTransfers=(d.treasuryTransfers||[]).filter(tf=>tf.id!==tx.transferId);
       d.notifications=(d.notifications||[]).filter(n=>n.transferId!==tx.transferId);
+      /* Cascade cleanup for both legs */
+      if(d.custPayments)d.custPayments=d.custPayments.filter(p=>!transferLegIds.includes(p.treasuryTxId));
+      if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>!transferLegIds.includes(p.treasuryTxId));
+      if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>!transferLegIds.includes(p.treasuryTxId));
     }else{
       d.treasury=(d.treasury||[]).filter(t=>t.id!==id);
+      if(tx){if(d.custPayments)d.custPayments=d.custPayments.filter(p=>p.treasuryTxId!==id);
+        if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>p.treasuryTxId!==id);
+        if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>p.treasuryTxId!==id);
+      }
     }
-    if(tx){if(d.custPayments)d.custPayments=d.custPayments.filter(p=>p.treasuryTxId!==id);
-      if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>p.treasuryTxId!==id);
-      if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>p.treasuryTxId!==id);
+    if(tx){
       /* Remove linked hrLog advance entry */
       if(tx.hrLogId&&d.hrLog)d.hrLog=d.hrLog.filter(l=>l.id!==tx.hrLogId);
       /* V17.1 FIX #11: For legacy advances without hrLogId, delete ONLY the first match
@@ -648,11 +688,29 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>p.treasuryTxId!==tx.id);
         if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>p.treasuryTxId!==tx.id);
         if(tx.hrLogId&&d.hrLog)d.hrLog=d.hrLog.filter(l=>l.id!==tx.hrLogId);
-        if(tx.sourceType==="hr_advance"&&tx.empId&&d.hrLog)d.hrLog=d.hrLog.filter(l=>!(l.type==="advance"&&l.empId===tx.empId&&l.date===tx.date&&Math.abs((Number(l.amount)||0)-(Number(tx.amount)||0))<0.01));
+        /* V17.3 FIX: Same as single-delete (V17.1 FIX #11) — delete ONLY the first match,
+           not all matches. Previous bulk-delete logic deleted ALL matching advances, which
+           would wipe multiple legitimate same-amount-same-day advances. */
+        if(tx.sourceType==="hr_advance"&&tx.empId&&!tx.hrLogId&&d.hrLog){
+          const matchIdx=d.hrLog.findIndex(l=>l.type==="advance"&&l.empId===tx.empId&&l.date===tx.date&&Math.abs((Number(l.amount)||0)-(Number(tx.amount)||0))<0.01);
+          if(matchIdx>=0){
+            d.hrLog=d.hrLog.filter((_,i)=>i!==matchIdx);
+          }
+        }
         deletedCount++;totalAmount+=Number(tx.amount)||0;
       });
       /* V16.9: Now batch-remove all transfer records + their paired legs */
       if(transferIdsToDelete.size>0){
+        /* V17.5 FIX: Cleanup linked records (custPayments/supplierPayments/wsPayments)
+           for the OTHER transfer leg before we delete the treasury entries.
+           When the user only selects ONE leg of a transfer for bulk delete, the loop
+           above only cleans linked records for that one tx. The OTHER leg's linked
+           records would be orphaned. Find all transfer legs (by transferId) and clean
+           their linked records too. */
+        const allTransferLegIds=(d.treasury||[]).filter(t=>t.transferId&&transferIdsToDelete.has(t.transferId)).map(t=>t.id);
+        if(d.custPayments)d.custPayments=d.custPayments.filter(p=>!allTransferLegIds.includes(p.treasuryTxId));
+        if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>!allTransferLegIds.includes(p.treasuryTxId));
+        if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>!allTransferLegIds.includes(p.treasuryTxId));
         d.treasury=(d.treasury||[]).filter(t=>!t.transferId||!transferIdsToDelete.has(t.transferId));
         d.treasuryTransfers=(d.treasuryTransfers||[]).filter(tf=>!transferIdsToDelete.has(tf.id));
         if(d.notifications)d.notifications=d.notifications.filter(n=>!n.transferId||!transferIdsToDelete.has(n.transferId));
@@ -817,6 +875,12 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   /* Delete a transfer — removes both entries */
   const deleteTransfer=(tfId)=>{const tf=transfers.find(t=>t.id===tfId);if(!tf)return;
     upConfig(d=>{
+      /* V17.5 FIX: cascade-cleanup linked records (custPayments/supplierPayments/wsPayments)
+         on both transfer legs before deleting the treasury entries. */
+      const transferLegIds=(d.treasury||[]).filter(t=>t.transferId===tfId).map(t=>t.id);
+      if(d.custPayments)d.custPayments=d.custPayments.filter(p=>!transferLegIds.includes(p.treasuryTxId));
+      if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>!transferLegIds.includes(p.treasuryTxId));
+      if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>!transferLegIds.includes(p.treasuryTxId));
       d.treasuryTransfers=(d.treasuryTransfers||[]).filter(t=>t.id!==tfId);
       d.treasury=(d.treasury||[]).filter(t=>t.transferId!==tfId);
       d.notifications=(d.notifications||[]).filter(n=>n.transferId!==tfId);
@@ -1583,7 +1647,33 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           {withBalance.slice(0,limit).map(t=>{const locked=isDayLocked(t.date);const isEd=inlineEdit===t.id;const d_=inlineDraft;
             const inpS={padding:"3px 6px",borderRadius:6,border:"1px solid "+T.accent+"40",fontSize:FS-2,fontFamily:"inherit",background:T.inputBg,color:T.text};
             const startEdit=()=>{setInlineEdit(t.id);setInlineDraft({type:t.type,amount:String(t.amount||""),desc:t.desc||"",notes:t.notes||"",category:t.category||"",date:t.date||"",account:t.account||""})};
-            const saveInline=()=>{upConfig(cfg=>{const tx=(cfg.treasury||[]).find(x=>x.id===t.id);if(tx){tx.type=d_.type||tx.type;tx.amount=parseFloat(d_.amount)||tx.amount;tx.desc=d_.desc;tx.notes=d_.notes;tx.category=d_.category;tx.date=d_.date||tx.date;tx.account=d_.account||tx.account;tx.day=dayName(d_.date||tx.date);tx.updatedBy=userName;tx.updatedAt=new Date().toISOString()}});setInlineEdit(null);setInlineDraft({});showToast("✓ تم التعديل")};
+            const saveInline=()=>{upConfig(cfg=>{const tx=(cfg.treasury||[]).find(x=>x.id===t.id);if(tx){
+              const newAmt=parseFloat(d_.amount)||tx.amount;
+              const newDate=d_.date||tx.date;
+              const newNotes=d_.notes;
+              tx.type=d_.type||tx.type;tx.amount=newAmt;tx.desc=d_.desc;tx.notes=newNotes;tx.category=d_.category;tx.date=newDate;tx.account=d_.account||tx.account;tx.day=dayName(newDate);tx.updatedBy=userName;tx.updatedAt=new Date().toISOString();
+              /* V17.3 FIX: Sync linked records when amount/date changes via inline edit.
+                 Previously inline edit only updated treasury, leaving custPayments,
+                 supplierPayments, wsPayments, and hrLog out of sync. This caused
+                 employee advance records to show stale amounts and customer/supplier
+                 statements to be wrong after inline-editing a treasury entry. */
+              if(tx.wsPaymentId&&cfg.wsPayments){
+                const wp=cfg.wsPayments.find(p=>p.id===tx.wsPaymentId);
+                if(wp){wp.amount=newAmt;wp.date=newDate;wp.notes=newNotes}
+              }
+              if(cfg.custPayments){
+                const cp=cfg.custPayments.find(p=>p.treasuryTxId===tx.id);
+                if(cp){cp.amount=newAmt;cp.date=newDate;cp.note=newNotes||tx.desc}
+              }
+              if(cfg.supplierPayments){
+                const sp=cfg.supplierPayments.find(p=>p.treasuryTxId===tx.id);
+                if(sp){sp.amount=newAmt;sp.date=newDate;sp.note=newNotes||tx.desc}
+              }
+              if(tx.hrLogId&&cfg.hrLog){
+                const hl=cfg.hrLog.find(l=>l.id===tx.hrLogId);
+                if(hl){hl.amount=newAmt;hl.date=newDate;hl.desc=newNotes||tx.desc||hl.desc}
+              }
+            }});setInlineEdit(null);setInlineDraft({});showToast("✓ تم التعديل")};
             const cancelInline=()=>{setInlineEdit(null);setInlineDraft({})};
             const isChecked=selectedTxIds.has(t.id);
             return<tr key={t.id} style={{borderBottom:"1px solid "+T.brd,opacity:locked?0.8:1,background:isChecked?T.err+"06":isEd?T.accent+"06":locked?T.bg:""}}>

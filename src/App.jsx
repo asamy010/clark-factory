@@ -159,6 +159,10 @@ export default function App(){
   /* V16.74: split collections state — treasury, auditLog, hrLog من daily collections */
   const[splitData,setSplitData]=useState({treasury:[],auditLog:[],hrLog:[]});
   const[splitLoaded,setSplitLoaded]=useState(false);
+  /* V17.4: ref tracking latest configDoc — used by listeners to check if a snap
+     would override our local optimistic state (cached snaps with hasPendingWrites
+     can race ahead of our setConfigDoc, briefly regressing the UI). */
+  const configDocRef=useRef(null);
   /* V16.75: partitioned collections state — hrWeeks (each week is its own document) */
   const[partitionedData,setPartitionedData]=useState({hrWeeks:[]});
   const[partitionedLoaded,setPartitionedLoaded]=useState(false);
@@ -469,9 +473,31 @@ export default function App(){
     };
 
     /* Main config listener */
-    const u1=onSnapshot(doc(db,"factory","config"),snap=>{
+    const u1=onSnapshot(doc(db,"factory","config"),{includeMetadataChanges:false},snap=>{
       if(!snap.exists()){setDoc(doc(db,"factory","config"),INIT_CONFIG);return}
       const d=snap.data();
+      /* V17.4 FIX: Don't override our local optimistic state with stale cached/pending data.
+         
+         Bug we're fixing: When user clicks "تأكيد التحويل":
+         1. upConfig() does setConfigDoc(stripped) — UI shows transfer confirmed
+         2. Firestore SDK caches the write locally
+         3. onSnapshot fires from CACHE before the server acknowledges. snap.data() may
+            return data WITHOUT our optimistic update (race window in the SDK).
+         4. setConfigDoc(d) applies stale state → UI regresses to "pending"
+         5. Server acknowledges → onSnapshot fires again with confirmed state
+         6. setConfigDoc(d) applies the new server state → UI returns to "confirmed"
+         
+         The user sees: confirmed → pending (briefly) → confirmed. 
+         
+         Fix: ignore snaps with hasPendingWrites if we already have a configDoc loaded.
+         The pending write IS our local state, no need to overwrite ourselves with our
+         own intermediate cache. We will get a server-confirmed snap shortly after.
+         
+         Use configDocRef (not configDoc closure) because the closure captures stale value. */
+      if(snap.metadata.hasPendingWrites&&configDocRef.current){
+        /* Skip — our local state is fresher than this cached snap */
+        return;
+      }
       /* ALWAYS show the data to the user (even if cached — that's fine for display) */
       setConfigDoc(d);
       /* ⛔ Skip ALL migrations if data is from local cache or has pending writes.
@@ -1327,6 +1353,8 @@ export default function App(){
   /* V16.74: ref to current splitData للقراءة من داخل upConfigTx (transactions تشتغل بدون state freshness) */
   const splitDataRef=useRef(splitData);
   useEffect(()=>{splitDataRef.current=splitData},[splitData]);
+  /* V17.4: keep configDocRef in sync — used by config listener to detect own optimistic state */
+  useEffect(()=>{configDocRef.current=configDoc},[configDoc]);
   /* V16.75: ref to current partitionedData للقراءة من داخل upConfigTx */
   const partitionedDataRef=useRef(partitionedData);
   useEffect(()=>{partitionedDataRef.current=partitionedData},[partitionedData]);
@@ -2025,7 +2053,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V17.2 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >V17.5 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -3081,7 +3109,7 @@ export default function App(){
       </div>
     )}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V17.2"/>
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V17.5"/>
   </div>
 }
 

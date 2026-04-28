@@ -2846,10 +2846,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           </div>
           <div style={{flex:1,overflowY:"auto",padding:isMob?"8px 12px":"12px 24px"}}>
             {pendings.length>0?<div>
-              <div style={{fontSize:FS-2,color:T.textMut,marginBottom:8,padding:"8px 10px",background:"#F0F9FF",border:"1px solid #BAE6FD",borderRadius:8,lineHeight:1.6}}>
-                💡 <b>ملحوظة:</b> لو الموديل اتباع بالفعل للعميل وظهر هنا، يبقى فيه تسليم قديم مش متأكد. تقدر تحذفه من الزر الأحمر (🗑️).
-              </div>
-              <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","معلّق","مباع للعميل","تسليم مخزن جاهز","الفرق","إجراء"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
+              <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","معلّق","مباع للعميل","تسليم مخزن جاهز","الفرق"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
                 {pendings.map(p=>{
                   const val=rcvItems[p.orderId]||0;
                   const diff=val-p.pendingQty;
@@ -2863,15 +2860,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                   const availableInStock=confirmedStock-netSold;
                   const isAlreadySold=netSold>=confirmedStock+p.pendingQty;/* pending was likely already consumed by sales */
                   const bg=isAlreadySold?"#FEE2E2":(hasVal&&diff!==0?"#FEF2F2":hasVal?"#F0FDF4":"transparent");
-                  const deletePending=()=>{
-                    if(!window.confirm("تأكد: حذف "+p.pendingQty+" قطعة معلّقة من موديل "+p.modelNo+"؟\n\nده هيشيل التسليم المعلّق بدون ما يضيفه للمخزن."))return;
-                    updOrder(p.orderId,ord=>{
-                      if(!ord.deliveries)return;
-                      /* Remove only the pending ones */
-                      ord.deliveries=ord.deliveries.filter((d,idx)=>!p.pendingIdxs.includes(idx));
-                    });
-                    showToast("✓ تم حذف التسليم المعلّق");
-                  };
+                  /* V17.4: deletePending function removed — was used by the delete button in this popup
+                     but the button caused accidental data loss when users clicked it by mistake. */
                   return<tr key={p.orderId} style={{background:bg}}>
                     <td style={{...TD,fontWeight:800,color:T.accent}}>
                       <div>{p.modelNo}</div>
@@ -2882,9 +2872,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                     <td style={{...TDB,fontSize:FS-1,fontWeight:700,color:netSold>0?"#10B981":T.textMut}}>{netSold}</td>
                     <td style={{...TD,textAlign:"center",padding:2}}><input type="number" value={val||""} onChange={e=>{const v=Math.max(0,Number(e.target.value)||0);setPendingRcv(pr=>({...pr,items:{...pr.items,[p.orderId]:v}}))}} placeholder="0" style={{width:70,textAlign:"center",border:"2px solid "+(isAlreadySold?"#EF4444":"#10B981"),borderRadius:6,padding:"6px",fontSize:FS+1,fontWeight:800,fontFamily:"inherit",background:T.bg,color:T.text}}/></td>
                     <td style={{...TDB,fontWeight:800,color:diff<0?"#EF4444":diff===0?"#10B981":"#0EA5E9"}}>{hasVal?(diff>0?"+"+diff:diff):"—"}</td>
-                    <td style={{...TD,textAlign:"center",padding:2}}>
-                      <Btn small onClick={deletePending} style={{background:"#EF444412",color:"#EF4444",border:"1px solid #EF444430",padding:"4px 8px",fontSize:FS-2}} title={"حذف التسليم المعلّق — "+p.pendingQty+" قطعة"}>🗑️</Btn>
-                    </td>
+                    {/* V17.4: Delete button removed — was causing accidental deletions of pending stock entries when users clicked it by mistake. Pending entries can still be cleared via other workflows if truly needed. */}
                   </tr>;
                 })}
               </tbody></table>
