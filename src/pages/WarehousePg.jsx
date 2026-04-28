@@ -31,6 +31,9 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   const[prodCategoryF,setProdCategoryF]=useState("");
   const[showProdForm,setShowProdForm]=useState(false);
   const[prodForm,setProdForm]=useState(null);/* {id?, name, category, unit, price, minStock, notes} */
+  /* V16.77: Fabric/Accessory add+edit forms (moved from DBPg) */
+  const[fabForm,setFabForm]=useState(null);/* {name,unit,price,_eid} */
+  const[accForm,setAccForm]=useState(null);/* {name,unit,price,_eid} */
   const[showMoveForm,setShowMoveForm]=useState(false);
   const[moveForm,setMoveForm]=useState(null);/* {itemType, itemId, itemName, unit, type:in|out|adjust, qty, price, date, notes} */
   /* Movements filters */
@@ -308,6 +311,72 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     upConfig(d=>{d.generalProducts=(d.generalProducts||[]).filter(x=>x.id!==p.id)});
     showToast("تم حذف المنتج");
   };
+
+  /* ──────── V16.77: FABRIC ADD/EDIT/DELETE (moved from DBPg) ──────── */
+  const saveFab=async()=>{
+    if(!canEdit||!fabForm)return;
+    if(!fabForm.name||!fabForm.name.trim()){await tell("الاسم مطلوب","يرجى إدخال اسم القماش",{type:"warning"});return}
+    upConfig(d=>{
+      if(!d.fabrics)d.fabrics=[];
+      if(fabForm._eid){
+        const idx=d.fabrics.findIndex(x=>x.id===fabForm._eid);
+        if(idx>=0)d.fabrics[idx]={...d.fabrics[idx],name:fabForm.name.trim(),unit:fabForm.unit||"كيلو",price:Number(fabForm.price)||0};
+      }else{
+        d.fabrics.push({id:Date.now(),name:fabForm.name.trim(),unit:fabForm.unit||"كيلو",price:Number(fabForm.price)||0,stock:0});
+      }
+    });
+    setFabForm(null);
+    showToast(fabForm._eid?"✅ تم تعديل القماش":"✅ تم إضافة القماش");
+  };
+  const editFab=(f)=>setFabForm({name:f.name,unit:f.unit,price:f.price,_eid:f.id});
+  const deleteFab=async(f)=>{
+    if(!canEdit)return;
+    const blocker=formatBlockerMessage(data,"fabric",f.id,f.name);
+    if(blocker){await tell("لا يمكن حذف القماش",blocker,{type:"warning"});return}
+    const confirmed=await ask("حذف القماش","حذف القماش "+f.name+"؟",{danger:true,confirmText:"حذف"});
+    if(!confirmed)return;
+    upConfig(d=>{
+      if(!d.recycleBin)d.recycleBin=[];
+      const item=(d.fabrics||[]).find(x=>x.id===f.id);
+      if(item)d.recycleBin.unshift({...item,_type:"قماش",_collection:"fabrics",_deletedAt:new Date().toISOString()});
+      d.fabrics=(d.fabrics||[]).filter(x=>x.id!==f.id);
+      if(d.recycleBin.length>100)d.recycleBin=d.recycleBin.slice(0,100);
+    });
+    showToast("✓ تم حذف القماش — يمكن الاستعادة من سلة المحذوفات");
+  };
+
+  /* ──────── V16.77: ACCESSORY ADD/EDIT/DELETE (moved from DBPg) ──────── */
+  const saveAcc=async()=>{
+    if(!canEdit||!accForm)return;
+    if(!accForm.name||!accForm.name.trim()){await tell("الاسم مطلوب","يرجى إدخال وصف الإكسسوار",{type:"warning"});return}
+    upConfig(d=>{
+      if(!d.accessories)d.accessories=[];
+      if(accForm._eid){
+        const idx=d.accessories.findIndex(x=>x.id===accForm._eid);
+        if(idx>=0)d.accessories[idx]={...d.accessories[idx],name:accForm.name.trim(),unit:accForm.unit||"قطعة",price:Number(accForm.price)||0};
+      }else{
+        d.accessories.push({id:Date.now(),name:accForm.name.trim(),unit:accForm.unit||"قطعة",price:Number(accForm.price)||0,stock:0});
+      }
+    });
+    setAccForm(null);
+    showToast(accForm._eid?"✅ تم تعديل الإكسسوار":"✅ تم إضافة الإكسسوار");
+  };
+  const editAcc=(a)=>setAccForm({name:a.name,unit:a.unit,price:a.price,_eid:a.id});
+  const deleteAcc=async(a)=>{
+    if(!canEdit)return;
+    const blocker=formatBlockerMessage(data,"accessory",a.id,a.name);
+    if(blocker){await tell("لا يمكن حذف الإكسسوار",blocker,{type:"warning"});return}
+    const confirmed=await ask("حذف الإكسسوار","حذف الإكسسوار "+a.name+"؟",{danger:true,confirmText:"حذف"});
+    if(!confirmed)return;
+    upConfig(d=>{
+      if(!d.recycleBin)d.recycleBin=[];
+      const item=(d.accessories||[]).find(x=>x.id===a.id);
+      if(item)d.recycleBin.unshift({...item,_type:"اكسسوار",_collection:"accessories",_deletedAt:new Date().toISOString()});
+      d.accessories=(d.accessories||[]).filter(x=>x.id!==a.id);
+      if(d.recycleBin.length>100)d.recycleBin=d.recycleBin.slice(0,100);
+    });
+    showToast("✓ تم حذف الإكسسوار — يمكن الاستعادة من سلة المحذوفات");
+  };
   
   /* ──────── MANUAL MOVEMENT (in / out / adjust) ──────── */
   const openMoveForm=(itemType,item)=>{
@@ -539,6 +608,15 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
                     <Btn small onClick={()=>editProd(item)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",padding:"2px 7px",fontSize:FS-3}} title="تعديل">✏️</Btn>
                     <Btn small onClick={()=>deleteProd(item)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",padding:"2px 7px",fontSize:FS-3}} title="حذف">🗑</Btn>
                   </>}
+                  {/* V16.77: edit/delete buttons for fabric and accessory */}
+                  {type==="fabric"&&<>
+                    <Btn small onClick={()=>editFab(item)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",padding:"2px 7px",fontSize:FS-3}} title="تعديل">✏️</Btn>
+                    <Btn small onClick={()=>deleteFab(item)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",padding:"2px 7px",fontSize:FS-3}} title="حذف">🗑</Btn>
+                  </>}
+                  {type==="accessory"&&<>
+                    <Btn small onClick={()=>editAcc(item)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",padding:"2px 7px",fontSize:FS-3}} title="تعديل">✏️</Btn>
+                    <Btn small onClick={()=>deleteAcc(item)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",padding:"2px 7px",fontSize:FS-3}} title="حذف">🗑</Btn>
+                  </>}
                 </div>}
               </td>
             </tr>;
@@ -725,6 +803,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
             <input type="checkbox" checked={hideZero} onChange={e=>setHideZero(e.target.checked)}/>
             <span>إخفاء الأصناف الصفرية</span>
           </label>
+          {canEdit&&<Btn primary small onClick={()=>setFabForm({name:"",unit:"كيلو",price:"",_eid:null})}>+ قماش جديد</Btn>}
         </div>
         {renderItemTable(filteredFab,"fabric")}
       </Card>
@@ -751,6 +830,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
             <input type="checkbox" checked={hideZero} onChange={e=>setHideZero(e.target.checked)}/>
             <span>إخفاء الأصناف الصفرية</span>
           </label>
+          {canEdit&&<Btn primary small onClick={()=>setAccForm({name:"",unit:"قطعة",price:"",_eid:null})}>+ اكسسوار جديد</Btn>}
         </div>
         {renderItemTable(filteredAcc,"accessory")}
       </Card>
@@ -1059,6 +1139,64 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
           <Btn ghost onClick={()=>setShowProdForm(false)}>إلغاء</Btn>
           <Btn primary onClick={saveProd} style={{background:"#EC4899",color:"#fff",border:"none"}}>💾 {prodForm.id?"حفظ":"إضافة"}</Btn>
+        </div>
+      </div>
+    </div>}
+    
+    {/* ════ V16.77: FABRIC FORM POPUP (moved from DBPg) ════ */}
+    {fabForm&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setFabForm(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
+        <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,marginBottom:14}}>{fabForm._eid?"✏️ تعديل القماش":"+ قماش جديد"}</div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec}}>اسم القماش</label>
+            <Inp value={fabForm.name} onChange={v=>setFabForm({...fabForm,name:v})}/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <div>
+              <label style={{fontSize:FS-2,color:T.textSec}}>الوحدة</label>
+              <Sel value={fabForm.unit} onChange={v=>setFabForm({...fabForm,unit:v})}>
+                {getUnits(data,fabForm.unit).map(u=><option key={u} value={u}>{u}</option>)}
+              </Sel>
+            </div>
+            <div>
+              <label style={{fontSize:FS-2,color:T.textSec}}>السعر</label>
+              <Inp value={fabForm.price} onChange={v=>setFabForm({...fabForm,price:v})} type="number"/>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:8}}>
+            <Btn ghost onClick={()=>setFabForm(null)}>إلغاء</Btn>
+            <Btn primary onClick={saveFab}>💾 {fabForm._eid?"حفظ التعديلات":"إضافة"}</Btn>
+          </div>
+        </div>
+      </div>
+    </div>}
+    
+    {/* ════ V16.77: ACCESSORY FORM POPUP (moved from DBPg) ════ */}
+    {accForm&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setAccForm(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
+        <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6",marginBottom:14}}>{accForm._eid?"✏️ تعديل الإكسسوار":"+ اكسسوار جديد"}</div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec}}>الوصف</label>
+            <Inp value={accForm.name} onChange={v=>setAccForm({...accForm,name:v})}/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <div>
+              <label style={{fontSize:FS-2,color:T.textSec}}>الوحدة</label>
+              <Sel value={accForm.unit} onChange={v=>setAccForm({...accForm,unit:v})}>
+                {getUnits(data,accForm.unit).map(u=><option key={u} value={u}>{u}</option>)}
+              </Sel>
+            </div>
+            <div>
+              <label style={{fontSize:FS-2,color:T.textSec}}>السعر</label>
+              <Inp value={accForm.price} onChange={v=>setAccForm({...accForm,price:v})} type="number"/>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:8}}>
+            <Btn ghost onClick={()=>setAccForm(null)}>إلغاء</Btn>
+            <Btn primary onClick={saveAcc} style={{background:"#8B5CF6",color:"#fff",border:"none"}}>💾 {accForm._eid?"حفظ التعديلات":"إضافة"}</Btn>
+          </div>
         </div>
       </div>
     </div>}

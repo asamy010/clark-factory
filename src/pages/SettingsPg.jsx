@@ -23,12 +23,14 @@ import { getDeviceInfo, getDeviceId, getDeviceNickname, setDeviceNickname, getCa
 import { analyzeBudgets, getDocTotals, getBudgetSummary, getTopFeatures, fmt as fmtSize } from "../utils/sizeBudget.js";
 import { PrintTemplatesEditor } from "../components/PrintTemplatesEditor.jsx";
 import { CollectionHealthBar } from "../components/CollectionHealthBar.jsx";
+import { HelpTip, CardSubtitle, FieldHelp } from "../components/HelpTip.jsx";
 import { StockPg } from "./StockPg.jsx";
 
 export function PoMigConfirm({onConfirm,onCancel,T,FS}){
   const[text,setText]=useState("");
   const isValid=text.trim()==="تحويل";
   return<div>
+      <CardSubtitle icon="💡">⚠️ احذر: حذف نهائي لكل بيانات الأوردرات في الموسم الحالي. يستخدم بس لو عاوز تبدأ موسم جديد من الصفر. لا يمكن التراجع — اعمل نسخة احتياطية أولاً.</CardSubtitle>
     <input value={text} onChange={e=>setText(e.target.value)} placeholder="اكتب: تحويل" style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"2px solid "+(isValid?T.ok:T.brd),fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",marginBottom:10,textAlign:"center",fontWeight:700}}/>
     <div style={{display:"flex",gap:8}}>
       <button onClick={isValid?onConfirm:null} disabled={!isValid} style={{flex:1,padding:"8px 14px",borderRadius:8,border:"none",background:isValid?T.err:"#ccc",color:"#fff",cursor:isValid?"pointer":"not-allowed",fontSize:FS,fontFamily:"inherit",fontWeight:800}}>🔥 تنفيذ التحويل</button>
@@ -181,20 +183,36 @@ export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,B
     setNewCheckCat("");showToast("✓ تم الإضافة")};
 
   return<Card title={"🏦 إعدادات الخزنة"+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
+    <CardSubtitle icon="💡">
+      إعدادات تتحكم في سلوك الخزنة المالية: رصيد البداية، بنود المنصرف والوارد، وربط الموسم.
+      أي تعديل هنا يأثر على شاشة الخزنة فقط — التقارير المالية تستخدم هذه الإعدادات.
+    </CardSubtitle>
     <div>
       {isDirty&&<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700,display:"flex",alignItems:"center",gap:8}}>
         <span style={{fontSize:16}}>✨</span>
         <span>لديك تعديلات غير محفوظة — اضغط "حفظ" للتأكيد أو "إلغاء" للرجوع</span>
       </div>}
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12}}>
-        <div><label style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:6,display:"block"}}>رصيد أول المدة</label>
+        <div><label style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:6,display:"block"}}>
+          رصيد أول المدة
+          <HelpTip>الرصيد الابتدائي للخزنة وقت تفعيل البرنامج. كل الحركات اللي بتدخلها بعد ده بتضاف/تخصم من هذا الرقم.</HelpTip>
+        </label>
           <Inp type="number" value={draft.openingBalance||""} onChange={v=>updateDraft(d=>{d.openingBalance=Number(v)||0})} placeholder="0"/></div>
-        <div><label style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:6,display:"block"}}>ربط الموسم تلقائياً</label>
+        <div><label style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:6,display:"block"}}>
+          ربط الموسم تلقائياً
+          <HelpTip>
+            <b>تلقائي:</b> كل حركة جديدة تتربط بالموسم الحالي اللي مفتوح في البرنامج.<br/>
+            <b>يدوي:</b> المستخدم يختار الموسم بنفسه عند تسجيل كل حركة. مفيد لو بتسجل حركات متأخرة لمواسم سابقة.
+          </HelpTip>
+        </label>
           <Sel value={draft.autoSeason?"auto":"manual"} onChange={v=>updateDraft(d=>{d.autoSeason=v==="auto"})}>
             <option value="auto">تلقائي (الموسم الحالي)</option><option value="manual">يدوي</option></Sel></div>
       </div>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12,marginTop:12}}>
-        <div><div style={{fontSize:FS-1,fontWeight:700,color:T.err,marginBottom:6}}>بنود المنصرف ({draft.outCategories.length})</div>
+        <div><div style={{fontSize:FS-1,fontWeight:700,color:T.err,marginBottom:6}}>
+          بنود المنصرف ({draft.outCategories.length})
+          <HelpTip>هذه البنود تظهر في قائمة "نوع الحركة" عند تسجيل منصرف في الخزنة. البنود المعلّمة بـ🔒 مرتبطة بأنظمة أخرى (دفعات موردين، تحويلات، إلخ) ولا يمكن حذفها.</HelpTip>
+        </div>
           {/* V16.61: WIRED categories cannot be deleted — they have hard-coded
               behavior in TreasuryPg (party pickers, transfers wiring). Show a
               lock icon instead of ✕ for these so the user understands why. */}
@@ -206,7 +224,10 @@ export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,B
           })}</div>
           <div style={{display:"flex",gap:4}}><Inp value={newOutCat} onChange={setNewOutCat} placeholder="بند جديد..." style={{flex:1}}/><Btn small onClick={addOut}>+</Btn></div>
         </div>
-        <div><div style={{fontSize:FS-1,fontWeight:700,color:T.ok,marginBottom:6}}>بنود الوارد ({draft.inCategories.length})</div>
+        <div><div style={{fontSize:FS-1,fontWeight:700,color:T.ok,marginBottom:6}}>
+          بنود الوارد ({draft.inCategories.length})
+          <HelpTip>هذه البنود تظهر في قائمة "نوع الحركة" عند تسجيل وارد في الخزنة. البنود المعلّمة بـ🔒 مرتبطة بأنظمة أخرى (دفعات عملاء، تحويلات داخلية).</HelpTip>
+        </div>
           <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>{draft.inCategories.map(c=>{
             const wired=["دفعة عميل","تحويل داخلي"].includes(c);
             return<span key={c} style={{padding:"3px 8px",borderRadius:6,fontSize:FS-2,background:T.ok+"08",color:T.ok,display:"flex",alignItems:"center",gap:4}} title={wired?"بند مرتبط بنظام آخر — يفتح قائمة اختيار تلقائياً":""}>
@@ -242,6 +263,7 @@ export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,B
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
               <div style={{fontSize:FS,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:6}}>
                 <span>✏️</span><span>قفل التعديل</span>
+                <HelpTip>لما القفل مفعّل: المحاسبين العاديين ما يقدروش يعدّلوا حركات الخزنة. تقدر تستثني مستخدمين معينين من القائمة البيضاء أسفل. كل تعديل بيتسجل في سجل الأمان.</HelpTip>
               </div>
               <div style={{fontSize:FS-1,fontWeight:800,padding:"3px 10px",borderRadius:6,background:draft.lockEdit?T.err:T.ok,color:"#fff"}}>
                 {draft.lockEdit?"🔴 مفعّل":"🟢 مفتوح"}
@@ -256,6 +278,7 @@ export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,B
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
               <div style={{fontSize:FS,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:6}}>
                 <span>🗑️</span><span>قفل الحذف</span>
+                <HelpTip>لما القفل مفعّل: محدش يقدر يحذف حركة من الخزنة إلا المدير أو المستخدمين في القائمة البيضاء. ينصح بتفعيله بعد قفل الحسابات الشهرية لمنع التعديل المتأخر.</HelpTip>
               </div>
               <div style={{fontSize:FS-1,fontWeight:800,padding:"3px 10px",borderRadius:6,background:draft.lockDelete?T.err:T.ok,color:"#fff"}}>
                 {draft.lockDelete?"🔴 مفعّل":"🟢 مفتوح"}
@@ -412,30 +435,55 @@ export function HrSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Sel
   const standardHours=draft.workDays*draft.hoursPerDay;
 
   return<Card title={"👷 إعدادات الموظفين"+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
+    <CardSubtitle icon="💡">
+      الإعدادات الأساسية لحسابات المرتبات وساعات العمل والإضافي.
+      أي تغيير هنا يؤثر على الأسابيع الجديدة فقط — الأسابيع المقفولة لا تتأثر.
+    </CardSubtitle>
     <div>
       {isDirty&&<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700,display:"flex",alignItems:"center",gap:8}}>
         <span style={{fontSize:16}}>✨</span>
         <span>لديك تعديلات غير محفوظة — اضغط "حفظ" للتأكيد أو "إلغاء" للرجوع</span>
       </div>}
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:10}}>
-        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>أيام العمل الأسبوعية</label>
+        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>
+          أيام العمل الأسبوعية
+          <HelpTip>عدد أيام العمل في الأسبوع (عادة 6 أيام، الجمعة عطلة). يستخدم في حساب سعر الساعة.</HelpTip>
+        </label>
           <Inp type="number" value={draft.workDays||""} onChange={v=>updateDraft(d=>{d.workDays=Number(v)||6})} placeholder="6"/></div>
-        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ساعات العمل اليومية</label>
+        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>
+          ساعات العمل اليومية
+          <HelpTip>عدد ساعات العمل الأساسية في اليوم (بدون إضافي). 9 ساعات هو الشائع في المصانع.</HelpTip>
+        </label>
           <Inp type="number" step="0.5" value={draft.hoursPerDay||""} onChange={v=>updateDraft(d=>{d.hoursPerDay=Number(v)||9})} placeholder="9"/></div>
         <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>إجمالي ساعات الأسبوع (تلقائي)</label>
           <div style={{padding:"8px 12px",borderRadius:8,background:T.accent+"12",color:T.accent,fontWeight:800,fontSize:FS+2,border:"1px solid "+T.accent+"30",textAlign:"center"}}>{standardHours} ساعة</div>
           <div style={{fontSize:FS-3,color:T.textMut,marginTop:4,textAlign:"center"}}>سعر الساعة = المرتب ÷ {standardHours}</div></div>
-        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ساعات أساسي افتراضية (أسبوعي)</label>
+        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>
+          ساعات أساسي افتراضية (أسبوعي)
+          <HelpTip>الساعات اللي بتعتبر "أساسية" قبل احتساب الإضافي. لو الموظف اشتغل أكثر من ده في الأسبوع، الساعات الزائدة تتحسب إضافي.</HelpTip>
+        </label>
           <Inp type="number" value={draft.defaultBaseHours||""} onChange={v=>updateDraft(d=>{d.defaultBaseHours=Number(v)||0})} placeholder="48"/></div>
-        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>معامل الإضافي</label>
+        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>
+          معامل الإضافي
+          <HelpTip>الرقم اللي بنضرب فيه سعر الساعة لحساب أجر الساعة الإضافية. 1.5 يعني "ساعة ونص" — الشائع في القانون المصري.</HelpTip>
+        </label>
           <Inp type="number" step="0.1" value={draft.overtimeMultiplier||""} onChange={v=>updateDraft(d=>{d.overtimeMultiplier=Number(v)||1.5})} placeholder="1.5"/></div>
-        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>خصم الغياب (بدون إذن)</label>
+        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>
+          خصم الغياب (بدون إذن)
+          <HelpTip>الخصم اللي بيتطبق لو الموظف غاب يوم بدون إذن. <b>يوم واحد:</b> خصم يوم بس. <b>يوم ونص:</b> خصم اليوم + نص يوم إضافي عقوبة. <b>يومين:</b> خصم اليوم + يوم إضافي.</HelpTip>
+        </label>
           <Sel value={draft.absencePenalty} onChange={v=>updateDraft(d=>{d.absencePenalty=v})}>
             <option value="1">يوم واحد</option><option value="2">يومين</option><option value="1.5">يوم ونص</option></Sel></div>
-        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>يوم بداية الأسبوع</label>
+        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>
+          يوم بداية الأسبوع
+          <HelpTip>اليوم اللي بيبدأ فيه أسبوع المرتبات. في مصر السبت هو الشائع.</HelpTip>
+        </label>
           <Sel value={draft.weekStartDay} onChange={v=>updateDraft(d=>{d.weekStartDay=v})}>
             <option value="sat">السبت</option><option value="sun">الأحد</option><option value="mon">الاثنين</option></Sel></div>
-        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>يوم صرف المرتبات</label>
+        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>
+          يوم صرف المرتبات
+          <HelpTip>اليوم اللي بيتم فيه دفع المرتبات أسبوعياً. عادة الخميس أو الجمعة.</HelpTip>
+        </label>
           <Sel value={draft.payDay} onChange={v=>updateDraft(d=>{d.payDay=v})}>
             <option value="thu">الخميس</option><option value="fri">الجمعة</option><option value="wed">الأربعاء</option></Sel></div>
       </div>
@@ -640,6 +688,7 @@ export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
 
   return<Card title={"🖨 إعدادات طباعة QR"+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
     <div>
+    <CardSubtitle icon="💡">إعدادات شكل وحجم QR codes اللي بتتطبع على الليبلات والباركود. تحدد ارتفاع الليبل، شعار المصنع، الـlogo داخل QR، وتفاصيل العرض.</CardSubtitle>
       {isDirty&&<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700,display:"flex",alignItems:"center",gap:8}}>
         <span style={{fontSize:16}}>✨</span>
         <span>لديك تعديلات غير محفوظة — اضغط "حفظ" للتأكيد أو "إلغاء" للرجوع</span>
@@ -1078,6 +1127,7 @@ export function SalesSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
 
   return<Card title={"💰 إعدادات المبيعات"+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
     <div>
+    <CardSubtitle icon="💡">إعدادات تتعلق بمنطق المبيعات والعملاء — هامش الربح الافتراضي، شروط الخصم، رقم بداية الفواتير. تأثيرها يظهر في صفحة المبيعات والفواتير.</CardSubtitle>
       {isDirty&&<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700,display:"flex",alignItems:"center",gap:8}}>
         <span style={{fontSize:16}}>✨</span>
         <span>لديك تعديلات غير محفوظة — اضغط "حفظ" للتأكيد أو "إلغاء" للرجوع</span>
@@ -1136,6 +1186,7 @@ function SecurityAlertsCard({config,upConfig,T,FS,showToast,Inp,Btn,Card,setDirt
 
   return<Card title={"🛡️ إعدادات التنبيهات الأمنية"+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
     {isDirty?<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700}}>
+    <CardSubtitle icon="💡">تحدد متى يتم تسجيل تنبيهات أمنية في سجل التدقيق (الحذف، التعديل المتأخر، تخطّي القفل، إلخ). كل العمليات الأمنية تتسجل بالتفصيل تلقائياً.</CardSubtitle>
       ✨ تعديلات غير محفوظة — اضغط حفظ للتأكيد
     </div>:null}
     <div style={{fontSize:FS-2,color:T.textSec,marginBottom:12,padding:"10px 14px",background:T.accent+"06",borderRadius:8,border:"1px solid "+T.accent+"20",lineHeight:1.7}}>
@@ -1201,6 +1252,7 @@ function PoSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Card,poMig
 
   return<Card title={"📋 إعدادات أمر التشغيل (PO)"+(isDirty?" ✨":"")} style={{marginBottom:12,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
     {isDirty?<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700}}>
+    <CardSubtitle icon="💡">إعدادات شكل وتفاصيل أمر التشغيل (PO) اللي بيطبع للورش — البيانات اللي تظهر، الترتيب، الشعار، والـheader.</CardSubtitle>
       ✨ تعديلات غير محفوظة — اضغط حفظ للتأكيد
     </div>:null}
     <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12,marginBottom:14}}>
@@ -1325,6 +1377,7 @@ function SeasonsCard({config,upConfig,T,FS,showToast,Inp,Btn,Card,requirePass,se
 
   return<Card title={"📅 ادارة المواسم"+(isDirty?" ✨":"")} style={{marginBottom:12,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
     {isDirty?<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700}}>
+    <CardSubtitle icon="💡">إدارة المواسم في البرنامج. الموسم وحدة تنظيمية تجمع الأوردرات والحركات في فترة زمنية محددة (مثلاً: صيف 2026). كل موسم بياناته منفصلة.</CardSubtitle>
       ✨ تعديلات غير محفوظة — اضغط حفظ للتأكيد
     </div>:null}
     <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
@@ -1389,6 +1442,7 @@ function LogoCard({config,upConfig,T,FS,showToast,Btn,Card,requirePass,compressI
   };
   return<Card title={"لوجو المصنع"+(isDirty?" ✨":"")} style={{marginBottom:12,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
     {isDirty&&<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700}}>
+    <CardSubtitle icon="💡">شعار المصنع اللي بيظهر في كل التقارير، الفواتير، والمطبوعات. ارفع صورة بصيغة PNG أو JPG.</CardSubtitle>
       ✨ تعديلات غير محفوظة — اضغط حفظ للتأكيد
     </div>}
     <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
@@ -1511,6 +1565,7 @@ export function WaContactsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Car
 
   return<Card title={"📱 جهات تواصل التقارير (واتساب)"+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
     <div>
+    <CardSubtitle icon="💡">أرقام الواتساب اللي بترسلهم التقارير اليومية والأسبوعية أوتوماتيكياً. أضف الرقم بصيغة دولية (مثلاً: 201xxxxxxxxx).</CardSubtitle>
       {isDirty&&<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700,display:"flex",alignItems:"center",gap:8}}>
         <span style={{fontSize:16}}>✨</span>
         <span>لديك تعديلات غير محفوظة — اضغط "حفظ" للتأكيد أو "إلغاء" للرجوع</span>
@@ -1578,6 +1633,107 @@ export function WaContactsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Car
   </Card>;
 }
 
+
+
+/* V16.78: STOCK MODE PICKER — اختيار سلوك المخزن مع الأوردرات */
+function StockModeCard({configDoc,upConfig,canEdit}){
+  const ps=configDoc?.purchaseSettings||{};
+  const stockEnabled=!!ps.stockEnabled;
+  
+  /* تحديد الـmode الحالي بناءً على الـsettings */
+  let currentMode="off";
+  if(stockEnabled){
+    if(ps.autoDeductOnCut===false){
+      currentMode="display";/* المخزن مفعّل لكن مش بيخصم */
+    }else if(ps.blockOnInsufficientStock===false){
+      currentMode="warning";/* بيخصم بالسالب */
+    }else{
+      currentMode="strict";/* الافتراضي: يرفض السالب */
+    }
+  }
+  
+  const setMode=async(newMode)=>{
+    if(!canEdit)return;
+    let confirmMsg="";
+    if(newMode==="off"){
+      confirmMsg="سيتم إيقاف خصم الأوردرات من المخزن.\n\nالأوردرات الجديدة لن تخصم خامات من المخزن، ويمكنك تعديل الأرصدة يدوياً.\n\nمتأكد؟";
+    }else if(newMode==="display"){
+      confirmMsg="سيتم تفعيل المخزن للعرض فقط (مفيش خصم تلقائي).\n\nالاستلامات هتضاف للمخزن، لكن الأوردرات لن تخصم تلقائياً. تقدر تخصم يدوياً.\n\nمتأكد؟";
+    }else if(newMode==="warning"){
+      confirmMsg="سيتم السماح بالسحب بالسالب.\n\nالأوردرات هتخصم من المخزن حتى لو الرصيد مش كافي. هيظهر تحذير لكن مش هيمنع.\n\n⚠️ ده ممكن يخفي مشاكل حقيقية في الجرد.\n\nمتأكد؟";
+    }else if(newMode==="strict"){
+      confirmMsg="سيتم تفعيل الوضع الصارم (الافتراضي).\n\nالأوردرات اللي مش هيكفيها رصيد هتترفض حتى تضيف الكميات للمخزن.\n\nمتأكد؟";
+    }
+    const ok=await ask("تغيير وضع المخزن",confirmMsg,{confirmText:"تأكيد"});
+    if(!ok)return;
+    
+    upConfig(d=>{
+      if(!d.purchaseSettings)d.purchaseSettings={};
+      const today=new Date().toISOString().split("T")[0];
+      if(newMode==="off"){
+        d.purchaseSettings.stockEnabled=false;
+      }else if(newMode==="display"){
+        d.purchaseSettings.stockEnabled=true;
+        d.purchaseSettings.autoDeductOnCut=false;
+        if(!d.purchaseSettings.stockActivationDate)d.purchaseSettings.stockActivationDate=today;
+      }else if(newMode==="warning"){
+        d.purchaseSettings.stockEnabled=true;
+        d.purchaseSettings.autoDeductOnCut=true;
+        d.purchaseSettings.blockOnInsufficientStock=false;
+        if(!d.purchaseSettings.stockActivationDate)d.purchaseSettings.stockActivationDate=today;
+      }else if(newMode==="strict"){
+        d.purchaseSettings.stockEnabled=true;
+        d.purchaseSettings.autoDeductOnCut=true;
+        d.purchaseSettings.blockOnInsufficientStock=true;
+        if(!d.purchaseSettings.stockActivationDate)d.purchaseSettings.stockActivationDate=today;
+      }
+    });
+    showToast("✓ تم تغيير وضع المخزن");
+  };
+  
+  const modes=[
+    {key:"off",      icon:"🚫",label:"مغلق",       desc:"المخزن مش مفعل. الأوردرات لا تخصم. التحكم اليدوي بالكميات بس.",color:T.textMut},
+    {key:"display",  icon:"👁️",label:"عرض فقط",     desc:"المخزن مفعّل لكن مفيش خصم تلقائي من الأوردرات. الاستلامات تضاف. التعديل يدوي.",color:"#0EA5E9"},
+    {key:"warning",  icon:"⚠️", label:"السماح بالسالب",desc:"الأوردرات تخصم حتى لو الرصيد مش كافي. تحذير بس بدون منع. ممكن يخفي مشاكل.",color:T.warn},
+    {key:"strict",   icon:"🔒",label:"صارم (الافتراضي)",desc:"الأوردرات اللي مش هيكفيها رصيد ترفض. الجرد سليم دائماً.",color:T.ok},
+  ];
+  
+  return<Card title="🏭 وضع المخزن" style={{marginBottom:14}}>
+    <CardSubtitle icon="💡">
+      هذا الإعداد يحدد كيف يتعامل البرنامج مع المخزن أوتوماتيكياً.
+      عند تأكيد أي أوردر للقص، البرنامج يخصم القماش والإكسسوارات من المخزن — الـmode بيحدد سلوك ده.
+      <br/><b>ملاحظة:</b> الأوردرات القديمة (قبل تفعيل المخزن) لا تتأثر.
+    </CardSubtitle>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+      {modes.map(m=>{
+        const isActive=currentMode===m.key;
+        return<div key={m.key}
+          onClick={canEdit?()=>setMode(m.key):undefined}
+          style={{
+            padding:14,borderRadius:10,
+            background:isActive?m.color+"12":T.cardSolid,
+            border:"2px solid "+(isActive?m.color:T.brd),
+            cursor:canEdit?"pointer":"default",
+            opacity:!canEdit?0.7:1,
+            transition:"all 0.2s",
+          }}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+            <span style={{fontSize:FS+4}}>{m.icon}</span>
+            <span style={{fontWeight:800,fontSize:FS,color:isActive?m.color:T.text}}>{m.label}</span>
+            {isActive&&<span style={{marginInlineStart:"auto",padding:"2px 8px",borderRadius:6,background:m.color,color:"#fff",fontSize:FS-3,fontWeight:700}}>الحالي</span>}
+          </div>
+          <div style={{fontSize:FS-2,color:T.textSec,lineHeight:1.5}}>{m.desc}</div>
+        </div>;
+      })}
+    </div>
+    {!canEdit&&<div style={{marginTop:10,padding:8,background:T.warn+"08",borderRadius:8,fontSize:FS-3,color:T.textMut}}>
+      ℹ️ تغيير وضع المخزن متاح فقط للمدير أو المحاسب
+    </div>}
+    {ps.stockActivationDate&&<div style={{marginTop:10,fontSize:FS-3,color:T.textMut}}>
+      📅 تاريخ تفعيل المخزن: {ps.stockActivationDate}
+    </div>}
+  </Card>;
+}
 
 
 /* V16.75: STORAGE NOTICES PANEL — يعرض رسائل التخزين (نجاح/تحذير/خطأ) من أي مصدر */
@@ -2429,6 +2585,8 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {activeTab==="general" && <>
     {/* V16.75: Storage notices — رسائل التخزين بدلاً من toasts للمستخدمين */}
     <StorageNoticesPanel/>
+    {/* V16.78: Stock mode picker — يحدد سلوك المخزن مع الأوردرات */}
+    <StockModeCard configDoc={configDoc} upConfig={upConfig} canEdit={userRole==="admin"||userRole==="accountant"}/>
     {/* V16.75: Quick health overview — الـbars اللي اتشالت من الشاشات (Treasury, HR, Audit) */}
     <Card title="📊 نظرة سريعة على حالة التخزين" style={{marginBottom:14}}>
       <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
@@ -2469,6 +2627,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     </>}
     {activeTab==="users" && <>
     <Card title="ادارة المستخدمين" style={{marginBottom:16}}>
+      <CardSubtitle icon="💡">إنشاء وإدارة حسابات المستخدمين اللي يقدروا يدخلوا للبرنامج. كل مستخدم له بريد إلكتروني وكلمة مرور وصلاحيات محددة.</CardSubtitle>
       {/* Create new user */}
       <div style={{padding:20,background:T.accentBg,borderRadius:14,marginBottom:20,border:"1px solid "+T.accent+"20"}}>
         <div style={{fontSize:FS+1,fontWeight:700,color:T.accent,marginBottom:14}}>انشاء حساب جديد</div>
@@ -2498,6 +2657,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {/* Send Notifications */}
     {/* Permissions Management */}
     <Card title="🔐 صلاحيات المستخدمين" style={{marginBottom:16}}>
+      <CardSubtitle icon="💡">تحديد ما يقدر كل مستخدم يعمله في البرنامج. مثلاً: محاسب يقدر يشوف الخزنة لكن مش يقدر يحذف، مدير عنده صلاحية كاملة.</CardSubtitle>
       <PermissionsCard config={config} upConfig={upConfig} T={T} FS={FS} TABS={TABS} Btn={Btn} showToast={showToast}/>
     </Card>
     </>}
@@ -2516,6 +2676,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
 
     {/* Odoo Sync Settings */}
     <Card title="🔗 ربط Odoo — تزامن الخزنة" style={{marginBottom:16}}>
+      <CardSubtitle icon="💡">ربط مع نظام Odoo الخارجي للمحاسبة. لو متفعّل، الحركات في الخزنة تتزامن أوتوماتيكياً مع Odoo. مفيد لو الشركة عندها نظام محاسبي خارجي.</CardSubtitle>
       {(()=>{const os=config.odooSettings||{};
         const saveOS=(fn)=>upConfig(d=>{if(!d.odooSettings)d.odooSettings={};fn(d.odooSettings)});
         /* V16.59: testResult/testing useState hoisted to top-level — see comment there */
@@ -2627,6 +2788,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {activeTab==="maintenance" && <>
     {/* Data Maintenance */}
     <Card title="🔧 صيانة البيانات" style={{marginBottom:16}}>
+      <CardSubtitle icon="💡">أدوات لاكتشاف وإصلاح المشاكل في البيانات (تكرار، مراجع مكسورة، عدم تطابق الأرصدة). استخدمها لو لاحظت أرقام غريبة في التقارير.</CardSubtitle>
       {(()=>{
         const wsList=config.workshops||[];const wsNames=new Set(wsList.map(w=>w.name));
         const gtList=config.garmentTypes||[];const gtNames=new Set(gtList.map(g=>g.name));
@@ -2990,6 +3152,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {activeTab==="comms" && <>
     {/* ── Notification Control ── */}
     <Card title="🔔 التحكم في الاشعارات" style={{marginTop:16}}>
+      <CardSubtitle icon="💡">تخصيص أنواع الإشعارات اللي تظهر للمستخدمين (تنبيهات الأوردرات، الجرد، التقارير). فعّل اللي تحتاجه فقط لتجنب الإزعاج.</CardSubtitle>
       {(()=>{const users=config.usersList||[];const prefs=config.notifPrefs||{};
         const NTYPES=[{key:"botAlerts",label:"تنبيهات البوت الذكية",icon:"🤖"},{key:"tasks",label:"المهام",icon:"📌"},{key:"movements",label:"حركات التشغيل",icon:"🔄"},{key:"statusChanges",label:"تغيير حالة الأوردر",icon:"📋"},{key:"stockDelivery",label:"تسليم مخزن جاهز",icon:"📦"},{key:"custDelivery",label:"تسليم عملاء",icon:"🚚"}];
         const updatePref=(email,key,val)=>{upConfig(d=>{if(!d.notifPrefs)d.notifPrefs={};if(!d.notifPrefs[email])d.notifPrefs[email]={};d.notifPrefs[email][key]=val})};
@@ -3018,6 +3181,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
         </div>})()}
     </Card>
     <Card title="🤖 المهام التلقائية" style={{marginTop:16}}>
+      <CardSubtitle icon="💡">مهام تشتغل أوتوماتيكياً في خلفية البرنامج (تقارير يومية، تنبيهات، نسخ احتياطية). كل مهمة يمكن تفعيلها/إيقافها بشكل مستقل.</CardSubtitle>
       {(()=>{const at=config.autoTasks||{enabled:false,users:[]};const atUsers=at.users||[];const allUsers=config.usersList||[];
         const RULES=[{key:"noDeliver",label:"موديل مقصوص ولم يُسلَّم لورشة",icon:"✂️",dd:5},{key:"availPiece",label:"قطعة متاحة ولم تُسلَّم",icon:"👔",dd:5},{key:"slowWorkshop",label:"ورشة متأخرة في الاستلام",icon:"🐢",dd:14},{key:"stockNoSale",label:"مخزن جاهز لم يُسلَّم لعملاء",icon:"📦",dd:7}];
         const defaultRules=()=>{const r={};RULES.forEach(ru=>{r[ru.key]={enabled:true,days:ru.dd}});return r};
@@ -3089,6 +3253,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {activeTab==="business" && <>
     {/* ═══ ODOO LINKS ═══ */}
     <Card title="🔗 Odoo — إدارة الاختصارات" style={{marginTop:16}}>
+      <CardSubtitle icon="💡">ربط منتجات/حسابات في البرنامج بمقابلها في Odoo. مطلوب لو فعّلت تزامن الخزنة مع Odoo فوق.</CardSubtitle>
       {(()=>{
         const defaultOdooLinks=[
           {id:"accounting",icon:"📊",label:"المحاسبة",url:"https://clarkdb.odoo.com/odoo/accounting",color:"#8B5CF6"},
@@ -3212,6 +3377,7 @@ export function BackupRestoreCard({config,salesDoc,tasksDoc,orders,isMob}){
   };
 
   return<Card title="💾 النسخ الاحتياطي والاستعادة" style={{marginTop:16}}>
+      <CardSubtitle icon="💡">إنشاء نسخ احتياطية كاملة من بيانات البرنامج، وإمكانية استعادتها. ينصح بعمل نسخة قبل أي عملية كبيرة (mass delete, bulk import, إلخ).</CardSubtitle>
     <div style={{padding:12,borderRadius:10,background:T.accent+"06",border:"1px solid "+T.accent+"20",marginBottom:14,fontSize:FS-1,color:T.textSec,lineHeight:1.7}}>
       النسخ الاحتياطي يحفظ كل بياناتك (الخزنة، HR، العملاء، الورش، الطلبات) في Firestore.
       <br/>💡 <b>نصيحة:</b> خد نسخة احتياطية قبل أي تحديث كبير أو تغيير جذري.

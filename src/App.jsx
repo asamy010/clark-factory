@@ -43,6 +43,7 @@ const HRPg = lazyNamed(() => import("./pages/HRPg.jsx"), "HRPg");
 import { LoginScreen, TABS } from "./components/LoginScreen.jsx";
 import { ActivityFeed } from "./components/ActivityFeed.jsx";
 import { UndoToast } from "./components/UndoToast.jsx";
+import { AboutVersionModal } from "./components/AboutVersionModal.jsx";
 import { DashPg } from "./pages/DashPg.jsx";/* eager — always first screen */
 const DBPg = lazyNamed(() => import("./pages/DBPg.jsx"), "DBPg");
 import { OrdForm } from "./pages/OrdForm.jsx";/* eager — small, used within DetPg */
@@ -187,7 +188,11 @@ export default function App(){
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
   /* Cross-page tab navigation via custom event (used by WarehousePg to open stock tab) */
   useEffect(()=>{const h=(e)=>{if(e?.detail)setTab(e.detail)};window.addEventListener("goto-tab",h);return()=>window.removeEventListener("goto-tab",h)},[]);
-  const[gSearch,setGSearch]=useState(""); const gSearchDeb=useDebounced(gSearch,250);const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);const[cardPopup,setCardPopup]=useState(null);const[labelPopup,setLabelPopup]=useState(null);const[labelBags,setLabelBags]=useState(1);const[wsAccPopup,setWsAccPopup]=useState(null);const[barcodePopup,setBarcodePopup]=useState(null);const[showNotifs,setShowNotifs]=useState(false);
+  const[gSearch,setGSearch]=useState(""); const gSearchDeb=useDebounced(gSearch,250);const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);const[cardPopup,setCardPopup]=useState(null);const[labelPopup,setLabelPopup]=useState(null);const[labelBags,setLabelBags]=useState(1);const[wsAccPopup,setWsAccPopup]=useState(null);const[barcodePopup,setBarcodePopup]=useState(null);const[showNotifs,setShowNotifs]=useState(false);const[showAboutVersion,setShowAboutVersion]=useState(false);
+  /* V17.1 FIX #12+#15: Migration status — blocks UI while a migration is running.
+     Without this, users could add data during migration and the data would be lost
+     (window between step 2 [sync] and step 3 [config write] is unsafe). */
+  const[migrationStatus,setMigrationStatus]=useState(null);/* null | {label, progress?: 0-100, message?} */
   /* V16.50: workshop delivery confirmation popup — opened when a workshop scans
      the QR on a delivery receipt. Carries the order, the workshopDeliveries entry
      (snapshot at scan time), and a flag for the confirm action. */
@@ -805,7 +810,17 @@ export default function App(){
           return;
         }
         
+        /* V17.1 FIX #12+#15: Show loading screen to block UI during migration.
+           This prevents users from adding data while we're moving it to day collections,
+           which previously could cause data loss in the unsafe window. */
+        setMigrationStatus({
+          label:"جاري تحديث نظام التخزين (V16.74)",
+          message:"الرجاء عدم إغلاق البرنامج. هذا يحدث مرة واحدة فقط.",
+          progress:5,
+        });
+        
         /* Backup أولاً */
+        setMigrationStatus(s=>({...s,message:"إنشاء نسخة احتياطية...",progress:15}));
         const ts=new Date().toISOString().replace(/[:.]/g,"-");
         await setDoc(doc(db,"backups","pre-migration-split-days-v1674-"+ts),{
           label:"قبل ميجريشن: split-days-v16.74",
@@ -823,6 +838,7 @@ export default function App(){
         });
         
         /* Sync to day collections */
+        setMigrationStatus(s=>({...s,message:"نقل البيانات إلى الـcollections اليومية...",progress:50}));
         await syncAllSplitChanges(
           {treasury:[],auditLog:[],hrLog:[]},
           {
@@ -833,6 +849,7 @@ export default function App(){
         );
         
         /* الآن نحذف الـ3 arrays من factory/config ونحط flag */
+        setMigrationStatus(s=>({...s,message:"تنظيف الـconfig...",progress:85}));
         await runTransaction(db,async(tx)=>{
           const ref=doc(db,"factory","config");
           const snap=await tx.get(ref);
@@ -861,6 +878,8 @@ export default function App(){
           "تم تطبيق تحديث V16.74",
           "تم تحويل الخزنة وسجل الأحداث وسجل HR لتخزين يومي منفصل. هذا يسمح للنظام باستيعاب نمو سنوي بدون قيود الحجم."
         );
+        setMigrationStatus({label:"تم بنجاح",message:"تم تحديث النظام. يمكنك الاستمرار.",progress:100});
+        setTimeout(()=>setMigrationStatus(null),1500);
       }catch(err){
         console.error("[V16.74] Split days migration failed:",err);
         try{
@@ -872,6 +891,7 @@ export default function App(){
         }catch(_){}
         /* unlock فاحس يمكن نحاول ثانية */
         splitDaysMigrationRef.current=false;
+        setMigrationStatus(null);
       }
     })();
   },[user,configDoc,splitLoaded]);
@@ -916,7 +936,15 @@ export default function App(){
           return;
         }
         
+        /* V17.1 FIX #12+#15: Show loading screen during partitioned migration */
+        setMigrationStatus({
+          label:"جاري تحديث نظام التخزين (V16.75)",
+          message:"الرجاء عدم إغلاق البرنامج. هذا يحدث مرة واحدة فقط.",
+          progress:5,
+        });
+        
         /* Backup */
+        setMigrationStatus(s=>({...s,message:"إنشاء نسخة احتياطية...",progress:15}));
         const ts=new Date().toISOString().replace(/[:.]/g,"-");
         await setDoc(doc(db,"backups","pre-migration-partitioned-v1675-"+ts),{
           label:"قبل ميجريشن: partitioned-v16.75 (hrWeeks)",
@@ -932,12 +960,14 @@ export default function App(){
         });
         
         /* Sync to partitioned collection */
+        setMigrationStatus(s=>({...s,message:"نقل أسابيع المرتبات إلى documents منفصلة...",progress:50}));
         await syncAllPartitionedChanges(
           {hrWeeks:[]},
           {hrWeeks:configDoc.hrWeeks||[]}
         );
         
         /* احذف hrWeeks من config وحط الـflag */
+        setMigrationStatus(s=>({...s,message:"تنظيف الـconfig...",progress:85}));
         await runTransaction(db,async(tx)=>{
           const ref=doc(db,"factory","config");
           const snap=await tx.get(ref);
@@ -962,6 +992,8 @@ export default function App(){
           "تم تطبيق تحديث V16.75",
           "تم تقسيم أسابيع المرتبات لـdocuments منفصلة (كل أسبوع document مستقل)."
         );
+        setMigrationStatus({label:"تم بنجاح",message:"تم تحديث النظام. يمكنك الاستمرار.",progress:100});
+        setTimeout(()=>setMigrationStatus(null),1500);
       }catch(err){
         console.error("[V16.75] Partitioned migration failed:",err);
         try{
@@ -972,6 +1004,7 @@ export default function App(){
           });
         }catch(_){}
         partitionedMigrationRef.current=false;
+        setMigrationStatus(null);
       }
     })();
   },[user,configDoc,partitionedLoaded]);
@@ -987,6 +1020,85 @@ export default function App(){
      كل ما حصل تغيير في أي day document، نعيد بناء الـmerged array
      ونحطه في splitData state. الـconfig useMemo بيدمجه في data.treasury.
      ═══════════════════════════════════════════════════════════════════ */
+  /* V17.0 FIX #8: Track pending optimistic writes per collection.
+     Map structure: collectionName → Map(entryId → entry).
+     When we apply an optimistic update, we record the pending entry here.
+     When the listener fires with server data, we merge pending entries that
+     haven't yet appeared in the server state, preventing flicker.
+     When the server confirms an entry (it appears in the listener data),
+     we remove it from the pending map. */
+  const pendingSplitWritesRef=useRef({
+    treasury:new Map(),auditLog:new Map(),hrLog:new Map(),
+  });
+  const pendingPartitionedWritesRef=useRef({
+    hrWeeks:new Map(),
+  });
+  /* Helper: register pending writes after an optimistic update */
+  const registerPendingSplitWrites=useCallback((before,after)=>{
+    const fields=["treasury","auditLog","hrLog"];
+    for(const f of fields){
+      const beforeIds=new Set((before[f]||[]).map(e=>String(e?.id||"")));
+      const afterArr=after[f]||[];
+      for(const entry of afterArr){
+        const id=String(entry?.id||"");
+        if(!id)continue;
+        const beforeEntry=(before[f]||[]).find(e=>String(e?.id||"")===id);
+        /* Mark as pending if it's new OR if it changed */
+        if(!beforeEntry||JSON.stringify(beforeEntry)!==JSON.stringify(entry)){
+          pendingSplitWritesRef.current[f].set(id,{entry,timestamp:Date.now()});
+        }
+      }
+      /* Pending deletes: in before but not in after */
+      const afterIds=new Set(afterArr.map(e=>String(e?.id||"")));
+      for(const id of beforeIds){
+        if(!afterIds.has(id)){
+          pendingSplitWritesRef.current[f].set(id,{deleted:true,timestamp:Date.now()});
+        }
+      }
+    }
+  },[]);
+  const registerPendingPartitionedWrites=useCallback((before,after)=>{
+    const fields=["hrWeeks"];
+    for(const f of fields){
+      const beforeIds=new Set((before[f]||[]).map(o=>String(o?.id||"")));
+      const afterArr=after[f]||[];
+      for(const obj of afterArr){
+        const id=String(obj?.id||"");
+        if(!id)continue;
+        const beforeObj=(before[f]||[]).find(o=>String(o?.id||"")===id);
+        if(!beforeObj||JSON.stringify(beforeObj)!==JSON.stringify(obj)){
+          pendingPartitionedWritesRef.current[f].set(id,{entry:obj,timestamp:Date.now()});
+        }
+      }
+      const afterIds=new Set(afterArr.map(o=>String(o?.id||"")));
+      for(const id of beforeIds){
+        if(!afterIds.has(id)){
+          pendingPartitionedWritesRef.current[f].set(id,{deleted:true,timestamp:Date.now()});
+        }
+      }
+    }
+  },[]);
+  /* Cleanup stale pending writes (older than 30 seconds — server should have echoed them by then) */
+  useEffect(()=>{
+    const interval=setInterval(()=>{
+      const now=Date.now();
+      const STALE_MS=30000;
+      for(const f of ["treasury","auditLog","hrLog"]){
+        const map=pendingSplitWritesRef.current[f];
+        for(const[id,info]of map){
+          if(now-info.timestamp>STALE_MS)map.delete(id);
+        }
+      }
+      for(const f of ["hrWeeks"]){
+        const map=pendingPartitionedWritesRef.current[f];
+        for(const[id,info]of map){
+          if(now-info.timestamp>STALE_MS)map.delete(id);
+        }
+      }
+    },10000);
+    return()=>clearInterval(interval);
+  },[]);
+
   useEffect(()=>{if(!user)return;
     const unsubs=[];
     /* Maps: dayId → entries[] لكل collection */
@@ -995,20 +1107,56 @@ export default function App(){
     const rebuild=()=>{
       /* V16.75 FIX: flatten by sorting day keys DESC (newest day first), then concat each day's entries.
          This matches the expectation in TreasuryPg/HRPg/AuditPg that array is newest-first.
-         Without this, Map insertion order leaks to the UI: oldest day's entries appear first. */
-      const flatten=(map)=>{
-        const sortedDays=[...map.keys()].sort((a,b)=>b.localeCompare(a));/* "2026-04-27" before "2026-04-26" */
+         Without this, Map insertion order leaks to the UI: oldest day's entries appear first.
+         
+         V17.0 FIX #8: Merge pending optimistic writes with server data to prevent flicker. */
+      const flatten=(map,pendingMap)=>{
+        const sortedDays=[...map.keys()].sort((a,b)=>b.localeCompare(a));
         const all=[];
+        const serverIds=new Set();
         for(const dayKey of sortedDays){
           const entries=map.get(dayKey)||[];
-          all.push(...entries);
+          for(const e of entries){
+            const id=String(e?.id||"");
+            /* Skip server entries that user just deleted optimistically */
+            const pending=pendingMap.get(id);
+            if(pending&&pending.deleted)continue;
+            /* Use the pending (optimistic) version if it exists — server may be stale */
+            if(pending&&pending.entry){
+              all.push(pending.entry);
+            }else{
+              all.push(e);
+            }
+            serverIds.add(id);
+          }
+        }
+        /* Add pending entries that haven't appeared in server yet */
+        for(const[id,info]of pendingMap){
+          if(info.deleted)continue;
+          if(!serverIds.has(id)&&info.entry){
+            /* Insert at the start (newest-first convention) */
+            all.unshift(info.entry);
+          }
+        }
+        /* Cleanup: server has confirmed pending writes (entries match) */
+        for(const[id,info]of pendingMap){
+          if(info.deleted){
+            /* Confirmed deleted: not in server anymore */
+            if(!serverIds.has(id))pendingMap.delete(id);
+          }else if(info.entry){
+            /* Confirmed write: server has identical version */
+            const serverEntry=Array.from(map.values()).flat().find(e=>String(e?.id||"")===id);
+            if(serverEntry&&JSON.stringify(serverEntry)===JSON.stringify(info.entry)){
+              pendingMap.delete(id);
+            }
+          }
         }
         return all;
       };
       setSplitData({
-        treasury:flatten(dayDocs.treasury),
-        auditLog:flatten(dayDocs.auditLog),
-        hrLog:flatten(dayDocs.hrLog),
+        treasury:flatten(dayDocs.treasury,pendingSplitWritesRef.current.treasury),
+        auditLog:flatten(dayDocs.auditLog,pendingSplitWritesRef.current.auditLog),
+        hrLog:flatten(dayDocs.hrLog,pendingSplitWritesRef.current.hrLog),
       });
       /* mark loaded after first round trip from all 3 */
       if(firstFires.treasury&&firstFires.auditLog&&firstFires.hrLog){
@@ -1053,14 +1201,44 @@ export default function App(){
     const docsById={hrWeeks:new Map()};
     const firstFires={hrWeeks:false};
     const rebuild=()=>{
-      const flatten=(map)=>{
+      /* V17.0 FIX #8: Merge pending optimistic writes with server data */
+      const flatten=(map,pendingMap)=>{
         const all=[];
-        for(const obj of map.values())all.push(obj);
+        const serverIds=new Set();
+        for(const obj of map.values()){
+          const id=String(obj?.id||"");
+          const pending=pendingMap.get(id);
+          if(pending&&pending.deleted)continue;
+          if(pending&&pending.entry){
+            all.push(pending.entry);
+          }else{
+            all.push(obj);
+          }
+          serverIds.add(id);
+        }
+        /* Add pending writes not yet seen in server */
+        for(const[id,info]of pendingMap){
+          if(info.deleted)continue;
+          if(!serverIds.has(id)&&info.entry){
+            all.push(info.entry);
+          }
+        }
+        /* Cleanup confirmed pending */
+        for(const[id,info]of pendingMap){
+          if(info.deleted){
+            if(!serverIds.has(id))pendingMap.delete(id);
+          }else if(info.entry){
+            const serverObj=Array.from(map.values()).find(o=>String(o?.id||"")===id);
+            if(serverObj&&JSON.stringify(serverObj)===JSON.stringify(info.entry)){
+              pendingMap.delete(id);
+            }
+          }
+        }
         all.sort((a,b)=>String(a.id||"").localeCompare(String(b.id||"")));
         return all;
       };
       setPartitionedData({
-        hrWeeks:flatten(docsById.hrWeeks),
+        hrWeeks:flatten(docsById.hrWeeks,pendingPartitionedWritesRef.current.hrWeeks),
       });
       if(firstFires.hrWeeks){
         setPartitionedLoaded(true);
@@ -1263,38 +1441,76 @@ export default function App(){
     console.error("upConfig tx error after retries:",lastErr);
     showToast("⚠️ فشل حفظ البيانات — جاري المحاولة بطريقة بديلة...");
     try{
-      setConfigDoc(prev=>{try{
-        const next=JSON.parse(JSON.stringify(prev||{}));
-        const splitActiveFb=Boolean(prev?._splitDaysV1674Done);
-        const partActiveFb=Boolean(prev?._partitionedV1675Done);
+      /* V17.0 FIX #6: Compute next state OUTSIDE setConfigDoc callback (no double-execution).
+         V17.0 FIX #9: Reverse the order: sync day docs FIRST, then write config.
+         
+         Why: in the old order, if setDoc(config) succeeded but the syncs failed,
+         the config would be stripped (no treasury/auditLog/hrLog/hrWeeks) but the
+         day docs would be missing the new entries. The user would see entries
+         disappear after refresh.
+         
+         New order: write day docs first. If that fails, the config still has
+         the legacy data (full state). If day docs succeed but config write fails,
+         the user can retry — the day docs are idempotent. */
+      const prevFb=configDoc||{};
+      let nextFb,splitAfterFb=null,partAfterFb=null,strippedFb=null;
+      try{
+        nextFb=JSON.parse(JSON.stringify(prevFb));
+        const splitActiveFb=Boolean(prevFb._splitDaysV1674Done);
+        const partActiveFb=Boolean(prevFb._partitionedV1675Done);
         if(splitActiveFb){
-          next.treasury=JSON.parse(JSON.stringify(splitBefore.treasury));
-          next.auditLog=JSON.parse(JSON.stringify(splitBefore.auditLog));
-          next.hrLog=   JSON.parse(JSON.stringify(splitBefore.hrLog));
+          nextFb.treasury=JSON.parse(JSON.stringify(splitBefore.treasury));
+          nextFb.auditLog=JSON.parse(JSON.stringify(splitBefore.auditLog));
+          nextFb.hrLog=   JSON.parse(JSON.stringify(splitBefore.hrLog));
         }
         if(partActiveFb){
-          next.hrWeeks=JSON.parse(JSON.stringify(partBefore.hrWeeks));
+          nextFb.hrWeeks=JSON.parse(JSON.stringify(partBefore.hrWeeks));
         }
-        fn(next);
-        enforceDataLimits(next);
-        const splitAfterFb=splitActiveFb?{
-          treasury:Array.isArray(next.treasury)?next.treasury:[],
-          auditLog:Array.isArray(next.auditLog)?next.auditLog:[],
-          hrLog:   Array.isArray(next.hrLog)   ?next.hrLog   :[],
-        }:null;
-        const partAfterFb=partActiveFb?{
-          hrWeeks:Array.isArray(next.hrWeeks)?next.hrWeeks:[],
-        }:null;
-        let stripped=next;
-        if(splitActiveFb)stripped=stripSplitArrays(stripped);
-        if(partActiveFb)stripped=stripPartitionedArrays(stripped);
-        setDoc(ref,stripped,{merge:false}).then(()=>{
-          if(splitAfterFb)syncAllSplitChanges(splitBefore,splitAfterFb).catch(e=>console.error("Fallback split sync:",e));
-          if(partAfterFb)syncAllPartitionedChanges(partBefore,partAfterFb).catch(e=>console.error("Fallback partitioned sync:",e));
-          showToast("✓ تم الحفظ (بطريقة بديلة)");
-        }).catch(er=>{console.error("Fallback setDoc error:",er);showToast("⛔ فشل الحفظ نهائياً: "+((er.message||String(er)).substring(0,100)))});
-        return stripped;
-      }catch(err){console.error("Fallback fn error:",err);showToast("⛔ خطأ في حفظ البيانات: "+((err.message||String(err)).substring(0,100)));return prev}});
+        fn(nextFb);
+        enforceDataLimits(nextFb);
+        if(splitActiveFb){
+          splitAfterFb={
+            treasury:Array.isArray(nextFb.treasury)?nextFb.treasury:[],
+            auditLog:Array.isArray(nextFb.auditLog)?nextFb.auditLog:[],
+            hrLog:   Array.isArray(nextFb.hrLog)   ?nextFb.hrLog   :[],
+          };
+        }
+        if(partActiveFb){
+          partAfterFb={
+            hrWeeks:Array.isArray(nextFb.hrWeeks)?nextFb.hrWeeks:[],
+          };
+        }
+        strippedFb=nextFb;
+        if(splitActiveFb)strippedFb=stripSplitArrays(strippedFb);
+        if(partActiveFb)strippedFb=stripPartitionedArrays(strippedFb);
+      }catch(err){
+        console.error("Fallback fn error:",err);
+        showToast("⛔ خطأ في حفظ البيانات: "+((err.message||String(err)).substring(0,100)));
+        return;
+      }
+      
+      /* V17.0 FIX #9: Sync day docs FIRST (they are idempotent and safe to retry) */
+      try{
+        if(splitAfterFb)await syncAllSplitChanges(splitBefore,splitAfterFb);
+        if(partAfterFb)await syncAllPartitionedChanges(partBefore,partAfterFb);
+      }catch(syncErr){
+        console.error("Fallback sync error (day docs):",syncErr);
+        showToast("⛔ فشل sync الـday docs: "+((syncErr.message||String(syncErr)).substring(0,100)));
+        /* Day docs partially written. Config NOT updated. Next attempt will be safe. */
+        return;
+      }
+      
+      /* Day docs are now in sync. Write the config. */
+      try{
+        await setDoc(ref,strippedFb,{merge:false});
+        setConfigDoc(strippedFb);
+        showToast("✓ تم الحفظ (بطريقة بديلة)");
+      }catch(er){
+        console.error("Fallback setDoc error:",er);
+        showToast("⛔ فشل الحفظ نهائياً: "+((er.message||String(er)).substring(0,100)));
+        /* Day docs are written. Config write failed. The user can retry — the day
+           docs are idempotent so no duplicates will occur. */
+      }
     }catch(fallbackErr){
       console.error("Fallback failed:",fallbackErr);
       showToast("⚠️ تعذر الحفظ — تأكد من الاتصال بالإنترنت: "+((fallbackErr.message||String(fallbackErr)).substring(0,80)));
@@ -1324,47 +1540,68 @@ export default function App(){
     const explicitPartBefore={
       hrWeeks:[...(partitionedDataRef.current.hrWeeks||[])],
     };
-    /* V16.74 + V16.75: optimistic update with split + partitioned awareness */
-    const sb=explicitSplitBefore;
-    const pb=explicitPartBefore;
-    setConfigDoc(prev=>{try{
-      const next=JSON.parse(JSON.stringify(prev||{}));
-      const splitActive=Boolean(prev?._splitDaysV1674Done);
-      const partActive=Boolean(prev?._partitionedV1675Done);
+    /* V16.80 FIX #6: Compute the next state OUTSIDE setState callback.
+       The previous code put fn() and side-effects (setSplitData, splitDataRef.current=)
+       INSIDE setConfigDoc(prev=>...). React Strict Mode runs callbacks twice for purity
+       checking — meaning fn() executed twice, side-effects fired twice, and any
+       non-deterministic ids (Date.now()) could yield duplicate entries.
+       
+       The new flow:
+         1. Compute next/newSplit/newPart deterministically once, here
+         2. Apply state updates (no callback form, just direct values)
+         3. Side-effects run exactly once */
+    const prev=configDoc||{};
+    let next, newSplit=null, newPart=null, stripped=null;
+    try{
+      next=JSON.parse(JSON.stringify(prev));
+      const splitActive=Boolean(prev._splitDaysV1674Done);
+      const partActive=Boolean(prev._partitionedV1675Done);
       if(splitActive){
-        next.treasury=JSON.parse(JSON.stringify(sb.treasury));
-        next.auditLog=JSON.parse(JSON.stringify(sb.auditLog));
-        next.hrLog=   JSON.parse(JSON.stringify(sb.hrLog));
+        next.treasury=JSON.parse(JSON.stringify(explicitSplitBefore.treasury));
+        next.auditLog=JSON.parse(JSON.stringify(explicitSplitBefore.auditLog));
+        next.hrLog=   JSON.parse(JSON.stringify(explicitSplitBefore.hrLog));
       }
       if(partActive){
-        next.hrWeeks=JSON.parse(JSON.stringify(pb.hrWeeks));
+        next.hrWeeks=JSON.parse(JSON.stringify(explicitPartBefore.hrWeeks));
       }
       fn(next);
       enforceDataLimits(next);
       if(splitActive){
-        const newSplit={
+        newSplit={
           treasury:Array.isArray(next.treasury)?next.treasury:[],
           auditLog:Array.isArray(next.auditLog)?next.auditLog:[],
           hrLog:   Array.isArray(next.hrLog)   ?next.hrLog   :[],
         };
-        setSplitData(newSplit);
-        splitDataRef.current=newSplit;
       }
       if(partActive){
-        const newPart={
+        newPart={
           hrWeeks:Array.isArray(next.hrWeeks)?next.hrWeeks:[],
         };
-        setPartitionedData(newPart);
-        partitionedDataRef.current=newPart;
       }
-      let stripped=next;
+      stripped=next;
       if(splitActive)stripped=stripSplitArrays(stripped);
       if(partActive)stripped=stripPartitionedArrays(stripped);
-      return stripped;
-    }catch(e){return prev}});
+    }catch(e){
+      console.error("[upConfig] fn threw, aborting optimistic update:",e);
+      return;
+    }
+    /* Apply state updates (each runs exactly once, even in Strict Mode) */
+    setConfigDoc(stripped);
+    if(newSplit){
+      /* V17.0 FIX #8: Track pending writes to merge with listener data */
+      registerPendingSplitWrites(explicitSplitBefore,newSplit);
+      setSplitData(newSplit);
+      splitDataRef.current=newSplit;
+    }
+    if(newPart){
+      /* V17.0 FIX #8: Same for partitioned */
+      registerPendingPartitionedWrites(explicitPartBefore,newPart);
+      setPartitionedData(newPart);
+      partitionedDataRef.current=newPart;
+    }
     /* V16.75: pass pre-mutation snapshots explicitly so the diff is computed correctly */
     upConfigTx(fn,explicitSplitBefore,explicitPartBefore);
-  },[upConfigTx,configDoc,splitLoaded,partitionedLoaded]);
+  },[upConfigTx,configDoc,splitLoaded,partitionedLoaded,registerPendingSplitWrites,registerPendingPartitionedWrites]);
 
   const upSalesTx=useCallback(async(fn)=>{
     const ref=doc(db,"factory","sales");
@@ -1840,7 +2077,22 @@ export default function App(){
           <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}
           </span>
-          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V16.76</span>
+          <span 
+            onClick={()=>setShowAboutVersion(true)} 
+            title="عرض سجل التحديثات"
+            style={{
+              fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7,
+              cursor:"pointer",
+              padding:"2px 8px",
+              borderRadius:6,
+              transition:"all 0.15s",
+              display:"inline-flex",
+              alignItems:"center",
+              gap:4,
+            }}
+            onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
+            onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
+          >V17.1 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -2845,6 +3097,58 @@ export default function App(){
     </div>}
     {/* V16.2: Undo Toast — global, shown after any undoable action for 5 minutes */}
     <UndoToast/>
+    {/* V17.1 FIX #12+#15: Migration overlay — blocks UI while a schema migration is running.
+        This prevents users from adding data during the unsafe window between
+        step 2 (sync day docs) and step 3 (config write). */}
+    {migrationStatus && (
+      <div style={{
+        position:"fixed",inset:0,zIndex:99998,
+        background:"rgba(0,0,0,0.75)",backdropFilter:"blur(4px)",
+        display:"flex",alignItems:"center",justifyContent:"center",
+        padding:16,
+      }}>
+        <div style={{
+          background:T.cardSolid,borderRadius:16,padding:32,
+          maxWidth:480,width:"100%",
+          textAlign:"center",
+          boxShadow:"0 20px 60px rgba(0,0,0,0.4)",
+          border:"2px solid "+T.accent+"40",
+        }}>
+          <div style={{fontSize:48,marginBottom:16}}>⚙️</div>
+          <div style={{fontSize:FS+4,fontWeight:800,color:T.accent,marginBottom:8}}>
+            {migrationStatus.label}
+          </div>
+          {migrationStatus.message && (
+            <div style={{fontSize:FS,color:T.textSec,marginBottom:20,lineHeight:1.7}}>
+              {migrationStatus.message}
+            </div>
+          )}
+          {typeof migrationStatus.progress==="number" && (
+            <div style={{
+              width:"100%",height:8,
+              background:T.brd,borderRadius:4,overflow:"hidden",
+              marginBottom:12,
+            }}>
+              <div style={{
+                width:migrationStatus.progress+"%",height:"100%",
+                background:"linear-gradient(90deg, "+T.accent+", "+T.accent+"cc)",
+                transition:"width 0.5s ease",
+              }}/>
+            </div>
+          )}
+          {typeof migrationStatus.progress==="number" && (
+            <div style={{fontSize:FS-2,color:T.textMut,fontFamily:"monospace"}}>
+              {migrationStatus.progress}%
+            </div>
+          )}
+          <div style={{fontSize:FS-3,color:T.textMut,marginTop:18,lineHeight:1.6}}>
+            ⚠️ لا تغلق البرنامج أو تعمل refresh أثناء التحديث
+          </div>
+        </div>
+      </div>
+    )}
+    {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V17.1"/>
   </div>
 }
 

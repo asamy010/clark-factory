@@ -589,7 +589,16 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>p.treasuryTxId!==id);
       /* Remove linked hrLog advance entry */
       if(tx.hrLogId&&d.hrLog)d.hrLog=d.hrLog.filter(l=>l.id!==tx.hrLogId);
-      if(tx.sourceType==="hr_advance"&&tx.empId&&d.hrLog)d.hrLog=d.hrLog.filter(l=>!(l.type==="advance"&&l.empId===tx.empId&&l.date===tx.date&&Math.abs((Number(l.amount)||0)-(Number(tx.amount)||0))<0.01))}});
+      /* V17.1 FIX #11: For legacy advances without hrLogId, delete ONLY the first match
+         (not all matches). The previous logic deleted ALL matching advances, which would
+         wipe multiple legitimate advances if an employee had two same-amount advances on
+         the same day (e.g. 500 EGP for food + 500 EGP for fuel). */
+      if(tx.sourceType==="hr_advance"&&tx.empId&&!tx.hrLogId&&d.hrLog){
+        const matchIdx=d.hrLog.findIndex(l=>l.type==="advance"&&l.empId===tx.empId&&l.date===tx.date&&Math.abs((Number(l.amount)||0)-(Number(tx.amount)||0))<0.01);
+        if(matchIdx>=0){
+          d.hrLog=d.hrLog.filter((_,i)=>i!==matchIdx);
+        }
+      }}});
     /* V16.2: Push undo AFTER the mutation */
     pushUndo({
       label:_label,

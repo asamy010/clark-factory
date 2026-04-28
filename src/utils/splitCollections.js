@@ -38,23 +38,59 @@ export const SPLIT_COLLECTIONS = {
 /* مفاتيح الـfields اللي مقسّمة (للحلقات السريعة) */
 export const SPLIT_FIELDS = Object.keys(SPLIT_COLLECTIONS);
 
-/* helper: استخراج YYYY-MM-DD من entry بحسب نوعه */
-function _getEntryDate(entry) {
-  if (!entry) return new Date().toISOString().slice(0, 10);
+/* V17.1 FIX #4: Order-independent deep equality.
+   JSON.stringify is order-dependent — different key insertion orders produce
+   different strings even when objects are structurally identical. This causes
+   false positives on "changed" detection → unnecessary writes. */
+function _deepEqual(a, b) {
+  if (a === b) return true;
+  if (a == null || b == null) return a === b;
+  if (typeof a !== "object" || typeof b !== "object") return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!_deepEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (const k of keysA) {
+    if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
+    if (!_deepEqual(a[k], b[k])) return false;
+  }
+  return true;
+}
+
+/* helper: استخراج YYYY-MM-DD من entry بحسب نوعه.
+   V16.80: لو الـentry مفهاش date/ts/createdAt، نرجّع null بدل ما نـfallback لـtoday بصمت.
+   الـcaller لازم يتعامل مع null (يرفض الـwrite، يحط warning، إلخ). */
+function _getEntryDate(entry, allowFallback = false) {
+  if (!entry) return allowFallback ? new Date().toISOString().slice(0, 10) : null;
   /* treasury: t.date موجود مباشرة */
   if (entry.date && /^\d{4}-\d{2}-\d{2}/.test(entry.date)) {
     return entry.date.slice(0, 10);
   }
   /* auditLog: a.ts ISO timestamp */
   if (entry.ts) {
-    try { return new Date(entry.ts).toISOString().slice(0, 10); }
-    catch (e) { /* fall through */ }
+    try {
+      const d = new Date(entry.ts).toISOString().slice(0, 10);
+      if (d && d !== "Invalid Date") return d;
+    } catch (e) { /* fall through */ }
   }
   if (entry.createdAt) {
-    try { return new Date(entry.createdAt).toISOString().slice(0, 10); }
-    catch (e) { /* fall through */ }
+    try {
+      const d = new Date(entry.createdAt).toISOString().slice(0, 10);
+      if (d && d !== "Invalid Date") return d;
+    } catch (e) { /* fall through */ }
   }
-  return new Date().toISOString().slice(0, 10);
+  if (allowFallback) {
+    console.warn("[splitCollections] Entry without date — using today as fallback:", entry?.id);
+    return new Date().toISOString().slice(0, 10);
+  }
+  return null;
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -99,6 +135,9 @@ export async function readAllSplitCollections() {
  */
 /**
  * V16.75 CRITICAL FIX: read existing day doc first, then merge.
+ * V16.80 FIX #2: Detect date changes — if same id has different date in old vs new,
+ *                 remove from old day AND add to new day (was duplicating before).
+ * V16.80 FIX #3: Reject entries without a valid date instead of silent fallback to today.
  * 
  * Why: previously this function overwrote the day document with newEntries
  * (computed from local splitDataRef + fn changes). If splitData was incomplete
@@ -106,10 +145,11 @@ export async function readAllSplitCollections() {
  * a SUBSET of the actual server state. Writing it back wiped real entries.
  * 
  * Now the strategy is delta-based: 
- * 1. Compute which entry IDs were ADDED/REMOVED in the local fn diff
- * 2. Read the day document from server
- * 3. Apply ADD/REMOVE to the server's actual entries (not local)
- * 4. Write merged result back
+ * 1. Compute which entry IDs were ADDED/REMOVED/MODIFIED in the local fn diff
+ * 2. For modifications where the date changed: schedule remove from old day + add to new day
+ * 3. Read each affected day document from server
+ * 4. Apply ADD/REMOVE to the server's actual entries (not local)
+ * 5. Write merged result back
  */
 export async function syncSplitCollection(collectionName, oldArr, newArr) {
   if (!Array.isArray(newArr)) newArr = [];
@@ -121,16 +161,35 @@ export async function syncSplitCollection(collectionName, oldArr, newArr) {
   const newById = new Map();
   newArr.forEach(e => { if (e && e.id) newById.set(String(e.id), e); });
   
-  /* Compute deltas */
+  /* V16.80 FIX #1: Warn about entries without id (silently skipped before) */
+  const noIdOld = oldArr.filter(e => e && !e.id).length;
+  const noIdNew = newArr.filter(e => e && !e.id).length;
+  if (noIdOld > 0 || noIdNew > 0) {
+    console.warn(`[splitCollections] ${collectionName}: ${noIdNew} new entries and ${noIdOld} old entries without id — these will be SKIPPED. Always provide an id.`);
+  }
+  
+  /* Compute deltas:
+     - addedOrModified: new + modified (same id, different content)
+     - removedIds: in old but not in new
+     - dateChangedIds: in both, same id, but date differs (V16.80 FIX #2) */
   const addedOrModified = [];
   const removedIds = new Set();
+  /* Map: id → old date (for date-changed entries — needed to remove from old day) */
+  const dateChanges = new Map();
   
   for (const [id, newEntry] of newById) {
     const oldEntry = oldById.get(id);
     if (!oldEntry) {
+      /* genuinely new entry */
       addedOrModified.push(newEntry);
-    } else if (JSON.stringify(oldEntry) !== JSON.stringify(newEntry)) {
+    } else if (!_deepEqual(oldEntry, newEntry)) {
       addedOrModified.push(newEntry);
+      /* V16.80 FIX #2: Detect date change */
+      const oldDate = _getEntryDate(oldEntry, true);
+      const newDate = _getEntryDate(newEntry, true);
+      if (oldDate && newDate && oldDate !== newDate) {
+        dateChanges.set(id, oldDate);
+      }
     }
   }
   for (const id of oldById.keys()) {
@@ -140,23 +199,40 @@ export async function syncSplitCollection(collectionName, oldArr, newArr) {
   /* No changes at all? */
   if (addedOrModified.length === 0 && removedIds.size === 0) return 0;
   
-  /* Group adds/mods by day */
+  /* V16.80 FIX #3: Group adds/mods by day. Reject entries without valid date. */
   const addsByDay = new Map();
+  const rejectedNoDate = [];
   for (const entry of addedOrModified) {
-    const date = _getEntryDate(entry);
+    const date = _getEntryDate(entry, false);/* strict — no fallback */
+    if (!date) {
+      rejectedNoDate.push(entry?.id || "?");
+      continue;
+    }
     if (!addsByDay.has(date)) addsByDay.set(date, []);
     addsByDay.get(date).push(entry);
   }
+  if (rejectedNoDate.length > 0) {
+    console.error(`[splitCollections] ${collectionName}: REJECTED ${rejectedNoDate.length} entries without valid date — ids:`, rejectedNoDate);
+    /* The entries are kept in the local state but not written to day docs.
+       The user's UI will show a stale version. This is by design — we'd rather
+       have visible inconsistency than silent corruption (entries written to wrong day). */
+  }
   
-  /* Group removes by day — need to find which day each removed id belonged to.
-     We use oldById for that since it has the full entry. */
+  /* Group removes by day */
   const removesByDay = new Map();
   for (const id of removedIds) {
     const oldEntry = oldById.get(id);
     if (!oldEntry) continue;
-    const date = _getEntryDate(oldEntry);
+    const date = _getEntryDate(oldEntry, true);/* fallback OK for old entries */
+    if (!date) continue;
     if (!removesByDay.has(date)) removesByDay.set(date, new Set());
     removesByDay.get(date).add(id);
+  }
+  
+  /* V16.80 FIX #2: For date-changed entries, also remove from the OLD day */
+  for (const [id, oldDate] of dateChanges) {
+    if (!removesByDay.has(oldDate)) removesByDay.set(oldDate, new Set());
+    removesByDay.get(oldDate).add(id);
   }
   
   const allDays = new Set([...addsByDay.keys(), ...removesByDay.keys()]);
@@ -190,8 +266,7 @@ export async function syncSplitCollection(collectionName, oldArr, newArr) {
       for (const newEntry of addList) {
         const newId = String(newEntry?.id || "");
         if (!newId) {
-          /* No id — just prepend (defensive) */
-          merged.unshift(newEntry);
+          /* Already handled above (rejected) — defensive only */
           continue;
         }
         const existingIdx = merged.findIndex(e => String(e?.id || "") === newId);
@@ -241,8 +316,8 @@ export async function syncAllSplitChanges(oldConfig, newConfig) {
     const newArr = newConfig?.[field] || [];
     
     if (oldArr === newArr) continue;
-    if (oldArr.length === newArr.length && 
-        JSON.stringify(oldArr) === JSON.stringify(newArr)) continue;
+    /* V17.1 FIX #4: deep equality instead of JSON.stringify */
+    if (oldArr.length === newArr.length && _deepEqual(oldArr, newArr)) continue;
     
     tasks.push(syncSplitCollection(SPLIT_COLLECTIONS[field], oldArr, newArr));
   }

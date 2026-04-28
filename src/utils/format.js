@@ -4,7 +4,17 @@
    ═══════════════════════════════════════════════════════════════ */
 
 /* Unique short ID generator (Date-based with random suffix) */
-export function gid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+/* V17.0 FIX #7: Strengthen id generation with 12 random chars instead of 4.
+   The previous gid() = Date.now() + 4 random chars had ~1.6M combinations per ms.
+   In practice this was safe, but theoretically possible to collide under heavy load.
+   The new format gives 36^12 = 4.7 quintillion combinations per ms — effectively zero
+   collision risk even at millions of writes per second across thousands of users. */
+export function gid(){
+  const ts = Date.now().toString(36);
+  const r1 = Math.random().toString(36).slice(2, 8);
+  const r2 = Math.random().toString(36).slice(2, 8);
+  return ts + "-" + r1 + r2;
+}
 
 /* Number formatters */
 export function fmt(n){return Number(n||0).toLocaleString("en-US")}

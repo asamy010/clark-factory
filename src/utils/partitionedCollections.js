@@ -83,6 +83,33 @@ export async function readAllPartitionedCollections() {
  * Now: writes are ALWAYS safe (just upsert). Deletes happen only if oldArr explicitly
  * had the id AND newArr explicitly removed it. If oldArr is empty/undefined, NO deletes.
  */
+/* V17.1 FIX #4: Deep equality check that's order-independent.
+   JSON.stringify is order-dependent — same object with different key insertion
+   order yields different strings, causing false negatives → unnecessary writes.
+   For complex hrWeek objects with nested receipts/attendance maps, this can
+   cause 5-10× more writes than needed. */
+function _deepEqual(a, b) {
+  if (a === b) return true;
+  if (a == null || b == null) return a === b;
+  if (typeof a !== "object" || typeof b !== "object") return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!_deepEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (const k of keysA) {
+    if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
+    if (!_deepEqual(a[k], b[k])) return false;
+  }
+  return true;
+}
+
 export async function syncPartitionedCollection(collectionName, oldArr, newArr) {
   if (!Array.isArray(newArr)) newArr = [];
   if (!Array.isArray(oldArr)) oldArr = [];
@@ -109,7 +136,8 @@ export async function syncPartitionedCollection(collectionName, oldArr, newArr) 
   /* writes: add or modify */
   for (const [id, newObj] of newById) {
     const oldObj = oldById.get(id);
-    if (oldObj && JSON.stringify(oldObj) === JSON.stringify(newObj)) continue;
+    /* V17.1 FIX #4: deep equality (order-independent) instead of JSON.stringify */
+    if (oldObj && _deepEqual(oldObj, newObj)) continue;
     writes.push(setDoc(doc(db, collectionName, id), newObj));
   }
   
@@ -140,8 +168,8 @@ export async function syncAllPartitionedChanges(oldConfig, newConfig) {
     const newArr = newConfig?.[field] || [];
     
     if (oldArr === newArr) continue;
-    if (oldArr.length === newArr.length && 
-        JSON.stringify(oldArr) === JSON.stringify(newArr)) continue;
+    /* V17.1 FIX #4: deep equality instead of JSON.stringify */
+    if (oldArr.length === newArr.length && _deepEqual(oldArr, newArr)) continue;
     
     tasks.push(syncPartitionedCollection(PARTITIONED_COLLECTIONS[field], oldArr, newArr));
   }
