@@ -138,12 +138,10 @@ export function CustomerPortalPage({ params }) {
       <div style={{ fontSize: 11, opacity: 0.85 }}>{factory.name}</div>
       <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>{customer.name}</div>
       {customer.phone && <div style={{ fontSize: 11, opacity: 0.8, marginTop: 2, direction: "ltr" }}>{customer.phone}</div>}
-      {/* V18.7: Rating badge */}
-      {summary.rating && <div style={{ marginTop: 8, display: "inline-flex", alignItems: "center", gap: 8, padding: "5px 14px", background: "rgba(255,255,255,0.18)", borderRadius: 999, border: "1px solid rgba(255,255,255,0.3)", backdropFilter: "blur(4px)" }}>
-        <span style={{ fontSize: 11, opacity: 0.95, fontWeight: 700 }}>تقييم العميل:</span>
+      {/* V18.7: Rating badge — V18.11: simplified (stars + number only) */}
+      {summary.rating && summary.rating.rated && <div style={{ marginTop: 8, display: "inline-flex", alignItems: "center", gap: 8, padding: "5px 14px", background: "rgba(255,255,255,0.18)", borderRadius: 999, border: "1px solid rgba(255,255,255,0.3)", backdropFilter: "blur(4px)" }}>
         <Stars value={summary.rating.stars} size={14} gap={1}/>
-        {summary.rating.rated && <span style={{ fontSize: 11, fontWeight: 800, direction: "ltr" }}>{summary.rating.stars}</span>}
-        <span style={{ fontSize: 10, padding: "1px 7px", background: "rgba(255,255,255,0.25)", borderRadius: 6, fontWeight: 800 }}>{summary.rating.label}</span>
+        <span style={{ fontSize: 12, fontWeight: 800, direction: "ltr" }}>{summary.rating.stars}</span>
       </div>}
     </div>
 

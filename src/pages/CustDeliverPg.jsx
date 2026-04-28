@@ -1467,7 +1467,6 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               {rating.rated&&<div style={{display:"flex",alignItems:"center",gap:5,marginTop:2}}>
                 <Stars value={rating.stars} size={11} gap={1}/>
                 <span style={{fontSize:FS-3,fontWeight:700,color:rating.color,direction:"ltr"}}>{rating.stars}</span>
-                <span style={{fontSize:FS-3,color:rating.color,fontWeight:600}}>{rating.label}</span>
               </div>}
             </div>
             <span onClick={()=>{setCustStatement(c.id);setCustFilter("")}} style={{fontSize:FS-1,color:T.accent,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>{"صافي: "+getCustTotal(c.id)}</span>
@@ -1546,13 +1545,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             <div>
               <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{"📄 كشف حساب — "+cust.name}</div>
               <div style={{fontSize:FS-2,color:T.textMut}}>{(cust.type||"")+" | "+cust.phone}</div>
-              {/* V18.7: Customer rating in statement header */}
-              {(()=>{const rating=getCustRating(totalDel,totalRet);return<div style={{marginTop:6,display:"inline-flex",alignItems:"center",gap:8,padding:"4px 12px",background:rating.color+"12",borderRadius:999,border:"1px solid "+rating.color+"30"}}>
-                <span style={{fontSize:FS-3,color:T.textSec,fontWeight:700}}>تقييم العميل:</span>
+              {/* V18.7: Customer rating in statement header — V18.11: simplified */}
+              {(()=>{const rating=getCustRating(totalDel,totalRet);if(!rating.rated)return null;return<div style={{marginTop:6,display:"inline-flex",alignItems:"center",gap:6,padding:"4px 12px",background:rating.color+"12",borderRadius:999,border:"1px solid "+rating.color+"30"}}>
                 <Stars value={rating.stars} size={13} gap={1}/>
-                {rating.rated&&<span style={{fontSize:FS-3,fontWeight:800,color:rating.color,direction:"ltr"}}>{rating.stars}</span>}
-                <span style={{fontSize:FS-3,fontWeight:800,color:rating.color}}>{rating.label}</span>
-                {rating.rated&&<span style={{fontSize:FS-3,color:T.textMut,direction:"ltr"}}>({rating.pct}%)</span>}
+                <span style={{fontSize:FS-3,fontWeight:800,color:rating.color,direction:"ltr"}}>{rating.stars}</span>
               </div>})()}
             </div>
             <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>

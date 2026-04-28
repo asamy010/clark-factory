@@ -25,151 +25,127 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
-    version: "V18.0",
+    version: "V18.11",
     date: "2026-04-28",
-    types: ["feature", "fix", "improvement"],
-    title: "نظام البنوك + popups تأكيد للشيكات + ربط الشيكات بالحركات",
+    types: ["improvement"],
+    title: "تبسيط بادج تقييم العميل — نجوم ورقم فقط",
     changes: [
-      { type: "feature", text: "🆕 قائمة بنوك في تاب الحسابات بالخزنة — أضف بنوكك (الأهلي، CIB، QNB، إلخ) وتظهر تلقائياً في قائمة البنك عند إضافة شيك جديد" },
-      { type: "feature", text: "إمكانية تعديل وحذف البنوك. منع حذف بنك مستخدم في شيكات (يطلع رسالة بعدد الشيكات المرتبطة)" },
-      { type: "improvement", text: "حقل البنك في فورم الشيك بقا dropdown يعرض البنوك المسجلة + خيار 'أخرى' للكتابة اليدوية لو الـbank مش في القائمة" },
-      { type: "feature", text: "🆕 popup تأكيد عند تحصيل شيك القبض — يسأل: على أي حساب تودع المبلغ؟ يعرض كل الخزائن (رئيسية/فرعية/أي حساب مسجل) + كل البنوك المسجلة" },
-      { type: "feature", text: "🆕 popup تأكيد عند صرف شيك الدفع — يسأل: من أي حساب يخصم المبلغ؟ نفس الخيارات" },
-      { type: "improvement", text: "بعد اختيار الحساب، يطلع popup تأكيد ثاني يعرض الملخص قبل التنفيذ النهائي (مبلغ + جهة + الحساب)" },
-      { type: "improvement", text: "popup تأكيد لكل تغيير حالة شيك: تحصيل / دفع / مرتد / مرتجع / تظهير / حذف — مفيش تغيير حالة بدون تأكيد" },
-      { type: "improvement", text: "الحساب المختار يتسجل في الشيك (depositAccount) عشان نقدر نعرضه بعدين" },
-      { type: "fix", text: "🚨 إصلاح bug خطير: لو الـuser حذف حركة الخزنة المرتبطة بشيك من مكان آخر (مثلاً تجاوز قفل، reset قديم، إلخ)، الشيك كان يفضل status='محصل/مدفوع/مُظهّر' مع إنه مفيش حركة فعلية" },
-      { type: "fix", text: "Reconciliation تلقائي: لما تفتح صفحة الخزنة، النظام بيفحص كل الشيكات. لو لقى شيك بحالة محصل/مدفوع بدون حركة خزنة، يرجعه تلقائياً لـ'معلق' ويوضّح السبب (autoRevertReason)" },
-      { type: "fix", text: "نفس الـreconciliation للشيكات المُظهّرة: لو دفعة المورد المرتبطة محذوفة، الشيك يرجع لمعلق" },
-      { type: "improvement", text: "تأكيد منع حذف الشيك لو مرتبط بحركة خزنة (موجود من V16.65) — الـuser لازم يرجع الحالة لمعلق أولاً" },
-      { type: "improvement", text: "تأكيد منع حذف حركة الخزنة المرتبطة بشيك (موجود من V16.65) — الـuser لازم يحذف الشيك من تابه" },
+      { type: "improvement", text: "🎨 إزالة كلمة 'تقييم العميل:' وإزالة التصنيف اللفظي (ممتاز/جيد جداً/متوسط/ضعيف/سيء) من بادج التقييم في:" },
+      { type: "improvement", text: "هيدر صفحة رابط العميل + هيدر كشف الحساب الداخلي + قائمة العملاء (البوب-أب)" },
+      { type: "improvement", text: "البادج صار يعرض النجوم والرقم فقط (مثلاً ⭐⭐⭐⭐½ 4.5) — أنظف وأكثر تركيزاً" },
+      { type: "improvement", text: "البطاقة التفصيلية للتقييم في إحصاءات الرابط محتفظ بها بكامل تفاصيلها (التصنيف + النسبة + breakdown)" },
     ]
   },
   {
-    version: "V17.9",
+    version: "V18.10",
+    date: "2026-04-28",
+    types: ["maintenance"],
+    title: "تفعيل سجل التحديثات — توثيق دائم لكل إصدار",
+    changes: [
+      { type: "maintenance", text: "📝 من V18.10 وما بعدها، كل إصدار يحصل على إدخال مفصّل في سجل التحديثات (هذه النافذة) — العنوان، التاريخ، التصنيفات، وكل التغييرات بالتفصيل" },
+      { type: "maintenance", text: "تم إعادة بناء السجل بالكامل ليشمل V18.0 → V18.10 بدل ما كان متوقفاً عند V17.x" },
+      { type: "maintenance", text: "نحافظ على آخر 10 إصدارات فقط — الأقدم يُحذف عند إضافة جديد" },
+    ]
+  },
+  {
+    version: "V18.9",
+    date: "2026-04-28",
+    types: ["fix"],
+    title: "إصلاح بناء Vercel — تسمية ملف utils/rating",
+    changes: [
+      { type: "fix", text: "🚨 إصلاح فشل البيلد على Vercel: ملف rating.js كان يحتوي على JSX (مكوّن <Stars>)، لكن إعدادات Vite الافتراضية لا تحوّل JSX إلا داخل ملفات .jsx — إعادة تسمية إلى rating.jsx وتحديث جميع الـimports" },
+    ]
+  },
+  {
+    version: "V18.8",
+    date: "2026-04-28",
+    types: ["improvement"],
+    title: "إعادة بطاقة 'إجمالي الخصم' في رابط العميل",
+    changes: [
+      { type: "improvement", text: "🏷️ بطاقة 'إجمالي الخصم' رجعت في صفحة رابط العميل (تظهر فقط لو نسبة الخصم > 0). سطر الخصم في ملخص الحساب لا يزال محذوفاً" },
+    ]
+  },
+  {
+    version: "V18.7",
+    date: "2026-04-28",
+    types: ["feature"],
+    title: "نظام تقييم العملاء بـ 5 نجوم (نص نجمة)",
+    changes: [
+      { type: "feature", text: "⭐ نظام تقييم تلقائي للعميل بناءً على نسبة البيع: (تسليم − مرتجع) ÷ تسليم × 100%" },
+      { type: "feature", text: "5 شرائح: ممتاز ≥95% (أخضر) / جيد جداً 85-94% (تركواز) / متوسط 70-84% (أزرق) / ضعيف 50-69% (برتقالي) / سيء <50% (أحمر)" },
+      { type: "feature", text: "نجوم بدقة نص نجمة (4.5 ⭐) باستخدام تقنية overlay — مكوّن <Stars> reusable" },
+      { type: "feature", text: "التقييم يظهر في 4 أماكن: هيدر رابط العميل + بطاقة تفصيلية في إحصاءات الرابط + هيدر كشف الحساب الداخلي + قائمة العملاء (البوب-أب)" },
+      { type: "feature", text: "حالة 'لم يتم التقييم بعد' للعميل بدون تسليم" },
+      { type: "feature", text: "ملف utils/rating.jsx جديد فيه getCustRating() + مكوّن <Stars>" },
+    ]
+  },
+  {
+    version: "V18.6",
+    date: "2026-04-28",
+    types: ["improvement"],
+    title: "تنظيم رابط العميل والورشة + بادج الموسم",
+    changes: [
+      { type: "improvement", text: "🗓️ بادج 'موسم XX' في هيدر رابطي العميل والورشة — يظهر على الجنب بـ blur + إطار شفاف" },
+      { type: "improvement", text: "API بقت ترجع activeSeason للـ portals" },
+      { type: "improvement", text: "حذف بطاقة 'إجمالي الخصم' وسطر الخصم من ملخص رابط العميل (سيرجعا لاحقاً في V18.8)" },
+      { type: "improvement", text: "حذف تاب 'الموديلات' من رابط العميل — السجل الموحد كافي" },
+      { type: "improvement", text: "هيدر رابط الورشة أصغر (10px padding) لتوفير مساحة قراءة" },
+      { type: "improvement", text: "كارد الموديل في الورشة: تاريخ الكورنر شال، التاريخ بقى inline جنب التسليم/الاستلام، الكارد أكبر (min-height 130, صورة 100×100)، رقم الموديل بخط 16 فوق الوصف بوضوح" },
+    ]
+  },
+  {
+    version: "V18.5",
+    date: "2026-04-28",
+    types: ["improvement"],
+    title: "دمج تاب التسليم/المرتجعات في رابط العميل + إزالة واتساب",
+    changes: [
+      { type: "improvement", text: "🔄 تاب موحد جديد 'سجل التسليم والمرتجعات' بدل تابين منفصلين — يعرض كل الحركات بترتيب زمني (الأحدث فوق)" },
+      { type: "improvement", text: "كل صف بيميز نوع الحركة بـ بادج (📥 تسليم/↩️ مرتجع) + شريط ملوّن على الجانب + صورة مصغرة" },
+      { type: "improvement", text: "🚫 إزالة زر 'مشاركة واتساب' من رابطي العميل والورشة — اكتفاء بـ PDF فقط" },
+    ]
+  },
+  {
+    version: "V18.4",
+    date: "2026-04-28",
+    types: ["fix", "improvement", "feature"],
+    title: "تصحيح 'إجمالي فواتير المبيعات' + فلتر بالموديل + دمج الورشة",
+    changes: [
+      { type: "fix", text: "🚨 إصلاح bug في كشف العميل (داخلي + رابط): بطاقة 'إجمالي فواتير المبيعات' كانت تعرض الصافي بعد المرتجعات، صار تعرض الإجمالي الخام للتسليمات (delivered × price)" },
+      { type: "improvement", text: "بعد الخصم في البطاقة = الإجمالي الخام × (1 − نسبة الخصم) — يطابق ما يتوقعه العميل" },
+      { type: "improvement", text: "تغيير 'صافي القطع' إلى 'صافي الكمية المباعة' في كل الأماكن" },
+      { type: "improvement", text: "تصحيح labels الرصيد: 'مستحق علي' → 'مستحق للمصنع'، 'مستحق لي' → 'مستحق للعميل'" },
+      { type: "feature", text: "🔍 فلتر بحث برقم الموديل في رابط العميل (تابات الموديلات/التسليمات/المرتجعات) ورابط الورشة — مع زر مسح" },
+      { type: "improvement", text: "🔄 رابط الورشة: دمج تاب التسليم والاستلام في تاب موحد 'سجل التسليم والاستلام' — كل موديل في كارد واحد مع: ملخص (تسليم/استلام/رصيد) + معادلة لكل دفعة استلام بتاريخها + المجموع" },
+      { type: "improvement", text: "نوع القطعة (قميص/تيشيرت/شورت) يظهر بنص واضح" },
+    ]
+  },
+  {
+    version: "V18.3",
     date: "2026-04-28",
     types: ["feature", "improvement"],
-    title: "Tabs لصفحة المبيعات + رابط عام للورشة",
+    title: "إعادة تصميم رابط العميل + صور الموديلات + PDF",
     changes: [
-      { type: "feature", text: "🆕 صفحة المبيعات بقت بـTabs بدل ما الأقسام تكون متراصة فوق بعض — Tabs ظاهرة: 📦 سجل التسليمات، ↩️ سجل المرتجعات، 📋 جرد المبيعات، ⚠️ موديلات راكدة" },
-      { type: "feature", text: "كل تاب يعرض العداد بتاعه بجانب اسمه (مثلاً 'سجل المرتجعات (3 عميل، 196 قطعة)')" },
-      { type: "feature", text: "تاب 'موديلات راكدة' يختفي تلقائياً لو مفيش موديلات راكدة" },
-      { type: "improvement", text: "تاب الموديلات الراكدة بقا يعرض القائمة كاملة بدل أحدث 5 — مع زر طباعة" },
-      { type: "improvement", text: "Mobile-friendly: الـtabs تتفاف على شاشتين في الموبايل بدل ما تكسر التصميم" },
-      { type: "feature", text: "🆕 رابط عام للورشة (مثل رابط العميل) — بدون تسجيل دخول، يعرض حساب الورشة كامل بـHMAC signature" },
-      { type: "feature", text: "صفحة الورشة تعرض: المستحق، المدفوع، الرصيد، عدد القطع تحت التشغيل، حد الدفع الأسبوعي بناءً على نسبة الاتفاق (payPercent)" },
-      { type: "feature", text: "4 تابات في صفحة الورشة: 📊 الملخص، 📤 تسليم للورشة، 📥 استلام من الورشة (مع الأسعار والقيمة)، 💰 المدفوعات" },
-      { type: "feature", text: "زر '📱 رابط حساب الورشة' في كارت كل ورشة خارجية في 'قاعدة البيانات → الورش' — توليد + نسخ + إرسال واتساب" },
-      { type: "feature", text: "API endpoints جديدة: POST /api/workshop-portal-sign + GET /api/workshop-portal" },
-      { type: "improvement", text: "Mobile-first design لصفحة الورشة بنفس روح صفحة العميل، باللون الذهبي 🏭" },
+      { type: "improvement", text: "📱 رابط العميل: هيدر مضغوط + 6 بطاقات أصغر تطابق الكشف الداخلي (مبيعات/مرتجعات/خصم/مدفوع نقدي+شيكات/رصيد/صافي القطع) + ألوان متسقة (موجب=أخضر)" },
+      { type: "improvement", text: "ملخص الحساب يكرر البطاقات بنفس الترتيب + الرصيد بخط 20px + بطاقة 'الكمية المباعة الفعلية'" },
+      { type: "improvement", text: "تاب الموديلات: صور مصغرة جنب البيانات، 'مسلم' → 'تسليم'، معادلة رياضية في سطر مستقل، حذف بادج 'قيد التنفيذ'" },
+      { type: "feature", text: "🖼️ إضافة صور الموديلات في تابات التسليمات/المرتجعات (العميل) والتسليم/الاستلام (الورشة)" },
+      { type: "feature", text: "💳 المدفوعات: 3 بطاقات (نقدي/شيكات/إجمالي) + سجل كامل بالحركات والملاحظات" },
+      { type: "feature", text: "📄 زر تصدير PDF + 📤 مشاركة واتساب على كل تاب — PDF عبر طباعة المتصفح (Save as PDF)، واتساب عبر Web Share API أو wa.me" },
+      { type: "improvement", text: "API customer-portal و workshop-portal يرجعان الآن: image, cashPaid, checksPaid, returnsAfterDiscount, totalDelValue, actualSold" },
     ]
   },
   {
-    version: "V17.8",
+    version: "V18.2",
     date: "2026-04-28",
-    types: ["fix", "improvement"],
-    title: "إصلاح crash تاب الورش + تصحيح 'دفعة مورد'",
+    types: ["improvement"],
+    title: "إعادة تصميم رابط الورشة + زر رابط العميل في القائمة",
     changes: [
-      { type: "fix", text: "🚨 إصلاح crash خطير: تاب الورش في 'قاعدة البيانات' كان يكسر الصفحة كاملة بـ'data is not defined'. السبب: مكون WsManager كان يستخدم prop اسمه data بدون ما يتم تمريره من DBPg" },
-      { type: "fix", text: "تم إضافة data كـprop في destructuring الـWsManager وتمريره من DBPg" },
-      { type: "improvement", text: "تصحيح خطأ إملائي: 'دفع مورد' → 'دفعة مورد' في كل صفحات الخزنة والمشتريات والإعدادات والمرتبات" },
-      { type: "improvement", text: "Migration تلقائي: لما يتم فتح صفحة الخزنة، أي حركات قديمة كانت category='دفع مورد' بتتحول تلقائياً لـ'دفعة مورد' — مفيش حاجة محتاجة تعمل يدوي" },
-      { type: "improvement", text: "تأكيد سلوك المرتجعات (للتأكد): المرتجعات بترجع للرصيد بصيغة avail = stock - (sold - returned) — يعني العميل لما يرجع، الموديل يبقى متاح للبيع تاني" },
-      { type: "improvement", text: "تأكيد إن كل حركة (بيع أو مرتجع) بتتسجل في customerDeliveries / customerReturns مع: التاريخ، العميل، الكمية، الملاحظة، الـsessionId، الـcreatedBy" },
-    ]
-  },
-  {
-    version: "V17.7",
-    date: "2026-04-28",
-    types: ["feature", "improvement"],
-    title: "سجل المرتجعات حسب العميل + تحديث اسم المصنع",
-    changes: [
-      { type: "feature", text: "🆕 سجل المرتجعات بقا مجمّع حسب العميل بدل ما يعرض كل حركة في صف منفصل — الواجهة بقت قائمة بأسماء العملاء مع إجمالي الكمية وتاريخ آخر مرتجع" },
-      { type: "feature", text: "اضغط على أي عميل في السجل → يفتح popup فيه السجل الكامل لمرتجعاته (التاريخ، الموديل، الكمية، الملاحظات، بواسطة) مع إمكانية الطباعة / PDF" },
-      { type: "feature", text: "زر طباعة السجل الكامل يطبع تقرير شامل: ملخص بكل العملاء + تفاصيل مرتجعات كل عميل" },
-      { type: "feature", text: "بحث في السجل باسم العميل" },
-      { type: "improvement", text: "ترتيب العملاء حسب إجمالي الكمية (الأكبر أولاً) — يساعد في تحديد العملاء المرتجعين الأكثر" },
-      { type: "improvement", text: "أيقونة 👤 وعدد العمليات وتاريخ آخر مرتجع لكل عميل لمراجعة سريعة" },
-      { type: "improvement", text: "تحديث اسم التطبيق في الـlink preview للـCLARK Kids Wear (واتساب، تليجرام، فيسبوك، إلخ)" },
-      { type: "improvement", text: "إضافة Open Graph + Twitter meta tags لمظهر أفضل عند مشاركة الروابط" },
-      { type: "improvement", text: "تحديث manifest.json — الاسم لما يضيف التطبيق للهاتف بقا CLARK Kids Wear" },
-    ]
-  },
-  {
-    version: "V17.6",
-    date: "2026-04-28",
-    types: ["fix"],
-    title: "إصلاح المرتجع السريع — موديلات اشتراها العميل ما كانتش تظهر",
-    changes: [
-      { type: "fix", text: "🚨 في المرتجع السريع: dropdown الموديلات كان يـfilter بـ'المخزون المتاح > 0' حتى للمرتجعات. ده كان يحجب الموديلات اللي بيعت كلها للعميل (avail=0) من القائمة، وبيمنع تسجيل المرتجع منها" },
-      { type: "fix", text: "دلوقتي في return mode، الـdropdown يعرض الموديلات اللي العميل اشتراها فعلاً (delivered - returned > 0) عبر كل الـorders" },
-      { type: "fix", text: "الموديلات اللي ارتجع منها العميل بالكامل (cd === ret) ما تظهرش — لا يوجد ما يرجعه" },
-      { type: "fix", text: "موديلات اشتراها عميل آخر ما تظهرش لهذا العميل" },
-      { type: "improvement", text: "Placeholder dropdown في return mode بقا 'موديلات اشتراها العميل...' بدل 'اختر موديل...' للوضوح" },
-      { type: "improvement", text: "زر 'بيع كسر 🧩' بقا يختفي في return mode (مش منطقي)" },
-    ]
-  },
-  {
-    version: "V17.5",
-    date: "2026-04-28",
-    types: ["fix"],
-    title: "إصلاحات نهائية: Transfer cascade + Auto-id",
-    changes: [
-      { type: "fix", text: "Transfer delete (single + bulk + deleteTransfer) دلوقتي يـcascade-cleanup للـcustPayments / supplierPayments / wsPayments المرتبطة بـ**كلا** الـlegs" },
-      { type: "fix", text: "Bulk delete مع selection جزئي لـtransfer دلوقتي ينظف الـlinked records على الـleg الثانية اللي ما اتختارتش" },
-      { type: "fix", text: "Entry بدون id ما تتـskip بصمت — تتولّد لها id deterministic بناءً على الـcontent (آمن من duplicates)" },
-      { type: "improvement", text: "إزالة الـdead warning code للـentries بدون id" },
-    ]
-  },
-  {
-    version: "V17.4",
-    date: "2026-04-28",
-    types: ["fix"],
-    title: "إصلاح UI flicker في تأكيد التحويل + إزالة زر حذف خطر",
-    changes: [
-      { type: "fix", text: "🚨 إصلاح bug: لما تضغط 'تأكيد التحويل'، التحويل كان يتم → يرجع زي قبل ثانية → يتم تاني. السبب: الـconfig listener كان يـoverride الـoptimistic state بـcached snap قبل ما الـserver يأكد" },
-      { type: "fix", text: "Listener دلوقتي يتجاهل الـsnaps اللي عندها hasPendingWrites=true لو عندنا config محمّل بالفعل (الـpending IS local state)" },
-      { type: "fix", text: "إضافة configDocRef للوصول للقيمة الحالية من داخل listener closure (بدل الـstale closure value)" },
-      { type: "fix", text: "إزالة زر الحذف 🗑️ من popup تأكيد استلام مخزن الجاهز — كان يسبب حذف صدفة لتسليمات معلّقة" },
-      { type: "improvement", text: "تنظيف: حذف الـtip النصي اللي كان يشير للزر، وحذف الـ'إجراء' column" },
-    ]
-  },
-  {
-    version: "V17.3",
-    date: "2026-04-28",
-    types: ["fix"],
-    title: "إصلاحات إضافية في الخزنة (audit مركّز)",
-    changes: [
-      { type: "fix", text: "🚨 Bulk delete السلف: كان يحذف كل السلف المتطابقة في hrLog (نفس bug #11 لكن في bulk delete)" },
-      { type: "fix", text: "Inline edit في اليومية: بقا يـsync الـcustPayments / supplierPayments / wsPayments / hrLog (كان يحدّث الـtreasury فقط)" },
-      { type: "fix", text: "Edit popup للسلفة: لو غيّرت الموظف، الـhrLog القديم يتحذف ويتنشئ واحد جديد. لو شلت الموظف، الـhrLog يتحذف والـlink يتنظف" },
-      { type: "fix", text: "Edit popup: لو الـtx ما كنش سلفة وأضفت موظف، يتنشأ hrLog جديد تلقائياً" },
-      { type: "fix", text: "Edit popup: tx.empId الآن يتحدث بشكل صحيح (كان مش بيتحدث في القديم)" },
-    ]
-  },
-  {
-    version: "V17.2",
-    date: "2026-04-28",
-    types: ["fix", "architectural"],
-    title: "إصلاح حرج: الحركات بتنزل مرتين (duplicate)",
-    changes: [
-      { type: "fix", text: "🚨 إصلاح bug خطير: تسجيل سلفة كان يسبب duplicate في الخزنة" },
-      { type: "architectural", text: "السبب: Firestore transaction كان يـreruns الـuser fn على كل retry، وكل run يولّد ids جديدة (gid()). الـoptimistic UI كان بـid_1، الـserver بـid_2 → الـpending writes ما كنش يمسحوا الـserver entry → الـ2 يظهروا في UI" },
-      { type: "fix", text: "fn ينفذ مرة واحدة فقط في upConfig، الـnext الجاهز يتمرر لـupConfigTx بدل ما يـreruns على كل retry" },
-      { type: "improvement", text: "استبدال runTransaction بـsetDoc — الـbehaviour نفسه (آخر write يفوز)، لكن مفيش fn re-execution" },
-      { type: "fix", text: "الإصلاح يحل ده لكل أنواع الحركات: السلف، التحويلات، دفعات العملاء، دفعات الموردين" },
-    ]
-  },
-  {
-    version: "V17.1",
-    date: "2026-04-28",
-    types: ["fix", "improvement"],
-    title: "إصلاحات شاملة (آخر 4 مشاكل من الـaudit)",
-    changes: [
-      { type: "fix", text: "Fuzzy match لحذف السلف بقا يحذف واحدة فقط (كان يحذف كل السلف المتطابقة في نفس اليوم)" },
-      { type: "improvement", text: "Deep equality check بدل JSON.stringify — يمنع 5-10× writes غير ضرورية للأسابيع المعقدة" },
-      { type: "feature", text: "Migration loading screen — يمنع المستخدم من إضافة بيانات أثناء الـmigration ويظهر progress" },
-      { type: "fix", text: "Migration race fix — مفيش data loss لو user يفتح البرنامج أثناء التحديث" },
+      { type: "improvement", text: "📱 زر '📱 رابط' بقى في كل صف من قائمة العملاء (البوب-أب) بدل ما يكون داخل صفحة الكشف التفصيلي — كبسة واحدة من القائمة" },
+      { type: "improvement", text: "البوب-أب يتمدد للمحتوى تلقائياً (لحد 720px) بدون scroll أفقي" },
+      { type: "improvement", text: "🏭 رابط الورشة: 4 بطاقات بأسماء جديدة + لاحقة 'ج.م' (إجمالي حساب التشغيل/إجمالي دفعات/رصيد للورشة/كمية تحت التشغيل)" },
+      { type: "improvement", text: "ملخص الحساب يكرر البطاقات بالترتيب نفسه" },
+      { type: "improvement", text: "تاب التسليم/الاستلام: التاريخ صغير في الكورنر، نوع القطعة بادج، كل استلام له معادلة مستقلة `price × qty = total ج.م`" },
+      { type: "improvement", text: "تاب المدفوعات: ملاحظات بـ 📝 + footer إجمالي المدفوعات (والمشتريات إن وُجدت)" },
     ]
   },
 ];
