@@ -252,12 +252,11 @@ export function CustomerPortalPage({ params }) {
         {summary.rating && <div style={{ background: "linear-gradient(135deg, " + summary.rating.color + "10, " + summary.rating.color + "03)", borderRadius: 12, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", border: "1px solid " + summary.rating.color + "30" }}>
           <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 10, color: "#1E293B" }}>⭐ تقييم العميل</div>
           {summary.rating.rated ? <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "center", textAlign: "center" }}>
-            <Stars value={summary.rating.stars} size={26} gap={2}/>
+            <Stars value={summary.rating.stars} size={26} gap={3}/>
             <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
               <span style={{ fontSize: 22, fontWeight: 900, color: summary.rating.color, direction: "ltr" }}>{summary.rating.stars}</span>
               <span style={{ fontSize: 12, color: "#94A3B8", fontWeight: 600 }}>/ 5</span>
             </div>
-            <div style={{ fontSize: 14, fontWeight: 800, color: summary.rating.color, padding: "3px 12px", background: summary.rating.color + "15", borderRadius: 999 }}>{summary.rating.label}</div>
             <div style={{ fontSize: 12, color: "#475569", marginTop: 4, display: "flex", flexDirection: "column", gap: 3, width: "100%" }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span>نسبة البيع:</span><b style={{ color: summary.rating.color, direction: "ltr" }}>{summary.rating.pct}%</b></div>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span>كمية مسلمة:</span><b style={{ direction: "ltr" }}>{summary.piecesDelivered}</b></div>

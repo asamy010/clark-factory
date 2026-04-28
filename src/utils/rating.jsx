@@ -36,15 +36,30 @@ export function getCustRating(delivered, returned) {
   return { rated: true, stars, label, color, pct: Math.round(pct * 10) / 10, sold, delivered: d, returned: r };
 }
 
-/* Stars renderer — half-star precision via overlay technique.
-   Use direction:ltr to ensure left-to-right fill regardless of parent dir. */
-export function Stars({ value, size = 14, gap = 1 }) {
+/* Stars renderer — V18.14: explicit per-star rendering (full/half/empty)
+   for reliable display on any background. The previous overlay technique
+   broke with letter-spacing causing partial/missing stars. */
+export function Stars({ value, size = 14, gap = 2 }) {
   const v = Math.max(0, Math.min(5, Number(value) || 0));
-  const fillPct = (v / 5) * 100;
+  const items = [];
+  for (let i = 0; i < 5; i++) {
+    const diff = v - i;
+    if (diff >= 1) items.push("full");
+    else if (diff >= 0.5) items.push("half");
+    else items.push("empty");
+  }
   return (
-    <span style={{ position: "relative", display: "inline-block", fontSize: size, lineHeight: 1, direction: "ltr", letterSpacing: gap }}>
-      <span style={{ color: "#E5E7EB" }}>★★★★★</span>
-      <span style={{ position: "absolute", top: 0, left: 0, overflow: "hidden", width: fillPct + "%", color: "#FBBF24", whiteSpace: "nowrap", letterSpacing: gap }}>★★★★★</span>
+    <span style={{ display: "inline-flex", gap: gap, fontSize: size, lineHeight: 1, direction: "ltr" }}>
+      {items.map((type, i) => {
+        if (type === "full") return <span key={i} style={{ color: "#FBBF24" }}>★</span>;
+        if (type === "empty") return <span key={i} style={{ color: "#CBD5E1" }}>★</span>;
+        return (
+          <span key={i} style={{ position: "relative", display: "inline-block", lineHeight: 1 }}>
+            <span style={{ color: "#CBD5E1" }}>★</span>
+            <span style={{ position: "absolute", top: 0, left: 0, overflow: "hidden", width: "50%", color: "#FBBF24" }}>★</span>
+          </span>
+        );
+      })}
     </span>
   );
 }
