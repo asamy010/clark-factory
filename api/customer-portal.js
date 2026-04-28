@@ -162,6 +162,9 @@ export default async function handler(req, res) {
           qty: Number(r.qty) || 0,
           sellPrice: sp,
           value: (Number(r.qty) || 0) * sp,
+          /* V18.26: include sessionId for invoice grouping (note: returns store as sessId, not sessionId) */
+          sessionId: r.sessId || r.sessionId || null,
+          note: r.note || "",
         });
       });
 

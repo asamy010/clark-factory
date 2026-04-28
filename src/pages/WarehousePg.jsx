@@ -841,10 +841,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
       <div style={{padding:20,textAlign:"center"}}>
         <div style={{fontSize:48,marginBottom:10}}>👕</div>
         <div style={{fontSize:FS+2,fontWeight:700,color:T.text,marginBottom:6}}>مخزن المنتجات الجاهزة</div>
-        <div style={{fontSize:FS-1,color:T.textSec,marginBottom:14}}>لإدارة تسليم المخزن الجاهز (استلام المصنع من الورش)، استخدم تبويبة "تسليم مخزن جاهز"</div>
-        <div style={{display:"flex",justifyContent:"center",gap:8}}>
-          <Btn primary onClick={()=>window.dispatchEvent(new CustomEvent("goto-tab",{detail:"stock"}))}>📥 فتح تبويبة الجاهز</Btn>
-        </div>
+        <div style={{fontSize:FS-1,color:T.textSec,marginBottom:14}}>{/* V18.25: Standalone 'تسليم مخزن جاهز' tab removed — workflow consolidated into each order's detail page */}لإدارة تسليم المخزن الجاهز، افتح صفحة الأوردر المطلوب من تبويبة "أوامر القص" واستخدم زر "+ تسليم" داخل قسم تسليم مخزن جاهز</div>
       </div>
       
       {/* Finished goods summary table */}

@@ -2067,7 +2067,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V18.24 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >V18.26 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -2188,8 +2188,8 @@ export default function App(){
       {/* HOME SCREEN */}
       {/* ═══ PROFESSIONAL HOME SCREEN V14.47 ═══ */}
       {tab==="home"&&(()=>{
-        const hour=new Date().getHours();
-        const greetText=hour<12?"صباح الخير":hour<17?"مساءً سعيداً":hour<20?"مساء الخير":"مساؤك جميل";
+        /* V18.25: Greeting fixed to "مرحبا" — always (was time-based) */
+        const greetText="مرحبا";
         const dateStr=new Date().toLocaleDateString("ar-EG",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
         const uemail=user?.email||"";
         const COLORS=[{key:"#FEF9C3",border:"#EAB308",name:"أصفر"},{key:"#DBEAFE",border:"#3B82F6",name:"أزرق"},{key:"#DCFCE7",border:"#22C55E",name:"أخضر"},{key:"#FCE7F3",border:"#EC4899",name:"وردي"},{key:"#EDE9FE",border:"#8B5CF6",name:"بنفسجي"},{key:"#FFEDD5",border:"#F97316",name:"برتقالي"}];
@@ -3123,7 +3123,7 @@ export default function App(){
       </div>
     )}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.24"/>
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.26"/>
   </div>
 }
 

@@ -36,6 +36,10 @@ const exportPdf = (tabLabel) => {
   setTimeout(() => window.print(), 100);
 };
 
+/* V18.26: Compact, professional table styles for invoice tables */
+const tblTh = { padding: "8px 10px", textAlign: "right", fontSize: 11, fontWeight: 800, color: "#475569", borderBottom: "1px solid #E2E8F0", whiteSpace: "nowrap", letterSpacing: "0.02em" };
+const tblTd = { padding: "8px 10px", fontSize: 12, color: "#1E293B", whiteSpace: "nowrap" };
+
 export function CustomerPortalPage({ params }) {
   const { c: custId, sig } = params;
   const [loading, setLoading] = useState(true);
@@ -115,7 +119,7 @@ export function CustomerPortalPage({ params }) {
   const balanceColor = summary.balance > 0 ? "#059669" : summary.balance < 0 ? "#DC2626" : "#6B7280";
   /* V18.4: Corrected balance labels */
   const balanceLabel = summary.balance > 0 ? "💚 مستحق للمصنع" : summary.balance < 0 ? "❤️ مستحق للعميل" : "✓ متعادل";
-  const tabLabels = { summary: "الملخص", transactions: "سجل التسليم والمرتجعات", payments: "المدفوعات" };
+  const tabLabels = { summary: "الملخص", transactions: "سجل الحركات", payments: "المدفوعات" };
   /* V18.4: Filter helper — case-insensitive substring match on model number */
   const matchesModel = (modelNo) => !modelFilter.trim() || (modelNo || "").toLowerCase().includes(modelFilter.trim().toLowerCase());
   /* V18.5: Merged delivery + returns log, sorted chronologically (descending) */
@@ -126,6 +130,32 @@ export function CustomerPortalPage({ params }) {
   const filteredTransactions = transactions.filter(t => matchesModel(t.modelNo));
   /* V18.4: Compute gross sales after discount (for card display) */
   const grossAfterDisc = customer.discount > 0 ? Math.round(summary.totalDelValue * (1 - customer.discount / 100)) : summary.totalDelValue;
+
+  /* V18.26: Group deliveries and returns by session into "invoices" — one row per session.
+     Records without sessionId fall back to a "NO_SESS_<date>" key so they're still grouped reasonably.
+     Numbering is sequential per-customer based on earliest-date ascending. */
+  const discPct = Number(customer.discount) || 0;
+  const buildInvoices = (rows) => {
+    const groups = {};
+    rows.forEach(r => {
+      const key = r.sessionId || ("NO_SESS_" + (r.date || "unknown"));
+      if (!groups[key]) groups[key] = { sessionId: key, date: r.date || "", qty: 0, value: 0, count: 0 };
+      groups[key].qty += Number(r.qty) || 0;
+      groups[key].value += Number(r.value) || 0;
+      groups[key].count += 1;
+      /* Use earliest date if multiple deliveries on different dates within a session */
+      if (r.date && (!groups[key].date || r.date < groups[key].date)) groups[key].date = r.date;
+    });
+    /* Sort ascending to assign sequential numbers, then we'll display descending */
+    const list = Object.values(groups).sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    list.forEach((inv, i) => {
+      inv.invoiceNo = i + 1;
+      inv.valueAfterDisc = discPct > 0 ? Math.round(inv.value * (1 - discPct / 100)) : inv.value;
+    });
+    return list.reverse();/* newest first for display */
+  };
+  const salesInvoices = buildInvoices(deliveries);
+  const returnInvoices = buildInvoices(rets);
 
   return <div style={wrapperStyle}>
     {/* Print-only CSS — hides everything except the printable area */}
@@ -202,7 +232,7 @@ export function CustomerPortalPage({ params }) {
     <div className="no-print" style={{ padding: "6px 12px", display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
       {[
         { id: "summary", label: "الملخص", icon: "📋" },
-        { id: "transactions", label: "سجل التسليم والمرتجعات (" + transactions.length + ")", icon: "🔄" },
+        { id: "transactions", label: "سجل الحركات (" + transactions.length + ")", icon: "🔄" },
         { id: "payments", label: "المدفوعات (" + payments.length + ")", icon: "💰" },
       ].map(t =>
         <button key={t.id} onClick={() => setTab(t.id)} style={{
@@ -284,13 +314,97 @@ export function CustomerPortalPage({ params }) {
         </div>}
       </div>}
 
+      {/* V18.26: Sales invoices table — one row per session (aggregated). Shown only on transactions tab */}
+      {tab === "transactions" && <div style={{ marginBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, padding: "0 2px" }}>
+          <span style={{ fontSize: 14, fontWeight: 800, color: "#059669" }}>🛒 مبيعات</span>
+          <span style={{ fontSize: 11, color: "#64748B" }}>({salesInvoices.length} فاتورة)</span>
+        </div>
+        {salesInvoices.length === 0 ? <div style={{ padding: 16, textAlign: "center", background: "#fff", borderRadius: 10, color: "#94A3B8", fontSize: 12, border: "1px solid #E2E8F0" }}>لا توجد مبيعات</div> :
+          <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #E2E8F0", overflowX: "auto", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 540 }}>
+              <thead><tr style={{ background: "#F0FDF4" }}>
+                <th style={tblTh}>#</th>
+                <th style={tblTh}>التاريخ</th>
+                <th style={{ ...tblTh, textAlign: "center" }}>الكمية</th>
+                <th style={{ ...tblTh, textAlign: "center" }}>القيمة قبل الخصم</th>
+                <th style={{ ...tblTh, textAlign: "center" }}>القيمة بعد الخصم</th>
+                <th style={{ ...tblTh, textAlign: "center" }}>النوع</th>
+              </tr></thead>
+              <tbody>{salesInvoices.map((inv, i) => <tr key={inv.sessionId} style={{ background: i % 2 === 0 ? "#fff" : "#F8FAFC", borderTop: "1px solid #F1F5F9" }}>
+                <td style={{ ...tblTd, fontWeight: 800, color: "#059669" }}>#{inv.invoiceNo}</td>
+                <td style={tblTd}>{fmtDate(inv.date)}</td>
+                <td style={{ ...tblTd, textAlign: "center", fontWeight: 700 }}>{fmt(inv.qty)} <span style={{ fontSize: 9, color: "#94A3B8", fontWeight: 600 }}>قطعة</span></td>
+                <td style={{ ...tblTd, textAlign: "center", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(inv.value)}</td>
+                <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#059669", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(inv.valueAfterDisc)}</td>
+                <td style={{ ...tblTd, textAlign: "center" }}>
+                  <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 5, background: "#F0FDF4", color: "#059669", fontWeight: 800, border: "1px solid #DCFCE7", whiteSpace: "nowrap" }}>📄 فاتورة بيع</span>
+                </td>
+              </tr>)}
+              {/* Totals row */}
+              <tr style={{ background: "#ECFDF5", borderTop: "2px solid #10B981" }}>
+                <td colSpan={2} style={{ ...tblTd, fontWeight: 800, color: "#059669" }}>الإجمالي</td>
+                <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#059669" }}>{fmt(salesInvoices.reduce((s, x) => s + x.qty, 0))}</td>
+                <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#059669", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(salesInvoices.reduce((s, x) => s + x.value, 0))}</td>
+                <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#059669", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(salesInvoices.reduce((s, x) => s + x.valueAfterDisc, 0))}</td>
+                <td style={tblTd}></td>
+              </tr>
+              </tbody>
+            </table>
+          </div>}
+      </div>}
+
+      {/* V18.26: Returns invoices table — one row per session (aggregated) */}
+      {tab === "transactions" && <div style={{ marginBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, padding: "0 2px" }}>
+          <span style={{ fontSize: 14, fontWeight: 800, color: "#EF4444" }}>↩️ مرتجعات</span>
+          <span style={{ fontSize: 11, color: "#64748B" }}>({returnInvoices.length})</span>
+        </div>
+        {returnInvoices.length === 0 ? <div style={{ padding: 16, textAlign: "center", background: "#fff", borderRadius: 10, color: "#94A3B8", fontSize: 12, border: "1px solid #E2E8F0" }}>لا توجد مرتجعات</div> :
+          <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #E2E8F0", overflowX: "auto", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 540 }}>
+              <thead><tr style={{ background: "#FEF2F2" }}>
+                <th style={tblTh}>#</th>
+                <th style={tblTh}>التاريخ</th>
+                <th style={{ ...tblTh, textAlign: "center" }}>الكمية</th>
+                <th style={{ ...tblTh, textAlign: "center" }}>القيمة قبل الخصم</th>
+                <th style={{ ...tblTh, textAlign: "center" }}>القيمة بعد الخصم</th>
+                <th style={{ ...tblTh, textAlign: "center" }}>النوع</th>
+              </tr></thead>
+              <tbody>{returnInvoices.map((inv, i) => <tr key={inv.sessionId} style={{ background: i % 2 === 0 ? "#fff" : "#F8FAFC", borderTop: "1px solid #F1F5F9" }}>
+                <td style={{ ...tblTd, fontWeight: 800, color: "#EF4444" }}>#{inv.invoiceNo}</td>
+                <td style={tblTd}>{fmtDate(inv.date)}</td>
+                <td style={{ ...tblTd, textAlign: "center", fontWeight: 700 }}>{fmt(inv.qty)} <span style={{ fontSize: 9, color: "#94A3B8", fontWeight: 600 }}>قطعة</span></td>
+                <td style={{ ...tblTd, textAlign: "center", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(inv.value)}</td>
+                <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#EF4444", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(inv.valueAfterDisc)}</td>
+                <td style={{ ...tblTd, textAlign: "center" }}>
+                  <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 5, background: "#FEF2F2", color: "#EF4444", fontWeight: 800, border: "1px solid #FEE2E2", whiteSpace: "nowrap" }}>↩️ مرتجع</span>
+                </td>
+              </tr>)}
+              {/* Totals row */}
+              <tr style={{ background: "#FEF2F2", borderTop: "2px solid #EF4444" }}>
+                <td colSpan={2} style={{ ...tblTd, fontWeight: 800, color: "#EF4444" }}>الإجمالي</td>
+                <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#EF4444" }}>{fmt(returnInvoices.reduce((s, x) => s + x.qty, 0))}</td>
+                <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#EF4444", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(returnInvoices.reduce((s, x) => s + x.value, 0))}</td>
+                <td style={{ ...tblTd, textAlign: "center", fontWeight: 800, color: "#EF4444", direction: "ltr", fontVariantNumeric: "tabular-nums" }}>{fmt(returnInvoices.reduce((s, x) => s + x.valueAfterDisc, 0))}</td>
+                <td style={tblTd}></td>
+              </tr>
+              </tbody>
+            </table>
+          </div>}
+      </div>}
+
       {/* V18.6: Model filter — shown on transactions tab only (models tab removed) */}
       {tab === "transactions" && <div className="no-print" style={{ marginBottom: 8, display: "flex", gap: 6, alignItems: "center" }}>
         <input type="text" value={modelFilter} onChange={e => setModelFilter(e.target.value)} placeholder="🔍 فلتر برقم الموديل..." style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, fontFamily: "inherit", direction: "ltr", textAlign: "right", background: "#fff" }}/>
         {modelFilter && <button onClick={() => setModelFilter("")} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #CBD5E1", background: "#F1F5F9", color: "#475569", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>✕ مسح</button>}
       </div>}
 
-      {/* V18.5: TRANSACTIONS — merged delivery + returns chronological log */}
+      {/* V18.5+V18.26: Detailed cards — per-model/transaction view (filtered by model) */}
+      {tab === "transactions" && <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, marginBottom: 6, padding: "0 2px" }}>
+        <span style={{ fontSize: 14, fontWeight: 800, color: "#6366F1" }}>📋 تفاصيل حسب الموديل</span>
+        <span style={{ fontSize: 11, color: "#64748B" }}>({filteredTransactions.length})</span>
+      </div>}
       {tab === "transactions" && <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {filteredTransactions.length === 0 ? <EmptyMsg text={modelFilter ? "لا توجد حركات بهذا الرقم" : "لا توجد حركات"}/> :
           filteredTransactions.map((t, i) => {
