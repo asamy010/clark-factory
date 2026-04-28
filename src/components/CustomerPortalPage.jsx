@@ -1,18 +1,20 @@
 /* ═══════════════════════════════════════════════════════════════
-   CLARK — Customer Portal Page (V16.3)
+   CLARK — Customer Portal Page (V18.3)
    
    Public page that customers access via a signed URL.
    URL format: /?portal=1&c=<custId>&sig=<hmac>
    
-   Shows read-only customer account:
-   - Summary cards (balance, total sales, pieces)
-   - Active orders/models
-   - Delivery history
-   - Returns
-   - Payment history
-   
-   No login needed — security via HMAC signature.
-   Mobile-first design.
+   V18.3 Redesign:
+   - Compact header (less vertical space)
+   - 6 cards mirroring in-app statement (sales, returns, discount,
+     paid w/ cash+checks split, balance, net pieces) — smaller size
+   - Summary mirrors cards exactly
+   - Stats incl. new "الكمية المباعة الفعلية"
+   - Models tab: thumbnail + data, "تسليم" wording, math equation
+     row, no "قيد التنفيذ" badge
+   - Payments: 3 mini cards (cash/checks/total) + full log
+   - PDF (browser print) + WhatsApp share on every tab
+   - Mobile-first
    ═══════════════════════════════════════════════════════════════ */
 
 import { useEffect, useState } from "react";
@@ -24,6 +26,23 @@ const fmtDate = (d) => {
     const date = new Date(d);
     return date.toLocaleDateString("ar-EG", { year: "numeric", month: "short", day: "numeric" });
   } catch (e) { return d; }
+};
+
+/* PDF = browser print dialog (user picks Save as PDF). Print CSS in <style> below
+   hides everything except the active content panel and a header banner. */
+const exportPdf = (tabLabel) => {
+  document.title = "كشف حساب — " + tabLabel;
+  setTimeout(() => window.print(), 100);
+};
+
+/* WhatsApp share: prefer native share if available (mobile), else open wa.me */
+const shareWhatsApp = (custName, tabLabel) => {
+  const text = "📄 كشف حساب " + custName + " — " + tabLabel + "\n" + window.location.href;
+  if (navigator.share) {
+    navigator.share({ title: "كشف الحساب", text, url: window.location.href }).catch(()=>{});
+  } else {
+    window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank");
+  }
 };
 
 export function CustomerPortalPage({ params }) {
@@ -86,61 +105,91 @@ export function CustomerPortalPage({ params }) {
   if (!data) return null;
 
   const { customer, summary, activeModels, deliveries, returns: rets, payments, factory } = data;
-  const balanceColor = summary.balance > 0 ? "#DC2626" : summary.balance < 0 ? "#059669" : "#64748B";
+  /* V18.3: Flipped — positive=customer owes us=GREEN, negative=factory owes=RED */
+  const balanceColor = summary.balance > 0 ? "#059669" : summary.balance < 0 ? "#DC2626" : "#6B7280";
+  const balanceLabel = summary.balance > 0 ? "💚 مستحق علي" : summary.balance < 0 ? "❤️ مستحق لي" : "✓ متعادل";
+  const tabLabels = { summary: "الملخص", models: "الموديلات", deliveries: "التسليمات", returns: "المرتجعات", payments: "المدفوعات" };
 
   return <div style={wrapperStyle}>
-    {/* Header */}
-    <div style={{
+    {/* Print-only CSS — hides everything except the printable area */}
+    <style>{`
+      @media print {
+        body * { visibility: hidden; }
+        .printable, .printable * { visibility: visible; }
+        .printable { position: absolute; inset: 0; padding: 20px; background: #fff !important; }
+        .no-print { display: none !important; }
+        @page { size: A4; margin: 12mm; }
+      }
+    `}</style>
+
+    {/* COMPACT Header — V18.3: reduced height */}
+    <div className="no-print" style={{
       background: "linear-gradient(135deg, #6366F1, #8B5CF6)",
-      padding: "24px 20px",
+      padding: "12px 20px",
       color: "#fff",
       textAlign: "center",
     }}>
-      <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 4 }}>{factory.name}</div>
-      <div style={{ fontSize: 22, fontWeight: 800 }}>{customer.name}</div>
-      {customer.phone && <div style={{ fontSize: 13, opacity: 0.85, marginTop: 4, direction: "ltr" }}>{customer.phone}</div>}
+      <div style={{ fontSize: 11, opacity: 0.85 }}>{factory.name}</div>
+      <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>{customer.name}</div>
+      {customer.phone && <div style={{ fontSize: 11, opacity: 0.8, marginTop: 2, direction: "ltr" }}>{customer.phone}</div>}
     </div>
 
-    {/* Summary Cards */}
-    <div style={{ padding: "16px 14px 10px", display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
-      <div style={{ background: "#fff", borderRadius: 14, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", textAlign: "center" }}>
-        <div style={{ fontSize: 11, color: "#64748B", marginBottom: 4, fontWeight: 600 }}>الرصيد المتبقي</div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: balanceColor, direction: "ltr" }}>{fmt(summary.balance)} ج</div>
+    {/* Print-only banner (visible during print) */}
+    <div className="printable" style={{ display: "none" }}>
+      <div style={{ borderBottom: "2px solid #6366F1", paddingBottom: 10, marginBottom: 16 }}>
+        <div style={{ fontSize: 12, color: "#64748B" }}>{factory.name}</div>
+        <div style={{ fontSize: 20, fontWeight: 800, color: "#1E293B" }}>كشف حساب — {customer.name}</div>
+        <div style={{ fontSize: 12, color: "#64748B", marginTop: 4 }}>القسم: {tabLabels[tab]} • {new Date().toLocaleDateString("ar-EG")}</div>
       </div>
-      <div style={{ background: "#fff", borderRadius: 14, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", textAlign: "center" }}>
-        <div style={{ fontSize: 11, color: "#64748B", marginBottom: 4, fontWeight: 600 }}>إجمالي المدفوع</div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: "#059669", direction: "ltr" }}>{fmt(summary.totalPaid)} ج</div>
-      </div>
-      <div style={{ background: "#fff", borderRadius: 14, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", textAlign: "center" }}>
-        <div style={{ fontSize: 11, color: "#64748B", marginBottom: 4, fontWeight: 600 }}>
-          {customer.discount > 0 ? "المبيعات (بعد الخصم)" : "إجمالي المبيعات"}
+      <div id="print-body"></div>
+    </div>
+
+    {/* V18.3: 6 compact cards mirroring in-app statement */}
+    <div className="no-print" style={{ padding: "10px 12px 6px", display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+      {/* Card 1: Total Sales (before/after discount) */}
+      <MiniCard icon="📤" label="إجمالي فواتير المبيعات" mainValue={fmt(summary.netSales)} mainSub={customer.discount > 0 ? "قبل الخصم" : "إجمالي البيع"} unit="ج.م" color="#6366F1"
+        secondary={customer.discount > 0 ? { value: fmt(summary.salesAfterDiscount), label: "بعد الخصم" } : null}/>
+      {/* Card 2: Total Returns */}
+      <MiniCard icon="↩️" label="إجمالي المرتجعات" mainValue={fmt(summary.returnsValue)} mainSub={customer.discount > 0 ? "قبل الخصم" : "قيمة المرتجعات"} unit="ج.م" color="#EF4444"
+        secondary={customer.discount > 0 && summary.returnsValue > 0 ? { value: fmt(summary.returnsAfterDiscount), label: "بعد الخصم" } : null}/>
+      {/* Card 3: Discount (only if > 0) */}
+      {customer.discount > 0 && <MiniCard icon="🏷️" label="إجمالي الخصم" mainValue={fmt(summary.discountAmount)} mainSub={"نسبة " + customer.discount + "%"} unit="ج.م" color="#F59E0B" badge={customer.discount + "%"}/>}
+      {/* Card 4: Paid (cash + checks) */}
+      <div style={{ background: "#fff", borderRadius: 10, padding: 10, boxShadow: "0 2px 6px rgba(0,0,0,0.04)", border: "1px solid #05966920" }}>
+        <div style={{ fontSize: 10, color: "#64748B", fontWeight: 700, marginBottom: 6 }}>💰 إجمالي المدفوع</div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#475569", marginBottom: 2 }}><span>💵 نقدي</span><span style={{ fontWeight: 700, color: "#059669", direction: "ltr" }}>{fmt(summary.cashPaid)}</span></div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#475569", marginBottom: 4 }}><span>📝 شيكات</span><span style={{ fontWeight: 700, color: "#059669", direction: "ltr" }}>{fmt(summary.checksPaid)}</span></div>
+        <div style={{ borderTop: "1px solid #05966930", paddingTop: 4, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: "#475569" }}>الإجمالي</span>
+          <span style={{ fontSize: 15, fontWeight: 800, color: "#059669", direction: "ltr" }}>{fmt(summary.totalPaid)} <span style={{ fontSize: 9, color: "#94A3B8" }}>ج.م</span></span>
         </div>
-        <div style={{ fontSize: 18, fontWeight: 800, color: "#6366F1", direction: "ltr" }}>{fmt(summary.salesAfterDiscount)} ج</div>
-        {customer.discount > 0 && <div style={{ fontSize: 10, color: "#F59E0B", marginTop: 2, fontWeight: 700 }}>خصم {customer.discount}%</div>}
       </div>
-      <div style={{ background: "#fff", borderRadius: 14, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", textAlign: "center" }}>
-        <div style={{ fontSize: 11, color: "#64748B", marginBottom: 4, fontWeight: 600 }}>القطع المسلمة</div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: "#0EA5E9", direction: "ltr" }}>{fmt(summary.piecesDelivered - summary.piecesReturned)}</div>
-        {summary.piecesReturned > 0 && <div style={{ fontSize: 10, color: "#EF4444", marginTop: 2 }}>مرتجع: {summary.piecesReturned}</div>}
+      {/* Card 5: Balance — emphasized */}
+      <div style={{ background: balanceColor + "10", borderRadius: 10, padding: 10, boxShadow: "0 2px 6px rgba(0,0,0,0.04)", border: "2px solid " + balanceColor + "40", textAlign: "center" }}>
+        <div style={{ fontSize: 10, color: "#64748B", fontWeight: 700, marginBottom: 4 }}>⚖️ الرصيد الحالي</div>
+        <div style={{ fontSize: 22, fontWeight: 900, color: balanceColor, direction: "ltr", lineHeight: 1.1 }}>{fmt(summary.balance)} <span style={{ fontSize: 11, color: "#94A3B8" }}>ج.م</span></div>
+        <div style={{ fontSize: 10, color: "#64748B", marginTop: 3, fontWeight: 600 }}>{balanceLabel}</div>
       </div>
+      {/* Card 6: Net pieces */}
+      <MiniCard icon="📦" label="صافي القطع" mainValue={fmt(summary.actualSold)} mainSub="تسليم - مرتجع" unit="قطعة" color="#0EA5E9"/>
     </div>
 
     {/* Tabs */}
-    <div style={{ padding: "6px 14px", display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+    <div className="no-print" style={{ padding: "6px 12px", display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
       {[
-        { id: "summary", label: "الملخص", icon: "📊" },
+        { id: "summary", label: "الملخص", icon: "📋" },
         { id: "models", label: "الموديلات (" + activeModels.length + ")", icon: "📦" },
         { id: "deliveries", label: "التسليمات (" + deliveries.length + ")", icon: "🚚" },
         { id: "returns", label: "المرتجعات (" + rets.length + ")", icon: "↩️" },
         { id: "payments", label: "المدفوعات (" + payments.length + ")", icon: "💰" },
       ].map(t =>
         <button key={t.id} onClick={() => setTab(t.id)} style={{
-          padding: "8px 14px",
-          borderRadius: 20,
+          padding: "7px 12px",
+          borderRadius: 18,
           border: "none",
           background: tab === t.id ? "#6366F1" : "#fff",
           color: tab === t.id ? "#fff" : "#475569",
-          fontSize: 13,
+          fontSize: 12,
           fontWeight: 700,
           cursor: "pointer",
           whiteSpace: "nowrap",
@@ -152,126 +201,204 @@ export function CustomerPortalPage({ params }) {
       )}
     </div>
 
-    {/* Content */}
-    <div style={{ padding: "14px 14px 40px" }}>
-      {tab === "summary" && <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={{ background: "#fff", borderRadius: 14, padding: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-          <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 12, color: "#1E293B" }}>📋 ملخص الحساب</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 14 }}>
-            <Row label="إجمالي المبيعات الخام" value={fmt(summary.netSales + summary.returnsValue)} unit="ج"/>
-            {summary.returnsValue > 0 && <Row label="قيمة المرتجعات" value={"-" + fmt(summary.returnsValue)} unit="ج" color="#EF4444"/>}
-            <Row label="صافي المبيعات" value={fmt(summary.netSales)} unit="ج"/>
-            {customer.discount > 0 && <>
-              <Row label={"قيمة الخصم (" + customer.discount + "%)"} value={"-" + fmt(summary.discountAmount)} unit="ج" color="#F59E0B"/>
-              <Row label="المبيعات بعد الخصم" value={fmt(summary.salesAfterDiscount)} unit="ج" color="#0EA5E9" bold/>
-            </>}
-            <Row label="إجمالي المدفوع" value={"-" + fmt(summary.totalPaid)} unit="ج" color="#059669"/>
+    {/* Export buttons — V18.3: PDF + WhatsApp on every tab */}
+    <div className="no-print" style={{ padding: "4px 12px 8px", display: "flex", gap: 6, justifyContent: "flex-end" }}>
+      <button onClick={() => exportPdf(tabLabels[tab])} style={btnStyle("#EF4444")}>📄 PDF</button>
+      <button onClick={() => shareWhatsApp(customer.name, tabLabels[tab])} style={btnStyle("#25D366")}>📤 واتساب</button>
+    </div>
+
+    {/* Content (printable area gets cloned for print) */}
+    <div className="printable" style={{ padding: "4px 12px 40px" }}>
+      {/* SUMMARY */}
+      {tab === "summary" && <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+          <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 10, color: "#1E293B" }}>📋 ملخص الحساب</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13 }}>
+            <Row icon="📤" label="إجمالي فواتير المبيعات" value={fmt(summary.netSales)} unit="ج.م" color="#6366F1"
+              detail={customer.discount > 0 ? { label: "بعد الخصم", value: fmt(summary.salesAfterDiscount) } : null}/>
+            <Row icon="↩️" label="إجمالي المرتجعات" value={fmt(summary.returnsValue)} unit="ج.م" color="#EF4444"
+              detail={customer.discount > 0 && summary.returnsValue > 0 ? { label: "بعد الخصم", value: fmt(summary.returnsAfterDiscount) } : null}/>
+            {customer.discount > 0 && <Row icon="🏷️" label={"إجمالي الخصم (" + customer.discount + "%)"} value={fmt(summary.discountAmount)} unit="ج.م" color="#F59E0B"/>}
+            <Row icon="💵" label="مدفوع نقدي" value={fmt(summary.cashPaid)} unit="ج.م" color="#059669"/>
+            <Row icon="📝" label="مدفوع شيكات" value={fmt(summary.checksPaid)} unit="ج.م" color="#059669"/>
+            <Row icon="💰" label="إجمالي المدفوع" value={fmt(summary.totalPaid)} unit="ج.م" color="#059669" bold/>
             <div style={{ borderTop: "2px dashed #E2E8F0", margin: "4px 0", paddingTop: 8 }}>
-              <Row label="الرصيد المتبقي" value={fmt(summary.balance)} unit="ج" color={balanceColor} bold large/>
+              <Row icon="⚖️" label="الرصيد الحالي" value={fmt(summary.balance)} unit="ج.م" color={balanceColor} bold xlarge/>
+              <div style={{ fontSize: 11, color: "#64748B", textAlign: "left", marginTop: 2 }}>{balanceLabel}</div>
             </div>
+            <Row icon="📦" label="صافي القطع (تسليم - مرتجع)" value={fmt(summary.actualSold)} unit="قطعة" color="#0EA5E9"/>
           </div>
         </div>
 
-        <div style={{ background: "#fff", borderRadius: 14, padding: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-          <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 12, color: "#1E293B" }}>📈 إحصاءات</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+        <div style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+          <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 10, color: "#1E293B" }}>📈 إحصاءات</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
             <StatBox label="عدد الموديلات" value={summary.orderCount} color="#6366F1"/>
             <StatBox label="عدد التسليمات" value={summary.deliveryCount} color="#0EA5E9"/>
             <StatBox label="قطع مسلّمة" value={summary.piecesDelivered} color="#059669"/>
             <StatBox label="قطع مرتجعة" value={summary.piecesReturned} color="#EF4444"/>
+            <StatBox label="الكمية المباعة الفعلية" value={summary.actualSold} color="#8B5CF6" wide/>
           </div>
         </div>
       </div>}
 
+      {/* MODELS — V18.3: thumbnail + data side-by-side, "تسليم", math equation, no status badge */}
       {tab === "models" && <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {activeModels.length === 0 ? <EmptyMsg text="لا توجد موديلات"/> :
-          activeModels.map((m, i) => <div key={i} style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <div style={{ fontSize: 16, fontWeight: 800, color: "#6366F1", direction: "ltr" }}>{m.modelNo}</div>
-              <div style={{ fontSize: 11, padding: "2px 8px", borderRadius: 6, background: m.status === "closed" ? "#DCFCE7" : "#DBEAFE", color: m.status === "closed" ? "#059669" : "#0EA5E9", fontWeight: 700 }}>
-                {m.status === "closed" ? "✓ مكتمل" : "قيد التنفيذ"}
+          activeModels.map((m, i) => {
+            const grossVal = m.delivered * m.sellPrice;
+            const netVal = m.net * m.sellPrice;
+            const discAmtModel = customer.discount > 0 ? Math.round(netVal * customer.discount / 100) : 0;
+            const finalVal = netVal - discAmtModel;
+            return <div key={i} style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", display: "flex", gap: 12, alignItems: "stretch" }}>
+              {/* Thumbnail — fills row height */}
+              <div style={{ width: 90, minWidth: 90, borderRadius: 10, overflow: "hidden", background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {m.image ? <img src={m.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}/> : <span style={{ fontSize: 28, opacity: 0.3 }}>📦</span>}
               </div>
-            </div>
-            {m.modelDesc && <div style={{ fontSize: 12, color: "#64748B", marginBottom: 8 }}>{m.modelDesc}</div>}
-            <div style={{ display: "flex", gap: 12, fontSize: 13, flexWrap: "wrap" }}>
-              <span><b style={{ color: "#059669" }}>{m.delivered}</b> مسلّم</span>
-              {m.returned > 0 && <span><b style={{ color: "#EF4444" }}>{m.returned}</b> مرتجع</span>}
-              <span><b>{m.net}</b> قطعة صافي</span>
-              <span style={{ direction: "ltr" }}>@ {fmt(m.sellPrice)} ج</span>
-            </div>
-          </div>)
+              {/* Data */}
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: "#6366F1", direction: "ltr" }}>{m.modelNo}</div>
+                {m.modelDesc && <div style={{ fontSize: 12, color: "#64748B" }}>{m.modelDesc}</div>}
+                <div style={{ display: "flex", gap: 10, fontSize: 12, flexWrap: "wrap", marginTop: 2 }}>
+                  <span><b style={{ color: "#059669" }}>{m.delivered}</b> تسليم</span>
+                  {m.returned > 0 && <span><b style={{ color: "#EF4444" }}>{m.returned}</b> مرتجع</span>}
+                  <span><b style={{ color: "#0EA5E9" }}>{m.net}</b> صافي</span>
+                </div>
+                {/* Math equation row */}
+                <div style={{ marginTop: 4, padding: "6px 10px", background: "linear-gradient(135deg, #EEF2FF, #F5F3FF)", borderRadius: 8, border: "1px dashed #6366F140", direction: "ltr", fontFamily: "'Cairo', monospace", fontSize: 13, fontWeight: 800, color: "#3730A3", textAlign: "center" }}>
+                  {m.net} × {fmt(m.sellPrice)}
+                  {customer.discount > 0 && <span> − {fmt(discAmtModel)}</span>}
+                  = {fmt(finalVal)} <span style={{ fontSize: 11, opacity: 0.7 }}>ج.م</span>
+                </div>
+              </div>
+            </div>;
+          })
         }
       </div>}
 
+      {/* DELIVERIES — kept */}
       {tab === "deliveries" && <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {deliveries.length === 0 ? <EmptyMsg text="لا توجد تسليمات"/> :
-          deliveries.map((d, i) => <div key={i} style={{ background: "#fff", borderRadius: 10, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-              <div>
-                <div style={{ fontWeight: 800, color: "#6366F1", direction: "ltr", fontSize: 14 }}>{d.modelNo}</div>
-                <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>{fmtDate(d.date)}</div>
-              </div>
-              <div style={{ textAlign: "left" }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#059669" }}>{d.qty} قطعة</div>
-                <div style={{ fontSize: 11, color: "#64748B", direction: "ltr" }}>{fmt(d.value)} ج</div>
-              </div>
+          deliveries.map((d, i) => <div key={i} style={{ background: "#fff", borderRadius: 10, padding: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.04)", display: "flex", gap: 10, alignItems: "center" }}>
+            {d.image && <img src={d.image} alt="" style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover", flexShrink: 0 }}/>}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 800, color: "#6366F1", direction: "ltr", fontSize: 14 }}>{d.modelNo}</div>
+              <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 1 }}>{fmtDate(d.date)}</div>
+            </div>
+            <div style={{ textAlign: "left" }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#059669" }}>{d.qty} قطعة</div>
+              <div style={{ fontSize: 11, color: "#64748B", direction: "ltr" }}>{fmt(d.value)} ج.م</div>
             </div>
           </div>)
         }
       </div>}
 
+      {/* RETURNS — kept */}
       {tab === "returns" && <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {rets.length === 0 ? <EmptyMsg text="لا توجد مرتجعات"/> :
-          rets.map((r, i) => <div key={i} style={{ background: "#fff", borderRadius: 10, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-              <div>
-                <div style={{ fontWeight: 800, color: "#6366F1", direction: "ltr", fontSize: 14 }}>{r.modelNo}</div>
-                <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>{fmtDate(r.date)}</div>
-              </div>
-              <div style={{ textAlign: "left" }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#EF4444" }}>{r.qty} قطعة</div>
-                <div style={{ fontSize: 11, color: "#64748B", direction: "ltr" }}>{fmt(r.value)} ج</div>
-              </div>
+          rets.map((r, i) => <div key={i} style={{ background: "#fff", borderRadius: 10, padding: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.04)", display: "flex", gap: 10, alignItems: "center" }}>
+            {r.image && <img src={r.image} alt="" style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover", flexShrink: 0 }}/>}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 800, color: "#6366F1", direction: "ltr", fontSize: 14 }}>{r.modelNo}</div>
+              <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 1 }}>{fmtDate(r.date)}</div>
+            </div>
+            <div style={{ textAlign: "left" }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#EF4444" }}>{r.qty} قطعة</div>
+              <div style={{ fontSize: 11, color: "#64748B", direction: "ltr" }}>{fmt(r.value)} ج.م</div>
             </div>
           </div>)
         }
       </div>}
 
-      {tab === "payments" && <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {/* PAYMENTS — V18.3: 3 summary cards + full transaction log */}
+      {tab === "payments" && <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {/* 3 summary cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+          <PayCard icon="💵" label="نقدي" value={fmt(summary.cashPaid)} color="#059669"/>
+          <PayCard icon="📝" label="شيكات" value={fmt(summary.checksPaid)} color="#0EA5E9"/>
+          <PayCard icon="💰" label="إجمالي" value={fmt(summary.totalPaid)} color="#6366F1" bold/>
+        </div>
+        {/* Full transaction log */}
         {payments.length === 0 ? <EmptyMsg text="لا توجد مدفوعات"/> :
           payments.map((p, i) => <div key={i} style={{ background: "#fff", borderRadius: 10, padding: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#059669" }}>💰 {p.method || "كاش"}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: p.method === "شيك" ? "#0EA5E9" : "#059669" }}>
+                  {p.method === "شيك" ? "📝" : "💵"} {p.method}
+                </div>
                 <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>{fmtDate(p.date)}</div>
-                {p.notes && <div style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>{p.notes}</div>}
               </div>
-              <div style={{ fontSize: 16, fontWeight: 800, color: "#059669", direction: "ltr" }}>{fmt(p.amount)} ج</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: p.method === "شيك" ? "#0EA5E9" : "#059669", direction: "ltr" }}>{fmt(p.amount)} ج.م</div>
             </div>
+            {p.notes && <div style={{ fontSize: 11, color: "#475569", marginTop: 6, padding: "6px 8px", background: "#F8FAFC", borderRadius: 6, borderInlineStart: "3px solid #CBD5E1" }}>📝 {p.notes}</div>}
           </div>)
         }
       </div>}
     </div>
 
     {/* Footer */}
-    <div style={{ padding: "16px 14px", textAlign: "center", color: "#94A3B8", fontSize: 11 }}>
+    <div className="no-print" style={{ padding: "12px 14px", textAlign: "center", color: "#94A3B8", fontSize: 11 }}>
       آخر تحديث: {new Date(data.generatedAt).toLocaleString("ar-EG")}
       <div style={{ marginTop: 4 }}>{factory.name} • رابطك الخاص — لا تشاركه</div>
     </div>
   </div>;
 }
 
-function Row({ label, value, unit, color, bold, large }) {
-  return <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "2px 0" }}>
-    <span style={{ color: "#64748B", fontWeight: bold ? 700 : 500 }}>{label}</span>
-    <span style={{ color: color || "#1E293B", fontWeight: bold ? 800 : 600, fontSize: large ? 18 : 14, direction: "ltr" }}>{value} {unit}</span>
+const btnStyle = (color) => ({
+  padding: "5px 10px",
+  borderRadius: 8,
+  border: "1px solid " + color + "30",
+  background: color + "12",
+  color,
+  fontSize: 11,
+  fontWeight: 700,
+  cursor: "pointer",
+  fontFamily: "inherit",
+});
+
+function MiniCard({ icon, label, mainValue, mainSub, unit, color, secondary, badge }) {
+  return <div style={{ background: "#fff", borderRadius: 10, padding: 10, boxShadow: "0 2px 6px rgba(0,0,0,0.04)", border: "1px solid " + color + "20" }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 10, color: "#64748B", fontWeight: 700, marginBottom: 4 }}>
+      <span>{icon} {label}</span>
+      {badge && <span style={{ padding: "1px 6px", background: color + "20", color, borderRadius: 4, fontSize: 9, fontWeight: 800 }}>{badge}</span>}
+    </div>
+    <div style={{ fontSize: 16, fontWeight: 800, color, direction: "ltr", lineHeight: 1.1 }}>{mainValue} <span style={{ fontSize: 9, color: "#94A3B8", fontWeight: 600 }}>{unit}</span></div>
+    {mainSub && <div style={{ fontSize: 9, color: "#94A3B8", marginTop: 1 }}>{mainSub}</div>}
+    {secondary && <div style={{ marginTop: 4, paddingTop: 4, borderTop: "1px dashed " + color + "30" }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color, direction: "ltr" }}>{secondary.value} <span style={{ fontSize: 9, color: "#94A3B8", fontWeight: 600 }}>{unit}</span></div>
+      <div style={{ fontSize: 9, color: "#94A3B8" }}>{secondary.label}</div>
+    </div>}
   </div>;
 }
 
-function StatBox({ label, value, color }) {
-  return <div style={{ background: (color || "#6366F1") + "10", borderRadius: 10, padding: 10, textAlign: "center" }}>
+function Row({ icon, label, value, unit, color, bold, large, xlarge, detail }) {
+  const valueSize = xlarge ? 20 : large ? 16 : 13;
+  return <div>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "1px 0" }}>
+      <span style={{ color: "#475569", fontWeight: bold ? 700 : 600, fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>
+        {icon && <span style={{ fontSize: 13 }}>{icon}</span>}
+        {label}
+      </span>
+      <span style={{ color: color || "#1E293B", fontWeight: bold ? 800 : 700, fontSize: valueSize, direction: "ltr" }}>{value} <span style={{ fontSize: 10, color: "#94A3B8", fontWeight: 600 }}>{unit}</span></span>
+    </div>
+    {detail && <div style={{ display: "flex", justifyContent: "space-between", paddingInlineStart: 22, fontSize: 11, color: "#64748B" }}>
+      <span>{detail.label}</span>
+      <span style={{ direction: "ltr", fontWeight: 700, color }}>{detail.value} <span style={{ fontSize: 9, opacity: 0.7 }}>{unit}</span></span>
+    </div>}
+  </div>;
+}
+
+function StatBox({ label, value, color, wide }) {
+  return <div style={{ background: (color || "#6366F1") + "10", borderRadius: 10, padding: 10, textAlign: "center", gridColumn: wide ? "span 2" : "auto" }}>
     <div style={{ fontSize: 11, color: "#64748B", fontWeight: 600, marginBottom: 4 }}>{label}</div>
     <div style={{ fontSize: 18, fontWeight: 800, color: color || "#6366F1", direction: "ltr" }}>{Math.round(value).toLocaleString("en-US")}</div>
+  </div>;
+}
+
+function PayCard({ icon, label, value, color, bold }) {
+  return <div style={{ background: bold ? color + "12" : "#fff", borderRadius: 10, padding: 10, textAlign: "center", border: "1px solid " + color + (bold ? "40" : "20"), boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+    <div style={{ fontSize: 11, color: "#64748B", fontWeight: 700 }}>{icon} {label}</div>
+    <div style={{ fontSize: bold ? 17 : 15, fontWeight: 800, color, direction: "ltr", marginTop: 3 }}>{value} <span style={{ fontSize: 9, color: "#94A3B8" }}>ج.م</span></div>
   </div>;
 }
 

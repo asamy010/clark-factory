@@ -1447,16 +1447,19 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       </div>})()}
     {/* Customer Statement Popup */}
     {custStatement==="pick"&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setCustStatement(null)}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:500,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-          <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>📄 كشف حساب — اختر العميل</div>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"auto",maxWidth:isMob?"100%":"min(92vw, 720px)",minWidth:isMob?"auto":420,maxHeight:"85vh",overflowY:"auto",overflowX:"hidden",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:10}}>
+          <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,whiteSpace:"nowrap"}}>📄 كشف حساب — اختر العميل</div>
           <Btn ghost small onClick={()=>setCustStatement(null)} title="إغلاق">✕</Btn>
         </div>
         <div style={{marginBottom:10}}><Inp value={custFilter} onChange={setCustFilter} placeholder="بحث بالاسم أو التليفون..."/></div>
         <div style={{display:"flex",flexDirection:"column",gap:4}}>
-          {customers.filter(c=>{if(!custFilter.trim())return true;const q=custFilter.trim().toLowerCase();return(c.name||"").toLowerCase().includes(q)||(c.phone||"").includes(q)}).map(c=><div key={c.id} onClick={()=>{setCustStatement(c.id);setCustFilter("")}} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",borderRadius:10,cursor:"pointer",border:"1px solid "+T.brd}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"08"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-            <div><span style={{fontWeight:700}}>{c.name}</span>{c.type&&<span style={{fontSize:FS-3,color:T.textMut,marginRight:6}}>{" ("+c.type+")"}</span>}</div>
-            <span style={{fontSize:FS-1,color:T.accent,fontWeight:600}}>{"صافي: "+getCustTotal(c.id)}</span>
+          {customers.filter(c=>{if(!custFilter.trim())return true;const q=custFilter.trim().toLowerCase();return(c.name||"").toLowerCase().includes(q)||(c.phone||"").includes(q)}).map(c=><div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",borderRadius:10,border:"1px solid "+T.brd,gap:10,flexWrap:"nowrap"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"08"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+            <div onClick={()=>{setCustStatement(c.id);setCustFilter("")}} style={{flex:1,minWidth:0,cursor:"pointer",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              <span style={{fontWeight:700}}>{c.name}</span>{c.type&&<span style={{fontSize:FS-3,color:T.textMut,marginRight:6}}>{" ("+c.type+")"}</span>}
+            </div>
+            <span onClick={()=>{setCustStatement(c.id);setCustFilter("")}} style={{fontSize:FS-1,color:T.accent,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>{"صافي: "+getCustTotal(c.id)}</span>
+            {canEdit&&<Btn small onClick={(e)=>{e.stopPropagation();generatePortalUrl(c.id,c.name)}} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640",whiteSpace:"nowrap"}} title="رابط الحساب للعميل">📱 رابط</Btn>}
           </div>)}
         </div>
       </div>

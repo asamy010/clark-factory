@@ -107,6 +107,7 @@ export default async function handler(req, res) {
     allOrders.forEach(o => {
       const modelNo = o.modelNo || "—";
       const modelDesc = o.modelDesc || "";
+      const modelImage = o.image || null;
 
       (o.workshopDeliveries || []).filter(wd => wd.wsName === wsName).forEach(wd => {
         const delQty = Number(wd.qty) || 0;
@@ -115,6 +116,7 @@ export default async function handler(req, res) {
           date: wd.date || "",
           modelNo,
           modelDesc,
+          image: modelImage,
           qty: delQty,
           piece: wd.piece || "",
         });
@@ -130,6 +132,7 @@ export default async function handler(req, res) {
             date: r.date || "",
             modelNo,
             modelDesc,
+            image: modelImage,
             piece: wd.piece || "",
             qty: rQty,
             price: rPrice,

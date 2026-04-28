@@ -118,12 +118,14 @@ export default async function handler(req, res) {
       const sp = Number(o.sellPrice) || 0;
       const modelName = o.modelNo || "—";
       const modelDesc = o.modelDesc || "";
+      const modelImage = o.image || null;
 
       (o.customerDeliveries || []).filter(d => d.custId === custId).forEach(d => {
         deliveries.push({
           date: d.date || "",
           modelNo: modelName,
           modelDesc,
+          image: modelImage,
           qty: Number(d.qty) || 0,
           sellPrice: sp,
           value: (Number(d.qty) || 0) * sp,
@@ -136,6 +138,7 @@ export default async function handler(req, res) {
           date: r.date || "",
           modelNo: modelName,
           modelDesc,
+          image: modelImage,
           qty: Number(r.qty) || 0,
           sellPrice: sp,
           value: (Number(r.qty) || 0) * sp,
@@ -150,6 +153,7 @@ export default async function handler(req, res) {
           activeModels.set(o.id, {
             modelNo: modelName,
             modelDesc,
+            image: modelImage,
             delivered: totalDel,
             returned: totalRet,
             net: totalDel - totalRet,
@@ -160,14 +164,14 @@ export default async function handler(req, res) {
       }
     });
 
-    /* Customer payments */
+    /* Customer payments — V18.3: keep method for cash/checks split */
     const payments = (config.custPayments || [])
       .filter(p => p.custId === custId)
       .map(p => ({
         date: p.date || "",
         amount: Number(p.amount) || 0,
         method: p.method || "كاش",
-        notes: p.notes || "",
+        notes: p.notes || p.note || "",
       }))
       .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
@@ -178,7 +182,11 @@ export default async function handler(req, res) {
     const netSales = totalDelValue - totalRetValue;
     const discountAmount = Math.round(netSales * discPct / 100);
     const salesAfterDiscount = netSales - discountAmount;
+    const returnsAfterDiscount = Math.round(totalRetValue * (1 - discPct / 100));
     const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
+    /* V18.3: Split paid into cash (everything except شيك) and checks */
+    const checksPaid = payments.filter(p => p.method === "شيك").reduce((s, p) => s + p.amount, 0);
+    const cashPaid = totalPaid - checksPaid;
     const balance = Math.round(salesAfterDiscount - totalPaid);
 
     /* Factory info (public-safe) */
@@ -198,13 +206,18 @@ export default async function handler(req, res) {
       },
       summary: {
         netSales: Math.round(netSales),
+        totalDelValue: Math.round(totalDelValue),
         discountAmount,
         salesAfterDiscount: Math.round(salesAfterDiscount),
         returnsValue: Math.round(totalRetValue),
+        returnsAfterDiscount,
         totalPaid: Math.round(totalPaid),
+        cashPaid: Math.round(cashPaid),
+        checksPaid: Math.round(checksPaid),
         balance,
         piecesDelivered: deliveries.reduce((s, d) => s + d.qty, 0),
         piecesReturned: returns.reduce((s, r) => s + r.qty, 0),
+        actualSold: deliveries.reduce((s, d) => s + d.qty, 0) - returns.reduce((s, r) => s + r.qty, 0),
         deliveryCount: deliveries.length,
         orderCount: activeModels.size,
       },

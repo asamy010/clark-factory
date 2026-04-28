@@ -1,15 +1,16 @@
 /* ═══════════════════════════════════════════════════════════════
-   CLARK — Workshop Portal Page (V17.9)
+   CLARK — Workshop Portal Page (V18.1)
    
    Public page that workshops access via a signed URL.
    URL format: /?wsportal=1&w=<wsId>&sig=<hmac>
    
-   Shows read-only workshop account:
-   - Summary cards (balance, due, paid, available)
-   - Deliveries (pieces sent from factory)
-   - Receives (pieces returned with prices)
-   - Payment history
-   
+   V18.1: Redesigned cards/summary/tabs per user spec:
+   - 4 cards: حساب التشغيل / دفعات / رصيد / قطع تحت التشغيل
+   - Summary mirrors cards exactly (same names/order/values)
+   - Deliveries tab: model no / name / piece type / qty (date small in corner)
+   - Receives tab: same + math equation row "price × qty = total ج.م"
+   - Payments tab: + notes if any + total at bottom
+
    No login needed — security via HMAC signature.
    Mobile-first design.
    ═══════════════════════════════════════════════════════════════ */
@@ -23,6 +24,20 @@ const fmtDate = (d) => {
     const date = new Date(d);
     return date.toLocaleDateString("ar-EG", { year: "numeric", month: "short", day: "numeric" });
   } catch (e) { return d; }
+};
+
+/* V18.3: PDF via browser print + WhatsApp share */
+const exportPdf = (tabLabel) => {
+  document.title = "حساب الورشة — " + tabLabel;
+  setTimeout(() => window.print(), 100);
+};
+const shareWhatsApp = (wsName, tabLabel) => {
+  const text = "🏭 حساب " + wsName + " — " + tabLabel + "\n" + window.location.href;
+  if (navigator.share) {
+    navigator.share({ title: "حساب الورشة", text, url: window.location.href }).catch(()=>{});
+  } else {
+    window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank");
+  }
 };
 
 export function WorkshopPortalPage({ params }) {
@@ -85,61 +100,65 @@ export function WorkshopPortalPage({ params }) {
   if (!data) return null;
 
   const { factory, workshop, summary, deliveries, receives, payments } = data;
-  /* Balance color — owed to workshop is positive (good for ws), zero is neutral, negative is unusual */
-  const balanceColor = summary.balance > 0 ? "#F59E0B" : summary.balance < 0 ? "#059669" : "#6B7280";
+  /* Balance: positive = factory owes workshop (good for ws → orange/warm),
+     negative = workshop owes factory (rare → red), zero = neutral */
+  const balanceColor = summary.balance > 0 ? "#F59E0B" : summary.balance < 0 ? "#DC2626" : "#6B7280";
+  const totalPayments = payments.filter(p => p.type === "payment").reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const totalPurchases = payments.filter(p => p.type === "purchase").reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const tabLabels = { summary: "الملخص", deliveries: "تسليم للورشة", receives: "استلام من الورشة", payments: "المدفوعات" };
 
   return <div style={wrapperStyle}>
-    {/* Header */}
-    <div style={{
+    {/* V18.3: Print-only CSS */}
+    <style>{`
+      @media print {
+        body * { visibility: hidden; }
+        .printable, .printable * { visibility: visible; }
+        .printable { position: absolute; inset: 0; padding: 20px; background: #fff !important; }
+        .no-print { display: none !important; }
+        @page { size: A4; margin: 12mm; }
+      }
+    `}</style>
+
+    {/* V18.3: COMPACT Header */}
+    <div className="no-print" style={{
       background: "linear-gradient(135deg, #F59E0B 0%, #D97706 100%)",
       color: "#fff",
-      padding: "20px 16px 24px",
+      padding: "12px 16px 14px",
       textAlign: "center",
       boxShadow: "0 4px 12px rgba(245, 158, 11, 0.25)",
     }}>
-      <div style={{ fontSize: 12, opacity: 0.9, marginBottom: 4 }}>{factory.name}</div>
-      <div style={{ fontSize: 22, fontWeight: 800 }}>🏭 {workshop.name}</div>
-      {workshop.owner && <div style={{ fontSize: 14, opacity: 0.95, marginTop: 4 }}>صاحب الورشة: {workshop.owner}</div>}
-      {workshop.phone && <div style={{ fontSize: 13, opacity: 0.85, marginTop: 4, direction: "ltr" }}>{workshop.phone}</div>}
-      {workshop.type && <div style={{ fontSize: 11, opacity: 0.8, marginTop: 6, padding: "2px 10px", background: "rgba(255,255,255,0.2)", borderRadius: 12, display: "inline-block" }}>{workshop.type}</div>}
+      <div style={{ fontSize: 11, opacity: 0.9 }}>{factory.name}</div>
+      <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>🏭 {workshop.name}</div>
+      {workshop.owner && <div style={{ fontSize: 12, opacity: 0.95, marginTop: 2 }}>صاحب الورشة: {workshop.owner}</div>}
+      <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 4, flexWrap: "wrap", alignItems: "center" }}>
+        {workshop.phone && <div style={{ fontSize: 11, opacity: 0.85, direction: "ltr" }}>{workshop.phone}</div>}
+        {workshop.type && <div style={{ fontSize: 10, opacity: 0.9, padding: "1px 8px", background: "rgba(255,255,255,0.2)", borderRadius: 10 }}>{workshop.type}</div>}
+      </div>
     </div>
 
-    {/* Summary Cards */}
-    <div style={{ padding: "16px 14px 10px", display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
-      <div style={{ background: "#fff", borderRadius: 14, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", textAlign: "center" }}>
-        <div style={{ fontSize: 11, color: "#64748B", marginBottom: 4, fontWeight: 600 }}>المستحق للورشة</div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: balanceColor, direction: "ltr" }}>{fmt(summary.balance)} ج</div>
-      </div>
-      <div style={{ background: "#fff", borderRadius: 14, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", textAlign: "center" }}>
-        <div style={{ fontSize: 11, color: "#64748B", marginBottom: 4, fontWeight: 600 }}>إجمالي المدفوع</div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: "#059669", direction: "ltr" }}>{fmt(summary.paid)} ج</div>
-      </div>
-      <div style={{ background: "#fff", borderRadius: 14, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", textAlign: "center" }}>
-        <div style={{ fontSize: 11, color: "#64748B", marginBottom: 4, fontWeight: 600 }}>إجمالي الأجور</div>
-        <div style={{ fontSize: 18, fontWeight: 800, color: "#0EA5E9", direction: "ltr" }}>{fmt(summary.due)} ج</div>
-      </div>
-      <div style={{ background: "#fff", borderRadius: 14, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", textAlign: "center" }}>
-        <div style={{ fontSize: 11, color: "#64748B", marginBottom: 4, fontWeight: 600 }}>قطع تحت التشغيل</div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: "#8B5CF6", direction: "ltr" }}>{fmt(summary.pendingPieces)}</div>
-        {summary.pendingPieces > 0 && <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 2 }}>لم تسلّم بعد</div>}
-      </div>
+    {/* V18.1: New 4-card layout — same names/order as summary section */}
+    <div className="no-print" style={{ padding: "12px 12px 6px", display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+      <Card icon="🧵" label="إجمالي حساب التشغيل" value={fmt(summary.due)} unit="ج.م" color="#0EA5E9"/>
+      <Card icon="💰" label="إجمالي دفعات" value={fmt(summary.paid)} unit="ج.م" color="#059669"/>
+      <Card icon="⚖️" label="رصيد للورشة" value={fmt(summary.balance)} unit="ج.م" color={balanceColor} bold/>
+      <Card icon="📦" label="كمية تحت التشغيل" value={fmt(summary.pendingPieces)} unit="قطعة" color="#8B5CF6" hint={summary.pendingPieces > 0 ? "لم تسلّم بعد" : null}/>
     </div>
 
     {/* Tabs */}
-    <div style={{ padding: "6px 14px", display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+    <div className="no-print" style={{ padding: "4px 12px", display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
       {[
-        { id: "summary", label: "الملخص", icon: "📊" },
+        { id: "summary", label: "الملخص", icon: "📋" },
         { id: "deliveries", label: "تسليم للورشة (" + deliveries.length + ")", icon: "📤" },
         { id: "receives", label: "استلام من الورشة (" + receives.length + ")", icon: "📥" },
         { id: "payments", label: "المدفوعات (" + payments.length + ")", icon: "💰" },
       ].map(t =>
         <button key={t.id} onClick={() => setTab(t.id)} style={{
-          padding: "8px 14px",
-          borderRadius: 20,
+          padding: "7px 12px",
+          borderRadius: 18,
           border: "none",
           background: tab === t.id ? "#F59E0B" : "#fff",
           color: tab === t.id ? "#fff" : "#475569",
-          fontSize: 13,
+          fontSize: 12,
           fontWeight: 700,
           cursor: "pointer",
           whiteSpace: "nowrap",
@@ -151,113 +170,148 @@ export function WorkshopPortalPage({ params }) {
       )}
     </div>
 
+    {/* V18.3: Export buttons */}
+    <div className="no-print" style={{ padding: "4px 12px 6px", display: "flex", gap: 6, justifyContent: "flex-end" }}>
+      <button onClick={() => exportPdf(tabLabels[tab])} style={{ padding: "5px 10px", borderRadius: 8, border: "1px solid #EF444430", background: "#EF444412", color: "#EF4444", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>📄 PDF</button>
+      <button onClick={() => shareWhatsApp(workshop.name, tabLabels[tab])} style={{ padding: "5px 10px", borderRadius: 8, border: "1px solid #25D36630", background: "#25D36612", color: "#25D366", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>📤 واتساب</button>
+    </div>
+
     {/* Content */}
-    <div style={{ padding: "14px 14px 40px" }}>
+    <div className="printable" style={{ padding: "8px 12px 40px" }}>
+      {/* SUMMARY — V18.1: mirrors the cards exactly */}
       {tab === "summary" && <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ background: "#fff", borderRadius: 14, padding: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
           <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 12, color: "#1E293B" }}>📋 ملخص الحساب</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 14 }}>
-            <Row label="إجمالي أجور التشطيب" value={fmt(summary.due)} unit="ج" color="#0EA5E9"/>
-            {summary.purchase > 0 && <Row label="مشتريات (إكسسوار/خامات)" value={fmt(summary.purchase)} unit="ج" color="#8B5CF6"/>}
-            <Row label="إجمالي المستحق" value={fmt(summary.due + summary.purchase)} unit="ج" bold/>
-            <Row label="إجمالي المدفوع" value={"-" + fmt(summary.paid)} unit="ج" color="#059669"/>
-            <div style={{ borderTop: "2px dashed #E2E8F0", margin: "4px 0", paddingTop: 8 }}>
-              <Row label="المستحق للورشة" value={fmt(summary.balance)} unit="ج" color={balanceColor} bold large/>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 14 }}>
+            <Row icon="🧵" label="إجمالي حساب التشغيل" value={fmt(summary.due)} unit="ج.م" color="#0EA5E9"/>
+            <Row icon="💰" label="إجمالي دفعات" value={fmt(summary.paid)} unit="ج.م" color="#059669"/>
+            <div style={{ borderTop: "2px dashed #E2E8F0", margin: "2px 0", paddingTop: 10 }}>
+              <Row icon="⚖️" label="رصيد للورشة" value={fmt(summary.balance)} unit="ج.م" color={balanceColor} bold large/>
             </div>
+            <Row icon="📦" label="كمية تحت التشغيل" value={fmt(summary.pendingPieces)} unit="قطعة" color="#8B5CF6"/>
           </div>
-        </div>
-
-        <div style={{ background: "#fff", borderRadius: 14, padding: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-          <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 12, color: "#1E293B" }}>📈 إحصاءات</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
-            <StatBox label="قطع مسلّمة من المصنع" value={fmt(summary.deliveredQty)} color="#0EA5E9"/>
-            <StatBox label="قطع مسلّمة للمصنع" value={fmt(summary.receivedQty)} color="#059669"/>
-            <StatBox label="قطع تحت التشغيل" value={fmt(summary.pendingPieces)} color="#8B5CF6"/>
-            <StatBox label="نسبة الدفع المتفق عليها" value={workshop.payPercent + "%"} color="#F59E0B"/>
-          </div>
+          {summary.purchase > 0 && <div style={{ marginTop: 10, padding: "8px 10px", background: "#F3E8FF", borderRadius: 8, fontSize: 12, color: "#6B21A8" }}>
+            ℹ️ يشمل الرصيد مشتريات (إكسسوار/خامات): <b style={{ direction: "ltr", display: "inline-block" }}>{fmt(summary.purchase)} ج.م</b>
+          </div>}
         </div>
 
         {summary.balance > 0 && summary.available > 0 && <div style={{ background: "#FEF3C7", borderRadius: 14, padding: 14, border: "1px solid #F59E0B40" }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#92400E", marginBottom: 6 }}>💡 ملاحظة</div>
           <div style={{ fontSize: 12, color: "#78350F", lineHeight: 1.6 }}>
-            بحسب الاتفاق على نسبة الدفع <b>{workshop.payPercent}%</b>، الحد الأسبوعي الحالي: <b style={{ direction: "ltr", display: "inline-block" }}>{fmt(summary.available)} ج</b>
+            بحسب الاتفاق على نسبة الدفع <b>{workshop.payPercent}%</b>، الحد الأسبوعي الحالي: <b style={{ direction: "ltr", display: "inline-block" }}>{fmt(summary.available)} ج.م</b>
           </div>
         </div>}
       </div>}
 
+      {/* DELIVERIES — V18.1: model no / name / piece type / qty (date in corner) — V18.3: + thumbnail */}
       {tab === "deliveries" && <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {deliveries.length === 0 ? <EmptyMsg text="لا توجد تسليمات للورشة"/> :
-          deliveries.map((d, i) => <div key={i} style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <div style={{ fontSize: 16, fontWeight: 800, color: "#0EA5E9", direction: "ltr" }}>{d.modelNo}</div>
-              <div style={{ fontSize: 12, color: "#64748B" }}>{fmtDate(d.date)}</div>
+          deliveries.map((d, i) => <div key={i} style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", position: "relative", display: "flex", gap: 12, alignItems: "stretch" }}>
+            <div style={{ position: "absolute", top: 6, left: 10, fontSize: 10, color: "#94A3B8" }}>{fmtDate(d.date)}</div>
+            {/* Thumbnail */}
+            <div style={{ width: 80, minWidth: 80, borderRadius: 10, overflow: "hidden", background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {d.image ? <img src={d.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}/> : <span style={{ fontSize: 24, opacity: 0.3 }}>📦</span>}
             </div>
-            {d.modelDesc && <div style={{ fontSize: 12, color: "#64748B", marginBottom: 6 }}>{d.modelDesc}</div>}
-            <div style={{ display: "flex", gap: 12, fontSize: 13, flexWrap: "wrap" }}>
-              <span><b style={{ color: "#0EA5E9" }}>{d.qty}</b> قطعة</span>
-              {d.piece && <span style={{ padding: "2px 8px", background: "#F1F5F9", borderRadius: 6, fontSize: 11, color: "#475569", fontWeight: 600 }}>{d.piece}</span>}
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 800, color: "#0EA5E9", direction: "ltr" }}>{d.modelNo}</div>
+              {d.modelDesc && <div style={{ fontSize: 12, color: "#1E293B", fontWeight: 600 }}>{d.modelDesc}</div>}
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 2 }}>
+                {d.piece && <span style={{ padding: "2px 8px", background: "#F1F5F9", borderRadius: 6, fontSize: 11, color: "#475569", fontWeight: 700 }}>{d.piece}</span>}
+                <span style={{ fontSize: 13, fontWeight: 800, color: "#0EA5E9" }}>{d.qty} <span style={{ fontSize: 10, color: "#64748B", fontWeight: 600 }}>قطعة</span></span>
+              </div>
             </div>
           </div>)
         }
       </div>}
 
+      {/* RECEIVES — V18.1: same as deliveries + standalone math equation row — V18.3: + thumbnail */}
       {tab === "receives" && <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {receives.length === 0 ? <EmptyMsg text="لم يتم استلام قطع من الورشة بعد"/> :
-          receives.map((r, i) => <div key={i} style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <div style={{ fontSize: 16, fontWeight: 800, color: "#059669", direction: "ltr" }}>{r.modelNo}</div>
-              <div style={{ fontSize: 12, color: "#64748B" }}>{fmtDate(r.date)}</div>
+          receives.map((r, i) => <div key={i} style={{ background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", position: "relative", display: "flex", gap: 12, alignItems: "stretch" }}>
+            <div style={{ position: "absolute", top: 6, left: 10, fontSize: 10, color: "#94A3B8" }}>{fmtDate(r.date)}</div>
+            {/* Thumbnail */}
+            <div style={{ width: 80, minWidth: 80, borderRadius: 10, overflow: "hidden", background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {r.image ? <img src={r.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}/> : <span style={{ fontSize: 24, opacity: 0.3 }}>📦</span>}
             </div>
-            {r.modelDesc && <div style={{ fontSize: 12, color: "#64748B", marginBottom: 6 }}>{r.modelDesc}</div>}
-            <div style={{ display: "flex", gap: 12, fontSize: 13, flexWrap: "wrap", alignItems: "center" }}>
-              <span><b style={{ color: "#059669" }}>{r.qty}</b> قطعة</span>
-              {r.piece && <span style={{ padding: "2px 8px", background: "#F1F5F9", borderRadius: 6, fontSize: 11, color: "#475569", fontWeight: 600 }}>{r.piece}</span>}
-              <span style={{ direction: "ltr", color: "#64748B" }}>@ {fmt(r.price)} ج</span>
-              <span style={{ marginInlineStart: "auto", fontWeight: 800, color: "#0EA5E9", direction: "ltr" }}>= {fmt(r.value)} ج</span>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 800, color: "#059669", direction: "ltr" }}>{r.modelNo}</div>
+              {r.modelDesc && <div style={{ fontSize: 12, color: "#1E293B", fontWeight: 600 }}>{r.modelDesc}</div>}
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 2 }}>
+                {r.piece && <span style={{ padding: "2px 8px", background: "#F1F5F9", borderRadius: 6, fontSize: 11, color: "#475569", fontWeight: 700 }}>{r.piece}</span>}
+                <span style={{ fontSize: 13, fontWeight: 800, color: "#059669" }}>{r.qty} <span style={{ fontSize: 10, color: "#64748B", fontWeight: 600 }}>قطعة</span></span>
+              </div>
+              {/* Standalone math equation row */}
+              <div style={{ marginTop: 4, padding: "6px 10px", background: "linear-gradient(135deg, #ECFDF5, #F0FDF4)", borderRadius: 8, border: "1px dashed #05966940", textAlign: "center", direction: "ltr", fontFamily: "'Cairo', monospace", fontSize: 13, fontWeight: 800, color: "#065F46", letterSpacing: 0.5 }}>
+                {fmt(r.price)} × {r.qty} = {fmt(r.value)} <span style={{ fontSize: 11, opacity: 0.7 }}>ج.م</span>
+              </div>
             </div>
           </div>)
         }
       </div>}
 
+      {/* PAYMENTS — V18.1: same + notes + total at bottom */}
       {tab === "payments" && <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {payments.length === 0 ? <EmptyMsg text="لا توجد مدفوعات بعد"/> :
-          payments.map((p, i) => <div key={i} style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <div style={{ fontSize: 12, color: "#64748B" }}>{fmtDate(p.date)}</div>
-                <div style={{ fontSize: 11, marginTop: 4, padding: "2px 8px", background: p.type === "purchase" ? "#F3E8FF" : "#DCFCE7", color: p.type === "purchase" ? "#7C3AED" : "#059669", borderRadius: 6, fontWeight: 700, display: "inline-block" }}>
-                  {p.type === "purchase" ? "📦 مشتريات" : "💰 دفعة"}
+          <>
+            {payments.map((p, i) => <div key={i} style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontSize: 12, color: "#64748B" }}>{fmtDate(p.date)}</div>
+                  <div style={{ fontSize: 11, marginTop: 4, padding: "2px 8px", background: p.type === "purchase" ? "#F3E8FF" : "#DCFCE7", color: p.type === "purchase" ? "#7C3AED" : "#059669", borderRadius: 6, fontWeight: 700, display: "inline-block" }}>
+                    {p.type === "purchase" ? "📦 مشتريات" : "💰 دفعة"}
+                  </div>
                 </div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: p.type === "purchase" ? "#7C3AED" : "#059669", direction: "ltr" }}>{fmt(p.amount)} ج.م</div>
               </div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: p.type === "purchase" ? "#7C3AED" : "#059669", direction: "ltr" }}>{fmt(p.amount)} ج</div>
+              {p.notes && <div style={{ fontSize: 12, color: "#475569", marginTop: 8, padding: "8px 10px", background: "#F8FAFC", borderRadius: 8, borderInlineStart: "3px solid #CBD5E1" }}>📝 {p.notes}</div>}
+            </div>)}
+            {/* Totals footer */}
+            <div style={{ marginTop: 6, background: "linear-gradient(135deg, #ECFDF5, #F0FDF4)", borderRadius: 12, padding: 14, border: "1px solid #05966930" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: totalPurchases > 0 ? 6 : 0 }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: "#065F46" }}>💵 إجمالي المدفوعات</span>
+                <span style={{ fontSize: 18, fontWeight: 800, color: "#059669", direction: "ltr" }}>{fmt(totalPayments)} ج.م</span>
+              </div>
+              {totalPurchases > 0 && <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 6, borderTop: "1px dashed #05966930" }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "#6B21A8" }}>📦 إجمالي المشتريات</span>
+                <span style={{ fontSize: 15, fontWeight: 800, color: "#7C3AED", direction: "ltr" }}>{fmt(totalPurchases)} ج.م</span>
+              </div>}
             </div>
-            {p.notes && <div style={{ fontSize: 12, color: "#64748B", marginTop: 8, padding: "6px 10px", background: "#F8FAFC", borderRadius: 8 }}>{p.notes}</div>}
-          </div>)
+          </>
         }
       </div>}
     </div>
 
     {/* Footer */}
-    <div style={{ padding: "20px 16px", textAlign: "center", color: "#94A3B8", fontSize: 11 }}>
+    <div className="no-print" style={{ padding: "20px 16px", textAlign: "center", color: "#94A3B8", fontSize: 11 }}>
       <div>هذا الرابط للعرض فقط — لا يمكن إجراء تعديلات</div>
       <div style={{ marginTop: 4 }}>للاستفسار تواصل مع {factory.name}</div>
     </div>
   </div>;
 }
 
-function Row({ label, value, unit, color, bold, large }) {
-  return <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-    <span style={{ color: "#475569", fontSize: large ? 15 : 13, fontWeight: bold ? 700 : 500 }}>{label}</span>
-    <span style={{ color: color || "#1E293B", fontSize: large ? 18 : 14, fontWeight: bold ? 800 : 700, direction: "ltr" }}>
-      {value} {unit && <span style={{ fontSize: 11, opacity: 0.7 }}>{unit}</span>}
-    </span>
+/* V18.1: Unified card component for the 4 main metrics */
+function Card({ icon, label, value, unit, color, bold, hint }) {
+  return <div style={{ background: "#fff", borderRadius: 14, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", textAlign: "center", border: bold ? "2px solid " + color + "30" : "1px solid #F1F5F9" }}>
+    <div style={{ fontSize: 11, color: "#64748B", marginBottom: 6, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+      <span style={{ fontSize: 14 }}>{icon}</span>
+      <span>{label}</span>
+    </div>
+    <div style={{ fontSize: bold ? 22 : 20, fontWeight: 800, color, direction: "ltr", lineHeight: 1.1 }}>
+      {value} <span style={{ fontSize: 11, fontWeight: 600, color: "#94A3B8" }}>{unit}</span>
+    </div>
+    {hint && <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 4 }}>{hint}</div>}
   </div>;
 }
 
-function StatBox({ label, value, color }) {
-  return <div style={{ background: "#F8FAFC", borderRadius: 10, padding: 10, textAlign: "center" }}>
-    <div style={{ fontSize: 11, color: "#64748B", fontWeight: 600 }}>{label}</div>
-    <div style={{ fontSize: 18, fontWeight: 800, color: color || "#1E293B", marginTop: 4, direction: "ltr" }}>{value}</div>
+function Row({ icon, label, value, unit, color, bold, large }) {
+  return <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <span style={{ color: "#475569", fontSize: large ? 15 : 13, fontWeight: bold ? 700 : 600, display: "flex", alignItems: "center", gap: 6 }}>
+      {icon && <span style={{ fontSize: large ? 16 : 14 }}>{icon}</span>}
+      {label}
+    </span>
+    <span style={{ color: color || "#1E293B", fontSize: large ? 18 : 14, fontWeight: bold ? 800 : 700, direction: "ltr" }}>
+      {value} {unit && <span style={{ fontSize: 11, opacity: 0.7 }}>{unit}</span>}
+    </span>
   </div>;
 }
 
