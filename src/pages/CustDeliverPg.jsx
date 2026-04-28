@@ -57,6 +57,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const[returnPopup,setReturnPopup]=useState(null);const[retQty,setRetQty]=useState(0);const[retNote,setRetNote]=useState("");
   const[freeReturn,setFreeReturn]=useState(null);const[freeRetItems,setFreeRetItems]=useState({});const[freeRetNote,setFreeRetNote]=useState("");
   const[custQR,setCustQR]=useState(null);const[salesDetail,setSalesDetail]=useState(null);const[custStatement,setCustStatement]=useState(null);const[salesAnalysis,setSalesAnalysis]=useState(false);const[seasonReport,setSeasonReport]=useState(false);const[editRetIdx,setEditRetIdx]=useState(null);const[editRetQty,setEditRetQty]=useState(0);const[editRetNote,setEditRetNote]=useState("");
+  /* V17.7: Returns log grouped by customer — popup shows full return history */
+  const[returnsPopupCustId,setReturnsPopupCustId]=useState(null);
+  const[returnsLogFilter,setReturnsLogFilter]=useState("");
   /* V16.3: Portal URL popup + Stats toggle */
   const[portalUrlPopup,setPortalUrlPopup]=useState(null);/* {url, custName, loading, error} */
   const[showCustStats,setShowCustStats]=useState(false);
@@ -1632,39 +1635,149 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           </div>})}
       </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد تسليمات — اضغط "🚚 تسليم جديد"</div>})()}
     </Card>
-    {/* ── Returns Log ── */}
+    {/* ── V17.7: Returns Log — grouped by customer ── */}
     {(()=>{const allReturns=[];orders.forEach(o=>{(o.customerReturns||[]).forEach(r=>{allReturns.push({...r,orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc})})});
-      allReturns.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
       if(allReturns.length===0)return null;
-      const filteredRet=allReturns.filter(r=>{if(!sessFilterQ.trim())return true;const q=sessFilterQ.trim().toLowerCase();return(r.modelNo||"").toLowerCase().includes(q)||(r.custName||"").toLowerCase().includes(q)||(r.date||"").includes(q)||(r.note||"").toLowerCase().includes(q)});
-      const totalRetQty=filteredRet.reduce((s,r)=>s+(Number(r.qty)||0),0);
-      const printReturns=()=>{const byCustomer={};filteredRet.forEach(r=>{const k=r.custName||"—";if(!byCustomer[k])byCustomer[k]=[];byCustomer[k].push(r)});
-        let h="<h2 style='text-align:center;margin-bottom:4px'>↩️ سجل المرتجعات</h2><div style='text-align:center;color:#666;margin-bottom:16px'>اجمالي: "+totalRetQty+" قطعة | "+filteredRet.length+" عملية مرتجع</div>";
-        h+="<table><thead><tr><th>#</th><th>التاريخ</th><th>العميل</th><th>الموديل</th><th>الوصف</th><th>الكمية</th><th>ملاحظات</th><th>بواسطة</th></tr></thead><tbody>";
-        filteredRet.forEach((r,i)=>{h+="<tr style='background:"+(i%2===0?"transparent":"#f8f8f8")+"'><td>"+(i+1)+"</td><td>"+r.date+"</td><td><b>"+(r.custName||"—")+"</b></td><td style='font-weight:800;color:#0EA5E9'>"+r.modelNo+"</td><td>"+(r.modelDesc||"")+"</td><td style='font-weight:800;color:#EF4444;text-align:center'>"+r.qty+"</td><td>"+(r.note||"—")+"</td><td style='color:#888'>"+(r.createdBy||"—")+"</td></tr>"});
-        h+="<tr style='background:#FEF2F2;font-weight:800'><td colspan='5'>الاجمالي</td><td style='color:#EF4444;font-size:16px;text-align:center'>"+totalRetQty+"</td><td colspan='2'></td></tr></tbody></table>";
-        h+="<h3 style='margin-top:20px'>ملخص المرتجعات حسب العميل</h3><table><thead><tr><th>العميل</th><th>عدد العمليات</th><th>اجمالي الكمية</th></tr></thead><tbody>";
-        Object.entries(byCustomer).sort((a,b)=>b[1].reduce((s,r)=>s+r.qty,0)-a[1].reduce((s,r)=>s+r.qty,0)).forEach(([name,rets],i)=>{const tq=rets.reduce((s,r)=>s+(Number(r.qty)||0),0);h+="<tr style='background:"+(i%2===0?"transparent":"#f8f8f8")+"'><td style='font-weight:700'>"+name+"</td><td style='text-align:center'>"+rets.length+"</td><td style='text-align:center;font-weight:800;color:#EF4444'>"+tq+"</td></tr>"});
-        h+="</tbody></table><div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>المراجع</div></div>";
-        printPage("سجل المرتجعات",h,{factoryName:config.factoryName,logo:config.logo})};
-      return<Card title={"↩️ سجل المرتجعات ("+allReturns.length+")"} extra={<Btn small onClick={printReturns} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>}>
-        {filteredRet.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","التاريخ","العميل","الموديل","الكمية","ملاحظات","بواسطة",...(canEdit?[""]:[])] .map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
-          {filteredRet.slice(0,20).map((r,i)=>{const isEd=editRetIdx===i;
-            return<tr key={i} style={{background:isEd?T.warn+"08":i%2===0?"transparent":T.bg+"80"}}><td style={TD}>{i+1}</td><td style={TD}>{r.date}</td><td style={{...TD,fontWeight:700}}>{r.custName||"—"}</td>
-              <td style={{...TD,fontWeight:700,color:T.accent}}>{r.modelNo}</td>
-              <td style={{...TD,fontWeight:800,color:T.err,textAlign:"center"}}>{isEd?<input type="number" value={editRetQty} onChange={e=>setEditRetQty(Number(e.target.value)||0)} style={{width:60,textAlign:"center",border:"2px solid "+T.warn,borderRadius:4,padding:"2px",fontSize:FS,fontWeight:700,fontFamily:"inherit"}}/>:r.qty}</td>
-              <td style={{...TD,fontSize:FS-2}}>{isEd?<input value={editRetNote} onChange={e=>setEditRetNote(e.target.value)} placeholder="ملاحظات" style={{width:"100%",border:"1px solid "+T.brd,borderRadius:4,padding:"2px 4px",fontSize:FS-2,fontFamily:"inherit"}}/>:(r.note||"—")}</td>
-              <td style={{...TD,fontSize:FS-3,color:T.textMut}}>{r.createdBy||"—"}</td>
-            {canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}>
-              {isEd?<><Btn small primary onClick={()=>{if(editRetQty<=0){showToast("⚠️ كمية غير صالحة");return}updOrder(r.orderId,o=>{const ret=(o.customerReturns||[]).find(x=>x.custId===r.custId&&x.date===r.date&&(x.note||"")===(r.note||""));if(ret){ret.qty=editRetQty;ret.note=editRetNote}});setEditRetIdx(null);showToast("✓ تم التعديل")}} title="حفظ">💾</Btn><Btn ghost small onClick={()=>setEditRetIdx(null)} title="إلغاء">✕</Btn></>
-              :<><Btn small onClick={()=>{const h="<h2 style='text-align:center'>↩️ إذن مرتجع</h2><table style='margin:0 auto 16px'><tr><th style='text-align:right;padding:4px 12px'>العميل</th><td style='padding:4px 12px;font-weight:800'>"+(r.custName||"—")+"</td><th style='text-align:right;padding:4px 12px'>التاريخ</th><td style='padding:4px 12px'>"+r.date+"</td></tr></table><table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th><th>ملاحظات</th></tr></thead><tbody><tr><td style='font-weight:800;color:#0EA5E9'>"+r.modelNo+"</td><td>"+(r.modelDesc||"")+"</td><td style='font-weight:800;color:#EF4444;text-align:center;font-size:16px'>"+r.qty+"</td><td>"+(r.note||"—")+"</td></tr></tbody></table><div style='margin-top:8px;font-size:11px;color:#888'>بواسطة: "+(r.createdBy||"—")+"</div><div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>العميل</div></div>";printPage("إذن مرتجع — "+(r.custName||""),h,{factoryName:config.factoryName,logo:config.logo})}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة إذن مرتجع">🖨</Btn>
-              <Btn small onClick={()=>{setEditRetIdx(i);setEditRetQty(r.qty);setEditRetNote(r.note||"")}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
-              <DelBtn onConfirm={()=>{updOrder(r.orderId,o=>{o.customerReturns=(o.customerReturns||[]).filter(x=>!(x.custId===r.custId&&x.date===r.date&&(x.note||"")===(r.note||"")))});showToast("✓ تم حذف المرتجع")}}/></>}
-            </div></td>}</tr>})}
-          {filteredRet.length>20&&<tr><td colSpan={7} style={{...TD,textAlign:"center",color:T.textMut}}>{"... و "+(filteredRet.length-20)+" مرتجع آخر"}</td></tr>}
-          <tr style={{background:T.err+"08"}}><td colSpan={4} style={{...TD,fontWeight:800}}>اجمالي المرتجعات</td><td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:T.err}}>{totalRetQty}</td><td colSpan={2} style={TD}></td></tr>
-        </tbody></table></div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد مرتجعات بهذا الفلتر</div>}
+      /* Group by custId — collect each customer's full return history */
+      const byCust={};
+      allReturns.forEach(r=>{
+        const cid=r.custId||"_unknown";
+        if(!byCust[cid]){byCust[cid]={custId:cid,custName:r.custName||"غير محدد",returns:[],totalQty:0,lastDate:""}}
+        byCust[cid].returns.push(r);
+        byCust[cid].totalQty+=(Number(r.qty)||0);
+        if((r.date||"")>byCust[cid].lastDate)byCust[cid].lastDate=r.date||"";
+      });
+      let custList=Object.values(byCust);
+      /* Filter by search */
+      if(returnsLogFilter.trim()){
+        const q=returnsLogFilter.trim().toLowerCase();
+        custList=custList.filter(c=>(c.custName||"").toLowerCase().includes(q));
+      }
+      /* Sort by total qty descending */
+      custList.sort((a,b)=>b.totalQty-a.totalQty);
+      const grandTotal=custList.reduce((s,c)=>s+c.totalQty,0);
+      const grandOps=custList.reduce((s,c)=>s+c.returns.length,0);
+      /* Print: full report — customers + each customer's details */
+      const printAll=()=>{
+        let h="<h2 style='text-align:center;margin-bottom:4px'>↩️ سجل المرتجعات حسب العميل</h2>";
+        h+="<div style='text-align:center;color:#666;margin-bottom:16px'>اجمالي: "+grandTotal+" قطعة | "+grandOps+" عملية مرتجع | "+custList.length+" عميل</div>";
+        h+="<table><thead><tr><th>#</th><th>العميل</th><th>عدد العمليات</th><th>اجمالي الكمية</th><th>آخر مرتجع</th></tr></thead><tbody>";
+        custList.forEach((c,i)=>{
+          h+="<tr style='background:"+(i%2===0?"transparent":"#f8f8f8")+"'><td style='text-align:center'>"+(i+1)+"</td><td style='font-weight:800'>"+c.custName+"</td><td style='text-align:center;font-weight:700'>"+c.returns.length+"</td><td style='text-align:center;font-weight:800;color:#EF4444;font-size:14px'>"+c.totalQty+"</td><td style='text-align:center;color:#666'>"+(c.lastDate||"—")+"</td></tr>";
+        });
+        h+="<tr style='background:#FEF2F2;font-weight:800'><td colspan='2'>الاجمالي ("+custList.length+" عميل)</td><td style='text-align:center'>"+grandOps+"</td><td style='text-align:center;color:#EF4444;font-size:16px'>"+grandTotal+"</td><td></td></tr></tbody></table>";
+        /* Per-customer details */
+        custList.forEach(c=>{
+          const sortedRets=[...c.returns].sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+          h+="<h3 style='margin-top:24px;color:#0EA5E9;border-bottom:2px solid #0EA5E930;padding-bottom:6px'>👤 "+c.custName+" — "+c.totalQty+" قطعة ("+c.returns.length+" عملية)</h3>";
+          h+="<table><thead><tr><th>#</th><th>التاريخ</th><th>الموديل</th><th>الوصف</th><th>الكمية</th><th>ملاحظات</th><th>بواسطة</th></tr></thead><tbody>";
+          sortedRets.forEach((r,i)=>{
+            h+="<tr style='background:"+(i%2===0?"transparent":"#f8f8f8")+"'><td style='text-align:center'>"+(i+1)+"</td><td>"+(r.date||"—")+"</td><td style='font-weight:800;color:#0EA5E9'>"+r.modelNo+"</td><td style='font-size:10px'>"+(r.modelDesc||"")+"</td><td style='font-weight:800;color:#EF4444;text-align:center'>"+r.qty+"</td><td>"+(r.note||"—")+"</td><td style='color:#888;font-size:10px'>"+(r.createdBy||"—")+"</td></tr>";
+          });
+          h+="</tbody></table>";
+        });
+        h+="<div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>المراجع</div></div>";
+        printPage("سجل المرتجعات",h,{factoryName:config.factoryName,logo:config.logo});
+      };
+      return<Card title={"↩️ سجل المرتجعات — "+custList.length+" عميل ("+grandTotal+" قطعة)"} extra={<Btn small onClick={printAll} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة السجل الكامل">🖨</Btn>}>
+        <div style={{marginBottom:10}}><Inp value={returnsLogFilter} onChange={setReturnsLogFilter} placeholder="🔍 ابحث باسم العميل..."/></div>
+        {custList.length>0?<div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {custList.map(c=><div key={c.custId} onClick={()=>setReturnsPopupCustId(c.custId)} style={{padding:"12px 16px",borderRadius:12,background:T.cardSolid,border:"1px solid "+T.err+"30",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.err+"06"} onMouseLeave={e=>e.currentTarget.style.background=T.cardSolid}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:22}}>👤</span>
+              <div>
+                <div style={{fontWeight:800,fontSize:FS+1,color:T.text}}>{c.custName}</div>
+                <div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{c.returns.length+" عملية مرتجع | آخر مرتجع: "+(c.lastDate||"—")}</div>
+              </div>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{textAlign:"left"}}>
+                <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>إجمالي الكمية</div>
+                <div style={{fontSize:FS+5,fontWeight:900,color:T.err,lineHeight:1}}>{c.totalQty}</div>
+              </div>
+              <span style={{fontSize:18,color:T.textMut}}>‹</span>
+            </div>
+          </div>)}
+        </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>{returnsLogFilter?"لا توجد نتائج":"لا توجد مرتجعات"}</div>}
       </Card>})()}
+    {/* V17.7: Returns popup — full history for one customer */}
+    {returnsPopupCustId&&(()=>{
+      const allRetForCust=[];
+      orders.forEach(o=>{(o.customerReturns||[]).filter(r=>r.custId===returnsPopupCustId).forEach((r,idx)=>{allRetForCust.push({...r,orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,_origIdx:idx})})});
+      if(allRetForCust.length===0){setReturnsPopupCustId(null);return null}
+      allRetForCust.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+      const cust=customers.find(c=>c.id===returnsPopupCustId);
+      const custName=cust?.name||allRetForCust[0]?.custName||"غير محدد";
+      const totalQty=allRetForCust.reduce((s,r)=>s+(Number(r.qty)||0),0);
+      const printOne=()=>{
+        let h="<h2 style='text-align:center;margin-bottom:4px'>↩️ سجل مرتجعات — "+custName+"</h2>";
+        h+="<div style='text-align:center;color:#666;margin-bottom:16px'>اجمالي: "+totalQty+" قطعة | "+allRetForCust.length+" عملية مرتجع</div>";
+        if(cust){
+          h+="<table style='margin:0 auto 12px;border:1px solid #ddd'><tr><th style='padding:6px 12px;background:#F0F9FF'>العميل</th><td style='padding:6px 12px;font-weight:800'>"+cust.name+"</td>";
+          if(cust.phone)h+="<th style='padding:6px 12px;background:#F0F9FF'>التليفون</th><td style='padding:6px 12px'>"+cust.phone+"</td>";
+          h+="</tr></table>";
+        }
+        h+="<table><thead><tr><th>#</th><th>التاريخ</th><th>الموديل</th><th>الوصف</th><th>الكمية</th><th>ملاحظات</th><th>بواسطة</th></tr></thead><tbody>";
+        allRetForCust.forEach((r,i)=>{
+          h+="<tr style='background:"+(i%2===0?"transparent":"#f8f8f8")+"'><td style='text-align:center'>"+(i+1)+"</td><td>"+(r.date||"—")+"</td><td style='font-weight:800;color:#0EA5E9'>"+r.modelNo+"</td><td style='font-size:10px'>"+(r.modelDesc||"")+"</td><td style='font-weight:800;color:#EF4444;text-align:center;font-size:13px'>"+r.qty+"</td><td>"+(r.note||"—")+"</td><td style='color:#888;font-size:10px'>"+(r.createdBy||"—")+"</td></tr>";
+        });
+        h+="<tr style='background:#FEF2F2;font-weight:800'><td colspan='4' style='text-align:left'>الاجمالي</td><td style='text-align:center;color:#EF4444;font-size:16px'>"+totalQty+"</td><td colspan='2'></td></tr></tbody></table>";
+        h+="<div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>العميل: "+custName+"</div></div>";
+        printPage("سجل مرتجعات — "+custName,h,{factoryName:config.factoryName,logo:config.logo});
+      };
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setReturnsPopupCustId(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:0,width:"100%",maxWidth:780,maxHeight:"90vh",display:"flex",flexDirection:"column",border:"2px solid "+T.err+"50",boxShadow:"0 25px 70px rgba(0,0,0,0.4)",overflow:"hidden"}}>
+          <div style={{padding:"16px 20px",borderBottom:"2px solid "+T.err+"20",background:T.err+"04",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+            <div>
+              <div style={{fontSize:FS+3,fontWeight:900,color:T.err,display:"flex",alignItems:"center",gap:8}}>
+                <span>↩️</span><span>{"سجل مرتجعات — "+custName}</span>
+              </div>
+              <div style={{fontSize:FS-1,color:T.textMut,marginTop:4}}>{allRetForCust.length+" عملية | اجمالي: "+totalQty+" قطعة"}</div>
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              <Btn small onClick={printOne} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}} title="طباعة / PDF">🖨 طباعة</Btn>
+              <Btn ghost small onClick={()=>setReturnsPopupCustId(null)}>✕</Btn>
+            </div>
+          </div>
+          <div style={{flex:1,overflowY:"auto",padding:16}}>
+            <div style={{overflowX:"auto",border:"1px solid "+T.brd,borderRadius:10}}>
+              <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <thead style={{position:"sticky",top:0,background:T.cardSolid,zIndex:1}}>
+                  <tr>{["#","التاريخ","الموديل","الوصف","الكمية","ملاحظات","بواسطة",...(canEdit?[""]:[])] .map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {allRetForCust.map((r,i)=>{const isEd=editRetIdx===("popup_"+i);
+                    return<tr key={i} style={{background:isEd?T.warn+"08":i%2===0?"transparent":T.bg+"80",borderBottom:"1px solid "+T.brd}}>
+                      <td style={{...TD,textAlign:"center",color:T.textMut}}>{i+1}</td>
+                      <td style={{...TD,whiteSpace:"nowrap"}}>{r.date||"—"}</td>
+                      <td style={{...TD,fontWeight:700,color:T.accent}}>{r.modelNo}</td>
+                      <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{r.modelDesc||"—"}</td>
+                      <td style={{...TD,fontWeight:800,color:T.err,textAlign:"center",fontSize:FS+1}}>{isEd?<input type="number" value={editRetQty} onChange={e=>setEditRetQty(Number(e.target.value)||0)} style={{width:60,textAlign:"center",border:"2px solid "+T.warn,borderRadius:4,padding:"2px",fontSize:FS,fontWeight:700,fontFamily:"inherit"}}/>:r.qty}</td>
+                      <td style={{...TD,fontSize:FS-2}}>{isEd?<input value={editRetNote} onChange={e=>setEditRetNote(e.target.value)} placeholder="ملاحظات" style={{width:"100%",border:"1px solid "+T.brd,borderRadius:4,padding:"2px 4px",fontSize:FS-2,fontFamily:"inherit"}}/>:(r.note||"—")}</td>
+                      <td style={{...TD,fontSize:FS-3,color:T.textMut}}>{r.createdBy||"—"}</td>
+                      {canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}>
+                        {isEd?<>
+                          <Btn small primary onClick={()=>{if(editRetQty<=0){showToast("⚠️ كمية غير صالحة");return}updOrder(r.orderId,o=>{const ret=(o.customerReturns||[]).find(x=>x.custId===r.custId&&x.date===r.date&&(x.note||"")===(r.note||""));if(ret){ret.qty=editRetQty;ret.note=editRetNote}});setEditRetIdx(null);showToast("✓ تم التعديل")}} title="حفظ">💾</Btn>
+                          <Btn ghost small onClick={()=>setEditRetIdx(null)} title="إلغاء">✕</Btn>
+                        </>:<>
+                          <Btn small onClick={()=>{const h="<h2 style='text-align:center'>↩️ إذن مرتجع</h2><table style='margin:0 auto 16px'><tr><th style='text-align:right;padding:4px 12px'>العميل</th><td style='padding:4px 12px;font-weight:800'>"+(r.custName||"—")+"</td><th style='text-align:right;padding:4px 12px'>التاريخ</th><td style='padding:4px 12px'>"+r.date+"</td></tr></table><table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th><th>ملاحظات</th></tr></thead><tbody><tr><td style='font-weight:800;color:#0EA5E9'>"+r.modelNo+"</td><td>"+(r.modelDesc||"")+"</td><td style='font-weight:800;color:#EF4444;text-align:center;font-size:16px'>"+r.qty+"</td><td>"+(r.note||"—")+"</td></tr></tbody></table><div style='margin-top:8px;font-size:11px;color:#888'>بواسطة: "+(r.createdBy||"—")+"</div><div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>العميل</div></div>";printPage("إذن مرتجع — "+(r.custName||""),h,{factoryName:config.factoryName,logo:config.logo})}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة إذن مرتجع">🖨</Btn>
+                          <Btn small onClick={()=>{setEditRetIdx("popup_"+i);setEditRetQty(r.qty);setEditRetNote(r.note||"")}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
+                          <DelBtn onConfirm={()=>{updOrder(r.orderId,o=>{o.customerReturns=(o.customerReturns||[]).filter(x=>!(x.custId===r.custId&&x.date===r.date&&(x.note||"")===(r.note||"")))});showToast("✓ تم حذف المرتجع")}}/>
+                        </>}
+                      </div></td>}
+                    </tr>})}
+                  <tr style={{background:T.err+"10",fontWeight:800,borderTop:"2px solid "+T.err+"40"}}>
+                    <td colSpan={4} style={{...TD,textAlign:"left"}}>الاجمالي</td>
+                    <td style={{...TD,textAlign:"center",fontWeight:900,fontSize:FS+3,color:T.err}}>{totalQty}</td>
+                    <td colSpan={canEdit?3:2} style={TD}></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>;
+    })()}
     {/* ── Sales Audits Section ── */}
     <Card title={"📋 جرد المبيعات ("+audits.length+")"} style={{marginBottom:16}}>
       {sortedAudits.length>0?<div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -2318,8 +2431,35 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               if(isSale&&qrSale.override===true)showToast("⚠️ "+pickedO.modelNo+" — بيع طوارئ (خارج الخطة)");
               setQrSale(p=>{const newItems=[...p.items];dist.allocations.forEach(a=>{const oo=orders.find(x=>x.id===a.orderId);newItems.push({orderId:a.orderId,modelNo:oo.modelNo,modelDesc:oo.modelDesc,rackSize:qty,qty:a.qty,isOverride:isSale&&qrSale.override===true})});return{...p,items:newItems,_manualQty:0}});
               }} options={(()=>{
-                /* V15.36: Group options by modelNo — show each unique model once with total avail across sub-orders (FIFO). value = earliest order id. */
-                const baseList=linkedSess?stockModels.filter(m=>m.avail>0&&linkedSess.modelIds.includes(m.id)):stockModels.filter(m=>m.avail>0);
+                /* V15.36: Group options by modelNo — show each unique model once with total avail across sub-orders (FIFO). value = earliest order id.
+                   V17.6 FIX: For RETURN mode, show models the customer has actually bought (delivered minus returned > 0), 
+                             NOT models with available stock. The previous logic filtered by stockModels.avail > 0,
+                             which excluded models that were entirely sold to the customer (avail=0) — making them
+                             impossible to return through this dropdown. The fix uses customer-specific delivered/returned counts. */
+                let baseList;
+                if (isSale) {
+                  /* SALE: filter by available stock (existing logic) */
+                  baseList = linkedSess
+                    ? stockModels.filter(m => m.avail > 0 && linkedSess.modelIds.includes(m.id))
+                    : stockModels.filter(m => m.avail > 0);
+                } else {
+                  /* RETURN: filter by what THIS customer still has (delivered to them minus already returned).
+                     Search across ALL orders, not just stockModels — a fully-sold-out model still appears here. */
+                  const custId = qrSale.custId;
+                  baseList = orders.filter(o => {
+                    const cd = (o.customerDeliveries || []).filter(d => d.custId === custId).reduce((s, d) => s + (Number(d.qty) || 0), 0);
+                    const ret = (o.customerReturns || []).filter(r => r.custId === custId).reduce((s, r) => s + (Number(r.qty) || 0), 0);
+                    return (cd - ret) > 0;
+                  }).map(o => ({
+                    /* shape compatible with stockModels for the grouping below */
+                    id: o.id,
+                    modelNo: o.modelNo,
+                    modelDesc: o.modelDesc,
+                    /* For return: "avail" = what's still with this customer */
+                    avail: (o.customerDeliveries || []).filter(d => d.custId === custId).reduce((s, d) => s + (Number(d.qty) || 0), 0)
+                         - (o.customerReturns || []).filter(r => r.custId === custId).reduce((s, r) => s + (Number(r.qty) || 0), 0),
+                  }));
+                }
                 const grouped={};
                 baseList.forEach(m=>{const o=orders.find(x=>x.id===m.id);if(!o)return;const key=o.modelNo||m.id;
                   if(!grouped[key])grouped[key]={modelNo:o.modelNo,modelDesc:m.modelDesc,items:[]};
@@ -2331,10 +2471,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                   const earliest=g.items[0].orderId;
                   return{value:earliest,label:g.modelNo+" — "+g.modelDesc+" ("+totalAvail+")"+(g.items.length>1?" ⧉"+g.items.length:"")};
                 });
-              })()} placeholder={linkedSess?"موديلات التوزيعة...":"اختر موديل..."}/></div>
+              })()} placeholder={isSale?(linkedSess?"موديلات التوزيعة...":"اختر موديل..."):"موديلات اشتراها العميل..."}/></div>
             <div style={{width:70}}><Inp type="number" value={qrSale._manualQty||""} onChange={v=>setQrSale(p=>({...p,_manualQty:Number(v)||0}))} placeholder="كمية"/></div>
-            <Btn small onClick={async()=>{const result=await askForm("بيع كسر",[{key:"modelNo",label:"رقم الموديل",required:true,validate:v=>{const o=orders.find(x=>x.modelNo===v||x.id===v);return o?null:"موديل غير موجود"}},{key:"qty",label:"الكمية",type:"number",required:true,defaultValue:"1",validate:v=>{const n=Number(v);return n>0?null:"الكمية يجب أن تكون أكبر من صفر"}}]);if(!result)return;const o=orders.find(x=>x.modelNo===result.modelNo||x.id===result.modelNo);const q=Number(result.qty)||0;
-              setQrSale(p=>({...p,items:[...p.items,{orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc||"",rackSize:q,qty:q,isBroken:true}]}));playBeep("ok");showToast("✅ كسر "+o.modelNo+" × "+q)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30",whiteSpace:"nowrap",fontSize:FS-2}}>🧩 كسر</Btn>
+            {/* V17.6 FIX: Hide "كسر" button in return mode — broken sale doesn't apply to returns */}
+            {isSale&&<Btn small onClick={async()=>{const result=await askForm("بيع كسر",[{key:"modelNo",label:"رقم الموديل",required:true,validate:v=>{const o=orders.find(x=>x.modelNo===v||x.id===v);return o?null:"موديل غير موجود"}},{key:"qty",label:"الكمية",type:"number",required:true,defaultValue:"1",validate:v=>{const n=Number(v);return n>0?null:"الكمية يجب أن تكون أكبر من صفر"}}]);if(!result)return;const o=orders.find(x=>x.modelNo===result.modelNo||x.id===result.modelNo);const q=Number(result.qty)||0;
+              setQrSale(p=>({...p,items:[...p.items,{orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc||"",rackSize:q,qty:q,isBroken:true}]}));playBeep("ok");showToast("✅ كسر "+o.modelNo+" × "+q)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30",whiteSpace:"nowrap",fontSize:FS-2}}>🧩 كسر</Btn>}
           </div>
           {qrSale.items.length>0&&<div style={{border:"1px solid "+T.brd,borderRadius:12,overflow:"hidden",marginBottom:10}}>
             <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th style={{...TH,fontSize:FS-2}}>الموديل</th><th style={{...TH,fontSize:FS-2}}>السيري</th><th style={{...TH,fontSize:FS-2}}>الكمية</th><th style={{...TH,width:30}}></th></tr></thead><tbody>

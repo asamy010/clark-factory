@@ -44,14 +44,14 @@ export function PoMigConfirm({onConfirm,onCancel,T,FS}){
 export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Sel,Card,setDirty,userRole}){
   const isAdmin=userRole==="admin";
   /* V16.61: DEFAULT_OUT/DEFAULT_IN must include the wired categories
-     ("دفع مورد", "تحويل داخلي", "دفعة عميل") that trigger pickers in TreasuryPg.
+     ("دفعة مورد", "تحويل داخلي", "دفعة عميل") that trigger pickers in TreasuryPg.
      Previously these were missing from DEFAULT_OUT, so the first time a user
-     saved their treasury settings the saved list would drop "دفع مورد" and
+     saved their treasury settings the saved list would drop "دفعة مورد" and
      the supplier-picker flow broke. Keeping the wired ones in defaults is
      belt-and-braces alongside the union logic in TreasuryPg's resolvedOutCats. */
-  const DEFAULT_OUT=["تكلفة","مشتريات","مرتبات","قطع غيار","صيانة ماكينات","خيط","تشغيل خارجي","نقل","كهرباء","ايجار المصنع","نثريات","اكسسوار","مستلزمات تشغيل","ورق ماركر","خدمات","أصول ثابتة","تكاليف أخرى","دفع مورد","تحويل داخلي"];
+  const DEFAULT_OUT=["تكلفة","مشتريات","مرتبات","قطع غيار","صيانة ماكينات","خيط","تشغيل خارجي","نقل","كهرباء","ايجار المصنع","نثريات","اكسسوار","مستلزمات تشغيل","ورق ماركر","خدمات","أصول ثابتة","تكاليف أخرى","دفعة مورد","تحويل داخلي"];
   const DEFAULT_IN=["وارد","إيرادات","دفعة عميل","رأس مال","تحويل","تحويل داخلي"];
-  const DEFAULT_CHECK=["رصيد افتتاحي","دفعة عميل","دفع مورد","تسوية مبالغ","تحويل بين الحسابات","أخرى"];
+  const DEFAULT_CHECK=["رصيد افتتاحي","دفعة عميل","دفعة مورد","تسوية مبالغ","تحويل بين الحسابات","أخرى"];
   const savedTS=config.treasurySettings||{};
   /* V14.52: List of all non-admin users (candidates for whitelist) */
   const allUsers=(config.usersList||[]).filter(u=>u.role!=="admin");
@@ -217,7 +217,7 @@ export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,B
               behavior in TreasuryPg (party pickers, transfers wiring). Show a
               lock icon instead of ✕ for these so the user understands why. */}
           <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>{draft.outCategories.map(c=>{
-            const wired=["دفع مورد","تشغيل خارجي","مرتبات","تحويل داخلي"].includes(c);
+            const wired=["دفعة مورد","تشغيل خارجي","مرتبات","تحويل داخلي"].includes(c);
             return<span key={c} style={{padding:"3px 8px",borderRadius:6,fontSize:FS-2,background:T.err+"08",color:T.err,display:"flex",alignItems:"center",gap:4}} title={wired?"بند مرتبط بنظام آخر — يفتح قائمة اختيار تلقائياً":""}>
               {c}{wired?<span style={{fontSize:9,opacity:0.6}}>🔒</span>:<span onClick={()=>removeOut(c)} style={{cursor:"pointer",fontSize:10}}>✕</span>}
             </span>;

@@ -232,7 +232,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
         d.treasury.unshift({
           id:txId,type:"out",amount:r2(amt),
           desc:"دفعة مورد — "+(supplier?.name||""),
-          notes:payForm.notes||"",category:"دفع مورد",
+          notes:payForm.notes||"",category:"دفعة مورد",
           account:payForm.treasuryAccount,season:d.activeSeason||"",
           date:payForm.date,day:dayN,
           sourceType:"supplier_payment",paymentId:payId,supplierId:payForm.supplierId,
@@ -246,7 +246,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
           party:supplier?.name||"",partyId:payForm.supplierId,
           bank:payForm.checkBank,checkNo:payForm.checkNo,
           date:payForm.date,dueDate:payForm.checkDueDate||payForm.date,
-          notes:payForm.notes||"دفعة مورد",category:"دفع مورد",status:"معلق",
+          notes:payForm.notes||"دفعة مورد",category:"دفعة مورد",status:"معلق",
           paymentId:payId,
           by:userName,createdAt:new Date().toISOString()
         });
@@ -652,7 +652,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
           party:supplier?.name||"",partyId:rcpt.supplierId,
           bank:rcpt.checkBank,checkNo:rcpt.checkNo,
           date:receipt.date,dueDate:rcpt.checkDueDate||receipt.date,
-          notes:"شيك لاستلام "+receiptNo,category:"دفع مورد",status:"معلق",
+          notes:"شيك لاستلام "+receiptNo,category:"دفعة مورد",status:"معلق",
           receiptId:rcptId,
           by:userName,createdAt:new Date().toISOString()
         });

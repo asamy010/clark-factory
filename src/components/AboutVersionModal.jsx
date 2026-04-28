@@ -25,6 +25,51 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V17.8",
+    date: "2026-04-28",
+    types: ["fix", "improvement"],
+    title: "إصلاح crash تاب الورش + تصحيح 'دفعة مورد'",
+    changes: [
+      { type: "fix", text: "🚨 إصلاح crash خطير: تاب الورش في 'قاعدة البيانات' كان يكسر الصفحة كاملة بـ'data is not defined'. السبب: مكون WsManager كان يستخدم prop اسمه data بدون ما يتم تمريره من DBPg" },
+      { type: "fix", text: "تم إضافة data كـprop في destructuring الـWsManager وتمريره من DBPg" },
+      { type: "improvement", text: "تصحيح خطأ إملائي: 'دفع مورد' → 'دفعة مورد' في كل صفحات الخزنة والمشتريات والإعدادات والمرتبات" },
+      { type: "improvement", text: "Migration تلقائي: لما يتم فتح صفحة الخزنة، أي حركات قديمة كانت category='دفع مورد' بتتحول تلقائياً لـ'دفعة مورد' — مفيش حاجة محتاجة تعمل يدوي" },
+      { type: "improvement", text: "تأكيد سلوك المرتجعات (للتأكد): المرتجعات بترجع للرصيد بصيغة avail = stock - (sold - returned) — يعني العميل لما يرجع، الموديل يبقى متاح للبيع تاني" },
+      { type: "improvement", text: "تأكيد إن كل حركة (بيع أو مرتجع) بتتسجل في customerDeliveries / customerReturns مع: التاريخ، العميل، الكمية، الملاحظة، الـsessionId، الـcreatedBy" },
+    ]
+  },
+  {
+    version: "V17.7",
+    date: "2026-04-28",
+    types: ["feature", "improvement"],
+    title: "سجل المرتجعات حسب العميل + تحديث اسم المصنع",
+    changes: [
+      { type: "feature", text: "🆕 سجل المرتجعات بقا مجمّع حسب العميل بدل ما يعرض كل حركة في صف منفصل — الواجهة بقت قائمة بأسماء العملاء مع إجمالي الكمية وتاريخ آخر مرتجع" },
+      { type: "feature", text: "اضغط على أي عميل في السجل → يفتح popup فيه السجل الكامل لمرتجعاته (التاريخ، الموديل، الكمية، الملاحظات، بواسطة) مع إمكانية الطباعة / PDF" },
+      { type: "feature", text: "زر طباعة السجل الكامل يطبع تقرير شامل: ملخص بكل العملاء + تفاصيل مرتجعات كل عميل" },
+      { type: "feature", text: "بحث في السجل باسم العميل" },
+      { type: "improvement", text: "ترتيب العملاء حسب إجمالي الكمية (الأكبر أولاً) — يساعد في تحديد العملاء المرتجعين الأكثر" },
+      { type: "improvement", text: "أيقونة 👤 وعدد العمليات وتاريخ آخر مرتجع لكل عميل لمراجعة سريعة" },
+      { type: "improvement", text: "تحديث اسم التطبيق في الـlink preview للـCLARK Kids Wear (واتساب، تليجرام، فيسبوك، إلخ)" },
+      { type: "improvement", text: "إضافة Open Graph + Twitter meta tags لمظهر أفضل عند مشاركة الروابط" },
+      { type: "improvement", text: "تحديث manifest.json — الاسم لما يضيف التطبيق للهاتف بقا CLARK Kids Wear" },
+    ]
+  },
+  {
+    version: "V17.6",
+    date: "2026-04-28",
+    types: ["fix"],
+    title: "إصلاح المرتجع السريع — موديلات اشتراها العميل ما كانتش تظهر",
+    changes: [
+      { type: "fix", text: "🚨 في المرتجع السريع: dropdown الموديلات كان يـfilter بـ'المخزون المتاح > 0' حتى للمرتجعات. ده كان يحجب الموديلات اللي بيعت كلها للعميل (avail=0) من القائمة، وبيمنع تسجيل المرتجع منها" },
+      { type: "fix", text: "دلوقتي في return mode، الـdropdown يعرض الموديلات اللي العميل اشتراها فعلاً (delivered - returned > 0) عبر كل الـorders" },
+      { type: "fix", text: "الموديلات اللي ارتجع منها العميل بالكامل (cd === ret) ما تظهرش — لا يوجد ما يرجعه" },
+      { type: "fix", text: "موديلات اشتراها عميل آخر ما تظهرش لهذا العميل" },
+      { type: "improvement", text: "Placeholder dropdown في return mode بقا 'موديلات اشتراها العميل...' بدل 'اختر موديل...' للوضوح" },
+      { type: "improvement", text: "زر 'بيع كسر 🧩' بقا يختفي في return mode (مش منطقي)" },
+    ]
+  },
+  {
     version: "V17.5",
     date: "2026-04-28",
     types: ["fix"],
@@ -110,42 +155,6 @@ const CHANGELOG = [
       { type: "fix", text: "Entry بدون date تترفض بدل ما تتحط في يوم today بصمت — يمنع silent data corruption" },
       { type: "fix", text: "Side effects خارج setState callback — يمنع double-execution في React Strict Mode" },
       { type: "improvement", text: "تحذيرات في الـconsole لـentries بدون id (كانت skipped بصمت)" },
-    ]
-  },
-  {
-    version: "V16.79",
-    date: "2026-04-27",
-    types: ["feature"],
-    title: "صفحة About Version",
-    changes: [
-      { type: "feature", text: "زر About في TopBar يعرض سجل التغييرات لكل الإصدارات" },
-      { type: "feature", text: "كل إصدار يعرض تصنيف، تاريخ، وقائمة تفصيلية بكل تغيير" },
-      { type: "feature", text: "الإصدار الحالي يظهر مميز بلون مختلف" },
-    ]
-  },
-  {
-    version: "V16.78",
-    date: "2026-04-27",
-    types: ["feature", "improvement"],
-    title: "Tooltips احترافية للإعدادات",
-    changes: [
-      { type: "feature", text: "component HelpTip — أيقونة (ⓘ) بجانب الـoptions تظهر شرح مفصل عند hover/tap" },
-      { type: "feature", text: "component CardSubtitle — وصف موجز ملوّن تحت كل عنوان كارت في الإعدادات" },
-      { type: "feature", text: "component FieldHelp — نص شرح صغير أسفل الـinputs" },
-      { type: "improvement", text: "19 كارت في الإعدادات عنده دلوقتي subtitle يشرح وظيفته" },
-      { type: "improvement", text: "13 option معقد عنده tooltip تفصيلي" },
-    ]
-  },
-  {
-    version: "V16.77",
-    date: "2026-04-27",
-    types: ["feature", "improvement"],
-    title: "تنظيم القماش/الإكسسوار + أوضاع المخزن",
-    changes: [
-      { type: "improvement", text: "تاب الأقمشة والإكسسوارات اتشال من قواعد البيانات" },
-      { type: "feature", text: "إدارة الأقمشة والإكسسوارات بقت من المخزن مباشرة (إضافة/تعديل/حذف)" },
-      { type: "feature", text: "كارت 'وضع المخزن' في الإعدادات بـ4 أوضاع: مغلق / عرض فقط / السماح بالسالب / صارم" },
-      { type: "improvement", text: "كل وضع له شرح واضح وconfirmation قبل التفعيل" },
     ]
   },
 ];

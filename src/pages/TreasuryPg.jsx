@@ -100,6 +100,19 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     setShowFirstVisitWarning(true);
     sessionStorage.setItem(key,"1");
   },[isAdmin,lockEdit,lockDelete,isAllowedEditor,isAllowedDeleter,userEmail]);
+  /* V17.8: Auto-migrate legacy category "دفع مورد" → "دفعة مورد" (typo fix).
+     Runs once when the treasury page loads if any old entry is found.
+     Safe to re-run — idempotent (filter ensures we only update entries that need it). */
+  useEffect(()=>{
+    if(!Array.isArray(data.treasury))return;
+    const needsFix=data.treasury.some(t=>t&&t.category==="دفع مورد");
+    if(!needsFix)return;
+    upConfig(d=>{
+      if(Array.isArray(d.treasury)){
+        d.treasury.forEach(t=>{if(t&&t.category==="دفع مورد")t.category="دفعة مورد"});
+      }
+    });
+  },[data.treasury,upConfig]);
   const txns=(data.treasury||[]);
   /* Accounts are now objects: {id, name, ownerEmail, type} — auto-migrate from old strings */
   const rawAccounts=(data.treasuryAccounts||[]);
@@ -346,7 +359,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     setShowResetPopup(false);setResetConfirmText("");showToast("✅ تم المسح الشامل");
   };
 
-  const OUT_CATS=["تكلفة","مشتريات","مرتبات","قطع غيار","صيانة ماكينات","خيط","تشغيل خارجي","نقل","كهرباء","ضيافة","ايجار المصنع","نثريات","اكسسوار","مستلزمات تشغيل","ورق ماركر","خدمات","أصول ثابتة","تكاليف أخرى","دفع مورد","تحويل داخلي"];
+  const OUT_CATS=["تكلفة","مشتريات","مرتبات","قطع غيار","صيانة ماكينات","خيط","تشغيل خارجي","نقل","كهرباء","ضيافة","ايجار المصنع","نثريات","اكسسوار","مستلزمات تشغيل","ورق ماركر","خدمات","أصول ثابتة","تكاليف أخرى","دفعة مورد","تحويل داخلي"];
   const IN_CATS=["وارد","إيرادات","دفعة عميل","رأس مال","تحويل","تحويل داخلي"];
   /* V16.61: Categories that have hard-wired behavior elsewhere in the app —
      they trigger party pickers, link to other modules, etc. These MUST be in
@@ -355,13 +368,13 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
      picker, transfers system, etc.).
      
      Bug this fixes: SettingsPg's DEFAULT_OUT (in TreasurySettingsCard) doesn't
-     include "دفع مورد" or "تحويل داخلي" — so the first time a user opens
+     include "دفعة مورد" or "تحويل داخلي" — so the first time a user opens
      treasury settings and clicks save, those categories get dropped from the
-     saved list. The supplier picker stops working ("دفع مورد" never appears
+     saved list. The supplier picker stops working ("دفعة مورد" never appears
      in the dropdown), the filter doesn't list custom categories, and inline
      edit has the same issue. The union here makes the dropdowns resilient
      to whatever the user's saved list looks like. */
-  const REQUIRED_OUT=["دفع مورد","تشغيل خارجي","مرتبات","تحويل داخلي"];
+  const REQUIRED_OUT=["دفعة مورد","تشغيل خارجي","مرتبات","تحويل داخلي"];
   const REQUIRED_IN=["دفعة عميل","تحويل داخلي"];
   const resolvedOutCats=useMemo(()=>{
     const saved=(data.treasurySettings||{}).outCategories;
@@ -1511,18 +1524,18 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المبلغ</label><Inp type="number" value={txAmount} onChange={setTxAmount} placeholder="0.00"/></div>
           <div style={{gridColumn:"1 / -1"}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع الحركة</label><Sel value={txCategory} onChange={v=>{setTxCategory(v);setTxPartyId("");setTxPartyType("");setPartySearch("");
             if(v==="دفعة عميل")setTxPartyType("customer");
-            else if(v==="دفع مورد")setTxPartyType("supplier");
+            else if(v==="دفعة مورد")setTxPartyType("supplier");
             else if(v==="تشغيل خارجي")setTxPartyType("workshop");
             else if(v==="مرتبات")setTxPartyType("employee");
           }}><option value="">— اختر —</option>{(txType==="in"?resolvedInCats:resolvedOutCats).map(c=><option key={c} value={c}>{c}</option>)}</Sel>
-          {txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفع مورد"||txCategory==="تشغيل خارجي"||txCategory==="مرتبات")&&(()=>{const list=txPartyType==="customer"?customers:txPartyType==="supplier"?suppliers:txPartyType==="employee"?(data.employees||[]).filter(e=>!e.inactive):workshops;const p=list.find(x=>x.id===txPartyId||x.name===txPartyId);if(!p)return null;
+          {txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفعة مورد"||txCategory==="تشغيل خارجي"||txCategory==="مرتبات")&&(()=>{const list=txPartyType==="customer"?customers:txPartyType==="supplier"?suppliers:txPartyType==="employee"?(data.employees||[]).filter(e=>!e.inactive):workshops;const p=list.find(x=>x.id===txPartyId||x.name===txPartyId);if(!p)return null;
             const icon=txPartyType==="customer"?"🧑 العميل:":txPartyType==="supplier"?"🏭 المورد:":txPartyType==="employee"?"👷 الموظف:":"🔧 الورشة:";
             return<div style={{padding:"6px 10px",borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"30",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,marginTop:6}}>
               <div><span style={{fontSize:FS-2,color:T.textMut}}>{icon}</span> <b style={{color:T.accent,fontSize:FS-1}}>{p.name}</b>{p.phone&&<span style={{fontSize:FS-3,color:T.textMut,marginRight:6}}> • {p.phone}</span>}</div>
               <span onClick={()=>{setTxPartyId("");setPartySearch("")}} style={{cursor:"pointer",fontSize:FS-2,color:T.err,padding:"2px 8px",borderRadius:6,background:T.err+"08",border:"1px solid "+T.err+"20"}}>✕ تغيير</span>
             </div>})()}
           {/* Inline party list */}
-          {!txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفع مورد"||txCategory==="تشغيل خارجي"||txCategory==="مرتبات")&&(()=>{
+          {!txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفعة مورد"||txCategory==="تشغيل خارجي"||txCategory==="مرتبات")&&(()=>{
             const list=txPartyType==="customer"?customers:txPartyType==="supplier"?suppliers:txPartyType==="employee"?(data.employees||[]).filter(e=>!e.inactive):workshops;
             const title=txPartyType==="customer"?"اختر عميل":txPartyType==="supplier"?"اختر مورد":txPartyType==="employee"?"اختر موظف":"اختر ورشة";
             const q=partySearchDeb.toLowerCase();
@@ -1857,7 +1870,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             if(d.treasury)d.treasury=d.treasury.filter(t=>t.checkId!==id);
             ch.status=status;ch.statusDate=dt;ch.statusBy=userName;
             if(!d.treasury)d.treasury=[];
-            const chkCat=ch.category||(ch.type==="receivable"?"دفعة عميل":"دفع مورد");
+            const chkCat=ch.category||(ch.type==="receivable"?"دفعة عميل":"دفعة مورد");
             /* Build a rich desc that surfaces check details where it matters */
             const det=(ch.checkNo?" #"+ch.checkNo:"")+(ch.bank?" — "+ch.bank:"")+(ch.dueDate?" — استحقاق "+ch.dueDate:"");
             if(status==="محصل"){
@@ -2021,7 +2034,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           </div>
           {/* Form */}
           {showCheckForm&&(()=>{
-            const checkCats=(data.treasurySettings||{}).checkCategories||["رصيد افتتاحي","دفعة عميل","دفع مورد","تسوية مبالغ","تحويل بين الحسابات","أخرى"];
+            const checkCats=(data.treasurySettings||{}).checkCategories||["رصيد افتتاحي","دفعة عميل","دفعة مورد","تسوية مبالغ","تحويل بين الحسابات","أخرى"];
             const partyList=chkType==="receivable"?customers:suppliers;
             const selectedParty=chkPartyId?partyList.find(p=>p.id===chkPartyId):null;
             return<Card title={chkEditId?"✏️ تعديل شيك":"+ شيك جديد"} style={{marginBottom:16}}>
