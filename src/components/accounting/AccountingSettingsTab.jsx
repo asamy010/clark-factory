@@ -17,6 +17,7 @@ import { ClosedPeriodsCard } from "./ClosedPeriodsCard.jsx";
 import { FailuresCard } from "./FailuresCard.jsx";
 import { CurrenciesCard } from "./CurrenciesCard.jsx";
 import { FxRatesCard } from "./FxRatesCard.jsx";
+import { TreasuryAccountsMapCard } from "./TreasuryAccountsMapCard.jsx";
 import { DEFAULT_POSTING_RULES, DEFAULT_CATEGORY_MAP } from "../../utils/accounting/coaDefaults.js";
 import { getAccountByCode } from "../../utils/accounting/coa.js";
 import { backfillAll } from "../../utils/accounting/backfill.js";
@@ -112,6 +113,13 @@ export function AccountingSettingsTab({config, upConfig, coa, T, FS, isMob, show
       config={config} upConfig={upConfig}
       T={T} FS={FS} isMob={isMob}
       showToast={showToast} userName={userName}
+    />
+
+    {/* V18.44 Section: Treasury accounts → CoA mapping */}
+    <TreasuryAccountsMapCard
+      config={config} upConfig={upConfig}
+      T={T} FS={FS} isMob={isMob}
+      showToast={showToast}
     />
 
     {/* V18.41 Section: Multi-currency setup */}

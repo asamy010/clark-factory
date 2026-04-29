@@ -142,10 +142,19 @@ export async function backfillAll(data, opts){
   });
 
   /* ── 2. Customer payments ── */
+  /* V18.44: enrich payment with treasury account name (for per-treasury mapping).
+     The payment might not have .account directly, but it's linked to a treasury tx
+     via treasuryTxId or via custPaymentId on the tx. Look it up. */
+  const _findTreasuryFor = (filter) => (data.treasury||[]).find(filter);
   (data.custPayments||[]).forEach(p => {
     const c = customers.find(x => x.id===p.custId);
     if(!c){ _skip(stats, "customerPay", "customer-not-found"); return; }
-    allTasks.push({type:"customerPay", builder:buildCustomerPaymentEntry, args:[p, c, coa, rules]});
+    const enriched = {...p};
+    if(!enriched.account){
+      const tx = _findTreasuryFor(t => t.id === p.treasuryTxId || t.custPaymentId === p.id);
+      if(tx && tx.account) enriched.account = tx.account;
+    }
+    allTasks.push({type:"customerPay", builder:buildCustomerPaymentEntry, args:[enriched, c, coa, rules, data]});
   });
 
   /* ── 3. Receivable checks ── */
@@ -153,20 +162,35 @@ export async function backfillAll(data, opts){
     const cust = customers.find(x => x.id===chk.partyId);
     allTasks.push({type:"customerCheck", builder:buildCustomerCheckEntry, args:[chk, cust, coa, rules]});
     if(chk.status === "محصل"){
-      allTasks.push({type:"customerCheckCollect", builder:buildCheckCollectionEntry, args:[chk, coa, rules]});
+      const enrichedChk = {...chk};
+      if(!enrichedChk.account){
+        const tx = _findTreasuryFor(t => t.checkId === chk.id);
+        if(tx && tx.account) enrichedChk.account = tx.account;
+      }
+      allTasks.push({type:"customerCheckCollect", builder:buildCheckCollectionEntry, args:[enrichedChk, coa, rules, data]});
     }
   });
 
   /* ── 4. Workshop payments ── */
   (data.wsPayments||[]).forEach(p => {
     const ws = (data.workshops||[]).find(w => w.name===p.wsName || w.id===p.wsId);
-    allTasks.push({type:"workshopPay", builder:buildWorkshopPaymentEntry, args:[p, ws, coa, rules]});
+    const enriched = {...p};
+    if(!enriched.account){
+      const tx = _findTreasuryFor(t => t.id === p.treasuryTxId || t.wsPaymentId === p.id);
+      if(tx && tx.account) enriched.account = tx.account;
+    }
+    allTasks.push({type:"workshopPay", builder:buildWorkshopPaymentEntry, args:[enriched, ws, coa, rules, data]});
   });
 
   /* ── 5. HR logs ── */
   (data.hrLog||[]).forEach(log => {
     const emp = (data.employees||[]).find(e => e.id===log.empId);
-    allTasks.push({type:"hr", builder:buildHrEntry, args:[log, emp, coa, rules]});
+    const enriched = {...log};
+    if(!enriched.account){
+      const tx = _findTreasuryFor(t => t.id === log.treasuryTxId || t.hrLogId === log.id);
+      if(tx && tx.account) enriched.account = tx.account;
+    }
+    allTasks.push({type:"hr", builder:buildHrEntry, args:[enriched, emp, coa, rules, data]});
   });
 
   /* ── 6. Generic treasury (catch-all for anything not auto-linked) ── */
@@ -175,7 +199,7 @@ export async function backfillAll(data, opts){
        handled by 1-5 above. We only want orphan/manual treasury rows here. */
     if(tx.sourceType && tx.sourceType !== "manual") return;
     if(tx.custPaymentId || tx.wsPaymentId || tx.hrLogId || tx.checkId) return;
-    allTasks.push({type:"treasury", builder:buildTreasuryEntry, args:[tx, coa, rules, catMap]});
+    allTasks.push({type:"treasury", builder:buildTreasuryEntry, args:[tx, coa, rules, catMap, data]});
   });
 
   /* Execute serially — Firestore transactions on the same day-doc need to

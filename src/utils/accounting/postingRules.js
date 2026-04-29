@@ -26,6 +26,7 @@
 
 import { getAccountByCode } from "./coa.js";
 import { DEFAULT_POSTING_RULES, DEFAULT_CATEGORY_MAP } from "./coaDefaults.js";
+import { resolveTreasuryAccountByName, FALLBACK_CASH_CODE, FALLBACK_BANK_CODE } from "./treasuryMapping.js";
 
 /* Resolve rules with fallback to defaults. The user may override individual
    account codes — anything missing falls back to defaults. */
@@ -194,7 +195,7 @@ export function buildSaleReturnCogsEntry(ret, order, unitCost, coa, rules){
 
 /* ───────────────── 3. CUSTOMER PAYMENTS ───────────────── */
 
-export function buildCustomerPaymentEntry(payment, customer, coa, rules){
+export function buildCustomerPaymentEntry(payment, customer, coa, rules, config){
   const r = resolveRules(rules);
   const amt = _r2(payment.amount);
   if(amt<=0) return null;
@@ -208,9 +209,12 @@ export function buildCustomerPaymentEntry(payment, customer, coa, rules){
     /* Checks have a separate flow — not handled here */
     return null;
   } else if(isTransfer){
-    dCode = r.customerPayTransfer.bankAccount;  dLabel = "البنك";
+    /* V18.44: prefer per-treasury mapping if payment.account is set, else fallback */
+    dCode = (payment.account && config) ? resolveTreasuryAccountByName(payment.account, config) : r.customerPayTransfer.bankAccount;
+    dLabel = "البنك";
   } else {
-    dCode = r.customerPayCash.cashAccount;       dLabel = "الخزينة";
+    dCode = (payment.account && config) ? resolveTreasuryAccountByName(payment.account, config) : r.customerPayCash.cashAccount;
+    dLabel = "الخزينة";
   }
   const dr = ensureLeaf(coa, dCode, dLabel);
   const ar = ensureLeaf(coa, r.customerPayCash.customerAccount, "العملاء");
@@ -220,7 +224,7 @@ export function buildCustomerPaymentEntry(payment, customer, coa, rules){
     date,
     sourceType:"customerPay",
     sourceId: payment.id,
-    narration: `دفعة من العميل ${customer.name} (${payment.method||"كاش"})`,
+    narration: `دفعة من العميل ${customer.name} (${payment.method||"كاش"})${payment.account?" — "+payment.account:""}`,
     lines: [
       {accountId:dr.id, accountCode:dr.code, accountName:dr.name, debit:amt, credit:0},
       {accountId:ar.id, accountCode:ar.code, accountName:ar.name, debit:0, credit:amt,
@@ -263,19 +267,21 @@ export function buildCustomerCheckEntry(check, customer, coa, rules){
 }
 
 /* When a customer check is COLLECTED:  Dr الخزينة / Cr شيكات تحت التحصيل */
-export function buildCheckCollectionEntry(check, coa, rules){
+export function buildCheckCollectionEntry(check, coa, rules, config){
   if(!check || check.type !== "receivable" || check.status !== "محصل") return null;
   const amt = _r2(check.amount);
   if(amt<=0) return null;
   const r = resolveRules(rules);
-  const ca = ensureLeaf(coa, r.customerCheckCollect.cashAccount, "الخزينة");
+  /* V18.44: respect treasury account on the check (where it was deposited) */
+  const cashCode = (check.account && config) ? resolveTreasuryAccountByName(check.account, config) : r.customerCheckCollect.cashAccount;
+  const ca = ensureLeaf(coa, cashCode, "الخزينة");
   const cr = ensureLeaf(coa, r.customerCheck.checksReceivableAccount, "شيكات تحت التحصيل");
   const date = check.collectedAt || check.dueDate || check.date || new Date().toISOString().split("T")[0];
   return {
     date,
     sourceType:"customerCheckCollect",
     sourceId: check.id,
-    narration: `تحصيل شيك #${check.checkNo||""} ${check.bank||""}`,
+    narration: `تحصيل شيك #${check.checkNo||""} ${check.bank||""}${check.account?" → "+check.account:""}`,
     lines: [
       {accountId:ca.id, accountCode:ca.code, accountName:ca.name, debit:amt, credit:0},
       {accountId:cr.id, accountCode:cr.code, accountName:cr.name, debit:0, credit:amt},
@@ -315,7 +321,7 @@ export function buildWorkshopReceiveEntry(rcv, ws, order, wd, coa, rules){
 
 /* ───────────────── 6. WORKSHOP PAYMENTS ───────────────── */
 
-export function buildWorkshopPaymentEntry(payment, ws, coa, rules){
+export function buildWorkshopPaymentEntry(payment, ws, coa, rules, config){
   const r = resolveRules(rules);
   const amt = _r2(payment.amount);
   if(amt<=0) return null;
@@ -323,14 +329,16 @@ export function buildWorkshopPaymentEntry(payment, ws, coa, rules){
   const drCode = isPurchase ? r.workshopPurchase.materialsAccount : r.workshopPay.workshopAccount;
   const drLabel = isPurchase ? "مخزون خامات" : "ورش خارجية";
   const dr = ensureLeaf(coa, drCode, drLabel);
-  const ca = ensureLeaf(coa, r.workshopPay.cashAccount, "الخزينة");
+  /* V18.44: per-treasury mapping if payment.account is set */
+  const cashCode = (payment.account && config) ? resolveTreasuryAccountByName(payment.account, config) : r.workshopPay.cashAccount;
+  const ca = ensureLeaf(coa, cashCode, "الخزينة");
   const date = payment.date || payment.createdAt || new Date().toISOString().split("T")[0];
 
   return {
     date,
     sourceType: isPurchase ? "workshopPurchase" : "workshopPay",
     sourceId: payment.id,
-    narration: `${isPurchase?"مشتريات من":"دفعة لورشة"} ${ws?.name||payment.wsName||""}`,
+    narration: `${isPurchase?"مشتريات من":"دفعة لورشة"} ${ws?.name||payment.wsName||""}${payment.account?" — "+payment.account:""}`,
     lines: [
       {accountId:dr.id, accountCode:dr.code, accountName:dr.name, debit:amt, credit:0,
        partyId: ws?.id||null, partyName: ws?.name||payment.wsName||""},
@@ -343,7 +351,7 @@ export function buildWorkshopPaymentEntry(payment, ws, coa, rules){
 
 /* ───────────────── 7. HR LOGS ───────────────── */
 
-export function buildHrEntry(hrLog, employee, coa, rules){
+export function buildHrEntry(hrLog, employee, coa, rules, config){
   const r = resolveRules(rules);
   const amt = _r2(hrLog.amount);
   if(amt<=0) return null;
@@ -361,7 +369,9 @@ export function buildHrEntry(hrLog, employee, coa, rules){
               : r.hrBonus.bonusAccount;
   const drLabel = ruleKey==="hrSalary" ? "رواتب" : ruleKey==="hrAdvance" ? "سلف موظفين" : "مكافآت";
   const dr = ensureLeaf(coa, drCode, drLabel);
-  const ca = ensureLeaf(coa, r.hrSalary.cashAccount, "الخزينة");
+  /* V18.44: per-treasury mapping if hrLog.account is set */
+  const cashCode = (hrLog.account && config) ? resolveTreasuryAccountByName(hrLog.account, config) : r.hrSalary.cashAccount;
+  const ca = ensureLeaf(coa, cashCode, "الخزينة");
   const date = hrLog.date || hrLog.createdAt || new Date().toISOString().split("T")[0];
 
   return {
@@ -384,7 +394,7 @@ export function buildHrEntry(hrLog, employee, coa, rules){
 /* Generic catch-all for treasury transactions that aren't already covered
    by the more specific builders above. Uses the category map to route to
    the right expense/income account. */
-export function buildTreasuryEntry(tx, coa, rules, categoryMap){
+export function buildTreasuryEntry(tx, coa, rules, categoryMap, config){
   /* Don't re-post operations that have a specific handler */
   if(tx.sourceType && tx.sourceType !== "manual") return null;
   const amt = _r2(tx.amount);
@@ -393,7 +403,9 @@ export function buildTreasuryEntry(tx, coa, rules, categoryMap){
   const cm = resolveCategoryMap(categoryMap);
   const code = cm[tx.category] || (tx.type==="in" ? "4900" : "5390");
   const r = resolveRules(rules);
-  const ca = ensureLeaf(coa, r.treasuryExpense.cashAccount, "الخزينة");
+  /* V18.44: tx.account is always the treasury name (e.g. "MAIN CASH"); resolve it */
+  const cashCode = (tx.account && config) ? resolveTreasuryAccountByName(tx.account, config) : r.treasuryExpense.cashAccount;
+  const ca = ensureLeaf(coa, cashCode, "الخزينة");
   const other = ensureLeaf(coa, code, tx.category||"غير مصنف");
   const date = tx.date || tx.createdAt || new Date().toISOString().split("T")[0];
 

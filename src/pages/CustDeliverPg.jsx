@@ -1615,7 +1615,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const addCustPayment=()=>{const amt=parseFloat(payAmt);if(!amt||amt<=0){playBeep("error");return}
         /* V15.9: Link payment to treasury via shared IDs — needed for clean deletion later */
         const payId=gid();const txId=gid();
-        const _newPayment={id:payId,custId:custStatement,custName:cust.name,amount:amt,date:payDate_,note:payNote_,method:payMethod,by:userName,treasuryTxId:txId,createdAt:new Date().toISOString()};
+        /* V18.44: capture treasury account on the payment so accounting can route to the right CoA sub-account */
+        const _newPayment={id:payId,custId:custStatement,custName:cust.name,amount:amt,date:payDate_,note:payNote_,method:payMethod,account:"SUB CASH",by:userName,treasuryTxId:txId,createdAt:new Date().toISOString()};
         upConfig(d=>{if(!d.custPayments)d.custPayments=[];
           d.custPayments.push(_newPayment);
           /* Auto-register in treasury as income — linked to the payment */

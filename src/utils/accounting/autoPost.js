@@ -262,7 +262,7 @@ export const autoPost = {
 
   customerPay(config, payment, customer, createdBy){
     if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
-    return _buildAndPost("customerPay", "customerPay", buildCustomerPaymentEntry, [payment, customer, getCoa(config), getRules(config)], config, createdBy);
+    return _buildAndPost("customerPay", "customerPay", buildCustomerPaymentEntry, [payment, customer, getCoa(config), getRules(config), config], config, createdBy);
   },
 
   customerCheck(config, check, customer, createdBy){
@@ -272,7 +272,7 @@ export const autoPost = {
 
   customerCheckCollect(config, check, createdBy){
     if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
-    return _buildAndPost("customerCheckCollect", "customerCheckCollect", buildCheckCollectionEntry, [check, getCoa(config), getRules(config)], config, createdBy);
+    return _buildAndPost("customerCheckCollect", "customerCheckCollect", buildCheckCollectionEntry, [check, getCoa(config), getRules(config), config], config, createdBy);
   },
 
   workshopReceive(config, receive, ws, order, wd, createdBy){
@@ -282,17 +282,17 @@ export const autoPost = {
 
   workshopPay(config, payment, ws, createdBy){
     if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
-    return _buildAndPost("workshopPay", "workshopPay", buildWorkshopPaymentEntry, [payment, ws, getCoa(config), getRules(config)], config, createdBy);
+    return _buildAndPost("workshopPay", "workshopPay", buildWorkshopPaymentEntry, [payment, ws, getCoa(config), getRules(config), config], config, createdBy);
   },
 
   hr(config, hrLog, employee, createdBy){
     if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
-    return _buildAndPost("hr", "hr", buildHrEntry, [hrLog, employee, getCoa(config), getRules(config)], config, createdBy);
+    return _buildAndPost("hr", "hr", buildHrEntry, [hrLog, employee, getCoa(config), getRules(config), config], config, createdBy);
   },
 
   treasury(config, tx, createdBy){
     if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
-    return _buildAndPost("treasury", "treasury", buildTreasuryEntry, [tx, getCoa(config), getRules(config), getCategoryMap(config)], config, createdBy);
+    return _buildAndPost("treasury", "treasury", buildTreasuryEntry, [tx, getCoa(config), getRules(config), getCategoryMap(config), config], config, createdBy);
   },
 
   reverse(config, sourceType, sourceId, date, reason, createdBy){

@@ -16,8 +16,8 @@ export const DEFAULT_COA = [
   /* ═══ 1000 الأصول ═══ */
   {code:"1000", name:"الأصول",                type:"asset",     parentCode:null,   isLeaf:false, system:true},
   {code:"1100", name:"النقدية والبنوك",       type:"asset",     parentCode:"1000", isLeaf:false, system:true},
-  {code:"1110", name:"الخزينة الرئيسية",      type:"asset",     parentCode:"1100", isLeaf:true,  system:true},
-  {code:"1120", name:"البنوك",                type:"asset",     parentCode:"1100", isLeaf:true,  system:false},
+  {code:"1110", name:"الخزينة الرئيسية",      type:"asset",     parentCode:"1100", isLeaf:true,  system:true},/* fallback for unmapped cash; user creates subaccounts 1111+ for specific cash boxes */
+  {code:"1120", name:"البنوك",                type:"asset",     parentCode:"1100", isLeaf:true,  system:false},/* fallback for unmapped bank; user creates 1121+ for specific banks */
   {code:"1130", name:"شيكات تحت التحصيل",     type:"asset",     parentCode:"1100", isLeaf:true,  system:true},
   {code:"1200", name:"المدينون",              type:"asset",     parentCode:"1000", isLeaf:false, system:true},
   {code:"1210", name:"عملاء",                 type:"asset",     parentCode:"1200", isLeaf:true,  system:true},
