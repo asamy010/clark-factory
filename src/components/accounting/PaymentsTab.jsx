@@ -147,10 +147,70 @@ export function PaymentsTab({ config, T, FS, isMob, showToast }){
       });
     });
 
+    /* 4. V18.64 — Orphan treasury entries (linked to a customer/supplier but
+       NOT yet reflected in custPayments / supplierPayments).
+       
+       These are real cash flows the treasury has recorded but never made it
+       into the per-party payment arrays — usually because of historic data
+       desyncs (older versions, partial restores, manual edits). Surfacing
+       them here so accounting can see the FULL payment history. */
+    const knownTreasuryTxIds = new Set();
+    (config.custPayments || []).forEach(p => p.treasuryTxId && knownTreasuryTxIds.add(p.treasuryTxId));
+    (config.supplierPayments || []).forEach(p => p.treasuryTxId && knownTreasuryTxIds.add(p.treasuryTxId));
+    (config.treasury || []).forEach(t => {
+      if (!t.id) return;
+      if (knownTreasuryTxIds.has(t.id)) return;
+      if (t.sourceType === "check_bounce") return;/* check-bounce reversals aren't payments */
+      /* Orphan customer payment (incoming, has custId) */
+      if (t.type === "in" && t.custId) {
+        const c = (config.customers || []).find(x => x.id === t.custId);
+        out.push({
+          _kind: "treasuryOrphanCust",
+          id: "tcust:" + t.id,
+          direction: "in",
+          channel: "cash",
+          date: t.date || "",
+          amount: Number(t.amount) || 0,
+          partyType: "عميل",
+          partyName: c ? c.name : "(عميل غير معروف)",
+          partyId: t.custId,
+          method: t.notes || "كاش",
+          status: "cleared",
+          note: t.notes || t.desc || "",
+          account: t.account || "",
+          by: t.by || "",
+          sourceLabel: "⚠️ خزنة فقط (غير مزامنة في كشف العميل)",
+          _orphan: true,
+        });
+      }
+      /* Orphan supplier payment (outgoing, has supplierId) */
+      if (t.type === "out" && t.supplierId) {
+        const s = (config.suppliers || []).find(x => x.id === t.supplierId);
+        out.push({
+          _kind: "treasuryOrphanSup",
+          id: "tsup:" + t.id,
+          direction: "out",
+          channel: "cash",
+          date: t.date || "",
+          amount: Number(t.amount) || 0,
+          partyType: "مورد",
+          partyName: s ? s.name : "(مورد غير معروف)",
+          partyId: t.supplierId,
+          method: t.notes || "كاش",
+          status: "cleared",
+          note: t.notes || t.desc || "",
+          account: t.account || "",
+          by: t.by || "",
+          sourceLabel: "⚠️ خزنة فقط (غير مزامنة في كشف المورد)",
+          _orphan: true,
+        });
+      }
+    });
+
     /* Newest first */
     out.sort((a,b) => (b.date||"").localeCompare(a.date||""));
     return out;
-  }, [config.custPayments, config.supplierPayments, config.checks]);
+  }, [config.custPayments, config.supplierPayments, config.checks, config.treasury, config.customers, config.suppliers]);
 
   /* Apply filters */
   const filtered = useMemo(() => {
@@ -281,9 +341,13 @@ export function PaymentsTab({ config, T, FS, isMob, showToast }){
             const dirColor = p.direction === "in" ? "#10B981" : "#EF4444";
             const dirLabel = p.direction === "in" ? "↘ وارد" : "↗ صادر";
             const isCheque = p.channel === "check";
+            const isOrphan = !!p._orphan;
             const statusColor = p.status === "cleared" ? "#10B981" : p.status === "pending" ? "#F59E0B" : "#94A3B8";
             const statusLabel = p.status === "cleared" ? "✓ تم" : p.status === "pending" ? "⏳ معلق" : (p.rawStatus || "—");
-            return <tr key={p._kind+":"+p.id} style={{background: i % 2 === 0 ? "transparent" : T.bg+"60"}}>
+            return <tr key={p._kind+":"+p.id} style={{
+              background: isOrphan ? "#F59E0B08" : (i % 2 === 0 ? "transparent" : T.bg+"60"),
+              borderInlineStart: isOrphan ? "3px solid #F59E0B" : "none",
+            }} title={isOrphan ? "هذه الحركة موجودة في الخزنة لكن غير مزامنة في كشف الطرف. للمزامنة: افتح كشف العميل/المورد واضغط 'مزامنة'." : ""}>
               <td style={{...TD_BASE, fontSize:FS-2, whiteSpace:"nowrap"}}>{p.date || "—"}{p.dueDate && p.dueDate !== p.date ? <div style={{fontSize:FS-3, color:T.textMut}}>استحقاق: {p.dueDate}</div> : null}</td>
               <td style={{...TD_BASE, color:dirColor, fontWeight:700, fontSize:FS-2}}>{dirLabel}</td>
               <td style={{...TD_BASE, fontSize:FS-2}}>
@@ -295,7 +359,10 @@ export function PaymentsTab({ config, T, FS, isMob, showToast }){
               </td>
               <td style={{...TD_BASE, textAlign:"center", fontWeight:800, color:dirColor, fontSize:FS}}>{fmt(p.amount)}</td>
               <td style={{...TD_BASE, fontSize:FS-2}}>
-                <span style={{padding:"2px 8px", borderRadius:6, background:statusColor+"15", color:statusColor, fontWeight:700, whiteSpace:"nowrap"}}>{statusLabel}</span>
+                {isOrphan
+                  ? <span style={{padding:"2px 8px", borderRadius:6, background:"#F59E0B15", color:"#F59E0B", fontWeight:700, whiteSpace:"nowrap"}} title="هذه الحركة في الخزنة فقط — غير مزامنة في كشف الطرف">⚠️ غير مزامنة</span>
+                  : <span style={{padding:"2px 8px", borderRadius:6, background:statusColor+"15", color:statusColor, fontWeight:700, whiteSpace:"nowrap"}}>{statusLabel}</span>
+                }
               </td>
               <td style={{...TD_BASE, fontSize:FS-3, color:T.textSec, maxWidth:240}}>
                 {isCheque && <div>

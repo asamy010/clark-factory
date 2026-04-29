@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V18.64",
+    date: "2026-04-29",
+    types: ["fix"],
+    title: "🔧 إصلاح: دفعات العملاء النقدية مش ظاهرة في كشف الحساب",
+    changes: [
+      { type: "fix", text: "🚨 Bug إصلاح: دفعات نقدية مسجلة في الخزنة بـ custId مش بتظهر في بطاقة 'إجمالي المدفوع' في كشف حساب العميل. السبب: desync تاريخي بين config.treasury و config.custPayments — حركات بدون treasuryTxId reference." },
+      { type: "fix", text: "🔄 الحل في الـ display: Card 4 (إجمالي المدفوع) و Card 5 (الرصيد) دلوقتي بيحسبوا الدفعات الـ orphan في الخزنة تلقائياً — حتى لو مش موجودة في custPayments. الأرقام بتظهر صح فوراً بدون أي تعديل على البيانات." },
+      { type: "feature", text: "⚠️ Banner تحذيري في كشف الحساب: لو في دفعات orphan في الخزنة لعميل، بيظهر banner أصفر بيقول 'X دفعة مش متزامنة' + المبلغ + زرار '🔧 مزامنة' (للـ admin) بيضيفها في custPayments بشكل دائم." },
+      { type: "feature", text: "🔍 PaymentsTab في المحاسبة: دلوقتي بيلاقي الـ orphan treasury entries (عملاء + موردين) ويعرضهم بـ badge أصفر 'غير مزامنة' — مع شريط جانبي ملون يميزهم في الجدول." },
+      { type: "improvement", text: "🛡️ زرار المزامنة آمن: بياخد العنصر من الخزنة (مش بيلمسها)، يضيف entry جديد في custPayments بـ treasuryTxId reference، ويحط marker reconciledFromTreasury+reconciledAt للـ audit trail." },
+      { type: "improvement", text: "🔐 Race-safe: الـ reconcile function بيتأكد جوة upConfig callback إن الـ entry مش متضافة بالفعل (لو جهاز تاني سبقنا) قبل ما يضيفها." },
+    ]
+  },
+  {
     version: "V18.63",
     date: "2026-04-29",
     types: ["feature", "improvement"],
@@ -187,21 +201,6 @@ const CHANGELOG = [
       { type: "feature", text: "⛔ التحذير في Journal Entry Modal: لو اخترت تاريخ مقفل، رسالة حمراء فورية تحت date picker تشرح السبب" },
       { type: "feature", text: "📝 الـauto-post المحجوز بسبب period lock بيُسجل في 'لوحة أخطاء الترحيل' (V18.38) عشان تـclear الإقفال وتـretry بعدين" },
       { type: "improvement", text: "🛡️ Helper موحّد periodLock.js: isDateLocked + getLockReason + canBypassLock — جاهز للـintegration في أي entry point جديد" },
-    ]
-  },
-  {
-    version: "V18.53",
-    date: "2026-04-29",
-    types: ["feature"],
-    title: "تثبيت التاريخ — لإدخال الحركات القديمة بدون تعب",
-    changes: [
-      { type: "feature", text: "📌 زر '📌 تثبيت' جنب التاريخ في حركة جديدة — لما التاريخ مش اليوم، يظهر الزر تلقائياً" },
-      { type: "feature", text: "📅 لما التاريخ مثبّت، كل حركة جديدة بتفتح بنفس التاريخ تلقائياً — مفيد لإدخال 30 حركة قديمة بتاريخ 2026-03-15 مثلاً" },
-      { type: "feature", text: "🟣 Banner داخل الفورم بلون بنفسجي بيوضّح إن التاريخ مثبّت + زر 'إلغاء' في أي وقت" },
-      { type: "feature", text: "💡 المؤشر '📅 مثبّت ✕' بيظهر جنب الـlabel — اضغط في أي وقت عشان تلغي التثبيت" },
-      { type: "improvement", text: "🤝 يعمل بالتوازي مع وضع التكرار (Sticky Mode للـcategory): تقدر تثبّت التاريخ + الـcategory في نفس الوقت لإدخال دفعات تاريخية متشابهة" },
-      { type: "improvement", text: "🧠 الـlogic ذكي: التثبيت بيظهر بس لما التاريخ مش اليوم (لأن لو اليوم، مفيش فايدة من التثبيت)" },
-      { type: "improvement", text: "✏️ التعديل (editTx) لا يتأثر بالتثبيت — التاريخ بيتم تحميله من السجل المُعدَّل" },
     ]
   },
 ];

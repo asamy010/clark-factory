@@ -1647,14 +1647,79 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       /* V18.23+V18.24: Include receivable checks for this customer where category = 'دفعة عميل' only */
       const custReceivableChecks=(config.checks||[]).filter(c=>c.type==="receivable"&&c.partyId===custStatement&&c.status!=="مرتد"&&c.status!=="ملغي"&&((c.category||"دفعة عميل")==="دفعة عميل"));
       const totalReceivableChecks=custReceivableChecks.reduce((s,c)=>s+(Number(c.amount)||0),0);
-      const totalPaidFromCustPayments=custPayments.reduce((s,p)=>s+(Number(p.amount)||0),0);
+      /* V18.64 HOTFIX — Treasury / custPayments desync recovery
+         ──────────────────────────────────────────────────────
+         Some cash payments end up in the treasury collection but never make
+         it into custPayments. Possible causes:
+           (a) A treasury entry registered without a linked customer in earlier
+               versions (linkedCustId was missing/null at write time)
+           (b) Partial restore from a backup that brought back treasuryDays
+               but not factory/config.custPayments
+           (c) Direct edits to a treasury entry that adopted a custId after
+               the original push (V16.68 sync repaired most of these but not
+               historic ones)
+         
+         Fix: read ALL treasury "in" entries linked to this customer and find
+         the ones NOT yet represented in custPayments (no matching
+         treasuryTxId). Treat them as cash payments for ALL display + balance
+         math. The reconcile button below can write them back into
+         custPayments permanently. */
+      const _knownTreasuryTxIds=new Set(custPayments.map(p=>p.treasuryTxId).filter(Boolean));
+      const orphanTreasuryPayments=(config.treasury||[]).filter(t=>
+        t.type==="in" &&
+        String(t.custId||"")===String(custStatement) &&
+        t.id &&
+        !_knownTreasuryTxIds.has(t.id) &&
+        t.sourceType!=="check_bounce"  /* check-bounce reversals are NOT payments */
+      );
+      const orphanTreasuryTotal=orphanTreasuryPayments.reduce((s,t)=>s+(Number(t.amount)||0),0);
+      /* Effective totals — count BOTH custPayments and orphan treasury entries */
+      const totalPaidFromCustPayments=custPayments.reduce((s,p)=>s+(Number(p.amount)||0),0)+orphanTreasuryTotal;
       const totalPaid=totalPaidFromCustPayments+totalReceivableChecks;
-      /* V18.1+V18.23: Split paid into checks (custPayments method=شيك + receivable checks) vs cash */
+      /* V18.1+V18.23: Split paid into checks (custPayments method=شيك + receivable checks) vs cash.
+         V18.64: Orphan treasury entries are always cash (treasury entries don't carry method). */
       const totalPaidChecksFromPayments=custPayments.filter(p=>(p.method||"")==="شيك").reduce((s,p)=>s+(Number(p.amount)||0),0);
       const totalPaidChecks=totalPaidChecksFromPayments+totalReceivableChecks;
       const totalPaidCash=totalPaidFromCustPayments-totalPaidChecksFromPayments;
       /* FIXED: totalVal already excludes returns, so balance = afterDisc - paid (no -retVal) */
       const custBalance=r2(totalAfterDisc-totalPaid);
+      /* V18.64 — Reconcile button handler: copy each orphan treasury entry into
+         custPayments so they appear properly going forward. Uses the same
+         treasuryTxId pointer so deletions stay linked correctly. */
+      const reconcileOrphanPayments=async()=>{
+        if(orphanTreasuryPayments.length===0)return;
+        const ok=await ask(
+          "مزامنة الدفعات",
+          "هتم نقل "+orphanTreasuryPayments.length+" دفعة من الخزنة لكشف العميل دلوقتي.\n\nالأرقام في الخزنة مش بتتغير — بس بنحط مرجع لها في كشف الحساب.\n\nمتابعة؟",
+          {danger:false}
+        );
+        if(!ok)return;
+        upConfig(d=>{
+          if(!d.custPayments)d.custPayments=[];
+          orphanTreasuryPayments.forEach(t=>{
+            /* Defensive: re-check the orphan condition INSIDE the upConfig callback
+               in case another tab raced and already added it. */
+            const alreadyExists=(d.custPayments||[]).some(p=>p.treasuryTxId===t.id);
+            if(alreadyExists)return;
+            d.custPayments.push({
+              id:gid(),
+              custId:custStatement,
+              custName:cust.name||"",
+              amount:Number(t.amount)||0,
+              date:t.date||"",
+              note:(t.notes||t.desc||"دفعة مزامنة من الخزنة"),
+              method:"كاش",
+              account:t.account||"SUB CASH",
+              by:t.by||userName,
+              treasuryTxId:t.id,
+              reconciledFromTreasury:true,
+              reconciledAt:new Date().toISOString(),
+              createdAt:t.createdAt||new Date().toISOString(),
+            });
+          });
+        });
+        showToast("✓ تم مزامنة "+orphanTreasuryPayments.length+" دفعة");
+      };
       const addCustPayment=()=>{const amt=parseFloat(payAmt);if(!amt||amt<=0){playBeep("error");return}
         /* V15.9: Link payment to treasury via shared IDs — needed for clean deletion later */
         const payId=gid();const txId=gid();
@@ -1727,6 +1792,28 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           </div>
           {/* V16.3: Customer Stats Widget */}
           {showCustStats&&<CustomerStatsWidget data={config} custId={cust.id}/>}
+          {/* V18.64: Orphan-treasury warning banner — shown only when there are
+              cash payments in the treasury for this customer that haven't been
+              copied into custPayments. Cards below already include them in the
+              math; this banner just makes the situation visible and offers a
+              one-click reconcile. */}
+          {orphanTreasuryPayments.length>0&&<div style={{
+            margin:"10px 0",padding:"10px 14px",borderRadius:10,
+            background:T.warn+"10",border:"1px solid "+T.warn+"40",
+            display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"
+          }}>
+            <span style={{fontSize:18}}>⚠️</span>
+            <div style={{flex:1,minWidth:200,fontSize:FS-1,lineHeight:1.6,color:T.text}}>
+              <b style={{color:T.warn}}>{orphanTreasuryPayments.length} دفعة في الخزنة مش متزامنة مع كشف العميل</b>
+              <div style={{fontSize:FS-2,color:T.textSec,marginTop:2}}>
+                المبلغ: {fmt(orphanTreasuryTotal)} ج.م — تم تضمينها في الإجمالي تلقائياً.
+                {canEdit?" اضغط 'مزامنة' لإصلاحها بشكل دائم.":""}
+              </div>
+            </div>
+            {canEdit&&<Btn small onClick={reconcileOrphanPayments} style={{
+              background:T.warn,color:"#fff",border:"none",fontWeight:800
+            }}>🔧 مزامنة</Btn>}
+          </div>}
           {/* V18.4: Card 1 uses GROSS delivery value (totalValGross), not net */}
           <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(auto-fit, minmax(180px, 1fr))",gap:10,margin:"12px 0"}}>
             {/* Card 1: Total sales invoices (GROSS delivery, before/after discount) */}
