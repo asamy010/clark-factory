@@ -48,13 +48,6 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const[statementTab,setStatementTab]=useState("summary");
   /* V18.63: Model filter inside the customer statement (applies to both tabs) */
   const[statementModelFilter,setStatementModelFilter]=useState("");
-  /* V18.63: Reset statement tab/filter whenever the user opens a different customer */
-  useEffect(()=>{
-    if(custStatement&&custStatement!=="pick"){
-      setStatementTab("summary");
-      setStatementModelFilter("");
-    }
-  },[custStatement]);
   /* V14.59: Receipt report — after confirmation, show the summary */
   const[lastReceiptReport,setLastReceiptReport]=useState(null);/* {items:[{orderId,modelNo,desc,confirmedQty,pendingQty,diff}], total, confirmedBy, at} */
   const[showReceiptLog,setShowReceiptLog]=useState(false);
@@ -97,6 +90,17 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   /* V16.3: Portal URL popup + Stats toggle */
   const[portalUrlPopup,setPortalUrlPopup]=useState(null);/* {url, custName, loading, error} */
   const[showCustStats,setShowCustStats]=useState(false);
+  /* V18.63: Reset statement tab/filter whenever the user opens a different customer.
+     IMPORTANT — must be placed AFTER custStatement is declared (line 84). Putting
+     it earlier crashes at module load with a TDZ error: the dependency array
+     [custStatement] is evaluated synchronously the moment useEffect is invoked,
+     which happens during the function body's top-down execution. */
+  useEffect(()=>{
+    if(custStatement&&custStatement!=="pick"){
+      setStatementTab("summary");
+      setStatementModelFilter("");
+    }
+  },[custStatement]);
   
   /* V16.3: Generate portal URL for a customer */
   const generatePortalUrl=async(custId,custName)=>{
