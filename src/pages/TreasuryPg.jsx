@@ -1718,7 +1718,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             options={(txType==="in"?resolvedInCats:resolvedOutCats).map(c=>({value:c,label:c}))}
             maxResults={30}
             showAllOnFocus={true}
-            placeholder="اكتب أو اختر..."/></div>
+            placeholder="اكتب أو اختر..."/>
           {txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفعة مورد"||txCategory==="تشغيل خارجي"||txCategory==="مرتبات")&&(()=>{const list=txPartyType==="customer"?customers:txPartyType==="supplier"?suppliers:txPartyType==="employee"?(data.employees||[]).filter(e=>!e.inactive):workshops;const p=list.find(x=>x.id===txPartyId||x.name===txPartyId);if(!p)return null;
             const icon=txPartyType==="customer"?"🧑 العميل:":txPartyType==="supplier"?"🏭 المورد:":txPartyType==="employee"?"👷 الموظف:":"🔧 الورشة:";
             return<div style={{padding:"6px 10px",borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"30",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,marginTop:6}}>
