@@ -19,6 +19,7 @@ import {
   FALLBACK_CASH_CODE, FALLBACK_BANK_CODE,
 } from "../../utils/accounting/treasuryMapping.js";
 import { getAccountByCode } from "../../utils/accounting/coa.js";
+import { ask } from "../../utils/popups.js";
 
 export function TreasuryAccountsMapCard({config, upConfig, T, FS, isMob, showToast}){
   const [planPreview, setPlanPreview] = useState(null);
@@ -55,13 +56,13 @@ export function TreasuryAccountsMapCard({config, upConfig, T, FS, isMob, showToa
   };
 
   /* Apply the plan */
-  const applyPlan = () => {
+  const applyPlan = async () => {
     if(!planPreview) return;
     if(planPreview.creates.length === 0 && Object.keys(planPreview.mappings).length === 0){
       showToast("لا يوجد ما يحتاج للإنشاء أو الربط");
       setPlanPreview(null); return;
     }
-    if(!confirm(`سيتم إنشاء ${planPreview.creates.length} حساب فرعي في الشجرة وربط ${Object.keys(planPreview.mappings).length} خزنة/بنك. استمرار؟`)) return;
+    if(!await ask("تأكيد الإنشاء", "سيتم إنشاء "+planPreview.creates.length+" حساب فرعي في الشجرة وربط "+Object.keys(planPreview.mappings).length+" خزنة/بنك. استمرار؟", {confirmText:"إنشاء"})) return;
     applyAutoSeedPlan(planPreview, upConfig);
     showToast("✅ تم الإنشاء والربط");
     setPlanPreview(null);
@@ -79,9 +80,9 @@ export function TreasuryAccountsMapCard({config, upConfig, T, FS, isMob, showToa
   };
 
   /* Remove orphan mappings */
-  const purgeOrphans = () => {
+  const purgeOrphans = async () => {
     if(orphans.length === 0) return;
-    if(!confirm(`حذف ${orphans.length} ربط مهجور (يشير إلى خزنة/حساب لم يعد موجوداً)؟`)) return;
+    if(!await ask("حذف ربطات مهجورة", "حذف "+orphans.length+" ربط مهجور (يشير إلى خزنة/حساب لم يعد موجوداً)؟", {danger:true, confirmText:"حذف"})) return;
     upConfig(d => {
       if(!d.treasuryAccountMap) return;
       orphans.forEach(o => { delete d.treasuryAccountMap[o.treasuryId]; });

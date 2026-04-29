@@ -18,7 +18,7 @@ import { FKEYS, FS } from "../constants/index.js";
 import { gid, fmt, r2, gf, normalizePhone, parseSizes, getSizesFromSet, dayName, openWA } from "../utils/format.js";
 import { playBeep } from "../utils/audio.js";
 import { loadQR, loadJsQR, scanQR } from "../utils/qr.js";
-import { ask, askForm, showToast } from "../utils/popups.js";
+import { ask, askForm, showToast, tell } from "../utils/popups.js";
 import { printPage, printPkgLabel, printSalesDeliveryLabel, openPrintWindow } from "../utils/print.js";
 import { calcOrder, getConfirmedStock, getConfirmedSeriesStock, getConfirmedBrokenStock, recomputeStatus } from "../utils/orders.js";
 import { buildCustomerSummary, formatCustomerSummaryWA } from "../utils/accountSummary.js";
@@ -538,7 +538,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
 
   /* Shipping label */
   const printShippingLabel=async(cust,sessDate,items,total,shipN)=>{
-    const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+    const pw=openPrintWindow();if(!pw){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة وحاول مرة أخرى",{danger:true});return}
     let pages="";for(let i=1;i<=shipN;i++){
       pages+="<div class='pg'><div class='from'><b>CLARK</b></div><div class='to'><div class='tn'>"+cust.name+"</div><div class='tp'>"+(cust.phone||"")+"</div>"+(cust.address?"<div class='ta'>"+cust.address+"</div>":"")+"</div>"
       +"<div class='dd'>"+sessDate+"</div>"
@@ -659,11 +659,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     }catch(e){showToast("⚠️ فشل قراءة الصورة: "+(e.message||""))}
     setOcrLoading(false)};
 
-  const applyOcr=()=>{if(!ocrResult||!activeAudit)return;const{custId,items}=ocrResult;
+  const applyOcr=async()=>{if(!ocrResult||!activeAudit)return;const{custId,items}=ocrResult;
     /* V15.64: Warn if low-confidence items still exist */
     const lowConf=items.filter(it=>it.matchedId&&it.confidence==="low");
     if(lowConf.length>0){
-      if(!window.confirm("فيه "+lowConf.length+" رقم بثقة منخفضة — متأكد إنك راجعتهم؟"))return;
+      if(!await ask("ثقة منخفضة","فيه "+lowConf.length+" رقم بثقة منخفضة — متأكد إنك راجعتهم؟",{confirmText:"متأكد"}))return;
     }
     upConfig(d=>{const ai=(d.salesAudits||[]).findIndex(a=>a.id===activeAudit);if(ai>=0){if(!d.salesAudits[ai].grid)d.salesAudits[ai].grid={};items.filter(it=>it.matchedId).forEach(it=>{d.salesAudits[ai].grid[it.matchedId+"_"+custId]=it.qty})}});
     const count=items.filter(it=>it.matchedId).length;
@@ -893,7 +893,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         p.returnsAfter=returnsAfter;
       });
       const totalBalance=totalSales-totalReturns-totalCashPay-totalCheckPay-totalOtherPay;
-      const printSalesReport=()=>{const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+      const printSalesReport=()=>{const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة وحاول مرة أخرى",{danger:true});return}
         const logo=(config.logo||"").trim();
         /* V18.27: Use AFTER-discount values per customer for the printed report (balance = sales_after - returns_after - paid) */
         const rows=customers.map(c=>{const p=perCust[c.id]||{sales:0,returns:0,cash:0,check:0,other:0,salesAfter:0,returnsAfter:0,discPct:Number(c.discount)||0};
@@ -1311,7 +1311,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           showToast("⚠️ QR مش هيظهر — "+signErr);
         }
         const origin=window.location.origin;
-        let h="<h2 style='text-align:center'>CLARK — إذن تسليم</h2>";
+        const noP=groupPrint.noPrices===true;/* V18.58: hide prices when delivering for warehouse */
+        let h="<h2 style='text-align:center'>CLARK — "+(noP?"إذن تسليم مخزن":"إذن تسليم")+"</h2>";
         h+="<table style='margin:0 auto 16px;font-size:12px'><tr><td style='padding:4px 12px;font-weight:700'>التاريخ</td><td style='padding:4px 12px'>"+sess.date+"</td>"+(groupPrint.receiver?"<td style='padding:4px 12px;font-weight:700'>المستلم</td><td style='padding:4px 12px;font-weight:800;font-size:14px'>"+groupPrint.receiver+"</td>":"")+"</tr></table>";
         let grandTotal=0,grandMoney=0,grandNetMoney=0;
         selC.forEach((c,ci)=>{let custTotal=0,custMoney=0;
@@ -1320,7 +1321,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           const pageBreak=ci>0?"page-break-before:always;":"";
           h+="<div style='"+pageBreak+"padding-top:10px'>";
           h+="<h3 style='margin-top:14px;padding:4px 8px;background:#EFF6FF;border-right:4px solid #0EA5E9'>"+c.name+(c.phone?"  <span style='font-size:11px;color:#64748B;font-weight:600'>"+c.phone+"</span>":"")+"</h3>";
-          h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>";
+          /* V18.58: Conditional table headers */
+          h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th>"+(noP?"":"<th>السعر</th><th>الإجمالي</th>")+"</tr></thead><tbody>";
           gMods.forEach(m=>{const q=getGroupQtyForPrint(m,c.id,g);if(q>0){
             /* Price: use the first matching order's sellPrice (or per-delivery price if one exists) */
             const oids=m.orderIds||[m.id];
@@ -1332,20 +1334,23 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               if(Number(o.sellPrice)>0){price=Number(o.sellPrice);break}
             }}
             const lineTotal=q*price;custTotal+=q;custMoney+=lineTotal;
-            h+="<tr><td style='font-weight:800'>"+m.modelNo+(m.isGrouped?" <span style='font-size:9px;color:#8B5CF6'>⧉"+m.orderIds.length+"</span>":"")+"</td><td>"+m.modelDesc+"</td><td style='text-align:center;font-weight:800;color:#0EA5E9'>"+q+"</td><td style='text-align:center'>"+(price?fmt(price):"—")+"</td><td style='text-align:center;font-weight:700'>"+fmt(lineTotal)+"</td></tr>";
+            h+="<tr><td style='font-weight:800'>"+m.modelNo+(m.isGrouped?" <span style='font-size:9px;color:#8B5CF6'>⧉"+m.orderIds.length+"</span>":"")+"</td><td>"+m.modelDesc+"</td><td style='text-align:center;font-weight:800;color:#0EA5E9'>"+q+"</td>"+(noP?"":"<td style='text-align:center'>"+(price?fmt(price):"—")+"</td><td style='text-align:center;font-weight:700'>"+fmt(lineTotal)+"</td>")+"</tr>";
           }});
-          h+="<tr style='background:#F0F9FF;font-weight:800'><td colspan='2'>اجمالي "+c.name+"</td><td style='text-align:center;color:#0EA5E9'>"+custTotal+"</td><td></td><td style='text-align:center;color:#0EA5E9'>"+fmt(custMoney)+"</td></tr></tbody></table>";
-          /* V15.55: Discount breakdown from customer card */
+          /* V18.58: Conditional totals row */
+          h+="<tr style='background:#F0F9FF;font-weight:800'><td colspan='2'>اجمالي "+c.name+"</td><td style='text-align:center;color:#0EA5E9'>"+custTotal+"</td>"+(noP?"":"<td></td><td style='text-align:center;color:#0EA5E9'>"+fmt(custMoney)+"</td>")+"</tr></tbody></table>";
+          /* V15.55: Discount breakdown from customer card — V18.58: hidden when noPrices */
           const discPct=Number(c.discount)||0;
           const discAmt=Math.round(custMoney*discPct/100);
           const netAmt=custMoney-discAmt;
-          h+="<div style='margin-top:10px;padding:10px;border:2px solid #000;border-radius:8px;page-break-inside:avoid'>"
-            +"<div style='display:flex;justify-content:space-between;margin-bottom:5px'><span style='font-weight:700'>الاجمالي قبل الخصم</span><span style='font-weight:800'>"+fmt(custMoney)+" ج.م</span></div>";
-          if(discPct>0){
-            h+="<div style='display:flex;justify-content:space-between;margin-bottom:5px;color:#EF4444'><span style='font-weight:700'>خصم "+discPct+"%</span><span style='font-weight:800'>- "+fmt(discAmt)+" ج.م</span></div>";
+          if(!noP){
+            h+="<div style='margin-top:10px;padding:10px;border:2px solid #000;border-radius:8px;page-break-inside:avoid'>"
+              +"<div style='display:flex;justify-content:space-between;margin-bottom:5px'><span style='font-weight:700'>الاجمالي قبل الخصم</span><span style='font-weight:800'>"+fmt(custMoney)+" ج.م</span></div>";
+            if(discPct>0){
+              h+="<div style='display:flex;justify-content:space-between;margin-bottom:5px;color:#EF4444'><span style='font-weight:700'>خصم "+discPct+"%</span><span style='font-weight:800'>- "+fmt(discAmt)+" ج.م</span></div>";
+            }
+            h+="<div style='display:flex;justify-content:space-between;padding-top:6px;border-top:2px solid #000'><span style='font-weight:800;font-size:14px'>الصافي المستحق</span><span style='font-weight:900;font-size:16px;color:#059669'>"+fmt(netAmt)+" ج.م</span></div>"
+              +"</div>";
           }
-          h+="<div style='display:flex;justify-content:space-between;padding-top:6px;border-top:2px solid #000'><span style='font-weight:800;font-size:14px'>الصافي المستحق</span><span style='font-weight:900;font-size:16px;color:#059669'>"+fmt(netAmt)+" ج.م</span></div>"
-            +"</div>";
           /* V15.50: QR confirmation block — one per customer */
           if(confirmUrl){
             h+="<div style='margin-top:12px;padding:10px;border:2px dashed #0EA5E9;border-radius:10px;display:flex;align-items:center;gap:14px;background:#F0F9FF;page-break-inside:avoid'>"
@@ -1360,18 +1365,25 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           h+="</div>";/* end per-customer block */
         });
         const grandDisc=grandMoney-grandNetMoney;
-        h+="<div style='margin-top:16px;padding:12px;background:#F1F5F9;border-radius:8px;text-align:center'>"
-          +"<div style='font-weight:800;font-size:14px;margin-bottom:4px'>الاجمالي الكلي: "+selC.length+" عملاء | "+grandTotal+" قطعة</div>"
-          +"<div style='font-weight:700;font-size:13px;color:#475569'>قبل الخصم: "+fmt(grandMoney)+" ج.م"
-          +(grandDisc>0?" • الخصم: <span style='color:#EF4444'>-"+fmt(grandDisc)+" ج.م</span>":"")
-          +"</div>"
-          +"<div style='font-weight:900;font-size:18px;color:#059669;margin-top:6px'>الصافي المستحق: "+fmt(grandNetMoney)+" ج.م</div>"
-          +"</div>";
+        if(noP){
+          /* V18.58: noPrices = simple count-only summary */
+          h+="<div style='margin-top:16px;padding:12px;background:#F1F5F9;border-radius:8px;text-align:center'>"
+            +"<div style='font-weight:800;font-size:16px'>الإجمالي: "+selC.length+" عملاء | "+grandTotal+" قطعة</div>"
+            +"</div>";
+        } else {
+          h+="<div style='margin-top:16px;padding:12px;background:#F1F5F9;border-radius:8px;text-align:center'>"
+            +"<div style='font-weight:800;font-size:14px;margin-bottom:4px'>الاجمالي الكلي: "+selC.length+" عملاء | "+grandTotal+" قطعة</div>"
+            +"<div style='font-weight:700;font-size:13px;color:#475569'>قبل الخصم: "+fmt(grandMoney)+" ج.م"
+            +(grandDisc>0?" • الخصم: <span style='color:#EF4444'>-"+fmt(grandDisc)+" ج.م</span>":"")
+            +"</div>"
+            +"<div style='font-weight:900;font-size:18px;color:#059669;margin-top:6px'>الصافي المستحق: "+fmt(grandNetMoney)+" ج.م</div>"
+            +"</div>";
+        }
         h+="<div class='sig'><div class='sig-box'>مسؤول التسليم</div><div class='sig-box'>المستلم"+(groupPrint.receiver?"<br><b>"+groupPrint.receiver+"</b>":"")+"</div><div class='sig-box'>المراجع</div></div>";
         /* V15.50: Load QRCode.js and render all QR canvases */
         h+="<script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script>";
         h+="<script>function _renderCLARKqrs(){if(typeof QRCode==='undefined'){setTimeout(_renderCLARKqrs,100);return}document.querySelectorAll('.confirm-qr').forEach(function(c){QRCode.toCanvas(c,c.dataset.qr,{width:160,margin:0,errorCorrectionLevel:'M'},function(){})})}_renderCLARKqrs();</"+"script>";
-        printPage("تسليم مجمع — "+sess.date,h,{factoryName:config.factoryName,logo:config.logo});setGroupPrint(null)};
+        printPage((noP?"إذن تسليم مخزن — ":"تسليم مجمع — ")+sess.date,h,{factoryName:config.factoryName,logo:config.logo});setGroupPrint(null)};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setGroupPrint(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:450,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
@@ -1395,6 +1407,14 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           </div>
           
     <div style={{marginBottom:12}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>اسم المستلم</label><Inp value={groupPrint.receiver} onChange={v=>setGroupPrint(p=>({...p,receiver:v}))} placeholder="اسم المندوب / المستلم..."/></div>
+          {/* V18.58: Print without prices toggle (delivery permit for warehouse) */}
+          <div onClick={()=>setGroupPrint(p=>({...p,noPrices:!p.noPrices}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,cursor:"pointer",border:"2px solid "+(groupPrint.noPrices?"#F59E0B":T.brd),background:groupPrint.noPrices?"#F59E0B08":"transparent",marginBottom:12}}>
+            <span style={{fontSize:18,color:groupPrint.noPrices?"#F59E0B":T.textMut}}>{groupPrint.noPrices?"☑":"☐"}</span>
+            <div style={{flex:1}}>
+              <div style={{fontSize:FS-1,fontWeight:700,color:groupPrint.noPrices?"#F59E0B":T.text}}>📦 إذن تسليم بدون أسعار</div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>للمخزن والسائق — يخفي أعمدة السعر والإجمالي والخصم</div>
+            </div>
+          </div>
           <div style={{padding:10,borderRadius:10,background:T.bg,textAlign:"center",marginBottom:12}}>
             <span style={{fontWeight:800,color:"#8B5CF6"}}>{selCount+" عملاء"}</span><span style={{color:T.textMut}}>{" | "}</span><span style={{fontWeight:800,color:T.accent}}>{selTotal+" قطعة"}</span>
           </div>
@@ -3369,7 +3389,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           rows+="<tr><td style='border:1px solid #ccc;padding:6px;font-weight:800;color:#0284C7'>"+it.modelNo+"</td><td style='border:1px solid #ccc;padding:6px;font-size:10px;color:#555'>"+it.modelDesc+"</td><td style='border:1px solid #ccc;padding:6px;text-align:center;font-weight:700;color:#F59E0B'>"+it.pendingQty+"</td><td style='border:1px solid #ccc;padding:6px;text-align:center;font-weight:700;color:#10B981'>"+it.confirmedQty+"</td><td style='border:1px solid #ccc;padding:6px;text-align:center;font-weight:800;color:"+diffColor+"'>"+diffLabel+"</td></tr>";
         });
         const html="<html dir='rtl'><head><meta charset='utf-8'><title>تقرير استلام — "+dateShort+"</title><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><style>@page{size:A4;margin:12mm}body{font-family:'Cairo',sans-serif;padding:0;color:#1E293B;line-height:1.6;font-size:11px}.hdr{text-align:center;border-bottom:3px solid #10B981;padding-bottom:10px;margin-bottom:14px}.hdr h1{color:#10B981;font-size:20px;margin-bottom:6px}.hdr .sub{font-size:14px;color:#0EA5E9;font-weight:700}.meta{display:flex;justify-content:space-between;margin-bottom:12px;font-size:11px;color:#475569}.summary{display:flex;gap:10px;margin-bottom:14px;justify-content:center}.card{padding:10px 16px;border-radius:10px;border:1px solid #ddd;text-align:center;min-width:120px}.card .lbl{font-size:10px;color:#666}.card .val{font-size:18px;font-weight:800;margin-top:4px}table{width:100%;border-collapse:collapse;margin:10px 0}th{background:#F0FDF4;border:1px solid #10B98140;padding:8px;font-weight:800;text-align:right;color:#059669}.sig{margin-top:50px;display:flex;justify-content:space-around;gap:20px}.sig-box{text-align:center;min-width:150px;border-top:2px solid #1E293B;padding-top:10px;font-weight:700;font-size:12px}.foot{margin-top:30px;padding-top:10px;border-top:1px solid #ccc;display:flex;justify-content:space-between;font-size:10px;color:#94A3B8}.pbar{position:sticky;top:0;background:#fff;padding:8px;border-bottom:2px solid #ccc;display:flex;justify-content:center;gap:10px;z-index:99}.pbar button{padding:6px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:12px;font-weight:700;background:#fff}.pbar .pr{background:#10B981;color:#fff;border-color:#10B981}@media print{.pbar{display:none}}</style></head><body><div class='pbar'><button onclick='window.close()'>↩ رجوع</button><button class='pr' onclick='window.print()'>🖨 طباعة</button></div><div class='hdr'><h1>📦 تقرير استلام مخزن الجاهز</h1><div class='sub'>"+dateShort+"</div></div><div class='meta'><span>👤 بواسطة: <b>"+(rep.confirmedBy||"—")+"</b></span><span>📅 "+dateStr+"</span></div><div class='summary'><div class='card'><div class='lbl'>تسليم معلّق</div><div class='val' style='color:#F59E0B'>"+rep.totalPending+"</div></div><div class='card'><div class='lbl'>تم استلام</div><div class='val' style='color:#10B981'>"+rep.total+"</div></div><div class='card'><div class='lbl'>الفرق</div><div class='val' style='color:"+(rep.total===rep.totalPending?"#10B981":rep.total<rep.totalPending?"#EF4444":"#0EA5E9")+"'>"+(rep.total-rep.totalPending)+"</div></div></div><table><thead><tr><th>الموديل</th><th>الوصف</th><th style='text-align:center'>معلّق</th><th style='text-align:center'>تسليم مخزن جاهز</th><th style='text-align:center'>الفرق</th></tr></thead><tbody>"+rows+"</tbody></table><div class='sig'><div class='sig-box'>أمين المخزن</div><div class='sig-box'>المدير</div></div><div class='foot'><span>CLARK Factory Management</span><span>"+dateStr+"</span></div></body></html>";
-        const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}pw.document.write(html);pw.document.close();setTimeout(()=>{try{pw.print()}catch(e){}},500);
+        const pw=openPrintWindow();if(!pw){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة وحاول مرة أخرى",{danger:true});return}pw.document.write(html);pw.document.close();setTimeout(()=>{try{pw.print()}catch(e){}},500);
       };
       /* Share via WhatsApp */
       const doWhatsapp=()=>{
@@ -3634,7 +3654,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           detRows+="<tr><td style='border:1px solid #eee;padding:5px;font-size:9px'>"+dStr+"</td><td style='border:1px solid #eee;padding:5px;font-weight:700;color:#0284C7'>"+r.modelNo+"</td><td style='border:1px solid #eee;padding:5px;font-size:9px;color:#555'>"+r.modelDesc+"</td><td style='border:1px solid #eee;padding:5px;text-align:center;font-weight:700;color:#F59E0B'>"+r.originalQty+"</td><td style='border:1px solid #eee;padding:5px;text-align:center;font-weight:700;color:#10B981'>"+r.qty+"</td><td style='border:1px solid #eee;padding:5px;text-align:center;font-weight:700;color:"+(diff===0?"#10B981":diff<0?"#EF4444":"#0EA5E9")+"'>"+(diff===0?"✓":(diff>0?"+":"")+diff)+"</td><td style='border:1px solid #eee;padding:5px;font-size:9px;color:#666'>"+(r.confirmedBy||"—")+"</td></tr>";
         });
         const html="<html dir='rtl'><head><meta charset='utf-8'><title>سجل الاستلامات</title><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><style>@page{size:A4;margin:12mm}body{font-family:'Cairo',sans-serif;color:#1E293B;font-size:11px;line-height:1.6}.hdr{text-align:center;border-bottom:3px solid #10B981;padding-bottom:10px;margin-bottom:14px}.hdr h1{color:#10B981;font-size:20px}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:11px}th{background:#F0FDF4;border:1px solid #10B98140;padding:7px;font-weight:800;text-align:right;color:#059669}.detail th{background:#EFF6FF;border:1px solid #0EA5E940;padding:5px;font-size:10px}h2{color:#0284C7;font-size:14px;margin:14px 0 8px;padding-bottom:4px;border-bottom:2px solid #0284C730}.foot{margin-top:20px;padding-top:10px;border-top:1px solid #ccc;text-align:center;font-size:10px;color:#94A3B8}.pbar{position:sticky;top:0;background:#fff;padding:8px;border-bottom:2px solid #ccc;display:flex;justify-content:center;gap:10px}.pbar button{padding:6px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:12px;font-weight:700;background:#fff}.pbar .pr{background:#10B981;color:#fff;border-color:#10B981}@media print{.pbar{display:none}}</style></head><body><div class='pbar'><button onclick='window.close()'>↩ رجوع</button><button class='pr' onclick='window.print()'>🖨 طباعة</button></div><div class='hdr'><h1>📦 سجل الاستلامات الكامل</h1><div style='font-size:12px;color:#666'>"+new Date().toLocaleDateString("ar-EG")+" — "+sortedModels.length+" موديل • "+allConfirmed.length+" استلام</div></div><h2>📊 الإجماليات لكل موديل</h2><table><thead><tr><th>الموديل</th><th>الوصف</th><th style='text-align:center'>تسليم</th><th style='text-align:center'>تسليم مخزن جاهز</th><th style='text-align:center'>الفرق</th><th style='text-align:center'>عدد مرات</th></tr></thead><tbody>"+summRows+"</tbody></table><h2>📋 التفاصيل (بالتاريخ)</h2><table class='detail'><thead><tr><th>التاريخ</th><th>الموديل</th><th>الوصف</th><th style='text-align:center'>تسليم</th><th style='text-align:center'>تسليم مخزن جاهز</th><th style='text-align:center'>فرق</th><th>بواسطة</th></tr></thead><tbody>"+detRows+"</tbody></table><div class='foot'>CLARK Factory Management — سجل الاستلامات — "+new Date().toLocaleString("ar-EG")+"</div></body></html>";
-        const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}pw.document.write(html);pw.document.close();setTimeout(()=>{try{pw.print()}catch(e){}},500);
+        const pw=openPrintWindow();if(!pw){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة وحاول مرة أخرى",{danger:true});return}pw.document.write(html);pw.document.close();setTimeout(()=>{try{pw.print()}catch(e){}},500);
       };
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowReceiptLog(false)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:isMob?"100%":900,maxHeight:"92vh",display:"flex",flexDirection:"column",border:"2px solid #10B981",boxShadow:"0 25px 70px rgba(0,0,0,0.45)"}}>
@@ -3963,7 +3983,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           if(fl.price?.show)h+="<div style='font-size:"+((fl.price?.size||10)/2.5)+"mm;line-height:1'>"+((Number(o.sellPrice)||0)||"—")+" ج.م</div>";
           h+="</div>"}
         const qrOpts2=JSON.stringify({width:400,margin:ps.qrMargin??1,errorCorrectionLevel:ps.qrLevel||"M",color:{dark:ps.qrColor||"#000000",light:"#ffffff"}});
-        const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}w.document.write("<html dir='rtl'><head><title>QR</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><style>@page{size:"+lw+"mm "+lh+"mm;margin:"+mg+"mm}*{margin:0;padding:0}body{margin:0;padding:0;font-family:'Cairo',Arial,sans-serif}.lbl{width:"+(lw-mg*2)+"mm;height:"+(lh-mg*2)+"mm;page-break-after:always;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden"+(ps.showBorder?";border:1px dashed #999":"")+"}</style></head><body>"+h+"<script>var qrOpts="+qrOpts2+";document.querySelectorAll('.qr-img').forEach(function(img){QRCode.toDataURL(img.dataset.text,qrOpts).then(function(url){img.src=url}).catch(function(){})});setTimeout(function(){window.print()},800)</"+"script></body></html>");w.document.close()};
+        const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة وحاول مرة أخرى",{danger:true});return}w.document.write("<html dir='rtl'><head><title>QR</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><style>@page{size:"+lw+"mm "+lh+"mm;margin:"+mg+"mm}*{margin:0;padding:0}body{margin:0;padding:0;font-family:'Cairo',Arial,sans-serif}.lbl{width:"+(lw-mg*2)+"mm;height:"+(lh-mg*2)+"mm;page-break-after:always;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden"+(ps.showBorder?";border:1px dashed #999":"")+"}</style></head><body>"+h+"<script>var qrOpts="+qrOpts2+";document.querySelectorAll('.qr-img').forEach(function(img){QRCode.toDataURL(img.dataset.text,qrOpts).then(function(url){img.src=url}).catch(function(){})});setTimeout(function(){window.print()},800)</"+"script></body></html>");w.document.close()};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setCustomLabel(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
@@ -4077,7 +4097,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             setShipPopup(null);  /* close popup immediately so the user sees the print window */
             /* STEP 1 — open window synchronously, before any await */
             const pw=openPrintWindow();
-            if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+            if(!pw){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة وحاول مرة أخرى",{danger:true});return}
             try{
               pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><title>جاري التحضير…</title><style>body{font-family:Cairo,Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f8fafc;color:#475569}.box{text-align:center}.sp{display:inline-block;width:36px;height:36px;border:4px solid #E2E8F0;border-top-color:#F59E0B;border-radius:50%;animation:s 0.8s linear infinite;margin-bottom:12px}@keyframes s{to{transform:rotate(360deg)}}</style></head><body><div class='box'><div class='sp'></div><div style='font-size:14px;font-weight:700'>جاري تحضير ليبل التسليم…</div></div></body></html>");
             }catch(e){}

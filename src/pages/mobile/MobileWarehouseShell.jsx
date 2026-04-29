@@ -9,6 +9,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { useState, useEffect } from "react";
+import { ask } from "../../utils/popups.js";
 import { MobileHome } from "./MobileHome.jsx";
 import { MobileQuickSale } from "./MobileQuickSale.jsx";
 import { MobileStockReceive } from "./MobileStockReceive.jsx";
@@ -44,13 +45,13 @@ export function MobileWarehouseShell(props) {
     dot: { display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: online ? "#10B981" : "#EF4444", boxShadow: online ? "0 0 8px #10B981" : "0 0 8px #EF4444" },
   };
 
-  const handleExit = () => {
-    if (hasUnsaved && !window.confirm("فيه بيانات مش متحفظة. تخرج من غير حفظ؟")) return;
+  const handleExit = async () => {
+    if (hasUnsaved && !await ask("بيانات غير محفوظة","فيه بيانات مش متحفظة. تخرج من غير حفظ؟",{danger:true,confirmText:"خروج بدون حفظ"})) return;
     window.location.href = "/";
   };
 
-  const goHome = (force) => {
-    if (!force && hasUnsaved && !window.confirm("فيه بيانات مش متحفظة. ترجع من غير حفظ؟")) return;
+  const goHome = async (force) => {
+    if (!force && hasUnsaved && !await ask("بيانات غير محفوظة","فيه بيانات مش متحفظة. ترجع من غير حفظ؟",{danger:true,confirmText:"رجوع بدون حفظ"})) return;
     hapticLight();
     setHasUnsaved(false);
     setScreen("home");

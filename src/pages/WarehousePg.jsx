@@ -522,7 +522,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   
   /* ──────── PRINT MOVEMENTS REPORT ──────── */
   const printMovementsReport=()=>{
-    const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+    const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}
     const title="تقرير حركات المخزن";
     const filterSummary=[];
     if(movDateFrom)filterSummary.push("من: "+movDateFrom);
@@ -587,7 +587,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   
   /* ──────── PRINT STOCK SNAPSHOT (current balances) ──────── */
   const printStockSnapshot=()=>{
-    const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+    const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}
     const buildRows=(list,typeLabel,typeColor)=>list.map(x=>{const s=Number(x.stock)||0;const c=Number(x.avgCost)||Number(x.price)||0;const status=s===0?"نافذ":x.minStock&&s<=x.minStock?"ناقص":"متاح";const statusClass=s===0?"err":x.minStock&&s<=x.minStock?"warn":"ok";return "<tr><td><span style='background:"+typeColor+"20;color:"+typeColor+";padding:1px 6px;border-radius:4px;font-size:9px;font-weight:700'>"+typeLabel+"</span></td>"+(x.category?"<td>"+x.category+"</td>":"<td>—</td>")+"<td><b>"+(x.name||"")+"</b></td><td class='center'>"+fmt(s)+" "+(x.unit||"")+"</td><td class='center'>"+(x.minStock?fmt(x.minStock):"—")+"</td><td class='center'>"+fmt(r2(c))+"</td><td class='center'><b>"+fmt(r2(s*c))+"</b></td><td class='center "+statusClass+"'>"+status+"</td></tr>"}).join("");
     const allRows=buildRows(fabrics,"🧵 خامة","#0EA5E9")+buildRows(accessories,"🪡 إكسسوار","#8B5CF6")+buildRows(generalProducts,"➕ منتج","#EC4899");
     const totalValue=fabrics.reduce((s,x)=>s+(Number(x.stock)||0)*(Number(x.avgCost)||Number(x.price)||0),0)+accessories.reduce((s,x)=>s+(Number(x.stock)||0)*(Number(x.avgCost)||Number(x.price)||0),0)+generalProducts.reduce((s,x)=>s+(Number(x.stock)||0)*(Number(x.avgCost)||Number(x.price)||0),0);
@@ -600,7 +600,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     let qrData="";
     try{const QR=await loadQR();if(QR)qrData=await QR.toDataURL(JSON.stringify({app:"clark",type:"prod",id:product.id,name:product.name}),{width:200,margin:1,errorCorrectionLevel:"M"})}
     catch(e){console.error("QR gen failed",e)}
-    const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+    const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}
     const html="<html dir='rtl'><head><meta charset='UTF-8'><title>QR — "+product.name+"</title><style>"+PRINT_CSS+".qr-card{width:60mm;margin:10mm auto;padding:8mm;border:2px solid #1E293B;border-radius:8px;text-align:center;page-break-after:always}.qr-img{width:45mm;height:45mm;margin:0 auto}.qr-title{font-size:14px;font-weight:800;margin-top:6mm}.qr-sub{font-size:10px;color:#64748B;margin-top:2mm}.qr-cat{display:inline-block;padding:2px 10px;background:#EC489915;color:#EC4899;border-radius:12px;font-size:9px;font-weight:700;margin-top:4mm}@page{size:60mm auto;margin:0}</style></head><body><div class='qr-card'>"+(qrData?"<img class='qr-img' src='"+qrData+"'/>":"<div style='padding:20mm;background:#F1F5F9;border-radius:4px'>QR غير متاح</div>")+"<div class='qr-title'>"+product.name+"</div><div class='qr-sub'>الوحدة: "+(product.unit||"—")+" • رصيد: "+fmt(Number(product.stock)||0)+"</div>"+(product.category?"<div class='qr-cat'>"+product.category+"</div>":"")+"<div class='qr-sub' style='margin-top:4mm;font-size:8px'>CLARK — "+today+"</div></div><script>setTimeout(function(){window.print()},500)</"+"script></body></html>";
     w.document.write(html);w.document.close();
   };

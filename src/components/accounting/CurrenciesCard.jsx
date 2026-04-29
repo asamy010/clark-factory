@@ -8,14 +8,15 @@
 import { useState } from "react";
 import { Btn, Card, Inp } from "../ui.jsx";
 import { getCurrencies, DEFAULT_CURRENCIES, validateCurrencySettings, FUNCTIONAL_CURRENCY } from "../../utils/accounting/currency.js";
+import { ask, tell } from "../../utils/popups.js";
 
 export function CurrenciesCard({config, upConfig, T, FS, isMob, showToast}){
   const [adding, setAdding]   = useState(null);/* {code, name, symbol} */
   const currencies = getCurrencies(config);
 
-  const seedDefaults = () => {
+  const seedDefaults = async () => {
     if(currencies.length > 1){
-      if(!confirm("سيتم دمج العملات الافتراضية الناقصة فقط — استمرار؟")) return;
+      if(!await ask("إضافة العملات الافتراضية", "سيتم دمج العملات الافتراضية الناقصة فقط — استمرار؟", {confirmText:"استمرار"})) return;
     }
     upConfig(d => {
       if(!d.accountingSettings) d.accountingSettings = {};
@@ -37,12 +38,12 @@ export function CurrenciesCard({config, upConfig, T, FS, isMob, showToast}){
   const startAdd = () => setAdding({code:"", name:"", symbol:"", decimals:2});
 
   const saveNew = () => {
-    if(!adding.code || !adding.name){ alert("⚠️ ادخل الكود والاسم"); return; }
+    if(!adding.code || !adding.name){ tell("بيانات ناقصة", "ادخل الكود والاسم", {danger:true}); return; }
     const code = adding.code.toUpperCase().trim();
-    if(!/^[A-Z]{3}$/.test(code)){ alert("⚠️ الكود يجب أن يكون 3 حروف إنجليزية كبيرة"); return; }
+    if(!/^[A-Z]{3}$/.test(code)){ tell("كود غير صحيح", "الكود يجب أن يكون 3 حروف إنجليزية كبيرة", {danger:true}); return; }
     const newList = [...currencies, {code, name:adding.name.trim(), symbol:(adding.symbol||code).trim(), isFunctional:false, decimals:Number(adding.decimals)||2, system:false}];
     const v = validateCurrencySettings(newList);
-    if(!v.ok){ alert("⚠️ "+v.reason); return; }
+    if(!v.ok){ tell("بيانات غير صحيحة", v.reason, {danger:true}); return; }
     upConfig(d => {
       if(!d.accountingSettings) d.accountingSettings = {};
       d.accountingSettings.currencies = newList;
@@ -51,12 +52,12 @@ export function CurrenciesCard({config, upConfig, T, FS, isMob, showToast}){
     setAdding(null);
   };
 
-  const remove = (currency) => {
-    if(currency.isFunctional){ alert("⚠️ لا يمكن حذف العملة الأساسية"); return; }
+  const remove = async (currency) => {
+    if(currency.isFunctional){ tell("غير مسموح", "لا يمكن حذف العملة الأساسية", {danger:true}); return; }
     if(currency.system){
-      if(!confirm(`عملة ${currency.code} من العملات الافتراضية. حذفها لن يحذف أسعار الصرف المسجلة. استمرار؟`)) return;
+      if(!await ask("حذف عملة افتراضية", "عملة "+currency.code+" من العملات الافتراضية. حذفها لن يحذف أسعار الصرف المسجلة. استمرار؟", {danger:true, confirmText:"حذف"})) return;
     } else {
-      if(!confirm(`حذف ${currency.name} (${currency.code})؟`)) return;
+      if(!await ask("حذف عملة", "حذف "+currency.name+" ("+currency.code+")؟", {danger:true, confirmText:"حذف"})) return;
     }
     upConfig(d => {
       if(!d.accountingSettings) d.accountingSettings = {};

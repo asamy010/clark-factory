@@ -2078,7 +2078,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V18.55 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >V18.59 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -2762,7 +2762,7 @@ export default function App(){
       const close=()=>setWsDelPopup(null);
       const confirmReceive=async()=>{
         if(!deliveryStillExists){
-          alert("هذا التسليم لم يعد موجوداً أو تم تعديله بواسطة الإدارة. أعد مسح ليبل التسليم الجديد.");
+          tell("التسليم غير موجود","هذا التسليم لم يعد موجوداً أو تم تعديله بواسطة الإدارة. أعد مسح ليبل التسليم الجديد.",{danger:true});
           setWsDelPopup(null);
           return;
         }
@@ -2777,7 +2777,7 @@ export default function App(){
         const newOrd=JSON.parse(JSON.stringify(liveOrd));
         if(!Array.isArray(newOrd.workshopDeliveries))newOrd.workshopDeliveries=[];
         const targetWd=newOrd.workshopDeliveries[idx];
-        if(!targetWd){alert("التسليم غير موجود");setWsDelPopup(null);return}
+        if(!targetWd){tell("التسليم غير موجود","",{danger:true});setWsDelPopup(null);return}
         if(!Array.isArray(targetWd.receives))targetWd.receives=[];
         /* Re-check that this exact delivery hasn't been QR-confirmed since the popup opened */
         if(targetWd.receives.some(r=>r.viaQR)){
@@ -2806,7 +2806,7 @@ export default function App(){
           showToast("✓ تم تأكيد الاستلام بواسطة الورشة");
           setWsDelPopup(null);
         }catch(e){
-          alert("فشل الحفظ: "+(e?.message||e));
+          tell("فشل الحفظ",e?.message||String(e),{danger:true});
         }
       };
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:99999,display:"flex",alignItems:"flex-end",justifyContent:"center",padding:0}} onClick={close}>
@@ -2881,7 +2881,7 @@ export default function App(){
             const lp=labelPopup;const bagsAtClick=labelBags;
             setLabelPopup(null);setLabelBags(1);
             const pw=openPrintWindow();
-            if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+            if(!pw){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}
             try{
               pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><title>جاري التحضير…</title><style>body{font-family:Cairo,Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f8fafc;color:#475569}.box{text-align:center}.sp{display:inline-block;width:36px;height:36px;border:4px solid #E2E8F0;border-top-color:#0EA5E9;border-radius:50%;animation:s 0.8s linear infinite;margin-bottom:12px}@keyframes s{to{transform:rotate(360deg)}}</style></head><body><div class='box'><div class='sp'></div><div style='font-size:14px;font-weight:700'>جاري تحضير ليبل التسليم…</div></div></body></html>");
             }catch(e){}
@@ -2971,7 +2971,7 @@ export default function App(){
         return h+"</div>"};
       const doPrint=(labels)=>{if(labels.length===0)return;
         const qrOpts=JSON.stringify({width:400,margin:ps.qrMargin??1,errorCorrectionLevel:ps.qrLevel||"M",color:{dark:ps.qrColor||"#000000",light:"#ffffff"}});
-        const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+        const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}
         /* V16.49: chosen font is loaded as a stylesheet and applied to body */
         w.document.write("<html dir='rtl'><head><title>QR</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><link href='"+fontUrl+"' rel='stylesheet'/><style>@page{size:"+lw+"mm "+lh+"mm;margin:"+mg+"mm}*{margin:0;padding:0}body{margin:0;padding:0;font-family:'"+fontFam+"',Arial,sans-serif}.lbl{width:"+(lw-mg*2)+"mm;height:"+(lh-mg*2)+"mm;page-break-after:always;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden"+(ps.showBorder?";border:1px dashed #999":"")+"}</style></head><body>"+labels.join("")+"<script>var qrOpts="+qrOpts+";document.querySelectorAll('.qr-img').forEach(function(img){QRCode.toDataURL(img.dataset.text,qrOpts).then(function(url){img.src=url}).catch(function(){})});setTimeout(function(){window.print()},800)</"+"script></body></html>");w.document.close();
         showToast("✓ تم تجهيز "+labels.length+" ليبل")};
@@ -3137,7 +3137,7 @@ export default function App(){
       </div>
     )}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.55"/>
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.59"/>
   </div>
 }
 

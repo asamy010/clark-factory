@@ -11,6 +11,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { useEffect, useState } from "react";
+import { tell } from "../utils/popups.js";
 
 const fmt = (n) => (n == null ? "0" : Math.round(Number(n)).toLocaleString("en-US"));
 
@@ -53,7 +54,7 @@ export function WorkshopConfirmPage({ params }) {
 
   const submit = async (action) => {
     if (action === "issue" && !issueNote.trim()) {
-      alert("برجاء كتابة تفاصيل المشكلة");
+      tell("بيانات ناقصة","برجاء كتابة تفاصيل المشكلة",{danger:true});
       return;
     }
     setSubmitting(true);
@@ -72,12 +73,12 @@ export function WorkshopConfirmPage({ params }) {
       });
       const j = await r.json();
       if (!r.ok) {
-        alert(j.error || "فشل إرسال التأكيد");
+        tell("فشل الإرسال",j.error||"فشل إرسال التأكيد",{danger:true});
       } else {
         setSuccess({ status: action, at: j.at || new Date().toISOString() });
       }
     } catch (e) {
-      alert("خطأ في الاتصال");
+      tell("خطأ في الاتصال","تعذر الاتصال بالخادم — حاول مرة أخرى",{danger:true});
     }
     setSubmitting(false);
   };

@@ -220,7 +220,7 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
 
     {activeInvoice && <InvoiceDetailModal
       invoice={activeInvoice} type="purchase"
-      data={data}
+      data={data} upConfig={upConfig}
       onClose={() => setActiveInvoice(null)}
       onPost={handlePost} onVoid={handleVoid} onDelete={handleDelete}
       isMob={isMob}

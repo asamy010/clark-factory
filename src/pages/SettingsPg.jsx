@@ -134,8 +134,8 @@ export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,B
     });
     showToast("✅ تم حفظ إعدادات الخزنة");
   };
-  const handleDiscard=()=>{
-    if(!confirm("سيتم إلغاء كل التعديلات غير المحفوظة. هل تريد المتابعة؟"))return;
+  const handleDiscard=async ()=>{
+    if(!await ask("إلغاء التعديلات", "سيتم إلغاء كل التعديلات غير المحفوظة. هل تريد المتابعة؟", {danger:true,confirmText:"إلغاء التعديلات"}))return;
     setDraft(buildSnapshot(savedTS));
     setNewOutCat("");setNewInCat("");setNewCheckCat("");
     showToast("↩️ تم إلغاء التعديلات");
@@ -427,8 +427,8 @@ export function HrSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Sel
     });
     showToast("✅ تم حفظ إعدادات الموظفين");
   };
-  const handleDiscard=()=>{
-    if(!confirm("سيتم إلغاء كل التعديلات غير المحفوظة. هل تريد المتابعة؟"))return;
+  const handleDiscard=async ()=>{
+    if(!await ask("إلغاء التعديلات", "سيتم إلغاء كل التعديلات غير المحفوظة. هل تريد المتابعة؟", {danger:true,confirmText:"إلغاء التعديلات"}))return;
     setDraft(buildSnapshot(savedHR));
     showToast("↩️ تم إلغاء التعديلات");
   };
@@ -653,8 +653,8 @@ export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
     });
     showToast("✅ تم حفظ إعدادات الطباعة");
   };
-  const handleDiscard=()=>{
-    if(!confirm("سيتم إلغاء كل التعديلات غير المحفوظة. هل تريد المتابعة؟"))return;
+  const handleDiscard=async ()=>{
+    if(!await ask("إلغاء التعديلات", "سيتم إلغاء كل التعديلات غير المحفوظة. هل تريد المتابعة؟", {danger:true,confirmText:"إلغاء التعديلات"}))return;
     setDraft(buildSnapshot(savedPS));
     showToast("↩️ تم إلغاء التعديلات");
   };
@@ -671,7 +671,7 @@ export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
     /* V16.36: chosen font family + Google Fonts mapping */
     const fontFam=ps.fontFamily||"Cairo";
     const fontUrl=GOOGLE_FONT_URLS[fontFam]||GOOGLE_FONT_URLS.Cairo;
-    const pw_=openPrintWindow();if(!pw_){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}let html="<html dir='rtl'><head><title>طباعة تجريبية</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><link href='"+fontUrl+"' rel='stylesheet'/><style>@page{size:"+w+"mm "+h+"mm;margin:"+m+"mm}*{margin:0;padding:0}body{margin:0;padding:0;font-family:'"+fontFam+"',Arial,sans-serif}.lbl{width:"+(w-m*2)+"mm;height:"+(h-m*2)+"mm;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center"+(ps.showBorder?";border:1px dashed #999":"")+"}.logo{width:80%;max-width:30mm;margin-bottom:1mm}</style></head><body><div class='lbl'>";
+    const pw_=openPrintWindow();if(!pw_){tell("المتصفح يمنع الطباعة", "فعّل النوافذ المنبثقة في المتصفح وحاول مرة أخرى", {danger:true});return}let html="<html dir='rtl'><head><title>طباعة تجريبية</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><link href='"+fontUrl+"' rel='stylesheet'/><style>@page{size:"+w+"mm "+h+"mm;margin:"+m+"mm}*{margin:0;padding:0}body{margin:0;padding:0;font-family:'"+fontFam+"',Arial,sans-serif}.lbl{width:"+(w-m*2)+"mm;height:"+(h-m*2)+"mm;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center"+(ps.showBorder?";border:1px dashed #999":"")+"}.logo{width:80%;max-width:30mm;margin-bottom:1mm}</style></head><body><div class='lbl'>";
     /* V16.36: Logo at top — overrides brand text when enabled.
        The brightness/saturate filter forces pure black on the gray logo
        so it prints crisp on thermal paper. */
@@ -1047,7 +1047,7 @@ export function LargeLabelSettingsCard({kind,config,upConfig,T,FS,isMob,showToas
   useEffect(()=>{setDirty(isDirty)},[isDirty]);/* eslint-disable-line */
   const update=(fn)=>setDraft(p=>{const n=JSON.parse(JSON.stringify(p));fn(n);return n});
   const handleSave=()=>{upConfig(d=>{if(!d.printSettings)d.printSettings={};d.printSettings[kind]=JSON.parse(draftJson)});showToast("✅ تم حفظ إعدادات الليبل")};
-  const handleDiscard=()=>{if(!confirm("إلغاء التعديلات؟"))return;setDraft(JSON.parse(savedJson))};
+  const handleDiscard=async ()=>{if(!await ask("إلغاء التعديلات", "هل تريد إلغاء التعديلات؟", {danger:true,confirmText:"إلغاء"}))return;setDraft(JSON.parse(savedJson))};
   const toggleField=(k)=>update(d=>{if(!d.fields[k])d.fields[k]={show:false};d.fields[k].show=!d.fields[k].show});
 
   return<Card title={title+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
@@ -1142,8 +1142,8 @@ export function SalesSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
     });
     showToast("✅ تم حفظ إعدادات المبيعات");
   };
-  const handleDiscard=()=>{
-    if(!confirm("سيتم إلغاء كل التعديلات غير المحفوظة. هل تريد المتابعة؟"))return;
+  const handleDiscard=async ()=>{
+    if(!await ask("إلغاء التعديلات", "سيتم إلغاء كل التعديلات غير المحفوظة. هل تريد المتابعة؟", {danger:true,confirmText:"إلغاء التعديلات"}))return;
     setDraft(buildSnapshot(savedSS));
     showToast("↩️ تم إلغاء التعديلات");
   };
@@ -1205,7 +1205,7 @@ function SecurityAlertsCard({config,upConfig,T,FS,showToast,Inp,Btn,Card,setDirt
   useEffect(()=>{setDirty(isDirty)},[isDirty]);/* eslint-disable-line */
   const upd=(fn)=>setDraft(p=>{const n={...p};fn(n);return n});
   const handleSave=()=>{upConfig(d=>{d.securitySettings=JSON.parse(draftJson)});showToast("✅ تم حفظ التنبيهات الأمنية")};
-  const handleDiscard=()=>{if(confirm("إلغاء التعديلات؟"))setDraft(JSON.parse(savedJson))};
+  const handleDiscard=()=>{ask("إلغاء التعديلات", "هل تريد إلغاء التعديلات؟", {danger:true,confirmText:"إلغاء"}).then(ok=>{if(ok)setDraft(JSON.parse(savedJson))})};
   const s=draft;
 
   return<Card title={"🛡️ إعدادات التنبيهات الأمنية"+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
@@ -1408,11 +1408,11 @@ export function WhatsappSummaryCard({config,upConfig,T,FS,isMob,showToast,Btn,Ca
   const isDirty = draftJson !== savedJson;
   useEffect(() => {setDirty(isDirty)}, [isDirty]);/* eslint-disable-line */
   const update = (fn) => setDraft(p => {const n = JSON.parse(JSON.stringify(p)); fn(n); return n});
-  const handleSave = () => {
+  const handleSave = async () => {
     upConfig(d => {if (!d.printSettings) d.printSettings = {}; d.printSettings.whatsappSummary = JSON.parse(draftJson)});
     showToast("✅ تم حفظ إعدادات ملخص الواتساب");
   };
-  const handleDiscard = () => {if (!confirm("إلغاء التعديلات؟")) return; setDraft(JSON.parse(savedJson))};
+  const handleDiscard = async () => {if (!await ask("إلغاء التعديلات", "هل تريد إلغاء التعديلات؟", {danger:true,confirmText:"إلغاء"})) return; setDraft(JSON.parse(savedJson))};
 
   /* Toggle helpers */
   const toggleEnabled = (kind) => update(d => {d[kind].enabled = !d[kind].enabled});
@@ -1477,7 +1477,7 @@ function PoSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Card,poMig
   useEffect(()=>{if(!isDirty)setDraft(JSON.parse(savedJson))},[savedJson]);/* eslint-disable-line */
   useEffect(()=>{setDirty(isDirty)},[isDirty]);/* eslint-disable-line */
   const handleSave=()=>{upConfig(d=>{d.poPrefix=draft.poPrefix;d.poDigits=draft.poDigits});showToast("✅ تم حفظ إعدادات PO")};
-  const handleDiscard=()=>{if(confirm("إلغاء التعديلات؟"))setDraft(JSON.parse(savedJson))};
+  const handleDiscard=()=>{ask("إلغاء التعديلات", "هل تريد إلغاء التعديلات؟", {danger:true,confirmText:"إلغاء"}).then(ok=>{if(ok)setDraft(JSON.parse(savedJson))})};
 
   return<Card title={"📋 إعدادات أمر التشغيل (PO)"+(isDirty?" ✨":"")} style={{marginBottom:12,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
     {isDirty?<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700}}>
@@ -1597,8 +1597,8 @@ function SeasonsCard({config,upConfig,T,FS,showToast,Inp,Btn,Card,requirePass,se
       showToast("✅ تم حفظ إعدادات المواسم");
     });
   };
-  const handleDiscard=()=>{
-    if(!confirm("إلغاء كل التعديلات؟"))return;
+  const handleDiscard=async ()=>{
+    if(!await ask("إلغاء كل التعديلات", "هل تريد إلغاء كل التعديلات؟", {danger:true,confirmText:"إلغاء الكل"}))return;
     setDraft(JSON.parse(savedJson));
     setPendingDeletes([]);
     setNewName("");
@@ -1655,8 +1655,8 @@ function LogoCard({config,upConfig,T,FS,showToast,Btn,Card,requirePass,compressI
     }catch(err){showToast("⛔ فشل معالجة الصورة")}
     finally{e.target.value=""}
   };
-  const handleRemove=()=>{
-    if(!confirm("هل تريد حذف اللوجو؟"))return;
+  const handleRemove=async ()=>{
+    if(!await ask("حذف اللوجو", "هل تريد حذف اللوجو؟", {danger:true,confirmText:"حذف"}))return;
     setDraftLogo("");
   };
   const handleSave=()=>{
@@ -1665,8 +1665,8 @@ function LogoCard({config,upConfig,T,FS,showToast,Btn,Card,requirePass,compressI
       showToast("✅ تم حفظ اللوجو");
     });
   };
-  const handleDiscard=()=>{
-    if(!confirm("إلغاء التعديلات على اللوجو؟"))return;
+  const handleDiscard=async ()=>{
+    if(!await ask("إلغاء التعديلات", "إلغاء التعديلات على اللوجو؟", {danger:true,confirmText:"إلغاء"}))return;
     setDraftLogo(savedLogo);
   };
   return<Card title={"لوجو المصنع"+(isDirty?" ✨":"")} style={{marginBottom:12,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
@@ -1748,8 +1748,8 @@ export function WaContactsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Car
     showToast("✅ تم حفظ جهات التواصل");
   };
   /* Discard: reset draft to saved */
-  const handleDiscard=()=>{
-    if(!confirm("سيتم إلغاء كل التعديلات غير المحفوظة. هل تريد المتابعة؟"))return;
+  const handleDiscard=async ()=>{
+    if(!await ask("إلغاء التعديلات", "سيتم إلغاء كل التعديلات غير المحفوظة. هل تريد المتابعة؟", {danger:true,confirmText:"إلغاء التعديلات"}))return;
     setDraftContacts(JSON.parse(JSON.stringify(savedContacts)));
     showToast("↩️ تم إلغاء التعديلات");
   };
@@ -1773,8 +1773,8 @@ export function WaContactsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Car
     showToast("✨ تمت الإضافة للمسودة — اضغط حفظ لتأكيد");
   };
   /* Delete from draft (not saved yet) */
-  const handleDelete=(idx,name)=>{
-    if(!confirm("حذف جهة «"+name+"» من المسودة؟"))return;
+  const handleDelete=async (idx,name)=>{
+    if(!await ask("حذف جهة", "حذف جهة «"+name+"» من المسودة؟", {danger:true,confirmText:"حذف"}))return;
     setDraftContacts(prev=>prev.filter((_,i)=>i!==idx));
     showToast("✨ تم الحذف من المسودة — اضغط حفظ لتأكيد");
   };
@@ -1976,7 +1976,7 @@ function StorageNoticesPanel(){
     let unsub=null;
     import("../utils/storageNotices.js").then(mod=>{
       if(!mounted)return;
-      const refresh=()=>{
+      const refresh=async ()=>{
         if(!mounted)return;
         setNotices(mod.getStorageNotices());
       };
@@ -1995,7 +1995,7 @@ function StorageNoticesPanel(){
     mod.clearSeenNotices();
   };
   const handleClearAll=async()=>{
-    if(!confirm("حذف كل الرسائل؟"))return;
+    if(!await ask("حذف الكل", "حذف كل الرسائل؟", {danger:true,confirmText:"حذف الكل"}))return;
     const mod=await import("../utils/storageNotices.js");
     mod.clearStorageNotices();
   };
@@ -3492,7 +3492,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
         const addUser=()=>{if(!atSelUser)return;const u=allUsers.find(x=>x.email===atSelUser);if(atUsers.some(x=>x.email===atSelUser)){showToast("⚠️ المستخدم مضاف بالفعل");return}
           upConfig(d=>{if(!d.autoTasks)d.autoTasks={enabled:true,users:[]};if(!d.autoTasks.users)d.autoTasks.users=[];d.autoTasks.users.push({email:atSelUser,name:u?.name||atSelUser.split("@")[0],rules:defaultRules()})});setAtSelUser("");showToast("✓ تم الإضافة")};
         const removeUser=(email)=>{upConfig(d=>{d.autoTasks.users=(d.autoTasks.users||[]).filter(x=>x.email!==email)});if(atEditIdx!==null)setAtEditIdx(null)};
-        const updateRule=(idx,ruleKey,field,val)=>{upConfig(d=>{const u=d.autoTasks.users[idx];if(!u)return;if(!u.rules)u.rules=defaultRules();if(!u.rules[ruleKey])u.rules[ruleKey]={enabled:true,days:5};u.rules[ruleKey][field]=val})};
+        const updateRule=async (idx,ruleKey,field,val)=>{upConfig(d=>{const u=d.autoTasks.users[idx];if(!u)return;if(!u.rules)u.rules=defaultRules();if(!u.rules[ruleKey])u.rules[ruleKey]={enabled:true,days:5};u.rules[ruleKey][field]=val})};
         return<div>
           <div style={{padding:10,background:T.warn+"10",border:"1px solid "+T.warn+"30",borderRadius:8,marginBottom:12,fontSize:FS-1,color:T.warn}}>
             ⚠️ البوت موقوف بشكل افتراضي لتجنب ضوضاء التنبيهات. لإعادة تفعيله، فعّل الخيارين التاليين معاً.

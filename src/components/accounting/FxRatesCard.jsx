@@ -17,6 +17,7 @@ import { useState, useMemo } from "react";
 import { Btn, Card, Inp, Sel } from "../ui.jsx";
 import { gid, fmt } from "../../utils/format.js";
 import { getCurrencies, getFunctionalCurrency, isMultiCurrencyEnabled } from "../../utils/accounting/currency.js";
+import { ask, tell } from "../../utils/popups.js";
 
 export function FxRatesCard({config, upConfig, T, FS, isMob, showToast, userName}){
   const [adding, setAdding]   = useState(false);
@@ -48,15 +49,22 @@ export function FxRatesCard({config, upConfig, T, FS, isMob, showToast, userName
   };
   const cancel = () => { setAdding(false); setEditing(null); };
 
-  const save = () => {
+  const save = async () => {
     if(!editing.currency || !editing.date || !editing.rate){
-      alert("⚠️ ادخل العملة والتاريخ وسعر الصرف");
+      await tell("بيانات ناقصة", "ادخل العملة والتاريخ وسعر الصرف", {danger:true});
       return;
     }
     const rate = Number(editing.rate);
     if(!rate || rate <= 0){
-      alert("⚠️ سعر الصرف يجب أن يكون أكبر من 0");
+      await tell("سعر غير صحيح", "سعر الصرف يجب أن يكون أكبر من 0", {danger:true});
       return;
+    }
+    /* Check for duplicate BEFORE entering upConfig (since ask() is async) */
+    if(!editing.id){
+      const dup = (config.fxRates || []).find(r => r.currency === editing.currency && r.date === editing.date);
+      if(dup){
+        if(!await ask("سعر موجود", "يوجد سعر صرف للعملة "+editing.currency+" بتاريخ "+editing.date+". تحديث؟", {confirmText:"تحديث"})) return;
+      }
     }
     upConfig(d => {
       if(!Array.isArray(d.fxRates)) d.fxRates = [];
@@ -65,10 +73,8 @@ export function FxRatesCard({config, upConfig, T, FS, isMob, showToast, userName
         const idx = d.fxRates.findIndex(r => r.id === editing.id);
         if(idx >= 0) d.fxRates[idx] = {...d.fxRates[idx], currency: editing.currency, date: editing.date, rate};
       } else {
-        /* check duplicate (currency, date) */
         const dup = d.fxRates.find(r => r.currency === editing.currency && r.date === editing.date);
         if(dup){
-          if(!confirm(`يوجد سعر صرف للعملة ${editing.currency} بتاريخ ${editing.date}. هل تريد التحديث؟`)) return;
           dup.rate = rate;
           dup.editedAt = new Date().toISOString();
           dup.editedBy = userName||"";
@@ -85,8 +91,8 @@ export function FxRatesCard({config, upConfig, T, FS, isMob, showToast, userName
     cancel();
   };
 
-  const remove = (rate) => {
-    if(!confirm(`حذف سعر صرف ${rate.currency} بتاريخ ${rate.date}؟`)) return;
+  const remove = async (rate) => {
+    if(!await ask("حذف سعر صرف", "حذف سعر صرف "+rate.currency+" بتاريخ "+rate.date+"؟", {danger:true, confirmText:"حذف"})) return;
     upConfig(d => {
       if(!Array.isArray(d.fxRates)) return;
       d.fxRates = d.fxRates.filter(r => r.id !== rate.id);

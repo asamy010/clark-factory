@@ -8,6 +8,7 @@ import { useState } from "react";
 import { Btn } from "../ui.jsx";
 import { reverseClosingEntry } from "../../utils/accounting/closingEntries.js";
 import { fmt } from "../../utils/format.js";
+import { ask, tell } from "../../utils/popups.js";
 
 export function ClosedPeriodsCard({closedPeriods, T, FS, isMob, upConfig, showToast, userName}){
   const [busyId, setBusyId] = useState(null);
@@ -17,11 +18,11 @@ export function ClosedPeriodsCard({closedPeriods, T, FS, isMob, upConfig, showTo
   const reversed = list.filter(p => p.reversedAt);
 
   const handleReverse = async (period) => {
-    if(!confirm(`سيتم إعادة فتح الفترة ${period.fromDate} → ${period.toDate}.\n\nالقيد العكسي سيُلغي إقفال الإيرادات والمصروفات ويعيد رصيد الأرباح المحتجزة لما كان عليه.\n\nاستمرار؟`)) return;
+    if(!await ask("إعادة فتح الفترة", "سيتم إعادة فتح الفترة "+period.fromDate+" → "+period.toDate+".\n\nالقيد العكسي سيُلغي إقفال الإيرادات والمصروفات ويعيد رصيد الأرباح المحتجزة لما كان عليه.\n\nاستمرار؟", {danger:true, confirmText:"إعادة فتح"})) return;
     setBusyId(period.id);
     try {
       const res = await reverseClosingEntry(period.fromDate, period.toDate, userName);
-      if(!res.reversed){ alert("⚠️ "+(res.reason||"لا يوجد قيد للعكس")); return; }
+      if(!res.reversed){ await tell("لا يوجد قيد للعكس", res.reason||"لا يوجد قيد للعكس", {danger:true}); return; }
       if(typeof upConfig === "function"){
         upConfig(d => {
           if(!Array.isArray(d.closedPeriods)) d.closedPeriods = [];
@@ -37,7 +38,7 @@ export function ClosedPeriodsCard({closedPeriods, T, FS, isMob, upConfig, showTo
       }
       showToast("✓ تم إعادة فتح الفترة");
     } catch(e){
-      alert("⚠️ فشل: "+(e.message||e));
+      await tell("فشل", e.message||String(e), {danger:true});
     } finally {
       setBusyId(null);
     }

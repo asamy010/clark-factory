@@ -6,7 +6,7 @@
    posted invoices.
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Btn, Card, Inp, Sel } from "../components/ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
@@ -246,7 +246,7 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
     {/* Invoice detail modal */}
     {activeInvoice && <InvoiceDetailModal
       invoice={activeInvoice} type="sales"
-      data={data}
+      data={data} upConfig={upConfig}
       onClose={() => setActiveInvoice(null)}
       onPost={handlePost} onVoid={handleVoid} onDelete={handleDelete}
       isMob={isMob}
@@ -256,9 +256,55 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
 
 /* ═══ Invoice Detail Modal ═══
    Used for both sales and purchase invoices (type prop). */
-export function InvoiceDetailModal({invoice, type, data, onClose, onPost, onVoid, onDelete, isMob}){
+export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPost, onVoid, onDelete, isMob}){
   const meta = STATUS_META[invoice.status] || STATUS_META.draft;
+  const isDraft = invoice.status === "draft";
   const isPurchase = type === "purchase";
+  /* V18.58: Free discount editor — local state, applied to invoice on change */
+  const [discountType, setDiscountType] = useState(invoice.discountType || (invoice.discountPct ? "pct" : "amount"));
+  const [discountValue, setDiscountValue] = useState(
+    invoice.discountType === "amount" ? invoice.discount :
+    (invoice.discountPct || 0)
+  );
+
+  /* Recompute totals from current discount inputs */
+  const computedDiscount = useMemo(() => {
+    const sub = Number(invoice.subtotal) || 0;
+    const v = Number(discountValue) || 0;
+    if(discountType === "pct"){
+      return Math.min(sub * v / 100, sub);/* clamp at subtotal */
+    } else {
+      return Math.min(v, sub);/* clamp at subtotal */
+    }
+  }, [invoice.subtotal, discountType, discountValue]);
+  const computedTotal = (Number(invoice.subtotal) || 0) - computedDiscount;
+
+  /* Save discount change back to the invoice (only when draft) */
+  const saveDiscountChange = () => {
+    if(!isDraft || !upConfig) return;
+    const listKey = isPurchase ? "purchaseInvoices" : "salesInvoices";
+    upConfig(d => {
+      if(!Array.isArray(d[listKey])) return;
+      const idx = d[listKey].findIndex(i => i.id === invoice.id);
+      if(idx < 0) return;
+      d[listKey][idx] = {
+        ...d[listKey][idx],
+        discountType,
+        discountValue: Number(discountValue) || 0,
+        discountPct: discountType === "pct" ? (Number(discountValue) || 0) : 0,
+        discount: computedDiscount,
+        total: computedTotal,
+      };
+    });
+  };
+  /* Apply on change with debounce-like effect */
+  useEffect(() => {
+    if(isDraft && upConfig){
+      const t = setTimeout(saveDiscountChange, 300);
+      return () => clearTimeout(t);
+    }
+  /* eslint-disable-next-line */
+  }, [discountType, discountValue]);
   const partyName = isPurchase ? invoice.supplierName : invoice.customerName;
 
   return <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.65)", zIndex:10001, display:"flex", alignItems:"center", justifyContent:"center", padding:16}} onClick={onClose}>
@@ -324,18 +370,31 @@ export function InvoiceDetailModal({invoice, type, data, onClose, onPost, onVoid
 
       {/* Totals */}
       <div style={{display:"flex", justifyContent:"flex-end", marginBottom:14}}>
-        <div style={{minWidth:280, padding:12, background:T.bg, borderRadius:8, border:"1px solid "+T.brd}}>
+        <div style={{minWidth:300, padding:12, background:T.bg, borderRadius:8, border:"1px solid "+T.brd}}>
           <div style={{display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:FS-1}}>
             <span style={{color:T.textSec}}>الإجمالي قبل الخصم</span>
             <span style={{fontWeight:700, direction:"ltr"}}>{fmt(invoice.subtotal.toFixed(2))}</span>
           </div>
-          {invoice.discount > 0 && <div style={{display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:FS-1, color:T.err}}>
-            <span>الخصم {invoice.discountPct?(`(${invoice.discountPct.toFixed(1)}%)`):""}</span>
+          {/* V18.58: Free discount editor (only editable on draft) */}
+          {isDraft && upConfig ? <div style={{padding:"6px 0", borderTop:"1px dashed "+T.brd, marginTop:6}}>
+            <div style={{fontSize:FS-3, color:T.textSec, fontWeight:600, marginBottom:4}}>الخصم</div>
+            <div style={{display:"flex", gap:6, alignItems:"center"}}>
+              <select value={discountType} onChange={e=>setDiscountType(e.target.value)} style={{padding:"4px 6px", fontSize:FS-2, borderRadius:6, border:"1px solid "+T.brd, background:T.cardSolid, color:T.text, fontFamily:"inherit"}}>
+                <option value="pct">%</option>
+                <option value="amount">ج.م</option>
+              </select>
+              <input type="number" value={discountValue} onChange={e=>setDiscountValue(e.target.value)}
+                style={{flex:1, padding:"4px 8px", fontSize:FS-1, borderRadius:6, border:"1px solid "+T.brd, background:T.cardSolid, color:T.text, fontFamily:"inherit", direction:"ltr", textAlign:"left"}}
+                placeholder="0"/>
+              <span style={{fontSize:FS-2, color:T.err, fontWeight:700, direction:"ltr", minWidth:80, textAlign:"left"}}>-{fmt(computedDiscount.toFixed(2))}</span>
+            </div>
+          </div> : (invoice.discount > 0 && <div style={{display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:FS-1, color:T.err}}>
+            <span>الخصم {invoice.discountType==="pct" && invoice.discountValue ? "("+Number(invoice.discountValue).toFixed(1)+"%)" : invoice.discountPct ? "("+invoice.discountPct.toFixed(1)+"%)" : ""}</span>
             <span style={{fontWeight:700, direction:"ltr"}}>-{fmt(invoice.discount.toFixed(2))}</span>
-          </div>}
+          </div>)}
           <div style={{display:"flex", justifyContent:"space-between", padding:"8px 0", fontSize:FS+2, borderTop:"2px solid "+T.brd, marginTop:6}}>
             <span style={{fontWeight:800, color:T.text}}>الإجمالي المستحق</span>
-            <span style={{fontWeight:800, color:T.accent, direction:"ltr"}}>{fmt(invoice.total.toFixed(2))}</span>
+            <span style={{fontWeight:800, color:T.accent, direction:"ltr"}}>{fmt((isDraft ? computedTotal : invoice.total).toFixed(2))}</span>
           </div>
         </div>
       </div>

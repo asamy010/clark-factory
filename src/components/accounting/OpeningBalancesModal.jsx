@@ -15,6 +15,7 @@ import {
   findOpeningBalance, extractBalancesFromEntry,
 } from "../../utils/accounting/openingBalances.js";
 import { fmt } from "../../utils/format.js";
+import { ask, tell } from "../../utils/popups.js";
 
 const TYPE_GROUPS = [
   {key:"asset",     title:"💰 الأصول",         subtitle:"الموجودات: نقدية، عملاء، مخزون، أصول ثابتة", color:"#0EA5E9"},
@@ -127,14 +128,14 @@ export function OpeningBalancesModal({coa, T, FS, isMob, onClose, showToast, use
       onClose();
     } catch(e){
       console.error(e);
-      alert("⚠️ فشل الحفظ:\n"+(e.message||e));
+      await tell("فشل الحفظ", e.message||String(e), {danger:true});
     } finally {
       setBusy(false);
     }
   };
 
   const handleClear = async () => {
-    if(!confirm("سيتم حذف الأرصدة الافتتاحية وعكس قيدها. متأكد؟")) return;
+    if(!await ask("حذف الأرصدة الافتتاحية", "سيتم حذف الأرصدة الافتتاحية وعكس قيدها. متأكد؟", {danger:true, confirmText:"حذف"})) return;
     setBusy(true);
     try {
       if(origDate) await reverseOpeningBalance(origDate, userName);
@@ -144,7 +145,7 @@ export function OpeningBalancesModal({coa, T, FS, isMob, onClose, showToast, use
       showToast("✓ تم حذف الأرصدة الافتتاحية");
       onClose();
     } catch(e){
-      alert("⚠️ فشل: "+(e.message||e));
+      await tell("فشل", e.message||String(e), {danger:true});
     } finally {
       setBusy(false);
     }

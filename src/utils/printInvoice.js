@@ -128,7 +128,7 @@ ${PRINT_CSS}
       <span style="direction:ltr;font-weight:700">${fmt2(invoice.subtotal)}</span>
     </div>
     ${(invoice.discount||0) > 0 ? `<div class="row disc">
-      <span>الخصم${invoice.discountPct ? ` (${invoice.discountPct.toFixed(1)}%)` : ""}</span>
+      <span>الخصم${invoice.discountType==="pct" && invoice.discountValue ? ` (${Number(invoice.discountValue).toFixed(1)}%)` : invoice.discountPct ? ` (${invoice.discountPct.toFixed(1)}%)` : ""}</span>
       <span style="direction:ltr;font-weight:700">- ${fmt2(invoice.discount)}</span>
     </div>` : ""}
     <div class="row total">

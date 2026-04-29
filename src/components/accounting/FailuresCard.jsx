@@ -8,6 +8,7 @@
 import { useState, useMemo } from "react";
 import { Btn, Card } from "../ui.jsx";
 import { retryFailure, retryAllFailures, dismissFailure, purgeResolvedFailures } from "../../utils/accounting/failureRetry.js";
+import { ask, tell } from "../../utils/popups.js";
 
 const TYPE_LABELS = {
   sale:                "بيع",
@@ -59,10 +60,10 @@ export function FailuresCard({config, upConfig, T, FS, isMob, showToast, userNam
     try {
       const r = await retryFailure(config, failure, userName);
       if(r.ok) showToast("✓ تم الترحيل بنجاح");
-      else if(!r.sourceFound) alert("⚠️ لا يمكن إعادة المحاولة — العملية الأصلية غير موجودة (ربما تم حذفها). اضغط 'تجاهل' لإزالتها من القائمة.");
-      else alert("⚠️ فشلت المحاولة:\n"+r.error);
+      else if(!r.sourceFound) await tell("لا يمكن إعادة المحاولة", "العملية الأصلية غير موجودة (ربما تم حذفها). اضغط 'تجاهل' لإزالتها من القائمة.", {danger:true});
+      else await tell("فشلت المحاولة", r.error, {danger:true});
     } catch(e){
-      alert("⚠️ خطأ: "+e.message);
+      await tell("خطأ", e.message, {danger:true});
     } finally {
       setRetryingId(null);
     }
@@ -70,7 +71,7 @@ export function FailuresCard({config, upConfig, T, FS, isMob, showToast, userNam
 
   const handleRetryAll = async () => {
     if(filtered.length === 0) return;
-    if(!confirm(`إعادة المحاولة لـ${filtered.length} عملية؟`)) return;
+    if(!await ask("إعادة المحاولة الجماعية", "إعادة المحاولة لـ"+filtered.length+" عملية؟", {confirmText:"إعادة المحاولة"})) return;
     setBulkRetryProgress({n:0, total:filtered.length, label:"بدء..."});
     try {
       /* Iterate manually so we can show progress */
@@ -84,22 +85,22 @@ export function FailuresCard({config, upConfig, T, FS, isMob, showToast, userNam
         } catch(e){ failed++; }
       }
       setBulkRetryProgress({n:filtered.length, total:filtered.length, label:"اكتمل"});
-      showToast(`✓ نجح ${succeeded} · فشل ${failed}`);
+      showToast("✓ نجح "+succeeded+" · فشل "+failed);
       setTimeout(() => setBulkRetryProgress(null), 1500);
     } catch(e){
-      alert("فشل: "+e.message);
+      await tell("فشل", e.message, {danger:true});
       setBulkRetryProgress(null);
     }
   };
 
-  const handleDismiss = (failure) => {
-    if(!confirm(`تجاهل هذا الخطأ؟\n\n${failure.errorMessage}\n\nسيُزال من القائمة لكن العملية الأصلية لن يكون لها قيد محاسبي.`)) return;
+  const handleDismiss = async (failure) => {
+    if(!await ask("تجاهل الخطأ", "تجاهل هذا الخطأ؟\n\n"+failure.errorMessage+"\n\nسيُزال من القائمة لكن العملية الأصلية لن يكون لها قيد محاسبي.", {danger:true, confirmText:"تجاهل"})) return;
     dismissFailure(upConfig, failure.id);
     showToast("✓ تم التجاهل");
   };
 
-  const handlePurge = () => {
-    if(!confirm("حذف كل الأخطاء المُحلولة من السجل نهائياً؟")) return;
+  const handlePurge = async () => {
+    if(!await ask("تنظيف السجل", "حذف كل الأخطاء المُحلولة من السجل نهائياً؟", {danger:true, confirmText:"حذف"})) return;
     purgeResolvedFailures(upConfig);
     showToast("✓ تم التنظيف");
   };

@@ -10,13 +10,14 @@ import { FS } from "../constants/index.js";
 import { gid, fmt, fmt0, r2, _esc, dayName, dayNameFull, openWA } from "../utils/format.js";
 import { playBeep } from "../utils/audio.js";
 import { addAudit } from "../utils/audit.js";
-import { showToast } from "../utils/popups.js";
+import { showToast, ask, tell } from "../utils/popups.js";
 import { pushUndo } from "../utils/undo.js";
 import { openPrintWindow } from "../utils/print.js";
 import { printCashReceipt, printCheckReceipt } from "../utils/print-extras.js";
 import { getReferences } from "../utils/dataIntegrity.js";
 import { Spinner, InlineLoading, Btn, Inp, Sel, SearchSel, Card, useDebounced } from "../components/ui.jsx";
 import { autoPost } from "../utils/accounting/autoPost.js";
+import { calculatePending, buildTxFromRule, getNextDueDate, describeRecurrence } from "../utils/recurring.js";
 import { T } from "../theme.js";
 import { db } from "../firebase";
 import { collection } from "firebase/firestore";
@@ -206,6 +207,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
      date field is preserved across opens and saves. Useful for back-entry of
      historical transactions. */
   const[stickyDate,setStickyDate]=useState(null);
+  /* V18.56: Recurring transactions state */
+  const[showRecurringModal,setShowRecurringModal]=useState(false);
+  const[editRecurringId,setEditRecurringId]=useState(null);
+  const[recForm,setRecForm]=useState({name:"",type:"out",amount:"",category:"",account:"MAIN CASH",description:"",notes:"",pattern:"monthly",dayOfMonth:1,dayOfWeek:0,startDate:new Date().toISOString().split("T")[0],endDate:"",active:true});
   /* V15.44: Date picker for top-level print/PDF/WhatsApp buttons — defaults to today but user can pick any day */
   const[printDate,setPrintDate]=useState(new Date().toISOString().split("T")[0]);
   const[txType,setTxType]=useState("in");
@@ -1081,7 +1086,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const closeBal=openBal+dIn-dOut;
     const scopeLabel=accountName||"كل الحسابات";
     const dayN=dayNameFull(date);
-    const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+    const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة وحاول مرة أخرى",{danger:true});return}
     w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>يومية ${scopeLabel} — ${date}</title>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet"/>
     <style>${_printStyles}</style></head><body style="padding:14px">
@@ -1126,7 +1131,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const sorted=[...txList].sort((a,b)=>(a.date||"").localeCompare(b.date||"")||(a.createdAt||"").localeCompare(b.createdAt||""));
     const tIn=sorted.filter(t=>t.type==="in").reduce((s,t)=>s+(Number(t.amount)||0),0);
     const tOut=sorted.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0);
-    const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+    const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة وحاول مرة أخرى",{danger:true});return}
     w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>تقرير حركات — ${sorted.length} حركة</title>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet"/>
     <style>${_printStyles}</style></head><body style="padding:14px">
@@ -1413,6 +1418,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         baseTabs.push({k:"journal",l:"📒 الكل"});
         baseTabs.push({k:"transfers",l:"🔄 التحويلات"+transferBadge});
         baseTabs.push({k:"checks",l:"📝 الشيكات"});
+        baseTabs.push({k:"recurring",l:"🔁 المتكررة"});
         baseTabs.push({k:"analysis",l:"📊 التحليل"});
         baseTabs.push({k:"accounts",l:"🏦 الحسابات"});
         return baseTabs.map(v=>
@@ -2570,6 +2576,292 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             </div>;
           })()}
         </div>})()}
+    </div>}
+
+    {/* ══ V18.56: RECURRING TRANSACTIONS VIEW ══ */}
+    {view==="recurring"&&(()=>{
+      const recurringList = data.recurringTreasury || [];
+      const pending = calculatePending(recurringList, today);
+      const totalPending = pending.reduce((s,p)=>s+p.dueDates.length, 0);
+      const allCategories = [...resolvedInCats, ...resolvedOutCats].filter((v,i,a)=>a.indexOf(v)===i);
+
+      const openCreate = () => {
+        setEditRecurringId(null);
+        setRecForm({name:"",type:"out",amount:"",category:"",account:"MAIN CASH",description:"",notes:"",pattern:"monthly",dayOfMonth:1,dayOfWeek:0,startDate:today,endDate:"",active:true});
+        setShowRecurringModal(true);
+      };
+      const openEdit = (r) => {
+        setEditRecurringId(r.id);
+        setRecForm({
+          name:r.name||"", type:r.type||"out", amount:String(r.amount||""),
+          category:r.category||"", account:r.account||"MAIN CASH",
+          description:r.description||"", notes:r.notes||"",
+          pattern:r.pattern||"monthly", dayOfMonth:r.dayOfMonth||1, dayOfWeek:r.dayOfWeek||0,
+          startDate:r.startDate||today, endDate:r.endDate||"", active:r.active!==false,
+        });
+        setShowRecurringModal(true);
+      };
+      const toggleActive = (r) => {
+        upConfig(d=>{
+          if(!Array.isArray(d.recurringTreasury))return;
+          const idx = d.recurringTreasury.findIndex(x=>x.id===r.id);
+          if(idx>=0) d.recurringTreasury[idx].active = !d.recurringTreasury[idx].active;
+        });
+        showToast(r.active?"⏸ تم إيقاف الجدولة":"▶ تم تفعيل الجدولة");
+      };
+      const deleteRule = async (r) => {
+        if(!await ask("حذف الجدولة","حذف الجدولة \""+r.name+"\"؟\n\nالحركات المُنشأة من قبلها لن تتأثر.",{danger:true,confirmText:"حذف"}))return;
+        upConfig(d=>{
+          if(!Array.isArray(d.recurringTreasury))return;
+          d.recurringTreasury = d.recurringTreasury.filter(x=>x.id!==r.id);
+        });
+        showToast("✓ تم الحذف");
+      };
+      const runPending = async () => {
+        if(totalPending===0){showToast("لا توجد حركات معلقة");return;}
+        if(!await ask("تنفيذ المستحقات","هل تريد إنشاء "+totalPending+" حركة معلقة؟",{confirmText:"تنفيذ"}))return;
+        let createdCount = 0;
+        const txsForAutoPost = [];
+        upConfig(d=>{
+          if(!Array.isArray(d.treasury)) d.treasury = [];
+          if(!Array.isArray(d.recurringTreasury)) d.recurringTreasury = [];
+          pending.forEach(({rule, dueDates})=>{
+            dueDates.forEach(due=>{
+              const tx = buildTxFromRule(rule, due, userName);
+              d.treasury.unshift(tx);
+              txsForAutoPost.push(tx);
+              createdCount++;
+            });
+            /* Update lastGeneratedDate to the latest due date */
+            const idx = d.recurringTreasury.findIndex(r=>r.id===rule.id);
+            if(idx>=0){
+              const latest = dueDates[dueDates.length-1];
+              d.recurringTreasury[idx].lastGeneratedDate = latest;
+              if(!Array.isArray(d.recurringTreasury[idx].generatedTxIds))
+                d.recurringTreasury[idx].generatedTxIds = [];
+              dueDates.forEach((_,i)=>{
+                d.recurringTreasury[idx].generatedTxIds.push(txsForAutoPost[txsForAutoPost.length-dueDates.length+i].id);
+              });
+            }
+          });
+        });
+        /* Fire autoPost for each created tx */
+        txsForAutoPost.forEach(tx=>{
+          autoPost.treasury(data, tx, userName).catch(e=>console.warn("[recurring autoPost]", e));
+        });
+        playBeep("done");
+        showToast("✓ تم إنشاء "+createdCount+" حركة من الجدولة");
+      };
+
+      return <div>
+        <Card title="🔁 الحركات المتكررة (الجدولة الذكية)">
+          <div style={{padding:12, borderBottom:"1px solid "+T.brd, background:T.bg}}>
+            <div style={{fontSize:FS-2, color:T.textSec, lineHeight:1.6}}>
+              💡 جدولة الحركات الدورية اللي بتتكرر يومياً/أسبوعياً/شهرياً (إيجار، مرتبات، اشتراكات).
+              النظام بيكتشف الحركات المعلقة ويعرضها هنا — اضغط "تنفيذ المستحقات" لإنشاء كل الحركات بضغطة واحدة.
+            </div>
+          </div>
+          {/* Pending banner */}
+          {totalPending>0 && <div style={{padding:14, background:T.warn+"08", borderBottom:"1px solid "+T.warn+"30", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:8}}>
+            <div>
+              <div style={{fontSize:FS, fontWeight:800, color:T.warn}}>⏰ {totalPending} حركة معلقة جاهزة للتنفيذ</div>
+              <div style={{fontSize:FS-2, color:T.textSec, marginTop:4}}>من {pending.length} جدولة نشطة</div>
+            </div>
+            {canEdit && <Btn primary onClick={runPending} style={{background:T.warn, color:"#fff", border:"none", fontWeight:800}}>▶ تنفيذ المستحقات الآن</Btn>}
+          </div>}
+
+          {/* Pending detail */}
+          {totalPending>0 && <div style={{padding:12, borderBottom:"1px solid "+T.brd}}>
+            <div style={{fontSize:FS-1, fontWeight:700, color:T.textSec, marginBottom:8}}>تفاصيل المستحقات:</div>
+            <div style={{display:"flex", flexDirection:"column", gap:6}}>
+              {pending.map(({rule, dueDates})=>
+                <div key={rule.id} style={{padding:"8px 12px", background:T.bg, borderRadius:8, fontSize:FS-1, display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, flexWrap:"wrap"}}>
+                  <div>
+                    <span style={{fontWeight:700, color:T.text}}>{rule.name}</span>
+                    <span style={{color:T.textMut, marginInlineStart:8}}>({rule.type==="in"?"وارد":"منصرف"} {fmt0(rule.amount)})</span>
+                  </div>
+                  <div style={{fontSize:FS-2, color:T.warn, fontWeight:600}}>
+                    {dueDates.length} مستحق: {dueDates.slice(0,3).join("، ")}{dueDates.length>3?"...":""}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>}
+
+          {/* Header + add button */}
+          <div style={{padding:12, display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:8}}>
+            <div style={{fontSize:FS, fontWeight:700, color:T.text}}>الجدولة المُعرَّفة ({recurringList.length})</div>
+            {canEdit && <Btn primary onClick={openCreate}>+ جدولة جديدة</Btn>}
+          </div>
+
+          {/* Rules list */}
+          {recurringList.length === 0
+            ? <div style={{padding:30, textAlign:"center", color:T.textMut, fontSize:FS-1}}>
+                💡 ما عندكش جدولة لسه. اضغط "جدولة جديدة" لإضافة أول حركة دورية.
+              </div>
+            : <div style={{padding:"0 12px 12px"}}>
+                <table style={{width:"100%", borderCollapse:"collapse", fontSize:FS-1}}>
+                  <thead>
+                    <tr style={{background:T.bg, borderBottom:"2px solid "+T.brd}}>
+                      <th style={{padding:"8px 10px", textAlign:"right", color:T.textSec, fontWeight:700, fontSize:FS-2}}>الاسم</th>
+                      <th style={{padding:"8px 10px", textAlign:"center", color:T.textSec, fontWeight:700, fontSize:FS-2}}>النوع</th>
+                      <th style={{padding:"8px 10px", textAlign:"center", color:T.textSec, fontWeight:700, fontSize:FS-2}}>المبلغ</th>
+                      <th style={{padding:"8px 10px", textAlign:"center", color:T.textSec, fontWeight:700, fontSize:FS-2}}>التكرار</th>
+                      <th style={{padding:"8px 10px", textAlign:"center", color:T.textSec, fontWeight:700, fontSize:FS-2}}>التالي</th>
+                      <th style={{padding:"8px 10px", textAlign:"center", color:T.textSec, fontWeight:700, fontSize:FS-2}}>آخر تنفيذ</th>
+                      <th style={{padding:"8px 10px", textAlign:"center", color:T.textSec, fontWeight:700, fontSize:FS-2}}>الحالة</th>
+                      <th style={{padding:"8px 10px", textAlign:"center", color:T.textSec, fontWeight:700, fontSize:FS-2}}>—</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recurringList.map(r=>{
+                      const next = getNextDueDate(r, today);
+                      return <tr key={r.id} style={{borderBottom:"1px solid "+T.brd, opacity:r.active===false?0.5:1}}>
+                        <td style={{padding:"8px 10px"}}>
+                          <div style={{fontWeight:700, color:T.text}}>{r.name}</div>
+                          {r.category && <div style={{fontSize:FS-3, color:T.textMut}}>{r.category}</div>}
+                        </td>
+                        <td style={{padding:"8px 10px", textAlign:"center"}}>
+                          <span style={{padding:"3px 8px", borderRadius:6, fontSize:FS-2, fontWeight:700, background:r.type==="in"?T.ok+"15":T.err+"15", color:r.type==="in"?T.ok:T.err}}>
+                            {r.type==="in"?"↓ وارد":"↑ منصرف"}
+                          </span>
+                        </td>
+                        <td style={{padding:"8px 10px", textAlign:"center", direction:"ltr", fontWeight:700}}>{fmt0(r.amount)}</td>
+                        <td style={{padding:"8px 10px", textAlign:"center", fontSize:FS-2, color:T.textSec}}>{describeRecurrence(r)}</td>
+                        <td style={{padding:"8px 10px", textAlign:"center", fontFamily:"monospace", fontSize:FS-2, color:next?T.accent:T.textMut}}>{next||"—"}</td>
+                        <td style={{padding:"8px 10px", textAlign:"center", fontFamily:"monospace", fontSize:FS-2, color:T.textMut}}>{r.lastGeneratedDate||"لم يُنفّذ"}</td>
+                        <td style={{padding:"8px 10px", textAlign:"center"}}>
+                          <span style={{padding:"3px 8px", borderRadius:6, fontSize:FS-2, fontWeight:700, background:r.active===false?T.textMut+"15":T.ok+"15", color:r.active===false?T.textMut:T.ok}}>
+                            {r.active===false?"موقوف":"نشط"}
+                          </span>
+                        </td>
+                        <td style={{padding:"8px 10px", textAlign:"center"}}>
+                          {canEdit && <div style={{display:"flex", gap:4, justifyContent:"center"}}>
+                            <span onClick={()=>toggleActive(r)} style={{cursor:"pointer", padding:"3px 8px", borderRadius:6, fontSize:FS-2, background:T.bg, color:T.textSec, border:"1px solid "+T.brd}} title={r.active===false?"تفعيل":"إيقاف"}>{r.active===false?"▶":"⏸"}</span>
+                            <span onClick={()=>openEdit(r)} style={{cursor:"pointer", padding:"3px 8px", borderRadius:6, fontSize:FS-2, background:T.bg, color:T.textSec, border:"1px solid "+T.brd}}>✏️</span>
+                            <span onClick={()=>deleteRule(r)} style={{cursor:"pointer", padding:"3px 8px", borderRadius:6, fontSize:FS-2, background:T.err+"12", color:T.err, border:"1px solid "+T.err+"30"}}>🗑️</span>
+                          </div>}
+                        </td>
+                      </tr>;
+                    })}
+                  </tbody>
+                </table>
+              </div>}
+        </Card>
+      </div>;
+    })()}
+
+    {/* ══ V18.56: Recurring Rule Modal ══ */}
+    {showRecurringModal && <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:99999, display:"flex", alignItems:"center", justifyContent:"center", padding:16, backdropFilter:"blur(4px)"}} onClick={()=>{setShowRecurringModal(false);setEditRecurringId(null)}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid, borderRadius:20, padding:24, width:"100%", maxWidth:600, maxHeight:"90vh", overflowY:"auto", border:"1px solid "+T.brd, boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16}}>
+          <div style={{fontSize:FS+2, fontWeight:800, color:T.accent}}>{editRecurringId?"✏️ تعديل جدولة":"🔁 جدولة جديدة"}</div>
+          <Btn ghost small onClick={()=>{setShowRecurringModal(false);setEditRecurringId(null)}}>✕</Btn>
+        </div>
+        <div style={{display:"grid", gridTemplateColumns:isMob?"1fr":"1fr 1fr", gap:12}}>
+          <div style={{gridColumn:isMob?"1":"1 / -1"}}>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>اسم الجدولة *</label>
+            <Inp value={recForm.name} onChange={v=>setRecForm({...recForm, name:v})} placeholder="مثال: إيجار المصنع، مرتب أحمد..."/>
+          </div>
+          <div style={{gridColumn:isMob?"1":"1 / -1"}}>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600}}>النوع</label>
+            <div style={{display:"flex", gap:6, marginTop:4}}>
+              <div onClick={()=>setRecForm({...recForm, type:"in"})} style={{flex:1, padding:"10px", borderRadius:10, textAlign:"center", cursor:"pointer", fontWeight:700, background:recForm.type==="in"?T.ok+"15":"transparent", border:"2px solid "+(recForm.type==="in"?T.ok:T.brd), color:recForm.type==="in"?T.ok:T.textSec}}>↓ وارد</div>
+              <div onClick={()=>setRecForm({...recForm, type:"out"})} style={{flex:1, padding:"10px", borderRadius:10, textAlign:"center", cursor:"pointer", fontWeight:700, background:recForm.type==="out"?T.err+"15":"transparent", border:"2px solid "+(recForm.type==="out"?T.err:T.brd), color:recForm.type==="out"?T.err:T.textSec}}>↑ منصرف</div>
+            </div>
+          </div>
+          <div>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>المبلغ *</label>
+            <Inp type="number" value={recForm.amount} onChange={v=>setRecForm({...recForm, amount:v})} placeholder="0.00"/>
+          </div>
+          <div>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>الحساب</label>
+            <Sel value={recForm.account} onChange={v=>setRecForm({...recForm, account:v})}>
+              {accounts.map(a=><option key={a} value={a}>{a}</option>)}
+            </Sel>
+          </div>
+          <div style={{gridColumn:isMob?"1":"1 / -1"}}>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>الفئة</label>
+            <SearchSel
+              value={recForm.category}
+              onChange={v=>setRecForm({...recForm, category:v})}
+              options={(recForm.type==="in"?resolvedInCats:resolvedOutCats).map(c=>({value:c, label:c}))}
+              maxResults={30} showAllOnFocus={true} placeholder="اكتب أو اختر..."/>
+          </div>
+          <div style={{gridColumn:isMob?"1":"1 / -1"}}>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>البيان</label>
+            <Inp value={recForm.description} onChange={v=>setRecForm({...recForm, description:v})} placeholder="وصف الحركة (اختياري)"/>
+          </div>
+          {/* Pattern selector */}
+          <div style={{gridColumn:isMob?"1":"1 / -1"}}>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600}}>نمط التكرار</label>
+            <div style={{display:"flex", gap:6, marginTop:4}}>
+              {[{k:"daily",l:"يومياً"},{k:"weekly",l:"أسبوعياً"},{k:"monthly",l:"شهرياً"}].map(p=>
+                <div key={p.k} onClick={()=>setRecForm({...recForm, pattern:p.k})} style={{flex:1, padding:"8px", borderRadius:8, textAlign:"center", cursor:"pointer", fontWeight:700, fontSize:FS-1, background:recForm.pattern===p.k?T.accent+"15":"transparent", border:"2px solid "+(recForm.pattern===p.k?T.accent:T.brd), color:recForm.pattern===p.k?T.accent:T.textSec}}>{p.l}</div>
+              )}
+            </div>
+          </div>
+          {recForm.pattern==="weekly" && <div style={{gridColumn:isMob?"1":"1 / -1"}}>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>يوم الأسبوع</label>
+            <Sel value={recForm.dayOfWeek} onChange={v=>setRecForm({...recForm, dayOfWeek:Number(v)})}>
+              <option value={0}>الأحد</option>
+              <option value={1}>الإثنين</option>
+              <option value={2}>الثلاثاء</option>
+              <option value={3}>الأربعاء</option>
+              <option value={4}>الخميس</option>
+              <option value={5}>الجمعة</option>
+              <option value={6}>السبت</option>
+            </Sel>
+          </div>}
+          {recForm.pattern==="monthly" && <div style={{gridColumn:isMob?"1":"1 / -1"}}>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>يوم من الشهر (1-28)</label>
+            <Inp type="number" value={recForm.dayOfMonth} onChange={v=>{const n=Math.min(Math.max(Number(v)||1,1),28);setRecForm({...recForm, dayOfMonth:n})}}/>
+          </div>}
+          <div>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>تاريخ البدء *</label>
+            <Inp type="date" value={recForm.startDate} onChange={v=>setRecForm({...recForm, startDate:v})}/>
+          </div>
+          <div>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>تاريخ الانتهاء (اختياري)</label>
+            <Inp type="date" value={recForm.endDate} onChange={v=>setRecForm({...recForm, endDate:v})}/>
+          </div>
+        </div>
+        <div style={{marginTop:16, display:"flex", gap:8, justifyContent:"flex-end"}}>
+          <Btn ghost onClick={()=>{setShowRecurringModal(false);setEditRecurringId(null)}}>إلغاء</Btn>
+          <Btn primary onClick={()=>{
+            if(!recForm.name.trim()){tell("بيانات ناقصة","اسم الجدولة مطلوب",{danger:true});return;}
+            if(!Number(recForm.amount)){tell("بيانات ناقصة","المبلغ مطلوب",{danger:true});return;}
+            if(!recForm.startDate){tell("بيانات ناقصة","تاريخ البدء مطلوب",{danger:true});return;}
+            const ruleData = {
+              name:recForm.name.trim(), type:recForm.type, amount:Number(recForm.amount),
+              category:recForm.category, account:recForm.account,
+              description:recForm.description, notes:recForm.notes,
+              pattern:recForm.pattern,
+              dayOfMonth:recForm.pattern==="monthly"?Number(recForm.dayOfMonth):undefined,
+              dayOfWeek: recForm.pattern==="weekly"?Number(recForm.dayOfWeek):undefined,
+              startDate:recForm.startDate, endDate:recForm.endDate||null,
+              active:recForm.active,
+            };
+            upConfig(d=>{
+              if(!Array.isArray(d.recurringTreasury)) d.recurringTreasury = [];
+              if(editRecurringId){
+                const idx = d.recurringTreasury.findIndex(r=>r.id===editRecurringId);
+                if(idx>=0) d.recurringTreasury[idx] = {...d.recurringTreasury[idx], ...ruleData};
+              } else {
+                d.recurringTreasury.push({
+                  id:gid(), ...ruleData,
+                  generatedTxIds:[],
+                  createdAt:new Date().toISOString(),
+                  createdBy:userName,
+                });
+              }
+            });
+            showToast(editRecurringId?"✓ تم التعديل":"✓ تم إنشاء الجدولة");
+            setShowRecurringModal(false);
+            setEditRecurringId(null);
+          }}>{editRecurringId?"💾 حفظ التعديل":"💾 حفظ الجدولة"}</Btn>
+        </div>
+      </div>
     </div>}
 
     {/* ══ ANALYSIS VIEW ══ */}

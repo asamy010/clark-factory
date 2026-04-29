@@ -11,6 +11,7 @@ import { JournalEntryModal } from "./JournalEntryModal.jsx";
 import { readDay, mutateDay, voidEntry, toDayId } from "../../utils/accounting/dayDoc.js";
 import { postManualEntry, postEntry, reverseEntry, buildRefNo } from "../../utils/accounting/posting.js";
 import { fmt, gid } from "../../utils/format.js";
+import { ask, tell } from "../../utils/popups.js";
 
 export function JournalTab({coa, config, T, FS, isMob, showToast, userName}){
   const today = new Date().toISOString().split("T")[0];
@@ -76,12 +77,12 @@ export function JournalTab({coa, config, T, FS, isMob, showToast, userName}){
       else loadDay(date);
     } catch(e){
       console.error(e);
-      alert("فشل الحفظ: "+(e.message||e));
+      await tell("فشل الحفظ", e.message||String(e), {danger:true});
     }
   };
 
   const handleVoid = async (entry) => {
-    if(!confirm(`إلغاء القيد ${entry.refNo}؟ هذا سينشئ قيداً عكسياً (لن يتم الحذف الفعلي)`)) return;
+    if(!await ask("إلغاء القيد", "إلغاء القيد "+entry.refNo+"؟\n\nسيتم إنشاء قيد عكسي (مش هيتم الحذف الفعلي).", {danger:true, confirmText:"إلغاء القيد"})) return;
     try {
       if(entry.sourceType && entry.sourceType !== "manual"){
         /* Auto-posted: use reverseEntry which preserves source link */
@@ -96,7 +97,7 @@ export function JournalTab({coa, config, T, FS, isMob, showToast, userName}){
       showToast("✓ تم الإلغاء");
       loadDay(date);
     } catch(e){
-      alert("فشل الإلغاء: "+(e.message||e));
+      await tell("فشل الإلغاء", e.message||String(e), {danger:true});
     }
   };
 

@@ -15,6 +15,7 @@ import { AccountSelector } from "./AccountSelector.jsx";
 import { gid, fmt } from "../../utils/format.js";
 import { validateLines } from "../../utils/accounting/posting.js";
 import { isDateLocked, getLockReason } from "../../utils/accounting/periodLock.js";
+import { tell } from "../../utils/popups.js";
 import {
   getCurrencies, getFunctionalCurrency, isMultiCurrencyEnabled,
   findFxRate, FUNCTIONAL_CURRENCY,
@@ -107,13 +108,13 @@ export function JournalEntryModal({existing, defaultDate, coa, config, onSave, o
     try {
       validateLines(lines, coa);
     } catch(e){
-      alert(e.message); return;
+      tell("القيد غير متوازن", e.message, {danger:true}); return;
     }
-    if(!date){ alert("اختر التاريخ"); return; }
+    if(!date){ tell("التاريخ مطلوب", "اختر تاريخ القيد قبل الحفظ", {danger:true}); return; }
     /* V18.54: Block save if date falls in a locked period or locked day */
     if(isDateLocked(date, config)){
       const reason = getLockReason(date, config) || "تاريخ مقفل";
-      alert("⛔ لا يمكن حفظ القيد:\n" + reason);
+      tell("⛔ لا يمكن حفظ القيد", reason, {danger:true});
       return;
     }
     /* Pass currency-aware lines through */

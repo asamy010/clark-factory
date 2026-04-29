@@ -21,6 +21,7 @@ import { TreasuryAccountsMapCard } from "./TreasuryAccountsMapCard.jsx";
 import { DEFAULT_POSTING_RULES, DEFAULT_CATEGORY_MAP } from "../../utils/accounting/coaDefaults.js";
 import { getAccountByCode } from "../../utils/accounting/coa.js";
 import { backfillAll } from "../../utils/accounting/backfill.js";
+import { ask, tell } from "../../utils/popups.js";
 
 /* Human-readable labels for posting rules */
 const RULE_LABELS = {
@@ -64,8 +65,8 @@ export function AccountingSettingsTab({config, upConfig, coa, T, FS, isMob, show
     });
   };
 
-  const resetRule = (ruleKey) => {
-    if(!confirm("استعادة الإعدادات الافتراضية لهذه القاعدة؟")) return;
+  const resetRule = async (ruleKey) => {
+    if(!await ask("استعادة الافتراضي", "استعادة الإعدادات الافتراضية لهذه القاعدة؟", {confirmText:"استعادة"})) return;
     upConfig(d => {
       if(d.accountingSettings && d.accountingSettings.rules){
         delete d.accountingSettings.rules[ruleKey];
@@ -84,10 +85,10 @@ export function AccountingSettingsTab({config, upConfig, coa, T, FS, isMob, show
 
   const runBackfill = async (dryRun) => {
     if(!coa || coa.length === 0){
-      alert("⚠️ شجرة الحسابات فارغة. ازرع الشجرة الافتراضية أولاً من تبويب 'شجرة الحسابات'.");
+      await tell("شجرة الحسابات فارغة", "ازرع الشجرة الافتراضية أولاً من تبويب 'شجرة الحسابات'.", {danger:true});
       return;
     }
-    if(!dryRun && !confirm("سيتم ترحيل كل القيود الأثرية للعمليات السابقة (مبيعات، دفعات، رواتب...). هذه العملية آمنة وقابلة للتكرار. استمرار؟")) return;
+    if(!dryRun && !await ask("ترحيل القيود الأثرية", "سيتم ترحيل كل القيود الأثرية للعمليات السابقة (مبيعات، دفعات، رواتب...). هذه العملية آمنة وقابلة للتكرار. استمرار؟", {confirmText:"استمرار"})) return;
     setBusy(true);
     setBackfillResult(null);
     setProgress({n:0, total:0, label:"بدء..."});
@@ -99,9 +100,9 @@ export function AccountingSettingsTab({config, upConfig, coa, T, FS, isMob, show
       });
       setBackfillResult({...res, dryRun});
       if(!res.aborted) showToast(dryRun ? "✅ معاينة الترحيل اكتملت" : "✅ اكتمل ترحيل القيود");
-      else alert("⚠️ "+res.reason);
+      else await tell("تم الإلغاء", res.reason, {danger:true});
     } catch(e){
-      alert("فشل الترحيل: "+(e.message||e));
+      await tell("فشل الترحيل", e.message||String(e), {danger:true});
     } finally {
       setBusy(false);
     }

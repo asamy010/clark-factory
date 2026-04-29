@@ -25,6 +25,74 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V18.59",
+    date: "2026-04-29",
+    types: ["improvement"],
+    title: "Custom Popups في باقي التطبيق (إعدادات، خزنة، تسليم، مخزن، مشتريات)",
+    changes: [
+      { type: "improvement", text: "🎨 9 ملفات إضافية محوّلة من نوافذ المتصفح (alert/confirm) إلى custom popups بـArabic + RTL + Cairo font" },
+      { type: "improvement", text: "⚙️ صفحة الإعدادات: 15 nation alert/confirm محوّل — كل تأكيدات إلغاء التعديلات + حذف اللوجو + حذف الجهات + حذف الرسائل" },
+      { type: "improvement", text: "💰 صفحة الخزنة: 7 dialogs محوّلة — حذف الجدولة المتكررة + تنفيذ المستحقات + التحقق من بيانات الجدولة + أخطاء الطباعة" },
+      { type: "improvement", text: "🚚 صفحة تسليم العملاء: 7 dialogs محوّلة — تحذير الـOCR للأرقام منخفضة الثقة + 5 أخطاء طباعة" },
+      { type: "improvement", text: "🏠 App.jsx (الواجهة الرئيسية): 5 dialogs محوّلة — تحذيرات تسليم الورشة + فشل الحفظ + أخطاء الطباعة" },
+      { type: "improvement", text: "📦 صفحات المخزن والمشتريات: 6 أخطاء طباعة محوّلة لـpopups موحدة" },
+      { type: "improvement", text: "📱 الواجهة المحمولة (MobileWarehouseShell): تأكيد الخروج بدون حفظ بقى popup أنيق بدلاً من window.confirm" },
+      { type: "improvement", text: "🔗 صفحات تأكيد التسليم العامة (ConfirmPage + WorkshopConfirmPage): أخطاء الإرسال بقت popups موحدة" },
+      { type: "improvement", text: "✅ النتيجة: تجربة موحّدة في كل التطبيق — مفيش نوافذ متصفح قبيحة في أي مكان (بقي فقط ~10 alerts في utils/print لأخطاء نادرة)" },
+    ]
+  },
+  {
+    version: "V18.58",
+    date: "2026-04-29",
+    types: ["feature"],
+    title: "الخصم الحر في الفواتير + إذن تسليم بدون أسعار",
+    changes: [
+      { type: "feature", text: "💰 خصم حر داخل فواتير المبيعات والمشتريات — قابل للتعديل في حالة المسودة فقط، يـoverride خصم العميل التلقائي" },
+      { type: "feature", text: "🔢 خياران للخصم: نسبة (%) أو مبلغ ثابت (ج.م) — يحسب الخصم النهائي تلقائياً ويحدّث الإجمالي مباشرة" },
+      { type: "feature", text: "💾 الحفظ تلقائي بعد 300ms من التعديل (debounce) — لا يحتاج زر حفظ منفصل، الخصم محفوظ مع الفاتورة" },
+      { type: "feature", text: "🛡️ القيد الذكي: الخصم لا يتجاوز إجمالي الفاتورة (clamping) — يمنع الأخطاء المحاسبية" },
+      { type: "feature", text: "📦 إذن تسليم بدون أسعار للمخزن والسائق — Toggle جديد في popup الطباعة المجمعة (☑ إذن تسليم بدون أسعار)" },
+      { type: "feature", text: "🚚 الـnoPrices mode بيخفي: عمود السعر، عمود الإجمالي، صف صافي العميل، الـtotals الكلية المالية — يبقى الموديل + الكمية + التوقيع فقط" },
+      { type: "feature", text: "📑 العنوان يتغير تلقائياً: 'إذن تسليم مخزن' بدلاً من 'إذن تسليم' لو الـnoPrices مفعّل — للتمييز الواضح" },
+      { type: "improvement", text: "🖨️ الطباعة (printInvoice.js) محدّثة لدعم الخصم الجديد: تعرض النسبة لو discountType=pct أو لا تعرضها لو amount" },
+      { type: "improvement", text: "🔒 الفاتورة المُرحّلة (posted) تعرض الخصم read-only — مفيش تعديل بعد الترحيل لحماية القيد المحاسبي" },
+    ]
+  },
+  {
+    version: "V18.57",
+    date: "2026-04-29",
+    types: ["improvement"],
+    title: "Custom Popups في صفحة المحاسبة (استبدال نوافذ المتصفح القبيحة)",
+    changes: [
+      { type: "improvement", text: "🎨 كل نوافذ confirm/alert في صفحة المحاسبة بقت popups احترافية بـCairo font + RTL + ألوان CLARK المتناسقة بدلاً من نوافذ المتصفح القبيحة" },
+      { type: "improvement", text: "📔 JournalTab: نافذة 'إلغاء القيد' ونوافذ الأخطاء (الصورة في تذكرة الإصلاح) بقوا custom popups" },
+      { type: "improvement", text: "✏️ JournalEntryModal: نوافذ التحقق من القيد (التاريخ، التوازن، فترة مقفلة) بقوا أنظف وأوضح" },
+      { type: "improvement", text: "💱 CurrenciesCard + FxRatesCard: حذف العملات وأسعار الصرف بقوا بـpopup أنيق مع زر 'حذف' بلون أحمر مميز" },
+      { type: "improvement", text: "⚠️ FailuresCard: 'إعادة المحاولة الجماعية'، 'تجاهل الخطأ'، 'تنظيف السجل' كلهم popups واضحة" },
+      { type: "improvement", text: "⚙️ AccountingSettingsTab: 'استعادة الافتراضي'، 'ترحيل القيود الأثرية'، التحقق من الشجرة كلهم popups" },
+      { type: "improvement", text: "🏦 OpeningBalancesModal + ClosedPeriodsCard + TreasuryAccountsMapCard: كل النوافذ موحدة الآن" },
+      { type: "improvement", text: "🚦 Pattern معتمد للمشروع: ask() للتأكيدات + tell() للأخطاء + showToast() للنجاح — قابل للتعميم على باقي الصفحات في الإصدارات الجاية" },
+    ]
+  },
+  {
+    version: "V18.56",
+    date: "2026-04-29",
+    types: ["feature"],
+    title: "الحركات المتكررة (Recurring Treasury)",
+    changes: [
+      { type: "feature", text: "🔁 تبويب جديد '🔁 المتكررة' في صفحة الخزنة — لجدولة الحركات الدورية: إيجار، مرتبات ثابتة، اشتراكات، صيانة دورية" },
+      { type: "feature", text: "📅 3 أنماط تكرار: يومياً / أسبوعياً (يوم محدد) / شهرياً (يوم محدد 1-28) — يغطي أكثر السيناريوهات الشائعة" },
+      { type: "feature", text: "⏰ كشف ذكي للمستحقات: النظام بيحسب تلقائياً كل الحركات اللي كان لازم تتعمل من آخر تنفيذ لحد اليوم — banner أصفر بيعرض العدد + تفاصيل كل واحدة" },
+      { type: "feature", text: "▶ زر 'تنفيذ المستحقات الآن' — بضغطة واحدة بيُنشئ كل الحركات المعلقة (مثلاً: 3 شهور إيجار لو نسيت تنفّذها) + يفتح القيد المحاسبي تلقائياً عبر autoPost.treasury" },
+      { type: "feature", text: "📋 جدول إدارة الجدولة: الاسم/النوع/المبلغ/التكرار/التالي/آخر تنفيذ/الحالة + أزرار تفعيل/إيقاف/تعديل/حذف" },
+      { type: "feature", text: "✏️ Modal إنشاء/تعديل: الاسم + النوع (وارد/منصرف) + المبلغ + الفئة (SearchSel) + الحساب + البيان + نمط التكرار + تواريخ البدء/الانتهاء" },
+      { type: "feature", text: "🛑 Range محدود اختيارياً: تقدر تحط 'تاريخ انتهاء' للجدولة (مثلاً عقد إيجار سنة كاملة) أو تتركه مفتوح" },
+      { type: "feature", text: "⏸ تعطيل بدون حذف: زر إيقاف يخلي الجدولة موجودة بس مش تنفّذ — مفيد للجدولة المؤقتة (إجازة موظف، انقطاع خدمة)" },
+      { type: "improvement", text: "🤖 الحركة المُنشأة من الجدولة بتاخد كل الـmetadata: recurringRuleId + recurringRuleName للـaudit trail" },
+      { type: "improvement", text: "💡 لما تضغط 'تنفيذ المستحقات'، النظام يحدّث lastGeneratedDate لأحدث تاريخ — بحيث المرة الجاية يبدأ من اليوم اللي بعده" },
+    ]
+  },
+  {
     version: "V18.55",
     date: "2026-04-29",
     types: ["feature", "fix"],
@@ -124,67 +192,6 @@ const CHANGELOG = [
       { type: "feature", text: "🚀 3 methods جدد في autoPost: salesInvoicePosted, purchaseInvoicePosted, invoiceVoided — كلهم يحفظوا postedJournalRef على الفاتورة بعد النجاح" },
       { type: "improvement", text: "🛡️ Backward compat 100%: الـtoggle الافتراضي معطّل — أي مستخدم سبق وفعّل V18.35-V18.49 ميلاحظش تغيير في السلوك" },
       { type: "improvement", text: "💡 المرتجعات (returns) لسه بتـauto-post من التسليم — هتنتقل للفاتورة في V18.51 (credit notes)" },
-    ]
-  },
-  {
-    version: "V18.49",
-    date: "2026-04-29",
-    types: ["feature"],
-    title: "نظام فواتير المبيعات والمشتريات — Phase 1",
-    changes: [
-      { type: "feature", text: "📤 تبويب جديد 'فواتير المبيعات' — قائمة بكل الفواتير + فلتر بالحالة (مسودة/مرحّل/ملغية) + فلتر بالعميل والتاريخ + بحث" },
-      { type: "feature", text: "📥 تبويب جديد 'فواتير المشتريات' — نفس الإمكانيات للموردين" },
-      { type: "feature", text: "🔢 ترقيم تلقائي للفواتير: INV-2026-0001 للمبيعات، PINV-2026-0001 للمشتريات (counter لكل سنة)" },
-      { type: "feature", text: "📊 4 stats cards في كل صفحة: الإجمالي + المسودة + المرحّل + الملغية مع المبالغ" },
-      { type: "feature", text: "🔄 Status workflow احترافي: Draft → Posted → Void مع timestamps + اسم المُنفّذ + سبب الإلغاء" },
-      { type: "feature", text: "➕ زر 'إنشاء فواتير من X تسليم/استلام' — تحويل جماعي لكل التسليمات/الاستلامات اللي ما لهاش فواتير لمسودات في ضغطة زر" },
-      { type: "feature", text: "🔗 زر 'تحويل لفاتورة' داخل عرض إذن الاستلام + badge 'مرتبطة بفاتورة' لو متربط" },
-      { type: "feature", text: "📋 modal تفاصيل فاتورة كامل: header + items table + totals + status timeline + actions (طباعة، ترحيل، إلغاء، حذف مسودة)" },
-      { type: "improvement", text: "💡 العلاقة 1:1 بين التسليم/الاستلام والفاتورة — كل تسليم له فاتورة منفصلة (بسيط ومرن)" },
-      { type: "improvement", text: "🛡️ Phase 1 = read-only layer: المحاسبة (auto-post) لسه شغالة من التسليم زي V18.48 — مفيش مخاطر على القيود الموجودة. الـrefactor المحاسبي للفاتورة في V18.50" },
-    ]
-  },
-  {
-    version: "V18.48",
-    date: "2026-04-29",
-    types: ["feature"],
-    title: "حذف بالقوة للأصناف العالقة (قماش، إكسسوار، منتجات عامة، أصناف مخزن)",
-    changes: [
-      { type: "feature", text: "⚠️ زر 'حذف بالقوة' بيظهر تلقائياً لما يحاول المستخدم يحذف صنف ومش قادر بسبب حركات مرتبطة" },
-      { type: "feature", text: "🧹 الحذف بالقوة بينظّف: العنصر نفسه (يتحفظ في سلة المحذوفات) + كل حركات المخزن المرتبطة + بنود إذونات الاستلام" },
-      { type: "feature", text: "📋 الـpopup بيعرض ملخص واضح قبل التأكيد: عدد الحركات اللي هتُحذف، الرصيد الحالي، الإيصالات المتأثرة" },
-      { type: "feature", text: "🛡️ Hard-block للسلامة: لو العنصر مُستخدم في أوردر فعلاً، الحذف بالقوة بيرفض حتى مع الإصرار — عشان ميكسرش حسابات الأوردرات" },
-      { type: "feature", text: "📑 إذونات الاستلام لا تُحذف بالكامل (audit trail) — يُحذف فقط البند المتعلق بالعنصر، ولو الإيصال بقى فاضي يتعلّم flag _orphaned للمراجعة" },
-      { type: "improvement", text: "🎯 ينطبق على 4 أنواع: قماش، إكسسوار، منتجات عامة، أصناف مخزن — في 3 أماكن (صفحة المخزن لكل نوع + صفحة المشتريات الموحدة)" },
-      { type: "improvement", text: "💡 تحذير واضح بالـpopup: 'لو فيه قيود محاسبية مرتبطة، راجع الترحيلات يدوياً' — لأن النظام مش بيعكس قيود تلقائياً" },
-    ]
-  },
-  {
-    version: "V18.47",
-    date: "2026-04-29",
-    types: ["improvement"],
-    title: "تسريع جذري لميزان المراجعة (29× أسرع للقراءة)",
-    changes: [
-      { type: "improvement", text: "🚀 ميزان المراجعة بقى يحمّل في ~500ms بدلاً من 5 ثواني — تحسين معماري في طريقة قراءة قيود الفترة" },
-      { type: "improvement", text: "📡 من 29 طلب شبكة إلى طلب واحد: استبدال parallel reads بـFirestore range query على documentId() — يرجع كل أيام الفترة في طلب واحد" },
-      { type: "improvement", text: "🎯 الأيام الفاضية لا تُطلب أصلاً (قبل: 29 طلب 30 منهم 404 = noise + بطء)" },
-      { type: "improvement", text: "📊 ينطبق على: ميزان المراجعة، القوائم المالية (دخل/مركز/تدفقات)، كشف حساب طرف، أستاذ الحساب، الـpreload في صفحة المحاسبة" },
-      { type: "improvement", text: "🛡️ Fallback آمن: لو الـrange query فشلت لأي سبب، النظام يرجع للطريقة القديمة تلقائياً (resilience)" },
-      { type: "improvement", text: "💰 توفير في الـcost: Firestore بيحاسب على عدد الـreads — تخفيض 30:1 = توفير حقيقي للحسابات الكبيرة" },
-    ]
-  },
-  {
-    version: "V18.46",
-    date: "2026-04-29",
-    types: ["feature"],
-    title: "تحكم في إظهار/إخفاء أدوات Odoo",
-    changes: [
-      { type: "feature", text: "🔘 toggle جديد في 'الإعدادات → ربط Odoo' للتحكم في إظهار كل أدوات Odoo في النظام" },
-      { type: "feature", text: "👁️ لما يتفعّل: تظهر إعدادات Odoo + روابط Odoo في الـtopbar (ديسكتوب وموبايل) + زر 'تزامن Odoo' في صفحة الخزنة" },
-      { type: "feature", text: "🚫 لما يتعطّل: كل أدوات Odoo تختفي من الواجهة — الـsetup card، روابط Odoo، زر التزامن، نافذة التزامن" },
-      { type: "improvement", text: "💾 الإعدادات المحفوظة (URL, API keys, mappings, links) لا تتأثر بالـtoggle — تفعّل تاني تلاقي كل حاجة زي ما هي" },
-      { type: "improvement", text: "🛡️ Backward compat: الافتراضي 'مُفعَّل' (true) عشان أي مستخدم سبق وفعّل ميلاحظش اختفاء أي حاجة بعد التحديث" },
-      { type: "improvement", text: "🎯 الـtoggle موضوع في أعلى كارد إعدادات Odoo — حتى لو الأداة معطلة، يظهر الـtoggle لإعادة التفعيل بدون البحث في مكان تاني" },
     ]
   },
 ];
