@@ -15,7 +15,7 @@ import { pushUndo } from "../utils/undo.js";
 import { openPrintWindow } from "../utils/print.js";
 import { printCashReceipt, printCheckReceipt } from "../utils/print-extras.js";
 import { getReferences } from "../utils/dataIntegrity.js";
-import { Spinner, InlineLoading, Btn, Inp, Sel, Card, useDebounced } from "../components/ui.jsx";
+import { Spinner, InlineLoading, Btn, Inp, Sel, SearchSel, Card, useDebounced } from "../components/ui.jsx";
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { T } from "../theme.js";
 import { db } from "../firebase";
@@ -197,6 +197,15 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const transfers=(data.treasuryTransfers||[]);
   const notifications=(data.notifications||[]);
   const[showForm,setShowForm]=useState(false);
+  /* V18.52: Sticky category mode for batch entries.
+     null = off; { category, type, count, total } = active.
+     When set, after save the form auto-reopens with category+type pre-filled
+     and count is decremented. Stops when count reaches 0 or user disables. */
+  const[stickyMode,setStickyMode]=useState(null);
+  /* V18.53: Sticky date — independent of stickyMode. When non-null, the form's
+     date field is preserved across opens and saves. Useful for back-entry of
+     historical transactions. */
+  const[stickyDate,setStickyDate]=useState(null);
   /* V15.44: Date picker for top-level print/PDF/WhatsApp buttons — defaults to today but user can pick any day */
   const[printDate,setPrintDate]=useState(new Date().toISOString().split("T")[0]);
   const[txType,setTxType]=useState("in");
@@ -644,7 +653,29 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     if(_newBaseEntry && !_newBaseEntry.sourceType){
       autoPost.treasury(data, _newBaseEntry, userName).catch(()=>{});
     }
-    setShowForm(false);setTxAmount("");setTxDesc("");setTxNotes("");setTxCategory("");setTxType("in");setTxPartyId("");setTxPartyType("");setEditId(null);showToast("✓ تم الحفظ")};
+    /* V18.52: Sticky mode — keep form open for next entry with same category */
+    if(stickyMode && stickyMode.count > 1 && !editId){
+      /* Decrement counter, keep form open with category + type preserved */
+      const newCount = stickyMode.count - 1;
+      setStickyMode({...stickyMode, count: newCount});
+      /* Reset only amount/desc/notes/party — keep category and type */
+      setTxAmount("");setTxDesc("");setTxNotes("");setTxPartyId("");setTxPartyType("");
+      /* Re-apply party type derived from sticky category */
+      if(stickyMode.category==="دفعة عميل")setTxPartyType("customer");
+      else if(stickyMode.category==="دفعة مورد")setTxPartyType("supplier");
+      else if(stickyMode.category==="تشغيل خارجي")setTxPartyType("workshop");
+      else if(stickyMode.category==="مرتبات")setTxPartyType("employee");
+      showToast("✓ حُفظ — متبقي "+newCount+" حركة");
+      return;
+    }
+    /* If sticky finished, clear the mode */
+    if(stickyMode && stickyMode.count <= 1){
+      setStickyMode(null);
+      showToast("✓ تم الحفظ — انتهى وضع التكرار");
+    } else {
+      showToast("✓ تم الحفظ");
+    }
+    setShowForm(false);setTxAmount("");setTxDesc("");setTxNotes("");setTxCategory("");setTxType("in");setTxPartyId("");setTxPartyType("");setEditId(null);};
   /* Detect treasury entries that were auto-created from an external source
      (salary approval, check collection/payment, advance, transfer, workshop payment).
      These entries should NOT be directly deletable from treasury — go to source. */
@@ -1444,7 +1475,25 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           </div>
         </Card>})()}
       {canEdit&&<div style={{marginBottom:14,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-        <Btn primary onClick={()=>{setEditId(null);setTxType("out");setTxAmount("");setTxDesc("");setTxNotes("");setTxCategory("");setTxAccount(view.startsWith("acc_")?(accountsData.find(a=>a.id===view.slice(4))?.name||"SUB CASH"):"SUB CASH");setTxSeason(data.activeSeason||"");setTxDate(today);setTxPartyId("");setTxPartyType("");setShowForm(!showForm)}}>{showForm?"✕ إغلاق":"+ حركة جديدة"}</Btn>
+        <Btn primary onClick={()=>{
+          setEditId(null);
+          /* V18.52: Honor sticky mode when re-opening — preserve category + type */
+          if(stickyMode && !showForm){
+            setTxType(stickyMode.type);
+            setTxCategory(stickyMode.category);
+            /* Restore party type derived from category */
+            if(stickyMode.category==="دفعة عميل")setTxPartyType("customer");
+            else if(stickyMode.category==="دفعة مورد")setTxPartyType("supplier");
+            else if(stickyMode.category==="تشغيل خارجي")setTxPartyType("workshop");
+            else if(stickyMode.category==="مرتبات")setTxPartyType("employee");
+            else setTxPartyType("");
+          } else {
+            setTxType("out");
+            setTxCategory("");
+            setTxPartyType("");
+          }
+          setTxAmount("");setTxDesc("");setTxNotes("");setTxAccount(view.startsWith("acc_")?(accountsData.find(a=>a.id===view.slice(4))?.name||"SUB CASH"):"SUB CASH");setTxSeason(data.activeSeason||"");setTxDate(stickyDate||today);setTxPartyId("");setShowForm(!showForm)
+        }}>{showForm?"✕ إغلاق":"+ حركة جديدة"}</Btn>
         {accountsData.length>=2&&<Btn onClick={()=>{setTfDate(new Date().toISOString().split("T")[0]);setShowTransfer(true)}} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700}}>🔄 تحويل بين الخزن</Btn>}
         {/* V18.46: gated by master Odoo toggle */}
         {(data.odooEnabled !== false) && (data.odooSettings||{}).url&&<Btn onClick={openOdooSyncPopup} disabled={odooSyncing} style={{background:"#71486712",color:"#714867",border:"1px solid #71486730",fontWeight:700}}>{odooSyncing?<span style={{display:"inline-flex",alignItems:"center",gap:8}}><Spinner size="small" color="#714867" inline/>جاري التزامن...</span>:"🔗 تزامن Odoo"}</Btn>}
@@ -1622,18 +1671,54 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{editId?"✏️ تعديل حركة":"+ حركة جديدة"}</div>
             <Btn ghost small onClick={()=>{setShowForm(false);setEditId(null)}}>✕</Btn>
           </div>
+          {/* V18.52: Sticky mode banner */}
+          {stickyMode && !editId && <div style={{padding:"10px 14px",borderRadius:10,background:T.accent+"08",border:"2px solid "+T.accent+"40",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+            <div style={{fontSize:FS-1,fontWeight:700,color:T.accent}}>
+              📌 وضع التكرار: متبقي <b style={{fontSize:FS+2}}>{stickyMode.count}</b> حركة من فئة <b>"{stickyMode.category}"</b> ({stickyMode.type==="in"?"وارد":"منصرف"})
+            </div>
+            <span onClick={()=>{setStickyMode(null);showToast("✓ تم إيقاف التكرار")}} style={{cursor:"pointer",fontSize:FS-2,color:T.warn,padding:"4px 10px",borderRadius:6,background:T.warn+"15",border:"1px solid "+T.warn+"40",fontWeight:700}}>⏸ إيقاف</span>
+          </div>}
+          {/* V18.53: Sticky date banner */}
+          {stickyDate && !editId && <div style={{padding:"8px 14px",borderRadius:10,background:"#8B5CF608",border:"2px solid #8B5CF640",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+            <div style={{fontSize:FS-1,fontWeight:700,color:"#8B5CF6"}}>
+              📅 التاريخ مثبّت على <b style={{fontFamily:"monospace",fontSize:FS}}>{stickyDate}</b> — كل الحركات الجاية هتاخد نفس التاريخ
+            </div>
+            <span onClick={()=>{setStickyDate(null);showToast("✓ تم إلغاء تثبيت التاريخ")}} style={{cursor:"pointer",fontSize:FS-2,color:T.warn,padding:"4px 10px",borderRadius:6,background:T.warn+"15",border:"1px solid "+T.warn+"40",fontWeight:700}}>إلغاء</span>
+          </div>}
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12}}>
           <div style={{gridColumn:isMob?"1":"1 / -1"}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label><div style={{display:"flex",gap:6,marginTop:4}}>
             <div onClick={()=>setTxType("in")} style={{flex:1,padding:"12px 0",borderRadius:10,textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:txType==="in"?T.ok+"15":"transparent",border:"2px solid "+(txType==="in"?T.ok:T.brd),color:txType==="in"?T.ok:T.textSec}}>↓ وارد</div>
             <div onClick={()=>setTxType("out")} style={{flex:1,padding:"12px 0",borderRadius:10,textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:txType==="out"?T.err+"15":"transparent",border:"2px solid "+(txType==="out"?T.err:T.brd),color:txType==="out"?T.err:T.textSec}}>↑ منصرف</div>
           </div></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المبلغ</label><Inp type="number" value={txAmount} onChange={setTxAmount} placeholder="0.00"/></div>
-          <div style={{gridColumn:"1 / -1"}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع الحركة</label><Sel value={txCategory} onChange={v=>{setTxCategory(v);setTxPartyId("");setTxPartyType("");setPartySearch("");
-            if(v==="دفعة عميل")setTxPartyType("customer");
-            else if(v==="دفعة مورد")setTxPartyType("supplier");
-            else if(v==="تشغيل خارجي")setTxPartyType("workshop");
-            else if(v==="مرتبات")setTxPartyType("employee");
-          }}><option value="">— اختر —</option>{(txType==="in"?resolvedInCats:resolvedOutCats).map(c=><option key={c} value={c}>{c}</option>)}</Sel>
+          <div style={{gridColumn:"1 / -1"}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span>نوع الحركة</span>
+            {/* V18.52: Sticky mode toggle — repeats this category for N entries */}
+            {!stickyMode && txCategory && <span onClick={async()=>{
+              const inputStr=prompt("كم حركة جاية تريد تكرار فئة \""+txCategory+"\" فيها؟",  "5");
+              const n=parseInt(inputStr,10);
+              if(!isNaN(n)&&n>1){
+                setStickyMode({category:txCategory, type:txType, count:n, total:n});
+                showToast("📌 تم تفعيل التكرار: "+n+" حركة جاية بفئة "+txCategory);
+              }
+            }} style={{cursor:"pointer",fontSize:FS-3,color:T.accent,padding:"2px 8px",borderRadius:6,background:T.accent+"08",border:"1px solid "+T.accent+"30",fontWeight:700}} title="تفعيل وضع التكرار للحركات الجاية بنفس الفئة">🔁 تكرار</span>}
+            {stickyMode && <span onClick={()=>{
+              setStickyMode(null);
+              showToast("✓ تم إيقاف التكرار");
+            }} style={{cursor:"pointer",fontSize:FS-3,color:T.warn,padding:"2px 8px",borderRadius:6,background:T.warn+"15",border:"1px solid "+T.warn+"40",fontWeight:700}} title="إيقاف وضع التكرار">⏸ إيقاف ({stickyMode.count})</span>}
+          </label>
+          <SearchSel
+            value={txCategory}
+            onChange={v=>{setTxCategory(v);setTxPartyId("");setTxPartyType("");setPartySearch("");
+              if(v==="دفعة عميل")setTxPartyType("customer");
+              else if(v==="دفعة مورد")setTxPartyType("supplier");
+              else if(v==="تشغيل خارجي")setTxPartyType("workshop");
+              else if(v==="مرتبات")setTxPartyType("employee");
+            }}
+            options={(txType==="in"?resolvedInCats:resolvedOutCats).map(c=>({value:c,label:c}))}
+            maxResults={30}
+            showAllOnFocus={true}
+            placeholder="اكتب أو اختر..."/></div>
           {txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفعة مورد"||txCategory==="تشغيل خارجي"||txCategory==="مرتبات")&&(()=>{const list=txPartyType==="customer"?customers:txPartyType==="supplier"?suppliers:txPartyType==="employee"?(data.employees||[]).filter(e=>!e.inactive):workshops;const p=list.find(x=>x.id===txPartyId||x.name===txPartyId);if(!p)return null;
             const icon=txPartyType==="customer"?"🧑 العميل:":txPartyType==="supplier"?"🏭 المورد:":txPartyType==="employee"?"👷 الموظف:":"🔧 الورشة:";
             return<div style={{padding:"6px 10px",borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"30",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,marginTop:6}}>
@@ -1667,7 +1752,18 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>حساب جاري</label><Sel value={txAccount} onChange={setTxAccount}>{accounts.map(a=><option key={a} value={a}>{a}</option>)}</Sel></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>بيان</label><Inp value={txDesc} onChange={setTxDesc} placeholder="وصف الحركة"/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات</label><Inp value={txNotes} onChange={setTxNotes} placeholder="ملاحظات إضافية"/></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>التاريخ</label><Inp type="date" value={txDate} onChange={setTxDate}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span>التاريخ</span>
+            {/* V18.53: Sticky date toggle for back-entry of historical transactions */}
+            {!stickyDate && txDate && txDate!==today && <span onClick={()=>{
+              setStickyDate(txDate);
+              showToast("📅 تم تثبيت التاريخ على "+txDate);
+            }} style={{cursor:"pointer",fontSize:FS-3,color:T.accent,padding:"2px 8px",borderRadius:6,background:T.accent+"08",border:"1px solid "+T.accent+"30",fontWeight:700}} title="تثبيت التاريخ للحركات الجاية">📌 تثبيت</span>}
+            {stickyDate && <span onClick={()=>{
+              setStickyDate(null);
+              showToast("✓ تم إلغاء تثبيت التاريخ");
+            }} style={{cursor:"pointer",fontSize:FS-3,color:T.warn,padding:"2px 8px",borderRadius:6,background:T.warn+"15",border:"1px solid "+T.warn+"40",fontWeight:700}} title="إلغاء تثبيت التاريخ">📅 مثبّت ✕</span>}
+          </label><Inp type="date" value={txDate} onChange={setTxDate}/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الموسم</label><Inp value={txSeason} onChange={setTxSeason} placeholder={data.activeSeason||"W26"}/></div>
         </div>
         <div style={{marginTop:16,display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>{setShowForm(false);setEditId(null)}}>إلغاء</Btn><Btn primary onClick={saveTx}>{editId?"💾 حفظ التعديل":"💾 حفظ"}</Btn></div>

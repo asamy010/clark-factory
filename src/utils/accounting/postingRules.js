@@ -595,3 +595,73 @@ export function buildInvoiceVoidEntry(originalEntry, invoice){
     voidsEntry: originalEntry.id || null,
   };
 }
+
+/* V18.51 — Build a journal entry from a CREDIT NOTE transitioning to "posted".
+   Credit note = sale return: Dr مرتجع المبيعات / Cr عملاء (reverse of sale).
+   Plus COGS reversal: Dr مخزون منتج تام / Cr COGS. */
+export function buildCreditNotePostedEntry(creditNote, customer, order, coa, rules){
+  if(!creditNote || creditNote.status !== "posted") return null;
+  const r = resolveRules(rules);
+  const gross = _r2(Number(creditNote.subtotal)||0);
+  const disc  = _r2(Number(creditNote.discount)||0);
+  const net   = _r2(Number(creditNote.total)||0);
+  if(net <= 0 && gross <= 0) return null;
+
+  const ar = ensureLeaf(coa, r.saleReturn.customerAccount, "العملاء");
+  const rt = ensureLeaf(coa, r.saleReturn.returnAccount,   "مرتجع المبيعات");
+  const date = creditNote.date || new Date().toISOString().split("T")[0];
+
+  const itemSummary = (creditNote.items||[]).slice(0,2).map(it =>
+    `${it.qty} × ${it.modelNo||"—"}`).join("، ");
+
+  return {
+    date,
+    sourceType: "creditNote",
+    sourceId: creditNote.id,
+    narration: `إشعار دائن ${creditNote.creditNoteNo} للعميل ${creditNote.customerName||""}`,
+    lines: [
+      {accountId:rt.id, accountCode:rt.code, accountName:rt.name, debit:net, credit:0,
+       note: `مرتجع — ${itemSummary}`},
+      {accountId:ar.id, accountCode:ar.code, accountName:ar.name, debit:0, credit:net,
+       partyId:customer?.id||creditNote.customerId, partyName:customer?.name||creditNote.customerName,
+       note:`إشعار دائن ${creditNote.creditNoteNo}`},
+    ],
+    partyHint: {kind:"customer", id:customer?.id||creditNote.customerId, name:customer?.name||creditNote.customerName},
+  };
+}
+
+/* COGS reversal companion for a credit note */
+export function buildCreditNoteCogsEntry(creditNote, order, coa, rules, config){
+  if(!creditNote || creditNote.status !== "posted") return null;
+  if(!order) return null;
+  const accSettings = (config||{}).accountingSettings||{};
+  if(accSettings.cogsEnabled === false) return null;
+  const r = resolveRules(rules);
+
+  let totalCost = 0;
+  (creditNote.items||[]).forEach(it => {
+    const qty = Number(it.qty)||0;
+    const perPiece = Number(order.costPrice) || 0;
+    totalCost += qty * perPiece;
+  });
+  totalCost = _r2(totalCost);
+  if(totalCost <= 0) return null;
+
+  /* Reverse direction: Dr inventory / Cr COGS */
+  const cogs = ensureLeaf(coa, r.saleCogs?.cogsAccount || "5100", "تكلفة البضاعة المباعة");
+  const inv  = ensureLeaf(coa, r.saleCogs?.inventoryAccount || "1320", "مخزون منتج تام");
+  const date = creditNote.date || new Date().toISOString().split("T")[0];
+
+  return {
+    date,
+    sourceType: "creditNoteCogs",
+    sourceId: creditNote.id + "#cogs",
+    narration: `إرجاع تكلفة البضاعة — إشعار ${creditNote.creditNoteNo}`,
+    lines: [
+      {accountId:inv.id, accountCode:inv.code, accountName:inv.name, debit:totalCost, credit:0,
+       note:`دخول بضاعة من إرجاع ${creditNote.creditNoteNo}`},
+      {accountId:cogs.id, accountCode:cogs.code, accountName:cogs.name, debit:0, credit:totalCost,
+       note:`إرجاع COGS إشعار ${creditNote.creditNoteNo}`},
+    ],
+  };
+}

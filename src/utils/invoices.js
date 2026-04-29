@@ -234,3 +234,161 @@ export function getInvoiceStats(data, type, filter){
   });
   return stats;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V18.51 — CREDIT NOTES (مرتجع المبيعات كـentity منفصل)
+   ───────────────────────────────────────────────────────────────────────
+   Schema:
+     data.salesCreditNotes = [{
+       id, creditNoteNo: "CN-2026-0001",
+       customerId, customerName, date,
+       linkedInvoiceId?: string,        // الفاتورة الأصلية (اختياري)
+       returnRef: { orderId, custId, _key },
+       items: [...],
+       subtotal, discountPct, discount, total,
+       status: "draft" | "posted" | "void",
+       postedAt?, postedBy?, voidedAt?, voidedBy?,
+       postedJournalRef?: { date, entryId, refNo },
+       notes, createdAt, createdBy,
+     }]
+     data.invoiceCounters.creditNotes = { 2026: N }
+   ═══════════════════════════════════════════════════════════════════════ */
+
+const CREDIT_NOTE_PREFIX = "CN";
+
+/* Reserve next credit note number. Pass into upConfig as mutator. */
+export function reserveCreditNoteNo(d){
+  if(!d.invoiceCounters) d.invoiceCounters = {};
+  if(!d.invoiceCounters.creditNotes) d.invoiceCounters.creditNotes = {};
+  const year = new Date().getFullYear();
+  const next = (d.invoiceCounters.creditNotes[year] || 0) + 1;
+  d.invoiceCounters.creditNotes[year] = next;
+  return `${CREDIT_NOTE_PREFIX}-${year}-${String(next).padStart(4, "0")}`;
+}
+
+/* Build a credit note from a customer return entry.
+   Mirrors buildSalesInvoiceFromDelivery but for returns. */
+export function buildCreditNoteFromReturn(d, returnEntry, order, customer, userName){
+  const creditNoteNo = reserveCreditNoteNo(d);
+  const unitPrice = Number(order.sellPrice) || 0;
+  const qty       = Number(returnEntry.qty) || 0;
+  const lineTotal = unitPrice * qty;
+  const customerDiscountPct = Number(customer?.discount) || 0;
+  const discount = lineTotal * (customerDiscountPct / 100);
+  const total    = lineTotal - discount;
+
+  /* Try to find the original invoice this return relates to */
+  const linkedInv = (d.salesInvoices||[]).find(i =>
+    i.deliveryRef &&
+    i.deliveryRef.orderId === order.id &&
+    i.deliveryRef.custId === returnEntry.custId &&
+    i.status !== "void"
+  );
+
+  return {
+    id: "cn_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,7),
+    creditNoteNo,
+    customerId: customer?.id || returnEntry.custId,
+    customerName: customer?.name || returnEntry.custName || "",
+    date: returnEntry.date || new Date().toISOString().split("T")[0],
+    linkedInvoiceId: linkedInv ? linkedInv.id : null,
+    linkedInvoiceNo: linkedInv ? linkedInv.invoiceNo : null,
+    returnRef: {
+      orderId: order.id,
+      custId: returnEntry.custId,
+      _key: returnEntry._key || null,
+    },
+    items: [{
+      orderId: order.id,
+      modelNo: order.modelNo || "",
+      modelDesc: order.modelDesc || "",
+      qty,
+      unitPrice,
+      lineTotal,
+    }],
+    subtotal: lineTotal,
+    discountPct: customerDiscountPct,
+    discount,
+    total,
+    status: "draft",
+    notes: returnEntry.note || "",
+    createdAt: new Date().toISOString(),
+    createdBy: userName || "",
+  };
+}
+
+/* Status transition mutators for credit notes */
+export function postCreditNoteMutator(d, creditNoteId, userName){
+  if(!Array.isArray(d.salesCreditNotes)) return false;
+  const idx = d.salesCreditNotes.findIndex(c => c.id === creditNoteId);
+  if(idx < 0) return false;
+  if(d.salesCreditNotes[idx].status !== "draft") return false;
+  d.salesCreditNotes[idx] = {
+    ...d.salesCreditNotes[idx],
+    status: "posted",
+    postedAt: new Date().toISOString(),
+    postedBy: userName || "",
+  };
+  return true;
+}
+
+export function voidCreditNoteMutator(d, creditNoteId, userName, reason){
+  if(!Array.isArray(d.salesCreditNotes)) return false;
+  const idx = d.salesCreditNotes.findIndex(c => c.id === creditNoteId);
+  if(idx < 0) return false;
+  if(d.salesCreditNotes[idx].status !== "posted") return false;
+  d.salesCreditNotes[idx] = {
+    ...d.salesCreditNotes[idx],
+    status: "void",
+    voidedAt: new Date().toISOString(),
+    voidedBy: userName || "",
+    voidReason: reason || "",
+  };
+  return true;
+}
+
+export function deleteDraftCreditNoteMutator(d, creditNoteId){
+  if(!Array.isArray(d.salesCreditNotes)) return false;
+  const idx = d.salesCreditNotes.findIndex(c => c.id === creditNoteId);
+  if(idx < 0) return false;
+  if(d.salesCreditNotes[idx].status !== "draft") return false;
+  d.salesCreditNotes.splice(idx, 1);
+  return true;
+}
+
+/* Find credit note by return reference */
+export function findCreditNoteByReturn(data, orderId, custId, key){
+  return (data.salesCreditNotes || []).find(c =>
+    c.returnRef &&
+    c.returnRef.orderId === orderId &&
+    c.returnRef.custId === custId &&
+    (!key || c.returnRef._key === key) &&
+    c.status !== "void"
+  ) || null;
+}
+
+/* Stats for credit notes (similar to getInvoiceStats) */
+export function getCreditNoteStats(data, filter){
+  const arr = data.salesCreditNotes || [];
+  let list = arr;
+  if(filter){
+    if(filter.from) list = list.filter(c => c.date >= filter.from);
+    if(filter.to)   list = list.filter(c => c.date <= filter.to);
+    if(filter.partyId) list = list.filter(c => c.customerId === filter.partyId);
+    if(filter.status && filter.status !== "all") list = list.filter(c => c.status === filter.status);
+  }
+  const stats = {
+    total: list.length,
+    draftCount: 0, draftAmount: 0,
+    postedCount: 0, postedAmount: 0,
+    voidCount: 0, voidAmount: 0,
+    totalAmount: 0,
+  };
+  list.forEach(c => {
+    const amt = Number(c.total) || 0;
+    if(c.status === "draft"){ stats.draftCount++; stats.draftAmount += amt; }
+    else if(c.status === "posted"){ stats.postedCount++; stats.postedAmount += amt; stats.totalAmount += amt; }
+    else if(c.status === "void"){ stats.voidCount++; stats.voidAmount += amt; }
+  });
+  return stats;
+}

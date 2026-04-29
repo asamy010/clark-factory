@@ -3036,6 +3036,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
       {(()=>{
         const inv = config.invoiceSettings || {};
         const autoPostFromInvoice = inv.autoPostFromInvoice === true;
+        const autoPostOnCreate    = inv.autoPostOnCreate === true;
         const setFlag = (key, val) => upConfig(d => {
           if(!d.invoiceSettings) d.invoiceSettings = {};
           d.invoiceSettings[key] = val;
@@ -3052,7 +3053,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
             <div style={{flex:1}}>
               <div style={{fontSize:FS+1, fontWeight:800, color:T.text, marginBottom:4}}>الترحيل المحاسبي من الفاتورة (Phase 2)</div>
               <div style={{fontSize:FS-2, color:T.textSec, lineHeight:1.6}}>
-                <b>عند التفعيل:</b> كل تسليم/استلام بينشئ فاتورة <b>مسودة</b> تلقائياً. القيد المحاسبي ما يتعملش لحد ما تـ"ترحّل" الفاتورة من تبويب الفواتير. ده الوضع الاحترافي.
+                <b>عند التفعيل:</b> كل تسليم/استلام/مرتجع بينشئ فاتورة <b>مسودة</b> أو إشعار دائن مسودة تلقائياً. القيد المحاسبي ما يتعملش لحد ما تـ"ترحّل" الفاتورة من تبويب الفواتير. ده الوضع الاحترافي.
                 <br/>
                 <b>عند التعطيل (الافتراضي):</b> القيد المحاسبي بيتم فوراً مع التسليم زي اللي اتعرفت عليه في V18.35-V18.49. الفواتير بتفضل اختيارية يدوياً.
                 <br/>
@@ -3061,6 +3062,27 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
             </div>
             <span style={{fontSize:FS, fontWeight:800, color:autoPostFromInvoice?T.ok:T.textMut, padding:"6px 14px", background:(autoPostFromInvoice?T.ok:T.textMut)+"15", borderRadius:6}}>{autoPostFromInvoice?"مُفعّل":"معطّل"}</span>
           </div>
+
+          {/* V18.51: Auto-post on create — skip the draft step */}
+          {autoPostFromInvoice && <div onClick={() => setFlag("autoPostOnCreate", !autoPostOnCreate)} style={{
+            display:"flex", alignItems:"flex-start", gap:12,
+            padding:"14px 16px", borderRadius:10, cursor:"pointer",
+            background: autoPostOnCreate ? T.accent+"08" : T.bg,
+            border: "2px solid " + (autoPostOnCreate ? T.accent+"40" : T.brd),
+          }}>
+            <span style={{fontSize:24, color: autoPostOnCreate?T.accent:T.textMut, fontWeight:800}}>{autoPostOnCreate?"☑":"☐"}</span>
+            <div style={{flex:1}}>
+              <div style={{fontSize:FS+1, fontWeight:800, color:T.text, marginBottom:4}}>ترحيل تلقائي عند إنشاء الفاتورة (skip draft)</div>
+              <div style={{fontSize:FS-2, color:T.textSec, lineHeight:1.6}}>
+                <b>عند التفعيل:</b> الفاتورة بتترحّل تلقائياً مع إنشائها — ينشئ القيد المحاسبي فوراً. مفيدة لو ما عندكش مرحلة مراجعة محاسبية.
+                <br/>
+                <b>عند التعطيل (الافتراضي):</b> الفاتورة تتعمل كـ"مسودة" وتفضل تنتظر مراجعة قبل الترحيل. ده الأكثر احترافية.
+                <br/>
+                <span style={{color:T.textMut, fontSize:FS-3, fontStyle:"italic"}}>💡 الإعداد ده متاح فقط لما "الترحيل من الفاتورة" مفعّل فوق.</span>
+              </div>
+            </div>
+            <span style={{fontSize:FS, fontWeight:800, color:autoPostOnCreate?T.accent:T.textMut, padding:"6px 14px", background:(autoPostOnCreate?T.accent:T.textMut)+"15", borderRadius:6}}>{autoPostOnCreate?"مُفعّل":"معطّل"}</span>
+          </div>}
         </div>;
       })()}
     </Card>

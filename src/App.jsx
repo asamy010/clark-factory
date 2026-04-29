@@ -36,6 +36,7 @@ import { lazyNamed, PageLoader, ChunkErrorBoundary } from "./utils/lazyLoad.jsx"
 
 const CustDeliverPg = lazyNamed(() => import("./pages/CustDeliverPg.jsx"), "CustDeliverPg");
 const SalesInvoicesPg = lazyNamed(() => import("./pages/SalesInvoicesPg.jsx"), "SalesInvoicesPg");
+const CreditNotesPg = lazyNamed(() => import("./pages/CreditNotesPg.jsx"), "CreditNotesPg");
 const PurchasePg = lazyNamed(() => import("./pages/PurchasePg.jsx"), "PurchasePg");
 const PurchaseInvoicesPg = lazyNamed(() => import("./pages/PurchaseInvoicesPg.jsx"), "PurchaseInvoicesPg");
 const TreasuryPg = lazyNamed(() => import("./pages/TreasuryPg.jsx"), "TreasuryPg");
@@ -2077,7 +2078,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V18.50 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >V18.53 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -2515,6 +2516,7 @@ export default function App(){
         {tab==="settings"&&canEditTab("settings")&&<SettingsPg config={config} upConfig={upConfig} upSales={upSales} upTasks={upTasks} isMob={isMob} user={user} userRole={userRole} theme={theme} setTheme={setTheme} season={season} orders={orders} syncWsIds={syncWsIds} replaceOrder={replaceOrder} updOrder={updOrder} configDoc={configDoc} salesDoc={salesDoc} tasksDoc={tasksDoc}/>}
         {tab==="custDeliver"&&<CustDeliverPg data={data} upConfig={upConfig} upSales={upSales} upTasks={upTasks} updOrder={updOrder} isMob={isMob} isTab={isTab} canEdit={canEditTab("custDeliver")} user={user} season={season}/>}
         {tab==="salesInvoices"&&<SalesInvoicesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
+        {tab==="creditNotes"&&<CreditNotesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
         {tab==="purchase"&&<PurchasePg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("purchase")} user={user} userRole={userRole}/>}
         {tab==="purchaseInvoices"&&<PurchaseInvoicesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
         {tab==="warehouse"&&<WarehousePg data={data} upConfig={upConfig} updOrder={updOrder} isMob={isMob} isTab={isTab} canEdit={canEditTab("warehouse")} statusCards={statusCards} user={user} userRole={userRole}/>}
@@ -3135,7 +3137,7 @@ export default function App(){
       </div>
     )}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.50"/>
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.53"/>
   </div>
 }
 

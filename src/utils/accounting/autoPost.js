@@ -31,6 +31,7 @@ import {
   buildSaleCogsEntry, buildSaleReturnCogsEntry,
   buildSalesInvoicePostedEntry, buildSalesInvoiceCogsEntry,
   buildPurchaseInvoicePostedEntry, buildInvoiceVoidEntry,
+  buildCreditNotePostedEntry, buildCreditNoteCogsEntry,
 } from "./postingRules.js";
 import { calcOrder } from "../orders.js";
 
@@ -324,6 +325,25 @@ export const autoPost = {
     if(!invoice.postedJournalRef) return {ok:false, skipped:"no-original-ref"};
     const ref = invoice.postedJournalRef;
     return _reverse(sourceType, sourceType, invoice.id, ref.date, "إلغاء فاتورة "+invoice.invoiceNo, createdBy);
+  },
+
+  /* V18.51 — Post a credit note (sales return as standalone entity). */
+  creditNotePosted(config, creditNote, customer, order, createdBy){
+    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
+    const main = _buildAndPost("creditNote", "creditNote", buildCreditNotePostedEntry, [creditNote, customer, order, getCoa(config), getRules(config)], config, createdBy);
+    let cogs = {ok:false, skipped:"no-order"};
+    if(order && isCogsEnabled(config)){
+      cogs = _buildAndPost("creditNoteCogs", "creditNoteCogs", buildCreditNoteCogsEntry, [creditNote, order, getCoa(config), getRules(config), config], config, createdBy);
+    }
+    return {ok: main.ok, main, cogs};
+  },
+
+  /* V18.51 — Reverse a credit note's journal entries when voided. */
+  creditNoteVoided(config, creditNote, sourceType, createdBy){
+    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
+    if(!creditNote.postedJournalRef) return {ok:false, skipped:"no-original-ref"};
+    const ref = creditNote.postedJournalRef;
+    return _reverse(sourceType, sourceType, creditNote.id, ref.date, "إلغاء إشعار دائن "+creditNote.creditNoteNo, createdBy);
   },
 
   reverse(config, sourceType, sourceId, date, reason, createdBy){

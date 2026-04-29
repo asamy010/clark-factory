@@ -27,7 +27,7 @@ import { getCustRating, Stars } from "../utils/rating.jsx";
 import { getDeleteBlocker } from "../utils/dataIntegrity.js";
 import { auth } from "../firebase";
 import { autoPost } from "../utils/accounting/autoPost.js";
-import { buildSalesInvoiceFromDelivery } from "../utils/invoices.js";
+import { buildSalesInvoiceFromDelivery, buildCreditNoteFromReturn } from "../utils/invoices.js";
 import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../components/ui.jsx";
 import { T, TH, TD, TDB } from "../theme.js";
 
@@ -2507,11 +2507,36 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               autoPost.saleCogs(data, entry, o, userName).catch(()=>{});
             } else {
               /* V18.50: auto-create a draft sales invoice for this delivery */
+              const autoPostOnCreate = (data.invoiceSettings||{}).autoPostOnCreate === true;
+              let createdInv = null;
               upConfig(d=>{
                 if(!Array.isArray(d.salesInvoices))d.salesInvoices=[];
-                const inv=buildSalesInvoiceFromDelivery(d, entry, o, cust, userName);
-                d.salesInvoices.unshift(inv);
+                createdInv = buildSalesInvoiceFromDelivery(d, entry, o, cust, userName);
+                /* V18.51: skip draft → post immediately */
+                if(autoPostOnCreate){
+                  createdInv.status = "posted";
+                  createdInv.postedAt = new Date().toISOString();
+                  createdInv.postedBy = userName;
+                }
+                d.salesInvoices.unshift(createdInv);
               });
+              /* V18.51: if auto-post on create, also fire the journal entry */
+              if(autoPostOnCreate && createdInv){
+                autoPost.salesInvoicePosted(data, createdInv, cust, o, userName).then(res => {
+                  if(res && res.main && res.main.ok && res.main.entry){
+                    upConfig(d => {
+                      const idx = (d.salesInvoices||[]).findIndex(i => i.id === createdInv.id);
+                      if(idx >= 0){
+                        d.salesInvoices[idx].postedJournalRef = {
+                          date: res.main.entry.date,
+                          entryId: res.main.entry.id,
+                          refNo: res.main.entry.refNo,
+                        };
+                      }
+                    });
+                  }
+                }).catch(()=>{});
+              }
             }
           })});
           playBeep("done");showToast((qrSale.override===true?"⚠️ بيع طوارئ ":"✓ تم تسجيل بيع ")+total+" قطعة لـ "+cust.name);
@@ -2522,13 +2547,20 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             const retEntry={custId:qrSale.custId,custName:cust.name,qty,note:qrSale.note||"مرتجع سريع",date:new Date().toISOString().split("T")[0],createdBy:userName};
             retEntry._key=oid+":saleReturn:"+(qrSale.linkedSession||gid())+":"+qrSale.custId+":"+retEntry.date;
             o.customerReturns.push(retEntry);
-            /* V18.50: returns still post directly (invoice mode doesn't cover them yet) */
+            /* V18.51: invoice mode → create credit note draft instead of direct posting */
             const invoiceMode=(data.invoiceSettings||{}).autoPostFromInvoice===true;
             if(!invoiceMode){
               /* V18.35: auto-post return journal entry */
               autoPost.saleReturn(data, retEntry, cust, o, userName).catch(()=>{});
               /* V18.40: COGS reversal companion entry (Dr finished inventory / Cr COGS) */
               autoPost.saleReturnCogs(data, retEntry, o, userName).catch(()=>{});
+            } else {
+              /* V18.51: auto-create draft credit note */
+              upConfig(d=>{
+                if(!Array.isArray(d.salesCreditNotes))d.salesCreditNotes=[];
+                const cn=buildCreditNoteFromReturn(d, retEntry, o, cust, userName);
+                d.salesCreditNotes.unshift(cn);
+              });
             }
           })});
           playBeep("done");showToast("✓ تم تسجيل مرتجع "+total+" قطعة من "+cust.name)

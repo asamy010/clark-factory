@@ -17,6 +17,7 @@ import {
   getInvoiceStats, buildSalesInvoiceFromDelivery, findInvoiceByDelivery,
 } from "../utils/invoices.js";
 import { autoPost } from "../utils/accounting/autoPost.js";
+import { printInvoice } from "../utils/printInvoice.js";
 
 const STATUS_META = {
   draft:  { label: "مسودة",  color: "#6B7280", bg: "#6B728015" },
@@ -357,6 +358,14 @@ export function InvoiceDetailModal({invoice, type, data, onClose, onPost, onVoid
       {/* Action buttons */}
       <div style={{display:"flex", gap:8, justifyContent:"flex-end", flexWrap:"wrap"}}>
         <Btn ghost onClick={onClose}>إغلاق</Btn>
+        {/* V18.51: Print button — works in any status */}
+        <Btn onClick={() => {
+          const partyList = isPurchase ? (data.suppliers||[]) : (data.customers||[]);
+          const partyId = isPurchase ? invoice.supplierId : invoice.customerId;
+          const party = partyList.find(p => p.id === partyId);
+          const factoryInfo = data.factoryInfo || data.businessSettings || {};
+          printInvoice(invoice, party, factoryInfo, type);
+        }} style={{background:T.accent+"12", color:T.accent, border:"1px solid "+T.accent+"30"}}>🖨️ طباعة</Btn>
         {invoice.status === "draft" && <>
           <Btn onClick={() => onDelete(invoice)} style={{background:T.err+"15", color:T.err, border:"1px solid "+T.err+"40"}}>🗑 حذف المسودة</Btn>
           <Btn primary onClick={() => onPost(invoice)} style={{background:STATUS_META.posted.color, color:"#fff", border:"none"}}>✅ ترحيل</Btn>

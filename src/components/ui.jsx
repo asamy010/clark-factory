@@ -71,24 +71,38 @@ export function Sel({value,onChange,children}){
   return<select value={value==null?"":value} onChange={e=>onChange(e.target.value)} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box"}}>{children}</select>
 }
 
-export function SearchSel({value,onChange,options,placeholder}){
-  const[q,setQ]=useState("");const[focused,setFocused]=useState(false);const ref=useRef(null);
+export function SearchSel({value,onChange,options,placeholder,maxResults,showAllOnFocus}){
+  const[q,setQ]=useState("");const[focused,setFocused]=useState(false);const[hi,setHi]=useState(0);const ref=useRef(null);
   const selected=options.find(o=>o.value===value);
-  const showResults=focused&&q.length>0;
-  const filtered=q?options.filter(o=>o.label.toLowerCase().includes(q.toLowerCase())).slice(0,5):[];
+  const limit=maxResults||5;
+  /* V18.52: when showAllOnFocus is true and input is empty, show all options
+     (clamped to limit). Otherwise legacy behavior: show results only when typing. */
+  const showResults=focused&&(q.length>0||showAllOnFocus);
+  const filtered=q
+    ?options.filter(o=>o.label.toLowerCase().includes(q.toLowerCase())).slice(0,limit)
+    :(showAllOnFocus?options.slice(0,limit):[]);
   useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target))setFocused(false)};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h)},[]);
+  /* Reset highlight when filtered list changes */
+  useEffect(()=>{setHi(0)},[q,focused]);
+  const onKey=(e)=>{
+    if(e.key==="Escape"){setFocused(false);return}
+    if(!showResults||filtered.length===0)return;
+    if(e.key==="ArrowDown"){e.preventDefault();setHi(p=>Math.min(p+1,filtered.length-1))}
+    else if(e.key==="ArrowUp"){e.preventDefault();setHi(p=>Math.max(p-1,0))}
+    else if(e.key==="Enter"){e.preventDefault();const o=filtered[hi];if(o){onChange(o.value);setQ("");setFocused(false)}}
+  };
   return<div ref={ref} style={{position:"relative",zIndex:focused?999:1}}>
     <input value={focused?q:(selected?selected.label:"")}
       onChange={e=>{setQ(e.target.value);if(!focused)setFocused(true)}}
       onFocus={()=>{setFocused(true);setQ("")}}
-      onKeyDown={e=>{if(e.key==="Escape"){setFocused(false)}}}
+      onKeyDown={onKey}
       placeholder={placeholder||"اكتب للبحث..."}
       style={{width:"100%",padding:"6px 10px",border:"2px solid "+(focused?T.accent:T.brd),borderRadius:8,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",transition:"border 0.15s"}}/>
     {selected&&!focused&&<div style={{fontSize:FS-3,color:T.ok,marginTop:2}}>{"✓ "+selected.label}</div>}
-    {showResults&&<div style={{position:"absolute",top:"100%",left:0,right:0,marginTop:1,zIndex:9999,borderRadius:8,border:"1px solid "+T.brd,overflow:"hidden",background:T.cardSolid,boxShadow:"0 8px 24px rgba(0,0,0,0.2)"}}>
-      {filtered.length>0?filtered.map(o=><div key={o.value} onMouseDown={e=>{e.preventDefault();onChange(o.value);setQ("");setFocused(false)}}
-        style={{padding:"8px 12px",cursor:"pointer",fontSize:FS,color:o.value===value?T.accent:T.text,fontWeight:o.value===value?700:400,background:o.value===value?T.accent+"08":T.cardSolid,borderBottom:"1px solid "+T.brd+"30"}}
-        onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background=o.value===value?T.accent+"08":T.cardSolid}>{o.label}</div>)
+    {showResults&&<div style={{position:"absolute",top:"100%",left:0,right:0,marginTop:1,zIndex:9999,borderRadius:8,border:"1px solid "+T.brd,overflow:"hidden",background:T.cardSolid,boxShadow:"0 8px 24px rgba(0,0,0,0.2)",maxHeight:280,overflowY:"auto"}}>
+      {filtered.length>0?filtered.map((o,i)=><div key={o.value} onMouseDown={e=>{e.preventDefault();onChange(o.value);setQ("");setFocused(false)}}
+        onMouseEnter={()=>setHi(i)}
+        style={{padding:"8px 12px",cursor:"pointer",fontSize:FS,color:o.value===value?T.accent:T.text,fontWeight:o.value===value?700:400,background:i===hi?T.accent+"15":(o.value===value?T.accent+"08":T.cardSolid),borderBottom:"1px solid "+T.brd+"30"}}>{o.label}</div>)
       :<div style={{padding:"8px 12px",textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد نتائج</div>}
     </div>}
   </div>
