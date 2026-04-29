@@ -39,6 +39,22 @@ let _auditScanMode = "series";
 export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEdit,user,season}){
   const config=data;const orders=data.orders||[];const customers=config.customers||[];const sessions=config.custDeliverySessions||[];
   const[showCustForm,setShowCustForm]=useState(false);const[showCustList,setShowCustList]=useState(false);const[custSalesLog,setCustSalesLog]=useState(null);const[editSaleIdx,setEditSaleIdx]=useState(null);const[editSaleQty,setEditSaleQty]=useState(0);const[logCustF,setLogCustF]=useState("");const[logModelF,setLogModelF]=useState("");const[logDateF,setLogDateF]=useState("");const[logTypeFilter,setLogTypeFilter]=useState("");const[logLimit,setLogLimit]=useState(50);const[quoteCust,setQuoteCust]=useState(null);const[balReview,setBalReview]=useState(false);const[pendingRcv,setPendingRcv]=useState(null);
+  /* V18.63: Delivery-note popup state — same flow as quoteCust but prints quantities only (no prices). */
+  const[deliverNote,setDeliverNote]=useState(null);
+  /* V18.63: Show-more flags for the session pickers (default to "last 10 only") */
+  const[showAllSessQuote,setShowAllSessQuote]=useState(false);
+  const[showAllSessDeliver,setShowAllSessDeliver]=useState(false);
+  /* V18.63: Customer statement tab state — "summary" or "log" */
+  const[statementTab,setStatementTab]=useState("summary");
+  /* V18.63: Model filter inside the customer statement (applies to both tabs) */
+  const[statementModelFilter,setStatementModelFilter]=useState("");
+  /* V18.63: Reset statement tab/filter whenever the user opens a different customer */
+  useEffect(()=>{
+    if(custStatement&&custStatement!=="pick"){
+      setStatementTab("summary");
+      setStatementModelFilter("");
+    }
+  },[custStatement]);
   /* V14.59: Receipt report — after confirmation, show the summary */
   const[lastReceiptReport,setLastReceiptReport]=useState(null);/* {items:[{orderId,modelNo,desc,confirmedQty,pendingQty,diff}], total, confirmedBy, at} */
   const[showReceiptLog,setShowReceiptLog]=useState(false);
@@ -803,7 +819,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(auto-fill,minmax(110px,1fr))",gap:8,marginBottom:16}}>
           {canEdit&&secBtn(I.users,"العملاء","#0EA5E9",()=>setShowCustList(true),customers.length||null)}
           {secBtn(I.fileText,"كشف حساب","#0EA5E9",()=>{setCustStatement("pick");setCustFilter("")})}
-          {secBtn(I.receipt,"بيان سعر","#8B5CF6",()=>setQuoteCust("pickSess"))}
+          {secBtn(I.receipt,"عرض سعر","#8B5CF6",()=>{setShowAllSessQuote(false);setQuoteCust("pickSess")})}
+          {/* V18.63: New "إذن تسليم" button — same flow as quote but quantities only (no prices) */}
+          {secBtn(I.truck||I.fileText,"إذن تسليم","#0EA5E9",()=>{setShowAllSessDeliver(false);setDeliverNote("pickSess")})}
         </div>
 
         {/* ── GROUP 2: REPORTS & ANALYSIS ── */}
@@ -1776,23 +1794,181 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <Btn primary small onClick={addCustPayment}>💰 تسجيل</Btn>
             </div>
           </div>}
-          {/* Payments log */}
-          {custPayments.length>0&&<div style={{marginBottom:12}}>
-            <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:6}}>{"💰 سجل الدفعات ("+custPayments.length+")"}</div>
-            <div style={{display:"flex",flexDirection:"column",gap:4}}>{custPayments.map(p=><div key={p.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderRadius:8,background:T.ok+"06",border:"1px solid "+T.ok+"15"}}>
-              <span style={{fontSize:FS,fontWeight:800,color:T.ok}}>{fmt(p.amount)}</span>
-              <span style={{fontSize:FS-2,color:T.textSec}}>{p.date}</span>
-              <span style={{fontSize:FS-2,padding:"1px 6px",borderRadius:4,background:T.bg,color:T.textMut}}>{p.method||"كاش"}</span>
-              {p.note&&<span style={{fontSize:FS-2,color:T.textMut,flex:1}}>{p.note}</span>}
-              <span style={{fontSize:FS-3,color:T.textMut}}>{p.by}</span>
-              {canEdit&&<span onClick={async()=>{if(await ask("حذف الدفعة","حذف هذه الدفعة؟",{danger:true}))delCustPay(p.id)}} style={{cursor:"pointer",fontSize:11,color:T.err}}>✕</span>}
-            </div>)}</div>
-          </div>}
-          {/* Items table */}
-          {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","الوصف","تسليم","مرتجع","صافي","سعر","القيمة"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
-            {rows.map((r,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}><td style={{...TD,fontWeight:700,color:T.accent}}>{r.modelNo}</td><td style={TD}>{r.modelDesc}</td><td style={{...TD,textAlign:"center"}}>{r.delivered}</td><td style={{...TD,textAlign:"center",color:r.returned?T.err:T.textMut}}>{r.returned||"—"}</td><td style={{...TD,textAlign:"center",fontWeight:800}}>{r.net}</td><td style={{...TD,textAlign:"center"}}>{r.sellPrice||"—"}</td><td style={{...TD,textAlign:"center",fontWeight:700}}>{fmt(r.net*r.sellPrice)}</td></tr>)}
-            <tr style={{background:T.accent+"08"}}><td colSpan={2} style={{...TD,fontWeight:800}}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800,color:T.accent}}>{totalDel}</td><td style={{...TD,textAlign:"center",fontWeight:800,color:T.err}}>{totalRet}</td><td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2}}>{totalNet}</td><td style={TD}></td><td style={{...TD,textAlign:"center",fontWeight:800,color:T.accent}}>{fmt(totalVal)+" ج.م"}</td></tr>
-          </tbody></table></div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد حركات لهذا العميل</div>}
+          {/* V18.63: Payments log REMOVED — moved to Accounting → دفعات tab.
+              The "Add Payment" form above stays as a convenient entry point. */}
+
+          {/* V18.63: Tab switcher between Summary and Movement Log */}
+          <div style={{display:"flex",gap:0,marginTop:8,marginBottom:14,borderBottom:"2px solid "+T.brd}}>
+            {[
+              {key:"summary",label:"📊 ملخص",hint:"الموديلات والكميات بفلتر"},
+              {key:"log",label:"📋 سجل حركات",hint:"المبيعات والمرتجعات بالتاريخ"},
+            ].map(t=>{
+              const isActive=statementTab===t.key;
+              return<div key={t.key} onClick={()=>setStatementTab(t.key)} title={t.hint} style={{
+                padding:isMob?"8px 12px":"10px 18px",
+                cursor:"pointer",
+                fontSize:isMob?FS-1:FS,
+                fontWeight:isActive?800:600,
+                color:isActive?T.accent:T.textSec,
+                borderBottom:isActive?"3px solid "+T.accent:"3px solid transparent",
+                marginBottom:-2,
+                transition:"all 0.15s",
+                userSelect:"none",
+              }}>{t.label}</div>;
+            })}
+          </div>
+
+          {/* V18.63: SUMMARY TAB — current state of models + sales/returns aggregated
+              with a model filter on top */}
+          {statementTab==="summary"&&(()=>{
+            const filter=(statementModelFilter||"").trim().toLowerCase();
+            const filteredRows=filter
+              ?rows.filter(r=>(r.modelNo||"").toLowerCase().includes(filter)||(r.modelDesc||"").toLowerCase().includes(filter))
+              :rows;
+            const fDel=filteredRows.reduce((s,r)=>s+r.delivered,0);
+            const fRet=filteredRows.reduce((s,r)=>s+r.returned,0);
+            const fNet=filteredRows.reduce((s,r)=>s+r.net,0);
+            const fVal=filteredRows.reduce((s,r)=>s+r.net*r.sellPrice,0);
+            return<>
+              {/* Model filter */}
+              {rows.length>0&&<div style={{marginBottom:10,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:200}}>
+                  <Inp value={statementModelFilter} onChange={setStatementModelFilter} placeholder="🔍 فلترة بالموديل أو الوصف..."/>
+                </div>
+                {filter&&<Btn ghost small onClick={()=>setStatementModelFilter("")} title="مسح الفلتر">✕</Btn>}
+                {filter&&<div style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>
+                  {filteredRows.length} من {rows.length}
+                </div>}
+              </div>}
+              {/* Items table */}
+              {filteredRows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","الوصف","تسليم","مرتجع","صافي","سعر","القيمة"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
+                {filteredRows.map((r,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}>
+                  <td style={{...TD,fontWeight:700,color:T.accent}}>{r.modelNo}</td>
+                  <td style={TD}>{r.modelDesc}</td>
+                  <td style={{...TD,textAlign:"center"}}>{r.delivered}</td>
+                  <td style={{...TD,textAlign:"center",color:r.returned?T.err:T.textMut}}>{r.returned||"—"}</td>
+                  <td style={{...TD,textAlign:"center",fontWeight:800}}>{r.net}</td>
+                  <td style={{...TD,textAlign:"center"}}>{r.sellPrice||"—"}</td>
+                  <td style={{...TD,textAlign:"center",fontWeight:700}}>{fmt(r.net*r.sellPrice)}</td>
+                </tr>)}
+                <tr style={{background:T.accent+"08"}}>
+                  <td colSpan={2} style={{...TD,fontWeight:800}}>{filter?"الاجمالي (مفلتر)":"الاجمالي"}</td>
+                  <td style={{...TD,textAlign:"center",fontWeight:800,color:T.accent}}>{fDel}</td>
+                  <td style={{...TD,textAlign:"center",fontWeight:800,color:T.err}}>{fRet}</td>
+                  <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2}}>{fNet}</td>
+                  <td style={TD}></td>
+                  <td style={{...TD,textAlign:"center",fontWeight:800,color:T.accent}}>{fmt(fVal)+" ج.م"}</td>
+                </tr>
+              </tbody></table></div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>{rows.length===0?"لا توجد حركات لهذا العميل":"لا توجد نتائج للفلتر"}</div>}
+            </>;
+          })()}
+
+          {/* V18.63: MOVEMENT LOG TAB — sales table + returns table by date.
+              Each row shows: date, model, qty, value before discount, value after discount.
+              Both tables are filtered by the same model filter at the top. */}
+          {statementTab==="log"&&(()=>{
+            const filter=(statementModelFilter||"").trim().toLowerCase();
+            const matchModel=(modelNo,modelDesc)=>{
+              if(!filter)return true;
+              return(modelNo||"").toLowerCase().includes(filter)||(modelDesc||"").toLowerCase().includes(filter);
+            };
+            /* Build sales movements (date, modelNo, modelDesc, qty, valBefore, valAfter, by) */
+            const sales=[];const returns=[];
+            orders.forEach(o=>{
+              if(!matchModel(o.modelNo,o.modelDesc))return;
+              (o.customerDeliveries||[]).filter(d=>d.custId===custStatement).forEach(d=>{
+                const qty=Number(d.qty)||0;
+                if(qty<=0)return;
+                /* V18.63: per-line price priority — explicit delivery price > order's sell price */
+                const price=Number(d.price)||Number(o.sellPrice)||0;
+                const valBefore=qty*price;
+                const valAfter=Math.round(valBefore*(1-discPct/100));
+                sales.push({date:d.date||"",modelNo:o.modelNo,modelDesc:o.modelDesc,qty,price,valBefore,valAfter,by:d.createdBy||""});
+              });
+              (o.customerReturns||[]).filter(r=>r.custId===custStatement).forEach(r=>{
+                const qty=Number(r.qty)||0;
+                if(qty<=0)return;
+                const price=Number(o.sellPrice)||0;
+                const valBefore=qty*price;
+                const valAfter=Math.round(valBefore*(1-discPct/100));
+                returns.push({date:r.date||"",modelNo:o.modelNo,modelDesc:o.modelDesc,qty,price,valBefore,valAfter,note:r.note||"",by:r.createdBy||""});
+              });
+            });
+            /* Sort: newest first */
+            sales.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+            returns.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+            const salesTotalQty=sales.reduce((s,m)=>s+m.qty,0);
+            const salesTotalBefore=sales.reduce((s,m)=>s+m.valBefore,0);
+            const salesTotalAfter=sales.reduce((s,m)=>s+m.valAfter,0);
+            const retTotalQty=returns.reduce((s,m)=>s+m.qty,0);
+            const retTotalBefore=returns.reduce((s,m)=>s+m.valBefore,0);
+            const retTotalAfter=returns.reduce((s,m)=>s+m.valAfter,0);
+            return<>
+              {/* Model filter (shared with summary tab) */}
+              {(orders.some(o=>(o.customerDeliveries||[]).some(d=>d.custId===custStatement))||orders.some(o=>(o.customerReturns||[]).some(r=>r.custId===custStatement)))&&<div style={{marginBottom:10,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:200}}>
+                  <Inp value={statementModelFilter} onChange={setStatementModelFilter} placeholder="🔍 فلترة بالموديل أو الوصف..."/>
+                </div>
+                {filter&&<Btn ghost small onClick={()=>setStatementModelFilter("")} title="مسح الفلتر">✕</Btn>}
+              </div>}
+              {/* Sales table */}
+              <div style={{marginBottom:18}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,padding:"6px 10px",background:T.accent+"08",borderRadius:8,border:"1px solid "+T.accent+"20"}}>
+                  <span style={{fontSize:FS,fontWeight:800,color:T.accent}}>📤 سجل المبيعات</span>
+                  <span style={{fontSize:FS-2,color:T.textMut}}>({sales.length} حركة)</span>
+                </div>
+                {sales.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
+                  <thead><tr>{["التاريخ","الموديل","الكمية","السعر","قبل الخصم","بعد الخصم"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {sales.map((m,i)=><tr key={"s"+i} style={{background:i%2===0?"transparent":T.bg+"80"}}>
+                      <td style={{...TD,fontSize:FS-2,whiteSpace:"nowrap"}}>{m.date||"—"}</td>
+                      <td style={{...TD,fontWeight:700,color:T.accent}}>{m.modelNo}<div style={{fontSize:FS-3,color:T.textMut,fontWeight:400}}>{m.modelDesc||""}</div></td>
+                      <td style={{...TD,textAlign:"center",fontWeight:800,color:T.accent}}>{m.qty}</td>
+                      <td style={{...TD,textAlign:"center",fontSize:FS-2}}>{m.price?fmt(m.price):"—"}</td>
+                      <td style={{...TD,textAlign:"center",fontWeight:700}}>{fmt(m.valBefore)}</td>
+                      <td style={{...TD,textAlign:"center",fontWeight:800,color:T.accent}}>{discPct>0?fmt(m.valAfter):<span style={{color:T.textMut}}>—</span>}</td>
+                    </tr>)}
+                    <tr style={{background:T.accent+"10"}}>
+                      <td style={{...TD,fontWeight:800}}>الاجمالي</td>
+                      <td style={TD}></td>
+                      <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1,color:T.accent}}>{salesTotalQty}</td>
+                      <td style={TD}></td>
+                      <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1}}>{fmt(salesTotalBefore)}</td>
+                      <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1,color:T.accent}}>{discPct>0?fmt(salesTotalAfter):"—"}</td>
+                    </tr>
+                  </tbody>
+                </table></div>:<div style={{textAlign:"center",padding:16,color:T.textMut,fontSize:FS-1,background:T.bg,borderRadius:8}}>لا توجد مبيعات{filter?" مطابقة للفلتر":""}</div>}
+              </div>
+              {/* Returns table */}
+              <div>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,padding:"6px 10px",background:T.err+"08",borderRadius:8,border:"1px solid "+T.err+"20"}}>
+                  <span style={{fontSize:FS,fontWeight:800,color:T.err}}>↩️ سجل المرتجعات</span>
+                  <span style={{fontSize:FS-2,color:T.textMut}}>({returns.length} حركة)</span>
+                </div>
+                {returns.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
+                  <thead><tr>{["التاريخ","الموديل","الكمية","السعر","قبل الخصم","بعد الخصم"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {returns.map((m,i)=><tr key={"r"+i} style={{background:i%2===0?"transparent":T.bg+"80"}}>
+                      <td style={{...TD,fontSize:FS-2,whiteSpace:"nowrap"}}>{m.date||"—"}</td>
+                      <td style={{...TD,fontWeight:700,color:T.err}}>{m.modelNo}<div style={{fontSize:FS-3,color:T.textMut,fontWeight:400}}>{m.modelDesc||""}{m.note?" | "+m.note:""}</div></td>
+                      <td style={{...TD,textAlign:"center",fontWeight:800,color:T.err}}>{m.qty}</td>
+                      <td style={{...TD,textAlign:"center",fontSize:FS-2}}>{m.price?fmt(m.price):"—"}</td>
+                      <td style={{...TD,textAlign:"center",fontWeight:700}}>{fmt(m.valBefore)}</td>
+                      <td style={{...TD,textAlign:"center",fontWeight:800,color:T.err}}>{discPct>0?fmt(m.valAfter):<span style={{color:T.textMut}}>—</span>}</td>
+                    </tr>)}
+                    <tr style={{background:T.err+"10"}}>
+                      <td style={{...TD,fontWeight:800}}>الاجمالي</td>
+                      <td style={TD}></td>
+                      <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1,color:T.err}}>{retTotalQty}</td>
+                      <td style={TD}></td>
+                      <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1}}>{fmt(retTotalBefore)}</td>
+                      <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1,color:T.err}}>{discPct>0?fmt(retTotalAfter):"—"}</td>
+                    </tr>
+                  </tbody>
+                </table></div>:<div style={{textAlign:"center",padding:16,color:T.textMut,fontSize:FS-1,background:T.bg,borderRadius:8}}>لا توجد مرتجعات{filter?" مطابقة للفلتر":""}</div>}
+              </div>
+            </>;
+          })()}
         </div>
       </div>})()}
     {/* Sales Analysis Popup */}
@@ -3751,26 +3927,195 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           </div>
         </div></div>})()}
 
+    {/* ═══════════════════════════════════════════════════════════════
+        V18.63: DELIVERY-NOTE POPUP (إذن تسليم — كميات فقط بدون أسعار)
+        ───────────────────────────────────────────────────────────────
+        Same 3-step flow as the quote popup:
+          1. Pick a session (last 10 by default + "عرض المزيد")
+          2. Pick a customer from that session (with name filter)
+          3. Print a delivery note showing QUANTITIES ONLY — no prices.
+        Mirrors the row-level delivery-note button on each session row,
+        but reachable from the top-level Sales menu without scrolling
+        through the active session.
+        ═══════════════════════════════════════════════════════════════ */}
+    {deliverNote&&(()=>{
+      if(deliverNote==="pickSess"){
+        const allValidSessions=sessions
+          .filter(s=>Object.values(s.grid||{}).some(v=>Number(v)>0))
+          .slice()
+          .sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+        const sessToShow=showAllSessDeliver?allValidSessions:allValidSessions.slice(0,10);
+        const hasMore=allValidSessions.length>sessToShow.length;
+        return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setDeliverNote(null)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div style={{fontSize:FS+2,fontWeight:800,color:"#0EA5E9"}}>🚚 إذن تسليم — اختر التوزيعة</div>
+              <Btn ghost small onClick={()=>setDeliverNote(null)}>✕</Btn>
+            </div>
+            {!showAllSessDeliver&&allValidSessions.length>10&&<div style={{fontSize:FS-2,color:T.textMut,marginBottom:8,padding:"4px 0"}}>
+              عرض آخر 10 توزيعات من إجمالي {allValidSessions.length}
+            </div>}
+            {sessToShow.map(s=>{const total=Object.values(s.grid||{}).reduce((sum,v)=>sum+(Number(v)||0),0);const custCount=s.custIds.length;
+              return<div key={s.id} onClick={()=>setDeliverNote({sessId:s.id,custFilter:""})} style={{padding:"10px 14px",borderRadius:10,border:"1px solid "+T.brd,marginBottom:6,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}} onMouseEnter={e=>e.currentTarget.style.background="#0EA5E906"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                <div><div style={{fontWeight:700}}>{"📦 "+s.date}</div><div style={{fontSize:FS-2,color:T.textMut}}>{custCount+" عميل | "+fmt(total)+" قطعة"}</div></div>
+                <div style={{fontWeight:800,color:"#0EA5E9"}}>{s.status==="تم التسليم"?"🔒":""}</div>
+              </div>})}
+            {hasMore&&<div style={{textAlign:"center",marginTop:10,paddingTop:10,borderTop:"1px solid "+T.brd}}>
+              <Btn onClick={()=>setShowAllSessDeliver(true)} style={{background:"#0EA5E912",color:"#0EA5E9",border:"1px solid #0EA5E940",fontWeight:700}}>
+                ⬇ عرض المزيد ({allValidSessions.length-sessToShow.length} توزيعة)
+              </Btn>
+            </div>}
+            {sessToShow.length===0&&<div style={{textAlign:"center",padding:24,color:T.textMut}}>لا توجد توزيعات</div>}
+          </div></div>;
+      }
+      /* Customer picker — sessId set, custId not */
+      if(deliverNote?.sessId&&!deliverNote.custId){
+        const sess=sessions.find(s=>s.id===deliverNote.sessId);if(!sess)return null;
+        /* Only customers in this session who actually received >0 pieces */
+        const sessCusts=sess.custIds
+          .map(id=>customers.find(c=>c.id===id))
+          .filter(Boolean)
+          .map(c=>{
+            const total=sess.modelIds.reduce((s,mid)=>s+(Number((sess.grid||{})[mid+"_"+c.id])||0),0);
+            return{...c,_total:total};
+          })
+          .filter(c=>c._total>0);
+        const filter=(deliverNote.custFilter||"").trim().toLowerCase();
+        const filtered=filter
+          ?sessCusts.filter(c=>(c.name||"").toLowerCase().includes(filter)||(c.phone||"").includes(filter))
+          :sessCusts;
+        return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setDeliverNote(null)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div style={{fontSize:FS+2,fontWeight:800,color:"#0EA5E9"}}>{"🚚 إذن تسليم — "+sess.date+" — اختر العميل"}</div>
+              <div style={{display:"flex",gap:4}}><Btn ghost small onClick={()=>setDeliverNote("pickSess")}>← التوزيعات</Btn><Btn ghost small onClick={()=>setDeliverNote(null)}>✕</Btn></div>
+            </div>
+            <div style={{marginBottom:10}}>
+              <Inp value={deliverNote.custFilter||""} onChange={v=>setDeliverNote({...deliverNote,custFilter:v})} placeholder="🔍 ابحث بالاسم أو التليفون..."/>
+            </div>
+            {filtered.length===0?<div style={{textAlign:"center",padding:24,color:T.textMut}}>{filter?"لا توجد نتائج":"لا يوجد عملاء في هذه التوزيعة"}</div>
+            :filtered.map(c=>{
+              return<div key={c.id} onClick={()=>setDeliverNote({sessId:deliverNote.sessId,custId:c.id})} style={{padding:"10px 14px",borderRadius:10,border:"1px solid "+T.brd,marginBottom:6,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}} onMouseEnter={e=>e.currentTarget.style.background="#0EA5E906"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                <div><div style={{fontWeight:700}}>{c.name}</div><div style={{fontSize:FS-2,color:T.textMut}}>{c.type||"مكتب"}{c.phone?" | "+c.phone:""}</div></div>
+                <div style={{fontWeight:800,color:"#0EA5E9"}}>{fmt(c._total)+" قطعة"}</div>
+              </div>;
+            })}
+          </div></div>;
+      }
+      /* Render the delivery note (quantities only) */
+      const dSessId=deliverNote?.sessId;const dCustId=deliverNote?.custId;
+      const cust=customers.find(c=>c.id===dCustId);if(!cust)return null;
+      const dSess=sessions.find(s=>s.id===dSessId);if(!dSess)return null;
+      const rows=[];let totalQty=0;
+      dSess.modelIds.forEach(mid=>{
+        const qty=Number((dSess.grid||{})[mid+"_"+dCustId])||0;
+        if(qty<=0)return;
+        const o=orders.find(x=>x.id===mid);
+        rows.push({no:o?.modelNo||"?",desc:o?.modelDesc||"",qty});
+        totalQty+=qty;
+      });
+      const printDeliveryNote=()=>{
+        let h="<h2 style='text-align:center;margin:0 0 12px'>🚚 إذن تسليم عميل</h2>";
+        h+="<table style='margin:0 auto 14px;border-collapse:collapse'>"
+          +"<tr><th style='text-align:right;padding:4px 12px;background:#F1F5F9'>العميل</th><td style='padding:4px 12px;font-weight:800'>"+cust.name+"</td>"
+          +"<th style='text-align:right;padding:4px 12px;background:#F1F5F9'>التليفون</th><td style='padding:4px 12px'>"+(cust.phone||"—")+"</td></tr>"
+          +"<tr><th style='text-align:right;padding:4px 12px;background:#F1F5F9'>التاريخ</th><td style='padding:4px 12px'>"+dSess.date+"</td>"
+          +"<th style='text-align:right;padding:4px 12px;background:#F1F5F9'>العنوان</th><td style='padding:4px 12px'>"+(cust.address||"—")+"</td></tr>"
+          +"</table>";
+        h+="<h3 style='margin:12px 0 6px'>تفاصيل الاستلام</h3>";
+        h+="<table style='width:100%;border-collapse:collapse'><thead><tr style='background:#F1F5F9'>"
+          +"<th style='padding:6px 8px;border:1px solid #CBD5E1'>الموديل</th>"
+          +"<th style='padding:6px 8px;border:1px solid #CBD5E1'>الوصف</th>"
+          +"<th style='padding:6px 8px;border:1px solid #CBD5E1'>الكمية</th>"
+          +"</tr></thead><tbody>";
+        rows.forEach(r=>{
+          h+="<tr><td style='padding:6px 8px;border:1px solid #CBD5E1;font-weight:800;text-align:center'>"+r.no+"</td>"
+            +"<td style='padding:6px 8px;border:1px solid #CBD5E1'>"+r.desc+"</td>"
+            +"<td style='padding:6px 8px;border:1px solid #CBD5E1;text-align:center;font-weight:800;color:#0284C7;font-size:15px'>"+r.qty+"</td></tr>";
+        });
+        h+="<tr style='background:#F1F5F9'>"
+          +"<td colspan='2' style='padding:8px;border:1px solid #CBD5E1;font-weight:800;text-align:right'>إجمالي القطع</td>"
+          +"<td style='padding:8px;border:1px solid #CBD5E1;font-weight:900;color:#0284C7;font-size:17px;text-align:center'>"+totalQty+"</td>"
+          +"</tr></tbody></table>";
+        h+="<div style='margin-top:14px;padding:10px 14px;border:1px dashed #94A3B8;border-radius:8px;font-size:12px;color:#475569;text-align:center'>"
+          +"📋 إذن تسليم بالكميات فقط — للحساب راجع كشف الحساب أو عرض السعر"
+          +"</div>";
+        h+="<div class='sig'><div class='sig-box'>مسؤول التسليم</div><div class='sig-box'>توقيع العميل<br/>"+cust.name+"</div></div>";
+        printPage("إذن تسليم — "+cust.name,h,{factoryName:config.factoryName,logo:config.logo});
+      };
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setDeliverNote(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:600,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8,flexWrap:"wrap"}}>
+            <div>
+              <div style={{fontSize:FS+2,fontWeight:800,color:"#0EA5E9"}}>{"🚚 إذن تسليم — "+cust.name}</div>
+              <div style={{fontSize:FS-2,color:T.textMut}}>{(cust.phone||"")+(cust.type?" | "+cust.type:"")+" | 📅 "+dSess.date}</div>
+            </div>
+            <div style={{display:"flex",gap:4}}>
+              <Btn small onClick={printDeliveryNote} style={{background:"#0EA5E912",color:"#0EA5E9",border:"1px solid #0EA5E940",fontWeight:700}}>🖨 طباعة</Btn>
+              <Btn ghost small onClick={()=>setDeliverNote({sessId:deliverNote.sessId,custFilter:""})}>← العملاء</Btn>
+              <Btn ghost small onClick={()=>setDeliverNote(null)}>✕</Btn>
+            </div>
+          </div>
+          <div style={{padding:10,borderRadius:8,background:"#0EA5E908",border:"1px solid #0EA5E930",marginBottom:10,fontSize:FS-2,color:"#0369A1",fontWeight:600}}>
+            ℹ️ هذا الإذن بالكميات فقط — بدون أسعار. للأسعار استخدم زرار "عرض سعر"
+          </div>
+          {rows.length>0?<div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead><tr>{["الموديل","الوصف","الكمية"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+              <tbody>
+                {rows.map((r,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}>
+                  <td style={{...TD,fontWeight:800,textAlign:"center"}}>{r.no}</td>
+                  <td style={{...TD,fontSize:FS-2}}>{r.desc}</td>
+                  <td style={{...TDB,fontWeight:800,fontSize:FS+2,color:"#0284C7"}}>{r.qty}</td>
+                </tr>)}
+                <tr style={{background:"#0EA5E908"}}>
+                  <td colSpan={2} style={{...TD,fontWeight:800,textAlign:"right"}}>إجمالي القطع</td>
+                  <td style={{...TDB,fontWeight:900,fontSize:FS+4,color:"#0284C7"}}>{totalQty}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد كميات لهذا العميل في هذه التوزيعة</div>}
+        </div>
+      </div>;
+    })()}
+
     {quoteCust&&(()=>{
       if(quoteCust==="pickSess"){
+        /* V18.63: Show last 10 sessions only by default; "عرض المزيد" reveals all.
+           Sessions are sorted by date descending (newest first). */
+        const allValidSessions=sessions
+          .filter(s=>Object.values(s.grid||{}).some(v=>Number(v)>0))
+          .slice()
+          .sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+        const sessToShow=showAllSessQuote?allValidSessions:allValidSessions.slice(0,10);
+        const hasMore=allValidSessions.length>sessToShow.length;
         return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setQuoteCust(null)}>
           <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-              <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>🧾 بيان سعر — اختر التوزيعة</div>
+              <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>🧾 عرض سعر — اختر التوزيعة</div>
               <Btn ghost small onClick={()=>setQuoteCust(null)}>✕</Btn>
             </div>
-            {sessions.filter(s=>Object.values(s.grid||{}).some(v=>Number(v)>0)).map(s=>{const total=Object.values(s.grid||{}).reduce((sum,v)=>sum+(Number(v)||0),0);const custCount=s.custIds.length;
+            {!showAllSessQuote&&allValidSessions.length>10&&<div style={{fontSize:FS-2,color:T.textMut,marginBottom:8,padding:"4px 0"}}>
+              عرض آخر 10 توزيعات من إجمالي {allValidSessions.length}
+            </div>}
+            {sessToShow.map(s=>{const total=Object.values(s.grid||{}).reduce((sum,v)=>sum+(Number(v)||0),0);const custCount=s.custIds.length;
               return<div key={s.id} onClick={()=>setQuoteCust({sessId:s.id})} style={{padding:"10px 14px",borderRadius:10,border:"1px solid "+T.brd,marginBottom:6,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}} onMouseEnter={e=>e.currentTarget.style.background="#8B5CF606"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                 <div><div style={{fontWeight:700}}>{"📦 "+s.date}</div><div style={{fontSize:FS-2,color:T.textMut}}>{custCount+" عميل | "+fmt(total)+" قطعة"}</div></div>
                 <div style={{fontWeight:800,color:"#8B5CF6"}}>{s.status==="تم التسليم"?"🔒":""}</div>
               </div>})}
+            {hasMore&&<div style={{textAlign:"center",marginTop:10,paddingTop:10,borderTop:"1px solid "+T.brd}}>
+              <Btn onClick={()=>setShowAllSessQuote(true)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700}}>
+                ⬇ عرض المزيد ({allValidSessions.length-sessToShow.length} توزيعة)
+              </Btn>
+            </div>}
+            {sessToShow.length===0&&<div style={{textAlign:"center",padding:24,color:T.textMut}}>لا توجد توزيعات</div>}
           </div></div>}
       if(quoteCust?.sessId&&!quoteCust.custId){const sess=sessions.find(s=>s.id===quoteCust.sessId);if(!sess)return null;
         const sessCusts=sess.custIds.map(id=>customers.find(c=>c.id===id)).filter(Boolean);
         return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setQuoteCust(null)}>
           <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-              <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>{"🧾 بيان سعر — "+sess.date+" — اختر عميل"}</div>
+              <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>{"🧾 عرض سعر — "+sess.date+" — اختر عميل"}</div>
               <div style={{display:"flex",gap:4}}><Btn ghost small onClick={()=>setQuoteCust("pickSess")}>← التوزيعات</Btn><Btn ghost small onClick={()=>setQuoteCust(null)}>✕</Btn></div>
             </div>
             {sessCusts.map(c=>{const custTotal=sess.modelIds.reduce((s,mid)=>s+(Number((sess.grid||{})[mid+"_"+c.id])||0),0);
@@ -3788,7 +4133,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       }else{orders.forEach(o=>{const cd=(o.customerDeliveries||[]).filter(d=>d.custId===qCustId).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).filter(r=>r.custId===qCustId).reduce((s,r)=>s+(Number(r.qty)||0),0);const net=cd-ret;
         if(net>0){const price=Number(o.sellPrice)||0;if(!price)missingPrice=true;const lineTotal=net*price;grandTotal+=lineTotal;rows.push({no:o.modelNo,desc:o.modelDesc||"",qty:net,price,total:lineTotal})}});}
       const discPct=Number(cust.discount)||0;const disc=Math.round(grandTotal*discPct/100);const netTotal=grandTotal-disc;
-      const printQuote=()=>{let h="<h2 style='text-align:center'>CLARK — بيان سعر</h2>";
+      const printQuote=()=>{let h="<h2 style='text-align:center'>CLARK — عرض سعر</h2>";
         h+="<table style='margin:0 auto 12px'><tr><td style='padding:4px 12px;font-weight:700'>العميل</td><td style='padding:4px 12px;font-weight:800'>"+cust.name+"</td><td style='padding:4px 12px;font-weight:700'>التاريخ</td><td style='padding:4px 12px'>"+new Date().toISOString().split("T")[0]+"</td></tr></table>";
         h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th><th>سعر القطعة</th><th>الاجمالي</th></tr></thead><tbody>";
         rows.forEach(r=>{h+="<tr><td style='font-weight:800'>"+r.no+"</td><td>"+r.desc+"</td><td style='text-align:center;font-weight:700'>"+r.qty+"</td><td style='text-align:center'>"+fmt(r.price)+"</td><td style='text-align:center;font-weight:800'>"+fmt(r.total)+"</td></tr>"});
@@ -3797,11 +4142,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         if(discPct>0)h+="<div style='display:flex;justify-content:space-between;margin-bottom:6px;color:#EF4444'><span style='font-weight:700'>خصم "+discPct+"%</span><span style='font-weight:800'>- "+fmt(disc)+" ج.م</span></div>";
         h+="<div style='display:flex;justify-content:space-between;padding-top:8px;border-top:2px solid #000'><span style='font-weight:800;font-size:16px'>المستحق</span><span style='font-weight:900;font-size:18px;color:#059669'>"+fmt(netTotal)+" ج.م</span></div></div>";
         h+="<div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>العميل: "+cust.name+"</div></div>";
-        printPage("بيان سعر — "+cust.name,h,{factoryName:config.factoryName,logo:config.logo})};
+        printPage("عرض سعر — "+cust.name,h,{factoryName:config.factoryName,logo:config.logo})};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setQuoteCust(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:600,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-            <div><div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>{"🧾 بيان سعر — "+cust.name}</div><div style={{fontSize:FS-2,color:T.textMut}}>{cust.phone||""}{cust.type?" | "+cust.type:""}</div></div>
+            <div><div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>{"🧾 عرض سعر — "+cust.name}</div><div style={{fontSize:FS-2,color:T.textMut}}>{cust.phone||""}{cust.type?" | "+cust.type:""}</div></div>
             <div style={{display:"flex",gap:4}}><Btn small onClick={printQuote} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>🖨</Btn><Btn ghost small onClick={()=>setQuoteCust(null)}>✕</Btn></div>
           </div>
           {missingPrice&&<div style={{padding:8,borderRadius:8,background:"#FEF2F2",border:"1px solid #FECACA",marginBottom:10,fontSize:FS-1,color:"#EF4444",fontWeight:700}}>⚠️ بعض الموديلات بدون سعر — ادخل الأسعار من جدول التوزيع</div>}

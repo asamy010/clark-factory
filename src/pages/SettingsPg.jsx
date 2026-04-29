@@ -8,6 +8,7 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updateProfile } from "firebase/auth";
 import { collection, deleteDoc, doc, getDocs, setDoc, updateDoc } from "firebase/firestore";
+import { createComprehensiveBackup, readComprehensiveBackup, deleteComprehensiveBackup, estimateComprehensiveBackupSize } from "../utils/comprehensiveBackup.js";
 import { Btn, Card, DelBtn, Inp, Sel, Spinner } from "../components/ui.jsx";
 import { TABS } from "../components/LoginScreen.jsx";
 import { FKEYS, FS } from "../constants/index.js";
@@ -2510,12 +2511,24 @@ function PermissionsCard({config,upConfig,T,FS,TABS,Btn,showToast}){
   const levels=["edit","view","hide"];
   const levelLabels={edit:"✏️ تعديل",view:"👁 عرض",hide:"❌ مخفي"};
   const levelColors={edit:T.ok,view:T.warn,hide:T.err};
-  /* V15.66: Draft setters — mutate local state only */
+  /* V15.66: Draft setters — mutate local state only.
+     V18.61: Hard-block admin writes — even if a UI bug or DevTools tampering
+     tries to set permissions[admin].*, refuse silently. The runtime
+     getTabPerm() already ignores these values for admin, but this prevents
+     polluting factory/config with stale custom admin permissions. */
   const setPerm=(role,tabKey,level)=>{
+    if(role==="admin"){
+      console.warn("[V18.61] Refused setPerm for admin role — admin permissions are hardcoded");
+      return;
+    }
     setDraftPerms(p=>{const n=JSON.parse(JSON.stringify(p));if(!n[role])n[role]={};n[role][tabKey]=level;return n});
     setPermsDirty(true);
   };
   const setHrSubPerm=(role,subKey,level)=>{
+    if(role==="admin"){
+      console.warn("[V18.61] Refused setHrSubPerm for admin role — admin permissions are hardcoded");
+      return;
+    }
     setDraftPerms(p=>{
       const n=JSON.parse(JSON.stringify(p));
       if(!n[role])n[role]={};
@@ -2528,8 +2541,15 @@ function PermissionsCard({config,upConfig,T,FS,TABS,Btn,showToast}){
     });
     setPermsDirty(true);
   };
+  /* V18.61: Strip any admin entry from draft before saving — defensive cleanup
+     that ensures we never persist custom admin permissions back to factory/config.
+     If the database somehow has them (legacy / tampering), this also cleans them up. */
   const savePerms=()=>{
-    upConfig(d=>{d.permissions=JSON.parse(JSON.stringify(draftPerms))});
+    upConfig(d=>{
+      const cleaned=JSON.parse(JSON.stringify(draftPerms));
+      if(cleaned.admin)delete cleaned.admin;/* admin is hardcoded, never persisted */
+      d.permissions=cleaned;
+    });
     setPermsDirty(false);
     showToast("✓ تم حفظ الصلاحيات");
   };
@@ -2563,14 +2583,26 @@ function PermissionsCard({config,upConfig,T,FS,TABS,Btn,showToast}){
     {key:"employees",label:"━ إدارة الموظفين",icon:"👷"},
     {key:"security",label:"━ الأمن والرقابة",icon:"🛡️"}
   ];
+  /* V18.61: Admin column is hardcoded — cell renders "✏️ دائماً" instead of a select.
+     Matches the runtime behavior of getTabPerm() which short-circuits for admin. */
+  const AdminLockedCell=()=><span style={{fontSize:FS-2,color:T.ok,fontWeight:700,padding:"4px 8px",background:T.ok+"12",borderRadius:6,border:"1px solid "+T.ok+"30",display:"inline-block"}}>✏️ دائماً</span>;
   return<div style={{overflowX:"auto"}}>
     <div style={{fontSize:FS-2,color:T.textMut,marginBottom:10,padding:"8px 12px",background:T.accent+"08",borderRadius:8,lineHeight:1.7}}>
       💡 <b>محاسب مرتبات</b>: يحسب المرتبات بس مش بيقدر يؤكد الاستلام.<br/>
       💡 <b>مُؤكِّد استلام</b>: يسكن QR بس، ومش بيقدر يعدل أي مبلغ.<br/>
       🛡️ <b>فصل الصلاحيات</b>: المحاسب اللي عدّل المرتب ممنوع يؤكد استلامه (إلا الأدمن).
     </div>
+    {/* V18.61: Notice that admin permissions are locked */}
+    <div style={{fontSize:FS-2,color:T.ok,marginBottom:10,padding:"10px 14px",background:T.ok+"08",border:"1px solid "+T.ok+"40",borderRadius:8,lineHeight:1.7,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+      <span style={{fontSize:FS+4}}>🔒</span>
+      <span>
+        <b>صلاحيات الـ admin مثبّتة في الكود</b> — مش قابلة للتعديل من هنا.
+        ده عشان نحمي النظام: لو حد عدّلها بالغلط أو بسبب bug، الـ admin هيفقد دخوله ويقفل النظام.
+        لتغييرها، لازم release كود جديد.
+      </span>
+    </div>
     <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
-      <thead><tr><th style={TH}>الشاشة</th>{roles.map(r=><th key={r} style={{...TH,textAlign:"center",fontSize:FS-2}}>{roleLabels[r]}</th>)}</tr></thead>
+      <thead><tr><th style={TH}>الشاشة</th>{roles.map(r=><th key={r} style={{...TH,textAlign:"center",fontSize:FS-2,...(r==="admin"?{background:T.ok+"08",color:T.ok}:{})}}>{r==="admin"?"🔒 ":""}{roleLabels[r]}</th>)}</tr></thead>
       <tbody>{tabs.map(t=>{
         /* If this tab is "hr", render the parent row + 4 sub-rows */
         if(t.key==="hr"){
@@ -2587,6 +2619,12 @@ function PermissionsCard({config,upConfig,T,FS,TABS,Btn,showToast}){
                 <span style={{marginLeft:6}}>{sub.icon}</span>{sub.label}
               </td>
               {roles.map(r=>{
+                /* V18.61: Admin column is locked — always shows the hardcoded value */
+                if(r==="admin"){
+                  return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px",background:T.ok+"05"}}>
+                    <AdminLockedCell/>
+                  </td>;
+                }
                 const cur=getHrCur(r,sub.key);
                 return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px"}}>
                   <select value={cur} onChange={e=>setHrSubPerm(r,sub.key,e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:levelColors[cur],fontWeight:700,cursor:"pointer"}}>
@@ -2600,13 +2638,20 @@ function PermissionsCard({config,upConfig,T,FS,TABS,Btn,showToast}){
         /* Non-HR tab — regular rendering, reads from draft */
         return<tr key={t.key}>
           <td style={{...TD,fontWeight:600}}><span style={{marginLeft:6}}>{t.icon}</span>{t.label}</td>
-          {roles.map(r=>{const cur=(draftPerms[r]||{})[t.key]||(defPerms[r]||{})[t.key]||"view";
+          {roles.map(r=>{
+            /* V18.61: Admin column is locked — always shows the hardcoded value */
+            if(r==="admin"){
+              return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px",background:T.ok+"05"}}>
+                <AdminLockedCell/>
+              </td>;
+            }
+            const cur=(draftPerms[r]||{})[t.key]||(defPerms[r]||{})[t.key]||"view";
             return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px"}}>
-              {r==="admin"&&t.key==="settings"?<span style={{fontSize:FS-2,color:T.ok,fontWeight:600}}>✏️ دائماً</span>:
               <select value={cur} onChange={e=>setPerm(r,t.key,e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:levelColors[cur],fontWeight:700,cursor:"pointer"}}>
                 {levels.map(l=><option key={l} value={l}>{levelLabels[l]}</option>)}
-              </select>}
-            </td>})}
+              </select>
+            </td>;
+          })}
         </tr>;
       })}</tbody>
     </table>
@@ -2692,7 +2737,49 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     try{await signInWithEmailAndPassword(auth,user.email,adminPass);if(pendingAction)pendingAction();setPendingAction(null);setAdminPass("")}
     catch(e){setPassErr("كلمة المرور غير صحيحة")}finally{setPassLoading(false)}};
   /* V16.6: Logo + addSeason/deleteSeason now inside LogoCard/SeasonsCard components */
-  const clearAllOrders=()=>{requirePass(async()=>{try{const snap=await getDocs(collection(db,"seasons",season,"orders"));await Promise.all(snap.docs.map(d=>deleteDoc(doc(db,"seasons",season,"orders",d.id))))}catch(e){}setClearConfirm(false)})};
+  /* V18.62: clearAllOrders is now safer:
+     1. Takes auto-pre-restore comprehensive backup BEFORE deleting
+     2. Logs the operation to restoreLog
+     3. Surfaces errors instead of silently swallowing them
+     4. Shows progress to the user */
+  const clearAllOrders=()=>{requirePass(async()=>{
+    try{
+      showToast("⏳ بعمل نسخة احتياطية شاملة قبل المسح...");
+      const preBackup=await createComprehensiveBackup({
+        label:"تلقائي قبل مسح كل أوردرات الموسم "+season,
+        user:{email:user?.email,uid:user?.uid},
+        autoGenerated:false,
+        onProgress:()=>{},
+      });
+      try{
+        await setDoc(doc(db,"restoreLog",preBackup.backupId),{
+          ts:new Date().toISOString(),
+          by:user?.email||user?.uid||"unknown",
+          action:"clear_all_orders",
+          season:season,
+          preRestoreBackupId:preBackup.backupId,
+        });
+      }catch(logErr){console.warn("[V18.62] restoreLog failed:",logErr)}
+      showToast("⏳ جاري مسح أوردرات الموسم "+season+"...");
+      const snap=await getDocs(collection(db,"seasons",season,"orders"));
+      const total=snap.docs.length;
+      let deleted=0;const errors=[];
+      for(const d of snap.docs){
+        try{await deleteDoc(doc(db,"seasons",season,"orders",d.id));deleted++}
+        catch(e){errors.push({id:d.id,err:String(e?.message||e)})}
+      }
+      if(errors.length>0){
+        console.error("[V18.62] clearAllOrders had errors:",errors);
+        showToast("⚠️ تم مسح "+deleted+"/"+total+" — "+errors.length+" فشلت. النسخة في "+preBackup.backupId);
+      }else{
+        showToast("✅ تم مسح "+deleted+" أوردر. نسخة احتياطية: "+preBackup.backupId);
+      }
+    }catch(e){
+      console.error("[V18.62] clearAllOrders failed:",e);
+      showToast("⚠️ فشل المسح: "+(e?.message||String(e)).slice(0,100));
+    }
+    setClearConfirm(false);
+  })};
 
   /* ═══ PO Migration V14.48 — Renumber all orders with new sequential format ═══ */
   const[poMigState,setPoMigState]=useState(null);/* null | "confirm1" | "confirm2" | "running" | "done" */
@@ -3606,23 +3693,36 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   BACKUP & RESTORE CARD — نسخ احتياطي واستعادة
+   V18.62: BACKUP & RESTORE CARD — Comprehensive backups only
+   ═══════════════════════════════════════════════════════════════
+   
+   Pre-V18.62, this card created "lite" backups that only included
+   factory/config + sales + tasks + current-season orders. Since the
+   V16.74 split-collections migration, that meant treasury, audit log,
+   HR log, HR weeks, and orders from non-current seasons were silently
+   missing from every backup.
+   
+   V18.62 replaces this with comprehensive backups (via
+   utils/comprehensiveBackup.js) that capture EVERY collection. The
+   backup is stored as multiple part-documents under backups/{id}/parts
+   to bypass Firestore's 1MB-per-doc limit.
    ═══════════════════════════════════════════════════════════════ */
-
 
 export function BackupRestoreCard({config,salesDoc,tasksDoc,orders,isMob,user,upConfig}){
   const[backupList,setBackupList]=useState([]);
   const[loading,setLoading]=useState(false);
   const[confirmRestore,setConfirmRestore]=useState(null);
   const[busy,setBusy]=useState(false);
-  /* V18.60: Typed confirmation — user must type "استعادة" exactly to proceed */
+  const[backupProgress,setBackupProgress]=useState(null);/* {message, status} */
+  const[sizeEstimate,setSizeEstimate]=useState(null);
   const[restoreTyped,setRestoreTyped]=useState("");
 
   const loadBackups=async()=>{
     setLoading(true);
     try{
       const snap=await getDocs(collection(db,"backups"));
-      const list=[];snap.forEach(d=>{const data=d.data();list.push({id:d.id,...data})});
+      const list=[];
+      snap.forEach(d=>{const data=d.data();list.push({id:d.id,...data})});
       list.sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
       setBackupList(list);
     }catch(e){console.error("loadBackups:",e);showToast("⚠️ تعذر تحميل النسخ")}
@@ -3630,230 +3730,310 @@ export function BackupRestoreCard({config,salesDoc,tasksDoc,orders,isMob,user,up
   };
 
   useEffect(()=>{loadBackups()},[]);
-  /* V18.60: clear typed confirmation whenever the dialog opens with a new backup */
   useEffect(()=>{setRestoreTyped("")},[confirmRestore]);
 
+  /* V18.62: Comprehensive backup — captures EVERY collection.
+     The progress callback streams status to the user since this can take
+     several seconds for factories with lots of data. */
   const createBackup=async(label)=>{
     setBusy(true);
+    setBackupProgress({message:"بدء النسخة الشاملة…",status:"running"});
     try{
-      const backupId=new Date().toISOString().replace(/[:.]/g,"-");
-      const data={
-        label:label||"يدوية",
-        createdAt:new Date().toISOString(),
-        createdBy:user?.email||user?.uid||"unknown",
-        config:config||{},
-        sales:salesDoc||{},
-        tasks:tasksDoc||{},
-        orders:orders||[],
-        counts:{
-          treasury:(config?.treasury||[]).length,
-          employees:(config?.employees||[]).length,
-          customers:(config?.customers||[]).length,
-          orders:(orders||[]).length,
-          workshops:(config?.workshops||[]).length,
-          users:Object.keys(config?.users||{}).length,
-          usersList:(config?.usersList||[]).length
-        }
-      };
-      await setDoc(doc(db,"backups",backupId),data);
-      showToast("✅ تم حفظ النسخة الاحتياطية");
+      const result=await createComprehensiveBackup({
+        label:label||"شاملة يدوية",
+        user:{email:user?.email,uid:user?.uid},
+        autoGenerated:false,
+        onProgress:(msg)=>setBackupProgress({message:msg,status:"running"}),
+      });
+      const totalCount=Object.keys(result.summary?.counts||{}).length;
+      setBackupProgress({
+        message:"✅ تم! "+totalCount+" قسم متضمن",
+        status:"success",
+      });
+      showToast("✅ تم حفظ النسخة الاحتياطية الشاملة");
       loadBackups();
-      return backupId;/* V18.60: return so callers can chain */
-    }catch(e){console.error("createBackup:",e);showToast("⚠️ فشل حفظ النسخة");throw e}
-    finally{setBusy(false)}
+      /* Clear progress after 4 seconds */
+      setTimeout(()=>setBackupProgress(null),4000);
+      return result.backupId;
+    }catch(e){
+      console.error("[V18.62] createComprehensiveBackup:",e);
+      setBackupProgress({
+        message:"⚠️ فشل: "+(e?.message||String(e)).slice(0,80),
+        status:"error",
+      });
+      showToast("⚠️ فشل حفظ النسخة الشاملة");
+      throw e;
+    }finally{
+      setBusy(false);
+    }
   };
 
-  const deleteBackup=async(id)=>{
-    try{await deleteDoc(doc(db,"backups",id));showToast("✓ تم الحذف");loadBackups()}
-    catch(e){console.error("deleteBackup:",e);showToast("⚠️ فشل الحذف")}
+  /* V18.62: Estimate the comprehensive backup size before creating it.
+     Useful warning for very large factories. */
+  const checkSize=async()=>{
+    setBackupProgress({message:"جاري حساب الحجم…",status:"running"});
+    try{
+      const est=await estimateComprehensiveBackupSize();
+      setSizeEstimate(est);
+      setBackupProgress(null);
+    }catch(e){
+      setBackupProgress({message:"⚠️ تعذر الحساب",status:"error"});
+      setTimeout(()=>setBackupProgress(null),3000);
+    }
   };
 
-  /* V18.60: Restore is now multi-step and audited.
-     1) Take an automatic pre-restore backup of current state
-     2) Log the action to restoreLog (separate doc, not in auditLog)
-     3) Then write config/sales/tasks
-     This means even if the restore destroys data, the user can recover from
-     the auto-backup we just took.
+  /* V18.62: Delete handles both old (single-doc) and new (multi-part) formats. */
+  const deleteBackup=async(b)=>{
+    try{
+      if(b.isComprehensive){
+        await deleteComprehensiveBackup(b.id);
+      }else{
+        /* Legacy single-doc backup */
+        await deleteDoc(doc(db,"backups",b.id));
+      }
+      showToast("✓ تم الحذف");
+      loadBackups();
+    }catch(e){
+      console.error("deleteBackup:",e);
+      showToast("⚠️ فشل الحذف");
+    }
+  };
+
+  /* V18.62: Restore now handles BOTH formats:
+     - Comprehensive (preferred): writes back factory/config + sales + tasks
+       AND restores split collections, partitioned collections, and per-season
+       orders. This is the only safe restore.
+     - Legacy single-doc: same behavior as before (config/sales/tasks only).
+       The dialog warns the user that orders/treasury/audit will NOT change.
      
-     IMPORTANT CAVEAT (still): This restore does NOT touch:
-       - treasuryDays (treasury entries)
-       - auditDays (audit log)
-       - hrLogDays (HR log)
-       - hrWeeksDocs (HR weeks)
-       - seasons orders collections
-     The dialog warns the user about this BEFORE they confirm. */
+     Auto-pre-restore backup is taken before any write. */
   const restoreBackup=async(b)=>{
     setBusy(true);
-    let preRestoreBackupId=null;
+    setBackupProgress({message:"⏳ بعمل نسخة احتياطية للحالة الحالية أولاً…",status:"running"});
+    let preBackupId=null;
     try{
-      /* Step 1: Auto-backup the CURRENT state before overwriting */
+      /* Step 1: Auto-pre-restore comprehensive backup */
       try{
-        showToast("⏳ بعمل نسخة احتياطية للحالة الحالية أولاً...");
-        const ts=new Date().toISOString().replace(/[:.]/g,"-");
-        preRestoreBackupId="auto-pre-restore-"+ts;
-        await setDoc(doc(db,"backups",preRestoreBackupId),{
+        const preResult=await createComprehensiveBackup({
           label:"تلقائي قبل استعادة",
-          autoGenerated:true,
-          createdAt:new Date().toISOString(),
-          createdBy:user?.email||user?.uid||"unknown",
-          restoringFromId:b.id,
-          restoringFromLabel:b.label,
-          config:config||{},
-          sales:salesDoc||{},
-          tasks:tasksDoc||{},
-          orders:orders||[],
-          counts:{
-            treasury:(config?.treasury||[]).length,
-            employees:(config?.employees||[]).length,
-            customers:(config?.customers||[]).length,
-            orders:(orders||[]).length,
-            workshops:(config?.workshops||[]).length,
-            users:Object.keys(config?.users||{}).length,
-            usersList:(config?.usersList||[]).length
-          }
+          user:{email:user?.email,uid:user?.uid},
+          autoGenerated:false,
+          onProgress:(msg)=>setBackupProgress({message:"نسخة قبل الاستعادة: "+msg,status:"running"}),
         });
+        preBackupId=preResult.backupId;
       }catch(preErr){
-        console.error("[V18.60] Pre-restore backup FAILED:",preErr);
-        showToast("⛔ فشل عمل نسخة احتياطية قبل الاستعادة — توقفت العملية لحماية بياناتك");
+        console.error("[V18.62] Pre-restore backup FAILED:",preErr);
+        setBackupProgress({message:"⛔ فشل عمل نسخة قبل الاستعادة — توقفت",status:"error"});
+        showToast("⛔ توقفت الاستعادة لحماية بياناتك");
         setBusy(false);
         return;
       }
 
-      /* Step 2: Log the restore to a dedicated audit doc (separate from auditLog
-         since auditLog might be in split collections). This guarantees the
-         action is traced even if the restore destroys the audit log. */
+      /* Step 2: Log the restore */
       try{
-        await setDoc(doc(db,"restoreLog",preRestoreBackupId),{
+        await setDoc(doc(db,"restoreLog",preBackupId),{
           ts:new Date().toISOString(),
           by:user?.email||user?.uid||"unknown",
           action:"restore_backup",
           restoredFromId:b.id,
-          restoredFromLabel:b.label,
-          restoredFromCreatedAt:b.createdAt,
-          preRestoreBackupId:preRestoreBackupId
+          restoredFromLabel:b.label||"",
+          restoredFromCreatedAt:b.createdAt||"",
+          restoredFromIsComprehensive:!!b.isComprehensive,
+          preRestoreBackupId:preBackupId,
         });
-      }catch(logErr){
-        /* Non-fatal: log failure shouldn't block the restore */
-        console.warn("[V18.60] restoreLog write failed (non-fatal):",logErr);
-      }
+      }catch(logErr){console.warn("[V18.62] restoreLog write failed:",logErr)}
 
-      /* Step 3: The actual restore writes */
-      if(b.config)await setDoc(doc(db,"factory","config"),b.config);
-      if(b.sales)await setDoc(doc(db,"factory","sales"),b.sales);
-      if(b.tasks)await setDoc(doc(db,"factory","tasks"),b.tasks);
-      /* NOTE: split collections, partitioned collections, and seasons orders
-         are NOT restored. The user was warned about this in the confirmation
-         dialog. Leaving them untouched is safer than deleting+rewriting,
-         since a buggy restore could delete real data. */
-      showToast("✅ تم — تم حفظ النسخة الحالية أوتوماتيك. اقفل وافتح التطبيق.");
+      /* Step 3: The actual restore */
+      if(b.isComprehensive){
+        /* Comprehensive restore */
+        setBackupProgress({message:"جاري قراءة النسخة الشاملة…",status:"running"});
+        const data=await readComprehensiveBackup(b.id);
+        if(!data){throw new Error("Could not read comprehensive backup")}
+        /* Restore factory docs */
+        if(data.factoryConfig){
+          setBackupProgress({message:"كتابة factory/config…",status:"running"});
+          await setDoc(doc(db,"factory","config"),data.factoryConfig);
+        }
+        if(data.factorySales){
+          setBackupProgress({message:"كتابة factory/sales…",status:"running"});
+          await setDoc(doc(db,"factory","sales"),data.factorySales);
+        }
+        if(data.factoryTasks){
+          setBackupProgress({message:"كتابة factory/tasks…",status:"running"});
+          await setDoc(doc(db,"factory","tasks"),data.factoryTasks);
+        }
+        /* Restore split collections — write each day doc back */
+        for(const[collName,docs] of Object.entries(data.splitCollections||{})){
+          if(!Array.isArray(docs)||docs.length===0)continue;
+          setBackupProgress({message:"استعادة "+collName+" ("+docs.length+" يوم)…",status:"running"});
+          for(const d of docs){
+            const{_id,...rest}=d;
+            if(!_id)continue;
+            try{await setDoc(doc(db,collName,_id),rest)}
+            catch(e){console.warn("Failed to restore "+collName+"/"+_id,e)}
+          }
+        }
+        /* Restore partitioned collections */
+        for(const[collName,docs] of Object.entries(data.partitionedCollections||{})){
+          if(!Array.isArray(docs)||docs.length===0)continue;
+          setBackupProgress({message:"استعادة "+collName+" ("+docs.length+" doc)…",status:"running"});
+          for(const d of docs){
+            const{_id,...rest}=d;
+            if(!_id)continue;
+            try{await setDoc(doc(db,collName,_id),rest)}
+            catch(e){console.warn("Failed to restore "+collName+"/"+_id,e)}
+          }
+        }
+        /* Restore orders for each season */
+        for(const[seasonName,docs] of Object.entries(data.ordersBySeason||{})){
+          if(!Array.isArray(docs)||docs.length===0)continue;
+          setBackupProgress({message:"استعادة أوردرات "+seasonName+" ("+docs.length+")…",status:"running"});
+          for(const d of docs){
+            const{_id,...rest}=d;
+            if(!_id)continue;
+            try{await setDoc(doc(db,"seasons",seasonName,"orders",_id),rest)}
+            catch(e){console.warn("Failed to restore order "+seasonName+"/"+_id,e)}
+          }
+        }
+      }else{
+        /* Legacy: only restore the 3 main docs */
+        if(b.config)await setDoc(doc(db,"factory","config"),b.config);
+        if(b.sales)await setDoc(doc(db,"factory","sales"),b.sales);
+        if(b.tasks)await setDoc(doc(db,"factory","tasks"),b.tasks);
+      }
+      setBackupProgress({message:"✅ تم — اقفل وافتح التطبيق",status:"success"});
+      showToast("✅ تم — اقفل وافتح التطبيق");
       setConfirmRestore(null);
+      setTimeout(()=>setBackupProgress(null),5000);
     }catch(e){
       console.error("restoreBackup:",e);
-      showToast("⚠️ فشل الاستعادة"+(preRestoreBackupId?` — نسختك القديمة محفوظة في ${preRestoreBackupId}`:""));
+      setBackupProgress({message:"⚠️ فشل: "+(e?.message||String(e)).slice(0,80),status:"error"});
+      showToast("⚠️ فشل الاستعادة"+(preBackupId?" — نسختك في "+preBackupId:""));
     }
     setBusy(false);
   };
 
-  const downloadJSON=(b)=>{
-    const data=JSON.stringify(b,null,2);
-    const blob=new Blob([data],{type:"application/json"});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement("a");
-    a.href=url;a.download="clark-backup-"+b.id+".json";a.click();
-    URL.revokeObjectURL(url);
-  };
-
   return<Card title="💾 النسخ الاحتياطي والاستعادة" style={{marginTop:16}}>
-      <CardSubtitle icon="💡">إنشاء نسخ احتياطية كاملة من بيانات البرنامج، وإمكانية استعادتها. ينصح بعمل نسخة قبل أي عملية كبيرة (mass delete, bulk import, إلخ).</CardSubtitle>
-    <div style={{padding:12,borderRadius:10,background:T.accent+"06",border:"1px solid "+T.accent+"20",marginBottom:14,fontSize:FS-1,color:T.textSec,lineHeight:1.7}}>
-      النسخ الاحتياطي يحفظ كل بياناتك (الخزنة، HR، العملاء، الورش، الطلبات) في Firestore.
-      <br/>💡 <b>نصيحة:</b> خد نسخة احتياطية قبل أي تحديث كبير أو تغيير جذري.
-    </div>
+    <CardSubtitle icon="💡">
+      نسخ احتياطية شاملة لكل بيانات النظام: الإعدادات، الخزنة، سجل المراجعة، HR، الأوردرات لكل المواسم، إلخ.
+      <b style={{color:T.ok,display:"block",marginTop:6}}>V18.62: النسخة الواحدة بقت تحفظ كل حاجة — مفيش بيانات بتضيع من النسخة.</b>
+    </CardSubtitle>
+
+    {/* Progress / status banner */}
+    {backupProgress&&<div style={{padding:12,marginBottom:12,borderRadius:10,
+      background:backupProgress.status==="error"?T.err+"10":backupProgress.status==="success"?T.ok+"10":T.accent+"08",
+      border:"1px solid "+(backupProgress.status==="error"?T.err+"40":backupProgress.status==="success"?T.ok+"40":T.accent+"30"),
+      fontSize:FS-1,
+      color:backupProgress.status==="error"?T.err:backupProgress.status==="success"?T.ok:T.accent,
+      fontWeight:700,
+      display:"flex",alignItems:"center",gap:8
+    }}>
+      {backupProgress.status==="running"&&<Spinner size="small" color={T.accent} inline/>}
+      <span>{backupProgress.message}</span>
+    </div>}
+
+    {/* Size estimate panel */}
+    {sizeEstimate&&<div style={{padding:12,marginBottom:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd,fontSize:FS-2}}>
+      <div style={{fontWeight:700,color:T.text,marginBottom:6}}>📊 الحجم المتوقع للنسخة:</div>
+      <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,marginBottom:6}}>{(sizeEstimate.totalBytes/1024/1024).toFixed(2)} MB</div>
+      <div style={{display:"flex",flexDirection:"column",gap:3,fontSize:FS-3,color:T.textSec}}>
+        {Object.entries(sizeEstimate.breakdown||{}).map(([k,v])=>
+          <div key={k} style={{display:"flex",justifyContent:"space-between"}}>
+            <span>{k}</span><span style={{fontFamily:"monospace"}}>{(v/1024).toFixed(1)} KB</span>
+          </div>
+        )}
+      </div>
+      <Btn small ghost onClick={()=>setSizeEstimate(null)} style={{marginTop:8}}>إخفاء</Btn>
+    </div>}
+
+    {/* Action buttons */}
     <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
-      <Btn primary onClick={()=>createBackup("يدوية")} disabled={busy}>💾 نسخة احتياطية الآن</Btn>
-      <Btn onClick={loadBackups} disabled={loading} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>{loading?<span style={{display:"inline-flex",alignItems:"center",gap:8}}><Spinner size="small" color={T.text} inline/>جاري التحميل...</span>:"🔄 تحديث القائمة"}</Btn>
+      <Btn primary onClick={()=>createBackup("شاملة يدوية")} disabled={busy}>💾 نسخة احتياطية شاملة الآن</Btn>
+      <Btn onClick={checkSize} disabled={busy} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>📊 معاينة الحجم</Btn>
+      <Btn onClick={loadBackups} disabled={loading} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>{loading?<span style={{display:"inline-flex",alignItems:"center",gap:8}}><Spinner size="small" color={T.text} inline/>تحميل…</span>:"🔄 تحديث"}</Btn>
     </div>
-    {backupList.length===0?<div style={{padding:30,textAlign:"center",color:T.textMut,background:T.bg,borderRadius:10}}>لا توجد نسخ احتياطية — اضغط "💾 نسخة احتياطية الآن" لأخذ نسخة</div>
+
+    {/* Backup list */}
+    {backupList.length===0?<div style={{padding:30,textAlign:"center",color:T.textMut,background:T.bg,borderRadius:10}}>لا توجد نسخ احتياطية</div>
     :<div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:400,overflowY:"auto"}}>
       {backupList.map(b=>{
         const d=new Date(b.createdAt||0);
         const c=b.counts||{};
-        return<div key={b.id} style={{padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        const isComp=!!b.isComprehensive;
+        const isAuto=!!b.autoGenerated;
+        const isPreMig=String(b.id||"").startsWith("pre-migration");
+        const isAutoPreRestore=String(b.id||"").startsWith("auto-pre-");
+        return<div key={b.id} style={{padding:12,borderRadius:10,background:T.bg,border:"1px solid "+(isComp?T.ok+"40":T.brd),display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
           <div style={{flex:1,minWidth:200}}>
-            <div style={{fontSize:FS,fontWeight:700,color:T.text}}>📦 {b.label||"نسخة"}</div>
+            <div style={{fontSize:FS,fontWeight:700,color:T.text,display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+              📦 {b.label||"نسخة"}
+              {isComp&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,background:T.ok+"20",color:T.ok,fontWeight:700}}>شاملة ✓</span>}
+              {!isComp&&!isPreMig&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,background:T.warn+"20",color:T.warn,fontWeight:700}}>قديمة (ناقصة)</span>}
+              {isPreMig&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,background:T.accent+"20",color:T.accent,fontWeight:600}}>قبل migration</span>}
+              {isAutoPreRestore&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,background:T.warn+"15",color:T.warn,fontWeight:600}}>قبل استعادة</span>}
+              {isAuto&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,background:T.accent+"15",color:T.accent,fontWeight:600}}>تلقائية</span>}
+            </div>
             <div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{d.toLocaleString("ar-EG",{dateStyle:"medium",timeStyle:"short"})}</div>
             <div style={{fontSize:FS-3,color:T.textSec,marginTop:4,display:"flex",gap:10,flexWrap:"wrap"}}>
-              <span>💰 {c.treasury||0} حركة</span>
-              <span>👷 {c.employees||0} موظف</span>
-              <span>🧑 {c.customers||0} عميل</span>
-              <span>📋 {c.orders||0} طلب</span>
+              <span>💰 {c.treasuryDays||c.treasury||0}{c.treasuryDays?" يوم":" حركة"}</span>
+              <span>👷 {c.employees||0}</span>
+              <span>🧑 {c.customers||0}</span>
+              <span>🏭 {c.workshops||0}</span>
+              <span>📋 {c.ordersTotal||c.orders||0}</span>
+              <span>👤 {(c.users||0)+(c.usersList||0)}</span>
             </div>
           </div>
           <div style={{display:"flex",gap:4}}>
-            <Btn small onClick={()=>downloadJSON(b)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}} title="تحميل JSON">⬇</Btn>
             <Btn small onClick={()=>setConfirmRestore(b)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="استعادة">🔄</Btn>
-            <Btn small onClick={async()=>{if(await ask("حذف النسخة","حذف النسخة الاحتياطية؟",{danger:true}))deleteBackup(b.id)}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}} title="حذف">🗑</Btn>
+            <Btn small onClick={async()=>{if(await ask("حذف النسخة","حذف النسخة الاحتياطية؟"+(isComp?" (هتحذف كل الـ parts بتاعتها)":""),{danger:true}))deleteBackup(b)}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}} title="حذف">🗑</Btn>
           </div>
-        </div>})}
+        </div>;
+      })}
     </div>}
 
+    {/* Restore confirmation dialog */}
     {confirmRestore&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setConfirmRestore(null)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,maxWidth:560,width:"100%",border:"2px solid "+T.err,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",maxHeight:"90vh",overflowY:"auto"}}>
         <div style={{fontSize:48,textAlign:"center",marginBottom:8}}>🚨</div>
         <div style={{fontSize:FS+2,fontWeight:800,color:T.err,textAlign:"center",marginBottom:14}}>تأكيد عملية خطيرة: استعادة نسخة احتياطية</div>
-        <div style={{fontSize:FS-1,color:T.textSec,marginBottom:10,lineHeight:1.7,padding:12,background:T.warn+"08",borderRadius:10,border:"1px solid "+T.warn+"30"}}>
-          <b>هتُستبدل البيانات دي:</b><br/>
-          • الإعدادات (factory/config) — workshops, customers, users, fabrics, settings...<br/>
-          • Sales doc (factory/sales)<br/>
-          • Tasks doc (factory/tasks)<br/>
-        </div>
-        <div style={{fontSize:FS-1,color:T.textSec,marginBottom:14,lineHeight:1.7,padding:12,background:T.err+"08",borderRadius:10,border:"1px solid "+T.err+"40"}}>
-          <b style={{color:T.err}}>⚠️ مش هتُستبدل (هتفضل على حالتها الحالية):</b><br/>
-          • حركات الخزنة (treasuryDays)<br/>
-          • سجل المراجعة (auditDays)<br/>
-          • سجل HR (hrLogDays)<br/>
-          • أسابيع المرتبات (hrWeeksDocs)<br/>
-          • <b>الأوردرات</b> (seasons orders)<br/>
-          <span style={{fontSize:FS-2,color:T.textMut,display:"block",marginTop:6}}>
-            ده ممكن يخلق inconsistency: مثلاً ورشة هتختفي من الإعدادات بس حركاتها تفضل موجودة.
-          </span>
-        </div>
+        {confirmRestore.isComprehensive?<>
+          <div style={{fontSize:FS-1,color:T.text,marginBottom:14,lineHeight:1.7,padding:12,background:T.ok+"08",borderRadius:10,border:"1px solid "+T.ok+"40"}}>
+            <b style={{color:T.ok}}>✓ نسخة شاملة — هترجع كل البيانات:</b><br/>
+            • factory/config + sales + tasks<br/>
+            • حركات الخزنة + سجل المراجعة + HR<br/>
+            • الأوردرات لكل المواسم<br/>
+            • أسابيع المرتبات
+          </div>
+        </>:<>
+          <div style={{fontSize:FS-1,color:T.textSec,marginBottom:10,lineHeight:1.7,padding:12,background:T.warn+"08",borderRadius:10,border:"1px solid "+T.warn+"30"}}>
+            <b>هتُستبدل البيانات دي:</b><br/>
+            • الإعدادات (factory/config)<br/>
+            • factory/sales + factory/tasks
+          </div>
+          <div style={{fontSize:FS-1,color:T.textSec,marginBottom:14,lineHeight:1.7,padding:12,background:T.err+"08",borderRadius:10,border:"1px solid "+T.err+"40"}}>
+            <b style={{color:T.err}}>⚠️ نسخة قديمة (مش شاملة) — مش هتستبدل:</b><br/>
+            • حركات الخزنة (treasuryDays)<br/>
+            • سجل المراجعة (auditDays)<br/>
+            • الأوردرات (seasons)<br/>
+            • إلخ.
+          </div>
+        </>}
         <div style={{fontSize:FS-1,color:T.text,marginBottom:14,lineHeight:1.7,padding:12,background:T.bg,borderRadius:10}}>
           📅 <b>{new Date(confirmRestore.createdAt).toLocaleString("ar-EG")}</b><br/>
-          📦 {confirmRestore.label}<br/>
-          {confirmRestore.counts&&<>
-            💰 {confirmRestore.counts.treasury||0} حركة خزنة • 👷 {confirmRestore.counts.employees||0} موظف<br/>
-            🧑 {confirmRestore.counts.customers||0} عميل • 🏭 {confirmRestore.counts.workshops||0} ورشة<br/>
-            👤 {(confirmRestore.counts.users||0)+(confirmRestore.counts.usersList||0)} مستخدم<br/>
-          </>}
+          📦 {confirmRestore.label}
         </div>
         <div style={{fontSize:FS-2,color:T.ok,marginBottom:14,padding:10,background:T.ok+"10",borderRadius:8,border:"1px solid "+T.ok+"30"}}>
-          ✓ <b>أمان إضافي:</b> هتتاخد نسخة احتياطية أوتوماتيك للحالة الحالية قبل الاستعادة (auto-pre-restore). تقدر ترجعها لو حصل غلط.
+          ✓ <b>أمان إضافي:</b> هتتاخد نسخة احتياطية شاملة أوتوماتيك للحالة الحالية قبل الاستعادة.
         </div>
         <div style={{marginBottom:14}}>
           <div style={{fontSize:FS-1,fontWeight:700,color:T.err,marginBottom:6}}>
             للتأكيد، اكتب كلمة <span style={{fontFamily:"monospace",background:T.err+"15",padding:"2px 8px",borderRadius:4}}>استعادة</span> بالظبط:
           </div>
-          <Inp
-            value={restoreTyped}
-            onChange={setRestoreTyped}
-            placeholder="اكتب: استعادة"
-            style={{width:"100%",fontSize:FS,padding:"10px 14px",border:"2px solid "+(restoreTyped==="استعادة"?T.ok:T.err+"60")}}
-          />
+          <Inp value={restoreTyped} onChange={setRestoreTyped} placeholder="اكتب: استعادة" style={{width:"100%",fontSize:FS,padding:"10px 14px",border:"2px solid "+(restoreTyped==="استعادة"?T.ok:T.err+"60")}}/>
         </div>
         <div style={{display:"flex",gap:8,justifyContent:"flex-end",flexWrap:"wrap"}}>
           <Btn ghost onClick={()=>setConfirmRestore(null)} disabled={busy}>إلغاء</Btn>
-          <Btn
-            onClick={()=>restoreBackup(confirmRestore)}
-            disabled={busy||restoreTyped!=="استعادة"}
-            style={{
-              background:restoreTyped==="استعادة"?T.err:T.bg,
-              color:restoreTyped==="استعادة"?"#fff":T.textMut,
-              border:restoreTyped==="استعادة"?"none":"1px solid "+T.brd,
-              fontWeight:800,
-              opacity:(busy||restoreTyped!=="استعادة")?0.6:1
-            }}
-          >{busy?<span style={{display:"inline-flex",alignItems:"center",gap:8}}><Spinner size="small" color="#fff" inline/>جاري الاستعادة...</span>:"🔄 تأكيد الاستعادة"}</Btn>
+          <Btn onClick={()=>restoreBackup(confirmRestore)} disabled={busy||restoreTyped!=="استعادة"} style={{background:restoreTyped==="استعادة"?T.err:T.bg,color:restoreTyped==="استعادة"?"#fff":T.textMut,border:restoreTyped==="استعادة"?"none":"1px solid "+T.brd,fontWeight:800,opacity:(busy||restoreTyped!=="استعادة")?0.6:1}}>{busy?<span style={{display:"inline-flex",alignItems:"center",gap:8}}><Spinner size="small" color="#fff" inline/>جاري الاستعادة…</span>:"🔄 تأكيد الاستعادة"}</Btn>
         </div>
       </div>
     </div>}
@@ -3965,9 +4145,28 @@ function SelectiveRestoreCard({configDoc, upConfig, user, isMob}){
     return{fields};
   };
 
-  const handleSelectBackup=(b)=>{
-    setSelectedBackup(b);
-    const diff=computeDiff(b);
+  const handleSelectBackup=async(b)=>{
+    /* V18.62: Handle both backup formats:
+       - Legacy single-doc: config is in b.config directly
+       - Comprehensive: config is in backups/{id}/parts/factoryConfig.data */
+    let backupForDiff=b;
+    if(b.isComprehensive&&!b.config){
+      try{
+        const compData=await readComprehensiveBackup(b.id);
+        if(compData?.factoryConfig){
+          backupForDiff={...b,config:compData.factoryConfig};
+        }else{
+          showToast("⚠️ تعذر قراءة النسخة الشاملة");
+          return;
+        }
+      }catch(e){
+        console.error("[V18.62] Failed to read comprehensive backup:",e);
+        showToast("⚠️ خطأ في قراءة النسخة");
+        return;
+      }
+    }
+    setSelectedBackup(backupForDiff);
+    const diff=computeDiff(backupForDiff);
     setDiffData(diff);
     /* Pre-select fields that have missing items */
     const initSelected=new Set();

@@ -25,11 +25,55 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
-    version: "V18.60",
+    version: "V18.63",
+    date: "2026-04-29",
+    types: ["feature", "improvement"],
+    title: "🧾 تحديثات شاشة المبيعات + تاب دفعات في المحاسبة",
+    changes: [
+      { type: "improvement", text: "✏️ شاشة المبيعات: إعادة تسمية 'بيان سعر' → 'عرض سعر' (مصطلح أوضح وأقرب للاستخدام الفعلي)" },
+      { type: "improvement", text: "📋 بوب اب التوزيعات (لزرار 'عرض سعر'): يعرض آخر 10 توزيعات فقط بشكل افتراضي + زرار 'عرض المزيد' في الأسفل لو في توزيعات أكتر" },
+      { type: "feature", text: "🚚 زرار جديد 'إذن تسليم' في شاشة المبيعات بجانب 'عرض سعر' — نفس الـ flow (اختر توزيعة → اختر عميل → طباعة) لكن بيطبع الكميات فقط بدون أي أسعار. مفيد لما تحتاج تطبع إذن تسليم سريع للسائق بدون كشف الأسعار" },
+      { type: "improvement", text: "🔍 بوب اب اختيار العميل في 'إذن تسليم' فيه فلتر بحث بالاسم/التليفون — يساعد لو التوزيعة فيها عملاء كتير" },
+      { type: "feature", text: "📊 كشف حساب العميل: تابات جديدة تحت البطاقات — 'ملخص' و'سجل حركات'" },
+      { type: "feature", text: "📈 تاب 'ملخص': يعرض الموديلات والكميات المباعة والمرتجع + الرصيد الحالي المستحق للمصنع/العميل، مع فلتر بحث بالموديل" },
+      { type: "feature", text: "📋 تاب 'سجل حركات': جدولين منفصلين — جدول المبيعات (بالتاريخ + الكمية + القيمة قبل الخصم + بعد الخصم) وتحته جدول المرتجعات بنفس النظام" },
+      { type: "improvement", text: "🗑️ تم نقل 'سجل الدفعات' من بوب كشف الحساب إلى تاب 'دفعات' الجديد في المحاسبة (لإن الدفعات بطبيعتها معلومة محاسبية مش معلومة بيع)" },
+      { type: "improvement", text: "🏷️ المحاسبة: إعادة تسمية 'كشف حساب طرف' → 'كشف حساب جاري' (المصطلح الأصح محاسبياً)" },
+      { type: "feature", text: "💰 تاب 'دفعات' جديد في المحاسبة — سجل موحّد لكل الدفعات في النظام: نقدي + شيكات، عملاء + موردين، مع 4 بطاقات إحصاء (وارد، صادر، صافي، شيكات معلقة)" },
+      { type: "feature", text: "🔎 فلاتر تاب الدفعات: الاتجاه (وارد/صادر) + القناة (نقدي/شيك) + الحالة (محصل/معلق) + نطاق تاريخ + بحث نصي بالطرف/البنك/رقم الشيك/الملاحظات" },
+      { type: "improvement", text: "🎨 جدول الدفعات الموحد: badges ملونة لكل اتجاه/قناة/حالة، عرض رقم الشيك والبنك، ملاحظات، اسم المستخدم اللي سجّل" },
+    ]
+  },
+  {
+    version: "V18.62",
+    date: "2026-04-29",
+    types: ["fix", "feature", "architectural"],
+    title: "💾 Comprehensive Backup — نسخ احتياطية شاملة لكل البيانات",
+    changes: [
+      { type: "fix", text: "🚨 إصلاح bug خطير في النسخ الاحتياطية: من V16.74 (تقسيم الـ collections)، الـ backups كانت مش بتشمل treasury, audit log, hr log, hr weeks, ولا الأوردرات من غير الموسم الحالي. يعني كل النسخ اللي اتاخدت من حوالي سنة كانت ناقصة بشكل خطير. دلوقتي اتصلح." },
+      { type: "feature", text: "🆕 utils/comprehensiveBackup.js: نسخ شاملة بتحفظ كل البيانات من كل المصادر — factory/config + sales + tasks + treasuryDays + auditDays + hrLogDays + hrWeeksDocs + الأوردرات لكل المواسم. مفيش بيانات بتضيع." },
+      { type: "feature", text: "📦 الـ backup الجديد بيتخزن في multi-part format: backups/{id}/parts/* — كل part في document منفصل عشان يتعدى Firestore 1MB limit. الـ chunked أوتوماتيك للبيانات الكبيرة." },
+      { type: "feature", text: "📊 معاينة الحجم: زرار جديد '📊 معاينة الحجم' يعرضلك حجم النسخة المتوقعة وتفصيل لكل قسم قبل ما تعملها" },
+      { type: "feature", text: "📈 progress feedback: لما تعمل backup أو restore، شريط حالة بيقولك إيه اللي بيحصل (قراءة كذا، كتابة كذا)" },
+      { type: "fix", text: "🔄 Restore الكامل بقى يستعيد فعلاً كل حاجة: factory docs + treasuryDays + auditDays + hrLogDays + hrWeeksDocs + أوردرات كل المواسم. مش 3 docs بس زي الأول." },
+      { type: "fix", text: "🤖 الـ daily auto-backup بقى شامل برضه — حجمه أكبر (5-50 MB حسب البيانات) لكن أصبح فعلاً بيحميك" },
+      { type: "fix", text: "🛑 clearAllOrders: بقى يعمل comprehensive backup أوتوماتيك قبل المسح، يسجل في restoreLog، ويعرض الأخطاء بدل ما يبتلعها في صمت" },
+      { type: "fix", text: "🛡️ upSales و upTasks بقوا فيهم نفس safety guards زي upConfig (configLoaded + configError checks) — يرفضوا الكتابة قبل ما البيانات تحمّل" },
+      { type: "improvement", text: "🏷️ في صفحة الـ backups: badges واضحة لكل نسخة — 'شاملة ✓' للنسخ الجديدة، 'قديمة (ناقصة)' للنسخ ما قبل V18.62، 'تلقائية'، 'قبل migration'، 'قبل استعادة'" },
+      { type: "improvement", text: "🗑️ deleteComprehensiveBackup: لما تحذف نسخة شاملة، بيتم حذف الـ metadata وكل الـ parts المرتبطة بيها أوتوماتيك" },
+      { type: "improvement", text: "📅 Multi-device coordination: الـ daily auto-backup بيشيك لو في نسخة شاملة اتعملت اليوم من جهاز تاني — ما يكررش" },
+    ]
+  },
+  {
+    version: "V18.61",
     date: "2026-04-29",
     types: ["fix", "architectural"],
-    title: "🛡️ حماية حرجة من فقد البيانات (Data Loss Prevention)",
+    title: "🛡️ حماية حرجة من فقد البيانات + تثبيت صلاحيات الأدمن",
     changes: [
+      { type: "fix", text: "🔒 صلاحيات الـ admin اتثبتت في الكود — مفيش طريقة تشيلها أو تعدّلها من داخل التطبيق. ده يمنع سيناريو 'الأدمن فقد دخوله للنظام' اللي حصل قبل كده. الـ getTabPerm() بيتجاهل أي custom permissions في factory/config.permissions.admin ويستعمل الـ defaults الكاملة دايماً." },
+      { type: "fix", text: "✏️ الـ admin بقى عنده edit على كل التابز بدون استثناء (بما فيها audit اللي كان view)" },
+      { type: "improvement", text: "📋 صفحة Permissions: عمود الـ admin بقى مقفول visually — كل الخلايا بتعرض '✏️ دائماً' بدل الـ select. رسالة توضيحية في أعلى الجدول بتشرح ليه." },
+      { type: "improvement", text: "🛡️ حماية مضاعفة: حتى لو حد لعب في الـ DOM أو DevTools لتعديل admin permissions، الـ setter بيرفض. وحتى لو الـ database اتلوّث بقيم قديمة لـ permissions.admin، الـ savePerms() بيمسحها أوتوماتيك قبل الحفظ." },
       { type: "fix", text: "🚨 إصلاح bug خطير: الـ app كان لو ملقاش factory/config بيكتب القيم الافتراضية تلقائياً (INIT_CONFIG) فوقها — ده كان السبب المرجّح لمسح اليوزرز والإعدادات. دلوقتي بيرفض ويعرض رسالة خطأ صريحة بدل ما يدمّر البيانات." },
       { type: "fix", text: "🛑 منع كتابة البيانات قبل ما الـ config يحمّل من السيرفر — كان فيه race condition بيخلي الـ writes تحصل على INIT_CONFIG كقاعدة وتمسح البيانات الحقيقية" },
       { type: "fix", text: "📡 إضافة error handlers لكل الـ Firestore listeners (config, sales, tasks, orders) — قبل كده كانت الأخطاء تتجاهل في صمت" },
@@ -157,40 +201,6 @@ const CHANGELOG = [
       { type: "improvement", text: "🤝 يعمل بالتوازي مع وضع التكرار (Sticky Mode للـcategory): تقدر تثبّت التاريخ + الـcategory في نفس الوقت لإدخال دفعات تاريخية متشابهة" },
       { type: "improvement", text: "🧠 الـlogic ذكي: التثبيت بيظهر بس لما التاريخ مش اليوم (لأن لو اليوم، مفيش فايدة من التثبيت)" },
       { type: "improvement", text: "✏️ التعديل (editTx) لا يتأثر بالتثبيت — التاريخ بيتم تحميله من السجل المُعدَّل" },
-    ]
-  },
-  {
-    version: "V18.52",
-    date: "2026-04-29",
-    types: ["feature", "improvement"],
-    title: "تحسين UX حركات الخزنة: بحث بالكتابة + وضع التكرار للحركات المتشابهة",
-    changes: [
-      { type: "feature", text: "🔍 'نوع الحركة' في حركة جديدة بقت SearchSel — اكتب 'مر' عشان توصل لمرتبات بدلاً من تنزيل الـdropdown 20 فئة وتدور" },
-      { type: "feature", text: "⌨️ Keyboard navigation في الـSearchSel: ↓↑ للتنقل بين النتائج، Enter للاختيار، Esc للإلغاء" },
-      { type: "feature", text: "📌 وضع التكرار (Sticky Mode): زر '🔁 تكرار' جنب الفئة — اختار كم حركة جاية بنفس الفئة (مثلاً 5 مرتبات)، احفظ، الفورم بيفضل مفتوح بـcategory محفوظة + counter متبقي" },
-      { type: "feature", text: "🎯 Banner داخل الفورم بيعرض عدد الحركات المتبقية + زر إيقاف التكرار في أي وقت — مناسب لإدخال دفعات يومية متكررة (مرتبات، تكلفة، صيانة)" },
-      { type: "feature", text: "💡 الـToast بعد كل حفظ في وضع التكرار: '✓ حُفظ — متبقي 4 حركات' — confirmation فوري للسرعة" },
-      { type: "improvement", text: "🚀 الـSearchSel بقى يعرض كل النتائج في الـfocus حتى لو الـquery فارغ (showAllOnFocus prop) + max-height 280px مع scroll للقوائم الطويلة" },
-      { type: "improvement", text: "⚡ التكرار مش بيؤثر على التعديل: تعديل حركة موجودة (editTx) بيتم بشكل عادي بدون تأثير على الـsticky counter" },
-      { type: "improvement", text: "🔁 لو فيه sticky نشط وضغطت 'إغلاق' ثم '+ حركة جديدة' تاني، الـcategory بترجع من الـsticky تلقائياً (مش بتتفقد)" },
-    ]
-  },
-  {
-    version: "V18.51",
-    date: "2026-04-29",
-    types: ["feature"],
-    title: "Phase 3 — إشعارات دائنة + طباعة احترافية + ترحيل تلقائي",
-    changes: [
-      { type: "feature", text: "↩️ تبويب جديد 'إشعارات دائنة' — entity منفصل لمرتجعات المبيعات، نفس workflow الفاتورة (Draft → Posted → Void) مع ربط بالفاتورة الأصلية" },
-      { type: "feature", text: "🔢 ترقيم تلقائي للإشعارات: CN-2026-0001 — counter منفصل لكل سنة" },
-      { type: "feature", text: "🧾 ترحيل الإشعار الدائن بينشئ قيد عكسي للبيع: Dr مرتجع المبيعات / Cr عملاء + Dr مخزون منتج تام / Cr COGS (إرجاع التكلفة)" },
-      { type: "feature", text: "🤖 إنشاء تلقائي للإشعار: لما 'الترحيل من الفاتورة' مفعّل، كل مرتجع عميل بينشئ إشعار دائن مسودة تلقائياً" },
-      { type: "feature", text: "🖨️ طباعة احترافية للفواتير والإشعارات: letterhead بالـfactory info + status badge + بيانات الطرف + جدول البنود + totals box + 3 توقيعات + footer" },
-      { type: "feature", text: "📥 الطباعة تتم لـ3 أنواع من نموذج موحد: فاتورة مبيعات (أخضر) + فاتورة مشتريات (أصفر) + إشعار دائن (أحمر) — كلهم بنفس layout احترافي" },
-      { type: "feature", text: "⚡ Toggle جديد 'ترحيل تلقائي عند إنشاء الفاتورة (skip draft)' — لو مفعّل، الفاتورة تترحل فوراً مع التسليم بدون مرحلة المراجعة" },
-      { type: "feature", text: "📚 زر 'إنشاء إشعارات من X مرتجع' في صفحة الإشعارات — تحويل جماعي للمرتجعات القديمة" },
-      { type: "improvement", text: "🎯 المرتجعات بقت توازي البيعات في كل حاجة: نفس البنية، نفس الـworkflow، نفس الـauto-post، نفس مستوى الاحترافية" },
-      { type: "improvement", text: "🛡️ Backward compat: الـtoggles default معطّلة — أي مستخدم على V18.50 ميلاحظش تغيير في السلوك لحد ما يفعّل" },
     ]
   },
 ];

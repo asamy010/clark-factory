@@ -94,7 +94,7 @@ export function PartyLedgerTab({coa, data, configInfo, T, FS, isMob, showToast})
     );
   };
 
-  return <Card title="👥 كشف حساب طرف" style={{marginBottom:16}}>
+  return <Card title="👥 كشف حساب جاري" style={{marginBottom:16}}>
     <div style={{fontSize:FS-2, color:T.textSec, marginBottom:14, lineHeight:1.7}}>
       💡 كشف حساب موحد من القيود المحاسبية مباشرة — يعكس كل الحركات (مبيعات، دفعات، تسويات، قيود يدوية) في مكان واحد.
     </div>

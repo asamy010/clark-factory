@@ -17,6 +17,7 @@ import { JournalTab } from "../components/accounting/JournalTab.jsx";
 import { TrialBalanceTab } from "../components/accounting/TrialBalanceTab.jsx";
 import { FinancialReportsTab } from "../components/accounting/FinancialReportsTab.jsx";
 import { PartyLedgerTab } from "../components/accounting/PartyLedgerTab.jsx";
+import { PaymentsTab } from "../components/accounting/PaymentsTab.jsx";
 import { AgingReportTab } from "../components/accounting/AgingReportTab.jsx";
 import { AccountingSettingsTab } from "../components/accounting/AccountingSettingsTab.jsx";
 import { readDayRange } from "../utils/accounting/dayDoc.js";
@@ -25,7 +26,10 @@ const TAB_DEFS = [
   {key:"coa",      label:"شجرة الحسابات", icon:"🌳"},
   {key:"journal",  label:"دفتر اليومية",  icon:"📔"},
   {key:"tb",       label:"ميزان المراجعة", icon:"⚖️"},
-  {key:"party",    label:"كشف حساب طرف",   icon:"👥"},
+  /* V18.63: renamed from "كشف حساب طرف" → "كشف حساب جاري" (more accurate accounting term) */
+  {key:"party",    label:"كشف حساب جاري",  icon:"👥"},
+  /* V18.63: new tab — comprehensive payments log (cash + checks) */
+  {key:"payments", label:"دفعات",          icon:"💰"},
   {key:"aging",    label:"تقادم الديون",    icon:"⏳"},
   {key:"reports",  label:"القوائم المالية", icon:"📈"},
   {key:"settings", label:"الإعدادات",     icon:"⚙️"},
@@ -84,7 +88,7 @@ export function AccountingPg({data, config, upConfig, isMob, user}){
       }}>📊</div>
       <div style={{flex:1, minWidth:0}}>
         <div style={{fontSize:FS+4, fontWeight:800, color:T.text}}>المحاسبة</div>
-        <div style={{fontSize:FS-2, color:T.textSec}}>شجرة الحسابات · دفتر اليومية · ميزان المراجعة · إعدادات الترحيل</div>
+        <div style={{fontSize:FS-2, color:T.textSec}}>شجرة الحسابات · دفتر اليومية · ميزان المراجعة · كشف حساب جاري · دفعات · إعدادات الترحيل</div>
       </div>
       {coa.length === 0 && <div style={{padding:"6px 12px", borderRadius:6, background:T.warn+"15", color:T.warn, fontSize:FS-2, fontWeight:700, border:"1px solid "+T.warn+"40"}}>
         ⚠️ لم يتم إعداد شجرة الحسابات بعد
@@ -133,6 +137,10 @@ export function AccountingPg({data, config, upConfig, isMob, user}){
     {active === "party" && <PartyLedgerTab
       coa={coa} data={data}
       configInfo={{factoryName: config.factoryName||"CLARK", logo: config.logo, address: config.address||"", phone: config.phone||""}}
+      T={T} FS={FS} isMob={isMob} showToast={showToast}
+    />}
+    {active === "payments" && <PaymentsTab
+      config={config}
       T={T} FS={FS} isMob={isMob} showToast={showToast}
     />}
     {active === "aging" && <AgingReportTab
