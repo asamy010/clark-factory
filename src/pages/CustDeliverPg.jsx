@@ -27,6 +27,7 @@ import { getCustRating, Stars } from "../utils/rating.jsx";
 import { getDeleteBlocker } from "../utils/dataIntegrity.js";
 import { auth } from "../firebase";
 import { autoPost } from "../utils/accounting/autoPost.js";
+import { buildSalesInvoiceFromDelivery } from "../utils/invoices.js";
 import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../components/ui.jsx";
 import { T, TH, TD, TDB } from "../theme.js";
 
@@ -2494,10 +2495,24 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             if(cp>0){entry.price=cp;entry.isDiscounted=true;entry.originalPrice=Number(o.sellPrice)||0}
             entry._key=oid+":saleDelivery:"+sessId+":"+qrSale.custId+":"+entry.date;
             o.customerDeliveries.push(entry);
-            /* V18.35: auto-post sale journal entry */
-            autoPost.sale(data, entry, cust, o, userName).catch(()=>{});
-            /* V18.40: COGS companion entry (Dr COGS / Cr finished inventory) */
-            autoPost.saleCogs(data, entry, o, userName).catch(()=>{});
+            /* V18.50: Invoice-based posting mode toggle.
+               If autoPostFromInvoice=true, skip direct journal posting (the
+               invoice handles it when posted by user) and create a draft
+               invoice automatically. Otherwise legacy direct posting. */
+            const invoiceMode=(data.invoiceSettings||{}).autoPostFromInvoice===true;
+            if(!invoiceMode){
+              /* V18.35: auto-post sale journal entry */
+              autoPost.sale(data, entry, cust, o, userName).catch(()=>{});
+              /* V18.40: COGS companion entry (Dr COGS / Cr finished inventory) */
+              autoPost.saleCogs(data, entry, o, userName).catch(()=>{});
+            } else {
+              /* V18.50: auto-create a draft sales invoice for this delivery */
+              upConfig(d=>{
+                if(!Array.isArray(d.salesInvoices))d.salesInvoices=[];
+                const inv=buildSalesInvoiceFromDelivery(d, entry, o, cust, userName);
+                d.salesInvoices.unshift(inv);
+              });
+            }
           })});
           playBeep("done");showToast((qrSale.override===true?"⚠️ بيع طوارئ ":"✓ تم تسجيل بيع ")+total+" قطعة لـ "+cust.name);
           /* Archive package if sale was from package */
@@ -2507,10 +2522,14 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             const retEntry={custId:qrSale.custId,custName:cust.name,qty,note:qrSale.note||"مرتجع سريع",date:new Date().toISOString().split("T")[0],createdBy:userName};
             retEntry._key=oid+":saleReturn:"+(qrSale.linkedSession||gid())+":"+qrSale.custId+":"+retEntry.date;
             o.customerReturns.push(retEntry);
-            /* V18.35: auto-post return journal entry */
-            autoPost.saleReturn(data, retEntry, cust, o, userName).catch(()=>{});
-            /* V18.40: COGS reversal companion entry (Dr finished inventory / Cr COGS) */
-            autoPost.saleReturnCogs(data, retEntry, o, userName).catch(()=>{});
+            /* V18.50: returns still post directly (invoice mode doesn't cover them yet) */
+            const invoiceMode=(data.invoiceSettings||{}).autoPostFromInvoice===true;
+            if(!invoiceMode){
+              /* V18.35: auto-post return journal entry */
+              autoPost.saleReturn(data, retEntry, cust, o, userName).catch(()=>{});
+              /* V18.40: COGS reversal companion entry (Dr finished inventory / Cr COGS) */
+              autoPost.saleReturnCogs(data, retEntry, o, userName).catch(()=>{});
+            }
           })});
           playBeep("done");showToast("✓ تم تسجيل مرتجع "+total+" قطعة من "+cust.name)
         }closeQrSale()};

@@ -25,6 +25,42 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V18.50",
+    date: "2026-04-29",
+    types: ["feature", "architectural"],
+    title: "Phase 2 — الترحيل المحاسبي من الفاتورة بدلاً من التسليم",
+    changes: [
+      { type: "architectural", text: "🏗️ تحول معماري كبير: الفاتورة بقت هي مصدر القيد المحاسبي بدلاً من التسليم/الاستلام المباشر — مطابق للممارسة المحاسبية الاحترافية" },
+      { type: "feature", text: "⚙️ toggle جديد في 'الإعدادات → إعدادات الفواتير' للتحكم في الوضع: قيد مباشر (legacy) أو قيد من الفاتورة (Phase 2)" },
+      { type: "feature", text: "✨ عند تفعيل الوضع الجديد: كل تسليم بينشئ فاتورة مسودة تلقائياً، والقيد ما يتعملش لحد ما المستخدم يـ'ترحّل' الفاتورة" },
+      { type: "feature", text: "📤 'ترحيل الفاتورة' بقى ينشئ القيد الكامل: قيد الإيرادات (AR + Revenue + Discount) + قيد COGS (تكلفة البضاعة المباعة)" },
+      { type: "feature", text: "📥 ترحيل فاتورة المشتريات: Dr مخزون / Cr موردين — مع ربط الـjournal entry مع الفاتورة عبر postedJournalRef" },
+      { type: "feature", text: "❌ 'إلغاء الفاتورة' بينشئ قيد عكسي تلقائياً يصفر القيد الأصلي — audit trail كامل" },
+      { type: "feature", text: "🔗 4 builders جدد في postingRules: buildSalesInvoicePostedEntry, buildSalesInvoiceCogsEntry, buildPurchaseInvoicePostedEntry, buildInvoiceVoidEntry" },
+      { type: "feature", text: "🚀 3 methods جدد في autoPost: salesInvoicePosted, purchaseInvoicePosted, invoiceVoided — كلهم يحفظوا postedJournalRef على الفاتورة بعد النجاح" },
+      { type: "improvement", text: "🛡️ Backward compat 100%: الـtoggle الافتراضي معطّل — أي مستخدم سبق وفعّل V18.35-V18.49 ميلاحظش تغيير في السلوك" },
+      { type: "improvement", text: "💡 المرتجعات (returns) لسه بتـauto-post من التسليم — هتنتقل للفاتورة في V18.51 (credit notes)" },
+    ]
+  },
+  {
+    version: "V18.49",
+    date: "2026-04-29",
+    types: ["feature"],
+    title: "نظام فواتير المبيعات والمشتريات — Phase 1",
+    changes: [
+      { type: "feature", text: "📤 تبويب جديد 'فواتير المبيعات' — قائمة بكل الفواتير + فلتر بالحالة (مسودة/مرحّل/ملغية) + فلتر بالعميل والتاريخ + بحث" },
+      { type: "feature", text: "📥 تبويب جديد 'فواتير المشتريات' — نفس الإمكانيات للموردين" },
+      { type: "feature", text: "🔢 ترقيم تلقائي للفواتير: INV-2026-0001 للمبيعات، PINV-2026-0001 للمشتريات (counter لكل سنة)" },
+      { type: "feature", text: "📊 4 stats cards في كل صفحة: الإجمالي + المسودة + المرحّل + الملغية مع المبالغ" },
+      { type: "feature", text: "🔄 Status workflow احترافي: Draft → Posted → Void مع timestamps + اسم المُنفّذ + سبب الإلغاء" },
+      { type: "feature", text: "➕ زر 'إنشاء فواتير من X تسليم/استلام' — تحويل جماعي لكل التسليمات/الاستلامات اللي ما لهاش فواتير لمسودات في ضغطة زر" },
+      { type: "feature", text: "🔗 زر 'تحويل لفاتورة' داخل عرض إذن الاستلام + badge 'مرتبطة بفاتورة' لو متربط" },
+      { type: "feature", text: "📋 modal تفاصيل فاتورة كامل: header + items table + totals + status timeline + actions (طباعة، ترحيل، إلغاء، حذف مسودة)" },
+      { type: "improvement", text: "💡 العلاقة 1:1 بين التسليم/الاستلام والفاتورة — كل تسليم له فاتورة منفصلة (بسيط ومرن)" },
+      { type: "improvement", text: "🛡️ Phase 1 = read-only layer: المحاسبة (auto-post) لسه شغالة من التسليم زي V18.48 — مفيش مخاطر على القيود الموجودة. الـrefactor المحاسبي للفاتورة في V18.50" },
+    ]
+  },
+  {
     version: "V18.48",
     date: "2026-04-29",
     types: ["feature"],
@@ -141,40 +177,6 @@ const CHANGELOG = [
       { type: "improvement", text: "🛡️ Validation شامل: كود ISO صحيح (3 حروف)، عملة أساسية واحدة فقط، منع تكرار الأكواد" },
       { type: "improvement", text: "🔄 توافق خلفي تام: لو مفيش عملات أجنبية مُعرّفة، النظام يشتغل بـEGP فقط زي قبل الكدا — تعدد العملات opt-in" },
       { type: "improvement", text: "💾 حفظ الـfcAmount + fcCurrency + fxRate على كل سطر — Audit trail كامل لمصدر القيمة بالـEGP" },
-    ]
-  },
-  {
-    version: "V18.40",
-    date: "2026-04-29",
-    types: ["feature"],
-    title: "تكلفة البضاعة المباعة (COGS) — قائمة الدخل بقت دقيقة 100%",
-    changes: [
-      { type: "feature", text: "💰 ربط المخزون بالمحاسبة: كل بيعة بقت تنتج قيدين متلازمين — قيد الإيرادات + قيد تكلفة البضاعة المباعة (Dr COGS / Cr مخزون منتج تام)" },
-      { type: "feature", text: "📊 قائمة الدخل بقت تعرض الربح الفعلي: الإيرادات − تكلفة البضاعة المباعة = مجمل الربح، بدلاً من إجمالي الإيرادات بدون cost" },
-      { type: "feature", text: "🎯 3 خيارات لمصدر التكلفة: تلقائي (الأولوية لـ costPrice) / يدوي (costPrice فقط) / محسوب (calcOrder().costPer من القماش + الإكسسوار + الورشة)" },
-      { type: "feature", text: "↩️ المرتجعات بترجّع التكلفة تلقائياً: Dr مخزون منتج تام / Cr COGS — ميزانية متوازنة" },
-      { type: "feature", text: "📦 حساب جديد '5130 تكلفة البضاعة المباعة (مبيعات)' في الشجرة الافتراضية — منفصل عن '5110 تكلفة الخامات' و'5120 أجور تشغيل خارجي' للمرونة" },
-      { type: "feature", text: "🚀 الـbackfill بقى يولّد قيود COGS للبيعات والمرتجعات السابقة — اضغط 'ترحيل القيود الأثرية' بعد التفعيل لتطبيق على التاريخ" },
-      { type: "feature", text: "⚙️ كارد جديد في الإعدادات: 'تكلفة البضاعة المباعة' — toggle + اختيار مصدر التكلفة + إرشادات" },
-      { type: "improvement", text: "🛡️ skip ذكي: الأوردرات اللي مفيش لها تكلفة (لا costPrice ولا قيمة محسوبة) بتطّى بدون قيد COGS — مفيش failures" },
-      { type: "improvement", text: "✅ idempotent: sourceId منفصل لقيد COGS (':cogs' suffix) — تكرار التشغيل بيعمل update بدلاً من duplicate" },
-      { type: "improvement", text: "📝 السعر اللحظي: تعديل costPrice بعد البيع ميأثرش على القيود المرحّلة بالفعل — لازم تعمل reverse + re-post للتحديث" },
-    ]
-  },
-  {
-    version: "V18.39",
-    date: "2026-04-29",
-    types: ["feature"],
-    title: "كشف حساب طرف موحد من القيود المحاسبية",
-    changes: [
-      { type: "feature", text: "👥 تبويب جديد 'كشف حساب طرف' داخل المحاسبة — كشف حساب موحد لأي عميل/ورشة/موظف من القيود مباشرة" },
-      { type: "feature", text: "📋 الكشف يعرض كل الحركات بترتيب تاريخي مع رصيد تراكمي محسوب طبيعياً (assets vs liabilities) + بيان مرجع كل قيد + الحساب المتأثر" },
-      { type: "feature", text: "🔍 بحث ذكي بالاسم لاختيار الطرف + 3 أنواع: عميل (👤) / ورشة (🏭) / موظف (💼)" },
-      { type: "feature", text: "📅 فلتر فترة + خيار 'كل الحركات' لعرض الكشف الكامل من بداية النظام" },
-      { type: "feature", text: "📊 4 بطاقات إحصائية في الأعلى: إجمالي مدين، إجمالي دائن، الرصيد (مدين له/دائن له)، عدد الحركات" },
-      { type: "feature", text: "🖨 طباعة احترافية لكشف الحساب بـletterhead المصنع + توقيعات + تصدير PDF — مناسب للإرسال للعميل" },
-      { type: "improvement", text: "💡 الكشف من القيود = single source of truth — يعكس أي تعديل يدوي في القيود بشكل دقيق (بدلاً من بناء الكشف من custPayments + customerDeliveries مباشرة)" },
-      { type: "improvement", text: "🎯 منطق ذكي: للعملاء (asset-side) الرصيد الموجب = مدين له، للورش/الموردين (liability-side) الرصيد الموجب = دائن له" },
     ]
   },
 ];

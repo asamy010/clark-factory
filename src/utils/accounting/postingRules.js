@@ -426,3 +426,172 @@ export function buildTreasuryEntry(tx, coa, rules, categoryMap, config){
     lines,
   };
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V18.50 — INVOICE-BASED POSTING
+   ───────────────────────────────────────────────────────────────────────
+   New entry builders that post journal entries from sales/purchase
+   invoices instead of directly from deliveries/receipts. The auto-post
+   flow now goes:
+     1. delivery/receipt happens   → no journal entry
+     2. invoice created (draft)    → no journal entry
+     3. invoice posted (status)    → buildInvoicePostedEntry → entry
+     4. invoice voided             → buildInvoiceVoidedEntry → reversal entry
+
+   The invoice carries enough info to reconstruct the same journal lines
+   that V18.35-V18.49's direct builders produced, but now sourced from a
+   single user-controllable document.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Build a journal entry from a SALES invoice transitioning to "posted".
+   Same accounting logic as buildSaleEntry but driven by invoice fields. */
+export function buildSalesInvoicePostedEntry(invoice, customer, order, coa, rules){
+  if(!invoice || invoice.status !== "posted") return null;
+  const r = resolveRules(rules);
+  /* Use invoice numbers (gross before discount = subtotal; net after = total) */
+  const gross = _r2(Number(invoice.subtotal)||0);
+  const disc  = _r2(Number(invoice.discount)||0);
+  const net   = _r2(Number(invoice.total)||0);
+  if(net <= 0 && gross <= 0) return null;
+
+  const ar = ensureLeaf(coa, r.sale.customerAccount, "العملاء");
+  const rv = ensureLeaf(coa, r.sale.revenueAccount,  "إيرادات المبيعات");
+  const date = invoice.date || new Date().toISOString().split("T")[0];
+
+  /* Build human-friendly narration from invoice items */
+  const itemSummary = (invoice.items||[]).slice(0,2).map(it =>
+    `${it.qty} × ${it.modelNo||"—"}`).join("، ");
+  const moreCount = Math.max(0, (invoice.items||[]).length - 2);
+  const summary = itemSummary + (moreCount > 0 ? ` و${moreCount} أصناف أخرى` : "");
+
+  const lines = [
+    {accountId:ar.id, accountCode:ar.code, accountName:ar.name, debit:net, credit:0,
+     partyId:customer?.id||invoice.customerId, partyName:customer?.name||invoice.customerName,
+     note:`فاتورة ${invoice.invoiceNo}`},
+    {accountId:rv.id, accountCode:rv.code, accountName:rv.name, debit:0, credit:gross,
+     note: summary},
+  ];
+  if(disc > 0){
+    const dc = ensureLeaf(coa, r.sale.discountAccount, "الخصم المسموح به");
+    lines.push({accountId:dc.id, accountCode:dc.code, accountName:dc.name, debit:disc, credit:0,
+                partyId:customer?.id||invoice.customerId, partyName:customer?.name||invoice.customerName,
+                note:`خصم على فاتورة ${invoice.invoiceNo}`});
+  }
+
+  return {
+    date,
+    sourceType: "salesInvoice",
+    sourceId: invoice.id,
+    narration: `فاتورة مبيعات ${invoice.invoiceNo} للعميل ${invoice.customerName||""}`,
+    lines,
+    partyHint: {kind:"customer", id:customer?.id||invoice.customerId, name:customer?.name||invoice.customerName},
+  };
+}
+
+/* Build the COGS companion entry for a sales invoice posting.
+   Mirrors buildSaleCogsEntry but driven by the invoice's items. */
+export function buildSalesInvoiceCogsEntry(invoice, order, coa, rules, config){
+  if(!invoice || invoice.status !== "posted") return null;
+  if(!order) return null;
+  /* Determine if COGS is enabled */
+  const accSettings = (config||{}).accountingSettings||{};
+  if(accSettings.cogsEnabled === false) return null;
+  const r = resolveRules(rules);
+
+  /* Compute total cost across all items using order's cost structure.
+     For simple 1:1 invoice (one delivery → one invoice), items[0] is the
+     row we care about. We use the order's per-piece cost. */
+  let totalCost = 0;
+  (invoice.items||[]).forEach(it => {
+    const qty = Number(it.qty)||0;
+    /* Try costPrice (manual), then computed via calcOrder fallback */
+    const perPiece = Number(order.costPrice) || 0;
+    totalCost += qty * perPiece;
+  });
+  totalCost = _r2(totalCost);
+  if(totalCost <= 0) return null;
+
+  const cogs = ensureLeaf(coa, r.saleCogs?.cogsAccount || "5100", "تكلفة البضاعة المباعة");
+  const inv  = ensureLeaf(coa, r.saleCogs?.inventoryAccount || "1320", "مخزون منتج تام");
+  const date = invoice.date || new Date().toISOString().split("T")[0];
+
+  return {
+    date,
+    sourceType: "salesInvoiceCogs",
+    sourceId: invoice.id + "#cogs",
+    narration: `تكلفة البضاعة المباعة — فاتورة ${invoice.invoiceNo}`,
+    lines: [
+      {accountId:cogs.id, accountCode:cogs.code, accountName:cogs.name, debit:totalCost, credit:0,
+       note:`COGS فاتورة ${invoice.invoiceNo}`},
+      {accountId:inv.id, accountCode:inv.code, accountName:inv.name, debit:0, credit:totalCost,
+       note:`خروج بضاعة من المخزن`},
+    ],
+  };
+}
+
+/* Build a journal entry from a PURCHASE invoice transitioning to "posted".
+   For purchases, the inventory is debited and accounts payable credited.
+   Treasury-side movements (cash payments) are handled separately when
+   payments are made — not at invoice posting time. */
+export function buildPurchaseInvoicePostedEntry(invoice, supplier, coa, rules){
+  if(!invoice || invoice.status !== "posted") return null;
+  const r = resolveRules(rules);
+  const total = _r2(Number(invoice.total)||0);
+  if(total <= 0) return null;
+
+  /* Decide which inventory account to use based on item types — bulk by majority */
+  const items = invoice.items || [];
+  const fabricCount    = items.filter(it => it.itemType === "fabric" || it.itemType === "core_fabric").length;
+  const accessoryCount = items.filter(it => it.itemType === "accessory" || it.itemType === "core_accessory").length;
+  /* For mixed receipts, default to materials inventory */
+  const invCode = fabricCount > accessoryCount
+    ? (r.workshopPurchase?.materialsAccount || "1310")
+    : (r.workshopPurchase?.materialsAccount || "1310");
+  const invAcc = ensureLeaf(coa, invCode, "مخزون خامات");
+  const ap     = ensureLeaf(coa, "2110", "موردون خامات");
+  const date = invoice.date || new Date().toISOString().split("T")[0];
+
+  return {
+    date,
+    sourceType: "purchaseInvoice",
+    sourceId: invoice.id,
+    narration: `فاتورة مشتريات ${invoice.invoiceNo} من ${invoice.supplierName||""}`,
+    lines: [
+      {accountId:invAcc.id, accountCode:invAcc.code, accountName:invAcc.name, debit:total, credit:0,
+       note:`فاتورة ${invoice.invoiceNo}`},
+      {accountId:ap.id, accountCode:ap.code, accountName:ap.name, debit:0, credit:total,
+       partyId:supplier?.id||invoice.supplierId, partyName:supplier?.name||invoice.supplierName,
+       note:`فاتورة ${invoice.invoiceNo}`},
+    ],
+    partyHint: {kind:"supplier", id:supplier?.id||invoice.supplierId, name:supplier?.name||invoice.supplierName},
+  };
+}
+
+/* Build a REVERSAL entry for an invoice being voided.
+   Takes the original entry and produces its mirror (debits become credits).
+   Caller is responsible for posting both — voiding the original and
+   posting this new reversal. */
+export function buildInvoiceVoidEntry(originalEntry, invoice){
+  if(!originalEntry || !invoice) return null;
+  const date = invoice.voidedAt ? invoice.voidedAt.split("T")[0] : new Date().toISOString().split("T")[0];
+  const isCogs = String(originalEntry.sourceType||"").includes("Cogs");
+  const reversedLines = (originalEntry.lines||[]).map(l => ({
+    accountId: l.accountId,
+    accountCode: l.accountCode,
+    accountName: l.accountName,
+    debit: Number(l.credit)||0,    /* swap */
+    credit: Number(l.debit)||0,
+    partyId: l.partyId,
+    partyName: l.partyName,
+    note: "إلغاء — " + (l.note || ""),
+  }));
+  return {
+    date,
+    sourceType: (originalEntry.sourceType||"") + "Void",
+    sourceId: invoice.id + "#void",
+    narration: `إلغاء — ${originalEntry.narration||"فاتورة "+invoice.invoiceNo}`,
+    lines: reversedLines,
+    partyHint: originalEntry.partyHint,
+    voidsEntry: originalEntry.id || null,
+  };
+}

@@ -15,6 +15,7 @@ import { T, TH, TD } from "../theme.js";
 import { openPrintWindow } from "../utils/print.js";
 import { getUnits } from "../utils/units.js";
 import { formatBlockerMessage, getDeleteBlocker, canForceDelete, summarizeForceDelete, forceDeleteCleanup } from "../utils/dataIntegrity.js";
+import { buildPurchaseInvoiceFromReceipt, findInvoiceByReceipt } from "../utils/invoices.js";
 
 export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   const userName=user?.displayName||(user?.email||"").split("@")[0];
@@ -1962,7 +1963,25 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
         
         {viewReceipt.notes&&<div style={{padding:10,background:"#F59E0B08",borderRadius:8,fontSize:FS-1,color:T.textSec,marginBottom:12}}>📝 {viewReceipt.notes}</div>}
         
-        <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:12,borderTop:"1px solid "+T.brd}}>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:12,borderTop:"1px solid "+T.brd,flexWrap:"wrap"}}>
+          {/* V18.49: Convert receipt to invoice (or show link if already done) */}
+          {(()=>{
+            const linkedInv=findInvoiceByReceipt(data,viewReceipt.id);
+            if(linkedInv){
+              return <span style={{padding:"7px 14px",borderRadius:8,fontSize:FS-1,fontWeight:700,background:"#10B98115",color:"#10B981",border:"1px solid #10B98140"}}>
+                ✓ مرتبطة بفاتورة {linkedInv.invoiceNo}
+              </span>;
+            }
+            return <Btn onClick={()=>{
+              const supplier=(data.suppliers||[]).find(s=>s.id===viewReceipt.supplierId);
+              upConfig(d=>{
+                if(!Array.isArray(d.purchaseInvoices))d.purchaseInvoices=[];
+                const inv=buildPurchaseInvoiceFromReceipt(d,viewReceipt,supplier,userName);
+                d.purchaseInvoices.unshift(inv);
+              });
+              showToast("✓ تم إنشاء فاتورة مسودة — راجعها في تبويب 'فواتير المشتريات'");
+            }} style={{background:"#F59E0B15",color:"#F59E0B",border:"1px solid #F59E0B40",fontWeight:700}}>📥 تحويل لفاتورة</Btn>;
+          })()}
           <Btn onClick={()=>printReceipt(viewReceipt)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨️ طباعة</Btn>
           <Btn ghost onClick={()=>setViewReceipt(null)}>إغلاق</Btn>
         </div>

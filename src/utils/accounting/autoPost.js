@@ -29,6 +29,8 @@ import {
   buildWorkshopReceiveEntry, buildWorkshopPaymentEntry,
   buildHrEntry, buildTreasuryEntry,
   buildSaleCogsEntry, buildSaleReturnCogsEntry,
+  buildSalesInvoicePostedEntry, buildSalesInvoiceCogsEntry,
+  buildPurchaseInvoicePostedEntry, buildInvoiceVoidEntry,
 } from "./postingRules.js";
 import { calcOrder } from "../orders.js";
 
@@ -293,6 +295,35 @@ export const autoPost = {
   treasury(config, tx, createdBy){
     if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
     return _buildAndPost("treasury", "treasury", buildTreasuryEntry, [tx, getCoa(config), getRules(config), getCategoryMap(config), config], config, createdBy);
+  },
+
+  /* V18.50 — Post a sales invoice (status: posted). Generates the main
+     revenue entry + COGS companion. Returns combined result. */
+  salesInvoicePosted(config, invoice, customer, order, createdBy){
+    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
+    /* Main entry: AR/Revenue/Discount */
+    const main = _buildAndPost("salesInvoice", "salesInvoice", buildSalesInvoicePostedEntry, [invoice, customer, order, getCoa(config), getRules(config)], config, createdBy);
+    /* COGS companion (soft fail — log but don't block) */
+    let cogs = {ok:false, skipped:"no-order"};
+    if(order && isCogsEnabled(config)){
+      cogs = _buildAndPost("salesInvoiceCogs", "salesInvoiceCogs", buildSalesInvoiceCogsEntry, [invoice, order, getCoa(config), getRules(config), config], config, createdBy);
+    }
+    return {ok: main.ok, main, cogs};
+  },
+
+  /* V18.50 — Post a purchase invoice (status: posted). */
+  purchaseInvoicePosted(config, invoice, supplier, createdBy){
+    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
+    return _buildAndPost("purchaseInvoice", "purchaseInvoice", buildPurchaseInvoicePostedEntry, [invoice, supplier, getCoa(config), getRules(config)], config, createdBy);
+  },
+
+  /* V18.50 — Reverse an invoice's journal entries when it's voided.
+     The invoice must have postedJournalRef pointing to the original entry. */
+  invoiceVoided(config, invoice, sourceType, createdBy){
+    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
+    if(!invoice.postedJournalRef) return {ok:false, skipped:"no-original-ref"};
+    const ref = invoice.postedJournalRef;
+    return _reverse(sourceType, sourceType, invoice.id, ref.date, "إلغاء فاتورة "+invoice.invoiceNo, createdBy);
   },
 
   reverse(config, sourceType, sourceId, date, reason, createdBy){

@@ -3029,6 +3029,41 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     <SalesSettingsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,salesSettings:d}))}/>
     {/* V18.33: WhatsApp summary controls */}
     <WhatsappSummaryCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Btn={Btn} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,whatsappSummary:d}))}/>
+
+    {/* V18.50: Invoice settings — controls invoice-driven accounting flow */}
+    <Card title="📄 إعدادات الفواتير" style={{marginBottom:16}}>
+      <CardSubtitle icon="💡">تتحكم في طريقة عمل نظام الفواتير. الوضع الافتراضي (قديم) ينشئ القيود المحاسبية مباشرة من التسليم. الوضع الجديد (موصى به) يجعل الفاتورة هي مصدر القيد المحاسبي.</CardSubtitle>
+      {(()=>{
+        const inv = config.invoiceSettings || {};
+        const autoPostFromInvoice = inv.autoPostFromInvoice === true;
+        const setFlag = (key, val) => upConfig(d => {
+          if(!d.invoiceSettings) d.invoiceSettings = {};
+          d.invoiceSettings[key] = val;
+        });
+        return <div>
+          <div onClick={() => setFlag("autoPostFromInvoice", !autoPostFromInvoice)} style={{
+            display:"flex", alignItems:"flex-start", gap:12,
+            padding:"14px 16px", borderRadius:10, cursor:"pointer",
+            background: autoPostFromInvoice ? T.ok+"08" : T.bg,
+            border: "2px solid " + (autoPostFromInvoice ? T.ok+"40" : T.brd),
+            marginBottom: 10,
+          }}>
+            <span style={{fontSize:24, color: autoPostFromInvoice?T.ok:T.textMut, fontWeight:800}}>{autoPostFromInvoice?"☑":"☐"}</span>
+            <div style={{flex:1}}>
+              <div style={{fontSize:FS+1, fontWeight:800, color:T.text, marginBottom:4}}>الترحيل المحاسبي من الفاتورة (Phase 2)</div>
+              <div style={{fontSize:FS-2, color:T.textSec, lineHeight:1.6}}>
+                <b>عند التفعيل:</b> كل تسليم/استلام بينشئ فاتورة <b>مسودة</b> تلقائياً. القيد المحاسبي ما يتعملش لحد ما تـ"ترحّل" الفاتورة من تبويب الفواتير. ده الوضع الاحترافي.
+                <br/>
+                <b>عند التعطيل (الافتراضي):</b> القيد المحاسبي بيتم فوراً مع التسليم زي اللي اتعرفت عليه في V18.35-V18.49. الفواتير بتفضل اختيارية يدوياً.
+                <br/>
+                <span style={{color:T.warn, fontWeight:700}}>⚠️ تحذير: لو فعّلت ده وعندك بيانات قديمة، التسليمات اللي اتعملت قبل التفعيل اتعملت قيود مباشرة. التسليمات الجديدة بس هتمشي عبر الفاتورة.</span>
+              </div>
+            </div>
+            <span style={{fontSize:FS, fontWeight:800, color:autoPostFromInvoice?T.ok:T.textMut, padding:"6px 14px", background:(autoPostFromInvoice?T.ok:T.textMut)+"15", borderRadius:6}}>{autoPostFromInvoice?"مُفعّل":"معطّل"}</span>
+          </div>
+        </div>;
+      })()}
+    </Card>
     </>}
 
     {activeTab==="maintenance" && <>
