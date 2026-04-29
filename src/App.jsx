@@ -2075,7 +2075,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V18.45 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >V18.47 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -2263,8 +2263,8 @@ export default function App(){
                 </div>
               </div>
 
-              {/* Odoo Quick Links */}
-              {(()=>{
+              {/* Odoo Quick Links — V18.46: gated by config.odooEnabled */}
+              {(data.odooEnabled !== false) && (()=>{
                 const defaultLinks=[
                   {id:"accounting",icon:"📊",label:"المحاسبة",url:"https://clarkdb.odoo.com/odoo/accounting",color:"#8B5CF6"},
                   {id:"sales",icon:"🛒",label:"المبيعات",url:"https://clarkdb.odoo.com/odoo/sales",color:"#10B981"},
@@ -2422,8 +2422,8 @@ export default function App(){
 
             <div style={{marginBottom:14}}><ActivityFeed orders={data.orders} config={config} user={user} isMob={true}/></div>
 
-            {/* Odoo links mobile */}
-            {(()=>{
+            {/* Odoo links mobile — V18.46: gated by config.odooEnabled */}
+            {(data.odooEnabled !== false) && (()=>{
               const defaultLinks=[
                 {id:"accounting",icon:"📊",label:"المحاسبة",url:"https://clarkdb.odoo.com/odoo/accounting",color:"#8B5CF6"},
                 {id:"sales",icon:"🛒",label:"المبيعات",url:"https://clarkdb.odoo.com/odoo/sales",color:"#10B981"},
@@ -3131,7 +3131,7 @@ export default function App(){
       </div>
     )}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.45"/>
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.47"/>
   </div>
 }
 

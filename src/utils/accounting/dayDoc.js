@@ -33,7 +33,7 @@
    multiple operations target the same day.
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { doc, getDoc, setDoc, runTransaction } from "firebase/firestore";
+import { doc, getDoc, setDoc, runTransaction, collection, query, where, documentId, getDocs, orderBy } from "firebase/firestore";
 import { db } from "../../firebase";
 
 const COLLECTION = "accountingDays";
@@ -70,24 +70,67 @@ export async function readDay(date){
   }
 }
 
-/* Read multiple days within an inclusive range [from, to]. Concurrent. */
+/* Read multiple days within an inclusive range [from, to].
+   V18.47: optimized to a SINGLE Firestore range query on documentId() instead
+   of one getDoc per day (was N+1 reads → 1 read for the entire range).
+
+   Why this is dramatically faster:
+   - Old: 29 days = 29 separate network round-trips (parallelism helps but
+     each still has full TCP/auth overhead, and missing days return 404 noise).
+   - New: 1 query that returns ONLY the days that actually exist.
+     Empty/missing days simply aren't in the result set.
+
+   Notes:
+   - Firestore allows where(documentId(), ...) without any composite index —
+     it's a built-in primary key range scan.
+   - We sort by documentId asc so days come back in chronological order
+     (callers like buildTrialBalance benefit from this).
+   - The range is inclusive on both ends. */
 export async function readDayRange(fromDate, toDate){
   const from = toDayId(fromDate);
   const to   = toDayId(toDate);
-  /* Build the list of day-ids between from..to inclusive */
+  /* Guard: invalid dates produce an empty result */
+  if(!from || !to || from > to) return [];
+
+  try {
+    const colRef = collection(db, COLLECTION);
+    const q = query(
+      colRef,
+      where(documentId(), ">=", from),
+      where(documentId(), "<=", to),
+      orderBy(documentId(), "asc"),
+    );
+    const snap = await getDocs(q);
+    const out = [];
+    snap.forEach(docSnap => {
+      const d = docSnap.data() || {};
+      out.push({
+        date: docSnap.id,
+        entries: Array.isArray(d.entries) ? d.entries : [],
+      });
+    });
+    return out;
+  } catch(e){
+    console.error("[CLARK accounting] readDayRange (range query) failed:", e);
+    /* Fallback to per-day reads if the range query fails for any reason
+       (e.g. transient Firestore issue). This keeps the page working
+       even if the optimization path is degraded. */
+    return await _readDayRangeLegacy(from, to);
+  }
+}
+
+/* Legacy per-day fallback (kept private for resilience) */
+async function _readDayRangeLegacy(from, to){
   const ids = [];
   const cur = new Date(from);
   const end = new Date(to);
   while(cur <= end){
     ids.push(toDayId(cur));
     cur.setDate(cur.getDate()+1);
-    if(ids.length > 366*5){ /* safety cap: 5 years */
-      console.warn("[CLARK accounting] readDayRange capped at 5 years"); break;
-    }
+    if(ids.length > 366*5){ console.warn("[CLARK accounting] _readDayRangeLegacy capped at 5 years"); break; }
   }
-  /* Fire all reads in parallel */
   const results = await Promise.all(ids.map(id => readDay(id)));
-  return results.filter(Boolean);
+  return results.filter(Boolean).filter(d => (d.entries||[]).length > 0);
 }
 
 /* Atomically append/update/remove an entry on a specific day.

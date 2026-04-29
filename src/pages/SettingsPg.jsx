@@ -2903,10 +2903,25 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {/* Treasury Settings — draft pattern */}
     <TreasurySettingsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,treasurySettings:d}))} userRole={userRole}/>
 
-    {/* Odoo Sync Settings */}
+    {/* V18.46: Odoo Sync Settings (gated by master toggle) */}
     <Card title="🔗 ربط Odoo — تزامن الخزنة" style={{marginBottom:16}}>
       <CardSubtitle icon="💡">ربط مع نظام Odoo الخارجي للمحاسبة. لو متفعّل، الحركات في الخزنة تتزامن أوتوماتيكياً مع Odoo. مفيد لو الشركة عندها نظام محاسبي خارجي.</CardSubtitle>
-      {(()=>{const os=config.odooSettings||{};
+      {/* V18.46: master toggle — controls visibility of Odoo features across the app */}
+      {(()=>{const odooEnabled = config.odooEnabled !== false;
+        const toggleOdoo = () => upConfig(d => { d.odooEnabled = !odooEnabled; });
+        return <div onClick={toggleOdoo} style={{display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:10, background: odooEnabled ? T.ok+"08" : T.bg, border:"1px solid "+(odooEnabled?T.ok+"40":T.brd), cursor:"pointer", marginBottom: odooEnabled ? 16 : 0}}>
+          <span style={{fontSize:24, color: odooEnabled?T.ok:T.textMut, fontWeight:800}}>{odooEnabled?"☑":"☐"}</span>
+          <div style={{flex:1}}>
+            <div style={{fontSize:FS, fontWeight:800, color:T.text}}>تفعيل أدوات Odoo</div>
+            <div style={{fontSize:FS-2, color:T.textSec, marginTop:2, lineHeight:1.5}}>
+              لما تكون مُفعَّلة: تظهر إعدادات Odoo + روابط Odoo في الـtopbar + زر "تزامن Odoo" في صفحة الخزنة.
+              لما تكون معطّلة: كل أدوات Odoo تختفي من الواجهة (الإعدادات المحفوظة لا تتأثر — تفعّل تاني تلاقيها زي ما هي).
+            </div>
+          </div>
+          <span style={{fontSize:FS, fontWeight:800, color:odooEnabled?T.ok:T.textMut, padding:"4px 12px", background:(odooEnabled?T.ok:T.textMut)+"15", borderRadius:6}}>{odooEnabled?"مُفعّل":"معطّل"}</span>
+        </div>;
+      })()}
+      {(config.odooEnabled !== false) && (()=>{const os=config.odooSettings||{};
         const saveOS=(fn)=>upConfig(d=>{if(!d.odooSettings)d.odooSettings={};fn(d.odooSettings)});
         /* V16.59: testResult/testing useState hoisted to top-level — see comment there */
         const testConnection=async()=>{setTesting(true);setTestResult(null);
@@ -3483,7 +3498,8 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {/* ═══ BACKUP & RESTORE ═══ */}
     {activeTab==="business" && <>
     {/* ═══ ODOO LINKS ═══ */}
-    <Card title="🔗 Odoo — إدارة الاختصارات" style={{marginTop:16}}>
+    {/* V18.46: gated by master Odoo toggle */}
+    {(config.odooEnabled !== false) && <Card title="🔗 Odoo — إدارة الاختصارات" style={{marginTop:16}}>
       <CardSubtitle icon="💡">ربط منتجات/حسابات في البرنامج بمقابلها في Odoo. مطلوب لو فعّلت تزامن الخزنة مع Odoo فوق.</CardSubtitle>
       {(()=>{
         const defaultOdooLinks=[
@@ -3522,7 +3538,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
             </div>
           </div>
         </div>})()}
-    </Card>
+    </Card>}
     </>}
 
     {activeTab==="maintenance" && <>
