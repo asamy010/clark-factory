@@ -25,6 +25,41 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V18.55",
+    date: "2026-04-29",
+    types: ["feature", "fix"],
+    title: "تقارير الأرباح: موديل + عميل + أوردر",
+    changes: [
+      { type: "feature", text: "👥 تقرير جديد 'أرباح العملاء' — تجميع كل عميل مع إيراد/تكلفة/ربح/هامش% + ترتيب بالربح + 🥇🥈🥉 لأعلى 3" },
+      { type: "feature", text: "📊 تقرير جديد 'أرباح الأوردر' — كل أوردر بـsold qty + sell price + cost/piece + revenue/cost/profit + هامش %" },
+      { type: "feature", text: "⚠️ تنبيه فوري في 'أرباح الأوردر' لو في أوردر سعر بيعه أقل من تكلفته (loss-making) — صف بخلفية حمراء + footer بعدد الأوردرات الخاسرة" },
+      { type: "feature", text: "🎯 ترتيب ذكي في 'أرباح الأوردر': الأكثر ربحاً / أعلى هامش % / الأكثر خسارة — للتحليل من زوايا مختلفة" },
+      { type: "feature", text: "📅 فلتر تاريخ + بحث في كل التقارير الجديدة — تشوف الأرباح في فترة محددة (الشهر، الموسم، إلخ)" },
+      { type: "feature", text: "💎 'أرباح الموديل' محدّث: إضافة breakdown للتكلفة (قماش/إكسسوار/ورشة) + filter بالتاريخ + إصلاح bug في الحساب" },
+      { type: "fix", text: "🐛 إصلاح bug في تقرير 'أرباح الموديل': كان بيستخدم `c.totalCost` المش موجود في calcOrder — دلوقتي بيستخدم `c.costPer` الصحيح" },
+      { type: "improvement", text: "📌 الـIcon 📌 جنب التكلفة بيدل إن ده تكلفة يدوية (manual costPrice) بدلاً من المحسوبة من الأوردر" },
+      { type: "improvement", text: "🔄 الـtotals row في كل تقرير: إجمالي إيراد + إجمالي تكلفة + إجمالي ربح + هامش متوسط — للنظرة السريعة" },
+    ]
+  },
+  {
+    version: "V18.54",
+    date: "2026-04-29",
+    types: ["feature"],
+    title: "تقادم الديون (Aging) + إنفاذ إقفال الفترة",
+    changes: [
+      { type: "feature", text: "⏳ تبويب جديد 'تقادم الديون' في صفحة المحاسبة — يعرض ذمم العملاء (مدينة) أو الموردين والورش (دائنة) في 5 فترات: جاري / 0-30 / 31-60 / 61-90 / 90+ يوم" },
+      { type: "feature", text: "📊 6 stats cards في الأعلى: قيمة كل bucket + الإجمالي، بألوان متدرجة (أحمر للـ90+ كمؤشر تعثر)" },
+      { type: "feature", text: "🎯 جدول مفصل لكل طرف: خانة لكل bucket + الإجمالي + ترتيب تنازلي بالقيمة الأكبر — تشوف فوراً مين أكتر مدينين ومتعثرين" },
+      { type: "feature", text: "🖨️ طباعة احترافية للتقرير: header + جدول كامل + إجمالي footer — مناسب للإرسال للمدير أو التحصيل" },
+      { type: "feature", text: "📅 'كما في تاريخ' قابل للتغيير — تشوف الـaging في أي تاريخ سابق (مفيد للمراجعة الدورية)" },
+      { type: "feature", text: "🧮 الـFIFO matching: الدفعات بتطفي على أقدم القيود أولاً — كده الـbuckets تعكس عمر الدين الفعلي مش متوسط" },
+      { type: "feature", text: "🔒 إنفاذ إقفال الفترة: لما تـ'تقفل' فترة محاسبية، أي قيد جديد بتاريخ في الفترة ده يتم رفضه تلقائياً (manual + auto-post)" },
+      { type: "feature", text: "⛔ التحذير في Journal Entry Modal: لو اخترت تاريخ مقفل، رسالة حمراء فورية تحت date picker تشرح السبب" },
+      { type: "feature", text: "📝 الـauto-post المحجوز بسبب period lock بيُسجل في 'لوحة أخطاء الترحيل' (V18.38) عشان تـclear الإقفال وتـretry بعدين" },
+      { type: "improvement", text: "🛡️ Helper موحّد periodLock.js: isDateLocked + getLockReason + canBypassLock — جاهز للـintegration في أي entry point جديد" },
+    ]
+  },
+  {
     version: "V18.53",
     date: "2026-04-29",
     types: ["feature"],
@@ -150,36 +185,6 @@ const CHANGELOG = [
       { type: "improvement", text: "💾 الإعدادات المحفوظة (URL, API keys, mappings, links) لا تتأثر بالـtoggle — تفعّل تاني تلاقي كل حاجة زي ما هي" },
       { type: "improvement", text: "🛡️ Backward compat: الافتراضي 'مُفعَّل' (true) عشان أي مستخدم سبق وفعّل ميلاحظش اختفاء أي حاجة بعد التحديث" },
       { type: "improvement", text: "🎯 الـtoggle موضوع في أعلى كارد إعدادات Odoo — حتى لو الأداة معطلة، يظهر الـtoggle لإعادة التفعيل بدون البحث في مكان تاني" },
-    ]
-  },
-  {
-    version: "V18.45",
-    date: "2026-04-29",
-    types: ["maintenance"],
-    title: "إزالة 'حاسبة التكاليف' من الواجهة الرئيسية",
-    changes: [
-      { type: "maintenance", text: "🗑 حذف زر 'حاسبة التكاليف' من الشاشة الرئيسية وكل الكود المرتبط بيه — كان غير مُستخدم بشكل فعّال" },
-      { type: "maintenance", text: "📁 حذف ملف الصفحة CalcPg.jsx بالكامل + الـlazy import + الـrouting في App.jsx + الـtab entry في LoginScreen" },
-      { type: "improvement", text: "💡 ملاحظة: حسابات التكلفة في باقي النظام (P&L، تقارير، COGS) لم تتأثر — هي تستخدم calcOrder() utility المنفصلة وما زالت تشتغل عادي" },
-      { type: "improvement", text: "⚡ بعد التحديث، الشاشة الرئيسية بقت أنظف بـ tab واحد أقل" },
-    ]
-  },
-  {
-    version: "V18.44",
-    date: "2026-04-29",
-    types: ["feature"],
-    title: "ربط الخزائن والبنوك بشجرة الحسابات — رصيد كل خزنة على حدة",
-    changes: [
-      { type: "feature", text: "🏦 كارد جديد في الإعدادات: 'ربط الخزائن والبنوك بشجرة الحسابات' — لربط كل خزنة/بنك في النظام بحساب فرعي خاص بيه في الشجرة" },
-      { type: "feature", text: "🚀 إنشاء تلقائي ذكي: زر 'معاينة الخطة' يعرض الحسابات اللي هتُنشأ (1111 لـMAIN CASH، 1112 لـSUB CASH، 1121 لـCIB BANK، إلخ) قبل التأكيد" },
-      { type: "feature", text: "✏️ ربط يدوي: لكل خزنة dropdown لاختيار الحساب الفرعي المناسب — تقدر تربط أكتر من خزنة بنفس الحساب أو تترك بعضها بدون ربط" },
-      { type: "feature", text: "📊 رصيد كل خزنة في ميزان المراجعة بقى منفصل: MAIN CASH (1111) + SUB CASH (1112) بدلاً من رصيد كلي تحت 1110" },
-      { type: "feature", text: "🌳 الحسابات المُنشأة تلقائياً تكون كـsiblings تحت 1100 (مش children تحت 1110) — يحافظ على 1110/1120 كـfallback للعمليات القديمة" },
-      { type: "feature", text: "⚠️ كشف ربطات مهجورة (orphans): لو حذفت خزنة أو حساب، الكارد بيظهر تحذير + زر تنظيف" },
-      { type: "improvement", text: "💰 الـAuto-post بقى ذكي: كل عملية كاش/بنك (دفعة عميل، دفعة ورشة، راتب، تحصيل شيك، حركة خزينة عامة) بترحل لحساب الخزنة الصحيح بناءً على tx.account" },
-      { type: "improvement", text: "🔄 الـBackfill بقى يربط القيود الأثرية بالحسابات الصحيحة عبر الـmapping — مفيش حاجة تحتاج migration يدوي" },
-      { type: "improvement", text: "🛡️ Backward compat: الخزائن غير المربوطة تستخدم 1110/1120 كـfallback — مفيش failures حتى لو ما عملتش mapping" },
-      { type: "improvement", text: "💡 الـcustomer payment record بقى يحفظ account field على الـpayment نفسه (مش بس على الـtreasury tx) — توفير lookup في الـauto-post" },
     ]
   },
 ];

@@ -33,6 +33,7 @@ import {
   buildPurchaseInvoicePostedEntry, buildInvoiceVoidEntry,
   buildCreditNotePostedEntry, buildCreditNoteCogsEntry,
 } from "./postingRules.js";
+import { isDateLocked, getLockReason } from "./periodLock.js";
 import { calcOrder } from "../orders.js";
 
 /* ── module-level upConfig registry ──
@@ -197,6 +198,15 @@ async function _buildAndPost(label, type, builder, args, config, createdBy){
     return {ok:false, error: e.message};
   }
   if(!entry) return {ok:false, skipped:"no-entry-for-input"};
+
+  /* V18.54: Period lock — block posting to a closed period (or locked day) */
+  if(isDateLocked(entry.date, config)){
+    const reason = getLockReason(entry.date, config) || "تاريخ مقفل";
+    const e = new Error(reason);
+    console.warn(`[CLARK auto-post:${label}] blocked by period lock: ${entry.date}`);
+    recordFailure(type, label, e, entry.sourceId, args);
+    return {ok:false, error: reason, lockedPeriod: true};
+  }
 
   const coa = getCoa(config);
   if(!coa.length){

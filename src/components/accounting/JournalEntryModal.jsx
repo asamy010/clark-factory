@@ -14,6 +14,7 @@ import { Btn, Inp, Sel } from "../ui.jsx";
 import { AccountSelector } from "./AccountSelector.jsx";
 import { gid, fmt } from "../../utils/format.js";
 import { validateLines } from "../../utils/accounting/posting.js";
+import { isDateLocked, getLockReason } from "../../utils/accounting/periodLock.js";
 import {
   getCurrencies, getFunctionalCurrency, isMultiCurrencyEnabled,
   findFxRate, FUNCTIONAL_CURRENCY,
@@ -109,6 +110,12 @@ export function JournalEntryModal({existing, defaultDate, coa, config, onSave, o
       alert(e.message); return;
     }
     if(!date){ alert("اختر التاريخ"); return; }
+    /* V18.54: Block save if date falls in a locked period or locked day */
+    if(isDateLocked(date, config)){
+      const reason = getLockReason(date, config) || "تاريخ مقفل";
+      alert("⛔ لا يمكن حفظ القيد:\n" + reason);
+      return;
+    }
     /* Pass currency-aware lines through */
     const cleanLines = lines.map(l => {
       const out = {
@@ -141,7 +148,11 @@ export function JournalEntryModal({existing, defaultDate, coa, config, onSave, o
       {/* Header: date + narration */}
       <div style={{display:"grid", gridTemplateColumns:isMob?"1fr":"180px 1fr", gap:10, marginBottom:14}}>
         <div><label style={{fontSize:FS-2, color:T.textSec, fontWeight:700, display:"block", marginBottom:4}}>التاريخ</label>
-          <Inp type="date" value={date} onChange={setDate}/></div>
+          <Inp type="date" value={date} onChange={setDate}/>
+          {/* V18.54: Show period lock warning inline */}
+          {date && isDateLocked(date, config) && <div style={{marginTop:6, padding:"6px 10px", background:T.err+"15", border:"1px solid "+T.err+"40", borderRadius:6, fontSize:FS-3, color:T.err, fontWeight:700}}>
+            ⛔ {getLockReason(date, config)}
+          </div>}</div>
         <div><label style={{fontSize:FS-2, color:T.textSec, fontWeight:700, display:"block", marginBottom:4}}>البيان</label>
           <Inp value={narration} onChange={setNarration} placeholder="مثلاً: تسوية رصيد العميل ..."/></div>
       </div>

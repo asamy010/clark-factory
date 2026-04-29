@@ -243,6 +243,8 @@ export function ReportsHub({data,isMob,season,statusCards}){
       {key:"summary",label:"ملخص الموسم",icon:"📋",color:"#0EA5E9"},
       {key:"cost",label:"التكاليف",icon:"💰",color:"#EC4899"},
       {key:"modelProfit",label:"أرباح الموديل",icon:"💎",color:"#059669"},
+      {key:"custProfit",label:"أرباح العملاء",icon:"👥",color:"#0EA5E9"},
+      {key:"orderProfit",label:"أرباح الأوردر",icon:"📊",color:"#10B981"},
       {key:"topCustomers",label:"أعلى 10 عملاء",icon:"🏆",color:"#F59E0B"},
       {key:"aging",label:"تقرير التحصيل (Aging)",icon:"⏳",color:"#EF4444"},
     ]},
@@ -272,6 +274,8 @@ export function ReportsHub({data,isMob,season,statusCards}){
   if(sub==="wsCostPerPiece")return<div>{back}<WsCostReport data={data} isMob={isMob} season={season}/></div>;
   if(sub==="wsStuck")return<div>{back}<WsStuckReport data={data} isMob={isMob} season={season}/></div>;
   if(sub==="modelProfit")return<div>{back}<ModelProfitReport data={data} isMob={isMob} season={season} statusCards={statusCards}/></div>;
+  if(sub==="custProfit")return<div>{back}<CustomerProfitReport data={data} isMob={isMob} season={season}/></div>;
+  if(sub==="orderProfit")return<div>{back}<OrderProfitReport data={data} isMob={isMob} season={season}/></div>;
   if(sub==="topCustomers")return<div>{back}<TopCustomersReport data={data} isMob={isMob} season={season}/></div>;
   if(sub==="aging")return<div>{back}<AgingReport data={data} isMob={isMob} season={season}/></div>;
   if(sub==="monthlyExpenses")return<div>{back}<MonthlyExpensesReport data={data} isMob={isMob}/></div>;
@@ -988,31 +992,83 @@ export function WsStuckReport({data,isMob,season}){
 /* ══ MODEL PROFIT REPORT ══ */
 
 
+/* ══ MODEL PROFIT REPORT (Enhanced V18.55) ══
+   Profit by model with detailed cost breakdown:
+     - Fabric cost per piece
+     - Accessories cost per piece
+     - Workshop cost per piece
+     - Total cost = fabric + accessories + workshop (or manual costPrice)
+   ══════════════════════════════════════════════ */
 export function ModelProfitReport({data,isMob,season,statusCards}){
   const orders=data.orders||[];
-  const rows=orders.map(o=>{const c=calcOrder(o);const sellPrice=Number(o.sellPrice)||0;const costPrice=Number(o.costPrice)||c.totalCost||0;
-    const soldQty=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0)-(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
-    const revenue=r2(soldQty*sellPrice);const cost=r2(soldQty*costPrice);const profit=r2(revenue-cost);const margin=revenue>0?Math.round((profit/revenue)*100):0;
-    return{modelNo:o.modelNo,modelDesc:o.modelDesc,sellPrice,costPrice,soldQty,revenue,cost,profit,margin,status:o.status}}).filter(r=>r.soldQty>0).sort((a,b)=>b.profit-a.profit);
+  /* V18.55: Date-range and customer filters */
+  const today=new Date().toISOString().split("T")[0];
+  const yearStart=today.slice(0,4)+"-01-01";
+  const[from,setFrom]=useState(yearStart);
+  const[to,setTo]=useState(today);
+  const[showZero,setShowZero]=useState(false);
+
+  const rows=useMemo(()=>orders.map(o=>{
+    const c=calcOrder(o);
+    const sellPrice=Number(o.sellPrice)||0;
+    /* V18.55 fix: was using c.totalCost (undefined). Now uses c.costPer. */
+    const manualCost=Number(o.costPrice)||0;
+    const computedCost=Number(c.costPer)||0;
+    const costPrice=manualCost>0?manualCost:computedCost;
+    /* Date-filter the deliveries and returns */
+    const dels=(o.customerDeliveries||[]).filter(d=>!d.date||(d.date>=from&&d.date<=to));
+    const rets=(o.customerReturns||[]).filter(r=>!r.date||(r.date>=from&&r.date<=to));
+    const soldQty=dels.reduce((s,d)=>s+(Number(d.qty)||0),0)-rets.reduce((s,r)=>s+(Number(r.qty)||0),0);
+    const revenue=r2(soldQty*sellPrice);
+    const cost=r2(soldQty*costPrice);
+    const profit=r2(revenue-cost);
+    const margin=revenue>0?Math.round((profit/revenue)*100):0;
+    return{
+      modelNo:o.modelNo,modelDesc:o.modelDesc,sellPrice,
+      fabPer:c.fabPer||0, accPer:c.accPer||0, wsCostPer:c.wsCostPer||0,
+      costPrice, isManualCost: manualCost>0,
+      soldQty,revenue,cost,profit,margin,status:o.status
+    };
+  }).filter(r=>showZero||r.soldQty>0).sort((a,b)=>b.profit-a.profit),
+  [orders,from,to,showZero]);
+
   const totals={revenue:rows.reduce((s,r)=>s+r.revenue,0),cost:rows.reduce((s,r)=>s+r.cost,0),profit:rows.reduce((s,r)=>s+r.profit,0)};
   totals.margin=totals.revenue>0?Math.round((totals.profit/totals.revenue)*100):0;
   const printRep=()=>{const el=document.getElementById("modelprofit-rep");if(el)printPage("تقرير أرباح الموديل — "+season,el.innerHTML)};
+
   return<Card id="modelprofit-rep" title={"💎 أرباح الموديل — "+rows.length+" موديل | صافي ربح: "+fmt(r2(totals.profit))+" ج.م"} extra={<Btn small onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>}>
+    {/* V18.55: Filters bar */}
+    <div style={{display:"flex",gap:8,padding:10,borderBottom:"1px solid "+T.brd,flexWrap:"wrap",alignItems:"end"}}>
+      <div><label style={{fontSize:FS-3,color:T.textSec,fontWeight:600,display:"block",marginBottom:2}}>من تاريخ</label><Inp type="date" value={from} onChange={setFrom}/></div>
+      <div><label style={{fontSize:FS-3,color:T.textSec,fontWeight:600,display:"block",marginBottom:2}}>إلى تاريخ</label><Inp type="date" value={to} onChange={setTo}/></div>
+      <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:FS-1,color:T.textSec,fontWeight:600,marginBottom:6}}>
+        <input type="checkbox" checked={showZero} onChange={e=>setShowZero(e.target.checked)}/>
+        إظهار موديلات بدون مبيعات
+      </label>
+    </div>
     {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
-      {["الموديل","الوصف","سعر بيع","تكلفة","كمية مباعة","إيراد","تكلفة إجمالية","الربح","هامش %"].map(h=><th key={h} style={TH}>{h}</th>)}
+      {["الموديل","الوصف","سعر بيع","قماش","إكسسوار","ورشة","التكلفة","كمية","إيراد","تكلفة كلية","الربح","هامش %"].map(h=><th key={h} style={TH}>{h}</th>)}
     </tr></thead><tbody>{rows.map(r=><tr key={r.modelNo} style={{borderBottom:"1px solid "+T.brd}}>
       <td style={TDB}>{r.modelNo}</td><td style={TD}>{r.modelDesc}</td>
-      <td style={TDB}>{fmt(r.sellPrice)}</td><td style={TDB}>{fmt(r.costPrice)}</td>
-      <td style={TDB}>{fmt(r.soldQty)}</td><td style={{...TDB,color:T.ok}}>{fmt(r.revenue)}</td>
+      <td style={TDB}>{fmt(r.sellPrice)}</td>
+      <td style={{...TDB,color:T.textMut,fontSize:FS-1}}>{r.isManualCost?"—":fmt(r.fabPer.toFixed(1))}</td>
+      <td style={{...TDB,color:T.textMut,fontSize:FS-1}}>{r.isManualCost?"—":fmt(r.accPer.toFixed(1))}</td>
+      <td style={{...TDB,color:T.textMut,fontSize:FS-1}}>{r.isManualCost?"—":fmt(r.wsCostPer.toFixed(1))}</td>
+      <td style={{...TDB,fontWeight:700}} title={r.isManualCost?"تكلفة يدوية":"محسوبة من القماش+الإكسسوار+الورشة"}>{fmt(r.costPrice.toFixed(1))}{r.isManualCost?"📌":""}</td>
+      <td style={TDB}>{fmt(r.soldQty)}</td>
+      <td style={{...TDB,color:T.ok}}>{fmt(r.revenue)}</td>
       <td style={{...TDB,color:T.err}}>{fmt(r.cost)}</td>
       <td style={{...TDB,color:r.profit>=0?T.ok:T.err,fontWeight:800,fontSize:FS+1}}>{fmt(r.profit)}</td>
-      <td style={{...TDB,color:r.margin>=20?T.ok:r.margin>=10?T.warn:T.err}}>{r.margin+"%"}</td>
+      <td style={{...TDB,color:r.margin>=20?T.ok:r.margin>=10?T.warn:T.err,fontWeight:700}}>{r.margin+"%"}</td>
     </tr>)}
-    <tr style={{background:T.accent+"06"}}><td colSpan={5} style={{...TD,fontWeight:800}}>الإجمالي</td>
+    <tr style={{background:T.accent+"06"}}><td colSpan={8} style={{...TD,fontWeight:800}}>الإجمالي</td>
       <td style={{...TDB,color:T.ok,fontWeight:800}}>{fmt(totals.revenue)}</td><td style={{...TDB,color:T.err,fontWeight:800}}>{fmt(totals.cost)}</td>
       <td style={{...TDB,color:totals.profit>=0?T.ok:T.err,fontWeight:900,fontSize:FS+2}}>{fmt(totals.profit)}</td>
       <td style={{...TDB,fontWeight:800}}>{totals.margin+"%"}</td>
-    </tr></tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد مبيعات</div>}
+    </tr></tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد مبيعات في الفترة المحددة</div>}
+    <div style={{padding:"6px 10px",fontSize:FS-3,color:T.textMut,background:T.bg,borderTop:"1px solid "+T.brd}}>
+      💡 <b>قماش/إكسسوار/ورشة</b> هي تكلفة كل قطعة محسوبة من بيانات الأوردر. لو في تكلفة يدوية (📌) متعينة، تستخدم بدل الحساب.
+    </div>
   </Card>
 }
 
@@ -1165,3 +1221,202 @@ let _auditScanMode="series";
 let _stockRcvScanMode="series";
 
 /* CustDeliverPg moved to pages/CustDeliverPg.jsx (V15.0 phase 2) */
+
+/* ══ CUSTOMER PROFIT REPORT (V18.55) ══
+   Profit dimension grouped BY CUSTOMER — revenue/cost/profit/margin
+   per each customer across all their orders.
+   ══════════════════════════════════════════════ */
+export function CustomerProfitReport({data,isMob,season}){
+  const orders=data.orders||[];
+  const customers=data.customers||[];
+  const today=new Date().toISOString().split("T")[0];
+  const yearStart=today.slice(0,4)+"-01-01";
+  const[from,setFrom]=useState(yearStart);
+  const[to,setTo]=useState(today);
+  const[search,setSearch]=useState("");
+
+  const rows=useMemo(()=>{
+    const custMap={};
+    orders.forEach(o=>{
+      const sellPrice=Number(o.sellPrice)||0;
+      const c=calcOrder(o);
+      const manualCost=Number(o.costPrice)||0;
+      const computedCost=Number(c.costPer)||0;
+      const costPrice=manualCost>0?manualCost:computedCost;
+      (o.customerDeliveries||[]).filter(d=>!d.date||(d.date>=from&&d.date<=to)).forEach(d=>{
+        const cid=d.custId;
+        if(!custMap[cid])custMap[cid]={id:cid,qty:0,returnQty:0,revenue:0,cost:0};
+        const qty=Number(d.qty)||0;
+        custMap[cid].qty+=qty;
+        custMap[cid].revenue+=qty*sellPrice;
+        custMap[cid].cost+=qty*costPrice;
+      });
+      (o.customerReturns||[]).filter(r=>!r.date||(r.date>=from&&r.date<=to)).forEach(r=>{
+        const cid=r.custId;
+        if(!custMap[cid])custMap[cid]={id:cid,qty:0,returnQty:0,revenue:0,cost:0};
+        const qty=Number(r.qty)||0;
+        custMap[cid].returnQty+=qty;
+        custMap[cid].revenue-=qty*sellPrice;
+        custMap[cid].cost-=qty*costPrice;
+      });
+    });
+    let result=Object.values(custMap).map(c=>{
+      const cust=customers.find(x=>x.id===c.id);
+      const profit=r2(c.revenue-c.cost);
+      const margin=c.revenue>0?Math.round((profit/c.revenue)*100):0;
+      const netQty=c.qty-c.returnQty;
+      return{
+        id:c.id,name:cust?.name||"غير معروف",phone:cust?.phone||"",
+        qty:c.qty,returnQty:c.returnQty,netQty,
+        revenue:r2(c.revenue),cost:r2(c.cost),profit,margin,
+      };
+    }).filter(r=>r.netQty>0||r.returnQty>0);
+    if(search.trim()){
+      const q=search.trim().toLowerCase();
+      result=result.filter(r=>(r.name||"").toLowerCase().includes(q));
+    }
+    return result.sort((a,b)=>b.profit-a.profit);
+  },[orders,customers,from,to,search]);
+
+  const totals={
+    revenue:rows.reduce((s,r)=>s+r.revenue,0),
+    cost:rows.reduce((s,r)=>s+r.cost,0),
+    profit:rows.reduce((s,r)=>s+r.profit,0),
+    qty:rows.reduce((s,r)=>s+r.netQty,0),
+  };
+  totals.margin=totals.revenue>0?Math.round((totals.profit/totals.revenue)*100):0;
+  const printRep=()=>{const el=document.getElementById("custprofit-rep");if(el)printPage("تقرير أرباح العملاء — "+season,el.innerHTML)};
+
+  return<Card id="custprofit-rep" title={"👥 أرباح العملاء — "+rows.length+" عميل | صافي ربح: "+fmt(r2(totals.profit))+" ج.م"} extra={<Btn small onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>}>
+    <div style={{display:"flex",gap:8,padding:10,borderBottom:"1px solid "+T.brd,flexWrap:"wrap",alignItems:"end"}}>
+      <div><label style={{fontSize:FS-3,color:T.textSec,fontWeight:600,display:"block",marginBottom:2}}>من تاريخ</label><Inp type="date" value={from} onChange={setFrom}/></div>
+      <div><label style={{fontSize:FS-3,color:T.textSec,fontWeight:600,display:"block",marginBottom:2}}>إلى تاريخ</label><Inp type="date" value={to} onChange={setTo}/></div>
+      <div style={{flex:1,minWidth:160}}><label style={{fontSize:FS-3,color:T.textSec,fontWeight:600,display:"block",marginBottom:2}}>بحث</label><Inp value={search} onChange={setSearch} placeholder="اسم العميل..."/></div>
+    </div>
+    {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+      {["#","العميل","صافي الكمية","مرتجع","إيراد","تكلفة","الربح","هامش %"].map(h=><th key={h} style={TH}>{h}</th>)}
+    </tr></thead><tbody>{rows.map((r,i)=><tr key={r.id} style={{borderBottom:"1px solid "+T.brd,background:i<3?T.accent+"04":""}}>
+      <td style={{...TDB,fontSize:FS+1,fontWeight:800}}>{i===0?"🥇":i===1?"🥈":i===2?"🥉":(i+1)}</td>
+      <td style={{...TD,fontWeight:700}}>{r.name}{r.phone&&<div style={{fontSize:FS-3,color:T.textMut}}>{r.phone}</div>}</td>
+      <td style={TDB}>{fmt(r.netQty)}</td>
+      <td style={{...TDB,color:r.returnQty>0?T.err:T.textMut}}>{r.returnQty||"—"}</td>
+      <td style={{...TDB,color:T.ok,fontWeight:700}}>{fmt(r.revenue)}</td>
+      <td style={{...TDB,color:T.err}}>{fmt(r.cost)}</td>
+      <td style={{...TDB,color:r.profit>=0?T.ok:T.err,fontWeight:800,fontSize:FS+1}}>{fmt(r.profit)}</td>
+      <td style={{...TDB,color:r.margin>=20?T.ok:r.margin>=10?T.warn:T.err,fontWeight:700}}>{r.margin+"%"}</td>
+    </tr>)}
+    <tr style={{background:T.accent+"06"}}>
+      <td colSpan={2} style={{...TD,fontWeight:800}}>الإجمالي</td>
+      <td style={{...TDB,fontWeight:800}}>{fmt(totals.qty)}</td>
+      <td style={TDB}>—</td>
+      <td style={{...TDB,color:T.ok,fontWeight:800}}>{fmt(totals.revenue)}</td>
+      <td style={{...TDB,color:T.err,fontWeight:800}}>{fmt(totals.cost)}</td>
+      <td style={{...TDB,color:totals.profit>=0?T.ok:T.err,fontWeight:900,fontSize:FS+2}}>{fmt(totals.profit)}</td>
+      <td style={{...TDB,fontWeight:800}}>{totals.margin+"%"}</td>
+    </tr></tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد مبيعات في الفترة المحددة</div>}
+  </Card>
+}
+
+/* ══ ORDER PROFIT REPORT (V18.55) ══
+   Per-order profit breakdown — every order with delivered units, cost basis,
+   revenue and profit. Useful for identifying loss-making orders.
+   ══════════════════════════════════════════════ */
+export function OrderProfitReport({data,isMob,season}){
+  const orders=data.orders||[];
+  const today=new Date().toISOString().split("T")[0];
+  const yearStart=today.slice(0,4)+"-01-01";
+  const[from,setFrom]=useState(yearStart);
+  const[to,setTo]=useState(today);
+  const[search,setSearch]=useState("");
+  const[sortBy,setSortBy]=useState("profit");
+
+  const rows=useMemo(()=>{
+    let result=orders.map(o=>{
+      const c=calcOrder(o);
+      const sellPrice=Number(o.sellPrice)||0;
+      const manualCost=Number(o.costPrice)||0;
+      const computedCost=Number(c.costPer)||0;
+      const costPrice=manualCost>0?manualCost:computedCost;
+      const dels=(o.customerDeliveries||[]).filter(d=>!d.date||(d.date>=from&&d.date<=to));
+      const rets=(o.customerReturns||[]).filter(r=>!r.date||(r.date>=from&&r.date<=to));
+      const soldQty=dels.reduce((s,d)=>s+(Number(d.qty)||0),0);
+      const returnQty=rets.reduce((s,r)=>s+(Number(r.qty)||0),0);
+      const netQty=soldQty-returnQty;
+      const revenue=r2(netQty*sellPrice);
+      const cost=r2(netQty*costPrice);
+      const profit=r2(revenue-cost);
+      const margin=revenue>0?Math.round((profit/revenue)*100):0;
+      const custNames=[...new Set(dels.map(d=>d.custName).filter(Boolean))].slice(0,3).join("، ");
+      return{
+        id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,
+        sellPrice,costPrice,isManualCost:manualCost>0,
+        soldQty,returnQty,netQty,
+        revenue,cost,profit,margin,
+        custNames,status:o.status,
+      };
+    }).filter(r=>r.netQty>0||r.returnQty>0);
+    if(search.trim()){
+      const q=search.trim().toLowerCase();
+      result=result.filter(r=>(r.modelNo||"").toLowerCase().includes(q)||(r.modelDesc||"").toLowerCase().includes(q)||(r.custNames||"").toLowerCase().includes(q));
+    }
+    if(sortBy==="profit")result.sort((a,b)=>b.profit-a.profit);
+    else if(sortBy==="margin")result.sort((a,b)=>b.margin-a.margin);
+    else if(sortBy==="loss")result.sort((a,b)=>a.profit-b.profit);
+    return result;
+  },[orders,from,to,search,sortBy]);
+
+  const totals={
+    qty:rows.reduce((s,r)=>s+r.netQty,0),
+    revenue:rows.reduce((s,r)=>s+r.revenue,0),
+    cost:rows.reduce((s,r)=>s+r.cost,0),
+    profit:rows.reduce((s,r)=>s+r.profit,0),
+  };
+  totals.margin=totals.revenue>0?Math.round((totals.profit/totals.revenue)*100):0;
+  const losingOrders=rows.filter(r=>r.profit<0).length;
+  const printRep=()=>{const el=document.getElementById("orderprofit-rep");if(el)printPage("تقرير أرباح الأوردر — "+season,el.innerHTML)};
+
+  return<Card id="orderprofit-rep"
+    title={"📊 أرباح الأوردر — "+rows.length+" أوردر | صافي ربح: "+fmt(r2(totals.profit))+" ج.م"+(losingOrders>0?" | ⚠️ "+losingOrders+" أوردر خاسر":"")}
+    extra={<Btn small onClick={printRep} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>}>
+    <div style={{display:"flex",gap:8,padding:10,borderBottom:"1px solid "+T.brd,flexWrap:"wrap",alignItems:"end"}}>
+      <div><label style={{fontSize:FS-3,color:T.textSec,fontWeight:600,display:"block",marginBottom:2}}>من تاريخ</label><Inp type="date" value={from} onChange={setFrom}/></div>
+      <div><label style={{fontSize:FS-3,color:T.textSec,fontWeight:600,display:"block",marginBottom:2}}>إلى تاريخ</label><Inp type="date" value={to} onChange={setTo}/></div>
+      <div><label style={{fontSize:FS-3,color:T.textSec,fontWeight:600,display:"block",marginBottom:2}}>ترتيب</label>
+        <Sel value={sortBy} onChange={setSortBy}>
+          <option value="profit">الأكثر ربحاً</option>
+          <option value="margin">أعلى هامش %</option>
+          <option value="loss">الأكثر خسارة</option>
+        </Sel>
+      </div>
+      <div style={{flex:1,minWidth:160}}><label style={{fontSize:FS-3,color:T.textSec,fontWeight:600,display:"block",marginBottom:2}}>بحث</label><Inp value={search} onChange={setSearch} placeholder="موديل / وصف / عميل..."/></div>
+    </div>
+    {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+      {["الموديل","العملاء","قطع مباعة","سعر بيع","تكلفة/قطعة","إيراد","تكلفة","الربح","هامش %"].map(h=><th key={h} style={TH}>{h}</th>)}
+    </tr></thead><tbody>{rows.map(r=><tr key={r.id} style={{borderBottom:"1px solid "+T.brd,background:r.profit<0?"#FEE2E215":""}}>
+      <td style={TDB}>
+        <div style={{fontWeight:700}}>{r.modelNo}</div>
+        {r.modelDesc&&<div style={{fontSize:FS-3,color:T.textMut}}>{r.modelDesc}</div>}
+      </td>
+      <td style={{...TD,fontSize:FS-2,color:T.textSec}}>{r.custNames||"—"}</td>
+      <td style={TDB}>{fmt(r.netQty)}{r.returnQty>0?<span style={{fontSize:FS-3,color:T.err}}> (-{r.returnQty})</span>:""}</td>
+      <td style={TDB}>{fmt(r.sellPrice)}</td>
+      <td style={TDB} title={r.isManualCost?"تكلفة يدوية":"محسوبة"}>{fmt(r.costPrice.toFixed(1))}{r.isManualCost?"📌":""}</td>
+      <td style={{...TDB,color:T.ok,fontWeight:700}}>{fmt(r.revenue)}</td>
+      <td style={{...TDB,color:T.err}}>{fmt(r.cost)}</td>
+      <td style={{...TDB,color:r.profit>=0?T.ok:T.err,fontWeight:800,fontSize:FS+1}}>{fmt(r.profit)}</td>
+      <td style={{...TDB,color:r.margin>=20?T.ok:r.margin>=10?T.warn:T.err,fontWeight:700}}>{r.margin+"%"}</td>
+    </tr>)}
+    <tr style={{background:T.accent+"06"}}>
+      <td colSpan={2} style={{...TD,fontWeight:800}}>الإجمالي</td>
+      <td style={{...TDB,fontWeight:800}}>{fmt(totals.qty)}</td>
+      <td colSpan={2} style={TDB}>—</td>
+      <td style={{...TDB,color:T.ok,fontWeight:800}}>{fmt(totals.revenue)}</td>
+      <td style={{...TDB,color:T.err,fontWeight:800}}>{fmt(totals.cost)}</td>
+      <td style={{...TDB,color:totals.profit>=0?T.ok:T.err,fontWeight:900,fontSize:FS+2}}>{fmt(totals.profit)}</td>
+      <td style={{...TDB,fontWeight:800}}>{totals.margin+"%"}</td>
+    </tr></tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد أوردرات بمبيعات في الفترة المحددة</div>}
+    {losingOrders>0&&<div style={{padding:"8px 12px",fontSize:FS-2,color:T.err,background:T.err+"08",borderTop:"1px solid "+T.err+"30",fontWeight:700}}>
+      ⚠️ <b>{losingOrders} أوردر</b> سعر بيعه أقل من تكلفته — راجع الـcostPrice أو سعر البيع
+    </div>}
+  </Card>
+}

@@ -17,6 +17,7 @@ import { JournalTab } from "../components/accounting/JournalTab.jsx";
 import { TrialBalanceTab } from "../components/accounting/TrialBalanceTab.jsx";
 import { FinancialReportsTab } from "../components/accounting/FinancialReportsTab.jsx";
 import { PartyLedgerTab } from "../components/accounting/PartyLedgerTab.jsx";
+import { AgingReportTab } from "../components/accounting/AgingReportTab.jsx";
 import { AccountingSettingsTab } from "../components/accounting/AccountingSettingsTab.jsx";
 import { readDayRange } from "../utils/accounting/dayDoc.js";
 
@@ -25,6 +26,7 @@ const TAB_DEFS = [
   {key:"journal",  label:"دفتر اليومية",  icon:"📔"},
   {key:"tb",       label:"ميزان المراجعة", icon:"⚖️"},
   {key:"party",    label:"كشف حساب طرف",   icon:"👥"},
+  {key:"aging",    label:"تقادم الديون",    icon:"⏳"},
   {key:"reports",  label:"القوائم المالية", icon:"📈"},
   {key:"settings", label:"الإعدادات",     icon:"⚙️"},
 ];
@@ -131,6 +133,10 @@ export function AccountingPg({data, config, upConfig, isMob, user}){
     {active === "party" && <PartyLedgerTab
       coa={coa} data={data}
       configInfo={{factoryName: config.factoryName||"CLARK", logo: config.logo, address: config.address||"", phone: config.phone||""}}
+      T={T} FS={FS} isMob={isMob} showToast={showToast}
+    />}
+    {active === "aging" && <AgingReportTab
+      data={data}
       T={T} FS={FS} isMob={isMob} showToast={showToast}
     />}
     {active === "reports" && <FinancialReportsTab
