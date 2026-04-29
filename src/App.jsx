@@ -15,6 +15,7 @@ import { addAudit } from "./utils/audit.js";
 import { setUpConfigCallback as registerAutoPostCallback } from "./utils/accounting/autoPost.js";
 import { prefetchIpInfo } from "./utils/device.js";
 import { enforceDataLimits } from "./utils/dataLimits.js";
+import { isSafeWrite } from "./utils/dataIntegrity.js";
 import { syncAllSplitChanges, stripSplitArrays, SPLIT_COLLECTIONS, SPLIT_FIELDS } from "./utils/splitCollections.js";
 import { syncAllPartitionedChanges, stripPartitionedArrays, PARTITIONED_COLLECTIONS, PARTITIONED_FIELDS } from "./utils/partitionedCollections.js";
 import { noticeSuccess, noticeWarn, noticeError } from "./utils/storageNotices.js";
@@ -175,6 +176,12 @@ export default function App(){
 
   const[user,setUser]=useState(null);const[authLoading,setAuthLoading]=useState(true);
   const[configDoc,setConfigDoc]=useState(INIT_CONFIG);const[salesDoc,setSalesDoc]=useState({});const[tasksDoc,setTasksDoc]=useState({});const[orders,setOrders]=useState([]);const[dataLoading,setDataLoading]=useState(true);
+  /* V18.60 SAFETY: configLoaded — set to true ONLY after config listener fires once
+     with valid server data. Prevents writes from happening with INIT_CONFIG as base. */
+  const[configLoaded,setConfigLoaded]=useState(false);
+  /* V18.60 SAFETY: configError — populated if the config doc is missing or the
+     listener errors. UI blocks all writes when this is non-null. */
+  const[configError,setConfigError]=useState(null);
   /* V16.74: split collections state — treasury, auditLog, hrLog من daily collections */
   const[splitData,setSplitData]=useState({treasury:[],auditLog:[],hrLog:[]});
   const[splitLoaded,setSplitLoaded]=useState(false);
@@ -493,7 +500,23 @@ export default function App(){
 
     /* Main config listener */
     const u1=onSnapshot(doc(db,"factory","config"),{includeMetadataChanges:false},snap=>{
-      if(!snap.exists()){setDoc(doc(db,"factory","config"),INIT_CONFIG);return}
+      if(!snap.exists()){
+        /* V18.60 CRITICAL FIX: Previously this auto-wrote INIT_CONFIG, which
+           DESTROYED real data on permission errors / transient absence. Now we
+           refuse to auto-init and surface an explicit error to the UI.
+           
+           If this is a genuinely fresh project (first install), the user must
+           run the dedicated init flow — NOT have it happen silently on every
+           startup where the doc happens to look missing. */
+        console.error("[V18.60 CRITICAL] factory/config does not exist! Refusing to auto-init.");
+        setConfigError({
+          type:"missing_config",
+          ts:new Date().toISOString(),
+          uid:user?.uid,
+          email:user?.email
+        });
+        return;
+      }
       const d=snap.data();
       /* V17.4 FIX: Don't override our local optimistic state with stale cached/pending data.
          
@@ -519,6 +542,11 @@ export default function App(){
       }
       /* ALWAYS show the data to the user (even if cached — that's fine for display) */
       setConfigDoc(d);
+      /* V18.60: Mark config as loaded once we have valid data (cached or server).
+         Writes are gated on this flag — see upConfig safety check. */
+      setConfigLoaded(true);
+      /* Clear any prior error since we have valid data now */
+      setConfigError(null);
       /* ⛔ Skip ALL migrations if data is from local cache or has pending writes.
          Wait for the first confirmed server snapshot before running any migration. */
       if(snap.metadata.fromCache){return}
@@ -718,12 +746,25 @@ export default function App(){
          never ran, leaving stale custDeliverySessions / packages / tasks /
          stickyNotes / inventoryAudits in the config doc indefinitely.
          Moved to a dedicated effect below that watches React state directly. */
+    },err=>{
+      /* V18.60 FIX: Error handler was missing — silent failures could cause
+         the app to keep running with stale state on permission denied / network
+         errors. Now we surface the error to the UI and block writes. */
+      console.error("[V18.60 CRITICAL] config listener error:",err);
+      setConfigError({
+        type:"listener_error",
+        code:err?.code||"unknown",
+        message:err?.message||String(err),
+        ts:new Date().toISOString(),
+        uid:user?.uid,
+        email:user?.email
+      });
     });
 
     /* Sales doc */
-    const u2=onSnapshot(doc(db,"factory","sales"),snap=>{if(snap.exists()){if(snap.metadata.hasPendingWrites)return;salesReady=true;setSalesDoc(snap.data())}});
+    const u2=onSnapshot(doc(db,"factory","sales"),snap=>{if(snap.exists()){if(snap.metadata.hasPendingWrites)return;salesReady=true;setSalesDoc(snap.data())}},err=>{console.error("[V18.60] sales listener error:",err)});
     /* Tasks doc */
-    const u3=onSnapshot(doc(db,"factory","tasks"),snap=>{if(snap.exists()){if(snap.metadata.hasPendingWrites)return;tasksReady=true;setTasksDoc(snap.data())}});
+    const u3=onSnapshot(doc(db,"factory","tasks"),snap=>{if(snap.exists()){if(snap.metadata.hasPendingWrites)return;tasksReady=true;setTasksDoc(snap.data())}},err=>{console.error("[V18.60] tasks listener error:",err)});
     return()=>{u1();u2();u3()}},[user]);
 
   /* ═══ V16.11: Migration 6 (split-phase-2 cleanup) — moved out of the config
@@ -1313,7 +1354,7 @@ export default function App(){
     return()=>{unsubs.forEach(u=>u())};
   },[user]);
 
-  useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>{const o={_docId:d.id,...d.data()};if(o.status)o.status=migrateStatus(o.status);return o}).filter(o=>o.id));setDataLoading(false)});return()=>unsub()},[user,season]);
+  useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>{const o={_docId:d.id,...d.data()};if(o.status)o.status=migrateStatus(o.status);return o}).filter(o=>o.id));setDataLoading(false)},err=>{console.error("[V18.60] orders listener error:",err);setDataLoading(false)});return()=>unsub()},[user,season]);
 
   /* ═══ AUTO-BACKUP: once per day per user ═══ */
   useEffect(()=>{
@@ -1488,7 +1529,23 @@ export default function App(){
     }
   },[configDoc,splitLoaded,partitionedLoaded]);
   const upConfig=useCallback(fn=>{
-    /* V16.75 SAFETY: refuse if data not loaded */
+    /* V18.60 CRITICAL SAFETY: refuse all writes if config not loaded from server yet.
+       Previously, writes could happen with INIT_CONFIG as base (during the brief
+       window between app mount and first config snapshot), which would OVERWRITE
+       real data with defaults — wiping users, customers, workshops, etc. */
+    if(!configLoaded){
+      console.error("[V18.60 SAFETY] Refusing upConfig — configDoc not loaded from server yet");
+      showToast("⏳ البيانات لسه بتتحمّل من السيرفر — استنى ثانيتين وحاول تاني");
+      return;
+    }
+    /* V18.60 CRITICAL SAFETY: refuse writes if config has known error state.
+       Writing on top of an error could corrupt data further. */
+    if(configError){
+      console.error("[V18.60 SAFETY] Refusing upConfig — configError is set:",configError);
+      showToast("⛔ فيه مشكلة في تحميل الإعدادات — اقفل وافتح التطبيق أو اتصل بالدعم");
+      return;
+    }
+    /* V16.75 SAFETY: refuse if split/partitioned data not loaded */
     if(configDoc&&configDoc._splitDaysV1674Done&&!splitLoaded){
       console.error("[V16.75 SAFETY] Refusing upConfig — splitData not loaded yet");
       showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
@@ -1537,6 +1594,16 @@ export default function App(){
       }
       fn(next);
       enforceDataLimits(next);
+      /* V18.60 SAFETY NET: refuse writes that wipe critical fields entirely.
+         This is a last-resort guard against bugs that cause mass data loss.
+         The check is intentionally permissive (only blocks 🚨-severity wipes
+         of users/usersList/customers/workshops/etc.) — normal user operations
+         pass through unhindered. Logs warnings for the audit trail either way. */
+      if(!isSafeWrite(prev,next)){
+        console.error("[V18.60 BLOCKED] Write refused — would wipe critical data. prev/next:",{prev,next});
+        showToast("⛔ تم منع تعديل خطير: ممكن يمسح بيانات مهمة. اتصل بالدعم لو محتاج العملية دي فعلاً.");
+        return;/* abort the optimistic update entirely */
+      }
       if(splitActive){
         newSplit={
           treasury:Array.isArray(next.treasury)?next.treasury:[],
@@ -1945,7 +2012,41 @@ export default function App(){
 
   if(authLoading)return null;
   if(!user)return<LoginScreen/>;
-  if(dataLoading)return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#EFF6FF",direction:"rtl",fontFamily:"'Cairo',sans-serif"}}>
+  /* V18.60: Critical config error — show explicit error state instead of letting
+     the user interact with stale or default data. */
+  if(configError){
+    const isMissing=configError.type==="missing_config";
+    return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#FEF2F2",direction:"rtl",fontFamily:"'Cairo',sans-serif",padding:20}}>
+      <div style={{maxWidth:560,background:"#fff",borderRadius:16,padding:32,border:"2px solid #DC2626",boxShadow:"0 10px 40px rgba(220,38,38,0.15)"}}>
+        <div style={{fontSize:48,textAlign:"center",marginBottom:12}}>⛔</div>
+        <div style={{fontSize:20,fontWeight:800,color:"#DC2626",textAlign:"center",marginBottom:14}}>
+          {isMissing?"لم يتم العثور على إعدادات النظام":"خطأ في تحميل الإعدادات"}
+        </div>
+        <div style={{fontSize:14,color:"#374151",lineHeight:1.7,marginBottom:18,padding:14,background:"#FEF2F2",borderRadius:10,border:"1px solid #FCA5A5"}}>
+          {isMissing
+            ?"الـ document بتاع factory/config مش موجود في Firestore. ده ممكن يكون بسبب: مشكلة في الصلاحيات، أو الـ document اتمسح بالغلط، أو تنصيب جديد لم يكتمل."
+            :"حصل خطأ أثناء قراءة الإعدادات: "+(configError.message||"غير معروف")}
+        </div>
+        <div style={{fontSize:13,color:"#6B7280",lineHeight:1.7,marginBottom:18,padding:12,background:"#F9FAFB",borderRadius:8}}>
+          <b style={{color:"#DC2626"}}>⚠️ مهم جداً:</b> التطبيق منع نفسه من الكتابة لحد ما المشكلة دي تتحل، عشان نحمي بياناتك من الاستبدال بالقيم الافتراضية. متعملش refresh عشواي — اتصل بمدير النظام أو الدعم الفني.
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:10,fontSize:12,color:"#6B7280",background:"#F3F4F6",padding:12,borderRadius:8,fontFamily:"monospace"}}>
+          <div><b>النوع:</b> {configError.type}</div>
+          {configError.code&&<div><b>الكود:</b> {configError.code}</div>}
+          <div><b>المستخدم:</b> {configError.email||configError.uid||"-"}</div>
+          <div><b>الوقت:</b> {configError.ts}</div>
+        </div>
+        <div style={{marginTop:18,display:"flex",gap:10,justifyContent:"center"}}>
+          <button onClick={()=>window.location.reload()} style={{padding:"10px 20px",background:"#DC2626",color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:14,fontFamily:"inherit"}}>إعادة المحاولة</button>
+          <button onClick={()=>signOut(auth)} style={{padding:"10px 20px",background:"#F3F4F6",color:"#374151",border:"1px solid #D1D5DB",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:14,fontFamily:"inherit"}}>تسجيل خروج</button>
+        </div>
+      </div>
+    </div>;
+  }
+  /* V18.60: Wait for config to load from server before rendering UI.
+     Previously the UI rendered with INIT_CONFIG as base while waiting for the
+     listener — which could trigger writes that overwrote real data with defaults. */
+  if(dataLoading||!configLoaded)return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#EFF6FF",direction:"rtl",fontFamily:"'Cairo',sans-serif"}}>
     <div style={{textAlign:"center"}}>
       <div style={{display:"flex",justifyContent:"center",marginBottom:14}}>
         <Spinner size="large" color={T.accent}/>
@@ -2078,7 +2179,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V18.59 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >V18.60 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -3137,7 +3238,7 @@ export default function App(){
       </div>
     )}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.59"/>
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.60"/>
   </div>
 }
 

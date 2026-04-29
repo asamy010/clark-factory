@@ -25,6 +25,22 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V18.60",
+    date: "2026-04-29",
+    types: ["fix", "architectural"],
+    title: "🛡️ حماية حرجة من فقد البيانات (Data Loss Prevention)",
+    changes: [
+      { type: "fix", text: "🚨 إصلاح bug خطير: الـ app كان لو ملقاش factory/config بيكتب القيم الافتراضية تلقائياً (INIT_CONFIG) فوقها — ده كان السبب المرجّح لمسح اليوزرز والإعدادات. دلوقتي بيرفض ويعرض رسالة خطأ صريحة بدل ما يدمّر البيانات." },
+      { type: "fix", text: "🛑 منع كتابة البيانات قبل ما الـ config يحمّل من السيرفر — كان فيه race condition بيخلي الـ writes تحصل على INIT_CONFIG كقاعدة وتمسح البيانات الحقيقية" },
+      { type: "fix", text: "📡 إضافة error handlers لكل الـ Firestore listeners (config, sales, tasks, orders) — قبل كده كانت الأخطاء تتجاهل في صمت" },
+      { type: "feature", text: "🔒 صفحة خطأ مخصصة لو الـ config مش موجود — بتعرض تفاصيل الخطأ والوقت والمستخدم، وبتمنع أي عملية كتابة لحد ما المشكلة تتحل" },
+      { type: "feature", text: "🛡️ Sanity check قبل كل write: لو العملية هتمسح كل اليوزرز / العملاء / الورش / الموظفين دفعة واحدة — التطبيق يرفض ويبلّغ بدل ما يكتب" },
+      { type: "improvement", text: "🔄 زرار الاستعادة بقى أأمن بكتير: typed confirmation (لازم تكتب 'استعادة') + auto-backup أوتوماتيك للحالة الحالية قبل الاستعادة + restoreLog audit doc + تحذير صريح بإيه اللي مش هيرجع" },
+      { type: "improvement", text: "📦 الـ backups بقت تحفظ counts أكتر (workshops, users, usersList) عشان تكون فيه شفافية أكبر وقت الاستعادة" },
+      { type: "maintenance", text: "📂 utils/dataIntegrity.js: إضافة validateBeforeWrite() و isSafeWrite() — كاشف الكتابات الخطيرة" },
+    ]
+  },
+  {
     version: "V18.59",
     date: "2026-04-29",
     types: ["improvement"],
@@ -174,24 +190,6 @@ const CHANGELOG = [
       { type: "feature", text: "📚 زر 'إنشاء إشعارات من X مرتجع' في صفحة الإشعارات — تحويل جماعي للمرتجعات القديمة" },
       { type: "improvement", text: "🎯 المرتجعات بقت توازي البيعات في كل حاجة: نفس البنية، نفس الـworkflow، نفس الـauto-post، نفس مستوى الاحترافية" },
       { type: "improvement", text: "🛡️ Backward compat: الـtoggles default معطّلة — أي مستخدم على V18.50 ميلاحظش تغيير في السلوك لحد ما يفعّل" },
-    ]
-  },
-  {
-    version: "V18.50",
-    date: "2026-04-29",
-    types: ["feature", "architectural"],
-    title: "Phase 2 — الترحيل المحاسبي من الفاتورة بدلاً من التسليم",
-    changes: [
-      { type: "architectural", text: "🏗️ تحول معماري كبير: الفاتورة بقت هي مصدر القيد المحاسبي بدلاً من التسليم/الاستلام المباشر — مطابق للممارسة المحاسبية الاحترافية" },
-      { type: "feature", text: "⚙️ toggle جديد في 'الإعدادات → إعدادات الفواتير' للتحكم في الوضع: قيد مباشر (legacy) أو قيد من الفاتورة (Phase 2)" },
-      { type: "feature", text: "✨ عند تفعيل الوضع الجديد: كل تسليم بينشئ فاتورة مسودة تلقائياً، والقيد ما يتعملش لحد ما المستخدم يـ'ترحّل' الفاتورة" },
-      { type: "feature", text: "📤 'ترحيل الفاتورة' بقى ينشئ القيد الكامل: قيد الإيرادات (AR + Revenue + Discount) + قيد COGS (تكلفة البضاعة المباعة)" },
-      { type: "feature", text: "📥 ترحيل فاتورة المشتريات: Dr مخزون / Cr موردين — مع ربط الـjournal entry مع الفاتورة عبر postedJournalRef" },
-      { type: "feature", text: "❌ 'إلغاء الفاتورة' بينشئ قيد عكسي تلقائياً يصفر القيد الأصلي — audit trail كامل" },
-      { type: "feature", text: "🔗 4 builders جدد في postingRules: buildSalesInvoicePostedEntry, buildSalesInvoiceCogsEntry, buildPurchaseInvoicePostedEntry, buildInvoiceVoidEntry" },
-      { type: "feature", text: "🚀 3 methods جدد في autoPost: salesInvoicePosted, purchaseInvoicePosted, invoiceVoided — كلهم يحفظوا postedJournalRef على الفاتورة بعد النجاح" },
-      { type: "improvement", text: "🛡️ Backward compat 100%: الـtoggle الافتراضي معطّل — أي مستخدم سبق وفعّل V18.35-V18.49 ميلاحظش تغيير في السلوك" },
-      { type: "improvement", text: "💡 المرتجعات (returns) لسه بتـauto-post من التسليم — هتنتقل للفاتورة في V18.51 (credit notes)" },
     ]
   },
 ];

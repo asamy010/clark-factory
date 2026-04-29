@@ -597,3 +597,125 @@ export function forceDeleteCleanup(d, kind, id) {
   }
 }
 
+
+/* ════════════════════════════════════════════════════════════════════════
+   V18.60: validateBeforeWrite — Mass-delete safety net
+   ════════════════════════════════════════════════════════════════════════
+   
+   The Problem:
+   ────────────
+   Several historical incidents wiped out entire critical fields in one write
+   (usersList → [], users → {}, customers → [], workshops → []). Because the
+   underlying writes use setDoc(merge:false), there is no field-level merge —
+   any single buggy write or stale state can erase years of data.
+   
+   The Detection:
+   ──────────────
+   Compare prev vs next. If a critical collection shrinks by more than the
+   allowed threshold in a single write, flag it. Most legitimate user actions
+   touch one record at a time; a write that erases 80%+ of users in one shot
+   is almost certainly a bug or an accident.
+   
+   The Response:
+   ─────────────
+   This function returns an array of warning strings. The caller decides what
+   to do — log to console, refuse the write, or surface a confirm dialog.
+   It does NOT do the refusal itself, because upConfig is synchronous and
+   confirm dialogs are async; the choice belongs at the call site.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Compare prev → next and return warnings about suspiciously large deletions
+ * in critical fields. Empty array means the write looks normal.
+ *
+ * Critical thresholds chosen conservatively:
+ *  - usersList / users — flag if ANY user disappears (deletions are rare)
+ *  - workshops / customers / suppliers / employees / fabrics — flag if >50% gone
+ *  - settings (statusCards, accessories, sizeSets) — flag if >50% gone
+ */
+export function validateBeforeWrite(prev, next) {
+  const warnings = [];
+  if (!prev || !next) return warnings;
+
+  /* High-sensitivity fields — flag any reduction */
+  const usersBefore = Object.keys(prev.users || {}).length;
+  const usersAfter = Object.keys(next.users || {}).length;
+  if (usersBefore > 0 && usersAfter < usersBefore) {
+    warnings.push(
+      `users: ${usersBefore} → ${usersAfter} (نقص ${usersBefore - usersAfter})`
+    );
+  }
+
+  const ulBefore = (prev.usersList || []).length;
+  const ulAfter = (next.usersList || []).length;
+  if (ulBefore > 0 && ulAfter < ulBefore) {
+    warnings.push(
+      `usersList: ${ulBefore} → ${ulAfter} (نقص ${ulBefore - ulAfter})`
+    );
+  }
+
+  /* Mid-sensitivity arrays — flag if >50% disappear in one write */
+  const arrayChecks = [
+    { key: "workshops", label: "ورش" },
+    { key: "customers", label: "عملاء" },
+    { key: "suppliers", label: "موردين" },
+    { key: "employees", label: "موظفين" },
+    { key: "fabrics", label: "خامات" },
+    { key: "accessories", label: "اكسسوارات" },
+    { key: "garmentTypes", label: "أنواع ملابس" },
+    { key: "sizeSets", label: "مقاسات" },
+    { key: "statusCards", label: "حالات الأوردر" },
+    { key: "treasuryAccounts", label: "حسابات خزنة" },
+  ];
+
+  for (const { key, label } of arrayChecks) {
+    const before = (prev[key] || []).length;
+    const after = (next[key] || []).length;
+    /* Only flag if there were enough records to make the threshold meaningful */
+    if (before >= 3 && after < before * 0.5) {
+      warnings.push(
+        `${label} (${key}): ${before} → ${after} (نقص ${before - after}، أكتر من 50%)`
+      );
+    }
+    /* Always flag if a non-empty critical array becomes completely empty */
+    if (before > 0 && after === 0) {
+      warnings.push(
+        `🚨 ${label} (${key}): ${before} → 0 (مسح كامل!)`
+      );
+    }
+  }
+
+  return warnings;
+}
+
+/**
+ * Convenience wrapper: returns true if the write should be allowed,
+ * false if it looks dangerous. Logs warnings to console either way.
+ *
+ * Threshold: refuse only on "complete wipe of critical field" — i.e. if any
+ * warning starts with 🚨 (the most severe class). Lesser warnings pass but
+ * are logged for the audit trail.
+ */
+export function isSafeWrite(prev, next, opts = {}) {
+  const warnings = validateBeforeWrite(prev, next);
+  if (warnings.length === 0) return true;
+
+  const severe = warnings.filter(w => w.startsWith("🚨"));
+  /* Log everything for forensics */
+  if (severe.length > 0) {
+    console.error(
+      "[V18.60 validateBeforeWrite] SEVERE warnings — write refused:",
+      severe
+    );
+  } else {
+    console.warn(
+      "[V18.60 validateBeforeWrite] warnings (write allowed):",
+      warnings
+    );
+  }
+
+  /* Caller can opt-in to refuse all warnings, not just severe ones */
+  if (opts.strict) return warnings.length === 0;
+
+  return severe.length === 0;
+}
