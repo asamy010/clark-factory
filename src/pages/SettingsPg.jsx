@@ -3600,6 +3600,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
 
     {activeTab==="maintenance" && <>
     <BackupRestoreCard config={config} salesDoc={salesDoc} tasksDoc={tasksDoc} orders={orders} isMob={isMob} user={user} upConfig={upConfig}/>
+    <SelectiveRestoreCard configDoc={configDoc} upConfig={upConfig} user={user} isMob={isMob}/>
     </>}
   </div>
 }
@@ -3856,6 +3857,355 @@ export function BackupRestoreCard({config,salesDoc,tasksDoc,orders,isMob,user,up
         </div>
       </div>
     </div>}
+  </Card>;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   V18.60: SELECTIVE RESTORE CARD — استعادة انتقائية
+   ═══════════════════════════════════════════════════════════════
+   
+   Different from the regular Restore: this is ADDITIVE-ONLY.
+   
+   The user picks a backup, then we compute a diff between backup.config
+   and the CURRENT factory/config. For each restorable field (customers,
+   workshops, users, etc.), we show what's "missing" — i.e. what existed
+   in the backup but not currently. The user can selectively check which
+   fields to restore, then we ADD the missing items via upConfig.
+   
+   Crucially:
+   - Existing data is NEVER overwritten — only missing items are added
+   - Each restored item gets `restoredAt` and `restoredFrom` markers
+   - An auto-backup is taken before the merge (just in case)
+   - The action is logged to restoreLog
+   
+   Why this is safer than the regular Restore:
+   - Regular Restore replaces the WHOLE config with the backup → can wipe
+     things added since the backup was taken
+   - Selective Restore only ADDS missing items → can't lose recent data
+   ═══════════════════════════════════════════════════════════════ */
+
+function SelectiveRestoreCard({configDoc, upConfig, user, isMob}){
+  const[backups,setBackups]=useState([]);
+  const[loading,setLoading]=useState(false);
+  const[selectedBackup,setSelectedBackup]=useState(null);
+  const[diffData,setDiffData]=useState(null);
+  const[selectedFields,setSelectedFields]=useState(()=>new Set());
+  const[expandedField,setExpandedField]=useState(null);
+  const[confirmText,setConfirmText]=useState("");
+  const[busy,setBusy]=useState(false);
+
+  /* The fields we know how to merge. Each has an idKey (uniqueness key)
+     and a nameKey (for human-readable preview). */
+  const RESTORABLE_FIELDS=[
+    {key:"users",      label:"🔐 صلاحيات (users object)", type:"object"},
+    {key:"usersList",  label:"👤 قائمة المستخدمين",      type:"array",idKey:"email", nameKey:"name"},
+    {key:"customers",  label:"🧑 عملاء",                  type:"array",idKey:"id",    nameKey:"name"},
+    {key:"workshops",  label:"🏭 ورش",                    type:"array",idKey:"id",    nameKey:"name"},
+    {key:"employees",  label:"👷 موظفين",                  type:"array",idKey:"id",    nameKey:"name"},
+    {key:"suppliers",  label:"🚚 موردين",                  type:"array",idKey:"id",    nameKey:"name"},
+    {key:"fabrics",    label:"🧵 خامات",                   type:"array",idKey:"id",    nameKey:"name"},
+    {key:"accessories",label:"🎀 اكسسوارات",              type:"array",idKey:"id",    nameKey:"name"},
+    {key:"garmentTypes",label:"👕 أنواع ملابس",            type:"array",idKey:"id",    nameKey:"name"},
+    {key:"sizeSets",   label:"📏 مقاسات",                 type:"array",idKey:"id",    nameKey:"label"},
+    {key:"statusCards",label:"📋 حالات الأوردر",          type:"array",idKey:"key",   nameKey:"name"},
+    {key:"treasuryAccounts",label:"💰 حسابات خزنة",       type:"array",idKey:"id",    nameKey:"name"},
+  ];
+
+  const loadBackups=async()=>{
+    setLoading(true);
+    try{
+      const snap=await getDocs(collection(db,"backups"));
+      const list=[];
+      snap.forEach(d=>{const data=d.data();list.push({id:d.id,...data})});
+      list.sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
+      setBackups(list);
+    }catch(e){console.error("loadBackups:",e);showToast("⚠️ تعذر تحميل النسخ")}
+    setLoading(false);
+  };
+
+  useEffect(()=>{loadBackups()},[]);
+
+  /* Compute diff between backup.config and current configDoc.
+     Returns per-field info on what's missing in current vs what's in backup. */
+  const computeDiff=(backup)=>{
+    if(!backup?.config)return null;
+    const bConfig=backup.config;
+    const cConfig=configDoc||{};
+    const fields=[];
+
+    for(const field of RESTORABLE_FIELDS){
+      if(field.type==="object"){
+        const bObj=bConfig[field.key]||{};
+        const cObj=cConfig[field.key]||{};
+        const bKeys=Object.keys(bObj);
+        const cKeys=new Set(Object.keys(cObj));
+        const missingKeys=bKeys.filter(k=>!cKeys.has(k));
+        fields.push({
+          ...field,
+          currentCount:Object.keys(cObj).length,
+          backupCount:bKeys.length,
+          missingCount:missingKeys.length,
+          missingItems:missingKeys.map(k=>({_key:k,_value:bObj[k]}))
+        });
+      }else{
+        const bArr=Array.isArray(bConfig[field.key])?bConfig[field.key]:[];
+        const cArr=Array.isArray(cConfig[field.key])?cConfig[field.key]:[];
+        const cIds=new Set(cArr.map(x=>String(x?.[field.idKey]??"")));
+        const missingItems=bArr.filter(x=>x&&x[field.idKey]!=null&&!cIds.has(String(x[field.idKey])));
+        fields.push({
+          ...field,
+          currentCount:cArr.length,
+          backupCount:bArr.length,
+          missingCount:missingItems.length,
+          missingItems
+        });
+      }
+    }
+
+    return{fields};
+  };
+
+  const handleSelectBackup=(b)=>{
+    setSelectedBackup(b);
+    const diff=computeDiff(b);
+    setDiffData(diff);
+    /* Pre-select fields that have missing items */
+    const initSelected=new Set();
+    diff?.fields?.forEach(f=>{if(f.missingCount>0)initSelected.add(f.key)});
+    setSelectedFields(initSelected);
+    setExpandedField(null);
+    setConfirmText("");
+  };
+
+  const toggleField=(key)=>{
+    setSelectedFields(prev=>{
+      const next=new Set(prev);
+      if(next.has(key))next.delete(key);else next.add(key);
+      return next;
+    });
+  };
+
+  const performRestore=async()=>{
+    if(!selectedBackup||!diffData){showToast("⚠️ اختر نسخة أولاً");return}
+    if(confirmText!=="ادمج"){showToast("⚠️ اكتب 'ادمج' للتأكيد");return}
+    const fieldsToRestore=diffData.fields.filter(f=>selectedFields.has(f.key)&&f.missingCount>0);
+    if(fieldsToRestore.length===0){showToast("⚠️ مفيش حقول مختارة فيها عناصر مفقودة");return}
+
+    setBusy(true);
+    let preBackupId=null;
+    try{
+      /* Step 1: Auto-backup current configDoc before merge */
+      const ts=new Date().toISOString().replace(/[:.]/g,"-");
+      preBackupId="auto-pre-selective-"+ts;
+      try{
+        await setDoc(doc(db,"backups",preBackupId),{
+          label:"تلقائي قبل دمج انتقائي",
+          autoGenerated:true,
+          createdAt:new Date().toISOString(),
+          createdBy:user?.email||user?.uid||"unknown",
+          config:configDoc||{},
+          counts:{
+            customers:(configDoc?.customers||[]).length,
+            workshops:(configDoc?.workshops||[]).length,
+            employees:(configDoc?.employees||[]).length,
+            usersList:(configDoc?.usersList||[]).length,
+            users:Object.keys(configDoc?.users||{}).length,
+          }
+        });
+      }catch(preErr){
+        console.error("[V18.60 selective] pre-backup failed:",preErr);
+        showToast("⛔ فشل عمل نسخة احتياطية قبل الدمج — توقفت العملية");
+        setBusy(false);
+        return;
+      }
+
+      /* Step 2: Log the action to restoreLog (separate doc, audit-safe) */
+      try{
+        await setDoc(doc(db,"restoreLog",preBackupId),{
+          ts:new Date().toISOString(),
+          by:user?.email||user?.uid||"unknown",
+          action:"selective_restore",
+          sourceBackupId:selectedBackup.id,
+          sourceBackupLabel:selectedBackup.label||"",
+          sourceBackupCreatedAt:selectedBackup.createdAt||"",
+          preRestoreBackupId:preBackupId,
+          fieldsRestored:fieldsToRestore.map(f=>({
+            key:f.key,
+            count:f.missingCount,
+          })),
+        });
+      }catch(logErr){
+        console.warn("[V18.60 selective] restoreLog write failed (non-fatal):",logErr);
+      }
+
+      /* Step 3: Apply the merge via upConfig (which has all V18.60 safety guards).
+         We only ADD missing items — never overwrite existing ones. */
+      const restoredAt=new Date().toISOString();
+      upConfig(d=>{
+        for(const field of fieldsToRestore){
+          if(field.type==="object"){
+            if(!d[field.key])d[field.key]={};
+            for(const item of field.missingItems){
+              /* Only add if still missing — defensive against race with another write */
+              if(!(item._key in d[field.key])){
+                d[field.key][item._key]=item._value;
+              }
+            }
+          }else{
+            if(!Array.isArray(d[field.key]))d[field.key]=[];
+            const existingIds=new Set(d[field.key].map(x=>String(x?.[field.idKey]??"")));
+            for(const item of field.missingItems){
+              const id=String(item?.[field.idKey]??"");
+              if(!existingIds.has(id)){
+                d[field.key].push({
+                  ...item,
+                  restoredAt,
+                  restoredFrom:selectedBackup.id,
+                });
+                existingIds.add(id);
+              }
+            }
+          }
+        }
+      });
+
+      const totalRestored=fieldsToRestore.reduce((sum,f)=>sum+f.missingCount,0);
+      showToast(`✅ تم دمج ${totalRestored} عنصر من ${fieldsToRestore.length} حقل. النسخة القديمة في ${preBackupId}`);
+      /* Reset state */
+      setSelectedBackup(null);
+      setDiffData(null);
+      setSelectedFields(new Set());
+      setConfirmText("");
+    }catch(e){
+      console.error("[V18.60 selective restore]",e);
+      showToast("⚠️ فشل الدمج: "+(e?.message||String(e)).slice(0,100));
+    }
+    setBusy(false);
+  };
+
+  const totalMissingSelected=diffData?.fields
+    ?.filter(f=>selectedFields.has(f.key))
+    .reduce((sum,f)=>sum+f.missingCount,0)||0;
+
+  return<Card title="🔄 الاستعادة الانتقائية (آمنة — إضافة فقط)" style={{marginTop:16,border:"2px solid "+T.ok+"50"}}>
+    <CardSubtitle icon="💡">أداة لاسترجاع البيانات المحذوفة (عملاء، ورش، مستخدمين، إلخ) من نسخة احتياطية قديمة <b>بدون</b> ما تلمس البيانات الحالية. الأداة بتدمج بس العناصر الناقصة، وما بتمسحش حاجة موجودة.</CardSubtitle>
+
+    {/* Step 1: Pick a backup */}
+    {!selectedBackup&&<>
+      <div style={{padding:12,background:T.ok+"08",border:"1px solid "+T.ok+"30",borderRadius:10,marginBottom:14,fontSize:FS-1,color:T.text,lineHeight:1.7}}>
+        <b style={{color:T.ok}}>كيف تشتغل الأداة دي:</b><br/>
+        ١) تختار نسخة احتياطية قبل ما البيانات تختفي (مثلاً قبل الساعة 4 اليوم)<br/>
+        ٢) الأداة تقارن النسخة بالبيانات الحالية وتعرضلك إيه الناقص<br/>
+        ٣) تختار إيه اللي ترجعه (عملاء، ورش، مستخدمين...)<br/>
+        ٤) الأداة تضيف الناقص بس — البيانات الحالية تفضل زي ما هي<br/>
+        ٥) قبل أي تعديل، بناخد نسخة احتياطية أوتوماتيك للحالة الحالية
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+        <Btn onClick={loadBackups} disabled={loading} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>{loading?<span style={{display:"inline-flex",alignItems:"center",gap:8}}><Spinner size="small" color={T.text} inline/>جاري التحميل...</span>:"🔄 تحديث القائمة"}</Btn>
+        <span style={{fontSize:FS-2,color:T.textMut,alignSelf:"center"}}>{backups.length} نسخة متاحة</span>
+      </div>
+      {backups.length===0&&!loading?<div style={{padding:30,textAlign:"center",color:T.textMut,background:T.bg,borderRadius:10}}>لا توجد نسخ احتياطية متاحة</div>
+      :<div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:400,overflowY:"auto"}}>
+        {backups.map(b=>{
+          const d=new Date(b.createdAt||0);
+          const c=b.counts||{};
+          const isPreMig=String(b.id||"").startsWith("pre-migration");
+          const isAutoPre=String(b.id||"").startsWith("auto-pre");
+          return<div key={b.id} onClick={()=>handleSelectBackup(b)} style={{padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd,cursor:"pointer",transition:"all 0.15s"}} onMouseOver={e=>{e.currentTarget.style.background=T.accent+"08";e.currentTarget.style.borderColor=T.accent+"60"}} onMouseOut={e=>{e.currentTarget.style.background=T.bg;e.currentTarget.style.borderColor=T.brd}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:200}}>
+                <div style={{fontSize:FS,fontWeight:700,color:T.text,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                  📦 {b.label||"نسخة"}
+                  {isPreMig?<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,background:T.warn+"20",color:T.warn,fontWeight:600}}>قبل migration</span>:null}
+                  {isAutoPre?<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,background:T.accent+"20",color:T.accent,fontWeight:600}}>تلقائي</span>:null}
+                </div>
+                <div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{d.toLocaleString("ar-EG",{dateStyle:"medium",timeStyle:"short"})}</div>
+                <div style={{fontSize:FS-3,color:T.textSec,marginTop:4,display:"flex",gap:10,flexWrap:"wrap"}}>
+                  <span>🧑 {c.customers||0}</span>
+                  <span>🏭 {c.workshops||0}</span>
+                  <span>👷 {c.employees||0}</span>
+                  <span>👤 {(c.usersList||0)+(c.users||0)}</span>
+                </div>
+              </div>
+              <div style={{fontSize:FS-1,color:T.accent,fontWeight:700}}>اختيار ←</div>
+            </div>
+          </div>;
+        })}
+      </div>}
+    </>}
+
+    {/* Step 2: Show diff and let user pick fields */}
+    {selectedBackup&&diffData&&<>
+      <div style={{padding:12,background:T.accent+"08",border:"1px solid "+T.accent+"40",borderRadius:10,marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <div>
+            <div style={{fontSize:FS,fontWeight:800,color:T.accent}}>📦 {selectedBackup.label||"نسخة"}</div>
+            <div style={{fontSize:FS-2,color:T.textSec,marginTop:2}}>{new Date(selectedBackup.createdAt).toLocaleString("ar-EG")}</div>
+          </div>
+          <Btn ghost onClick={()=>{setSelectedBackup(null);setDiffData(null);setSelectedFields(new Set());setConfirmText("")}} style={{fontSize:FS-2}}>← اختيار نسخة تانية</Btn>
+        </div>
+      </div>
+
+      <div style={{fontSize:FS-1,color:T.textSec,marginBottom:10,fontWeight:700}}>
+        اختر الحقول اللي عاوز تضيف منها العناصر الناقصة:
+      </div>
+
+      <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
+        {diffData.fields.map(f=>{
+          const isSelected=selectedFields.has(f.key);
+          const hasMissing=f.missingCount>0;
+          const isExpanded=expandedField===f.key;
+          return<div key={f.key} style={{borderRadius:10,border:"1px solid "+(isSelected&&hasMissing?T.accent+"60":T.brd),background:isSelected&&hasMissing?T.accent+"05":T.bg,opacity:hasMissing?1:0.5,overflow:"hidden"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",cursor:hasMissing?"pointer":"default"}} onClick={()=>hasMissing&&toggleField(f.key)}>
+              <input type="checkbox" checked={isSelected&&hasMissing} disabled={!hasMissing} onChange={()=>{}} style={{width:18,height:18,cursor:hasMissing?"pointer":"default",accentColor:T.accent}}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:FS,fontWeight:700,color:T.text}}>{f.label}</div>
+                <div style={{fontSize:FS-2,color:T.textSec,marginTop:2}}>
+                  حالياً: <b>{f.currentCount}</b> • في النسخة: <b>{f.backupCount}</b>
+                  {hasMissing?<> • ناقص: <b style={{color:T.ok}}>+{f.missingCount}</b></>:<> • <span style={{color:T.textMut}}>مفيش ناقص</span></>}
+                </div>
+              </div>
+              {hasMissing&&f.missingCount>0&&<button onClick={e=>{e.stopPropagation();setExpandedField(isExpanded?null:f.key)}} style={{padding:"4px 10px",fontSize:FS-3,background:T.bg,color:T.textSec,border:"1px solid "+T.brd,borderRadius:6,cursor:"pointer",fontFamily:"inherit"}}>{isExpanded?"إخفاء":"عرض"}</button>}
+            </div>
+            {isExpanded&&hasMissing&&<div style={{padding:"8px 14px 12px",borderTop:"1px solid "+T.brd,background:T.bg,maxHeight:200,overflowY:"auto"}}>
+              <div style={{fontSize:FS-2,color:T.textMut,marginBottom:6}}>أمثلة على العناصر اللي هتترجع:</div>
+              {f.missingItems.slice(0,30).map((item,i)=>{
+                let display="";
+                if(f.type==="object"){
+                  display=item._key+" → "+(typeof item._value==="string"?item._value:(item._value?.role||JSON.stringify(item._value).slice(0,50)));
+                }else{
+                  display=(item[f.nameKey]||item[f.idKey]||"-")+(f.idKey!=="id"?"":" (id: "+item.id+")");
+                }
+                return<div key={i} style={{fontSize:FS-2,padding:"3px 0",color:T.text,borderBottom:i<f.missingItems.length-1?"1px dashed "+T.brd:"none"}}>• {display}</div>;
+              })}
+              {f.missingItems.length>30&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:6,fontStyle:"italic"}}>... و {f.missingItems.length-30} عنصر إضافي</div>}
+            </div>}
+          </div>;
+        })}
+      </div>
+
+      {totalMissingSelected===0?<div style={{padding:14,background:T.warn+"10",border:"1px solid "+T.warn+"40",borderRadius:10,color:T.warn,fontSize:FS-1,textAlign:"center"}}>اختر حقل واحد على الأقل فيه عناصر ناقصة</div>
+      :<>
+        <div style={{padding:12,background:T.ok+"08",border:"1px solid "+T.ok+"30",borderRadius:10,marginBottom:14,fontSize:FS-1,color:T.text,lineHeight:1.7}}>
+          <b style={{color:T.ok}}>ملخص العملية:</b><br/>
+          هتتم إضافة <b>{totalMissingSelected}</b> عنصر للبيانات الحالية.<br/>
+          البيانات الحالية مش هتتلمس — بس الناقص اللي هيتضاف.<br/>
+          هتتاخد نسخة احتياطية أوتوماتيك للحالة الحالية قبل الدمج.
+        </div>
+
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:FS-1,fontWeight:700,color:T.accent,marginBottom:6}}>
+            للتأكيد، اكتب كلمة <span style={{fontFamily:"monospace",background:T.accent+"15",padding:"2px 8px",borderRadius:4}}>ادمج</span> بالظبط:
+          </div>
+          <Inp value={confirmText} onChange={setConfirmText} placeholder="اكتب: ادمج" style={{width:"100%",fontSize:FS,padding:"10px 14px",border:"2px solid "+(confirmText==="ادمج"?T.ok:T.brd)}}/>
+        </div>
+
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end",flexWrap:"wrap"}}>
+          <Btn ghost onClick={()=>{setSelectedBackup(null);setDiffData(null);setSelectedFields(new Set());setConfirmText("")}} disabled={busy}>إلغاء</Btn>
+          <Btn onClick={performRestore} disabled={busy||confirmText!=="ادمج"||totalMissingSelected===0} style={{background:confirmText==="ادمج"&&totalMissingSelected>0?T.ok:T.bg,color:confirmText==="ادمج"&&totalMissingSelected>0?"#fff":T.textMut,border:confirmText==="ادمج"&&totalMissingSelected>0?"none":"1px solid "+T.brd,fontWeight:800,opacity:(busy||confirmText!=="ادمج"||totalMissingSelected===0)?0.6:1}}>{busy?<span style={{display:"inline-flex",alignItems:"center",gap:8}}><Spinner size="small" color="#fff" inline/>جاري الدمج...</span>:"✅ تنفيذ الدمج"}</Btn>
+        </div>
+      </>}
+    </>}
   </Card>;
 }
 

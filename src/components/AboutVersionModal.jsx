@@ -36,6 +36,7 @@ const CHANGELOG = [
       { type: "feature", text: "🔒 صفحة خطأ مخصصة لو الـ config مش موجود — بتعرض تفاصيل الخطأ والوقت والمستخدم، وبتمنع أي عملية كتابة لحد ما المشكلة تتحل" },
       { type: "feature", text: "🛡️ Sanity check قبل كل write: لو العملية هتمسح كل اليوزرز / العملاء / الورش / الموظفين دفعة واحدة — التطبيق يرفض ويبلّغ بدل ما يكتب" },
       { type: "improvement", text: "🔄 زرار الاستعادة بقى أأمن بكتير: typed confirmation (لازم تكتب 'استعادة') + auto-backup أوتوماتيك للحالة الحالية قبل الاستعادة + restoreLog audit doc + تحذير صريح بإيه اللي مش هيرجع" },
+      { type: "feature", text: "🆕 الاستعادة الانتقائية (Selective Restore): أداة جديدة في الإعدادات بترجّع البيانات المحذوفة (عملاء، ورش، مستخدمين، إلخ) من نسخة قديمة بدون ما تلمس البيانات الحالية. بتقارن النسخة بالحالي وبتعرض إيه الناقص، وتقدر تختار حقول معينة فقط للاسترجاع. كل عنصر يترجع بيتعلّم بـrestoredAt + restoredFrom" },
       { type: "improvement", text: "📦 الـ backups بقت تحفظ counts أكتر (workshops, users, usersList) عشان تكون فيه شفافية أكبر وقت الاستعادة" },
       { type: "maintenance", text: "📂 utils/dataIntegrity.js: إضافة validateBeforeWrite() و isSafeWrite() — كاشف الكتابات الخطيرة" },
     ]
