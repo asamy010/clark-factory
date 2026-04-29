@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V18.42",
+    date: "2026-04-29",
+    types: ["fix", "improvement"],
+    title: "إصلاح حرج: صفحة المحاسبة + تحسين ليبل التسليم الملخص",
+    changes: [
+      { type: "fix", text: "🚨 إصلاح حرج: صفحة المحاسبة كانت بترمي 'حدث خطأ غير متوقع' عند فتحها — السبب كان `export default` بدلاً من named export، والـlazyNamed بيدور على named فقط فبيرجع undefined → React error #306" },
+      { type: "fix", text: "✅ تغيير AccountingPg إلى named export ليتوافق مع باقي الصفحات في النظام — كل تبويبات المحاسبة بقت تشتغل (شجرة الحسابات، اليومية، ميزان المراجعة، القوائم المالية، كشف الحساب، الإعدادات)" },
+      { type: "improvement", text: "🚚 ليبل تسليم العملاء (وضع الملخص لـ>8 أصناف): استبدال 'التاريخ' بـ'عدد الشحنات' — التاريخ موجود في الهيدر فوق، أما عدد الشحنات معلومة مفيدة عند التسليم" },
+      { type: "improvement", text: "📈 تكبير صف 'عدد الشحنات' في الملخص: خلفية صفراء + خط 16pt للقيمة + إطار مميز فوقه — يظهر بوضوح للسائق والعميل" },
+      { type: "improvement", text: "💬 صياغة عربية ذكية: 'شحنة' للمفرد و'شحنات' للجمع تلقائياً" },
+    ]
+  },
+  {
     version: "V18.41",
     date: "2026-04-29",
     types: ["feature"],
@@ -173,20 +186,6 @@ const CHANGELOG = [
       { type: "improvement", text: "💡 الرصيد المستحق بيظهر مع علامة واضحة: 'المستحق علي' أو 'المستحق لكم' أو 'الرصيد' حسب اتجاه الرصيد" },
       { type: "improvement", text: "🔗 رسالة 'إشعار دفعة' للورشة: استبدلت ملخص الحساب القديم (hardcoded) بملخص قابل للتحكم — التزام بالنظام الموحد" },
       { type: "improvement", text: "🔄 توافق خلفي: الافتراضي لكل الـtoggles مفعّل، أي عميل/ورشة من غير إعداد سابق هياخد الملخص الكامل تلقائياً" },
-    ]
-  },
-  {
-    version: "V18.32",
-    date: "2026-04-28",
-    types: ["improvement"],
-    title: "Preview احترافي لروابط CLARK في واتساب وتيليجرام",
-    changes: [
-      { type: "improvement", text: "🔗 تحسين Open Graph meta tags في index.html — أي لينك من التطبيق يتشارك في واتساب أو تيليجرام بقى يظهر بـpreview احترافي" },
-      { type: "improvement", text: "🖼️ الصورة في الـpreview بقت 512×512 بدل 192×192 — أوضح وأكبر" },
-      { type: "improvement", text: "✍️ العنوان: 'CLARK' (نظيف ومختصر) + الوصف: 'Welcome to the world of CLARK, where high quality meets contemporary elegance...' — مصمم للجاذبية" },
-      { type: "improvement", text: "📱 ينطبق على: لينك العميل + لينك الورشة + الرابط الرئيسي للتطبيق + أي روت SPA — لأن البوتات بتقرا index.html الثابت قبل ما تشغل JavaScript" },
-      { type: "improvement", text: "🐦 Twitter Card بقى 'summary_large_image' بدل 'summary' — preview أكبر على X/Twitter" },
-      { type: "improvement", text: "💡 ملاحظة: واتساب بيخزن الـpreview للينكات لمدة طويلة (~7 أيام). لو في لينك قديم متشارك، الـpreview الجديد هيظهر بعد ما الـcache يفضى أو لما يتشارك من جديد بعد التحديث" },
     ]
   },
 ];

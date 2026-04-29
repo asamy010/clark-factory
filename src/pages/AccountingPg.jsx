@@ -45,7 +45,7 @@ function useToast(){
   return [show, node];
 }
 
-export default function AccountingPg({data, config, upConfig, isMob, user}){
+export function AccountingPg({data, config, upConfig, isMob, user}){
   const [active, setActive] = useState("coa");
   const [showToast, ToastNode] = useToast();
   const winW = useWin();

@@ -270,6 +270,10 @@ export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,t
   +".sumbox{border:2px solid #000;border-radius:3mm;padding:4mm 3mm;margin:3mm 0 2mm;background:#F0F9FF}"
   +".sumrow{display:flex;justify-content:space-between;align-items:center;padding:2mm 0;border-bottom:1px dashed #000;font-size:10pt;color:#000}.sumrow:last-child{border-bottom:none}"
   +".sumlbl{font-weight:700;color:#000}.sumval{font-weight:900;font-size:13pt;color:#000}.sumval.acc{color:#000}"
+  /* V18.42: shipcnt — larger emphasis on shipment count (the new replacement for date) */
+  +".sumrow.shipcnt{padding:3mm 0;background:#FEF3C7;margin:1mm -3mm -3mm -3mm;padding-inline:3mm;border-bottom:none;border-top:2px solid #000;border-radius:0 0 2mm 2mm}"
+  +".sumrow.shipcnt .sumlbl{font-size:11pt;font-weight:800}"
+  +".sumrow.shipcnt .sumval{font-size:16pt;font-weight:900}"
   +".qrbox{display:flex;align-items:flex-end;justify-content:space-between;margin-top:auto;padding-top:2mm;gap:2mm}"
   +".qrbox .qrc{text-align:center;padding:1mm;border:2px solid #000;border-radius:2mm}.qrbox .qrc .lab{font-size:6pt;font-weight:700;margin-top:0.5mm;color:#000}"
   +".ft{text-align:center;font-size:7pt;color:#000;padding-top:1mm;border-top:1px dashed #000;margin-top:1.5mm}"
@@ -288,12 +292,14 @@ export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,t
      each one individually after document.close(). */
   let bodyHtml="";
   for(let i=1;i<=N;i++){
-    /* V18.29: Build the items section conditionally — summary card vs full table */
+    /* V18.29: Build the items section conditionally — summary card vs full table.
+       V18.42: replaced "التاريخ" row with "عدد الشحنات" — more useful at-a-glance info
+       since the date is already in the header. Shipment count font size bumped. */
     const itemsSection = useSummary
       ? "<div class='sumbox'>"
         +"<div class='sumrow'><span class='sumlbl'>عدد الأصناف</span><span class='sumval acc'>"+itemCount+"</span></div>"
         +"<div class='sumrow'><span class='sumlbl'>إجمالي الكمية</span><span class='sumval acc'>"+totalQ+" قطعة</span></div>"
-        +"<div class='sumrow'><span class='sumlbl'>التاريخ</span><span class='sumval'>"+date+"</span></div>"
+        +"<div class='sumrow shipcnt'><span class='sumlbl'>عدد الشحنات</span><span class='sumval acc'>"+N+(N===1?" شحنة":" شحنات")+"</span></div>"
         +"</div>"
       : "<div class='sec'>الأصناف</div>"
         +"<table class='it'><thead><tr><th>الموديل</th>"
