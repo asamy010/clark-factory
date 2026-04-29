@@ -15,7 +15,7 @@ import { ask, askInput, showToast, tell } from "../utils/popups.js";
 import { loadQR } from "../utils/qr.js";
 import { openPrintWindow } from "../utils/print.js";
 import { countUnitUsage, DEFAULT_UNITS, getUnits } from "../utils/units.js";
-import { formatBlockerMessage } from "../utils/dataIntegrity.js";
+import { formatBlockerMessage, canForceDelete, summarizeForceDelete, forceDeleteCleanup } from "../utils/dataIntegrity.js";
 
 export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCards,user,userRole}){
   const userName=user?.displayName||(user?.email||"").split("@")[0];
@@ -300,12 +300,57 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     setProdForm(null);
     showToast(isEdit?"✅ تم تعديل المنتج":"✅ تم إضافة المنتج");
   };
+
+  /* V18.48: Shared force-delete flow.
+     When a normal delete is blocked by refs, this offers the user a "force
+     delete" option that ALSO removes related stockMovements + strips the item
+     from purchaseReceipts. Only used for stock-type kinds.
+     Returns: true if force-delete happened, false otherwise. */
+  const tryForceDelete=async({kind,id,name,labelAr})=>{
+    const force=canForceDelete(data,kind,id);
+    if(!force.ok){
+      await tell("لا يمكن الحذف بالقوة",force.reason,{type:"error"});
+      return false;
+    }
+    const sum=summarizeForceDelete(data,kind,id);
+    const lines=[];
+    if(sum.currentStock>0)         lines.push("• الرصيد الحالي ("+sum.currentStock+") سيُمسح");
+    if(sum.moveCount>0)            lines.push("• "+sum.moveCount+" حركة مخزن سَتُحذف");
+    if(sum.receiptItemCount>0)     lines.push("• "+sum.receiptItemCount+" بند داخل إذن استلام سيُحذف");
+    if(sum.affectedReceipts.length>0) lines.push("• الإيصالات المتأثرة: "+sum.affectedReceipts.slice(0,3).join("، ")+(sum.affectedReceipts.length>3?"...":""));
+    const msg="سيتم حذف "+labelAr+" \""+name+"\" مع كل الحركات المرتبطة به:\n\n"+lines.join("\n")+"\n\n⚠️ هذه العملية لا يمكن التراجع عنها بشكل كامل (الحركات المحذوفة لن ترجع).\n💡 لو فيه قيود محاسبية مرتبطة، راجع الترحيلات يدوياً.";
+    const confirmed=await ask("حذف بالقوة",msg,{danger:true,confirmText:"⚠️ حذف بالقوة",cancelText:"إلغاء"});
+    if(!confirmed)return false;
+    upConfig(d=>{forceDeleteCleanup(d,kind,id)});
+    showToast("✓ تم الحذف بالقوة — راجع المحاسبة لو لزم");
+    return true;
+  };
+
+  /* V18.48: Show force-delete option in the blocker popup.
+     Returns true if user chose force-delete (and it happened), false otherwise. */
+  const offerForceDelete=async({kind,id,name,labelAr,blockerMsg})=>{
+    /* Use ask() with custom labels so it has 2 buttons:
+       - Cancel = OK / dismiss
+       - Confirm = "⚠️ حذف بالقوة" → opens force flow */
+    const wantsForce=await ask(
+      "لا يمكن حذف "+labelAr,
+      blockerMsg+"\n\nاضغط 'حذف بالقوة' لإجبار الحذف مع تنظيف الحركات المرتبطة، أو إلغاء.",
+      {danger:true,confirmText:"⚠️ حذف بالقوة",cancelText:"إلغاء"}
+    );
+    if(!wantsForce)return false;
+    return await tryForceDelete({kind,id,name,labelAr});
+  };
+
   const deleteProd=async(p)=>{
     if(!canEdit)return;
     /* V16.66: Block delete if product has stock or movements — prevents
        silent loss of data referenced by stockMovements. */
     const blocker=formatBlockerMessage(data,"generalProduct",p.id,p.name);
-    if(blocker){await tell("لا يمكن حذف المنتج",blocker,{type:"warning"});return}
+    if(blocker){
+      /* V18.48: instead of just refusing, offer force-delete */
+      await offerForceDelete({kind:"generalProduct",id:p.id,name:p.name,labelAr:"المنتج",blockerMsg:blocker});
+      return;
+    }
     const confirmed=await ask("حذف المنتج","حذف المنتج "+p.name+"؟",{danger:true,confirmText:"حذف"});
     if(!confirmed)return;
     upConfig(d=>{d.generalProducts=(d.generalProducts||[]).filter(x=>x.id!==p.id)});
@@ -332,7 +377,11 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   const deleteFab=async(f)=>{
     if(!canEdit)return;
     const blocker=formatBlockerMessage(data,"fabric",f.id,f.name);
-    if(blocker){await tell("لا يمكن حذف القماش",blocker,{type:"warning"});return}
+    if(blocker){
+      /* V18.48: offer force-delete instead of just refusing */
+      await offerForceDelete({kind:"fabric",id:f.id,name:f.name,labelAr:"القماش",blockerMsg:blocker});
+      return;
+    }
     const confirmed=await ask("حذف القماش","حذف القماش "+f.name+"؟",{danger:true,confirmText:"حذف"});
     if(!confirmed)return;
     upConfig(d=>{
@@ -365,7 +414,11 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   const deleteAcc=async(a)=>{
     if(!canEdit)return;
     const blocker=formatBlockerMessage(data,"accessory",a.id,a.name);
-    if(blocker){await tell("لا يمكن حذف الإكسسوار",blocker,{type:"warning"});return}
+    if(blocker){
+      /* V18.48: offer force-delete instead of just refusing */
+      await offerForceDelete({kind:"accessory",id:a.id,name:a.name,labelAr:"الإكسسوار",blockerMsg:blocker});
+      return;
+    }
     const confirmed=await ask("حذف الإكسسوار","حذف الإكسسوار "+a.name+"؟",{danger:true,confirmText:"حذف"});
     if(!confirmed)return;
     upConfig(d=>{

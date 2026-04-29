@@ -14,7 +14,7 @@ import { Btn, Inp, Sel, SearchSel, Card, useDebounced } from "../components/ui.j
 import { T, TH, TD } from "../theme.js";
 import { openPrintWindow } from "../utils/print.js";
 import { getUnits } from "../utils/units.js";
-import { formatBlockerMessage, getDeleteBlocker } from "../utils/dataIntegrity.js";
+import { formatBlockerMessage, getDeleteBlocker, canForceDelete, summarizeForceDelete, forceDeleteCleanup } from "../utils/dataIntegrity.js";
 
 export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   const userName=user?.displayName||(user?.email||"").split("@")[0];
@@ -936,10 +936,34 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
                         <Btn small ghost onClick={async()=>{
                           /* V16.66: Comprehensive integrity check via dataIntegrity —
                              previously this only checked stock balance, missing
-                             usage in orders / purchase receipts / stock movements. */
+                             usage in orders / purchase receipts / stock movements.
+                             V18.48: on blocker, offer force-delete option. */
                           const kind=item._legacy==="fabric"?"fabric":item._legacy==="accessory"?"accessory":"inventoryItem";
+                          const labelAr=kind==="fabric"?"القماش":kind==="accessory"?"الإكسسوار":"الصنف";
                           const blocker=formatBlockerMessage(data,kind,item.id,item.name);
-                          if(blocker){await tell("لا يمكن حذف الصنف",blocker,{type:"warning"});return}
+                          if(blocker){
+                            /* Offer force-delete instead of just refusing */
+                            const wantsForce=await ask(
+                              "لا يمكن حذف "+labelAr,
+                              blocker+"\n\nاضغط 'حذف بالقوة' لإجبار الحذف مع تنظيف الحركات المرتبطة، أو إلغاء.",
+                              {danger:true,confirmText:"⚠️ حذف بالقوة",cancelText:"إلغاء"}
+                            );
+                            if(!wantsForce)return;
+                            const force=canForceDelete(data,kind,item.id);
+                            if(!force.ok){await tell("لا يمكن الحذف بالقوة",force.reason,{type:"error"});return}
+                            const sum=summarizeForceDelete(data,kind,item.id);
+                            const lines=[];
+                            if(sum.currentStock>0)         lines.push("• الرصيد الحالي ("+sum.currentStock+") سيُمسح");
+                            if(sum.moveCount>0)            lines.push("• "+sum.moveCount+" حركة مخزن سَتُحذف");
+                            if(sum.receiptItemCount>0)     lines.push("• "+sum.receiptItemCount+" بند داخل إذن استلام سيُحذف");
+                            if(sum.affectedReceipts.length>0) lines.push("• الإيصالات المتأثرة: "+sum.affectedReceipts.slice(0,3).join("، ")+(sum.affectedReceipts.length>3?"...":""));
+                            const msg="سيتم حذف "+labelAr+" \""+item.name+"\" مع كل الحركات المرتبطة به:\n\n"+lines.join("\n")+"\n\n⚠️ هذه العملية لا يمكن التراجع عنها بشكل كامل.\n💡 لو فيه قيود محاسبية مرتبطة، راجع الترحيلات يدوياً.";
+                            const confirmed=await ask("حذف بالقوة",msg,{danger:true,confirmText:"⚠️ حذف بالقوة",cancelText:"إلغاء"});
+                            if(!confirmed)return;
+                            upConfig(d=>{forceDeleteCleanup(d,kind,item.id)});
+                            showToast("✓ تم الحذف بالقوة — راجع المحاسبة لو لزم");
+                            return;
+                          }
                           if(!await ask("حذف الصنف","حذف \""+item.name+"\" نهائياً؟",{danger:true}))return;
                           upConfig(d=>{
                             if(item._legacy==="fabric"){

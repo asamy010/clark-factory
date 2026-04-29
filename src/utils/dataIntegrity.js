@@ -399,3 +399,201 @@ export function formatBlockerMessage(data, kind, id, recordName) {
   );
   return header + "\n" + lines.join("\n") + "\n\nاحذف الحركات المرتبطة أولاً.";
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V18.48 — FORCE DELETE
+   ───────────────────────────────────────────────────────────────────────
+   Some items can't be deleted normally because they have stock movements,
+   purchase receipts, or non-zero balances. The "force delete" path lets the
+   user override these guards by ALSO removing the related transactional
+   records (stockMovements + items inside purchaseReceipts).
+
+   What force-delete WILL clean up:
+     - The item itself (moved to recycleBin)
+     - All stockMovements referencing the item
+     - The item's row inside any purchaseReceipt (the receipt itself stays
+       as audit trail; if it becomes empty we mark it _orphaned for review)
+
+   What force-delete will NOT do:
+     - Override usage in active orders (still blocks — would corrupt order data)
+     - Reverse accounting journal entries (warn the user to review accounting)
+     - Cascade-delete suppliers/customers/etc. (that's a different kind)
+
+   Public API:
+     canForceDelete(data, kind, id) → {ok, reason?}
+     forceDeleteCleanup(d, kind, id) → mutator for upConfig
+     summarizeForceDelete(data, kind, id) → {moveCount, receiptItemCount, ...}
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* The kinds that support force-delete. These are stock items where the
+   blockers are mostly about stock movements + receipts.
+   Parties (supplier/customer/workshop/employee) and check kinds are NOT
+   force-deletable because cascading their refs would be too destructive. */
+const FORCE_DELETABLE_KINDS = new Set([
+  "fabric", "accessory", "inventoryItem", "generalProduct",
+]);
+
+/* Hard-block: item used in any order. We never force-override this because
+   removing the item from data while orders still reference it would break
+   order calculations and history. The user must clean up orders first. */
+function isUsedInAnyOrder(data, kind, id) {
+  const orders = data.orders || [];
+  const sid = String(id);
+  switch (kind) {
+    case "fabric": {
+      /* Orders use FKEYS A, B, C, ...; each fabric "key" stores name as f<KEY>name */
+      /* But fabric in our system is identified by its ID inside data.fabrics */
+      const fab = (data.fabrics || []).find(f => f.id === id);
+      if (!fab) return false;
+      const fabName = (fab.name || "").trim().toLowerCase();
+      return orders.some(o =>
+        ["A","B","C","D","E","F","G","H"].some(k => {
+          const n = String(o["f"+k+"name"] || "").trim().toLowerCase();
+          return n && n === fabName;
+        })
+      );
+    }
+    case "accessory": {
+      return orders.some(o =>
+        Array.isArray(o.accessories) &&
+        o.accessories.some(a => String(a.id) === sid)
+      );
+    }
+    case "inventoryItem":
+    case "generalProduct":
+      /* These aren't directly referenced by orders' core fields */
+      return false;
+    default:
+      return false;
+  }
+}
+
+/* Returns {ok:true} if the force-delete is safe to proceed, or
+   {ok:false, reason} if a hard-block applies. */
+export function canForceDelete(data, kind, id) {
+  if (!FORCE_DELETABLE_KINDS.has(kind)) {
+    return { ok: false, reason: "هذا النوع لا يدعم الحذف بالقوة" };
+  }
+  if (isUsedInAnyOrder(data, kind, id)) {
+    return {
+      ok: false,
+      reason: "العنصر مُستخدم في أوردر — لا يمكن حذفه حتى مع الحذف بالقوة لأن ذلك سيعطّل حسابات الأوردر. أزل العنصر من الأوردرات أولاً.",
+    };
+  }
+  return { ok: true };
+}
+
+/* Build a human-readable summary of what force-delete will affect. */
+export function summarizeForceDelete(data, kind, id) {
+  const sid = String(id);
+  const moves = (data.stockMovements || []).filter(m => {
+    if (kind === "fabric")        return (m.itemType === "fabric" || m.itemType === "core_fabric") && String(m.itemId) === sid;
+    if (kind === "accessory")     return (m.itemType === "accessory" || m.itemType === "core_accessory") && String(m.itemId) === sid;
+    if (kind === "inventoryItem") return m.itemType === "inventory" && String(m.itemId) === sid;
+    if (kind === "generalProduct")return m.itemType === "general" && String(m.itemId) === sid;
+    return false;
+  });
+
+  const receiptItems = [];
+  (data.purchaseReceipts || []).forEach(r => {
+    (r.items || []).forEach(it => {
+      const matchesKind = (
+        (kind === "fabric"        && (it.itemType === "fabric" || it.itemType === "core_fabric")) ||
+        (kind === "accessory"     && (it.itemType === "accessory" || it.itemType === "core_accessory")) ||
+        (kind === "inventoryItem" && it.itemType === "inventory") ||
+        (kind === "generalProduct"&& it.itemType === "general")
+      );
+      if (matchesKind && String(it.itemId) === sid) {
+        receiptItems.push({ receiptId: r.id, receiptNo: r.receiptNo || r.id });
+      }
+    });
+  });
+
+  /* Stock balance shown in the source list (non-derived) */
+  const sourceList = (
+    kind === "fabric" ? (data.fabrics || []) :
+    kind === "accessory" ? (data.accessories || []) :
+    kind === "inventoryItem" ? (data.inventoryItems || []) :
+    kind === "generalProduct" ? (data.generalProducts || []) : []
+  );
+  const item = sourceList.find(x => String(x.id) === sid);
+  const stock = item ? (Number(item.stock) || 0) : 0;
+
+  return {
+    moveCount: moves.length,
+    receiptItemCount: receiptItems.length,
+    affectedReceipts: [...new Set(receiptItems.map(r => r.receiptNo))],
+    currentStock: stock,
+  };
+}
+
+/* The mutator. Pass to upConfig like:
+     upConfig(d => { forceDeleteCleanup(d, "accessory", id); });
+   Idempotent: running twice is safe (second run no-ops). */
+export function forceDeleteCleanup(d, kind, id) {
+  if (!d || !FORCE_DELETABLE_KINDS.has(kind)) return;
+  const sid = String(id);
+
+  /* Match logic shared between collections + receipts */
+  const matchesItemType = (it) => {
+    if (kind === "fabric")        return it.itemType === "fabric" || it.itemType === "core_fabric";
+    if (kind === "accessory")     return it.itemType === "accessory" || it.itemType === "core_accessory";
+    if (kind === "inventoryItem") return it.itemType === "inventory";
+    if (kind === "generalProduct")return it.itemType === "general";
+    return false;
+  };
+
+  /* 1. Remove the source item itself + record in recycleBin */
+  const sourceKey = (
+    kind === "fabric" ? "fabrics" :
+    kind === "accessory" ? "accessories" :
+    kind === "inventoryItem" ? "inventoryItems" :
+    "generalProducts"
+  );
+  const arabicLabel = (
+    kind === "fabric" ? "قماش" :
+    kind === "accessory" ? "اكسسوار" :
+    kind === "inventoryItem" ? "صنف مخزن" :
+    "منتج عام"
+  );
+  if (Array.isArray(d[sourceKey])) {
+    const idx = d[sourceKey].findIndex(x => String(x.id) === sid);
+    if (idx >= 0) {
+      const removed = d[sourceKey][idx];
+      if (!Array.isArray(d.recycleBin)) d.recycleBin = [];
+      d.recycleBin.unshift({
+        ...removed,
+        _type: arabicLabel,
+        _collection: sourceKey,
+        _deletedAt: new Date().toISOString(),
+        _forceDeleted: true,
+      });
+      d[sourceKey].splice(idx, 1);
+      if (d.recycleBin.length > 100) d.recycleBin = d.recycleBin.slice(0, 100);
+    }
+  }
+
+  /* 2. Remove related stockMovements */
+  if (Array.isArray(d.stockMovements)) {
+    d.stockMovements = d.stockMovements.filter(m =>
+      !(matchesItemType(m) && String(m.itemId) === sid)
+    );
+  }
+
+  /* 3. Strip the item from purchaseReceipts; if a receipt becomes empty,
+     mark it _orphaned (don't delete — keep audit trail). */
+  if (Array.isArray(d.purchaseReceipts)) {
+    d.purchaseReceipts = d.purchaseReceipts.map(r => {
+      if (!Array.isArray(r.items)) return r;
+      const beforeCount = r.items.length;
+      const newItems = r.items.filter(it =>
+        !(matchesItemType(it) && String(it.itemId) === sid)
+      );
+      if (newItems.length === beforeCount) return r;/* unchanged */
+      const next = { ...r, items: newItems };
+      if (newItems.length === 0) next._orphaned = true;
+      return next;
+    });
+  }
+}
+
