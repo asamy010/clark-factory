@@ -21,10 +21,12 @@ import { loadQR, loadJsQR, scanQR } from "../utils/qr.js";
 import { ask, askForm, showToast } from "../utils/popups.js";
 import { printPage, printPkgLabel, printSalesDeliveryLabel, openPrintWindow } from "../utils/print.js";
 import { calcOrder, getConfirmedStock, getConfirmedSeriesStock, getConfirmedBrokenStock, recomputeStatus } from "../utils/orders.js";
+import { buildCustomerSummary, formatCustomerSummaryWA } from "../utils/accountSummary.js";
 import { analyzeCustomer, fmtMonth } from "../utils/customerAnalytics.js";
 import { getCustRating, Stars } from "../utils/rating.jsx";
 import { getDeleteBlocker } from "../utils/dataIntegrity.js";
 import { auth } from "../firebase";
+import { autoPost } from "../utils/accounting/autoPost.js";
 import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../components/ui.jsx";
 import { T, TH, TD, TDB } from "../theme.js";
 
@@ -548,16 +550,16 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@600;800&display=swap' rel='stylesheet'/><style>"
     +"@page{size:10cm 15cm;margin:0}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Cairo',sans-serif;color:#000}"
     +".pg{width:10cm;height:15cm;padding:4mm;display:flex;flex-direction:column;border:1px dashed #ccc}"
-    +".from{text-align:center;font-size:14pt;font-weight:900;padding:2mm;border-bottom:2px solid #000;margin-bottom:2mm;letter-spacing:3px}"
-    +".to{text-align:center;padding:3mm;border:3px solid #000;border-radius:8px;margin-bottom:2mm}"
-    +".tn{font-size:16pt;font-weight:800}.tp{font-size:10pt}.ta{font-size:8pt;color:#444}"
-    +".dd{text-align:center;font-size:9pt;color:#555;margin-bottom:2mm}"
-    +"table{width:100%;border-collapse:collapse;margin:2mm 0}th{padding:1.5mm 2mm;border:1px solid #000;font-weight:800;font-size:9pt;background:#f0f0f0}td{padding:1.5mm 2mm;border:1px solid #000;font-size:9pt}"
-    +".mn{font-weight:800;font-size:10pt}.ds{font-size:8pt;color:#333}.qt{text-align:center;font-weight:800;font-size:11pt}"
-    +".tt td{background:#eee;font-weight:800;font-size:11pt}"
+    +".from{text-align:center;font-size:14pt;font-weight:900;padding:2mm;border-bottom:2px solid #000;margin-bottom:2mm;letter-spacing:3px;color:#000}"
+    +".to{text-align:center;padding:3mm;border:3px solid #000;border-radius:8px;margin-bottom:2mm;color:#000}"
+    +".tn{font-size:16pt;font-weight:800;color:#000}.tp{font-size:10pt;color:#000}.ta{font-size:8pt;color:#000}"
+    +".dd{text-align:center;font-size:9pt;color:#000;margin-bottom:2mm}"
+    +"table{width:100%;border-collapse:collapse;margin:2mm 0}th{padding:1.5mm 2mm;border:1px solid #000;font-weight:800;font-size:9pt;background:#f0f0f0;color:#000}td{padding:1.5mm 2mm;border:1px solid #000;font-size:9pt;color:#000}"
+    +".mn{font-weight:800;font-size:10pt}.ds{font-size:8pt;color:#000}.qt{text-align:center;font-weight:800;font-size:11pt;color:#000}"
+    +".tt td{background:#eee;font-weight:800;font-size:11pt;color:#000}"
     +".bb{margin:auto 0;padding:3mm 0;text-align:center}"
-    +".sl{font-size:9pt;font-weight:700;color:#555;margin-bottom:1mm}"
-    +".sn{font-size:28pt;font-weight:800;border:3px solid #000;border-radius:8px;padding:2mm 8mm;display:inline-block}"
+    +".sl{font-size:9pt;font-weight:700;color:#000;margin-bottom:1mm}"
+    +".sn{font-size:28pt;font-weight:800;border:3px solid #000;border-radius:8px;padding:2mm 8mm;display:inline-block;color:#000}"
     +".pbar{position:sticky;top:0;background:#fff;padding:4px;display:none;justify-content:center;gap:6px;border-bottom:2px solid #ccc}"
     +".pbar button{padding:5px 14px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:11px;font-weight:700;background:#fff}.pbar .pr{background:#000;color:#fff}"
     +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
@@ -1170,6 +1172,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                       }
                     }
                     msg+="\n\n📱 *برجاء مسح كود QR في إذن التسليم للتأكيد باستلام البضاعة كاملة*";
+                    /* V18.33: Append account summary footer if enabled in settings */
+                    msg+=formatCustomerSummaryWA(buildCustomerSummary(c.id,data),(data?.printSettings||{}).whatsappSummary);
                     const waUrl="https://wa.me/"+rawPhone+"?text="+encodeURIComponent(msg);
                     openWA(waUrl);
                   }} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630",fontSize:9,padding:"2px 5px"}} title="ارسال واتساب">📱</Btn>
@@ -1611,24 +1615,33 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const addCustPayment=()=>{const amt=parseFloat(payAmt);if(!amt||amt<=0){playBeep("error");return}
         /* V15.9: Link payment to treasury via shared IDs — needed for clean deletion later */
         const payId=gid();const txId=gid();
+        const _newPayment={id:payId,custId:custStatement,custName:cust.name,amount:amt,date:payDate_,note:payNote_,method:payMethod,by:userName,treasuryTxId:txId,createdAt:new Date().toISOString()};
         upConfig(d=>{if(!d.custPayments)d.custPayments=[];
-          d.custPayments.push({id:payId,custId:custStatement,custName:cust.name,amount:amt,date:payDate_,note:payNote_,method:payMethod,by:userName,treasuryTxId:txId,createdAt:new Date().toISOString()});
+          d.custPayments.push(_newPayment);
           /* Auto-register in treasury as income — linked to the payment */
           if(!d.treasury)d.treasury=[];
           d.treasury.unshift({id:txId,type:"in",amount:amt,desc:"دفعة من عميل "+cust.name+(payNote_?" — "+payNote_:""),notes:payMethod,category:"دفعة عميل",account:"SUB CASH",season:d.activeSeason||"",date:payDate_,day:dayName(payDate_),sourceType:"cust_payment",custPaymentId:payId,custId:custStatement,by:userName,createdAt:new Date().toISOString()})});
+        /* V18.35: auto-post journal entry */
+        autoPost.customerPay(data, _newPayment, cust, userName).catch(()=>{});
         setPayAmt_("");setPayNote_("");showToast("✓ تم تسجيل الدفعة في حساب العميل والخزنة")};
-      const delCustPay=(pid)=>{upConfig(d=>{
-        /* V15.9: Delete linked treasury transaction to keep cashbox in sync */
-        const pay=(d.custPayments||[]).find(p=>p.id===pid);
-        d.custPayments=(d.custPayments||[]).filter(p=>p.id!==pid);
-        if(pay){
-          if(pay.treasuryTxId&&d.treasury)d.treasury=d.treasury.filter(t=>t.id!==pay.treasuryTxId);
-          /* Legacy fallback: payments before V15.9 didn't have treasuryTxId — match by desc+amount+date */
-          else if(d.treasury){
-            d.treasury=d.treasury.filter(t=>!(t.category==="دفعة عميل"&&t.custId===pay.custId&&Math.abs((Number(t.amount)||0)-(Number(pay.amount)||0))<0.01&&t.date===pay.date));
+      const delCustPay=(pid)=>{
+        /* V18.35: capture the payment for accounting reversal BEFORE we delete it */
+        const _payToReverse=(data.custPayments||[]).find(p=>p.id===pid);
+        upConfig(d=>{
+          /* V15.9: Delete linked treasury transaction to keep cashbox in sync */
+          const pay=(d.custPayments||[]).find(p=>p.id===pid);
+          d.custPayments=(d.custPayments||[]).filter(p=>p.id!==pid);
+          if(pay){
+            if(pay.treasuryTxId&&d.treasury)d.treasury=d.treasury.filter(t=>t.id!==pay.treasuryTxId);
+            /* Legacy fallback: payments before V15.9 didn't have treasuryTxId — match by desc+amount+date */
+            else if(d.treasury){
+              d.treasury=d.treasury.filter(t=>!(t.category==="دفعة عميل"&&t.custId===pay.custId&&Math.abs((Number(t.amount)||0)-(Number(pay.amount)||0))<0.01&&t.date===pay.date));
+            }
           }
-        }
-      });showToast("✓ تم حذف الدفعة من العميل والخزنة")};
+        });
+        /* V18.35: reverse the journal entry if it exists */
+        if(_payToReverse) autoPost.reverse(data,"customerPay",_payToReverse.id,_payToReverse.date,"حذف الدفعة",userName).catch(()=>{});
+        showToast("✓ تم حذف الدفعة من العميل والخزنة")};
       const printStatement=()=>{let h="<h2 style='text-align:center'>📄 كشف حساب عميل</h2><table style='margin:0 auto 16px'><tr><th style='text-align:right;padding:4px 12px'>العميل</th><td style='padding:4px 12px;font-weight:800'>"+cust.name+"</td><th style='text-align:right;padding:4px 12px'>النوع</th><td style='padding:4px 12px'>"+(cust.type||"—")+"</td></tr><tr><th style='text-align:right;padding:4px 12px'>التليفون</th><td style='padding:4px 12px'>"+cust.phone+"</td><th style='text-align:right;padding:4px 12px'>العنوان</th><td style='padding:4px 12px'>"+(cust.address||"—")+"</td></tr></table>";
         h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>تسليم</th><th>مرتجع</th><th>صافي</th><th>سعر</th><th>القيمة</th></tr></thead><tbody>";
         rows.forEach((r,i)=>{h+="<tr style='background:"+(i%2===0?"transparent":"#f8f8f8")+"'><td style='font-weight:800;color:#0EA5E9'>"+r.modelNo+"</td><td>"+r.modelDesc+"</td><td style='text-align:center'>"+r.delivered+"</td><td style='text-align:center;color:#EF4444'>"+(r.returned||"—")+"</td><td style='text-align:center;font-weight:800'>"+r.net+"</td><td style='text-align:center'>"+(r.sellPrice||"—")+"</td><td style='text-align:center;font-weight:700'>"+fmt(r.net*r.sellPrice)+"</td></tr>"});
@@ -2478,13 +2491,26 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             const entry={custId:qrSale.custId,custName:cust.name,qty,date:new Date().toISOString().split("T")[0],sessionId:sessId,createdBy:userName};
             if(qrSale.override===true){entry.isOverride=true;entry.overrideReason="بيع طوارئ خارج الخطة"}
             if(cp>0){entry.price=cp;entry.isDiscounted=true;entry.originalPrice=Number(o.sellPrice)||0}
+            entry._key=oid+":saleDelivery:"+sessId+":"+qrSale.custId+":"+entry.date;
             o.customerDeliveries.push(entry);
+            /* V18.35: auto-post sale journal entry */
+            autoPost.sale(data, entry, cust, o, userName).catch(()=>{});
+            /* V18.40: COGS companion entry (Dr COGS / Cr finished inventory) */
+            autoPost.saleCogs(data, entry, o, userName).catch(()=>{});
           })});
           playBeep("done");showToast((qrSale.override===true?"⚠️ بيع طوارئ ":"✓ تم تسجيل بيع ")+total+" قطعة لـ "+cust.name);
           /* Archive package if sale was from package */
           if(qrSale._pkgId){upSales(d=>{const pi=(d.packages||[]).findIndex(p=>p.id===qrSale._pkgId);if(pi>=0){d.packages[pi].status="مباعة";d.packages[pi].closedAt=new Date().toISOString();if(!d.packages[pi].movements)d.packages[pi].movements=[];d.packages[pi].movements.push({date:new Date().toISOString().split("T")[0],type:"sell",custName:cust.name,totalQty:total,by:userName||""})}})}
         }else{
-          Object.entries(byOrder).forEach(([oid,qty])=>{updOrder(oid,o=>{if(!o.customerReturns)o.customerReturns=[];o.customerReturns.push({custId:qrSale.custId,custName:cust.name,qty,note:qrSale.note||"مرتجع سريع",date:new Date().toISOString().split("T")[0],createdBy:userName})})});
+          Object.entries(byOrder).forEach(([oid,qty])=>{updOrder(oid,o=>{if(!o.customerReturns)o.customerReturns=[];
+            const retEntry={custId:qrSale.custId,custName:cust.name,qty,note:qrSale.note||"مرتجع سريع",date:new Date().toISOString().split("T")[0],createdBy:userName};
+            retEntry._key=oid+":saleReturn:"+(qrSale.linkedSession||gid())+":"+qrSale.custId+":"+retEntry.date;
+            o.customerReturns.push(retEntry);
+            /* V18.35: auto-post return journal entry */
+            autoPost.saleReturn(data, retEntry, cust, o, userName).catch(()=>{});
+            /* V18.40: COGS reversal companion entry (Dr finished inventory / Cr COGS) */
+            autoPost.saleReturnCogs(data, retEntry, o, userName).catch(()=>{});
+          })});
           playBeep("done");showToast("✓ تم تسجيل مرتجع "+total+" قطعة من "+cust.name)
         }closeQrSale()};
       /* Step 1: Pick session first (sale only) */
@@ -4035,7 +4061,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             printSalesDeliveryLabel(cust.name,cust.phone||"",cust.address||"",sessDate,items,{gross:custMoney,discPct,discAmt,netAmt},confirmUrl,data?.printSettings,CLARK_LOGO_PRINT,pw,shipN);
           }} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700}}>{"🖨 طباعة "+shipCount+" ليبل"}</Btn>
           <Btn onClick={()=>{const lines=aMods.map(m=>{const q=Number(aGrid[m.id+"_"+shipPopup.cust.id])||0;return q>0?"• موديل *"+m.modelNo+"*: *"+q+"* قطعة":null}).filter(Boolean).join("%0A");
-            const msg="*CLARK — تسليم عميل*%0A%0A• العميل: *"+shipPopup.cust.name+"*%0A• التاريخ: *"+activeSess.date+"*%0A• عدد الشحنات: *"+shipCount+"* شحنة%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+shipPopup.total+"* قطعة%0A%0A⚠️ *برجاء التأكد من استلام "+shipCount+" شحنات كاملة*%0A%0A*برجاء التأكيد*";
+            let msg="*CLARK — تسليم عميل*%0A%0A• العميل: *"+shipPopup.cust.name+"*%0A• التاريخ: *"+activeSess.date+"*%0A• عدد الشحنات: *"+shipCount+"* شحنة%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+shipPopup.total+"* قطعة%0A%0A⚠️ *برجاء التأكد من استلام "+shipCount+" شحنات كاملة*%0A%0A*برجاء التأكيد*";
+            /* V18.33: Append account summary (URL-encode newlines because msg uses %0A) */
+            const summary=formatCustomerSummaryWA(buildCustomerSummary(shipPopup.cust.id,data),(data?.printSettings||{}).whatsappSummary);
+            if(summary)msg+=encodeURIComponent(summary);
             openWA("https://wa.me/"+(shipPopup.cust.phone?shipPopup.cust.phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank");setShipPopup(null)}} style={{background:"#25D366",color:"#fff",border:"none",fontWeight:700}} title="ارسال عبر واتساب">📱 واتساب</Btn>
         </div>
       </div>

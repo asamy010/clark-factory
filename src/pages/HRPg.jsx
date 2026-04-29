@@ -19,6 +19,7 @@ import { formatBlockerMessage } from "../utils/dataIntegrity.js";
 /* V15.25: Receipt queue — persistent storage for salary confirmation scans */
 import { addReceipt, removeReceipt, getPendingForWeek, getReadyForRetry, markAsFailed, getPendingCount, forceRetryAll } from "../utils/receiptQueue.js";
 import { Btn, Inp, Sel, Card, QRImg, QRScanner, SearchSel, useDebounced } from "../components/ui.jsx";
+import { autoPost } from "../utils/accounting/autoPost.js";
 import { T, TH, TD, TDB } from "../theme.js";
 import { db } from "../firebase";
 import { doc, setDoc, getDoc } from "firebase/firestore";
@@ -885,10 +886,13 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
 
   /* ── Advances (single + matrix) ── */
   const addAdvance=(empId,amount,desc)=>{if(!amount)return;const emp=employees.find(e=>e.id===empId);if(!emp)return;
+    const logId=gid();
+    const _newLog={id:logId,type:"advance",empId,empName:emp.name,amount:Number(amount),desc:desc||"سلفة",weekId:openWeekId||"",date:today,by:userName,createdAt:new Date().toISOString()};
     upConfig(d=>{if(!d.hrLog)d.hrLog=[];
-      const logId=gid();
-      d.hrLog.unshift({id:logId,type:"advance",empId,empName:emp.name,amount:Number(amount),desc:desc||"سلفة",weekId:openWeekId||"",date:today,by:userName,createdAt:new Date().toISOString()});
+      d.hrLog.unshift(_newLog);
       d.treasury.unshift({id:gid(),type:"out",amount:Number(amount),desc:"سلفة "+emp.name+(desc?" — "+desc:""),category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:today,day:dayName(today),sourceType:"hr_advance",hrLogId:logId,empId,by:userName,createdAt:new Date().toISOString()})});
+    /* V18.35: auto-post journal entry */
+    autoPost.hr(data, _newLog, emp, userName).catch(()=>{});
     showToast("✓ سلفة "+emp.name)};
   /* V18.15: Bulk payment approval workflow — direct register replaced by request-approval flow */
   const bulkApprovals=Array.isArray(data.bulkPaymentApprovals)?data.bulkPaymentApprovals:[];

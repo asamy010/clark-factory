@@ -17,6 +17,7 @@ import { T, TD, TH } from "../theme.js";
 import { gid, openWA } from "../utils/format.js";
 import { compressImage } from "../utils/image.js";
 import { calcOrder, getConfirmedStock, recomputeStatus, wsTypeInfo } from "../utils/orders.js";
+import { formatCustomerSummaryWA, formatWorkshopSummaryWA } from "../utils/accountSummary.js";
 import { ask, askForm, showToast, tell } from "../utils/popups.js";
 import { openPrintWindow } from "../utils/print.js";
 import { getDeviceInfo, getDeviceId, getDeviceNickname, setDeviceNickname, getCachedIpInfo } from "../utils/device.js";
@@ -1024,16 +1025,20 @@ export function LargeLabelSettingsCard({kind,config,upConfig,T,FS,isMob,showToas
   const info=KIND_INFO[kind]||KIND_INFO.workshopLabel;
   const title=info.title;
   const fieldList=info.fields;
+  /* V18.31: salesDeliveryLabel additionally has itemsMode (auto|table|summary) */
+  const isSalesDeliv=kind==="salesDeliveryLabel";
   const defaults={
     fontFamily:"Cairo",
     showLogo:false,
-    fields:Object.fromEntries(fieldList.map(f=>[f.k,{show:true}]))
+    fields:Object.fromEntries(fieldList.map(f=>[f.k,{show:true}])),
+    ...(isSalesDeliv?{itemsMode:"auto"}:{})
   };
   const slot=(config.printSettings||{})[kind]||defaults;
   const savedJson=useMemo(()=>JSON.stringify({
     fontFamily:slot.fontFamily||"Cairo",
     showLogo:!!slot.showLogo,
-    fields:Object.fromEntries(fieldList.map(f=>[f.k,{show:slot.fields?.[f.k]?.show!==false}]))
+    fields:Object.fromEntries(fieldList.map(f=>[f.k,{show:slot.fields?.[f.k]?.show!==false}])),
+    ...(isSalesDeliv?{itemsMode:slot.itemsMode||"auto"}:{})
   }),[JSON.stringify(slot)]);
   const[draft,setDraft]=useState(()=>JSON.parse(savedJson));
   useEffect(()=>{const d=JSON.parse(savedJson);if(JSON.stringify(d)!==JSON.stringify(draft))setDraft(d)},[savedJson]);/* eslint-disable-line */
@@ -1078,6 +1083,25 @@ export function LargeLabelSettingsCard({kind,config,upConfig,T,FS,isMob,showToas
             </div>;
           })}
         </div>
+        {/* V18.31: itemsMode selector — only on salesDeliveryLabel. Controls how the items section renders. */}
+        {isSalesDeliv&&<div style={{marginTop:14,paddingTop:14,borderTop:"1px solid "+T.brd}}>
+          <div style={{fontSize:FS-2,fontWeight:700,color:T.textSec,marginBottom:8}}>📋 عرض الأصناف على الليبل:</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {[
+              {v:"auto",   l:"تلقائي — جدول للأصناف ≤ 8، ملخص للأصناف > 8",    sub:"(الافتراضي)"},
+              {v:"table",  l:"جدول الموديلات بالكميات دائماً",                  sub:"(تفاصيل كاملة)"},
+              {v:"summary",l:"ملخص دائماً — عدد الأصناف + إجمالي الكمية + التاريخ", sub:"(مختصر)"}
+            ].map(opt=>{const isSel=(draft.itemsMode||"auto")===opt.v;
+              return<div key={opt.v} onClick={()=>update(d=>{d.itemsMode=opt.v})} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",borderRadius:8,background:isSel?T.accent+"10":T.bg,border:"1px solid "+(isSel?T.accent+"40":T.brd),cursor:"pointer"}}>
+                <span style={{fontSize:16,color:isSel?T.accent:T.textMut,fontWeight:800,marginTop:1}}>{isSel?"🔘":"⚪"}</span>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:FS-1,color:isSel?T.text:T.textSec,fontWeight:isSel?700:500}}>{opt.l}</div>
+                  <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{opt.sub}</div>
+                </div>
+              </div>;
+            })}
+          </div>
+        </div>}
       </div>
       {/* Preview column */}
       <LargeLabelLivePreview draft={draft} kind={kind} T={T} FS={FS}/>
@@ -1233,6 +1257,211 @@ function SecurityAlertsCard({config,upConfig,T,FS,showToast,Inp,Btn,Card,setDirt
       <span style={{fontSize:FS-3,color:T.textMut}}>%+</span>
     </SecurityFlagRow>
     <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14,paddingTop:10,borderTop:"1px solid "+T.brd}}>
+      <Btn ghost onClick={handleDiscard} disabled={!isDirty} style={!isDirty?{opacity:0.4}:{}}>↩️ إلغاء</Btn>
+      <Btn primary onClick={handleSave} disabled={!isDirty} style={!isDirty?{opacity:0.4}:{background:T.ok,color:"#fff",border:"none",fontWeight:800,padding:"10px 24px"}}>💾 حفظ</Btn>
+    </div>
+  </Card>;
+}
+
+/* V18.34: WhatsApp message preview — renders summary text in a WhatsApp-style
+   green bubble with *bold* highlighted, RTL-aware. Used inside WhatsappSummaryCard. */
+function WhatsappLivePreview({draft, T, FS, isMob}){
+  /* Sample data that exercises every line so each toggle's effect is visible */
+  const sampleCust = {
+    salesGross: 250000, discPct: 10, discAmt: 25000, salesNet: 225000,
+    payCash: 50000, payCheck: 30000, payOther: 0,
+    returnsGross: 22000, returnsNet: 19800,
+    balance: 225000 - 19800 - 50000 - 30000,/* = 125,200 */
+  };
+  const sampleWs = {
+    totalDelivered: 850, totalReceived: 720, pendingPieces: 130,
+    due: 36000, totalPurchase: 5000, totalPaid: 25000,
+    balance: 36000 + 5000 - 25000,/* = 16,000 */
+  };
+  const custText = formatCustomerSummaryWA(sampleCust, draft);
+  const wsText   = formatWorkshopSummaryWA(sampleWs, draft);
+
+  /* Render a WA-formatted block (*bold*, • bullets) into styled JSX */
+  const renderWaText = (text) => {
+    if (!text) return null;
+    /* Strip the leading separator the formatter adds (we'll provide our own) */
+    const clean = text.replace(/^\n\n━+\n/, "").replace(/^💼\s*\*ملخص الحساب\*\n/, "");
+    const lines = clean.split("\n").filter(l => l.length > 0);
+    return lines.map((ln, i) => {
+      /* Replace *bold* segments with <strong> */
+      const parts = ln.split(/(\*[^*]+\*)/g);
+      return <div key={i} style={{lineHeight: 1.65, marginBottom: 1}}>
+        {parts.map((p, j) => {
+          if (p.startsWith("*") && p.endsWith("*")) {
+            return <strong key={j} style={{fontWeight: 700, color: "#000"}}>{p.slice(1, -1)}</strong>;
+          }
+          return <span key={j}>{p}</span>;
+        })}
+      </div>;
+    });
+  };
+
+  /* WhatsApp bubble visual style (light green, rounded corners, tail-less for simplicity) */
+  const bubbleStyle = {
+    background: "#D9FDD3",/* WA outgoing message green */
+    borderRadius: "10px 10px 10px 2px",
+    padding: "8px 10px 6px",
+    fontSize: 11.5,
+    color: "#0F1A0F",
+    fontFamily: "'Segoe UI', 'Cairo', sans-serif",
+    boxShadow: "0 1px 0.5px rgba(0,0,0,0.13)",
+    direction: "rtl",
+    whiteSpace: "normal",
+    wordBreak: "break-word",
+  };
+  const headerStyle = {fontSize: FS-2, fontWeight: 800, color: T.textSec, marginBottom: 6, display: "flex", alignItems: "center", gap: 6};
+  const sectionLabelStyle = {fontSize: 11, fontWeight: 800, color: "#075E54", marginBottom: 4, paddingBottom: 3, borderBottom: "1px dashed #075E5430"};
+
+  return <div style={{
+    /* WhatsApp chat background style */
+    background: "#E5DDD5",
+    backgroundImage: "radial-gradient(circle at 50% 50%, #ddd6cc 1px, transparent 1px)",
+    backgroundSize: "20px 20px",
+    borderRadius: 12,
+    padding: 14,
+    border: "1px solid "+T.brd,
+    minHeight: 220,
+    height: "fit-content",
+    position: isMob ? "static" : "sticky",
+    top: 8,
+  }}>
+    <div style={headerStyle}><span>📱</span><span>معاينة الملخص في رسالة الواتساب</span></div>
+
+    {/* Customer bubble */}
+    <div style={{marginBottom: 10}}>
+      <div style={{fontSize: 10, fontWeight: 700, color: T.textMut, marginBottom: 4, textAlign: "center"}}>👥 ملخص حساب العميل</div>
+      {custText ? <div style={bubbleStyle}>
+        <div style={sectionLabelStyle}>💼 ملخص الحساب</div>
+        {renderWaText(custText)}
+        <div style={{fontSize: 9, color: "#667781", textAlign: "left", marginTop: 4}}>11:27 PM ✓✓</div>
+      </div> : <div style={{...bubbleStyle, color: "#667781", fontStyle: "italic", textAlign: "center", padding: "12px 10px"}}>(الملخص معطّل — لن يظهر في الرسائل)</div>}
+    </div>
+
+    {/* Workshop bubble */}
+    <div>
+      <div style={{fontSize: 10, fontWeight: 700, color: T.textMut, marginBottom: 4, textAlign: "center"}}>🏭 ملخص حساب الورشة</div>
+      {wsText ? <div style={bubbleStyle}>
+        <div style={sectionLabelStyle}>💼 ملخص الحساب</div>
+        {renderWaText(wsText)}
+        <div style={{fontSize: 9, color: "#667781", textAlign: "left", marginTop: 4}}>11:27 PM ✓✓</div>
+      </div> : <div style={{...bubbleStyle, color: "#667781", fontStyle: "italic", textAlign: "center", padding: "12px 10px"}}>(الملخص معطّل — لن يظهر في الرسائل)</div>}
+    </div>
+
+    <div style={{fontSize: FS-3, color: T.textMut, marginTop: 10, lineHeight: 1.5, textAlign: "center"}}>
+      💡 الأرقام في المعاينة افتراضية — الرسائل الحقيقية بتعرض أرقام كل عميل/ورشة
+    </div>
+  </div>;
+}
+
+/* V18.33: WhatsappSummaryCard — controls which lines appear in the
+   "ملخص الحساب" footer added to every customer/workshop WA message.
+   Stored in data.printSettings.whatsappSummary with shape:
+   { customer: { enabled:bool, fields:{...} }, workshop: { ... } } */
+export function WhatsappSummaryCard({config,upConfig,T,FS,isMob,showToast,Btn,Card,setDirty}){
+  const CUST_LINES = [
+    {k:"salesGross",  l:"💰 اجمالي المبيعات (قبل الخصم)"},
+    {k:"discount",    l:"🏷️ اجمالي الخصم"},
+    {k:"salesNet",    l:"✅ اجمالي بعد الخصم"},
+    {k:"returnsNet",  l:"↩️ المرتجع بعد الخصم"},
+    {k:"payments",    l:"💵 دفعات (كاش)"},
+    {k:"checks",      l:"📝 شيكات"},
+    {k:"balance",     l:"📊 الرصيد المستحق (المستحق على/لـ)"},
+  ];
+  const WS_LINES = [
+    {k:"totalDelivered", l:"📤 اجمالي تسليم للورشة (قطع)"},
+    {k:"totalReceived",  l:"📥 اجمالي استلام من الورشة (قطع)"},
+    {k:"pendingPieces",  l:"⏳ رصيد قطع عند الورشة"},
+    {k:"due",            l:"💰 اجمالي مستحق للورشة"},
+    {k:"totalPurchase",  l:"🛒 مشتريات"},
+    {k:"totalPaid",      l:"💵 مدفوعات"},
+    {k:"balance",        l:"📊 الرصيد"},
+  ];
+  const buildDefaults = () => ({
+    customer: {
+      enabled: true,
+      fields: Object.fromEntries(CUST_LINES.map(l => [l.k, {show: true}]))
+    },
+    workshop: {
+      enabled: true,
+      fields: Object.fromEntries(WS_LINES.map(l => [l.k, {show: true}]))
+    }
+  });
+  const slot = (config.printSettings || {}).whatsappSummary || buildDefaults();
+  const savedJson = useMemo(() => JSON.stringify({
+    customer: {
+      enabled: slot.customer?.enabled !== false,
+      fields: Object.fromEntries(CUST_LINES.map(l => [l.k, {show: slot.customer?.fields?.[l.k]?.show !== false}]))
+    },
+    workshop: {
+      enabled: slot.workshop?.enabled !== false,
+      fields: Object.fromEntries(WS_LINES.map(l => [l.k, {show: slot.workshop?.fields?.[l.k]?.show !== false}]))
+    }
+  }), [JSON.stringify(slot)]);
+  const [draft, setDraft] = useState(() => JSON.parse(savedJson));
+  useEffect(() => {const d = JSON.parse(savedJson); if (JSON.stringify(d) !== JSON.stringify(draft)) setDraft(d)}, [savedJson]);/* eslint-disable-line */
+  const draftJson = JSON.stringify(draft);
+  const isDirty = draftJson !== savedJson;
+  useEffect(() => {setDirty(isDirty)}, [isDirty]);/* eslint-disable-line */
+  const update = (fn) => setDraft(p => {const n = JSON.parse(JSON.stringify(p)); fn(n); return n});
+  const handleSave = () => {
+    upConfig(d => {if (!d.printSettings) d.printSettings = {}; d.printSettings.whatsappSummary = JSON.parse(draftJson)});
+    showToast("✅ تم حفظ إعدادات ملخص الواتساب");
+  };
+  const handleDiscard = () => {if (!confirm("إلغاء التعديلات؟")) return; setDraft(JSON.parse(savedJson))};
+
+  /* Toggle helpers */
+  const toggleEnabled = (kind) => update(d => {d[kind].enabled = !d[kind].enabled});
+  const toggleField = (kind, k) => update(d => {if (!d[kind].fields[k]) d[kind].fields[k] = {show: false}; d[kind].fields[k].show = !d[kind].fields[k].show});
+
+  /* Section UI builder */
+  const renderSection = (kind, title, icon, lines) => {
+    const sec = draft[kind];
+    const isOn = sec.enabled !== false;
+    return <div style={{padding:14,borderRadius:10,background:T.bg,border:"1px solid "+T.brd,marginBottom:12}}>
+      <div onClick={() => toggleEnabled(kind)} style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",marginBottom:isOn?12:0,paddingBottom:isOn?12:0,borderBottom:isOn?"1px solid "+T.brd:"none"}}>
+        <span style={{fontSize:22,color:isOn?T.ok:T.textMut,fontWeight:800}}>{isOn?"☑":"☐"}</span>
+        <span style={{fontSize:FS,fontWeight:800,color:isOn?T.text:T.textSec}}>{icon} {title}</span>
+        <span style={{marginInlineStart:"auto",fontSize:FS-3,color:T.textMut,fontWeight:600}}>{isOn?"مُفعّل":"معطّل"}</span>
+      </div>
+      {isOn && <>
+        <div style={{fontSize:FS-2,color:T.textMut,marginBottom:8}}>اختر السطور اللي تظهر في الملخص:</div>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:6}}>
+          {lines.map(line => {
+            const fOn = sec.fields[line.k]?.show !== false;
+            return <div key={line.k} onClick={() => toggleField(kind, line.k)} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:7,background:fOn?T.accent+"08":T.cardSolid,border:"1px solid "+(fOn?T.accent+"30":T.brd),cursor:"pointer"}}>
+              <span style={{fontSize:16,color:fOn?T.accent:T.textMut,fontWeight:800}}>{fOn?"☑":"☐"}</span>
+              <span style={{fontSize:FS-1,color:fOn?T.text:T.textSec,fontWeight:fOn?700:500}}>{line.l}</span>
+            </div>;
+          })}
+        </div>
+      </>}
+    </div>;
+  };
+
+  return <Card title={"📱 ملخص الحساب في رسائل الواتساب"+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
+    {isDirty && <div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700,display:"flex",alignItems:"center",gap:8}}>
+      <span style={{fontSize:16}}>✨</span><span>لديك تعديلات غير محفوظة — اضغط "حفظ"</span>
+    </div>}
+    <div style={{fontSize:FS-2,color:T.textMut,marginBottom:14,lineHeight:1.7}}>
+      💡 يتم إضافة "ملخص الحساب" تلقائيًا في آخر كل رسالة واتساب بتسليم/استلام لعميل أو ورشة — يظهر فيه إجمالي الحساب والمستحقات ليكون مرجعًا سريعًا للطرف الآخر. اختر هنا أي السطور تظهر — والمعاينة جانبًا تتحدث فورًا.
+    </div>
+    {/* V18.34: 2-column grid — settings on the right (RTL), live preview on the left.
+        On mobile, stacks vertically (settings first, preview after). */}
+    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 320px",gap:16,marginBottom:16,alignItems:"start"}}>
+      {/* Settings column */}
+      <div>
+        {renderSection("customer", "ملخص حساب العميل", "👥", CUST_LINES)}
+        {renderSection("workshop", "ملخص حساب الورشة", "🏭", WS_LINES)}
+      </div>
+      {/* Live preview column */}
+      <WhatsappLivePreview draft={draft} T={T} FS={FS} isMob={isMob}/>
+    </div>
+    <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:12,borderTop:"1px solid "+T.brd}}>
       <Btn ghost onClick={handleDiscard} disabled={!isDirty} style={!isDirty?{opacity:0.4}:{}}>↩️ إلغاء</Btn>
       <Btn primary onClick={handleSave} disabled={!isDirty} style={!isDirty?{opacity:0.4}:{background:T.ok,color:"#fff",border:"none",fontWeight:800,padding:"10px 24px"}}>💾 حفظ</Btn>
     </div>
@@ -2783,6 +3012,8 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {activeTab==="business" && <>
     {/* Sales Settings — draft pattern */}
     <SalesSettingsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,salesSettings:d}))}/>
+    {/* V18.33: WhatsApp summary controls */}
+    <WhatsappSummaryCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Btn={Btn} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,whatsappSummary:d}))}/>
     </>}
 
     {activeTab==="maintenance" && <>

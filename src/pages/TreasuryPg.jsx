@@ -16,6 +16,7 @@ import { openPrintWindow } from "../utils/print.js";
 import { printCashReceipt, printCheckReceipt } from "../utils/print-extras.js";
 import { getReferences } from "../utils/dataIntegrity.js";
 import { Spinner, InlineLoading, Btn, Inp, Sel, Card, useDebounced } from "../components/ui.jsx";
+import { autoPost } from "../utils/accounting/autoPost.js";
 import { T } from "../theme.js";
 import { db } from "../firebase";
 import { collection } from "firebase/firestore";
@@ -552,6 +553,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     if(txPartyId&&txPartyType==="supplier"){const s=suppliers.find(x=>x.id===txPartyId);if(s){linkedSupplierId=s.id;if(!finalDesc.trim())finalDesc="دفع لـ "+s.name}}
     if(txPartyId&&txPartyType==="workshop"){const w=workshops.find(x=>x.id===txPartyId||x.name===txPartyId);if(w){linkedWsName=w.name;if(!finalDesc.trim())finalDesc=wsDesc(w.name,txCategory==="مشتريات")}}
     if(txPartyId&&txPartyType==="employee"){const e=(data.employees||[]).find(x=>x.id===txPartyId);if(e){linkedEmpId=e.id;if(!finalDesc.trim())finalDesc="سلفة "+e.name}}
+    /* V18.35: capture freshly-built treasury entry for post-commit auto-posting */
+    let _newBaseEntry=null;
     upConfig(d=>{if(!d.treasury)d.treasury=[];
       if(editId){const tx=d.treasury.find(t=>t.id===editId);
         if(tx){
@@ -631,7 +634,16 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           d.wsPayments.push({id:wsPayId,wsName:linkedWsName,wsId:w?w.id:null,amount:amt,type:txCategory==="مشتريات"?"purchase":"payment",notes:txNotes,date:txDate,createdBy:userName,treasuryTxId:txId,createdAt:new Date().toISOString()});
           baseEntry.wsPaymentId=wsPayId;baseEntry.wsName=linkedWsName;baseEntry.sourceType="ws_payment"}
         d.treasury.unshift(baseEntry);
+        /* V18.35: stash for post-commit auto-posting */
+        _newBaseEntry=baseEntry;
       }});
+    /* V18.35: auto-post journal entry for the new treasury row.
+       We do this AFTER upConfig commits — uses fresh entry object built above.
+       Only fires for plain treasury entries (not the linked ones — those
+       have specific posting rules handled by their own hooks). */
+    if(_newBaseEntry && !_newBaseEntry.sourceType){
+      autoPost.treasury(data, _newBaseEntry, userName).catch(()=>{});
+    }
     setShowForm(false);setTxAmount("");setTxDesc("");setTxNotes("");setTxCategory("");setTxType("in");setTxPartyId("");setTxPartyType("");setEditId(null);showToast("✓ تم الحفظ")};
   /* Detect treasury entries that were auto-created from an external source
      (salary approval, check collection/payment, advance, transfer, workshop payment).

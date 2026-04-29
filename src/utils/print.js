@@ -110,8 +110,8 @@ export function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,c
   const stLabel=status==="مغلقة"?"مغلقة ❌":status==="مباعة"?"مباعة 💰":"مفتوحة ✅";
   const stColor=status==="مغلقة"?"#EF4444":status==="مباعة"?"#8B5CF6":"#10B981";
   let itemRows="";pkgItems.forEach(it=>{itemRows+="<tr><td class='mn'>"+it.modelNo+"</td><td class='ds'>"+(it.desc||"")+"</td><td class='ct'>"+(it.count||"")+"</td><td class='qt'>"+it.qty+"</td></tr>"});
-  let movRows="";(movements||[]).forEach(m=>{const icon=m.type==="add"?"📥":m.type==="remove"?"📤":m.type==="sell"?"💰":"📋";const color=m.type==="add"?"#10B981":m.type==="sell"?"#8B5CF6":"#EF4444";
-    movRows+="<tr><td class='md'>"+m.date+"</td><td class='md' style='color:"+color+";font-weight:800'>"+icon+"</td><td class='md'>"+(m.modelNo||m.custName||"")+"</td><td class='md' style='font-weight:700'>"+(m.qty||"")+"</td><td class='md' style='color:#888'>"+(m.by||"")+"</td></tr>"});
+  let movRows="";(movements||[]).forEach(m=>{const icon=m.type==="add"?"📥":m.type==="remove"?"📤":m.type==="sell"?"💰":"📋";
+    movRows+="<tr><td class='md'>"+m.date+"</td><td class='md' style='color:#000;font-weight:800'>"+icon+"</td><td class='md'>"+(m.modelNo||m.custName||"")+"</td><td class='md' style='font-weight:700'>"+(m.qty||"")+"</td><td class='md' style='color:#000'>"+(m.by||"")+"</td></tr>"});
   /* Brand row: image when enabled, else text */
   const brandHtml=showLogo&&clarkLogoDataUrl
     ?"<div class='brand'><img src='"+clarkLogoDataUrl+"' alt='CLARK' style='height:9mm;max-width:55%;filter:brightness(0) saturate(100%);object-fit:contain'/></div>"
@@ -125,13 +125,14 @@ export function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,c
   +".brand{text-align:center;font-size:11pt;font-weight:900;letter-spacing:3px;padding:1.5mm 0;border-bottom:2px solid #000}"
   +".top{display:flex;align-items:center;gap:3mm;padding:2mm 0;border-bottom:1px solid #999}"
   +".top canvas{flex-shrink:0}.top-info{flex:1;text-align:center}"
-  +".pn{font-size:16pt;font-weight:900;color:#0EA5E9}.pd{font-size:8pt;color:#555}.ps{font-size:8pt;font-weight:700;display:inline-block;padding:1px 6px;border-radius:4px}"
-  +"table{width:100%;border-collapse:collapse}th{background:#E2E8F0;font-weight:800;font-size:7pt;padding:1.5mm 2mm;border:1px solid #94A3B8;text-align:right}"
-  +"td{padding:1.5mm 2mm;border:1px solid #CBD5E1;font-size:8pt}.mn{font-weight:800;font-size:9pt}.ds{font-size:7pt;color:#444}.ct{text-align:center;font-size:8pt}.qt{text-align:center;font-weight:800;font-size:10pt;color:#0EA5E9}"
-  +".tot td{background:#EFF6FF;font-weight:800;font-size:9pt}"
-  +".sec{font-size:7pt;font-weight:800;color:#475569;margin:2mm 0 1mm;padding-bottom:1mm;border-bottom:1px solid #E2E8F0}"
-  +".md{padding:1mm 2mm;font-size:6.5pt;border:1px solid #E2E8F0}"
-  +".ft{margin-top:auto;padding-top:1.5mm;border-top:1px solid #000;display:flex;justify-content:space-between;font-size:6pt;color:#888;font-weight:600}"
+  /* V18.30: All label text in dark black */
+  +".pn{font-size:16pt;font-weight:900;color:#000}.pd{font-size:8pt;color:#000}.ps{font-size:8pt;font-weight:700;display:inline-block;padding:1px 6px;border-radius:4px;color:#000}"
+  +"table{width:100%;border-collapse:collapse}th{background:#E2E8F0;font-weight:800;font-size:7pt;padding:1.5mm 2mm;border:1px solid #94A3B8;text-align:right;color:#000}"
+  +"td{padding:1.5mm 2mm;border:1px solid #CBD5E1;font-size:8pt;color:#000}.mn{font-weight:800;font-size:9pt}.ds{font-size:7pt;color:#000}.ct{text-align:center;font-size:8pt}.qt{text-align:center;font-weight:800;font-size:10pt;color:#000}"
+  +".tot td{background:#EFF6FF;font-weight:800;font-size:9pt;color:#000}"
+  +".sec{font-size:7pt;font-weight:800;color:#000;margin:2mm 0 1mm;padding-bottom:1mm;border-bottom:1px solid #E2E8F0}"
+  +".md{padding:1mm 2mm;font-size:6.5pt;border:1px solid #E2E8F0;color:#000}"
+  +".ft{margin-top:auto;padding-top:1.5mm;border-top:1px solid #000;display:flex;justify-content:space-between;font-size:6pt;color:#000;font-weight:600}"
   +".pbar{position:sticky;top:0;background:#fff;padding:4px;display:none;justify-content:center;gap:6px;border-bottom:2px solid #ccc}"
   +".pbar button{padding:5px 14px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'"+fontFam+"';font-size:11px;font-weight:700;background:#fff}.pbar .pr{background:#000;color:#fff}"
   +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
@@ -141,7 +142,7 @@ export function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,c
   +brandHtml
   +"<div class='top'>"
   +(showQr?"<canvas id='qr'></canvas>":"")
-  +"<div class='top-info'><div class='pn'>📦 "+pkgNum+"</div><div class='pd'>"+pkgDate+(showNote&&pkgNote?" — "+pkgNote:"")+"</div><div class='ps' style='background:"+stColor+"15;color:"+stColor+"'>"+stLabel+"</div></div></div>"
+  +"<div class='top-info'><div class='pn'>📦 "+pkgNum+"</div><div class='pd'>"+pkgDate+(showNote&&pkgNote?" — "+pkgNote:"")+"</div><div class='ps' style='background:"+stColor+"15;color:#000'>"+stLabel+"</div></div></div>"
   +"<div class='sec'>محتويات الكرتونة</div>"
   +"<table><thead><tr><th>الموديل</th><th>الوصف</th><th>سيري</th><th>الكمية</th></tr></thead><tbody>"
   +itemRows
@@ -213,9 +214,14 @@ export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,t
   const totalQ=(items||[]).reduce((s,it)=>s+(Number(it.qty)||0),0);
   const fmt=(n)=>Math.round(Number(n)||0).toLocaleString("en-US");
   /* V18.29: When items > 8, the items table forces the auto-fit to scale text down to unreadable.
-     Replace the table with a clean summary card (item count + total qty + date). */
+     Replace the table with a clean summary card (item count + total qty + date).
+     V18.31: Now controlled by `itemsMode` setting:
+       - "auto"    (default): table if ≤ 8, summary if > 8 (preserves V18.29 behavior)
+       - "table"           : always show items table (regardless of count)
+       - "summary"         : always show summary card */
   const itemCount=(items||[]).length;
-  const useSummary=itemCount>8;
+  const itemsMode=sd.itemsMode||"auto";
+  const useSummary=itemsMode==="summary"?true:itemsMode==="table"?false:itemCount>8;
   /* Items rows — only built when NOT in summary mode */
   let itemRows="";
   if(!useSummary){
@@ -241,7 +247,7 @@ export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,t
   const gross=Number(t.gross)||0;const discPct=Number(t.discPct)||0;const discAmt=Number(t.discAmt)||0;const netAmt=Number(t.netAmt)||gross;
   const totalsBox=showPrices?"<div class='tbox'>"
     +"<div class='trow'><span>الإجمالي</span><span>"+fmt(gross)+" ج.م</span></div>"
-    +(discPct>0?"<div class='trow' style='color:#EF4444'><span>خصم "+discPct+"%</span><span>- "+fmt(discAmt)+" ج.م</span></div>":"")
+    +(discPct>0?"<div class='trow' style='color:#000'><span>خصم "+discPct+"%</span><span>- "+fmt(discAmt)+" ج.م</span></div>":"")
     +"<div class='trow tnet'><span>الصافي</span><span>"+fmt(netAmt)+" ج.م</span></div>"
     +"</div>":"";
   pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><link href='"+fontUrl+"' rel='stylesheet'/><style>"
@@ -252,28 +258,28 @@ export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,t
   +".brand{text-align:center;font-size:11pt;font-weight:900;letter-spacing:3px;padding:1.5mm 0;border-bottom:2px solid #000;margin-bottom:1.5mm}"
   +".chip{text-align:center;font-size:11pt;font-weight:800;border:2px solid #000;display:block;width:fit-content;padding:1mm 5mm;border-radius:2mm;margin:0 auto 1.5mm}"
   +".cust{text-align:center;padding:1.5mm;border:2px solid #000;border-radius:2mm;margin-bottom:1.5mm}"
-  +".cust .lab{font-size:8pt;font-weight:700;color:#555}.cust .nm{font-size:14pt;font-weight:900}"
-  +".info{width:100%;border-collapse:collapse;margin-bottom:1.5mm}.info td{border:1px solid #000;padding:1mm 2mm;font-size:8.5pt}.info .lbl{font-weight:800;width:30%}.info .val{font-weight:700}"
-  +".sec{font-size:7pt;font-weight:800;color:#475569;margin:1.5mm 0 1mm}"
-  +"table.it{width:100%;border-collapse:collapse}table.it th{background:#E2E8F0;font-weight:800;font-size:7pt;padding:1mm 1.5mm;border:1px solid #94A3B8;text-align:right}"
-  +"table.it td{padding:1mm 1.5mm;border:1px solid #CBD5E1;font-size:8pt}.it .mn{font-weight:800;font-size:9pt}.it .ds{font-size:7pt;color:#444}.it .qt{text-align:center;font-weight:800;font-size:10pt;color:#0EA5E9}.it .pr{text-align:center;font-size:8pt}"
-  +".tbox{border:2px solid #000;border-radius:2mm;padding:1.5mm 2mm;margin-bottom:1.5mm;font-size:9pt}"
+  +".cust .lab{font-size:8pt;font-weight:700;color:#000}.cust .nm{font-size:14pt;font-weight:900;color:#000}"
+  +".info{width:100%;border-collapse:collapse;margin-bottom:1.5mm}.info td{border:1px solid #000;padding:1mm 2mm;font-size:8.5pt;color:#000}.info .lbl{font-weight:800;width:30%}.info .val{font-weight:700}"
+  +".sec{font-size:7pt;font-weight:800;color:#000;margin:1.5mm 0 1mm}"
+  +"table.it{width:100%;border-collapse:collapse}table.it th{background:#E2E8F0;font-weight:800;font-size:7pt;padding:1mm 1.5mm;border:1px solid #94A3B8;text-align:right;color:#000}"
+  +"table.it td{padding:1mm 1.5mm;border:1px solid #CBD5E1;font-size:8pt;color:#000}.it .mn{font-weight:800;font-size:9pt}.it .ds{font-size:7pt;color:#000}.it .qt{text-align:center;font-weight:800;font-size:10pt;color:#000}.it .pr{text-align:center;font-size:8pt}"
+  +".tbox{border:2px solid #000;border-radius:2mm;padding:1.5mm 2mm;margin-bottom:1.5mm;font-size:9pt;color:#000}"
   +".trow{display:flex;justify-content:space-between;font-weight:700;line-height:1.5}"
-  +".tnet{border-top:1px solid #000;padding-top:1mm;margin-top:1mm;font-weight:900;font-size:11pt;color:#059669}"
-  /* V18.29: Summary box — used when itemCount > 8 (replaces items table) */
-  +".sumbox{border:2px solid #0EA5E9;border-radius:3mm;padding:4mm 3mm;margin:3mm 0 2mm;background:#F0F9FF}"
-  +".sumrow{display:flex;justify-content:space-between;align-items:center;padding:2mm 0;border-bottom:1px dashed #0EA5E940;font-size:10pt}.sumrow:last-child{border-bottom:none}"
-  +".sumlbl{font-weight:700;color:#475569}.sumval{font-weight:900;font-size:13pt;color:#000}.sumval.acc{color:#0EA5E9}"
+  +".tnet{border-top:1px solid #000;padding-top:1mm;margin-top:1mm;font-weight:900;font-size:11pt;color:#000}"
+  /* V18.29: Summary box — used when itemCount > 8 (replaces items table). V18.30: All-black text */
+  +".sumbox{border:2px solid #000;border-radius:3mm;padding:4mm 3mm;margin:3mm 0 2mm;background:#F0F9FF}"
+  +".sumrow{display:flex;justify-content:space-between;align-items:center;padding:2mm 0;border-bottom:1px dashed #000;font-size:10pt;color:#000}.sumrow:last-child{border-bottom:none}"
+  +".sumlbl{font-weight:700;color:#000}.sumval{font-weight:900;font-size:13pt;color:#000}.sumval.acc{color:#000}"
   +".qrbox{display:flex;align-items:flex-end;justify-content:space-between;margin-top:auto;padding-top:2mm;gap:2mm}"
-  +".qrbox .qrc{text-align:center;padding:1mm;border:2px solid #000;border-radius:2mm}.qrbox .qrc .lab{font-size:6pt;font-weight:700;margin-top:0.5mm}"
-  +".ft{text-align:center;font-size:7pt;color:#555;padding-top:1mm;border-top:1px dashed #000;margin-top:1.5mm}"
+  +".qrbox .qrc{text-align:center;padding:1mm;border:2px solid #000;border-radius:2mm}.qrbox .qrc .lab{font-size:6pt;font-weight:700;margin-top:0.5mm;color:#000}"
+  +".ft{text-align:center;font-size:7pt;color:#000;padding-top:1mm;border-top:1px dashed #000;margin-top:1.5mm}"
   +".pbar{position:sticky;top:0;background:#fff;padding:4px;display:none;justify-content:center;gap:6px;border-bottom:2px solid #ccc}"
-  +".pbar button{padding:5px 14px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'"+fontFam+"';font-size:11px;font-weight:700;background:#fff}.pbar .pr-btn{background:#000;color:#fff}"
+  +".pbar button{padding:5px 14px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'"+fontFam+"';font-size:11px;font-weight:700;background:#fff;color:#000}.pbar .pr-btn{background:#000;color:#fff}"
   +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
   /* V16.71: page-break for multi-page (shipN > 1) — each label on its own page */
   +".pg{page-break-after:always}.pg:last-child{page-break-after:auto}"
   /* V16.71: shipment count badge — appears next to QR when N>1 */
-  +".shipbadge{font-size:18pt;font-weight:800;border:3px solid #000;border-radius:8px;padding:1mm 5mm;line-height:1;text-align:center}"
+  +".shipbadge{font-size:18pt;font-weight:800;border:3px solid #000;border-radius:8px;padding:1mm 5mm;line-height:1;text-align:center;color:#000}"
   +"</style></head><body>"
   +"<div class='pbar'><button onclick='window.close()'>↩</button><button class='pr-btn' onclick='window.print()'>🖨</button></div>");
   /* V16.71: Build one .pg per shipment. Each page carries the same content
@@ -296,7 +302,7 @@ export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,t
         +(showPrices?"<th>السعر</th><th>الإجمالي</th>":"")
         +"</tr></thead><tbody>"+itemRows
         +"<tr style='background:#EFF6FF'><td colspan='"+colSpanForTotal+"' style='font-weight:800'>الإجمالي</td><td class='qt' style='font-size:11pt'>"+totalQ+"</td>"
-        +(showPrices?"<td colspan='2' class='pr' style='font-weight:900;color:#059669'>"+fmt(netAmt)+" ج.م</td>":"")
+        +(showPrices?"<td colspan='2' class='pr' style='font-weight:900;color:#000'>"+fmt(netAmt)+" ج.م</td>":"")
         +"</tr></tbody></table>";
     bodyHtml+="<div class='pg'><div class='pg-inner'>"
       +brandHtml
@@ -437,15 +443,15 @@ export function renderLabelPages(d,n,cfg,clarkLogoDataUrl,confirmUrl,existingWin
   +".brand{text-align:center;padding-bottom:1.5mm;border-bottom:2px solid #000;margin-bottom:2mm}"
   +".brand-img{height:8mm;max-width:60%;filter:brightness(0) saturate(100%);display:inline-block;object-fit:contain;vertical-align:middle}"
   +".brand-txt{font-size:11pt;font-weight:800;letter-spacing:2px;color:#000}"
-  +".tp{text-align:center;font-size:11pt;font-weight:800;border:2.5px solid #000;display:block;width:fit-content;padding:1mm 6mm;border-radius:4px;margin:0 auto 2mm}"
-  +".big{text-align:center;padding:2mm;border:2.5px solid #000;border-radius:6px;margin-bottom:2mm}.big .pc{font-size:13pt;font-weight:800}.big .qt{font-size:18pt;font-weight:800}"
-  +"table{width:100%;border-collapse:collapse;margin-bottom:2mm}td{padding:1mm 3mm;font-size:9pt;font-weight:700;border:1px solid #000}td.k{font-weight:800;width:35%}"
-  +".mv{border:2px solid #000;border-radius:4px;overflow:hidden;margin-bottom:2mm}.mvr{display:flex;justify-content:space-between;padding:1.5mm 3mm;font-size:9pt;font-weight:800;border-bottom:1px solid #000}.mvr:last-child{border-bottom:none}"
+  +".tp{text-align:center;font-size:11pt;font-weight:800;border:2.5px solid #000;display:block;width:fit-content;padding:1mm 6mm;border-radius:4px;margin:0 auto 2mm;color:#000}"
+  +".big{text-align:center;padding:2mm;border:2.5px solid #000;border-radius:6px;margin-bottom:2mm;color:#000}.big .pc{font-size:13pt;font-weight:800}.big .qt{font-size:18pt;font-weight:800}"
+  +"table{width:100%;border-collapse:collapse;margin-bottom:2mm}td{padding:1mm 3mm;font-size:9pt;font-weight:700;border:1px solid #000;color:#000}td.k{font-weight:800;width:35%}"
+  +".mv{border:2px solid #000;border-radius:4px;overflow:hidden;margin-bottom:2mm}.mvr{display:flex;justify-content:space-between;padding:1.5mm 3mm;font-size:9pt;font-weight:800;border-bottom:1px solid #000;color:#000}.mvr:last-child{border-bottom:none}"
   +".bot{display:flex;align-items:center;justify-content:space-between;gap:3mm;margin-top:auto;padding-top:2mm}"
   +".qrbox{text-align:center;padding:1mm;border:2px solid #000;border-radius:4px}.qrbox canvas{width:22mm;height:22mm;display:block}"
-  +".qrbox .qrlbl{font-size:6pt;font-weight:700;margin-top:0.5mm;color:#333}"
-  +".bags{font-size:26pt;font-weight:800;border:3px solid #000;border-radius:8px;padding:1mm 5mm;line-height:1}"
-  +".foot{text-align:center;font-size:7pt;color:#555;padding-top:1mm;border-top:1px dashed #000;margin-top:2mm}"
+  +".qrbox .qrlbl{font-size:6pt;font-weight:700;margin-top:0.5mm;color:#000}"
+  +".bags{font-size:26pt;font-weight:800;border:3px solid #000;border-radius:8px;padding:1mm 5mm;line-height:1;color:#000}"
+  +".foot{text-align:center;font-size:7pt;color:#000;padding-top:1mm;border-top:1px dashed #000;margin-top:2mm}"
   +".pbar{position:sticky;top:0;background:#fff;padding:4px;display:none;justify-content:center;gap:6px;border-bottom:2px solid #ccc;z-index:99}"
   +".pbar button{padding:5px 14px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'"+fontFam+"';font-size:11px;font-weight:700;background:#fff}.pbar .pr{background:#000;color:#fff}"
   +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
@@ -592,7 +598,7 @@ export function printSalaryEnvelopes(empsList,weekInfo,configInfo){
     +".logo{width:14mm;height:14mm;object-fit:contain;flex-shrink:0}"
     +".logo-ph{width:14mm;height:14mm;flex-shrink:0}"
     +".brand{font-size:16pt;font-weight:900;flex:1;letter-spacing:0.5px}"
-    +".date{font-size:10pt;font-weight:600;color:#555;font-family:'Cairo',monospace;white-space:nowrap}"
+    +".date{font-size:10pt;font-weight:600;color:#000;font-family:'Cairo',monospace;white-space:nowrap}"
     /* Divider */
     +".divider{height:2px;background:linear-gradient(90deg,#000 0%,#000 20%,#888 50%,#000 80%,#000 100%);margin:1mm 0 4mm}"
     /* Body: QR column on right, employee info on left */
@@ -606,10 +612,10 @@ export function printSalaryEnvelopes(empsList,weekInfo,configInfo){
     /* Employee info */
     +".emp-info{flex:1;display:flex;flex-direction:column;gap:2.5mm}"
     +".emp-name{font-size:22pt;font-weight:900;line-height:1.1}"
-    +".emp-code{font-size:12pt;font-weight:600;color:#333}"
+    +".emp-code{font-size:12pt;font-weight:600;color:#000}"
     +".emp-code b{font-family:monospace;font-size:13pt;font-weight:800}"
     +".emp-cta{font-size:11pt;font-weight:800;color:#000;padding-top:2mm;border-top:1px dashed #999;margin-top:1mm;line-height:1.4}"
-    +".emp-cta-sub{font-size:9pt;font-weight:500;color:#666}"
+    +".emp-cta-sub{font-size:9pt;font-weight:500;color:#000}"
     /* On-screen preview controls (hidden on print) */
     +".pbar{position:sticky;top:0;background:#fff;padding:6px;display:none;justify-content:center;gap:8px;border-bottom:2px solid #ccc;z-index:10}"
     +".pbar button{padding:6px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:11px;font-weight:700;background:#fff}"

@@ -12,6 +12,7 @@ import { playBeep } from "./utils/audio.js";
 import { compressImage, compressImg43 } from "./utils/image.js";
 import { loadXLSX, loadQR, loadJsQR, scanQR, compressFile } from "./utils/qr.js";
 import { addAudit } from "./utils/audit.js";
+import { setUpConfigCallback as registerAutoPostCallback } from "./utils/accounting/autoPost.js";
 import { prefetchIpInfo } from "./utils/device.js";
 import { enforceDataLimits } from "./utils/dataLimits.js";
 import { syncAllSplitChanges, stripSplitArrays, SPLIT_COLLECTIONS, SPLIT_FIELDS } from "./utils/splitCollections.js";
@@ -57,6 +58,8 @@ const CostPg = lazyNamed(() => import("./pages/CostPg.jsx"), "CostPg");
 const TasksPg = lazyNamed(() => import("./pages/TasksPg.jsx"), "TasksPg");
 const SettingsPg = lazyNamed(() => import("./pages/SettingsPg.jsx"), "SettingsPg");
 const AuditPg = lazyNamed(() => import("./pages/AuditPg.jsx"), "AuditPg");
+/* V18.35: Accounting system — chart of accounts, journal, trial balance, settings */
+const AccountingPg = lazyNamed(() => import("./pages/AccountingPg.jsx"), "AccountingPg");
 /* V15.59: Mobile Warehouse — accessed via /warehouse URL */
 import { MobileWarehouseShell } from "./pages/mobile/MobileWarehouseShell.jsx";
 const WarehousePg = lazyNamed(() => import("./pages/WarehousePg.jsx"), "WarehousePg");
@@ -1578,6 +1581,12 @@ export default function App(){
     upConfigTx(next,newSplit,newPart,explicitSplitBefore,explicitPartBefore);
   },[upConfigTx,configDoc,splitLoaded,partitionedLoaded,registerPendingSplitWrites,registerPendingPartitionedWrites]);
 
+  /* V18.38: Register the autoPost module's upConfig callback so it can persist
+     posting failures into data.accountingPostFailures for the user to review. */
+  useEffect(() => {
+    registerAutoPostCallback(upConfig);
+  }, [upConfig]);
+
   const upSalesTx=useCallback(async(fn)=>{
     const ref=doc(db,"factory","sales");
     let lastErr=null;
@@ -2067,7 +2076,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V18.29 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >V18.41 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -2510,6 +2519,7 @@ export default function App(){
         {tab==="treasury"&&<TreasuryPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("treasury")} user={user} userRole={userRole}/>}
         {tab==="hr"&&<HRPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("hr")} user={user} userRole={userRole} getHrSubPerm={getHrSubPerm} setSavingOverlay={setSavingOverlay}/>}
         {tab==="audit"&&canViewTab("audit")&&<AuditPg data={data} isMob={isMob} user={user}/>}
+        {tab==="accounting"&&<AccountingPg data={data} config={config} upConfig={upConfig} isMob={isMob} user={user}/>}
         </Suspense>
         </ChunkErrorBoundary>
       </div>}
@@ -3123,7 +3133,7 @@ export default function App(){
       </div>
     )}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.29"/>
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.41"/>
   </div>
 }
 

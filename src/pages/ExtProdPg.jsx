@@ -14,10 +14,12 @@ import { db } from "../firebase";
 import { T, TD, TDB, TH } from "../theme.js";
 import { fmt, gIcon, gf, gid, r2, dayName, openWA } from "../utils/format.js";
 import { calcOrder, recomputeStatus, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
+import { buildWorkshopSummary, formatWorkshopSummaryWA } from "../utils/accountSummary.js";
 import { ask, showToast, tell } from "../utils/popups.js";
 import { printPage } from "../utils/print.js";
 import { loadQR } from "../utils/qr.js";
 import { exportExcel, printLabel, printReceipt, printReceiveReceipt } from "../utils/print-extras.js";
+import { autoPost } from "../utils/accounting/autoPost.js";
 
 export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,season,user}){
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
@@ -184,7 +186,11 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
     setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice("");setDelDate(new Date().toISOString().split("T")[0]);showToast("✓ تم تسليم "+saveQty+" قطعة لـ "+selWs);
     if(andPrint){const printOrd=JSON.parse(JSON.stringify(ord));const pWs=selWs;const pWsOwner=wsObj?wsObj.owner:"";const pGt=data.garmentTypes;setTimeout(()=>printReceipt(pWs,pWsOwner,printOrd,saveType,saveQty,saveDate,Math.max(0,availAfter),pGt),400)}
     if(andLabel){const printOrd=JSON.parse(JSON.stringify(ord));const pWs=selWs;const pGt=data.garmentTypes;setTimeout(()=>printLabel(pWs,printOrd,saveType,saveQty,saveDate,pGt,{type:"deliver",delDate:saveDate,delQty:saveQty}),400)}
-    if(andWa){const phone=wsObj?.phone||"";const msg="*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+selWs+"*%0A• رقم الموديل: *"+ord.modelNo+"*%0A• الوصف: "+ord.modelDesc+"%0A• نوع القطعة: *"+saveType+"*%0A• الكمية: *"+saveQty+"* قطعة%0A• السعر: *"+savePrice+"* ج.م/قطعة%0A• التاريخ: *"+saveDate+"*"+(Number(delAgreed)>0?"%0A• مدة التسليم: *"+delAgreed+"* يوم%0A• موعد التسليم: *"+new Date(new Date(saveDate).getTime()+Number(delAgreed)*86400000).toISOString().split("T")[0]+"*":"")+"%0A%0A*برجاء التأكيد*";openWA("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
+    if(andWa){const phone=wsObj?.phone||"";let msg="*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+selWs+"*%0A• رقم الموديل: *"+ord.modelNo+"*%0A• الوصف: "+ord.modelDesc+"%0A• نوع القطعة: *"+saveType+"*%0A• الكمية: *"+saveQty+"* قطعة%0A• السعر: *"+savePrice+"* ج.م/قطعة%0A• التاريخ: *"+saveDate+"*"+(Number(delAgreed)>0?"%0A• مدة التسليم: *"+delAgreed+"* يوم%0A• موعد التسليم: *"+new Date(new Date(saveDate).getTime()+Number(delAgreed)*86400000).toISOString().split("T")[0]+"*":"")+"%0A%0A*برجاء التأكيد*";
+      /* V18.33: Append workshop account summary footer */
+      const summary=formatWorkshopSummaryWA(buildWorkshopSummary(selWs,data),(data?.printSettings||{}).whatsappSummary);
+      if(summary)msg+=encodeURIComponent(summary);
+      openWA("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
   };
 
   const receiveFromWs=(orderId,wdIdx,andPrint,printData,cardKey,andWa,andLabel)=>{
@@ -205,7 +211,11 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
     clearRcv(cardKey);showToast("✓ تم استلام "+saveQty+" قطعة");
     if(andPrint&&printData){const pOrd=JSON.parse(JSON.stringify(ord));if(pOrd.workshopDeliveries&&pOrd.workshopDeliveries[wdIdx]){if(!pOrd.workshopDeliveries[wdIdx].receives)pOrd.workshopDeliveries[wdIdx].receives=[];pOrd.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty})}const pWs=selWs;const pType=wd.garmentType||"";const pGt=data.garmentTypes;setTimeout(()=>printReceiveReceipt(pWs,pOrd,pType,saveQty,saveDate,0,pGt),400)}
     if(andLabel){const pOrd=JSON.parse(JSON.stringify(ord));const pGt=data.garmentTypes;setTimeout(()=>printLabel(wd.wsName,pOrd,wd.garmentType||"عام",saveQty,saveDate,pGt,{type:"receive",delDate:wd.date,delQty:wd.qty,rcvDate:saveDate,rcvQty:saveQty}),400)}
-    if(andWa){const wsObj=workshops.find(w=>w.name===wd.wsName);const phone=wsObj?.phone||"";const totalDelivered=Number(wd.qty)||0;const allRcvs=(wd.receives||[]);const totalRcvBefore=allRcvs.reduce((s,r)=>s+(Number(r.qty)||0),0);const remaining=totalDelivered-(totalRcvBefore+saveQty);const rcvHistory=allRcvs.length>0?allRcvs.map(r=>"  ↩ "+r.date+": *"+r.qty+"* قطعة").join("%0A")+"%0A":"";const msg="*CLARK — اذن استلام من ورشة*%0A%0A• الورشة: *"+wd.wsName+"*%0A• رقم الموديل: *"+ord.modelNo+"*%0A• الوصف: "+ord.modelDesc+"%0A• نوع القطعة: *"+(wd.garmentType||"عام")+"*%0A%0A━━━━━━━━━━━━━━%0A📤 تسليم للورشة: *"+totalDelivered+"* قطعة%0A"+(rcvHistory?"📥 سجل الاستلام:%0A"+rcvHistory:"")+"📥 استلام اليوم: *"+saveQty+"* قطعة%0A📊 الرصيد عند الورشة: *"+Math.max(0,remaining)+"* قطعة%0A━━━━━━━━━━━━━━%0A%0A• التاريخ: *"+saveDate+"*";openWA("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
+    if(andWa){const wsObj=workshops.find(w=>w.name===wd.wsName);const phone=wsObj?.phone||"";const totalDelivered=Number(wd.qty)||0;const allRcvs=(wd.receives||[]);const totalRcvBefore=allRcvs.reduce((s,r)=>s+(Number(r.qty)||0),0);const remaining=totalDelivered-(totalRcvBefore+saveQty);const rcvHistory=allRcvs.length>0?allRcvs.map(r=>"  ↩ "+r.date+": *"+r.qty+"* قطعة").join("%0A")+"%0A":"";let msg="*CLARK — اذن استلام من ورشة*%0A%0A• الورشة: *"+wd.wsName+"*%0A• رقم الموديل: *"+ord.modelNo+"*%0A• الوصف: "+ord.modelDesc+"%0A• نوع القطعة: *"+(wd.garmentType||"عام")+"*%0A%0A━━━━━━━━━━━━━━%0A📤 تسليم للورشة: *"+totalDelivered+"* قطعة%0A"+(rcvHistory?"📥 سجل الاستلام:%0A"+rcvHistory:"")+"📥 استلام اليوم: *"+saveQty+"* قطعة%0A📊 الرصيد عند الورشة: *"+Math.max(0,remaining)+"* قطعة%0A━━━━━━━━━━━━━━%0A%0A• التاريخ: *"+saveDate+"*";
+      /* V18.33: Append workshop account summary footer */
+      const summary=formatWorkshopSummaryWA(buildWorkshopSummary(wd.wsName,data),(data?.printSettings||{}).whatsappSummary);
+      if(summary)msg+=encodeURIComponent(summary);
+      openWA("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
   };
 
   /* Collect all movements for the log — memoized */
@@ -255,14 +265,21 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
   };
   const addPayment=(wa)=>{if(!payWs||!payAmt)return;const wsObj=workshops.find(w=>w.name===payWs);
     const wsPayId=gid();const txId=gid();
+    const _newWsPayment={id:wsPayId,wsName:payWs,wsId:wsObj?wsObj.id:null,amount:Number(payAmt),type:payType,notes:payNote,date:payDate,createdBy:userName||"",treasuryTxId:txId};
     upConfig(d=>{if(!d.wsPayments)d.wsPayments=[];
-      d.wsPayments.push({id:wsPayId,wsName:payWs,wsId:wsObj?wsObj.id:null,amount:Number(payAmt),type:payType,notes:payNote,date:payDate,createdBy:userName||"",treasuryTxId:txId});
+      d.wsPayments.push(_newWsPayment);
       /* Auto-register in treasury — linked to ws payment */
       if(!d.treasury)d.treasury=[];d.treasury.unshift({id:txId,type:"out",amount:Number(payAmt),desc:(payType==="payment"?"دفعة ورشة ":"مشتريات ورشة ")+payWs+(payNote?" — "+payNote:""),notes:"",category:payType==="payment"?"تشغيل خارجي":"مشتريات",account:"SUB CASH",season:d.activeSeason||"",date:payDate,day:dayName(payDate),sourceType:"ws_payment",wsPaymentId:wsPayId,wsName:payWs,by:userName||"",createdAt:new Date().toISOString()})});
-    if(wa){const acc=wsAccounts(payWs);let del=0,rcv=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===payWs).forEach(wd=>{del+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{rcv+=Number(r.qty)||0})})});
-      const allPay=(data.wsPayments||[]).filter(p=>p.wsName===payWs&&p.type==="payment");const totalPaid=allPay.reduce((s,p)=>s+(Number(p.amount)||0),0)+Number(payAmt);
+    /* V18.35: auto-post journal entry */
+    autoPost.workshopPay(data, _newWsPayment, wsObj, userName).catch(()=>{});
+    if(wa){
       const phone=wsObj?.phone||"";
-      const msg="*CLARK — اشعار دفعة*%0A%0A• الورشة: *"+payWs+"*%0A• نوع العملية: *"+(payType==="payment"?"دفعة":"مشتريات")+"*%0A• المبلغ: *"+fmt(Number(payAmt))+"* ج.م%0A• التاريخ: *"+payDate+"*%0A"+(payNote?"• ملاحظات: "+payNote+"%0A":"")+"%0A─────────────────%0A*ملخص الحساب*%0A• تم تسليمه للورشة: "+fmt(del)+" قطعة%0A• تم استلامه للمصنع: "+fmt(rcv)+" قطعة%0A• اجمالي المستحق: "+fmt(r2(acc.due))+" ج.م%0A• اجمالي المشتريات: "+fmt(r2(acc.totalPurchase))+" ج.م%0A• اجمالي المدفوع: "+fmt(r2(totalPaid))+" ج.م%0A• الرصيد المتبقي: *"+fmt(r2(acc.due+acc.totalPurchase-totalPaid))+"* ج.م";
+      let msg="*CLARK — اشعار دفعة*%0A%0A• الورشة: *"+payWs+"*%0A• نوع العملية: *"+(payType==="payment"?"دفعة":"مشتريات")+"*%0A• المبلغ: *"+fmt(Number(payAmt))+"* ج.م%0A• التاريخ: *"+payDate+"*"+(payNote?"%0A• ملاحظات: "+payNote:"");
+      /* V18.33: Append configurable workshop account summary (replaces inline hardcoded summary).
+         Build summary AFTER the upConfig above has registered the new payment so the totals reflect it. */
+      const updatedData={...data,wsPayments:[...(data.wsPayments||[]),{wsName:payWs,amount:Number(payAmt),type:payType}]};
+      const summary=formatWorkshopSummaryWA(buildWorkshopSummary(payWs,updatedData),(data?.printSettings||{}).whatsappSummary);
+      if(summary)msg+=encodeURIComponent(summary);
       openWA("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
     setPayAmt("");setPayNote("");setPayDate(new Date().toISOString().split("T")[0])};
 
@@ -507,7 +524,11 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
         if(pages.length===0)return;
         const combined=pages.map((p,i)=>"<div"+(i>0?" style='page-break-before:always'":"")+">"+p+"</div>").join("");
         printPage("اذونات مجمعة ("+pages.length+")",combined)};
-      const waBatch=()=>{if(selArr.length===0)return;const byWs={};selArr.forEach(m=>{if(!byWs[m.wsName])byWs[m.wsName]=[];byWs[m.wsName].push(m)});Object.entries(byWs).forEach(([ws,items])=>{const wsObj=workshops.find(w=>w.name===ws);const phone=wsObj?.phone||"";const lines=items.map(m=>{const _o=data.orders.find(o=>o.id===m.orderId);const _w=_o?((_o.workshopDeliveries||[])[m.wdIdx]):null;const _dq=_w?Number(_w.qty)||0:0;const _tr=_w?(_w.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0):0;const _bal=_dq-_tr;return m.type==="deliver"?"📤 تسليم — موديل *"+m.orderNo+"*%0A  "+(m.orderDesc||"-")+" — "+(m.garmentType||"عام")+" — *"+m.qty+"* قطعة":"📥 استلام — موديل *"+m.orderNo+"*%0A  "+(m.orderDesc||"-")+" — "+(m.garmentType||"عام")+"%0A  تسليم للورشة: *"+_dq+"* | استلام مصنع: *"+_tr+"* | رصيد: *"+Math.max(0,_bal)+"*"}).join("%0A%0A───────────%0A");const tQty=items.reduce((s,m)=>s+(Number(m.qty)||0),0);const msg="*CLARK — ملخص حركات*%0A%0A• الورشة: *"+ws+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+tQty+"* قطعة%0A%0A*برجاء التأكيد*";openWA("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")})};
+      const waBatch=()=>{if(selArr.length===0)return;const byWs={};selArr.forEach(m=>{if(!byWs[m.wsName])byWs[m.wsName]=[];byWs[m.wsName].push(m)});Object.entries(byWs).forEach(([ws,items])=>{const wsObj=workshops.find(w=>w.name===ws);const phone=wsObj?.phone||"";const lines=items.map(m=>{const _o=data.orders.find(o=>o.id===m.orderId);const _w=_o?((_o.workshopDeliveries||[])[m.wdIdx]):null;const _dq=_w?Number(_w.qty)||0:0;const _tr=_w?(_w.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0):0;const _bal=_dq-_tr;return m.type==="deliver"?"📤 تسليم — موديل *"+m.orderNo+"*%0A  "+(m.orderDesc||"-")+" — "+(m.garmentType||"عام")+" — *"+m.qty+"* قطعة":"📥 استلام — موديل *"+m.orderNo+"*%0A  "+(m.orderDesc||"-")+" — "+(m.garmentType||"عام")+"%0A  تسليم للورشة: *"+_dq+"* | استلام مصنع: *"+_tr+"* | رصيد: *"+Math.max(0,_bal)+"*"}).join("%0A%0A───────────%0A");const tQty=items.reduce((s,m)=>s+(Number(m.qty)||0),0);let msg="*CLARK — ملخص حركات*%0A%0A• الورشة: *"+ws+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+tQty+"* قطعة%0A%0A*برجاء التأكيد*";
+        /* V18.33: Append workshop account summary */
+        const summary=formatWorkshopSummaryWA(buildWorkshopSummary(ws,data),(data?.printSettings||{}).whatsappSummary);
+        if(summary)msg+=encodeURIComponent(summary);
+        openWA("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")})};
       return<div id="mov-log">
       {/* Late deliveries view */}
       {movTypeF==="late"&&<div>
