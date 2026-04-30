@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V18.70",
+    date: "2026-04-30",
+    types: ["feature", "architectural"],
+    title: "🔒 Security Phase 1: Firestore Rules + Storage Rules + Admin Bootstrap",
+    changes: [
+      { type: "feature", text: "🛡️ إضافة `firestore.rules` كامل بصلاحيات على مستوى الدور (admin/manager/sales_accountant/purchase_accountant/payroll_accountant/payroll_verifier/viewer). كل collection محمية: factory, accountingDays, treasuryDays, auditDays, hrLogDays, hrWeeksDocs, seasons/orders, fixedAssets, backups, migrationLog. الـ default = deny." },
+      { type: "feature", text: "🗄️ إضافة `storage.rules` — Firebase Storage بقت محمية بـauth check + حد أقصى 25MB لأي upload. مفيش public access — كل ملف يتطلب تسجيل دخول." },
+      { type: "feature", text: "📦 إضافة `firebase.json` — config للـdeployment عبر firebase CLI: `firebase deploy --only firestore:rules,storage:rules`." },
+      { type: "feature", text: "🔑 Bootstrap Admin Escape Hatch: `BOOTSTRAP_ADMIN_UID` env var جديد في Vercel + UID hardcoded في `firestore.rules`. لو القايمة قفلت على نفسها (مفيش admin شغال) — الحساب ده بيقدر يدخل بصلاحيات admin بغض النظر عن state الـconfig." },
+      { type: "feature", text: "📘 إضافة `SECURITY.md` — دليل خطوة بخطوة لتطبيق إصلاحات الأمان: deploy الـrules، تقييد الـAPI key في Google Cloud Console (HTTP referrers + API restrictions)، إعداد Vercel env vars، اختبار الـrules في Playground." },
+      { type: "improvement", text: "🔐 تحديث `api/_firebase.js → verifyAdminToken`: لو الـUID الـmatching مع `BOOTSTRAP_ADMIN_UID` env var، بيتمنح صلاحيات admin مباشرة بدون قراية الـconfig — حماية ضد config corruption." },
+      { type: "architectural", text: "⚠️ التغيير ده حرج جداً: قبل V18.70 الـDB كانت **مفتوحة بالكامل** — أي حد عنده الـAPI key (متاح في الـclient) يقدر يقرا/يكتب أي حاجة. بعد الـdeploy، فقط المسجلين دخول بأدوار صحيحة يقدروا يعملوا writes. **لازم تتبع SECURITY.md حرفياً قبل الـdeploy** عشان متقفلش النظام على نفسك." },
+    ]
+  },
+  {
     version: "V18.69",
     date: "2026-04-30",
     types: ["fix"],
@@ -173,23 +188,6 @@ const CHANGELOG = [
       { type: "feature", text: "🆕 الاستعادة الانتقائية (Selective Restore): أداة جديدة في الإعدادات بترجّع البيانات المحذوفة (عملاء، ورش، مستخدمين، إلخ) من نسخة قديمة بدون ما تلمس البيانات الحالية. بتقارن النسخة بالحالي وبتعرض إيه الناقص، وتقدر تختار حقول معينة فقط للاسترجاع. كل عنصر يترجع بيتعلّم بـrestoredAt + restoredFrom" },
       { type: "improvement", text: "📦 الـ backups بقت تحفظ counts أكتر (workshops, users, usersList) عشان تكون فيه شفافية أكبر وقت الاستعادة" },
       { type: "maintenance", text: "📂 utils/dataIntegrity.js: إضافة validateBeforeWrite() و isSafeWrite() — كاشف الكتابات الخطيرة" },
-    ]
-  },
-  {
-    version: "V18.59",
-    date: "2026-04-29",
-    types: ["improvement"],
-    title: "Custom Popups في باقي التطبيق (إعدادات، خزنة، تسليم، مخزن، مشتريات)",
-    changes: [
-      { type: "improvement", text: "🎨 9 ملفات إضافية محوّلة من نوافذ المتصفح (alert/confirm) إلى custom popups بـArabic + RTL + Cairo font" },
-      { type: "improvement", text: "⚙️ صفحة الإعدادات: 15 nation alert/confirm محوّل — كل تأكيدات إلغاء التعديلات + حذف اللوجو + حذف الجهات + حذف الرسائل" },
-      { type: "improvement", text: "💰 صفحة الخزنة: 7 dialogs محوّلة — حذف الجدولة المتكررة + تنفيذ المستحقات + التحقق من بيانات الجدولة + أخطاء الطباعة" },
-      { type: "improvement", text: "🚚 صفحة تسليم العملاء: 7 dialogs محوّلة — تحذير الـOCR للأرقام منخفضة الثقة + 5 أخطاء طباعة" },
-      { type: "improvement", text: "🏠 App.jsx (الواجهة الرئيسية): 5 dialogs محوّلة — تحذيرات تسليم الورشة + فشل الحفظ + أخطاء الطباعة" },
-      { type: "improvement", text: "📦 صفحات المخزن والمشتريات: 6 أخطاء طباعة محوّلة لـpopups موحدة" },
-      { type: "improvement", text: "📱 الواجهة المحمولة (MobileWarehouseShell): تأكيد الخروج بدون حفظ بقى popup أنيق بدلاً من window.confirm" },
-      { type: "improvement", text: "🔗 صفحات تأكيد التسليم العامة (ConfirmPage + WorkshopConfirmPage): أخطاء الإرسال بقت popups موحدة" },
-      { type: "improvement", text: "✅ النتيجة: تجربة موحّدة في كل التطبيق — مفيش نوافذ متصفح قبيحة في أي مكان (بقي فقط ~10 alerts في utils/print لأخطاء نادرة)" },
     ]
   },
 ];

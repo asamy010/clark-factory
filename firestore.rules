@@ -1,0 +1,163 @@
+rules_version = '2';
+
+/* ═══════════════════════════════════════════════════════════════
+   CLARK Factory — Firestore Security Rules (V18.70)
+
+   نموذج الصلاحيات:
+   - admin              : كل شيء
+   - manager            : كل شيء عدا تعديل الإعدادات الحساسة
+   - sales_accountant   : مبيعات + عملاء + قراءة عامة
+   - purchase_accountant: مشتريات + موردين + خزنة + قراءة عامة
+   - payroll_accountant : مرتبات + موظفين (بدون verify)
+   - payroll_verifier   : verify المرتبات فقط (QR scan)
+   - viewer             : قراءة فقط
+
+   الدور بيتقرا من factory/config — يدعم شكلين:
+     cfg.users[uid] = "admin"        (نص)
+     cfg.users[uid] = {role:"admin"} (object)
+
+   ═══════════════════════════════════════════════════════════════
+   ⚠️ Bootstrap Admin:
+   قبل الـdeploy، حط UID بتاع حساب الـadmin الأساسي بتاعك في
+   isBootstrapAdmin() عشان ميقفلش النظام على نفسه لو حصلت مشكلة
+   في factory/config.users.
+   ═══════════════════════════════════════════════════════════════ */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* ── Bootstrap admin (recovery escape hatch) ──
+       استبدل النص ده بالـUID بتاع حسابك من Firebase Console → Authentication.
+       لو سيبته فاضي، الـbootstrap recovery يكون معطل — وده مقبول لو واثق
+       إن في أكتر من admin مفعّل في factory/config.users. */
+    function isBootstrapAdmin() {
+      return request.auth != null
+          && request.auth.uid == 'fJDTS57ndvVfPozGgwYybKJymuA3';
+    }
+
+    function isAuthed() {
+      return request.auth != null;
+    }
+
+    /* قراءة الدور من factory/config — defensive ضد missing fields */
+    function getRole() {
+      let cfg = get(/databases/$(database)/documents/factory/config).data;
+      let u = cfg.get('users', {}).get(request.auth.uid, '');
+      return u is string
+        ? (u == '' ? 'viewer' : u)
+        : u.get('role', 'viewer');
+    }
+
+    function hasRole(roles) {
+      return isAuthed() && (isBootstrapAdmin() || getRole() in roles);
+    }
+
+    function isAdmin()        { return hasRole(['admin']); }
+    function isManagerPlus()  { return hasRole(['admin', 'manager']); }
+    function isAnyAccountant(){ return hasRole(['admin','manager','sales_accountant','purchase_accountant','payroll_accountant']); }
+    function isHRRole()       { return hasRole(['admin','manager','payroll_accountant','payroll_verifier']); }
+    function isAnyUser()      { return isAuthed() && (isBootstrapAdmin() || getRole() in ['admin','manager','sales_accountant','purchase_accountant','payroll_accountant','payroll_verifier','viewer']); }
+
+    /* ──────────────────────────────────────────────────────────
+       factory/{config|sales|tasks}
+       config = الإعدادات + lookup lists (عملاء/موردين/ورش/إلخ)
+       sales  = sessions البيع
+       tasks  = المهام
+       ────────────────────────────────────────────────────────── */
+    match /factory/{docId} {
+      allow read:  if isAnyUser();
+      allow write: if isManagerPlus();
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       seasons/{season}/orders/{orderId}
+       أوامر القص — نشاط تشغيلي
+       ────────────────────────────────────────────────────────── */
+    match /seasons/{season}/orders/{orderId} {
+      allow read:  if isAnyUser();
+      allow write: if isManagerPlus();
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       accountingDays/{YYYY-MM-DD}
+       القيود اليومية المحاسبية
+       ────────────────────────────────────────────────────────── */
+    match /accountingDays/{day} {
+      allow read:  if isAnyUser();
+      allow write: if isAnyAccountant();
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       treasuryDays/{YYYY-MM-DD}
+       حركات الخزنة اليومية
+       ────────────────────────────────────────────────────────── */
+    match /treasuryDays/{day} {
+      allow read:  if isAnyUser();
+      allow write: if hasRole(['admin','manager','purchase_accountant']);
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       auditDays/{YYYY-MM-DD}
+       سجل التدقيق — أي user يقدر يضيف، بس admin/manager بيقروا
+       ────────────────────────────────────────────────────────── */
+    match /auditDays/{day} {
+      allow read:  if isManagerPlus();
+      allow write: if isAuthed();
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       hrLogDays/{YYYY-MM-DD}
+       سجل أنشطة المرتبات — HR roles فقط
+       ────────────────────────────────────────────────────────── */
+    match /hrLogDays/{day} {
+      allow read, write: if isHRRole();
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       hrWeeksDocs/{weekId}
+       أسابيع المرتبات — HR roles فقط
+       ────────────────────────────────────────────────────────── */
+    match /hrWeeksDocs/{weekId} {
+      allow read, write: if isHRRole();
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       fixedAssets/{assetId}
+       الأصول الثابتة (V18.67)
+       ────────────────────────────────────────────────────────── */
+    match /fixedAssets/{assetId} {
+      allow read:  if isAnyUser();
+      allow write: if isManagerPlus();
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       backups/{backupId} + parts/{partName}
+       النسخ الاحتياطية — حساس، admin/manager فقط
+       (الـapp بيكتب backup قبل أي migration كبيرة)
+       ────────────────────────────────────────────────────────── */
+    match /backups/{backupId} {
+      allow read, write: if isManagerPlus();
+
+      match /parts/{partName} {
+        allow read, write: if isManagerPlus();
+      }
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       migrationLog/{logId}
+       سجل الـauto-migrations — read admin، write أي logged-in
+       (الـmigrations بتجري auto عند boot، فلازم write مفتوح للـauthenticated)
+       ────────────────────────────────────────────────────────── */
+    match /migrationLog/{logId} {
+      allow read:  if isManagerPlus();
+      allow write: if isAuthed();
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       Default deny — أي حاجة مش مذكورة فوق ممنوعة تماماً
+       ────────────────────────────────────────────────────────── */
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

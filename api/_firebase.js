@@ -120,6 +120,14 @@ export async function verifyAdminToken(token) {
   if (!decoded || !decoded.uid) {
     return { ok: false, status: 401, error: "مستخدم غير مصرّح" };
   }
+  /* V18.70: Bootstrap admin escape hatch.
+     If BOOTSTRAP_ADMIN_UID is set in Vercel env vars and matches the
+     decoded UID, grant admin role unconditionally — even if config is
+     corrupted or the role list locked everyone out. Use sparingly. */
+  const bootstrapUid = (process.env.BOOTSTRAP_ADMIN_UID || "").trim();
+  if (bootstrapUid && decoded.uid === bootstrapUid) {
+    return { ok: true, uid: decoded.uid, email: decoded.email, role: "admin" };
+  }
   /* Look up role from config — same shape as getUserRole() in App.jsx */
   let role = "viewer";
   try {
