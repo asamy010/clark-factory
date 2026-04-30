@@ -689,6 +689,47 @@ export default function App(){
         }
       );
 
+      /* ═══ Migration 3d (V18.74 Arabic-normalized): final backfill pass
+         using the Arabic-normalized matcher in matchWorkshopFromDesc. The
+         earlier passes used strict String.includes() which missed entries
+         where the spelling differs (ة/ه, أ/ا, ى/ي, etc.). New key so it
+         re-runs once on existing installs. ═══ */
+      runMigration("ws-treasury-arabic-norm-backfill",d,
+        (data)=>!data._wsTreasuryArabicNormBackfill&&Array.isArray(data.treasury)&&Array.isArray(data.workshops)&&data.workshops.length>0,
+        (data)=>{
+          if(!Array.isArray(data.wsPayments))data.wsPayments=[];
+          let linked=0;
+          (data.treasury||[]).forEach(t=>{
+            if(!t||t.wsPaymentId)return;
+            if(t.type!=="out")return;
+            if(t.category!=="تشغيل خارجي"&&t.category!=="مشتريات")return;
+            const haystack=((t.desc||"")+" "+(t.notes||"")).trim();
+            const ws=matchWorkshopFromDesc(haystack,data.workshops);
+            if(!ws)return;
+            const wsPayId="wsp_bf3_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,7);
+            data.wsPayments.push({
+              id:wsPayId,
+              wsName:ws.name,
+              wsId:ws.id,
+              amount:Number(t.amount)||0,
+              type:t.category==="مشتريات"?"purchase":"payment",
+              notes:t.notes||"",
+              date:t.date||"",
+              createdBy:t.by||"backfill",
+              treasuryTxId:t.id,
+              createdAt:t.createdAt||new Date().toISOString(),
+              backfilledAt:new Date().toISOString(),
+            });
+            t.wsPaymentId=wsPayId;
+            t.wsName=ws.name;
+            if(!t.sourceType)t.sourceType="ws_payment";
+            linked++;
+          });
+          data._wsTreasuryArabicNormBackfill=true;
+          return"linked="+linked;
+        }
+      );
+
       /* ═══ Migration 4: rename legacy status cards ═══ */
       runMigration("status-rename",d,
         (data)=>!data._statusRenameDone&&Array.isArray(data.statusCards),
@@ -2318,7 +2359,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V18.73 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >V18.74 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<>
           <span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>
@@ -2326,7 +2367,7 @@ export default function App(){
             onClick={()=>setShowAboutVersion(true)}
             title="عرض سجل التحديثات"
             style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,fontFamily:"monospace",background:T.navText?"rgba(255,255,255,0.15)":T.accent+"10",color:T.navText||T.accent,cursor:"pointer"}}
-          >V18.73</span>
+          >V18.74</span>
         </>}
       </div>
 
@@ -3385,7 +3426,7 @@ export default function App(){
       </div>
     )}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.73"/>
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.74"/>
   </div>
 }
 

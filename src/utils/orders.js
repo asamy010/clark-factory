@@ -596,15 +596,36 @@ export function getOrderTimeline(o,t){
    Edge case handled: when one match's name is a strict substring of a longer
    match (e.g. "محمد" inside "محمد ستارال"), we pick the longer one — that's
    the real workshop, the shorter is just an accidental substring hit. */
+/* V18.73: Normalize Arabic text for matching — collapse common variants
+   (alef forms, ta marbuta vs ha, alef maksura vs ya, kashida, diacritics,
+   tatweel, and whitespace). Used by workshop-name matching so that
+   e.g. "ورشه محمد ايمن" matches a workshop named "ورشة محمد أيمن". */
+function normalizeAr(s){
+  if(!s||typeof s!=="string")return"";
+  return s
+    .replace(/[\u064B-\u065F\u0670]/g,"")  /* diacritics + dagger alef */
+    .replace(/\u0640/g,"")                  /* tatweel */
+    .replace(/[\u0622\u0623\u0625\u0671]/g,"\u0627") /* أ إ آ → ا */
+    .replace(/\u0629/g,"\u0647")            /* ة → ه */
+    .replace(/\u0649/g,"\u064A")            /* ى → ي */
+    .replace(/\u0624/g,"\u0648")            /* ؤ → و */
+    .replace(/\u0626/g,"\u064A")            /* ئ → ي */
+    .replace(/\s+/g," ")
+    .trim();
+}
+
 export function matchWorkshopFromDesc(desc, workshops){
   if(!desc||typeof desc!=="string")return null;
   if(!Array.isArray(workshops)||workshops.length===0)return null;
+  const descN=normalizeAr(desc);
   const matches=[];
   for(const ws of workshops){
     if(!ws||!ws.name)continue;
     const name=ws.name.trim();
     if(!name)continue;
-    if(desc.includes(name))matches.push(ws);
+    const nameN=normalizeAr(name);
+    if(!nameN)continue;
+    if(descN.includes(nameN))matches.push(ws);
   }
   if(matches.length===0)return null;
   if(matches.length===1)return matches[0];
@@ -612,6 +633,7 @@ export function matchWorkshopFromDesc(desc, workshops){
      strict substring of it. Otherwise return null (genuinely ambiguous). */
   matches.sort((a,b)=>b.name.length-a.name.length);
   const longest=matches[0];
-  const allContained=matches.slice(1).every(m=>longest.name.includes(m.name));
+  const longestN=normalizeAr(longest.name);
+  const allContained=matches.slice(1).every(m=>longestN.includes(normalizeAr(m.name)));
   return allContained?longest:null;
 }

@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V18.74",
+    date: "2026-04-30",
+    types: ["fix", "improvement"],
+    title: "🔤 إصلاح matching الأسماء العربية + dropdown الورش في Repair UI",
+    changes: [
+      { type: "fix", text: "🚨 Bug في matchWorkshopFromDesc — المطابقة كانت بـString.includes() حرفياً، فأي اختلاف إملائي بسيط في اسم الورشة (مثلاً 'ورشة' vs 'ورشه'، 'أحمد' vs 'احمد'، 'علي' vs 'على') كان يمنع الـauto-link والـmigration من ربط الحركات. النتيجة: حركات كتيرة في الخزنة لاسم ورشة مشابه (مش متطابق) كانت بتفضل yatima ومش ظاهرة في كشف الحساب." },
+      { type: "improvement", text: "✨ Arabic Normalizer جديد: function `normalizeAr()` في `utils/orders.js` تطبّق normalization كامل قبل المقارنة — تشيل التشكيل/التطويل/الكشيدة، وتوحّد كل أشكال الألف (أ إ آ ٱ → ا)، الـة→ه، الـى→ي، الـؤ→و، الـئ→ي، وtrim للـwhitespace. متطبّقة على الاسم في الـDB والـdesc الاتنين قبل الـincludes." },
+      { type: "feature", text: "🔄 Migration 3d تلقائي: backfill ثالث بيشتغل مرة واحدة بعد deploy V18.74. يستخدم الـmatcher الجديد المُطبَّع، ويربط الحركات اللي الـ migrations القديمة فاتتها (مع الـArabic normalization). كل الدفعات اللي اسم ورشتها قريب لكن مش حرفي هيتربطوا تلقائياً." },
+      { type: "fix", text: "🚨 Bug في Repair UI dropdown: SearchSel كانت ما تعرضش الورش لما المستخدم يضغط عليها (الـ default behavior بتاعها يعرض النتائج بس بعد ما تكتب). أضيف `showAllOnFocus={true}` و `maxResults={50}` فالـdropdown دلوقتي يفتح فوراً ويعرض كل الورش (لحد 50) بمجرد التركيز عليه." },
+      { type: "improvement", text: "📱 رقم الإصدار في الموبايل: زرار 'V18.74' بقى يظهر في الـtopbar في عرض الموبايل بعد ما كان مخفي. الضغط عليه بيفتح الـAbout/Changelog modal زي الديسكتوب." },
+      { type: "improvement", text: "✅ نتيجة كل التحسينات (V18.72 → V18.74): الـworkflow بتاعك (تشغيل خارجي + اسم في desc بأي إملاء) بيشتغل تلقائياً 100%، حتى لو الإملاء بيختلف عن الـDB. والحالات الفعلاً غامضة بترجع للـRepair UI لاختيار يدوي." },
+    ]
+  },
+  {
     version: "V18.73",
     date: "2026-04-30",
     types: ["fix", "feature"],
@@ -156,20 +170,6 @@ const CHANGELOG = [
       { type: "improvement", text: "🔗 Audit trail محفوظ: deliveryRefs[] و returnRefs[] بقت arrays بدل reference واحد، بحيث كل توصيلة/مرتجع تتجمع تحتفظ بمرجعها الأصلي للتدقيق. الـ findInvoiceByDelivery و findCreditNoteByReturn اتحدثوا للبحث في الـarrays مع الحفاظ على backward compat للسجلات القديمة." },
       { type: "improvement", text: "♻️ Recompute آمن: مع كل عملية تجميع، الـ subtotal و discount و total يعاد حسابهم من البنود (مفيش تراكم أخطاء عشرية). الخصم بياخد customer.discount الحالي." },
       { type: "fix", text: "⚠️ autoPostOnCreate آمن مع التجميع: لما الإعداد ده مفعّل، الترحيل التلقائي للقيد بيشتغل فقط على الفواتير الجديدة (مش المدموجة). الفواتير اللي اتدمج فيها توصيل جديد بتفضل Draft للمراجعة اليدوية." },
-    ]
-  },
-  {
-    version: "V18.64",
-    date: "2026-04-29",
-    types: ["fix"],
-    title: "🔧 إصلاح: دفعات العملاء النقدية مش ظاهرة في كشف الحساب",
-    changes: [
-      { type: "fix", text: "🚨 Bug إصلاح: دفعات نقدية مسجلة في الخزنة بـ custId مش بتظهر في بطاقة 'إجمالي المدفوع' في كشف حساب العميل. السبب: desync تاريخي بين config.treasury و config.custPayments — حركات بدون treasuryTxId reference." },
-      { type: "fix", text: "🔄 الحل في الـ display: Card 4 (إجمالي المدفوع) و Card 5 (الرصيد) دلوقتي بيحسبوا الدفعات الـ orphan في الخزنة تلقائياً — حتى لو مش موجودة في custPayments. الأرقام بتظهر صح فوراً بدون أي تعديل على البيانات." },
-      { type: "feature", text: "⚠️ Banner تحذيري في كشف الحساب: لو في دفعات orphan في الخزنة لعميل، بيظهر banner أصفر بيقول 'X دفعة مش متزامنة' + المبلغ + زرار '🔧 مزامنة' (للـ admin) بيضيفها في custPayments بشكل دائم." },
-      { type: "feature", text: "🔍 PaymentsTab في المحاسبة: دلوقتي بيلاقي الـ orphan treasury entries (عملاء + موردين) ويعرضهم بـ badge أصفر 'غير مزامنة' — مع شريط جانبي ملون يميزهم في الجدول." },
-      { type: "improvement", text: "🛡️ زرار المزامنة آمن: بياخد العنصر من الخزنة (مش بيلمسها)، يضيف entry جديد في custPayments بـ treasuryTxId reference، ويحط marker reconciledFromTreasury+reconciledAt للـ audit trail." },
-      { type: "improvement", text: "🔐 Race-safe: الـ reconcile function بيتأكد جوة upConfig callback إن الـ entry مش متضافة بالفعل (لو جهاز تاني سبقنا) قبل ما يضيفها." },
     ]
   },
 ];
