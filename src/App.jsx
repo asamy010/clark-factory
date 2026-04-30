@@ -2241,7 +2241,12 @@ export default function App(){
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
           >V18.68 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
-        {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
+        {isMob&&<><span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>
+          <span
+            onClick={()=>setShowAboutVersion(true)}
+            title="عرض سجل التحديثات"
+            style={{fontSize:10,color:T.navText||T.textMut,fontWeight:700,fontFamily:"monospace",cursor:"pointer",padding:"2px 6px",borderRadius:5,background:T.navBg?"rgba(255,255,255,0.12)":T.accent+"15",lineHeight:1.2}}
+          >V18.68</span></>}
       </div>
 
       {/* ═══ CENTER: Search (desktop only) ═══ */}
