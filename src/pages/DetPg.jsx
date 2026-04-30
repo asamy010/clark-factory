@@ -310,9 +310,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           const isSent=waSent[o.id]&&(Date.now()-waSent[o.id]<60000);
           const sc=(statusCards||[]).find(x=>x.name===o.status);const statusColor=sc?.color||T.accent;
           return<div key={o.id} data-oid={o.id} className="det-tile" style={{background:T.cardSolid,borderRadius:14,border:"1px solid "+T.brd,overflow:"hidden",position:"relative",display:"flex",flexDirection:"column"}} onClick={()=>setSel(o.id)}>
-            {/* V16.39: KPI Dashboard — thick status bar (6px) for stronger visual cue */}
-            <div style={{height:6,background:statusColor,flexShrink:0}}/>
-
+            {/* V18.79: status stripe removed — unified card look */}
             <div style={{padding:14,display:"flex",flexDirection:"column",gap:12,flex:1}}>
               {/* ── Row 1: image + title block ── */}
               <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>

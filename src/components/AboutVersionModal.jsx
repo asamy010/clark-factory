@@ -25,6 +25,25 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V18.79",
+    date: "2026-04-30",
+    types: ["improvement"],
+    title: "🎨 توحيد شكل بطاقات أوامر القص",
+    changes: [
+      { type: "improvement", text: "🗑️ حذف الشريط الملون اللي كان فوق كل بطاقة في صفحة 'أوامر القص' (الـ 6px status bar الموجود من V16.39). كل البطاقات بقت بنفس الشكل الموحّد. حالة الأوردر لسه واضحة من الـbadges والمراحل تحت." },
+    ]
+  },
+  {
+    version: "V18.78",
+    date: "2026-04-30",
+    types: ["improvement"],
+    title: "🎨 تصغير أزرار الصفحة الرئيسية + حذف العنوان",
+    changes: [
+      { type: "improvement", text: "🗑️ حذف عنوان 'الوحدات الأساسية' من الصفحة الرئيسية — الأزرار واضحة لوحدها." },
+      { type: "improvement", text: "📏 تصغير الأزرار 40% إضافية: padding 14→8، icon container 38→23، svg 18→11، border-radius 10→6، gap 8→5، font FS-1→FS-2. الـbadge '👁 قراءة' اختصر لـ '👁' فقط لتوفير مساحة. الـaspectRatio:1 محفوظ (مربعات)، الـgrid 6 أعمدة محفوظ. النتيجة: شبكة كومباكت جداً مناسبة لشاشات الديسكتوب الكبيرة." },
+    ]
+  },
+  {
     version: "V18.77",
     date: "2026-04-30",
     types: ["fix", "improvement", "maintenance"],
@@ -136,34 +155,6 @@ const CHANGELOG = [
       { type: "feature", text: "📘 إضافة `SECURITY.md` — دليل خطوة بخطوة لتطبيق إصلاحات الأمان: deploy الـrules، تقييد الـAPI key في Google Cloud Console (HTTP referrers + API restrictions)، إعداد Vercel env vars، اختبار الـrules في Playground." },
       { type: "improvement", text: "🔐 تحديث `api/_firebase.js → verifyAdminToken`: لو الـUID الـmatching مع `BOOTSTRAP_ADMIN_UID` env var، بيتمنح صلاحيات admin مباشرة بدون قراية الـconfig — حماية ضد config corruption." },
       { type: "architectural", text: "⚠️ التغيير ده حرج جداً: قبل V18.70 الـDB كانت **مفتوحة بالكامل** — أي حد عنده الـAPI key (متاح في الـclient) يقدر يقرا/يكتب أي حاجة. بعد الـdeploy، فقط المسجلين دخول بأدوار صحيحة يقدروا يعملوا writes. **لازم تتبع SECURITY.md حرفياً قبل الـdeploy** عشان متقفلش النظام على نفسك." },
-    ]
-  },
-  {
-    version: "V18.69",
-    date: "2026-04-30",
-    types: ["fix"],
-    title: "🐛 إصلاح حذف حركات الخزنة المرتبطة بسلف موظفين",
-    changes: [
-      { type: "fix", text: "🚨 Bug خطير في حذف حركات الخزنة: لما المستخدم يضغط زر '✕' على حركة مرتبطة بسلفة موظف (أو شيك أو دفعة عميل/مورد/ورشة)، الـpopup كان بيظهر بزر 'حذف' لكن الحذف **مش بيحصل أبداً** (الـonConfirm كان فاضي)." },
-      { type: "fix", text: "✅ الإصلاح: شيلت الـearly-return اللي كانت بتظهر الـpopup الفاضي. الـpopup الموجود في الـrow بالفعل بيحذر المستخدم بـ'⚠️ حركة مرتبطة بـ X — الحذف هنا لن يؤثر على المصدر' — كافي ومش محتاج popup ثاني فاضي." },
-      { type: "fix", text: "🔁 Cascade delete صح للسلف: لما تحذف سلفة موظف من الخزنة، النظام بيحذف معاها الـhrLog entry المرتبط تلقائياً (الكود ده موجود من V17.1 لكن مكنش بيوصلله بسبب الـearly-return)." },
-      { type: "improvement", text: "📊 Consistency بين الـsingle-delete والـbulk-delete: الـbulk-delete (checkbox + حذف) كان شغال صح من قبل، لكن الـsingle-delete (X) كان مكسور — دلوقتي الاتنين بيتعاملوا بنفس المنطق." },
-      { type: "improvement", text: "🛡️ المرتبات (hr_salary) يفضل ممنوع حذفها من الخزنة (محمي بـearly-return منفصل) — لأن حذفها بيفسد الـprevBalance وحساب الأسبوع. لازم تتحذف من شاشة 'الموظفين → حذف الأسبوع'." },
-      { type: "improvement", text: "↩️ الـUndo button يشتغل صح بعد الحذف — السنابشوت بياخد كل الـarrays المرتبطة (treasury + custPayments + supplierPayments + wsPayments + hrLog + treasuryTransfers)." },
-    ]
-  },
-  {
-    version: "V18.68",
-    date: "2026-04-30",
-    types: ["feature", "improvement"],
-    title: "⬆️ ترقية ذكية لشجرة الحسابات",
-    changes: [
-      { type: "feature", text: "🆕 زرار جديد '⬆️ ترقية للحسابات الجديدة' في تاب شجرة الحسابات — بيظهر تلقائياً فقط لما يكون فيه حسابات افتراضية ناقصة (يخفي نفسه لو الشجرة كاملة). الزرار بيعرض عدد الحسابات المتاحة للإضافة في badge جنبه (مثلاً: +8)." },
-      { type: "feature", text: "📋 Confirmation dialog مفصّل قبل الترقية: يعرض كل الحسابات اللي هتتضاف بالكود والاسم (أول 12 حساب + عداد للباقي)، علشان تكون عارف بالظبط ايه اللي هيحصل قبل ما تأكد." },
-      { type: "feature", text: "🛡️ Backup تلقائي قبل الترقية: قبل أي إضافة، النظام بيحفظ نسخة كاملة من الشجرة الحالية في `coa_backup_pre_upgrade_{timestamp}` — لو حصلت أي مشكلة، نقدر نرجعها بسهولة." },
-      { type: "feature", text: "✨ تمييز بصري للحسابات الجديدة: بعد الترقية، الحسابات اللي اتضافت بتظهر بـbadge أصفر '✨ جديد' وbackground مميز لمدة 30 ثانية — علشان تعرف فوراً وين الحسابات الجديدة في الشجرة." },
-      { type: "improvement", text: "🔒 آمان كامل: الترقية مش بتمس أي حساب موجود (لا الـid، ولا الكود، ولا الاسم، ولا الـsystem flag، ولا parents). بتضيف بس الناقص. مفيش أي خطر على البيانات أو الإعدادات اللي عملتها." },
-      { type: "improvement", text: "💡 Detection ذكي: لو حاولت تضغط الزرار وكل الحسابات الافتراضية موجودة فعلاً، رسالة لطيفة: 'شجرتك محدّثة' — مفيش تنفيذ غير ضروري." },
     ]
   },
 ];
