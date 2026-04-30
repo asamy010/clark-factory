@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V18.84",
+    date: "2026-04-30",
+    types: ["fix"],
+    title: "🔧 إصلاح تساوي الفجوات بين أزرار الصفحة الرئيسية",
+    changes: [
+      { type: "fix", text: "🚨 الـ`width:80%` + `justifyItems:center` كان بيخلي الفجوات الأفقية أكبر من العمودية (لأن كل زر متمركز في خانته فبيسيب مساحة على جنبيه)، النتيجة فجوات غير متساوية. الإصلاح: شيلت الـcentering hack، خليت الزر يملا خانته (`width:auto`)، وكبرت الـgap من 10 → 24. النتيجة: الـgrid بيوزع gap متساوي أفقي وعمودي تلقائياً، والأزرار طبيعياً صغرت ~10% بسبب الـgap الأكبر." },
+    ]
+  },
+  {
     version: "V18.83",
     date: "2026-04-30",
     types: ["improvement"],
@@ -119,20 +128,6 @@ const CHANGELOG = [
       { type: "maintenance", text: "🧹 cleanup: شيلت `repairOpen`، `repairChoices`، `orphanTxs` (useMemo)، و `applyRepair` handler من ExtProdPg.jsx. الـ banner والـ modal اتمسحوا تماماً. مفيش dead code." },
       { type: "improvement", text: "✅ بقي شغّال: الـauto-link أثناء الحفظ في الخزنة + الـToast التحذيري عند فشل الربط (مع نص أبسط بدون إشارة للـRepair UI) + الـMigrations التلقائية (3b, 3c, 3d بـArabic normalization). الحركات الجديدة بتنربط تلقائي والقديمة الواضحة بتتعدّل في الـbackground." },
       { type: "improvement", text: "💡 الحركات اللي الـauto-link ما يقدرش يربطها (مثل المصاريف لموردين بـcategory='تشغيل خارجي' بالغلط) المستخدم يقدر يحذفها من الخزنة ويعيد إدخالها بـcategory الصحيحة (مثلاً 'خدمات' أو 'مشتريات' بـparty=supplier)." },
-    ]
-  },
-  {
-    version: "V18.74",
-    date: "2026-04-30",
-    types: ["fix", "improvement"],
-    title: "🔤 إصلاح matching الأسماء العربية + dropdown الورش في Repair UI",
-    changes: [
-      { type: "fix", text: "🚨 Bug في matchWorkshopFromDesc — المطابقة كانت بـString.includes() حرفياً، فأي اختلاف إملائي بسيط في اسم الورشة (مثلاً 'ورشة' vs 'ورشه'، 'أحمد' vs 'احمد'، 'علي' vs 'على') كان يمنع الـauto-link والـmigration من ربط الحركات. النتيجة: حركات كتيرة في الخزنة لاسم ورشة مشابه (مش متطابق) كانت بتفضل yatima ومش ظاهرة في كشف الحساب." },
-      { type: "improvement", text: "✨ Arabic Normalizer جديد: function `normalizeAr()` في `utils/orders.js` تطبّق normalization كامل قبل المقارنة — تشيل التشكيل/التطويل/الكشيدة، وتوحّد كل أشكال الألف (أ إ آ ٱ → ا)، الـة→ه، الـى→ي، الـؤ→و، الـئ→ي، وtrim للـwhitespace. متطبّقة على الاسم في الـDB والـdesc الاتنين قبل الـincludes." },
-      { type: "feature", text: "🔄 Migration 3d تلقائي: backfill ثالث بيشتغل مرة واحدة بعد deploy V18.74. يستخدم الـmatcher الجديد المُطبَّع، ويربط الحركات اللي الـ migrations القديمة فاتتها (مع الـArabic normalization). كل الدفعات اللي اسم ورشتها قريب لكن مش حرفي هيتربطوا تلقائياً." },
-      { type: "fix", text: "🚨 Bug في Repair UI dropdown: SearchSel كانت ما تعرضش الورش لما المستخدم يضغط عليها (الـ default behavior بتاعها يعرض النتائج بس بعد ما تكتب). أضيف `showAllOnFocus={true}` و `maxResults={50}` فالـdropdown دلوقتي يفتح فوراً ويعرض كل الورش (لحد 50) بمجرد التركيز عليه." },
-      { type: "improvement", text: "📱 رقم الإصدار في الموبايل: زرار 'V18.74' بقى يظهر في الـtopbar في عرض الموبايل بعد ما كان مخفي. الضغط عليه بيفتح الـAbout/Changelog modal زي الديسكتوب." },
-      { type: "improvement", text: "✅ نتيجة كل التحسينات (V18.72 → V18.74): الـworkflow بتاعك (تشغيل خارجي + اسم في desc بأي إملاء) بيشتغل تلقائياً 100%، حتى لو الإملاء بيختلف عن الـDB. والحالات الفعلاً غامضة بترجع للـRepair UI لاختيار يدوي." },
     ]
   },
 ];
