@@ -2359,7 +2359,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V18.76 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >V18.77 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<>
           <span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>
@@ -2367,7 +2367,7 @@ export default function App(){
             onClick={()=>setShowAboutVersion(true)}
             title="عرض سجل التحديثات"
             style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,fontFamily:"monospace",background:T.navText?"rgba(255,255,255,0.15)":T.accent+"10",color:T.navText||T.accent,cursor:"pointer"}}
-          >V18.76</span>
+          >V18.77</span>
         </>}
       </div>
 
@@ -2527,14 +2527,14 @@ export default function App(){
             {/* ═══ LEFT: Tabs Grid (SVG icons) ═══ */}
             <div>
               <div style={{fontSize:FS-1,fontWeight:800,color:T.textSec,marginBottom:12,padding:"0 4px",textTransform:"uppercase",letterSpacing:"0.6px"}}>الوحدات الأساسية</div>
-              <div style={{display:"grid",gridTemplateColumns:isTab?"repeat(4,1fr)":"repeat(5,1fr)",gap:12}}>
+              <div style={{display:"grid",gridTemplateColumns:isTab?"repeat(4,1fr)":"repeat(6,1fr)",gap:10}}>
                 {visibleTabs.map(t=>{const perm=getTabPerm(t.key);
-                  return<div key={t.key} onClick={()=>goTo(t.key)} className="home-tile" style={{background:T.cardSolid,borderRadius:14,padding:"18px 10px",border:"1px solid "+T.brd,textAlign:"center",opacity:perm==="view"?0.75:1,position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,minHeight:120}}>
-                    <div style={{width:48,height:48,borderRadius:12,background:t.color+"12",display:"flex",alignItems:"center",justifyContent:"center",color:t.color,border:"1px solid "+t.color+"20"}}>
-                      <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{t.svg}</svg>
+                  return<div key={t.key} onClick={()=>goTo(t.key)} className="home-tile" style={{background:T.cardSolid,borderRadius:12,padding:"14px 8px",border:"1px solid "+T.brd,textAlign:"center",opacity:perm==="view"?0.75:1,position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,aspectRatio:"1"}}>
+                    <div style={{width:38,height:38,borderRadius:10,background:t.color+"12",display:"flex",alignItems:"center",justifyContent:"center",color:t.color,border:"1px solid "+t.color+"20"}}>
+                      <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{t.svg}</svg>
                     </div>
-                    <div style={{fontSize:FS,fontWeight:800,color:T.text,lineHeight:1.2}}>{t.label}</div>
-                    {perm==="view"&&<div style={{position:"absolute",top:6,left:6,fontSize:9,padding:"2px 6px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁 قراءة</div>}
+                    <div style={{fontSize:FS-1,fontWeight:800,color:T.text,lineHeight:1.2}}>{t.label}</div>
+                    {perm==="view"&&<div style={{position:"absolute",top:5,left:5,fontSize:8,padding:"2px 5px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁 قراءة</div>}
                   </div>})}
               </div>
 
@@ -3426,7 +3426,7 @@ export default function App(){
       </div>
     )}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.76"/>
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.77"/>
   </div>
 }
 

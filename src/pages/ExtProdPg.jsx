@@ -483,8 +483,8 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
       </div>}
     </div>}
 
-    {/* Mode buttons row */}
-    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(3,1fr)":"repeat(6,1fr)",gap:12,marginBottom:20}}>
+    {/* Mode buttons row — V18.77: removed "إضافة دفعة" (use Treasury directly), 5 buttons */}
+    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(3,1fr)":"repeat(5,1fr)",gap:12,marginBottom:20}}>
       <div onClick={()=>setMode("deliver")} style={{background:T.card,borderRadius:14,padding:isMob?16:22,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"all 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 10px 25px -8px "+T.accent+"30";e.currentTarget.style.borderColor=T.accent+"40"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow;e.currentTarget.style.borderColor=T.brd}}>
         <div style={{fontSize:32,marginBottom:8}}>📤</div>
         <div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>تسليم ورشة</div>
@@ -492,10 +492,6 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
       <div onClick={()=>setMode("receive")} style={{background:T.card,borderRadius:14,padding:isMob?16:22,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"all 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 10px 25px -8px "+T.ok+"30";e.currentTarget.style.borderColor=T.ok+"40"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow;e.currentTarget.style.borderColor=T.brd}}>
         <div style={{fontSize:32,marginBottom:8}}>📥</div>
         <div style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>استلام من ورشة</div>
-      </div>
-      <div onClick={()=>setMode("payment")} style={{background:T.card,borderRadius:14,padding:isMob?16:22,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"all 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 10px 25px -8px "+T.purple+"30";e.currentTarget.style.borderColor=T.purple+"40"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow;e.currentTarget.style.borderColor=T.brd}}>
-        <div style={{fontSize:32,marginBottom:8}}>💳</div>
-        <div style={{fontSize:FS+1,fontWeight:800,color:T.purple}}>اضافة دفعة</div>
       </div>
       <div onClick={()=>setMode("accounts")} style={{background:T.card,borderRadius:14,padding:isMob?16:22,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"all 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 10px 25px -8px "+T.warn+"30";e.currentTarget.style.borderColor=T.warn+"40"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow;e.currentTarget.style.borderColor=T.brd}}>
         <div style={{fontSize:32,marginBottom:8}}>📊</div>

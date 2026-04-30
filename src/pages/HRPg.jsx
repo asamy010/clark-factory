@@ -6468,7 +6468,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       const shownEmpsCD=activeEmps.filter(e=>weekSelectedCD.includes(e.id));
       let tG_=0,tA_=0,tTP_=0,tRB_=0,tDI_=0;
       shownEmpsCD.forEach(e=>{const cc=getEmpSalary(e.id,openWeek);if(cc){tG_+=cc.grossPay;tA_+=cc.weekAdvances;tTP_+=cc.thursdayPay;tRB_+=cc.remainingBalance;tDI_+=cc.debtInstall||0}});
-      const totalCashOut=r2(tTP_+totalWeeklyAdvances);/* مرتبات الخميس + سلف الإدارة المخططة (تُنفَّذ الآن) */
+      const totalCashOut=r2(tTP_+totalWeeklyAdvances+totalWeeklyWsPayments+totalWeeklyOtherExpenses);/* مرتبات + سلف الإدارة + دفعات الورش + مصاريف أخرى */
       const isBackdated=closeDateValue&&closeDateValue!==today;
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={()=>setShowCloseDate(false)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:22,width:"100%",maxWidth:500,maxHeight:"90vh",overflowY:"auto",border:"2px solid "+T.accent,boxShadow:"0 25px 80px rgba(0,0,0,0.4)"}}>
@@ -6491,6 +6491,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
               <div style={{fontWeight:700,marginBottom:4,color:T.accent}}>💸 سيخرج من الخزنة الآن:</div>
               <div>💵 مرتبات الإقفال: <b style={{color:T.ok}}>{fmt0(tTP_)} ج</b></div>
               {totalWeeklyAdvances>0&&<div>🏢 سلف الإدارة/الشهريين: <b style={{color:"#EC4899"}}>{fmt0(totalWeeklyAdvances)} ج</b> <span style={{fontSize:FS-3,color:T.textMut}}>(خطة — ستُنفَّذ الآن)</span></div>}
+              {totalWeeklyWsPayments>0&&<div>🏭 دفعات الورش: <b style={{color:"#8B5CF6"}}>{fmt0(totalWeeklyWsPayments)} ج</b> <span style={{fontSize:FS-3,color:T.textMut}}>(خطة — ستُنفَّذ الآن)</span></div>}
+              {totalWeeklyOtherExpenses>0&&<div>💼 مصاريف أخرى: <b style={{color:"#DC2626"}}>{fmt0(totalWeeklyOtherExpenses)} ج</b> <span style={{fontSize:FS-3,color:T.textMut}}>(خطة — ستُنفَّذ الآن)</span></div>}
             </div>
             <div style={{borderTop:"2px solid "+T.accent+"40",marginTop:8,paddingTop:8}}>
               🏦 إجمالي سيخرج من الخزنة: <b style={{color:T.accent,fontSize:FS+2}}>{fmt0(totalCashOut)} ج</b>
