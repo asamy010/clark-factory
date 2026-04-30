@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V18.71",
+    date: "2026-04-30",
+    types: ["fix"],
+    title: "🐛 إصلاح ظهور الورش مكررة + تحذير من الإضافة المتكررة",
+    changes: [
+      { type: "fix", text: "🚨 Bug خطير في حسابات الورش: لما الورشة بتتسجل مرتين في القائمة (يدوي أو من restore قديم)، الكشف بيظهرها سطرين بنفس الاسم وكل صف بيـلم نفس المدفوعات والاستلامات — النتيجة المبلغ يبدو ضعف الفعلي. ده كان بيظهر في كل شاشة فيها ورش (تشغيل خارجي، قاعدة البيانات، التقارير، لوحة التحكم)." },
+      { type: "feature", text: "🧹 زرار جديد '🧹 دمج الورش المكررة' في تاب 'قاعدة البيانات → الورش' — Banner أصفر بيظهر تلقائياً لما يكون فيه ورش بنفس الاسم (مع normalize للـwhitespace والـcase). الـbanner بيعرض الأسماء المتكررة وعدد النسخ الزائدة." },
+      { type: "feature", text: "⚙️ Auto-merge ذكي: الدمج بياخد الورشة بأقدم id كأصل، وبيـ(1) ينقل كل wsPayments للـwsId الأقدم، (2) يحدّث treasury entries المرتبطة، (3) يحدّث notifications، (4) يستدعي renameInOrders لتحديث workshopDeliveries في كل الأوردرات (subcollections)." },
+      { type: "feature", text: "🛡️ Backup تلقائي قبل الدمج: نسخة من قائمة الورش الحالية بتتحفظ في `_wsMergeBackup.pre_merge_{timestamp}` — لو حصلت مشكلة، الـadmin يقدر يرجعها يدوياً من Firebase Console. آخر 5 backups بتتحفظ بس عشان متضخمش الـconfig." },
+      { type: "feature", text: "📝 AuditLog لكل عملية دمج: كل ورشة متدمجة بتتسجل entry في auditLog بـcategory='workshops' و action='merge'، مع id+name الـoldValue والـnewValue لتتبع كامل." },
+      { type: "improvement", text: "⚠️ تحذير عند الإضافة: لما تضيف ورشة جديدة بنفس اسم ورشة موجودة (case-insensitive + trim)، Popup بيسألك إن كنت متأكد قبل ما يضيف. ده بيمنع المشكلة من تكرار حدوثها." },
+      { type: "improvement", text: "💡 ملاحظة: حركات الخزنة اللي اتسجلت بـcategory='تشغيل خارجي' بدون اختيار الورشة من party-picker (يعني اسم الورشة مكتوب في desc بس) لسه مش بتظهر في كشف حساب الورشة — ده bug منفصل هيتحل في إصدار جاي." },
+    ]
+  },
+  {
     version: "V18.70",
     date: "2026-04-30",
     types: ["feature", "architectural"],
@@ -167,27 +182,6 @@ const CHANGELOG = [
       { type: "improvement", text: "🏷️ في صفحة الـ backups: badges واضحة لكل نسخة — 'شاملة ✓' للنسخ الجديدة، 'قديمة (ناقصة)' للنسخ ما قبل V18.62، 'تلقائية'، 'قبل migration'، 'قبل استعادة'" },
       { type: "improvement", text: "🗑️ deleteComprehensiveBackup: لما تحذف نسخة شاملة، بيتم حذف الـ metadata وكل الـ parts المرتبطة بيها أوتوماتيك" },
       { type: "improvement", text: "📅 Multi-device coordination: الـ daily auto-backup بيشيك لو في نسخة شاملة اتعملت اليوم من جهاز تاني — ما يكررش" },
-    ]
-  },
-  {
-    version: "V18.61",
-    date: "2026-04-29",
-    types: ["fix", "architectural"],
-    title: "🛡️ حماية حرجة من فقد البيانات + تثبيت صلاحيات الأدمن",
-    changes: [
-      { type: "fix", text: "🔒 صلاحيات الـ admin اتثبتت في الكود — مفيش طريقة تشيلها أو تعدّلها من داخل التطبيق. ده يمنع سيناريو 'الأدمن فقد دخوله للنظام' اللي حصل قبل كده. الـ getTabPerm() بيتجاهل أي custom permissions في factory/config.permissions.admin ويستعمل الـ defaults الكاملة دايماً." },
-      { type: "fix", text: "✏️ الـ admin بقى عنده edit على كل التابز بدون استثناء (بما فيها audit اللي كان view)" },
-      { type: "improvement", text: "📋 صفحة Permissions: عمود الـ admin بقى مقفول visually — كل الخلايا بتعرض '✏️ دائماً' بدل الـ select. رسالة توضيحية في أعلى الجدول بتشرح ليه." },
-      { type: "improvement", text: "🛡️ حماية مضاعفة: حتى لو حد لعب في الـ DOM أو DevTools لتعديل admin permissions، الـ setter بيرفض. وحتى لو الـ database اتلوّث بقيم قديمة لـ permissions.admin، الـ savePerms() بيمسحها أوتوماتيك قبل الحفظ." },
-      { type: "fix", text: "🚨 إصلاح bug خطير: الـ app كان لو ملقاش factory/config بيكتب القيم الافتراضية تلقائياً (INIT_CONFIG) فوقها — ده كان السبب المرجّح لمسح اليوزرز والإعدادات. دلوقتي بيرفض ويعرض رسالة خطأ صريحة بدل ما يدمّر البيانات." },
-      { type: "fix", text: "🛑 منع كتابة البيانات قبل ما الـ config يحمّل من السيرفر — كان فيه race condition بيخلي الـ writes تحصل على INIT_CONFIG كقاعدة وتمسح البيانات الحقيقية" },
-      { type: "fix", text: "📡 إضافة error handlers لكل الـ Firestore listeners (config, sales, tasks, orders) — قبل كده كانت الأخطاء تتجاهل في صمت" },
-      { type: "feature", text: "🔒 صفحة خطأ مخصصة لو الـ config مش موجود — بتعرض تفاصيل الخطأ والوقت والمستخدم، وبتمنع أي عملية كتابة لحد ما المشكلة تتحل" },
-      { type: "feature", text: "🛡️ Sanity check قبل كل write: لو العملية هتمسح كل اليوزرز / العملاء / الورش / الموظفين دفعة واحدة — التطبيق يرفض ويبلّغ بدل ما يكتب" },
-      { type: "improvement", text: "🔄 زرار الاستعادة بقى أأمن بكتير: typed confirmation (لازم تكتب 'استعادة') + auto-backup أوتوماتيك للحالة الحالية قبل الاستعادة + restoreLog audit doc + تحذير صريح بإيه اللي مش هيرجع" },
-      { type: "feature", text: "🆕 الاستعادة الانتقائية (Selective Restore): أداة جديدة في الإعدادات بترجّع البيانات المحذوفة (عملاء، ورش، مستخدمين، إلخ) من نسخة قديمة بدون ما تلمس البيانات الحالية. بتقارن النسخة بالحالي وبتعرض إيه الناقص، وتقدر تختار حقول معينة فقط للاسترجاع. كل عنصر يترجع بيتعلّم بـrestoredAt + restoredFrom" },
-      { type: "improvement", text: "📦 الـ backups بقت تحفظ counts أكتر (workshops, users, usersList) عشان تكون فيه شفافية أكبر وقت الاستعادة" },
-      { type: "maintenance", text: "📂 utils/dataIntegrity.js: إضافة validateBeforeWrite() و isSafeWrite() — كاشف الكتابات الخطيرة" },
     ]
   },
 ];

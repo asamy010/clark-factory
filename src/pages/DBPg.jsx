@@ -17,6 +17,7 @@ import { calcWsRating, getWsPartnershipTier, wsIsInternal, wsTypeInfo } from "..
 import { ask, askInput, showToast } from "../utils/popups.js";
 import { getUnits } from "../utils/units.js";
 import { getDeleteBlocker } from "../utils/dataIntegrity.js";
+import { addAudit } from "../utils/audit.js";
 
 export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,onSubUsed,renameInOrders}){
   const[sub,setSub]=useState(initialSub||"size");
@@ -278,15 +279,26 @@ export function WsManager({data,workshops,upConfig,canEdit,isMob,orders,renameIn
   const startNew=()=>{setF({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خياطة خارجي",payPercent:60,archived:false});setEditId(null);setShowForm(true)};
   const handleIdCard=async e=>{const file=e.target.files[0];if(!file)return;const compressed=await compressImg43(file,300,0.5);setF(p=>({...p,idCard:compressed}))};
   const handleOwnerPhoto=async e=>{const file=e.target.files[0];if(!file)return;const compressed=await compressImage(file,200,0.5);setF(p=>({...p,ownerPhoto:compressed}))};
-  const save=()=>{if(!f.name.trim())return;
+  const save=async()=>{if(!f.name.trim())return;
     /* V15.17: normalize phone to +2 format */
     const normalized={...f,phone:normalizePhone(f.phone||"")};
+    const trimmedName=normalized.name.trim();
+    /* V18.71: Block duplicate workshop names on add (case-insensitive trim).
+       Editing keeps the existing match logic — only NEW additions are guarded. */
+    if(!editId){
+      const norm=n=>(n||"").trim().toLowerCase().replace(/\s+/g," ");
+      const existing=(workshops||[]).find(w=>norm(w.name)===norm(trimmedName));
+      if(existing){
+        const ok=await ask("ورشة بنفس الاسم موجودة","في ورشة باسم «"+existing.name+"» موجودة بالفعل في القائمة.\n\nالإضافة بنفس الاسم بتعمل ورش مكررة في الحسابات والكشوفات.\nمتأكد إنك عايز تضيف ورشة تانية بنفس الاسم؟",{danger:true,confirmText:"إضافة على أي حال"});
+        if(!ok)return;
+      }
+    }
     let oldName=null;
-    if(editId){const old=workshops.find(w=>w.id===editId);if(old&&old.name!==normalized.name.trim())oldName=old.name}
+    if(editId){const old=workshops.find(w=>w.id===editId);if(old&&old.name!==trimmedName)oldName=old.name}
     upConfig(d=>{if(!Array.isArray(d.workshops))d.workshops=[];if(editId){const idx=d.workshops.findIndex(w=>w.id===editId);if(idx>=0)d.workshops[idx]={...normalized,id:editId}}else{d.workshops.push({...normalized,id:Date.now()})}
-      if(oldName){(d.wsPayments||[]).forEach(p=>{if(p.wsId===editId||p.wsName===oldName){p.wsName=normalized.name.trim();p.wsId=editId}});(d.notifications||[]).forEach(n=>{if(n.msg&&n.msg.includes(oldName))n.msg=n.msg.replace(new RegExp(oldName,"g"),normalized.name.trim())})}
+      if(oldName){(d.wsPayments||[]).forEach(p=>{if(p.wsId===editId||p.wsName===oldName){p.wsName=trimmedName;p.wsId=editId}});(d.notifications||[]).forEach(n=>{if(n.msg&&n.msg.includes(oldName))n.msg=n.msg.replace(new RegExp(oldName,"g"),trimmedName)})}
     });
-    if(oldName)renameInOrders("ws",oldName,normalized.name.trim(),editId);
+    if(oldName)renameInOrders("ws",oldName,trimmedName,editId);
     setShowForm(false);setEditId(null)};
   const del=(id)=>safeDelete("workshops",id,"ورشة");
   /* V16.64: Use central dataIntegrity check — adds treasury transactions to
@@ -299,7 +311,109 @@ export function WsManager({data,workshops,upConfig,canEdit,isMob,orders,renameIn
   })();
   const archivedCount=(workshops||[]).filter(ws=>ws.archived).length;
 
+  /* V18.71: Auto-merge duplicate workshops.
+     Picks the workshop with the smallest (oldest) numeric id as the canonical
+     one, migrates wsPayments + treasury wsName + notifications to point at it,
+     removes the dupes from config.workshops, and renames workshopDeliveries
+     in every order so old dup wsName/wsId references resolve correctly. */
+  const mergeWsDuplicates=async(groups)=>{
+    if(!groups||groups.length===0)return;
+    const ts=Date.now();
+    const userName=auth.currentUser?.email||auth.currentUser?.uid||"unknown";
+    let totalMerged=0;
+    upConfig(d=>{
+      /* Snapshot current workshops list so the merge can be reversed via Settings → Backups */
+      if(!d._wsMergeBackup)d._wsMergeBackup={};
+      d._wsMergeBackup["pre_merge_"+ts]={ts,workshops:JSON.parse(JSON.stringify(d.workshops||[]))};
+      /* Keep at most 5 merge backups to avoid bloating config */
+      const keys=Object.keys(d._wsMergeBackup).sort();
+      while(keys.length>5){delete d._wsMergeBackup[keys.shift()]}
+      groups.forEach(g=>{
+        g.dups.forEach(dup=>{
+          /* Re-point wsPayments */
+          (d.wsPayments||[]).forEach(p=>{
+            if(p.wsId===dup.id||p.wsName===dup.name){p.wsId=g.oldest.id;p.wsName=g.oldest.name}
+          });
+          /* Re-point treasury entries that carry wsName (linked or descriptive) */
+          (d.treasury||[]).forEach(t=>{if(t.wsName===dup.name)t.wsName=g.oldest.name});
+          /* Rename in notifications */
+          if(dup.name!==g.oldest.name){
+            (d.notifications||[]).forEach(n=>{
+              if(n.msg&&n.msg.includes(dup.name))n.msg=n.msg.replace(new RegExp(dup.name,"g"),g.oldest.name);
+            });
+          }
+          /* Drop the dup from config.workshops */
+          d.workshops=(d.workshops||[]).filter(w=>w.id!==dup.id);
+          totalMerged++;
+          addAudit(d,{
+            category:"workshops",
+            action:"merge",
+            target:dup.name,
+            oldValue:{id:dup.id,name:dup.name},
+            newValue:{id:g.oldest.id,name:g.oldest.name},
+            user:userName,
+            severity:"warning",
+            notes:"دمج ورشة مكررة في الأقدم"
+          });
+        });
+      });
+    });
+    /* Step 2: rename workshopDeliveries in every order (subcollection writes).
+       Done after upConfig so the visible state is consistent first. */
+    for(const g of groups){
+      for(const dup of g.dups){
+        try{
+          if(dup.name!==g.oldest.name||dup.id!==g.oldest.id){
+            await renameInOrders("ws",dup.name,g.oldest.name,g.oldest.id);
+          }
+        }catch(e){
+          console.error("[CLARK V18.71] merge rename failed for",dup.name,e);
+        }
+      }
+    }
+    showToast("✅ تم دمج "+totalMerged+" ورشة مكررة");
+  };
+
   return<div>
+    {/* V18.71: Detect duplicate workshops by normalized name ── */}
+    {(()=>{
+      const norm=n=>(n||"").trim().toLowerCase().replace(/\s+/g," ");
+      const groups={};
+      (workshops||[]).forEach(ws=>{
+        const k=norm(ws.name);
+        if(!k)return;
+        if(!groups[k])groups[k]=[];
+        groups[k].push(ws);
+      });
+      const dupGroups=Object.values(groups).filter(g=>g.length>1).map(group=>{
+        /* Sort by id ascending — oldest first. Numeric ids are Date.now() so smaller = older. */
+        const sorted=[...group].sort((a,b)=>{
+          const ai=typeof a.id==="number"?a.id:Number(a.id)||0;
+          const bi=typeof b.id==="number"?b.id:Number(b.id)||0;
+          return ai-bi;
+        });
+        return{name:sorted[0].name,oldest:sorted[0],dups:sorted.slice(1)};
+      });
+      if(dupGroups.length===0)return null;
+      const totalDups=dupGroups.reduce((s,g)=>s+g.dups.length,0);
+      return<Card style={{marginBottom:14,background:T.warn+"08",border:"1px solid "+T.warn+"40"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+          <div style={{flex:1,minWidth:240}}>
+            <div style={{fontSize:FS,fontWeight:800,color:T.warn}}>{"⚠️ ورش مكررة في القائمة — "+dupGroups.length+" اسم متكرر ("+totalDups+" نسخة زائدة)"}</div>
+            <div style={{fontSize:FS-2,color:T.textMut,marginTop:4,lineHeight:1.7}}>{dupGroups.map(g=>g.oldest.name+" ×"+(g.dups.length+1)).join(" — ")}</div>
+            <div style={{fontSize:FS-2,color:T.textSec,marginTop:6,lineHeight:1.7}}>
+              💡 الدمج التلقائي بياخد الورشة الأقدم كأصل، وينقل عليها كل: المدفوعات، الاستلامات، الإشعارات، حركات الخزنة المرتبطة.
+              نسخة احتياطية بتتحفظ تلقائياً قبل الدمج (`_wsMergeBackup`).
+            </div>
+          </div>
+          {canEdit&&<Btn onClick={async()=>{
+            const ok=await ask("دمج الورش المكررة","هتتم العمليات التالية:\n\n• حفظ نسخة احتياطية من قائمة الورش الحالية\n• نقل كل المدفوعات والاستلامات للورشة الأقدم\n• حذف "+totalDups+" ورشة مكررة من القائمة\n• تحديث الأوردرات والإشعارات\n\nهل تريد المتابعة؟",{danger:true,confirmText:"دمج تلقائي"});
+            if(!ok)return;
+            await mergeWsDuplicates(dupGroups);
+          }} style={{background:T.warn+"15",color:T.warn,border:"1px solid "+T.warn+"40",fontWeight:700,whiteSpace:"nowrap"}}>{"🧹 دمج "+totalDups+" مكررة"}</Btn>}
+        </div>
+      </Card>;
+    })()}
     {/* ── Recover missing workshops ── */}
     {(()=>{const wsNames=new Set((workshops||[]).map(w=>w.name));
       const missingWs={};
