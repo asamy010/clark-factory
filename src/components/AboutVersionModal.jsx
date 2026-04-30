@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V18.81",
+    date: "2026-04-30",
+    types: ["improvement"],
+    title: "🎨 أزرار الصفحة الرئيسية: مربعة + 5% أكبر",
+    changes: [
+      { type: "improvement", text: "🟦 رجعت `aspectRatio:1` فالأزرار بقت مربعة الشكل بدل المستطيلة. padding 10×6 → 12×8، gap 6 → 8، borderRadius 10 → 11. الأيقونة محفوظة (44×44) والـ6 أعمدة محفوظة." },
+    ]
+  },
+  {
     version: "V18.80",
     date: "2026-04-30",
     types: ["improvement"],
@@ -134,21 +143,6 @@ const CHANGELOG = [
       { type: "feature", text: "🛡️ Defensive Display في كشف الحساب: في `wsAccounts()` (شاشة 'تشغيل خارجي → كشف حساب الورشة')، الكود بقى يضيف orphan treasury entries (اللي عندها wsName بس مفيهاش wsPaymentId) للـtotalPaid/totalPurchase. ده safety net ضد أي entry تفلت من الـauto-link والـbackfill." },
       { type: "improvement", text: "🎯 Smart matching للأسماء: الـmatching بيدور على الورشة بالاسم الكامل في الوصف. لو لقى ورشتين أسماءهم متداخلة (مثلاً 'محمد' و 'محمد ستارال')، بيختار الاسم الأطول لأنه الأكثر دقة. لو لقى ورشتين منفصلتين تماماً، بيتجنب الـlinking (أمان أكتر من تخمين غلط)." },
       { type: "improvement", text: "✅ النتيجة: الـworkflow اللي اعتدت عليه (تشغيل خارجي + اسم في الوصف) بقى يربط الدفعة تلقائياً بكشف الورشة. مفيش تغيير في الواجهة المستخدم — كل حاجة بتشتغل تلقائياً تحت السطح." },
-    ]
-  },
-  {
-    version: "V18.71",
-    date: "2026-04-30",
-    types: ["fix"],
-    title: "🐛 إصلاح ظهور الورش مكررة + تحذير من الإضافة المتكررة",
-    changes: [
-      { type: "fix", text: "🚨 Bug خطير في حسابات الورش: لما الورشة بتتسجل مرتين في القائمة (يدوي أو من restore قديم)، الكشف بيظهرها سطرين بنفس الاسم وكل صف بيـلم نفس المدفوعات والاستلامات — النتيجة المبلغ يبدو ضعف الفعلي. ده كان بيظهر في كل شاشة فيها ورش (تشغيل خارجي، قاعدة البيانات، التقارير، لوحة التحكم)." },
-      { type: "feature", text: "🧹 زرار جديد '🧹 دمج الورش المكررة' في تاب 'قاعدة البيانات → الورش' — Banner أصفر بيظهر تلقائياً لما يكون فيه ورش بنفس الاسم (مع normalize للـwhitespace والـcase). الـbanner بيعرض الأسماء المتكررة وعدد النسخ الزائدة." },
-      { type: "feature", text: "⚙️ Auto-merge ذكي: الدمج بياخد الورشة بأقدم id كأصل، وبيـ(1) ينقل كل wsPayments للـwsId الأقدم، (2) يحدّث treasury entries المرتبطة، (3) يحدّث notifications، (4) يستدعي renameInOrders لتحديث workshopDeliveries في كل الأوردرات (subcollections)." },
-      { type: "feature", text: "🛡️ Backup تلقائي قبل الدمج: نسخة من قائمة الورش الحالية بتتحفظ في `_wsMergeBackup.pre_merge_{timestamp}` — لو حصلت مشكلة، الـadmin يقدر يرجعها يدوياً من Firebase Console. آخر 5 backups بتتحفظ بس عشان متضخمش الـconfig." },
-      { type: "feature", text: "📝 AuditLog لكل عملية دمج: كل ورشة متدمجة بتتسجل entry في auditLog بـcategory='workshops' و action='merge'، مع id+name الـoldValue والـnewValue لتتبع كامل." },
-      { type: "improvement", text: "⚠️ تحذير عند الإضافة: لما تضيف ورشة جديدة بنفس اسم ورشة موجودة (case-insensitive + trim)، Popup بيسألك إن كنت متأكد قبل ما يضيف. ده بيمنع المشكلة من تكرار حدوثها." },
-      { type: "improvement", text: "💡 ملاحظة: حركات الخزنة اللي اتسجلت بـcategory='تشغيل خارجي' بدون اختيار الورشة من party-picker (يعني اسم الورشة مكتوب في desc بس) لسه مش بتظهر في كشف حساب الورشة — ده bug منفصل هيتحل في إصدار جاي." },
     ]
   },
 ];
