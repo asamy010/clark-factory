@@ -313,7 +313,7 @@ export default function App(){
       const ws=(config.workshops||[]).map(w=>{let del=0,rcv=0;orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{del+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{rcv+=Number(r.qty)||0})})});
         const payments=(config.wsPayments||[]).filter(p=>p.wsName===w.name);const paid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);
         let due=0;orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});
-        return{name:w.name,type:w.type,delivered:del,received:rcv,balance:del-rcv,dueMoney:r2(due),paid:r2(paid),owedMoney:r2(due-paid),payPercent:Number(w.payPercent)||60}});
+        return{name:w.name,type:w.type,delivered:del,received:rcv,balance:del-rcv,dueMoney:r2(due),paid:r2(paid),factoryOwesWorkshop:r2(due-paid),payPercent:Number(w.payPercent)||60}});
       /* Orders summary */
       const ords=orders.map(o=>{const t=calcOrder(o);const wds=o.workshopDeliveries||[];const totalDel=wds.reduce((s,wd)=>s+(Number(wd.qty)||0),0);const totalRcv=wds.reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);const stockDel=getConfirmedStock(o);
         const custDel=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const custRet=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
@@ -333,7 +333,7 @@ export default function App(){
       const totalSold=ords.reduce((s,o)=>s+o.sold,0);
       const totalRevenue=ords.reduce((s,o)=>s+o.sold*o.sellPrice,0);
       const summary={totalCut,totalStock,totalSold,availableInStock:totalStock-totalSold,totalRevenue:r2(totalRevenue),ordersCount:ords.length,workshopsCount:ws.length,customersCount:custs.length};
-      const ctx="أنت مساعد ذكي لنظام CLARK لإدارة مصانع الملابس.\n\nقواعد الرد:\n- رد بالمصري العامي (يعني، كده، خلاص، أهو)\n- اختصر اختصار غير مخل — بلاش كلام كتير\n- افصل بين كل أوردر أو معلومة بخط فاصل ─────\n- في الأرصدة المالية للورش: لو owedMoney سالب يبقى الورشة عليها فلوس (دفعنالها أكتر من المستحق)، لو موجب يبقى ليها فلوس عندنا\n- نسبة الدفع payPercent = الحد الأقصى المسموح بدفعه من المستحق (عادي 60%)\n- مصطلحات الورش مهمة جداً: workshopDeliveries.qty = الورشة استلمت منّنا (استلم)، workshopDeliveries.receives[].qty = الورشة سلّمت لنا (سلّم). يعني لما تكتب عن ورشة اكتب: استلم 508، سلّم 495، باقي 13. مش العكس!\n- availableInStock = المتاح في مخزن الجاهز (بعد طرح اللي اتباع)\n- sold = اللي اتباع للعملاء (بعد طرح المرتجعات)\n- في الآخر خالص حط سطر ─────── وبعده 💡 ملاحظتك أو نصيحتك من عندك كمدير انتاج خبرة\n\nبيانات الموسم "+season+":\n\nملخص عام:\n"+JSON.stringify(summary,null,0)+"\n\nالأوردرات ("+ords.length+"):\n"+JSON.stringify(ords,null,0)+"\n\nالورش ("+ws.length+"):\n"+JSON.stringify(ws,null,0)+"\n\nالعملاء ("+custs.length+"):\n"+JSON.stringify(custs,null,0)+"\n\nالتاريخ: "+new Date().toISOString().split("T")[0];
+      const ctx="أنت مساعد ذكي لنظام CLARK لإدارة مصانع الملابس.\n\nقواعد الرد:\n- رد بالمصري العامي (يعني، كده، خلاص، أهو)\n- اختصر اختصار غير مخل — بلاش كلام كتير\n- افصل بين كل أوردر أو معلومة بخط فاصل ─────\n\n⚠️ قاعدة حرجة في الأرصدة المالية للورش (لازم تتبعها حرفياً):\nالـ field اسمه `factoryOwesWorkshop` ومعناه: المبلغ اللي المصنع مديون به للورشة.\n• لو `factoryOwesWorkshop` موجب (> 0): الورشة دائنة — اكتب \"الورشة **ليها** X جنيه عندنا\" أو \"المصنع مدين للورشة بـ X\". مش \"عليها\"!\n• لو `factoryOwesWorkshop` سالب (< 0): الورشة مدينة لنا — اكتب \"الورشة **عليها** X جنيه\" (دفعنالها أكتر من المستحق).\n• لو = 0: حسابها متسوّي.\nمثال: ورشة نورهان `factoryOwesWorkshop=129900` (موجب) → \"ورشة نورهان ليها 129,900 جنيه عندنا\". غلط لو كتبت \"عليها\".\n\n- نسبة الدفع payPercent = الحد الأقصى المسموح بدفعه من المستحق (عادي 60%)\n- مصطلحات الورش مهمة جداً: workshopDeliveries.qty = الورشة استلمت منّنا (استلم)، workshopDeliveries.receives[].qty = الورشة سلّمت لنا (سلّم). يعني لما تكتب عن ورشة اكتب: استلم 508، سلّم 495، باقي 13. مش العكس!\n- availableInStock = المتاح في مخزن الجاهز (بعد طرح اللي اتباع)\n- sold = اللي اتباع للعملاء (بعد طرح المرتجعات)\n- في الآخر خالص حط سطر ─────── وبعده 💡 ملاحظتك أو نصيحتك من عندك كمدير انتاج خبرة\n\nبيانات الموسم "+season+":\n\nملخص عام:\n"+JSON.stringify(summary,null,0)+"\n\nالأوردرات ("+ords.length+"):\n"+JSON.stringify(ords,null,0)+"\n\nالورش ("+ws.length+"):\n"+JSON.stringify(ws,null,0)+"\n\nالعملاء ("+custs.length+"):\n"+JSON.stringify(custs,null,0)+"\n\nالتاريخ: "+new Date().toISOString().split("T")[0];
       const msgs=[...aiMsgs.map(m=>({role:m.role==="user"?"user":"assistant",content:m.text})),{role:"user",content:q}];
       let data2;let retries=0;
       while(retries<2){
@@ -2359,7 +2359,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V18.81 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >V18.82 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<>
           <span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>
@@ -2367,7 +2367,7 @@ export default function App(){
             onClick={()=>setShowAboutVersion(true)}
             title="عرض سجل التحديثات"
             style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,fontFamily:"monospace",background:T.navText?"rgba(255,255,255,0.15)":T.accent+"10",color:T.navText||T.accent,cursor:"pointer"}}
-          >V18.81</span>
+          >V18.82</span>
         </>}
       </div>
 
@@ -2526,9 +2526,9 @@ export default function App(){
           {!isMob?<div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:18,alignItems:"flex-start",maxWidth:1400,margin:"0 auto"}}>
             {/* ═══ LEFT: Tabs Grid (SVG icons) ═══ */}
             <div>
-              <div style={{display:"grid",gridTemplateColumns:isTab?"repeat(4,1fr)":"repeat(6,1fr)",gap:8}}>
+              <div style={{display:"grid",gridTemplateColumns:isTab?"repeat(4,1fr)":"repeat(6,1fr)",gap:10}}>
                 {visibleTabs.map(t=>{const perm=getTabPerm(t.key);
-                  return<div key={t.key} onClick={()=>goTo(t.key)} className="home-tile" style={{background:T.cardSolid,borderRadius:11,padding:"12px 8px",border:"1px solid "+T.brd,textAlign:"center",opacity:perm==="view"?0.75:1,position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,aspectRatio:"1"}}>
+                  return<div key={t.key} onClick={()=>goTo(t.key)} className="home-tile" style={{background:T.cardSolid,borderRadius:11,padding:"12px 8px",border:"1px solid "+T.brd,textAlign:"center",opacity:perm==="view"?0.75:1,position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,aspectRatio:"1"}}>
                     <div style={{width:44,height:44,borderRadius:11,background:t.color+"12",display:"flex",alignItems:"center",justifyContent:"center",color:t.color,border:"1px solid "+t.color+"20"}}>
                       <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{t.svg}</svg>
                     </div>
@@ -3425,7 +3425,7 @@ export default function App(){
       </div>
     )}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.81"/>
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.82"/>
   </div>
 }
 
