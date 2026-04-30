@@ -44,6 +44,19 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
   const[movWsF,setMovWsF]=useState("الكل");
   const[movTypeF,setMovTypeF]=useState("الكل");const[lateChecked,setLateChecked]=useState({});const[lateSent,setLateSent]=useState({});
   const[movLimit,setMovLimit]=useState(50);
+  /* V18.73: Repair UI state — orphan treasury entries (تشغيل خارجي/مشتريات
+     without wsPaymentId/wsName) that the auto-link & backfill couldn't match.
+     User picks a workshop manually for each → creates wsPayment + links treasury. */
+  const[repairOpen,setRepairOpen]=useState(false);
+  const[repairChoices,setRepairChoices]=useState({});/* { txId: wsName } */
+  const orphanTxs=useMemo(()=>{
+    return(data.treasury||[]).filter(t=>{
+      if(!t||t.wsPaymentId||t.wsName)return false;
+      if(t.type!=="out")return false;
+      if(t.category!=="تشغيل خارجي"&&t.category!=="مشتريات")return false;
+      return true;
+    });
+  },[data.treasury]);
   const[rcvSearch,setRcvSearch]=useState("");const rcvSearchDeb=useDebounced(rcvSearch,250);
   const[batchItems,setBatchItems]=useState([]);const[batchDate,setBatchDate]=useState(new Date().toISOString().split("T")[0]);const[batchQ,setBatchQ]=useState("");
   const[editMov,setEditMov]=useState(null);
@@ -1105,6 +1118,45 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
     const activeWs=extWorkshops.filter(w=>{const a=wsAccounts(w.name);return a.due>0||a.totalPaid>0||a.totalPurchase>0});
     const totals=activeWs.reduce((s,w)=>{const a=wsAccounts(w.name);return{due:s.due+a.due,purchase:s.purchase+a.totalPurchase,paid:s.paid+a.totalPaid,balance:s.balance+a.balance}},{due:0,purchase:0,paid:0,balance:0});
     const filteredWs=accWsF==="الكل"?activeWs:activeWs.filter(w=>w.name===accWsF);
+    /* V18.73: Repair handler — for each orphan treasury row the user assigned
+       a workshop, create a wsPayment record and link it back. Skips rows the
+       user didn't pick a workshop for. Validates ownership & day-lock. */
+    const applyRepair=()=>{
+      const picks=Object.entries(repairChoices).filter(([,wsName])=>wsName&&wsName.trim());
+      if(picks.length===0){showToast("اختر ورشة لحركة واحدة على الأقل");return}
+      ask("تأكيد إصلاح "+picks.length+" حركة — هيتم إنشاء دفعات ورشة وربطها بالخزنة. متابعة؟",()=>{
+        upConfig(d=>{
+          if(!Array.isArray(d.wsPayments))d.wsPayments=[];
+          let linked=0;
+          picks.forEach(([txId,wsName])=>{
+            const tx=(d.treasury||[]).find(t=>t.id===txId);
+            if(!tx)return;
+            if(tx.wsPaymentId)return;/* race: someone linked it already */
+            const ws=workshops.find(x=>x.name===wsName);
+            if(!ws)return;
+            const wsPayId="wsp_repair_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,7);
+            d.wsPayments.push({
+              id:wsPayId,wsName:ws.name,wsId:ws.id,
+              amount:Number(tx.amount)||0,
+              type:tx.category==="مشتريات"?"purchase":"payment",
+              notes:tx.notes||"",date:tx.date||"",
+              createdBy:userName||"repair",
+              treasuryTxId:tx.id,
+              createdAt:tx.createdAt||new Date().toISOString(),
+              repairedAt:new Date().toISOString(),
+            });
+            tx.wsPaymentId=wsPayId;
+            tx.wsName=ws.name;
+            if(!tx.sourceType)tx.sourceType="ws_payment";
+            linked++;
+          });
+          d._wsRepairLog=d._wsRepairLog||[];
+          d._wsRepairLog.push({at:new Date().toISOString(),by:userName||"",linked});
+        });
+        setRepairOpen(false);setRepairChoices({});
+        showToast("✓ تم إصلاح "+picks.length+" حركة");
+      });
+    };
     return<div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
         <div><h2 style={{fontSize:isMob?18:22,fontWeight:800,margin:0}}>{"📊 حسابات الورش"}</h2><div style={{fontSize:FS-1,color:T.textSec}}>{"الموسم: "+season}</div></div>
@@ -1137,6 +1189,15 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
           <td style={{...TDB,fontSize:FS+2,fontWeight:800,color:totals.balance>0?T.err:T.ok}}>{fmt(r2(totals.balance))+" ج.م"}</td><td style={TD}></td></tr>})()}
         </tbody>
       </table></div></Card>
+      {/* V18.73: Orphans banner — visible only if there are unlinked
+          تشغيل خارجي/مشتريات treasury rows. Click opens the Repair modal. */}
+      {orphanTxs.length>0&&<div style={{padding:12,borderRadius:10,background:T.warn+"12",border:"1px solid "+T.warn+"40",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+        <div style={{flex:1,minWidth:200}}>
+          <div style={{fontWeight:800,color:T.warn,fontSize:FS+1,marginBottom:2}}>{"⚠ "+orphanTxs.length+" حركة خزنة غير مربوطة بورشة"}</div>
+          <div style={{fontSize:FS-1,color:T.textSec}}>دفعات/مشتريات بـ "تشغيل خارجي" مش ظاهرة في كشف حساب أي ورشة. اضغط للمراجعة والربط.</div>
+        </div>
+        <Btn onClick={()=>{setRepairChoices({});setRepairOpen(true)}} style={{background:T.warn,color:"#fff",fontWeight:700}}>🔧 إصلاح الحركات</Btn>
+      </div>}
       {/* Workshop filter */}
       <div style={{marginBottom:14}}><SearchSel value={accWsF} onChange={setAccWsF} options={[{value:"الكل",label:"كل الورش"},...activeWs.map(w=>({value:w.name,label:(w.type?wsTypeInfo(w.type).icon+" "+wsTypeInfo(w.type).key+" — ":"")+w.name}))]} placeholder="ابحث عن ورشة..."/></div>
       {/* Per-workshop statement */}
@@ -1188,6 +1249,59 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
           </div>
         </Card>})}
       </div>
+      {/* V18.73: Repair Modal — list of orphan treasury rows with manual
+          workshop picker per row. */}
+      {repairOpen&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={(e)=>{if(e.target===e.currentTarget)setRepairOpen(false)}}>
+        <div style={{background:T.bg,borderRadius:12,maxWidth:900,width:"100%",maxHeight:"90vh",overflow:"auto",border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.3)"}}>
+          <div style={{position:"sticky",top:0,background:T.bg,padding:"14px 18px",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",zIndex:1}}>
+            <div>
+              <div style={{fontWeight:800,fontSize:FS+3}}>🔧 إصلاح الحركات غير المربوطة</div>
+              <div style={{fontSize:FS-1,color:T.textSec,marginTop:2}}>{orphanTxs.length+" حركة محتاجة ربط بورشة"}</div>
+            </div>
+            <Btn ghost onClick={()=>setRepairOpen(false)}>✕</Btn>
+          </div>
+          <div style={{padding:18}}>
+            {orphanTxs.length===0?<div style={{textAlign:"center",padding:30,color:T.ok,fontWeight:700}}>✓ لا توجد حركات يتيمة</div>:<>
+              <div style={{padding:10,background:T.accent+"08",borderRadius:8,fontSize:FS-1,marginBottom:12,color:T.textSec}}>
+                💡 لكل حركة، اختر الورشة المناسبة من القائمة. الحركات اللي مش هتختار لها ورشة هتفضل زي ما هي. بعد الحفظ، الدفعات هتظهر في كشف حساب الورشة.
+              </div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+                  <thead><tr>{["التاريخ","الفئة","البيان","الملاحظات","المبلغ","الورشة"].map(h=><th key={h} style={{...TH,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
+                  <tbody>
+                  {orphanTxs.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map(t=>(
+                    <tr key={t.id} style={{borderBottom:"1px solid "+T.brd}}>
+                      <td style={{...TD,whiteSpace:"nowrap"}}>{t.date||"-"}</td>
+                      <td style={TD}><span style={{padding:"2px 6px",borderRadius:5,fontSize:FS-2,background:t.category==="مشتريات"?T.ok+"15":T.accent+"15",color:t.category==="مشتريات"?T.ok:T.accent,fontWeight:700}}>{t.category}</span></td>
+                      <td style={{...TD,maxWidth:240}}>{t.desc||"-"}</td>
+                      <td style={{...TD,maxWidth:180,fontSize:FS-2,color:T.textSec}}>{t.notes||"-"}</td>
+                      <td style={{...TDB,fontWeight:800,color:T.err,whiteSpace:"nowrap"}}>{fmt(Number(t.amount)||0)}</td>
+                      <td style={{...TD,minWidth:200}}>
+                        <SearchSel
+                          value={repairChoices[t.id]||""}
+                          onChange={(v)=>setRepairChoices(p=>({...p,[t.id]:v}))}
+                          options={[{value:"",label:"— تخطّى —"},...workshops.map(w=>({value:w.name,label:(w.type?wsTypeInfo(w.type).icon+" ":"")+w.name}))]}
+                          placeholder="اختر ورشة..."
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{marginTop:14,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                <div style={{fontSize:FS-1,color:T.textSec}}>
+                  {(()=>{const n=Object.values(repairChoices).filter(v=>v&&v.trim()).length;return n>0?"✓ "+n+" حركة جاهزة للربط":"اختر ورشة لحركة واحدة على الأقل"})()}
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <Btn ghost onClick={()=>setRepairOpen(false)}>الغاء</Btn>
+                  <Btn onClick={applyRepair} style={{background:T.ok,color:"#fff",fontWeight:700}} disabled={Object.values(repairChoices).filter(v=>v&&v.trim()).length===0}>💾 ربط الحركات المختارة</Btn>
+                </div>
+              </div>
+            </>}
+          </div>
+        </div>
+      </div>}
     </div>
   }
   return null

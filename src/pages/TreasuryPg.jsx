@@ -568,14 +568,17 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     if(txPartyId&&txPartyType==="supplier"){const s=suppliers.find(x=>x.id===txPartyId);if(s){linkedSupplierId=s.id;if(!finalDesc.trim())finalDesc="دفع لـ "+s.name}}
     if(txPartyId&&txPartyType==="workshop"){const w=workshops.find(x=>x.id===txPartyId||x.name===txPartyId);if(w){linkedWsName=w.name;if(!finalDesc.trim())finalDesc=wsDesc(w.name,txCategory==="مشتريات")}}
     if(txPartyId&&txPartyType==="employee"){const e=(data.employees||[]).find(x=>x.id===txPartyId);if(e){linkedEmpId=e.id;if(!finalDesc.trim())finalDesc="سلفة "+e.name}}
-    /* V18.72: Auto-link to workshop by desc match if no party was picked.
-       Catches the common workflow of picking "تشغيل خارجي" category and typing
-       the workshop name in desc — which previously left the entry orphaned and
-       hidden from the workshop ledger. Single confident match only — ambiguous
-       descs (multiple unrelated workshop names) stay unlinked. */
+    /* V18.73: Auto-link to workshop by combined desc+notes match if no party
+       was picked. Previously the matcher only saw `desc OR notes` (via ||),
+       missing entries where the workshop name was in notes only or split
+       across both fields. Now we concatenate. The ambiguity guard inside
+       matchWorkshopFromDesc still prevents wrong links. */
     let _autoLinkedWs=null;
+    let _autoLinkAttempted=false;
     if(!linkedWsName&&txType==="out"&&(txCategory==="تشغيل خارجي"||txCategory==="مشتريات")){
-      _autoLinkedWs=matchWorkshopFromDesc(finalDesc||txNotes||"",workshops);
+      _autoLinkAttempted=true;
+      const _haystack=((finalDesc||"")+" "+(txNotes||"")).trim();
+      _autoLinkedWs=matchWorkshopFromDesc(_haystack,workshops);
       if(_autoLinkedWs)linkedWsName=_autoLinkedWs.name;
     }
     /* V18.35: capture freshly-built treasury entry for post-commit auto-posting */
@@ -691,6 +694,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     } else if(_autoLinkedWs){
       /* V18.72: silent auto-link toast */
       showToast("✓ ربط تلقائي بورشة "+_autoLinkedWs.name);
+    } else if(_autoLinkAttempted&&!linkedWsName){
+      /* V18.73: workshop-category entry was saved unlinked — alert the user
+         so they know to fix it from the Repair tool in تشغيل خارجي → حسابات. */
+      showToast("⚠ حُفظ بدون ربط بورشة — لن يظهر في كشف الحساب. استخدم 'إصلاح الحركات غير المربوطة'");
     } else {
       showToast("✓ تم الحفظ");
     }
