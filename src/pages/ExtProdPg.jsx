@@ -1282,6 +1282,8 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
                           onChange={(v)=>setRepairChoices(p=>({...p,[t.id]:v}))}
                           options={[{value:"",label:"— تخطّى —"},...workshops.map(w=>({value:w.name,label:(w.type?wsTypeInfo(w.type).icon+" ":"")+w.name}))]}
                           placeholder="اختر ورشة..."
+                          showAllOnFocus={true}
+                          maxResults={50}
                         />
                       </td>
                     </tr>
