@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V18.80",
+    date: "2026-04-30",
+    types: ["improvement"],
+    title: "🎨 ضبط أزرار الصفحة الرئيسية: أيقونة كبيرة + بطاقة مدمجة",
+    changes: [
+      { type: "improvement", text: "🔄 رجعت الأيقونة لحجمها الطبيعي (icon container 44×44, svg 22×22) عشان تكون واضحة وبارزة. شيلت `aspectRatio:1` (المربع المتساوي) — البطاقة دلوقتي بترسم نفسها على قد محتواها بدون مساحة بيضاء فاضية. padding 10×6، gap 6، font FS-1. النتيجة: بطاقات مدمجة بأيقونات كبيرة، 6 أعمدة في الديسكتوب." },
+    ]
+  },
+  {
     version: "V18.79",
     date: "2026-04-30",
     types: ["improvement"],
@@ -140,21 +149,6 @@ const CHANGELOG = [
       { type: "feature", text: "📝 AuditLog لكل عملية دمج: كل ورشة متدمجة بتتسجل entry في auditLog بـcategory='workshops' و action='merge'، مع id+name الـoldValue والـnewValue لتتبع كامل." },
       { type: "improvement", text: "⚠️ تحذير عند الإضافة: لما تضيف ورشة جديدة بنفس اسم ورشة موجودة (case-insensitive + trim)، Popup بيسألك إن كنت متأكد قبل ما يضيف. ده بيمنع المشكلة من تكرار حدوثها." },
       { type: "improvement", text: "💡 ملاحظة: حركات الخزنة اللي اتسجلت بـcategory='تشغيل خارجي' بدون اختيار الورشة من party-picker (يعني اسم الورشة مكتوب في desc بس) لسه مش بتظهر في كشف حساب الورشة — ده bug منفصل هيتحل في إصدار جاي." },
-    ]
-  },
-  {
-    version: "V18.70",
-    date: "2026-04-30",
-    types: ["feature", "architectural"],
-    title: "🔒 Security Phase 1: Firestore Rules + Storage Rules + Admin Bootstrap",
-    changes: [
-      { type: "feature", text: "🛡️ إضافة `firestore.rules` كامل بصلاحيات على مستوى الدور (admin/manager/sales_accountant/purchase_accountant/payroll_accountant/payroll_verifier/viewer). كل collection محمية: factory, accountingDays, treasuryDays, auditDays, hrLogDays, hrWeeksDocs, seasons/orders, fixedAssets, backups, migrationLog. الـ default = deny." },
-      { type: "feature", text: "🗄️ إضافة `storage.rules` — Firebase Storage بقت محمية بـauth check + حد أقصى 25MB لأي upload. مفيش public access — كل ملف يتطلب تسجيل دخول." },
-      { type: "feature", text: "📦 إضافة `firebase.json` — config للـdeployment عبر firebase CLI: `firebase deploy --only firestore:rules,storage:rules`." },
-      { type: "feature", text: "🔑 Bootstrap Admin Escape Hatch: `BOOTSTRAP_ADMIN_UID` env var جديد في Vercel + UID hardcoded في `firestore.rules`. لو القايمة قفلت على نفسها (مفيش admin شغال) — الحساب ده بيقدر يدخل بصلاحيات admin بغض النظر عن state الـconfig." },
-      { type: "feature", text: "📘 إضافة `SECURITY.md` — دليل خطوة بخطوة لتطبيق إصلاحات الأمان: deploy الـrules، تقييد الـAPI key في Google Cloud Console (HTTP referrers + API restrictions)، إعداد Vercel env vars، اختبار الـrules في Playground." },
-      { type: "improvement", text: "🔐 تحديث `api/_firebase.js → verifyAdminToken`: لو الـUID الـmatching مع `BOOTSTRAP_ADMIN_UID` env var، بيتمنح صلاحيات admin مباشرة بدون قراية الـconfig — حماية ضد config corruption." },
-      { type: "architectural", text: "⚠️ التغيير ده حرج جداً: قبل V18.70 الـDB كانت **مفتوحة بالكامل** — أي حد عنده الـAPI key (متاح في الـclient) يقدر يقرا/يكتب أي حاجة. بعد الـdeploy، فقط المسجلين دخول بأدوار صحيحة يقدروا يعملوا writes. **لازم تتبع SECURITY.md حرفياً قبل الـdeploy** عشان متقفلش النظام على نفسك." },
     ]
   },
 ];
