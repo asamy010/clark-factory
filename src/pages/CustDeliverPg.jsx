@@ -27,7 +27,7 @@ import { getCustRating, Stars } from "../utils/rating.jsx";
 import { getDeleteBlocker } from "../utils/dataIntegrity.js";
 import { auth } from "../firebase";
 import { autoPost } from "../utils/accounting/autoPost.js";
-import { buildSalesInvoiceFromDelivery, buildCreditNoteFromReturn } from "../utils/invoices.js";
+import { buildSalesInvoiceFromDelivery, buildCreditNoteFromReturn, upsertSalesInvoiceFromDelivery, upsertCreditNoteFromReturn } from "../utils/invoices.js";
 import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../components/ui.jsx";
 import { T, TH, TD, TDB } from "../theme.js";
 
@@ -2793,22 +2793,26 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               /* V18.40: COGS companion entry (Dr COGS / Cr finished inventory) */
               autoPost.saleCogs(data, entry, o, userName).catch(()=>{});
             } else {
-              /* V18.50: auto-create a draft sales invoice for this delivery */
+              /* V18.65: upsert — consolidates same-day same-customer drafts */
               const autoPostOnCreate = (data.invoiceSettings||{}).autoPostOnCreate === true;
               let createdInv = null;
+              let isNewInvoice = false;
               upConfig(d=>{
-                if(!Array.isArray(d.salesInvoices))d.salesInvoices=[];
-                createdInv = buildSalesInvoiceFromDelivery(d, entry, o, cust, userName);
-                /* V18.51: skip draft → post immediately */
-                if(autoPostOnCreate){
-                  createdInv.status = "posted";
-                  createdInv.postedAt = new Date().toISOString();
-                  createdInv.postedBy = userName;
+                const res = upsertSalesInvoiceFromDelivery(d, entry, o, cust, userName);
+                createdInv = res.invoice;
+                isNewInvoice = res.isNew;
+                /* V18.65: Only auto-post BRAND NEW invoices. Merged drafts stay draft. */
+                if(autoPostOnCreate && createdInv && isNewInvoice){
+                  const idx = (d.salesInvoices||[]).findIndex(i => i.id === createdInv.id);
+                  if(idx >= 0){
+                    d.salesInvoices[idx].status = "posted";
+                    d.salesInvoices[idx].postedAt = new Date().toISOString();
+                    d.salesInvoices[idx].postedBy = userName;
+                  }
                 }
-                d.salesInvoices.unshift(createdInv);
               });
-              /* V18.51: if auto-post on create, also fire the journal entry */
-              if(autoPostOnCreate && createdInv){
+              /* V18.51: if auto-post on create, also fire the journal entry (new only) */
+              if(autoPostOnCreate && createdInv && isNewInvoice){
                 autoPost.salesInvoicePosted(data, createdInv, cust, o, userName).then(res => {
                   if(res && res.main && res.main.ok && res.main.entry){
                     upConfig(d => {
@@ -2842,11 +2846,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               /* V18.40: COGS reversal companion entry (Dr finished inventory / Cr COGS) */
               autoPost.saleReturnCogs(data, retEntry, o, userName).catch(()=>{});
             } else {
-              /* V18.51: auto-create draft credit note */
+              /* V18.65: upsert — consolidates same-day same-customer draft CNs */
               upConfig(d=>{
-                if(!Array.isArray(d.salesCreditNotes))d.salesCreditNotes=[];
-                const cn=buildCreditNoteFromReturn(d, retEntry, o, cust, userName);
-                d.salesCreditNotes.unshift(cn);
+                upsertCreditNoteFromReturn(d, retEntry, o, cust, userName);
               });
             }
           })});

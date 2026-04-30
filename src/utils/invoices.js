@@ -1,9 +1,16 @@
 /* ═══════════════════════════════════════════════════════════════════════
-   CLARK · Invoices Utility (V18.49)
+   CLARK · Invoices Utility (V18.65)
    ───────────────────────────────────────────────────────────────────────
    Manages sales and purchase invoices as a layer between the inventory
    movement entities (deliveries / receipts) and the accounting journal
    entries.
+
+   V18.65: Same-day same-customer DRAFT invoices/credit-notes consolidate
+   into a single document. Multiple deliveries/returns merge as line items
+   (or bump qty if same model+price). Refs become arrays (deliveryRefs[],
+   returnRefs[]) while keeping legacy singular fields for backward compat.
+   Also fixes credit-note price bug (was using order.sellPrice only;
+   now mirrors the actual invoice price for proper return matching).
 
    ─── Data Schema ───
    data.salesInvoices = [
@@ -84,6 +91,13 @@ export function buildSalesInvoiceFromDelivery(d, delivery, order, customer, user
       custId: delivery.custId,
       _key: delivery._key || null,
     },
+    /* V18.65: refs as array (singular `deliveryRef` kept for backward compat) */
+    deliveryRefs: [{
+      sessionId: delivery.sessionId || null,
+      orderId: order.id,
+      custId: delivery.custId,
+      _key: delivery._key || null,
+    }],
     items: [{
       orderId: order.id,
       modelNo: order.modelNo || "",
@@ -101,6 +115,109 @@ export function buildSalesInvoiceFromDelivery(d, delivery, order, customer, user
     createdAt: new Date().toISOString(),
     createdBy: userName || "",
   };
+}
+
+/* V18.65: Smart upsert — consolidates same-day same-customer DRAFT invoices.
+   Looks for an existing draft invoice for (customerId, date). If found,
+   merges this delivery into it (bumps qty for same orderId+price, else adds
+   a new line item). Otherwise creates a brand new invoice and pushes to
+   d.salesInvoices. Returns { invoice, isNew } so callers can fire post-side
+   effects (e.g. autoPost) only on brand-new invoices.
+
+   Behavior is identical for autoPostOnCreate=false (the recommended setup).
+   When autoPostOnCreate=true, only the FIRST delivery of the day creates
+   a posted invoice; subsequent deliveries to same customer same day will
+   create new posted invoices (since the first is no longer draft and
+   cannot be merged into). */
+export function upsertSalesInvoiceFromDelivery(d, delivery, order, customer, userName){
+  if(!Array.isArray(d.salesInvoices)) d.salesInvoices = [];
+
+  const date = delivery.date || new Date().toISOString().split("T")[0];
+  const customerId = customer?.id || delivery.custId;
+  const unitPrice = Number(delivery.price) || Number(order.sellPrice) || 0;
+  const qty = Number(delivery.qty) || 0;
+  if(qty <= 0) return { invoice: null, isNew: false };
+
+  const customerDiscountPct = Number(customer?.discount) || 0;
+  const ref = {
+    sessionId: delivery.sessionId || null,
+    orderId: order.id,
+    custId: delivery.custId,
+    _key: delivery._key || null,
+  };
+
+  /* Try to find an existing DRAFT invoice for same customer + same date */
+  const existing = d.salesInvoices.find(i =>
+    i.status === "draft" &&
+    i.customerId === customerId &&
+    i.date === date
+  );
+
+  if(existing){
+    /* Merge: bump qty if same orderId+unitPrice, else add a new line item */
+    if(!Array.isArray(existing.items)) existing.items = [];
+    const matchedItem = existing.items.find(it =>
+      it.orderId === order.id && Number(it.unitPrice) === unitPrice
+    );
+    if(matchedItem){
+      matchedItem.qty = (Number(matchedItem.qty) || 0) + qty;
+      matchedItem.lineTotal = matchedItem.qty * Number(matchedItem.unitPrice);
+    } else {
+      existing.items.push({
+        orderId: order.id,
+        modelNo: order.modelNo || "",
+        modelDesc: order.modelDesc || "",
+        qty,
+        unitPrice,
+        lineTotal: qty * unitPrice,
+      });
+    }
+    /* Track this delivery in the refs array (migrate legacy singular if needed) */
+    if(!Array.isArray(existing.deliveryRefs)){
+      existing.deliveryRefs = existing.deliveryRef ? [existing.deliveryRef] : [];
+    }
+    existing.deliveryRefs.push(ref);
+    /* Recompute totals */
+    existing.subtotal = existing.items.reduce((s, it) => s + (Number(it.lineTotal) || 0), 0);
+    existing.discountPct = customerDiscountPct;
+    existing.discount = existing.subtotal * (customerDiscountPct / 100);
+    existing.total = existing.subtotal - existing.discount;
+    return { invoice: existing, isNew: false };
+  }
+
+  /* Create new draft invoice */
+  const invoiceNo = reserveInvoiceNo(d, "sales");
+  const lineTotal = unitPrice * qty;
+  const discount = lineTotal * (customerDiscountPct / 100);
+  const total = lineTotal - discount;
+  const inv = {
+    id: "inv_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,7),
+    invoiceNo,
+    type: "sales",
+    customerId,
+    customerName: customer?.name || delivery.custName || "",
+    date,
+    deliveryRef: ref,        /* legacy compat */
+    deliveryRefs: [ref],     /* V18.65 */
+    items: [{
+      orderId: order.id,
+      modelNo: order.modelNo || "",
+      modelDesc: order.modelDesc || "",
+      qty,
+      unitPrice,
+      lineTotal,
+    }],
+    subtotal: lineTotal,
+    discountPct: customerDiscountPct,
+    discount,
+    total,
+    status: "draft",
+    notes: "",
+    createdAt: new Date().toISOString(),
+    createdBy: userName || "",
+  };
+  d.salesInvoices.unshift(inv);
+  return { invoice: inv, isNew: true };
 }
 
 /* Build an invoice from a single purchase receipt.
@@ -189,15 +306,22 @@ export function deleteDraftInvoiceMutator(d, invoiceId, type){
 
 /* ═══ LOOKUPS ═══ */
 
-/* Find an invoice by its delivery reference (sessionId + orderId + custId) */
+/* Find an invoice by its delivery reference (sessionId + orderId + custId).
+   V18.65: scans deliveryRefs[] array (consolidated invoices) first, then
+   falls back to legacy singular deliveryRef. */
 export function findInvoiceByDelivery(data, sessionId, orderId, custId){
-  return (data.salesInvoices || []).find(i =>
-    i.deliveryRef &&
-    i.deliveryRef.sessionId === sessionId &&
-    i.deliveryRef.orderId === orderId &&
-    i.deliveryRef.custId === custId &&
-    i.status !== "void"
-  ) || null;
+  return (data.salesInvoices || []).find(i => {
+    if(i.status === "void") return false;
+    if(Array.isArray(i.deliveryRefs) && i.deliveryRefs.length > 0){
+      return i.deliveryRefs.some(r =>
+        r && r.sessionId === sessionId && r.orderId === orderId && r.custId === custId
+      );
+    }
+    return i.deliveryRef &&
+      i.deliveryRef.sessionId === sessionId &&
+      i.deliveryRef.orderId === orderId &&
+      i.deliveryRef.custId === custId;
+  }) || null;
 }
 
 /* Find a purchase invoice by its receipt reference */
@@ -266,11 +390,43 @@ export function reserveCreditNoteNo(d){
   return `${CREDIT_NOTE_PREFIX}-${year}-${String(next).padStart(4, "0")}`;
 }
 
+/* V18.65: Resolve the unit price for a customer return.
+   Priority order to mirror the actual sale price (fixes V18.51 bug where
+   credit notes always used order.sellPrice, ignoring quick-sale custom
+   prices):
+     1) Same-day non-void invoice for this customer with this orderId.
+     2) Most recent non-void invoice for this customer with this orderId.
+     3) order.sellPrice fallback. */
+function resolveReturnUnitPrice(d, customerId, orderId, date){
+  const invs = d.salesInvoices || [];
+  const sameDay = invs.find(i =>
+    i.customerId === customerId && i.date === date && i.status !== "void" &&
+    Array.isArray(i.items) && i.items.some(it => it.orderId === orderId)
+  );
+  if(sameDay){
+    const m = sameDay.items.find(it => it.orderId === orderId);
+    if(m && Number(m.unitPrice) > 0) return Number(m.unitPrice);
+  }
+  const candidates = invs.filter(i =>
+    i.customerId === customerId && i.status !== "void" &&
+    Array.isArray(i.items) && i.items.some(it => it.orderId === orderId)
+  ).sort((a,b) => (b.date||"").localeCompare(a.date||""));
+  if(candidates.length > 0){
+    const m = candidates[0].items.find(it => it.orderId === orderId);
+    if(m && Number(m.unitPrice) > 0) return Number(m.unitPrice);
+  }
+  return 0;
+}
+
 /* Build a credit note from a customer return entry.
    Mirrors buildSalesInvoiceFromDelivery but for returns. */
 export function buildCreditNoteFromReturn(d, returnEntry, order, customer, userName){
   const creditNoteNo = reserveCreditNoteNo(d);
-  const unitPrice = Number(order.sellPrice) || 0;
+  const date = returnEntry.date || new Date().toISOString().split("T")[0];
+  const customerId = customer?.id || returnEntry.custId;
+  /* V18.65: use actual invoice price (fixes price-mismatch bug) */
+  const resolvedPrice = resolveReturnUnitPrice(d, customerId, order.id, date);
+  const unitPrice = resolvedPrice > 0 ? resolvedPrice : (Number(order.sellPrice) || 0);
   const qty       = Number(returnEntry.qty) || 0;
   const lineTotal = unitPrice * qty;
   const customerDiscountPct = Number(customer?.discount) || 0;
@@ -285,19 +441,22 @@ export function buildCreditNoteFromReturn(d, returnEntry, order, customer, userN
     i.status !== "void"
   );
 
+  const ref = {
+    orderId: order.id,
+    custId: returnEntry.custId,
+    _key: returnEntry._key || null,
+  };
+
   return {
     id: "cn_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,7),
     creditNoteNo,
-    customerId: customer?.id || returnEntry.custId,
+    customerId,
     customerName: customer?.name || returnEntry.custName || "",
-    date: returnEntry.date || new Date().toISOString().split("T")[0],
+    date,
     linkedInvoiceId: linkedInv ? linkedInv.id : null,
     linkedInvoiceNo: linkedInv ? linkedInv.invoiceNo : null,
-    returnRef: {
-      orderId: order.id,
-      custId: returnEntry.custId,
-      _key: returnEntry._key || null,
-    },
+    returnRef: ref,            /* legacy compat */
+    returnRefs: [ref],         /* V18.65 */
     items: [{
       orderId: order.id,
       modelNo: order.modelNo || "",
@@ -315,6 +474,106 @@ export function buildCreditNoteFromReturn(d, returnEntry, order, customer, userN
     createdAt: new Date().toISOString(),
     createdBy: userName || "",
   };
+}
+
+/* V18.65: Smart upsert — consolidates same-day same-customer DRAFT credit
+   notes. Mirrors upsertSalesInvoiceFromDelivery semantics. Returns
+   { creditNote, isNew }. */
+export function upsertCreditNoteFromReturn(d, returnEntry, order, customer, userName){
+  if(!Array.isArray(d.salesCreditNotes)) d.salesCreditNotes = [];
+
+  const date = returnEntry.date || new Date().toISOString().split("T")[0];
+  const customerId = customer?.id || returnEntry.custId;
+  const qty = Number(returnEntry.qty) || 0;
+  if(qty <= 0) return { creditNote: null, isNew: false };
+
+  /* V18.65: use actual invoice price */
+  const resolvedPrice = resolveReturnUnitPrice(d, customerId, order.id, date);
+  const unitPrice = resolvedPrice > 0 ? resolvedPrice : (Number(order.sellPrice) || 0);
+  const customerDiscountPct = Number(customer?.discount) || 0;
+  const ref = {
+    orderId: order.id,
+    custId: returnEntry.custId,
+    _key: returnEntry._key || null,
+  };
+
+  /* Try to find an existing DRAFT credit note for same customer + same date */
+  const existing = d.salesCreditNotes.find(c =>
+    c.status === "draft" &&
+    c.customerId === customerId &&
+    c.date === date
+  );
+
+  if(existing){
+    if(!Array.isArray(existing.items)) existing.items = [];
+    const matchedItem = existing.items.find(it =>
+      it.orderId === order.id && Number(it.unitPrice) === unitPrice
+    );
+    if(matchedItem){
+      matchedItem.qty = (Number(matchedItem.qty) || 0) + qty;
+      matchedItem.lineTotal = matchedItem.qty * Number(matchedItem.unitPrice);
+    } else {
+      existing.items.push({
+        orderId: order.id,
+        modelNo: order.modelNo || "",
+        modelDesc: order.modelDesc || "",
+        qty,
+        unitPrice,
+        lineTotal: qty * unitPrice,
+      });
+    }
+    if(!Array.isArray(existing.returnRefs)){
+      existing.returnRefs = existing.returnRef ? [existing.returnRef] : [];
+    }
+    existing.returnRefs.push(ref);
+    /* Recompute totals */
+    existing.subtotal = existing.items.reduce((s, it) => s + (Number(it.lineTotal) || 0), 0);
+    existing.discountPct = customerDiscountPct;
+    existing.discount = existing.subtotal * (customerDiscountPct / 100);
+    existing.total = existing.subtotal - existing.discount;
+    return { creditNote: existing, isNew: false };
+  }
+
+  /* Create new draft credit note */
+  const creditNoteNo = reserveCreditNoteNo(d);
+  const lineTotal = unitPrice * qty;
+  const discount = lineTotal * (customerDiscountPct / 100);
+  const total = lineTotal - discount;
+  /* Try to find the original invoice this return relates to */
+  const linkedInv = (d.salesInvoices||[]).find(i =>
+    i.customerId === customerId && i.status !== "void" &&
+    Array.isArray(i.items) && i.items.some(it => it.orderId === order.id)
+  );
+
+  const cn = {
+    id: "cn_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,7),
+    creditNoteNo,
+    customerId,
+    customerName: customer?.name || returnEntry.custName || "",
+    date,
+    linkedInvoiceId: linkedInv ? linkedInv.id : null,
+    linkedInvoiceNo: linkedInv ? linkedInv.invoiceNo : null,
+    returnRef: ref,            /* legacy compat */
+    returnRefs: [ref],         /* V18.65 */
+    items: [{
+      orderId: order.id,
+      modelNo: order.modelNo || "",
+      modelDesc: order.modelDesc || "",
+      qty,
+      unitPrice,
+      lineTotal,
+    }],
+    subtotal: lineTotal,
+    discountPct: customerDiscountPct,
+    discount,
+    total,
+    status: "draft",
+    notes: "",
+    createdAt: new Date().toISOString(),
+    createdBy: userName || "",
+  };
+  d.salesCreditNotes.unshift(cn);
+  return { creditNote: cn, isNew: true };
 }
 
 /* Status transition mutators for credit notes */
@@ -356,15 +615,22 @@ export function deleteDraftCreditNoteMutator(d, creditNoteId){
   return true;
 }
 
-/* Find credit note by return reference */
+/* Find credit note by return reference.
+   V18.65: scans returnRefs[] array (consolidated CNs) first, then falls
+   back to legacy singular returnRef. */
 export function findCreditNoteByReturn(data, orderId, custId, key){
-  return (data.salesCreditNotes || []).find(c =>
-    c.returnRef &&
-    c.returnRef.orderId === orderId &&
-    c.returnRef.custId === custId &&
-    (!key || c.returnRef._key === key) &&
-    c.status !== "void"
-  ) || null;
+  return (data.salesCreditNotes || []).find(c => {
+    if(c.status === "void") return false;
+    if(Array.isArray(c.returnRefs) && c.returnRefs.length > 0){
+      return c.returnRefs.some(r =>
+        r && r.orderId === orderId && r.custId === custId && (!key || r._key === key)
+      );
+    }
+    return c.returnRef &&
+      c.returnRef.orderId === orderId &&
+      c.returnRef.custId === custId &&
+      (!key || c.returnRef._key === key);
+  }) || null;
 }
 
 /* Stats for credit notes (similar to getInvoiceStats) */

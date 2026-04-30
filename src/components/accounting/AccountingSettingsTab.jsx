@@ -12,7 +12,7 @@ import { useState, useMemo } from "react";
 import { Btn, Card, Sel, Inp } from "../ui.jsx";
 import { AccountSelector } from "./AccountSelector.jsx";
 import { OpeningBalancesModal } from "./OpeningBalancesModal.jsx";
-import { ClosingEntryModal } from "./ClosingEntryModal.jsx";
+import { ClosingWizardModal } from "./ClosingWizardModal.jsx";
 import { ClosedPeriodsCard } from "./ClosedPeriodsCard.jsx";
 import { FailuresCard } from "./FailuresCard.jsx";
 import { CurrenciesCard } from "./CurrenciesCard.jsx";
@@ -21,6 +21,7 @@ import { TreasuryAccountsMapCard } from "./TreasuryAccountsMapCard.jsx";
 import { DEFAULT_POSTING_RULES, DEFAULT_CATEGORY_MAP } from "../../utils/accounting/coaDefaults.js";
 import { getAccountByCode } from "../../utils/accounting/coa.js";
 import { backfillAll } from "../../utils/accounting/backfill.js";
+import { getFiscalYearConfig, setFiscalYearConfig, describeFiscalYear, getCurrentFiscalYear } from "../../utils/accounting/fiscalYear.js";
 import { ask, tell } from "../../utils/popups.js";
 
 /* Human-readable labels for posting rules */
@@ -169,14 +170,49 @@ export function AccountingSettingsTab({config, upConfig, coa, T, FS, isMob, show
       </Btn>
     </Card>
 
-    {/* V18.37 Section 0b: Closing Entries */}
+    {/* V18.66 Section 0a': Fiscal Year settings */}
+    {(() => {
+      const fyCfg = getFiscalYearConfig(config);
+      const curFY = getCurrentFiscalYear(config);
+      const months = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
+      return <Card title="📅 السنة المالية" style={{marginBottom:16}}>
+        <div style={{fontSize:FS-2, color:T.textSec, marginBottom:12, lineHeight:1.7}}>
+          حدد بداية السنة المالية. يستخدمها معالج الإقفال لاقتراح فترات الإقفال تلقائياً.
+        </div>
+        <div style={{display:"grid", gridTemplateColumns:isMob?"1fr":"1fr 1fr", gap:10, marginBottom:12}}>
+          <div>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:700, display:"block", marginBottom:4}}>
+              شهر البداية
+            </label>
+            <Sel value={String(fyCfg.startMonth)} onChange={v => upConfig(d => setFiscalYearConfig(d, {startMonth: Number(v), startDay: fyCfg.startDay}))}>
+              {months.map((m, i) => <option key={i} value={String(i+1)}>{m}</option>)}
+            </Sel>
+          </div>
+          <div>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:700, display:"block", marginBottom:4}}>
+              يوم البداية
+            </label>
+            <Sel value={String(fyCfg.startDay)} onChange={v => upConfig(d => setFiscalYearConfig(d, {startMonth: fyCfg.startMonth, startDay: Number(v)}))}>
+              {Array.from({length:28},(_,i)=>i+1).map(d => <option key={d} value={String(d)}>{d}</option>)}
+            </Sel>
+          </div>
+        </div>
+        <div style={{padding:"10px 12px", background:T.accent+"08", borderRadius:8, border:"1px solid "+T.accent+"30", fontSize:FS-2, color:T.text, lineHeight:1.7}}>
+          <b style={{color:T.accent}}>📊 الإعداد الحالي:</b> {describeFiscalYear(fyCfg)}<br/>
+          <b style={{color:T.accent}}>السنة المالية الحالية:</b> {curFY.label} ({curFY.start} → {curFY.end})
+        </div>
+      </Card>;
+    })()}
+
+    {/* V18.37 Section 0b: Closing Entries — V18.66 now uses 5-step wizard */}
     <Card title="🔒 إقفال الفترات المالية" style={{marginBottom:16}}>
       <div style={{fontSize:FS-2, color:T.textSec, marginBottom:14, lineHeight:1.7}}>
-        💡 في نهاية كل سنة مالية (أو ربع سنوي)، اعمل قيد إقفال يصفّر أرصدة الإيرادات والمصروفات
-        ويرحّل الصافي إلى حساب الأرباح المحتجزة. هذا أساسي محاسبياً لبدء فترة جديدة بنظافة.
+        💡 في نهاية كل سنة مالية، استخدم <b>معالج الإقفال</b> ليصفّر أرصدة الإيرادات والمصروفات
+        ويرحّل الصافي إلى حساب الأرباح المحتجزة. المعالج بيعمل فحوصات شاملة قبل الإقفال
+        ويتحقق من صحة الترحيل بعده.
       </div>
       <Btn primary onClick={() => setShowClosing(true)} style={{background:T.warn, color:"#fff", border:"none", fontWeight:800, padding:"10px 20px"}}>
-        🔒 إقفال فترة مالية جديدة
+        🔒 معالج إقفال السنة المالية
       </Btn>
       <ClosedPeriodsCard
         closedPeriods={config.closedPeriods||[]}
@@ -340,8 +376,8 @@ export function AccountingSettingsTab({config, upConfig, coa, T, FS, isMob, show
       userName={userName} showToast={showToast}
       onClose={() => setShowOB(false)}
     />}
-    {showClosing && <ClosingEntryModal
-      coa={coa} T={T} FS={FS} isMob={isMob}
+    {showClosing && <ClosingWizardModal
+      data={config} coa={coa} T={T} FS={FS} isMob={isMob}
       upConfig={upConfig} userName={userName} showToast={showToast}
       defaultRetainedEarningsCode="3200"
       onClose={() => setShowClosing(false)}

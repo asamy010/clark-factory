@@ -14,7 +14,7 @@ import { fmt } from "../utils/format.js";
 import { ask, showToast } from "../utils/popups.js";
 import {
   postInvoiceMutator, voidInvoiceMutator, deleteDraftInvoiceMutator,
-  getInvoiceStats, buildSalesInvoiceFromDelivery, findInvoiceByDelivery,
+  getInvoiceStats, buildSalesInvoiceFromDelivery, upsertSalesInvoiceFromDelivery, findInvoiceByDelivery,
 } from "../utils/invoices.js";
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { printInvoice } from "../utils/printInvoice.js";
@@ -133,11 +133,10 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
       "سيتم إنشاء "+uninvoicedDeliveries.length+" فاتورة مسودة لكل التسليمات اللي لسه ما ليهاش فواتير.\n\nالفواتير ستكون بحالة 'مسودة' وممكن تراجعها وترحلها بعدين.",
       {confirmText:"إنشاء"})) return;
     upConfig(d => {
-      if(!Array.isArray(d.salesInvoices)) d.salesInvoices = [];
       uninvoicedDeliveries.forEach(({delivery, order}) => {
         const customer = (d.customers||[]).find(c => c.id === delivery.custId);
-        const inv = buildSalesInvoiceFromDelivery(d, delivery, order, customer, userName);
-        d.salesInvoices.unshift(inv);
+        /* V18.65: upsert merges same-day same-customer drafts into one invoice */
+        upsertSalesInvoiceFromDelivery(d, delivery, order, customer, userName);
       });
     });
     showToast("✓ تم إنشاء "+uninvoicedDeliveries.length+" فاتورة مسودة");

@@ -64,6 +64,7 @@ const SettingsPg = lazyNamed(() => import("./pages/SettingsPg.jsx"), "SettingsPg
 const AuditPg = lazyNamed(() => import("./pages/AuditPg.jsx"), "AuditPg");
 /* V18.35: Accounting system — chart of accounts, journal, trial balance, settings */
 const AccountingPg = lazyNamed(() => import("./pages/AccountingPg.jsx"), "AccountingPg");
+const FixedAssetsPg = lazyNamed(() => import("./pages/FixedAssetsPg.jsx"), "FixedAssetsPg");
 /* V15.59: Mobile Warehouse — accessed via /warehouse URL */
 import { MobileWarehouseShell } from "./pages/mobile/MobileWarehouseShell.jsx";
 const WarehousePg = lazyNamed(() => import("./pages/WarehousePg.jsx"), "WarehousePg");
@@ -2238,7 +2239,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V18.64 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >V18.68 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -2684,6 +2685,7 @@ export default function App(){
         {tab==="hr"&&<HRPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("hr")} user={user} userRole={userRole} getHrSubPerm={getHrSubPerm} setSavingOverlay={setSavingOverlay}/>}
         {tab==="audit"&&canViewTab("audit")&&<AuditPg data={data} isMob={isMob} user={user}/>}
         {tab==="accounting"&&<AccountingPg data={data} config={config} upConfig={upConfig} isMob={isMob} user={user}/>}
+        {tab==="fixedAssets"&&<FixedAssetsPg data={data} config={config} isMob={isMob} user={user}/>}
         </Suspense>
         </ChunkErrorBoundary>
       </div>}
@@ -3297,7 +3299,7 @@ export default function App(){
       </div>
     )}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.64"/>
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.68"/>
   </div>
 }
 

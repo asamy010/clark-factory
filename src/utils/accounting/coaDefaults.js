@@ -26,9 +26,13 @@ export const DEFAULT_COA = [
   {code:"1310", name:"مخزون خامات",          type:"asset",     parentCode:"1300", isLeaf:true,  system:false},
   {code:"1320", name:"مخزون منتج تام",       type:"asset",     parentCode:"1300", isLeaf:true,  system:false},
   {code:"1330", name:"مخزون تحت التشغيل",    type:"asset",     parentCode:"1300", isLeaf:true,  system:false},
-  {code:"1400", name:"الأصول الثابتة",        type:"asset",     parentCode:"1000", isLeaf:false, system:false},
+  {code:"1400", name:"الأصول الثابتة",        type:"asset",     parentCode:"1000", isLeaf:false, system:true},
   {code:"1410", name:"معدات وآلات",          type:"asset",     parentCode:"1400", isLeaf:true,  system:false},
   {code:"1420", name:"أثاث ومفروشات",        type:"asset",     parentCode:"1400", isLeaf:true,  system:false},
+  {code:"1430", name:"كمبيوترات وأجهزة",     type:"asset",     parentCode:"1400", isLeaf:true,  system:false},/* V18.67 */
+  {code:"1440", name:"وسائل نقل (عربيات)",   type:"asset",     parentCode:"1400", isLeaf:true,  system:false},/* V18.67 */
+  {code:"1450", name:"تحسينات على المأجور",  type:"asset",     parentCode:"1400", isLeaf:true,  system:false},/* V18.67 */
+  {code:"1490", name:"(−) مجمع الإهلاك",      type:"asset",     parentCode:"1400", isLeaf:true,  system:true}, /* V18.67 contra-asset */
 
   /* ═══ 2000 الخصوم ═══ */
   {code:"2000", name:"الخصوم",                type:"liability", parentCode:null,   isLeaf:false, system:true},
@@ -53,6 +57,7 @@ export const DEFAULT_COA = [
   {code:"4120", name:"مرتجع مبيعات",         type:"revenue",   parentCode:"4000", isLeaf:true,  system:true},/* contra-revenue */
   {code:"4900", name:"إيرادات أخرى",         type:"revenue",   parentCode:"4000", isLeaf:true,  system:false},
   {code:"4910", name:"فرق صرف عملة (مكاسب)", type:"revenue",   parentCode:"4000", isLeaf:true,  system:true},/* V18.41 — FX gain */
+  {code:"4920", name:"ربح بيع أصول ثابتة",   type:"revenue",   parentCode:"4000", isLeaf:true,  system:true},/* V18.67 */
 
   /* ═══ 5000 المصروفات ═══ */
   {code:"5000", name:"المصروفات",             type:"expense",   parentCode:null,   isLeaf:false, system:true},
@@ -71,6 +76,9 @@ export const DEFAULT_COA = [
   {code:"5340", name:"نقل ومواصلات",        type:"expense",   parentCode:"5300", isLeaf:true,  system:false},
   {code:"5350", name:"صيانة",                type:"expense",   parentCode:"5300", isLeaf:true,  system:false},
   {code:"5390", name:"مصروفات إدارية أخرى", type:"expense",    parentCode:"5300", isLeaf:true,  system:false},
+  {code:"5400", name:"الإهلاكات",             type:"expense",   parentCode:"5000", isLeaf:false, system:true},/* V18.67 */
+  {code:"5410", name:"مصروف الإهلاك",         type:"expense",   parentCode:"5400", isLeaf:true,  system:true},/* V18.67 */
+  {code:"5420", name:"خسارة بيع/تخلص من أصول ثابتة", type:"expense", parentCode:"5400", isLeaf:true, system:true},/* V18.67 */
   {code:"5910", name:"فرق صرف عملة (خسائر)", type:"expense",   parentCode:"5000", isLeaf:true,  system:true},/* V18.41 — FX loss */
 ];
 

@@ -15,7 +15,7 @@ import { fmt } from "../utils/format.js";
 import { ask, showToast } from "../utils/popups.js";
 import {
   postCreditNoteMutator, voidCreditNoteMutator, deleteDraftCreditNoteMutator,
-  getCreditNoteStats, buildCreditNoteFromReturn, findCreditNoteByReturn,
+  getCreditNoteStats, buildCreditNoteFromReturn, upsertCreditNoteFromReturn, findCreditNoteByReturn,
 } from "../utils/invoices.js";
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { printCreditNote } from "../utils/printInvoice.js";
@@ -126,11 +126,10 @@ export function CreditNotesPg({data, upConfig, isMob, user}){
       "سيتم إنشاء "+uncreditedReturns.length+" إشعار دائن مسودة لكل المرتجعات اللي لسه ما لهاش إشعارات.",
       {confirmText:"إنشاء"})) return;
     upConfig(d => {
-      if(!Array.isArray(d.salesCreditNotes)) d.salesCreditNotes = [];
       uncreditedReturns.forEach(({ret, order}) => {
         const customer = (d.customers||[]).find(c => c.id === ret.custId);
-        const cn = buildCreditNoteFromReturn(d, ret, order, customer, userName);
-        d.salesCreditNotes.unshift(cn);
+        /* V18.65: upsert merges same-day same-customer drafts into one CN */
+        upsertCreditNoteFromReturn(d, ret, order, customer, userName);
       });
     });
     showToast("✓ تم إنشاء "+uncreditedReturns.length+" إشعار دائن");
