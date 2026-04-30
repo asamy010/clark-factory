@@ -18,6 +18,7 @@ import { getReferences } from "../utils/dataIntegrity.js";
 import { Spinner, InlineLoading, Btn, Inp, Sel, SearchSel, Card, useDebounced } from "../components/ui.jsx";
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { calculatePending, buildTxFromRule, getNextDueDate, describeRecurrence } from "../utils/recurring.js";
+import { matchWorkshopFromDesc } from "../utils/orders.js";
 import { T } from "../theme.js";
 import { db } from "../firebase";
 import { collection } from "firebase/firestore";
@@ -567,6 +568,16 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     if(txPartyId&&txPartyType==="supplier"){const s=suppliers.find(x=>x.id===txPartyId);if(s){linkedSupplierId=s.id;if(!finalDesc.trim())finalDesc="دفع لـ "+s.name}}
     if(txPartyId&&txPartyType==="workshop"){const w=workshops.find(x=>x.id===txPartyId||x.name===txPartyId);if(w){linkedWsName=w.name;if(!finalDesc.trim())finalDesc=wsDesc(w.name,txCategory==="مشتريات")}}
     if(txPartyId&&txPartyType==="employee"){const e=(data.employees||[]).find(x=>x.id===txPartyId);if(e){linkedEmpId=e.id;if(!finalDesc.trim())finalDesc="سلفة "+e.name}}
+    /* V18.72: Auto-link to workshop by desc match if no party was picked.
+       Catches the common workflow of picking "تشغيل خارجي" category and typing
+       the workshop name in desc — which previously left the entry orphaned and
+       hidden from the workshop ledger. Single confident match only — ambiguous
+       descs (multiple unrelated workshop names) stay unlinked. */
+    let _autoLinkedWs=null;
+    if(!linkedWsName&&txType==="out"&&(txCategory==="تشغيل خارجي"||txCategory==="مشتريات")){
+      _autoLinkedWs=matchWorkshopFromDesc(finalDesc||txNotes||"",workshops);
+      if(_autoLinkedWs)linkedWsName=_autoLinkedWs.name;
+    }
     /* V18.35: capture freshly-built treasury entry for post-commit auto-posting */
     let _newBaseEntry=null;
     upConfig(d=>{if(!d.treasury)d.treasury=[];
@@ -677,6 +688,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     if(stickyMode && stickyMode.count <= 1){
       setStickyMode(null);
       showToast("✓ تم الحفظ — انتهى وضع التكرار");
+    } else if(_autoLinkedWs){
+      /* V18.72: silent auto-link toast */
+      showToast("✓ ربط تلقائي بورشة "+_autoLinkedWs.name);
     } else {
       showToast("✓ تم الحفظ");
     }

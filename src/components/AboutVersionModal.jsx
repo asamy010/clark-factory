@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V18.72",
+    date: "2026-04-30",
+    types: ["fix", "feature"],
+    title: "🔗 إصلاح ربط دفعات الورش المسجلة من الخزنة",
+    changes: [
+      { type: "fix", text: "🚨 Bug في كشف حساب الورشة: لما تسجل دفعة ورشة من شاشة 'الخزنة' بـcategory='تشغيل خارجي' وتكتب اسم الورشة في الوصف فقط (بدون اختيار من party picker)، الدفعة كانت بتدخل الخزنة لكن مش بتظهر في كشف حساب الورشة في 'تشغيل خارجي'. السبب: الكشف بيقرا من wsPayments فقط، والدفعة كانت orphan." },
+      { type: "feature", text: "✨ Auto-link ذكي عند الحفظ: لما تحفظ حركة خزنة بـcategory='تشغيل خارجي' أو 'مشتريات' من غير ما تختار ورشة من party picker، الكود بيدور تلقائياً على اسم ورشة معروفة في الوصف، ولو لقى match وحيد بيربطها بـwsPayment تلقائي. Toast بسيط '✓ ربط تلقائي بورشة X' بيظهر بعد الحفظ." },
+      { type: "feature", text: "🔄 Backfill Migration تلقائي: عند أول boot بعد V18.72، migration `ws-treasury-desc-backfill` بتشتغل مرة واحدة وتعدي على كل حركات الخزنة القديمة بـcategory='تشغيل خارجي' أو 'مشتريات' بدون wsPaymentId. لكل واحدة فيها اسم ورشة معروف بشكل واضح، بتنشئ wsPayment وتربطها — يعني كل الدفعات القديمة هتظهر في كشوف الورش بدون أي تدخل يدوي." },
+      { type: "feature", text: "🛡️ Defensive Display في كشف الحساب: في `wsAccounts()` (شاشة 'تشغيل خارجي → كشف حساب الورشة')، الكود بقى يضيف orphan treasury entries (اللي عندها wsName بس مفيهاش wsPaymentId) للـtotalPaid/totalPurchase. ده safety net ضد أي entry تفلت من الـauto-link والـbackfill." },
+      { type: "improvement", text: "🎯 Smart matching للأسماء: الـmatching بيدور على الورشة بالاسم الكامل في الوصف. لو لقى ورشتين أسماءهم متداخلة (مثلاً 'محمد' و 'محمد ستارال')، بيختار الاسم الأطول لأنه الأكثر دقة. لو لقى ورشتين منفصلتين تماماً، بيتجنب الـlinking (أمان أكتر من تخمين غلط)." },
+      { type: "improvement", text: "✅ النتيجة: الـworkflow اللي اعتدت عليه (تشغيل خارجي + اسم في الوصف) بقى يربط الدفعة تلقائياً بكشف الورشة. مفيش تغيير في الواجهة المستخدم — كل حاجة بتشتغل تلقائياً تحت السطح." },
+    ]
+  },
+  {
     version: "V18.71",
     date: "2026-04-30",
     types: ["fix"],
@@ -162,26 +176,6 @@ const CHANGELOG = [
       { type: "feature", text: "🔎 فلاتر تاب الدفعات: الاتجاه (وارد/صادر) + القناة (نقدي/شيك) + الحالة (محصل/معلق) + نطاق تاريخ + بحث نصي بالطرف/البنك/رقم الشيك/الملاحظات" },
       { type: "improvement", text: "🎨 جدول الدفعات الموحد: badges ملونة لكل اتجاه/قناة/حالة، عرض رقم الشيك والبنك، ملاحظات، اسم المستخدم اللي سجّل" },
       { type: "fix", text: "🚨 إصلاح Hotfix: TDZ error في شاشة المبيعات كان بيمنع فتحها — useEffect حق reset التابات كان قبل declaration الـ custStatement state. اتنقل لمكانه الصحيح بعد التعريف." },
-    ]
-  },
-  {
-    version: "V18.62",
-    date: "2026-04-29",
-    types: ["fix", "feature", "architectural"],
-    title: "💾 Comprehensive Backup — نسخ احتياطية شاملة لكل البيانات",
-    changes: [
-      { type: "fix", text: "🚨 إصلاح bug خطير في النسخ الاحتياطية: من V16.74 (تقسيم الـ collections)، الـ backups كانت مش بتشمل treasury, audit log, hr log, hr weeks, ولا الأوردرات من غير الموسم الحالي. يعني كل النسخ اللي اتاخدت من حوالي سنة كانت ناقصة بشكل خطير. دلوقتي اتصلح." },
-      { type: "feature", text: "🆕 utils/comprehensiveBackup.js: نسخ شاملة بتحفظ كل البيانات من كل المصادر — factory/config + sales + tasks + treasuryDays + auditDays + hrLogDays + hrWeeksDocs + الأوردرات لكل المواسم. مفيش بيانات بتضيع." },
-      { type: "feature", text: "📦 الـ backup الجديد بيتخزن في multi-part format: backups/{id}/parts/* — كل part في document منفصل عشان يتعدى Firestore 1MB limit. الـ chunked أوتوماتيك للبيانات الكبيرة." },
-      { type: "feature", text: "📊 معاينة الحجم: زرار جديد '📊 معاينة الحجم' يعرضلك حجم النسخة المتوقعة وتفصيل لكل قسم قبل ما تعملها" },
-      { type: "feature", text: "📈 progress feedback: لما تعمل backup أو restore، شريط حالة بيقولك إيه اللي بيحصل (قراءة كذا، كتابة كذا)" },
-      { type: "fix", text: "🔄 Restore الكامل بقى يستعيد فعلاً كل حاجة: factory docs + treasuryDays + auditDays + hrLogDays + hrWeeksDocs + أوردرات كل المواسم. مش 3 docs بس زي الأول." },
-      { type: "fix", text: "🤖 الـ daily auto-backup بقى شامل برضه — حجمه أكبر (5-50 MB حسب البيانات) لكن أصبح فعلاً بيحميك" },
-      { type: "fix", text: "🛑 clearAllOrders: بقى يعمل comprehensive backup أوتوماتيك قبل المسح، يسجل في restoreLog، ويعرض الأخطاء بدل ما يبتلعها في صمت" },
-      { type: "fix", text: "🛡️ upSales و upTasks بقوا فيهم نفس safety guards زي upConfig (configLoaded + configError checks) — يرفضوا الكتابة قبل ما البيانات تحمّل" },
-      { type: "improvement", text: "🏷️ في صفحة الـ backups: badges واضحة لكل نسخة — 'شاملة ✓' للنسخ الجديدة، 'قديمة (ناقصة)' للنسخ ما قبل V18.62، 'تلقائية'، 'قبل migration'، 'قبل استعادة'" },
-      { type: "improvement", text: "🗑️ deleteComprehensiveBackup: لما تحذف نسخة شاملة، بيتم حذف الـ metadata وكل الـ parts المرتبطة بيها أوتوماتيك" },
-      { type: "improvement", text: "📅 Multi-device coordination: الـ daily auto-backup بيشيك لو في نسخة شاملة اتعملت اليوم من جهاز تاني — ما يكررش" },
     ]
   },
 ];

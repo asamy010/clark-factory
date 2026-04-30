@@ -259,8 +259,21 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
   /* Workshop accounts calculation */
   const wsAccounts=(wsName)=>{if(isInternal(wsName))return{due:0,totalPaid:0,totalPurchase:0,balance:0};let due=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===wsName).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});
     const payments=(data.wsPayments||[]).filter(p=>p.wsName===wsName);
-    const totalPaid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);
-    const totalPurchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);
+    let totalPaid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);
+    let totalPurchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);
+    /* V18.72: Defensive — also pick up orphan treasury entries that carry this
+       workshop's name but never got a wsPayment (e.g. the auto-link / backfill
+       missed them, or a manual edit broke the link). Skip entries with
+       wsPaymentId to avoid double counting. */
+    (data.treasury||[]).forEach(t=>{
+      if(!t||t.wsPaymentId)return;
+      if(t.type!=="out")return;
+      if(t.wsName!==wsName)return;
+      if(t.category!=="تشغيل خارجي"&&t.category!=="مشتريات")return;
+      const amt=Number(t.amount)||0;
+      if(t.category==="مشتريات")totalPurchase+=amt;
+      else totalPaid+=amt;
+    });
     return{due,totalPaid,totalPurchase,balance:due+totalPurchase-totalPaid}
   };
   const addPayment=(wa)=>{if(!payWs||!payAmt)return;const wsObj=workshops.find(w=>w.name===payWs);

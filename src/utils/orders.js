@@ -584,3 +584,34 @@ export function getOrderTimeline(o,t){
   const lines=["","─────────────────","*📋 تايم لاين:*",...evs.map(e=>e.d+" │ "+e.t),"─────────────────","📦 *رصيد المخزن الجاهز: "+remain+" قطعة*"];
   return lines.join("\n")
 }
+
+/* V18.72: Match a workshop from a treasury desc/notes string.
+   Used to auto-link treasury entries to wsPayments when the user typed the
+   workshop name in the desc but didn't pick it from the party selector.
+
+   Returns the workshop object on a confident single match; null if nothing
+   matched OR if multiple unrelated workshops appeared (ambiguous → safer to
+   leave the entry unlinked than to guess wrong).
+
+   Edge case handled: when one match's name is a strict substring of a longer
+   match (e.g. "محمد" inside "محمد ستارال"), we pick the longer one — that's
+   the real workshop, the shorter is just an accidental substring hit. */
+export function matchWorkshopFromDesc(desc, workshops){
+  if(!desc||typeof desc!=="string")return null;
+  if(!Array.isArray(workshops)||workshops.length===0)return null;
+  const matches=[];
+  for(const ws of workshops){
+    if(!ws||!ws.name)continue;
+    const name=ws.name.trim();
+    if(!name)continue;
+    if(desc.includes(name))matches.push(ws);
+  }
+  if(matches.length===0)return null;
+  if(matches.length===1)return matches[0];
+  /* Multiple matches — accept the longest only if every other match is a
+     strict substring of it. Otherwise return null (genuinely ambiguous). */
+  matches.sort((a,b)=>b.name.length-a.name.length);
+  const longest=matches[0];
+  const allContained=matches.slice(1).every(m=>longest.name.includes(m.name));
+  return allContained?longest:null;
+}

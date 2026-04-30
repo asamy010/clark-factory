@@ -22,7 +22,7 @@ import { syncAllPartitionedChanges, stripPartitionedArrays, PARTITIONED_COLLECTI
 import { noticeSuccess, noticeWarn, noticeError } from "./utils/storageNotices.js";
 import { ask, tell, askInput, askForm, showToast, highlightRow } from "./utils/popups.js";
 import { printPage, printPkgLabel, printEmpQrCards, renderLabelPages, openPrintWindow } from "./utils/print.js";
-import { wsIsInternal, calcOrder, getConfirmedStock, checkStockAvailability, deductStockForOrder, calcWsRating, migrateStatus } from "./utils/orders.js";
+import { wsIsInternal, calcOrder, getConfirmedStock, checkStockAvailability, deductStockForOrder, calcWsRating, migrateStatus, matchWorkshopFromDesc } from "./utils/orders.js";
 import { ensureCategoriesInit } from "./utils/categories.js";
 
 /* T, TH, TD, TDB, TDL imported from theme.js (V15.0 phase 2) — mutable module-level objects.
@@ -606,6 +606,45 @@ export default function App(){
             if(candidate){p.treasuryTxId=candidate.id;candidate.wsPaymentId=p.id;candidate.wsName=p.wsName;candidate.sourceType="ws_payment";linked++}
           });
           data._wsPayLinked=true;
+          return"linked="+linked;
+        }
+      );
+
+      /* ═══ Migration 3b (V18.72): backfill workshop link for treasury entries
+         where the user typed the workshop name in the desc but never picked the
+         workshop from the party selector. Migration 3 only matches existing
+         wsPayments — this one creates new ones from orphan treasury rows. ═══ */
+      runMigration("ws-treasury-desc-backfill",d,
+        (data)=>!data._wsTreasuryDescBackfill&&Array.isArray(data.treasury)&&Array.isArray(data.workshops)&&data.workshops.length>0,
+        (data)=>{
+          if(!Array.isArray(data.wsPayments))data.wsPayments=[];
+          let linked=0;
+          (data.treasury||[]).forEach(t=>{
+            if(!t||t.wsPaymentId)return;
+            if(t.type!=="out")return;
+            if(t.category!=="تشغيل خارجي"&&t.category!=="مشتريات")return;
+            const ws=matchWorkshopFromDesc(t.desc||"",data.workshops);
+            if(!ws)return;
+            const wsPayId="wsp_bf_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,7);
+            data.wsPayments.push({
+              id:wsPayId,
+              wsName:ws.name,
+              wsId:ws.id,
+              amount:Number(t.amount)||0,
+              type:t.category==="مشتريات"?"purchase":"payment",
+              notes:t.notes||"",
+              date:t.date||"",
+              createdBy:t.by||"backfill",
+              treasuryTxId:t.id,
+              createdAt:t.createdAt||new Date().toISOString(),
+              backfilledAt:new Date().toISOString(),
+            });
+            t.wsPaymentId=wsPayId;
+            t.wsName=ws.name;
+            if(!t.sourceType)t.sourceType="ws_payment";
+            linked++;
+          });
+          data._wsTreasuryDescBackfill=true;
           return"linked="+linked;
         }
       );
@@ -2239,7 +2278,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V18.71 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >V18.72 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
       </div>
@@ -3299,7 +3338,7 @@ export default function App(){
       </div>
     )}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.71"/>
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.72"/>
   </div>
 }
 
