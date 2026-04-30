@@ -1,0 +1,459 @@
+/* ═══════════════════════════════════════════════════════════════
+   CLARK - DBPg.jsx
+   
+   Extracted from App.jsx in V15.1 phase 3.
+   Contains: DBPg, WsManager
+   ═══════════════════════════════════════════════════════════════ */
+
+import { useEffect, useState } from "react";
+import { collection } from "firebase/firestore";
+import { auth } from "../firebase";
+import { Btn, Card, DelBtn, Inp, QRImg, Sel, Spinner } from "../components/ui.jsx";
+import { DEFAULT_STATUSES, FKEYS, FS, GARMENT_ICONS, WS_TYPES } from "../constants/index.js";
+import { T, TD, TDB, TH } from "../theme.js";
+import { gIcon, setF, normalizePhone, parseSizes } from "../utils/format.js";
+import { compressImage, compressImg43 } from "../utils/image.js";
+import { calcWsRating, getWsPartnershipTier, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
+import { ask, askInput, showToast } from "../utils/popups.js";
+import { getUnits } from "../utils/units.js";
+import { getDeleteBlocker } from "../utils/dataIntegrity.js";
+
+export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,onSubUsed,renameInOrders}){
+  const[sub,setSub]=useState(initialSub||"size");
+  useEffect(()=>{if(initialSub){setSub(initialSub);if(onSubUsed)onSubUsed()}},[initialSub]);
+  /* V16.77: state ff/af + saveFab/saveAcc اتشالوا — انتقلوا لـWarehousePg */
+  const[sfld,setSfld]=useState({label:"",pcs:0,_eid:null});
+  const[stName,setStName]=useState("");const[stColor,setStColor]=useState("#0EA5E9");const[stEid,setStEid]=useState(null);const[stShow,setStShow]=useState(false);
+  const[gName,setGName]=useState("");const[gEid,setGEid]=useState(null);const[gIconSel,setGIconSel]=useState("👕");const[gShow,setGShow]=useState(false);const[gPrice,setGPrice]=useState("");
+  const[showRecycleBin,setShowRecycleBin]=useState(false);
+
+  /* ── Safe Delete: moves item to recycleBin before removing ── */
+  const safeDelete=(collection,id,type)=>{
+    upConfig(d=>{
+      if(!d.recycleBin)d.recycleBin=[];
+      const arr=d[collection]||[];const item=arr.find(x=>x.id===id);
+      if(item)d.recycleBin.unshift({...item,_type:type,_collection:collection,_deletedAt:new Date().toISOString()});
+      d[collection]=arr.filter(x=>x.id!==id);
+      /* Keep recycleBin max 100 items */
+      if(d.recycleBin.length>100)d.recycleBin=d.recycleBin.slice(0,100)});
+    showToast("✓ تم الحذف — يمكن الاستعادة من سلة المحذوفات")};
+  const restoreItem=(binIdx)=>{
+    upConfig(d=>{
+      const bin=d.recycleBin||[];const item=bin[binIdx];if(!item)return;
+      const col=item._collection;if(!d[col])d[col]=[];
+      /* Remove recycle meta before restoring */
+      const restored={...item};delete restored._type;delete restored._collection;delete restored._deletedAt;
+      d[col].push(restored);
+      d.recycleBin=bin.filter((_,i)=>i!==binIdx)});
+    showToast("✅ تم الاستعادة بنجاح")};
+
+  /* V15.32: Track how many orders use this sizeSet (for sync confirmation) */
+  const countOrdersUsingSize=(sizeSetId)=>{
+    if(!sizeSetId)return 0;
+    return (data.orders||[]).filter(o=>Number(o.sizeSetId)===Number(sizeSetId)).length;
+  };
+  const saveSize=async()=>{if(!sfld.label)return;
+    /* V15.30: pcsPerSeries is required — it's the source of truth for size count */
+    const pcs=Number(sfld.pcs)||0;
+    if(pcs<=0){showToast("⚠️ عدد قطع/سيري مطلوب وهو المرجع لعدد المقاسات");return}
+    /* V15.32: If editing an existing sizeSet and the label changed,
+       ask for confirmation before syncing the new label to all linked orders. */
+    const newLabel=sfld.label.trim();
+    if(sfld._eid){
+      const existing=(data.sizeSets||[]).find(s=>s.id===sfld._eid);
+      const oldLabel=existing?.label||"";
+      if(oldLabel&&oldLabel!==newLabel){
+        const affectedCount=countOrdersUsingSize(sfld._eid);
+        if(affectedCount>0){
+          const ok=await ask(
+            "🔄 تأكيد المزامنة مع الأوردرات",
+            "سيتم تحديث مقاسات هذا الـ sizeSet في "+affectedCount+" أوردر مرتبط.\n\n"+
+            "من: "+oldLabel+"\n"+
+            "إلى: "+newLabel+"\n\n"+
+            "هل تريد المتابعة؟",
+            {confirmText:"نعم، حدّث الأوردرات",cancelText:"إلغاء"}
+          );
+          if(!ok)return;/* User cancelled — don't save anything */
+          /* User confirmed — save the sizeSet and then sync orders */
+          upConfig(d=>{const idx=d.sizeSets.findIndex(x=>x.id===sfld._eid);if(idx>=0)d.sizeSets[idx]={...d.sizeSets[idx],label:newLabel,pcsPerSeries:pcs}});
+          await renameInOrders("size",oldLabel,newLabel,sfld._eid);
+          setSfld({label:"",pcs:0,_eid:null});
+          return;
+        }
+      }
+    }
+    /* No confirmation needed — either new sizeSet or label unchanged */
+    upConfig(d=>{if(sfld._eid){const idx=d.sizeSets.findIndex(x=>x.id===sfld._eid);if(idx>=0)d.sizeSets[idx]={...d.sizeSets[idx],label:newLabel,pcsPerSeries:pcs}}else{d.sizeSets.push({id:Date.now(),label:newLabel,pcsPerSeries:pcs})}});
+    setSfld({label:"",pcs:0,_eid:null})};
+  const saveGarment=()=>{if(!gName.trim())return;const oldName=gEid?(data.garmentTypes||[]).find(x=>x.id===gEid)?.name:null;upConfig(d=>{if(!d.garmentTypes)d.garmentTypes=[];if(gEid){const idx=d.garmentTypes.findIndex(x=>x.id===gEid);if(idx>=0){d.garmentTypes[idx].name=gName.trim();d.garmentTypes[idx].icon=gIconSel;d.garmentTypes[idx].defaultPrice=Number(gPrice)||0}}else{d.garmentTypes.push({id:Date.now(),name:gName.trim(),icon:gIconSel,defaultPrice:Number(gPrice)||0})}});if(oldName&&oldName!==gName.trim())renameInOrders("garment",oldName,gName.trim());setGName("");setGEid(null);setGIconSel("👕");setGPrice("")};
+  const saveStatus=()=>{if(!stName.trim())return;const oldName=stEid?(statusCards||[]).find(x=>x.id===stEid)?.name:null;upConfig(d=>{if(!d.statusCards)d.statusCards=[...DEFAULT_STATUSES];if(stEid){const idx=d.statusCards.findIndex(x=>x.id===stEid);if(idx>=0){d.statusCards[idx].name=stName.trim();d.statusCards[idx].color=stColor}}else{d.statusCards.push({id:Date.now(),name:stName.trim(),color:stColor})}});if(oldName&&oldName!==stName.trim())renameInOrders("status",oldName,stName.trim());setStName("");setStColor("#0EA5E9");setStEid(null)};
+
+  const eBtn=(onClick)=><Btn small onClick={onClick} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>;
+  const ords=data.orders||[];
+  /* V16.66: Use central dataIntegrity — also flags stock balance, stock movements,
+     and purchase receipts (the prior local check only covered orders usage). */
+  /* V16.77: fabBlock/accBlock اتشالوا — انتقلوا لـWarehousePg */
+  /* V16.67: Use central dataIntegrity util — also checks workshopDeliveries
+     for garments (the prior local check missed those). */
+  const sizeBlock=(s)=>getDeleteBlocker(data,"sizeSet",s.id);
+  const garmentBlock=(g)=>getDeleteBlocker(data,"garmentType",g.id);
+  return<div>
+    <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>{[["size","المقاسات"],["garment","قطع الموديل"],["ws","الورش"],["status","حالات الأوردر"]].map(([k,l])=><Btn key={k} on={sub===k} onClick={()=>setSub(k)}>{l}</Btn>)}
+      {canEdit&&<Btn onClick={()=>setShowRecycleBin(true)} style={{background:T.textMut+"12",color:T.textMut,border:"1px solid "+T.textMut+"25",marginRight:"auto"}}>{"🗑️ المحذوفات"+(data.recycleBin?.length>0?" ("+data.recycleBin.length+")":"")}</Btn>}
+    </div>
+    {/* ── Recycle Bin Popup ── */}
+    {showRecycleBin&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowRecycleBin(false)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:600,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontSize:FS+2,fontWeight:800,color:T.text}}>🗑️ سلة المحذوفات</div>
+          <div style={{display:"flex",gap:6}}>
+            {(data.recycleBin||[]).length>0&&<Btn danger small onClick={async()=>{if(await ask("تفريغ سلة المحذوفات","هل تريد تفريغ سلة المحذوفات نهائياً؟",{danger:true,confirmText:"تفريغ الكل"}))upConfig(d=>{d.recycleBin=[]})}}>تفريغ الكل</Btn>}
+            <Btn ghost small onClick={()=>setShowRecycleBin(false)}>✕</Btn>
+          </div>
+        </div>
+        {(data.recycleBin||[]).length>0?<div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {(data.recycleBin||[]).map((item,i)=><div key={i} style={{padding:"10px 14px",borderRadius:10,border:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",background:T.bg}}>
+            <div style={{flex:1}}>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:T.accent+"12",color:T.accent}}>{item._type}</span>
+                <span style={{fontSize:FS,fontWeight:700,color:T.text}}>{item.name||item.label||item.party||"—"}</span>
+              </div>
+              <div style={{fontSize:FS-2,color:T.textMut,marginTop:3}}>
+                {"حُذف: "+new Date(item._deletedAt).toLocaleDateString("ar-EG",{year:"numeric",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}
+                {item.price!=null&&" | السعر: "+item.price}
+                {item.phone&&" | "+item.phone}
+                {item.owner&&" | المالك: "+item.owner}
+              </div>
+            </div>
+            <Btn small onClick={()=>{restoreItem(i);setShowRecycleBin(false)}} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",fontWeight:700}}>↩ استعادة</Btn>
+          </div>)}
+        </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>سلة المحذوفات فارغة</div>}
+        {/* ── Restore from local snapshot ── */}
+        {(()=>{try{const raw=localStorage.getItem("clark-data-snapshot");if(!raw)return null;const snap=JSON.parse(raw);
+          const collections=[{key:"workshops",label:"الورش",icon:"🏭"},{key:"customers",label:"العملاء",icon:"👤"},{key:"suppliers",label:"الموردين",icon:"🏪"},{key:"fabrics",label:"الأقمشة",icon:"🧵"},{key:"accessories",label:"الإكسسوارات",icon:"🪡"},{key:"sizeSets",label:"المقاسات",icon:"📏"},{key:"garmentTypes",label:"أنواع القطع",icon:"👕"},{key:"employees",label:"الموظفين",icon:"👷"}];
+          const hasMissing=collections.some(c=>{const current=(data[c.key]||[]).length;const saved=(snap[c.key]||[]).length;return saved>current});
+          return<div style={{marginTop:16,padding:14,borderRadius:12,background:T.warn+"06",border:"1px solid "+T.warn+"20"}}>
+            <div style={{fontSize:FS,fontWeight:700,color:T.warn,marginBottom:8}}>📸 نسخة محلية محفوظة</div>
+            <div style={{fontSize:FS-2,color:T.textMut,marginBottom:8}}>{"آخر حفظ: "+new Date(snap.savedAt).toLocaleDateString("ar-EG",{year:"numeric",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+              {collections.map(c=>{const cur=(data[c.key]||[]).length;const saved=(snap[c.key]||[]).length;const diff=saved-cur;
+                return<div key={c.key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",borderRadius:8,background:diff>0?T.err+"06":T.cardSolid,border:"1px solid "+(diff>0?T.err+"20":T.brd)}}>
+                  <span style={{fontSize:FS-2}}>{c.icon+" "+c.label+": "+cur}</span>
+                  {diff>0?<Btn small onClick={async()=>{if(await ask("استعادة "+c.label,"سيتم استعادة "+c.label+" من النسخة المحلية ("+saved+" عنصر).\nالبيانات الحالية ("+cur+") سيتم استبدالها.\n\nمتأكد؟",{danger:true,confirmText:"استعادة"})){upConfig(d=>{d[c.key]=snap[c.key]});showToast("✅ تم استعادة "+c.label);setShowRecycleBin(false)}}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",fontSize:FS-3}}>{"↩ استعادة ("+saved+")"}</Btn>
+                  :<span style={{fontSize:FS-3,color:T.ok}}>✓ متطابق</span>}
+                </div>})}
+            </div>
+          </div>}catch(e){return null}})()}
+      </div>
+    </div>}
+    {/* V16.77: tabs الأقمشة و"تشغيل + اكسسوار" اتشالوا من قواعد البيانات
+       — الإدخال/التعديل لهم بقا من صفحة المخزن فقط */}
+    {sub==="size"&&<><Card title="المقاسات" extra={canEdit&&<Btn primary small onClick={()=>setSfld({label:"",pcs:0,_eid:null,_show:true})}>+ اضافة</Btn>}>
+      <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","المقاسات","قطع/سيري",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.sizeSets.map((s,i)=>{
+        /* V15.30: Detect mismatch between label's parsed names and pcsPerSeries (source of truth) */
+        const _parsedCount=parseSizes(s.label||"").length;
+        const _expected=Number(s.pcsPerSeries)||0;
+        const _mismatch=_expected>0&&_parsedCount!==_expected;
+        const _noPcs=!_expected;
+        /* V15.32: Find linked orders with outdated sizeLabel (stale snapshot) */
+        const _linkedOrds=(data.orders||[]).filter(o=>Number(o.sizeSetId)===Number(s.id));
+        const _staleOrds=_linkedOrds.filter(o=>(o.sizeLabel||"")!==(s.label||""));
+        const _hasStale=_staleOrds.length>0;
+        return<tr key={s.id} style={_mismatch?{background:"#F59E0B08"}:undefined}>
+          <td style={TD}>{i+1}</td>
+          <td style={{...TD,fontWeight:600}}>
+            {s.label}
+            {_mismatch&&<span title={"عدد الأسماء ("+_parsedCount+") لا يطابق قطع السيري ("+_expected+"). استخدم فاصلة ' | ' للنطاقات المعقدة."} style={{marginInlineStart:8,fontSize:FS-2,color:"#F59E0B",fontWeight:800,cursor:"help"}}>⚠️ تناقض</span>}
+            {_noPcs&&<span title="لم يُحدد عدد قطع/سيري" style={{marginInlineStart:8,fontSize:FS-2,color:T.err,fontWeight:800,cursor:"help"}}>⛔ ناقص</span>}
+            {_hasStale&&<span title={_staleOrds.length+" أوردر عندهم sizeLabel قديم مختلف عن الكارت. اضغط زر المزامنة."} style={{marginInlineStart:8,fontSize:FS-2,color:"#0EA5E9",fontWeight:800,cursor:"help"}}>🔄 {_staleOrds.length} غير متزامنين</span>}
+          </td>
+          <td style={{...TDB,color:_noPcs?T.err:T.accent,fontWeight:800}}>{s.pcsPerSeries||"—"}</td>
+          {canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:4}}>
+            {eBtn(()=>setSfld({label:s.label,pcs:s.pcsPerSeries||0,_eid:s.id,_show:true}))}
+            {_hasStale&&<Btn small onClick={async()=>{
+              const ok=await ask(
+                "🔄 مزامنة المقاسات مع الأوردرات",
+                "سيتم تحديث sizeLabel في "+_staleOrds.length+" أوردر مرتبط بهذا الكارت.\n\n"+
+                "الـ sizeLabel الحالي في الكارت:\n"+(s.label||"—")+"\n\n"+
+                "هل تريد المتابعة؟",
+                {confirmText:"نعم، زامن",cancelText:"إلغاء"}
+              );
+              if(!ok)return;
+              /* Use renameInOrders with empty oldName — matches by entityId (sizeSetId) */
+              await renameInOrders("size","(قديم)",s.label||"",s.id);
+            }} style={{background:"#0EA5E915",color:"#0EA5E9",border:"1px solid #0EA5E930"}} title={"مزامنة "+_staleOrds.length+" أوردر"}>🔄</Btn>}
+            <DelBtn onConfirm={()=>safeDelete("sizeSets",s.id,"مقاسات")} blocked={sizeBlock(s)}/>
+          </div></td>}
+        </tr>;
+      })}</tbody></table></Card>
+    {sfld._show&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setSfld({...sfld,_show:false})}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:400,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
+      <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,marginBottom:14}}>{sfld._eid?"✏️ تعديل المقاس":"+ مقاس جديد"}</div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <div>
+          <label style={{fontSize:FS-2,color:T.textSec}}>المقاسات</label>
+          <Inp value={sfld.label} onChange={v=>setSfld({...sfld,label:v})} placeholder="6-9M | 9-12M | 12-18M"/>
+          <div style={{fontSize:FS-3,color:T.textMut,marginTop:4,lineHeight:1.5}}>
+            💡 للنطاقات اللي فيها حروف (زي 6-9M)، استخدم الفاصلة <b style={{color:T.accent}}> | </b> أو <b style={{color:T.accent}}>,</b> بين كل نطاق
+          </div>
+        </div>
+        <div>
+          <label style={{fontSize:FS-2,color:T.textSec}}>قطع/سيري <span style={{color:T.err}}>*</span></label>
+          <Inp type="number" value={sfld.pcs||""} onChange={v=>setSfld({...sfld,pcs:Number(v)||0})} placeholder="عدد المقاسات في السيري"/>
+        </div>
+        {/* V15.30: Live mismatch warning */}
+        {(()=>{
+          const _pc=parseSizes(sfld.label||"").length;
+          const _ex=Number(sfld.pcs)||0;
+          if(!sfld.label||!_ex)return null;
+          if(_pc===_ex)return<div style={{padding:"8px 12px",background:T.ok+"15",border:"1px solid "+T.ok+"40",borderRadius:8,fontSize:FS-2,color:T.ok,fontWeight:700}}>✓ الأسماء ({_pc}) تطابق قطع/سيري ({_ex})</div>;
+          return<div style={{padding:"8px 12px",background:"#F59E0B15",border:"1px solid #F59E0B40",borderRadius:8,fontSize:FS-2,color:"#B45309",fontWeight:600,lineHeight:1.5}}>⚠️ تناقض: الأسماء ({_pc}) ≠ قطع/سيري ({_ex}). راجع الفاصلة بين الأسماء.</div>;
+        })()}
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setSfld({label:"",pcs:0,_eid:null,_show:false})}>الغاء</Btn><Btn primary onClick={()=>{saveSize();setSfld({label:"",pcs:0,_eid:null,_show:false})}} title="حفظ التعديلات">💾 حفظ</Btn></div>
+      </div>
+    </div></div>}</>}
+    {sub==="garment"&&<><Card title="قطع الموديل" extra={canEdit&&<Btn primary small onClick={()=>{setGName("");setGEid(null);setGIconSel("👕");setGShow(true)}}>+ اضافة</Btn>}>
+      <div style={{display:"flex",flexWrap:"wrap",gap:10}}>{(data.garmentTypes||[]).map(g=><span key={g.id} style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 18px",borderRadius:12,border:"1px solid "+T.brd,fontSize:FS,fontWeight:600,background:T.cardSolid}}>{(g.icon||gIcon(g.name,data.garmentTypes))+" "+g.name}{g.defaultPrice?<span style={{fontSize:FS-2,color:"#8B5CF6",fontWeight:700}}>{g.defaultPrice+" ج.م"}</span>:""}{canEdit&&<>{" "}{eBtn(()=>{setGName(g.name);setGEid(g.id);setGIconSel(g.icon||gIcon(g.name,data.garmentTypes));setGPrice(g.defaultPrice||"");setGShow(true)})}<DelBtn onConfirm={()=>safeDelete("garmentTypes",g.id,"نوع قطعة")} blocked={garmentBlock(g)}/></>}</span>)}</div>
+      {(!data.garmentTypes||data.garmentTypes.length===0)&&<div style={{textAlign:"center",padding:20,color:T.textSec}}>لم يتم اضافة قطع بعد</div>}
+    </Card>
+    {gShow&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setGShow(false)}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:380,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
+      <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,marginBottom:14}}>{gEid?"✏️ تعديل القطعة":"+ قطعة جديدة"}</div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:8}}>
+          <div><label style={{fontSize:FS-2,color:T.textSec}}>الأيقونة</label><Sel value={gIconSel} onChange={setGIconSel}>{GARMENT_ICONS.map(ic=><option key={ic} value={ic}>{ic}</option>)}</Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec}}>اسم القطعة</label><Inp value={gName} onChange={setGName} placeholder="قميص، شورت..."/></div>
+        </div>
+        <div><label style={{fontSize:FS-2,color:T.textSec}}>سعر التشغيل الافتراضي (ج.م/قطعة)</label><Inp type="number" value={gPrice} onChange={setGPrice} placeholder="0"/></div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setGShow(false)}>الغاء</Btn><Btn primary onClick={()=>{saveGarment();setGShow(false)}} title="حفظ التعديلات">💾 حفظ</Btn></div>
+      </div>
+    </div></div>}</>}
+    {sub==="ws"&&<WsManager data={data} workshops={data.workshops||[]} upConfig={upConfig} canEdit={canEdit} isMob={isMob} orders={data.orders} renameInOrders={renameInOrders} wsPayments={data.wsPayments||[]} safeDelete={safeDelete}/>}
+    {sub==="status"&&<><Card title="حالات الأوردر" extra={canEdit&&<Btn primary small onClick={()=>{setStName("");setStColor("#0EA5E9");setStEid(null);setStShow(true)}}>+ اضافة</Btn>}>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(2,1fr)":"repeat(4,1fr)",gap:12}}>
+        {statusCards.map(s=><div key={s.id} style={{padding:16,borderRadius:14,border:"2px solid "+s.color+"40",background:s.color+"08",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:20,height:20,borderRadius:6,background:s.color}}/><span style={{fontWeight:700,fontSize:FS,color:T.text}}>{s.name}</span></div>
+          {canEdit&&<div style={{display:"flex",gap:4}}>{eBtn(()=>{setStName(s.name);setStColor(s.color);setStEid(s.id);setStShow(true)})}<DelBtn onConfirm={()=>safeDelete("statusCards",s.id,"حالة")} blocked={getDeleteBlocker(data,"status",s.id)}/></div>}
+        </div>)}
+      </div>
+    </Card>
+    {stShow&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setStShow(false)}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:380,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
+      <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,marginBottom:14}}>{stEid?"✏️ تعديل الحالة":"+ حالة جديدة"}</div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <div><label style={{fontSize:FS-2,color:T.textSec}}>اسم الحالة</label><Inp value={stName} onChange={setStName}/></div>
+        <div><label style={{fontSize:FS-2,color:T.textSec}}>اللون</label><input type="color" value={stColor} onChange={e=>setStColor(e.target.value)} style={{width:"100%",height:40,borderRadius:8,border:"1px solid "+T.brd,cursor:"pointer"}}/></div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setStShow(false)}>الغاء</Btn><Btn primary onClick={()=>{saveStatus();setStShow(false)}} title="حفظ التعديلات">💾 حفظ</Btn></div>
+      </div>
+    </div></div>}</>}
+  </div>
+}
+
+/* ══ WORKSHOP MANAGER ══ */
+
+
+export function WsManager({data,workshops,upConfig,canEdit,isMob,orders,renameInOrders,wsPayments,safeDelete}){
+  const[showForm,setShowForm]=useState(false);const[editId,setEditId]=useState(null);
+  const[f,setF]=useState({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خياطة خارجي",payPercent:60,archived:false});
+  /* V18.16: Show archived workshops toggle (admin convenience) */
+  const[showArchivedWs,setShowArchivedWs]=useState(false);
+  /* V17.9: Workshop portal link generator (mirrors customer portal pattern in CustDeliverPg) */
+  const[wsPortalPopup,setWsPortalPopup]=useState(null);/* {url, wsName, wsPhone, loading, error} */
+  const generateWsPortalUrl=async(ws)=>{
+    setWsPortalPopup({loading:true,wsName:ws.name,wsPhone:ws.phone||"",url:"",error:""});
+    try{
+      const user=auth.currentUser;
+      if(!user){setWsPortalPopup({loading:false,wsName:ws.name,wsPhone:ws.phone||"",url:"",error:"يرجى تسجيل الدخول"});return}
+      const token=await user.getIdToken();
+      const res=await fetch("/api/workshop-portal-sign",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({wsId:ws.id,adminToken:token})
+      });
+      const json=await res.json();
+      if(!res.ok){setWsPortalPopup({loading:false,wsName:ws.name,wsPhone:ws.phone||"",url:"",error:json.error||"فشل التوليد"});return}
+      setWsPortalPopup({loading:false,wsName:ws.name,wsPhone:ws.phone||"",url:json.url,error:""});
+    }catch(err){
+      setWsPortalPopup({loading:false,wsName:ws.name,wsPhone:ws.phone||"",url:"",error:err.message||String(err)});
+    }
+  };
+  const startEdit=(ws)=>{setF({...ws,type:ws.type==="خارجي"?"خياطة خارجي":ws.type==="داخلي"?"خياطة داخلي":ws.type||"خياطة خارجي",payPercent:ws.payPercent||60,archived:!!ws.archived});setEditId(ws.id);setShowForm(true)};
+  const startNew=()=>{setF({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خياطة خارجي",payPercent:60,archived:false});setEditId(null);setShowForm(true)};
+  const handleIdCard=async e=>{const file=e.target.files[0];if(!file)return;const compressed=await compressImg43(file,300,0.5);setF(p=>({...p,idCard:compressed}))};
+  const handleOwnerPhoto=async e=>{const file=e.target.files[0];if(!file)return;const compressed=await compressImage(file,200,0.5);setF(p=>({...p,ownerPhoto:compressed}))};
+  const save=()=>{if(!f.name.trim())return;
+    /* V15.17: normalize phone to +2 format */
+    const normalized={...f,phone:normalizePhone(f.phone||"")};
+    let oldName=null;
+    if(editId){const old=workshops.find(w=>w.id===editId);if(old&&old.name!==normalized.name.trim())oldName=old.name}
+    upConfig(d=>{if(!Array.isArray(d.workshops))d.workshops=[];if(editId){const idx=d.workshops.findIndex(w=>w.id===editId);if(idx>=0)d.workshops[idx]={...normalized,id:editId}}else{d.workshops.push({...normalized,id:Date.now()})}
+      if(oldName){(d.wsPayments||[]).forEach(p=>{if(p.wsId===editId||p.wsName===oldName){p.wsName=normalized.name.trim();p.wsId=editId}});(d.notifications||[]).forEach(n=>{if(n.msg&&n.msg.includes(oldName))n.msg=n.msg.replace(new RegExp(oldName,"g"),normalized.name.trim())})}
+    });
+    if(oldName)renameInOrders("ws",oldName,normalized.name.trim(),editId);
+    setShowForm(false);setEditId(null)};
+  const del=(id)=>safeDelete("workshops",id,"ورشة");
+  /* V16.64: Use central dataIntegrity check — adds treasury transactions to
+     the existing orders+payments check so the user gets a fuller picture. */
+  const wsBlock=(ws)=>getDeleteBlocker(data,"workshop",ws.id);
+  const[wsSearch,setWsSearch]=useState("");
+  /* V18.16: Filter out archived workshops by default */
+  const filteredWs=(()=>{const list=(workshops||[]).filter(ws=>showArchivedWs||!ws.archived);
+    return wsSearch.trim()?list.filter(ws=>(ws.name||"").includes(wsSearch)||(ws.address||"").includes(wsSearch)||(ws.phone||"").includes(wsSearch)||(ws.owner||"").includes(wsSearch)):list;
+  })();
+  const archivedCount=(workshops||[]).filter(ws=>ws.archived).length;
+
+  return<div>
+    {/* ── Recover missing workshops ── */}
+    {(()=>{const wsNames=new Set((workshops||[]).map(w=>w.name));
+      const missingWs={};
+      (orders||[]).forEach(o=>{(o.workshopDeliveries||[]).forEach(wd=>{
+        if(wd.wsName&&!wsNames.has(wd.wsName)){
+          if(!missingWs[wd.wsName])missingWs[wd.wsName]={name:wd.wsName,deliveries:0,receives:0};
+          missingWs[wd.wsName].deliveries+=(Number(wd.qty)||0);
+          (wd.receives||[]).forEach(r=>{missingWs[wd.wsName].receives+=(Number(r.qty)||0)})}})});
+      const missing=Object.values(missingWs);
+      if(missing.length===0)return null;
+      return<Card style={{marginBottom:14,background:T.err+"06",border:"1px solid "+T.err+"25"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+          <div>
+            <div style={{fontSize:FS,fontWeight:800,color:T.err}}>{"⚠️ "+missing.length+" ورشة مفقودة لها حركات"}</div>
+            <div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{missing.map(w=>w.name+" ("+w.deliveries+" تسليم / "+w.receives+" استلام)").join(" — ")}</div>
+          </div>
+          <Btn onClick={()=>{upConfig(d=>{if(!d.workshops)d.workshops=[];missing.forEach(m=>{if(!d.workshops.some(w=>w.name===m.name))d.workshops.push({id:Date.now()+Math.random(),name:m.name,owner:"",phone:"",address:"",type:"خياطة خارجي",payPercent:60,rating:0})})});showToast("✅ تم استعادة "+missing.length+" ورشة")}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",fontWeight:700}}>{"↩ استعادة "+missing.length+" ورشة"}</Btn>
+        </div>
+      </Card>})()}
+    <Card title="ادارة الورش" extra={canEdit&&<Btn primary small onClick={startNew}>+ ورشة جديدة</Btn>}>
+      <div style={{marginBottom:12,display:"flex",gap:8,alignItems:"center"}}>
+        <div style={{flex:1}}><Inp value={wsSearch} onChange={setWsSearch} placeholder="بحث باسم الورشة أو العنوان أو التليفون..."/></div>
+        {/* V18.16: Show archived workshops toggle */}
+        {archivedCount>0&&<Btn small onClick={()=>setShowArchivedWs(!showArchivedWs)} style={{background:showArchivedWs?T.err+"15":T.bg,color:showArchivedWs?T.err:T.textSec,border:"1px solid "+(showArchivedWs?T.err+"40":T.brd),whiteSpace:"nowrap"}}>{showArchivedWs?"🔒 يظهر الموقوفين":"الموقوفين ("+archivedCount+")"}</Btn>}
+      </div>
+      {/* Workshop Cards */}
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:14}}>
+        {filteredWs.map(ws=>{
+          /* Compute workshop stats */
+          let totalDel=0,totalRcv=0,orderCount=0;
+          orders.forEach(o=>{let hasWs=false;(o.workshopDeliveries||[]).filter(wd=>wd.wsName===ws.name).forEach(wd=>{hasWs=true;totalDel+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{totalRcv+=Number(r.qty)||0})});if(hasWs)orderCount++});
+          const pct=totalDel>0?Math.round(totalRcv/totalDel*100):0;
+          const bal=totalDel-totalRcv;
+          return<div key={ws.id} onClick={()=>{if(canEdit)startEdit(ws)}} style={{background:T.cardSolid,borderRadius:16,border:"1px solid "+(ws.archived?T.err+"40":T.brd),overflow:"hidden",boxShadow:"0 2px 12px rgba(0,0,0,0.06)",cursor:canEdit?"pointer":"default",transition:"transform 0.15s",opacity:ws.archived?0.7:1,position:"relative"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
+          {/* V18.16: Archived badge on card */}
+          {ws.archived&&<div style={{position:"absolute",top:8,insetInlineStart:8,padding:"3px 10px",borderRadius:6,background:T.err,color:"#fff",fontSize:FS-3,fontWeight:800,zIndex:2,boxShadow:"0 2px 4px rgba(0,0,0,0.2)"}}>🔒 موقوفة</div>}
+          {/* Header */}
+          {(()=>{const wt=wsTypeInfo(ws.type);return<div style={{padding:"14px 16px",background:wt.color+"08",borderBottom:"1px solid "+T.brd}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:0}}>
+                {ws.ownerPhoto&&<img src={ws.ownerPhoto} alt="" style={{width:44,height:58,borderRadius:8,objectFit:"cover",flexShrink:0}}/>}
+                <div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}><span style={{fontSize:FS+2,fontWeight:800}}>{ws.name}</span><span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,fontWeight:600,background:wt.color+"15",color:wt.color}}>{wt.icon+" "+wt.key}</span>{!wt.internal&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,fontWeight:600,background:T.purple+"12",color:T.purple}}>{(ws.payPercent||60)+"%"}</span>}</div>
+                  {ws.owner&&<div style={{fontSize:FS-1,color:T.textSec}}>{"👤 "+ws.owner}</div>}
+                </div>
+              </div>
+              {!wt.internal&&<QRImg text={window.location.origin+"?act=wsacc&ws="+encodeURIComponent(ws.name)} size={94}/>}
+            </div>
+          </div>})()}
+          {/* Stats Grid */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:1,background:T.brd}}>
+            {[{label:"أوردرات",value:orderCount,color:T.accent},{label:"تسليم ورشة",value:totalDel,color:T.purple},{label:"استلام مصنع",value:totalRcv,color:T.ok},{label:"الرصيد",value:bal,color:bal>0?T.err:T.ok}].map(s=><div key={s.label} style={{background:T.cardSolid,padding:"8px 6px",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>{s.label}</div><div style={{fontSize:FS+2,fontWeight:800,color:s.color}}>{s.value}</div></div>)}
+          </div>
+          {/* Progress bar */}
+          <div style={{padding:"8px 16px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-2,color:T.textSec,marginBottom:3}}><span>نسبة الاستلام</span><span style={{fontWeight:700,color:pct>=80?T.ok:pct>=50?T.warn:T.err}}>{pct+"%"}</span></div>
+            <div style={{height:6,borderRadius:3,background:"#E2E8F0",overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",borderRadius:3,background:pct>=80?T.ok:pct>=50?T.warn:T.err,transition:"width 0.5s"}}/></div>
+          </div>
+          {/* Info + Rating */}
+          {(()=>{const autoR=calcWsRating(ws.name,orders);const rating=ws.ratingManual?(ws.rating||0):autoR!==null?autoR:0;const label=ws.ratingManual?"يدوي":autoR!==null?"تلقائي":"بدون بيانات";const isExt=!wsIsInternal(ws.type);const tier=isExt?getWsPartnershipTier(ws.name,orders):null;return<div style={{padding:"4px 16px 10px",display:"flex",gap:10,flexWrap:"wrap",fontSize:FS-2,color:T.textSec,alignItems:"center"}}>
+            {ws.phone&&<span>{"📱 "+ws.phone}</span>}
+            {ws.address&&<span style={{maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{"📍 "+ws.address}</span>}
+            <span style={{fontWeight:700,color:rating>=7?T.ok:rating>=4?T.warn:rating>0?T.err:T.textMut}}>{"⭐ "+rating+"/10 ("+label+")"}</span>
+            {/* V15.44: Partnership tier — only for external workshops */}
+            {tier&&<span title={"إجمالي ما سلّمته: "+tier.totalRcv.toLocaleString("en-US")+" قطعة"} style={{padding:"2px 8px",borderRadius:20,background:tier.color+"15",border:"1px solid "+tier.color+"35",fontSize:FS-3,fontWeight:700,color:tier.color,display:"inline-flex",alignItems:"center",gap:4}}>
+              <span>{tier.icon}</span><span>{tier.label}</span><span style={{opacity:0.75,fontWeight:600}}>· {tier.totalRcv.toLocaleString("en-US")}</span>
+            </span>}
+            {canEdit&&<span onClick={async e=>{e.stopPropagation();const v=await askInput("تعديل التقييم",{label:"التقييم (من 10):",defaultValue:String(rating),type:"number",validate:val=>{const n=Number(val);if(isNaN(n)||n<0||n>10)return"قيمة بين 0 و 10";return null}});if(v!==null){const n=Math.min(10,Math.max(0,Number(v)||0));upConfig(d=>{const idx=d.workshops.findIndex(x=>x.id===ws.id);if(idx>=0){d.workshops[idx].rating=n;d.workshops[idx].ratingManual=true}})}}} style={{cursor:"pointer",fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</span>}
+            {canEdit&&ws.ratingManual&&<span onClick={e=>{e.stopPropagation();upConfig(d=>{const idx=d.workshops.findIndex(x=>x.id===ws.id);if(idx>=0){d.workshops[idx].ratingManual=false}})}} style={{cursor:"pointer",fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>↩ تلقائي</span>}
+          </div>})()}
+          {/* V17.9: Actions row — link button + delete */}
+          <div style={{padding:"0 16px 10px",display:"flex",gap:6,flexWrap:"wrap"}} onClick={e=>e.stopPropagation()}>
+            {!wsIsInternal(ws.type)&&<Btn small onClick={()=>generateWsPortalUrl(ws)} style={{background:"#F59E0B12",color:"#D97706",border:"1px solid #F59E0B40",fontWeight:700}} title="توليد رابط حساب الورشة">📱 رابط حساب الورشة</Btn>}
+            {canEdit&&<DelBtn onConfirm={()=>del(ws.id)} blocked={wsBlock(ws)}/>}
+          </div>
+        </div>})}
+      </div>
+      {(!workshops||workshops.length===0)&&<div style={{textAlign:"center",padding:30,color:T.textSec}}>لا توجد ورش مسجلة</div>}
+    </Card>
+    {/* Workshop Edit Popup */}
+    {showForm&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setShowForm(false);setEditId(null)}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:600,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{editId?"✏️ تعديل الورشة":"+ ورشة جديدة"}</div>
+          <Btn ghost onClick={()=>{setShowForm(false);setEditId(null)}} title="إغلاق">✕</Btn>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>اسم الورشة *</label><Inp value={f.name} onChange={v=>setF({...f,name:v})}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>اسم صاحب الورشة</label><Inp value={f.owner} onChange={v=>setF({...f,owner:v})}/></div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:12}}>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع الورشة *</label><Sel value={f.type||"خياطة خارجي"} onChange={v=>setF({...f,type:v})}>{WS_TYPES.map(t=><option key={t.key} value={t.key}>{t.icon+" "+t.key}</option>)}</Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النسبة من الدفعات</label><Sel value={f.payPercent||60} onChange={v=>setF({...f,payPercent:Number(v)})}>{[30,40,50,60,70,80,90,100].map(p=><option key={p} value={p}>{p+"%"}</option>)}</Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رقم التليفون</label><Inp value={f.phone} onChange={v=>setF({...f,phone:v})} type="tel" placeholder="+201xxxxxxxxx" style={{direction:"ltr",textAlign:"left",fontFamily:"monospace"}}/></div>
+        </div>
+        <div style={{marginBottom:12}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>العنوان</label><textarea value={f.address||""} onChange={e=>setF({...f,address:e.target.value})} style={{width:"100%",height:60,padding:10,borderRadius:10,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",resize:"vertical"}}/></div>
+        <div style={{marginBottom:14}}>
+          <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>صورة صاحب الورشة</label>
+          <div style={{width:80,height:107,borderRadius:12,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.bg,cursor:"pointer",position:"relative"}}>
+            {f.ownerPhoto?<img src={f.ownerPhoto} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-2,color:T.textMut}}>صورة</span>}
+            <input type="file" accept="image/*" onChange={handleOwnerPhoto} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
+          </div>
+        </div>
+        {/* V18.16: Archive toggle for workshop */}
+        {editId&&<div style={{padding:10,borderRadius:10,background:f.archived?T.err+"08":T.bg,border:"1px solid "+(f.archived?T.err+"30":T.brd),marginBottom:14}}>
+          <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
+            <input type="checkbox" checked={!!f.archived} onChange={e=>setF({...f,archived:e.target.checked})} style={{width:18,height:18,cursor:"pointer",accentColor:T.err}}/>
+            <span style={{fontSize:FS-1,fontWeight:700,color:f.archived?T.err:T.text}}>{f.archived?"🔒 موقوفة":"🔓 نشطة"} — إيقاف التعامل مع الورشة</span>
+          </label>
+          {f.archived&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:6,lineHeight:1.6}}>⚠️ الورشة الموقوفة هتختفي من القوائم والاختيارات في الأوردرات، ولو فتحت رابط حسابها هتظهر رسالة "تم إيقاف التعامل". الكشف الكامل لسه متاح للمراجعة.</div>}
+        </div>}
+        <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn ghost onClick={()=>{setShowForm(false);setEditId(null)}}>الغاء</Btn><Btn primary onClick={save} title="حفظ التعديلات">💾 حفظ</Btn></div>
+      </div>
+    </div>}
+    {/* V17.9: Workshop Portal URL popup — mirrors customer portal popup pattern */}
+    {wsPortalPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:100000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={()=>setWsPortalPopup(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:22,width:"100%",maxWidth:520,border:"2px solid #F59E0B",boxShadow:"0 25px 80px rgba(0,0,0,0.4)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"1px solid "+T.brd}}>
+          <div style={{fontSize:FS+2,fontWeight:800,color:"#D97706",display:"flex",alignItems:"center",gap:8}}>
+            <span>🏭</span><span>رابط حساب الورشة</span>
+          </div>
+          <Btn ghost small onClick={()=>setWsPortalPopup(null)}>✕</Btn>
+        </div>
+        <div style={{fontSize:FS-1,color:T.textSec,marginBottom:14,lineHeight:1.6}}>
+          <b>{wsPortalPopup.wsName}</b>
+          <div style={{fontSize:FS-2,color:T.textMut,marginTop:4}}>
+            رابط للقراءة فقط يعرض حساب الورشة بالكامل: المستحق، التسليم، الاستلام، والمدفوعات. يمكنك مشاركته عبر الواتساب — لن يحتاج تسجيل دخول.
+          </div>
+        </div>
+        {wsPortalPopup.loading?<div style={{padding:20,textAlign:"center"}}><Spinner size="medium"/><div style={{marginTop:8,fontSize:FS-1,color:T.textSec}}>جاري التوليد...</div></div>:
+         wsPortalPopup.error?<div style={{padding:14,borderRadius:10,background:T.err+"10",border:"1px solid "+T.err+"30",color:T.err,fontSize:FS-1}}>⛔ {wsPortalPopup.error}</div>:
+         wsPortalPopup.url?<div>
+          <div style={{padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"monospace",direction:"ltr",textAlign:"right",wordBreak:"break-all",color:T.text,marginBottom:12}}>
+            {wsPortalPopup.url}
+          </div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <Btn primary onClick={()=>{
+              try{navigator.clipboard.writeText(wsPortalPopup.url);showToast("✓ تم نسخ الرابط")}
+              catch(e){showToast("⛔ فشل النسخ")}
+            }} style={{flex:1,minWidth:120}}>📋 نسخ الرابط</Btn>
+            <Btn onClick={()=>{
+              const phone=(wsPortalPopup.wsPhone||"").replace(/[^\d]/g,"");
+              const msg=encodeURIComponent("أهلاً "+wsPortalPopup.wsName+"،\n\nيمكنك متابعة حساب الورشة معنا من خلال الرابط التالي:\n"+wsPortalPopup.url+"\n\nالرابط خاص بك ويعرض آخر البيانات بالتفصيل (المستحق، التسليم، الاستلام، المدفوعات).");
+              const wa=phone?"https://wa.me/"+(phone.startsWith("20")?phone:"20"+phone.replace(/^0+/,""))+"?text="+msg:"https://wa.me/?text="+msg;
+              const a=document.createElement("a");a.href=wa;a.target="_blank";a.rel="noopener noreferrer";a.click();
+            }} style={{background:"#25D366",color:"#fff",border:"none",flex:1,minWidth:120}}>💬 واتساب</Btn>
+          </div>
+          <div style={{marginTop:12,fontSize:FS-3,color:T.textMut,lineHeight:1.6,padding:10,background:"#F59E0B08",borderRadius:8}}>
+            💡 الرابط ثابت لهذه الورشة. يمكنك مشاركته مرة واحدة. لن يحتاج تسجيل دخول.
+          </div>
+        </div>:null}
+      </div>
+    </div>}
+  </div>
+}
+
+/* ══ ORDER FORM ══ */

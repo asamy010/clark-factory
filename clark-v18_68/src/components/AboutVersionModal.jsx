@@ -25,20 +25,6 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
-    version: "V18.69",
-    date: "2026-04-30",
-    types: ["fix"],
-    title: "🐛 إصلاح حذف حركات الخزنة المرتبطة بسلف موظفين",
-    changes: [
-      { type: "fix", text: "🚨 Bug خطير في حذف حركات الخزنة: لما المستخدم يضغط زر '✕' على حركة مرتبطة بسلفة موظف (أو شيك أو دفعة عميل/مورد/ورشة)، الـpopup كان بيظهر بزر 'حذف' لكن الحذف **مش بيحصل أبداً** (الـonConfirm كان فاضي)." },
-      { type: "fix", text: "✅ الإصلاح: شيلت الـearly-return اللي كانت بتظهر الـpopup الفاضي. الـpopup الموجود في الـrow بالفعل بيحذر المستخدم بـ'⚠️ حركة مرتبطة بـ X — الحذف هنا لن يؤثر على المصدر' — كافي ومش محتاج popup ثاني فاضي." },
-      { type: "fix", text: "🔁 Cascade delete صح للسلف: لما تحذف سلفة موظف من الخزنة، النظام بيحذف معاها الـhrLog entry المرتبط تلقائياً (الكود ده موجود من V17.1 لكن مكنش بيوصلله بسبب الـearly-return)." },
-      { type: "improvement", text: "📊 Consistency بين الـsingle-delete والـbulk-delete: الـbulk-delete (checkbox + حذف) كان شغال صح من قبل، لكن الـsingle-delete (X) كان مكسور — دلوقتي الاتنين بيتعاملوا بنفس المنطق." },
-      { type: "improvement", text: "🛡️ المرتبات (hr_salary) يفضل ممنوع حذفها من الخزنة (محمي بـearly-return منفصل) — لأن حذفها بيفسد الـprevBalance وحساب الأسبوع. لازم تتحذف من شاشة 'الموظفين → حذف الأسبوع'." },
-      { type: "improvement", text: "↩️ الـUndo button يشتغل صح بعد الحذف — السنابشوت بياخد كل الـarrays المرتبطة (treasury + custPayments + supplierPayments + wsPayments + hrLog + treasuryTransfers)." },
-    ]
-  },
-  {
     version: "V18.68",
     date: "2026-04-30",
     types: ["feature", "improvement"],
@@ -190,6 +176,23 @@ const CHANGELOG = [
       { type: "improvement", text: "📱 الواجهة المحمولة (MobileWarehouseShell): تأكيد الخروج بدون حفظ بقى popup أنيق بدلاً من window.confirm" },
       { type: "improvement", text: "🔗 صفحات تأكيد التسليم العامة (ConfirmPage + WorkshopConfirmPage): أخطاء الإرسال بقت popups موحدة" },
       { type: "improvement", text: "✅ النتيجة: تجربة موحّدة في كل التطبيق — مفيش نوافذ متصفح قبيحة في أي مكان (بقي فقط ~10 alerts في utils/print لأخطاء نادرة)" },
+    ]
+  },
+  {
+    version: "V18.58",
+    date: "2026-04-29",
+    types: ["feature"],
+    title: "الخصم الحر في الفواتير + إذن تسليم بدون أسعار",
+    changes: [
+      { type: "feature", text: "💰 خصم حر داخل فواتير المبيعات والمشتريات — قابل للتعديل في حالة المسودة فقط، يـoverride خصم العميل التلقائي" },
+      { type: "feature", text: "🔢 خياران للخصم: نسبة (%) أو مبلغ ثابت (ج.م) — يحسب الخصم النهائي تلقائياً ويحدّث الإجمالي مباشرة" },
+      { type: "feature", text: "💾 الحفظ تلقائي بعد 300ms من التعديل (debounce) — لا يحتاج زر حفظ منفصل، الخصم محفوظ مع الفاتورة" },
+      { type: "feature", text: "🛡️ القيد الذكي: الخصم لا يتجاوز إجمالي الفاتورة (clamping) — يمنع الأخطاء المحاسبية" },
+      { type: "feature", text: "📦 إذن تسليم بدون أسعار للمخزن والسائق — Toggle جديد في popup الطباعة المجمعة (☑ إذن تسليم بدون أسعار)" },
+      { type: "feature", text: "🚚 الـnoPrices mode بيخفي: عمود السعر، عمود الإجمالي، صف صافي العميل، الـtotals الكلية المالية — يبقى الموديل + الكمية + التوقيع فقط" },
+      { type: "feature", text: "📑 العنوان يتغير تلقائياً: 'إذن تسليم مخزن' بدلاً من 'إذن تسليم' لو الـnoPrices مفعّل — للتمييز الواضح" },
+      { type: "improvement", text: "🖨️ الطباعة (printInvoice.js) محدّثة لدعم الخصم الجديد: تعرض النسبة لو discountType=pct أو لا تعرضها لو amount" },
+      { type: "improvement", text: "🔒 الفاتورة المُرحّلة (posted) تعرض الخصم read-only — مفيش تعديل بعد الترحيل لحماية القيد المحاسبي" },
     ]
   },
 ];

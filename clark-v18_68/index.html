@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CLARK</title>
+    <meta name="description" content="Welcome to the world of CLARK, where high quality meets contemporary elegance in children's clothing designs. We take pride in offering a wide range of clothes that blend comfort and durability, making them the perfect choice for your little ones."/>
+    <!-- V17.7+V18.32: Open Graph / Social media link preview (WhatsApp, Telegram, Facebook, etc.)
+         Same tags apply to ALL routes (customer portal, workshop portal, main app) since
+         we're a SPA — bots only read this static HTML, they don't run JS. -->
+    <meta property="og:title" content="CLARK"/>
+    <meta property="og:site_name" content="CLARK"/>
+    <meta property="og:description" content="Welcome to the world of CLARK, where high quality meets contemporary elegance in children's clothing designs. We take pride in offering a wide range of clothes that blend comfort and durability, making them the perfect choice for your little ones."/>
+    <meta property="og:type" content="website"/>
+    <meta property="og:image" content="/icon-512.png"/>
+    <meta property="og:image:secure_url" content="/icon-512.png"/>
+    <meta property="og:image:width" content="512"/>
+    <meta property="og:image:height" content="512"/>
+    <meta property="og:image:alt" content="CLARK"/>
+    <meta property="og:locale" content="en_US"/>
+    <meta property="og:locale:alternate" content="ar_EG"/>
+    <!-- Twitter / X card -->
+    <meta name="twitter:card" content="summary_large_image"/>
+    <meta name="twitter:title" content="CLARK"/>
+    <meta name="twitter:description" content="Welcome to the world of CLARK, where high quality meets contemporary elegance in children's clothing designs."/>
+    <meta name="twitter:image" content="/icon-512.png"/>
+    <link rel="manifest" href="/manifest.json"/>
+    <meta name="theme-color" content="#0EA5E9"/>
+    <meta name="apple-mobile-web-app-capable" content="yes"/>
+    <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+    <meta name="apple-mobile-web-app-title" content="CLARK Kids Wear"/>
+    <link rel="apple-touch-icon" href="/icon-192.png"/>
+    <link rel="preconnect" href="https://fonts.googleapis.com"/>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+    <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Cairo',sans-serif;background:#EFF6FF}
+    @media(max-width:768px){table{font-size:12px!important}th,td{padding:6px 8px!important}input,select{font-size:13px!important;padding:8px 10px!important}button{font-size:12px!important}h1{font-size:20px!important}
+      /* V15.10: MetricCard responsive — icon shrinks, value text adjusts so label/value both visible */
+      .metric-card{padding:10px 12px!important;gap:8px!important}
+      .metric-card > div:first-child{width:32px!important;height:32px!important;font-size:16px!important}
+      .metric-card .metric-value{font-size:18px!important}
+      .metric-card .metric-label{font-size:11px!important}
+      .metric-card .metric-sub{font-size:10px!important}
+      /* V15.10: Top-bar action buttons — scroll horizontally on mobile instead of wrapping/cropping */
+      .action-row-scroll{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;flex-wrap:nowrap!important;scrollbar-width:thin}
+      .action-row-scroll::-webkit-scrollbar{height:4px}
+      .action-row-scroll::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:2px}
+      .action-row-scroll > *{flex-shrink:0}
+      /* V15.10: Warning cards should not squish vertically — allow full width wrapping */
+      .warn-card{flex-direction:column!important;align-items:stretch!important}
+    }
+    @media(max-width:900px) and (orientation:landscape){#landscape-block{display:flex!important}}
+    #landscape-block{display:none;position:fixed;inset:0;background:#1E293B;z-index:999999;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:#fff;font-family:'Cairo',sans-serif;text-align:center}
+    #landscape-block .icon{font-size:48px;animation:rotatePhone 2s ease infinite}
+    @keyframes rotatePhone{0%,100%{transform:rotate(0deg)}50%{transform:rotate(-90deg)}}</style>
+  </head>
+  <body><div id="landscape-block"><div class="icon">📱</div><div style="font-size:18px;font-weight:700">يرجى تدوير الجهاز</div><div style="font-size:13px;color:#94A3B8">CLARK يعمل في الوضع الرأسي فقط</div></div><div id="root"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <script type="module" src="/src/main.jsx"></script>
+  <script>if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js')})}
+  try{screen.orientation&&screen.orientation.lock&&screen.orientation.lock('portrait-primary').catch(()=>{})}catch(e){}</script></body>
+</html>

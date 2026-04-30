@@ -713,22 +713,21 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const delTx=(id)=>{
     /* V15.9: Block deletion of HR salary transactions — they're bound to week prevBalance.
        User must use "delete week" in HR page which handles prevBalance restoration.
-       V16.65: Used to also block any externally-linked tx via dataIntegrity.getReferences,
-       BUT that block showed an empty-onConfirm popup that confused users (looked like
-       delete was happening but wasn't).
-       V18.69 FIX: Removed the getReferences early-return. The row-level popup (in render)
-       already warns the user "⚠️ حركة مرتبطة بـ X — الحذف هنا لن يؤثر على المصدر".
-       The cascade logic below correctly handles ALL linked records:
-         • hr_advance  → deletes treasury + linked hrLog entry
-         • transfer    → deletes both legs + transfer record
-         • cust/supplier/ws payments → deletes linked payment records
-         • check       → only deletes treasury entry (the check itself stays for audit)
-         • purchase_receipt → only deletes treasury entry (receipt stays)
-       Only hr_salary remains hard-blocked because deletion would corrupt prevBalance
-       and the week's accounting reconciliation. */
+       V16.65: Now also blocks any externally-linked tx via dataIntegrity.
+       The user is shown a clear message naming the source (check / hr advance /
+       transfer / receipt) and where to delete from instead. Cascade-delete used
+       to silently take down child records — that's data the user couldn't see
+       disappearing. Now they have to delete from the source side, which keeps
+       both sides consistent. */
     const txCheck=(data.treasury||[]).find(t=>t.id===id);
     if(txCheck&&txCheck.sourceType==="hr_salary"){
       showToast("⛔ لا يمكن حذف مرتب من هنا — احذف الأسبوع من صفحة الموظفين");
+      return;
+    }
+    const refs=getReferences(data,"treasuryTransaction",id);
+    if(refs.length>0){
+      const msg="هذه الحركة مرتبطة بـ:\n"+refs.map(r=>"• "+r.label).join("\n")+"\n\nاحذفها من المصدر الأصلي بدلاً من هنا.";
+      openConfirm({title:"⛔ حركة مرتبطة",message:msg,variant:"danger",onConfirm:()=>{}});
       return;
     }
     /* V16.2: Snapshot for undo — capture arrays that will be modified */
