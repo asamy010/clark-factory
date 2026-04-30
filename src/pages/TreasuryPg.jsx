@@ -695,9 +695,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       /* V18.72: silent auto-link toast */
       showToast("✓ ربط تلقائي بورشة "+_autoLinkedWs.name);
     } else if(_autoLinkAttempted&&!linkedWsName){
-      /* V18.73: workshop-category entry was saved unlinked — alert the user
-         so they know to fix it from the Repair tool in تشغيل خارجي → حسابات. */
-      showToast("⚠ حُفظ بدون ربط بورشة — لن يظهر في كشف الحساب. استخدم 'إصلاح الحركات غير المربوطة'");
+      /* V18.73: workshop-category entry was saved unlinked. */
+      showToast("⚠ حُفظ بدون ربط بورشة — لن يظهر في كشف الحساب");
     } else {
       showToast("✓ تم الحفظ");
     }

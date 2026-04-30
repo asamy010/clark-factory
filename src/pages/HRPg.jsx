@@ -452,6 +452,9 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   const[envelopePopup,setEnvelopePopup]=useState(null);/* {weekId, selected:Set<empId>, filter:"all"|"unprinted"|"uncollected", search} */
   const[showEmpCardPrint,setShowEmpCardPrint]=useState(null);/* empId OR "all" for bulk */
   const[fraudListPopup,setFraudListPopup]=useState(null);/* {weekId, emps:[]} */
+  /* V18.76: Manual receipt confirm — admin-only bypass for emps who can't scan.
+     {weekId, selected:Set<empId>, reason:string, confirmText:string} */
+  const[manualConfirmPopup,setManualConfirmPopup]=useState(null);
   /* V14.60: QR view popup (for employee who forgot card) + Fraud warning popup */
   const[empQrView,setEmpQrView]=useState(null);/* empId — show QR on screen */
   const[fraudWarning,setFraudWarning]=useState(null);/* {empName, previousAt, previousBy, attemptAt, attemptBy} */
@@ -3216,7 +3219,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             displayEmpCount=shownEmps.length;
             displayAdvCount=weeklyAdvances.length;
           }
-          return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(9,1fr)",gap:8,marginBottom:14}}>
+          return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(10,1fr)",gap:8,marginBottom:14}}>
             {isWeekClosed&&savedStats&&<div style={{gridColumn:"1/-1",padding:"6px 10px",borderRadius:6,background:T.ok+"06",border:"1px solid "+T.ok+"20",fontSize:FS-3,color:T.ok,fontWeight:600,marginBottom:-2}}>🔒 أسبوع مقفول — القيم المعروضة ثابتة من وقت الإقفال ولا تتأثر بأي تعديل لاحق</div>}
             {/* 1. إجمالي المرتب الأساسي */}
             <div style={{padding:"10px 8px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center"}}>
@@ -3266,11 +3269,18 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
               <div style={{fontSize:FS+4,fontWeight:800,color:"#8B5CF6",lineHeight:1.1}}>{fmt0(isWeekClosed&&savedStats?(savedStats.totalWeeklyWsPayments||0):totalWeeklyWsPayments)}</div>
               <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>{(isWeekClosed&&savedStats?(savedStats.weeklyWsPaymentsCount||0):weeklyWsPayments.length)+" دفعة"}</div>
             </div>
-            {/* 9. الإجمالي النهائي — V15.27: includes ws payments too */}
+            {/* V18.76: 9. مصاريف أخرى (مخططة — تخرج عند الإقفال) */}
+            <div style={{padding:"10px 8px",borderRadius:10,background:"#DC262608",border:"1px solid #DC262620",textAlign:"center"}} title="المصاريف الأخرى المسجلة لهذا الأسبوع — ستُرحَّل إلى الخزنة عند الإقفال">
+              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2,fontWeight:600}}>💼 مصاريف أخرى</div>
+              <div style={{fontSize:FS+4,fontWeight:800,color:"#DC2626",lineHeight:1.1}}>{fmt0(isWeekClosed&&savedStats?(savedStats.totalWeeklyOtherExpenses||0):totalWeeklyOtherExpenses)}</div>
+              <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>{(isWeekClosed&&savedStats?(savedStats.weeklyOtherExpensesCount||0):weeklyOtherExpenses.length)+" مصروف"}</div>
+            </div>
+            {/* 10. الإجمالي النهائي — V18.76: includes ws payments + other expenses */}
             {(()=>{const effTotalWeekAdv=isWeekClosed&&savedStats?savedStats.totalWeeklyAdvances:totalWeeklyAdvances;
               const effWsPay=isWeekClosed&&savedStats?(savedStats.totalWeeklyWsPayments||0):totalWeeklyWsPayments;
-              const finalTotal=isWeekClosed&&savedStats?(savedStats.finalTotal||(savedStats.thursdayPay+savedStats.totalWeeklyAdvances+(savedStats.totalWeeklyWsPayments||0))):(thursdayPay+totalWeeklyAdvances+effWsPay);
-              return<div style={{padding:"10px 8px",borderRadius:10,background:T.ok+"12",border:"2px solid "+T.ok+"40",textAlign:"center"}} title={"الإجمالي الذي سيُدفع/يخرج من الخزنة يوم الإقفال:\n• مرتبات: "+fmt0(thursdayPay)+" ج\n• سلف إدارة (خطة): "+fmt0(effTotalWeekAdv)+" ج\n• دفعات ورش (خطة): "+fmt0(effWsPay)+" ج\n\nالسلف الأسبوعية للموظفين العاديين ("+fmt0(advances)+" ج) خرجت من الخزنة خلال الأسبوع بالفعل."}>
+              const effOtherExps=isWeekClosed&&savedStats?(savedStats.totalWeeklyOtherExpenses||0):totalWeeklyOtherExpenses;
+              const finalTotal=isWeekClosed&&savedStats?(savedStats.finalTotal||(savedStats.thursdayPay+savedStats.totalWeeklyAdvances+(savedStats.totalWeeklyWsPayments||0)+(savedStats.totalWeeklyOtherExpenses||0))):(thursdayPay+totalWeeklyAdvances+effWsPay+effOtherExps);
+              return<div style={{padding:"10px 8px",borderRadius:10,background:T.ok+"12",border:"2px solid "+T.ok+"40",textAlign:"center"}} title={"الإجمالي الذي سيُدفع/يخرج من الخزنة يوم الإقفال:\n• مرتبات: "+fmt0(thursdayPay)+" ج\n• سلف إدارة (خطة): "+fmt0(effTotalWeekAdv)+" ج\n• دفعات ورش (خطة): "+fmt0(effWsPay)+" ج\n• مصاريف أخرى (خطة): "+fmt0(effOtherExps)+" ج\n\nالسلف الأسبوعية للموظفين العاديين ("+fmt0(advances)+" ج) خرجت من الخزنة خلال الأسبوع بالفعل."}>
                 <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2,fontWeight:700}}>✅ الإجمالي النهائي</div>
                 <div style={{fontSize:FS+5,fontWeight:900,color:T.ok,lineHeight:1.1}}>{fmt0(finalTotal)}</div>
                 <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>يخرج يوم الإقفال</div>
@@ -4916,6 +4926,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             <div style={{padding:"8px 10px",borderRadius:10,background:T.ok+"08",border:"1px solid "+T.ok+"30",textAlign:"center"}}>
               <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>✅ استلم</div>
               <div style={{fontSize:FS+4,fontWeight:900,color:T.ok}}>{received.length}</div>
+              {(()=>{const m=received.filter(e=>receipts[e.id]&&receipts[e.id].manual).length;return m>0?<div style={{fontSize:FS-4,color:"#F59E0B",fontWeight:700,marginTop:1}}>📝 يدوي: {m}</div>:null})()}
             </div>
             <div style={{padding:"8px 10px",borderRadius:10,background:T.err+"08",border:"1px solid "+T.err+"30",textAlign:"center"}}>
               <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>⏳ متبقي</div>
@@ -4929,7 +4940,12 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           <div style={{fontSize:FS-2,color:T.textMut,textAlign:"center",padding:"8px 0"}}>
             💡 وجّه الكاميرا على كارت QR الموظف
           </div>
-          <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:10,borderTop:"1px solid "+T.brd}}>
+          <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center",paddingTop:10,borderTop:"1px solid "+T.brd}}>
+            {/* V18.76: Admin-only manual confirm — bypass scanning for unsigned employees */}
+            {isAdmin&&notReceived.length>0?<Btn small onClick={()=>{
+              const all=new Set(notReceived.map(e=>e.id));
+              setManualConfirmPopup({weekId:w.id,selected:all,reason:"",confirmText:""});
+            }} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B40",fontWeight:700}} title="تأكيد استلام المرتبات يدوياً للموظفين المتبقين (مدير فقط)">📝 تأكيد يدوي ({notReceived.length})</Btn>:<span/>}
             <Btn ghost onClick={()=>setShowEmpQrScanner(null)}>إغلاق</Btn>
           </div>
         </div>
@@ -4966,6 +4982,104 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:12,borderTop:"1px solid "+T.brd,marginTop:10}}>
             <span style={{fontSize:FS-1,color:T.textSec}}>الإجمالي: <b style={{color:T.err,fontSize:FS+1}}>{fmt0(emps.reduce((s,e)=>{const c=getEmpSalary(e.id,w);return s+(c?c.thursdayPay:0)},0))}</b> ج.م</span>
             <Btn ghost onClick={()=>setFraudListPopup(null)}>إغلاق</Btn>
+          </div>
+        </div>
+      </div>;
+    })()}
+
+    {/* ══ V18.76: MANUAL RECEIPT CONFIRM POPUP — admin-only bypass ══ */}
+    {manualConfirmPopup&&isAdmin&&(()=>{
+      const w=hrWeeks.find(x=>x.id===manualConfirmPopup.weekId);
+      if(!w)return null;
+      const receipts=mergedReceipts(w);
+      const wkSelected=(w.selectedEmps&&Array.isArray(w.selectedEmps))?w.selectedEmps:[];
+      const wkEmps=activeEmps.filter(e=>wkSelected.includes(e.id));
+      const candidates=wkEmps.filter(e=>!receipts[e.id]);/* only unsigned ones */
+      const selectedSet=manualConfirmPopup.selected||new Set();
+      const reason=manualConfirmPopup.reason||"";
+      const confirmText=manualConfirmPopup.confirmText||"";
+      const canSubmit=selectedSet.size>0&&reason.trim().length>=3&&confirmText.trim()==="تأكيد";
+      const totalAmt=Array.from(selectedSet).reduce((s,id)=>{const c=getEmpSalary(id,w);return s+(c?c.thursdayPay:0)},0);
+      const toggle=(id)=>{const next=new Set(selectedSet);if(next.has(id))next.delete(id);else next.add(id);setManualConfirmPopup({...manualConfirmPopup,selected:next})};
+      const toggleAll=()=>{
+        if(selectedSet.size===candidates.length)setManualConfirmPopup({...manualConfirmPopup,selected:new Set()});
+        else setManualConfirmPopup({...manualConfirmPopup,selected:new Set(candidates.map(e=>e.id))});
+      };
+      const submit=()=>{
+        if(!canSubmit)return;
+        const ids=Array.from(selectedSet);
+        upConfig(d=>{
+          const wi=(d.hrWeeks||[]).findIndex(x=>x.id===w.id);if(wi<0)return;
+          if(!d.hrWeeks[wi].receipts)d.hrWeeks[wi].receipts={};
+          if(!Array.isArray(d.auditLog))d.auditLog=[];
+          ids.forEach(empId=>{
+            if(d.hrWeeks[wi].receipts[empId])return;/* race-safe */
+            const emp=(d.employees||[]).find(e=>e.id===empId);
+            d.hrWeeks[wi].receipts[empId]={
+              at:new Date().toISOString(),
+              by:userName||"",
+              manual:true,
+              manualReason:reason.trim(),
+            };
+            d.auditLog.unshift({
+              id:Math.random().toString(36).slice(2)+Date.now(),
+              category:"week",action:"manual_salary_receipt",
+              target:"W"+w.weekNum+" — "+(emp?emp.name:empId),
+              newValue:"📝 تأكيد يدوي (بدون سكان)",
+              notes:"السبب: "+reason.trim()+" — بواسطة: "+(userName||"—"),
+              at:new Date().toISOString(),severity:"warning"
+            });
+          });
+        });
+        setManualConfirmPopup(null);
+        showToast("✓ تم تأكيد "+ids.length+" مرتب يدوياً");
+      };
+      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10003,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setManualConfirmPopup(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:620,maxHeight:"92vh",display:"flex",flexDirection:"column",border:"2px solid #F59E0B",boxShadow:"0 25px 70px rgba(0,0,0,0.45)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:10,borderBottom:"2px solid #F59E0B25"}}>
+            <div style={{fontSize:FS+2,fontWeight:900,color:"#F59E0B",display:"flex",alignItems:"center",gap:8}}>
+              <span>📝</span><span>تأكيد يدوي للمرتبات — W{w.weekNum}</span>
+            </div>
+            <span onClick={()=>setManualConfirmPopup(null)} style={{cursor:"pointer",fontSize:22,color:T.textMut,padding:4}}>✕</span>
+          </div>
+          <div style={{padding:10,borderRadius:8,background:"#F59E0B0D",border:"1px solid #F59E0B30",marginBottom:12,fontSize:FS-1,color:T.text,lineHeight:1.6}}>
+            ⚠️ هذا الإجراء يتجاوز السكان. كل تأكيد هيتسجل في سجل التدقيق بشكل دائم. السبب إلزامي.
+          </div>
+          {/* Reason */}
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:700}}>السبب (إلزامي)</div>
+            <Inp value={reason} onChange={(v)=>setManualConfirmPopup({...manualConfirmPopup,reason:v})} placeholder="مثال: الموظف خارج الحضور / مريض / إجازة..."/>
+          </div>
+          {/* Selectable list */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <div style={{fontSize:FS-1,fontWeight:700,color:T.text}}>الموظفين المتبقين ({candidates.length})</div>
+            <Btn small ghost onClick={toggleAll}>{selectedSet.size===candidates.length?"إلغاء تحديد الكل":"تحديد الكل"}</Btn>
+          </div>
+          <div style={{flex:1,overflowY:"auto",background:T.bg,borderRadius:10,border:"1px solid "+T.brd,padding:4,maxHeight:280,minHeight:80}}>
+            {candidates.length===0?<div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا يوجد موظفين متبقين</div>:candidates.map((e,i)=>{
+              const c=getEmpSalary(e.id,w);
+              const checked=selectedSet.has(e.id);
+              return<label key={e.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderBottom:"1px solid "+T.brd,background:i%2===0?"transparent":T.cardSolid,cursor:"pointer"}}>
+                <input type="checkbox" checked={checked} onChange={()=>toggle(e.id)} style={{width:18,height:18,cursor:"pointer",accentColor:"#F59E0B"}}/>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:FS,fontWeight:700,color:T.text}}>{e.name}</div>
+                  <div style={{fontSize:FS-3,color:T.textMut}}>{(e.code?"#"+e.code:"")}{e.job?" • "+e.job:""}</div>
+                </div>
+                <div style={{fontSize:FS,fontWeight:800,color:checked?"#F59E0B":T.textMut,fontFamily:"monospace"}}>{c?fmt0(c.thursdayPay)+" ج":"—"}</div>
+              </label>;
+            })}
+          </div>
+          {/* Confirm typing */}
+          <div style={{marginTop:10}}>
+            <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:700}}>اكتب "تأكيد" للمتابعة</div>
+            <Inp value={confirmText} onChange={(v)=>setManualConfirmPopup({...manualConfirmPopup,confirmText:v})} placeholder="تأكيد"/>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:12,borderTop:"1px solid "+T.brd,marginTop:10,gap:8,flexWrap:"wrap"}}>
+            <span style={{fontSize:FS-1,color:T.textSec}}>المختار: <b style={{color:"#F59E0B",fontSize:FS+1}}>{selectedSet.size}</b> موظف • <b style={{color:"#F59E0B"}}>{fmt0(totalAmt)}</b> ج</span>
+            <div style={{display:"flex",gap:8}}>
+              <Btn ghost onClick={()=>setManualConfirmPopup(null)}>إلغاء</Btn>
+              <Btn onClick={submit} disabled={!canSubmit} style={{background:canSubmit?"#F59E0B":T.brd,color:"#fff",fontWeight:700,opacity:canSubmit?1:0.5}}>📝 تأكيد {selectedSet.size>0?"("+selectedSet.size+")":""}</Btn>
+            </div>
           </div>
         </div>
       </div>;
@@ -5102,7 +5216,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                       <span>{e.name}</span>
                       {e.code&&<span style={{fontSize:FS-3,color:T.accent,fontFamily:"monospace",fontWeight:700}}>#{e.code}</span>}
                       {wasP&&<span style={{fontSize:FS-3,padding:"1px 6px",borderRadius:6,background:T.ok+"15",color:T.ok,fontWeight:700}} title={"طُبع: "+new Date(printed[e.id].at).toLocaleString("ar-EG")+(printed[e.id].by?" • "+printed[e.id].by:"")}>📮 طُبع</span>}
-                      {wasR&&<span style={{fontSize:FS-3,padding:"1px 6px",borderRadius:6,background:T.accent+"15",color:T.accent,fontWeight:700}} title={"استلم: "+new Date(receipts[e.id].at).toLocaleString("ar-EG")}>✅ استلم</span>}
+                      {wasR&&(()=>{const r=receipts[e.id];const isManual=r&&r.manual;return<span style={{fontSize:FS-3,padding:"1px 6px",borderRadius:6,background:(isManual?"#F59E0B":T.accent)+"15",color:isManual?"#F59E0B":T.accent,fontWeight:700}} title={(isManual?"📝 تأكيد يدوي":"✅ استلم")+": "+new Date(r.at).toLocaleString("ar-EG")+(r.by?" • "+r.by:"")+(isManual&&r.manualReason?"\nالسبب: "+r.manualReason:"")}>{isManual?"📝 يدوي":"✅ استلم"}</span>})()}
                     </div>
                     {e.job&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:1}}>{e.job}</div>}
                   </div>
