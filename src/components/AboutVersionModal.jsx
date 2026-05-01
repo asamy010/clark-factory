@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V18.96",
+    date: "2026-05-01",
+    types: ["fix"],
+    title: "🔧 منع wrap الـchips لما النصوص تطول",
+    changes: [
+      { type: "fix", text: "🚨 المشكلة: لما النصوص في الـchips طويلة + فيه زر '+N إشعار آخر'، الإجمالي بيكون أعرض من المساحة المتاحة، فالسطر بيتلف لتحت → الـgreeting bar يكبر ارتفاعه ويكسر الـlayout." },
+      { type: "fix", text: "✅ الإصلاح: الـchips دلوقتي بيـshrink (تتقلص في العرض) بدل ما يـwrap. كل chip له min-width معقول (140px ديسكتوب، 110px موبايل) ومايقدرش يصغر أكتر من كده. النص جوه الـchip بيـtruncate أولاً بـellipsis (...) لما المساحة تقل." },
+      { type: "fix", text: "🔒 الـouter greeting bar اتغير من `flexWrap:wrap` → `flexWrap:nowrap` لمنع الـwrap على مستوى الـbar نفسه. الـtext في 'مرحبا، X' و التاريخ كمان بقوا `whiteSpace:nowrap`." },
+      { type: "fix", text: "🎯 الأولويات في الـshrink: النص نفسه يـtruncate أولاً (flex:1, minWidth:30) → بعدين الـ'— من X' يختفي على الموبايل (display:none لو isMob) → 'إنهاء' و '+N' بيفضلوا في حجمهم الكامل دائماً (flexShrink:0). الـtitle (tooltip) فيه النص الكامل + المرسل لو حد عاوز يقراه كامل." },
+    ]
+  },
+  {
     version: "V18.95",
     date: "2026-05-01",
     types: ["improvement"],
@@ -135,18 +147,6 @@ const CHANGELOG = [
       { type: "improvement", text: "🔄 Live ticker: useEffect بيـreset كل دقيقة عشان عداد الوقت المتبقي يحدث. يتوقف تلقائياً لو مفيش إشعارات نشطة." },
       { type: "improvement", text: "🎨 الفلتر النهائي للإشعار: `!endedAt && (!expiresAt || expiresAt > now) && !readBy.includes(me) && !dismissedBy.includes(me)`. المحاسبة + طلبات الإشعارات القديمة بتنقي بنفس المنطق." },
       { type: "improvement", text: "🚫 إزالة شريط 'مهمة عاجلة' من التوب بار — كان مكرر دلوقتي." },
-    ]
-  },
-  {
-    version: "V18.86",
-    date: "2026-05-01",
-    types: ["improvement"],
-    title: "📱 تحسين تابات الموبايل (المحاسبة + المرتبات)",
-    changes: [
-      { type: "improvement", text: "📱 المحاسبة: التابات الـ8 (شجرة الحسابات + اليومية + الميزان + كشف حساب جاري + دفعات + تقادم + القوائم + الإعدادات) كانت بتلف على 3-4 صفوف عشوائياً على الموبايل بسبب `flex-wrap`. الإصلاح: شبكة 3 أعمدة منظمة (3×3) على الموبايل بس، الديسكتوب لسه شكله الأصلي." },
-      { type: "improvement", text: "📱 المرتبات + موظفين: نفس المشكلة في الـ6 تابات (الأسابيع، سجل أسبوعي، سجل شهري، الموظفين، تأكيد الاستلام، الأمن والرقابة) مع `flex:1` بيخلي النص متزحم. الإصلاح: شبكة 3 أعمدة (3×2) على الموبايل + اختصار النصوص (مثلاً 'تأكيد الاستلام' → 'تأكيد'، 'الأمن والرقابة' → 'أمن')." },
-      { type: "improvement", text: "🎨 شكل التاب الفعّال على الموبايل: background ملوّن (T.accent) + border قوي + نص أبيض — أوضح بكثير من نمط underline على شاشة ضيقة. الديسكتوب محفوظ بالنمط الأصلي (underline) لأنه مساحته كافية." },
-      { type: "improvement", text: "✅ قاعدة البيانات (DBPg) مش متأثرة لأن تاباتها 4 وبتستخدم `Btn` components (شغالة بشكل مقبول). الخزنة والمخزن نفس الحال." },
     ]
   },
 ];

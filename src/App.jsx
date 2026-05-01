@@ -239,13 +239,13 @@ export default function App(){
   const[sidebarTab,setSidebarTab]=useState("notes");/* "notes"|"tasks"|"activity" — for home sidebar */
   const[quickPopup,setQuickPopup]=useState(null);/* "task"|"notif"|null */
   const[qpTo,setQpTo]=useState("");const[qpText,setQpText]=useState("");const[qpType,setQpType]=useState("تذكير");
-  /* V18.95: Notification expiry duration. Values: "1h"|"2h"|"1d"|"endday"|"none". Default: "2h". */
+  /* V18.96: Notification expiry duration. Values: "1h"|"2h"|"1d"|"endday"|"none". Default: "2h". */
   const[qpDuration,setQpDuration]=useState("2h");
-  /* V18.95 HOTFIX: notifTick state must live BEFORE any early returns to keep hook order stable across renders */
+  /* V18.96 HOTFIX: notifTick state must live BEFORE any early returns to keep hook order stable across renders */
   const[_notifTick,setNotifTick]=useState(0);
-  /* V18.95: Toggle for the "all notifications" popup that opens when user clicks "+N more" chip */
+  /* V18.96: Toggle for the "all notifications" popup that opens when user clicks "+N more" chip */
   const[notifPopupOpen,setNotifPopupOpen]=useState(false);
-  /* V18.95 HOTFIX: ticker effect also must run unconditionally (no early-return skip).
+  /* V18.96 HOTFIX: ticker effect also must run unconditionally (no early-return skip).
      The dep `_notifTick` makes it a no-op rebind; the actual gate is inside (we read subBarNotifs from a ref or just always tick). */
   useEffect(()=>{
     /* Tick once a minute. Cheap setState; greeting bar reads fresh state on each render. */
@@ -2301,7 +2301,7 @@ export default function App(){
 
   /* User notifications */
   const userEmail=user?.email||"";
-  /* V18.95: Filter notifications honoring expiresAt + endedAt + dismissedBy.
+  /* V18.96: Filter notifications honoring expiresAt + endedAt + dismissedBy.
      - endedAt: sender or admin clicked "End" → hide for everyone
      - expiresAt: passed → hide for everyone (auto-expire)
      - dismissedBy: this user clicked × → hide just for them */
@@ -2311,7 +2311,7 @@ export default function App(){
     if(n.expiresAt&&new Date(n.expiresAt)<=_now)return false;
     if((n.readBy||[]).includes(userEmail))return false;
     if((n.dismissedBy||[]).includes(userEmail))return false;
-    /* V18.95: forAdminsOnly notifs (e.g. transfer approval requests) only show for admins */
+    /* V18.96: forAdminsOnly notifs (e.g. transfer approval requests) only show for admins */
     if(n.forAdminsOnly&&userRole!=="admin")return false;
     return true;
   });
@@ -2337,17 +2337,17 @@ export default function App(){
     return{msg:n.msg,color:n.type==="طلب"?"#8B5CF6":n.type==="مهمة"?T.accent:T.warn,icon:n.type==="طلب"?"📩":n.type==="مهمة"?"📌":"💬",orderId:n.orderId||null,isNotif:true,notifId:n.id,from:n.fromName,date:n.createdAt};
   }),...appAlerts];
   const alertCount=allAlerts.length;
-  /* V18.95: Urgent tasks bar in topbar disabled — these now show in the greeting bar
+  /* V18.96: Urgent tasks bar in topbar disabled — these now show in the greeting bar
      as type chips along with all other types. Keep as empty array to keep refs alive. */
   const urgentTasks=[];
   const markTaskDone=(nid)=>upConfig(d=>{const n=(d.notifications||[]).find(x=>x.id===nid);if(n){if(!n.doneBy)n.doneBy=[];if(!n.doneBy.includes(userEmail))n.doneBy.push(userEmail)}});
-  /* V18.95: End-for-everyone — sender or admin clicks ⏹ → endedAt set → hidden for all users.
+  /* V18.96: End-for-everyone — sender or admin clicks ⏹ → endedAt set → hidden for all users.
      Different from dismiss (which only hides for current user). */
   const endNotif=(nid)=>upConfig(d=>{const n=(d.notifications||[]).find(x=>x.id===nid);if(!n)return;
     n.endedAt=new Date().toISOString();
     n.endedBy=userEmail;
   });
-  /* V18.95: Notifications shown in sub-bar — all types (تذكير/طلب/مهمة/مهمة عاجلة).
+  /* V18.96: Notifications shown in sub-bar — all types (تذكير/طلب/مهمة/مهمة عاجلة).
      Excludes system-generated types like delivery_confirmed/delivery_issue (those go to bell). */
   const subBarNotifs=userNotifs.filter(n=>{
     const t=n.type;
@@ -2365,7 +2365,7 @@ export default function App(){
     if(hrs>0)return hrs+"س"+(remMins>0?" "+remMins+"د":"");
     return mins+"د";
   };
-  /* V18.95: Notification link handler — clicking a chip with `link` field navigates
+  /* V18.96: Notification link handler — clicking a chip with `link` field navigates
      the user to the referenced entity (invoice/order/etc.). Also marks the notification
      as read for this user. */
   const handleNotifLinkClick=(n)=>{
@@ -2381,7 +2381,7 @@ export default function App(){
     }else if(type==="order"){
       setSel(id);setTab("details");
     }else if(type==="treasury"){
-      /* V18.95: Sub-type "transfer_pending" → opens transfers view in TreasuryPg */
+      /* V18.96: Sub-type "transfer_pending" → opens transfers view in TreasuryPg */
       navigate("treasury",{entryId:id,view:subType==="transfer_pending"?"transfers":undefined});
     }else if(type==="workshop"){
       navigate("external",{wsName:id});
@@ -2399,7 +2399,7 @@ export default function App(){
     "مهمة عاجلة": {icon:"🔴",bg:"#FEF2F2",border:"#FECACA",text:"#DC2626"},
   };
 
-  /* V18.95: Live ticker is wired at top of component (before early returns) for hook-order stability. */
+  /* V18.96: Live ticker is wired at top of component (before early returns) for hook-order stability. */
 
   const goHome=async()=>{if(window.__formDirty){if(!await ask("الخروج بدون حفظ","هل تريد الخروج بدون حفظ البيانات المدخلة؟",{danger:true,confirmText:"خروج"}))return;window.__formDirty=false}setTab("home");setSel(null)};
   const goTo=async(key)=>{if(window.__formDirty){if(!await ask("الخروج بدون حفظ","هل تريد الخروج بدون حفظ البيانات المدخلة؟",{danger:true,confirmText:"خروج"}))return;window.__formDirty=false}setTab(key);if(key!=="details")setSel(null)};
@@ -2445,7 +2445,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V18.95 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >V18.96 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<>
           <span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>
@@ -2453,7 +2453,7 @@ export default function App(){
             onClick={()=>setShowAboutVersion(true)}
             title="عرض سجل التحديثات"
             style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,fontFamily:"monospace",background:T.navText?"rgba(255,255,255,0.15)":T.accent+"10",color:T.navText||T.accent,cursor:"pointer"}}
-          >V18.95</span>
+          >V18.96</span>
         </>}
       </div>
 
@@ -2521,7 +2521,7 @@ export default function App(){
           </div></>}</>}
         </div>
 
-        {/* V18.95: Season badge — moved here from greeting bar to keep greeting-bar single-row.
+        {/* V18.96: Season badge — moved here from greeting bar to keep greeting-bar single-row.
             Visually placed next to the bell. Compact format on mobile (📅 S26) vs. desktop (📅 الموسم: S26). */}
         <div title={"الموسم: "+season} style={{display:"flex",alignItems:"center",gap:5,padding:isMob?"4px 8px":"5px 10px",borderRadius:7,background:T.navBg?"rgba(16,185,129,0.18)":T.ok+"12",border:"1px solid "+(T.navBg?"rgba(16,185,129,0.4)":T.ok+"40"),color:T.navBg?"#fff":T.ok,fontSize:isMob?10:11,fontWeight:800,whiteSpace:"nowrap",flexShrink:0}}>
           <svg width={isMob?11:12} height={isMob?11:12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
@@ -2604,15 +2604,17 @@ export default function App(){
             @keyframes chipPulse{0%,100%{opacity:1}50%{opacity:0.85}}
           `}</style>
 
-          {/* ═══ GREETING HEADER — minimal & elegant — V18.95: notif chips in middle ═══ */}
-          <div className="home-greet" style={{padding:isMob?"14px 16px":"18px 24px",borderRadius:16,marginBottom:18,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
-            <div style={{flexShrink:0}}>
-              <div style={{fontSize:isMob?FS+2:FS+6,fontWeight:800,color:T.text,lineHeight:1.2}}>{greetText}، {userName||"مستخدم"}</div>
-              <div style={{fontSize:FS-1,color:T.textSec,marginTop:4}}>{dateStr}</div>
+          {/* ═══ GREETING HEADER — V18.96: single-row guaranteed, chips shrink instead of wrapping ═══ */}
+          <div className="home-greet" style={{padding:isMob?"14px 16px":"18px 24px",borderRadius:16,marginBottom:18,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"nowrap",gap:12,minWidth:0}}>
+            <div style={{flexShrink:0,minWidth:0}}>
+              <div style={{fontSize:isMob?FS+2:FS+6,fontWeight:800,color:T.text,lineHeight:1.2,whiteSpace:"nowrap"}}>{greetText}، {userName||"مستخدم"}</div>
+              <div style={{fontSize:FS-1,color:T.textSec,marginTop:4,whiteSpace:"nowrap"}}>{dateStr}</div>
             </div>
-            {/* V18.95: Notification chips — bigger size, single-row (no wrap), "+N more" button when overflowing.
-                Strategy: show first 2 chips + a "+N more" button if there are more.
-                On mobile (isMob), show only 1 chip + "+N more" since space is tight. */}
+            {/* V18.96: Chips compress (shrink) instead of wrapping when space gets tight.
+                - Outer container: nowrap + overflow:hidden (forces single row)
+                - Each chip: flex:1 1 auto with minWidth ~120-140 (chip can shrink as space dwindles)
+                - Chip's text span: flex:1, minWidth:0 (text truncates first via ellipsis)
+                - "+N more" button: flexShrink:0 (stays full size — most important to keep visible) */}
             {subBarNotifs.length>0&&(()=>{
               const visibleCount=isMob?1:2;
               const visible=subBarNotifs.slice(0,visibleCount);
@@ -2621,13 +2623,13 @@ export default function App(){
               {visible.map(n=>{const st=NOTIF_STYLE[n.type]||NOTIF_STYLE["تذكير"];const remain=formatRemaining(n);
                 const canEnd=userRole==="admin"||n.fromEmail===userEmail;
                 const hasLink=!!n.link;
-                return<div key={n.id} onClick={hasLink?()=>handleNotifLinkClick(n):undefined} style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 14px",borderRadius:10,background:st.bg,border:"1.5px solid "+st.border,color:st.text,fontSize:FS+1,fontWeight:700,maxWidth:"100%",animation:"chipPulse 3s ease-in-out infinite",cursor:hasLink?"pointer":"default",transition:"transform 0.15s",flexShrink:0}} onMouseEnter={hasLink?(e)=>{e.currentTarget.style.transform="scale(1.02)"}:undefined} onMouseLeave={hasLink?(e)=>{e.currentTarget.style.transform="scale(1)"}:undefined} title={(n.fromName?"من: "+n.fromName:"")+(remain?" • متبقي: "+remain:"")+(hasLink?" • اضغط للذهاب لـ"+(n.link.label||""):"")}>
+                return<div key={n.id} onClick={hasLink?()=>handleNotifLinkClick(n):undefined} style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 14px",borderRadius:10,background:st.bg,border:"1.5px solid "+st.border,color:st.text,fontSize:FS+1,fontWeight:700,animation:"chipPulse 3s ease-in-out infinite",cursor:hasLink?"pointer":"default",transition:"transform 0.15s",flex:"1 1 auto",minWidth:isMob?110:140,maxWidth:"100%",overflow:"hidden"}} onMouseEnter={hasLink?(e)=>{e.currentTarget.style.transform="scale(1.02)"}:undefined} onMouseLeave={hasLink?(e)=>{e.currentTarget.style.transform="scale(1)"}:undefined} title={n.msg+(n.fromName?" • من: "+n.fromName:"")+(remain?" • متبقي: "+remain:"")+(hasLink?" • اضغط للذهاب لـ"+(n.link.label||""):"")}>
                   <span style={{fontSize:FS+3,lineHeight:1,flexShrink:0}}>{st.icon}</span>
-                  <span style={{lineHeight:1.3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:isMob?140:220}}>{n.msg}</span>
-                  {hasLink&&<span style={{fontSize:FS-1,padding:"2px 8px",borderRadius:6,background:"rgba(255,255,255,0.55)",border:"1px solid "+st.text+"40",fontWeight:800,flexShrink:0}}>🔗 {n.link.label||"فتح"}</span>}
-                  {n.fromName&&<span style={{fontSize:FS-2,opacity:0.7,fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}>— {n.fromName}</span>}
+                  <span style={{lineHeight:1.3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",flex:"1 1 auto",minWidth:30}}>{n.msg}</span>
+                  {hasLink&&<span style={{fontSize:FS-1,padding:"2px 8px",borderRadius:6,background:"rgba(255,255,255,0.55)",border:"1px solid "+st.text+"40",fontWeight:800,flexShrink:0,whiteSpace:"nowrap"}}>🔗 {n.link.label||"فتح"}</span>}
+                  {n.fromName&&<span style={{fontSize:FS-2,opacity:0.7,fontWeight:600,flexShrink:0,whiteSpace:"nowrap",display:isMob?"none":"inline"}}>— {n.fromName}</span>}
                   {remain&&<span style={{fontSize:FS-2,opacity:0.7,padding:"0 5px",borderInlineStart:"1px solid "+st.text+"40",flexShrink:0,whiteSpace:"nowrap"}}>⏰ {remain}</span>}
-                  {canEnd&&<span onClick={(e)=>{e.stopPropagation();endNotif(n.id);showToast("⏹ تم إنهاء الإشعار للجميع")}} title="إنهاء (للجميع)" style={{cursor:"pointer",padding:"2px 8px",borderRadius:6,background:"rgba(255,255,255,0.65)",border:"1px solid "+st.text+"50",fontSize:FS-1,fontWeight:800,flexShrink:0}}>⏹ إنهاء</span>}
+                  {canEnd&&<span onClick={(e)=>{e.stopPropagation();endNotif(n.id);showToast("⏹ تم إنهاء الإشعار للجميع")}} title="إنهاء (للجميع)" style={{cursor:"pointer",padding:"2px 8px",borderRadius:6,background:"rgba(255,255,255,0.65)",border:"1px solid "+st.text+"50",fontSize:FS-1,fontWeight:800,flexShrink:0,whiteSpace:"nowrap"}}>⏹ إنهاء</span>}
                   <span onClick={(e)=>{e.stopPropagation();markRead(n.id)}} title="إخفاء عندي" style={{cursor:"pointer",opacity:0.55,padding:"0 3px",fontSize:FS,flexShrink:0}}>✕</span>
                 </div>;
               })}
@@ -2637,7 +2639,7 @@ export default function App(){
               </div>}
             </div>;
             })()}
-            {/* V18.95: Season badge moved to top bar (next to bell). Removed from here to keep
+            {/* V18.96: Season badge moved to top bar (next to bell). Removed from here to keep
                 greeting-bar single-row even when notifications are present. */}
           </div>
 
@@ -2955,12 +2957,12 @@ export default function App(){
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الى</label><Sel value={qpTo} onChange={setQpTo}><option value="all">الكل</option>{targets.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+(u.email===me.email?" (أنا)":"")}</option>)}</Sel></div>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label><Sel value={qpType} onChange={setQpType}><option value="تذكير">💬 تذكير</option><option value="طلب">📩 طلب</option><option value="مهمة">📌 مهمة</option><option value="مهمة عاجلة">🔴 عاجل</option></Sel></div>
-            {/* V18.95: Display duration — sender chooses how long the notification stays visible */}
+            {/* V18.96: Display duration — sender chooses how long the notification stays visible */}
             <div><label style={{fontSize:FS-2,color:"#8B5CF6",fontWeight:700}}>⏱ مدة العرض</label><Sel value={qpDuration} onChange={setQpDuration}><option value="1h">🕐 ساعة</option><option value="2h">⏰ ساعتين</option><option value="1d">📅 يوم</option><option value="endday">🌅 آخر اليوم</option><option value="none">🔓 بدون حد</option></Sel></div>
           </div>
           <div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الرسالة</label><Inp value={qpText} onChange={setQpText} placeholder="اكتب الاشعار..."/></div>
           <Btn primary onClick={()=>{if(!qpText.trim())return;const to=qpTo||"all";const targetUser=targets.find(u=>u.email===to);
-            /* V18.95: Compute expiresAt based on selected duration. */
+            /* V18.96: Compute expiresAt based on selected duration. */
             let expiresAt=null;
             const now=new Date();
             if(qpDuration==="1h")expiresAt=new Date(now.getTime()+60*60*1000).toISOString();
@@ -3553,7 +3555,7 @@ export default function App(){
         </div>
       </div>
     )}
-    {/* V18.95: Full notifications popup — opens when user clicks "+N more" chip in greeting bar */}
+    {/* V18.96: Full notifications popup — opens when user clicks "+N more" chip in greeting bar */}
     {notifPopupOpen&&<div onClick={(e)=>{if(e.target===e.currentTarget)setNotifPopupOpen(false)}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{background:T.bg,borderRadius:14,maxWidth:520,width:"100%",maxHeight:"82vh",border:"2px solid #6366F140",boxShadow:"0 25px 70px rgba(0,0,0,0.3)",overflow:"hidden",display:"flex",flexDirection:"column"}}>
         {/* Header */}
@@ -3589,7 +3591,7 @@ export default function App(){
       </div>
     </div>}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.95"/>
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.96"/>
   </div>
 }
 
