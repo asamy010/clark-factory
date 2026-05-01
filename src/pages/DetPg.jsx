@@ -1105,9 +1105,22 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         {(()=>{const pieces=order.orderPieces||[];const linked=new Set();FKEYS.forEach(k=>{if(gf(order,k))(order["fabricPieces"+k]||[]).forEach(p=>linked.add(p))});const missing=pieces.filter(p=>!linked.has(p));
           return missing.length>0&&pieces.length>1?<div style={{padding:"8px 12px",borderRadius:8,background:"#F59E0B10",border:"1px solid #F59E0B30",marginBottom:10,fontSize:FS-1,fontWeight:700,color:"#F59E0B"}}>{"⚠️ تكلفة غير مكتملة — ناقص: "+missing.join("، ")}</div>:null})()}
         {(()=>{
-          /* V15.10: Extra costs sum (هالك، نقل، تغليف، إلخ) */
+          /* V15.10: Extra costs sum (هالك، نقل، تغليف، إلخ).
+             V18.97: Each cost row has `costType`: "total" (default, legacy) means amount IS the total cost.
+             "perPiece" means amount is per-piece — total = amount * cutQty.
+             Always backward-compatible: rows without costType are treated as "total". */
           const extraCosts=order.extraCosts||[];
-          const extraTotal=extraCosts.reduce((s,x)=>s+(Number(x.amount)||0),0);
+          const cutQty=t.cutQty||0;
+          const ecTotal=(x)=>{
+            const amt=Number(x.amount)||0;
+            return x.costType==="perPiece"?amt*cutQty:amt;
+          };
+          const ecPer=(x)=>{
+            const amt=Number(x.amount)||0;
+            if(x.costType==="perPiece")return amt;
+            return cutQty>0?amt/cutQty:0;
+          };
+          const extraTotal=extraCosts.reduce((s,x)=>s+ecTotal(x),0);
           const settCost=Number(order.settlement?.cost)||0;
           const totalAllCost=t.costAll+settCost+extraTotal;
           const finalPer=order.deliveredQty>0?totalAllCost/order.deliveredQty:0;
@@ -1116,19 +1129,27 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           <tr><td style={TD}>تكاليف الاكسسوار</td><td style={TDB}>{fmt(accAll)+" ج.م"}</td><td style={TDB}>{t.accPer+" ج.م"}</td></tr>
           <tr style={{background:T.accentBg}}><td style={{...TD,fontWeight:800,fontSize:FS+4,color:T.accent}}>الاجمالي</td><td style={{...TD,fontWeight:800,fontSize:FS+4,color:T.accent}}>{fmt(Math.ceil(t.costAll))+" ج.م"}</td><td style={{...TD,fontWeight:800,fontSize:FS+6,color:T.accent}}>{Math.ceil(t.costPer)+" ج.م"}</td></tr>
           {order.settlement&&<tr style={{background:T.err+"08"}}><td style={{...TD,fontWeight:800,color:T.err}}>{"🔴 هالك تسوية ("+order.settlement.qty+" قطعة)"}</td><td style={{...TD,fontWeight:800,color:T.err}}>{fmt(r2(order.settlement.cost))+" ج.م"}</td><td style={{...TD,fontWeight:700,color:T.err}}>{order.settlement.reason}</td></tr>}
-          {/* V15.10: Extra costs rows */}
-          {extraCosts.map((x,i)=><tr key={x.id||i} style={{background:"#F59E0B06"}}>
+          {/* V15.10 + V18.97: Extra costs rows — show both total + per-piece, with badge indicating costType */}
+          {extraCosts.map((x,i)=>{const isPerPiece=x.costType==="perPiece";const xTotal=ecTotal(x);const xPer=ecPer(x);
+            return<tr key={x.id||i} style={{background:"#F59E0B06"}}>
             <td style={{...TD,fontWeight:700,color:"#F59E0B"}}>
               <span>{getCategoryIcon(x.category)+" "+(x.category||"تكلفة إضافية")}</span>
+              <span style={{marginInlineStart:6,padding:"1px 7px",borderRadius:5,fontSize:FS-2,fontWeight:800,background:isPerPiece?"#10B98115":"#6366F115",color:isPerPiece?"#059669":"#4F46E5",border:"1px solid "+(isPerPiece?"#10B98140":"#6366F140")}} title={isPerPiece?"المبلغ المدخَل لكل قطعة (يُضرب في كمية القص)":"المبلغ المدخَل إجمالي (يُقسم على كمية القص)"}>{isPerPiece?"🔢 على القطعة":"📦 إجمالي"}</span>
               {x.reason&&<span style={{marginInlineStart:6,color:T.textSec,fontWeight:500,fontSize:FS-1}}>— {x.reason}</span>}
               <span style={{marginInlineStart:8,color:T.textMut,fontSize:FS-2,fontWeight:500}}>({x.date})</span>
             </td>
-            <td style={{...TD,fontWeight:800,color:"#F59E0B"}}>{fmt(r2(Number(x.amount)||0))+" ج.م"}</td>
-            <td style={{...TD,display:"flex",gap:4,alignItems:"center"}}>
-              {canEdit&&!order.closed&&<><Btn small onClick={()=>setExtraCostPopup({editId:x.id,category:x.category||"أخرى",reason:x.reason||"",amount:String(x.amount||""),date:x.date||new Date().toISOString().split("T")[0],notes:x.notes||""})} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30",padding:"2px 6px",fontSize:11}} title="تعديل">✏️</Btn>
-              <DelBtn label="🗑" onConfirm={()=>updOrder(sel,o=>{o.extraCosts=(o.extraCosts||[]).filter(y=>y.id!==x.id)})}/></>}
+            <td style={{...TD,fontWeight:800,color:"#F59E0B"}}>{fmt(r2(xTotal))+" ج.م"}</td>
+            <td style={{...TD}}>
+              <div style={{display:"flex",gap:6,alignItems:"center",justifyContent:"space-between"}}>
+                <span style={{fontWeight:700,color:"#F59E0B"}}>{cutQty>0?fmt(r2(xPer))+" ج.م":"—"}</span>
+                {canEdit&&!order.closed&&<div style={{display:"flex",gap:4}}>
+                  <Btn small onClick={()=>setExtraCostPopup({editId:x.id,category:x.category||"أخرى",reason:x.reason||"",amount:String(x.amount||""),costType:x.costType||"total",date:x.date||new Date().toISOString().split("T")[0],notes:x.notes||""})} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30",padding:"2px 6px",fontSize:11}} title="تعديل">✏️</Btn>
+                  <DelBtn label="🗑" onConfirm={()=>updOrder(sel,o=>{o.extraCosts=(o.extraCosts||[]).filter(y=>y.id!==x.id)})}/>
+                </div>}
+              </div>
             </td>
-          </tr>)}
+          </tr>;
+          })}
           {(order.settlement||extraCosts.length>0)&&<tr style={{background:"#1E293B08"}}>
             <td style={{...TD,fontWeight:800,fontSize:FS+2}}>التكلفة الفعلية</td>
             <td style={{...TD,fontWeight:800,fontSize:FS+2,color:T.err}}>{fmt(Math.ceil(totalAllCost))+" ج.م"}</td>
@@ -1137,7 +1158,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         </tbody></table>
         {/* V15.10: Add extra cost button */}
         {canEdit&&!order.closed&&<div style={{marginTop:12,paddingTop:12,borderTop:"1px dashed "+T.brd,display:"flex",justifyContent:"flex-end"}}>
-          <Btn small onClick={()=>setExtraCostPopup({category:"هالك",reason:"",amount:"",date:new Date().toISOString().split("T")[0],notes:""})} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B35",fontWeight:700}}>➕ تكلفة إضافية / هالك</Btn>
+          <Btn small onClick={()=>setExtraCostPopup({category:"هالك",reason:"",amount:"",costType:"total",date:new Date().toISOString().split("T")[0],notes:""})} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B35",fontWeight:700}}>➕ تكلفة إضافية / هالك</Btn>
         </div>}
         </>;})()}
       </Card>
@@ -1166,8 +1187,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                 <span>{"تسليم مخزن: "+stockDel+" قطعة"}</span>
                 <span style={{fontWeight:700,color:T.ok}}>{"تكلفة الانتاج: "+fmt(r2(t.costAll))+" ج.م"}</span>
                 {hasSett&&<span style={{fontWeight:700,color:T.err}}>{"+ هالك: "+fmt(r2(order.settlement.cost))+" ج.م"}</span>}
-                {(()=>{const ec=(order.extraCosts||[]).reduce((s,x)=>s+(Number(x.amount)||0),0);return ec>0?<span style={{fontWeight:700,color:"#F59E0B"}}>{"+ تكاليف إضافية: "+fmt(r2(ec))+" ج.م"}</span>:null})()}
-                {(()=>{const ec=(order.extraCosts||[]).reduce((s,x)=>s+(Number(x.amount)||0),0);const total=t.costAll+(hasSett?order.settlement.cost:0)+ec;
+                {(()=>{const cq=t.cutQty||0;const ec=(order.extraCosts||[]).reduce((s,x)=>{const amt=Number(x.amount)||0;return s+(x.costType==="perPiece"?amt*cq:amt)},0);return ec>0?<span style={{fontWeight:700,color:"#F59E0B"}}>{"+ تكاليف إضافية: "+fmt(r2(ec))+" ج.م"}</span>:null})()}
+                {(()=>{const cq=t.cutQty||0;const ec=(order.extraCosts||[]).reduce((s,x)=>{const amt=Number(x.amount)||0;return s+(x.costType==="perPiece"?amt*cq:amt)},0);const total=t.costAll+(hasSett?order.settlement.cost:0)+ec;
                   return<>
                     <span style={{fontWeight:800,color:T.accent}}>{"= الاجمالي: "+fmt(r2(total))+" ج.م"}</span>
                     {stockDel>0&&<span style={{fontWeight:700,color:"#8B5CF6"}}>{"تكلفة القطعة الفعلية: "+r2(total/stockDel)+" ج.م"}</span>}
@@ -1339,15 +1360,21 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       const ec=extraCostPopup;
       const amt=Number(ec.amount)||0;
       const isEdit=!!ec.editId;
+      /* V18.97: costType — "total" (default) or "perPiece". Default to "total" for backward compat. */
+      const costType=ec.costType||"total";
+      const cutQty=t.cutQty||0;
+      /* Live computed values for the summary */
+      const computedTotal=costType==="perPiece"?amt*cutQty:amt;
+      const computedPer=costType==="perPiece"?amt:(cutQty>0?amt/cutQty:0);
       const save=()=>{
         if(amt<=0){showToast("⚠️ المبلغ يجب أن يكون أكبر من صفر");return}
         updOrder(sel,o=>{
           if(!Array.isArray(o.extraCosts))o.extraCosts=[];
           if(isEdit){
             const idx=o.extraCosts.findIndex(x=>x.id===ec.editId);
-            if(idx>=0)o.extraCosts[idx]={...o.extraCosts[idx],category:ec.category,reason:ec.reason,amount:amt,date:ec.date,notes:ec.notes};
+            if(idx>=0)o.extraCosts[idx]={...o.extraCosts[idx],category:ec.category,reason:ec.reason,amount:amt,costType,date:ec.date,notes:ec.notes};
           }else{
-            o.extraCosts.push({id:gid(),category:ec.category,reason:ec.reason,amount:amt,date:ec.date,notes:ec.notes,createdBy:userName,createdAt:new Date().toISOString()});
+            o.extraCosts.push({id:gid(),category:ec.category,reason:ec.reason,amount:amt,costType,date:ec.date,notes:ec.notes,createdBy:userName,createdAt:new Date().toISOString()});
           }
         });
         setExtraCostPopup(null);
@@ -1365,6 +1392,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           <div style={{padding:"8px 12px",borderRadius:8,background:T.accentBg,border:"1px solid "+T.accent+"25",marginBottom:12,fontSize:FS-1}}>
             <span style={{fontWeight:700,color:T.accent}}>{order.modelNo}</span>
             <span style={{color:T.textSec}}>{" — "+order.modelDesc}</span>
+            <span style={{color:T.textMut,marginInlineStart:8}}>{"كمية القص: "+cutQty}</span>
           </div>
           {/* Category cards */}
           <div style={{marginBottom:14}}>
@@ -1378,6 +1406,26 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
               })}
             </div>
           </div>
+          {/* V18.97: Cost Type selector */}
+          <div style={{marginBottom:12}}>
+            <label style={{fontSize:FS-1,color:T.textSec,fontWeight:600,display:"block",marginBottom:6}}>نوع التكلفة</label>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              <div onClick={()=>setExtraCostPopup(p=>({...p,costType:"total"}))} style={{cursor:"pointer",padding:"10px 12px",borderRadius:10,border:"2px solid "+(costType==="total"?"#6366F1":T.brd),background:costType==="total"?"#6366F112":T.bg,transition:"all 0.15s"}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                  <span style={{fontSize:16}}>📦</span>
+                  <span style={{fontSize:FS-1,fontWeight:800,color:costType==="total"?"#4F46E5":T.text}}>مبلغ إجمالي</span>
+                </div>
+                <div style={{fontSize:FS-3,color:T.textMut,lineHeight:1.4}}>المبلغ المُدخَل = الإجمالي. يُقسم على كمية القص.</div>
+              </div>
+              <div onClick={()=>setExtraCostPopup(p=>({...p,costType:"perPiece"}))} style={{cursor:"pointer",padding:"10px 12px",borderRadius:10,border:"2px solid "+(costType==="perPiece"?"#10B981":T.brd),background:costType==="perPiece"?"#10B98112":T.bg,transition:"all 0.15s"}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                  <span style={{fontSize:16}}>🔢</span>
+                  <span style={{fontSize:FS-1,fontWeight:800,color:costType==="perPiece"?"#059669":T.text}}>على القطعة</span>
+                </div>
+                <div style={{fontSize:FS-3,color:T.textMut,lineHeight:1.4}}>المبلغ المُدخَل = سعر القطعة. يُضرب في كمية القص.</div>
+              </div>
+            </div>
+          </div>
           {/* Free reason */}
           <div style={{marginBottom:12}}>
             <label style={{fontSize:FS-1,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>السبب / الوصف (اختياري)</label>
@@ -1386,7 +1434,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           {/* Amount + Date row */}
           <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
             <div>
-              <label style={{fontSize:FS-1,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>المبلغ (ج.م) *</label>
+              <label style={{fontSize:FS-1,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>{costType==="perPiece"?"سعر القطعة (ج.م) *":"المبلغ الإجمالي (ج.م) *"}</label>
               <Inp type="number" value={ec.amount} onChange={v=>setExtraCostPopup(p=>({...p,amount:v}))} placeholder="0"/>
             </div>
             <div>
@@ -1399,10 +1447,16 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
             <label style={{fontSize:FS-1,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>ملاحظات إضافية</label>
             <Inp value={ec.notes} onChange={v=>setExtraCostPopup(p=>({...p,notes:v}))} placeholder="اختياري"/>
           </div>
-          {/* Summary */}
-          {amt>0&&<div style={{padding:10,borderRadius:8,background:"#F59E0B08",border:"1px dashed #F59E0B40",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span style={{fontSize:FS-1,color:T.textSec}}>التأثير على تكلفة القطعة:</span>
-            <span style={{fontSize:FS,fontWeight:800,color:"#F59E0B"}}>{order.deliveredQty>0?"+"+Math.ceil(amt/order.deliveredQty)+" ج.م/قطعة":"لا يوجد تسليم للمخزن بعد"}</span>
+          {/* V18.97: Live calculation preview */}
+          {amt>0&&<div style={{padding:12,borderRadius:8,background:"#F59E0B08",border:"1px dashed #F59E0B40",marginBottom:12,display:"flex",flexDirection:"column",gap:6}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:FS-1,color:T.textSec}}>التكلفة الكلية:</span>
+              <span style={{fontSize:FS+1,fontWeight:800,color:"#F59E0B"}}>{fmt(r2(computedTotal))+" ج.م"}</span>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:FS-1,color:T.textSec}}>تكلفة القطعة (× {cutQty} قطعة):</span>
+              <span style={{fontSize:FS+1,fontWeight:800,color:"#F59E0B"}}>{cutQty>0?fmt(r2(computedPer))+" ج.م/قطعة":"—"}</span>
+            </div>
           </div>}
           {/* Actions */}
           <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:10,borderTop:"1px solid "+T.brd}}>

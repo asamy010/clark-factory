@@ -1492,8 +1492,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
 
     {/* Today mini summary — per-account when viewing specific account.
         V16.19: Hidden on transfers/checks/analysis/accounts — these tabs have
-        their own controls and don't need the daily print/PDF/WA toolbar. */}
-    {!["transfers","checks","analysis","accounts"].includes(view)&&(()=>{
+        their own controls and don't need the daily print/PDF/WA toolbar.
+        V18.98: Also hidden on recurring (scheduled entries don't relate to today's totals). */}
+    {!["transfers","checks","analysis","accounts","recurring"].includes(view)&&(()=>{
       const currentAccName=view.startsWith("acc_")?(accountsData.find(a=>a.id===view.slice(4))||{}).name:null;
       const scopeLabel=currentAccName||"الكل";
       const todayFiltered=todayTxns.filter(t=>!currentAccName||(t.account||"")===currentAccName);
