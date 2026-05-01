@@ -268,6 +268,12 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                 const now=new Date();let lastDate=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});
                 const ageDays=Math.floor((now-new Date(lastDate))/(1000*60*60*24));
                 const isStale=ageDays>7&&o.status!=="تم التسليم لمخزن الجاهز";
+                /* V18.99: Include extra costs (هالك / تشغيل / نقل / إلخ) in displayed cost-per-piece.
+                   Each extraCost honors its costType: "perPiece" → already per-piece; "total" → divide by cutQty. */
+                const _extraPer=(o.extraCosts||[]).reduce((s,x)=>{const amt=Number(x.amount)||0;return s+(x.costType==="perPiece"?amt:(t.cutQty>0?amt/t.cutQty:0))},0);
+                const _settPer=(o.settlement&&(o.deliveredQty||0)>0)?((o.settlement.cost||0)/(o.deliveredQty||1)):0;
+                const _displayCostPer=t.costPer+_extraPer+_settPer;
+                const _hasExtra=_extraPer>0||_settPer>0;
                 return<tr key={o.id} className="det-row" onClick={()=>setSel(o.id)} style={{borderBottom:"1px solid "+T.brd,cursor:"pointer",transition:"background 0.15s"}}>
                   <td style={{...TD,paddingRight:16}}>
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -291,7 +297,10 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                     </div>
                     {isStale&&<div style={{fontSize:FS-3,color:T.err,fontWeight:700,marginTop:3}}>🔴 {ageDays} يوم</div>}
                   </td>
-                  <td style={{...TDB,textAlign:"center",color:"#8B5CF6"}}>{Math.ceil(t.costPer)+" ج"}</td>
+                  <td style={{...TDB,textAlign:"center",color:_hasExtra?"#F59E0B":"#8B5CF6"}} title={_hasExtra?"شامل تكاليف إضافية / تسوية":""}>
+                    {Math.ceil(_displayCostPer)+" ج"}
+                    {_hasExtra&&<span style={{fontSize:FS-4,marginInlineStart:3,opacity:0.8}}>*</span>}
+                  </td>
                 </tr>;
               })}
             </tbody>
@@ -311,6 +320,11 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           const now=new Date();let lastDate=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});
           const ageDays=Math.floor((now-new Date(lastDate))/(1000*60*60*24));
           const isStale=ageDays>7&&o.status!=="تم التسليم لمخزن الجاهز";
+          /* V18.99: Include extra costs + settlement in displayed cost-per-piece */
+          const _extraPer=(o.extraCosts||[]).reduce((s,x)=>{const amt=Number(x.amount)||0;return s+(x.costType==="perPiece"?amt:(t.cutQty>0?amt/t.cutQty:0))},0);
+          const _settPer=(o.settlement&&(o.deliveredQty||0)>0)?((o.settlement.cost||0)/(o.deliveredQty||1)):0;
+          const _displayCostPer=t.costPer+_extraPer+_settPer;
+          const _hasExtra=_extraPer>0||_settPer>0;
           const isSent=waSent[o.id]&&(Date.now()-waSent[o.id]<60000);
           const sc=(statusCards||[]).find(x=>x.name===o.status);const statusColor=sc?.color||T.accent;
           return<div key={o.id} data-oid={o.id} className="det-tile" style={{background:T.cardSolid,borderRadius:14,border:"1px solid "+T.brd,overflow:"hidden",position:"relative",display:"flex",flexDirection:"column"}} onClick={()=>setSel(o.id)}>
@@ -417,8 +431,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                   <div style={{fontSize:FS+4,fontWeight:900,color:T.purple||"#8B5CF6",lineHeight:1,fontVariantNumeric:"tabular-nums"}}>{getConfirmedStock(o)}</div>
                 </div>
                 <div style={{padding:"8px 4px",textAlign:"center"}}>
-                  <div style={{fontSize:FS-4,color:T.textMut,fontWeight:700,textTransform:"uppercase",letterSpacing:0.3,marginBottom:1}}>تكلفة</div>
-                  <div style={{fontSize:FS+4,fontWeight:900,color:"#8B5CF6",lineHeight:1,fontVariantNumeric:"tabular-nums"}}>{Math.ceil(t.costPer)}</div>
+                  <div style={{fontSize:FS-4,color:T.textMut,fontWeight:700,textTransform:"uppercase",letterSpacing:0.3,marginBottom:1}}>تكلفة{_hasExtra?" *":""}</div>
+                  <div style={{fontSize:FS+4,fontWeight:900,color:_hasExtra?"#F59E0B":"#8B5CF6",lineHeight:1,fontVariantNumeric:"tabular-nums"}} title={_hasExtra?"شامل تكاليف إضافية / تسوية":""}>{Math.ceil(_displayCostPer)}</div>
                 </div>
               </div>
 
@@ -566,7 +580,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           <MetricCard label="الرصيد" value={t.balance} icon="📊" color={t.balance>0?T.warn:T.ok}/>
           {(()=>{
             /* V15.10: Merged cost card — shows cost + inline warning for incomplete pieces.
-               Replaces the old separate "تكلفة غير مكتملة" card for a cleaner, balanced layout. */
+               V18.99: Now includes extra costs (هالك / تشغيل / نقل / إلخ) in the displayed cost.
+               Both costType="total" (legacy) and costType="perPiece" are honored. */
             const hasSettlement=!!order.settlement;
             const delivered=order.deliveredQty||0;
             const originalCostPer=r2(t.costPer);
@@ -576,15 +591,32 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
             const hasWarning=pieces.length>1&&missing.length>0;
             const done=pieces.filter(p=>linked.has(p));
 
+            /* V18.99: Compute extra costs total — costType-aware */
+            const cutQ=t.cutQty||0;
+            const extraTotal=(order.extraCosts||[]).reduce((s,x)=>{
+              const amt=Number(x.amount)||0;
+              return s+(x.costType==="perPiece"?amt*cutQ:amt);
+            },0);
+            const hasExtra=extraTotal>0;
+
             /* Compute displayed cost */
             let label,value,color,sub;
             if(hasSettlement&&delivered>0){
-              const actualCostPer=r2((t.costAll+(order.settlement.cost||0))/delivered);
+              /* V18.99: Include extra costs in actual-per-piece calc */
+              const actualCostPer=r2((t.costAll+(order.settlement.cost||0)+extraTotal)/delivered);
               const diff=r2(actualCostPer-originalCostPer);
               label="تكلفة القطعة الفعلية";
               value=Math.ceil(actualCostPer)+" ج.م";
               color=T.err;
               sub="الأصلية: "+Math.ceil(originalCostPer)+" ج.م • فرق +"+Math.ceil(diff)+" ج.م";
+            }else if(hasExtra){
+              /* V18.99: No settlement, but extra costs exist — show actual cost-per-piece including extras */
+              const actualCostPer=cutQ>0?r2((t.costAll+extraTotal)/cutQ):originalCostPer;
+              label=hasWarning?"تكلفة القطعة الفعلية (جزئية)":"تكلفة القطعة الفعلية";
+              value=Math.ceil(actualCostPer)+" ج.م";
+              color="#F59E0B";
+              const diff=Math.ceil(actualCostPer-originalCostPer);
+              sub=(hasWarning?(done.length+"/"+pieces.length+" قطعة • "):"")+"شامل تكاليف إضافية +"+diff+" ج.م";
             }else{
               label=hasWarning?"تكلفة القطعة (جزئية)":"تكلفة القطعة";
               value=originalCostPer+" ج.م";
