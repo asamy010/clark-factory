@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V18.93",
+    date: "2026-05-01",
+    types: ["fix"],
+    title: "🚨 Hotfix: React error #310 عند بداية فتح التطبيق",
+    changes: [
+      { type: "fix", text: "🚨 Bug حرج كان بيمنع التطبيق من الفتح خالص. السبب: الـuseState و useEffect المضافة في V18.87 (notification ticker) كانوا موضوعين بعد الـearly returns الخاصة بـauthLoading + dataLoading. لما الـauth بيخلص → عدد الـhooks بيتغير من render لتاني → React بيـcrash بـerror #310 ('Rendered more hooks than during the previous render')." },
+      { type: "fix", text: "✅ الإصلاح: نقل `useState(_notifTick)` + `useEffect(ticker)` إلى أعلى الـcomponent — قبل أي early return — عشان عدد الـhooks يبقى ثابت في كل render. الـticker دلوقتي بيشتغل دايماً (بدون شرط على subBarNotifs.length) لأن setState برخيص ولا يكلف شيء." },
+      { type: "fix", text: "🔍 ده bug rules-of-hooks كلاسيكي. القاعدة: كل الـhooks (useState, useEffect, useRef, useMemo, useCallback) لازم تتنفذ بنفس الترتيب وبنفس العدد في كل render. الـearly returns بتعمل branches غير متجانسة تـviolate القاعدة دي." },
+    ]
+  },
+  {
     version: "V18.92",
     date: "2026-05-01",
     types: ["fix", "improvement"],
@@ -136,15 +147,6 @@ const CHANGELOG = [
     title: "🔧 إصلاح تساوي الفجوات بين أزرار الصفحة الرئيسية",
     changes: [
       { type: "fix", text: "🚨 الـ`width:80%` + `justifyItems:center` كان بيخلي الفجوات الأفقية أكبر من العمودية (لأن كل زر متمركز في خانته فبيسيب مساحة على جنبيه)، النتيجة فجوات غير متساوية. الإصلاح: شيلت الـcentering hack، خليت الزر يملا خانته (`width:auto`)، وكبرت الـgap من 10 → 24. النتيجة: الـgrid بيوزع gap متساوي أفقي وعمودي تلقائياً، والأزرار طبيعياً صغرت ~10% بسبب الـgap الأكبر." },
-    ]
-  },
-  {
-    version: "V18.83",
-    date: "2026-04-30",
-    types: ["improvement"],
-    title: "🎨 أزرار الصفحة الرئيسية: مربعة + أصغر 20%",
-    changes: [
-      { type: "improvement", text: "🟦 الأزرار محفوظة `aspectRatio:1` (مربعة)، لكن `width:80%` + `justifyItems:center` على الـgrid → كل زر صغير 20% من الـcell الخاص به ومتمركز فيه. النتيجة: مربعات صغيرة بفراغ بيضاء أقل، الأيقونة (44×44) محفوظة بنفس الحجم. padding 12→10، 6 أعمدة محفوظة." },
     ]
   },
 ];

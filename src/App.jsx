@@ -239,8 +239,17 @@ export default function App(){
   const[sidebarTab,setSidebarTab]=useState("notes");/* "notes"|"tasks"|"activity" — for home sidebar */
   const[quickPopup,setQuickPopup]=useState(null);/* "task"|"notif"|null */
   const[qpTo,setQpTo]=useState("");const[qpText,setQpText]=useState("");const[qpType,setQpType]=useState("تذكير");
-  /* V18.92: Notification expiry duration. Values: "1h"|"2h"|"1d"|"endday"|"none". Default: "2h". */
+  /* V18.93: Notification expiry duration. Values: "1h"|"2h"|"1d"|"endday"|"none". Default: "2h". */
   const[qpDuration,setQpDuration]=useState("2h");
+  /* V18.93 HOTFIX: notifTick state must live BEFORE any early returns to keep hook order stable across renders */
+  const[_notifTick,setNotifTick]=useState(0);
+  /* V18.93 HOTFIX: ticker effect also must run unconditionally (no early-return skip).
+     The dep `_notifTick` makes it a no-op rebind; the actual gate is inside (we read subBarNotifs from a ref or just always tick). */
+  useEffect(()=>{
+    /* Tick once a minute. Cheap setState; greeting bar reads fresh state on each render. */
+    const id=setInterval(()=>setNotifTick(t=>t+1),60000);
+    return()=>clearInterval(id);
+  },[]);
   const[aiMsgs,setAiMsgs]=useState([]);const[aiInput,setAiInput]=useState("");const[aiLoading,setAiLoading]=useState(false);const[aiOpen,setAiOpen]=useState(false);
   /* V15.68: Dismissed alerts moved to Firestore (per user) — syncs across all devices.
      Structure: config.userDismissed[email] = [{key, at}]
@@ -2290,7 +2299,7 @@ export default function App(){
 
   /* User notifications */
   const userEmail=user?.email||"";
-  /* V18.92: Filter notifications honoring expiresAt + endedAt + dismissedBy.
+  /* V18.93: Filter notifications honoring expiresAt + endedAt + dismissedBy.
      - endedAt: sender or admin clicked "End" → hide for everyone
      - expiresAt: passed → hide for everyone (auto-expire)
      - dismissedBy: this user clicked × → hide just for them */
@@ -2300,7 +2309,7 @@ export default function App(){
     if(n.expiresAt&&new Date(n.expiresAt)<=_now)return false;
     if((n.readBy||[]).includes(userEmail))return false;
     if((n.dismissedBy||[]).includes(userEmail))return false;
-    /* V18.92: forAdminsOnly notifs (e.g. transfer approval requests) only show for admins */
+    /* V18.93: forAdminsOnly notifs (e.g. transfer approval requests) only show for admins */
     if(n.forAdminsOnly&&userRole!=="admin")return false;
     return true;
   });
@@ -2326,17 +2335,17 @@ export default function App(){
     return{msg:n.msg,color:n.type==="طلب"?"#8B5CF6":n.type==="مهمة"?T.accent:T.warn,icon:n.type==="طلب"?"📩":n.type==="مهمة"?"📌":"💬",orderId:n.orderId||null,isNotif:true,notifId:n.id,from:n.fromName,date:n.createdAt};
   }),...appAlerts];
   const alertCount=allAlerts.length;
-  /* V18.92: Urgent tasks bar in topbar disabled — these now show in the greeting bar
+  /* V18.93: Urgent tasks bar in topbar disabled — these now show in the greeting bar
      as type chips along with all other types. Keep as empty array to keep refs alive. */
   const urgentTasks=[];
   const markTaskDone=(nid)=>upConfig(d=>{const n=(d.notifications||[]).find(x=>x.id===nid);if(n){if(!n.doneBy)n.doneBy=[];if(!n.doneBy.includes(userEmail))n.doneBy.push(userEmail)}});
-  /* V18.92: End-for-everyone — sender or admin clicks ⏹ → endedAt set → hidden for all users.
+  /* V18.93: End-for-everyone — sender or admin clicks ⏹ → endedAt set → hidden for all users.
      Different from dismiss (which only hides for current user). */
   const endNotif=(nid)=>upConfig(d=>{const n=(d.notifications||[]).find(x=>x.id===nid);if(!n)return;
     n.endedAt=new Date().toISOString();
     n.endedBy=userEmail;
   });
-  /* V18.92: Notifications shown in sub-bar — all types (تذكير/طلب/مهمة/مهمة عاجلة).
+  /* V18.93: Notifications shown in sub-bar — all types (تذكير/طلب/مهمة/مهمة عاجلة).
      Excludes system-generated types like delivery_confirmed/delivery_issue (those go to bell). */
   const subBarNotifs=userNotifs.filter(n=>{
     const t=n.type;
@@ -2354,7 +2363,7 @@ export default function App(){
     if(hrs>0)return hrs+"س"+(remMins>0?" "+remMins+"د":"");
     return mins+"د";
   };
-  /* V18.92: Notification link handler — clicking a chip with `link` field navigates
+  /* V18.93: Notification link handler — clicking a chip with `link` field navigates
      the user to the referenced entity (invoice/order/etc.). Also marks the notification
      as read for this user. */
   const handleNotifLinkClick=(n)=>{
@@ -2370,7 +2379,7 @@ export default function App(){
     }else if(type==="order"){
       setSel(id);setTab("details");
     }else if(type==="treasury"){
-      /* V18.92: Sub-type "transfer_pending" → opens transfers view in TreasuryPg */
+      /* V18.93: Sub-type "transfer_pending" → opens transfers view in TreasuryPg */
       navigate("treasury",{entryId:id,view:subType==="transfer_pending"?"transfers":undefined});
     }else if(type==="workshop"){
       navigate("external",{wsName:id});
@@ -2388,13 +2397,7 @@ export default function App(){
     "مهمة عاجلة": {icon:"🔴",bg:"#FEF2F2",border:"#FECACA",text:"#DC2626"},
   };
 
-  /* V18.92: Live ticker — re-render once a minute so the time-remaining chips update. */
-  const[_notifTick,setNotifTick]=useState(0);
-  useEffect(()=>{
-    if(subBarNotifs.length===0)return;
-    const id=setInterval(()=>setNotifTick(t=>t+1),60000);
-    return()=>clearInterval(id);
-  },[subBarNotifs.length]);
+  /* V18.93: Live ticker is wired at top of component (before early returns) for hook-order stability. */
 
   const goHome=async()=>{if(window.__formDirty){if(!await ask("الخروج بدون حفظ","هل تريد الخروج بدون حفظ البيانات المدخلة؟",{danger:true,confirmText:"خروج"}))return;window.__formDirty=false}setTab("home");setSel(null)};
   const goTo=async(key)=>{if(window.__formDirty){if(!await ask("الخروج بدون حفظ","هل تريد الخروج بدون حفظ البيانات المدخلة؟",{danger:true,confirmText:"خروج"}))return;window.__formDirty=false}setTab(key);if(key!=="details")setSel(null)};
@@ -2440,7 +2443,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V18.92 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >V18.93 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<>
           <span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>
@@ -2448,7 +2451,7 @@ export default function App(){
             onClick={()=>setShowAboutVersion(true)}
             title="عرض سجل التحديثات"
             style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,fontFamily:"monospace",background:T.navText?"rgba(255,255,255,0.15)":T.accent+"10",color:T.navText||T.accent,cursor:"pointer"}}
-          >V18.92</span>
+          >V18.93</span>
         </>}
       </div>
 
@@ -2592,13 +2595,13 @@ export default function App(){
             @keyframes chipPulse{0%,100%{opacity:1}50%{opacity:0.85}}
           `}</style>
 
-          {/* ═══ GREETING HEADER — minimal & elegant — V18.92: notif chips in middle ═══ */}
+          {/* ═══ GREETING HEADER — minimal & elegant — V18.93: notif chips in middle ═══ */}
           <div className="home-greet" style={{padding:isMob?"14px 16px":"18px 24px",borderRadius:16,marginBottom:18,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
             <div style={{flexShrink:0}}>
               <div style={{fontSize:isMob?FS+2:FS+6,fontWeight:800,color:T.text,lineHeight:1.2}}>{greetText}، {userName||"مستخدم"}</div>
               <div style={{fontSize:FS-1,color:T.textSec,marginTop:4}}>{dateStr}</div>
             </div>
-            {/* V18.92: Notification chips — fills available middle space, wraps within. */}
+            {/* V18.93: Notification chips — fills available middle space, wraps within. */}
             {subBarNotifs.length>0&&<div style={{flex:"1 1 auto",minWidth:0,display:"flex",flexWrap:"wrap",gap:6,alignItems:"center",justifyContent:"center"}}>
               {subBarNotifs.map(n=>{const st=NOTIF_STYLE[n.type]||NOTIF_STYLE["تذكير"];const remain=formatRemaining(n);
                 const canEnd=userRole==="admin"||n.fromEmail===userEmail;
@@ -2934,12 +2937,12 @@ export default function App(){
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الى</label><Sel value={qpTo} onChange={setQpTo}><option value="all">الكل</option>{targets.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+(u.email===me.email?" (أنا)":"")}</option>)}</Sel></div>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label><Sel value={qpType} onChange={setQpType}><option value="تذكير">💬 تذكير</option><option value="طلب">📩 طلب</option><option value="مهمة">📌 مهمة</option><option value="مهمة عاجلة">🔴 عاجل</option></Sel></div>
-            {/* V18.92: Display duration — sender chooses how long the notification stays visible */}
+            {/* V18.93: Display duration — sender chooses how long the notification stays visible */}
             <div><label style={{fontSize:FS-2,color:"#8B5CF6",fontWeight:700}}>⏱ مدة العرض</label><Sel value={qpDuration} onChange={setQpDuration}><option value="1h">🕐 ساعة</option><option value="2h">⏰ ساعتين</option><option value="1d">📅 يوم</option><option value="endday">🌅 آخر اليوم</option><option value="none">🔓 بدون حد</option></Sel></div>
           </div>
           <div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الرسالة</label><Inp value={qpText} onChange={setQpText} placeholder="اكتب الاشعار..."/></div>
           <Btn primary onClick={()=>{if(!qpText.trim())return;const to=qpTo||"all";const targetUser=targets.find(u=>u.email===to);
-            /* V18.92: Compute expiresAt based on selected duration. */
+            /* V18.93: Compute expiresAt based on selected duration. */
             let expiresAt=null;
             const now=new Date();
             if(qpDuration==="1h")expiresAt=new Date(now.getTime()+60*60*1000).toISOString();
@@ -3533,7 +3536,7 @@ export default function App(){
       </div>
     )}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.92"/>
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.93"/>
   </div>
 }
 
