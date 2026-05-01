@@ -19,6 +19,8 @@ import { formatBlockerMessage } from "../utils/dataIntegrity.js";
 /* V15.25: Receipt queue — persistent storage for salary confirmation scans */
 import { addReceipt, removeReceipt, getPendingForWeek, getReadyForRetry, markAsFailed, getPendingCount, forceRetryAll } from "../utils/receiptQueue.js";
 import { Btn, Inp, Sel, Card, QRImg, QRScanner, SearchSel, useDebounced } from "../components/ui.jsx";
+import { ReviewRequestModal } from "../components/ReviewRequestModal.jsx";
+import { autoPost } from "../utils/accounting/autoPost.js";
 import { T, TH, TD, TDB } from "../theme.js";
 import { db } from "../firebase";
 import { doc, setDoc, getDoc } from "firebase/firestore";
@@ -42,6 +44,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   /* V15.28: "isAdmin" controls the edit+verify bypass for same-user rule */
   const isAdmin=userRole==="admin";
   const userName=user?.displayName||(user?.email||"").split("@")[0];
+  const userEmail=user?.email||"";
   const employees=(data.employees||[]);
   const hrWeeks=(data.hrWeeks||[]);
   const hrLog=(data.hrLog||[]);
@@ -367,6 +370,10 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   const[pasteText,setPasteText]=useState("");const[pasteResult,setPasteResult]=useState(null);
   /* Matrix popup */
   const[showMatrix,setShowMatrix]=useState(false);const[matrixEmps,setMatrixEmps]=useState([]);const[matrixDate,setMatrixDate]=useState(today);const[matrixDesc,setMatrixDesc]=useState("سلفة");
+  /* V18.15: Bulk payment approval workflow */
+  const[matrixEmpFilter,setMatrixEmpFilter]=useState("");
+  const[showBulkApprovalReview,setShowBulkApprovalReview]=useState(null);/* approval object being reviewed */
+  const[rejectReason,setRejectReason]=useState("");
   /* Salary overrides per employee in active week */
   const[salBonus,setSalBonus]=useState({});const[salSpecialDeduct,setSalSpecialDeduct]=useState({});const[salThursdayPay,setSalThursdayPay]=useState({});const[salPrevBalanceOverride,setSalPrevBalanceOverride]=useState({});const[salManualInstallDeduct,setSalManualInstallDeduct]=useState({});const[salInstallOverride,setSalInstallOverride]=useState({});
   /* V14.56: Quick entry popup for bulk data entry — {type, selected:{empId:true}, values:{empId:number}, search} */
@@ -437,6 +444,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   const[showEmpDebts,setShowEmpDebts]=useState(null);/* empId to view */
   const[unlockedWeeks,setUnlockedWeeks]=useState({});/* weekId -> true if user explicitly unlocked */
   const[previewWeekId,setPreviewWeekId]=useState(null);/* for side panel advances view */
+  const[reviewWeek,setReviewWeek]=useState(null);/* V18.91: week for review request modal */
   const[summaryWeekId,setSummaryWeekId]=useState(null);/* for weekly summary tab */
   const[selMonth,setSelMonth]=useState(()=>new Date().toISOString().slice(0,7));/* for monthly summary */
   const[empStatement,setEmpStatement]=useState(null);/* empId for statement popup */
@@ -446,6 +454,9 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   const[envelopePopup,setEnvelopePopup]=useState(null);/* {weekId, selected:Set<empId>, filter:"all"|"unprinted"|"uncollected", search} */
   const[showEmpCardPrint,setShowEmpCardPrint]=useState(null);/* empId OR "all" for bulk */
   const[fraudListPopup,setFraudListPopup]=useState(null);/* {weekId, emps:[]} */
+  /* V18.76: Manual receipt confirm — admin-only bypass for emps who can't scan.
+     {weekId, selected:Set<empId>, reason:string, confirmText:string} */
+  const[manualConfirmPopup,setManualConfirmPopup]=useState(null);
   /* V14.60: QR view popup (for employee who forgot card) + Fraud warning popup */
   const[empQrView,setEmpQrView]=useState(null);/* empId — show QR on screen */
   const[fraudWarning,setFraudWarning]=useState(null);/* {empName, previousAt, previousBy, attemptAt, attemptBy} */
@@ -520,6 +531,20 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   
   /* ── Draft inputs: auto-load when week opens ── */
   const[draftLoadedForWeek,setDraftLoadedForWeek]=useState(null);
+  /* V18.91: Listen for notification deep-links — open the matching week */
+  useEffect(()=>{
+    const handler=(e)=>{
+      const d=e?.detail;
+      if(!d||d.type!=="hrWeek"||!d.weekId)return;
+      /* Switch to weeks view and open the week */
+      setView("weeks");
+      setTimeout(()=>{
+        setOpenWeekId(d.weekId);
+      },200);
+    };
+    window.addEventListener("notif-deeplink",handler);
+    return()=>window.removeEventListener("notif-deeplink",handler);
+  },[]);
   useEffect(()=>{
     if(!openWeek||openWeek.status==="closed")return;
     if(draftLoadedForWeek===openWeek.id)return;/* already loaded for this week */
@@ -880,11 +905,64 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
 
   /* ── Advances (single + matrix) ── */
   const addAdvance=(empId,amount,desc)=>{if(!amount)return;const emp=employees.find(e=>e.id===empId);if(!emp)return;
+    const logId=gid();
+    const _newLog={id:logId,type:"advance",empId,empName:emp.name,amount:Number(amount),desc:desc||"سلفة",weekId:openWeekId||"",date:today,by:userName,createdAt:new Date().toISOString()};
     upConfig(d=>{if(!d.hrLog)d.hrLog=[];
-      const logId=gid();
-      d.hrLog.unshift({id:logId,type:"advance",empId,empName:emp.name,amount:Number(amount),desc:desc||"سلفة",weekId:openWeekId||"",date:today,by:userName,createdAt:new Date().toISOString()});
+      d.hrLog.unshift(_newLog);
       d.treasury.unshift({id:gid(),type:"out",amount:Number(amount),desc:"سلفة "+emp.name+(desc?" — "+desc:""),category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:today,day:dayName(today),sourceType:"hr_advance",hrLogId:logId,empId,by:userName,createdAt:new Date().toISOString()})});
+    /* V18.35: auto-post journal entry */
+    autoPost.hr(data, _newLog, emp, userName).catch(()=>{});
     showToast("✓ سلفة "+emp.name)};
+  /* V18.15: Bulk payment approval workflow — direct register replaced by request-approval flow */
+  const bulkApprovals=Array.isArray(data.bulkPaymentApprovals)?data.bulkPaymentApprovals:[];
+  const pendingBulkApprovals=bulkApprovals.filter(a=>a.status==="pending");
+
+  /* Submit matrix for approval (replaces direct register) */
+  const submitMatrixForApproval=()=>{const items=matrixEmps.filter(m=>m.amount>0);if(items.length===0){playBeep("error");showToast("⛔ ادخل مبلغ لموظف واحد على الأقل");return}
+    const total=items.reduce((s,m)=>s+m.amount,0);
+    const reqId=gid();
+    const request={id:reqId,requestedBy:userEmail||"",requestedByName:userName||"",date:matrixDate,
+      items:items.map(m=>({empId:m.empId,name:m.name,amount:m.amount})),total,
+      status:"pending",submittedAt:new Date().toISOString(),
+      reviewedBy:null,reviewedAt:null,rejectReason:null,hrLogIds:[]};
+    upConfig(d=>{if(!Array.isArray(d.bulkPaymentApprovals))d.bulkPaymentApprovals=[];
+      d.bulkPaymentApprovals.unshift(request)});
+    showToast("📤 تم إرسال "+items.length+" دفعة للأدمن للاعتماد");
+    setShowMatrix(false);setMatrixEmps([]);setMatrixEmpFilter("")};
+
+  /* Print bulk payment sheet (uses existing printPage util) */
+  const printBulkPaymentSheet=()=>{const items=matrixEmps.filter(m=>m.amount>0);if(items.length===0){playBeep("error");showToast("⛔ مفيش بيانات للطباعة");return}
+    const total=items.reduce((s,m)=>s+m.amount,0);
+    let h="<h2 style='text-align:center;margin:0 0 8px'>💸 كشف دفعات مجمعة</h2>";
+    h+="<table style='margin:0 auto 16px'><tr><th style='text-align:right;padding:4px 12px'>التاريخ</th><td style='padding:4px 12px;font-weight:800'>"+matrixDate+"</td><th style='text-align:right;padding:4px 12px'>أعدّه</th><td style='padding:4px 12px'>"+(userName||"—")+"</td></tr></table>";
+    h+="<table><thead><tr><th>#</th><th>الموظف</th><th>المبلغ</th><th>التوقيع</th></tr></thead><tbody>";
+    items.forEach((m,i)=>{h+="<tr style='background:"+(i%2===0?"transparent":"#f8f8f8")+"'><td style='text-align:center'>"+(i+1)+"</td><td style='font-weight:700'>"+m.name+"</td><td style='text-align:center;font-weight:800;color:#0EA5E9'>"+fmt0(m.amount)+" ج.م</td><td style='width:140px;border-bottom:1px dashed #CBD5E1'></td></tr>"});
+    h+="<tr style='background:#FEF3C7;font-weight:800;font-size:14px'><td colspan='2' style='text-align:right;padding-right:12px'>الإجمالي</td><td style='text-align:center;color:#EF4444'>"+fmt0(total)+" ج.م</td><td></td></tr>";
+    h+="</tbody></table>";
+    h+="<div class='sig'><div class='sig-box'>المُعِد: "+(userName||"")+"</div><div class='sig-box'>اعتماد الإدارة</div></div>";
+    printPage("كشف دفعات مجمعة — "+matrixDate,h,{factoryName:data.factoryName,logo:data.logo})};
+
+  /* Admin: approve a pending bulk payment — runs the original submitMatrix logic on stored items */
+  const approveBulkPayment=(approval)=>{
+    upConfig(d=>{if(!d.hrLog)d.hrLog=[];if(!d.treasury)d.treasury=[];
+      const hrLogIds=[];
+      approval.items.forEach(m=>{const emp=(d.employees||[]).find(e=>e.id===m.empId);if(!emp)return;
+        const logId=gid();hrLogIds.push(logId);
+        d.hrLog.unshift({id:logId,type:"advance",empId:m.empId,empName:emp.name,amount:m.amount,desc:"دفعة مجمعة (طلب "+(approval.requestedByName||"")+")",weekId:openWeekId||"",date:approval.date,by:userName,createdAt:new Date().toISOString()});
+        d.treasury.unshift({id:gid(),type:"out",amount:m.amount,desc:"سلفة "+emp.name+" — دفعة مجمعة",category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:approval.date,day:dayName(approval.date),sourceType:"hr_advance",hrLogId:logId,empId:m.empId,by:userName,createdAt:new Date().toISOString()})});
+      /* Mark approval as approved */
+      const i=(d.bulkPaymentApprovals||[]).findIndex(a=>a.id===approval.id);
+      if(i>=0){d.bulkPaymentApprovals[i]={...d.bulkPaymentApprovals[i],status:"approved",reviewedBy:userEmail||"",reviewedAt:new Date().toISOString(),hrLogIds}}});
+    showToast("✅ تم الاعتماد ونقل "+approval.items.length+" دفعة للخزنة");
+    setShowBulkApprovalReview(null)};
+
+  /* Admin: reject a pending bulk payment */
+  const rejectBulkPayment=(approval,reason)=>{
+    upConfig(d=>{const i=(d.bulkPaymentApprovals||[]).findIndex(a=>a.id===approval.id);
+      if(i>=0){d.bulkPaymentApprovals[i]={...d.bulkPaymentApprovals[i],status:"rejected",reviewedBy:userEmail||"",reviewedAt:new Date().toISOString(),rejectReason:reason||""}}});
+    showToast("❌ تم رفض الطلب");
+    setShowBulkApprovalReview(null);setRejectReason("")};
+
   const submitMatrix=()=>{const items=matrixEmps.filter(m=>m.amount>0);if(items.length===0)return;
     upConfig(d=>{if(!d.hrLog)d.hrLog=[];if(!d.treasury)d.treasury=[];
       items.forEach(m=>{const emp=employees.find(e=>e.id===m.empId);if(!emp)return;
@@ -2777,17 +2855,49 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   const cwTotalSalary=activeEmps.reduce((s,e)=>s+(e.weeklySalary||0),0);
 
   return<div>
-    <div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflow:"hidden",border:"1px solid "+T.brd}}>
-      {[
-        {k:"weeks",l:"📅 الأسابيع",c:hrWeeks.length,show:canViewWeeks},
-        {k:"weeklySummary",l:"📊 سجل أسبوعي",show:canViewWeeks},
-        {k:"monthlySummary",l:"📅 سجل شهري",show:canViewWeeks},
-        {k:"employees",l:"👷 الموظفين",c:activeEmps.length,show:canViewEmployees},
-        {k:"verify",l:"🔐 تأكيد الاستلام",show:canViewVerify},
-        {k:"security",l:"🛡️ الأمن والرقابة",c:auditLog.length,show:canViewSecurity}
-      ].filter(v=>v.show).map(v=>
-        <div key={v.k} onClick={()=>{setView(v.k);setOpenWeekId(null)}} style={{flex:1,padding:"10px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-1,background:view===v.k?T.accent:T.cardSolid,color:view===v.k?"#fff":T.textSec,transition:"all 0.15s"}}>{v.l}{v.c!=null?" ("+v.c+")":""}</div>)}
-    </div>
+    {(()=>{
+      /* V18.92: Option A — improved 3x2 grid with icon on top + label below + badge as separate pill */
+      const tabs=[
+        {k:"weeks",icon:"📅",label:"الأسابيع",labelFull:"📅 الأسابيع",badge:hrWeeks.length||null,show:canViewWeeks},
+        {k:"weeklySummary",icon:"📊",label:"سجل أسبوعي",labelFull:"📊 سجل أسبوعي",show:canViewWeeks},
+        {k:"monthlySummary",icon:"📈",label:"سجل شهري",labelFull:"📅 سجل شهري",show:canViewWeeks},
+        {k:"employees",icon:"👷",label:"الموظفين",labelFull:"👷 الموظفين",badge:activeEmps.length||null,show:canViewEmployees},
+        {k:"verify",icon:"🔐",label:"تأكيد",labelFull:"🔐 تأكيد الاستلام",show:canViewVerify},
+        {k:"security",icon:"🛡",label:"الأمن",labelFull:"🛡️ الأمن والرقابة",badge:auditLog.length||null,show:canViewSecurity},
+      ].filter(v=>v.show);
+      if(isMob){
+        return <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
+          {tabs.map(v=>{
+            const isActive=view===v.k;
+            return <div key={v.k} onClick={()=>{setView(v.k);setOpenWeekId(null)}} style={{
+              position:"relative",cursor:"pointer",
+              padding:"12px 6px",
+              minHeight:78,
+              background:isActive?T.accent:T.cardSolid,
+              border:"1.5px solid "+(isActive?T.accent:T.brd),
+              borderRadius:12,
+              display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:5,
+              transition:"all 0.15s",
+            }}>
+              <span style={{fontSize:22,lineHeight:1,filter:isActive?"brightness(0) invert(1)":"none"}}>{v.icon}</span>
+              <span style={{fontSize:FS-2,fontWeight:700,color:isActive?"#fff":T.textSec,lineHeight:1.2,textAlign:"center"}}>{v.label}</span>
+              {v.badge!=null&&<span style={{
+                position:"absolute",top:4,insetInlineStart:4,
+                background:isActive?"#fff":"#DC2626",
+                color:isActive?T.accent:"#fff",
+                fontSize:9,fontWeight:800,minWidth:18,height:16,
+                borderRadius:8,padding:"0 5px",
+                display:"flex",alignItems:"center",justifyContent:"center",
+                border:"1.5px solid "+(isActive?T.accent:"#fff"),
+              }}>{v.badge}</span>}
+            </div>;
+          })}
+        </div>;
+      }
+      return <div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflow:"hidden",border:"1px solid "+T.brd}}>
+        {tabs.map(v=><div key={v.k} onClick={()=>{setView(v.k);setOpenWeekId(null)}} style={{flex:1,padding:"10px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-1,background:view===v.k?T.accent:T.cardSolid,color:view===v.k?"#fff":T.textSec,transition:"all 0.15s"}}>{v.labelFull}{v.badge!=null?" ("+v.badge+")":""}</div>)}
+      </div>;
+    })()}
 
     {/* ══ FIXED EMPLOYEE REGISTER — moved to weeklySummary tab ══ */}
 
@@ -2805,7 +2915,11 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           setNwBaseHours(hrs.defaultBaseHours||48);
           setShowNewWeek(!showNewWeek)
         }}>{showNewWeek?"✕":"+ أسبوع جديد"}</Btn>}
-        {canEdit&&<Btn onClick={()=>{setMatrixEmps(activeEmps.map(e=>({empId:e.id,name:e.name,amount:0})));setMatrixDate(today);setMatrixDesc("سلفة");setShowMatrix(true)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>💸 دفعات مجمعة</Btn>}
+        {canEdit&&<div style={{position:"relative",display:"inline-block"}}>
+          <Btn onClick={()=>{setMatrixEmps(activeEmps.map(e=>({empId:e.id,name:e.name,amount:0})));setMatrixDate(today);setMatrixDesc("سلفة");setMatrixEmpFilter("");setShowMatrix(true)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>💸 دفعات مجمعة</Btn>
+          {/* V18.15: Red badge for admin showing pending approval count */}
+          {isAdmin&&pendingBulkApprovals.length>0&&<span style={{position:"absolute",top:-6,insetInlineEnd:-6,minWidth:20,height:20,padding:"0 6px",borderRadius:10,background:"#EF4444",color:"#fff",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 2px 4px rgba(239,68,68,0.4)",border:"2px solid "+T.cardSolid,animation:"pulse 2s ease-in-out infinite"}} title={pendingBulkApprovals.length+" طلب اعتماد بانتظار المراجعة"}>{pendingBulkApprovals.length}</span>}
+        </div>}
         {/* V15.24: Excel import buttons available at overview level — no need to open a week first */}
         {canEdit&&<Btn onClick={()=>{setExcelImportMode("normal");setShowExcelImport(true)}} style={{background:"#10B98112",color:"#10B981",border:"1px solid #10B98130",fontWeight:700}} title="استيراد أسبوع كامل من Excel — يسجل السلف في الخزنة عادي">📥 استيراد Excel</Btn>}
         {canEdit&&<Btn onClick={()=>{setExcelImportMode("analysis");setShowExcelImport(true)}} style={{background:"#3B82F612",color:"#3B82F6",border:"1px solid #3B82F630",fontWeight:700}} title="استيراد أسبوع للتحليل والعرض فقط — لن يؤثر على الخزنة أو السلف">📊 استيراد تحليلي</Btn>}
@@ -2865,6 +2979,16 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           /* Carried balances — show BOTH: prev (from previous weeks) and next (to be rolled to next week) */
           const wPrev=wPrevBalances;/* مرحّل سابق — من أسابيع قديمة */
           const wNext=wRemaining;/* مرحّل للأسبوع القادم — متبقي بعد مدفوعات هذا الأسبوع */
+          /* V18.85: Total cash out for this week = salaries + admin advances + ws payments + other expenses.
+             For closed weeks: read from snapshot. For open: live sum of all 4 sources. */
+          let wTotalPaid=0;
+          if(isClosedW){
+            wTotalPaid=Number(w.totalThursdayPay||0)+Number(w.totalWeeklyAdvances||0)+Number(w.totalWeeklyWsPayments||0)+Number(w.totalWeeklyOtherExpenses||0);
+          }else{
+            const wWsP=(w.weeklyWsPayments||[]).reduce((s,p)=>s+(Number(p.amount)||0),0);
+            const wOthExp=(w.otherExpenses||[]).reduce((s,e)=>s+(Number(e.amount)||0),0);
+            wTotalPaid=wThursday+wWeeklyAdv+wWsP+wOthExp;
+          }
           return<div key={w.id} style={{padding:isMob?10:14,borderRadius:16,background:isSelected?T.accent+"06":T.cardSolid,border:"2px solid "+(isSelected?T.accent:isClosedW?T.ok+"30":T.accent+"30"),boxShadow:T.shadow,transition:"all 0.15s",cursor:"pointer"}} onClick={()=>setPreviewWeekId(isSelected?null:w.id)}>
           {/* Header row */}
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
@@ -2880,6 +3004,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
               {/* V15.24: Analysis-only badge — makes it immediately obvious this week is display-only */}
               {w.isAnalysisOnly&&<span style={{padding:"6px 12px",borderRadius:10,fontSize:FS-1,fontWeight:800,background:"#3B82F615",color:"#3B82F6",border:"1px solid #3B82F640"}} title="هذا الأسبوع مستورد للتحليل فقط — لا يؤثر على الخزنة أو السلف">📊 تحليلي</span>}
               <span onClick={e=>{e.stopPropagation();setOpenWeekId(w.id)}} style={{cursor:"pointer",padding:"6px 18px",borderRadius:10,background:T.accent,color:"#fff",fontSize:FS-1,fontWeight:800,border:"none"}}>فتح</span>
+              {/* V18.91: Request review for this week */}
+              <span onClick={e=>{e.stopPropagation();setReviewWeek(w)}} style={{cursor:"pointer",padding:"6px 12px",borderRadius:10,background:"#8B5CF612",color:"#8B5CF6",fontSize:FS-1,fontWeight:700,border:"1px solid #8B5CF630",display:"inline-flex",alignItems:"center",gap:4}} title="طلب مراجعة هذا الأسبوع">📌 مراجعة</span>
               {/* V15.71: Weekly financial summary for CFO */}
               <span onClick={e=>{e.stopPropagation();printWeeklyFinancialSummary(w)}} style={{cursor:"pointer",padding:"6px 12px",borderRadius:10,background:"#DC262612",color:"#DC2626",fontSize:FS-1,fontWeight:700,border:"1px solid #DC262630",display:"inline-flex",alignItems:"center",gap:4}} title="طباعة تقرير أسبوعي مالي للمدير المالي">🖨️ تقرير مالي</span>
               {canEdit&&(!isClosedW||unlockedWeeks[w.id])&&<span onClick={e=>{e.stopPropagation();
@@ -2921,17 +3047,11 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
               <span style={{color:T.textMut,fontSize:FS-2}}>عامل</span>
             </span>
             <span style={{color:T.brd}}>•</span>
-            <span style={{display:"inline-flex",alignItems:"center",gap:4}} title="إجمالي المستحق للأسبوع">
-              <span style={{color:T.textSec}}>💰</span>
-              <span style={{color:T.textMut,fontSize:FS-2}}>مستحق</span>
-              <span style={{fontWeight:800,color:"#06B6D4"}}>{wGross?fmt0(wGross):"—"}</span>
-            </span>
-            <span style={{color:T.brd}}>•</span>
-            {/* V15.70: Net owed = totalDue = net after ALL deductions + previous carryover */}
-            <span style={{display:"inline-flex",alignItems:"center",gap:4}} title={"الصافي بعد كل الخصومات والترحيلات: "+fmt0(wNetOwed)+"\n(المبلغ اللي المفروض يصرف للعمال بالفعل)"}>
+            {/* V18.85: Total cash out for this week (salaries + admin advances + ws payments + other expenses) */}
+            <span style={{display:"inline-flex",alignItems:"center",gap:4}} title={"إجمالي المبلغ اللي خرج/سيخرج من الخزنة لهذا الأسبوع:\n• مرتبات الإقفال\n• سلف الإدارة/الشهريين\n• دفعات الورش\n• مصاريف أخرى"}>
               <span style={{color:T.textSec}}>💵</span>
-              <span style={{color:T.textMut,fontSize:FS-2}}>صافي</span>
-              <span style={{fontWeight:800,color:"#10B981"}}>{wNetOwed?fmt0(wNetOwed):"—"}</span>
+              <span style={{color:T.textMut,fontSize:FS-2}}>{isClosedW?"المدفوع":"المخطط للدفع"}</span>
+              <span style={{fontWeight:800,color:"#10B981"}}>{wTotalPaid?fmt0(wTotalPaid):"—"}</span>
             </span>
             <span style={{color:T.brd}}>•</span>
             <span style={{display:"inline-flex",alignItems:"center",gap:4}} title={"مرحّل من أسابيع سابقة: "+fmt0(wPrev)+"\n(موجب = عليهم فلوس، سالب = ليهم فلوس)"}>
@@ -3153,7 +3273,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             displayEmpCount=shownEmps.length;
             displayAdvCount=weeklyAdvances.length;
           }
-          return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(9,1fr)",gap:8,marginBottom:14}}>
+          return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(10,1fr)",gap:8,marginBottom:14}}>
             {isWeekClosed&&savedStats&&<div style={{gridColumn:"1/-1",padding:"6px 10px",borderRadius:6,background:T.ok+"06",border:"1px solid "+T.ok+"20",fontSize:FS-3,color:T.ok,fontWeight:600,marginBottom:-2}}>🔒 أسبوع مقفول — القيم المعروضة ثابتة من وقت الإقفال ولا تتأثر بأي تعديل لاحق</div>}
             {/* 1. إجمالي المرتب الأساسي */}
             <div style={{padding:"10px 8px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center"}}>
@@ -3203,11 +3323,18 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
               <div style={{fontSize:FS+4,fontWeight:800,color:"#8B5CF6",lineHeight:1.1}}>{fmt0(isWeekClosed&&savedStats?(savedStats.totalWeeklyWsPayments||0):totalWeeklyWsPayments)}</div>
               <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>{(isWeekClosed&&savedStats?(savedStats.weeklyWsPaymentsCount||0):weeklyWsPayments.length)+" دفعة"}</div>
             </div>
-            {/* 9. الإجمالي النهائي — V15.27: includes ws payments too */}
+            {/* V18.76: 9. مصاريف أخرى (مخططة — تخرج عند الإقفال) */}
+            <div style={{padding:"10px 8px",borderRadius:10,background:"#DC262608",border:"1px solid #DC262620",textAlign:"center"}} title="المصاريف الأخرى المسجلة لهذا الأسبوع — ستُرحَّل إلى الخزنة عند الإقفال">
+              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2,fontWeight:600}}>💼 مصاريف أخرى</div>
+              <div style={{fontSize:FS+4,fontWeight:800,color:"#DC2626",lineHeight:1.1}}>{fmt0(isWeekClosed&&savedStats?(savedStats.totalWeeklyOtherExpenses||0):totalWeeklyOtherExpenses)}</div>
+              <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>{(isWeekClosed&&savedStats?(savedStats.weeklyOtherExpensesCount||0):weeklyOtherExpenses.length)+" مصروف"}</div>
+            </div>
+            {/* 10. الإجمالي النهائي — V18.76: includes ws payments + other expenses */}
             {(()=>{const effTotalWeekAdv=isWeekClosed&&savedStats?savedStats.totalWeeklyAdvances:totalWeeklyAdvances;
               const effWsPay=isWeekClosed&&savedStats?(savedStats.totalWeeklyWsPayments||0):totalWeeklyWsPayments;
-              const finalTotal=isWeekClosed&&savedStats?(savedStats.finalTotal||(savedStats.thursdayPay+savedStats.totalWeeklyAdvances+(savedStats.totalWeeklyWsPayments||0))):(thursdayPay+totalWeeklyAdvances+effWsPay);
-              return<div style={{padding:"10px 8px",borderRadius:10,background:T.ok+"12",border:"2px solid "+T.ok+"40",textAlign:"center"}} title={"الإجمالي الذي سيُدفع/يخرج من الخزنة يوم الإقفال:\n• مرتبات: "+fmt0(thursdayPay)+" ج\n• سلف إدارة (خطة): "+fmt0(effTotalWeekAdv)+" ج\n• دفعات ورش (خطة): "+fmt0(effWsPay)+" ج\n\nالسلف الأسبوعية للموظفين العاديين ("+fmt0(advances)+" ج) خرجت من الخزنة خلال الأسبوع بالفعل."}>
+              const effOtherExps=isWeekClosed&&savedStats?(savedStats.totalWeeklyOtherExpenses||0):totalWeeklyOtherExpenses;
+              const finalTotal=isWeekClosed&&savedStats?(savedStats.finalTotal||(savedStats.thursdayPay+savedStats.totalWeeklyAdvances+(savedStats.totalWeeklyWsPayments||0)+(savedStats.totalWeeklyOtherExpenses||0))):(thursdayPay+totalWeeklyAdvances+effWsPay+effOtherExps);
+              return<div style={{padding:"10px 8px",borderRadius:10,background:T.ok+"12",border:"2px solid "+T.ok+"40",textAlign:"center"}} title={"الإجمالي الذي سيُدفع/يخرج من الخزنة يوم الإقفال:\n• مرتبات: "+fmt0(thursdayPay)+" ج\n• سلف إدارة (خطة): "+fmt0(effTotalWeekAdv)+" ج\n• دفعات ورش (خطة): "+fmt0(effWsPay)+" ج\n• مصاريف أخرى (خطة): "+fmt0(effOtherExps)+" ج\n\nالسلف الأسبوعية للموظفين العاديين ("+fmt0(advances)+" ج) خرجت من الخزنة خلال الأسبوع بالفعل."}>
                 <div style={{fontSize:FS-3,color:T.textSec,marginBottom:2,fontWeight:700}}>✅ الإجمالي النهائي</div>
                 <div style={{fontSize:FS+5,fontWeight:900,color:T.ok,lineHeight:1.1}}>{fmt0(finalTotal)}</div>
                 <div style={{fontSize:FS-4,color:T.textMut,marginTop:2}}>يخرج يوم الإقفال</div>
@@ -4151,7 +4278,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
         {/* V15.34: Weekly Other Expenses Card — works like ws payments, registers in treasury on close */}
         {(()=>{
           const _ts=(data&&data.treasurySettings)||{};
-          const _defaultOutCats=["تكلفة","مشتريات","مرتبات","قطع غيار","صيانة ماكينات","خيط","تشغيل خارجي","نقل","كهرباء","ضيافة","ايجار المصنع","نثريات","اكسسوار","مستلزمات تشغيل","ورق ماركر","خدمات","أصول ثابتة","تكاليف أخرى","دفع مورد","تحويل داخلي"];
+          const _defaultOutCats=["تكلفة","مشتريات","مرتبات","قطع غيار","صيانة ماكينات","خيط","تشغيل خارجي","نقل","كهرباء","ضيافة","ايجار المصنع","نثريات","اكسسوار","مستلزمات تشغيل","ورق ماركر","خدمات","أصول ثابتة","تكاليف أخرى","دفعة مورد","تحويل داخلي"];
           const _outCats=_ts.outCategories||_defaultOutCats;
           return<Card title={"💼 مصاريف أخرى — W"+openWeek.weekNum+(weeklyOtherExpenses.length>0?" ("+weeklyOtherExpenses.length+")":"")+(isLocked?" 🔒 مقفول":"")} style={{marginBottom:14}}>
             {/* Header with add button + total */}
@@ -4853,6 +4980,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             <div style={{padding:"8px 10px",borderRadius:10,background:T.ok+"08",border:"1px solid "+T.ok+"30",textAlign:"center"}}>
               <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>✅ استلم</div>
               <div style={{fontSize:FS+4,fontWeight:900,color:T.ok}}>{received.length}</div>
+              {(()=>{const m=received.filter(e=>receipts[e.id]&&receipts[e.id].manual).length;return m>0?<div style={{fontSize:FS-4,color:"#F59E0B",fontWeight:700,marginTop:1}}>📝 يدوي: {m}</div>:null})()}
             </div>
             <div style={{padding:"8px 10px",borderRadius:10,background:T.err+"08",border:"1px solid "+T.err+"30",textAlign:"center"}}>
               <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>⏳ متبقي</div>
@@ -4866,7 +4994,12 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           <div style={{fontSize:FS-2,color:T.textMut,textAlign:"center",padding:"8px 0"}}>
             💡 وجّه الكاميرا على كارت QR الموظف
           </div>
-          <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:10,borderTop:"1px solid "+T.brd}}>
+          <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center",paddingTop:10,borderTop:"1px solid "+T.brd}}>
+            {/* V18.76: Admin-only manual confirm — bypass scanning for unsigned employees */}
+            {isAdmin&&notReceived.length>0?<Btn small onClick={()=>{
+              const all=new Set(notReceived.map(e=>e.id));
+              setManualConfirmPopup({weekId:w.id,selected:all,reason:"",confirmText:""});
+            }} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B40",fontWeight:700}} title="تأكيد استلام المرتبات يدوياً للموظفين المتبقين (مدير فقط)">📝 تأكيد يدوي ({notReceived.length})</Btn>:<span/>}
             <Btn ghost onClick={()=>setShowEmpQrScanner(null)}>إغلاق</Btn>
           </div>
         </div>
@@ -4903,6 +5036,104 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:12,borderTop:"1px solid "+T.brd,marginTop:10}}>
             <span style={{fontSize:FS-1,color:T.textSec}}>الإجمالي: <b style={{color:T.err,fontSize:FS+1}}>{fmt0(emps.reduce((s,e)=>{const c=getEmpSalary(e.id,w);return s+(c?c.thursdayPay:0)},0))}</b> ج.م</span>
             <Btn ghost onClick={()=>setFraudListPopup(null)}>إغلاق</Btn>
+          </div>
+        </div>
+      </div>;
+    })()}
+
+    {/* ══ V18.76: MANUAL RECEIPT CONFIRM POPUP — admin-only bypass ══ */}
+    {manualConfirmPopup&&isAdmin&&(()=>{
+      const w=hrWeeks.find(x=>x.id===manualConfirmPopup.weekId);
+      if(!w)return null;
+      const receipts=mergedReceipts(w);
+      const wkSelected=(w.selectedEmps&&Array.isArray(w.selectedEmps))?w.selectedEmps:[];
+      const wkEmps=activeEmps.filter(e=>wkSelected.includes(e.id));
+      const candidates=wkEmps.filter(e=>!receipts[e.id]);/* only unsigned ones */
+      const selectedSet=manualConfirmPopup.selected||new Set();
+      const reason=manualConfirmPopup.reason||"";
+      const confirmText=manualConfirmPopup.confirmText||"";
+      const canSubmit=selectedSet.size>0&&reason.trim().length>=3&&confirmText.trim()==="تأكيد";
+      const totalAmt=Array.from(selectedSet).reduce((s,id)=>{const c=getEmpSalary(id,w);return s+(c?c.thursdayPay:0)},0);
+      const toggle=(id)=>{const next=new Set(selectedSet);if(next.has(id))next.delete(id);else next.add(id);setManualConfirmPopup({...manualConfirmPopup,selected:next})};
+      const toggleAll=()=>{
+        if(selectedSet.size===candidates.length)setManualConfirmPopup({...manualConfirmPopup,selected:new Set()});
+        else setManualConfirmPopup({...manualConfirmPopup,selected:new Set(candidates.map(e=>e.id))});
+      };
+      const submit=()=>{
+        if(!canSubmit)return;
+        const ids=Array.from(selectedSet);
+        upConfig(d=>{
+          const wi=(d.hrWeeks||[]).findIndex(x=>x.id===w.id);if(wi<0)return;
+          if(!d.hrWeeks[wi].receipts)d.hrWeeks[wi].receipts={};
+          if(!Array.isArray(d.auditLog))d.auditLog=[];
+          ids.forEach(empId=>{
+            if(d.hrWeeks[wi].receipts[empId])return;/* race-safe */
+            const emp=(d.employees||[]).find(e=>e.id===empId);
+            d.hrWeeks[wi].receipts[empId]={
+              at:new Date().toISOString(),
+              by:userName||"",
+              manual:true,
+              manualReason:reason.trim(),
+            };
+            d.auditLog.unshift({
+              id:Math.random().toString(36).slice(2)+Date.now(),
+              category:"week",action:"manual_salary_receipt",
+              target:"W"+w.weekNum+" — "+(emp?emp.name:empId),
+              newValue:"📝 تأكيد يدوي (بدون سكان)",
+              notes:"السبب: "+reason.trim()+" — بواسطة: "+(userName||"—"),
+              at:new Date().toISOString(),severity:"warning"
+            });
+          });
+        });
+        setManualConfirmPopup(null);
+        showToast("✓ تم تأكيد "+ids.length+" مرتب يدوياً");
+      };
+      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10003,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setManualConfirmPopup(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:620,maxHeight:"92vh",display:"flex",flexDirection:"column",border:"2px solid #F59E0B",boxShadow:"0 25px 70px rgba(0,0,0,0.45)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:10,borderBottom:"2px solid #F59E0B25"}}>
+            <div style={{fontSize:FS+2,fontWeight:900,color:"#F59E0B",display:"flex",alignItems:"center",gap:8}}>
+              <span>📝</span><span>تأكيد يدوي للمرتبات — W{w.weekNum}</span>
+            </div>
+            <span onClick={()=>setManualConfirmPopup(null)} style={{cursor:"pointer",fontSize:22,color:T.textMut,padding:4}}>✕</span>
+          </div>
+          <div style={{padding:10,borderRadius:8,background:"#F59E0B0D",border:"1px solid #F59E0B30",marginBottom:12,fontSize:FS-1,color:T.text,lineHeight:1.6}}>
+            ⚠️ هذا الإجراء يتجاوز السكان. كل تأكيد هيتسجل في سجل التدقيق بشكل دائم. السبب إلزامي.
+          </div>
+          {/* Reason */}
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:700}}>السبب (إلزامي)</div>
+            <Inp value={reason} onChange={(v)=>setManualConfirmPopup({...manualConfirmPopup,reason:v})} placeholder="مثال: الموظف خارج الحضور / مريض / إجازة..."/>
+          </div>
+          {/* Selectable list */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <div style={{fontSize:FS-1,fontWeight:700,color:T.text}}>الموظفين المتبقين ({candidates.length})</div>
+            <Btn small ghost onClick={toggleAll}>{selectedSet.size===candidates.length?"إلغاء تحديد الكل":"تحديد الكل"}</Btn>
+          </div>
+          <div style={{flex:1,overflowY:"auto",background:T.bg,borderRadius:10,border:"1px solid "+T.brd,padding:4,maxHeight:280,minHeight:80}}>
+            {candidates.length===0?<div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا يوجد موظفين متبقين</div>:candidates.map((e,i)=>{
+              const c=getEmpSalary(e.id,w);
+              const checked=selectedSet.has(e.id);
+              return<label key={e.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderBottom:"1px solid "+T.brd,background:i%2===0?"transparent":T.cardSolid,cursor:"pointer"}}>
+                <input type="checkbox" checked={checked} onChange={()=>toggle(e.id)} style={{width:18,height:18,cursor:"pointer",accentColor:"#F59E0B"}}/>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:FS,fontWeight:700,color:T.text}}>{e.name}</div>
+                  <div style={{fontSize:FS-3,color:T.textMut}}>{(e.code?"#"+e.code:"")}{e.job?" • "+e.job:""}</div>
+                </div>
+                <div style={{fontSize:FS,fontWeight:800,color:checked?"#F59E0B":T.textMut,fontFamily:"monospace"}}>{c?fmt0(c.thursdayPay)+" ج":"—"}</div>
+              </label>;
+            })}
+          </div>
+          {/* Confirm typing */}
+          <div style={{marginTop:10}}>
+            <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:700}}>اكتب "تأكيد" للمتابعة</div>
+            <Inp value={confirmText} onChange={(v)=>setManualConfirmPopup({...manualConfirmPopup,confirmText:v})} placeholder="تأكيد"/>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:12,borderTop:"1px solid "+T.brd,marginTop:10,gap:8,flexWrap:"wrap"}}>
+            <span style={{fontSize:FS-1,color:T.textSec}}>المختار: <b style={{color:"#F59E0B",fontSize:FS+1}}>{selectedSet.size}</b> موظف • <b style={{color:"#F59E0B"}}>{fmt0(totalAmt)}</b> ج</span>
+            <div style={{display:"flex",gap:8}}>
+              <Btn ghost onClick={()=>setManualConfirmPopup(null)}>إلغاء</Btn>
+              <Btn onClick={submit} disabled={!canSubmit} style={{background:canSubmit?"#F59E0B":T.brd,color:"#fff",fontWeight:700,opacity:canSubmit?1:0.5}}>📝 تأكيد {selectedSet.size>0?"("+selectedSet.size+")":""}</Btn>
+            </div>
           </div>
         </div>
       </div>;
@@ -5039,7 +5270,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                       <span>{e.name}</span>
                       {e.code&&<span style={{fontSize:FS-3,color:T.accent,fontFamily:"monospace",fontWeight:700}}>#{e.code}</span>}
                       {wasP&&<span style={{fontSize:FS-3,padding:"1px 6px",borderRadius:6,background:T.ok+"15",color:T.ok,fontWeight:700}} title={"طُبع: "+new Date(printed[e.id].at).toLocaleString("ar-EG")+(printed[e.id].by?" • "+printed[e.id].by:"")}>📮 طُبع</span>}
-                      {wasR&&<span style={{fontSize:FS-3,padding:"1px 6px",borderRadius:6,background:T.accent+"15",color:T.accent,fontWeight:700}} title={"استلم: "+new Date(receipts[e.id].at).toLocaleString("ar-EG")}>✅ استلم</span>}
+                      {wasR&&(()=>{const r=receipts[e.id];const isManual=r&&r.manual;return<span style={{fontSize:FS-3,padding:"1px 6px",borderRadius:6,background:(isManual?"#F59E0B":T.accent)+"15",color:isManual?"#F59E0B":T.accent,fontWeight:700}} title={(isManual?"📝 تأكيد يدوي":"✅ استلم")+": "+new Date(r.at).toLocaleString("ar-EG")+(r.by?" • "+r.by:"")+(isManual&&r.manualReason?"\nالسبب: "+r.manualReason:"")}>{isManual?"📝 يدوي":"✅ استلم"}</span>})()}
                     </div>
                     {e.job&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:1}}>{e.job}</div>}
                   </div>
@@ -6291,7 +6522,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       const shownEmpsCD=activeEmps.filter(e=>weekSelectedCD.includes(e.id));
       let tG_=0,tA_=0,tTP_=0,tRB_=0,tDI_=0;
       shownEmpsCD.forEach(e=>{const cc=getEmpSalary(e.id,openWeek);if(cc){tG_+=cc.grossPay;tA_+=cc.weekAdvances;tTP_+=cc.thursdayPay;tRB_+=cc.remainingBalance;tDI_+=cc.debtInstall||0}});
-      const totalCashOut=r2(tTP_+totalWeeklyAdvances);/* مرتبات الخميس + سلف الإدارة المخططة (تُنفَّذ الآن) */
+      const totalCashOut=r2(tTP_+totalWeeklyAdvances+totalWeeklyWsPayments+totalWeeklyOtherExpenses);/* مرتبات + سلف الإدارة + دفعات الورش + مصاريف أخرى */
       const isBackdated=closeDateValue&&closeDateValue!==today;
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={()=>setShowCloseDate(false)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:22,width:"100%",maxWidth:500,maxHeight:"90vh",overflowY:"auto",border:"2px solid "+T.accent,boxShadow:"0 25px 80px rgba(0,0,0,0.4)"}}>
@@ -6314,6 +6545,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
               <div style={{fontWeight:700,marginBottom:4,color:T.accent}}>💸 سيخرج من الخزنة الآن:</div>
               <div>💵 مرتبات الإقفال: <b style={{color:T.ok}}>{fmt0(tTP_)} ج</b></div>
               {totalWeeklyAdvances>0&&<div>🏢 سلف الإدارة/الشهريين: <b style={{color:"#EC4899"}}>{fmt0(totalWeeklyAdvances)} ج</b> <span style={{fontSize:FS-3,color:T.textMut}}>(خطة — ستُنفَّذ الآن)</span></div>}
+              {totalWeeklyWsPayments>0&&<div>🏭 دفعات الورش: <b style={{color:"#8B5CF6"}}>{fmt0(totalWeeklyWsPayments)} ج</b> <span style={{fontSize:FS-3,color:T.textMut}}>(خطة — ستُنفَّذ الآن)</span></div>}
+              {totalWeeklyOtherExpenses>0&&<div>💼 مصاريف أخرى: <b style={{color:"#DC2626"}}>{fmt0(totalWeeklyOtherExpenses)} ج</b> <span style={{fontSize:FS-3,color:T.textMut}}>(خطة — ستُنفَّذ الآن)</span></div>}
             </div>
             <div style={{borderTop:"2px solid "+T.accent+"40",marginTop:8,paddingTop:8}}>
               🏦 إجمالي سيخرج من الخزنة: <b style={{color:T.accent,fontSize:FS+2}}>{fmt0(totalCashOut)} ج</b>
@@ -6398,23 +6631,88 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
 
     {/* ══ MATRIX POPUP ══ */}
     {showMatrix&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowMatrix(false)}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:560,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <span style={{fontSize:FS+1,fontWeight:800,color:"#F59E0B"}}>💸 دفعات مجمعة</span><Btn ghost small onClick={()=>setShowMatrix(false)}>✕</Btn>
         </div>
-        <div style={{display:"flex",gap:8,marginBottom:10}}>
-          <div style={{flex:1}}><Inp value={matrixDesc} onChange={setMatrixDesc} placeholder="البيان"/></div>
-          <div><Inp type="date" value={matrixDate} onChange={setMatrixDate}/></div>
+
+        {/* V18.15: Pending approvals section — admin only */}
+        {isAdmin&&pendingBulkApprovals.length>0&&<div style={{marginBottom:14,padding:10,borderRadius:10,background:"#EF444408",border:"1px solid #EF444430"}}>
+          <div style={{fontSize:FS-1,fontWeight:800,color:"#EF4444",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>⏳ طلبات بانتظار اعتمادك ({pendingBulkApprovals.length})</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {pendingBulkApprovals.map(a=><div key={a.id} onClick={()=>setShowBulkApprovalReview(a)} style={{padding:"8px 10px",borderRadius:8,background:T.cardSolid,border:"1px solid "+T.brd,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}} onMouseEnter={e=>e.currentTarget.style.background="#EF444412"} onMouseLeave={e=>e.currentTarget.style.background=T.cardSolid}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:FS-1,fontWeight:700}}>{a.requestedByName||"—"}</div>
+                <div style={{fontSize:FS-3,color:T.textMut}}>{a.date+" • "+a.items.length+" موظف • "+fmt0(a.total)+" ج.م"}</div>
+              </div>
+              <span style={{fontSize:FS-2,color:"#EF4444",fontWeight:700}}>راجع ←</span>
+            </div>)}
+          </div>
+        </div>}
+
+        {/* Form: date only (desc box removed) */}
+        <div style={{marginBottom:10}}>
+          <Inp type="date" value={matrixDate} onChange={setMatrixDate}/>
         </div>
+
+        {/* V18.15: Employee name filter */}
+        <div style={{marginBottom:8}}>
+          <Inp value={matrixEmpFilter} onChange={setMatrixEmpFilter} placeholder="🔍 فلتر باسم الموظف..."/>
+        </div>
+
         {activeEmps.filter(e=>!matrixEmps.some(m=>m.empId===e.id)).length>0&&<Sel value="" onChange={v=>{if(v)setMatrixEmps(p=>[...p,{empId:v,name:(employees.find(e=>e.id===v)||{}).name,amount:0}])}} style={{width:"100%",marginBottom:8}}>
           <option value="">+ إضافة موظف</option>{activeEmps.filter(e=>!matrixEmps.some(m=>m.empId===e.id)).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</Sel>}
-        <div style={{display:"flex",flexDirection:"column",gap:6}}>{matrixEmps.map((m,i)=><div key={m.empId} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
-          <span style={{flex:1,fontSize:FS,fontWeight:700}}>{m.name}</span>
-          <input type="number" value={m.amount||""} onChange={e=>{const v=Number(e.target.value)||0;setMatrixEmps(p=>p.map((x,j)=>j===i?{...x,amount:v}:x))}} placeholder="المبلغ" style={{width:90,padding:"6px 8px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text}}/>
-          <span onClick={()=>setMatrixEmps(p=>p.filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err}}>✕</span>
-        </div>)}</div>
+
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>{matrixEmps.map((m,i)=>{
+          /* V18.15: Apply name filter */
+          if(matrixEmpFilter.trim()&&!(m.name||"").toLowerCase().includes(matrixEmpFilter.trim().toLowerCase()))return null;
+          return<div key={m.empId} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
+            <span style={{flex:1,fontSize:FS,fontWeight:700}}>{m.name}</span>
+            <input type="number" value={m.amount||""} onChange={e=>{const v=Number(e.target.value)||0;setMatrixEmps(p=>p.map((x,j)=>j===i?{...x,amount:v}:x))}} placeholder="المبلغ" style={{width:90,padding:"6px 8px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text}}/>
+            <span onClick={()=>setMatrixEmps(p=>p.filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err}}>✕</span>
+          </div>
+        })}</div>
+
         {matrixEmps.filter(m=>m.amount>0).length>0&&<div style={{marginTop:10,padding:8,borderRadius:8,background:T.err+"06",textAlign:"center",fontWeight:800,color:T.err}}>{"اجمالي: "+fmt0(matrixEmps.reduce((s,m)=>s+m.amount,0))+" — "+matrixEmps.filter(m=>m.amount>0).length+" موظف"}</div>}
-        <div style={{marginTop:10,textAlign:"center"}}><Btn primary onClick={submitMatrix}>💰 تسجيل</Btn></div>
+
+        {/* V18.15: Two action buttons — print + request approval (direct register removed) */}
+        <div style={{marginTop:14,display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+          <Btn onClick={printBulkPaymentSheet} style={{background:"#0EA5E912",color:"#0EA5E9",border:"1px solid #0EA5E930"}}>🖨 طباعة</Btn>
+          <Btn primary onClick={submitMatrixForApproval} style={{background:"#F59E0B",color:"#fff"}}>📤 طلب اعتماد</Btn>
+        </div>
+      </div>
+    </div>}
+
+    {/* V18.15: Approval review popup (admin only) */}
+    {showBulkApprovalReview&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setShowBulkApprovalReview(null);setRejectReason("")}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:520,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <span style={{fontSize:FS+1,fontWeight:800,color:"#F59E0B"}}>📋 مراجعة طلب اعتماد</span>
+          <Btn ghost small onClick={()=>{setShowBulkApprovalReview(null);setRejectReason("")}}>✕</Btn>
+        </div>
+        <div style={{padding:10,borderRadius:10,background:T.bg,border:"1px solid "+T.brd,marginBottom:12,display:"grid",gridTemplateColumns:"auto 1fr",gap:6,fontSize:FS-1}}>
+          <span style={{color:T.textMut}}>المُرسِل:</span><span style={{fontWeight:700}}>{showBulkApprovalReview.requestedByName||"—"}</span>
+          <span style={{color:T.textMut}}>تاريخ الدفعة:</span><span style={{fontWeight:700,direction:"ltr"}}>{showBulkApprovalReview.date}</span>
+          <span style={{color:T.textMut}}>وقت الإرسال:</span><span style={{fontSize:FS-2,color:T.textSec,direction:"ltr"}}>{new Date(showBulkApprovalReview.submittedAt).toLocaleString("ar-EG")}</span>
+        </div>
+        <div style={{marginBottom:10}}>
+          <div style={{fontSize:FS-1,fontWeight:700,marginBottom:6}}>تفاصيل الدفعات ({showBulkApprovalReview.items.length} موظف):</div>
+          <div style={{maxHeight:240,overflowY:"auto",display:"flex",flexDirection:"column",gap:4,padding:8,borderRadius:8,background:T.bg,border:"1px solid "+T.brd}}>
+            {showBulkApprovalReview.items.map((it,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 8px",borderRadius:6,background:T.cardSolid,fontSize:FS-1}}>
+              <span style={{fontWeight:600}}>{it.name}</span>
+              <span style={{fontWeight:800,color:"#0EA5E9",direction:"ltr"}}>{fmt0(it.amount)} ج.م</span>
+            </div>)}
+          </div>
+          <div style={{marginTop:8,padding:8,borderRadius:8,background:"#F59E0B12",border:"1px solid #F59E0B40",textAlign:"center",fontWeight:800,fontSize:FS,color:"#F59E0B"}}>الإجمالي: {fmt0(showBulkApprovalReview.total)} ج.م</div>
+        </div>
+        <div style={{marginBottom:10}}>
+          <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>سبب الرفض (اختياري — في حالة الرفض)</label>
+          <Inp value={rejectReason} onChange={setRejectReason} placeholder="..."/>
+        </div>
+        <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+          <Btn onClick={()=>rejectBulkPayment(showBulkApprovalReview,rejectReason)} style={{background:T.err+"15",color:T.err,border:"1px solid "+T.err+"40"}}>❌ رفض</Btn>
+          <Btn primary onClick={()=>approveBulkPayment(showBulkApprovalReview)} style={{background:T.ok,color:"#fff"}}>✅ اعتماد ونقل للخزنة</Btn>
+        </div>
       </div>
     </div>}
 
@@ -7574,5 +7872,12 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لم يتم اعتماد مرتبات بعد</div>}
         </Card>
       </div>})()}
+    {/* V18.91: Review request modal for week */}
+    {reviewWeek&&<ReviewRequestModal
+      link={{type:"hrWeek",id:reviewWeek.id,label:"أسبوع W"+reviewWeek.weekNum}}
+      defaultMsg={"راجع أسبوع W"+reviewWeek.weekNum+" ("+reviewWeek.weekStart+" → "+reviewWeek.weekEnd+") من فضلك"}
+      data={data} upConfig={upConfig} user={user}
+      onClose={()=>setReviewWeek(null)}
+    />}
   </div>
 }

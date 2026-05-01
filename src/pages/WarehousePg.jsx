@@ -15,7 +15,7 @@ import { ask, askInput, showToast, tell } from "../utils/popups.js";
 import { loadQR } from "../utils/qr.js";
 import { openPrintWindow } from "../utils/print.js";
 import { countUnitUsage, DEFAULT_UNITS, getUnits } from "../utils/units.js";
-import { formatBlockerMessage } from "../utils/dataIntegrity.js";
+import { formatBlockerMessage, canForceDelete, summarizeForceDelete, forceDeleteCleanup } from "../utils/dataIntegrity.js";
 
 export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCards,user,userRole}){
   const userName=user?.displayName||(user?.email||"").split("@")[0];
@@ -31,6 +31,9 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   const[prodCategoryF,setProdCategoryF]=useState("");
   const[showProdForm,setShowProdForm]=useState(false);
   const[prodForm,setProdForm]=useState(null);/* {id?, name, category, unit, price, minStock, notes} */
+  /* V16.77: Fabric/Accessory add+edit forms (moved from DBPg) */
+  const[fabForm,setFabForm]=useState(null);/* {name,unit,price,_eid} */
+  const[accForm,setAccForm]=useState(null);/* {name,unit,price,_eid} */
   const[showMoveForm,setShowMoveForm]=useState(false);
   const[moveForm,setMoveForm]=useState(null);/* {itemType, itemId, itemName, unit, type:in|out|adjust, qty, price, date, notes} */
   /* Movements filters */
@@ -297,16 +300,135 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     setProdForm(null);
     showToast(isEdit?"✅ تم تعديل المنتج":"✅ تم إضافة المنتج");
   };
+
+  /* V18.48: Shared force-delete flow.
+     When a normal delete is blocked by refs, this offers the user a "force
+     delete" option that ALSO removes related stockMovements + strips the item
+     from purchaseReceipts. Only used for stock-type kinds.
+     Returns: true if force-delete happened, false otherwise. */
+  const tryForceDelete=async({kind,id,name,labelAr})=>{
+    const force=canForceDelete(data,kind,id);
+    if(!force.ok){
+      await tell("لا يمكن الحذف بالقوة",force.reason,{type:"error"});
+      return false;
+    }
+    const sum=summarizeForceDelete(data,kind,id);
+    const lines=[];
+    if(sum.currentStock>0)         lines.push("• الرصيد الحالي ("+sum.currentStock+") سيُمسح");
+    if(sum.moveCount>0)            lines.push("• "+sum.moveCount+" حركة مخزن سَتُحذف");
+    if(sum.receiptItemCount>0)     lines.push("• "+sum.receiptItemCount+" بند داخل إذن استلام سيُحذف");
+    if(sum.affectedReceipts.length>0) lines.push("• الإيصالات المتأثرة: "+sum.affectedReceipts.slice(0,3).join("، ")+(sum.affectedReceipts.length>3?"...":""));
+    const msg="سيتم حذف "+labelAr+" \""+name+"\" مع كل الحركات المرتبطة به:\n\n"+lines.join("\n")+"\n\n⚠️ هذه العملية لا يمكن التراجع عنها بشكل كامل (الحركات المحذوفة لن ترجع).\n💡 لو فيه قيود محاسبية مرتبطة، راجع الترحيلات يدوياً.";
+    const confirmed=await ask("حذف بالقوة",msg,{danger:true,confirmText:"⚠️ حذف بالقوة",cancelText:"إلغاء"});
+    if(!confirmed)return false;
+    upConfig(d=>{forceDeleteCleanup(d,kind,id)});
+    showToast("✓ تم الحذف بالقوة — راجع المحاسبة لو لزم");
+    return true;
+  };
+
+  /* V18.48: Show force-delete option in the blocker popup.
+     Returns true if user chose force-delete (and it happened), false otherwise. */
+  const offerForceDelete=async({kind,id,name,labelAr,blockerMsg})=>{
+    /* Use ask() with custom labels so it has 2 buttons:
+       - Cancel = OK / dismiss
+       - Confirm = "⚠️ حذف بالقوة" → opens force flow */
+    const wantsForce=await ask(
+      "لا يمكن حذف "+labelAr,
+      blockerMsg+"\n\nاضغط 'حذف بالقوة' لإجبار الحذف مع تنظيف الحركات المرتبطة، أو إلغاء.",
+      {danger:true,confirmText:"⚠️ حذف بالقوة",cancelText:"إلغاء"}
+    );
+    if(!wantsForce)return false;
+    return await tryForceDelete({kind,id,name,labelAr});
+  };
+
   const deleteProd=async(p)=>{
     if(!canEdit)return;
     /* V16.66: Block delete if product has stock or movements — prevents
        silent loss of data referenced by stockMovements. */
     const blocker=formatBlockerMessage(data,"generalProduct",p.id,p.name);
-    if(blocker){await tell("لا يمكن حذف المنتج",blocker,{type:"warning"});return}
+    if(blocker){
+      /* V18.48: instead of just refusing, offer force-delete */
+      await offerForceDelete({kind:"generalProduct",id:p.id,name:p.name,labelAr:"المنتج",blockerMsg:blocker});
+      return;
+    }
     const confirmed=await ask("حذف المنتج","حذف المنتج "+p.name+"؟",{danger:true,confirmText:"حذف"});
     if(!confirmed)return;
     upConfig(d=>{d.generalProducts=(d.generalProducts||[]).filter(x=>x.id!==p.id)});
     showToast("تم حذف المنتج");
+  };
+
+  /* ──────── V16.77: FABRIC ADD/EDIT/DELETE (moved from DBPg) ──────── */
+  const saveFab=async()=>{
+    if(!canEdit||!fabForm)return;
+    if(!fabForm.name||!fabForm.name.trim()){await tell("الاسم مطلوب","يرجى إدخال اسم القماش",{type:"warning"});return}
+    upConfig(d=>{
+      if(!d.fabrics)d.fabrics=[];
+      if(fabForm._eid){
+        const idx=d.fabrics.findIndex(x=>x.id===fabForm._eid);
+        if(idx>=0)d.fabrics[idx]={...d.fabrics[idx],name:fabForm.name.trim(),unit:fabForm.unit||"كيلو",price:Number(fabForm.price)||0};
+      }else{
+        d.fabrics.push({id:Date.now(),name:fabForm.name.trim(),unit:fabForm.unit||"كيلو",price:Number(fabForm.price)||0,stock:0});
+      }
+    });
+    setFabForm(null);
+    showToast(fabForm._eid?"✅ تم تعديل القماش":"✅ تم إضافة القماش");
+  };
+  const editFab=(f)=>setFabForm({name:f.name,unit:f.unit,price:f.price,_eid:f.id});
+  const deleteFab=async(f)=>{
+    if(!canEdit)return;
+    const blocker=formatBlockerMessage(data,"fabric",f.id,f.name);
+    if(blocker){
+      /* V18.48: offer force-delete instead of just refusing */
+      await offerForceDelete({kind:"fabric",id:f.id,name:f.name,labelAr:"القماش",blockerMsg:blocker});
+      return;
+    }
+    const confirmed=await ask("حذف القماش","حذف القماش "+f.name+"؟",{danger:true,confirmText:"حذف"});
+    if(!confirmed)return;
+    upConfig(d=>{
+      if(!d.recycleBin)d.recycleBin=[];
+      const item=(d.fabrics||[]).find(x=>x.id===f.id);
+      if(item)d.recycleBin.unshift({...item,_type:"قماش",_collection:"fabrics",_deletedAt:new Date().toISOString()});
+      d.fabrics=(d.fabrics||[]).filter(x=>x.id!==f.id);
+      if(d.recycleBin.length>100)d.recycleBin=d.recycleBin.slice(0,100);
+    });
+    showToast("✓ تم حذف القماش — يمكن الاستعادة من سلة المحذوفات");
+  };
+
+  /* ──────── V16.77: ACCESSORY ADD/EDIT/DELETE (moved from DBPg) ──────── */
+  const saveAcc=async()=>{
+    if(!canEdit||!accForm)return;
+    if(!accForm.name||!accForm.name.trim()){await tell("الاسم مطلوب","يرجى إدخال وصف الإكسسوار",{type:"warning"});return}
+    upConfig(d=>{
+      if(!d.accessories)d.accessories=[];
+      if(accForm._eid){
+        const idx=d.accessories.findIndex(x=>x.id===accForm._eid);
+        if(idx>=0)d.accessories[idx]={...d.accessories[idx],name:accForm.name.trim(),unit:accForm.unit||"قطعة",price:Number(accForm.price)||0};
+      }else{
+        d.accessories.push({id:Date.now(),name:accForm.name.trim(),unit:accForm.unit||"قطعة",price:Number(accForm.price)||0,stock:0});
+      }
+    });
+    setAccForm(null);
+    showToast(accForm._eid?"✅ تم تعديل الإكسسوار":"✅ تم إضافة الإكسسوار");
+  };
+  const editAcc=(a)=>setAccForm({name:a.name,unit:a.unit,price:a.price,_eid:a.id});
+  const deleteAcc=async(a)=>{
+    if(!canEdit)return;
+    const blocker=formatBlockerMessage(data,"accessory",a.id,a.name);
+    if(blocker){
+      /* V18.48: offer force-delete instead of just refusing */
+      await offerForceDelete({kind:"accessory",id:a.id,name:a.name,labelAr:"الإكسسوار",blockerMsg:blocker});
+      return;
+    }
+    const confirmed=await ask("حذف الإكسسوار","حذف الإكسسوار "+a.name+"؟",{danger:true,confirmText:"حذف"});
+    if(!confirmed)return;
+    upConfig(d=>{
+      if(!d.recycleBin)d.recycleBin=[];
+      const item=(d.accessories||[]).find(x=>x.id===a.id);
+      if(item)d.recycleBin.unshift({...item,_type:"اكسسوار",_collection:"accessories",_deletedAt:new Date().toISOString()});
+      d.accessories=(d.accessories||[]).filter(x=>x.id!==a.id);
+      if(d.recycleBin.length>100)d.recycleBin=d.recycleBin.slice(0,100);
+    });
+    showToast("✓ تم حذف الإكسسوار — يمكن الاستعادة من سلة المحذوفات");
   };
   
   /* ──────── MANUAL MOVEMENT (in / out / adjust) ──────── */
@@ -400,7 +522,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   
   /* ──────── PRINT MOVEMENTS REPORT ──────── */
   const printMovementsReport=()=>{
-    const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+    const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}
     const title="تقرير حركات المخزن";
     const filterSummary=[];
     if(movDateFrom)filterSummary.push("من: "+movDateFrom);
@@ -465,7 +587,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   
   /* ──────── PRINT STOCK SNAPSHOT (current balances) ──────── */
   const printStockSnapshot=()=>{
-    const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+    const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}
     const buildRows=(list,typeLabel,typeColor)=>list.map(x=>{const s=Number(x.stock)||0;const c=Number(x.avgCost)||Number(x.price)||0;const status=s===0?"نافذ":x.minStock&&s<=x.minStock?"ناقص":"متاح";const statusClass=s===0?"err":x.minStock&&s<=x.minStock?"warn":"ok";return "<tr><td><span style='background:"+typeColor+"20;color:"+typeColor+";padding:1px 6px;border-radius:4px;font-size:9px;font-weight:700'>"+typeLabel+"</span></td>"+(x.category?"<td>"+x.category+"</td>":"<td>—</td>")+"<td><b>"+(x.name||"")+"</b></td><td class='center'>"+fmt(s)+" "+(x.unit||"")+"</td><td class='center'>"+(x.minStock?fmt(x.minStock):"—")+"</td><td class='center'>"+fmt(r2(c))+"</td><td class='center'><b>"+fmt(r2(s*c))+"</b></td><td class='center "+statusClass+"'>"+status+"</td></tr>"}).join("");
     const allRows=buildRows(fabrics,"🧵 خامة","#0EA5E9")+buildRows(accessories,"🪡 إكسسوار","#8B5CF6")+buildRows(generalProducts,"➕ منتج","#EC4899");
     const totalValue=fabrics.reduce((s,x)=>s+(Number(x.stock)||0)*(Number(x.avgCost)||Number(x.price)||0),0)+accessories.reduce((s,x)=>s+(Number(x.stock)||0)*(Number(x.avgCost)||Number(x.price)||0),0)+generalProducts.reduce((s,x)=>s+(Number(x.stock)||0)*(Number(x.avgCost)||Number(x.price)||0),0);
@@ -478,7 +600,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     let qrData="";
     try{const QR=await loadQR();if(QR)qrData=await QR.toDataURL(JSON.stringify({app:"clark",type:"prod",id:product.id,name:product.name}),{width:200,margin:1,errorCorrectionLevel:"M"})}
     catch(e){console.error("QR gen failed",e)}
-    const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+    const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}
     const html="<html dir='rtl'><head><meta charset='UTF-8'><title>QR — "+product.name+"</title><style>"+PRINT_CSS+".qr-card{width:60mm;margin:10mm auto;padding:8mm;border:2px solid #1E293B;border-radius:8px;text-align:center;page-break-after:always}.qr-img{width:45mm;height:45mm;margin:0 auto}.qr-title{font-size:14px;font-weight:800;margin-top:6mm}.qr-sub{font-size:10px;color:#64748B;margin-top:2mm}.qr-cat{display:inline-block;padding:2px 10px;background:#EC489915;color:#EC4899;border-radius:12px;font-size:9px;font-weight:700;margin-top:4mm}@page{size:60mm auto;margin:0}</style></head><body><div class='qr-card'>"+(qrData?"<img class='qr-img' src='"+qrData+"'/>":"<div style='padding:20mm;background:#F1F5F9;border-radius:4px'>QR غير متاح</div>")+"<div class='qr-title'>"+product.name+"</div><div class='qr-sub'>الوحدة: "+(product.unit||"—")+" • رصيد: "+fmt(Number(product.stock)||0)+"</div>"+(product.category?"<div class='qr-cat'>"+product.category+"</div>":"")+"<div class='qr-sub' style='margin-top:4mm;font-size:8px'>CLARK — "+today+"</div></div><script>setTimeout(function(){window.print()},500)</"+"script></body></html>";
     w.document.write(html);w.document.close();
   };
@@ -538,6 +660,15 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
                     <Btn small onClick={()=>printProductQR(item)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",padding:"2px 7px",fontSize:FS-3}} title="QR Code">📱</Btn>
                     <Btn small onClick={()=>editProd(item)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",padding:"2px 7px",fontSize:FS-3}} title="تعديل">✏️</Btn>
                     <Btn small onClick={()=>deleteProd(item)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",padding:"2px 7px",fontSize:FS-3}} title="حذف">🗑</Btn>
+                  </>}
+                  {/* V16.77: edit/delete buttons for fabric and accessory */}
+                  {type==="fabric"&&<>
+                    <Btn small onClick={()=>editFab(item)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",padding:"2px 7px",fontSize:FS-3}} title="تعديل">✏️</Btn>
+                    <Btn small onClick={()=>deleteFab(item)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",padding:"2px 7px",fontSize:FS-3}} title="حذف">🗑</Btn>
+                  </>}
+                  {type==="accessory"&&<>
+                    <Btn small onClick={()=>editAcc(item)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",padding:"2px 7px",fontSize:FS-3}} title="تعديل">✏️</Btn>
+                    <Btn small onClick={()=>deleteAcc(item)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",padding:"2px 7px",fontSize:FS-3}} title="حذف">🗑</Btn>
                   </>}
                 </div>}
               </td>
@@ -725,6 +856,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
             <input type="checkbox" checked={hideZero} onChange={e=>setHideZero(e.target.checked)}/>
             <span>إخفاء الأصناف الصفرية</span>
           </label>
+          {canEdit&&<Btn primary small onClick={()=>setFabForm({name:"",unit:"كيلو",price:"",_eid:null})}>+ قماش جديد</Btn>}
         </div>
         {renderItemTable(filteredFab,"fabric")}
       </Card>
@@ -751,6 +883,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
             <input type="checkbox" checked={hideZero} onChange={e=>setHideZero(e.target.checked)}/>
             <span>إخفاء الأصناف الصفرية</span>
           </label>
+          {canEdit&&<Btn primary small onClick={()=>setAccForm({name:"",unit:"قطعة",price:"",_eid:null})}>+ اكسسوار جديد</Btn>}
         </div>
         {renderItemTable(filteredAcc,"accessory")}
       </Card>
@@ -761,10 +894,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
       <div style={{padding:20,textAlign:"center"}}>
         <div style={{fontSize:48,marginBottom:10}}>👕</div>
         <div style={{fontSize:FS+2,fontWeight:700,color:T.text,marginBottom:6}}>مخزن المنتجات الجاهزة</div>
-        <div style={{fontSize:FS-1,color:T.textSec,marginBottom:14}}>لإدارة تسليم المخزن الجاهز (استلام المصنع من الورش)، استخدم تبويبة "تسليم مخزن جاهز"</div>
-        <div style={{display:"flex",justifyContent:"center",gap:8}}>
-          <Btn primary onClick={()=>window.dispatchEvent(new CustomEvent("goto-tab",{detail:"stock"}))}>📥 فتح تبويبة الجاهز</Btn>
-        </div>
+        <div style={{fontSize:FS-1,color:T.textSec,marginBottom:14}}>{/* V18.25: Standalone 'تسليم مخزن جاهز' tab removed — workflow consolidated into each order's detail page */}لإدارة تسليم المخزن الجاهز، افتح صفحة الأوردر المطلوب من تبويبة "أوامر القص" واستخدم زر "+ تسليم" داخل قسم تسليم مخزن جاهز</div>
       </div>
       
       {/* Finished goods summary table */}
@@ -1059,6 +1189,64 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
           <Btn ghost onClick={()=>setShowProdForm(false)}>إلغاء</Btn>
           <Btn primary onClick={saveProd} style={{background:"#EC4899",color:"#fff",border:"none"}}>💾 {prodForm.id?"حفظ":"إضافة"}</Btn>
+        </div>
+      </div>
+    </div>}
+    
+    {/* ════ V16.77: FABRIC FORM POPUP (moved from DBPg) ════ */}
+    {fabForm&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setFabForm(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
+        <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,marginBottom:14}}>{fabForm._eid?"✏️ تعديل القماش":"+ قماش جديد"}</div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec}}>اسم القماش</label>
+            <Inp value={fabForm.name} onChange={v=>setFabForm({...fabForm,name:v})}/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <div>
+              <label style={{fontSize:FS-2,color:T.textSec}}>الوحدة</label>
+              <Sel value={fabForm.unit} onChange={v=>setFabForm({...fabForm,unit:v})}>
+                {getUnits(data,fabForm.unit).map(u=><option key={u} value={u}>{u}</option>)}
+              </Sel>
+            </div>
+            <div>
+              <label style={{fontSize:FS-2,color:T.textSec}}>السعر</label>
+              <Inp value={fabForm.price} onChange={v=>setFabForm({...fabForm,price:v})} type="number"/>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:8}}>
+            <Btn ghost onClick={()=>setFabForm(null)}>إلغاء</Btn>
+            <Btn primary onClick={saveFab}>💾 {fabForm._eid?"حفظ التعديلات":"إضافة"}</Btn>
+          </div>
+        </div>
+      </div>
+    </div>}
+    
+    {/* ════ V16.77: ACCESSORY FORM POPUP (moved from DBPg) ════ */}
+    {accForm&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setAccForm(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
+        <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6",marginBottom:14}}>{accForm._eid?"✏️ تعديل الإكسسوار":"+ اكسسوار جديد"}</div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec}}>الوصف</label>
+            <Inp value={accForm.name} onChange={v=>setAccForm({...accForm,name:v})}/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <div>
+              <label style={{fontSize:FS-2,color:T.textSec}}>الوحدة</label>
+              <Sel value={accForm.unit} onChange={v=>setAccForm({...accForm,unit:v})}>
+                {getUnits(data,accForm.unit).map(u=><option key={u} value={u}>{u}</option>)}
+              </Sel>
+            </div>
+            <div>
+              <label style={{fontSize:FS-2,color:T.textSec}}>السعر</label>
+              <Inp value={accForm.price} onChange={v=>setAccForm({...accForm,price:v})} type="number"/>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:8}}>
+            <Btn ghost onClick={()=>setAccForm(null)}>إلغاء</Btn>
+            <Btn primary onClick={saveAcc} style={{background:"#8B5CF6",color:"#fff",border:"none"}}>💾 {accForm._eid?"حفظ التعديلات":"إضافة"}</Btn>
+          </div>
         </div>
       </div>
     </div>}

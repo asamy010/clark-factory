@@ -12,11 +12,17 @@ import { playBeep } from "./utils/audio.js";
 import { compressImage, compressImg43 } from "./utils/image.js";
 import { loadXLSX, loadQR, loadJsQR, scanQR, compressFile } from "./utils/qr.js";
 import { addAudit } from "./utils/audit.js";
+import { setUpConfigCallback as registerAutoPostCallback } from "./utils/accounting/autoPost.js";
 import { prefetchIpInfo } from "./utils/device.js";
 import { enforceDataLimits } from "./utils/dataLimits.js";
+import { isSafeWrite } from "./utils/dataIntegrity.js";
+import { createComprehensiveBackup, deleteComprehensiveBackup } from "./utils/comprehensiveBackup.js";
+import { syncAllSplitChanges, stripSplitArrays, SPLIT_COLLECTIONS, SPLIT_FIELDS } from "./utils/splitCollections.js";
+import { syncAllPartitionedChanges, stripPartitionedArrays, PARTITIONED_COLLECTIONS, PARTITIONED_FIELDS } from "./utils/partitionedCollections.js";
+import { noticeSuccess, noticeWarn, noticeError } from "./utils/storageNotices.js";
 import { ask, tell, askInput, askForm, showToast, highlightRow } from "./utils/popups.js";
 import { printPage, printPkgLabel, printEmpQrCards, renderLabelPages, openPrintWindow } from "./utils/print.js";
-import { wsIsInternal, calcOrder, getConfirmedStock, checkStockAvailability, deductStockForOrder, calcWsRating, migrateStatus } from "./utils/orders.js";
+import { wsIsInternal, calcOrder, getConfirmedStock, checkStockAvailability, deductStockForOrder, calcWsRating, migrateStatus, matchWorkshopFromDesc } from "./utils/orders.js";
 import { ensureCategoriesInit } from "./utils/categories.js";
 
 /* T, TH, TD, TDB, TDL imported from theme.js (V15.0 phase 2) — mutable module-level objects.
@@ -31,7 +37,10 @@ import { lazy, Suspense } from "react";
 import { lazyNamed, PageLoader, ChunkErrorBoundary } from "./utils/lazyLoad.jsx";
 
 const CustDeliverPg = lazyNamed(() => import("./pages/CustDeliverPg.jsx"), "CustDeliverPg");
+const SalesInvoicesPg = lazyNamed(() => import("./pages/SalesInvoicesPg.jsx"), "SalesInvoicesPg");
+const CreditNotesPg = lazyNamed(() => import("./pages/CreditNotesPg.jsx"), "CreditNotesPg");
 const PurchasePg = lazyNamed(() => import("./pages/PurchasePg.jsx"), "PurchasePg");
+const PurchaseInvoicesPg = lazyNamed(() => import("./pages/PurchaseInvoicesPg.jsx"), "PurchaseInvoicesPg");
 const TreasuryPg = lazyNamed(() => import("./pages/TreasuryPg.jsx"), "TreasuryPg");
 const HRPg = lazyNamed(() => import("./pages/HRPg.jsx"), "HRPg");
 
@@ -40,12 +49,12 @@ const HRPg = lazyNamed(() => import("./pages/HRPg.jsx"), "HRPg");
 import { LoginScreen, TABS } from "./components/LoginScreen.jsx";
 import { ActivityFeed } from "./components/ActivityFeed.jsx";
 import { UndoToast } from "./components/UndoToast.jsx";
+import { AboutVersionModal } from "./components/AboutVersionModal.jsx";
 import { DashPg } from "./pages/DashPg.jsx";/* eager — always first screen */
 const DBPg = lazyNamed(() => import("./pages/DBPg.jsx"), "DBPg");
 import { OrdForm } from "./pages/OrdForm.jsx";/* eager — small, used within DetPg */
 const DetPg = lazyNamed(() => import("./pages/DetPg.jsx"), "DetPg");
 const ExtProdPg = lazyNamed(() => import("./pages/ExtProdPg.jsx"), "ExtProdPg");
-const CalcPg = lazyNamed(() => import("./pages/CalcPg.jsx"), "CalcPg");
 const StockPg = lazyNamed(() => import("./pages/StockPg.jsx"), "StockPg");
 const RepPg = lazyNamed(() => import("./pages/RepPg.jsx"), "RepPg");
 const ReportsHub = lazyNamed(() => import("./pages/reports.jsx"), "ReportsHub");
@@ -53,6 +62,9 @@ const CostPg = lazyNamed(() => import("./pages/CostPg.jsx"), "CostPg");
 const TasksPg = lazyNamed(() => import("./pages/TasksPg.jsx"), "TasksPg");
 const SettingsPg = lazyNamed(() => import("./pages/SettingsPg.jsx"), "SettingsPg");
 const AuditPg = lazyNamed(() => import("./pages/AuditPg.jsx"), "AuditPg");
+/* V18.35: Accounting system — chart of accounts, journal, trial balance, settings */
+const AccountingPg = lazyNamed(() => import("./pages/AccountingPg.jsx"), "AccountingPg");
+const FixedAssetsPg = lazyNamed(() => import("./pages/FixedAssetsPg.jsx"), "FixedAssetsPg");
 /* V15.59: Mobile Warehouse — accessed via /warehouse URL */
 import { MobileWarehouseShell } from "./pages/mobile/MobileWarehouseShell.jsx";
 const WarehousePg = lazyNamed(() => import("./pages/WarehousePg.jsx"), "WarehousePg");
@@ -61,6 +73,12 @@ const WarehousePg = lazyNamed(() => import("./pages/WarehousePg.jsx"), "Warehous
    Rendered BEFORE auth check so it works without login. */
 import { ConfirmPage } from "./components/ConfirmPage.jsx";
 import { CustomerPortalPage } from "./components/CustomerPortalPage.jsx";
+/* V17.9: Workshop portal — public read-only page for workshops via signed URL */
+import { WorkshopPortalPage } from "./components/WorkshopPortalPage.jsx";
+/* V16.73: Public workshop-delivery confirmation page — same idea as ConfirmPage
+   above but for workshops scanning the QR on a 10×15 cm delivery label. Routed
+   below at /?wd=1&ord=...&ws=...&idx=...&sig=..., before any login gate. */
+import { WorkshopConfirmPage } from "./components/WorkshopConfirmPage.jsx";
 
 
 /* Optional libs - loaded dynamically */
@@ -115,11 +133,35 @@ export default function App(){
     }
   }
   /* V16.3: Customer portal — public read-only account page for customers.
-     URL format: /?portal=1&c=<custId>&sig=<hmac> */
-  if(urlParams.get("portal")==="1"){
-    const c=urlParams.get("c"),sig=urlParams.get("sig");
+     V18.15: Now supports two URL formats (backward compat):
+       Legacy:   /?portal=1&c=<custId>&sig=<hmac_hex>
+       Short:    /?p=c&i=<custId>&s=<hmac_b64url> */
+  if(urlParams.get("portal")==="1"||urlParams.get("p")==="c"){
+    const c=urlParams.get("c")||urlParams.get("i"),sig=urlParams.get("sig")||urlParams.get("s");
     if(c&&sig){
       return <CustomerPortalPage params={{c,sig}}/>;
+    }
+  }
+  /* V17.9: Workshop portal — public read-only account page for workshops.
+     V18.15: Now supports two URL formats (backward compat):
+       Legacy:   /?wsportal=1&w=<wsId>&sig=<hmac_hex>
+       Short:    /?p=w&i=<wsId>&s=<hmac_b64url> */
+  if(urlParams.get("wsportal")==="1"||urlParams.get("p")==="w"){
+    const w=urlParams.get("w")||urlParams.get("i"),sig=urlParams.get("sig")||urlParams.get("s");
+    if(w&&sig){
+      return <WorkshopPortalPage params={{w,sig}}/>;
+    }
+  }
+  /* V16.73: Public workshop-delivery confirmation — opened when a workshop
+     scans the QR on a 10×15 cm delivery label printed in V16.73 or later.
+     URL format: /?wd=1&ord=<orderId>&ws=<wsId>&idx=<deliveryIdx>&sig=<hmac>
+     Checked BEFORE the login gate (same as `dc=1` and `portal=1` above) so
+     the workshop never sees a login prompt. The legacy `?act=wsdel&...` path
+     handled further down still works for old labels (login-gated). */
+  if(urlParams.get("wd")==="1"){
+    const ord=urlParams.get("ord"),ws=urlParams.get("ws"),idx=urlParams.get("idx"),sig=urlParams.get("sig");
+    if(ord&&ws&&idx!=null&&sig){
+      return <WorkshopConfirmPage params={{ord,ws,idx,sig}}/>;
     }
   }
   /* QR scan: ?o=modelNo → order details, ?act=rcv&oid=ID&wdi=IDX → receive mode */
@@ -136,6 +178,22 @@ export default function App(){
 
   const[user,setUser]=useState(null);const[authLoading,setAuthLoading]=useState(true);
   const[configDoc,setConfigDoc]=useState(INIT_CONFIG);const[salesDoc,setSalesDoc]=useState({});const[tasksDoc,setTasksDoc]=useState({});const[orders,setOrders]=useState([]);const[dataLoading,setDataLoading]=useState(true);
+  /* V18.60 SAFETY: configLoaded — set to true ONLY after config listener fires once
+     with valid server data. Prevents writes from happening with INIT_CONFIG as base. */
+  const[configLoaded,setConfigLoaded]=useState(false);
+  /* V18.60 SAFETY: configError — populated if the config doc is missing or the
+     listener errors. UI blocks all writes when this is non-null. */
+  const[configError,setConfigError]=useState(null);
+  /* V16.74: split collections state — treasury, auditLog, hrLog من daily collections */
+  const[splitData,setSplitData]=useState({treasury:[],auditLog:[],hrLog:[]});
+  const[splitLoaded,setSplitLoaded]=useState(false);
+  /* V17.4: ref tracking latest configDoc — used by listeners to check if a snap
+     would override our local optimistic state (cached snaps with hasPendingWrites
+     can race ahead of our setConfigDoc, briefly regressing the UI). */
+  const configDocRef=useRef(null);
+  /* V16.75: partitioned collections state — hrWeeks (each week is its own document) */
+  const[partitionedData,setPartitionedData]=useState({hrWeeks:[]});
+  const[partitionedLoaded,setPartitionedLoaded]=useState(false);
   const config=useMemo(()=>{const merged={...configDoc,...salesDoc,...tasksDoc};
     /* Safety: if salesDoc has sessions, ALWAYS prefer it over configDoc */
     if(salesDoc.custDeliverySessions)merged.custDeliverySessions=salesDoc.custDeliverySessions;
@@ -143,13 +201,30 @@ export default function App(){
     if(tasksDoc.tasks)merged.tasks=tasksDoc.tasks;
     if(tasksDoc.stickyNotes)merged.stickyNotes=tasksDoc.stickyNotes;
     if(tasksDoc.inventoryAudits)merged.inventoryAudits=tasksDoc.inventoryAudits;
-    return merged},[configDoc,salesDoc,tasksDoc]);
+    /* V16.74: split collections override config equivalents — لكن فقط بعد:
+       1) listeners قرأت أول round trip (splitLoaded=true)
+       2) migration للـsplit days اشتغلت (_splitDaysV1674Done=true)
+       لو الـmigration ما اتعملتش لسه، نخلي البيانات الأصلية في config كما هي. */
+    if(splitLoaded&&configDoc._splitDaysV1674Done){
+      merged.treasury=splitData.treasury;
+      merged.auditLog=splitData.auditLog;
+      merged.hrLog=splitData.hrLog;
+    }
+    /* V16.75: partitioned collections (hrWeeks) — same pattern */
+    if(partitionedLoaded&&configDoc._partitionedV1675Done){
+      merged.hrWeeks=partitionedData.hrWeeks;
+    }
+    return merged},[configDoc,salesDoc,tasksDoc,splitData,splitLoaded,partitionedData,partitionedLoaded]);
   const[tab,setTab_]=useState(()=>sessionStorage.getItem("clark_tab")||"home");const[sel,setSel_]=useState(()=>sessionStorage.getItem("clark_sel")||null);
   const setTab=v=>{setTab_(v);sessionStorage.setItem("clark_tab",v)};
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
   /* Cross-page tab navigation via custom event (used by WarehousePg to open stock tab) */
   useEffect(()=>{const h=(e)=>{if(e?.detail)setTab(e.detail)};window.addEventListener("goto-tab",h);return()=>window.removeEventListener("goto-tab",h)},[]);
-  const[gSearch,setGSearch]=useState(""); const gSearchDeb=useDebounced(gSearch,250);const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);const[cardPopup,setCardPopup]=useState(null);const[labelPopup,setLabelPopup]=useState(null);const[labelBags,setLabelBags]=useState(1);const[wsAccPopup,setWsAccPopup]=useState(null);const[barcodePopup,setBarcodePopup]=useState(null);const[showNotifs,setShowNotifs]=useState(false);
+  const[gSearch,setGSearch]=useState(""); const gSearchDeb=useDebounced(gSearch,250);const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);const[cardPopup,setCardPopup]=useState(null);const[labelPopup,setLabelPopup]=useState(null);const[labelBags,setLabelBags]=useState(1);const[wsAccPopup,setWsAccPopup]=useState(null);const[barcodePopup,setBarcodePopup]=useState(null);const[showNotifs,setShowNotifs]=useState(false);const[showAboutVersion,setShowAboutVersion]=useState(false);
+  /* V17.1 FIX #12+#15: Migration status — blocks UI while a migration is running.
+     Without this, users could add data during migration and the data would be lost
+     (window between step 2 [sync] and step 3 [config write] is unsafe). */
+  const[migrationStatus,setMigrationStatus]=useState(null);/* null | {label, progress?: 0-100, message?} */
   /* V16.50: workshop delivery confirmation popup — opened when a workshop scans
      the QR on a delivery receipt. Carries the order, the workshopDeliveries entry
      (snapshot at scan time), and a flag for the confirm action. */
@@ -164,6 +239,8 @@ export default function App(){
   const[sidebarTab,setSidebarTab]=useState("notes");/* "notes"|"tasks"|"activity" — for home sidebar */
   const[quickPopup,setQuickPopup]=useState(null);/* "task"|"notif"|null */
   const[qpTo,setQpTo]=useState("");const[qpText,setQpText]=useState("");const[qpType,setQpType]=useState("تذكير");
+  /* V18.92: Notification expiry duration. Values: "1h"|"2h"|"1d"|"endday"|"none". Default: "2h". */
+  const[qpDuration,setQpDuration]=useState("2h");
   const[aiMsgs,setAiMsgs]=useState([]);const[aiInput,setAiInput]=useState("");const[aiLoading,setAiLoading]=useState(false);const[aiOpen,setAiOpen]=useState(false);
   /* V15.68: Dismissed alerts moved to Firestore (per user) — syncs across all devices.
      Structure: config.userDismissed[email] = [{key, at}]
@@ -238,7 +315,7 @@ export default function App(){
       const ws=(config.workshops||[]).map(w=>{let del=0,rcv=0;orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{del+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{rcv+=Number(r.qty)||0})})});
         const payments=(config.wsPayments||[]).filter(p=>p.wsName===w.name);const paid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);
         let due=0;orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});
-        return{name:w.name,type:w.type,delivered:del,received:rcv,balance:del-rcv,dueMoney:r2(due),paid:r2(paid),owedMoney:r2(due-paid),payPercent:Number(w.payPercent)||60}});
+        return{name:w.name,type:w.type,delivered:del,received:rcv,balance:del-rcv,dueMoney:r2(due),paid:r2(paid),factoryOwesWorkshop:r2(due-paid),payPercent:Number(w.payPercent)||60}});
       /* Orders summary */
       const ords=orders.map(o=>{const t=calcOrder(o);const wds=o.workshopDeliveries||[];const totalDel=wds.reduce((s,wd)=>s+(Number(wd.qty)||0),0);const totalRcv=wds.reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);const stockDel=getConfirmedStock(o);
         const custDel=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const custRet=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
@@ -258,7 +335,7 @@ export default function App(){
       const totalSold=ords.reduce((s,o)=>s+o.sold,0);
       const totalRevenue=ords.reduce((s,o)=>s+o.sold*o.sellPrice,0);
       const summary={totalCut,totalStock,totalSold,availableInStock:totalStock-totalSold,totalRevenue:r2(totalRevenue),ordersCount:ords.length,workshopsCount:ws.length,customersCount:custs.length};
-      const ctx="أنت مساعد ذكي لنظام CLARK لإدارة مصانع الملابس.\n\nقواعد الرد:\n- رد بالمصري العامي (يعني، كده، خلاص، أهو)\n- اختصر اختصار غير مخل — بلاش كلام كتير\n- افصل بين كل أوردر أو معلومة بخط فاصل ─────\n- في الأرصدة المالية للورش: لو owedMoney سالب يبقى الورشة عليها فلوس (دفعنالها أكتر من المستحق)، لو موجب يبقى ليها فلوس عندنا\n- نسبة الدفع payPercent = الحد الأقصى المسموح بدفعه من المستحق (عادي 60%)\n- مصطلحات الورش مهمة جداً: workshopDeliveries.qty = الورشة استلمت منّنا (استلم)، workshopDeliveries.receives[].qty = الورشة سلّمت لنا (سلّم). يعني لما تكتب عن ورشة اكتب: استلم 508، سلّم 495، باقي 13. مش العكس!\n- availableInStock = المتاح في مخزن الجاهز (بعد طرح اللي اتباع)\n- sold = اللي اتباع للعملاء (بعد طرح المرتجعات)\n- في الآخر خالص حط سطر ─────── وبعده 💡 ملاحظتك أو نصيحتك من عندك كمدير انتاج خبرة\n\nبيانات الموسم "+season+":\n\nملخص عام:\n"+JSON.stringify(summary,null,0)+"\n\nالأوردرات ("+ords.length+"):\n"+JSON.stringify(ords,null,0)+"\n\nالورش ("+ws.length+"):\n"+JSON.stringify(ws,null,0)+"\n\nالعملاء ("+custs.length+"):\n"+JSON.stringify(custs,null,0)+"\n\nالتاريخ: "+new Date().toISOString().split("T")[0];
+      const ctx="أنت مساعد ذكي لنظام CLARK لإدارة مصانع الملابس.\n\nقواعد الرد:\n- رد بالمصري العامي (يعني، كده، خلاص، أهو)\n- اختصر اختصار غير مخل — بلاش كلام كتير\n- افصل بين كل أوردر أو معلومة بخط فاصل ─────\n\n⚠️ قاعدة حرجة في الأرصدة المالية للورش (لازم تتبعها حرفياً):\nالـ field اسمه `factoryOwesWorkshop` ومعناه: المبلغ اللي المصنع مديون به للورشة.\n• لو `factoryOwesWorkshop` موجب (> 0): الورشة دائنة — اكتب \"الورشة **ليها** X جنيه عندنا\" أو \"المصنع مدين للورشة بـ X\". مش \"عليها\"!\n• لو `factoryOwesWorkshop` سالب (< 0): الورشة مدينة لنا — اكتب \"الورشة **عليها** X جنيه\" (دفعنالها أكتر من المستحق).\n• لو = 0: حسابها متسوّي.\nمثال: ورشة نورهان `factoryOwesWorkshop=129900` (موجب) → \"ورشة نورهان ليها 129,900 جنيه عندنا\". غلط لو كتبت \"عليها\".\n\n- نسبة الدفع payPercent = الحد الأقصى المسموح بدفعه من المستحق (عادي 60%)\n- مصطلحات الورش مهمة جداً: workshopDeliveries.qty = الورشة استلمت منّنا (استلم)، workshopDeliveries.receives[].qty = الورشة سلّمت لنا (سلّم). يعني لما تكتب عن ورشة اكتب: استلم 508، سلّم 495، باقي 13. مش العكس!\n- availableInStock = المتاح في مخزن الجاهز (بعد طرح اللي اتباع)\n- sold = اللي اتباع للعملاء (بعد طرح المرتجعات)\n- في الآخر خالص حط سطر ─────── وبعده 💡 ملاحظتك أو نصيحتك من عندك كمدير انتاج خبرة\n\nبيانات الموسم "+season+":\n\nملخص عام:\n"+JSON.stringify(summary,null,0)+"\n\nالأوردرات ("+ords.length+"):\n"+JSON.stringify(ords,null,0)+"\n\nالورش ("+ws.length+"):\n"+JSON.stringify(ws,null,0)+"\n\nالعملاء ("+custs.length+"):\n"+JSON.stringify(custs,null,0)+"\n\nالتاريخ: "+new Date().toISOString().split("T")[0];
       const msgs=[...aiMsgs.map(m=>({role:m.role==="user"?"user":"assistant",content:m.text})),{role:"user",content:q}];
       let data2;let retries=0;
       while(retries<2){
@@ -426,11 +503,54 @@ export default function App(){
     };
 
     /* Main config listener */
-    const u1=onSnapshot(doc(db,"factory","config"),snap=>{
-      if(!snap.exists()){setDoc(doc(db,"factory","config"),INIT_CONFIG);return}
+    const u1=onSnapshot(doc(db,"factory","config"),{includeMetadataChanges:false},snap=>{
+      if(!snap.exists()){
+        /* V18.60 CRITICAL FIX: Previously this auto-wrote INIT_CONFIG, which
+           DESTROYED real data on permission errors / transient absence. Now we
+           refuse to auto-init and surface an explicit error to the UI.
+           
+           If this is a genuinely fresh project (first install), the user must
+           run the dedicated init flow — NOT have it happen silently on every
+           startup where the doc happens to look missing. */
+        console.error("[V18.60 CRITICAL] factory/config does not exist! Refusing to auto-init.");
+        setConfigError({
+          type:"missing_config",
+          ts:new Date().toISOString(),
+          uid:user?.uid,
+          email:user?.email
+        });
+        return;
+      }
       const d=snap.data();
+      /* V17.4 FIX: Don't override our local optimistic state with stale cached/pending data.
+         
+         Bug we're fixing: When user clicks "تأكيد التحويل":
+         1. upConfig() does setConfigDoc(stripped) — UI shows transfer confirmed
+         2. Firestore SDK caches the write locally
+         3. onSnapshot fires from CACHE before the server acknowledges. snap.data() may
+            return data WITHOUT our optimistic update (race window in the SDK).
+         4. setConfigDoc(d) applies stale state → UI regresses to "pending"
+         5. Server acknowledges → onSnapshot fires again with confirmed state
+         6. setConfigDoc(d) applies the new server state → UI returns to "confirmed"
+         
+         The user sees: confirmed → pending (briefly) → confirmed. 
+         
+         Fix: ignore snaps with hasPendingWrites if we already have a configDoc loaded.
+         The pending write IS our local state, no need to overwrite ourselves with our
+         own intermediate cache. We will get a server-confirmed snap shortly after.
+         
+         Use configDocRef (not configDoc closure) because the closure captures stale value. */
+      if(snap.metadata.hasPendingWrites&&configDocRef.current){
+        /* Skip — our local state is fresher than this cached snap */
+        return;
+      }
       /* ALWAYS show the data to the user (even if cached — that's fine for display) */
       setConfigDoc(d);
+      /* V18.60: Mark config as loaded once we have valid data (cached or server).
+         Writes are gated on this flag — see upConfig safety check. */
+      setConfigLoaded(true);
+      /* Clear any prior error since we have valid data now */
+      setConfigError(null);
       /* ⛔ Skip ALL migrations if data is from local cache or has pending writes.
          Wait for the first confirmed server snapshot before running any migration. */
       if(snap.metadata.fromCache){return}
@@ -488,6 +608,126 @@ export default function App(){
             if(candidate){p.treasuryTxId=candidate.id;candidate.wsPaymentId=p.id;candidate.wsName=p.wsName;candidate.sourceType="ws_payment";linked++}
           });
           data._wsPayLinked=true;
+          return"linked="+linked;
+        }
+      );
+
+      /* ═══ Migration 3b (V18.72): backfill workshop link for treasury entries
+         where the user typed the workshop name in the desc but never picked the
+         workshop from the party selector. Migration 3 only matches existing
+         wsPayments — this one creates new ones from orphan treasury rows. ═══ */
+      runMigration("ws-treasury-desc-backfill",d,
+        (data)=>!data._wsTreasuryDescBackfill&&Array.isArray(data.treasury)&&Array.isArray(data.workshops)&&data.workshops.length>0,
+        (data)=>{
+          if(!Array.isArray(data.wsPayments))data.wsPayments=[];
+          let linked=0;
+          (data.treasury||[]).forEach(t=>{
+            if(!t||t.wsPaymentId)return;
+            if(t.type!=="out")return;
+            if(t.category!=="تشغيل خارجي"&&t.category!=="مشتريات")return;
+            const ws=matchWorkshopFromDesc(t.desc||"",data.workshops);
+            if(!ws)return;
+            const wsPayId="wsp_bf_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,7);
+            data.wsPayments.push({
+              id:wsPayId,
+              wsName:ws.name,
+              wsId:ws.id,
+              amount:Number(t.amount)||0,
+              type:t.category==="مشتريات"?"purchase":"payment",
+              notes:t.notes||"",
+              date:t.date||"",
+              createdBy:t.by||"backfill",
+              treasuryTxId:t.id,
+              createdAt:t.createdAt||new Date().toISOString(),
+              backfilledAt:new Date().toISOString(),
+            });
+            t.wsPaymentId=wsPayId;
+            t.wsName=ws.name;
+            if(!t.sourceType)t.sourceType="ws_payment";
+            linked++;
+          });
+          data._wsTreasuryDescBackfill=true;
+          return"linked="+linked;
+        }
+      );
+
+      /* ═══ Migration 3c (V18.73): extended backfill — scans desc+notes
+         combined (V18.72 only scanned desc). Catches orphan treasury entries
+         where the workshop name lives in `notes` only, or is split across
+         desc and notes. Same ambiguity guard via matchWorkshopFromDesc. ═══ */
+      runMigration("ws-treasury-desc-notes-backfill",d,
+        (data)=>!data._wsTreasuryDescNotesBackfill&&Array.isArray(data.treasury)&&Array.isArray(data.workshops)&&data.workshops.length>0,
+        (data)=>{
+          if(!Array.isArray(data.wsPayments))data.wsPayments=[];
+          let linked=0;
+          (data.treasury||[]).forEach(t=>{
+            if(!t||t.wsPaymentId)return;
+            if(t.type!=="out")return;
+            if(t.category!=="تشغيل خارجي"&&t.category!=="مشتريات")return;
+            const haystack=((t.desc||"")+" "+(t.notes||"")).trim();
+            const ws=matchWorkshopFromDesc(haystack,data.workshops);
+            if(!ws)return;
+            const wsPayId="wsp_bf2_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,7);
+            data.wsPayments.push({
+              id:wsPayId,
+              wsName:ws.name,
+              wsId:ws.id,
+              amount:Number(t.amount)||0,
+              type:t.category==="مشتريات"?"purchase":"payment",
+              notes:t.notes||"",
+              date:t.date||"",
+              createdBy:t.by||"backfill",
+              treasuryTxId:t.id,
+              createdAt:t.createdAt||new Date().toISOString(),
+              backfilledAt:new Date().toISOString(),
+            });
+            t.wsPaymentId=wsPayId;
+            t.wsName=ws.name;
+            if(!t.sourceType)t.sourceType="ws_payment";
+            linked++;
+          });
+          data._wsTreasuryDescNotesBackfill=true;
+          return"linked="+linked;
+        }
+      );
+
+      /* ═══ Migration 3d (V18.74 Arabic-normalized): final backfill pass
+         using the Arabic-normalized matcher in matchWorkshopFromDesc. The
+         earlier passes used strict String.includes() which missed entries
+         where the spelling differs (ة/ه, أ/ا, ى/ي, etc.). New key so it
+         re-runs once on existing installs. ═══ */
+      runMigration("ws-treasury-arabic-norm-backfill",d,
+        (data)=>!data._wsTreasuryArabicNormBackfill&&Array.isArray(data.treasury)&&Array.isArray(data.workshops)&&data.workshops.length>0,
+        (data)=>{
+          if(!Array.isArray(data.wsPayments))data.wsPayments=[];
+          let linked=0;
+          (data.treasury||[]).forEach(t=>{
+            if(!t||t.wsPaymentId)return;
+            if(t.type!=="out")return;
+            if(t.category!=="تشغيل خارجي"&&t.category!=="مشتريات")return;
+            const haystack=((t.desc||"")+" "+(t.notes||"")).trim();
+            const ws=matchWorkshopFromDesc(haystack,data.workshops);
+            if(!ws)return;
+            const wsPayId="wsp_bf3_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,7);
+            data.wsPayments.push({
+              id:wsPayId,
+              wsName:ws.name,
+              wsId:ws.id,
+              amount:Number(t.amount)||0,
+              type:t.category==="مشتريات"?"purchase":"payment",
+              notes:t.notes||"",
+              date:t.date||"",
+              createdBy:t.by||"backfill",
+              treasuryTxId:t.id,
+              createdAt:t.createdAt||new Date().toISOString(),
+              backfilledAt:new Date().toISOString(),
+            });
+            t.wsPaymentId=wsPayId;
+            t.wsName=ws.name;
+            if(!t.sourceType)t.sourceType="ws_payment";
+            linked++;
+          });
+          data._wsTreasuryArabicNormBackfill=true;
           return"linked="+linked;
         }
       );
@@ -630,12 +870,25 @@ export default function App(){
          never ran, leaving stale custDeliverySessions / packages / tasks /
          stickyNotes / inventoryAudits in the config doc indefinitely.
          Moved to a dedicated effect below that watches React state directly. */
+    },err=>{
+      /* V18.60 FIX: Error handler was missing — silent failures could cause
+         the app to keep running with stale state on permission denied / network
+         errors. Now we surface the error to the UI and block writes. */
+      console.error("[V18.60 CRITICAL] config listener error:",err);
+      setConfigError({
+        type:"listener_error",
+        code:err?.code||"unknown",
+        message:err?.message||String(err),
+        ts:new Date().toISOString(),
+        uid:user?.uid,
+        email:user?.email
+      });
     });
 
     /* Sales doc */
-    const u2=onSnapshot(doc(db,"factory","sales"),snap=>{if(snap.exists()){if(snap.metadata.hasPendingWrites)return;salesReady=true;setSalesDoc(snap.data())}});
+    const u2=onSnapshot(doc(db,"factory","sales"),snap=>{if(snap.exists()){if(snap.metadata.hasPendingWrites)return;salesReady=true;setSalesDoc(snap.data())}},err=>{console.error("[V18.60] sales listener error:",err)});
     /* Tasks doc */
-    const u3=onSnapshot(doc(db,"factory","tasks"),snap=>{if(snap.exists()){if(snap.metadata.hasPendingWrites)return;tasksReady=true;setTasksDoc(snap.data())}});
+    const u3=onSnapshot(doc(db,"factory","tasks"),snap=>{if(snap.exists()){if(snap.metadata.hasPendingWrites)return;tasksReady=true;setTasksDoc(snap.data())}},err=>{console.error("[V18.60] tasks listener error:",err)});
     return()=>{u1();u2();u3()}},[user]);
 
   /* ═══ V16.11: Migration 6 (split-phase-2 cleanup) — moved out of the config
@@ -726,15 +979,522 @@ export default function App(){
     })();
   },[user,configDoc,salesDoc,tasksDoc]);
 
+  /* ═══════════════════════════════════════════════════════════════════
+     V16.74: One-time migration — split treasury/auditLog/hrLog from
+     factory/config into daily collections (treasuryDays, auditDays, hrLogDays).
+     
+     Why: factory/config was approaching 1MB limit due to these 3 arrays
+     growing unbounded. Splitting them by day keeps each document small
+     (~5KB) and allows years of growth without hitting limits.
+     
+     Once flag _splitDaysV1674Done is set in config, this migration is skipped.
+     ═══════════════════════════════════════════════════════════════════ */
+  const splitDaysMigrationRef=useRef(false);
+  useEffect(()=>{
+    if(!user||splitDaysMigrationRef.current)return;
+    if(!configDoc||!configDoc.accessories)return;/* config not loaded yet */
+    if(configDoc._splitDaysV1674Done)return;/* already migrated */
+    
+    /* انتظار: لازم listeners الـsplit collections تكون اشتغلت كي لا نعمل dup */
+    if(!splitLoaded)return;
+    
+    /* Anything to migrate? */
+    const hasLegacyTreasury=Array.isArray(configDoc.treasury)&&configDoc.treasury.length>0;
+    const hasLegacyAudit=Array.isArray(configDoc.auditLog)&&configDoc.auditLog.length>0;
+    const hasLegacyHrLog=Array.isArray(configDoc.hrLog)&&configDoc.hrLog.length>0;
+    
+    splitDaysMigrationRef.current=true;/* lock to prevent re-runs */
+    
+    (async()=>{
+      try{
+        if(!hasLegacyTreasury&&!hasLegacyAudit&&!hasLegacyHrLog){
+          /* لا يوجد بيانات للـmigrate — فقط نحط الـflag */
+          await runTransaction(db,async(tx)=>{
+            const ref=doc(db,"factory","config");
+            const snap=await tx.get(ref);
+            if(!snap.exists())return;
+            const fresh=snap.data();
+            if(fresh._splitDaysV1674Done)return;
+            tx.set(ref,{...fresh,_splitDaysV1674Done:true});
+          });
+          return;
+        }
+        
+        /* V17.1 FIX #12+#15: Show loading screen to block UI during migration.
+           This prevents users from adding data while we're moving it to day collections,
+           which previously could cause data loss in the unsafe window. */
+        setMigrationStatus({
+          label:"جاري تحديث نظام التخزين (V16.74)",
+          message:"الرجاء عدم إغلاق البرنامج. هذا يحدث مرة واحدة فقط.",
+          progress:5,
+        });
+        
+        /* Backup أولاً */
+        setMigrationStatus(s=>({...s,message:"إنشاء نسخة احتياطية...",progress:15}));
+        const ts=new Date().toISOString().replace(/[:.]/g,"-");
+        await setDoc(doc(db,"backups","pre-migration-split-days-v1674-"+ts),{
+          label:"قبل ميجريشن: split-days-v16.74",
+          autoGenerated:true,
+          migrationType:"split-days-v16.74",
+          createdAt:new Date().toISOString(),
+          createdBy:user.email||"system",
+          counts:{
+            treasury:(configDoc.treasury||[]).length,
+            auditLog:(configDoc.auditLog||[]).length,
+            hrLog:(configDoc.hrLog||[]).length,
+          },
+          /* النسخة الكاملة من config (يشمل treasury, auditLog, hrLog) */
+          config:JSON.parse(JSON.stringify(configDoc)),
+        });
+        
+        /* Sync to day collections */
+        setMigrationStatus(s=>({...s,message:"نقل البيانات إلى الـcollections اليومية...",progress:50}));
+        await syncAllSplitChanges(
+          {treasury:[],auditLog:[],hrLog:[]},
+          {
+            treasury:configDoc.treasury||[],
+            auditLog:configDoc.auditLog||[],
+            hrLog:   configDoc.hrLog||[],
+          }
+        );
+        
+        /* الآن نحذف الـ3 arrays من factory/config ونحط flag */
+        setMigrationStatus(s=>({...s,message:"تنظيف الـconfig...",progress:85}));
+        await runTransaction(db,async(tx)=>{
+          const ref=doc(db,"factory","config");
+          const snap=await tx.get(ref);
+          if(!snap.exists())return;
+          const fresh=snap.data();
+          if(fresh._splitDaysV1674Done)return;
+          const next=stripSplitArrays(fresh);
+          next._splitDaysV1674Done=true;
+          tx.set(ref,next);
+        });
+        
+        try{
+          await setDoc(doc(db,"migrationLog","split-days-v16.74-"+Date.now()),{
+            type:"split-days-v16.74",status:"success",
+            counts:{
+              treasury:(configDoc.treasury||[]).length,
+              auditLog:(configDoc.auditLog||[]).length,
+              hrLog:(configDoc.hrLog||[]).length,
+            },
+            by:user.email||"system",at:new Date().toISOString(),
+          });
+        }catch(_){}
+        
+        /* V16.75: الإعلام في الإعدادات بدلاً من toast popup عشان ما يقفزش لكل المستخدمين */
+        noticeSuccess(
+          "تم تطبيق تحديث V16.74",
+          "تم تحويل الخزنة وسجل الأحداث وسجل HR لتخزين يومي منفصل. هذا يسمح للنظام باستيعاب نمو سنوي بدون قيود الحجم."
+        );
+        setMigrationStatus({label:"تم بنجاح",message:"تم تحديث النظام. يمكنك الاستمرار.",progress:100});
+        setTimeout(()=>setMigrationStatus(null),1500);
+      }catch(err){
+        console.error("[V16.74] Split days migration failed:",err);
+        try{
+          await setDoc(doc(db,"migrationLog","split-days-v16.74-"+Date.now()),{
+            type:"split-days-v16.74",status:"failed",
+            details:(err.message||String(err)).slice(0,300),
+            by:user.email||"system",at:new Date().toISOString(),
+          });
+        }catch(_){}
+        /* unlock فاحس يمكن نحاول ثانية */
+        splitDaysMigrationRef.current=false;
+        setMigrationStatus(null);
+      }
+    })();
+  },[user,configDoc,splitLoaded]);
+
+  /* ═══════════════════════════════════════════════════════════════════
+     V16.75: One-time migration — partition hrWeeks from factory/config
+     into individual documents in hrWeeksDocs collection.
+     
+     Why: hrWeeks objects are large (~67 KB each). With 50 weeks/year,
+     they would exceed the 1 MB Firestore document limit. By making each
+     week its own document, the system can scale indefinitely.
+     
+     Pattern differs from V16.74:
+     - V16.74: collection of small entries grouped BY DATE → daily doc
+     - V16.75: array of large objects → ONE document PER object.id
+     
+     Once flag _partitionedV1675Done is set in config, this is skipped.
+     ═══════════════════════════════════════════════════════════════════ */
+  const partitionedMigrationRef=useRef(false);
+  useEffect(()=>{
+    if(!user||partitionedMigrationRef.current)return;
+    if(!configDoc||!configDoc.accessories)return;
+    if(configDoc._partitionedV1675Done)return;
+    if(!partitionedLoaded)return;/* انتظر حتى listener يقرأ */
+    
+    const hasLegacyHrWeeks=Array.isArray(configDoc.hrWeeks)&&configDoc.hrWeeks.length>0;
+    
+    partitionedMigrationRef.current=true;
+    
+    (async()=>{
+      try{
+        if(!hasLegacyHrWeeks){
+          /* لا يوجد بيانات — نحط الـflag فقط */
+          await runTransaction(db,async(tx)=>{
+            const ref=doc(db,"factory","config");
+            const snap=await tx.get(ref);
+            if(!snap.exists())return;
+            const fresh=snap.data();
+            if(fresh._partitionedV1675Done)return;
+            tx.set(ref,{...fresh,_partitionedV1675Done:true});
+          });
+          return;
+        }
+        
+        /* V17.1 FIX #12+#15: Show loading screen during partitioned migration */
+        setMigrationStatus({
+          label:"جاري تحديث نظام التخزين (V16.75)",
+          message:"الرجاء عدم إغلاق البرنامج. هذا يحدث مرة واحدة فقط.",
+          progress:5,
+        });
+        
+        /* Backup */
+        setMigrationStatus(s=>({...s,message:"إنشاء نسخة احتياطية...",progress:15}));
+        const ts=new Date().toISOString().replace(/[:.]/g,"-");
+        await setDoc(doc(db,"backups","pre-migration-partitioned-v1675-"+ts),{
+          label:"قبل ميجريشن: partitioned-v16.75 (hrWeeks)",
+          autoGenerated:true,
+          migrationType:"partitioned-v16.75",
+          createdAt:new Date().toISOString(),
+          createdBy:user.email||"system",
+          counts:{
+            hrWeeks:(configDoc.hrWeeks||[]).length,
+          },
+          /* النسخة الكاملة من config */
+          config:JSON.parse(JSON.stringify(configDoc)),
+        });
+        
+        /* Sync to partitioned collection */
+        setMigrationStatus(s=>({...s,message:"نقل أسابيع المرتبات إلى documents منفصلة...",progress:50}));
+        await syncAllPartitionedChanges(
+          {hrWeeks:[]},
+          {hrWeeks:configDoc.hrWeeks||[]}
+        );
+        
+        /* احذف hrWeeks من config وحط الـflag */
+        setMigrationStatus(s=>({...s,message:"تنظيف الـconfig...",progress:85}));
+        await runTransaction(db,async(tx)=>{
+          const ref=doc(db,"factory","config");
+          const snap=await tx.get(ref);
+          if(!snap.exists())return;
+          const fresh=snap.data();
+          if(fresh._partitionedV1675Done)return;
+          const next=stripPartitionedArrays(fresh);
+          next._partitionedV1675Done=true;
+          tx.set(ref,next);
+        });
+        
+        try{
+          await setDoc(doc(db,"migrationLog","partitioned-v16.75-"+Date.now()),{
+            type:"partitioned-v16.75",status:"success",
+            counts:{hrWeeks:(configDoc.hrWeeks||[]).length},
+            by:user.email||"system",at:new Date().toISOString(),
+          });
+        }catch(_){}
+        
+        /* V16.75: الإعلام في الإعدادات بدلاً من toast popup */
+        noticeSuccess(
+          "تم تطبيق تحديث V16.75",
+          "تم تقسيم أسابيع المرتبات لـdocuments منفصلة (كل أسبوع document مستقل)."
+        );
+        setMigrationStatus({label:"تم بنجاح",message:"تم تحديث النظام. يمكنك الاستمرار.",progress:100});
+        setTimeout(()=>setMigrationStatus(null),1500);
+      }catch(err){
+        console.error("[V16.75] Partitioned migration failed:",err);
+        try{
+          await setDoc(doc(db,"migrationLog","partitioned-v16.75-"+Date.now()),{
+            type:"partitioned-v16.75",status:"failed",
+            details:(err.message||String(err)).slice(0,300),
+            by:user.email||"system",at:new Date().toISOString(),
+          });
+        }catch(_){}
+        partitionedMigrationRef.current=false;
+        setMigrationStatus(null);
+      }
+    })();
+  },[user,configDoc,partitionedLoaded]);
+
   /* ── LOCAL SNAPSHOT: save critical collections to localStorage on every config update ── */
   useEffect(()=>{if(!configDoc||!configDoc.accessories)return;
     try{const snap={workshops:configDoc.workshops||[],customers:configDoc.customers||[],suppliers:configDoc.suppliers||[],fabrics:configDoc.fabrics||[],accessories:configDoc.accessories||[],sizeSets:configDoc.sizeSets||[],garmentTypes:configDoc.garmentTypes||[],statusCards:configDoc.statusCards||[],employees:configDoc.employees||[],treasuryAccounts:configDoc.treasuryAccounts||[],savedAt:new Date().toISOString()};
       localStorage.setItem("clark-data-snapshot",JSON.stringify(snap))}catch(e){}},[configDoc]);
-  useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>{const o={_docId:d.id,...d.data()};if(o.status)o.status=migrateStatus(o.status);return o}).filter(o=>o.id));setDataLoading(false)});return()=>unsub()},[user,season]);
 
-  /* ═══ AUTO-BACKUP: once per day per user ═══ */
+  /* ═══════════════════════════════════════════════════════════════════
+     V16.74: SPLIT COLLECTIONS LISTENERS
+     listeners على treasuryDays/, auditDays/, hrLogDays/.
+     كل ما حصل تغيير في أي day document، نعيد بناء الـmerged array
+     ونحطه في splitData state. الـconfig useMemo بيدمجه في data.treasury.
+     ═══════════════════════════════════════════════════════════════════ */
+  /* V17.0 FIX #8: Track pending optimistic writes per collection.
+     Map structure: collectionName → Map(entryId → entry).
+     When we apply an optimistic update, we record the pending entry here.
+     When the listener fires with server data, we merge pending entries that
+     haven't yet appeared in the server state, preventing flicker.
+     When the server confirms an entry (it appears in the listener data),
+     we remove it from the pending map. */
+  const pendingSplitWritesRef=useRef({
+    treasury:new Map(),auditLog:new Map(),hrLog:new Map(),
+  });
+  const pendingPartitionedWritesRef=useRef({
+    hrWeeks:new Map(),
+  });
+  /* Helper: register pending writes after an optimistic update */
+  const registerPendingSplitWrites=useCallback((before,after)=>{
+    const fields=["treasury","auditLog","hrLog"];
+    for(const f of fields){
+      const beforeIds=new Set((before[f]||[]).map(e=>String(e?.id||"")));
+      const afterArr=after[f]||[];
+      for(const entry of afterArr){
+        const id=String(entry?.id||"");
+        if(!id)continue;
+        const beforeEntry=(before[f]||[]).find(e=>String(e?.id||"")===id);
+        /* Mark as pending if it's new OR if it changed */
+        if(!beforeEntry||JSON.stringify(beforeEntry)!==JSON.stringify(entry)){
+          pendingSplitWritesRef.current[f].set(id,{entry,timestamp:Date.now()});
+        }
+      }
+      /* Pending deletes: in before but not in after */
+      const afterIds=new Set(afterArr.map(e=>String(e?.id||"")));
+      for(const id of beforeIds){
+        if(!afterIds.has(id)){
+          pendingSplitWritesRef.current[f].set(id,{deleted:true,timestamp:Date.now()});
+        }
+      }
+    }
+  },[]);
+  const registerPendingPartitionedWrites=useCallback((before,after)=>{
+    const fields=["hrWeeks"];
+    for(const f of fields){
+      const beforeIds=new Set((before[f]||[]).map(o=>String(o?.id||"")));
+      const afterArr=after[f]||[];
+      for(const obj of afterArr){
+        const id=String(obj?.id||"");
+        if(!id)continue;
+        const beforeObj=(before[f]||[]).find(o=>String(o?.id||"")===id);
+        if(!beforeObj||JSON.stringify(beforeObj)!==JSON.stringify(obj)){
+          pendingPartitionedWritesRef.current[f].set(id,{entry:obj,timestamp:Date.now()});
+        }
+      }
+      const afterIds=new Set(afterArr.map(o=>String(o?.id||"")));
+      for(const id of beforeIds){
+        if(!afterIds.has(id)){
+          pendingPartitionedWritesRef.current[f].set(id,{deleted:true,timestamp:Date.now()});
+        }
+      }
+    }
+  },[]);
+  /* Cleanup stale pending writes (older than 30 seconds — server should have echoed them by then) */
+  useEffect(()=>{
+    const interval=setInterval(()=>{
+      const now=Date.now();
+      const STALE_MS=30000;
+      for(const f of ["treasury","auditLog","hrLog"]){
+        const map=pendingSplitWritesRef.current[f];
+        for(const[id,info]of map){
+          if(now-info.timestamp>STALE_MS)map.delete(id);
+        }
+      }
+      for(const f of ["hrWeeks"]){
+        const map=pendingPartitionedWritesRef.current[f];
+        for(const[id,info]of map){
+          if(now-info.timestamp>STALE_MS)map.delete(id);
+        }
+      }
+    },10000);
+    return()=>clearInterval(interval);
+  },[]);
+
+  useEffect(()=>{if(!user)return;
+    const unsubs=[];
+    /* Maps: dayId → entries[] لكل collection */
+    const dayDocs={treasury:new Map(),auditLog:new Map(),hrLog:new Map()};
+    let firstFires={treasury:false,auditLog:false,hrLog:false};
+    const rebuild=()=>{
+      /* V16.75 FIX: flatten by sorting day keys DESC (newest day first), then concat each day's entries.
+         This matches the expectation in TreasuryPg/HRPg/AuditPg that array is newest-first.
+         Without this, Map insertion order leaks to the UI: oldest day's entries appear first.
+         
+         V17.0 FIX #8: Merge pending optimistic writes with server data to prevent flicker. */
+      const flatten=(map,pendingMap)=>{
+        const sortedDays=[...map.keys()].sort((a,b)=>b.localeCompare(a));
+        const all=[];
+        const serverIds=new Set();
+        for(const dayKey of sortedDays){
+          const entries=map.get(dayKey)||[];
+          for(const e of entries){
+            const id=String(e?.id||"");
+            /* Skip server entries that user just deleted optimistically */
+            const pending=pendingMap.get(id);
+            if(pending&&pending.deleted)continue;
+            /* Use the pending (optimistic) version if it exists — server may be stale */
+            if(pending&&pending.entry){
+              all.push(pending.entry);
+            }else{
+              all.push(e);
+            }
+            serverIds.add(id);
+          }
+        }
+        /* Add pending entries that haven't appeared in server yet */
+        for(const[id,info]of pendingMap){
+          if(info.deleted)continue;
+          if(!serverIds.has(id)&&info.entry){
+            /* Insert at the start (newest-first convention) */
+            all.unshift(info.entry);
+          }
+        }
+        /* Cleanup: server has confirmed pending writes (entries match) */
+        for(const[id,info]of pendingMap){
+          if(info.deleted){
+            /* Confirmed deleted: not in server anymore */
+            if(!serverIds.has(id))pendingMap.delete(id);
+          }else if(info.entry){
+            /* Confirmed write: server has identical version */
+            const serverEntry=Array.from(map.values()).flat().find(e=>String(e?.id||"")===id);
+            if(serverEntry&&JSON.stringify(serverEntry)===JSON.stringify(info.entry)){
+              pendingMap.delete(id);
+            }
+          }
+        }
+        return all;
+      };
+      setSplitData({
+        treasury:flatten(dayDocs.treasury,pendingSplitWritesRef.current.treasury),
+        auditLog:flatten(dayDocs.auditLog,pendingSplitWritesRef.current.auditLog),
+        hrLog:flatten(dayDocs.hrLog,pendingSplitWritesRef.current.hrLog),
+      });
+      /* mark loaded after first round trip from all 3 */
+      if(firstFires.treasury&&firstFires.auditLog&&firstFires.hrLog){
+        setSplitLoaded(true);
+      }
+    };
+    const subscribeCol=(field,collName)=>{
+      const map=dayDocs[field];
+      const unsub=onSnapshot(collection(db,collName),snap=>{
+        snap.docChanges().forEach(change=>{
+          const docData=change.doc.data();
+          const entries=(docData&&docData.entries)||[];
+          if(change.type==="removed"){
+            map.delete(change.doc.id);
+          }else{
+            map.set(change.doc.id,entries);
+          }
+        });
+        firstFires[field]=true;
+        rebuild();
+      },err=>{
+        console.error(`[V16.74] Listener error ${collName}:`,err);
+        /* even on error, mark as fired so UI doesn't hang */
+        firstFires[field]=true;
+        rebuild();
+      });
+      unsubs.push(unsub);
+    };
+    subscribeCol("treasury",SPLIT_COLLECTIONS.treasury);
+    subscribeCol("auditLog",SPLIT_COLLECTIONS.auditLog);
+    subscribeCol("hrLog",   SPLIT_COLLECTIONS.hrLog);
+    return()=>{unsubs.forEach(u=>u())};
+  },[user]);
+
+  /* ═══════════════════════════════════════════════════════════════════
+     V16.75: PARTITIONED COLLECTIONS LISTENERS
+     hrWeeks → hrWeeksDocs/{weekId}
+     كل week.id يبقى document مستقل. listener بيحدث partitionedData.
+     ═══════════════════════════════════════════════════════════════════ */
+  useEffect(()=>{if(!user)return;
+    const unsubs=[];
+    const docsById={hrWeeks:new Map()};
+    const firstFires={hrWeeks:false};
+    const rebuild=()=>{
+      /* V17.0 FIX #8: Merge pending optimistic writes with server data */
+      const flatten=(map,pendingMap)=>{
+        const all=[];
+        const serverIds=new Set();
+        for(const obj of map.values()){
+          const id=String(obj?.id||"");
+          const pending=pendingMap.get(id);
+          if(pending&&pending.deleted)continue;
+          if(pending&&pending.entry){
+            all.push(pending.entry);
+          }else{
+            all.push(obj);
+          }
+          serverIds.add(id);
+        }
+        /* Add pending writes not yet seen in server */
+        for(const[id,info]of pendingMap){
+          if(info.deleted)continue;
+          if(!serverIds.has(id)&&info.entry){
+            all.push(info.entry);
+          }
+        }
+        /* Cleanup confirmed pending */
+        for(const[id,info]of pendingMap){
+          if(info.deleted){
+            if(!serverIds.has(id))pendingMap.delete(id);
+          }else if(info.entry){
+            const serverObj=Array.from(map.values()).find(o=>String(o?.id||"")===id);
+            if(serverObj&&JSON.stringify(serverObj)===JSON.stringify(info.entry)){
+              pendingMap.delete(id);
+            }
+          }
+        }
+        all.sort((a,b)=>String(a.id||"").localeCompare(String(b.id||"")));
+        return all;
+      };
+      setPartitionedData({
+        hrWeeks:flatten(docsById.hrWeeks,pendingPartitionedWritesRef.current.hrWeeks),
+      });
+      if(firstFires.hrWeeks){
+        setPartitionedLoaded(true);
+      }
+    };
+    const subscribeCol=(field,collName)=>{
+      const map=docsById[field];
+      const unsub=onSnapshot(collection(db,collName),snap=>{
+        snap.docChanges().forEach(change=>{
+          const docData=change.doc.data();
+          if(change.type==="removed"){
+            map.delete(change.doc.id);
+          }else if(docData&&docData.id){
+            map.set(change.doc.id,docData);
+          }
+        });
+        firstFires[field]=true;
+        rebuild();
+      },err=>{
+        console.error(`[V16.75] Listener error ${collName}:`,err);
+        firstFires[field]=true;
+        rebuild();
+      });
+      unsubs.push(unsub);
+    };
+    subscribeCol("hrWeeks",PARTITIONED_COLLECTIONS.hrWeeks);
+    return()=>{unsubs.forEach(u=>u())};
+  },[user]);
+
+  useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>{const o={_docId:d.id,...d.data()};if(o.status)o.status=migrateStatus(o.status);return o}).filter(o=>o.id));setDataLoading(false)},err=>{console.error("[V18.60] orders listener error:",err);setDataLoading(false)});return()=>unsub()},[user,season]);
+
+  /* ═══ AUTO-BACKUP: once per day per user — V18.62: NOW COMPREHENSIVE ═══
+     
+     Pre-V18.62: backup contained only configDoc + salesDoc + tasksDoc + current
+     season's orders. This MISSED treasury, audit log, hr log, hr weeks, and
+     orders from other seasons (since the V16.74 split-collections migration).
+     
+     V18.62: backup is now comprehensive — includes ALL collections via
+     createComprehensiveBackup(). Larger (5-50MB depending on data volume) but
+     actually protects everything.
+     
+     Cleanup keeps last 14 comprehensive auto-backups (~14 days). Older ones
+     are deleted along with their part docs. */
   useEffect(()=>{
     if(!user||!configDoc||!configDoc.accessories)return;/* wait for data load */
+    if(!configLoaded)return;/* V18.62 SAFETY: never auto-backup before config is loaded */
     const today=new Date().toISOString().split("T")[0];
     const lastBackupKey="clark-last-backup-"+user.uid;
     let lastBackup=null;try{lastBackup=localStorage.getItem(lastBackupKey)}catch(e){}
@@ -742,41 +1502,51 @@ export default function App(){
     /* Schedule backup after 30s to avoid doing it on every page load race */
     const timer=setTimeout(async()=>{
       try{
-        const backupId="auto-"+today+"-"+(user.email||"").split("@")[0];
-        /* Check if this daily backup already exists (another device may have done it) */
-        const existing=await getDoc(doc(db,"backups",backupId));
-        if(existing.exists()){try{localStorage.setItem(lastBackupKey,today)}catch(e){}return}
-        /* Create backup */
-        const data={
-          label:"تلقائية (يومية)",
+        /* V18.62: Multi-device coordination — check if a comprehensive backup
+           with today's date prefix already exists (another device beat us to it). */
+        const todayPrefix="auto-comp-"+today.replace(/-/g,"-");
+        const allSnap=await getDocs(collection(db,"backups"));
+        let alreadyDoneToday=false;
+        allSnap.forEach(d=>{
+          const data=d.data();
+          if(!data.autoGenerated||!data.isComprehensive)return;
+          const cAt=(data.createdAt||"").slice(0,10);
+          if(cAt===today)alreadyDoneToday=true;
+        });
+        if(alreadyDoneToday){
+          try{localStorage.setItem(lastBackupKey,today)}catch(e){}
+          return;
+        }
+        /* Run the comprehensive backup */
+        await createComprehensiveBackup({
+          label:"تلقائية شاملة (يومية)",
+          user:{email:user.email,uid:user.uid},
           autoGenerated:true,
-          createdAt:new Date().toISOString(),
-          createdBy:user.email||"",
-          config:configDoc||{},
-          sales:salesDoc||{},
-          tasks:tasksDoc||{},
-          orders:orders||[],
-          counts:{
-            treasury:(configDoc?.treasury||[]).length,
-            employees:(configDoc?.employees||[]).length,
-            customers:(configDoc?.customers||[]).length,
-            orders:(orders||[]).length
-          }
-        };
-        await setDoc(doc(db,"backups",backupId),data);
+          /* Silent — no UI feedback for daily auto-backup */
+          onProgress:()=>{},
+        });
         try{localStorage.setItem(lastBackupKey,today)}catch(e){}
-        /* Cleanup old auto-backups: keep last 14 auto backups */
+        /* Cleanup: keep only last 14 auto-comprehensive backups */
         try{
           const snap=await getDocs(collection(db,"backups"));
-          const autos=[];snap.forEach(d=>{const x=d.data();if(x.autoGenerated)autos.push({id:d.id,createdAt:x.createdAt})});
+          const autos=[];
+          snap.forEach(d=>{
+            const x=d.data();
+            if(x.autoGenerated&&x.isComprehensive){
+              autos.push({id:d.id,createdAt:x.createdAt});
+            }
+          });
           autos.sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
           const toDelete=autos.slice(14);
-          for(const a of toDelete){await deleteDoc(doc(db,"backups",a.id))}
-          if(toDelete.length>0){}}catch(e){console.warn("Cleanup failed:",e)}
-      }catch(e){console.error("Auto-backup failed:",e)}
+          for(const a of toDelete){
+            try{await deleteComprehensiveBackup(a.id)}
+            catch(e){console.warn("Cleanup delete failed for "+a.id+":",e)}
+          }
+        }catch(e){console.warn("Cleanup failed:",e)}
+      }catch(e){console.error("[V18.62] Auto-backup failed:",e)}
     },30000);
     return()=>clearTimeout(timer);
-  },[user,configDoc?.accessories]);/* trigger when data first loads */
+  },[user,configDoc?.accessories,configLoaded]);/* trigger when data first loads */
 
   /* ═══ TRANSACTION-SAFE WRITES ═══
      V15.69: Smarter retry — transaction conflicts are expected during concurrent
@@ -786,46 +1556,251 @@ export default function App(){
      Each write re-reads the doc inside a transaction, applies the change,
      and writes back atomically. */
   const _sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
-  const upConfigTx=useCallback(async(fn)=>{
+  /* V16.74: ref to current splitData للقراءة من داخل upConfigTx (transactions تشتغل بدون state freshness) */
+  const splitDataRef=useRef(splitData);
+  useEffect(()=>{splitDataRef.current=splitData},[splitData]);
+  /* V17.4: keep configDocRef in sync — used by config listener to detect own optimistic state */
+  useEffect(()=>{configDocRef.current=configDoc},[configDoc]);
+  /* V16.75: ref to current partitionedData للقراءة من داخل upConfigTx */
+  const partitionedDataRef=useRef(partitionedData);
+  useEffect(()=>{partitionedDataRef.current=partitionedData},[partitionedData]);
+  /* V17.2 CRITICAL FIX: signature changed — now accepts pre-computed objects instead of fn.
+     The user's fn runs ONCE in upConfig (the caller). We just write the result here.
+     This prevents id duplication on transaction retries. */
+  const upConfigTx=useCallback(async(precomputedNext,precomputedNewSplit,precomputedNewPart,explicitSplitBefore,explicitPartBefore)=>{
     const ref=doc(db,"factory","config");
     let lastErr=null;
-    /* V15.69: Up to 5 retries with exponential backoff (100ms, 200ms, 400ms, 800ms, 1600ms) */
+    /* V16.75 CRITICAL SAFETY: refuse to write if split/partitioned data hasn't loaded yet.
+       Otherwise we'd inject empty arrays into config and lose all server data. */
+    if(configDoc&&configDoc._splitDaysV1674Done&&!splitLoaded){
+      console.error("[V16.75 SAFETY] Refusing upConfig — splitData not loaded yet");
+      showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
+      return;
+    }
+    if(configDoc&&configDoc._partitionedV1675Done&&!partitionedLoaded){
+      console.error("[V16.75 SAFETY] Refusing upConfig — partitionedData not loaded yet");
+      showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
+      return;
+    }
+    const splitBefore=explicitSplitBefore||{
+      treasury:splitDataRef.current.treasury||[],
+      auditLog:splitDataRef.current.auditLog||[],
+      hrLog:   splitDataRef.current.hrLog||[],
+    };
+    const partBefore=explicitPartBefore||{
+      hrWeeks:partitionedDataRef.current.hrWeeks||[],
+    };
+    /* V17.2: Use precomputed values directly. No fn re-execution. */
+    const splitActive=Boolean(configDoc?._splitDaysV1674Done);
+    const partActive=Boolean(configDoc?._partitionedV1675Done);
+    const splitAfter=splitActive?precomputedNewSplit:null;
+    const partAfter=partActive?precomputedNewPart:null;
+    /* Strip the precomputed next */
+    let stripped=precomputedNext;
+    if(splitActive)stripped=stripSplitArrays(stripped);
+    if(partActive)stripped=stripPartitionedArrays(stripped);
+    /* V15.69: Up to 5 retries with exponential backoff */
     for(let attempt=0;attempt<5;attempt++){
       try{
-        await runTransaction(db,async(tx)=>{
-          const snap=await tx.get(ref);
-          const current=snap.exists()?snap.data():{};
-          const next=JSON.parse(JSON.stringify(current));
-          fn(next);
-          enforceDataLimits(next);
-          tx.set(ref,next);
-        });
+        /* V17.2: simple write — no transaction needed since fn already ran.
+           The precomputed `stripped` object has all the changes baked in.
+           
+           Why use setDoc instead of runTransaction:
+           - The point of runTransaction was to read-modify-write atomically (fn(next) used
+             current value). Now fn already ran with our local view of the data, and we
+             just want to write the result. setDoc(merge:false) is the correct API.
+           - This also means concurrent writes from other users will overwrite each other,
+             but that was ALREADY the behavior — our previous fn used `splitBefore` (a
+             local snapshot), so any concurrent server change would be lost on retry too.
+             The retry mechanism only helped with transient errors, not concurrent edits. */
+        await setDoc(ref,stripped,{merge:false});
+        /* V16.74: sync split day docs */
+        if(splitActive&&splitAfter){
+          try{
+            await syncAllSplitChanges(splitBefore,splitAfter);
+          }catch(syncErr){
+            console.error("[V16.74] Failed to sync split day docs:",syncErr);
+            /* V16.75: notice فقط — لا توست عشان ما يقفزش للمستخدم */
+            noticeWarn(
+              "تعذر حفظ بعض البيانات في وضع التخزين اليومي",
+              "خطأ في كتابة documents الـsplit (treasury/audit/hrLog). البيانات الأساسية محفوظة في factory/config، لكن الـday docs قد لا تكون متزامنة. التفاصيل: "+(syncErr.message||String(syncErr)).slice(0,200)
+            );
+          }
+        }
+        /* V16.75: sync partitioned docs */
+        if(partActive&&partAfter){
+          try{
+            await syncAllPartitionedChanges(partBefore,partAfter);
+          }catch(syncErr){
+            console.error("[V16.75] Failed to sync partitioned docs:",syncErr);
+            noticeWarn(
+              "تعذر حفظ أسابيع المرتبات في الـcollection المنفصلة",
+              "خطأ في كتابة hrWeeksDocs. البيانات الأساسية محفوظة، لكن الـpartitioned docs قد لا تكون متزامنة. التفاصيل: "+(syncErr.message||String(syncErr)).slice(0,200)
+            );
+          }
+        }
         return;/* success */
       }catch(e){
         lastErr=e;
-        /* Retry on transient errors (conflicts, aborts) */
         const code=e?.code||"";
         const retriable=code==="aborted"||code==="already-exists"||code==="deadline-exceeded"||code==="unavailable"||code==="internal"||!code;
         if(!retriable||attempt===4)break;
         await _sleep(100*Math.pow(2,attempt));
       }
     }
-    /* All retries exhausted — fallback to merge write and only then warn */
+    /* All retries exhausted — fallback */
     console.error("upConfig tx error after retries:",lastErr);
-    /* V15.87: Make fallback failures VISIBLE to user (was silent console.error) */
     showToast("⚠️ فشل حفظ البيانات — جاري المحاولة بطريقة بديلة...");
     try{
-      setConfigDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);enforceDataLimits(next);setDoc(ref,next,{merge:true}).then(()=>{showToast("✓ تم الحفظ (بطريقة بديلة)")}).catch(er=>{console.error("Fallback setDoc error:",er);showToast("⛔ فشل الحفظ نهائياً: "+((er.message||String(er)).substring(0,100)))});return next}catch(err){console.error("Fallback fn error:",err);showToast("⛔ خطأ في حفظ البيانات: "+((err.message||String(err)).substring(0,100)));return prev}});
+      /* V17.2: simpler fallback — we already have precomputed objects. */
+      /* V17.0 FIX #9: Sync day docs FIRST (idempotent and safe to retry) */
+      try{
+        if(splitAfter)await syncAllSplitChanges(splitBefore,splitAfter);
+        if(partAfter)await syncAllPartitionedChanges(partBefore,partAfter);
+      }catch(syncErr){
+        console.error("Fallback sync error (day docs):",syncErr);
+        showToast("⛔ فشل sync الـday docs: "+((syncErr.message||String(syncErr)).substring(0,100)));
+        return;
+      }
+      try{
+        await setDoc(ref,stripped,{merge:false});
+        showToast("✓ تم الحفظ (بطريقة بديلة)");
+      }catch(er){
+        console.error("Fallback setDoc error:",er);
+        showToast("⛔ فشل الحفظ نهائياً: "+((er.message||String(er)).substring(0,100)));
+      }
     }catch(fallbackErr){
       console.error("Fallback failed:",fallbackErr);
       showToast("⚠️ تعذر الحفظ — تأكد من الاتصال بالإنترنت: "+((fallbackErr.message||String(fallbackErr)).substring(0,80)));
     }
-  },[]);
+  },[configDoc,splitLoaded,partitionedLoaded]);
   const upConfig=useCallback(fn=>{
-    /* Optimistic update local state first, then commit via transaction */
-    setConfigDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);enforceDataLimits(next);return next}catch(e){return prev}});
-    upConfigTx(fn);
-  },[upConfigTx]);
+    /* V18.60 CRITICAL SAFETY: refuse all writes if config not loaded from server yet.
+       Previously, writes could happen with INIT_CONFIG as base (during the brief
+       window between app mount and first config snapshot), which would OVERWRITE
+       real data with defaults — wiping users, customers, workshops, etc. */
+    if(!configLoaded){
+      console.error("[V18.60 SAFETY] Refusing upConfig — configDoc not loaded from server yet");
+      showToast("⏳ البيانات لسه بتتحمّل من السيرفر — استنى ثانيتين وحاول تاني");
+      return;
+    }
+    /* V18.60 CRITICAL SAFETY: refuse writes if config has known error state.
+       Writing on top of an error could corrupt data further. */
+    if(configError){
+      console.error("[V18.60 SAFETY] Refusing upConfig — configError is set:",configError);
+      showToast("⛔ فيه مشكلة في تحميل الإعدادات — اقفل وافتح التطبيق أو اتصل بالدعم");
+      return;
+    }
+    /* V16.75 SAFETY: refuse if split/partitioned data not loaded */
+    if(configDoc&&configDoc._splitDaysV1674Done&&!splitLoaded){
+      console.error("[V16.75 SAFETY] Refusing upConfig — splitData not loaded yet");
+      showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
+      return;
+    }
+    if(configDoc&&configDoc._partitionedV1675Done&&!partitionedLoaded){
+      console.error("[V16.75 SAFETY] Refusing upConfig — partitionedData not loaded yet");
+      showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
+      return;
+    }
+    /* V16.75 FIX: capture PRE-mutation snapshots NOW, pass them explicitly to upConfigTx.
+       The optimistic update below mutates splitDataRef.current, so by the time
+       upConfigTx runs (in next async tick), reading splitDataRef would give the
+       post-mutation state — making the diff produce zero changes. */
+    const explicitSplitBefore={
+      treasury:[...(splitDataRef.current.treasury||[])],
+      auditLog:[...(splitDataRef.current.auditLog||[])],
+      hrLog:   [...(splitDataRef.current.hrLog||[])],
+    };
+    const explicitPartBefore={
+      hrWeeks:[...(partitionedDataRef.current.hrWeeks||[])],
+    };
+    /* V16.80 FIX #6: Compute the next state OUTSIDE setState callback.
+       The previous code put fn() and side-effects (setSplitData, splitDataRef.current=)
+       INSIDE setConfigDoc(prev=>...). React Strict Mode runs callbacks twice for purity
+       checking — meaning fn() executed twice, side-effects fired twice, and any
+       non-deterministic ids (Date.now()) could yield duplicate entries.
+       
+       The new flow:
+         1. Compute next/newSplit/newPart deterministically once, here
+         2. Apply state updates (no callback form, just direct values)
+         3. Side-effects run exactly once */
+    const prev=configDoc||{};
+    let next, newSplit=null, newPart=null, stripped=null;
+    try{
+      next=JSON.parse(JSON.stringify(prev));
+      const splitActive=Boolean(prev._splitDaysV1674Done);
+      const partActive=Boolean(prev._partitionedV1675Done);
+      if(splitActive){
+        next.treasury=JSON.parse(JSON.stringify(explicitSplitBefore.treasury));
+        next.auditLog=JSON.parse(JSON.stringify(explicitSplitBefore.auditLog));
+        next.hrLog=   JSON.parse(JSON.stringify(explicitSplitBefore.hrLog));
+      }
+      if(partActive){
+        next.hrWeeks=JSON.parse(JSON.stringify(explicitPartBefore.hrWeeks));
+      }
+      fn(next);
+      enforceDataLimits(next);
+      /* V18.60 SAFETY NET: refuse writes that wipe critical fields entirely.
+         This is a last-resort guard against bugs that cause mass data loss.
+         The check is intentionally permissive (only blocks 🚨-severity wipes
+         of users/usersList/customers/workshops/etc.) — normal user operations
+         pass through unhindered. Logs warnings for the audit trail either way. */
+      if(!isSafeWrite(prev,next)){
+        console.error("[V18.60 BLOCKED] Write refused — would wipe critical data. prev/next:",{prev,next});
+        showToast("⛔ تم منع تعديل خطير: ممكن يمسح بيانات مهمة. اتصل بالدعم لو محتاج العملية دي فعلاً.");
+        return;/* abort the optimistic update entirely */
+      }
+      if(splitActive){
+        newSplit={
+          treasury:Array.isArray(next.treasury)?next.treasury:[],
+          auditLog:Array.isArray(next.auditLog)?next.auditLog:[],
+          hrLog:   Array.isArray(next.hrLog)   ?next.hrLog   :[],
+        };
+      }
+      if(partActive){
+        newPart={
+          hrWeeks:Array.isArray(next.hrWeeks)?next.hrWeeks:[],
+        };
+      }
+      stripped=next;
+      if(splitActive)stripped=stripSplitArrays(stripped);
+      if(partActive)stripped=stripPartitionedArrays(stripped);
+    }catch(e){
+      console.error("[upConfig] fn threw, aborting optimistic update:",e);
+      return;
+    }
+    /* Apply state updates (each runs exactly once, even in Strict Mode) */
+    setConfigDoc(stripped);
+    if(newSplit){
+      /* V17.0 FIX #8: Track pending writes to merge with listener data */
+      registerPendingSplitWrites(explicitSplitBefore,newSplit);
+      setSplitData(newSplit);
+      splitDataRef.current=newSplit;
+    }
+    if(newPart){
+      /* V17.0 FIX #8: Same for partitioned */
+      registerPendingPartitionedWrites(explicitPartBefore,newPart);
+      setPartitionedData(newPart);
+      partitionedDataRef.current=newPart;
+    }
+    /* V17.2 CRITICAL FIX: Pass the PRE-COMPUTED `next` object (not fn) to upConfigTx.
+       Why: Firestore's runTransaction re-runs the callback on conflicts (up to 5 retries).
+       If we passed fn, fn(next) would execute again on each retry, calling gid()/Date.now()
+       and producing DIFFERENT ids each time. The optimistic UI shows ids from call #1
+       (gid="X1"), the server stores ids from call #N (gid="X2"). The pending writes
+       map has {X1: pending}, the listener sees {X2: server} — both end up rendered =
+       DUPLICATE entries on the UI.
+       
+       Now we pass the already-computed `next` and `newSplit`/`newPart`. The transaction
+       just writes them as-is, no re-execution of user fn. */
+    upConfigTx(next,newSplit,newPart,explicitSplitBefore,explicitPartBefore);
+  },[upConfigTx,configDoc,splitLoaded,partitionedLoaded,registerPendingSplitWrites,registerPendingPartitionedWrites]);
+
+  /* V18.38: Register the autoPost module's upConfig callback so it can persist
+     posting failures into data.accountingPostFailures for the user to review. */
+  useEffect(() => {
+    registerAutoPostCallback(upConfig);
+  }, [upConfig]);
 
   const upSalesTx=useCallback(async(fn)=>{
     const ref=doc(db,"factory","sales");
@@ -857,9 +1832,22 @@ export default function App(){
     }
   },[]);
   const upSales=useCallback(fn=>{
+    /* V18.62: Same safety guards as upConfig — refuse writes before config loaded
+       or while in error state. Prevents writes to factory/sales during the brief
+       window before any listener has fired. */
+    if(!configLoaded){
+      console.error("[V18.62 SAFETY] Refusing upSales — config not loaded yet");
+      showToast("⏳ البيانات لسه بتتحمّل — حاول تاني بعد ثانيتين");
+      return;
+    }
+    if(configError){
+      console.error("[V18.62 SAFETY] Refusing upSales — configError set");
+      showToast("⛔ فيه مشكلة — اقفل وافتح التطبيق");
+      return;
+    }
     setSalesDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);return next}catch(e){return prev}});
     upSalesTx(fn);
-  },[upSalesTx]);
+  },[upSalesTx,configLoaded,configError]);
 
   const upTasksTx=useCallback(async(fn)=>{
     const ref=doc(db,"factory","tasks");
@@ -891,9 +1879,20 @@ export default function App(){
     }
   },[]);
   const upTasks=useCallback(fn=>{
+    /* V18.62: Same safety guards as upConfig */
+    if(!configLoaded){
+      console.error("[V18.62 SAFETY] Refusing upTasks — config not loaded yet");
+      showToast("⏳ البيانات لسه بتتحمّل — حاول تاني بعد ثانيتين");
+      return;
+    }
+    if(configError){
+      console.error("[V18.62 SAFETY] Refusing upTasks — configError set");
+      showToast("⛔ فيه مشكلة — اقفل وافتح التطبيق");
+      return;
+    }
     setTasksDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);return next}catch(e){return prev}});
     upTasksTx(fn);
-  },[upTasksTx]);
+  },[upTasksTx,configLoaded,configError]);
   /* V16.11: ATOMIC ORDER OPERATIONS — addOrder/replaceOrder/delOrder now run
      stock check + order write + stock deduction inside a SINGLE Firestore
      transaction. Fixes a TOCTOU window where a check would pass on stale
@@ -1146,8 +2145,13 @@ export default function App(){
      - Two new roles for separation of duties:
        • payroll_accountant: edits salary, NO verify access (preparer)
        • payroll_verifier: views salary (readonly), ONLY edits verify (reviewer) */
+  /* V18.61: ADMIN role permissions are now HARDCODED — full edit on every tab.
+     Custom permissions[admin] in factory/config are IGNORED for admin users.
+     This prevents accidental or malicious changes from locking out the only
+     admin and breaking the system (which is what happened in V18.59 incident).
+     Only admin row in DEFAULT_PERMS — change requires a code release. */
   const DEFAULT_PERMS={
-    admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit",treasury:"edit",hr:{weeks:"edit",verify:"edit",employees:"edit",security:"edit"},purchase:"edit",warehouse:"edit",audit:"view"},
+    admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit",treasury:"edit",hr:{weeks:"edit",verify:"edit",employees:"edit",security:"edit"},purchase:"edit",warehouse:"edit",audit:"edit"},
     manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit",treasury:"view",hr:{weeks:"view",verify:"view",employees:"view",security:"view"},purchase:"edit",warehouse:"edit",audit:"view"},
     sales_accountant:{dashboard:"view",details:"view",external:"hide",stock:"view",reports:"edit",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit",treasury:"hide",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"},purchase:"hide",warehouse:"view",audit:"hide"},
     purchase_accountant:{dashboard:"view",details:"view",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"hide",treasury:"edit",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"},purchase:"edit",warehouse:"edit",audit:"hide"},
@@ -1157,7 +2161,14 @@ export default function App(){
     payroll_verifier:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"view",hr:{weeks:"view",verify:"edit",employees:"view",security:"view"},purchase:"hide",warehouse:"hide",audit:"hide"},
     viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"hide",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"},purchase:"view",warehouse:"view",audit:"hide"}
   };
-  const getTabPerm=(tabKey)=>{const perms=config.permissions||{};const defaults=DEFAULT_PERMS[userRole]||DEFAULT_PERMS.viewer;const rolePerm=perms[userRole]||{};const fromConfig=rolePerm[tabKey];const fromDefault=defaults[tabKey];
+  const getTabPerm=(tabKey)=>{
+    /* V18.61 LOCK: admin role bypasses ALL custom permissions — always uses defaults.
+       This is the kill-switch that prevents anyone (including a buggy upConfig
+       or malicious write) from removing admin's access to settings/db/anything. */
+    if(userRole==="admin"){
+      return DEFAULT_PERMS.admin[tabKey]||"edit";
+    }
+    const perms=config.permissions||{};const defaults=DEFAULT_PERMS[userRole]||DEFAULT_PERMS.viewer;const rolePerm=perms[userRole]||{};const fromConfig=rolePerm[tabKey];const fromDefault=defaults[tabKey];
     /* If the permission is an object (e.g. hr), return it as-is */
     if(fromConfig&&typeof fromConfig==="object")return fromConfig;
     if(fromDefault&&typeof fromDefault==="object")return fromDefault;
@@ -1183,7 +2194,41 @@ export default function App(){
 
   if(authLoading)return null;
   if(!user)return<LoginScreen/>;
-  if(dataLoading)return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#EFF6FF",direction:"rtl",fontFamily:"'Cairo',sans-serif"}}>
+  /* V18.60: Critical config error — show explicit error state instead of letting
+     the user interact with stale or default data. */
+  if(configError){
+    const isMissing=configError.type==="missing_config";
+    return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#FEF2F2",direction:"rtl",fontFamily:"'Cairo',sans-serif",padding:20}}>
+      <div style={{maxWidth:560,background:"#fff",borderRadius:16,padding:32,border:"2px solid #DC2626",boxShadow:"0 10px 40px rgba(220,38,38,0.15)"}}>
+        <div style={{fontSize:48,textAlign:"center",marginBottom:12}}>⛔</div>
+        <div style={{fontSize:20,fontWeight:800,color:"#DC2626",textAlign:"center",marginBottom:14}}>
+          {isMissing?"لم يتم العثور على إعدادات النظام":"خطأ في تحميل الإعدادات"}
+        </div>
+        <div style={{fontSize:14,color:"#374151",lineHeight:1.7,marginBottom:18,padding:14,background:"#FEF2F2",borderRadius:10,border:"1px solid #FCA5A5"}}>
+          {isMissing
+            ?"الـ document بتاع factory/config مش موجود في Firestore. ده ممكن يكون بسبب: مشكلة في الصلاحيات، أو الـ document اتمسح بالغلط، أو تنصيب جديد لم يكتمل."
+            :"حصل خطأ أثناء قراءة الإعدادات: "+(configError.message||"غير معروف")}
+        </div>
+        <div style={{fontSize:13,color:"#6B7280",lineHeight:1.7,marginBottom:18,padding:12,background:"#F9FAFB",borderRadius:8}}>
+          <b style={{color:"#DC2626"}}>⚠️ مهم جداً:</b> التطبيق منع نفسه من الكتابة لحد ما المشكلة دي تتحل، عشان نحمي بياناتك من الاستبدال بالقيم الافتراضية. متعملش refresh عشواي — اتصل بمدير النظام أو الدعم الفني.
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:10,fontSize:12,color:"#6B7280",background:"#F3F4F6",padding:12,borderRadius:8,fontFamily:"monospace"}}>
+          <div><b>النوع:</b> {configError.type}</div>
+          {configError.code&&<div><b>الكود:</b> {configError.code}</div>}
+          <div><b>المستخدم:</b> {configError.email||configError.uid||"-"}</div>
+          <div><b>الوقت:</b> {configError.ts}</div>
+        </div>
+        <div style={{marginTop:18,display:"flex",gap:10,justifyContent:"center"}}>
+          <button onClick={()=>window.location.reload()} style={{padding:"10px 20px",background:"#DC2626",color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:14,fontFamily:"inherit"}}>إعادة المحاولة</button>
+          <button onClick={()=>signOut(auth)} style={{padding:"10px 20px",background:"#F3F4F6",color:"#374151",border:"1px solid #D1D5DB",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:14,fontFamily:"inherit"}}>تسجيل خروج</button>
+        </div>
+      </div>
+    </div>;
+  }
+  /* V18.60: Wait for config to load from server before rendering UI.
+     Previously the UI rendered with INIT_CONFIG as base while waiting for the
+     listener — which could trigger writes that overwrote real data with defaults. */
+  if(dataLoading||!configLoaded)return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#EFF6FF",direction:"rtl",fontFamily:"'Cairo',sans-serif"}}>
     <div style={{textAlign:"center"}}>
       <div style={{display:"flex",justifyContent:"center",marginBottom:14}}>
         <Spinner size="large" color={T.accent}/>
@@ -1245,7 +2290,20 @@ export default function App(){
 
   /* User notifications */
   const userEmail=user?.email||"";
-  const userNotifs=(config.notifications||[]).filter(n=>n.toEmail===userEmail||n.toEmail==="all").filter(n=>!(n.readBy||[]).includes(userEmail)&&!(n.dismissedBy||[]).includes(userEmail));
+  /* V18.92: Filter notifications honoring expiresAt + endedAt + dismissedBy.
+     - endedAt: sender or admin clicked "End" → hide for everyone
+     - expiresAt: passed → hide for everyone (auto-expire)
+     - dismissedBy: this user clicked × → hide just for them */
+  const _now=new Date();
+  const userNotifs=(config.notifications||[]).filter(n=>n.toEmail===userEmail||n.toEmail==="all").filter(n=>{
+    if(n.endedAt)return false;
+    if(n.expiresAt&&new Date(n.expiresAt)<=_now)return false;
+    if((n.readBy||[]).includes(userEmail))return false;
+    if((n.dismissedBy||[]).includes(userEmail))return false;
+    /* V18.92: forAdminsOnly notifs (e.g. transfer approval requests) only show for admins */
+    if(n.forAdminsOnly&&userRole!=="admin")return false;
+    return true;
+  });
   /* V15.8: Clicking a notification dismisses it for this user entirely.
      For shared notifications (toEmail="all"), we track per-user dismissal via dismissedBy. */
   const markRead=(nid)=>upConfig(d=>{const n=(d.notifications||[]).find(x=>x.id===nid);if(!n)return;
@@ -1268,9 +2326,75 @@ export default function App(){
     return{msg:n.msg,color:n.type==="طلب"?"#8B5CF6":n.type==="مهمة"?T.accent:T.warn,icon:n.type==="طلب"?"📩":n.type==="مهمة"?"📌":"💬",orderId:n.orderId||null,isNotif:true,notifId:n.id,from:n.fromName,date:n.createdAt};
   }),...appAlerts];
   const alertCount=allAlerts.length;
-  /* Urgent tasks - separate from bell */
-  const urgentTasks=(config.notifications||[]).filter(n=>n.type==="مهمة عاجلة"&&(n.toEmail===userEmail||n.toEmail==="all")&&!(n.doneBy||[]).includes(userEmail));
+  /* V18.92: Urgent tasks bar in topbar disabled — these now show in the greeting bar
+     as type chips along with all other types. Keep as empty array to keep refs alive. */
+  const urgentTasks=[];
   const markTaskDone=(nid)=>upConfig(d=>{const n=(d.notifications||[]).find(x=>x.id===nid);if(n){if(!n.doneBy)n.doneBy=[];if(!n.doneBy.includes(userEmail))n.doneBy.push(userEmail)}});
+  /* V18.92: End-for-everyone — sender or admin clicks ⏹ → endedAt set → hidden for all users.
+     Different from dismiss (which only hides for current user). */
+  const endNotif=(nid)=>upConfig(d=>{const n=(d.notifications||[]).find(x=>x.id===nid);if(!n)return;
+    n.endedAt=new Date().toISOString();
+    n.endedBy=userEmail;
+  });
+  /* V18.92: Notifications shown in sub-bar — all types (تذكير/طلب/مهمة/مهمة عاجلة).
+     Excludes system-generated types like delivery_confirmed/delivery_issue (those go to bell). */
+  const subBarNotifs=userNotifs.filter(n=>{
+    const t=n.type;
+    return t==="تذكير"||t==="طلب"||t==="مهمة"||t==="مهمة عاجلة";
+  });
+  /* Helper: format time-remaining for an expiring notification. Returns "1س 23د" / "45د" / "آخر اليوم" / null. */
+  const formatRemaining=(n)=>{
+    if(!n.expiresAt)return null;
+    const ms=new Date(n.expiresAt).getTime()-Date.now();
+    if(ms<=0)return null;
+    const mins=Math.floor(ms/60000);
+    const hrs=Math.floor(mins/60);
+    const remMins=mins%60;
+    if(hrs>=24)return Math.floor(hrs/24)+"ي "+(hrs%24)+"س";
+    if(hrs>0)return hrs+"س"+(remMins>0?" "+remMins+"د":"");
+    return mins+"د";
+  };
+  /* V18.92: Notification link handler — clicking a chip with `link` field navigates
+     the user to the referenced entity (invoice/order/etc.). Also marks the notification
+     as read for this user. */
+  const handleNotifLinkClick=(n)=>{
+    if(!n.link){markRead(n.id);return}
+    const{type,id,subType}=n.link;
+    /* Mark as read so it stops showing in the bar */
+    markRead(n.id);
+    /* Use a custom event to deep-link inside the destination page after tab switch */
+    const navigate=(targetTab,payload)=>{setTab(targetTab);setTimeout(()=>{window.dispatchEvent(new CustomEvent("notif-deeplink",{detail:{type,id,subType,...payload}}))},150)};
+    if(type==="invoice"){
+      if(subType==="purchase")navigate("purchaseInvoices",{invoiceId:id});
+      else navigate("salesInvoices",{invoiceId:id});
+    }else if(type==="order"){
+      setSel(id);setTab("details");
+    }else if(type==="treasury"){
+      /* V18.92: Sub-type "transfer_pending" → opens transfers view in TreasuryPg */
+      navigate("treasury",{entryId:id,view:subType==="transfer_pending"?"transfers":undefined});
+    }else if(type==="workshop"){
+      navigate("external",{wsName:id});
+    }else if(type==="hrWeek"){
+      navigate("hr",{weekId:id});
+    }else{
+      showToast("⚠️ نوع الوجهة غير مدعوم");
+    }
+  };
+  /* Type → icon + colors mapping for sub-bar chips */
+  const NOTIF_STYLE={
+    "تذكير":      {icon:"💬",bg:"#FFFBEB",border:"#FDE68A",text:"#B45309"},
+    "طلب":        {icon:"📩",bg:"#F5F3FF",border:"#DDD6FE",text:"#7C3AED"},
+    "مهمة":       {icon:"📌",bg:"#EFF6FF",border:"#BFDBFE",text:"#2563EB"},
+    "مهمة عاجلة": {icon:"🔴",bg:"#FEF2F2",border:"#FECACA",text:"#DC2626"},
+  };
+
+  /* V18.92: Live ticker — re-render once a minute so the time-remaining chips update. */
+  const[_notifTick,setNotifTick]=useState(0);
+  useEffect(()=>{
+    if(subBarNotifs.length===0)return;
+    const id=setInterval(()=>setNotifTick(t=>t+1),60000);
+    return()=>clearInterval(id);
+  },[subBarNotifs.length]);
 
   const goHome=async()=>{if(window.__formDirty){if(!await ask("الخروج بدون حفظ","هل تريد الخروج بدون حفظ البيانات المدخلة؟",{danger:true,confirmText:"خروج"}))return;window.__formDirty=false}setTab("home");setSel(null)};
   const goTo=async(key)=>{if(window.__formDirty){if(!await ask("الخروج بدون حفظ","هل تريد الخروج بدون حفظ البيانات المدخلة؟",{danger:true,confirmText:"خروج"}))return;window.__formDirty=false}setTab(key);if(key!=="details")setSel(null)};
@@ -1301,9 +2425,31 @@ export default function App(){
           <span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#EF444418",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#EF4444"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"○ غير متصل"}
           </span>
-          <span style={{fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7}}>V16.69</span>
+          <span 
+            onClick={()=>setShowAboutVersion(true)} 
+            title="عرض سجل التحديثات"
+            style={{
+              fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7,
+              cursor:"pointer",
+              padding:"2px 8px",
+              borderRadius:6,
+              transition:"all 0.15s",
+              display:"inline-flex",
+              alignItems:"center",
+              gap:4,
+            }}
+            onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
+            onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
+          >V18.92 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
-        {isMob&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>}
+        {isMob&&<>
+          <span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>
+          <span
+            onClick={()=>setShowAboutVersion(true)}
+            title="عرض سجل التحديثات"
+            style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,fontFamily:"monospace",background:T.navText?"rgba(255,255,255,0.15)":T.accent+"10",color:T.navText||T.accent,cursor:"pointer"}}
+          >V18.92</span>
+        </>}
       </div>
 
       {/* ═══ CENTER: Search (desktop only) ═══ */}
@@ -1422,8 +2568,8 @@ export default function App(){
       {/* HOME SCREEN */}
       {/* ═══ PROFESSIONAL HOME SCREEN V14.47 ═══ */}
       {tab==="home"&&(()=>{
-        const hour=new Date().getHours();
-        const greetText=hour<12?"صباح الخير":hour<17?"مساءً سعيداً":hour<20?"مساء الخير":"مساؤك جميل";
+        /* V18.25: Greeting fixed to "مرحبا" — always (was time-based) */
+        const greetText="مرحبا";
         const dateStr=new Date().toLocaleDateString("ar-EG",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
         const uemail=user?.email||"";
         const COLORS=[{key:"#FEF9C3",border:"#EAB308",name:"أصفر"},{key:"#DBEAFE",border:"#3B82F6",name:"أزرق"},{key:"#DCFCE7",border:"#22C55E",name:"أخضر"},{key:"#FCE7F3",border:"#EC4899",name:"وردي"},{key:"#EDE9FE",border:"#8B5CF6",name:"بنفسجي"},{key:"#FFEDD5",border:"#F97316",name:"برتقالي"}];
@@ -1443,15 +2589,32 @@ export default function App(){
             .sb-tab.active{background:${T.cardSolid};color:${T.accent};box-shadow:0 1px 3px rgba(0,0,0,0.06)}
             .sb-tab:not(.active){color:${T.textSec}}
             .sb-tab:not(.active):hover{color:${T.text}}
+            @keyframes chipPulse{0%,100%{opacity:1}50%{opacity:0.85}}
           `}</style>
 
-          {/* ═══ GREETING HEADER — minimal & elegant ═══ */}
-          <div className="home-greet" style={{padding:isMob?"14px 16px":"18px 24px",borderRadius:16,marginBottom:18,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
-            <div>
+          {/* ═══ GREETING HEADER — minimal & elegant — V18.92: notif chips in middle ═══ */}
+          <div className="home-greet" style={{padding:isMob?"14px 16px":"18px 24px",borderRadius:16,marginBottom:18,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
+            <div style={{flexShrink:0}}>
               <div style={{fontSize:isMob?FS+2:FS+6,fontWeight:800,color:T.text,lineHeight:1.2}}>{greetText}، {userName||"مستخدم"}</div>
               <div style={{fontSize:FS-1,color:T.textSec,marginTop:4}}>{dateStr}</div>
             </div>
-            <div style={{padding:"6px 12px",borderRadius:8,background:T.accent+"10",border:"1px solid "+T.accent+"20",fontSize:FS-2,fontWeight:700,color:T.accent,display:"flex",alignItems:"center",gap:6}}>
+            {/* V18.92: Notification chips — fills available middle space, wraps within. */}
+            {subBarNotifs.length>0&&<div style={{flex:"1 1 auto",minWidth:0,display:"flex",flexWrap:"wrap",gap:6,alignItems:"center",justifyContent:"center"}}>
+              {subBarNotifs.map(n=>{const st=NOTIF_STYLE[n.type]||NOTIF_STYLE["تذكير"];const remain=formatRemaining(n);
+                const canEnd=userRole==="admin"||n.fromEmail===userEmail;
+                const hasLink=!!n.link;
+                return<div key={n.id} onClick={hasLink?()=>handleNotifLinkClick(n):undefined} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:9,background:st.bg,border:"1.5px solid "+st.border,color:st.text,fontSize:FS-1,fontWeight:700,maxWidth:"100%",animation:"chipPulse 3s ease-in-out infinite",cursor:hasLink?"pointer":"default",transition:"transform 0.15s"}} onMouseEnter={hasLink?(e)=>{e.currentTarget.style.transform="scale(1.03)"}:undefined} onMouseLeave={hasLink?(e)=>{e.currentTarget.style.transform="scale(1)"}:undefined} title={(n.fromName?"من: "+n.fromName:"")+(remain?" • متبقي: "+remain:"")+(hasLink?" • اضغط للذهاب لـ"+(n.link.label||""):"")}>
+                  <span style={{fontSize:FS,lineHeight:1,flexShrink:0}}>{st.icon}</span>
+                  <span style={{lineHeight:1.3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:200}}>{n.msg}</span>
+                  {hasLink&&<span style={{fontSize:FS-2,padding:"1px 6px",borderRadius:5,background:"rgba(255,255,255,0.45)",border:"1px solid "+st.text+"40",fontWeight:800,flexShrink:0}}>🔗 {n.link.label||"فتح"}</span>}
+                  {n.fromName&&<span style={{fontSize:FS-3,opacity:0.7,fontWeight:600,flexShrink:0}}>— {n.fromName}</span>}
+                  {remain&&<span style={{fontSize:FS-3,opacity:0.65,padding:"0 4px",borderInlineStart:"1px solid "+st.text+"40",flexShrink:0}}>⏰ {remain}</span>}
+                  {canEnd&&<span onClick={(e)=>{e.stopPropagation();endNotif(n.id);showToast("⏹ تم إنهاء الإشعار للجميع")}} title="إنهاء (للجميع)" style={{cursor:"pointer",padding:"1px 6px",borderRadius:5,background:"rgba(255,255,255,0.55)",border:"1px solid "+st.text+"50",fontSize:FS-3,fontWeight:800,flexShrink:0}}>⏹ إنهاء</span>}
+                  <span onClick={(e)=>{e.stopPropagation();markRead(n.id)}} title="إخفاء عندي" style={{cursor:"pointer",opacity:0.55,padding:"0 2px",fontSize:FS-2,flexShrink:0}}>✕</span>
+                </div>;
+              })}
+            </div>}
+            <div style={{padding:"6px 12px",borderRadius:8,background:T.accent+"10",border:"1px solid "+T.accent+"20",fontSize:FS-2,fontWeight:700,color:T.accent,display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
               <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
               <span>الموسم: {season}</span>
             </div>
@@ -1461,15 +2624,14 @@ export default function App(){
           {!isMob?<div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:18,alignItems:"flex-start",maxWidth:1400,margin:"0 auto"}}>
             {/* ═══ LEFT: Tabs Grid (SVG icons) ═══ */}
             <div>
-              <div style={{fontSize:FS-1,fontWeight:800,color:T.textSec,marginBottom:12,padding:"0 4px",textTransform:"uppercase",letterSpacing:"0.6px"}}>الوحدات الأساسية</div>
-              <div style={{display:"grid",gridTemplateColumns:isTab?"repeat(4,1fr)":"repeat(5,1fr)",gap:12}}>
+              <div style={{display:"grid",gridTemplateColumns:isTab?"repeat(4,1fr)":"repeat(6,1fr)",gap:24}}>
                 {visibleTabs.map(t=>{const perm=getTabPerm(t.key);
-                  return<div key={t.key} onClick={()=>goTo(t.key)} className="home-tile" style={{background:T.cardSolid,borderRadius:14,padding:"18px 10px",border:"1px solid "+T.brd,textAlign:"center",opacity:perm==="view"?0.75:1,position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,minHeight:120}}>
-                    <div style={{width:48,height:48,borderRadius:12,background:t.color+"12",display:"flex",alignItems:"center",justifyContent:"center",color:t.color,border:"1px solid "+t.color+"20"}}>
+                  return<div key={t.key} onClick={()=>goTo(t.key)} className="home-tile" style={{background:T.cardSolid,borderRadius:11,padding:"10px 8px",border:"1px solid "+T.brd,textAlign:"center",opacity:perm==="view"?0.75:1,position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,aspectRatio:"1"}}>
+                    <div style={{width:44,height:44,borderRadius:11,background:t.color+"12",display:"flex",alignItems:"center",justifyContent:"center",color:t.color,border:"1px solid "+t.color+"20"}}>
                       <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{t.svg}</svg>
                     </div>
-                    <div style={{fontSize:FS,fontWeight:800,color:T.text,lineHeight:1.2}}>{t.label}</div>
-                    {perm==="view"&&<div style={{position:"absolute",top:6,left:6,fontSize:9,padding:"2px 6px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁 قراءة</div>}
+                    <div style={{fontSize:FS-1,fontWeight:800,color:T.text,lineHeight:1.15}}>{t.label}</div>
+                    {perm==="view"&&<div style={{position:"absolute",top:4,left:4,fontSize:8,padding:"1px 5px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
                   </div>})}
               </div>
 
@@ -1489,8 +2651,8 @@ export default function App(){
                 </div>
               </div>
 
-              {/* Odoo Quick Links */}
-              {(()=>{
+              {/* Odoo Quick Links — V18.46: gated by config.odooEnabled */}
+              {(data.odooEnabled !== false) && (()=>{
                 const defaultLinks=[
                   {id:"accounting",icon:"📊",label:"المحاسبة",url:"https://clarkdb.odoo.com/odoo/accounting",color:"#8B5CF6"},
                   {id:"sales",icon:"🛒",label:"المبيعات",url:"https://clarkdb.odoo.com/odoo/sales",color:"#10B981"},
@@ -1648,8 +2810,8 @@ export default function App(){
 
             <div style={{marginBottom:14}}><ActivityFeed orders={data.orders} config={config} user={user} isMob={true}/></div>
 
-            {/* Odoo links mobile */}
-            {(()=>{
+            {/* Odoo links mobile — V18.46: gated by config.odooEnabled */}
+            {(data.odooEnabled !== false) && (()=>{
               const defaultLinks=[
                 {id:"accounting",icon:"📊",label:"المحاسبة",url:"https://clarkdb.odoo.com/odoo/accounting",color:"#8B5CF6"},
                 {id:"sales",icon:"🛒",label:"المبيعات",url:"https://clarkdb.odoo.com/odoo/sales",color:"#10B981"},
@@ -1735,15 +2897,19 @@ export default function App(){
         {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("external")} statusCards={statusCards} season={season} user={user}/>}
         {tab==="stock"&&<StockPg data={data} updOrder={updOrder} isMob={isMob} canEdit={canEditTab("stock")} statusCards={statusCards} user={user}/>}
         {tab==="tasks"&&<TasksPg data={data} upConfig={upConfig} upTasks={upTasks} isMob={isMob} user={user} userRole={userRole}/>}
-        {tab==="calc"&&<CalcPg data={data} isMob={isMob}/>}
         {tab==="reports"&&<ReportsHub data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="settings"&&canEditTab("settings")&&<SettingsPg config={config} upConfig={upConfig} upSales={upSales} upTasks={upTasks} isMob={isMob} user={user} userRole={userRole} theme={theme} setTheme={setTheme} season={season} orders={orders} syncWsIds={syncWsIds} replaceOrder={replaceOrder} updOrder={updOrder} configDoc={configDoc} salesDoc={salesDoc} tasksDoc={tasksDoc}/>}
         {tab==="custDeliver"&&<CustDeliverPg data={data} upConfig={upConfig} upSales={upSales} upTasks={upTasks} updOrder={updOrder} isMob={isMob} isTab={isTab} canEdit={canEditTab("custDeliver")} user={user} season={season}/>}
+        {tab==="salesInvoices"&&<SalesInvoicesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
+        {tab==="creditNotes"&&<CreditNotesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
         {tab==="purchase"&&<PurchasePg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("purchase")} user={user} userRole={userRole}/>}
+        {tab==="purchaseInvoices"&&<PurchaseInvoicesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
         {tab==="warehouse"&&<WarehousePg data={data} upConfig={upConfig} updOrder={updOrder} isMob={isMob} isTab={isTab} canEdit={canEditTab("warehouse")} statusCards={statusCards} user={user} userRole={userRole}/>}
         {tab==="treasury"&&<TreasuryPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("treasury")} user={user} userRole={userRole}/>}
         {tab==="hr"&&<HRPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("hr")} user={user} userRole={userRole} getHrSubPerm={getHrSubPerm} setSavingOverlay={setSavingOverlay}/>}
         {tab==="audit"&&canViewTab("audit")&&<AuditPg data={data} isMob={isMob} user={user}/>}
+        {tab==="accounting"&&<AccountingPg data={data} config={config} upConfig={upConfig} isMob={isMob} user={user}/>}
+        {tab==="fixedAssets"&&<FixedAssetsPg data={data} config={config} isMob={isMob} user={user}/>}
         </Suspense>
         </ChunkErrorBoundary>
       </div>}
@@ -1765,14 +2931,24 @@ export default function App(){
             upTasks(d=>{if(!Array.isArray(d.tasks))d.tasks=[];d.tasks.unshift({id:Date.now(),text:qpText.trim(),done:false,date:new Date().toISOString().split("T")[0],fromUid:user?.uid||"",fromEmail:user?.email||"",fromName:me.name,toEmail:qpTo,toName:target?.name||qpTo.split("@")[0]})});
             setQuickPopup(null);setQpTo("");setQpText("");showToast("✓ تم ارسال المهمة")}} style={{width:"100%"}}>📌 ارسال المهمة</Btn>
         </div>:<div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الى</label><Sel value={qpTo} onChange={setQpTo}><option value="all">الكل</option>{targets.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+(u.email===me.email?" (أنا)":"")}</option>)}</Sel></div>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label><Sel value={qpType} onChange={setQpType}><option value="تذكير">💬 تذكير</option><option value="طلب">📩 طلب</option><option value="مهمة">📌 مهمة</option><option value="مهمة عاجلة">🔴 عاجل</option></Sel></div>
+            {/* V18.92: Display duration — sender chooses how long the notification stays visible */}
+            <div><label style={{fontSize:FS-2,color:"#8B5CF6",fontWeight:700}}>⏱ مدة العرض</label><Sel value={qpDuration} onChange={setQpDuration}><option value="1h">🕐 ساعة</option><option value="2h">⏰ ساعتين</option><option value="1d">📅 يوم</option><option value="endday">🌅 آخر اليوم</option><option value="none">🔓 بدون حد</option></Sel></div>
           </div>
           <div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الرسالة</label><Inp value={qpText} onChange={setQpText} placeholder="اكتب الاشعار..."/></div>
           <Btn primary onClick={()=>{if(!qpText.trim())return;const to=qpTo||"all";const targetUser=targets.find(u=>u.email===to);
-            upConfig(d=>{if(!d.notifications)d.notifications=[];d.notifications.push({id:Date.now(),toEmail:to,toName:to==="all"?"الكل":targetUser?.name||to.split("@")[0],msg:qpText.trim(),type:qpType,fromName:me.name,createdAt:new Date().toISOString().split("T")[0],readBy:[]})});
-            setQuickPopup(null);setQpTo("");setQpText("");setQpType("تذكير");showToast("✓ تم ارسال الاشعار")}} style={{width:"100%",background:"#8B5CF6"}}>📩 ارسال الاشعار</Btn>
+            /* V18.92: Compute expiresAt based on selected duration. */
+            let expiresAt=null;
+            const now=new Date();
+            if(qpDuration==="1h")expiresAt=new Date(now.getTime()+60*60*1000).toISOString();
+            else if(qpDuration==="2h")expiresAt=new Date(now.getTime()+2*60*60*1000).toISOString();
+            else if(qpDuration==="1d")expiresAt=new Date(now.getTime()+24*60*60*1000).toISOString();
+            else if(qpDuration==="endday"){const eod=new Date(now);eod.setHours(23,59,59,999);expiresAt=eod.toISOString()}
+            /* "none" → null = no expiry */
+            upConfig(d=>{if(!d.notifications)d.notifications=[];d.notifications.push({id:Date.now(),toEmail:to,toName:to==="all"?"الكل":targetUser?.name||to.split("@")[0],msg:qpText.trim(),type:qpType,fromName:me.name,fromEmail:me.email,createdAt:new Date().toISOString().split("T")[0],createdAtTs:new Date().toISOString(),expiresAt,endedAt:null,endedBy:null,readBy:[],dismissedBy:[]})});
+            setQuickPopup(null);setQpTo("");setQpText("");setQpType("تذكير");setQpDuration("2h");showToast("✓ تم ارسال الاشعار")}} style={{width:"100%",background:"#8B5CF6"}}>📩 ارسال الاشعار</Btn>
         </div>}
       </div>
     </div>})()}
@@ -1982,7 +3158,7 @@ export default function App(){
       const close=()=>setWsDelPopup(null);
       const confirmReceive=async()=>{
         if(!deliveryStillExists){
-          alert("هذا التسليم لم يعد موجوداً أو تم تعديله بواسطة الإدارة. أعد مسح ليبل التسليم الجديد.");
+          tell("التسليم غير موجود","هذا التسليم لم يعد موجوداً أو تم تعديله بواسطة الإدارة. أعد مسح ليبل التسليم الجديد.",{danger:true});
           setWsDelPopup(null);
           return;
         }
@@ -1997,7 +3173,7 @@ export default function App(){
         const newOrd=JSON.parse(JSON.stringify(liveOrd));
         if(!Array.isArray(newOrd.workshopDeliveries))newOrd.workshopDeliveries=[];
         const targetWd=newOrd.workshopDeliveries[idx];
-        if(!targetWd){alert("التسليم غير موجود");setWsDelPopup(null);return}
+        if(!targetWd){tell("التسليم غير موجود","",{danger:true});setWsDelPopup(null);return}
         if(!Array.isArray(targetWd.receives))targetWd.receives=[];
         /* Re-check that this exact delivery hasn't been QR-confirmed since the popup opened */
         if(targetWd.receives.some(r=>r.viaQR)){
@@ -2026,7 +3202,7 @@ export default function App(){
           showToast("✓ تم تأكيد الاستلام بواسطة الورشة");
           setWsDelPopup(null);
         }catch(e){
-          alert("فشل الحفظ: "+(e?.message||e));
+          tell("فشل الحفظ",e?.message||String(e),{danger:true});
         }
       };
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:99999,display:"flex",alignItems:"flex-end",justifyContent:"center",padding:0}} onClick={close}>
@@ -2084,15 +3260,51 @@ export default function App(){
         <div style={{marginBottom:12}}><label style={{fontSize:FS,fontWeight:700,color:T.text}}>عدد الأكياس</label><input type="number" value={labelBags} onChange={e=>setLabelBags(Math.max(1,Number(e.target.value)||1))} min="1" style={{display:"block",margin:"8px auto",width:100,textAlign:"center",fontSize:22,fontWeight:800,border:"3px solid "+T.accent,borderRadius:10,padding:"6px",fontFamily:"Cairo",background:T.bg,color:T.text}}/></div>
         <div style={{display:"flex",gap:8,justifyContent:"center"}}>
           <Btn ghost onClick={()=>{setLabelPopup(null);setLabelBags(1)}}>✕ إغلاق</Btn>
-          <Btn onClick={()=>{
-            /* V16.50: build confirm URL only when we have the trio (orderId + wsId + idx).
-               If wsId is missing (legacy), QR won't render — print still works. */
+          <Btn onClick={async()=>{
+            /* V16.73: Workshop QR now points at the PUBLIC WorkshopConfirmPage
+               (no login needed), so the URL must carry an HMAC signature. We
+               fetch that signature from /api/workshop-delivery-sign before
+               handing the data to renderLabelPages. Same popup-blocker workaround
+               as the customer flow: open the print window SYNCHRONOUSLY here,
+               show a loading placeholder, then write the real label after the
+               fetch completes.
+
+               Backwards-compat: if signing fails (network down, /api endpoint
+               not deployed yet, missing wsId for legacy data) we fall back to
+               the old `?act=wsdel&...` URL which still works inside the app
+               for logged-in users. So a failed sign just costs the workshop
+               the convenience of a no-login flow — it doesn't break printing. */
+            const lp=labelPopup;const bagsAtClick=labelBags;
+            setLabelPopup(null);setLabelBags(1);
+            const pw=openPrintWindow();
+            if(!pw){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}
+            try{
+              pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><title>جاري التحضير…</title><style>body{font-family:Cairo,Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f8fafc;color:#475569}.box{text-align:center}.sp{display:inline-block;width:36px;height:36px;border:4px solid #E2E8F0;border-top-color:#0EA5E9;border-radius:50%;animation:s 0.8s linear infinite;margin-bottom:12px}@keyframes s{to{transform:rotate(360deg)}}</style></head><body><div class='box'><div class='sp'></div><div style='font-size:14px;font-weight:700'>جاري تحضير ليبل التسليم…</div></div></body></html>");
+            }catch(e){}
+            const origin=(typeof window!=="undefined"&&window.location)?window.location.origin:"";
             let confirmUrl="";
-            if(labelPopup.orderId&&labelPopup.wsId&&labelPopup.deliveryIdx>=0){
-              const origin=(typeof window!=="undefined"&&window.location)?window.location.origin:"";
-              confirmUrl=origin+"/?act=wsdel&ord="+encodeURIComponent(labelPopup.orderId)+"&ws="+encodeURIComponent(labelPopup.wsId)+"&idx="+labelPopup.deliveryIdx;
+            const haveTrio=lp.orderId&&lp.wsId&&lp.deliveryIdx>=0;
+            if(haveTrio){
+              /* Try to mint a public signed URL (V16.73). Fall back to the
+                 legacy in-app URL on any error so the print itself never blocks. */
+              let sig="",signErr="";
+              try{
+                const _u=auth.currentUser;
+                if(!_u){signErr="not logged in";throw new Error(signErr)}
+                const _tok=await _u.getIdToken();
+                const r=await fetch("/api/workshop-delivery-sign",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+_tok},body:JSON.stringify({triples:[{orderId:lp.orderId,wsId:lp.wsId,deliveryIdx:lp.deliveryIdx}]})});
+                const j=await r.json();
+                if(r.ok&&j.signatures&&j.signatures[0])sig=j.signatures[0].sig||"";
+                else signErr=(j&&j.error)?j.error:"HTTP "+r.status;
+              }catch(e){signErr=signErr||("Network: "+(e.message||e))}
+              if(sig){
+                confirmUrl=origin+"/?wd=1&ord="+encodeURIComponent(lp.orderId)+"&ws="+encodeURIComponent(lp.wsId)+"&idx="+lp.deliveryIdx+"&sig="+encodeURIComponent(sig);
+              }else{
+                console.warn("[CLARK] workshop-delivery-sign failed, using legacy URL:",signErr);
+                confirmUrl=origin+"/?act=wsdel&ord="+encodeURIComponent(lp.orderId)+"&ws="+encodeURIComponent(lp.wsId)+"&idx="+lp.deliveryIdx;
+              }
             }
-            renderLabelPages(labelPopup,labelBags,data?.printSettings,CLARK_LOGO_PRINT,confirmUrl)
+            renderLabelPages(lp,bagsAtClick,data?.printSettings,CLARK_LOGO_PRINT,confirmUrl,pw)
           }} style={{background:T.accent,color:"#fff",border:"none",fontWeight:700}}>{"🖨 طباعة "+labelBags}</Btn>
         </div>
       </div>
@@ -2155,7 +3367,7 @@ export default function App(){
         return h+"</div>"};
       const doPrint=(labels)=>{if(labels.length===0)return;
         const qrOpts=JSON.stringify({width:400,margin:ps.qrMargin??1,errorCorrectionLevel:ps.qrLevel||"M",color:{dark:ps.qrColor||"#000000",light:"#ffffff"}});
-        const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+        const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}
         /* V16.49: chosen font is loaded as a stylesheet and applied to body */
         w.document.write("<html dir='rtl'><head><title>QR</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><link href='"+fontUrl+"' rel='stylesheet'/><style>@page{size:"+lw+"mm "+lh+"mm;margin:"+mg+"mm}*{margin:0;padding:0}body{margin:0;padding:0;font-family:'"+fontFam+"',Arial,sans-serif}.lbl{width:"+(lw-mg*2)+"mm;height:"+(lh-mg*2)+"mm;page-break-after:always;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden"+(ps.showBorder?";border:1px dashed #999":"")+"}</style></head><body>"+labels.join("")+"<script>var qrOpts="+qrOpts+";document.querySelectorAll('.qr-img').forEach(function(img){QRCode.toDataURL(img.dataset.text,qrOpts).then(function(url){img.src=url}).catch(function(){})});setTimeout(function(){window.print()},800)</"+"script></body></html>");w.document.close();
         showToast("✓ تم تجهيز "+labels.length+" ليبل")};
@@ -2270,6 +3482,58 @@ export default function App(){
     </div>}
     {/* V16.2: Undo Toast — global, shown after any undoable action for 5 minutes */}
     <UndoToast/>
+    {/* V17.1 FIX #12+#15: Migration overlay — blocks UI while a schema migration is running.
+        This prevents users from adding data during the unsafe window between
+        step 2 (sync day docs) and step 3 (config write). */}
+    {migrationStatus && (
+      <div style={{
+        position:"fixed",inset:0,zIndex:99998,
+        background:"rgba(0,0,0,0.75)",backdropFilter:"blur(4px)",
+        display:"flex",alignItems:"center",justifyContent:"center",
+        padding:16,
+      }}>
+        <div style={{
+          background:T.cardSolid,borderRadius:16,padding:32,
+          maxWidth:480,width:"100%",
+          textAlign:"center",
+          boxShadow:"0 20px 60px rgba(0,0,0,0.4)",
+          border:"2px solid "+T.accent+"40",
+        }}>
+          <div style={{fontSize:48,marginBottom:16}}>⚙️</div>
+          <div style={{fontSize:FS+4,fontWeight:800,color:T.accent,marginBottom:8}}>
+            {migrationStatus.label}
+          </div>
+          {migrationStatus.message && (
+            <div style={{fontSize:FS,color:T.textSec,marginBottom:20,lineHeight:1.7}}>
+              {migrationStatus.message}
+            </div>
+          )}
+          {typeof migrationStatus.progress==="number" && (
+            <div style={{
+              width:"100%",height:8,
+              background:T.brd,borderRadius:4,overflow:"hidden",
+              marginBottom:12,
+            }}>
+              <div style={{
+                width:migrationStatus.progress+"%",height:"100%",
+                background:"linear-gradient(90deg, "+T.accent+", "+T.accent+"cc)",
+                transition:"width 0.5s ease",
+              }}/>
+            </div>
+          )}
+          {typeof migrationStatus.progress==="number" && (
+            <div style={{fontSize:FS-2,color:T.textMut,fontFamily:"monospace"}}>
+              {migrationStatus.progress}%
+            </div>
+          )}
+          <div style={{fontSize:FS-3,color:T.textMut,marginTop:18,lineHeight:1.6}}>
+            ⚠️ لا تغلق البرنامج أو تعمل refresh أثناء التحديث
+          </div>
+        </div>
+      </div>
+    )}
+    {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V18.92"/>
   </div>
 }
 

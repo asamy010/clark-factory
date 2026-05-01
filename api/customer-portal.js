@@ -29,21 +29,41 @@ function getPortalSecret() {
   return s;
 }
 
+/* V18.12: Short signature — 96 bits as base64url (16 chars) instead of 256-bit hex (64 chars).
+   Still cryptographically secure for read-only portal access. */
 export function signCustomerId(custId) {
+  return crypto.createHmac("sha256", getPortalSecret()).update("portal:" + custId).digest()
+    .slice(0, 12) /* 12 bytes = 96 bits */
+    .toString("base64url");
+}
+
+/* Legacy full-hex signature — kept for backward compat verification only. */
+function signCustomerIdHex(custId) {
   return crypto.createHmac("sha256", getPortalSecret()).update("portal:" + custId).digest("hex");
 }
 
 function verifyCustomerSig(custId, sig) {
   if (!custId || !sig) return false;
-  const expected = signCustomerId(custId);
-  try {
-    const a = Buffer.from(sig, "hex");
-    const b = Buffer.from(expected, "hex");
-    if (a.length !== b.length) return false;
-    return crypto.timingSafeEqual(a, b);
-  } catch (e) {
-    return false;
+  /* V18.12: Try short (base64url 16 chars) first, then fall back to legacy hex (64 chars) */
+  if (sig.length === 16) {
+    const expected = signCustomerId(custId);
+    try {
+      const a = Buffer.from(sig, "base64url");
+      const b = Buffer.from(expected, "base64url");
+      if (a.length !== b.length) return false;
+      return crypto.timingSafeEqual(a, b);
+    } catch (e) { return false; }
   }
+  if (sig.length === 64) {
+    const expected = signCustomerIdHex(custId);
+    try {
+      const a = Buffer.from(sig, "hex");
+      const b = Buffer.from(expected, "hex");
+      if (a.length !== b.length) return false;
+      return crypto.timingSafeEqual(a, b);
+    } catch (e) { return false; }
+  }
+  return false;
 }
 
 export default async function handler(req, res) {
@@ -79,7 +99,7 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: "العميل غير موجود" });
     }
     if (customer.archived) {
-      return res.status(403).json({ error: "الحساب غير نشط" });
+      return res.status(403).json({ error: "🔒 تم إيقاف التعامل مع " + (customer.name || "هذا العميل") + "، يُرجى التواصل مع المصنع", archived: true, name: customer.name || "" });
     }
 
     /* If action=sign — just return the URL (admin only, requires separate auth)
@@ -118,12 +138,14 @@ export default async function handler(req, res) {
       const sp = Number(o.sellPrice) || 0;
       const modelName = o.modelNo || "—";
       const modelDesc = o.modelDesc || "";
+      const modelImage = o.image || null;
 
       (o.customerDeliveries || []).filter(d => d.custId === custId).forEach(d => {
         deliveries.push({
           date: d.date || "",
           modelNo: modelName,
           modelDesc,
+          image: modelImage,
           qty: Number(d.qty) || 0,
           sellPrice: sp,
           value: (Number(d.qty) || 0) * sp,
@@ -136,9 +158,13 @@ export default async function handler(req, res) {
           date: r.date || "",
           modelNo: modelName,
           modelDesc,
+          image: modelImage,
           qty: Number(r.qty) || 0,
           sellPrice: sp,
           value: (Number(r.qty) || 0) * sp,
+          /* V18.26: include sessionId for invoice grouping (note: returns store as sessId, not sessionId) */
+          sessionId: r.sessId || r.sessionId || null,
+          note: r.note || "",
         });
       });
 
@@ -150,6 +176,7 @@ export default async function handler(req, res) {
           activeModels.set(o.id, {
             modelNo: modelName,
             modelDesc,
+            image: modelImage,
             delivered: totalDel,
             returned: totalRet,
             net: totalDel - totalRet,
@@ -160,16 +187,30 @@ export default async function handler(req, res) {
       }
     });
 
-    /* Customer payments */
+    /* Customer payments — V18.3: keep method for cash/checks split */
     const payments = (config.custPayments || [])
       .filter(p => p.custId === custId)
       .map(p => ({
         date: p.date || "",
         amount: Number(p.amount) || 0,
         method: p.method || "كاش",
-        notes: p.notes || "",
+        notes: p.notes || p.note || "",
       }))
       .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+
+    /* V18.23+V18.24: Receivable checks — count only when category = 'دفعة عميل' (real customer payment).
+       Excludes opening balances, settlements, transfers, other types — those aren't sales-related. */
+    const receivableChecks = (config.checks || [])
+      .filter(c => c.type === "receivable" && String(c.partyId) === String(custId) && c.status !== "مرتد" && c.status !== "ملغي" && ((c.category || "دفعة عميل") === "دفعة عميل"))
+      .map(c => ({
+        date: c.date || c.dueDate || "",
+        amount: Number(c.amount) || 0,
+        method: "شيك",
+        notes: ("شيك" + (c.checkNo ? " #" + c.checkNo : "") + (c.bank ? " — " + c.bank : "") + (c.status && c.status !== "محصل" ? " (" + c.status + ")" : "")),
+      }));
+    /* Merge into payments list so the sorted log shows them too */
+    receivableChecks.forEach(rc => payments.push(rc));
+    payments.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
     /* Calculate balance */
     const discPct = Number(customer.discount) || 0;
@@ -178,7 +219,11 @@ export default async function handler(req, res) {
     const netSales = totalDelValue - totalRetValue;
     const discountAmount = Math.round(netSales * discPct / 100);
     const salesAfterDiscount = netSales - discountAmount;
+    const returnsAfterDiscount = Math.round(totalRetValue * (1 - discPct / 100));
     const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
+    /* V18.3+V18.23: Split paid into cash (everything except شيك) and checks (incl. pending receivable checks) */
+    const checksPaid = payments.filter(p => p.method === "شيك").reduce((s, p) => s + p.amount, 0);
+    const cashPaid = totalPaid - checksPaid;
     const balance = Math.round(salesAfterDiscount - totalPaid);
 
     /* Factory info (public-safe) */
@@ -188,8 +233,28 @@ export default async function handler(req, res) {
     deliveries.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     returns.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
+    /* V18.7: Customer rating based on retention rate */
+    const piecesDeliveredTotal = deliveries.reduce((s, d) => s + d.qty, 0);
+    const piecesReturnedTotal = returns.reduce((s, r) => s + r.qty, 0);
+    let rating;
+    if (piecesDeliveredTotal <= 0) {
+      rating = { rated: false, stars: 0, label: "لم يتم التقييم بعد", color: "#94A3B8", pct: 0 };
+    } else {
+      const sold = Math.max(0, piecesDeliveredTotal - piecesReturnedTotal);
+      const pct = (sold / piecesDeliveredTotal) * 100;
+      const stars = Math.max(0, Math.min(5, Math.round((pct / 100) * 10) / 2));
+      let label, color;
+      if (pct >= 95) { label = "ممتاز"; color = "#059669"; }
+      else if (pct >= 85) { label = "جيد جداً"; color = "#0D9488"; }
+      else if (pct >= 70) { label = "متوسط"; color = "#0EA5E9"; }
+      else if (pct >= 50) { label = "ضعيف"; color = "#F59E0B"; }
+      else { label = "سيء"; color = "#DC2626"; }
+      rating = { rated: true, stars, label, color, pct: Math.round(pct * 10) / 10 };
+    }
+
     return res.status(200).json({
       factory: { name: factoryName },
+      activeSeason: config.activeSeason || "",
       customer: {
         id: customer.id,
         name: customer.name,
@@ -198,15 +263,21 @@ export default async function handler(req, res) {
       },
       summary: {
         netSales: Math.round(netSales),
+        totalDelValue: Math.round(totalDelValue),
         discountAmount,
         salesAfterDiscount: Math.round(salesAfterDiscount),
         returnsValue: Math.round(totalRetValue),
+        returnsAfterDiscount,
         totalPaid: Math.round(totalPaid),
+        cashPaid: Math.round(cashPaid),
+        checksPaid: Math.round(checksPaid),
         balance,
-        piecesDelivered: deliveries.reduce((s, d) => s + d.qty, 0),
-        piecesReturned: returns.reduce((s, r) => s + r.qty, 0),
+        piecesDelivered: piecesDeliveredTotal,
+        piecesReturned: piecesReturnedTotal,
+        actualSold: piecesDeliveredTotal - piecesReturnedTotal,
         deliveryCount: deliveries.length,
         orderCount: activeModels.size,
+        rating,
       },
       activeModels: Array.from(activeModels.values()),
       deliveries: deliveries.slice(0, 100), /* limit to last 100 */

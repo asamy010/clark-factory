@@ -16,11 +16,14 @@ import { ask, highlightRow, showToast } from "../utils/popups.js";
 import { printLabel, printOrderSheet, printReceipt, printWorkshopReport } from "../utils/print-extras.js";
 import { uploadMultiple, deleteAttachment, getFileIcon, formatFileSize, isAllowedFile, MAX_FILE_SIZE } from "../utils/attachments.js";
 import { OrdForm } from "./OrdForm.jsx";
+import { ReviewRequestModal } from "../components/ReviewRequestModal.jsx";
 
 export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,isTab,canEdit,statusCards,goHome,upConfig,user}){
   const order=data.orders.find(o=>o.id===sel);const[editing,setEditing]=useState(false);
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
   const[detQ,setDetQ]=useState("");const[detSt,setDetSt]=useState("الكل");const[waSent,setWaSent]=useState({});const[waPopup,setWaPopup]=useState(null);
+  /* V18.90: Review request modal toggle */
+  const[showReview,setShowReview]=useState(false);
   /* V14.50: view mode + smart filters */
   const[detView,setDetView]=useState(()=>{try{return localStorage.getItem("clark_det_view")||"cards"}catch(e){return"cards"}});/* "cards"|"table" */
   const[detWs,setDetWs]=useState("");/* workshop filter */
@@ -310,9 +313,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           const isSent=waSent[o.id]&&(Date.now()-waSent[o.id]<60000);
           const sc=(statusCards||[]).find(x=>x.name===o.status);const statusColor=sc?.color||T.accent;
           return<div key={o.id} data-oid={o.id} className="det-tile" style={{background:T.cardSolid,borderRadius:14,border:"1px solid "+T.brd,overflow:"hidden",position:"relative",display:"flex",flexDirection:"column"}} onClick={()=>setSel(o.id)}>
-            {/* V16.39: KPI Dashboard — thick status bar (6px) for stronger visual cue */}
-            <div style={{height:6,background:statusColor,flexShrink:0}}/>
-
+            {/* V18.79: status stripe removed — unified card look */}
             <div style={{padding:14,display:"flex",flexDirection:"column",gap:12,flex:1}}>
               {/* ── Row 1: image + title block ── */}
               <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
@@ -484,8 +485,9 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   const t=calcOrder(order);const accItems=order.accItems||[];const accAll=t.accPer*t.cutQty;
   const activeFabs=FKEYS.filter(k=>order["fabric"+k]);
 
-  /* V15.10: Extra cost categories (هالك/نقل/تغليف/كوي/عمولة/أخرى) */
+  /* V18.88: Extra cost categories — added "تشغيل من القص للتعبئة" as the first category */
   const EXTRA_COST_CATEGORIES=[
+    {name:"تشغيل من القص للتعبئة",icon:"🏭"},
     {name:"هالك",icon:"🔴"},
     {name:"نقل",icon:"🚚"},
     {name:"تغليف",icon:"📦"},
@@ -523,6 +525,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         {!isMob&&<>
           {canEdit&&!order.closed&&<Btn small primary onClick={()=>setEditing(true)} title="تعديل">✏️</Btn>}
           <Btn small onClick={()=>setWaPopup({order,t,fromCard:false})} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال واتساب">📱</Btn>
+          {/* V18.90: Request review */}
+          <Btn small onClick={()=>setShowReview(true)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="طلب مراجعة">📌</Btn>
           {canEdit&&!order.closed&&<Btn small onClick={()=>{const dup=JSON.parse(JSON.stringify(order));dup.id=gid();dup.date=new Date().toISOString().split("T")[0];dup.createdAt=new Date().toISOString();dup.modelNo="";dup.status="تم القص";dup.deliveredQty=0;dup.deliveries=[];dup.workshopDeliveries=[];dup._isDup=true;delete dup._docId;setDupInit(dup)}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630",whiteSpace:"nowrap"}} title="تكرار الأوردر">📋 تكرار</Btn>}
           {canEdit&&!order.closed&&t.cutQty>0&&activeFabs.length>0&&<Btn small onClick={()=>{setShowDeliver(true);setDWs("");setDType("");setDQty(0);setDPrice("");setDNote("")}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630",whiteSpace:"nowrap"}}>📤 تسليم ورشة</Btn>}
           {canEdit&&!order.closed&&<Btn small onClick={()=>setShowNew(true)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",whiteSpace:"nowrap"}}>+ جديد</Btn>}
@@ -664,7 +668,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         if(totalWsRcv>0)curIdx=2;
         if(stockDel>0)curIdx=3;
         if(isClosed)curIdx=phases.length-1;
-        return<div style={{marginBottom:14,background:T.cardSolid,borderRadius:10,padding:"10px 14px",border:"1px solid "+T.brd,overflowX:"auto"}}><Timeline phases={phases} currentIdx={curIdx}/></div>})()}
+        return<div style={{marginBottom:14,background:T.cardSolid,borderRadius:10,padding:"10px 14px",border:"1px solid "+T.brd,overflowX:"auto",WebkitOverflowScrolling:"touch"}}><Timeline phases={phases} currentIdx={curIdx}/></div>})()}
       <div style={{display:"grid",gridTemplateColumns:order.image&&!isMob?"auto 1fr":"1fr",gap:16,marginBottom:16}}>
         {}
         {!isMob&&order.image&&<div style={{position:"relative"}}><img src={order.image} alt="" style={{width:135,height:180,aspectRatio:"3/4",objectFit:"cover",borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow}}/>
@@ -955,10 +959,25 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       })()}
 
       <div style={{display:"grid",gridTemplateColumns:isMob||isTab?"1fr":"1.5fr 1fr",gap:16,marginBottom:16}}>
-        <Card title="تكاليف الاكسسوار">{accItems.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><thead><tr>{["الوصف","السعر","اجمالي"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-          {accItems.map((a,i)=><tr key={i}><td style={{...TD,fontWeight:600}}>{a.name}</td><td style={TD}>{a.price+" ج.م"}</td><td style={{...TDB,color:T.accent}}>{fmt(a.price*t.cutQty)+" ج.م"}</td></tr>)}
-          <tr style={{background:T.inputBg||T.cardSolid}}><td style={{...TD,fontWeight:700}}>اجمالي</td><td style={{...TD,fontWeight:700}}>{t.accPer+" ج.م/قطعة"}</td><td style={{...TD,fontWeight:700,color:T.accent}}>{fmt(accAll)+" ج.م"}</td></tr>
-        </tbody></table></div>:<div style={{textAlign:"center",padding:20,color:T.textSec}}>لم يتم اضافة بنود</div>}</Card>
+        <Card title="تكاليف الاكسسوار">{accItems.length>0?<div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:420}}>
+          <thead><tr>
+            <th style={{...TH,padding:"10px 12px",textAlign:"right",width:"50%"}}>الوصف</th>
+            <th style={{...TH,padding:"10px 12px",textAlign:"center",width:"22%",whiteSpace:"nowrap"}}>سعر القطعة</th>
+            <th style={{...TH,padding:"10px 12px",textAlign:"center",width:"28%",whiteSpace:"nowrap"}}>اجمالي</th>
+          </tr></thead>
+          <tbody>
+            {accItems.map((a,i)=><tr key={i}>
+              <td style={{...TD,fontWeight:700,padding:"10px 12px",textAlign:"right",fontSize:FS}}>{a.name}</td>
+              <td style={{...TD,padding:"10px 12px",textAlign:"center",whiteSpace:"nowrap",fontSize:FS-1,color:T.textSec}}>{fmt(a.price)+" ج.م"}</td>
+              <td style={{...TDB,color:T.accent,padding:"10px 12px",textAlign:"center",whiteSpace:"nowrap",fontSize:FS,fontWeight:700}}>{fmt(a.price*t.cutQty)+" ج.م"}</td>
+            </tr>)}
+            <tr style={{background:T.inputBg||T.cardSolid,borderTop:"2px solid "+T.brd}}>
+              <td style={{...TD,fontWeight:800,padding:"12px",textAlign:"right",fontSize:FS}}>الاجمالي</td>
+              <td style={{...TD,fontWeight:800,padding:"12px",textAlign:"center",whiteSpace:"nowrap",fontSize:FS-1}}>{t.accPer+" ج.م/قطعة"}</td>
+              <td style={{...TD,fontWeight:800,color:T.accent,padding:"12px",textAlign:"center",whiteSpace:"nowrap",fontSize:FS+1}}>{fmt(accAll)+" ج.م"}</td>
+            </tr>
+          </tbody>
+        </table></div>:<div style={{textAlign:"center",padding:20,color:T.textSec}}>لم يتم اضافة بنود</div>}</Card>
         {(()=>{
           const wds=order.workshopDeliveries||[];
           const pieces=order.orderPieces||[];
@@ -977,20 +996,25 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
             else{canStock=true}
           }
           const stockDel=getConfirmedStock(order);const pendingDel=(order.deliveries||[]).filter(d=>d.status==="pending").reduce((s,d)=>s+(Number(d.qty)||0),0);const stockRemain=Math.max(0,t.cutQty-stockDel-pendingDel);
-          return<Card title={"تسليم مخزن جاهز"+((order.deliveries||[]).some(d=>d.status==="pending")?" ⏳":"")} extra={canEdit&&canStock&&<Btn primary small onClick={()=>updOrder(sel,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty:0,notes:"",createdBy:userName||"",status:"pending"});const newIdx=o.deliveries.length-1;/* V16.26: capture before setTimeout to avoid stale draft */setTimeout(()=>setEditStockIdx(newIdx),100)})}>+ تسليم</Btn>}>
+          return<Card title={"تسليم مخزن جاهز"+((order.deliveries||[]).some(d=>d.status==="pending")?" ⏳":"")} extra={canEdit&&canStock&&<Btn primary small onClick={()=>updOrder(sel,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty:0,notes:"",createdBy:userName||"",status:"pending",type:"series"});const newIdx=o.deliveries.length-1;/* V16.26: capture before setTimeout to avoid stale draft */setTimeout(()=>setEditStockIdx(newIdx),100)})}>+ تسليم</Btn>}>
             {!canStock&&<div style={{padding:10,background:T.err+"10",border:"1px solid "+T.err+"30",borderRadius:8,marginBottom:10,fontSize:FS,color:T.err,fontWeight:600}}>{blockMsg}</div>}
             <div style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap"}}>
               <span style={{padding:"6px 12px",borderRadius:8,background:T.err+"12",color:T.err,fontWeight:700,fontSize:FS}}>{"كمية القص: "+t.cutQty}</span>
               <span style={{padding:"6px 12px",borderRadius:8,background:T.ok+"12",color:T.ok,fontWeight:700,fontSize:FS}}>{"✅ مؤكد: "+stockDel}</span>
               {pendingDel>0&&<span style={{padding:"6px 12px",borderRadius:8,background:"#F59E0B12",color:"#F59E0B",fontWeight:700,fontSize:FS}}>{"⏳ معلّق: "+pendingDel}</span>}
               <span style={{padding:"6px 12px",borderRadius:8,background:stockRemain>0?T.warn+"12":T.ok+"12",color:stockRemain>0?T.warn:T.ok,fontWeight:700,fontSize:FS}}>{"المتبقي: "+stockRemain}</span>
+              {/* V18.21: Show series vs broken split */}
+              {(()=>{const ser=(order.deliveries||[]).filter(d=>d.status!=="pending"&&(d.type||"series")==="series").reduce((s,d)=>s+(Number(d.qty)||0),0);const brk=(order.deliveries||[]).filter(d=>d.status!=="pending"&&d.type==="broken").reduce((s,d)=>s+(Number(d.qty)||0),0);return(ser>0||brk>0)?<><span style={{padding:"6px 12px",borderRadius:8,background:"#0EA5E912",color:"#0EA5E9",fontWeight:700,fontSize:FS}}>{"📦 سيري: "+ser}</span><span style={{padding:"6px 12px",borderRadius:8,background:"#8B5CF612",color:"#8B5CF6",fontWeight:700,fontSize:FS}}>{"🧩 كسر: "+brk}</span></>:null})()}
             </div>
-            <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:450}}><thead><tr>{["#","التاريخ","الكمية","الحالة","ملاحظات",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
+            <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:520}}><thead><tr>{["#","التاريخ","الكمية","النوع","الحالة","ملاحظات",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
             {(order.deliveries||[]).map((d,i)=>{const isEd=editStockIdx===i&&canEdit;
+              const dType=d.type||"series";
               return<tr key={i} style={{background:isEd?T.warn+"06":"transparent"}}>
               <td style={TD}>{i+1}</td>
               <td style={{...TD,minWidth:130}}>{isEd?<Inp type="date" value={d.date} onChange={v=>updOrder(sel,o=>{o.deliveries[i].date=v})}/>:d.date}</td>
               <td style={{...TD,minWidth:80}}>{isEd?<div id="stock-qty-input-wrap"><Inp type="number" value={d.qty} onChange={v=>updOrder(sel,o=>{const totalRcvd=(o.workshopDeliveries||[]).reduce((s,wd)=>(wd.receives||[]).filter(r=>!r.isSettlement).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);const otherDels=o.deliveries.filter((_,j)=>j!==i).reduce((s,x)=>s+(Number(x.qty)||0),0);const maxQ=Math.min(t.cutQty-otherDels,totalRcvd-otherDels);o.deliveries[i].qty=Math.min(Math.max(0,Number(v)||0),Math.max(0,maxQ));o.deliveredQty=getConfirmedStock(o);o.status=recomputeStatus(o)})}/></div>:<span style={{fontWeight:700,color:T.accent}}>{d.qty}</span>}</td>
+              {/* V18.21: Type column — series (default) / broken */}
+              <td style={{...TD,minWidth:90,textAlign:"center"}}>{isEd?<Sel value={dType} onChange={v=>updOrder(sel,o=>{o.deliveries[i].type=v})}><option value="series">📦 سيري</option><option value="broken">🧩 كسر</option></Sel>:<span style={{padding:"3px 8px",borderRadius:6,fontWeight:700,fontSize:FS-2,background:dType==="broken"?"#8B5CF615":"#0EA5E915",color:dType==="broken"?"#8B5CF6":"#0EA5E9"}}>{dType==="broken"?"🧩 كسر":"📦 سيري"}</span>}</td>
               <td style={{...TD,textAlign:"center"}}>{d.status==="pending"?<span style={{color:"#F59E0B",fontWeight:700,fontSize:FS-1}}>⏳ معلّق</span>:d.confirmedBy?<span style={{color:"#10B981",fontWeight:700,fontSize:FS-1}}>{"✅ "+d.confirmedBy}</span>:<span style={{color:"#10B981",fontWeight:700,fontSize:FS-1}}>✅ مؤكد</span>}</td>
               <td style={{...TD,minWidth:120}}>{isEd?<Inp value={d.notes} onChange={v=>updOrder(sel,o=>{o.deliveries[i].notes=v})} placeholder="ملاحظات"/>:(d.notes||"-")}</td>
               {canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}>
@@ -998,7 +1022,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                 :<Btn small onClick={()=>setEditStockIdx(i)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>}
               </div></td>}
             </tr>})}
-            {(!order.deliveries||order.deliveries.length===0)&&<tr><td colSpan={canEdit?6:5} style={{...TD,textAlign:"center",color:T.textSec}}>لا توجد تسليمات</td></tr>}
+            {(!order.deliveries||order.deliveries.length===0)&&<tr><td colSpan={canEdit?7:6} style={{...TD,textAlign:"center",color:T.textSec}}>لا توجد تسليمات</td></tr>}
           </tbody></table></div>
           </Card>})()}
           {/* ── Settlement & Close ── */}
@@ -1393,6 +1417,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       const items=[];
       if(canEdit&&!order.closed)items.push({icon:"✏️",label:"تعديل الأوردر",color:T.accent,onClick:run(()=>setEditing(true))});
       items.push({icon:"📱",label:"إرسال واتساب",color:"#25D366",onClick:run(()=>setWaPopup({order,t,fromCard:false}))});
+      items.push({icon:"📌",label:"طلب مراجعة",color:"#8B5CF6",onClick:run(()=>setShowReview(true))});
       if(canEdit&&!order.closed)items.push({icon:"📋",label:"تكرار الأوردر",color:"#8B5CF6",onClick:run(()=>{const dup=JSON.parse(JSON.stringify(order));dup.id=gid();dup.date=new Date().toISOString().split("T")[0];dup.createdAt=new Date().toISOString();dup.modelNo="";dup.status="تم القص";dup.deliveredQty=0;dup.deliveries=[];dup.workshopDeliveries=[];dup._isDup=true;delete dup._docId;setDupInit(dup)})});
       if(canEdit&&!order.closed&&t.cutQty>0&&activeFabs.length>0)items.push({icon:"📤",label:"تسليم ورشة",color:"#8B5CF6",onClick:run(()=>{setShowDeliver(true);setDWs("");setDType("");setDQty(0);setDPrice("");setDNote("")})});
       if(canEdit&&!order.closed)items.push({icon:"➕",label:"أوردر جديد",color:T.ok,onClick:run(()=>setShowNew(true))});
@@ -1550,6 +1575,17 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         </div>
       </div>
     })()}
+    {/* V18.90: Review request modal */}
+    {showReview&&order&&<ReviewRequestModal
+      link={{
+        type:"order",
+        id:order.id,
+        label:"أوردر "+(order.poNumber||order.modelNo),
+      }}
+      defaultMsg={"راجع أوردر "+(order.poNumber||order.modelNo)+" من فضلك"}
+      data={data} upConfig={upConfig} user={user}
+      onClose={()=>setShowReview(false)}
+    />}
   </div>
 }
 

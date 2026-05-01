@@ -1,0 +1,389 @@
+/* ════════════════════════════════════════════════════════════════════════
+   CLARK V16.79 — About Version Modal
+   ════════════════════════════════════════════════════════════════════════
+   
+   Modal popup يعرض changelog لآخر 10 إصدارات.
+   يفتح من زر صغير في TopBar.
+   
+   الإصدار الحالي يظهر مميز في الأعلى بلون مختلف.
+   كل إصدار له:
+     - رقم الإصدار + تاريخ
+     - تصنيف (✨ ميزة جديدة | 🐛 إصلاح | ⚡ تحسين | 🔧 صيانة | ⚠️ تغيير معماري)
+     - عناوين التغييرات
+     - تفاصيل (لو محتاجة شرح)
+   ════════════════════════════════════════════════════════════════════════ */
+
+import { useEffect } from "react";
+import { T } from "../theme.js";
+import { FS } from "../constants/index.js";
+
+/* ═══ CHANGELOG DATA ═══
+   آخر 10 إصدارات (V16.70 → V16.79).
+   كل إصدار: version, date, type[], title, changes[]
+   
+   types: feature (ميزة جديدة), fix (إصلاح), improvement (تحسين), 
+          maintenance (صيانة), architectural (تغيير معماري) */
+const CHANGELOG = [
+  {
+    version: "V18.92",
+    date: "2026-05-01",
+    types: ["fix", "improvement"],
+    title: "🔧 4 إصلاحات Mobile UX (الخزنة + الأوردر + المرتبات)",
+    changes: [
+      { type: "fix", text: "💰 الخزنة: تابات الحسابات (MAIN CASH / SUB CASH / CIB / بنك...) كانت بـ`flex:1` فبتـSquish وتقطّع على الموبايل. الإصلاح: على الموبايل بقت قابلة للـscroll أفقي مع `flex:0 0 auto` لكل تاب + `overflowX:auto` على الـwrapper + `WebkitOverflowScrolling:touch` للسلاسة. الديسكتوب محفوظ بشكله." },
+      { type: "fix", text: "📋 الأوردر: التايم لاين (4 مراحل: القص → في التشغيل → تشطيب → مخزن) كان متمدد خارج الشاشة من اليمين على الموبايل. الإصلاح: `minWidth: phases.length * 110px` على Timeline component + `WebkitOverflowScrolling:touch` على الـwrapper. دلوقتي الـtimeline قابل للـscroll أفقي بسلاسة." },
+      { type: "improvement", text: "🎨 الأوردر: جدول تكاليف الإكسسوار (شماعة/كباسين/كفر) كان مزحوم ومتداخل. الإصلاح: عرض ثابت لكل عمود (50%/22%/28%)، padding أكبر (10-12px)، أحجام نصوص متفاوتة للوضوح، صف الإجمالي بـborder-top مميز، عمود السعر اتسمى 'سعر القطعة' بدل 'السعر' للوضوح، الأرقام بـwhite-space:nowrap عشان مايتقطعش." },
+      { type: "improvement", text: "👷 المرتبات: شبكة التابات الـ6 على الموبايل اتعملت redesign كامل (الخيار أ من الـ3 mockups المقترحة). كل تاب دلوقتي بطاقة مربعة (78px) فيها: أيقونة 22px على الفوق، تحتها label مختصر، والـbadge منفصل في الـtop-left كـpill صغير دائري. الـactive tab بـbackground أزرق + أيقونة+نص أبيض + badge أبيض ب text أزرق. شكل احترافي زي تطبيقات iOS." },
+    ]
+  },
+  {
+    version: "V18.91",
+    date: "2026-05-01",
+    types: ["feature"],
+    title: "📌 توسعة 'طلب مراجعة' + إشعار التحويلات بين الخزن",
+    changes: [
+      { type: "feature", text: "💸 تحويلات الخزن: لما مستخدم غير admin يطلب تحويل، يطلع إشعار تلقائي للأدمن في الـgreeting bar (chip أحمر 'مهمة عاجلة') مع زر 'فتح'. الضغط بيوصل لصفحة الخزنة → تاب 'التحويلات' → بيتحرك للسطر بتاع الطلب مع تأثير highlight أصفر لمدة 2.5 ثانية. عند الموافقة أو الرفض، الـchip بيختفي تلقائياً عند جميع الأدمن (endedAt)." },
+      { type: "feature", text: "🛡️ Schema جديد: notification.forAdminsOnly = true → الـchip يظهر للأدمن فقط (مفلتر في App.jsx). يستخدم في تحويلات الخزن وأي حاجة محتاجة موافقة admin مستقبلاً." },
+      { type: "feature", text: "👷 المرتبات: زر '📌 مراجعة' جديد على كل بطاقة أسبوع. يفتح modal طلب المراجعة مع الـlink للأسبوع. الضغط على الإشعار عند المستلم → يفتح الأسبوع تلقائياً (setView('weeks') + setOpenWeekId)." },
+      { type: "feature", text: "🏭 الورش: عمود جديد '📌' في جدول حسابات الورش (تشغيل خارجي → حسابات الورش). الضغط بيفتح modal طلب المراجعة لهذه الورشة. الإشعار عند المستلم بيفتح صفحة الورش وبيـfilter على اسم الورشة المعنية." },
+      { type: "improvement", text: "🔄 routing موسّع في handleNotifLinkClick: 5 أنواع مدعومة الآن — invoice (sales/purchase) + order + treasury (transfer_pending) + workshop + hrWeek. كل واحد له payload مخصص للـdeep-link." },
+      { type: "improvement", text: "✅ النظام كامل دلوقتي: المستخدم يقدر يطلب مراجعة من 6 أماكن: فواتير المبيعات + فواتير المشتريات + الأوردرات + الخزنة (تحويلات تلقائية) + الورش + المرتبات. كل طلب → notification مع link → الضغط → ينقل للوجهة بالظبط." },
+    ]
+  },
+  {
+    version: "V18.90",
+    date: "2026-05-01",
+    types: ["feature"],
+    title: "📌 نظام طلب مراجعة (Mention/Deep-link) — المرحلة 1",
+    changes: [
+      { type: "feature", text: "📌 زر '📌 طلب مراجعة' جديد في 3 أماكن: فواتير المبيعات + فواتير المشتريات + صفحة الأوردر. الضغط بيفتح modal لاختيار المستخدم المستلم + كتابة رسالة + اختيار النوع (طلب/مهمة/عاجل) + مدة العرض. عند الإرسال: يبعت notification للمستلم بـlink للوجهة." },
+      { type: "feature", text: "🔗 الـnotification في الـgreeting bar (V18.87) بقت تعرض badge جديد '🔗 فتح [الوجهة]' لو الـnotification فيها link. الضغط على الـchip → routing تلقائي للصفحة + فتح الفاتورة/الأوردر مباشرة." },
+      { type: "feature", text: "⚙️ Schema موسّع: notification.link = {type, id, subType?, label}. الأنواع المدعومة في V18.90: invoice (sales/purchase) + order. الأنواع treasury/workshop/hrWeek محجوزة لـV18.91." },
+      { type: "feature", text: "👮 الـadmin يقدر يحول طلب لأي حد. كل المستخدمين يقدروا يحوّلوا لأي حد آخر — بدون قيود (الصلاحيات بتحدد لو المستلم يقدر يفتح الوجهة بعد الـrouting)." },
+      { type: "improvement", text: "🎨 Hover effect على الـchip اللي فيه link (scale 1.03)، cursor: pointer، tooltip يقول 'اضغط للذهاب لـX'. الـchips بدون link مش clickable (cursor: default)." },
+      { type: "improvement", text: "📲 يستخدم نفس الـinfrastructure للإشعارات من V18.87 (expiresAt + endedAt + readBy + dismissedBy + duration). مفيش data structures جديدة، بس field واحد إضافي." },
+      { type: "improvement", text: "🔒 الـrouting بيستخدم window.dispatchEvent('notif-deeplink') مع setTimeout 150ms عشان يستنى الـtab يـmount قبل ما يفتح الـmodal." },
+    ]
+  },
+  {
+    version: "V18.89",
+    date: "2026-05-01",
+    types: ["feature"],
+    title: "📲 تفاصيل القطع في رسالة WhatsApp للأوردر",
+    changes: [
+      { type: "feature", text: "📌 إضافة قسم 'تفاصيل القطع' في رسالة WhatsApp اللي بتطلع من زر 'تفاصيل + تايم لاين' في صفحة الأوردر. لكل قطعة (قميص، شورت، إلخ) بيظهر: كمية القص + كمية التشغيل (المسلَّم للورش) + كمية المتاح للتسليم على الأرض. مفيد جداً لمتابعة كل قطعة على حدة بدل الإجمالي." },
+      { type: "feature", text: "🎨 الأيقونة بتتعرَّف تلقائياً (👕 قميص، 🩳 شورت، 🧥 جاكيت، 👖 بنطلون، إلخ). الـformat: '👕 قميص: قص 624 - تشغيل 0 - متاح للتسليم 0'." },
+      { type: "improvement", text: "✅ القسم بيظهر فقط للموديلات اللي فيها أكتر من قطعة (orderPieces.length > 1) — للموديلات بقطعة واحدة أو القديمة بدون orderPieces بيتجاهل عشان مفيش قيمة مضافة." },
+    ]
+  },
+  {
+    version: "V18.88",
+    date: "2026-05-01",
+    types: ["feature"],
+    title: "🏭 إضافة 'تشغيل من القص للتعبئة' للتكاليف الإضافية",
+    changes: [
+      { type: "feature", text: "🏭 تصنيف جديد في popup التكاليف الإضافية للموديل: 'تشغيل من القص للتعبئة' بأيقونة 🏭. تم وضعه كأول بطاقة في الـgrid (قبل هالك). مفيد لتسجيل تكلفة المرور بين مراحل القص والتعبئة. الـcalc اللي بيجمع التكاليف الإضافية بيشمله تلقائي." },
+    ]
+  },
+  {
+    version: "V18.87",
+    date: "2026-05-01",
+    types: ["feature", "improvement"],
+    title: "🔔 تطوير الإشعارات: مدة عرض + زر إنهاء + عرض في الـgreeting bar",
+    changes: [
+      { type: "feature", text: "🔔 الإشعارات اتنقلت من التوب بار إلى الـgreeting bar (الأبيض الكبير اللي فيه 'مرحبا، X' + الموسم) في الصفحة الرئيسية. كل الأنواع (تذكير + طلب + مهمة + عاجل) دلوقتي بتظهر هناك جنب بعض كـchips، مش فوق بعض. لكل نوع لون وأيقونة مميزة (أحمر للعاجل، أزرق للمهمة، بنفسجي للطلب، أصفر للتذكير)." },
+      { type: "feature", text: "⏱ مدة العرض: حقل جديد في popup إرسال الإشعار '⏱ مدة العرض' بـ5 خيارات: 🕐 ساعة، ⏰ ساعتين (افتراضي)، 📅 يوم، 🌅 آخر اليوم، 🔓 بدون حد. الإشعار بيختفي تلقائياً للجميع لما الوقت يخلص. عداد تنازلي (مثلاً '⏰ 1س 23د') ظاهر على الـchip ويتحدث كل دقيقة." },
+      { type: "feature", text: "⏹ زر إنهاء: يظهر للمرسل (`fromEmail === me`) أو الـadmin بس. الضغط بيخفي الإشعار عند جميع المستخدمين فوراً (يحدد `endedAt + endedBy`). متمايز عن زر الإخفاء (✕) اللي بيخفي عند المستخدم الحالي بس." },
+      { type: "improvement", text: "📐 الـlayout: الـchips بتاخد المساحة المتاحة في الوسط بين 'مرحبا، X' (يمين) و 'الموسم' (يسار). flex-wrap داخلي يخلي الـchips تسطّر لو كانت كتير، بدون ما تطلع برة الـbar. كل chip له عرض أقصى للنص (max 200px) مع ellipsis لو طويل." },
+      { type: "improvement", text: "🗂 Schema جديد للإشعار: 4 fields إضافية — `fromEmail`, `expiresAt`, `endedAt`, `endedBy`. الإشعارات القديمة بدون هذه الحقول بتستمر تظهر طبيعي (null = no expiry)." },
+      { type: "improvement", text: "🔄 Live ticker: useEffect بيـreset كل دقيقة عشان عداد الوقت المتبقي يحدث. يتوقف تلقائياً لو مفيش إشعارات نشطة." },
+      { type: "improvement", text: "🎨 الفلتر النهائي للإشعار: `!endedAt && (!expiresAt || expiresAt > now) && !readBy.includes(me) && !dismissedBy.includes(me)`. المحاسبة + طلبات الإشعارات القديمة بتنقي بنفس المنطق." },
+      { type: "improvement", text: "🚫 إزالة شريط 'مهمة عاجلة' من التوب بار — كان مكرر دلوقتي." },
+    ]
+  },
+  {
+    version: "V18.86",
+    date: "2026-05-01",
+    types: ["improvement"],
+    title: "📱 تحسين تابات الموبايل (المحاسبة + المرتبات)",
+    changes: [
+      { type: "improvement", text: "📱 المحاسبة: التابات الـ8 (شجرة الحسابات + اليومية + الميزان + كشف حساب جاري + دفعات + تقادم + القوائم + الإعدادات) كانت بتلف على 3-4 صفوف عشوائياً على الموبايل بسبب `flex-wrap`. الإصلاح: شبكة 3 أعمدة منظمة (3×3) على الموبايل بس، الديسكتوب لسه شكله الأصلي." },
+      { type: "improvement", text: "📱 المرتبات + موظفين: نفس المشكلة في الـ6 تابات (الأسابيع، سجل أسبوعي، سجل شهري، الموظفين، تأكيد الاستلام، الأمن والرقابة) مع `flex:1` بيخلي النص متزحم. الإصلاح: شبكة 3 أعمدة (3×2) على الموبايل + اختصار النصوص (مثلاً 'تأكيد الاستلام' → 'تأكيد'، 'الأمن والرقابة' → 'أمن')." },
+      { type: "improvement", text: "🎨 شكل التاب الفعّال على الموبايل: background ملوّن (T.accent) + border قوي + نص أبيض — أوضح بكثير من نمط underline على شاشة ضيقة. الديسكتوب محفوظ بالنمط الأصلي (underline) لأنه مساحته كافية." },
+      { type: "improvement", text: "✅ قاعدة البيانات (DBPg) مش متأثرة لأن تاباتها 4 وبتستخدم `Btn` components (شغالة بشكل مقبول). الخزنة والمخزن نفس الحال." },
+    ]
+  },
+  {
+    version: "V18.85",
+    date: "2026-04-30",
+    types: ["feature", "improvement"],
+    title: "🛠 فواتير خدمات (مبيعات + مشتريات) + بطاقة الأسبوع المبسطة",
+    changes: [
+      { type: "feature", text: "🛠 زر جديد '🛠 فاتورة خدمات' في صفحتي فواتير المبيعات والمشتريات. Modal مستقل لإصدار فواتير لخدمات لا تمر بالمخزن (شحن، صيانة، استشارات، إيجار، إلخ). كل بند فيه: وصف نصي حر، كمية، سعر، إجمالي، حساب محاسبي اختياري." },
+      { type: "feature", text: "👥 يدعم طرفين: من القائمة (عميل/مورد موجود) أو طرف عابر (اسم نصي بدون حفظ في القاعدة)." },
+      { type: "feature", text: "📊 الحساب المحاسبي اختياري لكل بند: للمبيعات يعرض حسابات الإيرادات، للمشتريات يعرض حسابات المصاريف. لو مختار، الترحيل بيستخدمه مباشرة. لو غير مختار، fallback تلقائي للحساب الافتراضي (إيرادات المبيعات / مصروفات عمومية أخرى 5290)." },
+      { type: "feature", text: "🚫 مفيش COGS لفواتير الخدمات: الـauto-post بيتجاهل COGS companion entry تماماً (subtype='service'). كذلك الفاتورة مش بتلمس المخزون (مفيش inventory account في القيد)." },
+      { type: "feature", text: "🏷️ Badge مميز '🛠 خدمات' بجانب رقم الفاتورة في القوائم. في الـDetail Modal، البنود بتعرض الوصف بدل اسم الموديل/الصنف، مع الحساب المحاسبي تحته." },
+      { type: "improvement", text: "💾 الفاتورة بتُحفظ كـDraft (مسودة) — الـadmin بيرحلها يدوياً من القائمة. التأثير المحاسبي بيحصل وقت الترحيل: للمبيعات Dr عميل / Cr إيراد(ات) المختارة + خصم لو موجود. للمشتريات Dr مصروف(ات) المختارة / Cr مورد." },
+      { type: "improvement", text: "📅 بطاقة الأسبوع: حذف 'مستحق' و'صافي' (كانوا مكررين ومربكين). استبدالهم ببطاقة واحدة 'إجمالي المدفوع' (للأسبوع المقفول) أو 'المخطط للدفع' (للمفتوح) = مرتبات + سلف الإدارة + دفعات الورش + مصاريف أخرى. الرقم ده مطابق للـpopup الإقفال الأخير V18.77." },
+      { type: "improvement", text: "🔧 تعميم `buildSalesInvoicePostedEntry` و `buildPurchaseInvoicePostedEntry`: دلوقتي بيتعاملوا مع فواتير الخدمات بنفس الـAPI، بيـ group البنود حسب accountId (لو حسابات مختلفة في فاتورة واحدة، بيطلع credit/debit lines منفصلة لكل حساب)." },
+    ]
+  },
+  {
+    version: "V18.84",
+    date: "2026-04-30",
+    types: ["fix"],
+    title: "🔧 إصلاح تساوي الفجوات بين أزرار الصفحة الرئيسية",
+    changes: [
+      { type: "fix", text: "🚨 الـ`width:80%` + `justifyItems:center` كان بيخلي الفجوات الأفقية أكبر من العمودية (لأن كل زر متمركز في خانته فبيسيب مساحة على جنبيه)، النتيجة فجوات غير متساوية. الإصلاح: شيلت الـcentering hack، خليت الزر يملا خانته (`width:auto`)، وكبرت الـgap من 10 → 24. النتيجة: الـgrid بيوزع gap متساوي أفقي وعمودي تلقائياً، والأزرار طبيعياً صغرت ~10% بسبب الـgap الأكبر." },
+    ]
+  },
+  {
+    version: "V18.83",
+    date: "2026-04-30",
+    types: ["improvement"],
+    title: "🎨 أزرار الصفحة الرئيسية: مربعة + أصغر 20%",
+    changes: [
+      { type: "improvement", text: "🟦 الأزرار محفوظة `aspectRatio:1` (مربعة)، لكن `width:80%` + `justifyItems:center` على الـgrid → كل زر صغير 20% من الـcell الخاص به ومتمركز فيه. النتيجة: مربعات صغيرة بفراغ بيضاء أقل، الأيقونة (44×44) محفوظة بنفس الحجم. padding 12→10، 6 أعمدة محفوظة." },
+    ]
+  },
+];
+
+/* ═══ TYPE METADATA ═══ */
+const TYPE_META = {
+  feature:       { icon: "✨", label: "ميزة جديدة",      color: "#10B981", bg: "#10B98112" },
+  fix:           { icon: "🐛", label: "إصلاح",          color: "#EF4444", bg: "#EF444412" },
+  improvement:   { icon: "⚡", label: "تحسين",          color: "#3B82F6", bg: "#3B82F612" },
+  maintenance:   { icon: "🔧", label: "صيانة",          color: "#8B5CF6", bg: "#8B5CF612" },
+  architectural: { icon: "🏗️", label: "تغيير معماري",    color: "#F59E0B", bg: "#F59E0B12" },
+};
+
+/* ═══ MODAL COMPONENT ═══ */
+export function AboutVersionModal({ open, onClose, currentVersion = "V16.79" }) {
+  /* ESC to close */
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 99999,
+        background: "rgba(0,0,0,0.55)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: 16, animation: "fadeIn 0.2s ease",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: T.cardSolid,
+          borderRadius: 16,
+          width: "100%", maxWidth: 720, maxHeight: "85vh",
+          overflow: "hidden",
+          display: "flex", flexDirection: "column",
+          boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+          border: "1px solid " + T.brd,
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            padding: "18px 24px",
+            borderBottom: "1px solid " + T.brd,
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            background: "linear-gradient(135deg, " + T.accent + "08, " + T.accent + "02)",
+          }}
+        >
+          <div>
+            <div style={{ fontSize: FS + 4, fontWeight: 800, color: T.accent, marginBottom: 2 }}>
+              📋 سجل تحديثات CLARK
+            </div>
+            <div style={{ fontSize: FS - 2, color: T.textSec }}>
+              آخر 10 إصدارات — الإصدار الحالي: <b style={{ color: T.text }}>{currentVersion}</b>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="إغلاق"
+            style={{
+              width: 36, height: 36, borderRadius: "50%",
+              border: "1px solid " + T.brd,
+              background: T.cardSolid,
+              color: T.textSec,
+              fontSize: 18, cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              transition: "all 0.15s",
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.background = T.err + "15";
+              e.currentTarget.style.color = T.err;
+              e.currentTarget.style.borderColor = T.err + "40";
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.background = T.cardSolid;
+              e.currentTarget.style.color = T.textSec;
+              e.currentTarget.style.borderColor = T.brd;
+            }}
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Type legend */}
+        <div
+          style={{
+            padding: "10px 24px",
+            borderBottom: "1px solid " + T.brd + "40",
+            background: T.cardSolid,
+            display: "flex", flexWrap: "wrap", gap: 8,
+            fontSize: FS - 3,
+          }}
+        >
+          {Object.entries(TYPE_META).map(([key, meta]) => (
+            <span
+              key={key}
+              style={{
+                padding: "2px 8px", borderRadius: 6,
+                background: meta.bg, color: meta.color,
+                fontWeight: 600,
+                display: "inline-flex", alignItems: "center", gap: 4,
+              }}
+            >
+              <span>{meta.icon}</span>
+              <span>{meta.label}</span>
+            </span>
+          ))}
+        </div>
+
+        {/* Body — scrollable list of versions */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
+          {CHANGELOG.map((v, idx) => {
+            const isCurrent = v.version === currentVersion;
+            return (
+              <div
+                key={v.version}
+                style={{
+                  marginBottom: 18,
+                  padding: 14,
+                  borderRadius: 12,
+                  border: "1px solid " + (isCurrent ? T.accent + "40" : T.brd),
+                  background: isCurrent ? T.accent + "06" : T.cardSolid,
+                  position: "relative",
+                }}
+              >
+                {/* Version header */}
+                <div
+                  style={{
+                    display: "flex", justifyContent: "space-between",
+                    alignItems: "flex-start", marginBottom: 8, flexWrap: "wrap", gap: 8,
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontSize: FS + 2, fontWeight: 800,
+                        color: isCurrent ? T.accent : T.text,
+                        display: "flex", alignItems: "center", gap: 8,
+                      }}
+                    >
+                      <span style={{ fontFamily: "monospace" }}>{v.version}</span>
+                      {isCurrent && (
+                        <span
+                          style={{
+                            fontSize: FS - 3, fontWeight: 700,
+                            padding: "2px 8px", borderRadius: 6,
+                            background: T.accent, color: "#fff",
+                          }}
+                        >
+                          الحالي
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: FS, color: T.textSec, marginTop: 2 }}>
+                      {v.title}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: FS - 3, color: T.textMut, fontFamily: "monospace" }}>
+                    📅 {v.date}
+                  </div>
+                </div>
+
+                {/* Type badges */}
+                <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+                  {v.types.map((t) => {
+                    const meta = TYPE_META[t];
+                    if (!meta) return null;
+                    return (
+                      <span
+                        key={t}
+                        style={{
+                          fontSize: FS - 3, fontWeight: 700,
+                          padding: "2px 8px", borderRadius: 6,
+                          background: meta.bg, color: meta.color,
+                          display: "inline-flex", alignItems: "center", gap: 3,
+                        }}
+                      >
+                        <span>{meta.icon}</span>
+                        <span>{meta.label}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+
+                {/* Changes list */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  {v.changes.map((c, i) => {
+                    const meta = TYPE_META[c.type] || TYPE_META.improvement;
+                    return (
+                      <div
+                        key={i}
+                        style={{
+                          display: "flex", alignItems: "flex-start", gap: 8,
+                          fontSize: FS - 1, lineHeight: 1.7,
+                          padding: "4px 0",
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: FS, marginTop: 1,
+                            flexShrink: 0,
+                            color: meta.color,
+                          }}
+                        >
+                          {meta.icon}
+                        </span>
+                        <span style={{ color: T.text }}>{c.text}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Footer note */}
+          <div
+            style={{
+              marginTop: 20, padding: 12,
+              borderRadius: 10,
+              background: T.textMut + "08",
+              fontSize: FS - 3, color: T.textMut,
+              textAlign: "center", lineHeight: 1.6,
+            }}
+          >
+            CLARK Factory Management — © 2026
+            <br />
+            للمساعدة أو الإبلاغ عن مشاكل، تواصل مع المدير.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

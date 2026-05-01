@@ -61,6 +61,30 @@ export function verifySignature(sessionId, custId, sig) {
   }
 }
 
+/* ── V16.73: Workshop delivery signing ──
+   Same HMAC scheme as the customer flow, but the payload is a 3-tuple
+   (orderId, wsId, deliveryIdx) since a single order can have multiple
+   deliveries to multiple workshops. We use a distinct payload prefix
+   ("ws:") so a customer signature can never validate against a workshop
+   route (defense in depth — even though the routes are separate).        */
+export function signWorkshopPayload(orderId, wsId, deliveryIdx) {
+  const payload = "ws:" + orderId + ":" + wsId + ":" + String(deliveryIdx);
+  return crypto.createHmac("sha256", getSecret()).update(payload).digest("hex");
+}
+
+export function verifyWorkshopSignature(orderId, wsId, deliveryIdx, sig) {
+  if (!orderId || !wsId || deliveryIdx == null || deliveryIdx === "" || !sig) return false;
+  const expected = signWorkshopPayload(orderId, wsId, deliveryIdx);
+  try {
+    const a = Buffer.from(sig, "hex");
+    const b = Buffer.from(expected, "hex");
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  } catch (e) {
+    return false;
+  }
+}
+
 /* ── CORS helper — used by all public endpoints ── */
 export function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -95,6 +119,14 @@ export async function verifyAdminToken(token) {
   }
   if (!decoded || !decoded.uid) {
     return { ok: false, status: 401, error: "مستخدم غير مصرّح" };
+  }
+  /* V18.70: Bootstrap admin escape hatch.
+     If BOOTSTRAP_ADMIN_UID is set in Vercel env vars and matches the
+     decoded UID, grant admin role unconditionally — even if config is
+     corrupted or the role list locked everyone out. Use sparingly. */
+  const bootstrapUid = (process.env.BOOTSTRAP_ADMIN_UID || "").trim();
+  if (bootstrapUid && decoded.uid === bootstrapUid) {
+    return { ok: true, uid: decoded.uid, email: decoded.email, role: "admin" };
   }
   /* Look up role from config — same shape as getUserRole() in App.jsx */
   let role = "viewer";

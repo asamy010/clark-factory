@@ -7,7 +7,8 @@
 
 import { useEffect, useState } from "react";
 import { collection } from "firebase/firestore";
-import { Btn, Card, DelBtn, Inp, QRImg, Sel } from "../components/ui.jsx";
+import { auth } from "../firebase";
+import { Btn, Card, DelBtn, Inp, QRImg, Sel, Spinner } from "../components/ui.jsx";
 import { DEFAULT_STATUSES, FKEYS, FS, GARMENT_ICONS, WS_TYPES } from "../constants/index.js";
 import { T, TD, TDB, TH } from "../theme.js";
 import { gIcon, setF, normalizePhone, parseSizes } from "../utils/format.js";
@@ -16,12 +17,12 @@ import { calcWsRating, getWsPartnershipTier, wsIsInternal, wsTypeInfo } from "..
 import { ask, askInput, showToast } from "../utils/popups.js";
 import { getUnits } from "../utils/units.js";
 import { getDeleteBlocker } from "../utils/dataIntegrity.js";
+import { addAudit } from "../utils/audit.js";
 
 export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,onSubUsed,renameInOrders}){
-  const[sub,setSub]=useState(initialSub||"fab");
+  const[sub,setSub]=useState(initialSub||"size");
   useEffect(()=>{if(initialSub){setSub(initialSub);if(onSubUsed)onSubUsed()}},[initialSub]);
-  const[ff,setFf]=useState({name:"",unit:"كيلو",price:"",_eid:null});
-  const[af,setAf]=useState({name:"",unit:"قطعة",price:"",_eid:null});
+  /* V16.77: state ff/af + saveFab/saveAcc اتشالوا — انتقلوا لـWarehousePg */
   const[sfld,setSfld]=useState({label:"",pcs:0,_eid:null});
   const[stName,setStName]=useState("");const[stColor,setStColor]=useState("#0EA5E9");const[stEid,setStEid]=useState(null);const[stShow,setStShow]=useState(false);
   const[gName,setGName]=useState("");const[gEid,setGEid]=useState(null);const[gIconSel,setGIconSel]=useState("👕");const[gShow,setGShow]=useState(false);const[gPrice,setGPrice]=useState("");
@@ -47,8 +48,6 @@ export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,o
       d.recycleBin=bin.filter((_,i)=>i!==binIdx)});
     showToast("✅ تم الاستعادة بنجاح")};
 
-  const saveFab=()=>{if(!ff.name)return;upConfig(d=>{if(ff._eid){const idx=d.fabrics.findIndex(x=>x.id===ff._eid);if(idx>=0)d.fabrics[idx]={...d.fabrics[idx],name:ff.name,unit:ff.unit,price:Number(ff.price)||0}}else{d.fabrics.push({id:Date.now(),name:ff.name,unit:ff.unit,price:Number(ff.price)||0})}});setFf({name:"",unit:"كيلو",price:"",_eid:null})};
-  const saveAcc=()=>{if(!af.name)return;upConfig(d=>{if(af._eid){const idx=d.accessories.findIndex(x=>x.id===af._eid);if(idx>=0)d.accessories[idx]={...d.accessories[idx],name:af.name,unit:af.unit,price:Number(af.price)||0}}else{d.accessories.push({id:Date.now(),name:af.name,unit:af.unit,price:Number(af.price)||0})}});setAf({name:"",unit:"قطعة",price:"",_eid:null})};
   /* V15.32: Track how many orders use this sizeSet (for sync confirmation) */
   const countOrdersUsingSize=(sizeSetId)=>{
     if(!sizeSetId)return 0;
@@ -94,14 +93,13 @@ export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,o
   const ords=data.orders||[];
   /* V16.66: Use central dataIntegrity — also flags stock balance, stock movements,
      and purchase receipts (the prior local check only covered orders usage). */
-  const fabBlock=(f)=>getDeleteBlocker(data,"fabric",f.id);
-  const accBlock=(a)=>getDeleteBlocker(data,"accessory",a.id);
+  /* V16.77: fabBlock/accBlock اتشالوا — انتقلوا لـWarehousePg */
   /* V16.67: Use central dataIntegrity util — also checks workshopDeliveries
      for garments (the prior local check missed those). */
   const sizeBlock=(s)=>getDeleteBlocker(data,"sizeSet",s.id);
   const garmentBlock=(g)=>getDeleteBlocker(data,"garmentType",g.id);
   return<div>
-    <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>{[["fab","الأقمشة"],["acc","تشغيل + اكسسوار"],["size","المقاسات"],["garment","قطع الموديل"],["ws","الورش"],["status","حالات الأوردر"]].map(([k,l])=><Btn key={k} on={sub===k} onClick={()=>setSub(k)}>{l}</Btn>)}
+    <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>{[["size","المقاسات"],["garment","قطع الموديل"],["ws","الورش"],["status","حالات الأوردر"]].map(([k,l])=><Btn key={k} on={sub===k} onClick={()=>setSub(k)}>{l}</Btn>)}
       {canEdit&&<Btn onClick={()=>setShowRecycleBin(true)} style={{background:T.textMut+"12",color:T.textMut,border:"1px solid "+T.textMut+"25",marginRight:"auto"}}>{"🗑️ المحذوفات"+(data.recycleBin?.length>0?" ("+data.recycleBin.length+")":"")}</Btn>}
     </div>
     {/* ── Recycle Bin Popup ── */}
@@ -149,32 +147,8 @@ export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,o
           </div>}catch(e){return null}})()}
       </div>
     </div>}
-    {sub==="fab"&&<><Card title="جدول الأقمشة" extra={canEdit&&<Btn primary small onClick={()=>setFf({name:"",unit:"كيلو",price:"",_eid:null,_show:true})}>+ اضافة</Btn>}>
-      <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:450}}><thead><tr>{["#","القماش","الوحدة","السعر",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.fabrics.map((f,i)=><tr key={f.id}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:600}}>{f.name}</td><td style={TD}>{f.unit}</td><td style={{...TDB,color:T.accent}}>{f.price+" ج.م"}</td>{canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:4}}>{eBtn(()=>setFf({name:f.name,unit:f.unit,price:f.price,_eid:f.id,_show:true}))}<DelBtn onConfirm={()=>safeDelete("fabrics",f.id,"قماش")} blocked={fabBlock(f)}/></div></td>}</tr>)}</tbody></table></div></Card>
-    {ff._show&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setFf({...ff,_show:false})}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
-      <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,marginBottom:14}}>{ff._eid?"✏️ تعديل القماش":"+ قماش جديد"}</div>
-      <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        <div><label style={{fontSize:FS-2,color:T.textSec}}>اسم القماش</label><Inp value={ff.name} onChange={v=>setFf({...ff,name:v})}/></div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-          <div><label style={{fontSize:FS-2,color:T.textSec}}>الوحدة</label><Sel value={ff.unit} onChange={v=>setFf({...ff,unit:v})}>{getUnits(data,ff.unit).map(u=><option key={u} value={u}>{u}</option>)}</Sel></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec}}>السعر</label><Inp value={ff.price} onChange={v=>setFf({...ff,price:v})} type="number"/></div>
-        </div>
-        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setFf({name:"",unit:"كيلو",price:"",_eid:null,_show:false})}>الغاء</Btn><Btn primary onClick={()=>{saveFab();setFf({name:"",unit:"كيلو",price:"",_eid:null,_show:false})}} title="حفظ التعديلات">💾 حفظ</Btn></div>
-      </div>
-    </div></div>}</>}
-    {sub==="acc"&&<><Card title="تشغيل + اكسسوار" extra={canEdit&&<Btn primary small onClick={()=>setAf({name:"",unit:"قطعة",price:"",_eid:null,_show:true})}>+ اضافة</Btn>}>
-      <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><thead><tr>{["#","الوصف","الوحدة","السعر",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.accessories.map((a,i)=><tr key={a.id}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:600}}>{a.name}</td><td style={TD}>{a.unit}</td><td style={{...TDB,color:T.accent}}>{a.price+" ج.م"}</td>{canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:4}}>{eBtn(()=>setAf({name:a.name,unit:a.unit,price:a.price,_eid:a.id,_show:true}))}<DelBtn onConfirm={()=>safeDelete("accessories",a.id,"اكسسوار")} blocked={accBlock(a)}/></div></td>}</tr>)}</tbody></table></div></Card>
-    {af._show&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setAf({...af,_show:false})}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
-      <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,marginBottom:14}}>{af._eid?"✏️ تعديل البند":"+ بند جديد"}</div>
-      <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        <div><label style={{fontSize:FS-2,color:T.textSec}}>الوصف</label><Inp value={af.name} onChange={v=>setAf({...af,name:v})}/></div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-          <div><label style={{fontSize:FS-2,color:T.textSec}}>الوحدة</label><Sel value={af.unit} onChange={v=>setAf({...af,unit:v})}>{getUnits(data,af.unit).map(u=><option key={u} value={u}>{u}</option>)}</Sel></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec}}>السعر</label><Inp value={af.price} onChange={v=>setAf({...af,price:v})} type="number"/></div>
-        </div>
-        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setAf({name:"",unit:"قطعة",price:"",_eid:null,_show:false})}>الغاء</Btn><Btn primary onClick={()=>{saveAcc();setAf({name:"",unit:"قطعة",price:"",_eid:null,_show:false})}} title="حفظ التعديلات">💾 حفظ</Btn></div>
-      </div>
-    </div></div>}</>}
+    {/* V16.77: tabs الأقمشة و"تشغيل + اكسسوار" اتشالوا من قواعد البيانات
+       — الإدخال/التعديل لهم بقا من صفحة المخزن فقط */}
     {sub==="size"&&<><Card title="المقاسات" extra={canEdit&&<Btn primary small onClick={()=>setSfld({label:"",pcs:0,_eid:null,_show:true})}>+ اضافة</Btn>}>
       <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["#","المقاسات","قطع/سيري",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>{data.sizeSets.map((s,i)=>{
         /* V15.30: Detect mismatch between label's parsed names and pcsPerSeries (source of truth) */
@@ -253,7 +227,7 @@ export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,o
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setGShow(false)}>الغاء</Btn><Btn primary onClick={()=>{saveGarment();setGShow(false)}} title="حفظ التعديلات">💾 حفظ</Btn></div>
       </div>
     </div></div>}</>}
-    {sub==="ws"&&<WsManager workshops={data.workshops||[]} upConfig={upConfig} canEdit={canEdit} isMob={isMob} orders={data.orders} renameInOrders={renameInOrders} wsPayments={data.wsPayments||[]} safeDelete={safeDelete}/>}
+    {sub==="ws"&&<WsManager data={data} workshops={data.workshops||[]} upConfig={upConfig} canEdit={canEdit} isMob={isMob} orders={data.orders} renameInOrders={renameInOrders} wsPayments={data.wsPayments||[]} safeDelete={safeDelete}/>}
     {sub==="status"&&<><Card title="حالات الأوردر" extra={canEdit&&<Btn primary small onClick={()=>{setStName("");setStColor("#0EA5E9");setStEid(null);setStShow(true)}}>+ اضافة</Btn>}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(2,1fr)":"repeat(4,1fr)",gap:12}}>
         {statusCards.map(s=><div key={s.id} style={{padding:16,borderRadius:14,border:"2px solid "+s.color+"40",background:s.color+"08",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -276,31 +250,170 @@ export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,o
 /* ══ WORKSHOP MANAGER ══ */
 
 
-export function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrders,wsPayments,safeDelete}){
+export function WsManager({data,workshops,upConfig,canEdit,isMob,orders,renameInOrders,wsPayments,safeDelete}){
   const[showForm,setShowForm]=useState(false);const[editId,setEditId]=useState(null);
-  const[f,setF]=useState({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خياطة خارجي",payPercent:60});
-  const startEdit=(ws)=>{setF({...ws,type:ws.type==="خارجي"?"خياطة خارجي":ws.type==="داخلي"?"خياطة داخلي":ws.type||"خياطة خارجي",payPercent:ws.payPercent||60});setEditId(ws.id);setShowForm(true)};
-  const startNew=()=>{setF({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خياطة خارجي",payPercent:60});setEditId(null);setShowForm(true)};
+  const[f,setF]=useState({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خياطة خارجي",payPercent:60,archived:false});
+  /* V18.16: Show archived workshops toggle (admin convenience) */
+  const[showArchivedWs,setShowArchivedWs]=useState(false);
+  /* V17.9: Workshop portal link generator (mirrors customer portal pattern in CustDeliverPg) */
+  const[wsPortalPopup,setWsPortalPopup]=useState(null);/* {url, wsName, wsPhone, loading, error} */
+  const generateWsPortalUrl=async(ws)=>{
+    setWsPortalPopup({loading:true,wsName:ws.name,wsPhone:ws.phone||"",url:"",error:""});
+    try{
+      const user=auth.currentUser;
+      if(!user){setWsPortalPopup({loading:false,wsName:ws.name,wsPhone:ws.phone||"",url:"",error:"يرجى تسجيل الدخول"});return}
+      const token=await user.getIdToken();
+      const res=await fetch("/api/workshop-portal-sign",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({wsId:ws.id,adminToken:token})
+      });
+      const json=await res.json();
+      if(!res.ok){setWsPortalPopup({loading:false,wsName:ws.name,wsPhone:ws.phone||"",url:"",error:json.error||"فشل التوليد"});return}
+      setWsPortalPopup({loading:false,wsName:ws.name,wsPhone:ws.phone||"",url:json.url,error:""});
+    }catch(err){
+      setWsPortalPopup({loading:false,wsName:ws.name,wsPhone:ws.phone||"",url:"",error:err.message||String(err)});
+    }
+  };
+  const startEdit=(ws)=>{setF({...ws,type:ws.type==="خارجي"?"خياطة خارجي":ws.type==="داخلي"?"خياطة داخلي":ws.type||"خياطة خارجي",payPercent:ws.payPercent||60,archived:!!ws.archived});setEditId(ws.id);setShowForm(true)};
+  const startNew=()=>{setF({name:"",owner:"",phone:"",address:"",idCard:"",ownerPhoto:"",rating:0,type:"خياطة خارجي",payPercent:60,archived:false});setEditId(null);setShowForm(true)};
   const handleIdCard=async e=>{const file=e.target.files[0];if(!file)return;const compressed=await compressImg43(file,300,0.5);setF(p=>({...p,idCard:compressed}))};
   const handleOwnerPhoto=async e=>{const file=e.target.files[0];if(!file)return;const compressed=await compressImage(file,200,0.5);setF(p=>({...p,ownerPhoto:compressed}))};
-  const save=()=>{if(!f.name.trim())return;
+  const save=async()=>{if(!f.name.trim())return;
     /* V15.17: normalize phone to +2 format */
     const normalized={...f,phone:normalizePhone(f.phone||"")};
+    const trimmedName=normalized.name.trim();
+    /* V18.71: Block duplicate workshop names on add (case-insensitive trim).
+       Editing keeps the existing match logic — only NEW additions are guarded. */
+    if(!editId){
+      const norm=n=>(n||"").trim().toLowerCase().replace(/\s+/g," ");
+      const existing=(workshops||[]).find(w=>norm(w.name)===norm(trimmedName));
+      if(existing){
+        const ok=await ask("ورشة بنفس الاسم موجودة","في ورشة باسم «"+existing.name+"» موجودة بالفعل في القائمة.\n\nالإضافة بنفس الاسم بتعمل ورش مكررة في الحسابات والكشوفات.\nمتأكد إنك عايز تضيف ورشة تانية بنفس الاسم؟",{danger:true,confirmText:"إضافة على أي حال"});
+        if(!ok)return;
+      }
+    }
     let oldName=null;
-    if(editId){const old=workshops.find(w=>w.id===editId);if(old&&old.name!==normalized.name.trim())oldName=old.name}
+    if(editId){const old=workshops.find(w=>w.id===editId);if(old&&old.name!==trimmedName)oldName=old.name}
     upConfig(d=>{if(!Array.isArray(d.workshops))d.workshops=[];if(editId){const idx=d.workshops.findIndex(w=>w.id===editId);if(idx>=0)d.workshops[idx]={...normalized,id:editId}}else{d.workshops.push({...normalized,id:Date.now()})}
-      if(oldName){(d.wsPayments||[]).forEach(p=>{if(p.wsId===editId||p.wsName===oldName){p.wsName=normalized.name.trim();p.wsId=editId}});(d.notifications||[]).forEach(n=>{if(n.msg&&n.msg.includes(oldName))n.msg=n.msg.replace(new RegExp(oldName,"g"),normalized.name.trim())})}
+      if(oldName){(d.wsPayments||[]).forEach(p=>{if(p.wsId===editId||p.wsName===oldName){p.wsName=trimmedName;p.wsId=editId}});(d.notifications||[]).forEach(n=>{if(n.msg&&n.msg.includes(oldName))n.msg=n.msg.replace(new RegExp(oldName,"g"),trimmedName)})}
     });
-    if(oldName)renameInOrders("ws",oldName,normalized.name.trim(),editId);
+    if(oldName)renameInOrders("ws",oldName,trimmedName,editId);
     setShowForm(false);setEditId(null)};
   const del=(id)=>safeDelete("workshops",id,"ورشة");
   /* V16.64: Use central dataIntegrity check — adds treasury transactions to
      the existing orders+payments check so the user gets a fuller picture. */
   const wsBlock=(ws)=>getDeleteBlocker(data,"workshop",ws.id);
   const[wsSearch,setWsSearch]=useState("");
-  const filteredWs=wsSearch.trim()?(workshops||[]).filter(ws=>(ws.name||"").includes(wsSearch)||(ws.address||"").includes(wsSearch)||(ws.phone||"").includes(wsSearch)||(ws.owner||"").includes(wsSearch)):(workshops||[]);
+  /* V18.16: Filter out archived workshops by default */
+  const filteredWs=(()=>{const list=(workshops||[]).filter(ws=>showArchivedWs||!ws.archived);
+    return wsSearch.trim()?list.filter(ws=>(ws.name||"").includes(wsSearch)||(ws.address||"").includes(wsSearch)||(ws.phone||"").includes(wsSearch)||(ws.owner||"").includes(wsSearch)):list;
+  })();
+  const archivedCount=(workshops||[]).filter(ws=>ws.archived).length;
+
+  /* V18.71: Auto-merge duplicate workshops.
+     Picks the workshop with the smallest (oldest) numeric id as the canonical
+     one, migrates wsPayments + treasury wsName + notifications to point at it,
+     removes the dupes from config.workshops, and renames workshopDeliveries
+     in every order so old dup wsName/wsId references resolve correctly. */
+  const mergeWsDuplicates=async(groups)=>{
+    if(!groups||groups.length===0)return;
+    const ts=Date.now();
+    const userName=auth.currentUser?.email||auth.currentUser?.uid||"unknown";
+    let totalMerged=0;
+    upConfig(d=>{
+      /* Snapshot current workshops list so the merge can be reversed via Settings → Backups */
+      if(!d._wsMergeBackup)d._wsMergeBackup={};
+      d._wsMergeBackup["pre_merge_"+ts]={ts,workshops:JSON.parse(JSON.stringify(d.workshops||[]))};
+      /* Keep at most 5 merge backups to avoid bloating config */
+      const keys=Object.keys(d._wsMergeBackup).sort();
+      while(keys.length>5){delete d._wsMergeBackup[keys.shift()]}
+      groups.forEach(g=>{
+        g.dups.forEach(dup=>{
+          /* Re-point wsPayments */
+          (d.wsPayments||[]).forEach(p=>{
+            if(p.wsId===dup.id||p.wsName===dup.name){p.wsId=g.oldest.id;p.wsName=g.oldest.name}
+          });
+          /* Re-point treasury entries that carry wsName (linked or descriptive) */
+          (d.treasury||[]).forEach(t=>{if(t.wsName===dup.name)t.wsName=g.oldest.name});
+          /* Rename in notifications */
+          if(dup.name!==g.oldest.name){
+            (d.notifications||[]).forEach(n=>{
+              if(n.msg&&n.msg.includes(dup.name))n.msg=n.msg.replace(new RegExp(dup.name,"g"),g.oldest.name);
+            });
+          }
+          /* Drop the dup from config.workshops */
+          d.workshops=(d.workshops||[]).filter(w=>w.id!==dup.id);
+          totalMerged++;
+          addAudit(d,{
+            category:"workshops",
+            action:"merge",
+            target:dup.name,
+            oldValue:{id:dup.id,name:dup.name},
+            newValue:{id:g.oldest.id,name:g.oldest.name},
+            user:userName,
+            severity:"warning",
+            notes:"دمج ورشة مكررة في الأقدم"
+          });
+        });
+      });
+    });
+    /* Step 2: rename workshopDeliveries in every order (subcollection writes).
+       Done after upConfig so the visible state is consistent first. */
+    for(const g of groups){
+      for(const dup of g.dups){
+        try{
+          if(dup.name!==g.oldest.name||dup.id!==g.oldest.id){
+            await renameInOrders("ws",dup.name,g.oldest.name,g.oldest.id);
+          }
+        }catch(e){
+          console.error("[CLARK V18.71] merge rename failed for",dup.name,e);
+        }
+      }
+    }
+    showToast("✅ تم دمج "+totalMerged+" ورشة مكررة");
+  };
 
   return<div>
+    {/* V18.71: Detect duplicate workshops by normalized name ── */}
+    {(()=>{
+      const norm=n=>(n||"").trim().toLowerCase().replace(/\s+/g," ");
+      const groups={};
+      (workshops||[]).forEach(ws=>{
+        const k=norm(ws.name);
+        if(!k)return;
+        if(!groups[k])groups[k]=[];
+        groups[k].push(ws);
+      });
+      const dupGroups=Object.values(groups).filter(g=>g.length>1).map(group=>{
+        /* Sort by id ascending — oldest first. Numeric ids are Date.now() so smaller = older. */
+        const sorted=[...group].sort((a,b)=>{
+          const ai=typeof a.id==="number"?a.id:Number(a.id)||0;
+          const bi=typeof b.id==="number"?b.id:Number(b.id)||0;
+          return ai-bi;
+        });
+        return{name:sorted[0].name,oldest:sorted[0],dups:sorted.slice(1)};
+      });
+      if(dupGroups.length===0)return null;
+      const totalDups=dupGroups.reduce((s,g)=>s+g.dups.length,0);
+      return<Card style={{marginBottom:14,background:T.warn+"08",border:"1px solid "+T.warn+"40"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+          <div style={{flex:1,minWidth:240}}>
+            <div style={{fontSize:FS,fontWeight:800,color:T.warn}}>{"⚠️ ورش مكررة في القائمة — "+dupGroups.length+" اسم متكرر ("+totalDups+" نسخة زائدة)"}</div>
+            <div style={{fontSize:FS-2,color:T.textMut,marginTop:4,lineHeight:1.7}}>{dupGroups.map(g=>g.oldest.name+" ×"+(g.dups.length+1)).join(" — ")}</div>
+            <div style={{fontSize:FS-2,color:T.textSec,marginTop:6,lineHeight:1.7}}>
+              💡 الدمج التلقائي بياخد الورشة الأقدم كأصل، وينقل عليها كل: المدفوعات، الاستلامات، الإشعارات، حركات الخزنة المرتبطة.
+              نسخة احتياطية بتتحفظ تلقائياً قبل الدمج (`_wsMergeBackup`).
+            </div>
+          </div>
+          {canEdit&&<Btn onClick={async()=>{
+            const ok=await ask("دمج الورش المكررة","هتتم العمليات التالية:\n\n• حفظ نسخة احتياطية من قائمة الورش الحالية\n• نقل كل المدفوعات والاستلامات للورشة الأقدم\n• حذف "+totalDups+" ورشة مكررة من القائمة\n• تحديث الأوردرات والإشعارات\n\nهل تريد المتابعة؟",{danger:true,confirmText:"دمج تلقائي"});
+            if(!ok)return;
+            await mergeWsDuplicates(dupGroups);
+          }} style={{background:T.warn+"15",color:T.warn,border:"1px solid "+T.warn+"40",fontWeight:700,whiteSpace:"nowrap"}}>{"🧹 دمج "+totalDups+" مكررة"}</Btn>}
+        </div>
+      </Card>;
+    })()}
     {/* ── Recover missing workshops ── */}
     {(()=>{const wsNames=new Set((workshops||[]).map(w=>w.name));
       const missingWs={};
@@ -321,7 +434,11 @@ export function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrder
         </div>
       </Card>})()}
     <Card title="ادارة الورش" extra={canEdit&&<Btn primary small onClick={startNew}>+ ورشة جديدة</Btn>}>
-      <div style={{marginBottom:12}}><Inp value={wsSearch} onChange={setWsSearch} placeholder="بحث باسم الورشة أو العنوان أو التليفون..."/></div>
+      <div style={{marginBottom:12,display:"flex",gap:8,alignItems:"center"}}>
+        <div style={{flex:1}}><Inp value={wsSearch} onChange={setWsSearch} placeholder="بحث باسم الورشة أو العنوان أو التليفون..."/></div>
+        {/* V18.16: Show archived workshops toggle */}
+        {archivedCount>0&&<Btn small onClick={()=>setShowArchivedWs(!showArchivedWs)} style={{background:showArchivedWs?T.err+"15":T.bg,color:showArchivedWs?T.err:T.textSec,border:"1px solid "+(showArchivedWs?T.err+"40":T.brd),whiteSpace:"nowrap"}}>{showArchivedWs?"🔒 يظهر الموقوفين":"الموقوفين ("+archivedCount+")"}</Btn>}
+      </div>
       {/* Workshop Cards */}
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:14}}>
         {filteredWs.map(ws=>{
@@ -330,7 +447,9 @@ export function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrder
           orders.forEach(o=>{let hasWs=false;(o.workshopDeliveries||[]).filter(wd=>wd.wsName===ws.name).forEach(wd=>{hasWs=true;totalDel+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{totalRcv+=Number(r.qty)||0})});if(hasWs)orderCount++});
           const pct=totalDel>0?Math.round(totalRcv/totalDel*100):0;
           const bal=totalDel-totalRcv;
-          return<div key={ws.id} onClick={()=>{if(canEdit)startEdit(ws)}} style={{background:T.cardSolid,borderRadius:16,border:"1px solid "+T.brd,overflow:"hidden",boxShadow:"0 2px 12px rgba(0,0,0,0.06)",cursor:canEdit?"pointer":"default",transition:"transform 0.15s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
+          return<div key={ws.id} onClick={()=>{if(canEdit)startEdit(ws)}} style={{background:T.cardSolid,borderRadius:16,border:"1px solid "+(ws.archived?T.err+"40":T.brd),overflow:"hidden",boxShadow:"0 2px 12px rgba(0,0,0,0.06)",cursor:canEdit?"pointer":"default",transition:"transform 0.15s",opacity:ws.archived?0.7:1,position:"relative"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
+          {/* V18.16: Archived badge on card */}
+          {ws.archived&&<div style={{position:"absolute",top:8,insetInlineStart:8,padding:"3px 10px",borderRadius:6,background:T.err,color:"#fff",fontSize:FS-3,fontWeight:800,zIndex:2,boxShadow:"0 2px 4px rgba(0,0,0,0.2)"}}>🔒 موقوفة</div>}
           {/* Header */}
           {(()=>{const wt=wsTypeInfo(ws.type);return<div style={{padding:"14px 16px",background:wt.color+"08",borderBottom:"1px solid "+T.brd}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -365,8 +484,9 @@ export function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrder
             {canEdit&&<span onClick={async e=>{e.stopPropagation();const v=await askInput("تعديل التقييم",{label:"التقييم (من 10):",defaultValue:String(rating),type:"number",validate:val=>{const n=Number(val);if(isNaN(n)||n<0||n>10)return"قيمة بين 0 و 10";return null}});if(v!==null){const n=Math.min(10,Math.max(0,Number(v)||0));upConfig(d=>{const idx=d.workshops.findIndex(x=>x.id===ws.id);if(idx>=0){d.workshops[idx].rating=n;d.workshops[idx].ratingManual=true}})}}} style={{cursor:"pointer",fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}}>✏️</span>}
             {canEdit&&ws.ratingManual&&<span onClick={e=>{e.stopPropagation();upConfig(d=>{const idx=d.workshops.findIndex(x=>x.id===ws.id);if(idx>=0){d.workshops[idx].ratingManual=false}})}} style={{cursor:"pointer",fontSize:FS-3,padding:"2px 6px",borderRadius:4,background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>↩ تلقائي</span>}
           </div>})()}
-          {/* Delete only */}
-          <div style={{padding:"0 16px 10px",display:"flex",gap:6}} onClick={e=>e.stopPropagation()}>
+          {/* V17.9: Actions row — link button + delete */}
+          <div style={{padding:"0 16px 10px",display:"flex",gap:6,flexWrap:"wrap"}} onClick={e=>e.stopPropagation()}>
+            {!wsIsInternal(ws.type)&&<Btn small onClick={()=>generateWsPortalUrl(ws)} style={{background:"#F59E0B12",color:"#D97706",border:"1px solid #F59E0B40",fontWeight:700}} title="توليد رابط حساب الورشة">📱 رابط حساب الورشة</Btn>}
             {canEdit&&<DelBtn onConfirm={()=>del(ws.id)} blocked={wsBlock(ws)}/>}
           </div>
         </div>})}
@@ -397,7 +517,54 @@ export function WsManager({workshops,upConfig,canEdit,isMob,orders,renameInOrder
             <input type="file" accept="image/*" onChange={handleOwnerPhoto} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
           </div>
         </div>
+        {/* V18.16: Archive toggle for workshop */}
+        {editId&&<div style={{padding:10,borderRadius:10,background:f.archived?T.err+"08":T.bg,border:"1px solid "+(f.archived?T.err+"30":T.brd),marginBottom:14}}>
+          <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
+            <input type="checkbox" checked={!!f.archived} onChange={e=>setF({...f,archived:e.target.checked})} style={{width:18,height:18,cursor:"pointer",accentColor:T.err}}/>
+            <span style={{fontSize:FS-1,fontWeight:700,color:f.archived?T.err:T.text}}>{f.archived?"🔒 موقوفة":"🔓 نشطة"} — إيقاف التعامل مع الورشة</span>
+          </label>
+          {f.archived&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:6,lineHeight:1.6}}>⚠️ الورشة الموقوفة هتختفي من القوائم والاختيارات في الأوردرات، ولو فتحت رابط حسابها هتظهر رسالة "تم إيقاف التعامل". الكشف الكامل لسه متاح للمراجعة.</div>}
+        </div>}
         <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn ghost onClick={()=>{setShowForm(false);setEditId(null)}}>الغاء</Btn><Btn primary onClick={save} title="حفظ التعديلات">💾 حفظ</Btn></div>
+      </div>
+    </div>}
+    {/* V17.9: Workshop Portal URL popup — mirrors customer portal popup pattern */}
+    {wsPortalPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:100000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={()=>setWsPortalPopup(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:22,width:"100%",maxWidth:520,border:"2px solid #F59E0B",boxShadow:"0 25px 80px rgba(0,0,0,0.4)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"1px solid "+T.brd}}>
+          <div style={{fontSize:FS+2,fontWeight:800,color:"#D97706",display:"flex",alignItems:"center",gap:8}}>
+            <span>🏭</span><span>رابط حساب الورشة</span>
+          </div>
+          <Btn ghost small onClick={()=>setWsPortalPopup(null)}>✕</Btn>
+        </div>
+        <div style={{fontSize:FS-1,color:T.textSec,marginBottom:14,lineHeight:1.6}}>
+          <b>{wsPortalPopup.wsName}</b>
+          <div style={{fontSize:FS-2,color:T.textMut,marginTop:4}}>
+            رابط للقراءة فقط يعرض حساب الورشة بالكامل: المستحق، التسليم، الاستلام، والمدفوعات. يمكنك مشاركته عبر الواتساب — لن يحتاج تسجيل دخول.
+          </div>
+        </div>
+        {wsPortalPopup.loading?<div style={{padding:20,textAlign:"center"}}><Spinner size="medium"/><div style={{marginTop:8,fontSize:FS-1,color:T.textSec}}>جاري التوليد...</div></div>:
+         wsPortalPopup.error?<div style={{padding:14,borderRadius:10,background:T.err+"10",border:"1px solid "+T.err+"30",color:T.err,fontSize:FS-1}}>⛔ {wsPortalPopup.error}</div>:
+         wsPortalPopup.url?<div>
+          <div style={{padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"monospace",direction:"ltr",textAlign:"right",wordBreak:"break-all",color:T.text,marginBottom:12}}>
+            {wsPortalPopup.url}
+          </div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <Btn primary onClick={()=>{
+              try{navigator.clipboard.writeText(wsPortalPopup.url);showToast("✓ تم نسخ الرابط")}
+              catch(e){showToast("⛔ فشل النسخ")}
+            }} style={{flex:1,minWidth:120}}>📋 نسخ الرابط</Btn>
+            <Btn onClick={()=>{
+              const phone=(wsPortalPopup.wsPhone||"").replace(/[^\d]/g,"");
+              const msg=encodeURIComponent("أهلاً "+wsPortalPopup.wsName+"،\n\nيمكنك متابعة حساب الورشة معنا من خلال الرابط التالي:\n"+wsPortalPopup.url+"\n\nالرابط خاص بك ويعرض آخر البيانات بالتفصيل (المستحق، التسليم، الاستلام، المدفوعات).");
+              const wa=phone?"https://wa.me/"+(phone.startsWith("20")?phone:"20"+phone.replace(/^0+/,""))+"?text="+msg:"https://wa.me/?text="+msg;
+              const a=document.createElement("a");a.href=wa;a.target="_blank";a.rel="noopener noreferrer";a.click();
+            }} style={{background:"#25D366",color:"#fff",border:"none",flex:1,minWidth:120}}>💬 واتساب</Btn>
+          </div>
+          <div style={{marginTop:12,fontSize:FS-3,color:T.textMut,lineHeight:1.6,padding:10,background:"#F59E0B08",borderRadius:8}}>
+            💡 الرابط ثابت لهذه الورشة. يمكنك مشاركته مرة واحدة. لن يحتاج تسجيل دخول.
+          </div>
+        </div>:null}
       </div>
     </div>}
   </div>

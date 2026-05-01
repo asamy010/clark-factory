@@ -14,7 +14,8 @@ import { Btn, Inp, Sel, SearchSel, Card, useDebounced } from "../components/ui.j
 import { T, TH, TD } from "../theme.js";
 import { openPrintWindow } from "../utils/print.js";
 import { getUnits } from "../utils/units.js";
-import { formatBlockerMessage, getDeleteBlocker } from "../utils/dataIntegrity.js";
+import { formatBlockerMessage, getDeleteBlocker, canForceDelete, summarizeForceDelete, forceDeleteCleanup } from "../utils/dataIntegrity.js";
+import { buildPurchaseInvoiceFromReceipt, findInvoiceByReceipt } from "../utils/invoices.js";
 
 export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   const userName=user?.displayName||(user?.email||"").split("@")[0];
@@ -232,7 +233,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
         d.treasury.unshift({
           id:txId,type:"out",amount:r2(amt),
           desc:"دفعة مورد — "+(supplier?.name||""),
-          notes:payForm.notes||"",category:"دفع مورد",
+          notes:payForm.notes||"",category:"دفعة مورد",
           account:payForm.treasuryAccount,season:d.activeSeason||"",
           date:payForm.date,day:dayN,
           sourceType:"supplier_payment",paymentId:payId,supplierId:payForm.supplierId,
@@ -246,7 +247,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
           party:supplier?.name||"",partyId:payForm.supplierId,
           bank:payForm.checkBank,checkNo:payForm.checkNo,
           date:payForm.date,dueDate:payForm.checkDueDate||payForm.date,
-          notes:payForm.notes||"دفعة مورد",category:"دفع مورد",status:"معلق",
+          notes:payForm.notes||"دفعة مورد",category:"دفعة مورد",status:"معلق",
           paymentId:payId,
           by:userName,createdAt:new Date().toISOString()
         });
@@ -369,7 +370,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   /* Print PO */
   const printPo=(p)=>{
     const supplier=suppliers.find(s=>String(s.id)===String(p.supplierId));
-    const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+    const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}
     const rows=(p.items||[]).map(it=>"<tr><td>"+((getCategoryById(data,it.itemType==="fabric"?"core_fabric":it.itemType==="accessory"?"core_accessory":it.itemType)?.emoji||"📦"))+" "+it.itemName+"</td><td class='center'>"+fmt(it.qty)+"</td><td class='center'>"+(it.unit||"")+"</td><td class='center'>"+fmt(r2(it.price))+"</td><td class='center'><b>"+fmt(r2(it.amount))+"</b></td></tr>").join("");
     const html="<html dir='rtl'><head><meta charset='UTF-8'><title>"+p.poNo+"</title><style>"+PRINT_CSS+".center{text-align:center}</style></head><body><div class='hdr'><div style='font-size:18px;font-weight:800;color:#0284C7'>📋 أمر شراء</div><div class='hdr-info'><div>رقم: "+p.poNo+"</div><div>التاريخ: "+p.date+"</div></div></div><h3>بيانات المورد</h3><table><tr><th style='width:30%'>اسم المورد</th><td>"+(supplier?.name||p.supplierName||"—")+"</td></tr>"+(supplier?.phone?"<tr><th>التليفون</th><td>"+supplier.phone+"</td></tr>":"")+"</table><h3>البنود المطلوبة</h3><table><thead><tr><th>الصنف</th><th>الكمية</th><th>الوحدة</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>"+rows+"<tr style='background:#EFF6FF;font-weight:800'><td colspan='4' style='text-align:left'>الإجمالي الكلي</td><td class='center info' style='font-size:14px'>"+fmt(r2(p.totalAmount))+" ج.م</td></tr></tbody></table>"+(p.notes?"<h3>ملاحظات</h3><p style='padding:8px;background:#FEF3C7;border-radius:6px'>"+p.notes+"</p>":"")+"<div class='sig'><div class='sig-box'>المشتريات</div><div class='sig-box'>المدير</div></div><div class='foot'>CLARK Factory Management — أمر شراء — للتوثيق فقط</div><script>setTimeout(function(){window.print()},500)</"+"script></body></html>";
     w.document.write(html);w.document.close();
@@ -652,7 +653,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
           party:supplier?.name||"",partyId:rcpt.supplierId,
           bank:rcpt.checkBank,checkNo:rcpt.checkNo,
           date:receipt.date,dueDate:rcpt.checkDueDate||receipt.date,
-          notes:"شيك لاستلام "+receiptNo,category:"دفع مورد",status:"معلق",
+          notes:"شيك لاستلام "+receiptNo,category:"دفعة مورد",status:"معلق",
           receiptId:rcptId,
           by:userName,createdAt:new Date().toISOString()
         });
@@ -676,7 +677,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   /* ──────── PRINT RECEIPT ──────── */
   const printReceipt=(r)=>{
     const supplier=suppliers.find(s=>String(s.id)===String(r.supplierId));
-    const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+    const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}
     const rowsHtml=(r.items||[]).map(it=>"<tr><td>"+((getCategoryById(data,it.itemType==="fabric"?"core_fabric":it.itemType==="accessory"?"core_accessory":it.itemType)?.emoji||"📦"))+" "+it.itemName+"</td><td class='center'>"+fmt(it.qty)+"</td><td class='center'>"+(it.unit||"")+"</td><td class='center'>"+fmt(r2(it.price))+"</td><td class='center'><b>"+fmt(r2(it.amount))+"</b></td></tr>").join("");
     const paymentLabel=r.paymentMethod==="cash"?"كاش":r.paymentMethod==="check"?"شيك":"آجل";
     const html="<html dir='rtl'><head><meta charset='UTF-8'><title>"+r.receiptNo+"</title><style>"+PRINT_CSS+".center{text-align:center}</style></head><body><div class='hdr'><div style='font-size:18px;font-weight:800;color:#0284C7'>📥 إذن استلام مشتريات</div><div class='hdr-info'><div>رقم: "+r.receiptNo+"</div><div>التاريخ: "+r.date+"</div></div></div><h3>بيانات المورد</h3><table><tr><th style='width:30%'>اسم المورد</th><td>"+(supplier?.name||r.supplierName||"—")+"</td></tr>"+(supplier?.phone?"<tr><th>التليفون</th><td>"+supplier.phone+"</td></tr>":"")+(supplier?.address?"<tr><th>العنوان</th><td>"+supplier.address+"</td></tr>":"")+"</table><h3>البنود</h3><table><thead><tr><th>الصنف</th><th>الكمية</th><th>الوحدة</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>"+rowsHtml+"<tr style='background:#EFF6FF;font-weight:800'><td colspan='4' style='text-align:left'>الإجمالي الكلي</td><td class='center info' style='font-size:14px'>"+fmt(r2(r.totalAmount))+" ج.م</td></tr></tbody></table><h3>تفاصيل الدفع</h3><table><tr><th style='width:30%'>طريقة الدفع</th><td class='info'>"+paymentLabel+"</td></tr><tr><th>المدفوع</th><td class='ok'>"+fmt(r2(r.paidAmount||0))+" ج.م</td></tr><tr><th>المتبقي</th><td class='err'>"+fmt(r2((r.totalAmount||0)-(r.paidAmount||0)))+" ج.م</td></tr>"+(r.treasuryAccount?"<tr><th>الخزنة</th><td>"+r.treasuryAccount+"</td></tr>":"")+"</table>"+(r.notes?"<h3>ملاحظات</h3><p style='padding:8px;background:#FEF3C7;border-radius:6px'>"+r.notes+"</p>":"")+"<div class='sig'><div class='sig-box'>المستلم</div><div class='sig-box'>المحاسب</div><div class='sig-box'>المدير</div></div><div class='foot'>CLARK Factory Management — تم الإنشاء: "+new Date(r.createdAt||Date.now()).toLocaleString("ar-EG")+" — بواسطة: "+(r.createdBy||"—")+"</div><script>setTimeout(function(){window.print()},500)</"+"script></body></html>";
@@ -936,10 +937,34 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
                         <Btn small ghost onClick={async()=>{
                           /* V16.66: Comprehensive integrity check via dataIntegrity —
                              previously this only checked stock balance, missing
-                             usage in orders / purchase receipts / stock movements. */
+                             usage in orders / purchase receipts / stock movements.
+                             V18.48: on blocker, offer force-delete option. */
                           const kind=item._legacy==="fabric"?"fabric":item._legacy==="accessory"?"accessory":"inventoryItem";
+                          const labelAr=kind==="fabric"?"القماش":kind==="accessory"?"الإكسسوار":"الصنف";
                           const blocker=formatBlockerMessage(data,kind,item.id,item.name);
-                          if(blocker){await tell("لا يمكن حذف الصنف",blocker,{type:"warning"});return}
+                          if(blocker){
+                            /* Offer force-delete instead of just refusing */
+                            const wantsForce=await ask(
+                              "لا يمكن حذف "+labelAr,
+                              blocker+"\n\nاضغط 'حذف بالقوة' لإجبار الحذف مع تنظيف الحركات المرتبطة، أو إلغاء.",
+                              {danger:true,confirmText:"⚠️ حذف بالقوة",cancelText:"إلغاء"}
+                            );
+                            if(!wantsForce)return;
+                            const force=canForceDelete(data,kind,item.id);
+                            if(!force.ok){await tell("لا يمكن الحذف بالقوة",force.reason,{type:"error"});return}
+                            const sum=summarizeForceDelete(data,kind,item.id);
+                            const lines=[];
+                            if(sum.currentStock>0)         lines.push("• الرصيد الحالي ("+sum.currentStock+") سيُمسح");
+                            if(sum.moveCount>0)            lines.push("• "+sum.moveCount+" حركة مخزن سَتُحذف");
+                            if(sum.receiptItemCount>0)     lines.push("• "+sum.receiptItemCount+" بند داخل إذن استلام سيُحذف");
+                            if(sum.affectedReceipts.length>0) lines.push("• الإيصالات المتأثرة: "+sum.affectedReceipts.slice(0,3).join("، ")+(sum.affectedReceipts.length>3?"...":""));
+                            const msg="سيتم حذف "+labelAr+" \""+item.name+"\" مع كل الحركات المرتبطة به:\n\n"+lines.join("\n")+"\n\n⚠️ هذه العملية لا يمكن التراجع عنها بشكل كامل.\n💡 لو فيه قيود محاسبية مرتبطة، راجع الترحيلات يدوياً.";
+                            const confirmed=await ask("حذف بالقوة",msg,{danger:true,confirmText:"⚠️ حذف بالقوة",cancelText:"إلغاء"});
+                            if(!confirmed)return;
+                            upConfig(d=>{forceDeleteCleanup(d,kind,item.id)});
+                            showToast("✓ تم الحذف بالقوة — راجع المحاسبة لو لزم");
+                            return;
+                          }
                           if(!await ask("حذف الصنف","حذف \""+item.name+"\" نهائياً؟",{danger:true}))return;
                           upConfig(d=>{
                             if(item._legacy==="fabric"){
@@ -1938,7 +1963,25 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
         
         {viewReceipt.notes&&<div style={{padding:10,background:"#F59E0B08",borderRadius:8,fontSize:FS-1,color:T.textSec,marginBottom:12}}>📝 {viewReceipt.notes}</div>}
         
-        <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:12,borderTop:"1px solid "+T.brd}}>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:12,borderTop:"1px solid "+T.brd,flexWrap:"wrap"}}>
+          {/* V18.49: Convert receipt to invoice (or show link if already done) */}
+          {(()=>{
+            const linkedInv=findInvoiceByReceipt(data,viewReceipt.id);
+            if(linkedInv){
+              return <span style={{padding:"7px 14px",borderRadius:8,fontSize:FS-1,fontWeight:700,background:"#10B98115",color:"#10B981",border:"1px solid #10B98140"}}>
+                ✓ مرتبطة بفاتورة {linkedInv.invoiceNo}
+              </span>;
+            }
+            return <Btn onClick={()=>{
+              const supplier=(data.suppliers||[]).find(s=>s.id===viewReceipt.supplierId);
+              upConfig(d=>{
+                if(!Array.isArray(d.purchaseInvoices))d.purchaseInvoices=[];
+                const inv=buildPurchaseInvoiceFromReceipt(d,viewReceipt,supplier,userName);
+                d.purchaseInvoices.unshift(inv);
+              });
+              showToast("✓ تم إنشاء فاتورة مسودة — راجعها في تبويب 'فواتير المشتريات'");
+            }} style={{background:"#F59E0B15",color:"#F59E0B",border:"1px solid #F59E0B40",fontWeight:700}}>📥 تحويل لفاتورة</Btn>;
+          })()}
           <Btn onClick={()=>printReceipt(viewReceipt)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨️ طباعة</Btn>
           <Btn ghost onClick={()=>setViewReceipt(null)}>إغلاق</Btn>
         </div>
@@ -1948,7 +1991,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
     {/* ════ SUPPLIER STATEMENT POPUP ════ */}
     {activeSupplier&&(()=>{const st=supplierStats[activeSupplier.id]||{};const entries=buildStatement(activeSupplier.id);
       const printStatement=()=>{
-        const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+        const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}
         const rows=entries.map(e=>"<tr><td>"+e.date+"</td><td>"+(e.type==="invoice"?"🧾 فاتورة":"💰 دفعة")+"</td><td>"+e.ref+"</td><td>"+e.desc+"</td><td class='center'>"+(e.debit?fmt(r2(e.debit)):"—")+"</td><td class='center'>"+(e.credit?fmt(r2(e.credit)):"—")+"</td><td class='center' style='font-weight:700;color:"+(e.balance>0?"#EF4444":e.balance<0?"#0EA5E9":"#10B981")+"'>"+fmt(r2(e.balance))+"</td></tr>").join("");
         const html="<html dir='rtl'><head><meta charset='UTF-8'><title>كشف حساب "+activeSupplier.name+"</title><style>"+PRINT_CSS+".center{text-align:center}</style></head><body><div class='hdr'><div style='font-size:18px;font-weight:800;color:#0284C7'>📊 كشف حساب مورد</div><div class='hdr-info'><div>تاريخ الطباعة: "+today+"</div></div></div><h3>بيانات المورد</h3><table><tr><th style='width:30%'>الاسم</th><td>"+activeSupplier.name+"</td></tr>"+(activeSupplier.phone?"<tr><th>التليفون</th><td>"+activeSupplier.phone+"</td></tr>":"")+(activeSupplier.address?"<tr><th>العنوان</th><td>"+activeSupplier.address+"</td></tr>":"")+"</table><h3>ملخص الحساب</h3><table><tr><th>إجمالي المشتريات</th><td class='info'>"+fmt(r2(st.totalInvoiced||0))+" ج.م</td><th>إجمالي المدفوع</th><td class='ok'>"+fmt(r2(st.totalPaid||0))+" ج.م</td><th>الرصيد المستحق</th><td class='err'>"+fmt(r2(st.balance||0))+" ج.م</td></tr></table><h3>كشف الحركات</h3><table><thead><tr><th>التاريخ</th><th>النوع</th><th>المرجع</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody>"+rows+"</tbody></table><div class='foot'>CLARK Factory Management — كشف حساب "+activeSupplier.name+"</div><script>setTimeout(function(){window.print()},500)</"+"script></body></html>";
         w.document.write(html);w.document.close();

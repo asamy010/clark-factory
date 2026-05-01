@@ -10,12 +10,15 @@ import { FS } from "../constants/index.js";
 import { gid, fmt, fmt0, r2, _esc, dayName, dayNameFull, openWA } from "../utils/format.js";
 import { playBeep } from "../utils/audio.js";
 import { addAudit } from "../utils/audit.js";
-import { showToast } from "../utils/popups.js";
+import { showToast, ask, tell } from "../utils/popups.js";
 import { pushUndo } from "../utils/undo.js";
 import { openPrintWindow } from "../utils/print.js";
 import { printCashReceipt, printCheckReceipt } from "../utils/print-extras.js";
 import { getReferences } from "../utils/dataIntegrity.js";
-import { Spinner, InlineLoading, Btn, Inp, Sel, Card, useDebounced } from "../components/ui.jsx";
+import { Spinner, InlineLoading, Btn, Inp, Sel, SearchSel, Card, useDebounced } from "../components/ui.jsx";
+import { autoPost } from "../utils/accounting/autoPost.js";
+import { calculatePending, buildTxFromRule, getNextDueDate, describeRecurrence } from "../utils/recurring.js";
+import { matchWorkshopFromDesc } from "../utils/orders.js";
 import { T } from "../theme.js";
 import { db } from "../firebase";
 import { collection } from "firebase/firestore";
@@ -100,6 +103,109 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     setShowFirstVisitWarning(true);
     sessionStorage.setItem(key,"1");
   },[isAdmin,lockEdit,lockDelete,isAllowedEditor,isAllowedDeleter,userEmail]);
+  /* V18.91: Listen for notification deep-links — switch view + scroll to transfer */
+  useEffect(()=>{
+    const handler=(e)=>{
+      const d=e?.detail;
+      if(!d||d.type!=="treasury")return;
+      if(d.view)setView(d.view);
+      /* If subType is transfer_pending, scroll to it after the view switches */
+      if(d.subType==="transfer_pending"&&d.entryId){
+        setTimeout(()=>{
+          const el=document.getElementById("transfer-row-"+d.entryId);
+          if(el){el.scrollIntoView({behavior:"smooth",block:"center"});el.style.transition="background 0.5s";el.style.background="#FBBF2440";setTimeout(()=>{el.style.background=""},2500)}
+        },300);
+      }
+    };
+    window.addEventListener("notif-deeplink",handler);
+    return()=>window.removeEventListener("notif-deeplink",handler);
+  },[]);
+
+  /* V17.8: Auto-migrate legacy category "دفع مورد" → "دفعة مورد" (typo fix).
+     Runs once when the treasury page loads if any old entry is found.
+     Safe to re-run — idempotent (filter ensures we only update entries that need it). */
+  useEffect(()=>{
+    if(!Array.isArray(data.treasury))return;
+    const needsFix=data.treasury.some(t=>t&&t.category==="دفع مورد");
+    if(!needsFix)return;
+    upConfig(d=>{
+      if(Array.isArray(d.treasury)){
+        d.treasury.forEach(t=>{if(t&&t.category==="دفع مورد")t.category="دفعة مورد"});
+      }
+    });
+  },[data.treasury,upConfig]);
+  /* V18.0: Orphan check reconciliation — if a check has status "محصل" / "مدفوع" / "مُظهّر"
+     but the linked treasury entry (or supplier payment for endorsed) was deleted somehow,
+     auto-revert the check to "معلق" so the books stay consistent.
+     This handles cases where a user deleted the treasury entry directly, or a bulk reset
+     left orphans. Safe to re-run — only acts when an orphan is detected. */
+  useEffect(()=>{
+    if(!Array.isArray(data.checks)||data.checks.length===0)return;
+    const treasuryByCheckId=new Set((data.treasury||[]).filter(t=>t&&t.checkId).map(t=>t.checkId));
+    const supPayByCheckId=new Set((data.supplierPayments||[]).filter(p=>p&&p.checkId&&p.method==="endorsed_check").map(p=>p.checkId));
+    const orphans=data.checks.filter(c=>{
+      if(!c)return false;
+      /* محصل / مدفوع need a treasury entry with checkId === c.id */
+      if((c.status==="محصل"||c.status==="مدفوع")&&!treasuryByCheckId.has(c.id))return true;
+      /* مُظهّر needs a supplier payment with checkId === c.id and method=endorsed_check */
+      if(c.status==="مُظهّر"&&!supPayByCheckId.has(c.id))return true;
+      return false;
+    });
+    if(orphans.length===0)return;
+    upConfig(d=>{
+      if(!Array.isArray(d.checks))return;
+      const treasuryIds=new Set((d.treasury||[]).filter(t=>t&&t.checkId).map(t=>t.checkId));
+      const supPayIds=new Set((d.supplierPayments||[]).filter(p=>p&&p.checkId&&p.method==="endorsed_check").map(p=>p.checkId));
+      d.checks.forEach(c=>{
+        if(!c)return;
+        let isOrphan=false;
+        if((c.status==="محصل"||c.status==="مدفوع")&&!treasuryIds.has(c.id))isOrphan=true;
+        if(c.status==="مُظهّر"&&!supPayIds.has(c.id))isOrphan=true;
+        if(isOrphan){
+          c.status="معلق";
+          delete c.statusDate;delete c.statusBy;
+          delete c.endorsedTo;delete c.endorsedToId;delete c.endorsedAt;
+          delete c.bouncedAt;
+          c.autoReverted=new Date().toISOString();
+          c.autoRevertReason="حركة الخزنة المرتبطة تم حذفها من مكان آخر";
+        }
+      });
+    });
+    showToast("⚠️ تم إرجاع "+orphans.length+" شيك لحالة معلق (الحركة المرتبطة كانت محذوفة)");
+  },[data.checks,data.treasury,data.supplierPayments,upConfig]);
+  /* V18.1: Auto-recovery for orphaned treasury accounts.
+     Bug: defaults (MAIN CASH / SUB CASH) were rendered virtually only when
+     treasuryAccounts was empty. Once a real account got added (e.g. CIB bank),
+     the defaults vanished from tabs while their transactions remained orphaned.
+     Fix: scan transactions/transfers/checks for any account name not present
+     in treasuryAccounts and auto-restore it (typed as cash). Also persist
+     MAIN+SUB CASH the first time treasuryAccounts is empty. */
+  useEffect(()=>{
+    const raw=(data.treasuryAccounts||[]);
+    const existingNames=new Set(raw.map(a=>typeof a==="string"?a:(a&&a.name)).filter(Boolean));
+    const referencedNames=new Set();
+    (data.treasury||[]).forEach(t=>{if(t&&t.account)referencedNames.add(t.account)});
+    (data.treasuryTransfers||[]).forEach(tf=>{if(tf){if(tf.fromAccount)referencedNames.add(tf.fromAccount);if(tf.toAccount)referencedNames.add(tf.toAccount)}});
+    const missing=[...referencedNames].filter(n=>n&&!existingNames.has(n));
+    const needsDefaults=raw.length===0;
+    if(!missing.length&&!needsDefaults)return;
+    upConfig(d=>{
+      if(!Array.isArray(d.treasuryAccounts))d.treasuryAccounts=[];
+      d.treasuryAccounts=d.treasuryAccounts.map(a=>typeof a==="string"?{id:a,name:a,ownerEmail:"",type:"cash"}:a);
+      const have=new Set(d.treasuryAccounts.map(a=>a.name));
+      if(d.treasuryAccounts.length===0){
+        if(!have.has("MAIN CASH")){d.treasuryAccounts.push({id:"MAIN CASH",name:"MAIN CASH",ownerEmail:"",type:"cash"});have.add("MAIN CASH")}
+        if(!have.has("SUB CASH")){d.treasuryAccounts.push({id:"SUB CASH",name:"SUB CASH",ownerEmail:"",type:"cash"});have.add("SUB CASH")}
+      }
+      missing.forEach(n=>{
+        if(have.has(n))return;
+        const isCash=/CASH|كاش|نقد/i.test(n);
+        d.treasuryAccounts.push({id:n,name:n,ownerEmail:"",type:isCash?"cash":"bank",autoRestored:new Date().toISOString()});
+        have.add(n);
+      });
+    });
+    if(missing.length)showToast("✓ تم استرجاع "+missing.length+" حساب: "+missing.join("، "));
+  },[data.treasuryAccounts,data.treasury,data.treasuryTransfers,upConfig]);
   const txns=(data.treasury||[]);
   /* Accounts are now objects: {id, name, ownerEmail, type} — auto-migrate from old strings */
   const rawAccounts=(data.treasuryAccounts||[]);
@@ -111,6 +217,19 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const transfers=(data.treasuryTransfers||[]);
   const notifications=(data.notifications||[]);
   const[showForm,setShowForm]=useState(false);
+  /* V18.52: Sticky category mode for batch entries.
+     null = off; { category, type, count, total } = active.
+     When set, after save the form auto-reopens with category+type pre-filled
+     and count is decremented. Stops when count reaches 0 or user disables. */
+  const[stickyMode,setStickyMode]=useState(null);
+  /* V18.53: Sticky date — independent of stickyMode. When non-null, the form's
+     date field is preserved across opens and saves. Useful for back-entry of
+     historical transactions. */
+  const[stickyDate,setStickyDate]=useState(null);
+  /* V18.56: Recurring transactions state */
+  const[showRecurringModal,setShowRecurringModal]=useState(false);
+  const[editRecurringId,setEditRecurringId]=useState(null);
+  const[recForm,setRecForm]=useState({name:"",type:"out",amount:"",category:"",account:"MAIN CASH",description:"",notes:"",pattern:"monthly",dayOfMonth:1,dayOfWeek:0,startDate:new Date().toISOString().split("T")[0],endDate:"",active:true});
   /* V15.44: Date picker for top-level print/PDF/WhatsApp buttons — defaults to today but user can pick any day */
   const[printDate,setPrintDate]=useState(new Date().toISOString().split("T")[0]);
   const[txType,setTxType]=useState("in");
@@ -288,6 +407,12 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[newAccName,setNewAccName]=useState("");
   const[newAccOwner,setNewAccOwner]=useState("");
   const[editAccId,setEditAccId]=useState(null);
+  /* V18.0: Banks management — list of bank names used in checks */
+  const[newBankName,setNewBankName]=useState("");
+  const[editBankIdx,setEditBankIdx]=useState(null);
+  /* V18.0: Account-picker popups for check collect/pay (asks where money goes/comes from) */
+  const[collectAccountPopup,setCollectAccountPopup]=useState(null);/* {checkId, ch} */
+  const[payAccountPopup,setPayAccountPopup]=useState(null);/* {checkId, ch} */
   /* Transfer */
   const[showTransfer,setShowTransfer]=useState(false);
   const[tfFrom,setTfFrom]=useState("");const[tfTo,setTfTo]=useState("");
@@ -346,7 +471,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     setShowResetPopup(false);setResetConfirmText("");showToast("✅ تم المسح الشامل");
   };
 
-  const OUT_CATS=["تكلفة","مشتريات","مرتبات","قطع غيار","صيانة ماكينات","خيط","تشغيل خارجي","نقل","كهرباء","ضيافة","ايجار المصنع","نثريات","اكسسوار","مستلزمات تشغيل","ورق ماركر","خدمات","أصول ثابتة","تكاليف أخرى","دفع مورد","تحويل داخلي"];
+  const OUT_CATS=["تكلفة","مشتريات","مرتبات","قطع غيار","صيانة ماكينات","خيط","تشغيل خارجي","نقل","كهرباء","ضيافة","ايجار المصنع","نثريات","اكسسوار","مستلزمات تشغيل","ورق ماركر","خدمات","أصول ثابتة","تكاليف أخرى","دفعة مورد","تحويل داخلي"];
   const IN_CATS=["وارد","إيرادات","دفعة عميل","رأس مال","تحويل","تحويل داخلي"];
   /* V16.61: Categories that have hard-wired behavior elsewhere in the app —
      they trigger party pickers, link to other modules, etc. These MUST be in
@@ -355,13 +480,13 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
      picker, transfers system, etc.).
      
      Bug this fixes: SettingsPg's DEFAULT_OUT (in TreasurySettingsCard) doesn't
-     include "دفع مورد" or "تحويل داخلي" — so the first time a user opens
+     include "دفعة مورد" or "تحويل داخلي" — so the first time a user opens
      treasury settings and clicks save, those categories get dropped from the
-     saved list. The supplier picker stops working ("دفع مورد" never appears
+     saved list. The supplier picker stops working ("دفعة مورد" never appears
      in the dropdown), the filter doesn't list custom categories, and inline
      edit has the same issue. The union here makes the dropdowns resilient
      to whatever the user's saved list looks like. */
-  const REQUIRED_OUT=["دفع مورد","تشغيل خارجي","مرتبات","تحويل داخلي"];
+  const REQUIRED_OUT=["دفعة مورد","تشغيل خارجي","مرتبات","تحويل داخلي"];
   const REQUIRED_IN=["دفعة عميل","تحويل داخلي"];
   const resolvedOutCats=useMemo(()=>{
     const saved=(data.treasurySettings||{}).outCategories;
@@ -461,21 +586,56 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     if(txPartyId&&txPartyType==="supplier"){const s=suppliers.find(x=>x.id===txPartyId);if(s){linkedSupplierId=s.id;if(!finalDesc.trim())finalDesc="دفع لـ "+s.name}}
     if(txPartyId&&txPartyType==="workshop"){const w=workshops.find(x=>x.id===txPartyId||x.name===txPartyId);if(w){linkedWsName=w.name;if(!finalDesc.trim())finalDesc=wsDesc(w.name,txCategory==="مشتريات")}}
     if(txPartyId&&txPartyType==="employee"){const e=(data.employees||[]).find(x=>x.id===txPartyId);if(e){linkedEmpId=e.id;if(!finalDesc.trim())finalDesc="سلفة "+e.name}}
+    /* V18.73: Auto-link to workshop by combined desc+notes match if no party
+       was picked. Previously the matcher only saw `desc OR notes` (via ||),
+       missing entries where the workshop name was in notes only or split
+       across both fields. Now we concatenate. The ambiguity guard inside
+       matchWorkshopFromDesc still prevents wrong links. */
+    let _autoLinkedWs=null;
+    let _autoLinkAttempted=false;
+    if(!linkedWsName&&txType==="out"&&(txCategory==="تشغيل خارجي"||txCategory==="مشتريات")){
+      _autoLinkAttempted=true;
+      const _haystack=((finalDesc||"")+" "+(txNotes||"")).trim();
+      _autoLinkedWs=matchWorkshopFromDesc(_haystack,workshops);
+      if(_autoLinkedWs)linkedWsName=_autoLinkedWs.name;
+    }
+    /* V18.35: capture freshly-built treasury entry for post-commit auto-posting */
+    let _newBaseEntry=null;
     upConfig(d=>{if(!d.treasury)d.treasury=[];
       if(editId){const tx=d.treasury.find(t=>t.id===editId);
-        if(tx){tx.type=txType;tx.amount=amt;tx.desc=finalDesc;tx.notes=txNotes;tx.category=txCategory;tx.account=txAccount;tx.season=txSeason;tx.date=txDate;tx.custId=linkedCustId;tx.supplierId=linkedSupplierId;tx.updatedBy=userName;tx.updatedAt=new Date().toISOString();
+        if(tx){
+          /* V17.3 FIX: Capture old empId BEFORE overwriting it, so we can sync hrLog */
+          const oldEmpId=tx.empId;
+          const oldHrLogId=tx.hrLogId;
+          const oldSourceType=tx.sourceType;
+          tx.type=txType;tx.amount=amt;tx.desc=finalDesc;tx.notes=txNotes;tx.category=txCategory;tx.account=txAccount;tx.season=txSeason;tx.date=txDate;tx.custId=linkedCustId;tx.supplierId=linkedSupplierId;tx.empId=linkedEmpId;tx.updatedBy=userName;tx.updatedAt=new Date().toISOString();
           /* Sync linked wsPayment if exists */
           if(tx.wsPaymentId){const wp=(d.wsPayments||[]).find(p=>p.id===tx.wsPaymentId);if(wp){wp.amount=amt;wp.notes=txNotes;wp.date=txDate;wp.type=txCategory==="مشتريات"?"purchase":"payment"}}
-          /* V16.68: Sync custPayments / supplierPayments on edit too — previously
-             only the new-tx branch created these records, so editing an existing
-             tx to LINK a supplier (e.g. by changing category to "دفع مورد") set
-             tx.supplierId but never created the supplierPayment. The supplier's
-             account statement was missing the payment. Three rules:
-             1. If the tx was previously linked to a different party, remove the
-                old payment record (idempotent toggle).
-             2. If the tx is now linked to a customer/supplier, ensure exactly
-                one payment record exists with current values.
-             3. If the link was removed entirely, drop the payment record. */
+          /* V17.3 FIX: Sync linked hrLog if this was an advance.
+             Three cases:
+             1. Was advance + still has same employee: update hrLog amount/date/desc
+             2. Was advance + employee removed/changed: delete old hrLog, create new if new emp
+             3. Was NOT advance + now has employee: create new hrLog (handled below) */
+          if(oldHrLogId&&d.hrLog){
+            const oldLog=d.hrLog.find(l=>l.id===oldHrLogId);
+            if(oldLog){
+              if(linkedEmpId===oldEmpId&&txType==="out"){
+                /* Same employee — just update */
+                const emp=(d.employees||[]).find(x=>x.id===linkedEmpId);
+                oldLog.amount=amt;
+                oldLog.empName=emp?emp.name:oldLog.empName;
+                oldLog.desc=txNotes||finalDesc||oldLog.desc;
+                oldLog.date=txDate;
+              }else{
+                /* Employee changed or removed — delete old hrLog */
+                d.hrLog=d.hrLog.filter(l=>l.id!==oldHrLogId);
+                /* And clear the now-stale link from tx */
+                delete tx.hrLogId;
+                if(oldSourceType==="hr_advance")delete tx.sourceType;
+              }
+            }
+          }
+          /* V16.68: Sync custPayments / supplierPayments on edit too */
           if(d.custPayments)d.custPayments=d.custPayments.filter(p=>p.treasuryTxId!==editId);
           if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>p.treasuryTxId!==editId);
           if(linkedCustId&&txType==="in"){
@@ -487,6 +647,14 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             if(!d.supplierPayments)d.supplierPayments=[];
             const s=suppliers.find(x=>x.id===linkedSupplierId);
             d.supplierPayments.push({id:gid(),supplierId:linkedSupplierId,supplierName:s?s.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:"كاش",by:userName,treasuryTxId:editId,createdAt:new Date().toISOString()});
+          }
+          /* V17.3 FIX: If the edit added an employee link (was no advance, now is one), create hrLog */
+          if(linkedEmpId&&txType==="out"&&!tx.hrLogId&&linkedEmpId!==oldEmpId){
+            if(!d.hrLog)d.hrLog=[];
+            const emp=(d.employees||[]).find(x=>x.id===linkedEmpId);
+            const logId=gid();
+            d.hrLog.unshift({id:logId,type:"advance",empId:linkedEmpId,empName:emp?emp.name:"",amount:amt,desc:txNotes||finalDesc||"سلفة",weekId:"",date:txDate,by:userName,createdAt:new Date().toISOString()});
+            tx.sourceType="hr_advance";tx.hrLogId=logId;
           }
         }}
       else{
@@ -512,8 +680,45 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           d.wsPayments.push({id:wsPayId,wsName:linkedWsName,wsId:w?w.id:null,amount:amt,type:txCategory==="مشتريات"?"purchase":"payment",notes:txNotes,date:txDate,createdBy:userName,treasuryTxId:txId,createdAt:new Date().toISOString()});
           baseEntry.wsPaymentId=wsPayId;baseEntry.wsName=linkedWsName;baseEntry.sourceType="ws_payment"}
         d.treasury.unshift(baseEntry);
+        /* V18.35: stash for post-commit auto-posting */
+        _newBaseEntry=baseEntry;
       }});
-    setShowForm(false);setTxAmount("");setTxDesc("");setTxNotes("");setTxCategory("");setTxType("in");setTxPartyId("");setTxPartyType("");setEditId(null);showToast("✓ تم الحفظ")};
+    /* V18.35: auto-post journal entry for the new treasury row.
+       We do this AFTER upConfig commits — uses fresh entry object built above.
+       Only fires for plain treasury entries (not the linked ones — those
+       have specific posting rules handled by their own hooks). */
+    if(_newBaseEntry && !_newBaseEntry.sourceType){
+      autoPost.treasury(data, _newBaseEntry, userName).catch(()=>{});
+    }
+    /* V18.52: Sticky mode — keep form open for next entry with same category */
+    if(stickyMode && stickyMode.count > 1 && !editId){
+      /* Decrement counter, keep form open with category + type preserved */
+      const newCount = stickyMode.count - 1;
+      setStickyMode({...stickyMode, count: newCount});
+      /* Reset only amount/desc/notes/party — keep category and type */
+      setTxAmount("");setTxDesc("");setTxNotes("");setTxPartyId("");setTxPartyType("");
+      /* Re-apply party type derived from sticky category */
+      if(stickyMode.category==="دفعة عميل")setTxPartyType("customer");
+      else if(stickyMode.category==="دفعة مورد")setTxPartyType("supplier");
+      else if(stickyMode.category==="تشغيل خارجي")setTxPartyType("workshop");
+      else if(stickyMode.category==="مرتبات")setTxPartyType("employee");
+      showToast("✓ حُفظ — متبقي "+newCount+" حركة");
+      return;
+    }
+    /* If sticky finished, clear the mode */
+    if(stickyMode && stickyMode.count <= 1){
+      setStickyMode(null);
+      showToast("✓ تم الحفظ — انتهى وضع التكرار");
+    } else if(_autoLinkedWs){
+      /* V18.72: silent auto-link toast */
+      showToast("✓ ربط تلقائي بورشة "+_autoLinkedWs.name);
+    } else if(_autoLinkAttempted&&!linkedWsName){
+      /* V18.73: workshop-category entry was saved unlinked. */
+      showToast("⚠ حُفظ بدون ربط بورشة — لن يظهر في كشف الحساب");
+    } else {
+      showToast("✓ تم الحفظ");
+    }
+    setShowForm(false);setTxAmount("");setTxDesc("");setTxNotes("");setTxCategory("");setTxType("in");setTxPartyId("");setTxPartyType("");setEditId(null);};
   /* Detect treasury entries that were auto-created from an external source
      (salary approval, check collection/payment, advance, transfer, workshop payment).
      These entries should NOT be directly deletable from treasury — go to source. */
@@ -546,21 +751,22 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const delTx=(id)=>{
     /* V15.9: Block deletion of HR salary transactions — they're bound to week prevBalance.
        User must use "delete week" in HR page which handles prevBalance restoration.
-       V16.65: Now also blocks any externally-linked tx via dataIntegrity.
-       The user is shown a clear message naming the source (check / hr advance /
-       transfer / receipt) and where to delete from instead. Cascade-delete used
-       to silently take down child records — that's data the user couldn't see
-       disappearing. Now they have to delete from the source side, which keeps
-       both sides consistent. */
+       V16.65: Used to also block any externally-linked tx via dataIntegrity.getReferences,
+       BUT that block showed an empty-onConfirm popup that confused users (looked like
+       delete was happening but wasn't).
+       V18.69 FIX: Removed the getReferences early-return. The row-level popup (in render)
+       already warns the user "⚠️ حركة مرتبطة بـ X — الحذف هنا لن يؤثر على المصدر".
+       The cascade logic below correctly handles ALL linked records:
+         • hr_advance  → deletes treasury + linked hrLog entry
+         • transfer    → deletes both legs + transfer record
+         • cust/supplier/ws payments → deletes linked payment records
+         • check       → only deletes treasury entry (the check itself stays for audit)
+         • purchase_receipt → only deletes treasury entry (receipt stays)
+       Only hr_salary remains hard-blocked because deletion would corrupt prevBalance
+       and the week's accounting reconciliation. */
     const txCheck=(data.treasury||[]).find(t=>t.id===id);
     if(txCheck&&txCheck.sourceType==="hr_salary"){
       showToast("⛔ لا يمكن حذف مرتب من هنا — احذف الأسبوع من صفحة الموظفين");
-      return;
-    }
-    const refs=getReferences(data,"treasuryTransaction",id);
-    if(refs.length>0){
-      const msg="هذه الحركة مرتبطة بـ:\n"+refs.map(r=>"• "+r.label).join("\n")+"\n\nاحذفها من المصدر الأصلي بدلاً من هنا.";
-      openConfirm({title:"⛔ حركة مرتبطة",message:msg,variant:"danger",onConfirm:()=>{}});
       return;
     }
     /* V16.2: Snapshot for undo — capture arrays that will be modified */
@@ -578,18 +784,39 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const tx=(d.treasury||[]).find(t=>t.id===id);
     /* V16.9: If this tx is part of a transfer, delete BOTH legs + the transfer record */
     if(tx&&tx.transferId){
+      /* V17.5 FIX: Cascade-clean linked records from BOTH transfer legs (out + in).
+         Previously the cleanup below only used `id` (the single tx the user clicked),
+         missing any linked records on the OTHER leg. Internal transfers rarely have
+         such links, but it's possible if a tx category was misset and later corrected.
+         Capture both legs' ids before deleting the treasury entries. */
+      const transferLegIds=(d.treasury||[]).filter(t=>t.transferId===tx.transferId).map(t=>t.id);
       d.treasury=(d.treasury||[]).filter(t=>t.transferId!==tx.transferId);
       d.treasuryTransfers=(d.treasuryTransfers||[]).filter(tf=>tf.id!==tx.transferId);
       d.notifications=(d.notifications||[]).filter(n=>n.transferId!==tx.transferId);
+      /* Cascade cleanup for both legs */
+      if(d.custPayments)d.custPayments=d.custPayments.filter(p=>!transferLegIds.includes(p.treasuryTxId));
+      if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>!transferLegIds.includes(p.treasuryTxId));
+      if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>!transferLegIds.includes(p.treasuryTxId));
     }else{
       d.treasury=(d.treasury||[]).filter(t=>t.id!==id);
+      if(tx){if(d.custPayments)d.custPayments=d.custPayments.filter(p=>p.treasuryTxId!==id);
+        if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>p.treasuryTxId!==id);
+        if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>p.treasuryTxId!==id);
+      }
     }
-    if(tx){if(d.custPayments)d.custPayments=d.custPayments.filter(p=>p.treasuryTxId!==id);
-      if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>p.treasuryTxId!==id);
-      if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>p.treasuryTxId!==id);
+    if(tx){
       /* Remove linked hrLog advance entry */
       if(tx.hrLogId&&d.hrLog)d.hrLog=d.hrLog.filter(l=>l.id!==tx.hrLogId);
-      if(tx.sourceType==="hr_advance"&&tx.empId&&d.hrLog)d.hrLog=d.hrLog.filter(l=>!(l.type==="advance"&&l.empId===tx.empId&&l.date===tx.date&&Math.abs((Number(l.amount)||0)-(Number(tx.amount)||0))<0.01))}});
+      /* V17.1 FIX #11: For legacy advances without hrLogId, delete ONLY the first match
+         (not all matches). The previous logic deleted ALL matching advances, which would
+         wipe multiple legitimate advances if an employee had two same-amount advances on
+         the same day (e.g. 500 EGP for food + 500 EGP for fuel). */
+      if(tx.sourceType==="hr_advance"&&tx.empId&&!tx.hrLogId&&d.hrLog){
+        const matchIdx=d.hrLog.findIndex(l=>l.type==="advance"&&l.empId===tx.empId&&l.date===tx.date&&Math.abs((Number(l.amount)||0)-(Number(tx.amount)||0))<0.01);
+        if(matchIdx>=0){
+          d.hrLog=d.hrLog.filter((_,i)=>i!==matchIdx);
+        }
+      }}});
     /* V16.2: Push undo AFTER the mutation */
     pushUndo({
       label:_label,
@@ -639,11 +866,29 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>p.treasuryTxId!==tx.id);
         if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>p.treasuryTxId!==tx.id);
         if(tx.hrLogId&&d.hrLog)d.hrLog=d.hrLog.filter(l=>l.id!==tx.hrLogId);
-        if(tx.sourceType==="hr_advance"&&tx.empId&&d.hrLog)d.hrLog=d.hrLog.filter(l=>!(l.type==="advance"&&l.empId===tx.empId&&l.date===tx.date&&Math.abs((Number(l.amount)||0)-(Number(tx.amount)||0))<0.01));
+        /* V17.3 FIX: Same as single-delete (V17.1 FIX #11) — delete ONLY the first match,
+           not all matches. Previous bulk-delete logic deleted ALL matching advances, which
+           would wipe multiple legitimate same-amount-same-day advances. */
+        if(tx.sourceType==="hr_advance"&&tx.empId&&!tx.hrLogId&&d.hrLog){
+          const matchIdx=d.hrLog.findIndex(l=>l.type==="advance"&&l.empId===tx.empId&&l.date===tx.date&&Math.abs((Number(l.amount)||0)-(Number(tx.amount)||0))<0.01);
+          if(matchIdx>=0){
+            d.hrLog=d.hrLog.filter((_,i)=>i!==matchIdx);
+          }
+        }
         deletedCount++;totalAmount+=Number(tx.amount)||0;
       });
       /* V16.9: Now batch-remove all transfer records + their paired legs */
       if(transferIdsToDelete.size>0){
+        /* V17.5 FIX: Cleanup linked records (custPayments/supplierPayments/wsPayments)
+           for the OTHER transfer leg before we delete the treasury entries.
+           When the user only selects ONE leg of a transfer for bulk delete, the loop
+           above only cleans linked records for that one tx. The OTHER leg's linked
+           records would be orphaned. Find all transfer legs (by transferId) and clean
+           their linked records too. */
+        const allTransferLegIds=(d.treasury||[]).filter(t=>t.transferId&&transferIdsToDelete.has(t.transferId)).map(t=>t.id);
+        if(d.custPayments)d.custPayments=d.custPayments.filter(p=>!allTransferLegIds.includes(p.treasuryTxId));
+        if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>!allTransferLegIds.includes(p.treasuryTxId));
+        if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>!allTransferLegIds.includes(p.treasuryTxId));
         d.treasury=(d.treasury||[]).filter(t=>!t.transferId||!transferIdsToDelete.has(t.transferId));
         d.treasuryTransfers=(d.treasuryTransfers||[]).filter(tf=>!transferIdsToDelete.has(tf.id));
         if(d.notifications)d.notifications=d.notifications.filter(n=>!n.transferId||!transferIdsToDelete.has(n.transferId));
@@ -693,6 +938,21 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const delAccount=(id)=>{if(txns.some(t=>t.account===id||(accountsData.find(a=>a.id===id)||{}).name===t.account)){playBeep("error");showToast("⛔ لا يمكن الحذف — يوجد حركات مرتبطة");return}
     upConfig(d=>{if(d.treasuryAccounts)d.treasuryAccounts=d.treasuryAccounts.filter(a=>(typeof a==="string"?a:a.id)!==id)});showToast("✓ تم الحذف")};
 
+  /* V18.0: Banks list management — banks used in checks form (auto-suggested in dropdown) */
+  const banksList=Array.isArray(data.banks)?data.banks:[];
+  const addBank=()=>{const n=newBankName.trim();if(!n)return;
+    upConfig(d=>{if(!Array.isArray(d.banks))d.banks=[];
+      if(editBankIdx!=null){d.banks[editBankIdx]=n}
+      else if(!d.banks.includes(n))d.banks.push(n)});
+    setNewBankName("");setEditBankIdx(null);showToast("✓ تم الحفظ")};
+  const editBank=(idx)=>{setEditBankIdx(idx);setNewBankName(banksList[idx]||"")};
+  const delBank=(idx)=>{const bankName=banksList[idx];if(!bankName)return;
+    /* Block delete if any check uses this bank */
+    if((data.checks||[]).some(c=>(c.bank||"")===bankName)){
+      playBeep("error");showToast("⛔ لا يمكن الحذف — يوجد شيكات مسجلة على هذا البنك");return}
+    upConfig(d=>{if(Array.isArray(d.banks))d.banks=d.banks.filter((_,i)=>i!==idx)});
+    showToast("✓ تم الحذف")};
+
   /* ── Transfer between accounts ──
      V16.13: Non-admin requests go through approval. Admin transfers stay
      auto-confirmed. A pending transfer creates NO treasury entries until
@@ -718,11 +978,31 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         date:d_,toOwnerEmail:toAcc?.ownerEmail||""
       });
       if(isPending){
-        /* No treasury entries yet — just an admin notification */
+        /* No treasury entries yet — just an admin notification.
+           V18.91: Push a notification compatible with the greeting-bar (V18.87+),
+           so all admins see it as a clickable chip with deep-link to transfers view.
+           Old `transfer_pending` kept for legacy bell badge counters. */
         d.notifications.unshift({
           id:gid(),type:"transfer_pending",
           msg:"⏳ طلب تحويل جديد بانتظار موافقتك: "+fmt(amt)+" ج.م من "+tfFrom+" → "+tfTo+" • طلبه: "+userName,
           adminOnly:true,transferId:tfId,read:false,by:userName,createdAt:new Date().toISOString()
+        });
+        /* V18.91: Also push a greeting-bar chip notification visible to all admin users.
+           toEmail:"all" + custom marker `forAdminsOnly`, filtered in App.jsx. */
+        d.notifications.unshift({
+          id:gid()+"_gb",
+          toEmail:"all",
+          toName:"الإدارة",
+          msg:"⏳ طلب تحويل: "+fmt(amt)+" ج.م — "+tfFrom+" → "+tfTo,
+          type:"مهمة عاجلة",
+          fromName:userName,fromEmail:userEmail,
+          createdAt:new Date().toISOString().split("T")[0],
+          createdAtTs:new Date().toISOString(),
+          expiresAt:null,/* stays until approved/rejected */
+          endedAt:null,endedBy:null,readBy:[],dismissedBy:[],
+          forAdminsOnly:true,/* V18.91: only admins see this chip */
+          transferId:tfId,
+          link:{type:"treasury",id:tfId,subType:"transfer_pending",label:"موافقة على التحويل"},
         });
       }else{
         /* Admin: immediate double-entry */
@@ -748,6 +1028,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       d.treasury.unshift({id:gid(),type:"in",amount:tf.amount,desc:"تحويل من "+tf.fromAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.toAccount,season:d.activeSeason||"",date:tf.date,day:dayN,transferId:tf.id,by:tf.sentBy||userName,createdAt:new Date().toISOString()});
       /* Mark pending notif as read; notify requester of approval */
       (d.notifications||[]).forEach(n=>{if(n.transferId===tf.id&&n.type==="transfer_pending")n.read=true});
+      /* V18.91: End the greeting-bar chip — `forAdminsOnly` notif is hidden via endedAt */
+      (d.notifications||[]).forEach(n=>{if(n.transferId===tf.id&&n.forAdminsOnly){n.endedAt=new Date().toISOString();n.endedBy=userEmail}});
       if(!d.notifications)d.notifications=[];
       if(tf.sentByEmail){d.notifications.unshift({id:gid(),type:"transfer_approved",msg:"✅ تمت الموافقة على تحويلك "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+" → "+tf.toAccount,toEmail:tf.sentByEmail,transferId:tf.id,read:false,by:userName,createdAt:new Date().toISOString()})}
       if(toAcc&&typeof toAcc==="object"&&toAcc.ownerEmail){d.notifications.unshift({id:gid(),type:"treasury_transfer",msg:"💸 وصلك تحويل "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+(tf.note?" — "+tf.note:""),toEmail:toAcc.ownerEmail,transferId:tf.id,read:false,by:userName,createdAt:new Date().toISOString()})}
@@ -761,6 +1043,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(!tf||tf.status!=="pending")return;
       d.treasuryTransfers=(d.treasuryTransfers||[]).filter(t=>t.id!==tfId);
       (d.notifications||[]).forEach(n=>{if(n.transferId===tfId&&n.type==="transfer_pending")n.read=true});
+      /* V18.91: End the greeting-bar chip — `forAdminsOnly` notif is hidden */
+      (d.notifications||[]).forEach(n=>{if(n.transferId===tfId&&n.forAdminsOnly){n.endedAt=new Date().toISOString();n.endedBy=userEmail}});
       if(!d.notifications)d.notifications=[];
       if(tf.sentByEmail){d.notifications.unshift({id:gid(),type:"transfer_rejected",msg:"❌ تم رفض طلب التحويل: "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+" → "+tf.toAccount,toEmail:tf.sentByEmail,transferId:tfId,read:false,by:userName,createdAt:new Date().toISOString()})}
     });
@@ -808,6 +1092,12 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   /* Delete a transfer — removes both entries */
   const deleteTransfer=(tfId)=>{const tf=transfers.find(t=>t.id===tfId);if(!tf)return;
     upConfig(d=>{
+      /* V17.5 FIX: cascade-cleanup linked records (custPayments/supplierPayments/wsPayments)
+         on both transfer legs before deleting the treasury entries. */
+      const transferLegIds=(d.treasury||[]).filter(t=>t.transferId===tfId).map(t=>t.id);
+      if(d.custPayments)d.custPayments=d.custPayments.filter(p=>!transferLegIds.includes(p.treasuryTxId));
+      if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>!transferLegIds.includes(p.treasuryTxId));
+      if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>!transferLegIds.includes(p.treasuryTxId));
       d.treasuryTransfers=(d.treasuryTransfers||[]).filter(t=>t.id!==tfId);
       d.treasury=(d.treasury||[]).filter(t=>t.transferId!==tfId);
       d.notifications=(d.notifications||[]).filter(n=>n.transferId!==tfId);
@@ -859,7 +1149,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const closeBal=openBal+dIn-dOut;
     const scopeLabel=accountName||"كل الحسابات";
     const dayN=dayNameFull(date);
-    const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+    const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة وحاول مرة أخرى",{danger:true});return}
     w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>يومية ${scopeLabel} — ${date}</title>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet"/>
     <style>${_printStyles}</style></head><body style="padding:14px">
@@ -904,7 +1194,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const sorted=[...txList].sort((a,b)=>(a.date||"").localeCompare(b.date||"")||(a.createdAt||"").localeCompare(b.createdAt||""));
     const tIn=sorted.filter(t=>t.type==="in").reduce((s,t)=>s+(Number(t.amount)||0),0);
     const tOut=sorted.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0);
-    const w=openPrintWindow();if(!w){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
+    const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة وحاول مرة أخرى",{danger:true});return}
     w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>تقرير حركات — ${sorted.length} حركة</title>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet"/>
     <style>${_printStyles}</style></head><body style="padding:14px">
@@ -1173,8 +1463,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       </div>;
     })()}
 
-    {/* View Tabs */}
-    <div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflow:"hidden",border:"1px solid "+T.brd}}>
+    {/* View Tabs — V18.92: horizontal scroll on mobile to prevent tabs being cut off */}
+    <div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflow:isMob?"auto":"hidden",border:"1px solid "+T.brd,WebkitOverflowScrolling:"touch"}}>
       {(()=>{
         /* Dynamic tabs: general journal + one per account + tools */
         const unreadTransferNotifs=notifications.filter(n=>n.toEmail===userEmail&&!n.read&&(n.type==="treasury_transfer"||n.type==="treasury_transfer_confirmed")).length;
@@ -1191,10 +1481,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         baseTabs.push({k:"journal",l:"📒 الكل"});
         baseTabs.push({k:"transfers",l:"🔄 التحويلات"+transferBadge});
         baseTabs.push({k:"checks",l:"📝 الشيكات"});
+        baseTabs.push({k:"recurring",l:"🔁 المتكررة"});
         baseTabs.push({k:"analysis",l:"📊 التحليل"});
         baseTabs.push({k:"accounts",l:"🏦 الحسابات"});
         return baseTabs.map(v=>
-        <div key={v.k} onClick={()=>{setView(v.k);if(v.accName){setFilterAcc(v.accName);setTxAccount(v.accName)}else if(v.k==="journal")setFilterAcc("الكل")}} style={{flex:1,padding:"10px 8px",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-2,background:view===v.k?T.accent:T.cardSolid,color:view===v.k?"#fff":T.textSec,transition:"all 0.15s",whiteSpace:"nowrap"}}>{v.l}</div>)
+        <div key={v.k} onClick={()=>{setView(v.k);if(v.accName){setFilterAcc(v.accName);setTxAccount(v.accName)}else if(v.k==="journal")setFilterAcc("الكل")}} style={{flex:isMob?"0 0 auto":1,padding:isMob?"10px 14px":"10px 8px",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-2,background:view===v.k?T.accent:T.cardSolid,color:view===v.k?"#fff":T.textSec,transition:"all 0.15s",whiteSpace:"nowrap"}}>{v.l}</div>)
       })()}
     </div>
 
@@ -1253,14 +1544,33 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           </div>
         </Card>})()}
       {canEdit&&<div style={{marginBottom:14,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-        <Btn primary onClick={()=>{setEditId(null);setTxType("out");setTxAmount("");setTxDesc("");setTxNotes("");setTxCategory("");setTxAccount(view.startsWith("acc_")?(accountsData.find(a=>a.id===view.slice(4))?.name||"SUB CASH"):"SUB CASH");setTxSeason(data.activeSeason||"");setTxDate(today);setTxPartyId("");setTxPartyType("");setShowForm(!showForm)}}>{showForm?"✕ إغلاق":"+ حركة جديدة"}</Btn>
+        <Btn primary onClick={()=>{
+          setEditId(null);
+          /* V18.52: Honor sticky mode when re-opening — preserve category + type */
+          if(stickyMode && !showForm){
+            setTxType(stickyMode.type);
+            setTxCategory(stickyMode.category);
+            /* Restore party type derived from category */
+            if(stickyMode.category==="دفعة عميل")setTxPartyType("customer");
+            else if(stickyMode.category==="دفعة مورد")setTxPartyType("supplier");
+            else if(stickyMode.category==="تشغيل خارجي")setTxPartyType("workshop");
+            else if(stickyMode.category==="مرتبات")setTxPartyType("employee");
+            else setTxPartyType("");
+          } else {
+            setTxType("out");
+            setTxCategory("");
+            setTxPartyType("");
+          }
+          setTxAmount("");setTxDesc("");setTxNotes("");setTxAccount(view.startsWith("acc_")?(accountsData.find(a=>a.id===view.slice(4))?.name||"SUB CASH"):"SUB CASH");setTxSeason(data.activeSeason||"");setTxDate(stickyDate||today);setTxPartyId("");setShowForm(!showForm)
+        }}>{showForm?"✕ إغلاق":"+ حركة جديدة"}</Btn>
         {accountsData.length>=2&&<Btn onClick={()=>{setTfDate(new Date().toISOString().split("T")[0]);setShowTransfer(true)}} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700}}>🔄 تحويل بين الخزن</Btn>}
-        {(data.odooSettings||{}).url&&<Btn onClick={openOdooSyncPopup} disabled={odooSyncing} style={{background:"#71486712",color:"#714867",border:"1px solid #71486730",fontWeight:700}}>{odooSyncing?<span style={{display:"inline-flex",alignItems:"center",gap:8}}><Spinner size="small" color="#714867" inline/>جاري التزامن...</span>:"🔗 تزامن Odoo"}</Btn>}
-        {odooResult&&<span style={{fontSize:FS-1,fontWeight:700,color:odooResult.ok?T.ok:T.err,padding:"4px 10px",borderRadius:6,background:odooResult.ok?T.ok+"08":T.err+"08"}}>{odooResult.msg}</span>}
+        {/* V18.46: gated by master Odoo toggle */}
+        {(data.odooEnabled !== false) && (data.odooSettings||{}).url&&<Btn onClick={openOdooSyncPopup} disabled={odooSyncing} style={{background:"#71486712",color:"#714867",border:"1px solid #71486730",fontWeight:700}}>{odooSyncing?<span style={{display:"inline-flex",alignItems:"center",gap:8}}><Spinner size="small" color="#714867" inline/>جاري التزامن...</span>:"🔗 تزامن Odoo"}</Btn>}
+        {(data.odooEnabled !== false) && odooResult&&<span style={{fontSize:FS-1,fontWeight:700,color:odooResult.ok?T.ok:T.err,padding:"4px 10px",borderRadius:6,background:odooResult.ok?T.ok+"08":T.err+"08"}}>{odooResult.msg}</span>}
       </div>}
 
-      {/* ══ ODOO SELECTIVE SYNC POPUP ══ */}
-      {odooSyncPopup&&(()=>{
+      {/* ══ ODOO SELECTIVE SYNC POPUP ══ V18.46: gated by master toggle */}
+      {(data.odooEnabled !== false) && odooSyncPopup&&(()=>{
         const subName=accountsData.find(a=>a.name.toUpperCase().includes("SUB"))?.name||"SUB CASH";
         const subTxns=txns.filter(t=>(t.account||"")===subName);
         /* Category stats (for checkbox list) */
@@ -1430,26 +1740,62 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{editId?"✏️ تعديل حركة":"+ حركة جديدة"}</div>
             <Btn ghost small onClick={()=>{setShowForm(false);setEditId(null)}}>✕</Btn>
           </div>
+          {/* V18.52: Sticky mode banner */}
+          {stickyMode && !editId && <div style={{padding:"10px 14px",borderRadius:10,background:T.accent+"08",border:"2px solid "+T.accent+"40",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+            <div style={{fontSize:FS-1,fontWeight:700,color:T.accent}}>
+              📌 وضع التكرار: متبقي <b style={{fontSize:FS+2}}>{stickyMode.count}</b> حركة من فئة <b>"{stickyMode.category}"</b> ({stickyMode.type==="in"?"وارد":"منصرف"})
+            </div>
+            <span onClick={()=>{setStickyMode(null);showToast("✓ تم إيقاف التكرار")}} style={{cursor:"pointer",fontSize:FS-2,color:T.warn,padding:"4px 10px",borderRadius:6,background:T.warn+"15",border:"1px solid "+T.warn+"40",fontWeight:700}}>⏸ إيقاف</span>
+          </div>}
+          {/* V18.53: Sticky date banner */}
+          {stickyDate && !editId && <div style={{padding:"8px 14px",borderRadius:10,background:"#8B5CF608",border:"2px solid #8B5CF640",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+            <div style={{fontSize:FS-1,fontWeight:700,color:"#8B5CF6"}}>
+              📅 التاريخ مثبّت على <b style={{fontFamily:"monospace",fontSize:FS}}>{stickyDate}</b> — كل الحركات الجاية هتاخد نفس التاريخ
+            </div>
+            <span onClick={()=>{setStickyDate(null);showToast("✓ تم إلغاء تثبيت التاريخ")}} style={{cursor:"pointer",fontSize:FS-2,color:T.warn,padding:"4px 10px",borderRadius:6,background:T.warn+"15",border:"1px solid "+T.warn+"40",fontWeight:700}}>إلغاء</span>
+          </div>}
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12}}>
           <div style={{gridColumn:isMob?"1":"1 / -1"}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label><div style={{display:"flex",gap:6,marginTop:4}}>
             <div onClick={()=>setTxType("in")} style={{flex:1,padding:"12px 0",borderRadius:10,textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:txType==="in"?T.ok+"15":"transparent",border:"2px solid "+(txType==="in"?T.ok:T.brd),color:txType==="in"?T.ok:T.textSec}}>↓ وارد</div>
             <div onClick={()=>setTxType("out")} style={{flex:1,padding:"12px 0",borderRadius:10,textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:txType==="out"?T.err+"15":"transparent",border:"2px solid "+(txType==="out"?T.err:T.brd),color:txType==="out"?T.err:T.textSec}}>↑ منصرف</div>
           </div></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المبلغ</label><Inp type="number" value={txAmount} onChange={setTxAmount} placeholder="0.00"/></div>
-          <div style={{gridColumn:"1 / -1"}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع الحركة</label><Sel value={txCategory} onChange={v=>{setTxCategory(v);setTxPartyId("");setTxPartyType("");setPartySearch("");
-            if(v==="دفعة عميل")setTxPartyType("customer");
-            else if(v==="دفع مورد")setTxPartyType("supplier");
-            else if(v==="تشغيل خارجي")setTxPartyType("workshop");
-            else if(v==="مرتبات")setTxPartyType("employee");
-          }}><option value="">— اختر —</option>{(txType==="in"?resolvedInCats:resolvedOutCats).map(c=><option key={c} value={c}>{c}</option>)}</Sel>
-          {txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفع مورد"||txCategory==="تشغيل خارجي"||txCategory==="مرتبات")&&(()=>{const list=txPartyType==="customer"?customers:txPartyType==="supplier"?suppliers:txPartyType==="employee"?(data.employees||[]).filter(e=>!e.inactive):workshops;const p=list.find(x=>x.id===txPartyId||x.name===txPartyId);if(!p)return null;
+          <div style={{gridColumn:"1 / -1"}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span>نوع الحركة</span>
+            {/* V18.52: Sticky mode toggle — repeats this category for N entries */}
+            {!stickyMode && txCategory && <span onClick={async()=>{
+              const inputStr=prompt("كم حركة جاية تريد تكرار فئة \""+txCategory+"\" فيها؟",  "5");
+              const n=parseInt(inputStr,10);
+              if(!isNaN(n)&&n>1){
+                setStickyMode({category:txCategory, type:txType, count:n, total:n});
+                showToast("📌 تم تفعيل التكرار: "+n+" حركة جاية بفئة "+txCategory);
+              }
+            }} style={{cursor:"pointer",fontSize:FS-3,color:T.accent,padding:"2px 8px",borderRadius:6,background:T.accent+"08",border:"1px solid "+T.accent+"30",fontWeight:700}} title="تفعيل وضع التكرار للحركات الجاية بنفس الفئة">🔁 تكرار</span>}
+            {stickyMode && <span onClick={()=>{
+              setStickyMode(null);
+              showToast("✓ تم إيقاف التكرار");
+            }} style={{cursor:"pointer",fontSize:FS-3,color:T.warn,padding:"2px 8px",borderRadius:6,background:T.warn+"15",border:"1px solid "+T.warn+"40",fontWeight:700}} title="إيقاف وضع التكرار">⏸ إيقاف ({stickyMode.count})</span>}
+          </label>
+          <SearchSel
+            value={txCategory}
+            onChange={v=>{setTxCategory(v);setTxPartyId("");setTxPartyType("");setPartySearch("");
+              if(v==="دفعة عميل")setTxPartyType("customer");
+              else if(v==="دفعة مورد")setTxPartyType("supplier");
+              else if(v==="تشغيل خارجي")setTxPartyType("workshop");
+              else if(v==="مرتبات")setTxPartyType("employee");
+            }}
+            options={(txType==="in"?resolvedInCats:resolvedOutCats).map(c=>({value:c,label:c}))}
+            maxResults={30}
+            showAllOnFocus={true}
+            placeholder="اكتب أو اختر..."/>
+          {txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفعة مورد"||txCategory==="تشغيل خارجي"||txCategory==="مرتبات")&&(()=>{const list=txPartyType==="customer"?customers:txPartyType==="supplier"?suppliers:txPartyType==="employee"?(data.employees||[]).filter(e=>!e.inactive):workshops;const p=list.find(x=>x.id===txPartyId||x.name===txPartyId);if(!p)return null;
             const icon=txPartyType==="customer"?"🧑 العميل:":txPartyType==="supplier"?"🏭 المورد:":txPartyType==="employee"?"👷 الموظف:":"🔧 الورشة:";
             return<div style={{padding:"6px 10px",borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"30",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,marginTop:6}}>
               <div><span style={{fontSize:FS-2,color:T.textMut}}>{icon}</span> <b style={{color:T.accent,fontSize:FS-1}}>{p.name}</b>{p.phone&&<span style={{fontSize:FS-3,color:T.textMut,marginRight:6}}> • {p.phone}</span>}</div>
               <span onClick={()=>{setTxPartyId("");setPartySearch("")}} style={{cursor:"pointer",fontSize:FS-2,color:T.err,padding:"2px 8px",borderRadius:6,background:T.err+"08",border:"1px solid "+T.err+"20"}}>✕ تغيير</span>
             </div>})()}
           {/* Inline party list */}
-          {!txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفع مورد"||txCategory==="تشغيل خارجي"||txCategory==="مرتبات")&&(()=>{
+          {!txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفعة مورد"||txCategory==="تشغيل خارجي"||txCategory==="مرتبات")&&(()=>{
             const list=txPartyType==="customer"?customers:txPartyType==="supplier"?suppliers:txPartyType==="employee"?(data.employees||[]).filter(e=>!e.inactive):workshops;
             const title=txPartyType==="customer"?"اختر عميل":txPartyType==="supplier"?"اختر مورد":txPartyType==="employee"?"اختر موظف":"اختر ورشة";
             const q=partySearchDeb.toLowerCase();
@@ -1475,7 +1821,18 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>حساب جاري</label><Sel value={txAccount} onChange={setTxAccount}>{accounts.map(a=><option key={a} value={a}>{a}</option>)}</Sel></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>بيان</label><Inp value={txDesc} onChange={setTxDesc} placeholder="وصف الحركة"/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات</label><Inp value={txNotes} onChange={setTxNotes} placeholder="ملاحظات إضافية"/></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>التاريخ</label><Inp type="date" value={txDate} onChange={setTxDate}/></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span>التاريخ</span>
+            {/* V18.53: Sticky date toggle for back-entry of historical transactions */}
+            {!stickyDate && txDate && txDate!==today && <span onClick={()=>{
+              setStickyDate(txDate);
+              showToast("📅 تم تثبيت التاريخ على "+txDate);
+            }} style={{cursor:"pointer",fontSize:FS-3,color:T.accent,padding:"2px 8px",borderRadius:6,background:T.accent+"08",border:"1px solid "+T.accent+"30",fontWeight:700}} title="تثبيت التاريخ للحركات الجاية">📌 تثبيت</span>}
+            {stickyDate && <span onClick={()=>{
+              setStickyDate(null);
+              showToast("✓ تم إلغاء تثبيت التاريخ");
+            }} style={{cursor:"pointer",fontSize:FS-3,color:T.warn,padding:"2px 8px",borderRadius:6,background:T.warn+"15",border:"1px solid "+T.warn+"40",fontWeight:700}} title="إلغاء تثبيت التاريخ">📅 مثبّت ✕</span>}
+          </label><Inp type="date" value={txDate} onChange={setTxDate}/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الموسم</label><Inp value={txSeason} onChange={setTxSeason} placeholder={data.activeSeason||"W26"}/></div>
         </div>
         <div style={{marginTop:16,display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>{setShowForm(false);setEditId(null)}}>إلغاء</Btn><Btn primary onClick={saveTx}>{editId?"💾 حفظ التعديل":"💾 حفظ"}</Btn></div>
@@ -1574,7 +1931,33 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           {withBalance.slice(0,limit).map(t=>{const locked=isDayLocked(t.date);const isEd=inlineEdit===t.id;const d_=inlineDraft;
             const inpS={padding:"3px 6px",borderRadius:6,border:"1px solid "+T.accent+"40",fontSize:FS-2,fontFamily:"inherit",background:T.inputBg,color:T.text};
             const startEdit=()=>{setInlineEdit(t.id);setInlineDraft({type:t.type,amount:String(t.amount||""),desc:t.desc||"",notes:t.notes||"",category:t.category||"",date:t.date||"",account:t.account||""})};
-            const saveInline=()=>{upConfig(cfg=>{const tx=(cfg.treasury||[]).find(x=>x.id===t.id);if(tx){tx.type=d_.type||tx.type;tx.amount=parseFloat(d_.amount)||tx.amount;tx.desc=d_.desc;tx.notes=d_.notes;tx.category=d_.category;tx.date=d_.date||tx.date;tx.account=d_.account||tx.account;tx.day=dayName(d_.date||tx.date);tx.updatedBy=userName;tx.updatedAt=new Date().toISOString()}});setInlineEdit(null);setInlineDraft({});showToast("✓ تم التعديل")};
+            const saveInline=()=>{upConfig(cfg=>{const tx=(cfg.treasury||[]).find(x=>x.id===t.id);if(tx){
+              const newAmt=parseFloat(d_.amount)||tx.amount;
+              const newDate=d_.date||tx.date;
+              const newNotes=d_.notes;
+              tx.type=d_.type||tx.type;tx.amount=newAmt;tx.desc=d_.desc;tx.notes=newNotes;tx.category=d_.category;tx.date=newDate;tx.account=d_.account||tx.account;tx.day=dayName(newDate);tx.updatedBy=userName;tx.updatedAt=new Date().toISOString();
+              /* V17.3 FIX: Sync linked records when amount/date changes via inline edit.
+                 Previously inline edit only updated treasury, leaving custPayments,
+                 supplierPayments, wsPayments, and hrLog out of sync. This caused
+                 employee advance records to show stale amounts and customer/supplier
+                 statements to be wrong after inline-editing a treasury entry. */
+              if(tx.wsPaymentId&&cfg.wsPayments){
+                const wp=cfg.wsPayments.find(p=>p.id===tx.wsPaymentId);
+                if(wp){wp.amount=newAmt;wp.date=newDate;wp.notes=newNotes}
+              }
+              if(cfg.custPayments){
+                const cp=cfg.custPayments.find(p=>p.treasuryTxId===tx.id);
+                if(cp){cp.amount=newAmt;cp.date=newDate;cp.note=newNotes||tx.desc}
+              }
+              if(cfg.supplierPayments){
+                const sp=cfg.supplierPayments.find(p=>p.treasuryTxId===tx.id);
+                if(sp){sp.amount=newAmt;sp.date=newDate;sp.note=newNotes||tx.desc}
+              }
+              if(tx.hrLogId&&cfg.hrLog){
+                const hl=cfg.hrLog.find(l=>l.id===tx.hrLogId);
+                if(hl){hl.amount=newAmt;hl.date=newDate;hl.desc=newNotes||tx.desc||hl.desc}
+              }
+            }});setInlineEdit(null);setInlineDraft({});showToast("✓ تم التعديل")};
             const cancelInline=()=>{setInlineEdit(null);setInlineDraft({})};
             const isChecked=selectedTxIds.has(t.id);
             return<tr key={t.id} style={{borderBottom:"1px solid "+T.brd,opacity:locked?0.8:1,background:isChecked?T.err+"06":isEd?T.accent+"06":locked?T.bg:""}}>
@@ -1650,7 +2033,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             const isPending=tf.status==="pending";
             const borderColor=isPending?"#F59E0B":"#8B5CF630";
             const bgColor=isPending?"#FEF3C7":"#8B5CF606";
-            return<div key={tf.id} style={{padding:14,borderRadius:12,border:"2px solid "+borderColor,background:bgColor}}>
+            return<div key={tf.id} id={"transfer-row-"+tf.id} style={{padding:14,borderRadius:12,border:"2px solid "+borderColor,background:bgColor}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
                 <div style={{flex:1}}>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
@@ -1748,7 +2131,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                    the wallet. We add a "check_bounce" customer entry so the
                    customer statement reflects the reversal.
            - ملغي / مرتجع: just status flip, no treasury, no customer entry */
-        const updateStatus=(id,status,statusDate)=>{
+        const updateStatus=(id,status,statusDate,chosenAccount)=>{
           const dt=statusDate||today;
           upConfig(d=>{
             const ch=(d.checks||[]).find(c=>c.id===id);
@@ -1757,15 +2140,20 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                before applying the new status (idempotent re-toggle). */
             if(d.treasury)d.treasury=d.treasury.filter(t=>t.checkId!==id);
             ch.status=status;ch.statusDate=dt;ch.statusBy=userName;
+            /* V18.0: Record which account the user chose (so we can show it on the check) */
+            if(chosenAccount)ch.depositAccount=chosenAccount;
             if(!d.treasury)d.treasury=[];
-            const chkCat=ch.category||(ch.type==="receivable"?"دفعة عميل":"دفع مورد");
+            const chkCat=ch.category||(ch.type==="receivable"?"دفعة عميل":"دفعة مورد");
             /* Build a rich desc that surfaces check details where it matters */
             const det=(ch.checkNo?" #"+ch.checkNo:"")+(ch.bank?" — "+ch.bank:"")+(ch.dueDate?" — استحقاق "+ch.dueDate:"");
+            /* V18.0: If the user picked a specific account at collect/pay time, use it.
+               Otherwise fall back to the bank name (legacy behavior) or MAIN CASH. */
+            const targetAccount=chosenAccount||ch.bank||"MAIN CASH";
             if(status==="محصل"){
               d.treasury.unshift({
                 id:gid(),type:"in",amount:Number(ch.amount)||0,
                 desc:"تحصيل شيك من "+(ch.party||"")+det,
-                category:chkCat,account:ch.bank||"MAIN CASH",season:d.activeSeason||"",
+                category:chkCat,account:targetAccount,season:d.activeSeason||"",
                 date:dt,day:dayName(dt),
                 custId:ch.type==="receivable"?ch.partyId||null:null,
                 supplierId:ch.type==="payable"?ch.partyId||null:null,
@@ -1777,7 +2165,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               d.treasury.unshift({
                 id:gid(),type:"out",amount:Number(ch.amount)||0,
                 desc:"صرف شيك لـ "+(ch.party||"")+det,
-                category:chkCat,account:ch.bank||"MAIN CASH",season:d.activeSeason||"",
+                category:chkCat,account:targetAccount,season:d.activeSeason||"",
                 date:dt,day:dayName(dt),
                 custId:ch.type==="receivable"?ch.partyId||null:null,
                 supplierId:ch.type==="payable"?ch.partyId||null:null,
@@ -1922,7 +2310,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           </div>
           {/* Form */}
           {showCheckForm&&(()=>{
-            const checkCats=(data.treasurySettings||{}).checkCategories||["رصيد افتتاحي","دفعة عميل","دفع مورد","تسوية مبالغ","تحويل بين الحسابات","أخرى"];
+            const checkCats=(data.treasurySettings||{}).checkCategories||["رصيد افتتاحي","دفعة عميل","دفعة مورد","تسوية مبالغ","تحويل بين الحسابات","أخرى"];
             const partyList=chkType==="receivable"?customers:suppliers;
             const selectedParty=chkPartyId?partyList.find(p=>p.id===chkPartyId):null;
             return<Card title={chkEditId?"✏️ تعديل شيك":"+ شيك جديد"} style={{marginBottom:16}}>
@@ -1945,7 +2333,20 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 {!chkPartyId&&<Inp value={chkParty} onChange={setChkParty} placeholder="أو اكتب الاسم يدوياً..." style={{marginTop:4}}/>}
                 {selectedParty&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{selectedParty.phone?"📞 "+selectedParty.phone:""}</div>}
               </div>
-              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>البنك</label><Inp value={chkBank} onChange={setChkBank} placeholder="اسم البنك"/></div>
+              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>البنك</label>
+                {banksList.length>0?<>
+                  <Sel value={banksList.includes(chkBank)?chkBank:"_other"} onChange={v=>{if(v==="_other")setChkBank("");else setChkBank(v)}}>
+                    <option value="">— اختر البنك —</option>
+                    {banksList.map(b=><option key={b} value={b}>{b}</option>)}
+                    <option value="_other">✏️ بنك آخر (يدوياً)</option>
+                  </Sel>
+                  {!banksList.includes(chkBank)&&chkBank!==""&&<Inp value={chkBank} onChange={setChkBank} placeholder="اسم البنك" style={{marginTop:4}}/>}
+                  {chkBank===""&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:3}}>💡 أضف البنوك من تاب 🏦 الحسابات → قائمة البنوك</div>}
+                </>:<>
+                  <Inp value={chkBank} onChange={setChkBank} placeholder="اسم البنك"/>
+                  <div style={{fontSize:FS-3,color:T.textMut,marginTop:3}}>💡 سجل البنوك من تاب 🏦 الحسابات → قائمة البنوك ليتم اقتراحها تلقائياً</div>
+                </>}
+              </div>
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رقم الشيك</label><Inp value={chkNumber} onChange={setChkNumber} placeholder="رقم"/></div>
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تاريخ التحرير</label><Inp type="date" value={chkDate} onChange={setChkDate}/></div>
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تاريخ الاستحقاق</label><Inp type="date" value={chkDueDate} onChange={setChkDueDate}/></div>
@@ -2014,13 +2415,20 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                   printCheckReceipt(c,partyInfo,{factoryName:data.factoryName,logo:data.logo,address:data.address,phone:data.phone});
                 }} style={{cursor:"pointer",fontSize:11,marginInlineEnd:6}} title={c.type==="receivable"?"طباعة إذن استلام شيك":"طباعة إذن تسليم شيك"}>🧾</span>
                 {canEdit&&c.status==="معلق"&&<div style={{display:"inline-flex",gap:3,flexWrap:"wrap"}}>
-                  <span onClick={()=>updateStatus(c.id,c.type==="receivable"?"محصل":"مدفوع")} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:T.ok+"12",color:T.ok,fontWeight:700}}>{c.type==="receivable"?"✅ تحصيل":"✅ دفع"}</span>
-                  {c.type==="receivable"&&<span onClick={()=>{setEndorsePopup(c.id);setEndorseSearch("");setEndorseDate(today)}} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:"#8B5CF612",color:"#8B5CF6",fontWeight:700}}>📤 تظهير</span>}
+                  {/* V18.0: Collect/pay opens account picker popup (asks where money goes/comes from) */}
+                  <span onClick={()=>{
+                    if(c.type==="receivable"){
+                      setCollectAccountPopup({checkId:c.id,ch:c});
+                    }else{
+                      setPayAccountPopup({checkId:c.id,ch:c});
+                    }
+                  }} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:T.ok+"12",color:T.ok,fontWeight:700}}>{c.type==="receivable"?"✅ تحصيل":"✅ دفع"}</span>
+                  {c.type==="receivable"&&<span onClick={()=>openConfirm({title:"تظهير الشيك",message:"سيتم نقل ملكية الشيك للمورد المختار. لن يتم تسجيل أي حركة خزنة.\nالعميل: "+c.party+"\nالمبلغ: "+fmt(c.amount)+" ج.م",confirmText:"اختر المورد",onConfirm:()=>{setEndorsePopup(c.id);setEndorseSearch("");setEndorseDate(today)}})} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:"#8B5CF612",color:"#8B5CF6",fontWeight:700}}>📤 تظهير</span>}
                   {/* V16.34: مرتد for receivables (bounced from bank — customer still owes us);
                        مرتجع stays for payable cancellations */}
                   {c.type==="receivable"
                     ?<span onClick={()=>openConfirm({title:"شيك مرتد",message:"سيتم تسجيل الشيك كمرتد ورجوع المبلغ على العميل.\nالعميل: "+c.party+"\nالمبلغ: "+fmt(c.amount)+" ج.م",variant:"danger",confirmText:"تأكيد الارتداد",onConfirm:()=>updateStatus(c.id,"مرتد")})} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:"#DC262612",color:"#DC2626",fontWeight:700}} title="شيك مرتد من البنك">❌ مرتد</span>
-                    :<span onClick={()=>updateStatus(c.id,"مرتجع")} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:T.warn+"12",color:T.warn,fontWeight:700}}>↩ مرتجع</span>}
+                    :<span onClick={()=>openConfirm({title:"إلغاء الشيك",message:"سيتم إلغاء الشيك (مرتجع للمورد).\nالمورد: "+c.party+"\nالمبلغ: "+fmt(c.amount)+" ج.م",variant:"warn",confirmText:"تأكيد الإلغاء",onConfirm:()=>updateStatus(c.id,"مرتجع")})} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:T.warn+"12",color:T.warn,fontWeight:700}}>↩ مرتجع</span>}
                   <span onClick={()=>editCheck(c)} style={{cursor:"pointer",fontSize:11}}>✏️</span>
                   <span onClick={()=>openConfirm({title:"حذف الشيك",message:"سيتم حذف الشيك:\n"+c.party+" — "+fmt(c.amount)+" ج.م",variant:"danger",onConfirm:()=>delCheck(c.id)})} style={{cursor:"pointer",fontSize:11,color:T.err}}>✕</span>
                 </div>}
@@ -2039,6 +2447,94 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               </tr>})}
             </tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد شيكات</div>}
           </Card>
+          {/* V18.0: Collect account picker — opens after user clicks "✅ تحصيل" on a receivable check */}
+          {collectAccountPopup&&(()=>{const ch=collectAccountPopup.ch;
+            return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setCollectAccountPopup(null)}>
+              <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:480,maxHeight:"85vh",overflowY:"auto",border:"2px solid "+T.ok+"40",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                  <div style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>✅ تحصيل شيك</div>
+                  <Btn ghost small onClick={()=>setCollectAccountPopup(null)}>✕</Btn>
+                </div>
+                <div style={{padding:12,borderRadius:10,background:T.ok+"08",border:"1px solid "+T.ok+"25",marginBottom:14}}>
+                  <div style={{fontSize:FS-1,color:T.textSec}}>شيك من: <b style={{color:T.text}}>{ch.party}</b></div>
+                  <div style={{fontSize:FS+2,fontWeight:800,color:T.ok,marginTop:4}}>{fmt0(ch.amount)} ج.م</div>
+                  {ch.checkNo&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{"رقم: #"+ch.checkNo+(ch.bank?" — "+ch.bank:"")+(ch.dueDate?" | استحقاق: "+ch.dueDate:"")}</div>}
+                </div>
+                <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>اختر الخزنة/البنك المُودَع فيه:</div>
+                {accountsData.length>0&&<div style={{marginBottom:12}}>
+                  <div style={{fontSize:FS-2,fontWeight:700,color:T.textMut,marginBottom:6}}>💰 الخزائن</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    {accountsData.map(a=><div key={a.id} onClick={()=>{
+                      const accName=a.name;const checkId=collectAccountPopup.checkId;
+                      setCollectAccountPopup(null);
+                      openConfirm({title:"تأكيد التحصيل",message:"سيتم تحصيل "+fmt(ch.amount)+" ج.م وإيداعها في: "+accName+"\nالشيك: "+ch.party+(ch.checkNo?" #"+ch.checkNo:""),variant:"primary",confirmText:"✅ تأكيد التحصيل",onConfirm:()=>updateStatus(checkId,"محصل",null,accName)});
+                    }} style={{padding:"10px 14px",borderRadius:10,border:"1px solid "+T.brd,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.ok+"08"} onMouseLeave={e=>e.currentTarget.style.background=""}>
+                      <div style={{fontSize:FS,fontWeight:700,color:T.text}}>💰 {a.name}</div>
+                      <span style={{fontSize:FS-2,color:T.textMut}}>›</span>
+                    </div>)}
+                  </div>
+                </div>}
+                {banksList.length>0&&<div style={{marginBottom:12}}>
+                  <div style={{fontSize:FS-2,fontWeight:700,color:T.textMut,marginBottom:6}}>🏦 البنوك</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    {banksList.map(b=><div key={b} onClick={()=>{
+                      const checkId=collectAccountPopup.checkId;
+                      setCollectAccountPopup(null);
+                      openConfirm({title:"تأكيد التحصيل",message:"سيتم تحصيل "+fmt(ch.amount)+" ج.م وإيداعها في: 🏦 "+b+"\nالشيك: "+ch.party+(ch.checkNo?" #"+ch.checkNo:""),variant:"primary",confirmText:"✅ تأكيد التحصيل",onConfirm:()=>updateStatus(checkId,"محصل",null,b)});
+                    }} style={{padding:"10px 14px",borderRadius:10,border:"1px solid "+T.brd,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.ok+"08"} onMouseLeave={e=>e.currentTarget.style.background=""}>
+                      <div style={{fontSize:FS,fontWeight:700,color:T.text}}>🏦 {b}</div>
+                      <span style={{fontSize:FS-2,color:T.textMut}}>›</span>
+                    </div>)}
+                  </div>
+                </div>}
+                {accountsData.length===0&&banksList.length===0&&<div style={{padding:14,borderRadius:10,background:T.warn+"10",color:T.warn,fontSize:FS-1,textAlign:"center"}}>⚠️ لا توجد خزائن أو بنوك مسجلة</div>}
+              </div>
+            </div>;
+          })()}
+          {/* V18.0: Pay account picker — opens after user clicks "✅ دفع" on a payable check */}
+          {payAccountPopup&&(()=>{const ch=payAccountPopup.ch;
+            return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setPayAccountPopup(null)}>
+              <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:480,maxHeight:"85vh",overflowY:"auto",border:"2px solid "+T.err+"40",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                  <div style={{fontSize:FS+1,fontWeight:800,color:T.err}}>✅ صرف شيك</div>
+                  <Btn ghost small onClick={()=>setPayAccountPopup(null)}>✕</Btn>
+                </div>
+                <div style={{padding:12,borderRadius:10,background:T.err+"08",border:"1px solid "+T.err+"25",marginBottom:14}}>
+                  <div style={{fontSize:FS-1,color:T.textSec}}>شيك لـ: <b style={{color:T.text}}>{ch.party}</b></div>
+                  <div style={{fontSize:FS+2,fontWeight:800,color:T.err,marginTop:4}}>{fmt0(ch.amount)} ج.م</div>
+                  {ch.checkNo&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{"رقم: #"+ch.checkNo+(ch.bank?" — "+ch.bank:"")+(ch.dueDate?" | استحقاق: "+ch.dueDate:"")}</div>}
+                </div>
+                <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>اختر الخزنة/البنك المسحوب منه:</div>
+                {accountsData.length>0&&<div style={{marginBottom:12}}>
+                  <div style={{fontSize:FS-2,fontWeight:700,color:T.textMut,marginBottom:6}}>💰 الخزائن</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    {accountsData.map(a=><div key={a.id} onClick={()=>{
+                      const accName=a.name;const checkId=payAccountPopup.checkId;
+                      setPayAccountPopup(null);
+                      openConfirm({title:"تأكيد الصرف",message:"سيتم صرف "+fmt(ch.amount)+" ج.م من: "+accName+"\nالشيك: "+ch.party+(ch.checkNo?" #"+ch.checkNo:""),variant:"warn",confirmText:"✅ تأكيد الصرف",onConfirm:()=>updateStatus(checkId,"مدفوع",null,accName)});
+                    }} style={{padding:"10px 14px",borderRadius:10,border:"1px solid "+T.brd,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.err+"08"} onMouseLeave={e=>e.currentTarget.style.background=""}>
+                      <div style={{fontSize:FS,fontWeight:700,color:T.text}}>💰 {a.name}</div>
+                      <span style={{fontSize:FS-2,color:T.textMut}}>›</span>
+                    </div>)}
+                  </div>
+                </div>}
+                {banksList.length>0&&<div style={{marginBottom:12}}>
+                  <div style={{fontSize:FS-2,fontWeight:700,color:T.textMut,marginBottom:6}}>🏦 البنوك</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    {banksList.map(b=><div key={b} onClick={()=>{
+                      const checkId=payAccountPopup.checkId;
+                      setPayAccountPopup(null);
+                      openConfirm({title:"تأكيد الصرف",message:"سيتم صرف "+fmt(ch.amount)+" ج.م من: 🏦 "+b+"\nالشيك: "+ch.party+(ch.checkNo?" #"+ch.checkNo:""),variant:"warn",confirmText:"✅ تأكيد الصرف",onConfirm:()=>updateStatus(checkId,"مدفوع",null,b)});
+                    }} style={{padding:"10px 14px",borderRadius:10,border:"1px solid "+T.brd,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.err+"08"} onMouseLeave={e=>e.currentTarget.style.background=""}>
+                      <div style={{fontSize:FS,fontWeight:700,color:T.text}}>🏦 {b}</div>
+                      <span style={{fontSize:FS-2,color:T.textMut}}>›</span>
+                    </div>)}
+                  </div>
+                </div>}
+                {accountsData.length===0&&banksList.length===0&&<div style={{padding:14,borderRadius:10,background:T.warn+"10",color:T.warn,fontSize:FS-1,textAlign:"center"}}>⚠️ لا توجد خزائن أو بنوك مسجلة</div>}
+              </div>
+            </div>;
+          })()}
           {/* ── Endorse popup — select supplier ── */}
           {endorsePopup&&(()=>{const ch=checks.find(c=>c.id===endorsePopup);if(!ch)return null;
             const q=endorseSearch.toLowerCase();
@@ -2072,7 +2568,363 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>{suppliers.length===0?"لا يوجد موردين — أضف موردين من قاعدة البيانات":"لا توجد نتائج"}</div>}
               </div>
             </div>})()}
+
+          {/* V18.0: Collect Account Picker — asks user where to deposit the collected money */}
+          {collectAccountPopup&&(()=>{const ch=collectAccountPopup.ch;
+            return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setCollectAccountPopup(null)}>
+              <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"2px solid "+T.ok,boxShadow:"0 25px 80px rgba(0,0,0,0.4)"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"1px solid "+T.brd}}>
+                  <div style={{fontSize:FS+2,fontWeight:800,color:T.ok}}>✅ تحصيل الشيك — اختر الحساب</div>
+                  <Btn ghost small onClick={()=>setCollectAccountPopup(null)}>✕</Btn>
+                </div>
+                <div style={{padding:"10px 14px",background:T.ok+"08",borderRadius:10,marginBottom:14,fontSize:FS-1,lineHeight:1.7}}>
+                  <div><b>العميل:</b> {ch.party}</div>
+                  <div><b>المبلغ:</b> <span style={{color:T.ok,fontWeight:800,fontSize:FS+2}}>{fmt(ch.amount)} ج.م</span></div>
+                  {ch.bank&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:4}}>📋 شيك على {ch.bank} {ch.checkNo?"#"+ch.checkNo:""}</div>}
+                </div>
+                <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:8}}>أين سيتم إيداع المبلغ؟</div>
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {accountsData.map(acc=><div key={acc.id} onClick={()=>{
+                    const accountName=acc.name;setCollectAccountPopup(null);
+                    openConfirm({title:"تأكيد التحصيل",message:"سيتم تحصيل الشيك وإضافة المبلغ لحساب: "+accountName+"\n\nالمبلغ: "+fmt(ch.amount)+" ج.م\nالعميل: "+ch.party,variant:"success",confirmText:"✅ تأكيد التحصيل",onConfirm:()=>updateStatus(ch.id,"محصل",null,accountName)});
+                  }} style={{padding:"12px 16px",borderRadius:10,border:"1px solid "+T.brd,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.ok+"08"} onMouseLeave={e=>e.currentTarget.style.background=""}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <span style={{fontSize:22}}>{acc.name.toUpperCase().includes("SUB")?"🏪":acc.name.toUpperCase().includes("MAIN")?"💰":"🏦"}</span>
+                      <div>
+                        <div style={{fontSize:FS,fontWeight:700}}>{acc.name}</div>
+                        {acc.ownerEmail&&<div style={{fontSize:FS-3,color:T.textMut}}>{acc.ownerEmail}</div>}
+                      </div>
+                    </div>
+                    <span style={{fontSize:FS-1,color:T.ok,fontWeight:700}}>← إيداع هنا</span>
+                  </div>)}
+                </div>
+                {accountsData.length===0&&<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد حسابات — أضف حسابات من تاب 🏦 الحسابات</div>}
+              </div>
+            </div>;
+          })()}
+
+          {/* V18.0: Pay Account Picker — asks user from which account to pay */}
+          {payAccountPopup&&(()=>{const ch=payAccountPopup.ch;
+            return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setPayAccountPopup(null)}>
+              <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"2px solid "+T.ok,boxShadow:"0 25px 80px rgba(0,0,0,0.4)"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"1px solid "+T.brd}}>
+                  <div style={{fontSize:FS+2,fontWeight:800,color:T.err}}>✅ صرف الشيك — اختر الحساب</div>
+                  <Btn ghost small onClick={()=>setPayAccountPopup(null)}>✕</Btn>
+                </div>
+                <div style={{padding:"10px 14px",background:T.err+"08",borderRadius:10,marginBottom:14,fontSize:FS-1,lineHeight:1.7}}>
+                  <div><b>المورد:</b> {ch.party}</div>
+                  <div><b>المبلغ:</b> <span style={{color:T.err,fontWeight:800,fontSize:FS+2}}>{fmt(ch.amount)} ج.م</span></div>
+                  {ch.bank&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:4}}>📋 شيك على {ch.bank} {ch.checkNo?"#"+ch.checkNo:""}</div>}
+                </div>
+                <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:8}}>من أي حساب سيتم خصم المبلغ؟</div>
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {accountsData.map(acc=>{const b=accBalances[acc.name]||{in:0,out:0};const bal=b.in-b.out;
+                    return<div key={acc.id} onClick={()=>{
+                      const accountName=acc.name;setPayAccountPopup(null);
+                      openConfirm({title:"تأكيد الدفع",message:"سيتم صرف الشيك من حساب: "+accountName+"\n\nالمبلغ: "+fmt(ch.amount)+" ج.م\nالمورد: "+ch.party+"\nالرصيد الحالي للحساب: "+fmt0(bal)+" ج.م",variant:"warn",confirmText:"✅ تأكيد الدفع",onConfirm:()=>updateStatus(ch.id,"مدفوع",null,accountName)});
+                    }} style={{padding:"12px 16px",borderRadius:10,border:"1px solid "+T.brd,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.err+"08"} onMouseLeave={e=>e.currentTarget.style.background=""}>
+                      <div style={{display:"flex",alignItems:"center",gap:10}}>
+                        <span style={{fontSize:22}}>{acc.name.toUpperCase().includes("SUB")?"🏪":acc.name.toUpperCase().includes("MAIN")?"💰":"🏦"}</span>
+                        <div>
+                          <div style={{fontSize:FS,fontWeight:700}}>{acc.name}</div>
+                          <div style={{fontSize:FS-3,color:bal>=0?T.ok:T.err,fontWeight:600}}>الرصيد: {fmt0(bal)} ج.م</div>
+                        </div>
+                      </div>
+                      <span style={{fontSize:FS-1,color:T.err,fontWeight:700}}>← خصم من هنا</span>
+                    </div>;
+                  })}
+                </div>
+                {accountsData.length===0&&<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد حسابات — أضف حسابات من تاب 🏦 الحسابات</div>}
+              </div>
+            </div>;
+          })()}
         </div>})()}
+    </div>}
+
+    {/* ══ V18.56: RECURRING TRANSACTIONS VIEW ══ */}
+    {view==="recurring"&&(()=>{
+      const recurringList = data.recurringTreasury || [];
+      const pending = calculatePending(recurringList, today);
+      const totalPending = pending.reduce((s,p)=>s+p.dueDates.length, 0);
+      const allCategories = [...resolvedInCats, ...resolvedOutCats].filter((v,i,a)=>a.indexOf(v)===i);
+
+      const openCreate = () => {
+        setEditRecurringId(null);
+        setRecForm({name:"",type:"out",amount:"",category:"",account:"MAIN CASH",description:"",notes:"",pattern:"monthly",dayOfMonth:1,dayOfWeek:0,startDate:today,endDate:"",active:true});
+        setShowRecurringModal(true);
+      };
+      const openEdit = (r) => {
+        setEditRecurringId(r.id);
+        setRecForm({
+          name:r.name||"", type:r.type||"out", amount:String(r.amount||""),
+          category:r.category||"", account:r.account||"MAIN CASH",
+          description:r.description||"", notes:r.notes||"",
+          pattern:r.pattern||"monthly", dayOfMonth:r.dayOfMonth||1, dayOfWeek:r.dayOfWeek||0,
+          startDate:r.startDate||today, endDate:r.endDate||"", active:r.active!==false,
+        });
+        setShowRecurringModal(true);
+      };
+      const toggleActive = (r) => {
+        upConfig(d=>{
+          if(!Array.isArray(d.recurringTreasury))return;
+          const idx = d.recurringTreasury.findIndex(x=>x.id===r.id);
+          if(idx>=0) d.recurringTreasury[idx].active = !d.recurringTreasury[idx].active;
+        });
+        showToast(r.active?"⏸ تم إيقاف الجدولة":"▶ تم تفعيل الجدولة");
+      };
+      const deleteRule = async (r) => {
+        if(!await ask("حذف الجدولة","حذف الجدولة \""+r.name+"\"؟\n\nالحركات المُنشأة من قبلها لن تتأثر.",{danger:true,confirmText:"حذف"}))return;
+        upConfig(d=>{
+          if(!Array.isArray(d.recurringTreasury))return;
+          d.recurringTreasury = d.recurringTreasury.filter(x=>x.id!==r.id);
+        });
+        showToast("✓ تم الحذف");
+      };
+      const runPending = async () => {
+        if(totalPending===0){showToast("لا توجد حركات معلقة");return;}
+        if(!await ask("تنفيذ المستحقات","هل تريد إنشاء "+totalPending+" حركة معلقة؟",{confirmText:"تنفيذ"}))return;
+        let createdCount = 0;
+        const txsForAutoPost = [];
+        upConfig(d=>{
+          if(!Array.isArray(d.treasury)) d.treasury = [];
+          if(!Array.isArray(d.recurringTreasury)) d.recurringTreasury = [];
+          pending.forEach(({rule, dueDates})=>{
+            dueDates.forEach(due=>{
+              const tx = buildTxFromRule(rule, due, userName);
+              d.treasury.unshift(tx);
+              txsForAutoPost.push(tx);
+              createdCount++;
+            });
+            /* Update lastGeneratedDate to the latest due date */
+            const idx = d.recurringTreasury.findIndex(r=>r.id===rule.id);
+            if(idx>=0){
+              const latest = dueDates[dueDates.length-1];
+              d.recurringTreasury[idx].lastGeneratedDate = latest;
+              if(!Array.isArray(d.recurringTreasury[idx].generatedTxIds))
+                d.recurringTreasury[idx].generatedTxIds = [];
+              dueDates.forEach((_,i)=>{
+                d.recurringTreasury[idx].generatedTxIds.push(txsForAutoPost[txsForAutoPost.length-dueDates.length+i].id);
+              });
+            }
+          });
+        });
+        /* Fire autoPost for each created tx */
+        txsForAutoPost.forEach(tx=>{
+          autoPost.treasury(data, tx, userName).catch(e=>console.warn("[recurring autoPost]", e));
+        });
+        playBeep("done");
+        showToast("✓ تم إنشاء "+createdCount+" حركة من الجدولة");
+      };
+
+      return <div>
+        <Card title="🔁 الحركات المتكررة (الجدولة الذكية)">
+          <div style={{padding:12, borderBottom:"1px solid "+T.brd, background:T.bg}}>
+            <div style={{fontSize:FS-2, color:T.textSec, lineHeight:1.6}}>
+              💡 جدولة الحركات الدورية اللي بتتكرر يومياً/أسبوعياً/شهرياً (إيجار، مرتبات، اشتراكات).
+              النظام بيكتشف الحركات المعلقة ويعرضها هنا — اضغط "تنفيذ المستحقات" لإنشاء كل الحركات بضغطة واحدة.
+            </div>
+          </div>
+          {/* Pending banner */}
+          {totalPending>0 && <div style={{padding:14, background:T.warn+"08", borderBottom:"1px solid "+T.warn+"30", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:8}}>
+            <div>
+              <div style={{fontSize:FS, fontWeight:800, color:T.warn}}>⏰ {totalPending} حركة معلقة جاهزة للتنفيذ</div>
+              <div style={{fontSize:FS-2, color:T.textSec, marginTop:4}}>من {pending.length} جدولة نشطة</div>
+            </div>
+            {canEdit && <Btn primary onClick={runPending} style={{background:T.warn, color:"#fff", border:"none", fontWeight:800}}>▶ تنفيذ المستحقات الآن</Btn>}
+          </div>}
+
+          {/* Pending detail */}
+          {totalPending>0 && <div style={{padding:12, borderBottom:"1px solid "+T.brd}}>
+            <div style={{fontSize:FS-1, fontWeight:700, color:T.textSec, marginBottom:8}}>تفاصيل المستحقات:</div>
+            <div style={{display:"flex", flexDirection:"column", gap:6}}>
+              {pending.map(({rule, dueDates})=>
+                <div key={rule.id} style={{padding:"8px 12px", background:T.bg, borderRadius:8, fontSize:FS-1, display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, flexWrap:"wrap"}}>
+                  <div>
+                    <span style={{fontWeight:700, color:T.text}}>{rule.name}</span>
+                    <span style={{color:T.textMut, marginInlineStart:8}}>({rule.type==="in"?"وارد":"منصرف"} {fmt0(rule.amount)})</span>
+                  </div>
+                  <div style={{fontSize:FS-2, color:T.warn, fontWeight:600}}>
+                    {dueDates.length} مستحق: {dueDates.slice(0,3).join("، ")}{dueDates.length>3?"...":""}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>}
+
+          {/* Header + add button */}
+          <div style={{padding:12, display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:8}}>
+            <div style={{fontSize:FS, fontWeight:700, color:T.text}}>الجدولة المُعرَّفة ({recurringList.length})</div>
+            {canEdit && <Btn primary onClick={openCreate}>+ جدولة جديدة</Btn>}
+          </div>
+
+          {/* Rules list */}
+          {recurringList.length === 0
+            ? <div style={{padding:30, textAlign:"center", color:T.textMut, fontSize:FS-1}}>
+                💡 ما عندكش جدولة لسه. اضغط "جدولة جديدة" لإضافة أول حركة دورية.
+              </div>
+            : <div style={{padding:"0 12px 12px"}}>
+                <table style={{width:"100%", borderCollapse:"collapse", fontSize:FS-1}}>
+                  <thead>
+                    <tr style={{background:T.bg, borderBottom:"2px solid "+T.brd}}>
+                      <th style={{padding:"8px 10px", textAlign:"right", color:T.textSec, fontWeight:700, fontSize:FS-2}}>الاسم</th>
+                      <th style={{padding:"8px 10px", textAlign:"center", color:T.textSec, fontWeight:700, fontSize:FS-2}}>النوع</th>
+                      <th style={{padding:"8px 10px", textAlign:"center", color:T.textSec, fontWeight:700, fontSize:FS-2}}>المبلغ</th>
+                      <th style={{padding:"8px 10px", textAlign:"center", color:T.textSec, fontWeight:700, fontSize:FS-2}}>التكرار</th>
+                      <th style={{padding:"8px 10px", textAlign:"center", color:T.textSec, fontWeight:700, fontSize:FS-2}}>التالي</th>
+                      <th style={{padding:"8px 10px", textAlign:"center", color:T.textSec, fontWeight:700, fontSize:FS-2}}>آخر تنفيذ</th>
+                      <th style={{padding:"8px 10px", textAlign:"center", color:T.textSec, fontWeight:700, fontSize:FS-2}}>الحالة</th>
+                      <th style={{padding:"8px 10px", textAlign:"center", color:T.textSec, fontWeight:700, fontSize:FS-2}}>—</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recurringList.map(r=>{
+                      const next = getNextDueDate(r, today);
+                      return <tr key={r.id} style={{borderBottom:"1px solid "+T.brd, opacity:r.active===false?0.5:1}}>
+                        <td style={{padding:"8px 10px"}}>
+                          <div style={{fontWeight:700, color:T.text}}>{r.name}</div>
+                          {r.category && <div style={{fontSize:FS-3, color:T.textMut}}>{r.category}</div>}
+                        </td>
+                        <td style={{padding:"8px 10px", textAlign:"center"}}>
+                          <span style={{padding:"3px 8px", borderRadius:6, fontSize:FS-2, fontWeight:700, background:r.type==="in"?T.ok+"15":T.err+"15", color:r.type==="in"?T.ok:T.err}}>
+                            {r.type==="in"?"↓ وارد":"↑ منصرف"}
+                          </span>
+                        </td>
+                        <td style={{padding:"8px 10px", textAlign:"center", direction:"ltr", fontWeight:700}}>{fmt0(r.amount)}</td>
+                        <td style={{padding:"8px 10px", textAlign:"center", fontSize:FS-2, color:T.textSec}}>{describeRecurrence(r)}</td>
+                        <td style={{padding:"8px 10px", textAlign:"center", fontFamily:"monospace", fontSize:FS-2, color:next?T.accent:T.textMut}}>{next||"—"}</td>
+                        <td style={{padding:"8px 10px", textAlign:"center", fontFamily:"monospace", fontSize:FS-2, color:T.textMut}}>{r.lastGeneratedDate||"لم يُنفّذ"}</td>
+                        <td style={{padding:"8px 10px", textAlign:"center"}}>
+                          <span style={{padding:"3px 8px", borderRadius:6, fontSize:FS-2, fontWeight:700, background:r.active===false?T.textMut+"15":T.ok+"15", color:r.active===false?T.textMut:T.ok}}>
+                            {r.active===false?"موقوف":"نشط"}
+                          </span>
+                        </td>
+                        <td style={{padding:"8px 10px", textAlign:"center"}}>
+                          {canEdit && <div style={{display:"flex", gap:4, justifyContent:"center"}}>
+                            <span onClick={()=>toggleActive(r)} style={{cursor:"pointer", padding:"3px 8px", borderRadius:6, fontSize:FS-2, background:T.bg, color:T.textSec, border:"1px solid "+T.brd}} title={r.active===false?"تفعيل":"إيقاف"}>{r.active===false?"▶":"⏸"}</span>
+                            <span onClick={()=>openEdit(r)} style={{cursor:"pointer", padding:"3px 8px", borderRadius:6, fontSize:FS-2, background:T.bg, color:T.textSec, border:"1px solid "+T.brd}}>✏️</span>
+                            <span onClick={()=>deleteRule(r)} style={{cursor:"pointer", padding:"3px 8px", borderRadius:6, fontSize:FS-2, background:T.err+"12", color:T.err, border:"1px solid "+T.err+"30"}}>🗑️</span>
+                          </div>}
+                        </td>
+                      </tr>;
+                    })}
+                  </tbody>
+                </table>
+              </div>}
+        </Card>
+      </div>;
+    })()}
+
+    {/* ══ V18.56: Recurring Rule Modal ══ */}
+    {showRecurringModal && <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:99999, display:"flex", alignItems:"center", justifyContent:"center", padding:16, backdropFilter:"blur(4px)"}} onClick={()=>{setShowRecurringModal(false);setEditRecurringId(null)}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid, borderRadius:20, padding:24, width:"100%", maxWidth:600, maxHeight:"90vh", overflowY:"auto", border:"1px solid "+T.brd, boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16}}>
+          <div style={{fontSize:FS+2, fontWeight:800, color:T.accent}}>{editRecurringId?"✏️ تعديل جدولة":"🔁 جدولة جديدة"}</div>
+          <Btn ghost small onClick={()=>{setShowRecurringModal(false);setEditRecurringId(null)}}>✕</Btn>
+        </div>
+        <div style={{display:"grid", gridTemplateColumns:isMob?"1fr":"1fr 1fr", gap:12}}>
+          <div style={{gridColumn:isMob?"1":"1 / -1"}}>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>اسم الجدولة *</label>
+            <Inp value={recForm.name} onChange={v=>setRecForm({...recForm, name:v})} placeholder="مثال: إيجار المصنع، مرتب أحمد..."/>
+          </div>
+          <div style={{gridColumn:isMob?"1":"1 / -1"}}>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600}}>النوع</label>
+            <div style={{display:"flex", gap:6, marginTop:4}}>
+              <div onClick={()=>setRecForm({...recForm, type:"in"})} style={{flex:1, padding:"10px", borderRadius:10, textAlign:"center", cursor:"pointer", fontWeight:700, background:recForm.type==="in"?T.ok+"15":"transparent", border:"2px solid "+(recForm.type==="in"?T.ok:T.brd), color:recForm.type==="in"?T.ok:T.textSec}}>↓ وارد</div>
+              <div onClick={()=>setRecForm({...recForm, type:"out"})} style={{flex:1, padding:"10px", borderRadius:10, textAlign:"center", cursor:"pointer", fontWeight:700, background:recForm.type==="out"?T.err+"15":"transparent", border:"2px solid "+(recForm.type==="out"?T.err:T.brd), color:recForm.type==="out"?T.err:T.textSec}}>↑ منصرف</div>
+            </div>
+          </div>
+          <div>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>المبلغ *</label>
+            <Inp type="number" value={recForm.amount} onChange={v=>setRecForm({...recForm, amount:v})} placeholder="0.00"/>
+          </div>
+          <div>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>الحساب</label>
+            <Sel value={recForm.account} onChange={v=>setRecForm({...recForm, account:v})}>
+              {accounts.map(a=><option key={a} value={a}>{a}</option>)}
+            </Sel>
+          </div>
+          <div style={{gridColumn:isMob?"1":"1 / -1"}}>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>الفئة</label>
+            <SearchSel
+              value={recForm.category}
+              onChange={v=>setRecForm({...recForm, category:v})}
+              options={(recForm.type==="in"?resolvedInCats:resolvedOutCats).map(c=>({value:c, label:c}))}
+              maxResults={30} showAllOnFocus={true} placeholder="اكتب أو اختر..."/>
+          </div>
+          <div style={{gridColumn:isMob?"1":"1 / -1"}}>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>البيان</label>
+            <Inp value={recForm.description} onChange={v=>setRecForm({...recForm, description:v})} placeholder="وصف الحركة (اختياري)"/>
+          </div>
+          {/* Pattern selector */}
+          <div style={{gridColumn:isMob?"1":"1 / -1"}}>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600}}>نمط التكرار</label>
+            <div style={{display:"flex", gap:6, marginTop:4}}>
+              {[{k:"daily",l:"يومياً"},{k:"weekly",l:"أسبوعياً"},{k:"monthly",l:"شهرياً"}].map(p=>
+                <div key={p.k} onClick={()=>setRecForm({...recForm, pattern:p.k})} style={{flex:1, padding:"8px", borderRadius:8, textAlign:"center", cursor:"pointer", fontWeight:700, fontSize:FS-1, background:recForm.pattern===p.k?T.accent+"15":"transparent", border:"2px solid "+(recForm.pattern===p.k?T.accent:T.brd), color:recForm.pattern===p.k?T.accent:T.textSec}}>{p.l}</div>
+              )}
+            </div>
+          </div>
+          {recForm.pattern==="weekly" && <div style={{gridColumn:isMob?"1":"1 / -1"}}>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>يوم الأسبوع</label>
+            <Sel value={recForm.dayOfWeek} onChange={v=>setRecForm({...recForm, dayOfWeek:Number(v)})}>
+              <option value={0}>الأحد</option>
+              <option value={1}>الإثنين</option>
+              <option value={2}>الثلاثاء</option>
+              <option value={3}>الأربعاء</option>
+              <option value={4}>الخميس</option>
+              <option value={5}>الجمعة</option>
+              <option value={6}>السبت</option>
+            </Sel>
+          </div>}
+          {recForm.pattern==="monthly" && <div style={{gridColumn:isMob?"1":"1 / -1"}}>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>يوم من الشهر (1-28)</label>
+            <Inp type="number" value={recForm.dayOfMonth} onChange={v=>{const n=Math.min(Math.max(Number(v)||1,1),28);setRecForm({...recForm, dayOfMonth:n})}}/>
+          </div>}
+          <div>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>تاريخ البدء *</label>
+            <Inp type="date" value={recForm.startDate} onChange={v=>setRecForm({...recForm, startDate:v})}/>
+          </div>
+          <div>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>تاريخ الانتهاء (اختياري)</label>
+            <Inp type="date" value={recForm.endDate} onChange={v=>setRecForm({...recForm, endDate:v})}/>
+          </div>
+        </div>
+        <div style={{marginTop:16, display:"flex", gap:8, justifyContent:"flex-end"}}>
+          <Btn ghost onClick={()=>{setShowRecurringModal(false);setEditRecurringId(null)}}>إلغاء</Btn>
+          <Btn primary onClick={()=>{
+            if(!recForm.name.trim()){tell("بيانات ناقصة","اسم الجدولة مطلوب",{danger:true});return;}
+            if(!Number(recForm.amount)){tell("بيانات ناقصة","المبلغ مطلوب",{danger:true});return;}
+            if(!recForm.startDate){tell("بيانات ناقصة","تاريخ البدء مطلوب",{danger:true});return;}
+            const ruleData = {
+              name:recForm.name.trim(), type:recForm.type, amount:Number(recForm.amount),
+              category:recForm.category, account:recForm.account,
+              description:recForm.description, notes:recForm.notes,
+              pattern:recForm.pattern,
+              dayOfMonth:recForm.pattern==="monthly"?Number(recForm.dayOfMonth):undefined,
+              dayOfWeek: recForm.pattern==="weekly"?Number(recForm.dayOfWeek):undefined,
+              startDate:recForm.startDate, endDate:recForm.endDate||null,
+              active:recForm.active,
+            };
+            upConfig(d=>{
+              if(!Array.isArray(d.recurringTreasury)) d.recurringTreasury = [];
+              if(editRecurringId){
+                const idx = d.recurringTreasury.findIndex(r=>r.id===editRecurringId);
+                if(idx>=0) d.recurringTreasury[idx] = {...d.recurringTreasury[idx], ...ruleData};
+              } else {
+                d.recurringTreasury.push({
+                  id:gid(), ...ruleData,
+                  generatedTxIds:[],
+                  createdAt:new Date().toISOString(),
+                  createdBy:userName,
+                });
+              }
+            });
+            showToast(editRecurringId?"✓ تم التعديل":"✓ تم إنشاء الجدولة");
+            setShowRecurringModal(false);
+            setEditRecurringId(null);
+          }}>{editRecurringId?"💾 حفظ التعديل":"💾 حفظ الجدولة"}</Btn>
+        </div>
+      </div>
     </div>}
 
     {/* ══ ANALYSIS VIEW ══ */}
@@ -2152,6 +3004,42 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               <Btn primary onClick={addAccount} disabled={!newAccName.trim()}>{editAccId?"💾 حفظ":"+ إضافة"}</Btn>
               {editAccId&&<Btn ghost onClick={()=>{setEditAccId(null);setNewAccName("");setNewAccOwner("")}}>✕</Btn>}
             </div>
+          </div>
+        </div>}
+      </Card>
+
+      {/* V18.0: Banks list — used in checks form bank dropdown */}
+      <Card title="🏦 قائمة البنوك" style={{marginTop:16}}>
+        <div style={{fontSize:FS-2,color:T.textMut,marginBottom:12,padding:"8px 12px",background:T.accent+"08",borderRadius:8,border:"1px solid "+T.accent+"20"}}>
+          ℹ️ البنوك المُسجَّلة هنا تظهر كـقائمة منسدلة في حقل "البنك" عند تسجيل أو تعديل أي شيك (في تاب 📝 الشيكات).
+        </div>
+        {banksList.length>0?<div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:12}}>
+          {banksList.map((b,i)=>{
+            const checkCount=(data.checks||[]).filter(c=>(c.bank||"")===b).length;
+            return<div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",borderRadius:8,background:T.cardSolid,border:"1px solid "+T.brd}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,flex:1}}>
+                <span style={{fontSize:18}}>🏦</span>
+                <div>
+                  <div style={{fontSize:FS,fontWeight:700}}>{b}</div>
+                  {checkCount>0&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{checkCount+" شيك مرتبط"}</div>}
+                </div>
+              </div>
+              {canEdit&&<div style={{display:"flex",gap:4}}>
+                <span onClick={()=>editBank(i)} style={{cursor:"pointer",padding:"3px 6px",borderRadius:6,fontSize:11,background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>✏️</span>
+                <span onClick={()=>{
+                  if(checkCount>0){playBeep("error");showToast("⛔ لا يمكن الحذف — يوجد "+checkCount+" شيك مرتبط");return}
+                  openConfirm({title:"حذف البنك",message:"سيتم حذف البنك: "+b,variant:"danger",onConfirm:()=>delBank(i)});
+                }} style={{cursor:"pointer",padding:"3px 6px",borderRadius:6,fontSize:11,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>🗑️</span>
+              </div>}
+            </div>;
+          })}
+        </div>:<div style={{textAlign:"center",padding:20,color:T.textMut,fontSize:FS-1}}>لا توجد بنوك مسجلة بعد</div>}
+        {canEdit&&<div style={{padding:12,borderRadius:12,background:T.bg,border:"1px dashed "+T.brd}}>
+          <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:8}}>{editBankIdx!=null?"✏️ تعديل البنك":"+ إضافة بنك جديد"}</div>
+          <div style={{display:"flex",gap:8,alignItems:"flex-end",flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:200}}><Inp value={newBankName} onChange={setNewBankName} placeholder="مثال: CIB / NBE / QNB"/></div>
+            <Btn primary onClick={addBank} disabled={!newBankName.trim()}>{editBankIdx!=null?"💾 حفظ":"+ إضافة"}</Btn>
+            {editBankIdx!=null&&<Btn ghost onClick={()=>{setEditBankIdx(null);setNewBankName("")}}>✕</Btn>}
           </div>
         </div>}
       </Card>

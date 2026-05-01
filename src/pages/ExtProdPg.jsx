@@ -8,20 +8,24 @@
 import { useEffect, useMemo, useState } from "react";
 import { doc, setDoc } from "firebase/firestore";
 import { Btn, Card, DelBtn, Inp, SearchSel, Sel, useDebounced } from "../components/ui.jsx";
+import { ReviewRequestModal } from "../components/ReviewRequestModal.jsx";
 import { FKEYS, FS } from "../constants/index.js";
 import { CLARK_LOGO } from "../constants/logo.js";
 import { db } from "../firebase";
 import { T, TD, TDB, TH } from "../theme.js";
 import { fmt, gIcon, gf, gid, r2, dayName, openWA } from "../utils/format.js";
 import { calcOrder, recomputeStatus, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
+import { buildWorkshopSummary, formatWorkshopSummaryWA } from "../utils/accountSummary.js";
 import { ask, showToast, tell } from "../utils/popups.js";
 import { printPage } from "../utils/print.js";
 import { loadQR } from "../utils/qr.js";
 import { exportExcel, printLabel, printReceipt, printReceiveReceipt } from "../utils/print-extras.js";
+import { autoPost } from "../utils/accounting/autoPost.js";
 
 export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,season,user}){
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
   const[mode,setMode]=useState(null);
+  const[reviewWs,setReviewWs]=useState(null);/* V18.91: workshop name for review request modal */
   const[selWs,setSelWs]=useState("");
   const[selOrder,setSelOrder]=useState("");
   const[delQty,setDelQty]=useState(0);
@@ -54,13 +58,25 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
   const[transferMov,setTransferMov]=useState(null);/* {orderId, wdIdx, from, modelNo, qty, garmentType} */
   const[transferToWs,setTransferToWs]=useState("");
   const[transferReason,setTransferReason]=useState("");
-  const workshops=data.workshops||[];
+  /* V18.16: Hide archived workshops from all pickers/dropdowns */
+  const workshops=(data.workshops||[]).filter(w=>!w.archived);
   const isInternal=(name)=>{const w=workshops.find(x=>x.name===name);return w?wsIsInternal(w.type):false};
   const extWorkshops=workshops.filter(w=>!wsIsInternal(w.type));
 
   /* QR scan receive handler */
   useEffect(()=>{const h=()=>{const qr=window.__qrReceive;if(!qr)return;const ord=data.orders.find(o=>o.id===qr.oid);if(!ord)return;const wd=(ord.workshopDeliveries||[])[qr.wdi];if(!wd)return;setMode("receive");setSelWs(wd.wsName);setRcvSearch(ord.modelNo);delete window.__qrReceive};window.addEventListener("qr-receive",h);return()=>window.removeEventListener("qr-receive",h)},[data.orders]);
   useEffect(()=>{const h=()=>{const qr=window.__qrWsAcc;if(!qr)return;setMode("accounts");setAccWsF(qr.ws);delete window.__qrWsAcc};window.addEventListener("qr-wsacc",h);return()=>window.removeEventListener("qr-wsacc",h)},[]);
+  /* V18.91: Listen for notification deep-links — switch to accounts mode + filter on workshop */
+  useEffect(()=>{
+    const handler=(e)=>{
+      const d=e?.detail;
+      if(!d||d.type!=="workshop"||!d.wsName)return;
+      setMode("accounts");
+      setAccWsF(d.wsName);
+    };
+    window.addEventListener("notif-deeplink",handler);
+    return()=>window.removeEventListener("notif-deeplink",handler);
+  },[]);
 
   const startEditMov=(m)=>{setEditMov(m);setEditQty(m.qty);setEditNote(m.notes||"");setEditPrice(m.price||0);setEditDate(m.date||"");
     if(m.type==="receive"){const ord=data.orders.find(o=>o.id===m.orderId);const r=ord?.workshopDeliveries?.[m.wdIdx]?.receives?.[m.rIdx];setEditQuality(r?.quality||"جيد جداً")}else{setEditQuality("")}};
@@ -183,7 +199,11 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
     setSelOrder("");setDelQty(0);setDelType("");setDelNote("");setDelPrice("");setDelDate(new Date().toISOString().split("T")[0]);showToast("✓ تم تسليم "+saveQty+" قطعة لـ "+selWs);
     if(andPrint){const printOrd=JSON.parse(JSON.stringify(ord));const pWs=selWs;const pWsOwner=wsObj?wsObj.owner:"";const pGt=data.garmentTypes;setTimeout(()=>printReceipt(pWs,pWsOwner,printOrd,saveType,saveQty,saveDate,Math.max(0,availAfter),pGt),400)}
     if(andLabel){const printOrd=JSON.parse(JSON.stringify(ord));const pWs=selWs;const pGt=data.garmentTypes;setTimeout(()=>printLabel(pWs,printOrd,saveType,saveQty,saveDate,pGt,{type:"deliver",delDate:saveDate,delQty:saveQty}),400)}
-    if(andWa){const phone=wsObj?.phone||"";const msg="*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+selWs+"*%0A• رقم الموديل: *"+ord.modelNo+"*%0A• الوصف: "+ord.modelDesc+"%0A• نوع القطعة: *"+saveType+"*%0A• الكمية: *"+saveQty+"* قطعة%0A• السعر: *"+savePrice+"* ج.م/قطعة%0A• التاريخ: *"+saveDate+"*"+(Number(delAgreed)>0?"%0A• مدة التسليم: *"+delAgreed+"* يوم%0A• موعد التسليم: *"+new Date(new Date(saveDate).getTime()+Number(delAgreed)*86400000).toISOString().split("T")[0]+"*":"")+"%0A%0A*برجاء التأكيد*";openWA("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
+    if(andWa){const phone=wsObj?.phone||"";let msg="*CLARK — اذن تسليم ورشة*%0A%0A• الورشة: *"+selWs+"*%0A• رقم الموديل: *"+ord.modelNo+"*%0A• الوصف: "+ord.modelDesc+"%0A• نوع القطعة: *"+saveType+"*%0A• الكمية: *"+saveQty+"* قطعة%0A• السعر: *"+savePrice+"* ج.م/قطعة%0A• التاريخ: *"+saveDate+"*"+(Number(delAgreed)>0?"%0A• مدة التسليم: *"+delAgreed+"* يوم%0A• موعد التسليم: *"+new Date(new Date(saveDate).getTime()+Number(delAgreed)*86400000).toISOString().split("T")[0]+"*":"")+"%0A%0A*برجاء التأكيد*";
+      /* V18.33: Append workshop account summary footer */
+      const summary=formatWorkshopSummaryWA(buildWorkshopSummary(selWs,data),(data?.printSettings||{}).whatsappSummary);
+      if(summary)msg+=encodeURIComponent(summary);
+      openWA("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
   };
 
   const receiveFromWs=(orderId,wdIdx,andPrint,printData,cardKey,andWa,andLabel)=>{
@@ -204,7 +224,11 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
     clearRcv(cardKey);showToast("✓ تم استلام "+saveQty+" قطعة");
     if(andPrint&&printData){const pOrd=JSON.parse(JSON.stringify(ord));if(pOrd.workshopDeliveries&&pOrd.workshopDeliveries[wdIdx]){if(!pOrd.workshopDeliveries[wdIdx].receives)pOrd.workshopDeliveries[wdIdx].receives=[];pOrd.workshopDeliveries[wdIdx].receives.push({date:saveDate,qty:saveQty})}const pWs=selWs;const pType=wd.garmentType||"";const pGt=data.garmentTypes;setTimeout(()=>printReceiveReceipt(pWs,pOrd,pType,saveQty,saveDate,0,pGt),400)}
     if(andLabel){const pOrd=JSON.parse(JSON.stringify(ord));const pGt=data.garmentTypes;setTimeout(()=>printLabel(wd.wsName,pOrd,wd.garmentType||"عام",saveQty,saveDate,pGt,{type:"receive",delDate:wd.date,delQty:wd.qty,rcvDate:saveDate,rcvQty:saveQty}),400)}
-    if(andWa){const wsObj=workshops.find(w=>w.name===wd.wsName);const phone=wsObj?.phone||"";const totalDelivered=Number(wd.qty)||0;const allRcvs=(wd.receives||[]);const totalRcvBefore=allRcvs.reduce((s,r)=>s+(Number(r.qty)||0),0);const remaining=totalDelivered-(totalRcvBefore+saveQty);const rcvHistory=allRcvs.length>0?allRcvs.map(r=>"  ↩ "+r.date+": *"+r.qty+"* قطعة").join("%0A")+"%0A":"";const msg="*CLARK — اذن استلام من ورشة*%0A%0A• الورشة: *"+wd.wsName+"*%0A• رقم الموديل: *"+ord.modelNo+"*%0A• الوصف: "+ord.modelDesc+"%0A• نوع القطعة: *"+(wd.garmentType||"عام")+"*%0A%0A━━━━━━━━━━━━━━%0A📤 تسليم للورشة: *"+totalDelivered+"* قطعة%0A"+(rcvHistory?"📥 سجل الاستلام:%0A"+rcvHistory:"")+"📥 استلام اليوم: *"+saveQty+"* قطعة%0A📊 الرصيد عند الورشة: *"+Math.max(0,remaining)+"* قطعة%0A━━━━━━━━━━━━━━%0A%0A• التاريخ: *"+saveDate+"*";openWA("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
+    if(andWa){const wsObj=workshops.find(w=>w.name===wd.wsName);const phone=wsObj?.phone||"";const totalDelivered=Number(wd.qty)||0;const allRcvs=(wd.receives||[]);const totalRcvBefore=allRcvs.reduce((s,r)=>s+(Number(r.qty)||0),0);const remaining=totalDelivered-(totalRcvBefore+saveQty);const rcvHistory=allRcvs.length>0?allRcvs.map(r=>"  ↩ "+r.date+": *"+r.qty+"* قطعة").join("%0A")+"%0A":"";let msg="*CLARK — اذن استلام من ورشة*%0A%0A• الورشة: *"+wd.wsName+"*%0A• رقم الموديل: *"+ord.modelNo+"*%0A• الوصف: "+ord.modelDesc+"%0A• نوع القطعة: *"+(wd.garmentType||"عام")+"*%0A%0A━━━━━━━━━━━━━━%0A📤 تسليم للورشة: *"+totalDelivered+"* قطعة%0A"+(rcvHistory?"📥 سجل الاستلام:%0A"+rcvHistory:"")+"📥 استلام اليوم: *"+saveQty+"* قطعة%0A📊 الرصيد عند الورشة: *"+Math.max(0,remaining)+"* قطعة%0A━━━━━━━━━━━━━━%0A%0A• التاريخ: *"+saveDate+"*";
+      /* V18.33: Append workshop account summary footer */
+      const summary=formatWorkshopSummaryWA(buildWorkshopSummary(wd.wsName,data),(data?.printSettings||{}).whatsappSummary);
+      if(summary)msg+=encodeURIComponent(summary);
+      openWA("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
   };
 
   /* Collect all movements for the log — memoized */
@@ -248,20 +272,40 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
   /* Workshop accounts calculation */
   const wsAccounts=(wsName)=>{if(isInternal(wsName))return{due:0,totalPaid:0,totalPurchase:0,balance:0};let due=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===wsName).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});
     const payments=(data.wsPayments||[]).filter(p=>p.wsName===wsName);
-    const totalPaid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);
-    const totalPurchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);
+    let totalPaid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);
+    let totalPurchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);
+    /* V18.72: Defensive — also pick up orphan treasury entries that carry this
+       workshop's name but never got a wsPayment (e.g. the auto-link / backfill
+       missed them, or a manual edit broke the link). Skip entries with
+       wsPaymentId to avoid double counting. */
+    (data.treasury||[]).forEach(t=>{
+      if(!t||t.wsPaymentId)return;
+      if(t.type!=="out")return;
+      if(t.wsName!==wsName)return;
+      if(t.category!=="تشغيل خارجي"&&t.category!=="مشتريات")return;
+      const amt=Number(t.amount)||0;
+      if(t.category==="مشتريات")totalPurchase+=amt;
+      else totalPaid+=amt;
+    });
     return{due,totalPaid,totalPurchase,balance:due+totalPurchase-totalPaid}
   };
   const addPayment=(wa)=>{if(!payWs||!payAmt)return;const wsObj=workshops.find(w=>w.name===payWs);
     const wsPayId=gid();const txId=gid();
+    const _newWsPayment={id:wsPayId,wsName:payWs,wsId:wsObj?wsObj.id:null,amount:Number(payAmt),type:payType,notes:payNote,date:payDate,createdBy:userName||"",treasuryTxId:txId};
     upConfig(d=>{if(!d.wsPayments)d.wsPayments=[];
-      d.wsPayments.push({id:wsPayId,wsName:payWs,wsId:wsObj?wsObj.id:null,amount:Number(payAmt),type:payType,notes:payNote,date:payDate,createdBy:userName||"",treasuryTxId:txId});
+      d.wsPayments.push(_newWsPayment);
       /* Auto-register in treasury — linked to ws payment */
       if(!d.treasury)d.treasury=[];d.treasury.unshift({id:txId,type:"out",amount:Number(payAmt),desc:(payType==="payment"?"دفعة ورشة ":"مشتريات ورشة ")+payWs+(payNote?" — "+payNote:""),notes:"",category:payType==="payment"?"تشغيل خارجي":"مشتريات",account:"SUB CASH",season:d.activeSeason||"",date:payDate,day:dayName(payDate),sourceType:"ws_payment",wsPaymentId:wsPayId,wsName:payWs,by:userName||"",createdAt:new Date().toISOString()})});
-    if(wa){const acc=wsAccounts(payWs);let del=0,rcv=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===payWs).forEach(wd=>{del+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{rcv+=Number(r.qty)||0})})});
-      const allPay=(data.wsPayments||[]).filter(p=>p.wsName===payWs&&p.type==="payment");const totalPaid=allPay.reduce((s,p)=>s+(Number(p.amount)||0),0)+Number(payAmt);
+    /* V18.35: auto-post journal entry */
+    autoPost.workshopPay(data, _newWsPayment, wsObj, userName).catch(()=>{});
+    if(wa){
       const phone=wsObj?.phone||"";
-      const msg="*CLARK — اشعار دفعة*%0A%0A• الورشة: *"+payWs+"*%0A• نوع العملية: *"+(payType==="payment"?"دفعة":"مشتريات")+"*%0A• المبلغ: *"+fmt(Number(payAmt))+"* ج.م%0A• التاريخ: *"+payDate+"*%0A"+(payNote?"• ملاحظات: "+payNote+"%0A":"")+"%0A─────────────────%0A*ملخص الحساب*%0A• تم تسليمه للورشة: "+fmt(del)+" قطعة%0A• تم استلامه للمصنع: "+fmt(rcv)+" قطعة%0A• اجمالي المستحق: "+fmt(r2(acc.due))+" ج.م%0A• اجمالي المشتريات: "+fmt(r2(acc.totalPurchase))+" ج.م%0A• اجمالي المدفوع: "+fmt(r2(totalPaid))+" ج.م%0A• الرصيد المتبقي: *"+fmt(r2(acc.due+acc.totalPurchase-totalPaid))+"* ج.م";
+      let msg="*CLARK — اشعار دفعة*%0A%0A• الورشة: *"+payWs+"*%0A• نوع العملية: *"+(payType==="payment"?"دفعة":"مشتريات")+"*%0A• المبلغ: *"+fmt(Number(payAmt))+"* ج.م%0A• التاريخ: *"+payDate+"*"+(payNote?"%0A• ملاحظات: "+payNote:"");
+      /* V18.33: Append configurable workshop account summary (replaces inline hardcoded summary).
+         Build summary AFTER the upConfig above has registered the new payment so the totals reflect it. */
+      const updatedData={...data,wsPayments:[...(data.wsPayments||[]),{wsName:payWs,amount:Number(payAmt),type:payType}]};
+      const summary=formatWorkshopSummaryWA(buildWorkshopSummary(payWs,updatedData),(data?.printSettings||{}).whatsappSummary);
+      if(summary)msg+=encodeURIComponent(summary);
       openWA("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
     setPayAmt("");setPayNote("");setPayDate(new Date().toISOString().split("T")[0])};
 
@@ -452,8 +496,8 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
       </div>}
     </div>}
 
-    {/* Mode buttons row */}
-    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(3,1fr)":"repeat(6,1fr)",gap:12,marginBottom:20}}>
+    {/* Mode buttons row — V18.77: removed "إضافة دفعة" (use Treasury directly), 5 buttons */}
+    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(3,1fr)":"repeat(5,1fr)",gap:12,marginBottom:20}}>
       <div onClick={()=>setMode("deliver")} style={{background:T.card,borderRadius:14,padding:isMob?16:22,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"all 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 10px 25px -8px "+T.accent+"30";e.currentTarget.style.borderColor=T.accent+"40"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow;e.currentTarget.style.borderColor=T.brd}}>
         <div style={{fontSize:32,marginBottom:8}}>📤</div>
         <div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>تسليم ورشة</div>
@@ -461,10 +505,6 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
       <div onClick={()=>setMode("receive")} style={{background:T.card,borderRadius:14,padding:isMob?16:22,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"all 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 10px 25px -8px "+T.ok+"30";e.currentTarget.style.borderColor=T.ok+"40"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow;e.currentTarget.style.borderColor=T.brd}}>
         <div style={{fontSize:32,marginBottom:8}}>📥</div>
         <div style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>استلام من ورشة</div>
-      </div>
-      <div onClick={()=>setMode("payment")} style={{background:T.card,borderRadius:14,padding:isMob?16:22,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"all 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 10px 25px -8px "+T.purple+"30";e.currentTarget.style.borderColor=T.purple+"40"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow;e.currentTarget.style.borderColor=T.brd}}>
-        <div style={{fontSize:32,marginBottom:8}}>💳</div>
-        <div style={{fontSize:FS+1,fontWeight:800,color:T.purple}}>اضافة دفعة</div>
       </div>
       <div onClick={()=>setMode("accounts")} style={{background:T.card,borderRadius:14,padding:isMob?16:22,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"all 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 10px 25px -8px "+T.warn+"30";e.currentTarget.style.borderColor=T.warn+"40"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow;e.currentTarget.style.borderColor=T.brd}}>
         <div style={{fontSize:32,marginBottom:8}}>📊</div>
@@ -506,7 +546,11 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
         if(pages.length===0)return;
         const combined=pages.map((p,i)=>"<div"+(i>0?" style='page-break-before:always'":"")+">"+p+"</div>").join("");
         printPage("اذونات مجمعة ("+pages.length+")",combined)};
-      const waBatch=()=>{if(selArr.length===0)return;const byWs={};selArr.forEach(m=>{if(!byWs[m.wsName])byWs[m.wsName]=[];byWs[m.wsName].push(m)});Object.entries(byWs).forEach(([ws,items])=>{const wsObj=workshops.find(w=>w.name===ws);const phone=wsObj?.phone||"";const lines=items.map(m=>{const _o=data.orders.find(o=>o.id===m.orderId);const _w=_o?((_o.workshopDeliveries||[])[m.wdIdx]):null;const _dq=_w?Number(_w.qty)||0:0;const _tr=_w?(_w.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0):0;const _bal=_dq-_tr;return m.type==="deliver"?"📤 تسليم — موديل *"+m.orderNo+"*%0A  "+(m.orderDesc||"-")+" — "+(m.garmentType||"عام")+" — *"+m.qty+"* قطعة":"📥 استلام — موديل *"+m.orderNo+"*%0A  "+(m.orderDesc||"-")+" — "+(m.garmentType||"عام")+"%0A  تسليم للورشة: *"+_dq+"* | استلام مصنع: *"+_tr+"* | رصيد: *"+Math.max(0,_bal)+"*"}).join("%0A%0A───────────%0A");const tQty=items.reduce((s,m)=>s+(Number(m.qty)||0),0);const msg="*CLARK — ملخص حركات*%0A%0A• الورشة: *"+ws+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+tQty+"* قطعة%0A%0A*برجاء التأكيد*";openWA("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")})};
+      const waBatch=()=>{if(selArr.length===0)return;const byWs={};selArr.forEach(m=>{if(!byWs[m.wsName])byWs[m.wsName]=[];byWs[m.wsName].push(m)});Object.entries(byWs).forEach(([ws,items])=>{const wsObj=workshops.find(w=>w.name===ws);const phone=wsObj?.phone||"";const lines=items.map(m=>{const _o=data.orders.find(o=>o.id===m.orderId);const _w=_o?((_o.workshopDeliveries||[])[m.wdIdx]):null;const _dq=_w?Number(_w.qty)||0:0;const _tr=_w?(_w.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0):0;const _bal=_dq-_tr;return m.type==="deliver"?"📤 تسليم — موديل *"+m.orderNo+"*%0A  "+(m.orderDesc||"-")+" — "+(m.garmentType||"عام")+" — *"+m.qty+"* قطعة":"📥 استلام — موديل *"+m.orderNo+"*%0A  "+(m.orderDesc||"-")+" — "+(m.garmentType||"عام")+"%0A  تسليم للورشة: *"+_dq+"* | استلام مصنع: *"+_tr+"* | رصيد: *"+Math.max(0,_bal)+"*"}).join("%0A%0A───────────%0A");const tQty=items.reduce((s,m)=>s+(Number(m.qty)||0),0);let msg="*CLARK — ملخص حركات*%0A%0A• الورشة: *"+ws+"*%0A%0A─────────────────%0A"+lines+"%0A─────────────────%0A• الاجمالي: *"+tQty+"* قطعة%0A%0A*برجاء التأكيد*";
+        /* V18.33: Append workshop account summary */
+        const summary=formatWorkshopSummaryWA(buildWorkshopSummary(ws,data),(data?.printSettings||{}).whatsappSummary);
+        if(summary)msg+=encodeURIComponent(summary);
+        openWA("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")})};
       return<div id="mov-log">
       {/* Late deliveries view */}
       {movTypeF==="late"&&<div>
@@ -1081,7 +1125,7 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
       </div>
       <div id="ws-acc-area">
       <Card title="ملخص الحسابات" style={{marginBottom:14}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
-        <thead><tr>{["الورشة","النسبة","مستحق","مدفوع","حد النسبة","متاح للدفع","الرصيد",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+        <thead><tr>{["الورشة","النسبة","مستحق","مدفوع","حد النسبة","متاح للدفع","الرصيد","",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
         <tbody>{activeWs.map(w=>{const a=wsAccounts(w.name);const pct=w.payPercent||60;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const remaining=r2(limit-a.totalPaid);const exceeded=remaining<0;
           return<tr key={w.id}>
           <td style={{...TD,fontWeight:700}}>{w.name}</td>
@@ -1092,6 +1136,8 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
           <td style={{...TDB,fontWeight:700,color:remaining>0?T.ok:remaining<0?T.err:T.textMut}}>{remaining>0?fmt(remaining):remaining<0?"تجاوز "+fmt(Math.abs(remaining)):"0"}</td>
           <td style={{...TDB,fontSize:FS+1,color:a.balance>0?T.err:T.ok}}>{fmt(r2(a.balance))}</td>
           <td style={TD}>{exceeded&&<span style={{fontSize:FS-2,padding:"2px 6px",borderRadius:6,background:T.err+"12",color:T.err,fontWeight:700}}>⚠</span>}</td>
+          {/* V18.91: Request review */}
+          <td style={TD}><Btn small onClick={()=>setReviewWs(w.name)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",padding:"2px 8px",fontSize:FS-2}} title="طلب مراجعة هذا الحساب">📌</Btn></td>
         </tr>})}
           {(()=>{const tLimit=activeWs.reduce((s,w)=>{const a=wsAccounts(w.name);const pct=w.payPercent||60;return s+r2((a.due+a.totalPurchase)*(pct/100))},0);const tRemaining=r2(tLimit-totals.paid);
           return<tr style={{background:T.accent+"08"}}><td style={{...TD,fontWeight:800}}>الاجمالي</td><td style={TD}></td>
@@ -1099,7 +1145,7 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
           <td style={{...TDB,color:T.warn,fontWeight:800}}>{fmt(r2(totals.paid))}</td>
           <td style={{...TDB,fontWeight:800}}>{fmt(r2(tLimit))}</td>
           <td style={{...TDB,fontWeight:800,color:tRemaining>0?T.ok:T.err}}>{tRemaining>0?fmt(tRemaining):tRemaining<0?"تجاوز "+fmt(Math.abs(tRemaining)):"0"}</td>
-          <td style={{...TDB,fontSize:FS+2,fontWeight:800,color:totals.balance>0?T.err:T.ok}}>{fmt(r2(totals.balance))+" ج.م"}</td><td style={TD}></td></tr>})()}
+          <td style={{...TDB,fontSize:FS+2,fontWeight:800,color:totals.balance>0?T.err:T.ok}}>{fmt(r2(totals.balance))+" ج.م"}</td><td style={TD}></td><td style={TD}></td></tr>})()}
         </tbody>
       </table></div></Card>
       {/* Workshop filter */}
@@ -1153,6 +1199,13 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
           </div>
         </Card>})}
       </div>
+      {/* V18.91: Review request modal for workshop */}
+      {reviewWs&&<ReviewRequestModal
+        link={{type:"workshop",id:reviewWs,label:"حساب ورشة "+reviewWs}}
+        defaultMsg={"راجع حساب ورشة "+reviewWs+" من فضلك"}
+        data={data} upConfig={upConfig} user={user}
+        onClose={()=>setReviewWs(null)}
+      />}
     </div>
   }
   return null

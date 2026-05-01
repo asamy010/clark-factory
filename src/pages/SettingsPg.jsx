@@ -8,6 +8,7 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updateProfile } from "firebase/auth";
 import { collection, deleteDoc, doc, getDocs, setDoc, updateDoc } from "firebase/firestore";
+import { createComprehensiveBackup, readComprehensiveBackup, deleteComprehensiveBackup, estimateComprehensiveBackupSize } from "../utils/comprehensiveBackup.js";
 import { Btn, Card, DelBtn, Inp, Sel, Spinner } from "../components/ui.jsx";
 import { TABS } from "../components/LoginScreen.jsx";
 import { FKEYS, FS } from "../constants/index.js";
@@ -17,17 +18,21 @@ import { T, TD, TH } from "../theme.js";
 import { gid, openWA } from "../utils/format.js";
 import { compressImage } from "../utils/image.js";
 import { calcOrder, getConfirmedStock, recomputeStatus, wsTypeInfo } from "../utils/orders.js";
+import { formatCustomerSummaryWA, formatWorkshopSummaryWA } from "../utils/accountSummary.js";
 import { ask, askForm, showToast, tell } from "../utils/popups.js";
 import { openPrintWindow } from "../utils/print.js";
 import { getDeviceInfo, getDeviceId, getDeviceNickname, setDeviceNickname, getCachedIpInfo } from "../utils/device.js";
 import { analyzeBudgets, getDocTotals, getBudgetSummary, getTopFeatures, fmt as fmtSize } from "../utils/sizeBudget.js";
 import { PrintTemplatesEditor } from "../components/PrintTemplatesEditor.jsx";
+import { CollectionHealthBar } from "../components/CollectionHealthBar.jsx";
+import { HelpTip, CardSubtitle, FieldHelp } from "../components/HelpTip.jsx";
 import { StockPg } from "./StockPg.jsx";
 
 export function PoMigConfirm({onConfirm,onCancel,T,FS}){
   const[text,setText]=useState("");
   const isValid=text.trim()==="تحويل";
   return<div>
+      <CardSubtitle icon="💡">⚠️ احذر: حذف نهائي لكل بيانات الأوردرات في الموسم الحالي. يستخدم بس لو عاوز تبدأ موسم جديد من الصفر. لا يمكن التراجع — اعمل نسخة احتياطية أولاً.</CardSubtitle>
     <input value={text} onChange={e=>setText(e.target.value)} placeholder="اكتب: تحويل" style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"2px solid "+(isValid?T.ok:T.brd),fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",marginBottom:10,textAlign:"center",fontWeight:700}}/>
     <div style={{display:"flex",gap:8}}>
       <button onClick={isValid?onConfirm:null} disabled={!isValid} style={{flex:1,padding:"8px 14px",borderRadius:8,border:"none",background:isValid?T.err:"#ccc",color:"#fff",cursor:isValid?"pointer":"not-allowed",fontSize:FS,fontFamily:"inherit",fontWeight:800}}>🔥 تنفيذ التحويل</button>
@@ -41,14 +46,14 @@ export function PoMigConfirm({onConfirm,onCancel,T,FS}){
 export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Sel,Card,setDirty,userRole}){
   const isAdmin=userRole==="admin";
   /* V16.61: DEFAULT_OUT/DEFAULT_IN must include the wired categories
-     ("دفع مورد", "تحويل داخلي", "دفعة عميل") that trigger pickers in TreasuryPg.
+     ("دفعة مورد", "تحويل داخلي", "دفعة عميل") that trigger pickers in TreasuryPg.
      Previously these were missing from DEFAULT_OUT, so the first time a user
-     saved their treasury settings the saved list would drop "دفع مورد" and
+     saved their treasury settings the saved list would drop "دفعة مورد" and
      the supplier-picker flow broke. Keeping the wired ones in defaults is
      belt-and-braces alongside the union logic in TreasuryPg's resolvedOutCats. */
-  const DEFAULT_OUT=["تكلفة","مشتريات","مرتبات","قطع غيار","صيانة ماكينات","خيط","تشغيل خارجي","نقل","كهرباء","ايجار المصنع","نثريات","اكسسوار","مستلزمات تشغيل","ورق ماركر","خدمات","أصول ثابتة","تكاليف أخرى","دفع مورد","تحويل داخلي"];
+  const DEFAULT_OUT=["تكلفة","مشتريات","مرتبات","قطع غيار","صيانة ماكينات","خيط","تشغيل خارجي","نقل","كهرباء","ايجار المصنع","نثريات","اكسسوار","مستلزمات تشغيل","ورق ماركر","خدمات","أصول ثابتة","تكاليف أخرى","دفعة مورد","تحويل داخلي"];
   const DEFAULT_IN=["وارد","إيرادات","دفعة عميل","رأس مال","تحويل","تحويل داخلي"];
-  const DEFAULT_CHECK=["رصيد افتتاحي","دفعة عميل","دفع مورد","تسوية مبالغ","تحويل بين الحسابات","أخرى"];
+  const DEFAULT_CHECK=["رصيد افتتاحي","دفعة عميل","دفعة مورد","تسوية مبالغ","تحويل بين الحسابات","أخرى"];
   const savedTS=config.treasurySettings||{};
   /* V14.52: List of all non-admin users (candidates for whitelist) */
   const allUsers=(config.usersList||[]).filter(u=>u.role!=="admin");
@@ -130,8 +135,8 @@ export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,B
     });
     showToast("✅ تم حفظ إعدادات الخزنة");
   };
-  const handleDiscard=()=>{
-    if(!confirm("سيتم إلغاء كل التعديلات غير المحفوظة. هل تريد المتابعة؟"))return;
+  const handleDiscard=async ()=>{
+    if(!await ask("إلغاء التعديلات", "سيتم إلغاء كل التعديلات غير المحفوظة. هل تريد المتابعة؟", {danger:true,confirmText:"إلغاء التعديلات"}))return;
     setDraft(buildSnapshot(savedTS));
     setNewOutCat("");setNewInCat("");setNewCheckCat("");
     showToast("↩️ تم إلغاء التعديلات");
@@ -180,32 +185,51 @@ export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,B
     setNewCheckCat("");showToast("✓ تم الإضافة")};
 
   return<Card title={"🏦 إعدادات الخزنة"+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
+    <CardSubtitle icon="💡">
+      إعدادات تتحكم في سلوك الخزنة المالية: رصيد البداية، بنود المنصرف والوارد، وربط الموسم.
+      أي تعديل هنا يأثر على شاشة الخزنة فقط — التقارير المالية تستخدم هذه الإعدادات.
+    </CardSubtitle>
     <div>
       {isDirty&&<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700,display:"flex",alignItems:"center",gap:8}}>
         <span style={{fontSize:16}}>✨</span>
         <span>لديك تعديلات غير محفوظة — اضغط "حفظ" للتأكيد أو "إلغاء" للرجوع</span>
       </div>}
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12}}>
-        <div><label style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:6,display:"block"}}>رصيد أول المدة</label>
+        <div><label style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:6,display:"block"}}>
+          رصيد أول المدة
+          <HelpTip>الرصيد الابتدائي للخزنة وقت تفعيل البرنامج. كل الحركات اللي بتدخلها بعد ده بتضاف/تخصم من هذا الرقم.</HelpTip>
+        </label>
           <Inp type="number" value={draft.openingBalance||""} onChange={v=>updateDraft(d=>{d.openingBalance=Number(v)||0})} placeholder="0"/></div>
-        <div><label style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:6,display:"block"}}>ربط الموسم تلقائياً</label>
+        <div><label style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:6,display:"block"}}>
+          ربط الموسم تلقائياً
+          <HelpTip>
+            <b>تلقائي:</b> كل حركة جديدة تتربط بالموسم الحالي اللي مفتوح في البرنامج.<br/>
+            <b>يدوي:</b> المستخدم يختار الموسم بنفسه عند تسجيل كل حركة. مفيد لو بتسجل حركات متأخرة لمواسم سابقة.
+          </HelpTip>
+        </label>
           <Sel value={draft.autoSeason?"auto":"manual"} onChange={v=>updateDraft(d=>{d.autoSeason=v==="auto"})}>
             <option value="auto">تلقائي (الموسم الحالي)</option><option value="manual">يدوي</option></Sel></div>
       </div>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12,marginTop:12}}>
-        <div><div style={{fontSize:FS-1,fontWeight:700,color:T.err,marginBottom:6}}>بنود المنصرف ({draft.outCategories.length})</div>
+        <div><div style={{fontSize:FS-1,fontWeight:700,color:T.err,marginBottom:6}}>
+          بنود المنصرف ({draft.outCategories.length})
+          <HelpTip>هذه البنود تظهر في قائمة "نوع الحركة" عند تسجيل منصرف في الخزنة. البنود المعلّمة بـ🔒 مرتبطة بأنظمة أخرى (دفعات موردين، تحويلات، إلخ) ولا يمكن حذفها.</HelpTip>
+        </div>
           {/* V16.61: WIRED categories cannot be deleted — they have hard-coded
               behavior in TreasuryPg (party pickers, transfers wiring). Show a
               lock icon instead of ✕ for these so the user understands why. */}
           <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>{draft.outCategories.map(c=>{
-            const wired=["دفع مورد","تشغيل خارجي","مرتبات","تحويل داخلي"].includes(c);
+            const wired=["دفعة مورد","تشغيل خارجي","مرتبات","تحويل داخلي"].includes(c);
             return<span key={c} style={{padding:"3px 8px",borderRadius:6,fontSize:FS-2,background:T.err+"08",color:T.err,display:"flex",alignItems:"center",gap:4}} title={wired?"بند مرتبط بنظام آخر — يفتح قائمة اختيار تلقائياً":""}>
               {c}{wired?<span style={{fontSize:9,opacity:0.6}}>🔒</span>:<span onClick={()=>removeOut(c)} style={{cursor:"pointer",fontSize:10}}>✕</span>}
             </span>;
           })}</div>
           <div style={{display:"flex",gap:4}}><Inp value={newOutCat} onChange={setNewOutCat} placeholder="بند جديد..." style={{flex:1}}/><Btn small onClick={addOut}>+</Btn></div>
         </div>
-        <div><div style={{fontSize:FS-1,fontWeight:700,color:T.ok,marginBottom:6}}>بنود الوارد ({draft.inCategories.length})</div>
+        <div><div style={{fontSize:FS-1,fontWeight:700,color:T.ok,marginBottom:6}}>
+          بنود الوارد ({draft.inCategories.length})
+          <HelpTip>هذه البنود تظهر في قائمة "نوع الحركة" عند تسجيل وارد في الخزنة. البنود المعلّمة بـ🔒 مرتبطة بأنظمة أخرى (دفعات عملاء، تحويلات داخلية).</HelpTip>
+        </div>
           <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>{draft.inCategories.map(c=>{
             const wired=["دفعة عميل","تحويل داخلي"].includes(c);
             return<span key={c} style={{padding:"3px 8px",borderRadius:6,fontSize:FS-2,background:T.ok+"08",color:T.ok,display:"flex",alignItems:"center",gap:4}} title={wired?"بند مرتبط بنظام آخر — يفتح قائمة اختيار تلقائياً":""}>
@@ -241,6 +265,7 @@ export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,B
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
               <div style={{fontSize:FS,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:6}}>
                 <span>✏️</span><span>قفل التعديل</span>
+                <HelpTip>لما القفل مفعّل: المحاسبين العاديين ما يقدروش يعدّلوا حركات الخزنة. تقدر تستثني مستخدمين معينين من القائمة البيضاء أسفل. كل تعديل بيتسجل في سجل الأمان.</HelpTip>
               </div>
               <div style={{fontSize:FS-1,fontWeight:800,padding:"3px 10px",borderRadius:6,background:draft.lockEdit?T.err:T.ok,color:"#fff"}}>
                 {draft.lockEdit?"🔴 مفعّل":"🟢 مفتوح"}
@@ -255,6 +280,7 @@ export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,B
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
               <div style={{fontSize:FS,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:6}}>
                 <span>🗑️</span><span>قفل الحذف</span>
+                <HelpTip>لما القفل مفعّل: محدش يقدر يحذف حركة من الخزنة إلا المدير أو المستخدمين في القائمة البيضاء. ينصح بتفعيله بعد قفل الحسابات الشهرية لمنع التعديل المتأخر.</HelpTip>
               </div>
               <div style={{fontSize:FS-1,fontWeight:800,padding:"3px 10px",borderRadius:6,background:draft.lockDelete?T.err:T.ok,color:"#fff"}}>
                 {draft.lockDelete?"🔴 مفعّل":"🟢 مفتوح"}
@@ -402,8 +428,8 @@ export function HrSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Sel
     });
     showToast("✅ تم حفظ إعدادات الموظفين");
   };
-  const handleDiscard=()=>{
-    if(!confirm("سيتم إلغاء كل التعديلات غير المحفوظة. هل تريد المتابعة؟"))return;
+  const handleDiscard=async ()=>{
+    if(!await ask("إلغاء التعديلات", "سيتم إلغاء كل التعديلات غير المحفوظة. هل تريد المتابعة؟", {danger:true,confirmText:"إلغاء التعديلات"}))return;
     setDraft(buildSnapshot(savedHR));
     showToast("↩️ تم إلغاء التعديلات");
   };
@@ -411,30 +437,55 @@ export function HrSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Sel
   const standardHours=draft.workDays*draft.hoursPerDay;
 
   return<Card title={"👷 إعدادات الموظفين"+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
+    <CardSubtitle icon="💡">
+      الإعدادات الأساسية لحسابات المرتبات وساعات العمل والإضافي.
+      أي تغيير هنا يؤثر على الأسابيع الجديدة فقط — الأسابيع المقفولة لا تتأثر.
+    </CardSubtitle>
     <div>
       {isDirty&&<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700,display:"flex",alignItems:"center",gap:8}}>
         <span style={{fontSize:16}}>✨</span>
         <span>لديك تعديلات غير محفوظة — اضغط "حفظ" للتأكيد أو "إلغاء" للرجوع</span>
       </div>}
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:10}}>
-        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>أيام العمل الأسبوعية</label>
+        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>
+          أيام العمل الأسبوعية
+          <HelpTip>عدد أيام العمل في الأسبوع (عادة 6 أيام، الجمعة عطلة). يستخدم في حساب سعر الساعة.</HelpTip>
+        </label>
           <Inp type="number" value={draft.workDays||""} onChange={v=>updateDraft(d=>{d.workDays=Number(v)||6})} placeholder="6"/></div>
-        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ساعات العمل اليومية</label>
+        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>
+          ساعات العمل اليومية
+          <HelpTip>عدد ساعات العمل الأساسية في اليوم (بدون إضافي). 9 ساعات هو الشائع في المصانع.</HelpTip>
+        </label>
           <Inp type="number" step="0.5" value={draft.hoursPerDay||""} onChange={v=>updateDraft(d=>{d.hoursPerDay=Number(v)||9})} placeholder="9"/></div>
         <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>إجمالي ساعات الأسبوع (تلقائي)</label>
           <div style={{padding:"8px 12px",borderRadius:8,background:T.accent+"12",color:T.accent,fontWeight:800,fontSize:FS+2,border:"1px solid "+T.accent+"30",textAlign:"center"}}>{standardHours} ساعة</div>
           <div style={{fontSize:FS-3,color:T.textMut,marginTop:4,textAlign:"center"}}>سعر الساعة = المرتب ÷ {standardHours}</div></div>
-        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ساعات أساسي افتراضية (أسبوعي)</label>
+        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>
+          ساعات أساسي افتراضية (أسبوعي)
+          <HelpTip>الساعات اللي بتعتبر "أساسية" قبل احتساب الإضافي. لو الموظف اشتغل أكثر من ده في الأسبوع، الساعات الزائدة تتحسب إضافي.</HelpTip>
+        </label>
           <Inp type="number" value={draft.defaultBaseHours||""} onChange={v=>updateDraft(d=>{d.defaultBaseHours=Number(v)||0})} placeholder="48"/></div>
-        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>معامل الإضافي</label>
+        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>
+          معامل الإضافي
+          <HelpTip>الرقم اللي بنضرب فيه سعر الساعة لحساب أجر الساعة الإضافية. 1.5 يعني "ساعة ونص" — الشائع في القانون المصري.</HelpTip>
+        </label>
           <Inp type="number" step="0.1" value={draft.overtimeMultiplier||""} onChange={v=>updateDraft(d=>{d.overtimeMultiplier=Number(v)||1.5})} placeholder="1.5"/></div>
-        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>خصم الغياب (بدون إذن)</label>
+        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>
+          خصم الغياب (بدون إذن)
+          <HelpTip>الخصم اللي بيتطبق لو الموظف غاب يوم بدون إذن. <b>يوم واحد:</b> خصم يوم بس. <b>يوم ونص:</b> خصم اليوم + نص يوم إضافي عقوبة. <b>يومين:</b> خصم اليوم + يوم إضافي.</HelpTip>
+        </label>
           <Sel value={draft.absencePenalty} onChange={v=>updateDraft(d=>{d.absencePenalty=v})}>
             <option value="1">يوم واحد</option><option value="2">يومين</option><option value="1.5">يوم ونص</option></Sel></div>
-        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>يوم بداية الأسبوع</label>
+        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>
+          يوم بداية الأسبوع
+          <HelpTip>اليوم اللي بيبدأ فيه أسبوع المرتبات. في مصر السبت هو الشائع.</HelpTip>
+        </label>
           <Sel value={draft.weekStartDay} onChange={v=>updateDraft(d=>{d.weekStartDay=v})}>
             <option value="sat">السبت</option><option value="sun">الأحد</option><option value="mon">الاثنين</option></Sel></div>
-        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>يوم صرف المرتبات</label>
+        <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>
+          يوم صرف المرتبات
+          <HelpTip>اليوم اللي بيتم فيه دفع المرتبات أسبوعياً. عادة الخميس أو الجمعة.</HelpTip>
+        </label>
           <Sel value={draft.payDay} onChange={v=>updateDraft(d=>{d.payDay=v})}>
             <option value="thu">الخميس</option><option value="fri">الجمعة</option><option value="wed">الأربعاء</option></Sel></div>
       </div>
@@ -603,8 +654,8 @@ export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
     });
     showToast("✅ تم حفظ إعدادات الطباعة");
   };
-  const handleDiscard=()=>{
-    if(!confirm("سيتم إلغاء كل التعديلات غير المحفوظة. هل تريد المتابعة؟"))return;
+  const handleDiscard=async ()=>{
+    if(!await ask("إلغاء التعديلات", "سيتم إلغاء كل التعديلات غير المحفوظة. هل تريد المتابعة؟", {danger:true,confirmText:"إلغاء التعديلات"}))return;
     setDraft(buildSnapshot(savedPS));
     showToast("↩️ تم إلغاء التعديلات");
   };
@@ -621,7 +672,7 @@ export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
     /* V16.36: chosen font family + Google Fonts mapping */
     const fontFam=ps.fontFamily||"Cairo";
     const fontUrl=GOOGLE_FONT_URLS[fontFam]||GOOGLE_FONT_URLS.Cairo;
-    const pw_=openPrintWindow();if(!pw_){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}let html="<html dir='rtl'><head><title>طباعة تجريبية</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><link href='"+fontUrl+"' rel='stylesheet'/><style>@page{size:"+w+"mm "+h+"mm;margin:"+m+"mm}*{margin:0;padding:0}body{margin:0;padding:0;font-family:'"+fontFam+"',Arial,sans-serif}.lbl{width:"+(w-m*2)+"mm;height:"+(h-m*2)+"mm;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center"+(ps.showBorder?";border:1px dashed #999":"")+"}.logo{width:80%;max-width:30mm;margin-bottom:1mm}</style></head><body><div class='lbl'>";
+    const pw_=openPrintWindow();if(!pw_){tell("المتصفح يمنع الطباعة", "فعّل النوافذ المنبثقة في المتصفح وحاول مرة أخرى", {danger:true});return}let html="<html dir='rtl'><head><title>طباعة تجريبية</title><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><link href='"+fontUrl+"' rel='stylesheet'/><style>@page{size:"+w+"mm "+h+"mm;margin:"+m+"mm}*{margin:0;padding:0}body{margin:0;padding:0;font-family:'"+fontFam+"',Arial,sans-serif}.lbl{width:"+(w-m*2)+"mm;height:"+(h-m*2)+"mm;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center"+(ps.showBorder?";border:1px dashed #999":"")+"}.logo{width:80%;max-width:30mm;margin-bottom:1mm}</style></head><body><div class='lbl'>";
     /* V16.36: Logo at top — overrides brand text when enabled.
        The brightness/saturate filter forces pure black on the gray logo
        so it prints crisp on thermal paper. */
@@ -639,10 +690,16 @@ export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
 
   return<Card title={"🖨 إعدادات طباعة QR"+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
     <div>
+    <CardSubtitle icon="💡">إعدادات شكل وحجم QR codes اللي بتتطبع على الليبلات والباركود. تحدد ارتفاع الليبل، شعار المصنع، الـlogo داخل QR، وتفاصيل العرض.</CardSubtitle>
       {isDirty&&<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700,display:"flex",alignItems:"center",gap:8}}>
         <span style={{fontSize:16}}>✨</span>
         <span>لديك تعديلات غير محفوظة — اضغط "حفظ" للتأكيد أو "إلغاء" للرجوع</span>
       </div>}
+      {/* V16.72: Inputs and live preview side-by-side on desktop (was stacked
+         vertically before — wasted half the screen). Mobile keeps the original
+         stacked layout because the preview needs its own room on narrow screens. */}
+      <div style={{display:"flex",flexDirection:isMob?"column":"row",gap:12,alignItems:"flex-start"}}>
+        <div style={{flex:1,minWidth:0}}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginBottom:8}}>
         <div><label style={{fontSize:FS-3,color:T.textSec}}>العرض مم</label><Inp type="number" value={draft.labelWidth||40} onChange={v=>updateDraft(d=>{d.labelWidth=Number(v)||40})}/></div>
         <div><label style={{fontSize:FS-3,color:T.textSec}}>الارتفاع مم</label><Inp type="number" value={draft.labelHeight||50} onChange={v=>updateDraft(d=>{d.labelHeight=Number(v)||50})}/></div>
@@ -686,8 +743,14 @@ export function PrintSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
         <Btn small onClick={printTest} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}} title="اختبار بالقيم الحالية (قبل الحفظ)">🖨 طباعة تجريبية</Btn>
         {isDirty&&<span style={{fontSize:FS-3,color:T.warn,fontStyle:"italic"}}>💡 الاختبار يستخدم التعديلات غير المحفوظة</span>}
       </div>
+        </div>{/* V16.72: end of inputs column */}
+        {/* V16.72: live preview column — sticks to the right on desktop, sized
+           by the actual label width so it never balloons. */}
+        <div style={{flex:isMob?"none":"0 0 auto",alignSelf:"stretch"}}>
       {/* V16.5: Live preview card — shows current draft in real-time */}
       <LabelLivePreview draft={draft} T={T} FS={FS}/>
+        </div>
+      </div>{/* V16.72: end of side-by-side container */}
       {/* Print sizes for reports */}
       <div style={{marginTop:12,padding:10,borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
         <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:6}}>📄 إعدادات طباعة التقارير</div>
@@ -963,16 +1026,20 @@ export function LargeLabelSettingsCard({kind,config,upConfig,T,FS,isMob,showToas
   const info=KIND_INFO[kind]||KIND_INFO.workshopLabel;
   const title=info.title;
   const fieldList=info.fields;
+  /* V18.31: salesDeliveryLabel additionally has itemsMode (auto|table|summary) */
+  const isSalesDeliv=kind==="salesDeliveryLabel";
   const defaults={
     fontFamily:"Cairo",
     showLogo:false,
-    fields:Object.fromEntries(fieldList.map(f=>[f.k,{show:true}]))
+    fields:Object.fromEntries(fieldList.map(f=>[f.k,{show:true}])),
+    ...(isSalesDeliv?{itemsMode:"auto"}:{})
   };
   const slot=(config.printSettings||{})[kind]||defaults;
   const savedJson=useMemo(()=>JSON.stringify({
     fontFamily:slot.fontFamily||"Cairo",
     showLogo:!!slot.showLogo,
-    fields:Object.fromEntries(fieldList.map(f=>[f.k,{show:slot.fields?.[f.k]?.show!==false}]))
+    fields:Object.fromEntries(fieldList.map(f=>[f.k,{show:slot.fields?.[f.k]?.show!==false}])),
+    ...(isSalesDeliv?{itemsMode:slot.itemsMode||"auto"}:{})
   }),[JSON.stringify(slot)]);
   const[draft,setDraft]=useState(()=>JSON.parse(savedJson));
   useEffect(()=>{const d=JSON.parse(savedJson);if(JSON.stringify(d)!==JSON.stringify(draft))setDraft(d)},[savedJson]);/* eslint-disable-line */
@@ -981,7 +1048,7 @@ export function LargeLabelSettingsCard({kind,config,upConfig,T,FS,isMob,showToas
   useEffect(()=>{setDirty(isDirty)},[isDirty]);/* eslint-disable-line */
   const update=(fn)=>setDraft(p=>{const n=JSON.parse(JSON.stringify(p));fn(n);return n});
   const handleSave=()=>{upConfig(d=>{if(!d.printSettings)d.printSettings={};d.printSettings[kind]=JSON.parse(draftJson)});showToast("✅ تم حفظ إعدادات الليبل")};
-  const handleDiscard=()=>{if(!confirm("إلغاء التعديلات؟"))return;setDraft(JSON.parse(savedJson))};
+  const handleDiscard=async ()=>{if(!await ask("إلغاء التعديلات", "هل تريد إلغاء التعديلات؟", {danger:true,confirmText:"إلغاء"}))return;setDraft(JSON.parse(savedJson))};
   const toggleField=(k)=>update(d=>{if(!d.fields[k])d.fields[k]={show:false};d.fields[k].show=!d.fields[k].show});
 
   return<Card title={title+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
@@ -1017,6 +1084,25 @@ export function LargeLabelSettingsCard({kind,config,upConfig,T,FS,isMob,showToas
             </div>;
           })}
         </div>
+        {/* V18.31: itemsMode selector — only on salesDeliveryLabel. Controls how the items section renders. */}
+        {isSalesDeliv&&<div style={{marginTop:14,paddingTop:14,borderTop:"1px solid "+T.brd}}>
+          <div style={{fontSize:FS-2,fontWeight:700,color:T.textSec,marginBottom:8}}>📋 عرض الأصناف على الليبل:</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {[
+              {v:"auto",   l:"تلقائي — جدول للأصناف ≤ 8، ملخص للأصناف > 8",    sub:"(الافتراضي)"},
+              {v:"table",  l:"جدول الموديلات بالكميات دائماً",                  sub:"(تفاصيل كاملة)"},
+              {v:"summary",l:"ملخص دائماً — عدد الأصناف + إجمالي الكمية + التاريخ", sub:"(مختصر)"}
+            ].map(opt=>{const isSel=(draft.itemsMode||"auto")===opt.v;
+              return<div key={opt.v} onClick={()=>update(d=>{d.itemsMode=opt.v})} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",borderRadius:8,background:isSel?T.accent+"10":T.bg,border:"1px solid "+(isSel?T.accent+"40":T.brd),cursor:"pointer"}}>
+                <span style={{fontSize:16,color:isSel?T.accent:T.textMut,fontWeight:800,marginTop:1}}>{isSel?"🔘":"⚪"}</span>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:FS-1,color:isSel?T.text:T.textSec,fontWeight:isSel?700:500}}>{opt.l}</div>
+                  <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{opt.sub}</div>
+                </div>
+              </div>;
+            })}
+          </div>
+        </div>}
       </div>
       {/* Preview column */}
       <LargeLabelLivePreview draft={draft} kind={kind} T={T} FS={FS}/>
@@ -1057,8 +1143,8 @@ export function SalesSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
     });
     showToast("✅ تم حفظ إعدادات المبيعات");
   };
-  const handleDiscard=()=>{
-    if(!confirm("سيتم إلغاء كل التعديلات غير المحفوظة. هل تريد المتابعة؟"))return;
+  const handleDiscard=async ()=>{
+    if(!await ask("إلغاء التعديلات", "سيتم إلغاء كل التعديلات غير المحفوظة. هل تريد المتابعة؟", {danger:true,confirmText:"إلغاء التعديلات"}))return;
     setDraft(buildSnapshot(savedSS));
     showToast("↩️ تم إلغاء التعديلات");
   };
@@ -1066,6 +1152,7 @@ export function SalesSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,
 
   return<Card title={"💰 إعدادات المبيعات"+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
     <div>
+    <CardSubtitle icon="💡">إعدادات تتعلق بمنطق المبيعات والعملاء — هامش الربح الافتراضي، شروط الخصم، رقم بداية الفواتير. تأثيرها يظهر في صفحة المبيعات والفواتير.</CardSubtitle>
       {isDirty&&<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700,display:"flex",alignItems:"center",gap:8}}>
         <span style={{fontSize:16}}>✨</span>
         <span>لديك تعديلات غير محفوظة — اضغط "حفظ" للتأكيد أو "إلغاء" للرجوع</span>
@@ -1119,11 +1206,12 @@ function SecurityAlertsCard({config,upConfig,T,FS,showToast,Inp,Btn,Card,setDirt
   useEffect(()=>{setDirty(isDirty)},[isDirty]);/* eslint-disable-line */
   const upd=(fn)=>setDraft(p=>{const n={...p};fn(n);return n});
   const handleSave=()=>{upConfig(d=>{d.securitySettings=JSON.parse(draftJson)});showToast("✅ تم حفظ التنبيهات الأمنية")};
-  const handleDiscard=()=>{if(confirm("إلغاء التعديلات؟"))setDraft(JSON.parse(savedJson))};
+  const handleDiscard=()=>{ask("إلغاء التعديلات", "هل تريد إلغاء التعديلات؟", {danger:true,confirmText:"إلغاء"}).then(ok=>{if(ok)setDraft(JSON.parse(savedJson))})};
   const s=draft;
 
   return<Card title={"🛡️ إعدادات التنبيهات الأمنية"+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
     {isDirty?<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700}}>
+    <CardSubtitle icon="💡">تحدد متى يتم تسجيل تنبيهات أمنية في سجل التدقيق (الحذف، التعديل المتأخر، تخطّي القفل، إلخ). كل العمليات الأمنية تتسجل بالتفصيل تلقائياً.</CardSubtitle>
       ✨ تعديلات غير محفوظة — اضغط حفظ للتأكيد
     </div>:null}
     <div style={{fontSize:FS-2,color:T.textSec,marginBottom:12,padding:"10px 14px",background:T.accent+"06",borderRadius:8,border:"1px solid "+T.accent+"20",lineHeight:1.7}}>
@@ -1176,6 +1264,211 @@ function SecurityAlertsCard({config,upConfig,T,FS,showToast,Inp,Btn,Card,setDirt
   </Card>;
 }
 
+/* V18.34: WhatsApp message preview — renders summary text in a WhatsApp-style
+   green bubble with *bold* highlighted, RTL-aware. Used inside WhatsappSummaryCard. */
+function WhatsappLivePreview({draft, T, FS, isMob}){
+  /* Sample data that exercises every line so each toggle's effect is visible */
+  const sampleCust = {
+    salesGross: 250000, discPct: 10, discAmt: 25000, salesNet: 225000,
+    payCash: 50000, payCheck: 30000, payOther: 0,
+    returnsGross: 22000, returnsNet: 19800,
+    balance: 225000 - 19800 - 50000 - 30000,/* = 125,200 */
+  };
+  const sampleWs = {
+    totalDelivered: 850, totalReceived: 720, pendingPieces: 130,
+    due: 36000, totalPurchase: 5000, totalPaid: 25000,
+    balance: 36000 + 5000 - 25000,/* = 16,000 */
+  };
+  const custText = formatCustomerSummaryWA(sampleCust, draft);
+  const wsText   = formatWorkshopSummaryWA(sampleWs, draft);
+
+  /* Render a WA-formatted block (*bold*, • bullets) into styled JSX */
+  const renderWaText = (text) => {
+    if (!text) return null;
+    /* Strip the leading separator the formatter adds (we'll provide our own) */
+    const clean = text.replace(/^\n\n━+\n/, "").replace(/^💼\s*\*ملخص الحساب\*\n/, "");
+    const lines = clean.split("\n").filter(l => l.length > 0);
+    return lines.map((ln, i) => {
+      /* Replace *bold* segments with <strong> */
+      const parts = ln.split(/(\*[^*]+\*)/g);
+      return <div key={i} style={{lineHeight: 1.65, marginBottom: 1}}>
+        {parts.map((p, j) => {
+          if (p.startsWith("*") && p.endsWith("*")) {
+            return <strong key={j} style={{fontWeight: 700, color: "#000"}}>{p.slice(1, -1)}</strong>;
+          }
+          return <span key={j}>{p}</span>;
+        })}
+      </div>;
+    });
+  };
+
+  /* WhatsApp bubble visual style (light green, rounded corners, tail-less for simplicity) */
+  const bubbleStyle = {
+    background: "#D9FDD3",/* WA outgoing message green */
+    borderRadius: "10px 10px 10px 2px",
+    padding: "8px 10px 6px",
+    fontSize: 11.5,
+    color: "#0F1A0F",
+    fontFamily: "'Segoe UI', 'Cairo', sans-serif",
+    boxShadow: "0 1px 0.5px rgba(0,0,0,0.13)",
+    direction: "rtl",
+    whiteSpace: "normal",
+    wordBreak: "break-word",
+  };
+  const headerStyle = {fontSize: FS-2, fontWeight: 800, color: T.textSec, marginBottom: 6, display: "flex", alignItems: "center", gap: 6};
+  const sectionLabelStyle = {fontSize: 11, fontWeight: 800, color: "#075E54", marginBottom: 4, paddingBottom: 3, borderBottom: "1px dashed #075E5430"};
+
+  return <div style={{
+    /* WhatsApp chat background style */
+    background: "#E5DDD5",
+    backgroundImage: "radial-gradient(circle at 50% 50%, #ddd6cc 1px, transparent 1px)",
+    backgroundSize: "20px 20px",
+    borderRadius: 12,
+    padding: 14,
+    border: "1px solid "+T.brd,
+    minHeight: 220,
+    height: "fit-content",
+    position: isMob ? "static" : "sticky",
+    top: 8,
+  }}>
+    <div style={headerStyle}><span>📱</span><span>معاينة الملخص في رسالة الواتساب</span></div>
+
+    {/* Customer bubble */}
+    <div style={{marginBottom: 10}}>
+      <div style={{fontSize: 10, fontWeight: 700, color: T.textMut, marginBottom: 4, textAlign: "center"}}>👥 ملخص حساب العميل</div>
+      {custText ? <div style={bubbleStyle}>
+        <div style={sectionLabelStyle}>💼 ملخص الحساب</div>
+        {renderWaText(custText)}
+        <div style={{fontSize: 9, color: "#667781", textAlign: "left", marginTop: 4}}>11:27 PM ✓✓</div>
+      </div> : <div style={{...bubbleStyle, color: "#667781", fontStyle: "italic", textAlign: "center", padding: "12px 10px"}}>(الملخص معطّل — لن يظهر في الرسائل)</div>}
+    </div>
+
+    {/* Workshop bubble */}
+    <div>
+      <div style={{fontSize: 10, fontWeight: 700, color: T.textMut, marginBottom: 4, textAlign: "center"}}>🏭 ملخص حساب الورشة</div>
+      {wsText ? <div style={bubbleStyle}>
+        <div style={sectionLabelStyle}>💼 ملخص الحساب</div>
+        {renderWaText(wsText)}
+        <div style={{fontSize: 9, color: "#667781", textAlign: "left", marginTop: 4}}>11:27 PM ✓✓</div>
+      </div> : <div style={{...bubbleStyle, color: "#667781", fontStyle: "italic", textAlign: "center", padding: "12px 10px"}}>(الملخص معطّل — لن يظهر في الرسائل)</div>}
+    </div>
+
+    <div style={{fontSize: FS-3, color: T.textMut, marginTop: 10, lineHeight: 1.5, textAlign: "center"}}>
+      💡 الأرقام في المعاينة افتراضية — الرسائل الحقيقية بتعرض أرقام كل عميل/ورشة
+    </div>
+  </div>;
+}
+
+/* V18.33: WhatsappSummaryCard — controls which lines appear in the
+   "ملخص الحساب" footer added to every customer/workshop WA message.
+   Stored in data.printSettings.whatsappSummary with shape:
+   { customer: { enabled:bool, fields:{...} }, workshop: { ... } } */
+export function WhatsappSummaryCard({config,upConfig,T,FS,isMob,showToast,Btn,Card,setDirty}){
+  const CUST_LINES = [
+    {k:"salesGross",  l:"💰 اجمالي المبيعات (قبل الخصم)"},
+    {k:"discount",    l:"🏷️ اجمالي الخصم"},
+    {k:"salesNet",    l:"✅ اجمالي بعد الخصم"},
+    {k:"returnsNet",  l:"↩️ المرتجع بعد الخصم"},
+    {k:"payments",    l:"💵 دفعات (كاش)"},
+    {k:"checks",      l:"📝 شيكات"},
+    {k:"balance",     l:"📊 الرصيد المستحق (المستحق على/لـ)"},
+  ];
+  const WS_LINES = [
+    {k:"totalDelivered", l:"📤 اجمالي تسليم للورشة (قطع)"},
+    {k:"totalReceived",  l:"📥 اجمالي استلام من الورشة (قطع)"},
+    {k:"pendingPieces",  l:"⏳ رصيد قطع عند الورشة"},
+    {k:"due",            l:"💰 اجمالي مستحق للورشة"},
+    {k:"totalPurchase",  l:"🛒 مشتريات"},
+    {k:"totalPaid",      l:"💵 مدفوعات"},
+    {k:"balance",        l:"📊 الرصيد"},
+  ];
+  const buildDefaults = () => ({
+    customer: {
+      enabled: true,
+      fields: Object.fromEntries(CUST_LINES.map(l => [l.k, {show: true}]))
+    },
+    workshop: {
+      enabled: true,
+      fields: Object.fromEntries(WS_LINES.map(l => [l.k, {show: true}]))
+    }
+  });
+  const slot = (config.printSettings || {}).whatsappSummary || buildDefaults();
+  const savedJson = useMemo(() => JSON.stringify({
+    customer: {
+      enabled: slot.customer?.enabled !== false,
+      fields: Object.fromEntries(CUST_LINES.map(l => [l.k, {show: slot.customer?.fields?.[l.k]?.show !== false}]))
+    },
+    workshop: {
+      enabled: slot.workshop?.enabled !== false,
+      fields: Object.fromEntries(WS_LINES.map(l => [l.k, {show: slot.workshop?.fields?.[l.k]?.show !== false}]))
+    }
+  }), [JSON.stringify(slot)]);
+  const [draft, setDraft] = useState(() => JSON.parse(savedJson));
+  useEffect(() => {const d = JSON.parse(savedJson); if (JSON.stringify(d) !== JSON.stringify(draft)) setDraft(d)}, [savedJson]);/* eslint-disable-line */
+  const draftJson = JSON.stringify(draft);
+  const isDirty = draftJson !== savedJson;
+  useEffect(() => {setDirty(isDirty)}, [isDirty]);/* eslint-disable-line */
+  const update = (fn) => setDraft(p => {const n = JSON.parse(JSON.stringify(p)); fn(n); return n});
+  const handleSave = async () => {
+    upConfig(d => {if (!d.printSettings) d.printSettings = {}; d.printSettings.whatsappSummary = JSON.parse(draftJson)});
+    showToast("✅ تم حفظ إعدادات ملخص الواتساب");
+  };
+  const handleDiscard = async () => {if (!await ask("إلغاء التعديلات", "هل تريد إلغاء التعديلات؟", {danger:true,confirmText:"إلغاء"})) return; setDraft(JSON.parse(savedJson))};
+
+  /* Toggle helpers */
+  const toggleEnabled = (kind) => update(d => {d[kind].enabled = !d[kind].enabled});
+  const toggleField = (kind, k) => update(d => {if (!d[kind].fields[k]) d[kind].fields[k] = {show: false}; d[kind].fields[k].show = !d[kind].fields[k].show});
+
+  /* Section UI builder */
+  const renderSection = (kind, title, icon, lines) => {
+    const sec = draft[kind];
+    const isOn = sec.enabled !== false;
+    return <div style={{padding:14,borderRadius:10,background:T.bg,border:"1px solid "+T.brd,marginBottom:12}}>
+      <div onClick={() => toggleEnabled(kind)} style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",marginBottom:isOn?12:0,paddingBottom:isOn?12:0,borderBottom:isOn?"1px solid "+T.brd:"none"}}>
+        <span style={{fontSize:22,color:isOn?T.ok:T.textMut,fontWeight:800}}>{isOn?"☑":"☐"}</span>
+        <span style={{fontSize:FS,fontWeight:800,color:isOn?T.text:T.textSec}}>{icon} {title}</span>
+        <span style={{marginInlineStart:"auto",fontSize:FS-3,color:T.textMut,fontWeight:600}}>{isOn?"مُفعّل":"معطّل"}</span>
+      </div>
+      {isOn && <>
+        <div style={{fontSize:FS-2,color:T.textMut,marginBottom:8}}>اختر السطور اللي تظهر في الملخص:</div>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:6}}>
+          {lines.map(line => {
+            const fOn = sec.fields[line.k]?.show !== false;
+            return <div key={line.k} onClick={() => toggleField(kind, line.k)} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:7,background:fOn?T.accent+"08":T.cardSolid,border:"1px solid "+(fOn?T.accent+"30":T.brd),cursor:"pointer"}}>
+              <span style={{fontSize:16,color:fOn?T.accent:T.textMut,fontWeight:800}}>{fOn?"☑":"☐"}</span>
+              <span style={{fontSize:FS-1,color:fOn?T.text:T.textSec,fontWeight:fOn?700:500}}>{line.l}</span>
+            </div>;
+          })}
+        </div>
+      </>}
+    </div>;
+  };
+
+  return <Card title={"📱 ملخص الحساب في رسائل الواتساب"+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
+    {isDirty && <div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700,display:"flex",alignItems:"center",gap:8}}>
+      <span style={{fontSize:16}}>✨</span><span>لديك تعديلات غير محفوظة — اضغط "حفظ"</span>
+    </div>}
+    <div style={{fontSize:FS-2,color:T.textMut,marginBottom:14,lineHeight:1.7}}>
+      💡 يتم إضافة "ملخص الحساب" تلقائيًا في آخر كل رسالة واتساب بتسليم/استلام لعميل أو ورشة — يظهر فيه إجمالي الحساب والمستحقات ليكون مرجعًا سريعًا للطرف الآخر. اختر هنا أي السطور تظهر — والمعاينة جانبًا تتحدث فورًا.
+    </div>
+    {/* V18.34: 2-column grid — settings on the right (RTL), live preview on the left.
+        On mobile, stacks vertically (settings first, preview after). */}
+    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 320px",gap:16,marginBottom:16,alignItems:"start"}}>
+      {/* Settings column */}
+      <div>
+        {renderSection("customer", "ملخص حساب العميل", "👥", CUST_LINES)}
+        {renderSection("workshop", "ملخص حساب الورشة", "🏭", WS_LINES)}
+      </div>
+      {/* Live preview column */}
+      <WhatsappLivePreview draft={draft} T={T} FS={FS} isMob={isMob}/>
+    </div>
+    <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:12,borderTop:"1px solid "+T.brd}}>
+      <Btn ghost onClick={handleDiscard} disabled={!isDirty} style={!isDirty?{opacity:0.4}:{}}>↩️ إلغاء</Btn>
+      <Btn primary onClick={handleSave} disabled={!isDirty} style={!isDirty?{opacity:0.4}:{background:T.ok,color:"#fff",border:"none",fontWeight:800,padding:"10px 24px"}}>💾 حفظ</Btn>
+    </div>
+  </Card>;
+}
+
 /* V16.6: PoSettingsCard — draft + save for PO prefix/digits, plus migration inside */
 function PoSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Card,poMigState,setPoMigState,poMigResult,setPoMigResult,requirePass,runPoMigration,setDirty}){
   const savedJson=useMemo(()=>JSON.stringify({poPrefix:config.poPrefix||"PO-",poDigits:Number(config.poDigits)||3}),[config.poPrefix,config.poDigits]);
@@ -1185,10 +1478,11 @@ function PoSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Card,poMig
   useEffect(()=>{if(!isDirty)setDraft(JSON.parse(savedJson))},[savedJson]);/* eslint-disable-line */
   useEffect(()=>{setDirty(isDirty)},[isDirty]);/* eslint-disable-line */
   const handleSave=()=>{upConfig(d=>{d.poPrefix=draft.poPrefix;d.poDigits=draft.poDigits});showToast("✅ تم حفظ إعدادات PO")};
-  const handleDiscard=()=>{if(confirm("إلغاء التعديلات؟"))setDraft(JSON.parse(savedJson))};
+  const handleDiscard=()=>{ask("إلغاء التعديلات", "هل تريد إلغاء التعديلات؟", {danger:true,confirmText:"إلغاء"}).then(ok=>{if(ok)setDraft(JSON.parse(savedJson))})};
 
   return<Card title={"📋 إعدادات أمر التشغيل (PO)"+(isDirty?" ✨":"")} style={{marginBottom:12,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
     {isDirty?<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700}}>
+    <CardSubtitle icon="💡">إعدادات شكل وتفاصيل أمر التشغيل (PO) اللي بيطبع للورش — البيانات اللي تظهر، الترتيب، الشعار، والـheader.</CardSubtitle>
       ✨ تعديلات غير محفوظة — اضغط حفظ للتأكيد
     </div>:null}
     <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12,marginBottom:14}}>
@@ -1304,8 +1598,8 @@ function SeasonsCard({config,upConfig,T,FS,showToast,Inp,Btn,Card,requirePass,se
       showToast("✅ تم حفظ إعدادات المواسم");
     });
   };
-  const handleDiscard=()=>{
-    if(!confirm("إلغاء كل التعديلات؟"))return;
+  const handleDiscard=async ()=>{
+    if(!await ask("إلغاء كل التعديلات", "هل تريد إلغاء كل التعديلات؟", {danger:true,confirmText:"إلغاء الكل"}))return;
     setDraft(JSON.parse(savedJson));
     setPendingDeletes([]);
     setNewName("");
@@ -1313,6 +1607,7 @@ function SeasonsCard({config,upConfig,T,FS,showToast,Inp,Btn,Card,requirePass,se
 
   return<Card title={"📅 ادارة المواسم"+(isDirty?" ✨":"")} style={{marginBottom:12,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
     {isDirty?<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700}}>
+    <CardSubtitle icon="💡">إدارة المواسم في البرنامج. الموسم وحدة تنظيمية تجمع الأوردرات والحركات في فترة زمنية محددة (مثلاً: صيف 2026). كل موسم بياناته منفصلة.</CardSubtitle>
       ✨ تعديلات غير محفوظة — اضغط حفظ للتأكيد
     </div>:null}
     <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
@@ -1361,8 +1656,8 @@ function LogoCard({config,upConfig,T,FS,showToast,Btn,Card,requirePass,compressI
     }catch(err){showToast("⛔ فشل معالجة الصورة")}
     finally{e.target.value=""}
   };
-  const handleRemove=()=>{
-    if(!confirm("هل تريد حذف اللوجو؟"))return;
+  const handleRemove=async ()=>{
+    if(!await ask("حذف اللوجو", "هل تريد حذف اللوجو؟", {danger:true,confirmText:"حذف"}))return;
     setDraftLogo("");
   };
   const handleSave=()=>{
@@ -1371,12 +1666,13 @@ function LogoCard({config,upConfig,T,FS,showToast,Btn,Card,requirePass,compressI
       showToast("✅ تم حفظ اللوجو");
     });
   };
-  const handleDiscard=()=>{
-    if(!confirm("إلغاء التعديلات على اللوجو؟"))return;
+  const handleDiscard=async ()=>{
+    if(!await ask("إلغاء التعديلات", "إلغاء التعديلات على اللوجو؟", {danger:true,confirmText:"إلغاء"}))return;
     setDraftLogo(savedLogo);
   };
   return<Card title={"لوجو المصنع"+(isDirty?" ✨":"")} style={{marginBottom:12,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
     {isDirty&&<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700}}>
+    <CardSubtitle icon="💡">شعار المصنع اللي بيظهر في كل التقارير، الفواتير، والمطبوعات. ارفع صورة بصيغة PNG أو JPG.</CardSubtitle>
       ✨ تعديلات غير محفوظة — اضغط حفظ للتأكيد
     </div>}
     <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
@@ -1453,8 +1749,8 @@ export function WaContactsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Car
     showToast("✅ تم حفظ جهات التواصل");
   };
   /* Discard: reset draft to saved */
-  const handleDiscard=()=>{
-    if(!confirm("سيتم إلغاء كل التعديلات غير المحفوظة. هل تريد المتابعة؟"))return;
+  const handleDiscard=async ()=>{
+    if(!await ask("إلغاء التعديلات", "سيتم إلغاء كل التعديلات غير المحفوظة. هل تريد المتابعة؟", {danger:true,confirmText:"إلغاء التعديلات"}))return;
     setDraftContacts(JSON.parse(JSON.stringify(savedContacts)));
     showToast("↩️ تم إلغاء التعديلات");
   };
@@ -1478,8 +1774,8 @@ export function WaContactsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Car
     showToast("✨ تمت الإضافة للمسودة — اضغط حفظ لتأكيد");
   };
   /* Delete from draft (not saved yet) */
-  const handleDelete=(idx,name)=>{
-    if(!confirm("حذف جهة «"+name+"» من المسودة؟"))return;
+  const handleDelete=async (idx,name)=>{
+    if(!await ask("حذف جهة", "حذف جهة «"+name+"» من المسودة؟", {danger:true,confirmText:"حذف"}))return;
     setDraftContacts(prev=>prev.filter((_,i)=>i!==idx));
     showToast("✨ تم الحذف من المسودة — اضغط حفظ لتأكيد");
   };
@@ -1499,6 +1795,7 @@ export function WaContactsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Car
 
   return<Card title={"📱 جهات تواصل التقارير (واتساب)"+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
     <div>
+    <CardSubtitle icon="💡">أرقام الواتساب اللي بترسلهم التقارير اليومية والأسبوعية أوتوماتيكياً. أضف الرقم بصيغة دولية (مثلاً: 201xxxxxxxxx).</CardSubtitle>
       {isDirty&&<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700,display:"flex",alignItems:"center",gap:8}}>
         <span style={{fontSize:16}}>✨</span>
         <span>لديك تعديلات غير محفوظة — اضغط "حفظ" للتأكيد أو "إلغاء" للرجوع</span>
@@ -1566,6 +1863,417 @@ export function WaContactsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Car
   </Card>;
 }
 
+
+
+/* V16.78: STOCK MODE PICKER — اختيار سلوك المخزن مع الأوردرات */
+function StockModeCard({configDoc,upConfig,canEdit}){
+  const ps=configDoc?.purchaseSettings||{};
+  const stockEnabled=!!ps.stockEnabled;
+  
+  /* تحديد الـmode الحالي بناءً على الـsettings */
+  let currentMode="off";
+  if(stockEnabled){
+    if(ps.autoDeductOnCut===false){
+      currentMode="display";/* المخزن مفعّل لكن مش بيخصم */
+    }else if(ps.blockOnInsufficientStock===false){
+      currentMode="warning";/* بيخصم بالسالب */
+    }else{
+      currentMode="strict";/* الافتراضي: يرفض السالب */
+    }
+  }
+  
+  const setMode=async(newMode)=>{
+    if(!canEdit)return;
+    let confirmMsg="";
+    if(newMode==="off"){
+      confirmMsg="سيتم إيقاف خصم الأوردرات من المخزن.\n\nالأوردرات الجديدة لن تخصم خامات من المخزن، ويمكنك تعديل الأرصدة يدوياً.\n\nمتأكد؟";
+    }else if(newMode==="display"){
+      confirmMsg="سيتم تفعيل المخزن للعرض فقط (مفيش خصم تلقائي).\n\nالاستلامات هتضاف للمخزن، لكن الأوردرات لن تخصم تلقائياً. تقدر تخصم يدوياً.\n\nمتأكد؟";
+    }else if(newMode==="warning"){
+      confirmMsg="سيتم السماح بالسحب بالسالب.\n\nالأوردرات هتخصم من المخزن حتى لو الرصيد مش كافي. هيظهر تحذير لكن مش هيمنع.\n\n⚠️ ده ممكن يخفي مشاكل حقيقية في الجرد.\n\nمتأكد؟";
+    }else if(newMode==="strict"){
+      confirmMsg="سيتم تفعيل الوضع الصارم (الافتراضي).\n\nالأوردرات اللي مش هيكفيها رصيد هتترفض حتى تضيف الكميات للمخزن.\n\nمتأكد؟";
+    }
+    const ok=await ask("تغيير وضع المخزن",confirmMsg,{confirmText:"تأكيد"});
+    if(!ok)return;
+    
+    upConfig(d=>{
+      if(!d.purchaseSettings)d.purchaseSettings={};
+      const today=new Date().toISOString().split("T")[0];
+      if(newMode==="off"){
+        d.purchaseSettings.stockEnabled=false;
+      }else if(newMode==="display"){
+        d.purchaseSettings.stockEnabled=true;
+        d.purchaseSettings.autoDeductOnCut=false;
+        if(!d.purchaseSettings.stockActivationDate)d.purchaseSettings.stockActivationDate=today;
+      }else if(newMode==="warning"){
+        d.purchaseSettings.stockEnabled=true;
+        d.purchaseSettings.autoDeductOnCut=true;
+        d.purchaseSettings.blockOnInsufficientStock=false;
+        if(!d.purchaseSettings.stockActivationDate)d.purchaseSettings.stockActivationDate=today;
+      }else if(newMode==="strict"){
+        d.purchaseSettings.stockEnabled=true;
+        d.purchaseSettings.autoDeductOnCut=true;
+        d.purchaseSettings.blockOnInsufficientStock=true;
+        if(!d.purchaseSettings.stockActivationDate)d.purchaseSettings.stockActivationDate=today;
+      }
+    });
+    showToast("✓ تم تغيير وضع المخزن");
+  };
+  
+  const modes=[
+    {key:"off",      icon:"🚫",label:"مغلق",       desc:"المخزن مش مفعل. الأوردرات لا تخصم. التحكم اليدوي بالكميات بس.",color:T.textMut},
+    {key:"display",  icon:"👁️",label:"عرض فقط",     desc:"المخزن مفعّل لكن مفيش خصم تلقائي من الأوردرات. الاستلامات تضاف. التعديل يدوي.",color:"#0EA5E9"},
+    {key:"warning",  icon:"⚠️", label:"السماح بالسالب",desc:"الأوردرات تخصم حتى لو الرصيد مش كافي. تحذير بس بدون منع. ممكن يخفي مشاكل.",color:T.warn},
+    {key:"strict",   icon:"🔒",label:"صارم (الافتراضي)",desc:"الأوردرات اللي مش هيكفيها رصيد ترفض. الجرد سليم دائماً.",color:T.ok},
+  ];
+  
+  return<Card title="🏭 وضع المخزن" style={{marginBottom:14}}>
+    <CardSubtitle icon="💡">
+      هذا الإعداد يحدد كيف يتعامل البرنامج مع المخزن أوتوماتيكياً.
+      عند تأكيد أي أوردر للقص، البرنامج يخصم القماش والإكسسوارات من المخزن — الـmode بيحدد سلوك ده.
+      <br/><b>ملاحظة:</b> الأوردرات القديمة (قبل تفعيل المخزن) لا تتأثر.
+    </CardSubtitle>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+      {modes.map(m=>{
+        const isActive=currentMode===m.key;
+        return<div key={m.key}
+          onClick={canEdit?()=>setMode(m.key):undefined}
+          style={{
+            padding:14,borderRadius:10,
+            background:isActive?m.color+"12":T.cardSolid,
+            border:"2px solid "+(isActive?m.color:T.brd),
+            cursor:canEdit?"pointer":"default",
+            opacity:!canEdit?0.7:1,
+            transition:"all 0.2s",
+          }}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+            <span style={{fontSize:FS+4}}>{m.icon}</span>
+            <span style={{fontWeight:800,fontSize:FS,color:isActive?m.color:T.text}}>{m.label}</span>
+            {isActive&&<span style={{marginInlineStart:"auto",padding:"2px 8px",borderRadius:6,background:m.color,color:"#fff",fontSize:FS-3,fontWeight:700}}>الحالي</span>}
+          </div>
+          <div style={{fontSize:FS-2,color:T.textSec,lineHeight:1.5}}>{m.desc}</div>
+        </div>;
+      })}
+    </div>
+    {!canEdit&&<div style={{marginTop:10,padding:8,background:T.warn+"08",borderRadius:8,fontSize:FS-3,color:T.textMut}}>
+      ℹ️ تغيير وضع المخزن متاح فقط للمدير أو المحاسب
+    </div>}
+    {ps.stockActivationDate&&<div style={{marginTop:10,fontSize:FS-3,color:T.textMut}}>
+      📅 تاريخ تفعيل المخزن: {ps.stockActivationDate}
+    </div>}
+  </Card>;
+}
+
+
+/* V16.75: STORAGE NOTICES PANEL — يعرض رسائل التخزين (نجاح/تحذير/خطأ) من أي مصدر */
+function StorageNoticesPanel(){
+  const[notices,setNotices]=useState([]);
+  const[refreshKey,setRefreshKey]=useState(0);
+  const[showSeen,setShowSeen]=useState(false);
+  
+  React.useEffect(()=>{
+    let mounted=true;
+    let unsub=null;
+    import("../utils/storageNotices.js").then(mod=>{
+      if(!mounted)return;
+      const refresh=async ()=>{
+        if(!mounted)return;
+        setNotices(mod.getStorageNotices());
+      };
+      refresh();
+      unsub=mod.subscribeToNotices(refresh);
+    });
+    return()=>{mounted=false;if(unsub)unsub()};
+  },[refreshKey]);
+  
+  const handleMarkAllSeen=async()=>{
+    const mod=await import("../utils/storageNotices.js");
+    mod.markAllNoticesSeen();
+  };
+  const handleClearSeen=async()=>{
+    const mod=await import("../utils/storageNotices.js");
+    mod.clearSeenNotices();
+  };
+  const handleClearAll=async()=>{
+    if(!await ask("حذف الكل", "حذف كل الرسائل؟", {danger:true,confirmText:"حذف الكل"}))return;
+    const mod=await import("../utils/storageNotices.js");
+    mod.clearStorageNotices();
+  };
+  const handleRemove=async(id)=>{
+    const mod=await import("../utils/storageNotices.js");
+    mod.removeStorageNotice(id);
+  };
+  const handleMarkSeen=async(id)=>{
+    const mod=await import("../utils/storageNotices.js");
+    mod.markNoticeSeen(id);
+  };
+  
+  const visibleNotices=showSeen?notices:notices.filter(n=>!n.seen);
+  const unseenCount=notices.filter(n=>!n.seen).length;
+  
+  if(notices.length===0)return null;/* لا تعرض الـcard لو فاضي */
+  
+  const levelMeta={
+    success:{bg:"#10B98108",border:"#10B98140",color:"#059669",icon:"✓"},
+    info:   {bg:"#3B82F608",border:"#3B82F640",color:"#2563EB",icon:"ℹ"},
+    warning:{bg:"#F59E0B08",border:"#F59E0B40",color:"#D97706",icon:"⚠"},
+    error:  {bg:"#EF444408",border:"#EF444440",color:"#DC2626",icon:"⛔"},
+  };
+  
+  return<Card title={"📬 رسائل نظام التخزين"+(unseenCount>0?" ("+unseenCount+" جديد)":"")} style={{marginBottom:14}}>
+    <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
+      رسائل عن تطبيق التحديثات وعمليات الـsync. هذه الرسائل تظهر هنا فقط (لا تظهر في صفحات الموظفين) لتجنب إزعاجهم.
+    </div>
+    
+    <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+      <Btn ghost small onClick={()=>setShowSeen(!showSeen)} style={{fontSize:FS-2}}>
+        {showSeen?"إخفاء المقروءة":"عرض المقروءة"}
+      </Btn>
+      {unseenCount>0&&<Btn ghost small onClick={handleMarkAllSeen} style={{fontSize:FS-2}}>تعليم الكل كمقروء</Btn>}
+      <Btn ghost small onClick={handleClearSeen} style={{fontSize:FS-2}}>حذف المقروءة</Btn>
+      <Btn ghost small onClick={handleClearAll} style={{fontSize:FS-2,color:T.danger}}>حذف الكل</Btn>
+      <Btn ghost small onClick={()=>setRefreshKey(k=>k+1)} style={{fontSize:FS-2}}>🔄</Btn>
+    </div>
+    
+    {visibleNotices.length===0?
+      <div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-2}}>
+        {showSeen?"لا توجد رسائل":"لا توجد رسائل جديدة"}
+      </div>:
+      <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:500,overflowY:"auto"}}>
+        {visibleNotices.map(n=>{
+          const m=levelMeta[n.level]||levelMeta.info;
+          return<div key={n.id} style={{
+            padding:10,borderRadius:8,
+            background:m.bg,
+            border:"1px solid "+m.border,
+            opacity:n.seen?0.65:1,
+            position:"relative",
+          }}>
+            <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
+              <span style={{fontSize:18,color:m.color,flexShrink:0,lineHeight:1}}>{m.icon}</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:700,color:m.color,fontSize:FS,marginBottom:2}}>{n.title}</div>
+                {n.details&&<div style={{fontSize:FS-2,color:T.textSec,lineHeight:1.6,marginTop:4,wordBreak:"break-word"}}>{n.details}</div>}
+                <div style={{fontSize:FS-3,color:T.textMut,marginTop:6}}>
+                  {(()=>{try{const d=new Date(n.at);return d.toLocaleString("ar-EG")}catch(e){return n.at}})()}
+                  {n.seen&&<span style={{marginInlineStart:8,opacity:0.6}}>(مقروء)</span>}
+                </div>
+              </div>
+              <div style={{display:"flex",gap:4,flexShrink:0}}>
+                {!n.seen&&<button onClick={()=>handleMarkSeen(n.id)} title="تعليم كمقروء"
+                  style={{padding:"2px 6px",borderRadius:4,border:"1px solid "+T.brd,background:"transparent",color:T.textSec,fontSize:FS-3,cursor:"pointer"}}>✓</button>}
+                <button onClick={()=>handleRemove(n.id)} title="حذف"
+                  style={{padding:"2px 6px",borderRadius:4,border:"1px solid "+T.brd,background:"transparent",color:T.danger,fontSize:FS-3,cursor:"pointer"}}>×</button>
+              </div>
+            </div>
+          </div>;
+        })}
+      </div>
+    }
+  </Card>;
+}
+
+
+/* V16.75: PARTITIONED DOCS MONITOR — يعرض حجم كل document في hrWeeksDocs */
+function PartitionedDocsMonitor(){
+  const[stats,setStats]=useState(null);
+  const[loading,setLoading]=useState(true);
+  const[expanded,setExpanded]=useState({hrWeeks:false});
+  const[refreshKey,setRefreshKey]=useState(0);
+  
+  React.useEffect(()=>{
+    let cancelled=false;
+    setLoading(true);
+    import("../utils/partitionedCollections.js").then(mod=>{
+      mod.getAllPartitionedStats().then(data=>{
+        if(cancelled)return;
+        setStats(data);
+        setLoading(false);
+      });
+    });
+    return()=>{cancelled=true};
+  },[refreshKey]);
+  
+  const fmt=(b)=>{if(!b)return"0 B";if(b<1024)return b+" B";if(b<1024*1024)return(b/1024).toFixed(1)+" KB";return(b/(1024*1024)).toFixed(2)+" MB"};
+  
+  const collectionMeta={
+    hrWeeks:{label:"📅 أسابيع المرتبات (hrWeeksDocs)",color:"#8B5CF6"},
+  };
+  
+  return<Card title="📑 مراقبة الـDocuments المُجزّأة (V16.75)" style={{marginBottom:14}}>
+    <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
+      أسابيع المرتبات (hrWeeks) متخزنة كـdocuments منفصلة، كل أسبوع document مستقل.
+      هذا يسمح بتراكم سنوات من البيانات بدون قيود الحجم.
+    </div>
+    
+    <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+      <Btn ghost small onClick={()=>setRefreshKey(k=>k+1)} style={{fontSize:FS-2}}>🔄 تحديث</Btn>
+    </div>
+    
+    {loading?<div style={{padding:20,textAlign:"center",color:T.textMut}}>جاري التحميل…</div>:
+     !stats?<div style={{padding:20,textAlign:"center",color:T.danger}}>تعذر قراءة البيانات</div>:
+    
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      {Object.entries(collectionMeta).map(([key,meta])=>{
+        const s=stats[key];
+        if(!s)return null;
+        const isExp=expanded[key];
+        return<div key={key} style={{border:"1px solid "+T.brd,borderRadius:10,overflow:"hidden"}}>
+          <div style={{padding:12,background:meta.color+"08",borderBottom:isExp?"1px solid "+T.brd:"none",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",cursor:"pointer"}}
+               onClick={()=>setExpanded(e=>({...e,[key]:!e[key]}))}>
+            <div style={{fontWeight:700,fontSize:FS,flex:1,minWidth:160,color:meta.color}}>{meta.label}</div>
+            <div style={{fontSize:FS-1,color:T.textSec,display:"flex",gap:14,flexWrap:"wrap"}}>
+              <span><b style={{color:T.text}}>{s.itemCount}</b> document</span>
+              <span><b style={{color:T.text}}>{fmt(s.totalSize)}</b></span>
+              <span style={{color:T.textMut}}>متوسط/document: {fmt(s.avgSize)}</span>
+            </div>
+            <span style={{fontSize:14,color:T.textMut}}>{isExp?"▾":"▸"}</span>
+          </div>
+          
+          {isExp&&<div style={{padding:0}}>
+            {s.itemCount===0?
+              <div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-2}}>لا يوجد بيانات</div>:
+              <div style={{maxHeight:340,overflowY:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-2}}>
+                  <thead style={{position:"sticky",top:0,background:T.bg}}>
+                    <tr style={{borderBottom:"1px solid "+T.brd}}>
+                      <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>الأسبوع</th>
+                      <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>التواريخ</th>
+                      <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>الحالة</th>
+                      <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>الحجم</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {s.items.map(it=>{
+                      const danger=it.size>800_000;
+                      const statusColors={"closed":"#10B981","open":"#3B82F6","draft":"#F59E0B"};
+                      const sc=statusColors[it.status]||T.textMut;
+                      return<tr key={it.id} style={{borderBottom:"1px solid "+T.brd+"40"}}>
+                        <td style={{padding:"6px 10px",fontWeight:600}}>{it.label}</td>
+                        <td style={{padding:"6px 10px",color:T.textMut,fontFamily:"monospace",fontSize:FS-3}}>{it.subLabel||"—"}</td>
+                        <td style={{padding:"6px 10px"}}>
+                          {it.status?<span style={{padding:"2px 8px",borderRadius:4,background:sc+"15",color:sc,fontSize:FS-3}}>{it.status}</span>:"—"}
+                        </td>
+                        <td style={{padding:"6px 10px",color:danger?T.danger:T.text,fontWeight:danger?700:400}}>{fmt(it.size)}{danger?" ⚠️":""}</td>
+                      </tr>;
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>}
+        </div>;
+      })}
+    </div>}
+    
+    <div style={{marginTop:12,padding:"8px 12px",background:T.accent+"06",borderRadius:8,fontSize:FS-3,color:T.textMut,lineHeight:1.6}}>
+      💡 كل document = أسبوع مرتبات كامل (~67 KB في المتوسط). لو document تخطى 800 KB يظهر بلون أحمر — وقتها نقسم تفاصيل الأسبوع لأكثر من document (مستحيل عملياً).
+    </div>
+  </Card>;
+}
+
+
+/* V16.74: SPLIT DAYS MONITOR — يعرض حجم كل document يومي للـ3 split collections */
+function SplitDaysMonitor(){
+  const[stats,setStats]=useState(null);
+  const[loading,setLoading]=useState(true);
+  const[expanded,setExpanded]=useState({treasury:false,auditLog:false,hrLog:false});
+  const[refreshKey,setRefreshKey]=useState(0);
+  
+  React.useEffect(()=>{
+    let cancelled=false;
+    setLoading(true);
+    import("../utils/splitCollections.js").then(mod=>{
+      mod.getAllSplitStats().then(data=>{
+        if(cancelled)return;
+        setStats(data);
+        setLoading(false);
+      });
+    });
+    return()=>{cancelled=true};
+  },[refreshKey]);
+  
+  const fmt=(b)=>{if(!b)return"0 B";if(b<1024)return b+" B";if(b<1024*1024)return(b/1024).toFixed(1)+" KB";return(b/(1024*1024)).toFixed(2)+" MB"};
+  
+  const collectionMeta={
+    treasury:{label:"💰 الخزنة (treasuryDays)",color:T.accent},
+    auditLog:{label:"📝 سجل الأحداث (auditDays)",color:"#F59E0B"},
+    hrLog:   {label:"📋 سجل HR (hrLogDays)",color:"#10B981"},
+  };
+  
+  return<Card title="📅 مراقبة التخزين اليومي (V16.74)" style={{marginBottom:14}}>
+    <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
+      الخزنة وسجل الأحداث وسجل HR متخزنين في documents يومية منفصلة بدل ملف واحد كبير.
+      كل document فيه حركات يوم واحد فقط. هذا يخلي البرنامج يستوعب نمو سنوي بدون مشاكل في الحجم.
+    </div>
+    
+    <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+      <Btn ghost small onClick={()=>setRefreshKey(k=>k+1)} style={{fontSize:FS-2}}>🔄 تحديث</Btn>
+    </div>
+    
+    {loading?<div style={{padding:20,textAlign:"center",color:T.textMut}}>جاري التحميل…</div>:
+     !stats?<div style={{padding:20,textAlign:"center",color:T.danger}}>تعذر قراءة البيانات</div>:
+    
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      {Object.entries(collectionMeta).map(([key,meta])=>{
+        const s=stats[key];
+        if(!s)return null;
+        const isExp=expanded[key];
+        const top10=s.days.slice(0,10);
+        return<div key={key} style={{border:"1px solid "+T.brd,borderRadius:10,overflow:"hidden"}}>
+          {/* header */}
+          <div style={{padding:12,background:meta.color+"08",borderBottom:isExp?"1px solid "+T.brd:"none",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",cursor:"pointer"}}
+               onClick={()=>setExpanded(e=>({...e,[key]:!e[key]}))}>
+            <div style={{fontWeight:700,fontSize:FS,flex:1,minWidth:160,color:meta.color}}>{meta.label}</div>
+            <div style={{fontSize:FS-1,color:T.textSec,display:"flex",gap:14,flexWrap:"wrap"}}>
+              <span><b style={{color:T.text}}>{s.dayCount}</b> يوم</span>
+              <span><b style={{color:T.text}}>{s.totalCount.toLocaleString("ar-EG")}</b> سجل</span>
+              <span><b style={{color:T.text}}>{fmt(s.totalSize)}</b></span>
+              <span style={{color:T.textMut}}>متوسط/يوم: {fmt(s.avgDaySize)}</span>
+            </div>
+            <span style={{fontSize:14,color:T.textMut}}>{isExp?"▾":"▸"}</span>
+          </div>
+          
+          {/* expanded: list of days */}
+          {isExp&&<div style={{padding:0}}>
+            {s.dayCount===0?
+              <div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-2}}>لا يوجد بيانات بعد</div>:
+              <div style={{maxHeight:340,overflowY:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-2}}>
+                  <thead style={{position:"sticky",top:0,background:T.bg}}>
+                    <tr style={{borderBottom:"1px solid "+T.brd}}>
+                      <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>اليوم</th>
+                      <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>عدد الحركات</th>
+                      <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>الحجم</th>
+                      <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>المتوسط/حركة</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {s.days.map(d=>{
+                      const avg=d.count>0?Math.round(d.size/d.count):0;
+                      const danger=d.size>800_000;/* قريب من حد 1MB */
+                      return<tr key={d.date} style={{borderBottom:"1px solid "+T.brd+"40"}}>
+                        <td style={{padding:"6px 10px",fontFamily:"monospace",color:danger?T.danger:T.text}}>{d.date}</td>
+                        <td style={{padding:"6px 10px"}}>{d.count}</td>
+                        <td style={{padding:"6px 10px",color:danger?T.danger:T.text,fontWeight:danger?700:400}}>{fmt(d.size)}{danger?" ⚠️":""}</td>
+                        <td style={{padding:"6px 10px",color:T.textMut}}>{fmt(avg)}</td>
+                      </tr>;
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>}
+        </div>;
+      })}
+    </div>}
+    
+    <div style={{marginTop:12,padding:"8px 12px",background:T.accent+"06",borderRadius:8,fontSize:FS-3,color:T.textMut,lineHeight:1.6}}>
+      💡 الميزة: كل يوم في document منفصل (≤ 5KB عادة) بدل ملف واحد كبير. لو يوم تخطى 800KB يظهر بلون أحمر — وقتها لازم نقسم الـcollection ده على فترات أصغر (نص يوم، ساعة، إلخ).
+    </div>
+  </Card>;
+}
 
 
 /* V16.0: SIZE BUDGET DASHBOARD — tracks feature sizes with per-feature limits + recommendations.
@@ -1803,12 +2511,24 @@ function PermissionsCard({config,upConfig,T,FS,TABS,Btn,showToast}){
   const levels=["edit","view","hide"];
   const levelLabels={edit:"✏️ تعديل",view:"👁 عرض",hide:"❌ مخفي"};
   const levelColors={edit:T.ok,view:T.warn,hide:T.err};
-  /* V15.66: Draft setters — mutate local state only */
+  /* V15.66: Draft setters — mutate local state only.
+     V18.61: Hard-block admin writes — even if a UI bug or DevTools tampering
+     tries to set permissions[admin].*, refuse silently. The runtime
+     getTabPerm() already ignores these values for admin, but this prevents
+     polluting factory/config with stale custom admin permissions. */
   const setPerm=(role,tabKey,level)=>{
+    if(role==="admin"){
+      console.warn("[V18.61] Refused setPerm for admin role — admin permissions are hardcoded");
+      return;
+    }
     setDraftPerms(p=>{const n=JSON.parse(JSON.stringify(p));if(!n[role])n[role]={};n[role][tabKey]=level;return n});
     setPermsDirty(true);
   };
   const setHrSubPerm=(role,subKey,level)=>{
+    if(role==="admin"){
+      console.warn("[V18.61] Refused setHrSubPerm for admin role — admin permissions are hardcoded");
+      return;
+    }
     setDraftPerms(p=>{
       const n=JSON.parse(JSON.stringify(p));
       if(!n[role])n[role]={};
@@ -1821,8 +2541,15 @@ function PermissionsCard({config,upConfig,T,FS,TABS,Btn,showToast}){
     });
     setPermsDirty(true);
   };
+  /* V18.61: Strip any admin entry from draft before saving — defensive cleanup
+     that ensures we never persist custom admin permissions back to factory/config.
+     If the database somehow has them (legacy / tampering), this also cleans them up. */
   const savePerms=()=>{
-    upConfig(d=>{d.permissions=JSON.parse(JSON.stringify(draftPerms))});
+    upConfig(d=>{
+      const cleaned=JSON.parse(JSON.stringify(draftPerms));
+      if(cleaned.admin)delete cleaned.admin;/* admin is hardcoded, never persisted */
+      d.permissions=cleaned;
+    });
     setPermsDirty(false);
     showToast("✓ تم حفظ الصلاحيات");
   };
@@ -1856,14 +2583,26 @@ function PermissionsCard({config,upConfig,T,FS,TABS,Btn,showToast}){
     {key:"employees",label:"━ إدارة الموظفين",icon:"👷"},
     {key:"security",label:"━ الأمن والرقابة",icon:"🛡️"}
   ];
+  /* V18.61: Admin column is hardcoded — cell renders "✏️ دائماً" instead of a select.
+     Matches the runtime behavior of getTabPerm() which short-circuits for admin. */
+  const AdminLockedCell=()=><span style={{fontSize:FS-2,color:T.ok,fontWeight:700,padding:"4px 8px",background:T.ok+"12",borderRadius:6,border:"1px solid "+T.ok+"30",display:"inline-block"}}>✏️ دائماً</span>;
   return<div style={{overflowX:"auto"}}>
     <div style={{fontSize:FS-2,color:T.textMut,marginBottom:10,padding:"8px 12px",background:T.accent+"08",borderRadius:8,lineHeight:1.7}}>
       💡 <b>محاسب مرتبات</b>: يحسب المرتبات بس مش بيقدر يؤكد الاستلام.<br/>
       💡 <b>مُؤكِّد استلام</b>: يسكن QR بس، ومش بيقدر يعدل أي مبلغ.<br/>
       🛡️ <b>فصل الصلاحيات</b>: المحاسب اللي عدّل المرتب ممنوع يؤكد استلامه (إلا الأدمن).
     </div>
+    {/* V18.61: Notice that admin permissions are locked */}
+    <div style={{fontSize:FS-2,color:T.ok,marginBottom:10,padding:"10px 14px",background:T.ok+"08",border:"1px solid "+T.ok+"40",borderRadius:8,lineHeight:1.7,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+      <span style={{fontSize:FS+4}}>🔒</span>
+      <span>
+        <b>صلاحيات الـ admin مثبّتة في الكود</b> — مش قابلة للتعديل من هنا.
+        ده عشان نحمي النظام: لو حد عدّلها بالغلط أو بسبب bug، الـ admin هيفقد دخوله ويقفل النظام.
+        لتغييرها، لازم release كود جديد.
+      </span>
+    </div>
     <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
-      <thead><tr><th style={TH}>الشاشة</th>{roles.map(r=><th key={r} style={{...TH,textAlign:"center",fontSize:FS-2}}>{roleLabels[r]}</th>)}</tr></thead>
+      <thead><tr><th style={TH}>الشاشة</th>{roles.map(r=><th key={r} style={{...TH,textAlign:"center",fontSize:FS-2,...(r==="admin"?{background:T.ok+"08",color:T.ok}:{})}}>{r==="admin"?"🔒 ":""}{roleLabels[r]}</th>)}</tr></thead>
       <tbody>{tabs.map(t=>{
         /* If this tab is "hr", render the parent row + 4 sub-rows */
         if(t.key==="hr"){
@@ -1880,6 +2619,12 @@ function PermissionsCard({config,upConfig,T,FS,TABS,Btn,showToast}){
                 <span style={{marginLeft:6}}>{sub.icon}</span>{sub.label}
               </td>
               {roles.map(r=>{
+                /* V18.61: Admin column is locked — always shows the hardcoded value */
+                if(r==="admin"){
+                  return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px",background:T.ok+"05"}}>
+                    <AdminLockedCell/>
+                  </td>;
+                }
                 const cur=getHrCur(r,sub.key);
                 return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px"}}>
                   <select value={cur} onChange={e=>setHrSubPerm(r,sub.key,e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:levelColors[cur],fontWeight:700,cursor:"pointer"}}>
@@ -1893,13 +2638,20 @@ function PermissionsCard({config,upConfig,T,FS,TABS,Btn,showToast}){
         /* Non-HR tab — regular rendering, reads from draft */
         return<tr key={t.key}>
           <td style={{...TD,fontWeight:600}}><span style={{marginLeft:6}}>{t.icon}</span>{t.label}</td>
-          {roles.map(r=>{const cur=(draftPerms[r]||{})[t.key]||(defPerms[r]||{})[t.key]||"view";
+          {roles.map(r=>{
+            /* V18.61: Admin column is locked — always shows the hardcoded value */
+            if(r==="admin"){
+              return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px",background:T.ok+"05"}}>
+                <AdminLockedCell/>
+              </td>;
+            }
+            const cur=(draftPerms[r]||{})[t.key]||(defPerms[r]||{})[t.key]||"view";
             return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px"}}>
-              {r==="admin"&&t.key==="settings"?<span style={{fontSize:FS-2,color:T.ok,fontWeight:600}}>✏️ دائماً</span>:
               <select value={cur} onChange={e=>setPerm(r,t.key,e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:levelColors[cur],fontWeight:700,cursor:"pointer"}}>
                 {levels.map(l=><option key={l} value={l}>{levelLabels[l]}</option>)}
-              </select>}
-            </td>})}
+              </select>
+            </td>;
+          })}
         </tr>;
       })}</tbody>
     </table>
@@ -1985,7 +2737,49 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     try{await signInWithEmailAndPassword(auth,user.email,adminPass);if(pendingAction)pendingAction();setPendingAction(null);setAdminPass("")}
     catch(e){setPassErr("كلمة المرور غير صحيحة")}finally{setPassLoading(false)}};
   /* V16.6: Logo + addSeason/deleteSeason now inside LogoCard/SeasonsCard components */
-  const clearAllOrders=()=>{requirePass(async()=>{try{const snap=await getDocs(collection(db,"seasons",season,"orders"));await Promise.all(snap.docs.map(d=>deleteDoc(doc(db,"seasons",season,"orders",d.id))))}catch(e){}setClearConfirm(false)})};
+  /* V18.62: clearAllOrders is now safer:
+     1. Takes auto-pre-restore comprehensive backup BEFORE deleting
+     2. Logs the operation to restoreLog
+     3. Surfaces errors instead of silently swallowing them
+     4. Shows progress to the user */
+  const clearAllOrders=()=>{requirePass(async()=>{
+    try{
+      showToast("⏳ بعمل نسخة احتياطية شاملة قبل المسح...");
+      const preBackup=await createComprehensiveBackup({
+        label:"تلقائي قبل مسح كل أوردرات الموسم "+season,
+        user:{email:user?.email,uid:user?.uid},
+        autoGenerated:false,
+        onProgress:()=>{},
+      });
+      try{
+        await setDoc(doc(db,"restoreLog",preBackup.backupId),{
+          ts:new Date().toISOString(),
+          by:user?.email||user?.uid||"unknown",
+          action:"clear_all_orders",
+          season:season,
+          preRestoreBackupId:preBackup.backupId,
+        });
+      }catch(logErr){console.warn("[V18.62] restoreLog failed:",logErr)}
+      showToast("⏳ جاري مسح أوردرات الموسم "+season+"...");
+      const snap=await getDocs(collection(db,"seasons",season,"orders"));
+      const total=snap.docs.length;
+      let deleted=0;const errors=[];
+      for(const d of snap.docs){
+        try{await deleteDoc(doc(db,"seasons",season,"orders",d.id));deleted++}
+        catch(e){errors.push({id:d.id,err:String(e?.message||e)})}
+      }
+      if(errors.length>0){
+        console.error("[V18.62] clearAllOrders had errors:",errors);
+        showToast("⚠️ تم مسح "+deleted+"/"+total+" — "+errors.length+" فشلت. النسخة في "+preBackup.backupId);
+      }else{
+        showToast("✅ تم مسح "+deleted+" أوردر. نسخة احتياطية: "+preBackup.backupId);
+      }
+    }catch(e){
+      console.error("[V18.62] clearAllOrders failed:",e);
+      showToast("⚠️ فشل المسح: "+(e?.message||String(e)).slice(0,100));
+    }
+    setClearConfirm(false);
+  })};
 
   /* ═══ PO Migration V14.48 — Renumber all orders with new sequential format ═══ */
   const[poMigState,setPoMigState]=useState(null);/* null | "confirm1" | "confirm2" | "running" | "done" */
@@ -2105,6 +2899,24 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
       </div>;
     })()}
     {activeTab==="general" && <>
+    {/* V16.75: Storage notices — رسائل التخزين بدلاً من toasts للمستخدمين */}
+    <StorageNoticesPanel/>
+    {/* V16.78: Stock mode picker — يحدد سلوك المخزن مع الأوردرات */}
+    <StockModeCard configDoc={configDoc} upConfig={upConfig} canEdit={userRole==="admin"||userRole==="accountant"}/>
+    {/* V16.75: Quick health overview — الـbars اللي اتشالت من الشاشات (Treasury, HR, Audit) */}
+    <Card title="📊 نظرة سريعة على حالة التخزين" style={{marginBottom:14}}>
+      <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
+        ملخص حالة كل collection. الخطر مش في الإجمالي، بل في أكبر document منفرد (حد Firestore = 1MB لكل document).
+      </div>
+      <CollectionHealthBar collection="treasuryDays" label="حجم بيانات الخزنة"      icon="💰" mode="split"/>
+      <CollectionHealthBar collection="hrWeeksDocs"  label="حجم أسابيع المرتبات"   icon="📅" mode="partitioned"/>
+      <CollectionHealthBar collection="hrLogDays"    label="حجم سجل HR"             icon="📋" mode="split"/>
+      <CollectionHealthBar collection="auditDays"    label="حجم سجل الأحداث"        icon="📝" mode="split"/>
+    </Card>
+    {/* V16.75: Partitioned docs monitor — يعرض حجم كل document في hrWeeksDocs */}
+    <PartitionedDocsMonitor/>
+    {/* V16.74: Split days monitor — يعرض حجم كل document يومي للخزنة وسجل HR والأحداث */}
+    <SplitDaysMonitor/>
     {/* V16.0: Size Budget Dashboard — tracks feature sizes against limits */}
     <SizeBudgetDashboard configDoc={configDoc} salesDoc={salesDoc} tasksDoc={tasksDoc}/>
     {/* V15.92: Device info card — shows deviceId, IP, location, and lets user name their device */}
@@ -2131,6 +2943,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     </>}
     {activeTab==="users" && <>
     <Card title="ادارة المستخدمين" style={{marginBottom:16}}>
+      <CardSubtitle icon="💡">إنشاء وإدارة حسابات المستخدمين اللي يقدروا يدخلوا للبرنامج. كل مستخدم له بريد إلكتروني وكلمة مرور وصلاحيات محددة.</CardSubtitle>
       {/* Create new user */}
       <div style={{padding:20,background:T.accentBg,borderRadius:14,marginBottom:20,border:"1px solid "+T.accent+"20"}}>
         <div style={{fontSize:FS+1,fontWeight:700,color:T.accent,marginBottom:14}}>انشاء حساب جديد</div>
@@ -2160,6 +2973,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {/* Send Notifications */}
     {/* Permissions Management */}
     <Card title="🔐 صلاحيات المستخدمين" style={{marginBottom:16}}>
+      <CardSubtitle icon="💡">تحديد ما يقدر كل مستخدم يعمله في البرنامج. مثلاً: محاسب يقدر يشوف الخزنة لكن مش يقدر يحذف، مدير عنده صلاحية كاملة.</CardSubtitle>
       <PermissionsCard config={config} upConfig={upConfig} T={T} FS={FS} TABS={TABS} Btn={Btn} showToast={showToast}/>
     </Card>
     </>}
@@ -2176,9 +2990,25 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {/* Treasury Settings — draft pattern */}
     <TreasurySettingsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,treasurySettings:d}))} userRole={userRole}/>
 
-    {/* Odoo Sync Settings */}
+    {/* V18.46: Odoo Sync Settings (gated by master toggle) */}
     <Card title="🔗 ربط Odoo — تزامن الخزنة" style={{marginBottom:16}}>
-      {(()=>{const os=config.odooSettings||{};
+      <CardSubtitle icon="💡">ربط مع نظام Odoo الخارجي للمحاسبة. لو متفعّل، الحركات في الخزنة تتزامن أوتوماتيكياً مع Odoo. مفيد لو الشركة عندها نظام محاسبي خارجي.</CardSubtitle>
+      {/* V18.46: master toggle — controls visibility of Odoo features across the app */}
+      {(()=>{const odooEnabled = config.odooEnabled !== false;
+        const toggleOdoo = () => upConfig(d => { d.odooEnabled = !odooEnabled; });
+        return <div onClick={toggleOdoo} style={{display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:10, background: odooEnabled ? T.ok+"08" : T.bg, border:"1px solid "+(odooEnabled?T.ok+"40":T.brd), cursor:"pointer", marginBottom: odooEnabled ? 16 : 0}}>
+          <span style={{fontSize:24, color: odooEnabled?T.ok:T.textMut, fontWeight:800}}>{odooEnabled?"☑":"☐"}</span>
+          <div style={{flex:1}}>
+            <div style={{fontSize:FS, fontWeight:800, color:T.text}}>تفعيل أدوات Odoo</div>
+            <div style={{fontSize:FS-2, color:T.textSec, marginTop:2, lineHeight:1.5}}>
+              لما تكون مُفعَّلة: تظهر إعدادات Odoo + روابط Odoo في الـtopbar + زر "تزامن Odoo" في صفحة الخزنة.
+              لما تكون معطّلة: كل أدوات Odoo تختفي من الواجهة (الإعدادات المحفوظة لا تتأثر — تفعّل تاني تلاقيها زي ما هي).
+            </div>
+          </div>
+          <span style={{fontSize:FS, fontWeight:800, color:odooEnabled?T.ok:T.textMut, padding:"4px 12px", background:(odooEnabled?T.ok:T.textMut)+"15", borderRadius:6}}>{odooEnabled?"مُفعّل":"معطّل"}</span>
+        </div>;
+      })()}
+      {(config.odooEnabled !== false) && (()=>{const os=config.odooSettings||{};
         const saveOS=(fn)=>upConfig(d=>{if(!d.odooSettings)d.odooSettings={};fn(d.odooSettings)});
         /* V16.59: testResult/testing useState hoisted to top-level — see comment there */
         const testConnection=async()=>{setTesting(true);setTestResult(null);
@@ -2284,11 +3114,71 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {activeTab==="business" && <>
     {/* Sales Settings — draft pattern */}
     <SalesSettingsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,salesSettings:d}))}/>
+    {/* V18.33: WhatsApp summary controls */}
+    <WhatsappSummaryCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Btn={Btn} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,whatsappSummary:d}))}/>
+
+    {/* V18.50: Invoice settings — controls invoice-driven accounting flow */}
+    <Card title="📄 إعدادات الفواتير" style={{marginBottom:16}}>
+      <CardSubtitle icon="💡">تتحكم في طريقة عمل نظام الفواتير. الوضع الافتراضي (قديم) ينشئ القيود المحاسبية مباشرة من التسليم. الوضع الجديد (موصى به) يجعل الفاتورة هي مصدر القيد المحاسبي.</CardSubtitle>
+      {(()=>{
+        const inv = config.invoiceSettings || {};
+        const autoPostFromInvoice = inv.autoPostFromInvoice === true;
+        const autoPostOnCreate    = inv.autoPostOnCreate === true;
+        const setFlag = (key, val) => upConfig(d => {
+          if(!d.invoiceSettings) d.invoiceSettings = {};
+          d.invoiceSettings[key] = val;
+        });
+        return <div>
+          <div onClick={() => setFlag("autoPostFromInvoice", !autoPostFromInvoice)} style={{
+            display:"flex", alignItems:"flex-start", gap:12,
+            padding:"14px 16px", borderRadius:10, cursor:"pointer",
+            background: autoPostFromInvoice ? T.ok+"08" : T.bg,
+            border: "2px solid " + (autoPostFromInvoice ? T.ok+"40" : T.brd),
+            marginBottom: 10,
+          }}>
+            <span style={{fontSize:24, color: autoPostFromInvoice?T.ok:T.textMut, fontWeight:800}}>{autoPostFromInvoice?"☑":"☐"}</span>
+            <div style={{flex:1}}>
+              <div style={{fontSize:FS+1, fontWeight:800, color:T.text, marginBottom:4}}>الترحيل المحاسبي من الفاتورة (Phase 2)</div>
+              <div style={{fontSize:FS-2, color:T.textSec, lineHeight:1.6}}>
+                <b>عند التفعيل:</b> كل تسليم/استلام/مرتجع بينشئ فاتورة <b>مسودة</b> أو إشعار دائن مسودة تلقائياً. القيد المحاسبي ما يتعملش لحد ما تـ"ترحّل" الفاتورة من تبويب الفواتير. ده الوضع الاحترافي.
+                <br/>
+                <b>عند التعطيل (الافتراضي):</b> القيد المحاسبي بيتم فوراً مع التسليم زي اللي اتعرفت عليه في V18.35-V18.49. الفواتير بتفضل اختيارية يدوياً.
+                <br/>
+                <span style={{color:T.warn, fontWeight:700}}>⚠️ تحذير: لو فعّلت ده وعندك بيانات قديمة، التسليمات اللي اتعملت قبل التفعيل اتعملت قيود مباشرة. التسليمات الجديدة بس هتمشي عبر الفاتورة.</span>
+              </div>
+            </div>
+            <span style={{fontSize:FS, fontWeight:800, color:autoPostFromInvoice?T.ok:T.textMut, padding:"6px 14px", background:(autoPostFromInvoice?T.ok:T.textMut)+"15", borderRadius:6}}>{autoPostFromInvoice?"مُفعّل":"معطّل"}</span>
+          </div>
+
+          {/* V18.51: Auto-post on create — skip the draft step */}
+          {autoPostFromInvoice && <div onClick={() => setFlag("autoPostOnCreate", !autoPostOnCreate)} style={{
+            display:"flex", alignItems:"flex-start", gap:12,
+            padding:"14px 16px", borderRadius:10, cursor:"pointer",
+            background: autoPostOnCreate ? T.accent+"08" : T.bg,
+            border: "2px solid " + (autoPostOnCreate ? T.accent+"40" : T.brd),
+          }}>
+            <span style={{fontSize:24, color: autoPostOnCreate?T.accent:T.textMut, fontWeight:800}}>{autoPostOnCreate?"☑":"☐"}</span>
+            <div style={{flex:1}}>
+              <div style={{fontSize:FS+1, fontWeight:800, color:T.text, marginBottom:4}}>ترحيل تلقائي عند إنشاء الفاتورة (skip draft)</div>
+              <div style={{fontSize:FS-2, color:T.textSec, lineHeight:1.6}}>
+                <b>عند التفعيل:</b> الفاتورة بتترحّل تلقائياً مع إنشائها — ينشئ القيد المحاسبي فوراً. مفيدة لو ما عندكش مرحلة مراجعة محاسبية.
+                <br/>
+                <b>عند التعطيل (الافتراضي):</b> الفاتورة تتعمل كـ"مسودة" وتفضل تنتظر مراجعة قبل الترحيل. ده الأكثر احترافية.
+                <br/>
+                <span style={{color:T.textMut, fontSize:FS-3, fontStyle:"italic"}}>💡 الإعداد ده متاح فقط لما "الترحيل من الفاتورة" مفعّل فوق.</span>
+              </div>
+            </div>
+            <span style={{fontSize:FS, fontWeight:800, color:autoPostOnCreate?T.accent:T.textMut, padding:"6px 14px", background:(autoPostOnCreate?T.accent:T.textMut)+"15", borderRadius:6}}>{autoPostOnCreate?"مُفعّل":"معطّل"}</span>
+          </div>}
+        </div>;
+      })()}
+    </Card>
     </>}
 
     {activeTab==="maintenance" && <>
     {/* Data Maintenance */}
     <Card title="🔧 صيانة البيانات" style={{marginBottom:16}}>
+      <CardSubtitle icon="💡">أدوات لاكتشاف وإصلاح المشاكل في البيانات (تكرار، مراجع مكسورة، عدم تطابق الأرصدة). استخدمها لو لاحظت أرقام غريبة في التقارير.</CardSubtitle>
       {(()=>{
         const wsList=config.workshops||[];const wsNames=new Set(wsList.map(w=>w.name));
         const gtList=config.garmentTypes||[];const gtNames=new Set(gtList.map(g=>g.name));
@@ -2652,6 +3542,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {activeTab==="comms" && <>
     {/* ── Notification Control ── */}
     <Card title="🔔 التحكم في الاشعارات" style={{marginTop:16}}>
+      <CardSubtitle icon="💡">تخصيص أنواع الإشعارات اللي تظهر للمستخدمين (تنبيهات الأوردرات، الجرد، التقارير). فعّل اللي تحتاجه فقط لتجنب الإزعاج.</CardSubtitle>
       {(()=>{const users=config.usersList||[];const prefs=config.notifPrefs||{};
         const NTYPES=[{key:"botAlerts",label:"تنبيهات البوت الذكية",icon:"🤖"},{key:"tasks",label:"المهام",icon:"📌"},{key:"movements",label:"حركات التشغيل",icon:"🔄"},{key:"statusChanges",label:"تغيير حالة الأوردر",icon:"📋"},{key:"stockDelivery",label:"تسليم مخزن جاهز",icon:"📦"},{key:"custDelivery",label:"تسليم عملاء",icon:"🚚"}];
         const updatePref=(email,key,val)=>{upConfig(d=>{if(!d.notifPrefs)d.notifPrefs={};if(!d.notifPrefs[email])d.notifPrefs[email]={};d.notifPrefs[email][key]=val})};
@@ -2680,6 +3571,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
         </div>})()}
     </Card>
     <Card title="🤖 المهام التلقائية" style={{marginTop:16}}>
+      <CardSubtitle icon="💡">مهام تشتغل أوتوماتيكياً في خلفية البرنامج (تقارير يومية، تنبيهات، نسخ احتياطية). كل مهمة يمكن تفعيلها/إيقافها بشكل مستقل.</CardSubtitle>
       {(()=>{const at=config.autoTasks||{enabled:false,users:[]};const atUsers=at.users||[];const allUsers=config.usersList||[];
         const RULES=[{key:"noDeliver",label:"موديل مقصوص ولم يُسلَّم لورشة",icon:"✂️",dd:5},{key:"availPiece",label:"قطعة متاحة ولم تُسلَّم",icon:"👔",dd:5},{key:"slowWorkshop",label:"ورشة متأخرة في الاستلام",icon:"🐢",dd:14},{key:"stockNoSale",label:"مخزن جاهز لم يُسلَّم لعملاء",icon:"📦",dd:7}];
         const defaultRules=()=>{const r={};RULES.forEach(ru=>{r[ru.key]={enabled:true,days:ru.dd}});return r};
@@ -2687,7 +3579,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
         const addUser=()=>{if(!atSelUser)return;const u=allUsers.find(x=>x.email===atSelUser);if(atUsers.some(x=>x.email===atSelUser)){showToast("⚠️ المستخدم مضاف بالفعل");return}
           upConfig(d=>{if(!d.autoTasks)d.autoTasks={enabled:true,users:[]};if(!d.autoTasks.users)d.autoTasks.users=[];d.autoTasks.users.push({email:atSelUser,name:u?.name||atSelUser.split("@")[0],rules:defaultRules()})});setAtSelUser("");showToast("✓ تم الإضافة")};
         const removeUser=(email)=>{upConfig(d=>{d.autoTasks.users=(d.autoTasks.users||[]).filter(x=>x.email!==email)});if(atEditIdx!==null)setAtEditIdx(null)};
-        const updateRule=(idx,ruleKey,field,val)=>{upConfig(d=>{const u=d.autoTasks.users[idx];if(!u)return;if(!u.rules)u.rules=defaultRules();if(!u.rules[ruleKey])u.rules[ruleKey]={enabled:true,days:5};u.rules[ruleKey][field]=val})};
+        const updateRule=async (idx,ruleKey,field,val)=>{upConfig(d=>{const u=d.autoTasks.users[idx];if(!u)return;if(!u.rules)u.rules=defaultRules();if(!u.rules[ruleKey])u.rules[ruleKey]={enabled:true,days:5};u.rules[ruleKey][field]=val})};
         return<div>
           <div style={{padding:10,background:T.warn+"10",border:"1px solid "+T.warn+"30",borderRadius:8,marginBottom:12,fontSize:FS-1,color:T.warn}}>
             ⚠️ البوت موقوف بشكل افتراضي لتجنب ضوضاء التنبيهات. لإعادة تفعيله، فعّل الخيارين التاليين معاً.
@@ -2750,7 +3642,9 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {/* ═══ BACKUP & RESTORE ═══ */}
     {activeTab==="business" && <>
     {/* ═══ ODOO LINKS ═══ */}
-    <Card title="🔗 Odoo — إدارة الاختصارات" style={{marginTop:16}}>
+    {/* V18.46: gated by master Odoo toggle */}
+    {(config.odooEnabled !== false) && <Card title="🔗 Odoo — إدارة الاختصارات" style={{marginTop:16}}>
+      <CardSubtitle icon="💡">ربط منتجات/حسابات في البرنامج بمقابلها في Odoo. مطلوب لو فعّلت تزامن الخزنة مع Odoo فوق.</CardSubtitle>
       {(()=>{
         const defaultOdooLinks=[
           {id:"accounting",icon:"📊",label:"المحاسبة",url:"https://clarkdb.odoo.com/odoo/accounting",color:"#8B5CF6"},
@@ -2788,31 +3682,47 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
             </div>
           </div>
         </div>})()}
-    </Card>
+    </Card>}
     </>}
 
     {activeTab==="maintenance" && <>
-    <BackupRestoreCard config={config} salesDoc={salesDoc} tasksDoc={tasksDoc} orders={orders} isMob={isMob}/>
+    <BackupRestoreCard config={config} salesDoc={salesDoc} tasksDoc={tasksDoc} orders={orders} isMob={isMob} user={user} upConfig={upConfig}/>
+    <SelectiveRestoreCard configDoc={configDoc} upConfig={upConfig} user={user} isMob={isMob}/>
     </>}
   </div>
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   BACKUP & RESTORE CARD — نسخ احتياطي واستعادة
+   V18.62: BACKUP & RESTORE CARD — Comprehensive backups only
+   ═══════════════════════════════════════════════════════════════
+   
+   Pre-V18.62, this card created "lite" backups that only included
+   factory/config + sales + tasks + current-season orders. Since the
+   V16.74 split-collections migration, that meant treasury, audit log,
+   HR log, HR weeks, and orders from non-current seasons were silently
+   missing from every backup.
+   
+   V18.62 replaces this with comprehensive backups (via
+   utils/comprehensiveBackup.js) that capture EVERY collection. The
+   backup is stored as multiple part-documents under backups/{id}/parts
+   to bypass Firestore's 1MB-per-doc limit.
    ═══════════════════════════════════════════════════════════════ */
 
-
-export function BackupRestoreCard({config,salesDoc,tasksDoc,orders,isMob}){
+export function BackupRestoreCard({config,salesDoc,tasksDoc,orders,isMob,user,upConfig}){
   const[backupList,setBackupList]=useState([]);
   const[loading,setLoading]=useState(false);
   const[confirmRestore,setConfirmRestore]=useState(null);
   const[busy,setBusy]=useState(false);
+  const[backupProgress,setBackupProgress]=useState(null);/* {message, status} */
+  const[sizeEstimate,setSizeEstimate]=useState(null);
+  const[restoreTyped,setRestoreTyped]=useState("");
 
   const loadBackups=async()=>{
     setLoading(true);
     try{
       const snap=await getDocs(collection(db,"backups"));
-      const list=[];snap.forEach(d=>{const data=d.data();list.push({id:d.id,...data})});
+      const list=[];
+      snap.forEach(d=>{const data=d.data();list.push({id:d.id,...data})});
       list.sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
       setBackupList(list);
     }catch(e){console.error("loadBackups:",e);showToast("⚠️ تعذر تحميل النسخ")}
@@ -2820,114 +3730,681 @@ export function BackupRestoreCard({config,salesDoc,tasksDoc,orders,isMob}){
   };
 
   useEffect(()=>{loadBackups()},[]);
+  useEffect(()=>{setRestoreTyped("")},[confirmRestore]);
 
+  /* V18.62: Comprehensive backup — captures EVERY collection.
+     The progress callback streams status to the user since this can take
+     several seconds for factories with lots of data. */
   const createBackup=async(label)=>{
     setBusy(true);
+    setBackupProgress({message:"بدء النسخة الشاملة…",status:"running"});
     try{
-      const backupId=new Date().toISOString().replace(/[:.]/g,"-");
-      const data={
-        label:label||"يدوية",
-        createdAt:new Date().toISOString(),
-        config:config||{},
-        sales:salesDoc||{},
-        tasks:tasksDoc||{},
-        orders:orders||[],
-        counts:{
-          treasury:(config?.treasury||[]).length,
-          employees:(config?.employees||[]).length,
-          customers:(config?.customers||[]).length,
-          orders:(orders||[]).length
-        }
-      };
-      await setDoc(doc(db,"backups",backupId),data);
-      showToast("✅ تم حفظ النسخة الاحتياطية");
+      const result=await createComprehensiveBackup({
+        label:label||"شاملة يدوية",
+        user:{email:user?.email,uid:user?.uid},
+        autoGenerated:false,
+        onProgress:(msg)=>setBackupProgress({message:msg,status:"running"}),
+      });
+      const totalCount=Object.keys(result.summary?.counts||{}).length;
+      setBackupProgress({
+        message:"✅ تم! "+totalCount+" قسم متضمن",
+        status:"success",
+      });
+      showToast("✅ تم حفظ النسخة الاحتياطية الشاملة");
       loadBackups();
-    }catch(e){console.error("createBackup:",e);showToast("⚠️ فشل حفظ النسخة")}
-    setBusy(false);
+      /* Clear progress after 4 seconds */
+      setTimeout(()=>setBackupProgress(null),4000);
+      return result.backupId;
+    }catch(e){
+      console.error("[V18.62] createComprehensiveBackup:",e);
+      setBackupProgress({
+        message:"⚠️ فشل: "+(e?.message||String(e)).slice(0,80),
+        status:"error",
+      });
+      showToast("⚠️ فشل حفظ النسخة الشاملة");
+      throw e;
+    }finally{
+      setBusy(false);
+    }
   };
 
-  const deleteBackup=async(id)=>{
-    try{await deleteDoc(doc(db,"backups",id));showToast("✓ تم الحذف");loadBackups()}
-    catch(e){console.error("deleteBackup:",e);showToast("⚠️ فشل الحذف")}
+  /* V18.62: Estimate the comprehensive backup size before creating it.
+     Useful warning for very large factories. */
+  const checkSize=async()=>{
+    setBackupProgress({message:"جاري حساب الحجم…",status:"running"});
+    try{
+      const est=await estimateComprehensiveBackupSize();
+      setSizeEstimate(est);
+      setBackupProgress(null);
+    }catch(e){
+      setBackupProgress({message:"⚠️ تعذر الحساب",status:"error"});
+      setTimeout(()=>setBackupProgress(null),3000);
+    }
   };
 
+  /* V18.62: Delete handles both old (single-doc) and new (multi-part) formats. */
+  const deleteBackup=async(b)=>{
+    try{
+      if(b.isComprehensive){
+        await deleteComprehensiveBackup(b.id);
+      }else{
+        /* Legacy single-doc backup */
+        await deleteDoc(doc(db,"backups",b.id));
+      }
+      showToast("✓ تم الحذف");
+      loadBackups();
+    }catch(e){
+      console.error("deleteBackup:",e);
+      showToast("⚠️ فشل الحذف");
+    }
+  };
+
+  /* V18.62: Restore now handles BOTH formats:
+     - Comprehensive (preferred): writes back factory/config + sales + tasks
+       AND restores split collections, partitioned collections, and per-season
+       orders. This is the only safe restore.
+     - Legacy single-doc: same behavior as before (config/sales/tasks only).
+       The dialog warns the user that orders/treasury/audit will NOT change.
+     
+     Auto-pre-restore backup is taken before any write. */
   const restoreBackup=async(b)=>{
     setBusy(true);
+    setBackupProgress({message:"⏳ بعمل نسخة احتياطية للحالة الحالية أولاً…",status:"running"});
+    let preBackupId=null;
     try{
-      if(b.config)await setDoc(doc(db,"factory","config"),b.config);
-      if(b.sales)await setDoc(doc(db,"factory","sales"),b.sales);
-      if(b.tasks)await setDoc(doc(db,"factory","tasks"),b.tasks);
-      /* Orders restoration is complex — we only restore config/sales/tasks */
-      showToast("✅ تم الاستعادة — اغلق وافتح التطبيق");
-      setConfirmRestore(null);
-    }catch(e){console.error("restoreBackup:",e);showToast("⚠️ فشل الاستعادة")}
-    setBusy(false);
-  };
+      /* Step 1: Auto-pre-restore comprehensive backup */
+      try{
+        const preResult=await createComprehensiveBackup({
+          label:"تلقائي قبل استعادة",
+          user:{email:user?.email,uid:user?.uid},
+          autoGenerated:false,
+          onProgress:(msg)=>setBackupProgress({message:"نسخة قبل الاستعادة: "+msg,status:"running"}),
+        });
+        preBackupId=preResult.backupId;
+      }catch(preErr){
+        console.error("[V18.62] Pre-restore backup FAILED:",preErr);
+        setBackupProgress({message:"⛔ فشل عمل نسخة قبل الاستعادة — توقفت",status:"error"});
+        showToast("⛔ توقفت الاستعادة لحماية بياناتك");
+        setBusy(false);
+        return;
+      }
 
-  const downloadJSON=(b)=>{
-    const data=JSON.stringify(b,null,2);
-    const blob=new Blob([data],{type:"application/json"});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement("a");
-    a.href=url;a.download="clark-backup-"+b.id+".json";a.click();
-    URL.revokeObjectURL(url);
+      /* Step 2: Log the restore */
+      try{
+        await setDoc(doc(db,"restoreLog",preBackupId),{
+          ts:new Date().toISOString(),
+          by:user?.email||user?.uid||"unknown",
+          action:"restore_backup",
+          restoredFromId:b.id,
+          restoredFromLabel:b.label||"",
+          restoredFromCreatedAt:b.createdAt||"",
+          restoredFromIsComprehensive:!!b.isComprehensive,
+          preRestoreBackupId:preBackupId,
+        });
+      }catch(logErr){console.warn("[V18.62] restoreLog write failed:",logErr)}
+
+      /* Step 3: The actual restore */
+      if(b.isComprehensive){
+        /* Comprehensive restore */
+        setBackupProgress({message:"جاري قراءة النسخة الشاملة…",status:"running"});
+        const data=await readComprehensiveBackup(b.id);
+        if(!data){throw new Error("Could not read comprehensive backup")}
+        /* Restore factory docs */
+        if(data.factoryConfig){
+          setBackupProgress({message:"كتابة factory/config…",status:"running"});
+          await setDoc(doc(db,"factory","config"),data.factoryConfig);
+        }
+        if(data.factorySales){
+          setBackupProgress({message:"كتابة factory/sales…",status:"running"});
+          await setDoc(doc(db,"factory","sales"),data.factorySales);
+        }
+        if(data.factoryTasks){
+          setBackupProgress({message:"كتابة factory/tasks…",status:"running"});
+          await setDoc(doc(db,"factory","tasks"),data.factoryTasks);
+        }
+        /* Restore split collections — write each day doc back */
+        for(const[collName,docs] of Object.entries(data.splitCollections||{})){
+          if(!Array.isArray(docs)||docs.length===0)continue;
+          setBackupProgress({message:"استعادة "+collName+" ("+docs.length+" يوم)…",status:"running"});
+          for(const d of docs){
+            const{_id,...rest}=d;
+            if(!_id)continue;
+            try{await setDoc(doc(db,collName,_id),rest)}
+            catch(e){console.warn("Failed to restore "+collName+"/"+_id,e)}
+          }
+        }
+        /* Restore partitioned collections */
+        for(const[collName,docs] of Object.entries(data.partitionedCollections||{})){
+          if(!Array.isArray(docs)||docs.length===0)continue;
+          setBackupProgress({message:"استعادة "+collName+" ("+docs.length+" doc)…",status:"running"});
+          for(const d of docs){
+            const{_id,...rest}=d;
+            if(!_id)continue;
+            try{await setDoc(doc(db,collName,_id),rest)}
+            catch(e){console.warn("Failed to restore "+collName+"/"+_id,e)}
+          }
+        }
+        /* Restore orders for each season */
+        for(const[seasonName,docs] of Object.entries(data.ordersBySeason||{})){
+          if(!Array.isArray(docs)||docs.length===0)continue;
+          setBackupProgress({message:"استعادة أوردرات "+seasonName+" ("+docs.length+")…",status:"running"});
+          for(const d of docs){
+            const{_id,...rest}=d;
+            if(!_id)continue;
+            try{await setDoc(doc(db,"seasons",seasonName,"orders",_id),rest)}
+            catch(e){console.warn("Failed to restore order "+seasonName+"/"+_id,e)}
+          }
+        }
+      }else{
+        /* Legacy: only restore the 3 main docs */
+        if(b.config)await setDoc(doc(db,"factory","config"),b.config);
+        if(b.sales)await setDoc(doc(db,"factory","sales"),b.sales);
+        if(b.tasks)await setDoc(doc(db,"factory","tasks"),b.tasks);
+      }
+      setBackupProgress({message:"✅ تم — اقفل وافتح التطبيق",status:"success"});
+      showToast("✅ تم — اقفل وافتح التطبيق");
+      setConfirmRestore(null);
+      setTimeout(()=>setBackupProgress(null),5000);
+    }catch(e){
+      console.error("restoreBackup:",e);
+      setBackupProgress({message:"⚠️ فشل: "+(e?.message||String(e)).slice(0,80),status:"error"});
+      showToast("⚠️ فشل الاستعادة"+(preBackupId?" — نسختك في "+preBackupId:""));
+    }
+    setBusy(false);
   };
 
   return<Card title="💾 النسخ الاحتياطي والاستعادة" style={{marginTop:16}}>
-    <div style={{padding:12,borderRadius:10,background:T.accent+"06",border:"1px solid "+T.accent+"20",marginBottom:14,fontSize:FS-1,color:T.textSec,lineHeight:1.7}}>
-      النسخ الاحتياطي يحفظ كل بياناتك (الخزنة، HR، العملاء، الورش، الطلبات) في Firestore.
-      <br/>💡 <b>نصيحة:</b> خد نسخة احتياطية قبل أي تحديث كبير أو تغيير جذري.
-    </div>
+    <CardSubtitle icon="💡">
+      نسخ احتياطية شاملة لكل بيانات النظام: الإعدادات، الخزنة، سجل المراجعة، HR، الأوردرات لكل المواسم، إلخ.
+      <b style={{color:T.ok,display:"block",marginTop:6}}>V18.62: النسخة الواحدة بقت تحفظ كل حاجة — مفيش بيانات بتضيع من النسخة.</b>
+    </CardSubtitle>
+
+    {/* Progress / status banner */}
+    {backupProgress&&<div style={{padding:12,marginBottom:12,borderRadius:10,
+      background:backupProgress.status==="error"?T.err+"10":backupProgress.status==="success"?T.ok+"10":T.accent+"08",
+      border:"1px solid "+(backupProgress.status==="error"?T.err+"40":backupProgress.status==="success"?T.ok+"40":T.accent+"30"),
+      fontSize:FS-1,
+      color:backupProgress.status==="error"?T.err:backupProgress.status==="success"?T.ok:T.accent,
+      fontWeight:700,
+      display:"flex",alignItems:"center",gap:8
+    }}>
+      {backupProgress.status==="running"&&<Spinner size="small" color={T.accent} inline/>}
+      <span>{backupProgress.message}</span>
+    </div>}
+
+    {/* Size estimate panel */}
+    {sizeEstimate&&<div style={{padding:12,marginBottom:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd,fontSize:FS-2}}>
+      <div style={{fontWeight:700,color:T.text,marginBottom:6}}>📊 الحجم المتوقع للنسخة:</div>
+      <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,marginBottom:6}}>{(sizeEstimate.totalBytes/1024/1024).toFixed(2)} MB</div>
+      <div style={{display:"flex",flexDirection:"column",gap:3,fontSize:FS-3,color:T.textSec}}>
+        {Object.entries(sizeEstimate.breakdown||{}).map(([k,v])=>
+          <div key={k} style={{display:"flex",justifyContent:"space-between"}}>
+            <span>{k}</span><span style={{fontFamily:"monospace"}}>{(v/1024).toFixed(1)} KB</span>
+          </div>
+        )}
+      </div>
+      <Btn small ghost onClick={()=>setSizeEstimate(null)} style={{marginTop:8}}>إخفاء</Btn>
+    </div>}
+
+    {/* Action buttons */}
     <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
-      <Btn primary onClick={()=>createBackup("يدوية")} disabled={busy}>💾 نسخة احتياطية الآن</Btn>
-      <Btn onClick={loadBackups} disabled={loading} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>{loading?<span style={{display:"inline-flex",alignItems:"center",gap:8}}><Spinner size="small" color={T.text} inline/>جاري التحميل...</span>:"🔄 تحديث القائمة"}</Btn>
+      <Btn primary onClick={()=>createBackup("شاملة يدوية")} disabled={busy}>💾 نسخة احتياطية شاملة الآن</Btn>
+      <Btn onClick={checkSize} disabled={busy} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>📊 معاينة الحجم</Btn>
+      <Btn onClick={loadBackups} disabled={loading} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>{loading?<span style={{display:"inline-flex",alignItems:"center",gap:8}}><Spinner size="small" color={T.text} inline/>تحميل…</span>:"🔄 تحديث"}</Btn>
     </div>
-    {backupList.length===0?<div style={{padding:30,textAlign:"center",color:T.textMut,background:T.bg,borderRadius:10}}>لا توجد نسخ احتياطية — اضغط "💾 نسخة احتياطية الآن" لأخذ نسخة</div>
+
+    {/* Backup list */}
+    {backupList.length===0?<div style={{padding:30,textAlign:"center",color:T.textMut,background:T.bg,borderRadius:10}}>لا توجد نسخ احتياطية</div>
     :<div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:400,overflowY:"auto"}}>
       {backupList.map(b=>{
         const d=new Date(b.createdAt||0);
         const c=b.counts||{};
-        return<div key={b.id} style={{padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        const isComp=!!b.isComprehensive;
+        const isAuto=!!b.autoGenerated;
+        const isPreMig=String(b.id||"").startsWith("pre-migration");
+        const isAutoPreRestore=String(b.id||"").startsWith("auto-pre-");
+        return<div key={b.id} style={{padding:12,borderRadius:10,background:T.bg,border:"1px solid "+(isComp?T.ok+"40":T.brd),display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
           <div style={{flex:1,minWidth:200}}>
-            <div style={{fontSize:FS,fontWeight:700,color:T.text}}>📦 {b.label||"نسخة"}</div>
+            <div style={{fontSize:FS,fontWeight:700,color:T.text,display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+              📦 {b.label||"نسخة"}
+              {isComp&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,background:T.ok+"20",color:T.ok,fontWeight:700}}>شاملة ✓</span>}
+              {!isComp&&!isPreMig&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,background:T.warn+"20",color:T.warn,fontWeight:700}}>قديمة (ناقصة)</span>}
+              {isPreMig&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,background:T.accent+"20",color:T.accent,fontWeight:600}}>قبل migration</span>}
+              {isAutoPreRestore&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,background:T.warn+"15",color:T.warn,fontWeight:600}}>قبل استعادة</span>}
+              {isAuto&&<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,background:T.accent+"15",color:T.accent,fontWeight:600}}>تلقائية</span>}
+            </div>
             <div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{d.toLocaleString("ar-EG",{dateStyle:"medium",timeStyle:"short"})}</div>
             <div style={{fontSize:FS-3,color:T.textSec,marginTop:4,display:"flex",gap:10,flexWrap:"wrap"}}>
-              <span>💰 {c.treasury||0} حركة</span>
-              <span>👷 {c.employees||0} موظف</span>
-              <span>🧑 {c.customers||0} عميل</span>
-              <span>📋 {c.orders||0} طلب</span>
+              <span>💰 {c.treasuryDays||c.treasury||0}{c.treasuryDays?" يوم":" حركة"}</span>
+              <span>👷 {c.employees||0}</span>
+              <span>🧑 {c.customers||0}</span>
+              <span>🏭 {c.workshops||0}</span>
+              <span>📋 {c.ordersTotal||c.orders||0}</span>
+              <span>👤 {(c.users||0)+(c.usersList||0)}</span>
             </div>
           </div>
           <div style={{display:"flex",gap:4}}>
-            <Btn small onClick={()=>downloadJSON(b)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}} title="تحميل JSON">⬇</Btn>
             <Btn small onClick={()=>setConfirmRestore(b)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="استعادة">🔄</Btn>
-            <Btn small onClick={async()=>{if(await ask("حذف النسخة","حذف النسخة الاحتياطية؟",{danger:true}))deleteBackup(b.id)}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}} title="حذف">🗑</Btn>
+            <Btn small onClick={async()=>{if(await ask("حذف النسخة","حذف النسخة الاحتياطية؟"+(isComp?" (هتحذف كل الـ parts بتاعتها)":""),{danger:true}))deleteBackup(b)}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}} title="حذف">🗑</Btn>
           </div>
-        </div>})}
+        </div>;
+      })}
     </div>}
 
+    {/* Restore confirmation dialog */}
     {confirmRestore&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setConfirmRestore(null)}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,maxWidth:500,width:"100%",border:"2px solid "+T.warn,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
-        <div style={{fontSize:48,textAlign:"center",marginBottom:8}}>⚠️</div>
-        <div style={{fontSize:FS+2,fontWeight:800,color:T.warn,textAlign:"center",marginBottom:10}}>تأكيد الاستعادة</div>
-        <div style={{fontSize:FS-1,color:T.textSec,marginBottom:14,lineHeight:1.7,padding:12,background:T.warn+"08",borderRadius:10}}>
-          سيتم استبدال كل البيانات الحالية بهذه النسخة الاحتياطية:
-          <br/><br/>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,maxWidth:560,width:"100%",border:"2px solid "+T.err,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",maxHeight:"90vh",overflowY:"auto"}}>
+        <div style={{fontSize:48,textAlign:"center",marginBottom:8}}>🚨</div>
+        <div style={{fontSize:FS+2,fontWeight:800,color:T.err,textAlign:"center",marginBottom:14}}>تأكيد عملية خطيرة: استعادة نسخة احتياطية</div>
+        {confirmRestore.isComprehensive?<>
+          <div style={{fontSize:FS-1,color:T.text,marginBottom:14,lineHeight:1.7,padding:12,background:T.ok+"08",borderRadius:10,border:"1px solid "+T.ok+"40"}}>
+            <b style={{color:T.ok}}>✓ نسخة شاملة — هترجع كل البيانات:</b><br/>
+            • factory/config + sales + tasks<br/>
+            • حركات الخزنة + سجل المراجعة + HR<br/>
+            • الأوردرات لكل المواسم<br/>
+            • أسابيع المرتبات
+          </div>
+        </>:<>
+          <div style={{fontSize:FS-1,color:T.textSec,marginBottom:10,lineHeight:1.7,padding:12,background:T.warn+"08",borderRadius:10,border:"1px solid "+T.warn+"30"}}>
+            <b>هتُستبدل البيانات دي:</b><br/>
+            • الإعدادات (factory/config)<br/>
+            • factory/sales + factory/tasks
+          </div>
+          <div style={{fontSize:FS-1,color:T.textSec,marginBottom:14,lineHeight:1.7,padding:12,background:T.err+"08",borderRadius:10,border:"1px solid "+T.err+"40"}}>
+            <b style={{color:T.err}}>⚠️ نسخة قديمة (مش شاملة) — مش هتستبدل:</b><br/>
+            • حركات الخزنة (treasuryDays)<br/>
+            • سجل المراجعة (auditDays)<br/>
+            • الأوردرات (seasons)<br/>
+            • إلخ.
+          </div>
+        </>}
+        <div style={{fontSize:FS-1,color:T.text,marginBottom:14,lineHeight:1.7,padding:12,background:T.bg,borderRadius:10}}>
           📅 <b>{new Date(confirmRestore.createdAt).toLocaleString("ar-EG")}</b><br/>
-          📦 {confirmRestore.label}<br/>
-          💰 {confirmRestore.counts?.treasury||0} حركة خزنة<br/>
-          👷 {confirmRestore.counts?.employees||0} موظف<br/>
-          <br/>
-          <b style={{color:T.err}}>البيانات الحالية ستضيع نهائياً.</b>
-          <br/><br/>
-          💡 نصيحة: خد نسخة احتياطية الآن قبل الاستعادة.
+          📦 {confirmRestore.label}
         </div>
-        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-          <Btn ghost onClick={()=>setConfirmRestore(null)}>إلغاء</Btn>
-          <Btn onClick={()=>restoreBackup(confirmRestore)} disabled={busy} style={{background:T.warn,color:"#fff",border:"none",fontWeight:700}}>{busy?<span style={{display:"inline-flex",alignItems:"center",gap:8}}><Spinner size="small" color="#fff" inline/>جاري الاستعادة...</span>:"🔄 تأكيد الاستعادة"}</Btn>
+        <div style={{fontSize:FS-2,color:T.ok,marginBottom:14,padding:10,background:T.ok+"10",borderRadius:8,border:"1px solid "+T.ok+"30"}}>
+          ✓ <b>أمان إضافي:</b> هتتاخد نسخة احتياطية شاملة أوتوماتيك للحالة الحالية قبل الاستعادة.
+        </div>
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:FS-1,fontWeight:700,color:T.err,marginBottom:6}}>
+            للتأكيد، اكتب كلمة <span style={{fontFamily:"monospace",background:T.err+"15",padding:"2px 8px",borderRadius:4}}>استعادة</span> بالظبط:
+          </div>
+          <Inp value={restoreTyped} onChange={setRestoreTyped} placeholder="اكتب: استعادة" style={{width:"100%",fontSize:FS,padding:"10px 14px",border:"2px solid "+(restoreTyped==="استعادة"?T.ok:T.err+"60")}}/>
+        </div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end",flexWrap:"wrap"}}>
+          <Btn ghost onClick={()=>setConfirmRestore(null)} disabled={busy}>إلغاء</Btn>
+          <Btn onClick={()=>restoreBackup(confirmRestore)} disabled={busy||restoreTyped!=="استعادة"} style={{background:restoreTyped==="استعادة"?T.err:T.bg,color:restoreTyped==="استعادة"?"#fff":T.textMut,border:restoreTyped==="استعادة"?"none":"1px solid "+T.brd,fontWeight:800,opacity:(busy||restoreTyped!=="استعادة")?0.6:1}}>{busy?<span style={{display:"inline-flex",alignItems:"center",gap:8}}><Spinner size="small" color="#fff" inline/>جاري الاستعادة…</span>:"🔄 تأكيد الاستعادة"}</Btn>
         </div>
       </div>
     </div>}
+  </Card>;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   V18.60: SELECTIVE RESTORE CARD — استعادة انتقائية
+   ═══════════════════════════════════════════════════════════════
+   
+   Different from the regular Restore: this is ADDITIVE-ONLY.
+   
+   The user picks a backup, then we compute a diff between backup.config
+   and the CURRENT factory/config. For each restorable field (customers,
+   workshops, users, etc.), we show what's "missing" — i.e. what existed
+   in the backup but not currently. The user can selectively check which
+   fields to restore, then we ADD the missing items via upConfig.
+   
+   Crucially:
+   - Existing data is NEVER overwritten — only missing items are added
+   - Each restored item gets `restoredAt` and `restoredFrom` markers
+   - An auto-backup is taken before the merge (just in case)
+   - The action is logged to restoreLog
+   
+   Why this is safer than the regular Restore:
+   - Regular Restore replaces the WHOLE config with the backup → can wipe
+     things added since the backup was taken
+   - Selective Restore only ADDS missing items → can't lose recent data
+   ═══════════════════════════════════════════════════════════════ */
+
+function SelectiveRestoreCard({configDoc, upConfig, user, isMob}){
+  const[backups,setBackups]=useState([]);
+  const[loading,setLoading]=useState(false);
+  const[selectedBackup,setSelectedBackup]=useState(null);
+  const[diffData,setDiffData]=useState(null);
+  const[selectedFields,setSelectedFields]=useState(()=>new Set());
+  const[expandedField,setExpandedField]=useState(null);
+  const[confirmText,setConfirmText]=useState("");
+  const[busy,setBusy]=useState(false);
+
+  /* The fields we know how to merge. Each has an idKey (uniqueness key)
+     and a nameKey (for human-readable preview). */
+  const RESTORABLE_FIELDS=[
+    {key:"users",      label:"🔐 صلاحيات (users object)", type:"object"},
+    {key:"usersList",  label:"👤 قائمة المستخدمين",      type:"array",idKey:"email", nameKey:"name"},
+    {key:"customers",  label:"🧑 عملاء",                  type:"array",idKey:"id",    nameKey:"name"},
+    {key:"workshops",  label:"🏭 ورش",                    type:"array",idKey:"id",    nameKey:"name"},
+    {key:"employees",  label:"👷 موظفين",                  type:"array",idKey:"id",    nameKey:"name"},
+    {key:"suppliers",  label:"🚚 موردين",                  type:"array",idKey:"id",    nameKey:"name"},
+    {key:"fabrics",    label:"🧵 خامات",                   type:"array",idKey:"id",    nameKey:"name"},
+    {key:"accessories",label:"🎀 اكسسوارات",              type:"array",idKey:"id",    nameKey:"name"},
+    {key:"garmentTypes",label:"👕 أنواع ملابس",            type:"array",idKey:"id",    nameKey:"name"},
+    {key:"sizeSets",   label:"📏 مقاسات",                 type:"array",idKey:"id",    nameKey:"label"},
+    {key:"statusCards",label:"📋 حالات الأوردر",          type:"array",idKey:"key",   nameKey:"name"},
+    {key:"treasuryAccounts",label:"💰 حسابات خزنة",       type:"array",idKey:"id",    nameKey:"name"},
+  ];
+
+  const loadBackups=async()=>{
+    setLoading(true);
+    try{
+      const snap=await getDocs(collection(db,"backups"));
+      const list=[];
+      snap.forEach(d=>{const data=d.data();list.push({id:d.id,...data})});
+      list.sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
+      setBackups(list);
+    }catch(e){console.error("loadBackups:",e);showToast("⚠️ تعذر تحميل النسخ")}
+    setLoading(false);
+  };
+
+  useEffect(()=>{loadBackups()},[]);
+
+  /* Compute diff between backup.config and current configDoc.
+     Returns per-field info on what's missing in current vs what's in backup. */
+  const computeDiff=(backup)=>{
+    if(!backup?.config)return null;
+    const bConfig=backup.config;
+    const cConfig=configDoc||{};
+    const fields=[];
+
+    for(const field of RESTORABLE_FIELDS){
+      if(field.type==="object"){
+        const bObj=bConfig[field.key]||{};
+        const cObj=cConfig[field.key]||{};
+        const bKeys=Object.keys(bObj);
+        const cKeys=new Set(Object.keys(cObj));
+        const missingKeys=bKeys.filter(k=>!cKeys.has(k));
+        fields.push({
+          ...field,
+          currentCount:Object.keys(cObj).length,
+          backupCount:bKeys.length,
+          missingCount:missingKeys.length,
+          missingItems:missingKeys.map(k=>({_key:k,_value:bObj[k]}))
+        });
+      }else{
+        const bArr=Array.isArray(bConfig[field.key])?bConfig[field.key]:[];
+        const cArr=Array.isArray(cConfig[field.key])?cConfig[field.key]:[];
+        const cIds=new Set(cArr.map(x=>String(x?.[field.idKey]??"")));
+        const missingItems=bArr.filter(x=>x&&x[field.idKey]!=null&&!cIds.has(String(x[field.idKey])));
+        fields.push({
+          ...field,
+          currentCount:cArr.length,
+          backupCount:bArr.length,
+          missingCount:missingItems.length,
+          missingItems
+        });
+      }
+    }
+
+    return{fields};
+  };
+
+  const handleSelectBackup=async(b)=>{
+    /* V18.62: Handle both backup formats:
+       - Legacy single-doc: config is in b.config directly
+       - Comprehensive: config is in backups/{id}/parts/factoryConfig.data */
+    let backupForDiff=b;
+    if(b.isComprehensive&&!b.config){
+      try{
+        const compData=await readComprehensiveBackup(b.id);
+        if(compData?.factoryConfig){
+          backupForDiff={...b,config:compData.factoryConfig};
+        }else{
+          showToast("⚠️ تعذر قراءة النسخة الشاملة");
+          return;
+        }
+      }catch(e){
+        console.error("[V18.62] Failed to read comprehensive backup:",e);
+        showToast("⚠️ خطأ في قراءة النسخة");
+        return;
+      }
+    }
+    setSelectedBackup(backupForDiff);
+    const diff=computeDiff(backupForDiff);
+    setDiffData(diff);
+    /* Pre-select fields that have missing items */
+    const initSelected=new Set();
+    diff?.fields?.forEach(f=>{if(f.missingCount>0)initSelected.add(f.key)});
+    setSelectedFields(initSelected);
+    setExpandedField(null);
+    setConfirmText("");
+  };
+
+  const toggleField=(key)=>{
+    setSelectedFields(prev=>{
+      const next=new Set(prev);
+      if(next.has(key))next.delete(key);else next.add(key);
+      return next;
+    });
+  };
+
+  const performRestore=async()=>{
+    if(!selectedBackup||!diffData){showToast("⚠️ اختر نسخة أولاً");return}
+    if(confirmText!=="ادمج"){showToast("⚠️ اكتب 'ادمج' للتأكيد");return}
+    const fieldsToRestore=diffData.fields.filter(f=>selectedFields.has(f.key)&&f.missingCount>0);
+    if(fieldsToRestore.length===0){showToast("⚠️ مفيش حقول مختارة فيها عناصر مفقودة");return}
+
+    setBusy(true);
+    let preBackupId=null;
+    try{
+      /* Step 1: Auto-backup current configDoc before merge */
+      const ts=new Date().toISOString().replace(/[:.]/g,"-");
+      preBackupId="auto-pre-selective-"+ts;
+      try{
+        await setDoc(doc(db,"backups",preBackupId),{
+          label:"تلقائي قبل دمج انتقائي",
+          autoGenerated:true,
+          createdAt:new Date().toISOString(),
+          createdBy:user?.email||user?.uid||"unknown",
+          config:configDoc||{},
+          counts:{
+            customers:(configDoc?.customers||[]).length,
+            workshops:(configDoc?.workshops||[]).length,
+            employees:(configDoc?.employees||[]).length,
+            usersList:(configDoc?.usersList||[]).length,
+            users:Object.keys(configDoc?.users||{}).length,
+          }
+        });
+      }catch(preErr){
+        console.error("[V18.60 selective] pre-backup failed:",preErr);
+        showToast("⛔ فشل عمل نسخة احتياطية قبل الدمج — توقفت العملية");
+        setBusy(false);
+        return;
+      }
+
+      /* Step 2: Log the action to restoreLog (separate doc, audit-safe) */
+      try{
+        await setDoc(doc(db,"restoreLog",preBackupId),{
+          ts:new Date().toISOString(),
+          by:user?.email||user?.uid||"unknown",
+          action:"selective_restore",
+          sourceBackupId:selectedBackup.id,
+          sourceBackupLabel:selectedBackup.label||"",
+          sourceBackupCreatedAt:selectedBackup.createdAt||"",
+          preRestoreBackupId:preBackupId,
+          fieldsRestored:fieldsToRestore.map(f=>({
+            key:f.key,
+            count:f.missingCount,
+          })),
+        });
+      }catch(logErr){
+        console.warn("[V18.60 selective] restoreLog write failed (non-fatal):",logErr);
+      }
+
+      /* Step 3: Apply the merge via upConfig (which has all V18.60 safety guards).
+         We only ADD missing items — never overwrite existing ones. */
+      const restoredAt=new Date().toISOString();
+      upConfig(d=>{
+        for(const field of fieldsToRestore){
+          if(field.type==="object"){
+            if(!d[field.key])d[field.key]={};
+            for(const item of field.missingItems){
+              /* Only add if still missing — defensive against race with another write */
+              if(!(item._key in d[field.key])){
+                d[field.key][item._key]=item._value;
+              }
+            }
+          }else{
+            if(!Array.isArray(d[field.key]))d[field.key]=[];
+            const existingIds=new Set(d[field.key].map(x=>String(x?.[field.idKey]??"")));
+            for(const item of field.missingItems){
+              const id=String(item?.[field.idKey]??"");
+              if(!existingIds.has(id)){
+                d[field.key].push({
+                  ...item,
+                  restoredAt,
+                  restoredFrom:selectedBackup.id,
+                });
+                existingIds.add(id);
+              }
+            }
+          }
+        }
+      });
+
+      const totalRestored=fieldsToRestore.reduce((sum,f)=>sum+f.missingCount,0);
+      showToast(`✅ تم دمج ${totalRestored} عنصر من ${fieldsToRestore.length} حقل. النسخة القديمة في ${preBackupId}`);
+      /* Reset state */
+      setSelectedBackup(null);
+      setDiffData(null);
+      setSelectedFields(new Set());
+      setConfirmText("");
+    }catch(e){
+      console.error("[V18.60 selective restore]",e);
+      showToast("⚠️ فشل الدمج: "+(e?.message||String(e)).slice(0,100));
+    }
+    setBusy(false);
+  };
+
+  const totalMissingSelected=diffData?.fields
+    ?.filter(f=>selectedFields.has(f.key))
+    .reduce((sum,f)=>sum+f.missingCount,0)||0;
+
+  return<Card title="🔄 الاستعادة الانتقائية (آمنة — إضافة فقط)" style={{marginTop:16,border:"2px solid "+T.ok+"50"}}>
+    <CardSubtitle icon="💡">أداة لاسترجاع البيانات المحذوفة (عملاء، ورش، مستخدمين، إلخ) من نسخة احتياطية قديمة <b>بدون</b> ما تلمس البيانات الحالية. الأداة بتدمج بس العناصر الناقصة، وما بتمسحش حاجة موجودة.</CardSubtitle>
+
+    {/* Step 1: Pick a backup */}
+    {!selectedBackup&&<>
+      <div style={{padding:12,background:T.ok+"08",border:"1px solid "+T.ok+"30",borderRadius:10,marginBottom:14,fontSize:FS-1,color:T.text,lineHeight:1.7}}>
+        <b style={{color:T.ok}}>كيف تشتغل الأداة دي:</b><br/>
+        ١) تختار نسخة احتياطية قبل ما البيانات تختفي (مثلاً قبل الساعة 4 اليوم)<br/>
+        ٢) الأداة تقارن النسخة بالبيانات الحالية وتعرضلك إيه الناقص<br/>
+        ٣) تختار إيه اللي ترجعه (عملاء، ورش، مستخدمين...)<br/>
+        ٤) الأداة تضيف الناقص بس — البيانات الحالية تفضل زي ما هي<br/>
+        ٥) قبل أي تعديل، بناخد نسخة احتياطية أوتوماتيك للحالة الحالية
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+        <Btn onClick={loadBackups} disabled={loading} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}}>{loading?<span style={{display:"inline-flex",alignItems:"center",gap:8}}><Spinner size="small" color={T.text} inline/>جاري التحميل...</span>:"🔄 تحديث القائمة"}</Btn>
+        <span style={{fontSize:FS-2,color:T.textMut,alignSelf:"center"}}>{backups.length} نسخة متاحة</span>
+      </div>
+      {backups.length===0&&!loading?<div style={{padding:30,textAlign:"center",color:T.textMut,background:T.bg,borderRadius:10}}>لا توجد نسخ احتياطية متاحة</div>
+      :<div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:400,overflowY:"auto"}}>
+        {backups.map(b=>{
+          const d=new Date(b.createdAt||0);
+          const c=b.counts||{};
+          const isPreMig=String(b.id||"").startsWith("pre-migration");
+          const isAutoPre=String(b.id||"").startsWith("auto-pre");
+          return<div key={b.id} onClick={()=>handleSelectBackup(b)} style={{padding:12,borderRadius:10,background:T.bg,border:"1px solid "+T.brd,cursor:"pointer",transition:"all 0.15s"}} onMouseOver={e=>{e.currentTarget.style.background=T.accent+"08";e.currentTarget.style.borderColor=T.accent+"60"}} onMouseOut={e=>{e.currentTarget.style.background=T.bg;e.currentTarget.style.borderColor=T.brd}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:200}}>
+                <div style={{fontSize:FS,fontWeight:700,color:T.text,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                  📦 {b.label||"نسخة"}
+                  {isPreMig?<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,background:T.warn+"20",color:T.warn,fontWeight:600}}>قبل migration</span>:null}
+                  {isAutoPre?<span style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,background:T.accent+"20",color:T.accent,fontWeight:600}}>تلقائي</span>:null}
+                </div>
+                <div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{d.toLocaleString("ar-EG",{dateStyle:"medium",timeStyle:"short"})}</div>
+                <div style={{fontSize:FS-3,color:T.textSec,marginTop:4,display:"flex",gap:10,flexWrap:"wrap"}}>
+                  <span>🧑 {c.customers||0}</span>
+                  <span>🏭 {c.workshops||0}</span>
+                  <span>👷 {c.employees||0}</span>
+                  <span>👤 {(c.usersList||0)+(c.users||0)}</span>
+                </div>
+              </div>
+              <div style={{fontSize:FS-1,color:T.accent,fontWeight:700}}>اختيار ←</div>
+            </div>
+          </div>;
+        })}
+      </div>}
+    </>}
+
+    {/* Step 2: Show diff and let user pick fields */}
+    {selectedBackup&&diffData&&<>
+      <div style={{padding:12,background:T.accent+"08",border:"1px solid "+T.accent+"40",borderRadius:10,marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <div>
+            <div style={{fontSize:FS,fontWeight:800,color:T.accent}}>📦 {selectedBackup.label||"نسخة"}</div>
+            <div style={{fontSize:FS-2,color:T.textSec,marginTop:2}}>{new Date(selectedBackup.createdAt).toLocaleString("ar-EG")}</div>
+          </div>
+          <Btn ghost onClick={()=>{setSelectedBackup(null);setDiffData(null);setSelectedFields(new Set());setConfirmText("")}} style={{fontSize:FS-2}}>← اختيار نسخة تانية</Btn>
+        </div>
+      </div>
+
+      <div style={{fontSize:FS-1,color:T.textSec,marginBottom:10,fontWeight:700}}>
+        اختر الحقول اللي عاوز تضيف منها العناصر الناقصة:
+      </div>
+
+      <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
+        {diffData.fields.map(f=>{
+          const isSelected=selectedFields.has(f.key);
+          const hasMissing=f.missingCount>0;
+          const isExpanded=expandedField===f.key;
+          return<div key={f.key} style={{borderRadius:10,border:"1px solid "+(isSelected&&hasMissing?T.accent+"60":T.brd),background:isSelected&&hasMissing?T.accent+"05":T.bg,opacity:hasMissing?1:0.5,overflow:"hidden"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",cursor:hasMissing?"pointer":"default"}} onClick={()=>hasMissing&&toggleField(f.key)}>
+              <input type="checkbox" checked={isSelected&&hasMissing} disabled={!hasMissing} onChange={()=>{}} style={{width:18,height:18,cursor:hasMissing?"pointer":"default",accentColor:T.accent}}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:FS,fontWeight:700,color:T.text}}>{f.label}</div>
+                <div style={{fontSize:FS-2,color:T.textSec,marginTop:2}}>
+                  حالياً: <b>{f.currentCount}</b> • في النسخة: <b>{f.backupCount}</b>
+                  {hasMissing?<> • ناقص: <b style={{color:T.ok}}>+{f.missingCount}</b></>:<> • <span style={{color:T.textMut}}>مفيش ناقص</span></>}
+                </div>
+              </div>
+              {hasMissing&&f.missingCount>0&&<button onClick={e=>{e.stopPropagation();setExpandedField(isExpanded?null:f.key)}} style={{padding:"4px 10px",fontSize:FS-3,background:T.bg,color:T.textSec,border:"1px solid "+T.brd,borderRadius:6,cursor:"pointer",fontFamily:"inherit"}}>{isExpanded?"إخفاء":"عرض"}</button>}
+            </div>
+            {isExpanded&&hasMissing&&<div style={{padding:"8px 14px 12px",borderTop:"1px solid "+T.brd,background:T.bg,maxHeight:200,overflowY:"auto"}}>
+              <div style={{fontSize:FS-2,color:T.textMut,marginBottom:6}}>أمثلة على العناصر اللي هتترجع:</div>
+              {f.missingItems.slice(0,30).map((item,i)=>{
+                let display="";
+                if(f.type==="object"){
+                  display=item._key+" → "+(typeof item._value==="string"?item._value:(item._value?.role||JSON.stringify(item._value).slice(0,50)));
+                }else{
+                  display=(item[f.nameKey]||item[f.idKey]||"-")+(f.idKey!=="id"?"":" (id: "+item.id+")");
+                }
+                return<div key={i} style={{fontSize:FS-2,padding:"3px 0",color:T.text,borderBottom:i<f.missingItems.length-1?"1px dashed "+T.brd:"none"}}>• {display}</div>;
+              })}
+              {f.missingItems.length>30&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:6,fontStyle:"italic"}}>... و {f.missingItems.length-30} عنصر إضافي</div>}
+            </div>}
+          </div>;
+        })}
+      </div>
+
+      {totalMissingSelected===0?<div style={{padding:14,background:T.warn+"10",border:"1px solid "+T.warn+"40",borderRadius:10,color:T.warn,fontSize:FS-1,textAlign:"center"}}>اختر حقل واحد على الأقل فيه عناصر ناقصة</div>
+      :<>
+        <div style={{padding:12,background:T.ok+"08",border:"1px solid "+T.ok+"30",borderRadius:10,marginBottom:14,fontSize:FS-1,color:T.text,lineHeight:1.7}}>
+          <b style={{color:T.ok}}>ملخص العملية:</b><br/>
+          هتتم إضافة <b>{totalMissingSelected}</b> عنصر للبيانات الحالية.<br/>
+          البيانات الحالية مش هتتلمس — بس الناقص اللي هيتضاف.<br/>
+          هتتاخد نسخة احتياطية أوتوماتيك للحالة الحالية قبل الدمج.
+        </div>
+
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:FS-1,fontWeight:700,color:T.accent,marginBottom:6}}>
+            للتأكيد، اكتب كلمة <span style={{fontFamily:"monospace",background:T.accent+"15",padding:"2px 8px",borderRadius:4}}>ادمج</span> بالظبط:
+          </div>
+          <Inp value={confirmText} onChange={setConfirmText} placeholder="اكتب: ادمج" style={{width:"100%",fontSize:FS,padding:"10px 14px",border:"2px solid "+(confirmText==="ادمج"?T.ok:T.brd)}}/>
+        </div>
+
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end",flexWrap:"wrap"}}>
+          <Btn ghost onClick={()=>{setSelectedBackup(null);setDiffData(null);setSelectedFields(new Set());setConfirmText("")}} disabled={busy}>إلغاء</Btn>
+          <Btn onClick={performRestore} disabled={busy||confirmText!=="ادمج"||totalMissingSelected===0} style={{background:confirmText==="ادمج"&&totalMissingSelected>0?T.ok:T.bg,color:confirmText==="ادمج"&&totalMissingSelected>0?"#fff":T.textMut,border:confirmText==="ادمج"&&totalMissingSelected>0?"none":"1px solid "+T.brd,fontWeight:800,opacity:(busy||confirmText!=="ادمج"||totalMissingSelected===0)?0.6:1}}>{busy?<span style={{display:"inline-flex",alignItems:"center",gap:8}}><Spinner size="small" color="#fff" inline/>جاري الدمج...</span>:"✅ تنفيذ الدمج"}</Btn>
+        </div>
+      </>}
+    </>}
   </Card>;
 }
 

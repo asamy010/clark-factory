@@ -11,7 +11,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { FKEYS, DEFAULT_STATUSES, QUALITY_MAP } from "../constants/index.js";
-import { gid, r2, sqty, slay, gf, gc, gcons } from "./format.js";
+import { gid, r2, sqty, slay, gf, gc, gcons, gIcon } from "./format.js";
 
 /* Workshop type info — maps a workshop type string to icon/color/internal flag */
 export function wsTypeInfo(type){
@@ -37,16 +37,22 @@ export function getStatusColor(name,cards){const c=(cards||DEFAULT_STATUSES).fin
 /* V16.47: Production stage timeline.
    Maps a free-form status string to an index in a 5-stage production lifecycle:
      0  قص
-     1  تشغيل (خياطة)
-     2  طباعة / تطريز / غسيل  (parallel, treated as same forward stage)
-     3  تشطيب وتعبئة
-     4  جاهز (تم التسليم لمخزن الجاهز)
+     1  تشغيل (خياطة)  — also catches طباعة / تطريز / غسيل (V16.72: collapsed
+        into stage 1 because the factory doesn't run a separate decoration
+        phase. Statuses containing those keywords are still produced by
+        recomputeStatus when external workshops happen to be of those types,
+        so we map them here as a safety net rather than dropping them.)
+     2  تشطيب وتعبئة
+     3  جاهز (تم التسليم لمخزن الجاهز)
    Also returns a special-case "cancelled" flag for "ملغي".
    Falls back to stage 0 for unknown statuses. */
 export const PRODUCTION_STAGES=[
   {key:"cut",     short:"قص",      full:"تم القص"},
   {key:"sew",     short:"تشغيل",   full:"في التشغيل"},
-  {key:"deco",    short:"طباعة",   full:"طباعة / تطريز / غسيل"},
+  /* V16.72: removed {key:"deco",short:"طباعة",...} — factory doesn't run a
+     printing/embroidery phase, the dot in the order-card timeline was just
+     visual clutter. If decoration statuses ever reappear they'll fall back
+     onto the sewing stage in getStageIndex below. */
   {key:"finish",  short:"تشطيب",   full:"تشطيب وتعبئة"},
   {key:"ready",   short:"جاهز",    full:"تم التسليم لمخزن الجاهز"}
 ];
@@ -54,14 +60,16 @@ export function getStageIndex(status){
   const s=String(status||"").trim();
   if(!s)return 0;
   if(s==="ملغي")return-1;/* cancelled */
-  /* Stage 4: ready / partially-ready */
-  if(s==="تم التسليم لمخزن الجاهز")return 4;
-  if(s==="في مخزن الجاهز جزئي")return 4;
-  /* Stage 3: finishing */
-  if(s.indexOf("تشطيب")>=0)return 3;
-  /* Stage 2: print / embroidery / wash */
-  if(s.indexOf("طباعة")>=0||s.indexOf("تطريز")>=0||s.indexOf("غسيل")>=0)return 2;
-  /* Stage 1: sewing — internal or external */
+  /* V16.72: stage indices renumbered after removing the print/embroidery dot.
+     Keep this list in step with PRODUCTION_STAGES above. */
+  /* Stage 3: ready / partially-ready */
+  if(s==="تم التسليم لمخزن الجاهز")return 3;
+  if(s==="في مخزن الجاهز جزئي")return 3;
+  /* Stage 2: finishing */
+  if(s.indexOf("تشطيب")>=0)return 2;
+  /* Stage 1: sewing — internal, external, OR decoration (print/embroidery/wash)
+     all collapse here since there's no separate decoration stage anymore. */
+  if(s.indexOf("طباعة")>=0||s.indexOf("تطريز")>=0||s.indexOf("غسيل")>=0)return 1;
   if(s.indexOf("تشغيل")>=0)return 1;
   /* Stage 0: cut */
   if(s==="تم القص")return 0;
@@ -146,6 +154,17 @@ export function getConfirmedStock(o){
   const result=(o.deliveries||[]).filter(d=>d.status!=="pending").reduce((s,d)=>s+(Number(d.qty)||0),0);
   _stockCache.set(o,result);
   return result;
+}
+
+/* V18.21: Series vs Broken stock distinction.
+   Default for legacy entries (no `type` field) = "series" — preserves backward compat. */
+export function getConfirmedSeriesStock(o){
+  if(!o||typeof o!=="object")return 0;
+  return (o.deliveries||[]).filter(d=>d.status!=="pending"&&(d.type||"series")==="series").reduce((s,d)=>s+(Number(d.qty)||0),0);
+}
+export function getConfirmedBrokenStock(o){
+  if(!o||typeof o!=="object")return 0;
+  return (o.deliveries||[]).filter(d=>d.status!=="pending"&&d.type==="broken").reduce((s,d)=>s+(Number(d.qty)||0),0);
 }
 
 export function getPendingStock(o){
@@ -536,9 +555,23 @@ export function validateOrder(form){
   return e
 }
 
-/* Order summary text for sharing (WhatsApp/Telegram) */
+/* Order summary text for sharing (WhatsApp/Telegram).
+   V18.89: Added per-piece breakdown showing cut qty, workshop-delivered qty, and available qty.
+   Only shown for multi-piece orders (orderPieces.length > 1) to avoid noise on single-piece. */
 export function getOrderDetails(o,t){
-  return["*CLARK — تفاصيل أوردر*","","• رقم الموديل: *"+o.modelNo+"*","• الوصف: "+o.modelDesc,"• المقاسات: "+(o.sizeLabel||"-"),"• كمية القص: *"+(t?.cutQty||0)+"*","• الحالة: "+o.status,"• مخزن جاهز: *"+(o.deliveredQty||0)+"*"].join("\n")
+  const lines=["*CLARK — تفاصيل أوردر*","","• رقم الموديل: *"+o.modelNo+"*","• الوصف: "+o.modelDesc,"• المقاسات: "+(o.sizeLabel||"-"),"• كمية القص: *"+(t?.cutQty||0)+"*","• الحالة: "+o.status,"• مخزن جاهز: *"+(o.deliveredQty||0)+"*"];
+  /* V18.89: Per-piece breakdown */
+  const pieces=o.orderPieces||[];
+  if(pieces.length>1){
+    lines.push("","📌 تفاصيل القطع:");
+    pieces.forEach(p=>{
+      const cut=getPieceCutQty(o,p);
+      const delivered=(o.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+      const avail=Math.max(0,cut-delivered);
+      lines.push(gIcon(p)+" "+p+": قص "+cut+" - تشغيل "+delivered+" - متاح للتسليم "+avail);
+    });
+  }
+  return lines.join("\n");
 }
 
 /* Order timeline text for sharing — events sorted by date */
@@ -564,4 +597,57 @@ export function getOrderTimeline(o,t){
   const remain=stockDel-custDel;
   const lines=["","─────────────────","*📋 تايم لاين:*",...evs.map(e=>e.d+" │ "+e.t),"─────────────────","📦 *رصيد المخزن الجاهز: "+remain+" قطعة*"];
   return lines.join("\n")
+}
+
+/* V18.72: Match a workshop from a treasury desc/notes string.
+   Used to auto-link treasury entries to wsPayments when the user typed the
+   workshop name in the desc but didn't pick it from the party selector.
+
+   Returns the workshop object on a confident single match; null if nothing
+   matched OR if multiple unrelated workshops appeared (ambiguous → safer to
+   leave the entry unlinked than to guess wrong).
+
+   Edge case handled: when one match's name is a strict substring of a longer
+   match (e.g. "محمد" inside "محمد ستارال"), we pick the longer one — that's
+   the real workshop, the shorter is just an accidental substring hit. */
+/* V18.73: Normalize Arabic text for matching — collapse common variants
+   (alef forms, ta marbuta vs ha, alef maksura vs ya, kashida, diacritics,
+   tatweel, and whitespace). Used by workshop-name matching so that
+   e.g. "ورشه محمد ايمن" matches a workshop named "ورشة محمد أيمن". */
+function normalizeAr(s){
+  if(!s||typeof s!=="string")return"";
+  return s
+    .replace(/[\u064B-\u065F\u0670]/g,"")  /* diacritics + dagger alef */
+    .replace(/\u0640/g,"")                  /* tatweel */
+    .replace(/[\u0622\u0623\u0625\u0671]/g,"\u0627") /* أ إ آ → ا */
+    .replace(/\u0629/g,"\u0647")            /* ة → ه */
+    .replace(/\u0649/g,"\u064A")            /* ى → ي */
+    .replace(/\u0624/g,"\u0648")            /* ؤ → و */
+    .replace(/\u0626/g,"\u064A")            /* ئ → ي */
+    .replace(/\s+/g," ")
+    .trim();
+}
+
+export function matchWorkshopFromDesc(desc, workshops){
+  if(!desc||typeof desc!=="string")return null;
+  if(!Array.isArray(workshops)||workshops.length===0)return null;
+  const descN=normalizeAr(desc);
+  const matches=[];
+  for(const ws of workshops){
+    if(!ws||!ws.name)continue;
+    const name=ws.name.trim();
+    if(!name)continue;
+    const nameN=normalizeAr(name);
+    if(!nameN)continue;
+    if(descN.includes(nameN))matches.push(ws);
+  }
+  if(matches.length===0)return null;
+  if(matches.length===1)return matches[0];
+  /* Multiple matches — accept the longest only if every other match is a
+     strict substring of it. Otherwise return null (genuinely ambiguous). */
+  matches.sort((a,b)=>b.name.length-a.name.length);
+  const longest=matches[0];
+  const longestN=normalizeAr(longest.name);
+  const allContained=matches.slice(1).every(m=>longestN.includes(normalizeAr(m.name)));
+  return allContained?longest:null;
 }
