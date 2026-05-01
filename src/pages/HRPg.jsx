@@ -20,6 +20,7 @@ import { formatBlockerMessage } from "../utils/dataIntegrity.js";
 import { addReceipt, removeReceipt, getPendingForWeek, getReadyForRetry, markAsFailed, getPendingCount, forceRetryAll } from "../utils/receiptQueue.js";
 import { Btn, Inp, Sel, Card, QRImg, QRScanner, SearchSel, useDebounced } from "../components/ui.jsx";
 import { ReviewRequestModal } from "../components/ReviewRequestModal.jsx";
+import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { T, TH, TD, TDB } from "../theme.js";
 import { db } from "../firebase";
@@ -3185,6 +3186,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       for(let d=new Date(s);d<=e;d.setDate(d.getDate()+1))dates.push(d.toISOString().split("T")[0]);
       
       return<div>
+        {/* V18.94: Review-request banner for this week (visible only to sender) */}
+        <ReviewRequestBanner linkType="hrWeek" linkId={openWeek.id} data={data} upConfig={upConfig} user={user}/>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
           <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
             <Btn ghost onClick={()=>setOpenWeekId(null)}>← رجوع</Btn>

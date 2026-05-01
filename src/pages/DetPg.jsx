@@ -17,6 +17,7 @@ import { printLabel, printOrderSheet, printReceipt, printWorkshopReport } from "
 import { uploadMultiple, deleteAttachment, getFileIcon, formatFileSize, isAllowedFile, MAX_FILE_SIZE } from "../utils/attachments.js";
 import { OrdForm } from "./OrdForm.jsx";
 import { ReviewRequestModal } from "../components/ReviewRequestModal.jsx";
+import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
 
 export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,isTab,canEdit,statusCards,goHome,upConfig,user}){
   const order=data.orders.find(o=>o.id===sel);const[editing,setEditing]=useState(false);
@@ -503,6 +504,12 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   const prevId=curIdx>0?sortedIds[curIdx-1]:null;const nextId=curIdx<sortedIds.length-1?sortedIds[curIdx+1]:null;
 
   return<div>
+    {/* V18.94: Review-request banner — visible only to the sender if there's an active request for this order */}
+    <ReviewRequestBanner
+      linkType="order"
+      linkId={order.id}
+      data={data} upConfig={upConfig} user={user}
+    />
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
       <div style={{display:"flex",alignItems:"center",gap:6}}>
         <Btn ghost onClick={()=>setSel(null)} style={{fontSize:isMob?16:20}} title="إغلاق">✕</Btn>

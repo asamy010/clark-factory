@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { doc, setDoc } from "firebase/firestore";
 import { Btn, Card, DelBtn, Inp, SearchSel, Sel, useDebounced } from "../components/ui.jsx";
 import { ReviewRequestModal } from "../components/ReviewRequestModal.jsx";
+import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
 import { FKEYS, FS } from "../constants/index.js";
 import { CLARK_LOGO } from "../constants/logo.js";
 import { db } from "../firebase";
@@ -1175,7 +1176,9 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
           h+="<div style='margin-top:16px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:8px'>CLARK Factory Management — "+new Date().toLocaleDateString("ar-EG")+"</div>";
           printPage("كشف حساب — "+w.name,h)
         };
-        return<Card key={w.id} title={"كشف حساب: "+w.name} style={{marginTop:12}} extra={<Btn small onClick={printStmt} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨 طباعة</Btn>}>
+        return<div key={w.id}>
+          <ReviewRequestBanner linkType="workshop" linkId={w.name} data={data} upConfig={upConfig} user={user}/>
+          <Card title={"كشف حساب: "+w.name} style={{marginTop:12}} extra={<Btn small onClick={printStmt} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨 طباعة</Btn>}>
           <div id={"ws-stmt-"+w.id}>
           <h2>{"كشف حساب: "+w.name}</h2>
           <div className="sub">{"الموسم: "+season+" | التاريخ: "+new Date().toLocaleDateString("ar-EG")}</div>
@@ -1197,7 +1200,8 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
                 <td style={{...TDB,color:running>0?T.err:T.ok}}>{fmt(r2(running))}</td></tr>})}</tbody>
           </table></div>
           </div>
-        </Card>})}
+        </Card>
+        </div>})}
       </div>
       {/* V18.91: Review request modal for workshop */}
       {reviewWs&&<ReviewRequestModal

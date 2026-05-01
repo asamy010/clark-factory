@@ -20,6 +20,7 @@ import { autoPost } from "../utils/accounting/autoPost.js";
 import { printInvoice } from "../utils/printInvoice.js";
 import { ServiceInvoiceModal } from "../components/ServiceInvoiceModal.jsx";
 import { ReviewRequestModal } from "../components/ReviewRequestModal.jsx";
+import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
 
 const STATUS_META = {
   draft:  { label: "مسودة",  color: "#6B7280", bg: "#6B728015" },
@@ -343,6 +344,13 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
       width:"100%", maxWidth:800, maxHeight:"90vh", overflowY:"auto",
       border:"1px solid "+T.brd, boxShadow:"0 25px 70px rgba(0,0,0,0.4)"
     }}>
+      {/* V18.94: Review-request banner — visible only to the sender if there's an active request */}
+      <ReviewRequestBanner
+        linkType="invoice"
+        linkId={invoice.id}
+        linkSubType={type}
+        data={data} upConfig={upConfig} user={user}
+      />
       {/* Header */}
       <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16, paddingBottom:12, borderBottom:"2px solid "+T.brd, gap:10, flexWrap:"wrap"}}>
         <div>

@@ -16,6 +16,7 @@ import { openPrintWindow } from "../utils/print.js";
 import { printCashReceipt, printCheckReceipt } from "../utils/print-extras.js";
 import { getReferences } from "../utils/dataIntegrity.js";
 import { Spinner, InlineLoading, Btn, Inp, Sel, SearchSel, Card, useDebounced } from "../components/ui.jsx";
+import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { calculatePending, buildTxFromRule, getNextDueDate, describeRecurrence } from "../utils/recurring.js";
 import { matchWorkshopFromDesc } from "../utils/orders.js";
