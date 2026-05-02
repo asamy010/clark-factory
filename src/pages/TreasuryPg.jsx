@@ -1159,9 +1159,14 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>!transferLegIds.includes(p.treasuryTxId));
     }else{
       d.treasury=(d.treasury||[]).filter(t=>t.id!==id);
-      if(tx){if(d.custPayments)d.custPayments=d.custPayments.filter(p=>p.treasuryTxId!==id);
-        if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>p.treasuryTxId!==id);
-        if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>p.treasuryTxId!==id);
+      if(tx){
+        /* V19.20: Bilateral cascade — catch records linked via EITHER direction.
+           Forward: wsPayment.treasuryTxId === tx.id (existing).
+           Reverse: tx.wsPaymentId === wsPayment.id (new — handles legacy/edge cases
+           where only one side of the link was set). Same for cust/supplier. */
+        if(d.custPayments)d.custPayments=d.custPayments.filter(p=>p.treasuryTxId!==id&&(!tx.custPaymentId||p.id!==tx.custPaymentId));
+        if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>p.treasuryTxId!==id&&(!tx.supplierPaymentId||p.id!==tx.supplierPaymentId));
+        if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>p.treasuryTxId!==id&&(!tx.wsPaymentId||p.id!==tx.wsPaymentId));
       }
     }
     /* V19.13: tombstone — same rationale as the bulk-delete tombstones below.

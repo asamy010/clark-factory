@@ -59,6 +59,8 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
   const[transferMov,setTransferMov]=useState(null);/* {orderId, wdIdx, from, modelNo, qty, garmentType} */
   const[transferToWs,setTransferToWs]=useState("");
   const[transferReason,setTransferReason]=useState("");
+  /* V19.20: Data cleanup tool — modal for resolving wsPayments/treasury inconsistencies */
+  const[showCleanup,setShowCleanup]=useState(false);
   /* V18.16: Hide archived workshops from all pickers/dropdowns */
   const workshops=(data.workshops||[]).filter(w=>!w.archived);
   const isInternal=(name)=>{const w=workshops.find(x=>x.name===name);return w?wsIsInternal(w.type):false};
@@ -78,66 +80,12 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
     window.addEventListener("notif-deeplink",handler);
     return()=>window.removeEventListener("notif-deeplink",handler);
   },[]);
-  /* V19.17: Auto-sync orphan workshop treasury entries → silently create matching wsPayments records.
-     Mirrors the V19.14 pattern for customer/supplier statements:
-       - Runs ONLY when the workshop accounts/payments page is open (mode=accounts or payWs is set)
-       - useRef lock so it doesn't re-fire when state updates within the same session
-       - Walks every treasury row with a workshop name + (تشغيل خارجي|مشتريات) category
-       - For any row that has no matching wsPayments record, creates one with treasuryTxId=t.id
-     Without this, the orphan-fallback rendering above (Layer 1 + 2) would keep showing the ⚠️
-     marker forever on legacy / re-closed-week data — even though the data IS correct, just not
-     wired through the wsPayments index. Silent so the user just sees clean rows next time. */
-  const wsAutoSyncRef=useRef(new Set());
-  useEffect(()=>{
-    if(mode!=="accounts"&&!payWs)return;
-    if(!Array.isArray(data?.treasury)||!Array.isArray(data?.workshops))return;
-    /* Build a single key for this dataset shape so we only run once per "version" of treasury+wsPayments. */
-    const wsNames=new Set((data.workshops||[]).map(w=>w.name).filter(Boolean));
-    const wsPayTxIds=new Set((data.wsPayments||[]).map(p=>p.treasuryTxId).filter(Boolean));
-    const wsPayIdSet=new Set((data.wsPayments||[]).map(p=>p.id));
-    const orphans=[];
-    (data.treasury||[]).forEach(t=>{
-      if(!t||t.type!=="out")return;
-      if(!t.wsName||!wsNames.has(t.wsName))return;
-      if(t.category!=="تشغيل خارجي"&&t.category!=="مشتريات")return;
-      if(wsPayTxIds.has(t.id))return;
-      if(t.wsPaymentId&&wsPayIdSet.has(t.wsPaymentId))return;
-      orphans.push(t);
-    });
-    if(orphans.length===0)return;
-    /* Lock key: a stable signature of orphans we already processed. Prevents re-running on every render. */
-    const lockKey=orphans.map(t=>t.id).sort().join("|");
-    if(wsAutoSyncRef.current.has(lockKey))return;
-    wsAutoSyncRef.current.add(lockKey);
-    upConfig(d=>{
-      if(!Array.isArray(d.wsPayments))d.wsPayments=[];
-      const dWsPayTxIds=new Set((d.wsPayments||[]).map(p=>p.treasuryTxId).filter(Boolean));
-      const dWsPayIds=new Set((d.wsPayments||[]).map(p=>p.id));
-      orphans.forEach(t=>{
-        if(dWsPayTxIds.has(t.id))return;
-        if(t.wsPaymentId&&dWsPayIds.has(t.wsPaymentId))return;
-        const wsObj=(d.workshops||[]).find(w=>w.name===t.wsName);
-        const wsPayId=t.wsPaymentId||("wsp_sync_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,7));
-        d.wsPayments.push({
-          id:wsPayId,
-          wsName:t.wsName,
-          wsId:wsObj?.id||null,
-          amount:Number(t.amount)||0,
-          type:t.category==="مشتريات"?"purchase":"payment",
-          notes:t.notes||"",
-          date:t.date||"",
-          createdBy:t.by||"auto-sync",
-          treasuryTxId:t.id,
-          createdAt:t.createdAt||new Date().toISOString(),
-          autoSyncedAt:new Date().toISOString(),
-          sourceWeekId:t.weekId||null,
-        });
-        /* Back-link the treasury row so future pages don't re-detect it as orphan. */
-        const tIdx=(d.treasury||[]).findIndex(x=>x.id===t.id);
-        if(tIdx>=0&&!d.treasury[tIdx].wsPaymentId)d.treasury[tIdx].wsPaymentId=wsPayId;
-      });
-    });
-  },[mode,payWs,data.treasury,data.wsPayments,data.workshops,upConfig]);
+  /* V19.20: REMOVED — V19.17's silent auto-sync was creating wsPayments from orphan
+     treasury entries. The unintended consequence: when a user deleted a wsPayment,
+     the linked treasury entry would orphan, and on the next page open this effect
+     would re-create the wsPayment — undoing the delete. The cleanup is now manual
+     via the "تنظيف البيانات" tool below — user reviews each inconsistency and
+     decides whether to delete or re-link. */
 
   const startEditMov=(m)=>{setEditMov(m);setEditQty(m.qty);setEditNote(m.notes||"");setEditPrice(m.price||0);setEditDate(m.date||"");
     if(m.type==="receive"){const ord=data.orders.find(o=>o.id===m.orderId);const r=ord?.workshopDeliveries?.[m.wdIdx]?.receives?.[m.rIdx];setEditQuality(r?.quality||"جيد جداً")}else{setEditQuality("")}};
@@ -331,22 +279,21 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
   };
 
   /* Workshop accounts calculation */
+  /* V19.20: wsAccounts now reads totals from treasury — the single source of truth.
+     Previous behavior (V18.72) summed wsPayments and ADDED orphan treasury entries on top,
+     which double-counted in some cases AND counted "ghost" wsPayments (records whose treasury
+     entry was deleted by the user but the wsPayment linger). Treasury is the canonical record
+     of money movement; wsPayments is a denormalized index. This change makes the workshop
+     summary card (image 2 in user report) show the correct paid total of 40,800 instead of
+     51,600 — the 10,800 ghost wsPayment is excluded because it has no treasury backing. */
   const wsAccounts=(wsName)=>{if(isInternal(wsName))return{due:0,totalPaid:0,totalPurchase:0,balance:0};let due=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===wsName).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});
-    const payments=(data.wsPayments||[]).filter(p=>p.wsName===wsName);
-    let totalPaid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);
-    let totalPurchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);
-    /* V18.72: Defensive — also pick up orphan treasury entries that carry this
-       workshop's name but never got a wsPayment (e.g. the auto-link / backfill
-       missed them, or a manual edit broke the link). Skip entries with
-       wsPaymentId to avoid double counting. */
+    let totalPaid=0,totalPurchase=0;
     (data.treasury||[]).forEach(t=>{
-      if(!t||t.wsPaymentId)return;
-      if(t.type!=="out")return;
+      if(!t||t.type!=="out")return;
       if(t.wsName!==wsName)return;
-      if(t.category!=="تشغيل خارجي"&&t.category!=="مشتريات")return;
       const amt=Number(t.amount)||0;
-      if(t.category==="مشتريات")totalPurchase+=amt;
-      else totalPaid+=amt;
+      if(t.category==="تشغيل خارجي")totalPaid+=amt;
+      else if(t.category==="مشتريات")totalPurchase+=amt;
     });
     return{due,totalPaid,totalPurchase,balance:due+totalPurchase-totalPaid}
   };
@@ -1145,17 +1092,24 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
     </Card>
     {payWs&&<Card title={"دفعات "+payWs}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["التاريخ","النوع","المبلغ","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
       {(()=>{
-        /* V19.17: merge wsPayments + orphan treasury entries (rows that carry the workshop's name
-           but never got a matching wsPayment record — typically left over from a re-closed week or
-           pre-V15.27 data). Orphans are rendered read-only with a ⚠️ marker; the auto-sync effect
-           below converts them into real wsPayments on first open of the workshop accounts page. */
+        /* V19.20: Unified payment table. Treasury is now the source of truth for totals, so:
+           - wsPayments WITHOUT a matching treasury entry = "ghost" (red ⚠️) — NOT counted in totals
+           - treasury entries WITH wsName but NO matching wsPayment = "orphan" (yellow ⚠️) — counted
+           - normal wsPayments with treasury linkage = clean rows
+           User reviews ghosts/orphans and resolves them via the cleanup tool below. */
         const wsPaysHere=(data.wsPayments||[]).filter(p=>p.wsName===payWs);
+        const treasuryHere=(data.treasury||[]).filter(t=>t&&t.type==="out"&&t.wsName===payWs&&(t.category==="تشغيل خارجي"||t.category==="مشتريات"));
+        const treasuryById=new Map(treasuryHere.map(t=>[t.id,t]));
+        const treasuryByWsPayId=new Map(treasuryHere.filter(t=>t.wsPaymentId).map(t=>[t.wsPaymentId,t]));
         const wsPayTxIds=new Set(wsPaysHere.map(p=>p.treasuryTxId).filter(Boolean));
         const wsPayIdSet=new Set(wsPaysHere.map(p=>p.id));
-        const orphans=(data.treasury||[]).filter(t=>{
-          if(!t||t.type!=="out")return false;
-          if(t.wsName!==payWs)return false;
-          if(t.category!=="تشغيل خارجي"&&t.category!=="مشتريات")return false;
+        /* Mark each wsPayment as ghost if it has no treasury linkage at all */
+        const wsPayRows=wsPaysHere.map(p=>{
+          const linked=(p.treasuryTxId&&treasuryById.has(p.treasuryTxId))||treasuryByWsPayId.has(p.id);
+          return{...p,_ghost:!linked};
+        });
+        /* Treasury entries that carry workshop name but no wsPayment linkage — orphan, but counted */
+        const orphans=treasuryHere.filter(t=>{
           if(wsPayTxIds.has(t.id))return false;
           if(t.wsPaymentId&&wsPayIdSet.has(t.wsPaymentId))return false;
           return true;
@@ -1167,16 +1121,17 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
           notes:t.notes||"",
           date:t.date,
           _orphan:true,
+          _treasuryTxId:t.id,
         }));
-        return [...wsPaysHere,...orphans].sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-      })().map((p,i)=>{const isEd=editPayId===p.id;const isOrphan=!!p._orphan;
-        return<tr key={p.id||i} style={{background:isEd?T.warn+"08":isOrphan?"#FEF3C7":p.type==="payment"?"#FEF2F2":"#F0FDF4"}}>
+        return [...wsPayRows,...orphans].sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+      })().map((p,i)=>{const isEd=editPayId===p.id;const isOrphan=!!p._orphan;const isGhost=!!p._ghost;
+        return<tr key={p.id||i} style={{background:isEd?T.warn+"08":isGhost?"#FEE2E2":isOrphan?"#FEF3C7":p.type==="payment"?"#FEF2F2":"#F0FDF4"}}>
         <td style={{...TD,minWidth:110}}>{isEd?<Inp type="date" value={edPayDate} onChange={setEdPayDate}/>:p.date}</td>
-        <td style={{...TD,fontWeight:700,color:p.type==="payment"?T.err:T.ok}}>{isEd?<Sel value={edPayType} onChange={setEdPayType}><option value="payment">دفعة</option><option value="purchase">مشتريات</option></Sel>:(p.type==="payment"?"دفعة ↗":"مشتريات ↙")}{isOrphan&&<span style={{fontSize:FS-3,color:"#92400E",marginRight:4}}>⚠️</span>}</td>
-        <td style={{...TDB,color:p.type==="payment"?T.err:T.ok,minWidth:90}}>{isEd?<Inp type="number" value={edPayAmt} onChange={setEdPayAmt}/>:fmt(p.amount)+" ج.م"}</td>
-        <td style={{...TD,minWidth:80}}>{isEd?<Inp value={edPayNote} onChange={setEdPayNote}/>:isOrphan?<span title="حركة في الخزنة بدون سجل دفعة مطابق — هتتربط تلقائياً" style={{color:"#92400E",fontSize:FS-2}}>{p.notes||"غير مزامنة"}</span>:(p.notes||"-")}</td>
+        <td style={{...TD,fontWeight:700,color:p.type==="payment"?T.err:T.ok}}>{isEd?<Sel value={edPayType} onChange={setEdPayType}><option value="payment">دفعة</option><option value="purchase">مشتريات</option></Sel>:(p.type==="payment"?"دفعة ↗":"مشتريات ↙")}{isOrphan&&<span title="هذا السجل في الخزنة لكن مش في wsPayments — لسه محتسب في الإجمالي" style={{fontSize:FS-3,color:"#92400E",marginRight:4}}>⚠️</span>}{isGhost&&<span title="هذا السجل ghost — مش موجود في الخزنة، غير محتسب في الإجمالي" style={{fontSize:FS-3,color:T.err,marginRight:4}}>👻</span>}</td>
+        <td style={{...TDB,color:isGhost?T.err:p.type==="payment"?T.err:T.ok,minWidth:90,textDecoration:isGhost?"line-through":"none"}}>{isEd?<Inp type="number" value={edPayAmt} onChange={setEdPayAmt}/>:fmt(p.amount)+" ج.م"}</td>
+        <td style={{...TD,minWidth:80}}>{isEd?<Inp value={edPayNote} onChange={setEdPayNote}/>:isOrphan?<span title="حركة في الخزنة بدون سجل دفعة — محتسبة" style={{color:"#92400E",fontSize:FS-2}}>{p.notes||"يتيم خزنة"}</span>:isGhost?<span title="ghost — مش في الخزنة، استخدم أداة التنظيف" style={{color:T.err,fontSize:FS-2,fontWeight:700}}>{(p.notes||"")+" — غير محتسب"}</span>:(p.notes||"-")}</td>
         <td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}>
-          {isOrphan?<span style={{fontSize:FS-3,color:T.textSec,fontStyle:"italic"}}>—</span>:isEd?<><Btn small primary onClick={()=>{upConfig(d=>{const t=(d.wsPayments||[]).find(x=>x.id===p.id);if(t){t.date=edPayDate;t.amount=Number(edPayAmt)||0;t.notes=edPayNote;t.type=edPayType;
+          {isOrphan||isGhost?<span style={{fontSize:FS-3,color:T.textSec,fontStyle:"italic"}}>—</span>:isEd?<><Btn small primary onClick={()=>{upConfig(d=>{const t=(d.wsPayments||[]).find(x=>x.id===p.id);if(t){t.date=edPayDate;t.amount=Number(edPayAmt)||0;t.notes=edPayNote;t.type=edPayType;
             /* Sync linked treasury entry */
             const txId=t.treasuryTxId;const tx=txId?(d.treasury||[]).find(x=>x.id===txId):(d.treasury||[]).find(x=>x.wsPaymentId===t.id);
             if(tx){tx.date=edPayDate;tx.amount=Number(edPayAmt)||0;tx.category=edPayType==="payment"?"تشغيل خارجي":"مشتريات";tx.desc=(edPayType==="payment"?"دفعة ورشة ":"مشتريات ورشة ")+t.wsName+(edPayNote?" — "+edPayNote:"");tx.day=dayName(edPayDate)}}
@@ -1200,15 +1155,129 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
     const activeWs=extWorkshops.filter(w=>{const a=wsAccounts(w.name);return a.due>0||a.totalPaid>0||a.totalPurchase>0});
     const totals=activeWs.reduce((s,w)=>{const a=wsAccounts(w.name);return{due:s.due+a.due,purchase:s.purchase+a.totalPurchase,paid:s.paid+a.totalPaid,balance:s.balance+a.balance}},{due:0,purchase:0,paid:0,balance:0});
     const filteredWs=accWsF==="الكل"?activeWs:activeWs.filter(w=>w.name===accWsF);
+    /* V19.20: Compute global inconsistencies (across all workshops) for cleanup banner.
+       Two kinds:
+         - Ghost wsPayments: records in data.wsPayments with no matching treasury entry
+         - Orphan treasury: treasury entries with wsName but no matching wsPayments record */
+    const _allWsNames=new Set(extWorkshops.map(w=>w.name));
+    const _wsPays=(data.wsPayments||[]).filter(p=>_allWsNames.has(p.wsName));
+    const _txs=(data.treasury||[]).filter(t=>t&&t.type==="out"&&t.wsName&&_allWsNames.has(t.wsName)&&(t.category==="تشغيل خارجي"||t.category==="مشتريات"));
+    const _txById=new Map(_txs.map(t=>[t.id,t]));
+    const _txByWsPayId=new Map(_txs.filter(t=>t.wsPaymentId).map(t=>[t.wsPaymentId,t]));
+    const _wsPayTxIds=new Set(_wsPays.map(p=>p.treasuryTxId).filter(Boolean));
+    const _wsPayIds=new Set(_wsPays.map(p=>p.id));
+    const ghostPayments=_wsPays.filter(p=>!((p.treasuryTxId&&_txById.has(p.treasuryTxId))||_txByWsPayId.has(p.id)));
+    const orphanTreasury=_txs.filter(t=>!_wsPayTxIds.has(t.id)&&(!t.wsPaymentId||!_wsPayIds.has(t.wsPaymentId)));
+    const inconsistencyCount=ghostPayments.length+orphanTreasury.length;
     return<div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
         <div><h2 style={{fontSize:isMob?18:22,fontWeight:800,margin:0}}>{"📊 حسابات الورش"}</h2><div style={{fontSize:FS-1,color:T.textSec}}>{"الموسم: "+season}</div></div>
         <div style={{display:"flex",gap:6}}>
+          {canEdit&&inconsistencyCount>0&&<Btn onClick={()=>setShowCleanup(true)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"35",fontWeight:700}} title={"في "+inconsistencyCount+" سجل غير متطابق"}>🧹 تنظيف ({inconsistencyCount})</Btn>}
           <Btn onClick={()=>{const rows=[["الورشة","النسبة","مستحق","مدفوع","حد النسبة","متاح للدفع","الرصيد"]];activeWs.forEach(w=>{const a=wsAccounts(w.name);const pct=w.payPercent||60;const totalDue=a.due+a.totalPurchase;const limit=r2(totalDue*(pct/100));const remaining=r2(limit-a.totalPaid);rows.push([w.name,pct+"%",r2(totalDue),r2(a.totalPaid),limit,remaining>0?remaining:0,r2(a.balance)])});rows.push([]);rows.push(["اجمالي","",r2(totals.due+totals.purchase),r2(totals.paid),"","",r2(totals.balance)]);exportExcel(rows,"حسابات_الورش_"+season)}} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
           <Btn onClick={()=>{const el=document.getElementById("ws-acc-area");if(!el)return;printPage("حسابات الورش — "+season,el.innerHTML)}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>
           <Btn ghost onClick={()=>setMode(null)}>↩</Btn>
         </div>
       </div>
+      {/* V19.20: Cleanup banner */}
+      {inconsistencyCount>0&&<div style={{padding:"10px 14px",borderRadius:10,background:T.err+"08",border:"1px solid "+T.err+"30",marginBottom:14,fontSize:FS-1,color:T.err,fontWeight:600,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        <span>⚠️ في</span>
+        {ghostPayments.length>0&&<span><b>{ghostPayments.length}</b> سجل دفعة بدون ما يقابلها في الخزنة (👻 ghost)</span>}
+        {ghostPayments.length>0&&orphanTreasury.length>0&&<span>·</span>}
+        {orphanTreasury.length>0&&<span><b>{orphanTreasury.length}</b> حركة في الخزنة بدون سجل دفعة (يتيم)</span>}
+        <span style={{color:T.textSec,fontWeight:400}}>— الإجماليات بتعتمد على الخزنة فقط (V19.20)، اضغط "تنظيف" للمراجعة</span>
+      </div>}
+      {/* Cleanup modal */}
+      {showCleanup&&<div onClick={()=>setShowCleanup(false)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.45)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(3px)"}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:18,width:"100%",maxWidth:760,maxHeight:"88vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 50px rgba(0,0,0,0.18)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div>
+              <div style={{fontSize:FS+2,fontWeight:900,color:T.err}}>🧹 تنظيف بيانات الورش</div>
+              <div style={{fontSize:FS-2,color:T.textSec,marginTop:2}}>{ghostPayments.length+" ghost · "+orphanTreasury.length+" يتيم"}</div>
+            </div>
+            <Btn ghost small onClick={()=>setShowCleanup(false)}>✕</Btn>
+          </div>
+          <div style={{padding:10,borderRadius:8,background:T.warn+"08",border:"1px solid "+T.warn+"30",fontSize:FS-2,color:T.text,marginBottom:12,lineHeight:1.7}}>
+            <b>كيفية الإصلاح:</b> الإجماليات في V19.20 بتعتمد على الخزنة كمصدر وحيد للحقيقة.
+            الـ"ghost" هو سجل wsPayment بدون قيد في الخزنة → غير محتسب → احذفه أو ارجع اعمل القيد.
+            الـ"يتيم" هو قيد خزنة بدون سجل wsPayment → محتسب فعلاً → اعمل سجل wsPayment يقابله، أو احذف القيد لو غلط.
+          </div>
+          {ghostPayments.length>0&&<div style={{marginBottom:14}}>
+            <div style={{fontWeight:800,color:T.err,marginBottom:8,fontSize:FS}}>👻 Ghost payments ({ghostPayments.length})</div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {ghostPayments.map(p=><div key={p.id} style={{padding:10,borderRadius:8,background:"#FEE2E2",border:"1px solid "+T.err+"30",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:200}}>
+                  <div style={{fontWeight:700}}>{p.wsName} · {p.type==="payment"?"دفعة":"مشتريات"} · {fmt(p.amount)} ج.م</div>
+                  <div style={{fontSize:FS-3,color:T.textSec}}>{p.date} {p.notes?"· "+p.notes:""}</div>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <Btn small onClick={async()=>{
+                    if(!await ask("احذف سجل الدفعة ده نهائياً؟"))return;
+                    upConfig(d=>{d.wsPayments=(d.wsPayments||[]).filter(x=>x.id!==p.id)});
+                    showToast("✓ اتحذف");
+                  }} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>🗑 احذف</Btn>
+                  <Btn small onClick={async()=>{
+                    if(!await ask("اعمل قيد جديد في الخزنة بنفس البيانات؟"))return;
+                    const newTxId=gid();
+                    upConfig(d=>{
+                      if(!d.treasury)d.treasury=[];
+                      d.treasury.unshift({
+                        id:newTxId,type:"out",amount:Number(p.amount)||0,
+                        desc:(p.type==="payment"?"دفعة ورشة ":"مشتريات ورشة ")+p.wsName+(p.notes?" — "+p.notes:""),
+                        notes:"",category:p.type==="payment"?"تشغيل خارجي":"مشتريات",
+                        account:"SUB CASH",season:d.activeSeason||"",date:p.date,day:dayName(p.date),
+                        sourceType:"ws_payment",wsPaymentId:p.id,wsName:p.wsName,
+                        by:userName||"cleanup",createdAt:new Date().toISOString(),
+                      });
+                      const wp=(d.wsPayments||[]).find(x=>x.id===p.id);
+                      if(wp&&!wp.treasuryTxId)wp.treasuryTxId=newTxId;
+                    });
+                    showToast("✓ تم إنشاء قيد الخزنة");
+                  }} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>➕ اعمل قيد خزنة</Btn>
+                </div>
+              </div>)}
+            </div>
+          </div>}
+          {orphanTreasury.length>0&&<div>
+            <div style={{fontWeight:800,color:"#92400E",marginBottom:8,fontSize:FS}}>⚠️ Orphan treasury ({orphanTreasury.length})</div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {orphanTreasury.map(t=><div key={t.id} style={{padding:10,borderRadius:8,background:"#FEF3C7",border:"1px solid #92400E30",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:200}}>
+                  <div style={{fontWeight:700}}>{t.wsName} · {t.category} · {fmt(t.amount)} ج.م</div>
+                  <div style={{fontSize:FS-3,color:T.textSec}}>{t.date} {t.notes?"· "+t.notes:""} {t.desc?"· "+t.desc:""}</div>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <Btn small onClick={async()=>{
+                    if(!await ask("احذف قيد الخزنة ده نهائياً؟"))return;
+                    upConfig(d=>{d.treasury=(d.treasury||[]).filter(x=>x.id!==t.id)});
+                    showToast("✓ اتحذف من الخزنة");
+                  }} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>🗑 احذف</Btn>
+                  <Btn small onClick={async()=>{
+                    if(!await ask("اعمل سجل دفعة جديد يقابل قيد الخزنة ده؟"))return;
+                    const wsObj=workshops.find(w=>w.name===t.wsName);
+                    const newWsPayId=gid();
+                    upConfig(d=>{
+                      if(!d.wsPayments)d.wsPayments=[];
+                      d.wsPayments.push({
+                        id:newWsPayId,wsName:t.wsName,wsId:wsObj?wsObj.id:null,
+                        amount:Number(t.amount)||0,
+                        type:t.category==="مشتريات"?"purchase":"payment",
+                        notes:t.notes||"",date:t.date||"",
+                        createdBy:userName||"cleanup",treasuryTxId:t.id,
+                        createdAt:new Date().toISOString(),
+                      });
+                      const tx=(d.treasury||[]).find(x=>x.id===t.id);
+                      if(tx&&!tx.wsPaymentId)tx.wsPaymentId=newWsPayId;
+                    });
+                    showToast("✓ تم إنشاء سجل الدفعة");
+                  }} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>➕ اعمل سجل دفعة</Btn>
+                </div>
+              </div>)}
+            </div>
+          </div>}
+          {ghostPayments.length===0&&orphanTreasury.length===0&&<div style={{textAlign:"center",padding:24,color:T.ok,fontWeight:700}}>✅ كل البيانات متطابقة — مفيش inconsistencies</div>}
+        </div>
+      </div>}
       <div id="ws-acc-area">
       <Card title="ملخص الحسابات" style={{marginBottom:14}}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
         <thead><tr>{["الورشة","النسبة","مستحق","مدفوع","حد النسبة","متاح للدفع","الرصيد","",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>

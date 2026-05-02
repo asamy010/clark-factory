@@ -439,6 +439,11 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   /* Debts management */
   const debts=(data.empDebts||[]);
   const[showDebtForm,setShowDebtForm]=useState(null);/* {empId, debtId?} */
+  /* V19.20: Manual installment registration — for debts paid outside the auto-deduction flow
+     (e.g. created after week was closed, or deducted via specialDeduct). State holds {debtId, empId}. */
+  const[manualInstallFor,setManualInstallFor]=useState(null);
+  const[manualInstallDate,setManualInstallDate]=useState("");
+  const[manualInstallNote,setManualInstallNote]=useState("");
   const[debtTitle,setDebtTitle]=useState("");const[debtTotal,setDebtTotal]=useState("");
   const[debtInstallments,setDebtInstallments]=useState("");const[debtPerWeek,setDebtPerWeek]=useState("");
   const[debtStart,setDebtStart]=useState("");const[debtNotes,setDebtNotes]=useState("");
@@ -4557,7 +4562,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                   </div>
                   <div style={{height:8,borderRadius:4,background:T.bg,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:statusColor,transition:"width 0.3s"}}/></div>
                 </div>
-                {canEdit&&d.status==="active"&&<div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+                {canEdit&&d.status==="active"&&<div style={{display:"flex",gap:6,justifyContent:"flex-end",flexWrap:"wrap"}}>
+                  <Btn small onClick={()=>{setManualInstallFor({debtId:d.id,empId:showEmpDebts,perWeek:d.perWeek});setManualInstallDate(today);setManualInstallNote("")}} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",fontSize:FS-2}} title="تسجيل قسط مدفوع يدوياً">+ قسط مدفوع</Btn>
                   <Btn small onClick={()=>{setDebtTitle(d.title);setDebtTotal(String(d.total));setDebtInstallments(String(d.installments));setDebtPerWeek(String(d.perWeek));setDebtStart(d.startDate||today);setDebtNotes(d.notes||"");setShowEmpDebts(null);setShowDebtForm({empId:showEmpDebts,debtId:d.id})}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd,fontSize:FS-2}}>✏️ تعديل</Btn>
                   <Btn small onClick={()=>cancelDebt(d.id)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30",fontSize:FS-2}}>إلغاء</Btn>
                   <Btn small onClick={()=>delDebt(d.id)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",fontSize:FS-2}}>🗑️ حذف</Btn>
@@ -4566,6 +4572,66 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           </div>}
         </div>
       </div>})()}
+
+    {/* V19.20: ══ MANUAL INSTALLMENT REGISTRATION POPUP ══
+        For debts where the auto-deduction didn't fire (debt created after week close,
+        or specialDeduct used instead). Adds a synthetic week ID to paidWeekIds. */}
+    {manualInstallFor&&(()=>{const debt=(data.empDebts||[]).find(x=>x.id===manualInstallFor.debtId);if(!debt)return null;
+      const emp=employees.find(e=>e.id===manualInstallFor.empId);
+      const paid=(debt.paidWeekIds||[]).length;const remaining=debt.installments-paid;
+      const save=()=>{
+        if(!manualInstallDate){showToast("⚠️ التاريخ مطلوب");return}
+        const synthWeekId="manual_"+gid();
+        upConfig(d=>{
+          const dbt=(d.empDebts||[]).find(x=>x.id===debt.id);if(!dbt)return;
+          if(!dbt.paidWeekIds)dbt.paidWeekIds=[];
+          dbt.paidWeekIds.push(synthWeekId);
+          if(!dbt.manualInstallments)dbt.manualInstallments={};
+          dbt.manualInstallments[synthWeekId]={
+            date:manualInstallDate,
+            note:manualInstallNote||"",
+            amount:Number(debt.perWeek)||0,
+            registeredBy:userName||"",
+            registeredAt:new Date().toISOString(),
+          };
+          /* Check if fully paid now */
+          const totalPaid=r2((dbt.paidWeekIds||[]).length*(Number(dbt.perWeek)||0));
+          if(totalPaid>=(Number(dbt.total)||0)-0.5){dbt.status="paid";dbt.paidAt=manualInstallDate}
+        });
+        setManualInstallFor(null);
+        showToast("✓ تم تسجيل القسط");
+      };
+      return<div onClick={()=>setManualInstallFor(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.45)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(3px)"}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:14,padding:18,width:"100%",maxWidth:440,border:"1px solid "+T.brd,boxShadow:"0 20px 50px rgba(0,0,0,0.18)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div>
+              <div style={{fontSize:FS+1,fontWeight:900,color:T.ok}}>+ تسجيل قسط مدفوع يدوي</div>
+              <div style={{fontSize:FS-2,color:T.textSec,marginTop:2}}>{(emp?.name||"")+" · "+debt.title}</div>
+            </div>
+            <Btn ghost small onClick={()=>setManualInstallFor(null)}>✕</Btn>
+          </div>
+          <div style={{padding:10,borderRadius:8,background:T.bg,marginBottom:12,fontSize:FS-2,lineHeight:1.7}}>
+            <div>القسط: <b>{fmt0(debt.perWeek)} ج.م</b></div>
+            <div>المتبقي حالياً: <b>{remaining} قسط</b> = {fmt0(remaining*debt.perWeek)} ج.م</div>
+          </div>
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>تاريخ الدفعة</div>
+            <Inp type="date" value={manualInstallDate} onChange={setManualInstallDate}/>
+          </div>
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>ملاحظة (اختياري)</div>
+            <Inp value={manualInstallNote} onChange={setManualInstallNote} placeholder="مثال: خصم من راتب أبريل"/>
+          </div>
+          <div style={{padding:8,borderRadius:8,background:T.warn+"08",fontSize:FS-3,color:T.warn,marginBottom:12,lineHeight:1.6}}>
+            ⚠️ ده تسجيل يدوي — لا يخصم تلقائياً من الموظف. استخدمه لو الخصم اتعمل بالفعل (في إقفال الأسبوع أو مباشر) لكن الـ paidWeekIds مالحقش يتسجل.
+          </div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <Btn ghost onClick={()=>setManualInstallFor(null)}>إلغاء</Btn>
+            <Btn primary onClick={save} style={{background:T.ok,borderColor:T.ok}}>✓ تسجيل القسط</Btn>
+          </div>
+        </div>
+      </div>;
+    })()}
 
     {/* ══ EDIT EMPLOYEE POPUP — تعديل كل تفاصيل الموظف ══ */}
     {editPopup&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setEditPopup(null)}>

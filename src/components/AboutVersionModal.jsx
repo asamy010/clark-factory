@@ -25,6 +25,22 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.20",
+    date: "2026-05-02",
+    types: ["fix", "feature"],
+    title: "🚨 [حرج] إصلاح بيانات الورش + الخزنة كمصدر وحيد للحقيقة + popup أوضح + قسط يدوي",
+    changes: [
+      { type: "fix", text: "🐛 [المشكلة المُبلَّغ عنها] ورشة نورهان: الدفعات الفعلية 40,800 ج.م، لكن ملخص الحساب بيعرض 51,600 ج.م. السبب: V18.72 fallback كانت بتجمع `wsPayments` + orphan treasury، وفي حالة ما المستخدم يمسح حركة من الخزنة بدون ما يمسح الـ wsPayments المرتبطة، الـ wsPayment الـ ghost كان لسه بيتحسب." },
+      { type: "fix", text: "🚨 [الأخطر] V19.17 auto-sync اللي بنيتها كانت بتنشئ wsPayments تلقائياً من orphan treasury entries — اللي معناه أن المسح كان مستحيل في حالات معينة: تمسح wsPayment، الـ treasury orphan، الـ auto-sync ترجع تنشئ الـ wsPayment تاني. تم إزالتها بالكامل." },
+      { type: "feature", text: "✅ wsAccounts دلوقتي بتقرأ من **الخزنة فقط** كمصدر وحيد للحقيقة. الإجماليات هتطابق ما اتحرك فعلاً في فلوس الخزنة. الـ wsPayments أصبحت index ثانوي للعرض. النتيجة الفورية: 51,600 يرجع 40,800 من غير ضغط زر." },
+      { type: "feature", text: "🧹 [أداة جديدة] 'تنظيف بيانات الورش': زر ⚠️ في صفحة حسابات الورش بيظهر لما في تضارب. بيعرض كل ghost payments (سجلات بدون قيد خزنة) وكل orphan treasury (قيود بدون سجل). لكل سطر: 'احذف' أو 'اعمل الطرف الناقص'. تنظيف يدوي شفاف 100%." },
+      { type: "feature", text: "🔗 جدول دفعات الورش دلوقتي بيوضح: الصفوف الـ ghost بـ 👻 + شطب على المبلغ + خلفية حمرا (مش محتسبة). صفوف الـ orphan treasury بـ ⚠️ + خلفية صفرا (محتسبة). يفرّق بين النوعين بصرياً قبل ما تفتح أداة التنظيف." },
+      { type: "improvement", text: "🔒 Bilateral cascade في حذف الخزنة: لو مسحت قيد خزنة مرتبط بـ wsPayment/custPayment/supplierPayment، السجل المقابل بيتمسح كمان (سواء عبر forward link `treasuryTxId` أو reverse link `wsPaymentId`). يمنع تكوّن inconsistencies جديدة." },
+      { type: "improvement", text: "🎨 popup مرحلة الأوردر: زيادة opacity للوضوح. الخلفية 12%→22%، الـ header 8%→18%، الـ borders 35%→55%، pills بيضا 70%→85%. أوضح بدون فقدان الطابع الشفاف الهادئ." },
+      { type: "feature", text: "💰 [HR] زر '+ قسط مدفوع' على كارت المديونية النشطة في popup المديونيات. بيفتح modal لتسجيل قسط يدوياً مع تاريخ + ملاحظة. مفيد للحالات اللي الخصم اتعمل فيها بـ specialDeduct أو المديونية اتعملت بعد إقفال أسبوع — حالات الـ paidWeekIds مكنش بيتسجل تلقائياً فيها." },
+    ]
+  },
+  {
     version: "V19.19",
     date: "2026-05-02",
     types: ["feature"],
@@ -140,18 +156,6 @@ const CHANGELOG = [
       { type: "fix", text: "🐛 المشكلة: بعد رفع V19.9، صفحة الخزنة كانت بتفتح على شاشة خطأ 'حدث خطأ غير متوقع — Cannot access ie before initialization'. السبب: الـ recovery useEffect الجديد (سطر 294) كان بيستخدم المتغيرات `customers` و `suppliers` اللي متعرفين في سطر 422-423 (يعني بعدين). في الـ minified bundle، ده بيسبب JavaScript Temporal Dead Zone error — `const` لا يمكن الوصول له قبل تعريفه في نفس الـscope." },
       { type: "fix", text: "✅ الإصلاح: استبدلت `customers` و `suppliers` داخل الـ useEffect بـ `data.customers` و `data.suppliers` مباشرة (data prop متاح فوراً، مفيش TDZ). الـdependency array اتحدّث هو كمان. الـbug ده كان مخفي في الـdev environment (no minification) ومظهر فقط في الـproduction build على Vercel." },
       { type: "fix", text: "📋 ملاحظة: V19.9 كانت فيها 3 إصلاحات حرجة لربط دفعات العملاء/الموردين (auto-link + recovery migration + warning toasts). V19.10 hotfix بس بيصلح الـTDZ error بدون أي تغيير في المنطق — كل ميزات V19.9 شغالة كما هي بمجرد ما الصفحة تفتح." },
-    ]
-  },
-  {
-    version: "V19.9",
-    date: "2026-05-02",
-    types: ["fix"],
-    title: "🚨 [حرج] إصلاح ربط دفعات العملاء/الموردين + recovery للحركات اليتيمة",
-    changes: [
-      { type: "fix", text: "🐛 المشكلة: 'دفعات كاش' في كارت العملاء بتعرض رقم أقل بكتير من إجمالي 'دفعة عميل' في سجل الخزنة. السبب: حركات الخزنة بتولّد سجل في `custPayments` فقط لو المستخدم اختار العميل من القائمة المنسدلة. لو كتب اسم العميل في البيان فقط، الحركة بتتسجل بدون ربط → كشف العميل مش بيشوفها، الكارت مش بيحسبها." },
-      { type: "fix", text: "✅ Forward fix (auto-link): helper جديد `matchPartyFromDesc` في `utils/orders.js`. في `saveTx`، لو txPartyId فاضي + الصنف 'دفعة عميل'/'دفعة مورد'/'مرتبات'، النظام يحاول يربط تلقائياً من البيان." },
-      { type: "fix", text: "✅ Backward fix (recovery migration): useEffect جديد يمسح حركات الخزنة اليتيمة، يربطها بـ matchPartyFromDesc، وينشئ القيود المفقودة في custPayments/supplierPayments. آمن للتكرار." },
-      { type: "fix", text: "✅ Visible warnings: لو حفظت 'دفعة عميل' بدون ربط، toast أصفر '⚠ حُفظ بدون ربط بعميل'. لو حصل ربط تلقائي: '✓ ربط تلقائي بعميل [اسم]'." },
     ]
   },
 ];
