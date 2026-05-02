@@ -49,6 +49,8 @@ export const TABS=[
   {key:"warehouse",label:"المخازن",icon:"📦",color:"#0D9488",bg:"#CCFBF1",svg:<><path d="M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35a2 2 0 0 1 1.26-1.86l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35z"/><path d="M6 18V10"/><path d="M18 18V10"/><path d="M6 14h12"/></>},
   {key:"treasury",label:"الخزنة",icon:"💵",color:"#0D9488",bg:"#CCFBF1",svg:<><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01 M18 12h.01"/></>},
   {key:"hr",label:"مرتبات + موظفين",icon:"🧑‍💼",color:"#7C3AED",bg:"#EDE9FE",svg:<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>},
+  /* V19.19: Bulk messaging campaigns */
+  {key:"campaigns",label:"الحملات والرسائل",icon:"📣",color:"#7C3AED",bg:"#EDE9FE",svg:<><path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></>},
   {key:"audit",label:"سجل التدقيق",icon:"🔍",color:"#DC2626",bg:"#FEE2E2",svg:<><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><path d="M11 8v3l2 2"/></>},
   {key:"accounting",label:"محاسبة",icon:"📊",color:"#0891B2",bg:"#CFFAFE",svg:<><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/><circle cx="7" cy="14" r="1.5"/><circle cx="11" cy="10" r="1.5"/><circle cx="15" cy="14" r="1.5"/><circle cx="20" cy="9" r="1.5"/></>},
   {key:"fixedAssets",label:"أصول ثابتة",icon:"🏭",color:"#0EA5E9",bg:"#E0F2FE",svg:<><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="10" r="1.5"/><circle cx="15" cy="10" r="1.5"/><path d="M5 17l3-3 4 2 7-7"/></>},

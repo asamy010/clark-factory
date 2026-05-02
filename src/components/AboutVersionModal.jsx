@@ -25,6 +25,22 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.19",
+    date: "2026-05-02",
+    types: ["feature"],
+    title: "📣 [جديد] أداة الحملات والرسائل الجماعية للعملاء",
+    changes: [
+      { type: "feature", text: "✨ صفحة جديدة: \"الحملات والرسائل\" في الشريط الجانبي (📣). بتسمح بإرسال رسائل واتساب لمجموعات عملاء بقوالب مشخصنة، عبر workflow click-through (الموظف يدوس Send في كل رسالة بعد ما واتساب يفتحها)." },
+      { type: "feature", text: "📝 نظام قوالب الرسائل: تقدر تحفظ قوالب جاهزة (تذكير دفع، إشعار تسليم، تسويق، إلخ) — كل قالب فيه نص قابل للتشخيص بمتغيرات: {اسم}، {رصيد}، {آخر دفعة}، {مبلغ آخر دفعة}، {عدد الأوردرات}، {رقم الجوال}. حد أقصى 30 قالب." },
+      { type: "feature", text: "👥 شرائح ذكية للجمهور: كل العملاء، عملاء عليهم متأخرات (بحد أدنى)، عملاء استلموا أوردر مؤخراً (X يوم)، عملاء غير نشطين منذ X يوم، اختيار يدوي من قائمة بحث. الفلاتر بتحسب لحظياً من بيانات customerAnalytics الموجودة." },
+      { type: "feature", text: "🚀 شاشة Assembly-line للإرسال: عداد \"5 من 50\"، شريط تقدم، زر \"ابعت لـ {اسم}\" يفتح واتساب برسالة جاهزة، زر تخطّى/إيقاف مؤقت، تأخير قابل للتعديل (3-30 ث)، قائمة كل العملاء بحالة كل واحد (مبعوت/متخطّى/فشل/متبقي)." },
+      { type: "feature", text: "🛡 حماية رقم الواتساب: حد أقصى 50 رسالة/يوم افتراضياً (مجموع كل الحملات في اليوم). الإرسال الكثيف من رقم عادي بيؤدي لحظر الرقم من واتساب — التطبيق بيمنع تجاوز الحد." },
+      { type: "feature", text: "📊 سجل الحملات: كل حملة محفوظة بملخص (التاريخ، القالب، الجمهور، عدد العملاء، تم/تخطّى/فشل، نسبة النجاح). آخر 50 حملة محفوظة في `data.campaigns`. التفاصيل التفصيلية لكل عميل (status per row) مش متخزنة في الـstorage عشان حجم الـconfig — الكامبين الواحد ~300 بايت بس." },
+      { type: "feature", text: "⚠️ ملاحظة عن الصور: واتساب لا يدعم إرفاق ملفات تلقائياً عبر wa.me URL. لو حطيت رابط صورة في القالب، هيتضاف للنص كرابط (العميل يضغط يفتحه). للإرفاق الحقيقي، الموظف يرفع الصورة يدوياً بعد ما واتساب يفتح الشات. الـ V19.20+ هتضيف Web Share API لرفع الصور تلقائياً على iPad." },
+      { type: "improvement", text: "🔐 صلاحيات: الأدمن والمدير ومحاسب المبيعات لهم صلاحية edit. باقي الأدوار hidden افتراضياً. الصلاحية اسمها `campaigns` في DEFAULT_PERMS." },
+    ]
+  },
+  {
     version: "V19.18",
     date: "2026-05-02",
     types: ["improvement", "feature"],
@@ -136,19 +152,6 @@ const CHANGELOG = [
       { type: "fix", text: "✅ Forward fix (auto-link): helper جديد `matchPartyFromDesc` في `utils/orders.js`. في `saveTx`، لو txPartyId فاضي + الصنف 'دفعة عميل'/'دفعة مورد'/'مرتبات'، النظام يحاول يربط تلقائياً من البيان." },
       { type: "fix", text: "✅ Backward fix (recovery migration): useEffect جديد يمسح حركات الخزنة اليتيمة، يربطها بـ matchPartyFromDesc، وينشئ القيود المفقودة في custPayments/supplierPayments. آمن للتكرار." },
       { type: "fix", text: "✅ Visible warnings: لو حفظت 'دفعة عميل' بدون ربط، toast أصفر '⚠ حُفظ بدون ربط بعميل'. لو حصل ربط تلقائي: '✓ ربط تلقائي بعميل [اسم]'." },
-    ]
-  },
-  {
-    version: "V19.8",
-    date: "2026-05-02",
-    types: ["fix"],
-    title: "🚨 [حرج] إصلاح TypeError كان بيمنع تفريغ النموذج وعداد التكرار في الخزنة",
-    changes: [
-      { type: "fix", text: "🐛 المشكلة الحقيقية اللي كانت معطلة sticky reset (مش validation): بعد الحفظ، استدعاء `autoPost.treasury(...).catch(()=>{})` كان بيرمي TypeError صامت. السبب: `autoPost.treasury` بترجع **Promise** لو الـauto-posting شغال، **بس object عادي** `{ok:false, skipped:'disabled'}` لو المستخدم معطّله من إعدادات المحاسبة. الـobject مفهوش `.catch()`، فبيرمي 'TypeError: Cannot read properties of undefined' وبيوقف saveTx قبل ما يوصل لـ sticky reset." },
-      { type: "fix", text: "🔍 النتائج المرئية اللي كان شايفها المستخدم: الحركة بتتسجل ✓ (لإن upConfig خلص)، بس الفورم مبيتفرغش، عداد التكرار مبينزلش، حقول البيان والعميل والمبلغ بيفضلوا بقيمتهم — كل ده لإن الكود توقف قبل sticky reset." },
-      { type: "fix", text: "✅ الإصلاح الجذري في `utils/accounting/autoPost.js`: كل الـ17 method (sale, treasury, hr, customerPay, إلخ) دلوقتي بترجع **Promise.resolve(...)** في حالات الـskipped (autoPost disabled، COGS disabled، no cost، no original ref). كده `.catch()` بقت آمنة في كل المكتبة، مش بس الخزنة." },
-      { type: "fix", text: "✅ Defensive wrappers في `TreasuryPg.jsx` (saveTx + recurring): استدعاء autoPost.treasury دلوقتي مغلف بـtry/catch وفحص `typeof _r.then === 'function'` قبل أي `.catch()`. كده حتى لو حد ضاف method جديد للـautoPost ونسي يرجع Promise، saveTx مش هيتعطل." },
-      { type: "fix", text: "📋 ملاحظة عامة: الـbug ده كان موجود من V18.35 (الإصدار اللي ضاف autoPost) في كل صفحة بتستدعي autoPost — HR + المبيعات + المشتريات + العملاء + الورش + الفواتير. الإصلاح في autoPost.js بيحمي كل الصفحات دي تلقائياً." },
     ]
   },
 ];
