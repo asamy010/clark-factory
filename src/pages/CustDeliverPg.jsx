@@ -123,6 +123,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   };
   /* Customer statement payment form */
   const[payAmt,setPayAmt_]=useState("");const[payDate_,setPayDate_]=useState(new Date().toISOString().split("T")[0]);const[payNote_,setPayNote_]=useState("");const[payMethod,setPayMethod]=useState("كاش");
+  /* V19.11: account selector in customer payment form (used to default-hardcode "SUB CASH",
+     which silently routed every customer payment to that one account. Users with multiple
+     treasury accounts (MAIN CASH, CIB, etc.) had to delete + re-create from TreasuryPg to
+     correct the routing. */
+  const[payAccount,setPayAccount]=useState("");
   /* Distribution grid filters */
   const[gridModelF,setGridModelF]=useState("");const[gridCustF,setGridCustF]=useState("");
   /* V15.37: Draft sell prices — typed but not saved until user clicks "حفظ". Keyed by group key (modelNo). */
@@ -1665,11 +1670,16 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
          math. The reconcile button below can write them back into
          custPayments permanently. */
       const _knownTreasuryTxIds=new Set(custPayments.map(p=>p.treasuryTxId).filter(Boolean));
+      /* V19.11: tombstones — treasury IDs that were explicitly deleted via
+         delCustPay must NEVER appear as orphan-payments in the kashf, even
+         if the underlying treasury entry temporarily persists (sync race). */
+      const _tombstoneIds=new Set(config._deletedCustPayTreasuryIds||[]);
       const orphanTreasuryPayments=(config.treasury||[]).filter(t=>
         t.type==="in" &&
         String(t.custId||"")===String(custStatement) &&
         t.id &&
         !_knownTreasuryTxIds.has(t.id) &&
+        !_tombstoneIds.has(t.id) &&
         t.sourceType!=="check_bounce"  /* check-bounce reversals are NOT payments */
       );
       const orphanTreasuryTotal=orphanTreasuryPayments.reduce((s,t)=>s+(Number(t.amount)||0),0);
@@ -1723,16 +1733,20 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const addCustPayment=()=>{const amt=parseFloat(payAmt);if(!amt||amt<=0){playBeep("error");return}
         /* V15.9: Link payment to treasury via shared IDs — needed for clean deletion later */
         const payId=gid();const txId=gid();
+        /* V19.11: Use the user-selected account (or default to MAIN CASH if none picked).
+           Previously hardcoded to "SUB CASH" — this routed all customer payments to one
+           account regardless of which treasury the cash was actually deposited into. */
+        const _resolvedAcc=payAccount||"MAIN CASH";
         /* V18.44: capture treasury account on the payment so accounting can route to the right CoA sub-account */
-        const _newPayment={id:payId,custId:custStatement,custName:cust.name,amount:amt,date:payDate_,note:payNote_,method:payMethod,account:"SUB CASH",by:userName,treasuryTxId:txId,createdAt:new Date().toISOString()};
+        const _newPayment={id:payId,custId:custStatement,custName:cust.name,amount:amt,date:payDate_,note:payNote_,method:payMethod,account:_resolvedAcc,by:userName,treasuryTxId:txId,createdAt:new Date().toISOString()};
         upConfig(d=>{if(!d.custPayments)d.custPayments=[];
           d.custPayments.push(_newPayment);
           /* Auto-register in treasury as income — linked to the payment */
           if(!d.treasury)d.treasury=[];
-          d.treasury.unshift({id:txId,type:"in",amount:amt,desc:"دفعة من عميل "+cust.name+(payNote_?" — "+payNote_:""),notes:payMethod,category:"دفعة عميل",account:"SUB CASH",season:d.activeSeason||"",date:payDate_,day:dayName(payDate_),sourceType:"cust_payment",custPaymentId:payId,custId:custStatement,by:userName,createdAt:new Date().toISOString()})});
+          d.treasury.unshift({id:txId,type:"in",amount:amt,desc:"دفعة من عميل "+cust.name+(payNote_?" — "+payNote_:""),notes:payMethod,category:"دفعة عميل",account:_resolvedAcc,season:d.activeSeason||"",date:payDate_,day:dayName(payDate_),sourceType:"cust_payment",custPaymentId:payId,custId:custStatement,by:userName,createdAt:new Date().toISOString()})});
         /* V18.35: auto-post journal entry */
         autoPost.customerPay(data, _newPayment, cust, userName).catch(()=>{});
-        setPayAmt_("");setPayNote_("");showToast("✓ تم تسجيل الدفعة في حساب العميل والخزنة")};
+        setPayAmt_("");setPayNote_("");showToast("✓ تم تسجيل الدفعة في حساب العميل وخزنة "+_resolvedAcc)};
       const delCustPay=(pid)=>{
         /* V18.35: capture the payment for accounting reversal BEFORE we delete it */
         const _payToReverse=(data.custPayments||[]).find(p=>p.id===pid);
@@ -1746,6 +1760,15 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             else if(d.treasury){
               d.treasury=d.treasury.filter(t=>!(t.category==="دفعة عميل"&&t.custId===pay.custId&&Math.abs((Number(t.amount)||0)-(Number(pay.amount)||0))<0.01&&t.date===pay.date));
             }
+            /* V19.11: tombstone — record the deleted treasury IDs so V19.9 recovery
+               (which scans treasury for orphan customer payments) won't accidentally
+               re-create the deleted payment if its treasury entry persists for any
+               reason (sync race, partial delete, legacy doc). The recovery effect
+               in TreasuryPg checks this set before re-linking. */
+            if(!d._deletedCustPayTreasuryIds)d._deletedCustPayTreasuryIds=[];
+            if(pay.treasuryTxId)d._deletedCustPayTreasuryIds.push(pay.treasuryTxId);
+            /* Cap the tombstone list to prevent indefinite growth (200 most recent) */
+            if(d._deletedCustPayTreasuryIds.length>200)d._deletedCustPayTreasuryIds=d._deletedCustPayTreasuryIds.slice(-200);
           }
         });
         /* V18.35: reverse the journal entry if it exists */
@@ -1880,6 +1903,20 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
               <div><label style={{fontSize:FS-3,color:T.textSec}}>المبلغ</label><input type="number" value={payAmt} onChange={e=>setPayAmt_(e.target.value)} placeholder="0" style={{display:"block",width:100,padding:"6px 8px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.inputBg,color:T.text}}/></div>
               <div><label style={{fontSize:FS-3,color:T.textSec}}>الطريقة</label><select value={payMethod} onChange={e=>setPayMethod(e.target.value)} style={{display:"block",padding:"6px 8px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text}}><option>كاش</option><option>تحويل بنكي</option><option>محفظة</option><option>شيك</option></select></div>
+              {/* V19.11: account picker — let the user choose which treasury account
+                  the payment lands in. Defaults to MAIN CASH if user doesn't change it.
+                  Reads from config.treasuryAccounts (same source the Treasury page uses). */}
+              <div><label style={{fontSize:FS-3,color:T.textSec}}>الخزنة</label><select value={payAccount} onChange={e=>setPayAccount(e.target.value)} style={{display:"block",padding:"6px 8px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text,minWidth:110}}>
+                <option value="">MAIN CASH</option>
+                {(()=>{
+                  const accs=config.treasuryAccounts||[];
+                  const names=new Set();
+                  accs.forEach(a=>{const n=typeof a==="string"?a:(a&&a.name);if(n&&n!=="MAIN CASH")names.add(n)});
+                  /* Always include SUB CASH as fallback if not already an explicit account */
+                  if(!names.has("SUB CASH"))names.add("SUB CASH");
+                  return [...names].map(n=><option key={n} value={n}>{n}</option>);
+                })()}
+              </select></div>
               <div><label style={{fontSize:FS-3,color:T.textSec}}>التاريخ</label><input type="date" value={payDate_} onChange={e=>setPayDate_(e.target.value)} style={{display:"block",padding:"6px 8px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text}}/></div>
               <div style={{flex:1,minWidth:80}}><label style={{fontSize:FS-3,color:T.textSec}}>ملاحظات</label><input value={payNote_} onChange={e=>setPayNote_(e.target.value)} placeholder="..." style={{display:"block",width:"100%",padding:"6px 8px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text}}/></div>
               <Btn primary small onClick={addCustPayment}>💰 تسجيل</Btn>

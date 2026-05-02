@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.11",
+    date: "2026-05-02",
+    types: ["fix", "feature"],
+    title: "🏦 اختيار الخزنة في تسجيل دفعة العميل + حماية ضد إعادة ظهور الدفعات المحذوفة",
+    changes: [
+      { type: "feature", text: "🏦 المشكلة المُبلَّغ عنها (1): فورم 'تسجيل دفعة' في كشف حساب العميل كان بيرسل الدفعة افتراضياً لـ SUB CASH بدون اختيار. لو كنت عاوز توجهها لـ MAIN CASH أو CIB أو أي حساب تاني، كنت لازم تروح صفحة الخزنة وتحذف وتعيد الإدخال." },
+      { type: "feature", text: "✅ الحل: أضفت select 'الخزنة' في فورم تسجيل الدفعة بجانب الطريقة والتاريخ. القائمة بتظهر كل حسابات الخزنة المتاحة (من config.treasuryAccounts) + MAIN CASH + SUB CASH كـ defaults. الافتراضي MAIN CASH. الدفعة بتتسجل في الحساب اللي اخترته في الخزنة + custPayments + الـ accounting journal." },
+      { type: "fix", text: "👻 المشكلة المُبلَّغ عنها (2): 'حذفت السجل لسه ظاهرة في كشف الحساب.' السبب: الـ V19.9 recovery effect (اللي بيرجّع orphan payments) ممكن يـ-recover حركة موجودة لسه في treasury حتى لو الـ user حذف custPayment الأصلية، أو لو في sync race بين الـ delete على Firestore والـ effect على الـ client." },
+      { type: "fix", text: "✅ الحل (Tombstone pattern): لما تحذف دفعة من العميل، الـ treasury ID بيتسجل في `_deletedCustPayTreasuryIds` (max 200 آخر حذف). الـ V19.9 recovery effect دلوقتي بيتجاهل أي ID موجود في الـ tombstones — حتى لو الـ treasury entry لسه موجود في الـ data (sync race)، الـ recovery مش هترجعها أبداً." },
+      { type: "fix", text: "✅ الحماية الثانية في كشف الحساب: الـ V18.64 fallback (اللي بيقرأ orphan treasury entries كدفعات للعميل) دلوقتي كمان بيتجاهل الـ tombstones. لو الحركة في treasury لكن في الـ tombstone، مش هتظهر في 'إجمالي المدفوع' ولا في 'دفعات كاش'." },
+      { type: "fix", text: "📋 ملاحظة تقنية: الـ tombstones بتبقى في `factory/config._deletedCustPayTreasuryIds` كـarray (max 200). أي recovery أو fallback في المستقبل لازم يحترمها. الـ pattern قابل للتطبيق على suppliers (`_deletedSupplierPayTreasuryIds`) لما نحتاجه." },
+    ]
+  },
+  {
     version: "V19.10",
     date: "2026-05-02",
     types: ["fix"],
@@ -130,22 +144,6 @@ const CHANGELOG = [
       { type: "improvement", text: "📤 Excel + Print: نفس التغييرات مطبقة على التصدير وطباعة التقرير." },
       { type: "improvement", text: "📱 بورتال الورشة: ملاحظة توضيحية في تاب 'الملخص': 'كل عملية استلام لها سعرها الفردي · إجمالي حساب التشغيل = مجموع (الكمية × سعرها) لكل استلام'." },
       { type: "fix", text: "✅ تم تأكيد المنطق الحسابي في باقي النظام (ExtProdPg + DashPg + workshop-portal API): wsAccounts() بيحسب due = Σ (r.qty × r.price) لكل استلام منفرد ✅. الأرصدة كلها كانت دقيقة من الأساس — المشكلة كانت في عرض التقرير فقط." },
-    ]
-  },
-  {
-    version: "V19.0",
-    date: "2026-05-02",
-    types: ["feature", "improvement"],
-    title: "🎯 بادج المرحلة التفاعلي + صورة افتراضية للموديلات",
-    changes: [
-      { type: "feature", text: "🎯 البادج بتاع المرحلة الحالية في كروت الأوردرات + صفحة تفاصيل الأوردر بقى **interactive**: ضيفنا سهم ▾ صغير + cursor:pointer + hover effect (scale 1.05 + shadow). الضغط بيفتح modal جديد بتفاصيل المرحلة لكل قطعة." },
-      { type: "feature", text: "📊 Modal تفاصيل المرحلة: لكل قطعة (قميص/شورت/تيشيرت/إلخ) progress bar + النسبة + الكمية الحالية / الكمية الكلية. القطع المكتملة (100%) بلون أخضر، الأضعف بلون أحمر، الباقي برتقالي. الترتيب: الأضعف فوق (يبيّن الـbottleneck فوراً)." },
-      { type: "feature", text: "🧮 المنطق per-piece: في 'تم القص' = 100% لكل قطعة. في 'في التشغيل' = Σ wd.qty للقطعة. في 'الطباعة'/'التطريز'/'تشطيب خارجي' = filter حسب نوع الورشة. في 'تشطيب وتعبئة' = Σ receives.qty (الرجوع من الورش). الـDenominator دائماً getPieceCutQty للقطعة." },
-      { type: "feature", text: "✅ في 'تم التسليم لمخزن الجاهز' و 'في مخزن الجاهز جزئي': مفيش breakdown — رسالة بسيطة 'تم تسليم X طقم من Y'. للأوردر الملغي: رسالة 'الأوردر ملغي'." },
-      { type: "feature", text: "⚠️ Footer في الـpopup: لو فيه قطعة أضعف من 100% → 'أضعف قطعة: X — ناقص N قطعة'. لو الكل 100% → '✅ كل القطع وصلت لـ100%'. هيدر الـpopup له gradient بنفس لون المرحلة + النسبة الكلية كبيرة (FS+8)." },
-      { type: "feature", text: "🖼 Component جديد DefaultModelImg.jsx: لما الموديل مش عنده صورة، بدل ما يظهر الـicon القديم (📷)، بنعرض placeholder أنيق بنسبة 3:4 طولي فيه: أيقونة قطعة الملابس المناسبة (👕/👔/🩳/إلخ من اسم الموديل أو الـorderPieces) + رقم الموديل + 'بدون صورة'. خلفية gradient ناعمة + border متقطع." },
-      { type: "improvement", text: "📐 الصور كلها في DetPg دلوقتي بنسبة 3:4 ثابتة: في table row، في mobile card، في صفحة التفاصيل (mobile + desktop). متناسق في كل الواجهات." },
-      { type: "improvement", text: "🎨 Component جديد StageProgressModal.jsx: قابل لإعادة الاستخدام، Helper جديد getStageProgress() في utils/orders.js يحسب الـbreakdown باللوجيك المتقدم." },
     ]
   },
 ];

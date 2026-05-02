@@ -239,13 +239,13 @@ export default function App(){
   const[sidebarTab,setSidebarTab]=useState("notes");/* "notes"|"tasks"|"activity" — for home sidebar */
   const[quickPopup,setQuickPopup]=useState(null);/* "task"|"notif"|null */
   const[qpTo,setQpTo]=useState("");const[qpText,setQpText]=useState("");const[qpType,setQpType]=useState("تذكير");
-  /* V19.10: Notification expiry duration. Values: "1h"|"2h"|"1d"|"endday"|"none". Default: "2h". */
+  /* V19.11: Notification expiry duration. Values: "1h"|"2h"|"1d"|"endday"|"none". Default: "2h". */
   const[qpDuration,setQpDuration]=useState("2h");
-  /* V19.10 HOTFIX: notifTick state must live BEFORE any early returns to keep hook order stable across renders */
+  /* V19.11 HOTFIX: notifTick state must live BEFORE any early returns to keep hook order stable across renders */
   const[_notifTick,setNotifTick]=useState(0);
-  /* V19.10: Toggle for the "all notifications" popup that opens when user clicks "+N more" chip */
+  /* V19.11: Toggle for the "all notifications" popup that opens when user clicks "+N more" chip */
   const[notifPopupOpen,setNotifPopupOpen]=useState(false);
-  /* V19.10 HOTFIX: ticker effect also must run unconditionally (no early-return skip).
+  /* V19.11 HOTFIX: ticker effect also must run unconditionally (no early-return skip).
      The dep `_notifTick` makes it a no-op rebind; the actual gate is inside (we read subBarNotifs from a ref or just always tick). */
   useEffect(()=>{
     /* Tick once a minute. Cheap setState; greeting bar reads fresh state on each render. */
@@ -1335,7 +1335,7 @@ export default function App(){
         const sortedDays=[...map.keys()].sort((a,b)=>b.localeCompare(a));
         const all=[];
         const serverIds=new Set();
-        /* V19.10 FIX: Track duplicate ids across day docs for diagnostic logging.
+        /* V19.11 FIX: Track duplicate ids across day docs for diagnostic logging.
            If the same id appears in 2+ day docs, only the FIRST occurrence (newest day,
            because sortedDays is DESC) is included in the merged array. The duplicates
            in older day docs are filtered out here at the UI layer; the cleanup
@@ -1352,7 +1352,7 @@ export default function App(){
           const entries=map.get(dayKey)||[];
           for(const e of entries){
             const id=String(e?.id||"");
-            /* V19.10 FIX: skip if already added from a newer day doc */
+            /* V19.11 FIX: skip if already added from a newer day doc */
             if(id&&serverIds.has(id)){dupIds.add(id);continue;}
             /* Skip server entries that user just deleted optimistically */
             const pending=pendingMap.get(id);
@@ -1366,14 +1366,14 @@ export default function App(){
             serverIds.add(id);
           }
         }
-        /* V19.10: Surface duplicates once per session for diagnostics */
+        /* V19.11: Surface duplicates once per session for diagnostics */
         if(dupIds.size>0){
           /* Use a module-level Set to avoid spamming console on every rebuild */
           if(!window.__clarkSeenDups)window.__clarkSeenDups=new Set();
           for(const id of dupIds){
             if(!window.__clarkSeenDups.has(id)){
               window.__clarkSeenDups.add(id);
-              console.warn("[V19.10 DEDUP] Duplicate id "+id+" found across day docs — kept newest, hiding older copies. The cleanup migration will remove duplicates from Firestore.");
+              console.warn("[V19.11 DEDUP] Duplicate id "+id+" found across day docs — kept newest, hiding older copies. The cleanup migration will remove duplicates from Firestore.");
             }
           }
         }
@@ -1653,7 +1653,7 @@ export default function App(){
         await setDoc(ref,stripped,{merge:false});
         /* V16.74: sync split day docs */
         if(splitActive&&splitAfter){
-          /* V19.10 FIX: Retry sync up to 3 times with backoff. The previous
+          /* V19.11 FIX: Retry sync up to 3 times with backoff. The previous
              behavior was "log on first failure, no retry" — which left Firestore
              in inconsistent state when one of the parallel day-doc writes failed
              (e.g. on date-change: new-day write succeeds but old-day delete fails,
@@ -1666,7 +1666,7 @@ export default function App(){
               break;
             }catch(e){
               syncErr=e;
-              console.warn("[V19.10] syncAllSplitChanges attempt "+(syncAttempt+1)+" failed:",e?.message||e);
+              console.warn("[V19.11] syncAllSplitChanges attempt "+(syncAttempt+1)+" failed:",e?.message||e);
               if(syncAttempt<2)await _sleep(150*Math.pow(2,syncAttempt));
             }
           }
@@ -1681,7 +1681,7 @@ export default function App(){
         }
         /* V16.75: sync partitioned docs */
         if(partActive&&partAfter){
-          /* V19.10 FIX: same retry pattern for hrWeeks partitioned writes */
+          /* V19.11 FIX: same retry pattern for hrWeeks partitioned writes */
           let syncErr=null;
           for(let syncAttempt=0;syncAttempt<3;syncAttempt++){
             try{
@@ -1690,7 +1690,7 @@ export default function App(){
               break;
             }catch(e){
               syncErr=e;
-              console.warn("[V19.10] syncAllPartitionedChanges attempt "+(syncAttempt+1)+" failed:",e?.message||e);
+              console.warn("[V19.11] syncAllPartitionedChanges attempt "+(syncAttempt+1)+" failed:",e?.message||e);
               if(syncAttempt<2)await _sleep(150*Math.pow(2,syncAttempt));
             }
           }
@@ -2353,7 +2353,7 @@ export default function App(){
 
   /* User notifications */
   const userEmail=user?.email||"";
-  /* V19.10: Filter notifications honoring expiresAt + endedAt + dismissedBy.
+  /* V19.11: Filter notifications honoring expiresAt + endedAt + dismissedBy.
      - endedAt: sender or admin clicked "End" → hide for everyone
      - expiresAt: passed → hide for everyone (auto-expire)
      - dismissedBy: this user clicked × → hide just for them */
@@ -2363,7 +2363,7 @@ export default function App(){
     if(n.expiresAt&&new Date(n.expiresAt)<=_now)return false;
     if((n.readBy||[]).includes(userEmail))return false;
     if((n.dismissedBy||[]).includes(userEmail))return false;
-    /* V19.10: forAdminsOnly notifs (e.g. transfer approval requests) only show for admins */
+    /* V19.11: forAdminsOnly notifs (e.g. transfer approval requests) only show for admins */
     if(n.forAdminsOnly&&userRole!=="admin")return false;
     return true;
   });
@@ -2389,17 +2389,17 @@ export default function App(){
     return{msg:n.msg,color:n.type==="طلب"?"#8B5CF6":n.type==="مهمة"?T.accent:T.warn,icon:n.type==="طلب"?"📩":n.type==="مهمة"?"📌":"💬",orderId:n.orderId||null,isNotif:true,notifId:n.id,from:n.fromName,date:n.createdAt};
   }),...appAlerts];
   const alertCount=allAlerts.length;
-  /* V19.10: Urgent tasks bar in topbar disabled — these now show in the greeting bar
+  /* V19.11: Urgent tasks bar in topbar disabled — these now show in the greeting bar
      as type chips along with all other types. Keep as empty array to keep refs alive. */
   const urgentTasks=[];
   const markTaskDone=(nid)=>upConfig(d=>{const n=(d.notifications||[]).find(x=>x.id===nid);if(n){if(!n.doneBy)n.doneBy=[];if(!n.doneBy.includes(userEmail))n.doneBy.push(userEmail)}});
-  /* V19.10: End-for-everyone — sender or admin clicks ⏹ → endedAt set → hidden for all users.
+  /* V19.11: End-for-everyone — sender or admin clicks ⏹ → endedAt set → hidden for all users.
      Different from dismiss (which only hides for current user). */
   const endNotif=(nid)=>upConfig(d=>{const n=(d.notifications||[]).find(x=>x.id===nid);if(!n)return;
     n.endedAt=new Date().toISOString();
     n.endedBy=userEmail;
   });
-  /* V19.10: Notifications shown in sub-bar — all types (تذكير/طلب/مهمة/مهمة عاجلة).
+  /* V19.11: Notifications shown in sub-bar — all types (تذكير/طلب/مهمة/مهمة عاجلة).
      Excludes system-generated types like delivery_confirmed/delivery_issue (those go to bell). */
   const subBarNotifs=userNotifs.filter(n=>{
     const t=n.type;
@@ -2417,7 +2417,7 @@ export default function App(){
     if(hrs>0)return hrs+"س"+(remMins>0?" "+remMins+"د":"");
     return mins+"د";
   };
-  /* V19.10: Notification link handler — clicking a chip with `link` field navigates
+  /* V19.11: Notification link handler — clicking a chip with `link` field navigates
      the user to the referenced entity (invoice/order/etc.). Also marks the notification
      as read for this user. */
   const handleNotifLinkClick=(n)=>{
@@ -2433,7 +2433,7 @@ export default function App(){
     }else if(type==="order"){
       setSel(id);setTab("details");
     }else if(type==="treasury"){
-      /* V19.10: Sub-type "transfer_pending" → opens transfers view in TreasuryPg */
+      /* V19.11: Sub-type "transfer_pending" → opens transfers view in TreasuryPg */
       navigate("treasury",{entryId:id,view:subType==="transfer_pending"?"transfers":undefined});
     }else if(type==="workshop"){
       navigate("external",{wsName:id});
@@ -2451,7 +2451,7 @@ export default function App(){
     "مهمة عاجلة": {icon:"🔴",bg:"#FEF2F2",border:"#FECACA",text:"#DC2626"},
   };
 
-  /* V19.10: Live ticker is wired at top of component (before early returns) for hook-order stability. */
+  /* V19.11: Live ticker is wired at top of component (before early returns) for hook-order stability. */
 
   const goHome=async()=>{if(window.__formDirty){if(!await ask("الخروج بدون حفظ","هل تريد الخروج بدون حفظ البيانات المدخلة؟",{danger:true,confirmText:"خروج"}))return;window.__formDirty=false}setTab("home");setSel(null)};
   const goTo=async(key)=>{if(window.__formDirty){if(!await ask("الخروج بدون حفظ","هل تريد الخروج بدون حفظ البيانات المدخلة؟",{danger:true,confirmText:"خروج"}))return;window.__formDirty=false}setTab(key);if(key!=="details")setSel(null)};
@@ -2497,7 +2497,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V19.10 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >V19.11 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<>
           <span style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#EF444420",color:isOnline?"#10B981":"#EF4444"}}>{isOnline?"●":"○"}</span>
@@ -2505,7 +2505,7 @@ export default function App(){
             onClick={()=>setShowAboutVersion(true)}
             title="عرض سجل التحديثات"
             style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,fontFamily:"monospace",background:T.navText?"rgba(255,255,255,0.15)":T.accent+"10",color:T.navText||T.accent,cursor:"pointer"}}
-          >V19.10</span>
+          >V19.11</span>
         </>}
       </div>
 
@@ -2573,7 +2573,7 @@ export default function App(){
           </div></>}</>}
         </div>
 
-        {/* V19.10: Season badge — moved here from greeting bar to keep greeting-bar single-row.
+        {/* V19.11: Season badge — moved here from greeting bar to keep greeting-bar single-row.
             Visually placed next to the bell. Compact format on mobile (📅 S26) vs. desktop (📅 الموسم: S26). */}
         <div title={"الموسم: "+season} style={{display:"flex",alignItems:"center",gap:5,padding:isMob?"4px 8px":"5px 10px",borderRadius:7,background:T.navBg?"rgba(16,185,129,0.18)":T.ok+"12",border:"1px solid "+(T.navBg?"rgba(16,185,129,0.4)":T.ok+"40"),color:T.navBg?"#fff":T.ok,fontSize:isMob?10:11,fontWeight:800,whiteSpace:"nowrap",flexShrink:0}}>
           <svg width={isMob?11:12} height={isMob?11:12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
@@ -2656,13 +2656,13 @@ export default function App(){
             @keyframes chipPulse{0%,100%{opacity:1}50%{opacity:0.85}}
           `}</style>
 
-          {/* ═══ GREETING HEADER — V19.10: single-row guaranteed, chips shrink instead of wrapping ═══ */}
+          {/* ═══ GREETING HEADER — V19.11: single-row guaranteed, chips shrink instead of wrapping ═══ */}
           <div className="home-greet" style={{padding:isMob?"14px 16px":"18px 24px",borderRadius:16,marginBottom:18,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"nowrap",gap:12,minWidth:0}}>
             <div style={{flexShrink:0,minWidth:0}}>
               <div style={{fontSize:isMob?FS+2:FS+6,fontWeight:800,color:T.text,lineHeight:1.2,whiteSpace:"nowrap"}}>{greetText}، {userName||"مستخدم"}</div>
               <div style={{fontSize:FS-1,color:T.textSec,marginTop:4,whiteSpace:"nowrap"}}>{dateStr}</div>
             </div>
-            {/* V19.10: Chips compress (shrink) instead of wrapping when space gets tight.
+            {/* V19.11: Chips compress (shrink) instead of wrapping when space gets tight.
                 - Outer container: nowrap + overflow:hidden (forces single row)
                 - Each chip: flex:1 1 auto with minWidth ~120-140 (chip can shrink as space dwindles)
                 - Chip's text span: flex:1, minWidth:0 (text truncates first via ellipsis)
@@ -2691,7 +2691,7 @@ export default function App(){
               </div>}
             </div>;
             })()}
-            {/* V19.10: Season badge moved to top bar (next to bell). Removed from here to keep
+            {/* V19.11: Season badge moved to top bar (next to bell). Removed from here to keep
                 greeting-bar single-row even when notifications are present. */}
           </div>
 
@@ -2699,7 +2699,7 @@ export default function App(){
           {!isMob?<div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:18,alignItems:"flex-start",maxWidth:1400,margin:"0 auto"}}>
             {/* ═══ LEFT: Tabs Grid (SVG icons) ═══ */}
             <div>
-              {/* V19.10: Tile width capped to ~130px (was filling the column = ~160-180px),
+              {/* V19.11: Tile width capped to ~130px (was filling the column = ~160-180px),
                   giving a more compact dashboard. Gap (24), aspect-ratio (1), inner padding,
                   and icon size (44×44, SVG 22×22) all preserved as requested.
                   justifyContent:"center" centers the grid since it no longer fills the column. */}
@@ -3013,12 +3013,12 @@ export default function App(){
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الى</label><Sel value={qpTo} onChange={setQpTo}><option value="all">الكل</option>{targets.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+(u.email===me.email?" (أنا)":"")}</option>)}</Sel></div>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label><Sel value={qpType} onChange={setQpType}><option value="تذكير">💬 تذكير</option><option value="طلب">📩 طلب</option><option value="مهمة">📌 مهمة</option><option value="مهمة عاجلة">🔴 عاجل</option></Sel></div>
-            {/* V19.10: Display duration — sender chooses how long the notification stays visible */}
+            {/* V19.11: Display duration — sender chooses how long the notification stays visible */}
             <div><label style={{fontSize:FS-2,color:"#8B5CF6",fontWeight:700}}>⏱ مدة العرض</label><Sel value={qpDuration} onChange={setQpDuration}><option value="1h">🕐 ساعة</option><option value="2h">⏰ ساعتين</option><option value="1d">📅 يوم</option><option value="endday">🌅 آخر اليوم</option><option value="none">🔓 بدون حد</option></Sel></div>
           </div>
           <div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الرسالة</label><Inp value={qpText} onChange={setQpText} placeholder="اكتب الاشعار..."/></div>
           <Btn primary onClick={()=>{if(!qpText.trim())return;const to=qpTo||"all";const targetUser=targets.find(u=>u.email===to);
-            /* V19.10: Compute expiresAt based on selected duration. */
+            /* V19.11: Compute expiresAt based on selected duration. */
             let expiresAt=null;
             const now=new Date();
             if(qpDuration==="1h")expiresAt=new Date(now.getTime()+60*60*1000).toISOString();
@@ -3611,7 +3611,7 @@ export default function App(){
         </div>
       </div>
     )}
-    {/* V19.10: Full notifications popup — opens when user clicks "+N more" chip in greeting bar */}
+    {/* V19.11: Full notifications popup — opens when user clicks "+N more" chip in greeting bar */}
     {notifPopupOpen&&<div onClick={(e)=>{if(e.target===e.currentTarget)setNotifPopupOpen(false)}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{background:T.bg,borderRadius:14,maxWidth:520,width:"100%",maxHeight:"82vh",border:"2px solid #6366F140",boxShadow:"0 25px 70px rgba(0,0,0,0.3)",overflow:"hidden",display:"flex",flexDirection:"column"}}>
         {/* Header */}
@@ -3647,7 +3647,7 @@ export default function App(){
       </div>
     </div>}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V19.10"/>
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V19.11"/>
   </div>
 }
 

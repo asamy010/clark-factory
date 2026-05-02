@@ -310,6 +310,15 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     
     const _custPayTxIds=new Set((data.custPayments||[]).map(p=>p.treasuryTxId).filter(Boolean));
     const _supPayTxIds=new Set((data.supplierPayments||[]).map(p=>p.treasuryTxId).filter(Boolean));
+    /* V19.11: tombstones — treasury IDs that were intentionally deleted via
+       delCustPay or delSupplierPay. Recovery must NEVER re-link these, even
+       if the treasury entry somehow persists (Firestore sync race, partial
+       delete, etc.). Without this guard, a deleted payment could "ghost back"
+       into the customer's statement after the user explicitly removed it. */
+    const _tombstones=new Set([
+      ...(data._deletedCustPayTreasuryIds||[]),
+      ...(data._deletedSupplierPayTreasuryIds||[]),
+    ]);
     
     const _orphansToFix=[];
     (data.treasury||[]).forEach(tx=>{
@@ -317,6 +326,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       /* Skip entries with sourceType — those come from external sources
          (HR advance, ws_payment, etc.) and have their own linking. */
       if(tx.sourceType)return;
+      /* V19.11: skip tombstoned IDs — these are pending-cleanup ghosts */
+      if(_tombstones.has(tx.id))return;
       const haystack=((tx.desc||"")+" "+(tx.notes||"")).trim();
       if(!haystack)return;
       
