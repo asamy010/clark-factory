@@ -2821,11 +2821,15 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       if(remaining<=0)return;
       /* Check if this week already paid */
       if((d.paidWeekIds||[]).includes(week.id))return;
-      /* V19.23 BUG FIX: Was using weekStart < startDate which excluded the week
-         the debt was created in. User scenario: debt created 23-4 (Thursday),
-         closes W16 (weekStart=17-4, weekEnd=23-4) → was excluded because 17-4 < 23-4.
-         Correct logic: only exclude weeks that ENDED before the debt started. */
-      if(d.startDate&&week.weekEnd<d.startDate)return;
+      /* V19.26 REVERT: Back to weekStart < d.startDate (the original V19.22 logic).
+         User clarified: "تاريخ المديونية الخميس 23-4 وبداية الخصم الاسبوع اللي بعده".
+         Meaning: the week containing the debt creation date should NOT count;
+         the FIRST deduction is the next week (the one that STARTED on/after the
+         debt date). Example: debt created 23-4 (last day of W17 ending 23-4):
+           - W17 weekStart 18-4 < 23-4 → SKIP ✓ (debt didn't exist for most of this week)
+           - W18 weekStart 25-4 < 23-4 false → INCLUDE ✓ (first eligible week)
+         The V19.23 weekEnd logic was over-permissive and made W17 eligible. */
+      if(d.startDate&&week.weekStart<d.startDate)return;
       items.push({id:d.id,title:d.title,perWeek:d.perWeek,installments:d.installments,paid,remaining});
       total+=d.perWeek||0});
     return{total:r2(total),items}};
@@ -4607,9 +4611,12 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                     if((d.paidWeekIds||[]).includes(l.weekId))return;
                     /* Resolve week details — prefer hrWeeks lookup, fall back to log fields */
                     const w=hrWeeks.find(x=>x.id===l.weekId)||{id:l.weekId,weekStart:l.weekStart,weekEnd:l.weekEnd,weekNum:l.weekNum||"?",status:"closed"};
-                    if(!w.weekEnd)return;
-                    /* New permissive filter: only exclude weeks that ENDED before debt started */
-                    if(w.weekEnd<d.startDate)return;
+                    if(!w.weekStart)return;
+                    /* V19.26: Match empDebtInstallment filter — skip weeks whose START was
+                       before the debt's start date. Example: debt 23-4, W17 weekStart 18-4
+                       → skipped (debt didn't exist for most of W17); W18 weekStart 25-4
+                       → eligible (first week fully after debt creation). */
+                    if(w.weekStart<d.startDate)return;
                     missingWeeks.push(w);
                   });
                   if(missingWeeks.length===0)return null;

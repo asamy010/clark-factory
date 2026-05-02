@@ -1770,23 +1770,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(ks.length===0)return "  • لا يوجد";
       return ks.map(k=>"  • "+k+": "+fmt0(obj[k])+" ج.م").join("\n");
     };
-    /* Build per-transaction lines */
-    let runBal=openBal;const lines=[];
-    dayTxns.forEach((t,i)=>{
-      if(t.type==="in")runBal+=(Number(t.amount)||0);else runBal-=(Number(t.amount)||0);
-      const arrow=t.type==="in"?"🟢":"🔴";
-      const sign=t.type==="in"?"+":"-";
-      const amt=fmt0(t.amount);
-      const desc=(t.desc||"—").replace(/\*/g,"").slice(0,80);
-      const cat=t.category?" • "+t.category:"";
-      const acc=accountName?"":" • "+(t.account||"");
-      lines.push((i+1)+". "+arrow+" "+sign+amt+" ج.م"+acc+cat);
-      lines.push("    "+desc);
-      if(t.notes)lines.push("    📝 "+t.notes.slice(0,60));
-      lines.push("    رصيد بعد الحركة: "+fmt0(runBal));
-      lines.push("");
-    });
-    const txBlock=dayTxns.length?lines.join("\n"):"لا توجد حركات في هذا اليوم";
+    /* V19.25: Per-transaction details removed from the WhatsApp message at user
+       request — message is now totals + per-category breakdowns only. The print
+       view (HTML report) still has the full per-transaction details. */
     const out=[
       "📊 *تقرير يومية الخزنة*",
       "🏦 *الحساب:* "+scopeLabel,
@@ -1805,10 +1791,6 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       "",
       "*🔴 المنصرف حسب التصنيف*",
       buildBreakdown(catOut),
-      "━━━━━━━━━━━━━━━━",
-      "*تفاصيل الحركات*",
-      "",
-      txBlock,
       "━━━━━━━━━━━━━━━━",
       "🏭 CLARK Factory Management"
     ];
