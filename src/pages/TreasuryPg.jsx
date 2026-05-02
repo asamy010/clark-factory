@@ -849,8 +849,14 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       /* Decrement counter, keep form open with category + type preserved */
       const newCount = stickyMode.count - 1;
       setStickyMode({...stickyMode, count: newCount});
-      /* Reset only amount/desc/notes/party — keep category and type */
+      /* V19.6 FIX: Reset ALL non-pinned fields after save (amount/desc/notes/party
+         AND account AND season). The previous logic kept account+season, which felt
+         inconsistent with "وضع التكرار" — pinned fields are explicit (sticky type/
+         category + sticky date). Everything else should reset to a fresh state.
+         Using the same default logic as the form-open block (line 1719). */
       setTxAmount("");setTxDesc("");setTxNotes("");setTxPartyId("");setTxPartyType("");
+      setTxAccount(view.startsWith("acc_")?(accountsData.find(a=>a.id===view.slice(4))?.name||"SUB CASH"):"SUB CASH");
+      setTxSeason(data.activeSeason||"");
       /* Re-apply party type derived from sticky category */
       if(stickyMode.category==="دفعة عميل")setTxPartyType("customer");
       else if(stickyMode.category==="دفعة مورد")setTxPartyType("supplier");

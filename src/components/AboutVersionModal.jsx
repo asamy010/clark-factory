@@ -25,6 +25,29 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.6",
+    date: "2026-05-02",
+    types: ["fix"],
+    title: "🧹 وضع التكرار: تفريغ كل الحقول غير المثبتة بعد الحفظ",
+    changes: [
+      { type: "fix", text: "🐛 المشكلة: في وضع التكرار في الخزنة، بعد الحفظ النموذج كان بيفرغ المبلغ + البيان + الملاحظات + العميل بس. حقل 'حساب جاري' و'الموسم' كانوا بيفضلوا بقيمتهم القديمة، اللي معناه إن المستخدم لو بدّل حساب جاري لحركة معينة، الحركة اللي بعدها هتاخد نفس الحساب — وممكن تتسجل في غير الحساب الصحيح بدون ما يلاحظ." },
+      { type: "fix", text: "✅ الحل: في sticky mode reset (saveTx ~840 سطر) أضفت `setTxAccount(...)` و`setTxSeason(...)` بنفس منطق فتح النموذج لأول مرة (account = الـview الحالي لو في تاب حساب، وإلا SUB CASH افتراضياً؛ season = `data.activeSeason`). دلوقتي كل الحقول غير المثبتة بترجع لقيمتها الافتراضية بعد كل حفظ — والمثبت بس هو نوع الحركة + التاريخ المثبت." },
+      { type: "fix", text: "📋 المنطق دلوقتي متسق: 'وضع التكرار' بيحفظ النوع + التصنيف، 'تثبيت التاريخ' بيحفظ التاريخ، أي حاجة تانية بترجع للافتراضي. ده بيخلي المستخدم يبدأ كل حركة جديدة من حالة نظيفة." },
+    ]
+  },
+  {
+    version: "V19.5",
+    date: "2026-05-02",
+    types: ["improvement"],
+    title: "📐 تصغير حجم كروت الصفحة الرئيسية (ديسكتوب) مع الحفاظ على الأيقونات",
+    changes: [
+      { type: "improvement", text: "🎯 المطلوب من المستخدم: تصغير الزر الأبيض للنص في الصفحة الرئيسية مع الحفاظ على حجم الأيقونة الداخلية، المسافات بين الكروت (طولياً وعرضياً)، والشكل المربع." },
+      { type: "improvement", text: "🔧 التغيير: في App.jsx grid template للـtabs على الديسكتوب اتغير من `repeat(6, 1fr)` لـ `repeat(6, minmax(0, 130px))` (وعلى التابلت من `repeat(4, 1fr)` لـ `repeat(4, minmax(0, 130px))`). أضفت `justifyContent: 'center'` على الـgrid container عشان يتمركز بدل ما يلتصق على جنب." },
+      { type: "improvement", text: "✅ المحفوظ كما هو: gap = 24px (المسافات بين الكروت)، aspectRatio: 1 (الشكل المربع)، padding داخلي '10px 8px'، أيقونة 44×44 وSVG 22×22، حجم نص الـlabel (FS-1). الموبايل والتابلت grids التانية مش متأثرين." },
+      { type: "improvement", text: "📊 النتيجة: الكروت كانت بتاخد ~160-180px على شاشة عريضة (1fr بيوسعها)، دلوقتي محدودة على 130px فبتبان أكثر تماسكاً والمساحة البيضاء حواليها أقل، مع نفس حجم الأيقونة والكتابة." },
+    ]
+  },
+  {
     version: "V19.4",
     date: "2026-05-02",
     types: ["fix"],
@@ -130,31 +153,6 @@ const CHANGELOG = [
       { type: "improvement", text: "📅 بطاقة 'الموسم: S26' اتنقلت من الـgreeting bar إلى التوب بار العلوي (يمين الجرس مباشرة). كان شكلها بيلف لتحت لما الإشعارات تكون كتيرة، والـgreeting bar بيكبر ارتفاعه ويكسر الـlayout. دلوقتي الـgreeting bar صف واحد ثابت دائماً." },
       { type: "improvement", text: "🎨 شكل البادج الجديد: لون أخضر داخل التوب بار البنفسجي للتباين الواضح، أيقونة تقويم 12px، نص بـfontWeight 800. على الموبايل بيظهر مختصر '📅 S26' بدل 'الموسم: S26' عشان يـfit في الـtopbar الضيق." },
       { type: "improvement", text: "📱 الترتيب الجديد في التوب بار من اليمين لشمال: المستخدم → الجرس → 📅 الموسم → v18.95 → البحث → CLARK → الصفحة الرئيسية." },
-    ]
-  },
-  {
-    version: "V18.94",
-    date: "2026-05-01",
-    types: ["feature", "improvement"],
-    title: "📥 تطوير شامل للإشعارات + إنهاء الطلب من صفحة الوجهة",
-    changes: [
-      { type: "improvement", text: "🔍 تكبير الـchip في الـgreeting bar: النص من FS-1 → FS+1 (أكبر بـ2 درجة)، الأيقونة من FS → FS+3، الـpadding من 5/10 → 8/14. النتيجة: الإشعارات بقت أوضح وأبرز." },
-      { type: "feature", text: "📐 ارتفاع الـgreeting bar ثابت دائماً: بدلاً من أن يكبر مع كل إشعار جديد ويكسر الـlayout، البار دلوقتي يعرض أول 2 chips فقط (أو 1 على الموبايل) + زر '+N إشعارات أخرى'. الـlayout متناسق بغض النظر عن عدد الإشعارات." },
-      { type: "feature", text: "📥 Popup الإشعارات الكاملة: الضغط على زر '+N إشعارات' يفتح modal شامل فيه كل الإشعارات النشطة كـcards مفصلة. كل إشعار له: الأيقونة + النص الكامل + المرسل + الوقت المتبقي + النوع + كل الـactions (فتح + إنهاء + إخفاء). max-height 82vh مع scroll." },
-      { type: "feature", text: "⏹ Banner 'إنهاء طلب المراجعة' داخل صفحة الوجهة (نقطة د من المتطلبات): لما تكون أنت اللي بعت طلب مراجعة على فاتورة/أوردر/ورشة/أسبوع وفتحت الصفحة دي، بيظهر banner أصفر فوق التفاصيل بنص الرسالة + 'منذ ساعة و23 دقيقة' + زر '⏹ إنهاء طلب المراجعة'. الضغط ينهي الطلب عند الكل (المستلم + الأدمن)." },
-      { type: "improvement", text: "🎨 Banner شغال في 4 أماكن: فواتير المبيعات + فواتير المشتريات + الأوردرات (DetPg) + الورش (per-workshop في accounts view) + المرتبات (داخل الأسبوع المفتوح). الـlogic: يظهر فقط لو fromEmail===me + link.id===currentEntity + !endedAt + !expired." },
-      { type: "improvement", text: "🆕 component جديد ReviewRequestBanner.jsx — معاد استخدامه في كل الصفحات. يفلتر الـnotifications تلقائياً ويعرض الـbanner لو فيه match. مع formatting احترافي للزمن (الآن، منذ 5 دقيقة، منذ ساعة و23 دقيقة، منذ يوم و3 ساعات)." },
-    ]
-  },
-  {
-    version: "V18.93",
-    date: "2026-05-01",
-    types: ["fix"],
-    title: "🚨 Hotfix: React error #310 عند بداية فتح التطبيق",
-    changes: [
-      { type: "fix", text: "🚨 Bug حرج كان بيمنع التطبيق من الفتح خالص. السبب: الـuseState و useEffect المضافة في V18.87 (notification ticker) كانوا موضوعين بعد الـearly returns الخاصة بـauthLoading + dataLoading. لما الـauth بيخلص → عدد الـhooks بيتغير من render لتاني → React بيـcrash بـerror #310 ('Rendered more hooks than during the previous render')." },
-      { type: "fix", text: "✅ الإصلاح: نقل `useState(_notifTick)` + `useEffect(ticker)` إلى أعلى الـcomponent — قبل أي early return — عشان عدد الـhooks يبقى ثابت في كل render. الـticker دلوقتي بيشتغل دايماً (بدون شرط على subBarNotifs.length) لأن setState برخيص ولا يكلف شيء." },
-      { type: "fix", text: "🔍 ده bug rules-of-hooks كلاسيكي. القاعدة: كل الـhooks (useState, useEffect, useRef, useMemo, useCallback) لازم تتنفذ بنفس الترتيب وبنفس العدد في كل render. الـearly returns بتعمل branches غير متجانسة تـviolate القاعدة دي." },
     ]
   },
 ];
