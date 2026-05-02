@@ -5,7 +5,7 @@
    Contains: ExtProdPg
    ═══════════════════════════════════════════════════════════════ */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { doc, setDoc } from "firebase/firestore";
 import { Btn, Card, DelBtn, Inp, SearchSel, Sel, useDebounced } from "../components/ui.jsx";
 import { ReviewRequestModal } from "../components/ReviewRequestModal.jsx";
@@ -78,6 +78,66 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
     window.addEventListener("notif-deeplink",handler);
     return()=>window.removeEventListener("notif-deeplink",handler);
   },[]);
+  /* V19.17: Auto-sync orphan workshop treasury entries → silently create matching wsPayments records.
+     Mirrors the V19.14 pattern for customer/supplier statements:
+       - Runs ONLY when the workshop accounts/payments page is open (mode=accounts or payWs is set)
+       - useRef lock so it doesn't re-fire when state updates within the same session
+       - Walks every treasury row with a workshop name + (تشغيل خارجي|مشتريات) category
+       - For any row that has no matching wsPayments record, creates one with treasuryTxId=t.id
+     Without this, the orphan-fallback rendering above (Layer 1 + 2) would keep showing the ⚠️
+     marker forever on legacy / re-closed-week data — even though the data IS correct, just not
+     wired through the wsPayments index. Silent so the user just sees clean rows next time. */
+  const wsAutoSyncRef=useRef(new Set());
+  useEffect(()=>{
+    if(mode!=="accounts"&&!payWs)return;
+    if(!Array.isArray(data?.treasury)||!Array.isArray(data?.workshops))return;
+    /* Build a single key for this dataset shape so we only run once per "version" of treasury+wsPayments. */
+    const wsNames=new Set((data.workshops||[]).map(w=>w.name).filter(Boolean));
+    const wsPayTxIds=new Set((data.wsPayments||[]).map(p=>p.treasuryTxId).filter(Boolean));
+    const wsPayIdSet=new Set((data.wsPayments||[]).map(p=>p.id));
+    const orphans=[];
+    (data.treasury||[]).forEach(t=>{
+      if(!t||t.type!=="out")return;
+      if(!t.wsName||!wsNames.has(t.wsName))return;
+      if(t.category!=="تشغيل خارجي"&&t.category!=="مشتريات")return;
+      if(wsPayTxIds.has(t.id))return;
+      if(t.wsPaymentId&&wsPayIdSet.has(t.wsPaymentId))return;
+      orphans.push(t);
+    });
+    if(orphans.length===0)return;
+    /* Lock key: a stable signature of orphans we already processed. Prevents re-running on every render. */
+    const lockKey=orphans.map(t=>t.id).sort().join("|");
+    if(wsAutoSyncRef.current.has(lockKey))return;
+    wsAutoSyncRef.current.add(lockKey);
+    upConfig(d=>{
+      if(!Array.isArray(d.wsPayments))d.wsPayments=[];
+      const dWsPayTxIds=new Set((d.wsPayments||[]).map(p=>p.treasuryTxId).filter(Boolean));
+      const dWsPayIds=new Set((d.wsPayments||[]).map(p=>p.id));
+      orphans.forEach(t=>{
+        if(dWsPayTxIds.has(t.id))return;
+        if(t.wsPaymentId&&dWsPayIds.has(t.wsPaymentId))return;
+        const wsObj=(d.workshops||[]).find(w=>w.name===t.wsName);
+        const wsPayId=t.wsPaymentId||("wsp_sync_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,7));
+        d.wsPayments.push({
+          id:wsPayId,
+          wsName:t.wsName,
+          wsId:wsObj?.id||null,
+          amount:Number(t.amount)||0,
+          type:t.category==="مشتريات"?"purchase":"payment",
+          notes:t.notes||"",
+          date:t.date||"",
+          createdBy:t.by||"auto-sync",
+          treasuryTxId:t.id,
+          createdAt:t.createdAt||new Date().toISOString(),
+          autoSyncedAt:new Date().toISOString(),
+          sourceWeekId:t.weekId||null,
+        });
+        /* Back-link the treasury row so future pages don't re-detect it as orphan. */
+        const tIdx=(d.treasury||[]).findIndex(x=>x.id===t.id);
+        if(tIdx>=0&&!d.treasury[tIdx].wsPaymentId)d.treasury[tIdx].wsPaymentId=wsPayId;
+      });
+    });
+  },[mode,payWs,data.treasury,data.wsPayments,data.workshops,upConfig]);
 
   const startEditMov=(m)=>{setEditMov(m);setEditQty(m.qty);setEditNote(m.notes||"");setEditPrice(m.price||0);setEditDate(m.date||"");
     if(m.type==="receive"){const ord=data.orders.find(o=>o.id===m.orderId);const r=ord?.workshopDeliveries?.[m.wdIdx]?.receives?.[m.rIdx];setEditQuality(r?.quality||"جيد جداً")}else{setEditQuality("")}};
@@ -1084,14 +1144,39 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
       <Btn onClick={()=>addPayment(true)} disabled={!payWs||!payAmt} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال عبر واتساب">📱 واتساب</Btn>
     </Card>
     {payWs&&<Card title={"دفعات "+payWs}><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["التاريخ","النوع","المبلغ","ملاحظات",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-      {(data.wsPayments||[]).filter(p=>p.wsName===payWs).sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map((p,i)=>{const isEd=editPayId===p.id;
-        return<tr key={i} style={{background:isEd?T.warn+"08":p.type==="payment"?"#FEF2F2":"#F0FDF4"}}>
+      {(()=>{
+        /* V19.17: merge wsPayments + orphan treasury entries (rows that carry the workshop's name
+           but never got a matching wsPayment record — typically left over from a re-closed week or
+           pre-V15.27 data). Orphans are rendered read-only with a ⚠️ marker; the auto-sync effect
+           below converts them into real wsPayments on first open of the workshop accounts page. */
+        const wsPaysHere=(data.wsPayments||[]).filter(p=>p.wsName===payWs);
+        const wsPayTxIds=new Set(wsPaysHere.map(p=>p.treasuryTxId).filter(Boolean));
+        const wsPayIdSet=new Set(wsPaysHere.map(p=>p.id));
+        const orphans=(data.treasury||[]).filter(t=>{
+          if(!t||t.type!=="out")return false;
+          if(t.wsName!==payWs)return false;
+          if(t.category!=="تشغيل خارجي"&&t.category!=="مشتريات")return false;
+          if(wsPayTxIds.has(t.id))return false;
+          if(t.wsPaymentId&&wsPayIdSet.has(t.wsPaymentId))return false;
+          return true;
+        }).map(t=>({
+          id:"orphan_"+t.id,
+          wsName:payWs,
+          amount:Number(t.amount)||0,
+          type:t.category==="مشتريات"?"purchase":"payment",
+          notes:t.notes||"",
+          date:t.date,
+          _orphan:true,
+        }));
+        return [...wsPaysHere,...orphans].sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+      })().map((p,i)=>{const isEd=editPayId===p.id;const isOrphan=!!p._orphan;
+        return<tr key={p.id||i} style={{background:isEd?T.warn+"08":isOrphan?"#FEF3C7":p.type==="payment"?"#FEF2F2":"#F0FDF4"}}>
         <td style={{...TD,minWidth:110}}>{isEd?<Inp type="date" value={edPayDate} onChange={setEdPayDate}/>:p.date}</td>
-        <td style={{...TD,fontWeight:700,color:p.type==="payment"?T.err:T.ok}}>{isEd?<Sel value={edPayType} onChange={setEdPayType}><option value="payment">دفعة</option><option value="purchase">مشتريات</option></Sel>:(p.type==="payment"?"دفعة ↗":"مشتريات ↙")}</td>
+        <td style={{...TD,fontWeight:700,color:p.type==="payment"?T.err:T.ok}}>{isEd?<Sel value={edPayType} onChange={setEdPayType}><option value="payment">دفعة</option><option value="purchase">مشتريات</option></Sel>:(p.type==="payment"?"دفعة ↗":"مشتريات ↙")}{isOrphan&&<span style={{fontSize:FS-3,color:"#92400E",marginRight:4}}>⚠️</span>}</td>
         <td style={{...TDB,color:p.type==="payment"?T.err:T.ok,minWidth:90}}>{isEd?<Inp type="number" value={edPayAmt} onChange={setEdPayAmt}/>:fmt(p.amount)+" ج.م"}</td>
-        <td style={{...TD,minWidth:80}}>{isEd?<Inp value={edPayNote} onChange={setEdPayNote}/>:(p.notes||"-")}</td>
+        <td style={{...TD,minWidth:80}}>{isEd?<Inp value={edPayNote} onChange={setEdPayNote}/>:isOrphan?<span title="حركة في الخزنة بدون سجل دفعة مطابق — هتتربط تلقائياً" style={{color:"#92400E",fontSize:FS-2}}>{p.notes||"غير مزامنة"}</span>:(p.notes||"-")}</td>
         <td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}>
-          {isEd?<><Btn small primary onClick={()=>{upConfig(d=>{const t=(d.wsPayments||[]).find(x=>x.id===p.id);if(t){t.date=edPayDate;t.amount=Number(edPayAmt)||0;t.notes=edPayNote;t.type=edPayType;
+          {isOrphan?<span style={{fontSize:FS-3,color:T.textSec,fontStyle:"italic"}}>—</span>:isEd?<><Btn small primary onClick={()=>{upConfig(d=>{const t=(d.wsPayments||[]).find(x=>x.id===p.id);if(t){t.date=edPayDate;t.amount=Number(edPayAmt)||0;t.notes=edPayNote;t.type=edPayType;
             /* Sync linked treasury entry */
             const txId=t.treasuryTxId;const tx=txId?(d.treasury||[]).find(x=>x.id===txId):(d.treasury||[]).find(x=>x.wsPaymentId===t.id);
             if(tx){tx.date=edPayDate;tx.amount=Number(edPayAmt)||0;tx.category=edPayType==="payment"?"تشغيل خارجي":"مشتريات";tx.desc=(edPayType==="payment"?"دفعة ورشة ":"مشتريات ورشة ")+t.wsName+(edPayNote?" — "+edPayNote:"");tx.day=dayName(edPayDate)}}
@@ -1156,6 +1241,25 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
         const entries=[];
         data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{(wd.receives||[]).forEach(r=>{entries.push({date:r.date,desc:o.modelNo+(wd.garmentType?" - "+wd.garmentType:""),qty:r.qty,price:r.price||0,amount:r2((r.qty||0)*(r.price||0)),type:"due"})})})});
         (data.wsPayments||[]).filter(p=>p.wsName===w.name).forEach(p=>{entries.push({date:p.date,desc:p.type==="payment"?"دفعة"+(p.notes?" - "+p.notes:""):"مشتريات"+(p.notes?" - "+p.notes:""),amount:p.amount,type:p.type})});
+        /* V19.17: Orphan-treasury fallback for workshop statements — mirrors V19.12 (suppliers) and V18.64 (customers).
+           Picks up treasury entries that carry this workshop's name but have no matching wsPayments record.
+           Without this, workshop payments transferred-from-week (or other orphan paths) appeared in the
+           treasury log and in the balance card, but were missing from the actual statement entries list.
+           Skip entries that already have a matching wsPayments record to avoid double-counting. */
+        const _wsPayTxIds=new Set((data.wsPayments||[]).filter(p=>p.wsName===w.name).map(p=>p.treasuryTxId).filter(Boolean));
+        const _wsPayIdSet=new Set((data.wsPayments||[]).filter(p=>p.wsName===w.name).map(p=>p.id));
+        (data.treasury||[]).forEach(t=>{
+          if(!t||t.type!=="out")return;
+          if(t.wsName!==w.name)return;
+          if(t.category!=="تشغيل خارجي"&&t.category!=="مشتريات")return;
+          /* Skip if this treasury row is already represented by an existing wsPayment (either by tx id link or by wsPaymentId back-reference). */
+          if(_wsPayTxIds.has(t.id))return;
+          if(t.wsPaymentId&&_wsPayIdSet.has(t.wsPaymentId))return;
+          const isPurchase=t.category==="مشتريات";
+          const baseDesc=isPurchase?"مشتريات":"دفعة";
+          const noteSuffix=t.notes?" - "+t.notes:"";
+          entries.push({date:t.date,desc:baseDesc+noteSuffix+" ⚠️",amount:Number(t.amount)||0,type:isPurchase?"purchase":"payment",_orphan:true});
+        });
         entries.sort((a,b)=>(a.date||"").localeCompare(b.date||""));let running=0;
         const printStmt=async()=>{
           let qrSrc="";try{const QR=await loadQR();if(QR)qrSrc=await QR.toDataURL(window.location.origin+"?act=wsacc&ws="+encodeURIComponent(w.name),{width:120,margin:1})}catch(e){}

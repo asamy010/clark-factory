@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.17",
+    date: "2026-05-02",
+    types: ["fix", "feature"],
+    title: "🚨 [حرج] دفعات الورش المرحّلة من الأسبوع كانت غايبة من كشف الحساب",
+    changes: [
+      { type: "fix", text: "🐛 المشكلة المُبلَّغ عنها: 'سجلت دفعات للورش يوم 30-4 في إقفال الأسبوع، الدفعات في سجل الخزنة الفرعية ✓ بس مش ظاهرة في حسابات الورش'. لما الدفعة بتترحّل من weekly close بتظهر في treasury لكن ساعات بتفضل من غير `wsPayments` مطابق (orphan) — السبب: rollback أسبوع متبوع بـ reclose، أو بيانات قبل V15.27 لما الـlinkage مكنش متعمل." },
+      { type: "fix", text: "🔍 السبب الجذري: 3 أماكن بتقرأ دفعات الورش — رصيد الورشة بيستخدم `wsAccounts()` اللي فيها V18.72 fallback (شغّال صح)، لكن كشف حساب الورشة (`ExtProdPg.jsx ~سطر 1158`) وجدول الدفعات (~سطر 1086) بيقروا من `data.wsPayments` فقط بدون orphan-fallback. نفس البق اللي اتصلح للعملاء في V18.64 وللموردين في V19.12 — الورش ما خدتش الإصلاح." },
+      { type: "fix", text: "✅ الطبقة 1: orphan fallback في كشف حساب الورشة. أي treasury entry بـ `wsName` مطابق + `category=تشغيل خارجي/مشتريات` ومش متربط بـ `wsPayments` بيتعرض في الكشف بـ ⚠️ marker. الـbalance لسه صح من V18.72. الجمع متطابق مع رصيد الورشة الظاهر في الكارت." },
+      { type: "fix", text: "✅ الطبقة 2: نفس الـfallback في جدول الدفعات الصغير اللي بيظهر تحت فورم تسجيل الدفعة. صفوف الـorphans بتتعرض بخلفية صفراء + ⚠️ + بدون أزرار تعديل/حذف (read-only) — لتجنب أخطاء على سجل مش موجود في wsPayments." },
+      { type: "feature", text: "🔄 الطبقة 3: auto-sync silent على فتح صفحة حسابات الورش. `useEffect` + `useRef` lock بيشتغل مرة واحدة لكل dataset signature. بيمشي على treasury، يلاقي الأيتام، وينشئ سجلات `wsPayments` المفقودة بـ `treasuryTxId` صحيح + `autoSyncedAt` timestamp + back-link `wsPaymentId` على الـtreasury entry. النتيجة: المرة الأولى تفتح حسابات الورش بعد التحديث، الـ⚠️ markers هتختفي تلقائياً." },
+      { type: "improvement", text: "🛡 المنطق المستخدم في الكشف 1+2 وفي auto-sync 3: نفس الفلتر بالظبط (set من `treasuryTxId` و set من `wsPayments.id`) — مفيش double-counting سواء قبل أو بعد المزامنة." },
+    ]
+  },
+  {
     version: "V19.16",
     date: "2026-05-02",
     types: ["architectural", "feature", "fix"],
@@ -133,15 +147,6 @@ const CHANGELOG = [
     changes: [
       { type: "fix", text: "🐛 رفض المبلغ صفر كان بصوت بيب فقط بدون أي رسالة مرئية، فالمستخدم كان يفتكر إن الحفظ نجح والمشكلة في التفريغ. أضفت toast واضح: '⛔ المبلغ مطلوب — اكتب قيمة أكبر من صفر'." },
       { type: "fix", text: "ملاحظة: بعد ما اتأكدنا في V19.8 إن السبب الحقيقي لمشكلة 'الحقول مش بتتفرغ' كان TypeError في autoPost (مش validation)، الإصلاح ده بيفضل مفيد كـUX — رسالة واضحة لما المبلغ صفر بدل البيب الصامت." },
-    ]
-  },
-  {
-    version: "V19.6",
-    date: "2026-05-02",
-    types: ["fix"],
-    title: "🧹 وضع التكرار: تفريغ كل الحقول غير المثبتة بعد الحفظ",
-    changes: [
-      { type: "fix", text: "🐛 في sticky mode، حقل 'حساب جاري' و'الموسم' كانوا بيفضلوا بقيمتهم. أضفت setTxAccount + setTxSeason للـreset block. النتيجة: المتبقي المثبت بس هو نوع الحركة + التاريخ المثبت — أي حاجة تانية بترجع للافتراضي بعد كل حفظ." },
     ]
   },
 ];
