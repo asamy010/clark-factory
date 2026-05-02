@@ -2821,8 +2821,11 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       if(remaining<=0)return;
       /* Check if this week already paid */
       if((d.paidWeekIds||[]).includes(week.id))return;
-      /* Check start date — don't count installments before debt started */
-      if(d.startDate&&week.weekStart<d.startDate)return;
+      /* V19.23 BUG FIX: Was using weekStart < startDate which excluded the week
+         the debt was created in. User scenario: debt created 23-4 (Thursday),
+         closes W16 (weekStart=17-4, weekEnd=23-4) → was excluded because 17-4 < 23-4.
+         Correct logic: only exclude weeks that ENDED before the debt started. */
+      if(d.startDate&&week.weekEnd<d.startDate)return;
       items.push({id:d.id,title:d.title,perWeek:d.perWeek,installments:d.installments,paid,remaining});
       total+=d.perWeek||0});
     return{total:r2(total),items}};
@@ -4588,6 +4591,52 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                     })}
                   </div>
                 </div>}
+                {/* V19.23: Recovery scanner — finds closed weeks that should have included this debt
+                    but didn't (typically because of the V19.22 weekStart bug, or because the debt
+                    was created after the week was closed). User can register each missing week. */}
+                {d.status==="active"&&canEdit&&(()=>{
+                  const missing=hrWeeks.filter(w=>{
+                    if(w.status!=="closed")return false;
+                    if((d.paidWeekIds||[]).includes(w.id))return false;
+                    if(w.weekEnd<d.startDate)return false;/* week ended before debt started */
+                    /* Was the employee paid this week? Otherwise no installment to recover */
+                    const hadSalary=(data.hrLog||[]).some(l=>l.type==="salary"&&l.empId===d.empId&&l.weekId===w.id);
+                    if(!hadSalary)return false;
+                    /* Don't suggest weeks that closed before the debt was created */
+                    if(d.createdAt&&w.closedAt&&d.createdAt>w.closedAt)return false;
+                    return true;
+                  });
+                  if(missing.length===0)return null;
+                  return<div style={{marginBottom:10,padding:10,borderRadius:8,background:T.warn+"10",border:"1px solid "+T.warn+"35"}}>
+                    <div style={{fontSize:FS-2,fontWeight:700,marginBottom:6,color:T.warn}}>🔍 {missing.length} أسبوع كان مؤهل لخصم القسط لكن لم يُسجّل</div>
+                    <div style={{fontSize:FS-3,color:T.textSec,marginBottom:8,lineHeight:1.6}}>
+                      ده ممكن يكون بسبب الباج اللي اتصلح في V19.23، أو لأن المديونية اتعملت بعد إقفال الأسبوع. اضغط "تسجيل الكل" علشان تلحق الأسابيع دي.
+                    </div>
+                    <div style={{display:"flex",flexDirection:"column",gap:3,marginBottom:8,maxHeight:120,overflowY:"auto"}}>
+                      {missing.map(w=><div key={w.id} style={{fontSize:FS-3,color:T.textSec,padding:"3px 8px",background:T.cardSolid,borderRadius:4}}>
+                        📅 W{w.weekNum} ({w.weekStart} → {w.weekEnd})
+                      </div>)}
+                    </div>
+                    <Btn small onClick={async()=>{
+                      if(!await ask("تسجيل "+missing.length+" قسط (= "+fmt0(missing.length*d.perWeek)+" ج) كمدفوع لمديونية '"+d.title+"'؟"))return;
+                      upConfig(dd=>{
+                        const dbt=(dd.empDebts||[]).find(x=>x.id===d.id);if(!dbt)return;
+                        if(!dbt.paidWeekIds)dbt.paidWeekIds=[];
+                        if(!dbt.recoveredWeekIds)dbt.recoveredWeekIds=[];
+                        missing.forEach(w=>{
+                          if(!dbt.paidWeekIds.includes(w.id))dbt.paidWeekIds.push(w.id);
+                          if(!dbt.recoveredWeekIds.includes(w.id))dbt.recoveredWeekIds.push(w.id);
+                        });
+                        /* Check if fully paid now */
+                        const totalPaid=r2((dbt.paidWeekIds||[]).length*(Number(dbt.perWeek)||0));
+                        if(totalPaid>=(Number(dbt.total)||0)-0.5){dbt.status="paid";dbt.paidAt=today}
+                      });
+                      showToast("✓ تم تسجيل "+missing.length+" قسط");
+                    }} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"40",fontWeight:700}}>
+                      ✓ تسجيل الـ{missing.length} قسط (={fmt0(missing.length*d.perWeek)} ج)
+                    </Btn>
+                  </div>;
+                })()}
                 {/* V19.22: Helpful hint shown only when no payments yet — explains the auto-deduction model */}
                 {(d.paidWeekIds||[]).length===0&&d.status==="active"&&<div style={{marginBottom:10,padding:8,borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"25",fontSize:FS-3,color:T.textSec,lineHeight:1.6}}>
                   💡 الأقساط بتنزل تلقائياً مع كل إقفال أسبوع — بشرط: المديونية موجودة قبل الإقفال + بداية الأسبوع بعد أو يساوي تاريخ بداية المديونية ({d.startDate}). للحالات الاستثنائية استخدم زر "+ قسط مدفوع" أدناه.

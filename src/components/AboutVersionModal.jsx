@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.23",
+    date: "2026-05-02",
+    types: ["fix", "feature"],
+    title: "🚨 [حرج] إصلاح باج فلتر الأسبوع للمديونيات + مكتشف الأقساط المفقودة",
+    changes: [
+      { type: "fix", text: "🐛 [الباج المُكتشف] في `empDebtInstallment` (سطر 2825 من HRPg)، الفلتر كان: `if(week.weekStart < d.startDate) skip`. ده غلط — معناه إن لو مديونية اتعملت يوم الخميس 23-4 (آخر يوم في W16، بدايته 17-4)، الـ W16 close كان بيتجاهلها لأن weekStart 17-4 < startDate 23-4. ده لا يطابق توقع المستخدم: 'دخلت المديونية ودي اتخصمت في إقفال الأسبوع'." },
+      { type: "fix", text: "✅ التصحيح: تم تغيير المقارنة لـ `week.weekEnd < d.startDate`. كده الأسبوع اللي **انتهى** في يوم بداية المديونية أو بعدها مؤهل للخصم. مثال: W16 (weekEnd=23-4) مع debt startDate=23-4 → 23<23 = false → يُحتسب ✓. W15 (weekEnd=16-4) مع نفس المديونية → 16<23 = true → يتجاهل ✓ (صح، الأسبوع ده انتهى قبل المديونية)." },
+      { type: "feature", text: "🔍 [HR] مكتشف الأقساط المفقودة على كل مديونية نشطة. لو في أسبوع كان مؤهل للخصم لكن مش متسجّل (بسبب الباج القديم أو لأن المديونية اتعملت بعد إقفال أسبوع)، بيظهر banner أصفر بعدد الأسابيع المفقودة + قائمة بأسابيع W17/W18 إلخ + زر 'تسجيل الـX قسط'. ضغطة واحدة تلحق كل المتأخرات." },
+      { type: "improvement", text: "🛡 الكشف بيتأكد قبل الاقتراح: (1) الأسبوع مغلق و(2) لم يُسجّل بالفعل و(3) الموظف عنده hrLog salary entry فيه و(4) المديونية اتعملت قبل ما الأسبوع يُغلق. كده مفيش false positives." },
+      { type: "improvement", text: "📋 الأسابيع اللي اتسجلت عبر المكتشف بتتميّز في `recoveredWeekIds[]` للتدقيق. شفافية كاملة." },
+    ]
+  },
+  {
     version: "V19.22",
     date: "2026-05-02",
     types: ["improvement", "feature"],
@@ -146,18 +159,6 @@ const CHANGELOG = [
       { type: "fix", text: "✅ Tombstones في delTx + bulkDeleteTxs: أي حذف لحركة عميل/مورد بيضيف الـID للـ_deletedCustPayTreasuryIds / _deletedSupplierPayTreasuryIds فوراً." },
       { type: "feature", text: "🗑 إزالة ✕ من صف الخزنة + Hint banner: الحذف دلوقتي بس عبر checkbox + 'حذف المحدد'. أوضح وأمن." },
       { type: "feature", text: "🧹 زر 'تنظيف الدفعات الميتة' في PaymentsTab: للبيانات القديمة قبل V19.13. بيكتشف cust/supplierPayments بدون treasury entry موجود ويعرضهم في preview قبل الحذف." },
-    ]
-  },
-  {
-    version: "V19.12",
-    date: "2026-05-02",
-    types: ["feature", "fix"],
-    title: "🗑 حذف الدفعات من سجل المحاسبة + مزامنة دفعات الموردين مع كشف المورد",
-    changes: [
-      { type: "feature", text: "🗑 زر '🗑 حذف' في كل صف من PaymentsTab — بيمسح الدفعة + الخزنة + يعمل reverse للـjournal + tombstone." },
-      { type: "fix", text: "📊 دفعات الموردين دلوقتي بتظهر في كشف المورد عن طريق orphan-treasury fallback (مثل V18.64 للعملاء)." },
-      { type: "feature", text: "🔄 زر 'مزامنة الدفعات اليتيمة' بيشغل V19.9 recovery على demand بدون انتظار فتح صفحة الخزنة." },
-      { type: "fix", text: "🛡 الـtombstones دلوقتي محترمة في 4 أماكن: V19.9 recovery، V18.64 fallback، PaymentsTab، supplier statement." },
     ]
   },
 ];
