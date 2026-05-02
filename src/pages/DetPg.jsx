@@ -18,6 +18,8 @@ import { uploadMultiple, deleteAttachment, getFileIcon, formatFileSize, isAllowe
 import { OrdForm } from "./OrdForm.jsx";
 import { ReviewRequestModal } from "../components/ReviewRequestModal.jsx";
 import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
+import { StageProgressModal } from "../components/StageProgressModal.jsx";
+import { DefaultModelImg } from "../components/DefaultModelImg.jsx";
 
 export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,isTab,canEdit,statusCards,goHome,upConfig,user}){
   const order=data.orders.find(o=>o.id===sel);const[editing,setEditing]=useState(false);
@@ -37,6 +39,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   const[settReason,setSettReason]=useState("");const[settNotes,setSettNotes]=useState("");
   /* V15.10: Extra cost popup state — tracks form fields for adding/editing additional costs */
   const[extraCostPopup,setExtraCostPopup]=useState(null);/* {editId?, category, customReason, amount, date, notes} */
+  const[stageProgressOrder,setStageProgressOrder]=useState(null);/* V19.0: order to show in stage-progress modal */
   const[showNew,setShowNew]=useState(false);
   /* V16.37: mobile-only overflow menu — collapses secondary actions into a list */
   const[showActionsMenu,setShowActionsMenu]=useState(false);
@@ -277,7 +280,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                 return<tr key={o.id} className="det-row" onClick={()=>setSel(o.id)} style={{borderBottom:"1px solid "+T.brd,cursor:"pointer",transition:"background 0.15s"}}>
                   <td style={{...TD,paddingRight:16}}>
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
-                      {o.image?<img src={o.image} alt="" style={{width:36,height:44,borderRadius:6,objectFit:"cover",flexShrink:0}}/>:<div style={{width:36,height:44,borderRadius:6,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",color:T.textMut,fontSize:16,flexShrink:0}}>📷</div>}
+                      <DefaultModelImg src={o.image} modelNo={o.modelNo} modelDesc={o.modelDesc} orderPieces={o.orderPieces} width={36} style={{borderRadius:6}}/>
                       <div style={{minWidth:0}}>
                         {o.poNumber&&<div style={{fontSize:FS-3,color:T.accent,fontFamily:"monospace",fontWeight:700}}>{o.poNumber}</div>}
                         <div style={{fontWeight:800,color:T.text}}>{o.modelNo}</div>
@@ -334,7 +337,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
               <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
                 {/* Image — slightly smaller than before to give room for KPIs */}
                 <div style={{position:"relative",flexShrink:0}}>
-                  {o.image?<img src={o.image} alt="" style={{width:64,height:80,borderRadius:10,objectFit:"cover",background:T.bg}}/>:<div style={{width:64,height:80,borderRadius:10,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",color:T.textMut,fontSize:24}}>📷</div>}
+                  <DefaultModelImg src={o.image} modelNo={o.modelNo} modelDesc={o.modelDesc} orderPieces={o.orderPieces} width={60} style={{borderRadius:10,background:T.bg}}/>
                 </div>
 
                 {/* Title block */}
@@ -378,7 +381,10 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                 return<div style={{padding:"10px 12px 8px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                     <span style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>المرحلة الحالية</span>
-                    <span style={{padding:"2px 9px",borderRadius:5,background:statusColor,color:"#fff",fontSize:FS-3,fontWeight:800,whiteSpace:"nowrap"}}>{o.status||"—"}</span>
+                    <span onClick={(e)=>{e.stopPropagation();setStageProgressOrder(o)}} title="اضغط لعرض تفاصيل المرحلة لكل قطعة" style={{padding:"3px 10px",borderRadius:5,background:statusColor,color:"#fff",fontSize:FS-3,fontWeight:800,whiteSpace:"nowrap",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:4,transition:"transform 0.15s, box-shadow 0.15s"}} onMouseEnter={(e)=>{e.currentTarget.style.transform="scale(1.05)";e.currentTarget.style.boxShadow="0 4px 12px rgba(0,0,0,0.15)"}} onMouseLeave={(e)=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=""}}>
+                      <span>{o.status||"—"}</span>
+                      <span style={{fontSize:9,opacity:0.85}}>▾</span>
+                    </span>
                   </div>
                   {/* Dots track */}
                   <div style={{position:"relative",height:22,marginInline:6}}>
@@ -562,8 +568,9 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
     <div id="parea">
       {/* V16.43: Mobile layout — image inline next to the 2x2 stats grid (was stacked above on mobile, wasting vertical space). */}
       <div style={{display:"flex",flexDirection:"row",gap:isMob?8:10,marginBottom:12,alignItems:"flex-start"}}>
-        {isMob&&order.image&&<div style={{flexShrink:0,position:"relative",alignSelf:"stretch"}}><img src={order.image} alt="" style={{width:90,height:"100%",maxHeight:"100%",minHeight:120,objectFit:"cover",borderRadius:10,border:"1px solid "+T.brd,display:"block"}}/>
-          {canEdit&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true}))updOrder(sel,o=>{o.image=""})}} style={{position:"absolute",top:2,right:2,width:18,height:18,borderRadius:9,background:"rgba(0,0,0,0.6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:9}}>✕</div>}
+        {isMob&&<div style={{flexShrink:0,position:"relative",alignSelf:"stretch"}}>
+          <DefaultModelImg src={order.image} modelNo={order.modelNo} modelDesc={order.modelDesc} orderPieces={order.orderPieces} width={90} style={{height:"100%",maxHeight:"100%",minHeight:120,borderRadius:10,border:"1px solid "+T.brd,aspectRatio:"unset"}}/>
+          {canEdit&&order.image&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true}))updOrder(sel,o=>{o.image=""})}} style={{position:"absolute",top:2,right:2,width:18,height:18,borderRadius:9,background:"rgba(0,0,0,0.6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:9}}>✕</div>}
         </div>}
         <div style={{flex:1,display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(2,1fr)":"repeat(4,1fr)",gap:isMob?6:12,minWidth:0}}>
           {/* V16.24: Cut qty card — click to open per-piece edit popup */}
@@ -708,10 +715,11 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         if(stockDel>0)curIdx=3;
         if(isClosed)curIdx=phases.length-1;
         return<div style={{marginBottom:14,background:T.cardSolid,borderRadius:10,padding:"10px 14px",border:"1px solid "+T.brd,overflowX:"auto",WebkitOverflowScrolling:"touch"}}><Timeline phases={phases} currentIdx={curIdx}/></div>})()}
-      <div style={{display:"grid",gridTemplateColumns:order.image&&!isMob?"auto 1fr":"1fr",gap:16,marginBottom:16}}>
+      <div style={{display:"grid",gridTemplateColumns:!isMob?"auto 1fr":"1fr",gap:16,marginBottom:16}}>
         {}
-        {!isMob&&order.image&&<div style={{position:"relative"}}><img src={order.image} alt="" style={{width:135,height:180,aspectRatio:"3/4",objectFit:"cover",borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow}}/>
-          {canEdit&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true}))updOrder(sel,o=>{o.image=""})}} style={{position:"absolute",top:4,right:4,width:22,height:22,borderRadius:11,background:"rgba(0,0,0,0.6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11}}>✕</div>}
+        {!isMob&&<div style={{position:"relative"}}>
+          <DefaultModelImg src={order.image} modelNo={order.modelNo} modelDesc={order.modelDesc} orderPieces={order.orderPieces} width={135} style={{borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow}}/>
+          {canEdit&&order.image&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true}))updOrder(sel,o=>{o.image=""})}} style={{position:"absolute",top:4,right:4,width:22,height:22,borderRadius:11,background:"rgba(0,0,0,0.6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11}}>✕</div>}
         </div>}
         <Card title="بيانات الموديل">
           <div style={{marginBottom:8}}>
@@ -719,7 +727,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
             <div style={{fontSize:order.poNumber?FS+1:FS+4,fontWeight:700,color:order.poNumber?T.textSec:T.accent}}>{(order.poNumber?"🏷 ":"🏷 ")+order.modelNo}<span style={{fontSize:FS,fontWeight:600,color:T.textSec,marginRight:10}}>{" — "+order.modelDesc}</span></div>
           </div>
           <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><tbody>
-          <tr><td style={TDL}>المقاسات</td><td style={TDB}>{order.sizeLabel}</td><td style={TDL}>الحالة</td><td style={TD}><div style={{display:"flex",alignItems:"center",gap:6}}>{canEdit&&editStatusMode?<><Sel value={order.status} onChange={v=>{updOrder(sel,o=>{o.status=v});setEditStatusMode(false)}}>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel><Btn ghost small onClick={()=>setEditStatusMode(false)} title="إغلاق">✕</Btn></>:<><Badge t={order.status} cards={statusCards}/>{canEdit&&<Btn ghost small onClick={()=>setEditStatusMode(true)} style={{fontSize:FS-3,padding:"2px 8px"}} title="تعديل">✏️</Btn>}</>}</div></td></tr>
+          <tr><td style={TDL}>المقاسات</td><td style={TDB}>{order.sizeLabel}</td><td style={TDL}>الحالة</td><td style={TD}><div style={{display:"flex",alignItems:"center",gap:6}}>{canEdit&&editStatusMode?<><Sel value={order.status} onChange={v=>{updOrder(sel,o=>{o.status=v});setEditStatusMode(false)}}>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel><Btn ghost small onClick={()=>setEditStatusMode(false)} title="إغلاق">✕</Btn></>:<><span onClick={()=>setStageProgressOrder(order)} title="اضغط لعرض تفاصيل المرحلة لكل قطعة" style={{cursor:"pointer",display:"inline-flex",alignItems:"center",gap:4,transition:"transform 0.15s"}} onMouseEnter={(e)=>{e.currentTarget.style.transform="scale(1.04)"}} onMouseLeave={(e)=>{e.currentTarget.style.transform=""}}><Badge t={order.status} cards={statusCards}/><span style={{fontSize:11,color:T.textSec,fontWeight:800}}>▾</span></span>{canEdit&&<Btn ghost small onClick={()=>setEditStatusMode(true)} style={{fontSize:FS-3,padding:"2px 8px"}} title="تعديل">✏️</Btn>}</>}</div></td></tr>
           <tr><td style={TDL}>التاريخ</td><td style={TD}>{order.date}</td>{order.marker?<><td style={TDL}>ماركر</td><td style={TD}>{order.marker}</td></>:<><td></td><td></td></>}</tr>
         </tbody></table></div></Card>
       </div>
@@ -1679,6 +1687,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       data={data} upConfig={upConfig} user={user}
       onClose={()=>setShowReview(false)}
     />}
+    {/* V19.0: Stage progress modal — opens when clicking interactive stage badge */}
+    {stageProgressOrder&&<StageProgressModal order={stageProgressOrder} onClose={()=>setStageProgressOrder(null)}/>}
   </div>
 }
 

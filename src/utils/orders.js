@@ -651,3 +651,84 @@ export function matchWorkshopFromDesc(desc, workshops){
   const allContained=matches.slice(1).every(m=>longestN.includes(normalizeAr(m.name)));
   return allContained?longest:null;
 }
+
+/* V19.0: Per-piece progress in current stage.
+   Returns breakdown of how each garment piece is progressing in the order's current stage.
+
+   Logic per stage:
+   - تم القص: each piece = 100% (cut quantity, by definition full at this stage)
+   - في التشغيل: Σ wd.qty where garmentType==piece (any workshop)
+   - في الطباعة: Σ wd.qty where garmentType==piece AND wsType includes "طباعة"
+   - في التطريز: Σ wd.qty where garmentType==piece AND wsType includes "تطريز"
+   - تشطيب وتعبئة: Σ receives.qty where wd.garmentType==piece (received back from any workshop)
+   - تشطيب وتعبئة خارجي: Σ wd.qty where garmentType==piece AND wsType includes "تشطيب"
+   - تم التسليم/جزئي: no per-piece tracking (returns null) — handled separately at UI layer
+   - other (الغسيل/تشغيل خارجي/ملغي/etc): each piece = 100% fallback
+
+   Returns:
+   {
+     hasBreakdown: bool — false for cancelled/done/partial-stock states
+     stageName: string — the current stage label
+     pieces: [{piece, current, total, pct}]  — sorted by lowest pct first (bottleneck first)
+     overall: { current, total, pct }        — sum across pieces
+     weakest: piece with lowest pct (or null if all 100%)
+     deliveredQty, cutQty                    — for done/partial states
+   }
+*/
+export function getStageProgress(o){
+  if(!o||typeof o!=="object")return{hasBreakdown:false,stageName:"",pieces:[],overall:null,weakest:null,deliveredQty:0,cutQty:0};
+  const t=calcOrder(o);
+  const cutQty=t.cutQty||0;
+  const deliveredQty=o.deliveredQty||0;
+  const status=o.status||"";
+  /* No breakdown for delivered (full or partial) — UI shows simple message instead */
+  const isDoneState=status==="تم التسليم لمخزن الجاهز"||status==="في مخزن الجاهز جزئي"||o.closed;
+  const isCancelled=status==="ملغي";
+  if(isDoneState||isCancelled){
+    return{hasBreakdown:false,stageName:status,pieces:[],overall:null,weakest:null,deliveredQty,cutQty};
+  }
+  /* Determine pieces list */
+  let pieces=Array.isArray(o.orderPieces)&&o.orderPieces.length>0?o.orderPieces:["عام"];
+  /* Per-stage logic */
+  const wds=o.workshopDeliveries||[];
+  const stageMatchesWorkshop=(wd,stage)=>{
+    if(!wd.wsType)return false;
+    if(stage==="في الطباعة")return wd.wsType.includes("طباعة");
+    if(stage==="في التطريز")return wd.wsType.includes("تطريز");
+    if(stage==="تشطيب وتعبئة خارجي")return wd.wsType.includes("تشطيب");
+    return true;/* "في التشغيل" — any workshop */
+  };
+  const computeForPiece=(piece)=>{
+    const total=getPieceCutQty(o,piece)||cutQty||0;
+    let current=total;/* default for "تم القص" / fallback */
+    if(status==="في التشغيل"||status==="في الطباعة"||status==="في التطريز"||status==="تشطيب وتعبئة خارجي"){
+      current=wds.filter(wd=>(wd.garmentType||"عام")===piece&&stageMatchesWorkshop(wd,status))
+        .reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+    }else if(status==="تشطيب وتعبئة"){
+      /* Sum receives across all workshops for this piece */
+      current=wds.filter(wd=>(wd.garmentType||"عام")===piece)
+        .reduce((s,wd)=>s+(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0),0);
+    }
+    /* "تم القص" or any other → fallback total (=100%) */
+    const pct=total>0?Math.round((current/total)*100):0;
+    return{piece,current,total,pct};
+  };
+  const piecesData=pieces.map(computeForPiece);
+  /* Overall: sum across pieces */
+  const overallCurrent=piecesData.reduce((s,p)=>s+p.current,0);
+  const overallTotal=piecesData.reduce((s,p)=>s+p.total,0);
+  const overallPct=overallTotal>0?Math.round((overallCurrent/overallTotal)*100):0;
+  /* Sort by lowest pct (bottleneck first) but keep stable order if all equal */
+  const sortedPieces=[...piecesData].sort((a,b)=>a.pct-b.pct);
+  /* Weakest: piece with lowest pct (only meaningful if it's <100%) */
+  const minPct=Math.min(...piecesData.map(p=>p.pct));
+  const weakest=minPct<100?sortedPieces[0]:null;
+  return{
+    hasBreakdown:true,
+    stageName:status,
+    pieces:sortedPieces,
+    overall:{current:overallCurrent,total:overallTotal,pct:overallPct},
+    weakest,
+    deliveredQty,cutQty,
+  };
+}

@@ -222,6 +222,10 @@ export function WorkshopPortalPage({ params }) {
             </div>
             <Row icon="📦" label="كمية تحت التشغيل" value={fmt(summary.pendingPieces)} unit="قطعة" color="#8B5CF6"/>
           </div>
+          {/* V19.1: Pricing-method explanation */}
+          <div style={{ marginTop: 12, padding: "8px 10px", background: "#EFF6FF", borderRadius: 8, fontSize: 11, color: "#1E40AF", lineHeight: 1.7, border: "1px dashed #93C5FD" }}>
+            ℹ️ كل عملية استلام لها سعرها الفردي · إجمالي حساب التشغيل = مجموع (الكمية × سعرها) لكل استلام
+          </div>
           {summary.purchase > 0 && <div style={{ marginTop: 10, padding: "8px 10px", background: "#F3E8FF", borderRadius: 8, fontSize: 12, color: "#6B21A8" }}>
             ℹ️ يشمل الرصيد مشتريات (إكسسوار/خامات): <b style={{ direction: "ltr", display: "inline-block" }}>{fmt(summary.purchase)} ج.م</b>
           </div>}
