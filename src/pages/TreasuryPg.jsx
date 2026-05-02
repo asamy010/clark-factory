@@ -830,9 +830,19 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     /* V18.35: auto-post journal entry for the new treasury row.
        We do this AFTER upConfig commits — uses fresh entry object built above.
        Only fires for plain treasury entries (not the linked ones — those
-       have specific posting rules handled by their own hooks). */
+       have specific posting rules handled by their own hooks).
+       
+       V19.8 CRITICAL FIX: Wrapped in try/catch and Promise.resolve to handle
+       the case where autoPost.treasury() returns a plain object (when
+       autoPostEnabled is false in accountingSettings). Calling .catch on a
+       plain object throws TypeError which would EXIT saveTx EARLY, skipping
+       the sticky reset block below — leaving the counter stuck and form
+       fields un-cleared even though the entry saved successfully. */
     if(_newBaseEntry && !_newBaseEntry.sourceType){
-      autoPost.treasury(data, _newBaseEntry, userName).catch(()=>{});
+      try{
+        const _r=autoPost.treasury(data, _newBaseEntry, userName);
+        if(_r && typeof _r.then==="function") _r.catch(()=>{});
+      }catch(e){console.warn("[V19.8] autoPost.treasury sync threw:",e?.message||e);}
     }
     /* V19.3 FIX: For EDITS of plain treasury entries, reverse the original
        journal entry then post a fresh one. Sequenced to avoid race conditions:
@@ -2873,9 +2883,14 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             }
           });
         });
-        /* Fire autoPost for each created tx */
+        /* V19.8: Same defensive wrapping as in saveTx — autoPost.treasury can
+           return a plain object (not Promise) if accountingSettings.autoPostEnabled
+           is false. .catch on plain object would throw TypeError. */
         txsForAutoPost.forEach(tx=>{
-          autoPost.treasury(data, tx, userName).catch(e=>console.warn("[recurring autoPost]", e));
+          try{
+            const _r=autoPost.treasury(data, tx, userName);
+            if(_r && typeof _r.then==="function") _r.catch(e=>console.warn("[recurring autoPost]", e));
+          }catch(e){console.warn("[recurring autoPost] sync threw:", e?.message||e);}
         });
         playBeep("done");
         showToast("✓ تم إنشاء "+createdCount+" حركة من الجدولة");

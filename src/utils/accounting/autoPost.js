@@ -243,12 +243,12 @@ async function _reverse(type, sourceType, sourceId, date, reason, createdBy){
 export const autoPost = {
 
   sale(config, delivery, customer, order, createdBy){
-    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
     return _buildAndPost("sale", "sale", buildSaleEntry, [delivery, customer, order, getCoa(config), getRules(config)], config, createdBy);
   },
 
   saleReturn(config, ret, customer, order, createdBy){
-    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
     return _buildAndPost("saleReturn", "saleReturn", buildSaleReturnEntry, [ret, customer, order, getCoa(config), getRules(config)], config, createdBy);
   },
 
@@ -257,54 +257,54 @@ export const autoPost = {
      - COGS posting is disabled in settings
      - the order has no resolvable unit cost (no costPrice + computed=0) */
   saleCogs(config, delivery, order, createdBy){
-    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
-    if(!isCogsEnabled(config)) return {ok:false, skipped:"cogs-disabled"};
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
+    if(!isCogsEnabled(config)) return Promise.resolve({ok:false, skipped:"cogs-disabled"});
     const unitCost = resolveUnitCost(order, config);
-    if(unitCost <= 0) return {ok:false, skipped:"no-cost"};
+    if(unitCost <= 0) return Promise.resolve({ok:false, skipped:"no-cost"});
     return _buildAndPost("saleCogs", "saleCogs", buildSaleCogsEntry, [delivery, order, unitCost, getCoa(config), getRules(config)], config, createdBy);
   },
 
   /* V18.40 — COGS reversal companion for a sale return. */
   saleReturnCogs(config, ret, order, createdBy){
-    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
-    if(!isCogsEnabled(config)) return {ok:false, skipped:"cogs-disabled"};
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
+    if(!isCogsEnabled(config)) return Promise.resolve({ok:false, skipped:"cogs-disabled"});
     const unitCost = resolveUnitCost(order, config);
-    if(unitCost <= 0) return {ok:false, skipped:"no-cost"};
+    if(unitCost <= 0) return Promise.resolve({ok:false, skipped:"no-cost"});
     return _buildAndPost("saleReturnCogs", "saleReturnCogs", buildSaleReturnCogsEntry, [ret, order, unitCost, getCoa(config), getRules(config)], config, createdBy);
   },
 
   customerPay(config, payment, customer, createdBy){
-    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
     return _buildAndPost("customerPay", "customerPay", buildCustomerPaymentEntry, [payment, customer, getCoa(config), getRules(config), config], config, createdBy);
   },
 
   customerCheck(config, check, customer, createdBy){
-    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
     return _buildAndPost("customerCheck", "customerCheck", buildCustomerCheckEntry, [check, customer, getCoa(config), getRules(config)], config, createdBy);
   },
 
   customerCheckCollect(config, check, createdBy){
-    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
     return _buildAndPost("customerCheckCollect", "customerCheckCollect", buildCheckCollectionEntry, [check, getCoa(config), getRules(config), config], config, createdBy);
   },
 
   workshopReceive(config, receive, ws, order, wd, createdBy){
-    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
     return _buildAndPost("workshopReceive", "workshopReceive", buildWorkshopReceiveEntry, [receive, ws, order, wd, getCoa(config), getRules(config)], config, createdBy);
   },
 
   workshopPay(config, payment, ws, createdBy){
-    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
     return _buildAndPost("workshopPay", "workshopPay", buildWorkshopPaymentEntry, [payment, ws, getCoa(config), getRules(config), config], config, createdBy);
   },
 
   hr(config, hrLog, employee, createdBy){
-    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
     return _buildAndPost("hr", "hr", buildHrEntry, [hrLog, employee, getCoa(config), getRules(config), config], config, createdBy);
   },
 
   treasury(config, tx, createdBy){
-    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
     return _buildAndPost("treasury", "treasury", buildTreasuryEntry, [tx, getCoa(config), getRules(config), getCategoryMap(config), config], config, createdBy);
   },
 
@@ -312,7 +312,7 @@ export const autoPost = {
      revenue entry + COGS companion. Returns combined result.
      V18.85 — Skip COGS for service invoices (no inventory involved). */
   salesInvoicePosted(config, invoice, customer, order, createdBy){
-    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
     /* Main entry: AR/Revenue/Discount */
     const main = _buildAndPost("salesInvoice", "salesInvoice", buildSalesInvoicePostedEntry, [invoice, customer, order, getCoa(config), getRules(config)], config, createdBy);
     /* COGS companion (soft fail — log but don't block). Skipped for service invoices. */
@@ -327,22 +327,22 @@ export const autoPost = {
 
   /* V18.50 — Post a purchase invoice (status: posted). */
   purchaseInvoicePosted(config, invoice, supplier, createdBy){
-    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
     return _buildAndPost("purchaseInvoice", "purchaseInvoice", buildPurchaseInvoicePostedEntry, [invoice, supplier, getCoa(config), getRules(config)], config, createdBy);
   },
 
   /* V18.50 — Reverse an invoice's journal entries when it's voided.
      The invoice must have postedJournalRef pointing to the original entry. */
   invoiceVoided(config, invoice, sourceType, createdBy){
-    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
-    if(!invoice.postedJournalRef) return {ok:false, skipped:"no-original-ref"};
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
+    if(!invoice.postedJournalRef) return Promise.resolve({ok:false, skipped:"no-original-ref"});
     const ref = invoice.postedJournalRef;
     return _reverse(sourceType, sourceType, invoice.id, ref.date, "إلغاء فاتورة "+invoice.invoiceNo, createdBy);
   },
 
   /* V18.51 — Post a credit note (sales return as standalone entity). */
   creditNotePosted(config, creditNote, customer, order, createdBy){
-    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
     const main = _buildAndPost("creditNote", "creditNote", buildCreditNotePostedEntry, [creditNote, customer, order, getCoa(config), getRules(config)], config, createdBy);
     let cogs = {ok:false, skipped:"no-order"};
     if(order && isCogsEnabled(config)){
@@ -353,14 +353,14 @@ export const autoPost = {
 
   /* V18.51 — Reverse a credit note's journal entries when voided. */
   creditNoteVoided(config, creditNote, sourceType, createdBy){
-    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
-    if(!creditNote.postedJournalRef) return {ok:false, skipped:"no-original-ref"};
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
+    if(!creditNote.postedJournalRef) return Promise.resolve({ok:false, skipped:"no-original-ref"});
     const ref = creditNote.postedJournalRef;
     return _reverse(sourceType, sourceType, creditNote.id, ref.date, "إلغاء إشعار دائن "+creditNote.creditNoteNo, createdBy);
   },
 
   reverse(config, sourceType, sourceId, date, reason, createdBy){
-    if(!isEnabled(config)) return {ok:false, skipped:"disabled"};
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
     return _reverse(sourceType, sourceType, sourceId, date, reason, createdBy);
   },
 };
