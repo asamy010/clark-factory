@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.27",
+    date: "2026-05-02",
+    types: ["fix"],
+    title: "🚨 [حرج] إصلاح وضع 'السماح بالسالب' — كان مكسور تماماً",
+    changes: [
+      { type: "fix", text: "🐛 المشكلة المُبلَّغ عنها: المستخدم اختار وضع 'السماح بالسالب' من إعدادات وضع المخزن (السلوك المتوقع: تسمح بإنشاء أوردر حتى لو الرصيد مش كافي، يطلع تحذير بس مش يمنع). لكن الكود كان لسه بيمنع الأوردر بـ tell() أحمر بدون أي اعتبار للإعداد. الإعداد كان شكلي — `blockOnInsufficientStock=false` كان بيتسجل في الـconfig لكن مفيش حد بيقرأه عند إنشاء الأوردر." },
+      { type: "fix", text: "🔍 السبب الجذري: في `App.jsx` `addOrder` (سطر ~2037) و `replaceOrder` (سطر ~2127)، الكود كان بيعمل `checkStockAvailability` ولو في shortages بيـ return فوراً بـ tell error. كان لازم يشيك على `purchaseSettings.blockOnInsufficientStock` قبل ما يقرر يمنع. نفس البق في الـ server-side recheck جوة الـ runTransaction." },
+      { type: "fix", text: "✅ الإصلاح: ضفت متغير `_blockShortage = (purchaseSettings.blockOnInsufficientStock !== false)` ولما في shortages: لو `_blockShortage` = true → امنع زي الأول. لو false → showToast أصفر تحذيري ('⚠️ المخزن غير كافي — هيتم الخصم بالسالب') وكمل الأوردر. نفس المنطق على المستويين (local pre-check + server runTransaction)." },
+      { type: "fix", text: "📋 السلوك الجديد لكل وضع: 'مغلق' (off) — مفيش خصم تلقائي خالص. 'عرض فقط' (display) — مفيش autoDeduct، مفيش فحص. 'السماح بالسالب' (warning) — يخصم وممكن يطلع سالب + تحذير. 'صارم' (strict، default) — يمنع لو الرصيد مش كافي. كل الأوضاع شغّالة دلوقتي زي ما هي مكتوبة في الإعدادات." },
+      { type: "improvement", text: "🛡 ملاحظة: `deductStockForOrder` كان بيتعامل مع negative stock صح من الأصل (بيعمل `r2(stock - delta)` بدون cap على 0)، فالـstock بيطلع سالب طبيعي في الوضع الجديد. الـ alerts والـ banner اللي في WarehousePg بيعرضوا الـnegative stocks في تنبيهات الجرد." },
+    ]
+  },
+  {
     version: "V19.26",
     date: "2026-05-02",
     types: ["fix"],
@@ -135,20 +148,6 @@ const CHANGELOG = [
       { type: "feature", text: "📅 فلتر «من تاريخ — إلى تاريخ» في صفحة الخزنة: حقلين جداد بجنب فلتر الشهر، بيشتغلوا فوق الفلاتر التانية. زر ✕ صغير لمسح المدى. الفلتر متضمَّن في طباعة المعروض وفي إجماليات السطر السفلي." },
       { type: "feature", text: "🗓 يوم بداية دورة المرتبات (HRPg → سجل شهري): حقل number جديد بجنب اختيار الشهر — لو حطيت 5، الشهر بيتحسب من 5 الشهر لـ 4 الشهر اللي بعده (الموظفين بيقبضوا يوم 5، فالحساب يطابق فلوس الشهر الفعلية). الافتراضي 1 = الشهر التقويمي العادي. القيمة محفوظة في `data.salaryCycleStartDay` (مرة واحدة، بتنطبق على كل الشهور). محدودة بـ 28 عشان فبراير مايبوظش." },
       { type: "improvement", text: "📊 السجل الشهري دلوقتي بيعرض الفترة الفعلية: «(2026-05-05 → 2026-06-04 · 31 يوم)» لما يوم البداية مش 1، أو «(31 يوم)» للحالة العادية. حساب السلف والخصومات بيستخدم الفترة دي، فالأرقام بتطابق ما الموظفين قبضوه فعلاً." },
-    ]
-  },
-  {
-    version: "V19.17",
-    date: "2026-05-02",
-    types: ["fix", "feature"],
-    title: "🚨 [حرج] دفعات الورش المرحّلة من الأسبوع كانت غايبة من كشف الحساب",
-    changes: [
-      { type: "fix", text: "🐛 المشكلة المُبلَّغ عنها: 'سجلت دفعات للورش يوم 30-4 في إقفال الأسبوع، الدفعات في سجل الخزنة الفرعية ✓ بس مش ظاهرة في حسابات الورش'. لما الدفعة بتترحّل من weekly close بتظهر في treasury لكن ساعات بتفضل من غير `wsPayments` مطابق (orphan) — السبب: rollback أسبوع متبوع بـ reclose، أو بيانات قبل V15.27 لما الـlinkage مكنش متعمل." },
-      { type: "fix", text: "🔍 السبب الجذري: 3 أماكن بتقرأ دفعات الورش — رصيد الورشة بيستخدم `wsAccounts()` اللي فيها V18.72 fallback (شغّال صح)، لكن كشف حساب الورشة (`ExtProdPg.jsx ~سطر 1158`) وجدول الدفعات (~سطر 1086) بيقروا من `data.wsPayments` فقط بدون orphan-fallback. نفس البق اللي اتصلح للعملاء في V18.64 وللموردين في V19.12 — الورش ما خدتش الإصلاح." },
-      { type: "fix", text: "✅ الطبقة 1: orphan fallback في كشف حساب الورشة. أي treasury entry بـ `wsName` مطابق + `category=تشغيل خارجي/مشتريات` ومش متربط بـ `wsPayments` بيتعرض في الكشف بـ ⚠️ marker. الـbalance لسه صح من V18.72. الجمع متطابق مع رصيد الورشة الظاهر في الكارت." },
-      { type: "fix", text: "✅ الطبقة 2: نفس الـfallback في جدول الدفعات الصغير اللي بيظهر تحت فورم تسجيل الدفعة. صفوف الـorphans بتتعرض بخلفية صفراء + ⚠️ + بدون أزرار تعديل/حذف (read-only) — لتجنب أخطاء على سجل مش موجود في wsPayments." },
-      { type: "feature", text: "🔄 الطبقة 3: auto-sync silent على فتح صفحة حسابات الورش. `useEffect` + `useRef` lock بيشتغل مرة واحدة لكل dataset signature. بيمشي على treasury، يلاقي الأيتام، وينشئ سجلات `wsPayments` المفقودة بـ `treasuryTxId` صحيح + `autoSyncedAt` timestamp + back-link `wsPaymentId` على الـtreasury entry. النتيجة: المرة الأولى تفتح حسابات الورش بعد التحديث، الـ⚠️ markers هتختفي تلقائياً." },
-      { type: "improvement", text: "🛡 المنطق المستخدم في الكشف 1+2 وفي auto-sync 3: نفس الفلتر بالظبط (set من `treasuryTxId` و set من `wsPayments.id`) — مفيش double-counting سواء قبل أو بعد المزامنة." },
     ]
   },
 ];
