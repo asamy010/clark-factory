@@ -70,6 +70,8 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   const purchaseReceipts=data.purchaseReceipts||[];
   const supplierPayments=data.supplierPayments||[];
   const checks=data.checks||[];
+  /* V19.12: read treasury for orphan-payment fallback in supplier statements (mirrors V18.64 in customer flow) */
+  const treasury=data.treasury||[];
   const treasuryAccounts=(data.treasuryAccounts||[]).map(a=>typeof a==="string"?{id:a,name:a}:a);
   
   /* ──────── SUPPLIER BALANCES (memoized) ──────── */
@@ -90,10 +92,26 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
       /* receiptId means payment was made WITH the receipt — already counted */
       if(!p.receiptId){st.totalPaid+=Number(p.amount)||0;if(p.date>(st.lastActivity||""))st.lastActivity=p.date}
     });
+    /* V19.12 FIX: include orphan treasury payments (linked to supplier by supplierId
+       but not yet reflected in supplierPayments). Mirror of the V18.64 pattern in
+       customer balances. Honors tombstones — deleted payments stay deleted. */
+    const _knownTxIds=new Set(supplierPayments.map(p=>p.treasuryTxId).filter(Boolean));
+    const _tombstones=new Set(data._deletedSupplierPayTreasuryIds||[]);
+    treasury.forEach(t=>{
+      if(!t||!t.id)return;
+      if(t.type!=="out")return;
+      if(!t.supplierId)return;
+      if(_knownTxIds.has(t.id))return;
+      if(_tombstones.has(t.id))return;
+      if(t.sourceType==="check_bounce")return;
+      const st=stats[t.supplierId];if(!st)return;
+      st.totalPaid+=Number(t.amount)||0;
+      if(t.date>(st.lastActivity||""))st.lastActivity=t.date;
+    });
     /* balance = invoiced - paid (positive = we owe them) */
     Object.values(stats).forEach(st=>{st.balance=r2(st.totalInvoiced-st.totalPaid)});
     return stats;
-  },[suppliers,purchaseReceipts,supplierPayments]);
+  },[suppliers,purchaseReceipts,supplierPayments,treasury,data._deletedSupplierPayTreasuryIds]);
   
   /* Total across all suppliers */
   const supplierTotals=useMemo(()=>{
@@ -123,6 +141,31 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
         ("شيك مُظهّر #"+(checks.find(c=>c.id===p.checkId)?.checkNo||"")):
         (p.checkId?("شيك #"+(checks.find(c=>c.id===p.checkId)?.checkNo||"")):methodLabel);
       entries.push({type:"payment",date:p.date,ref,desc:p.notes||"دفعة ("+methodLabel+")",debit:0,credit:Number(p.amount)||0,id:p.id,sortKey:(p.date||"")+"-3-"+(p.createdAt||""),paymentId:p.id});
+    });
+    /* V19.12 FIX: orphan treasury payments — payments registered in treasury
+       linked to this supplier (by supplierId) but not yet reflected in
+       supplierPayments. Mirror of the V18.64 pattern used for customers.
+       Without this, supplier statements would silently miss any treasury
+       entry that wasn't created via the standard "+ دفعة مورد" flow. */
+    const _knownTxIdsForSup=new Set(supplierPayments.filter(p=>String(p.supplierId)===String(supplierId)).map(p=>p.treasuryTxId).filter(Boolean));
+    const _tombstonesForSup=new Set(data._deletedSupplierPayTreasuryIds||[]);
+    treasury.forEach(t=>{
+      if(!t||!t.id)return;
+      if(t.type!=="out")return;
+      if(String(t.supplierId||"")!==String(supplierId))return;
+      if(_knownTxIdsForSup.has(t.id))return;
+      if(_tombstonesForSup.has(t.id))return;
+      if(t.sourceType==="check_bounce")return;
+      entries.push({
+        type:"payment",
+        date:t.date,
+        ref:"خزنة (مزامنة)",
+        desc:(t.notes||t.desc||"دفعة")+" — ⚠️ غير مزامنة",
+        debit:0,
+        credit:Number(t.amount)||0,
+        id:"torph:"+t.id,
+        sortKey:(t.date||"")+"-3-"+(t.createdAt||""),
+      });
     });
     entries.sort((a,b)=>(a.sortKey||"").localeCompare(b.sortKey||""));
     let running=0;

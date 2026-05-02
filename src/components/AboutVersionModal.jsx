@@ -25,17 +25,39 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.13",
+    date: "2026-05-02",
+    types: ["fix", "feature"],
+    title: "🚨 [حرج] إصلاح كارثي: حذف حركة الخزنة لازم يشيلها من كشف العميل/المورد",
+    changes: [
+      { type: "fix", text: "🐛 المشكلة (المُبلَّغ عنها كـكارثة): المستخدم سجل دفعة من كشف العميل (50,100 ج.م) وحذف منها 100 ج.م من سجل الخزنة. الـ100 اتشالت من الخزنة، **لكن فضلت ظاهرة في كشف العميل + سجل دفعات المحاسبة** — يعني أنا حذفت في الخزنة وكشف العميل بيقول إن العميل لسه دافع الـ100 دي. السبب الجذري: `delTx` و `bulkDeleteTxs` في TreasuryPg كانا بيـشيلوا الحركة من treasury + custPayments، لكن **مش بيضيفوا tombstone**. لو الـV19.9 recovery أو V18.64 fallback اشتغلوا بعد كده، كانوا بيلاقوا الـtreasury entry لسه موجود مؤقتاً (sync race) ويعيدوا إنشاء custPayment — أو الـcustPayment الميتة كانت لسه ظاهرة بسبب stale render." },
+      { type: "fix", text: "✅ Fix #1 (delTx tombstones): أي حذف فردي لحركة عميل/مورد في الخزنة بيضيف الـID للـtombstone فوراً قبل ما الـcleanup يحصل. حتى لو فشل الـcustPayments cleanup أو حصل race، الـrecovery مش هتقدر ترجعها." },
+      { type: "fix", text: "✅ Fix #2 (bulkDeleteTxs tombstones): نفس الحماية لكل العمليات في الـbulk-delete (مع capture لكل الـIDs قبل الـsplice). كل الحذف اللي يحصل من سجل الخزنة دلوقتي بيعمل tombstone مظبوط." },
+      { type: "feature", text: "🗑 Fix #3 (إزالة ✕ من صف الخزنة + Hint banner): شيلت الأيقونة الصغيرة ✕ اللي كانت سهل الضغط عليها بالغلط. الحذف دلوقتي بس عبر الـcheckbox (☑️) → زر 'حذف المحدد'. أضفت hint banner واضح فوق الجدول لما يكون مفيش حركة محددة عشان المستخدم يعرف الـflow الجديد." },
+      { type: "feature", text: "🧹 Fix #4 (تنظيف الدفعات الميتة - للبيانات القديمة): زر جديد في PaymentsTab بيكتشف custPayments/supplierPayments اللي مفيش لها treasury entry موجود (يعني الحركة اتحذفت قبل V19.13 ولم تتنظف بشكل صحيح). بيعرض preview بكل الدفعات الميتة قبل الحذف، وبيضيف tombstones عند التنظيف. ده الحل العملي للـghost payments الموجودة دلوقتي عند المستخدم." },
+      { type: "fix", text: "📋 خطوة عملية للمستخدم: بعد ما ترفع V19.13، روح **المحاسبة → دفعات → 🧹 تنظيف الدفعات الميتة** عشان تشيل أي ghost payments من قبل V19.13. الـconfirmation modal بيعرضلك كل دفعة هتتحذف بالاسم والمبلغ والتاريخ قبل ما يحصل أي تغيير." },
+    ]
+  },
+  {
+    version: "V19.12",
+    date: "2026-05-02",
+    types: ["feature", "fix"],
+    title: "🗑 حذف الدفعات من سجل المحاسبة + مزامنة دفعات الموردين مع كشف المورد",
+    changes: [
+      { type: "feature", text: "🗑 زر '🗑 حذف' في كل صف من PaymentsTab — بيمسح الدفعة + الخزنة + يعمل reverse للـjournal + tombstone." },
+      { type: "fix", text: "📊 دفعات الموردين دلوقتي بتظهر في كشف المورد عن طريق orphan-treasury fallback (مثل V18.64 للعملاء)." },
+      { type: "feature", text: "🔄 زر 'مزامنة الدفعات اليتيمة' بيشغل V19.9 recovery على demand بدون انتظار فتح صفحة الخزنة." },
+      { type: "fix", text: "🛡 الـtombstones دلوقتي محترمة في 4 أماكن: V19.9 recovery، V18.64 fallback، PaymentsTab، supplier statement." },
+    ]
+  },
+  {
     version: "V19.11",
     date: "2026-05-02",
     types: ["fix", "feature"],
-    title: "🏦 اختيار الخزنة في تسجيل دفعة العميل + حماية ضد إعادة ظهور الدفعات المحذوفة",
+    title: "🏦 اختيار الخزنة في تسجيل دفعة العميل + tombstones ضد الـghost",
     changes: [
-      { type: "feature", text: "🏦 المشكلة المُبلَّغ عنها (1): فورم 'تسجيل دفعة' في كشف حساب العميل كان بيرسل الدفعة افتراضياً لـ SUB CASH بدون اختيار. لو كنت عاوز توجهها لـ MAIN CASH أو CIB أو أي حساب تاني، كنت لازم تروح صفحة الخزنة وتحذف وتعيد الإدخال." },
-      { type: "feature", text: "✅ الحل: أضفت select 'الخزنة' في فورم تسجيل الدفعة بجانب الطريقة والتاريخ. القائمة بتظهر كل حسابات الخزنة المتاحة (من config.treasuryAccounts) + MAIN CASH + SUB CASH كـ defaults. الافتراضي MAIN CASH. الدفعة بتتسجل في الحساب اللي اخترته في الخزنة + custPayments + الـ accounting journal." },
-      { type: "fix", text: "👻 المشكلة المُبلَّغ عنها (2): 'حذفت السجل لسه ظاهرة في كشف الحساب.' السبب: الـ V19.9 recovery effect (اللي بيرجّع orphan payments) ممكن يـ-recover حركة موجودة لسه في treasury حتى لو الـ user حذف custPayment الأصلية، أو لو في sync race بين الـ delete على Firestore والـ effect على الـ client." },
-      { type: "fix", text: "✅ الحل (Tombstone pattern): لما تحذف دفعة من العميل، الـ treasury ID بيتسجل في `_deletedCustPayTreasuryIds` (max 200 آخر حذف). الـ V19.9 recovery effect دلوقتي بيتجاهل أي ID موجود في الـ tombstones — حتى لو الـ treasury entry لسه موجود في الـ data (sync race)، الـ recovery مش هترجعها أبداً." },
-      { type: "fix", text: "✅ الحماية الثانية في كشف الحساب: الـ V18.64 fallback (اللي بيقرأ orphan treasury entries كدفعات للعميل) دلوقتي كمان بيتجاهل الـ tombstones. لو الحركة في treasury لكن في الـ tombstone، مش هتظهر في 'إجمالي المدفوع' ولا في 'دفعات كاش'." },
-      { type: "fix", text: "📋 ملاحظة تقنية: الـ tombstones بتبقى في `factory/config._deletedCustPayTreasuryIds` كـarray (max 200). أي recovery أو fallback في المستقبل لازم يحترمها. الـ pattern قابل للتطبيق على suppliers (`_deletedSupplierPayTreasuryIds`) لما نحتاجه." },
+      { type: "feature", text: "🏦 أضفت select 'الخزنة' في فورم تسجيل الدفعة من كشف حساب العميل. بدل ما كانت بتروح SUB CASH افتراضياً (وغير قابل للتغيير)، دلوقتي القائمة بتعرض كل حسابات الخزنة المتاحة. الافتراضي MAIN CASH." },
+      { type: "fix", text: "👻 (Tombstone pattern): الحركات المحذوفة كانت ممكن ترجع تظهر بسبب V19.9 recovery أو V18.64 fallback. الإصلاح: لما تحذف دفعة، الـtreasury ID بيتسجل في `_deletedCustPayTreasuryIds` (max 200). الـrecovery + الـfallback دلوقتي بيتجاهلوا الـIDs دي نهائياً." },
     ]
   },
   {
@@ -114,36 +136,6 @@ const CHANGELOG = [
       { type: "fix", text: "🐛 المشكلة: في صفحة الخزنة، زر '💾 حفظ' حركة جديدة مكنش بيدّي feedback بصري لما يتضغط — لا spinner ولا loading ولا تغيير شكل. خصوصاً في وضع التكرار (sticky mode بـ30 حركة) النموذج بيفضل مفتوح بعد الحفظ مع reset للحقول، فالمستخدم مش حاسس إن الحركة اتسجلت → بيضغط الزر مرة تانية → بتتسجل حركة مكررة بنفس البيانات." },
       { type: "fix", text: "✅ الحل: state جديد `savingTx` بيقفل الزر للحظة. الـguard في بداية saveTx() بيتحقق من `savingTx` ويرجع فوراً لو فيه حفظ شغال. بعد الـvalidations، الـstate بيتعمل true ويـreset بعد 700ms (وقت كافي للـupConfig يكتب + النموذج يـreset، ومع ذلك مش متأخر يضايق المستخدم في سلسلة حركات)." },
       { type: "fix", text: "🎨 تحسين بصري: لما الزر مقفول بيظهر 'جاري الحفظ...' ⏳ بدل '💾 حفظ'، مع opacity:0.55 و pointerEvents:none. زر 'إلغاء' كمان بيتحقق من `savingTx` عشان مايقفلش النموذج وسط عملية حفظ. ده fix critical لإن تكرار حركة مالية = خطأ في الأرصدة." },
-    ]
-  },
-  {
-    version: "V19.3",
-    date: "2026-05-02",
-    types: ["fix", "improvement"],
-    title: "🔥 إصلاح تكرار حركات الخزنة + تحديث القيد المحاسبي عند التعديل",
-    changes: [
-      { type: "fix", text: "🐛 المشكلة: لما المستخدم يعدّل تاريخ حركة خزنة، الحركة كانت بتتكرر — حركتين بنفس الـID وبنفس التاريخ الجديد. الأخطر: حذف واحدة منهم بيحذف الاتنين فعلياً (لأن الفلتر بيستهدف الـID). السبب الجذري: في الـsplit collections (treasuryDays/{YYYY-MM-DD}) لما التاريخ يتغير، الحركة بتتنقل من document قديم لـjديد. لو write القديم فشل ومفيش retry، الحركة بتفضل في الاتنين — والـflatten() في App.jsx مكنش بيدمّج عند الـID." },
-      { type: "fix", text: "✅ Fix #1 (App.jsx flatten): أضفت dedup بـserverIds.has(id) قبل الـpush. الحركة المكررة في يومين الآن بتظهر مرة واحدة في الـUI (الأحدث، لأن sortedDays = DESC)." },
-      { type: "fix", text: "✅ Fix #2 (TreasuryPg cleanup migration): useEffect بيتفعل مرة واحدة عند تحميل صفحة الخزنة، بيمسح كل documents في treasuryDays، بيكشف الحركات الموجودة في يومين أو أكثر، بيختار النسخة الأحدث (updatedAt → createdAt → date)، وبيحذف النسخ القديمة من الـday docs بتاعتهم. آمن وidempotent. توست تأكيد في الآخر." },
-      { type: "fix", text: "✅ Fix #3 (saveTx edit reverse + re-post): قبل V19.3، تعديل مبلغ/تاريخ/تصنيف حركة كان بيخلي الـjournal entry القديم في دفتر اليومية بأرقامه القديمة — مشكلة محاسبية خطيرة في التقارير. الإصلاح: قبل التعديل بنcapture (sourceId, oldDate)، بعد التعديل بنعمل autoPost.reverse() للقيد القديم ثم autoPost.treasury() للقيم الجديدة." },
-      { type: "fix", text: "✅ Fix #4 (App.jsx upConfigTx retry): syncAllSplitChanges + syncAllPartitionedChanges كانا بيـ-fail-silent من أول محاولة فقط. أضفت retry × 3 مع backoff (150ms × 2^attempt). بيمنع الـinconsistency اللي كان بيخلي حركة في يومين أصلاً." },
-      { type: "fix", text: "✅ Fix #5 (UndoToast): رفعت z-index من 9998 → 10005 (فوق confirmPopup z-10001). أضفت console.log diagnostic عند استقبال undo جديد، عشان لو لسه فيه مشكلة في الظهور تبقى مرئية في الـDevTools." },
-      { type: "improvement", text: "🔍 Diagnostic logging: لما الـflatten يلاقي ID مكرر في يومين، بيطبع warning في console (مرة واحدة لكل ID خلال الـsession). كده تقدر تأكد إن الـcleanup migration نجح." },
-    ]
-  },
-  {
-    version: "V19.2",
-    date: "2026-05-02",
-    types: ["fix", "improvement"],
-    title: "🔧 إصلاح Auto-backup + توضيح حسابات الورش",
-    changes: [
-      { type: "fix", text: "🐛 Hotfix Auto-backup: في `utils/comprehensiveBackup.js` الـmetadata كانت بتتحفظ بـfield `errors: undefined` لما مفيش errors. Firestore بيرفض القيمة دي ويعمل error: 'Unsupported field value: undefined (found in field errors)'. الإصلاح: لو errors[] فاضية، الـfield مايتحطش أصلاً في الـmetadata object قبل ما نـsetDoc." },
-      { type: "fix", text: "🐛 المشكلة: في تقرير 'حساب الورشة' الجدول كان بيعرض 'متوسط السعر' محسوب من التسليمات (مثلاً 17.93)، بينما 'القيمة' محسوبة من الاستلامات بأسعارها الفردية (مثلاً 140,700.5). ده كان بيخلي المستخدم يحسب 6,193 × 17.93 ويلاقي 111,040 — مش متطابق مع 140,700 المعروض." },
-      { type: "improvement", text: "✅ الحل: شيلت عمود 'متوسط السعر' نهائياً من جدول 'القطع حسب النوع' في reports.jsx. خليت 'القيمة' بس وسميتها 'القيمة المستحقة' للوضوح. الـvalue المعروض = مجموع (qty × price) لكل استلام منفرد — ده المستحق الفعلي محاسبياً." },
-      { type: "improvement", text: "📅 Timeline الحركات: أضفت عمود 'القيمة' لكل سطر = الكمية × السعر. الاستلامات بتعرض القيمة بلون أخضر، التسليمات تعرض '—' (لأنها مش مستحق فعلي بعد). صف إجمالي جديد في الآخر: 'إجمالي الاستلامات (المستحق)' بيجمع الكمية + القيمة للاستلامات فقط." },
-      { type: "improvement", text: "📤 Excel + Print: نفس التغييرات مطبقة على التصدير وطباعة التقرير." },
-      { type: "improvement", text: "📱 بورتال الورشة: ملاحظة توضيحية في تاب 'الملخص': 'كل عملية استلام لها سعرها الفردي · إجمالي حساب التشغيل = مجموع (الكمية × سعرها) لكل استلام'." },
-      { type: "fix", text: "✅ تم تأكيد المنطق الحسابي في باقي النظام (ExtProdPg + DashPg + workshop-portal API): wsAccounts() بيحسب due = Σ (r.qty × r.price) لكل استلام منفرد ✅. الأرصدة كلها كانت دقيقة من الأساس — المشكلة كانت في عرض التقرير فقط." },
     ]
   },
 ];

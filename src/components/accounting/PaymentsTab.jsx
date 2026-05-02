@@ -26,6 +26,7 @@
 import { useState, useMemo } from "react";
 import { Btn, Card, Inp, Sel } from "../ui.jsx";
 import { fmt } from "../../utils/format.js";
+import { matchPartyFromDesc } from "../../utils/orders.js";
 
 const DIRECTIONS = [
   {key:"all", label:"الكل",       icon:"📊"},
@@ -48,7 +49,10 @@ const STATUSES = [
 /* Cash-payment "method" values that count as a cheque rather than cash */
 const CHEQUE_METHODS = new Set(["شيك"]);
 
-export function PaymentsTab({ config, T, FS, isMob, showToast }){
+/* V19.12: Generate a stable id for payment rows. */
+const _gid = () => "p_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 9);
+
+export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToast }){
   const today = new Date().toISOString().split("T")[0];
   const yearStart = today.slice(0,4) + "-01-01";
 
@@ -58,6 +62,203 @@ export function PaymentsTab({ config, T, FS, isMob, showToast }){
   const [from, setFrom]           = useState(yearStart);
   const [to, setTo]               = useState(today);
   const [search, setSearch]       = useState("");
+  /* V19.12: confirmation dialog state for delete */
+  const [confirmDel, setConfirmDel] = useState(null);
+  /* V19.12: indicator for the in-flight global sync */
+  const [syncing, setSyncing] = useState(false);
+
+  /* V19.12: DELETE handler — handles all 5 _kind variants:
+       custPay / supPay        → remove from custPayments/supplierPayments + linked treasury entry + add tombstone
+       treasuryOrphanCust/Sup  → remove from treasury + add tombstone (these only exist in treasury)
+       check                   → not deleted from here (refer to checks management)
+     The tombstone (`_deletedCustPayTreasuryIds` / `_deletedSupplierPayTreasuryIds`)
+     prevents V19.9 recovery from re-creating the deleted payment. */
+  const deletePayment = (p) => {
+    if (!upConfig) { showToast("⛔ تعذر الحذف — صلاحية الكتابة غير متاحة"); return; }
+    if (p._kind === "check") {
+      showToast("ℹ️ حذف الشيك من 'إدارة الشيكات' في صفحة الخزنة (يحفظ السجل التاريخي)");
+      return;
+    }
+    upConfig(d => {
+      if (p._kind === "custPay") {
+        /* Mirror logic of delCustPay in CustDeliverPg */
+        const pay = (d.custPayments || []).find(x => x.id === p.id);
+        d.custPayments = (d.custPayments || []).filter(x => x.id !== p.id);
+        if (pay) {
+          if (pay.treasuryTxId && d.treasury) d.treasury = d.treasury.filter(t => t.id !== pay.treasuryTxId);
+          else if (d.treasury) {
+            /* Legacy fallback — match by category+custId+amount+date */
+            d.treasury = d.treasury.filter(t => !(t.category === "دفعة عميل" && t.custId === pay.custId && Math.abs((Number(t.amount)||0) - (Number(pay.amount)||0)) < 0.01 && t.date === pay.date));
+          }
+          if (!d._deletedCustPayTreasuryIds) d._deletedCustPayTreasuryIds = [];
+          if (pay.treasuryTxId) d._deletedCustPayTreasuryIds.push(pay.treasuryTxId);
+          if (d._deletedCustPayTreasuryIds.length > 200) d._deletedCustPayTreasuryIds = d._deletedCustPayTreasuryIds.slice(-200);
+        }
+      } else if (p._kind === "supPay") {
+        const pay = (d.supplierPayments || []).find(x => x.id === p.id);
+        d.supplierPayments = (d.supplierPayments || []).filter(x => x.id !== p.id);
+        if (pay) {
+          if (pay.treasuryTxId && d.treasury) d.treasury = d.treasury.filter(t => t.id !== pay.treasuryTxId);
+          else if (d.treasury) {
+            d.treasury = d.treasury.filter(t => !(t.category === "دفعة مورد" && t.supplierId === pay.supplierId && Math.abs((Number(t.amount)||0) - (Number(pay.amount)||0)) < 0.01 && t.date === pay.date));
+          }
+          if (!d._deletedSupplierPayTreasuryIds) d._deletedSupplierPayTreasuryIds = [];
+          if (pay.treasuryTxId) d._deletedSupplierPayTreasuryIds.push(pay.treasuryTxId);
+          if (d._deletedSupplierPayTreasuryIds.length > 200) d._deletedSupplierPayTreasuryIds = d._deletedSupplierPayTreasuryIds.slice(-200);
+        }
+      } else if (p._kind === "treasuryOrphanCust" || p._kind === "treasuryOrphanSup") {
+        /* The id is "tcust:RAW_ID" or "tsup:RAW_ID" — strip the prefix */
+        const rawId = p.id.replace(/^t(cust|sup):/, "");
+        if (d.treasury) d.treasury = d.treasury.filter(t => t.id !== rawId);
+        const tomb = p._kind === "treasuryOrphanCust" ? "_deletedCustPayTreasuryIds" : "_deletedSupplierPayTreasuryIds";
+        if (!d[tomb]) d[tomb] = [];
+        d[tomb].push(rawId);
+        if (d[tomb].length > 200) d[tomb] = d[tomb].slice(-200);
+      }
+    });
+    setConfirmDel(null);
+    showToast("✓ تم حذف الدفعة وكل الحركات المرتبطة");
+  };
+
+  /* V19.12: Manual sync — runs the V19.9 recovery logic on demand.
+     Scans treasury for orphan customer/supplier payments (no link in
+     custPayments/supplierPayments), tries to auto-match the party from
+     the description, and creates the missing payment records.
+     Honors tombstones — won't re-link deleted payments. */
+  const runSync = () => {
+    if (!upConfig) { showToast("⛔ تعذر المزامنة — صلاحية الكتابة غير متاحة"); return; }
+    setSyncing(true);
+    try {
+      const customers = config.customers || [];
+      const suppliers = config.suppliers || [];
+      const custPayTxIds = new Set((config.custPayments || []).map(p => p.treasuryTxId).filter(Boolean));
+      const supPayTxIds = new Set((config.supplierPayments || []).map(p => p.treasuryTxId).filter(Boolean));
+      const tombstones = new Set([
+        ...(config._deletedCustPayTreasuryIds || []),
+        ...(config._deletedSupplierPayTreasuryIds || []),
+      ]);
+      const orphans = [];
+      (config.treasury || []).forEach(tx => {
+        if (!tx || !tx.id) return;
+        if (tx.sourceType) return;
+        if (tombstones.has(tx.id)) return;
+        const haystack = ((tx.desc||"") + " " + (tx.notes||"")).trim();
+        if (!haystack) return;
+        if (tx.type === "in" && tx.category === "دفعة عميل" && !tx.custId && !custPayTxIds.has(tx.id)) {
+          const m = matchPartyFromDesc(haystack, customers, {minNameLength: 3});
+          if (m) orphans.push({kind: "customer", tx, party: m});
+        } else if (tx.type === "out" && tx.category === "دفعة مورد" && !tx.supplierId && !supPayTxIds.has(tx.id)) {
+          const m = matchPartyFromDesc(haystack, suppliers, {minNameLength: 3});
+          if (m) orphans.push({kind: "supplier", tx, party: m});
+        }
+      });
+      if (orphans.length === 0) {
+        showToast("✓ كل الدفعات مزامنة بالفعل — لا حركات يتيمة");
+        setSyncing(false);
+        return;
+      }
+      upConfig(d => {
+        if (!d.custPayments) d.custPayments = [];
+        if (!d.supplierPayments) d.supplierPayments = [];
+        const now = new Date().toISOString();
+        orphans.forEach(({kind, tx, party}) => {
+          if (kind === "customer") {
+            d.custPayments.push({
+              id: _gid(),
+              custId: party.id,
+              custName: party.name,
+              amount: Number(tx.amount) || 0,
+              date: tx.date,
+              note: tx.notes || tx.desc || "",
+              method: "كاش",
+              by: tx.by || (userName + "-sync"),
+              treasuryTxId: tx.id,
+              createdAt: now,
+              _v1912ManualSync: now,
+            });
+            const t = d.treasury?.find(x => x.id === tx.id);
+            if (t) t.custId = party.id;
+          } else if (kind === "supplier") {
+            d.supplierPayments.push({
+              id: _gid(),
+              supplierId: party.id,
+              supplierName: party.name,
+              amount: Number(tx.amount) || 0,
+              date: tx.date,
+              note: tx.notes || tx.desc || "",
+              method: "كاش",
+              by: tx.by || (userName + "-sync"),
+              treasuryTxId: tx.id,
+              createdAt: now,
+              _v1912ManualSync: now,
+            });
+            const t = d.treasury?.find(x => x.id === tx.id);
+            if (t) t.supplierId = party.id;
+          }
+        });
+      });
+      showToast("✓ تم ربط " + orphans.length + " دفعة يتيمة بالعملاء/الموردين");
+    } catch (e) {
+      console.error("[V19.12 sync] failed:", e);
+      showToast("⛔ فشلت المزامنة — راجع الـconsole");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  /* V19.13: DEAD-CLEANUP — removes cust/supplier payments whose treasury entry
+     no longer exists. This handles the case where a user deleted a treasury
+     entry BEFORE V19.13 (no tombstone added at the time), leaving a stale
+     custPayment/supplierPayment record that still appears in customer/supplier
+     statements. Runs on demand from a dedicated button. Adds tombstones for
+     the removed entries' treasury IDs as a belt-and-suspenders measure. */
+  const [cleaning, setCleaning] = useState(false);
+  const [cleanupPreview, setCleanupPreview] = useState(null);
+  
+  /* Pass 1: scan and report what would be cleaned */
+  const previewDeadCleanup = () => {
+    const treasuryIds = new Set((config.treasury||[]).map(t=>t.id).filter(Boolean));
+    const deadCust = (config.custPayments||[]).filter(p =>
+      p.treasuryTxId && !treasuryIds.has(p.treasuryTxId)
+    );
+    const deadSup = (config.supplierPayments||[]).filter(p =>
+      p.treasuryTxId && !treasuryIds.has(p.treasuryTxId)
+    );
+    if (deadCust.length === 0 && deadSup.length === 0) {
+      showToast("✓ لا توجد دفعات ميتة — كل الدفعات لها حركة خزنة سليمة");
+      return;
+    }
+    setCleanupPreview({ deadCust, deadSup });
+  };
+  
+  /* Pass 2: actually delete after confirmation */
+  const confirmDeadCleanup = () => {
+    if (!cleanupPreview || !upConfig) return;
+    setCleaning(true);
+    try {
+      const { deadCust, deadSup } = cleanupPreview;
+      upConfig(d => {
+        const deadCustIds = new Set(deadCust.map(p => p.id));
+        const deadSupIds = new Set(deadSup.map(p => p.id));
+        d.custPayments = (d.custPayments||[]).filter(p => !deadCustIds.has(p.id));
+        d.supplierPayments = (d.supplierPayments||[]).filter(p => !deadSupIds.has(p.id));
+        /* Add tombstones for the (already-deleted) treasury IDs */
+        if (!Array.isArray(d._deletedCustPayTreasuryIds)) d._deletedCustPayTreasuryIds = [];
+        if (!Array.isArray(d._deletedSupplierPayTreasuryIds)) d._deletedSupplierPayTreasuryIds = [];
+        deadCust.forEach(p => p.treasuryTxId && d._deletedCustPayTreasuryIds.push(p.treasuryTxId));
+        deadSup.forEach(p => p.treasuryTxId && d._deletedSupplierPayTreasuryIds.push(p.treasuryTxId));
+        if (d._deletedCustPayTreasuryIds.length > 200) d._deletedCustPayTreasuryIds = d._deletedCustPayTreasuryIds.slice(-200);
+        if (d._deletedSupplierPayTreasuryIds.length > 200) d._deletedSupplierPayTreasuryIds = d._deletedSupplierPayTreasuryIds.slice(-200);
+      });
+      showToast("✓ تم تنظيف " + (cleanupPreview.deadCust.length + cleanupPreview.deadSup.length) + " دفعة ميتة");
+      setCleanupPreview(null);
+    } catch (e) {
+      console.error("[V19.13 dead-cleanup] failed:", e);
+      showToast("⛔ فشل التنظيف — راجع الـconsole");
+    } finally {
+      setCleaning(false);
+    }
+  };
 
   /* Build a unified, normalized payment stream out of three sources. */
   const allPayments = useMemo(() => {
@@ -157,9 +358,15 @@ export function PaymentsTab({ config, T, FS, isMob, showToast }){
     const knownTreasuryTxIds = new Set();
     (config.custPayments || []).forEach(p => p.treasuryTxId && knownTreasuryTxIds.add(p.treasuryTxId));
     (config.supplierPayments || []).forEach(p => p.treasuryTxId && knownTreasuryTxIds.add(p.treasuryTxId));
+    /* V19.12: tombstones — exclude treasury entries that were explicitly deleted */
+    const _tombstones = new Set([
+      ...(config._deletedCustPayTreasuryIds || []),
+      ...(config._deletedSupplierPayTreasuryIds || []),
+    ]);
     (config.treasury || []).forEach(t => {
       if (!t.id) return;
       if (knownTreasuryTxIds.has(t.id)) return;
+      if (_tombstones.has(t.id)) return;
       if (t.sourceType === "check_bounce") return;/* check-bounce reversals aren't payments */
       /* Orphan customer payment (incoming, has custId) */
       if (t.type === "in" && t.custId) {
@@ -255,8 +462,29 @@ export function PaymentsTab({ config, T, FS, isMob, showToast }){
   const TD_BASE = { padding:"7px 10px", fontSize:FS-1, color:T.text, borderBottom:"1px solid "+T.brd };
 
   return <Card title="💰 سجل الدفعات الكامل" style={{marginBottom:16}}>
-    <div style={{fontSize:FS-2, color:T.textSec, marginBottom:14, lineHeight:1.7}}>
-      💡 سجل موحّد لكل الدفعات: نقدي وشيكات، عملاء وموردين — بفلاتر اتجاه/قناة/حالة/تاريخ/بحث.
+    <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:8, marginBottom:14}}>
+      <div style={{fontSize:FS-2, color:T.textSec, lineHeight:1.7, flex:1, minWidth:200}}>
+        💡 سجل موحّد لكل الدفعات: نقدي وشيكات، عملاء وموردين — بفلاتر اتجاه/قناة/حالة/تاريخ/بحث.
+      </div>
+      {/* V19.12: manual sync button — runs the V19.9 recovery on demand.
+          Useful when the user opens the customer/supplier statement BEFORE
+          opening the treasury page (where the auto-recovery normally fires).
+          Also handy as a "force re-sync" after restore-from-backup or any
+          time the user notices the cash totals don't match. */}
+      <div style={{display:"flex", gap:6, flexWrap:"wrap"}}>
+        <Btn small onClick={runSync} disabled={syncing} style={{background:"#0EA5E915", color:"#0EA5E9", border:"1px solid #0EA5E940", fontWeight:700, whiteSpace:"nowrap"}}>
+          {syncing ? "⏳ جاري المزامنة..." : "🔄 مزامنة الدفعات اليتيمة"}
+        </Btn>
+        {/* V19.13: dead-cleanup — for users on data older than V19.13.
+            If a treasury entry was deleted before tombstoning existed (V19.13+),
+            its linked cust/supplier payment may have survived as a "ghost" still
+            visible in customer/supplier statements. This button finds those
+            ghosts (cust/supplierPayments with no matching treasury entry) and
+            removes them, adding tombstones to prevent recovery from re-creating. */}
+        <Btn small onClick={previewDeadCleanup} disabled={cleaning} style={{background:"#EF444415", color:"#EF4444", border:"1px solid #EF444440", fontWeight:700, whiteSpace:"nowrap"}}>
+          {cleaning ? "⏳ جاري التنظيف..." : "🧹 تنظيف الدفعات الميتة"}
+        </Btn>
+      </div>
     </div>
 
     {/* Filter row */}
@@ -334,6 +562,8 @@ export function PaymentsTab({ config, T, FS, isMob, showToast }){
             <th style={TH_BASE}>الحالة</th>
             <th style={TH_BASE}>تفاصيل</th>
             <th style={TH_BASE}>بواسطة</th>
+            {/* V19.12: actions column for delete */}
+            <th style={{...TH_BASE, textAlign:"center"}}>إجراءات</th>
           </tr>
         </thead>
         <tbody>
@@ -344,10 +574,12 @@ export function PaymentsTab({ config, T, FS, isMob, showToast }){
             const isOrphan = !!p._orphan;
             const statusColor = p.status === "cleared" ? "#10B981" : p.status === "pending" ? "#F59E0B" : "#94A3B8";
             const statusLabel = p.status === "cleared" ? "✓ تم" : p.status === "pending" ? "⏳ معلق" : (p.rawStatus || "—");
+            /* V19.12: only deletable kinds; checks should be deleted from check-management */
+            const canDelete = p._kind === "custPay" || p._kind === "supPay" || p._kind === "treasuryOrphanCust" || p._kind === "treasuryOrphanSup";
             return <tr key={p._kind+":"+p.id} style={{
               background: isOrphan ? "#F59E0B08" : (i % 2 === 0 ? "transparent" : T.bg+"60"),
               borderInlineStart: isOrphan ? "3px solid #F59E0B" : "none",
-            }} title={isOrphan ? "هذه الحركة موجودة في الخزنة لكن غير مزامنة في كشف الطرف. للمزامنة: افتح كشف العميل/المورد واضغط 'مزامنة'." : ""}>
+            }} title={isOrphan ? "هذه الحركة موجودة في الخزنة لكن غير مزامنة في كشف الطرف. اضغط 'مزامنة الدفعات اليتيمة' بالأعلى." : ""}>
               <td style={{...TD_BASE, fontSize:FS-2, whiteSpace:"nowrap"}}>{p.date || "—"}{p.dueDate && p.dueDate !== p.date ? <div style={{fontSize:FS-3, color:T.textMut}}>استحقاق: {p.dueDate}</div> : null}</td>
               <td style={{...TD_BASE, color:dirColor, fontWeight:700, fontSize:FS-2}}>{dirLabel}</td>
               <td style={{...TD_BASE, fontSize:FS-2}}>
@@ -373,10 +605,80 @@ export function PaymentsTab({ config, T, FS, isMob, showToast }){
                 {!isCheque && p.account && <div style={{fontSize:FS-3, color:T.textMut}}>حساب: {p.account}</div>}
               </td>
               <td style={{...TD_BASE, fontSize:FS-3, color:T.textMut}}>{p.by || "—"}</td>
+              <td style={{...TD_BASE, textAlign:"center"}}>
+                {canDelete ? (
+                  <span
+                    onClick={() => setConfirmDel(p)}
+                    style={{cursor:"pointer", padding:"4px 8px", borderRadius:6, background:"#EF444415", color:"#EF4444", fontWeight:700, fontSize:FS-2, border:"1px solid #EF444430", display:"inline-block", whiteSpace:"nowrap"}}
+                    title="حذف الدفعة وكل الحركات المرتبطة بها"
+                  >🗑 حذف</span>
+                ) : (
+                  <span style={{fontSize:FS-3, color:T.textMut}} title="حذف الشيك من إدارة الشيكات في الخزنة">—</span>
+                )}
+              </td>
             </tr>;
           })}
         </tbody>
       </table>
+    </div>}
+
+    {/* V19.12: Delete confirmation modal */}
+    {confirmDel && <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:10001, display:"flex", alignItems:"center", justifyContent:"center", padding:16}} onClick={() => setConfirmDel(null)}>
+      <div onClick={e => e.stopPropagation()} style={{background:T.cardSolid, borderRadius:14, padding:20, maxWidth:480, width:"100%", border:"1px solid "+T.brd, boxShadow:"0 12px 40px rgba(0,0,0,0.3)"}}>
+        <div style={{fontSize:FS+2, fontWeight:800, color:"#EF4444", marginBottom:8}}>⚠️ تأكيد حذف الدفعة</div>
+        <div style={{fontSize:FS-1, color:T.textSec, marginBottom:14, lineHeight:1.7}}>
+          هتحذف دفعة <b style={{color:T.text}}>{fmt(confirmDel.amount)} ج.م</b> للطرف <b style={{color:T.text}}>{confirmDel.partyName}</b> بتاريخ <b style={{color:T.text}}>{confirmDel.date}</b>.
+          <div style={{marginTop:8, padding:"8px 10px", borderRadius:8, background:"#EF444408", border:"1px solid #EF444420", fontSize:FS-2}}>
+            ⚠️ هتتشال من: <b>سجل الدفعات</b> + <b>الخزنة</b> + <b>كشف حساب الطرف</b>. الـ accounting journal بيتعمل reverse تلقائي. الحذف نهائي — لا يمكن استرجاعه.
+          </div>
+        </div>
+        <div style={{display:"flex", gap:8, justifyContent:"flex-end"}}>
+          <Btn small onClick={() => setConfirmDel(null)}>إلغاء</Btn>
+          <Btn small onClick={() => deletePayment(confirmDel)} style={{background:"#EF4444", color:"#fff", fontWeight:800}}>🗑 نعم، احذف</Btn>
+        </div>
+      </div>
+    </div>}
+
+    {/* V19.13: dead-cleanup confirmation modal. Shows the list of ghost
+        payments to be removed, with totals, before any data is touched. */}
+    {cleanupPreview && <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:10001, display:"flex", alignItems:"center", justifyContent:"center", padding:16}} onClick={() => setCleanupPreview(null)}>
+      <div onClick={e => e.stopPropagation()} style={{background:T.cardSolid, borderRadius:14, padding:20, maxWidth:600, width:"100%", maxHeight:"85vh", overflowY:"auto", border:"1px solid "+T.brd, boxShadow:"0 12px 40px rgba(0,0,0,0.3)"}}>
+        <div style={{fontSize:FS+2, fontWeight:800, color:"#EF4444", marginBottom:8}}>🧹 تنظيف الدفعات الميتة</div>
+        <div style={{fontSize:FS-1, color:T.textSec, marginBottom:14, lineHeight:1.7}}>
+          الدفعات دي مسجلة في كشف العميل/المورد لكن **مفيش حركة خزنة موجودة لها** — يعني المفروض اتحذفت قبل ما tombstones تكون موجودة (قبل V19.13).
+          <div style={{marginTop:8, padding:"8px 10px", borderRadius:8, background:"#EF444408", border:"1px solid #EF444420", fontSize:FS-2}}>
+            ⚠️ التنظيف هيشيلهم نهائياً من custPayments/supplierPayments + يضيفهم للـtombstones عشان ما يرجعوش تاني عبر الـsync.
+          </div>
+        </div>
+        {cleanupPreview.deadCust.length > 0 && <div style={{marginBottom:12}}>
+          <div style={{fontSize:FS-1, fontWeight:800, color:T.text, marginBottom:6}}>👥 دفعات عملاء ميتة ({cleanupPreview.deadCust.length}):</div>
+          <div style={{maxHeight:180, overflowY:"auto", border:"1px solid "+T.brd, borderRadius:8, padding:6, background:T.bg}}>
+            {cleanupPreview.deadCust.map(p => (
+              <div key={p.id} style={{padding:"4px 6px", fontSize:FS-2, color:T.textSec, borderBottom:"1px dashed "+T.brd}}>
+                {p.date} · <b style={{color:T.text}}>{p.custName||"—"}</b> · {fmt(p.amount)} ج.م {p.note ? "· " + p.note : ""}
+              </div>
+            ))}
+          </div>
+          <div style={{fontSize:FS-2, color:T.textMut, marginTop:4, textAlign:"end"}}>إجمالي: <b>{fmt(cleanupPreview.deadCust.reduce((s,p)=>s+(Number(p.amount)||0),0))} ج.م</b></div>
+        </div>}
+        {cleanupPreview.deadSup.length > 0 && <div style={{marginBottom:12}}>
+          <div style={{fontSize:FS-1, fontWeight:800, color:T.text, marginBottom:6}}>🏭 دفعات موردين ميتة ({cleanupPreview.deadSup.length}):</div>
+          <div style={{maxHeight:180, overflowY:"auto", border:"1px solid "+T.brd, borderRadius:8, padding:6, background:T.bg}}>
+            {cleanupPreview.deadSup.map(p => (
+              <div key={p.id} style={{padding:"4px 6px", fontSize:FS-2, color:T.textSec, borderBottom:"1px dashed "+T.brd}}>
+                {p.date} · <b style={{color:T.text}}>{p.supplierName||"—"}</b> · {fmt(p.amount)} ج.م {p.note ? "· " + p.note : ""}
+              </div>
+            ))}
+          </div>
+          <div style={{fontSize:FS-2, color:T.textMut, marginTop:4, textAlign:"end"}}>إجمالي: <b>{fmt(cleanupPreview.deadSup.reduce((s,p)=>s+(Number(p.amount)||0),0))} ج.م</b></div>
+        </div>}
+        <div style={{display:"flex", gap:8, justifyContent:"flex-end", marginTop:14}}>
+          <Btn small onClick={() => setCleanupPreview(null)}>إلغاء</Btn>
+          <Btn small onClick={confirmDeadCleanup} disabled={cleaning} style={{background:"#EF4444", color:"#fff", fontWeight:800}}>
+            {cleaning ? "⏳ جاري التنظيف..." : "🧹 نعم، نظّف الكل"}
+          </Btn>
+        </div>
+      </div>
     </div>}
 
     <div style={{marginTop:10, fontSize:FS-3, color:T.textMut, padding:"6px 10px", background:T.bg, borderRadius:8, textAlign:"center"}}>

@@ -163,7 +163,8 @@ export function AccountingPg({data, config, upConfig, isMob, user}){
       T={T} FS={FS} isMob={isMob} showToast={showToast}
     />}
     {active === "payments" && <PaymentsTab
-      config={config}
+      config={config} upConfig={upConfig}
+      userName={user?.name || user?.email || "system"}
       T={T} FS={FS} isMob={isMob} showToast={showToast}
     />}
     {active === "aging" && <AgingReportTab

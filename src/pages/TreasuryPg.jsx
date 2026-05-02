@@ -1157,6 +1157,21 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>p.treasuryTxId!==id);
       }
     }
+    /* V19.13: tombstone — same rationale as the bulk-delete tombstones below.
+       Without this, deleting a customer-payment treasury entry from this page
+       would still leave the door open for V19.9 recovery / V18.64 fallback
+       to recreate the cust/supplier payment from any lingering treasury row,
+       which was exactly the user-reported "حذفت ولسه ظاهرة" symptom. */
+    if(tx&&(tx.custId||tx.sourceType==="cust_payment"||tx.category==="دفعة عميل")){
+      if(!Array.isArray(d._deletedCustPayTreasuryIds))d._deletedCustPayTreasuryIds=[];
+      d._deletedCustPayTreasuryIds.push(tx.id);
+      if(d._deletedCustPayTreasuryIds.length>200)d._deletedCustPayTreasuryIds=d._deletedCustPayTreasuryIds.slice(-200);
+    }
+    if(tx&&(tx.supplierId||tx.sourceType==="supplier_payment"||tx.category==="دفعة مورد")){
+      if(!Array.isArray(d._deletedSupplierPayTreasuryIds))d._deletedSupplierPayTreasuryIds=[];
+      d._deletedSupplierPayTreasuryIds.push(tx.id);
+      if(d._deletedSupplierPayTreasuryIds.length>200)d._deletedSupplierPayTreasuryIds=d._deletedSupplierPayTreasuryIds.slice(-200);
+    }
     if(tx){
       /* Remove linked hrLog advance entry */
       if(tx.hrLogId&&d.hrLog)d.hrLog=d.hrLog.filter(l=>l.id!==tx.hrLogId);
@@ -1204,11 +1219,33 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       let deletedCount=0,skippedCount=0,totalAmount=0,adminBypassCount=0;
       /* V16.9: Track transferIds to remove (so we delete the transfer record + paired leg only once) */
       const transferIdsToDelete=new Set();
+      /* V19.13: tombstones — track treasury IDs being deleted so V19.9 recovery,
+         V18.64 fallback in customer statements, and the supplier statement
+         orphan-fallback (V19.12) can never re-create these payments. CRITICAL:
+         the user's recurring complaint of "حذفت الحركة لسه ظاهرة في كشف الحساب"
+         was caused by missing tombstoning here — bulk-delete cleaned treasury +
+         custPayments but didn't mark the IDs as deleted, so any orphan-recovery
+         cycle (auto in TreasuryPg, or via the manual sync button) could resurrect
+         the cust/supplier payment from the still-present treasury entry's metadata. */
+      const _custTombstones=[];
+      const _supTombstones=[];
       toDelete.forEach(tx=>{
         /* Skip if day is locked and user is not admin */
         if(isDayLocked(tx.date)&&!isAdmin){skippedCount++;return}
         /* Track admin bypass of delete lock */
         if(isAdmin&&lockDelete)adminBypassCount++;
+        /* V19.13: capture tombstone for cust/supplier-linked entries.
+           Treasury entries with custId/supplierId, OR with sourceType="cust_payment"/
+           "supplier_payment" must tombstone — these are the ones recoverable by
+           V19.9. Even if cleanup below removes the linked custPayment, the
+           treasury entry itself may persist briefly during sync, and recovery
+           would re-link it. */
+        if(tx.custId||tx.sourceType==="cust_payment"||tx.category==="دفعة عميل"){
+          _custTombstones.push(tx.id);
+        }
+        if(tx.supplierId||tx.sourceType==="supplier_payment"||tx.category==="دفعة مورد"){
+          _supTombstones.push(tx.id);
+        }
         /* V16.9: If this tx is part of a transfer, mark transferId for full removal */
         if(tx.transferId){
           transferIdsToDelete.add(tx.transferId);
@@ -1230,6 +1267,17 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         }
         deletedCount++;totalAmount+=Number(tx.amount)||0;
       });
+      /* V19.13: persist tombstones (max 200 per type, FIFO) */
+      if(_custTombstones.length>0){
+        if(!Array.isArray(d._deletedCustPayTreasuryIds))d._deletedCustPayTreasuryIds=[];
+        d._deletedCustPayTreasuryIds.push(..._custTombstones);
+        if(d._deletedCustPayTreasuryIds.length>200)d._deletedCustPayTreasuryIds=d._deletedCustPayTreasuryIds.slice(-200);
+      }
+      if(_supTombstones.length>0){
+        if(!Array.isArray(d._deletedSupplierPayTreasuryIds))d._deletedSupplierPayTreasuryIds=[];
+        d._deletedSupplierPayTreasuryIds.push(..._supTombstones);
+        if(d._deletedSupplierPayTreasuryIds.length>200)d._deletedSupplierPayTreasuryIds=d._deletedSupplierPayTreasuryIds.slice(-200);
+      }
       /* V16.9: Now batch-remove all transfer records + their paired legs */
       if(transferIdsToDelete.size>0){
         /* V17.5 FIX: Cleanup linked records (custPayments/supplierPayments/wsPayments)
@@ -2240,6 +2288,14 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           })()}
         </div>
         {withBalance.length>0?<div style={{overflowX:"auto"}}>
+          {/* V19.13: hint banner — make the checkbox-based deletion flow obvious.
+              The per-row × delete icon was removed; users initially looked for it
+              and didn't realize bulk-delete was the only path. This banner shows
+              ONLY when nothing is selected, then disappears once selection starts. */}
+          {canEdit&&selectedTxIds.size===0&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",marginBottom:10,borderRadius:8,background:T.accent+"08",border:"1px dashed "+T.accent+"30",fontSize:FS-2,color:T.textSec}}>
+            <span style={{fontSize:14}}>💡</span>
+            <span>للحذف: اختر الحركات بالمربع الجانبي ☑️ ثم اضغط <b style={{color:T.err}}>"حذف المحدد"</b>. الحذف من هنا بيشيل الحركة من الخزنة + كشف العميل/المورد + المحاسبة معاً.</span>
+          </div>}
           {/* Bulk actions bar — appears when selections exist */}
           {selectedTxIds.size>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",marginBottom:10,borderRadius:10,background:T.err+"10",border:"1px solid "+T.err+"40"}}>
             <div style={{fontSize:FS-1,fontWeight:700,color:T.err}}>
@@ -2363,7 +2419,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                   printCashReceipt(t,partyInfo,{factoryName:data.factoryName,logo:data.logo,address:data.address,phone:data.phone});
                 }} style={{cursor:"pointer",fontSize:11}} title={t.type==="in"?"طباعة إيصال استلام":"طباعة إيصال صرف"}>🧾</span>
                 {allowEdit&&<span onClick={()=>startEdit()} style={{cursor:"pointer",fontSize:11}} title={isAdmin&&lockEdit?"تعديل (تجاوز قفل)":"تعديل"}>✏️</span>}
-                {allowDel&&<span onClick={()=>openConfirm({title:"حذف حركة",message:(external?"⚠️ حركة مرتبطة بـ "+externalSourceLabel(t)+" — الحذف هنا لن يؤثر على المصدر.\n\n":"")+(isAdmin&&lockDelete?"⚠️ الحذف مقفول من الإعدادات — سيتم تسجيل تجاوزك في سجل الأمان.\n\n":"")+"سيتم حذف الحركة نهائياً.\n"+(t.desc||"")+"\nالمبلغ: "+fmt(t.amount)+" ج.م",variant:"danger",onConfirm:()=>{if(isAdmin&&lockDelete)logLockBypass("delete",t);delTx(t.id)}})} style={{cursor:"pointer",fontSize:11,color:T.err}} title={isAdmin&&lockDelete?"حذف (تجاوز قفل)":"حذف"}>✕</span>}
+                {/* V19.13: ✕ delete icon REMOVED — users requested checkbox-based deletion only.
+                    The per-row × button was easy to mis-tap on mobile, and the bulk-delete button
+                    above the table now handles single + multiple deletions consistently with
+                    proper tombstoning to prevent ghost re-appearance. */}
               </div>})()}</td>
           </tr>})}
         </tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد حركات</div>}
