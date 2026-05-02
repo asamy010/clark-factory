@@ -5,7 +5,7 @@
    Dependencies imported explicitly — no code changes inside.
    ═══════════════════════════════════════════════════════════════ */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { FS, PRINT_CSS } from "../constants/index.js";
 import { gid, fmt, r2, normalizePhone, dayName } from "../utils/format.js";
 import { ask, tell, showToast } from "../utils/popups.js";
@@ -121,6 +121,56 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   },[supplierStats]);
   
   /* ──────── SUPPLIER STATEMENT (journal of a single supplier) ──────── */
+  /* V19.14: Auto-sync orphan treasury payments → supplierPayments when the user
+     opens a supplier statement. Handles the case where a treasury entry was
+     recorded with a `supplierId` (so it visually belongs to a supplier) but
+     the corresponding row in `supplierPayments` was never created — usually
+     because the entry was added in versions before V19.9 auto-link, or via a
+     code path that didn't cascade. Without this, the V19.12 orphan-fallback
+     still SHOWS the entry in the statement, but with a "⚠️ غير مزامنة" tag,
+     which the user found confusing. Now we silently materialize the missing
+     supplierPayment(s) so the statement looks normal AND the data is
+     consistent — and "غير مزامنة" only appears if no auto-match was possible.
+     
+     Uses a per-supplier ref-lock so we don't double-process the same supplier
+     in one session, and tombstones are honored (deleted entries stay deleted). */
+  const _supSyncedRef = useRef(new Set());
+  useEffect(() => {
+    if (!activeSupplier || !activeSupplier.id) return;
+    if (_supSyncedRef.current.has(activeSupplier.id)) return;
+    _supSyncedRef.current.add(activeSupplier.id);
+    const knownTxIds = new Set(supplierPayments.filter(p => String(p.supplierId)===String(activeSupplier.id)).map(p=>p.treasuryTxId).filter(Boolean));
+    const tombstones = new Set(data._deletedSupplierPayTreasuryIds || []);
+    const orphans = treasury.filter(t =>
+      t && t.id && t.type === "out" &&
+      String(t.supplierId||"") === String(activeSupplier.id) &&
+      !knownTxIds.has(t.id) &&
+      !tombstones.has(t.id) &&
+      t.sourceType !== "check_bounce"
+    );
+    if (orphans.length === 0) return;
+    upConfig(d => {
+      if (!d.supplierPayments) d.supplierPayments = [];
+      const existingNow = new Set((d.supplierPayments||[]).filter(p => String(p.supplierId)===String(activeSupplier.id)).map(p=>p.treasuryTxId).filter(Boolean));
+      const now = new Date().toISOString();
+      orphans.forEach(t => {
+        if (existingNow.has(t.id)) return;/* already added in this same upConfig call */
+        d.supplierPayments.push({
+          id: gid(),
+          supplierId: activeSupplier.id,
+          supplierName: activeSupplier.name,
+          amount: Number(t.amount) || 0,
+          date: t.date,
+          notes: t.notes || t.desc || "",
+          method: "cash",
+          treasuryTxId: t.id,
+          createdBy: t.by || "v1914-auto-sync",
+          createdAt: now,
+          _v1914AutoSync: now,
+        });
+      });
+    });
+  }, [activeSupplier?.id, supplierPayments, treasury]);
   /* Returns sorted list of transactions with running balance */
   const buildStatement=(supplierId)=>{
     const entries=[];
@@ -2069,7 +2119,10 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
             </div>
             <div style={{padding:10,borderRadius:8,background:(st.balance||0)>1?T.err+"08":(st.balance||0)<-1?T.accent+"08":T.ok+"08"}}>
               <div style={{fontSize:FS-3,color:T.textSec}}>الرصيد</div>
-              <div style={{fontSize:FS,fontWeight:800,color:(st.balance||0)>1?T.err:(st.balance||0)<-1?T.accent:T.ok}}>{(st.balance||0)>1?fmt(r2(st.balance))+" (عليه)":(st.balance||0)<-1?"+"+fmt(r2(Math.abs(st.balance)))+" (له)":"مسدد"}</div>
+              {/* V19.14: removed "(له)" / "(عليه)" suffixes per user request — the color
+                  (err for owed-to-supplier, accent for owed-to-us, ok for settled) plus
+                  the +/− sign already convey the direction without redundant text. */}
+              <div style={{fontSize:FS,fontWeight:800,color:(st.balance||0)>1?T.err:(st.balance||0)<-1?T.accent:T.ok}}>{(st.balance||0)>1?fmt(r2(st.balance)):(st.balance||0)<-1?"+"+fmt(r2(Math.abs(st.balance))):"مسدد"}</div>
             </div>
           </div>
           

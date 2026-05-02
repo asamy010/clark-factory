@@ -102,6 +102,50 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     }
   },[custStatement]);
   
+  /* V19.14: auto-sync orphan treasury → custPayments on opening a customer
+     statement. Mirrors the same logic just added to PurchasePg for suppliers.
+     Without this, the V18.64 orphan-fallback shows the entry inline as
+     "غير مزامنة", confusing users who expected a clean statement. */
+  const _custSyncedRef = useRef(new Set());
+  useEffect(() => {
+    if (!custStatement || custStatement === "pick") return;
+    if (_custSyncedRef.current.has(custStatement)) return;
+    _custSyncedRef.current.add(custStatement);
+    const knownTxIds = new Set((data.custPayments||[]).filter(p => String(p.custId)===String(custStatement)).map(p=>p.treasuryTxId).filter(Boolean));
+    const tombstones = new Set(data._deletedCustPayTreasuryIds || []);
+    const orphans = (data.treasury||[]).filter(t =>
+      t && t.id && t.type === "in" &&
+      String(t.custId||"") === String(custStatement) &&
+      !knownTxIds.has(t.id) &&
+      !tombstones.has(t.id) &&
+      t.sourceType !== "check_bounce"
+    );
+    if (orphans.length === 0) return;
+    const cust = (data.customers||[]).find(c => c.id === custStatement);
+    if (!cust) return;
+    upConfig(d => {
+      if (!d.custPayments) d.custPayments = [];
+      const existingNow = new Set((d.custPayments||[]).filter(p => String(p.custId)===String(custStatement)).map(p=>p.treasuryTxId).filter(Boolean));
+      const now = new Date().toISOString();
+      orphans.forEach(t => {
+        if (existingNow.has(t.id)) return;
+        d.custPayments.push({
+          id: gid(),
+          custId: custStatement,
+          custName: cust.name,
+          amount: Number(t.amount) || 0,
+          date: t.date,
+          note: t.notes || t.desc || "",
+          method: "كاش",
+          treasuryTxId: t.id,
+          by: t.by || "v1914-auto-sync",
+          createdAt: now,
+          _v1914AutoSync: now,
+        });
+      });
+    });
+  }, [custStatement, data.treasury, data.custPayments]);
+  
   /* V16.3: Generate portal URL for a customer */
   const generatePortalUrl=async(custId,custName)=>{
     setPortalUrlPopup({loading:true,custName,url:"",error:""});

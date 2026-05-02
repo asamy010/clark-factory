@@ -25,17 +25,27 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.14",
+    date: "2026-05-02",
+    types: ["fix", "improvement"],
+    title: "🔄 مزامنة تلقائية لكشف العميل/المورد + تنظيف بصري للبطاقة",
+    changes: [
+      { type: "fix", text: "🐛 المشكلة (1) المُبلَّغ عنها: 'ليه الدفعة في كشف المورد ظاهرة كـ ⚠️ غير مزامنة؟' — حتى لما الدفعة دي ظاهرة في كشف الحساب بشكل عادي. السبب: الـtreasury entry فيها supplierId/custId، لكن صف مطابق في supplierPayments/custPayments مش متعمل (الحركة سُجلت قبل V19.9 auto-link، أو فيه gap في الـcascade). الـV19.12 fallback شغّال صح ظاهرياً، بس بيبيّنها كـ orphan." },
+      { type: "fix", text: "✅ الحل: useEffect جديد في PurchasePg + CustDeliverPg بيتشغل لما المستخدم يفتح كشف مورد/عميل. لو فيه orphan treasury entries بـ supplierId/custId مطابق ومش في supplierPayments/custPayments، النظام تلقائياً ينشئ السجلات المفقودة (silent، بدون تأكيد). الـtombstones بتُحترم — الدفعات المحذوفة مش بتترجع. بـuseRef lock عشان مايتشغلش أكتر من مرة لنفس الطرف في نفس الـsession." },
+      { type: "fix", text: "📋 السلوك الجديد: فتح كشف المورد لأول مرة → الـorphans تتربط silent. الـlabel '⚠️ غير مزامنة' هيختفي بعد لحظة. لو لسه فيه orphans (مثلاً supplierId غلط أو معدوم)، الـfallback بيظل بيعرضهم — لكن دي حالة استثنائية، مش الحالة الطبيعية." },
+      { type: "improvement", text: "🎨 المشكلة (2): البطاقة الكبيرة في كشف المورد كانت تعرض '5,000 (له)' أو '3,000 (عليه)'. المستخدم طلب إزالة 'له'. الحل: شيلت الـsuffixes 'له' و'عليه' من بطاقة الرصيد (المختصرة). الـcolor coding (أحمر = عليه، أزرق = له، أخضر = مسدد) + علامة + للـnegative balance + النص المختصر هي وحدها كافية لتوضيح الاتجاه. الـcards الجانبية في صفحة المورديين (V14.49) محتفظة بالـ(له)/(عليه) لأن الألوان لوحدها مش بتكون واضحة في الجدول." },
+    ]
+  },
+  {
     version: "V19.13",
     date: "2026-05-02",
     types: ["fix", "feature"],
     title: "🚨 [حرج] إصلاح كارثي: حذف حركة الخزنة لازم يشيلها من كشف العميل/المورد",
     changes: [
-      { type: "fix", text: "🐛 المشكلة (المُبلَّغ عنها كـكارثة): المستخدم سجل دفعة من كشف العميل (50,100 ج.م) وحذف منها 100 ج.م من سجل الخزنة. الـ100 اتشالت من الخزنة، **لكن فضلت ظاهرة في كشف العميل + سجل دفعات المحاسبة** — يعني أنا حذفت في الخزنة وكشف العميل بيقول إن العميل لسه دافع الـ100 دي. السبب الجذري: `delTx` و `bulkDeleteTxs` في TreasuryPg كانا بيـشيلوا الحركة من treasury + custPayments، لكن **مش بيضيفوا tombstone**. لو الـV19.9 recovery أو V18.64 fallback اشتغلوا بعد كده، كانوا بيلاقوا الـtreasury entry لسه موجود مؤقتاً (sync race) ويعيدوا إنشاء custPayment — أو الـcustPayment الميتة كانت لسه ظاهرة بسبب stale render." },
-      { type: "fix", text: "✅ Fix #1 (delTx tombstones): أي حذف فردي لحركة عميل/مورد في الخزنة بيضيف الـID للـtombstone فوراً قبل ما الـcleanup يحصل. حتى لو فشل الـcustPayments cleanup أو حصل race، الـrecovery مش هتقدر ترجعها." },
-      { type: "fix", text: "✅ Fix #2 (bulkDeleteTxs tombstones): نفس الحماية لكل العمليات في الـbulk-delete (مع capture لكل الـIDs قبل الـsplice). كل الحذف اللي يحصل من سجل الخزنة دلوقتي بيعمل tombstone مظبوط." },
-      { type: "feature", text: "🗑 Fix #3 (إزالة ✕ من صف الخزنة + Hint banner): شيلت الأيقونة الصغيرة ✕ اللي كانت سهل الضغط عليها بالغلط. الحذف دلوقتي بس عبر الـcheckbox (☑️) → زر 'حذف المحدد'. أضفت hint banner واضح فوق الجدول لما يكون مفيش حركة محددة عشان المستخدم يعرف الـflow الجديد." },
-      { type: "feature", text: "🧹 Fix #4 (تنظيف الدفعات الميتة - للبيانات القديمة): زر جديد في PaymentsTab بيكتشف custPayments/supplierPayments اللي مفيش لها treasury entry موجود (يعني الحركة اتحذفت قبل V19.13 ولم تتنظف بشكل صحيح). بيعرض preview بكل الدفعات الميتة قبل الحذف، وبيضيف tombstones عند التنظيف. ده الحل العملي للـghost payments الموجودة دلوقتي عند المستخدم." },
-      { type: "fix", text: "📋 خطوة عملية للمستخدم: بعد ما ترفع V19.13، روح **المحاسبة → دفعات → 🧹 تنظيف الدفعات الميتة** عشان تشيل أي ghost payments من قبل V19.13. الـconfirmation modal بيعرضلك كل دفعة هتتحذف بالاسم والمبلغ والتاريخ قبل ما يحصل أي تغيير." },
+      { type: "fix", text: "🐛 المشكلة (المُبلَّغ عنها كـكارثة): 'حذفت دفعة من سجل الخزنة لكن لسه ظاهرة في كشف العميل والمحاسبة'. السبب الجذري: `delTx` و `bulkDeleteTxs` كانوا بيشيلوا الحركة لكن مش بيضيفوا tombstone، فالـrecovery effects كانت بترجع الـcustPayment من أي trace في treasury." },
+      { type: "fix", text: "✅ Tombstones في delTx + bulkDeleteTxs: أي حذف لحركة عميل/مورد بيضيف الـID للـ_deletedCustPayTreasuryIds / _deletedSupplierPayTreasuryIds فوراً." },
+      { type: "feature", text: "🗑 إزالة ✕ من صف الخزنة + Hint banner: الحذف دلوقتي بس عبر checkbox + 'حذف المحدد'. أوضح وأمن." },
+      { type: "feature", text: "🧹 زر 'تنظيف الدفعات الميتة' في PaymentsTab: للبيانات القديمة قبل V19.13. بيكتشف cust/supplierPayments بدون treasury entry موجود ويعرضهم في preview قبل الحذف." },
     ]
   },
   {
@@ -125,17 +135,6 @@ const CHANGELOG = [
       { type: "improvement", text: "🔧 التغيير: في App.jsx grid template للـtabs على الديسكتوب اتغير من `repeat(6, 1fr)` لـ `repeat(6, minmax(0, 130px))` (وعلى التابلت من `repeat(4, 1fr)` لـ `repeat(4, minmax(0, 130px))`). أضفت `justifyContent: 'center'` على الـgrid container عشان يتمركز بدل ما يلتصق على جنب." },
       { type: "improvement", text: "✅ المحفوظ كما هو: gap = 24px (المسافات بين الكروت)، aspectRatio: 1 (الشكل المربع)، padding داخلي '10px 8px'، أيقونة 44×44 وSVG 22×22، حجم نص الـlabel (FS-1). الموبايل والتابلت grids التانية مش متأثرين." },
       { type: "improvement", text: "📊 النتيجة: الكروت كانت بتاخد ~160-180px على شاشة عريضة (1fr بيوسعها)، دلوقتي محدودة على 130px فبتبان أكثر تماسكاً والمساحة البيضاء حواليها أقل، مع نفس حجم الأيقونة والكتابة." },
-    ]
-  },
-  {
-    version: "V19.4",
-    date: "2026-05-02",
-    types: ["fix"],
-    title: "🛡️ منع تكرار حركات الخزنة عند الضغط المزدوج على زر الحفظ",
-    changes: [
-      { type: "fix", text: "🐛 المشكلة: في صفحة الخزنة، زر '💾 حفظ' حركة جديدة مكنش بيدّي feedback بصري لما يتضغط — لا spinner ولا loading ولا تغيير شكل. خصوصاً في وضع التكرار (sticky mode بـ30 حركة) النموذج بيفضل مفتوح بعد الحفظ مع reset للحقول، فالمستخدم مش حاسس إن الحركة اتسجلت → بيضغط الزر مرة تانية → بتتسجل حركة مكررة بنفس البيانات." },
-      { type: "fix", text: "✅ الحل: state جديد `savingTx` بيقفل الزر للحظة. الـguard في بداية saveTx() بيتحقق من `savingTx` ويرجع فوراً لو فيه حفظ شغال. بعد الـvalidations، الـstate بيتعمل true ويـreset بعد 700ms (وقت كافي للـupConfig يكتب + النموذج يـreset، ومع ذلك مش متأخر يضايق المستخدم في سلسلة حركات)." },
-      { type: "fix", text: "🎨 تحسين بصري: لما الزر مقفول بيظهر 'جاري الحفظ...' ⏳ بدل '💾 حفظ'، مع opacity:0.55 و pointerEvents:none. زر 'إلغاء' كمان بيتحقق من `savingTx` عشان مايقفلش النموذج وسط عملية حفظ. ده fix critical لإن تكرار حركة مالية = خطأ في الأرصدة." },
     ]
   },
 ];
