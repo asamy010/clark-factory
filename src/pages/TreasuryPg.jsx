@@ -317,6 +317,16 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const transfers=(data.treasuryTransfers||[]);
   const notifications=(data.notifications||[]);
   const[showForm,setShowForm]=useState(false);
+  /* V19.4 FIX: Guard against double-click on save button. The save flow used to
+     have NO visual feedback (button stayed enabled, no spinner) — and since
+     upConfig() is sync-call-but-async-write, a fast double-click would invoke
+     saveTx twice with the same form state, creating 2 identical entries.
+     This is a critical financial-data integrity bug. The guard:
+       1. Skip the call entirely if savingTx is already true
+       2. Set savingTx=true before the upConfig
+       3. Reset savingTx=false after a short delay so button re-enables for the
+          NEXT entry (in sticky mode) or for re-opens. */
+  const[savingTx,setSavingTx]=useState(false);
   /* V18.52: Sticky category mode for batch entries.
      null = off; { category, type, count, total } = active.
      When set, after save the form auto-reopens with category+type pre-filled
@@ -676,9 +686,18 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     return Object.entries(cats).sort((a,b)=>(b[1].in+b[1].out)-(a[1].in+a[1].out))},[txns]);
 
   /* ── CRUD ── */
-  const saveTx=()=>{const amt=parseFloat(txAmount);if(!amt||amt<=0){playBeep("error");return}
+  const saveTx=()=>{
+    /* V19.4 FIX: Double-click protection — bail out if a save is already in flight */
+    if(savingTx)return;
+    const amt=parseFloat(txAmount);if(!amt||amt<=0){playBeep("error");return}
     /* Block save on locked day unless admin */
     if(isDayLocked(txDate)&&!isAdmin){playBeep("error");showToast("⛔ اليوم "+txDate+" مقفول — للمدير فقط");return}
+    /* V19.4: Lock the button now that we've passed all early-return validations */
+    setSavingTx(true);
+    /* Schedule unlock so the next entry (sticky mode) or re-open works.
+       700ms is long enough to defeat double-clicks/double-taps but short enough
+       that the user can save a series of entries comfortably. */
+    setTimeout(()=>setSavingTx(false),700);
     /* If party is linked, validate & expand desc */
     let finalDesc=txDesc;
     let linkedCustId=null,linkedSupplierId=null,linkedWsName=null,linkedEmpId=null;
@@ -1971,7 +1990,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           </label><Inp type="date" value={txDate} onChange={setTxDate}/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الموسم</label><Inp value={txSeason} onChange={setTxSeason} placeholder={data.activeSeason||"W26"}/></div>
         </div>
-        <div style={{marginTop:16,display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>{setShowForm(false);setEditId(null)}}>إلغاء</Btn><Btn primary onClick={saveTx}>{editId?"💾 حفظ التعديل":"💾 حفظ"}</Btn></div>
+        <div style={{marginTop:16,display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>{if(savingTx)return;setShowForm(false);setEditId(null)}}>إلغاء</Btn><Btn primary disabled={savingTx} onClick={saveTx} style={savingTx?{opacity:0.55,cursor:"wait",pointerEvents:"none"}:undefined}>{savingTx?"⏳ جاري الحفظ...":(editId?"💾 حفظ التعديل":"💾 حفظ")}</Btn></div>
         </div>
       </div>}
 

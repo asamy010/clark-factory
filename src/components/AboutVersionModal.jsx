@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.4",
+    date: "2026-05-02",
+    types: ["fix"],
+    title: "🛡️ منع تكرار حركات الخزنة عند الضغط المزدوج على زر الحفظ",
+    changes: [
+      { type: "fix", text: "🐛 المشكلة: في صفحة الخزنة، زر '💾 حفظ' حركة جديدة مكنش بيدّي feedback بصري لما يتضغط — لا spinner ولا loading ولا تغيير شكل. خصوصاً في وضع التكرار (sticky mode بـ30 حركة) النموذج بيفضل مفتوح بعد الحفظ مع reset للحقول، فالمستخدم مش حاسس إن الحركة اتسجلت → بيضغط الزر مرة تانية → بتتسجل حركة مكررة بنفس البيانات." },
+      { type: "fix", text: "✅ الحل: state جديد `savingTx` بيقفل الزر للحظة. الـguard في بداية saveTx() بيتحقق من `savingTx` ويرجع فوراً لو فيه حفظ شغال. بعد الـvalidations، الـstate بيتعمل true ويـreset بعد 700ms (وقت كافي للـupConfig يكتب + النموذج يـreset، ومع ذلك مش متأخر يضايق المستخدم في سلسلة حركات)." },
+      { type: "fix", text: "🎨 تحسين بصري: لما الزر مقفول بيظهر 'جاري الحفظ...' ⏳ بدل '💾 حفظ'، مع opacity:0.55 و pointerEvents:none. زر 'إلغاء' كمان بيتحقق من `savingTx` عشان مايقفلش النموذج وسط عملية حفظ. ده fix critical لإن تكرار حركة مالية = خطأ في الأرصدة." },
+    ]
+  },
+  {
     version: "V19.3",
     date: "2026-05-02",
     types: ["fix", "improvement"],
@@ -144,18 +155,6 @@ const CHANGELOG = [
       { type: "fix", text: "🚨 Bug حرج كان بيمنع التطبيق من الفتح خالص. السبب: الـuseState و useEffect المضافة في V18.87 (notification ticker) كانوا موضوعين بعد الـearly returns الخاصة بـauthLoading + dataLoading. لما الـauth بيخلص → عدد الـhooks بيتغير من render لتاني → React بيـcrash بـerror #310 ('Rendered more hooks than during the previous render')." },
       { type: "fix", text: "✅ الإصلاح: نقل `useState(_notifTick)` + `useEffect(ticker)` إلى أعلى الـcomponent — قبل أي early return — عشان عدد الـhooks يبقى ثابت في كل render. الـticker دلوقتي بيشتغل دايماً (بدون شرط على subBarNotifs.length) لأن setState برخيص ولا يكلف شيء." },
       { type: "fix", text: "🔍 ده bug rules-of-hooks كلاسيكي. القاعدة: كل الـhooks (useState, useEffect, useRef, useMemo, useCallback) لازم تتنفذ بنفس الترتيب وبنفس العدد في كل render. الـearly returns بتعمل branches غير متجانسة تـviolate القاعدة دي." },
-    ]
-  },
-  {
-    version: "V18.92",
-    date: "2026-05-01",
-    types: ["fix", "improvement"],
-    title: "🔧 4 إصلاحات Mobile UX (الخزنة + الأوردر + المرتبات)",
-    changes: [
-      { type: "fix", text: "💰 الخزنة: تابات الحسابات (MAIN CASH / SUB CASH / CIB / بنك...) كانت بـ`flex:1` فبتـSquish وتقطّع على الموبايل. الإصلاح: على الموبايل بقت قابلة للـscroll أفقي مع `flex:0 0 auto` لكل تاب + `overflowX:auto` على الـwrapper + `WebkitOverflowScrolling:touch` للسلاسة. الديسكتوب محفوظ بشكله." },
-      { type: "fix", text: "📋 الأوردر: التايم لاين (4 مراحل: القص → في التشغيل → تشطيب → مخزن) كان متمدد خارج الشاشة من اليمين على الموبايل. الإصلاح: `minWidth: phases.length * 110px` على Timeline component + `WebkitOverflowScrolling:touch` على الـwrapper. دلوقتي الـtimeline قابل للـscroll أفقي بسلاسة." },
-      { type: "improvement", text: "🎨 الأوردر: جدول تكاليف الإكسسوار (شماعة/كباسين/كفر) كان مزحوم ومتداخل. الإصلاح: عرض ثابت لكل عمود (50%/22%/28%)، padding أكبر (10-12px)، أحجام نصوص متفاوتة للوضوح، صف الإجمالي بـborder-top مميز، عمود السعر اتسمى 'سعر القطعة' بدل 'السعر' للوضوح، الأرقام بـwhite-space:nowrap عشان مايتقطعش." },
-      { type: "improvement", text: "👷 المرتبات: شبكة التابات الـ6 على الموبايل اتعملت redesign كامل (الخيار أ من الـ3 mockups المقترحة). كل تاب دلوقتي بطاقة مربعة (78px) فيها: أيقونة 22px على الفوق، تحتها label مختصر، والـbadge منفصل في الـtop-left كـpill صغير دائري. الـactive tab بـbackground أزرق + أيقونة+نص أبيض + badge أبيض ب text أزرق. شكل احترافي زي تطبيقات iOS." },
     ]
   },
 ];
