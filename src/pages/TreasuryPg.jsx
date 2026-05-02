@@ -295,9 +295,17 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   useEffect(()=>{
     if(partyRecoveryRef.current)return;
     if(!data.treasury||!Array.isArray(data.treasury))return;
-    if(!Array.isArray(customers)&&!Array.isArray(suppliers))return;
-    /* Wait for both treasury and customers to be loaded */
-    if(customers.length===0&&suppliers.length===0)return;
+    /* V19.9.1 FIX: Use data.customers / data.suppliers DIRECTLY here. The
+       previous version referenced the local `customers` and `suppliers` consts
+       which are declared LATER in the component (line ~414), causing a
+       Temporal Dead Zone error in the minified bundle ("Cannot access 'ie'
+       before initialization"). The TDZ trips at component init because the
+       useEffect body and its dependency array both close over the not-yet-
+       initialized const bindings. Reading from `data.*` sidesteps the issue. */
+    const _custs=Array.isArray(data.customers)?data.customers:[];
+    const _sups=Array.isArray(data.suppliers)?data.suppliers:[];
+    /* Wait for at least one of customers/suppliers to be loaded */
+    if(_custs.length===0&&_sups.length===0)return;
     partyRecoveryRef.current=true;/* lock — runs once per page mount */
     
     const _custPayTxIds=new Set((data.custPayments||[]).map(p=>p.treasuryTxId).filter(Boolean));
@@ -313,10 +321,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(!haystack)return;
       
       if(tx.type==="in"&&tx.category==="دفعة عميل"&&!tx.custId&&!_custPayTxIds.has(tx.id)){
-        const m=matchPartyFromDesc(haystack,customers,{minNameLength:3});
+        const m=matchPartyFromDesc(haystack,_custs,{minNameLength:3});
         if(m)_orphansToFix.push({kind:"customer",tx,party:m});
       } else if(tx.type==="out"&&tx.category==="دفعة مورد"&&!tx.supplierId&&!_supPayTxIds.has(tx.id)){
-        const m=matchPartyFromDesc(haystack,suppliers,{minNameLength:3});
+        const m=matchPartyFromDesc(haystack,_sups,{minNameLength:3});
         if(m)_orphansToFix.push({kind:"supplier",tx,party:m});
       }
     });
@@ -371,7 +379,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       });
     });
     showToast("✓ تم استرجاع "+_orphansToFix.length+" دفعة يتيمة وربطها بالعملاء/الموردين");
-  },[data.treasury,data.custPayments,data.supplierPayments,customers,suppliers,upConfig]);
+  },[data.treasury,data.custPayments,data.supplierPayments,data.customers,data.suppliers,upConfig]);
 
   /* V18.1: Auto-recovery for orphaned treasury accounts.
      Bug: defaults (MAIN CASH / SUB CASH) were rendered virtually only when
