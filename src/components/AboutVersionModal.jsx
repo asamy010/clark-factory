@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.3",
+    date: "2026-05-02",
+    types: ["fix", "improvement"],
+    title: "🔥 إصلاح تكرار حركات الخزنة + تحديث القيد المحاسبي عند التعديل",
+    changes: [
+      { type: "fix", text: "🐛 المشكلة: لما المستخدم يعدّل تاريخ حركة خزنة، الحركة كانت بتتكرر — حركتين بنفس الـID وبنفس التاريخ الجديد. الأخطر: حذف واحدة منهم بيحذف الاتنين فعلياً (لأن الفلتر بيستهدف الـID). السبب الجذري: في الـsplit collections (treasuryDays/{YYYY-MM-DD}) لما التاريخ يتغير، الحركة بتتنقل من document قديم لـjديد. لو write القديم فشل ومفيش retry، الحركة بتفضل في الاتنين — والـflatten() في App.jsx مكنش بيدمّج عند الـID." },
+      { type: "fix", text: "✅ Fix #1 (App.jsx flatten): أضفت dedup بـserverIds.has(id) قبل الـpush. الحركة المكررة في يومين الآن بتظهر مرة واحدة في الـUI (الأحدث، لأن sortedDays = DESC)." },
+      { type: "fix", text: "✅ Fix #2 (TreasuryPg cleanup migration): useEffect بيتفعل مرة واحدة عند تحميل صفحة الخزنة، بيمسح كل documents في treasuryDays، بيكشف الحركات الموجودة في يومين أو أكثر، بيختار النسخة الأحدث (updatedAt → createdAt → date)، وبيحذف النسخ القديمة من الـday docs بتاعتهم. آمن وidempotent. توست تأكيد في الآخر." },
+      { type: "fix", text: "✅ Fix #3 (saveTx edit reverse + re-post): قبل V19.3، تعديل مبلغ/تاريخ/تصنيف حركة كان بيخلي الـjournal entry القديم في دفتر اليومية بأرقامه القديمة — مشكلة محاسبية خطيرة في التقارير. الإصلاح: قبل التعديل بنcapture (sourceId, oldDate)، بعد التعديل بنعمل autoPost.reverse() للقيد القديم ثم autoPost.treasury() للقيم الجديدة." },
+      { type: "fix", text: "✅ Fix #4 (App.jsx upConfigTx retry): syncAllSplitChanges + syncAllPartitionedChanges كانا بيـ-fail-silent من أول محاولة فقط. أضفت retry × 3 مع backoff (150ms × 2^attempt). بيمنع الـinconsistency اللي كان بيخلي حركة في يومين أصلاً." },
+      { type: "fix", text: "✅ Fix #5 (UndoToast): رفعت z-index من 9998 → 10005 (فوق confirmPopup z-10001). أضفت console.log diagnostic عند استقبال undo جديد، عشان لو لسه فيه مشكلة في الظهور تبقى مرئية في الـDevTools." },
+      { type: "improvement", text: "🔍 Diagnostic logging: لما الـflatten يلاقي ID مكرر في يومين، بيطبع warning في console (مرة واحدة لكل ID خلال الـsession). كده تقدر تأكد إن الـcleanup migration نجح." },
+    ]
+  },
+  {
     version: "V19.2",
     date: "2026-05-02",
     types: ["fix", "improvement"],
@@ -141,20 +156,6 @@ const CHANGELOG = [
       { type: "fix", text: "📋 الأوردر: التايم لاين (4 مراحل: القص → في التشغيل → تشطيب → مخزن) كان متمدد خارج الشاشة من اليمين على الموبايل. الإصلاح: `minWidth: phases.length * 110px` على Timeline component + `WebkitOverflowScrolling:touch` على الـwrapper. دلوقتي الـtimeline قابل للـscroll أفقي بسلاسة." },
       { type: "improvement", text: "🎨 الأوردر: جدول تكاليف الإكسسوار (شماعة/كباسين/كفر) كان مزحوم ومتداخل. الإصلاح: عرض ثابت لكل عمود (50%/22%/28%)، padding أكبر (10-12px)، أحجام نصوص متفاوتة للوضوح، صف الإجمالي بـborder-top مميز، عمود السعر اتسمى 'سعر القطعة' بدل 'السعر' للوضوح، الأرقام بـwhite-space:nowrap عشان مايتقطعش." },
       { type: "improvement", text: "👷 المرتبات: شبكة التابات الـ6 على الموبايل اتعملت redesign كامل (الخيار أ من الـ3 mockups المقترحة). كل تاب دلوقتي بطاقة مربعة (78px) فيها: أيقونة 22px على الفوق، تحتها label مختصر، والـbadge منفصل في الـtop-left كـpill صغير دائري. الـactive tab بـbackground أزرق + أيقونة+نص أبيض + badge أبيض ب text أزرق. شكل احترافي زي تطبيقات iOS." },
-    ]
-  },
-  {
-    version: "V18.91",
-    date: "2026-05-01",
-    types: ["feature"],
-    title: "📌 توسعة 'طلب مراجعة' + إشعار التحويلات بين الخزن",
-    changes: [
-      { type: "feature", text: "💸 تحويلات الخزن: لما مستخدم غير admin يطلب تحويل، يطلع إشعار تلقائي للأدمن في الـgreeting bar (chip أحمر 'مهمة عاجلة') مع زر 'فتح'. الضغط بيوصل لصفحة الخزنة → تاب 'التحويلات' → بيتحرك للسطر بتاع الطلب مع تأثير highlight أصفر لمدة 2.5 ثانية. عند الموافقة أو الرفض، الـchip بيختفي تلقائياً عند جميع الأدمن (endedAt)." },
-      { type: "feature", text: "🛡️ Schema جديد: notification.forAdminsOnly = true → الـchip يظهر للأدمن فقط (مفلتر في App.jsx). يستخدم في تحويلات الخزن وأي حاجة محتاجة موافقة admin مستقبلاً." },
-      { type: "feature", text: "👷 المرتبات: زر '📌 مراجعة' جديد على كل بطاقة أسبوع. يفتح modal طلب المراجعة مع الـlink للأسبوع. الضغط على الإشعار عند المستلم → يفتح الأسبوع تلقائياً (setView('weeks') + setOpenWeekId)." },
-      { type: "feature", text: "🏭 الورش: عمود جديد '📌' في جدول حسابات الورش (تشغيل خارجي → حسابات الورش). الضغط بيفتح modal طلب المراجعة لهذه الورشة. الإشعار عند المستلم بيفتح صفحة الورش وبيـfilter على اسم الورشة المعنية." },
-      { type: "improvement", text: "🔄 routing موسّع في handleNotifLinkClick: 5 أنواع مدعومة الآن — invoice (sales/purchase) + order + treasury (transfer_pending) + workshop + hrWeek. كل واحد له payload مخصص للـdeep-link." },
-      { type: "improvement", text: "✅ النظام كامل دلوقتي: المستخدم يقدر يطلب مراجعة من 6 أماكن: فواتير المبيعات + فواتير المشتريات + الأوردرات + الخزنة (تحويلات تلقائية) + الورش + المرتبات. كل طلب → notification مع link → الضغط → ينقل للوجهة بالظبط." },
     ]
   },
 ];

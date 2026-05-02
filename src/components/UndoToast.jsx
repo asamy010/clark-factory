@@ -1,5 +1,9 @@
 /* V16.2: Undo Toast — floating UI that appears after an undoable action.
-   Shows label + countdown + undo button. Auto-dismisses after 5 minutes. */
+   Shows label + countdown + undo button. Auto-dismisses after 5 minutes.
+   V19.3: Raised z-index from 9998 → 10005 so it appears ABOVE confirm popups
+   (z-10001). Previously, a quick click sequence (delete → instant action) could
+   hide the toast behind a freshly-opened popup. Also added a one-time console
+   diagnostic so we can confirm pushUndo is firing if the toast still doesn't show. */
 
 import { useEffect, useState } from "react";
 import { subscribeUndo, consumeUndo, clearUndo, getUndoTimeLeft } from "../utils/undo.js";
@@ -15,6 +19,13 @@ export function UndoToast(){
 
   useEffect(()=>{
     const unsub=subscribeUndo(u=>{
+      /* V19.3 diagnostic: log when undo state changes to help diagnose
+         "undo toast not appearing" issues. Logged once per push. */
+      if(u&&!window.__clarkUndoSeen){window.__clarkUndoSeen=new Set();}
+      if(u&&u.id&&!window.__clarkUndoSeen.has(u.id)){
+        window.__clarkUndoSeen.add(u.id);
+        console.log("[V19.3 UndoToast] received undo:",u.label,"id:",u.id);
+      }
       setUndo(u);
       setDismissed(false);
       if(u)setTimeLeft(getUndoTimeLeft());
@@ -64,7 +75,7 @@ export function UndoToast(){
     position:"fixed",
     bottom:16,
     left:16,
-    zIndex:9998,
+    zIndex:10005,
     background:T.cardSolid,
     border:"2px solid #8B5CF6",
     borderRadius:14,

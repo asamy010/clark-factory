@@ -5,7 +5,7 @@
    Dependencies imported explicitly — no code changes inside.
    ═══════════════════════════════════════════════════════════════ */
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { FS } from "../constants/index.js";
 import { gid, fmt, fmt0, r2, _esc, dayName, dayNameFull, openWA } from "../utils/format.js";
 import { playBeep } from "../utils/audio.js";
@@ -22,7 +22,7 @@ import { calculatePending, buildTxFromRule, getNextDueDate, describeRecurrence }
 import { matchWorkshopFromDesc } from "../utils/orders.js";
 import { T } from "../theme.js";
 import { db } from "../firebase";
-import { collection } from "firebase/firestore";
+import { collection, getDocs, doc, setDoc, deleteDoc } from "firebase/firestore";
 
 export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const userName=user?.displayName||(user?.email||"").split("@")[0];
@@ -174,6 +174,105 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     });
     showToast("⚠️ تم إرجاع "+orphans.length+" شيك لحالة معلق (الحركة المرتبطة كانت محذوفة)");
   },[data.checks,data.treasury,data.supplierPayments,upConfig]);
+  /* V19.3 FIX: One-time cleanup of duplicate treasury entries in Firestore.
+     Bug history: V16.80 introduced split day docs (treasuryDays/{YYYY-MM-DD}).
+     If a date-edit operation had the new-day write succeed but the old-day
+     remove fail (no retry — fixed in V19.3 too), the entry persisted in BOTH
+     day docs with the same id. The flatten() dedup (V19.3) hides duplicates
+     in the UI, but Firestore is still polluted. This migration scans all day
+     docs once per session, finds entries appearing in multiple days, keeps the
+     newest version (by updatedAt → createdAt → date), and removes the older
+     copies from their respective day docs.
+     Idempotent: safe to re-run. Runs in background; doesn't block the UI. */
+  const dupCleanupRef=useRef(false);
+  useEffect(()=>{
+    if(dupCleanupRef.current)return;
+    if(!data.treasury||!Array.isArray(data.treasury))return;
+    if(!data._splitDaysV1674Done)return;/* migration only relevant for split mode */
+    dupCleanupRef.current=true;/* lock — runs once per page mount */
+    (async()=>{
+      try{
+        const snap=await getDocs(collection(db,"treasuryDays"));
+        /* Build: id → [{dayKey, entry, idx}] */
+        const idToOccurrences=new Map();
+        snap.forEach(docSnap=>{
+          const dayKey=docSnap.id;
+          const dd=docSnap.data();
+          const entries=Array.isArray(dd?.entries)?dd.entries:[];
+          entries.forEach((e,idx)=>{
+            if(!e||!e.id)return;
+            const id=String(e.id);
+            if(!idToOccurrences.has(id))idToOccurrences.set(id,[]);
+            idToOccurrences.get(id).push({dayKey,entry:e,idx});
+          });
+        });
+        /* Find duplicates (id appears in 2+ different day docs) */
+        const dups=[];
+        for(const[id,occs]of idToOccurrences){
+          const distinctDays=new Set(occs.map(o=>o.dayKey));
+          if(distinctDays.size>=2)dups.push({id,occs});
+        }
+        if(dups.length===0){
+          console.log("[V19.3 cleanup] لا يوجد حركات مكررة — قاعدة البيانات نظيفة ✓");
+          return;
+        }
+        console.warn("[V19.3 cleanup] لقيت "+dups.length+" حركة مكررة في Firestore — هتتنظف...");
+        /* For each dup: pick the WINNER (newest by updatedAt → createdAt → date),
+           remove all OTHER occurrences from their day docs.
+           Group removals by dayKey for efficient batched writes. */
+        const removalsByDay=new Map();/* dayKey → Set<id> */
+        const winnerSummary=[];
+        for(const{id,occs}of dups){
+          /* Score each occurrence: prefer updatedAt, fallback createdAt, fallback date */
+          const scored=occs.map(o=>{
+            const e=o.entry;
+            const ts=e.updatedAt||e.createdAt||e.date||"";
+            return{...o,score:ts};
+          });
+          scored.sort((a,b)=>(b.score||"").localeCompare(a.score||""));
+          const winner=scored[0];
+          const losers=scored.slice(1);
+          winnerSummary.push({id,kept:winner.dayKey,removed:losers.map(l=>l.dayKey)});
+          for(const loser of losers){
+            if(!removalsByDay.has(loser.dayKey))removalsByDay.set(loser.dayKey,new Set());
+            removalsByDay.get(loser.dayKey).add(id);
+          }
+        }
+        /* Apply removals to each affected day doc.
+           Re-read fresh in case anything changed since initial scan. */
+        for(const[dayKey,idsToRemove]of removalsByDay){
+          try{
+            const dayRef=doc(db,"treasuryDays",dayKey);
+            const dayDocs=snap.docs.filter(ds=>ds.id===dayKey);
+            const dayDoc=dayDocs[0];
+            if(!dayDoc)continue;
+            const dd=dayDoc.data();
+            const oldEntries=Array.isArray(dd?.entries)?dd.entries:[];
+            /* Remove ONLY the loser-id entries from THIS day. The winner stays
+               where it is (might or might not be in this day — irrelevant here). */
+            const newEntries=oldEntries.filter(e=>!(e&&e.id&&idsToRemove.has(String(e.id))));
+            if(newEntries.length===0){
+              await deleteDoc(dayRef);
+            }else{
+              await setDoc(dayRef,{
+                entries:newEntries,
+                count:newEntries.length,
+                updatedAt:new Date().toISOString(),
+                _v193DupCleanup:new Date().toISOString(),
+              });
+            }
+          }catch(e){
+            console.error("[V19.3 cleanup] فشل تنظيف يوم "+dayKey+":",e);
+          }
+        }
+        console.log("[V19.3 cleanup] تم تنظيف "+dups.length+" حركة مكررة. التفاصيل:",winnerSummary);
+        showToast("✓ تم تنظيف "+dups.length+" حركة خزنة مكررة من قاعدة البيانات");
+      }catch(e){
+        console.error("[V19.3 cleanup] فشل المسح:",e);
+      }
+    })();
+  },[data._splitDaysV1674Done,data.treasury]);
+
   /* V18.1: Auto-recovery for orphaned treasury accounts.
      Bug: defaults (MAIN CASH / SUB CASH) were rendered virtually only when
      treasuryAccounts was empty. Once a real account got added (e.g. CIB bank),
@@ -602,6 +701,23 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     }
     /* V18.35: capture freshly-built treasury entry for post-commit auto-posting */
     let _newBaseEntry=null;
+    /* V19.3 FIX: For EDITS of plain (non-sourceType) treasury entries, capture the
+       OLD entry BEFORE mutation so we can reverse the original journal entry, then
+       re-post a fresh one based on the new values. Without this, editing the amount/
+       date/category of a treasury entry left a STALE journal entry — a serious
+       accounting bug because reports would show the old numbers. */
+    let _oldEntryForReverse=null;
+    let _editedEntryForRepost=null;
+    if(editId){
+      const _origTx=(data.treasury||[]).find(t=>t.id===editId);
+      if(_origTx&&!_origTx.sourceType){
+        /* Plain treasury entry — eligible for reverse + re-post */
+        _oldEntryForReverse={
+          sourceId:_origTx.id,
+          date:_origTx.date,
+        };
+      }
+    }
     upConfig(d=>{if(!d.treasury)d.treasury=[];
       if(editId){const tx=d.treasury.find(t=>t.id===editId);
         if(tx){
@@ -610,6 +726,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           const oldHrLogId=tx.hrLogId;
           const oldSourceType=tx.sourceType;
           tx.type=txType;tx.amount=amt;tx.desc=finalDesc;tx.notes=txNotes;tx.category=txCategory;tx.account=txAccount;tx.season=txSeason;tx.date=txDate;tx.custId=linkedCustId;tx.supplierId=linkedSupplierId;tx.empId=linkedEmpId;tx.updatedBy=userName;tx.updatedAt=new Date().toISOString();
+          /* V19.3: capture the freshly-mutated tx for journal re-post (only if it was eligible) */
+          if(_oldEntryForReverse&&!tx.sourceType){
+            _editedEntryForRepost={...tx};
+          }
           /* Sync linked wsPayment if exists */
           if(tx.wsPaymentId){const wp=(d.wsPayments||[]).find(p=>p.id===tx.wsPaymentId);if(wp){wp.amount=amt;wp.notes=txNotes;wp.date=txDate;wp.type=txCategory==="مشتريات"?"purchase":"payment"}}
           /* V17.3 FIX: Sync linked hrLog if this was an advance.
@@ -690,6 +810,20 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
        have specific posting rules handled by their own hooks). */
     if(_newBaseEntry && !_newBaseEntry.sourceType){
       autoPost.treasury(data, _newBaseEntry, userName).catch(()=>{});
+    }
+    /* V19.3 FIX: For EDITS of plain treasury entries, reverse the original
+       journal entry then post a fresh one. Sequenced to avoid race conditions:
+       reverse first (uses ORIGINAL date), then post (uses NEW date). Both fire
+       in the background; failures are recorded in accountingPostFailures. */
+    if(_oldEntryForReverse && _editedEntryForRepost){
+      (async()=>{
+        try{
+          await autoPost.reverse(data,"treasury",_oldEntryForReverse.sourceId,_oldEntryForReverse.date,"تعديل حركة خزنة",userName);
+        }catch(e){console.warn("[V19.3] failed to reverse old journal entry:",e?.message||e);}
+        try{
+          await autoPost.treasury(data,_editedEntryForRepost,userName);
+        }catch(e){console.warn("[V19.3] failed to re-post journal entry:",e?.message||e);}
+      })();
     }
     /* V18.52: Sticky mode — keep form open for next entry with same category */
     if(stickyMode && stickyMode.count > 1 && !editId){
