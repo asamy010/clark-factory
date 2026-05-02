@@ -19,7 +19,7 @@ import { Spinner, InlineLoading, Btn, Inp, Sel, SearchSel, Card, useDebounced } 
 import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { calculatePending, buildTxFromRule, getNextDueDate, describeRecurrence } from "../utils/recurring.js";
-import { matchWorkshopFromDesc } from "../utils/orders.js";
+import { matchWorkshopFromDesc, matchPartyFromDesc } from "../utils/orders.js";
 import { T } from "../theme.js";
 import { db } from "../firebase";
 import { collection, getDocs, doc, setDoc, deleteDoc } from "firebase/firestore";
@@ -272,6 +272,106 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       }
     })();
   },[data._splitDaysV1674Done,data.treasury]);
+
+  /* V19.9 FIX: Recovery for orphan party-payment treasury entries.
+     Bug history: from V18.35 (auto-link launched) to V19.8, treasury entries
+     with category="دفعة عميل" / "دفعة مورد" / "مرتبات" only generated their
+     companion records (custPayments / supplierPayments / hrLog) when the user
+     EXPLICITLY picked the party from the inline picker (i.e., txPartyId was
+     set). If the user typed the party name into بيان manually, or somehow
+     saved with txPartyId="", the treasury entry stuck around uncategorized
+     in the customer/supplier/employee subsystems — invisible in:
+     - كشف العميل (customer statement)
+     - "دفعات كاش" total card on the customer dashboard
+     - Any supplier/employee balance views.
+     
+     V19.9 added forward auto-link in saveTx (matchPartyFromDesc). This effect
+     does the BACKWARD pass: scans existing treasury entries, finds orphans
+     (category "دفعة عميل"/"دفعة مورد" with no matching record by treasuryTxId
+     in custPayments/supplierPayments AND no custId/supplierId on the entry),
+     auto-matches by name, and creates the missing payment records.
+     Idempotent: safe to re-run. Skips if no changes are needed. */
+  const partyRecoveryRef=useRef(false);
+  useEffect(()=>{
+    if(partyRecoveryRef.current)return;
+    if(!data.treasury||!Array.isArray(data.treasury))return;
+    if(!Array.isArray(customers)&&!Array.isArray(suppliers))return;
+    /* Wait for both treasury and customers to be loaded */
+    if(customers.length===0&&suppliers.length===0)return;
+    partyRecoveryRef.current=true;/* lock — runs once per page mount */
+    
+    const _custPayTxIds=new Set((data.custPayments||[]).map(p=>p.treasuryTxId).filter(Boolean));
+    const _supPayTxIds=new Set((data.supplierPayments||[]).map(p=>p.treasuryTxId).filter(Boolean));
+    
+    const _orphansToFix=[];
+    (data.treasury||[]).forEach(tx=>{
+      if(!tx||!tx.id)return;
+      /* Skip entries with sourceType — those come from external sources
+         (HR advance, ws_payment, etc.) and have their own linking. */
+      if(tx.sourceType)return;
+      const haystack=((tx.desc||"")+" "+(tx.notes||"")).trim();
+      if(!haystack)return;
+      
+      if(tx.type==="in"&&tx.category==="دفعة عميل"&&!tx.custId&&!_custPayTxIds.has(tx.id)){
+        const m=matchPartyFromDesc(haystack,customers,{minNameLength:3});
+        if(m)_orphansToFix.push({kind:"customer",tx,party:m});
+      } else if(tx.type==="out"&&tx.category==="دفعة مورد"&&!tx.supplierId&&!_supPayTxIds.has(tx.id)){
+        const m=matchPartyFromDesc(haystack,suppliers,{minNameLength:3});
+        if(m)_orphansToFix.push({kind:"supplier",tx,party:m});
+      }
+    });
+    
+    if(_orphansToFix.length===0){
+      console.log("[V19.9 recovery] لا يوجد دفعات يتيمة — جميع الحركات مربوطة ✓");
+      return;
+    }
+    
+    console.warn("[V19.9 recovery] تم العثور على "+_orphansToFix.length+" دفعة يتيمة، جاري الربط:",
+      _orphansToFix.map(o=>({txId:o.tx.id,date:o.tx.date,amt:o.tx.amount,party:o.party.name,kind:o.kind})));
+    
+    upConfig(d=>{
+      if(!d.custPayments)d.custPayments=[];
+      if(!d.supplierPayments)d.supplierPayments=[];
+      const now=new Date().toISOString();
+      _orphansToFix.forEach(({kind,tx,party})=>{
+        if(kind==="customer"){
+          d.custPayments.push({
+            id:gid(),
+            custId:party.id,
+            custName:party.name,
+            amount:Number(tx.amount)||0,
+            date:tx.date,
+            note:tx.notes||tx.desc||"",
+            method:"كاش",
+            by:tx.by||"V19.9-recovery",
+            treasuryTxId:tx.id,
+            createdAt:now,
+            _v199Recovered:now,
+          });
+          /* Also stamp the treasury entry's custId for consistency */
+          const matchTx=d.treasury?.find(t=>t.id===tx.id);
+          if(matchTx)matchTx.custId=party.id;
+        } else if(kind==="supplier"){
+          d.supplierPayments.push({
+            id:gid(),
+            supplierId:party.id,
+            supplierName:party.name,
+            amount:Number(tx.amount)||0,
+            date:tx.date,
+            note:tx.notes||tx.desc||"",
+            method:"كاش",
+            by:tx.by||"V19.9-recovery",
+            treasuryTxId:tx.id,
+            createdAt:now,
+            _v199Recovered:now,
+          });
+          const matchTx=d.treasury?.find(t=>t.id===tx.id);
+          if(matchTx)matchTx.supplierId=party.id;
+        }
+      });
+    });
+    showToast("✓ تم استرجاع "+_orphansToFix.length+" دفعة يتيمة وربطها بالعملاء/الموردين");
+  },[data.treasury,data.custPayments,data.supplierPayments,customers,suppliers,upConfig]);
 
   /* V18.1: Auto-recovery for orphaned treasury accounts.
      Bug: defaults (MAIN CASH / SUB CASH) were rendered virtually only when
@@ -722,6 +822,45 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       _autoLinkedWs=matchWorkshopFromDesc(_haystack,workshops);
       if(_autoLinkedWs)linkedWsName=_autoLinkedWs.name;
     }
+    /* V19.9 FIX: Mirror workshop auto-link for CUSTOMERS/SUPPLIERS/EMPLOYEES.
+       Root cause of "دفعات كاش" card not matching treasury totals:
+       
+       Treasury entries categorized "دفعة عميل" / "دفعة مورد" / "مرتبات" only
+       generate corresponding records in d.custPayments / d.supplierPayments /
+       d.hrLog when `linkedCustId` / `linkedSupplierId` / `linkedEmpId` is set
+       (see lines ~808-820). Those vars are populated ONLY when txPartyId was
+       set at save time — i.e., when the user explicitly picked from the inline
+       picker. If the user typed the party name into بيان manually (or the
+       picker selection was lost between renders), txPartyId is empty → the
+       entry saves with category="دفعة عميل" but custId=null → it appears in
+       the treasury journal but is invisible to:
+       - Customer statement (كشف الحركات)
+       - "دفعات كاش" total card on the customer dashboard (reads custPayments)
+       
+       Workshop entries got an auto-link from desc back in V18.73; customers
+       didn't, until now. This block tries to identify the missing party from
+       the desc/notes haystack via matchPartyFromDesc (substring match with
+       Arabic normalization + ambiguity guard). If matched, we fill in the
+       linked* var so the standard custPayments/supplierPayments/hrLog code
+       below picks it up.
+       
+       Important: We use minNameLength=3 to avoid matching very short customer
+       names (like "أ", "م") that would be substrings of almost any text. */
+    let _autoLinkedParty=null;
+    if(!editId&&!linkedCustId&&!linkedSupplierId&&!linkedEmpId){
+      const _haystack=((finalDesc||"")+" "+(txNotes||"")).trim();
+      if(txType==="in"&&txCategory==="دفعة عميل"&&customers.length>0){
+        const m=matchPartyFromDesc(_haystack,customers,{minNameLength:3});
+        if(m){linkedCustId=m.id;_autoLinkedParty={kind:"customer",name:m.name}}
+      } else if(txType==="out"&&txCategory==="دفعة مورد"&&suppliers.length>0){
+        const m=matchPartyFromDesc(_haystack,suppliers,{minNameLength:3});
+        if(m){linkedSupplierId=m.id;_autoLinkedParty={kind:"supplier",name:m.name}}
+      } else if(txType==="out"&&txCategory==="مرتبات"&&Array.isArray(data.employees)){
+        const _emps=(data.employees||[]).filter(e=>!e.inactive);
+        const m=matchPartyFromDesc(_haystack,_emps,{minNameLength:3});
+        if(m){linkedEmpId=m.id;_autoLinkedParty={kind:"employee",name:m.name}}
+      }
+    }
     /* V18.35: capture freshly-built treasury entry for post-commit auto-posting */
     let _newBaseEntry=null;
     /* V19.3 FIX: For EDITS of plain (non-sourceType) treasury entries, capture the
@@ -876,7 +1015,15 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       else if(stickyMode.category==="دفعة مورد")setTxPartyType("supplier");
       else if(stickyMode.category==="تشغيل خارجي")setTxPartyType("workshop");
       else if(stickyMode.category==="مرتبات")setTxPartyType("employee");
-      showToast("✓ حُفظ — متبقي "+newCount+" حركة");
+      /* V19.9: warn in sticky mode if the entry just saved had no party link.
+         These warnings stack on top of the count update so the user notices
+         immediately and can decide to edit/delete that specific entry. */
+      let _stickyWarn="";
+      if(txType==="in"&&txCategory==="دفعة عميل"&&!linkedCustId){_stickyWarn="⚠ بدون ربط بعميل — ";}
+      else if(txType==="out"&&txCategory==="دفعة مورد"&&!linkedSupplierId){_stickyWarn="⚠ بدون ربط بمورد — ";}
+      else if(txType==="out"&&txCategory==="مرتبات"&&!linkedEmpId){_stickyWarn="⚠ بدون ربط بموظف — ";}
+      else if(_autoLinkedParty){_stickyWarn="✓ ربط تلقائي بـ"+_autoLinkedParty.name+" — ";}
+      showToast((_stickyWarn||"✓ حُفظ — ")+"متبقي "+newCount+" حركة");
       return;
     }
     /* If sticky finished, clear the mode */
@@ -886,9 +1033,22 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     } else if(_autoLinkedWs){
       /* V18.72: silent auto-link toast */
       showToast("✓ ربط تلقائي بورشة "+_autoLinkedWs.name);
+    } else if(_autoLinkedParty){
+      /* V19.9: silent auto-link toast for customer/supplier/employee */
+      const _kindAr=_autoLinkedParty.kind==="customer"?"عميل":_autoLinkedParty.kind==="supplier"?"مورد":"موظف";
+      showToast("✓ ربط تلقائي بـ"+_kindAr+" "+_autoLinkedParty.name);
     } else if(_autoLinkAttempted&&!linkedWsName){
       /* V18.73: workshop-category entry was saved unlinked. */
       showToast("⚠ حُفظ بدون ربط بورشة — لن يظهر في كشف الحساب");
+    } else if(txType==="in"&&txCategory==="دفعة عميل"&&!linkedCustId){
+      /* V19.9: customer-payment entry saved without a customer link.
+         Warn loudly because the entry won't appear in customer statements
+         or the "دفعات كاش" total — a major source of recent confusion. */
+      showToast("⚠ حُفظ بدون ربط بعميل — لن يظهر في كشف العميل أو دفعات كاش");
+    } else if(txType==="out"&&txCategory==="دفعة مورد"&&!linkedSupplierId){
+      showToast("⚠ حُفظ بدون ربط بمورد — لن يظهر في كشف المورد");
+    } else if(txType==="out"&&txCategory==="مرتبات"&&!linkedEmpId){
+      showToast("⚠ حُفظ بدون ربط بموظف — راجع الحركة");
     } else {
       showToast("✓ تم الحفظ");
     }

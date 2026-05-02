@@ -652,6 +652,40 @@ export function matchWorkshopFromDesc(desc, workshops){
   return allContained?longest:null;
 }
 
+/* V19.9: Generic party matcher — for customers/suppliers/employees.
+   Same logic as matchWorkshopFromDesc but works on any list of {id,name} items.
+   Returns the unambiguous match or null when ambiguous/no-match.
+   
+   Use case: when user fills a treasury entry's بيان field with a customer name
+   (e.g. "دفعة من مكتب الرائد") without selecting from the dropdown picker, this
+   helper auto-matches the party by name. Without it, treasury entries get
+   saved as "دفعة عميل" (category) but with no custId — invisible in customer
+   statements and the cash-payment summary card. */
+export function matchPartyFromDesc(desc, parties, opts){
+  if(!desc||typeof desc!=="string")return null;
+  if(!Array.isArray(parties)||parties.length===0)return null;
+  /* opts.minNameLength: skip parties with very short names (e.g. "أ") to avoid
+     false positives — defaults to 3 chars after normalization. */
+  const minLen=(opts&&opts.minNameLength!=null)?opts.minNameLength:3;
+  const descN=normalizeAr(desc);
+  const matches=[];
+  for(const p of parties){
+    if(!p||!p.name)continue;
+    const name=p.name.trim();
+    if(!name)continue;
+    const nameN=normalizeAr(name);
+    if(!nameN||nameN.length<minLen)continue;
+    if(descN.includes(nameN))matches.push(p);
+  }
+  if(matches.length===0)return null;
+  if(matches.length===1)return matches[0];
+  matches.sort((a,b)=>b.name.length-a.name.length);
+  const longest=matches[0];
+  const longestN=normalizeAr(longest.name);
+  const allContained=matches.slice(1).every(m=>longestN.includes(normalizeAr(m.name)));
+  return allContained?longest:null;
+}
+
 /* V19.0: Per-piece progress in current stage.
    Returns breakdown of how each garment piece is progressing in the order's current stage.
 
