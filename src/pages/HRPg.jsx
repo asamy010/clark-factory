@@ -4562,6 +4562,36 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                   </div>
                   <div style={{height:8,borderRadius:4,background:T.bg,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:statusColor,transition:"width 0.3s"}}/></div>
                 </div>
+                {/* V19.22: Payment history — shows every paidWeekId with details (auto vs manual, partial vs full) */}
+                {(d.paidWeekIds||[]).length>0&&<div style={{marginBottom:10,padding:10,borderRadius:8,background:T.bg,border:"1px solid "+T.brd}}>
+                  <div style={{fontSize:FS-2,fontWeight:700,marginBottom:6,color:T.textSec}}>📋 سجل الدفعات ({(d.paidWeekIds||[]).length})</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    {(d.paidWeekIds||[]).map((wid,wi)=>{
+                      const isManual=String(wid).startsWith("manual_");
+                      const manualInfo=isManual?(d.manualInstallments||{})[wid]:null;
+                      const week=!isManual?hrWeeks.find(w=>w.id===wid):null;
+                      const partial=(d.partialPayments||{})[wid];
+                      const amount=partial?Number(partial.paid)||0:(manualInfo?Number(manualInfo.amount)||0:Number(d.perWeek)||0);
+                      return<div key={wi} style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",padding:"5px 0",borderBottom:wi<(d.paidWeekIds.length-1)?"1px dashed "+T.brd:"none",fontSize:FS-2}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontWeight:700,color:isManual?T.warn:T.text}}>
+                            {isManual?"✋ يدوي":("📅 أسبوع W"+(week?.weekNum||"?"))}
+                          </div>
+                          <div style={{fontSize:FS-3,color:T.textMut}}>
+                            {isManual?(manualInfo?.date||"—"):(week?(week.weekStart+" → "+week.weekEnd):"غير معروف")}
+                          </div>
+                          {isManual&&manualInfo?.note&&<div style={{fontSize:FS-3,color:T.textSec,marginTop:2,fontStyle:"italic"}}>{manualInfo.note}</div>}
+                          {partial?.shortage&&<div style={{fontSize:FS-3,color:T.warn,marginTop:2}}>⚠️ ناقص {fmt0(partial.shortage)} ج — تم تمديد الأقساط</div>}
+                        </div>
+                        <div style={{fontWeight:800,color:T.ok,whiteSpace:"nowrap",marginInlineStart:8}}>+{fmt0(amount)} ج</div>
+                      </div>;
+                    })}
+                  </div>
+                </div>}
+                {/* V19.22: Helpful hint shown only when no payments yet — explains the auto-deduction model */}
+                {(d.paidWeekIds||[]).length===0&&d.status==="active"&&<div style={{marginBottom:10,padding:8,borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"25",fontSize:FS-3,color:T.textSec,lineHeight:1.6}}>
+                  💡 الأقساط بتنزل تلقائياً مع كل إقفال أسبوع — بشرط: المديونية موجودة قبل الإقفال + بداية الأسبوع بعد أو يساوي تاريخ بداية المديونية ({d.startDate}). للحالات الاستثنائية استخدم زر "+ قسط مدفوع" أدناه.
+                </div>}
                 {canEdit&&d.status==="active"&&<div style={{display:"flex",gap:6,justifyContent:"flex-end",flexWrap:"wrap"}}>
                   <Btn small onClick={()=>{setManualInstallFor({debtId:d.id,empId:showEmpDebts,perWeek:d.perWeek});setManualInstallDate(today);setManualInstallNote("")}} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",fontSize:FS-2}} title="تسجيل قسط مدفوع يدوياً">+ قسط مدفوع</Btn>
                   <Btn small onClick={()=>{setDebtTitle(d.title);setDebtTotal(String(d.total));setDebtInstallments(String(d.installments));setDebtPerWeek(String(d.perWeek));setDebtStart(d.startDate||today);setDebtNotes(d.notes||"");setShowEmpDebts(null);setShowDebtForm({empId:showEmpDebts,debtId:d.id})}} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd,fontSize:FS-2}}>✏️ تعديل</Btn>
