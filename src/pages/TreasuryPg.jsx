@@ -689,7 +689,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const saveTx=()=>{
     /* V19.4 FIX: Double-click protection — bail out if a save is already in flight */
     if(savingTx)return;
-    const amt=parseFloat(txAmount);if(!amt||amt<=0){playBeep("error");return}
+    /* V19.7 FIX: Validation failures used to play just a beep with NO visible message,
+       making users think "I pressed save but nothing happened — is the form broken?"
+       Especially in sticky mode, where they'd then report "fields didn't clear after save"
+       (when in reality save was silently rejected). Adding a toast on each rejection. */
+    const amt=parseFloat(txAmount);if(!amt||amt<=0){playBeep("error");showToast("⛔ المبلغ مطلوب — اكتب قيمة أكبر من صفر");return}
     /* Block save on locked day unless admin */
     if(isDayLocked(txDate)&&!isAdmin){playBeep("error");showToast("⛔ اليوم "+txDate+" مقفول — للمدير فقط");return}
     /* V19.4: Lock the button now that we've passed all early-return validations */
