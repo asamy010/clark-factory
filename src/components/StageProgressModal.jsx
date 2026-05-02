@@ -56,9 +56,11 @@ export function StageProgressModal({order,onClose}){
     overflowY:"auto",
   }}>
     <div onClick={e=>e.stopPropagation()} style={{
-      /* V19.20: Increased opacity for better readability — was 12/08/35, now 22/18/55 */
-      background:grad.from+"22",
-      border:"1px solid "+grad.from+"55",
+      /* V19.21: White card + thin colored border (variant B). Replaces the soft tinted
+         look from V19.18-V19.20. White background = maximum readability; the stage
+         identity is preserved through the 2px colored border + colored pill + colored %. */
+      background:T.cardSolid,
+      border:"2px solid "+grad.from,
       borderRadius:16,
       width:"100%",maxWidth:480,
       boxShadow:"0 20px 50px rgba(0,0,0,0.18)",
@@ -66,27 +68,27 @@ export function StageProgressModal({order,onClose}){
       maxHeight:"calc(100vh - 48px)",
       display:"flex",flexDirection:"column",
     }}>
-      {/* V19.20: Header — slightly stronger tint than body for visual hierarchy */}
+      {/* V19.21: Header — white background, normal text colors, separated by light border */}
       <div style={{
         padding:"16px 20px",
-        background:grad.from+"18",
-        borderBottom:"1px solid "+grad.from+"40",
+        background:T.cardSolid,
+        borderBottom:"1px solid "+T.brd,
       }}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:FS+2,fontWeight:900,display:"flex",alignItems:"center",gap:8,marginBottom:4,color:grad.to}}>
+            <div style={{fontSize:FS+2,fontWeight:900,display:"flex",alignItems:"center",gap:8,marginBottom:4,color:T.text}}>
               <span>📦</span>
               <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
                 {order.poNumber?order.poNumber+" — ":""}{order.modelNo}
               </span>
             </div>
-            {order.modelDesc&&<div style={{fontSize:FS-2,color:grad.to,opacity:0.75}}>{order.modelDesc}</div>}
+            {order.modelDesc&&<div style={{fontSize:FS-2,color:T.textSec}}>{order.modelDesc}</div>}
           </div>
           <span onClick={onClose} style={{
             cursor:"pointer",
             width:28,height:28,borderRadius:"50%",
-            background:"rgba(255,255,255,0.85)",color:grad.to,
-            border:"1px solid "+grad.from+"30",
+            background:T.bg,color:T.textSec,
+            border:"1px solid "+T.brd,
             display:"flex",alignItems:"center",justifyContent:"center",
             fontSize:14,fontWeight:700,flexShrink:0,
           }}>✕</span>
@@ -95,9 +97,9 @@ export function StageProgressModal({order,onClose}){
           <span style={{
             display:"inline-flex",alignItems:"center",gap:5,
             padding:"5px 12px",borderRadius:20,
-            background:"rgba(255,255,255,0.85)",
+            background:grad.from+"15",
             color:grad.to,
-            border:"1px solid "+grad.from+"30",
+            border:"1px solid "+grad.from+"40",
             fontSize:FS-1,fontWeight:800,
           }}>
             <span>{grad.icon}</span>
@@ -105,7 +107,7 @@ export function StageProgressModal({order,onClose}){
           </span>
           {prog.hasBreakdown&&prog.overall&&<span style={{
             fontSize:FS+8,fontWeight:900,marginInlineStart:"auto",lineHeight:1,
-            color:grad.to,
+            color:grad.from,
           }}>{prog.overall.pct}%</span>}
         </div>
       </div>

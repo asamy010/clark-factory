@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.21",
+    date: "2026-05-02",
+    types: ["improvement"],
+    title: "🎨 popup المرحلة: تصميم أبيض نظيف بإطار ملوّن",
+    changes: [
+      { type: "improvement", text: "🎨 تغيير تصميم popup مرحلة الأوردر (StageProgressModal) لتصميم أبيض كامل (variant B). الخلفية بيضا 100% بدون شفافية، إطار 2px بلون المرحلة الكامل (أصفر للتشغيل، أحمر للطباعة، إلخ)، نصوص بألوان عادية (T.text/T.textSec) للوضوح الأقصى." },
+      { type: "improvement", text: "🏷 الـ pill بتاع المرحلة لسه ملوّن (15% alpha + لون داكن للنص + إطار 40% alpha)، والـ% الكبير لسه بلون المرحلة. الهوية البصرية محفوظة بدون ضوضاء على القراءة." },
+      { type: "improvement", text: "🔘 زر الإغلاق ✕ دلوقتي بخلفية رمادي محايد بدل ما كان بلون المرحلة — أنظف وأوضح إنه زر إغلاق." },
+    ]
+  },
+  {
     version: "V19.20",
     date: "2026-05-02",
     types: ["fix", "feature"],
@@ -145,17 +156,6 @@ const CHANGELOG = [
     changes: [
       { type: "feature", text: "🏦 أضفت select 'الخزنة' في فورم تسجيل الدفعة من كشف حساب العميل. بدل ما كانت بتروح SUB CASH افتراضياً (وغير قابل للتغيير)، دلوقتي القائمة بتعرض كل حسابات الخزنة المتاحة. الافتراضي MAIN CASH." },
       { type: "fix", text: "👻 (Tombstone pattern): الحركات المحذوفة كانت ممكن ترجع تظهر بسبب V19.9 recovery أو V18.64 fallback. الإصلاح: لما تحذف دفعة، الـtreasury ID بيتسجل في `_deletedCustPayTreasuryIds` (max 200). الـrecovery + الـfallback دلوقتي بيتجاهلوا الـIDs دي نهائياً." },
-    ]
-  },
-  {
-    version: "V19.10",
-    date: "2026-05-02",
-    types: ["fix"],
-    title: "🚨 [hotfix] إصلاح خطأ 'Cannot access ie before initialization' في صفحة الخزنة",
-    changes: [
-      { type: "fix", text: "🐛 المشكلة: بعد رفع V19.9، صفحة الخزنة كانت بتفتح على شاشة خطأ 'حدث خطأ غير متوقع — Cannot access ie before initialization'. السبب: الـ recovery useEffect الجديد (سطر 294) كان بيستخدم المتغيرات `customers` و `suppliers` اللي متعرفين في سطر 422-423 (يعني بعدين). في الـ minified bundle، ده بيسبب JavaScript Temporal Dead Zone error — `const` لا يمكن الوصول له قبل تعريفه في نفس الـscope." },
-      { type: "fix", text: "✅ الإصلاح: استبدلت `customers` و `suppliers` داخل الـ useEffect بـ `data.customers` و `data.suppliers` مباشرة (data prop متاح فوراً، مفيش TDZ). الـdependency array اتحدّث هو كمان. الـbug ده كان مخفي في الـdev environment (no minification) ومظهر فقط في الـproduction build على Vercel." },
-      { type: "fix", text: "📋 ملاحظة: V19.9 كانت فيها 3 إصلاحات حرجة لربط دفعات العملاء/الموردين (auto-link + recovery migration + warning toasts). V19.10 hotfix بس بيصلح الـTDZ error بدون أي تغيير في المنطق — كل ميزات V19.9 شغالة كما هي بمجرد ما الصفحة تفتح." },
     ]
   },
 ];
