@@ -6824,10 +6824,24 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     {/* ══ MONTHLY SUMMARY ══ */}
     {view==="monthlySummary"&&(()=>{
       const monthlyEmps=activeEmps.filter(e=>(e.salaryType||"weekly")==="monthly");
-      const mStart=selMonth+"-01";
-      const mEndDate=new Date(Number(selMonth.slice(0,4)),Number(selMonth.slice(5,7)),0);
-      const mEnd=selMonth+"-"+String(mEndDate.getDate()).padStart(2,"0");
-      const mDays=mEndDate.getDate();
+      /* V19.18: Custom salary cycle start day — saved at data.salaryCycleStartDay (1-28).
+         Default 1 = calendar month (1st → last day). Custom (e.g. 5) = the cycle for selMonth
+         runs from selMonth-05 to nextMonth-04. Capped at 28 so February doesn't break. */
+      const startDay=Math.max(1,Math.min(28,Number(data.salaryCycleStartDay)||1));
+      const [_selY,_selM]=selMonth.split("-").map(Number);
+      let mStart,mEnd,mDays;
+      if(startDay===1){
+        mStart=selMonth+"-01";
+        const _last=new Date(_selY,_selM,0).getDate();
+        mEnd=selMonth+"-"+String(_last).padStart(2,"0");
+        mDays=_last;
+      }else{
+        mStart=selMonth+"-"+String(startDay).padStart(2,"0");
+        const _nY=_selM===12?_selY+1:_selY;
+        const _nM=_selM===12?1:_selM+1;
+        mEnd=_nY+"-"+String(_nM).padStart(2,"0")+"-"+String(startDay-1).padStart(2,"0");
+        mDays=Math.round((new Date(mEnd)-new Date(mStart))/(1000*60*60*24))+1;
+      }
 
       const rows=monthlyEmps.map(e=>{
         /* V15.82: Match calcSalary's proven advance filter logic (line ~939).
@@ -6859,10 +6873,24 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       return<div>
         {/* Month selector */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
             <span style={{fontSize:FS,fontWeight:700,color:T.textSec}}>الشهر:</span>
             <input type="month" value={selMonth} onChange={e=>setSelMonth(e.target.value)} style={{padding:"6px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.inputBg,color:T.text}}/>
-            <span style={{fontSize:FS-2,color:T.textMut}}>{"("+mDays+" يوم)"}</span>
+            {/* V19.18: salary cycle start day */}
+            <span style={{display:"inline-flex",alignItems:"center",gap:6,paddingInlineStart:10,marginInlineStart:4,borderInlineStart:"1px dashed "+T.brd}}>
+              <span style={{fontSize:FS-2,fontWeight:700,color:T.accent}}>يبدأ من يوم:</span>
+              <input
+                type="number" min={1} max={28} value={startDay}
+                onChange={e=>{
+                  const v=Math.max(1,Math.min(28,Number(e.target.value)||1));
+                  upConfig(d=>{d.salaryCycleStartDay=v});
+                }}
+                style={{width:60,padding:"6px 10px",borderRadius:8,border:"1px solid "+(startDay!==1?T.accent:T.brd),fontSize:FS,fontFamily:"inherit",background:T.inputBg,color:T.text,textAlign:"center"}}
+                title="يوم بداية دورة المرتبات (1 = الشهر التقويمي العادي)"/>
+            </span>
+            <span style={{fontSize:FS-2,color:startDay!==1?T.accent:T.textMut,fontWeight:startDay!==1?700:400}}>
+              {startDay===1?"("+mDays+" يوم)":"("+mStart+" → "+mEnd+" · "+mDays+" يوم)"}
+            </span>
           </div>
           <Btn small onClick={printMonthly} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة</Btn>
         </div>

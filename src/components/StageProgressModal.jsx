@@ -50,38 +50,45 @@ export function StageProgressModal({order,onClose}){
   const isPartialStock=stage==="في مخزن الجاهز جزئي";
 
   return <div onClick={(e)=>{if(e.target===e.currentTarget)onClose()}} style={{
-    position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10001,
-    display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"24px 16px",
+    position:"fixed",inset:0,background:"rgba(15,23,42,0.4)",zIndex:10001,
+    display:"flex",alignItems:"center",justifyContent:"center",padding:"24px 16px",
     backdropFilter:"blur(3px)",
     overflowY:"auto",
   }}>
     <div onClick={e=>e.stopPropagation()} style={{
-      background:T.cardSolid,borderRadius:16,
+      /* V19.18: soft tinted background using stage color (~7% alpha)
+         instead of the previous bright gradient banner. Header now blends
+         smoothly into the body — no harsh color block. */
+      background:grad.from+"12",
+      border:"1px solid "+grad.from+"35",
+      borderRadius:16,
       width:"100%",maxWidth:480,
-      boxShadow:"0 25px 70px rgba(0,0,0,0.25)",
+      boxShadow:"0 20px 50px rgba(0,0,0,0.18)",
       overflow:"hidden",
-      marginTop:40,
+      maxHeight:"calc(100vh - 48px)",
+      display:"flex",flexDirection:"column",
     }}>
-      {/* Header — gradient banner with stage info */}
+      {/* V19.18: Header — soft tinted, dark text in stage color (variant B) */}
       <div style={{
         padding:"16px 20px",
-        background:"linear-gradient(135deg, "+grad.from+", "+grad.to+")",
-        color:"#fff",
+        background:grad.from+"08",
+        borderBottom:"1px solid "+grad.from+"25",
       }}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:FS+2,fontWeight:900,display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+            <div style={{fontSize:FS+2,fontWeight:900,display:"flex",alignItems:"center",gap:8,marginBottom:4,color:grad.to}}>
               <span>📦</span>
               <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
                 {order.poNumber?order.poNumber+" — ":""}{order.modelNo}
               </span>
             </div>
-            {order.modelDesc&&<div style={{fontSize:FS-2,opacity:0.9}}>{order.modelDesc}</div>}
+            {order.modelDesc&&<div style={{fontSize:FS-2,color:grad.to,opacity:0.75}}>{order.modelDesc}</div>}
           </div>
           <span onClick={onClose} style={{
             cursor:"pointer",
             width:28,height:28,borderRadius:"50%",
-            background:"rgba(255,255,255,0.2)",color:"#fff",
+            background:"rgba(255,255,255,0.7)",color:grad.to,
+            border:"1px solid "+grad.from+"30",
             display:"flex",alignItems:"center",justifyContent:"center",
             fontSize:14,fontWeight:700,flexShrink:0,
           }}>✕</span>
@@ -90,7 +97,9 @@ export function StageProgressModal({order,onClose}){
           <span style={{
             display:"inline-flex",alignItems:"center",gap:5,
             padding:"5px 12px",borderRadius:20,
-            background:"rgba(255,255,255,0.2)",
+            background:"rgba(255,255,255,0.7)",
+            color:grad.to,
+            border:"1px solid "+grad.from+"30",
             fontSize:FS-1,fontWeight:800,
           }}>
             <span>{grad.icon}</span>
@@ -98,9 +107,12 @@ export function StageProgressModal({order,onClose}){
           </span>
           {prog.hasBreakdown&&prog.overall&&<span style={{
             fontSize:FS+8,fontWeight:900,marginInlineStart:"auto",lineHeight:1,
+            color:grad.to,
           }}>{prog.overall.pct}%</span>}
         </div>
       </div>
+      {/* V19.18: scrollable body wrapper so the modal never overflows the viewport */}
+      <div style={{overflowY:"auto",flex:1}}>
 
       {/* Body */}
       {isCancelled?<div style={{padding:"30px 20px",textAlign:"center"}}>
@@ -179,6 +191,7 @@ export function StageProgressModal({order,onClose}){
           </div>;
         })}
       </div>}
+      </div>{/* V19.18: end scrollable body wrapper */}
 
       {/* Footer */}
       {prog.hasBreakdown&&prog.weakest&&<div style={{

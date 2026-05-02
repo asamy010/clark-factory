@@ -481,6 +481,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[filterAcc,setFilterAcc]=useState(()=>{const accs=rawAccounts.length>0?rawAccounts:["MAIN CASH","SUB CASH"];const sub=accs.find(a=>{const n=typeof a==="string"?a:a.name||a.id;return n.toUpperCase().includes("SUB")});return sub?(typeof sub==="string"?sub:sub.name||"SUB CASH"):"SUB CASH"});
   const[filterMonth,setFilterMonth]=useState("");
   const[filterDay,setFilterDay]=useState("");
+  /* V19.18: date-range filter — when either filterFrom or filterTo is set,
+     it overrides filterMonth/filterDay and shows entries in the inclusive range. */
+  const[filterFrom,setFilterFrom]=useState("");
+  const[filterTo,setFilterTo]=useState("");
   const[filterSearch,setFilterSearch]=useState("");const filterSearchDeb=useDebounced(filterSearch,250);
   const[limit,setLimit]=useState(50);
   /* View */
@@ -758,6 +762,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   if(filterAcc!=="الكل")filtered=filtered.filter(t=>(t.account||"MAIN CASH")===filterAcc);
   if(filterMonth)filtered=filtered.filter(t=>(t.date||"").startsWith(filterMonth));
   if(filterDay)filtered=filtered.filter(t=>t.date===filterDay);
+  /* V19.18: date-range filter — applied on top of (or independently from) month/day. */
+  if(filterFrom)filtered=filtered.filter(t=>(t.date||"")>=filterFrom);
+  if(filterTo)filtered=filtered.filter(t=>(t.date||"")<=filterTo);
   /* V15.82: Arabic-aware search.
      - Normalizes diacritics (tashkeel), tatweel, alef variants, ya, and ta-marbuta
      - Matches on party name (employee/customer/supplier/workshop) via ID lookup
@@ -2251,6 +2258,12 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           <div><div style={{fontSize:FS-3,color:T.textSec,fontWeight:600,marginBottom:2}}>الشهر</div><Inp type="month" value={filterMonth} onChange={v=>{setFilterMonth(v);setFilterDay("")}} style={{width:130}}/></div>
           <div><div style={{fontSize:FS-3,color:T.textSec,fontWeight:600,marginBottom:2}}>اليوم</div><Inp type="date" value={filterDay} onChange={v=>{setFilterDay(v);setFilterMonth("")}} style={{width:130}}/></div>
           {(filterMonth||filterDay)&&<Btn small ghost onClick={()=>{setFilterMonth("");setFilterDay("")}} style={{marginBottom:2}}>✕</Btn>}
+          {/* V19.18: من تاريخ — إلى تاريخ. لو تم تحديدهم، بيشتغلوا فوق الفلاتر التانية. */}
+          <div style={{display:"flex",gap:6,paddingInlineStart:8,marginInlineStart:4,borderInlineStart:"1px dashed "+T.brd}}>
+            <div><div style={{fontSize:FS-3,color:T.accent,fontWeight:700,marginBottom:2}}>من تاريخ</div><Inp type="date" value={filterFrom} onChange={setFilterFrom} style={{width:130,borderColor:filterFrom?T.accent:undefined}}/></div>
+            <div><div style={{fontSize:FS-3,color:T.accent,fontWeight:700,marginBottom:2}}>إلى تاريخ</div><Inp type="date" value={filterTo} onChange={setFilterTo} style={{width:130,borderColor:filterTo?T.accent:undefined}}/></div>
+            {(filterFrom||filterTo)&&<Btn small ghost onClick={()=>{setFilterFrom("");setFilterTo("")}} style={{marginBottom:2}} title="مسح المدى">✕</Btn>}
+          </div>
           <div style={{flex:isMob?1:"0 0 auto"}}><div style={{fontSize:FS-3,color:T.textSec,fontWeight:600,marginBottom:2}}>بحث</div><Inp value={filterSearch} onChange={setFilterSearch} placeholder="🔍 بيان / ملاحظات..." style={{width:isMob?"100%":160}}/></div>
           {filterSearch&&<Btn small ghost onClick={()=>setFilterSearch("")} style={{marginBottom:2}}>✕</Btn>}
           {/* V15.44: Print-filtered button — always visible, prints whatever is currently shown */}
@@ -2262,6 +2275,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             if(filterAcc&&filterAcc!=="الكل")parts.push("الحساب: "+filterAcc);
             if(filterDay)parts.push("اليوم: "+filterDay);
             else if(filterMonth)parts.push("الشهر: "+filterMonth);
+            if(filterFrom||filterTo)parts.push("المدى: "+(filterFrom||"البداية")+" ← "+(filterTo||"اليوم"));
             if(filterSearch.trim())parts.push("بحث: "+filterSearch.trim());
             const summary=parts.length>0?parts.join(" • "):"كل الحركات";
             /* Special case: single day with no other filters → use richer daily report (has opening/closing balance) */
@@ -2271,7 +2285,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
 
           {/* V16.20: compact filtered totals — inline with filters, only shown when any filter is active */}
           {(()=>{
-            const filterActive=filterType!=="الكل"||filterCat!=="الكل"||filterAcc!=="الكل"||filterMonth||filterDay||filterSearchDeb;
+            const filterActive=filterType!=="الكل"||filterCat!=="الكل"||filterAcc!=="الكل"||filterMonth||filterDay||filterFrom||filterTo||filterSearchDeb;
             if(!filterActive)return null;
             const fIn=filtered.filter(t=>t.type==="in").reduce((s,t)=>s+(Number(t.amount)||0),0);
             const fOut=filtered.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0);
