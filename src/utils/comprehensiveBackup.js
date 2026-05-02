@@ -317,8 +317,9 @@ export async function createComprehensiveBackup({ label, user, onProgress, autoG
       usersList: (factoryConfig.usersList || []).length,
       ordersTotal: Object.values(counts.ordersBySeason || {}).reduce((s, n) => s + n, 0),
     },
-    errors: errors.length > 0 ? errors : undefined,
   };
+  /* V19.2: Conditionally include errors field — Firestore rejects undefined values */
+  if (errors.length > 0) metadata.errors = errors;
   await setDoc(doc(db, "backups", backupId), metadata);
   progress("✅ تم — " + backupId);
 
