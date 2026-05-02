@@ -25,6 +25,22 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.15",
+    date: "2026-05-02",
+    types: ["architectural", "feature"],
+    title: "🏗️ Online-only mode + شريط قراءة فقط + لوحة نشاط الفريق",
+    changes: [
+      { type: "architectural", text: "🚨 قرار معماري كبير: ألغينا فكرة العمل أوفلاين خالص. الدافع: race conditions على `factory/config` لما 2 موظفين يعدّلوا في نفس الوقت (آخر كتابة بتمسح اللي قبلها). بدل ما نبني tombstones وrecovery effects للأبد، أبسط حل = نمنع الكتابة لما الجهاز أوفلاين. القراءة شغالة دايماً من الـcache." },
+      { type: "feature", text: "⛔ كل الـwrite functions (upConfig، upSales، upTasks) دلوقتي بيرفضوا التعديل لما `isOnlineRef.current === false` ويعرضوا toast: «أنت أوفلاين دلوقتي — التعديل مش متاح لحد ما النت يرجع». استخدمت `isOnlineRef` (بدل isOnline state) عشان مايضطرش الـuseCallback يعيد البناء كل مرة الاتصال يتقطع." },
+      { type: "feature", text: "📜 شريط قراءة فقط: لما تكون أوفلاين، شريط أصفر-كرامل بيظهر تحت التوب بار: «وضع قراءة فقط · مفيش تعديل لحد ما الإنترنت يرجع». لو في توقيت مزامنة سابق، بيظهر على اليسار: «آخر مزامنة من X دقيقة»." },
+      { type: "improvement", text: "🟢 تحديث الـpill في التوب بار: «● متصل» تبقى أخضر، أوفلاين تبقى «⊘ أوفلاين · قراءة فقط» بلون كرامل (مش أحمر — لإن البرنامج لسه شغال للـبراوزر، مش معطل)." },
+      { type: "feature", text: "⏱ pill «مزامنة من X»: timestamp آخر كتابة ناجحة على السيرفر (محفوظ في localStorage). بيتحدث كل 30 ثانية. مفيد لتعرف إن البيانات في الجهاز فعلاً متطابقة مع السيرفر." },
+      { type: "feature", text: "👥 لوحة «نشاط الفريق» (للمدير فقط): زر جديد في التوب بار يفتح modal بيعرض كل الموظفين وآخر نشاط لكل واحد. الحدود: 🟢 آخر 5 د، 🟡 آخر ساعة، 🔴 من ساعة فأكثر. الحساب من `data.auditLog` المباشرة — مفيش كتابات إضافية على Firestore (ما اخترناش heartbeat لأنه كان هيكلف 17K write/يوم لـ 6 موظفين). نقطة حمرا على الزر لو في موظف ساكت من ساعة." },
+      { type: "feature", text: "✅ markSynced(): الـtimestamp بيتحدث في 3 مواضع: (1) بعد setDoc الناجح في upConfigTx، (2) بعد runTransaction الناجح في upSalesTx، (3) ونفس الكلام في upTasksTx. لو الـwrite فشلت، الـtimestamp مايتحدثش = المستخدم يشوف إن المزامنة قديمة." },
+      { type: "maintenance", text: "🆕 ملف جديد: `src/components/TeamActivityModal.jsx`. Export `default TeamActivityModal` + helper `computeTeamActivity(data, currentUserName)`. الـhelper مستخدم في App.jsx لتحديد ظهور النقطة الحمرا على زر الفريق." },
+    ]
+  },
+  {
     version: "V19.14",
     date: "2026-05-02",
     types: ["fix", "improvement"],
@@ -123,18 +139,6 @@ const CHANGELOG = [
     title: "🧹 وضع التكرار: تفريغ كل الحقول غير المثبتة بعد الحفظ",
     changes: [
       { type: "fix", text: "🐛 في sticky mode، حقل 'حساب جاري' و'الموسم' كانوا بيفضلوا بقيمتهم. أضفت setTxAccount + setTxSeason للـreset block. النتيجة: المتبقي المثبت بس هو نوع الحركة + التاريخ المثبت — أي حاجة تانية بترجع للافتراضي بعد كل حفظ." },
-    ]
-  },
-  {
-    version: "V19.5",
-    date: "2026-05-02",
-    types: ["improvement"],
-    title: "📐 تصغير حجم كروت الصفحة الرئيسية (ديسكتوب) مع الحفاظ على الأيقونات",
-    changes: [
-      { type: "improvement", text: "🎯 المطلوب من المستخدم: تصغير الزر الأبيض للنص في الصفحة الرئيسية مع الحفاظ على حجم الأيقونة الداخلية، المسافات بين الكروت (طولياً وعرضياً)، والشكل المربع." },
-      { type: "improvement", text: "🔧 التغيير: في App.jsx grid template للـtabs على الديسكتوب اتغير من `repeat(6, 1fr)` لـ `repeat(6, minmax(0, 130px))` (وعلى التابلت من `repeat(4, 1fr)` لـ `repeat(4, minmax(0, 130px))`). أضفت `justifyContent: 'center'` على الـgrid container عشان يتمركز بدل ما يلتصق على جنب." },
-      { type: "improvement", text: "✅ المحفوظ كما هو: gap = 24px (المسافات بين الكروت)، aspectRatio: 1 (الشكل المربع)، padding داخلي '10px 8px'، أيقونة 44×44 وSVG 22×22، حجم نص الـlabel (FS-1). الموبايل والتابلت grids التانية مش متأثرين." },
-      { type: "improvement", text: "📊 النتيجة: الكروت كانت بتاخد ~160-180px على شاشة عريضة (1fr بيوسعها)، دلوقتي محدودة على 130px فبتبان أكثر تماسكاً والمساحة البيضاء حواليها أقل، مع نفس حجم الأيقونة والكتابة." },
     ]
   },
 ];
