@@ -499,6 +499,13 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           <div style={{textAlign:"center",marginTop:12}}><Btn ghost small onClick={()=>setWaPopup(null)}>الغاء</Btn></div>
         </div>
       </div>})()}
+    {/* V19.16: Mount StageProgressModal in the orders-list branch too. The badge
+        in the card (line ~384) calls setStageProgressOrder, but previously the
+        modal was only mounted in the order-detail branch (line ~1691) — so the
+        first click set the state but rendered nothing, and the second click on
+        the card flipped to the detail branch where the modal *was* mounted,
+        causing both the modal and the detail view to open at once. */}
+    {stageProgressOrder&&<StageProgressModal order={stageProgressOrder} onClose={()=>setStageProgressOrder(null)}/>}
     </div>
   }
   if(editing)return<OrdForm data={data} initial={order} onSave={o=>{replaceOrder(sel,o);setEditing(false);showToast("✓ تم حفظ التعديلات");highlightRow(sel)}} onCancel={()=>setEditing(false)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;

@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   CLARK — Team Activity Modal (V19.15)
+   CLARK — Team Activity Modal (V19.16)
 
    Shows the admin a list of all known users and the relative time
    since their last activity, derived from data.auditLog.

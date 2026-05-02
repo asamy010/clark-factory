@@ -25,10 +25,10 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
-    version: "V19.15",
+    version: "V19.16",
     date: "2026-05-02",
-    types: ["architectural", "feature"],
-    title: "🏗️ Online-only mode + شريط قراءة فقط + لوحة نشاط الفريق",
+    types: ["architectural", "feature", "fix"],
+    title: "🏗️ Online-only mode + شريط قراءة فقط + لوحة نشاط الفريق + إصلاح بادج المرحلة",
     changes: [
       { type: "architectural", text: "🚨 قرار معماري كبير: ألغينا فكرة العمل أوفلاين خالص. الدافع: race conditions على `factory/config` لما 2 موظفين يعدّلوا في نفس الوقت (آخر كتابة بتمسح اللي قبلها). بدل ما نبني tombstones وrecovery effects للأبد، أبسط حل = نمنع الكتابة لما الجهاز أوفلاين. القراءة شغالة دايماً من الـcache." },
       { type: "feature", text: "⛔ كل الـwrite functions (upConfig، upSales، upTasks) دلوقتي بيرفضوا التعديل لما `isOnlineRef.current === false` ويعرضوا toast: «أنت أوفلاين دلوقتي — التعديل مش متاح لحد ما النت يرجع». استخدمت `isOnlineRef` (بدل isOnline state) عشان مايضطرش الـuseCallback يعيد البناء كل مرة الاتصال يتقطع." },
@@ -38,6 +38,9 @@ const CHANGELOG = [
       { type: "feature", text: "👥 لوحة «نشاط الفريق» (للمدير فقط): زر جديد في التوب بار يفتح modal بيعرض كل الموظفين وآخر نشاط لكل واحد. الحدود: 🟢 آخر 5 د، 🟡 آخر ساعة، 🔴 من ساعة فأكثر. الحساب من `data.auditLog` المباشرة — مفيش كتابات إضافية على Firestore (ما اخترناش heartbeat لأنه كان هيكلف 17K write/يوم لـ 6 موظفين). نقطة حمرا على الزر لو في موظف ساكت من ساعة." },
       { type: "feature", text: "✅ markSynced(): الـtimestamp بيتحدث في 3 مواضع: (1) بعد setDoc الناجح في upConfigTx، (2) بعد runTransaction الناجح في upSalesTx، (3) ونفس الكلام في upTasksTx. لو الـwrite فشلت، الـtimestamp مايتحدثش = المستخدم يشوف إن المزامنة قديمة." },
       { type: "maintenance", text: "🆕 ملف جديد: `src/components/TeamActivityModal.jsx`. Export `default TeamActivityModal` + helper `computeTeamActivity(data, currentUserName)`. الـhelper مستخدم في App.jsx لتحديد ظهور النقطة الحمرا على زر الفريق." },
+      { type: "fix", text: "🐛 المشكلة المُبلَّغ عنها (bug قديم من V19.0): الضغط على بادج المرحلة في كارت الأوردر مايفتحش popup تفاصيل المرحلة. الضغط تاني على الكارت كان بيفتح الـpopup فوق + تفاصيل الأوردر ورا في نفس الوقت." },
+      { type: "fix", text: "🔍 السبب الجذري: `<StageProgressModal>` كان متركّب في DetPg.jsx ~سطر 1691، اللي بيكون جوة branch «أوردر مفتوح». لما تكون في صفحة قايمة الأوردرات (`!order`)، الـcomponent بيرجع early في سطر 87 — فالـmodal مش mounted في الـDOM أصلاً. الضغط على البادج كان بيـset state من غير ما يرسم حاجة، وأول ما تضغط الكارت ويتغير `sel` الـbranch بيتبدّل وفجأة الـmodal بيتركّب على state موجود فعلاً (= بيتعرض)." },
+      { type: "fix", text: "✅ الحل: ضفت `{stageProgressOrder&&<StageProgressModal …/>}` في branch قايمة الأوردرات كمان (DetPg.jsx ~سطر 502). دلوقتي الـmodal mounted في الـ2 paths." },
     ]
   },
   {
