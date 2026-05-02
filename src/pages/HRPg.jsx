@@ -4591,49 +4591,54 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                     })}
                   </div>
                 </div>}
-                {/* V19.23: Recovery scanner — finds closed weeks that should have included this debt
-                    but didn't (typically because of the V19.22 weekStart bug, or because the debt
-                    was created after the week was closed). User can register each missing week. */}
+                {/* V19.24: Recovery scanner — REVISED to use hrLog as source of truth.
+                    The V19.23 version was too strict: it checked w.status==="closed"
+                    AND d.createdAt < w.closedAt — both could fail in edge cases. The
+                    new approach: scan hrLog directly. If the employee has a salary log
+                    entry for a week, they were paid; if the week's weekEnd >= debt
+                    startDate, the debt should have been deducted. Simple and reliable. */}
                 {d.status==="active"&&canEdit&&(()=>{
-                  const missing=hrWeeks.filter(w=>{
-                    if(w.status!=="closed")return false;
-                    if((d.paidWeekIds||[]).includes(w.id))return false;
-                    if(w.weekEnd<d.startDate)return false;/* week ended before debt started */
-                    /* Was the employee paid this week? Otherwise no installment to recover */
-                    const hadSalary=(data.hrLog||[]).some(l=>l.type==="salary"&&l.empId===d.empId&&l.weekId===w.id);
-                    if(!hadSalary)return false;
-                    /* Don't suggest weeks that closed before the debt was created */
-                    if(d.createdAt&&w.closedAt&&d.createdAt>w.closedAt)return false;
-                    return true;
+                  const empSalaryLogs=(data.hrLog||[]).filter(l=>l&&l.type==="salary"&&l.empId===d.empId&&l.weekId);
+                  const seenWeekIds=new Set();
+                  const missingWeeks=[];
+                  empSalaryLogs.forEach(l=>{
+                    if(seenWeekIds.has(l.weekId))return;
+                    seenWeekIds.add(l.weekId);
+                    if((d.paidWeekIds||[]).includes(l.weekId))return;
+                    /* Resolve week details — prefer hrWeeks lookup, fall back to log fields */
+                    const w=hrWeeks.find(x=>x.id===l.weekId)||{id:l.weekId,weekStart:l.weekStart,weekEnd:l.weekEnd,weekNum:l.weekNum||"?",status:"closed"};
+                    if(!w.weekEnd)return;
+                    /* New permissive filter: only exclude weeks that ENDED before debt started */
+                    if(w.weekEnd<d.startDate)return;
+                    missingWeeks.push(w);
                   });
-                  if(missing.length===0)return null;
+                  if(missingWeeks.length===0)return null;
                   return<div style={{marginBottom:10,padding:10,borderRadius:8,background:T.warn+"10",border:"1px solid "+T.warn+"35"}}>
-                    <div style={{fontSize:FS-2,fontWeight:700,marginBottom:6,color:T.warn}}>🔍 {missing.length} أسبوع كان مؤهل لخصم القسط لكن لم يُسجّل</div>
+                    <div style={{fontSize:FS-2,fontWeight:700,marginBottom:6,color:T.warn}}>🔍 {missingWeeks.length} أسبوع كان مؤهل لخصم القسط لكن لم يُسجّل</div>
                     <div style={{fontSize:FS-3,color:T.textSec,marginBottom:8,lineHeight:1.6}}>
                       ده ممكن يكون بسبب الباج اللي اتصلح في V19.23، أو لأن المديونية اتعملت بعد إقفال الأسبوع. اضغط "تسجيل الكل" علشان تلحق الأسابيع دي.
                     </div>
                     <div style={{display:"flex",flexDirection:"column",gap:3,marginBottom:8,maxHeight:120,overflowY:"auto"}}>
-                      {missing.map(w=><div key={w.id} style={{fontSize:FS-3,color:T.textSec,padding:"3px 8px",background:T.cardSolid,borderRadius:4}}>
-                        📅 W{w.weekNum} ({w.weekStart} → {w.weekEnd})
+                      {missingWeeks.map(w=><div key={w.id} style={{fontSize:FS-3,color:T.textSec,padding:"3px 8px",background:T.cardSolid,borderRadius:4}}>
+                        📅 W{w.weekNum||"?"} ({w.weekStart||"?"} → {w.weekEnd||"?"})
                       </div>)}
                     </div>
                     <Btn small onClick={async()=>{
-                      if(!await ask("تسجيل "+missing.length+" قسط (= "+fmt0(missing.length*d.perWeek)+" ج) كمدفوع لمديونية '"+d.title+"'؟"))return;
+                      if(!await ask("تسجيل "+missingWeeks.length+" قسط (= "+fmt0(missingWeeks.length*d.perWeek)+" ج) كمدفوع لمديونية '"+d.title+"'؟"))return;
                       upConfig(dd=>{
                         const dbt=(dd.empDebts||[]).find(x=>x.id===d.id);if(!dbt)return;
                         if(!dbt.paidWeekIds)dbt.paidWeekIds=[];
                         if(!dbt.recoveredWeekIds)dbt.recoveredWeekIds=[];
-                        missing.forEach(w=>{
+                        missingWeeks.forEach(w=>{
                           if(!dbt.paidWeekIds.includes(w.id))dbt.paidWeekIds.push(w.id);
                           if(!dbt.recoveredWeekIds.includes(w.id))dbt.recoveredWeekIds.push(w.id);
                         });
-                        /* Check if fully paid now */
                         const totalPaid=r2((dbt.paidWeekIds||[]).length*(Number(dbt.perWeek)||0));
                         if(totalPaid>=(Number(dbt.total)||0)-0.5){dbt.status="paid";dbt.paidAt=today}
                       });
-                      showToast("✓ تم تسجيل "+missing.length+" قسط");
+                      showToast("✓ تم تسجيل "+missingWeeks.length+" قسط");
                     }} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"40",fontWeight:700}}>
-                      ✓ تسجيل الـ{missing.length} قسط (={fmt0(missing.length*d.perWeek)} ج)
+                      ✓ تسجيل الـ{missingWeeks.length} قسط (={fmt0(missingWeeks.length*d.perWeek)} ج)
                     </Btn>
                   </div>;
                 })()}

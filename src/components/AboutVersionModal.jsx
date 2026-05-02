@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.24",
+    date: "2026-05-02",
+    types: ["fix"],
+    title: "🐛 [hotfix] مكتشف الأقساط: إصلاح JSX comment غير مغلق + تخفيف الفلتر",
+    changes: [
+      { type: "fix", text: "🐛 المكتشف في V19.23 ما ظهرش في الواجهة. سببين: (1) JSX comment block ناقصه `}` في الآخر فالـ render فشل صامت. (2) الفلتر كان متشدد جداً: بيشترط `w.status===\"closed\"` + `d.createdAt<w.closedAt` (مقارنة timestamps دقيقة قابلة للفشل)." },
+      { type: "fix", text: "✅ المنطق الجديد أبسط وأقوى: بدل ما نشيك على hrWeeks بشروط متشددة، نسكان `data.hrLog` مباشرة. لو الموظف عنده salary entry لأسبوع معين، يبقى اتدفعله مرتب في الأسبوع ده. لو الأسبوع weekEnd >= debt.startDate، يبقى مؤهل. مفيش checks زيادة." },
+      { type: "fix", text: "🛡 Fallback آمن: لو مش لاقي الأسبوع في hrWeeks (بيانات قديمة)، يبني object من الـ hrLog entry نفسها (weekStart/weekEnd/weekNum). كده الـ recovery هيشتغل حتى مع بيانات قبل ما الأسابيع كانت بتتسجل في hrWeeks." },
+      { type: "improvement", text: "📋 الـ banner لسه بنفس الشكل: لون أصفر + قائمة الأسابيع + زر 'تسجيل الكل'. اضغطه ضغطة واحدة لسحب كل الأسابيع المفقودة دفعة واحدة." },
+    ]
+  },
+  {
     version: "V19.23",
     date: "2026-05-02",
     types: ["fix", "feature"],
@@ -147,18 +159,6 @@ const CHANGELOG = [
       { type: "fix", text: "✅ الحل: useEffect جديد في PurchasePg + CustDeliverPg بيتشغل لما المستخدم يفتح كشف مورد/عميل. لو فيه orphan treasury entries بـ supplierId/custId مطابق ومش في supplierPayments/custPayments، النظام تلقائياً ينشئ السجلات المفقودة (silent، بدون تأكيد). الـtombstones بتُحترم — الدفعات المحذوفة مش بتترجع. بـuseRef lock عشان مايتشغلش أكتر من مرة لنفس الطرف في نفس الـsession." },
       { type: "fix", text: "📋 السلوك الجديد: فتح كشف المورد لأول مرة → الـorphans تتربط silent. الـlabel '⚠️ غير مزامنة' هيختفي بعد لحظة. لو لسه فيه orphans (مثلاً supplierId غلط أو معدوم)، الـfallback بيظل بيعرضهم — لكن دي حالة استثنائية، مش الحالة الطبيعية." },
       { type: "improvement", text: "🎨 المشكلة (2): البطاقة الكبيرة في كشف المورد كانت تعرض '5,000 (له)' أو '3,000 (عليه)'. المستخدم طلب إزالة 'له'. الحل: شيلت الـsuffixes 'له' و'عليه' من بطاقة الرصيد (المختصرة). الـcolor coding (أحمر = عليه، أزرق = له، أخضر = مسدد) + علامة + للـnegative balance + النص المختصر هي وحدها كافية لتوضيح الاتجاه. الـcards الجانبية في صفحة المورديين (V14.49) محتفظة بالـ(له)/(عليه) لأن الألوان لوحدها مش بتكون واضحة في الجدول." },
-    ]
-  },
-  {
-    version: "V19.13",
-    date: "2026-05-02",
-    types: ["fix", "feature"],
-    title: "🚨 [حرج] إصلاح كارثي: حذف حركة الخزنة لازم يشيلها من كشف العميل/المورد",
-    changes: [
-      { type: "fix", text: "🐛 المشكلة (المُبلَّغ عنها كـكارثة): 'حذفت دفعة من سجل الخزنة لكن لسه ظاهرة في كشف العميل والمحاسبة'. السبب الجذري: `delTx` و `bulkDeleteTxs` كانوا بيشيلوا الحركة لكن مش بيضيفوا tombstone، فالـrecovery effects كانت بترجع الـcustPayment من أي trace في treasury." },
-      { type: "fix", text: "✅ Tombstones في delTx + bulkDeleteTxs: أي حذف لحركة عميل/مورد بيضيف الـID للـ_deletedCustPayTreasuryIds / _deletedSupplierPayTreasuryIds فوراً." },
-      { type: "feature", text: "🗑 إزالة ✕ من صف الخزنة + Hint banner: الحذف دلوقتي بس عبر checkbox + 'حذف المحدد'. أوضح وأمن." },
-      { type: "feature", text: "🧹 زر 'تنظيف الدفعات الميتة' في PaymentsTab: للبيانات القديمة قبل V19.13. بيكتشف cust/supplierPayments بدون treasury entry موجود ويعرضهم في preview قبل الحذف." },
     ]
   },
 ];
