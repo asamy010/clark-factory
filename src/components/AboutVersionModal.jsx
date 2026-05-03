@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.36",
+    date: "2026-05-03",
+    types: ["feature", "improvement"],
+    title: "🖼 صور الموديلات بقت 5× أوضح + بتترفع لـ Storage مباشرة",
+    changes: [
+      { type: "improvement", text: "🖼 [جودة أعلى] صور الموديلات الجديدة بتترفع 1280px @ 85% quality، بدل 250px @ 40% اللي كانت قبل كده. الصورة بتظهر حادة على واتساب وبتكبر الـ 5× تقريباً (250px→1280px). الأوردرات القديمة لسه على الجودة القديمة لأن الأصل ضاع وقت الضغط — لو موديل مهم، احذف الصورة وارفعها من الأصل." },
+      { type: "improvement", text: "📦 [order docs أصغر] الصور دلوقتي بتتخزن في Firebase Storage، الـ Firestore بيخزن URL ~200 بايت بدل base64 ~5-8KB. كل order doc بقى ~1-2KB (كان ~8KB). فايدة كبيرة لو فيه ٢٠٠+ أوردر." },
+      { type: "feature", text: "🔄 [Migration banner] في تاب الصيانة، Card بيظهر تلقائياً لو في أوردرات صورهم لسه base64 inline. بيقولك بكام موديل + إجمالي الـ KB، وزر '🔄 ترحيل دلوقتي'. الترحيل بيرفع الصور الموجودة كما هي لـ Storage (مش بيحسن جودتها — بيوفر مساحة بس)." },
+      { type: "improvement", text: "🧹 [Storage cleanup] لما بتمسح صورة موديل أو بتحذف الأوردر بالكامل، الـ Storage object بيتمسح تلقائياً (fire-and-forget). كده مفيش orphans." },
+      { type: "feature", text: "🔬 [أداة التحليل بقت dropdown] الـ Card '🔬 تحليل مكوّنات factory/config' في تاب الصيانة بقى collapsible — قافل default، بيعرض إجمالي الـ doc بس في سطر واحد. اضغط للتفاصيل. الإصلاح بناء على feedback المستخدم (الـ Card كانت طويلة وبتاكل مساحة)." },
+      { type: "fix", text: "🔧 [storage.rules] قسمنا allow write لـ allow create/update (مع size check) و allow delete (بدون size check). قبل كده الـ delete كان بيرجع unauthorized لأن request.resource بتكون null في الـ delete، فالـ size check بيفشل." },
+    ]
+  },
+  {
     version: "V19.35",
     date: "2026-05-03",
     types: ["architectural", "fix"],
@@ -163,17 +177,6 @@ const CHANGELOG = [
       { type: "fix", text: "✅ الإصلاح: ضفت متغير `_blockShortage = (purchaseSettings.blockOnInsufficientStock !== false)` ولما في shortages: لو `_blockShortage` = true → امنع زي الأول. لو false → showToast أصفر تحذيري ('⚠️ المخزن غير كافي — هيتم الخصم بالسالب') وكمل الأوردر. نفس المنطق على المستويين (local pre-check + server runTransaction)." },
       { type: "fix", text: "📋 السلوك الجديد لكل وضع: 'مغلق' (off) — مفيش خصم تلقائي خالص. 'عرض فقط' (display) — مفيش autoDeduct، مفيش فحص. 'السماح بالسالب' (warning) — يخصم وممكن يطلع سالب + تحذير. 'صارم' (strict، default) — يمنع لو الرصيد مش كافي. كل الأوضاع شغّالة دلوقتي زي ما هي مكتوبة في الإعدادات." },
       { type: "improvement", text: "🛡 ملاحظة: `deductStockForOrder` كان بيتعامل مع negative stock صح من الأصل (بيعمل `r2(stock - delta)` بدون cap على 0)، فالـstock بيطلع سالب طبيعي في الوضع الجديد. الـ alerts والـ banner اللي في WarehousePg بيعرضوا الـnegative stocks في تنبيهات الجرد." },
-    ]
-  },
-  {
-    version: "V19.26",
-    date: "2026-05-02",
-    types: ["fix"],
-    title: "🔄 [revert] منطق فلتر الأسبوع للمديونيات — أول خصم في الأسبوع اللي بعد تاريخ المديونية",
-    changes: [
-      { type: "fix", text: "🔄 رجوع لمنطق V19.22 الأصلي: `if(week.weekStart < d.startDate) skip`. التوضيح من المستخدم: 'تاريخ المديونية يوم الخميس 23-4 وبداية الخصم على الموظف الاسبوع اللي بعده يعني 30-4'. يعني الأسبوع اللي يحتوي تاريخ المديونية (بدايته قبل تاريخ المديونية) لا يُخصم. أول خصم في الأسبوع اللي بدأ في أو بعد تاريخ المديونية." },
-      { type: "fix", text: "📋 مثال عملي (المستخدم): مديونية بداية 23-4 (الخميس، آخر يوم في W17). W17 (weekStart 18-4) → 18<23 → SKIP ✓. W18 (weekStart 25-4) → 25<23 false → INCLUDE ✓. النتيجة: قسط واحد بس عند إقفال W18، مش اتنين كما كان يبان قبل التصحيح." },
-      { type: "fix", text: "🔧 V19.23 كان بيستخدم `weekEnd < d.startDate` بدل `weekStart` — ده كان بيخلي W17 (weekEnd=23-4) مؤهل في حالة المستخدم بالغلط. تم الرجوع للمنطق الأصلي. الـ recovery scanner (V19.23-24) بيستخدم نفس الفلتر دلوقتي عشان يكون متناسق مع الخصم التلقائي." },
     ]
   },
 ];

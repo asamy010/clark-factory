@@ -23,6 +23,8 @@ import { ask, askForm, showToast, tell } from "../utils/popups.js";
 import { openPrintWindow } from "../utils/print.js";
 import { getDeviceInfo, getDeviceId, getDeviceNickname, setDeviceNickname, getCachedIpInfo } from "../utils/device.js";
 import { analyzeBudgets, getDocTotals, getBudgetSummary, getTopFeatures, fmt as fmtSize } from "../utils/sizeBudget.js";
+/* V19.36: migrate per-order model images from inline base64 → Firebase Storage */
+import { hasLegacyImage, legacyImageSize, migrateOrderImage } from "../utils/orderImages.js";
 import { PrintTemplatesEditor } from "../components/PrintTemplatesEditor.jsx";
 import { CollectionHealthBar } from "../components/CollectionHealthBar.jsx";
 import { HelpTip, CardSubtitle, FieldHelp } from "../components/HelpTip.jsx";
@@ -2676,6 +2678,10 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
   const[atSelUser,setAtSelUser]=useState("");const[atEditIdx,setAtEditIdx]=useState(null);const[nfEditUser,setNfEditUser]=useState("");
   const[linkMap,setLinkMap]=useState({});
   const[compressing,setCompressing]=useState(false);
+  /* V19.36: state for the per-order image migration to Firebase Storage. */
+  const[imgMigrating,setImgMigrating]=useState(false);
+  const[imgMigrateProgress,setImgMigrateProgress]=useState({done:0,total:0});
+  const[imgMigrateError,setImgMigrateError]=useState("");
   /* V16.52: Active tab — restored from localStorage so the user lands on the
      same section after navigating away. */
   const[activeTab,setActiveTab]=useState(()=>{
@@ -3180,7 +3186,6 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
         Shows UTF-8 byte sizes of every top-level field in the RAW factory/config doc
         (configDoc, not the merged virtual `config`), so what you see is what Firestore stores. */}
     <Card title="🔬 تحليل مكوّنات factory/config" style={{marginBottom:16}}>
-      <CardSubtitle icon="💡">قياس فعلي لكل field في الـ document الخام (UTF-8 bytes). الترتيب من الأكبر للأصغر. اللي ظاهر بالأحمر/البرتقالي يستاهل تفكير في تقسيم لـ subcollection — اللي بالأخضر مش مشكلة.</CardSubtitle>
       {(()=>{
         if(!configDoc) return <div style={{padding:12,color:T.textMut,fontSize:FS-2}}>لسه بيتحمّل...</div>;
         const _bytes=(v)=>v==null?0:new Blob([JSON.stringify(v)]).size;
@@ -3217,44 +3222,111 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
         const pctOfTotal=(b)=>total>0?(b/total)*100:0;
         const pctOfLimit=(b)=>(b/LIMIT)*100;
         const totalColor=total>900*1024?T.err:total>700*1024?T.warn:total>500*1024?"#F59E0B":T.ok;
-        return<div>
-          {/* Total */}
-          <div style={{padding:12,borderRadius:10,background:totalColor+"08",border:"1px solid "+totalColor+"40",marginBottom:14}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6}}>
-              <span style={{fontWeight:800,color:T.text,fontSize:FS+1}}>📄 factory/config — الإجمالي</span>
-              <span style={{fontFamily:"monospace",fontWeight:800,color:totalColor,fontSize:FS+1}}>{_fmt(total)} / 1 MB ({pctOfLimit(total).toFixed(0)}%)</span>
+        /* V19.36: collapsed by default — only shows the one-line total. Click to expand. */
+        return<details style={{borderRadius:10,background:totalColor+"08",border:"1px solid "+totalColor+"40",overflow:"hidden"}}>
+          <summary style={{cursor:"pointer",padding:12,listStyle:"none",userSelect:"none"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <span style={{fontWeight:800,color:T.text,fontSize:FS}}>📄 factory/config · {entries.length} field</span>
+              <span style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontFamily:"monospace",fontWeight:800,color:totalColor,fontSize:FS}}>{_fmt(total)} / 1 MB ({pctOfLimit(total).toFixed(0)}%)</span>
+                <span style={{fontSize:FS-2,color:T.textMut}}>▼ التفاصيل</span>
+              </span>
             </div>
-            <div style={{height:10,borderRadius:5,background:T.bg,overflow:"hidden",border:"1px solid "+T.brd}}>
+            <div style={{height:6,borderRadius:3,background:T.bg,overflow:"hidden",border:"1px solid "+T.brd,marginTop:8}}>
               <div style={{height:"100%",width:Math.min(100,pctOfLimit(total))+"%",background:totalColor,transition:"width 0.4s"}}/>
             </div>
-            <div style={{fontSize:FS-3,color:T.textMut,marginTop:6,lineHeight:1.6}}>
-              {entries.length} field · القياس بالـ UTF-8 bytes (نفس اللي Firestore بيشوفه). حد المستند الواحد 1 MB.
+          </summary>
+          {/* Expanded body */}
+          <div style={{padding:"4px 12px 12px 12px",background:T.cardSolid,borderTop:"1px solid "+T.brd}}>
+            <div style={{fontSize:FS-3,color:T.textMut,padding:"8px 0",lineHeight:1.6}}>
+              قياس فعلي بالـ UTF-8 bytes — نفس اللي Firestore بيشوفه. الترتيب من الأكبر للأصغر.
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {entries.map(e=>(
+                <div key={e.key} style={{padding:"8px 10px",borderRadius:8,background:T.bg,border:"1px solid "+T.brd}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+                    <span style={{fontFamily:"monospace",fontWeight:700,color:T.text,fontSize:FS-1,wordBreak:"break-all"}}>
+                      {e.key}
+                      {e.isImageCarrier&&<span style={{marginInlineStart:6,padding:"1px 6px",borderRadius:4,background:T.err+"15",color:T.err,fontSize:FS-3,fontWeight:700}}>📷 base64</span>}
+                    </span>
+                    <span style={{fontFamily:"monospace",color:colorFor(e.size),fontWeight:700}}>{_fmt(e.size)} ({pctOfTotal(e.size).toFixed(0)}%)</span>
+                  </div>
+                  <div style={{fontSize:FS-3,color:T.textMut,marginBottom:4}}>{e.detail}</div>
+                  <div style={{height:4,borderRadius:2,background:T.cardSolid,overflow:"hidden"}}>
+                    <div style={{height:"100%",width:Math.min(100,pctOfTotal(e.size))+"%",background:colorFor(e.size)}}/>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{marginTop:12,padding:10,borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"20",fontSize:FS-2,color:T.textSec,lineHeight:1.7}}>
+              💡 <b>الـ thresholds:</b> أخضر &lt; 10 KB · أصفر 10-50 KB · برتقالي 50-200 KB · أحمر &gt; 200 KB. الـ <span style={{color:T.err,fontWeight:700}}>📷 base64</span> tag بيتحط على fields فيها صور inline — دي أكتر اللي تستفيد من نقل لـ Firebase Storage.
             </div>
           </div>
-          {/* Per-field rows */}
-          <div style={{display:"flex",flexDirection:"column",gap:6}}>
-            {entries.map(e=>(
-              <div key={e.key} style={{padding:"8px 10px",borderRadius:8,background:T.cardSolid,border:"1px solid "+T.brd}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8,marginBottom:4,flexWrap:"wrap"}}>
-                  <span style={{fontFamily:"monospace",fontWeight:700,color:T.text,fontSize:FS-1,wordBreak:"break-all"}}>
-                    {e.key}
-                    {e.isImageCarrier&&<span style={{marginInlineStart:6,padding:"1px 6px",borderRadius:4,background:T.err+"15",color:T.err,fontSize:FS-3,fontWeight:700}}>📷 base64</span>}
-                  </span>
-                  <span style={{fontFamily:"monospace",color:colorFor(e.size),fontWeight:700}}>{_fmt(e.size)} ({pctOfTotal(e.size).toFixed(0)}%)</span>
-                </div>
-                <div style={{fontSize:FS-3,color:T.textMut,marginBottom:4}}>{e.detail}</div>
-                <div style={{height:4,borderRadius:2,background:T.bg,overflow:"hidden"}}>
-                  <div style={{height:"100%",width:Math.min(100,pctOfTotal(e.size))+"%",background:colorFor(e.size)}}/>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div style={{marginTop:12,padding:10,borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"20",fontSize:FS-2,color:T.textSec,lineHeight:1.7}}>
-            💡 <b>الـ thresholds:</b> أخضر &lt; 10 KB · أصفر 10-50 KB · برتقالي 50-200 KB · أحمر &gt; 200 KB. الـ <span style={{color:T.err,fontWeight:700}}>📷 base64</span> tag بيتحط على fields فيها صور inline — دي أكتر اللي تستفيد من نقل لـ Firebase Storage.
-          </div>
-        </div>;
+        </details>;
       })()}
     </Card>
+
+    {/* V19.36: Migration banner for legacy per-order base64 model images.
+        Only renders when there are orders with inline base64 images that haven't been
+        moved to Storage yet. Quality of existing images doesn't improve (they were already
+        compressed pre-V19.36) but each order doc shrinks meaningfully. */}
+    {(()=>{
+      const legacy=(orders||[]).filter(hasLegacyImage);
+      if(legacy.length===0)return null;
+      const totalKB=Math.round(legacy.reduce((s,o)=>s+legacyImageSize(o),0)/1024);
+      const runImgMigration=async()=>{
+        setImgMigrateError("");
+        setImgMigrating(true);
+        setImgMigrateProgress({done:0,total:legacy.length});
+        let done=0;
+        for(const ord of legacy){
+          try{
+            const meta=await migrateOrderImage(ord);
+            if(meta){
+              await new Promise(resolve=>{
+                updOrder(ord.id,o=>{o.image=meta.url;o.imageStoragePath=meta.storagePath;o.imageMigratedAt=new Date().toISOString()});
+                /* updOrder returns void; give the optimistic update a tick to settle so the
+                   next iteration sees a fresh `orders` snapshot via legacy filter. */
+                setTimeout(resolve,40);
+              });
+            }
+            done++;
+          }catch(e){
+            console.error("[V19.36] migration failed for order",ord.id,e);
+            setImgMigrateError(`فشل ترحيل صورة موديل "${ord.modelNo||ord.id}": ${e?.message||e}`);
+          }
+          setImgMigrateProgress({done,total:legacy.length});
+        }
+        setImgMigrating(false);
+        if(done>0)showToast(`✓ ترحيل صور ${done} موديل — وفرت ${totalKB} KB`);
+      };
+      return<Card title="🖼 ترحيل صور الموديلات لـ Firebase Storage" style={{marginBottom:16}}>
+        <div style={{padding:14,borderRadius:10,background:"#F59E0B12",border:"1px solid #F59E0B55"}}>
+          <div style={{display:"flex",alignItems:"flex-start",gap:10,flexWrap:"wrap"}}>
+            <div style={{fontSize:24,lineHeight:1}}>🖼</div>
+            <div style={{flex:1,minWidth:200}}>
+              <div style={{fontWeight:800,fontSize:FS,color:"#92400E",marginBottom:4}}>
+                {legacy.length} موديل صورتهم لسه inline base64
+              </div>
+              <div style={{fontSize:FS-2,color:T.text,lineHeight:1.7,marginBottom:8}}>
+                إجمالي ~{totalKB} KB متخزّنة جوة الـ order documents. الترحيل بينقلهم لـ Storage فيوفّر مساحة في الـ docs ويسهّل أي backup مستقبلاً.
+                <br/>
+                <b style={{color:T.warn}}>⚠️ ملاحظة جودة:</b> الصور القديمة كانت متضغوطة 250px قبل V19.36. الترحيل بينقلهم زي ما هم — مش هيحسّن جودتهم. لو محتاج صور حادة لموديل معين، احذف الصورة وارفعها تاني (الأوردرات الجديدة هتطلع 1280px تلقائياً).
+              </div>
+              {imgMigrating&&<div style={{fontSize:FS-2,color:"#92400E",marginBottom:6}}>
+                ⏳ جاري الترحيل... {imgMigrateProgress.done}/{imgMigrateProgress.total}
+              </div>}
+              {imgMigrateError&&<div style={{fontSize:FS-3,color:T.err,marginBottom:6}}>
+                ⚠️ {imgMigrateError}
+              </div>}
+              <Btn small primary onClick={runImgMigration} disabled={imgMigrating} style={{background:"#F59E0B"}}>
+                {imgMigrating?"⏳ جاري الترحيل...":"🔄 ترحيل دلوقتي"}
+              </Btn>
+            </div>
+          </div>
+        </div>
+      </Card>;
+    })()}
 
     {/* Data Maintenance */}
     <Card title="🔧 صيانة البيانات" style={{marginBottom:16}}>

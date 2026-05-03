@@ -10,7 +10,9 @@ import { AccPicker, Badge, Btn, Card, FCTable, Inp, Sel } from "../components/ui
 import { DEFAULT_STATUSES, FCOL, FKEYS, FS } from "../constants/index.js";
 import { T, TD, TDL } from "../theme.js";
 import { gIcon, setF, sqty } from "../utils/format.js";
-import { compressImage } from "../utils/image.js";
+/* V19.36: Model images now upload to Firebase Storage at 1280px @ 85% quality
+   (was: 250px @ 40% inline base64). The order doc only stores the download URL. */
+import { uploadOrderImageFile, deleteOrderImage } from "../utils/orderImages.js";
 import { sortOrders, validateOrder } from "../utils/orders.js";
 import { askInput, showToast, tell } from "../utils/popups.js";
 import { compressFile } from "../utils/qr.js";
@@ -22,8 +24,32 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
   const[copyMode,setCopyMode]=useState(false);const[copyFrom,setCopyFrom]=useState("");
   const[copyFields,setCopyFields]=useState({fabrics:true,pieces:true,sizes:true,acc:true,instructions:true});
   const[qfab,setQfab]=useState(null);/* quick add fabric popup */
+  /* V19.36: track upload progress so the user sees feedback while Storage processes the file */
+  const[uploadingImg,setUploadingImg]=useState(false);
   const fabObj=id=>data.fabrics.find(x=>x.id===Number(id));
-  const handleImg=async e=>{const f=e.target.files[0];if(!f)return;const compressed=await compressImage(f,250,0.4);setForm(p=>({...p,image:compressed}))};
+  /* V19.36: handleImg now uploads to Storage instead of base64-encoding inline.
+     If the user is replacing an existing Storage-backed image, the old object
+     is deleted first (best-effort, fire-and-forget). */
+  const handleImg=async e=>{
+    const f=e.target.files[0];
+    e.target.value="";
+    if(!f)return;
+    if(!f.type.startsWith("image/")){await tell("نوع غير مدعوم","الملف لازم يكون صورة (JPEG/PNG/WebP)",{type:"warning"});return}
+    setUploadingImg(true);
+    try {
+      const oldPath=form.imageStoragePath;
+      const meta=await uploadOrderImageFile(form.id||initial?.id,f);
+      setForm(p=>({...p,image:meta.url,imageStoragePath:meta.storagePath}));
+      if(oldPath){
+        deleteOrderImage(oldPath).catch(err=>console.warn("[V19.36] old image cleanup failed:",err));
+      }
+    } catch(err){
+      console.error("[V19.36] model image upload failed:",err);
+      await tell("فشل رفع الصورة",err?.message||String(err),{type:"error"});
+    } finally {
+      setUploadingImg(false);
+    }
+  };
   const handleFile=async e=>{const f=e.target.files[0];if(!f)return;if(f.size>1000000){await tell("حجم الملف كبير","حجم الملف أكبر من 1MB. اختر ملفاً أصغر.",{type:"warning"});return}const result=await compressFile(f);if(result)setForm(p=>({...p,attachments:[...(p.attachments||[]),result]}))};
   const mainQty=sqty(form.colorsA);const updF=(key,val)=>setForm(p=>setF(p,key,val));
   const isDirty=form.modelNo||form.modelDesc||form.fabricA||(form.colorsA||[]).some(c=>c.color||c.layers>0);
@@ -100,7 +126,7 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
       <div style={{display:"flex",gap:8}}><Btn small onClick={()=>{updF("poNumber",genPO());setDupPoPopup(false)}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🔄 توليد رقم جديد</Btn><Btn ghost small onClick={()=>setDupPoPopup(false)}>تعديل يدوي</Btn></div>
     </div>}
     <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"auto 1fr",gap:10,marginBottom:10}}>
-      <div><div style={{width:isMob?"100%":100,height:isMob?120:160,borderRadius:10,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.inputBg||T.cardSolid,cursor:"pointer",position:"relative"}}>{form.image?<img src={form.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-1,color:T.textMut}}>صورة</span>}<input type="file" accept="image/*" onChange={handleImg} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/></div></div>
+      <div><div style={{width:isMob?"100%":100,height:isMob?120:160,borderRadius:10,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.inputBg||T.cardSolid,cursor:"pointer",position:"relative"}}>{form.image?<img src={form.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-1,color:T.textMut}}>صورة</span>}<input type="file" accept="image/*" onChange={handleImg} disabled={uploadingImg} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>{uploadingImg&&<div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:FS-2,fontWeight:700}}>⏳ جاري الرفع...</div>}</div></div>
       <div>
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"1fr 1fr 2fr 1fr 1fr 1fr",gap:6,marginBottom:6}}>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>رقم أمر التشغيل</label><Inp value={form.poNumber||""} onChange={v=>updF("poNumber",v)} placeholder={initial.modelNo?"":(genPO()+" (تلقائي)")} sx={{fontFamily:"monospace",letterSpacing:1,fontWeight:700,color:T.accent}}/></div>

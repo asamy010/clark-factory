@@ -15,6 +15,8 @@ import { addAudit } from "../utils/audit.js";
 import { ask, highlightRow, showToast } from "../utils/popups.js";
 import { printLabel, printOrderSheet, printReceipt, printWorkshopReport } from "../utils/print-extras.js";
 import { uploadMultiple, deleteAttachment, getFileIcon, formatFileSize, isAllowedFile, MAX_FILE_SIZE } from "../utils/attachments.js";
+/* V19.36: clean up the model image's Storage object when the user deletes the image */
+import { deleteOrderImage } from "../utils/orderImages.js";
 import { OrdForm } from "./OrdForm.jsx";
 import { ReviewRequestModal } from "../components/ReviewRequestModal.jsx";
 import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
@@ -577,7 +579,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       <div style={{display:"flex",flexDirection:"row",gap:isMob?8:10,marginBottom:12,alignItems:"flex-start"}}>
         {isMob&&<div style={{flexShrink:0,position:"relative",alignSelf:"stretch"}}>
           <DefaultModelImg src={order.image} modelNo={order.modelNo} modelDesc={order.modelDesc} orderPieces={order.orderPieces} width={90} style={{height:"100%",maxHeight:"100%",minHeight:120,borderRadius:10,border:"1px solid "+T.brd,aspectRatio:"unset"}}/>
-          {canEdit&&order.image&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true}))updOrder(sel,o=>{o.image=""})}} style={{position:"absolute",top:2,right:2,width:18,height:18,borderRadius:9,background:"rgba(0,0,0,0.6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:9}}>✕</div>}
+          {canEdit&&order.image&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true})){const path=order.imageStoragePath;updOrder(sel,o=>{o.image="";o.imageStoragePath=""});if(path)deleteOrderImage(path).catch(err=>console.warn("[V19.36] storage cleanup failed:",err))}}} style={{position:"absolute",top:2,right:2,width:18,height:18,borderRadius:9,background:"rgba(0,0,0,0.6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:9}}>✕</div>}
         </div>}
         <div style={{flex:1,display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(2,1fr)":"repeat(4,1fr)",gap:isMob?6:12,minWidth:0}}>
           {/* V16.24: Cut qty card — click to open per-piece edit popup */}
@@ -726,7 +728,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         {}
         {!isMob&&<div style={{position:"relative"}}>
           <DefaultModelImg src={order.image} modelNo={order.modelNo} modelDesc={order.modelDesc} orderPieces={order.orderPieces} width={135} style={{borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow}}/>
-          {canEdit&&order.image&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true}))updOrder(sel,o=>{o.image=""})}} style={{position:"absolute",top:4,right:4,width:22,height:22,borderRadius:11,background:"rgba(0,0,0,0.6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11}}>✕</div>}
+          {canEdit&&order.image&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true})){const path=order.imageStoragePath;updOrder(sel,o=>{o.image="";o.imageStoragePath=""});if(path)deleteOrderImage(path).catch(err=>console.warn("[V19.36] storage cleanup failed:",err))}}} style={{position:"absolute",top:4,right:4,width:22,height:22,borderRadius:11,background:"rgba(0,0,0,0.6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11}}>✕</div>}
         </div>}
         <Card title="بيانات الموديل">
           <div style={{marginBottom:8}}>
