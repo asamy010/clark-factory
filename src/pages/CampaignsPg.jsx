@@ -29,6 +29,15 @@ import { Btn, Inp, Sel, Card } from "../components/ui.jsx";
 import { T, TH, TD } from "../theme.js";
 import { analyzeCustomer } from "../utils/customerAnalytics.js";
 import { auth } from "../firebase.js"; /* V19.32: for portal URL generation */
+/* V19.35: Template images live in Firebase Storage now (was: base64 in factory/config doc) */
+import {
+  uploadTemplateImageFile,
+  uploadTemplateImageBlob,
+  deleteTemplateImage,
+  hasLegacyBase64,
+  legacyBase64Size,
+  migrateTemplateImages,
+} from "../utils/templateImages.js";
 
 const MAX_TEMPLATES = 30;
 const MAX_CAMPAIGNS = 50;
@@ -294,6 +303,59 @@ export function CampaignsPg({data, upConfig, isMob, canEdit, user}){
   const templates = data.campaignTemplates || [];
   const campaigns = data.campaigns || [];
 
+  /* V19.35: Migration state — for templates that still hold base64 images
+     (legacy V19.33-V19.34). Surfaces as a banner + "Migrate now" button on
+     the Templates list. */
+  const [migrating, setMigrating] = useState(false);
+  const [migrateProgress, setMigrateProgress] = useState({ done: 0, total: 0 });
+  const [migrateError, setMigrateError] = useState("");
+
+  const legacyTemplates = useMemo(
+    () => templates.filter(hasLegacyBase64),
+    [templates]
+  );
+  const legacyTotalKB = useMemo(
+    () => Math.round(legacyTemplates.reduce((s, t) => s + legacyBase64Size(t), 0) / 1024),
+    [legacyTemplates]
+  );
+
+  /* Run migration for all legacy templates. Each template's images are
+     re-uploaded to Storage one-by-one, then the parent doc is updated to
+     replace base64 with {storagePath, url, ...}. We update Firestore once
+     per template so each write is small and the doc shrinks progressively
+     (critical when factory/config is already at the 1MB ceiling). */
+  const runMigration = async () => {
+    setMigrateError("");
+    setMigrating(true);
+    setMigrateProgress({ done: 0, total: legacyTemplates.length });
+    let success = 0;
+    for(const tpl of legacyTemplates){
+      try {
+        const newImages = await migrateTemplateImages(tpl);
+        upConfig(d => {
+          if(!Array.isArray(d.campaignTemplates)) return;
+          const idx = d.campaignTemplates.findIndex(x => x.id === tpl.id);
+          if(idx >= 0){
+            d.campaignTemplates[idx] = {
+              ...d.campaignTemplates[idx],
+              images: newImages,
+              migratedAt: new Date().toISOString(),
+            };
+          }
+        });
+        success++;
+      } catch(e){
+        console.error("[V19.35] migration failed for template", tpl.id, e);
+        setMigrateError(`فشل ترحيل قالب "${tpl.name}": ${e?.message || e}`);
+      }
+      setMigrateProgress({ done: success, total: legacyTemplates.length });
+    }
+    setMigrating(false);
+    if(success > 0){
+      showToast(`✓ ترحيل ${success} قالب — مساحة Firestore اتفرغت`);
+    }
+  };
+
   /* ─────────────── TEMPLATE EDITOR ─────────────── */
   if(mode === "templateEdit"){
     return <TemplateEditor
@@ -461,6 +523,34 @@ export function CampaignsPg({data, upConfig, isMob, canEdit, user}){
       </div>
     </div>}
 
+    {/* V19.35: Migration banner — appears only if legacy base64 templates exist.
+        Tells the user how much Firestore space they'll free, with a one-click migrate. */}
+    {legacyTemplates.length > 0 && <div style={{
+      marginBottom:12, padding:14, borderRadius:10,
+      background:"#F59E0B12", border:"1px solid #F59E0B55",
+    }}>
+      <div style={{display:"flex",alignItems:"flex-start",gap:10,flexWrap:"wrap"}}>
+        <div style={{fontSize:24,lineHeight:1}}>🏗️</div>
+        <div style={{flex:1,minWidth:200}}>
+          <div style={{fontWeight:800,fontSize:FS,color:"#92400E",marginBottom:4}}>
+            ترحيل صور القوالب لـ Firebase Storage
+          </div>
+          <div style={{fontSize:FS-2,color:T.text,lineHeight:1.7,marginBottom:6}}>
+            في {legacyTemplates.length} قالب صورهم متخزنة جوة Firestore (~{legacyTotalKB} KB). ده بيأكل من حد الـ document الـ 1MB. اضغط الزر علشان ننقلهم لـ Storage ونفرّغ المساحة. الصور والقوالب هتفضل شغالة عادي.
+          </div>
+          {migrating && <div style={{fontSize:FS-2,color:"#92400E",marginBottom:6}}>
+            ⏳ جاري الترحيل... {migrateProgress.done}/{migrateProgress.total}
+          </div>}
+          {migrateError && <div style={{fontSize:FS-3,color:T.err,marginBottom:6}}>
+            ⚠️ {migrateError}
+          </div>}
+          {canEdit && <Btn small primary onClick={runMigration} disabled={migrating} style={{background:"#F59E0B"}}>
+            {migrating ? "⏳ جاري الترحيل..." : "🔄 ترحيل دلوقتي"}
+          </Btn>}
+        </div>
+      </div>
+    </div>}
+
     {/* Templates section */}
     <Card title={"📝 قوالب الرسائل ("+templates.length+"/"+MAX_TEMPLATES+")"} accent="#7C3AED">
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
@@ -508,6 +598,15 @@ export function CampaignsPg({data, upConfig, isMob, canEdit, user}){
               <Btn small ghost onClick={() => { setEditingTpl(t); setMode("templateEdit"); }} title="تعديل">✏️</Btn>
               <Btn small ghost onClick={async () => {
                 if(await ask("حذف القالب '"+t.name+"'؟")){
+                  /* V19.35: Clean up Storage objects too — fire-and-forget,
+                     deletion errors are non-fatal (we log and move on). */
+                  (t.images || []).forEach(img => {
+                    if(img?.storagePath){
+                      deleteTemplateImage(img.storagePath).catch(err =>
+                        console.warn("[V19.35] template image cleanup failed:", err)
+                      );
+                    }
+                  });
                   upConfig(d => { d.campaignTemplates = (d.campaignTemplates||[]).filter(x => x.id !== t.id); });
                   showToast("✓ اتحذف");
                 }
@@ -614,79 +713,57 @@ function TemplateEditor({tpl, canEdit, onCancel, onSave}){
   const [category, setCategory] = useState(tpl?.category || "تذكير دفع");
   const [body, setBody] = useState(tpl?.body || "");
   const [imageUrl, setImageUrl] = useState(tpl?.imageUrl || "");
-  /* V19.33: Multiple uploaded images (base64) — Bridge mode only */
-  const [images, setImages] = useState(tpl?.images || []); /* [{base64, mime, name, size}] */
+  /* V19.35: Images live in Firebase Storage now. Shape: [{storagePath, url, mime, name, size}].
+     Backwards-compat: legacy entries with `base64` are surfaced as-is until the user runs
+     migration from the Templates list (or hits Save here, which will fail-safe to keeping them). */
+  const [images, setImages] = useState(tpl?.images || []);
   const [uploadError, setUploadError] = useState("");
+  const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
   const bodyRef = useRef(null);
 
-  /* V19.33: Image upload handler */
-  /* V19.34: Compress image client-side using canvas — keeps base64 small enough
-     to fit in Firestore's 1MB doc limit. Resizes to max 1280px wide and quality 0.82. */
-  const compressImage = (file) => new Promise((resolve, reject) => {
-    const img = new Image();
-    const reader = new FileReader();
-    reader.onload = () => {
-      img.onload = () => {
-        const MAX_W = 1280, MAX_H = 1280;
-        let {width, height} = img;
-        if(width > MAX_W || height > MAX_H){
-          const ratio = Math.min(MAX_W/width, MAX_H/height);
-          width = Math.round(width * ratio);
-          height = Math.round(height * ratio);
-        }
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, width, height);
-        canvas.toBlob(blob => {
-          if(!blob){ reject(new Error("compression failed")); return; }
-          const r2 = new FileReader();
-          r2.onload = () => {
-            const base64 = r2.result.split(",")[1];
-            resolve({base64, mime: "image/jpeg", name: file.name.replace(/\.\w+$/, ".jpg"), size: blob.size});
-          };
-          r2.onerror = reject;
-          r2.readAsDataURL(blob);
-        }, "image/jpeg", 0.82);
-      };
-      img.onerror = reject;
-      img.src = reader.result;
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-
-  const handleImageUpload = (e) => {
+  /* V19.35: Image upload — compress in-browser then push to Firebase Storage.
+     The Firestore record only stores the storagePath + downloadURL (~200 bytes),
+     keeping factory/config tiny. */
+  const handleImageUpload = async (e) => {
     setUploadError("");
     const files = Array.from(e.target.files || []);
+    e.target.value = "";
     if(files.length === 0) return;
     if(images.length + files.length > 5){
       setUploadError("الحد الأقصى 5 صور لكل قالب");
-      e.target.value = "";
       return;
     }
-    /* V19.34: Compress + add */
-    Promise.all(files.map(f => compressImage(f))).then(newImages => {
-      /* Verify each compressed image is under ~700KB base64 (~960KB encoded → safe under Firestore 1MB) */
-      const oversized = newImages.filter(img => img.base64.length > 700 * 1024);
-      if(oversized.length > 0){
-        setUploadError(`${oversized.length} صورة لسه كبيرة بعد الضغط — جرب صور أصغر`);
-        return;
+    /* Need a stable templateId for the Storage path even when creating a new template.
+       For new templates we use a temporary id; on save the parent will assign the real
+       tpl_xxx id but the images stay valid (the path is opaque to Firestore). */
+    const tplId = tpl?.id || "tpl_draft_" + Math.random().toString(36).slice(2, 10);
+    setUploading(true);
+    try {
+      const uploaded = [];
+      for(const f of files){
+        const meta = await uploadTemplateImageFile(tplId, f);
+        uploaded.push(meta);
       }
-      const totalBase64 = [...images, ...newImages].reduce((s,i) => s+i.base64.length, 0);
-      if(totalBase64 > 3 * 1024 * 1024){
-        setUploadError("الحجم الإجمالي للصور أكبر من المسموح — احذف بعض الصور");
-        return;
-      }
-      setImages([...images, ...newImages]);
-    }).catch(err => setUploadError("فشل ضغط الصورة: " + (err.message || err)));
-    e.target.value = "";
+      setImages(prev => [...prev, ...uploaded]);
+    } catch(err){
+      console.error("[V19.35] template image upload failed:", err);
+      setUploadError("فشل رفع الصورة: " + (err?.message || err));
+    } finally {
+      setUploading(false);
+    }
   };
 
-  const removeImage = (idx) => {
+  /* V19.35: removing an image deletes from Storage too. Firestore-side removal
+     happens on Save (parent's onSave persists the new images[] array). */
+  const removeImage = async (idx) => {
+    const target = images[idx];
     setImages(images.filter((_,i) => i!==idx));
+    if(target?.storagePath){
+      deleteTemplateImage(target.storagePath).catch(err =>
+        console.warn("[V19.35] storage delete failed (non-fatal):", err)
+      );
+    }
   };
 
   const insertVar = (token) => {
@@ -776,23 +853,24 @@ function TemplateEditor({tpl, canEdit, onCancel, onSave}){
         </div>
       </div>
 
-      {/* V19.33: Multi-image upload (Bridge mode only) */}
+      {/* V19.35: Multi-image upload — uploads to Firebase Storage (was: base64 in factory/config) */}
       <div style={{marginTop:12,padding:12,borderRadius:10,background:T.accent+"06",border:"1px solid "+T.accent+"25"}}>
         <div style={{fontSize:FS-1,fontWeight:700,color:T.accent,marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
           <span>📷</span><span>صور مرفقة (Bridge mode فقط)</span>
         </div>
         <div style={{fontSize:FS-3,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
-          الصور دي بتترفع كـ attachment حقيقي مع الرسالة. الصور بيتم ضغطها تلقائياً لـ 1280px جودة 82% (موصى بيه). النص بيتحط مع أول صورة كـ caption.
+          الصور بتترفع لـ Firebase Storage مباشرة (مش بتاكل من حد الـ Firestore). ضغط تلقائي 1280px جودة 82%. النص بيتحط مع أول صورة كـ caption.
           <br/><b style={{color:T.warn}}>⚠️ في الوضع اليدوي:</b> الصور دي مش بتتبعت — استخدم "رابط صورة" فوق بدلاً منها.
         </div>
 
         {images.length > 0 && <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(110px, 1fr))",gap:8,marginBottom:10}}>
           {images.map((img, i) => (
             <div key={i} style={{position:"relative",borderRadius:8,overflow:"hidden",border:"1px solid "+T.brd,aspectRatio:"1"}}>
-              <img src={"data:"+img.mime+";base64,"+img.base64} alt={img.name} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+              <img src={img.url || ("data:"+img.mime+";base64,"+img.base64)} alt={img.name} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
               <div style={{position:"absolute",top:2,right:2,background:"rgba(0,0,0,0.7)",color:"#fff",padding:"2px 6px",borderRadius:4,fontSize:FS-3,fontWeight:700}}>
                 {i+1}
               </div>
+              {!img.url && img.base64 && <div style={{position:"absolute",top:2,left:32,background:"rgba(245,158,11,0.95)",color:"#000",padding:"2px 6px",borderRadius:4,fontSize:FS-3,fontWeight:700}} title="هتترحل تلقائياً عند الحفظ">قديمة</div>}
               {canEdit && <button onClick={() => removeImage(i)} style={{position:"absolute",top:2,left:2,width:22,height:22,borderRadius:"50%",background:"rgba(220,38,38,0.9)",color:"#fff",border:"none",fontSize:14,fontWeight:900,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}} title="حذف">✕</button>}
               <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent, rgba(0,0,0,0.8))",color:"#fff",fontSize:FS-3,padding:"10px 4px 3px 4px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
                 {Math.round((img.size||0)/1024)}KB
@@ -803,8 +881,8 @@ function TemplateEditor({tpl, canEdit, onCancel, onSave}){
 
         {canEdit && <>
           <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleImageUpload} style={{display:"none"}}/>
-          <Btn small onClick={() => fileInputRef.current?.click()} disabled={images.length>=5} style={{background:T.accent+"15",color:T.accent,border:"1px solid "+T.accent+"40"}}>
-            📷 رفع صورة {images.length>0 && `(${images.length}/5)`}
+          <Btn small onClick={() => fileInputRef.current?.click()} disabled={images.length>=5 || uploading} style={{background:T.accent+"15",color:T.accent,border:"1px solid "+T.accent+"40"}}>
+            {uploading ? "⏳ جاري الرفع..." : `📷 رفع صورة ${images.length>0 ? `(${images.length}/5)` : ""}`}
           </Btn>
           {uploadError && <div style={{marginTop:6,fontSize:FS-3,color:T.err}}>⚠️ {uploadError}</div>}
         </>}
@@ -820,7 +898,7 @@ function TemplateEditor({tpl, canEdit, onCancel, onSave}){
           <div style={{fontSize:FS-3,color:"#666",marginBottom:4}}>📷 {images.length} صورة (Bridge فقط)</div>
           <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
             {images.slice(0,5).map((img,i) => (
-              <img key={i} src={"data:"+img.mime+";base64,"+img.base64} style={{width:50,height:50,objectFit:"cover",borderRadius:4}}/>
+              <img key={i} src={img.url || ("data:"+img.mime+";base64,"+img.base64)} style={{width:50,height:50,objectFit:"cover",borderRadius:4}}/>
             ))}
           </div>
         </div>}
@@ -2316,71 +2394,57 @@ function BridgeSendScreen({data, upConfig, user, bridgeUrl, bridgeToken, templat
     return [...tplImgs, ...extraImages].slice(0, 5); /* hard cap 5 */
   }, [template.images, extraImages]);
 
-  /* V19.33: Upload handler for extra campaign images */
-  /* V19.34: Same compression for extra campaign images */
-  const compressImageBridge = (file) => new Promise((resolve, reject) => {
-    const img = new Image();
-    const reader = new FileReader();
-    reader.onload = () => {
-      img.onload = () => {
-        const MAX_W = 1280, MAX_H = 1280;
-        let {width, height} = img;
-        if(width > MAX_W || height > MAX_H){
-          const ratio = Math.min(MAX_W/width, MAX_H/height);
-          width = Math.round(width * ratio);
-          height = Math.round(height * ratio);
-        }
-        const canvas = document.createElement("canvas");
-        canvas.width = width; canvas.height = height;
-        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-        canvas.toBlob(blob => {
-          if(!blob){ reject(new Error("compression failed")); return; }
-          const r2 = new FileReader();
-          r2.onload = () => {
-            const base64 = r2.result.split(",")[1];
-            resolve({base64, mime: "image/jpeg", name: file.name.replace(/\.\w+$/, ".jpg"), size: blob.size});
-          };
-          r2.onerror = reject;
-          r2.readAsDataURL(blob);
-        }, "image/jpeg", 0.82);
-      };
-      img.onerror = reject;
-      img.src = reader.result;
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-
-  const handleExtraUpload = (e) => {
+  /* V19.35: Extra campaign images also go to Firebase Storage. We use a
+     synthetic templateId namespaced to the campaign so deletes can be reasoned
+     about later if we ever want garbage collection. */
+  const handleExtraUpload = async (e) => {
     setExtraUploadError("");
     const files = Array.from(e.target.files || []);
+    e.target.value = "";
     if(files.length === 0) return;
     const tplCount = (template.images || []).length;
     if(tplCount + extraImages.length + files.length > 5){
       setExtraUploadError("الحد الأقصى 5 صور إجمالاً للحملة (شاملة صور القالب)");
-      e.target.value = "";
       return;
     }
-    Promise.all(files.map(f => compressImageBridge(f))).then(newImages => {
-      const oversized = newImages.filter(img => img.base64.length > 700 * 1024);
-      if(oversized.length > 0){
-        setExtraUploadError(`${oversized.length} صورة لسه كبيرة بعد الضغط — جرب صور أصغر`);
-        return;
+    const campaignNs = "campaign_" + (campaignIdRef.current || "tmp");
+    try {
+      const uploaded = [];
+      for(const f of files){
+        const meta = await uploadTemplateImageFile(campaignNs, f);
+        uploaded.push(meta);
       }
-      setExtraImages([...extraImages, ...newImages]);
-    }).catch(err => setExtraUploadError("فشل ضغط الصورة: " + (err.message || err)));
-    e.target.value = "";
+      setExtraImages(prev => [...prev, ...uploaded]);
+    } catch(err){
+      console.error("[V19.35] extra image upload failed:", err);
+      setExtraUploadError("فشل رفع الصورة: " + (err?.message || err));
+    }
   };
-  const removeExtraImage = (idx) => setExtraImages(extraImages.filter((_,i) => i!==idx));
+  const removeExtraImage = (idx) => {
+    const target = extraImages[idx];
+    setExtraImages(extraImages.filter((_,i) => i!==idx));
+    if(target?.storagePath){
+      deleteTemplateImage(target.storagePath).catch(err =>
+        console.warn("[V19.35] storage delete failed (non-fatal):", err)
+      );
+    }
+  };
 
   /* Build personalized messages */
-  /* V19.33: include media[] from template + extra images */
+  /* V19.35: media items now ship URL references (pointing at Firebase Storage)
+     instead of base64 blobs. The bridge fetches and decodes server-side. We keep
+     a fallback so legacy base64 templates that haven't been migrated yet still
+     send (the bridge accepts both shapes). */
   const buildMessages = () => items.map(c => ({
     id: campaignIdRef.current + "_" + c.id,
     phone: cleanPhone(c.phone),
     customerName: c.name,
     message: personalize(template.body, c),
-    media: allImages.length > 0 ? allImages.map(img => ({base64: img.base64, mime: img.mime, name: img.name})) : null,
+    media: allImages.length > 0 ? allImages.map(img => (
+      img.url
+        ? { url: img.url, mime: img.mime, name: img.name }
+        : { base64: img.base64, mime: img.mime, name: img.name }
+    )) : null,
     campaignId: campaignIdRef.current,
   }));
 
@@ -2405,21 +2469,23 @@ function BridgeSendScreen({data, upConfig, user, bridgeUrl, bridgeToken, templat
     setError("");
     try {
       const messages = buildMessages();
-      /* V19.34: Diagnostic logging — helps debug image issues */
+      /* V19.35: Diagnostic logging — payloads are tiny now (URLs not base64). */
       const totalImages = messages.reduce((sum, m) => sum + (m.media?.length || 0), 0);
       const payloadSize = JSON.stringify({messages}).length;
-      const payloadMB = (payloadSize / (1024 * 1024)).toFixed(2);
+      const payloadMB = (payloadSize / (1024 * 1024)).toFixed(3);
+      const firstM = messages[0]?.media?.[0];
+      const firstShape = firstM ? (firstM.url ? "url" : firstM.base64 ? "base64(legacy)" : "?") : "—";
       console.log("[BRIDGE SEND]", {
         messageCount: messages.length,
         totalImages,
         firstMsgMedia: messages[0]?.media ? `${messages[0].media.length} images` : "none",
-        firstImageSize: messages[0]?.media?.[0] ? `${Math.round(messages[0].media[0].base64.length / 1024)}KB base64` : "—",
+        firstShape,
         payloadSizeMB: payloadMB,
         templateImages: (template.images || []).length,
         extraImages: extraImages.length,
         allImagesLen: allImages.length,
       });
-      /* Warn if payload is large */
+      /* Warn if payload is large (only meaningful when legacy base64 entries are still around) */
       if(payloadSize > 12 * 1024 * 1024){
         if(!await ask(`⚠️ حجم البيانات ${payloadMB} MB — أكبر من 12MB. ممكن يفشل الإرسال. تكمّل؟`)) return;
       }
@@ -2555,7 +2621,7 @@ function BridgeSendScreen({data, upConfig, user, bridgeUrl, bridgeToken, templat
               const isFromTpl = i < (template.images || []).length;
               const extraIdx = i - (template.images || []).length;
               return <div key={i} style={{position:"relative",borderRadius:6,overflow:"hidden",border:"1px solid "+T.brd,aspectRatio:"1"}}>
-                <img src={"data:"+img.mime+";base64,"+img.base64} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                <img src={img.url || ("data:"+img.mime+";base64,"+img.base64)} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
                 <div style={{position:"absolute",top:1,right:1,background:isFromTpl?"rgba(124,58,237,0.85)":"rgba(16,185,129,0.85)",color:"#fff",padding:"1px 5px",borderRadius:3,fontSize:FS-3,fontWeight:700}}>
                   {isFromTpl?"قالب":"حملة"}
                 </div>

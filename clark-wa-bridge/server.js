@@ -103,6 +103,50 @@ function addActivity(entry){
   if(activityLog.length > ACTIVITY_LOG_MAX) activityLog = activityLog.slice(0, ACTIVITY_LOG_MAX);
 }
 
+/* ──────────────────────────────────────────────────────────────────
+   V19.35: Media URL cache
+   ──────────────────────────────────────────────────────────────────
+   CLARK now ships media references as URLs (Firebase Storage) instead
+   of inline base64 — keeping the Firestore document tiny.
+
+   The same template image is typically sent to every recipient in a
+   campaign (50+ messages). Without caching, we'd re-download the same
+   image dozens of times. This in-memory LRU caches the decoded base64
+   for an hour; entries are evicted on size cap to bound memory.
+   ────────────────────────────────────────────────────────────────── */
+const MEDIA_CACHE_TTL_MS = 60 * 60 * 1000; /* 1 hour */
+const MEDIA_CACHE_MAX_ENTRIES = 50;
+const mediaCache = new Map(); /* url -> {data: base64, mime, expiresAt} */
+
+async function fetchMediaToBase64(url){
+  if(!url || typeof url !== "string") throw new Error("invalid media url");
+  const now = Date.now();
+  const cached = mediaCache.get(url);
+  if(cached && cached.expiresAt > now){
+    /* Refresh LRU position */
+    mediaCache.delete(url);
+    mediaCache.set(url, cached);
+    return cached;
+  }
+  const resp = await fetch(url);
+  if(!resp.ok) throw new Error(`media fetch failed: HTTP ${resp.status}`);
+  const buf = Buffer.from(await resp.arrayBuffer());
+  const data = buf.toString("base64");
+  /* Prefer the response's content-type when present (Firebase Storage
+     returns the original mime); fall back to image/jpeg. */
+  const mime = (resp.headers.get("content-type") || "image/jpeg").split(";")[0].trim();
+  const entry = { data, mime, expiresAt: now + MEDIA_CACHE_TTL_MS, size: buf.length };
+  mediaCache.set(url, entry);
+  /* Evict oldest entries when over the size cap. Map iteration order
+     is insertion order, so .keys().next() gives us the LRU candidate. */
+  while(mediaCache.size > MEDIA_CACHE_MAX_ENTRIES){
+    const oldest = mediaCache.keys().next().value;
+    if(oldest === undefined) break;
+    mediaCache.delete(oldest);
+  }
+  return entry;
+}
+
 /* Load saved state */
 function loadState() {
   try {
@@ -307,11 +351,10 @@ async function processQueue() {
       await sleep(rand(settings.typingDelayMin, settings.typingDelayMax));
 
       /* Send */
-      /* V19.33: Support multiple images via media[] array.
-         Backwards compatible with old mediaBase64/mediaMime single-image fields.
-         WhatsApp doesn't support native album send; we send each image
-         separately, with the text caption attached to the FIRST image only.
-         A short delay between images avoids rate limits. */
+      /* V19.35: media items can be URL-form (Firebase Storage) or legacy
+         base64-form. URLs get fetched-and-cached so a campaign of 50 messages
+         hits Storage 1× per image, not 50×.
+         Backwards compatible with old mediaBase64/mediaMime single-image fields. */
       const mediaArr = Array.isArray(item.media) && item.media.length > 0
         ? item.media
         : (item.mediaBase64 && item.mediaMime
@@ -322,7 +365,20 @@ async function processQueue() {
         const { MessageMedia } = require("whatsapp-web.js");
         for (let i = 0; i < mediaArr.length; i++) {
           const m = mediaArr[i];
-          const media = new MessageMedia(m.mime, m.base64, m.name || "file");
+          let b64, mime;
+          if (m.url) {
+            /* V19.35: fetch from Firebase Storage (or any HTTPS URL) */
+            const fetched = await fetchMediaToBase64(m.url);
+            b64 = fetched.data;
+            mime = m.mime || fetched.mime;
+          } else if (m.base64) {
+            b64 = m.base64;
+            mime = m.mime || "image/jpeg";
+          } else {
+            console.warn("[Q] media item missing both url and base64, skipping", m);
+            continue;
+          }
+          const media = new MessageMedia(mime, b64, m.name || "file");
           /* Caption (text) goes with the FIRST image only */
           const opts = i === 0 && item.message ? { caption: item.message } : {};
           await waClient.sendMessage(chatId, media, opts);

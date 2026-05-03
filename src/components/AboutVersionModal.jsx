@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.35",
+    date: "2026-05-03",
+    types: ["architectural", "fix"],
+    title: "🏗️ صور القوالب اتنقلت لـ Firebase Storage — وقف نزيف الـ factory/config",
+    changes: [
+      { type: "architectural", text: "🏗️ [مشكلة معمارية حرجة] الـ Firestore document factory/config وصل 100% (1323/1024 KB) لأن V19.33-V19.34 كانوا بيخزّنوا صور القوالب base64 جوة الـ document. أي صورة 200-700KB كانت بتاكل من حد الـ 1MB، فالـ writes بتاعت العملاء/الموردين/الموظفين كانت معرضة لـ silent failures. النوع ده من الأخطاء بيكون خطير: مفيش رسالة خطأ واضحة، البيانات ممكن تتلخبط." },
+      { type: "fix", text: "✅ [الحل] الصور دلوقتي بتترفع لـ Firebase Storage (الـ infrastructure كانت موجودة بالفعل من V15.90 — بنستخدم نفس الـ pattern بتاع الـ orders attachments). الـ Firestore بيخزن بس URL ~200 بايت بدل base64 ~700KB. تخفيض ~3500× في حجم الـ document لكل صورة." },
+      { type: "feature", text: "🔄 [Migration UI] في صفحة القوالب، Banner بيظهر تلقائياً لو في قوالب فيها صور base64 قديمة. بيقولك بكام KB في Firestore هتتفرّغ + زر '🔄 ترحيل دلوقتي'. الترحيل بيرفع كل صورة لـ Storage ويستبدل الـ base64 بـ {storagePath, url} في document write أصغر. كل قالب بيتحدّث بشكل مستقل، فلو فشل قالب واحد، الباقي بيكمّل." },
+      { type: "improvement", text: "🌉 [Bridge: URL fetching + cache] السيرفر اتحدّث ياخد {url, mime, name} بدل {base64, mime, name}. بيعمل fetch من Firebase Storage مرة واحدة لكل صورة لكل حملة (1 ساعة TTL، LRU cache بحد 50 entry). يعني حملة لـ 50 عميل بنفس الصورة = fetch واحد بس مش 50. backwards-compatible مع legacy base64 entries." },
+      { type: "improvement", text: "🧹 [Storage cleanup] لما بتمسح قالب أو تشيل صورة من قالب، الـ Storage object بيتمسح تلقائياً (fire-and-forget — أخطاء الحذف non-fatal). كده مفيش orphans بتتراكم في Storage." },
+      { type: "improvement", text: "📊 [Diagnostic logs] الـ console.log قبل الإرسال للبريدج بقى بيقولك payload size بالـ KB (مش MB) لأنه دلوقتي صغير، ونوع كل media item (url vs base64-legacy). مفيد لو لسه في قوالب ما اترحلتش." },
+    ]
+  },
+  {
     version: "V19.34",
     date: "2026-05-03",
     types: ["fix"],
@@ -159,16 +173,6 @@ const CHANGELOG = [
       { type: "fix", text: "🔄 رجوع لمنطق V19.22 الأصلي: `if(week.weekStart < d.startDate) skip`. التوضيح من المستخدم: 'تاريخ المديونية يوم الخميس 23-4 وبداية الخصم على الموظف الاسبوع اللي بعده يعني 30-4'. يعني الأسبوع اللي يحتوي تاريخ المديونية (بدايته قبل تاريخ المديونية) لا يُخصم. أول خصم في الأسبوع اللي بدأ في أو بعد تاريخ المديونية." },
       { type: "fix", text: "📋 مثال عملي (المستخدم): مديونية بداية 23-4 (الخميس، آخر يوم في W17). W17 (weekStart 18-4) → 18<23 → SKIP ✓. W18 (weekStart 25-4) → 25<23 false → INCLUDE ✓. النتيجة: قسط واحد بس عند إقفال W18، مش اتنين كما كان يبان قبل التصحيح." },
       { type: "fix", text: "🔧 V19.23 كان بيستخدم `weekEnd < d.startDate` بدل `weekStart` — ده كان بيخلي W17 (weekEnd=23-4) مؤهل في حالة المستخدم بالغلط. تم الرجوع للمنطق الأصلي. الـ recovery scanner (V19.23-24) بيستخدم نفس الفلتر دلوقتي عشان يكون متناسق مع الخصم التلقائي." },
-    ]
-  },
-  {
-    version: "V19.25",
-    date: "2026-05-02",
-    types: ["improvement"],
-    title: "📤 رسالة واتساب يومية الخزنة — إجماليات فقط",
-    changes: [
-      { type: "improvement", text: "📤 إزالة قسم 'تفاصيل الحركات' من رسالة WhatsApp اليومية للخزنة. الرسالة دلوقتي بتحتوي على: رصيد افتتاحي، إجمالي الوارد، إجمالي المنصرف، صافي اليوم، رصيد الإقفال، عدد الحركات، الوارد حسب التصنيف، المنصرف حسب التصنيف. ده بيخلي الرسالة أقصر وأنظف للمتلقي." },
-      { type: "improvement", text: "📋 ملاحظة: التقرير المطبوع (HTML) لسه بيحتوي على كل تفاصيل الحركات الفردية — التغيير ده على رسالة WhatsApp بس." },
     ]
   },
 ];
