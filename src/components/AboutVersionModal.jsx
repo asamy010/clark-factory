@@ -25,6 +25,23 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.30",
+    date: "2026-05-03",
+    types: ["feature", "architectural"],
+    title: "🌐 Bridge على VPS — Docker + HTTPS تلقائي + Auth Token",
+    changes: [
+      { type: "feature", text: "🐳 [جديد] `Dockerfile` للبريدج — Node 20 + Chromium pre-installed. صورة جاهزة تشغّل في أي مكان. حجم 350MB تقريباً." },
+      { type: "feature", text: "🔧 [جديد] `docker-compose.yml` — يشغّل خدمتين: bridge (داخلي) + Caddy (reverse proxy). Volumes للسيشن والشهادات. auto-restart لو في crash. CORS مفتوح للـ CLARK." },
+      { type: "feature", text: "🔒 [جديد] `Caddyfile` — reverse proxy بـ HTTPS تلقائي. Caddy بيطلب شهادات Let's Encrypt تلقائياً للـ domain اللي تختاره ويجدّدها كل شهرين بدون تدخل. HSTS + security headers مفعّلة." },
+      { type: "feature", text: "🚀 [جديد] `setup-vps.sh` — سكريبت آلي يعمل كل حاجة بأمر واحد على VPS فاضي (Ubuntu 22/24): تحديث النظام، تركيب Docker + Compose، ضبط UFW firewall (ports 22/80/443)، توليد Auth Token عشوائي 64-حرف، بناء وتشغيل البريدج." },
+      { type: "feature", text: "🔐 [أمان] `AUTH_TOKEN` في server.js — middleware جديد بيتشيك Authorization: Bearer header على كل endpoint (ماعدا / و /status). أي طلب بدون token صحيح بيرجع 401. السكريبت بيولّد token عشوائي ويحطه في .env. CLARK لازم تبعت الـ token عشان البريدج يقبل الطلبات." },
+      { type: "feature", text: "🎨 [CLARK UI] خانة 'Auth Token' جديدة في صفحة إعدادات البريدج — بـ type=password عشان متظهرش. الـ token بيتحفظ في `data.campaignBridge.token`. كل bridge calls (status, send, queue, pause, resume, stop, settings, etc.) بتمرر الـ token تلقائياً. لو 401 من السيرفر، رسالة واضحة 'Unauthorized — تأكد من Auth Token'." },
+      { type: "feature", text: "📚 [دليل عربي كامل] `SETUP-VPS.md` — خطوة بخطوة لتشغيل البريدج على VPS من الصفر: رفع الملفات، تشغيل setup-vps.sh، انتظار شهادة HTTPS، scan QR، ربط CLARK. + قسم troubleshooting + أوامر مفيدة + backup السيشن." },
+      { type: "improvement", text: "🛡 [أمان VPS] firewall بيقفل كل الـ ports غير 22 (SSH), 80 (HTTP لـ Let's Encrypt), 443 (HTTPS). البريدج (3001) ما بيتعرضش لبره — بس Caddy بيوصل له داخلياً. مفيش direct access للـ bridge من الخارج." },
+      { type: "improvement", text: "🔄 [Persistent volumes] السيشن (`.wwebjs_auth`) و الـ state (`.bridge-state.json`) محفوظين في Docker volumes. لو البريدج اتوقف أو الكونتينر اتعاد بناؤه، الـ session مش هتضيع — مش هتحتاج تـ scan QR تاني." },
+    ]
+  },
+  {
     version: "V19.29",
     date: "2026-05-02",
     types: ["feature", "improvement"],
@@ -143,22 +160,6 @@ const CHANGELOG = [
       { type: "improvement", text: "🎨 تغيير تصميم popup مرحلة الأوردر (StageProgressModal) لتصميم أبيض كامل (variant B). الخلفية بيضا 100% بدون شفافية، إطار 2px بلون المرحلة الكامل (أصفر للتشغيل، أحمر للطباعة، إلخ)، نصوص بألوان عادية (T.text/T.textSec) للوضوح الأقصى." },
       { type: "improvement", text: "🏷 الـ pill بتاع المرحلة لسه ملوّن (15% alpha + لون داكن للنص + إطار 40% alpha)، والـ% الكبير لسه بلون المرحلة. الهوية البصرية محفوظة بدون ضوضاء على القراءة." },
       { type: "improvement", text: "🔘 زر الإغلاق ✕ دلوقتي بخلفية رمادي محايد بدل ما كان بلون المرحلة — أنظف وأوضح إنه زر إغلاق." },
-    ]
-  },
-  {
-    version: "V19.20",
-    date: "2026-05-02",
-    types: ["fix", "feature"],
-    title: "🚨 [حرج] إصلاح بيانات الورش + الخزنة كمصدر وحيد للحقيقة + popup أوضح + قسط يدوي",
-    changes: [
-      { type: "fix", text: "🐛 [المشكلة المُبلَّغ عنها] ورشة نورهان: الدفعات الفعلية 40,800 ج.م، لكن ملخص الحساب بيعرض 51,600 ج.م. السبب: V18.72 fallback كانت بتجمع `wsPayments` + orphan treasury، وفي حالة ما المستخدم يمسح حركة من الخزنة بدون ما يمسح الـ wsPayments المرتبطة، الـ wsPayment الـ ghost كان لسه بيتحسب." },
-      { type: "fix", text: "🚨 [الأخطر] V19.17 auto-sync اللي بنيتها كانت بتنشئ wsPayments تلقائياً من orphan treasury entries — اللي معناه أن المسح كان مستحيل في حالات معينة: تمسح wsPayment، الـ treasury orphan، الـ auto-sync ترجع تنشئ الـ wsPayment تاني. تم إزالتها بالكامل." },
-      { type: "feature", text: "✅ wsAccounts دلوقتي بتقرأ من **الخزنة فقط** كمصدر وحيد للحقيقة. الإجماليات هتطابق ما اتحرك فعلاً في فلوس الخزنة. الـ wsPayments أصبحت index ثانوي للعرض. النتيجة الفورية: 51,600 يرجع 40,800 من غير ضغط زر." },
-      { type: "feature", text: "🧹 [أداة جديدة] 'تنظيف بيانات الورش': زر ⚠️ في صفحة حسابات الورش بيظهر لما في تضارب. بيعرض كل ghost payments (سجلات بدون قيد خزنة) وكل orphan treasury (قيود بدون سجل). لكل سطر: 'احذف' أو 'اعمل الطرف الناقص'. تنظيف يدوي شفاف 100%." },
-      { type: "feature", text: "🔗 جدول دفعات الورش دلوقتي بيوضح: الصفوف الـ ghost بـ 👻 + شطب على المبلغ + خلفية حمرا (مش محتسبة). صفوف الـ orphan treasury بـ ⚠️ + خلفية صفرا (محتسبة). يفرّق بين النوعين بصرياً قبل ما تفتح أداة التنظيف." },
-      { type: "improvement", text: "🔒 Bilateral cascade في حذف الخزنة: لو مسحت قيد خزنة مرتبط بـ wsPayment/custPayment/supplierPayment، السجل المقابل بيتمسح كمان (سواء عبر forward link `treasuryTxId` أو reverse link `wsPaymentId`). يمنع تكوّن inconsistencies جديدة." },
-      { type: "improvement", text: "🎨 popup مرحلة الأوردر: زيادة opacity للوضوح. الخلفية 12%→22%، الـ header 8%→18%، الـ borders 35%→55%، pills بيضا 70%→85%. أوضح بدون فقدان الطابع الشفاف الهادئ." },
-      { type: "feature", text: "💰 [HR] زر '+ قسط مدفوع' على كارت المديونية النشطة في popup المديونيات. بيفتح modal لتسجيل قسط يدوياً مع تاريخ + ملاحظة. مفيد للحالات اللي الخصم اتعمل فيها بـ specialDeduct أو المديونية اتعملت بعد إقفال أسبوع — حالات الـ paidWeekIds مكنش بيتسجل تلقائياً فيها." },
     ]
   },
 ];

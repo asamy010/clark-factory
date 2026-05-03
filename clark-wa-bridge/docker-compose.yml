@@ -1,0 +1,62 @@
+# CLARK WhatsApp Bridge — VPS deployment
+#
+# Two services:
+#   - bridge: the Node.js whatsapp-web.js server (private, port 3001 internal)
+#   - caddy:  reverse proxy with auto-HTTPS (Let's Encrypt) on ports 80+443
+#
+# Volumes:
+#   - bridge-auth:  WhatsApp session (so you don't re-scan QR on every restart)
+#   - bridge-state: counters + opt-outs
+#   - caddy-data:   TLS certificates
+#   - caddy-config: Caddy state
+
+services:
+  bridge:
+    build: .
+    container_name: clark-bridge
+    restart: unless-stopped
+    environment:
+      - PORT=3001
+      - AUTH_TOKEN=${AUTH_TOKEN}
+      - TZ=${TZ:-Africa/Cairo}
+    volumes:
+      - bridge-auth:/app/.wwebjs_auth
+      - bridge-cache:/app/.wwebjs_cache
+      - bridge-state:/app/state
+    # Bridge state file goes in mounted dir so it survives rebuilds
+    working_dir: /app
+    # Only expose internally to caddy
+    expose:
+      - "3001"
+    networks:
+      - clark-net
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: clark-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN}
+      - TZ=${TZ:-Africa/Cairo}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - bridge
+    networks:
+      - clark-net
+
+volumes:
+  bridge-auth:
+  bridge-cache:
+  bridge-state:
+  caddy-data:
+  caddy-config:
+
+networks:
+  clark-net:
+    driver: bridge

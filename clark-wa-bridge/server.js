@@ -35,11 +35,29 @@ const path = require("path");
 const { Client, LocalAuth } = require("whatsapp-web.js");
 
 const PORT = process.env.PORT || 3001;
+/* V19.30: Optional auth token. If AUTH_TOKEN env var is set, all requests
+   (except / and /status) require Authorization: Bearer <token>.
+   If unset, the bridge runs in open mode (only safe for localhost). */
+const AUTH_TOKEN = (process.env.AUTH_TOKEN || "").trim();
 const STATE_FILE = path.join(__dirname, ".bridge-state.json");
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
+
+/* V19.30: Auth middleware — runs before any /send /pause etc.
+   Skipped for: GET / (status page), GET /status (health check). */
+app.use((req, res, next) => {
+  if (!AUTH_TOKEN) return next(); /* No token configured = open mode */
+  /* Allow status page + health check without token (so the public page works) */
+  if (req.method === "GET" && (req.path === "/" || req.path === "/status")) return next();
+  const auth = req.headers.authorization || "";
+  const match = auth.match(/^Bearer\s+(.+)$/i);
+  if (!match || match[1].trim() !== AUTH_TOKEN) {
+    return res.status(401).json({ ok: false, error: "Unauthorized" });
+  }
+  next();
+});
 
 /* ──────────────────────────────────────────────────────────────────
    GLOBAL STATE
@@ -325,8 +343,11 @@ async function processQueue() {
 /* Health check + status */
 app.get("/status", (req, res) => {
   rolloverDailyCounter();
+  /* V19.30: Indicate whether auth is required (so CLARK can warn if missing) */
+  const authRequired = !!AUTH_TOKEN;
   res.json({
     ok: true,
+    authRequired,
     waState,
     waReady,
     myNumber,

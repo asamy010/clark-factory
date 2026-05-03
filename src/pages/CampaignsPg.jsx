@@ -39,20 +39,25 @@ const DEFAULT_DAILY_CAP = 50;
 const DEFAULT_BRIDGE_URL = "http://localhost:3001";
 const BRIDGE_POLL_MS = 2500;
 
-/* V19.28: Bridge HTTP client — small wrapper around fetch */
-async function bridgeFetch(url, path, opts = {}){
+/* V19.28: Bridge HTTP client — small wrapper around fetch
+   V19.30: Now supports optional auth token (Bearer) */
+async function bridgeFetch(url, path, opts = {}, token){
   const base = (url || "").replace(/\/+$/, "");
   if(!base)throw new Error("Bridge URL not set");
   const ctrl = new AbortController();
   const timeout = setTimeout(() => ctrl.abort(), opts.timeout || 8000);
   try {
+    const headers = {};
+    if(opts.body) headers["Content-Type"] = "application/json";
+    if(token) headers["Authorization"] = "Bearer " + token;
     const r = await fetch(base + path, {
       method: opts.method || "GET",
-      headers: opts.body ? {"Content-Type":"application/json"} : undefined,
+      headers: Object.keys(headers).length ? headers : undefined,
       body: opts.body ? JSON.stringify(opts.body) : undefined,
       signal: ctrl.signal,
     });
     clearTimeout(timeout);
+    if(r.status === 401) throw new Error("Unauthorized — تأكد من Auth Token");
     if(!r.ok)throw new Error("HTTP "+r.status);
     return await r.json();
   } catch(e) {
@@ -61,18 +66,18 @@ async function bridgeFetch(url, path, opts = {}){
   }
 }
 const bridge = {
-  status:   (url)              => bridgeFetch(url, "/status",   {timeout: 4000}),
-  queue:    (url)              => bridgeFetch(url, "/queue"),
-  send:     (url, messages)    => bridgeFetch(url, "/send",     {method:"POST", body:{messages}, timeout: 15000}),
-  pause:    (url)              => bridgeFetch(url, "/pause",    {method:"POST"}),
-  resume:   (url)              => bridgeFetch(url, "/resume",   {method:"POST"}),
-  stop:     (url)              => bridgeFetch(url, "/stop",     {method:"POST"}),
-  clear:    (url)              => bridgeFetch(url, "/clear",    {method:"POST"}),
-  settings: (url, s)           => bridgeFetch(url, "/settings", {method:"POST", body:s}),
-  optouts:  (url)              => bridgeFetch(url, "/optouts"),
-  optoutAdd:(url, phone)       => bridgeFetch(url, "/optouts/add",    {method:"POST", body:{phone}}),
-  optoutRm: (url, phone)       => bridgeFetch(url, "/optouts/remove", {method:"POST", body:{phone}}),
-  logout:   (url)              => bridgeFetch(url, "/logout",   {method:"POST"}),
+  status:   (url, token)              => bridgeFetch(url, "/status",   {timeout: 4000}, token),
+  queue:    (url, token)              => bridgeFetch(url, "/queue", {}, token),
+  send:     (url, messages, token)    => bridgeFetch(url, "/send",     {method:"POST", body:{messages}, timeout: 15000}, token),
+  pause:    (url, token)              => bridgeFetch(url, "/pause",    {method:"POST"}, token),
+  resume:   (url, token)              => bridgeFetch(url, "/resume",   {method:"POST"}, token),
+  stop:     (url, token)              => bridgeFetch(url, "/stop",     {method:"POST"}, token),
+  clear:    (url, token)              => bridgeFetch(url, "/clear",    {method:"POST"}, token),
+  settings: (url, s, token)           => bridgeFetch(url, "/settings", {method:"POST", body:s}, token),
+  optouts:  (url, token)              => bridgeFetch(url, "/optouts", {}, token),
+  optoutAdd:(url, phone, token)       => bridgeFetch(url, "/optouts/add",    {method:"POST", body:{phone}}, token),
+  optoutRm: (url, phone, token)       => bridgeFetch(url, "/optouts/remove", {method:"POST", body:{phone}}, token),
+  logout:   (url, token)              => bridgeFetch(url, "/logout",   {method:"POST"}, token),
 };
 
 /* Personalization variables — surface in template editor and substitute at send */
@@ -212,6 +217,7 @@ export function CampaignsPg({data, upConfig, isMob, canEdit, user}){
   /* V19.28: Bridge settings — read from data.campaignBridge (factory/config) */
   const bridgeCfg = data.campaignBridge || {};
   const bridgeUrl = bridgeCfg.url || DEFAULT_BRIDGE_URL;
+  const bridgeToken = bridgeCfg.token || "";
   /* V19.29: Campaign detail modal state */
   const [viewingCampaign, setViewingCampaign] = useState(null);
 
@@ -274,6 +280,7 @@ export function CampaignsPg({data, upConfig, isMob, canEdit, user}){
     return <ChooseSendMode
       campaign={activeCampaign}
       bridgeUrl={bridgeUrl}
+      bridgeToken={bridgeToken}
       onCancel={() => { setActiveCampaign(null); setMode("list"); }}
       onPickManual={() => setMode("send")}
       onPickBridge={() => setMode("sendBridge")}
@@ -302,6 +309,7 @@ export function CampaignsPg({data, upConfig, isMob, canEdit, user}){
       upConfig={upConfig}
       user={user}
       bridgeUrl={bridgeUrl}
+      bridgeToken={bridgeToken}
       template={activeCampaign.template}
       segment={activeCampaign.segment}
       audience={activeCampaign.audience}
@@ -1299,16 +1307,16 @@ function SendScreen({data, upConfig, user, template, segment, audience, onClose,
 /* ═══════════════════════════════════════════════════════════════════════
    V19.28: CHOOSE SEND MODE — Manual (WhatsApp Web click) vs Bridge (auto)
    ═══════════════════════════════════════════════════════════════════════ */
-function ChooseSendMode({campaign, bridgeUrl, onCancel, onPickManual, onPickBridge, onOpenBridgeSettings}){
+function ChooseSendMode({campaign, bridgeUrl, bridgeToken, onCancel, onPickManual, onPickBridge, onOpenBridgeSettings}){
   const [bridgeStatus, setBridgeStatus] = useState({state:"checking", error:""});
 
   useEffect(() => {
     let dead = false;
-    bridge.status(bridgeUrl)
+    bridge.status(bridgeUrl, bridgeToken)
       .then(s => { if(!dead) setBridgeStatus({state: s.waReady ? "ready" : (s.waState||"unknown"), info: s, error:""}); })
       .catch(e => { if(!dead) setBridgeStatus({state: "offline", error: e.message}); });
     return () => { dead = true; };
-  }, [bridgeUrl]);
+  }, [bridgeUrl, bridgeToken]);
 
   const audCount = campaign.audience.length;
   return <div style={{padding:16,maxWidth:700,margin:"0 auto"}}>
@@ -1367,6 +1375,7 @@ function ChooseSendMode({campaign, bridgeUrl, onCancel, onPickManual, onPickBrid
    ═══════════════════════════════════════════════════════════════════════ */
 function BridgeSettings({bridgeCfg, canEdit, onSave, onClose}){
   const [url, setUrl] = useState(bridgeCfg.url || DEFAULT_BRIDGE_URL);
+  const [token, setToken] = useState(bridgeCfg.token || ""); /* V19.30 */
   const [enabled, setEnabled] = useState(bridgeCfg.enabled !== false);
   const [delayMin, setDelayMin] = useState(bridgeCfg.delayMin || 8);
   const [delayMax, setDelayMax] = useState(bridgeCfg.delayMax || 25);
@@ -1383,7 +1392,7 @@ function BridgeSettings({bridgeCfg, canEdit, onSave, onClose}){
   const test = async () => {
     setTesting(true); setTestResult(null);
     try {
-      const s = await bridge.status(url);
+      const s = await bridge.status(url, token);
       setTestResult({ok: true, status: s});
       /* Push current settings to bridge */
       try {
@@ -1392,7 +1401,7 @@ function BridgeSettings({bridgeCfg, canEdit, onSave, onClose}){
           dailyCap, batchSize,
           batchBreakMin: batchBreakMin*60*1000, batchBreakMax: batchBreakMax*60*1000,
           retryFailures, detectOptOuts,
-        });
+        }, token);
       } catch {}
     } catch(e) {
       setTestResult({ok: false, error: e.message});
@@ -1402,7 +1411,7 @@ function BridgeSettings({bridgeCfg, canEdit, onSave, onClose}){
 
   const save = () => {
     onSave({
-      enabled, url,
+      enabled, url, token,
       delayMin, delayMax, dailyCap, batchSize,
       batchBreakMin, batchBreakMax,
       retryFailures, detectOptOuts,
@@ -1432,11 +1441,19 @@ function BridgeSettings({bridgeCfg, canEdit, onSave, onClose}){
       </div>
       <div style={{marginBottom:10}}>
         <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>عنوان البريدج (URL)</div>
-        <Inp value={url} onChange={setUrl} placeholder="http://localhost:3001" disabled={!canEdit}/>
+        <Inp value={url} onChange={setUrl} placeholder="https://clark-rmg.duckdns.org" disabled={!canEdit}/>
         <div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>
           لو البريدج شغال على نفس الجهاز: <code>http://localhost:3001</code>.
-          لو على جهاز تاني في نفس الشبكة: <code>http://192.168.x.x:3001</code>.
-          لو على VPS أو من خلال ngrok: <code>https://xxx.ngrok.io</code>.
+          لو على VPS بـ HTTPS: <code>https://your-domain.duckdns.org</code> (الموصى به).
+          لو على شبكة محلية: <code>http://192.168.x.x:3001</code>.
+        </div>
+      </div>
+      {/* V19.30: Auth Token field */}
+      <div style={{marginBottom:10}}>
+        <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>🔐 Auth Token</div>
+        <Inp value={token} onChange={setToken} placeholder="long-random-hex-string" disabled={!canEdit} type="password"/>
+        <div style={{fontSize:FS-3,color:T.textMut,marginTop:4,lineHeight:1.6}}>
+          الـ token اللي ولّده سكريبت <code>setup-vps.sh</code> على السيرفر. بيقفل البريدج بحيث مش أي حد يقدر يستخدمه. تقدر تلاقيه في ملف <code>.env</code> على السيرفر بأمر <code>cat .env</code>. خاليه فاضي بس لو شغال على localhost.
         </div>
       </div>
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
@@ -1503,7 +1520,7 @@ function SettingInp({label, value, onChange, disabled, hint}){
 /* ═══════════════════════════════════════════════════════════════════════
    V19.28: BRIDGE SEND SCREEN — Auto-send via local Node bridge
    ═══════════════════════════════════════════════════════════════════════ */
-function BridgeSendScreen({data, upConfig, user, bridgeUrl, template, segment, audience, onOpenSettings, onClose}){
+function BridgeSendScreen({data, upConfig, user, bridgeUrl, bridgeToken, template, segment, audience, onOpenSettings, onClose}){
   const [items] = useState(() => audience.map(c => ({...c, status: "pending", sentAt: null})));
   const [bridgeState, setBridgeState] = useState(null);
   const [submitted, setSubmitted] = useState(false);
@@ -1528,7 +1545,7 @@ function BridgeSendScreen({data, upConfig, user, bridgeUrl, template, segment, a
     let dead = false;
     const tick = async () => {
       try {
-        const s = await bridge.status(bridgeUrl);
+        const s = await bridge.status(bridgeUrl, bridgeToken);
         if(!dead) setBridgeState(s);
       } catch(e) {
         if(!dead) setBridgeState({error: e.message});
@@ -1544,7 +1561,7 @@ function BridgeSendScreen({data, upConfig, user, bridgeUrl, template, segment, a
     setError("");
     try {
       const messages = buildMessages();
-      const res = await bridge.send(bridgeUrl, messages);
+      const res = await bridge.send(bridgeUrl, messages, bridgeToken);
       if(!res.ok) throw new Error(res.error||"Submission failed");
       setSubmitted(true);
       setConfirmStart(false);
@@ -1553,11 +1570,11 @@ function BridgeSendScreen({data, upConfig, user, bridgeUrl, template, segment, a
     }
   };
 
-  const pause  = () => bridge.pause(bridgeUrl).catch(e=>setError(e.message));
-  const resume = () => bridge.resume(bridgeUrl).catch(e=>setError(e.message));
+  const pause  = () => bridge.pause(bridgeUrl, bridgeToken).catch(e=>setError(e.message));
+  const resume = () => bridge.resume(bridgeUrl, bridgeToken).catch(e=>setError(e.message));
   const stop   = async () => {
     if(!await ask("إيقاف الإرسال نهائياً؟ كل الرسائل المتبقية هتتلغى."))return;
-    bridge.stop(bridgeUrl).catch(e=>setError(e.message));
+    bridge.stop(bridgeUrl, bridgeToken).catch(e=>setError(e.message));
   };
 
   /* Detect completion + persist */
@@ -1568,7 +1585,7 @@ function BridgeSendScreen({data, upConfig, user, bridgeUrl, template, segment, a
       setCompleted(true);
       persistedRef.current = true;
       /* Read final queue to persist exact stats */
-      bridge.queue(bridgeUrl).then(qd => {
+      bridge.queue(bridgeUrl, bridgeToken).then(qd => {
         const myMsgs = (qd.queue||[]).filter(x => x.campaignId === campaignIdRef.current);
         const sent = myMsgs.filter(x=>x.status==="sent").length;
         const failed = myMsgs.filter(x=>x.status==="failed").length;
@@ -1599,7 +1616,7 @@ function BridgeSendScreen({data, upConfig, user, bridgeUrl, template, segment, a
     let dead = false;
     const tick = async () => {
       try {
-        const qd = await bridge.queue(bridgeUrl);
+        const qd = await bridge.queue(bridgeUrl, bridgeToken);
         if(dead)return;
         const mine = (qd.queue||[]).filter(x => x.campaignId === campaignIdRef.current);
         setBridgeQueueMine(mine);

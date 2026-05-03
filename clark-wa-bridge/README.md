@@ -1,136 +1,137 @@
 # CLARK WhatsApp Bridge
 
-Local Node.js server that automates WhatsApp message sending for CLARK's Campaign Engine.
+Node.js server that automates WhatsApp message sending for CLARK's Campaign Engine
+via whatsapp-web.js + Puppeteer.
 
-## ⚠️ Important Warnings
+## ⚠️ Disclaimer
 
-- **Violates WhatsApp ToS.** Your number can get banned.
+- **Violates WhatsApp ToS.** Your number CAN get banned.
 - **Use a secondary number** — never your personal WhatsApp.
-- Start with small batches (10-20 messages) and watch for any restrictions.
-- Daily cap is enforced at 80 by default — don't raise it dramatically.
-- Random delays mimic human behavior but are not a guarantee.
+- Start with small batches (10-20 messages) per day.
+- Daily cap is 80 by default — raising it increases ban risk.
 
-## Setup
+---
 
-### Prerequisites
-- Node.js 16+ installed ([nodejs.org](https://nodejs.org))
-- A second WhatsApp account (NOT your personal one)
-- A computer / Raspberry Pi / VPS that can stay on
+## Two Deployment Modes
 
-### Install
+### 🌐 Mode 1: VPS Deployment (Recommended)
+
+Run on a cloud server 24/7 with HTTPS. Accessible from anywhere.
+
+**See [SETUP-VPS.md](./SETUP-VPS.md) for the full step-by-step guide** in Arabic.
+
+Quick version: SSH to your VPS, then:
 ```bash
-cd clark-wa-bridge
-npm install
+mkdir clark-wa-bridge && cd clark-wa-bridge
+# (upload all files via scp or git)
+chmod +x setup-vps.sh
+./setup-vps.sh
 ```
 
-First install takes 2-3 minutes (Puppeteer downloads Chromium ~150MB).
+The script handles everything: Docker, Compose, firewall, HTTPS via Let's Encrypt.
 
-### Run
+### 💻 Mode 2: Local PC
+
+Run on your own Windows/Mac/Linux PC. Only accessible from same machine.
+
 ```bash
+cd clark-wa-bridge
+npm install      # First time only (~5 min)
 npm start
 ```
 
-You should see:
-```
-╔══════════════════════════════════════════╗
-║  CLARK WhatsApp Bridge v1.0              ║
-║  http://localhost:3001                   ║
-╚══════════════════════════════════════════╝
-```
+Then open `http://localhost:3001` to scan QR with WhatsApp.
 
-### Link your phone
+In CLARK: Campaigns → ⚙️ بريدج → URL: `http://localhost:3001` (no token needed locally).
 
-1. Open `http://localhost:3001` in any browser on the same machine
-2. A QR code will appear
-3. On your phone: WhatsApp → Settings → Linked Devices → Link a Device
-4. Scan the QR
-5. Wait ~10 seconds. The page should now show "READY ✓"
+---
 
-The session is saved in `.wwebjs_auth/` — you only scan once.
+## How It Works
 
-### Connect from CLARK
+1. **You start the bridge** on a server (or local PC)
+2. **It opens WhatsApp Web** in headless Chromium and shows a QR
+3. **You scan once** — session is saved persistently
+4. **CLARK sends jobs** to bridge via HTTP API
+5. **Bridge sends each message** with random delays + typing simulation
+6. **Status updates** poll back to CLARK in real time
 
-1. Open CLARK in your browser/iPad
-2. Go to **Campaigns** → **Settings (⚙️)**
-3. Toggle **Bridge Mode** ON
-4. Bridge URL: `http://localhost:3001` (or `http://YOUR_LOCAL_IP:3001` if iPad is on same network)
-5. Click **Test Connection** → should show ✅
+---
 
-If iPad is on different network, you need port forwarding or use a service like `ngrok` to expose the local server.
-
-## Settings (live-tunable from CLARK)
+## Bridge Settings (live-tunable from CLARK UI)
 
 | Setting | Default | Description |
 |---|---|---|
-| `delayMin` / `delayMax` | 8000 / 25000 ms | Random delay between sends (8-25 sec) |
-| `dailyCap` | 80 | Max messages per calendar day |
+| `delayMin/Max` | 8-25 sec | Random delay between messages |
+| `dailyCap` | 80 | Hard cap per calendar day |
 | `batchSize` | 20 | Messages before a long break |
-| `batchBreakMin/Max` | 4-8 min | Break length after batch |
-| `typingDelayMin/Max` | 2-5 sec | "Typing..." simulation before send |
-| `retryFailures` | true | Retry once if send fails |
+| `batchBreakMin/Max` | 4-8 min | Break duration after each batch |
+| `typingDelayMin/Max` | 2-5 sec | Simulated "typing..." before each send |
+| `retryFailures` | true | Auto-retry failed sends once |
 | `detectOptOuts` | true | Auto-blacklist if recipient sends STOP/إلغاء |
 
-## Endpoints
+---
 
-```
-GET  /              Status page with QR
-GET  /status        JSON status (used by CLARK polling)
-GET  /queue         Full queue + stats
-POST /send          { messages: [{phone, message, mediaBase64?, mediaMime?, mediaName?}] }
-POST /pause         Pause queue
-POST /resume        Resume queue
-POST /stop          Cancel all pending
-POST /clear         Remove completed/failed from queue
-POST /settings      Update settings
-GET  /optouts       List of opted-out numbers
-POST /optouts/add   { phone }
-POST /optouts/remove { phone }
-POST /logout        Disconnect & re-link
-```
+## API Endpoints
+
+All require `Authorization: Bearer <AUTH_TOKEN>` if token is configured,
+EXCEPT `GET /` and `GET /status`.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/` | Status page with QR code (HTML) |
+| GET | `/status` | JSON status — used by CLARK polling |
+| GET | `/queue` | Full queue contents |
+| POST | `/send` | Add messages: `{messages: [{phone, message, ...}]}` |
+| POST | `/pause` | Pause queue |
+| POST | `/resume` | Resume queue |
+| POST | `/stop` | Cancel all pending |
+| POST | `/clear` | Remove completed from queue |
+| POST | `/settings` | Update settings |
+| GET | `/optouts` | List opted-out numbers |
+| POST | `/optouts/add` | Add opt-out: `{phone}` |
+| POST | `/optouts/remove` | Remove opt-out |
+| POST | `/logout` | Disconnect & require re-scan QR |
+
+---
 
 ## Anti-Ban Best Practices
 
-1. **Don't blast 100+ messages in one go.** Use batches of 20 with breaks.
-2. **Personalize each message.** WhatsApp's anti-spam detection flags identical messages.
-3. **Send only to people who know you.** Cold outreach gets reported faster.
-4. **Honor opt-outs immediately.** The bridge does this automatically.
-5. **Mix in some manual replies** through the linked phone — looks more natural.
-6. **Don't send at 3 AM.** Stick to business hours.
+1. ✅ **Use a secondary number** — burner SIM, not personal/business
+2. ✅ **Personalize each message** — variation defeats spam detection
+3. ✅ **Small batches** — 20 msg, 5 min break, repeat
+4. ✅ **Business hours only** — avoid 11pm-7am
+5. ✅ **Send to people who know you** — cold outreach gets reported
+6. ✅ **Honor opt-outs** — handled automatically by the bridge
+7. ✅ **Mix in real conversation** — reply manually to some chats
+8. ❌ **Don't blast 200 messages at once**
+9. ❌ **Don't send identical text** to many people
+10. ❌ **Don't ignore "STOP" replies**
+
+---
 
 ## Troubleshooting
 
-**QR code never appears**
-- First run can take 30-60 seconds. Wait, refresh the page.
-- If still nothing, check console for Chromium errors.
+| Problem | Solution |
+|---|---|
+| QR never appears | Wait 30-60s. Check `docker compose logs bridge` |
+| "Number not on WhatsApp" | Phone is wrong or not registered |
+| Disconnected after a while | Re-scan QR. Phone needs internet too |
+| Caddy can't get HTTPS cert | Check DNS points to server, ports 80/443 open |
+| Number banned | Use new number, reduce sending rate |
 
-**"Number not on WhatsApp"**
-- The number is invalid or not registered. CLARK's normalization handles `01xxx` → `+201xxx`.
-
-**Disconnected after a while**
-- Phone went offline / WhatsApp logged out the session. Re-scan QR.
-
-**Number banned**
-- It happens. Use a different number. Reduce sending rate.
+---
 
 ## File Structure
 
 ```
 clark-wa-bridge/
-├── server.js              # Main server
+├── server.js              # Bridge server (Node.js)
 ├── package.json
+├── Dockerfile             # For VPS Docker deployment
+├── docker-compose.yml     # Bridge + Caddy
+├── Caddyfile              # Reverse proxy + auto-HTTPS
+├── setup-vps.sh           # One-command VPS installer
+├── .env.example           # Config template
 ├── README.md              # This file
-├── .wwebjs_auth/          # Session data (auto-created, don't commit)
-└── .bridge-state.json     # Counters & opt-outs (auto-created)
-```
-
-## Stopping the bridge
-
-`Ctrl+C` in the terminal. Session is preserved.
-
-To run as a background service on Linux/Pi, use `pm2`:
-```bash
-npm install -g pm2
-pm2 start server.js --name clark-bridge
-pm2 save
-pm2 startup  # follow instructions to auto-start on boot
+└── SETUP-VPS.md           # Detailed VPS setup guide
 ```

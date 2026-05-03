@@ -1,0 +1,41 @@
+# CLARK WhatsApp Bridge — Caddy reverse proxy config
+#
+# Auto-HTTPS via Let's Encrypt for the configured DOMAIN.
+# All requests are forwarded to the bridge container on port 3001.
+#
+# Note: Let's Encrypt rate-limits — you have ~50 cert issuances per week.
+# Don't change the domain repeatedly.
+
+{$DOMAIN} {
+    # Auto HTTPS via Let's Encrypt (default ACME)
+    encode gzip
+
+    # Forward all traffic to the bridge container
+    reverse_proxy bridge:3001 {
+        # Pass real client IP through
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+
+        # Bridge can take a moment to boot
+        transport http {
+            dial_timeout 10s
+            response_header_timeout 30s
+        }
+    }
+
+    # Security headers
+    header {
+        # HSTS — force HTTPS for 1 year
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        # Don't expose server info
+        -Server
+    }
+
+    # Logs
+    log {
+        output stdout
+        format json
+        level INFO
+    }
+}
