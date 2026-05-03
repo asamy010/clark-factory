@@ -621,6 +621,43 @@ function TemplateEditor({tpl, canEdit, onCancel, onSave}){
   const bodyRef = useRef(null);
 
   /* V19.33: Image upload handler */
+  /* V19.34: Compress image client-side using canvas — keeps base64 small enough
+     to fit in Firestore's 1MB doc limit. Resizes to max 1280px wide and quality 0.82. */
+  const compressImage = (file) => new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = () => {
+      img.onload = () => {
+        const MAX_W = 1280, MAX_H = 1280;
+        let {width, height} = img;
+        if(width > MAX_W || height > MAX_H){
+          const ratio = Math.min(MAX_W/width, MAX_H/height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(blob => {
+          if(!blob){ reject(new Error("compression failed")); return; }
+          const r2 = new FileReader();
+          r2.onload = () => {
+            const base64 = r2.result.split(",")[1];
+            resolve({base64, mime: "image/jpeg", name: file.name.replace(/\.\w+$/, ".jpg"), size: blob.size});
+          };
+          r2.onerror = reject;
+          r2.readAsDataURL(blob);
+        }, "image/jpeg", 0.82);
+      };
+      img.onerror = reject;
+      img.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
   const handleImageUpload = (e) => {
     setUploadError("");
     const files = Array.from(e.target.files || []);
@@ -630,24 +667,21 @@ function TemplateEditor({tpl, canEdit, onCancel, onSave}){
       e.target.value = "";
       return;
     }
-    const totalSize = images.reduce((s,i) => s+(i.size||0), 0) + files.reduce((s,f) => s+f.size, 0);
-    if(totalSize > 5*1024*1024){
-      setUploadError("الحجم الإجمالي أكتر من 5MB");
-      e.target.value = "";
-      return;
-    }
-    Promise.all(files.map(f => new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result;
-        const base64 = dataUrl.split(",")[1];
-        resolve({base64, mime: f.type, name: f.name, size: f.size});
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(f);
-    }))).then(newImages => {
+    /* V19.34: Compress + add */
+    Promise.all(files.map(f => compressImage(f))).then(newImages => {
+      /* Verify each compressed image is under ~700KB base64 (~960KB encoded → safe under Firestore 1MB) */
+      const oversized = newImages.filter(img => img.base64.length > 700 * 1024);
+      if(oversized.length > 0){
+        setUploadError(`${oversized.length} صورة لسه كبيرة بعد الضغط — جرب صور أصغر`);
+        return;
+      }
+      const totalBase64 = [...images, ...newImages].reduce((s,i) => s+i.base64.length, 0);
+      if(totalBase64 > 3 * 1024 * 1024){
+        setUploadError("الحجم الإجمالي للصور أكبر من المسموح — احذف بعض الصور");
+        return;
+      }
       setImages([...images, ...newImages]);
-    }).catch(() => setUploadError("فشل قراءة الملف"));
+    }).catch(err => setUploadError("فشل ضغط الصورة: " + (err.message || err)));
     e.target.value = "";
   };
 
@@ -748,7 +782,7 @@ function TemplateEditor({tpl, canEdit, onCancel, onSave}){
           <span>📷</span><span>صور مرفقة (Bridge mode فقط)</span>
         </div>
         <div style={{fontSize:FS-3,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
-          الصور دي بتترفع كـ attachment حقيقي مع الرسالة. حد أقصى 5 صور · 5MB إجمالي. النص بيتحط مع أول صورة كـ caption.
+          الصور دي بتترفع كـ attachment حقيقي مع الرسالة. الصور بيتم ضغطها تلقائياً لـ 1280px جودة 82% (موصى بيه). النص بيتحط مع أول صورة كـ caption.
           <br/><b style={{color:T.warn}}>⚠️ في الوضع اليدوي:</b> الصور دي مش بتتبعت — استخدم "رابط صورة" فوق بدلاً منها.
         </div>
 
@@ -2283,6 +2317,40 @@ function BridgeSendScreen({data, upConfig, user, bridgeUrl, bridgeToken, templat
   }, [template.images, extraImages]);
 
   /* V19.33: Upload handler for extra campaign images */
+  /* V19.34: Same compression for extra campaign images */
+  const compressImageBridge = (file) => new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = () => {
+      img.onload = () => {
+        const MAX_W = 1280, MAX_H = 1280;
+        let {width, height} = img;
+        if(width > MAX_W || height > MAX_H){
+          const ratio = Math.min(MAX_W/width, MAX_H/height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        canvas.toBlob(blob => {
+          if(!blob){ reject(new Error("compression failed")); return; }
+          const r2 = new FileReader();
+          r2.onload = () => {
+            const base64 = r2.result.split(",")[1];
+            resolve({base64, mime: "image/jpeg", name: file.name.replace(/\.\w+$/, ".jpg"), size: blob.size});
+          };
+          r2.onerror = reject;
+          r2.readAsDataURL(blob);
+        }, "image/jpeg", 0.82);
+      };
+      img.onerror = reject;
+      img.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
   const handleExtraUpload = (e) => {
     setExtraUploadError("");
     const files = Array.from(e.target.files || []);
@@ -2293,24 +2361,14 @@ function BridgeSendScreen({data, upConfig, user, bridgeUrl, bridgeToken, templat
       e.target.value = "";
       return;
     }
-    const totalSize = [...allImages, ...files].reduce((s,f) => s+(f.size||0), 0);
-    if(totalSize > 5*1024*1024){
-      setExtraUploadError("الحجم الإجمالي أكتر من 5MB");
-      e.target.value = "";
-      return;
-    }
-    Promise.all(files.map(f => new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result;
-        const base64 = dataUrl.split(",")[1];
-        resolve({base64, mime: f.type, name: f.name, size: f.size});
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(f);
-    }))).then(newImages => {
+    Promise.all(files.map(f => compressImageBridge(f))).then(newImages => {
+      const oversized = newImages.filter(img => img.base64.length > 700 * 1024);
+      if(oversized.length > 0){
+        setExtraUploadError(`${oversized.length} صورة لسه كبيرة بعد الضغط — جرب صور أصغر`);
+        return;
+      }
       setExtraImages([...extraImages, ...newImages]);
-    }).catch(() => setExtraUploadError("فشل قراءة الملف"));
+    }).catch(err => setExtraUploadError("فشل ضغط الصورة: " + (err.message || err)));
     e.target.value = "";
   };
   const removeExtraImage = (idx) => setExtraImages(extraImages.filter((_,i) => i!==idx));
@@ -2347,11 +2405,31 @@ function BridgeSendScreen({data, upConfig, user, bridgeUrl, bridgeToken, templat
     setError("");
     try {
       const messages = buildMessages();
+      /* V19.34: Diagnostic logging — helps debug image issues */
+      const totalImages = messages.reduce((sum, m) => sum + (m.media?.length || 0), 0);
+      const payloadSize = JSON.stringify({messages}).length;
+      const payloadMB = (payloadSize / (1024 * 1024)).toFixed(2);
+      console.log("[BRIDGE SEND]", {
+        messageCount: messages.length,
+        totalImages,
+        firstMsgMedia: messages[0]?.media ? `${messages[0].media.length} images` : "none",
+        firstImageSize: messages[0]?.media?.[0] ? `${Math.round(messages[0].media[0].base64.length / 1024)}KB base64` : "—",
+        payloadSizeMB: payloadMB,
+        templateImages: (template.images || []).length,
+        extraImages: extraImages.length,
+        allImagesLen: allImages.length,
+      });
+      /* Warn if payload is large */
+      if(payloadSize > 12 * 1024 * 1024){
+        if(!await ask(`⚠️ حجم البيانات ${payloadMB} MB — أكبر من 12MB. ممكن يفشل الإرسال. تكمّل؟`)) return;
+      }
       const res = await bridge.send(bridgeUrl, messages, bridgeToken);
       if(!res.ok) throw new Error(res.error||"Submission failed");
+      console.log("[BRIDGE SEND] ✓ Success — added", res.added, "messages to queue");
       setSubmitted(true);
       setConfirmStart(false);
     } catch(e) {
+      console.error("[BRIDGE SEND] ✕ Failed:", e);
       setError(e.message);
     }
   };

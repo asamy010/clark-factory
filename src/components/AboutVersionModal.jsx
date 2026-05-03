@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.34",
+    date: "2026-05-03",
+    types: ["fix"],
+    title: "🐛 إصلاح: الصور كانت بتفشل في الإرسال — auto-compression + diagnostic logs",
+    changes: [
+      { type: "fix", text: "🐛 [bug رئيسي] الصور 3MB+ كانت بتفشل تتحفظ في Firebase (silent — بسبب حد 1MB لكل document في Firestore). الـ template.images كان بيتحفظ فاضي، فلما الحملة تشتغل، مفيش صور تتبعت." },
+      { type: "feature", text: "🗜 [auto-compression] أي صورة بترفعها بتتضغط تلقائياً client-side: max 1280px width/height، JPEG quality 82%. الصور 3-5MB بتنزل لـ 200-400KB. كده الـ template.images بيتحفظ بنجاح في Firebase والصور بتتبعت في الحملة." },
+      { type: "improvement", text: "📊 [diagnostic logs] قبل ما يبدأ الإرسال للبريدج، الكونسول بيطبع: عدد الرسائل، عدد الصور، حجم أول صورة base64، حجم الـ payload الإجمالي. لو في حد أكتر من 12MB، بيظهر تأكيد قبل الإرسال." },
+      { type: "improvement", text: "✅ [حد آمن] كل صورة بعد الضغط لازم تكون أقل من 700KB base64 (مع safety margin). لو أكبر، رسالة خطأ واضحة. الإجمالي للقالب الواحد لازم أقل من 3MB base64." },
+    ]
+  },
+  {
     version: "V19.33",
     date: "2026-05-03",
     types: ["feature"],
@@ -157,18 +169,6 @@ const CHANGELOG = [
     changes: [
       { type: "improvement", text: "📤 إزالة قسم 'تفاصيل الحركات' من رسالة WhatsApp اليومية للخزنة. الرسالة دلوقتي بتحتوي على: رصيد افتتاحي، إجمالي الوارد، إجمالي المنصرف، صافي اليوم، رصيد الإقفال، عدد الحركات، الوارد حسب التصنيف، المنصرف حسب التصنيف. ده بيخلي الرسالة أقصر وأنظف للمتلقي." },
       { type: "improvement", text: "📋 ملاحظة: التقرير المطبوع (HTML) لسه بيحتوي على كل تفاصيل الحركات الفردية — التغيير ده على رسالة WhatsApp بس." },
-    ]
-  },
-  {
-    version: "V19.24",
-    date: "2026-05-02",
-    types: ["fix"],
-    title: "🐛 [hotfix] مكتشف الأقساط: إصلاح JSX comment غير مغلق + تخفيف الفلتر",
-    changes: [
-      { type: "fix", text: "🐛 المكتشف في V19.23 ما ظهرش في الواجهة. سببين: (1) JSX comment block ناقصه `}` في الآخر فالـ render فشل صامت. (2) الفلتر كان متشدد جداً: بيشترط `w.status===\"closed\"` + `d.createdAt<w.closedAt` (مقارنة timestamps دقيقة قابلة للفشل)." },
-      { type: "fix", text: "✅ المنطق الجديد أبسط وأقوى: بدل ما نشيك على hrWeeks بشروط متشددة، نسكان `data.hrLog` مباشرة. لو الموظف عنده salary entry لأسبوع معين، يبقى اتدفعله مرتب في الأسبوع ده. لو الأسبوع weekEnd >= debt.startDate، يبقى مؤهل. مفيش checks زيادة." },
-      { type: "fix", text: "🛡 Fallback آمن: لو مش لاقي الأسبوع في hrWeeks (بيانات قديمة)، يبني object من الـ hrLog entry نفسها (weekStart/weekEnd/weekNum). كده الـ recovery هيشتغل حتى مع بيانات قبل ما الأسابيع كانت بتتسجل في hrWeeks." },
-      { type: "improvement", text: "📋 الـ banner لسه بنفس الشكل: لون أصفر + قائمة الأسابيع + زر 'تسجيل الكل'. اضغطه ضغطة واحدة لسحب كل الأسابيع المفقودة دفعة واحدة." },
     ]
   },
 ];
