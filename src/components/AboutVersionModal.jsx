@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.38",
+    date: "2026-05-03",
+    types: ["feature"],
+    title: "📎 إرفاق ملفات في الحملات (PDFs, مستندات, فيديو, صوت)",
+    changes: [
+      { type: "feature", text: "📎 [قسم جديد في الـ Template Editor] تحت قسم الصور، قسم 'ملفات مرفقة (Bridge mode فقط)' بيقبل أي نوع ملف غير الصور: PDFs, Word/Excel, فيديو, صوت, ZIP. الملفات بترفع لـ Firebase Storage مع شريط تقدم (لأن ملف 50MB ممكن ياخد وقت)." },
+      { type: "feature", text: "🌉 [Bridge: sendMediaAsDocument] السيرفر اتعدّل: لو الـ mime type مش صورة (image/*)، الـ flag `sendMediaAsDocument: true` بيتبعت لـ whatsapp-web.js. النتيجة: PDFs و docs بيظهروا للعميل كـ document bubbles مع اسم الملف وحجمه وزر تحميل واضح، بدل thumbnail متقطع." },
+      { type: "improvement", text: "📊 [حدود WhatsApp مفعّلة client-side] الحدود اللي WhatsApp بيفرضها (16MB صور/فيديو/صوت، 100MB مستندات) بتتحقق قبل الرفع — رسالة خطأ واضحة بدل ما الإرسال يفشل عند العميل. الحد الأقصى 3 ملفات لكل قالب لمنع spam." },
+      { type: "improvement", text: "🎨 [Icons حسب نوع الملف] في الـ editor والـ send screen: 📄 PDF, 📊 Excel/CSV, 📝 Word, 📑 PowerPoint, 🗜 ZIP, 🎬 فيديو, 🎵 صوت, 📎 غير ذلك. الـ filename + الحجم بيتعرضوا جنب الـ icon." },
+      { type: "improvement", text: "🧹 [Storage cleanup شامل] لما بتمسح قالب أو بتشيل ملف من قالب، الـ Storage object بيتمسح تلقائياً. زي اللي بنعمله للصور من V19.35 — مفيش orphans في Storage." },
+      { type: "improvement", text: "🏷 [Badge في قائمة القوالب] القالب اللي فيه ملفات بيظهر badge جنب الـ '📷 N صورة' بيقول '📎 N ملف مرفق'. عشان تعرف بسرعة محتوى كل قالب." },
+      { type: "fix", text: "📐 [storage.rules: 25MB → 100MB] الـ rules اتحدّثت عشان تسمح برفع مستندات حتى 100MB (حد WhatsApp للـ documents). الصور لسه ~250KB بعد الضغط فمفيش تأثير عليها." },
+    ]
+  },
+  {
     version: "V19.37",
     date: "2026-05-03",
     types: ["feature", "fix"],
@@ -161,22 +176,6 @@ const CHANGELOG = [
       { type: "feature", text: "🗑 حذف الحملات: زر 🗑 على كل صف في سجل الحملات + زر 'امسح الكل'. سجل الحملات بقى عنده Excel export برضه." },
       { type: "improvement", text: "💾 [breaking] الحملات دلوقتي بتحفظ تفاصيل كل العملاء (`items[]` بـ id/name/phone/status/sentAt/skipNote/customMessage) — مش بس ملخص. ده بيخلي شاشة 'تفاصيل الحملة' تعرض كل التفاصيل. حملات قديمة قبل V19.29 هيكون عندها summary بس وده مش هيتعطل." },
       { type: "improvement", text: "🛡 buildAudience دلوقتي بيستثني المحظورين تلقائياً قبل ما تعد العملاء. مفيش طريقة عشوائية ترجعهم — لازم تشيلهم من قائمة المحظورين يدوياً." },
-    ]
-  },
-  {
-    version: "V19.28",
-    date: "2026-05-02",
-    types: ["feature", "architectural"],
-    title: "🤖 Bridge Mode للحملات — إرسال تلقائي عبر whatsapp-web.js + الوضع اليدوي محتفظ",
-    changes: [
-      { type: "feature", text: "🌉 [مكون جديد] `clark-wa-bridge/` — Node.js server محلي بيشغل WhatsApp Web تلقائياً عبر whatsapp-web.js + Puppeteer. مجلد كامل بـ `server.js` (450 سطر) + `package.json` + `README.md` بتعليمات التشغيل. لازم يشتغل على PC/Raspberry Pi/VPS مفتوح بشكل دائم. يربط مرة واحدة بـ QR ويفضل شغال." },
-      { type: "feature", text: "📤 [وضعين للإرسال] في صفحة الحملات: الوضع اليدوي (الافتراضي، آمن قانونياً 100%) + الوضع التلقائي الجديد (Bridge). بعد ما تختار قالب وجمهور، الـwizard بيوقّفك على شاشة 'اختر طريقة الإرسال' فيها كارتين — يدوي vs تلقائي مع indicator حالة البريدج (متصل/غير متصل/محتاج QR)." },
-      { type: "feature", text: "⚙️ [إعدادات البريدج] صفحة كاملة في الحملات (زر '⚙️ بريدج' في الـheader): URL البريدج، اختبار اتصال، عرض QR code للربط، إعدادات anti-ban (delays، daily cap، batch size، batch breaks)، toggle لـ retry وdetect opt-outs. حساب تقديري للوقت المتوقع للإرسال." },
-      { type: "feature", text: "🛡 [ميزات احترافية في البريدج] random delays عشوائية (8-25 ث افتراضي) + simulated typing (2-5 ث) + daily cap server-side + batch breaks (كل 20 رسالة وقفة 4-8 د) + retry تلقائي للفاشل + opt-out detection (لو حد رد STOP/إلغاء يتسجل ويتجنب) + auto-validate للأرقام (بيشيك مسجل في WhatsApp ولا لأ) + تطبيع رقم مصري تلقائي." },
-      { type: "feature", text: "📊 [Live progress في BridgeSendScreen] polling كل 2.5 ث على /status و/queue. عرض إحصائيات real-time: ✓ تم، ✉ بيبعت، ⊘ تخطّى، ✕ فشل، ⏳ متبقي. progress bar + قائمة بكل عميل وحالته الحالية + الوقت اللي اتبعت فيه. أزرار pause/resume/stop. لو أقفلت الصفحة الإرسال بيكمل في الخلفية من البريدج." },
-      { type: "feature", text: "💾 [persistence] إعدادات البريدج محفوظة في `data.campaignBridge`. الحملة بتتسجل في `data.campaigns[]` بـ `sendMode: 'bridge'` لتمييزها عن الحملات اليدوية. Cap 50 حملة." },
-      { type: "architectural", text: "⚠️ تحذير صريح في الواجهة: الإرسال التلقائي مخالف لشروط واتساب، الرقم ممكن يتحظر. UI بيعرض warning أصفر في 3 أماكن: chooseSendMode، settings page، confirmStart. ينصح باستخدام رقم احتياطي." },
-      { type: "maintenance", text: "📁 [بنية الملفات] الـbridge في مجلد منفصل `clark-wa-bridge/` على نفس مستوى `src/`. مش بيتركّب مع الـ React build — بيشتغل independent. الاتصال HTTP بسيط (REST endpoints)، CORS مفتوح للـ localhost." },
     ]
   },
 ];

@@ -416,10 +416,19 @@ async function processQueue() {
             continue;
           }
           const media = new MessageMedia(mime, b64, m.name || "file");
-          /* Caption (text) goes with the FIRST image only */
-          const opts = i === 0 && item.message ? { caption: item.message } : {};
+          /* V19.38: For non-image media (PDF, docx, xlsx, video, audio, ZIP),
+             tell whatsapp-web.js to render as a DOCUMENT in the recipient's chat —
+             a proper bubble with filename, size, and a download icon — instead of
+             a tiny preview thumbnail. Without this flag, WhatsApp tries to inline-
+             preview PDFs as images and the experience is worse. Images stay as
+             images (we only flip the bit for non-image mimes). */
+          const isImage = (mime || "").toLowerCase().startsWith("image/");
+          /* Caption (text) goes with the FIRST item only */
+          const opts = {};
+          if (i === 0 && item.message) opts.caption = item.message;
+          if (!isImage) opts.sendMediaAsDocument = true;
           await waClient.sendMessage(chatId, media, opts);
-          /* Short delay between images (1-2 sec) — avoids spam detection */
+          /* Short delay between media items (1-2 sec) — avoids spam detection */
           if (i < mediaArr.length - 1) await sleep(rand(1000, 2000));
         }
       } else {

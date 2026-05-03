@@ -30,6 +30,7 @@ import { T, TH, TD } from "../theme.js";
 import { analyzeCustomer } from "../utils/customerAnalytics.js";
 import { auth } from "../firebase.js"; /* V19.32: for portal URL generation */
 /* V19.35: Template images live in Firebase Storage now (was: base64 in factory/config doc) */
+/* V19.38: Plus generic attachments (PDFs, docs, video, audio, ZIP) */
 import {
   uploadTemplateImageFile,
   uploadTemplateImageBlob,
@@ -37,6 +38,12 @@ import {
   hasLegacyBase64,
   legacyBase64Size,
   migrateTemplateImages,
+  uploadTemplateAttachmentFile,
+  deleteTemplateAttachment,
+  getFileIcon,
+  formatFileSize,
+  classifyMime,
+  WA_MAX_BY_KIND,
 } from "../utils/templateImages.js";
 
 const MAX_TEMPLATES = 30;
@@ -609,6 +616,14 @@ export function CampaignsPg({data, upConfig, isMob, canEdit, user}){
                       );
                     }
                   });
+                  /* V19.38: same for attachments */
+                  (t.attachments || []).forEach(att => {
+                    if(att?.storagePath){
+                      deleteTemplateAttachment(att.storagePath).catch(err =>
+                        console.warn("[V19.38] template attachment cleanup failed:", err)
+                      );
+                    }
+                  });
                   upConfig(d => { d.campaignTemplates = (d.campaignTemplates||[]).filter(x => x.id !== t.id); });
                   showToast("✓ اتحذف");
                 }
@@ -621,6 +636,8 @@ export function CampaignsPg({data, upConfig, isMob, canEdit, user}){
           </div>
           {t.imageUrl && <div style={{marginTop:6,fontSize:FS-3,color:"#7C3AED"}}>🖼 رابط صورة (يدوي)</div>}
           {(t.images || []).length > 0 && <div style={{marginTop:6,fontSize:FS-3,color:T.accent,fontWeight:700}}>📷 {t.images.length} صورة (Bridge)</div>}
+          {/* V19.38: Attachment count badge */}
+          {(t.attachments || []).length > 0 && <div style={{marginTop:4,fontSize:FS-3,color:"#3B82F6",fontWeight:700}}>📎 {t.attachments.length} ملف مرفق (Bridge)</div>}
         </div>)}
       </div>}
     </Card>
@@ -721,7 +738,14 @@ function TemplateEditor({tpl, canEdit, onCancel, onSave}){
   const [images, setImages] = useState(tpl?.images || []);
   const [uploadError, setUploadError] = useState("");
   const [uploading, setUploading] = useState(false);
+  /* V19.38: Generic attachments (non-image files) — separate field/array
+     so display logic can render file icons instead of <img> previews. */
+  const [attachments, setAttachments] = useState(tpl?.attachments || []);
+  const [attachUploadError, setAttachUploadError] = useState("");
+  const [attachUploading, setAttachUploading] = useState(false);
+  const [attachUploadProgress, setAttachUploadProgress] = useState(0);
   const fileInputRef = useRef(null);
+  const attachInputRef = useRef(null);
   const bodyRef = useRef(null);
 
   /* V19.35: Image upload — compress in-browser then push to Firebase Storage.
@@ -764,6 +788,52 @@ function TemplateEditor({tpl, canEdit, onCancel, onSave}){
     if(target?.storagePath){
       deleteTemplateImage(target.storagePath).catch(err =>
         console.warn("[V19.35] storage delete failed (non-fatal):", err)
+      );
+    }
+  };
+
+  /* V19.38: Attachment upload — non-image files (PDFs, docs, video, audio, ZIPs).
+     One file at a time so the progress bar tracks a single upload. The hard cap
+     is 3 attachments per template — enough for "PDF + invoice + brochure" style
+     campaigns, low enough that the recipient's WhatsApp doesn't get spammed with
+     consecutive document messages. */
+  const ATTACH_CAP = 3;
+  const handleAttachmentUpload = async (e) => {
+    setAttachUploadError("");
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if(!file) return;
+    if(attachments.length >= ATTACH_CAP){
+      setAttachUploadError(`الحد الأقصى ${ATTACH_CAP} ملفات لكل قالب`);
+      return;
+    }
+    /* If the user accidentally picks an image here, redirect them to the images section.
+       Lets us keep the two flows clean (compression + dimensions belong to images). */
+    if(classifyMime(file.type) === "image"){
+      setAttachUploadError("ده صورة — استخدم زر '📷 رفع صورة' فوق بدلاً من المرفقات");
+      return;
+    }
+    const tplId = tpl?.id || "tpl_draft_" + Math.random().toString(36).slice(2, 10);
+    setAttachUploading(true);
+    setAttachUploadProgress(0);
+    try {
+      const meta = await uploadTemplateAttachmentFile(tplId, file, pct => setAttachUploadProgress(pct));
+      setAttachments(prev => [...prev, meta]);
+    } catch(err){
+      console.error("[V19.38] template attachment upload failed:", err);
+      setAttachUploadError("فشل رفع الملف: " + (err?.message || err));
+    } finally {
+      setAttachUploading(false);
+      setAttachUploadProgress(0);
+    }
+  };
+
+  const removeAttachment = async (idx) => {
+    const target = attachments[idx];
+    setAttachments(attachments.filter((_,i) => i!==idx));
+    if(target?.storagePath){
+      deleteTemplateAttachment(target.storagePath).catch(err =>
+        console.warn("[V19.38] attachment delete failed (non-fatal):", err)
       );
     }
   };
@@ -889,6 +959,48 @@ function TemplateEditor({tpl, canEdit, onCancel, onSave}){
           {uploadError && <div style={{marginTop:6,fontSize:FS-3,color:T.err}}>⚠️ {uploadError}</div>}
         </>}
       </div>
+
+      {/* V19.38: Attachments — non-image files (PDFs, docs, video, audio, ZIP) */}
+      <div style={{marginTop:12,padding:12,borderRadius:10,background:"#3B82F606",border:"1px solid #3B82F625"}}>
+        <div style={{fontSize:FS-1,fontWeight:700,color:"#3B82F6",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
+          <span>📎</span><span>ملفات مرفقة (Bridge mode فقط)</span>
+        </div>
+        <div style={{fontSize:FS-3,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
+          PDFs, مستندات Word/Excel, فيديو, صوت, ZIP. بيتبعتوا كـ documents في WhatsApp مع زر تحميل واضح.
+          <br/>الحدود: <b>صور/فيديو/صوت 16MB</b> · <b>مستندات 100MB</b> · حد أقصى 3 ملفات لكل قالب.
+        </div>
+
+        {attachments.length > 0 && <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
+          {attachments.map((att, i) => (
+            <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:8,background:T.cardSolid,border:"1px solid "+T.brd}}>
+              <span style={{fontSize:24,flexShrink:0}}>{getFileIcon(att.mime)}</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:FS-1,fontWeight:600,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{att.name}</div>
+                <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{formatFileSize(att.size)} · {att.kind || classifyMime(att.mime)}</div>
+              </div>
+              {canEdit && <button onClick={() => removeAttachment(i)} style={{width:28,height:28,borderRadius:"50%",background:T.err+"15",color:T.err,border:"1px solid "+T.err+"30",fontSize:14,fontWeight:900,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}} title="حذف">✕</button>}
+            </div>
+          ))}
+        </div>}
+
+        {attachUploading && <div style={{marginBottom:8}}>
+          <div style={{fontSize:FS-2,color:"#3B82F6",marginBottom:4,display:"flex",justifyContent:"space-between"}}>
+            <span>⏳ جاري الرفع...</span>
+            <span style={{fontFamily:"monospace",fontWeight:700}}>{attachUploadProgress}%</span>
+          </div>
+          <div style={{height:6,borderRadius:3,background:T.bg,overflow:"hidden",border:"1px solid "+T.brd}}>
+            <div style={{height:"100%",width:attachUploadProgress+"%",background:"#3B82F6",transition:"width 0.2s"}}/>
+          </div>
+        </div>}
+
+        {canEdit && <>
+          <input ref={attachInputRef} type="file" onChange={handleAttachmentUpload} style={{display:"none"}}/>
+          <Btn small onClick={() => attachInputRef.current?.click()} disabled={attachments.length>=3 || attachUploading} style={{background:"#3B82F615",color:"#3B82F6",border:"1px solid #3B82F640"}}>
+            📎 إضافة ملف {attachments.length>0 && `(${attachments.length}/3)`}
+          </Btn>
+          {attachUploadError && <div style={{marginTop:6,fontSize:FS-3,color:T.err}}>⚠️ {attachUploadError}</div>}
+        </>}
+      </div>
     </Card>
 
     {/* Preview */}
@@ -904,13 +1016,25 @@ function TemplateEditor({tpl, canEdit, onCancel, onSave}){
             ))}
           </div>
         </div>}
+        {attachments.length > 0 && <div style={{marginTop:8,padding:8,borderRadius:6,background:"#fff",border:"1px solid #ddd"}}>
+          <div style={{fontSize:FS-3,color:"#666",marginBottom:4}}>📎 {attachments.length} ملف مرفق (Bridge فقط)</div>
+          <div style={{display:"flex",flexDirection:"column",gap:3}}>
+            {attachments.map((att,i) => (
+              <div key={i} style={{display:"flex",alignItems:"center",gap:6,fontSize:FS-3,color:"#000"}}>
+                <span>{getFileIcon(att.mime)}</span>
+                <span style={{flex:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{att.name}</span>
+                <span style={{color:"#666"}}>{formatFileSize(att.size)}</span>
+              </div>
+            ))}
+          </div>
+        </div>}
       </div>
       <div style={{marginTop:8,fontSize:FS-3,color:T.textMut}}>المعاينة باسم "أحمد محمد" ورصيد 1,250 ج.م — العميل الفعلي هيشوف بياناته الخاصة.</div>
     </Card>
 
     {canEdit && <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14}}>
       <Btn ghost onClick={onCancel}>إلغاء</Btn>
-      <Btn primary disabled={!valid} onClick={() => onSave({id: tpl?.id, name: name.trim(), category, body: body.trim(), imageUrl: imageUrl.trim(), images})}>
+      <Btn primary disabled={!valid} onClick={() => onSave({id: tpl?.id, name: name.trim(), category, body: body.trim(), imageUrl: imageUrl.trim(), images, attachments})}>
         💾 حفظ
       </Btn>
     </div>}
@@ -2420,6 +2544,14 @@ function BridgeSendScreen({data, upConfig, user, bridgeUrl, bridgeToken, templat
     return [...tplImgs, ...extraImages].slice(0, 5); /* hard cap 5 */
   }, [template.images, extraImages]);
 
+  /* V19.38: Template attachments (PDFs, docs, etc.) — sent alongside images.
+     Attachments don't have an "extras" concept (campaign doesn't add them on the
+     fly), they live entirely on the template. */
+  const templateAttachments = useMemo(
+    () => Array.isArray(template.attachments) ? template.attachments : [],
+    [template.attachments]
+  );
+
   /* V19.35: Extra campaign images also go to Firebase Storage. We use a
      synthetic templateId namespaced to the campaign so deletes can be reasoned
      about later if we ever want garbage collection. */
@@ -2457,22 +2589,30 @@ function BridgeSendScreen({data, upConfig, user, bridgeUrl, bridgeToken, templat
   };
 
   /* Build personalized messages */
-  /* V19.35: media items now ship URL references (pointing at Firebase Storage)
-     instead of base64 blobs. The bridge fetches and decodes server-side. We keep
-     a fallback so legacy base64 templates that haven't been migrated yet still
-     send (the bridge accepts both shapes). */
-  const buildMessages = () => items.map(c => ({
-    id: campaignIdRef.current + "_" + c.id,
-    phone: cleanPhone(c.phone),
-    customerName: c.name,
-    message: personalize(template.body, c),
-    media: allImages.length > 0 ? allImages.map(img => (
-      img.url
-        ? { url: img.url, mime: img.mime, name: img.name }
-        : { base64: img.base64, mime: img.mime, name: img.name }
-    )) : null,
-    campaignId: campaignIdRef.current,
-  }));
+  /* V19.35: media items ship URL references (pointing at Firebase Storage)
+     instead of base64 blobs. The bridge fetches and decodes server-side.
+     V19.38: media[] now contains both images AND non-image attachments. The bridge
+     dispatches each via MessageMedia; non-image mimes get sendMediaAsDocument:true
+     server-side so they render as proper document bubbles in WhatsApp. Order
+     matters: images first (caption attaches to the first one), attachments last. */
+  const buildMessages = () => items.map(c => {
+    const allMedia = [
+      ...allImages.map(img => (
+        img.url
+          ? { url: img.url, mime: img.mime, name: img.name }
+          : { base64: img.base64, mime: img.mime, name: img.name }
+      )),
+      ...templateAttachments.map(att => ({ url: att.url, mime: att.mime, name: att.name })),
+    ];
+    return {
+      id: campaignIdRef.current + "_" + c.id,
+      phone: cleanPhone(c.phone),
+      customerName: c.name,
+      message: personalize(template.body, c),
+      media: allMedia.length > 0 ? allMedia : null,
+      campaignId: campaignIdRef.current,
+    };
+  });
 
   /* Poll bridge status */
   useEffect(() => {
@@ -2670,6 +2810,28 @@ function BridgeSendScreen({data, upConfig, user, bridgeUrl, bridgeToken, templat
             💡 الصور هتتبعت واحدة ورا التانية. النص هيتحط مع أول صورة كـ caption، الباقي صور بدون نص.
           </div>}
         </div>
+
+        {/* V19.38: Attachments display — read-only on the send screen.
+            Attachments live on the template; the campaign send doesn't add new ones. */}
+        {templateAttachments.length > 0 && <div style={{padding:12,borderRadius:10,background:"#3B82F606",border:"1px solid #3B82F625",marginBottom:12}}>
+          <div style={{fontSize:FS-1,fontWeight:700,color:"#3B82F6",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+            <span>📎</span><span>ملفات مرفقة ({templateAttachments.length})</span>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {templateAttachments.map((att, i) => (
+              <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 10px",borderRadius:6,background:T.cardSolid,border:"1px solid "+T.brd}}>
+                <span style={{fontSize:20}}>{getFileIcon(att.mime)}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:FS-2,fontWeight:600,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{att.name}</div>
+                  <div style={{fontSize:FS-3,color:T.textMut}}>{formatFileSize(att.size)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{marginTop:8,fontSize:FS-3,color:T.textMut,lineHeight:1.6}}>
+            💡 الملفات هتتبعت لكل عميل بعد الصور. كل ملف هيتلقى كرسالة منفصلة.
+          </div>
+        </div>}
 
         {/* Bridge status */}
         <div style={{padding:12,borderRadius:10,background:bridgeReady?T.ok+"08":T.err+"08",border:"1px solid "+(bridgeReady?T.ok+"40":T.err+"40"),marginBottom:12}}>

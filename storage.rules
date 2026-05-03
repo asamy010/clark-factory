@@ -28,9 +28,11 @@ service firebase.storage {
       /* قراءة: أي مستخدم مسجل دخول */
       allow read: if request.auth != null;
 
-      /* رفع/تعديل: مسجل دخول + الملف أقل من 25MB */
+      /* رفع/تعديل: مسجل دخول + الملف أقل من 100MB
+         (V19.38: رفعنا الحد من 25MB لـ 100MB عشان ندعم مرفقات الحملات
+         زي PDFs والمستندات. WhatsApp حدها 100MB للـ documents.) */
       allow create, update: if request.auth != null
-                         && request.resource.size < 25 * 1024 * 1024;
+                         && request.resource.size < 100 * 1024 * 1024;
 
       /* حذف: مسجل دخول (مفيش ملف داخل، فمفيش size check) */
       allow delete: if request.auth != null;

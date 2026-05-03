@@ -24,6 +24,7 @@ import { storage } from "../firebase.js";
 import {
   ref as storageRef,
   uploadBytes,
+  uploadBytesResumable,
   getDownloadURL,
   deleteObject,
 } from "firebase/storage";
@@ -170,3 +171,122 @@ export function legacyBase64Size(tpl){
   if(!tpl || !Array.isArray(tpl.images)) return 0;
   return tpl.images.reduce((sum, img) => sum + (img?.base64?.length || 0), 0);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   V19.38: NON-IMAGE ATTACHMENTS (PDFs, Word, Excel, video, audio, ZIPs)
+
+   Attachments are a separate concept from images even though both end
+   up in Firebase Storage. The differences worth knowing:
+     - No compression — files go up as-is.
+     - Per-mime size limits enforced (WhatsApp's caps).
+     - Upload uses uploadBytesResumable so the UI can show a progress bar
+       (a 50MB PDF on slow internet is a real wait).
+     - Stored on the template in `template.attachments[]`, separate from
+       `template.images[]` so the editor can render each kind correctly
+       (image previews vs file-type icons).
+
+   The Bridge's send pipeline doesn't care about the distinction — it
+   receives a unified `media[]` array with {url, mime, name} entries and
+   dispatches each via MessageMedia. CLARK is what merges images +
+   attachments into that array at send time.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* WhatsApp's per-type size ceilings. We enforce client-side so we fail
+   fast with a clear message instead of letting WhatsApp reject the send. */
+export const WA_MAX_BY_KIND = {
+  image:    16 * 1024 * 1024,
+  video:    16 * 1024 * 1024,
+  audio:    16 * 1024 * 1024,
+  document: 100 * 1024 * 1024,
+};
+
+/* Bucket a mime type into one of the four WhatsApp media kinds. */
+export function classifyMime(mime){
+  const m = (mime || "").toLowerCase();
+  if(m.startsWith("image/")) return "image";
+  if(m.startsWith("video/")) return "video";
+  if(m.startsWith("audio/")) return "audio";
+  return "document";
+}
+
+/* Visual icon for each file type. Used in the editor + send screen. */
+export function getFileIcon(mime){
+  const m = (mime || "").toLowerCase();
+  if(m === "application/pdf") return "📄";
+  if(m.includes("spreadsheetml") || m.includes("ms-excel") || m.endsWith("/csv")) return "📊";
+  if(m.includes("wordprocessingml") || m === "application/msword") return "📝";
+  if(m.includes("presentationml") || m.includes("ms-powerpoint")) return "📑";
+  if(m === "application/zip" || m === "application/x-rar-compressed" || m === "application/x-7z-compressed") return "🗜️";
+  if(m.startsWith("video/")) return "🎬";
+  if(m.startsWith("audio/")) return "🎵";
+  if(m.startsWith("image/")) return "🖼";
+  if(m.startsWith("text/")) return "📃";
+  return "📎";
+}
+
+/* Format bytes as KB / MB for display. */
+export function formatFileSize(bytes){
+  if(!bytes) return "0 B";
+  if(bytes < 1024) return bytes + " B";
+  if(bytes < 1024*1024) return Math.round(bytes/1024) + " KB";
+  return (bytes/(1024*1024)).toFixed(1) + " MB";
+}
+
+/* Storage path for an attachment. Different prefix from images so cleanup
+   logic (and human inspection in the Firebase console) can tell them apart. */
+function buildAttachmentPath(templateId, name){
+  const ts = Date.now();
+  const rnd = Math.random().toString(36).slice(2, 8);
+  const tid = (templateId || "tpl_unknown").replace(/[^\w]/g, "_");
+  /* Sanitize filename but PRESERVE the extension — WhatsApp uses it in the
+     document name shown to the recipient, so "report.pdf" stays "report.pdf". */
+  const cleaned = (name || "file").replace(/[^\w.\-\u0600-\u06FF]+/g, "_").substring(0, 80);
+  return `templates/${tid}/attachments/${ts}_${rnd}_${cleaned}`;
+}
+
+/* Upload a non-image File. onProgress(percent) is invoked during upload. */
+export async function uploadTemplateAttachmentFile(templateId, file, onProgress){
+  if(!file) throw new Error("file is required");
+  const kind = classifyMime(file.type);
+  const cap = WA_MAX_BY_KIND[kind];
+  if(file.size > cap){
+    throw new Error(
+      `الملف أكبر من الحد المسموح في WhatsApp (${formatFileSize(cap)}). ` +
+      `حجم الملف: ${formatFileSize(file.size)}`
+    );
+  }
+  const path = buildAttachmentPath(templateId, file.name);
+  const ref = storageRef(storage, path);
+  const task = uploadBytesResumable(ref, file, {
+    contentType: file.type || "application/octet-stream",
+    customMetadata: { templateId: templateId || "", originalName: file.name },
+  });
+  return new Promise((resolve, reject) => {
+    task.on(
+      "state_changed",
+      snap => {
+        if(onProgress){
+          const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
+          onProgress(pct);
+        }
+      },
+      err => reject(err),
+      async () => {
+        try {
+          const url = await getDownloadURL(task.snapshot.ref);
+          resolve({
+            storagePath: path,
+            url,
+            mime: file.type || "application/octet-stream",
+            name: file.name,
+            size: file.size,
+            kind,
+          });
+        } catch(e){ reject(e); }
+      }
+    );
+  });
+}
+
+/* Alias for symmetry — Storage delete is identical regardless of file kind. */
+export const deleteTemplateAttachment = deleteTemplateImage;
