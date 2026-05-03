@@ -94,6 +94,14 @@ let settings = {
 let dailyCounter = { date: new Date().toISOString().slice(0, 10), sent: 0 };
 let optOuts = []; /* numbers that replied STOP */
 let stats = { totalSent: 0, totalFailed: 0, sessionStart: Date.now() };
+/* V19.31: Activity log — last 100 send attempts */
+let activityLog = []; /* [{phone, customerName, status, timestamp, error?, durationMs?}] */
+const ACTIVITY_LOG_MAX = 100;
+
+function addActivity(entry){
+  activityLog.unshift({...entry, timestamp: new Date().toISOString()});
+  if(activityLog.length > ACTIVITY_LOG_MAX) activityLog = activityLog.slice(0, ACTIVITY_LOG_MAX);
+}
 
 /* Load saved state */
 function loadState() {
@@ -275,11 +283,13 @@ async function processQueue() {
     if (optOuts.includes(phoneNorm)) {
       item.status = "skipped";
       item.error = "Opted out";
+      addActivity({phone: phoneNorm, customerName: item.customerName||"", status: "skipped", error: "Opted out", campaignId: item.campaignId});
       console.log(`[Q] Skipped (opted out): ${phoneNorm}`);
       continue;
     }
 
     /* Send attempt */
+    const sendStartedAt = Date.now();
     item.status = "sending";
     item.attempts = (item.attempts || 0) + 1;
 
@@ -312,6 +322,7 @@ async function processQueue() {
       dailyCounter.sent++;
       stats.totalSent++;
       inBatch++;
+      addActivity({phone: phoneNorm, customerName: item.customerName||"", status: "sent", durationMs: Date.now() - sendStartedAt, campaignId: item.campaignId});
       console.log(`[Q] Sent to ${phoneNorm} (${dailyCounter.sent}/${settings.dailyCap})`);
     } catch (e) {
       console.error(`[Q] Send failed for ${phoneNorm}: ${e.message}`);
@@ -323,6 +334,7 @@ async function processQueue() {
       }
       item.status = "failed";
       stats.totalFailed++;
+      addActivity({phone: phoneNorm, customerName: item.customerName||"", status: "failed", error: e.message, campaignId: item.campaignId});
     }
     saveState();
 
@@ -464,6 +476,99 @@ app.post("/optouts/remove", (req, res) => {
   optOuts = optOuts.filter((x) => x !== p);
   saveState();
   res.json({ ok: true, optOuts });
+});
+
+/* V19.31: Activity log endpoint — last 100 send attempts */
+app.get("/activity", (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+  res.json({
+    activity: activityLog.slice(0, limit),
+    total: activityLog.length,
+  });
+});
+
+/* V19.31: QR code endpoint — for in-app display when WhatsApp needs re-link */
+app.get("/qr", (req, res) => {
+  if (!lastQR) return res.json({ qr: null, state: waState });
+  res.json({ qr: lastQRDataURL, state: waState, raw: lastQR });
+});
+
+/* V19.31: Test message — send a single message immediately (bypasses queue) */
+app.post("/test-message", async (req, res) => {
+  if (!waReady) return res.status(503).json({ ok: false, error: "WhatsApp not ready" });
+  const { phone, message } = req.body || {};
+  if (!phone || !message) return res.status(400).json({ ok: false, error: "phone and message required" });
+  try {
+    const phoneNorm = normalizePhone(phone);
+    const chatId = formatChatId(phoneNorm);
+    const isReg = await waClient.isRegisteredUser(chatId).catch(() => false);
+    if (!isReg) return res.status(404).json({ ok: false, error: "Number not on WhatsApp" });
+    await waClient.sendMessage(chatId, message);
+    addActivity({ phone: phoneNorm, customerName: "TEST", status: "sent", campaignId: "test" });
+    res.json({ ok: true, sentTo: phoneNorm });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+/* V19.31: Reset daily counter (use sparingly!) */
+app.post("/reset-daily", (req, res) => {
+  const oldCount = dailyCounter.sent;
+  dailyCounter = { date: new Date().toISOString().slice(0, 10), sent: 0 };
+  saveState();
+  console.log(`[ADMIN] Daily counter reset (was ${oldCount})`);
+  res.json({ ok: true, previousCount: oldCount });
+});
+
+/* V19.31: Bulk opt-outs add — accepts array of phone numbers */
+app.post("/optouts/bulk-add", (req, res) => {
+  const { phones } = req.body || {};
+  if (!Array.isArray(phones)) return res.status(400).json({ ok: false, error: "phones array required" });
+  let added = 0;
+  phones.forEach(p => {
+    const norm = normalizePhone(p);
+    if (norm && !optOuts.includes(norm)) {
+      optOuts.push(norm);
+      added++;
+    }
+  });
+  saveState();
+  res.json({ ok: true, added, total: optOuts.length });
+});
+
+/* V19.31: Stats — detailed analytics */
+app.get("/stats", (req, res) => {
+  const sentActivities = activityLog.filter(a => a.status === "sent");
+  const failedActivities = activityLog.filter(a => a.status === "failed");
+  const skippedActivities = activityLog.filter(a => a.status === "skipped");
+  /* Top recipients */
+  const recipientCounts = {};
+  sentActivities.forEach(a => {
+    if (a.phone) recipientCounts[a.phone] = (recipientCounts[a.phone] || 0) + 1;
+  });
+  const topRecipients = Object.entries(recipientCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([phone, count]) => ({ phone, count }));
+  /* Avg duration */
+  const durations = sentActivities.map(a => a.durationMs).filter(Boolean);
+  const avgMs = durations.length ? Math.round(durations.reduce((a,b) => a+b, 0) / durations.length) : 0;
+  /* Success rate (lifetime) */
+  const successRate = (stats.totalSent + stats.totalFailed > 0)
+    ? Math.round((stats.totalSent / (stats.totalSent + stats.totalFailed)) * 100)
+    : 100;
+  res.json({
+    lifetime: stats,
+    successRate,
+    avgSendMs: avgMs,
+    activityRecent: {
+      sent: sentActivities.length,
+      failed: failedActivities.length,
+      skipped: skippedActivities.length,
+    },
+    topRecipients,
+    sessionUptime: Date.now() - stats.sessionStart,
+  });
 });
 
 /* Logout / re-link */

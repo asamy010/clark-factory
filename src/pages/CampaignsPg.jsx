@@ -78,6 +78,13 @@ const bridge = {
   optoutAdd:(url, phone, token)       => bridgeFetch(url, "/optouts/add",    {method:"POST", body:{phone}}, token),
   optoutRm: (url, phone, token)       => bridgeFetch(url, "/optouts/remove", {method:"POST", body:{phone}}, token),
   logout:   (url, token)              => bridgeFetch(url, "/logout",   {method:"POST"}, token),
+  /* V19.31: New endpoints */
+  activity: (url, token, limit=50)    => bridgeFetch(url, "/activity?limit="+limit, {}, token),
+  qr:       (url, token)              => bridgeFetch(url, "/qr", {}, token),
+  test:     (url, phone, message, token) => bridgeFetch(url, "/test-message", {method:"POST", body:{phone,message}}, token),
+  resetDaily:(url, token)             => bridgeFetch(url, "/reset-daily", {method:"POST"}, token),
+  optoutBulk:(url, phones, token)     => bridgeFetch(url, "/optouts/bulk-add", {method:"POST", body:{phones}}, token),
+  stats:    (url, token)              => bridgeFetch(url, "/stats", {}, token),
 };
 
 /* Personalization variables — surface in template editor and substitute at send */
@@ -1371,11 +1378,20 @@ function ChooseSendMode({campaign, bridgeUrl, bridgeToken, onCancel, onPickManua
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   V19.28: BRIDGE SETTINGS PAGE
+   V19.31: BRIDGE SETTINGS — REWRITTEN as tabbed dashboard
+   ═══════════════════════════════════════════════════════════════════════
+   Tabs:
+     1. Dashboard — live status + stats + quick controls + QR (if needed)
+     2. Settings  — connection (URL, token), anti-ban config
+     3. Stats     — detailed analytics, top recipients, success rate
+     4. Activity  — last 100 send attempts log
+     5. Tools     — test message, opt-outs management, reset daily, logout
    ═══════════════════════════════════════════════════════════════════════ */
 function BridgeSettings({bridgeCfg, canEdit, onSave, onClose}){
+  const [tab, setTab] = useState("dashboard");
+  /* Settings state — persisted */
   const [url, setUrl] = useState(bridgeCfg.url || DEFAULT_BRIDGE_URL);
-  const [token, setToken] = useState(bridgeCfg.token || ""); /* V19.30 */
+  const [token, setToken] = useState(bridgeCfg.token || "");
   const [enabled, setEnabled] = useState(bridgeCfg.enabled !== false);
   const [delayMin, setDelayMin] = useState(bridgeCfg.delayMin || 8);
   const [delayMax, setDelayMax] = useState(bridgeCfg.delayMax || 25);
@@ -1383,30 +1399,64 @@ function BridgeSettings({bridgeCfg, canEdit, onSave, onClose}){
   const [batchSize, setBatchSize] = useState(bridgeCfg.batchSize || 20);
   const [batchBreakMin, setBatchBreakMin] = useState(bridgeCfg.batchBreakMin || 4);
   const [batchBreakMax, setBatchBreakMax] = useState(bridgeCfg.batchBreakMax || 8);
+  const [typingMin, setTypingMin] = useState(bridgeCfg.typingMin || 2);
+  const [typingMax, setTypingMax] = useState(bridgeCfg.typingMax || 5);
   const [retryFailures, setRetryFailures] = useState(bridgeCfg.retryFailures !== false);
   const [detectOptOuts, setDetectOptOuts] = useState(bridgeCfg.detectOptOuts !== false);
 
-  const [testing, setTesting] = useState(false);
+  /* Live data from bridge */
+  const [liveStatus, setLiveStatus] = useState(null);
+  const [liveStats, setLiveStats] = useState(null);
+  const [liveActivity, setLiveActivity] = useState([]);
+  const [liveOptOuts, setLiveOptOuts] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
   const [testResult, setTestResult] = useState(null);
 
+  /* Auto-refresh dashboard every 5 sec */
+  useEffect(() => {
+    if(!url) return;
+    let dead = false;
+    const fetchAll = async () => {
+      setRefreshing(true);
+      try {
+        const s = await bridge.status(url, token);
+        if(!dead) setLiveStatus(s);
+      } catch(e) {
+        if(!dead) setLiveStatus({error: e.message, waReady: false});
+      }
+      /* Stats + activity only when token + connected */
+      if(token){
+        try { const st = await bridge.stats(url, token); if(!dead) setLiveStats(st); } catch {}
+        try { const ac = await bridge.activity(url, token, 50); if(!dead) setLiveActivity(ac.activity || []); } catch {}
+        try { const oo = await bridge.optouts(url, token); if(!dead) setLiveOptOuts(oo.optOuts || []); } catch {}
+      }
+      if(!dead) setRefreshing(false);
+    };
+    fetchAll();
+    const iv = setInterval(fetchAll, 5000);
+    return () => { dead = true; clearInterval(iv); };
+  }, [url, token]);
+
+  /* Test connection (manual button in settings tab) */
   const test = async () => {
-    setTesting(true); setTestResult(null);
+    setTestResult(null);
     try {
       const s = await bridge.status(url, token);
       setTestResult({ok: true, status: s});
-      /* Push current settings to bridge */
-      try {
-        await bridge.settings(url, {
-          delayMin: delayMin*1000, delayMax: delayMax*1000,
-          dailyCap, batchSize,
-          batchBreakMin: batchBreakMin*60*1000, batchBreakMax: batchBreakMax*60*1000,
-          retryFailures, detectOptOuts,
-        }, token);
-      } catch {}
+      if(token){
+        try {
+          await bridge.settings(url, {
+            delayMin: delayMin*1000, delayMax: delayMax*1000,
+            dailyCap, batchSize,
+            batchBreakMin: batchBreakMin*60*1000, batchBreakMax: batchBreakMax*60*1000,
+            typingDelayMin: typingMin*1000, typingDelayMax: typingMax*1000,
+            retryFailures, detectOptOuts,
+          }, token);
+        } catch {}
+      }
     } catch(e) {
       setTestResult({ok: false, error: e.message});
     }
-    setTesting(false);
   };
 
   const save = () => {
@@ -1414,21 +1464,231 @@ function BridgeSettings({bridgeCfg, canEdit, onSave, onClose}){
       enabled, url, token,
       delayMin, delayMax, dailyCap, batchSize,
       batchBreakMin, batchBreakMax,
+      typingMin, typingMax,
       retryFailures, detectOptOuts,
     });
   };
 
-  return <div style={{padding:16,maxWidth:760,margin:"0 auto"}}>
+  /* Quick action handlers */
+  const doPause   = async () => { try { await bridge.pause(url, token); showToast("⏸ تم الإيقاف"); } catch(e){ showToast("✕ "+e.message); } };
+  const doResume  = async () => { try { await bridge.resume(url, token); showToast("▶ استؤنف"); } catch(e){ showToast("✕ "+e.message); } };
+  const doStop    = async () => { if(!await ask("إيقاف نهائي للطابور؟ هيتم إلغاء الرسائل المعلقة."))return; try { await bridge.stop(url, token); showToast("⏹ تم الإيقاف"); } catch(e){ showToast("✕ "+e.message); } };
+  const doClear   = async () => { try { await bridge.clear(url, token); showToast("🧹 تم مسح المكتمل"); } catch(e){ showToast("✕ "+e.message); } };
+  const doLogout  = async () => { if(!await ask("قطع الاتصال بالواتساب؟ هتحتاج تمسح QR من جديد."))return; try { await bridge.logout(url, token); showToast("👋 تم قطع الاتصال"); } catch(e){ showToast("✕ "+e.message); } };
+
+  return <div style={{padding:16,maxWidth:900,margin:"0 auto"}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
       <h2 style={{margin:0,fontSize:FS+3,fontWeight:900,display:"flex",alignItems:"center",gap:8}}>
-        <span>⚙️</span><span>إعدادات البريدج (الإرسال التلقائي)</span>
+        <span>⚙️</span><span>إدارة البريدج (الإرسال التلقائي)</span>
       </h2>
-      <Btn ghost onClick={onClose}>✕</Btn>
+      <div style={{display:"flex",gap:6}}>
+        {refreshing && <span style={{fontSize:FS-3,color:T.textMut,padding:"4px 8px"}}>🔄 يحدّث...</span>}
+        <Btn ghost onClick={onClose}>✕</Btn>
+      </div>
     </div>
 
+    {/* Tab bar */}
+    <div style={{display:"flex",gap:4,marginBottom:14,borderBottom:"2px solid "+T.brd,overflowX:"auto"}}>
+      {[
+        ["dashboard", "📊 لوحة المتابعة"],
+        ["settings",  "⚙️ الإعدادات"],
+        ["stats",     "📈 الإحصائيات"],
+        ["activity",  "📋 سجل النشاط"],
+        ["tools",     "🛠 أدوات"],
+      ].map(([key, label]) => (
+        <button key={key} onClick={() => setTab(key)} style={{
+          padding:"8px 14px",
+          background: tab === key ? T.cardSolid : "transparent",
+          border:"none",
+          borderBottom: tab === key ? "3px solid "+T.accent : "3px solid transparent",
+          color: tab === key ? T.accent : T.textSec,
+          fontWeight: tab === key ? 800 : 600,
+          fontSize: FS-1,
+          cursor: "pointer",
+          whiteSpace: "nowrap",
+          marginBottom:-2,
+        }}>{label}</button>
+      ))}
+    </div>
+
+    {/* DASHBOARD TAB */}
+    {tab === "dashboard" && <DashboardTab
+      liveStatus={liveStatus} liveStats={liveStats} liveActivity={liveActivity}
+      url={url} token={token}
+      onPause={doPause} onResume={doResume} onStop={doStop} onClear={doClear} onLogout={doLogout}
+      canEdit={canEdit}
+    />}
+
+    {/* SETTINGS TAB */}
+    {tab === "settings" && <SettingsTab
+      url={url} setUrl={setUrl}
+      token={token} setToken={setToken}
+      enabled={enabled} setEnabled={setEnabled}
+      delayMin={delayMin} setDelayMin={setDelayMin}
+      delayMax={delayMax} setDelayMax={setDelayMax}
+      dailyCap={dailyCap} setDailyCap={setDailyCap}
+      batchSize={batchSize} setBatchSize={setBatchSize}
+      batchBreakMin={batchBreakMin} setBatchBreakMin={setBatchBreakMin}
+      batchBreakMax={batchBreakMax} setBatchBreakMax={setBatchBreakMax}
+      typingMin={typingMin} setTypingMin={setTypingMin}
+      typingMax={typingMax} setTypingMax={setTypingMax}
+      retryFailures={retryFailures} setRetryFailures={setRetryFailures}
+      detectOptOuts={detectOptOuts} setDetectOptOuts={setDetectOptOuts}
+      canEdit={canEdit}
+      testResult={testResult}
+      onTest={test}
+      onSave={save}
+    />}
+
+    {/* STATS TAB */}
+    {tab === "stats" && <StatsTab liveStats={liveStats} liveStatus={liveStatus}/>}
+
+    {/* ACTIVITY TAB */}
+    {tab === "activity" && <ActivityTab activity={liveActivity}/>}
+
+    {/* TOOLS TAB */}
+    {tab === "tools" && <ToolsTab
+      url={url} token={token}
+      liveOptOuts={liveOptOuts}
+      canEdit={canEdit}
+    />}
+  </div>;
+}
+
+/* ─────── DASHBOARD TAB ─────── */
+function DashboardTab({liveStatus, liveStats, liveActivity, url, token, onPause, onResume, onStop, onClear, onLogout, canEdit}){
+  if(!liveStatus){
+    return <div style={{padding:30,textAlign:"center",color:T.textMut}}>... يحمّل البيانات</div>;
+  }
+  if(liveStatus.error){
+    return <Card>
+      <div style={{padding:20,textAlign:"center"}}>
+        <div style={{fontSize:48,marginBottom:8}}>⚠️</div>
+        <div style={{fontSize:FS+2,fontWeight:800,color:T.err,marginBottom:8}}>تعذر الاتصال بالبريدج</div>
+        <div style={{fontSize:FS-1,color:T.textSec,direction:"ltr",fontFamily:"monospace",padding:10,background:T.bg,borderRadius:8,display:"inline-block"}}>{liveStatus.error}</div>
+        <div style={{marginTop:12,fontSize:FS-2,color:T.textMut,lineHeight:1.7}}>
+          راجع الـ URL والـ Token في تبويبة الإعدادات.<br/>
+          تأكد إن البريدج شغّال على السيرفر: <code>docker compose ps</code>
+        </div>
+      </div>
+    </Card>;
+  }
+
+  const queue = liveStatus.queue || {};
+  const daily = liveStatus.daily || {};
+  const settings = liveStatus.settings || {};
+  const dailyPct = settings.dailyCap ? Math.round((daily.sent || 0) / settings.dailyCap * 100) : 0;
+  const isReady = liveStatus.waReady;
+  const isPaused = queue.paused;
+  const isRunning = queue.running;
+  const totalActive = (queue.pending || 0) + (queue.sending || 0);
+
+  return <>
+    {/* Connection status card */}
+    <Card>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
+        <div>
+          <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>حالة الاتصال</div>
+          {isReady ? <>
+            <div style={{display:"flex",alignItems:"center",gap:8,fontSize:FS+1,fontWeight:900,color:T.ok}}>
+              <span style={{width:10,height:10,borderRadius:"50%",background:T.ok,boxShadow:"0 0 8px "+T.ok}}/>
+              <span>متصل وجاهز</span>
+            </div>
+            {liveStatus.myName && <div style={{fontSize:FS-1,color:T.textSec,marginTop:4}}>الرقم: {liveStatus.myName} ({liveStatus.myNumber})</div>}
+          </> : <>
+            <div style={{display:"flex",alignItems:"center",gap:8,fontSize:FS+1,fontWeight:900,color:T.warn}}>
+              <span style={{width:10,height:10,borderRadius:"50%",background:T.warn}}/>
+              <span>{liveStatus.waState === "QR" ? "محتاج QR scan" : "غير متصل"}</span>
+            </div>
+            <div style={{fontSize:FS-2,color:T.textSec,marginTop:4}}>الحالة: {liveStatus.waState}</div>
+          </>}
+        </div>
+        <div style={{textAlign:"left"}}>
+          <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>uptime</div>
+          <div style={{fontSize:FS,fontWeight:700}}>{formatUptime(liveStatus.uptime || 0)}</div>
+        </div>
+      </div>
+    </Card>
+
+    {/* QR card if needed */}
+    {liveStatus.qr && <Card style={{marginTop:14,background:"#FEF3C7"}}>
+      <div style={{textAlign:"center",padding:8}}>
+        <div style={{fontSize:FS+1,fontWeight:800,color:"#92400E",marginBottom:8}}>📱 امسح الـ QR من واتساب</div>
+        <div style={{fontSize:FS-2,color:"#92400E",marginBottom:12}}>الإعدادات → الأجهزة المرتبطة → ربط جهاز</div>
+        <img src={liveStatus.qr} alt="QR" style={{maxWidth:280,width:"100%",borderRadius:8,background:"#fff",padding:12}}/>
+      </div>
+    </Card>}
+
+    {/* Stats grid */}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:10,marginTop:14}}>
+      <BigStat icon="📤" label="مرسلة اليوم" value={daily.sent || 0} sub={"من "+(settings.dailyCap || 80)} color={T.ok}/>
+      <BigStat icon="⏳" label="في الطابور" value={queue.pending || 0} sub={isRunning ? "شغال" : isPaused ? "متوقف" : "خامل"} color={T.accent}/>
+      <BigStat icon="✓" label="مرسلة (إجمالي)" value={liveStatus.stats?.totalSent || 0} sub="منذ بداية الجلسة" color={T.ok}/>
+      <BigStat icon="✕" label="فشل" value={liveStatus.stats?.totalFailed || 0} sub={liveStats?.successRate != null ? "نجاح "+liveStats.successRate+"%" : ""} color={T.err}/>
+      <BigStat icon="🚫" label="opt-outs" value={liveStatus.optOutsCount || 0} sub="رفضوا التواصل" color={T.warn}/>
+      <BigStat icon="✉" label="بيبعت الآن" value={queue.sending || 0} sub="رسالة فعلياً" color="#3B82F6"/>
+    </div>
+
+    {/* Daily progress */}
+    <Card style={{marginTop:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-1,marginBottom:6}}>
+        <span style={{fontWeight:700}}>الحد اليومي</span>
+        <span style={{color:T.textSec}}>{daily.sent || 0} / {settings.dailyCap || 80} ({dailyPct}%)</span>
+      </div>
+      <div style={{height:14,borderRadius:7,background:T.bg,overflow:"hidden"}}>
+        <div style={{
+          height:"100%",
+          width: dailyPct + "%",
+          background: dailyPct >= 90 ? T.err : dailyPct >= 70 ? T.warn : "linear-gradient(90deg, "+T.ok+", "+T.accent+")",
+          transition: "width 0.5s",
+        }}/>
+      </div>
+      {dailyPct >= 90 && <div style={{fontSize:FS-3,color:T.err,marginTop:6}}>⚠️ قاربت على الحد اليومي</div>}
+    </Card>
+
+    {/* Quick controls */}
+    {canEdit && isReady && <Card title="🎮 تحكم سريع" style={{marginTop:14}}>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {isPaused
+          ? <Btn onClick={onResume} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"40",fontWeight:700}}>▶ استئناف الطابور</Btn>
+          : totalActive > 0 && <Btn onClick={onPause} style={{background:T.warn+"15",color:T.warn,border:"1px solid "+T.warn+"40",fontWeight:700}}>⏸ إيقاف مؤقت</Btn>
+        }
+        {totalActive > 0 && <Btn onClick={onStop} style={{background:T.err+"15",color:T.err,border:"1px solid "+T.err+"40",fontWeight:700}}>⏹ إيقاف نهائي</Btn>}
+        <Btn onClick={onClear} style={{background:"#3B82F615",color:"#3B82F6",border:"1px solid #3B82F640",fontWeight:700}}>🧹 امسح المكتمل</Btn>
+        <Btn onClick={onLogout} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd,fontWeight:700}}>🔌 قطع الاتصال (إعادة QR)</Btn>
+      </div>
+      {totalActive === 0 && !isPaused && <div style={{marginTop:8,fontSize:FS-2,color:T.textMut}}>الطابور فاضي. تقدر تعمل حملة جديدة.</div>}
+    </Card>}
+
+    {/* Recent activity preview */}
+    {liveActivity.length > 0 && <Card title="📋 آخر النشاط" style={{marginTop:14}}>
+      <div style={{maxHeight:240,overflowY:"auto"}}>
+        {liveActivity.slice(0, 10).map((a, i) => (
+          <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:i<9?"1px solid "+T.brd:"none",fontSize:FS-2}}>
+            <div style={{minWidth:50,fontSize:FS-3,color:T.textMut,direction:"ltr",textAlign:"center"}}>{formatRelTime(a.timestamp)}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                {a.customerName || a.phone}
+              </div>
+              {a.error && <div style={{fontSize:FS-3,color:T.err}}>{a.error}</div>}
+            </div>
+            <div style={{fontWeight:700,fontSize:FS-2,color: a.status==="sent"?T.ok:a.status==="failed"?T.err:T.warn}}>
+              {a.status==="sent"?"✓":a.status==="failed"?"✕":"⊘"}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>}
+  </>;
+}
+
+/* ─────── SETTINGS TAB ─────── */
+function SettingsTab(props){
+  const {url,setUrl,token,setToken,enabled,setEnabled,delayMin,setDelayMin,delayMax,setDelayMax,dailyCap,setDailyCap,batchSize,setBatchSize,batchBreakMin,setBatchBreakMin,batchBreakMax,setBatchBreakMax,typingMin,setTypingMin,typingMax,setTypingMax,retryFailures,setRetryFailures,detectOptOuts,setDetectOptOuts,canEdit,testResult,onTest,onSave} = props;
+  return <>
     <div style={{padding:12,borderRadius:10,background:T.warn+"10",border:"1px solid "+T.warn+"40",marginBottom:14,fontSize:FS-2,color:T.text,lineHeight:1.7}}>
       <b style={{color:T.warn}}>⚠️ تحذير قانوني:</b> الإرسال التلقائي مخالف لشروط استخدام WhatsApp.
-      الرقم اللي بتربطه ممكن يتحظر. استخدم رقم احتياطي مش رقمك الشخصي. ابدأ بكميات صغيرة (10-20 رسالة) وراقب النتيجة قبل ما تكبّر.
+      الرقم اللي بتربطه ممكن يتحظر. استخدم رقم احتياطي مش رقمك الشخصي.
     </div>
 
     <Card title="🌉 الاتصال">
@@ -1442,44 +1702,34 @@ function BridgeSettings({bridgeCfg, canEdit, onSave, onClose}){
       <div style={{marginBottom:10}}>
         <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>عنوان البريدج (URL)</div>
         <Inp value={url} onChange={setUrl} placeholder="https://clark-rmg.duckdns.org" disabled={!canEdit}/>
-        <div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>
-          لو البريدج شغال على نفس الجهاز: <code>http://localhost:3001</code>.
-          لو على VPS بـ HTTPS: <code>https://your-domain.duckdns.org</code> (الموصى به).
-          لو على شبكة محلية: <code>http://192.168.x.x:3001</code>.
-        </div>
       </div>
-      {/* V19.30: Auth Token field */}
       <div style={{marginBottom:10}}>
         <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>🔐 Auth Token</div>
         <Inp value={token} onChange={setToken} placeholder="long-random-hex-string" disabled={!canEdit} type="password"/>
         <div style={{fontSize:FS-3,color:T.textMut,marginTop:4,lineHeight:1.6}}>
-          الـ token اللي ولّده سكريبت <code>setup-vps.sh</code> على السيرفر. بيقفل البريدج بحيث مش أي حد يقدر يستخدمه. تقدر تلاقيه في ملف <code>.env</code> على السيرفر بأمر <code>cat .env</code>. خاليه فاضي بس لو شغال على localhost.
+          الـ token من ملف <code>.env</code> على السيرفر (<code>cat .env</code>). خاليه فاضي بس لو شغال على localhost.
         </div>
       </div>
-      <div style={{display:"flex",gap:8,alignItems:"center"}}>
-        <Btn onClick={test} disabled={testing||!url} style={{background:T.accent+"15",color:T.accent,border:"1px solid "+T.accent+"40"}}>
-          {testing?"... يفحص":"🔍 اختبار الاتصال"}
-        </Btn>
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        <Btn onClick={onTest} disabled={!url} style={{background:T.accent+"15",color:T.accent,border:"1px solid "+T.accent+"40"}}>🔍 اختبار الاتصال</Btn>
         {testResult?.ok && <span style={{color:T.ok,fontWeight:700,fontSize:FS-2}}>
-          ✓ متصل · {testResult.status.waReady?"WhatsApp جاهز":"حالة WA: "+testResult.status.waState}
+          ✓ متصل · {testResult.status.waReady?"WhatsApp جاهز":"WA: "+testResult.status.waState}
           {testResult.status.myName && " · "+testResult.status.myName}
         </span>}
-        {testResult && !testResult.ok && <span style={{color:T.err,fontWeight:700,fontSize:FS-2}}>✕ فشل: {testResult.error}</span>}
+        {testResult && !testResult.ok && <span style={{color:T.err,fontWeight:700,fontSize:FS-2}}>✕ {testResult.error}</span>}
       </div>
-      {testResult?.ok && testResult.status.qr && <div style={{marginTop:12,padding:12,background:"#fff",borderRadius:8,textAlign:"center"}}>
-        <div style={{fontSize:FS-2,color:"#000",fontWeight:700,marginBottom:8}}>امسح ده من واتساب → الإعدادات → الأجهزة المرتبطة</div>
-        <img src={testResult.status.qr} alt="QR" style={{maxWidth:240,width:"100%"}}/>
-      </div>}
     </Card>
 
     <Card title="⚙️ إعدادات الإرسال (Anti-Ban)" style={{marginTop:12}}>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-        <SettingInp label="أقل تأخير بين الرسايل (ثانية)" value={delayMin} onChange={v=>setDelayMin(Math.max(3,parseInt(v)||0))} disabled={!canEdit} hint="3 ثواني الحد الأدنى"/>
-        <SettingInp label="أعلى تأخير (ثانية)" value={delayMax} onChange={v=>setDelayMax(parseInt(v)||0)} disabled={!canEdit} hint="افتراضي 25 ثانية"/>
-        <SettingInp label="الحد اليومي" value={dailyCap} onChange={v=>setDailyCap(Math.min(500,Math.max(1,parseInt(v)||0)))} disabled={!canEdit} hint="مفيش أكثر من ده في اليوم"/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(220px, 1fr))",gap:10,marginBottom:12}}>
+        <SettingInp label="أقل تأخير بين الرسايل (ث)" value={delayMin} onChange={v=>setDelayMin(Math.max(3,parseInt(v)||0))} disabled={!canEdit} hint="3 ثواني الحد الأدنى"/>
+        <SettingInp label="أعلى تأخير (ث)" value={delayMax} onChange={v=>setDelayMax(parseInt(v)||0)} disabled={!canEdit} hint="افتراضي 25 ث"/>
+        <SettingInp label="الحد اليومي" value={dailyCap} onChange={v=>setDailyCap(Math.min(500,Math.max(1,parseInt(v)||0)))} disabled={!canEdit} hint="مفيش أكتر من ده"/>
         <SettingInp label="حجم الدفعة" value={batchSize} onChange={v=>setBatchSize(parseInt(v)||0)} disabled={!canEdit} hint="استراحة كل X رسالة"/>
         <SettingInp label="استراحة دفعة (دقيقة، أقل)" value={batchBreakMin} onChange={v=>setBatchBreakMin(parseInt(v)||0)} disabled={!canEdit}/>
         <SettingInp label="استراحة دفعة (دقيقة، أعلى)" value={batchBreakMax} onChange={v=>setBatchBreakMax(parseInt(v)||0)} disabled={!canEdit}/>
+        <SettingInp label="محاكاة الكتابة (ث، أقل)" value={typingMin} onChange={v=>setTypingMin(Math.max(1,parseInt(v)||0))} disabled={!canEdit} hint="بيظهر typing... قبل الإرسال"/>
+        <SettingInp label="محاكاة الكتابة (ث، أعلى)" value={typingMax} onChange={v=>setTypingMax(parseInt(v)||0)} disabled={!canEdit}/>
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
         <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
@@ -1493,20 +1743,252 @@ function BridgeSettings({bridgeCfg, canEdit, onSave, onClose}){
       </div>
     </Card>
 
-    <Card title="📋 ملخص التوقعات" style={{marginTop:12}}>
+    <Card title="📋 التوقعات" style={{marginTop:12}}>
       <div style={{fontSize:FS-2,color:T.textSec,lineHeight:1.8}}>
-        بمعدل <b>{Math.round((delayMin+delayMax)/2)} ث</b> بين الرسايل و دفعات بحجم <b>{batchSize}</b> مع استراحة <b>{Math.round((batchBreakMin+batchBreakMax)/2)} د</b>:
-        <br/>• 50 رسالة هتاخد تقريباً <b>{Math.round((50*((delayMin+delayMax)/2)+ Math.floor(50/batchSize)*((batchBreakMin+batchBreakMax)/2)*60)/60)} دقيقة</b>
-        <br/>• 100 رسالة هتاخد تقريباً <b>{Math.round((100*((delayMin+delayMax)/2)+ Math.floor(100/batchSize)*((batchBreakMin+batchBreakMax)/2)*60)/60)} دقيقة</b>
-        <br/>• الحد اليومي <b>{dailyCap}</b> رسالة
+        بمعدل <b>{Math.round((delayMin+delayMax)/2)} ث</b> بين الرسايل و دفعات بحجم <b>{batchSize}</b>:
+        <br/>• 50 رسالة = ~<b>{Math.round((50*((delayMin+delayMax)/2)+ Math.floor(50/batchSize)*((batchBreakMin+batchBreakMax)/2)*60)/60)} د</b>
+        <br/>• 100 رسالة = ~<b>{Math.round((100*((delayMin+delayMax)/2)+ Math.floor(100/batchSize)*((batchBreakMin+batchBreakMax)/2)*60)/60)} د</b>
       </div>
     </Card>
 
     {canEdit && <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14}}>
-      <Btn ghost onClick={onClose}>إلغاء</Btn>
-      <Btn primary onClick={save}>✓ حفظ الإعدادات</Btn>
+      <Btn primary onClick={onSave}>✓ حفظ الإعدادات</Btn>
     </div>}
+  </>;
+}
+
+/* ─────── STATS TAB ─────── */
+function StatsTab({liveStats, liveStatus}){
+  if(!liveStats) return <div style={{padding:30,textAlign:"center",color:T.textMut}}>... يحمّل الإحصائيات</div>;
+  const { lifetime, successRate, avgSendMs, activityRecent, topRecipients, sessionUptime } = liveStats;
+  return <>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:10,marginBottom:14}}>
+      <BigStat icon="📊" label="معدل النجاح" value={successRate+"%"} sub="إجمالي" color={successRate>=90?T.ok:successRate>=70?T.warn:T.err}/>
+      <BigStat icon="⏱" label="متوسط الإرسال" value={avgSendMs?Math.round(avgSendMs/1000)+" ث":"—"} sub="لكل رسالة" color={T.accent}/>
+      <BigStat icon="📤" label="إجمالي مرسل" value={lifetime?.totalSent || 0} color={T.ok}/>
+      <BigStat icon="✕" label="إجمالي فاشل" value={lifetime?.totalFailed || 0} color={T.err}/>
+      <BigStat icon="⏰" label="مدة الجلسة" value={formatUptime(sessionUptime)} color={T.textSec}/>
+    </div>
+
+    <Card title="📊 توزيع آخر 50 محاولة">
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+        <BigStat icon="✓" label="نجح" value={activityRecent?.sent || 0} color={T.ok}/>
+        <BigStat icon="✕" label="فشل" value={activityRecent?.failed || 0} color={T.err}/>
+        <BigStat icon="⊘" label="تخطّى" value={activityRecent?.skipped || 0} color={T.warn}/>
+      </div>
+    </Card>
+
+    {topRecipients?.length > 0 && <Card title="🏆 أكثر العملاء استلاماً" style={{marginTop:14}}>
+      <div style={{maxHeight:300,overflowY:"auto"}}>
+        {topRecipients.map((r, i) => (
+          <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:i<topRecipients.length-1?"1px solid "+T.brd:"none"}}>
+            <div style={{width:30,fontSize:FS-1,fontWeight:800,color:T.textMut,textAlign:"center"}}>#{i+1}</div>
+            <div style={{flex:1,fontSize:FS-1,fontWeight:700,direction:"ltr",textAlign:"left"}}>{r.phone}</div>
+            <div style={{fontSize:FS-1,fontWeight:800,color:T.accent}}>{r.count} رسالة</div>
+          </div>
+        ))}
+      </div>
+    </Card>}
+  </>;
+}
+
+/* ─────── ACTIVITY TAB ─────── */
+function ActivityTab({activity}){
+  const [filter, setFilter] = useState("all");
+  const filtered = useMemo(() => {
+    if(filter === "all") return activity;
+    return activity.filter(a => a.status === filter);
+  }, [activity, filter]);
+
+  return <Card>
+    <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+      <span style={{fontSize:FS-1,fontWeight:700}}>فلتر:</span>
+      {[
+        ["all", "الكل", T.text],
+        ["sent", "✓ نجح", T.ok],
+        ["failed", "✕ فشل", T.err],
+        ["skipped", "⊘ تخطّى", T.warn],
+      ].map(([key, label, color]) => (
+        <button key={key} onClick={() => setFilter(key)} style={{
+          padding:"4px 10px", borderRadius:6,
+          background: filter===key ? color+"20" : T.bg,
+          color: filter===key ? color : T.textSec,
+          border: "1px solid "+(filter===key ? color+"40" : T.brd),
+          fontWeight: filter===key ? 700 : 500,
+          fontSize: FS-2, cursor: "pointer",
+        }}>{label}</button>
+      ))}
+      <span style={{marginInlineStart:"auto",fontSize:FS-3,color:T.textMut}}>{filtered.length} عنصر</span>
+    </div>
+
+    {filtered.length === 0 ? <div style={{padding:30,textAlign:"center",color:T.textMut}}>
+      <div style={{fontSize:36,marginBottom:8}}>📭</div>
+      مفيش نشاط
+    </div> : <div style={{maxHeight:560,overflowY:"auto",border:"1px solid "+T.brd,borderRadius:8}}>
+      {filtered.map((a, i) => (
+        <div key={i} style={{
+          display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+          borderBottom: i<filtered.length-1 ? "1px solid "+T.brd : "none",
+          fontSize: FS-2,
+        }}>
+          <div style={{width:80,fontSize:FS-3,color:T.textMut,direction:"ltr",textAlign:"center"}}>
+            {formatRelTime(a.timestamp)}
+          </div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+              {a.customerName || "—"}
+            </div>
+            <div style={{fontSize:FS-3,color:T.textMut,direction:"ltr",textAlign:"left"}}>{a.phone}</div>
+            {a.error && <div style={{fontSize:FS-3,color:T.err,marginTop:2}}>{a.error}</div>}
+            {a.durationMs && <div style={{fontSize:FS-3,color:T.textMut,marginTop:1}}>⏱ {Math.round(a.durationMs/1000)} ث</div>}
+          </div>
+          <div style={{fontWeight:800,fontSize:FS-1,whiteSpace:"nowrap",
+            color: a.status==="sent"?T.ok:a.status==="failed"?T.err:T.warn
+          }}>
+            {a.status==="sent"?"✓ نجح":a.status==="failed"?"✕ فشل":"⊘ تخطّى"}
+          </div>
+        </div>
+      ))}
+    </div>}
+  </Card>;
+}
+
+/* ─────── TOOLS TAB ─────── */
+function ToolsTab({url, token, liveOptOuts, canEdit}){
+  const [testPhone, setTestPhone] = useState("");
+  const [testMsg, setTestMsg] = useState("اختبار من CLARK Bridge — لو وصلتك الرسالة دي يبقى البريدج شغال 100% ✓");
+  const [testing, setTesting] = useState(false);
+  const [testRes, setTestRes] = useState(null);
+
+  const [bulkOptouts, setBulkOptouts] = useState("");
+
+  const sendTest = async () => {
+    if(!testPhone || !testMsg) return;
+    setTesting(true); setTestRes(null);
+    try {
+      const r = await bridge.test(url, testPhone, testMsg, token);
+      setTestRes({ok: true, info: r});
+    } catch(e) {
+      setTestRes({ok: false, error: e.message});
+    }
+    setTesting(false);
+  };
+
+  const importBulk = async () => {
+    const phones = bulkOptouts.split(/[\n,;\s]+/).map(s => s.trim()).filter(Boolean);
+    if(phones.length === 0) { showToast("⚠️ مفيش أرقام"); return; }
+    try {
+      const r = await bridge.optoutBulk(url, phones, token);
+      showToast("✓ أُضيف "+r.added+" رقم لقائمة opt-outs");
+      setBulkOptouts("");
+    } catch(e) { showToast("✕ "+e.message); }
+  };
+
+  const removeOptout = async (phone) => {
+    if(!await ask("شيل "+phone+" من قائمة opt-outs؟"))return;
+    try { await bridge.optoutRm(url, phone, token); showToast("✓ تم"); }
+    catch(e) { showToast("✕ "+e.message); }
+  };
+
+  const resetDaily = async () => {
+    if(!await ask("صفّر العداد اليومي؟ ده هيخليك تبعت من جديد لكن انتبه للحظر."))return;
+    try { const r = await bridge.resetDaily(url, token); showToast("✓ تم تصفير "+r.previousCount+" رسالة"); }
+    catch(e) { showToast("✕ "+e.message); }
+  };
+
+  return <>
+    <Card title="📨 إرسال رسالة اختبار">
+      <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.7}}>
+        ابعت رسالة لرقمك أنت عشان تتأكد إن البريدج بيرسل صح. الرسالة بتتبعت فوراً (بدون queue).
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <div>
+          <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>الرقم (مع كود الدولة، مثال: 201234567890)</div>
+          <Inp value={testPhone} onChange={setTestPhone} placeholder="201234567890"/>
+        </div>
+        <div>
+          <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>الرسالة</div>
+          <textarea value={testMsg} onChange={e=>setTestMsg(e.target.value)} rows={3} style={{width:"100%",padding:10,borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",direction:"rtl",resize:"vertical",background:T.cardSolid,color:T.text}}/>
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <Btn primary onClick={sendTest} disabled={!canEdit || testing || !testPhone || !testMsg} style={{background:"#25D366",borderColor:"#25D366"}}>
+            {testing ? "... يبعت" : "📤 ابعت رسالة الاختبار"}
+          </Btn>
+          {testRes?.ok && <span style={{color:T.ok,fontWeight:700,fontSize:FS-2}}>✓ مبعوت لـ {testRes.info.sentTo}</span>}
+          {testRes && !testRes.ok && <span style={{color:T.err,fontWeight:700,fontSize:FS-2}}>✕ {testRes.error}</span>}
+        </div>
+      </div>
+    </Card>
+
+    <Card title={"🚫 قائمة opt-outs ("+(liveOptOuts?.length||0)+")"} style={{marginTop:14}}>
+      <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.7}}>
+        أرقام رفضت التواصل (ردوا STOP أو إلغاء، أو أضفتهم يدوياً). هيتم تخطيهم تلقائياً في كل الحملات.
+      </div>
+      {liveOptOuts?.length > 0 && <div style={{maxHeight:200,overflowY:"auto",border:"1px solid "+T.brd,borderRadius:8,marginBottom:10}}>
+        {liveOptOuts.map((p, i) => (
+          <div key={p} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",borderBottom:i<liveOptOuts.length-1?"1px solid "+T.brd:"none",fontSize:FS-2}}>
+            <span style={{direction:"ltr",fontFamily:"monospace"}}>{p}</span>
+            {canEdit && <Btn small onClick={() => removeOptout(p)} style={{background:T.ok+"15",color:T.ok,border:"1px solid "+T.ok+"30"}}>↩ شيل</Btn>}
+          </div>
+        ))}
+      </div>}
+      {canEdit && <>
+        <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>إضافة جماعية (رقم في كل سطر، أو مفصول بفاصلة)</div>
+        <textarea value={bulkOptouts} onChange={e=>setBulkOptouts(e.target.value)} rows={4} placeholder="201234567890&#10;201234567891&#10;201234567892" style={{width:"100%",padding:10,borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"monospace",direction:"ltr",resize:"vertical",background:T.cardSolid,color:T.text,marginBottom:8}}/>
+        <Btn onClick={importBulk} disabled={!bulkOptouts.trim()} style={{background:T.warn+"15",color:T.warn,border:"1px solid "+T.warn+"40"}}>➕ إضافة الأرقام</Btn>
+      </>}
+    </Card>
+
+    {canEdit && <Card title="⚡ أدوات إدارية" style={{marginTop:14}}>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <Btn onClick={resetDaily} style={{background:"#3B82F615",color:"#3B82F6",border:"1px solid #3B82F640"}}>🔄 تصفير العداد اليومي</Btn>
+      </div>
+      <div style={{marginTop:10,padding:8,borderRadius:6,background:T.warn+"08",fontSize:FS-3,color:T.textSec,lineHeight:1.6}}>
+        ⚠️ تصفير العداد اليومي يخليك تبعت أكتر من الحد. استخدمه بحذر — الإرسال الزيادة يزيد خطر حظر الرقم.
+      </div>
+    </Card>}
+  </>;
+}
+
+/* ─────── HELPERS ─────── */
+function BigStat({icon, label, value, sub, color}){
+  return <div style={{
+    padding:14,borderRadius:12,
+    background:T.cardSolid,border:"1px solid "+T.brd,
+    display:"flex",flexDirection:"column",gap:4,
+  }}>
+    <div style={{display:"flex",alignItems:"center",gap:6,fontSize:FS-2,color:T.textSec}}>
+      <span style={{fontSize:FS}}>{icon}</span>
+      <span>{label}</span>
+    </div>
+    <div style={{fontSize:FS+6,fontWeight:900,color:color||T.text,lineHeight:1}}>{value}</div>
+    {sub && <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{sub}</div>}
   </div>;
+}
+
+function formatUptime(ms){
+  if(!ms) return "—";
+  const sec = Math.floor(ms / 1000);
+  if(sec < 60) return sec + " ث";
+  const min = Math.floor(sec / 60);
+  if(min < 60) return min + " د";
+  const hr = Math.floor(min / 60);
+  const remMin = min % 60;
+  if(hr < 24) return hr + " س " + (remMin > 0 ? remMin + " د" : "");
+  const day = Math.floor(hr / 24);
+  return day + " يوم " + (hr % 24) + " س";
+}
+
+function formatRelTime(iso){
+  if(!iso) return "—";
+  const diff = Date.now() - new Date(iso).getTime();
+  const sec = Math.floor(diff / 1000);
+  if(sec < 60) return "الآن";
+  const min = Math.floor(sec / 60);
+  if(min < 60) return min + " د";
+  const hr = Math.floor(min / 60);
+  if(hr < 24) return hr + " س";
+  return Math.floor(hr / 24) + " يوم";
 }
 
 function SettingInp({label, value, onChange, disabled, hint}){
