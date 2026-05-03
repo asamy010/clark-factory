@@ -187,6 +187,38 @@ function formatChatId(phone) {
 }
 
 /* ──────────────────────────────────────────────────────────────────
+   V19.37: SINGLETON LOCK CLEANUP
+   ──────────────────────────────────────────────────────────────────
+   When Chromium dies hard (container OOM-kill, force-stop, host reboot),
+   it leaves SingletonLock / SingletonCookie / SingletonSocket files in
+   the auth profile. On next start Chromium refuses to launch:
+     "The profile appears to be in use by another Chromium process".
+   This was the V19.36→V19.37 in-the-wild incident. Cleaning these files
+   on every startup turns the failure mode into a self-heal: a forced
+   shutdown costs at most one extra restart, never an SSH visit.
+   ────────────────────────────────────────────────────────────────── */
+function cleanupSingletonLocks() {
+  const authDir = path.join(__dirname, ".wwebjs_auth");
+  if (!fs.existsSync(authDir)) return 0;
+  let removed = 0;
+  const stack = [authDir];
+  while (stack.length) {
+    const cur = stack.pop();
+    let entries;
+    try { entries = fs.readdirSync(cur, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      const full = path.join(cur, e.name);
+      if (e.name.startsWith("Singleton")) {
+        try { fs.rmSync(full, { force: true, recursive: true }); removed++; } catch {}
+      } else if (e.isDirectory()) {
+        stack.push(full);
+      }
+    }
+  }
+  return removed;
+}
+
+/* ──────────────────────────────────────────────────────────────────
    WHATSAPP CLIENT INIT
    ────────────────────────────────────────────────────────────────── */
 function initWhatsApp() {
@@ -196,6 +228,11 @@ function initWhatsApp() {
   }
   waReady = false;
   waState = "INIT";
+
+  /* V19.37: Always sweep stale Singleton locks before booting Chromium.
+     A no-op if the profile is clean; saves us from "stuck in INIT" otherwise. */
+  const swept = cleanupSingletonLocks();
+  if (swept > 0) console.log(`[WA] Swept ${swept} stale Singleton lock files`);
 
   console.log("[WA] Initializing client...");
 
@@ -646,6 +683,49 @@ app.get("/stats", (req, res) => {
     },
     topRecipients,
     sessionUptime: Date.now() - stats.sessionStart,
+  });
+});
+
+/* V19.37: One-click repair endpoint.
+   This is the SSH-free version of the recipe we ran in the wild during the
+   V19.36 incident: destroy WA client → sweep Singleton lock files → reinitialize.
+   The user's CLARK Dashboard exposes this as "🔧 إصلاح تلقائي" so they don't
+   need to open a terminal for the most common bridge failure mode.
+   Replies immediately; the actual reinit happens asynchronously. The client
+   side polls /status to see READY again. */
+app.post("/repair", async (req, res) => {
+  console.log("[REPAIR] requested via API");
+  const previousState = waState;
+  waState = "REPAIRING";
+  waReady = false;
+
+  /* Step 1: destroy current client gracefully (with hard timeout — destroy()
+     can hang if Chromium is already wedged, which is why we're here). */
+  if (waClient) {
+    try {
+      await Promise.race([
+        waClient.destroy(),
+        new Promise(r => setTimeout(r, 5000)),
+      ]);
+      console.log("[REPAIR] client destroyed");
+    } catch (e) {
+      console.log("[REPAIR] destroy error (non-fatal):", e.message);
+    }
+    waClient = null;
+  }
+
+  /* Step 2: sweep Singleton locks (the actual fix) */
+  const removed = cleanupSingletonLocks();
+  console.log(`[REPAIR] swept ${removed} Singleton lock files`);
+
+  /* Step 3: reinitialize after a beat. Don't await — we want to return now. */
+  setTimeout(() => initWhatsApp(), 1000);
+
+  res.json({
+    ok: true,
+    previousState,
+    locksRemoved: removed,
+    message: "Repair started. Poll /status — should be READY in ~30s.",
   });
 });
 

@@ -15,7 +15,7 @@ import { gIcon, setF, sqty } from "../utils/format.js";
 import { uploadOrderImageFile, deleteOrderImage } from "../utils/orderImages.js";
 import { sortOrders, validateOrder } from "../utils/orders.js";
 import { askInput, showToast, tell } from "../utils/popups.js";
-import { compressFile } from "../utils/qr.js";
+/* V19.37: removed compressFile import — file attachments inside OrdForm were retired */
 import { getUnits } from "../utils/units.js";
 
 export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig}){
@@ -50,7 +50,7 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
       setUploadingImg(false);
     }
   };
-  const handleFile=async e=>{const f=e.target.files[0];if(!f)return;if(f.size>1000000){await tell("حجم الملف كبير","حجم الملف أكبر من 1MB. اختر ملفاً أصغر.",{type:"warning"});return}const result=await compressFile(f);if(result)setForm(p=>({...p,attachments:[...(p.attachments||[]),result]}))};
+  /* V19.37: handleFile removed — file attachments inside OrdForm were retired (per user request) */
   const mainQty=sqty(form.colorsA);const updF=(key,val)=>setForm(p=>setF(p,key,val));
   const isDirty=form.modelNo||form.modelDesc||form.fabricA||(form.colorsA||[]).some(c=>c.color||c.layers>0);
   useEffect(()=>{window.__formDirty=!!isDirty;return()=>{window.__formDirty=false}},[isDirty]);
@@ -163,10 +163,6 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
       </div>}
     </div>})}
     <div style={{marginBottom:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={{fontSize:FS,fontWeight:700,color:T.accent}}>بنود التشغيل والاكسسوار</div><Btn ghost small onClick={()=>{const all=(data.accessories||[]).map(a=>({accId:a.id,name:a.name,price:a.price}));updF("accItems",all)}} style={{color:T.ok,fontSize:FS-2}}>+ اضافة الكل</Btn></div><AccPicker accItems={form.accItems||[]} dbAcc={data.accessories} onChange={items=>updF("accItems",items)}/></div>
-    <div style={{marginBottom:16}}><label style={{display:"block",fontSize:FS,color:T.textSec,marginBottom:6,fontWeight:600}}>ملفات مرفقة (حد أقصى 500KB/ملف)</label>
-      <input type="file" onChange={handleFile} style={{marginBottom:8,fontSize:FS}}/>
-      {(form.attachments||[]).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8}}>{form.attachments.map((a,i)=><span key={i} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:8,background:T.accentBg,border:"1px solid "+T.brd,fontSize:FS-2}}>{"📎 "+a.name}<span onClick={()=>updF("attachments",form.attachments.filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err,fontWeight:800}}>x</span></span>)}</div>}
-    </div>
     <div style={{marginBottom:16}}><label style={{display:"block",fontSize:FS,color:T.textSec,marginBottom:6,fontWeight:600}}>تعليمات التشغيل</label><textarea value={form.instructions||""} onChange={e=>updF("instructions",e.target.value)} placeholder="تعليمات التشغيل..." style={{width:"100%",height:100,padding:14,borderRadius:14,border:"1.5px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",resize:"vertical"}}/></div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:16,borderTop:"1px solid "+T.brd,flexWrap:"wrap",gap:10}}>
       <div style={{fontSize:20,fontWeight:800}}>{"كمية القص (A): "}<span style={{color:T.accent}}>{mainQty}</span></div>

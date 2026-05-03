@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.37",
+    date: "2026-05-03",
+    types: ["feature", "fix"],
+    title: "🔧 زر إصلاح تلقائي للبريدج + تنظيف ذاتي عند البدء",
+    changes: [
+      { type: "feature", text: "🔧 [زر إصلاح تلقائي] في تاب الـ Bridge Dashboard، زر '🔧 إصلاح تلقائي' بيظهر تلقائياً لو حالة البريدج غير متصل أو INIT/DISCONNECTED. الزر بيـreset الـ WhatsApp client من غير ما تحتاج SSH ولا تفتح PowerShell. الـ session بتفضل سليمة (مفيش re-scan QR). العملية بتاخد ~30 ثانية والـ UI بيتحدّث تلقائياً." },
+      { type: "fix", text: "🛡️ [auto-cleanup عند البدء] الـ bridge دلوقتي بيمسح Singleton lock files تلقائياً قبل ما Chromium يقوم. ده بيمنع الحالة اللي حصلت قبل كده (الـ bridge عالق في INIT بسبب lock files قديمة من container سابق اتقفل بالقوة). بقت self-heal — لو حصل forced shutdown، الـ container هيقوم تاني عادي." },
+      { type: "feature", text: "🌉 [Bridge endpoint جديد POST /repair] السيرفر بياخد request ويعمل: destroy للـ WA client (مع timeout 5 ث) → sweep للـ Singleton lock files → re-init. بيرجع للـ client immediately ويكمّل re-init في الخلفية. CLARK بيـpoll /status كل 2.5 ث فبيشوف READY بعد ~30 ث." },
+      { type: "improvement", text: "🗑️ [حذف بند ملفات مرفقة من الفورم] قسم 'ملفات مرفقة (حد أقصى 500KB/ملف)' في فورم الأوردر اتشال — الـ V15.90 attachments system في تفاصيل الأوردر هو الموثوق (Storage-based)، ومش محتاجين الـ inline base64 system القديم تاني." },
+      { type: "improvement", text: "🎨 [حالة REPAIRING في الـ UI] لما يكون الإصلاح شغال، الـ Dashboard بيعرض indicator: 'جاري الإصلاح...' مع شرح إن العملية بتاخد ~30 ث والصفحة هتتحدث تلقائياً." },
+    ]
+  },
+  {
     version: "V19.36",
     date: "2026-05-03",
     types: ["feature", "improvement"],
@@ -164,19 +177,6 @@ const CHANGELOG = [
       { type: "feature", text: "💾 [persistence] إعدادات البريدج محفوظة في `data.campaignBridge`. الحملة بتتسجل في `data.campaigns[]` بـ `sendMode: 'bridge'` لتمييزها عن الحملات اليدوية. Cap 50 حملة." },
       { type: "architectural", text: "⚠️ تحذير صريح في الواجهة: الإرسال التلقائي مخالف لشروط واتساب، الرقم ممكن يتحظر. UI بيعرض warning أصفر في 3 أماكن: chooseSendMode، settings page، confirmStart. ينصح باستخدام رقم احتياطي." },
       { type: "maintenance", text: "📁 [بنية الملفات] الـbridge في مجلد منفصل `clark-wa-bridge/` على نفس مستوى `src/`. مش بيتركّب مع الـ React build — بيشتغل independent. الاتصال HTTP بسيط (REST endpoints)، CORS مفتوح للـ localhost." },
-    ]
-  },
-  {
-    version: "V19.27",
-    date: "2026-05-02",
-    types: ["fix"],
-    title: "🚨 [حرج] إصلاح وضع 'السماح بالسالب' — كان مكسور تماماً",
-    changes: [
-      { type: "fix", text: "🐛 المشكلة المُبلَّغ عنها: المستخدم اختار وضع 'السماح بالسالب' من إعدادات وضع المخزن (السلوك المتوقع: تسمح بإنشاء أوردر حتى لو الرصيد مش كافي، يطلع تحذير بس مش يمنع). لكن الكود كان لسه بيمنع الأوردر بـ tell() أحمر بدون أي اعتبار للإعداد. الإعداد كان شكلي — `blockOnInsufficientStock=false` كان بيتسجل في الـconfig لكن مفيش حد بيقرأه عند إنشاء الأوردر." },
-      { type: "fix", text: "🔍 السبب الجذري: في `App.jsx` `addOrder` (سطر ~2037) و `replaceOrder` (سطر ~2127)، الكود كان بيعمل `checkStockAvailability` ولو في shortages بيـ return فوراً بـ tell error. كان لازم يشيك على `purchaseSettings.blockOnInsufficientStock` قبل ما يقرر يمنع. نفس البق في الـ server-side recheck جوة الـ runTransaction." },
-      { type: "fix", text: "✅ الإصلاح: ضفت متغير `_blockShortage = (purchaseSettings.blockOnInsufficientStock !== false)` ولما في shortages: لو `_blockShortage` = true → امنع زي الأول. لو false → showToast أصفر تحذيري ('⚠️ المخزن غير كافي — هيتم الخصم بالسالب') وكمل الأوردر. نفس المنطق على المستويين (local pre-check + server runTransaction)." },
-      { type: "fix", text: "📋 السلوك الجديد لكل وضع: 'مغلق' (off) — مفيش خصم تلقائي خالص. 'عرض فقط' (display) — مفيش autoDeduct، مفيش فحص. 'السماح بالسالب' (warning) — يخصم وممكن يطلع سالب + تحذير. 'صارم' (strict، default) — يمنع لو الرصيد مش كافي. كل الأوضاع شغّالة دلوقتي زي ما هي مكتوبة في الإعدادات." },
-      { type: "improvement", text: "🛡 ملاحظة: `deductStockForOrder` كان بيتعامل مع negative stock صح من الأصل (بيعمل `r2(stock - delta)` بدون cap على 0)، فالـstock بيطلع سالب طبيعي في الوضع الجديد. الـ alerts والـ banner اللي في WarehousePg بيعرضوا الـnegative stocks في تنبيهات الجرد." },
     ]
   },
 ];

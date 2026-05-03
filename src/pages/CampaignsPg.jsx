@@ -88,6 +88,8 @@ const bridge = {
   optoutAdd:(url, phone, token)       => bridgeFetch(url, "/optouts/add",    {method:"POST", body:{phone}}, token),
   optoutRm: (url, phone, token)       => bridgeFetch(url, "/optouts/remove", {method:"POST", body:{phone}}, token),
   logout:   (url, token)              => bridgeFetch(url, "/logout",   {method:"POST"}, token),
+  /* V19.37: One-click repair — server-side runs destroy → sweep Singleton locks → reinit */
+  repair:   (url, token)              => bridgeFetch(url, "/repair",   {method:"POST", timeout: 10000}, token),
   /* V19.31: New endpoints */
   activity: (url, token, limit=50)    => bridgeFetch(url, "/activity?limit="+limit, {}, token),
   qr:       (url, token)              => bridgeFetch(url, "/qr", {}, token),
@@ -1817,6 +1819,17 @@ function BridgeSettings({bridgeCfg, canEdit, onSave, onClose}){
   const doStop    = async () => { if(!await ask("إيقاف نهائي للطابور؟ هيتم إلغاء الرسائل المعلقة."))return; try { await bridge.stop(url, token); showToast("⏹ تم الإيقاف"); } catch(e){ showToast("✕ "+e.message); } };
   const doClear   = async () => { try { await bridge.clear(url, token); showToast("🧹 تم مسح المكتمل"); } catch(e){ showToast("✕ "+e.message); } };
   const doLogout  = async () => { if(!await ask("قطع الاتصال بالواتساب؟ هتحتاج تمسح QR من جديد."))return; try { await bridge.logout(url, token); showToast("👋 تم قطع الاتصال"); } catch(e){ showToast("✕ "+e.message); } };
+  /* V19.37: One-click repair — destroys WA client server-side, sweeps Singleton lock files,
+     reinitializes. Saves the user from SSH'ing in for the most common stuck-bridge scenario. */
+  const doRepair  = async () => {
+    if(!await ask("إصلاح تلقائي للبريدج؟ هيقفل الـ WhatsApp client ويعيد تشغيله. الـ session هتفضل سليمة (مش هتحتاج QR scan جديد). العملية بتاخد ~30 ثانية."))return;
+    try {
+      const r = await bridge.repair(url, token);
+      showToast(`🔧 الإصلاح بدأ — ${r?.locksRemoved||0} lock files اتمسحت. استنى ~30 ث.`);
+    } catch(e){
+      showToast("✕ فشل الإصلاح: "+e.message);
+    }
+  };
 
   return <div style={{padding:16,maxWidth:900,margin:"0 auto"}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
@@ -1857,7 +1870,7 @@ function BridgeSettings({bridgeCfg, canEdit, onSave, onClose}){
     {tab === "dashboard" && <DashboardTab
       liveStatus={liveStatus} liveStats={liveStats} liveActivity={liveActivity}
       url={url} token={token}
-      onPause={doPause} onResume={doResume} onStop={doStop} onClear={doClear} onLogout={doLogout}
+      onPause={doPause} onResume={doResume} onStop={doStop} onClear={doClear} onLogout={doLogout} onRepair={doRepair}
       canEdit={canEdit}
     />}
 
@@ -1898,7 +1911,7 @@ function BridgeSettings({bridgeCfg, canEdit, onSave, onClose}){
 }
 
 /* ─────── DASHBOARD TAB ─────── */
-function DashboardTab({liveStatus, liveStats, liveActivity, url, token, onPause, onResume, onStop, onClear, onLogout, canEdit}){
+function DashboardTab({liveStatus, liveStats, liveActivity, url, token, onPause, onResume, onStop, onClear, onLogout, onRepair, canEdit}){
   if(!liveStatus){
     return <div style={{padding:30,textAlign:"center",color:T.textMut}}>... يحمّل البيانات</div>;
   }
@@ -1940,9 +1953,21 @@ function DashboardTab({liveStatus, liveStats, liveActivity, url, token, onPause,
           </> : <>
             <div style={{display:"flex",alignItems:"center",gap:8,fontSize:FS+1,fontWeight:900,color:T.warn}}>
               <span style={{width:10,height:10,borderRadius:"50%",background:T.warn}}/>
-              <span>{liveStatus.waState === "QR" ? "محتاج QR scan" : "غير متصل"}</span>
+              <span>{liveStatus.waState === "QR" ? "محتاج QR scan" : liveStatus.waState === "REPAIRING" ? "جاري الإصلاح..." : "غير متصل"}</span>
             </div>
             <div style={{fontSize:FS-2,color:T.textSec,marginTop:4}}>الحالة: {liveStatus.waState}</div>
+            {/* V19.37: Repair button — appears when stuck in INIT/DISCONNECTED. ~90% of bridge issues
+                are Singleton lock files left over from a forced shutdown; this fixes those without SSH. */}
+            {canEdit && ["INIT","DISCONNECTED"].includes(liveStatus.waState) && onRepair && (
+              <Btn small onClick={onRepair} style={{marginTop:10,background:T.accent+"15",color:T.accent,border:"1px solid "+T.accent+"40",fontWeight:700}}>
+                🔧 إصلاح تلقائي
+              </Btn>
+            )}
+            {liveStatus.waState === "REPAIRING" && (
+              <div style={{marginTop:8,fontSize:FS-2,color:T.textMut,lineHeight:1.6}}>
+                ⏳ بنعمل reset للـ WhatsApp client. بياخد ~30 ثانية. الصفحة هتتحدث تلقائياً.
+              </div>
+            )}
           </>}
         </div>
         <div style={{textAlign:"left"}}>
@@ -1997,6 +2022,7 @@ function DashboardTab({liveStatus, liveStats, liveActivity, url, token, onPause,
         }
         {totalActive > 0 && <Btn onClick={onStop} style={{background:T.err+"15",color:T.err,border:"1px solid "+T.err+"40",fontWeight:700}}>⏹ إيقاف نهائي</Btn>}
         <Btn onClick={onClear} style={{background:"#3B82F615",color:"#3B82F6",border:"1px solid #3B82F640",fontWeight:700}}>🧹 امسح المكتمل</Btn>
+        {onRepair && <Btn onClick={onRepair} style={{background:T.accent+"15",color:T.accent,border:"1px solid "+T.accent+"40",fontWeight:700}} title="بيـreset الـ WhatsApp client من غير ما يفقد الـ session — مفيد لو فيه مشاكل بسيطة">🔧 إصلاح تلقائي</Btn>}
         <Btn onClick={onLogout} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd,fontWeight:700}}>🔌 قطع الاتصال (إعادة QR)</Btn>
       </div>
       {totalActive === 0 && !isPaused && <div style={{marginTop:8,fontSize:FS-2,color:T.textMut}}>الطابور فاضي. تقدر تعمل حملة جديدة.</div>}
