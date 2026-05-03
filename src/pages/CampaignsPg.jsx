@@ -28,6 +28,7 @@ import { ask, showToast } from "../utils/popups.js";
 import { Btn, Inp, Sel, Card } from "../components/ui.jsx";
 import { T, TH, TD } from "../theme.js";
 import { analyzeCustomer } from "../utils/customerAnalytics.js";
+import { auth } from "../firebase.js"; /* V19.32: for portal URL generation */
 
 const MAX_TEMPLATES = 30;
 const MAX_CAMPAIGNS = 50;
@@ -95,6 +96,28 @@ const VARIABLES = [
   { token: "{مبلغ آخر دفعة}", label: "مبلغ آخر دفعة", example: "500" },
   { token: "{عدد الأوردرات}", label: "عدد الأوردرات",  example: "12" },
   { token: "{رقم الجوال}", label: "رقم الجوال",      example: "01001234567" },
+  /* V19.32: Portal link — auto-generated per customer via /api/customer-portal-sign */
+  { token: "{لينك}",       label: "🔗 لينك حساب العميل (Portal)", example: "https://clark.../?p=c&i=...&s=..." },
+];
+
+/* V19.33: Starter templates — shown when user has no templates yet.
+   Two examples covering both modes: a clean text-only template for manual mode
+   and an image-rich template for Bridge mode. */
+const STARTER_TEMPLATES = [
+  {
+    icon: "👆",
+    name: "تذكير دفع (يدوي)",
+    category: "تذكير دفع",
+    description: "للوضع اليدوي — رسالة احترافية بدون صور، مع لينك حساب العميل",
+    body: "السلام عليكم {اسم} 🌷\n\nنحب نذكّركم إن متبقي عليكم رصيد قدره {رصيد} ج.م.\n\nتقدروا تشوفوا تفاصيل الحساب من اللينك ده:\n{لينك}\n\nبرجاء التواصل معانا لتحديد ميعاد السداد، وشكراً لتعاملكم 🙏",
+  },
+  {
+    icon: "📷",
+    name: "عرض جديد بالصور (Bridge)",
+    category: "تسويق",
+    description: "للوضع التلقائي (Bridge) — رسالة بصور المنتجات كـ attachment. ارفع الصور بعد الإضافة.",
+    body: "أهلاً {اسم} 👋\n\nوصلتنا تشكيلة جديدة من قطع الديكور والأنتيكا 🌟\n\nاتفرّج على الصور وقولنا اللي عجبك — هنحجزهالك فوراً.\n\nشاهد تفاصيل حسابك:\n{لينك}\n\nمستنينك! 🌷",
+  },
 ];
 
 /* Smart segments — predefined audience filters */
@@ -124,8 +147,48 @@ const personalize = (body, ctx) => {
     .replace(/\{آخر دفعة\}/g, ctx.lastPaymentDate || "—")
     .replace(/\{مبلغ آخر دفعة\}/g, fmt(ctx.lastPaymentAmount || 0))
     .replace(/\{عدد الأوردرات\}/g, String(ctx.orderCount || 0))
-    .replace(/\{رقم الجوال\}/g, ctx.phone || "");
+    .replace(/\{رقم الجوال\}/g, ctx.phone || "")
+    /* V19.32: Portal link — pre-generated via portalUrlBatch() before send */
+    .replace(/\{لينك\}/g, ctx.portalUrl || "");
 };
+
+/* V19.32: Generate portal URLs in batch for an audience.
+   Calls /api/customer-portal-sign for each customer (admin token required).
+   Returns map: {custId: portalUrl}. Failed lookups are skipped (link will be empty).
+   Concurrency: 5 at a time to avoid overwhelming the API. */
+async function portalUrlBatch(custIds, onProgress){
+  const result = {};
+  const user = auth.currentUser;
+  if(!user) throw new Error("يرجى تسجيل الدخول");
+  const adminToken = await user.getIdToken();
+
+  const total = custIds.length;
+  let done = 0;
+  const concurrency = 5;
+  const queue = [...custIds];
+
+  async function worker(){
+    while(queue.length > 0){
+      const custId = queue.shift();
+      try {
+        const res = await fetch("/api/customer-portal-sign", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({custId, adminToken}),
+        });
+        if(res.ok){
+          const json = await res.json();
+          if(json.url) result[custId] = json.url;
+        }
+      } catch {}
+      done++;
+      if(onProgress) onProgress(done, total);
+    }
+  }
+
+  await Promise.all(Array.from({length: concurrency}, () => worker()));
+  return result;
+}
 
 const todayStr = () => new Date().toISOString().slice(0,10);
 const daysAgo = (n) => {
@@ -404,9 +467,37 @@ export function CampaignsPg({data, upConfig, isMob, canEdit, user}){
         <div style={{fontSize:FS-2,color:T.textSec}}>قوالب جاهزة للاستخدام في الحملات — تقدر تشخصن النصوص بمتغيرات زي {"{اسم}"} و {"{رصيد}"}</div>
         {canEdit && <Btn small onClick={() => { setEditingTpl(null); setMode("templateEdit"); }} style={{background:"#7C3AED12",color:"#7C3AED",border:"1px solid #7C3AED30"}}>+ قالب جديد</Btn>}
       </div>
-      {templates.length === 0 ? <div style={{textAlign:"center",padding:24,color:T.textMut}}>
-        لا توجد قوالب — ابدأ بإضافة قالب جديد للاستخدام في الحملات
-      </div> : <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(auto-fill,minmax(280px,1fr))",gap:10}}>
+      {templates.length === 0 ? <>
+        <div style={{textAlign:"center",padding:24,color:T.textMut}}>
+          لا توجد قوالب — ابدأ بإضافة قالب جديد للاستخدام في الحملات
+        </div>
+        {/* V19.33: Suggested starter templates */}
+        {canEdit && <div style={{marginTop:12,padding:14,borderRadius:10,background:T.accent+"05",border:"1px dashed "+T.accent+"40"}}>
+          <div style={{fontSize:FS,fontWeight:700,color:T.accent,marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
+            <span>✨</span><span>قوالب جاهزة للبداية</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            {STARTER_TEMPLATES.map((st, i) => <div key={i} style={{padding:12,borderRadius:8,background:T.cardSolid,border:"1px solid "+T.brd}}>
+              <div style={{fontWeight:700,fontSize:FS-1,marginBottom:4}}>{st.icon} {st.name}</div>
+              <div style={{fontSize:FS-3,color:T.textSec,marginBottom:6,lineHeight:1.5}}>{st.description}</div>
+              <div style={{padding:8,borderRadius:6,background:"#DCF8C6",fontSize:FS-3,color:"#000",direction:"rtl",whiteSpace:"pre-wrap",lineHeight:1.6,maxHeight:80,overflow:"hidden",marginBottom:8}}>
+                {st.body}
+              </div>
+              <Btn small primary onClick={() => {
+                upConfig(d => {
+                  if(!Array.isArray(d.campaignTemplates))d.campaignTemplates = [];
+                  d.campaignTemplates.push({
+                    id: gid(), name: st.name, category: st.category, body: st.body,
+                    imageUrl: "", images: [],
+                    createdAt: new Date().toISOString(),
+                  });
+                });
+                showToast("✓ تم إضافة القالب — تقدر تعدّل عليه دلوقتي");
+              }} style={{width:"100%"}}>➕ استخدم</Btn>
+            </div>)}
+          </div>
+        </div>}
+      </> : <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(auto-fill,minmax(280px,1fr))",gap:10}}>
         {templates.map(t => <div key={t.id} style={{padding:12,borderRadius:10,border:"1px solid "+T.brd,background:T.cardSolid}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:6}}>
             <div style={{flex:1,minWidth:0}}>
@@ -427,7 +518,8 @@ export function CampaignsPg({data, upConfig, isMob, canEdit, user}){
             {t.body}
             {t.body && t.body.length > 150 && <div style={{position:"absolute",bottom:0,left:0,right:0,height:24,background:"linear-gradient(transparent, "+T.cardSolid+")"}}/>}
           </div>
-          {t.imageUrl && <div style={{marginTop:6,fontSize:FS-3,color:"#7C3AED"}}>🖼 صورة مرفقة</div>}
+          {t.imageUrl && <div style={{marginTop:6,fontSize:FS-3,color:"#7C3AED"}}>🖼 رابط صورة (يدوي)</div>}
+          {(t.images || []).length > 0 && <div style={{marginTop:6,fontSize:FS-3,color:T.accent,fontWeight:700}}>📷 {t.images.length} صورة (Bridge)</div>}
         </div>)}
       </div>}
     </Card>
@@ -522,7 +614,46 @@ function TemplateEditor({tpl, canEdit, onCancel, onSave}){
   const [category, setCategory] = useState(tpl?.category || "تذكير دفع");
   const [body, setBody] = useState(tpl?.body || "");
   const [imageUrl, setImageUrl] = useState(tpl?.imageUrl || "");
+  /* V19.33: Multiple uploaded images (base64) — Bridge mode only */
+  const [images, setImages] = useState(tpl?.images || []); /* [{base64, mime, name, size}] */
+  const [uploadError, setUploadError] = useState("");
+  const fileInputRef = useRef(null);
   const bodyRef = useRef(null);
+
+  /* V19.33: Image upload handler */
+  const handleImageUpload = (e) => {
+    setUploadError("");
+    const files = Array.from(e.target.files || []);
+    if(files.length === 0) return;
+    if(images.length + files.length > 5){
+      setUploadError("الحد الأقصى 5 صور لكل قالب");
+      e.target.value = "";
+      return;
+    }
+    const totalSize = images.reduce((s,i) => s+(i.size||0), 0) + files.reduce((s,f) => s+f.size, 0);
+    if(totalSize > 5*1024*1024){
+      setUploadError("الحجم الإجمالي أكتر من 5MB");
+      e.target.value = "";
+      return;
+    }
+    Promise.all(files.map(f => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result;
+        const base64 = dataUrl.split(",")[1];
+        resolve({base64, mime: f.type, name: f.name, size: f.size});
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(f);
+    }))).then(newImages => {
+      setImages([...images, ...newImages]);
+    }).catch(() => setUploadError("فشل قراءة الملف"));
+    e.target.value = "";
+  };
+
+  const removeImage = (idx) => {
+    setImages(images.filter((_,i) => i!==idx));
+  };
 
   const insertVar = (token) => {
     if(!bodyRef.current)return;
@@ -541,6 +672,8 @@ function TemplateEditor({tpl, canEdit, onCancel, onSave}){
   const previewCtx = {
     name: "أحمد محمد", phone: "01001234567", balance: 1250,
     lastPaymentDate: "2026-04-15", lastPaymentAmount: 500, orderCount: 12,
+    /* V19.32: Sample portal URL for preview */
+    portalUrl: "https://clark.../?p=c&i=cust_xxx&s=abc123",
   };
   const preview = personalize(body, previewCtx);
 
@@ -602,11 +735,45 @@ function TemplateEditor({tpl, canEdit, onCancel, onSave}){
       </div>
 
       <div>
-        <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>رابط صورة (اختياري — هيتضاف للنص)</div>
+        <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>رابط صورة (اختياري — للوضع اليدوي)</div>
         <Inp value={imageUrl} onChange={setImageUrl} placeholder="https://..." disabled={!canEdit}/>
         <div style={{fontSize:FS-3,color:T.textMut,marginTop:4,lineHeight:1.6}}>
-          ⚠️ واتساب لا يدعم إرفاق ملفات تلقائياً عبر الرابط. لو حطيت رابط صورة، هيتضاف للنص كرابط — العميل يضغط عليه يفتحه. لإرفاق صور حقيقية، الموظف لازم يرفعها يدوياً بعد ما واتساب يفتح.
+          الرابط بيتضاف للنص — مفيد في الوضع اليدوي (العميل يضغط الرابط يفتحه).
         </div>
+      </div>
+
+      {/* V19.33: Multi-image upload (Bridge mode only) */}
+      <div style={{marginTop:12,padding:12,borderRadius:10,background:T.accent+"06",border:"1px solid "+T.accent+"25"}}>
+        <div style={{fontSize:FS-1,fontWeight:700,color:T.accent,marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
+          <span>📷</span><span>صور مرفقة (Bridge mode فقط)</span>
+        </div>
+        <div style={{fontSize:FS-3,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
+          الصور دي بتترفع كـ attachment حقيقي مع الرسالة. حد أقصى 5 صور · 5MB إجمالي. النص بيتحط مع أول صورة كـ caption.
+          <br/><b style={{color:T.warn}}>⚠️ في الوضع اليدوي:</b> الصور دي مش بتتبعت — استخدم "رابط صورة" فوق بدلاً منها.
+        </div>
+
+        {images.length > 0 && <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(110px, 1fr))",gap:8,marginBottom:10}}>
+          {images.map((img, i) => (
+            <div key={i} style={{position:"relative",borderRadius:8,overflow:"hidden",border:"1px solid "+T.brd,aspectRatio:"1"}}>
+              <img src={"data:"+img.mime+";base64,"+img.base64} alt={img.name} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+              <div style={{position:"absolute",top:2,right:2,background:"rgba(0,0,0,0.7)",color:"#fff",padding:"2px 6px",borderRadius:4,fontSize:FS-3,fontWeight:700}}>
+                {i+1}
+              </div>
+              {canEdit && <button onClick={() => removeImage(i)} style={{position:"absolute",top:2,left:2,width:22,height:22,borderRadius:"50%",background:"rgba(220,38,38,0.9)",color:"#fff",border:"none",fontSize:14,fontWeight:900,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}} title="حذف">✕</button>}
+              <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent, rgba(0,0,0,0.8))",color:"#fff",fontSize:FS-3,padding:"10px 4px 3px 4px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                {Math.round((img.size||0)/1024)}KB
+              </div>
+            </div>
+          ))}
+        </div>}
+
+        {canEdit && <>
+          <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleImageUpload} style={{display:"none"}}/>
+          <Btn small onClick={() => fileInputRef.current?.click()} disabled={images.length>=5} style={{background:T.accent+"15",color:T.accent,border:"1px solid "+T.accent+"40"}}>
+            📷 رفع صورة {images.length>0 && `(${images.length}/5)`}
+          </Btn>
+          {uploadError && <div style={{marginTop:6,fontSize:FS-3,color:T.err}}>⚠️ {uploadError}</div>}
+        </>}
       </div>
     </Card>
 
@@ -615,13 +782,21 @@ function TemplateEditor({tpl, canEdit, onCancel, onSave}){
       <div style={{padding:12,borderRadius:10,background:"#DCF8C6",color:"#000",fontSize:FS,whiteSpace:"pre-wrap",lineHeight:1.7,fontFamily:"inherit",maxWidth:400}}>
         {preview || <span style={{color:"#666",fontStyle:"italic"}}>اكتب نص الرسالة في الأعلى</span>}
         {imageUrl && preview && <div style={{marginTop:6,fontSize:FS-2,color:"#0E7490"}}>🖼 {imageUrl}</div>}
+        {images.length > 0 && <div style={{marginTop:8,padding:8,borderRadius:6,background:"#fff",border:"1px solid #ddd"}}>
+          <div style={{fontSize:FS-3,color:"#666",marginBottom:4}}>📷 {images.length} صورة (Bridge فقط)</div>
+          <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+            {images.slice(0,5).map((img,i) => (
+              <img key={i} src={"data:"+img.mime+";base64,"+img.base64} style={{width:50,height:50,objectFit:"cover",borderRadius:4}}/>
+            ))}
+          </div>
+        </div>}
       </div>
       <div style={{marginTop:8,fontSize:FS-3,color:T.textMut}}>المعاينة باسم "أحمد محمد" ورصيد 1,250 ج.م — العميل الفعلي هيشوف بياناته الخاصة.</div>
     </Card>
 
     {canEdit && <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14}}>
       <Btn ghost onClick={onCancel}>إلغاء</Btn>
-      <Btn primary disabled={!valid} onClick={() => onSave({id: tpl?.id, name: name.trim(), category, body: body.trim(), imageUrl: imageUrl.trim()})}>
+      <Btn primary disabled={!valid} onClick={() => onSave({id: tpl?.id, name: name.trim(), category, body: body.trim(), imageUrl: imageUrl.trim(), images})}>
         💾 حفظ
       </Btn>
     </div>}
@@ -853,6 +1028,12 @@ function SendScreen({data, upConfig, user, template, segment, audience, onClose,
   const [lastAction, setLastAction] = useState(null); /* {type:"sent"|"skipped"|"failed", idx, prevStatus} */
   const [sendStartTime] = useState(Date.now());
 
+  /* V19.32: Portal URL pre-fetch — only if template uses {لينك} */
+  const needsPortalLinks = (template.body || "").includes("{لينك}");
+  const [portalLoading, setPortalLoading] = useState(needsPortalLinks);
+  const [portalProgress, setPortalProgress] = useState({done: 0, total: 0});
+  const [portalError, setPortalError] = useState("");
+
   const campaignIdRef = useRef(resumeId || ("camp_" + gid()));
   const startedAtRef = useRef(new Date().toISOString());
   const persistedRef = useRef(false);
@@ -896,7 +1077,7 @@ function SendScreen({data, upConfig, user, template, segment, audience, onClose,
         segmentKey: segment.key,
         segmentLabel: segment.label,
         sendMode: "manual",
-        items: it.map(x => ({id: x.id, name: x.name, phone: x.phone, status: x.status, sentAt: x.sentAt, skipNote: x.skipNote, customMessage: x.customMessage})),
+        items: it.map(x => ({id: x.id, name: x.name, phone: x.phone, status: x.status, sentAt: x.sentAt, skipNote: x.skipNote, customMessage: x.customMessage, portalUrl: x.portalUrl})),
         startedAt: startedAtRef.current,
         updatedAt: new Date().toISOString(),
         startedBy: user?.email || "",
@@ -910,6 +1091,33 @@ function SendScreen({data, upConfig, user, template, segment, audience, onClose,
 
   /* Save initial state on mount */
   useEffect(() => { saveActiveCampaign(); }, []);
+
+  /* V19.32: Pre-fetch portal URLs once at start (only if {لينك} is used).
+     Skipped on resume if all items already have portalUrl from the saved active campaign. */
+  useEffect(() => {
+    if(!needsPortalLinks) return;
+    /* Resume case: items might already have portalUrl */
+    const missing = items.filter(i => !i.portalUrl).map(i => i.id).filter(Boolean);
+    if(missing.length === 0) { setPortalLoading(false); return; }
+    let dead = false;
+    setPortalProgress({done: 0, total: missing.length});
+    portalUrlBatch(missing, (done, total) => {
+      if(!dead) setPortalProgress({done, total});
+    }).then(urlMap => {
+      if(dead) return;
+      setItems(prev => prev.map(it => ({...it, portalUrl: it.portalUrl || urlMap[it.id] || ""})));
+      const failed = missing.filter(id => !urlMap[id]).length;
+      if(failed > 0) {
+        setPortalError(`تعذّر توليد ${failed} لينك من ${missing.length}. هتُترك فاضية في الرسالة.`);
+      }
+      setPortalLoading(false);
+    }).catch(err => {
+      if(dead) return;
+      setPortalError(err.message || "فشل توليد اللينكات");
+      setPortalLoading(false);
+    });
+    return () => { dead = true; };
+  }, []);
 
   /* V19.29: Persist final summary AND remove from activeCampaigns when completed */
   const persistCampaign = (finalCounts, finalItems) => {
@@ -1109,8 +1317,30 @@ function SendScreen({data, upConfig, user, template, segment, audience, onClose,
     return "~" + Math.floor(min/60) + " س " + (min%60) + " د";
   }, [counts, sendStartTime]);
 
+  /* V19.32: Loading screen while portal URLs are being fetched */
+  if(portalLoading){
+    const pct = portalProgress.total ? Math.round((portalProgress.done / portalProgress.total) * 100) : 0;
+    return <div style={{padding:16,maxWidth:600,margin:"0 auto"}}>
+      <Card>
+        <div style={{textAlign:"center",padding:24}}>
+          <div style={{fontSize:48,marginBottom:12}}>🔗</div>
+          <div style={{fontSize:FS+2,fontWeight:800,marginBottom:8}}>جاري توليد لينكات العملاء...</div>
+          <div style={{fontSize:FS-1,color:T.textSec,marginBottom:16}}>القالب فيه {"{لينك}"} — بنولّد لينك آمن لكل عميل قبل ما نبعت.</div>
+          <div style={{height:12,borderRadius:6,background:T.bg,overflow:"hidden",marginBottom:8}}>
+            <div style={{height:"100%",width:pct+"%",background:"linear-gradient(90deg, "+T.ok+", "+T.accent+")",transition:"width 0.3s"}}/>
+          </div>
+          <div style={{fontSize:FS-2,color:T.textMut}}>{portalProgress.done} / {portalProgress.total} ({pct}%)</div>
+          <Btn ghost onClick={onClose} style={{marginTop:16}}>✕ إلغاء</Btn>
+        </div>
+      </Card>
+    </div>;
+  }
+
   return <div style={{padding:16,maxWidth:900,margin:"0 auto"}}>
-    {/* Header */}
+    {/* V19.32: Portal links warning */}
+    {portalError && <div style={{padding:10,borderRadius:8,background:T.warn+"10",border:"1px solid "+T.warn+"40",marginBottom:12,fontSize:FS-2,color:T.warn,lineHeight:1.6}}>
+      ⚠️ {portalError}
+    </div>}    {/* Header */}
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,gap:8,flexWrap:"wrap"}}>
       <div>
         <h2 style={{margin:0,fontSize:FS+3,fontWeight:900,display:"flex",alignItems:"center",gap:8}}>
@@ -2003,7 +2233,7 @@ function SettingInp({label, value, onChange, disabled, hint}){
    V19.28: BRIDGE SEND SCREEN — Auto-send via local Node bridge
    ═══════════════════════════════════════════════════════════════════════ */
 function BridgeSendScreen({data, upConfig, user, bridgeUrl, bridgeToken, template, segment, audience, onOpenSettings, onClose}){
-  const [items] = useState(() => audience.map(c => ({...c, status: "pending", sentAt: null})));
+  const [items, setItems] = useState(() => audience.map(c => ({...c, status: "pending", sentAt: null})));
   const [bridgeState, setBridgeState] = useState(null);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
@@ -2013,12 +2243,86 @@ function BridgeSendScreen({data, upConfig, user, bridgeUrl, bridgeToken, templat
   const startedAtRef = useRef(new Date().toISOString());
   const persistedRef = useRef(false);
 
+  /* V19.33: Per-campaign extra images (beyond template defaults) */
+  const [extraImages, setExtraImages] = useState([]);
+  const [extraUploadError, setExtraUploadError] = useState("");
+  const extraInputRef = useRef(null);
+
+  /* V19.32: Portal URL pre-fetch — only if template uses {لينك} */
+  const needsPortalLinks = (template.body || "").includes("{لينك}");
+  const [portalLoading, setPortalLoading] = useState(needsPortalLinks);
+  const [portalProgress, setPortalProgress] = useState({done: 0, total: 0});
+  const [portalError, setPortalError] = useState("");
+
+  useEffect(() => {
+    if(!needsPortalLinks) return;
+    let dead = false;
+    const custIds = items.map(i => i.id).filter(Boolean);
+    if(custIds.length === 0) { setPortalLoading(false); return; }
+    setPortalProgress({done: 0, total: custIds.length});
+    portalUrlBatch(custIds, (done, total) => {
+      if(!dead) setPortalProgress({done, total});
+    }).then(urlMap => {
+      if(dead) return;
+      setItems(prev => prev.map(it => ({...it, portalUrl: urlMap[it.id] || ""})));
+      const failed = custIds.filter(id => !urlMap[id]).length;
+      if(failed > 0) setPortalError(`تعذّر توليد ${failed} لينك من ${custIds.length}.`);
+      setPortalLoading(false);
+    }).catch(err => {
+      if(dead) return;
+      setPortalError(err.message || "فشل توليد اللينكات");
+      setPortalLoading(false);
+    });
+    return () => { dead = true; };
+  }, []);
+
+  /* V19.33: Combined images = template defaults + extra campaign-specific */
+  const allImages = useMemo(() => {
+    const tplImgs = Array.isArray(template.images) ? template.images : [];
+    return [...tplImgs, ...extraImages].slice(0, 5); /* hard cap 5 */
+  }, [template.images, extraImages]);
+
+  /* V19.33: Upload handler for extra campaign images */
+  const handleExtraUpload = (e) => {
+    setExtraUploadError("");
+    const files = Array.from(e.target.files || []);
+    if(files.length === 0) return;
+    const tplCount = (template.images || []).length;
+    if(tplCount + extraImages.length + files.length > 5){
+      setExtraUploadError("الحد الأقصى 5 صور إجمالاً للحملة (شاملة صور القالب)");
+      e.target.value = "";
+      return;
+    }
+    const totalSize = [...allImages, ...files].reduce((s,f) => s+(f.size||0), 0);
+    if(totalSize > 5*1024*1024){
+      setExtraUploadError("الحجم الإجمالي أكتر من 5MB");
+      e.target.value = "";
+      return;
+    }
+    Promise.all(files.map(f => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result;
+        const base64 = dataUrl.split(",")[1];
+        resolve({base64, mime: f.type, name: f.name, size: f.size});
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(f);
+    }))).then(newImages => {
+      setExtraImages([...extraImages, ...newImages]);
+    }).catch(() => setExtraUploadError("فشل قراءة الملف"));
+    e.target.value = "";
+  };
+  const removeExtraImage = (idx) => setExtraImages(extraImages.filter((_,i) => i!==idx));
+
   /* Build personalized messages */
+  /* V19.33: include media[] from template + extra images */
   const buildMessages = () => items.map(c => ({
     id: campaignIdRef.current + "_" + c.id,
     phone: cleanPhone(c.phone),
     customerName: c.name,
     message: personalize(template.body, c),
+    media: allImages.length > 0 ? allImages.map(img => ({base64: img.base64, mime: img.mime, name: img.name})) : null,
     campaignId: campaignIdRef.current,
   }));
 
@@ -2123,6 +2427,25 @@ function BridgeSendScreen({data, upConfig, user, bridgeUrl, bridgeToken, templat
   const totalDone = counts.sent + counts.failed + counts.skipped;
   const pct = items.length ? Math.round((totalDone/items.length)*100) : 0;
 
+  /* V19.32: Portal URL loading screen */
+  if(portalLoading){
+    const pct = portalProgress.total ? Math.round((portalProgress.done / portalProgress.total) * 100) : 0;
+    return <div style={{padding:16,maxWidth:600,margin:"0 auto"}}>
+      <Card>
+        <div style={{textAlign:"center",padding:24}}>
+          <div style={{fontSize:48,marginBottom:12}}>🔗</div>
+          <div style={{fontSize:FS+2,fontWeight:800,marginBottom:8}}>جاري توليد لينكات العملاء...</div>
+          <div style={{fontSize:FS-1,color:T.textSec,marginBottom:16}}>القالب فيه {"{لينك}"} — بنولّد لينك آمن لكل عميل قبل ما نبعت.</div>
+          <div style={{height:12,borderRadius:6,background:T.bg,overflow:"hidden",marginBottom:8}}>
+            <div style={{height:"100%",width:pct+"%",background:"linear-gradient(90deg, "+T.ok+", "+T.accent+")",transition:"width 0.3s"}}/>
+          </div>
+          <div style={{fontSize:FS-2,color:T.textMut}}>{portalProgress.done} / {portalProgress.total} ({pct}%)</div>
+          <Btn ghost onClick={onClose} style={{marginTop:16}}>✕ إلغاء</Btn>
+        </div>
+      </Card>
+    </div>;
+  }
+
   /* ── Initial confirmation screen ── */
   if(confirmStart){
     const bridgeReady = bridgeState && bridgeState.waReady;
@@ -2144,6 +2467,40 @@ function BridgeSendScreen({data, upConfig, user, bridgeUrl, bridgeToken, templat
           </div>
         </div>
 
+        {/* V19.33: Images preview + extra upload */}
+        <div style={{padding:12,borderRadius:10,background:T.accent+"06",border:"1px solid "+T.accent+"25",marginBottom:12}}>
+          <div style={{fontSize:FS-1,fontWeight:700,color:T.accent,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+            <span>📷</span><span>صور الحملة ({allImages.length}/5)</span>
+          </div>
+          {allImages.length > 0 && <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(80px, 1fr))",gap:6,marginBottom:8}}>
+            {allImages.map((img, i) => {
+              const isFromTpl = i < (template.images || []).length;
+              const extraIdx = i - (template.images || []).length;
+              return <div key={i} style={{position:"relative",borderRadius:6,overflow:"hidden",border:"1px solid "+T.brd,aspectRatio:"1"}}>
+                <img src={"data:"+img.mime+";base64,"+img.base64} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                <div style={{position:"absolute",top:1,right:1,background:isFromTpl?"rgba(124,58,237,0.85)":"rgba(16,185,129,0.85)",color:"#fff",padding:"1px 5px",borderRadius:3,fontSize:FS-3,fontWeight:700}}>
+                  {isFromTpl?"قالب":"حملة"}
+                </div>
+                {!isFromTpl && <button onClick={() => removeExtraImage(extraIdx)} style={{position:"absolute",top:1,left:1,width:18,height:18,borderRadius:"50%",background:"rgba(220,38,38,0.9)",color:"#fff",border:"none",fontSize:11,fontWeight:900,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}} title="حذف">✕</button>}
+              </div>;
+            })}
+          </div>}
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            <input ref={extraInputRef} type="file" accept="image/*" multiple onChange={handleExtraUpload} style={{display:"none"}}/>
+            <Btn small onClick={() => extraInputRef.current?.click()} disabled={allImages.length>=5} style={{background:T.accent+"15",color:T.accent,border:"1px solid "+T.accent+"40"}}>
+              📷 إضافة صورة للحملة
+            </Btn>
+            <span style={{fontSize:FS-3,color:T.textMut}}>
+              {(template.images||[]).length>0 ? `${(template.images||[]).length} من القالب` : "مفيش صور في القالب"}
+              {extraImages.length>0 && ` · ${extraImages.length} مضافة`}
+            </span>
+          </div>
+          {extraUploadError && <div style={{marginTop:6,fontSize:FS-3,color:T.err}}>⚠️ {extraUploadError}</div>}
+          {allImages.length > 1 && <div style={{marginTop:8,fontSize:FS-3,color:T.textMut,lineHeight:1.6}}>
+            💡 الصور هتتبعت واحدة ورا التانية. النص هيتحط مع أول صورة كـ caption، الباقي صور بدون نص.
+          </div>}
+        </div>
+
         {/* Bridge status */}
         <div style={{padding:12,borderRadius:10,background:bridgeReady?T.ok+"08":T.err+"08",border:"1px solid "+(bridgeReady?T.ok+"40":T.err+"40"),marginBottom:12}}>
           <div style={{display:"flex",alignItems:"center",gap:8,fontWeight:800,color:bridgeReady?T.ok:T.err}}>
@@ -2163,6 +2520,14 @@ function BridgeSendScreen({data, upConfig, user, bridgeUrl, bridgeToken, templat
         {/* Capacity check */}
         {bridgeState?.settings && (bridgeState.daily?.sent||0) + items.length > (bridgeState.settings.dailyCap||80) && <div style={{padding:10,borderRadius:8,background:T.warn+"08",border:"1px solid "+T.warn+"40",marginBottom:12,fontSize:FS-2,color:T.warn,lineHeight:1.7}}>
           ⚠️ <b>تنبيه:</b> الإرسال هيتجاوز الحد اليومي. الرسايل الزيادة هتنتظر لبكرة. لو عاوز ترفع الحد، روح للإعدادات.
+        </div>}
+
+        {/* V19.32: Portal links warning */}
+        {portalError && <div style={{padding:10,borderRadius:8,background:T.warn+"10",border:"1px solid "+T.warn+"40",marginBottom:12,fontSize:FS-2,color:T.warn,lineHeight:1.6}}>
+          ⚠️ {portalError}
+        </div>}
+        {needsPortalLinks && !portalError && <div style={{padding:10,borderRadius:8,background:T.ok+"08",border:"1px solid "+T.ok+"30",marginBottom:12,fontSize:FS-2,color:T.ok,lineHeight:1.6}}>
+          ✓ تم توليد {items.length} لينك Portal بنجاح. كل عميل هيستلم اللينك الخاص بيه.
         </div>}
 
         {error && <div style={{padding:10,borderRadius:8,background:T.err+"08",border:"1px solid "+T.err+"40",marginBottom:12,fontSize:FS-2,color:T.err}}>

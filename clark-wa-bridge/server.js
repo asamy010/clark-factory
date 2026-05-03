@@ -307,10 +307,28 @@ async function processQueue() {
       await sleep(rand(settings.typingDelayMin, settings.typingDelayMax));
 
       /* Send */
-      if (item.mediaBase64 && item.mediaMime) {
+      /* V19.33: Support multiple images via media[] array.
+         Backwards compatible with old mediaBase64/mediaMime single-image fields.
+         WhatsApp doesn't support native album send; we send each image
+         separately, with the text caption attached to the FIRST image only.
+         A short delay between images avoids rate limits. */
+      const mediaArr = Array.isArray(item.media) && item.media.length > 0
+        ? item.media
+        : (item.mediaBase64 && item.mediaMime
+            ? [{base64: item.mediaBase64, mime: item.mediaMime, name: item.mediaName || "file"}]
+            : []);
+
+      if (mediaArr.length > 0) {
         const { MessageMedia } = require("whatsapp-web.js");
-        const media = new MessageMedia(item.mediaMime, item.mediaBase64, item.mediaName || "file");
-        await waClient.sendMessage(chatId, media, { caption: item.message || "" });
+        for (let i = 0; i < mediaArr.length; i++) {
+          const m = mediaArr[i];
+          const media = new MessageMedia(m.mime, m.base64, m.name || "file");
+          /* Caption (text) goes with the FIRST image only */
+          const opts = i === 0 && item.message ? { caption: item.message } : {};
+          await waClient.sendMessage(chatId, media, opts);
+          /* Short delay between images (1-2 sec) — avoids spam detection */
+          if (i < mediaArr.length - 1) await sleep(rand(1000, 2000));
+        }
       } else {
         await waClient.sendMessage(chatId, item.message);
       }
@@ -400,11 +418,15 @@ app.post("/send", (req, res) => {
   }
   const added = [];
   for (const m of messages) {
-    if (!m.phone || !m.message) continue;
+    /* V19.33: Allow items with only media (no text caption) — but at least phone is required */
+    if (!m.phone) continue;
+    if (!m.message && !m.mediaBase64 && !(Array.isArray(m.media) && m.media.length > 0)) continue;
     added.push({
       id: m.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 7)),
       phone: m.phone,
-      message: m.message,
+      message: m.message || "",
+      /* V19.33: media[] array (preferred) or legacy single-image fields */
+      media: Array.isArray(m.media) ? m.media : null,
       mediaBase64: m.mediaBase64 || null,
       mediaMime: m.mediaMime || null,
       mediaName: m.mediaName || null,
