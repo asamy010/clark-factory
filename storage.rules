@@ -1,11 +1,12 @@
 rules_version = '2';
 
 /* ═══════════════════════════════════════════════════════════════
-   CLARK Factory — Firebase Storage Rules (V18.70)
+   CLARK Factory — Firebase Storage Rules (V19.35)
 
    Storage بيستخدم لـ:
    - مرفقات الفواتير (PDFs, صور)
-   - صور الموديلات
+   - مرفقات الأوردرات (PDFs, صور, doc)
+   - صور قوالب الحملات (V19.35: نقلت من Firestore لـ Storage)
    - logos + branding
 
    القاعدة الأساسية: أي user مسجل دخول يقدر يقرا/يكتب/يحذف.
@@ -13,16 +14,26 @@ rules_version = '2';
 
    ⚠️ ملاحظة: لو في حاجة public زي logo المصنع، خليه على CDN
    تاني (Vercel public folder) بدل Firebase Storage.
+
+   ⚠️ V19.35 BUG FIX: قبل كده كان `allow write` واحد بـ size check.
+   الـ delete operations مفيهاش request.resource، فالـ size check
+   كان بيفشل والـ delete بيرجع unauthorized. الحل: نقسم write لـ
+   create/update (مع size) و delete (بدون size).
    ═══════════════════════════════════════════════════════════════ */
 
 service firebase.storage {
   match /b/{bucket}/o {
 
-    /* أي ملف داخل الـbucket — لازم تكون مسجل دخول */
     match /{allPaths=**} {
-      allow read:  if request.auth != null;
-      allow write: if request.auth != null
-                && request.resource.size < 25 * 1024 * 1024;  /* حد أقصى 25MB */
+      /* قراءة: أي مستخدم مسجل دخول */
+      allow read: if request.auth != null;
+
+      /* رفع/تعديل: مسجل دخول + الملف أقل من 25MB */
+      allow create, update: if request.auth != null
+                         && request.resource.size < 25 * 1024 * 1024;
+
+      /* حذف: مسجل دخول (مفيش ملف داخل، فمفيش size check) */
+      allow delete: if request.auth != null;
     }
   }
 }
