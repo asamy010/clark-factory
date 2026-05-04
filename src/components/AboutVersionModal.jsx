@@ -25,6 +25,31 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.47",
+    date: "2026-05-04",
+    types: ["fix", "hotfix"],
+    title: "🚨 إصلاح حرج لشاشة الإعدادات + إزالة إشعار التوب بار المربك",
+    changes: [
+      { type: "fix", text: "🚨 [HOTFIX حرج: شاشة الإعدادات كانت بتنهار] في V19.45 لما عرّفت `effectiveRoles` نقلتها بالغلط جوّه scope الـ PermissionsCard (مكوّن داخلي) في حين إن قوائم اختيار الأدوار للمستخدمين كانت في scope الـ SettingsPg الخارجي. النتيجة: `ReferenceError: effectiveRoles is not defined` في الـ console وشاشة الإعدادات بتقع تماماً على ErrorBoundary. الإصلاح: تعريف `effectiveRoles` في الـ scope الصحيح. ده كان bug من V19.45 موجود في V19.46 برضه — V19.47 هو الإصدار الأول اللي تقدر تفتح فيه الإعدادات بعد ضافة Custom Roles." },
+      { type: "fix", text: "🔕 [إشعار التوب بار 'موديل كذا' بعد الـ login] الـ pill اللي كان بيظهر في التوب بار بعد تسجيل دخول جديد كان feature قديم بيراقب تغيرات حالة الأوردرات. المشكلة: بعد re-login الـ ref `prevStatuses` بيتفرّغ، فأول snapshot من الـ Firestore listener يبدو وكأنه 'تغيير حالة' بالنسبة للـ ref الفاضي → bullshit notification. الإصلاح: أزلنا الـ pill من التوب بار تماماً. الإشعارات بقت في الجرس فقط. الـ greeting bar في الـ Dashboard ('167 أوردر بدون موديل') مالناش دعوة بيها — لسه شغّالة." },
+      { type: "fix", text: "🛒 [حذف أوامر الشراء كان 'بيرجع تاني بعد 4 ثواني'] السبب: الـ V19.45 كان عنده الـ silent-fail bug في upConfigTx fallback (نفس bug البيع السريع). لما الـ transaction كانت تفشل بعد 5 محاولات، الـ fallback `setDoc(...).catch()` كان fire-and-forget → الـ optimistic UI تظهر الحذف، الـ listener بعد ~4s بيجيب الـ data القديمة من السيرفر → الـ PO يرجع. V19.46 صلح الـ pattern ده (await + categorized errors) لكن V19.46 ما اتـdeployedش لأن V19.45 كان كاسر. V19.47 = أول deploy نظيف بكل الـ fixes متطبقة. لو حصل فشل فعلي في الكتابة، هتشوف toast واضح بالسبب (صلاحية/حجم/شبكة) بدلاً من الصمت." },
+    ]
+  },
+  {
+    version: "V19.46",
+    date: "2026-05-04",
+    types: ["fix", "architectural"],
+    title: "🔥 إصلاح جذري لمشكلة 'تأكيد البيع مش بيحفظ' + Toast مضلل في الحركات المتكررة",
+    changes: [
+      { type: "fix", text: "🔥 [الـ Bug الرئيسي: البيع السريع كان مش بيحفظ بصمت] في `upSalesTx` لما الـ transaction كانت بتفشل بعد 5 محاولات، الـ fallback path كان `setDoc(...).catch(er=>console.error)` (fire-and-forget — مفيش await). يعني: الـ optimistic UI كان يعرض البيع لحظياً، بعدها الـ listener كان يجيب البيانات القديمة من السيرفر فترجع الواجهة لحالتها الأصلية، **بدون أي toast فشل**. النتيجة: المستخدم يضغط 'تأكيد البيع'، يشوف ✓ لحظياً، يرجع يلاقي كل البيانات على وضعها. الإصلاح: الـ fallback دلوقتي يعمل `await setDoc(ref, optimisticNext, {merge:false})` ولو فشل بيظهر toast واضح بسبب الفشل (permission/size/network) + نسخة forensic في الـ console مع حجم الـ document وكود الخطأ. **هذا هو السبب الرئيسي للـ bug اللي بلّغت عنه — أمان البيع السريع رجع 100%.**" },
+      { type: "fix", text: "📝 [Toast مضلل في الحركات المتكررة] في `upConfigTx` لما الـ transaction كانت تستنفد المحاولات، كان يظهر toast 'فشل حفظ البيانات — جاري المحاولة بطريقة بديلة...' قبل ما الـ fallback يبدأ. الـ fallback كان عادةً ينجح لكن المستخدم بيشوف رسالة الفشل ويفتكر إنها فشلت. ده اللي خلاك تقول 'بيقولي فشل التسجيل لكن البيانات اتسجلت'. الإصلاح: مفيش toast فشل قبل الـ fallback. لو الـ fallback نجح: console.warn فقط (بدون إزعاج). لو فشل: toast واضح بالسبب. الفائدة: التجربة بقت 'بصمت لو نجح، صريح لو فشل'." },
+      { type: "fix", text: "🛠 [نفس الإصلاح في upTasksTx] الـ fallback في `upTasksTx` كان عنده نفس مشكلة الـ fire-and-forget. اتصلح بنفس الـ pattern (await + categorized error)." },
+      { type: "feature", text: "🔬 [أداة تشخيص جديدة في الإعدادات → الصيانة] أضفنا كارت '🔧 اختبار حفظ البيانات' بيعرض: (1) أحجام الـ documents الـ3 الرئيسية (factory/config + factory/sales + factory/tasks) مع ميتر ملوّن (آمن/تحذير >80%/خطر >100%) — Firestore حد أقصى 1 ميجا. (2) زر '▶ تشغيل اختبار الحفظ' بيعمل round-trip كتابة→قراءة→حذف على factory/_writeTest وبيقولك دقيقاً إيه السبب لو فشل (صلاحية مرفوضة / حجم زائد / شبكة / غير معروف). (3) زر '📋 نسخ تفاصيل التشخيص' لو فشل — يديك block جاهز للـ paste في chat الدعم." },
+      { type: "architectural", text: "🏗 [Forensic logging في كل الـ Tx fallbacks] لما fallback يفشل دلوقتي بيتسجل في الـ console سطر forensic مفصل: التاريخ، الـ doc path، الحجم، التصنيف (ok/warn/danger)، عدد المحاولات، كود الخطأ، أول 200 حرف من الرسالة. ده في src/utils/writeDiagnostics.js كـ pure functions يقدر يستخدمها أي tool ثاني محتاج تشخيص writes." },
+      { type: "architectural", text: "🔧 [salesDocRef + tasksDocRef] أضفنا useRef للـ salesDoc و tasksDoc (زي configDocRef الموجود). كان لازم عشان الـ Tx fallback يقرا أحدث optimistic state بدون ما يـcapture stale closure. مش تغيير سلوك، بس infrastructure للحلول الجديدة." },
+    ]
+  },
+  {
     version: "V19.45",
     date: "2026-05-04",
     types: ["feature", "architectural"],
@@ -137,33 +162,6 @@ const CHANGELOG = [
       { type: "improvement", text: "🧹 [Storage cleanup شامل] لما بتمسح قالب أو بتشيل ملف من قالب، الـ Storage object بيتمسح تلقائياً. زي اللي بنعمله للصور من V19.35 — مفيش orphans في Storage." },
       { type: "improvement", text: "🏷 [Badge في قائمة القوالب] القالب اللي فيه ملفات بيظهر badge جنب الـ '📷 N صورة' بيقول '📎 N ملف مرفق'. عشان تعرف بسرعة محتوى كل قالب." },
       { type: "fix", text: "📐 [storage.rules: 25MB → 100MB] الـ rules اتحدّثت عشان تسمح برفع مستندات حتى 100MB (حد WhatsApp للـ documents). الصور لسه ~250KB بعد الضغط فمفيش تأثير عليها." },
-    ]
-  },
-  {
-    version: "V19.37",
-    date: "2026-05-03",
-    types: ["feature", "fix"],
-    title: "🔧 زر إصلاح تلقائي للبريدج + تنظيف ذاتي عند البدء",
-    changes: [
-      { type: "feature", text: "🔧 [زر إصلاح تلقائي] في تاب الـ Bridge Dashboard، زر '🔧 إصلاح تلقائي' بيظهر تلقائياً لو حالة البريدج غير متصل أو INIT/DISCONNECTED. الزر بيـreset الـ WhatsApp client من غير ما تحتاج SSH ولا تفتح PowerShell. الـ session بتفضل سليمة (مفيش re-scan QR). العملية بتاخد ~30 ثانية والـ UI بيتحدّث تلقائياً." },
-      { type: "fix", text: "🛡️ [auto-cleanup عند البدء] الـ bridge دلوقتي بيمسح Singleton lock files تلقائياً قبل ما Chromium يقوم. ده بيمنع الحالة اللي حصلت قبل كده (الـ bridge عالق في INIT بسبب lock files قديمة من container سابق اتقفل بالقوة). بقت self-heal — لو حصل forced shutdown، الـ container هيقوم تاني عادي." },
-      { type: "feature", text: "🌉 [Bridge endpoint جديد POST /repair] السيرفر بياخد request ويعمل: destroy للـ WA client (مع timeout 5 ث) → sweep للـ Singleton lock files → re-init. بيرجع للـ client immediately ويكمّل re-init في الخلفية. CLARK بيـpoll /status كل 2.5 ث فبيشوف READY بعد ~30 ث." },
-      { type: "improvement", text: "🗑️ [حذف بند ملفات مرفقة من الفورم] قسم 'ملفات مرفقة (حد أقصى 500KB/ملف)' في فورم الأوردر اتشال — الـ V15.90 attachments system في تفاصيل الأوردر هو الموثوق (Storage-based)، ومش محتاجين الـ inline base64 system القديم تاني." },
-      { type: "improvement", text: "🎨 [حالة REPAIRING في الـ UI] لما يكون الإصلاح شغال، الـ Dashboard بيعرض indicator: 'جاري الإصلاح...' مع شرح إن العملية بتاخد ~30 ث والصفحة هتتحدث تلقائياً." },
-    ]
-  },
-  {
-    version: "V19.36",
-    date: "2026-05-03",
-    types: ["feature", "improvement"],
-    title: "🖼 صور الموديلات بقت 5× أوضح + بتترفع لـ Storage مباشرة",
-    changes: [
-      { type: "improvement", text: "🖼 [جودة أعلى] صور الموديلات الجديدة بتترفع 1280px @ 85% quality، بدل 250px @ 40% اللي كانت قبل كده. الصورة بتظهر حادة على واتساب وبتكبر الـ 5× تقريباً (250px→1280px). الأوردرات القديمة لسه على الجودة القديمة لأن الأصل ضاع وقت الضغط — لو موديل مهم، احذف الصورة وارفعها من الأصل." },
-      { type: "improvement", text: "📦 [order docs أصغر] الصور دلوقتي بتتخزن في Firebase Storage، الـ Firestore بيخزن URL ~200 بايت بدل base64 ~5-8KB. كل order doc بقى ~1-2KB (كان ~8KB). فايدة كبيرة لو فيه ٢٠٠+ أوردر." },
-      { type: "feature", text: "🔄 [Migration banner] في تاب الصيانة، Card بيظهر تلقائياً لو في أوردرات صورهم لسه base64 inline. بيقولك بكام موديل + إجمالي الـ KB، وزر '🔄 ترحيل دلوقتي'. الترحيل بيرفع الصور الموجودة كما هي لـ Storage (مش بيحسن جودتها — بيوفر مساحة بس)." },
-      { type: "improvement", text: "🧹 [Storage cleanup] لما بتمسح صورة موديل أو بتحذف الأوردر بالكامل، الـ Storage object بيتمسح تلقائياً (fire-and-forget). كده مفيش orphans." },
-      { type: "feature", text: "🔬 [أداة التحليل بقت dropdown] الـ Card '🔬 تحليل مكوّنات factory/config' في تاب الصيانة بقى collapsible — قافل default، بيعرض إجمالي الـ doc بس في سطر واحد. اضغط للتفاصيل. الإصلاح بناء على feedback المستخدم (الـ Card كانت طويلة وبتاكل مساحة)." },
-      { type: "fix", text: "🔧 [storage.rules] قسمنا allow write لـ allow create/update (مع size check) و allow delete (بدون size check). قبل كده الـ delete كان بيرجع unauthorized لأن request.resource بتكون null في الـ delete، فالـ size check بيفشل." },
     ]
   },
 ];

@@ -442,8 +442,15 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
     if(!canEdit){await denyAction("حذف أمر الشراء");return;}
     const confirmed=await ask("حذف أمر الشراء","حذف أمر الشراء "+p.poNo+"؟",{danger:true,confirmText:"حذف"});
     if(!confirmed)return;
+    /* V19.47: Dedicated handling for PO deletion. Previously the optimistic
+       removal could "come back" 4 seconds later if the server write failed
+       silently — the listener would re-fetch the original document. With
+       V19.46's upConfigTx fixes in place, any actual failure now surfaces a
+       clear toast with the error category, so the user knows whether to
+       retry or escalate. The toast below is shown OPTIMISTICALLY; if the
+       write fails, V19.46's fallback in App.jsx shows the error toast on top. */
     upConfig(d=>{d.purchaseOrders=(d.purchaseOrders||[]).filter(x=>x.id!==p.id)});
-    showToast("تم حذف "+p.poNo);
+    showToast("✓ تم حذف "+p.poNo);
   };
   
   /* Convert PO to a new receipt (pre-fills the receipt form) */

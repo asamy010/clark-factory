@@ -30,6 +30,9 @@ import {
 import { PermissionsInspectorModal } from "../components/PermissionsInspectorModal.jsx";
 /* V19.45: Custom roles manager — admin UI to create/edit/delete custom roles */
 import { CustomRolesManager } from "../components/CustomRolesManager.jsx";
+/* V19.46: Write self-test diagnostic — round-trip write/read/delete test
+   that helps users (and admins) diagnose silent save failures. */
+import { WriteSelfTestCard } from "../components/WriteSelfTestCard.jsx";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updateProfile } from "firebase/auth";
 import { collection, deleteDoc, doc, getDocs, setDoc, updateDoc } from "firebase/firestore";
 import { createComprehensiveBackup, readComprehensiveBackup, deleteComprehensiveBackup, estimateComprehensiveBackupSize } from "../utils/comprehensiveBackup.js";
@@ -2700,6 +2703,12 @@ function PermissionsCard({config,upConfig,T,FS,TABS,Btn,showToast}){
 }
 
 export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,theme,setTheme,season,orders,syncWsIds,replaceOrder,updOrder,configDoc,salesDoc,tasksDoc}){
+  /* V19.47 BUGFIX: effectiveRoles was previously defined ONLY inside PermissionsCard
+     (a child component), but the user-creation dropdown and per-row role dropdown
+     in this outer SettingsPg scope referenced it. That caused a ReferenceError that
+     crashed the entire Settings tab on mount ("effectiveRoles is not defined").
+     We now compute it here too — both scopes maintain their own (cheap) memo. */
+  const effectiveRoles = useMemo(() => getEffectiveRoles(config), [config?.customRoles]);
   /* V16.6: newSeason state removed — now inside SeasonsCard */
   const[newUserEmail,setNewUserEmail]=useState("");const[newUserRole,setNewUserRole]=useState("viewer");
   const[newUserName,setNewUserName]=useState("");const[newUserPass,setNewUserPass]=useState("");const[newUserPass2,setNewUserPass2]=useState("");
@@ -3235,6 +3244,11 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     </>}
 
     {activeTab==="maintenance" && <>
+    {/* V19.46: Write Self-Test — verifies the round-trip write→read→delete works
+        for the current user. Useful when "تأكيد البيع doesn't save" or similar
+        bug reports come in. Shows the user (and copy-paste forensic line) exactly
+        what's failing: permission-denied vs network vs document-size-limit etc. */}
+    <WriteSelfTestCard configDoc={configDoc} salesDoc={salesDoc} tasksDoc={tasksDoc} user={user} isMob={isMob}/>
     {/* V19.35: Document composition diagnostic — replaces the buggy V15.80 storage stats block.
         Shows UTF-8 byte sizes of every top-level field in the RAW factory/config doc
         (configDoc, not the merged virtual `config`), so what you see is what Firestore stores. */}
