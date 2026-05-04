@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.56",
+    date: "2026-05-04",
+    types: ["fix", "hotfix", "improvement"],
+    title: "🚨 ترحيل الفواتير: progress حقيقي + إصلاح false toast",
+    changes: [
+      { type: "fix", text: "🚨 [BUG round 3: progress modal بيقول 'تم' قبل الكتابة الفعلية تخلص] V19.55 صلح الـrace بالـserialization، لكن المستخدم لاحظ: ترحيل 80 فاتورة → modal يقول '80/80 done' خلال ثانية، toast 'فشل ترحيل' يظهر، الفواتير تظهر posted، بعد 5 ثواني 79 يرجعوا draft، وكل ثانيتين 1-2 يخرجوا تدريجياً. السبب: `upConfig` كان fire-and-forget — schedule الـwrite في الـqueue ويرجع. الـbulk loop's `await postOne(item)` بيرجع بعد الـoptimistic update فقط، الـactual setDoc لسه قيد الانتظار في الـqueue. النتيجة: progress UI كاذب، الـlistener pull الـserver state → الفواتير اللي لسه ما اتكتبتش بترجع draft." },
+      { type: "fix", text: "🛠️ [الإصلاح: upConfig/upSales/upTasks بقوا يرجعوا الـTx promise] قبل V19.56 كانوا بيـreturn undefined. دلوقتي بيـreturn الـpromise بتاعة upConfigTx (الـqueued setDoc). لما الـcaller يعمل `await upConfig(...)` بيستنى الـactual flush لـFirestore. handlePost في كل صفحات الترحيل (Sales/Purchase/CreditNotes/DebitNotes) اتعمل refactor — كل `upConfig` فيها بقت `await upConfig`. الـbulk loop `for(item) await postOne(item)` بقى يستنى الكتابة الفعلية فعلاً." },
+      { type: "fix", text: "🛠️ [إصلاح false 'فشل ترحيل' toast] handlePost كان فيه `.catch(e => console.warn(...))` بيبلع أي error في autoPost ويرجع promise resolved. الـbulk loop يحسب الـiteration success كاذباً، لكن لو exception طلع قبل الـ.catch (مثلاً في customer lookup) → الـloop يحسبه fail. النتيجة: counters غلط، toast بيقول 'فشل' حتى لو الفواتير اترحلت تمام. V19.56 بيـrefactor handlePost: try/await/catch واضح، كل failure يـthrow → loop يحسبه فعلاً failed، success يحسبه success." },
+      { type: "improvement", text: "📊 [Progress UI = real state] دلوقتي الـmodal يعرض '3/80', '4/80', '5/80'... بمعدل ~2 ثانية لكل فاتورة. ده الـactual rate. المستخدم بيعرف فعلاً امتى يقدر يقفل الصفحة أو ينتقل لتاب تاني. زر الإيقاف لسه شغال — يوقف بعد الفاتورة الحالية تخلص (مفيش half-state). 80 فاتورة هتاخد ~3 دقايق فعلاً، لكن مش ثانية كاذبة." },
+      { type: "improvement", text: "🔒 [Trade-off موثّق: بطء mostly imaginary] الـserialization كان موجود من V19.55. V19.56 ما زادش البطء — بس خلى الـUI يعرضه. قبل V19.56 الكتابات كانت بتاخد نفس الوقت بالظبط، بس الـmodal كان كاذب. دلوقتي ما فيش kazib. autoPost كل فاتورة بيـwrite على treasury+auditLog+journal — كل واحدة في day docs منفصلة (V19.49+) بحجم صغير. سرعة Firestore الواقعية = 1-3 فاتورة/ثانية." },
+    ]
+  },
+  {
     version: "V19.55",
     date: "2026-05-04",
     types: ["fix", "hotfix", "feature"],

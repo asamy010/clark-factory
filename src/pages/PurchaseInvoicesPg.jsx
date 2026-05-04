@@ -82,11 +82,14 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
       if(!await ask("ترحيل الفاتورة", "ترحيل الفاتورة "+inv.invoiceNo+" بمبلغ "+fmt(inv.total.toFixed(2))+"؟\n\nسيتم إنشاء قيد محاسبي تلقائياً.", {confirmText:"ترحيل"})) return;
     }
     const supplier = (data.suppliers||[]).find(s => s.id === inv.supplierId);
-    upConfig(d => { postInvoiceMutator(d, inv.id, "purchase", userName); });
-    const postedInv = {...inv, status:"posted", postedAt: new Date().toISOString(), postedBy: userName};
-    const postPromise = autoPost.purchaseInvoicePosted(data, postedInv, supplier, userName).then(res => {
+    /* V19.56: AWAIT every write so the bulk-post progress reflects reality.
+       See SalesInvoicesPg.handlePost for the full reasoning. */
+    try {
+      await upConfig(d => { postInvoiceMutator(d, inv.id, "purchase", userName); });
+      const postedInv = {...inv, status:"posted", postedAt: new Date().toISOString(), postedBy: userName};
+      const res = await autoPost.purchaseInvoicePosted(data, postedInv, supplier, userName);
       if(res && res.ok && res.entry){
-        upConfig(d => {
+        await upConfig(d => {
           const idx = (d.purchaseInvoices||[]).findIndex(i => i.id === inv.id);
           if(idx >= 0){
             d.purchaseInvoices[idx].postedJournalRef = {
@@ -97,12 +100,15 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
           }
         });
       }
-    }).catch(e => console.warn("[purchaseInvoicePosted] failed:", e));
-    if(!silent){
-      showToast("✓ تم الترحيل");
-      setActiveInvoice(null);
+      if(!silent){
+        showToast("✓ تم الترحيل");
+        setActiveInvoice(null);
+      }
+    } catch(e){
+      console.warn("[purchaseInvoicePost] failed for", inv.invoiceNo, e);
+      if(!silent) showToast("⚠ تعذّر ترحيل "+inv.invoiceNo+(e?.message?": "+e.message:""));
+      throw e;
     }
-    return postPromise;
   };
   const handleVoid = async (inv) => {
     if(!await ask("إلغاء الفاتورة", "إلغاء الفاتورة "+inv.invoiceNo+"؟\n\nسيتم إنشاء قيد عكسي للقيد الأصلي.", {danger:true,confirmText:"إلغاء الفاتورة"})) return;

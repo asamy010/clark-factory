@@ -3101,7 +3101,10 @@ export default function App(){
        
        Now we pass the already-computed `next` and `newSplit`/`newPart`. The transaction
        just writes them as-is, no re-execution of user fn. */
-    upConfigTx(next,newSplit,newPart,explicitSplitBefore,explicitPartBefore);
+    /* V19.56: return the Tx promise so callers can `await upConfig(...)` to be sure
+       the write actually flushed to Firestore (not just the optimistic UI). This is
+       what bulk operations need so a progress bar reflects real state. */
+    return upConfigTx(next,newSplit,newPart,explicitSplitBefore,explicitPartBefore);
   },[upConfigTx,configDoc,splitLoaded,partitionedLoaded,registerPendingSplitWrites,registerPendingPartitionedWrites]);
 
   /* V18.38: Register the autoPost module's upConfig callback so it can persist
@@ -3260,7 +3263,8 @@ export default function App(){
       setSalesSplitData(newSalesSplit);
       salesSplitDataRef.current=newSalesSplit;
     }
-    upSalesTx(stripped,newSalesSplit,explicitSalesSplitBefore);
+    /* V19.56: return the Tx promise so callers can await actual flush (see upConfig). */
+    return upSalesTx(stripped,newSalesSplit,explicitSalesSplitBefore);
   },[upSalesTx,configLoaded,configError,salesDoc,salesSplitLoaded,registerPendingSalesSplitWrites]);
 
   /* V19.51: upTasksTx parallels upSalesTx — accepts pre-computed values. */
@@ -3401,7 +3405,8 @@ export default function App(){
       setTasksSplitData(newTasksSplit);
       tasksSplitDataRef.current=newTasksSplit;
     }
-    upTasksTx(stripped,newTasksSplit,explicitTasksSplitBefore);
+    /* V19.56: return the Tx promise so callers can await actual flush (see upConfig). */
+    return upTasksTx(stripped,newTasksSplit,explicitTasksSplitBefore);
   },[upTasksTx,configLoaded,configError,tasksDoc,tasksSplitLoaded,registerPendingTasksSplitWrites]);
   /* V16.11: ATOMIC ORDER OPERATIONS — addOrder/replaceOrder/delOrder now run
      stock check + order write + stock deduction inside a SINGLE Firestore

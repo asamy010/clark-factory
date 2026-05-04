@@ -72,13 +72,13 @@ export function CreditNotesPg({data, upConfig, isMob, user}){
     const customer = (data.customers||[]).find(c => c.id === cn.customerId);
     const orderId = cn.returnRef && cn.returnRef.orderId;
     const order = orderId ? (data.orders||[]).find(o => o.id === orderId) : null;
-
-    upConfig(d => { postCreditNoteMutator(d, cn.id, userName); });
-
-    const postedCN = {...cn, status:"posted", postedAt: new Date().toISOString(), postedBy: userName};
-    const postPromise = autoPost.creditNotePosted(data, postedCN, customer, order, userName).then(res => {
+    /* V19.56: AWAIT every write — see SalesInvoicesPg.handlePost for reasoning. */
+    try {
+      await upConfig(d => { postCreditNoteMutator(d, cn.id, userName); });
+      const postedCN = {...cn, status:"posted", postedAt: new Date().toISOString(), postedBy: userName};
+      const res = await autoPost.creditNotePosted(data, postedCN, customer, order, userName);
       if(res && res.main && res.main.ok && res.main.entry){
-        upConfig(d => {
+        await upConfig(d => {
           const idx = (d.salesCreditNotes||[]).findIndex(c => c.id === cn.id);
           if(idx >= 0){
             d.salesCreditNotes[idx].postedJournalRef = {
@@ -89,12 +89,15 @@ export function CreditNotesPg({data, upConfig, isMob, user}){
           }
         });
       }
-    }).catch(e => console.warn("[creditNotePosted] failed:", e));
-    if(!silent){
-      showToast("✓ تم الترحيل");
-      setActiveCN(null);
+      if(!silent){
+        showToast("✓ تم الترحيل");
+        setActiveCN(null);
+      }
+    } catch(e){
+      console.warn("[creditNotePost] failed for", cn.creditNoteNo, e);
+      if(!silent) showToast("⚠ تعذّر ترحيل "+cn.creditNoteNo+(e?.message?": "+e.message:""));
+      throw e;
     }
-    return postPromise;
   };
   const handleVoid = async (cn) => {
     if(!await ask("إلغاء إشعار دائن", "إلغاء إشعار "+cn.creditNoteNo+"؟\n\nسيتم إنشاء قيد عكسي.", {danger:true,confirmText:"إلغاء"})) return;

@@ -92,13 +92,13 @@ export function DebitNotesPg({data, upConfig, isMob, user}){
       )) return;
     }
     const supplier = (data.suppliers||[]).find(s => s.id === dn.supplierId);
-
-    upConfig(d => { postDebitNoteMutator(d, dn.id, userName); });
-
-    const postedDN = {...dn, status:"posted", postedAt: new Date().toISOString(), postedBy: userName};
-    const postPromise = autoPost.debitNotePosted(data, postedDN, supplier, userName).then(res => {
+    /* V19.56: AWAIT every write — see SalesInvoicesPg.handlePost for reasoning. */
+    try {
+      await upConfig(d => { postDebitNoteMutator(d, dn.id, userName); });
+      const postedDN = {...dn, status:"posted", postedAt: new Date().toISOString(), postedBy: userName};
+      const res = await autoPost.debitNotePosted(data, postedDN, supplier, userName);
       if(res && res.ok && res.entry){
-        upConfig(d => {
+        await upConfig(d => {
           const idx = (d.purchaseDebitNotes||[]).findIndex(x => x.id === dn.id);
           if(idx >= 0){
             d.purchaseDebitNotes[idx].postedJournalRef = {
@@ -109,12 +109,15 @@ export function DebitNotesPg({data, upConfig, isMob, user}){
           }
         });
       }
-    }).catch(e => console.warn("[debitNotePosted] failed:", e));
-    if(!silent){
-      showToast("✓ تم الترحيل");
-      setActiveDN(null);
+      if(!silent){
+        showToast("✓ تم الترحيل");
+        setActiveDN(null);
+      }
+    } catch(e){
+      console.warn("[debitNotePost] failed for", dn.debitNoteNo, e);
+      if(!silent) showToast("⚠ تعذّر ترحيل "+dn.debitNoteNo+(e?.message?": "+e.message:""));
+      throw e;
     }
-    return postPromise;
   };
 
   const handleVoid = async (dn) => {

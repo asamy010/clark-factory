@@ -95,16 +95,19 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
     const orderId = inv.deliveryRef && inv.deliveryRef.orderId;
     const order = orderId ? (data.orders||[]).find(o => o.id === orderId) : null;
 
-    upConfig(d => { postInvoiceMutator(d, inv.id, "sales", userName); });
-
-    /* Build the posted invoice object for auto-post (status is now "posted") */
-    const postedInv = {...inv, status:"posted", postedAt: new Date().toISOString(), postedBy: userName};
-    /* Returns a promise so bulk-post can await — but we still don't block the
-       UI, the journal-ref persistence happens in the background as before. */
-    const postPromise = autoPost.salesInvoicePosted(data, postedInv, customer, order, userName).then(res => {
-      /* Persist the journal ref back onto the invoice */
+    /* V19.56: AWAIT every write so the bulk-post progress reflects reality.
+       Pre-V19.56 these were fire-and-forget — the bulk loop's "await postOne"
+       resolved after the optimistic UI update only, while the actual setDocs
+       were still queued and flushing slowly. Symptoms reported by user:
+       "rest 80 invoices showed posted instantly, but came back as draft after
+       5s and trickled away 1-2 at a time over minutes". Now each write is
+       awaited so the bulk loop genuinely advances one invoice at a time. */
+    try {
+      await upConfig(d => { postInvoiceMutator(d, inv.id, "sales", userName); });
+      const postedInv = {...inv, status:"posted", postedAt: new Date().toISOString(), postedBy: userName};
+      const res = await autoPost.salesInvoicePosted(data, postedInv, customer, order, userName);
       if(res && res.main && res.main.ok && res.main.entry){
-        upConfig(d => {
+        await upConfig(d => {
           const idx = (d.salesInvoices||[]).findIndex(i => i.id === inv.id);
           if(idx >= 0){
             d.salesInvoices[idx].postedJournalRef = {
@@ -115,12 +118,19 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
           }
         });
       }
-    }).catch(e => console.warn("[salesInvoicePosted] failed:", e));
-    if(!silent){
-      showToast("✓ تم الترحيل");
-      setActiveInvoice(null);
+      if(!silent){
+        showToast("✓ تم الترحيل");
+        setActiveInvoice(null);
+      }
+    } catch(e){
+      /* V19.56: surface the failure to the bulk loop. Pre-V19.56 the .catch
+         here swallowed errors silently → loop counted them as success → fake
+         "all posted" toast. Now we throw so the loop's catch increments
+         failCount and the modal shows accurate ok/fail counts. */
+      console.warn("[salesInvoicePost] failed for", inv.invoiceNo, e);
+      if(!silent) showToast("⚠ تعذّر ترحيل "+inv.invoiceNo+(e?.message?": "+e.message:""));
+      throw e;
     }
-    return postPromise;
   };
   const handleVoid = async (inv) => {
     if(!await ask("إلغاء الفاتورة", "إلغاء الفاتورة "+inv.invoiceNo+"؟\n\nسيتم إنشاء قيد عكسي للقيد الأصلي.", {danger:true,confirmText:"إلغاء الفاتورة"})) return;
