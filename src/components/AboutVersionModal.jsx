@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.54",
+    date: "2026-05-04",
+    types: ["fix", "hotfix", "safety", "improvement"],
+    title: "🚨 إصلاح bug جذري في upConfig + progress modal للترحيل المتعدد",
+    changes: [
+      { type: "fix", text: "🚨 [BUG جذري حرج: upConfig كان بيستخدم stale closure] قبل V19.54، `upConfig` كان بيقرا `configDoc` من React closure (snapshot وقت render). في loop سريع زي bulk-post: iteration 1 يعمل optimistic update → invoice1=posted. **قبل ما React يعيد render**, iteration 2 يبدأ بقاعدة بيانات stale (invoice1 لسه draft عند الـclosure) → بيـoverride الـoptimistic update! النتيجة: ترحيل 5 فواتير → آخر واحدة بس تفضل posted، الـ4 الباقيين يرجعوا draft. **الإصلاح:** قراءة من `configDocRef.current` (موجود من V19.48 لكن مش مستخدم في الـcompute path) + تحديث الـref synchronously بعد setConfigDoc. الـbug ده كان موجود من V16.80 — أي 2 actions متلاحقين بسرعة كانوا ممكن يحصل فيهم data loss." },
+      { type: "fix", text: "🛠️ [نفس الإصلاح طُبّق على upSales + upTasks] الـ3 helpers الـcore عندهم نفس النمط. كلهم بقوا يقروا من *DocRef.current بدل closures. البيانات في factory/sales (packages, custDeliverySessions) و factory/tasks (tasks, stickyNotes, inventoryAudits) كانت معرّضة لنفس الـbug في أي bulk/sequential operation." },
+      { type: "improvement", text: "📊 [Progress modal blocker لـbulk-post] قبل V19.54، ترحيل عدة فواتير كان silent — مفيش indicator. المستخدم يقدر يـclick أي حاجة أثناء الترحيل أو يقفل الصفحة. V19.54 يضيف modal full-screen blocker بـprogress bar (0% → 100%)، عداد done/total، عداد ok/fail، اسم الفاتورة الحالية live، زر إيقاف. الـmodal يقفل الـUI طول العملية ويختفي تلقائياً بعد الانتهاء بـ700ms مع toast نتيجة." },
+      { type: "improvement", text: "⏹ [زر إيقاف ذكي] أثناء الترحيل، زر 'إيقاف بعد الفاتورة الحالية' متاح. مش بيعمل abort وحشي — بيخلي الفاتورة الحالية تخلص بأمان (عشان مفيش half-state)، وبعدين يوقف الـloop. الفواتير اللي اترحلت قبل الإيقاف تفضل posted. Toast يقول كم اترحلت وكم اللي مش اتعمل." },
+      { type: "safety", text: "🔒 [Audit شامل للتطبيق] تم البحث في كل ملفات الـsrc عن نفس النمط (loops + sequential mutations). مفيش حالة تانية في الـpages بنفس الخطر. الإصلاحات الـ3 في upConfig/upSales/upTasks كافية لتغطية كل الـsurface الحرج." },
+      { type: "improvement", text: "📁 [docs/ folder] كل ملفات .md (HANDOFF, SECURITY, V19.49-V19.53) اتنقلت لـ`docs/` folder منفصل. أي ملف توثيق جديد هانضيفه هناك مباشرة." },
+    ]
+  },
+  {
     version: "V19.53",
     date: "2026-05-04",
     types: ["architectural", "improvement", "safety"],

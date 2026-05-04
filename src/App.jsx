@@ -2954,12 +2954,21 @@ export default function App(){
        INSIDE setConfigDoc(prev=>...). React Strict Mode runs callbacks twice for purity
        checking — meaning fn() executed twice, side-effects fired twice, and any
        non-deterministic ids (Date.now()) could yield duplicate entries.
-       
+
        The new flow:
          1. Compute next/newSplit/newPart deterministically once, here
          2. Apply state updates (no callback form, just direct values)
          3. Side-effects run exactly once */
-    const prev=configDoc||{};
+    /* V19.54 BULK-POST FIX: Read from configDocRef.current — NOT the configDoc closure.
+       Why: when a sync loop calls upConfig N times in a row (like bulk invoice posting),
+       the closure captures configDoc from the original render. React batches state
+       updates, so the closure stays stale across iterations. iteration N would
+       overwrite N-1's optimistic update with stale `prev`, reverting earlier work.
+       Symptom: bulk-posting 5 invoices → only the LAST one stays posted.
+       Fix: configDocRef is mutated synchronously after setConfigDoc(stripped) below,
+       so iteration N+1 sees iteration N's optimistic state.
+       Falls back to the closure if ref is null (first call after mount). */
+    const prev=configDocRef.current||configDoc||{};
     let next, newSplit=null, newPart=null, stripped=null;
     try{
       next=JSON.parse(JSON.stringify(prev));
@@ -3034,6 +3043,9 @@ export default function App(){
     }
     /* Apply state updates (each runs exactly once, even in Strict Mode) */
     setConfigDoc(stripped);
+    /* V19.54: update the ref synchronously so a follow-up upConfig() in the same
+       JS tick sees this optimistic state (not the stale React closure). */
+    configDocRef.current=stripped;
     if(newSplit){
       /* V17.0 FIX #8: Track pending writes to merge with listener data */
       registerPendingSplitWrites(explicitSplitBefore,newSplit);
@@ -3176,7 +3188,9 @@ export default function App(){
       SALES_SPLIT_FIELDS.map(f=>[f,[...(salesSplitDataRef.current[f]||[])]])
     );
     /* V19.51: compute next + newSplit deterministically (mirrors upConfig V16.80 FIX #6) */
-    const prev=salesDoc||{};
+    /* V19.54: read from salesDocRef.current to avoid stale-closure bug — see upConfig
+       comment above for full explanation (bulk-post race condition). */
+    const prev=salesDocRef.current||salesDoc||{};
     let next, newSalesSplit=null, stripped=null;
     try{
       next=JSON.parse(JSON.stringify(prev));
@@ -3200,6 +3214,8 @@ export default function App(){
     }
     /* Apply optimistic state */
     setSalesDoc(stripped);
+    /* V19.54: sync ref update for stale-closure protection (see upConfig). */
+    salesDocRef.current=stripped;
     if(newSalesSplit){
       registerPendingSalesSplitWrites(explicitSalesSplitBefore,newSalesSplit);
       setSalesSplitData(newSalesSplit);
@@ -3309,7 +3325,8 @@ export default function App(){
     const explicitTasksSplitBefore=Object.fromEntries(
       TASKS_SPLIT_FIELDS.map(f=>[f,[...(tasksSplitDataRef.current[f]||[])]])
     );
-    const prev=tasksDoc||{};
+    /* V19.54: read from tasksDocRef.current to avoid stale-closure bug. */
+    const prev=tasksDocRef.current||tasksDoc||{};
     let next, newTasksSplit=null, stripped=null;
     try{
       next=JSON.parse(JSON.stringify(prev));
@@ -3332,6 +3349,8 @@ export default function App(){
       return;
     }
     setTasksDoc(stripped);
+    /* V19.54: sync ref update for stale-closure protection. */
+    tasksDocRef.current=stripped;
     if(newTasksSplit){
       registerPendingTasksSplitWrites(explicitTasksSplitBefore,newTasksSplit);
       setTasksSplitData(newTasksSplit);
