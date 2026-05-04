@@ -1,5 +1,5 @@
 /* ════════════════════════════════════════════════════════════════════════
-   CLARK V16.74 + V19.49 — Split Collections Manager
+   CLARK V16.74 + V19.49 + V19.50 — Split Collections Manager
    ════════════════════════════════════════════════════════════════════════
 
    ─── المشكلة ───
@@ -15,13 +15,17 @@
      supplierPaymentsDays/{YYYY-MM-DD}← V19.49
      wsPaymentsDays/{YYYY-MM-DD}      ← V19.49
      checksDays/{YYYY-MM-DD}          ← V19.49
+     salesInvoicesDays/{YYYY-MM-DD}   ← V19.50 (الأكبر — كان 54% من config)
+     purchaseInvoicesDays/{YYYY-MM-DD}← V19.50
+     purchaseOrdersDays/{YYYY-MM-DD}  ← V19.50
 
-   كل document ≤ ~10KB. سنوياً = 365 ملف موزّعة → بدل ملف واحد كبير.
+   كل document ≤ ~150KB في أسوأ حالة (فواتير بيوم نشط). سنوياً = 365 ملف
+   موزّعة → بدل ملف واحد كبير.
 
    ─── الشفافية ───
-   الصفحات (TreasuryPg, HRPg, AuditPg, CustDeliverPg, PurchasePg, ExtProdPg)
-   **مش محتاجة تتعدّل**. data.<field> يستمر يبان كـarray.
-   الـmagic بيحصل في App.jsx فقط.
+   الصفحات (TreasuryPg, HRPg, AuditPg, CustDeliverPg, PurchasePg, ExtProdPg,
+   SalesInvoicesPg, PurchaseInvoicesPg) **مش محتاجة تتعدّل**.
+   data.<field> يستمر يبان كـarray. الـmagic في App.jsx فقط.
    ════════════════════════════════════════════════════════════════════════ */
 
 import {
@@ -29,13 +33,16 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase.js";
 
-/* V19.49: Field groups by migration version — used for selective stripping
-   so a newly-added field is NOT stripped from config before its migration runs. */
+/* V19.49 + V19.50: Field groups by migration version — used for selective
+   stripping so newly-added fields are NOT stripped from config before their
+   migration runs. */
 export const SPLIT_FIELDS_V1674 = ["treasury", "auditLog", "hrLog"];
 export const SPLIT_FIELDS_V1949 = ["custPayments", "supplierPayments", "wsPayments", "checks"];
+export const SPLIT_FIELDS_V1950 = ["salesInvoices", "purchaseInvoices", "purchaseOrders"];
 
 export const SPLIT_FLAG_V1674 = "_splitDaysV1674Done";
 export const SPLIT_FLAG_V1949 = "_splitDaysV1949Done";
+export const SPLIT_FLAG_V1950 = "_splitDaysV1950Done";
 
 /* الـcollections اللي مقسّمة — field name → collection name */
 export const SPLIT_COLLECTIONS = {
@@ -48,6 +55,10 @@ export const SPLIT_COLLECTIONS = {
   supplierPayments: "supplierPaymentsDays",
   wsPayments:       "wsPaymentsDays",
   checks:           "checksDays",
+  /* V19.50 */
+  salesInvoices:    "salesInvoicesDays",
+  purchaseInvoices: "purchaseInvoicesDays",
+  purchaseOrders:   "purchaseOrdersDays",
 };
 
 /* مفاتيح الـfields اللي مقسّمة (للحلقات السريعة) */
@@ -318,14 +329,15 @@ export async function syncSplitCollection(collectionName, oldArr, newArr) {
   return writes.length;
 }
 
-/* V19.49: Selective strip — only strips field-groups whose migration has run.
-   Critical: Until V19.49 migration completes, the 4 new fields (custPayments,
-   supplierPayments, wsPayments, checks) MUST stay in config — otherwise the next
-   write would silently delete them before they're moved to day collections.
+/* V19.49 + V19.50: Selective strip — only strips field-groups whose migration
+   has run. Critical: until a group's migration completes, its fields MUST stay
+   in config — otherwise the next write would silently delete them before they're
+   moved to day collections.
 
    Behavior:
    - V16.74 fields stripped only if _splitDaysV1674Done is set on configObj
    - V19.49 fields stripped only if _splitDaysV1949Done is set on configObj
+   - V19.50 fields stripped only if _splitDaysV1950Done is set on configObj
    This makes the function self-contained: pass any config object and it does the
    right thing based on the flags it carries. */
 export function stripSplitArrays(configObj) {
@@ -336,6 +348,9 @@ export function stripSplitArrays(configObj) {
   }
   if (configObj[SPLIT_FLAG_V1949]) {
     for (const field of SPLIT_FIELDS_V1949) delete stripped[field];
+  }
+  if (configObj[SPLIT_FLAG_V1950]) {
+    for (const field of SPLIT_FIELDS_V1950) delete stripped[field];
   }
   return stripped;
 }

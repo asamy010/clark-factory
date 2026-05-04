@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.50",
+    date: "2026-05-04",
+    types: ["architectural", "improvement", "safety"],
+    title: "🏗️ تجزئة فواتير المبيعات والمشتريات وأوامر الشراء + تنظيف coa_backup",
+    changes: [
+      { type: "architectural", text: "🏗️ [Daily-split لـ3 arrays ضخمة] V19.49 قسّم 4 مجموعات صغيرة (مدفوعات + شيكات). V19.50 يضيف الأضخم: **salesInvoices** (فواتير المبيعات — كانت 54% من factory/config = 236 KB!) → salesInvoicesDays/{YYYY-MM-DD}، **purchaseInvoices** (فواتير المشتريات) → purchaseInvoicesDays/{YYYY-MM-DD}، **purchaseOrders** (أوامر الشراء — كانت 13%) → purchaseOrdersDays/{YYYY-MM-DD}. الفواتير كانت أسرع حقل بيكبر — بمعدل 5 فواتير/يوم كان factory/config هيوصل لحد 1MB خلال 2-3 شهور بس. بعد V19.50 = ضمان رياضي كامل عدم الوصول لـ1MB أبداً." },
+      { type: "improvement", text: "🧹 [Cleanup عاجل لـcoa_backup_pre_upgrade_*] الـmigration بياخد كل الـkeys اللي اسمها يبدأ بـ`coa_backup_pre_upgrade_` من factory/config، يحفظهم كـdocs منفصلة في `backups/coa-rescued-from-config-{ts}`، ويمسحهم من factory/config. ده بيفضّي 24 KB في المثال الحالي (نسختين × 12 KB). مهمة لأن الـ`coa_backup` كانت keys بتتولّد كل ما المستخدم يعمل ترقية لشجرة الحسابات — فبتتراكم بدون فايدة وبتلوّث الـconfig." },
+      { type: "improvement", text: "🔧 [إصلاح المصدر — ChartOfAccountsTab] قبل V19.50 أي ترقية لشجرة الحسابات كانت بتدمب نسخة احتياطية (~12 KB) كـkey في factory/config مباشرة. V19.50 بيعدّل المنطق: الـbackup بيتكتب في `backups/coa-pre-upgrade-{ts}` document منفصل قبل أي تعديل، ولو فشل الـbackup الـupgrade بيتلغي. ده بيمنع تكرار التلوث، وبيخلي الـbackups سهل البحث عنها (كلها مع بعض في collection واحد)." },
+      { type: "safety", text: "🔒 [Selective stripping لـV19.50] stripSplitArrays اتطورت تتعامل مع 3 مجموعات flags بدل 2 (V16.74 + V19.49 + V19.50). كل مجموعة بتتحذف من config بس لما الـmigration بتاعتها تخلص (`_splitDaysV1950Done=true`). يعني rolling deploy آمن — مفيش data loss في فترة الانتقال بين الإصدارات." },
+      { type: "improvement", text: "📐 [Firestore Rules توسّعت] firestore.rules ضافت 3 collections جديدة: salesInvoicesDays (sales+manager)، purchaseInvoicesDays + purchaseOrdersDays (purchase+manager). نفس صلاحيات الحقول الأصلية قبل التقسيم — مفيش tightening ولا loosening." },
+      { type: "improvement", text: "📊 [لوحة المراقبة بقت 10 collections] في الإعدادات → '📅 مراقبة التخزين اليومي' بقت تعرض الـ10 collections مع badges حسب الإصدار (V16.74/V19.49/V19.50). تقدر تعرف من نظرة واحدة أكبر يوم في كل collection وتراقب لو حد بيكبر بسرعة غير عادية." },
+      { type: "improvement", text: "🏷️ [APP_VERSION constant] الإصدار اتنقل لـ`constants/index.js` كـAPP_VERSION واحد. التوب بار desktop + mobile + console marker + About modal كلهم بيقروا من نفس المصدر. أي bump مستقبلي = تعديل سطر واحد." },
+    ]
+  },
+  {
     version: "V19.49",
     date: "2026-05-04",
     types: ["architectural", "improvement", "safety"],

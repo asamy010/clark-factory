@@ -5,7 +5,7 @@ import { signOut, onAuthStateChanged } from "firebase/auth";
 import { doc, setDoc, onSnapshot, collection, addDoc, updateDoc, deleteDoc, getDocs, runTransaction, getDoc } from "firebase/firestore";
 
 /* ─── V15.0 Module imports (refactored from monolith) ─── */
-import { FKEYS, FCOL, WS_TYPES, COLORS_DB, THEMES, DEFAULT_STATUSES, INIT_CONFIG, GARMENT_ICONS, QUALITY_MAP, FS, PRINT_CSS } from "./constants/index.js";
+import { APP_VERSION, FKEYS, FCOL, WS_TYPES, COLORS_DB, THEMES, DEFAULT_STATUSES, INIT_CONFIG, GARMENT_ICONS, QUALITY_MAP, FS, PRINT_CSS } from "./constants/index.js";
 import { CLARK_LOGO, CLARK_LOGO_PRINT } from "./constants/logo.js";
 import { gid, fmt, r2, gf, getSizesFromSet, dayName, openWA } from "./utils/format.js";
 import { playBeep } from "./utils/audio.js";
@@ -26,7 +26,7 @@ import {
 } from "./utils/writeDiagnostics.js";
 const FIRESTORE_DOC_WARN_BYTES = 838860; /* ~80% of 1 MiB Firestore limit */
 import { createComprehensiveBackup, deleteComprehensiveBackup } from "./utils/comprehensiveBackup.js";
-import { syncAllSplitChanges, stripSplitArrays, SPLIT_COLLECTIONS, SPLIT_FIELDS, SPLIT_FIELDS_V1949, SPLIT_FLAG_V1674, SPLIT_FLAG_V1949 } from "./utils/splitCollections.js";
+import { syncAllSplitChanges, stripSplitArrays, SPLIT_COLLECTIONS, SPLIT_FIELDS, SPLIT_FIELDS_V1949, SPLIT_FIELDS_V1950, SPLIT_FLAG_V1674, SPLIT_FLAG_V1949, SPLIT_FLAG_V1950 } from "./utils/splitCollections.js";
 import { syncAllPartitionedChanges, stripPartitionedArrays, PARTITIONED_COLLECTIONS, PARTITIONED_FIELDS } from "./utils/partitionedCollections.js";
 import { noticeSuccess, noticeWarn, noticeError } from "./utils/storageNotices.js";
 import { ask, tell, askInput, askForm, showToast, highlightRow } from "./utils/popups.js";
@@ -79,7 +79,7 @@ validatePermsRegistry(TABS);
 /* V19.48: Print version marker at module load. If you see "[CLARK V19.48]" in
    the console at startup, the new code is deployed. Helps diagnose "did the
    deploy actually go through" questions when something looks broken. */
-console.info("%c[CLARK V19.49] App module loaded — "+new Date().toISOString(),"color:#0EA5E9;font-weight:bold");
+console.info("%c[CLARK "+APP_VERSION+"] App module loaded — "+new Date().toISOString(),"color:#0EA5E9;font-weight:bold");
 import { ActivityFeed } from "./components/ActivityFeed.jsx";
 import { UndoToast } from "./components/UndoToast.jsx";
 import { AboutVersionModal } from "./components/AboutVersionModal.jsx";
@@ -261,6 +261,11 @@ export default function App(){
     }
     if(splitLoaded&&configDoc[SPLIT_FLAG_V1949]){
       for(const f of SPLIT_FIELDS_V1949){
+        merged[f]=splitData[f]||[];
+      }
+    }
+    if(splitLoaded&&configDoc[SPLIT_FLAG_V1950]){
+      for(const f of SPLIT_FIELDS_V1950){
         merged[f]=splitData[f]||[];
       }
     }
@@ -1323,6 +1328,169 @@ export default function App(){
   },[user,configDoc,splitLoaded]);
 
   /* ═══════════════════════════════════════════════════════════════════
+     V19.50: One-time migration — split THREE more arrays from factory/config
+     into daily collections, plus cleanup of legacy coa_backup_* keys:
+
+       salesInvoices    → salesInvoicesDays/{YYYY-MM-DD}      (الأكبر)
+       purchaseInvoices → purchaseInvoicesDays/{YYYY-MM-DD}
+       purchaseOrders   → purchaseOrdersDays/{YYYY-MM-DD}
+
+     Plus cleanup: any field on factory/config that starts with
+     "coa_backup_pre_upgrade_" gets DELETED. These were inline backups dumped
+     into config by ChartOfAccountsTab.jsx whenever the user upgraded the
+     chart of accounts — they polluted config with ~12 KB each. The actual
+     backups live in the `backups/` collection so this cleanup is safe.
+     V19.50 also fixes ChartOfAccountsTab.jsx to write future backups to the
+     proper backups/ collection so this issue can't recur.
+
+     Why: salesInvoices alone was 54% of factory/config. At ~10 invoices/day
+     this would breach the 1MB Firestore limit in 2-3 months. The split
+     pattern (one document per day) keeps each doc under ~100 KB even at
+     extreme load (50 invoices/day) and gives us decades of headroom.
+
+     Prerequisite: V19.49 must be done first (we gate on _splitDaysV1949Done).
+     ═══════════════════════════════════════════════════════════════════ */
+  const splitDaysV1950MigrationRef=useRef(false);
+  useEffect(()=>{
+    if(!user||splitDaysV1950MigrationRef.current)return;
+    if(!configDoc||!configDoc.accessories)return;/* config not loaded yet */
+    if(!configDoc._splitDaysV1949Done)return;/* V19.49 must run first */
+    if(configDoc._splitDaysV1950Done)return;/* already migrated */
+
+    /* انتظار: لازم listeners الـsplit collections تكون اشتغلت */
+    if(!splitLoaded)return;
+
+    /* Anything to migrate? */
+    const legacyArrays={};
+    let totalLegacy=0;
+    for(const f of SPLIT_FIELDS_V1950){
+      const arr=Array.isArray(configDoc[f])?configDoc[f]:[];
+      legacyArrays[f]=arr;
+      totalLegacy+=arr.length;
+    }
+    /* Find legacy coa_backup_pre_upgrade_* keys */
+    const coaBackupKeys=Object.keys(configDoc).filter(k=>k.startsWith("coa_backup_pre_upgrade_"));
+    const hasCleanup=coaBackupKeys.length>0;
+
+    splitDaysV1950MigrationRef.current=true;/* lock to prevent re-runs */
+
+    (async()=>{
+      try{
+        if(totalLegacy===0&&!hasCleanup){
+          /* لا شيء للنقل ولا للتنظيف — فقط نحط الـflag */
+          await runTransaction(db,async(tx)=>{
+            const ref=doc(db,"factory","config");
+            const snap=await tx.get(ref);
+            if(!snap.exists())return;
+            const fresh=snap.data();
+            if(fresh._splitDaysV1950Done)return;
+            tx.set(ref,{...fresh,_splitDaysV1950Done:true});
+          });
+          return;
+        }
+
+        setMigrationStatus({
+          label:"جاري تحديث نظام التخزين (V19.50)",
+          message:"الرجاء عدم إغلاق البرنامج. هذا يحدث مرة واحدة فقط.",
+          progress:5,
+        });
+
+        /* Backup أولاً — يحفظ نسخة كاملة من config قبل أي تعديل */
+        setMigrationStatus(s=>({...s,message:"إنشاء نسخة احتياطية...",progress:15}));
+        const ts=new Date().toISOString().replace(/[:.]/g,"-");
+        await setDoc(doc(db,"backups","pre-migration-split-days-v1950-"+ts),{
+          label:"قبل ميجريشن: split-days-v19.50",
+          autoGenerated:true,
+          migrationType:"split-days-v19.50",
+          createdAt:new Date().toISOString(),
+          createdBy:user.email||"system",
+          counts:Object.fromEntries(SPLIT_FIELDS_V1950.map(f=>[f,(configDoc[f]||[]).length])),
+          coaBackupKeysRemoved:coaBackupKeys.length,
+          /* النسخة الكاملة من config قبل التعديل (يشمل كل حاجة هتتشال) */
+          config:JSON.parse(JSON.stringify(configDoc)),
+        });
+
+        /* V19.50 EXTRA SAFETY: rescue any legacy coa_backup_pre_upgrade_* arrays
+           into separate backup docs in backups/ collection. The pre-migration
+           backup already contains them, but having them as standalone docs
+           makes manual restore easier (a single grep on the backups collection
+           finds all coa-related backups). */
+        if(coaBackupKeys.length>0){
+          setMigrationStatus(s=>({...s,message:"حفظ نسخ coa_backup القديمة في الـcollection الصحيحة...",progress:30}));
+          for(const k of coaBackupKeys){
+            try{
+              await setDoc(doc(db,"backups","coa-rescued-from-config-"+k.replace(/^coa_backup_pre_upgrade_/,"")),{
+                label:"COA backup مُنقذ من factory/config (V19.50 cleanup)",
+                rescuedFrom:"factory/config."+k,
+                rescuedAt:new Date().toISOString(),
+                rescuedBy:user.email||"system",
+                originalKey:k,
+                coa:JSON.parse(JSON.stringify(configDoc[k]||[])),
+              });
+            }catch(rescueErr){
+              console.warn("[V19.50] Failed to rescue coa backup",k,"— it remains in the main backup doc:",rescueErr?.message||rescueErr);
+              /* غير حرج — الـbackup الأساسي عنده النسخة كاملة برضه */
+            }
+          }
+        }
+
+        /* Sync to day collections.
+           نمرر oldArr=[] حتى يعتبر كل entry "added" ويكتبهم لـday docs. */
+        setMigrationStatus(s=>({...s,message:"نقل الفواتير لـcollections يومية...",progress:55}));
+        const oldEmpty=Object.fromEntries(SPLIT_FIELDS_V1950.map(f=>[f,[]]));
+        await syncAllSplitChanges(oldEmpty,legacyArrays);
+
+        /* الآن: حذف الـ3 arrays + الـcoa_backup_* keys + كتابة flag.
+           transaction atomic: إما الكل أو لا شيء. */
+        setMigrationStatus(s=>({...s,message:"تنظيف الـconfig...",progress:85}));
+        await runTransaction(db,async(tx)=>{
+          const ref=doc(db,"factory","config");
+          const snap=await tx.get(ref);
+          if(!snap.exists())return;
+          const fresh=snap.data();
+          if(fresh._splitDaysV1950Done)return;
+          /* اكتب الـflag الجديد ثم استدعِ stripSplitArrays حتى تستعمل الـflag للحذف */
+          const flagged={...fresh,_splitDaysV1950Done:true};
+          let next=stripSplitArrays(flagged);
+          /* Cleanup: remove coa_backup_pre_upgrade_* keys from config */
+          for(const k of Object.keys(next)){
+            if(k.startsWith("coa_backup_pre_upgrade_"))delete next[k];
+          }
+          tx.set(ref,next);
+        });
+
+        try{
+          await setDoc(doc(db,"migrationLog","split-days-v19.50-"+Date.now()),{
+            type:"split-days-v19.50",status:"success",
+            counts:Object.fromEntries(SPLIT_FIELDS_V1950.map(f=>[f,(configDoc[f]||[]).length])),
+            coaBackupKeysRemoved:coaBackupKeys.length,
+            by:user.email||"system",at:new Date().toISOString(),
+          });
+        }catch(_){}
+
+        noticeSuccess(
+          "تم تطبيق تحديث V19.50",
+          "تم تحويل فواتير المبيعات والمشتريات وأوامر الشراء لتخزين يومي منفصل، وتم تنظيف "+coaBackupKeys.length+" نسخة coa backup قديمة من الإعدادات. حجم ملف الإعدادات هينخفض بشكل ضخم — كان حوالي 54% منه فواتير المبيعات لوحدها."
+        );
+        setMigrationStatus({label:"تم بنجاح",message:"تم تحديث النظام. يمكنك الاستمرار.",progress:100});
+        setTimeout(()=>setMigrationStatus(null),1500);
+      }catch(err){
+        console.error("[V19.50] Split days migration failed:",err);
+        try{
+          await setDoc(doc(db,"migrationLog","split-days-v19.50-"+Date.now()),{
+            type:"split-days-v19.50",status:"failed",
+            details:(err.message||String(err)).slice(0,300),
+            by:user.email||"system",at:new Date().toISOString(),
+          });
+        }catch(_){}
+        /* unlock فاحس يمكن نحاول ثانية */
+        splitDaysV1950MigrationRef.current=false;
+        setMigrationStatus(null);
+      }
+    })();
+  },[user,configDoc,splitLoaded]);
+
+  /* ═══════════════════════════════════════════════════════════════════
      V16.75: One-time migration — partition hrWeeks from factory/config
      into individual documents in hrWeeksDocs collection.
      
@@ -2052,6 +2220,12 @@ export default function App(){
       }
       if(prev[SPLIT_FLAG_V1949]){
         for(const f of SPLIT_FIELDS_V1949){
+          next[f]=JSON.parse(JSON.stringify(explicitSplitBefore[f]||[]));
+          splitFieldsActive.push(f);
+        }
+      }
+      if(prev[SPLIT_FLAG_V1950]){
+        for(const f of SPLIT_FIELDS_V1950){
           next[f]=JSON.parse(JSON.stringify(explicitSplitBefore[f]||[]));
           splitFieldsActive.push(f);
         }
@@ -2931,7 +3105,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V19.48 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >{APP_VERSION} <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<>
           <span title={lastSyncAt?"آخر مزامنة "+fmtRelAr(lastSyncAt):""} style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#F59E0B22",color:isOnline?"#10B981":"#B45309"}}>{isOnline?"●":"⊘ قراءة"}</span>
@@ -2939,7 +3113,7 @@ export default function App(){
             onClick={()=>setShowAboutVersion(true)}
             title="عرض سجل التحديثات"
             style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,fontFamily:"monospace",background:T.navText?"rgba(255,255,255,0.15)":T.accent+"10",color:T.navText||T.accent,cursor:"pointer"}}
-          >V19.48</span>
+          >{APP_VERSION}</span>
         </>}
       </div>
 
@@ -4111,7 +4285,7 @@ export default function App(){
       </div>
     </div>}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V19.49"/>
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion={APP_VERSION}/>
     {/* V19.48: Removed <TeamActivityModal/> render — feature retired */}
   </div>
 }

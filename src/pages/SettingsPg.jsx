@@ -2226,8 +2226,8 @@ function SplitDaysMonitor(){
 
   const fmt=(b)=>{if(!b)return"0 B";if(b<1024)return b+" B";if(b<1024*1024)return(b/1024).toFixed(1)+" KB";return(b/(1024*1024)).toFixed(2)+" MB"};
 
-  /* V19.49: extended metadata — covers all 7 daily-split collections.
-     ترتيب العرض: V16.74 الأصلية فوق، V19.49 الجديدة تحت. */
+  /* V19.49 + V19.50: extended metadata — covers all 10 daily-split collections.
+     ترتيب العرض: V16.74 فوق، V19.49 في النصّ، V19.50 تحت (الأكبر). */
   const collectionMeta={
     /* V16.74 */
     treasury:        {label:"💰 الخزنة (treasuryDays)",                color:T.accent,  ver:"V16.74"},
@@ -2238,12 +2238,17 @@ function SplitDaysMonitor(){
     supplierPayments:{label:"🏢 مدفوعات الموردين (supplierPaymentsDays)",color:"#8B5CF6", ver:"V19.49"},
     wsPayments:      {label:"🏭 مدفوعات الورش (wsPaymentsDays)",        color:"#EC4899", ver:"V19.49"},
     checks:          {label:"🧾 الشيكات (checksDays)",                  color:"#14B8A6", ver:"V19.49"},
+    /* V19.50 — الأكبر */
+    salesInvoices:   {label:"🧾 فواتير المبيعات (salesInvoicesDays)",   color:"#DC2626", ver:"V19.50"},
+    purchaseInvoices:{label:"🧾 فواتير المشتريات (purchaseInvoicesDays)",color:"#0891B2", ver:"V19.50"},
+    purchaseOrders:  {label:"📋 أوامر الشراء (purchaseOrdersDays)",     color:"#7C3AED", ver:"V19.50"},
   };
 
-  return<Card title="📅 مراقبة التخزين اليومي (V16.74 + V19.49)" style={{marginBottom:14}}>
+  return<Card title="📅 مراقبة التخزين اليومي (V16.74 + V19.49 + V19.50)" style={{marginBottom:14}}>
     <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
-      7 مجموعات بيانات متخزنة في documents يومية منفصلة بدل arrays في factory/config:
-      الخزنة، سجل الأحداث، سجل HR، مدفوعات العملاء، مدفوعات الموردين، مدفوعات الورش، والشيكات.
+      10 مجموعات بيانات متخزنة في documents يومية منفصلة بدل arrays في factory/config:
+      الخزنة، سجل الأحداث، سجل HR، مدفوعات العملاء/الموردين/الورش، الشيكات،
+      فواتير المبيعات والمشتريات، وأوامر الشراء.
       كل document فيه حركات يوم واحد فقط — هذا يخلي البرنامج يستوعب نمو سنوي بدون مشاكل في الحجم.
     </div>
     

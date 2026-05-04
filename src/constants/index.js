@@ -1,11 +1,16 @@
 /* ═══════════════════════════════════════════════════════════════
    CLARK - Constants
    ثوابت التطبيق - مفصولة عن App.jsx في V15.0
-   
+
    All pure (non-reactive, non-theme-dependent) constants live here.
    Theme constants (TH, TD, TDB, TDL, T) remain in App.jsx because
    they depend on the mutable T object which updates on theme change.
    ═══════════════════════════════════════════════════════════════ */
+
+/* V19.50: Single source of truth for the app version. Used in topbar pills
+   (desktop + mobile), the console marker on module load, and the About modal.
+   Bump this constant once and the version label is consistent everywhere. */
+export const APP_VERSION = "V19.50";
 
 export const FKEYS = ["A","B","C","D","E"];
 

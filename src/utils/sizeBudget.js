@@ -175,6 +175,39 @@ export const FEATURE_BUDGETS=[
     advice:"ديون/أقساط متعثرة. احذف المغلق.",
     dataType:"config",
   },
+  {
+    key:"salesInvoices",
+    label:"🧾 فواتير المبيعات (مقسّمة يومياً)",
+    docRef:"salesInvoicesDays/*",
+    budget:50_000_000,/* 50 MB موزّعة على أيام — كان أكبر مكوّن في config (54%) */
+    getData:(d)=>d?.salesInvoices||[],
+    getSize:(d)=>_bytes(d?.salesInvoices),
+    getCount:(d)=>(d?.salesInvoices||[]).length,
+    advice:"V19.50: مخزّنة في salesInvoicesDays — كل يوم في document منفصل. كانت 54% من factory/config.",
+    dataType:"split",
+  },
+  {
+    key:"purchaseInvoices",
+    label:"🧾 فواتير المشتريات (مقسّمة يومياً)",
+    docRef:"purchaseInvoicesDays/*",
+    budget:30_000_000,/* 30 MB موزّعة على أيام */
+    getData:(d)=>d?.purchaseInvoices||[],
+    getSize:(d)=>_bytes(d?.purchaseInvoices),
+    getCount:(d)=>(d?.purchaseInvoices||[]).length,
+    advice:"V19.50: مخزّنة في purchaseInvoicesDays — كل يوم لوحده.",
+    dataType:"split",
+  },
+  {
+    key:"purchaseOrders",
+    label:"📋 أوامر الشراء (مقسّمة يومياً)",
+    docRef:"purchaseOrdersDays/*",
+    budget:10_000_000,/* 10 MB موزّعة على أيام */
+    getData:(d)=>d?.purchaseOrders||[],
+    getSize:(d)=>_bytes(d?.purchaseOrders),
+    getCount:(d)=>(d?.purchaseOrders||[]).length,
+    advice:"V19.50: مخزّنة في purchaseOrdersDays — كل أمر شراء بـtimestamp وتاريخ.",
+    dataType:"split",
+  },
 ];
 
 /* Sales-doc features */
