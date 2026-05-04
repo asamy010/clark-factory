@@ -160,3 +160,23 @@ export function askForm(title,fields,opts){
     setTimeout(()=>{if(inps[0]){inps[0].focus();inps[0].select()}},50);
   });
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V19.44 — Permission denial helper.
+   Replaces the dozens of silent `if(!canEdit) return;` patterns scattered
+   across the codebase. When a user lacks permission to perform an action,
+   they used to get NOTHING (no toast, no modal, action just didn't happen).
+   This caused the V19.44-reported incident where a warehouse keeper kept
+   pressing "Save" on a receipt with no feedback at all.
+
+   Usage:
+     if(!canEdit){ denyAction("حفظ الإذن"); return; }
+   ═══════════════════════════════════════════════════════════════════════ */
+export function denyAction(actionLabel){
+  const action = actionLabel || "هذا الإجراء";
+  return tell(
+    "صلاحية مرفوضة",
+    "❌ مالكش صلاحية لـ\"" + action + "\".\n\nده غالبًا لأن دورك (role) في النظام لا يسمح بالتعديل في هذا التبويب. لو محتاج صلاحية إضافية، كلّم مدير النظام.",
+    { type: "warning" }
+  );
+}

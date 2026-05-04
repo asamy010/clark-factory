@@ -6,6 +6,30 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import React, { useEffect, useState, useRef, useMemo } from "react";
+/* V19.44: Centralized permissions registry — replaces the inline defPerms,
+   roles, and roleLabels that used to live in the permissions matrix UI below.
+   V19.45: Added getEffectiveRoles + getEffectiveRoleMeta so the permissions
+   matrix and user-role dropdowns include admin-defined custom roles. */
+import {
+  PERMISSION_TABS,
+  ROLES,
+  ROLE_KEYS,
+  ROLE_META,
+  HR_SUBKEYS,
+  DEFAULT_PERMS as REGISTRY_DEFAULT_PERMS,
+  effectivePerm,
+  effectivePermWithCustoms,
+  canEditPerm as registryCanEditPerm,
+  getHrSubPermFor as registryGetHrSubPerm,
+  getEffectiveRoles,
+  getEffectiveRoleKeys,
+  getEffectiveRoleMeta,
+  getEffectiveDefaultPerms,
+} from "../utils/permissions.js";
+/* V19.44: Inspector — admin tool to see what a user can actually do */
+import { PermissionsInspectorModal } from "../components/PermissionsInspectorModal.jsx";
+/* V19.45: Custom roles manager — admin UI to create/edit/delete custom roles */
+import { CustomRolesManager } from "../components/CustomRolesManager.jsx";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updateProfile } from "firebase/auth";
 import { collection, deleteDoc, doc, getDocs, setDoc, updateDoc } from "firebase/firestore";
 import { createComprehensiveBackup, readComprehensiveBackup, deleteComprehensiveBackup, estimateComprehensiveBackupSize } from "../utils/comprehensiveBackup.js";
@@ -19,7 +43,7 @@ import { gid, openWA } from "../utils/format.js";
 import { compressImage } from "../utils/image.js";
 import { calcOrder, getConfirmedStock, recomputeStatus, wsTypeInfo } from "../utils/orders.js";
 import { formatCustomerSummaryWA, formatWorkshopSummaryWA } from "../utils/accountSummary.js";
-import { ask, askForm, showToast, tell } from "../utils/popups.js";
+import { ask, askForm, showToast, tell, denyAction } from "../utils/popups.js";
 import { openPrintWindow } from "../utils/print.js";
 import { getDeviceInfo, getDeviceId, getDeviceNickname, setDeviceNickname, getCachedIpInfo } from "../utils/device.js";
 import { analyzeBudgets, getDocTotals, getBudgetSummary, getTopFeatures, fmt as fmtSize } from "../utils/sizeBudget.js";
@@ -1885,7 +1909,7 @@ function StockModeCard({configDoc,upConfig,canEdit}){
   }
   
   const setMode=async(newMode)=>{
-    if(!canEdit)return;
+    if(!canEdit){await denyAction("تغيير الوضع");return;}
     let confirmMsg="";
     if(newMode==="off"){
       confirmMsg="سيتم إيقاف خصم الأوردرات من المخزن.\n\nالأوردرات الجديدة لن تخصم خامات من المخزن، ويمكنك تعديل الأرصدة يدوياً.\n\nمتأكد؟";
@@ -2507,9 +2531,18 @@ function PermissionsCard({config,upConfig,T,FS,TABS,Btn,showToast}){
   /* Re-sync draft from live whenever the upstream changes AND there are no unsaved changes */
   useEffect(()=>{if(!permsDirty)setDraftPerms(JSON.parse(JSON.stringify(livePerms)))},[livePerms,permsDirty]);
   /* V15.28: Added payroll_accountant and payroll_verifier roles for separation of duties */
-  const roles=["admin","manager","sales_accountant","purchase_accountant","payroll_accountant","payroll_verifier","viewer"];
-  const roleLabels={admin:"أدمن",manager:"مدير",sales_accountant:"مبيعات",purchase_accountant:"مشتريات",payroll_accountant:"محاسب مرتبات",payroll_verifier:"مُؤكِّد استلام",viewer:"مشاهد"};
-  const tabs=TABS;
+  /* V19.44: roles/labels/defPerms come from the central registry now.
+     V19.45: Use the effective lists so admin-defined custom roles show
+     up as columns in the permissions matrix automatically. */
+  const effectiveRoles = useMemo(() => getEffectiveRoles(config), [config?.customRoles]);
+  const roles = effectiveRoles.map(r => r.key);
+  const roleLabels = effectiveRoles.reduce((a, r) => { a[r.key] = r.label; return a; }, {});
+  const effectiveRoleMeta = useMemo(() => getEffectiveRoleMeta(config), [config?.customRoles]);
+  /* V19.44: Use PERMISSION_TABS — the catalog the matrix governs.
+     This is intentionally separate from TABS in LoginScreen (the navigation list) —
+     PERMISSION_TABS only includes tabs that have real permission entries; sidebar
+     ordering is a separate concern. The runtime linter validates they stay in sync. */
+  const tabs = PERMISSION_TABS;
   const levels=["edit","view","hide"];
   const levelLabels={edit:"✏️ تعديل",view:"👁 عرض",hide:"❌ مخفي"};
   const levelColors={edit:T.ok,view:T.warn,hide:T.err};
@@ -2559,16 +2592,13 @@ function PermissionsCard({config,upConfig,T,FS,TABS,Btn,showToast}){
     setDraftPerms(JSON.parse(JSON.stringify(livePerms)));
     setPermsDirty(false);
   };
-  /* V15.28: Default permissions for all roles (incl. new ones) */
-  const defPerms={
-    admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit",treasury:"edit",hr:{weeks:"edit",verify:"edit",employees:"edit",security:"edit"}},
-    manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit",treasury:"view",hr:{weeks:"view",verify:"view",employees:"view",security:"view"}},
-    sales_accountant:{dashboard:"view",details:"view",external:"hide",stock:"view",reports:"edit",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit",treasury:"hide",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"}},
-    purchase_accountant:{dashboard:"view",details:"view",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"hide",treasury:"edit",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"}},
-    payroll_accountant:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"view",hr:{weeks:"edit",verify:"hide",employees:"edit",security:"view"}},
-    payroll_verifier:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"view",hr:{weeks:"view",verify:"edit",employees:"view",security:"view"}},
-    viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"hide",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"}}
-  };
+  /* V19.44: defPerms now comes from the registry — single source of truth.
+     V19.45: For custom roles, looks up their snapshotted defaults from
+     config.customRoles[].defaults. The proxy below makes `defPerms[role]`
+     work for both built-in and custom roles transparently. */
+  const defPerms = useMemo(() => new Proxy({}, {
+    get: (_target, role) => getEffectiveDefaultPerms(role, config),
+  }), [config]);
   /* Helpers to read current HR sub-permission with backward compat — reads from DRAFT */
   const getHrCur=(r,subKey)=>{
     const rp=draftPerms[r]||{};
@@ -2673,6 +2703,11 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
   /* V16.6: newSeason state removed — now inside SeasonsCard */
   const[newUserEmail,setNewUserEmail]=useState("");const[newUserRole,setNewUserRole]=useState("viewer");
   const[newUserName,setNewUserName]=useState("");const[newUserPass,setNewUserPass]=useState("");const[newUserPass2,setNewUserPass2]=useState("");
+  /* V19.44: Permissions inspector — admin can pick any user and see exactly
+     what they can/can't do across every tab. Useful for debugging access bugs
+     ("why can't user X save receipts?") without trial and error. */
+  const[inspectorOpen,setInspectorOpen]=useState(false);
+  const[inspectorUser,setInspectorUser]=useState(null);
   const[createErr,setCreateErr]=useState("");const[createOk,setCreateOk]=useState("");const[creating,setCreating]=useState(false);
   const[clearConfirm,setClearConfirm]=useState(false);
   const[atSelUser,setAtSelUser]=useState("");const[atEditIdx,setAtEditIdx]=useState(null);const[nfEditUser,setNfEditUser]=useState("");
@@ -2960,7 +2995,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr",gap:10,marginBottom:10}}>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>كلمة المرور *</label><Inp value={newUserPass} onChange={setNewUserPass} type="password" placeholder="6 حروف على الأقل"/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>تأكيد كلمة المرور *</label><Inp value={newUserPass2} onChange={setNewUserPass2} type="password" placeholder="أعد كتابة كلمة المرور"/></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>الصلاحية</label><Sel value={newUserRole} onChange={setNewUserRole}><option value="admin">مدير النظام</option><option value="manager">مدير انتاج</option><option value="sales_accountant">محاسب مبيعات</option><option value="purchase_accountant">محاسب مشتريات</option><option value="payroll_accountant">محاسب مرتبات</option><option value="payroll_verifier">مُؤكِّد استلام مرتبات</option><option value="viewer">مشاهد فقط</option></Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:600}}>الصلاحية</label><Sel value={newUserRole} onChange={setNewUserRole}>{/* V19.44/45: roles from registry + custom roles defined by admin */}{effectiveRoles.map(r=><option key={r.key} value={r.key}>{r.icon} {r.label}{r.isCustom?" (مخصص)":""}</option>)}</Sel></div>
         </div>
         {createErr&&<div style={{color:T.err,fontSize:FS,marginBottom:10,fontWeight:600}}>{"⚠️ "+createErr}</div>}
         {createOk&&<div style={{color:T.ok,fontSize:FS,marginBottom:10,fontWeight:600}}>{"✓ "+createOk}</div>}
@@ -2969,14 +3004,32 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
       {/* Existing users */}
       <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:10}}>المستخدمين الحاليين</div>
       {(config.usersList||[]).length>0&&<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}><thead><tr>{["الاسم","البريد","الصلاحية",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-        {(config.usersList||[]).map((u,i)=><tr key={i}><td style={{...TD,fontWeight:600}}>{u.name||"-"}</td><td style={TD}>{u.email}</td><td style={TD}><Sel value={u.role} onChange={v=>requirePass(()=>upConfig(d=>{const x=(d.usersList||[]).find(z=>z.email===u.email);if(x)x.role=v}))}><option value="admin">مدير النظام</option><option value="manager">مدير انتاج</option><option value="sales_accountant">محاسب مبيعات</option><option value="purchase_accountant">محاسب مشتريات</option><option value="payroll_accountant">محاسب مرتبات</option><option value="payroll_verifier">مُؤكِّد استلام مرتبات</option><option value="viewer">مشاهد فقط</option></Sel></td><td style={TD}>{(()=>{const hasTasks=(Array.isArray(config.tasks)?config.tasks:[]).some(t=>t.toEmail===u.email&&!t.done);return<DelBtn onConfirm={()=>requirePass(()=>upConfig(d=>{d.usersList=(d.usersList||[]).filter(x=>x.email!==u.email)}))} blocked={hasTasks?"لديه مهام مفتوحة":null}/>})()}</td></tr>)}
+        {(config.usersList||[]).map((u,i)=><tr key={i}><td style={{...TD,fontWeight:600}}>{u.name||"-"}</td><td style={TD}>{u.email}</td><td style={TD}><Sel value={u.role} onChange={v=>requirePass(()=>upConfig(d=>{const x=(d.usersList||[]).find(z=>z.email===u.email);if(x)x.role=v}))}>{/* V19.44/45: roles from registry + customs */}{effectiveRoles.map(r=><option key={r.key} value={r.key}>{r.icon} {r.label}{r.isCustom?" (مخصص)":""}</option>)}</Sel></td><td style={TD}>{/* V19.44: inspector button + delete */}<div style={{display:"flex",gap:6,alignItems:"center"}}><Btn small ghost onClick={()=>{setInspectorUser(u);setInspectorOpen(true)}} style={{fontSize:FS-3,padding:"4px 8px"}} title="عرض الصلاحيات الفعلية">🔍 فحص</Btn>{(()=>{const hasTasks=(Array.isArray(config.tasks)?config.tasks:[]).some(t=>t.toEmail===u.email&&!t.done);return<DelBtn onConfirm={()=>requirePass(()=>upConfig(d=>{d.usersList=(d.usersList||[]).filter(x=>x.email!==u.email)}))} blocked={hasTasks?"لديه مهام مفتوحة":null}/>})()}</div></td></tr>)}
       </tbody></table></div>}
       {(config.usersList||[]).length===0&&<div style={{textAlign:"center",padding:20,color:T.textSec}}>لم يتم اضافة مستخدمين</div>}
       <div style={{marginTop:16,display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:12}}>
-        {[["مدير النظام",T.accent,"كل الصلاحيات + اعدادات"],["مدير انتاج",T.ok,"اضافة وتعديل"],["محاسب مبيعات","#8B5CF6","تسليم عملاء + تقارير"],["محاسب مشتريات","#F59E0B","تشغيل + حسابات ورش"],["مشاهد",T.warn,"عرض فقط"]].map(([n,c,d])=><div key={n} style={{padding:14,borderRadius:12,background:c+"08",border:"1px solid "+c+"25"}}><div style={{fontSize:FS,fontWeight:700,color:c,marginBottom:4}}>{n}</div><div style={{fontSize:FS-2,color:T.textSec}}>{d}</div></div>)}
+        {/* V19.44: role cards from registry. V19.45: built-in roles only —
+            custom roles are managed in the dedicated card below to avoid
+            visual duplication. */}
+        {ROLES.map(r=><div key={r.key} style={{padding:14,borderRadius:12,background:r.color+"08",border:"1px solid "+r.color+"25"}}>
+          <div style={{fontSize:FS,fontWeight:700,color:r.color,marginBottom:4}}>{r.icon} {r.label}</div>
+          <div style={{fontSize:FS-2,color:T.textSec,lineHeight:1.6}}>{r.description}</div>
+          {r.locked&&<div style={{fontSize:FS-3,color:T.ok,marginTop:6,fontWeight:700}}>🔒 صلاحيات مثبّتة في الكود</div>}
+        </div>)}
       </div>
+
+      {/* V19.44: Permissions Inspector Modal */}
+      {inspectorOpen&&inspectorUser&&<PermissionsInspectorModal
+        user={inspectorUser}
+        config={config}
+        onClose={()=>{setInspectorOpen(false);setInspectorUser(null)}}
+        isMob={isMob}
+      />}
     </Card>
     {/* Send Notifications */}
+    {/* V19.45: Custom roles manager — admins create/edit/delete custom roles
+        before they appear as columns in the permissions matrix below. */}
+    <CustomRolesManager config={config} upConfig={upConfig} isMob={isMob} requirePass={requirePass}/>
     {/* Permissions Management */}
     <Card title="🔐 صلاحيات المستخدمين" style={{marginBottom:16}}>
       <CardSubtitle icon="💡">تحديد ما يقدر كل مستخدم يعمله في البرنامج. مثلاً: محاسب يقدر يشوف الخزنة لكن مش يقدر يحذف، مدير عنده صلاحية كاملة.</CardSubtitle>

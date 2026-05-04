@@ -11,7 +11,7 @@ import { FS, PRINT_CSS } from "../constants/index.js";
 import { T, TD, TH } from "../theme.js";
 import { fmt, gid, r2 } from "../utils/format.js";
 import { calcOrder, getConfirmedStock } from "../utils/orders.js";
-import { ask, askInput, showToast, tell } from "../utils/popups.js";
+import { ask, askInput, showToast, tell, denyAction } from "../utils/popups.js";
 import { loadQR } from "../utils/qr.js";
 import { openPrintWindow } from "../utils/print.js";
 import { countUnitUsage, DEFAULT_UNITS, getUnits } from "../utils/units.js";
@@ -156,7 +156,8 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   };
   
   const confirmImport=async()=>{
-    if(!canEdit||!importData||importData.rows.length===0)return;
+    if(!canEdit){await denyAction("استيراد البيانات");return;}
+    if(!importData||importData.rows.length===0)return;
     const confirmed=await ask("استيراد المنتجات","سيتم إضافة "+importData.rows.length+" منتج جديد.\n\n⚠️ المنتجات الموجودة بنفس الاسم سيتم تخطيها (مش هيحصل تعديل أو duplicate).\n\nمتابعة؟",{confirmText:"استيراد"});
     if(!confirmed)return;
     let added=0,skipped=0;
@@ -204,7 +205,8 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   const bulkSelectedCount=Object.values(bulkSelected).filter(Boolean).length;
   
   const applyBulkEdit=async()=>{
-    if(!canEdit||!bulkMode)return;
+    if(!canEdit){await denyAction("التعديل الجماعي");return;}
+    if(!bulkMode)return;
     const field=bulkEditForm.field;
     const op=bulkEditForm.operation;
     const val=Number(bulkEditForm.value)||0;
@@ -275,7 +277,8 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   const openNewProd=()=>{setProdForm({name:"",category:productCategories[0]||"أخرى",unit:"قطعة",price:0,minStock:0,notes:""});setShowProdForm(true)};
   const editProd=(p)=>{setProdForm({...p});setShowProdForm(true)};
   const saveProd=async()=>{
-    if(!canEdit||!prodForm)return;
+    if(!canEdit){await denyAction("حفظ المنتج");return;}
+    if(!prodForm)return;
     if(!prodForm.name||!prodForm.name.trim()){await tell("الاسم مطلوب","يرجى إدخال اسم المنتج",{type:"warning"});return}
     const isEdit=!!prodForm.id;
     upConfig(d=>{
@@ -342,7 +345,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   };
 
   const deleteProd=async(p)=>{
-    if(!canEdit)return;
+    if(!canEdit){await denyAction("حذف المنتج");return;}
     /* V16.66: Block delete if product has stock or movements — prevents
        silent loss of data referenced by stockMovements. */
     const blocker=formatBlockerMessage(data,"generalProduct",p.id,p.name);
@@ -359,7 +362,8 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
 
   /* ──────── V16.77: FABRIC ADD/EDIT/DELETE (moved from DBPg) ──────── */
   const saveFab=async()=>{
-    if(!canEdit||!fabForm)return;
+    if(!canEdit){await denyAction("حفظ الخامة");return;}
+    if(!fabForm)return;
     if(!fabForm.name||!fabForm.name.trim()){await tell("الاسم مطلوب","يرجى إدخال اسم القماش",{type:"warning"});return}
     upConfig(d=>{
       if(!d.fabrics)d.fabrics=[];
@@ -375,7 +379,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   };
   const editFab=(f)=>setFabForm({name:f.name,unit:f.unit,price:f.price,_eid:f.id});
   const deleteFab=async(f)=>{
-    if(!canEdit)return;
+    if(!canEdit){await denyAction("حذف القماش");return;}
     const blocker=formatBlockerMessage(data,"fabric",f.id,f.name);
     if(blocker){
       /* V18.48: offer force-delete instead of just refusing */
@@ -396,7 +400,8 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
 
   /* ──────── V16.77: ACCESSORY ADD/EDIT/DELETE (moved from DBPg) ──────── */
   const saveAcc=async()=>{
-    if(!canEdit||!accForm)return;
+    if(!canEdit){await denyAction("حفظ الإكسسوار");return;}
+    if(!accForm)return;
     if(!accForm.name||!accForm.name.trim()){await tell("الاسم مطلوب","يرجى إدخال وصف الإكسسوار",{type:"warning"});return}
     upConfig(d=>{
       if(!d.accessories)d.accessories=[];
@@ -412,7 +417,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   };
   const editAcc=(a)=>setAccForm({name:a.name,unit:a.unit,price:a.price,_eid:a.id});
   const deleteAcc=async(a)=>{
-    if(!canEdit)return;
+    if(!canEdit){await denyAction("حذف الإكسسوار");return;}
     const blocker=formatBlockerMessage(data,"accessory",a.id,a.name);
     if(blocker){
       /* V18.48: offer force-delete instead of just refusing */
@@ -441,7 +446,8 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     setShowMoveForm(true);
   };
   const saveMovement=async()=>{
-    if(!canEdit||!moveForm)return;
+    if(!canEdit){await denyAction("حفظ حركة المخزون");return;}
+    if(!moveForm)return;
     const qty=Number(moveForm.qty)||0;
     if(qty<=0){await tell("الكمية مطلوبة","يرجى إدخال كمية أكبر من صفر",{type:"warning"});return}
     

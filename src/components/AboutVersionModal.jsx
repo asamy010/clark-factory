@@ -25,6 +25,39 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.45",
+    date: "2026-05-04",
+    types: ["feature", "architectural"],
+    title: "🎨 إنشاء أدوار (Roles) مخصصة من الـ UI",
+    changes: [
+      { type: "feature", text: "🎨 [Custom Roles من الواجهة] دلوقتي تقدر تنشئ أدوار جديدة (غير المدمجة) من الإعدادات → المستخدمين → كارت 'الأدوار المخصصة'. كل دور بياخد: اسم، أيقونة (emoji)، لون، وصف، وقالب أساسي (basedOn). الصلاحيات الافتراضية بتتنسخ من القالب لحظة الإنشاء (snapshot)، وبعدين تخصص أي خانة من جدول الصلاحيات." },
+      { type: "feature", text: "📋 [Templates] لما تنشئ دور جديد، تختار قالب من الأدوار المدمجة (مدير، أمين مخزن، محاسب مبيعات، إلخ). الـ template بيـsnapshot في `defaults` الخاصة بالدور — يعني أي تغيير مستقبلي في الـ template مش هيأثر على الأدوار اللي اتنسخت منه. كل دور independent." },
+      { type: "feature", text: "🎨 [Color + Icon picker] في الـ editor modal: 16 لون preset في palette + خانة لكتابة لون مخصص، و32 emoji مقترحة + خانة لأي emoji تكتبه. preview live بيظهر شكل الكارت قبل الحفظ." },
+      { type: "feature", text: "🛡 [حماية ضد الـ collisions] لو حاولت تنشئ دور بـ key متعارض مع دور مدمج (admin مثلاً) أو دور موجود، النظام بيرفض. كمان إن الـ keys بتتولّد تلقائي من الـ label وبتبقى immutable (الـ label قابل للتعديل، الـ key لأ — عشان البيانات اللي اترتبطت بالدور تفضل سليمة)." },
+      { type: "feature", text: "🔒 [حماية ضد الحذف] مش هتقدر تحذف دور لو في users مسنده ليهم. لازم تغيّر دورهم لدور تاني الأول. ولو حذفت دور بعد كده، كل التخصيصات اللي في `permissions[roleKey]` بتتمسح كمان عشان البيانات النضيفة." },
+      { type: "architectural", text: "🏗 [Backward compat كامل] الأدوار المدمجة شغّالة بالظبط زي ما كانت. كل اللي اتعمل: الـ helpers في `permissions.js` ضافت 5 functions جداد (`getEffectiveRoles`, `getEffectiveRoleMeta`, `getEffectiveDefaultPerms`, `effectivePermWithCustoms`, `canEditPermWithCustoms`, `canViewPermWithCustoms`, `getHrSubPermWithCustoms`) بتـmerge القوائم. الـ App.jsx اتحوّل يستخدم الـ WithCustoms variants. الـ admin role بيفضل hardcoded في كل الحالات — مفيش طريقة (UI أو storage tampering) تقدر تخفّض صلاحياته." },
+      { type: "improvement", text: "📊 [جدول الصلاحيات شامل] أي دور مخصص بينضاف يظهر تلقائي كـ column جديد في جدول الصلاحيات تحت. كده تقدر تخصّص أي خانة (edit/view/hide) لكل tab بنفس الأسلوب اللي بتعدل بيه الأدوار المدمجة." },
+      { type: "improvement", text: "🔍 [Inspector محدّث] modal الفحص دلوقتي بياخد الـ config كامل (مش بس permissions) عشان يقدر يعرض الأدوار المخصصة بالـ icon والـ color الصح. لما تضغط '🔍 فحص' على user مسند له دور مخصص، الـ modal بيظهره بصورة كاملة." },
+      { type: "improvement", text: "🏷 [Dropdowns تحدّث تلقائي] قائمة الأدوار في إنشاء user جديد + قائمة تغيير دور user موجود + الـ topbar/menu role label — كلهم بيستخدموا `getEffectiveRoleMeta(config)` فبيظهروا الأدوار المخصصة فوراً بعد إنشائها." },
+    ]
+  },
+  {
+    version: "V19.44",
+    date: "2026-05-04",
+    types: ["feature", "fix", "architectural"],
+    title: "🔐 إعادة هيكلة الصلاحيات + Role جديد 'أمين مخزن' + إصلاح Silent Fails",
+    changes: [
+      { type: "fix", text: "🐛 [الـ bug اللي بلّغت عنه] أمين المخزن كان بيعمل scan للاستلام ويضغط حفظ بدون أي رد فعل من النظام — لأن `if(!canEdit)return;` كان بيرجع بصمت بدون أي رسالة. دلوقتي لما تضغط زر بدون صلاحية، بيظهر modal واضح: 'صلاحية مرفوضة — مالكش صلاحية لـ\"حفظ إذن الاستلام\"'. اتصلح في 15 مكان عبر PurchasePg + WarehousePg + SettingsPg." },
+      { type: "fix", text: "🔴 [حرج: 6 تبويبات بدون حماية] كانت 6 تبويبات (فواتير المبيعات، إشعارات دائنة، فواتير المشتريات، إشعارات مدينة، محاسبة، أصول ثابتة) متفتحة لأي مستخدم بأي role — حتى الـ viewer كان يقدر يدخل يعدل فيها. ده كان bug من V18 لما ضفنا الفواتير لكن نسينا نضيفهم في صفحة الصلاحيات. دلوقتي الـ 6 محميين بـ canViewTab + canEditTab زي باقي التبويبات." },
+      { type: "feature", text: "📦 [Role جديد: أمين مخزن] صلاحياته: ✏️ المخازن + المشتريات (الاستلامات فقط) + المهام · 👁 لوحة التحكم + التقارير + قاعدة البيانات + أوامر القص · ✕ كل الجوانب المالية (الفواتير، الخزنة، المحاسبة، المرتبات). ده الـ role المناسب لأمين مخزن بيستلم بضاعة ويعمل جرد بدون ما يشوف الأسعار." },
+      { type: "architectural", text: "🏗 [Single Source of Truth] أنشأنا `src/utils/permissions.js` كمصدر واحد للـ roles، الـ tab catalog، والـ default perms. كان مكرر بين App.jsx و SettingsPg.jsx ومتفرّق في 4 أماكن. دلوقتي إضافة tab جديد أو role جديد = تعديل مكان واحد بس. كمان أضفنا runtime linter بيـwarn في الـ console لو نسينا نضيف tab جديد للصلاحيات." },
+      { type: "feature", text: "🔍 [Permissions Inspector] في الإعدادات → المستخدمين، جنب كل user دلوقتي زر '🔍 فحص'. اضغطه يفتح modal بيعرض: الـ role + إحصائيات (X تعديل · Y عرض · Z مخفي) + كل تبويب وحالته (✏️/👁/✕) مجمّعة على الأقسام (مبيعات، مشتريات، إلخ). أداة عظيمة لتشخيص bugs الصلاحيات." },
+      { type: "improvement", text: "🧹 [تنظيف keys زائدة] شيلنا `calc` و `stock` من DEFAULT_PERMS لأنهم مش tabs موجودة في الـ navigation. كانوا dead entries من إصدارات قديمة." },
+      { type: "improvement", text: "📊 [تغطية كاملة] جدول الصلاحيات في الإعدادات بقى يعرض كل الـ 20 تبويب (كان بيعرض 14 بس). كل role له default واضح لكل tab. الكروت السفلية اللي بتعرض الأدوار بقت تعرض كل الـ 8 roles (كانت 5 بس) مع الأيقونات والأوصاف من الـ registry." },
+      { type: "fix", text: "🏷 [اسم الـ role في الـ topbar] قبل كده كان يعرض 'مشاهد' لأي role غير معروف (admin/manager/sales/purchase). دلوقتي بياخد الـ label من الـ registry فبيعرض اسم أي role صح حتى الجداد (warehouse_keeper بيعرض '📦 أمين مخزن')." },
+    ]
+  },
+  {
     version: "V19.43",
     date: "2026-05-03",
     types: ["fix"],
@@ -131,33 +164,6 @@ const CHANGELOG = [
       { type: "improvement", text: "🧹 [Storage cleanup] لما بتمسح صورة موديل أو بتحذف الأوردر بالكامل، الـ Storage object بيتمسح تلقائياً (fire-and-forget). كده مفيش orphans." },
       { type: "feature", text: "🔬 [أداة التحليل بقت dropdown] الـ Card '🔬 تحليل مكوّنات factory/config' في تاب الصيانة بقى collapsible — قافل default، بيعرض إجمالي الـ doc بس في سطر واحد. اضغط للتفاصيل. الإصلاح بناء على feedback المستخدم (الـ Card كانت طويلة وبتاكل مساحة)." },
       { type: "fix", text: "🔧 [storage.rules] قسمنا allow write لـ allow create/update (مع size check) و allow delete (بدون size check). قبل كده الـ delete كان بيرجع unauthorized لأن request.resource بتكون null في الـ delete، فالـ size check بيفشل." },
-    ]
-  },
-  {
-    version: "V19.35",
-    date: "2026-05-03",
-    types: ["architectural", "fix"],
-    title: "🏗️ صور القوالب اتنقلت لـ Firebase Storage — وقف نزيف الـ factory/config",
-    changes: [
-      { type: "architectural", text: "🏗️ [مشكلة معمارية حرجة] الـ Firestore document factory/config وصل 100% (1323/1024 KB) لأن V19.33-V19.34 كانوا بيخزّنوا صور القوالب base64 جوة الـ document. أي صورة 200-700KB كانت بتاكل من حد الـ 1MB، فالـ writes بتاعت العملاء/الموردين/الموظفين كانت معرضة لـ silent failures. النوع ده من الأخطاء بيكون خطير: مفيش رسالة خطأ واضحة، البيانات ممكن تتلخبط." },
-      { type: "fix", text: "✅ [الحل] الصور دلوقتي بتترفع لـ Firebase Storage (الـ infrastructure كانت موجودة بالفعل من V15.90 — بنستخدم نفس الـ pattern بتاع الـ orders attachments). الـ Firestore بيخزن بس URL ~200 بايت بدل base64 ~700KB. تخفيض ~3500× في حجم الـ document لكل صورة." },
-      { type: "feature", text: "🔄 [Migration UI] في صفحة القوالب، Banner بيظهر تلقائياً لو في قوالب فيها صور base64 قديمة. بيقولك بكام KB في Firestore هتتفرّغ + زر '🔄 ترحيل دلوقتي'. الترحيل بيرفع كل صورة لـ Storage ويستبدل الـ base64 بـ {storagePath, url} في document write أصغر. كل قالب بيتحدّث بشكل مستقل، فلو فشل قالب واحد، الباقي بيكمّل." },
-      { type: "improvement", text: "🌉 [Bridge: URL fetching + cache] السيرفر اتحدّث ياخد {url, mime, name} بدل {base64, mime, name}. بيعمل fetch من Firebase Storage مرة واحدة لكل صورة لكل حملة (1 ساعة TTL، LRU cache بحد 50 entry). يعني حملة لـ 50 عميل بنفس الصورة = fetch واحد بس مش 50. backwards-compatible مع legacy base64 entries." },
-      { type: "improvement", text: "🧹 [Storage cleanup] لما بتمسح قالب أو تشيل صورة من قالب، الـ Storage object بيتمسح تلقائياً (fire-and-forget — أخطاء الحذف non-fatal). كده مفيش orphans بتتراكم في Storage." },
-      { type: "fix", text: "🐛 [قياس غلط في الإعدادات] القسم '📊 احصائيات التخزين (لكل مستند)' في تاب الصيانة كان بيعرض 1325 KB لـ factory/config بينما الحقيقة 652 KB. السبب: كان بيقيس `JSON.stringify(config).length` (UTF-16 code units) للـ object الـ merged (config + sales + tasks + treasury + auditLog + hrLog + hrWeeks). دي كلها مش جوة factory/config أصلاً — اتقسموا لـ collections منفصلة من V16.74-V16.75. تم حذف القسم الغلط بالكامل." },
-      { type: "feature", text: "🔬 [أداة جديدة: تحليل مكوّنات factory/config] في تاب الصيانة، Card بيعرض كل top-level field في الـ document الخام بحجمه الحقيقي بالـ UTF-8 bytes (نفس اللي Firestore بيشوفه). مرتب من الأكبر للأصغر، مع color coding (أخضر/أصفر/برتقالي/أحمر) و📷 base64 tag للـ fields اللي فيها صور inline. ده الأساس اللي هنبني عليه قرارات الـ subcollection splitting المستقبلية." },
-    ]
-  },
-  {
-    version: "V19.34",
-    date: "2026-05-03",
-    types: ["fix"],
-    title: "🐛 إصلاح: الصور كانت بتفشل في الإرسال — auto-compression + diagnostic logs",
-    changes: [
-      { type: "fix", text: "🐛 [bug رئيسي] الصور 3MB+ كانت بتفشل تتحفظ في Firebase (silent — بسبب حد 1MB لكل document في Firestore). الـ template.images كان بيتحفظ فاضي، فلما الحملة تشتغل، مفيش صور تتبعت." },
-      { type: "feature", text: "🗜 [auto-compression] أي صورة بترفعها بتتضغط تلقائياً client-side: max 1280px width/height، JPEG quality 82%. الصور 3-5MB بتنزل لـ 200-400KB. كده الـ template.images بيتحفظ بنجاح في Firebase والصور بتتبعت في الحملة." },
-      { type: "improvement", text: "📊 [diagnostic logs] قبل ما يبدأ الإرسال للبريدج، الكونسول بيطبع: عدد الرسائل، عدد الصور، حجم أول صورة base64، حجم الـ payload الإجمالي. لو في حد أكتر من 12MB، بيظهر تأكيد قبل الإرسال." },
-      { type: "improvement", text: "✅ [حد آمن] كل صورة بعد الضغط لازم تكون أقل من 700KB base64 (مع safety margin). لو أكبر، رسالة خطأ واضحة. الإجمالي للقالب الواحد لازم أقل من 3MB base64." },
     ]
   },
 ];

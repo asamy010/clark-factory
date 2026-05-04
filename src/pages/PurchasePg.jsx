@@ -8,7 +8,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { FS, PRINT_CSS } from "../constants/index.js";
 import { gid, fmt, r2, normalizePhone, dayName } from "../utils/format.js";
-import { ask, tell, showToast } from "../utils/popups.js";
+import { ask, tell, showToast, denyAction } from "../utils/popups.js";
 import { getCategories, getCategoryById, getItemsForCategory, addCategory, updateCategory, deleteCategory, addTypeToCategory, removeTypeFromCategory, addInventoryItem, updateInventoryItem, deleteInventoryItem, applyStockDelta } from "../utils/categories.js";
 import { Btn, Inp, Sel, SearchSel, Card, useDebounced } from "../components/ui.jsx";
 import { T, TH, TD } from "../theme.js";
@@ -288,7 +288,8 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   
   /* ──────── SAVE PAYMENT ──────── */
   const savePayment=async()=>{
-    if(!canEdit||!payForm)return;
+    if(!canEdit){await denyAction("حفظ الدفعة");return;}
+    if(!payForm)return;
     const amt=Number(payForm.amount)||0;
     if(amt<=0){await tell("المبلغ غير صحيح","يرجى إدخال مبلغ أكبر من صفر",{type:"warning"});return}
     if(payForm.method==="cash"&&!payForm.treasuryAccount){await tell("الخزنة مطلوبة","يرجى اختيار الخزنة للدفع الكاش",{type:"warning"});return}
@@ -354,7 +355,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   
   /* ──────── DELETE PAYMENT (rollback) ──────── */
   const deletePayment=async(paymentId)=>{
-    if(!canEdit||userRole!=="admin")return;
+    if(!canEdit||userRole!=="admin"){await denyAction("هذا الإجراء (للمدير فقط)");return;}
     const pay=supplierPayments.find(p=>p.id===paymentId);
     if(!pay)return;
     const confirmed=await ask("حذف الدفعة","سيتم حذف الدفعة وعكس تأثيراتها على الخزنة والشيكات.\n\nمتابعة؟",{danger:true,confirmText:"حذف"});
@@ -405,7 +406,8 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   const removePoItem=(idx)=>{setPo(p=>{const items=[...(p.items||[])];items.splice(idx,1);return{...p,items}})};
   
   const savePo=async()=>{
-    if(!canEdit||!po)return;
+    if(!canEdit){await denyAction("هذا الإجراء على أمر الشراء");return;}
+    if(!po)return;
     if(!po.supplierId){await tell("بيانات ناقصة","يرجى اختيار المورد",{type:"warning"});return}
     const validItems=(po.items||[]).filter(it=>it.itemId&&(Number(it.qty)||0)>0);
     if(validItems.length===0){await tell("لا توجد بنود","أضف بند واحد على الأقل",{type:"warning"});return}
@@ -437,7 +439,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   };
   
   const deletePo=async(p)=>{
-    if(!canEdit)return;
+    if(!canEdit){await denyAction("حذف أمر الشراء");return;}
     const confirmed=await ask("حذف أمر الشراء","حذف أمر الشراء "+p.poNo+"؟",{danger:true,confirmText:"حذف"});
     if(!confirmed)return;
     upConfig(d=>{d.purchaseOrders=(d.purchaseOrders||[]).filter(x=>x.id!==p.id)});
@@ -505,7 +507,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   
   /* ──────── ACTIVATE STOCK MODULE ──────── */
   const activateStockModule=async()=>{
-    if(!canEdit)return;
+    if(!canEdit){await denyAction("تفعيل قسم المخزن");return;}
     const confirmed=await ask("تفعيل المخزن","سيتم تفعيل نظام المخزن بتاريخ "+activateDate+".\n\n✅ الاستلامات الجديدة ستضاف للمخزن\n✅ الأوردرات الجديدة ستخصم من المخزن\n⚠️ الأوردرات القديمة لن تتأثر\n\nمتأكد؟",{confirmText:"تفعيل"});
     if(!confirmed)return;
     upConfig(d=>{
@@ -521,7 +523,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   };
   
   const deactivateStockModule=async()=>{
-    if(!canEdit)return;
+    if(!canEdit){await denyAction("تعطيل قسم المخزن");return;}
     const confirmed=await ask("إيقاف المخزن","سيتم إيقاف نظام المخزن.\n\n⚠️ الأوردرات الجديدة لن تخصم من المخزن\n⚠️ الاستلامات ستظل تُسجَّل لكن لن تؤثر على الرصيد\n\nمتأكد؟",{danger:true,confirmText:"إيقاف"});
     if(!confirmed)return;
     upConfig(d=>{if(!d.purchaseSettings)d.purchaseSettings={};d.purchaseSettings.stockEnabled=false});
@@ -530,7 +532,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   
   /* ──────── SAVE OPENING BALANCE ──────── */
   const saveOpeningBalance=async()=>{
-    if(!canEdit)return;
+    if(!canEdit){await denyAction("حفظ الرصيد الافتتاحي");return;}
     const entries=Object.entries(openingData).filter(([id,v])=>(Number(v.qty)||0)>0);
     if(entries.length===0){await tell("لا توجد بيانات","يرجى إدخال رصيد لعنصر واحد على الأقل",{type:"warning"});return}
     const confirmed=await ask("حفظ الرصيد الابتدائي","سيتم تسجيل "+entries.length+" رصيد ابتدائي.\n\nلن يمكن التعديل عليهم بعد الحفظ (إلا عبر تسوية).\n\nمتابعة؟",{confirmText:"حفظ"});
@@ -623,7 +625,8 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   
   /* ──────── SAVE RECEIPT (main logic) ──────── */
   const saveReceipt=async()=>{
-    if(!canEdit||!rcpt)return;
+    if(!canEdit){await denyAction("حفظ إذن الاستلام");return;}
+    if(!rcpt)return;
     /* Validation */
     if(!rcpt.supplierId){await tell("بيانات ناقصة","يرجى اختيار المورد",{type:"warning"});return}
     const validItems=(rcpt.items||[]).filter(it=>it.itemId&&(Number(it.qty)||0)>0);
@@ -779,7 +782,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   
   /* ──────── DELETE RECEIPT (admin only, rollback) ──────── */
   const deleteReceipt=async(r)=>{
-    if(!canEdit||userRole!=="admin")return;
+    if(!canEdit||userRole!=="admin"){await denyAction("هذا الإجراء (للمدير فقط)");return;}
     /* V16.65: Block if any of the linked checks have been collected/paid/endorsed.
        The existing rollback removes only PENDING checks (line 717) — non-pending
        ones would have left treasury entries that we can't safely undo, so the

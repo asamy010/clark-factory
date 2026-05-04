@@ -39,22 +39,38 @@ import { lazyNamed, PageLoader, ChunkErrorBoundary } from "./utils/lazyLoad.jsx"
 const CustDeliverPg = lazyNamed(() => import("./pages/CustDeliverPg.jsx"), "CustDeliverPg");
 const SalesInvoicesPg = lazyNamed(() => import("./pages/SalesInvoicesPg.jsx"), "SalesInvoicesPg");
 const CreditNotesPg = lazyNamed(() => import("./pages/CreditNotesPg.jsx"), "CreditNotesPg");
-/* V19.43: Debit notes (purchase returns) */
+/* V19.45: Debit notes (purchase returns) */
 const DebitNotesPg = lazyNamed(() => import("./pages/DebitNotesPg.jsx"), "DebitNotesPg");
 const PurchasePg = lazyNamed(() => import("./pages/PurchasePg.jsx"), "PurchasePg");
 const PurchaseInvoicesPg = lazyNamed(() => import("./pages/PurchaseInvoicesPg.jsx"), "PurchaseInvoicesPg");
 const TreasuryPg = lazyNamed(() => import("./pages/TreasuryPg.jsx"), "TreasuryPg");
 const HRPg = lazyNamed(() => import("./pages/HRPg.jsx"), "HRPg");
-/* V19.43: Bulk messaging / campaigns engine */
+/* V19.45: Bulk messaging / campaigns engine */
 const CampaignsPg = lazyNamed(() => import("./pages/CampaignsPg.jsx"), "CampaignsPg");
 
 /* V15.1 phase 3: page/component imports */
 /* V15.76: print-extras imports removed — none used in App.jsx (used in pages directly) */
 import { LoginScreen, TABS } from "./components/LoginScreen.jsx";
+/* V19.44: Centralized permissions registry. Single source of truth for roles,
+   tab catalog, and default per-role permissions.
+   V19.45: Switched to WithCustoms variants so admin-defined custom roles work
+   end-to-end (tab gating + label rendering + permissions evaluation). */
+import {
+  effectivePermWithCustoms as effectivePermFromRegistry,
+  canEditPermWithCustoms as canEditPermFromRegistry,
+  canViewPermWithCustoms as canViewPermFromRegistry,
+  getHrSubPermWithCustoms as getHrSubPermFromRegistry,
+  validatePermsRegistry,
+  getEffectiveRoleMeta,
+} from "./utils/permissions.js";
+/* Run the linter once at module load: emits console warnings if TABS in
+   LoginScreen drift from PERMISSION_TABS in the registry. Catches bugs
+   like "added a tab but forgot to gate it" before they hit production. */
+validatePermsRegistry(TABS);
 import { ActivityFeed } from "./components/ActivityFeed.jsx";
 import { UndoToast } from "./components/UndoToast.jsx";
 import { AboutVersionModal } from "./components/AboutVersionModal.jsx";
-/* V19.43: Removed TeamActivityModal import — feature retired (topbar pill cleanup) */
+/* V19.45: Removed TeamActivityModal import — feature retired (topbar pill cleanup) */
 import { DashPg } from "./pages/DashPg.jsx";/* eager — always first screen */
 const DBPg = lazyNamed(() => import("./pages/DBPg.jsx"), "DBPg");
 import { OrdForm } from "./pages/OrdForm.jsx";/* eager — small, used within DetPg */
@@ -244,13 +260,13 @@ export default function App(){
   const[sidebarTab,setSidebarTab]=useState("notes");/* "notes"|"tasks"|"activity" — for home sidebar */
   const[quickPopup,setQuickPopup]=useState(null);/* "task"|"notif"|null */
   const[qpTo,setQpTo]=useState("");const[qpText,setQpText]=useState("");const[qpType,setQpType]=useState("تذكير");
-  /* V19.43: Notification expiry duration. Values: "1h"|"2h"|"1d"|"endday"|"none". Default: "2h". */
+  /* V19.45: Notification expiry duration. Values: "1h"|"2h"|"1d"|"endday"|"none". Default: "2h". */
   const[qpDuration,setQpDuration]=useState("2h");
-  /* V19.43 HOTFIX: notifTick state must live BEFORE any early returns to keep hook order stable across renders */
+  /* V19.45 HOTFIX: notifTick state must live BEFORE any early returns to keep hook order stable across renders */
   const[_notifTick,setNotifTick]=useState(0);
-  /* V19.43: Toggle for the "all notifications" popup that opens when user clicks "+N more" chip */
+  /* V19.45: Toggle for the "all notifications" popup that opens when user clicks "+N more" chip */
   const[notifPopupOpen,setNotifPopupOpen]=useState(false);
-  /* V19.43 HOTFIX: ticker effect also must run unconditionally (no early-return skip).
+  /* V19.45 HOTFIX: ticker effect also must run unconditionally (no early-return skip).
      The dep `_notifTick` makes it a no-op rebind; the actual gate is inside (we read subBarNotifs from a ref or just always tick). */
   useEffect(()=>{
     /* Tick once a minute. Cheap setState; greeting bar reads fresh state on each render. */
@@ -376,16 +392,16 @@ export default function App(){
     return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off);clearInterval(interval)}
   },[]);
   useEffect(()=>{if(justReconnected){const t=setTimeout(()=>setJustReconnected(false),4000);return()=>clearTimeout(t)}},[justReconnected]);
-  /* V19.43: Online-only mode — block ALL writes when offline. isOnlineRef gives callbacks
+  /* V19.45: Online-only mode — block ALL writes when offline. isOnlineRef gives callbacks
      a stable reference without forcing every useCallback dep on isOnline (which would
      cause cascade re-creations of upConfig/upSales/upTasks on every connectivity flap). */
   const isOnlineRef=useRef(navigator.onLine);
   useEffect(()=>{isOnlineRef.current=isOnline},[isOnline]);
-  /* V19.43: Last sync timestamp — updated by upConfigTx/upSalesTx/upTasksTx on success.
+  /* V19.45: Last sync timestamp — updated by upConfigTx/upSalesTx/upTasksTx on success.
      Persisted to localStorage so it survives reloads. Display in topbar as relative time. */
   const[lastSyncAt,setLastSyncAt]=useState(()=>{try{const v=localStorage.getItem("clark-lastSyncAt");return v?parseInt(v,10):0}catch(e){return 0}});
   const markSynced=useCallback(()=>{const t=Date.now();setLastSyncAt(t);try{localStorage.setItem("clark-lastSyncAt",String(t))}catch(e){}},[]);
-  /* V19.43: human-friendly relative time used for "آخر مزامنة من ..." pill and the team panel rows. */
+  /* V19.45: human-friendly relative time used for "آخر مزامنة من ..." pill and the team panel rows. */
   const fmtRelAr=useCallback((ts)=>{
     if(!ts)return"";
     const sec=Math.max(0,Math.floor((Date.now()-ts)/1000));
@@ -398,10 +414,10 @@ export default function App(){
     const day=Math.floor(hr/24);
     return"من "+day+" يوم";
   },[]);
-  /* V19.43: Force re-render every 30s so the relative-time display ("من X ثانية") stays fresh. */
+  /* V19.45: Force re-render every 30s so the relative-time display ("من X ثانية") stays fresh. */
   const[,setSyncTick]=useState(0);
   useEffect(()=>{const t=setInterval(()=>setSyncTick(x=>x+1),30000);return()=>clearInterval(t)},[]);
-  /* V19.43: Removed showTeamActivity state — feature retired */
+  /* V19.45: Removed showTeamActivity state — feature retired */
   /* V15.63: Bot tasks permanently disabled — user requested removal.
      V15.76: Dead ref removed — was never read anywhere. */
   const themeKey="clark-theme-"+(user?.uid||"default");
@@ -1366,7 +1382,7 @@ export default function App(){
         const sortedDays=[...map.keys()].sort((a,b)=>b.localeCompare(a));
         const all=[];
         const serverIds=new Set();
-        /* V19.43 FIX: Track duplicate ids across day docs for diagnostic logging.
+        /* V19.45 FIX: Track duplicate ids across day docs for diagnostic logging.
            If the same id appears in 2+ day docs, only the FIRST occurrence (newest day,
            because sortedDays is DESC) is included in the merged array. The duplicates
            in older day docs are filtered out here at the UI layer; the cleanup
@@ -1383,7 +1399,7 @@ export default function App(){
           const entries=map.get(dayKey)||[];
           for(const e of entries){
             const id=String(e?.id||"");
-            /* V19.43 FIX: skip if already added from a newer day doc */
+            /* V19.45 FIX: skip if already added from a newer day doc */
             if(id&&serverIds.has(id)){dupIds.add(id);continue;}
             /* Skip server entries that user just deleted optimistically */
             const pending=pendingMap.get(id);
@@ -1397,14 +1413,14 @@ export default function App(){
             serverIds.add(id);
           }
         }
-        /* V19.43: Surface duplicates once per session for diagnostics */
+        /* V19.45: Surface duplicates once per session for diagnostics */
         if(dupIds.size>0){
           /* Use a module-level Set to avoid spamming console on every rebuild */
           if(!window.__clarkSeenDups)window.__clarkSeenDups=new Set();
           for(const id of dupIds){
             if(!window.__clarkSeenDups.has(id)){
               window.__clarkSeenDups.add(id);
-              console.warn("[V19.43 DEDUP] Duplicate id "+id+" found across day docs — kept newest, hiding older copies. The cleanup migration will remove duplicates from Firestore.");
+              console.warn("[V19.45 DEDUP] Duplicate id "+id+" found across day docs — kept newest, hiding older copies. The cleanup migration will remove duplicates from Firestore.");
             }
           }
         }
@@ -1682,11 +1698,11 @@ export default function App(){
              local snapshot), so any concurrent server change would be lost on retry too.
              The retry mechanism only helped with transient errors, not concurrent edits. */
         await setDoc(ref,stripped,{merge:false});
-        /* V19.43: write reached the server — record the sync timestamp for the topbar pill. */
+        /* V19.45: write reached the server — record the sync timestamp for the topbar pill. */
         markSynced();
         /* V16.74: sync split day docs */
         if(splitActive&&splitAfter){
-          /* V19.43 FIX: Retry sync up to 3 times with backoff. The previous
+          /* V19.45 FIX: Retry sync up to 3 times with backoff. The previous
              behavior was "log on first failure, no retry" — which left Firestore
              in inconsistent state when one of the parallel day-doc writes failed
              (e.g. on date-change: new-day write succeeds but old-day delete fails,
@@ -1699,7 +1715,7 @@ export default function App(){
               break;
             }catch(e){
               syncErr=e;
-              console.warn("[V19.43] syncAllSplitChanges attempt "+(syncAttempt+1)+" failed:",e?.message||e);
+              console.warn("[V19.45] syncAllSplitChanges attempt "+(syncAttempt+1)+" failed:",e?.message||e);
               if(syncAttempt<2)await _sleep(150*Math.pow(2,syncAttempt));
             }
           }
@@ -1714,7 +1730,7 @@ export default function App(){
         }
         /* V16.75: sync partitioned docs */
         if(partActive&&partAfter){
-          /* V19.43 FIX: same retry pattern for hrWeeks partitioned writes */
+          /* V19.45 FIX: same retry pattern for hrWeeks partitioned writes */
           let syncErr=null;
           for(let syncAttempt=0;syncAttempt<3;syncAttempt++){
             try{
@@ -1723,7 +1739,7 @@ export default function App(){
               break;
             }catch(e){
               syncErr=e;
-              console.warn("[V19.43] syncAllPartitionedChanges attempt "+(syncAttempt+1)+" failed:",e?.message||e);
+              console.warn("[V19.45] syncAllPartitionedChanges attempt "+(syncAttempt+1)+" failed:",e?.message||e);
               if(syncAttempt<2)await _sleep(150*Math.pow(2,syncAttempt));
             }
           }
@@ -1771,13 +1787,13 @@ export default function App(){
     }
   },[configDoc,splitLoaded,partitionedLoaded,markSynced]);
   const upConfig=useCallback(fn=>{
-    /* V19.43: Online-only mode — refuse all writes when device is offline.
+    /* V19.45: Online-only mode — refuse all writes when device is offline.
        Reading from cache is fine, but writes must reach the server immediately
        to avoid the race conditions that motivated this whole online-only push.
        Read-only banner + topbar pill already tell the user; this is the actual
        enforcement gate. Toast gives them an explicit, immediate signal. */
     if(!isOnlineRef.current){
-      console.warn("[V19.43] Refusing upConfig — device is offline");
+      console.warn("[V19.45] Refusing upConfig — device is offline");
       showToast("⛔ أنت أوفلاين دلوقتي — التعديل مش متاح لحد ما النت يرجع");
       return;
     }
@@ -1920,7 +1936,7 @@ export default function App(){
           fn(next);
           tx.set(ref,next);
         });
-        markSynced(); /* V19.43 */
+        markSynced(); /* V19.45 */
         return;
       }catch(e){
         lastErr=e;
@@ -1939,7 +1955,7 @@ export default function App(){
     }
   },[markSynced]);
   const upSales=useCallback(fn=>{
-    /* V19.43: Online-only — refuse writes when offline. Same enforcement as upConfig. */
+    /* V19.45: Online-only — refuse writes when offline. Same enforcement as upConfig. */
     if(!isOnlineRef.current){
       showToast("⛔ أنت أوفلاين دلوقتي — التعديل مش متاح لحد ما النت يرجع");
       return;
@@ -1973,7 +1989,7 @@ export default function App(){
           fn(next);
           tx.set(ref,next);
         });
-        markSynced(); /* V19.43 */
+        markSynced(); /* V19.45 */
         return;
       }catch(e){
         lastErr=e;
@@ -1992,7 +2008,7 @@ export default function App(){
     }
   },[markSynced]);
   const upTasks=useCallback(fn=>{
-    /* V19.43: Online-only — refuse writes when offline. */
+    /* V19.45: Online-only — refuse writes when offline. */
     if(!isOnlineRef.current){
       showToast("⛔ أنت أوفلاين دلوقتي — التعديل مش متاح لحد ما النت يرجع");
       return;
@@ -2037,7 +2053,7 @@ export default function App(){
     /* Fast local pre-check — gives immediate feedback before paying the network round-trip.
        The transaction below re-checks against fresh server data anyway. */
     const localCheck=checkStockAvailability(o,{...configDoc,fabrics:configDoc.fabrics,accessories:configDoc.accessories,purchaseSettings:configDoc.purchaseSettings});
-    /* V19.43 BUG FIX: Respect blockOnInsufficientStock setting. When user picks
+    /* V19.45 BUG FIX: Respect blockOnInsufficientStock setting. When user picks
        "السماح بالسالب" (warning mode), blockOnInsufficientStock=false → we should
        show a warning but allow the order. Previously we always blocked, ignoring
        the setting completely. */
@@ -2058,7 +2074,7 @@ export default function App(){
         const cfgSnap=await tx.get(configRef);
         const cfg=cfgSnap.exists()?cfgSnap.data():{};
         /* Re-check stock against FRESH data — closes the TOCTOU window.
-           V19.43: also respect the setting on the server-side recheck. */
+           V19.45: also respect the setting on the server-side recheck. */
         const freshCheck=checkStockAvailability(o,cfg);
         const _blockFresh=(cfg.purchaseSettings||{}).blockOnInsufficientStock!==false;
         if(!freshCheck.ok&&_blockFresh){
@@ -2126,13 +2142,13 @@ export default function App(){
         tx.set(salesRef,nextSales);
         tx.delete(orderRef);
       });
-      /* V19.43: After the Firestore transaction commits, best-effort cleanup of the
+      /* V19.45: After the Firestore transaction commits, best-effort cleanup of the
          order's Storage assets. Firestore transactions can't span Storage, so this
          runs separately. Failures are non-fatal — orphans are harmless and we log.
          Imports kept lazy here to avoid pulling Storage SDK into the App.jsx bundle hot path. */
       if(ord.imageStoragePath){
         import("./utils/orderImages.js").then(({deleteOrderImage})=>{
-          deleteOrderImage(ord.imageStoragePath).catch(err=>console.warn("[V19.43] image cleanup post-delete:",err));
+          deleteOrderImage(ord.imageStoragePath).catch(err=>console.warn("[V19.45] image cleanup post-delete:",err));
         });
       }
     }catch(e){
@@ -2148,7 +2164,7 @@ export default function App(){
     if(ord._stockDeducted&&!newData._stockDeducted)newData._stockDeducted=ord._stockDeducted;
     /* Local pre-check (delta-aware) for fast UX */
     const localCheck=checkStockAvailability(newData,{...configDoc,fabrics:configDoc.fabrics,accessories:configDoc.accessories,purchaseSettings:configDoc.purchaseSettings});
-    /* V19.43 BUG FIX: Respect blockOnInsufficientStock setting (warning mode allows negative). */
+    /* V19.45 BUG FIX: Respect blockOnInsufficientStock setting (warning mode allows negative). */
     const _blockShortage=(configDoc.purchaseSettings||{}).blockOnInsufficientStock!==false;
     if(!localCheck.ok&&_blockShortage){
       await tell("المخزن غير كافي",_formatShortageMsg("⛔ لا يمكن حفظ التعديل — المخزن غير كافي للزيادة المطلوبة:",localCheck.shortages),{type:"error"});
@@ -2283,51 +2299,15 @@ export default function App(){
      Both paths now return "viewer" — admins must be explicitly added to usersList. */
   const getUserRole=()=>{if(config.users&&config.users[user?.uid]){const r=config.users[user.uid];return typeof r==="string"?r:r?.role||"viewer"}const byEmail=(config.usersList||[]).find(u=>u.email===user?.email);if(byEmail)return byEmail.role;return"viewer"};
   const userRole=getUserRole();const canEdit=userRole==="admin"||userRole==="manager";
-  /* V15.28: HR permissions upgraded to granular sub-tab permissions.
-     - hr now contains 4 sub-keys: weeks (salary table), verify (QR scan screen),
-       employees (employee management), security (audit log).
-     - Backward compat: if hr is still a string (old config), it applies to all sub-tabs.
-     - Two new roles for separation of duties:
-       • payroll_accountant: edits salary, NO verify access (preparer)
-       • payroll_verifier: views salary (readonly), ONLY edits verify (reviewer) */
-  /* V18.61: ADMIN role permissions are now HARDCODED — full edit on every tab.
-     Custom permissions[admin] in factory/config are IGNORED for admin users.
-     This prevents accidental or malicious changes from locking out the only
-     admin and breaking the system (which is what happened in V18.59 incident).
-     Only admin row in DEFAULT_PERMS — change requires a code release. */
-  const DEFAULT_PERMS={
-    admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit",treasury:"edit",hr:{weeks:"edit",verify:"edit",employees:"edit",security:"edit"},purchase:"edit",warehouse:"edit",audit:"edit",campaigns:"edit"},
-    manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit",treasury:"view",hr:{weeks:"view",verify:"view",employees:"view",security:"view"},purchase:"edit",warehouse:"edit",audit:"view",campaigns:"edit"},
-    sales_accountant:{dashboard:"view",details:"view",external:"hide",stock:"view",reports:"edit",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"edit",treasury:"hide",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"},purchase:"hide",warehouse:"view",audit:"hide",campaigns:"edit"},
-    purchase_accountant:{dashboard:"view",details:"view",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"hide",treasury:"edit",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"},purchase:"edit",warehouse:"edit",audit:"hide",campaigns:"hide"},
-    /* V15.28: New role — prepares salaries but CANNOT verify receipt (separation of duties) */
-    payroll_accountant:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"view",hr:{weeks:"edit",verify:"hide",employees:"edit",security:"view"},purchase:"hide",warehouse:"hide",audit:"hide",campaigns:"hide"},
-    /* V15.28: New role — verifies receipt (QR scan) ONLY. Cannot edit salary. */
-    payroll_verifier:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"hide",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"view",hr:{weeks:"view",verify:"edit",employees:"view",security:"view"},purchase:"hide",warehouse:"hide",audit:"hide",campaigns:"hide"},
-    viewer:{dashboard:"view",details:"view",external:"hide",stock:"hide",reports:"view",calc:"view",tasks:"edit",db:"hide",settings:"hide",custDeliver:"hide",treasury:"hide",hr:{weeks:"hide",verify:"hide",employees:"hide",security:"hide"},purchase:"view",warehouse:"view",audit:"hide",campaigns:"hide"}
-  };
-  const getTabPerm=(tabKey)=>{
-    /* V18.61 LOCK: admin role bypasses ALL custom permissions — always uses defaults.
-       This is the kill-switch that prevents anyone (including a buggy upConfig
-       or malicious write) from removing admin's access to settings/db/anything. */
-    if(userRole==="admin"){
-      return DEFAULT_PERMS.admin[tabKey]||"edit";
-    }
-    const perms=config.permissions||{};const defaults=DEFAULT_PERMS[userRole]||DEFAULT_PERMS.viewer;const rolePerm=perms[userRole]||{};const fromConfig=rolePerm[tabKey];const fromDefault=defaults[tabKey];
-    /* If the permission is an object (e.g. hr), return it as-is */
-    if(fromConfig&&typeof fromConfig==="object")return fromConfig;
-    if(fromDefault&&typeof fromDefault==="object")return fromDefault;
-    return fromConfig||fromDefault||"view";
-  };
-  /* V15.28: Get HR sub-permission. Handles backward compat with string hr permission. */
-  const getHrSubPerm=(subKey)=>{
-    const hrPerm=getTabPerm("hr");
-    if(typeof hrPerm==="string")return hrPerm;/* Backward compat: old string applies to all */
-    if(hrPerm&&typeof hrPerm==="object")return hrPerm[subKey]||"hide";
-    return"hide";
-  };
-  const canEditTab=(tabKey)=>{const p=getTabPerm(tabKey);if(typeof p==="object")return Object.values(p).some(v=>v==="edit");return p==="edit"};
-  const canViewTab=(tabKey)=>{const p=getTabPerm(tabKey);if(typeof p==="object")return Object.values(p).some(v=>v!=="hide");return p!=="hide"};
+  /* V19.44: DEFAULT_PERMS, role list, and tab catalog moved to src/utils/permissions.js
+     (single source of truth — see file header for rationale). The code below is now a
+     thin wrapper that delegates to the registry's pure functions. The runtime linter
+     emits console warnings at startup if TABS in LoginScreen drift from PERMISSION_TABS.
+     V19.45: Pass full config (not just permissions) so custom roles get resolved. */
+  const getTabPerm=(tabKey)=>effectivePermFromRegistry(userRole,tabKey,config);
+  const getHrSubPerm=(subKey)=>getHrSubPermFromRegistry(userRole,subKey,config);
+  const canEditTab=(tabKey)=>canEditPermFromRegistry(userRole,tabKey,config);
+  const canViewTab=(tabKey)=>canViewPermFromRegistry(userRole,tabKey,config);
   const statusCards=config.statusCards||DEFAULT_STATUSES;
 
   /* Status change notification — V15.76: timeout now has cleanup to prevent
@@ -2435,7 +2415,7 @@ export default function App(){
 
   /* User notifications */
   const userEmail=user?.email||"";
-  /* V19.43: Filter notifications honoring expiresAt + endedAt + dismissedBy.
+  /* V19.45: Filter notifications honoring expiresAt + endedAt + dismissedBy.
      - endedAt: sender or admin clicked "End" → hide for everyone
      - expiresAt: passed → hide for everyone (auto-expire)
      - dismissedBy: this user clicked × → hide just for them */
@@ -2445,7 +2425,7 @@ export default function App(){
     if(n.expiresAt&&new Date(n.expiresAt)<=_now)return false;
     if((n.readBy||[]).includes(userEmail))return false;
     if((n.dismissedBy||[]).includes(userEmail))return false;
-    /* V19.43: forAdminsOnly notifs (e.g. transfer approval requests) only show for admins */
+    /* V19.45: forAdminsOnly notifs (e.g. transfer approval requests) only show for admins */
     if(n.forAdminsOnly&&userRole!=="admin")return false;
     return true;
   });
@@ -2471,17 +2451,17 @@ export default function App(){
     return{msg:n.msg,color:n.type==="طلب"?"#8B5CF6":n.type==="مهمة"?T.accent:T.warn,icon:n.type==="طلب"?"📩":n.type==="مهمة"?"📌":"💬",orderId:n.orderId||null,isNotif:true,notifId:n.id,from:n.fromName,date:n.createdAt};
   }),...appAlerts];
   const alertCount=allAlerts.length;
-  /* V19.43: Urgent tasks bar in topbar disabled — these now show in the greeting bar
+  /* V19.45: Urgent tasks bar in topbar disabled — these now show in the greeting bar
      as type chips along with all other types. Keep as empty array to keep refs alive. */
   const urgentTasks=[];
   const markTaskDone=(nid)=>upConfig(d=>{const n=(d.notifications||[]).find(x=>x.id===nid);if(n){if(!n.doneBy)n.doneBy=[];if(!n.doneBy.includes(userEmail))n.doneBy.push(userEmail)}});
-  /* V19.43: End-for-everyone — sender or admin clicks ⏹ → endedAt set → hidden for all users.
+  /* V19.45: End-for-everyone — sender or admin clicks ⏹ → endedAt set → hidden for all users.
      Different from dismiss (which only hides for current user). */
   const endNotif=(nid)=>upConfig(d=>{const n=(d.notifications||[]).find(x=>x.id===nid);if(!n)return;
     n.endedAt=new Date().toISOString();
     n.endedBy=userEmail;
   });
-  /* V19.43: Notifications shown in sub-bar — all types (تذكير/طلب/مهمة/مهمة عاجلة).
+  /* V19.45: Notifications shown in sub-bar — all types (تذكير/طلب/مهمة/مهمة عاجلة).
      Excludes system-generated types like delivery_confirmed/delivery_issue (those go to bell). */
   const subBarNotifs=userNotifs.filter(n=>{
     const t=n.type;
@@ -2499,7 +2479,7 @@ export default function App(){
     if(hrs>0)return hrs+"س"+(remMins>0?" "+remMins+"د":"");
     return mins+"د";
   };
-  /* V19.43: Notification link handler — clicking a chip with `link` field navigates
+  /* V19.45: Notification link handler — clicking a chip with `link` field navigates
      the user to the referenced entity (invoice/order/etc.). Also marks the notification
      as read for this user. */
   const handleNotifLinkClick=(n)=>{
@@ -2515,7 +2495,7 @@ export default function App(){
     }else if(type==="order"){
       setSel(id);setTab("details");
     }else if(type==="treasury"){
-      /* V19.43: Sub-type "transfer_pending" → opens transfers view in TreasuryPg */
+      /* V19.45: Sub-type "transfer_pending" → opens transfers view in TreasuryPg */
       navigate("treasury",{entryId:id,view:subType==="transfer_pending"?"transfers":undefined});
     }else if(type==="workshop"){
       navigate("external",{wsName:id});
@@ -2533,7 +2513,7 @@ export default function App(){
     "مهمة عاجلة": {icon:"🔴",bg:"#FEF2F2",border:"#FECACA",text:"#DC2626"},
   };
 
-  /* V19.43: Live ticker is wired at top of component (before early returns) for hook-order stability. */
+  /* V19.45: Live ticker is wired at top of component (before early returns) for hook-order stability. */
 
   const goHome=async()=>{if(window.__formDirty){if(!await ask("الخروج بدون حفظ","هل تريد الخروج بدون حفظ البيانات المدخلة؟",{danger:true,confirmText:"خروج"}))return;window.__formDirty=false}setTab("home");setSel(null)};
   const goTo=async(key)=>{if(window.__formDirty){if(!await ask("الخروج بدون حفظ","هل تريد الخروج بدون حفظ البيانات المدخلة؟",{danger:true,confirmText:"خروج"}))return;window.__formDirty=false}setTab(key);if(key!=="details")setSel(null)};
@@ -2564,7 +2544,7 @@ export default function App(){
           <span title={lastSyncAt?"آخر مزامنة "+fmtRelAr(lastSyncAt):""} style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#F59E0B22",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#B45309"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"⊘ أوفلاين · قراءة فقط"}
           </span>
-          {/* V19.43: removed "مزامنة من X د" timestamp pill + "👥 الفريق" pill — too noisy in topbar */}
+          {/* V19.45: removed "مزامنة من X د" timestamp pill + "👥 الفريق" pill — too noisy in topbar */}
           <span 
             onClick={()=>setShowAboutVersion(true)} 
             title="عرض سجل التحديثات"
@@ -2580,7 +2560,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V19.43 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >V19.45 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<>
           <span title={lastSyncAt?"آخر مزامنة "+fmtRelAr(lastSyncAt):""} style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#F59E0B22",color:isOnline?"#10B981":"#B45309"}}>{isOnline?"●":"⊘ قراءة"}</span>
@@ -2588,7 +2568,7 @@ export default function App(){
             onClick={()=>setShowAboutVersion(true)}
             title="عرض سجل التحديثات"
             style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,fontFamily:"monospace",background:T.navText?"rgba(255,255,255,0.15)":T.accent+"10",color:T.navText||T.accent,cursor:"pointer"}}
-          >V19.43</span>
+          >V19.45</span>
         </>}
       </div>
 
@@ -2656,7 +2636,7 @@ export default function App(){
           </div></>}</>}
         </div>
 
-        {/* V19.43: Season badge — moved here from greeting bar to keep greeting-bar single-row.
+        {/* V19.45: Season badge — moved here from greeting bar to keep greeting-bar single-row.
             Visually placed next to the bell. Compact format on mobile (📅 S26) vs. desktop (📅 الموسم: S26). */}
         <div title={"الموسم: "+season} style={{display:"flex",alignItems:"center",gap:5,padding:isMob?"4px 8px":"5px 10px",borderRadius:7,background:T.navBg?"rgba(16,185,129,0.18)":T.ok+"12",border:"1px solid "+(T.navBg?"rgba(16,185,129,0.4)":T.ok+"40"),color:T.navBg?"#fff":T.ok,fontSize:isMob?10:11,fontWeight:800,whiteSpace:"nowrap",flexShrink:0}}>
           <svg width={isMob?11:12} height={isMob?11:12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
@@ -2671,7 +2651,7 @@ export default function App(){
             <div style={{width:isMob?24:28,height:isMob?24:28,borderRadius:"50%",background:"linear-gradient(135deg,"+T.accent+","+T.accent+"CC)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:isMob?11:13,fontWeight:800,flexShrink:0}}>{(userName||"?").charAt(0).toUpperCase()}</div>
             {!isMob&&<div style={{display:"flex",flexDirection:"column",alignItems:"flex-start",lineHeight:1.2}}>
               <span style={{fontSize:FS-2,color:T.navText||T.text,fontWeight:700,whiteSpace:"nowrap",maxWidth:100,overflow:"hidden",textOverflow:"ellipsis"}}>{userName}</span>
-              <span style={{fontSize:9,color:T.navText?"rgba(255,255,255,0.7)":T.textMut,fontWeight:500}}>{userRole==="admin"?"مدير عام":userRole==="manager"?"مدير":userRole==="sales_accountant"?"محاسب مبيعات":userRole==="purchase_accountant"?"محاسب مشتريات":"مشاهد"}</span>
+              <span style={{fontSize:9,color:T.navText?"rgba(255,255,255,0.7)":T.textMut,fontWeight:500}}>{/* V19.45: registry + custom roles */}{(getEffectiveRoleMeta(config)[userRole]?.label)||"مشاهد"}</span>
             </div>}
             <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{color:T.navText||T.textMut,transition:"transform 0.2s",transform:showLogout?"rotate(180deg)":""}}><polyline points="6 9 12 15 18 9"/></svg>
           </div>
@@ -2683,7 +2663,7 @@ export default function App(){
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:FS,fontWeight:800,color:T.text}}>{userName}</div>
                   <div style={{fontSize:FS-3,color:T.textMut,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user?.email}</div>
-                  <div style={{fontSize:FS-3,color:T.accent,fontWeight:700,marginTop:2}}>{userRole==="admin"?"👑 مدير عام":userRole==="manager"?"⭐ مدير":userRole==="sales_accountant"?"💰 محاسب مبيعات":userRole==="purchase_accountant"?"🛒 محاسب مشتريات":"👁 مشاهد"}</div>
+                  <div style={{fontSize:FS-3,color:T.accent,fontWeight:700,marginTop:2}}>{/* V19.45: registry + custom roles */}{(()=>{const r=getEffectiveRoleMeta(config)[userRole];return r?(r.icon+" "+r.label):"👁 مشاهد"})()}</div>
                 </div>
               </div>
             </div>
@@ -2711,7 +2691,7 @@ export default function App(){
         </div>
       </div>
     </div>
-    {/* V19.43: Read-only banner — appears under the topbar whenever the device
+    {/* V19.45: Read-only banner — appears under the topbar whenever the device
         is offline. We show it as info (gray/amber), not danger, because the
         app is still usable for browsing — just not for writes. */}
     {!isOnline&&<div style={{
@@ -2761,13 +2741,13 @@ export default function App(){
             @keyframes chipPulse{0%,100%{opacity:1}50%{opacity:0.85}}
           `}</style>
 
-          {/* ═══ GREETING HEADER — V19.43: single-row guaranteed, chips shrink instead of wrapping ═══ */}
+          {/* ═══ GREETING HEADER — V19.45: single-row guaranteed, chips shrink instead of wrapping ═══ */}
           <div className="home-greet" style={{padding:isMob?"14px 16px":"18px 24px",borderRadius:16,marginBottom:18,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"nowrap",gap:12,minWidth:0}}>
             <div style={{flexShrink:0,minWidth:0}}>
               <div style={{fontSize:isMob?FS+2:FS+6,fontWeight:800,color:T.text,lineHeight:1.2,whiteSpace:"nowrap"}}>{greetText}، {userName||"مستخدم"}</div>
               <div style={{fontSize:FS-1,color:T.textSec,marginTop:4,whiteSpace:"nowrap"}}>{dateStr}</div>
             </div>
-            {/* V19.43: Chips compress (shrink) instead of wrapping when space gets tight.
+            {/* V19.45: Chips compress (shrink) instead of wrapping when space gets tight.
                 - Outer container: nowrap + overflow:hidden (forces single row)
                 - Each chip: flex:1 1 auto with minWidth ~120-140 (chip can shrink as space dwindles)
                 - Chip's text span: flex:1, minWidth:0 (text truncates first via ellipsis)
@@ -2796,7 +2776,7 @@ export default function App(){
               </div>}
             </div>;
             })()}
-            {/* V19.43: Season badge moved to top bar (next to bell). Removed from here to keep
+            {/* V19.45: Season badge moved to top bar (next to bell). Removed from here to keep
                 greeting-bar single-row even when notifications are present. */}
           </div>
 
@@ -2804,7 +2784,7 @@ export default function App(){
           {!isMob?<div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:18,alignItems:"flex-start",maxWidth:1400,margin:"0 auto"}}>
             {/* ═══ LEFT: Tabs Grid (SVG icons) ═══ */}
             <div>
-              {/* V19.43: Tile width capped to ~130px (was filling the column = ~160-180px),
+              {/* V19.45: Tile width capped to ~130px (was filling the column = ~160-180px),
                   giving a more compact dashboard. Gap (24), aspect-ratio (1), inner padding,
                   and icon size (44×44, SVG 22×22) all preserved as requested.
                   justifyContent:"center" centers the grid since it no longer fills the column. */}
@@ -3084,20 +3064,22 @@ export default function App(){
         {tab==="reports"&&<ReportsHub data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="settings"&&canEditTab("settings")&&<SettingsPg config={config} upConfig={upConfig} upSales={upSales} upTasks={upTasks} isMob={isMob} user={user} userRole={userRole} theme={theme} setTheme={setTheme} season={season} orders={orders} syncWsIds={syncWsIds} replaceOrder={replaceOrder} updOrder={updOrder} configDoc={configDoc} salesDoc={salesDoc} tasksDoc={tasksDoc}/>}
         {tab==="custDeliver"&&<CustDeliverPg data={data} upConfig={upConfig} upSales={upSales} upTasks={upTasks} updOrder={updOrder} isMob={isMob} isTab={isTab} canEdit={canEditTab("custDeliver")} user={user} season={season}/>}
-        {tab==="salesInvoices"&&<SalesInvoicesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
-        {tab==="creditNotes"&&<CreditNotesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
+        {/* V19.45: 6 tabs that were UNGATED before V19.45 (open to all roles).
+            Now properly checked via canViewTab — viewer/payroll/etc. see "hide". */}
+        {tab==="salesInvoices"&&canViewTab("salesInvoices")&&<SalesInvoicesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
+        {tab==="creditNotes"&&canViewTab("creditNotes")&&<CreditNotesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
         {tab==="purchase"&&<PurchasePg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("purchase")} user={user} userRole={userRole}/>}
-        {tab==="purchaseInvoices"&&<PurchaseInvoicesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
-        {/* V19.43: Debit notes (purchase returns) */}
-        {tab==="debitNotes"&&<DebitNotesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
+        {tab==="purchaseInvoices"&&canViewTab("purchaseInvoices")&&<PurchaseInvoicesPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("purchaseInvoices")} user={user}/>}
+        {/* V19.45: Debit notes (purchase returns) */}
+        {tab==="debitNotes"&&canViewTab("debitNotes")&&<DebitNotesPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("debitNotes")} user={user}/>}
         {tab==="warehouse"&&<WarehousePg data={data} upConfig={upConfig} updOrder={updOrder} isMob={isMob} isTab={isTab} canEdit={canEditTab("warehouse")} statusCards={statusCards} user={user} userRole={userRole}/>}
         {tab==="treasury"&&<TreasuryPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("treasury")} user={user} userRole={userRole}/>}
         {tab==="hr"&&<HRPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("hr")} user={user} userRole={userRole} getHrSubPerm={getHrSubPerm} setSavingOverlay={setSavingOverlay}/>}
-        {/* V19.43: Bulk messaging campaigns */}
+        {/* V19.45: Bulk messaging campaigns */}
         {tab==="campaigns"&&<CampaignsPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("campaigns")} user={user}/>}
         {tab==="audit"&&canViewTab("audit")&&<AuditPg data={data} isMob={isMob} user={user}/>}
-        {tab==="accounting"&&<AccountingPg data={data} config={config} upConfig={upConfig} isMob={isMob} user={user}/>}
-        {tab==="fixedAssets"&&<FixedAssetsPg data={data} config={config} isMob={isMob} user={user}/>}
+        {tab==="accounting"&&canViewTab("accounting")&&<AccountingPg data={data} config={config} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("accounting")} user={user}/>}
+        {tab==="fixedAssets"&&canViewTab("fixedAssets")&&<FixedAssetsPg data={data} config={config} isMob={isMob} canEdit={canEditTab("fixedAssets")} user={user}/>}
         </Suspense>
         </ChunkErrorBoundary>
       </div>}
@@ -3122,12 +3104,12 @@ export default function App(){
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الى</label><Sel value={qpTo} onChange={setQpTo}><option value="all">الكل</option>{targets.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+(u.email===me.email?" (أنا)":"")}</option>)}</Sel></div>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label><Sel value={qpType} onChange={setQpType}><option value="تذكير">💬 تذكير</option><option value="طلب">📩 طلب</option><option value="مهمة">📌 مهمة</option><option value="مهمة عاجلة">🔴 عاجل</option></Sel></div>
-            {/* V19.43: Display duration — sender chooses how long the notification stays visible */}
+            {/* V19.45: Display duration — sender chooses how long the notification stays visible */}
             <div><label style={{fontSize:FS-2,color:"#8B5CF6",fontWeight:700}}>⏱ مدة العرض</label><Sel value={qpDuration} onChange={setQpDuration}><option value="1h">🕐 ساعة</option><option value="2h">⏰ ساعتين</option><option value="1d">📅 يوم</option><option value="endday">🌅 آخر اليوم</option><option value="none">🔓 بدون حد</option></Sel></div>
           </div>
           <div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الرسالة</label><Inp value={qpText} onChange={setQpText} placeholder="اكتب الاشعار..."/></div>
           <Btn primary onClick={()=>{if(!qpText.trim())return;const to=qpTo||"all";const targetUser=targets.find(u=>u.email===to);
-            /* V19.43: Compute expiresAt based on selected duration. */
+            /* V19.45: Compute expiresAt based on selected duration. */
             let expiresAt=null;
             const now=new Date();
             if(qpDuration==="1h")expiresAt=new Date(now.getTime()+60*60*1000).toISOString();
@@ -3720,7 +3702,7 @@ export default function App(){
         </div>
       </div>
     )}
-    {/* V19.43: Full notifications popup — opens when user clicks "+N more" chip in greeting bar */}
+    {/* V19.45: Full notifications popup — opens when user clicks "+N more" chip in greeting bar */}
     {notifPopupOpen&&<div onClick={(e)=>{if(e.target===e.currentTarget)setNotifPopupOpen(false)}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{background:T.bg,borderRadius:14,maxWidth:520,width:"100%",maxHeight:"82vh",border:"2px solid #6366F140",boxShadow:"0 25px 70px rgba(0,0,0,0.3)",overflow:"hidden",display:"flex",flexDirection:"column"}}>
         {/* Header */}
@@ -3756,8 +3738,8 @@ export default function App(){
       </div>
     </div>}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V19.43"/>
-    {/* V19.43: Removed <TeamActivityModal/> render — feature retired */}
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V19.45"/>
+    {/* V19.45: Removed <TeamActivityModal/> render — feature retired */}
   </div>
 }
 
