@@ -9,7 +9,7 @@
    No login required — designed to be opened by customer via QR scan.
    ═══════════════════════════════════════════════════════════════ */
 
-import { setCors, verifySignature, getDb, appendToSplitDay } from "./_firebase.js";
+import { setCors, verifySignature, getDb, appendToSplitDay, readPartitionedCollection } from "./_firebase.js";
 
 /* Helpers for reading order data — orders use Firestore auto-generated docIds,
    NOT the internal `id` field. Must query by field, not fetch by docId. */
@@ -72,7 +72,10 @@ export default async function handler(req, res) {
     const session = sessions.find((s) => String(s.id) === String(sessionId));
     if (!session) return res.status(404).json({ error: "جلسة التسليم غير موجودة" });
 
-    const customers = config.customers || [];
+    /* V19.57 HOTFIX: customers moved out of factory/config to customersDocs/*. */
+    const customers = config._partitionedV1957Done
+      ? await readPartitionedCollection("customersDocs")
+      : (config.customers || []);
     const customer = customers.find((c) => String(c.id) === String(custId));
     if (!customer) return res.status(404).json({ error: "العميل غير موجود" });
 

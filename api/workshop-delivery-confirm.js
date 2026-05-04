@@ -15,7 +15,7 @@
    printed before V16.73 (those have no signature and require login).
    ═══════════════════════════════════════════════════════════════ */
 
-import { setCors, verifyWorkshopSignature, getDb, appendToSplitDay } from "./_firebase.js";
+import { setCors, verifyWorkshopSignature, getDb, appendToSplitDay, readPartitionedCollection } from "./_firebase.js";
 
 /* Orders use Firestore auto-generated docIds, NOT the internal `id` field —
    query by field. Returns the {docRef, doc} so we can update in place. */
@@ -93,7 +93,10 @@ export default async function handler(req, res) {
     }
 
     /* ─── Resolve workshop name (legacy data may store wsName only) ─── */
-    const workshops = Array.isArray(config.workshops) ? config.workshops : [];
+    /* V19.57 HOTFIX: workshops moved out of factory/config to workshopsDocs/*. */
+    const workshops = config._partitionedV1957Done
+      ? await readPartitionedCollection("workshopsDocs")
+      : (Array.isArray(config.workshops) ? config.workshops : []);
     const wsObj = workshops.find((w) => String(w.id) === String(wsId)) ||
                   workshops.find((w) => w.name === wd.wsName) ||
                   null;

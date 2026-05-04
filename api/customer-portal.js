@@ -18,7 +18,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import crypto from "crypto";
-import { getDb, setCors, readSplitCollection } from "./_firebase.js";
+import { getDb, setCors, readSplitCollection, readPartitionedCollection } from "./_firebase.js";
 
 /* Separate secret for customer portal URLs */
 function getPortalSecret() {
@@ -91,10 +91,15 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "البيانات غير متاحة" });
     }
     const config = configSnap.data();
+    /* V19.57 HOTFIX: customers moved out of factory/config to customersDocs/* via byId
+       partitioning. Read from there if migration done; fallback to config for pre-V19.57. */
+    const customers = config._partitionedV1957Done
+      ? await readPartitionedCollection("customersDocs")
+      : (config.customers || []);
     /* V16.12: Defensive String() compare — custId from URL is always a string,
        but legacy data may have numeric c.id (or vice-versa). The strict ===
        compare would silently fail to find the customer. */
-    const customer = (config.customers || []).find(c => String(c.id) === String(custId));
+    const customer = customers.find(c => String(c.id) === String(custId));
     if (!customer) {
       return res.status(404).json({ error: "العميل غير موجود" });
     }

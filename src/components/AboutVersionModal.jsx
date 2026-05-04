@@ -25,6 +25,22 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.57",
+    date: "2026-05-04",
+    types: ["architectural", "improvement", "safety"],
+    title: "🏗️ Master data byId — كل entity = ملف منفصل (الـArchitecture اكتمل)",
+    changes: [
+      { type: "architectural", text: "🏗️ [Master data byId partitioning] V19.57 يحوّل آخر 8 arrays في factory/config لـbyId collections: **customers** → customersDocs/{id}، **suppliers** → suppliersDocs/{id}، **workshops** → workshopsDocs/{id}، **employees** → employeesDocs/{id}، **empDebts** → empDebtsDocs/{id}، **generalProducts** → generalProductsDocs/{id}، **fabrics** → fabricsDocs/{id}، **accessories** → accessoriesDocs/{id}. كل entity ملف لوحده — تعديل عميل واحد = write 1 doc بدل config كامل. factory/config بقى ثابت الحجم تماماً (~30 KB) للأبد، يحمل settings + lookup tables بس." },
+      { type: "improvement", text: "🔄 [Engine موسّع — partitionedCollections.js] الـengine موجود من V16.75 لـhrWeeks. V19.57 يضيف 8 fields جديدة + selective stripping بـflag (نفس نمط splitCollections). PARTITIONED_FIELDS_V1675 + PARTITIONED_FIELDS_V1957 + 2 flags. أي doc في config مش في group flagged ميتمسحش. ضامن للـrolling deploy." },
+      { type: "improvement", text: "🔁 [Migration ذكي مع id-fix] الـmigration بياخد كل array من config، يضمن إن كل entity فيها `id` (يولد واحد لو مفيش)، يكتب كل entity كـdoc منفصل في collection بتاعها. لو 3000 موظف + 200 عميل + 150 مورد + ... كله بيتعمل في batches بـ8 collections × N docs. UI مقفول بـmodal واضح + progress." },
+      { type: "improvement", text: "🛠️ [readPartitionedCollection helper جديد للـAPI] في `api/_firebase.js`. الـportal endpoints (customer-portal, workshop-portal, delivery-confirm, workshop-delivery-confirm) كلها كانت بتقرا `config.customers` و `config.workshops` مباشرة. اتحدّثوا يقروا من partitioned collections لو الـflag set + fallback لـconfig للـbackward compat." },
+      { type: "improvement", text: "♻️ [App.jsx wiring بقى dynamic] قبل V19.57 الـpartitioned listener كان hardcoded لـhrWeeks فقط (~12 موضع). دلوقتي بقت loops على PARTITIONED_FIELDS — listeners، pendingWrites، rebuild، optimistic updates، sync logic. أي field جديد يضاف في partitionedCollections.js يتدعم تلقائياً بدون أي تعديل في App.jsx. ضامن للـV19.58+." },
+      { type: "improvement", text: "📐 [Firestore Rules + 8 collections جديدة] customersDocs (sales scope)، suppliersDocs/generalProductsDocs (purchase scope)، workshopsDocs/fabricsDocs/accessoriesDocs (manager scope)، employeesDocs/empDebtsDocs (HR scope). نفس الصلاحيات اللي كانت قبل التقسيم." },
+      { type: "improvement", text: "📊 [PartitionedDocsMonitor بقى 9 collections] في الإعدادات → '📑 مراقبة الـDocuments المُجزّأة'. badge V16.75 لـhrWeeks، badge V19.57 لـ8 master data. labels generic (الاسم/التفاصيل) بدل hrWeeks-specific (الأسبوع/التواريخ). Stats includes total docs + total size + avg size per collection." },
+      { type: "safety", text: "🔒 [الـArchitecture اكتمل] بعد V19.57:\n- factory/config = settings + lookup tables (ثابت الحجم)\n- factory/sales = settings (ثابت)\n- factory/tasks = settings (ثابت)\n- 20 daily-split collection للـoperational data\n- 9 byId-partitioned collection للـentities\nمفيش doc واحد في النظام كله ممكن يكبر مهما طال الوقت أو زاد النشاط. الضمان الرياضي تام." },
+    ]
+  },
+  {
     version: "V19.56",
     date: "2026-05-04",
     types: ["fix", "hotfix", "improvement"],

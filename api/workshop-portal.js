@@ -17,7 +17,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import crypto from "crypto";
-import { getDb, setCors, readSplitCollection } from "./_firebase.js";
+import { getDb, setCors, readSplitCollection, readPartitionedCollection } from "./_firebase.js";
 
 /* Separate secret for workshop portal URLs */
 function getPortalSecret() {
@@ -89,7 +89,11 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "البيانات غير متاحة" });
     }
     const config = configSnap.data();
-    const workshop = (config.workshops || []).find(w => String(w.id) === String(wsId));
+    /* V19.57 HOTFIX: workshops moved out of factory/config to workshopsDocs/*. */
+    const workshops = config._partitionedV1957Done
+      ? await readPartitionedCollection("workshopsDocs")
+      : (config.workshops || []);
+    const workshop = workshops.find(w => String(w.id) === String(wsId));
     if (!workshop) {
       return res.status(404).json({ error: "الورشة غير موجودة" });
     }

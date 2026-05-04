@@ -2126,14 +2126,27 @@ function PartitionedDocsMonitor(){
   
   const fmt=(b)=>{if(!b)return"0 B";if(b<1024)return b+" B";if(b<1024*1024)return(b/1024).toFixed(1)+" KB";return(b/(1024*1024)).toFixed(2)+" MB"};
   
+  /* V19.57: extended metadata — covers all 9 partitioned collections.
+     ترتيب: V16.75 (hrWeeks) فوق، V19.57 master data تحت. */
   const collectionMeta={
-    hrWeeks:{label:"📅 أسابيع المرتبات (hrWeeksDocs)",color:"#8B5CF6"},
+    /* V16.75 */
+    hrWeeks:        {label:"📅 أسابيع المرتبات (hrWeeksDocs)",color:"#8B5CF6", ver:"V16.75"},
+    /* V19.57 — master data byId */
+    customers:      {label:"🧑‍💼 العملاء (customersDocs)",        color:"#0EA5E9", ver:"V19.57"},
+    suppliers:      {label:"🏢 الموردين (suppliersDocs)",         color:"#10B981", ver:"V19.57"},
+    workshops:      {label:"🔨 الورش (workshopsDocs)",           color:"#F59E0B", ver:"V19.57"},
+    employees:      {label:"👥 الموظفين (employeesDocs)",          color:"#EC4899", ver:"V19.57"},
+    empDebts:       {label:"💸 ديون الموظفين (empDebtsDocs)",      color:"#EF4444", ver:"V19.57"},
+    generalProducts:{label:"📦 منتجات المخزن (generalProductsDocs)",color:"#14B8A6", ver:"V19.57"},
+    fabrics:        {label:"🧵 الأقمشة (fabricsDocs)",            color:"#A855F7", ver:"V19.57"},
+    accessories:    {label:"🪡 الإكسسوارات (accessoriesDocs)",     color:"#F97316", ver:"V19.57"},
   };
-  
-  return<Card title="📑 مراقبة الـDocuments المُجزّأة (V16.75)" style={{marginBottom:14}}>
+
+  return<Card title="📑 مراقبة الـDocuments المُجزّأة (V16.75 + V19.57)" style={{marginBottom:14}}>
     <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
-      أسابيع المرتبات (hrWeeks) متخزنة كـdocuments منفصلة، كل أسبوع document مستقل.
-      هذا يسمح بتراكم سنوات من البيانات بدون قيود الحجم.
+      9 مجموعات بيانات متخزنة كـdocuments byId منفصلة (كل entity = doc):
+      أسابيع المرتبات + العملاء + الموردين + الورش + الموظفين + الديون + المنتجات + الأقمشة + الإكسسوارات.
+      كل ملف ثابت الحجم — مفيش 1MB limit risk أبداً.
     </div>
     
     <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
@@ -2151,7 +2164,10 @@ function PartitionedDocsMonitor(){
         return<div key={key} style={{border:"1px solid "+T.brd,borderRadius:10,overflow:"hidden"}}>
           <div style={{padding:12,background:meta.color+"08",borderBottom:isExp?"1px solid "+T.brd:"none",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",cursor:"pointer"}}
                onClick={()=>setExpanded(e=>({...e,[key]:!e[key]}))}>
-            <div style={{fontWeight:700,fontSize:FS,flex:1,minWidth:160,color:meta.color}}>{meta.label}</div>
+            <div style={{fontWeight:700,fontSize:FS,flex:1,minWidth:160,color:meta.color,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <span>{meta.label}</span>
+              {meta.ver&&<span style={{fontSize:FS-4,padding:"2px 6px",borderRadius:4,background:meta.color+"15",color:meta.color,fontWeight:600}}>{meta.ver}</span>}
+            </div>
             <div style={{fontSize:FS-1,color:T.textSec,display:"flex",gap:14,flexWrap:"wrap"}}>
               <span><b style={{color:T.text}}>{s.itemCount}</b> document</span>
               <span><b style={{color:T.text}}>{fmt(s.totalSize)}</b></span>
@@ -2167,8 +2183,8 @@ function PartitionedDocsMonitor(){
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-2}}>
                   <thead style={{position:"sticky",top:0,background:T.bg}}>
                     <tr style={{borderBottom:"1px solid "+T.brd}}>
-                      <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>الأسبوع</th>
-                      <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>التواريخ</th>
+                      <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>الاسم</th>
+                      <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>التفاصيل</th>
                       <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>الحالة</th>
                       <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>الحجم</th>
                     </tr>

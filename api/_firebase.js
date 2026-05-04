@@ -113,6 +113,32 @@ export async function appendToSplitDay(collectionName, entry) {
   });
 }
 
+/* ─── V19.57 ─────────────────────────────────────────────────────────────
+   readPartitionedCollection: read all docs in a byId partitioned collection.
+   Each doc IS the entity (no `entries` wrapper). Used for master data
+   collections after V19.57 migration: customersDocs, suppliersDocs, etc.
+
+   Example:
+     const customers = await readPartitionedCollection("customersDocs");
+     const workshops = await readPartitionedCollection("workshopsDocs");
+
+   Returns [] on error or empty collection — never throws. */
+export async function readPartitionedCollection(collectionName) {
+  try {
+    const db = getDb();
+    const snap = await db.collection(collectionName).get();
+    const all = [];
+    snap.forEach(docSnap => {
+      const data = docSnap.data();
+      if (data && data.id) all.push(data);
+    });
+    return all;
+  } catch (err) {
+    console.error("[api:readPartitionedCollection] failed for", collectionName, err);
+    return [];
+  }
+}
+
 /* ── HMAC token helpers ── */
 export function getSecret() {
   const s = process.env.DELIVERY_CONFIRM_SECRET;

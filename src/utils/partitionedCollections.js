@@ -27,11 +27,33 @@ import { db } from "../firebase.js";
 
 /* الـcollections المُجزّأة بنمط byId — field name → collection name */
 export const PARTITIONED_COLLECTIONS = {
-  hrWeeks: "hrWeeksDocs",
+  /* V16.75 */
+  hrWeeks:         "hrWeeksDocs",
+  /* V19.57 — master data (every entity = own doc, factory/config stays settings-only) */
+  customers:       "customersDocs",
+  suppliers:       "suppliersDocs",
+  workshops:       "workshopsDocs",
+  employees:       "employeesDocs",
+  empDebts:        "empDebtsDocs",
+  generalProducts: "generalProductsDocs",
+  fabrics:         "fabricsDocs",
+  accessories:     "accessoriesDocs",
 };
 
 /* مفاتيح الـfields */
 export const PARTITIONED_FIELDS = Object.keys(PARTITIONED_COLLECTIONS);
+
+/* V19.57: Field groups by migration version — used for selective stripping
+   so a newly-added field is NOT stripped from config before its migration runs.
+   Same pattern as splitCollections.js (V19.49+). */
+export const PARTITIONED_FIELDS_V1675 = ["hrWeeks"];
+export const PARTITIONED_FIELDS_V1957 = [
+  "customers", "suppliers", "workshops", "employees",
+  "empDebts", "generalProducts", "fabrics", "accessories",
+];
+
+export const PARTITIONED_FLAG_V1675 = "_partitionedV1675Done";
+export const PARTITIONED_FLAG_V1957 = "_partitionedV1957Done";
 
 /* ════════════════════════════════════════════════════════════════════════
    READ
@@ -147,12 +169,18 @@ export async function syncPartitionedCollection(collectionName, oldArr, newArr) 
   return writes.length;
 }
 
-/* يحذف الـpartitioned arrays من config object قبل الكتابة لـfactory/config */
+/* V19.57: Selective strip — only strips field-groups whose migration has run.
+   Critical: until V19.57 migration completes, the 8 master-data fields MUST stay
+   in config — otherwise the next write would silently delete them before they're
+   moved to per-id collections. Same safety pattern as splitCollections.js. */
 export function stripPartitionedArrays(configObj) {
   if (!configObj) return configObj;
   const stripped = { ...configObj };
-  for (const field of PARTITIONED_FIELDS) {
-    delete stripped[field];
+  if (configObj[PARTITIONED_FLAG_V1675]) {
+    for (const field of PARTITIONED_FIELDS_V1675) delete stripped[field];
+  }
+  if (configObj[PARTITIONED_FLAG_V1957]) {
+    for (const field of PARTITIONED_FIELDS_V1957) delete stripped[field];
   }
   return stripped;
 }
@@ -187,17 +215,22 @@ export async function getPartitionedCollectionStats(collectionName) {
     const snap = await getDocs(collection(db, collectionName));
     const items = [];
     let totalSize = 0;
-    
+
     snap.forEach(docSnap => {
       const data = docSnap.data();
       const size = new Blob([JSON.stringify(data)]).size;
-      /* حقل وصفي للعرض — أهم حاجة في hrWeeks هو weekNum + weekStart */
-      const label = data.weekNum 
-        ? `أسبوع ${data.weekNum}` 
-        : (data.weekStart || docSnap.id);
-      const subLabel = data.weekStart && data.weekEnd
-        ? `${data.weekStart} → ${data.weekEnd}`
-        : (data.status || "");
+      /* V19.57: generic label resolver — works for hrWeeks AND master data
+         (customer/supplier/workshop/employee/etc.) without per-entity branches. */
+      let label;
+      if (data.weekNum) label = `أسبوع ${data.weekNum}`;
+      else if (data.name) label = data.name;
+      else if (data.weekStart) label = data.weekStart;
+      else label = docSnap.id;
+      let subLabel;
+      if (data.weekStart && data.weekEnd) subLabel = `${data.weekStart} → ${data.weekEnd}`;
+      else if (data.phone) subLabel = data.phone;
+      else if (data.code) subLabel = data.code;
+      else subLabel = data.status || "";
       items.push({
         id: docSnap.id,
         label,
@@ -207,10 +240,10 @@ export async function getPartitionedCollectionStats(collectionName) {
       });
       totalSize += size;
     });
-    
+
     /* sort by id desc — أحدث أولاً (ids عشوائية لكن بـtimestamp encoding) */
     items.sort((a, b) => String(b.id).localeCompare(String(a.id)));
-    
+
     return {
       collectionName,
       itemCount: items.length,

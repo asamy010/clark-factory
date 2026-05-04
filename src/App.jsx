@@ -36,7 +36,13 @@ import {
   TASKS_SPLIT_COLLECTIONS, TASKS_SPLIT_FIELDS, TASKS_SPLIT_FIELDS_V1951, TASKS_SPLIT_FLAG_V1951,
   syncAllTasksSplitChanges, stripTasksSplitArrays,
 } from "./utils/splitCollections.js";
-import { syncAllPartitionedChanges, stripPartitionedArrays, PARTITIONED_COLLECTIONS, PARTITIONED_FIELDS } from "./utils/partitionedCollections.js";
+import {
+  syncAllPartitionedChanges, stripPartitionedArrays,
+  PARTITIONED_COLLECTIONS, PARTITIONED_FIELDS,
+  /* V19.57: master-data groups + flag for selective stripping */
+  PARTITIONED_FIELDS_V1675, PARTITIONED_FIELDS_V1957,
+  PARTITIONED_FLAG_V1675, PARTITIONED_FLAG_V1957,
+} from "./utils/partitionedCollections.js";
 import { noticeSuccess, noticeWarn, noticeError } from "./utils/storageNotices.js";
 import { ask, tell, askInput, askForm, showToast, highlightRow } from "./utils/popups.js";
 import { printPage, printPkgLabel, printEmpQrCards, renderLabelPages, openPrintWindow } from "./utils/print.js";
@@ -279,7 +285,10 @@ export default function App(){
   const upSalesWriteQueueRef=useRef(Promise.resolve());
   const upTasksWriteQueueRef=useRef(Promise.resolve());
   /* V16.75: partitioned collections state — hrWeeks (each week is its own document) */
-  const[partitionedData,setPartitionedData]=useState({hrWeeks:[]});
+  /* V19.57: dynamic init over PARTITIONED_FIELDS — adding new fields auto-extends. */
+  const[partitionedData,setPartitionedData]=useState(
+    Object.fromEntries(PARTITIONED_FIELDS.map(f=>[f,[]]))
+  );
   const[partitionedLoaded,setPartitionedLoaded]=useState(false);
   const config=useMemo(()=>{const merged={...configDoc,...salesDoc,...tasksDoc};
     /* Safety: if salesDoc has sessions, ALWAYS prefer it over configDoc */
@@ -331,9 +340,19 @@ export default function App(){
         merged[f]=tasksSplitData[f]||[];
       }
     }
-    /* V16.75: partitioned collections (hrWeeks) — same pattern */
-    if(partitionedLoaded&&configDoc._partitionedV1675Done){
-      merged.hrWeeks=partitionedData.hrWeeks;
+    /* V16.75 + V19.57: partitioned collections — gated per-group flag.
+       hrWeeks (V16.75) overridden when _partitionedV1675Done.
+       Master data (V19.57) overridden when _partitionedV1957Done.
+       Pre-migration: keep reading from configDoc as before (transparent). */
+    if(partitionedLoaded&&configDoc[PARTITIONED_FLAG_V1675]){
+      for(const f of PARTITIONED_FIELDS_V1675){
+        merged[f]=partitionedData[f]||[];
+      }
+    }
+    if(partitionedLoaded&&configDoc[PARTITIONED_FLAG_V1957]){
+      for(const f of PARTITIONED_FIELDS_V1957){
+        merged[f]=partitionedData[f]||[];
+      }
     }
     return merged},[configDoc,salesDoc,tasksDoc,splitData,splitLoaded,partitionedData,partitionedLoaded,salesSplitData,salesSplitLoaded,tasksSplitData,tasksSplitLoaded]);
   const[tab,setTab_]=useState(()=>sessionStorage.getItem("clark_tab")||"home");const[sel,setSel_]=useState(()=>sessionStorage.getItem("clark_sel")||null);
@@ -2140,10 +2159,144 @@ export default function App(){
     })();
   },[user,configDoc,partitionedLoaded]);
 
-  /* ── LOCAL SNAPSHOT: save critical collections to localStorage on every config update ── */
-  useEffect(()=>{if(!configDoc||!configDoc.accessories)return;
-    try{const snap={workshops:configDoc.workshops||[],customers:configDoc.customers||[],suppliers:configDoc.suppliers||[],fabrics:configDoc.fabrics||[],accessories:configDoc.accessories||[],sizeSets:configDoc.sizeSets||[],garmentTypes:configDoc.garmentTypes||[],statusCards:configDoc.statusCards||[],employees:configDoc.employees||[],treasuryAccounts:configDoc.treasuryAccounts||[],savedAt:new Date().toISOString()};
-      localStorage.setItem("clark-data-snapshot",JSON.stringify(snap))}catch(e){}},[configDoc]);
+  /* ═══════════════════════════════════════════════════════════════════
+     V19.57: One-time migration — partition 8 master-data arrays from
+     factory/config into individual byId collections:
+       customers       → customersDocs/{id}
+       suppliers       → suppliersDocs/{id}
+       workshops       → workshopsDocs/{id}
+       employees       → employeesDocs/{id}
+       empDebts        → empDebtsDocs/{id}
+       generalProducts → generalProductsDocs/{id}
+       fabrics         → fabricsDocs/{id}
+       accessories     → accessoriesDocs/{id}
+
+     After V19.57 = factory/config holds settings + lookup tables only
+     (sizeSets, statusCards, garmentTypes, permissions, etc.). All operational
+     entities live as individual docs → never hits 1MB regardless of count.
+
+     Same pattern as V16.75 (hrWeeks) but for 8 fields. Pages keep reading
+     `data.customers` etc. as full arrays — the merge layer in `config` useMemo
+     hydrates from partitionedData when the V1957 flag is set.
+
+     Prerequisite: V16.75 must be done first (gate on _partitionedV1675Done).
+     ═══════════════════════════════════════════════════════════════════ */
+  const partitionedV1957MigrationRef=useRef(false);
+  useEffect(()=>{
+    if(!user||partitionedV1957MigrationRef.current)return;
+    if(!configDoc||!configDoc.accessories)return;
+    if(!configDoc[PARTITIONED_FLAG_V1675])return;/* V16.75 must run first */
+    if(configDoc[PARTITIONED_FLAG_V1957])return;/* already migrated */
+    if(!partitionedLoaded)return;
+
+    /* Anything to migrate? */
+    const legacyArrays={};
+    let totalLegacy=0;
+    for(const f of PARTITIONED_FIELDS_V1957){
+      const arr=Array.isArray(configDoc[f])?configDoc[f]:[];
+      legacyArrays[f]=arr;
+      totalLegacy+=arr.length;
+    }
+
+    partitionedV1957MigrationRef.current=true;
+
+    (async()=>{
+      try{
+        if(totalLegacy===0){
+          /* لا يوجد بيانات للـmigrate — فقط نحط الـflag */
+          await runTransaction(db,async(tx)=>{
+            const ref=doc(db,"factory","config");
+            const snap=await tx.get(ref);
+            if(!snap.exists())return;
+            const fresh=snap.data();
+            if(fresh[PARTITIONED_FLAG_V1957])return;
+            tx.set(ref,{...fresh,[PARTITIONED_FLAG_V1957]:true});
+          });
+          return;
+        }
+
+        setMigrationStatus({
+          label:"جاري تحديث نظام التخزين (V19.57)",
+          message:"الرجاء عدم إغلاق البرنامج. هذا يحدث مرة واحدة فقط.",
+          progress:5,
+        });
+
+        /* Backup */
+        setMigrationStatus(s=>({...s,message:"إنشاء نسخة احتياطية...",progress:15}));
+        const ts=new Date().toISOString().replace(/[:.]/g,"-");
+        await setDoc(doc(db,"backups","pre-migration-partitioned-v1957-"+ts),{
+          label:"قبل ميجريشن: partitioned-v19.57 (master data byId)",
+          autoGenerated:true,
+          migrationType:"partitioned-v19.57",
+          createdAt:new Date().toISOString(),
+          createdBy:user.email||"system",
+          counts:Object.fromEntries(PARTITIONED_FIELDS_V1957.map(f=>[f,(configDoc[f]||[]).length])),
+          config:JSON.parse(JSON.stringify(configDoc)),
+        });
+
+        /* V19.57: ensure every entity has an `id` field — required for byId collections.
+           Some legacy data may have entries without id (numeric idx etc.); generate one. */
+        for(const f of PARTITIONED_FIELDS_V1957){
+          legacyArrays[f]=legacyArrays[f].map((entity,idx)=>{
+            if(!entity)return entity;
+            if(entity.id||entity.id===0)return entity;
+            return{...entity,id:f.slice(0,3)+"_legacy_"+idx+"_"+Date.now().toString(36)};
+          });
+        }
+
+        /* Sync to partitioned collections (8 fields × N docs each) */
+        setMigrationStatus(s=>({...s,message:"نقل البيانات الأساسية لـdocuments منفصلة... ("+totalLegacy+" عنصر)",progress:50}));
+        const oldEmpty=Object.fromEntries(PARTITIONED_FIELDS_V1957.map(f=>[f,[]]));
+        await syncAllPartitionedChanges(oldEmpty,legacyArrays);
+
+        /* Atomic strip + flag */
+        setMigrationStatus(s=>({...s,message:"تنظيف الـconfig...",progress:85}));
+        await runTransaction(db,async(tx)=>{
+          const ref=doc(db,"factory","config");
+          const snap=await tx.get(ref);
+          if(!snap.exists())return;
+          const fresh=snap.data();
+          if(fresh[PARTITIONED_FLAG_V1957])return;
+          const flagged={...fresh,[PARTITIONED_FLAG_V1957]:true};
+          const next=stripPartitionedArrays(flagged);
+          tx.set(ref,next);
+        });
+
+        try{
+          await setDoc(doc(db,"migrationLog","partitioned-v19.57-"+Date.now()),{
+            type:"partitioned-v19.57",status:"success",
+            counts:Object.fromEntries(PARTITIONED_FIELDS_V1957.map(f=>[f,(configDoc[f]||[]).length])),
+            by:user.email||"system",at:new Date().toISOString(),
+          });
+        }catch(_){}
+
+        noticeSuccess(
+          "تم تطبيق تحديث V19.57 — البيانات الأساسية",
+          "تم تحويل العملاء/الموردين/الورش/الموظفين/المنتجات/الأقمشة/الإكسسوارات/الديون لـdocuments منفصلة. كل entity ملف لوحده — factory/config بقى ثابت الحجم تماماً."
+        );
+        setMigrationStatus({label:"تم بنجاح",message:"تم تحديث النظام. يمكنك الاستمرار.",progress:100});
+        setTimeout(()=>setMigrationStatus(null),1500);
+      }catch(err){
+        console.error("[V19.57] Partitioned migration failed:",err);
+        try{
+          await setDoc(doc(db,"migrationLog","partitioned-v19.57-"+Date.now()),{
+            type:"partitioned-v19.57",status:"failed",
+            details:(err.message||String(err)).slice(0,300),
+            by:user.email||"system",at:new Date().toISOString(),
+          });
+        }catch(_){}
+        partitionedV1957MigrationRef.current=false;
+        setMigrationStatus(null);
+      }
+    })();
+  },[user,configDoc,partitionedLoaded]);
+
+  /* ── LOCAL SNAPSHOT: save critical collections to localStorage on every config update ──
+     V19.57: read from `config` (the merged useMemo) instead of `configDoc` directly,
+     so post-migration the snapshot still has master-data arrays from partitionedData. */
+  useEffect(()=>{if(!config||!config.accessories)return;
+    try{const snap={workshops:config.workshops||[],customers:config.customers||[],suppliers:config.suppliers||[],fabrics:config.fabrics||[],accessories:config.accessories||[],sizeSets:config.sizeSets||[],garmentTypes:config.garmentTypes||[],statusCards:config.statusCards||[],employees:config.employees||[],treasuryAccounts:config.treasuryAccounts||[],savedAt:new Date().toISOString()};
+      localStorage.setItem("clark-data-snapshot",JSON.stringify(snap))}catch(e){}},[config]);
 
   /* ═══════════════════════════════════════════════════════════════════
      V16.74: SPLIT COLLECTIONS LISTENERS
@@ -2169,9 +2322,11 @@ export default function App(){
   const pendingTasksSplitWritesRef=useRef(
     Object.fromEntries(TASKS_SPLIT_FIELDS.map(f=>[f,new Map()]))
   );
-  const pendingPartitionedWritesRef=useRef({
-    hrWeeks:new Map(),
-  });
+  /* V19.57: dynamic init over PARTITIONED_FIELDS so new master-data fields are
+     auto-included in pending-writes tracking (no manual edit per field). */
+  const pendingPartitionedWritesRef=useRef(
+    Object.fromEntries(PARTITIONED_FIELDS.map(f=>[f,new Map()]))
+  );
   /* Helper: register pending writes after an optimistic update */
   const registerPendingSplitWrites=useCallback((before,after)=>{
     /* V19.49: iterate ALL split fields dynamically */
@@ -2241,8 +2396,8 @@ export default function App(){
     }
   },[]);
   const registerPendingPartitionedWrites=useCallback((before,after)=>{
-    const fields=["hrWeeks"];
-    for(const f of fields){
+    /* V19.57: iterate ALL partitioned fields dynamically (was hardcoded ["hrWeeks"]). */
+    for(const f of PARTITIONED_FIELDS){
       const beforeIds=new Set((before[f]||[]).map(o=>String(o?.id||"")));
       const afterArr=after[f]||[];
       for(const obj of afterArr){
@@ -2289,8 +2444,10 @@ export default function App(){
           if(now-info.timestamp>STALE_MS)map.delete(id);
         }
       }
-      for(const f of ["hrWeeks"]){
+      /* V19.57: iterate ALL partitioned fields dynamically (was hardcoded ["hrWeeks"]). */
+      for(const f of PARTITIONED_FIELDS){
         const map=pendingPartitionedWritesRef.current[f];
+        if(!map)continue;
         for(const[id,info]of map){
           if(now-info.timestamp>STALE_MS)map.delete(id);
         }
@@ -2589,8 +2746,9 @@ export default function App(){
      ═══════════════════════════════════════════════════════════════════ */
   useEffect(()=>{if(!user)return;
     const unsubs=[];
-    const docsById={hrWeeks:new Map()};
-    const firstFires={hrWeeks:false};
+    /* V19.57: dynamic init over PARTITIONED_FIELDS (was hardcoded {hrWeeks: ...}). */
+    const docsById=Object.fromEntries(PARTITIONED_FIELDS.map(f=>[f,new Map()]));
+    const firstFires=Object.fromEntries(PARTITIONED_FIELDS.map(f=>[f,false]));
     const rebuild=()=>{
       /* V17.0 FIX #8: Merge pending optimistic writes with server data */
       const flatten=(map,pendingMap)=>{
@@ -2628,10 +2786,14 @@ export default function App(){
         all.sort((a,b)=>String(a.id||"").localeCompare(String(b.id||"")));
         return all;
       };
-      setPartitionedData({
-        hrWeeks:flatten(docsById.hrWeeks,pendingPartitionedWritesRef.current.hrWeeks),
-      });
-      if(firstFires.hrWeeks){
+      /* V19.57: build partitionedData dynamically across ALL partitioned fields */
+      const next={};
+      for(const f of PARTITIONED_FIELDS){
+        next[f]=flatten(docsById[f],pendingPartitionedWritesRef.current[f]||new Map());
+      }
+      setPartitionedData(next);
+      /* mark loaded after first round trip from EVERY collection */
+      if(PARTITIONED_FIELDS.every(f=>firstFires[f])){
         setPartitionedLoaded(true);
       }
     };
@@ -2649,13 +2811,16 @@ export default function App(){
         firstFires[field]=true;
         rebuild();
       },err=>{
-        console.error(`[V16.75] Listener error ${collName}:`,err);
+        console.error(`[V19.57] Partitioned listener error ${collName}:`,err);
         firstFires[field]=true;
         rebuild();
       });
       unsubs.push(unsub);
     };
-    subscribeCol("hrWeeks",PARTITIONED_COLLECTIONS.hrWeeks);
+    /* V19.57: subscribe to ALL partitioned collections dynamically */
+    for(const f of PARTITIONED_FIELDS){
+      subscribeCol(f,PARTITIONED_COLLECTIONS[f]);
+    }
     return()=>{unsubs.forEach(u=>u())};
   },[user]);
 
@@ -2772,8 +2937,9 @@ export default function App(){
       showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
       return;
     }
-    if(configDoc&&configDoc._partitionedV1675Done&&!partitionedLoaded){
-      console.error("[V16.75 SAFETY] Refusing upConfig — partitionedData not loaded yet");
+    /* V19.57: refuse if any partitioned migration is done but listeners haven't loaded yet */
+    if(configDoc&&(configDoc[PARTITIONED_FLAG_V1675]||configDoc[PARTITIONED_FLAG_V1957])&&!partitionedLoaded){
+      console.error("[V19.57 SAFETY] Refusing upConfig — partitionedData not loaded yet");
       showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
       return;
     }
@@ -2781,12 +2947,14 @@ export default function App(){
     const splitBefore=explicitSplitBefore||Object.fromEntries(
       SPLIT_FIELDS.map(f=>[f,splitDataRef.current[f]||[]])
     );
-    const partBefore=explicitPartBefore||{
-      hrWeeks:partitionedDataRef.current.hrWeeks||[],
-    };
+    /* V19.57: dynamic partBefore covering ALL partitioned fields */
+    const partBefore=explicitPartBefore||Object.fromEntries(
+      PARTITIONED_FIELDS.map(f=>[f,partitionedDataRef.current[f]||[]])
+    );
     /* V17.2: Use precomputed values directly. No fn re-execution. */
     const splitActive=Boolean(configDoc?._splitDaysV1674Done);
-    const partActive=Boolean(configDoc?._partitionedV1675Done);
+    /* V19.57: partActive triggered by either V1675 or V1957 flag */
+    const partActive=Boolean(configDoc?.[PARTITIONED_FLAG_V1675])||Boolean(configDoc?.[PARTITIONED_FLAG_V1957]);
     const splitAfter=splitActive?precomputedNewSplit:null;
     const partAfter=partActive?precomputedNewPart:null;
     /* Strip the precomputed next */
@@ -2966,8 +3134,9 @@ export default function App(){
       showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
       return;
     }
-    if(configDoc&&configDoc._partitionedV1675Done&&!partitionedLoaded){
-      console.error("[V16.75 SAFETY] Refusing upConfig — partitionedData not loaded yet");
+    /* V19.57: refuse if any partitioned migration is done but listeners haven't loaded yet */
+    if(configDoc&&(configDoc[PARTITIONED_FLAG_V1675]||configDoc[PARTITIONED_FLAG_V1957])&&!partitionedLoaded){
+      console.error("[V19.57 SAFETY] Refusing upConfig — partitionedData not loaded yet");
       showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
       return;
     }
@@ -3039,10 +3208,22 @@ export default function App(){
         }
       }
       const splitActive=splitFieldsActive.length>0;
-      const partActive=Boolean(prev._partitionedV1675Done);
-      if(partActive){
-        next.hrWeeks=JSON.parse(JSON.stringify(explicitPartBefore.hrWeeks));
+      /* V19.57: hydrate partitioned fields based on per-group flags. Pre-migration
+         fields stay in config (no hydration needed), same gating as splitFields. */
+      const partFieldsActive=[];
+      if(prev[PARTITIONED_FLAG_V1675]){
+        for(const f of PARTITIONED_FIELDS_V1675){
+          next[f]=JSON.parse(JSON.stringify(explicitPartBefore[f]||[]));
+          partFieldsActive.push(f);
+        }
       }
+      if(prev[PARTITIONED_FLAG_V1957]){
+        for(const f of PARTITIONED_FIELDS_V1957){
+          next[f]=JSON.parse(JSON.stringify(explicitPartBefore[f]||[]));
+          partFieldsActive.push(f);
+        }
+      }
+      const partActive=partFieldsActive.length>0;
       fn(next);
       enforceDataLimits(next);
       /* V18.60 SAFETY NET: refuse writes that wipe critical fields entirely.
@@ -3063,9 +3244,11 @@ export default function App(){
         }
       }
       if(partActive){
-        newPart={
-          hrWeeks:Array.isArray(next.hrWeeks)?next.hrWeeks:[],
-        };
+        /* V19.57: build newPart only for fields whose flag is on (was hardcoded hrWeeks) */
+        newPart={};
+        for(const f of partFieldsActive){
+          newPart[f]=Array.isArray(next[f])?next[f]:[];
+        }
       }
       stripped=next;
       if(splitActive)stripped=stripSplitArrays(stripped);

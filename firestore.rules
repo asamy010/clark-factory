@@ -1,7 +1,7 @@
 rules_version = '2';
 
 /* ═══════════════════════════════════════════════════════════════
-   CLARK Factory — Firestore Security Rules (V19.53)
+   CLARK Factory — Firestore Security Rules (V19.57)
 
    نموذج الصلاحيات:
    - admin              : كل شيء
@@ -119,6 +119,52 @@ service cloud.firestore {
        ────────────────────────────────────────────────────────── */
     match /hrWeeksDocs/{weekId} {
       allow read, write: if isHRRole();
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       V19.57 — Master data byId partitioning
+       Each entity is its own document. Permissions match what was previously
+       applied via factory/config (which manager+ could write entirely):
+         customersDocs       — العملاء (sales scope writes; any user reads)
+         suppliersDocs       — الموردين (purchase scope writes)
+         workshopsDocs       — الورش (manager+ writes)
+         employeesDocs       — الموظفين (HR + manager writes)
+         empDebtsDocs        — ديون الموظفين (HR + manager writes)
+         generalProductsDocs — منتجات المخزن (purchase scope writes)
+         fabricsDocs         — الأقمشة (manager+ writes)
+         accessoriesDocs     — الإكسسوارات (manager+ writes)
+       ────────────────────────────────────────────────────────── */
+    match /customersDocs/{id} {
+      allow read:  if isAnyUser();
+      allow write: if hasRole(['admin','manager','sales_accountant']);
+    }
+    match /suppliersDocs/{id} {
+      allow read:  if isAnyUser();
+      allow write: if hasRole(['admin','manager','purchase_accountant']);
+    }
+    match /workshopsDocs/{id} {
+      allow read:  if isAnyUser();
+      allow write: if isManagerPlus();
+    }
+    match /employeesDocs/{id} {
+      allow read:  if isAnyUser();
+      allow write: if isHRRole();
+    }
+    match /empDebtsDocs/{id} {
+      allow read:  if isAnyUser();
+      allow write: if isHRRole();
+    }
+    match /generalProductsDocs/{id} {
+      allow read:  if isAnyUser();
+      allow write: if hasRole(['admin','manager','purchase_accountant']);
+    }
+    match /fabricsDocs/{id} {
+      allow read:  if isAnyUser();
+      allow write: if isManagerPlus();
+    }
+    match /accessoriesDocs/{id} {
+      allow read:  if isAnyUser();
+      allow write: if isManagerPlus();
     }
 
     /* ──────────────────────────────────────────────────────────
