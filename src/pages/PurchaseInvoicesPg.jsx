@@ -13,11 +13,13 @@ import { fmt } from "../utils/format.js";
 import { ask, showToast } from "../utils/popups.js";
 import {
   postInvoiceMutator, voidInvoiceMutator, deleteDraftInvoiceMutator,
-  getInvoiceStats, buildPurchaseInvoiceFromReceipt, findInvoiceByReceipt,
+  getInvoiceStats, buildPurchaseInvoiceFromReceipt, upsertPurchaseInvoiceFromReceipt, findInvoiceByReceipt,
 } from "../utils/invoices.js";
 import { InvoiceDetailModal } from "./SalesInvoicesPg.jsx";
 import { ServiceInvoiceModal } from "../components/ServiceInvoiceModal.jsx";
 import { autoPost } from "../utils/accounting/autoPost.js";
+/* V19.39: Bulk-post toolbar shared with SalesInvoicesPg + CreditNotesPg */
+import { BulkPostHeader, RowCheckbox, BulkPostBar } from "../components/BulkPostBar.jsx";
 
 const STATUS_META = {
   draft:  { label: "مسودة",  color: "#6B7280", bg: "#6B728015" },
@@ -36,6 +38,8 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
   const [activeInvoice, setActiveInvoice] = useState(null);
   /* V18.85: Service invoice modal */
   const [showServiceModal, setShowServiceModal] = useState(false);
+  /* V19.39: Multi-select for bulk posting */
+  const [selectedIds, setSelectedIds] = useState(new Set());
 
   const invoices = data.purchaseInvoices || [];
   const suppliers = data.suppliers || [];
@@ -71,12 +75,16 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
     return () => window.removeEventListener("notif-deeplink", handler);
   }, [invoices]);
 
-  const handlePost = async (inv) => {
-    if(!await ask("ترحيل الفاتورة", "ترحيل الفاتورة "+inv.invoiceNo+" بمبلغ "+fmt(inv.total.toFixed(2))+"؟\n\nسيتم إنشاء قيد محاسبي تلقائياً.", {confirmText:"ترحيل"})) return;
+  const handlePost = async (inv, opts = {}) => {
+    /* V19.39: silent mode used by bulk-post bar */
+    const silent = opts.silent === true;
+    if(!silent){
+      if(!await ask("ترحيل الفاتورة", "ترحيل الفاتورة "+inv.invoiceNo+" بمبلغ "+fmt(inv.total.toFixed(2))+"؟\n\nسيتم إنشاء قيد محاسبي تلقائياً.", {confirmText:"ترحيل"})) return;
+    }
     const supplier = (data.suppliers||[]).find(s => s.id === inv.supplierId);
     upConfig(d => { postInvoiceMutator(d, inv.id, "purchase", userName); });
     const postedInv = {...inv, status:"posted", postedAt: new Date().toISOString(), postedBy: userName};
-    autoPost.purchaseInvoicePosted(data, postedInv, supplier, userName).then(res => {
+    const postPromise = autoPost.purchaseInvoicePosted(data, postedInv, supplier, userName).then(res => {
       if(res && res.ok && res.entry){
         upConfig(d => {
           const idx = (d.purchaseInvoices||[]).findIndex(i => i.id === inv.id);
@@ -90,8 +98,11 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
         });
       }
     }).catch(e => console.warn("[purchaseInvoicePosted] failed:", e));
-    showToast("✓ تم الترحيل");
-    setActiveInvoice(null);
+    if(!silent){
+      showToast("✓ تم الترحيل");
+      setActiveInvoice(null);
+    }
+    return postPromise;
   };
   const handleVoid = async (inv) => {
     if(!await ask("إلغاء الفاتورة", "إلغاء الفاتورة "+inv.invoiceNo+"؟\n\nسيتم إنشاء قيد عكسي للقيد الأصلي.", {danger:true,confirmText:"إلغاء الفاتورة"})) return;
@@ -124,17 +135,24 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
       return;
     }
     if(!await ask("إنشاء فواتير جماعية",
-      "سيتم إنشاء "+uninvoicedReceipts.length+" فاتورة مسودة لكل إذونات الاستلام اللي لسه ما ليهاش فواتير.",
+      "سيتم إنشاء فواتير مسودة من "+uninvoicedReceipts.length+" إذن استلام.\n\n💡 V19.39: الإذونات اللي لنفس المورد في نفس اليوم هتتدمج في فاتورة واحدة تلقائياً.",
       {confirmText:"إنشاء"})) return;
+    let createdCount = 0;
+    let mergedCount = 0;
     upConfig(d => {
       if(!Array.isArray(d.purchaseInvoices)) d.purchaseInvoices = [];
       uninvoicedReceipts.forEach(receipt => {
         const supplier = (d.suppliers||[]).find(s => s.id === receipt.supplierId);
-        const inv = buildPurchaseInvoiceFromReceipt(d, receipt, supplier, userName);
-        d.purchaseInvoices.unshift(inv);
+        /* V19.39: upsert merges receipts for same supplier on same day */
+        const result = upsertPurchaseInvoiceFromReceipt(d, receipt, supplier, userName);
+        if(result.isNew) createdCount++; else mergedCount++;
       });
     });
-    showToast("✓ تم إنشاء "+uninvoicedReceipts.length+" فاتورة مسودة");
+    showToast(
+      mergedCount === 0
+        ? `✓ تم إنشاء ${createdCount} فاتورة مسودة`
+        : `✓ تم إنشاء ${createdCount} فاتورة + دمج ${mergedCount} في فواتير قائمة`
+    );
   };
 
   return <div style={{padding:isMob?12:20, maxWidth:1400, margin:"0 auto"}}>
@@ -213,13 +231,23 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
       </div>
     </Card>
       : <div style={{display:"flex", flexDirection:"column", gap:6}}>
+        {/* V19.39: bulk-post header */}
+        <BulkPostHeader
+          selectedIds={selectedIds}
+          setSelectedIds={setSelectedIds}
+          draftItems={filtered.filter(i => i.status === "draft")}
+          isMob={isMob}
+        />
         {filtered.map(inv => {
           const meta = STATUS_META[inv.status] || STATUS_META.draft;
+          const isDraft = inv.status === "draft";
           return <div key={inv.id} onClick={() => setActiveInvoice(inv)} style={{
             background: T.cardSolid, border:"1px solid "+T.brd, borderRadius:8,
             padding:"10px 12px", cursor:"pointer", display:"flex", alignItems:"center", gap:10, flexWrap:"wrap"
           }} onMouseEnter={e => e.currentTarget.style.background = T.bg}
              onMouseLeave={e => e.currentTarget.style.background = T.cardSolid}>
+            {/* V19.39: per-row checkbox */}
+            <RowCheckbox id={inv.id} isDraft={isDraft} selectedIds={selectedIds} setSelectedIds={setSelectedIds}/>
             <div style={{minWidth: isMob?100:140}}>
               <div style={{fontFamily:"monospace", fontSize:FS-1, fontWeight:800, color:T.accent}}>
                 {inv.invoiceNo}
@@ -253,5 +281,14 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
       mode="purchase" data={data} upConfig={upConfig} user={user}
       onClose={()=>setShowServiceModal(false)}
     />}
+    {/* V19.39: Floating bulk-post bar */}
+    <BulkPostBar
+      selectedIds={selectedIds}
+      setSelectedIds={setSelectedIds}
+      allItems={filtered}
+      postOne={handlePost}
+      itemLabel="فاتورة"
+      isMob={isMob}
+    />
   </div>;
 }

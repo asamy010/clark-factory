@@ -28,8 +28,12 @@ const fmtDate = (d) => {
     return date.toLocaleDateString("ar-EG", { year: "numeric", month: "short", day: "numeric" });
   } catch (e) { return d; }
 };
-/* V18.28: Compact date format for tight tables (e.g. "22 أبر") — drops the year for space */
-const AR_MONTHS_SHORT = ["ينا","فبر","مار","أبر","ماي","يون","يول","أغس","سبت","أكت","نوف","ديس"];
+/* V18.28: Compact date format for tight tables — drops the year for space.
+   V19.43: Switched from 3-letter abbreviations ("أبر", "ماي") to full month names
+   ("أبريل", "مايو") per user feedback — the abbreviations were ambiguous (e.g.
+   "ماي" looked like a typo for "مايو" / "ماي" / "ماية"). The table layouts have
+   plenty of room since dates without years are still short (e.g. "3 مايو" — 6 chars). */
+const AR_MONTHS_SHORT = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
 const fmtDateCompact = (d) => {
   if (!d) return "—";
   try {

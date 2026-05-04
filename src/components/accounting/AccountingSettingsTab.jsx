@@ -28,6 +28,8 @@ import { ask, tell } from "../../utils/popups.js";
 const RULE_LABELS = {
   sale:                {label:"بيع للعميل", icon:"💰", fields:{customerAccount:"حساب العملاء", revenueAccount:"حساب الإيرادات", discountAccount:"حساب الخصم المسموح به"}},
   saleReturn:          {label:"مرتجع مبيعات", icon:"↩️", fields:{customerAccount:"حساب العملاء", returnAccount:"حساب مرتجع المبيعات"}},
+  /* V19.40 — Purchase return (debit note) */
+  purchaseReturn:      {label:"مرتجع مشتريات", icon:"↪️", fields:{supplierAccount:"حساب الموردين", returnAccount:"حساب مرتجع المشتريات"}},
   saleCogs:            {label:"تكلفة بضاعة مباعة (V18.40)", icon:"📦", fields:{cogsAccount:"حساب تكلفة البضاعة المباعة", finishedAccount:"مخزون منتج تام"}},
   saleReturnCogs:      {label:"إعادة تكلفة بضاعة مرتجعة (V18.40)", icon:"📥", fields:{finishedAccount:"مخزون منتج تام", cogsAccount:"حساب تكلفة البضاعة المباعة"}},
   customerPayCash:     {label:"دفعة كاش من عميل", icon:"💵", fields:{cashAccount:"حساب الخزينة", customerAccount:"حساب العملاء"}},

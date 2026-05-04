@@ -19,6 +19,8 @@ import {
 } from "../utils/invoices.js";
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { printCreditNote } from "../utils/printInvoice.js";
+/* V19.39: Bulk-post toolbar shared with SalesInvoicesPg + PurchaseInvoicesPg */
+import { BulkPostHeader, RowCheckbox, BulkPostBar } from "../components/BulkPostBar.jsx";
 
 const STATUS_META = {
   draft:  { label: "مسودة",  color: "#6B7280", bg: "#6B728015" },
@@ -35,6 +37,8 @@ export function CreditNotesPg({data, upConfig, isMob, user}){
   const [partyId, setPartyId] = useState("");
   const [search, setSearch]   = useState("");
   const [activeCN, setActiveCN] = useState(null);
+  /* V19.39: Multi-select for bulk posting */
+  const [selectedIds, setSelectedIds] = useState(new Set());
 
   const creditNotes = data.salesCreditNotes || [];
   const customers = data.customers || [];
@@ -59,8 +63,12 @@ export function CreditNotesPg({data, upConfig, isMob, user}){
 
   const stats = useMemo(() => getCreditNoteStats(data, {from, to, partyId, status}), [data, from, to, partyId, status]);
 
-  const handlePost = async (cn) => {
-    if(!await ask("ترحيل إشعار دائن", "ترحيل إشعار "+cn.creditNoteNo+" بمبلغ "+fmt(cn.total.toFixed(2))+"؟\n\nسيتم إنشاء قيد محاسبي عكسي للبيع الأصلي.", {confirmText:"ترحيل"})) return;
+  const handlePost = async (cn, opts = {}) => {
+    /* V19.39: silent mode used by bulk-post bar */
+    const silent = opts.silent === true;
+    if(!silent){
+      if(!await ask("ترحيل إشعار دائن", "ترحيل إشعار "+cn.creditNoteNo+" بمبلغ "+fmt(cn.total.toFixed(2))+"؟\n\nسيتم إنشاء قيد محاسبي عكسي للبيع الأصلي.", {confirmText:"ترحيل"})) return;
+    }
     const customer = (data.customers||[]).find(c => c.id === cn.customerId);
     const orderId = cn.returnRef && cn.returnRef.orderId;
     const order = orderId ? (data.orders||[]).find(o => o.id === orderId) : null;
@@ -68,7 +76,7 @@ export function CreditNotesPg({data, upConfig, isMob, user}){
     upConfig(d => { postCreditNoteMutator(d, cn.id, userName); });
 
     const postedCN = {...cn, status:"posted", postedAt: new Date().toISOString(), postedBy: userName};
-    autoPost.creditNotePosted(data, postedCN, customer, order, userName).then(res => {
+    const postPromise = autoPost.creditNotePosted(data, postedCN, customer, order, userName).then(res => {
       if(res && res.main && res.main.ok && res.main.entry){
         upConfig(d => {
           const idx = (d.salesCreditNotes||[]).findIndex(c => c.id === cn.id);
@@ -82,8 +90,11 @@ export function CreditNotesPg({data, upConfig, isMob, user}){
         });
       }
     }).catch(e => console.warn("[creditNotePosted] failed:", e));
-    showToast("✓ تم الترحيل");
-    setActiveCN(null);
+    if(!silent){
+      showToast("✓ تم الترحيل");
+      setActiveCN(null);
+    }
+    return postPromise;
   };
   const handleVoid = async (cn) => {
     if(!await ask("إلغاء إشعار دائن", "إلغاء إشعار "+cn.creditNoteNo+"؟\n\nسيتم إنشاء قيد عكسي.", {danger:true,confirmText:"إلغاء"})) return;
@@ -207,13 +218,23 @@ export function CreditNotesPg({data, upConfig, isMob, user}){
       </div>
     </Card>
       : <div style={{display:"flex", flexDirection:"column", gap:6}}>
+        {/* V19.39: bulk-post header */}
+        <BulkPostHeader
+          selectedIds={selectedIds}
+          setSelectedIds={setSelectedIds}
+          draftItems={filtered.filter(c => c.status === "draft")}
+          isMob={isMob}
+        />
         {filtered.map(cn => {
           const meta = STATUS_META[cn.status] || STATUS_META.draft;
+          const isDraft = cn.status === "draft";
           return <div key={cn.id} onClick={() => setActiveCN(cn)} style={{
             background: T.cardSolid, border:"1px solid "+T.brd, borderRadius:8,
             padding:"10px 12px", cursor:"pointer", display:"flex", alignItems:"center", gap:10, flexWrap:"wrap"
           }} onMouseEnter={e => e.currentTarget.style.background = T.bg}
              onMouseLeave={e => e.currentTarget.style.background = T.cardSolid}>
+            {/* V19.39: per-row checkbox */}
+            <RowCheckbox id={cn.id} isDraft={isDraft} selectedIds={selectedIds} setSelectedIds={setSelectedIds}/>
             <div style={{minWidth: isMob?100:140}}>
               <div style={{fontFamily:"monospace", fontSize:FS-1, fontWeight:800, color:"#EF4444"}}>{cn.creditNoteNo}</div>
               <div style={{fontSize:FS-3, color:T.textMut, fontFamily:"monospace"}}>{cn.date}</div>
@@ -239,6 +260,15 @@ export function CreditNotesPg({data, upConfig, isMob, user}){
       onPost={handlePost} onVoid={handleVoid} onDelete={handleDelete}
       isMob={isMob}
     />}
+    {/* V19.39: Floating bulk-post bar */}
+    <BulkPostBar
+      selectedIds={selectedIds}
+      setSelectedIds={setSelectedIds}
+      allItems={filtered}
+      postOne={handlePost}
+      itemLabel="إشعار دائن"
+      isMob={isMob}
+    />
   </div>;
 }
 

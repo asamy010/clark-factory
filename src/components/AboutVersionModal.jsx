@@ -25,6 +25,73 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.43",
+    date: "2026-05-03",
+    types: ["fix"],
+    title: "📅 أسماء الشهور كاملة في بورتال العميل (مايو بدل ماي)",
+    changes: [
+      { type: "fix", text: "📅 [بورتال العميل] جدول 'سجل الحركات' (مبيعات + مرتجعات) كان بيختصر اسم الشهر لـ3 حروف فقط — مايو→ماي، أبريل→أبر، أغسطس→أغس... بقت الأسماء كاملة دلوقتي. كانت المشكلة في `AR_MONTHS_SHORT` array اللي اتعمل في V18.28 لتوفير مساحة، بس الاختصارات طلعت مبهمة." },
+      { type: "improvement", text: "💡 [مفيش تأثير على الـ layout] رغم إن الأسماء بقت أطول، الجدول لسه واسع كفاية لأن السنة مش بتظهر في الـ compact format. مثلاً '3 مايو' = 6 حروف، أقل من تاريخ كامل بسنة." },
+    ]
+  },
+  {
+    version: "V19.42",
+    date: "2026-05-03",
+    types: ["fix"],
+    title: "🔗 شيلنا الكلام الإنجليزي تحت لينك CLARK في رسائل واتساب",
+    changes: [
+      { type: "fix", text: "🔗 [link preview أنظف] لما تبعت لينك بورتال العميل (clark-factory.vercel.app/?p=c&i=...) في واتساب، كان بيظهر تحت كلمة CLARK فقرة طويلة بالإنجليزي 'Welcome to the world of CLARK, where high quality meets contemporary elegance in children's clothing designs...' — كان مزعج لأن اللينك ده وظيفي مش ترويجي." },
+      { type: "fix", text: "🛠 [الإصلاح] شيلنا meta tags `description` و `og:description` و `twitter:description` من `index.html`. النتيجة: الـ preview بيظهر بس بـ logo CLARK وكلمة CLARK، بدون أي فقرة." },
+      { type: "improvement", text: "💡 [ملاحظة كاش] واتساب بيـcache الـ link previews لمدة. ممكن تاخد ساعات قبل ما الـ preview الجديد يظهر. لو لقيت الكلام لسه ظاهر بعد الـ deploy، اطلب من العميل يـclear chat cache، أو ابعت اللينك من رقم تاني عشان تختبر." },
+    ]
+  },
+  {
+    version: "V19.41",
+    date: "2026-05-03",
+    types: ["feature"],
+    title: "↪️ صفحة مرتجع المشتريات + زر ارتجاع للمورد من فاتورة الشراء",
+    changes: [
+      { type: "feature", text: "📑 [صفحة جديدة 'إشعارات مدينة'] tab جديد في الـ sidebar تحت 'فواتير المشتريات' — مرآة كاملة لصفحة 'إشعارات دائنة' بس على جهة الموردين. فلترة بالتاريخ والحالة والمورد، إحصائيات (مسودة/مرحّل/ملغي)، عرض البنود، ترحيل، إلغاء، حذف، طباعة." },
+      { type: "feature", text: "↪️ [زر 'ارتجاع للمورد'] على أي فاتورة شراء **مرحّلة** (مش خدمات)، زر أزرق بيظهر في الـ detail modal. اضغط → modal بيعرض الأصناف بـ checkbox + إدخال للكمية لكل بند. الحد الأقصى للكمية المرتجعة هو الكمية الأصلية في الفاتورة (مفيش ارتجاع زيادة)." },
+      { type: "feature", text: "🔗 [linked invoice] الإشعار المدين بيتولّد من الفاتورة الأصلية مع الحفاظ على رابط `linkedInvoiceId` و `linkedInvoiceNo` — كده تشوف في الإشعار 'للفاتورة: PINV-2026-XXXX' وفي طباعة الإشعار." },
+      { type: "feature", text: "🔄 [التجميع التلقائي شغال هنا كمان] لو عملت ارتجاع لنفس المورد مرتين في نفس اليوم وقبل ما ترحّل، الـ items بتتدمج في نفس الإشعار المسودة (بدل ما تطلع إشعارين). نفس الـ pattern من V18.65 و V19.39 و V19.40." },
+      { type: "feature", text: "✅ [Bulk post شغال] الترحيل الجماعي اللي في V19.39 شغل في صفحة الإشعارات المدينة بنفس الطريقة — checkbox لكل draft، شريط floating لما تختار، زر 'ترحيل المحدد' بيرحّل sequential مع toast واحد للنتيجة." },
+      { type: "feature", text: "🖨 [طباعة كاملة] `printDebitNote` بـ template أزرق (مميّز عن إشعار دائن الأحمر وعن فاتورة الشراء البرتقالي)، فيه الـ letterhead والـ totals والـ signatures. الطباعة شغّالة في كل الحالات (draft/posted/void) مع badge للحالة." },
+      { type: "feature", text: "📊 [Auto-resolve للسعر] لو دخلت بند مرتجع بدون سعر، النظام بيرجع لآخر فاتورة شراء non-void لنفس المورد ولنفس البند ويستخدم السعر اللي اشتريناه بيه فعلاً (`resolvePurchaseReturnUnitPrice` من V19.40). كده الإشعار بيخصم من المورد بنفس قيمة البند الأصلية." },
+      { type: "improvement", text: "🚫 [مفيش لخدمات] زر الارتجاع مش بيظهر على فواتير الخدمات (`subtype === 'service'`) — الخدمات مش حاجة بترجع، لو في خطأ في فاتورة خدمات بيتعمل void بدل ارتجاع." },
+    ]
+  },
+  {
+    version: "V19.40",
+    date: "2026-05-03",
+    types: ["feature", "architectural"],
+    title: "↪️ مرتجع المشتريات (Debit Notes) — البنية المحاسبية الكاملة",
+    changes: [
+      { type: "architectural", text: "↪️ [Entity جديدة data.purchaseDebitNotes] رقمها DN-YYYY-NNNN، نفس بنية credit notes الموجودة من V18.51 بس على الجهة العكسية. كل debit note بيمر بالحالات draft → posted → void زي باقي الـ entities." },
+      { type: "architectural", text: "📚 [حساب جديد في CoA] '5140 مرتجع المشتريات' contra-expense تحت 'تكلفة البضاعة المباعة'. لو شجرة حساباتك موجودة بالفعل، روح الإعدادات → شجرة الحسابات وهتلاقي زر '+ إضافة 1 حساب جديد' عشان تضيف الجديد بدون ما يأثر على القديم." },
+      { type: "architectural", text: "📐 [Posting rule جديد purchaseReturn] القيد المحاسبي: Dr موردون خامات (2110) / Cr مرتجع المشتريات (5140). يعني الـ debit note بيقلل اللي إحنا مدينين بيه للمورد ويسجل المرتجع كـ contra-expense (بيقلل تكلفة البضاعة في قائمة الدخل). يقدر المستخدم يغير الحسابات من الإعدادات." },
+      { type: "architectural", text: "🛠 [Builder + upserter] `buildDebitNoteFromReturn` + `upsertDebitNoteFromReturn` في invoices.js — `upsert` بيدمج تلقائياً مرتجعات نفس المورد لنفس اليوم في debit note واحد (نفس باترن V18.65 و V19.39). البنود بنفس الـ itemType+itemId+سعر بتتدمج، البنود بأسعار مختلفة بتفضل سطور منفصلة (price history مهم محاسبيًا)." },
+      { type: "architectural", text: "💰 [resolvePurchaseReturnUnitPrice] لو ما حددتش سعر للبند المرتجع، النظام بيرجع لآخر فاتورة شراء غير ملغية لنفس المورد ونفس البند ويستخدم السعر اللي اشتريناه بيه فعلاً. كده الـ debit note بيخصم من المورد بنفس المبلغ بالظبط." },
+      { type: "architectural", text: "🔄 [autoPost methods جديدة] `autoPost.debitNotePosted()` و `autoPost.debitNoteVoided()` — نفس باترن creditNote: ترحيل بيعمل قيد، إلغاء بيعمل قيد عكسي، الفشل بيتسجل في accountingPostFailures مع نفس الـ retry logic." },
+      { type: "architectural", text: "📊 [Stats helper] `getDebitNoteStats(data, filter)` بيرجع إحصائيات مفلترة (count + amount حسب الحالة) — جاهز للـ UI اللي جاي في V19.41." },
+      { type: "architectural", text: "🚧 [بدون UI لسه] V19.40 ده مرحلة محاسبية بحتة. الصفحة الجديدة DebitNotesPg + زر 'ارتجاع' في فاتورة المشتريات هييجوا في V19.41. الـ entity موجود ومحاسبيًا صح، بس متاح بس برمجيًا حاليًا — لو حد بيختبر الـ utils مباشرة من الـ console هيشتغلوا." },
+    ]
+  },
+  {
+    version: "V19.39",
+    date: "2026-05-03",
+    types: ["feature", "improvement"],
+    title: "✓ ترحيل جماعي للفواتير + تجميع فواتير المشتريات لنفس المورد/اليوم",
+    changes: [
+      { type: "feature", text: "✅ [ترحيل جماعي] فواتير المبيعات + إشعارات دائنة + فواتير المشتريات: ضفنا checkbox جنب كل مسودة + checkbox 'تحديد الكل' في الـ header. لما تختار حاجات، شريط أزرق بيظهر تحت بيقولك العدد + الإجمالي + زر 'ترحيل المحدد'. كل فاتورة بترحل بقيد محاسبي مستقل (sequential مش parallel) عشان مفيش race في الـ journal counter." },
+      { type: "feature", text: "🔄 [تجميع فواتير المشتريات] اضافة `upsertPurchaseInvoiceFromReceipt` — لما تحوّل إذن استلام لفاتورة، لو في فاتورة مسودة موجودة لنفس المورد ونفس التاريخ، البنود بتتدمج فيها (نفس الـ pattern بتاع فواتير المبيعات من V18.65). البنود اللي ليها نفس الـ itemType+itemId+سعر بتتدمج في سطر واحد بـ qty أكبر، اللي مختلفة بتتضاف كسطر جديد." },
+      { type: "improvement", text: "📑 [إنشاء فواتير جماعي ذكي] في صفحة فواتير المشتريات، زر 'إنشاء فواتير من N استلام' دلوقتي بيستخدم الـ upsert. لو عندك 5 إذونات لنفس المورد في نفس اليوم، هتطلع فاتورة واحدة بدل 5. الرسالة بقت تقول: 'تم إنشاء X فاتورة + دمج Y في فواتير قائمة'." },
+      { type: "improvement", text: "🔍 [findInvoiceByReceipt محدّث] الـ lookup بقى يدور في `receiptRefs[]` (الفواتير المدمجة) قبل ما يدور في الـ singular `receiptRef` (legacy). كده الإذونات اللي اندمجت في فاتورة مع غيرها هتظهر صح كـ 'مرتبطة بفاتورة' ومش هتظهر كـ uninvoiced." },
+      { type: "improvement", text: "📦 [مكوّن جديد BulkPostBar] component مشترك بين الـ 3 صفحات (مبيعات/مشتريات/مرتجعات) — `BulkPostHeader` + `RowCheckbox` + `BulkPostBar` (شريط floating بيظهر لما حاجة محددة). الـ DRY ده بيخلي الـ behavior متطابق ولو في bug في مكان، الإصلاح بيتطبق في كل الصفحات في نفس الوقت." },
+      { type: "improvement", text: "💡 [silent mode] الـ handlePost في الـ 3 صفحات ياخد `opts.silent` — لو true بيتخطى الـ confirmation dialog والـ toast الفردي. الـ bulk bar بيستخدم ده عشان يعمل confirm واحد + toast واحد للعملية كلها بدل ما المستخدم يضطر يضغط Yes 50 مرة." },
+    ]
+  },
+  {
     version: "V19.38",
     date: "2026-05-03",
     types: ["feature"],
@@ -91,91 +158,6 @@ const CHANGELOG = [
       { type: "feature", text: "🗜 [auto-compression] أي صورة بترفعها بتتضغط تلقائياً client-side: max 1280px width/height، JPEG quality 82%. الصور 3-5MB بتنزل لـ 200-400KB. كده الـ template.images بيتحفظ بنجاح في Firebase والصور بتتبعت في الحملة." },
       { type: "improvement", text: "📊 [diagnostic logs] قبل ما يبدأ الإرسال للبريدج، الكونسول بيطبع: عدد الرسائل، عدد الصور، حجم أول صورة base64، حجم الـ payload الإجمالي. لو في حد أكتر من 12MB، بيظهر تأكيد قبل الإرسال." },
       { type: "improvement", text: "✅ [حد آمن] كل صورة بعد الضغط لازم تكون أقل من 700KB base64 (مع safety margin). لو أكبر، رسالة خطأ واضحة. الإجمالي للقالب الواحد لازم أقل من 3MB base64." },
-    ]
-  },
-  {
-    version: "V19.33",
-    date: "2026-05-03",
-    types: ["feature"],
-    title: "📷 صور حقيقية في حملات Bridge + قوالب جاهزة للمستخدم الجديد",
-    changes: [
-      { type: "feature", text: "📷 [Bridge images] رفع صور حقيقية من القالب — تتبعت كـ attachment فعلي مع الرسالة في وضع Bridge. حد أقصى 5 صور · 5MB إجمالاً. multi-select من file picker، preview بـ thumbnails، زر ✕ لمسح كل صورة، badge بحجم الملف. النص بيتحط مع أول صورة كـ caption، الباقي صور بدون نص. فاصل عشوائي 1-2 ث بين الصور (anti-spam)." },
-      { type: "feature", text: "📷 [Campaign extra images] في BridgeSendScreen قبل الإرسال، تقدر تضيف صور إضافية للحملة دي بس (مش مرتبطة بالقالب). الـ UI بيوضح أنهي صورة من القالب (badge بنفسجي) وأنهي مضافة للحملة (badge أخضر). الإجمالي يفضل 5 صور كحد أقصى." },
-      { type: "feature", text: "✨ [قوالب جاهزة للمستخدم الجديد] لما القوالب فاضية، CLARK بيعرض اقتراحين: (1) 'تذكير دفع (يدوي)' — قالب نص نظيف للوضع اليدوي، يستخدم {اسم} و{رصيد} و{لينك}. (2) 'عرض جديد بالصور (Bridge)' — قالب بنص دعائي + توجيه لرفع صور للـ Bridge. زر ➕ استخدم بيضيف القالب فوراً ويسمحلك تعدّل عليه." },
-      { type: "feature", text: "🌉 [Bridge server] دعم media[] array في endpoint /send + processQueue. backwards compatible مع legacy mediaBase64 single-image. الـ MessageMedia loop بيبعت كل صورة لوحدها مع caption للأولى فقط، sleep(rand(1000,2000)) بين الصور." },
-      { type: "improvement", text: "🎨 [قائمة القوالب] badge أخضر '📷 N صورة (Bridge)' بيظهر على القوالب اللي فيها صور مرفوعة، علشان المستخدم يميّز بسرعة بين قوالب نصية وقوالب بصور. الـ badge القديم '🖼 رابط صورة (يدوي)' لسه ظاهر للقوالب اللي فيها imageUrl." },
-      { type: "improvement", text: "💡 [وضوح الـ UI] في Template Editor، حقل 'رابط صورة' و قسم 'صور مرفقة (Bridge)' منفصلين بصرياً وكل واحد فيه شرح الفرق. تحذير صريح: 'في الوضع اليدوي: الصور دي مش بتتبعت — استخدم رابط صورة فوق'." },
-    ]
-  },
-  {
-    version: "V19.32",
-    date: "2026-05-03",
-    types: ["feature"],
-    title: "🔗 لينك Portal لكل عميل في الحملات (placeholder \u007Bلينك\u007D)",
-    changes: [
-      { type: "feature", text: "🔗 [placeholder جديد] {لينك} في قوالب الحملات — بيتحوّل لـ portal URL خاص بكل عميل (read-only لحسابه: رصيد + طلبات + مدفوعات). الـ URL مولّد عبر `/api/customer-portal-sign` مع HMAC signature آمن — مش ممكن يتلاعب فيه أو يتنبأ به." },
-      { type: "feature", text: "⚡ [pre-fetch تلقائي] لما القالب فيه {لينك}، CLARK بيولّد لينكات كل العملاء قبل ما الحملة تبدأ. شاشة loading بـ progress bar (5 requests متوازية) + fallback لو فشل توليد بعض اللينكات (بيتُترك فاضي في الرسالة دي بس)." },
-      { type: "feature", text: "💾 [Resume support] الـ portal URLs محفوظة مع الحملة في `data.activeCampaigns[]`. لو قفلت CLARK في النص، رجعت تستأنف، الـ URLs مش بتتولّد تاني — بتستخدم المحفوظة. لو في عملاء جداد ما عندهمش URL، بنولّد للمفقودين بس." },
-      { type: "improvement", text: "✏️ [Template Editor] preview بيستخدم sample URL وهمي عشان تشوف شكل الرسالة قبل ما تحفظ. الـ {لينك} ظاهر في قائمة المتغيرات مع بقية الـ tokens." },
-      { type: "improvement", text: "🌉 [Both modes] اللينكات شغالة في الوضع اليدوي (wa.me) والـ Bridge (auto). شاشة الـ confirmation في Bridge mode بتعرض رسالة نجاح خضرا: '✓ تم توليد X لينك Portal بنجاح'." },
-    ]
-  },
-  {
-    version: "V19.31",
-    date: "2026-05-03",
-    types: ["feature", "improvement"],
-    title: "📊 Dashboard كامل للبريدج داخل CLARK + 5 تابات احترافية",
-    changes: [
-      { type: "feature", text: "📊 [Dashboard tab] صفحة لوحة متابعة كاملة داخل CLARK بدل ما تفتح صفحة البريدج من بره. حالة الاتصال (متصل/QR/منقطع) + اسم الرقم المتصل + uptime + 6 stat cards كبيرة (مرسلة اليوم، في الطابور، إجمالي مرسل، فشل، opt-outs، بيبعت الآن) + progress bar للحد اليومي + auto-refresh كل 5 ثواني + آخر 10 نشاطات معاينة." },
-      { type: "feature", text: "⚙️ [Settings tab] كل الإعدادات في تابة منفصلة: URL + Auth Token + delays (مع Typing simulation الجديدة) + daily cap + batch size + batch breaks + retry + opt-out detection. زر اختبار اتصال + ملخص توقعات الوقت." },
-      { type: "feature", text: "📈 [Stats tab] إحصائيات تفصيلية: معدل النجاح %، متوسط الإرسال بالثانية، إجمالي مرسل، إجمالي فاشل، مدة الجلسة، توزيع آخر 50 محاولة (نجح/فشل/تخطّى)، أكثر 10 عملاء استلاماً مرتبين." },
-      { type: "feature", text: "📋 [Activity tab] سجل آخر 100 محاولة إرسال من البريدج (بيتحدّث live). فلتر بالحالة (الكل/نجح/فشل/تخطّى)، اسم العميل + الرقم + الوقت النسبي ('الآن'، '5 د', '2 س') + سبب الفشل + مدة الإرسال." },
-      { type: "feature", text: "🛠 [Tools tab] أدوات قوية: (1) إرسال رسالة اختبار لرقم محدد (تتبعت فوراً بدون queue) — مفيد للتأكد إن البريدج شغال (2) إدارة قائمة opt-outs — عرض كل الأرقام، إضافة جماعية بـ paste من Excel، حذف فردي (3) تصفير العداد اليومي مع تحذير." },
-      { type: "feature", text: "📱 [QR في CLARK] لو الواتساب اتقطع، الـ QR هيظهر مباشرة في Dashboard tab داخل CLARK — مش لازم تفتح URL البريدج من بره. خلفية صفرا واضحة + تعليمات بالعربي." },
-      { type: "feature", text: "🎮 [أزرار تحكم سريعة] في الـ Dashboard: ⏸ إيقاف مؤقت، ▶ استئناف، ⏹ إيقاف نهائي، 🧹 مسح المكتمل، 🔌 قطع الاتصال (re-scan QR). الأزرار بتظهر/تختفي حسب الحالة (مثلاً: 'إيقاف مؤقت' بيظهر بس لو في رسائل بتتبعت)." },
-      { type: "feature", text: "🔧 [Bridge endpoints جديدة] على السيرفر: GET /activity (سجل النشاط), GET /qr (للعرض داخل CLARK), POST /test-message (إرسال فوري), POST /reset-daily, POST /optouts/bulk-add, GET /stats (analytics مفصلة). كل النشاطات بتتسجل تلقائياً في log في الذاكرة (max 100 entry) مع timestamp + duration + customer name." },
-      { type: "improvement", text: "💡 [UX] الـ Dashboard بيعمل auto-refresh كل 5 ثواني — مفيش حاجة تضغط refresh. الإحصائيات في الأعلى دايماً محدّثة. لو حصل error في الاتصال، رسالة واضحة بـ guidance تقولك ايه التحقق من URL/Token + التذكير بـ 'docker compose ps'." },
-      { type: "improvement", text: "🎨 [تصميم] tabs بنية tabbed clean + active state واضح بـ underline ملوّن. كل تابة شاشة كاملة عشان مفيش scroll لانهائي. BigStat cards فيها icon + label + value كبير + sub-label للسياق." },
-    ]
-  },
-  {
-    version: "V19.30",
-    date: "2026-05-03",
-    types: ["feature", "architectural"],
-    title: "🌐 Bridge على VPS — Docker + HTTPS تلقائي + Auth Token",
-    changes: [
-      { type: "feature", text: "🐳 [جديد] `Dockerfile` للبريدج — Node 20 + Chromium pre-installed. صورة جاهزة تشغّل في أي مكان. حجم 350MB تقريباً." },
-      { type: "feature", text: "🔧 [جديد] `docker-compose.yml` — يشغّل خدمتين: bridge (داخلي) + Caddy (reverse proxy). Volumes للسيشن والشهادات. auto-restart لو في crash. CORS مفتوح للـ CLARK." },
-      { type: "feature", text: "🔒 [جديد] `Caddyfile` — reverse proxy بـ HTTPS تلقائي. Caddy بيطلب شهادات Let's Encrypt تلقائياً للـ domain اللي تختاره ويجدّدها كل شهرين بدون تدخل. HSTS + security headers مفعّلة." },
-      { type: "feature", text: "🚀 [جديد] `setup-vps.sh` — سكريبت آلي يعمل كل حاجة بأمر واحد على VPS فاضي (Ubuntu 22/24): تحديث النظام، تركيب Docker + Compose، ضبط UFW firewall (ports 22/80/443)، توليد Auth Token عشوائي 64-حرف، بناء وتشغيل البريدج." },
-      { type: "feature", text: "🔐 [أمان] `AUTH_TOKEN` في server.js — middleware جديد بيتشيك Authorization: Bearer header على كل endpoint (ماعدا / و /status). أي طلب بدون token صحيح بيرجع 401. السكريبت بيولّد token عشوائي ويحطه في .env. CLARK لازم تبعت الـ token عشان البريدج يقبل الطلبات." },
-      { type: "feature", text: "🎨 [CLARK UI] خانة 'Auth Token' جديدة في صفحة إعدادات البريدج — بـ type=password عشان متظهرش. الـ token بيتحفظ في `data.campaignBridge.token`. كل bridge calls (status, send, queue, pause, resume, stop, settings, etc.) بتمرر الـ token تلقائياً. لو 401 من السيرفر، رسالة واضحة 'Unauthorized — تأكد من Auth Token'." },
-      { type: "feature", text: "📚 [دليل عربي كامل] `SETUP-VPS.md` — خطوة بخطوة لتشغيل البريدج على VPS من الصفر: رفع الملفات، تشغيل setup-vps.sh، انتظار شهادة HTTPS، scan QR، ربط CLARK. + قسم troubleshooting + أوامر مفيدة + backup السيشن." },
-      { type: "improvement", text: "🛡 [أمان VPS] firewall بيقفل كل الـ ports غير 22 (SSH), 80 (HTTP لـ Let's Encrypt), 443 (HTTPS). البريدج (3001) ما بيتعرضش لبره — بس Caddy بيوصل له داخلياً. مفيش direct access للـ bridge من الخارج." },
-      { type: "improvement", text: "🔄 [Persistent volumes] السيشن (`.wwebjs_auth`) و الـ state (`.bridge-state.json`) محفوظين في Docker volumes. لو البريدج اتوقف أو الكونتينر اتعاد بناؤه، الـ session مش هتضيع — مش هتحتاج تـ scan QR تاني." },
-    ]
-  },
-  {
-    version: "V19.29",
-    date: "2026-05-02",
-    types: ["feature", "improvement"],
-    title: "📣 [اشتغال احترافي] الحملات اليدوية: 11 ميزة جديدة + إدارة كاملة للسجل",
-    changes: [
-      { type: "feature", text: "🧹 [الطلب الأساسي] auto-remove sent items: لما تبعت لعميل، بيختفي من قائمة 'النشط' تلقائياً. القائمة فضاية بعد كل ضغطة. التوجل ON بشكل افتراضي مع checkbox للتحكم." },
-      { type: "feature", text: "🔍 search box في القائمة بحث بالاسم أو الرقم — مفيد لما تكون الحملة 100+ عميل." },
-      { type: "feature", text: "🎯 filter بالحالة: نشط/الكل/معلّق/مبعوت/متخطّى/فشل. كل فلتر بيظهر العداد الصحيح." },
-      { type: "feature", text: "⏭ jump-to-customer: اضغط على أي عميل في القائمة (لو نشط)، يقفز ليه مباشرة بدل ما تستنى لحد ما توصله بالترتيب." },
-      { type: "feature", text: "✏️ تعديل الرسالة لكل عميل: تقدر تعدّل نص الرسالة لعميل واحد قبل الإرسال (مثلاً تكتب جملة شخصية). علامة ✏️ بتظهر على العميل لو الرسالة معدّلة." },
-      { type: "feature", text: "📝 تخطّى مع ملاحظة: زر منفصل بيفتح dialog يدخّل سبب التخطي ('قال يتصل تاني'، 'مش متاح'، إلخ). الملاحظة بتظهر في القائمة وفي تفاصيل الحملة بعدين." },
-      { type: "feature", text: "↩ undo last action: بعد كل إرسال أو تخطّى، زر 'تراجع' بيظهر — لو دوست بالغلط ترجع تعديل لحظتها." },
-      { type: "feature", text: "🚫 [نظام جديد] قائمة المحظورين: زر '🚫 محظور' في شاشة الإرسال يحط العميل في `data.campaignBlocklist[]` فوراً، وبيتم استبعاده تلقائياً من **كل الحملات الجديدة** بشكل دائم. صفحة منفصلة (🚫 محظورين في الـheader) لإدارة القائمة — حذف، رفع الحظر، بحث." },
-      { type: "feature", text: "🔁 إعادة الفاشل: زر 'إعادة الفاشل (X)' أثناء وبعد الحملة بيرجّع كل الفاشل لحالة pending عشان تحاول تاني." },
-      { type: "feature", text: "💾 [قوي جداً] حفظ تلقائي للاستئناف: الحملة بتتحفظ في `data.activeCampaigns[]` كل 3 ث + عند كل إرسال/تخطّى. لو قفلت CLARK أو الـbrowser في النص، بترجع تلاقي banner أزرق فوق صفحة الحملات: '⏯ حملات معلّقة' بـ progress bar وزر '▶ استئناف' — يكمّل من نفس النقطة بكل حالة كل عميل." },
-      { type: "feature", text: "⏱ ETA estimate: 'متبقي ~12 دقيقة' بيتحسب لحظياً بناءً على معدل الإرسال الفعلي." },
-      { type: "feature", text: "📊 [تفاصيل الحملات السابقة] modal جديد: اضغط على أي حملة في السجل، يفتح modal فيه كل العملاء + حالة كل واحد + الملاحظات + Excel export + 'إعادة الفاشل' و 'إعادة للكل' (يفتح حملة جديدة بنفس الجمهور)." },
-      { type: "feature", text: "🗑 حذف الحملات: زر 🗑 على كل صف في سجل الحملات + زر 'امسح الكل'. سجل الحملات بقى عنده Excel export برضه." },
-      { type: "improvement", text: "💾 [breaking] الحملات دلوقتي بتحفظ تفاصيل كل العملاء (`items[]` بـ id/name/phone/status/sentAt/skipNote/customMessage) — مش بس ملخص. ده بيخلي شاشة 'تفاصيل الحملة' تعرض كل التفاصيل. حملات قديمة قبل V19.29 هيكون عندها summary بس وده مش هيتعطل." },
-      { type: "improvement", text: "🛡 buildAudience دلوقتي بيستثني المحظورين تلقائياً قبل ما تعد العملاء. مفيش طريقة عشوائية ترجعهم — لازم تشيلهم من قائمة المحظورين يدوياً." },
     ]
   },
 ];

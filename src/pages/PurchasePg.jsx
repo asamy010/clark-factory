@@ -15,7 +15,7 @@ import { T, TH, TD } from "../theme.js";
 import { openPrintWindow } from "../utils/print.js";
 import { getUnits } from "../utils/units.js";
 import { formatBlockerMessage, getDeleteBlocker, canForceDelete, summarizeForceDelete, forceDeleteCleanup } from "../utils/dataIntegrity.js";
-import { buildPurchaseInvoiceFromReceipt, findInvoiceByReceipt } from "../utils/invoices.js";
+import { buildPurchaseInvoiceFromReceipt, upsertPurchaseInvoiceFromReceipt, findInvoiceByReceipt } from "../utils/invoices.js";
 
 export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   const userName=user?.displayName||(user?.email||"").split("@")[0];
@@ -2067,12 +2067,19 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
             }
             return <Btn onClick={()=>{
               const supplier=(data.suppliers||[]).find(s=>s.id===viewReceipt.supplierId);
+              /* V19.39: Use upsert so multiple receipts for the same supplier on the
+                 same day merge into one draft invoice instead of creating duplicates.
+                 Mirrors the V18.65 sales side. */
+              let result = { isNew: true, invoice: null };
               upConfig(d=>{
                 if(!Array.isArray(d.purchaseInvoices))d.purchaseInvoices=[];
-                const inv=buildPurchaseInvoiceFromReceipt(d,viewReceipt,supplier,userName);
-                d.purchaseInvoices.unshift(inv);
+                result = upsertPurchaseInvoiceFromReceipt(d,viewReceipt,supplier,userName);
               });
-              showToast("✓ تم إنشاء فاتورة مسودة — راجعها في تبويب 'فواتير المشتريات'");
+              showToast(
+                result.isNew
+                  ? "✓ تم إنشاء فاتورة مسودة — راجعها في تبويب 'فواتير المشتريات'"
+                  : "✓ تم إضافة الإذن لفاتورة موجودة (مسودة) — راجع 'فواتير المشتريات'"
+              );
             }} style={{background:"#F59E0B15",color:"#F59E0B",border:"1px solid #F59E0B40",fontWeight:700}}>📥 تحويل لفاتورة</Btn>;
           })()}
           <Btn onClick={()=>printReceipt(viewReceipt)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨️ طباعة</Btn>

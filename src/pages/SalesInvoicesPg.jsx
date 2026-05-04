@@ -21,6 +21,10 @@ import { printInvoice } from "../utils/printInvoice.js";
 import { ServiceInvoiceModal } from "../components/ServiceInvoiceModal.jsx";
 import { ReviewRequestModal } from "../components/ReviewRequestModal.jsx";
 import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
+/* V19.39: Bulk-post toolbar shared with PurchaseInvoicesPg + CreditNotesPg */
+import { BulkPostHeader, RowCheckbox, BulkPostBar } from "../components/BulkPostBar.jsx";
+/* V19.41: Purchase return picker — opens from a posted purchase invoice */
+import { PurchaseReturnPickerModal } from "../components/PurchaseReturnPickerModal.jsx";
 
 const STATUS_META = {
   draft:  { label: "مسودة",  color: "#6B7280", bg: "#6B728015" },
@@ -39,6 +43,8 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
   const [activeInvoice, setActiveInvoice] = useState(null);
   /* V18.85: Service invoice modal */
   const [showServiceModal, setShowServiceModal] = useState(false);
+  /* V19.39: Multi-select for bulk posting */
+  const [selectedIds, setSelectedIds] = useState(new Set());
 
   const invoices = data.salesInvoices || [];
   const customers = data.customers || [];
@@ -75,8 +81,13 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
     return () => window.removeEventListener("notif-deeplink", handler);
   }, [invoices]);
 
-  const handlePost = async (inv) => {
-    if(!await ask("ترحيل الفاتورة", "ترحيل الفاتورة "+inv.invoiceNo+" بمبلغ "+fmt(inv.total.toFixed(2))+"؟\n\nسيتم إنشاء قيد محاسبي تلقائياً.", {confirmText:"ترحيل"})) return;
+  const handlePost = async (inv, opts = {}) => {
+    /* V19.39: silent mode used by bulk-post bar — skips the per-invoice
+       confirmation prompt and toast since the bulk bar shows its own UX. */
+    const silent = opts.silent === true;
+    if(!silent){
+      if(!await ask("ترحيل الفاتورة", "ترحيل الفاتورة "+inv.invoiceNo+" بمبلغ "+fmt(inv.total.toFixed(2))+"؟\n\nسيتم إنشاء قيد محاسبي تلقائياً.", {confirmText:"ترحيل"})) return;
+    }
     /* V18.50: First update status to posted, then trigger auto-post.
        The auto-post reads the invoice's posted state, so the status must
        be persisted first via upConfig. */
@@ -88,7 +99,9 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
 
     /* Build the posted invoice object for auto-post (status is now "posted") */
     const postedInv = {...inv, status:"posted", postedAt: new Date().toISOString(), postedBy: userName};
-    autoPost.salesInvoicePosted(data, postedInv, customer, order, userName).then(res => {
+    /* Returns a promise so bulk-post can await — but we still don't block the
+       UI, the journal-ref persistence happens in the background as before. */
+    const postPromise = autoPost.salesInvoicePosted(data, postedInv, customer, order, userName).then(res => {
       /* Persist the journal ref back onto the invoice */
       if(res && res.main && res.main.ok && res.main.entry){
         upConfig(d => {
@@ -103,8 +116,11 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
         });
       }
     }).catch(e => console.warn("[salesInvoicePosted] failed:", e));
-    showToast("✓ تم الترحيل");
-    setActiveInvoice(null);
+    if(!silent){
+      showToast("✓ تم الترحيل");
+      setActiveInvoice(null);
+    }
+    return postPromise;
   };
   const handleVoid = async (inv) => {
     if(!await ask("إلغاء الفاتورة", "إلغاء الفاتورة "+inv.invoiceNo+"؟\n\nسيتم إنشاء قيد عكسي للقيد الأصلي.", {danger:true,confirmText:"إلغاء الفاتورة"})) return;
@@ -239,13 +255,23 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
       </div>
     </Card>
       : <div style={{display:"flex", flexDirection:"column", gap:6}}>
+        {/* V19.39: bulk-post header — toggles "select all drafts" */}
+        <BulkPostHeader
+          selectedIds={selectedIds}
+          setSelectedIds={setSelectedIds}
+          draftItems={filtered.filter(i => i.status === "draft")}
+          isMob={isMob}
+        />
         {filtered.map(inv => {
           const meta = STATUS_META[inv.status] || STATUS_META.draft;
+          const isDraft = inv.status === "draft";
           return <div key={inv.id} onClick={() => setActiveInvoice(inv)} style={{
             background: T.cardSolid, border:"1px solid "+T.brd, borderRadius:8,
             padding:"10px 12px", cursor:"pointer", display:"flex", alignItems:"center", gap:10, flexWrap:"wrap"
           }} onMouseEnter={e => e.currentTarget.style.background = T.bg}
              onMouseLeave={e => e.currentTarget.style.background = T.cardSolid}>
+            {/* V19.39: per-row checkbox (only renders for drafts; renders a spacer otherwise) */}
+            <RowCheckbox id={inv.id} isDraft={isDraft} selectedIds={selectedIds} setSelectedIds={setSelectedIds}/>
             <div style={{minWidth: isMob?100:140}}>
               <div style={{fontFamily:"monospace", fontSize:FS-1, fontWeight:800, color:T.accent}}>
                 {inv.invoiceNo}
@@ -280,6 +306,15 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
       mode="sales" data={data} upConfig={upConfig} user={user}
       onClose={()=>setShowServiceModal(false)}
     />}
+    {/* V19.39: Floating bulk-post bar (only renders when items are selected) */}
+    <BulkPostBar
+      selectedIds={selectedIds}
+      setSelectedIds={setSelectedIds}
+      allItems={filtered}
+      postOne={handlePost}
+      itemLabel="فاتورة"
+      isMob={isMob}
+    />
   </div>;
 }
 
@@ -291,6 +326,8 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
   const isPurchase = type === "purchase";
   /* V18.90: Review request modal toggle */
   const [showReview, setShowReview] = useState(false);
+  /* V19.41: Purchase return picker toggle (only relevant for posted purchase invoices) */
+  const [showReturnPicker, setShowReturnPicker] = useState(false);
   /* V18.58: Free discount editor — local state, applied to invoice on change */
   const [discountType, setDiscountType] = useState(invoice.discountType || (invoice.discountPct ? "pct" : "amount"));
   const [discountValue, setDiscountValue] = useState(
@@ -470,6 +507,16 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
           <Btn onClick={() => onDelete(invoice)} style={{background:T.err+"15", color:T.err, border:"1px solid "+T.err+"40"}}>🗑 حذف المسودة</Btn>
           <Btn primary onClick={() => onPost(invoice)} style={{background:STATUS_META.posted.color, color:"#fff", border:"none"}}>✅ ترحيل</Btn>
         </>}
+        {/* V19.41: Return-to-supplier — only for POSTED purchase invoices.
+            Voiding a whole invoice would reverse all goods; this lets the user
+            return only specific items/qtys, which is the common case (damaged
+            on receipt, partial spec mismatch, etc.) */}
+        {invoice.status === "posted" && isPurchase && (invoice.subtype !== "service") && (
+          <Btn onClick={() => setShowReturnPicker(true)}
+               style={{background:"#3B82F615", color:"#3B82F6", border:"1px solid #3B82F640", fontWeight:700}}>
+            ↪️ ارتجاع للمورد
+          </Btn>
+        )}
         {invoice.status === "posted" && <Btn onClick={() => onVoid(invoice)} style={{background:T.err+"15", color:T.err, border:"1px solid "+T.err+"40"}}>❌ إلغاء</Btn>}
       </div>
     </div>
@@ -485,5 +532,22 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
       data={data} upConfig={upConfig} user={user}
       onClose={()=>setShowReview(false)}
     />}
+    {/* V19.41: Purchase return picker. Closing it after a successful create
+        also closes the parent invoice modal so the user lands back on the
+        list, where they can see the new debit note in the badges (no need
+        to navigate to the debit notes tab manually). */}
+    {showReturnPicker && isPurchase && (() => {
+      const supplier = (data.suppliers||[]).find(s => s.id === invoice.supplierId);
+      return <PurchaseReturnPickerModal
+        invoice={invoice}
+        supplier={supplier}
+        data={data}
+        upConfig={upConfig}
+        user={user}
+        isMob={isMob}
+        onClose={() => setShowReturnPicker(false)}
+        onCreated={() => onClose()}
+      />;
+    })()}
   </div>;
 }

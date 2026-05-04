@@ -65,6 +65,7 @@ export const DEFAULT_COA = [
   {code:"5110", name:"تكلفة الخامات",        type:"expense",   parentCode:"5100", isLeaf:true,  system:false},
   {code:"5120", name:"أجور تشغيل خارجي",    type:"expense",   parentCode:"5100", isLeaf:true,  system:true},
   {code:"5130", name:"تكلفة البضاعة المباعة (مبيعات)", type:"expense", parentCode:"5100", isLeaf:true, system:true},/* used by sale-COGS auto-post */
+  {code:"5140", name:"مرتجع المشتريات",      type:"expense",   parentCode:"5100", isLeaf:true,  system:true},/* V19.40 — contra-expense, reduces COGS */
   {code:"5200", name:"الأجور والمرتبات",     type:"expense",   parentCode:"5000", isLeaf:false, system:true},
   {code:"5210", name:"رواتب ثابتة",          type:"expense",   parentCode:"5200", isLeaf:true,  system:true},
   {code:"5220", name:"حوافز وعمولات",        type:"expense",   parentCode:"5200", isLeaf:true,  system:false},
@@ -106,6 +107,20 @@ export const DEFAULT_POSTING_RULES = {
      Dr مخزون منتج تام (1320)         <qty × unitCost>
        Cr تكلفة البضاعة المباعة (5130) */
   saleReturnCogs:     {finishedAccount:"1320", cogsAccount:"5130"},
+  /* V19.40 — Purchase return: returning goods to supplier (debit note)
+     Dr موردون خامات (2110)         <amount>     ← reduces what we owe them
+       Cr مرتجع المشتريات (5140)    <amount>     ← contra-expense (reduces COGS)
+                                                    OR returns inventory to where it came from
+     Mirror logic of saleReturn but for purchases. We use a contra-expense
+     account ("مرتجع المشتريات") rather than crediting the inventory account
+     directly because:
+       1) it preserves the historical record of what was originally bought, and
+       2) the return reason might NOT be "back to inventory" (damaged goods,
+          spec mismatch) — the contra-expense account leaves room for future
+          subdivision (e.g. شطب بضاعة تالفة) without restating inventory.
+     If the user wants direct inventory credit instead, they can override
+     `returnAccount` to point at "1310 مخزون خامات" via Accounting Settings. */
+  purchaseReturn:     {supplierAccount:"2110", returnAccount:"5140"},
   /* Customer payment: cash/transfer
      Dr الخزينة (1110) أو البنوك  <amount>
        Cr عملاء (1210) */

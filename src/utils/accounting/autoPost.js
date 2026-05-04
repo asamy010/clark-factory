@@ -32,6 +32,8 @@ import {
   buildSalesInvoicePostedEntry, buildSalesInvoiceCogsEntry,
   buildPurchaseInvoicePostedEntry, buildInvoiceVoidEntry,
   buildCreditNotePostedEntry, buildCreditNoteCogsEntry,
+  /* V19.40: purchase returns */
+  buildDebitNotePostedEntry,
 } from "./postingRules.js";
 import { isDateLocked, getLockReason } from "./periodLock.js";
 import { calcOrder } from "../orders.js";
@@ -357,6 +359,24 @@ export const autoPost = {
     if(!creditNote.postedJournalRef) return Promise.resolve({ok:false, skipped:"no-original-ref"});
     const ref = creditNote.postedJournalRef;
     return _reverse(sourceType, sourceType, creditNote.id, ref.date, "إلغاء إشعار دائن "+creditNote.creditNoteNo, createdBy);
+  },
+
+  /* V19.40 — Post a debit note (purchase return).
+     Generates a single entry: Dr supplier-payable / Cr purchase-returns.
+     No COGS companion — purchases don't run through COGS at the time of
+     purchase (they hit inventory directly), so there's nothing to reverse
+     on the COGS side. The contra-expense account handles the offset. */
+  debitNotePosted(config, debitNote, supplier, createdBy){
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
+    return _buildAndPost("debitNote", "debitNote", buildDebitNotePostedEntry, [debitNote, supplier, getCoa(config), getRules(config)], config, createdBy);
+  },
+
+  /* V19.40 — Reverse a debit note's journal entry when voided. */
+  debitNoteVoided(config, debitNote, createdBy){
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
+    if(!debitNote.postedJournalRef) return Promise.resolve({ok:false, skipped:"no-original-ref"});
+    const ref = debitNote.postedJournalRef;
+    return _reverse("debitNote", "debitNote", debitNote.id, ref.date, "إلغاء إشعار مدين "+debitNote.debitNoteNo, createdBy);
   },
 
   reverse(config, sourceType, sourceId, date, reason, createdBy){

@@ -722,3 +722,50 @@ export function buildCreditNoteCogsEntry(creditNote, order, coa, rules, config){
     ],
   };
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V19.40 — DEBIT NOTE (مرتجع المشتريات) JOURNAL ENTRY
+   ───────────────────────────────────────────────────────────────────────
+   Symmetric to buildCreditNotePostedEntry. Posting:
+     Dr موردون خامات (2110)        <total>     ← reduces our payable to supplier
+       Cr مرتجع المشتريات (5140)   <total>     ← contra-expense (reduces COGS)
+
+   Why a contra-expense rather than crediting inventory directly?
+   The original purchase posted: Dr inventory / Cr AP. The accounting-correct
+   reversal would be Dr AP / Cr inventory. But we use a separate contra-account
+   so that:
+     1) the income statement shows BOTH the gross purchase cost and the
+        return offsets clearly, instead of inventory looking like it
+        "was never bought" (which makes audit trails harder to follow), and
+     2) future categorization is possible (شطب بضاعة تالفة، رد عيوب، etc).
+   The user can override `returnAccount` to "1310 مخزون خامات" if they prefer
+   the direct-inventory-reversal style.
+   ═══════════════════════════════════════════════════════════════════════ */
+export function buildDebitNotePostedEntry(debitNote, supplier, coa, rules){
+  if(!debitNote || debitNote.status !== "posted") return null;
+  const r = resolveRules(rules);
+  const total = _r2(Number(debitNote.total)||0);
+  if(total <= 0) return null;
+
+  const ap = ensureLeaf(coa, r.purchaseReturn?.supplierAccount || "2110", "موردون خامات");
+  const rt = ensureLeaf(coa, r.purchaseReturn?.returnAccount   || "5140", "مرتجع المشتريات");
+  const date = debitNote.date || new Date().toISOString().split("T")[0];
+
+  const itemSummary = (debitNote.items||[]).slice(0,2).map(it =>
+    `${it.qty} × ${it.name||"—"}`).join("، ");
+
+  return {
+    date,
+    sourceType: "debitNote",
+    sourceId: debitNote.id,
+    narration: `إشعار مدين ${debitNote.debitNoteNo} للمورد ${debitNote.supplierName||""}`,
+    lines: [
+      {accountId:ap.id, accountCode:ap.code, accountName:ap.name, debit:total, credit:0,
+       partyId:supplier?.id||debitNote.supplierId, partyName:supplier?.name||debitNote.supplierName,
+       note:`إشعار مدين ${debitNote.debitNoteNo}`},
+      {accountId:rt.id, accountCode:rt.code, accountName:rt.name, debit:0, credit:total,
+       note:`مرتجع — ${itemSummary}`},
+    ],
+    partyHint: {kind:"supplier", id:supplier?.id||debitNote.supplierId, name:supplier?.name||debitNote.supplierName},
+  };
+}

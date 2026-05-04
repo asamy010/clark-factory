@@ -222,7 +222,12 @@ export function upsertSalesInvoiceFromDelivery(d, delivery, order, customer, use
 
 /* Build an invoice from a single purchase receipt.
    receipt: { id, supplierId, supplierName, date, items: [...], totalAmount }
-   Returns: a new purchaseInvoice object (NOT yet pushed — caller does that) */
+   Returns: a new purchaseInvoice object (NOT yet pushed — caller does that)
+
+   V19.39: Kept for callers that need a fresh invoice object (e.g. tests, edge
+   cases). Production callers should use upsertPurchaseInvoiceFromReceipt below
+   so multiple receipts on the same day from the same supplier get merged into
+   ONE draft invoice — mirroring the V18.65 behavior on the sales side. */
 export function buildPurchaseInvoiceFromReceipt(d, receipt, supplier, userName){
   const invoiceNo = reserveInvoiceNo(d, "purchase");
   const items = (receipt.items || []).map(it => ({
@@ -236,6 +241,7 @@ export function buildPurchaseInvoiceFromReceipt(d, receipt, supplier, userName){
   const subtotal = items.reduce((s, it) => s + it.lineTotal, 0);
   const discount = Number(receipt.discount) || 0;
   const total = subtotal - discount;
+  const ref = { receiptId: receipt.id, receiptNo: receipt.receiptNo || receipt.id };
 
   return {
     id: "pinv_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,7),
@@ -244,7 +250,8 @@ export function buildPurchaseInvoiceFromReceipt(d, receipt, supplier, userName){
     supplierId: supplier?.id || receipt.supplierId,
     supplierName: supplier?.name || receipt.supplierName || "",
     date: receipt.date || new Date().toISOString().split("T")[0],
-    receiptRef: { receiptId: receipt.id, receiptNo: receipt.receiptNo || receipt.id },
+    receiptRef: ref,           /* legacy compat — singular */
+    receiptRefs: [ref],        /* V19.39 — plural for multi-receipt invoices */
     items,
     subtotal,
     discountPct: subtotal > 0 ? (discount / subtotal * 100) : 0,
@@ -255,6 +262,105 @@ export function buildPurchaseInvoiceFromReceipt(d, receipt, supplier, userName){
     createdAt: new Date().toISOString(),
     createdBy: userName || "",
   };
+}
+
+/* V19.39 — UPSERT variant: consolidates same-supplier same-date DRAFT invoices.
+   Mirrors upsertSalesInvoiceFromDelivery semantics so the data shape and merge
+   rules stay symmetrical between sales and purchases.
+
+   Returns { invoice, isNew } so callers can do post-side effects (toast,
+   audit log, etc.) only on brand-new invoices. */
+export function upsertPurchaseInvoiceFromReceipt(d, receipt, supplier, userName){
+  if(!Array.isArray(d.purchaseInvoices)) d.purchaseInvoices = [];
+
+  const supplierId = supplier?.id || receipt.supplierId;
+  const date = receipt.date || new Date().toISOString().split("T")[0];
+  const ref = { receiptId: receipt.id, receiptNo: receipt.receiptNo || receipt.id };
+
+  /* Try to find an existing DRAFT invoice for same supplier + same date.
+     Posted/void invoices are excluded — accounting has already committed to
+     them, so we never modify them retroactively. */
+  const existing = d.purchaseInvoices.find(i =>
+    i.status === "draft" &&
+    i.supplierId === supplierId &&
+    i.date === date
+  );
+
+  /* Normalize incoming items to our line shape */
+  const incomingItems = (receipt.items || []).map(it => ({
+    itemType: it.itemType,
+    itemId:   it.itemId,
+    name:     it.name || it.itemName || "",
+    qty:      Number(it.qty) || 0,
+    unitPrice:Number(it.unitPrice) || Number(it.price) || 0,
+    lineTotal:(Number(it.qty)||0) * (Number(it.unitPrice)||Number(it.price)||0),
+  }));
+  const incomingDiscount = Number(receipt.discount) || 0;
+
+  if(existing){
+    /* Merge: bump qty if same itemType+itemId+unitPrice matches an existing line,
+       else append a new line. This matches how the sales side dedupes by
+       orderId+unitPrice. Items that share an item but differ in price stay
+       on separate lines (price history matters for accounting). */
+    if(!Array.isArray(existing.items)) existing.items = [];
+    for(const inc of incomingItems){
+      const matched = existing.items.find(it =>
+        it.itemType === inc.itemType &&
+        it.itemId === inc.itemId &&
+        Number(it.unitPrice) === Number(inc.unitPrice)
+      );
+      if(matched){
+        matched.qty = (Number(matched.qty) || 0) + inc.qty;
+        matched.lineTotal = matched.qty * Number(matched.unitPrice);
+      } else {
+        existing.items.push(inc);
+      }
+    }
+    /* Track this receipt in the refs array (and migrate legacy singular if needed) */
+    if(!Array.isArray(existing.receiptRefs)){
+      existing.receiptRefs = existing.receiptRef ? [existing.receiptRef] : [];
+    }
+    existing.receiptRefs.push(ref);
+    /* Recompute totals from the merged items array. Discounts add up — if the
+       second receipt brought a discount, it stacks onto the existing one. */
+    existing.subtotal = existing.items.reduce((s, it) => s + (Number(it.lineTotal) || 0), 0);
+    existing.discount = (Number(existing.discount) || 0) + incomingDiscount;
+    existing.total = existing.subtotal - existing.discount;
+    existing.discountPct = existing.subtotal > 0 ? (existing.discount / existing.subtotal * 100) : 0;
+    /* Append receipt notes if the new receipt has any */
+    if(receipt.notes && receipt.notes.trim()){
+      existing.notes = existing.notes
+        ? existing.notes + "\n— " + receipt.notes.trim()
+        : receipt.notes.trim();
+    }
+    return { invoice: existing, isNew: false };
+  }
+
+  /* No matching draft found — create a fresh one. */
+  const invoiceNo = reserveInvoiceNo(d, "purchase");
+  const subtotal = incomingItems.reduce((s, it) => s + it.lineTotal, 0);
+  const total = subtotal - incomingDiscount;
+  const inv = {
+    id: "pinv_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,7),
+    invoiceNo,
+    type: "purchase",
+    supplierId,
+    supplierName: supplier?.name || receipt.supplierName || "",
+    date,
+    receiptRef: ref,           /* legacy compat */
+    receiptRefs: [ref],        /* V19.39 */
+    items: incomingItems,
+    subtotal,
+    discountPct: subtotal > 0 ? (incomingDiscount / subtotal * 100) : 0,
+    discount: incomingDiscount,
+    total,
+    status: "draft",
+    notes: receipt.notes || "",
+    createdAt: new Date().toISOString(),
+    createdBy: userName || "",
+  };
+  d.purchaseInvoices.unshift(inv);
+  return { invoice: inv, isNew: true };
 }
 
 /* ═══ STATUS TRANSITIONS ═══ */
@@ -408,11 +514,17 @@ export function findInvoiceByDelivery(data, sessionId, orderId, custId){
   }) || null;
 }
 
-/* Find a purchase invoice by its receipt reference */
+/* Find a purchase invoice by its receipt reference.
+   V19.39: scans receiptRefs[] (consolidated invoices) first, falls back to
+   legacy singular receiptRef. */
 export function findInvoiceByReceipt(data, receiptId){
-  return (data.purchaseInvoices || []).find(i =>
-    i.receiptRef && i.receiptRef.receiptId === receiptId && i.status !== "void"
-  ) || null;
+  return (data.purchaseInvoices || []).find(i => {
+    if(i.status === "void") return false;
+    if(Array.isArray(i.receiptRefs) && i.receiptRefs.length > 0){
+      return i.receiptRefs.some(r => r.receiptId === receiptId);
+    }
+    return i.receiptRef && i.receiptRef.receiptId === receiptId;
+  }) || null;
 }
 
 /* Aggregate stats: total counts + amounts by status, optionally filtered */
@@ -739,6 +851,292 @@ export function getCreditNoteStats(data, filter){
     if(c.status === "draft"){ stats.draftCount++; stats.draftAmount += amt; }
     else if(c.status === "posted"){ stats.postedCount++; stats.postedAmount += amt; stats.totalAmount += amt; }
     else if(c.status === "void"){ stats.voidCount++; stats.voidAmount += amt; }
+  });
+  return stats;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V19.40 — DEBIT NOTES (مرتجع المشتريات كـentity منفصل)
+   ───────────────────────────────────────────────────────────────────────
+   Symmetric to V18.51 credit notes (sales returns) but for the purchase side:
+   instead of returning goods to a customer (credit note → reduces revenue),
+   we're returning goods to a supplier (debit note → reduces what we owe them).
+
+   Schema:
+     data.purchaseDebitNotes = [{
+       id, debitNoteNo: "DN-2026-0001",
+       supplierId, supplierName, date,
+       linkedInvoiceId?, linkedInvoiceNo?,   // the original purchase invoice (optional)
+       items: [{itemType, itemId, name, qty, unitPrice, lineTotal}],
+       subtotal, discountPct, discount, total,
+       status: "draft" | "posted" | "void",
+       postedAt?, postedBy?, voidedAt?, voidedBy?,
+       postedJournalRef?: { date, entryId, refNo },
+       notes, createdAt, createdBy,
+     }]
+     data.invoiceCounters.debitNotes = { 2026: N }
+
+   The posting rule "purchaseReturn" generates:
+     Dr موردون خامات (2110)        <total>     ← reduces our payable
+       Cr مرتجع المشتريات (5140)   <total>     ← contra-expense
+   ═══════════════════════════════════════════════════════════════════════ */
+
+const DEBIT_NOTE_PREFIX = "DN";
+
+/* Reserve next debit note number. Pass into upConfig as mutator. */
+export function reserveDebitNoteNo(d){
+  if(!d.invoiceCounters) d.invoiceCounters = {};
+  if(!d.invoiceCounters.debitNotes) d.invoiceCounters.debitNotes = {};
+  const year = new Date().getFullYear();
+  const next = (d.invoiceCounters.debitNotes[year] || 0) + 1;
+  d.invoiceCounters.debitNotes[year] = next;
+  return `${DEBIT_NOTE_PREFIX}-${year}-${String(next).padStart(4, "0")}`;
+}
+
+/* Resolve unit price for a purchase return — mirrors resolveReturnUnitPrice
+   on the sales side. We try to use the price the supplier actually charged
+   on the original invoice (rather than current item.price which may have
+   drifted), so the debit note credits the supplier exactly the right amount. */
+function resolvePurchaseReturnUnitPrice(d, supplierId, itemType, itemId, date){
+  const invs = d.purchaseInvoices || [];
+  /* Same-day exact match wins */
+  const sameDay = invs.find(i =>
+    i.supplierId === supplierId && i.date === date && i.status !== "void" &&
+    Array.isArray(i.items) && i.items.some(it => it.itemType === itemType && it.itemId === itemId)
+  );
+  if(sameDay){
+    const m = sameDay.items.find(it => it.itemType === itemType && it.itemId === itemId);
+    if(m && Number(m.unitPrice) > 0) return Number(m.unitPrice);
+  }
+  /* Otherwise most-recent non-void invoice */
+  const candidates = invs.filter(i =>
+    i.supplierId === supplierId && i.status !== "void" &&
+    Array.isArray(i.items) && i.items.some(it => it.itemType === itemType && it.itemId === itemId)
+  ).sort((a,b) => (b.date||"").localeCompare(a.date||""));
+  if(candidates.length > 0){
+    const m = candidates[0].items.find(it => it.itemType === itemType && it.itemId === itemId);
+    if(m && Number(m.unitPrice) > 0) return Number(m.unitPrice);
+  }
+  return 0;
+}
+
+/* Build a debit note from a single return entry.
+   returnEntry: { supplierId, date, items: [{itemType, itemId, name, qty, unitPrice?}], notes?, linkedInvoiceId? }
+   Returns the new debit-note object (NOT yet pushed). */
+export function buildDebitNoteFromReturn(d, returnEntry, supplier, userName){
+  const debitNoteNo = reserveDebitNoteNo(d);
+  const supplierId = supplier?.id || returnEntry.supplierId;
+  const date = returnEntry.date || new Date().toISOString().split("T")[0];
+
+  /* Normalize items: resolve missing prices from invoice history */
+  const items = (returnEntry.items || []).map(it => {
+    const provided = Number(it.unitPrice) || 0;
+    const resolved = provided > 0 ? provided : resolvePurchaseReturnUnitPrice(d, supplierId, it.itemType, it.itemId, date);
+    const qty = Number(it.qty) || 0;
+    return {
+      itemType: it.itemType,
+      itemId: it.itemId,
+      name: it.name || it.itemName || "",
+      qty,
+      unitPrice: resolved,
+      lineTotal: qty * resolved,
+    };
+  });
+  const subtotal = items.reduce((s, it) => s + (Number(it.lineTotal) || 0), 0);
+  const discount = Number(returnEntry.discount) || 0;
+  const total = subtotal - discount;
+
+  /* Try to find the original invoice this return relates to */
+  const linkedInv = returnEntry.linkedInvoiceId
+    ? (d.purchaseInvoices||[]).find(i => i.id === returnEntry.linkedInvoiceId && i.status !== "void")
+    : (d.purchaseInvoices||[]).find(i =>
+        i.supplierId === supplierId && i.status !== "void" &&
+        Array.isArray(i.items) && i.items.some(invIt =>
+          items.some(retIt => retIt.itemType === invIt.itemType && retIt.itemId === invIt.itemId))
+      );
+
+  return {
+    id: "dn_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,7),
+    debitNoteNo,
+    supplierId,
+    supplierName: supplier?.name || returnEntry.supplierName || "",
+    date,
+    linkedInvoiceId: linkedInv ? linkedInv.id : null,
+    linkedInvoiceNo: linkedInv ? linkedInv.invoiceNo : null,
+    items,
+    subtotal,
+    discountPct: subtotal > 0 ? (discount / subtotal * 100) : 0,
+    discount,
+    total,
+    status: "draft",
+    notes: returnEntry.notes || "",
+    createdAt: new Date().toISOString(),
+    createdBy: userName || "",
+  };
+}
+
+/* V19.40 — Smart upsert: consolidates same-day same-supplier DRAFT debit notes.
+   Mirrors upsertCreditNoteFromReturn semantics. Returns { debitNote, isNew }. */
+export function upsertDebitNoteFromReturn(d, returnEntry, supplier, userName){
+  if(!Array.isArray(d.purchaseDebitNotes)) d.purchaseDebitNotes = [];
+
+  const supplierId = supplier?.id || returnEntry.supplierId;
+  const date = returnEntry.date || new Date().toISOString().split("T")[0];
+
+  /* Normalize incoming items to canonical line shape */
+  const incomingItems = (returnEntry.items || []).map(it => {
+    const provided = Number(it.unitPrice) || 0;
+    const resolved = provided > 0 ? provided : resolvePurchaseReturnUnitPrice(d, supplierId, it.itemType, it.itemId, date);
+    const qty = Number(it.qty) || 0;
+    return {
+      itemType: it.itemType,
+      itemId: it.itemId,
+      name: it.name || it.itemName || "",
+      qty,
+      unitPrice: resolved,
+      lineTotal: qty * resolved,
+    };
+  }).filter(it => it.qty > 0);
+
+  if(incomingItems.length === 0) return { debitNote: null, isNew: false };
+
+  const incomingDiscount = Number(returnEntry.discount) || 0;
+
+  /* Look for an existing DRAFT debit note for the same supplier+date.
+     Posted/void debit notes are excluded — accounting has committed to them. */
+  const existing = d.purchaseDebitNotes.find(dn =>
+    dn.status === "draft" &&
+    dn.supplierId === supplierId &&
+    dn.date === date
+  );
+
+  if(existing){
+    if(!Array.isArray(existing.items)) existing.items = [];
+    /* Merge by itemType+itemId+unitPrice — same as purchase invoice upsert.
+       Returns at different prices stay on separate lines because each
+       price line ties back to a different historical purchase. */
+    for(const inc of incomingItems){
+      const matched = existing.items.find(it =>
+        it.itemType === inc.itemType &&
+        it.itemId === inc.itemId &&
+        Number(it.unitPrice) === Number(inc.unitPrice)
+      );
+      if(matched){
+        matched.qty = (Number(matched.qty) || 0) + inc.qty;
+        matched.lineTotal = matched.qty * Number(matched.unitPrice);
+      } else {
+        existing.items.push(inc);
+      }
+    }
+    /* Recompute totals */
+    existing.subtotal = existing.items.reduce((s, it) => s + (Number(it.lineTotal) || 0), 0);
+    existing.discount = (Number(existing.discount) || 0) + incomingDiscount;
+    existing.total = existing.subtotal - existing.discount;
+    existing.discountPct = existing.subtotal > 0 ? (existing.discount / existing.subtotal * 100) : 0;
+    if(returnEntry.notes && returnEntry.notes.trim()){
+      existing.notes = existing.notes
+        ? existing.notes + "\n— " + returnEntry.notes.trim()
+        : returnEntry.notes.trim();
+    }
+    return { debitNote: existing, isNew: false };
+  }
+
+  /* New draft */
+  const debitNoteNo = reserveDebitNoteNo(d);
+  const subtotal = incomingItems.reduce((s, it) => s + it.lineTotal, 0);
+  const total = subtotal - incomingDiscount;
+
+  const linkedInv = returnEntry.linkedInvoiceId
+    ? (d.purchaseInvoices||[]).find(i => i.id === returnEntry.linkedInvoiceId && i.status !== "void")
+    : (d.purchaseInvoices||[]).find(i =>
+        i.supplierId === supplierId && i.status !== "void" &&
+        Array.isArray(i.items) && i.items.some(invIt =>
+          incomingItems.some(retIt => retIt.itemType === invIt.itemType && retIt.itemId === invIt.itemId))
+      );
+
+  const dn = {
+    id: "dn_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,7),
+    debitNoteNo,
+    supplierId,
+    supplierName: supplier?.name || returnEntry.supplierName || "",
+    date,
+    linkedInvoiceId: linkedInv ? linkedInv.id : null,
+    linkedInvoiceNo: linkedInv ? linkedInv.invoiceNo : null,
+    items: incomingItems,
+    subtotal,
+    discountPct: subtotal > 0 ? (incomingDiscount / subtotal * 100) : 0,
+    discount: incomingDiscount,
+    total,
+    status: "draft",
+    notes: returnEntry.notes || "",
+    createdAt: new Date().toISOString(),
+    createdBy: userName || "",
+  };
+  d.purchaseDebitNotes.unshift(dn);
+  return { debitNote: dn, isNew: true };
+}
+
+/* Status transitions — mirror creditNote mutators. */
+export function postDebitNoteMutator(d, debitNoteId, userName){
+  if(!Array.isArray(d.purchaseDebitNotes)) return false;
+  const idx = d.purchaseDebitNotes.findIndex(dn => dn.id === debitNoteId);
+  if(idx < 0) return false;
+  if(d.purchaseDebitNotes[idx].status !== "draft") return false;
+  d.purchaseDebitNotes[idx] = {
+    ...d.purchaseDebitNotes[idx],
+    status: "posted",
+    postedAt: new Date().toISOString(),
+    postedBy: userName || "",
+  };
+  return true;
+}
+
+export function voidDebitNoteMutator(d, debitNoteId, userName, reason){
+  if(!Array.isArray(d.purchaseDebitNotes)) return false;
+  const idx = d.purchaseDebitNotes.findIndex(dn => dn.id === debitNoteId);
+  if(idx < 0) return false;
+  if(d.purchaseDebitNotes[idx].status !== "posted") return false;
+  d.purchaseDebitNotes[idx] = {
+    ...d.purchaseDebitNotes[idx],
+    status: "void",
+    voidedAt: new Date().toISOString(),
+    voidedBy: userName || "",
+    voidReason: reason || "",
+  };
+  return true;
+}
+
+export function deleteDraftDebitNoteMutator(d, debitNoteId){
+  if(!Array.isArray(d.purchaseDebitNotes)) return false;
+  const idx = d.purchaseDebitNotes.findIndex(dn => dn.id === debitNoteId);
+  if(idx < 0) return false;
+  if(d.purchaseDebitNotes[idx].status !== "draft") return false;
+  d.purchaseDebitNotes.splice(idx, 1);
+  return true;
+}
+
+/* Stats — mirrors getCreditNoteStats. */
+export function getDebitNoteStats(data, filter){
+  const arr = data.purchaseDebitNotes || [];
+  let list = arr;
+  if(filter){
+    if(filter.from) list = list.filter(dn => dn.date >= filter.from);
+    if(filter.to)   list = list.filter(dn => dn.date <= filter.to);
+    if(filter.partyId) list = list.filter(dn => dn.supplierId === filter.partyId);
+    if(filter.status && filter.status !== "all") list = list.filter(dn => dn.status === filter.status);
+  }
+  const stats = {
+    total: list.length,
+    draftCount: 0, draftAmount: 0,
+    postedCount: 0, postedAmount: 0,
+    voidCount: 0, voidAmount: 0,
+    totalAmount: 0,
+  };
+  list.forEach(dn => {
+    const amt = Number(dn.total) || 0;
+    if(dn.status === "draft"){ stats.draftCount++; stats.draftAmount += amt; }
+    else if(dn.status === "posted"){ stats.postedCount++; stats.postedAmount += amt; stats.totalAmount += amt; }
+    else if(dn.status === "void"){ stats.voidCount++; stats.voidAmount += amt; }
   });
   return stats;
 }

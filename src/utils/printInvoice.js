@@ -291,3 +291,139 @@ ${creditNote.notes ? `<h3 style="margin-top:18px">سبب المرتجع</h3><p s
 function _esc(s){
   return String(s||"").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+
+/* V19.41 — Debit Note (purchase return) printable.
+   Mirror of printCreditNote but for purchase returns: blue accent (matches
+   purchase invoice color scheme), supplier instead of customer, "المستحق رد
+   من المورد" instead of "المستحق رد للعميل". */
+export function printDebitNote(debitNote, supplier, factoryInfo){
+  const w = openPrintWindow();
+  if(!w){ alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة"); return; }
+
+  /* Use a distinct accent — different from credit notes (red) and from
+     purchase invoices (orange). Blue signals "money coming back to us"
+     while orange means "money owed". */
+  const accentColor = "#3B82F6";
+  const rows = (debitNote.items||[]).map(it => `<tr>
+    <td><div style="font-weight:700">${_esc(it.name||"—")}</div>${it.itemType?`<div style="font-size:10px;color:#64748B;margin-top:2px">${_esc(it.itemType)}</div>`:""}</td>
+    <td class="center" style="direction:ltr;font-weight:600">${fmt(it.qty)}</td>
+    <td class="center" style="direction:ltr;color:#475569">${fmt2(it.unitPrice)}</td>
+    <td class="center" style="direction:ltr;font-weight:700;color:${accentColor}">${fmt2(it.lineTotal)}</td>
+  </tr>`).join("");
+
+  const factoryName = (factoryInfo && factoryInfo.name) || "CLARK Factory";
+  const factoryAddr = (factoryInfo && factoryInfo.address) || "";
+  const factoryPhone = (factoryInfo && factoryInfo.phone) || "";
+  const factoryEmail = (factoryInfo && factoryInfo.email) || "";
+
+  const statusBadge = debitNote.status === "posted"
+    ? `<span style="background:#10B98115;color:#10B981;padding:4px 12px;border-radius:6px;font-weight:700;font-size:12px">✓ مرحّل</span>`
+    : debitNote.status === "void"
+    ? `<span style="background:#6B728015;color:#6B7280;padding:4px 12px;border-radius:6px;font-weight:700;font-size:12px">✕ ملغي</span>`
+    : `<span style="background:#6B728015;color:#6B7280;padding:4px 12px;border-radius:6px;font-weight:700;font-size:12px">📝 مسودة</span>`;
+
+  const html = `<html dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>${debitNote.debitNoteNo}</title>
+<style>
+${PRINT_CSS}
+.center{text-align:center}
+.inv-letterhead{border-bottom:3px solid ${accentColor};padding:12px 20px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center}
+.inv-brand{font-size:22px;font-weight:900;color:${accentColor}}
+.inv-meta{text-align:left;font-size:11px;color:#475569}
+.inv-title{font-size:18px;font-weight:800;color:${accentColor};margin:14px 0 6px;display:flex;justify-content:space-between;align-items:center}
+.inv-num{font-family:monospace;background:#EFF6FF;padding:4px 12px;border-radius:6px;border:1px solid #BFDBFE;color:${accentColor};font-size:14px;font-weight:800}
+.inv-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
+.inv-box{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;padding:10px}
+.inv-box .lbl{font-size:10px;color:#64748B;font-weight:600;margin-bottom:3px}
+.inv-box .val{font-size:13px;color:#1E293B;font-weight:700}
+.inv-totals{display:flex;justify-content:flex-end;margin:14px 0}
+.inv-totals .box{min-width:280px;padding:14px;background:#EFF6FF;border-radius:8px;border:1px solid #BFDBFE}
+.inv-totals .row{display:flex;justify-content:space-between;padding:5px 0;font-size:12px}
+.inv-totals .row.total{font-size:16px;font-weight:800;border-top:2px solid ${accentColor};margin-top:6px;padding-top:8px;color:${accentColor}}
+</style>
+</head>
+<body>
+
+<div class="inv-letterhead">
+  <div>
+    <div class="inv-brand">${_esc(factoryName)}</div>
+    ${factoryAddr ? `<div style="font-size:11px;color:#64748B;margin-top:2px">${_esc(factoryAddr)}</div>` : ""}
+  </div>
+  <div class="inv-meta">
+    ${factoryPhone ? `<div>📞 ${_esc(factoryPhone)}</div>` : ""}
+    ${factoryEmail ? `<div>✉️ ${_esc(factoryEmail)}</div>` : ""}
+  </div>
+</div>
+
+<div class="inv-title">
+  <span>↪️ إشعار مدين (مرتجع مشتريات)</span>
+  <div style="display:flex;align-items:center;gap:10px">
+    ${statusBadge}
+    <span class="inv-num">${_esc(debitNote.debitNoteNo)}</span>
+  </div>
+</div>
+
+${debitNote.linkedInvoiceNo ? `<div style="background:#EFF6FF;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:12px;color:#1E40AF"><b>للفاتورة الأصلية:</b> ${_esc(debitNote.linkedInvoiceNo)}</div>` : ""}
+
+<div class="inv-grid">
+  <div class="inv-box">
+    <div class="lbl">المورد</div>
+    <div class="val">${_esc((supplier && supplier.name) || debitNote.supplierName || "—")}</div>
+    ${supplier && supplier.phone ? `<div style="font-size:11px;color:#64748B;margin-top:3px">📞 ${_esc(supplier.phone)}</div>` : ""}
+  </div>
+  <div class="inv-box">
+    <div class="lbl">التاريخ</div>
+    <div class="val" style="font-family:monospace">${_esc(debitNote.date)}</div>
+  </div>
+</div>
+
+<h3 style="margin-top:18px;margin-bottom:8px;color:#1E293B">الأصناف المُرتجعة للمورد</h3>
+<table>
+  <thead>
+    <tr>
+      <th style="width:50%">الصنف</th>
+      <th style="width:15%" class="center">الكمية</th>
+      <th style="width:15%" class="center">سعر الوحدة</th>
+      <th style="width:20%" class="center">الإجمالي</th>
+    </tr>
+  </thead>
+  <tbody>${rows}</tbody>
+</table>
+
+<div class="inv-totals">
+  <div class="box">
+    <div class="row">
+      <span>الإجمالي قبل الخصم</span>
+      <span style="direction:ltr;font-weight:700">${fmt2(debitNote.subtotal)}</span>
+    </div>
+    ${(debitNote.discount||0) > 0 ? `<div class="row" style="color:#64748B">
+      <span>الخصم${debitNote.discountPct ? ` (${debitNote.discountPct.toFixed(1)}%)` : ""}</span>
+      <span style="direction:ltr;font-weight:700">- ${fmt2(debitNote.discount)}</span>
+    </div>` : ""}
+    <div class="row total">
+      <span>المستحق رد من المورد</span>
+      <span style="direction:ltr">${fmt2(debitNote.total)} ج.م</span>
+    </div>
+  </div>
+</div>
+
+${debitNote.notes ? `<h3 style="margin-top:18px">سبب المرتجع</h3><p style="padding:10px;background:#FEF3C7;border-radius:6px;font-size:12px">${_esc(debitNote.notes)}</p>` : ""}
+
+<div class="sig">
+  <div class="sig-box">المستلم بالمصنع</div>
+  <div class="sig-box">المحاسب</div>
+  <div class="sig-box">المورد</div>
+</div>
+
+<div class="foot">
+  ${factoryName} — إشعار مدين — تم الإنشاء: ${new Date(debitNote.createdAt||Date.now()).toLocaleString("ar-EG")} — بواسطة: ${_esc(debitNote.createdBy||"—")}
+</div>
+
+<script>setTimeout(function(){window.print()},500)</script>
+</body></html>`;
+
+  w.document.write(html);
+  w.document.close();
+}
