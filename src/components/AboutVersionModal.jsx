@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.49",
+    date: "2026-05-04",
+    types: ["architectural", "improvement", "safety"],
+    title: "🏗️ تجزئة 4 مجموعات إضافية من factory/config — حماية دائمة من حد 1MB",
+    changes: [
+      { type: "architectural", text: "🏗️ [Daily-split for 4 more arrays] V16.74 قسّم 3 مجموعات (treasury/auditLog/hrLog) في daily collections. V19.49 بيضيف 4 مجموعات تانية كانت بتكبر يومياً في factory/config: **custPayments** (مدفوعات العملاء) → custPaymentsDays/{YYYY-MM-DD}، **supplierPayments** (مدفوعات الموردين) → supplierPaymentsDays/{YYYY-MM-DD}، **wsPayments** (مدفوعات الورش) → wsPaymentsDays/{YYYY-MM-DD}، **checks** (الشيكات) → checksDays/{YYYY-MM-DD}. كل مجموعة بتنزل في document خاص بكل يوم بحجم لا يعدي ~10KB. سنوياً = 365 ملف موزّعة بدل array واحد بيكبر. ده بيقفل الباب على وصول حجم الكونفيج لحد الـ1MB للأبد." },
+      { type: "improvement", text: "🔁 [Migration تلقائي آمن] أول ما تفتح التطبيق على V19.49 لأول مرة، الـmigration بيشتغل automatic: (1) backup كامل لـconfig في collection الـbackups بـ label 'pre-migration-split-days-v1949'. (2) نقل الـ4 arrays لـday docs المناسبة. (3) حذف الحقول من factory/config وتحديد flag _splitDaysV1949Done. UI بيتقفل أثناء الـmigration بـmodal واضح بنسبة التقدم. الـmigration بيشتغل مرة واحدة فقط لكل deployment بفضل الـflag — لو فشلت لأي سبب، تقدر تعيد التشغيل وهتحاول تاني." },
+      { type: "safety", text: "🔒 [Selective stripping يحمي من فقدان بيانات] stripSplitArrays بقت ذكية: بدل ما تحذف كل الحقول المُجزّأة من config دايماً، بقت تحذف بس الحقول اللي migration بتاعتها انتهت (gated بـflag). يعني لو لسه فيه users شغالين على V19.48 وتزامناً جوّه نفس database، الكتابة منهم مش هتمسح الـ4 arrays الجديدة. selective stripping بيمنع silent data loss في فترة الـrolling deploy." },
+      { type: "improvement", text: "♻️ [SPLIT_FIELDS بقت source of truth] App.jsx كان فيه ~12 مكان hardcoded للـ3 arrays (`['treasury','auditLog','hrLog']`). بقت كلها loops على `SPLIT_FIELDS`. أي حقل جديد يضاف في splitCollections.js بيتدعم تلقائياً في: listeners، pendingWrites، rebuild، optimistic updates، sync logic، و stale cleanup. ضامن إن أي توسعة مستقبلية (V19.50 وما بعد) مش هتسيب bugs في الـwiring." },
+      { type: "improvement", text: "📐 [Firestore Rules توسّعت] firestore.rules ضافت 4 collections جديدة بصلاحيات مطابقة للحقل الأصلي قبل التقسيم: custPaymentsDays (sales+purchase+manager)، supplierPaymentsDays + wsPaymentsDays + checksDays (purchase+manager). الـDefault deny بقي، أي collection مش مذكورة بـallow صريح بترفض القراءة والكتابة." },
+    ]
+  },
+  {
     version: "V19.48",
     date: "2026-05-04",
     types: ["fix", "hotfix", "safety"],

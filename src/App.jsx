@@ -26,7 +26,7 @@ import {
 } from "./utils/writeDiagnostics.js";
 const FIRESTORE_DOC_WARN_BYTES = 838860; /* ~80% of 1 MiB Firestore limit */
 import { createComprehensiveBackup, deleteComprehensiveBackup } from "./utils/comprehensiveBackup.js";
-import { syncAllSplitChanges, stripSplitArrays, SPLIT_COLLECTIONS, SPLIT_FIELDS } from "./utils/splitCollections.js";
+import { syncAllSplitChanges, stripSplitArrays, SPLIT_COLLECTIONS, SPLIT_FIELDS, SPLIT_FIELDS_V1949, SPLIT_FLAG_V1674, SPLIT_FLAG_V1949 } from "./utils/splitCollections.js";
 import { syncAllPartitionedChanges, stripPartitionedArrays, PARTITIONED_COLLECTIONS, PARTITIONED_FIELDS } from "./utils/partitionedCollections.js";
 import { noticeSuccess, noticeWarn, noticeError } from "./utils/storageNotices.js";
 import { ask, tell, askInput, askForm, showToast, highlightRow } from "./utils/popups.js";
@@ -79,7 +79,7 @@ validatePermsRegistry(TABS);
 /* V19.48: Print version marker at module load. If you see "[CLARK V19.48]" in
    the console at startup, the new code is deployed. Helps diagnose "did the
    deploy actually go through" questions when something looks broken. */
-console.info("%c[CLARK V19.48] App module loaded — "+new Date().toISOString(),"color:#0EA5E9;font-weight:bold");
+console.info("%c[CLARK V19.49] App module loaded — "+new Date().toISOString(),"color:#0EA5E9;font-weight:bold");
 import { ActivityFeed } from "./components/ActivityFeed.jsx";
 import { UndoToast } from "./components/UndoToast.jsx";
 import { AboutVersionModal } from "./components/AboutVersionModal.jsx";
@@ -249,14 +249,20 @@ export default function App(){
     if(tasksDoc.tasks)merged.tasks=tasksDoc.tasks;
     if(tasksDoc.stickyNotes)merged.stickyNotes=tasksDoc.stickyNotes;
     if(tasksDoc.inventoryAudits)merged.inventoryAudits=tasksDoc.inventoryAudits;
-    /* V16.74: split collections override config equivalents — لكن فقط بعد:
+    /* V16.74 + V19.49: split collections override config equivalents — لكن فقط بعد:
        1) listeners قرأت أول round trip (splitLoaded=true)
-       2) migration للـsplit days اشتغلت (_splitDaysV1674Done=true)
-       لو الـmigration ما اتعملتش لسه، نخلي البيانات الأصلية في config كما هي. */
-    if(splitLoaded&&configDoc._splitDaysV1674Done){
+       2) migration للـsplit days اشتغلت (الـflag الخاص بكل مجموعة)
+       لو الـmigration ما اتعملتش لسه، نخلي البيانات الأصلية في config كما هي.
+       V19.49: gating per field-group prevents wiping pre-migration data. */
+    if(splitLoaded&&configDoc[SPLIT_FLAG_V1674]){
       merged.treasury=splitData.treasury;
       merged.auditLog=splitData.auditLog;
       merged.hrLog=splitData.hrLog;
+    }
+    if(splitLoaded&&configDoc[SPLIT_FLAG_V1949]){
+      for(const f of SPLIT_FIELDS_V1949){
+        merged[f]=splitData[f]||[];
+      }
     }
     /* V16.75: partitioned collections (hrWeeks) — same pattern */
     if(partitionedLoaded&&configDoc._partitionedV1675Done){
@@ -1195,6 +1201,128 @@ export default function App(){
   },[user,configDoc,splitLoaded]);
 
   /* ═══════════════════════════════════════════════════════════════════
+     V19.49: One-time migration — split FOUR more growing arrays from
+     factory/config into daily collections:
+       custPayments     → custPaymentsDays/{YYYY-MM-DD}
+       supplierPayments → supplierPaymentsDays/{YYYY-MM-DD}
+       wsPayments       → wsPaymentsDays/{YYYY-MM-DD}
+       checks           → checksDays/{YYYY-MM-DD}
+
+     Why: factory/config was approaching 1MB again — V16.74 only handled
+     treasury/auditLog/hrLog. These 4 also grow daily and are the next
+     largest contributors. Same pattern as V16.74, gated by
+     _splitDaysV1949Done so the migration runs at most once per install.
+
+     Prerequisite: V16.74 must be done first (we gate on _splitDaysV1674Done).
+     ═══════════════════════════════════════════════════════════════════ */
+  const splitDaysV1949MigrationRef=useRef(false);
+  useEffect(()=>{
+    if(!user||splitDaysV1949MigrationRef.current)return;
+    if(!configDoc||!configDoc.accessories)return;/* config not loaded yet */
+    if(!configDoc._splitDaysV1674Done)return;/* V16.74 must run first */
+    if(configDoc._splitDaysV1949Done)return;/* already migrated */
+
+    /* انتظار: لازم listeners الـsplit collections تكون اشتغلت */
+    if(!splitLoaded)return;
+
+    /* Anything to migrate? */
+    const legacyArrays={};
+    let totalLegacy=0;
+    for(const f of SPLIT_FIELDS_V1949){
+      const arr=Array.isArray(configDoc[f])?configDoc[f]:[];
+      legacyArrays[f]=arr;
+      totalLegacy+=arr.length;
+    }
+
+    splitDaysV1949MigrationRef.current=true;/* lock to prevent re-runs */
+
+    (async()=>{
+      try{
+        if(totalLegacy===0){
+          /* لا يوجد بيانات للـmigrate — فقط نحط الـflag */
+          await runTransaction(db,async(tx)=>{
+            const ref=doc(db,"factory","config");
+            const snap=await tx.get(ref);
+            if(!snap.exists())return;
+            const fresh=snap.data();
+            if(fresh._splitDaysV1949Done)return;
+            tx.set(ref,{...fresh,_splitDaysV1949Done:true});
+          });
+          return;
+        }
+
+        setMigrationStatus({
+          label:"جاري تحديث نظام التخزين (V19.49)",
+          message:"الرجاء عدم إغلاق البرنامج. هذا يحدث مرة واحدة فقط.",
+          progress:5,
+        });
+
+        /* Backup أولاً — يحفظ نسخة كاملة من config قبل أي تعديل */
+        setMigrationStatus(s=>({...s,message:"إنشاء نسخة احتياطية...",progress:15}));
+        const ts=new Date().toISOString().replace(/[:.]/g,"-");
+        await setDoc(doc(db,"backups","pre-migration-split-days-v1949-"+ts),{
+          label:"قبل ميجريشن: split-days-v19.49",
+          autoGenerated:true,
+          migrationType:"split-days-v19.49",
+          createdAt:new Date().toISOString(),
+          createdBy:user.email||"system",
+          counts:Object.fromEntries(SPLIT_FIELDS_V1949.map(f=>[f,(configDoc[f]||[]).length])),
+          /* النسخة الكاملة من config (يشمل الحقول المُهجّرة) */
+          config:JSON.parse(JSON.stringify(configDoc)),
+        });
+
+        /* Sync to day collections.
+           نمرر oldArr=[] حتى يعتبر كل entry "added" ويكتبهم لـday docs. */
+        setMigrationStatus(s=>({...s,message:"نقل البيانات إلى الـcollections اليومية...",progress:50}));
+        const oldEmpty=Object.fromEntries(SPLIT_FIELDS_V1949.map(f=>[f,[]]));
+        await syncAllSplitChanges(oldEmpty,legacyArrays);
+
+        /* الآن نحذف الـ4 arrays من factory/config ونحط flag.
+           نستعمل runTransaction كي تكون atomic: إما الكل أو لا شيء. */
+        setMigrationStatus(s=>({...s,message:"تنظيف الـconfig...",progress:85}));
+        await runTransaction(db,async(tx)=>{
+          const ref=doc(db,"factory","config");
+          const snap=await tx.get(ref);
+          if(!snap.exists())return;
+          const fresh=snap.data();
+          if(fresh._splitDaysV1949Done)return;
+          /* اكتب الـflag أولاً ثم استدعِ stripSplitArrays حتى تستعمل الـflag الجديد للحذف */
+          const flagged={...fresh,_splitDaysV1949Done:true};
+          const next=stripSplitArrays(flagged);
+          tx.set(ref,next);
+        });
+
+        try{
+          await setDoc(doc(db,"migrationLog","split-days-v19.49-"+Date.now()),{
+            type:"split-days-v19.49",status:"success",
+            counts:Object.fromEntries(SPLIT_FIELDS_V1949.map(f=>[f,(configDoc[f]||[]).length])),
+            by:user.email||"system",at:new Date().toISOString(),
+          });
+        }catch(_){}
+
+        noticeSuccess(
+          "تم تطبيق تحديث V19.49",
+          "تم تحويل 4 مجموعات إضافية (مدفوعات العملاء، مدفوعات الموردين، مدفوعات الورش، الشيكات) لتخزين يومي منفصل. حجم ملف الإعدادات هينخفض بشكل كبير ولن يصل لحد 1MB أبداً."
+        );
+        setMigrationStatus({label:"تم بنجاح",message:"تم تحديث النظام. يمكنك الاستمرار.",progress:100});
+        setTimeout(()=>setMigrationStatus(null),1500);
+      }catch(err){
+        console.error("[V19.49] Split days migration failed:",err);
+        try{
+          await setDoc(doc(db,"migrationLog","split-days-v19.49-"+Date.now()),{
+            type:"split-days-v19.49",status:"failed",
+            details:(err.message||String(err)).slice(0,300),
+            by:user.email||"system",at:new Date().toISOString(),
+          });
+        }catch(_){}
+        /* unlock فاحس يمكن نحاول ثانية */
+        splitDaysV1949MigrationRef.current=false;
+        setMigrationStatus(null);
+      }
+    })();
+  },[user,configDoc,splitLoaded]);
+
+  /* ═══════════════════════════════════════════════════════════════════
      V16.75: One-time migration — partition hrWeeks from factory/config
      into individual documents in hrWeeksDocs collection.
      
@@ -1325,16 +1453,17 @@ export default function App(){
      haven't yet appeared in the server state, preventing flicker.
      When the server confirms an entry (it appears in the listener data),
      we remove it from the pending map. */
-  const pendingSplitWritesRef=useRef({
-    treasury:new Map(),auditLog:new Map(),hrLog:new Map(),
-  });
+  /* V19.49: dynamic init over SPLIT_FIELDS so adding a new field doesn't require touching this. */
+  const pendingSplitWritesRef=useRef(
+    Object.fromEntries(SPLIT_FIELDS.map(f=>[f,new Map()]))
+  );
   const pendingPartitionedWritesRef=useRef({
     hrWeeks:new Map(),
   });
   /* Helper: register pending writes after an optimistic update */
   const registerPendingSplitWrites=useCallback((before,after)=>{
-    const fields=["treasury","auditLog","hrLog"];
-    for(const f of fields){
+    /* V19.49: iterate ALL split fields dynamically */
+    for(const f of SPLIT_FIELDS){
       const beforeIds=new Set((before[f]||[]).map(e=>String(e?.id||"")));
       const afterArr=after[f]||[];
       for(const entry of afterArr){
@@ -1381,8 +1510,10 @@ export default function App(){
     const interval=setInterval(()=>{
       const now=Date.now();
       const STALE_MS=30000;
-      for(const f of ["treasury","auditLog","hrLog"]){
+      /* V19.49: iterate over all split fields dynamically */
+      for(const f of SPLIT_FIELDS){
         const map=pendingSplitWritesRef.current[f];
+        if(!map)continue;
         for(const[id,info]of map){
           if(now-info.timestamp>STALE_MS)map.delete(id);
         }
@@ -1399,9 +1530,9 @@ export default function App(){
 
   useEffect(()=>{if(!user)return;
     const unsubs=[];
-    /* Maps: dayId → entries[] لكل collection */
-    const dayDocs={treasury:new Map(),auditLog:new Map(),hrLog:new Map()};
-    let firstFires={treasury:false,auditLog:false,hrLog:false};
+    /* Maps: dayId → entries[] لكل collection (V19.49: dynamic over SPLIT_FIELDS) */
+    const dayDocs=Object.fromEntries(SPLIT_FIELDS.map(f=>[f,new Map()]));
+    let firstFires=Object.fromEntries(SPLIT_FIELDS.map(f=>[f,false]));
     const rebuild=()=>{
       /* V16.75 FIX: flatten by sorting day keys DESC (newest day first), then concat each day's entries.
          This matches the expectation in TreasuryPg/HRPg/AuditPg that array is newest-first.
@@ -1477,13 +1608,14 @@ export default function App(){
         }
         return all;
       };
-      setSplitData({
-        treasury:flatten(dayDocs.treasury,pendingSplitWritesRef.current.treasury),
-        auditLog:flatten(dayDocs.auditLog,pendingSplitWritesRef.current.auditLog),
-        hrLog:flatten(dayDocs.hrLog,pendingSplitWritesRef.current.hrLog),
-      });
-      /* mark loaded after first round trip from all 3 */
-      if(firstFires.treasury&&firstFires.auditLog&&firstFires.hrLog){
+      /* V19.49: build splitData dynamically for ALL split fields */
+      const nextSplit={};
+      for(const f of SPLIT_FIELDS){
+        nextSplit[f]=flatten(dayDocs[f],pendingSplitWritesRef.current[f]||new Map());
+      }
+      setSplitData(nextSplit);
+      /* mark loaded after first round trip from ALL collections */
+      if(SPLIT_FIELDS.every(f=>firstFires[f])){
         setSplitLoaded(true);
       }
     };
@@ -1509,9 +1641,10 @@ export default function App(){
       });
       unsubs.push(unsub);
     };
-    subscribeCol("treasury",SPLIT_COLLECTIONS.treasury);
-    subscribeCol("auditLog",SPLIT_COLLECTIONS.auditLog);
-    subscribeCol("hrLog",   SPLIT_COLLECTIONS.hrLog);
+    /* V19.49: subscribe to ALL split collections dynamically */
+    for(const f of SPLIT_FIELDS){
+      subscribeCol(f,SPLIT_COLLECTIONS[f]);
+    }
     return()=>{unsubs.forEach(u=>u())};
   },[user]);
 
@@ -1699,11 +1832,10 @@ export default function App(){
       showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
       return;
     }
-    const splitBefore=explicitSplitBefore||{
-      treasury:splitDataRef.current.treasury||[],
-      auditLog:splitDataRef.current.auditLog||[],
-      hrLog:   splitDataRef.current.hrLog||[],
-    };
+    /* V19.49: dynamic splitBefore covering ALL split fields */
+    const splitBefore=explicitSplitBefore||Object.fromEntries(
+      SPLIT_FIELDS.map(f=>[f,splitDataRef.current[f]||[]])
+    );
     const partBefore=explicitPartBefore||{
       hrWeeks:partitionedDataRef.current.hrWeeks||[],
     };
@@ -1888,11 +2020,10 @@ export default function App(){
        The optimistic update below mutates splitDataRef.current, so by the time
        upConfigTx runs (in next async tick), reading splitDataRef would give the
        post-mutation state — making the diff produce zero changes. */
-    const explicitSplitBefore={
-      treasury:[...(splitDataRef.current.treasury||[])],
-      auditLog:[...(splitDataRef.current.auditLog||[])],
-      hrLog:   [...(splitDataRef.current.hrLog||[])],
-    };
+    /* V19.49: dynamic snapshot of all split fields */
+    const explicitSplitBefore=Object.fromEntries(
+      SPLIT_FIELDS.map(f=>[f,[...(splitDataRef.current[f]||[])]])
+    );
     const explicitPartBefore={
       hrWeeks:[...(partitionedDataRef.current.hrWeeks||[])],
     };
@@ -1910,13 +2041,23 @@ export default function App(){
     let next, newSplit=null, newPart=null, stripped=null;
     try{
       next=JSON.parse(JSON.stringify(prev));
-      const splitActive=Boolean(prev._splitDaysV1674Done);
-      const partActive=Boolean(prev._partitionedV1675Done);
-      if(splitActive){
-        next.treasury=JSON.parse(JSON.stringify(explicitSplitBefore.treasury));
-        next.auditLog=JSON.parse(JSON.stringify(explicitSplitBefore.auditLog));
-        next.hrLog=   JSON.parse(JSON.stringify(explicitSplitBefore.hrLog));
+      /* V19.49: hydrate split fields based on which migration flag is set.
+         Pre-migration fields stay in config (no hydration needed). */
+      const splitFieldsActive=[];
+      if(prev[SPLIT_FLAG_V1674]){
+        for(const f of ["treasury","auditLog","hrLog"]){
+          next[f]=JSON.parse(JSON.stringify(explicitSplitBefore[f]||[]));
+          splitFieldsActive.push(f);
+        }
       }
+      if(prev[SPLIT_FLAG_V1949]){
+        for(const f of SPLIT_FIELDS_V1949){
+          next[f]=JSON.parse(JSON.stringify(explicitSplitBefore[f]||[]));
+          splitFieldsActive.push(f);
+        }
+      }
+      const splitActive=splitFieldsActive.length>0;
+      const partActive=Boolean(prev._partitionedV1675Done);
       if(partActive){
         next.hrWeeks=JSON.parse(JSON.stringify(explicitPartBefore.hrWeeks));
       }
@@ -1933,11 +2074,11 @@ export default function App(){
         return;/* abort the optimistic update entirely */
       }
       if(splitActive){
-        newSplit={
-          treasury:Array.isArray(next.treasury)?next.treasury:[],
-          auditLog:Array.isArray(next.auditLog)?next.auditLog:[],
-          hrLog:   Array.isArray(next.hrLog)   ?next.hrLog   :[],
-        };
+        /* V19.49: build newSplit only for fields whose flag is on */
+        newSplit={};
+        for(const f of splitFieldsActive){
+          newSplit[f]=Array.isArray(next[f])?next[f]:[];
+        }
       }
       if(partActive){
         newPart={
@@ -3970,7 +4111,7 @@ export default function App(){
       </div>
     </div>}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V19.48"/>
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V19.49"/>
     {/* V19.48: Removed <TeamActivityModal/> render — feature retired */}
   </div>
 }

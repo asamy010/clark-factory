@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -nB1 \"upConfig\\\\|upSales\\\\|upTasks\" \"C:/Users/Ahmed Samy/Desktop/clark-v19_48/src/pages/PurchasePg.jsx\")",
+      "Bash(node --check src/utils/splitCollections.js)",
+      "Bash(node -e \"import\\('./src/utils/splitCollections.js'\\).then\\(m=>console.log\\('OK fields:',Object.keys\\(m.SPLIT_COLLECTIONS\\).join\\(','\\)\\)\\)\")",
+      "Bash(grep -v \"^.*://.*//\")"
+    ]
+  }
+}

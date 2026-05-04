@@ -78,25 +78,47 @@ export const FEATURE_BUDGETS=[
   },
   {
     key:"custPayments",
-    label:"💳 مدفوعات العملاء",
-    docRef:"factory/config",
-    budget:100_000,/* 100 KB */
+    label:"💳 مدفوعات العملاء (مقسّمة يومياً)",
+    docRef:"custPaymentsDays/*",
+    budget:5_000_000,/* 5 MB موزّعة على أيام */
     getData:(d)=>d?.custPayments||[],
     getSize:(d)=>_bytes(d?.custPayments),
     getCount:(d)=>(d?.custPayments||[]).length,
-    advice:"مدفوعات نقدية + تحويلات. أرشف القديمة بعد إقفال محاسبي.",
-    dataType:"config",
+    advice:"V19.49: مخزّنة في custPaymentsDays — كل يوم لوحده. لا تتأثر بحد الـ1MB.",
+    dataType:"split",
+  },
+  {
+    key:"supplierPayments",
+    label:"🏢 مدفوعات الموردين (مقسّمة يومياً)",
+    docRef:"supplierPaymentsDays/*",
+    budget:5_000_000,/* 5 MB موزّعة على أيام */
+    getData:(d)=>d?.supplierPayments||[],
+    getSize:(d)=>_bytes(d?.supplierPayments),
+    getCount:(d)=>(d?.supplierPayments||[]).length,
+    advice:"V19.49: مخزّنة في supplierPaymentsDays — كل يوم في document منفصل.",
+    dataType:"split",
   },
   {
     key:"wsPayments",
-    label:"🏭 دفعات الورش",
-    docRef:"factory/config",
-    budget:100_000,/* 100 KB */
+    label:"🏭 دفعات الورش (مقسّمة يومياً)",
+    docRef:"wsPaymentsDays/*",
+    budget:5_000_000,/* 5 MB موزّعة على أيام */
     getData:(d)=>d?.wsPayments||[],
     getSize:(d)=>_bytes(d?.wsPayments),
     getCount:(d)=>(d?.wsPayments||[]).length,
-    advice:"كل دفعة ≈ 200 بايت.",
-    dataType:"config",
+    advice:"V19.49: مخزّنة في wsPaymentsDays — كل دفعة ≈ 200 بايت.",
+    dataType:"split",
+  },
+  {
+    key:"checks",
+    label:"🧾 الشيكات (مقسّمة يومياً)",
+    docRef:"checksDays/*",
+    budget:3_000_000,/* 3 MB موزّعة على أيام */
+    getData:(d)=>d?.checks||[],
+    getSize:(d)=>_bytes(d?.checks),
+    getCount:(d)=>(d?.checks||[]).length,
+    advice:"V19.49: مخزّنة في checksDays — مستلمة + مدفوعة. كل شيك ≈ 250 بايت.",
+    dataType:"split",
   },
   {
     key:"employees",

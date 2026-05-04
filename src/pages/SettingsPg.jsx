@@ -2203,13 +2203,14 @@ function PartitionedDocsMonitor(){
 }
 
 
-/* V16.74: SPLIT DAYS MONITOR — يعرض حجم كل document يومي للـ3 split collections */
+/* V16.74 + V19.49: SPLIT DAYS MONITOR — يعرض حجم كل document يومي للـ7 split collections */
 function SplitDaysMonitor(){
   const[stats,setStats]=useState(null);
   const[loading,setLoading]=useState(true);
-  const[expanded,setExpanded]=useState({treasury:false,auditLog:false,hrLog:false});
+  /* V19.49: dynamic expanded state for ALL split fields */
+  const[expanded,setExpanded]=useState({});
   const[refreshKey,setRefreshKey]=useState(0);
-  
+
   React.useEffect(()=>{
     let cancelled=false;
     setLoading(true);
@@ -2222,19 +2223,28 @@ function SplitDaysMonitor(){
     });
     return()=>{cancelled=true};
   },[refreshKey]);
-  
+
   const fmt=(b)=>{if(!b)return"0 B";if(b<1024)return b+" B";if(b<1024*1024)return(b/1024).toFixed(1)+" KB";return(b/(1024*1024)).toFixed(2)+" MB"};
-  
+
+  /* V19.49: extended metadata — covers all 7 daily-split collections.
+     ترتيب العرض: V16.74 الأصلية فوق، V19.49 الجديدة تحت. */
   const collectionMeta={
-    treasury:{label:"💰 الخزنة (treasuryDays)",color:T.accent},
-    auditLog:{label:"📝 سجل الأحداث (auditDays)",color:"#F59E0B"},
-    hrLog:   {label:"📋 سجل HR (hrLogDays)",color:"#10B981"},
+    /* V16.74 */
+    treasury:        {label:"💰 الخزنة (treasuryDays)",                color:T.accent,  ver:"V16.74"},
+    auditLog:        {label:"📝 سجل الأحداث (auditDays)",              color:"#F59E0B", ver:"V16.74"},
+    hrLog:           {label:"📋 سجل HR (hrLogDays)",                   color:"#10B981", ver:"V16.74"},
+    /* V19.49 */
+    custPayments:    {label:"💳 مدفوعات العملاء (custPaymentsDays)",    color:"#3B82F6", ver:"V19.49"},
+    supplierPayments:{label:"🏢 مدفوعات الموردين (supplierPaymentsDays)",color:"#8B5CF6", ver:"V19.49"},
+    wsPayments:      {label:"🏭 مدفوعات الورش (wsPaymentsDays)",        color:"#EC4899", ver:"V19.49"},
+    checks:          {label:"🧾 الشيكات (checksDays)",                  color:"#14B8A6", ver:"V19.49"},
   };
-  
-  return<Card title="📅 مراقبة التخزين اليومي (V16.74)" style={{marginBottom:14}}>
+
+  return<Card title="📅 مراقبة التخزين اليومي (V16.74 + V19.49)" style={{marginBottom:14}}>
     <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
-      الخزنة وسجل الأحداث وسجل HR متخزنين في documents يومية منفصلة بدل ملف واحد كبير.
-      كل document فيه حركات يوم واحد فقط. هذا يخلي البرنامج يستوعب نمو سنوي بدون مشاكل في الحجم.
+      7 مجموعات بيانات متخزنة في documents يومية منفصلة بدل arrays في factory/config:
+      الخزنة، سجل الأحداث، سجل HR، مدفوعات العملاء، مدفوعات الموردين، مدفوعات الورش، والشيكات.
+      كل document فيه حركات يوم واحد فقط — هذا يخلي البرنامج يستوعب نمو سنوي بدون مشاكل في الحجم.
     </div>
     
     <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
@@ -2254,7 +2264,10 @@ function SplitDaysMonitor(){
           {/* header */}
           <div style={{padding:12,background:meta.color+"08",borderBottom:isExp?"1px solid "+T.brd:"none",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",cursor:"pointer"}}
                onClick={()=>setExpanded(e=>({...e,[key]:!e[key]}))}>
-            <div style={{fontWeight:700,fontSize:FS,flex:1,minWidth:160,color:meta.color}}>{meta.label}</div>
+            <div style={{fontWeight:700,fontSize:FS,flex:1,minWidth:160,color:meta.color,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <span>{meta.label}</span>
+              {meta.ver&&<span style={{fontSize:FS-4,padding:"2px 6px",borderRadius:4,background:meta.color+"15",color:meta.color,fontWeight:600}}>{meta.ver}</span>}
+            </div>
             <div style={{fontSize:FS-1,color:T.textSec,display:"flex",gap:14,flexWrap:"wrap"}}>
               <span><b style={{color:T.text}}>{s.dayCount}</b> يوم</span>
               <span><b style={{color:T.text}}>{s.totalCount.toLocaleString("ar-EG")}</b> سجل</span>

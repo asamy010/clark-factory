@@ -1,38 +1,53 @@
 /* ════════════════════════════════════════════════════════════════════════
-   CLARK V16.74 — Split Collections Manager
+   CLARK V16.74 + V19.49 — Split Collections Manager
    ════════════════════════════════════════════════════════════════════════
-   
+
    ─── المشكلة ───
-   factory/config كان فيه 3 arrays بتكبر يومياً وممكن تعدي حد الـ1MB:
-   - treasury (~250 byte/حركة)
-   - auditLog (~400 byte/سجل)
-   - hrLog    (~150 byte/سجل)
-   
+   factory/config كان فيه arrays بتكبر يومياً وممكن تعدي حد الـ1MB.
+
    ─── الحل ───
-   نقسم الثلاثة arrays لـcollections يومية:
-     factory/config              ← باقي البيانات
-     treasuryDays/{YYYY-MM-DD}   ← { entries: [...] }
-     auditDays/{YYYY-MM-DD}      ← { entries: [...] }
-     hrLogDays/{YYYY-MM-DD}      ← { entries: [...] }
-   
-   كل document ≤ 5KB. سنوياً = 365 ملف × 5KB موزّعة → بدل ملف واحد كبير.
-   
+   نقسم الـarrays لـcollections يومية:
+     factory/config                   ← باقي البيانات
+     treasuryDays/{YYYY-MM-DD}        ← V16.74 { entries: [...] }
+     auditDays/{YYYY-MM-DD}           ← V16.74
+     hrLogDays/{YYYY-MM-DD}           ← V16.74
+     custPaymentsDays/{YYYY-MM-DD}    ← V19.49
+     supplierPaymentsDays/{YYYY-MM-DD}← V19.49
+     wsPaymentsDays/{YYYY-MM-DD}      ← V19.49
+     checksDays/{YYYY-MM-DD}          ← V19.49
+
+   كل document ≤ ~10KB. سنوياً = 365 ملف موزّعة → بدل ملف واحد كبير.
+
    ─── الشفافية ───
-   الصفحات (TreasuryPg, HRPg, AuditPg) **مش محتاجة تتعدّل**.
-   data.treasury / data.auditLog / data.hrLog يستمروا يبانوا كـarrays.
+   الصفحات (TreasuryPg, HRPg, AuditPg, CustDeliverPg, PurchasePg, ExtProdPg)
+   **مش محتاجة تتعدّل**. data.<field> يستمر يبان كـarray.
    الـmagic بيحصل في App.jsx فقط.
    ════════════════════════════════════════════════════════════════════════ */
 
-import { 
+import {
   collection, doc, getDoc, getDocs, setDoc, deleteDoc, writeBatch
 } from "firebase/firestore";
 import { db } from "../firebase.js";
 
+/* V19.49: Field groups by migration version — used for selective stripping
+   so a newly-added field is NOT stripped from config before its migration runs. */
+export const SPLIT_FIELDS_V1674 = ["treasury", "auditLog", "hrLog"];
+export const SPLIT_FIELDS_V1949 = ["custPayments", "supplierPayments", "wsPayments", "checks"];
+
+export const SPLIT_FLAG_V1674 = "_splitDaysV1674Done";
+export const SPLIT_FLAG_V1949 = "_splitDaysV1949Done";
+
 /* الـcollections اللي مقسّمة — field name → collection name */
 export const SPLIT_COLLECTIONS = {
+  /* V16.74 */
   treasury:  "treasuryDays",
   auditLog:  "auditDays",
   hrLog:     "hrLogDays",
+  /* V19.49 */
+  custPayments:     "custPaymentsDays",
+  supplierPayments: "supplierPaymentsDays",
+  wsPayments:       "wsPaymentsDays",
+  checks:           "checksDays",
 };
 
 /* مفاتيح الـfields اللي مقسّمة (للحلقات السريعة) */
@@ -115,14 +130,14 @@ export async function readSplitCollection(collectionName) {
   }
 }
 
-/* قراءة الـ3 collections بالتوازي */
+/* قراءة كل collections بالتوازي (V19.49: dynamic over SPLIT_FIELDS) */
 export async function readAllSplitCollections() {
-  const [treasury, auditLog, hrLog] = await Promise.all([
-    readSplitCollection(SPLIT_COLLECTIONS.treasury),
-    readSplitCollection(SPLIT_COLLECTIONS.auditLog),
-    readSplitCollection(SPLIT_COLLECTIONS.hrLog),
-  ]);
-  return { treasury, auditLog, hrLog };
+  const entries = await Promise.all(
+    SPLIT_FIELDS.map(f =>
+      readSplitCollection(SPLIT_COLLECTIONS[f]).then(arr => [f, arr])
+    )
+  );
+  return Object.fromEntries(entries);
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -303,12 +318,24 @@ export async function syncSplitCollection(collectionName, oldArr, newArr) {
   return writes.length;
 }
 
-/* يحذف الـ3 arrays المقسّمة من config object قبل الكتابة لـfactory/config */
+/* V19.49: Selective strip — only strips field-groups whose migration has run.
+   Critical: Until V19.49 migration completes, the 4 new fields (custPayments,
+   supplierPayments, wsPayments, checks) MUST stay in config — otherwise the next
+   write would silently delete them before they're moved to day collections.
+
+   Behavior:
+   - V16.74 fields stripped only if _splitDaysV1674Done is set on configObj
+   - V19.49 fields stripped only if _splitDaysV1949Done is set on configObj
+   This makes the function self-contained: pass any config object and it does the
+   right thing based on the flags it carries. */
 export function stripSplitArrays(configObj) {
   if (!configObj) return configObj;
   const stripped = { ...configObj };
-  for (const field of SPLIT_FIELDS) {
-    delete stripped[field];
+  if (configObj[SPLIT_FLAG_V1674]) {
+    for (const field of SPLIT_FIELDS_V1674) delete stripped[field];
+  }
+  if (configObj[SPLIT_FLAG_V1949]) {
+    for (const field of SPLIT_FIELDS_V1949) delete stripped[field];
   }
   return stripped;
 }
@@ -377,14 +404,11 @@ export async function getSplitCollectionStats(collectionName) {
 }
 
 export async function getAllSplitStats() {
-  const [treasuryStats, auditStats, hrLogStats] = await Promise.all([
-    getSplitCollectionStats(SPLIT_COLLECTIONS.treasury),
-    getSplitCollectionStats(SPLIT_COLLECTIONS.auditLog),
-    getSplitCollectionStats(SPLIT_COLLECTIONS.hrLog),
-  ]);
-  return {
-    treasury: treasuryStats,
-    auditLog: auditStats,
-    hrLog: hrLogStats,
-  };
+  /* V19.49: dynamic over SPLIT_FIELDS — adding a new field auto-includes here. */
+  const entries = await Promise.all(
+    SPLIT_FIELDS.map(f =>
+      getSplitCollectionStats(SPLIT_COLLECTIONS[f]).then(stats => [f, stats])
+    )
+  );
+  return Object.fromEntries(entries);
 }

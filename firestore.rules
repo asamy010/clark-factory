@@ -1,7 +1,7 @@
 rules_version = '2';
 
 /* ═══════════════════════════════════════════════════════════════
-   CLARK Factory — Firestore Security Rules (V18.70)
+   CLARK Factory — Firestore Security Rules (V19.49)
 
    نموذج الصلاحيات:
    - admin              : كل شيء
@@ -119,6 +119,34 @@ service cloud.firestore {
        ────────────────────────────────────────────────────────── */
     match /hrWeeksDocs/{weekId} {
       allow read, write: if isHRRole();
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       V19.49 — أربع collections يومية اتقسموا من factory/config:
+         custPaymentsDays      — مدفوعات العملاء (any accountant write)
+         supplierPaymentsDays  — مدفوعات الموردين (purchase scope)
+         wsPaymentsDays        — مدفوعات الورش (purchase/manager scope)
+         checksDays            — الشيكات (purchase scope — مستلمة + مدفوعة)
+       نفس صلاحيات الجدول الأصلي قبل التقسيم.
+       ────────────────────────────────────────────────────────── */
+    match /custPaymentsDays/{day} {
+      allow read:  if isAnyUser();
+      allow write: if hasRole(['admin','manager','sales_accountant','purchase_accountant']);
+    }
+
+    match /supplierPaymentsDays/{day} {
+      allow read:  if isAnyUser();
+      allow write: if hasRole(['admin','manager','purchase_accountant']);
+    }
+
+    match /wsPaymentsDays/{day} {
+      allow read:  if isAnyUser();
+      allow write: if hasRole(['admin','manager','purchase_accountant']);
+    }
+
+    match /checksDays/{day} {
+      allow read:  if isAnyUser();
+      allow write: if hasRole(['admin','manager','purchase_accountant']);
     }
 
     /* ──────────────────────────────────────────────────────────
