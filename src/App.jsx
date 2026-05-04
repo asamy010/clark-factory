@@ -16,7 +16,7 @@ import { setUpConfigCallback as registerAutoPostCallback } from "./utils/account
 import { prefetchIpInfo } from "./utils/device.js";
 import { enforceDataLimits } from "./utils/dataLimits.js";
 import { isSafeWrite } from "./utils/dataIntegrity.js";
-/* V19.47: Forensic helpers for write fallbacks — categorize errors, estimate
+/* V19.48: Forensic helpers for write fallbacks — categorize errors, estimate
    doc size, build copy-paste forensic lines for bug reports. */
 import {
   categorizeWriteError,
@@ -48,13 +48,13 @@ import { lazyNamed, PageLoader, ChunkErrorBoundary } from "./utils/lazyLoad.jsx"
 const CustDeliverPg = lazyNamed(() => import("./pages/CustDeliverPg.jsx"), "CustDeliverPg");
 const SalesInvoicesPg = lazyNamed(() => import("./pages/SalesInvoicesPg.jsx"), "SalesInvoicesPg");
 const CreditNotesPg = lazyNamed(() => import("./pages/CreditNotesPg.jsx"), "CreditNotesPg");
-/* V19.47: Debit notes (purchase returns) */
+/* V19.48: Debit notes (purchase returns) */
 const DebitNotesPg = lazyNamed(() => import("./pages/DebitNotesPg.jsx"), "DebitNotesPg");
 const PurchasePg = lazyNamed(() => import("./pages/PurchasePg.jsx"), "PurchasePg");
 const PurchaseInvoicesPg = lazyNamed(() => import("./pages/PurchaseInvoicesPg.jsx"), "PurchaseInvoicesPg");
 const TreasuryPg = lazyNamed(() => import("./pages/TreasuryPg.jsx"), "TreasuryPg");
 const HRPg = lazyNamed(() => import("./pages/HRPg.jsx"), "HRPg");
-/* V19.47: Bulk messaging / campaigns engine */
+/* V19.48: Bulk messaging / campaigns engine */
 const CampaignsPg = lazyNamed(() => import("./pages/CampaignsPg.jsx"), "CampaignsPg");
 
 /* V15.1 phase 3: page/component imports */
@@ -62,7 +62,7 @@ const CampaignsPg = lazyNamed(() => import("./pages/CampaignsPg.jsx"), "Campaign
 import { LoginScreen, TABS } from "./components/LoginScreen.jsx";
 /* V19.44: Centralized permissions registry. Single source of truth for roles,
    tab catalog, and default per-role permissions.
-   V19.47: Switched to WithCustoms variants so admin-defined custom roles work
+   V19.48: Switched to WithCustoms variants so admin-defined custom roles work
    end-to-end (tab gating + label rendering + permissions evaluation). */
 import {
   effectivePermWithCustoms as effectivePermFromRegistry,
@@ -76,10 +76,14 @@ import {
    LoginScreen drift from PERMISSION_TABS in the registry. Catches bugs
    like "added a tab but forgot to gate it" before they hit production. */
 validatePermsRegistry(TABS);
+/* V19.48: Print version marker at module load. If you see "[CLARK V19.48]" in
+   the console at startup, the new code is deployed. Helps diagnose "did the
+   deploy actually go through" questions when something looks broken. */
+console.info("%c[CLARK V19.48] App module loaded — "+new Date().toISOString(),"color:#0EA5E9;font-weight:bold");
 import { ActivityFeed } from "./components/ActivityFeed.jsx";
 import { UndoToast } from "./components/UndoToast.jsx";
 import { AboutVersionModal } from "./components/AboutVersionModal.jsx";
-/* V19.47: Removed TeamActivityModal import — feature retired (topbar pill cleanup) */
+/* V19.48: Removed TeamActivityModal import — feature retired (topbar pill cleanup) */
 import { DashPg } from "./pages/DashPg.jsx";/* eager — always first screen */
 const DBPg = lazyNamed(() => import("./pages/DBPg.jsx"), "DBPg");
 import { OrdForm } from "./pages/OrdForm.jsx";/* eager — small, used within DetPg */
@@ -214,6 +218,14 @@ export default function App(){
   /* V18.60 SAFETY: configError — populated if the config doc is missing or the
      listener errors. UI blocks all writes when this is non-null. */
   const[configError,setConfigError]=useState(null);
+  /* V19.48: Loading-stall detection. If listeners take more than 12 seconds without
+     firing, a diagnostic panel surfaces options to the user (try anyway / clear
+     cache / sign out). Without this, users got stuck on the loading spinner with
+     no recourse — exactly the V19.48-reported incident. */
+  const[loadingStallDetected,setLoadingStallDetected]=useState(false);
+  /* Tracks which listeners have fired at least once — populated by the listeners
+     themselves. Used by the stall panel to show "config: ✓ / sales: ✗" status. */
+  const[listenerStatus,setListenerStatus]=useState({config:false,sales:false,tasks:false,orders:false,lastError:null});
   /* V16.74: split collections state — treasury, auditLog, hrLog من daily collections */
   const[splitData,setSplitData]=useState({treasury:[],auditLog:[],hrLog:[]});
   const[splitLoaded,setSplitLoaded]=useState(false);
@@ -221,7 +233,7 @@ export default function App(){
      would override our local optimistic state (cached snaps with hasPendingWrites
      can race ahead of our setConfigDoc, briefly regressing the UI). */
   const configDocRef=useRef(null);
-  /* V19.47: Refs for salesDoc and tasksDoc. Used by their respective Tx fallbacks
+  /* V19.48: Refs for salesDoc and tasksDoc. Used by their respective Tx fallbacks
      to compute the authoritative "current state" outside React's setState callback
      (so we can await a real setDoc with proper error handling, instead of the
      fire-and-forget setDoc(...).catch() pattern that silently swallowed errors). */
@@ -275,13 +287,13 @@ export default function App(){
   const[sidebarTab,setSidebarTab]=useState("notes");/* "notes"|"tasks"|"activity" — for home sidebar */
   const[quickPopup,setQuickPopup]=useState(null);/* "task"|"notif"|null */
   const[qpTo,setQpTo]=useState("");const[qpText,setQpText]=useState("");const[qpType,setQpType]=useState("تذكير");
-  /* V19.47: Notification expiry duration. Values: "1h"|"2h"|"1d"|"endday"|"none". Default: "2h". */
+  /* V19.48: Notification expiry duration. Values: "1h"|"2h"|"1d"|"endday"|"none". Default: "2h". */
   const[qpDuration,setQpDuration]=useState("2h");
-  /* V19.47 HOTFIX: notifTick state must live BEFORE any early returns to keep hook order stable across renders */
+  /* V19.48 HOTFIX: notifTick state must live BEFORE any early returns to keep hook order stable across renders */
   const[_notifTick,setNotifTick]=useState(0);
-  /* V19.47: Toggle for the "all notifications" popup that opens when user clicks "+N more" chip */
+  /* V19.48: Toggle for the "all notifications" popup that opens when user clicks "+N more" chip */
   const[notifPopupOpen,setNotifPopupOpen]=useState(false);
-  /* V19.47 HOTFIX: ticker effect also must run unconditionally (no early-return skip).
+  /* V19.48 HOTFIX: ticker effect also must run unconditionally (no early-return skip).
      The dep `_notifTick` makes it a no-op rebind; the actual gate is inside (we read subBarNotifs from a ref or just always tick). */
   useEffect(()=>{
     /* Tick once a minute. Cheap setState; greeting bar reads fresh state on each render. */
@@ -407,16 +419,16 @@ export default function App(){
     return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off);clearInterval(interval)}
   },[]);
   useEffect(()=>{if(justReconnected){const t=setTimeout(()=>setJustReconnected(false),4000);return()=>clearTimeout(t)}},[justReconnected]);
-  /* V19.47: Online-only mode — block ALL writes when offline. isOnlineRef gives callbacks
+  /* V19.48: Online-only mode — block ALL writes when offline. isOnlineRef gives callbacks
      a stable reference without forcing every useCallback dep on isOnline (which would
      cause cascade re-creations of upConfig/upSales/upTasks on every connectivity flap). */
   const isOnlineRef=useRef(navigator.onLine);
   useEffect(()=>{isOnlineRef.current=isOnline},[isOnline]);
-  /* V19.47: Last sync timestamp — updated by upConfigTx/upSalesTx/upTasksTx on success.
+  /* V19.48: Last sync timestamp — updated by upConfigTx/upSalesTx/upTasksTx on success.
      Persisted to localStorage so it survives reloads. Display in topbar as relative time. */
   const[lastSyncAt,setLastSyncAt]=useState(()=>{try{const v=localStorage.getItem("clark-lastSyncAt");return v?parseInt(v,10):0}catch(e){return 0}});
   const markSynced=useCallback(()=>{const t=Date.now();setLastSyncAt(t);try{localStorage.setItem("clark-lastSyncAt",String(t))}catch(e){}},[]);
-  /* V19.47: human-friendly relative time used for "آخر مزامنة من ..." pill and the team panel rows. */
+  /* V19.48: human-friendly relative time used for "آخر مزامنة من ..." pill and the team panel rows. */
   const fmtRelAr=useCallback((ts)=>{
     if(!ts)return"";
     const sec=Math.max(0,Math.floor((Date.now()-ts)/1000));
@@ -429,10 +441,10 @@ export default function App(){
     const day=Math.floor(hr/24);
     return"من "+day+" يوم";
   },[]);
-  /* V19.47: Force re-render every 30s so the relative-time display ("من X ثانية") stays fresh. */
+  /* V19.48: Force re-render every 30s so the relative-time display ("من X ثانية") stays fresh. */
   const[,setSyncTick]=useState(0);
   useEffect(()=>{const t=setInterval(()=>setSyncTick(x=>x+1),30000);return()=>clearInterval(t)},[]);
-  /* V19.47: Removed showTeamActivity state — feature retired */
+  /* V19.48: Removed showTeamActivity state — feature retired */
   /* V15.63: Bot tasks permanently disabled — user requested removal.
      V15.76: Dead ref removed — was never read anywhere. */
   const themeKey="clark-theme-"+(user?.uid||"default");
@@ -622,6 +634,8 @@ export default function App(){
       /* V18.60: Mark config as loaded once we have valid data (cached or server).
          Writes are gated on this flag — see upConfig safety check. */
       setConfigLoaded(true);
+      /* V19.48: Track that the config listener has fired (for stall diagnostic). */
+      setListenerStatus(s => ({...s, config: true}));
       /* Clear any prior error since we have valid data now */
       setConfigError(null);
       /* ⛔ Skip ALL migrations if data is from local cache or has pending writes.
@@ -948,6 +962,7 @@ export default function App(){
          the app to keep running with stale state on permission denied / network
          errors. Now we surface the error to the UI and block writes. */
       console.error("[V18.60 CRITICAL] config listener error:",err);
+      setListenerStatus(s=>({...s,lastError:"config: "+(err?.code||err?.message||"unknown")}));
       setConfigError({
         type:"listener_error",
         code:err?.code||"unknown",
@@ -959,9 +974,9 @@ export default function App(){
     });
 
     /* Sales doc */
-    const u2=onSnapshot(doc(db,"factory","sales"),snap=>{if(snap.exists()){if(snap.metadata.hasPendingWrites)return;salesReady=true;setSalesDoc(snap.data())}},err=>{console.error("[V18.60] sales listener error:",err)});
+    const u2=onSnapshot(doc(db,"factory","sales"),snap=>{if(snap.exists()){if(snap.metadata.hasPendingWrites)return;salesReady=true;setSalesDoc(snap.data());setListenerStatus(s=>({...s,sales:true}))}},err=>{console.error("[V18.60] sales listener error:",err);setListenerStatus(s=>({...s,lastError:"sales: "+(err?.code||err?.message||"unknown")}))});
     /* Tasks doc */
-    const u3=onSnapshot(doc(db,"factory","tasks"),snap=>{if(snap.exists()){if(snap.metadata.hasPendingWrites)return;tasksReady=true;setTasksDoc(snap.data())}},err=>{console.error("[V18.60] tasks listener error:",err)});
+    const u3=onSnapshot(doc(db,"factory","tasks"),snap=>{if(snap.exists()){if(snap.metadata.hasPendingWrites)return;tasksReady=true;setTasksDoc(snap.data());setListenerStatus(s=>({...s,tasks:true}))}},err=>{console.error("[V18.60] tasks listener error:",err);setListenerStatus(s=>({...s,lastError:"tasks: "+(err?.code||err?.message||"unknown")}))});
     return()=>{u1();u2();u3()}},[user]);
 
   /* ═══ V16.11: Migration 6 (split-phase-2 cleanup) — moved out of the config
@@ -1397,7 +1412,7 @@ export default function App(){
         const sortedDays=[...map.keys()].sort((a,b)=>b.localeCompare(a));
         const all=[];
         const serverIds=new Set();
-        /* V19.47 FIX: Track duplicate ids across day docs for diagnostic logging.
+        /* V19.48 FIX: Track duplicate ids across day docs for diagnostic logging.
            If the same id appears in 2+ day docs, only the FIRST occurrence (newest day,
            because sortedDays is DESC) is included in the merged array. The duplicates
            in older day docs are filtered out here at the UI layer; the cleanup
@@ -1414,7 +1429,7 @@ export default function App(){
           const entries=map.get(dayKey)||[];
           for(const e of entries){
             const id=String(e?.id||"");
-            /* V19.47 FIX: skip if already added from a newer day doc */
+            /* V19.48 FIX: skip if already added from a newer day doc */
             if(id&&serverIds.has(id)){dupIds.add(id);continue;}
             /* Skip server entries that user just deleted optimistically */
             const pending=pendingMap.get(id);
@@ -1428,14 +1443,14 @@ export default function App(){
             serverIds.add(id);
           }
         }
-        /* V19.47: Surface duplicates once per session for diagnostics */
+        /* V19.48: Surface duplicates once per session for diagnostics */
         if(dupIds.size>0){
           /* Use a module-level Set to avoid spamming console on every rebuild */
           if(!window.__clarkSeenDups)window.__clarkSeenDups=new Set();
           for(const id of dupIds){
             if(!window.__clarkSeenDups.has(id)){
               window.__clarkSeenDups.add(id);
-              console.warn("[V19.47 DEDUP] Duplicate id "+id+" found across day docs — kept newest, hiding older copies. The cleanup migration will remove duplicates from Firestore.");
+              console.warn("[V19.48 DEDUP] Duplicate id "+id+" found across day docs — kept newest, hiding older copies. The cleanup migration will remove duplicates from Firestore.");
             }
           }
         }
@@ -1577,7 +1592,7 @@ export default function App(){
     return()=>{unsubs.forEach(u=>u())};
   },[user]);
 
-  useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>{const o={_docId:d.id,...d.data()};if(o.status)o.status=migrateStatus(o.status);return o}).filter(o=>o.id));setDataLoading(false)},err=>{console.error("[V18.60] orders listener error:",err);setDataLoading(false)});return()=>unsub()},[user,season]);
+  useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>{const o={_docId:d.id,...d.data()};if(o.status)o.status=migrateStatus(o.status);return o}).filter(o=>o.id));setDataLoading(false);setListenerStatus(s=>({...s,orders:true}))},err=>{console.error("[V18.60] orders listener error:",err);setDataLoading(false);setListenerStatus(s=>({...s,lastError:"orders: "+(err?.code||err?.message||"unknown")}))});return()=>unsub()},[user,season]);
 
   /* ═══ AUTO-BACKUP: once per day per user — V18.62: NOW COMPREHENSIVE ═══
      
@@ -1660,7 +1675,7 @@ export default function App(){
   useEffect(()=>{splitDataRef.current=splitData},[splitData]);
   /* V17.4: keep configDocRef in sync — used by config listener to detect own optimistic state */
   useEffect(()=>{configDocRef.current=configDoc},[configDoc]);
-  /* V19.47: Same pattern for sales/tasks — used by their fallback writers */
+  /* V19.48: Same pattern for sales/tasks — used by their fallback writers */
   useEffect(()=>{salesDocRef.current=salesDoc},[salesDoc]);
   useEffect(()=>{tasksDocRef.current=tasksDoc},[tasksDoc]);
   /* V16.75: ref to current partitionedData للقراءة من داخل upConfigTx */
@@ -1716,11 +1731,11 @@ export default function App(){
              local snapshot), so any concurrent server change would be lost on retry too.
              The retry mechanism only helped with transient errors, not concurrent edits. */
         await setDoc(ref,stripped,{merge:false});
-        /* V19.47: write reached the server — record the sync timestamp for the topbar pill. */
+        /* V19.48: write reached the server — record the sync timestamp for the topbar pill. */
         markSynced();
         /* V16.74: sync split day docs */
         if(splitActive&&splitAfter){
-          /* V19.47 FIX: Retry sync up to 3 times with backoff. The previous
+          /* V19.48 FIX: Retry sync up to 3 times with backoff. The previous
              behavior was "log on first failure, no retry" — which left Firestore
              in inconsistent state when one of the parallel day-doc writes failed
              (e.g. on date-change: new-day write succeeds but old-day delete fails,
@@ -1733,7 +1748,7 @@ export default function App(){
               break;
             }catch(e){
               syncErr=e;
-              console.warn("[V19.47] syncAllSplitChanges attempt "+(syncAttempt+1)+" failed:",e?.message||e);
+              console.warn("[V19.48] syncAllSplitChanges attempt "+(syncAttempt+1)+" failed:",e?.message||e);
               if(syncAttempt<2)await _sleep(150*Math.pow(2,syncAttempt));
             }
           }
@@ -1748,7 +1763,7 @@ export default function App(){
         }
         /* V16.75: sync partitioned docs */
         if(partActive&&partAfter){
-          /* V19.47 FIX: same retry pattern for hrWeeks partitioned writes */
+          /* V19.48 FIX: same retry pattern for hrWeeks partitioned writes */
           let syncErr=null;
           for(let syncAttempt=0;syncAttempt<3;syncAttempt++){
             try{
@@ -1757,7 +1772,7 @@ export default function App(){
               break;
             }catch(e){
               syncErr=e;
-              console.warn("[V19.47] syncAllPartitionedChanges attempt "+(syncAttempt+1)+" failed:",e?.message||e);
+              console.warn("[V19.48] syncAllPartitionedChanges attempt "+(syncAttempt+1)+" failed:",e?.message||e);
               if(syncAttempt<2)await _sleep(150*Math.pow(2,syncAttempt));
             }
           }
@@ -1779,13 +1794,13 @@ export default function App(){
       }
     }
     /* All retries exhausted — fallback path.
-       V19.47 FIX: Don't show "فشل حفظ" toast pre-emptively. Previously the user
+       V19.48 FIX: Don't show "فشل حفظ" toast pre-emptively. Previously the user
        saw a scary failure toast EVEN WHEN the fallback succeeded a moment later
        — leading to "فشل التسجيل لكن البيانات اتسجلت" reports. New behavior:
          - Silent retry via fallback setDoc
          - On fallback success: log warning to console, show subtle "✓ تم الحفظ" only
          - On fallback failure: show categorized error with forensic details */
-    console.warn("[V19.47] upConfig tx exhausted retries — attempting fallback. Last error:", lastErr?.message||lastErr);
+    console.warn("[V19.48] upConfig tx exhausted retries — attempting fallback. Last error:", lastErr?.message||lastErr);
     try{
       /* V17.2: simpler fallback — we already have precomputed objects. */
       /* V17.0 FIX #9: Sync day docs FIRST (idempotent and safe to retry) */
@@ -1808,9 +1823,9 @@ export default function App(){
       }
       try{
         await setDoc(ref,stripped,{merge:false});
-        markSynced(); /* V19.47: fallback DID reach server */
+        markSynced(); /* V19.48: fallback DID reach server */
         /* Quiet success — don't alarm user. The data IS saved, no need for warnings. */
-        console.warn("[V19.47] upConfig recovered via fallback setDoc");
+        console.warn("[V19.48] upConfig recovered via fallback setDoc");
       }catch(er){
         const cat = categorizeWriteError(er);
         const docSize = estimateDocSize(stripped);
@@ -1827,18 +1842,18 @@ export default function App(){
       }
     }catch(fallbackErr){
       const cat = categorizeWriteError(fallbackErr);
-      console.error("[V19.47] upConfig fallback unexpected error:", fallbackErr);
+      console.error("[V19.48] upConfig fallback unexpected error:", fallbackErr);
       showToast("⚠️ تعذر الحفظ: "+(cat.arabic||((fallbackErr.message||String(fallbackErr)).substring(0,80))));
     }
   },[configDoc,splitLoaded,partitionedLoaded,markSynced]);
   const upConfig=useCallback(fn=>{
-    /* V19.47: Online-only mode — refuse all writes when device is offline.
+    /* V19.48: Online-only mode — refuse all writes when device is offline.
        Reading from cache is fine, but writes must reach the server immediately
        to avoid the race conditions that motivated this whole online-only push.
        Read-only banner + topbar pill already tell the user; this is the actual
        enforcement gate. Toast gives them an explicit, immediate signal. */
     if(!isOnlineRef.current){
-      console.warn("[V19.47] Refusing upConfig — device is offline");
+      console.warn("[V19.48] Refusing upConfig — device is offline");
       showToast("⛔ أنت أوفلاين دلوقتي — التعديل مش متاح لحد ما النت يرجع");
       return;
     }
@@ -1981,7 +1996,7 @@ export default function App(){
           fn(next);
           tx.set(ref,next);
         });
-        markSynced(); /* V19.47 */
+        markSynced(); /* V19.48 */
         return;
       }catch(e){
         lastErr=e;
@@ -1991,17 +2006,17 @@ export default function App(){
         await _sleep(100*Math.pow(2,attempt));
       }
     }
-    /* V19.47 ROOT-CAUSE FIX:
+    /* V19.48 ROOT-CAUSE FIX:
        The previous fallback was fire-and-forget — `setDoc(...).catch(er=>console.error)`.
        This meant: on real failure, the optimistic UI showed the change momentarily
        (because setSalesDoc ran), then the listener pulled stale server data and
        reverted. The user saw "data unchanged" with NO error toast. This was the
-       root cause of the V19.47-reported "تأكيد البيع doesn't save" incident.
+       root cause of the V19.48-reported "تأكيد البيع doesn't save" incident.
 
        New flow: AWAIT the fallback setDoc, distinguish "transient retry exhaustion
        but recovery succeeded" (show success quietly) from "actual failure" (show
        categorized error + forensic line in console + remove optimistic state). */
-    console.error("[V19.47] upSales tx error after retries:", lastErr);
+    console.error("[V19.48] upSales tx error after retries:", lastErr);
     let optimisticNext = null;
     try {
       /* Compute the desired next state from current optimistic state, just like before */
@@ -2024,7 +2039,7 @@ export default function App(){
       await setDoc(ref, optimisticNext, { merge: false });
       markSynced();
       /* Recovered successfully via fallback. Quiet success — don't alarm the user. */
-      console.warn("[V19.47] upSales recovered via fallback setDoc");
+      console.warn("[V19.48] upSales recovered via fallback setDoc");
     } catch(fallbackErr){
       /* Real failure — revert optimistic state and tell the user clearly. */
       const cat = categorizeWriteError(fallbackErr);
@@ -2046,7 +2061,7 @@ export default function App(){
     }
   },[markSynced]);
   const upSales=useCallback(fn=>{
-    /* V19.47: Online-only — refuse writes when offline. Same enforcement as upConfig. */
+    /* V19.48: Online-only — refuse writes when offline. Same enforcement as upConfig. */
     if(!isOnlineRef.current){
       showToast("⛔ أنت أوفلاين دلوقتي — التعديل مش متاح لحد ما النت يرجع");
       return;
@@ -2080,7 +2095,7 @@ export default function App(){
           fn(next);
           tx.set(ref,next);
         });
-        markSynced(); /* V19.47 */
+        markSynced(); /* V19.48 */
         return;
       }catch(e){
         lastErr=e;
@@ -2090,8 +2105,8 @@ export default function App(){
         await _sleep(100*Math.pow(2,attempt));
       }
     }
-    /* V19.47: Same fallback fix as upSalesTx — see explanation there. */
-    console.error("[V19.47] upTasks tx error after retries:", lastErr);
+    /* V19.48: Same fallback fix as upSalesTx — see explanation there. */
+    console.error("[V19.48] upTasks tx error after retries:", lastErr);
     let optimisticNext = null;
     try {
       optimisticNext = (()=>{
@@ -2108,7 +2123,7 @@ export default function App(){
       setTasksDoc(optimisticNext);
       await setDoc(ref, optimisticNext, { merge: false });
       markSynced();
-      console.warn("[V19.47] upTasks recovered via fallback setDoc");
+      console.warn("[V19.48] upTasks recovered via fallback setDoc");
     } catch(fallbackErr){
       const cat = categorizeWriteError(fallbackErr);
       const docSize = estimateDocSize(optimisticNext);
@@ -2125,7 +2140,7 @@ export default function App(){
     }
   },[markSynced]);
   const upTasks=useCallback(fn=>{
-    /* V19.47: Online-only — refuse writes when offline. */
+    /* V19.48: Online-only — refuse writes when offline. */
     if(!isOnlineRef.current){
       showToast("⛔ أنت أوفلاين دلوقتي — التعديل مش متاح لحد ما النت يرجع");
       return;
@@ -2170,7 +2185,7 @@ export default function App(){
     /* Fast local pre-check — gives immediate feedback before paying the network round-trip.
        The transaction below re-checks against fresh server data anyway. */
     const localCheck=checkStockAvailability(o,{...configDoc,fabrics:configDoc.fabrics,accessories:configDoc.accessories,purchaseSettings:configDoc.purchaseSettings});
-    /* V19.47 BUG FIX: Respect blockOnInsufficientStock setting. When user picks
+    /* V19.48 BUG FIX: Respect blockOnInsufficientStock setting. When user picks
        "السماح بالسالب" (warning mode), blockOnInsufficientStock=false → we should
        show a warning but allow the order. Previously we always blocked, ignoring
        the setting completely. */
@@ -2191,7 +2206,7 @@ export default function App(){
         const cfgSnap=await tx.get(configRef);
         const cfg=cfgSnap.exists()?cfgSnap.data():{};
         /* Re-check stock against FRESH data — closes the TOCTOU window.
-           V19.47: also respect the setting on the server-side recheck. */
+           V19.48: also respect the setting on the server-side recheck. */
         const freshCheck=checkStockAvailability(o,cfg);
         const _blockFresh=(cfg.purchaseSettings||{}).blockOnInsufficientStock!==false;
         if(!freshCheck.ok&&_blockFresh){
@@ -2259,13 +2274,13 @@ export default function App(){
         tx.set(salesRef,nextSales);
         tx.delete(orderRef);
       });
-      /* V19.47: After the Firestore transaction commits, best-effort cleanup of the
+      /* V19.48: After the Firestore transaction commits, best-effort cleanup of the
          order's Storage assets. Firestore transactions can't span Storage, so this
          runs separately. Failures are non-fatal — orphans are harmless and we log.
          Imports kept lazy here to avoid pulling Storage SDK into the App.jsx bundle hot path. */
       if(ord.imageStoragePath){
         import("./utils/orderImages.js").then(({deleteOrderImage})=>{
-          deleteOrderImage(ord.imageStoragePath).catch(err=>console.warn("[V19.47] image cleanup post-delete:",err));
+          deleteOrderImage(ord.imageStoragePath).catch(err=>console.warn("[V19.48] image cleanup post-delete:",err));
         });
       }
     }catch(e){
@@ -2281,7 +2296,7 @@ export default function App(){
     if(ord._stockDeducted&&!newData._stockDeducted)newData._stockDeducted=ord._stockDeducted;
     /* Local pre-check (delta-aware) for fast UX */
     const localCheck=checkStockAvailability(newData,{...configDoc,fabrics:configDoc.fabrics,accessories:configDoc.accessories,purchaseSettings:configDoc.purchaseSettings});
-    /* V19.47 BUG FIX: Respect blockOnInsufficientStock setting (warning mode allows negative). */
+    /* V19.48 BUG FIX: Respect blockOnInsufficientStock setting (warning mode allows negative). */
     const _blockShortage=(configDoc.purchaseSettings||{}).blockOnInsufficientStock!==false;
     if(!localCheck.ok&&_blockShortage){
       await tell("المخزن غير كافي",_formatShortageMsg("⛔ لا يمكن حفظ التعديل — المخزن غير كافي للزيادة المطلوبة:",localCheck.shortages),{type:"error"});
@@ -2420,18 +2435,35 @@ export default function App(){
      (single source of truth — see file header for rationale). The code below is now a
      thin wrapper that delegates to the registry's pure functions. The runtime linter
      emits console warnings at startup if TABS in LoginScreen drift from PERMISSION_TABS.
-     V19.47: Pass full config (not just permissions) so custom roles get resolved. */
+     V19.48: Pass full config (not just permissions) so custom roles get resolved. */
   const getTabPerm=(tabKey)=>effectivePermFromRegistry(userRole,tabKey,config);
   const getHrSubPerm=(subKey)=>getHrSubPermFromRegistry(userRole,subKey,config);
   const canEditTab=(tabKey)=>canEditPermFromRegistry(userRole,tabKey,config);
   const canViewTab=(tabKey)=>canViewPermFromRegistry(userRole,tabKey,config);
   const statusCards=config.statusCards||DEFAULT_STATUSES;
 
-  /* V19.47: Removed the prevStatuses → statusNotif effect. The pill it fed
+  /* V19.48: Removed the prevStatuses → statusNotif effect. The pill it fed
      was removed from the topbar (it caused phantom notifications on re-login
      because the first listener snapshot was diffed against an empty ref).
      The state hook itself is kept (line ~399) to avoid touching Hook order;
      it's just never written to anymore. */
+
+  /* V19.48: Detect loading stall after 12 seconds. If listeners haven't all fired,
+     surface a diagnostic panel with escape-hatch options. Without this users got
+     stuck on the spinner forever with no recourse when a listener silently failed
+     (cache corruption, network hiccup, region issues, etc.). */
+  useEffect(()=>{
+    if(!user)return;
+    if(!dataLoading && configLoaded)return; /* Already loaded — nothing to detect */
+    const timer = setTimeout(()=>{
+      /* Re-check at fire time — state may have caught up by then */
+      if(dataLoading || !configLoaded){
+        console.warn("[V19.48] Loading stalled after 12s. Listener status:", listenerStatus);
+        setLoadingStallDetected(true);
+      }
+    }, 12000);
+    return ()=>clearTimeout(timer);
+  },[user,dataLoading,configLoaded,listenerStatus]);
 
   if(authLoading)return null;
   if(!user)return<LoginScreen/>;
@@ -2468,16 +2500,98 @@ export default function App(){
   }
   /* V18.60: Wait for config to load from server before rendering UI.
      Previously the UI rendered with INIT_CONFIG as base while waiting for the
-     listener — which could trigger writes that overwrote real data with defaults. */
-  if(dataLoading||!configLoaded)return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#EFF6FF",direction:"rtl",fontFamily:"'Cairo',sans-serif"}}>
-    <div style={{textAlign:"center"}}>
-      <div style={{display:"flex",justifyContent:"center",marginBottom:14}}>
-        <Spinner size="large" color={T.accent}/>
+     listener — which could trigger writes that overwrote real data with defaults.
+     V19.48: After 12s of waiting, surface a stall-recovery panel so the user has
+     options instead of being stuck on the spinner forever. */
+  if(dataLoading||!configLoaded){
+    if(loadingStallDetected){
+      const stat = listenerStatus;
+      const StatusRow = ({label, ok}) => (
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",fontSize:13}}>
+          <span style={{color:"#374151"}}>{label}</span>
+          <span style={{color:ok?"#10B981":"#EF4444",fontWeight:700}}>{ok?"✓ متصل":"✗ متأخر"}</span>
+        </div>
+      );
+      const tryAnyway = () => {
+        /* Force-bypass: use whatever state we have. Risky but better than infinite stuck. */
+        console.warn("[V19.48] User clicked 'Try anyway' — forcing through loading gate");
+        if(!configLoaded) setConfigLoaded(true);
+        if(dataLoading) setDataLoading(false);
+        setLoadingStallDetected(false);
+      };
+      const clearCacheAndReload = async () => {
+        try {
+          /* Best-effort clearing of Firestore IndexedDB persistence cache.
+             If this fails (browser doesn't allow it), still try to reload. */
+          if(window.indexedDB && window.indexedDB.databases){
+            const dbs = await window.indexedDB.databases();
+            for(const d of dbs){
+              if(d.name && d.name.startsWith("firestore")){
+                try { window.indexedDB.deleteDatabase(d.name); } catch(_){}
+              }
+            }
+          }
+        } catch(e){ console.warn("clearCache failed:", e); }
+        /* Hard-reload (bypass HTTP cache) */
+        window.location.reload();
+      };
+      return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#FEF3C7",direction:"rtl",fontFamily:"'Cairo',sans-serif",padding:20}}>
+        <div style={{maxWidth:560,background:"#fff",borderRadius:16,padding:28,border:"2px solid #F59E0B",boxShadow:"0 10px 40px rgba(245,158,11,0.2)"}}>
+          <div style={{fontSize:42,textAlign:"center",marginBottom:8}}>⏱️</div>
+          <div style={{fontSize:18,fontWeight:800,color:"#D97706",textAlign:"center",marginBottom:14}}>
+            تأخر في تحميل البيانات
+          </div>
+          <div style={{fontSize:13,color:"#374151",lineHeight:1.7,marginBottom:14,padding:12,background:"#FEF3C7",borderRadius:10,border:"1px solid #FCD34D"}}>
+            بقالنا 12 ثانية بنحاول نوصل لقاعدة البيانات. ممكن تكون مشكلة شبكة، أو الكاش المحلي تالف، أو المستندات أكبر من اللازم. اختار حل من تحت.
+          </div>
+          <div style={{padding:12,background:"#F9FAFB",borderRadius:10,marginBottom:14,border:"1px solid #E5E7EB"}}>
+            <div style={{fontSize:12,fontWeight:700,color:"#6B7280",marginBottom:8}}>حالة الاتصال:</div>
+            <StatusRow label="الإعدادات (factory/config)" ok={stat.config}/>
+            <StatusRow label="بيانات المبيعات (factory/sales)" ok={stat.sales}/>
+            <StatusRow label="المهام (factory/tasks)" ok={stat.tasks}/>
+            <StatusRow label="الأوردرات (seasons/...)" ok={stat.orders}/>
+            {stat.lastError && (
+              <div style={{marginTop:10,padding:8,background:"#FEE2E2",borderRadius:6,fontSize:11,color:"#991B1B",fontFamily:"monospace",direction:"ltr",textAlign:"left"}}>
+                {stat.lastError}
+              </div>
+            )}
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {stat.config && stat.orders ? (
+              <button onClick={tryAnyway} style={{padding:"12px 18px",background:"#10B981",color:"#fff",border:"none",borderRadius:10,fontWeight:800,cursor:"pointer",fontSize:14,fontFamily:"inherit"}}>
+                ✓ متابعة بالبيانات الحالية ({(stat.config?1:0)+(stat.sales?1:0)+(stat.tasks?1:0)+(stat.orders?1:0)}/4 جاهزة)
+              </button>
+            ) : (
+              <button onClick={tryAnyway} style={{padding:"12px 18px",background:"#F59E0B",color:"#fff",border:"none",borderRadius:10,fontWeight:800,cursor:"pointer",fontSize:14,fontFamily:"inherit"}}>
+                ⚠️ متابعة على مسؤوليتي (البيانات قد تكون ناقصة)
+              </button>
+            )}
+            <button onClick={clearCacheAndReload} style={{padding:"10px 18px",background:"#3B82F6",color:"#fff",border:"none",borderRadius:10,fontWeight:700,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>
+              🗑 مسح الـ cache المحلي + إعادة تحميل
+            </button>
+            <button onClick={()=>window.location.reload()} style={{padding:"10px 18px",background:"#F3F4F6",color:"#374151",border:"1px solid #D1D5DB",borderRadius:10,fontWeight:700,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>
+              ↻ إعادة تحميل بسيطة
+            </button>
+            <button onClick={()=>signOut(auth)} style={{padding:"10px 18px",background:"transparent",color:"#6B7280",border:"1px solid #D1D5DB",borderRadius:10,fontWeight:600,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>
+              تسجيل خروج
+            </button>
+          </div>
+          <div style={{marginTop:14,fontSize:11,color:"#9CA3AF",lineHeight:1.6,padding:8,background:"#F3F4F6",borderRadius:6}}>
+            💡 لو الإعدادات والأوردرات (الأهم) متصلة، اختر "متابعة بالبيانات الحالية" — التطبيق هيشتغل عادي. لو الكاش تالف، "مسح الـ cache" بيحلها في الغالب.
+          </div>
+        </div>
+      </div>;
+    }
+    return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#EFF6FF",direction:"rtl",fontFamily:"'Cairo',sans-serif"}}>
+      <div style={{textAlign:"center"}}>
+        <div style={{display:"flex",justifyContent:"center",marginBottom:14}}>
+          <Spinner size="large" color={T.accent}/>
+        </div>
+        <div style={{fontSize:13,fontWeight:700,color:T.accent}}>جاري تحميل البيانات</div>
+        <div style={{fontSize:11,color:"#94A3B8",marginTop:4}}>يرجى الانتظار قليلاً...</div>
       </div>
-      <div style={{fontSize:13,fontWeight:700,color:T.accent}}>جاري تحميل البيانات</div>
-      <div style={{fontSize:11,color:"#94A3B8",marginTop:4}}>يرجى الانتظار قليلاً...</div>
-    </div>
-  </div>;
+    </div>;
+  }
   /* V15.59: Mobile Warehouse App — accessed via /warehouse URL.
      Renders a separate mobile-first shell instead of the normal app. */
   if(window.location.pathname==="/warehouse"){
@@ -2531,7 +2645,7 @@ export default function App(){
 
   /* User notifications */
   const userEmail=user?.email||"";
-  /* V19.47: Filter notifications honoring expiresAt + endedAt + dismissedBy.
+  /* V19.48: Filter notifications honoring expiresAt + endedAt + dismissedBy.
      - endedAt: sender or admin clicked "End" → hide for everyone
      - expiresAt: passed → hide for everyone (auto-expire)
      - dismissedBy: this user clicked × → hide just for them */
@@ -2541,7 +2655,7 @@ export default function App(){
     if(n.expiresAt&&new Date(n.expiresAt)<=_now)return false;
     if((n.readBy||[]).includes(userEmail))return false;
     if((n.dismissedBy||[]).includes(userEmail))return false;
-    /* V19.47: forAdminsOnly notifs (e.g. transfer approval requests) only show for admins */
+    /* V19.48: forAdminsOnly notifs (e.g. transfer approval requests) only show for admins */
     if(n.forAdminsOnly&&userRole!=="admin")return false;
     return true;
   });
@@ -2567,17 +2681,17 @@ export default function App(){
     return{msg:n.msg,color:n.type==="طلب"?"#8B5CF6":n.type==="مهمة"?T.accent:T.warn,icon:n.type==="طلب"?"📩":n.type==="مهمة"?"📌":"💬",orderId:n.orderId||null,isNotif:true,notifId:n.id,from:n.fromName,date:n.createdAt};
   }),...appAlerts];
   const alertCount=allAlerts.length;
-  /* V19.47: Urgent tasks bar in topbar disabled — these now show in the greeting bar
+  /* V19.48: Urgent tasks bar in topbar disabled — these now show in the greeting bar
      as type chips along with all other types. Keep as empty array to keep refs alive. */
   const urgentTasks=[];
   const markTaskDone=(nid)=>upConfig(d=>{const n=(d.notifications||[]).find(x=>x.id===nid);if(n){if(!n.doneBy)n.doneBy=[];if(!n.doneBy.includes(userEmail))n.doneBy.push(userEmail)}});
-  /* V19.47: End-for-everyone — sender or admin clicks ⏹ → endedAt set → hidden for all users.
+  /* V19.48: End-for-everyone — sender or admin clicks ⏹ → endedAt set → hidden for all users.
      Different from dismiss (which only hides for current user). */
   const endNotif=(nid)=>upConfig(d=>{const n=(d.notifications||[]).find(x=>x.id===nid);if(!n)return;
     n.endedAt=new Date().toISOString();
     n.endedBy=userEmail;
   });
-  /* V19.47: Notifications shown in sub-bar — all types (تذكير/طلب/مهمة/مهمة عاجلة).
+  /* V19.48: Notifications shown in sub-bar — all types (تذكير/طلب/مهمة/مهمة عاجلة).
      Excludes system-generated types like delivery_confirmed/delivery_issue (those go to bell). */
   const subBarNotifs=userNotifs.filter(n=>{
     const t=n.type;
@@ -2595,7 +2709,7 @@ export default function App(){
     if(hrs>0)return hrs+"س"+(remMins>0?" "+remMins+"د":"");
     return mins+"د";
   };
-  /* V19.47: Notification link handler — clicking a chip with `link` field navigates
+  /* V19.48: Notification link handler — clicking a chip with `link` field navigates
      the user to the referenced entity (invoice/order/etc.). Also marks the notification
      as read for this user. */
   const handleNotifLinkClick=(n)=>{
@@ -2611,7 +2725,7 @@ export default function App(){
     }else if(type==="order"){
       setSel(id);setTab("details");
     }else if(type==="treasury"){
-      /* V19.47: Sub-type "transfer_pending" → opens transfers view in TreasuryPg */
+      /* V19.48: Sub-type "transfer_pending" → opens transfers view in TreasuryPg */
       navigate("treasury",{entryId:id,view:subType==="transfer_pending"?"transfers":undefined});
     }else if(type==="workshop"){
       navigate("external",{wsName:id});
@@ -2629,7 +2743,7 @@ export default function App(){
     "مهمة عاجلة": {icon:"🔴",bg:"#FEF2F2",border:"#FECACA",text:"#DC2626"},
   };
 
-  /* V19.47: Live ticker is wired at top of component (before early returns) for hook-order stability. */
+  /* V19.48: Live ticker is wired at top of component (before early returns) for hook-order stability. */
 
   const goHome=async()=>{if(window.__formDirty){if(!await ask("الخروج بدون حفظ","هل تريد الخروج بدون حفظ البيانات المدخلة؟",{danger:true,confirmText:"خروج"}))return;window.__formDirty=false}setTab("home");setSel(null)};
   const goTo=async(key)=>{if(window.__formDirty){if(!await ask("الخروج بدون حفظ","هل تريد الخروج بدون حفظ البيانات المدخلة؟",{danger:true,confirmText:"خروج"}))return;window.__formDirty=false}setTab(key);if(key!=="details")setSel(null)};
@@ -2660,7 +2774,7 @@ export default function App(){
           <span title={lastSyncAt?"آخر مزامنة "+fmtRelAr(lastSyncAt):""} style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:700,background:justReconnected?"#10B98118":isOnline?(T.navBg?"rgba(255,255,255,0.12)":"#10B98108"):"#F59E0B22",color:justReconnected?"#10B981":isOnline?(T.navText?"#A7F3D0":"#10B981"):"#B45309"}}>
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"⊘ أوفلاين · قراءة فقط"}
           </span>
-          {/* V19.47: removed "مزامنة من X د" timestamp pill + "👥 الفريق" pill — too noisy in topbar */}
+          {/* V19.48: removed "مزامنة من X د" timestamp pill + "👥 الفريق" pill — too noisy in topbar */}
           <span 
             onClick={()=>setShowAboutVersion(true)} 
             title="عرض سجل التحديثات"
@@ -2676,7 +2790,7 @@ export default function App(){
             }}
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >V19.47 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          >V19.48 <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
         </div>}
         {isMob&&<>
           <span title={lastSyncAt?"آخر مزامنة "+fmtRelAr(lastSyncAt):""} style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#F59E0B22",color:isOnline?"#10B981":"#B45309"}}>{isOnline?"●":"⊘ قراءة"}</span>
@@ -2684,7 +2798,7 @@ export default function App(){
             onClick={()=>setShowAboutVersion(true)}
             title="عرض سجل التحديثات"
             style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,fontFamily:"monospace",background:T.navText?"rgba(255,255,255,0.15)":T.accent+"10",color:T.navText||T.accent,cursor:"pointer"}}
-          >V19.47</span>
+          >V19.48</span>
         </>}
       </div>
 
@@ -2722,7 +2836,7 @@ export default function App(){
           <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.7}}`}</style>
         </div>}
 
-        {/* V19.47: Status-change pill removed from topbar — caused phantom
+        {/* V19.48: Status-change pill removed from topbar — caused phantom
             "model X" notifications to appear after logout/login (the order
             listener's first snapshot looked like a status change relative to
             the empty prevStatuses ref). Notifications belong in the bell only.
@@ -2754,7 +2868,7 @@ export default function App(){
           </div></>}</>}
         </div>
 
-        {/* V19.47: Season badge — moved here from greeting bar to keep greeting-bar single-row.
+        {/* V19.48: Season badge — moved here from greeting bar to keep greeting-bar single-row.
             Visually placed next to the bell. Compact format on mobile (📅 S26) vs. desktop (📅 الموسم: S26). */}
         <div title={"الموسم: "+season} style={{display:"flex",alignItems:"center",gap:5,padding:isMob?"4px 8px":"5px 10px",borderRadius:7,background:T.navBg?"rgba(16,185,129,0.18)":T.ok+"12",border:"1px solid "+(T.navBg?"rgba(16,185,129,0.4)":T.ok+"40"),color:T.navBg?"#fff":T.ok,fontSize:isMob?10:11,fontWeight:800,whiteSpace:"nowrap",flexShrink:0}}>
           <svg width={isMob?11:12} height={isMob?11:12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
@@ -2769,7 +2883,7 @@ export default function App(){
             <div style={{width:isMob?24:28,height:isMob?24:28,borderRadius:"50%",background:"linear-gradient(135deg,"+T.accent+","+T.accent+"CC)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:isMob?11:13,fontWeight:800,flexShrink:0}}>{(userName||"?").charAt(0).toUpperCase()}</div>
             {!isMob&&<div style={{display:"flex",flexDirection:"column",alignItems:"flex-start",lineHeight:1.2}}>
               <span style={{fontSize:FS-2,color:T.navText||T.text,fontWeight:700,whiteSpace:"nowrap",maxWidth:100,overflow:"hidden",textOverflow:"ellipsis"}}>{userName}</span>
-              <span style={{fontSize:9,color:T.navText?"rgba(255,255,255,0.7)":T.textMut,fontWeight:500}}>{/* V19.47: registry + custom roles */}{(getEffectiveRoleMeta(config)[userRole]?.label)||"مشاهد"}</span>
+              <span style={{fontSize:9,color:T.navText?"rgba(255,255,255,0.7)":T.textMut,fontWeight:500}}>{/* V19.48: registry + custom roles */}{(getEffectiveRoleMeta(config)[userRole]?.label)||"مشاهد"}</span>
             </div>}
             <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{color:T.navText||T.textMut,transition:"transform 0.2s",transform:showLogout?"rotate(180deg)":""}}><polyline points="6 9 12 15 18 9"/></svg>
           </div>
@@ -2781,7 +2895,7 @@ export default function App(){
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:FS,fontWeight:800,color:T.text}}>{userName}</div>
                   <div style={{fontSize:FS-3,color:T.textMut,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user?.email}</div>
-                  <div style={{fontSize:FS-3,color:T.accent,fontWeight:700,marginTop:2}}>{/* V19.47: registry + custom roles */}{(()=>{const r=getEffectiveRoleMeta(config)[userRole];return r?(r.icon+" "+r.label):"👁 مشاهد"})()}</div>
+                  <div style={{fontSize:FS-3,color:T.accent,fontWeight:700,marginTop:2}}>{/* V19.48: registry + custom roles */}{(()=>{const r=getEffectiveRoleMeta(config)[userRole];return r?(r.icon+" "+r.label):"👁 مشاهد"})()}</div>
                 </div>
               </div>
             </div>
@@ -2809,7 +2923,7 @@ export default function App(){
         </div>
       </div>
     </div>
-    {/* V19.47: Read-only banner — appears under the topbar whenever the device
+    {/* V19.48: Read-only banner — appears under the topbar whenever the device
         is offline. We show it as info (gray/amber), not danger, because the
         app is still usable for browsing — just not for writes. */}
     {!isOnline&&<div style={{
@@ -2859,13 +2973,13 @@ export default function App(){
             @keyframes chipPulse{0%,100%{opacity:1}50%{opacity:0.85}}
           `}</style>
 
-          {/* ═══ GREETING HEADER — V19.47: single-row guaranteed, chips shrink instead of wrapping ═══ */}
+          {/* ═══ GREETING HEADER — V19.48: single-row guaranteed, chips shrink instead of wrapping ═══ */}
           <div className="home-greet" style={{padding:isMob?"14px 16px":"18px 24px",borderRadius:16,marginBottom:18,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"nowrap",gap:12,minWidth:0}}>
             <div style={{flexShrink:0,minWidth:0}}>
               <div style={{fontSize:isMob?FS+2:FS+6,fontWeight:800,color:T.text,lineHeight:1.2,whiteSpace:"nowrap"}}>{greetText}، {userName||"مستخدم"}</div>
               <div style={{fontSize:FS-1,color:T.textSec,marginTop:4,whiteSpace:"nowrap"}}>{dateStr}</div>
             </div>
-            {/* V19.47: Chips compress (shrink) instead of wrapping when space gets tight.
+            {/* V19.48: Chips compress (shrink) instead of wrapping when space gets tight.
                 - Outer container: nowrap + overflow:hidden (forces single row)
                 - Each chip: flex:1 1 auto with minWidth ~120-140 (chip can shrink as space dwindles)
                 - Chip's text span: flex:1, minWidth:0 (text truncates first via ellipsis)
@@ -2894,7 +3008,7 @@ export default function App(){
               </div>}
             </div>;
             })()}
-            {/* V19.47: Season badge moved to top bar (next to bell). Removed from here to keep
+            {/* V19.48: Season badge moved to top bar (next to bell). Removed from here to keep
                 greeting-bar single-row even when notifications are present. */}
           </div>
 
@@ -2902,7 +3016,7 @@ export default function App(){
           {!isMob?<div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:18,alignItems:"flex-start",maxWidth:1400,margin:"0 auto"}}>
             {/* ═══ LEFT: Tabs Grid (SVG icons) ═══ */}
             <div>
-              {/* V19.47: Tile width capped to ~130px (was filling the column = ~160-180px),
+              {/* V19.48: Tile width capped to ~130px (was filling the column = ~160-180px),
                   giving a more compact dashboard. Gap (24), aspect-ratio (1), inner padding,
                   and icon size (44×44, SVG 22×22) all preserved as requested.
                   justifyContent:"center" centers the grid since it no longer fills the column. */}
@@ -3182,18 +3296,18 @@ export default function App(){
         {tab==="reports"&&<ReportsHub data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="settings"&&canEditTab("settings")&&<SettingsPg config={config} upConfig={upConfig} upSales={upSales} upTasks={upTasks} isMob={isMob} user={user} userRole={userRole} theme={theme} setTheme={setTheme} season={season} orders={orders} syncWsIds={syncWsIds} replaceOrder={replaceOrder} updOrder={updOrder} configDoc={configDoc} salesDoc={salesDoc} tasksDoc={tasksDoc}/>}
         {tab==="custDeliver"&&<CustDeliverPg data={data} upConfig={upConfig} upSales={upSales} upTasks={upTasks} updOrder={updOrder} isMob={isMob} isTab={isTab} canEdit={canEditTab("custDeliver")} user={user} season={season}/>}
-        {/* V19.47: 6 tabs that were UNGATED before V19.47 (open to all roles).
+        {/* V19.48: 6 tabs that were UNGATED before V19.48 (open to all roles).
             Now properly checked via canViewTab — viewer/payroll/etc. see "hide". */}
         {tab==="salesInvoices"&&canViewTab("salesInvoices")&&<SalesInvoicesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
         {tab==="creditNotes"&&canViewTab("creditNotes")&&<CreditNotesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
         {tab==="purchase"&&<PurchasePg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("purchase")} user={user} userRole={userRole}/>}
         {tab==="purchaseInvoices"&&canViewTab("purchaseInvoices")&&<PurchaseInvoicesPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("purchaseInvoices")} user={user}/>}
-        {/* V19.47: Debit notes (purchase returns) */}
+        {/* V19.48: Debit notes (purchase returns) */}
         {tab==="debitNotes"&&canViewTab("debitNotes")&&<DebitNotesPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("debitNotes")} user={user}/>}
         {tab==="warehouse"&&<WarehousePg data={data} upConfig={upConfig} updOrder={updOrder} isMob={isMob} isTab={isTab} canEdit={canEditTab("warehouse")} statusCards={statusCards} user={user} userRole={userRole}/>}
         {tab==="treasury"&&<TreasuryPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("treasury")} user={user} userRole={userRole}/>}
         {tab==="hr"&&<HRPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("hr")} user={user} userRole={userRole} getHrSubPerm={getHrSubPerm} setSavingOverlay={setSavingOverlay}/>}
-        {/* V19.47: Bulk messaging campaigns */}
+        {/* V19.48: Bulk messaging campaigns */}
         {tab==="campaigns"&&<CampaignsPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("campaigns")} user={user}/>}
         {tab==="audit"&&canViewTab("audit")&&<AuditPg data={data} isMob={isMob} user={user}/>}
         {tab==="accounting"&&canViewTab("accounting")&&<AccountingPg data={data} config={config} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("accounting")} user={user}/>}
@@ -3222,12 +3336,12 @@ export default function App(){
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الى</label><Sel value={qpTo} onChange={setQpTo}><option value="all">الكل</option>{targets.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+(u.email===me.email?" (أنا)":"")}</option>)}</Sel></div>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label><Sel value={qpType} onChange={setQpType}><option value="تذكير">💬 تذكير</option><option value="طلب">📩 طلب</option><option value="مهمة">📌 مهمة</option><option value="مهمة عاجلة">🔴 عاجل</option></Sel></div>
-            {/* V19.47: Display duration — sender chooses how long the notification stays visible */}
+            {/* V19.48: Display duration — sender chooses how long the notification stays visible */}
             <div><label style={{fontSize:FS-2,color:"#8B5CF6",fontWeight:700}}>⏱ مدة العرض</label><Sel value={qpDuration} onChange={setQpDuration}><option value="1h">🕐 ساعة</option><option value="2h">⏰ ساعتين</option><option value="1d">📅 يوم</option><option value="endday">🌅 آخر اليوم</option><option value="none">🔓 بدون حد</option></Sel></div>
           </div>
           <div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الرسالة</label><Inp value={qpText} onChange={setQpText} placeholder="اكتب الاشعار..."/></div>
           <Btn primary onClick={()=>{if(!qpText.trim())return;const to=qpTo||"all";const targetUser=targets.find(u=>u.email===to);
-            /* V19.47: Compute expiresAt based on selected duration. */
+            /* V19.48: Compute expiresAt based on selected duration. */
             let expiresAt=null;
             const now=new Date();
             if(qpDuration==="1h")expiresAt=new Date(now.getTime()+60*60*1000).toISOString();
@@ -3820,7 +3934,7 @@ export default function App(){
         </div>
       </div>
     )}
-    {/* V19.47: Full notifications popup — opens when user clicks "+N more" chip in greeting bar */}
+    {/* V19.48: Full notifications popup — opens when user clicks "+N more" chip in greeting bar */}
     {notifPopupOpen&&<div onClick={(e)=>{if(e.target===e.currentTarget)setNotifPopupOpen(false)}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{background:T.bg,borderRadius:14,maxWidth:520,width:"100%",maxHeight:"82vh",border:"2px solid #6366F140",boxShadow:"0 25px 70px rgba(0,0,0,0.3)",overflow:"hidden",display:"flex",flexDirection:"column"}}>
         {/* Header */}
@@ -3856,8 +3970,8 @@ export default function App(){
       </div>
     </div>}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V19.47"/>
-    {/* V19.47: Removed <TeamActivityModal/> render — feature retired */}
+    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion="V19.48"/>
+    {/* V19.48: Removed <TeamActivityModal/> render — feature retired */}
   </div>
 }
 

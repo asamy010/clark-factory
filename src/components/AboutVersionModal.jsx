@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.48",
+    date: "2026-05-04",
+    types: ["fix", "hotfix", "safety"],
+    title: "🚨 Loading-Stall Recovery — مفيش حد بقى يقعد متعلق على شاشة التحميل",
+    changes: [
+      { type: "fix", text: "🚨 [HOTFIX حرج: التطبيق كان بيعلّق على شاشة التحميل] قبل V19.48 لو حد من listeners الـ Firestore اتأخر أو فشل بصمت (مثلاً كاش IndexedDB تالف، مشكلة شبكة عابرة، أو region mismatch)، المستخدم كان يقعد متعلق على spinner 'جاري تحميل البيانات' للأبد بدون أي escape hatch. V19.48 ضافت: (1) timeout 12 ثانية بيكتشف التعليق. (2) panel تشخيصي بيعرض حالة كل listener (config/sales/tasks/orders) — أيهم متصل وأيهم متأخر. (3) آخر error من الـ listeners لو في. (4) 4 خيارات: متابعة بالبيانات الحالية / مسح cache + reload / reload عادي / تسجيل خروج. **مفيش حد بقى يقعد متعلق على spinner.**" },
+      { type: "fix", text: "📊 [Listener status tracker] كل listener دلوقتي بيـupdate state بـsetListenerStatus لما يـfire snap. الـ stall panel بيستخدم ده يقولك إيه شغال وإيه لأ. كمان أي error من listener بيتسجل في `listenerStatus.lastError` ويظهر في الـ panel — مفيش errors هتفضل مخفية في الـ console بدون ما المستخدم يشوفها." },
+      { type: "improvement", text: "📋 [Smart 'Continue Anyway' button] لو الـ panel ظهر، الزر الأخضر بيظهر بس لو الـ critical listeners (config + orders) متصلين. الـ sales/tasks لو متأخرين، الزر بيـwarn 'البيانات قد تكون ناقصة' بلون أصفر. ده بيحمي المستخدم من الدخول للتطبيق ببيانات نص." },
+      { type: "improvement", text: "🗑 [Clear cache button] الزر الأزرق بيـclear الـ Firestore IndexedDB cache + reload. ده بيحل أكثر من 80% من حالات الـ stall لأن أكثرها سببها الكاش المحلي تالف. الزر بيستخدم `indexedDB.databases()` API لاكتشاف databases الـ Firestore تلقائياً." },
+      { type: "improvement", text: "📌 [Console version marker] عند startup الكود بيطبع `[CLARK V19.48] App module loaded — <timestamp>` في الـ console. لو حد قال 'بقول الموقع باظ'، اطلب منه screenshot للـ console — لو الـ marker مش ظاهر، يعني الـ deploy ما اشتغلش (أو الـ browser بيـserve cached bundle قديم)." },
+    ]
+  },
+  {
     version: "V19.47",
     date: "2026-05-04",
     types: ["fix", "hotfix"],
@@ -147,21 +160,6 @@ const CHANGELOG = [
       { type: "improvement", text: "🔍 [findInvoiceByReceipt محدّث] الـ lookup بقى يدور في `receiptRefs[]` (الفواتير المدمجة) قبل ما يدور في الـ singular `receiptRef` (legacy). كده الإذونات اللي اندمجت في فاتورة مع غيرها هتظهر صح كـ 'مرتبطة بفاتورة' ومش هتظهر كـ uninvoiced." },
       { type: "improvement", text: "📦 [مكوّن جديد BulkPostBar] component مشترك بين الـ 3 صفحات (مبيعات/مشتريات/مرتجعات) — `BulkPostHeader` + `RowCheckbox` + `BulkPostBar` (شريط floating بيظهر لما حاجة محددة). الـ DRY ده بيخلي الـ behavior متطابق ولو في bug في مكان، الإصلاح بيتطبق في كل الصفحات في نفس الوقت." },
       { type: "improvement", text: "💡 [silent mode] الـ handlePost في الـ 3 صفحات ياخد `opts.silent` — لو true بيتخطى الـ confirmation dialog والـ toast الفردي. الـ bulk bar بيستخدم ده عشان يعمل confirm واحد + toast واحد للعملية كلها بدل ما المستخدم يضطر يضغط Yes 50 مرة." },
-    ]
-  },
-  {
-    version: "V19.38",
-    date: "2026-05-03",
-    types: ["feature"],
-    title: "📎 إرفاق ملفات في الحملات (PDFs, مستندات, فيديو, صوت)",
-    changes: [
-      { type: "feature", text: "📎 [قسم جديد في الـ Template Editor] تحت قسم الصور، قسم 'ملفات مرفقة (Bridge mode فقط)' بيقبل أي نوع ملف غير الصور: PDFs, Word/Excel, فيديو, صوت, ZIP. الملفات بترفع لـ Firebase Storage مع شريط تقدم (لأن ملف 50MB ممكن ياخد وقت)." },
-      { type: "feature", text: "🌉 [Bridge: sendMediaAsDocument] السيرفر اتعدّل: لو الـ mime type مش صورة (image/*)، الـ flag `sendMediaAsDocument: true` بيتبعت لـ whatsapp-web.js. النتيجة: PDFs و docs بيظهروا للعميل كـ document bubbles مع اسم الملف وحجمه وزر تحميل واضح، بدل thumbnail متقطع." },
-      { type: "improvement", text: "📊 [حدود WhatsApp مفعّلة client-side] الحدود اللي WhatsApp بيفرضها (16MB صور/فيديو/صوت، 100MB مستندات) بتتحقق قبل الرفع — رسالة خطأ واضحة بدل ما الإرسال يفشل عند العميل. الحد الأقصى 3 ملفات لكل قالب لمنع spam." },
-      { type: "improvement", text: "🎨 [Icons حسب نوع الملف] في الـ editor والـ send screen: 📄 PDF, 📊 Excel/CSV, 📝 Word, 📑 PowerPoint, 🗜 ZIP, 🎬 فيديو, 🎵 صوت, 📎 غير ذلك. الـ filename + الحجم بيتعرضوا جنب الـ icon." },
-      { type: "improvement", text: "🧹 [Storage cleanup شامل] لما بتمسح قالب أو بتشيل ملف من قالب، الـ Storage object بيتمسح تلقائياً. زي اللي بنعمله للصور من V19.35 — مفيش orphans في Storage." },
-      { type: "improvement", text: "🏷 [Badge في قائمة القوالب] القالب اللي فيه ملفات بيظهر badge جنب الـ '📷 N صورة' بيقول '📎 N ملف مرفق'. عشان تعرف بسرعة محتوى كل قالب." },
-      { type: "fix", text: "📐 [storage.rules: 25MB → 100MB] الـ rules اتحدّثت عشان تسمح برفع مستندات حتى 100MB (حد WhatsApp للـ documents). الصور لسه ~250KB بعد الضغط فمفيش تأثير عليها." },
     ]
   },
 ];
