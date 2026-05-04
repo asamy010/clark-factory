@@ -260,6 +260,24 @@ export default function App(){
      fire-and-forget setDoc(...).catch() pattern that silently swallowed errors). */
   const salesDocRef=useRef({});
   const tasksDocRef=useRef({});
+  /* V19.55 CRITICAL FIX: Write-queue refs to serialize Firestore writes per doc.
+     ════════════════════════════════════════════════════════════════════════════
+     Why this exists:
+     Without serialization, parallel setDoc(merge:false) writes can land on the
+     server out-of-order. Last-to-land wins → bulk-post symptom: 5 invoices show
+     "posted" optimistically, then 3 seconds later 4 of them snap back to "draft"
+     because an older write (with stale state) landed AFTER a newer write.
+
+     V19.54 fixed the LOCAL state (configDocRef avoids stale closure on read).
+     V19.55 fixes the REMOTE state by chaining writes onto a shared promise:
+       - call N's setDoc only starts after call N-1's setDoc finishes
+       - Firestore receives writes in the same order they were called
+       - The latest call always wins (correct), regardless of network jitter
+     The chain is per-doc (config / sales / tasks) so unrelated writes don't
+     block each other across docs. */
+  const upConfigWriteQueueRef=useRef(Promise.resolve());
+  const upSalesWriteQueueRef=useRef(Promise.resolve());
+  const upTasksWriteQueueRef=useRef(Promise.resolve());
   /* V16.75: partitioned collections state — hrWeeks (each week is its own document) */
   const[partitionedData,setPartitionedData]=useState({hrWeeks:[]});
   const[partitionedLoaded,setPartitionedLoaded]=useState(false);
@@ -2740,6 +2758,11 @@ export default function App(){
      The user's fn runs ONCE in upConfig (the caller). We just write the result here.
      This prevents id duplication on transaction retries. */
   const upConfigTx=useCallback(async(precomputedNext,precomputedNewSplit,precomputedNewPart,explicitSplitBefore,explicitPartBefore)=>{
+    /* V19.55: Serialize writes via promise chain. See upConfigWriteQueueRef
+       declaration for the full reasoning. The actual write logic is wrapped in
+       _doWrite below; the chain ensures setDoc N only runs after setDoc N-1
+       finished, so Firestore receives writes in the call order (latest wins). */
+    const _doWrite=async()=>{
     const ref=doc(db,"factory","config");
     let lastErr=null;
     /* V16.75 CRITICAL SAFETY: refuse to write if split/partitioned data hasn't loaded yet.
@@ -2899,6 +2922,16 @@ export default function App(){
       console.error("[V19.48] upConfig fallback unexpected error:", fallbackErr);
       showToast("⚠️ تعذر الحفظ: "+(cat.arabic||((fallbackErr.message||String(fallbackErr)).substring(0,80))));
     }
+    };/* end of _doWrite */
+    /* V19.55: chain onto the per-doc write queue. Each call's setDoc starts only
+       after the previous call's setDoc finished — guarantees Firestore receives
+       writes in the same order they were called (latest call wins). */
+    const myWrite=upConfigWriteQueueRef.current.then(_doWrite);
+    /* Keep the chain alive even if a write rejected — we don't want one failure
+       to permanently break subsequent writes. The actual error is still thrown
+       to the caller via myWrite. */
+    upConfigWriteQueueRef.current=myWrite.catch(()=>{});
+    return myWrite;
   },[configDoc,splitLoaded,partitionedLoaded,markSynced]);
   const upConfig=useCallback(fn=>{
     /* V19.48: Online-only mode — refuse all writes when device is offline.
@@ -3083,6 +3116,8 @@ export default function App(){
      - explicitSalesSplitBefore: snapshot for diff against newSalesSplit
      The transaction just writes precomputedNext as-is — fn does NOT re-run on retries. */
   const upSalesTx=useCallback(async(precomputedNext,precomputedNewSalesSplit,explicitSalesSplitBefore)=>{
+    /* V19.55: serialize via promise chain — see upConfigTx for full reasoning. */
+    const _doWrite=async()=>{
     const ref=doc(db,"factory","sales");
     let lastErr=null;
     /* V19.51 SAFETY: refuse writes if migration done but listeners not loaded */
@@ -3157,6 +3192,10 @@ export default function App(){
       console.error(forensic);
       showToast("⛔ فشل حفظ بيانات المبيعات: "+(cat.arabic||"خطأ غير معروف")+(docSize > FIRESTORE_DOC_WARN_BYTES ? " (حجم البيانات: "+formatBytes(docSize)+")" : ""));
     }
+    };/* end of _doWrite */
+    const myWrite=upSalesWriteQueueRef.current.then(_doWrite);
+    upSalesWriteQueueRef.current=myWrite.catch(()=>{});
+    return myWrite;
   },[markSynced,salesDoc,salesSplitLoaded]);
   const upSales=useCallback(fn=>{
     /* V19.48: Online-only — refuse writes when offline. Same enforcement as upConfig. */
@@ -3226,6 +3265,8 @@ export default function App(){
 
   /* V19.51: upTasksTx parallels upSalesTx — accepts pre-computed values. */
   const upTasksTx=useCallback(async(precomputedNext,precomputedNewTasksSplit,explicitTasksSplitBefore)=>{
+    /* V19.55: serialize via promise chain — see upConfigTx for full reasoning. */
+    const _doWrite=async()=>{
     const ref=doc(db,"factory","tasks");
     let lastErr=null;
     if(tasksDoc&&tasksDoc[TASKS_SPLIT_FLAG_V1951]&&!tasksSplitLoaded){
@@ -3297,6 +3338,10 @@ export default function App(){
       console.error(forensic);
       showToast("⛔ فشل حفظ المهام: "+(cat.arabic||"خطأ غير معروف")+(docSize > FIRESTORE_DOC_WARN_BYTES ? " (حجم البيانات: "+formatBytes(docSize)+")" : ""));
     }
+    };/* end of _doWrite */
+    const myWrite=upTasksWriteQueueRef.current.then(_doWrite);
+    upTasksWriteQueueRef.current=myWrite.catch(()=>{});
+    return myWrite;
   },[markSynced,tasksDoc,tasksSplitLoaded]);
   const upTasks=useCallback(fn=>{
     /* V19.48: Online-only — refuse writes when offline. */
@@ -4979,6 +5024,14 @@ export default function App(){
       const totalLabels=sizes.length>0?labelsPerSize*sizes.length:(rs>0?Math.floor((selOrder?.cutQty||0)/rs):(selOrder?.cutQty||0));
       const mode=barcodePopup._mode||"manual";
       const qrMM=Math.min(lw-mg*2,lh-mg*2)-8;
+      /* V19.55: درجة تانية (QC-2) toggle — applies to ALL tabs.
+         When on, the QR is shrunk to ~80% to make room for a small "QC-2"
+         box stamped underneath, signalling the printed label is for second-grade
+         output. The QR data itself doesn't change — the warehouse QR scanner
+         keeps working as normal. */
+      const secondGrade=!!barcodePopup._secondGrade;
+      const qrMMEffective=secondGrade?Math.round(qrMM*0.8):qrMM;
+      const qcStampMM=Math.max(3,Math.round(qrMM*0.18));/* QC-2 box height ≈18% of QR */
       const buildLabel=(qrText,modelNo,desc,sizeStr,seriesStr)=>{let h="<div class='lbl'>";
         /* V16.49: logo overrides brand-text when enabled. brightness(0) forces pure black for thermal print. */
         if(showLogoFlag)h+="<img src='"+CLARK_LOGO_PRINT+"' alt='CLARK' style='width:75%;max-width:30mm;height:auto;max-height:7mm;object-fit:contain;filter:brightness(0) saturate(100%);margin-bottom:0.5mm;display:block;margin-left:auto;margin-right:auto'/>";
@@ -4989,7 +5042,15 @@ export default function App(){
            fall back to the order's overall sizeLabel so the toggle does what users expect. */
         const sizeOut=sizeStr||(fl.sizeLabel?.show!==false&&selOrder?.sizeLabel?"مقاس: "+selOrder.sizeLabel:"");
         if(fl.sizeLabel?.show!==false&&sizeOut)h+="<div style='font-weight:700;font-size:"+((fl.sizeLabel?.size||10)/2.5)+"mm;line-height:1'>"+sizeOut+"</div>";
-        if(fl.qr?.show!==false)h+="<div style='flex:1;display:flex;align-items:center;justify-content:center'><img class='qr-img' data-text='"+qrText+"' style='width:"+qrMM+"mm;height:"+qrMM+"mm'/></div>";
+        if(fl.qr?.show!==false){
+          /* V19.55: QR + optional QC-2 stamp stacked vertically. */
+          h+="<div style='flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.8mm'>";
+          h+="<img class='qr-img' data-text='"+qrText+"' style='width:"+qrMMEffective+"mm;height:"+qrMMEffective+"mm'/>";
+          if(secondGrade){
+            h+="<div style='border:1.5px solid #000;padding:0.4mm "+(qcStampMM*0.6)+"mm;font-weight:900;font-size:"+(qcStampMM*0.55)+"mm;line-height:1;letter-spacing:1px;border-radius:1mm'>QC-2</div>";
+          }
+          h+="</div>";
+        }
         if(fl.series?.show!==false&&seriesStr)h+="<div style='font-weight:700;font-size:"+((fl.series?.size||12)/2.5)+"mm;line-height:1'>"+seriesStr+"</div>";
         if(fl.price?.show&&selOrder?.sellPrice)h+="<div style='font-size:"+((fl.price?.size||10)/2.5)+"mm;line-height:1'>"+selOrder.sellPrice+" ج.م</div>";
         return h+"</div>"};
@@ -5012,6 +5073,31 @@ export default function App(){
             <div style={{fontSize:FS-2,color:T.textSec,marginTop:2}}>{"القص: "+(selOrder.cutQty||0)+" | المقاسات: "+(sizes.join(" | ")||"—")+" | سيري: "+rs}</div>
             {sizeMismatch&&<div style={{marginTop:8,padding:"6px 10px",background:"#F59E0B15",border:"1px solid #F59E0B40",borderRadius:8,fontSize:FS-2,color:"#B45309",fontWeight:600,lineHeight:1.5}}>⚠️ عدد الأسماء في الـ label لا يطابق قطع السيري ({sizeInfo.expectedCount}). راجع كارت المقاسات في قاعدة البيانات.</div>}
           </div>}
+          {/* V19.55: درجة تانية toggle — global across all tabs. Stamps "QC-2" under
+              the QR and shrinks the QR slightly to make room. The QR payload itself
+              (CLARK:orderId:qty) is unchanged — scanners keep working. */}
+          <label style={{
+            display:"flex",alignItems:"center",gap:10,marginBottom:12,
+            padding:"8px 12px",borderRadius:10,
+            background:!!barcodePopup._secondGrade?"#F59E0B15":T.bg+"60",
+            border:"1px solid "+(!!barcodePopup._secondGrade?"#F59E0B60":T.brd),
+            cursor:"pointer",transition:"all 0.2s",
+          }}>
+            <input
+              type="checkbox"
+              checked={!!barcodePopup._secondGrade}
+              onChange={e=>setBarcodePopup(p=>({...p,_secondGrade:e.target.checked}))}
+              style={{width:20,height:20,cursor:"pointer",accentColor:"#F59E0B",flexShrink:0}}
+            />
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:FS-1,fontWeight:700,color:T.text,lineHeight:1.2}}>
+                ⚠️ درجة تانية
+              </div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2,lineHeight:1.3}}>
+                يضيف ختم <span style={{fontFamily:"monospace",fontWeight:800,color:"#000",border:"1px solid #999",padding:"0 4px",borderRadius:3}}>QC-2</span> أسفل الـ QR ويصغّر حجم الـ QR قليلاً.
+              </div>
+            </div>
+          </label>
           <div style={{display:"flex",gap:4,marginBottom:12,borderRadius:10,border:"1px solid "+T.brd,overflow:"hidden"}}>
             <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"manual"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="manual"?"#F59E0B":"transparent",color:mode==="manual"?"#fff":T.textSec}}>يدوية</div>
             <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"series"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="series"?"#F59E0B":"transparent",color:mode==="series"?"#fff":T.textSec}}>سيري</div>

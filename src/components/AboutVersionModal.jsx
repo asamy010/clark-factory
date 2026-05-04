@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.55",
+    date: "2026-05-04",
+    types: ["fix", "hotfix", "feature"],
+    title: "🚨 إصلاح ترحيل الفواتير المتعدد (round 2) + ميزة QC-2 للـQR",
+    changes: [
+      { type: "fix", text: "🚨 [BUG round 2: الترحيل المتعدد لسه بيرجع draft] V19.54 صلح الـoptimistic state (configDocRef يُقرأ بدل الـclosure)، لكن الـbug فضل ظاهر: 5 فواتير تترحل، وبعد ~3 ثواني 4 منهم يرجعوا draft. **السبب الجذري الحقيقي**: كل setDoc لـFirestore بيشتغل في parallel — لو write 1 (state-after-iter-1) يلحق بعد write 5 (state-after-iter-5) بسبب network jitter، الـserver يعمل overwrite بـstate قديم، فقط iter 1's invoice يفضل posted." },
+      { type: "fix", text: "🛠️ [الإصلاح: serialize الـwrites عبر promise chain] ضافت `upConfigWriteQueueRef`, `upSalesWriteQueueRef`, `upTasksWriteQueueRef`. كل setDoc بيستنى قبله. كل write بيوصل Firestore بنفس ترتيب الاستدعاء — last call wins، مهما كان الـnetwork timing. الـqueue لكل doc منفصلة (config / sales / tasks) فمفيش cross-doc blocking. على single-action operations: غير محسوس (queue فاضي). على bulk operations: يمنع الـrace condition تماماً." },
+      { type: "feature", text: "🏷️ [QC-2: ميزة درجة تانية لطباعة QR] في popup طباعة QR (من الـDashboard أو DBPg)، ضافت checkbox '⚠️ درجة تانية'. لما يتعلم: (1) الـQR يصغر ~80% من حجمه الأصلي. (2) ختم 'QC-2' في مستطيل صغير بحدود سوداء يظهر تحت الـQR. (3) شغّال في كل التابات الأربعة (يدوية / سيري / تلقائية / قطعة). الـQR payload نفسه (CLARK:orderId:qty) ميتغيرش — الـscanner في المخزن بيشتغل عادي." },
+      { type: "improvement", text: "🔍 [Audit شامل بعد BUG V19.54] V19.55 جالها مرة تانية: الـlocal state كان متحدّث صح (V19.54 fix شغال)، الـremote write order ده اللي كان متفلت. الـqueue pattern ده بيغطي **كل operations** في التطبيق على factory/config + factory/sales + factory/tasks. أي rapid sequential writes (مش بس bulk-post) محمية الآن." },
+    ]
+  },
+  {
     version: "V19.54",
     date: "2026-05-04",
     types: ["fix", "hotfix", "safety", "improvement"],
