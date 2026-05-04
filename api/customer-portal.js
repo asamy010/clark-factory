@@ -18,7 +18,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import crypto from "crypto";
-import { getDb, setCors } from "./_firebase.js";
+import { getDb, setCors, readSplitCollection } from "./_firebase.js";
 
 /* Separate secret for customer portal URLs */
 function getPortalSecret() {
@@ -187,8 +187,18 @@ export default async function handler(req, res) {
       }
     });
 
+    /* V19.51 HOTFIX: custPayments + checks moved out of factory/config in V19.49.
+       Read from custPaymentsDays/* and checksDays/* (day-split collections) instead.
+       Falls back to config arrays for backward compat (pre-V19.49 deployments). */
+    const allCustPayments = (config._splitDaysV1949Done
+      ? await readSplitCollection("custPaymentsDays")
+      : (config.custPayments || []));
+    const allChecks = (config._splitDaysV1949Done
+      ? await readSplitCollection("checksDays")
+      : (config.checks || []));
+
     /* Customer payments — V18.3: keep method for cash/checks split */
-    const payments = (config.custPayments || [])
+    const payments = allCustPayments
       .filter(p => p.custId === custId)
       .map(p => ({
         date: p.date || "",
@@ -200,7 +210,7 @@ export default async function handler(req, res) {
 
     /* V18.23+V18.24: Receivable checks — count only when category = 'دفعة عميل' (real customer payment).
        Excludes opening balances, settlements, transfers, other types — those aren't sales-related. */
-    const receivableChecks = (config.checks || [])
+    const receivableChecks = allChecks
       .filter(c => c.type === "receivable" && String(c.partyId) === String(custId) && c.status !== "مرتد" && c.status !== "ملغي" && ((c.category || "دفعة عميل") === "دفعة عميل"))
       .map(c => ({
         date: c.date || c.dueDate || "",

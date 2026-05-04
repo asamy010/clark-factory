@@ -17,7 +17,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import crypto from "crypto";
-import { getDb, setCors } from "./_firebase.js";
+import { getDb, setCors, readSplitCollection } from "./_firebase.js";
 
 /* Separate secret for workshop portal URLs */
 function getPortalSecret() {
@@ -163,8 +163,14 @@ export default async function handler(req, res) {
       });
     });
 
+    /* V19.51 HOTFIX: wsPayments moved out of factory/config in V19.49.
+       Read from wsPaymentsDays/* (day-split collection) instead.
+       Falls back to config.wsPayments for pre-V19.49 deployments. */
+    const allWsPayments = (config._splitDaysV1949Done
+      ? await readSplitCollection("wsPaymentsDays")
+      : (config.wsPayments || []));
     /* Workshop payments */
-    const allPayments = (config.wsPayments || []).filter(p => p.wsName === wsName);
+    const allPayments = allWsPayments.filter(p => p.wsName === wsName);
     const payments = allPayments.map(p => ({
       date: p.date || "",
       type: p.type || "payment",

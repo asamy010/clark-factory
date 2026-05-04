@@ -33,6 +33,37 @@ export function getDb() {
   return getAdminApp().firestore();
 }
 
+/* ─── V19.51 hotfix ──────────────────────────────────────────────────────
+   readSplitCollection: read all day docs from a daily-split collection
+   and flatten their `entries` arrays into one. Use this in serverless
+   endpoints (customer-portal, workshop-portal) instead of reading
+   `config.<field>` directly — those fields no longer exist after V19.49+
+   migrations moved them out to {field}Days/* collections.
+
+   Example:
+     const allCustPayments = await readSplitCollection("custPaymentsDays");
+     const allChecks       = await readSplitCollection("checksDays");
+     const allWsPayments   = await readSplitCollection("wsPaymentsDays");
+
+   Returns [] on error or empty collection — never throws. */
+export async function readSplitCollection(collectionName) {
+  try {
+    const db = getDb();
+    const snap = await db.collection(collectionName).get();
+    const all = [];
+    snap.forEach(docSnap => {
+      const data = docSnap.data();
+      if (data && Array.isArray(data.entries)) {
+        all.push(...data.entries);
+      }
+    });
+    return all;
+  } catch (err) {
+    console.error("[api:readSplitCollection] failed for", collectionName, err);
+    return [];
+  }
+}
+
 /* ── HMAC token helpers ── */
 export function getSecret() {
   const s = process.env.DELIVERY_CONFIRM_SECRET;
