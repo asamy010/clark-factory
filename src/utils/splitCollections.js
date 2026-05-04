@@ -44,7 +44,7 @@ export const SPLIT_FLAG_V1674 = "_splitDaysV1674Done";
 export const SPLIT_FLAG_V1949 = "_splitDaysV1949Done";
 export const SPLIT_FLAG_V1950 = "_splitDaysV1950Done";
 
-/* الـcollections اللي مقسّمة — field name → collection name */
+/* الـcollections اللي مقسّمة من factory/config — field name → collection name */
 export const SPLIT_COLLECTIONS = {
   /* V16.74 */
   treasury:  "treasuryDays",
@@ -63,6 +63,45 @@ export const SPLIT_COLLECTIONS = {
 
 /* مفاتيح الـfields اللي مقسّمة (للحلقات السريعة) */
 export const SPLIT_FIELDS = Object.keys(SPLIT_COLLECTIONS);
+
+/* ════════════════════════════════════════════════════════════════════════
+   V19.51 — Sales-doc and Tasks-doc daily splits
+   ════════════════════════════════════════════════════════════════════════
+   ـــ
+   factory/sales كان فيه arrays بتكبر يومياً (packages, custDeliverySessions)
+   factory/tasks كان فيه arrays بتكبر (tasks, stickyNotes, inventoryAudits)
+   ـــ
+   نفس النمط (split by day) لكن على docs مختلفة. كل doc ليه:
+   - SPLIT_COLLECTIONS map خاصة بيه
+   - flag خاص لتتبع الـmigration
+   - upTx wrapper في App.jsx بيستدعي helpers الـgeneric
+   ـــ
+   factory/sales:
+     packages           → packagesDays/{YYYY-MM-DD}
+     custDeliverySessions → custDeliverySessionsDays/{YYYY-MM-DD}
+
+   factory/tasks:
+     tasks              → tasksDays/{YYYY-MM-DD}
+     stickyNotes        → stickyNotesDays/{YYYY-MM-DD}
+     inventoryAudits    → inventoryAuditsDays/{YYYY-MM-DD}
+   ════════════════════════════════════════════════════════════════════════ */
+
+export const SALES_SPLIT_COLLECTIONS = {
+  packages:             "packagesDays",
+  custDeliverySessions: "custDeliverySessionsDays",
+};
+export const SALES_SPLIT_FIELDS = Object.keys(SALES_SPLIT_COLLECTIONS);
+export const SALES_SPLIT_FIELDS_V1951 = ["packages", "custDeliverySessions"];
+export const SALES_SPLIT_FLAG_V1951 = "_salesSplitDaysV1951Done";
+
+export const TASKS_SPLIT_COLLECTIONS = {
+  tasks:           "tasksDays",
+  stickyNotes:     "stickyNotesDays",
+  inventoryAudits: "inventoryAuditsDays",
+};
+export const TASKS_SPLIT_FIELDS = Object.keys(TASKS_SPLIT_COLLECTIONS);
+export const TASKS_SPLIT_FIELDS_V1951 = ["tasks", "stickyNotes", "inventoryAudits"];
+export const TASKS_SPLIT_FLAG_V1951 = "_tasksSplitDaysV1951Done";
 
 /* V17.1 FIX #4: Order-independent deep equality.
    JSON.stringify is order-dependent — different key insertion orders produce
@@ -426,4 +465,111 @@ export async function getAllSplitStats() {
     )
   );
   return Object.fromEntries(entries);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   V19.51 — Generic helpers + sales-doc / tasks-doc wrappers
+   ════════════════════════════════════════════════════════════════════════
+   نفس الـengine بس على docs غير factory/config. السبب: factory/sales و
+   factory/tasks ليهم arrays بتكبر يومياً (packages, custDeliverySessions,
+   tasks, stickyNotes, inventoryAudits) — لازم نحميهم من حد 1MB كمان.
+
+   الـAPIs:
+   - sync*  → syncDocSplitChanges(oldDoc, newDoc, collectionsMap)
+   - strip* → stripDocFieldGroups(docObj, groups)
+   - read*  → readDocSplits(collectionsMap)
+   - stats* → getDocSplitStats(collectionsMap)
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* GENERIC: diff two doc-objects across an arbitrary fields→collections map. */
+async function syncDocSplitChanges(oldDoc, newDoc, collectionsMap) {
+  const fields = Object.keys(collectionsMap);
+  const tasks = [];
+  for (const field of fields) {
+    const oldArr = oldDoc?.[field] || [];
+    const newArr = newDoc?.[field] || [];
+    if (oldArr === newArr) continue;
+    if (oldArr.length === newArr.length && _deepEqual(oldArr, newArr)) continue;
+    tasks.push(syncSplitCollection(collectionsMap[field], oldArr, newArr));
+  }
+  if (tasks.length === 0) return;
+  await Promise.all(tasks);
+}
+
+/* GENERIC: strip fields whose migration-flag is set on docObj. */
+function stripDocFieldGroups(docObj, groups /* [{fields, flag}] */) {
+  if (!docObj) return docObj;
+  const stripped = { ...docObj };
+  for (const g of groups) {
+    if (docObj[g.flag]) {
+      for (const f of g.fields) delete stripped[f];
+    }
+  }
+  return stripped;
+}
+
+/* GENERIC: read all collections in a fields→collections map in parallel. */
+async function readDocSplits(collectionsMap) {
+  const fields = Object.keys(collectionsMap);
+  const entries = await Promise.all(
+    fields.map(f =>
+      readSplitCollection(collectionsMap[f]).then(arr => [f, arr])
+    )
+  );
+  return Object.fromEntries(entries);
+}
+
+/* GENERIC: stats per collection in a map. */
+async function getDocSplitStats(collectionsMap) {
+  const fields = Object.keys(collectionsMap);
+  const entries = await Promise.all(
+    fields.map(f =>
+      getSplitCollectionStats(collectionsMap[f]).then(stats => [f, stats])
+    )
+  );
+  return Object.fromEntries(entries);
+}
+
+/* ─── factory/sales wrappers ──────────────────────────────────────────── */
+
+const SALES_SPLIT_GROUPS = [
+  { fields: SALES_SPLIT_FIELDS_V1951, flag: SALES_SPLIT_FLAG_V1951 },
+];
+
+export function stripSalesSplitArrays(salesObj) {
+  return stripDocFieldGroups(salesObj, SALES_SPLIT_GROUPS);
+}
+
+export async function syncAllSalesSplitChanges(oldSales, newSales) {
+  return syncDocSplitChanges(oldSales, newSales, SALES_SPLIT_COLLECTIONS);
+}
+
+export async function readAllSalesSplitCollections() {
+  return readDocSplits(SALES_SPLIT_COLLECTIONS);
+}
+
+export async function getAllSalesSplitStats() {
+  return getDocSplitStats(SALES_SPLIT_COLLECTIONS);
+}
+
+/* ─── factory/tasks wrappers ──────────────────────────────────────────── */
+
+const TASKS_SPLIT_GROUPS = [
+  { fields: TASKS_SPLIT_FIELDS_V1951, flag: TASKS_SPLIT_FLAG_V1951 },
+];
+
+export function stripTasksSplitArrays(tasksObj) {
+  return stripDocFieldGroups(tasksObj, TASKS_SPLIT_GROUPS);
+}
+
+export async function syncAllTasksSplitChanges(oldTasks, newTasks) {
+  return syncDocSplitChanges(oldTasks, newTasks, TASKS_SPLIT_COLLECTIONS);
+}
+
+export async function readAllTasksSplitCollections() {
+  return readDocSplits(TASKS_SPLIT_COLLECTIONS);
+}
+
+export async function getAllTasksSplitStats() {
+  return getDocSplitStats(TASKS_SPLIT_COLLECTIONS);
 }

@@ -2214,10 +2214,15 @@ function SplitDaysMonitor(){
   React.useEffect(()=>{
     let cancelled=false;
     setLoading(true);
+    /* V19.51: fetch config-doc, sales-doc, and tasks-doc split stats in parallel */
     import("../utils/splitCollections.js").then(mod=>{
-      mod.getAllSplitStats().then(data=>{
+      Promise.all([
+        mod.getAllSplitStats(),
+        mod.getAllSalesSplitStats(),
+        mod.getAllTasksSplitStats(),
+      ]).then(([cfg,sales,tasks])=>{
         if(cancelled)return;
-        setStats(data);
+        setStats({...cfg,...sales,...tasks});
         setLoading(false);
       });
     });
@@ -2226,30 +2231,35 @@ function SplitDaysMonitor(){
 
   const fmt=(b)=>{if(!b)return"0 B";if(b<1024)return b+" B";if(b<1024*1024)return(b/1024).toFixed(1)+" KB";return(b/(1024*1024)).toFixed(2)+" MB"};
 
-  /* V19.49 + V19.50: extended metadata — covers all 10 daily-split collections.
-     ترتيب العرض: V16.74 فوق، V19.49 في النصّ، V19.50 تحت (الأكبر). */
+  /* V19.49 + V19.50 + V19.51: extended metadata — covers 15 daily-split collections.
+     ترتيب: V16.74، V19.49، V19.50، V19.51 (sales-doc + tasks-doc). */
   const collectionMeta={
-    /* V16.74 */
+    /* V16.74 — factory/config */
     treasury:        {label:"💰 الخزنة (treasuryDays)",                color:T.accent,  ver:"V16.74"},
     auditLog:        {label:"📝 سجل الأحداث (auditDays)",              color:"#F59E0B", ver:"V16.74"},
     hrLog:           {label:"📋 سجل HR (hrLogDays)",                   color:"#10B981", ver:"V16.74"},
-    /* V19.49 */
+    /* V19.49 — factory/config */
     custPayments:    {label:"💳 مدفوعات العملاء (custPaymentsDays)",    color:"#3B82F6", ver:"V19.49"},
     supplierPayments:{label:"🏢 مدفوعات الموردين (supplierPaymentsDays)",color:"#8B5CF6", ver:"V19.49"},
     wsPayments:      {label:"🏭 مدفوعات الورش (wsPaymentsDays)",        color:"#EC4899", ver:"V19.49"},
     checks:          {label:"🧾 الشيكات (checksDays)",                  color:"#14B8A6", ver:"V19.49"},
-    /* V19.50 — الأكبر */
+    /* V19.50 — factory/config (الأكبر) */
     salesInvoices:   {label:"🧾 فواتير المبيعات (salesInvoicesDays)",   color:"#DC2626", ver:"V19.50"},
     purchaseInvoices:{label:"🧾 فواتير المشتريات (purchaseInvoicesDays)",color:"#0891B2", ver:"V19.50"},
     purchaseOrders:  {label:"📋 أوامر الشراء (purchaseOrdersDays)",     color:"#7C3AED", ver:"V19.50"},
+    /* V19.51 — factory/sales */
+    packages:           {label:"📦 التعبئة (packagesDays)",                       color:"#0EA5E9", ver:"V19.51"},
+    custDeliverySessions:{label:"🚚 جلسات تسليم العملاء (custDeliverySessionsDays)",color:"#22C55E", ver:"V19.51"},
+    /* V19.51 — factory/tasks */
+    tasks:           {label:"📌 المهام (tasksDays)",                  color:"#F97316", ver:"V19.51"},
+    stickyNotes:     {label:"📝 ملاحظات لاصقة (stickyNotesDays)",      color:"#FACC15", ver:"V19.51"},
+    inventoryAudits: {label:"📊 جرد المخزن (inventoryAuditsDays)",     color:"#A855F7", ver:"V19.51"},
   };
 
-  return<Card title="📅 مراقبة التخزين اليومي (V16.74 + V19.49 + V19.50)" style={{marginBottom:14}}>
+  return<Card title="📅 مراقبة التخزين اليومي (V16.74 + V19.49 + V19.50 + V19.51)" style={{marginBottom:14}}>
     <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
-      10 مجموعات بيانات متخزنة في documents يومية منفصلة بدل arrays في factory/config:
-      الخزنة، سجل الأحداث، سجل HR، مدفوعات العملاء/الموردين/الورش، الشيكات،
-      فواتير المبيعات والمشتريات، وأوامر الشراء.
-      كل document فيه حركات يوم واحد فقط — هذا يخلي البرنامج يستوعب نمو سنوي بدون مشاكل في الحجم.
+      15 مجموعة بيانات متخزنة في documents يومية منفصلة بدل arrays في factory/config أو factory/sales أو factory/tasks.
+      ضمان رياضي: كل ملفات factory مستحيل تكبر عن حد معيّن مهما طال الوقت.
     </div>
     
     <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>

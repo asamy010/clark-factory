@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.51",
+    date: "2026-05-04",
+    types: ["architectural", "safety"],
+    title: "🏗️ تجزئة factory/sales و factory/tasks — الضمان الرياضي اكتمل",
+    changes: [
+      { type: "architectural", text: "🏗️ [Daily-split على docs غير factory/config] الـsplit engine اتعمم — قبل V19.51 كان شغّال على factory/config بس. دلوقتي بقى يدعم أي doc. **factory/sales** اتقسم: packages → packagesDays/{YYYY-MM-DD}، custDeliverySessions → custDeliverySessionsDays/{YYYY-MM-DD}. **factory/tasks** اتقسم: tasks → tasksDays/، stickyNotes → stickyNotesDays/، inventoryAudits → inventoryAuditsDays/. النتيجة: 3 docs أساسية (config + sales + tasks) كلها بقت ثابتة الحجم — أي array operational بيكبر يومياً بقى في day docs منفصلة." },
+      { type: "safety", text: "🔒 [الضمان الرياضي اكتمل] بعد V19.51، مفيش doc واحد في النظام كله ممكن يكبر مهما طال الوقت أو زاد النشاط. كل الـoperational arrays في 3 المستندات الكبار مقسومة بالـdate. الـmaster data (customers/suppliers/workshops/employees) لسه في config لكنها بطيئة النمو + الـbyId partitioning ليها مخطّط لـV19.52." },
+      { type: "improvement", text: "♻️ [splitCollections.js generic engine] ضافت helpers جديدة: syncDocSplitChanges, stripDocFieldGroups, readDocSplits, getDocSplitStats. كلها تشتغل على أي doc بـcollectionsMap + groups. الـwrappers الموجودة (config) كما هي بدون كسر — وبقى عندنا parallel wrappers لـsales (syncAllSalesSplitChanges + stripSalesSplitArrays + ...) ولـtasks (syncAllTasksSplitChanges + stripTasksSplitArrays + ...). أي doc جديد لاحقاً بـoperational arrays = يحتاج 5 أسطر بس." },
+      { type: "improvement", text: "🔁 [Migration parallel — sales + tasks مستقلتين] بدل migration واحد كبير، V19.51 فيها 2 migrations مستقلتين: واحدة لـfactory/sales و واحدة لـfactory/tasks. كل وحدة تشتغل لما الـdoc بتاعها يـload + listener جاهز. مفيش flag dependency بينهم. Migration modal واضح للمستخدم: 'جاري تحديث نظام تخزين المبيعات' أو '... المهام'. backup كامل لكل doc قبل تعديله." },
+      { type: "improvement", text: "📐 [Firestore Rules + 5 collections جديدة] packagesDays + custDeliverySessionsDays (sales scope)، tasksDays + stickyNotesDays (any authed user — كانت كده قبل التقسيم)، inventoryAuditsDays (sales/manager scope). صلاحيات مطابقة 100% لما كانت قبل التجزئة." },
+      { type: "improvement", text: "📊 [لوحة المراقبة بقت 15 collection] في الإعدادات → '📅 مراقبة التخزين اليومي' بقت تعرض كل الـ15 المُجزّأة (3 V16.74 + 4 V19.49 + 3 V19.50 + 5 V19.51) مع badges مميّزة لكل إصدار. استدعاءات parallel للـstats (config + sales + tasks) بدون تأخير في الـrender." },
+      { type: "safety", text: "🔧 [نفس آليات الأمان من V19.49/V19.50] safety guards على writes قبل ما الـlisteners يـload (refusal + toast)، selective stripping بـflags، optimistic UI مع pending writes refs، transactions atomic للـmigration، 3 retries للـsync بـbackoff، fallback writes بـawait + categorized errors. كل bug fixes V19.48 الـforensic logging شغّالة برضه على كل sync paths الجديدة." },
+    ]
+  },
+  {
     version: "V19.50",
     date: "2026-05-04",
     types: ["architectural", "improvement", "safety"],

@@ -1,7 +1,7 @@
 rules_version = '2';
 
 /* ═══════════════════════════════════════════════════════════════
-   CLARK Factory — Firestore Security Rules (V19.50)
+   CLARK Factory — Firestore Security Rules (V19.51)
 
    نموذج الصلاحيات:
    - admin              : كل شيء
@@ -169,6 +169,41 @@ service cloud.firestore {
     match /purchaseOrdersDays/{day} {
       allow read:  if isAnyUser();
       allow write: if hasRole(['admin','manager','purchase_accountant']);
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       V19.51 — خمس collections يومية اتقسموا من factory/sales
+       و factory/tasks:
+         packagesDays              — التعبئة (sales scope)
+         custDeliverySessionsDays  — جلسات تسليم العملاء (sales scope)
+         tasksDays                 — المهام (any user write — مهام بين المستخدمين)
+         stickyNotesDays           — ملاحظات لاصقة (any user write — لكل user ملاحظاته)
+         inventoryAuditsDays       — جرد المخزن (sales/manager scope)
+       صلاحيات مطابقة لما كانت قبل التقسيم في factory/sales و factory/tasks.
+       ────────────────────────────────────────────────────────── */
+    match /packagesDays/{day} {
+      allow read:  if isAnyUser();
+      allow write: if hasRole(['admin','manager','sales_accountant']);
+    }
+
+    match /custDeliverySessionsDays/{day} {
+      allow read:  if isAnyUser();
+      allow write: if hasRole(['admin','manager','sales_accountant']);
+    }
+
+    match /tasksDays/{day} {
+      allow read:  if isAnyUser();
+      allow write: if isAuthed();
+    }
+
+    match /stickyNotesDays/{day} {
+      allow read:  if isAnyUser();
+      allow write: if isAuthed();
+    }
+
+    match /inventoryAuditsDays/{day} {
+      allow read:  if isAnyUser();
+      allow write: if hasRole(['admin','manager','sales_accountant']);
     }
 
     /* ──────────────────────────────────────────────────────────

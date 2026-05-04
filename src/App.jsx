@@ -26,7 +26,16 @@ import {
 } from "./utils/writeDiagnostics.js";
 const FIRESTORE_DOC_WARN_BYTES = 838860; /* ~80% of 1 MiB Firestore limit */
 import { createComprehensiveBackup, deleteComprehensiveBackup } from "./utils/comprehensiveBackup.js";
-import { syncAllSplitChanges, stripSplitArrays, SPLIT_COLLECTIONS, SPLIT_FIELDS, SPLIT_FIELDS_V1949, SPLIT_FIELDS_V1950, SPLIT_FLAG_V1674, SPLIT_FLAG_V1949, SPLIT_FLAG_V1950 } from "./utils/splitCollections.js";
+import {
+  syncAllSplitChanges, stripSplitArrays, SPLIT_COLLECTIONS, SPLIT_FIELDS,
+  SPLIT_FIELDS_V1949, SPLIT_FIELDS_V1950,
+  SPLIT_FLAG_V1674, SPLIT_FLAG_V1949, SPLIT_FLAG_V1950,
+  /* V19.51 — sales-doc + tasks-doc split namespaces */
+  SALES_SPLIT_COLLECTIONS, SALES_SPLIT_FIELDS, SALES_SPLIT_FIELDS_V1951, SALES_SPLIT_FLAG_V1951,
+  syncAllSalesSplitChanges, stripSalesSplitArrays,
+  TASKS_SPLIT_COLLECTIONS, TASKS_SPLIT_FIELDS, TASKS_SPLIT_FIELDS_V1951, TASKS_SPLIT_FLAG_V1951,
+  syncAllTasksSplitChanges, stripTasksSplitArrays,
+} from "./utils/splitCollections.js";
 import { syncAllPartitionedChanges, stripPartitionedArrays, PARTITIONED_COLLECTIONS, PARTITIONED_FIELDS } from "./utils/partitionedCollections.js";
 import { noticeSuccess, noticeWarn, noticeError } from "./utils/storageNotices.js";
 import { ask, tell, askInput, askForm, showToast, highlightRow } from "./utils/popups.js";
@@ -229,6 +238,13 @@ export default function App(){
   /* V16.74: split collections state — treasury, auditLog, hrLog من daily collections */
   const[splitData,setSplitData]=useState({treasury:[],auditLog:[],hrLog:[]});
   const[splitLoaded,setSplitLoaded]=useState(false);
+  /* V19.51: sales-doc split state (packages, custDeliverySessions in
+     packagesDays/, custDeliverySessionsDays/) */
+  const[salesSplitData,setSalesSplitData]=useState({});
+  const[salesSplitLoaded,setSalesSplitLoaded]=useState(false);
+  /* V19.51: tasks-doc split state (tasks, stickyNotes, inventoryAudits) */
+  const[tasksSplitData,setTasksSplitData]=useState({});
+  const[tasksSplitLoaded,setTasksSplitLoaded]=useState(false);
   /* V17.4: ref tracking latest configDoc — used by listeners to check if a snap
      would override our local optimistic state (cached snaps with hasPendingWrites
      can race ahead of our setConfigDoc, briefly regressing the UI). */
@@ -269,11 +285,24 @@ export default function App(){
         merged[f]=splitData[f]||[];
       }
     }
+    /* V19.51: sales-doc + tasks-doc splits — gated by their own flags on the
+       respective parent doc. Pre-migration the arrays stay in salesDoc/tasksDoc
+       and the existing merge above (lines 247-251) covers them. */
+    if(salesSplitLoaded&&salesDoc[SALES_SPLIT_FLAG_V1951]){
+      for(const f of SALES_SPLIT_FIELDS_V1951){
+        merged[f]=salesSplitData[f]||[];
+      }
+    }
+    if(tasksSplitLoaded&&tasksDoc[TASKS_SPLIT_FLAG_V1951]){
+      for(const f of TASKS_SPLIT_FIELDS_V1951){
+        merged[f]=tasksSplitData[f]||[];
+      }
+    }
     /* V16.75: partitioned collections (hrWeeks) — same pattern */
     if(partitionedLoaded&&configDoc._partitionedV1675Done){
       merged.hrWeeks=partitionedData.hrWeeks;
     }
-    return merged},[configDoc,salesDoc,tasksDoc,splitData,splitLoaded,partitionedData,partitionedLoaded]);
+    return merged},[configDoc,salesDoc,tasksDoc,splitData,splitLoaded,partitionedData,partitionedLoaded,salesSplitData,salesSplitLoaded,tasksSplitData,tasksSplitLoaded]);
   const[tab,setTab_]=useState(()=>sessionStorage.getItem("clark_tab")||"home");const[sel,setSel_]=useState(()=>sessionStorage.getItem("clark_sel")||null);
   const setTab=v=>{setTab_(v);sessionStorage.setItem("clark_tab",v)};
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
@@ -1491,6 +1520,216 @@ export default function App(){
   },[user,configDoc,splitLoaded]);
 
   /* ═══════════════════════════════════════════════════════════════════
+     V19.51: One-time migration for SALES doc — split 2 arrays from
+     factory/sales into daily collections:
+       packages              → packagesDays/{YYYY-MM-DD}
+       custDeliverySessions  → custDeliverySessionsDays/{YYYY-MM-DD}
+
+     Why: factory/sales had 2 arrays growing daily. After this migration,
+     factory/sales becomes a tiny settings-only doc (~5 KB). Same proven
+     pattern as V19.49/V19.50 but on a different parent doc.
+
+     Independent from config-doc migrations — no cross-flag dependency.
+     ═══════════════════════════════════════════════════════════════════ */
+  const salesSplitV1951MigrationRef=useRef(false);
+  useEffect(()=>{
+    if(!user||salesSplitV1951MigrationRef.current)return;
+    if(!salesDoc)return;
+    if(salesDoc[SALES_SPLIT_FLAG_V1951])return;/* already migrated */
+    if(!salesSplitLoaded)return;/* listeners haven't fired yet */
+
+    /* Anything to migrate? */
+    const legacyArrays={};
+    let totalLegacy=0;
+    for(const f of SALES_SPLIT_FIELDS_V1951){
+      const arr=Array.isArray(salesDoc[f])?salesDoc[f]:[];
+      legacyArrays[f]=arr;
+      totalLegacy+=arr.length;
+    }
+
+    salesSplitV1951MigrationRef.current=true;
+
+    (async()=>{
+      try{
+        if(totalLegacy===0){
+          /* لا يوجد بيانات للـmigrate — فقط نحط الـflag */
+          await runTransaction(db,async(tx)=>{
+            const ref=doc(db,"factory","sales");
+            const snap=await tx.get(ref);
+            const fresh=snap.exists()?snap.data():{};
+            if(fresh[SALES_SPLIT_FLAG_V1951])return;
+            tx.set(ref,{...fresh,[SALES_SPLIT_FLAG_V1951]:true});
+          });
+          return;
+        }
+
+        setMigrationStatus({
+          label:"جاري تحديث نظام تخزين المبيعات (V19.51)",
+          message:"الرجاء عدم إغلاق البرنامج. هذا يحدث مرة واحدة فقط.",
+          progress:5,
+        });
+
+        /* Backup */
+        setMigrationStatus(s=>({...s,message:"إنشاء نسخة احتياطية...",progress:15}));
+        const ts=new Date().toISOString().replace(/[:.]/g,"-");
+        await setDoc(doc(db,"backups","pre-migration-sales-split-v1951-"+ts),{
+          label:"قبل ميجريشن: sales-split-v19.51",
+          autoGenerated:true,
+          migrationType:"sales-split-v19.51",
+          createdAt:new Date().toISOString(),
+          createdBy:user.email||"system",
+          counts:Object.fromEntries(SALES_SPLIT_FIELDS_V1951.map(f=>[f,(salesDoc[f]||[]).length])),
+          sales:JSON.parse(JSON.stringify(salesDoc)),
+        });
+
+        /* Sync to day collections */
+        setMigrationStatus(s=>({...s,message:"نقل بيانات المبيعات لـcollections يومية...",progress:55}));
+        const oldEmpty=Object.fromEntries(SALES_SPLIT_FIELDS_V1951.map(f=>[f,[]]));
+        await syncAllSalesSplitChanges(oldEmpty,legacyArrays);
+
+        /* Strip + flag in atomic transaction */
+        setMigrationStatus(s=>({...s,message:"تنظيف factory/sales...",progress:85}));
+        await runTransaction(db,async(tx)=>{
+          const ref=doc(db,"factory","sales");
+          const snap=await tx.get(ref);
+          const fresh=snap.exists()?snap.data():{};
+          if(fresh[SALES_SPLIT_FLAG_V1951])return;
+          const flagged={...fresh,[SALES_SPLIT_FLAG_V1951]:true};
+          const next=stripSalesSplitArrays(flagged);
+          tx.set(ref,next);
+        });
+
+        try{
+          await setDoc(doc(db,"migrationLog","sales-split-v19.51-"+Date.now()),{
+            type:"sales-split-v19.51",status:"success",
+            counts:Object.fromEntries(SALES_SPLIT_FIELDS_V1951.map(f=>[f,(salesDoc[f]||[]).length])),
+            by:user.email||"system",at:new Date().toISOString(),
+          });
+        }catch(_){}
+
+        noticeSuccess(
+          "تم تطبيق تحديث V19.51 — المبيعات",
+          "تم تحويل packages و custDeliverySessions لـcollections يومية. حجم factory/sales هينخفض بشكل كبير ومستحيل يكبر بعد كده."
+        );
+        setMigrationStatus({label:"تم بنجاح",message:"تم تحديث المبيعات. يمكنك الاستمرار.",progress:100});
+        setTimeout(()=>setMigrationStatus(null),1500);
+      }catch(err){
+        console.error("[V19.51] Sales split migration failed:",err);
+        try{
+          await setDoc(doc(db,"migrationLog","sales-split-v19.51-"+Date.now()),{
+            type:"sales-split-v19.51",status:"failed",
+            details:(err.message||String(err)).slice(0,300),
+            by:user.email||"system",at:new Date().toISOString(),
+          });
+        }catch(_){}
+        salesSplitV1951MigrationRef.current=false;
+        setMigrationStatus(null);
+      }
+    })();
+  },[user,salesDoc,salesSplitLoaded]);
+
+  /* ═══════════════════════════════════════════════════════════════════
+     V19.51: One-time migration for TASKS doc — split 3 arrays from
+     factory/tasks into daily collections:
+       tasks            → tasksDays/{YYYY-MM-DD}
+       stickyNotes      → stickyNotesDays/{YYYY-MM-DD}
+       inventoryAudits  → inventoryAuditsDays/{YYYY-MM-DD}
+
+     Independent from sales migration — runs in parallel.
+     ═══════════════════════════════════════════════════════════════════ */
+  const tasksSplitV1951MigrationRef=useRef(false);
+  useEffect(()=>{
+    if(!user||tasksSplitV1951MigrationRef.current)return;
+    if(!tasksDoc)return;
+    if(tasksDoc[TASKS_SPLIT_FLAG_V1951])return;
+    if(!tasksSplitLoaded)return;
+
+    const legacyArrays={};
+    let totalLegacy=0;
+    for(const f of TASKS_SPLIT_FIELDS_V1951){
+      const arr=Array.isArray(tasksDoc[f])?tasksDoc[f]:[];
+      legacyArrays[f]=arr;
+      totalLegacy+=arr.length;
+    }
+
+    tasksSplitV1951MigrationRef.current=true;
+
+    (async()=>{
+      try{
+        if(totalLegacy===0){
+          await runTransaction(db,async(tx)=>{
+            const ref=doc(db,"factory","tasks");
+            const snap=await tx.get(ref);
+            const fresh=snap.exists()?snap.data():{};
+            if(fresh[TASKS_SPLIT_FLAG_V1951])return;
+            tx.set(ref,{...fresh,[TASKS_SPLIT_FLAG_V1951]:true});
+          });
+          return;
+        }
+
+        setMigrationStatus({
+          label:"جاري تحديث نظام تخزين المهام (V19.51)",
+          message:"الرجاء عدم إغلاق البرنامج. هذا يحدث مرة واحدة فقط.",
+          progress:5,
+        });
+
+        setMigrationStatus(s=>({...s,message:"إنشاء نسخة احتياطية...",progress:15}));
+        const ts=new Date().toISOString().replace(/[:.]/g,"-");
+        await setDoc(doc(db,"backups","pre-migration-tasks-split-v1951-"+ts),{
+          label:"قبل ميجريشن: tasks-split-v19.51",
+          autoGenerated:true,
+          migrationType:"tasks-split-v19.51",
+          createdAt:new Date().toISOString(),
+          createdBy:user.email||"system",
+          counts:Object.fromEntries(TASKS_SPLIT_FIELDS_V1951.map(f=>[f,(tasksDoc[f]||[]).length])),
+          tasks:JSON.parse(JSON.stringify(tasksDoc)),
+        });
+
+        setMigrationStatus(s=>({...s,message:"نقل بيانات المهام لـcollections يومية...",progress:55}));
+        const oldEmpty=Object.fromEntries(TASKS_SPLIT_FIELDS_V1951.map(f=>[f,[]]));
+        await syncAllTasksSplitChanges(oldEmpty,legacyArrays);
+
+        setMigrationStatus(s=>({...s,message:"تنظيف factory/tasks...",progress:85}));
+        await runTransaction(db,async(tx)=>{
+          const ref=doc(db,"factory","tasks");
+          const snap=await tx.get(ref);
+          const fresh=snap.exists()?snap.data():{};
+          if(fresh[TASKS_SPLIT_FLAG_V1951])return;
+          const flagged={...fresh,[TASKS_SPLIT_FLAG_V1951]:true};
+          const next=stripTasksSplitArrays(flagged);
+          tx.set(ref,next);
+        });
+
+        try{
+          await setDoc(doc(db,"migrationLog","tasks-split-v19.51-"+Date.now()),{
+            type:"tasks-split-v19.51",status:"success",
+            counts:Object.fromEntries(TASKS_SPLIT_FIELDS_V1951.map(f=>[f,(tasksDoc[f]||[]).length])),
+            by:user.email||"system",at:new Date().toISOString(),
+          });
+        }catch(_){}
+
+        noticeSuccess(
+          "تم تطبيق تحديث V19.51 — المهام",
+          "تم تحويل tasks و stickyNotes و inventoryAudits لـcollections يومية. factory/tasks بقى ثابت الحجم — مستحيل يكبر بعد كده."
+        );
+        setMigrationStatus({label:"تم بنجاح",message:"تم تحديث المهام. يمكنك الاستمرار.",progress:100});
+        setTimeout(()=>setMigrationStatus(null),1500);
+      }catch(err){
+        console.error("[V19.51] Tasks split migration failed:",err);
+        try{
+          await setDoc(doc(db,"migrationLog","tasks-split-v19.51-"+Date.now()),{
+            type:"tasks-split-v19.51",status:"failed",
+            details:(err.message||String(err)).slice(0,300),
+            by:user.email||"system",at:new Date().toISOString(),
+          });
+        }catch(_){}
+        tasksSplitV1951MigrationRef.current=false;
+        setMigrationStatus(null);
+      }
+    })();
+  },[user,tasksDoc,tasksSplitLoaded]);
+
+  /* ═══════════════════════════════════════════════════════════════════
      V16.75: One-time migration — partition hrWeeks from factory/config
      into individual documents in hrWeeksDocs collection.
      
@@ -1625,6 +1864,13 @@ export default function App(){
   const pendingSplitWritesRef=useRef(
     Object.fromEntries(SPLIT_FIELDS.map(f=>[f,new Map()]))
   );
+  /* V19.51: parallel pending-writes refs for sales-doc + tasks-doc splits */
+  const pendingSalesSplitWritesRef=useRef(
+    Object.fromEntries(SALES_SPLIT_FIELDS.map(f=>[f,new Map()]))
+  );
+  const pendingTasksSplitWritesRef=useRef(
+    Object.fromEntries(TASKS_SPLIT_FIELDS.map(f=>[f,new Map()]))
+  );
   const pendingPartitionedWritesRef=useRef({
     hrWeeks:new Map(),
   });
@@ -1648,6 +1894,50 @@ export default function App(){
       for(const id of beforeIds){
         if(!afterIds.has(id)){
           pendingSplitWritesRef.current[f].set(id,{deleted:true,timestamp:Date.now()});
+        }
+      }
+    }
+  },[]);
+  /* V19.51: same helper but for sales-doc split fields. Records adds/mods/deletes
+     so the listener-driven rebuild merges optimistic state and the UI doesn't
+     flicker between save → server-echo. */
+  const registerPendingSalesSplitWrites=useCallback((before,after)=>{
+    for(const f of SALES_SPLIT_FIELDS){
+      const beforeIds=new Set((before[f]||[]).map(e=>String(e?.id||"")));
+      const afterArr=after[f]||[];
+      for(const entry of afterArr){
+        const id=String(entry?.id||"");
+        if(!id)continue;
+        const beforeEntry=(before[f]||[]).find(e=>String(e?.id||"")===id);
+        if(!beforeEntry||JSON.stringify(beforeEntry)!==JSON.stringify(entry)){
+          pendingSalesSplitWritesRef.current[f].set(id,{entry,timestamp:Date.now()});
+        }
+      }
+      const afterIds=new Set(afterArr.map(e=>String(e?.id||"")));
+      for(const id of beforeIds){
+        if(!afterIds.has(id)){
+          pendingSalesSplitWritesRef.current[f].set(id,{deleted:true,timestamp:Date.now()});
+        }
+      }
+    }
+  },[]);
+  /* V19.51: same helper but for tasks-doc split fields. */
+  const registerPendingTasksSplitWrites=useCallback((before,after)=>{
+    for(const f of TASKS_SPLIT_FIELDS){
+      const beforeIds=new Set((before[f]||[]).map(e=>String(e?.id||"")));
+      const afterArr=after[f]||[];
+      for(const entry of afterArr){
+        const id=String(entry?.id||"");
+        if(!id)continue;
+        const beforeEntry=(before[f]||[]).find(e=>String(e?.id||"")===id);
+        if(!beforeEntry||JSON.stringify(beforeEntry)!==JSON.stringify(entry)){
+          pendingTasksSplitWritesRef.current[f].set(id,{entry,timestamp:Date.now()});
+        }
+      }
+      const afterIds=new Set(afterArr.map(e=>String(e?.id||"")));
+      for(const id of beforeIds){
+        if(!afterIds.has(id)){
+          pendingTasksSplitWritesRef.current[f].set(id,{deleted:true,timestamp:Date.now()});
         }
       }
     }
@@ -1681,6 +1971,21 @@ export default function App(){
       /* V19.49: iterate over all split fields dynamically */
       for(const f of SPLIT_FIELDS){
         const map=pendingSplitWritesRef.current[f];
+        if(!map)continue;
+        for(const[id,info]of map){
+          if(now-info.timestamp>STALE_MS)map.delete(id);
+        }
+      }
+      /* V19.51: same cleanup for sales-doc + tasks-doc split pending writes */
+      for(const f of SALES_SPLIT_FIELDS){
+        const map=pendingSalesSplitWritesRef.current[f];
+        if(!map)continue;
+        for(const[id,info]of map){
+          if(now-info.timestamp>STALE_MS)map.delete(id);
+        }
+      }
+      for(const f of TASKS_SPLIT_FIELDS){
+        const map=pendingTasksSplitWritesRef.current[f];
         if(!map)continue;
         for(const[id,info]of map){
           if(now-info.timestamp>STALE_MS)map.delete(id);
@@ -1812,6 +2117,145 @@ export default function App(){
     /* V19.49: subscribe to ALL split collections dynamically */
     for(const f of SPLIT_FIELDS){
       subscribeCol(f,SPLIT_COLLECTIONS[f]);
+    }
+    return()=>{unsubs.forEach(u=>u())};
+  },[user]);
+
+  /* ═══════════════════════════════════════════════════════════════════
+     V19.51: SALES-DOC SPLIT LISTENERS
+     packages → packagesDays/, custDeliverySessions → custDeliverySessionsDays/
+     مرايا للـconfig listener بس على collections الـsales.
+     ═══════════════════════════════════════════════════════════════════ */
+  useEffect(()=>{if(!user)return;
+    const unsubs=[];
+    const dayDocs=Object.fromEntries(SALES_SPLIT_FIELDS.map(f=>[f,new Map()]));
+    let firstFires=Object.fromEntries(SALES_SPLIT_FIELDS.map(f=>[f,false]));
+    const rebuild=()=>{
+      const flatten=(map,pendingMap)=>{
+        const sortedDays=[...map.keys()].sort((a,b)=>b.localeCompare(a));
+        const all=[];
+        const serverIds=new Set();
+        for(const dayKey of sortedDays){
+          const entries=map.get(dayKey)||[];
+          for(const e of entries){
+            const id=String(e?.id||"");
+            if(id&&serverIds.has(id))continue;
+            const pending=pendingMap.get(id);
+            if(pending&&pending.deleted)continue;
+            if(pending&&pending.entry){all.push(pending.entry)}
+            else{all.push(e)}
+            serverIds.add(id);
+          }
+        }
+        for(const[id,info]of pendingMap){
+          if(info.deleted)continue;
+          if(!serverIds.has(id)&&info.entry)all.unshift(info.entry);
+        }
+        for(const[id,info]of pendingMap){
+          if(info.deleted){if(!serverIds.has(id))pendingMap.delete(id)}
+          else if(info.entry){
+            const serverEntry=Array.from(map.values()).flat().find(e=>String(e?.id||"")===id);
+            if(serverEntry&&JSON.stringify(serverEntry)===JSON.stringify(info.entry))pendingMap.delete(id);
+          }
+        }
+        return all;
+      };
+      const next={};
+      for(const f of SALES_SPLIT_FIELDS){
+        next[f]=flatten(dayDocs[f],pendingSalesSplitWritesRef.current[f]||new Map());
+      }
+      setSalesSplitData(next);
+      if(SALES_SPLIT_FIELDS.every(f=>firstFires[f]))setSalesSplitLoaded(true);
+    };
+    const subscribeCol=(field,collName)=>{
+      const map=dayDocs[field];
+      const unsub=onSnapshot(collection(db,collName),snap=>{
+        snap.docChanges().forEach(change=>{
+          const docData=change.doc.data();
+          const entries=(docData&&docData.entries)||[];
+          if(change.type==="removed")map.delete(change.doc.id);
+          else map.set(change.doc.id,entries);
+        });
+        firstFires[field]=true;
+        rebuild();
+      },err=>{
+        console.error(`[V19.51] Sales listener error ${collName}:`,err);
+        firstFires[field]=true;
+        rebuild();
+      });
+      unsubs.push(unsub);
+    };
+    for(const f of SALES_SPLIT_FIELDS){
+      subscribeCol(f,SALES_SPLIT_COLLECTIONS[f]);
+    }
+    return()=>{unsubs.forEach(u=>u())};
+  },[user]);
+
+  /* ═══════════════════════════════════════════════════════════════════
+     V19.51: TASKS-DOC SPLIT LISTENERS
+     tasks/stickyNotes/inventoryAudits → tasksDays/, stickyNotesDays/, inventoryAuditsDays/
+     ═══════════════════════════════════════════════════════════════════ */
+  useEffect(()=>{if(!user)return;
+    const unsubs=[];
+    const dayDocs=Object.fromEntries(TASKS_SPLIT_FIELDS.map(f=>[f,new Map()]));
+    let firstFires=Object.fromEntries(TASKS_SPLIT_FIELDS.map(f=>[f,false]));
+    const rebuild=()=>{
+      const flatten=(map,pendingMap)=>{
+        const sortedDays=[...map.keys()].sort((a,b)=>b.localeCompare(a));
+        const all=[];
+        const serverIds=new Set();
+        for(const dayKey of sortedDays){
+          const entries=map.get(dayKey)||[];
+          for(const e of entries){
+            const id=String(e?.id||"");
+            if(id&&serverIds.has(id))continue;
+            const pending=pendingMap.get(id);
+            if(pending&&pending.deleted)continue;
+            if(pending&&pending.entry){all.push(pending.entry)}
+            else{all.push(e)}
+            serverIds.add(id);
+          }
+        }
+        for(const[id,info]of pendingMap){
+          if(info.deleted)continue;
+          if(!serverIds.has(id)&&info.entry)all.unshift(info.entry);
+        }
+        for(const[id,info]of pendingMap){
+          if(info.deleted){if(!serverIds.has(id))pendingMap.delete(id)}
+          else if(info.entry){
+            const serverEntry=Array.from(map.values()).flat().find(e=>String(e?.id||"")===id);
+            if(serverEntry&&JSON.stringify(serverEntry)===JSON.stringify(info.entry))pendingMap.delete(id);
+          }
+        }
+        return all;
+      };
+      const next={};
+      for(const f of TASKS_SPLIT_FIELDS){
+        next[f]=flatten(dayDocs[f],pendingTasksSplitWritesRef.current[f]||new Map());
+      }
+      setTasksSplitData(next);
+      if(TASKS_SPLIT_FIELDS.every(f=>firstFires[f]))setTasksSplitLoaded(true);
+    };
+    const subscribeCol=(field,collName)=>{
+      const map=dayDocs[field];
+      const unsub=onSnapshot(collection(db,collName),snap=>{
+        snap.docChanges().forEach(change=>{
+          const docData=change.doc.data();
+          const entries=(docData&&docData.entries)||[];
+          if(change.type==="removed")map.delete(change.doc.id);
+          else map.set(change.doc.id,entries);
+        });
+        firstFires[field]=true;
+        rebuild();
+      },err=>{
+        console.error(`[V19.51] Tasks listener error ${collName}:`,err);
+        firstFires[field]=true;
+        rebuild();
+      });
+      unsubs.push(unsub);
+    };
+    for(const f of TASKS_SPLIT_FIELDS){
+      subscribeCol(f,TASKS_SPLIT_COLLECTIONS[f]);
     }
     return()=>{unsubs.forEach(u=>u())};
   },[user]);
@@ -1973,7 +2417,13 @@ export default function App(){
   const _sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
   /* V16.74: ref to current splitData للقراءة من داخل upConfigTx (transactions تشتغل بدون state freshness) */
   const splitDataRef=useRef(splitData);
+  /* V19.51: parallel refs for sales-doc + tasks-doc splits */
+  const salesSplitDataRef=useRef(salesSplitData);
+  const tasksSplitDataRef=useRef(tasksSplitData);
   useEffect(()=>{splitDataRef.current=splitData},[splitData]);
+  /* V19.51: keep sales/tasks split refs current */
+  useEffect(()=>{salesSplitDataRef.current=salesSplitData},[salesSplitData]);
+  useEffect(()=>{tasksSplitDataRef.current=tasksSplitData},[tasksSplitData]);
   /* V17.4: keep configDocRef in sync — used by config listener to detect own optimistic state */
   useEffect(()=>{configDocRef.current=configDoc},[configDoc]);
   /* V19.48: Same pattern for sales/tasks — used by their fallback writers */
@@ -2299,19 +2749,52 @@ export default function App(){
     registerAutoPostCallback(upConfig);
   }, [upConfig]);
 
-  const upSalesTx=useCallback(async(fn)=>{
+  /* V19.51: upSalesTx accepts pre-computed values like upConfigTx (V17.2 pattern).
+     - precomputedNext: full salesDoc state already hydrated + fn-applied + stripped
+     - precomputedNewSalesSplit: the split fields to sync to day docs (or null pre-migration)
+     - explicitSalesSplitBefore: snapshot for diff against newSalesSplit
+     The transaction just writes precomputedNext as-is — fn does NOT re-run on retries. */
+  const upSalesTx=useCallback(async(precomputedNext,precomputedNewSalesSplit,explicitSalesSplitBefore)=>{
     const ref=doc(db,"factory","sales");
     let lastErr=null;
+    /* V19.51 SAFETY: refuse writes if migration done but listeners not loaded */
+    if(salesDoc&&salesDoc[SALES_SPLIT_FLAG_V1951]&&!salesSplitLoaded){
+      console.error("[V19.51 SAFETY] Refusing upSales — salesSplitData not loaded yet");
+      showToast("⏳ البرنامج لسه بيحمّل بيانات المبيعات — حاول تاني بعد ثانيتين");
+      return;
+    }
+    const splitBefore=explicitSalesSplitBefore||Object.fromEntries(
+      SALES_SPLIT_FIELDS.map(f=>[f,salesSplitDataRef.current[f]||[]])
+    );
+    const splitActive=Boolean(salesDoc?.[SALES_SPLIT_FLAG_V1951]);
+    const splitAfter=splitActive?precomputedNewSalesSplit:null;
+
     for(let attempt=0;attempt<5;attempt++){
       try{
-        await runTransaction(db,async(tx)=>{
-          const snap=await tx.get(ref);
-          const current=snap.exists()?snap.data():{};
-          const next=JSON.parse(JSON.stringify(current));
-          fn(next);
-          tx.set(ref,next);
-        });
+        await setDoc(ref,precomputedNext,{merge:false});
         markSynced(); /* V19.48 */
+        /* V19.51: sync split day docs */
+        if(splitActive&&splitAfter){
+          let syncErr=null;
+          for(let syncAttempt=0;syncAttempt<3;syncAttempt++){
+            try{
+              await syncAllSalesSplitChanges(splitBefore,splitAfter);
+              syncErr=null;
+              break;
+            }catch(e){
+              syncErr=e;
+              console.warn("[V19.51] syncAllSalesSplitChanges attempt "+(syncAttempt+1)+" failed:",e?.message||e);
+              if(syncAttempt<2)await _sleep(150*Math.pow(2,syncAttempt));
+            }
+          }
+          if(syncErr){
+            console.error("[V19.51] Failed to sync sales split day docs after 3 retries:",syncErr);
+            noticeWarn(
+              "تعذر حفظ بعض بيانات المبيعات في وضع التخزين اليومي",
+              "خطأ في كتابة sales day docs بعد 3 محاولات. البيانات الأساسية محفوظة في factory/sales، لكن day docs (packages/custDeliverySessions) قد لا تكون متزامنة. التفاصيل: "+(syncErr.message||String(syncErr)).slice(0,200)
+            );
+          }
+        }
         return;
       }catch(e){
         lastErr=e;
@@ -2321,44 +2804,20 @@ export default function App(){
         await _sleep(100*Math.pow(2,attempt));
       }
     }
-    /* V19.48 ROOT-CAUSE FIX:
-       The previous fallback was fire-and-forget — `setDoc(...).catch(er=>console.error)`.
-       This meant: on real failure, the optimistic UI showed the change momentarily
-       (because setSalesDoc ran), then the listener pulled stale server data and
-       reverted. The user saw "data unchanged" with NO error toast. This was the
-       root cause of the V19.48-reported "تأكيد البيع doesn't save" incident.
-
-       New flow: AWAIT the fallback setDoc, distinguish "transient retry exhaustion
-       but recovery succeeded" (show success quietly) from "actual failure" (show
-       categorized error + forensic line in console + remove optimistic state). */
-    console.error("[V19.48] upSales tx error after retries:", lastErr);
-    let optimisticNext = null;
+    /* V19.48 + V19.51: AWAIT fallback. Real failure surfaces categorized error. */
+    console.error("[V19.51] upSales setDoc error after retries:", lastErr);
     try {
-      /* Compute the desired next state from current optimistic state, just like before */
-      optimisticNext = (()=>{
-        try {
-          const next = JSON.parse(JSON.stringify(salesDocRef.current || {}));
-          fn(next);
-          return next;
-        } catch(_) { return null; }
-      })();
-      if(!optimisticNext){
-        showToast("⛔ تعذر تجهيز البيانات للحفظ — جرب تاني");
-        return;
+      /* Sync split docs first (idempotent). */
+      if(splitAfter){
+        try{ await syncAllSalesSplitChanges(splitBefore,splitAfter) }
+        catch(syncErr){ console.warn("[V19.51] sales fallback split sync failed:",syncErr) }
       }
-      /* Apply optimistic state immediately — same behavior as before */
-      setSalesDoc(optimisticNext);
-      /* AWAIT the fallback. Use merge:false (full replace) — same as txn write
-         would have done. The previous merge:true was incorrect because arrays
-         get replaced anyway under merge, but objects could leak fields. */
-      await setDoc(ref, optimisticNext, { merge: false });
+      await setDoc(ref, precomputedNext, { merge: false });
       markSynced();
-      /* Recovered successfully via fallback. Quiet success — don't alarm the user. */
-      console.warn("[V19.48] upSales recovered via fallback setDoc");
+      console.warn("[V19.51] upSales recovered via fallback setDoc");
     } catch(fallbackErr){
-      /* Real failure — revert optimistic state and tell the user clearly. */
       const cat = categorizeWriteError(fallbackErr);
-      const docSize = estimateDocSize(optimisticNext);
+      const docSize = estimateDocSize(precomputedNext);
       const forensic = buildForensicLine({
         docPath: "factory/sales",
         docSize,
@@ -2368,13 +2827,9 @@ export default function App(){
         operation: "upSales",
       });
       console.error(forensic);
-      /* Revert to last server state by clearing pending optimistic delta.
-         The listener will pull authoritative state on its next snapshot.
-         We don't reset to {} because that would erase legit local state for
-         other reads; instead we trust the listener to converge. */
       showToast("⛔ فشل حفظ بيانات المبيعات: "+(cat.arabic||"خطأ غير معروف")+(docSize > FIRESTORE_DOC_WARN_BYTES ? " (حجم البيانات: "+formatBytes(docSize)+")" : ""));
     }
-  },[markSynced]);
+  },[markSynced,salesDoc,salesSplitLoaded]);
   const upSales=useCallback(fn=>{
     /* V19.48: Online-only — refuse writes when offline. Same enforcement as upConfig. */
     if(!isOnlineRef.current){
@@ -2394,23 +2849,89 @@ export default function App(){
       showToast("⛔ فيه مشكلة — اقفل وافتح التطبيق");
       return;
     }
-    setSalesDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);return next}catch(e){return prev}});
-    upSalesTx(fn);
-  },[upSalesTx,configLoaded,configError]);
+    /* V19.51 SAFETY: refuse if migration done but listeners not loaded */
+    if(salesDoc&&salesDoc[SALES_SPLIT_FLAG_V1951]&&!salesSplitLoaded){
+      console.error("[V19.51 SAFETY] Refusing upSales — salesSplitData not loaded yet");
+      showToast("⏳ البرنامج لسه بيحمّل بيانات المبيعات — حاول تاني بعد ثانيتين");
+      return;
+    }
+    /* V19.51: snapshot pre-mutation split state for the diff */
+    const explicitSalesSplitBefore=Object.fromEntries(
+      SALES_SPLIT_FIELDS.map(f=>[f,[...(salesSplitDataRef.current[f]||[])]])
+    );
+    /* V19.51: compute next + newSplit deterministically (mirrors upConfig V16.80 FIX #6) */
+    const prev=salesDoc||{};
+    let next, newSalesSplit=null, stripped=null;
+    try{
+      next=JSON.parse(JSON.stringify(prev));
+      const salesSplitActive=Boolean(prev[SALES_SPLIT_FLAG_V1951]);
+      if(salesSplitActive){
+        for(const f of SALES_SPLIT_FIELDS_V1951){
+          next[f]=JSON.parse(JSON.stringify(explicitSalesSplitBefore[f]||[]));
+        }
+      }
+      fn(next);
+      if(salesSplitActive){
+        newSalesSplit={};
+        for(const f of SALES_SPLIT_FIELDS_V1951){
+          newSalesSplit[f]=Array.isArray(next[f])?next[f]:[];
+        }
+      }
+      stripped=salesSplitActive?stripSalesSplitArrays(next):next;
+    }catch(e){
+      console.error("[upSales] fn threw, aborting optimistic update:",e);
+      return;
+    }
+    /* Apply optimistic state */
+    setSalesDoc(stripped);
+    if(newSalesSplit){
+      registerPendingSalesSplitWrites(explicitSalesSplitBefore,newSalesSplit);
+      setSalesSplitData(newSalesSplit);
+      salesSplitDataRef.current=newSalesSplit;
+    }
+    upSalesTx(stripped,newSalesSplit,explicitSalesSplitBefore);
+  },[upSalesTx,configLoaded,configError,salesDoc,salesSplitLoaded,registerPendingSalesSplitWrites]);
 
-  const upTasksTx=useCallback(async(fn)=>{
+  /* V19.51: upTasksTx parallels upSalesTx — accepts pre-computed values. */
+  const upTasksTx=useCallback(async(precomputedNext,precomputedNewTasksSplit,explicitTasksSplitBefore)=>{
     const ref=doc(db,"factory","tasks");
     let lastErr=null;
+    if(tasksDoc&&tasksDoc[TASKS_SPLIT_FLAG_V1951]&&!tasksSplitLoaded){
+      console.error("[V19.51 SAFETY] Refusing upTasks — tasksSplitData not loaded yet");
+      showToast("⏳ البرنامج لسه بيحمّل بيانات المهام — حاول تاني بعد ثانيتين");
+      return;
+    }
+    const splitBefore=explicitTasksSplitBefore||Object.fromEntries(
+      TASKS_SPLIT_FIELDS.map(f=>[f,tasksSplitDataRef.current[f]||[]])
+    );
+    const splitActive=Boolean(tasksDoc?.[TASKS_SPLIT_FLAG_V1951]);
+    const splitAfter=splitActive?precomputedNewTasksSplit:null;
+
     for(let attempt=0;attempt<5;attempt++){
       try{
-        await runTransaction(db,async(tx)=>{
-          const snap=await tx.get(ref);
-          const current=snap.exists()?snap.data():{};
-          const next=JSON.parse(JSON.stringify(current));
-          fn(next);
-          tx.set(ref,next);
-        });
+        await setDoc(ref,precomputedNext,{merge:false});
         markSynced(); /* V19.48 */
+        if(splitActive&&splitAfter){
+          let syncErr=null;
+          for(let syncAttempt=0;syncAttempt<3;syncAttempt++){
+            try{
+              await syncAllTasksSplitChanges(splitBefore,splitAfter);
+              syncErr=null;
+              break;
+            }catch(e){
+              syncErr=e;
+              console.warn("[V19.51] syncAllTasksSplitChanges attempt "+(syncAttempt+1)+" failed:",e?.message||e);
+              if(syncAttempt<2)await _sleep(150*Math.pow(2,syncAttempt));
+            }
+          }
+          if(syncErr){
+            console.error("[V19.51] Failed to sync tasks split day docs after 3 retries:",syncErr);
+            noticeWarn(
+              "تعذر حفظ بعض بيانات المهام في وضع التخزين اليومي",
+              "خطأ في كتابة tasks day docs بعد 3 محاولات. التفاصيل: "+(syncErr.message||String(syncErr)).slice(0,200)
+            );
+          }
+        }
         return;
       }catch(e){
         lastErr=e;
@@ -2420,28 +2941,19 @@ export default function App(){
         await _sleep(100*Math.pow(2,attempt));
       }
     }
-    /* V19.48: Same fallback fix as upSalesTx — see explanation there. */
-    console.error("[V19.48] upTasks tx error after retries:", lastErr);
-    let optimisticNext = null;
+    /* V19.48 + V19.51: AWAIT fallback. */
+    console.error("[V19.51] upTasks setDoc error after retries:", lastErr);
     try {
-      optimisticNext = (()=>{
-        try {
-          const next = JSON.parse(JSON.stringify(tasksDocRef.current || {}));
-          fn(next);
-          return next;
-        } catch(_) { return null; }
-      })();
-      if(!optimisticNext){
-        showToast("⛔ تعذر تجهيز البيانات للحفظ — جرب تاني");
-        return;
+      if(splitAfter){
+        try{ await syncAllTasksSplitChanges(splitBefore,splitAfter) }
+        catch(syncErr){ console.warn("[V19.51] tasks fallback split sync failed:",syncErr) }
       }
-      setTasksDoc(optimisticNext);
-      await setDoc(ref, optimisticNext, { merge: false });
+      await setDoc(ref, precomputedNext, { merge: false });
       markSynced();
-      console.warn("[V19.48] upTasks recovered via fallback setDoc");
+      console.warn("[V19.51] upTasks recovered via fallback setDoc");
     } catch(fallbackErr){
       const cat = categorizeWriteError(fallbackErr);
-      const docSize = estimateDocSize(optimisticNext);
+      const docSize = estimateDocSize(precomputedNext);
       const forensic = buildForensicLine({
         docPath: "factory/tasks",
         docSize,
@@ -2453,7 +2965,7 @@ export default function App(){
       console.error(forensic);
       showToast("⛔ فشل حفظ المهام: "+(cat.arabic||"خطأ غير معروف")+(docSize > FIRESTORE_DOC_WARN_BYTES ? " (حجم البيانات: "+formatBytes(docSize)+")" : ""));
     }
-  },[markSynced]);
+  },[markSynced,tasksDoc,tasksSplitLoaded]);
   const upTasks=useCallback(fn=>{
     /* V19.48: Online-only — refuse writes when offline. */
     if(!isOnlineRef.current){
@@ -2471,9 +2983,46 @@ export default function App(){
       showToast("⛔ فيه مشكلة — اقفل وافتح التطبيق");
       return;
     }
-    setTasksDoc(prev=>{try{const next=JSON.parse(JSON.stringify(prev));fn(next);return next}catch(e){return prev}});
-    upTasksTx(fn);
-  },[upTasksTx,configLoaded,configError]);
+    /* V19.51 SAFETY: refuse if migration done but listeners not loaded */
+    if(tasksDoc&&tasksDoc[TASKS_SPLIT_FLAG_V1951]&&!tasksSplitLoaded){
+      console.error("[V19.51 SAFETY] Refusing upTasks — tasksSplitData not loaded yet");
+      showToast("⏳ البرنامج لسه بيحمّل بيانات المهام — حاول تاني بعد ثانيتين");
+      return;
+    }
+    /* V19.51: snapshot pre-mutation split state for the diff */
+    const explicitTasksSplitBefore=Object.fromEntries(
+      TASKS_SPLIT_FIELDS.map(f=>[f,[...(tasksSplitDataRef.current[f]||[])]])
+    );
+    const prev=tasksDoc||{};
+    let next, newTasksSplit=null, stripped=null;
+    try{
+      next=JSON.parse(JSON.stringify(prev));
+      const tasksSplitActive=Boolean(prev[TASKS_SPLIT_FLAG_V1951]);
+      if(tasksSplitActive){
+        for(const f of TASKS_SPLIT_FIELDS_V1951){
+          next[f]=JSON.parse(JSON.stringify(explicitTasksSplitBefore[f]||[]));
+        }
+      }
+      fn(next);
+      if(tasksSplitActive){
+        newTasksSplit={};
+        for(const f of TASKS_SPLIT_FIELDS_V1951){
+          newTasksSplit[f]=Array.isArray(next[f])?next[f]:[];
+        }
+      }
+      stripped=tasksSplitActive?stripTasksSplitArrays(next):next;
+    }catch(e){
+      console.error("[upTasks] fn threw, aborting optimistic update:",e);
+      return;
+    }
+    setTasksDoc(stripped);
+    if(newTasksSplit){
+      registerPendingTasksSplitWrites(explicitTasksSplitBefore,newTasksSplit);
+      setTasksSplitData(newTasksSplit);
+      tasksSplitDataRef.current=newTasksSplit;
+    }
+    upTasksTx(stripped,newTasksSplit,explicitTasksSplitBefore);
+  },[upTasksTx,configLoaded,configError,tasksDoc,tasksSplitLoaded,registerPendingTasksSplitWrites]);
   /* V16.11: ATOMIC ORDER OPERATIONS — addOrder/replaceOrder/delOrder now run
      stock check + order write + stock deduction inside a SINGLE Firestore
      transaction. Fixes a TOCTOU window where a check would pass on stale

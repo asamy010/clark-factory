@@ -210,33 +210,66 @@ export const FEATURE_BUDGETS=[
   },
 ];
 
-/* Sales-doc features */
+/* Sales-doc features (V19.51: arrays moved out to daily collections) */
 export const SALES_BUDGETS=[
   {
-    key:"sessions",
-    label:"📦 جلسات التسليم",
-    docRef:"factory/sales",
-    budget:500_000,/* 500 KB */
-    getData:(d)=>d?.sessions||[],
-    getSize:(d)=>_bytes(d?.sessions),
-    getCount:(d)=>(d?.sessions||[]).length,
-    advice:"جلسات التسليم اليومية. أرشف بعد 6 أشهر.",
-    dataType:"sales",
+    key:"packages",
+    label:"📦 التعبئة (مقسّمة يومياً)",
+    docRef:"packagesDays/*",
+    budget:20_000_000,/* 20 MB موزّعة على أيام */
+    getData:(d)=>d?.packages||[],
+    getSize:(d)=>_bytes(d?.packages),
+    getCount:(d)=>(d?.packages||[]).length,
+    advice:"V19.51: مخزّنة في packagesDays — كل يوم لوحده.",
+    dataType:"split",
+  },
+  {
+    key:"custDeliverySessions",
+    label:"🚚 جلسات تسليم العملاء (مقسّمة يومياً)",
+    docRef:"custDeliverySessionsDays/*",
+    budget:20_000_000,
+    getData:(d)=>d?.custDeliverySessions||[],
+    getSize:(d)=>_bytes(d?.custDeliverySessions),
+    getCount:(d)=>(d?.custDeliverySessions||[]).length,
+    advice:"V19.51: مخزّنة في custDeliverySessionsDays — كل يوم في document منفصل.",
+    dataType:"split",
   },
 ];
 
-/* Tasks-doc features */
+/* Tasks-doc features (V19.51: arrays moved out to daily collections) */
 export const TASKS_BUDGETS=[
   {
     key:"tasks",
-    label:"📌 المهام",
-    docRef:"factory/tasks",
-    budget:400_000,
+    label:"📌 المهام (مقسّمة يومياً)",
+    docRef:"tasksDays/*",
+    budget:5_000_000,
     getData:(d)=>d?.tasks||[],
     getSize:(d)=>_bytes(d?.tasks),
     getCount:(d)=>(d?.tasks||[]).length,
-    advice:"مهام الإنتاج والملاحظات. أرشف المكتملة.",
-    dataType:"tasks",
+    advice:"V19.51: مخزّنة في tasksDays — مهام بين المستخدمين.",
+    dataType:"split",
+  },
+  {
+    key:"stickyNotes",
+    label:"📝 ملاحظات لاصقة (مقسّمة يومياً)",
+    docRef:"stickyNotesDays/*",
+    budget:3_000_000,
+    getData:(d)=>d?.stickyNotes||[],
+    getSize:(d)=>_bytes(d?.stickyNotes),
+    getCount:(d)=>(d?.stickyNotes||[]).length,
+    advice:"V19.51: مخزّنة في stickyNotesDays — كل user له ملاحظاته (max 20).",
+    dataType:"split",
+  },
+  {
+    key:"inventoryAudits",
+    label:"📊 جرد المخزن (مقسّم يومياً)",
+    docRef:"inventoryAuditsDays/*",
+    budget:5_000_000,
+    getData:(d)=>d?.inventoryAudits||[],
+    getSize:(d)=>_bytes(d?.inventoryAudits),
+    getCount:(d)=>(d?.inventoryAudits||[]).length,
+    advice:"V19.51: مخزّنة في inventoryAuditsDays — جرد كامل لكل عملية.",
+    dataType:"split",
   },
 ];
 
