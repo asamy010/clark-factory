@@ -15,7 +15,7 @@
    printed before V16.73 (those have no signature and require login).
    ═══════════════════════════════════════════════════════════════ */
 
-import { setCors, verifyWorkshopSignature, getDb } from "./_firebase.js";
+import { setCors, verifyWorkshopSignature, getDb, appendToSplitDay } from "./_firebase.js";
 
 /* Orders use Firestore auto-generated docIds, NOT the internal `id` field —
    query by field. Returns the {docRef, doc} so we can update in place. */
@@ -184,7 +184,8 @@ export default async function handler(req, res) {
     });
 
     /* ─── Notification for factory staff ─── */
-    const configRef = db.collection("factory").doc("config");
+    /* V19.53: notifications split into notificationsDays/* — see delivery-confirm.js
+       for the same pattern + reasoning. */
     const msgPrefix = action === "confirm" ? "✅" : "⚠️";
     const msgBody =
       action === "confirm"
@@ -200,18 +201,28 @@ export default async function handler(req, res) {
       orderId: orderId,
       wsId: wsId,
       deliveryIdx: idxNum,
-      read: false,
       createdAt: new Date().toISOString(),
       severity: action === "confirm" ? "info" : "warning",
     };
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(configRef);
-      const data = snap.exists ? snap.data() : {};
-      const list = Array.isArray(data.notifications) ? data.notifications : [];
-      list.unshift(notifEntry);
-      const trimmed = list.slice(0, 500);
-      tx.set(configRef, { notifications: trimmed }, { merge: true });
-    });
+    try {
+      const configSnap = await db.collection("factory").doc("config").get();
+      const cfg = configSnap.exists ? configSnap.data() : {};
+      if (cfg._splitDaysV1953Done) {
+        await appendToSplitDay("notificationsDays", notifEntry);
+      } else {
+        const configRef = db.collection("factory").doc("config");
+        await db.runTransaction(async (tx) => {
+          const snap = await tx.get(configRef);
+          const data = snap.exists ? snap.data() : {};
+          const list = Array.isArray(data.notifications) ? data.notifications : [];
+          list.unshift(notifEntry);
+          const trimmed = list.slice(0, 500);
+          tx.set(configRef, { notifications: trimmed }, { merge: true });
+        });
+      }
+    } catch (notifErr) {
+      console.warn("[workshop-delivery-confirm] notification write failed (non-fatal):", notifErr);
+    }
 
     res.status(200).json({ ok: true, status: action, at: confirmEntry.at });
   } catch (e) {

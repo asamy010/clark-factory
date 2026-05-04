@@ -252,6 +252,17 @@ export const FEATURE_BUDGETS=[
     advice:"V19.52: مخزّنة في salesAuditsDays — جرد المبيعات اليومي.",
     dataType:"split",
   },
+  {
+    key:"notifications",
+    label:"🔔 الإشعارات (مقسّمة يومياً)",
+    docRef:"notificationsDays/*",
+    budget:10_000_000,/* 10 MB موزّعة — readBy/dismissedBy/doneBy منفصلة في userNotifStates */
+    getData:(d)=>d?.notifications||[],
+    getSize:(d)=>_bytes(d?.notifications),
+    getCount:(d)=>(d?.notifications||[]).length,
+    advice:"V19.53: مخزّنة في notificationsDays — الإشعارات بقت immutable. حالة كل user في userNotifStates/{email}.",
+    dataType:"split",
+  },
 ];
 
 /* Sales-doc features (V19.51: arrays moved out to daily collections) */

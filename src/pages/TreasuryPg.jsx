@@ -1412,7 +1412,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           createdAt:new Date().toISOString().split("T")[0],
           createdAtTs:new Date().toISOString(),
           expiresAt:null,/* stays until approved/rejected */
-          endedAt:null,endedBy:null,readBy:[],dismissedBy:[],
+          endedAt:null,endedBy:null,/* V19.53: readBy/dismissedBy moved to userNotifStates */
           forAdminsOnly:true,/* V18.91: only admins see this chip */
           transferId:tfId,
           link:{type:"treasury",id:tfId,subType:"transfer_pending",label:"موافقة على التحويل"},

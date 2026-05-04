@@ -64,6 +64,55 @@ export async function readSplitCollection(collectionName) {
   }
 }
 
+/* ─── V19.53 ─────────────────────────────────────────────────────────────
+   appendToSplitDay: append an entry to the proper day doc of a split
+   collection. Use in API endpoints that previously did:
+     tx.set(configRef, { notifications: [newEntry, ...existing.slice(0,499)] }, { merge:true })
+   The new equivalent:
+     await appendToSplitDay("notificationsDays", newEntry);
+
+   The day is derived from entry.date (YYYY-MM-DD) or entry.createdAt
+   (ISO timestamp) or current date as fallback. Entry MUST have an `id`
+   for the dedup logic in the day doc; if missing, one is auto-generated.
+
+   Uses a transaction to safely merge the entry into existing entries:
+   reads current entries, prepends the new one (newest-first), writes back.
+   ─────────────────────────────────────────────────────────────────────── */
+export async function appendToSplitDay(collectionName, entry) {
+  if (!entry || typeof entry !== "object") return;
+  const db = getDb();
+  /* Resolve the day key from entry */
+  const rawDate = entry.date || entry.createdAt || entry.ts || new Date().toISOString();
+  let date;
+  try {
+    date = String(rawDate).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      date = new Date(rawDate).toISOString().slice(0, 10);
+    }
+  } catch (_) {
+    date = new Date().toISOString().slice(0, 10);
+  }
+  /* Auto-id if missing — matches the auto-id pattern in splitCollections.js */
+  if (!entry.id) {
+    entry.id = "auto_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
+  }
+
+  const dayRef = db.collection(collectionName).doc(date);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(dayRef);
+    const existing = snap.exists && Array.isArray(snap.data()?.entries)
+      ? snap.data().entries
+      : [];
+    /* Prepend (newest-first convention used elsewhere) */
+    const merged = [entry, ...existing];
+    tx.set(dayRef, {
+      entries: merged,
+      count: merged.length,
+      updatedAt: new Date().toISOString(),
+    });
+  });
+}
+
 /* ── HMAC token helpers ── */
 export function getSecret() {
   const s = process.env.DELIVERY_CONFIRM_SECRET;

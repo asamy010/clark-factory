@@ -2259,11 +2259,13 @@ function SplitDaysMonitor(){
     purchaseReceipts:  {label:"📥 استلامات الشراء (purchaseReceiptsDays)",  color:"#0284C7", ver:"V19.52"},
     treasuryTransfers: {label:"💸 تحويلات الخزنة (treasuryTransfersDays)",  color:"#9333EA", ver:"V19.52"},
     salesAudits:       {label:"📊 جرد المبيعات (salesAuditsDays)",          color:"#E11D48", ver:"V19.52"},
+    /* V19.53 — notifications (refactored + split) */
+    notifications:     {label:"🔔 الإشعارات (notificationsDays)",           color:"#F43F5E", ver:"V19.53"},
   };
 
-  return<Card title="📅 مراقبة التخزين اليومي (V16.74 → V19.52)" style={{marginBottom:14}}>
+  return<Card title="📅 مراقبة التخزين اليومي (V16.74 → V19.53)" style={{marginBottom:14}}>
     <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
-      19 مجموعة بيانات متخزنة في documents يومية منفصلة بدل arrays في factory/config أو factory/sales أو factory/tasks.
+      20 مجموعة بيانات متخزنة في documents يومية منفصلة. حالة قراءة الإشعارات لكل مستخدم في userNotifStates/(email) (doc لكل user).
       ضمان رياضي: كل ملفات factory مستحيل تكبر عن حد معيّن مهما طال الوقت.
     </div>
     

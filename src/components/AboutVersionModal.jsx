@@ -25,6 +25,22 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.53",
+    date: "2026-05-04",
+    types: ["architectural", "improvement", "safety"],
+    title: "🔔 refactor + split الإشعارات — حل race conditions نهائياً",
+    changes: [
+      { type: "architectural", text: "🔔 [Notifications refactor — readBy/dismissedBy/doneBy خرجوا من الـnotification entry] قبل V19.53 كان كل إشعار فيه `readBy:[emails]`, `dismissedBy:[emails]`, `doneBy:[emails]` arrays. لما 5 users يقروا نفس الإشعار في نفس اللحظة → 5 writes متوازية على نفس entry → race condition (lost updates). الحل: ضافت collection جديد `userNotifStates/{userEmail}` فيه `{reads, dismisses, doneTasks}` لكل user. كل user بيكتب على doc بتاعه فقط. الإشعار نفسه بقى **immutable** بعد إنشائه → صفر contention." },
+      { type: "architectural", text: "🏗️ [Daily-split لـnotifications] بعد الـrefactor، الـnotifications بقت آمنة للـsplit. اتنقلوا لـ`notificationsDays/{YYYY-MM-DD}`. النتيجة: factory/config مفيهوش `notifications` array بعد كده. آخر array operational اتقسم — factory/config مكون من settings + master data بس." },
+      { type: "improvement", text: "🔁 [Migration ذكي — بيـextract حالة كل user] الـmigration بيـiterate كل notifications الموجودة، ولكل user في readBy/dismissedBy/doneBy → بيكتب على userNotifStates/{email}. لو 100 إشعار × 7 users على متوسط = 700 write — كلهم idempotent عبر setDoc(merge:true). فبعد الـmigration حالة كل user محفوظة ومش هيشوف إشعارات قراها قبل التحديث." },
+      { type: "fix", text: "🛠️ [API endpoints بقت تكتب في notificationsDays] `delivery-confirm.js` و `workshop-delivery-confirm.js` كانوا بيكتبوا notifications في config مباشرة. ضافت helper جديد `appendToSplitDay(collectionName, entry)` في `api/_firebase.js` يكتب على day doc الصح. كل endpoint بيـcheck الـflag — لو V19.53 done يستخدم day doc، وإلا fallback على config (backward compat للـrolling deploy)." },
+      { type: "improvement", text: "🎯 [Optimistic update لـmarkRead/markTaskDone] بدل ما يستنى Firestore round-trip، الـUI بيتحدّث فوراً عبر setUserNotifState. لو الكتابة فشلت (نادر) → console.warn، والـuser ميشوفش الإشعار — بس الـlistener هيرجّعه لو الـsetDoc اتراجع. UX أسرع." },
+      { type: "improvement", text: "📐 [Firestore Rules + 2 collections جديدة] notificationsDays (any authed user write — لأن أي user بيبعت إشعار)، userNotifStates/{email} (write مقيّد بـ`request.auth.token.email == email` — كل user بيكتب على doc بتاعه بس)." },
+      { type: "safety", text: "🔒 [Backward compat للـnotifs القديمة] الـfilter logic بيتحقق userNotifState.dismisses أولاً، وكـfallback بيتحقق من readBy/dismissedBy على الـentry نفسها. ده يعني لو حصل rolling deploy وحد كاتب نسخة قديمة لسه بـreadBy → الـUser على V19.53 هيقرا الحالة الصح برضه." },
+      { type: "improvement", text: "📊 [لوحة المراقبة بقت 20 collection] في الإعدادات → '📅 مراقبة التخزين اليومي' بقت تعرض notificationsDays + 19 collection سابقة. badge V19.53 مميّز." },
+    ]
+  },
+  {
     version: "V19.52",
     date: "2026-05-04",
     types: ["architectural", "improvement", "fix"],

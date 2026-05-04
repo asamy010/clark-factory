@@ -1,7 +1,7 @@
 rules_version = '2';
 
 /* ═══════════════════════════════════════════════════════════════
-   CLARK Factory — Firestore Security Rules (V19.52)
+   CLARK Factory — Firestore Security Rules (V19.53)
 
    نموذج الصلاحيات:
    - admin              : كل شيء
@@ -232,6 +232,25 @@ service cloud.firestore {
     match /salesAuditsDays/{day} {
       allow read:  if isAnyUser();
       allow write: if hasRole(['admin','manager','sales_accountant']);
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       V19.53 — notifications يومية + per-user state
+         notificationsDays    — الإشعارات (any authed user write — أي user
+                                بيبعت إشعار لتاني، API endpoints برضه)
+         userNotifStates/{email} — حالة كل user (reads/dismisses/doneTasks)
+                                User يقرأ أي doc (للـ admin tools لو لزم)،
+                                لكن يكتب فقط على الـdoc بتاع email بتاعه.
+       ────────────────────────────────────────────────────────── */
+    match /notificationsDays/{day} {
+      allow read:  if isAnyUser();
+      allow write: if isAuthed();
+    }
+
+    match /userNotifStates/{email} {
+      allow read:  if isAnyUser();
+      /* user يكتب فقط على doc الخاص بـemail بتاعه */
+      allow write: if isAuthed() && request.auth.token.email == email;
     }
 
     /* ──────────────────────────────────────────────────────────

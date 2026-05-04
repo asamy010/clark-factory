@@ -9,7 +9,7 @@
    No login required — designed to be opened by customer via QR scan.
    ═══════════════════════════════════════════════════════════════ */
 
-import { setCors, verifySignature, getDb } from "./_firebase.js";
+import { setCors, verifySignature, getDb, appendToSplitDay } from "./_firebase.js";
 
 /* Helpers for reading order data — orders use Firestore auto-generated docIds,
    NOT the internal `id` field. Must query by field, not fetch by docId. */
@@ -205,8 +205,10 @@ export default async function handler(req, res) {
     });
 
     /* ─── Create notification for accountant(s) ─── */
-    /* Push to config.notifications — read by the app's notification bell */
-    const configRef = db.collection("factory").doc("config");
+    /* V19.53: notifications moved to notificationsDays/* (daily-split). Use the
+       appendToSplitDay helper which handles the right day-doc transaction.
+       Per-user reads/dismisses now live in userNotifStates/{email} (not on
+       the notification entry itself), so the entry is immutable post-create. */
     const msgPrefix = action === "confirm" ? "✅" : "⚠️";
     const msgBody =
       action === "confirm"
@@ -220,19 +222,33 @@ export default async function handler(req, res) {
       link: "custDelivery",
       sessionId: sessionId,
       custId: custId,
-      read: false,
       createdAt: new Date().toISOString(),
       severity: action === "confirm" ? "info" : "warning",
     };
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(configRef);
-      const data = snap.exists ? snap.data() : {};
-      const list = Array.isArray(data.notifications) ? data.notifications : [];
-      list.unshift(notifEntry);
-      /* Keep last 500 notifications max */
-      const trimmed = list.slice(0, 500);
-      tx.set(configRef, { notifications: trimmed }, { merge: true });
-    });
+    /* V19.53: write directly to notificationsDays/{today}. Falls back to
+       config.notifications array push if the V19.53 migration hasn't run yet
+       (backward compat for deployments still on V19.52 schema). */
+    try {
+      const configSnap = await db.collection("factory").doc("config").get();
+      const cfg = configSnap.exists ? configSnap.data() : {};
+      if (cfg._splitDaysV1953Done) {
+        await appendToSplitDay("notificationsDays", notifEntry);
+      } else {
+        /* Pre-V19.53 path */
+        const configRef = db.collection("factory").doc("config");
+        await db.runTransaction(async (tx) => {
+          const snap = await tx.get(configRef);
+          const data = snap.exists ? snap.data() : {};
+          const list = Array.isArray(data.notifications) ? data.notifications : [];
+          list.unshift(notifEntry);
+          const trimmed = list.slice(0, 500);
+          tx.set(configRef, { notifications: trimmed }, { merge: true });
+        });
+      }
+    } catch (notifErr) {
+      /* Non-fatal — the main confirm succeeded; just log */
+      console.warn("[delivery-confirm] notification write failed (non-fatal):", notifErr);
+    }
 
     res.status(200).json({ ok: true, status: action, at: confirmEntry.at });
   } catch (e) {

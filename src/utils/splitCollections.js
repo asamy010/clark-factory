@@ -40,11 +40,13 @@ export const SPLIT_FIELDS_V1674 = ["treasury", "auditLog", "hrLog"];
 export const SPLIT_FIELDS_V1949 = ["custPayments", "supplierPayments", "wsPayments", "checks"];
 export const SPLIT_FIELDS_V1950 = ["salesInvoices", "purchaseInvoices", "purchaseOrders"];
 export const SPLIT_FIELDS_V1952 = ["stockMovements", "purchaseReceipts", "treasuryTransfers", "salesAudits"];
+export const SPLIT_FIELDS_V1953 = ["notifications"];
 
 export const SPLIT_FLAG_V1674 = "_splitDaysV1674Done";
 export const SPLIT_FLAG_V1949 = "_splitDaysV1949Done";
 export const SPLIT_FLAG_V1950 = "_splitDaysV1950Done";
 export const SPLIT_FLAG_V1952 = "_splitDaysV1952Done";
+export const SPLIT_FLAG_V1953 = "_splitDaysV1953Done";
 
 /* الـcollections اللي مقسّمة من factory/config — field name → collection name */
 export const SPLIT_COLLECTIONS = {
@@ -66,6 +68,8 @@ export const SPLIT_COLLECTIONS = {
   purchaseReceipts: "purchaseReceiptsDays",
   treasuryTransfers:"treasuryTransfersDays",
   salesAudits:      "salesAuditsDays",
+  /* V19.53 — notifications (refactored: readBy/dismissedBy/doneBy moved to userNotifStates/{email}) */
+  notifications:    "notificationsDays",
 };
 
 /* مفاتيح الـfields اللي مقسّمة (للحلقات السريعة) */
@@ -400,6 +404,9 @@ export function stripSplitArrays(configObj) {
   }
   if (configObj[SPLIT_FLAG_V1952]) {
     for (const field of SPLIT_FIELDS_V1952) delete stripped[field];
+  }
+  if (configObj[SPLIT_FLAG_V1953]) {
+    for (const field of SPLIT_FIELDS_V1953) delete stripped[field];
   }
   return stripped;
 }

@@ -72,8 +72,7 @@ export function ReviewRequestModal({
         expiresAt,
         endedAt: null,
         endedBy: null,
-        readBy: [],
-        dismissedBy: [],
+        /* V19.53: readBy/dismissedBy moved to userNotifStates/{email} per-user docs */
         /* V18.90: deep-link payload — clicked → routes to entity */
         link: {
           type: link.type,
