@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.52",
+    date: "2026-05-04",
+    types: ["architectural", "improvement", "fix"],
+    title: "🏗️ آخر العمليات الكبيرة في factory/config + hotfix بورتال العميل",
+    changes: [
+      { type: "fix", text: "🚨 [HOTFIX حرج: بورتال العميل/الورشة كان مش بيعرض الدفعات] الـAPI في `/api/customer-portal.js` و `/api/workshop-portal.js` كانوا بيقروا `config.custPayments / config.checks / config.wsPayments` مباشرة من factory/config، لكن بعد migration V19.49 الحقول دي اتنقلت لـday collections. النتيجة: العميل يفتح اللينك بتاعه يلاقي 'سجل المدفوعات فارغ' مع إن الدفعات ظاهرة في الخزنة وكشف الحساب الداخلي. **الإصلاح:** ضافت `readSplitCollection` helper في `api/_firebase.js` يقرأ من admin SDK، والـportal endpoints بقت تقرا من day collections لو الـflag set، و fallback على config للـbackward compat. درس مستفاد: الـVite build بيختبر client code بس — أي migration لازم يـaudit الـAPI endpoints يدوياً." },
+      { type: "architectural", text: "🏗️ [Daily-split لآخر 4 arrays operational في config] V19.50 قسّم الفواتير. V19.52 يقسّم آخر الـoperational: **stockMovements** (high-volume warehouse activity) → stockMovementsDays، **purchaseReceipts** (يومي) → purchaseReceiptsDays، **treasuryTransfers** (تحويلات بين الحسابات) → treasuryTransfersDays، **salesAudits** (جرد المبيعات) → salesAuditsDays. بعد V19.52 = factory/config مفيهوش حقل operational يكبر مهما زاد النشاط. notifications مؤجلة لـV19.53 (تحتاج refactor لـreadBy/dismissedBy)." },
+      { type: "improvement", text: "🔍 [Pre-flight audit إجباري لكل migration] قبل V19.52، اتعمل audit شامل على `/api/*` و `/clark-wa-bridge/` للحقول الـ4 الجديدة — مفيش endpoint بيقرأ منهم، فالـmigration آمن. الإجراء ده بقى standard لكل version جاية: ممنوع نقل حقل بدون audit external code أولاً." },
+      { type: "improvement", text: "📊 [لوحة المراقبة بقت 19 collection] في الإعدادات → '📅 مراقبة التخزين اليومي' بقت تعرض كل الـ19 المُجزّأة (3 V16.74 + 4 V19.49 + 3 V19.50 + 5 V19.51 + 4 V19.52) مع badges مميّزة لكل إصدار. ضمان رياضي اكتمل لـconfig + sales + tasks." },
+      { type: "improvement", text: "📐 [Firestore Rules + 4 collections جديدة] stockMovementsDays + purchaseReceiptsDays + treasuryTransfersDays (purchase scope)، salesAuditsDays (sales scope). نفس الصلاحيات اللي كانت قبل التقسيم." },
+      { type: "improvement", text: "🔁 [Migration مع backup كامل] migration block جديد على نمط V19.49/V19.50: backup كامل لـconfig في `backups/pre-migration-split-days-v1952-{ts}` → نقل الـ4 arrays لـday docs → strip + flag في transaction atomic. UI مقفول بـmodal واضح بنسبة التقدم. لو فشلت → الـflag مش بيتكتب → retry تلقائي عند الـreload." },
+    ]
+  },
+  {
     version: "V19.51",
     date: "2026-05-04",
     types: ["architectural", "safety"],

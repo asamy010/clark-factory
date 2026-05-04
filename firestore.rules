@@ -1,7 +1,7 @@
 rules_version = '2';
 
 /* ═══════════════════════════════════════════════════════════════
-   CLARK Factory — Firestore Security Rules (V19.51)
+   CLARK Factory — Firestore Security Rules (V19.52)
 
    نموذج الصلاحيات:
    - admin              : كل شيء
@@ -202,6 +202,34 @@ service cloud.firestore {
     }
 
     match /inventoryAuditsDays/{day} {
+      allow read:  if isAnyUser();
+      allow write: if hasRole(['admin','manager','sales_accountant']);
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       V19.52 — أربع collections يومية اتقسموا من factory/config:
+         stockMovementsDays    — حركات المخزن (warehouse — purchase/manager scope)
+         purchaseReceiptsDays  — استلامات المشتريات (purchase scope)
+         treasuryTransfersDays — تحويلات الخزنة (purchase/manager scope)
+         salesAuditsDays       — جرد المبيعات (sales/manager scope)
+       صلاحيات مطابقة لما كانت قبل التقسيم.
+       ────────────────────────────────────────────────────────── */
+    match /stockMovementsDays/{day} {
+      allow read:  if isAnyUser();
+      allow write: if hasRole(['admin','manager','purchase_accountant']);
+    }
+
+    match /purchaseReceiptsDays/{day} {
+      allow read:  if isAnyUser();
+      allow write: if hasRole(['admin','manager','purchase_accountant']);
+    }
+
+    match /treasuryTransfersDays/{day} {
+      allow read:  if isAnyUser();
+      allow write: if hasRole(['admin','manager','purchase_accountant']);
+    }
+
+    match /salesAuditsDays/{day} {
       allow read:  if isAnyUser();
       allow write: if hasRole(['admin','manager','sales_accountant']);
     }

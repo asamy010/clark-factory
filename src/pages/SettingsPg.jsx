@@ -2254,11 +2254,16 @@ function SplitDaysMonitor(){
     tasks:           {label:"📌 المهام (tasksDays)",                  color:"#F97316", ver:"V19.51"},
     stickyNotes:     {label:"📝 ملاحظات لاصقة (stickyNotesDays)",      color:"#FACC15", ver:"V19.51"},
     inventoryAudits: {label:"📊 جرد المخزن (inventoryAuditsDays)",     color:"#A855F7", ver:"V19.51"},
+    /* V19.52 — factory/config remaining operational arrays */
+    stockMovements:    {label:"📦 حركات المخزن (stockMovementsDays)",      color:"#059669", ver:"V19.52"},
+    purchaseReceipts:  {label:"📥 استلامات الشراء (purchaseReceiptsDays)",  color:"#0284C7", ver:"V19.52"},
+    treasuryTransfers: {label:"💸 تحويلات الخزنة (treasuryTransfersDays)",  color:"#9333EA", ver:"V19.52"},
+    salesAudits:       {label:"📊 جرد المبيعات (salesAuditsDays)",          color:"#E11D48", ver:"V19.52"},
   };
 
-  return<Card title="📅 مراقبة التخزين اليومي (V16.74 + V19.49 + V19.50 + V19.51)" style={{marginBottom:14}}>
+  return<Card title="📅 مراقبة التخزين اليومي (V16.74 → V19.52)" style={{marginBottom:14}}>
     <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
-      15 مجموعة بيانات متخزنة في documents يومية منفصلة بدل arrays في factory/config أو factory/sales أو factory/tasks.
+      19 مجموعة بيانات متخزنة في documents يومية منفصلة بدل arrays في factory/config أو factory/sales أو factory/tasks.
       ضمان رياضي: كل ملفات factory مستحيل تكبر عن حد معيّن مهما طال الوقت.
     </div>
     
