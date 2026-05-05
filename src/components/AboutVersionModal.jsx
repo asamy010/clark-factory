@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.61",
+    date: "2026-05-04",
+    types: ["fix", "hotfix"],
+    title: "🚨 Round 4: ref-vs-state race + listener error wipe — final fix",
+    changes: [
+      { type: "fix", text: "🚨 [HOTFIX جذري حقيقي: race condition بين الـlistener fire والـuser action] V19.60 صلح rebuild يحفظ الـfields غير الـfired. لكن المستخدم بلّغ إن المشكلة لسه موجودة بعد كل بيع. السبب الحقيقي اتكشف الآن: `partitionedDataRef.current` بيتحدث عبر useEffect **بعد render commit**. في الـboot، listeners تـfire ويـschedule setState، لكن الـref يفضل قديم لحد ما React يعمل render. لو المستخدم ضغط 'تأكيد البيع' في النافذة الزمنية دي (10-50ms) → `upConfig` يقرأ `explicitPartBefore` من الـref القديم (فاضي) → newPart بيكون فاضي → setPartitionedData(newPart) يثبّت الفراغ. **الإصلاح**: تحديث الـref synchronously جوّا setState callback (نفس نمط V19.54 لـconfigDocRef). دلوقتي أي upConfig بعد listener fire يشوف الـfresh data فوراً." },
+      { type: "fix", text: "🛡️ [Hardening: listener error handlers مش بيمسحوا الـcache] قبل V19.61، لو listener errored (permission re-eval transient، network blip)، الـerror handler كان بيـmark `firstFires=true` ويـcall rebuild. بس rebuild بـempty docsById يرجع `[]` → الـcache يتمسح. ده حصل في الواقع لأن أي setDoc على factory/config بيـtrigger re-eval لـrules لكل listeners — فممكن listener customersDocs يـerror لـmillisecond بسبب transient permission state — بعدها يـreconnect. لكن كان كافي يمسح الـcache. **الإصلاح**: error handler يـlog فقط، مش يحدث state. الـSDK يعيد الاتصال تلقائياً." },
+      { type: "fix", text: "📐 [طُبّق على 4 listeners] split (config) + sales-split (V19.51) + tasks-split (V19.51) + partitioned (master data V19.57). الـ4 كلهم: (1) sync ref update جوّا setState callback، (2) error handler ميـwipeش الـstate. الـboot order race + sale-after-listener race + transient-error race كلهم محلولين دلوقتي." },
+      { type: "fix", text: "🔬 [الـbug ده موجود من V19.57] اتكشفت الـ3 layers تباعاً عن طريق reports المستخدم: V19.59 (شيل الـmerge gate)، V19.60 (field-isolated rebuild)، V19.61 (sync ref + error hardening). كل layer كان تشخيص جزئي صحيح لكن مش الـcomplete cause. الـcomplete fix دلوقتي مغطى الـrace patterns الـ3 المعروفة." },
+    ]
+  },
+  {
     version: "V19.60",
     date: "2026-05-04",
     types: ["fix", "hotfix"],
