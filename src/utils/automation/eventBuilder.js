@@ -36,12 +36,23 @@ export const EVENT_VARIABLES = {
   },
   paymentReceived: {
     label: "💵 Payment Received",
-    description: "دفعة جديدة من عميل (تسجيل custPayment)",
+    description: "دفعة كاش/تحويل من عميل (تسجيل custPayment)",
     detection: "client (instant) + cron fallback",
     recipientRoles: ["customer", "owner"],
     variables: {
       customer: ["{customerName}", "{amount}", "{method}", "{balance}", "{date}", "{portalLink}"],
       owner:    ["{customerName}", "{amount}", "{method}", "{balance}", "{date}"],
+    },
+  },
+  checkPaymentReceived: {
+    label: "🏦 Check Payment Received",
+    description: "شيكات قبض من عميل (واحد أو حافظة) — رسالة منفصلة لكل شيك مع ترقيم",
+    detection: "client (instant) + cron fallback",
+    recipientRoles: ["customer", "owner"],
+    variables: {
+      /* {batchInfo} = "شيك X من Y" for batches, "" for single checks */
+      customer: ["{customerName}", "{amount}", "{bank}", "{checkNo}", "{dueDate}", "{batchInfo}", "{balance}", "{date}"],
+      owner:    ["{customerName}", "{amount}", "{bank}", "{checkNo}", "{dueDate}", "{batchInfo}", "{office}", "{balance}", "{date}"],
     },
   },
   lateOrder: {
@@ -138,10 +149,11 @@ export function buildEventMessages(eventType, eventCfg, payload, phones) {
    Returns { ok, missing[] }. */
 export function validateEventPayload(eventType, payload) {
   const required = {
-    saleCompleted:    ["customerName", "qty", "modelNo", "value"],
-    paymentReceived:  ["customerName", "amount"],
-    lateOrder:        ["modelNo", "customerName", "daysLate"],
-    checkDue:         ["bank", "checkNo", "amount", "dueDate", "daysToDue"],
+    saleCompleted:        ["customerName", "qty", "modelNo", "value"],
+    paymentReceived:      ["customerName", "amount"],
+    checkPaymentReceived: ["customerName", "amount", "bank", "checkNo"],
+    lateOrder:            ["modelNo", "customerName", "daysLate"],
+    checkDue:             ["bank", "checkNo", "amount", "dueDate", "daysToDue"],
   }[eventType] || [];
   const missing = required.filter(k => payload[k] === undefined || payload[k] === null || payload[k] === "");
   return { ok: missing.length === 0, missing };
@@ -157,6 +169,10 @@ export const DEFAULT_EVENT_TEMPLATES = {
   paymentReceived: {
     customer: "✅ *تم استلام دفعة*\nالقيمة: {amount} ج.م\nالطريقة: {method}\nالرصيد المتبقي: {balance} ج.م\nالتاريخ: {date}\n\nشكراً لك 🌟",
     owner: "💵 *دفعة من عميل*\n{customerName}: {amount} ج.م ({method})\nالرصيد المتبقي: {balance} ج.م",
+  },
+  checkPaymentReceived: {
+    customer: "🏦 *تم استلام شيك* {batchInfo}\n\nالبنك: {bank}\nرقم الشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الاستحقاق: {dueDate}\nالرصيد المتبقي: {balance} ج.م\n\nشكراً لك 🌟",
+    owner: "🏦 *شيك من عميل* {batchInfo}\n\n{customerName} — {office}\nالبنك: {bank}\nالشيك: {checkNo}\nالقيمة: {amount} ج.م\nالاستحقاق: {dueDate}\nالرصيد المتبقي: {balance} ج.م",
   },
   lateOrder: {
     owner: "⚠️ *أوردر متأخر*\nالموديل: {modelNo}\nالعميل: {customerName}\nأيام بدون activity: {daysLate}\nآخر نشاط: {lastActivity}",
@@ -181,6 +197,13 @@ export function samplePayload(eventType) {
     paymentReceived: {
       customerName: "أحمد محمد", amount: 5000, method: "تحويل بنكي",
       balance: 7500, date: today, portalLink: "https://app.../portal?p=c&i=...",
+    },
+    checkPaymentReceived: {
+      customerName: "أحمد محمد", amount: 5000,
+      bank: "بنك مصر", checkNo: "12345678", dueDate: today,
+      batchInfo: "(شيك 1 من 3)",
+      office: "مؤسسة الأمل للملابس",
+      balance: 7500, date: today,
     },
     lateOrder: {
       modelNo: "S26-007", customerName: "شركة النور",

@@ -445,6 +445,15 @@ export const DEFAULT_AUTOMATION_CONFIG = {
         },
         cooldownMinutes: 0,
       },
+      checkPaymentReceived: {
+        enabled: false,
+        recipients: { customer: true, owner: true },
+        templates: {
+          customer: "🏦 *تم استلام شيك* {batchInfo}\n\nالبنك: {bank}\nرقم الشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الاستحقاق: {dueDate}\nالرصيد المتبقي: {balance} ج.م\n\nشكراً لك 🌟",
+          owner: "🏦 *شيك من عميل* {batchInfo}\n\n{customerName} — {office}\nالبنك: {bank}\nالشيك: {checkNo}\nالقيمة: {amount} ج.م\nالاستحقاق: {dueDate}\nالرصيد المتبقي: {balance} ج.م",
+        },
+        cooldownMinutes: 0,
+      },
       lateOrder: {
         enabled: false,
         thresholdDays: 7,

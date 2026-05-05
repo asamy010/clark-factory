@@ -463,6 +463,104 @@ async function scanRecentPayments(db, cfg, eventCfg, cairoDate, ordersCache){
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   V19.70.5: Recent-checks-from-customer scan (checkPaymentReceived)
+   ───────────────────────────────────────────────────────────────────────
+   Scans `data.checks` for newly-added receivable checks (status=معلق, type=
+   receivable, category=دفعة عميل) within the last 24h whose createdAt is >=
+   trigger enabledAt. Fires ONE checkPaymentReceived event per check, with
+   {batchInfo} populated as "(شيك X من Y)" when the check is part of a batch
+   (حافظة شيكات).
+   ─────────────────────────────────────────────────────────────────────── */
+async function scanRecentChecks(db, cfg, eventCfg, cairoDate, ordersCache){
+  const ea = await ensureEnabledAt(db, "checkPaymentReceived", eventCfg.enabledAt);
+  if (ea.justSet) return { scanned: 0, fired: 0, reason: "enabledAt-just-set" };
+  const enabledTs = Date.parse(ea.enabledAt);
+
+  /* Load checks */
+  let checks = [];
+  if (cfg._splitDaysV1949Done) {
+    checks = await readSplitCollection("checksDays");
+  } else {
+    checks = Array.isArray(cfg.checks) ? cfg.checks : [];
+  }
+
+  /* Compute customer balances (orders + custPayments). Note: balance here is
+     "current outstanding excluding this check yet". The check increases the
+     formal AR but reduces it via collection — accounting-wise it's neutral
+     until cashed. For the customer message, "الرصيد المتبقي" should mean
+     "what they still owe in cash" — equivalent to current balance after cash
+     payments. We compute that from orders+custPayments (cash side only). */
+  let custPayments = [];
+  if (cfg._splitDaysV1949Done) {
+    custPayments = await readSplitCollection("custPaymentsDays");
+  } else {
+    custPayments = Array.isArray(cfg.custPayments) ? cfg.custPayments : [];
+  }
+  const orders = ordersCache || await loadActiveOrders(db, cfg);
+  const balances = computeCustomerBalances(orders, custPayments);
+
+  /* Customer lookup for office name */
+  let customersById = {};
+  if (eventCfg.recipients?.customer || eventCfg.recipients?.owner) {
+    const cs = await readPartitionedCollection("customersDocs");
+    cs.forEach(c => { if (c.id) customersById[c.id] = c; });
+  }
+
+  const yesterday = new Date(Date.parse(cairoDate) - 86400000).toISOString().slice(0, 10);
+  let scanned = 0, fired = 0, skipped = 0, skippedOld = 0;
+  let processed = 0;
+  for (const c of checks) {
+    if (!c || !c.id) continue;
+    /* Receivable + customer category + still pending in factory */
+    if (c.type !== "receivable") continue;
+    if (c.status !== "معلق") continue;
+    const cat = c.category || "دفعة عميل";
+    if (cat !== "دفعة عميل") continue;
+    /* Recency window — 24h based on `date` field (user-facing date) */
+    const date = String(c.date || "").slice(0, 10);
+    if (!date || date < yesterday) continue;
+    /* Backfill filter — skip if check was created before trigger enabled */
+    const ts = entityTs(c);
+    if (!ts || ts < enabledTs) { skippedOld++; continue; }
+    if (processed >= 50) break;
+    processed++;
+    scanned++;
+
+    const customer = customersById[c.partyId] || {};
+    const office = customer.companyName || customer.company || customer.office || customer.businessName || "";
+    const balance = Math.round(balances[c.partyId] || 0);
+    /* Batch info: "(شيك X من Y)" if batched, "" otherwise */
+    const batchInfo = (c.batchId && c.batchTotal && c.batchTotal > 1)
+      ? `(شيك ${c.batchIdx || "?"} من ${c.batchTotal})`
+      : "";
+
+    const idempotencyKey = `checkPay:${c.id}`;
+    const r = await processEvent(db, {
+      eventType: "checkPaymentReceived",
+      payload: {
+        customerName: customer.name || c.party || "—",
+        amount: Number(c.amount) || 0,
+        bank: c.bank || "—",
+        checkNo: c.checkNo || c.id,
+        dueDate: c.dueDate || "—",
+        batchInfo,
+        office,
+        balance,
+        date,
+      },
+      customerPhone: customer.phone || null,
+      idempotencyKey,
+      force: false,
+      source: "cron",
+      cfgCache: cfg,
+    });
+    if (r.body?.sent) fired++;
+    else if (r.body?.deduped || r.body?.skipped) skipped++;
+  }
+  return { scanned, fired, skipped, skippedOld };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    V19.70: Late-order scan
    ───────────────────────────────────────────────────────────────────────
    For each non-delivered order whose last activity is >= thresholdDays ago,
@@ -675,8 +773,14 @@ async function scanScheduledCampaigns(db, cfg, cairoDate){
   });
   if (!claimed) return { scanned: list.length, fired: 0, raced: true };
 
-  /* Build messages from template + items */
+  /* Build messages from template + items + images (V19.70.5) */
   const items = Array.isArray(target.items) ? target.items : [];
+  const images = Array.isArray(target.images) ? target.images : [];
+  /* Bridge expects per-message: { phone, message, media: [{base64, mime, name}] }.
+     Same images attached to every recipient in the campaign. */
+  const mediaPayload = images
+    .filter(img => img && img.base64 && img.mime)
+    .map(img => ({ base64: img.base64, mime: img.mime, name: img.name || "image.jpg" }));
   const personalizedMessage = (item) => {
     /* Same personalize() pattern as CampaignsPg — basic placeholders. */
     let body = String(target.templateBody || "");
@@ -687,7 +791,11 @@ async function scanScheduledCampaigns(db, cfg, cairoDate){
   };
   const messages = items
     .filter(it => it && it.phone && String(it.phone).trim())
-    .map(it => ({ phone: String(it.phone).trim(), message: personalizedMessage(it) }));
+    .map(it => {
+      const msg = { phone: String(it.phone).trim(), message: personalizedMessage(it) };
+      if (mediaPayload.length > 0) msg.media = mediaPayload;
+      return msg;
+    });
 
   if (messages.length === 0) {
     /* No valid recipients — mark done with sentCount=0 */
@@ -956,6 +1064,15 @@ export default async function handler(req, res) {
         const r = await scanRecentPayments(db, cfg, payCfg, cairo.date, ordersCache);
         if (r.scanned > 0 || r.reason) result.actions.push({ type: "paymentReceived", ...r });
       } catch (e) { result.errors.push({ type: "paymentReceived", error: e.message }); }
+    }
+
+    /* ── C2. V19.70.5: Check-payment-received scan (last 24h) ── */
+    const chkPayCfg = (eventTriggers.events || {}).checkPaymentReceived;
+    if (chkPayCfg?.enabled) {
+      try {
+        const r = await scanRecentChecks(db, cfg, chkPayCfg, cairo.date, ordersCache);
+        if (r.scanned > 0 || r.reason) result.actions.push({ type: "checkPaymentReceived", ...r });
+      } catch (e) { result.errors.push({ type: "checkPaymentReceived", error: e.message }); }
     }
 
     /* ── D. Late order scan (daily) ── */

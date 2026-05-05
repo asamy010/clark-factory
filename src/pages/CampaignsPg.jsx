@@ -426,8 +426,9 @@ export function CampaignsPg({data, upConfig, isMob, canEdit, user}){
       onPickManual={() => setMode("send")}
       onPickBridge={() => setMode("sendBridge")}
       onOpenBridgeSettings={() => setMode("bridgeSettings")}
-      /* V19.70.4: schedule-for-later — save to data.scheduledCampaigns and return to list */
-      onPickScheduled={(scheduledAt) => {
+      /* V19.70.4: schedule-for-later — save to data.scheduledCampaigns and return to list
+         V19.70.5: also receives images[] from the picker UI (max 4, ≤200KB each) */
+      onPickScheduled={(scheduledAt, images = []) => {
         const sc = {
           id: "sched_" + gid(),
           templateId: activeCampaign.template.id,
@@ -444,8 +445,10 @@ export function CampaignsPg({data, upConfig, isMob, canEdit, user}){
           createdAt: new Date().toISOString(),
           createdBy: user?.email || "",
           sendMode: "bridge",
-          /* V19.70.4: images placeholder — empty for now (V19.70.5 adds image support) */
-          images: [],
+          /* V19.70.5: images attached inline (each {name, mime, base64, size}). */
+          images: Array.isArray(images) ? images.map(img => ({
+            name: img.name, mime: img.mime, base64: img.base64,
+          })) : [],
           sentCount: 0,
           failedCount: 0,
         };
@@ -1828,6 +1831,36 @@ function SendScreen({data, upConfig, user, template, segment, audience, onClose,
 /* ═══════════════════════════════════════════════════════════════════════
    V19.28: CHOOSE SEND MODE — Manual (WhatsApp Web click) vs Bridge (auto)
    ═══════════════════════════════════════════════════════════════════════ */
+/* V19.70.5: image compression for campaign attachments.
+   Resizes to max 1024px on the long side, JPEG quality 0.7. Returns the
+   data URL ("data:image/jpeg;base64,..."). The caller strips the prefix. */
+function _compressForCampaign(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let w = img.width, h = img.height;
+        const max = 1024;
+        if (w > max || h > max) {
+          if (w > h) { h = Math.round(h * max / w); w = max; }
+          else       { w = Math.round(w * max / h); h = max; }
+        }
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, w, h);
+        try { resolve(canvas.toDataURL("image/jpeg", 0.7)); }
+        catch (err) { reject(err); }
+      };
+      img.onerror = () => reject(new Error("invalid image"));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error("file read failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
 function ChooseSendMode({campaign, bridgeUrl, bridgeToken, onCancel, onPickManual, onPickBridge, onOpenBridgeSettings, onPickScheduled}){
   const [bridgeStatus, setBridgeStatus] = useState({state:"checking", error:""});
   /* V19.70.4: schedule-for-later option — inline datetime picker */
@@ -1837,6 +1870,36 @@ function ChooseSendMode({campaign, bridgeUrl, bridgeToken, onCancel, onPickManua
     return d.toISOString().slice(0,16);/* format for input[type=datetime-local] */
   })();
   const [schedAt, setSchedAt] = useState(_defaultSchedTime);
+  /* V19.70.5: image attachments for scheduled campaigns.
+     Each image: {name, mime, base64} — ready to feed the bridge `media[]` array.
+     Max 4 images, ~200KB each after compression. Total inline ≤ ~800KB per
+     scheduled campaign — fits in Firestore 1MB doc limit comfortably. */
+  const [schedImages, setSchedImages] = useState([]);/* [{name, mime, base64, size}] */
+  const onPickImages = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    if (schedImages.length + files.length > 4) {
+      alert("الحد الأقصى 4 صور. شيل بعض الصور قبل ما تضيف."); return;
+    }
+    const compressed = [];
+    for (const f of files) {
+      if (!f.type.startsWith("image/")) {
+        alert(f.name + ": مش صورة، يتم تجاهله"); continue;
+      }
+      try {
+        const dataUrl = await _compressForCampaign(f);
+        const b64 = dataUrl.split(",")[1] || "";
+        const sizeKB = Math.round(b64.length * 0.75 / 1024);
+        if (sizeKB > 200) {
+          alert(f.name + ": " + sizeKB + "KB — كبيرة جداً، اختار صورة أصغر"); continue;
+        }
+        compressed.push({ name: f.name, mime: "image/jpeg", base64: b64, size: sizeKB });
+      } catch (err) { alert(f.name + ": فشل الضغط — " + err.message); }
+    }
+    if (compressed.length > 0) setSchedImages([...schedImages, ...compressed]);
+    e.target.value = "";/* reset input */
+  };
+  const removeImage = (idx) => setSchedImages(schedImages.filter((_, i) => i !== idx));
 
   useEffect(() => {
     let dead = false;
@@ -1919,19 +1982,42 @@ function ChooseSendMode({campaign, bridgeUrl, bridgeToken, onCancel, onPickManua
             <input type="datetime-local" value={schedAt} onChange={(e) => setSchedAt(e.target.value)}
               min={new Date().toISOString().slice(0,16)}
               style={{width:"100%", padding:"8px 10px", fontSize:FS, border:"1px solid "+T.brd, borderRadius:6, background:T.cardSolid, color:T.text, marginBottom:10}}/>
+            {/* V19.70.5: image picker */}
+            <label style={{fontSize:FS-2, fontWeight:700, color:T.textSec, display:"block", marginBottom:6, marginTop:8}}>
+              📷 الصور (اختياري — حد أقصى 4 صور، ≤200KB لكل واحدة):
+            </label>
+            <input type="file" accept="image/*" multiple onChange={onPickImages}
+              style={{width:"100%", padding:"6px 8px", fontSize:FS-1, border:"1px dashed "+T.brd, borderRadius:6, background:T.cardSolid, color:T.text, marginBottom:8}}/>
+            {schedImages.length > 0 && (
+              <div style={{display:"flex", flexWrap:"wrap", gap:8, marginBottom:10}}>
+                {schedImages.map((img, idx) => (
+                  <div key={idx} style={{position:"relative", width:80, height:80, borderRadius:6, overflow:"hidden", border:"1px solid "+T.brd}}>
+                    <img src={"data:"+img.mime+";base64,"+img.base64} alt={img.name} style={{width:"100%", height:"100%", objectFit:"cover"}}/>
+                    <span onClick={() => removeImage(idx)} style={{
+                      position:"absolute", top:2, right:2, width:18, height:18, borderRadius:9,
+                      background:T.err, color:"#fff", fontSize:11, fontWeight:700,
+                      display:"flex", alignItems:"center", justifyContent:"center",
+                      cursor:"pointer"
+                    }}>×</span>
+                    <div style={{position:"absolute", bottom:0, left:0, right:0, background:"rgba(0,0,0,0.6)", color:"#fff", fontSize:9, padding:"1px 4px", textAlign:"center"}}>{img.size}KB</div>
+                  </div>
+                ))}
+              </div>
+            )}
             <div style={{fontSize:FS-3, color:T.textMut, marginBottom:10, lineHeight:1.5}}>
               💡 الحملة هتبدأ في الوقت المحدد (±5 دقايق granularity). تقدر تـcancel من tab "📅 المجدولة".
+              {schedImages.length > 0 && <span style={{display:"block", marginTop:4}}>📎 {schedImages.length} صورة مرفقة — هتتبعت مع كل رسالة.</span>}
             </div>
             <div style={{display:"flex",gap:8}}>
               <Btn primary onClick={() => {
                 if (!schedAt) { alert("اختار تاريخ"); return; }
                 const ts = Date.parse(schedAt);
                 if (!ts || ts <= Date.now()) { alert("اختار وقت في المستقبل"); return; }
-                onPickScheduled(new Date(ts).toISOString());
+                onPickScheduled(new Date(ts).toISOString(), schedImages);
               }} style={{background:T.accent, color:"#fff", border:"none", fontWeight:800}}>
                 💾 احفظ الجدولة
               </Btn>
-              <Btn ghost onClick={() => setScheduling(false)}>إلغاء</Btn>
+              <Btn ghost onClick={() => { setScheduling(false); setSchedImages([]); }}>إلغاء</Btn>
             </div>
           </div>
         )}

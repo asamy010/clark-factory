@@ -1970,54 +1970,58 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         V16.19: Hidden on transfers/checks/analysis/accounts — these tabs have
         their own controls and don't need the daily print/PDF/WA toolbar.
         V18.98: Also hidden on recurring (scheduled entries don't relate to today's totals). */}
-    {!["transfers","checks","analysis","accounts","recurring"].includes(view)&&(()=>{
-      const currentAccName=view.startsWith("acc_")?(accountsData.find(a=>a.id===view.slice(4))||{}).name:null;
-      const scopeLabel=currentAccName||"الكل";
-      const todayFiltered=todayTxns.filter(t=>!currentAccName||(t.account||"")===currentAccName);
-      const tIn=todayFiltered.filter(t=>t.type==="in").reduce((s,t)=>s+(Number(t.amount)||0),0);
-      const tOut=todayFiltered.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0);
-      return<div style={{display:"flex",gap:12,marginBottom:16,justifyContent:"center",flexWrap:"wrap",alignItems:"center"}}>
-        <div style={{padding:"8px 20px",borderRadius:10,background:T.ok+"08",border:"1px solid "+T.ok+"20",textAlign:"center"}}>
-          <div style={{fontSize:FS-2,color:T.textSec}}>وارد اليوم {currentAccName?"("+scopeLabel+")":""}</div><div style={{fontSize:FS+2,fontWeight:800,color:T.ok}}>{"↓ "+fmt0(tIn)}</div>
-        </div>
-        <div style={{padding:"8px 20px",borderRadius:10,background:T.err+"08",border:"1px solid "+T.err+"20",textAlign:"center"}}>
-          <div style={{fontSize:FS-2,color:T.textSec}}>منصرف اليوم {currentAccName?"("+scopeLabel+")":""}</div><div style={{fontSize:FS+2,fontWeight:800,color:T.err}}>{"↑ "+fmt0(tOut)}</div>
-        </div>
-        <div style={{padding:"8px 20px",borderRadius:10,background:"#0D948808",border:"1px solid #0D948820",textAlign:"center"}}>
-          <div style={{fontSize:FS-2,color:T.textSec}}>صافي اليوم</div><div style={{fontSize:FS+2,fontWeight:800,color:"#0D9488"}}>{fmt0(tIn-tOut)}</div>
-        </div>
-        {/* V15.44: Date picker for selecting which day's report to print/export */}
-        <div style={{padding:"6px 12px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd,display:"flex",alignItems:"center",gap:6}} title="اختر اليوم للطباعة / PDF / واتساب">
-          <span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>📅 يوم</span>
-          <input type="date" value={printDate} onChange={e=>setPrintDate(e.target.value||today)} style={{padding:"4px 6px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text}}/>
+    {/* V19.70.5: removed the 3 daily-KPI cards (وارد/منصرف/صافي اليوم) — they
+        consumed a full row but the same info is in the account summary card below
+        for acc views, and on journal view the user picks the date to see daily
+        totals via printDaily anyway. The action toolbar (date + print + PDF + WA)
+        is collapsed to an inline icon row, and merged into the account summary
+        card when view is `acc_`. */}
+    {!["transfers","checks","analysis","accounts","recurring"].includes(view) && !view.startsWith("acc_") && (()=>{
+      /* Journal-view-only toolbar (date + actions). For acc_xxx views the toolbar
+         lives inside the account summary card to save vertical space. */
+      const currentAccName=null;const scopeLabel="الكل";
+      return<div style={{display:"flex",gap:8,marginBottom:14,justifyContent:"flex-end",alignItems:"center",flexWrap:"wrap"}}>
+        <div style={{padding:"4px 10px",borderRadius:8,background:T.bg,border:"1px solid "+T.brd,display:"flex",alignItems:"center",gap:6}} title="اختر اليوم">
+          <span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>📅</span>
+          <input type="date" value={printDate} onChange={e=>setPrintDate(e.target.value||today)} style={{padding:"3px 6px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text}}/>
           {printDate!==today&&<span onClick={()=>setPrintDate(today)} style={{cursor:"pointer",fontSize:FS-2,color:T.accent,fontWeight:700}} title="العودة لليوم">↩</span>}
         </div>
-        <div onClick={()=>printDaily(printDate,currentAccName)} style={{padding:"8px 20px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center",cursor:"pointer"}} title={"طباعة "+printDate+" — "+scopeLabel}>
-          <div style={{fontSize:FS-2,color:T.textSec}}>طباعة {currentAccName?"("+currentAccName+")":""}</div><div style={{fontSize:FS+1,fontWeight:700,color:T.accent}}>🖨️</div>
-        </div>
-        <div onClick={()=>savePdfDaily(printDate,currentAccName)} style={{padding:"8px 20px",borderRadius:10,background:"#EF444408",border:"1px solid #EF444420",textAlign:"center",cursor:"pointer"}} title={"حفظ PDF "+printDate+" — "+scopeLabel}>
-          <div style={{fontSize:FS-2,color:T.textSec}}>PDF {currentAccName?"("+currentAccName+")":""}</div><div style={{fontSize:FS+1,fontWeight:700,color:"#EF4444"}}>📄</div>
-        </div>
-        <div onClick={()=>setWaPopupData({date:printDate,account:currentAccName})} style={{padding:"8px 20px",borderRadius:10,background:"#25D36608",border:"1px solid #25D36620",textAlign:"center",cursor:"pointer"}} title={"إرسال واتساب "+printDate+" — "+scopeLabel}>
-          <div style={{fontSize:FS-2,color:T.textSec}}>واتساب {currentAccName?"("+currentAccName+")":""}</div><div style={{fontSize:FS+1,fontWeight:700,color:"#25D366"}}>📤</div>
-        </div>
-      </div>})()}
+        <div onClick={()=>printDaily(printDate,currentAccName)} style={{padding:"6px 12px",borderRadius:8,background:T.accent+"10",border:"1px solid "+T.accent+"30",cursor:"pointer",fontSize:FS,fontWeight:700,color:T.accent}} title={"طباعة "+printDate+" — "+scopeLabel}>🖨️ طباعة</div>
+        <div onClick={()=>savePdfDaily(printDate,currentAccName)} style={{padding:"6px 12px",borderRadius:8,background:"#EF444410",border:"1px solid #EF444430",cursor:"pointer",fontSize:FS,fontWeight:700,color:"#EF4444"}} title={"حفظ PDF "+printDate}>📄 PDF</div>
+        <div onClick={()=>setWaPopupData({date:printDate,account:currentAccName})} style={{padding:"6px 12px",borderRadius:8,background:"#25D36610",border:"1px solid #25D36630",cursor:"pointer",fontSize:FS,fontWeight:700,color:"#25D366"}} title={"إرسال واتساب "+printDate}>📤 واتساب</div>
+      </div>;
+    })()}
 
     {/* ══ JOURNAL VIEW ══ */}
     {(view==="journal"||view.startsWith("acc_"))&&<div>
       {view.startsWith("acc_")&&(()=>{
         const accId=view.slice(4);const acc=accountsData.find(a=>a.id===accId);if(!acc)return null;
         const b=accBalances[acc.name]||{in:0,out:0};const bal=b.in-b.out;
+        const currentAccName=acc.name;
         return<Card style={{marginBottom:14,background:"linear-gradient(135deg,"+T.accent+"08,"+T.accent+"03)",border:"1px solid "+T.accent+"20"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+            {/* Left: account name */}
             <div>
               <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{acc.name.toUpperCase().includes("MAIN")?"🏦 ":acc.name.toUpperCase().includes("SUB")?"💰 ":"📘 "}{acc.name}</div>
               {acc.ownerEmail&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>👤 المسؤول: {acc.ownerEmail}</div>}
             </div>
+            {/* Middle: balance totals */}
             <div style={{display:"flex",gap:16}}>
               <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut}}>وارد</div><div style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>{fmt0(b.in)}</div></div>
               <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut}}>منصرف</div><div style={{fontSize:FS+1,fontWeight:800,color:T.err}}>{fmt0(b.out)}</div></div>
               <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut}}>الرصيد</div><div style={{fontSize:FS+4,fontWeight:900,color:bal>=0?"#0D9488":T.err}}>{fmt0(bal)}</div></div>
+            </div>
+            {/* V19.70.5: action toolbar — date picker + print/PDF/WA, merged into
+                this card so we don't take a second row. */}
+            <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+              <div style={{padding:"4px 10px",borderRadius:8,background:T.cardSolid,border:"1px solid "+T.brd,display:"flex",alignItems:"center",gap:6}} title="اختر اليوم">
+                <span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>📅</span>
+                <input type="date" value={printDate} onChange={e=>setPrintDate(e.target.value||today)} style={{padding:"3px 6px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text}}/>
+                {printDate!==today&&<span onClick={()=>setPrintDate(today)} style={{cursor:"pointer",fontSize:FS-2,color:T.accent,fontWeight:700}} title="العودة لليوم">↩</span>}
+              </div>
+              <div onClick={()=>printDaily(printDate,currentAccName)} style={{padding:"6px 10px",borderRadius:8,background:T.accent+"15",border:"1px solid "+T.accent+"30",cursor:"pointer",fontSize:FS-1,fontWeight:700,color:T.accent}} title={"طباعة "+printDate+" — "+currentAccName}>🖨️ طباعة</div>
+              <div onClick={()=>savePdfDaily(printDate,currentAccName)} style={{padding:"6px 10px",borderRadius:8,background:"#EF444415",border:"1px solid #EF444430",cursor:"pointer",fontSize:FS-1,fontWeight:700,color:"#EF4444"}} title={"حفظ PDF "+printDate+" — "+currentAccName}>📄 PDF</div>
+              <div onClick={()=>setWaPopupData({date:printDate,account:currentAccName})} style={{padding:"6px 10px",borderRadius:8,background:"#25D36615",border:"1px solid #25D36630",cursor:"pointer",fontSize:FS-1,fontWeight:700,color:"#25D366"}} title={"إرسال واتساب "+printDate+" — "+currentAccName}>📤 واتساب</div>
             </div>
           </div>
         </Card>})()}
@@ -2602,6 +2606,16 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             }
             return trimmed+"-"+(n+1);
           };
+          /* V19.70.5: pre-generate all check IDs for instant trigger fire after upConfig.
+             Only triggers for: NEW (not edit) + receivable + category=دفعة عميل + linked customer.
+             Each check fires as a SEPARATE message with batchInfo "(شيك X من Y)" when batched. */
+          const _instantCheck_eligible = !chkEditId && chkType === "receivable" && (chkCategory||"دفعة عميل") === "دفعة عميل" && chkPartyId;
+          const _instantCheck_count = _instantCheck_eligible
+            ? (chkBatchEnabled ? Math.max(1, Math.min(60, Number(chkBatchCount)||1)) : 1) : 0;
+          const _instantCheck_ids = _instantCheck_eligible
+            ? Array.from({length: _instantCheck_count}, () => gid()) : [];
+          const _instantCheck_customer = _instantCheck_eligible
+            ? customers.find(x => x.id === chkPartyId) : null;
           upConfig(d=>{if(!d.checks)d.checks=[];
             if(chkEditId){const ch=d.checks.find(c=>c.id===chkEditId);if(ch){ch.type=chkType;ch.amount=amt;ch.party=chkParty;ch.partyId=chkPartyId||null;ch.bank=chkBank;ch.checkNo=chkNumber;ch.date=chkDate;ch.dueDate=chkDueDate;ch.notes=chkNotes;ch.category=chkCategory||"";ch.updatedBy=userName}}
             else{
@@ -2612,7 +2626,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               const batchId=count>1?gid():null;
               for(let i=0;i<count;i++){
                 d.checks.push({
-                  id:gid(),type:chkType,amount:amt,party:chkParty.trim(),partyId:chkPartyId||null,
+                  /* V19.70.5: use pre-gen IDs if instant trigger eligible (so client + cron
+                     match on idempotencyKey `checkPay:${id}`); fallback to fresh gid() */
+                  id: (_instantCheck_eligible && _instantCheck_ids[i]) || gid(),
+                  type:chkType,amount:amt,party:chkParty.trim(),partyId:chkPartyId||null,
                   bank:chkBank,
                   checkNo:bumpCheckNo(chkNumber,i),
                   date:chkDate||today,
@@ -2624,6 +2641,57 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               }
             }
           });
+          /* V19.70.5: instant checkPaymentReceived fire (one message per check) */
+          if (_instantCheck_eligible && _instantCheck_customer?.phone && user && typeof user.getIdToken === "function") {
+            const totalChecks = _instantCheck_count;
+            const office = _instantCheck_customer.companyName || _instantCheck_customer.company || _instantCheck_customer.office || _instantCheck_customer.businessName || "";
+            /* Compute balance (orders − returns − payments — checks neutral until cashed) */
+            let _bal = 0;
+            for (const o of (data.orders||[])) {
+              for (const d of (o.customerDeliveries||[])) {
+                if (d.custId === chkPartyId) _bal += (Number(d.qty)||0) * (Number(d.price)||Number(o.sellPrice)||0);
+              }
+              for (const r of (o.customerReturns||[])) {
+                if (r.custId === chkPartyId) _bal -= (Number(r.qty)||0) * (Number(r.price)||Number(o.sellPrice)||0);
+              }
+            }
+            for (const p of (data.custPayments||[])) {
+              if (p.custId === chkPartyId) _bal -= Number(p.amount)||0;
+            }
+            const balanceRounded = Math.round(_bal);
+            (async () => {
+              try {
+                const idToken = await user.getIdToken();
+                await Promise.all(_instantCheck_ids.map((cid, i) => {
+                  const checkNo = bumpCheckNo(chkNumber, i);
+                  const dueDate = chkDueDate ? addMonths(chkDueDate, i * (Math.max(0, Number(chkBatchMonthsStep)||0))) : "";
+                  const batchInfo = totalChecks > 1 ? `(شيك ${i+1} من ${totalChecks})` : "";
+                  return fetch("/api/event-trigger", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+                    body: JSON.stringify({
+                      eventType: "checkPaymentReceived",
+                      payload: {
+                        customerName: _instantCheck_customer.name || "—",
+                        amount: amt,
+                        bank: chkBank || "—",
+                        checkNo: checkNo || "—",
+                        dueDate: dueDate || "—",
+                        batchInfo,
+                        office,
+                        balance: balanceRounded,
+                        date: chkDate || today,
+                      },
+                      customerPhone: _instantCheck_customer.phone,
+                      idempotencyKey: "checkPay:" + cid,
+                    }),
+                  }).catch(() => {/* silent — cron fallback */});
+                }));
+              } catch (e) {
+                console.warn("[V19.70.5] instant checkPaymentReceived fire failed (cron will retry):", e?.message||e);
+              }
+            })();
+          }
           setShowCheckForm(false);setChkAmount("");setChkParty("");setChkPartyId("");setChkBank("");setChkNumber("");setChkDate("");setChkDueDate("");setChkNotes("");setChkCategory("");setChkEditId(null);
           setChkBatchEnabled(false);
           showToast(chkBatchEnabled&&!chkEditId?("✓ تم حفظ "+(Math.max(1,Number(chkBatchCount)||1))+" شيك"):"✓ تم الحفظ");

@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.5",
+    date: "2026-05-05",
+    types: ["feature", "fix", "ux"],
+    title: "🏦📷📐 Check trigger + image campaigns + Treasury UI cleanup",
+    changes: [
+      { type: "feature", text: "🏦 [Check Payment Received trigger] event type جديد بنفس نظام الـpaymentReceived بس بـcheck details. لما العميل يدفع شيك، الرسالة تروحله بالبنك ورقم الشيك والقيمة وتاريخ الاستحقاق + الرصيد المتبقي. لو حافظة شيكات (batch >1)، كل شيك يبعت كرسالة منفصلة بـ`{batchInfo}` = '(شيك X من Y)'. instant-fire client hook في TreasuryPg + cron-side fallback في scanRecentChecks (filter: type=receivable, status=معلق, category=دفعة عميل، last 24h، respects enabledAt). Idempotency `checkPay:${id}` per check." },
+      { type: "feature", text: "📷 [Campaign scheduling مع صور] الـschedule UI في ChooseSendMode دلوقتي عنده image picker — لحد 4 صور لكل campaign، حد أقصى 200KB لكل صورة بعد الـcompression (canvas resize to 1024px max + JPEG quality 0.7). الصور inline base64 في `data.scheduledCampaigns[].images[]`. الـcron scanScheduledCampaigns يضيف `media: [{base64, mime, name}]` لكل message — الـbridge موجود فيه `MessageMedia` support بالفعل (مفيش VPS update مطلوب)." },
+      { type: "ux", text: "📐 [Treasury UI: dense single-row toolbar] قبل V19.70.5 صفحة الخزنة كان فيها 2 صفوف فوق الـjournal: (1) 3 KPI cards (وارد/منصرف/صافي اليوم) + date picker + 3 action buttons (طباعة/PDF/واتساب)، (2) account summary card. **الـFix**: الـ3 daily-KPI cards اتشالوا (المعلومة موجودة في الـaccount summary). الـdate picker + actions اتدمجوا داخل الـaccount summary card في single horizontal row. على الـjournal view (الكل، بدون account)، الـtoolbar compact على flex-end. النتيجة: ~70px space gained للـjournal/list section تحت." },
+      { type: "improvement", text: "🎨 [Image preview thumbnails في الـschedule UI] لما تـattach صور، 80×80 thumbnails تظهر مع زر × للـremove + size badge بـKB لكل صورة. validation client-side (max 4، max 200KB per image). الـsubmit button يعرض count: '📎 N صورة مرفقة — هتتبعت مع كل رسالة'." },
+      { type: "ux", text: "🎯 [Bridge media format already supports it] clark-wa-bridge/server.js (V19.31) عنده `MessageMedia` support كامل — يقبل `{media: [{base64, mime, name}]}` array per message. الـcron يبني الـpayload بـformat ده ويضيفه للـmessages اللي في scheduledCampaign. مفيش VPS deploy مطلوب." },
+    ]
+  },
+  {
     version: "V19.70.4",
     date: "2026-05-05",
     types: ["feature", "automation"],
