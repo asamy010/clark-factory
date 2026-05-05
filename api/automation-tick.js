@@ -367,7 +367,11 @@ async function scanRecentSales(db, cfg, eventCfg, cairoDate, ordersCache){
       const qty = Number(d.qty) || 0;
       const price = Number(d.price) || Number(o.sellPrice) || 0;
       const value = qty * price;
-      const idempotencyKey = `sale:${o.id}:${date}:${qty}:${d.custId || "x"}`;
+      /* V19.70.4: prefer entry.id (matches client-side hook idempotency); fallback
+         to composite for legacy entries without id. */
+      const idempotencyKey = d.id
+        ? `sale:${d.id}`
+        : `sale:${o.id}:${date}:${qty}:${d.custId || "x"}`;
       const r = await processEvent(db, {
         eventType: "saleCompleted",
         payload: {
@@ -627,6 +631,146 @@ async function scanChecksDue(db, cfg, checkCfg, cairoDate){
   return { scanned, fired, skipped, skippedOld };
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   V19.70.4: Scheduled-campaigns scan
+   ───────────────────────────────────────────────────────────────────────
+   For each `data.scheduledCampaigns[]` entry where:
+     - status === "scheduled"
+     - scheduledAt <= now
+   We:
+     1. Mark the entry status="firing" (transient)
+     2. Build messages from templateBody + items
+     3. POST to bridge /send (the bridge handles anti-ban delays internally)
+     4. Mark "done" on success, "failed" on error
+   Limit: 1 campaign per tick (campaigns can be large; we don't want one
+   tick to time out trying to fire all of them).
+   ─────────────────────────────────────────────────────────────────────── */
+async function scanScheduledCampaigns(db, cfg, cairoDate){
+  const list = Array.isArray(cfg.scheduledCampaigns) ? cfg.scheduledCampaigns : [];
+  if (list.length === 0) return { scanned: 0, fired: 0 };
+
+  const nowMs = Date.now();
+  /* Find the next-due campaign (oldest scheduledAt that's already passed) */
+  const due = list
+    .filter(c => c.status === "scheduled" && c.scheduledAt && Date.parse(c.scheduledAt) <= nowMs)
+    .sort((a,b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt));
+
+  if (due.length === 0) return { scanned: list.length, fired: 0, dueCount: 0 };
+
+  const target = due[0];/* fire one per tick */
+
+  /* Mark firing — transactional to prevent double-fire if 2 ticks race */
+  const ref = db.collection("factory").doc("config");
+  let claimed = false;
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const c = snap.exists ? snap.data() : {};
+    const arr = Array.isArray(c.scheduledCampaigns) ? c.scheduledCampaigns : [];
+    const idx = arr.findIndex(x => x.id === target.id);
+    if (idx < 0 || arr[idx].status !== "scheduled") return;/* already claimed */
+    arr[idx].status = "firing";
+    arr[idx].firingStartedAt = new Date().toISOString();
+    tx.update(ref, { scheduledCampaigns: arr });
+    claimed = true;
+  });
+  if (!claimed) return { scanned: list.length, fired: 0, raced: true };
+
+  /* Build messages from template + items */
+  const items = Array.isArray(target.items) ? target.items : [];
+  const personalizedMessage = (item) => {
+    /* Same personalize() pattern as CampaignsPg — basic placeholders. */
+    let body = String(target.templateBody || "");
+    body = body.replace(/\{اسم\}|\{الاسم\}|\{name\}/g, item.name || "");
+    body = body.replace(/\{رقم\}|\{phone\}/g, item.phone || "");
+    /* {لينك} portal link skipped in cron path — needs admin SDK signing. */
+    return body;
+  };
+  const messages = items
+    .filter(it => it && it.phone && String(it.phone).trim())
+    .map(it => ({ phone: String(it.phone).trim(), message: personalizedMessage(it) }));
+
+  if (messages.length === 0) {
+    /* No valid recipients — mark done with sentCount=0 */
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const c = snap.exists ? snap.data() : {};
+      const arr = Array.isArray(c.scheduledCampaigns) ? c.scheduledCampaigns : [];
+      const idx = arr.findIndex(x => x.id === target.id);
+      if (idx >= 0) {
+        arr[idx].status = "done";
+        arr[idx].sentCount = 0;
+        arr[idx].completedAt = new Date().toISOString();
+        arr[idx].error = "no-valid-recipients";
+        tx.update(ref, { scheduledCampaigns: arr });
+      }
+    });
+    return { scanned: list.length, fired: 1, sentCount: 0, dueCount: due.length, campaignId: target.id };
+  }
+
+  /* Bridge config */
+  const bridgeUrl = (cfg.campaignBridge || {}).url || "";
+  const bridgeToken = (cfg.campaignBridge || {}).token || "";
+  if (!bridgeUrl) {
+    /* Bridge not configured — mark failed */
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const c = snap.exists ? snap.data() : {};
+      const arr = Array.isArray(c.scheduledCampaigns) ? c.scheduledCampaigns : [];
+      const idx = arr.findIndex(x => x.id === target.id);
+      if (idx >= 0) {
+        arr[idx].status = "scheduled";/* revert so user can retry */
+        arr[idx].error = "bridge-not-configured";
+        tx.update(ref, { scheduledCampaigns: arr });
+      }
+    });
+    return { scanned: list.length, fired: 0, error: "bridge-not-configured" };
+  }
+
+  /* Fire via bridge */
+  let result;
+  try {
+    const r = await fetch(bridgeUrl.replace(/\/+$/, "") + "/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + bridgeToken },
+      body: JSON.stringify({ messages }),
+    });
+    result = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(result.error || ("HTTP " + r.status));
+  } catch (e) {
+    /* Failed — mark failed */
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const c = snap.exists ? snap.data() : {};
+      const arr = Array.isArray(c.scheduledCampaigns) ? c.scheduledCampaigns : [];
+      const idx = arr.findIndex(x => x.id === target.id);
+      if (idx >= 0) {
+        arr[idx].status = "failed";
+        arr[idx].error = e.message || String(e);
+        arr[idx].completedAt = new Date().toISOString();
+        tx.update(ref, { scheduledCampaigns: arr });
+      }
+    });
+    return { scanned: list.length, fired: 0, error: e.message };
+  }
+
+  /* Success — mark done */
+  const accepted = result?.queued || result?.accepted || messages.length;
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const c = snap.exists ? snap.data() : {};
+    const arr = Array.isArray(c.scheduledCampaigns) ? c.scheduledCampaigns : [];
+    const idx = arr.findIndex(x => x.id === target.id);
+    if (idx >= 0) {
+      arr[idx].status = "done";
+      arr[idx].sentCount = accepted;
+      arr[idx].completedAt = new Date().toISOString();
+      tx.update(ref, { scheduledCampaigns: arr });
+    }
+  });
+
+  return { scanned: list.length, fired: 1, sentCount: accepted, dueCount: due.length, campaignId: target.id };
+}
+
 /* ─── Main handler ─── */
 export default async function handler(req, res) {
   /* Allow GET (simpler curl) and POST */
@@ -830,6 +974,16 @@ export default async function handler(req, res) {
         const r = await scanChecksDue(db, cfg, checkCfg, cairo.date);
         if (r.scanned > 0) result.actions.push({ type: "checkDue", ...r });
       } catch (e) { result.errors.push({ type: "checkDue", error: e.message }); }
+    }
+
+    /* ── F. V19.70.4: Scheduled campaigns scan (run one due campaign per tick) ── */
+    if (Array.isArray(cfg.scheduledCampaigns) && cfg.scheduledCampaigns.length > 0) {
+      try {
+        const r = await scanScheduledCampaigns(db, cfg, cairo.date);
+        if (r.fired > 0 || r.dueCount > 0 || r.error) {
+          result.actions.push({ type: "scheduledCampaign", ...r });
+        }
+      } catch (e) { result.errors.push({ type: "scheduledCampaign", error: e.message }); }
     }
 
     return res.status(200).json(result);

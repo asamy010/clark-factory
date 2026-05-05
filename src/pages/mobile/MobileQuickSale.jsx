@@ -203,12 +203,15 @@ export function MobileQuickSale({ data, upConfig, upSales, updOrder, user, onDon
       /* V15.67: Use actual session id if selected, else "free" for free sale */
       const sessionId = selectedSession ? selectedSession.id : "free";
       const sessionDate = selectedSession ? selectedSession.date : today;
+      /* V19.70.4: pre-generate delivery IDs so we can fire instant saleCompleted
+         events with stable idempotency keys after the writes complete. */
+      const deliveryIds = items.map(() => gid());
       /* V15.61: Parallelize writes for speed */
-      await Promise.all(items.map((it) =>
+      await Promise.all(items.map((it, idx) =>
         updOrder(it.orderId, (o) => {
           if (!o.customerDeliveries) o.customerDeliveries = [];
           o.customerDeliveries.push({
-            id: gid(),
+            id: deliveryIds[idx],
             custId: selectedCust.id,
             custName: selectedCust.name,
             qty: it.qty,
@@ -223,6 +226,42 @@ export function MobileQuickSale({ data, upConfig, upSales, updOrder, user, onDon
       playBeep("done");
       flash("✅ تم تسجيل البيع: " + totals.qty + " قطعة", "ok");
       if (setDirty) setDirty(false);
+
+      /* V19.70.4: instant saleCompleted fire (one per item).
+         Same fire-and-forget pattern as V19.70.3 paymentReceived in TreasuryPg.
+         The cron remains fallback — idempotency via `sale:${id}` prevents double-send. */
+      if (selectedCust?.phone && user && typeof user.getIdToken === "function") {
+        (async () => {
+          try {
+            const idToken = await user.getIdToken();
+            const orders = data.orders || [];
+            await Promise.all(items.map((it, idx) => {
+              const order = orders.find(o => o.id === it.orderId) || {};
+              return fetch("/api/event-trigger", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+                body: JSON.stringify({
+                  eventType: "saleCompleted",
+                  payload: {
+                    customerName: selectedCust.name || "—",
+                    qty: it.qty,
+                    modelNo: order.modelNo || it.orderId,
+                    value: it.qty * (Number(it.price) || 0),
+                    date: sessionDate,
+                    salesperson: userName || "—",
+                    portalLink: "",
+                  },
+                  customerPhone: selectedCust.phone,
+                  idempotencyKey: "sale:" + deliveryIds[idx],
+                }),
+              }).catch(() => {/* silent — cron fallback */});
+            }));
+          } catch (e) {
+            console.warn("[V19.70.4] instant saleCompleted fire failed (cron will retry):", e?.message || e);
+          }
+        })();
+      }
+
       setTimeout(() => onDone && onDone(), 1000);
     } catch (e) {
       playBeep("error");

@@ -2870,6 +2870,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           if(delivered<=0){showToast("⛔ العميل لم يستلم "+o?.modelNo);return}
           if(qty>net){showToast("⚠️ "+o?.modelNo+": المرتجع ("+qty+") أكبر من الصافي ("+net+")");return}}}
         if(isSale){
+          /* V19.70.4: pre-generate delivery IDs so we can fire instant saleCompleted
+             events with stable idempotency keys after upConfig commits. Each entry
+             below in the forEach uses its assigned ID. */
+          const _instantSale_deliveryIds = {};/* {orderId: id} */
+          Object.keys(byOrder).forEach(oid => { _instantSale_deliveryIds[oid] = gid(); });
           const sessId=linkedSess?linkedSess.id:gid();const modelIds=[...new Set(qrSale.items.map(it=>it.orderId))];
           if(!linkedSess){const grid={};Object.entries(byOrder).forEach(([oid,qty])=>{grid[oid+"_"+qrSale.custId]=qty});
             upSales(d=>{if(!d.custDeliverySessions)d.custDeliverySessions=[];d.custDeliverySessions.push({id:sessId,date:new Date().toISOString().split("T")[0],modelIds,custIds:[qrSale.custId],grid,createdBy:userName,createdAt:new Date().toISOString(),status:"تم التسليم",freeSale:true,saleConfirmed:true})})}
@@ -2878,7 +2883,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             /* V15.45: Record custom price for free/discounted sales — enables accurate revenue reporting */
             /* V19.63: clamp negative input — `-50` would store negative price → negative AR debit */
             const cp=Math.max(0,Number(qrSale.customPrice)||0);
-            const entry={custId:qrSale.custId,custName:cust.name,qty,date:new Date().toISOString().split("T")[0],sessionId:sessId,createdBy:userName};
+            const entry={id:_instantSale_deliveryIds[oid],custId:qrSale.custId,custName:cust.name,qty,date:new Date().toISOString().split("T")[0],sessionId:sessId,createdBy:userName,createdAt:new Date().toISOString()};
             if(qrSale.override===true){entry.isOverride=true;entry.overrideReason="بيع طوارئ خارج الخطة"}
             if(cp>0){entry.price=cp;entry.isDiscounted=true;entry.originalPrice=Number(o.sellPrice)||0}
             /* V19.66: include timestamp so legitimate re-sales (same cust/session/order/day)
@@ -2936,6 +2941,42 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             }
           })});
           playBeep("done");showToast((qrSale.override===true?"⚠️ بيع طوارئ ":"✓ تم تسجيل بيع ")+total+" قطعة لـ "+cust.name);
+          /* V19.70.4: instant saleCompleted fire (one event per order delivery).
+             Same fire-and-forget pattern as TreasuryPg V19.70.3. The cron remains
+             fallback — idempotency via `sale:${id}` prevents double-send. */
+          if(cust?.phone && user && typeof user.getIdToken === "function"){
+            (async ()=>{
+              try{
+                const idToken = await user.getIdToken();
+                const orders = data.orders||[];
+                await Promise.all(Object.entries(byOrder).map(([oid,qty])=>{
+                  const order = orders.find(o=>o.id===oid)||{};
+                  const deliveryId = _instantSale_deliveryIds[oid];
+                  const cp = Math.max(0, Number(qrSale.customPrice)||0);
+                  const price = cp>0 ? cp : (Number(order.sellPrice)||0);
+                  return fetch("/api/event-trigger", {
+                    method:"POST",
+                    headers:{"Content-Type":"application/json","Authorization":"Bearer "+idToken},
+                    body: JSON.stringify({
+                      eventType:"saleCompleted",
+                      payload:{
+                        customerName: cust.name||"—",
+                        qty, modelNo: order.modelNo||oid,
+                        value: qty*price,
+                        date: new Date().toISOString().split("T")[0],
+                        salesperson: userName||"—",
+                        portalLink: "",
+                      },
+                      customerPhone: cust.phone,
+                      idempotencyKey: "sale:"+deliveryId,
+                    }),
+                  }).catch(()=>{/* silent — cron fallback */});
+                }));
+              }catch(e){
+                console.warn("[V19.70.4] instant saleCompleted fire failed (cron will retry):", e?.message||e);
+              }
+            })();
+          }
           /* Archive package if sale was from package */
           if(qrSale._pkgId){upSales(d=>{const pi=(d.packages||[]).findIndex(p=>p.id===qrSale._pkgId);if(pi>=0){d.packages[pi].status="مباعة";d.packages[pi].closedAt=new Date().toISOString();if(!d.packages[pi].movements)d.packages[pi].movements=[];d.packages[pi].movements.push({date:new Date().toISOString().split("T")[0],type:"sell",custName:cust.name,totalQty:total,by:userName||""})}})}
         }else{

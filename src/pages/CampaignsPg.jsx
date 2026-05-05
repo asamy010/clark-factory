@@ -426,6 +426,48 @@ export function CampaignsPg({data, upConfig, isMob, canEdit, user}){
       onPickManual={() => setMode("send")}
       onPickBridge={() => setMode("sendBridge")}
       onOpenBridgeSettings={() => setMode("bridgeSettings")}
+      /* V19.70.4: schedule-for-later — save to data.scheduledCampaigns and return to list */
+      onPickScheduled={(scheduledAt) => {
+        const sc = {
+          id: "sched_" + gid(),
+          templateId: activeCampaign.template.id,
+          templateName: activeCampaign.template.name,
+          templateBody: activeCampaign.template.body || "",
+          segmentKey: activeCampaign.segment.key,
+          segmentLabel: activeCampaign.segment.label,
+          /* Snapshot the audience now so segment changes later don't affect this campaign */
+          items: activeCampaign.audience.map(c => ({
+            id: c.id, name: c.name, phone: c.phone,
+          })),
+          scheduledAt,
+          status: "scheduled",/* "scheduled" | "firing" | "done" | "failed" | "cancelled" */
+          createdAt: new Date().toISOString(),
+          createdBy: user?.email || "",
+          sendMode: "bridge",
+          /* V19.70.4: images placeholder — empty for now (V19.70.5 adds image support) */
+          images: [],
+          sentCount: 0,
+          failedCount: 0,
+        };
+        upConfig(d => {
+          if (!Array.isArray(d.scheduledCampaigns)) d.scheduledCampaigns = [];
+          d.scheduledCampaigns.unshift(sc);
+          d.scheduledCampaigns = d.scheduledCampaigns.slice(0, 100);/* cap */
+        });
+        setActiveCampaign(null);
+        setMode("scheduledList");
+        showToast("✓ تم جدولة الحملة لـ" + new Date(scheduledAt).toLocaleString("ar-EG"));
+      }}
+    />;
+  }
+
+  /* V19.70.4: ─────────────── SCHEDULED CAMPAIGNS LIST ─────────────── */
+  if(mode === "scheduledList"){
+    return <ScheduledCampaignsList
+      data={data}
+      upConfig={upConfig}
+      onClose={() => setMode("list")}
+      canEdit={canEdit}
     />;
   }
 
@@ -481,6 +523,10 @@ export function CampaignsPg({data, upConfig, isMob, canEdit, user}){
       {canEdit && <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
         <Btn small onClick={() => setMode("blocklist")} style={{background:T.err+"10",color:T.err,border:"1px solid "+T.err+"30"}} title="قائمة العملاء المحظورين">
           🚫 محظورين {(data.campaignBlocklist||[]).length>0?"("+(data.campaignBlocklist||[]).length+")":""}
+        </Btn>
+        {/* V19.70.4: scheduled campaigns access */}
+        <Btn small onClick={() => setMode("scheduledList")} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}} title="الحملات المجدولة لوقت لاحق">
+          📅 المجدولة {(data.scheduledCampaigns||[]).filter(c=>c.status==="scheduled").length>0?"("+(data.scheduledCampaigns||[]).filter(c=>c.status==="scheduled").length+")":""}
         </Btn>
         <Btn small onClick={() => setMode("bridgeSettings")} style={{background:"#10B98112",color:"#10B981",border:"1px solid #10B98130"}} title="إعدادات الإرسال التلقائي">⚙️ بريدج</Btn>
         <Btn primary onClick={() => setMode("newCampaign")} disabled={templates.length===0} title={templates.length===0?"اعمل قالب الأول":"بدء حملة جديدة"}>
@@ -1782,8 +1828,15 @@ function SendScreen({data, upConfig, user, template, segment, audience, onClose,
 /* ═══════════════════════════════════════════════════════════════════════
    V19.28: CHOOSE SEND MODE — Manual (WhatsApp Web click) vs Bridge (auto)
    ═══════════════════════════════════════════════════════════════════════ */
-function ChooseSendMode({campaign, bridgeUrl, bridgeToken, onCancel, onPickManual, onPickBridge, onOpenBridgeSettings}){
+function ChooseSendMode({campaign, bridgeUrl, bridgeToken, onCancel, onPickManual, onPickBridge, onOpenBridgeSettings, onPickScheduled}){
   const [bridgeStatus, setBridgeStatus] = useState({state:"checking", error:""});
+  /* V19.70.4: schedule-for-later option — inline datetime picker */
+  const [scheduling, setScheduling] = useState(false);
+  const _defaultSchedTime = (() => {
+    const d = new Date(Date.now() + 60*60*1000);/* default = +1 hour */
+    return d.toISOString().slice(0,16);/* format for input[type=datetime-local] */
+  })();
+  const [schedAt, setSchedAt] = useState(_defaultSchedTime);
 
   useEffect(() => {
     let dead = false;
@@ -1841,6 +1894,48 @@ function ChooseSendMode({campaign, bridgeUrl, bridgeToken, onCancel, onPickManua
       {bridgeStatus.error && <div style={{marginTop:8,fontSize:FS-3,color:T.err,padding:8,background:T.err+"08",borderRadius:6,direction:"ltr",textAlign:"left"}}>
         Bridge error: {bridgeStatus.error}
       </div>}
+
+      {/* V19.70.4: Schedule-for-later mode card */}
+      <div style={{marginTop:12, padding:14, borderRadius:12, background: scheduling ? T.accent+"08" : T.cardSolid, border: "2px solid "+(scheduling?T.accent:T.brd), transition:"all 0.15s"}}>
+        <div onClick={() => !scheduling && setScheduling(true)} style={{cursor: scheduling ? "default" : "pointer"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <div style={{fontSize:FS+1,fontWeight:800,color:T.text,display:"flex",alignItems:"center",gap:6}}>
+              <span>📅</span><span>جدولة لوقت لاحق</span>
+            </div>
+            <span style={{padding:"3px 10px",borderRadius:20,fontSize:FS-3,background:T.accent+"18",color:T.accent,fontWeight:700}}>
+              {bridgeStatus.state==="ready" ? "Bridge جاهز" : "محتاج Bridge"}
+            </span>
+          </div>
+          <div style={{fontSize:FS-2,color:T.textSec,lineHeight:1.7}}>
+            احفظ الحملة لتشتغل تلقائياً في وقت محدد عبر الـBridge. الـVPS cron يـcheck كل 5 دقائق ويبدأ الإرسال عند وصول الميعاد.
+            {bridgeStatus.state!=="ready" && <span style={{color:T.warn, fontWeight:700}}> ⚠️ الـBridge لازم يبقى جاهز وقت التشغيل.</span>}
+          </div>
+        </div>
+        {scheduling && (
+          <div style={{marginTop:12, padding:12, background:T.bg, borderRadius:8, border:"1px solid "+T.brd}}>
+            <label style={{fontSize:FS-2, fontWeight:700, color:T.textSec, display:"block", marginBottom:6}}>
+              📆 تاريخ ووقت التشغيل (بتوقيت القاهرة):
+            </label>
+            <input type="datetime-local" value={schedAt} onChange={(e) => setSchedAt(e.target.value)}
+              min={new Date().toISOString().slice(0,16)}
+              style={{width:"100%", padding:"8px 10px", fontSize:FS, border:"1px solid "+T.brd, borderRadius:6, background:T.cardSolid, color:T.text, marginBottom:10}}/>
+            <div style={{fontSize:FS-3, color:T.textMut, marginBottom:10, lineHeight:1.5}}>
+              💡 الحملة هتبدأ في الوقت المحدد (±5 دقايق granularity). تقدر تـcancel من tab "📅 المجدولة".
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <Btn primary onClick={() => {
+                if (!schedAt) { alert("اختار تاريخ"); return; }
+                const ts = Date.parse(schedAt);
+                if (!ts || ts <= Date.now()) { alert("اختار وقت في المستقبل"); return; }
+                onPickScheduled(new Date(ts).toISOString());
+              }} style={{background:T.accent, color:"#fff", border:"none", fontWeight:800}}>
+                💾 احفظ الجدولة
+              </Btn>
+              <Btn ghost onClick={() => setScheduling(false)}>إلغاء</Btn>
+            </div>
+          </div>
+        )}
+      </div>
     </Card>
   </div>;
 }
@@ -3152,4 +3247,119 @@ function exportCampaignsExcel(campaigns, data){
   a.click();
   URL.revokeObjectURL(url);
   showToast("✓ تم التصدير");
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V19.70.4: SCHEDULED CAMPAIGNS LIST
+   ───────────────────────────────────────────────────────────────────────
+   Shows all data.scheduledCampaigns[] with status + cancel button.
+   Status values:
+     - "scheduled" : waiting for scheduledAt to arrive
+     - "firing"    : cron is currently sending (transient)
+     - "done"      : finished successfully
+     - "failed"    : failed (check error field)
+     - "cancelled" : user cancelled before fire
+   The cron handler in api/automation-tick.js fires due "scheduled" entries.
+   ═══════════════════════════════════════════════════════════════════════ */
+function ScheduledCampaignsList({data, upConfig, onClose, canEdit}){
+  const list = data.scheduledCampaigns || [];
+  const cancelOne = (id) => {
+    if (!window.confirm("إلغاء الحملة المجدولة؟")) return;
+    upConfig(d => {
+      if (!Array.isArray(d.scheduledCampaigns)) return;
+      const idx = d.scheduledCampaigns.findIndex(c => c.id === id);
+      if (idx >= 0) d.scheduledCampaigns[idx].status = "cancelled";
+    });
+    showToast("✓ تم الإلغاء");
+  };
+  const deleteOne = (id) => {
+    if (!window.confirm("حذف نهائي للحملة؟")) return;
+    upConfig(d => {
+      if (Array.isArray(d.scheduledCampaigns)) {
+        d.scheduledCampaigns = d.scheduledCampaigns.filter(c => c.id !== id);
+      }
+    });
+  };
+  return <div style={{padding:16, maxWidth:900, margin:"0 auto"}}>
+    <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14}}>
+      <h2 style={{margin:0, fontSize:FS+3, fontWeight:900, display:"flex", alignItems:"center", gap:8}}>
+        <span>📅</span><span>الحملات المجدولة</span>
+      </h2>
+      <Btn ghost onClick={onClose}>← رجوع</Btn>
+    </div>
+    {list.length === 0 ? (
+      <Card>
+        <div style={{textAlign:"center", padding:30, color:T.textMut}}>
+          <div style={{fontSize:48, marginBottom:8, opacity:0.5}}>📅</div>
+          <div style={{fontSize:FS, fontWeight:600}}>مفيش حملات مجدولة</div>
+          <div style={{fontSize:FS-2, marginTop:6}}>
+            لجدولة حملة: ابدأ حملة جديدة من القائمة الرئيسية، اختار "📅 جدولة لوقت لاحق" في شاشة طريقة الإرسال.
+          </div>
+        </div>
+      </Card>
+    ) : (
+      <Card>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%", borderCollapse:"collapse", minWidth:600}}>
+            <thead>
+              <tr style={{borderBottom:"2px solid "+T.brd}}>
+                {["القالب","الجمهور","الميعاد","الحالة","عدد","إجراء"].map(h =>
+                  <th key={h} style={{padding:"8px 10px", fontSize:FS-2, fontWeight:700, color:T.textSec, textAlign:"start"}}>{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {list.map(c => {
+                const dt = c.scheduledAt ? new Date(c.scheduledAt) : null;
+                const due = dt && dt.getTime() <= Date.now();
+                const statusColors = {
+                  scheduled: due ? T.warn : T.accent,
+                  firing: T.warn,
+                  done: T.ok,
+                  failed: T.err,
+                  cancelled: T.textMut,
+                };
+                const statusLabels = {
+                  scheduled: due ? "متأخر — قيد التنفيذ" : "في الانتظار",
+                  firing: "جاري الإرسال...",
+                  done: "✓ تم",
+                  failed: "❌ فشل",
+                  cancelled: "أُلغي",
+                };
+                return <tr key={c.id} style={{borderBottom:"1px solid "+T.brd}}>
+                  <td style={{padding:"10px", fontWeight:600, color:T.text}}>{c.templateName}</td>
+                  <td style={{padding:"10px", fontSize:FS-2, color:T.textSec}}>{c.segmentLabel} ({c.items?.length || 0})</td>
+                  <td style={{padding:"10px", fontSize:FS-2, color:T.textSec}}>{dt ? dt.toLocaleString("ar-EG") : "—"}</td>
+                  <td style={{padding:"10px"}}>
+                    <span style={{padding:"4px 10px", borderRadius:8, fontSize:FS-3, fontWeight:700,
+                      background: (statusColors[c.status]||T.textMut)+"20",
+                      color: statusColors[c.status]||T.textMut,
+                      border: "1px solid "+(statusColors[c.status]||T.textMut)+"40"}}>
+                      {statusLabels[c.status] || c.status}
+                    </span>
+                  </td>
+                  <td style={{padding:"10px", fontSize:FS-2, color:T.textMut}}>
+                    {c.status === "done" && `${c.sentCount||0} مرسلة`}
+                    {c.status === "failed" && `${c.error || "—"}`}
+                  </td>
+                  <td style={{padding:"10px"}}>
+                    {canEdit && c.status === "scheduled" && (
+                      <Btn small onClick={() => cancelOne(c.id)} style={{background:T.warn+"15", color:T.warn, border:"1px solid "+T.warn+"40", fontSize:FS-3}}>
+                        ❌ إلغاء
+                      </Btn>
+                    )}
+                    {canEdit && (c.status === "done" || c.status === "failed" || c.status === "cancelled") && (
+                      <Btn small onClick={() => deleteOne(c.id)} style={{background:T.err+"08", color:T.err, border:"1px solid "+T.err+"30", fontSize:FS-3}} title="حذف من السجل">
+                        🗑
+                      </Btn>
+                    )}
+                  </td>
+                </tr>;
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    )}
+  </div>;
 }

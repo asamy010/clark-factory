@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.4",
+    date: "2026-05-05",
+    types: ["feature", "automation"],
+    title: "⚡📅 Sale instant fire + Campaign scheduling (text-only)",
+    changes: [
+      { type: "feature", text: "⚡ [Sale instant fire — كل path] V19.70.3 ضافت instant لـpaymentReceived في TreasuryPg. V19.70.4 بتضيف نفس الـpattern لـsaleCompleted في الـ2 paths الرئيسية: (1) MobileQuickSale (الـmobile-first flow اللي المحصّل/الـsales-rep بيستخدمه عند العميل) — لحظة ما تـsave البيع، الـapp يبعت لكل order delivery رسالة WhatsApp فوراً. (2) CustDeliverPg QR-sale flow — نفس الـlogic. الـcron تفضل fallback لو الـclient فشل (network down). Idempotency: `sale:${id}` keys consistent بين الـclient hook والـcron-side scan." },
+      { type: "feature", text: "📅 [Campaign scheduling — text-only] حملة جديدة عندها option جديد '📅 جدولة لوقت لاحق' في شاشة طريقة الإرسال. الـuser يـpick template + segment زي العادة، ثم بدل ما يبعت دلوقتي يحط datetime مستقبلي. الحملة تُحفظ في `data.scheduledCampaigns[]` بـstatus='scheduled' + الـaudience snapshot (عشان الـsegment changes لاحقاً ما تأثرش على الـscheduled campaign). الـVPS cron يـscan كل 5 دقائق ويـfire الحملات اللي وصل ميعادها." },
+      { type: "feature", text: "📋 [Tab جديد '📅 المجدولة' في الـCampaigns page] قائمة بكل الحملات المجدولة + status pill (في الانتظار/جاري الإرسال/تم/فشل/ملغي). زر إلغاء للـscheduled + زر حذف للـcompleted/failed/cancelled. الـcron status updates تظهر تلقائياً (live data via Firestore listener)." },
+      { type: "feature", text: "🔄 [Cron-side: scanScheduledCampaigns] الـautomation-tick.js دلوقتي عنده section F: scan الـscheduledCampaigns، اخد أول واحد due (oldest scheduledAt that's already passed)، transactional claim بـstatus='firing' (يمنع double-fire لو 2 ticks raced)، build messages من الـtemplate + items، POST بريدج /send، mark 'done' أو 'failed'. واحد per tick (الحملات ممكن تكون كبيرة، الـtimeout protection)." },
+      { type: "improvement", text: "🛡️ [Idempotency consistency لـsales] قبل V19.70.4 الـcron-side sale scan كانت idempotency: `sale:${orderId}:${date}:${qty}:${custId}` — composite key قابل للـcollision (لو نفس العميل اشترى نفس الكمية من نفس الموديل في نفس اليوم). دلوقتي: لو الـdelivery عنده `id`، استخدم `sale:${id}`. الـclient hook الجديد دائماً يـpre-generate id، فالاتنين متطابقين." },
+      { type: "ux", text: "📅 [Pre-filled datetime picker — default = +1 hour] لما تـpick 'Schedule for later' في chooseSendMode، الـdatetime input يبدأ بـ'دلوقتي + ساعة'. الـuser يقدر يعدّل، أو يحفظ مباشرة لـschedule بساعة من دلوقتي. min attribute يمنع اختيار وقت في الماضي." },
+      { type: "docs", text: "📋 [V19.70.5 roadmap: image attachments] الـcampaigns scheduling في V19.70.4 text-only. ضافت الـimages attachment يحتاج: (1) Firebase Storage upload في الـclient، (2) `data.scheduledCampaigns[].images[]` field (already added — empty array). (3) bridge endpoint update لـMessageMedia support — يحتاج SSH لـContabo VPS وredeploy الـbridge. الـbridge code (clark-wa-bridge/server.js) لازم يـaccept `mediaBase64+mediaMime+mediaName` per message ويبني MessageMedia.fromUrl/fromFilePath. ده الـscope لـV19.70.5 (يحتاج VPS redeploy)." },
+    ]
+  },
+  {
     version: "V19.70.3",
     date: "2026-05-05",
     types: ["feature", "ux"],
