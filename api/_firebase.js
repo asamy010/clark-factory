@@ -191,9 +191,22 @@ export function verifyWorkshopSignature(orderId, wsId, deliveryIdx, sig) {
   }
 }
 
-/* ── CORS helper — used by all public endpoints ── */
-export function setCors(res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+/* ── CORS helper — used by all public endpoints ──
+   V19.64: respects API_ALLOWED_ORIGIN env (single origin) or API_ALLOWED_ORIGINS
+   (comma-separated list, matched against req.headers.origin). Falls back to "*"
+   for back-compat — but production deployments should set the env to lock down
+   to the deployed domain. */
+export function setCors(res, req) {
+  const single = (process.env.API_ALLOWED_ORIGIN || "").trim();
+  const list = (process.env.API_ALLOWED_ORIGINS || "").split(",").map(s => s.trim()).filter(Boolean);
+  let origin = "*";
+  if (single) {
+    origin = single;
+  } else if (list.length > 0 && req && req.headers && req.headers.origin) {
+    origin = list.includes(req.headers.origin) ? req.headers.origin : list[0];
+  }
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  if (origin !== "*") res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }

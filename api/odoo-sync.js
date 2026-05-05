@@ -1,12 +1,39 @@
+/* V19.64: Require admin Firebase token + tighter CORS.
+   Pre-V19.64: any internet user could hit this endpoint, supply arbitrary
+   `odooUrl`, and use the Vercel function as an SSRF proxy. With provided
+   credentials they could also write to anyone's Odoo. Now restricted to
+   verified admin/manager Firebase users. */
+import { verifyAdminToken } from "./_firebase.js";
+
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  const allowedOrigin = process.env.ODOO_ALLOWED_ORIGIN || "*";
+  res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
+  /* V19.64: Auth gate */
+  const authHeader = req.headers.authorization || "";
+  const bodyToken = (req.body && req.body.adminToken) || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : (bodyToken || "").trim();
+  const auth = await verifyAdminToken(token);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
   const { action, odooUrl, odooDb, odooUser, odooKey, payload } = req.body;
   if (!odooUrl || !odooDb || !odooUser || !odooKey) return res.status(400).json({ error: "Missing Odoo credentials" });
+
+  /* V19.64: Optional URL allowlist. Set ODOO_ALLOWED_HOSTS="example.odoo.com,other.com"
+     in Vercel env to restrict which Odoo instances this proxy accepts. If unset,
+     all hosts allowed (back-compat). */
+  const allowList = (process.env.ODOO_ALLOWED_HOSTS || "").split(",").map(s => s.trim()).filter(Boolean);
+  if (allowList.length > 0) {
+    let host;
+    try { host = new URL(odooUrl).host; } catch (_) { return res.status(400).json({ error: "Invalid odooUrl" }); }
+    if (!allowList.includes(host)) {
+      return res.status(403).json({ error: "Odoo host not in allowlist: " + host });
+    }
+  }
 
   const rpcCall = async (endpoint, method, params) => {
     const paramXml = params.map(p => toXmlValue(p)).join("");

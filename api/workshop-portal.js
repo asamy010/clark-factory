@@ -28,19 +28,44 @@ function getPortalSecret() {
   return s;
 }
 
-/* V18.12: Short signature — 96 bits as base64url (16 chars) instead of 256-bit hex (64 chars). */
+/* V18.12 + V19.64: signatures (legacy unbounded + timestamped expiring variants). */
 export function signWorkshopId(wsId) {
   return crypto.createHmac("sha256", getPortalSecret()).update("wsportal:" + wsId).digest()
     .slice(0, 12)
     .toString("base64url");
 }
 
+export function signWorkshopIdWithTs(wsId, ts) {
+  return crypto.createHmac("sha256", getPortalSecret()).update("wsportal:v2:" + wsId + ":" + ts).digest()
+    .slice(0, 12)
+    .toString("base64url");
+}
+
+const WORKSHOP_LINK_TTL_SECONDS = 90 * 24 * 3600;/* 90 days */
+
 function signWorkshopIdHex(wsId) {
   return crypto.createHmac("sha256", getPortalSecret()).update("wsportal:" + wsId).digest("hex");
 }
 
-function verifyWorkshopSig(wsId, sig) {
+function verifyWorkshopSig(wsId, sig, ts) {
   if (!wsId || !sig) return false;
+  /* V19.64: timestamped — verify expiry then HMAC */
+  if (ts) {
+    const tsNum = parseInt(ts, 10);
+    if (!Number.isFinite(tsNum)) return false;
+    const now = Math.floor(Date.now() / 1000);
+    const age = now - tsNum;
+    if (age < -300 || age > WORKSHOP_LINK_TTL_SECONDS) return false;
+    if (sig.length !== 16) return false;
+    const expected = signWorkshopIdWithTs(wsId, String(tsNum));
+    try {
+      const a = Buffer.from(sig, "base64url");
+      const b = Buffer.from(expected, "base64url");
+      if (a.length !== b.length) return false;
+      return crypto.timingSafeEqual(a, b);
+    } catch (e) { return false; }
+  }
+  /* Legacy formats */
   if (sig.length === 16) {
     const expected = signWorkshopId(wsId);
     try {
@@ -69,15 +94,15 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   try {
-    const { w: wsId, sig } = req.query;
+    const { w: wsId, sig, t: ts } = req.query;
 
     if (!wsId || !sig) {
       return res.status(400).json({ error: "البيانات ناقصة" });
     }
 
-    /* Verify signature */
-    if (!verifyWorkshopSig(wsId, sig)) {
-      return res.status(403).json({ error: "رابط غير صالح" });
+    /* V19.64: pass `t` (timestamp) when present */
+    if (!verifyWorkshopSig(wsId, sig, ts)) {
+      return res.status(403).json({ error: "رابط غير صالح أو منتهي الصلاحية" });
     }
 
     const db = getDb();

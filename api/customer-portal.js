@@ -30,21 +30,49 @@ function getPortalSecret() {
 }
 
 /* V18.12: Short signature — 96 bits as base64url (16 chars) instead of 256-bit hex (64 chars).
-   Still cryptographically secure for read-only portal access. */
+   V19.64: Added timestamped variant. Old `signCustomerId(custId)` kept for legacy URL
+   verification only — new sign endpoint uses `signCustomerIdWithTs(custId, ts)`. */
 export function signCustomerId(custId) {
   return crypto.createHmac("sha256", getPortalSecret()).update("portal:" + custId).digest()
-    .slice(0, 12) /* 12 bytes = 96 bits */
+    .slice(0, 12)
     .toString("base64url");
 }
+
+/* V19.64: Timestamped signature. The unix-seconds timestamp is part of the HMAC payload
+   AND verified to be within 90 days at read time. This bounds link lifetime even if
+   the URL leaks (WhatsApp screenshot, indexed by search engine, etc.). */
+export function signCustomerIdWithTs(custId, ts) {
+  return crypto.createHmac("sha256", getPortalSecret()).update("portal:v2:" + custId + ":" + ts).digest()
+    .slice(0, 12)
+    .toString("base64url");
+}
+
+const PORTAL_LINK_TTL_SECONDS = 90 * 24 * 3600;/* 90 days */
 
 /* Legacy full-hex signature — kept for backward compat verification only. */
 function signCustomerIdHex(custId) {
   return crypto.createHmac("sha256", getPortalSecret()).update("portal:" + custId).digest("hex");
 }
 
-function verifyCustomerSig(custId, sig) {
+function verifyCustomerSig(custId, sig, ts) {
   if (!custId || !sig) return false;
-  /* V18.12: Try short (base64url 16 chars) first, then fall back to legacy hex (64 chars) */
+  /* V19.64: Timestamped link — verify expiry then HMAC. Preferred format for new links. */
+  if (ts) {
+    const tsNum = parseInt(ts, 10);
+    if (!Number.isFinite(tsNum)) return false;
+    const now = Math.floor(Date.now() / 1000);
+    const age = now - tsNum;
+    if (age < -300 || age > PORTAL_LINK_TTL_SECONDS) return false;/* allow 5min clock skew */
+    if (sig.length !== 16) return false;
+    const expected = signCustomerIdWithTs(custId, String(tsNum));
+    try {
+      const a = Buffer.from(sig, "base64url");
+      const b = Buffer.from(expected, "base64url");
+      if (a.length !== b.length) return false;
+      return crypto.timingSafeEqual(a, b);
+    } catch (e) { return false; }
+  }
+  /* Legacy unbounded signatures — kept working so existing customer URLs don't break. */
   if (sig.length === 16) {
     const expected = signCustomerId(custId);
     try {
@@ -71,15 +99,15 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   try {
-    const { c: custId, sig, action } = req.query;
+    const { c: custId, sig, t: ts, action } = req.query;
 
     if (!custId || !sig) {
       return res.status(400).json({ error: "البيانات ناقصة" });
     }
 
-    /* Verify signature */
-    if (!verifyCustomerSig(custId, sig)) {
-      return res.status(403).json({ error: "رابط غير صالح" });
+    /* V19.64: pass `t` (timestamp) when present — verifier rejects expired links */
+    if (!verifyCustomerSig(custId, sig, ts)) {
+      return res.status(403).json({ error: "رابط غير صالح أو منتهي الصلاحية" });
     }
 
     const db = getDb();

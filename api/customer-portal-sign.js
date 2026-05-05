@@ -15,7 +15,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { setCors, verifyAdminToken } from "./_firebase.js";
-import { signCustomerId } from "./customer-portal.js";
+import { signCustomerIdWithTs } from "./customer-portal.js";
 
 export default async function handler(req, res) {
   setCors(res);
@@ -30,16 +30,18 @@ export default async function handler(req, res) {
     const auth = await verifyAdminToken(adminToken);
     if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
-    /* V18.12: Generate short URL format ?p=c&i=<id>&s=<short_sig> */
-    const sig = signCustomerId(custId);
+    /* V19.64: Timestamped URL — link expires after 90 days. Format: ?p=c&i=<id>&t=<ts>&s=<sig> */
+    const ts = String(Math.floor(Date.now() / 1000));
+    const sig = signCustomerIdWithTs(custId, ts);
     const baseUrl = req.headers["x-forwarded-host"]
       ? "https://" + req.headers["x-forwarded-host"]
       : req.headers.origin || req.headers.host || "";
     const url = (baseUrl.startsWith("http") ? baseUrl : "https://" + baseUrl) +
                 "/?p=c&i=" + encodeURIComponent(custId) +
+                "&t=" + ts +
                 "&s=" + encodeURIComponent(sig);
 
-    return res.status(200).json({ url, sig });
+    return res.status(200).json({ url, sig, ts, expiresAt: new Date((parseInt(ts,10) + 90*24*3600) * 1000).toISOString() });
   } catch (err) {
     console.error("customer-portal-sign error:", err);
     return res.status(500).json({ error: err.message || "خطأ في الخادم" });

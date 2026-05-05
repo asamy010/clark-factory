@@ -10,7 +10,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { setCors, verifyAdminToken } from "./_firebase.js";
-import { signWorkshopId } from "./workshop-portal.js";
+import { signWorkshopIdWithTs } from "./workshop-portal.js";
 
 export default async function handler(req, res) {
   setCors(res);
@@ -25,16 +25,18 @@ export default async function handler(req, res) {
     const auth = await verifyAdminToken(adminToken);
     if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
-    /* V18.12: Generate short URL format ?p=w&i=<id>&s=<short_sig> */
-    const sig = signWorkshopId(wsId);
+    /* V19.64: Timestamped URL — link expires after 90 days. Format: ?p=w&i=<id>&t=<ts>&s=<sig> */
+    const ts = String(Math.floor(Date.now() / 1000));
+    const sig = signWorkshopIdWithTs(wsId, ts);
     const baseUrl = req.headers["x-forwarded-host"]
       ? "https://" + req.headers["x-forwarded-host"]
       : req.headers.origin || req.headers.host || "";
     const url = (baseUrl.startsWith("http") ? baseUrl : "https://" + baseUrl) +
                 "/?p=w&i=" + encodeURIComponent(wsId) +
+                "&t=" + ts +
                 "&s=" + encodeURIComponent(sig);
 
-    return res.status(200).json({ url, sig });
+    return res.status(200).json({ url, sig, ts, expiresAt: new Date((parseInt(ts,10) + 90*24*3600) * 1000).toISOString() });
   } catch (err) {
     console.error("workshop-portal-sign error:", err);
     return res.status(500).json({ error: err.message || "خطأ في الخادم" });
