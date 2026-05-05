@@ -22,7 +22,18 @@
       "Bash(npm install *)",
       "Bash(node --input-type=module -e ' *)",
       "Bash(node -e ' *)",
-      "Bash(powershell -Command ' *)"
+      "Bash(powershell -Command ' *)",
+      "PowerShell($secret = -join \\(\\(48..57\\) + \\(65..90\\) + \\(97..122\\) | Get-Random -Count 40 | ForEach-Object {[char]$_}\\); Write-Host \"SECRET=$secret\"; $secret | Out-File -FilePath \"$env:TEMP\\\\clark_secret.txt\" -Encoding utf8 -NoNewline)",
+      "PowerShell($secret = \"WEGxV8d0JroZKRkz94aYulB7i1phCQmcT23t5vDb\"; $url = \"https://clark-factory.vercel.app/api/automation-tick\"; try { $r = Invoke-WebRequest -Uri $url -Method GET -Headers @{\"Authorization\"=\"Bearer $secret\"} -UseBasicParsing; Write-Host \"STATUS: $\\($r.StatusCode\\)\"; Write-Host \"BODY: $\\($r.Content\\)\" } catch { $err = $_.Exception.Response; if \\($err\\) { $sr = New-Object System.IO.StreamReader\\($err.GetResponseStream\\(\\)\\); $body = $sr.ReadToEnd\\(\\); Write-Host \"STATUS: $\\([int]$err.StatusCode\\)\"; Write-Host \"BODY: $body\" } else { Write-Host \"ERROR: $\\($_.Exception.Message\\)\" } })",
+      "PowerShell($content = Get-Content -Raw \"$env:TEMP\\\\clark_cron_setup.sh\"; $contentLF = $content -replace \"`r`n\", \"`n\"; [System.IO.File]::WriteAllText\\(\"$env:TEMP\\\\clark_cron_setup.sh\", $contentLF, [System.Text.UTF8Encoding]::new\\($false\\)\\); Write-Host \"Normalized to LF endings, size: $\\(\\(Get-Item \"$env:TEMP\\\\clark_cron_setup.sh\"\\).Length\\) bytes\")",
+      "Bash(npm list *)",
+      "Read(//tmp/**)",
+      "Bash(node diag.js)",
+      "Bash(timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes -o PreferredAuthentications=none root@77.237.235.160 'true')",
+      "Bash(cat)",
+      "Bash(tr -d '\\\\r')",
+      "Bash(mv setup.sh.lf setup.sh)",
+      "Bash(node run.js setup.sh)"
     ]
   }
 }
