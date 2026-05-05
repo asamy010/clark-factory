@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.7",
+    date: "2026-05-05",
+    types: ["fix", "ux"],
+    title: "🐛 Hotfix: checkPaymentReceived missing from Triggers UI + clearer Arabic labels",
+    changes: [
+      { type: "fix", text: "🚨 [الـCRITICAL: checkPaymentReceived event type ما كانش ظاهر في الـUI] V19.70.5 ضافت الـcheckPaymentReceived event في الـEVENT_VARIABLES + DEFAULT_AUTOMATION_CONFIG، لكن الـTriggersTab في AutomationPg كان عنده hardcoded list `['saleCompleted', 'paymentReceived', 'lateOrder', 'checkDue']` بدون checkPaymentReceived. النتيجة: الـuser ما يقدرش يـenable الـtrigger، فالـclient hook كان بيـcall الـendpoint بس الـendpoint بيرجع `skipped: event-disabled` لأن الـconfig.enabled = false. **الـFix**: ضافت 'checkPaymentReceived' للـeventTypes array (now 5 events)." },
+      { type: "ux", text: "🏷 [Arabic-primary labels عشان وضوح الفصل بين الكاش والشيكات] قبل V19.70.7 الـlabels كانت English/Arabic mix ('💰 Sale Completed', '💵 Payment Received', إلخ). الـuser request: 'الخزنة لوحدها والشيكات لوحدها' — يعني فصل واضح. الـnew labels عربي صريح: '💰 بيع جديد للعميل'، '💵 دفعة كاش/تحويل من عميل' (نقدي/محفظة/انستاباي/تحويل بنكي — مش شيكات)، '🏦 دفعة شيكات من عميل' (شيك واحد أو حافظة)، '⚠️ أوردر متأخر'، '📅 شيك يستحق قريباً'. الـdescription بقت explicit عشان مفيش لخبطة." },
+      { type: "improvement", text: "🛡️ [Test plan لـregression] أي event type جديد لازم يتـregister في 3 places: (1) EVENT_VARIABLES في eventBuilder.js، (2) DEFAULT_AUTOMATION_CONFIG.events في buildDailyReport.js، (3) eventTypes array في AutomationPg.jsx TriggersTab. لو نسيت أي واحدة فيهم، الـevent يبقى ghosted من perspective المستخدم. ضافت inline comment في eventTypes array لتنبيه الـeditor المستقبلي." },
+    ]
+  },
+  {
     version: "V19.70.6",
     date: "2026-05-05",
     types: ["feature", "ux"],

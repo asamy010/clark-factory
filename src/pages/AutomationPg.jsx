@@ -776,7 +776,9 @@ function TriggersTab(props){
   const events = eventTriggers.events || {};
   const ownerPhones = eventTriggers.ownerPhones || [];
   const pending = eventTriggers.pending || [];
-  const eventTypes = ["saleCompleted", "paymentReceived", "lateOrder", "checkDue"];
+  /* V19.70.7: separate cash-payment and check-payment events for explicit user control.
+     Order matters — UI renders in this order. Keep similar concerns adjacent. */
+  const eventTypes = ["saleCompleted", "paymentReceived", "checkPaymentReceived", "lateOrder", "checkDue"];
 
   return (
     <div>

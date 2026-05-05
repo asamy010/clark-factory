@@ -25,8 +25,8 @@ const _money = (n) => _fmt(n) + " ج.م";
    recipient. The keys match the placeholders inside templates ({varName}). */
 export const EVENT_VARIABLES = {
   saleCompleted: {
-    label: "💰 Sale Completed",
-    description: "بيع جديد للعميل (تسجيل customerDelivery)",
+    label: "💰 بيع جديد للعميل",
+    description: "تسجيل customerDelivery — رسالة فورية للعميل + المالك",
     detection: "client (instant) + cron fallback (5-min retry)",
     recipientRoles: ["customer", "owner"],
     variables: {
@@ -35,8 +35,9 @@ export const EVENT_VARIABLES = {
     },
   },
   paymentReceived: {
-    label: "💵 Payment Received",
-    description: "دفعة كاش/تحويل من عميل (تسجيل custPayment)",
+    /* V19.70.7: clearer label — distinguishes from checkPaymentReceived */
+    label: "💵 دفعة كاش/تحويل من عميل",
+    description: "نقدي/محفظة/انستاباي/تحويل بنكي (تسجيل custPayment) — مش شيكات",
     detection: "client (instant) + cron fallback",
     recipientRoles: ["customer", "owner"],
     variables: {
@@ -45,8 +46,8 @@ export const EVENT_VARIABLES = {
     },
   },
   checkPaymentReceived: {
-    label: "🏦 Check Payment Received",
-    description: "شيكات قبض من عميل (واحد أو حافظة) — رسالة منفصلة لكل شيك مع ترقيم",
+    label: "🏦 دفعة شيكات من عميل",
+    description: "شيك واحد أو حافظة — رسالة منفصلة لكل شيك مع ترقيم (شيك X من Y)",
     detection: "client (instant) + cron fallback",
     recipientRoles: ["customer", "owner"],
     variables: {
@@ -56,7 +57,7 @@ export const EVENT_VARIABLES = {
     },
   },
   lateOrder: {
-    label: "⚠️ Late Order",
+    label: "⚠️ أوردر متأخر",
     description: "أوردر تجاوز الحد المسموح بدون activity",
     detection: "cron-only (daily scan, one alert per order per day)",
     recipientRoles: ["owner", "customer"],
@@ -66,7 +67,7 @@ export const EVENT_VARIABLES = {
     },
   },
   checkDue: {
-    label: "📅 Check Due",
+    label: "📅 شيك يستحق قريباً",
     description: "شيك مستحق خلال أيام محدودة (الموجود في المصنع فقط — مش المظهَّر)",
     detection: "cron-only (daily scan, one alert per check per day, status==معلق only)",
     recipientRoles: ["owner"],
