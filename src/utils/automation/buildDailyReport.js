@@ -17,6 +17,8 @@
 
 const _r0 = (n) => Math.round(Number(n) || 0);
 const _fmt = (n) => _r0(n).toLocaleString("en-US");
+/* V19.70 FIX: currency suffix — standardized to "ج.م" (Egyptian pound abbreviation). */
+const _money = (n) => _fmt(n) + " ج.م";
 
 /* Helper: filter array by date (YYYY-MM-DD prefix). */
 function _dayItems(arr, date) {
@@ -58,7 +60,7 @@ function _salesSection(data, date) {
   const todayInvs = _dayItems(data.salesInvoices, date)
     .filter(i => i.status === "posted" || i.status === "draft");
   lines.push("💰 *المبيعات*");
-  lines.push(`• قيمة مبيعات اليوم: ${_fmt(salesValue)} ج`);
+  lines.push(`• قيمة مبيعات اليوم: ${_money(salesValue)}`);
   lines.push(`• قطع مباعة: ${_fmt(salesQty)}`);
   lines.push(`• فواتير: ${todayInvs.length}`);
   /* Top 3 customers by value */
@@ -68,7 +70,7 @@ function _salesSection(data, date) {
     .slice(0, 3);
   if (top.length > 0) {
     lines.push("• أكثر العملاء:");
-    top.forEach(c => lines.push(`   ◦ ${c.name}: ${_fmt(c.value)} ج (${_fmt(c.qty)} قطعة)`));
+    top.forEach(c => lines.push(`   ◦ ${c.name}: ${_money(c.value)} (${_fmt(c.qty)} قطعة)`));
   }
   return lines.join("\n");
 }
@@ -81,59 +83,113 @@ function _purchasesSection(data, date) {
   let totalValue = 0;
   todayInvs.forEach(i => { totalValue += Number(i.total) || 0; });
   lines.push("🛒 *المشتريات*");
-  lines.push(`• قيمة مشتريات اليوم: ${_fmt(totalValue)} ج`);
+  lines.push(`• قيمة مشتريات اليوم: ${_money(totalValue)}`);
   lines.push(`• فواتير: ${todayInvs.length} • إذونات: ${todayReceipts.length}`);
   return lines.join("\n");
 }
 
-/* ── 3. Treasury section ── */
+/* ── 3. Treasury section ──
+   V19.70 FIX: pre-V19.70 we queried data.custPayments / wsPayments / supplierPayments
+   / hrLog separately with a `_dayItems(date)` filter. That under-counted because:
+     1. Some movements live in `data.treasury` only (manual cash entries, internal
+        transfers between accounts, opening balance corrections, etc.)
+     2. Some payment records have a date/createdAt mismatch with the actual
+        treasury transaction date (e.g. payment recorded today but the treasury
+        row has the bank value-date)
+     3. The MEANING of "today's movements" the user wants is "what hit the
+        treasury today" — which IS data.treasury filtered by date.
+   New approach: iterate data.treasury directly (single source of truth) and
+   group by category. The report shows EVERY category that had movement today
+   instead of fixed cash/transfer/checks columns. */
 function _treasurySection(data, date) {
   const lines = [];
-  /* Customer payments today */
-  const custPays = _dayItems(data.custPayments, date);
-  let cashIn = 0, transferIn = 0, checkIn = 0;
-  custPays.forEach(p => {
-    const amt = Number(p.amount) || 0;
-    const m = (p.method || "").toLowerCase();
-    if (m.includes("شيك") || m.includes("check")) checkIn += amt;
-    else if (m.includes("تحويل") || m.includes("بنكي") || m.includes("محفظة")) transferIn += amt;
-    else cashIn += amt;
-  });
-  /* Workshop payments out */
-  const wsPays = _dayItems(data.wsPayments, date);
-  let wsOut = 0;
-  wsPays.forEach(p => { if ((p.type || "payment") === "payment") wsOut += Number(p.amount) || 0; });
-  /* Supplier payments out */
-  const supPays = _dayItems(data.supplierPayments, date);
-  let supOut = 0;
-  supPays.forEach(p => { supOut += Number(p.amount) || 0; });
-  /* HR payments out */
-  const hrToday = _dayItems(data.hrLog, date);
-  let hrOut = 0;
-  hrToday.forEach(h => { if ((h.type || "") !== "deduction") hrOut += Number(h.amount) || 0; });
 
-  lines.push("💵 *الخزنة*");
-  lines.push(`• محصّلات اليوم:`);
-  lines.push(`   ◦ كاش: ${_fmt(cashIn)} ج`);
-  lines.push(`   ◦ تحويلات: ${_fmt(transferIn)} ج`);
-  lines.push(`   ◦ شيكات: ${_fmt(checkIn)} ج`);
-  lines.push(`   ◦ إجمالي: ${_fmt(cashIn + transferIn + checkIn)} ج`);
-  lines.push(`• مدفوعات اليوم:`);
-  lines.push(`   ◦ ورش: ${_fmt(wsOut)} ج`);
-  lines.push(`   ◦ موردين: ${_fmt(supOut)} ج`);
-  lines.push(`   ◦ مرتبات/سلف: ${_fmt(hrOut)} ج`);
-  /* Treasury account balances — sum from treasury entries by account */
+  /* 1. Today's treasury movements grouped by category */
+  const todayTx = _dayItems(data.treasury, date);
+  const inByCategory = {};/* {category: {total, count}} */
+  const outByCategory = {};
+  let totalIn = 0, totalOut = 0;
+  todayTx.forEach(t => {
+    const amt = Number(t.amount) || 0;
+    if (amt <= 0) return;
+    const cat = (t.category || "").trim() ||
+      (t.type === "in" ? "إيراد عام" : t.type === "out" ? "مصروف عام" : "غير مصنف");
+    if (t.type === "in") {
+      totalIn += amt;
+      if (!inByCategory[cat]) inByCategory[cat] = { total: 0, count: 0 };
+      inByCategory[cat].total += amt;
+      inByCategory[cat].count++;
+    } else if (t.type === "out") {
+      totalOut += amt;
+      if (!outByCategory[cat]) outByCategory[cat] = { total: 0, count: 0 };
+      outByCategory[cat].total += amt;
+      outByCategory[cat].count++;
+    }
+  });
+
+  /* 2. Current balance per treasury account */
   const balByAcct = {};
   (data.treasury || []).forEach(t => {
-    const acct = t.account || "غير محدد";
+    const acct = (t.account || "").trim() || "غير محدد";
     if (!balByAcct[acct]) balByAcct[acct] = 0;
     if (t.type === "in") balByAcct[acct] += Number(t.amount) || 0;
     else if (t.type === "out") balByAcct[acct] -= Number(t.amount) || 0;
   });
-  const accts = Object.entries(balByAcct).filter(([n, v]) => Math.abs(v) > 1);
+
+  /* Build message */
+  lines.push("💵 *الخزنة*");
+
+  /* Incoming */
+  if (totalIn > 0 || Object.keys(inByCategory).length > 0) {
+    lines.push("");
+    lines.push(`• *محصّلات اليوم:* ${_money(totalIn)}`);
+    /* Sort categories by total desc */
+    Object.entries(inByCategory)
+      .sort((a, b) => b[1].total - a[1].total)
+      .forEach(([cat, v]) => {
+        const cnt = v.count > 1 ? ` (${v.count} عمليات)` : "";
+        lines.push(`   ◦ ${cat}: ${_money(v.total)}${cnt}`);
+      });
+  } else {
+    lines.push("");
+    lines.push("• *محصّلات اليوم:* لا يوجد");
+  }
+
+  /* Outgoing */
+  if (totalOut > 0 || Object.keys(outByCategory).length > 0) {
+    lines.push("");
+    lines.push(`• *مدفوعات اليوم:* ${_money(totalOut)}`);
+    Object.entries(outByCategory)
+      .sort((a, b) => b[1].total - a[1].total)
+      .forEach(([cat, v]) => {
+        const cnt = v.count > 1 ? ` (${v.count} عمليات)` : "";
+        lines.push(`   ◦ ${cat}: ${_money(v.total)}${cnt}`);
+      });
+  } else {
+    lines.push("");
+    lines.push("• *مدفوعات اليوم:* لا يوجد");
+  }
+
+  /* Net of the day */
+  const net = totalIn - totalOut;
+  if (totalIn > 0 || totalOut > 0) {
+    const arrow = net > 0 ? "▲" : net < 0 ? "▼" : "—";
+    lines.push("");
+    lines.push(`• *صافي اليوم:* ${arrow} ${_money(Math.abs(net))}`);
+  }
+
+  /* Current balances */
+  const accts = Object.entries(balByAcct).filter(([, v]) => Math.abs(v) > 1);
   if (accts.length > 0) {
-    lines.push(`• أرصدة الخزنات الحالية:`);
-    accts.forEach(([n, v]) => lines.push(`   ◦ ${n}: ${_fmt(v)} ج`));
+    lines.push("");
+    lines.push("• *أرصدة الخزنة الحالية:*");
+    accts.sort((a, b) => b[1] - a[1]).forEach(([n, v]) =>
+      lines.push(`   ◦ ${n}: ${_money(v)}`)
+    );
+    const totalBal = accts.reduce((s, [, v]) => s + v, 0);
+    if (accts.length > 1) {
+      lines.push(`   ◦ *الإجمالي: ${_money(totalBal)}*`);
+    }
   }
   return lines.join("\n");
 }
@@ -247,15 +303,15 @@ function _alertsSection(data, date, opts) {
   lines.push("⚠️ *تحذيرات*");
   lines.push(`• شيكات تستحق خلال 7 أيام: ${dueChecks.length}`);
   if (dueChecks.length > 0 && dueChecks.length <= 5) {
-    dueChecks.forEach(c => lines.push(`   ◦ ${_fmt(c.amount)} ج — ${c.dueDate || c.date}`));
+    dueChecks.forEach(c => lines.push(`   ◦ ${_money(c.amount)} — ${c.dueDate || c.date}`));
   } else if (dueChecks.length > 5) {
     const sumAmt = dueChecks.reduce((s, c) => s + (Number(c.amount) || 0), 0);
-    lines.push(`   ◦ إجمالي القيمة: ${_fmt(sumAmt)} ج`);
+    lines.push(`   ◦ إجمالي القيمة: ${_money(sumAmt)}`);
   }
   if (stalledCustomers.length > 0) {
-    lines.push(`• عملاء متأخرين على الدفع (رصيد>${_fmt(minBalance)} و >${minDaysNoPay} يوم):`);
+    lines.push(`• عملاء متأخرين على الدفع (رصيد>${_money(minBalance)} و >${minDaysNoPay} يوم):`);
     stalledCustomers.slice(0, 5).forEach(c =>
-      lines.push(`   ◦ ${c.name}: ${_fmt(c.balance)} ج (${c.days} يوم)`)
+      lines.push(`   ◦ ${c.name}: ${_money(c.balance)} (${c.days} يوم)`)
     );
     if (stalledCustomers.length > 5) lines.push(`   ◦ ...و ${stalledCustomers.length - 5} غيرهم`);
   }
@@ -304,9 +360,9 @@ function _comparisonSection(data, date) {
   const arrow = diff > 0 ? "▲" : diff < 0 ? "▼" : "—";
   return [
     "📊 *مقارنة*",
-    `• مبيعات اليوم: ${_fmt(todayV)} ج`,
-    `• نفس اليوم الأسبوع اللي فات: ${_fmt(weekAgoV)} ج`,
-    `• الفرق: ${arrow} ${_fmt(Math.abs(diff))} ج${pct !== null ? ` (${pct >= 0 ? "+" : ""}${pct}%)` : ""}`,
+    `• مبيعات اليوم: ${_money(todayV)}`,
+    `• نفس اليوم الأسبوع اللي فات: ${_money(weekAgoV)}`,
+    `• الفرق: ${arrow} ${_money(Math.abs(diff))}${pct !== null ? ` (${pct >= 0 ? "+" : ""}${pct}%)` : ""}`,
   ].join("\n");
 }
 

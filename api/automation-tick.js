@@ -30,21 +30,37 @@
      - Already sent today → silent skip
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { getDb, readSplitCollection, readPartitionedCollection } from "./_firebase.js";
+import { getDb, readSplitCollection, readPartitionedCollection, verifyAdminToken } from "./_firebase.js";
 import { buildDailyReport } from "../src/utils/automation/buildDailyReport.js";
 
-/* ─── Auth ─── */
-function checkAuth(req) {
-  const expected = (process.env.AUTOMATION_TICK_SECRET || "").trim();
-  if (!expected) {
-    return { ok: false, status: 500, error: "AUTOMATION_TICK_SECRET not set in Vercel env" };
-  }
+/* ─── Auth ──
+   V19.69.2: accepts EITHER:
+     1. AUTOMATION_TICK_SECRET Bearer (cron from VPS)
+     2. Firebase admin ID token Bearer (manual "trigger now" from app)
+   The second path lets admins test the scheduled flow without the cron set up. */
+async function checkAuth(req) {
   const auth = req.headers.authorization || "";
   const match = auth.match(/^Bearer\s+(.+)$/i);
-  if (!match || match[1].trim() !== expected) {
-    return { ok: false, status: 401, error: "Unauthorized" };
+  if (!match) return { ok: false, status: 401, error: "Authorization header missing" };
+  const token = match[1].trim();
+  if (!token) return { ok: false, status: 401, error: "Empty token" };
+
+  /* Path 1: cron secret */
+  const expected = (process.env.AUTOMATION_TICK_SECRET || "").trim();
+  if (expected && token === expected) {
+    return { ok: true, source: "cron" };
   }
-  return { ok: true };
+
+  /* Path 2: Firebase admin/manager token */
+  try {
+    const adminAuth = await verifyAdminToken(token);
+    if (adminAuth.ok) return { ok: true, source: "manual-admin", uid: adminAuth.uid, email: adminAuth.email };
+  } catch (e) { /* fall through */ }
+
+  if (!expected) {
+    return { ok: false, status: 500, error: "AUTOMATION_TICK_SECRET not set in Vercel env (and token is not a valid admin Firebase ID token)" };
+  }
+  return { ok: false, status: 401, error: "Unauthorized" };
 }
 
 /* ─── Cairo time helpers ───
@@ -236,8 +252,9 @@ export default async function handler(req, res) {
   }
 
   /* Auth */
-  const auth = checkAuth(req);
+  const auth = await checkAuth(req);
   if (!auth.ok) return res.status(auth.status).json({ ok: false, error: auth.error });
+  const triggerSource = auth.source || "unknown";/* "cron" or "manual-admin" */
 
   const result = {
     ok: true,
@@ -265,9 +282,13 @@ export default async function handler(req, res) {
       (!r.subscribedReports || r.subscribedReports.includes("dailyReport"))
     );
 
-    /* ── Daily report decision ── */
+    /* ── Daily report decision ──
+       V19.69.2: manual-admin trigger bypasses the time-of-day check (so admins
+       can test the scheduled flow without waiting until 08:00). All other gates
+       still apply (enabled, recipients, already-sent-today) — to prevent dup. */
     let dailyDue = false;
     let dailyReason = "";
+    const isManualTrigger = triggerSource === "manual-admin";
     if (!dailyReport.enabled) {
       dailyReason = "disabled";
     } else if (recipients.length === 0) {
@@ -276,21 +297,17 @@ export default async function handler(req, res) {
       const scheduledMin = timeToMinutes(dailyReport.time || "08:00");
       if (scheduledMin < 0) {
         dailyReason = "invalid-time";
+      } else if (alreadySentToday(dailyReport.lastSentAt, cairo.date)) {
+        dailyReason = "already-sent-today";
+      } else if (!isManualTrigger && cairo.minutesOfDay < scheduledMin) {
+        /* Time check only applies to cron triggers. Manual-admin bypass it. */
+        dailyReason = "before-scheduled";
       } else {
-        /* Window: now must be >= scheduledMin AND we haven't sent today yet.
-           Using >= (not exact match) so missed ticks (server downtime) still
-           catch up later in the day, e.g. scheduled 08:00 but cron came up at
-           08:14 — the 08:14 tick still triggers the send. */
-        if (cairo.minutesOfDay < scheduledMin) {
-          dailyReason = "before-scheduled";
-        } else if (alreadySentToday(dailyReport.lastSentAt, cairo.date)) {
-          dailyReason = "already-sent-today";
-        } else {
-          dailyDue = true;
-        }
+        dailyDue = true;
+        if (isManualTrigger) dailyReason = "manual-trigger";
       }
     }
-    result.actions.push({ type: "dailyReport", due: dailyDue, reason: dailyReason });
+    result.actions.push({ type: "dailyReport", due: dailyDue, reason: dailyReason, triggerSource });
 
     /* ── Execute due actions ── */
     if (dailyDue) {
@@ -315,11 +332,11 @@ export default async function handler(req, res) {
           id: "tick_" + Date.now().toString(36),
           at: new Date().toISOString(),
           type: "dailyReport",
-          source: "scheduled",
+          source: triggerSource === "manual-admin" ? "manual-trigger" : "scheduled",
           recipientCount: messages.length,
           accepted: sendResult?.queued || sendResult?.accepted || messages.length,
           success: true,
-          by: "cron",
+          by: triggerSource === "manual-admin" ? (auth.email || "admin") : "cron",
           cairoTime: result.cairoTime,
         });
         result.actions[result.actions.length - 1].sent = messages.length;
@@ -331,11 +348,11 @@ export default async function handler(req, res) {
             id: "tick_" + Date.now().toString(36),
             at: new Date().toISOString(),
             type: "dailyReport",
-            source: "scheduled",
+            source: triggerSource === "manual-admin" ? "manual-trigger" : "scheduled",
             recipientCount: recipients.length,
             success: false,
             error: errMsg,
-            by: "cron",
+            by: triggerSource === "manual-admin" ? (auth.email || "admin") : "cron",
             cairoTime: result.cairoTime,
           });
         } catch (_) {}

@@ -25,6 +25,33 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.69.2",
+    date: "2026-05-05",
+    types: ["fix", "feature", "ux"],
+    title: "🔄 Trigger Now button + manual-test ميـblockش الـschedule + inline cron setup",
+    changes: [
+      { type: "fix", text: "🐛 [الـCRITICAL: 'ارسل تجربة' كان يـblock الـschedule بقية اليوم] قبل V19.69.2 الـmanual test كان يـ-set `dailyReport.lastSentAt`. الـcron's `alreadySentToday()` يقرأ ده ويـskip. النتيجة: لو ضربت 'ارسل تجربة' الصبح، الـschedule ميـ-fireش لنهاية اليوم. **الـFix**: الـmanual test دلوقتي يـset `lastManualTestAt` (display only)، الـ`lastSentAt` reserved للـscheduled/triggered sends اللي تعد كـ'sent today'." },
+      { type: "feature", text: "🔄 [زر جديد: 'شغّل الـscheduler الآن'] يـcall `/api/automation-tick` بـFirebase admin ID token (الـendpoint بقى يقبل الاثنين: cron secret OR admin token). الـuser يقدر يـtest الـfull scheduled flow (auth + report build + bridge + history) **بدون ما يـsetup الـVPS cron الأول**. الـmanual-admin path يـ-bypass الـtime-of-day check (تقدر تجرب أي وقت)، لكن يـrespect 'already sent today' و 'enabled' و 'recipients'." },
+      { type: "ux", text: "📋 [Inline cron setup مع copy buttons] قبل V19.69.2 الـwarning panel كان بيقول 'راجع docs/V19.69.md' فقط — friction كبير. دلوقتي الـwarning expandable panel فيها: (1) الـVercel env steps، (2) crontab line مع origin pre-filled من window.location، (3) test curl، (4) copy buttons (📋) لكل code snippet. الـuser ينسخ يـpaste مرة واحدة." },
+      { type: "ux", text: "📊 ['آخر إرسال' بقى منفصل: تلقائي vs تجربة] قبل V19.69.2 'آخر إرسال' field واحد — مش واضح إذا كان scheduled أو manual. دلوقتي line تفصيلي: 'تلقائي/scheduler: ...' + 'تجربة يدوية: ...'. الـuser يعرف بالظبط أيهم اتعمل." },
+      { type: "fix", text: "🛡️ [Auth: endpoint يقبل cron secret أو admin token] `checkAuth()` في `automation-tick.js` يحاول الـsecret أولاً (cron path). لو فشل، يجرب يـverify الـtoken كـFirebase admin ID token. لو الاثنين فشلوا → 401. ده يفصل الـcron flow (machine-to-machine) عن الـmanual trigger flow (user-initiated)." },
+    ]
+  },
+  {
+    version: "V19.69.1",
+    date: "2026-05-05",
+    types: ["fix", "ux"],
+    title: "📊 Daily Report — treasury من المصدر الصحيح + dynamic categories + ج.م",
+    changes: [
+      { type: "fix", text: "🐛 [الـBugfix الجوهري: treasury section كان under-counting] قبل V19.69.1 الـreport كان يـquery `data.custPayments`/`wsPayments`/`supplierPayments`/`hrLog` مع `_dayItems(date)` filter. ده كان بيـmiss أي حركة في `data.treasury` مش متربوطة بـpayment record (manual entries، transfers، corrections). الـuser شاف 'مرتبات: 140' (لأن hrLog عنده match) لكن باقي البنود 0 — رغم إن الرصيد الفعلي اتغير. **الـFix**: نـiterate `data.treasury` مباشرة (الـsingle source of truth) ونـgroup by `category`. الـreport دلوقتي يعرض كل category عملت حركة فعلية اليوم — مش fixed cash/transfer/checks columns." },
+      { type: "ux", text: "💰 [Dynamic categories بدلاً من 3 fixed buckets] قبل: 'كاش / تحويلات / شيكات' (3 buckets ثابتة، باقي الـmovements مخفية). بعد: كل category موجودة فعلياً في الـtreasury entries (دفعة عميل، تحصيل شيك، دفعة مورد، دفعة ورشة، مرتب، سلفة، مصروف عام، تحويل داخلي، إلخ) تطلع كـlines منفصلة مرتبة بالقيمة. الـreport بقى truthful." },
+      { type: "ux", text: "📊 [إضافة 'صافي اليوم' (in - out)] لو في حركات اليوم، يطلع سطر إضافي ▲/▼ بصافي الفرق. مفيد لمعرفة الـoverall direction (يوم محصل أكتر من اللي صارف، أو العكس)." },
+      { type: "ux", text: "💵 [Currency standardization: 'ج' → 'ج.م'] الـuser فضّل الـabbreviation الكامل لـ'جنيه مصري'. كل الـmonetary values في الـreport (مبيعات، مشتريات، خزنة، تحذيرات، مقارنة) دلوقتي بـ'ج.م' uniform." },
+      { type: "ux", text: "🎨 [Spacing بين الـsubsections] سطر فارغ بين 'محصلات اليوم' / 'مدفوعات اليوم' / 'صافي اليوم' / 'أرصدة الخزنة الحالية' — readability أحسن في WhatsApp." },
+      { type: "ux", text: "💡 [إضافة count لو عمليات متعددة] لو category عنده >1 transaction اليوم (e.g. 3 دفعات عميل)، يظهر '(3 عمليات)' بعد الـtotal — يدل على إن في detail محتاج transparency." },
+    ]
+  },
+  {
     version: "V19.69",
     date: "2026-05-05",
     types: ["feature", "automation"],

@@ -184,6 +184,51 @@ export function AutomationPg({ data, upConfig, isMob, user }){
     }
   };
 
+  /* V19.69.2: Manually trigger the scheduler endpoint with the current admin's
+     Firebase ID token. The endpoint (`/api/automation-tick`) accepts both the
+     cron secret and an admin ID token (manual-admin source). This lets the user
+     test the full scheduled flow (auth + report build + bridge + history) without
+     setting up the VPS cron first. */
+  const onTriggerScheduler = async () => {
+    if (!user || typeof user.getIdToken !== "function") {
+      showToast("⛔ المستخدم غير مسجل دخول");
+      return;
+    }
+    setBusy(true);
+    try {
+      const idToken = await user.getIdToken();
+      const r = await fetch("/api/automation-tick", {
+        method: "GET",
+        headers: { "Authorization": "Bearer " + idToken },
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        showToast("⛔ فشل: " + (data?.error || "HTTP " + r.status));
+        setBusy(false);
+        return;
+      }
+      const action = (data?.actions || [])[0];
+      if (!action) {
+        showToast("⚠️ لم يحدث شيء");
+      } else if (action.due) {
+        showToast("✓ تم تنفيذ الـscheduler — " + (action.sent || 0) + " مستلم");
+      } else {
+        const reasons = {
+          "disabled": "التقرير اليومي متوقف",
+          "no-recipients": "مفيش مستلمين",
+          "before-scheduled": "قبل الموعد المحدد",
+          "already-sent-today": "تم إرساله اليوم بالفعل",
+          "invalid-time": "وقت غير صالح",
+        };
+        showToast("⏭ skipped: " + (reasons[action.reason] || action.reason));
+      }
+    } catch (e) {
+      showToast("⛔ خطأ: " + (e.message || ""));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   /* Manual "Send Test Now" — sends to all subscribed recipients via the bridge */
   const onSendTest = async () => {
     if (!bridgeUrl) {
@@ -219,15 +264,20 @@ export function AutomationPg({ data, upConfig, isMob, user }){
           id: gid(),
           at: new Date().toISOString(),
           type: "dailyReport",
-          source: "manual",
+          source: "manual-test",/* V19.69.2: was "manual" */
           recipientCount: messages.length,
           accepted,
           success: true,
           by: userEmail,
         });
         a.history = a.history.slice(0, 50);
+        /* V19.69.2 BUGFIX: don't touch `lastSentAt` here. The cron's
+           `alreadySentToday()` check uses lastSentAt to skip duplicate scheduled
+           sends. Pre-V19.69.2 a manual test in the morning blocked the scheduled
+           send for the rest of the day. Now manual tests are display-only via
+           `lastManualTestAt`. */
         if (!a.dailyReport) a.dailyReport = { ...DEFAULT_AUTOMATION_CONFIG.dailyReport };
-        a.dailyReport.lastSentAt = new Date().toISOString();
+        a.dailyReport.lastManualTestAt = new Date().toISOString();
       });
       showToast("✓ تم إرسال التقرير لـ" + accepted + " مستلم");
     } catch(e){
@@ -319,10 +369,25 @@ export function AutomationPg({ data, upConfig, isMob, user }){
             آخر إرسال
           </label>
           <div style={{padding:"10px 14px", borderRadius:10, background:T.bg,
-            border:"1px solid "+T.brd, fontSize:FS-1, color:T.textSec, fontFamily:"monospace"}}>
-            {dailyReport.lastSentAt
-              ? new Date(dailyReport.lastSentAt).toLocaleString("ar-EG")
-              : "—"}
+            border:"1px solid "+T.brd, fontSize:FS-2, color:T.textSec}}>
+            {/* V19.69.2: show scheduled send + manual test separately so the user
+                knows which counts toward "already sent today" idempotency. */}
+            <div>
+              <span style={{color:T.textMut}}>تلقائي/scheduler: </span>
+              <span style={{fontFamily:"monospace", color:T.text}}>
+                {dailyReport.lastSentAt
+                  ? new Date(dailyReport.lastSentAt).toLocaleString("ar-EG")
+                  : "—"}
+              </span>
+            </div>
+            <div style={{marginTop:4}}>
+              <span style={{color:T.textMut}}>تجربة يدوية: </span>
+              <span style={{fontFamily:"monospace", color:T.text}}>
+                {dailyReport.lastManualTestAt
+                  ? new Date(dailyReport.lastManualTestAt).toLocaleString("ar-EG")
+                  : "—"}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -380,7 +445,16 @@ export function AutomationPg({ data, upConfig, isMob, user }){
         <Btn ghost onClick={onPreview}>👁 معاينة الرسالة</Btn>
         <Btn primary onClick={onSendTest} disabled={busy}
           style={{background:T.ok, color:"#fff", border:"none", fontWeight:800}}>
-          {busy ? "⏳ جاري الإرسال..." : "📤 ارسل تجربة الآن"}
+          {busy ? "⏳ جاري الإرسال..." : "📤 ارسل تجربة (مباشر)"}
+        </Btn>
+        {/* V19.69.2: trigger the scheduler via /api/automation-tick using the
+            current admin's Firebase ID token. Lets the user test the FULL flow
+            (auth + endpoint + report build + bridge + history) without waiting
+            for the VPS cron tick. After a successful run, marks lastSentAt so
+            the cron won't send a duplicate today. */}
+        <Btn onClick={() => onTriggerScheduler()} disabled={busy}
+          style={{background:T.accent, color:"#fff", border:"none", fontWeight:800}}>
+          {busy ? "⏳..." : "🔄 شغّل الـscheduler الآن"}
         </Btn>
         <div style={{flex:1}}/>
         <div style={{fontSize:FS-2, color:T.textMut, alignSelf:"center"}}>
@@ -578,8 +652,81 @@ function CronStatusPanel({ automation, dailyReport }){
         المنطقة الزمنية: Africa/Cairo (UTC+2)
       </div>
     </div>
-    {!cronAlive && <div style={{marginTop:10, padding:"8px 10px", background:T.warn+"15", border:"1px solid "+T.warn+"40", borderRadius:6, fontSize:FS-2, color:T.warn}}>
-      ⚠️ الـcron مش بيـping. راجع <b>docs/V19.69.md</b> لإعداد crontab على الـVPS.
+    {!cronAlive && <CronSetupHelper />}
+  </div>;
+}
+
+/* V19.69.2: inline setup commands ready-to-copy for the VPS cron.
+   Pre-V19.69.2 we just pointed users to docs/V19.69.md — too friction.
+   Now the panel shows the exact crontab line with the correct domain
+   pre-filled (from window.location.origin), so the user copies once. */
+function CronSetupHelper(){
+  const [showSetup, setShowSetup] = useState(false);
+  const origin = (typeof window !== "undefined") ? window.location.origin : "https://your-app.vercel.app";
+  const cronLine = `*/5 * * * * curl -fsS "${origin}/api/automation-tick" -H "Authorization: Bearer YOUR_SECRET" >> /var/log/clark-automation.log 2>&1`;
+  const testLine = `curl -v "${origin}/api/automation-tick" -H "Authorization: Bearer YOUR_SECRET"`;
+  const copy = (txt) => {
+    if (navigator?.clipboard) {
+      navigator.clipboard.writeText(txt).then(() => showToast("✓ تم النسخ")).catch(() => showToast("⛔ النسخ فشل"));
+    }
+  };
+  return <div style={{marginTop:10}}>
+    <div onClick={() => setShowSetup(!showSetup)} style={{
+      cursor:"pointer", padding:"8px 12px", background:T.warn+"15", border:"1px solid "+T.warn+"40",
+      borderRadius:8, fontSize:FS-2, color:T.warn, fontWeight:700,
+      display:"flex", justifyContent:"space-between", alignItems:"center",
+    }}>
+      <span>⚠️ الـcron مش بيـping. اضغط لعرض خطوات الـsetup</span>
+      <span>{showSetup ? "▴" : "▾"}</span>
+    </div>
+    {showSetup && <div style={{
+      marginTop:8, padding:"12px 14px", background:T.cardSolid,
+      border:"1px solid "+T.brd, borderRadius:8, fontSize:FS-2, color:T.text, lineHeight:1.7,
+    }}>
+      <div style={{fontWeight:800, marginBottom:6, fontSize:FS-1, color:T.accent}}>
+        الإعداد على VPS الـContabo (مرة واحدة)
+      </div>
+
+      <div style={{marginTop:10, fontWeight:700, color:T.text}}>1️⃣ إضافة الـsecret في Vercel</div>
+      <div style={{padding:"6px 10px", background:T.bg, borderRadius:6, fontSize:FS-3, color:T.textSec, marginTop:4}}>
+        Vercel Dashboard → Project → Settings → Environment Variables
+        <br/>Name: <code style={{background:T.cardSolid, padding:"1px 5px", borderRadius:3}}>AUTOMATION_TICK_SECRET</code>
+        <br/>Value: random 32-char string (e.g. <code style={{background:T.cardSolid, padding:"1px 5px", borderRadius:3}}>XK7p9mQ2nL5vR8sT1wY4cE6gA3bF0hJ9</code>)
+        <br/>ثم Redeploy
+      </div>
+
+      <div style={{marginTop:10, fontWeight:700, color:T.text}}>2️⃣ SSH للـVPS و إضافة crontab</div>
+      <div style={{padding:"8px 10px", background:"#0d1117", color:"#e6edf3",
+        borderRadius:6, fontSize:FS-3, fontFamily:"monospace", direction:"ltr",
+        position:"relative", marginTop:4, wordBreak:"break-all", whiteSpace:"pre-wrap"}}>
+        <span onClick={() => copy("crontab -e")} style={{position:"absolute", top:6, left:6, cursor:"pointer", padding:"2px 8px", background:"#fff2", borderRadius:4, fontSize:FS-3, color:"#fff"}}>📋</span>
+        crontab -e
+      </div>
+      <div style={{padding:"8px 10px", background:"#0d1117", color:"#e6edf3",
+        borderRadius:6, fontSize:FS-3, fontFamily:"monospace", direction:"ltr",
+        position:"relative", marginTop:4, wordBreak:"break-all", whiteSpace:"pre-wrap"}}>
+        <span onClick={() => copy(cronLine)} style={{position:"absolute", top:6, left:6, cursor:"pointer", padding:"2px 8px", background:"#fff2", borderRadius:4, fontSize:FS-3, color:"#fff"}}>📋</span>
+        {cronLine}
+      </div>
+      <div style={{fontSize:FS-3, color:T.textMut, marginTop:4}}>
+        ⚠️ استبدل <code>YOUR_SECRET</code> بالـsecret اللي حطيته في Vercel.
+      </div>
+
+      <div style={{marginTop:10, fontWeight:700, color:T.text}}>3️⃣ اختبار يدوي قبل الـcron</div>
+      <div style={{padding:"8px 10px", background:"#0d1117", color:"#e6edf3",
+        borderRadius:6, fontSize:FS-3, fontFamily:"monospace", direction:"ltr",
+        position:"relative", marginTop:4, wordBreak:"break-all", whiteSpace:"pre-wrap"}}>
+        <span onClick={() => copy(testLine)} style={{position:"absolute", top:6, left:6, cursor:"pointer", padding:"2px 8px", background:"#fff2", borderRadius:4, fontSize:FS-3, color:"#fff"}}>📋</span>
+        {testLine}
+      </div>
+      <div style={{fontSize:FS-3, color:T.textMut, marginTop:4}}>
+        ✅ يفترض يرجع JSON بـ<code>{"{"}ok:true,cairoTime:"..."{"}"}</code>
+        <br/>❌ 401 = الـsecret غلط · 500 = الـsecret مش set في Vercel
+      </div>
+
+      <div style={{marginTop:10, padding:"6px 10px", background:T.accent+"08", borderRadius:6, fontSize:FS-3, color:T.text}}>
+        💡 <b>اختبار سريع بدون cron:</b> اضغط <b>"🔄 شغّل الـscheduler الآن"</b> — يـcall نفس الـendpoint بـFirebase admin token (مش محتاج secret لو عندك صلاحية admin/manager).
+      </div>
     </div>}
   </div>;
 }
