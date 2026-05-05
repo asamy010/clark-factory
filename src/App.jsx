@@ -2572,12 +2572,19 @@ export default function App(){
         }
         return all;
       };
-      /* V19.49: build splitData dynamically for ALL split fields */
-      const nextSplit={};
-      for(const f of SPLIT_FIELDS){
-        nextSplit[f]=flatten(dayDocs[f],pendingSplitWritesRef.current[f]||new Map());
-      }
-      setSplitData(nextSplit);
+      /* V19.49 + V19.60 BUGFIX: only update fields whose listener fired (see
+         partitioned rebuild for the full reasoning). Without this, a single
+         listener fire would wipe other fields back to [] until they fire too —
+         visible briefly during boot, plus permanently if any listener stalls. */
+      setSplitData(prev=>{
+        const next={...prev};
+        for(const f of SPLIT_FIELDS){
+          if(firstFires[f]){
+            next[f]=flatten(dayDocs[f],pendingSplitWritesRef.current[f]||new Map());
+          }
+        }
+        return next;
+      });
       /* mark loaded after first round trip from ALL collections */
       if(SPLIT_FIELDS.every(f=>firstFires[f])){
         setSplitLoaded(true);
@@ -2651,11 +2658,16 @@ export default function App(){
         }
         return all;
       };
-      const next={};
-      for(const f of SALES_SPLIT_FIELDS){
-        next[f]=flatten(dayDocs[f],pendingSalesSplitWritesRef.current[f]||new Map());
-      }
-      setSalesSplitData(next);
+      /* V19.60 BUGFIX: same field-isolated rebuild (see partitioned rebuild). */
+      setSalesSplitData(prev=>{
+        const next={...prev};
+        for(const f of SALES_SPLIT_FIELDS){
+          if(firstFires[f]){
+            next[f]=flatten(dayDocs[f],pendingSalesSplitWritesRef.current[f]||new Map());
+          }
+        }
+        return next;
+      });
       if(SALES_SPLIT_FIELDS.every(f=>firstFires[f]))setSalesSplitLoaded(true);
     };
     const subscribeCol=(field,collName)=>{
@@ -2720,11 +2732,16 @@ export default function App(){
         }
         return all;
       };
-      const next={};
-      for(const f of TASKS_SPLIT_FIELDS){
-        next[f]=flatten(dayDocs[f],pendingTasksSplitWritesRef.current[f]||new Map());
-      }
-      setTasksSplitData(next);
+      /* V19.60 BUGFIX: same field-isolated rebuild (see partitioned rebuild). */
+      setTasksSplitData(prev=>{
+        const next={...prev};
+        for(const f of TASKS_SPLIT_FIELDS){
+          if(firstFires[f]){
+            next[f]=flatten(dayDocs[f],pendingTasksSplitWritesRef.current[f]||new Map());
+          }
+        }
+        return next;
+      });
       if(TASKS_SPLIT_FIELDS.every(f=>firstFires[f]))setTasksSplitLoaded(true);
     };
     const subscribeCol=(field,collName)=>{
@@ -2822,12 +2839,27 @@ export default function App(){
         all.sort((a,b)=>String(a.id||"").localeCompare(String(b.id||"")));
         return all;
       };
-      /* V19.57: build partitionedData dynamically across ALL partitioned fields */
-      const next={};
-      for(const f of PARTITIONED_FIELDS){
-        next[f]=flatten(docsById[f],pendingPartitionedWritesRef.current[f]||new Map());
-      }
-      setPartitionedData(next);
+      /* V19.57 + V19.60 BUGFIX: only update fields whose listener has fired at
+         least once. Pre-V19.60 the rebuild rewrote ALL fields on every listener
+         fire — fields whose listener hadn't fired yet got `[]` from the empty
+         docsById Map, which OVERWROTE the localStorage-hydrated cache. Visible
+         bug: V19.59 hydrated partitionedData from cache (35 customers) on mount,
+         then the first listener fire (e.g. workshops) wiped customers back to []
+         until the customers listener happened to fire. After a sale, the
+         partitionedDataRef snapshot also captured the wiped state, propagating
+         empty customers into newPart and then back into setPartitionedData,
+         persisting the empty list. Fix: keep prev[f] for fields where
+         firstFires[f] is still false. */
+      setPartitionedData(prev=>{
+        const next={...prev};
+        for(const f of PARTITIONED_FIELDS){
+          if(firstFires[f]){
+            next[f]=flatten(docsById[f],pendingPartitionedWritesRef.current[f]||new Map());
+          }
+          /* else: keep prev[f] (cache from localStorage or last good value) */
+        }
+        return next;
+      });
       /* mark loaded after first round trip from EVERY collection */
       if(PARTITIONED_FIELDS.every(f=>firstFires[f])){
         setPartitionedLoaded(true);

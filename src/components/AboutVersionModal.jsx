@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.60",
+    date: "2026-05-04",
+    types: ["fix", "hotfix"],
+    title: "🚨 إصلاح جذري: العملاء يختفوا بعد البيع — Field-isolated rebuild",
+    changes: [
+      { type: "fix", text: "🚨 [HOTFIX حرج: السبب الجذري الحقيقي لاختفاء العملاء] V19.59 صلح بداية المشكلة (شيل partitionedLoaded gate + hydrate من localStorage). لكن المستخدم لاحظ: بعد البيع السريع → العملاء تختفي تاني. السبب الجذري الحقيقي: `rebuild()` كان بيـrewrite **كل الـfields** في كل listener fire. لو workshops listener fire الأول → `setPartitionedData({customers:[], workshops:[...], ...})` — بيمسح الـcustomers cache الكاش (لأن docsById.customers لسه Map فاضي). الـ ref بيتـupdate بالقيمة الفاضية → لما المستخدم يعمل بيع، `explicitPartBefore.customers = []` → `newPart.customers = []` → `setPartitionedData(newPart)` يثبّت الفراغ. القائمة تختفي بعد البيع لأن البيع نفسه استخدم الـref اللي اتحدث بفراغ من الـboot." },
+      { type: "fix", text: "🛠️ [الإصلاح: Field-isolated rebuild] دلوقتي rebuild يحدّث الـfields اللي listener بتاعها fired فعلاً (`firstFires[f] === true`). الـfields اللي listener بتاعها لسه ما اشتغلش — يحتفظوا بقيمتهم السابقة (من الـlocalStorage cache أو last-good value). يعني لو workshops listener fired أول، customers يفضلوا 35 من الـcache، مش يتمسحوا. لما customers listener نفسه يـfire، وقتها firstFires.customers يصبح true → يتحدّث بالـfresh data من السيرفر. **خلاص مفيش race يفضي الـcache صامتاً.**" },
+      { type: "fix", text: "🔄 [طُبّق الإصلاح على 4 rebuild functions] نفس الـbug pattern في 4 listeners: split (config splits)، sales-split (V19.51)، tasks-split (V19.51)، partitioned (master data V19.57). الـ4 كلهم اتعدّلوا — `setX(prev => {...})` بدل `setX(next)` — يحفظ الـfields غير الـfired. partitionedData هو الوحيد اللي فيه cache من localStorage فبيـUSER يحس بالفرق هناك، لكن باقي الـ3 برضه أصح كده architecturally." },
+      { type: "fix", text: "🛡️ [Why V19.59 lone gate-removal لم يكن كافي] V19.59 شيل الـ`partitionedLoaded` gate من الـuseMemo. يعني الـmerge بيحصل حتى لو listeners ما اتحملوش. بس **partitionedData نفسها** كانت بتتحط بقيم فاضية بسبب الـrebuild — فالـmerge كان بيستخدم empty arrays من state ولفترة معينة. V19.60 يصلح المصدر: state نفسها بتفضل عامرة بالـcache لحد ما الـlistener فعلاً ييجي بـdata." },
+    ]
+  },
+  {
     version: "V19.59",
     date: "2026-05-04",
     types: ["fix", "hotfix"],
