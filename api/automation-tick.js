@@ -1,9 +1,10 @@
 /* ═══════════════════════════════════════════════════════════════════════
    CLARK Automation · Cron Tick Endpoint (V19.69)
    ───────────────────────────────────────────────────────────────────────
-   Called by VPS crontab every 5 minutes:
-     */5 * * * * curl -fsS https://app.../api/automation-tick \
-                      -H "Authorization: Bearer $AUTOMATION_TICK_SECRET"
+   Called by VPS crontab every 5 minutes — see docs/V19.69.md for the
+   exact crontab line. (NOTE: don't paste the literal cron pattern here;
+   the slash-star sequence terminates this block comment and breaks
+   Node's ESM parser. Bug found V19.69.4.)
 
    On each tick:
      1. Verify shared-secret bearer token (env: AUTOMATION_TICK_SECRET)
