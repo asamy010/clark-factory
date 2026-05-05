@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.62",
+    date: "2026-05-05",
+    types: ["fix", "hotfix", "rootcause"],
+    title: "🎯 الـRoot Cause الحقيقي: explicitPartBefore كان hardcoded على hrWeeks فقط",
+    changes: [
+      { type: "fix", text: "🎯 [الـsmoking gun الحقيقي — موجود من V19.57] V19.59/60/61 كانوا تشخيصات جزئية لـsymptoms (merge gate / listener wipe / ref race / error wipe). كل round كان بيـpatch victim مختلف لنفس الـupstream wipe. السبب الفعلي: في `upConfig` الـsnapshot قبل الـmutation كان مكتوب `const explicitPartBefore = {hrWeeks:[...]};` — hardcoded على hrWeeks فقط من V16.75. لما V19.57 ضافت 8 master collections (customers, suppliers, workshops, employees, empDebts, generalProducts, fabrics, accessories)، السطر ده **ما اتحدّثش**. الـtwin patterns في `upConfigTx` (line 3030) و `explicitSplitBefore` (line 3226) و `explicitSalesSplitBefore` (line 3493) كلهم `Object.fromEntries(FIELDS.map(...))` — dynamic. partitioned فقط نُسي." },
+      { type: "fix", text: "🔬 [الـCausal chain خطوة-بخطوة] (1) user يأكد بيع → upConfig يتنادى. (2) `explicitPartBefore = {hrWeeks: [...]}` ← مفيش customers. (3) hydration loop: `next[customers] = explicitPartBefore.customers || [] = []`. (4) fn(next) ميـلمسش customers (هي بيع، مش customer edit) → next.customers يفضل []. (5) `newPart.customers = []`. (6) `setPartitionedData(newPart)` يمسح state.customers. (7) `partitionedDataRef.current = newPart` يمسح الـref. (8) القائمة تختفي في الـUI. الـFirestore data بقى سليم لأن `syncAllPartitionedChanges` بيـshort-circuit لو الـbefore و after الاتنين فاضيين — عشان كده hard refresh يرجع البيانات (الـlistener يـfire من Firestore cache)، لكن أي بيع تاني = wipe تاني." },
+      { type: "fix", text: "✅ [الـFix الجوهري — سطر واحد] غيّرت `explicitPartBefore` ليبقى dynamic over `PARTITIONED_FIELDS` (نفس الـpattern في explicitSplitBefore). دلوقتي كل master fields بتـsnapshot صح قبل الـmutation. fn(next) يـrun على الـreal data. newPart يحتفظ بالـcustomers. setPartitionedData ميمسحش حاجة." },
+      { type: "fix", text: "🛡️ [Defensive guard ضد regressions مستقبلية] ضافت safety check في upConfig: لو write حاول يمسح ≥5 master-data items من field واحد لـ0، الـwrite يتمنع + console.error مع stack trace + toast واضح للـuser. ده يمنع نفس النوع من الـbugs (hardcoded snapshots عند إضافة fields جديدة) من الـsilent escalation. threshold ≥5 آمن — single edits و small batches بتعدي." },
+      { type: "fix", text: "📐 [الـlessons learned] الـbug ده كان hidden 4 versions. كل تشخيص كان بيشوف symptom جزئي (listener fire wipes, error handler wipes, ref race) — تشخيصات صحيحة لكن لـvictims مش لـsource. الـsource كان في الـsale write path نفسه. الـdiagnostic test الحاسم: ابحث عن **كل** الـsetState calls على partitionedData (طلع 2 — listener rebuild + upConfig). الـlistener rebuild اتحمى في V19.60+V19.61. الـupConfig كان مكشوف. الدرس: قبل ما تـmutate state، تأكد الـsnapshot بتاعك كامل." },
+    ]
+  },
+  {
     version: "V19.61",
     date: "2026-05-04",
     types: ["fix", "hotfix"],

@@ -3226,9 +3226,25 @@ export default function App(){
     const explicitSplitBefore=Object.fromEntries(
       SPLIT_FIELDS.map(f=>[f,[...(splitDataRef.current[f]||[])]])
     );
-    const explicitPartBefore={
-      hrWeeks:[...(partitionedDataRef.current.hrWeeks||[])],
-    };
+    /* V19.62 ROOT-CAUSE FIX: dynamic snapshot of ALL partitioned fields.
+       Pre-V19.62 this was hardcoded to {hrWeeks: [...]} — a leftover from V16.75
+       when only hrWeeks was partitioned. V19.57 added 8 master-data fields
+       (customers, suppliers, workshops, employees, empDebts, generalProducts,
+       fabrics, accessories) but THIS line was never updated. The hydration loop
+       below reads explicitPartBefore[customers] = undefined → falls back to [],
+       so next.customers = [] before fn(next) runs. fn (e.g. confirm-sale) does
+       not touch customers, so newPart.customers = [], setPartitionedData(newPart)
+       wipes state, and partitionedDataRef.current = newPart wipes the ref.
+       The Firestore docs survive (syncAllPartitionedChanges short-circuits when
+       both arrays are empty) — but the local React state and localStorage
+       snapshot are wiped, producing the "العملاء (0)" report. V19.59/60/61 each
+       fixed a downstream symptom (merge gate / listener rebuild / ref race +
+       error wipe) but the upstream wipe in upConfig kept re-injecting the bug
+       on every sale. Same dynamic pattern as upConfigTx fallback (line ~3030)
+       and explicitSplitBefore above. */
+    const explicitPartBefore=Object.fromEntries(
+      PARTITIONED_FIELDS.map(f=>[f,[...(partitionedDataRef.current[f]||[])]])
+    );
     /* V16.80 FIX #6: Compute the next state OUTSIDE setState callback.
        The previous code put fn() and side-effects (setSplitData, splitDataRef.current=)
        INSIDE setConfigDoc(prev=>...). React Strict Mode runs callbacks twice for purity
@@ -3337,6 +3353,32 @@ export default function App(){
     }catch(e){
       console.error("[upConfig] fn threw, aborting optimistic update:",e);
       return;
+    }
+    /* V19.62 SAFETY NET: detect mass wipe of partitioned master-data fields.
+       Pre-V19.62 (V19.57 → V19.61) the explicitPartBefore-only-has-hrWeeks bug
+       caused EVERY sale to wipe customers/suppliers/etc. to []. The downstream
+       symptoms (empty lists after sale, returns after refresh) were chased
+       across 3 patch versions without isolating this upstream wipe.
+       This guard makes any future regression of the same shape SELF-DIAGNOSING:
+       if a write would erase ≥5 master-data items in a single call (and no
+       items remain), we refuse, log a forensic record, and toast the user.
+       Threshold ≥5 is high enough to never catch single-item edits or small
+       legitimate batches; mass-delete UI does not exist in the app today, so
+       a hit on this guard is almost certainly a bug. */
+    if(newPart){
+      const wipes=[];
+      for(const f of PARTITIONED_FIELDS_V1957){
+        const before=(partitionedDataRef.current[f]||[]).length;
+        const after=(newPart[f]||[]).length;
+        if(before>=5&&after===0)wipes.push(`${f}: ${before} → 0`);
+      }
+      if(wipes.length>0){
+        console.error("[V19.62 BLOCKED] Refusing partitioned master-data wipe:",wipes,
+          "\nexplicitPartBefore keys:",Object.keys(explicitPartBefore),
+          "\npartitionedDataRef snapshot counts:",Object.fromEntries(PARTITIONED_FIELDS.map(f=>[f,(partitionedDataRef.current[f]||[]).length])));
+        showToast("⛔ تم منع تعديل خطير: ممكن يمسح بيانات master ("+wipes.join("، ")+"). اتصل بالدعم لو محتاج العملية دي فعلاً.");
+        return;
+      }
     }
     /* Apply state updates (each runs exactly once, even in Strict Mode) */
     setConfigDoc(stripped);
