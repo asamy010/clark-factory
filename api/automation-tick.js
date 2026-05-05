@@ -252,6 +252,81 @@ async function updateTickHeartbeat(db) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   V19.70.2: Helpers for event scans
+   ─────────────────────────────────────────────────────────────────────── */
+
+/* Auto-set enabledAt = now if it's missing on an enabled event.
+   Used for backward compat: events enabled in V19.70/V19.70.1 don't have
+   enabledAt set. First scan after V19.70.2 sets it = now and skips that
+   tick (so we don't fire historical events in the upgrade). */
+async function ensureEnabledAt(db, eventType, currentEnabledAt){
+  if (currentEnabledAt) return { enabledAt: currentEnabledAt, justSet: false };
+  const ref = db.collection("factory").doc("config");
+  const now = new Date().toISOString();
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const c = snap.exists ? snap.data() : {};
+    const auto = c.automation || {};
+    const et = auto.eventTriggers || {};
+    if (!et.events) et.events = {};
+    if (!et.events[eventType]) et.events[eventType] = {};
+    if (!et.events[eventType].enabledAt) {
+      et.events[eventType].enabledAt = now;
+      auto.eventTriggers = et;
+      tx.set(ref, { automation: auto }, { merge: true });
+    }
+  });
+  return { enabledAt: now, justSet: true };
+}
+
+/* Compute current balance per customer from orders + payments.
+   Formula matches `_alertsSection` in buildDailyReport.js:
+     balance = Σ(deliveries × price) − Σ(returns × price) − Σ(payments)
+   Returns: { custId: number } */
+function computeCustomerBalances(orders, payments){
+  const balances = {};
+  for (const o of orders || []) {
+    for (const d of (o.customerDeliveries || [])) {
+      if (!d.custId) continue;
+      const price = Number(d.price) || Number(o.sellPrice) || 0;
+      const qty = Number(d.qty) || 0;
+      balances[d.custId] = (balances[d.custId] || 0) + qty * price;
+    }
+    for (const r of (o.customerReturns || [])) {
+      if (!r.custId) continue;
+      const price = Number(r.price) || Number(o.sellPrice) || 0;
+      const qty = Number(r.qty) || 0;
+      balances[r.custId] = (balances[r.custId] || 0) - qty * price;
+    }
+  }
+  for (const p of payments || []) {
+    if (!p.custId) continue;
+    balances[p.custId] = (balances[p.custId] || 0) - (Number(p.amount) || 0);
+  }
+  return balances;
+}
+
+/* Lightweight orders loader for event scans (no need for full snapshot). */
+async function loadActiveOrders(db, cfg){
+  const activeSeason = cfg.activeSeason || (cfg.seasons || [])[0];
+  if (!activeSeason) return [];
+  const snap = await db.collection("seasons").doc(activeSeason).collection("orders").get();
+  const orders = [];
+  snap.forEach(d => orders.push({ _docId: d.id, ...d.data() }));
+  return orders;
+}
+
+/* Resolve an entity's "creation timestamp" for backfill filtering.
+   Order of preference: createdAt > recordedAt > date.
+   Returns 0 if no usable timestamp (caller treats as "skip"). */
+function entityTs(entity){
+  const t = entity?.createdAt || entity?.recordedAt || entity?.date;
+  if (!t) return 0;
+  const parsed = Date.parse(t);
+  return isNaN(parsed) ? 0 : parsed;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    V19.70: Sale-completed scan
    ───────────────────────────────────────────────────────────────────────
    Iterate orders → customerDeliveries with date within last 24 hours.
@@ -260,12 +335,13 @@ async function updateTickHeartbeat(db) {
    old deliveries that roll off eventHistory still won't re-fire (they
    simply fail the date filter). Limit: 50 sales per tick to avoid runaway.
    ─────────────────────────────────────────────────────────────────────── */
-async function scanRecentSales(db, cfg, eventCfg, cairoDate){
-  const activeSeason = cfg.activeSeason || (cfg.seasons || [])[0];
-  if (!activeSeason) return { scanned: 0, fired: 0 };
-  const ordersSnap = await db.collection("seasons").doc(activeSeason).collection("orders").get();
-  const orders = [];
-  ordersSnap.forEach(d => orders.push({ _docId: d.id, ...d.data() }));
+async function scanRecentSales(db, cfg, eventCfg, cairoDate, ordersCache){
+  /* V19.70.2: enforce enabledAt — auto-set if missing, skip first scan. */
+  const ea = await ensureEnabledAt(db, "saleCompleted", eventCfg.enabledAt);
+  if (ea.justSet) return { scanned: 0, fired: 0, reason: "enabledAt-just-set" };
+  const enabledTs = Date.parse(ea.enabledAt);
+
+  const orders = ordersCache || await loadActiveOrders(db, cfg);
 
   let customersById = {};
   if (eventCfg.recipients?.customer) {
@@ -274,13 +350,16 @@ async function scanRecentSales(db, cfg, eventCfg, cairoDate){
   }
 
   const yesterday = new Date(Date.parse(cairoDate) - 86400000).toISOString().slice(0, 10);
-  let scanned = 0, fired = 0, skipped = 0;
+  let scanned = 0, fired = 0, skipped = 0, skippedOld = 0;
   let processed = 0;
   for (const o of orders) {
     if (!o.id) continue;
     for (const d of (o.customerDeliveries || [])) {
       const date = String(d.date || "").slice(0, 10);
       if (!date || date < yesterday) continue;/* only last 24h */
+      /* V19.70.2: backfill filter — skip entities created before trigger was enabled */
+      const ts = entityTs(d);
+      if (!ts || ts < enabledTs) { skippedOld++; continue; }
       if (processed >= 50) break;/* safety cap */
       processed++;
       scanned++;
@@ -308,7 +387,7 @@ async function scanRecentSales(db, cfg, eventCfg, cairoDate){
     }
     if (processed >= 50) break;
   }
-  return { scanned, fired, skipped };
+  return { scanned, fired, skipped, skippedOld };
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -317,13 +396,22 @@ async function scanRecentSales(db, cfg, eventCfg, cairoDate){
    Iterate custPayments with date within last 24 hours. Idempotency via
    `payment:${paymentId}`. Limit: 50 payments per tick.
    ─────────────────────────────────────────────────────────────────────── */
-async function scanRecentPayments(db, cfg, eventCfg, cairoDate){
+async function scanRecentPayments(db, cfg, eventCfg, cairoDate, ordersCache){
+  /* V19.70.2: enforce enabledAt + compute customer balances for {balance} variable */
+  const ea = await ensureEnabledAt(db, "paymentReceived", eventCfg.enabledAt);
+  if (ea.justSet) return { scanned: 0, fired: 0, reason: "enabledAt-just-set" };
+  const enabledTs = Date.parse(ea.enabledAt);
+
   let payments = [];
   if (cfg._splitDaysV1949Done) {
     payments = await readSplitCollection("custPaymentsDays");
   } else {
     payments = Array.isArray(cfg.custPayments) ? cfg.custPayments : [];
   }
+
+  /* V19.70.2: load orders + compute balances per customer (deliveries − returns − payments). */
+  const orders = ordersCache || await loadActiveOrders(db, cfg);
+  const balances = computeCustomerBalances(orders, payments);
 
   let customersById = {};
   if (eventCfg.recipients?.customer) {
@@ -332,16 +420,22 @@ async function scanRecentPayments(db, cfg, eventCfg, cairoDate){
   }
 
   const yesterday = new Date(Date.parse(cairoDate) - 86400000).toISOString().slice(0, 10);
-  let scanned = 0, fired = 0, skipped = 0;
+  let scanned = 0, fired = 0, skipped = 0, skippedOld = 0;
   let processed = 0;
   for (const p of payments) {
     if (!p || !p.id) continue;
     const date = String(p.date || "").slice(0, 10);
     if (!date || date < yesterday) continue;
+    /* V19.70.2: backfill filter — skip if payment was created before trigger was enabled.
+       Use createdAt (system clock) NOT date (which user can backdate). */
+    const ts = entityTs(p);
+    if (!ts || ts < enabledTs) { skippedOld++; continue; }
     if (processed >= 50) break;
     processed++;
     scanned++;
     const customer = customersById[p.custId] || {};
+    /* V19.70.2: balance from full order/payment ledger, not the missing `balanceAfter` field */
+    const balance = Math.round(balances[p.custId] || 0);
     const idempotencyKey = `payment:${p.id}`;
     const r = await processEvent(db, {
       eventType: "paymentReceived",
@@ -349,7 +443,7 @@ async function scanRecentPayments(db, cfg, eventCfg, cairoDate){
         customerName: customer.name || p.custName || "—",
         amount: Number(p.amount) || 0,
         method: p.method || "—",
-        balance: Number(p.balanceAfter) || 0,/* may be missing if not computed */
+        balance,/* signed: positive = customer still owes; negative = credit */
         date, portalLink: "",
       },
       customerPhone: customer.phone || null,
@@ -361,7 +455,7 @@ async function scanRecentPayments(db, cfg, eventCfg, cairoDate){
     if (r.body?.sent) fired++;
     else if (r.body?.deduped || r.body?.skipped) skipped++;
   }
-  return { scanned, fired, skipped };
+  return { scanned, fired, skipped, skippedOld };
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -371,15 +465,17 @@ async function scanRecentPayments(db, cfg, eventCfg, cairoDate){
    fire a `lateOrder` event. Idempotent per (orderId × Cairo-date) so one
    alert per order per day max.
    ─────────────────────────────────────────────────────────────────────── */
-async function scanLateOrders(db, cfg, lateCfg, cairoDate){
+async function scanLateOrders(db, cfg, lateCfg, cairoDate, ordersCache){
+  /* V19.70.2: enforce enabledAt — only alert on orders created after trigger enable. */
+  const ea = await ensureEnabledAt(db, "lateOrder", lateCfg.enabledAt);
+  if (ea.justSet) return { scanned: 0, fired: 0, reason: "enabledAt-just-set" };
+  const enabledTs = Date.parse(ea.enabledAt);
+
   const threshold = Number(lateCfg.thresholdDays) || 7;
 
   /* Load active-season orders (lightweight read) */
-  const activeSeason = cfg.activeSeason || (cfg.seasons || [])[0];
-  if (!activeSeason) return { scanned: 0, fired: 0 };
-  const ordersSnap = await db.collection("seasons").doc(activeSeason).collection("orders").get();
-  const orders = [];
-  ordersSnap.forEach(d => orders.push({ _docId: d.id, ...d.data() }));
+  const orders = ordersCache || await loadActiveOrders(db, cfg);
+  if (orders.length === 0) return { scanned: 0, fired: 0 };
 
   /* Load customers (for phone lookup) — only if customer-recipient is enabled */
   let customersById = {};
@@ -388,10 +484,13 @@ async function scanLateOrders(db, cfg, lateCfg, cairoDate){
     custDocs.forEach(c => { if (c.id) customersById[c.id] = c; });
   }
 
-  let scanned = 0, fired = 0, skipped = 0;
+  let scanned = 0, fired = 0, skipped = 0, skippedOld = 0;
   for (const o of orders) {
     if (!o.id) continue;
     if (o.status === "تم التسليم لمخزن الجاهز") continue;
+    /* V19.70.2: skip orders created before trigger was enabled */
+    const ts = entityTs(o);
+    if (!ts || ts < enabledTs) { skippedOld++; continue; }
 
     /* Compute last activity date */
     let last = String(o.date || "").slice(0, 10);
@@ -424,7 +523,7 @@ async function scanLateOrders(db, cfg, lateCfg, cairoDate){
     if (r.body?.sent) fired++;
     else if (r.body?.deduped) skipped++;
   }
-  return { scanned, fired, skipped };
+  return { scanned, fired, skipped, skippedOld };
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -443,6 +542,11 @@ async function scanLateOrders(db, cfg, lateCfg, cairoDate){
      - type === "payable"    : ورقة دفع (issued to a supplier)
    ─────────────────────────────────────────────────────────────────────── */
 async function scanChecksDue(db, cfg, checkCfg, cairoDate){
+  /* V19.70.2: enforce enabledAt — only alert on checks added after trigger enable. */
+  const ea = await ensureEnabledAt(db, "checkDue", checkCfg.enabledAt);
+  if (ea.justSet) return { scanned: 0, fired: 0, reason: "enabledAt-just-set" };
+  const enabledTs = Date.parse(ea.enabledAt);
+
   const threshold = Number(checkCfg.thresholdDays) || 3;
 
   /* Load checks from split collection */
@@ -469,13 +573,16 @@ async function scanChecksDue(db, cfg, checkCfg, cairoDate){
   }
 
   const todayMs = Date.parse(cairoDate);
-  let scanned = 0, fired = 0, skipped = 0;
+  let scanned = 0, fired = 0, skipped = 0, skippedOld = 0;
   for (const c of checks) {
     if (!c || !c.id) continue;
     /* V19.70.1: ONLY pending checks (still in our hands).
        Exclude: محصل (cashed), مدفوع (paid out), مُظهّر (endorsed),
                 مرتد (bounced), ملغي (cancelled), مرتجع (returned). */
     if (c.status !== "معلق") continue;
+    /* V19.70.2: skip checks added before trigger was enabled */
+    const ts = entityTs(c);
+    if (!ts || ts < enabledTs) { skippedOld++; continue; }
 
     const due = String(c.dueDate || c.date || "").slice(0, 10);
     if (!due) continue;
@@ -517,7 +624,7 @@ async function scanChecksDue(db, cfg, checkCfg, cairoDate){
     if (r.body?.sent) fired++;
     else if (r.body?.deduped) skipped++;
   }
-  return { scanned, fired, skipped };
+  return { scanned, fired, skipped, skippedOld };
 }
 
 /* ─── Main handler ─── */
@@ -678,12 +785,23 @@ export default async function handler(req, res) {
       }
     }
 
+    /* V19.70.2: load orders ONCE if any of the order-dependent scans is enabled.
+       Avoids 3 separate Firestore reads when sale/payment/lateOrder are all on. */
+    let ordersCache = null;
+    const needsOrders = (eventTriggers.events?.saleCompleted?.enabled)
+                     || (eventTriggers.events?.paymentReceived?.enabled)
+                     || (eventTriggers.events?.lateOrder?.enabled);
+    if (needsOrders) {
+      try { ordersCache = await loadActiveOrders(db, cfg); }
+      catch (e) { result.errors.push({ type: "ordersLoad", error: e.message }); }
+    }
+
     /* ── B. Sale-completed scan (last 24h) ── */
     const saleCfg = (eventTriggers.events || {}).saleCompleted;
     if (saleCfg?.enabled) {
       try {
-        const r = await scanRecentSales(db, cfg, saleCfg, cairo.date);
-        if (r.scanned > 0) result.actions.push({ type: "saleCompleted", ...r });
+        const r = await scanRecentSales(db, cfg, saleCfg, cairo.date, ordersCache);
+        if (r.scanned > 0 || r.reason) result.actions.push({ type: "saleCompleted", ...r });
       } catch (e) { result.errors.push({ type: "saleCompleted", error: e.message }); }
     }
 
@@ -691,8 +809,8 @@ export default async function handler(req, res) {
     const payCfg = (eventTriggers.events || {}).paymentReceived;
     if (payCfg?.enabled) {
       try {
-        const r = await scanRecentPayments(db, cfg, payCfg, cairo.date);
-        if (r.scanned > 0) result.actions.push({ type: "paymentReceived", ...r });
+        const r = await scanRecentPayments(db, cfg, payCfg, cairo.date, ordersCache);
+        if (r.scanned > 0 || r.reason) result.actions.push({ type: "paymentReceived", ...r });
       } catch (e) { result.errors.push({ type: "paymentReceived", error: e.message }); }
     }
 
@@ -700,8 +818,8 @@ export default async function handler(req, res) {
     const lateCfg = (eventTriggers.events || {}).lateOrder;
     if (lateCfg?.enabled) {
       try {
-        const r = await scanLateOrders(db, cfg, lateCfg, cairo.date);
-        if (r.scanned > 0) result.actions.push({ type: "lateOrder", ...r });
+        const r = await scanLateOrders(db, cfg, lateCfg, cairo.date, ordersCache);
+        if (r.scanned > 0 || r.reason) result.actions.push({ type: "lateOrder", ...r });
       } catch (e) { result.errors.push({ type: "lateOrder", error: e.message }); }
     }
 

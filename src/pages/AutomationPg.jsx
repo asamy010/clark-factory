@@ -160,6 +160,10 @@ export function AutomationPg({ data, upConfig, isMob, user }){
   const toggleEvent = (eventType) => updateAutomation(a => {
     const et = ensureTriggers(a); const ev = ensureEvent(et, eventType);
     ev.enabled = !ev.enabled;
+    /* V19.70.2: set enabledAt every time the user toggles ON. The scan filters
+       skip any entity created before this timestamp — prevents backfill of
+       historical entries when first enabling (or re-enabling) a trigger. */
+    if (ev.enabled) ev.enabledAt = new Date().toISOString();
   });
   const toggleEventRecipient = (eventType, role) => updateAutomation(a => {
     const et = ensureTriggers(a); const ev = ensureEvent(et, eventType);
@@ -961,9 +965,19 @@ function EventCard({ eventType, eventCfg, ownerCount, isMob, onToggle, onToggleR
       {/* Body */}
       {open && (
         <div style={{padding:"4px 14px 14px", borderTop:"1px solid "+T.brd, background:T.bg}}>
-          <div style={{fontSize:FS-3, color:T.textMut, marginBottom:10, fontStyle:"italic"}}>
+          <div style={{fontSize:FS-3, color:T.textMut, marginBottom:6, fontStyle:"italic"}}>
             ⚙️ {meta.detection}
           </div>
+          {/* V19.70.2: show enabledAt timestamp so user knows the cutoff for backfill */}
+          {enabled && eventCfg.enabledAt && (
+            <div style={{fontSize:FS-3, color:T.ok, marginBottom:10, padding:"4px 8px",
+              background:T.ok+"10", border:"1px solid "+T.ok+"30", borderRadius:6}}>
+              ✓ مفعّل من: {new Date(eventCfg.enabledAt).toLocaleString("ar-EG")}
+              <span style={{marginRight:6, color:T.textMut, fontWeight:500}}>
+                — لن تتم معالجة أي event حصل قبل التاريخ ده
+              </span>
+            </div>
+          )}
 
           {/* Threshold (only for cron-only events) */}
           {isCronOnly && (

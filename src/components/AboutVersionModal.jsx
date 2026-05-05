@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.2",
+    date: "2026-05-05",
+    types: ["fix", "automation"],
+    title: "🛡️ Backfill prevention + customer balance computation in payment messages",
+    changes: [
+      { type: "fix", text: "🚨 [الـCRITICAL: triggers كانت بـfire لـevents قديمة قبل تفعيل الـtrigger] User report: فعّل paymentReceived ووصلته رسالة لعميل بدفعة دفعها امبارح. السبب: الـscan كان فلتر بـ24h date window، لكن الـ24h هي 'اليوم وامبارح' — مش 'منذ تفعيل الـtrigger'. النتيجة: events قديمة (قبل تفعيل) كانت بـfire لو وقعت في اخر 24 ساعة. **الـFix**: كل event دلوقتي عنده `enabledAt` timestamp — يتعمل set كل مرة المستخدم يفعّل الـtrigger. الـ4 scan functions بيـskip أي entity `createdAt < enabledAt`. النتيجة: لما تفعّل trigger النهاردة، 0 رسائل لـevents من قبل — لو حتى وقعت من ثانية واحدة قبل التفعيل." },
+      { type: "fix", text: "💰 [الرصيد كان بـ0 في الـpaymentReceived message] السبب: الـpayload كان بـuse `p.balanceAfter` — الـfield ده مش موجود في الـpayment record (مش بنحسبه عند الـsave). النتيجة: الـ{balance} variable كان دايماً 0. **الـFix**: ضافت `computeCustomerBalances(orders, payments)` helper — يحسب الرصيد من الـformula الكاملة (الـformula نفسها اللي في daily report alerts section): `Σ(deliveries × price) − Σ(returns × price) − Σ(payments)`. الـscan دلوقتي يـlookup balances[custId] = الرصيد الحالي بعد الدفعة دي. الـmessage يعرض القيمة الصح." },
+      { type: "fix", text: "🛡️ [Auto-migration للـusers الموجودين] الـusers اللي فعّلوا triggers في V19.70/V19.70.1 ما عندهمش `enabledAt`. **الـFix**: `ensureEnabledAt()` helper — أول scan بعد upgrade يـset `enabledAt = now` ويـskip الـscan دي. السكان الجاي يستخدم الـtimestamp ويفلتر صح. ده يضمن الـmigration بدون burst من الـrefires." },
+      { type: "ux", text: "📅 [UI: 'مفعّل من' badge في الـEventCard] لما الـevent تكون مفعّلة، badge أخضر يعرض timestamp الـenable + سطر شارح: 'لن تتم معالجة أي event حصل قبل التاريخ ده'. الـuser يفهم بالظبط هو متى الـtrigger ابتدى يـmonitor." },
+      { type: "improvement", text: "⚡ [Performance: orders cached cross-scans] الـsale + payment + lateOrder الـ3 محتاجين الـorders. قبل V19.70.2 كانت 3 reads منفصلة في كل tick. دلوقتي read واحد + cached + passed لكل الـscan functions. للـusers اللي عندهم 100s of orders ده فرق ملحوظ في تكلفة Firestore." },
+    ]
+  },
+  {
     version: "V19.70.1",
     date: "2026-05-05",
     types: ["fix", "feature", "ux"],
