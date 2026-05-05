@@ -420,4 +420,50 @@ export const DEFAULT_AUTOMATION_CONFIG = {
     lastSentAt: null,/* ISO timestamp of last successful send */
   },
   history: [],/* [{at, type, recipientCount, success, failed, error}] last 50 */
+
+  /* V19.70: Event triggers — see src/utils/automation/buildDailyReport.js for full doc.
+     Mirror kept here so the api/ side has access to the same defaults. */
+  eventTriggers: {
+    mode: "auto",
+    ownerPhones: [],
+    events: {
+      saleCompleted: {
+        enabled: false,
+        recipients: { customer: true, owner: true },
+        templates: {
+          customer: "شكراً {customerName} 🌟\nتم تسليم {qty} قطعة من {modelNo} بقيمة {value} ج.م.\n\nراجع حسابك: {portalLink}",
+          owner: "💰 *بيع جديد*\nالعميل: {customerName}\nالموديل: {modelNo}\nالكمية: {qty} قطعة\nالقيمة: {value} ج.م\nالتاريخ: {date}",
+        },
+        cooldownMinutes: 0,
+      },
+      paymentReceived: {
+        enabled: false,
+        recipients: { customer: true, owner: true },
+        templates: {
+          customer: "✅ *تم استلام دفعة*\nالقيمة: {amount} ج.م\nالطريقة: {method}\nالرصيد المتبقي: {balance} ج.م\nالتاريخ: {date}\n\nشكراً لك 🌟",
+          owner: "💵 *دفعة من عميل*\n{customerName}: {amount} ج.م ({method})\nالرصيد المتبقي: {balance} ج.م",
+        },
+        cooldownMinutes: 0,
+      },
+      lateOrder: {
+        enabled: false,
+        thresholdDays: 7,
+        recipients: { owner: true, customer: false },
+        templates: {
+          owner: "⚠️ *أوردر متأخر*\nالموديل: {modelNo}\nالعميل: {customerName}\nأيام بدون activity: {daysLate}\nآخر نشاط: {lastActivity}",
+          customer: "نعتذر عن التأخير في تسليم الموديل {modelNo}، نحن نعمل على تسريع الإنتاج.",
+        },
+      },
+      checkDue: {
+        enabled: false,
+        thresholdDays: 3,
+        recipients: { owner: true },
+        templates: {
+          owner: "📅 *شيك يستحق قريباً*\nالبنك: {bank}\nرقم الشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الاستحقاق: {dueDate} (بعد {daysToDue} يوم)\n{kindLabel}: {partyName}",
+        },
+      },
+    },
+    pending: [],
+    eventHistory: [],
+  },
 };

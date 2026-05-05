@@ -37,6 +37,8 @@ import { getDb, readSplitCollection, readPartitionedCollection, verifyAdminToken
    client. _buildDailyReport.js is an exact copy kept in api/ so the serverless
    function can resolve it without cross-folder bundling issues. */
 import { buildDailyReport } from "./_buildDailyReport.js";
+/* V19.70: shared event processor for cron-detected events + pending-drain. */
+import { processEvent } from "./_eventProcessor.js";
 
 /* ─── Auth ──
    V19.69.2: accepts EITHER:
@@ -249,6 +251,239 @@ async function updateTickHeartbeat(db) {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   V19.70: Sale-completed scan
+   ───────────────────────────────────────────────────────────────────────
+   Iterate orders → customerDeliveries with date within last 24 hours.
+   For each, fire saleCompleted event. Idempotency via eventHistory keyed
+   by `sale:${orderId}:${date}:${qty}:${custId}`. The 24-hour window means
+   old deliveries that roll off eventHistory still won't re-fire (they
+   simply fail the date filter). Limit: 50 sales per tick to avoid runaway.
+   ─────────────────────────────────────────────────────────────────────── */
+async function scanRecentSales(db, cfg, eventCfg, cairoDate){
+  const activeSeason = cfg.activeSeason || (cfg.seasons || [])[0];
+  if (!activeSeason) return { scanned: 0, fired: 0 };
+  const ordersSnap = await db.collection("seasons").doc(activeSeason).collection("orders").get();
+  const orders = [];
+  ordersSnap.forEach(d => orders.push({ _docId: d.id, ...d.data() }));
+
+  let customersById = {};
+  if (eventCfg.recipients?.customer) {
+    const cs = await readPartitionedCollection("customersDocs");
+    cs.forEach(c => { if (c.id) customersById[c.id] = c; });
+  }
+
+  const yesterday = new Date(Date.parse(cairoDate) - 86400000).toISOString().slice(0, 10);
+  let scanned = 0, fired = 0, skipped = 0;
+  let processed = 0;
+  for (const o of orders) {
+    if (!o.id) continue;
+    for (const d of (o.customerDeliveries || [])) {
+      const date = String(d.date || "").slice(0, 10);
+      if (!date || date < yesterday) continue;/* only last 24h */
+      if (processed >= 50) break;/* safety cap */
+      processed++;
+      scanned++;
+      const customer = customersById[d.custId] || {};
+      const qty = Number(d.qty) || 0;
+      const price = Number(d.price) || Number(o.sellPrice) || 0;
+      const value = qty * price;
+      const idempotencyKey = `sale:${o.id}:${date}:${qty}:${d.custId || "x"}`;
+      const r = await processEvent(db, {
+        eventType: "saleCompleted",
+        payload: {
+          customerName: customer.name || d.custName || "—",
+          qty, modelNo: o.modelNo || o.id, value,
+          date, salesperson: d.recordedBy || "—",
+          portalLink: "",/* portal link generation skipped in cron path */
+        },
+        customerPhone: customer.phone || null,
+        idempotencyKey,
+        force: false,
+        source: "cron",
+        cfgCache: cfg,
+      });
+      if (r.body?.sent) fired++;
+      else if (r.body?.deduped || r.body?.skipped) skipped++;
+    }
+    if (processed >= 50) break;
+  }
+  return { scanned, fired, skipped };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V19.70: Payment-received scan
+   ───────────────────────────────────────────────────────────────────────
+   Iterate custPayments with date within last 24 hours. Idempotency via
+   `payment:${paymentId}`. Limit: 50 payments per tick.
+   ─────────────────────────────────────────────────────────────────────── */
+async function scanRecentPayments(db, cfg, eventCfg, cairoDate){
+  let payments = [];
+  if (cfg._splitDaysV1949Done) {
+    payments = await readSplitCollection("custPaymentsDays");
+  } else {
+    payments = Array.isArray(cfg.custPayments) ? cfg.custPayments : [];
+  }
+
+  let customersById = {};
+  if (eventCfg.recipients?.customer) {
+    const cs = await readPartitionedCollection("customersDocs");
+    cs.forEach(c => { if (c.id) customersById[c.id] = c; });
+  }
+
+  const yesterday = new Date(Date.parse(cairoDate) - 86400000).toISOString().slice(0, 10);
+  let scanned = 0, fired = 0, skipped = 0;
+  let processed = 0;
+  for (const p of payments) {
+    if (!p || !p.id) continue;
+    const date = String(p.date || "").slice(0, 10);
+    if (!date || date < yesterday) continue;
+    if (processed >= 50) break;
+    processed++;
+    scanned++;
+    const customer = customersById[p.custId] || {};
+    const idempotencyKey = `payment:${p.id}`;
+    const r = await processEvent(db, {
+      eventType: "paymentReceived",
+      payload: {
+        customerName: customer.name || p.custName || "—",
+        amount: Number(p.amount) || 0,
+        method: p.method || "—",
+        balance: Number(p.balanceAfter) || 0,/* may be missing if not computed */
+        date, portalLink: "",
+      },
+      customerPhone: customer.phone || null,
+      idempotencyKey,
+      force: false,
+      source: "cron",
+      cfgCache: cfg,
+    });
+    if (r.body?.sent) fired++;
+    else if (r.body?.deduped || r.body?.skipped) skipped++;
+  }
+  return { scanned, fired, skipped };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V19.70: Late-order scan
+   ───────────────────────────────────────────────────────────────────────
+   For each non-delivered order whose last activity is >= thresholdDays ago,
+   fire a `lateOrder` event. Idempotent per (orderId × Cairo-date) so one
+   alert per order per day max.
+   ─────────────────────────────────────────────────────────────────────── */
+async function scanLateOrders(db, cfg, lateCfg, cairoDate){
+  const threshold = Number(lateCfg.thresholdDays) || 7;
+
+  /* Load active-season orders (lightweight read) */
+  const activeSeason = cfg.activeSeason || (cfg.seasons || [])[0];
+  if (!activeSeason) return { scanned: 0, fired: 0 };
+  const ordersSnap = await db.collection("seasons").doc(activeSeason).collection("orders").get();
+  const orders = [];
+  ordersSnap.forEach(d => orders.push({ _docId: d.id, ...d.data() }));
+
+  /* Load customers (for phone lookup) — only if customer-recipient is enabled */
+  let customersById = {};
+  if (lateCfg.recipients?.customer) {
+    const custDocs = await readPartitionedCollection("customersDocs");
+    custDocs.forEach(c => { if (c.id) customersById[c.id] = c; });
+  }
+
+  let scanned = 0, fired = 0, skipped = 0;
+  for (const o of orders) {
+    if (!o.id) continue;
+    if (o.status === "تم التسليم لمخزن الجاهز") continue;
+
+    /* Compute last activity date */
+    let last = String(o.date || "").slice(0, 10);
+    (o.workshopDeliveries || []).forEach(wd => {
+      if (wd.date > last) last = wd.date;
+      (wd.receives || []).forEach(r => { if (r.date > last) last = r.date; });
+    });
+    (o.customerDeliveries || []).forEach(d => { if (d.date > last) last = d.date; });
+    if (!last) continue;
+    const daysLate = Math.floor((Date.parse(cairoDate) - Date.parse(last)) / 86400000);
+    if (daysLate < threshold) continue;
+
+    scanned++;
+    const customer = customersById[o.custId] || {};
+    const idempotencyKey = `lateOrder:${o.id}:${cairoDate}`;
+    const r = await processEvent(db, {
+      eventType: "lateOrder",
+      payload: {
+        modelNo: o.modelNo || o.id,
+        customerName: customer.name || o.custName || "—",
+        daysLate,
+        lastActivity: last,
+      },
+      customerPhone: customer.phone || null,
+      idempotencyKey,
+      force: false,
+      source: "cron",
+      cfgCache: cfg,
+    });
+    if (r.body?.sent) fired++;
+    else if (r.body?.deduped) skipped++;
+  }
+  return { scanned, fired, skipped };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V19.70: Check-due scan
+   ───────────────────────────────────────────────────────────────────────
+   For each open check whose dueDate is within thresholdDays from today,
+   fire a `checkDue` event. Idempotent per (checkId × Cairo-date).
+   ─────────────────────────────────────────────────────────────────────── */
+async function scanChecksDue(db, cfg, checkCfg, cairoDate){
+  const threshold = Number(checkCfg.thresholdDays) || 3;
+
+  /* Load checks from split collection */
+  let checks = [];
+  if (cfg._splitDaysV1949Done) {
+    checks = await readSplitCollection("checksDays");
+  } else {
+    checks = Array.isArray(cfg.checks) ? cfg.checks : [];
+  }
+
+  const todayMs = Date.parse(cairoDate);
+  let scanned = 0, fired = 0, skipped = 0;
+  for (const c of checks) {
+    if (!c || !c.id) continue;
+    if (c.status === "محصل" || c.status === "مرتد" || c.status === "ملغي") continue;
+    const due = String(c.dueDate || c.date || "").slice(0, 10);
+    if (!due) continue;
+    const daysToDue = Math.floor((Date.parse(due) - todayMs) / 86400000);
+    if (daysToDue < 0 || daysToDue > threshold) continue;
+
+    scanned++;
+    /* "kind": received (we hold) vs issued (we owe) — affects which party label */
+    const kind = c.kind || c.type || "received";
+    const kindLabel = kind === "issued" ? "المستفيد" : "الساحب";
+    const partyName = c.party || c.beneficiary || c.drawer || c.customerName || "—";
+
+    const idempotencyKey = `checkDue:${c.id}:${cairoDate}`;
+    const r = await processEvent(db, {
+      eventType: "checkDue",
+      payload: {
+        bank: c.bank || "—",
+        checkNo: c.checkNo || c.number || c.id,
+        amount: Number(c.amount) || 0,
+        dueDate: due,
+        daysToDue,
+        kindLabel,
+        partyName,
+      },
+      customerPhone: null,/* check-due is owner-only */
+      idempotencyKey,
+      force: false,
+      source: "cron",
+      cfgCache: cfg,
+    });
+    if (r.body?.sent) fired++;
+    else if (r.body?.deduped) skipped++;
+  }
+  return { scanned, fired, skipped };
+}
+
 /* ─── Main handler ─── */
 export default async function handler(req, res) {
   /* Allow GET (simpler curl) and POST */
@@ -365,6 +600,82 @@ export default async function handler(req, res) {
     } else {
       /* Heartbeat only — so UI shows the cron is alive */
       await updateTickHeartbeat(db);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════
+       V19.70: Event-driven actions
+       ───────────────────────────────────────────────────────────────────
+       Three responsibilities every tick:
+         A. Drain pending queue (retry failed events)
+         B. Scan for late orders → fire alerts (one per order per day)
+         C. Scan for checks due → fire alerts (one per check per day)
+
+       Each action is wrapped in try/catch so a single failure doesn't
+       block the others. Errors are accumulated in result.errors. */
+    const eventTriggers = (cfg.automation || {}).eventTriggers || {};
+    const mode = eventTriggers.mode || "auto";
+
+    /* ── A. Pending drain (auto mode only) ── */
+    if (mode === "auto") {
+      const pending = Array.isArray(eventTriggers.pending) ? eventTriggers.pending : [];
+      const drainable = pending.filter(p => (p.attempts || 0) < 5);
+      let drained = 0, drainFailed = 0;
+      for (const p of drainable.slice(0, 10)) {/* cap at 10 per tick */
+        try {
+          const r = await processEvent(db, {
+            eventType: p.eventType,
+            payload: p.payload,
+            customerPhone: p.customerPhone,
+            idempotencyKey: p.idempotencyKey,
+            force: false,
+            source: "cron",
+          });
+          if (r.ok && r.body?.sent) drained++;
+          else if (!r.ok) drainFailed++;
+        } catch (e) {
+          drainFailed++;
+          result.errors.push({ type: "pendingDrain", id: p.id, error: e.message });
+        }
+      }
+      if (drainable.length > 0) {
+        result.actions.push({ type: "pendingDrain", attempted: drainable.length, drained, failed: drainFailed });
+      }
+    }
+
+    /* ── B. Sale-completed scan (last 24h) ── */
+    const saleCfg = (eventTriggers.events || {}).saleCompleted;
+    if (saleCfg?.enabled) {
+      try {
+        const r = await scanRecentSales(db, cfg, saleCfg, cairo.date);
+        if (r.scanned > 0) result.actions.push({ type: "saleCompleted", ...r });
+      } catch (e) { result.errors.push({ type: "saleCompleted", error: e.message }); }
+    }
+
+    /* ── C. Payment-received scan (last 24h) ── */
+    const payCfg = (eventTriggers.events || {}).paymentReceived;
+    if (payCfg?.enabled) {
+      try {
+        const r = await scanRecentPayments(db, cfg, payCfg, cairo.date);
+        if (r.scanned > 0) result.actions.push({ type: "paymentReceived", ...r });
+      } catch (e) { result.errors.push({ type: "paymentReceived", error: e.message }); }
+    }
+
+    /* ── D. Late order scan (daily) ── */
+    const lateCfg = (eventTriggers.events || {}).lateOrder;
+    if (lateCfg?.enabled) {
+      try {
+        const r = await scanLateOrders(db, cfg, lateCfg, cairo.date);
+        if (r.scanned > 0) result.actions.push({ type: "lateOrder", ...r });
+      } catch (e) { result.errors.push({ type: "lateOrder", error: e.message }); }
+    }
+
+    /* ── E. Check due scan (daily) ── */
+    const checkCfg = (eventTriggers.events || {}).checkDue;
+    if (checkCfg?.enabled) {
+      try {
+        const r = await scanChecksDue(db, cfg, checkCfg, cairo.date);
+        if (r.scanned > 0) result.actions.push({ type: "checkDue", ...r });
+      } catch (e) { result.errors.push({ type: "checkDue", error: e.message }); }
     }
 
     return res.status(200).json(result);

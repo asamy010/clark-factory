@@ -25,6 +25,23 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70",
+    date: "2026-05-05",
+    types: ["feature", "automation"],
+    title: "🔥 Event Triggers — instant WhatsApp on sale/payment/late-order/check-due",
+    changes: [
+      { type: "feature", text: "🔥 [4 event types مع UI configurable كامل] Sale Completed (بيع للعميل) + Payment Received (دفعة من عميل) + Late Order (أوردر متأخر >N أيام) + Check Due (شيك يستحق خلال N أيام). كل event عنده toggle ON/OFF، اختيار recipients (customer/owner)، template editable per role مع variables hint + preview + reset-to-default + threshold للـcron-detected events. Tab جديد '🔥 Triggers الفورية' في الـAutomation page." },
+      { type: "feature", text: "🟢🟡 [Mode toggle: Auto vs Manual — fallback للـserver issues] Auto mode: الـsystem يبعت تلقائياً (cron scan كل 5 دقائق + retry على failure). Manual mode: الـevents تتـqueue في pending list، الـuser يبعت كل واحدة بإيدها. مفيد لو الـbridge/server عنده مشكلة وعايز تتحكم باليد. الـpending queue موجود في الـmodes الاتنين كـfailsafe — لو الـbridge فشل في auto، الـevent يـcommitت في pending للـretry." },
+      { type: "feature", text: "📋 [Pending queue الاحترافي] (1) عرض كل الـevents اللي في الطابور مع payload summary + attempts count + last error، (2) زر 'إرسال' per-row (force-fire عبر الـendpoint بـadmin token)، (3) زر 'إرسال الكل' للـbatch، (4) زر discard، (5) إشارة red للـentries اللي فشلت 5+ محاولات (تـneed manual review). الـcron يـauto-drain الـqueue كل 5 دقائق في auto mode (10 entries per tick max)." },
+      { type: "feature", text: "🤖 [Cron-side scanning في 4 paths] الـautomation-tick بيـscan في كل tick: (1) recent sales آخر 24 ساعة (saleCompleted)، (2) recent payments آخر 24 ساعة (paymentReceived)، (3) late orders بـthresholdDays config، (4) checks due ضمن thresholdDays. الـidempotency عبر eventHistory keyed by composite keys (e.g. `sale:${orderId}:${date}:${qty}:${custId}`). الـ24-hour filter يضمن إن الـold entries ميـre-fireش حتى لو eventHistory رول-أوف." },
+      { type: "feature", text: "🛡️ [Idempotency + duplicate prevention] كل event عنده idempotencyKey unique. الـeventHistory[] (cap 100) بيتشيك قبل أي fire. الـ`force: true` flag يـbypass الـidempotency للـmanual 'Send Now'. الـpending entries أيضاً deduplicated by idempotencyKey. النتيجة: مفيش double-send، حتى لو الـclient و الـcron حاولوا الاتنين على نفس الـevent." },
+      { type: "feature", text: "🎨 [Template editor مع variable hints + live preview] كل template بـtextarea مع لائحة الـvariables المتاحة لكل event×role (e.g. saleCompleted-customer: `{customerName}` `{qty}` `{modelNo}` `{value}` `{date}` `{portalLink}`). زر 👁 معاينة يعرض الـrendered text بـsample data — عشان تشوف شكل الرسالة قبل ما تـenable. زر ↺ default يـreset الـtemplate للـbuilt-in." },
+      { type: "feature", text: "👤 [Owner phones manager] قائمة أرقام تستقبل الـowner-targeted events (multiple owners possible). الـnumbers تتـnormalize تلقائياً لـ+20 prefix. الـevent اللي عند `recipients.owner: true` يبعت نفس الرسالة للأرقام دي كلها. الـcustomer phone يجي من الـpayload تلقائياً (من الـcustomer record نفسه)." },
+      { type: "improvement", text: "🏗️ [Architecture: shared event processor] `api/_eventProcessor.js` فيه الـcore logic (validate + idempotency check + bridge call + history log + pending queue management). الـ`api/event-trigger.js` thin HTTP wrapper. الـ`api/automation-tick.js` يـimport الـ`processEvent` لـcron-detected events + pending drain. صف واحد للـsource of truth، مفيش duplication." },
+      { type: "docs", text: "📋 [docs/V19.70.md — full guide] الـsetup للـ4 events، الـmental model للـAuto vs Manual، الـvariable reference per event×role، الـtroubleshooting (لو الـmessage ما جاش)، الـperformance notes (50 sales/payments per tick cap)." },
+    ]
+  },
+  {
     version: "V19.69.5",
     date: "2026-05-05",
     types: ["fix", "feature", "automation"],

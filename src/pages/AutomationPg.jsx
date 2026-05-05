@@ -18,6 +18,12 @@ import { FS } from "../constants/index.js";
 import { gid } from "../utils/format.js";
 import { showToast } from "../utils/popups.js";
 import { buildDailyReport, DEFAULT_AUTOMATION_CONFIG } from "../utils/automation/buildDailyReport.js";
+import {
+  EVENT_VARIABLES,
+  DEFAULT_EVENT_TEMPLATES,
+  substituteTemplate,
+  samplePayload,
+} from "../utils/automation/eventBuilder.js";
 
 const DEFAULT_BRIDGE_URL = "http://localhost:3001";
 
@@ -131,6 +137,68 @@ export function AutomationPg({ data, upConfig, isMob, user }){
       a.dailyReport.alertThresholds[key] = Math.max(0, Number(value) || 0);
     });
   };
+
+  /* ── V19.70: Event Triggers state + helpers ── */
+  const eventTriggers = automation.eventTriggers || DEFAULT_AUTOMATION_CONFIG.eventTriggers;
+  const ensureTriggers = (a) => {
+    if (!a.eventTriggers) {
+      a.eventTriggers = JSON.parse(JSON.stringify(DEFAULT_AUTOMATION_CONFIG.eventTriggers));
+    }
+    return a.eventTriggers;
+  };
+  const ensureEvent = (et, eventType) => {
+    if (!et.events) et.events = {};
+    if (!et.events[eventType]) {
+      et.events[eventType] = JSON.parse(JSON.stringify(
+        DEFAULT_AUTOMATION_CONFIG.eventTriggers.events[eventType] || {}));
+    }
+    return et.events[eventType];
+  };
+  const setTriggerMode = (mode) => updateAutomation(a => {
+    ensureTriggers(a).mode = mode === "manual" ? "manual" : "auto";
+  });
+  const toggleEvent = (eventType) => updateAutomation(a => {
+    const et = ensureTriggers(a); const ev = ensureEvent(et, eventType);
+    ev.enabled = !ev.enabled;
+  });
+  const toggleEventRecipient = (eventType, role) => updateAutomation(a => {
+    const et = ensureTriggers(a); const ev = ensureEvent(et, eventType);
+    if (!ev.recipients) ev.recipients = {};
+    ev.recipients[role] = !ev.recipients[role];
+  });
+  const setEventTemplate = (eventType, role, value) => updateAutomation(a => {
+    const et = ensureTriggers(a); const ev = ensureEvent(et, eventType);
+    if (!ev.templates) ev.templates = {};
+    ev.templates[role] = String(value || "");
+  });
+  const setEventThreshold = (eventType, days) => updateAutomation(a => {
+    const et = ensureTriggers(a); const ev = ensureEvent(et, eventType);
+    ev.thresholdDays = Math.max(1, Math.min(60, Number(days) || 1));
+  });
+  const resetEventTemplate = (eventType, role) => updateAutomation(a => {
+    const et = ensureTriggers(a); const ev = ensureEvent(et, eventType);
+    if (!ev.templates) ev.templates = {};
+    const def = DEFAULT_EVENT_TEMPLATES[eventType];
+    if (def && def[role]) ev.templates[role] = def[role];
+  });
+  const addOwnerPhone = (phone) => {
+    const p = normalizePhone(phone);
+    if (!p) { showToast("⚠️ رقم غير صالح"); return; }
+    updateAutomation(a => {
+      const et = ensureTriggers(a);
+      if (!Array.isArray(et.ownerPhones)) et.ownerPhones = [];
+      if (et.ownerPhones.includes(p)) { showToast("⚠️ الرقم موجود"); return; }
+      et.ownerPhones.push(p);
+    });
+  };
+  const removeOwnerPhone = (idx) => updateAutomation(a => {
+    const et = ensureTriggers(a);
+    if (Array.isArray(et.ownerPhones)) et.ownerPhones.splice(idx, 1);
+  });
+  const discardPending = (id) => updateAutomation(a => {
+    const et = ensureTriggers(a);
+    et.pending = (et.pending || []).filter(p => p.id !== id);
+  });
 
   /* Recipients CRUD */
   const [newName, setNewName] = useState("");
@@ -247,6 +315,61 @@ export function AutomationPg({ data, upConfig, isMob, user }){
     showToast("✓ تم المسح — اضغط '🔄 شغّل الـscheduler الآن' لاختبار الإرسال");
   };
 
+  /* ── V19.70: Pending-event actions (manual mode + retry) ── */
+  const callEventTrigger = async (body) => {
+    if (!user || typeof user.getIdToken !== "function") throw new Error("User not signed in");
+    const idToken = await user.getIdToken();
+    const r = await fetch("/api/event-trigger", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok && !data.queued) throw new Error(data.error || ("HTTP " + r.status));
+    return data;
+  };
+
+  const sendPendingNow = async (entry) => {
+    setBusy(true);
+    try {
+      const data = await callEventTrigger({
+        eventType: entry.eventType,
+        payload: entry.payload,
+        customerPhone: entry.customerPhone,
+        idempotencyKey: entry.idempotencyKey,
+        force: true,/* bypass mode + idempotency */
+      });
+      if (data.sent) showToast("✓ تم الإرسال (" + data.sent + " مستلم)");
+      else if (data.deduped) showToast("⏭ متبعّت قبل كده");
+      else if (data.skipped) showToast("⏭ skipped: " + data.reason);
+      else showToast("⚠️ " + (data.error || "نتيجة غير معروفة"));
+    } catch (e) {
+      showToast("⛔ " + (e.message || ""));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendAllPending = async () => {
+    const pending = (eventTriggers.pending || []).filter(p => (p.attempts || 0) < 5);
+    if (pending.length === 0) { showToast("⏭ مفيش pending"); return; }
+    if (!window.confirm(`هتبعت ${pending.length} رسائل pending. متأكد؟`)) return;
+    setBusy(true);
+    let ok = 0, fail = 0;
+    for (const entry of pending) {
+      try {
+        const data = await callEventTrigger({
+          eventType: entry.eventType, payload: entry.payload,
+          customerPhone: entry.customerPhone, idempotencyKey: entry.idempotencyKey,
+          force: true,
+        });
+        if (data.sent || data.deduped) ok++; else fail++;
+      } catch (_) { fail++; }
+    }
+    setBusy(false);
+    showToast(`✓ ${ok} نجحت • ⛔ ${fail} فشلت`);
+  };
+
   /* Manual "Send Test Now" — sends to all subscribed recipients via the bridge */
   const onSendTest = async () => {
     if (!bridgeUrl) {
@@ -339,6 +462,7 @@ export function AutomationPg({ data, upConfig, isMob, user }){
     <div style={{display:"flex", gap:6, marginBottom:14, flexWrap:"wrap"}}>
       {[
         {k:"dailyReport", label:"📊 تقرير يومي"},
+        {k:"triggers",    label:"🔥 Triggers الفورية"},
         {k:"recipients",  label:"👥 المستلمون"},
         {k:"history",     label:"📜 سجل الإرسال"},
         {k:"preview",     label:"👁 معاينة", hidden: !previewText},
@@ -489,6 +613,28 @@ export function AutomationPg({ data, upConfig, isMob, user }){
       />
     </Card>}
 
+    {/* ─── V19.70: Triggers Tab ─── */}
+    {tab === "triggers" && <Card title="🔥 Triggers الفورية">
+      <TriggersTab
+        eventTriggers={eventTriggers}
+        isMob={isMob}
+        busy={busy}
+        bridgeUrl={bridgeUrl}
+        userEmail={userEmail}
+        setTriggerMode={setTriggerMode}
+        toggleEvent={toggleEvent}
+        toggleEventRecipient={toggleEventRecipient}
+        setEventTemplate={setEventTemplate}
+        setEventThreshold={setEventThreshold}
+        resetEventTemplate={resetEventTemplate}
+        addOwnerPhone={addOwnerPhone}
+        removeOwnerPhone={removeOwnerPhone}
+        discardPending={discardPending}
+        sendPendingNow={sendPendingNow}
+        sendAllPending={sendAllPending}
+      />
+    </Card>}
+
     {/* ─── Recipients Tab ─── */}
     {tab === "recipients" && <Card title="👥 المستلمون">
       <div style={{display:"grid", gridTemplateColumns:isMob?"1fr":"2fr 2fr 1fr", gap:8, marginBottom:14, alignItems:"flex-end"}}>
@@ -600,6 +746,318 @@ export function AutomationPg({ data, upConfig, isMob, user }){
       </div>
     </Card>}
   </div>;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V19.70: TriggersTab — UI for event-driven WhatsApp triggers.
+   ───────────────────────────────────────────────────────────────────────
+   Top-down layout:
+     1. Mode toggle (auto / manual) + explanatory text
+     2. Owner-phones manager (recipients for "owner"-targeted messages)
+     3. Pending queue (drainable list, manual mode workspace)
+     4. One card per event (sale / payment / late-order / check-due)
+   Each event card: enable toggle, recipient checkboxes, per-role template
+   editor with variable hints and "reset to default" + per-event "test send".
+   ═══════════════════════════════════════════════════════════════════════ */
+function TriggersTab(props){
+  const {
+    eventTriggers, isMob, busy, bridgeUrl, userEmail,
+    setTriggerMode, toggleEvent, toggleEventRecipient,
+    setEventTemplate, setEventThreshold, resetEventTemplate,
+    addOwnerPhone, removeOwnerPhone,
+    discardPending, sendPendingNow, sendAllPending,
+  } = props;
+
+  const mode = eventTriggers.mode || "auto";
+  const events = eventTriggers.events || {};
+  const ownerPhones = eventTriggers.ownerPhones || [];
+  const pending = eventTriggers.pending || [];
+  const eventTypes = ["saleCompleted", "paymentReceived", "lateOrder", "checkDue"];
+
+  return (
+    <div>
+      {/* ─── Mode toggle ─── */}
+      <div style={{marginBottom:14, padding:"12px 16px", borderRadius:10,
+        background: mode === "auto" ? T.ok+"08" : T.warn+"10",
+        border: "1px solid " + (mode === "auto" ? T.ok+"40" : T.warn+"50")}}>
+        <div style={{display:"flex", alignItems:"center", gap:12, flexWrap:"wrap"}}>
+          <div style={{fontWeight:700, fontSize:FS, color:T.text}}>وضع التشغيل:</div>
+          <div style={{display:"flex", gap:6, padding:3, background:T.bg, borderRadius:8, border:"1px solid "+T.brd}}>
+            {[
+              {k:"auto",   label:"🟢 تلقائي",  desc:"الإرسال فوري لما الـevent يحصل"},
+              {k:"manual", label:"🟡 يدوي",   desc:"الـevents تتـqueue، انت تبعت كل واحدة بإيدك"},
+            ].map(opt => (
+              <div key={opt.k} onClick={() => setTriggerMode(opt.k)} title={opt.desc}
+                style={{padding:"6px 14px", borderRadius:6, cursor:"pointer", fontWeight:700, fontSize:FS-1,
+                  background: mode === opt.k ? (opt.k === "auto" ? T.ok : T.warn) : "transparent",
+                  color: mode === opt.k ? "#fff" : T.textSec}}>
+                {opt.label}
+              </div>
+            ))}
+          </div>
+          <div style={{flex:1}}/>
+        </div>
+        <div style={{marginTop:8, fontSize:FS-2, color:T.textSec, lineHeight:1.7}}>
+          {mode === "auto"
+            ? "الـsystem يبعت تلقائياً لما حدث يحصل (بيع، دفعة، شيك، إلخ). لو حصل failure مؤقت في الـbridge، الـcron يـretry تلقائياً كل 5 دقائق."
+            : "الـevents تتـqueue في القائمة تحت — مش هتتبعت لحد ما تضغط 'إرسال' على كل واحدة. مفيد لو الـserver/bridge عنده مشكلة وعايز تتحكم بإيدك."}
+        </div>
+      </div>
+
+      {/* ─── Owner phones ─── */}
+      <OwnerPhonesPanel
+        phones={ownerPhones}
+        onAdd={addOwnerPhone}
+        onRemove={removeOwnerPhone}
+        isMob={isMob}
+      />
+
+      {/* ─── Pending queue ─── */}
+      {pending.length > 0 && (
+        <PendingQueueSection
+          pending={pending}
+          busy={busy}
+          onSendOne={sendPendingNow}
+          onSendAll={sendAllPending}
+          onDiscard={discardPending}
+        />
+      )}
+
+      {/* ─── Per-event cards ─── */}
+      <div style={{marginTop:14, fontSize:FS, fontWeight:700, color:T.text, marginBottom:8}}>
+        🎯 الأحداث (Events)
+      </div>
+      {eventTypes.map(et => (
+        <EventCard key={et}
+          eventType={et}
+          eventCfg={events[et] || {}}
+          ownerCount={ownerPhones.length}
+          isMob={isMob}
+          onToggle={() => toggleEvent(et)}
+          onToggleRecipient={(role) => toggleEventRecipient(et, role)}
+          onTemplateChange={(role, val) => setEventTemplate(et, role, val)}
+          onThresholdChange={(d) => setEventThreshold(et, d)}
+          onResetTemplate={(role) => resetEventTemplate(et, role)}
+        />
+      ))}
+    </div>
+  );
+}
+
+/* ─── Owner phones manager ─── */
+function OwnerPhonesPanel({ phones, onAdd, onRemove, isMob }){
+  const [draft, setDraft] = useState("");
+  return (
+    <div style={{marginBottom:14, padding:"10px 14px", border:"1px solid "+T.brd, borderRadius:10, background:T.bg}}>
+      <div style={{fontSize:FS-1, fontWeight:700, color:T.text, marginBottom:8}}>
+        👤 أرقام المالك (للـ"owner"-targeted messages)
+      </div>
+      <div style={{fontSize:FS-3, color:T.textMut, marginBottom:10, lineHeight:1.6}}>
+        الـevents اللي عند recipient = "owner" بتروح للأرقام دي. ممكن تحط أكتر من رقم.
+      </div>
+      {phones.length > 0 && (
+        <div style={{display:"flex", flexWrap:"wrap", gap:6, marginBottom:10}}>
+          {phones.map((p, idx) => (
+            <div key={idx} style={{display:"flex", alignItems:"center", gap:6, padding:"4px 10px",
+              background:T.cardSolid, border:"1px solid "+T.brd, borderRadius:6, fontSize:FS-2, fontFamily:"monospace"}}>
+              {p}
+              <span onClick={() => onRemove(idx)} style={{cursor:"pointer", color:T.err, fontWeight:700}}>×</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{display:"flex", gap:8, alignItems:"center"}}>
+        <Inp value={draft} onChange={setDraft} placeholder="01xxxxxxxxx أو +20..." style={{flex:1}}/>
+        <Btn primary onClick={() => { if (draft.trim()) { onAdd(draft); setDraft(""); } }}>
+          ➕ إضافة
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Pending queue section ─── */
+function PendingQueueSection({ pending, busy, onSendOne, onSendAll, onDiscard }){
+  const drainable = pending.filter(p => (p.attempts || 0) < 5);
+  const giveup = pending.filter(p => (p.attempts || 0) >= 5);
+  return (
+    <div style={{marginBottom:14, padding:"10px 14px", border:"1px solid "+T.warn+"50", borderRadius:10, background:T.warn+"08"}}>
+      <div style={{display:"flex", alignItems:"center", gap:10, marginBottom:8}}>
+        <div style={{fontSize:FS-1, fontWeight:700, color:T.warn}}>
+          📋 Pending Queue ({pending.length})
+        </div>
+        <div style={{flex:1}}/>
+        <Btn primary disabled={busy || drainable.length === 0}
+          onClick={onSendAll}
+          style={{background:T.ok, color:"#fff", border:"none", fontSize:FS-2}}>
+          📤 إرسال الكل ({drainable.length})
+        </Btn>
+      </div>
+      <div style={{maxHeight:200, overflowY:"auto"}}>
+        {pending.map(p => {
+          const meta = EVENT_VARIABLES[p.eventType];
+          return (
+            <div key={p.id} style={{display:"flex", alignItems:"center", gap:10, padding:"6px 8px",
+              borderBottom:"1px solid "+T.brd, fontSize:FS-2}}>
+              <div style={{flex:1, minWidth:0}}>
+                <div style={{fontWeight:600, color:T.text}}>{meta?.label || p.eventType}</div>
+                <div style={{fontSize:FS-3, color:T.textMut, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+                  {p.payload?.customerName || ""} • created: {new Date(p.createdAt).toLocaleTimeString("ar-EG")}
+                  {p.attempts > 0 && ` • ${p.attempts} محاولة فاشلة`}
+                  {p.lastError && ` • ${p.lastError}`}
+                </div>
+              </div>
+              <Btn primary disabled={busy} onClick={() => onSendOne(p)}
+                style={{background:T.ok, color:"#fff", border:"none", fontSize:FS-3, padding:"4px 10px"}}>
+                📤 إرسال
+              </Btn>
+              <Btn ghost disabled={busy} onClick={() => { if (window.confirm("حذف هذه الـpending؟")) onDiscard(p.id); }}
+                style={{borderColor:T.err, color:T.err, fontSize:FS-3, padding:"4px 10px"}}>
+                🗑
+              </Btn>
+            </div>
+          );
+        })}
+      </div>
+      {giveup.length > 0 && (
+        <div style={{marginTop:8, fontSize:FS-3, color:T.err}}>
+          ⚠️ {giveup.length} entries فشلت 5+ محاولات — تحتاج لـmanual review
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Event card (one per event type) ─── */
+function EventCard({ eventType, eventCfg, ownerCount, isMob, onToggle, onToggleRecipient, onTemplateChange, onThresholdChange, onResetTemplate }){
+  const [open, setOpen] = useState(false);
+  const meta = EVENT_VARIABLES[eventType] || {};
+  const enabled = !!eventCfg.enabled;
+  const recipients = eventCfg.recipients || {};
+  const templates = eventCfg.templates || {};
+  const isCronOnly = eventType === "lateOrder" || eventType === "checkDue";
+
+  return (
+    <div style={{marginBottom:10, border:"1px solid " + (enabled ? T.accent+"50" : T.brd),
+      borderRadius:10, background: enabled ? T.accent+"06" : T.cardSolid, overflow:"hidden"}}>
+      {/* Header */}
+      <div style={{display:"flex", alignItems:"center", gap:10, padding:"10px 14px", cursor:"pointer"}}
+        onClick={() => setOpen(o => !o)}>
+        <span style={{fontSize:FS-2, color:T.textMut}}>{open ? "▼" : "▶"}</span>
+        <span style={{fontSize:FS, fontWeight:700, color:T.text}}>{meta.label || eventType}</span>
+        <span style={{fontSize:FS-3, color:T.textMut}}>{meta.description || ""}</span>
+        <div style={{flex:1}}/>
+        <span onClick={(e) => { e.stopPropagation(); onToggle(); }} style={{
+          padding:"4px 12px", borderRadius:8,
+          background: enabled ? T.ok+"15" : T.bg,
+          border: "1px solid " + (enabled ? T.ok : T.brd),
+          color: enabled ? T.ok : T.textMut,
+          fontSize:FS-2, fontWeight:700, cursor:"pointer",
+        }}>
+          {enabled ? "✓ مفعّل" : "متوقف"}
+        </span>
+      </div>
+
+      {/* Body */}
+      {open && (
+        <div style={{padding:"4px 14px 14px", borderTop:"1px solid "+T.brd, background:T.bg}}>
+          <div style={{fontSize:FS-3, color:T.textMut, marginBottom:10, fontStyle:"italic"}}>
+            ⚙️ {meta.detection}
+          </div>
+
+          {/* Threshold (only for cron-only events) */}
+          {isCronOnly && (
+            <div style={{marginBottom:10, display:"flex", gap:10, alignItems:"center"}}>
+              <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600}}>الحد (أيام):</label>
+              <Inp type="number" value={eventCfg.thresholdDays || ""}
+                onChange={(v) => onThresholdChange(v)} style={{width:80}}/>
+              <span style={{fontSize:FS-3, color:T.textMut}}>
+                {eventType === "lateOrder" ? "أوردر بدون activity" : "شيك يستحق خلال X يوم"}
+              </span>
+            </div>
+          )}
+
+          {/* Recipients */}
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:FS-2, fontWeight:700, color:T.textSec, marginBottom:6}}>
+              يبعت لـ:
+            </div>
+            <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
+              {(meta.recipientRoles || []).map(role => {
+                const on = !!recipients[role];
+                const roleLabel = role === "customer" ? "👤 العميل" : role === "owner" ? `🏭 المالك (${ownerCount})` : role;
+                return (
+                  <div key={role} onClick={() => onToggleRecipient(role)} style={{
+                    cursor:"pointer", padding:"5px 12px", borderRadius:8,
+                    background: on ? T.accent+"15" : T.bg,
+                    border: "1px solid " + (on ? T.accent : T.brd),
+                    color: on ? T.accent : T.textMut, fontSize:FS-2, fontWeight:700,
+                  }}>
+                    {on ? "☑" : "☐"} {roleLabel}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Templates per recipient role */}
+          {(meta.recipientRoles || []).filter(r => recipients[r]).map(role => (
+            <TemplateEditor key={role}
+              role={role}
+              template={templates[role] || ""}
+              variables={meta.variables?.[role] || []}
+              eventType={eventType}
+              onChange={(v) => onTemplateChange(role, v)}
+              onReset={() => onResetTemplate(role)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Template editor (textarea + variables hint + preview) ─── */
+function TemplateEditor({ role, template, variables, eventType, onChange, onReset }){
+  const [showPreview, setShowPreview] = useState(false);
+  const sample = samplePayload(eventType);
+  const previewText = substituteTemplate(template, sample);
+  return (
+    <div style={{marginBottom:12, padding:"10px 12px", background:T.cardSolid,
+      border:"1px solid "+T.brd, borderRadius:8}}>
+      <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:6}}>
+        <span style={{fontSize:FS-2, fontWeight:700, color:T.textSec}}>
+          📝 الرسالة لـ {role === "customer" ? "العميل" : role === "owner" ? "المالك" : role}:
+        </span>
+        <div style={{flex:1}}/>
+        <span onClick={() => setShowPreview(s => !s)} style={{
+          fontSize:FS-3, color:T.accent, cursor:"pointer", fontWeight:600}}>
+          {showPreview ? "إخفاء المعاينة" : "👁 معاينة"}
+        </span>
+        <span onClick={onReset} style={{
+          fontSize:FS-3, color:T.warn, cursor:"pointer", fontWeight:600}}>
+          ↺ default
+        </span>
+      </div>
+      <textarea value={template} onChange={(e) => onChange(e.target.value)}
+        rows={5} style={{width:"100%", padding:"8px 10px", fontSize:FS-1,
+          fontFamily:"inherit", border:"1px solid "+T.brd, borderRadius:6,
+          background:T.bg, color:T.text, resize:"vertical", lineHeight:1.6}}/>
+      <div style={{marginTop:6, fontSize:FS-3, color:T.textMut}}>
+        Variables متاحة: {variables.map(v => (
+          <code key={v} style={{padding:"1px 6px", margin:"0 2px",
+            background:T.accent+"15", color:T.accent, borderRadius:4}}>{v}</code>
+        ))}
+      </div>
+      {showPreview && (
+        <div style={{marginTop:8, padding:"8px 12px", background:T.ok+"10",
+          border:"1px solid "+T.ok+"40", borderRadius:6, whiteSpace:"pre-wrap",
+          fontSize:FS-1, color:T.text, lineHeight:1.7}}>
+          {previewText}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* ── Subcomponent: debug tools panel ──

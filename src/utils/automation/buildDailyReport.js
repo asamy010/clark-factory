@@ -420,4 +420,60 @@ export const DEFAULT_AUTOMATION_CONFIG = {
     lastSentAt: null,/* ISO timestamp of last successful send */
   },
   history: [],/* [{at, type, recipientCount, success, failed, error}] last 50 */
+
+  /* V19.70: Event-driven triggers (sale/payment/late-order/check-due → instant WhatsApp).
+     Two modes:
+       - "auto"   (default): client fires immediately, cron retries on failure
+       - "manual" (fallback): events queue in `pending[]`; user sends manually
+     Every event ALWAYS lands in pending first (failsafe). In auto mode it's
+     drained on success. In manual mode it stays until user takes action.
+
+     Owner phones get "owner"-targeted messages (e.g. sale notifications to the
+     factory owner). Customer phone is taken from the event payload itself. */
+  eventTriggers: {
+    mode: "auto",/* "auto" | "manual" */
+    ownerPhones: [],/* [string] — normalized E.164 (+201xxxxxxxxx) */
+    events: {
+      saleCompleted: {
+        enabled: false,
+        recipients: { customer: true, owner: true },
+        templates: {
+          customer: "شكراً {customerName} 🌟\nتم تسليم {qty} قطعة من {modelNo} بقيمة {value} ج.م.\n\nراجع حسابك: {portalLink}",
+          owner: "💰 *بيع جديد*\nالعميل: {customerName}\nالموديل: {modelNo}\nالكمية: {qty} قطعة\nالقيمة: {value} ج.م\nالتاريخ: {date}",
+        },
+        cooldownMinutes: 0,
+      },
+      paymentReceived: {
+        enabled: false,
+        recipients: { customer: true, owner: true },
+        templates: {
+          customer: "✅ *تم استلام دفعة*\nالقيمة: {amount} ج.م\nالطريقة: {method}\nالرصيد المتبقي: {balance} ج.م\nالتاريخ: {date}\n\nشكراً لك 🌟",
+          owner: "💵 *دفعة من عميل*\n{customerName}: {amount} ج.م ({method})\nالرصيد المتبقي: {balance} ج.م",
+        },
+        cooldownMinutes: 0,
+      },
+      lateOrder: {
+        enabled: false,
+        thresholdDays: 7,/* alert if last activity >= N days ago */
+        recipients: { owner: true, customer: false },
+        templates: {
+          owner: "⚠️ *أوردر متأخر*\nالموديل: {modelNo}\nالعميل: {customerName}\nأيام بدون activity: {daysLate}\nآخر نشاط: {lastActivity}",
+          customer: "نعتذر عن التأخير في تسليم الموديل {modelNo}، نحن نعمل على تسريع الإنتاج.",
+        },
+        /* lateOrder is cron-detected daily; not fire-on-event.
+           One alert per order per day max. */
+      },
+      checkDue: {
+        enabled: false,
+        thresholdDays: 3,/* alert if check due within N days */
+        recipients: { owner: true },
+        templates: {
+          owner: "📅 *شيك يستحق قريباً*\nالبنك: {bank}\nرقم الشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الاستحقاق: {dueDate} (بعد {daysToDue} يوم)\n{kindLabel}: {partyName}",
+        },
+        /* checkDue is cron-detected daily; one alert per check per day max. */
+      },
+    },
+    pending: [],/* [{id, eventType, payload, recipients, createdAt, attempts, lastAttemptAt, lastError}] */
+    eventHistory: [],/* [{id, eventType, at, success, recipientCount, error, source: "client"|"cron"|"manual"}] last 100 */
+  },
 };
