@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.3",
+    date: "2026-05-05",
+    types: ["feature", "ux"],
+    title: "⚡ Instant paymentReceived — رسالة العميل توصل لحظياً عند تسجيل الدفعة",
+    changes: [
+      { type: "feature", text: "⚡ [Client-side instant fire لـpaymentReceived] قبل V19.70.3 الـpayment trigger كان يـwait الـcron (5 دقايق max). User report: 'لما المحصّل يستلم دفعات عند العملاء ويسجل عل الموبيل، الرسالة لازم توصل العميل فوراً' — الـ5 دقايق مش مقبولة في الـuse case ده. **الـFix**: ضافت client-side hook في TreasuryPg.jsx — لحظة ما `saveTx` يكمل، الـapp يـcall `/api/event-trigger` مباشرة بـadmin token. الـuser يشوف الـsave حصل، الواتس عند العميل بيوصل في ثواني (مش دقايق)." },
+      { type: "feature", text: "🛡️ [Cron remains fallback] الـclient hook هو fire-and-forget — لو فشل (network down، الـapp اتقفلت قبل الـrequest يخلص، لو فيه bridge error)، الـnext cron tick هيـcatch up خلال ≤5 دقايق. الـidempotency عبر `payment:${id}` يضمن مفيش double-send، حتى لو الـclient و الـcron الاتنين فيوا في نفس الوقت — السكان الجاي يلاقي الـkey في eventHistory ويـskip." },
+      { type: "feature", text: "💰 [Balance computed client-side] الـclient يحسب الـbalance بنفس الـformula اللي في الـcron-side (deliveries × price − returns − payments − new amount) ويبعتها في الـpayload. الـ{balance} variable في الرسالة يعرض الرصيد الصح بعد الدفعة دي." },
+      { type: "ux", text: "🎯 [Scope: only NEW + customer payments + linked customer + has phone] الـhook يـfire فقط لما الشروط الـ4 مستوفاة: (1) entry جديد (مش edit)، (2) txCategory==='دفعة عميل'، (3) الـcustomer مربوط (linkedCustId)، (4) الـcustomer عنده phone. أي واحدة منهم missing → skip silently، الـcron يبقى المسؤول الوحيد. ده يحمي من الـunintended fires في الـpaths الجانبية." },
+      { type: "improvement", text: "⏱ [Sale completed لسه cron-only] الـsale event مش instant في V19.70.3 — لسه عبر cron 5-min. الـuse case الأساسي للـuser هو payment (المحصل). لو محتاج sale instant كمان، نضيف hook في DetPg/CustDeliverPg في V19.70.4." },
+    ]
+  },
+  {
     version: "V19.70.2",
     date: "2026-05-05",
     types: ["fix", "automation"],

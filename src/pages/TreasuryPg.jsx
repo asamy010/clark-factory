@@ -910,6 +910,14 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         };
       }
     }
+    /* V19.70.3: pre-generate the new custPayment ID so we can fire an instant
+       paymentReceived event after upConfig commits. Without this, the gid() is
+       inline inside the mutator and we have no way to reference the resulting
+       payment for the idempotencyKey. Only relevant for new entries (not edits)
+       in the customer-payment path. */
+    const _instantPay_needed = (linkedCustId && txType==="in" && txCategory==="دفعة عميل" && !editId);
+    const _instantPay_id = _instantPay_needed ? gid() : null;
+    const _instantPay_customer = _instantPay_needed ? customers.find(x=>x.id===linkedCustId) : null;
     upConfig(d=>{if(!d.treasury)d.treasury=[];
       if(editId){const tx=d.treasury.find(t=>t.id===editId);
         if(tx){
@@ -976,7 +984,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         /* Auto-link to customer payments if customer selected */
         if(linkedCustId&&txType==="in"){if(!d.custPayments)d.custPayments=[];
           const c=customers.find(x=>x.id===linkedCustId);
-          d.custPayments.push({id:gid(),custId:linkedCustId,custName:c?c.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:txMethod||"نقدي كاش",by:userName,treasuryTxId:txId,createdAt:new Date().toISOString()})}
+          d.custPayments.push({id:_instantPay_id||gid(),custId:linkedCustId,custName:c?c.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:txMethod||"نقدي كاش",by:userName,treasuryTxId:txId,createdAt:new Date().toISOString()})}
         /* Auto-link to supplier payments */
         if(linkedSupplierId&&txType==="out"){if(!d.supplierPayments)d.supplierPayments=[];
           const s=suppliers.find(x=>x.id===linkedSupplierId);
@@ -1012,6 +1020,68 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         const _r=autoPost.treasury(data, _newBaseEntry, userName);
         if(_r && typeof _r.then==="function") _r.catch(()=>{});
       }catch(e){console.warn("[V19.8] autoPost.treasury sync threw:",e?.message||e);}
+    }
+    /* V19.70.3: INSTANT paymentReceived event trigger (client-side hook).
+       Fires the WhatsApp notification the moment the payment is saved, instead
+       of waiting up to 5 minutes for the next cron tick. The cron remains a
+       fallback — if this client-side fire fails (network down, app closed
+       before request completes), the cron will pick up the payment via the
+       normal scan within ≤5 min. Idempotency via `payment:${id}` ensures no
+       duplicate notification regardless of which path fires first.
+
+       Only fires for: NEW (not edit) + customer payment + linked customer.
+       Skips entirely if the user has no phone, the trigger isn't enabled,
+       or the customer is unknown. The endpoint itself enforces config
+       (enabled/recipients/templates), so this is just a "wake up the cron
+       early" path. */
+    if(_instantPay_needed && _instantPay_id && _instantPay_customer?.phone){
+      /* Compute customer balance AFTER this payment, using current data + the
+         new payment we just added. Same formula as cron-side scan. */
+      let _bal = 0;
+      for(const o of (data.orders||[])){
+        for(const d of (o.customerDeliveries||[])){
+          if(d.custId===linkedCustId){
+            _bal += (Number(d.qty)||0) * (Number(d.price)||Number(o.sellPrice)||0);
+          }
+        }
+        for(const r of (o.customerReturns||[])){
+          if(r.custId===linkedCustId){
+            _bal -= (Number(r.qty)||0) * (Number(r.price)||Number(o.sellPrice)||0);
+          }
+        }
+      }
+      for(const p of (data.custPayments||[])){
+        if(p.custId===linkedCustId) _bal -= Number(p.amount)||0;
+      }
+      _bal -= amt;/* the new payment we just recorded */
+
+      /* Fire-and-forget — don't await, don't block save UX */
+      (async ()=>{
+        try{
+          if(!user || typeof user.getIdToken !== "function") return;
+          const _idToken = await user.getIdToken();
+          await fetch("/api/event-trigger", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + _idToken },
+            body: JSON.stringify({
+              eventType: "paymentReceived",
+              payload: {
+                customerName: _instantPay_customer.name || "—",
+                amount: amt,
+                method: txMethod || "نقدي كاش",
+                balance: Math.round(_bal),
+                date: txDate,
+                portalLink: "",
+              },
+              customerPhone: _instantPay_customer.phone,
+              idempotencyKey: "payment:" + _instantPay_id,
+            }),
+          });
+        }catch(e){
+          /* Silent — cron will retry on next tick (within 5 min) */
+          console.warn("[V19.70.3] instant paymentReceived fire failed (cron will retry):", e?.message||e);
+        }
+      })();
     }
     /* V19.3 FIX: For EDITS of plain treasury entries, reverse the original
        journal entry then post a fresh one. Sequenced to avoid race conditions:
