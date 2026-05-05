@@ -459,7 +459,7 @@ export const DEFAULT_AUTOMATION_CONFIG = {
         thresholdDays: 3,
         recipients: { owner: true },
         templates: {
-          owner: "📅 *شيك يستحق قريباً*\nالبنك: {bank}\nرقم الشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الاستحقاق: {dueDate} (بعد {daysToDue} يوم)\n{kindLabel}: {partyName}",
+          owner: "📅 *{checkType} يستحق قريباً*\n\n👤 {partyKind}: {partyName}\n🏢 المكتب: {office}\n🏦 البنك: {bank}\n#️⃣ رقم الشيك: {checkNo}\n💰 القيمة: {amount} ج.م\n📆 تاريخ الاستحقاق: {dueDate}\n⏱ بعد {daysToDue} يوم\n📝 {notes}",
         },
       },
     },

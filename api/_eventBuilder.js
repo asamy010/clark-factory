@@ -56,27 +56,36 @@ export const EVENT_VARIABLES = {
   },
   checkDue: {
     label: "📅 Check Due",
-    description: "شيك مستحق خلال أيام محدودة",
-    detection: "cron-only (daily scan, one alert per check per day)",
+    description: "شيك مستحق خلال أيام محدودة (الموجود في المصنع فقط — مش المظهَّر)",
+    detection: "cron-only (daily scan, one alert per check per day, status==معلق only)",
     recipientRoles: ["owner"],
     variables: {
-      owner: ["{bank}", "{checkNo}", "{amount}", "{dueDate}", "{daysToDue}", "{kindLabel}", "{partyName}"],
+      /* V19.70.1: enriched check details — type label, party kind/name/office, notes, category */
+      owner: [
+        "{checkType}", "{partyKind}", "{partyName}", "{office}",
+        "{bank}", "{checkNo}", "{amount}",
+        "{dueDate}", "{daysToDue}",
+        "{notes}", "{category}",
+      ],
     },
   },
 };
 
 /* ── Substitute {var} placeholders with payload values ──
    Unknown placeholders are left as-is so the user can spot them in preview.
-   Number-typed values are formatted (qty → "1,234"; value → "1,234 ج.م"). */
+   Numeric values are formatted with thousand separators ("12,500") but NOT
+   currency-suffixed — the template owner controls the currency string ("ج.م").
+   This avoids the V19.70.0 bug where templates with "{amount} ج.م" rendered
+   as "12,500 ج.م ج.م" (double currency). */
 export function substituteTemplate(template, payload, variables) {
   if (!template || typeof template !== "string") return "";
   return template.replace(/\{(\w+)\}/g, (match, key) => {
     if (!Object.prototype.hasOwnProperty.call(payload, key)) return match;
     const v = payload[key];
     if (v === null || v === undefined) return "";
-    /* Auto-format known numeric/money fields */
-    if (key === "value" || key === "amount" || key === "balance") return _money(v);
-    if (key === "qty" || key === "daysLate" || key === "daysToDue") return _fmt(v);
+    /* Numeric fields → format with thousand separators (no currency suffix) */
+    if (key === "value" || key === "amount" || key === "balance"
+     || key === "qty"   || key === "daysLate" || key === "daysToDue") return _fmt(v);
     return String(v);
   });
 }
@@ -154,7 +163,7 @@ export const DEFAULT_EVENT_TEMPLATES = {
     customer: "نعتذر عن التأخير في تسليم الموديل {modelNo}، نحن نعمل على تسريع الإنتاج.",
   },
   checkDue: {
-    owner: "📅 *شيك يستحق قريباً*\nالبنك: {bank}\nرقم الشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الاستحقاق: {dueDate} (بعد {daysToDue} يوم)\n{kindLabel}: {partyName}",
+    owner: "📅 *{checkType} يستحق قريباً*\n\n👤 {partyKind}: {partyName}\n🏢 المكتب: {office}\n🏦 البنك: {bank}\n#️⃣ رقم الشيك: {checkNo}\n💰 القيمة: {amount} ج.م\n📆 تاريخ الاستحقاق: {dueDate}\n⏱ بعد {daysToDue} يوم\n📝 {notes}",
   },
 };
 
@@ -178,9 +187,18 @@ export function samplePayload(eventType) {
       daysLate: 12, lastActivity: "2026-04-23",
     },
     checkDue: {
-      bank: "بنك مصر", checkNo: "12345678", amount: 8500,
-      dueDate: today, daysToDue: 2,
-      kindLabel: "المستفيد", partyName: "مورد أقمشة",
+      checkType: "ورقة قبض (من عميل)",
+      partyKind: "العميل",
+      partyName: "أحمد محمد",
+      office: "مؤسسة الأمل للملابس",
+      bank: "بنك مصر",
+      checkNo: "12345678",
+      amount: 8500,
+      dueDate: today,
+      daysToDue: 2,
+      notes: "دفعة على الفاتورة #INV-2026-001",
+      category: "دفعة عميل",
+      kindLabel: "العميل",
     },
   }[eventType] || {};
 }

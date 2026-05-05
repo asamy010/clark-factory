@@ -468,9 +468,13 @@ export const DEFAULT_AUTOMATION_CONFIG = {
         thresholdDays: 3,/* alert if check due within N days */
         recipients: { owner: true },
         templates: {
-          owner: "📅 *شيك يستحق قريباً*\nالبنك: {bank}\nرقم الشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الاستحقاق: {dueDate} (بعد {daysToDue} يوم)\n{kindLabel}: {partyName}",
+          /* V19.70.1: enriched template — covers receivable (ورقة قبض من عميل) AND
+             payable (ورقة دفع لمورد), with full party details + bank + office. */
+          owner: "📅 *{checkType} يستحق قريباً*\n\n👤 {partyKind}: {partyName}\n🏢 المكتب: {office}\n🏦 البنك: {bank}\n#️⃣ رقم الشيك: {checkNo}\n💰 القيمة: {amount} ج.م\n📆 تاريخ الاستحقاق: {dueDate}\n⏱ بعد {daysToDue} يوم\n📝 {notes}",
         },
-        /* checkDue is cron-detected daily; one alert per check per day max. */
+        /* checkDue is cron-detected daily; one alert per check per day max.
+           V19.70.1: ONLY fires for status==="معلق" (in factory). Endorsed
+           checks (مُظهّر) excluded — they're not in our possession anymore. */
       },
     },
     pending: [],/* [{id, eventType, payload, recipients, createdAt, attempts, lastAttemptAt, lastError}] */

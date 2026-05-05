@@ -430,8 +430,17 @@ async function scanLateOrders(db, cfg, lateCfg, cairoDate){
 /* ═══════════════════════════════════════════════════════════════════════
    V19.70: Check-due scan
    ───────────────────────────────────────────────────────────────────────
-   For each open check whose dueDate is within thresholdDays from today,
-   fire a `checkDue` event. Idempotent per (checkId × Cairo-date).
+   For each PENDING check (status === "معلق", physically still in factory)
+   whose dueDate is within thresholdDays from today, fire a `checkDue`
+   event. Idempotent per (checkId × Cairo-date).
+
+   IMPORTANT (V19.70.1): we ONLY consider status === "معلق" — endorsed
+   checks (status === "مُظهّر") are no longer in our possession, so we
+   shouldn't alert about them. Same for collected/paid/bounced/cancelled.
+
+   Coverage:
+     - type === "receivable" : ورقة قبض (received from a customer)
+     - type === "payable"    : ورقة دفع (issued to a supplier)
    ─────────────────────────────────────────────────────────────────────── */
 async function scanChecksDue(db, cfg, checkCfg, cairoDate){
   const threshold = Number(checkCfg.thresholdDays) || 3;
@@ -444,33 +453,60 @@ async function scanChecksDue(db, cfg, checkCfg, cairoDate){
     checks = Array.isArray(cfg.checks) ? cfg.checks : [];
   }
 
+  /* Lookup parties for enriched details (name + phone + office) */
+  let customersById = {};
+  let suppliersById = {};
+  if (cfg._partitionedV1957Done) {
+    const [cs, ss] = await Promise.all([
+      readPartitionedCollection("customersDocs"),
+      readPartitionedCollection("suppliersDocs"),
+    ]);
+    cs.forEach(x => { if (x.id) customersById[x.id] = x; });
+    ss.forEach(x => { if (x.id) suppliersById[x.id] = x; });
+  } else {
+    (cfg.customers || []).forEach(x => { if (x.id) customersById[x.id] = x; });
+    (cfg.suppliers || []).forEach(x => { if (x.id) suppliersById[x.id] = x; });
+  }
+
   const todayMs = Date.parse(cairoDate);
   let scanned = 0, fired = 0, skipped = 0;
   for (const c of checks) {
     if (!c || !c.id) continue;
-    if (c.status === "محصل" || c.status === "مرتد" || c.status === "ملغي") continue;
+    /* V19.70.1: ONLY pending checks (still in our hands).
+       Exclude: محصل (cashed), مدفوع (paid out), مُظهّر (endorsed),
+                مرتد (bounced), ملغي (cancelled), مرتجع (returned). */
+    if (c.status !== "معلق") continue;
+
     const due = String(c.dueDate || c.date || "").slice(0, 10);
     if (!due) continue;
     const daysToDue = Math.floor((Date.parse(due) - todayMs) / 86400000);
     if (daysToDue < 0 || daysToDue > threshold) continue;
 
     scanned++;
-    /* "kind": received (we hold) vs issued (we owe) — affects which party label */
-    const kind = c.kind || c.type || "received";
-    const kindLabel = kind === "issued" ? "المستفيد" : "الساحب";
-    const partyName = c.party || c.beneficiary || c.drawer || c.customerName || "—";
+    /* Resolve type label + party details */
+    const type = c.type || "receivable";
+    const checkType = type === "payable" ? "ورقة دفع (للمورد)" : "ورقة قبض (من عميل)";
+    const partyKind = type === "payable" ? "المورد" : "العميل";
+    const partyRecord = type === "payable"
+      ? (suppliersById[c.partyId] || {})
+      : (customersById[c.partyId] || {});
+    const partyName = partyRecord.name || c.party || "—";
+    const office = partyRecord.companyName || partyRecord.company || partyRecord.office || partyRecord.businessName || "";
+    const notes = c.notes || "";
+    const category = c.category || "";
 
     const idempotencyKey = `checkDue:${c.id}:${cairoDate}`;
     const r = await processEvent(db, {
       eventType: "checkDue",
       payload: {
+        checkType, partyKind, partyName, office, notes, category,
         bank: c.bank || "—",
         checkNo: c.checkNo || c.number || c.id,
         amount: Number(c.amount) || 0,
         dueDate: due,
         daysToDue,
-        kindLabel,
-        partyName,
+        /* V19.70.1: keep legacy keys for back-compat with existing templates */
+        kindLabel: partyKind,
       },
       customerPhone: null,/* check-due is owner-only */
       idempotencyKey,

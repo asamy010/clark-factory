@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.1",
+    date: "2026-05-05",
+    types: ["fix", "feature", "ux"],
+    title: "🛠️ V19.70 patch — Check Due بكل التفاصيل + Payment method picker + double-currency fix",
+    changes: [
+      { type: "fix", text: "🐛 [الـCRITICAL: double-currency في الـmessage templates] قبل V19.70.1 الـauto-formatter كان بيـadd ' ج.م' لـ{amount}/{value}/{balance}، والـtemplate كمان فيها ' ج.م' في النص. النتيجة: '12,500 ج.م ج.م' في كل رسالة فيها قيمة. **الـFix**: الـauto-formatter دلوقتي بـformat الرقم بـthousand separators بس (12,500)، الـtemplate يتحكم في الـcurrency. الـtemplates الموجودة سليمة لأنها كانت أصلاً بتـكتب ' ج.م'. الـmessages بقت نظيفة." },
+      { type: "feature", text: "📅 [Check Due بكل التفاصيل + only-in-factory filter] V19.70 كانت بـtرفع alert لأي شيك مش 'محصل/مرتد/ملغي'. ده غلط — الشيك المظهَّر (مُظهّر، اتنقل لمورد) مش في حوزتنا. **الـFix**: الـscanner دلوقتي يفلتر ON `status === 'معلق'` بس (الشيكات الموجودة فعلاً في المصنع). + الـpayload اتـenriched: الـ{checkType} ('ورقة قبض من عميل' / 'ورقة دفع لمورد')، {partyKind} (العميل/المورد)، {partyName}، {office} (الـcompanyName من الـcustomer/supplier record)، {notes}، {category}، + الـold {bank}/{checkNo}/{amount}/{dueDate}/{daysToDue}. الـdefault template اتحدّث ليعرض كل ده بـemoji-prefixed lines." },
+      { type: "feature", text: "💳 [Payment method picker في خانة الخزنة] قبل V19.70.1 الـmethod كان hardcoded 'كاش' في كل custPayment/supplierPayment. ده بيظهر في الـpayment-received message كـ'الطريقة: كاش' لكل دفعة. **الـFix**: الـtreasury form دلوقتي عنده dropdown لـ4 methods (نقدي كاش، تحويل محفظة الكترونية، تحويل انستاباي، تحويل بنكي) — يظهر فقط لما تختار 'دفعة عميل' (in) أو 'دفعة مورد' (out). الـvalue يـsave في الـpayment record + يظهر في الـ{method} variable في الـmessage." },
+      { type: "ux", text: "🔄 [Edit-time method sync] لما تـedit حركة خزنة موجودة من قبل، الـform يـlookup الـlinked custPayment/supplierPayment من الـtreasuryTxId ويعرض الـmethod المسجّل (مش بيحط الـdefault). كده الـuser يقدر يغيّر الـmethod لو سجّل غلط بدون ما يـoverwrite الـsaved value." },
+    ]
+  },
+  {
     version: "V19.70",
     date: "2026-05-05",
     types: ["feature", "automation"],

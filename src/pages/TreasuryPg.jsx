@@ -471,6 +471,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[txDate,setTxDate]=useState(new Date().toISOString().split("T")[0]);
   const[txPartyId,setTxPartyId]=useState("");/* Customer or supplier ID */
   const[txPartyType,setTxPartyType]=useState("");/* "customer" | "supplier" */
+  /* V19.70.1: payment method dropdown for cust/supplier payments.
+     Stored in custPayments[].method / supplierPayments[].method, displayed
+     in the V19.70 paymentReceived event message via the {method} variable. */
+  const[txMethod,setTxMethod]=useState("نقدي كاش");
   const[editId,setEditId]=useState(null);
   /* Party picker popup */
   const[showPartyPicker,setShowPartyPicker]=useState(null);/* "customer" | "supplier" */
@@ -950,12 +954,12 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           if(linkedCustId&&txType==="in"){
             if(!d.custPayments)d.custPayments=[];
             const c=customers.find(x=>x.id===linkedCustId);
-            d.custPayments.push({id:gid(),custId:linkedCustId,custName:c?c.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:"كاش",by:userName,treasuryTxId:editId,createdAt:new Date().toISOString()});
+            d.custPayments.push({id:gid(),custId:linkedCustId,custName:c?c.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:txMethod||"نقدي كاش",by:userName,treasuryTxId:editId,createdAt:new Date().toISOString()});
           }
           if(linkedSupplierId&&txType==="out"){
             if(!d.supplierPayments)d.supplierPayments=[];
             const s=suppliers.find(x=>x.id===linkedSupplierId);
-            d.supplierPayments.push({id:gid(),supplierId:linkedSupplierId,supplierName:s?s.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:"كاش",by:userName,treasuryTxId:editId,createdAt:new Date().toISOString()});
+            d.supplierPayments.push({id:gid(),supplierId:linkedSupplierId,supplierName:s?s.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:txMethod||"نقدي كاش",by:userName,treasuryTxId:editId,createdAt:new Date().toISOString()});
           }
           /* V17.3 FIX: If the edit added an employee link (was no advance, now is one), create hrLog */
           if(linkedEmpId&&txType==="out"&&!tx.hrLogId&&linkedEmpId!==oldEmpId){
@@ -972,11 +976,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         /* Auto-link to customer payments if customer selected */
         if(linkedCustId&&txType==="in"){if(!d.custPayments)d.custPayments=[];
           const c=customers.find(x=>x.id===linkedCustId);
-          d.custPayments.push({id:gid(),custId:linkedCustId,custName:c?c.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:"كاش",by:userName,treasuryTxId:txId,createdAt:new Date().toISOString()})}
+          d.custPayments.push({id:gid(),custId:linkedCustId,custName:c?c.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:txMethod||"نقدي كاش",by:userName,treasuryTxId:txId,createdAt:new Date().toISOString()})}
         /* Auto-link to supplier payments */
         if(linkedSupplierId&&txType==="out"){if(!d.supplierPayments)d.supplierPayments=[];
           const s=suppliers.find(x=>x.id===linkedSupplierId);
-          d.supplierPayments.push({id:gid(),supplierId:linkedSupplierId,supplierName:s?s.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:"كاش",by:userName,treasuryTxId:txId,createdAt:new Date().toISOString()})}
+          d.supplierPayments.push({id:gid(),supplierId:linkedSupplierId,supplierName:s?s.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:txMethod||"نقدي كاش",by:userName,treasuryTxId:txId,createdAt:new Date().toISOString()})}
         /* Auto-link to employee advance (hrLog) */
         if(linkedEmpId&&txType==="out"){if(!d.hrLog)d.hrLog=[];
           const emp=(d.employees||[]).find(x=>x.id===linkedEmpId);
@@ -1078,7 +1082,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     } else {
       showToast("✓ تم الحفظ");
     }
-    setShowForm(false);setTxAmount("");setTxDesc("");setTxNotes("");setTxCategory("");setTxType("in");setTxPartyId("");setTxPartyType("");setEditId(null);};
+    setShowForm(false);setTxAmount("");setTxDesc("");setTxNotes("");setTxCategory("");setTxType("in");setTxPartyId("");setTxPartyType("");setTxMethod("نقدي كاش");setEditId(null);};
   /* Detect treasury entries that were auto-created from an external source
      (salary approval, check collection/payment, advance, transfer, workshop payment).
      These entries should NOT be directly deletable from treasury — go to source. */
@@ -1337,6 +1341,14 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const editTx=(t)=>{setEditId(t.id);setTxType(t.type);setTxAmount(String(t.amount));setTxDesc(t.desc||"");setTxNotes(t.notes||"");setTxCategory(t.category||"");setTxAccount(t.account||"MAIN CASH");setTxSeason(t.season||"");setTxDate(t.date||today);
     setTxPartyId(t.custId||t.supplierId||t.wsName||"");
     setTxPartyType(t.custId?"customer":t.supplierId?"supplier":t.wsName?"workshop":"");
+    /* V19.70.1: load saved payment method from the linked custPayment/supplierPayment.
+       If not found, fallback to default. */
+    const linkedPay = (t.custId
+      ? (data.custPayments||[]).find(p=>p.treasuryTxId===t.id)
+      : t.supplierId
+        ? (data.supplierPayments||[]).find(p=>p.treasuryTxId===t.id)
+        : null);
+    setTxMethod(linkedPay?.method || "نقدي كاش");
     setShowForm(true)};
   const addAccount=()=>{if(!newAccName.trim())return;
     upConfig(d=>{if(!d.treasuryAccounts)d.treasuryAccounts=[];
@@ -2215,6 +2227,18 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               </div>
             </div>})()}</div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>حساب جاري</label><Sel value={txAccount} onChange={setTxAccount}>{accounts.map(a=><option key={a} value={a}>{a}</option>)}</Sel></div>
+          {/* V19.70.1: payment method dropdown — visible only for cust/supplier payments.
+              Saved into custPayments[].method / supplierPayments[].method, displayed
+              in event-trigger messages via the {method} variable. */}
+          {((txType==="in"&&txCategory==="دفعة عميل")||(txType==="out"&&txCategory==="دفعة مورد"))&&
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>طريقة الدفع</label>
+            <Sel value={txMethod} onChange={setTxMethod}>
+              <option value="نقدي كاش">💵 نقدي كاش</option>
+              <option value="تحويل محفظة الكترونية">📱 تحويل محفظة الكترونية</option>
+              <option value="تحويل انستاباي">🔄 تحويل انستاباي</option>
+              <option value="تحويل بنكي">🏦 تحويل بنكي</option>
+            </Sel>
+          </div>}
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>بيان</label><Inp value={txDesc} onChange={setTxDesc} placeholder="وصف الحركة"/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات</label><Inp value={txNotes} onChange={setTxNotes} placeholder="ملاحظات إضافية"/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
