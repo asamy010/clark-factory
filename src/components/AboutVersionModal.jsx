@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.68",
+    date: "2026-05-05",
+    types: ["feature", "automation"],
+    title: "🤖 Automation Hub — التقارير اليومية عبر WhatsApp (Phase 1)",
+    changes: [
+      { type: "feature", text: "🤖 [الـAutomation Hub جديد] Tab + زر في الـHome quick actions. الصفحة تحتوي على ٤ tabs: (١) إعدادات التقرير اليومي، (٢) قائمة المستلمين، (٣) سجل الإرسال (آخر 50 رسالة)، (٤) معاينة الرسالة قبل الإرسال. الـbridge URL/token يـreuse من `data.campaignBridge` (بالفعل موجود في الـCampaigns settings)." },
+      { type: "feature", text: "📊 [Daily Report builder بـ7 sections قابلة للـtoggle] (1) المبيعات (قيمة، فواتير، أكثر العملاء)، (2) المشتريات (قيمة، إذونات، فواتير)، (3) الخزنة (محصلات بـcash/transfer/check + مدفوعات ورش/موردين/مرتبات + أرصدة الخزنات الحالية)، (4) التشغيل (تسليم اليوم، أوردرات متأخرة >7 أيام، ورش متأخرة)، (5) تحذيرات (شيكات تستحق خلال 7 أيام، عملاء بأرصدة عالية > Y ولم يدفعوا منذ Z يوم — thresholds قابلة للتعديل)، (6) المهام المعلقة per user، (7) مقارنة (مبيعات اليوم vs نفس اليوم الأسبوع اللي فات + percentage)." },
+      { type: "feature", text: "📤 [زر 'ارسل تجربة الآن' للـmanual trigger] الـuser يقدر يـsend الآن لكل المستلمين المشتركين عبر الـbridge مباشرة من الـclient. كل إرسال يتـlog في `data.automation.history` مع status (success/fail) + recipientCount + by-user. الـpreview button يعرض الرسالة قبل الإرسال (preview tab بـwhatsapp-style dark background)." },
+      { type: "feature", text: "👥 [Recipients management] CRUD list من الأرقام المستلمة. كل recipient عنده toggle 'مشترك في تقرير يومي' (للـfuture multi-report subscriptions). الـnumbers تتـnormalize لـ+20 prefix تلقائياً. الـid، addedAt، addedBy، subscribedReports[] — كله محفوظ في Firestore." },
+      { type: "feature", text: "🟢 [Bridge status pill في الـheader] يعرض حالة الـbridge connection (READY/QR/DISCONNECTED) + يـrefresh عند فتح الصفحة. لو الـbridge مش جاهز، الـ'ارسل تجربة' بيرفض ويعرض السبب." },
+      { type: "feature", text: "🛡️ [Permissions integration] Tab `automation` ضافت في الـregistry — admin/manager: edit، sales_accountant: view، باقي الـroles: hide. ميـظهرش الزر في الـHome للـusers اللي ميـقدروش يشوفوه." },
+      { type: "improvement", text: "📅 [الـscheduling لسه مش مفعّل في V19.68] الـuser يقدر يـconfigure الـtime + sections + recipients، لكن الإرسال التلقائي يـrequires VPS cron — جاي في V19.69 (`/api/automation-tick` endpoint + crontab setup docs). لـnow، يدوي بزر 'ارسل تجربة الآن'." },
+    ]
+  },
+  {
     version: "V19.67",
     date: "2026-05-05",
     types: ["fix", "ux", "security"],

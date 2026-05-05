@@ -75,6 +75,8 @@ const TreasuryPg = lazyNamed(() => import("./pages/TreasuryPg.jsx"), "TreasuryPg
 const HRPg = lazyNamed(() => import("./pages/HRPg.jsx"), "HRPg");
 /* V19.48: Bulk messaging / campaigns engine */
 const CampaignsPg = lazyNamed(() => import("./pages/CampaignsPg.jsx"), "CampaignsPg");
+/* V19.68: Automation hub — daily reports + event triggers via WhatsApp bridge */
+const AutomationPg = lazyNamed(() => import("./pages/AutomationPg.jsx"), "AutomationPg");
 
 /* V15.1 phase 3: page/component imports */
 /* V15.76: print-extras imports removed — none used in App.jsx (used in pages directly) */
@@ -4683,6 +4685,11 @@ export default function App(){
                   <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="7" y1="7" x2="7" y2="17"/><line x1="11" y1="7" x2="11" y2="17"/><line x1="15" y1="7" x2="15" y2="17"/><line x1="17" y1="7" x2="17" y2="17"/></svg>
                   <span style={{fontSize:FS-1,fontWeight:700,color:"#F59E0B"}}>طباعة QR</span>
                 </div>
+                {/* V19.68: Automation quick action — gated by canViewTab */}
+                {canViewTab("automation")&&<div onClick={()=>goTo("automation")} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:"#0EA5E908",border:"1px solid #0EA5E925",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#0EA5E915"} onMouseLeave={e=>e.currentTarget.style.background="#0EA5E908"}>
+                  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#0EA5E9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
+                  <span style={{fontSize:FS-1,fontWeight:700,color:"#0EA5E9"}}>🤖 Automation</span>
+                </div>}
               </div>
 
               {/* Odoo Quick Links — V18.46: gated by config.odooEnabled */}
@@ -4829,6 +4836,11 @@ export default function App(){
                 <span style={{fontSize:14}}>📱</span>
                 <span style={{fontSize:FS-2,fontWeight:700,color:"#10B981"}}>وضع المخزن</span>
               </div>
+              {/* V19.68: Automation mobile button */}
+              {canViewTab("automation")&&<div onClick={()=>goTo("automation")} style={{cursor:"pointer",padding:"8px 14px",borderRadius:10,background:"#0EA5E910",border:"1px solid #0EA5E925",display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:14}}>🤖</span>
+                <span style={{fontSize:FS-2,fontWeight:700,color:"#0EA5E9"}}>Automation</span>
+              </div>}
             </div>
 
             {/* Mobile: tasks + activity inline */}
@@ -4947,6 +4959,8 @@ export default function App(){
         {tab==="hr"&&<HRPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("hr")} user={user} userRole={userRole} getHrSubPerm={getHrSubPerm} setSavingOverlay={setSavingOverlay}/>}
         {/* V19.48: Bulk messaging campaigns */}
         {tab==="campaigns"&&<CampaignsPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("campaigns")} user={user}/>}
+        {/* V19.68: Automation hub — daily reports + (future) event triggers */}
+        {tab==="automation"&&<AutomationPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
         {tab==="audit"&&canViewTab("audit")&&<AuditPg data={data} isMob={isMob} user={user}/>}
         {tab==="accounting"&&canViewTab("accounting")&&<AccountingPg data={data} config={config} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("accounting")} user={user}/>}
         {tab==="fixedAssets"&&canViewTab("fixedAssets")&&<FixedAssetsPg data={data} config={config} isMob={isMob} canEdit={canEditTab("fixedAssets")} user={user}/>}
