@@ -1,5 +1,10 @@
+/* V19.66: import r2 for monetary rounding (was missing → float drift in totals).
+   Pre-V19.66 every consolidation accumulated 0.0000000001-class rounding error
+   into AR balances and reports. */
+import { r2 } from "./format.js";
+
 /* ═══════════════════════════════════════════════════════════════════════
-   CLARK · Invoices Utility (V18.65)
+   CLARK · Invoices Utility (V18.65 → V19.66 hardened)
    ───────────────────────────────────────────────────────────────────────
    Manages sales and purchase invoices as a layer between the inventory
    movement entities (deliveries / receipts) and the accounting journal
@@ -72,11 +77,11 @@ export function buildSalesInvoiceFromDelivery(d, delivery, order, customer, user
   const invoiceNo = reserveInvoiceNo(d, "sales");
   const unitPrice = Number(delivery.price) || Number(order.sellPrice) || 0;
   const qty       = Number(delivery.qty) || 0;
-  const lineTotal = unitPrice * qty;
+  const lineTotal = r2(unitPrice * qty);/* V19.66: round to 2 decimals to avoid float drift */
   /* Apply customer-level discount if present */
   const customerDiscountPct = Number(customer?.discount) || 0;
-  const discount = lineTotal * (customerDiscountPct / 100);
-  const total    = lineTotal - discount;
+  const discount = r2(lineTotal * (customerDiscountPct / 100));
+  const total    = r2(lineTotal - discount);
 
   return {
     id: "inv_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,7),
@@ -161,7 +166,7 @@ export function upsertSalesInvoiceFromDelivery(d, delivery, order, customer, use
     );
     if(matchedItem){
       matchedItem.qty = (Number(matchedItem.qty) || 0) + qty;
-      matchedItem.lineTotal = matchedItem.qty * Number(matchedItem.unitPrice);
+      matchedItem.lineTotal = r2(matchedItem.qty * Number(matchedItem.unitPrice));/* V19.66 */
     } else {
       existing.items.push({
         orderId: order.id,
@@ -169,7 +174,7 @@ export function upsertSalesInvoiceFromDelivery(d, delivery, order, customer, use
         modelDesc: order.modelDesc || "",
         qty,
         unitPrice,
-        lineTotal: qty * unitPrice,
+        lineTotal: r2(qty * unitPrice),/* V19.66 */
       });
     }
     /* Track this delivery in the refs array (migrate legacy singular if needed) */
@@ -177,19 +182,19 @@ export function upsertSalesInvoiceFromDelivery(d, delivery, order, customer, use
       existing.deliveryRefs = existing.deliveryRef ? [existing.deliveryRef] : [];
     }
     existing.deliveryRefs.push(ref);
-    /* Recompute totals */
-    existing.subtotal = existing.items.reduce((s, it) => s + (Number(it.lineTotal) || 0), 0);
+    /* Recompute totals — V19.66: route through r2 to prevent accumulated drift */
+    existing.subtotal = r2(existing.items.reduce((s, it) => s + (Number(it.lineTotal) || 0), 0));
     existing.discountPct = customerDiscountPct;
-    existing.discount = existing.subtotal * (customerDiscountPct / 100);
-    existing.total = existing.subtotal - existing.discount;
+    existing.discount = r2(existing.subtotal * (customerDiscountPct / 100));
+    existing.total = r2(existing.subtotal - existing.discount);
     return { invoice: existing, isNew: false };
   }
 
   /* Create new draft invoice */
   const invoiceNo = reserveInvoiceNo(d, "sales");
-  const lineTotal = unitPrice * qty;
-  const discount = lineTotal * (customerDiscountPct / 100);
-  const total = lineTotal - discount;
+  const lineTotal = r2(unitPrice * qty);/* V19.66 */
+  const discount = r2(lineTotal * (customerDiscountPct / 100));
+  const total = r2(lineTotal - discount);
   const inv = {
     id: "inv_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,7),
     invoiceNo,
@@ -236,11 +241,11 @@ export function buildPurchaseInvoiceFromReceipt(d, receipt, supplier, userName){
     name:     it.name || it.itemName || "",
     qty:      Number(it.qty) || 0,
     unitPrice:Number(it.unitPrice) || Number(it.price) || 0,
-    lineTotal:(Number(it.qty)||0) * (Number(it.unitPrice)||Number(it.price)||0),
+    lineTotal:r2((Number(it.qty)||0) * (Number(it.unitPrice)||Number(it.price)||0)),/* V19.66 */
   }));
-  const subtotal = items.reduce((s, it) => s + it.lineTotal, 0);
-  const discount = Number(receipt.discount) || 0;
-  const total = subtotal - discount;
+  const subtotal = r2(items.reduce((s, it) => s + it.lineTotal, 0));
+  const discount = r2(Number(receipt.discount) || 0);
+  const total = r2(subtotal - discount);
   const ref = { receiptId: receipt.id, receiptNo: receipt.receiptNo || receipt.id };
 
   return {
@@ -293,9 +298,9 @@ export function upsertPurchaseInvoiceFromReceipt(d, receipt, supplier, userName)
     name:     it.name || it.itemName || "",
     qty:      Number(it.qty) || 0,
     unitPrice:Number(it.unitPrice) || Number(it.price) || 0,
-    lineTotal:(Number(it.qty)||0) * (Number(it.unitPrice)||Number(it.price)||0),
+    lineTotal:r2((Number(it.qty)||0) * (Number(it.unitPrice)||Number(it.price)||0)),/* V19.66 */
   }));
-  const incomingDiscount = Number(receipt.discount) || 0;
+  const incomingDiscount = r2(Number(receipt.discount) || 0);
 
   if(existing){
     /* Merge: bump qty if same itemType+itemId+unitPrice matches an existing line,
@@ -311,7 +316,7 @@ export function upsertPurchaseInvoiceFromReceipt(d, receipt, supplier, userName)
       );
       if(matched){
         matched.qty = (Number(matched.qty) || 0) + inc.qty;
-        matched.lineTotal = matched.qty * Number(matched.unitPrice);
+        matched.lineTotal = r2(matched.qty * Number(matched.unitPrice));/* V19.66 */
       } else {
         existing.items.push(inc);
       }
@@ -321,12 +326,11 @@ export function upsertPurchaseInvoiceFromReceipt(d, receipt, supplier, userName)
       existing.receiptRefs = existing.receiptRef ? [existing.receiptRef] : [];
     }
     existing.receiptRefs.push(ref);
-    /* Recompute totals from the merged items array. Discounts add up — if the
-       second receipt brought a discount, it stacks onto the existing one. */
-    existing.subtotal = existing.items.reduce((s, it) => s + (Number(it.lineTotal) || 0), 0);
-    existing.discount = (Number(existing.discount) || 0) + incomingDiscount;
-    existing.total = existing.subtotal - existing.discount;
-    existing.discountPct = existing.subtotal > 0 ? (existing.discount / existing.subtotal * 100) : 0;
+    /* Recompute totals — V19.66: route through r2 to prevent accumulated drift */
+    existing.subtotal = r2(existing.items.reduce((s, it) => s + (Number(it.lineTotal) || 0), 0));
+    existing.discount = r2((Number(existing.discount) || 0) + incomingDiscount);
+    existing.total = r2(existing.subtotal - existing.discount);
+    existing.discountPct = existing.subtotal > 0 ? r2(existing.discount / existing.subtotal * 100) : 0;
     /* Append receipt notes if the new receipt has any */
     if(receipt.notes && receipt.notes.trim()){
       existing.notes = existing.notes
@@ -338,8 +342,8 @@ export function upsertPurchaseInvoiceFromReceipt(d, receipt, supplier, userName)
 
   /* No matching draft found — create a fresh one. */
   const invoiceNo = reserveInvoiceNo(d, "purchase");
-  const subtotal = incomingItems.reduce((s, it) => s + it.lineTotal, 0);
-  const total = subtotal - incomingDiscount;
+  const subtotal = r2(incomingItems.reduce((s, it) => s + it.lineTotal, 0));/* V19.66 */
+  const total = r2(subtotal - incomingDiscount);
   const inv = {
     id: "pinv_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,7),
     invoiceNo,
@@ -351,7 +355,7 @@ export function upsertPurchaseInvoiceFromReceipt(d, receipt, supplier, userName)
     receiptRefs: [ref],        /* V19.39 */
     items: incomingItems,
     subtotal,
-    discountPct: subtotal > 0 ? (incomingDiscount / subtotal * 100) : 0,
+    discountPct: subtotal > 0 ? r2(incomingDiscount / subtotal * 100) : 0,
     discount: incomingDiscount,
     total,
     status: "draft",

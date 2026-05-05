@@ -102,7 +102,13 @@ export function buildSaleEntry(delivery, customer, order, coa, rules){
 export function buildSaleReturnEntry(ret, customer, order, coa, rules){
   const r = resolveRules(rules);
   const qty = Number(ret.qty)||0;
-  const price = Number(order.sellPrice)||0;
+  /* V19.66 FIX: read price from the return entry first, fall back to list price.
+     Pre-V19.66 returns always credited AR at order.sellPrice. If the original sale
+     was at a discounted/custom price (entry.price stored on the delivery), the
+     return reversed at a higher list price → permanent debit drift on the
+     customer's account. Now: ret.price (recorded at sale time for discount/free
+     sales) takes priority. Falls through to order.sellPrice for legacy returns. */
+  const price = Number(ret.price) || Number(order.sellPrice) || 0;
   const gross = _r2(qty*price);
   if(gross<=0||qty<=0) return null;
 

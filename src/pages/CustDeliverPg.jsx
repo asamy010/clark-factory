@@ -70,6 +70,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
      instead of starting the fetch then. Saves ~500–1000ms of perceived latency
      between clicking "🖨 طباعة N ليبل" and the print dialog appearing. */
   const sigPromiseRef=useRef(null);
+  /* V19.66: double-submit guard for the QR confirm-sale popup */
+  const qrSaleSubmittingRef=useRef(false);
   const[sessFilterQ,setSessFilterQ]=useState("");
   const[reportRange,setReportRange]=useState({from:"",to:""});const[showReport,setShowReport]=useState(false);const[rptType,setRptType]=useState("all");const[rptCust,setRptCust]=useState("");const[rptModel,setRptModel]=useState("");
   const[invAudit,setInvAudit]=useState(null);/* {items:{orderId:{counted:n}},scanning:false} */
@@ -2816,7 +2818,16 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const linkedSess=isSale&&qrSale.linkedSession&&qrSale.linkedSession!=="free"?sessions.find(s=>s.id===qrSale.linkedSession):null;
       const plannedByModel={};if(linkedSess){Object.entries(linkedSess.grid||{}).forEach(([k,v])=>{const[oid,cid]=k.split("_");if(cid===qrSale.custId){plannedByModel[oid]=(plannedByModel[oid]||0)+(Number(v)||0)}})}
       const actualByModel={};qrSale.items.forEach(it=>{actualByModel[it.orderId]=(actualByModel[it.orderId]||0)+(Number(it.qty)||0)});
-      const confirmSale=()=>{if(!qrSale.custId||total<=0)return;const cust=customers.find(c=>c.id===qrSale.custId);if(!cust)return;
+      const confirmSale=()=>{if(!qrSale.custId||total<=0)return;
+        /* V19.66: double-submit guard — prevent duplicate deliveries on rapid double-tap.
+           Pre-V19.66 the only guard was `total<=0` — two synchronous taps both passed,
+           both pushed to customerDeliveries (qty doubled in order's delivery list while
+           accounting stayed single-posted via _key idempotency). The ref auto-releases
+           after 800ms regardless of the return path (validation fail or write success). */
+        if(qrSaleSubmittingRef.current)return;
+        qrSaleSubmittingRef.current=true;
+        setTimeout(()=>{qrSaleSubmittingRef.current=false},800);
+        const cust=customers.find(c=>c.id===qrSale.custId);if(!cust)return;
         const byOrder={};qrSale.items.forEach(it=>{if(!byOrder[it.orderId])byOrder[it.orderId]=0;byOrder[it.orderId]+=(Number(it.qty)||0)});
         /* V15.37: For sales, require sellPrice > 0 on every order */
         if(isSale){
@@ -2870,7 +2881,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             const entry={custId:qrSale.custId,custName:cust.name,qty,date:new Date().toISOString().split("T")[0],sessionId:sessId,createdBy:userName};
             if(qrSale.override===true){entry.isOverride=true;entry.overrideReason="بيع طوارئ خارج الخطة"}
             if(cp>0){entry.price=cp;entry.isDiscounted=true;entry.originalPrice=Number(o.sellPrice)||0}
-            entry._key=oid+":saleDelivery:"+sessId+":"+qrSale.custId+":"+entry.date;
+            /* V19.66: include timestamp so legitimate re-sales (same cust/session/order/day)
+               don't collide on the journal idempotency key. Pre-V19.66 a 2nd sale with
+               identical key was silently de-duped by autoPost — the qty appeared in
+               customerDeliveries but never made it to the journal = silent over-sale. */
+            entry._key=oid+":saleDelivery:"+sessId+":"+qrSale.custId+":"+entry.date+":"+Date.now();
             o.customerDeliveries.push(entry);
             /* V18.50: Invoice-based posting mode toggle.
                If autoPostFromInvoice=true, skip direct journal posting (the
@@ -2926,6 +2941,13 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         }else{
           Object.entries(byOrder).forEach(([oid,qty])=>{updOrder(oid,o=>{if(!o.customerReturns)o.customerReturns=[];
             const retEntry={custId:qrSale.custId,custName:cust.name,qty,note:qrSale.note||"مرتجع سريع",date:new Date().toISOString().split("T")[0],createdBy:userName};
+            /* V19.66: carry over original sale price for discount-aware return posting.
+               Find the most recent matching delivery (same customer; same session if linked)
+               and copy its price if it was a discounted/custom-price sale. Without this,
+               returns of discounted sales credited AR at list price → permanent debit drift. */
+            const dels=(o.customerDeliveries||[]).filter(d=>d.custId===qrSale.custId&&(qrSale.linkedSession?d.sessionId===qrSale.linkedSession:true));
+            const lastDiscountedDel=dels.reverse().find(d=>d&&Number(d.price)>0&&d.isDiscounted);
+            if(lastDiscountedDel)retEntry.price=Number(lastDiscountedDel.price)||0;
             retEntry._key=oid+":saleReturn:"+(qrSale.linkedSession||gid())+":"+qrSale.custId+":"+retEntry.date;
             o.customerReturns.push(retEntry);
             /* V18.51: invoice mode → create credit note draft instead of direct posting */

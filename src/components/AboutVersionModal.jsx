@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.66",
+    date: "2026-05-05",
+    types: ["fix", "audit", "money"],
+    title: "💰 Sale Flow + Money Math — double-submit guard، return price، _key collision، float drift",
+    changes: [
+      { type: "fix", text: "🛡️ [Double-submit guard على confirmSale] قبل V19.66 الـQR confirm-sale popup كان عنده guard `total<=0` فقط. ضربتين سريعتين على 'تأكيد البيع' = duplicate delivery push على الـorder، لكن journal واحد فقط (بسبب `_key` idempotency). النتيجة: الكمية تتضاعف في الـcustomerDeliveries، مش في الـaccounting. دلوقتي `qrSaleSubmittingRef` يمنع الـsecond click لـ800ms — يكفي للـreact state update يتـcommit." },
+      { type: "fix", text: "💰 [Sale-return price ميـvعود لـlist price] قبل V19.66 لو بعت بسعر مخفّض (delivery.price < order.sellPrice مع isDiscounted)، الـreturn كان يـpost عبر `Number(order.sellPrice)` — credit AR بالـlist price → permanent debit drift. دلوقتي الـreturn entry يـcarry `price` field من الـmatching delivery (لو discounted)، و `buildSaleReturnEntry` يـuse `Number(ret.price) || Number(order.sellPrice)`. الـreversals بقت accurate." },
+      { type: "fix", text: "🛡️ [Free-sale `_key` collision سُدّت] قبل V19.66 الـ`_key` كان `oid:saleDelivery:sessId:custId:date`. بيع نفس العميل مرتين من نفس الـlinked-session في نفس اليوم = identical `_key` → autoPost.sale يـdedupe الـsecond → الكمية في `customerDeliveries` تتسجل، لكن مش في الـjournal = **silent over-sale**. دلوقتي الـ`_key` يـappend `Date.now()` ms timestamp — كل بيع unique." },
+      { type: "fix", text: "💰 [Float drift في invoices.js — كل math operation rounded] قبل V19.66 الـsubtotal/discount/total كانوا يـaccumulate floating-point error (e.g. `1234.5600000000002`). 8 موضع في invoices.js (sales build، sales upsert، purchase build، purchase upsert) كانوا بدون `r2()`. دلوقتي كل multiplication/subtraction/percentage بيمر على `r2(n)` (Math.round(n*100)/100). نفس الـpattern المستخدم في postingRules.js." },
+      { type: "audit", text: "🔬 [الـSkipped fixes في الـscope] الـDetPg cut-sync atomic write يحتاج refactor للـDetPg (1845 lines) — موجل لـV19.7. الـ`(data.X || [])` defenses في 110+ مكان: الـwipe guards من V19.62/63/65 بيـcatch الـreal data-loss issues، فالـnull-defense issue cosmetic مش data-integrity. الـDiscount-editor save-on-blur = UX preference، مش bug. الـDate validation كـwarning vs block = business decision." },
+    ]
+  },
+  {
     version: "V19.65",
     date: "2026-05-05",
     types: ["fix", "hotfix", "audit"],
