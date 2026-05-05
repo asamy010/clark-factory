@@ -654,7 +654,12 @@ export function validateBeforeWrite(prev, next) {
     );
   }
 
-  /* Mid-sensitivity arrays — flag if >50% disappear in one write */
+  /* Mid-sensitivity arrays — flag if >50% disappear in one write.
+     V19.65: added empDebts, generalProducts (V19.57 master-data fields) and
+     productCategories. These are partitioned in V19.57 — but isSafeWrite is also
+     called pre-V19.57 path, and the validator is layered, so listing them here
+     gives belt-and-suspenders coverage for any future regression that re-routes
+     these fields back through configDoc. */
   const arrayChecks = [
     { key: "workshops", label: "ورش" },
     { key: "customers", label: "عملاء" },
@@ -666,6 +671,11 @@ export function validateBeforeWrite(prev, next) {
     { key: "sizeSets", label: "مقاسات" },
     { key: "statusCards", label: "حالات الأوردر" },
     { key: "treasuryAccounts", label: "حسابات خزنة" },
+    /* V19.65 additions: V19.57 master data + supporting categories */
+    { key: "empDebts", label: "ديون موظفين" },
+    { key: "generalProducts", label: "منتجات المخزن" },
+    { key: "productCategories", label: "فئات المنتجات" },
+    { key: "hrWeeks", label: "أسابيع المرتبات" },
   ];
 
   for (const { key, label } of arrayChecks) {

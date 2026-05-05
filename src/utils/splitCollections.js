@@ -118,7 +118,9 @@ export const TASKS_SPLIT_FLAG_V1951 = "_tasksSplitDaysV1951Done";
    JSON.stringify is order-dependent — different key insertion orders produce
    different strings even when objects are structurally identical. This causes
    false positives on "changed" detection → unnecessary writes. */
-function _deepEqual(a, b) {
+/* V19.65: exported so App.jsx listeners + pending-write registrars can use it
+   instead of order-dependent JSON.stringify. */
+export function _deepEqual(a, b) {
   if (a === b) return true;
   if (a == null || b == null) return a === b;
   if (typeof a !== "object" || typeof b !== "object") return false;

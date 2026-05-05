@@ -30,6 +30,7 @@ import {
   syncAllSplitChanges, stripSplitArrays, SPLIT_COLLECTIONS, SPLIT_FIELDS,
   SPLIT_FIELDS_V1949, SPLIT_FIELDS_V1950, SPLIT_FIELDS_V1952, SPLIT_FIELDS_V1953,
   SPLIT_FLAG_V1674, SPLIT_FLAG_V1949, SPLIT_FLAG_V1950, SPLIT_FLAG_V1952, SPLIT_FLAG_V1953,
+  _deepEqual,/* V19.65: order-independent equality for listener pending-cleanup */
   /* V19.51 — sales-doc + tasks-doc split namespaces */
   SALES_SPLIT_COLLECTIONS, SALES_SPLIT_FIELDS, SALES_SPLIT_FIELDS_V1951, SALES_SPLIT_FLAG_V1951,
   syncAllSalesSplitChanges, stripSalesSplitArrays,
@@ -2379,7 +2380,7 @@ export default function App(){
         if(!id)continue;
         const beforeEntry=(before[f]||[]).find(e=>String(e?.id||"")===id);
         /* Mark as pending if it's new OR if it changed */
-        if(!beforeEntry||JSON.stringify(beforeEntry)!==JSON.stringify(entry)){
+        if(!beforeEntry||!_deepEqual(beforeEntry,entry)){/* V19.65: order-independent */
           pendingSplitWritesRef.current[f].set(id,{entry,timestamp:Date.now()});
         }
       }
@@ -2403,7 +2404,7 @@ export default function App(){
         const id=String(entry?.id||"");
         if(!id)continue;
         const beforeEntry=(before[f]||[]).find(e=>String(e?.id||"")===id);
-        if(!beforeEntry||JSON.stringify(beforeEntry)!==JSON.stringify(entry)){
+        if(!beforeEntry||!_deepEqual(beforeEntry,entry)){/* V19.65: order-independent */
           pendingSalesSplitWritesRef.current[f].set(id,{entry,timestamp:Date.now()});
         }
       }
@@ -2424,7 +2425,7 @@ export default function App(){
         const id=String(entry?.id||"");
         if(!id)continue;
         const beforeEntry=(before[f]||[]).find(e=>String(e?.id||"")===id);
-        if(!beforeEntry||JSON.stringify(beforeEntry)!==JSON.stringify(entry)){
+        if(!beforeEntry||!_deepEqual(beforeEntry,entry)){/* V19.65: order-independent */
           pendingTasksSplitWritesRef.current[f].set(id,{entry,timestamp:Date.now()});
         }
       }
@@ -2445,7 +2446,7 @@ export default function App(){
         const id=String(obj?.id||"");
         if(!id)continue;
         const beforeObj=(before[f]||[]).find(o=>String(o?.id||"")===id);
-        if(!beforeObj||JSON.stringify(beforeObj)!==JSON.stringify(obj)){
+        if(!beforeObj||!_deepEqual(beforeObj,obj)){/* V19.65: order-independent */
           pendingPartitionedWritesRef.current[f].set(id,{entry:obj,timestamp:Date.now()});
         }
       }
@@ -2570,7 +2571,7 @@ export default function App(){
           }else if(info.entry){
             /* Confirmed write: server has identical version */
             const serverEntry=Array.from(map.values()).flat().find(e=>String(e?.id||"")===id);
-            if(serverEntry&&JSON.stringify(serverEntry)===JSON.stringify(info.entry)){
+            if(serverEntry&&_deepEqual(serverEntry,info.entry)){/* V19.65: order-independent */
               pendingMap.delete(id);
             }
           }
@@ -2662,7 +2663,7 @@ export default function App(){
           if(info.deleted){if(!serverIds.has(id))pendingMap.delete(id)}
           else if(info.entry){
             const serverEntry=Array.from(map.values()).flat().find(e=>String(e?.id||"")===id);
-            if(serverEntry&&JSON.stringify(serverEntry)===JSON.stringify(info.entry))pendingMap.delete(id);
+            if(serverEntry&&_deepEqual(serverEntry,info.entry))pendingMap.delete(id);/* V19.65: order-independent */
           }
         }
         return all;
@@ -2736,7 +2737,7 @@ export default function App(){
           if(info.deleted){if(!serverIds.has(id))pendingMap.delete(id)}
           else if(info.entry){
             const serverEntry=Array.from(map.values()).flat().find(e=>String(e?.id||"")===id);
-            if(serverEntry&&JSON.stringify(serverEntry)===JSON.stringify(info.entry))pendingMap.delete(id);
+            if(serverEntry&&_deepEqual(serverEntry,info.entry))pendingMap.delete(id);/* V19.65: order-independent */
           }
         }
         return all;
@@ -2840,7 +2841,7 @@ export default function App(){
             if(!serverIds.has(id))pendingMap.delete(id);
           }else if(info.entry){
             const serverObj=Array.from(map.values()).find(o=>String(o?.id||"")===id);
-            if(serverObj&&JSON.stringify(serverObj)===JSON.stringify(info.entry)){
+            if(serverObj&&_deepEqual(serverObj,info.entry)){/* V19.65: order-independent */
               pendingMap.delete(id);
             }
           }
@@ -3578,6 +3579,24 @@ export default function App(){
       console.error("[upSales] fn threw, aborting optimistic update:",e);
       return;
     }
+    /* V19.65 SAFETY NET: same wipe guard as upConfig (V19.62/63). Detects mass wipes
+       of sales-split fields (packages, custDeliverySessions). Threshold ≥5→0. */
+    if(newSalesSplit){
+      const wipes=[];
+      for(const f of SALES_SPLIT_FIELDS){
+        if(!(f in newSalesSplit))continue;
+        const before=(salesSplitDataRef.current[f]||[]).length;
+        const after=(newSalesSplit[f]||[]).length;
+        if(before>=5&&after===0)wipes.push(`${f}: ${before} → 0 (sales-split)`);
+      }
+      if(wipes.length>0){
+        console.error("[V19.65 BLOCKED upSales] Refusing mass wipe:",wipes,
+          "\nexplicitSalesSplitBefore keys:",Object.keys(explicitSalesSplitBefore||{}),
+          "\nsalesSplitDataRef counts:",Object.fromEntries(SALES_SPLIT_FIELDS.map(f=>[f,(salesSplitDataRef.current[f]||[]).length])));
+        showToast("⛔ تم منع تعديل خطير في المبيعات: ممكن يمسح بيانات ("+wipes.join("، ")+"). اتصل بالدعم.");
+        return;
+      }
+    }
     /* Apply optimistic state */
     setSalesDoc(stripped);
     /* V19.54: sync ref update for stale-closure protection (see upConfig). */
@@ -3722,6 +3741,23 @@ export default function App(){
     }catch(e){
       console.error("[upTasks] fn threw, aborting optimistic update:",e);
       return;
+    }
+    /* V19.65 SAFETY NET: wipe guard for tasks-split fields (tasks, stickyNotes, inventoryAudits). */
+    if(newTasksSplit){
+      const wipes=[];
+      for(const f of TASKS_SPLIT_FIELDS){
+        if(!(f in newTasksSplit))continue;
+        const before=(tasksSplitDataRef.current[f]||[]).length;
+        const after=(newTasksSplit[f]||[]).length;
+        if(before>=5&&after===0)wipes.push(`${f}: ${before} → 0 (tasks-split)`);
+      }
+      if(wipes.length>0){
+        console.error("[V19.65 BLOCKED upTasks] Refusing mass wipe:",wipes,
+          "\nexplicitTasksSplitBefore keys:",Object.keys(explicitTasksSplitBefore||{}),
+          "\ntasksSplitDataRef counts:",Object.fromEntries(TASKS_SPLIT_FIELDS.map(f=>[f,(tasksSplitDataRef.current[f]||[]).length])));
+        showToast("⛔ تم منع تعديل خطير في المهام: ممكن يمسح بيانات ("+wipes.join("، ")+"). اتصل بالدعم.");
+        return;
+      }
     }
     setTasksDoc(stripped);
     /* V19.54: sync ref update for stale-closure protection. */

@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.65",
+    date: "2026-05-05",
+    types: ["fix", "hotfix", "audit"],
+    title: "🛡️ Data Integrity — enforceDataLimits silent-delete bug + _deepEqual + upSales/Tasks safety",
+    changes: [
+      { type: "fix", text: "🚨 [الـCRITICAL: enforceDataLimits كانت بتمسح day-docs بصمت] قبل V19.65 الـenforceDataLimits بتـtruncate `next.treasury` لـ3000 entries، لكن الـ`next.treasury` بعد hydration بيكون الـfull merged array (10K+ entries من الـday-docs). الـtruncation بتسبّب `syncAllSplitChanges` يشوف الـIDs الناقصة → `deleteDoc()` على day docs → **سنين من treasury/audit/HR-log/payments تتمسح بصمت**. الـbug ده active منذ V16.74 (split migration)، فالـuser قد يكون فقد بيانات تاريخية بدون ما يحس. **الـFix**: enforceDataLimits دلوقتي تـskip الـmigrated fields (treasury، hrLog، custPayments، salesInvoices، وكل SPLIT_FIELDS اللي flag بتاعها set). الـday-docs ميـحتاجوش الـ1MB cap (كل day-doc أصلاً عنده hundreds of entries بحد أقصى)." },
+      { type: "fix", text: "🛡️ [JSON.stringify → _deepEqual في 7 مواضع] الـpending-write cleanup logic في 4 listeners (split، sales-split، tasks-split، partitioned) + 4 registerPending* functions كانت بتستخدم `JSON.stringify(a)===JSON.stringify(b)` للـequality. الـpattern ده **order-dependent**: Firestore يقدر يرجّع الـkeys بـorder مختلف بعد round-trip — فـidentical objects تظهر unequal → pending entries تـpersist في الـmap لـ30 ثانية → الـ`flatten()` بيستخدم الـpending data بدل الـserver data → users بيشوفوا stale optimistic data بـoverlay على الـreal server data (incl edits من devices تانية). دلوقتي بيستخدم `_deepEqual` (order-independent) من splitCollections.js." },
+      { type: "fix", text: "🛡️ [upSales + upTasks safety guards] قبل V19.65 الـupSales و upTasks مكنش عندهم wipe guard. لو bug زي V19.62 ظهر في الـsales/tasks write path، الـsame data destruction (wipe state + delete day-docs via syncAllSalesSplitChanges) يحصل. دلوقتي الـguard `≥5→0` (نفس الـpattern في V19.62/63 لـupConfig) بيـcheck SALES_SPLIT_FIELDS (packages، custDeliverySessions) في upSales، و TASKS_SPLIT_FIELDS (tasks، stickyNotes، inventoryAudits) في upTasks." },
+      { type: "fix", text: "🛡️ [validateBeforeWrite: 4 fields ضافت] الـlist في dataIntegrity.js كان فيه 10 fields — empDebts، generalProducts، productCategories، hrWeeks ما كانوش included. لو الـwrite يمسح ≥3 من أي حقل منهم، ميـtripش الـ`isSafeWrite` validator. ضفناهم. ده extra layer مع V19.62/63 guards اللي بيـcatch wipes في الـpartitionedDataRef، بس validateBeforeWrite بيـoperate على configDoc form (legacy path)." },
+      { type: "audit", text: "🔬 [الـSkipped fix: syncPartitionedCollection merge:true] الـaudit اقترح merge:true بدل setDoc الـreplace. لكن في الـ-partitioned model كل doc هو entity كاملة، والـwrite بيمرّر الـwhole object، فـmerge:true vs merge:false سيمانتيكياً نفس الشيء. الـreal fix لـconcurrent edits = optimistic concurrency control (version field) — change كبير محجوز لـv19.7+." },
+    ]
+  },
+  {
     version: "V19.64",
     date: "2026-05-05",
     types: ["security", "hotfix", "audit"],

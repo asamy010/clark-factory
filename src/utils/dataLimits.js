@@ -1,16 +1,28 @@
 /* ═══════════════════════════════════════════════════════════════
-   CLARK - Data Limits Utility (V15.5)
-   
-   Prevents Firestore 1MB document limit by capping large arrays.
-   Must be called inside upConfig callbacks to trim data before write.
-   
-   Limits chosen to preserve recent history while staying safe:
-   - stockMovements: 2000 (covers ~3-6 months of active factory)
-   - notifications: 500 (plenty for user-facing alerts)
-   - hrLog: 2000 (covers ~1 year of weekly payrolls for 50 employees)
-   - custPayments, supplierPayments, wsPayments: 3000 each
-   - checks: 1000 (covers 1-2 years of checks)
+   CLARK - Data Limits Utility (V15.5 → V19.65 hardened)
+
+   Caps large arrays in factory/config to stay under Firestore 1MB.
+   Must be called inside upConfig callbacks before write.
+
+   ─── V19.65 CRITICAL BUGFIX ───────────────────────────────────────
+   Pre-V19.65 enforceDataLimits truncated split-migrated fields too
+   (treasury, hrLog, custPayments, salesInvoices, etc.). Once those
+   fields moved to day-docs (V16.74 / V19.49 / V19.50 / V19.52 / V19.53),
+   the merged `next.treasury` (full hydrated array, possibly 10K+ entries)
+   went through enforceDataLimits → truncated to 3000 → syncAllSplitChanges
+   diff saw 7K IDs in `before` but missing in `after` → issued deleteDoc()
+   for all of them → SILENTLY destroyed years of history.
+
+   Fix: skip any field that has migrated to a day-split collection. Day-docs
+   don't have a 1MB total limit (each day doc has ~hundreds of entries max
+   in practice). Only legacy (pre-migration) fields still in factory/config
+   need the cap.
    ═══════════════════════════════════════════════════════════════ */
+
+import {
+  SPLIT_FIELDS_V1674, SPLIT_FIELDS_V1949, SPLIT_FIELDS_V1950, SPLIT_FIELDS_V1952, SPLIT_FIELDS_V1953,
+  SPLIT_FLAG_V1674, SPLIT_FLAG_V1949, SPLIT_FLAG_V1950, SPLIT_FLAG_V1952, SPLIT_FLAG_V1953,
+} from "./splitCollections.js";
 
 const LIMITS = {
   stockMovements: 2000,
@@ -24,10 +36,28 @@ const LIMITS = {
   treasury: 3000,
 };
 
-/* Call this inside any upConfig callback to keep data trim */
+/* Build the set of migrated fields (where the array lives in day-docs, not config). */
+function _migratedFields(d){
+  const set = new Set();
+  if (!d) return set;
+  if (d[SPLIT_FLAG_V1674]) SPLIT_FIELDS_V1674.forEach(f => set.add(f));
+  if (d[SPLIT_FLAG_V1949]) SPLIT_FIELDS_V1949.forEach(f => set.add(f));
+  if (d[SPLIT_FLAG_V1950]) SPLIT_FIELDS_V1950.forEach(f => set.add(f));
+  if (d[SPLIT_FLAG_V1952]) SPLIT_FIELDS_V1952.forEach(f => set.add(f));
+  if (d[SPLIT_FLAG_V1953]) SPLIT_FIELDS_V1953.forEach(f => set.add(f));
+  return set;
+}
+
+/* Call this inside any upConfig callback to keep data trim.
+   V19.65: skips fields that have migrated to day-split collections. */
 export function enforceDataLimits(d){
   if(!d)return;
+  const skip = _migratedFields(d);
   Object.entries(LIMITS).forEach(([key,limit])=>{
+    /* V19.65: silently skip migrated fields — day-docs don't need the 1MB cap.
+       Truncating here would cause syncAllSplitChanges to delete the missing
+       entries from server day-docs (silent data destruction). */
+    if (skip.has(key)) return;
     const arr=d[key];
     if(Array.isArray(arr)&&arr.length>limit){
       /* Keep most recent entries. Assume newer entries are at the start (unshift pattern) */
