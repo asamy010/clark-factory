@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.69",
+    date: "2026-05-05",
+    types: ["feature", "automation"],
+    title: "⏰ Automation Phase 2 — VPS Cron Scheduler (Cairo timezone)",
+    changes: [
+      { type: "feature", text: "⏰ [الـscheduled send بقى شغّال — حتى والبرنامج مقفول] الـVPS cron يـping `/api/automation-tick` كل 5 دقايق. الـendpoint يـverify shared-secret token، يقرأ الـsettings، يـcheck Cairo time مقابل الـscheduled time، يبني التقرير، يبعت عبر الـbridge، يـlog في الـhistory. الـclient (المتصفح) مش جزء من الـflow — الـVPS يشتغل 24/7. الـsetup steps موجودة في docs/V19.69.md." },
+      { type: "feature", text: "🌍 [Africa/Cairo timezone مدمج في الـcomparison] الـAPI يـuse Intl.DateTimeFormat للـconvert UTC → Cairo بصرف النظر عن timezone الـVPS. الـ`time` في الـsettings يمثل Cairo local time. مفيش DST في مصر منذ 2020 (constant UTC+2)." },
+      { type: "feature", text: "🛡️ [Idempotent: مش يبعت مرتين في نفس اليوم] الـ`alreadySentToday()` check يـcompare الـ`lastSentAt` لـCairo today's date. لو الـVPS down في 08:00 ورجع في 08:14، الـ08:14 tick يـcatch up. لو الـsend اتعمل بالفعل اليوم، الـcron يـskip تلقائياً." },
+      { type: "feature", text: "🟢 [CronStatusPanel في الـAutomation page] يعرض: (1) آخر tick من الـcron (heartbeat)، (2) الـnext scheduled run بـCairo time، (3) warning لو الـcron مش يـping منذ >15 دقيقة. الـpanel يـrefresh عند فتح الصفحة." },
+      { type: "feature", text: "🔐 [Auth: AUTOMATION_TICK_SECRET في Vercel env] الـendpoint يـverify Bearer token. الـsecret shared بين Vercel و VPS crontab. لو اتسرب → rotate في Vercel + update الـcrontab. ده + الـbridge AUTH_TOKEN (separate) = defense-in-depth." },
+      { type: "improvement", text: "🛠️ [Build snapshot reads min Firestore docs] الـtick الـheartbeat (when nothing is due) يقرأ factory/config فقط — read واحد. الـactual send يقرأ كل البيانات (orders، split، partitioned) — لكن مرة واحدة في اليوم. تكلفة Firestore منخفضة جداً." },
+      { type: "docs", text: "📋 [docs/V19.69.md — setup كامل step-by-step] (1) Vercel env var، (2) crontab line، (3) timezone optional config، (4) testing manually، (5) monitoring + debugging commands. مفيش حاجة محتاجة guess." },
+    ]
+  },
+  {
     version: "V19.68.1",
     date: "2026-05-05",
     types: ["fix"],

@@ -388,14 +388,8 @@ export function AutomationPg({ data, upConfig, isMob, user }){
         </div>
       </div>
 
-      {/* Scheduling note */}
-      <div style={{marginTop:12, padding:"10px 12px", background:T.accent+"06",
-        border:"1px dashed "+T.accent+"30", borderRadius:8, fontSize:FS-2,
-        color:T.textSec, lineHeight:1.7}}>
-        💡 الإرسال التلقائي في الموعد المحدد يعتمد على cron job على VPS.
-        راجع <b>docs/V19.69.md</b> لتعليمات إعداد الـcron.
-        حالياً ممكن "ارسل تجربة الآن" يدوياً لاختبار التقرير.
-      </div>
+      {/* V19.69: cron status panel */}
+      <CronStatusPanel automation={automation} dailyReport={dailyReport} />
     </Card>}
 
     {/* ─── Recipients Tab ─── */}
@@ -508,6 +502,85 @@ export function AutomationPg({ data, upConfig, isMob, user }){
         </Btn>
       </div>
     </Card>}
+  </div>;
+}
+
+/* ── Subcomponent: cron status panel ──
+   V19.69: shows whether the VPS cron tick is alive (last heartbeat) +
+   computes the next-scheduled-run based on Cairo timezone. If the cron
+   hasn't pinged in >15 minutes, surface a warning. */
+function CronStatusPanel({ automation, dailyReport }){
+  const lastTickAt = automation?.lastTickAt;
+  const lastTickTime = lastTickAt ? new Date(lastTickAt) : null;
+  const minutesSinceTick = lastTickTime
+    ? Math.floor((Date.now() - lastTickTime.getTime()) / 60000)
+    : null;
+  const cronAlive = minutesSinceTick !== null && minutesSinceTick < 15;
+
+  /* Compute next run in Cairo time */
+  const nextRunInfo = (() => {
+    if (!dailyReport?.enabled) return { label: "متوقف", soon: false };
+    const time = dailyReport.time || "08:00";
+    const m = String(time).match(/^(\d{1,2}):(\d{2})/);
+    if (!m) return { label: "وقت غير صالح", soon: false };
+    /* Get current Cairo HH:MM */
+    const fmt = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    });
+    const parts = fmt.formatToParts(new Date()).reduce((a, p) => { a[p.type] = p.value; return a; }, {});
+    const cairoMin = parseInt(parts.hour, 10) * 60 + parseInt(parts.minute, 10);
+    const schedMin = parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+    const lastSent = dailyReport.lastSentAt;
+    /* Was today's run already sent? Convert lastSent to Cairo date */
+    let alreadySentToday = false;
+    if (lastSent) {
+      try {
+        const lp = fmt.formatToParts(new Date(lastSent)).reduce((a, p) => { a[p.type] = p.value; return a; }, {});
+        alreadySentToday = (`${lp.year}-${lp.month}-${lp.day}` === `${parts.year}-${parts.month}-${parts.day}`);
+      } catch(_){}
+    }
+    if (alreadySentToday) {
+      return { label: `تم إرساله اليوم — التالي: ${time} غداً`, soon: false };
+    }
+    if (cairoMin < schedMin) {
+      const wait = schedMin - cairoMin;
+      const h = Math.floor(wait / 60), mm = wait % 60;
+      return { label: `${time} اليوم (${h>0?h+" س ":""}${mm} د)`, soon: wait <= 30 };
+    }
+    /* Past scheduled time and not sent → due now */
+    return { label: `🟢 مستحق الآن — في الـtick القادم`, soon: true };
+  })();
+
+  return <div style={{
+    marginTop:12, padding:"12px 14px",
+    background: cronAlive ? T.ok+"06" : T.warn+"06",
+    border: "1px solid " + (cronAlive ? T.ok+"30" : T.warn+"40"),
+    borderRadius:10, fontSize:FS-2, color:T.text, lineHeight:1.7,
+  }}>
+    <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:8}}>
+      <div style={{display:"flex", alignItems:"center", gap:8, fontWeight:700}}>
+        <span style={{fontSize:18}}>{cronAlive ? "🟢" : "🟡"}</span>
+        <span>VPS Cron: {cronAlive ? "نشط" : (lastTickAt ? `متوقف منذ ${minutesSinceTick} د` : "لم يبدأ بعد")}</span>
+      </div>
+      <div style={{fontSize:FS-2, color:T.textSec}}>
+        آخر tick: {lastTickAt ? new Date(lastTickAt).toLocaleString("ar-EG") : "—"}
+      </div>
+    </div>
+    <div style={{marginTop:8, paddingTop:8, borderTop:"1px solid "+T.brd, display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:8}}>
+      <div style={{display:"flex", alignItems:"center", gap:8}}>
+        <span style={{fontSize:16}}>⏰</span>
+        <span style={{fontWeight:700, color: nextRunInfo.soon ? T.accent : T.text}}>
+          الإرسال القادم: {nextRunInfo.label}
+        </span>
+      </div>
+      <div style={{fontSize:FS-3, color:T.textMut}}>
+        المنطقة الزمنية: Africa/Cairo (UTC+2)
+      </div>
+    </div>
+    {!cronAlive && <div style={{marginTop:10, padding:"8px 10px", background:T.warn+"15", border:"1px solid "+T.warn+"40", borderRadius:6, fontSize:FS-2, color:T.warn}}>
+      ⚠️ الـcron مش بيـping. راجع <b>docs/V19.69.md</b> لإعداد crontab على الـVPS.
+    </div>}
   </div>;
 }
 
