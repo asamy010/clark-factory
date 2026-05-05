@@ -777,13 +777,13 @@ function TriggersTab(props){
   const ownerPhones = eventTriggers.ownerPhones || [];
   const pending = eventTriggers.pending || [];
   /* V19.70.7: separate cash-payment and check-payment events for explicit user control.
-     V19.70.10: + checkPaymentIssued (supplier outgoing), checkCollected (status=محصل),
-                  checkBounced (status=مرتد). Order: sales → cash → check-in → check-out
-                  → check-status → late-events. */
+     V19.70.10: + checkPaymentIssued, checkCollected, checkBounced.
+     V19.70.11: + checkEndorsed (مُظهَّر to supplier), checkRePresented (مرتد re-submitted). */
   const eventTypes = [
     "saleCompleted", "paymentReceived",
     "checkPaymentReceived", "checkPaymentIssued",
-    "checkCollected", "checkBounced",
+    "checkEndorsed",
+    "checkCollected", "checkBounced", "checkRePresented",
     "lateOrder", "checkDue",
   ];
 

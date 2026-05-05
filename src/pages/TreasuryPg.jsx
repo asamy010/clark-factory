@@ -2868,21 +2868,20 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             }
           });
           showToast(status==="مرتد"?"❌ تم تسجيل الشيك كمرتد":status==="محصل"?"✅ تم التحصيل":status==="مدفوع"?"✅ تم الدفع":"✓ تم التحديث");
-          /* V19.70.10: instant checkCollected / checkBounced event fire.
-             Only for receivable checks (these events don't apply to payable).
-             Idempotency: status changes can flip multiple times — the eventHistory
-             will dedupe on the same key, but if user wants to re-fire (e.g. they
-             toggled status by mistake then back to محصل), they'd need to clear
-             history. Reasonable trade-off for V19.70.10 MVP. */
-          if (_statusSnapshot && _statusSnapshot.type === "receivable" && (status === "محصل" || status === "مرتد")) {
+          /* V19.70.10/.11: instant status-change events for receivable checks.
+             Detects:
+               - status === "محصل"  → checkCollected
+               - status === "مرتد"  → checkBounced
+               - prev "مرتد" → new "معلق" → checkRePresented (re-submitted to bank)
+             Only for receivable; payable status changes don't fire customer events. */
+          const _prevStatus = _statusSnapshot?.status;
+          const _isRePresent = _prevStatus === "مرتد" && status === "معلق";
+          const _shouldFire = _statusSnapshot && _statusSnapshot.type === "receivable"
+            && (status === "محصل" || status === "مرتد" || _isRePresent);
+          if (_shouldFire) {
             const customer = customers.find(x => x.id === _statusSnapshot.partyId);
             if (customer?.phone && user && typeof user.getIdToken === "function") {
               const office = customer.companyName || customer.company || customer.office || customer.businessName || "";
-              /* Compute customer balance — for collection: it's now reduced (cash came in).
-                 For bounced: it's increased back (the AR they had is restored). The standard
-                 formula (orders − returns − payments) doesn't include checks, so the post-update
-                 balance reflects whatever just happened (collection adds custPayment, bounce
-                 doesn't touch it). For simplicity, compute current balance after upConfig. */
               const computeBal = () => {
                 let _bal = 0;
                 for (const o of (data.orders||[])) {
@@ -2896,13 +2895,31 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 for (const p of (data.custPayments||[])) {
                   if (p.custId === _statusSnapshot.partyId) _bal -= Number(p.amount)||0;
                 }
-                /* For collection: subtract this check (it's now functionally a payment) */
+                /* Per-event balance semantics:
+                   - محصل: subtract check (now functionally a payment via cash flow)
+                   - مرتد: balance unchanged from base (original AR preserved)
+                   - re-present (مرتد→معلق): subtract check (now active again as receivable in motion) */
                 if (status === "محصل") _bal -= Number(_statusSnapshot.amount)||0;
-                /* For bounce: balance unchanged (the original AR is preserved) */
+                if (_isRePresent)      _bal -= Number(_statusSnapshot.amount)||0;
                 return Math.round(_bal);
               };
-              const eventType = status === "محصل" ? "checkCollected" : "checkBounced";
-              const idempotencyKey = (status === "محصل" ? "checkCollected:" : "checkBounced:") + _statusSnapshot.id;
+              let eventType, idempotencyKey, dateField;
+              if (_isRePresent) {
+                eventType = "checkRePresented";
+                /* Each re-presentation gets a unique key (date-suffixed) so user can re-present
+                   the same check multiple times (after subsequent bounces) and each fires fresh. */
+                idempotencyKey = "checkRePresented:" + _statusSnapshot.id + ":" + dt;
+                dateField = "rePresentedDate";
+              } else if (status === "محصل") {
+                eventType = "checkCollected";
+                idempotencyKey = "checkCollected:" + _statusSnapshot.id;
+                dateField = "collectedDate";
+              } else {
+                eventType = "checkBounced";
+                /* V19.70.11: bouncedAt-suffixed key — supports re-bounce after re-present */
+                idempotencyKey = "checkBounced:" + _statusSnapshot.id + ":" + dt;
+                dateField = "bouncedDate";
+              }
               (async () => {
                 try {
                   const idToken = await user.getIdToken();
@@ -2915,8 +2932,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                     office,
                     balance: computeBal(),
                   };
-                  if (status === "محصل") payload.collectedDate = dt;
-                  else payload.bouncedDate = dt;
+                  payload[dateField] = dt;
                   await fetch("/api/event-trigger", {
                     method: "POST",
                     headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
@@ -2927,7 +2943,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                     }),
                   });
                 } catch (e) {
-                  console.warn("[V19.70.10] instant " + eventType + " fire failed:", e?.message||e);
+                  console.warn("[V19.70.11] instant " + eventType + " fire failed:", e?.message||e);
                 }
               })();
             }
@@ -2971,6 +2987,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         const endorseCheck=(checkId,supplierId,endorseDate)=>{
           const sup=suppliers.find(s=>s.id===supplierId);if(!sup)return;
           const dt=endorseDate||today;
+          /* V19.70.11: snapshot the check + customer BEFORE upConfig for the
+             checkEndorsed event hook (which fires after upConfig commits). */
+          const _endorseSnapshot = (data.checks||[]).find(c=>c.id===checkId);
+          const _endorseCustomer = _endorseSnapshot ? customers.find(x=>x.id===_endorseSnapshot.partyId) : null;
           upConfig(d=>{
             const ch=(d.checks||[]).find(c=>c.id===checkId);if(!ch)return;
             if(ch.status!=="معلق"){return}/* safety: only pending checks can be endorsed */
@@ -2991,6 +3011,49 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           });
           setEndorsePopup(null);setEndorseSearch("");
           showToast("✅ تم تظهير الشيك لـ "+sup.name);
+          /* V19.70.11: instant checkEndorsed fire — supplier gets notification.
+             Includes original customer name for traceability. */
+          if (_endorseSnapshot && sup?.phone && user && typeof user.getIdToken === "function") {
+            const customerOffice = _endorseCustomer
+              ? (_endorseCustomer.companyName || _endorseCustomer.company || _endorseCustomer.office || _endorseCustomer.businessName || "")
+              : "";
+            const supplierOffice = sup.companyName || sup.company || sup.office || sup.businessName || "";
+            /* Supplier balance approximation: sum of supplier payments (inverted = what we owe).
+               After this endorsement, our debt to them is reduced by check amount. */
+            let _bal = 0;
+            for (const p of (data.supplierPayments||[])) {
+              if (p.supplierId === sup.id) _bal -= Number(p.amount)||0;
+            }
+            _bal -= Number(_endorseSnapshot.amount)||0;
+            const balanceRounded = Math.round(_bal);
+            (async () => {
+              try {
+                const idToken = await user.getIdToken();
+                await fetch("/api/event-trigger", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+                  body: JSON.stringify({
+                    eventType: "checkEndorsed",
+                    payload: {
+                      customerName: _endorseCustomer?.name || _endorseSnapshot.party || "—",
+                      supplierName: sup.name || "—",
+                      amount: Number(_endorseSnapshot.amount) || 0,
+                      bank: _endorseSnapshot.bank || "—",
+                      checkNo: _endorseSnapshot.checkNo || _endorseSnapshot.id,
+                      dueDate: _endorseSnapshot.dueDate || "—",
+                      customerOffice,
+                      office: supplierOffice,
+                      balance: balanceRounded,
+                    },
+                    supplierPhone: sup.phone,
+                    idempotencyKey: "checkEndorsed:" + _endorseSnapshot.id,
+                  }),
+                });
+              } catch (e) {
+                console.warn("[V19.70.11] instant checkEndorsed fire failed:", e?.message||e);
+              }
+            })();
+          }
         };
         /* V16.33: Revert an endorsement — only if no further action was taken */
         const revertEndorse=async(checkId)=>{

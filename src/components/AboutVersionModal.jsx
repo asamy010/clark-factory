@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.11",
+    date: "2026-05-05",
+    types: ["feature", "ux"],
+    title: "📨🔄 checkEndorsed + checkRePresented + bounced→re-bounce supported",
+    changes: [
+      { type: "feature", text: "📨 [checkEndorsed — شيك مُظهَّر لمورد] لما تـendorse شيك من عميل لمورد (status=مُظهَّر)، المورد يستلم رسالة فورية بكل تفاصيل الشيك + اسم العميل الأصلي (صاحب الشيك) للمراجعة. الـpayload includes: customerName (drawer), supplierName (recipient), bank, checkNo, amount, dueDate, customerOffice, supplierOffice, balance (supplier debt reduced). الـhook في `endorseCheck` function — snapshot الـcheck + customer قبل الـupConfig، fire after." },
+      { type: "feature", text: "🔄 [checkRePresented — إعادة تقديم شيك مرتد] الـUI button '↻ إعادة' الموجود من قبل (يحوّل status=مرتد→معلق) دلوقتي بـfire event للعميل + المالك. Customer message: 'إعادة تقديم شيك للبنك' مع تاريخ الأصلي + تاريخ إعادة التقديم + الرصيد المستحق (يقل بقيمة الشيك تاني، لأن الشيك بقى active مرة أخرى). الـtransition detection في updateStatus: prevStatus===مرتد && newStatus===معلق." },
+      { type: "feature", text: "🛡️ [Re-bounce support — keys date-suffixed] لو شيك ارتد → اتـreallocated → ارتد تاني، قبل V19.70.11 الـeventHistory يـdedupe الـcheckBounced على نفس الـid. **الـFix**: idempotencyKey بقى date-suffixed: `checkBounced:${id}:${dt}` و `checkRePresented:${id}:${dt}` — كل bounce/re-present يـfire بنجاح حتى لو ده الـ2nd/3rd round على نفس الشيك." },
+      { type: "ux", text: "🚫 [BlocklistPage header text] '💡 إيش هي القائمة دي:' بقى '🚫 قائمة العملاء المحظورين:' — أوضح وأرسمي. التعريف نفسه ما اتغيرش." },
+      { type: "improvement", text: "🎯 [Now 10 event types total] sale, paymentCash, paymentChecksIn, paymentChecksOut, **endorsed**, collected, bounced, **rePresented**, lateOrder, checkDue. الـ4 events المتعلقة بالشيكات (PayIn/PayOut/Endorsed/Collected/Bounced/RePresented) بتـcover الـlifecycle بالكامل: استلام → تظهير/تحصيل → ارتداد → إعادة تقديم." },
+    ]
+  },
+  {
     version: "V19.70.10",
     date: "2026-05-05",
     types: ["feature", "ux"],

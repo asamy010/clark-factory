@@ -483,6 +483,26 @@ export const DEFAULT_AUTOMATION_CONFIG = {
         },
         cooldownMinutes: 0,
       },
+      /* V19.70.11: check endorsed (مُظهَّر) to a supplier */
+      checkEndorsed: {
+        enabled: false,
+        recipients: { supplier: true, owner: true },
+        templates: {
+          supplier: "📨 *شيك مُظهَّر إليكم*\n\nالعميل (صاحب الشيك): {customerName}\nمكتب العميل: {customerOffice}\nالبنك: {bank}\nرقم الشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الاستحقاق: {dueDate}\nالرصيد المتبقي: {balance} ج.م\n\nشكراً لتعاملكم 🌟",
+          owner: "📨 *تم تظهير شيك لمورد*\n\nمن العميل: {customerName} ({customerOffice})\nإلى المورد: {supplierName} ({office})\nالبنك: {bank}\nالشيك: {checkNo}\nالقيمة: {amount} ج.م\nالاستحقاق: {dueDate}\nالرصيد المتبقي للمورد: {balance} ج.م",
+        },
+        cooldownMinutes: 0,
+      },
+      /* V19.70.11: bounced check re-presented to bank */
+      checkRePresented: {
+        enabled: false,
+        recipients: { customer: true, owner: true },
+        templates: {
+          customer: "🔄 *إعادة تقديم شيك للبنك*\n\nالبنك: {bank}\nرقم الشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الشيك الأصلي: {originalDate}\nتاريخ إعادة التقديم: {rePresentedDate}\nالرصيد المستحق: {balance} ج.م\n\nسيتم تحصيل الشيك مرة أخرى من البنك.",
+          owner: "🔄 *إعادة تقديم شيك مرتد*\n\nالعميل: {customerName} — {office}\nالبنك: {bank}\nالشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ إعادة التقديم: {rePresentedDate}\nالرصيد المستحق: {balance} ج.م",
+        },
+        cooldownMinutes: 0,
+      },
       /* V19.70.10: receivable check status changed → "مرتد" */
       checkBounced: {
         enabled: false,

@@ -3344,7 +3344,7 @@ function BlocklistPage({data, upConfig, canEdit, onClose}){
 
     <Card>
       <div style={{padding:10,borderRadius:8,background:T.warn+"08",border:"1px solid "+T.warn+"30",marginBottom:12,fontSize:FS-2,color:T.text,lineHeight:1.7}}>
-        <b>💡 إيش هي القائمة دي:</b> العملاء هنا هيتم تخطيهم تلقائياً في كل الحملات الجديدة. تستخدمها للعملاء اللي طلبوا عدم التواصل، أو ما عدوش مهتمين، أو لأي سبب إداري. ممكن تشيل أي حد منها في أي وقت.
+        <b>🚫 قائمة العملاء المحظورين:</b> العملاء هنا هيتم تخطيهم تلقائياً في كل الحملات الجديدة. تستخدمها للعملاء اللي طلبوا عدم التواصل، أو ما عدوش مهتمين، أو لأي سبب إداري. ممكن تشيل أي حد منها في أي وقت.
       </div>
 
       {blocklist.length === 0 ? <div style={{padding:30,textAlign:"center",color:T.textMut,fontSize:FS}}>

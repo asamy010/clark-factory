@@ -81,6 +81,32 @@ export const EVENT_VARIABLES = {
       owner:    ["{customerName}", "{amount}", "{bank}", "{checkNo}", "{originalDate}", "{collectedDate}", "{office}", "{balance}"],
     },
   },
+  /* V19.70.11: check endorsed (مُظهَّر) to a supplier. Supplier gets the same
+     UX as receiving a payment-issued check, BUT we include the original
+     customer (drawer) name for traceability. Our debt to the supplier
+     decreases by check amount. */
+  checkEndorsed: {
+    label: "📨 شيك مُظهَّر لمورد",
+    description: "شيك من عميل اتـظهّر (status=مُظهَّر) لمورد — رسالة للمورد بتفاصيل الشيك واسم العميل الأصلي",
+    detection: "client (instant on status change)",
+    recipientRoles: ["supplier", "owner"],
+    variables: {
+      supplier: ["{customerName}", "{amount}", "{bank}", "{checkNo}", "{dueDate}", "{customerOffice}", "{balance}"],
+      owner:    ["{customerName}", "{customerOffice}", "{supplierName}", "{office}", "{amount}", "{bank}", "{checkNo}", "{dueDate}", "{balance}"],
+    },
+  },
+  /* V19.70.11: bounced check re-presented to bank (status: مرتد → معلق).
+     Customer gets notification + balance decreases again (check is now active). */
+  checkRePresented: {
+    label: "🔄 إعادة تقديم شيك مرتد",
+    description: "شيك مرتد رجع تحت التحصيل (مرتد → معلق) — رسالة للعميل بإعادة التقديم",
+    detection: "client (instant on status change)",
+    recipientRoles: ["customer", "owner"],
+    variables: {
+      customer: ["{customerName}", "{amount}", "{bank}", "{checkNo}", "{originalDate}", "{rePresentedDate}", "{balance}"],
+      owner:    ["{customerName}", "{office}", "{amount}", "{bank}", "{checkNo}", "{originalDate}", "{rePresentedDate}", "{balance}"],
+    },
+  },
   /* V19.70.10: receivable check status changed → "مرتد" (bounced). Customer
      gets warning, has to repay. */
   checkBounced: {
@@ -201,6 +227,8 @@ export function validateEventPayload(eventType, payload) {
     checkPaymentIssued:   ["supplierName", "amount", "bank", "checkNo"],
     checkCollected:       ["customerName", "amount", "bank", "checkNo"],
     checkBounced:         ["customerName", "amount", "bank", "checkNo"],
+    checkEndorsed:        ["customerName", "supplierName", "amount", "bank", "checkNo"],
+    checkRePresented:     ["customerName", "amount", "bank", "checkNo"],
     lateOrder:            ["modelNo", "customerName", "daysLate"],
     checkDue:             ["bank", "checkNo", "amount", "dueDate", "daysToDue"],
   }[eventType] || [];
@@ -234,6 +262,16 @@ export const DEFAULT_EVENT_TEMPLATES = {
   checkBounced: {
     customer: "⚠️ *شيك مرتد*\n\nالبنك: {bank}\nرقم الشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الشيك: {originalDate}\nتاريخ الارتداد: {bouncedDate}\nالرصيد المستحق: {balance} ج.م\n\nيرجى التواصل معنا فوراً للسداد.",
     owner: "⚠️ *شيك مرتد من عميل*\n\nالعميل: {customerName} — {office}\nالبنك: {bank}\nالشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الارتداد: {bouncedDate}\nالرصيد المستحق: {balance} ج.م",
+  },
+  /* V19.70.11: endorsed check — supplier receives check originally drawn by a customer */
+  checkEndorsed: {
+    supplier: "📨 *شيك مُظهَّر إليكم*\n\nالعميل (صاحب الشيك): {customerName}\nمكتب العميل: {customerOffice}\nالبنك: {bank}\nرقم الشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الاستحقاق: {dueDate}\nالرصيد المتبقي: {balance} ج.م\n\nشكراً لتعاملكم 🌟",
+    owner: "📨 *تم تظهير شيك لمورد*\n\nمن العميل: {customerName} ({customerOffice})\nإلى المورد: {supplierName} ({office})\nالبنك: {bank}\nالشيك: {checkNo}\nالقيمة: {amount} ج.م\nالاستحقاق: {dueDate}\nالرصيد المتبقي للمورد: {balance} ج.م",
+  },
+  /* V19.70.11: bounced check re-presented to bank */
+  checkRePresented: {
+    customer: "🔄 *إعادة تقديم شيك للبنك*\n\nالبنك: {bank}\nرقم الشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الشيك الأصلي: {originalDate}\nتاريخ إعادة التقديم: {rePresentedDate}\nالرصيد المستحق: {balance} ج.م\n\nسيتم تحصيل الشيك مرة أخرى من البنك.",
+    owner: "🔄 *إعادة تقديم شيك مرتد*\n\nالعميل: {customerName} — {office}\nالبنك: {bank}\nالشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ إعادة التقديم: {rePresentedDate}\nالرصيد المستحق: {balance} ج.م",
   },
   lateOrder: {
     owner: "⚠️ *أوردر متأخر*\nالموديل: {modelNo}\nالعميل: {customerName}\nأيام بدون activity: {daysLate}\nآخر نشاط: {lastActivity}",
@@ -286,6 +324,20 @@ export function samplePayload(eventType) {
       originalDate: "2026-04-01", bouncedDate: today,
       office: "مؤسسة الأمل للملابس",
       balance: 7500,
+    },
+    checkEndorsed: {
+      customerName: "أحمد محمد", supplierName: "شركة النسيج",
+      amount: 5000, bank: "بنك مصر", checkNo: "12345678", dueDate: today,
+      customerOffice: "مؤسسة الأمل للملابس",
+      office: "شركة النسيج المصرية",
+      balance: 30000,
+    },
+    checkRePresented: {
+      customerName: "أحمد محمد", amount: 5000,
+      bank: "بنك مصر", checkNo: "12345678",
+      originalDate: "2026-04-01", rePresentedDate: today,
+      office: "مؤسسة الأمل للملابس",
+      balance: 2500,
     },
     lateOrder: {
       modelNo: "S26-007", customerName: "شركة النور",
