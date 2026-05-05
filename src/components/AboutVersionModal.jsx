@@ -25,13 +25,24 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.69.5",
+    date: "2026-05-05",
+    types: ["fix", "feature", "automation"],
+    title: "✅ VPS Cron LIVE — الـHTTP 500 الحقيقي محلول + زر reset للاختبار",
+    changes: [
+      { type: "fix", text: "🐛 [الـRoot cause الحقيقي للـHTTP 500] V19.69.3 attribute السبب لـcross-folder import — كانت theory غلط. الـreal cause لقيناه في Vercel runtime logs: `SyntaxError: Unexpected token '*' at compileSourceTextModule`. السطر 5 في `api/automation-tick.js` كان فيه الـcron pattern `*/5 * * * *` **داخل** `/* */` block comment. الـ`*/` في `*/5` بيـclose الـcomment بدري — فالـparser يحاول يـparse الباقي كـcode، يفشل، Vercel يرد 500 بدون body. الـVite build ماـcatch-ـوش لأن Vite بيـcompile `src/` بس مش `api/`. **الـFix**: شيلت الـliteral cron pattern من الـcomment وحطيت reference لـdocs/V19.69.md. الـ`api/_buildDailyReport.js` (V19.69.3) لسه موجود — ما كانتش مشكلة لكن مفيدة كـsafety belt." },
+      { type: "automation", text: "⏰ [VPS cron LIVE — autonomous end-to-end] الـcrontab line اتضافت على Contabo VPS: `*/5 * * * * curl -fsS https://app.../api/automation-tick -H 'Authorization: Bearer $SECRET' >> /var/log/clark-automation.log 2>&1`. الـAUTOMATION_TICK_SECRET في Vercel env (40-char random). الـcron service `active`. الـcurl test من VPS بيرجع 200 + `triggerSource: \"cron\"`. الـUI panel يحدّث `lastTickAt` كل 5 دقايق — الـVPS Cron pill بيبقى 🟢 نشط. الـscheduled time في الـsettings بقى يـfire تلقائياً بدون أي تدخل. النظام autonomous بمعنى الكلمة." },
+      { type: "feature", text: "↺ [زر 'مسح تم إرساله اليوم' للـadmin testing] قبل V19.69.5 لو الـscheduler بعت الرسالة، الـ`lastSentAt` بيتسجل و باقي اليوم كل محاولة بترجع `skipped: already-sent-today`. عشان تختبر الـscheduled flow تاني في نفس اليوم كنت محتاج تعدّل Firestore يدوياً أو تستنى يوم. دلوقتي الزر يـclear `lastSentAt` (مع confirmation prompt). ميـظهرش إلا لو `lastSentAt` set — فمش بـclutter الـUI لما مفيش حاجة للـreset." },
+      { type: "improvement", text: "🛡️ [Local validation protocol — node ESM smoke test ضافت] قبل ما نـzip أي تغيير في `api/`، الـpipeline دلوقتي بتـrun: (1) `node --check` على كل `api/*.js`، (2) ESM `import()` smoke test (نفس الـloader الـVercel runtime بيستخدمه)، (3) `npm run build` (Vite compile للـclient)، (4) pure-function smoke test لو في builder ماس. ده هيـcatch syntax/load errors محلياً قبل الـVercel deploy. السبب: الـ500 ده ضاع منا 3 deploy cycles لأن الـbuild كان passing بس runtime بيـfail." },
+    ]
+  },
+  {
     version: "V19.69.3",
     date: "2026-05-05",
     types: ["fix"],
-    title: "🛠️ Patch: HTTP 500 على /api/automation-tick — cross-folder import fix",
+    title: "🛠️ Patch: HTTP 500 على /api/automation-tick — cross-folder import fix (theory أُلغيت في V19.69.5)",
     changes: [
-      { type: "fix", text: "🐛 [الـ500 على الـscheduler endpoint] الـ`api/automation-tick.js` كان يـimport من `../src/utils/automation/buildDailyReport.js`. Vercel serverless functions أحياناً ميـpackageش الـcross-folder modules بشكل reliable — الـfunction تـloadت بدون الـmodule، تـcrash عند الـcall، الـclient يستلم raw HTTP 500 من Vercel runtime (مش JSON). **الـFix**: نسخت الـbuilder لـ`api/_buildDailyReport.js` (sibling في نفس الـfolder)، الـimport بقى relative `./_buildDailyReport.js`. الـbuilder الأصلي في `src/utils/automation/` لسه موجود للـclient." },
-      { type: "fix", text: "🛡️ [الـDuplication tradeoff] نسختين متطابقتين من الـbuilder (api/ + src/). الـ-tradeoff: لو في bug fix لاحقاً، لازم تتحدث في الـ2. مش ideal لكن أبسط من setting up shared package أو Vercel includeFiles config. الـbuilder pure JS (مفيش external deps)، فالـsync سهل." },
+      { type: "fix", text: "🐛 [الـ500 على الـscheduler endpoint — theory] الـافتراض كان إن `api/automation-tick.js` كان يـimport من `../src/utils/automation/buildDailyReport.js` و Vercel ما بـpackageش cross-folder modules بشكل reliable. **الـattempted Fix**: نسخت الـbuilder لـ`api/_buildDailyReport.js`. الـreal cause اتلقى لاحقاً (V19.69.5) — كان `*/` في الـblock comment. الـsibling builder لسه مفيد كـdefense-in-depth." },
     ]
   },
   {
@@ -137,24 +148,6 @@ const CHANGELOG = [
       { type: "fix", text: "🛡️ [upSales + upTasks safety guards] قبل V19.65 الـupSales و upTasks مكنش عندهم wipe guard. لو bug زي V19.62 ظهر في الـsales/tasks write path، الـsame data destruction (wipe state + delete day-docs via syncAllSalesSplitChanges) يحصل. دلوقتي الـguard `≥5→0` (نفس الـpattern في V19.62/63 لـupConfig) بيـcheck SALES_SPLIT_FIELDS (packages، custDeliverySessions) في upSales، و TASKS_SPLIT_FIELDS (tasks، stickyNotes، inventoryAudits) في upTasks." },
       { type: "fix", text: "🛡️ [validateBeforeWrite: 4 fields ضافت] الـlist في dataIntegrity.js كان فيه 10 fields — empDebts، generalProducts، productCategories، hrWeeks ما كانوش included. لو الـwrite يمسح ≥3 من أي حقل منهم، ميـtripش الـ`isSafeWrite` validator. ضفناهم. ده extra layer مع V19.62/63 guards اللي بيـcatch wipes في الـpartitionedDataRef، بس validateBeforeWrite بيـoperate على configDoc form (legacy path)." },
       { type: "audit", text: "🔬 [الـSkipped fix: syncPartitionedCollection merge:true] الـaudit اقترح merge:true بدل setDoc الـreplace. لكن في الـ-partitioned model كل doc هو entity كاملة، والـwrite بيمرّر الـwhole object، فـmerge:true vs merge:false سيمانتيكياً نفس الشيء. الـreal fix لـconcurrent edits = optimistic concurrency control (version field) — change كبير محجوز لـv19.7+." },
-    ]
-  },
-  {
-    version: "V19.64",
-    date: "2026-05-05",
-    types: ["security", "hotfix", "audit"],
-    title: "🔒 Security Hardening — Firestore + Storage + Portal HMAC + AI/Odoo auth",
-    changes: [
-      { type: "fix", text: "🚨 [الـCRITICAL: Manager-to-admin self-promotion سُدّ] قبل V19.64 الـFirestore rule كان `factory/{docId} write if isManagerPlus()` — يعني أي manager يقدر يفتح DevTools ويعمل `setDoc(.., {users: {[myUid]:'admin'}})` ويصبح admin. الـclient-side lock في `permissions.js` كان enforced في الـUI فقط. دلوقتي factory/config split من باقي الـfactory docs، وأي write بيـtouch users/permissions/customRoles/usersList → admin only via `request.resource.data.diff(resource.data).affectedKeys().hasAny([...])`. manager لسه يقدر يحفظ settings عادية (factoryName، invoiceSettings، إلخ)." },
-      { type: "fix", text: "🚨 [Read scope tightened — viewer ميقدرش يقرا financial/HR data] قبل V19.64 كل authed user يقرأ كل collection (treasuryDays، wsPaymentsDays، supplierPaymentsDays، purchase/sales invoices، hrWeeksDocs، employeesDocs، empDebtsDocs، backups، fixedAssets، accountingDays). الـUI كان بيخفي الـtabs، لكن SDK direct calls تـbypass. دلوقتي: treasury/payments/checks/purchase invoices = purchase scope read، sales invoices = sales scope read، HR collections = HR roles read، backups = admin read، accounting = accountants read. viewer بقى محدود فعلاً." },
-      { type: "fix", text: "🚨 [Storage rules path-prefixed scoping] قبل V19.64 `match /{allPaths=**}` كان يخلي أي authed user يكتب/يحذف أي ملف. viewer يقدر يحذف فاتورة، يـreplace logo، أو يـoverwrite مرفق customer-portal. دلوقتي: invoices/** = sales+purchase، orders/** = manager+، logos/** = admin، templates+campaigns/** = sales، attachments+qr/** = manager+، temp/** = any. + MIME guard (images/PDF/office docs only — executables blocked). + delete restricted to manager+ across-the-board." },
-      { type: "fix", text: "🛡️ [Portal HMAC expiry — 90 days] قبل V19.64 كل customer/workshop portal link كان عمره infinite. لو الـURL leak (WhatsApp screenshot، indexed by search engine، مشاركة عبر screenshot) — يفضل شغّال للأبد، فيه access لـpayment history + balance + 100 deliveries. دلوقتي signature يحتوي timestamp، الـverify يـreject لو age > 90 يوم. الـold links يفضلوا valid (backward compat) لكن الـnew sign endpoint بيستخدم timestamped format فقط. URL: `?p=c&i=<id>&t=<unix-seconds>&s=<sig>`." },
-      { type: "fix", text: "🛡️ [HR collections — payroll_verifier write removed من hrWeeksDocs] الـverifier role صلاحياته الأصلية QR scan only. قبل V19.64 الـrules كانت `read, write: if isHRRole()` (شامل verifier) — يعني verifier يقدر يعدّل أي مرتب. دلوقتي split: read = HR roles، write = HRWriter (admin/manager/payroll_accountant فقط). الـverifier لسه يقدر يكتب في hrLogDays لـaudit-log entries. TODO V19.65: نقل الـverifier flow عبر admin-SDK API endpoint." },
-      { type: "fix", text: "🛡️ [auditDays + migrationLog writes restricted] auditDays write كان `if isAuthed()` — viewer يقدر يـpoison الـaudit trail. دلوقتي manager+ only. migrationLog writes نفس الشيء — كانت any authed، دلوقتي manager+. الـauto-migrations عند الـboot بتـrun في manager context (الـapp بيرفض writes لو role أقل من ذلك)." },
-      { type: "fix", text: "🛡️ [AI endpoint hardened] قبل V19.64 الـ`/api/ai` كان مفتوح: مفيش auth، CORS=`*`، مفيش rate limit، attacker-controlled `system` prompt. أي حد على النت يقدر يـrun unlimited inference على billing بتاع المشروع. دلوقتي: (1) require Firebase ID token، (2) per-UID rate limit (30 req / 5 min، in-memory)، (3) body size cap (50KB messages، 4KB system)، (4) optional server-side fixed system prompt عبر `AI_SYSTEM_PROMPT` env (يـoverride client)، (5) optional CORS allowlist." },
-      { type: "fix", text: "🛡️ [odoo-sync hardened] قبل V19.64 كان مفتوح كـSSRF proxy — أي حد على النت يقدر يستخدمه للـfetch لأي URL مع credentials. دلوقتي: (1) require admin Firebase token، (2) optional URL host allowlist عبر `ODOO_ALLOWED_HOSTS` env، (3) tighter CORS عبر `ODOO_ALLOWED_ORIGIN`." },
-      { type: "improvement", text: "🔧 [setCors helper — origin allowlist] الـ`setCors(res)` في `_firebase.js` بقى يدعم `API_ALLOWED_ORIGIN` (single) أو `API_ALLOWED_ORIGINS` (CSV) env vars. لو الاتنين فاضيين، fallback لـ`*` (back-compat). الـdeployment recommended يحدد الـorigin بالـVercel domain." },
-      { type: "improvement", text: "📋 [Manual setup needed بعد deploy] (1) في Firebase Console → Authentication → Sign-in method: **disable email/password self-signup** عشان أي حد على النت ميقدرش يعمل حساب ويحصل على viewer access. (2) في Vercel Environment Variables ضع: `BOOTSTRAP_ADMIN_UID`, `API_ALLOWED_ORIGIN=https://your-vercel-domain`, `AI_ALLOWED_ORIGIN`, `ODOO_ALLOWED_HOSTS`. (3) شغّل `firebase deploy --only firestore:rules,storage:rules` لتطبيق الـrules الجديدة." },
     ]
   },
   {
