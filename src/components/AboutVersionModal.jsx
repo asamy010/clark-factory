@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.8",
+    date: "2026-05-05",
+    types: ["fix", "feature", "ux"],
+    title: "🛠️ Check batch progressive balance + UI polish + multi-select delete",
+    changes: [
+      { type: "fix", text: "🐛 [الـCRITICAL: balance بـbatch checks كان ثابت لكل الرسائل] User report: الـ3 شيكات في الـbatch بعتت رسائل بـbalance متطابق ('1,600 ج.م') بدل ما يقل progressive. السبب: الـclient hook كان بيـcompute balance مرة واحدة قبل الـloop ويستخدمها لكل الـchecks. **الـFix**: balance يـcompute للـbase أولاً (بدون أي check من الـbatch)، وكل check يبعت بـ`baseBalance - (i+1) * amount` — شيك 1 = base - 1000، شيك 2 = base - 2000، شيك 3 = base - 3000 (الرصيد النهائي). الـorder كمان مهم — استبدلت Promise.all بـsequential await عشان الرسائل تنزل بالترتيب 1→2→3 في WhatsApp." },
+      { type: "fix", text: "🔄 [Cron-side scan كمان فيها نفس الـfix] `scanRecentChecks` في api/automation-tick.js كان بيـuse balanceMap مرة واحدة لكل check. دلوقتي بيـcompute progressively: لو check جزء من batch، يـsum amounts من نفس الـbatchId مع batchIdx <= this.batchIdx ويـsubtract. لو single check (مش batch)، يـsubtract just this check's amount. كده الـclient + cron الاتنين متطابقين على الـbalance logic." },
+      { type: "ux", text: "📐 [Time UNDER date في checks list — بدل inline] الـcell كان بـdisplay الوقت inline بعد الـdate. الـuser request: 'عاوز نخلي الساعة تحت التاريخ في الصف'. **الـFix**: الـcell بقى يحتوي على 2 divs نظيفين — `<div>{c.date}</div>` ثم `<div>{formatTxTime(c.createdAt)}</div>`. lineHeight=1.3 مع padding 4px (بدل 6px) — الـrow ضغطت ~30%، أكتر شيكات تظهر بدون scroll." },
+      { type: "feature", text: "☑️ [Multi-select + bulk delete للـchecks] قبل V19.70.8 الـuser محتاج يحذف كل شيك على حدة. دلوقتي عمود checkbox أول العمود + select-all في الـheader. لما تختار 1+ شيك، bulk-delete bar أحمر يظهر فوق الـtable مع زرين: 'إلغاء التحديد' و 'حذف المحدد (N)' (مع confirmation). نفس الـpattern اللي في الـjournal لـtransactions. مفيد بـspecial لو عملت batch غلط وعايز تشيله كله." },
+    ]
+  },
+  {
     version: "V19.70.7",
     date: "2026-05-05",
     types: ["fix", "ux"],

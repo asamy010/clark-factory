@@ -683,6 +683,19 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   /* Bulk selection for journal entries */
   const[selectedTxIds,setSelectedTxIds]=useState(new Set());
   const toggleTxSel=(id)=>{setSelectedTxIds(prev=>{const n=new Set(prev);if(n.has(id))n.delete(id);else n.add(id);return n})};
+  /* V19.70.8: multi-select for checks list */
+  const[selectedChkIds,setSelectedChkIds]=useState(new Set());
+  const toggleChkSel=(id)=>{setSelectedChkIds(prev=>{const n=new Set(prev);if(n.has(id))n.delete(id);else n.add(id);return n})};
+  const clearChkSel=()=>setSelectedChkIds(new Set());
+  const bulkDeleteChecks=(ids)=>{
+    if(!ids||ids.length===0)return;
+    upConfig(d=>{
+      if(!Array.isArray(d.checks))return;
+      d.checks=d.checks.filter(c=>!ids.includes(c.id));
+    });
+    clearChkSel();
+    showToast("✓ تم حذف "+ids.length+" شيك");
+  };
 
   /* Danger zone: reset */
   const[showResetPopup,setShowResetPopup]=useState(false);
@@ -2641,32 +2654,45 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               }
             }
           });
-          /* V19.70.5: instant checkPaymentReceived fire (one message per check) */
+          /* V19.70.5: instant checkPaymentReceived fire (one message per check)
+             V19.70.8 FIX: progressive balance for batch checks — each check's
+             message shows the customer's balance AFTER that check is applied,
+             so a batch of 3 × 1000 reduces the balance by 1000, 2000, 3000
+             cumulatively (not the same balance for all 3). User report:
+             "الشيك الاول بعدها الرصيد هايقل، والشيك التاني يقل بقيمة الشيك،
+             والشيك الاخير يقل الرصيد بقيمة الشيك ويكون ده الرصيد النهائي للعميل" */
           if (_instantCheck_eligible && _instantCheck_customer?.phone && user && typeof user.getIdToken === "function") {
             const totalChecks = _instantCheck_count;
             const office = _instantCheck_customer.companyName || _instantCheck_customer.company || _instantCheck_customer.office || _instantCheck_customer.businessName || "";
-            /* Compute balance (orders − returns − payments — checks neutral until cashed) */
-            let _bal = 0;
+            /* Compute BASE balance (orders − returns − cash payments).
+               Checks NOT included here — each check's message will subtract
+               progressively: balance for check_i = base - (i+1) * checkAmt. */
+            let _baseBal = 0;
             for (const o of (data.orders||[])) {
               for (const d of (o.customerDeliveries||[])) {
-                if (d.custId === chkPartyId) _bal += (Number(d.qty)||0) * (Number(d.price)||Number(o.sellPrice)||0);
+                if (d.custId === chkPartyId) _baseBal += (Number(d.qty)||0) * (Number(d.price)||Number(o.sellPrice)||0);
               }
               for (const r of (o.customerReturns||[])) {
-                if (r.custId === chkPartyId) _bal -= (Number(r.qty)||0) * (Number(r.price)||Number(o.sellPrice)||0);
+                if (r.custId === chkPartyId) _baseBal -= (Number(r.qty)||0) * (Number(r.price)||Number(o.sellPrice)||0);
               }
             }
             for (const p of (data.custPayments||[])) {
-              if (p.custId === chkPartyId) _bal -= Number(p.amount)||0;
+              if (p.custId === chkPartyId) _baseBal -= Number(p.amount)||0;
             }
-            const balanceRounded = Math.round(_bal);
+            const baseBalanceRounded = Math.round(_baseBal);
             (async () => {
               try {
                 const idToken = await user.getIdToken();
-                await Promise.all(_instantCheck_ids.map((cid, i) => {
+                /* Sequential await (NOT Promise.all) — keeps order so messages
+                   land at WhatsApp in 1→2→3 order matching the balance progression. */
+                for (let i = 0; i < _instantCheck_ids.length; i++) {
+                  const cid = _instantCheck_ids[i];
                   const checkNo = bumpCheckNo(chkNumber, i);
                   const dueDate = chkDueDate ? addMonths(chkDueDate, i * (Math.max(0, Number(chkBatchMonthsStep)||0))) : "";
                   const batchInfo = totalChecks > 1 ? `(شيك ${i+1} من ${totalChecks})` : "";
-                  return fetch("/api/event-trigger", {
+                  /* Progressive balance: subtract (i+1) check amounts from base */
+                  const balanceForThisCheck = baseBalanceRounded - (i+1) * amt;
+                  await fetch("/api/event-trigger", {
                     method: "POST",
                     headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
                     body: JSON.stringify({
@@ -2679,16 +2705,16 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                         dueDate: dueDate || "—",
                         batchInfo,
                         office,
-                        balance: balanceRounded,
+                        balance: balanceForThisCheck,
                         date: chkDate || today,
                       },
                       customerPhone: _instantCheck_customer.phone,
                       idempotencyKey: "checkPay:" + cid,
                     }),
-                  }).catch(() => {/* silent — cron fallback */});
-                }));
+                  }).catch(() => {/* silent per-check failure — cron fallback */});
+                }
               } catch (e) {
-                console.warn("[V19.70.5] instant checkPaymentReceived fire failed (cron will retry):", e?.message||e);
+                console.warn("[V19.70.8] instant checkPaymentReceived fire failed (cron will retry):", e?.message||e);
               }
             })();
           }
@@ -2966,7 +2992,38 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           </Card>})()}
           {/* Checks table */}
           <Card title={"📝 سجل الشيكات ("+filteredChecks.length+")"}>
+            {/* V19.70.8: bulk-delete bar (visible when 1+ checks selected) */}
+            {selectedChkIds.size>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",marginBottom:10,borderRadius:10,background:T.err+"10",border:"1px solid "+T.err+"40"}}>
+              <div style={{fontSize:FS-1,color:T.text,fontWeight:700}}>
+                ☑️ محدد: <b>{selectedChkIds.size}</b> شيك
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <Btn small onClick={clearChkSel} style={{fontSize:FS-2}}>إلغاء التحديد</Btn>
+                <Btn small primary onClick={()=>{
+                  if(window.confirm("هتمسح "+selectedChkIds.size+" شيك. متأكد؟"))bulkDeleteChecks([...selectedChkIds]);
+                }} style={{background:T.err,color:"#fff",border:"none",fontWeight:700}}>
+                  🗑️ حذف المحدد ({selectedChkIds.size})
+                </Btn>
+              </div>
+            </div>}
             {filteredChecks.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
+              {/* V19.70.8: select-all checkbox column header */}
+              {canEdit&&<th style={{padding:"7px 8px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap",width:30}}>
+                <input type="checkbox"
+                  checked={filteredChecks.length>0&&filteredChecks.every(c=>selectedChkIds.has(c.id))}
+                  onChange={()=>{
+                    const ids=filteredChecks.map(c=>c.id);
+                    const allOn=ids.every(id=>selectedChkIds.has(id));
+                    setSelectedChkIds(prev=>{
+                      const n=new Set(prev);
+                      if(allOn)ids.forEach(id=>n.delete(id));
+                      else ids.forEach(id=>n.add(id));
+                      return n;
+                    });
+                  }}
+                  style={{cursor:"pointer",width:16,height:16}}
+                  title="تحديد الكل"/>
+              </th>}
               {["النوع","المبلغ","الجهة","البنك","رقم الشيك","تاريخ الاستحقاق","تسجيل","الحالة",""].map(h=><th key={h} style={{padding:"7px 8px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
             </tr></thead><tbody>
               {/* V19.70.6: sort by createdAt DESC (newest entry at top, down to the minute).
@@ -2977,18 +3034,25 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 if (ac) return -1;
                 if (bc) return 1;
                 return (a.dueDate||"").localeCompare(b.dueDate||"");
-              }).map(c=>{const overdue=c.dueDate&&c.dueDate<today&&c.status==="معلق";
-                return<tr key={c.id} style={{borderBottom:"1px solid "+T.brd,background:overdue?T.err+"04":""}}>
-                <td style={{padding:"6px 8px"}}><span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:c.type==="receivable"?T.ok+"12":T.err+"12",color:c.type==="receivable"?T.ok:T.err}}>{c.type==="receivable"?"قبض":"دفع"}</span></td>
-                <td style={{padding:"6px 8px",fontSize:FS,fontWeight:800,color:c.type==="receivable"?T.ok:T.err}}>{fmt0(c.amount)}</td>
-                <td style={{padding:"6px 8px",fontSize:FS-1,fontWeight:600}}>{c.party}{c.status==="مُظهّر"&&c.endorsedTo&&<div style={{fontSize:FS-3,color:"#8B5CF6",fontWeight:700,marginTop:2}}>{"📤 مُظهّر لـ "+c.endorsedTo}</div>}</td>
-                <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textSec}}>{c.bank||"—"}</td>
-                <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut}}>{c.checkNo||"—"}{c.batchId&&c.batchTotal>1&&<span style={{marginRight:6,padding:"1px 6px",borderRadius:8,background:"#0EA5E915",color:"#0284C7",fontSize:9,fontWeight:700}} title={"شيك "+c.batchIdx+" من حافظة من "+c.batchTotal+" شيكات"}>{c.batchIdx}/{c.batchTotal}</span>}</td>
-                <td style={{padding:"6px 8px",fontSize:FS-1,fontWeight:overdue?700:400,color:overdue?T.err:T.text}}>{c.dueDate||"—"}{overdue?" ⚠️":""}</td>
-                {/* V19.70.6: createdAt date+time column */}
-                <td style={{padding:"6px 8px",fontSize:FS-3,color:T.textMut,whiteSpace:"nowrap"}}>{c.date||"—"}{c.createdAt&&<div style={{direction:"ltr",fontSize:FS-3,color:T.textMut,marginTop:2}}>{formatTxTime(c.createdAt)}</div>}</td>
-                <td style={{padding:"6px 8px"}}><span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:(STATUS_COLORS[c.status]||T.textMut)+"15",color:STATUS_COLORS[c.status]||T.textMut}}>{c.status}</span></td>
-                <td style={{padding:"6px 8px"}}>
+              }).map(c=>{const overdue=c.dueDate&&c.dueDate<today&&c.status==="معلق";const isChkSel=selectedChkIds.has(c.id);
+                return<tr key={c.id} style={{borderBottom:"1px solid "+T.brd,background:isChkSel?T.err+"06":overdue?T.err+"04":""}}>
+                {canEdit&&<td style={{padding:"4px 8px",textAlign:"center"}}>
+                  <input type="checkbox" checked={isChkSel} onChange={()=>toggleChkSel(c.id)} style={{cursor:"pointer",width:16,height:16}}/>
+                </td>}
+                {/* V19.70.8: tighter row padding (4px instead of 6px) */}
+                <td style={{padding:"4px 8px"}}><span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:c.type==="receivable"?T.ok+"12":T.err+"12",color:c.type==="receivable"?T.ok:T.err}}>{c.type==="receivable"?"قبض":"دفع"}</span></td>
+                <td style={{padding:"4px 8px",fontSize:FS,fontWeight:800,color:c.type==="receivable"?T.ok:T.err}}>{fmt0(c.amount)}</td>
+                <td style={{padding:"4px 8px",fontSize:FS-1,fontWeight:600}}>{c.party}{c.status==="مُظهّر"&&c.endorsedTo&&<div style={{fontSize:FS-3,color:"#8B5CF6",fontWeight:700,marginTop:2}}>{"📤 مُظهّر لـ "+c.endorsedTo}</div>}</td>
+                <td style={{padding:"4px 8px",fontSize:FS-2,color:T.textSec}}>{c.bank||"—"}</td>
+                <td style={{padding:"4px 8px",fontSize:FS-2,color:T.textMut}}>{c.checkNo||"—"}{c.batchId&&c.batchTotal>1&&<span style={{marginRight:6,padding:"1px 6px",borderRadius:8,background:"#0EA5E915",color:"#0284C7",fontSize:9,fontWeight:700}} title={"شيك "+c.batchIdx+" من حافظة من "+c.batchTotal+" شيكات"}>{c.batchIdx}/{c.batchTotal}</span>}</td>
+                <td style={{padding:"4px 8px",fontSize:FS-1,fontWeight:overdue?700:400,color:overdue?T.err:T.text}}>{c.dueDate||"—"}{overdue?" ⚠️":""}</td>
+                {/* V19.70.8: time UNDER date (block display, line-height tight) */}
+                <td style={{padding:"4px 8px",fontSize:FS-3,color:T.textMut,whiteSpace:"nowrap",lineHeight:1.3}}>
+                  <div>{c.date||"—"}</div>
+                  {c.createdAt&&<div style={{direction:"ltr",fontSize:FS-3,color:T.textMut}}>{formatTxTime(c.createdAt)}</div>}
+                </td>
+                <td style={{padding:"4px 8px"}}><span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:(STATUS_COLORS[c.status]||T.textMut)+"15",color:STATUS_COLORS[c.status]||T.textMut}}>{c.status}</span></td>
+                <td style={{padding:"4px 8px"}}>
                 {/* V16.62: Print check receipt voucher (إذن استلام/تسليم شيك).
                     Always available regardless of status — useful both at the
                     moment of handover (status=معلق) and as an archival reprint

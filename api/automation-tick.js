@@ -528,7 +528,20 @@ async function scanRecentChecks(db, cfg, eventCfg, cairoDate, ordersCache){
 
     const customer = customersById[c.partyId] || {};
     const office = customer.companyName || customer.company || customer.office || customer.businessName || "";
-    const balance = Math.round(balances[c.partyId] || 0);
+    /* V19.70.8: progressive balance — subtract checks from same batch up to and
+       including this one. Single (non-batch) check: subtract just this check.
+       Batch (batchIdx 1..N): subtract sum of amounts of checks with same batchId
+       and batchIdx <= this.batchIdx. Matches the client-side hook semantics. */
+    const baseBalance = Math.round(balances[c.partyId] || 0);
+    let progressiveBalance;
+    if (c.batchId && c.batchIdx) {
+      const batchSiblings = checks.filter(x => x.batchId === c.batchId && (x.batchIdx || 0) <= c.batchIdx);
+      const cumChecksAmt = batchSiblings.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+      progressiveBalance = baseBalance - cumChecksAmt;
+    } else {
+      /* Single (non-batch) check */
+      progressiveBalance = baseBalance - (Number(c.amount) || 0);
+    }
     /* Batch info: "(شيك X من Y)" if batched, "" otherwise */
     const batchInfo = (c.batchId && c.batchTotal && c.batchTotal > 1)
       ? `(شيك ${c.batchIdx || "?"} من ${c.batchTotal})`
@@ -545,7 +558,7 @@ async function scanRecentChecks(db, cfg, eventCfg, cairoDate, ordersCache){
         dueDate: c.dueDate || "—",
         batchInfo,
         office,
-        balance,
+        balance: progressiveBalance,
         date,
       },
       customerPhone: customer.phone || null,
