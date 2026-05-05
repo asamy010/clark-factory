@@ -2865,7 +2865,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           else{upSales(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===sessId);if(si>=0){d.custDeliverySessions[si].actualSales=byOrder;d.custDeliverySessions[si].actualSaleDate=new Date().toISOString().split("T")[0];d.custDeliverySessions[si].actualSaleBy=userName;d.custDeliverySessions[si].saleConfirmed=true}})}
           Object.entries(byOrder).forEach(([oid,qty])=>{updOrder(oid,o=>{if(!o.customerDeliveries)o.customerDeliveries=[];
             /* V15.45: Record custom price for free/discounted sales — enables accurate revenue reporting */
-            const cp=Number(qrSale.customPrice)||0;
+            /* V19.63: clamp negative input — `-50` would store negative price → negative AR debit */
+            const cp=Math.max(0,Number(qrSale.customPrice)||0);
             const entry={custId:qrSale.custId,custName:cust.name,qty,date:new Date().toISOString().split("T")[0],sessionId:sessId,createdBy:userName};
             if(qrSale.override===true){entry.isOverride=true;entry.overrideReason="بيع طوارئ خارج الخطة"}
             if(cp>0){entry.price=cp;entry.isDiscounted=true;entry.originalPrice=Number(o.sellPrice)||0}

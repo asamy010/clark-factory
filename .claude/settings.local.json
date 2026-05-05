@@ -9,7 +9,8 @@
       "Read(//c/Users/Ahmed Samy/Desktop/**)",
       "Bash(rm -f clark-v19_62.zip)",
       "Bash(ls clark-v19_61.zip)",
-      "PowerShell($j = Get-Job | Where-Object { $_.State -eq 'Running' }; if \\($j\\) { \"still running: $\\($j.Count\\)\" } else { \"no running jobs\" }; Get-Item \"C:\\\\Users\\\\Ahmed Samy\\\\Desktop\\\\clark-v19_62.zip\" | Select-Object Name, @{N='SizeMB';E={[math]::Round\\($_.Length/1MB,2\\)}}, LastWriteTime)"
+      "PowerShell($j = Get-Job | Where-Object { $_.State -eq 'Running' }; if \\($j\\) { \"still running: $\\($j.Count\\)\" } else { \"no running jobs\" }; Get-Item \"C:\\\\Users\\\\Ahmed Samy\\\\Desktop\\\\clark-v19_62.zip\" | Select-Object Name, @{N='SizeMB';E={[math]::Round\\($_.Length/1MB,2\\)}}, LastWriteTime)",
+      "Bash(xargs wc *)"
     ]
   }
 }

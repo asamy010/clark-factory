@@ -138,7 +138,7 @@ export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,B
         if(lockEditChanged||lockDeleteChanged){
           if(!Array.isArray(d.auditLog))d.auditLog=[];
           d.auditLog.unshift({
-            id:Math.random().toString(36).slice(2)+Date.now(),
+            id:gid(),
             category:"security",
             action:"lock_setting_changed",
             target:"treasury_lock",
@@ -151,7 +151,7 @@ export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,B
         if(editorsChanged||deletersChanged){
           if(!Array.isArray(d.auditLog))d.auditLog=[];
           d.auditLog.unshift({
-            id:Math.random().toString(36).slice(2)+Date.now(),
+            id:gid(),
             category:"security",
             action:"whitelist_changed",
             target:"treasury_whitelist",
@@ -1793,7 +1793,7 @@ export function WaContactsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Car
     if(cleanPhone.length<10){showToast("⚠️ رقم غير صالح");return}
     if(draftContacts.some(c=>c.phone===cleanPhone)){showToast("⚠️ هذا الرقم مضاف بالفعل");return}
     setDraftContacts(prev=>[...prev,{
-      id:Math.random().toString(36).slice(2)+Date.now(),
+      id:gid(),
       name,phone:cleanPhone,role:newRole.trim(),
       reports:newReports,
       createdAt:new Date().toISOString()

@@ -245,7 +245,10 @@ export default function App(){
      themselves. Used by the stall panel to show "config: ✓ / sales: ✗" status. */
   const[listenerStatus,setListenerStatus]=useState({config:false,sales:false,tasks:false,orders:false,lastError:null});
   /* V16.74: split collections state — treasury, auditLog, hrLog من daily collections */
-  const[splitData,setSplitData]=useState({treasury:[],auditLog:[],hrLog:[]});
+  /* V19.63: dynamic init over SPLIT_FIELDS (was hardcoded 3 keys, missing 11 V19.49+ fields).
+     Pre-V19.63 splitData[custPayments]/etc were `undefined` until first listener fire — any
+     consumer reading splitDataRef directly got undefined||[]=[] which could mask wipes. */
+  const[splitData,setSplitData]=useState(()=>Object.fromEntries(SPLIT_FIELDS.map(f=>[f,[]])));
   const[splitLoaded,setSplitLoaded]=useState(false);
   /* V19.51: sales-doc split state (packages, custDeliverySessions in
      packagesDays/, custDeliverySessionsDays/) */
@@ -379,7 +382,10 @@ export default function App(){
         merged[f]=partitionedData[f]||[];
       }
     }
-    return merged},[configDoc,salesDoc,tasksDoc,splitData,splitLoaded,partitionedData,partitionedLoaded,salesSplitData,salesSplitLoaded,tasksSplitData,tasksSplitLoaded]);
+    /* V19.63: removed `splitLoaded`/`partitionedLoaded`/`salesSplitLoaded`/`tasksSplitLoaded`
+       from the dep array — V19.59 dropped these gates from the merge body, so they were
+       triggering 4 redundant useMemo runs (and 4 redundant snapshot writes) per cold start. */
+    return merged},[configDoc,salesDoc,tasksDoc,splitData,partitionedData,salesSplitData,tasksSplitData]);
   const[tab,setTab_]=useState(()=>sessionStorage.getItem("clark_tab")||"home");const[sel,setSel_]=useState(()=>sessionStorage.getItem("clark_sel")||null);
   const setTab=v=>{setTab_(v);sessionStorage.setItem("clark_tab",v)};
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
@@ -791,8 +797,8 @@ export default function App(){
             const hasOut=entries.some(t=>t.type==="out");
             const hasIn=entries.some(t=>t.type==="in");
             const dayN=dayName(tf.date||new Date().toISOString().split("T")[0]);
-            if(!hasOut&&tf.fromAccount){data.treasury=data.treasury||[];data.treasury.unshift({id:Math.random().toString(36).slice(2)+Date.now(),type:"out",amount:tf.amount,desc:"تحويل إلى "+tf.toAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.fromAccount,season:data.activeSeason||"",date:tf.date||new Date().toISOString().split("T")[0],day:dayN,transferId:tf.id,by:tf.sentBy||"",createdAt:new Date().toISOString()});repaired=true}
-            if(!hasIn&&tf.toAccount){data.treasury=data.treasury||[];data.treasury.unshift({id:Math.random().toString(36).slice(2)+Date.now(),type:"in",amount:tf.amount,desc:"تحويل من "+tf.fromAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.toAccount,season:data.activeSeason||"",date:tf.date||new Date().toISOString().split("T")[0],day:dayN,transferId:tf.id,by:tf.sentBy||"",createdAt:new Date().toISOString()});repaired=true}
+            if(!hasOut&&tf.fromAccount){data.treasury=data.treasury||[];data.treasury.unshift({id:gid(),type:"out",amount:tf.amount,desc:"تحويل إلى "+tf.toAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.fromAccount,season:data.activeSeason||"",date:tf.date||new Date().toISOString().split("T")[0],day:dayN,transferId:tf.id,by:tf.sentBy||"",createdAt:new Date().toISOString()});repaired=true}
+            if(!hasIn&&tf.toAccount){data.treasury=data.treasury||[];data.treasury.unshift({id:gid(),type:"in",amount:tf.amount,desc:"تحويل من "+tf.fromAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.toAccount,season:data.activeSeason||"",date:tf.date||new Date().toISOString().split("T")[0],day:dayN,transferId:tf.id,by:tf.sentBy||"",createdAt:new Date().toISOString()});repaired=true}
             if(tf.status!=="confirmed"){tf.status="confirmed";repaired=true}
           });
           data._transfersRepaired=true;
@@ -2318,18 +2324,17 @@ export default function App(){
 
   /* ── LOCAL SNAPSHOT: save critical collections to localStorage on every config update ──
      V19.57: read from `config` (the merged useMemo) instead of `configDoc` directly,
-     so post-migration the snapshot still has master-data arrays from partitionedData. */
+     so post-migration the snapshot still has master-data arrays from partitionedData.
+     V19.63 BUGFIX: dynamic over PARTITIONED_FIELDS so newly added fields auto-extend.
+     Pre-V19.63 the writer was a hand-picked list of 12 keys — `hrWeeks` was OMITTED so
+     HR/payroll never hydrated from cache → "empty list flash" symptom V19.59 was meant
+     to eliminate persisted for HR. Now matches the reader (line ~296) exactly. */
   useEffect(()=>{if(!config||!config.accessories)return;
-    /* V19.59: also save the partitioned master-data arrays (V19.57) so the next
-       app start can hydrate them from localStorage before listeners fire. This
-       prevents the "العملاء (0)" empty-list flash reported on slow networks. */
     try{const snap={
-      workshops:config.workshops||[],customers:config.customers||[],suppliers:config.suppliers||[],
-      fabrics:config.fabrics||[],accessories:config.accessories||[],sizeSets:config.sizeSets||[],
-      garmentTypes:config.garmentTypes||[],statusCards:config.statusCards||[],employees:config.employees||[],
-      treasuryAccounts:config.treasuryAccounts||[],
-      /* V19.59: include the rest of V19.57 master data so hydration is complete */
-      empDebts:config.empDebts||[],generalProducts:config.generalProducts||[],
+      ...Object.fromEntries(PARTITIONED_FIELDS.map(f=>[f,config[f]||[]])),
+      /* Legacy non-partitioned keys kept for backward-compat (not currently re-hydrated) */
+      sizeSets:config.sizeSets||[],garmentTypes:config.garmentTypes||[],
+      statusCards:config.statusCards||[],treasuryAccounts:config.treasuryAccounts||[],
       savedAt:new Date().toISOString(),
     };
       localStorage.setItem("clark-data-snapshot",JSON.stringify(snap))}catch(e){}},[config]);
@@ -3354,29 +3359,40 @@ export default function App(){
       console.error("[upConfig] fn threw, aborting optimistic update:",e);
       return;
     }
-    /* V19.62 SAFETY NET: detect mass wipe of partitioned master-data fields.
-       Pre-V19.62 (V19.57 → V19.61) the explicitPartBefore-only-has-hrWeeks bug
-       caused EVERY sale to wipe customers/suppliers/etc. to []. The downstream
-       symptoms (empty lists after sale, returns after refresh) were chased
-       across 3 patch versions without isolating this upstream wipe.
-       This guard makes any future regression of the same shape SELF-DIAGNOSING:
-       if a write would erase ≥5 master-data items in a single call (and no
-       items remain), we refuse, log a forensic record, and toast the user.
-       Threshold ≥5 is high enough to never catch single-item edits or small
-       legitimate batches; mass-delete UI does not exist in the app today, so
-       a hit on this guard is almost certainly a bug. */
-    if(newPart){
+    /* V19.62/63 SAFETY NET: detect mass wipes of any partitioned OR split field.
+       Pre-V19.62 the explicitPartBefore-only-has-hrWeeks bug caused EVERY sale to
+       wipe customers/suppliers/etc. to []. V19.62 caught V19.57 master data; V19.63
+       extends coverage to ALL partitioned fields (incl. hrWeeks) AND all split fields
+       (treasury, custPayments, salesInvoices, packages, tasks, etc.). Same threshold
+       (≥5 → 0) — high enough to never catch single-item edits, low enough to catch
+       any future regression of the V19.62 shape across the entire write path. */
+    if(newPart||newSplit){
       const wipes=[];
-      for(const f of PARTITIONED_FIELDS_V1957){
-        const before=(partitionedDataRef.current[f]||[]).length;
-        const after=(newPart[f]||[]).length;
-        if(before>=5&&after===0)wipes.push(`${f}: ${before} → 0`);
+      /* All partitioned fields (V1675 hrWeeks + V1957 master data) */
+      if(newPart){
+        for(const f of PARTITIONED_FIELDS){
+          if(!(f in newPart))continue;/* only check fields included in this write */
+          const before=(partitionedDataRef.current[f]||[]).length;
+          const after=(newPart[f]||[]).length;
+          if(before>=5&&after===0)wipes.push(`${f}: ${before} → 0 (partitioned)`);
+        }
+      }
+      /* All split fields (treasury, hrLog, custPayments, salesInvoices, etc.) */
+      if(newSplit){
+        for(const f of SPLIT_FIELDS){
+          if(!(f in newSplit))continue;
+          const before=(splitDataRef.current[f]||[]).length;
+          const after=(newSplit[f]||[]).length;
+          if(before>=5&&after===0)wipes.push(`${f}: ${before} → 0 (split)`);
+        }
       }
       if(wipes.length>0){
-        console.error("[V19.62 BLOCKED] Refusing partitioned master-data wipe:",wipes,
-          "\nexplicitPartBefore keys:",Object.keys(explicitPartBefore),
-          "\npartitionedDataRef snapshot counts:",Object.fromEntries(PARTITIONED_FIELDS.map(f=>[f,(partitionedDataRef.current[f]||[]).length])));
-        showToast("⛔ تم منع تعديل خطير: ممكن يمسح بيانات master ("+wipes.join("، ")+"). اتصل بالدعم لو محتاج العملية دي فعلاً.");
+        console.error("[V19.63 BLOCKED] Refusing mass wipe:",wipes,
+          "\nexplicitPartBefore keys:",Object.keys(explicitPartBefore||{}),
+          "\nexplicitSplitBefore keys:",Object.keys(explicitSplitBefore||{}),
+          "\npartitionedDataRef counts:",Object.fromEntries(PARTITIONED_FIELDS.map(f=>[f,(partitionedDataRef.current[f]||[]).length])),
+          "\nsplitDataRef counts:",Object.fromEntries(SPLIT_FIELDS.map(f=>[f,(splitDataRef.current[f]||[]).length])));
+        showToast("⛔ تم منع تعديل خطير: ممكن يمسح بيانات ("+wipes.join("، ")+"). اتصل بالدعم لو محتاج العملية دي فعلاً.");
         return;
       }
     }

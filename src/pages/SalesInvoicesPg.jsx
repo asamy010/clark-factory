@@ -345,10 +345,12 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
     (invoice.discountPct || 0)
   );
 
-  /* Recompute totals from current discount inputs */
+  /* Recompute totals from current discount inputs.
+     V19.63: clamp at zero — pre-V19.63 a negative discountValue (typed `-50` or pasted)
+     produced a negative discount → total = subtotal - (-x) = inflated total → overcharge. */
   const computedDiscount = useMemo(() => {
     const sub = Number(invoice.subtotal) || 0;
-    const v = Number(discountValue) || 0;
+    const v = Math.max(0, Number(discountValue) || 0);
     if(discountType === "pct"){
       return Math.min(sub * v / 100, sub);/* clamp at subtotal */
     } else {
@@ -365,11 +367,12 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
       if(!Array.isArray(d[listKey])) return;
       const idx = d[listKey].findIndex(i => i.id === invoice.id);
       if(idx < 0) return;
+      const v = Math.max(0, Number(discountValue) || 0);/* V19.63: clamp negative input */
       d[listKey][idx] = {
         ...d[listKey][idx],
         discountType,
-        discountValue: Number(discountValue) || 0,
-        discountPct: discountType === "pct" ? (Number(discountValue) || 0) : 0,
+        discountValue: v,
+        discountPct: discountType === "pct" ? v : 0,
         discount: computedDiscount,
         total: computedTotal,
       };

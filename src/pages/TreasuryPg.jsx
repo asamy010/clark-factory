@@ -76,7 +76,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     upConfig(d=>{
       if(!Array.isArray(d.auditLog))d.auditLog=[];
       d.auditLog.unshift({
-        id:Math.random().toString(36).slice(2)+Date.now(),
+        id:gid(),
         category:"security",
         action:isAdmin?"lock_bypass":"lock_whitelisted",
         target:action==="edit"?"treasury_edit":"treasury_delete",
@@ -1318,7 +1318,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(adminBypassCount>0){
         if(!Array.isArray(d.auditLog))d.auditLog=[];
         d.auditLog.unshift({
-          id:Math.random().toString(36).slice(2)+Date.now(),
+          id:gid(),
           category:"security",
           action:"lock_bypass",
           target:"treasury_delete",

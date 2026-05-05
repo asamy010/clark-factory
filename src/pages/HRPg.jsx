@@ -615,7 +615,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                 d.hrWeeks[wi].receipts[r.empId]=cleanData;
                 /* Log the audit entry for this receipt */
                 d.auditLog.unshift({
-                  id:Math.random().toString(36).slice(2)+Date.now()+r.empId,
+                  id:gid()+"_"+r.empId,
                   category:"week",action:"salary_receipt_verified",
                   target:"W"+(d.hrWeeks[wi].weekNum||"?")+" — "+(cleanData.empName||r.empId),
                   newValue:"✅ تأكيد استلام مرتب (من queue)",
@@ -707,11 +707,14 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     /* V15.17: Phone auto-prefix +2 if not already prefixed */
     const normalizePhone=(p)=>{const s=(p||"").trim();if(!s)return"";if(s.startsWith("+"))return s;const d=s.replace(/\D/g,"");return d?"+2"+d:""};
     const phoneClean=normalizePhone(empPhone);
+    /* V19.63: clamp negative salary/bonus/hours — pre-V19.63 a negative salary flowed
+       through entire payroll calc and posted as a credit to the salary expense account. */
+    const _nonNeg=(s)=>Math.max(0,parseFloat(s)||0);
     upConfig(d=>{if(!d.employees)d.employees=[];
       if(empEditId){const e=d.employees.find(x=>x.id===empEditId);if(e){
         /* Audit — track code changes (fingerprint) + salary changes (high risk) */
         const oldCode=e.code||"";const newCode=empCode||"";
-        const oldSalary=Number(e.weeklySalary)||0;const newSalary=parseFloat(empWeeklySalary)||0;
+        const oldSalary=Number(e.weeklySalary)||0;const newSalary=_nonNeg(empWeeklySalary);
         if(oldCode!==newCode){
           addAudit(d,{category:"employee",action:"code_change",
             target:e.name,oldValue:oldCode||"(فارغ)",newValue:newCode||"(فارغ)",
@@ -722,10 +725,10 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             target:e.name,oldValue:fmt0(oldSalary)+" ج",newValue:fmt0(newSalary)+" ج",
             user:userName,severity:"warning",notes:"تغيير المرتب الأسبوعي"});
         }
-        e.name=empName.trim();e.job=empJob;e.code=empCode;e.weeklySalary=newSalary;e.baseHours=parseFloat(empBaseHours)||0;e.phone=phoneClean;e.hireDate=empDate;e.weeklyBonus=parseFloat(empWeeklyBonus)||0;e.noBiometric=empNoBiometric;e.salaryType=empSalaryType;e.nationalId=natIdClean;
+        e.name=empName.trim();e.job=empJob;e.code=empCode;e.weeklySalary=newSalary;e.baseHours=_nonNeg(empBaseHours);e.phone=phoneClean;e.hireDate=empDate;e.weeklyBonus=_nonNeg(empWeeklyBonus);e.noBiometric=empNoBiometric;e.salaryType=empSalaryType;e.nationalId=natIdClean;
       }}
       else{
-        const newEmp={id:gid(),name:empName.trim(),job:empJob,code:empCode,weeklySalary:parseFloat(empWeeklySalary)||0,baseHours:parseFloat(empBaseHours)||0,phone:phoneClean,hireDate:empDate,weeklyBonus:parseFloat(empWeeklyBonus)||0,noBiometric:empNoBiometric,salaryType:empSalaryType,nationalId:natIdClean,prevBalance:0};
+        const newEmp={id:gid(),name:empName.trim(),job:empJob,code:empCode,weeklySalary:_nonNeg(empWeeklySalary),baseHours:_nonNeg(empBaseHours),phone:phoneClean,hireDate:empDate,weeklyBonus:_nonNeg(empWeeklyBonus),noBiometric:empNoBiometric,salaryType:empSalaryType,nationalId:natIdClean,prevBalance:0};
         d.employees.push(newEmp);
         addAudit(d,{category:"employee",action:"add",
           target:newEmp.name,newValue:"كود: "+(newEmp.code||"-")+" • مرتب: "+fmt0(newEmp.weeklySalary),
@@ -739,7 +742,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     upConfig(cfg=>{const e=(cfg.employees||[]).find(x=>x.id===inlineEditId);if(e){
       /* Audit code/salary changes */
       const oldCode=e.code||"";const newCode=d.code||"";
-      const oldSalary=Number(e.weeklySalary)||0;const newSalary=parseFloat(d.weeklySalary)||0;
+      const oldSalary=Number(e.weeklySalary)||0;const newSalary=Math.max(0,parseFloat(d.weeklySalary)||0);/* V19.63: clamp neg */
       if(oldCode!==newCode){
         addAudit(cfg,{category:"employee",action:"code_change",
           target:e.name,oldValue:oldCode||"(فارغ)",newValue:newCode||"(فارغ)",
@@ -751,8 +754,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           user:userName,severity:"warning",notes:"تغيير المرتب"});
       }
       e.name=(d.name||"").trim()||e.name;e.code=d.code||"";e.job=d.job||"";
-      e.weeklySalary=newSalary;e.weeklyBonus=parseFloat(d.weeklyBonus)||0;
-      e.baseHours=parseFloat(d.baseHours)||0;e.phone=d.phone||"";e.noBiometric=!!d.noBiometric}});
+      e.weeklySalary=newSalary;e.weeklyBonus=Math.max(0,parseFloat(d.weeklyBonus)||0);
+      e.baseHours=Math.max(0,parseFloat(d.baseHours)||0);e.phone=d.phone||"";e.noBiometric=!!d.noBiometric}});
     setInlineEditId(null);setInlineDraft({});showToast("✓ تم التعديل")};
   const cancelInlineEdit=()=>{setInlineEditId(null);setInlineDraft({})};
   /* Save quick advance from salary table popup — writes to treasury + hrLog atomically */
@@ -1739,7 +1742,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           /* Audit entry — danger severity */
           if(!Array.isArray(d.auditLog))d.auditLog=[];
           d.auditLog.unshift({
-            id:Math.random().toString(36).slice(2)+Date.now(),
+            id:gid(),
             category:"week",
             action:"approval_without_verification",
             target:"W"+openWeek.weekNum+" ("+openWeek.weekStart+" → "+openWeek.weekEnd+")",
@@ -5094,7 +5097,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           upConfig(d=>{
             if(!Array.isArray(d.auditLog))d.auditLog=[];
             d.auditLog.unshift({
-              id:Math.random().toString(36).slice(2)+Date.now(),
+              id:gid(),
               category:"week",action:"duplicate_scan_attempt",
               target:"W"+w.weekNum+" — "+emp.name,
               newValue:"🚨 محاولة سكان مكررة",
@@ -5112,7 +5115,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           /* Audit */
           if(!Array.isArray(d.auditLog))d.auditLog=[];
           d.auditLog.unshift({
-            id:Math.random().toString(36).slice(2)+Date.now(),
+            id:gid(),
             category:"week",action:"salary_receipt",
             target:"W"+w.weekNum+" — "+emp.name,
             newValue:"استلم المرتب",
@@ -5236,7 +5239,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
               manualReason:reason.trim(),
             };
             d.auditLog.unshift({
-              id:Math.random().toString(36).slice(2)+Date.now(),
+              id:gid(),
               category:"week",action:"manual_salary_receipt",
               target:"W"+w.weekNum+" — "+(emp?emp.name:empId),
               newValue:"📝 تأكيد يدوي (بدون سكان)",
@@ -6418,7 +6421,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           /* 6. Audit log — full impact */
           if(!Array.isArray(d.auditLog))d.auditLog=[];
           d.auditLog.unshift({
-            id:Math.random().toString(36).slice(2)+Date.now(),
+            id:gid(),
             category:"week",
             action:"clean_delete",
             target:"W"+w.weekNum+" ("+w.weekStart+" → "+w.weekEnd+")",
@@ -7231,7 +7234,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           upConfig(d=>{
             if(!Array.isArray(d.auditLog))d.auditLog=[];
             d.auditLog.unshift({
-              id:Math.random().toString(36).slice(2)+Date.now(),
+              id:gid(),
               category:"security",action:"unauthorized_verify_attempt",
               target:"W"+week.weekNum,
               newValue:"🚨 محاولة سكان بدون صلاحية",
@@ -7257,7 +7260,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             upConfig(d=>{
               if(!Array.isArray(d.auditLog))d.auditLog=[];
               d.auditLog.unshift({
-                id:Math.random().toString(36).slice(2)+Date.now(),
+                id:gid(),
                 category:"security",action:"sod_violation_blocked",
                 target:"W"+week.weekNum+" — "+emp.name,
                 newValue:"🛡️ منع تلقائي — نفس المستخدم عدّل وأراد تأكيد",
@@ -7290,7 +7293,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           upConfig(d=>{
             if(!Array.isArray(d.auditLog))d.auditLog=[];
             d.auditLog.unshift({
-              id:Math.random().toString(36).slice(2)+Date.now(),
+              id:gid(),
               category:"week",action:"duplicate_scan_attempt",
               target:"W"+week.weekNum+" — "+emp.name,
               newValue:"🚨 محاولة سكان مكررة (تاب تأكيد)",
@@ -7327,7 +7330,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             d.hrWeeks[wi].receipts[empId]={at:nowIso,by:userName||"",verifiedAt:nowIso,verifiedBy:userName||"",mode:"fast"};
             if(!Array.isArray(d.auditLog))d.auditLog=[];
             d.auditLog.unshift({
-              id:Math.random().toString(36).slice(2)+Date.now(),
+              id:gid(),
               category:"week",action:"salary_receipt_verified",
               target:"W"+week.weekNum+" — "+emp.name,
               newValue:"✅ تأكيد استلام مرتب — "+fmt0(amount)+" ج (سريع)",
@@ -7356,7 +7359,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           }
           if(!Array.isArray(d.auditLog))d.auditLog=[];
           d.auditLog.unshift({
-            id:Math.random().toString(36).slice(2)+Date.now(),
+            id:gid(),
             category:"week",action:"salary_receipt_undo",
             target:"W"+week.weekNum+" — "+verifyLastScan.emp.name,
             newValue:"↩ تراجع عن تسجيل استلام",
@@ -7664,7 +7667,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           d.hrWeeks[wi].receipts[emp.id]={at:nowIso,by:userName||"",verifiedAt:nowIso,verifiedBy:userName||"",mode:"detailed"};
           if(!Array.isArray(d.auditLog))d.auditLog=[];
           d.auditLog.unshift({
-            id:Math.random().toString(36).slice(2)+Date.now(),
+            id:gid(),
             category:"week",action:"salary_receipt_verified",
             target:"W"+w.weekNum+" — "+emp.name,
             newValue:"✅ تأكيد استلام مرتب — "+fmt0(amount)+" ج (مفصّل - الموظف راجع التفاصيل)",
@@ -7687,7 +7690,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           d.hrWeeks[wi].receiptIssues[emp.id]={at:nowIso,by:userName||"",amount};
           if(!Array.isArray(d.auditLog))d.auditLog=[];
           d.auditLog.unshift({
-            id:Math.random().toString(36).slice(2)+Date.now(),
+            id:gid(),
             category:"week",action:"salary_receipt_issue",
             target:"W"+w.weekNum+" — "+emp.name,
             newValue:"⚠️ مشكلة في الاستلام — "+fmt0(amount)+" ج",

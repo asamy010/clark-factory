@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.63",
+    date: "2026-05-05",
+    types: ["fix", "improvement", "audit"],
+    title: "🛠️ Quick Wins بعد الـaudit الشامل — 6 إصلاحات small-risk عالية القيمة",
+    changes: [
+      { type: "fix", text: "🛡️ [V19.62 guard وُسّع ليـcover الـsplit fields + hrWeeks] الـmass-wipe guard اللي اتزرع في V19.62 كان بيـcover 8 fields بس (PARTITIONED_FIELDS_V1957). أي bug مماثل في split path (treasury، salesInvoices، custPayments، tasks) أو في hrWeeks كان undetectable. دلوقتي الـguard يـsweep كل PARTITIONED_FIELDS + كل SPLIT_FIELDS اللي الـwrite بيلمسها. نفس threshold ≥5→0 (rare-enough to never catch legitimate edits)." },
+      { type: "fix", text: "💾 [snapshot writer dynamic] الـlocalStorage snapshot writer كان hand-picked 12 keys — وكان hrWeeks ناقص! يعني HR/payroll مكنش يـhydrate من cache على البدء، نفس 'empty list flash' V19.59 صلحه — لكن كان لسه active لـHR. دلوقتي الـwriter dynamic over PARTITIONED_FIELDS فيـauto-extend مع أي field جديد. الـreader (line 296) و الـwriter دلوقتي متطابقين 100%." },
+      { type: "fix", text: "📦 [splitData initial state dynamic] كان hardcoded `{treasury:[],auditLog:[],hrLog:[]}` (3 fields بس) في V16.74. V19.49+50+52+53 ضافت 11 split field آخرين، السطر ده ما اتحدّثش. النتيجة: splitData[custPayments] / splitData[salesInvoices] / إلخ بقوا `undefined` لحد ما الـlistener يـfire — يقدر يكسر الـwipe-detector لو الـsale ضغط قبل listener fire. دلوقتي dynamic over SPLIT_FIELDS. نفس bug-pattern زي V19.62." },
+      { type: "improvement", text: "⚡ [useMemo deps cleanup — أداء] الـconfig useMemo deps شالوا منها 4 flags ما بتقراش (splitLoaded، partitionedLoaded، salesSplitLoaded، tasksSplitLoaded). V19.59 شال الـgates من الـmemo body لكن الـdeps فضلوا. كل flag flip كان بيعمل re-run للـmemo (وعندهالـsnapshot writer effect بيـrerun كمان) — 4 redundant runs على الـboot. دلوقتي الـmemo بيـrun لما الـactual data state يتغير فقط." },
+      { type: "fix", text: "🔢 [Negative-value clamps في 3 inputs] (1) **Discount** في فاتورة البيع/الشراء: `Math.max(0, discountValue)` — `-50` كان بيخلي total أعلى من subtotal (overcharge). (2) **Custom price** في البيع السريع: `Math.max(0, customPrice)` — `-50` كان بيسجل سعر سالب → AR debit سالب. (3) **Salary/bonus/baseHours** في إضافة وتعديل الموظف: clamps على parseFloat — مرتب سالب كان بيـpost كـcredit في حساب مصروفات المرتبات." },
+      { type: "improvement", text: "🆔 [Math.random() → gid() في 19 موضع] الـpattern `Math.random().toString(36).slice(2)+Date.now()` كان مكتوب في 19 سطر (HRPg×13، TreasuryPg×2، SettingsPg×3، App.jsx×1). الـid مش sortable (Math.random جاي قبل Date.now)، الـrandom part مش محدد slice، مفيش prefix. دلوقتي gid() الـcanonical — Date-based prefix + 12 random chars + sortable. الـid format موحد عبر التطبيق." },
+      { type: "audit", text: "🔬 [الـcontext] V19.63 جزء من roadmap 4-versions بعد audit شامل (Security → Integrity → Sale Flow). كلهم small-risk، high-value. ده الأول — الـQuick Wins اللي مش محتاجة architecture changes ولكن بتـclose 30% من الـMEDIUM findings. V19.64 جاي بـsecurity hardening (Firestore + Storage rules)." },
+    ]
+  },
+  {
     version: "V19.62",
     date: "2026-05-05",
     types: ["fix", "hotfix", "rootcause"],
