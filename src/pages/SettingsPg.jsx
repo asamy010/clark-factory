@@ -2104,6 +2104,76 @@ function StorageNoticesPanel(){
 }
 
 
+/* V19.58: VALIDATION ERRORS CARD — last 100 schema-validation warnings.
+   Pulls from window.__clarkValidationErrors which is populated by the
+   WARN-mode validator wired into upConfig/upSales/upTasks. WARN-only — these
+   are issues that PASSED through (not blocked), so they're either genuine
+   bugs in write paths OR overly-strict schemas. Either way, surfacing them
+   here lets us catch drift early without blocking users. */
+function ValidationErrorsCard(){
+  const[errors,setErrors]=useState([]);
+  const[refreshKey,setRefreshKey]=useState(0);
+
+  React.useEffect(()=>{
+    let cancelled=false;
+    import("../utils/validateData.js").then(mod=>{
+      if(cancelled)return;
+      setErrors(mod.getRecentValidationErrors());
+    });
+    return()=>{cancelled=true};
+  },[refreshKey]);
+
+  const fmtTime=(iso)=>{try{return new Date(iso).toLocaleString("ar-EG",{dateStyle:"short",timeStyle:"short"})}catch{return iso}};
+
+  const onClear=()=>{
+    import("../utils/validateData.js").then(mod=>{
+      mod.clearValidationErrors();
+      setRefreshKey(k=>k+1);
+    });
+  };
+
+  return<Card title="⚠️ آخر تحذيرات التحقق (V19.58 WARN-only)" style={{marginBottom:14}}>
+    <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
+      الكتابات اللي اتعملت لكن ما طابقتش الـschema المسجّل. المفروض تكون فاضية في الإنتاج العادي.
+      لو ظهرت أخطاء كتير، ابعتها للدعم — ممكن يكون في bug في صفحة معيّنة بتكتب shape غلط.
+    </div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:8}}>
+      <div style={{fontSize:FS-1,fontWeight:700,color:T.text}}>
+        {errors.length===0?<span style={{color:"#10B981"}}>✅ مفيش تحذيرات</span>:<span>{errors.length} تحذير</span>}
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <Btn ghost small onClick={()=>setRefreshKey(k=>k+1)} style={{fontSize:FS-2}}>🔄 تحديث</Btn>
+        {errors.length>0&&<Btn ghost small onClick={onClear} style={{fontSize:FS-2,color:T.err}}>🗑️ مسح</Btn>}
+      </div>
+    </div>
+    {errors.length>0&&<div style={{maxHeight:340,overflowY:"auto",border:"1px solid "+T.brd,borderRadius:8}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-2}}>
+        <thead style={{position:"sticky",top:0,background:T.bg,zIndex:1}}>
+          <tr style={{borderBottom:"1px solid "+T.brd}}>
+            <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>الوقت</th>
+            <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>الحقل</th>
+            <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>الـEntry</th>
+            <th style={{padding:"6px 10px",textAlign:"start",color:T.textMut,fontWeight:600}}>المشكلة</th>
+          </tr>
+        </thead>
+        <tbody>
+          {errors.map((e,idx)=>(
+            <tr key={idx} style={{borderBottom:"1px solid "+T.brd+"40"}}>
+              <td style={{padding:"6px 10px",color:T.textMut,fontSize:FS-3,fontFamily:"monospace"}}>{fmtTime(e.at)}</td>
+              <td style={{padding:"6px 10px",fontWeight:600}}>{e.docKey}.{e.field}</td>
+              <td style={{padding:"6px 10px",fontFamily:"monospace",fontSize:FS-3}}>{e.entryLabel}</td>
+              <td style={{padding:"6px 10px",fontSize:FS-3,color:T.err}}>
+                {(e.issues||[]).map(i=>i.path+": "+i.message).join(" • ")}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>}
+  </Card>;
+}
+
+
 /* V16.75: PARTITIONED DOCS MONITOR — يعرض حجم كل document في hrWeeksDocs */
 function PartitionedDocsMonitor(){
   const[stats,setStats]=useState(null);
@@ -3018,6 +3088,8 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     <PartitionedDocsMonitor/>
     {/* V16.74: Split days monitor — يعرض حجم كل document يومي للخزنة وسجل HR والأحداث */}
     <SplitDaysMonitor/>
+    {/* V19.58: Schema validation warnings (WARN-mode safety net) */}
+    <ValidationErrorsCard/>
     {/* V16.0: Size Budget Dashboard — tracks feature sizes against limits */}
     <SizeBudgetDashboard configDoc={configDoc} salesDoc={salesDoc} tasksDoc={tasksDoc}/>
     {/* V15.92: Device info card — shows deviceId, IP, location, and lets user name their device */}

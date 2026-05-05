@@ -44,6 +44,9 @@ import {
   PARTITIONED_FLAG_V1675, PARTITIONED_FLAG_V1957,
 } from "./utils/partitionedCollections.js";
 import { noticeSuccess, noticeWarn, noticeError } from "./utils/storageNotices.js";
+/* V19.58: Zod-based schema validation in WARN-only mode. Surfaces drift in
+   write shapes without blocking. See utils/validateData.js + schemas/index.js. */
+import { validateDoc } from "./utils/validateData.js";
 import { ask, tell, askInput, askForm, showToast, highlightRow } from "./utils/popups.js";
 import { printPage, printPkgLabel, printEmpQrCards, renderLabelPages, openPrintWindow } from "./utils/print.js";
 import { wsIsInternal, calcOrder, getConfirmedStock, checkStockAvailability, deductStockForOrder, calcWsRating, migrateStatus, matchWorkshopFromDesc } from "./utils/orders.js";
@@ -3226,6 +3229,9 @@ export default function App(){
       const partActive=partFieldsActive.length>0;
       fn(next);
       enforceDataLimits(next);
+      /* V19.58: WARN-only schema validation — checks the diffed entries against
+         Zod schemas. Failures log to console + Settings UI but never block. */
+      try{validateDoc(prev,next,"config")}catch(e){console.warn("[V19.58 validator threw]",e)}
       /* V18.60 SAFETY NET: refuse writes that wipe critical fields entirely.
          This is a last-resort guard against bugs that cause mass data loss.
          The check is intentionally permissive (only blocks 🚨-severity wipes
@@ -3426,6 +3432,8 @@ export default function App(){
         }
       }
       fn(next);
+      /* V19.58: WARN-only schema validation (sales doc — most fields aren't in schemas yet, no-op typically). */
+      try{validateDoc(prev,next,"sales")}catch(e){console.warn("[V19.58 validator threw]",e)}
       if(salesSplitActive){
         newSalesSplit={};
         for(const f of SALES_SPLIT_FIELDS_V1951){
@@ -3569,6 +3577,8 @@ export default function App(){
         }
       }
       fn(next);
+      /* V19.58: WARN-only schema validation (tasks doc — typically a no-op). */
+      try{validateDoc(prev,next,"tasks")}catch(e){console.warn("[V19.58 validator threw]",e)}
       if(tasksSplitActive){
         newTasksSplit={};
         for(const f of TASKS_SPLIT_FIELDS_V1951){

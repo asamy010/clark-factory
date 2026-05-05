@@ -46,8 +46,22 @@ import {
   doc, setDoc, getDoc, getDocs, collection, deleteDoc
 } from "firebase/firestore";
 import { db } from "../firebase.js";
-import { SPLIT_COLLECTIONS } from "./splitCollections.js";
+import {
+  SPLIT_COLLECTIONS,
+  /* V19.58: also include sales-doc + tasks-doc split namespaces (V19.51 added these
+     but they were never wired into the comprehensive backup — bug fix in V19.58). */
+  SALES_SPLIT_COLLECTIONS,
+  TASKS_SPLIT_COLLECTIONS,
+} from "./splitCollections.js";
 import { PARTITIONED_COLLECTIONS } from "./partitionedCollections.js";
+
+/* V19.58: Standalone collections (not in any *_COLLECTIONS map) that the backup
+   must still include. These were added in V19.53 (per-user notification state)
+   and any future per-user/per-entity collections that don't fit the split or
+   partitioned pattern. */
+const STANDALONE_COLLECTIONS = [
+  "userNotifStates",  /* V19.53 — per-user reads/dismisses */
+];
 
 /* Backup format version. Bump when format changes incompatibly. */
 export const COMPREHENSIVE_BACKUP_VERSION = 1;
@@ -251,7 +265,7 @@ export async function createComprehensiveBackup({ label, user, onProgress, autoG
     }
   } catch (e) { errors.push({ part: "factoryTasks", error: String(e?.message || e) }); }
 
-  /* 4. Split collections — treasuryDays, auditDays, hrLogDays */
+  /* 4. Split collections — treasuryDays, auditDays, hrLogDays + V19.49-V19.53 daily splits */
   for (const [field, collName] of Object.entries(SPLIT_COLLECTIONS)) {
     progress("جاري قراءة " + collName + "…");
     try {
@@ -264,8 +278,47 @@ export async function createComprehensiveBackup({ label, user, onProgress, autoG
     }
   }
 
-  /* 5. Partitioned collections — hrWeeksDocs */
+  /* 4a. V19.58: sales-doc daily splits (V19.51) — packagesDays, custDeliverySessionsDays */
+  for (const [field, collName] of Object.entries(SALES_SPLIT_COLLECTIONS)) {
+    progress("جاري قراءة " + collName + "…");
+    try {
+      const docs = await readCollection(collName);
+      counts[collName] = docs.length;
+      await writePart(backupId, collName, { docs }, progress);
+      partsManifest.push(collName);
+    } catch (e) {
+      errors.push({ part: collName, error: String(e?.message || e) });
+    }
+  }
+
+  /* 4b. V19.58: tasks-doc daily splits (V19.51) — tasksDays, stickyNotesDays, inventoryAuditsDays */
+  for (const [field, collName] of Object.entries(TASKS_SPLIT_COLLECTIONS)) {
+    progress("جاري قراءة " + collName + "…");
+    try {
+      const docs = await readCollection(collName);
+      counts[collName] = docs.length;
+      await writePart(backupId, collName, { docs }, progress);
+      partsManifest.push(collName);
+    } catch (e) {
+      errors.push({ part: collName, error: String(e?.message || e) });
+    }
+  }
+
+  /* 5. Partitioned collections — hrWeeksDocs + V19.57 master data byId */
   for (const [field, collName] of Object.entries(PARTITIONED_COLLECTIONS)) {
+    progress("جاري قراءة " + collName + "…");
+    try {
+      const docs = await readCollection(collName);
+      counts[collName] = docs.length;
+      await writePart(backupId, collName, { docs }, progress);
+      partsManifest.push(collName);
+    } catch (e) {
+      errors.push({ part: collName, error: String(e?.message || e) });
+    }
+  }
+
+  /* 5a. V19.58: standalone collections — userNotifStates (V19.53) */
+  for (const collName of STANDALONE_COLLECTIONS) {
     progress("جاري قراءة " + collName + "…");
     try {
       const docs = await readCollection(collName);
@@ -352,15 +405,32 @@ export async function readComprehensiveBackup(backupId) {
   const metadata = metaSnap.data();
   if (!metadata.isComprehensive) return null;/* not our format */
 
+  /* V19.58: include all collections in the result map (split + sales-split + tasks-split + standalone). */
   const result = {
     metadata,
     factoryConfig: null,
     factorySales: null,
     factoryTasks: null,
-    splitCollections: { treasuryDays: [], auditDays: [], hrLogDays: [] },
-    partitionedCollections: { hrWeeksDocs: [] },
+    splitCollections: {},     /* covers SPLIT, SALES_SPLIT, TASKS_SPLIT keyed by collection name */
+    partitionedCollections: {}, /* covers PARTITIONED keyed by collection name */
+    standaloneCollections: {}, /* V19.58 — userNotifStates etc. */
     ordersBySeason: {},
   };
+  /* Pre-populate keys so callers can detect "missing" without checking hasOwnProperty. */
+  for (const collName of Object.values(SPLIT_COLLECTIONS)) result.splitCollections[collName] = [];
+  for (const collName of Object.values(SALES_SPLIT_COLLECTIONS)) result.splitCollections[collName] = [];
+  for (const collName of Object.values(TASKS_SPLIT_COLLECTIONS)) result.splitCollections[collName] = [];
+  for (const collName of Object.values(PARTITIONED_COLLECTIONS)) result.partitionedCollections[collName] = [];
+  for (const collName of STANDALONE_COLLECTIONS) result.standaloneCollections[collName] = [];
+
+  /* Build a lookup set for fast partName→bucket routing */
+  const splitNames = new Set([
+    ...Object.values(SPLIT_COLLECTIONS),
+    ...Object.values(SALES_SPLIT_COLLECTIONS),
+    ...Object.values(TASKS_SPLIT_COLLECTIONS),
+  ]);
+  const partitionedNames = new Set(Object.values(PARTITIONED_COLLECTIONS));
+  const standaloneNames = new Set(STANDALONE_COLLECTIONS);
 
   for (const partName of metadata.partsManifest || []) {
     const part = await readPart(backupId, partName);
@@ -368,12 +438,14 @@ export async function readComprehensiveBackup(backupId) {
     if (partName === "factoryConfig") result.factoryConfig = part.data;
     else if (partName === "factorySales") result.factorySales = part.data;
     else if (partName === "factoryTasks") result.factoryTasks = part.data;
-    else if (partName in SPLIT_COLLECTIONS) {/* shouldn't happen — keys are field names */ }
-    else if (Object.values(SPLIT_COLLECTIONS).includes(partName)) {
+    else if (splitNames.has(partName)) {
       result.splitCollections[partName] = part.docs || [];
     }
-    else if (Object.values(PARTITIONED_COLLECTIONS).includes(partName)) {
+    else if (partitionedNames.has(partName)) {
       result.partitionedCollections[partName] = part.docs || [];
+    }
+    else if (standaloneNames.has(partName)) {
+      result.standaloneCollections[partName] = part.docs || [];
     }
     else if (partName.startsWith("orders_")) {
       const seasonName = partName.slice("orders_".length);
@@ -442,14 +514,25 @@ export async function estimateComprehensiveBackupSize() {
   try { const ft = await readDoc("factory/tasks"); if (ft) { breakdown.factoryTasks = estimateSize(ft); total += breakdown.factoryTasks; } } catch {}
 
   /* Split collections (count docs only — sizing each would be slow) */
-  for (const [, collName] of Object.entries(SPLIT_COLLECTIONS)) {
+  /* V19.58: include sales-split + tasks-split + standalone in the estimate too. */
+  const allSplitMaps = [SPLIT_COLLECTIONS, SALES_SPLIT_COLLECTIONS, TASKS_SPLIT_COLLECTIONS];
+  for (const map of allSplitMaps) {
+    for (const [, collName] of Object.entries(map)) {
+      try {
+        const docs = await readCollection(collName);
+        breakdown[collName] = estimateSize(docs);
+        total += breakdown[collName];
+      } catch {}
+    }
+  }
+  for (const [, collName] of Object.entries(PARTITIONED_COLLECTIONS)) {
     try {
       const docs = await readCollection(collName);
       breakdown[collName] = estimateSize(docs);
       total += breakdown[collName];
     } catch {}
   }
-  for (const [, collName] of Object.entries(PARTITIONED_COLLECTIONS)) {
+  for (const collName of STANDALONE_COLLECTIONS) {
     try {
       const docs = await readCollection(collName);
       breakdown[collName] = estimateSize(docs);

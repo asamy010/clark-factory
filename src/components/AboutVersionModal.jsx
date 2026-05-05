@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.58",
+    date: "2026-05-04",
+    types: ["improvement", "safety", "fix"],
+    title: "🛡️ تحسينات بنية تحتية: backup + schema validation + rollups engine",
+    changes: [
+      { type: "fix", text: "🚨 [إصلاح هام في الـauto-backup] الـcomprehensive backup كان من V18.62 وما اتحدّثش لما اضفنا collections جديدة في V19.49 → V19.57. كان بيـbackup factory/config + sales + tasks + treasuryDays/auditDays/hrLogDays + hrWeeksDocs فقط. الـ24 collection اللي اتعملوا في V19.49→V19.57 (custPaymentsDays, salesInvoicesDays, packagesDays, tasksDays, customersDocs, suppliersDocs, ... إلخ) كانوا **مش متضمنين في الـbackups**. لو حصلت كارثة وحبيت تـrestore من backup قديم، كنت هتلاقي الفواتير والمدفوعات والعملاء كلهم ضايعين. V19.58 يصلح ده — الـbackup دلوقتي بيغطي كل الـ29+ collection." },
+      { type: "improvement", text: "🛡️ [Schema validation بـZod في WARN mode] ضافت طبقة حماية: كل write على factory/config + sales + tasks بيمر على Zod schemas للـentities المهمة (customers, suppliers, workshops, employees, invoices, payments, treasury). الكتابات اللي ما تطابقش الـschema بتتسجل في console + Settings card 'آخر تحذيرات التحقق'. **WARN mode** يعني: مش بيمنع الـwrite، بس بيـsurface الأخطاء. ده safety net للـbugs اللي ممكن تكتب shape غلط بسبب refactor أو import. بعد ما تستقر النسخة في الإنتاج بدون false positives، ممكن نحوّل schemas معيّنة لـSTRICT mode." },
+      { type: "improvement", text: "📊 [Rollups engine للـreports — utils/rollups.js] ضافت module جديد بـ4 functions جاهزين: `computeFinancialRollup(data, {from, to})` للـtotals + per-customer + per-supplier breakdowns، `computeMonthlyRollup(data, 'YYYY-MM')` للشهر الواحد، `computeCustomerStatement(data, custId)` لكشف الحساب، `computeSupplierStatement(data, supId)` للموردين. كلهم pure functions — بـiterate الـlocal data ويرجعوا rollup كامل. الـpages تقدر تستخدمهم بـuseMemo (سرعة 50ms × عدد المرات اللي بتـrender). ده الأساس للتقارير المتقدمة في V19.59+." },
+      { type: "safety", text: "🔒 [استمرارية الحماية] الـ3 features دي مع بعض = layer من الحماية:\n- **Backup** يضمن إن مفيش بيانات تضيع بكارثة\n- **Schema validation** يقبض الـbugs قبل ما تتراكم\n- **Rollups engine** يضمن consistency بين التقارير في مختلف الصفحات\nالتطبيق دلوقتي عنده fault tolerance + observability أحسن بكتير." },
+      { type: "improvement", text: "📦 [Zod dependency] ضافت `zod ^3.23.8` كـrunning dependency. حجم ~10KB gzipped. مكتبة معيارية، 30M+ download/شهر، Zero config، tree-shakeable. المخططات في `src/schemas/index.js` — بسيطة وقابلة للقراءة بمنطق سريع." },
+    ]
+  },
+  {
     version: "V19.57",
     date: "2026-05-04",
     types: ["architectural", "improvement", "safety"],
