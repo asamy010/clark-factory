@@ -229,6 +229,24 @@ export function AutomationPg({ data, upConfig, isMob, user }){
     }
   };
 
+  /* V19.69.4: clear lastSentAt so the scheduler can be re-tested today.
+     Without this, after the first successful scheduler run, every later attempt
+     returns "skipped: already-sent-today" — which makes the scheduled-flow
+     impossible to verify end-to-end without waiting until tomorrow OR editing
+     Firestore manually. Admin/manager only. */
+  const onResetSentToday = () => {
+    if (!dailyReport?.lastSentAt) {
+      showToast("⏭ مفيش lastSentAt مسجل — الـscheduler مش متوقف");
+      return;
+    }
+    if (!window.confirm("هتمسح علامة 'تم إرساله اليوم' عشان تختبر الـscheduler تاني. متأكد؟")) return;
+    updateAutomation(a => {
+      if (!a.dailyReport) a.dailyReport = { ...DEFAULT_AUTOMATION_CONFIG.dailyReport };
+      a.dailyReport.lastSentAt = null;
+    });
+    showToast("✓ تم المسح — اضغط '🔄 شغّل الـscheduler الآن' لاختبار الإرسال");
+  };
+
   /* Manual "Send Test Now" — sends to all subscribed recipients via the bridge */
   const onSendTest = async () => {
     if (!bridgeUrl) {
@@ -456,6 +474,13 @@ export function AutomationPg({ data, upConfig, isMob, user }){
           style={{background:T.accent, color:"#fff", border:"none", fontWeight:800}}>
           {busy ? "⏳..." : "🔄 شغّل الـscheduler الآن"}
         </Btn>
+        {/* V19.69.4: reset lastSentAt so admin can re-test the scheduled flow today.
+            Only visible when lastSentAt is actually set (no point showing it otherwise). */}
+        {dailyReport?.lastSentAt && <Btn ghost onClick={onResetSentToday} disabled={busy}
+          style={{borderColor:T.warn, color:T.warn, fontWeight:700}}
+          title="مسح علامة 'تم إرساله اليوم' عشان تقدر تختبر الـscheduler تاني">
+          ↺ مسح "تم إرساله اليوم"
+        </Btn>}
         <div style={{flex:1}}/>
         <div style={{fontSize:FS-2, color:T.textMut, alignSelf:"center"}}>
           المستلمون: {reportRecipientsList.length}
