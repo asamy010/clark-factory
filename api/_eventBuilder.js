@@ -56,6 +56,43 @@ export const EVENT_VARIABLES = {
       owner:    ["{customerName}", "{amount}", "{bank}", "{checkNo}", "{dueDate}", "{batchInfo}", "{office}", "{balance}", "{date}"],
     },
   },
+  /* V19.70.10: outgoing checks to suppliers (شيكات أوراق دفع لمورد). Same UX as
+     checkPaymentReceived but the party is a supplier, balance reflects what we
+     owe them (after this check, our debt to them decreases). */
+  checkPaymentIssued: {
+    label: "📤 دفعة شيكات لمورد",
+    description: "شيك واحد أو حافظة لمورد — رسالة منفصلة لكل شيك مع ترقيم",
+    detection: "client (instant) + cron fallback",
+    recipientRoles: ["supplier", "owner"],
+    variables: {
+      supplier: ["{supplierName}", "{amount}", "{bank}", "{checkNo}", "{dueDate}", "{batchInfo}", "{balance}", "{date}"],
+      owner:    ["{supplierName}", "{amount}", "{bank}", "{checkNo}", "{dueDate}", "{batchInfo}", "{office}", "{balance}", "{date}"],
+    },
+  },
+  /* V19.70.10: receivable check status changed → "محصل" (collected). Customer
+     gets thank-you notification with check details. */
+  checkCollected: {
+    label: "✅ تم تحصيل شيك",
+    description: "شيك من عميل اتـحصّل (status=محصل) — رسالة شكر للعميل",
+    detection: "client (instant on status change) + cron fallback",
+    recipientRoles: ["customer", "owner"],
+    variables: {
+      customer: ["{customerName}", "{amount}", "{bank}", "{checkNo}", "{originalDate}", "{collectedDate}", "{balance}"],
+      owner:    ["{customerName}", "{amount}", "{bank}", "{checkNo}", "{originalDate}", "{collectedDate}", "{office}", "{balance}"],
+    },
+  },
+  /* V19.70.10: receivable check status changed → "مرتد" (bounced). Customer
+     gets warning, has to repay. */
+  checkBounced: {
+    label: "⚠️ شيك مرتد من عميل",
+    description: "شيك من عميل ارتد (status=مرتد) — تنبيه للعميل لإعادة السداد",
+    detection: "client (instant on status change) + cron fallback",
+    recipientRoles: ["customer", "owner"],
+    variables: {
+      customer: ["{customerName}", "{amount}", "{bank}", "{checkNo}", "{originalDate}", "{bouncedDate}", "{balance}"],
+      owner:    ["{customerName}", "{amount}", "{bank}", "{checkNo}", "{originalDate}", "{bouncedDate}", "{office}", "{balance}"],
+    },
+  },
   lateOrder: {
     label: "⚠️ أوردر متأخر",
     description: "أوردر تجاوز الحد المسموح بدون activity",
@@ -125,6 +162,14 @@ export function buildEventMessages(eventType, eventCfg, payload, phones) {
     }
   }
 
+  /* V19.70.10: Supplier: single phone (for checkPaymentIssued) */
+  if (recps.supplier && tpls.supplier && phones.supplier) {
+    const text = substituteTemplate(tpls.supplier, payload);
+    if (text.trim()) {
+      messages.push({ phone: phones.supplier, message: text, role: "supplier" });
+    }
+  }
+
   /* Owner: 0..N phones (multiple owners possible) */
   if (recps.owner && tpls.owner && Array.isArray(phones.owner)) {
     const text = substituteTemplate(tpls.owner, payload);
@@ -153,6 +198,9 @@ export function validateEventPayload(eventType, payload) {
     saleCompleted:        ["customerName", "qty", "modelNo", "value"],
     paymentReceived:      ["customerName", "amount"],
     checkPaymentReceived: ["customerName", "amount", "bank", "checkNo"],
+    checkPaymentIssued:   ["supplierName", "amount", "bank", "checkNo"],
+    checkCollected:       ["customerName", "amount", "bank", "checkNo"],
+    checkBounced:         ["customerName", "amount", "bank", "checkNo"],
     lateOrder:            ["modelNo", "customerName", "daysLate"],
     checkDue:             ["bank", "checkNo", "amount", "dueDate", "daysToDue"],
   }[eventType] || [];
@@ -174,6 +222,18 @@ export const DEFAULT_EVENT_TEMPLATES = {
   checkPaymentReceived: {
     customer: "🏦 *تم استلام شيك* {batchInfo}\n\nالبنك: {bank}\nرقم الشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الاستحقاق: {dueDate}\nالرصيد المتبقي: {balance} ج.م\n\nشكراً لك 🌟",
     owner: "🏦 *شيك من عميل* {batchInfo}\n\n{customerName} — {office}\nالبنك: {bank}\nالشيك: {checkNo}\nالقيمة: {amount} ج.م\nالاستحقاق: {dueDate}\nالرصيد المتبقي: {balance} ج.م",
+  },
+  checkPaymentIssued: {
+    supplier: "📤 *تم إصدار شيك* {batchInfo}\n\nالبنك: {bank}\nرقم الشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الاستحقاق: {dueDate}\nالرصيد المتبقي: {balance} ج.م\n\nشكراً لتعاملكم 🌟",
+    owner: "📤 *شيك لمورد* {batchInfo}\n\n{supplierName} — {office}\nالبنك: {bank}\nالشيك: {checkNo}\nالقيمة: {amount} ج.م\nالاستحقاق: {dueDate}\nالرصيد المتبقي: {balance} ج.م",
+  },
+  checkCollected: {
+    customer: "✅ *تم تحصيل الشيك بنجاح*\n\nالبنك: {bank}\nرقم الشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الشيك: {originalDate}\nتاريخ التحصيل: {collectedDate}\nالرصيد المتبقي: {balance} ج.م\n\nشكراً لتعاملكم 🌟",
+    owner: "✅ *تم تحصيل شيك*\n\nالعميل: {customerName} — {office}\nالبنك: {bank}\nالشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ التحصيل: {collectedDate}\nالرصيد المتبقي للعميل: {balance} ج.م",
+  },
+  checkBounced: {
+    customer: "⚠️ *شيك مرتد*\n\nالبنك: {bank}\nرقم الشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الشيك: {originalDate}\nتاريخ الارتداد: {bouncedDate}\nالرصيد المستحق: {balance} ج.م\n\nيرجى التواصل معنا فوراً للسداد.",
+    owner: "⚠️ *شيك مرتد من عميل*\n\nالعميل: {customerName} — {office}\nالبنك: {bank}\nالشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الارتداد: {bouncedDate}\nالرصيد المستحق: {balance} ج.م",
   },
   lateOrder: {
     owner: "⚠️ *أوردر متأخر*\nالموديل: {modelNo}\nالعميل: {customerName}\nأيام بدون activity: {daysLate}\nآخر نشاط: {lastActivity}",
@@ -205,6 +265,27 @@ export function samplePayload(eventType) {
       batchInfo: "(شيك 1 من 3)",
       office: "مؤسسة الأمل للملابس",
       balance: 7500, date: today,
+    },
+    checkPaymentIssued: {
+      supplierName: "شركة النسيج", amount: 45000,
+      bank: "البنك الأهلي", checkNo: "87654321", dueDate: today,
+      batchInfo: "(شيك 1 من 2)",
+      office: "شركة النسيج المصرية",
+      balance: 30000, date: today,
+    },
+    checkCollected: {
+      customerName: "أحمد محمد", amount: 5000,
+      bank: "بنك مصر", checkNo: "12345678",
+      originalDate: "2026-04-01", collectedDate: today,
+      office: "مؤسسة الأمل للملابس",
+      balance: 2500,
+    },
+    checkBounced: {
+      customerName: "أحمد محمد", amount: 5000,
+      bank: "بنك مصر", checkNo: "12345678",
+      originalDate: "2026-04-01", bouncedDate: today,
+      office: "مؤسسة الأمل للملابس",
+      balance: 7500,
     },
     lateOrder: {
       modelNo: "S26-007", customerName: "شركة النور",

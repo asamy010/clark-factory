@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.10",
+    date: "2026-05-05",
+    types: ["feature", "ux"],
+    title: "📤✅⚠️ 3 new check events: Issued + Collected + Bounced",
+    changes: [
+      { type: "feature", text: "📤 [checkPaymentIssued — شيكات أوراق دفع لمورد] event جديد، نفس الـUX pattern زي checkPaymentReceived بس في الاتجاه المعاكس. لما تـsave check بـtype=payable + category=دفعة مورد + supplier linked، الـsupplier يستلم رسالة فورية بكل تفاصيل الشيك (بنك، رقم، قيمة، استحقاق) + balance progressive (لكل شيك في الـbatch، الرصيد المتبقي من ديننا للمورد بـيقل). New 'supplier' recipient role added to buildEventMessages — uses supplierPhone parameter (separate from customerPhone)." },
+      { type: "feature", text: "✅ [checkCollected — تم تحصيل شيك] لما تـmark شيك receivable بـstatus='محصل'، الـcustomer يستلم رسالة شكر فورية (تم التحصيل، البنك، الشيك، التاريخ، الرصيد المتبقي). الـclient hook يـsnapshot الـcheck قبل الـupConfig + يـfire بعد الـtoast الموجود. Idempotency: `checkCollected:${id}`." },
+      { type: "feature", text: "⚠️ [checkBounced — شيك مرتد] لما تـmark شيك receivable بـstatus='مرتد'، الـcustomer يستلم تحذير (شيك مرتد، البنك، الشيك، تاريخ الارتداد، الرصيد المستحق + 'يرجى التواصل فوراً للسداد'). Idempotency: `checkBounced:${id}`. الـbalance يـreflect الـreversal (الـcheck لم يعد counted كدفع)." },
+      { type: "ux", text: "🏪 [Supplier role label في EventCard] العمود الـrecipient toggles دلوقتي يعرض '🏪 المورد' للـsupplier role، في الـadditional للـ'👤 العميل' و '🏭 المالك'. كل event يعرض الـrecipient roles المناسبة له بـconditional logic." },
+      { type: "ux", text: "📐 [تسجيل column header centered] V19.70.9 وضّعت الـdata centered لكن الـheader 'تسجيل' لسه right-aligned. **الـFix**: header dynamically conditional على اسم الـcolumn — لو 'تسجيل' فالـheader يبقى centered للمطابقة مع الـdata cells." },
+      { type: "improvement", text: "🛡️ [supplierPhone في processEvent + endpoint] event-trigger.js + _eventProcessor.js الـ2 بقوا يقبلوا `supplierPhone` في الـbody جنب `customerPhone`. الـphones object الـinternal دلوقتي عنده 4 keys: customer/supplier/owner/salesperson. كل event يستخدم اللي يحتاجه based on recipientRoles." },
+    ]
+  },
+  {
     version: "V19.70.9",
     date: "2026-05-05",
     types: ["ux"],

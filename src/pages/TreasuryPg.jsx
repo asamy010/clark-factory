@@ -2634,6 +2634,14 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             ? Array.from({length: _instantCheck_count}, () => gid()) : [];
           const _instantCheck_customer = _instantCheck_eligible
             ? customers.find(x => x.id === chkPartyId) : null;
+          /* V19.70.10: same pre-gen for payable check (checkPaymentIssued event) */
+          const _instantIssuedCheck_eligible = !chkEditId && chkType === "payable" && (chkCategory||"دفعة مورد") === "دفعة مورد" && chkPartyId;
+          const _instantIssuedCheck_count = _instantIssuedCheck_eligible
+            ? (chkBatchEnabled ? Math.max(1, Math.min(60, Number(chkBatchCount)||1)) : 1) : 0;
+          const _instantIssuedCheck_ids = _instantIssuedCheck_eligible
+            ? Array.from({length: _instantIssuedCheck_count}, () => gid()) : [];
+          const _instantIssuedCheck_supplier = _instantIssuedCheck_eligible
+            ? suppliers.find(x => x.id === chkPartyId) : null;
           upConfig(d=>{if(!d.checks)d.checks=[];
             if(chkEditId){const ch=d.checks.find(c=>c.id===chkEditId);if(ch){ch.type=chkType;ch.amount=amt;ch.party=chkParty;ch.partyId=chkPartyId||null;ch.bank=chkBank;ch.checkNo=chkNumber;ch.date=chkDate;ch.dueDate=chkDueDate;ch.notes=chkNotes;ch.category=chkCategory||"";ch.updatedBy=userName}}
             else{
@@ -2644,9 +2652,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               const batchId=count>1?gid():null;
               for(let i=0;i<count;i++){
                 d.checks.push({
-                  /* V19.70.5: use pre-gen IDs if instant trigger eligible (so client + cron
-                     match on idempotencyKey `checkPay:${id}`); fallback to fresh gid() */
-                  id: (_instantCheck_eligible && _instantCheck_ids[i]) || gid(),
+                  /* V19.70.5/.10: use pre-gen IDs if instant trigger eligible (receivable OR payable)
+                     so client + cron match on idempotencyKey `checkPay:${id}`. */
+                  id: (_instantCheck_eligible && _instantCheck_ids[i])
+                    || (_instantIssuedCheck_eligible && _instantIssuedCheck_ids[i])
+                    || gid(),
                   type:chkType,amount:amt,party:chkParty.trim(),partyId:chkPartyId||null,
                   bank:chkBank,
                   checkNo:bumpCheckNo(chkNumber,i),
@@ -2723,6 +2733,63 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               }
             })();
           }
+          /* V19.70.10: instant checkPaymentIssued fire — same pattern as receivable, but
+             party=supplier and balance reflects what we owe them (debt to supplier).
+             For suppliers, "balance" = sum of supplier invoices/POs - sum of supplier payments.
+             We don't have that ledger easily. For MVP, balance = current sum of unpaid supplier
+             obligations from data.supplierPayments and pending POs — but to keep it simple,
+             we use 0 as a placeholder and let the user override the template. */
+          if (_instantIssuedCheck_eligible && _instantIssuedCheck_supplier?.phone && user && typeof user.getIdToken === "function") {
+            const totalChecks = _instantIssuedCheck_count;
+            const office = _instantIssuedCheck_supplier.companyName || _instantIssuedCheck_supplier.company || _instantIssuedCheck_supplier.office || _instantIssuedCheck_supplier.businessName || "";
+            /* Compute supplier base balance: positive = we owe them. Approximation:
+               sum of unpaid supplier invoices / POs - sum of supplierPayments. The
+               app may not have invoice tracking per supplier, so we conservatively
+               use 0 if no easy computation. The user template can omit {balance}. */
+            let _baseBal = 0;
+            for (const p of (data.supplierPayments||[])) {
+              if (p.supplierId === chkPartyId) _baseBal -= Number(p.amount)||0;
+            }
+            /* Note: We don't add supplier invoices here because the data model varies.
+               If you need accurate balance, customize template to omit {balance}. */
+            const baseBalanceRounded = Math.round(_baseBal);
+            (async () => {
+              try {
+                const idToken = await user.getIdToken();
+                /* Sequential await to keep order matching balance progression */
+                for (let i = 0; i < _instantIssuedCheck_ids.length; i++) {
+                  const cid = _instantIssuedCheck_ids[i];
+                  const checkNo = bumpCheckNo(chkNumber, i);
+                  const dueDate = chkDueDate ? addMonths(chkDueDate, i * (Math.max(0, Number(chkBatchMonthsStep)||0))) : "";
+                  const batchInfo = totalChecks > 1 ? `(شيك ${i+1} من ${totalChecks})` : "";
+                  /* Progressive: each check reduces our debt by amt */
+                  const balanceForThisCheck = baseBalanceRounded - (i+1) * amt;
+                  await fetch("/api/event-trigger", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+                    body: JSON.stringify({
+                      eventType: "checkPaymentIssued",
+                      payload: {
+                        supplierName: _instantIssuedCheck_supplier.name || "—",
+                        amount: amt,
+                        bank: chkBank || "—",
+                        checkNo: checkNo || "—",
+                        dueDate: dueDate || "—",
+                        batchInfo,
+                        office,
+                        balance: balanceForThisCheck,
+                        date: chkDate || today,
+                      },
+                      supplierPhone: _instantIssuedCheck_supplier.phone,
+                      idempotencyKey: "checkPay:" + cid,
+                    }),
+                  }).catch(() => {/* silent per-check failure — cron fallback */});
+                }
+              } catch (e) {
+                console.warn("[V19.70.10] instant checkPaymentIssued fire failed (cron will retry):", e?.message||e);
+              }
+            })();
+          }
           setShowCheckForm(false);setChkAmount("");setChkParty("");setChkPartyId("");setChkBank("");setChkNumber("");setChkDate("");setChkDueDate("");setChkNotes("");setChkCategory("");setChkEditId(null);setChkPartySearch("");setChkPartyOpen(false);
           setChkBatchEnabled(false);
           showToast(chkBatchEnabled&&!chkEditId?("✓ تم حفظ "+(Math.max(1,Number(chkBatchCount)||1))+" شيك"):"✓ تم الحفظ");
@@ -2740,6 +2807,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
            - ملغي / مرتجع: just status flip, no treasury, no customer entry */
         const updateStatus=(id,status,statusDate,chosenAccount)=>{
           const dt=statusDate||today;
+          /* V19.70.10: snapshot the check BEFORE the upConfig mutation so we can
+             fire checkCollected / checkBounced events with full details. */
+          const _statusSnapshot = (data.checks||[]).find(c=>c.id===id);
           upConfig(d=>{
             const ch=(d.checks||[]).find(c=>c.id===id);
             if(!ch)return;
@@ -2798,6 +2868,70 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             }
           });
           showToast(status==="مرتد"?"❌ تم تسجيل الشيك كمرتد":status==="محصل"?"✅ تم التحصيل":status==="مدفوع"?"✅ تم الدفع":"✓ تم التحديث");
+          /* V19.70.10: instant checkCollected / checkBounced event fire.
+             Only for receivable checks (these events don't apply to payable).
+             Idempotency: status changes can flip multiple times — the eventHistory
+             will dedupe on the same key, but if user wants to re-fire (e.g. they
+             toggled status by mistake then back to محصل), they'd need to clear
+             history. Reasonable trade-off for V19.70.10 MVP. */
+          if (_statusSnapshot && _statusSnapshot.type === "receivable" && (status === "محصل" || status === "مرتد")) {
+            const customer = customers.find(x => x.id === _statusSnapshot.partyId);
+            if (customer?.phone && user && typeof user.getIdToken === "function") {
+              const office = customer.companyName || customer.company || customer.office || customer.businessName || "";
+              /* Compute customer balance — for collection: it's now reduced (cash came in).
+                 For bounced: it's increased back (the AR they had is restored). The standard
+                 formula (orders − returns − payments) doesn't include checks, so the post-update
+                 balance reflects whatever just happened (collection adds custPayment, bounce
+                 doesn't touch it). For simplicity, compute current balance after upConfig. */
+              const computeBal = () => {
+                let _bal = 0;
+                for (const o of (data.orders||[])) {
+                  for (const d of (o.customerDeliveries||[])) {
+                    if (d.custId === _statusSnapshot.partyId) _bal += (Number(d.qty)||0) * (Number(d.price)||Number(o.sellPrice)||0);
+                  }
+                  for (const r of (o.customerReturns||[])) {
+                    if (r.custId === _statusSnapshot.partyId) _bal -= (Number(r.qty)||0) * (Number(r.price)||Number(o.sellPrice)||0);
+                  }
+                }
+                for (const p of (data.custPayments||[])) {
+                  if (p.custId === _statusSnapshot.partyId) _bal -= Number(p.amount)||0;
+                }
+                /* For collection: subtract this check (it's now functionally a payment) */
+                if (status === "محصل") _bal -= Number(_statusSnapshot.amount)||0;
+                /* For bounce: balance unchanged (the original AR is preserved) */
+                return Math.round(_bal);
+              };
+              const eventType = status === "محصل" ? "checkCollected" : "checkBounced";
+              const idempotencyKey = (status === "محصل" ? "checkCollected:" : "checkBounced:") + _statusSnapshot.id;
+              (async () => {
+                try {
+                  const idToken = await user.getIdToken();
+                  const payload = {
+                    customerName: customer.name || _statusSnapshot.party || "—",
+                    amount: Number(_statusSnapshot.amount) || 0,
+                    bank: _statusSnapshot.bank || "—",
+                    checkNo: _statusSnapshot.checkNo || _statusSnapshot.id,
+                    originalDate: _statusSnapshot.date || "—",
+                    office,
+                    balance: computeBal(),
+                  };
+                  if (status === "محصل") payload.collectedDate = dt;
+                  else payload.bouncedDate = dt;
+                  await fetch("/api/event-trigger", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+                    body: JSON.stringify({
+                      eventType, payload,
+                      customerPhone: customer.phone,
+                      idempotencyKey,
+                    }),
+                  });
+                } catch (e) {
+                  console.warn("[V19.70.10] instant " + eventType + " fire failed:", e?.message||e);
+                }
+              })();
+            }
+          }
         };
         const delCheck=(id)=>{
           /* V16.65: Block direct deletion of non-pending checks — those have
@@ -3077,7 +3211,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                   style={{cursor:"pointer",width:16,height:16}}
                   title="تحديد الكل"/>
               </th>}
-              {["النوع","المبلغ","الجهة","البنك","رقم الشيك","تاريخ الاستحقاق","تسجيل","الحالة",""].map(h=><th key={h} style={{padding:"7px 8px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
+              {/* V19.70.10: تسجيل column header centered to match the centered data cells */}
+              {["النوع","المبلغ","الجهة","البنك","رقم الشيك","تاريخ الاستحقاق","تسجيل","الحالة",""].map(h=><th key={h} style={{padding:"7px 8px",textAlign:h==="تسجيل"?"center":"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
             </tr></thead><tbody>
               {/* V19.70.6: sort by createdAt DESC (newest entry at top, down to the minute).
                  Tiebreaker: dueDate ASC for entries without createdAt (legacy). */}

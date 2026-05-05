@@ -50,6 +50,7 @@ export default async function handler(req, res){
       eventType: body.eventType,
       payload: body.payload,
       customerPhone: body.customerPhone,
+      supplierPhone: body.supplierPhone,/* V19.70.10 */
       idempotencyKey: body.idempotencyKey,
       force: !!body.force,
       source: sourceLabel,

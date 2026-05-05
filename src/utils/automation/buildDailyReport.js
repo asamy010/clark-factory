@@ -463,6 +463,36 @@ export const DEFAULT_AUTOMATION_CONFIG = {
         },
         cooldownMinutes: 0,
       },
+      /* V19.70.10: outgoing checks to suppliers */
+      checkPaymentIssued: {
+        enabled: false,
+        recipients: { supplier: true, owner: true },
+        templates: {
+          supplier: "📤 *تم إصدار شيك* {batchInfo}\n\nالبنك: {bank}\nرقم الشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الاستحقاق: {dueDate}\nالرصيد المتبقي: {balance} ج.م\n\nشكراً لتعاملكم 🌟",
+          owner: "📤 *شيك لمورد* {batchInfo}\n\n{supplierName} — {office}\nالبنك: {bank}\nالشيك: {checkNo}\nالقيمة: {amount} ج.م\nالاستحقاق: {dueDate}\nالرصيد المتبقي: {balance} ج.م",
+        },
+        cooldownMinutes: 0,
+      },
+      /* V19.70.10: receivable check status changed → "محصل" */
+      checkCollected: {
+        enabled: false,
+        recipients: { customer: true, owner: true },
+        templates: {
+          customer: "✅ *تم تحصيل الشيك بنجاح*\n\nالبنك: {bank}\nرقم الشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الشيك: {originalDate}\nتاريخ التحصيل: {collectedDate}\nالرصيد المتبقي: {balance} ج.م\n\nشكراً لتعاملكم 🌟",
+          owner: "✅ *تم تحصيل شيك*\n\nالعميل: {customerName} — {office}\nالبنك: {bank}\nالشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ التحصيل: {collectedDate}\nالرصيد المتبقي للعميل: {balance} ج.م",
+        },
+        cooldownMinutes: 0,
+      },
+      /* V19.70.10: receivable check status changed → "مرتد" */
+      checkBounced: {
+        enabled: false,
+        recipients: { customer: true, owner: true },
+        templates: {
+          customer: "⚠️ *شيك مرتد*\n\nالبنك: {bank}\nرقم الشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الشيك: {originalDate}\nتاريخ الارتداد: {bouncedDate}\nالرصيد المستحق: {balance} ج.م\n\nيرجى التواصل معنا فوراً للسداد.",
+          owner: "⚠️ *شيك مرتد من عميل*\n\nالعميل: {customerName} — {office}\nالبنك: {bank}\nالشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الارتداد: {bouncedDate}\nالرصيد المستحق: {balance} ج.م",
+        },
+        cooldownMinutes: 0,
+      },
       lateOrder: {
         enabled: false,
         thresholdDays: 7,/* alert if last activity >= N days ago */

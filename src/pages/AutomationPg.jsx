@@ -777,8 +777,15 @@ function TriggersTab(props){
   const ownerPhones = eventTriggers.ownerPhones || [];
   const pending = eventTriggers.pending || [];
   /* V19.70.7: separate cash-payment and check-payment events for explicit user control.
-     Order matters — UI renders in this order. Keep similar concerns adjacent. */
-  const eventTypes = ["saleCompleted", "paymentReceived", "checkPaymentReceived", "lateOrder", "checkDue"];
+     V19.70.10: + checkPaymentIssued (supplier outgoing), checkCollected (status=محصل),
+                  checkBounced (status=مرتد). Order: sales → cash → check-in → check-out
+                  → check-status → late-events. */
+  const eventTypes = [
+    "saleCompleted", "paymentReceived",
+    "checkPaymentReceived", "checkPaymentIssued",
+    "checkCollected", "checkBounced",
+    "lateOrder", "checkDue",
+  ];
 
   return (
     <div>
@@ -1001,7 +1008,11 @@ function EventCard({ eventType, eventCfg, ownerCount, isMob, onToggle, onToggleR
             <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
               {(meta.recipientRoles || []).map(role => {
                 const on = !!recipients[role];
-                const roleLabel = role === "customer" ? "👤 العميل" : role === "owner" ? `🏭 المالك (${ownerCount})` : role;
+                /* V19.70.10: supplier role added for checkPaymentIssued */
+                const roleLabel = role === "customer" ? "👤 العميل"
+                                : role === "supplier" ? "🏪 المورد"
+                                : role === "owner"    ? `🏭 المالك (${ownerCount})`
+                                : role;
                 return (
                   <div key={role} onClick={() => onToggleRecipient(role)} style={{
                     cursor:"pointer", padding:"5px 12px", borderRadius:8,

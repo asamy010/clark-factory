@@ -115,7 +115,8 @@ export function resolveOwnerPhones(et){
    - body: JSON-safe response object
    ═══════════════════════════════════════════════════════════════════════ */
 export async function processEvent(db, params){
-  const { eventType, payload, customerPhone, idempotencyKey, force, source, cfgCache } = params;
+  /* V19.70.10: supplierPhone added for checkPaymentIssued and supplier-recipient events */
+  const { eventType, payload, customerPhone, supplierPhone, idempotencyKey, force, source, cfgCache } = params;
 
   /* Validate input */
   if (!eventType || !EVENT_VARIABLES[eventType]) {
@@ -153,6 +154,7 @@ export async function processEvent(db, params){
   /* Resolve phones */
   const phones = {
     customer: customerPhone || null,
+    supplier: supplierPhone || null,/* V19.70.10 */
     owner: resolveOwnerPhones(et),
     salesperson: payload.salespersonPhone || null,
   };
