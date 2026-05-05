@@ -458,29 +458,17 @@ export function AutomationPg({ data, upConfig, isMob, user }){
         </div>
       </div>
 
-      {/* Action buttons */}
+      {/* V19.69.5: main action row — only "preview" + "test send" visible by default.
+          The scheduler-trigger and lastSentAt-reset buttons moved to a collapsible
+          "أدوات تشخيص" panel below, since they're debug tools (the VPS cron handles
+          the daily send autonomously). The user shouldn't see daily-action buttons
+          for an autonomous flow — that creates a false mental model. */}
       <div style={{display:"flex", gap:10, flexWrap:"wrap", borderTop:"1px solid "+T.brd, paddingTop:14}}>
         <Btn ghost onClick={onPreview}>👁 معاينة الرسالة</Btn>
         <Btn primary onClick={onSendTest} disabled={busy}
           style={{background:T.ok, color:"#fff", border:"none", fontWeight:800}}>
           {busy ? "⏳ جاري الإرسال..." : "📤 ارسل تجربة (مباشر)"}
         </Btn>
-        {/* V19.69.2: trigger the scheduler via /api/automation-tick using the
-            current admin's Firebase ID token. Lets the user test the FULL flow
-            (auth + endpoint + report build + bridge + history) without waiting
-            for the VPS cron tick. After a successful run, marks lastSentAt so
-            the cron won't send a duplicate today. */}
-        <Btn onClick={() => onTriggerScheduler()} disabled={busy}
-          style={{background:T.accent, color:"#fff", border:"none", fontWeight:800}}>
-          {busy ? "⏳..." : "🔄 شغّل الـscheduler الآن"}
-        </Btn>
-        {/* V19.69.4: reset lastSentAt so admin can re-test the scheduled flow today.
-            Only visible when lastSentAt is actually set (no point showing it otherwise). */}
-        {dailyReport?.lastSentAt && <Btn ghost onClick={onResetSentToday} disabled={busy}
-          style={{borderColor:T.warn, color:T.warn, fontWeight:700}}
-          title="مسح علامة 'تم إرساله اليوم' عشان تقدر تختبر الـscheduler تاني">
-          ↺ مسح "تم إرساله اليوم"
-        </Btn>}
         <div style={{flex:1}}/>
         <div style={{fontSize:FS-2, color:T.textMut, alignSelf:"center"}}>
           المستلمون: {reportRecipientsList.length}
@@ -489,6 +477,16 @@ export function AutomationPg({ data, upConfig, isMob, user }){
 
       {/* V19.69: cron status panel */}
       <CronStatusPanel automation={automation} dailyReport={dailyReport} />
+
+      {/* V19.69.5: debug tools panel — collapsed by default. Contains the manual
+          scheduler trigger and lastSentAt reset, both of which are only useful
+          when the cron is broken or for testing. Cron-healthy = no need to touch. */}
+      <DebugToolsPanel
+        onTrigger={onTriggerScheduler}
+        onReset={onResetSentToday}
+        hasLastSent={!!dailyReport?.lastSentAt}
+        busy={busy}
+      />
     </Card>}
 
     {/* ─── Recipients Tab ─── */}
@@ -602,6 +600,49 @@ export function AutomationPg({ data, upConfig, isMob, user }){
       </div>
     </Card>}
   </div>;
+}
+
+/* ── Subcomponent: debug tools panel ──
+   V19.69.5: hides the manual scheduler trigger + lastSentAt reset behind a
+   collapsed expander. The whole point of the VPS cron is "the system runs
+   itself" — keeping daily-action buttons in the main UI creates a false mental
+   model that the user has to push something every day. The buttons are still
+   here for: (1) emergency manual override if the cron breaks, (2) admin
+   testing scenarios. Default-collapsed. */
+function DebugToolsPanel({ onTrigger, onReset, hasLastSent, busy }){
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{marginTop:12, border:"1px dashed "+T.brd, borderRadius:10, background:T.bg, overflow:"hidden"}}>
+      <button onClick={() => setOpen(o => !o)}
+        style={{width:"100%", padding:"10px 14px", background:"none", border:"none",
+                display:"flex", alignItems:"center", gap:8, cursor:"pointer",
+                fontSize:FS-1, color:T.textSec, fontWeight:600, textAlign:"start"}}>
+        <span style={{fontSize:FS-2, color:T.textMut}}>{open ? "▼" : "▶"}</span>
+        <span>🔧 أدوات تشخيص</span>
+        <span style={{flex:1}}/>
+        <span style={{fontSize:FS-3, color:T.textMut, fontWeight:500}}>
+          {open ? "(الـsystem شغّال تلقائياً — مش محتاج تضغط أي حاجة)" : "(للطوارئ والاختبار فقط)"}
+        </span>
+      </button>
+      {open && <div style={{padding:"4px 14px 14px", borderTop:"1px solid "+T.brd}}>
+        <div style={{fontSize:FS-2, color:T.textMut, marginBottom:10, lineHeight:1.7}}>
+          الـVPS cron بيـping الـendpoint كل 5 دقائق — الإرسال التلقائي بيشتغل لوحده في الميعاد المحدد.
+          الأزرار دي للـmanual override (لو الـcron broken) أو للـtest scenarios:
+        </div>
+        <div style={{display:"flex", gap:10, flexWrap:"wrap"}}>
+          <Btn onClick={() => onTrigger()} disabled={busy}
+            style={{background:T.accent, color:"#fff", border:"none", fontWeight:700, fontSize:FS-1}}>
+            {busy ? "⏳..." : "🔄 شغّل الـscheduler يدوياً"}
+          </Btn>
+          {hasLastSent && <Btn ghost onClick={onReset} disabled={busy}
+            style={{borderColor:T.warn, color:T.warn, fontWeight:700, fontSize:FS-1}}
+            title="مسح علامة 'تم إرساله اليوم' عشان تقدر تختبر الـscheduler تاني في نفس اليوم">
+            ↺ مسح "تم إرساله اليوم"
+          </Btn>}
+        </div>
+      </div>}
+    </div>
+  );
 }
 
 /* ── Subcomponent: cron status panel ──
