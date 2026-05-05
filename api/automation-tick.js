@@ -31,7 +31,11 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 import { getDb, readSplitCollection, readPartitionedCollection, verifyAdminToken } from "./_firebase.js";
-import { buildDailyReport } from "../src/utils/automation/buildDailyReport.js";
+/* V19.69.3: import from api/ folder (was ../src/ which fails Vercel function bundling).
+   The canonical builder lives at src/utils/automation/buildDailyReport.js for the
+   client. _buildDailyReport.js is an exact copy kept in api/ so the serverless
+   function can resolve it without cross-folder bundling issues. */
+import { buildDailyReport } from "./_buildDailyReport.js";
 
 /* ─── Auth ──
    V19.69.2: accepts EITHER:

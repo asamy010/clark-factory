@@ -10,7 +10,7 @@
 /* V19.50: Single source of truth for the app version. Used in topbar pills
    (desktop + mobile), the console marker on module load, and the About modal.
    Bump this constant once and the version label is consistent everywhere. */
-export const APP_VERSION = "V19.69.2";
+export const APP_VERSION = "V19.69.3";
 
 export const FKEYS = ["A","B","C","D","E"];
 

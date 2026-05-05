@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.69.3",
+    date: "2026-05-05",
+    types: ["fix"],
+    title: "🛠️ Patch: HTTP 500 على /api/automation-tick — cross-folder import fix",
+    changes: [
+      { type: "fix", text: "🐛 [الـ500 على الـscheduler endpoint] الـ`api/automation-tick.js` كان يـimport من `../src/utils/automation/buildDailyReport.js`. Vercel serverless functions أحياناً ميـpackageش الـcross-folder modules بشكل reliable — الـfunction تـloadت بدون الـmodule، تـcrash عند الـcall، الـclient يستلم raw HTTP 500 من Vercel runtime (مش JSON). **الـFix**: نسخت الـbuilder لـ`api/_buildDailyReport.js` (sibling في نفس الـfolder)، الـimport بقى relative `./_buildDailyReport.js`. الـbuilder الأصلي في `src/utils/automation/` لسه موجود للـclient." },
+      { type: "fix", text: "🛡️ [الـDuplication tradeoff] نسختين متطابقتين من الـbuilder (api/ + src/). الـ-tradeoff: لو في bug fix لاحقاً، لازم تتحدث في الـ2. مش ideal لكن أبسط من setting up shared package أو Vercel includeFiles config. الـbuilder pure JS (مفيش external deps)، فالـsync سهل." },
+    ]
+  },
+  {
     version: "V19.69.2",
     date: "2026-05-05",
     types: ["fix", "feature", "ux"],
