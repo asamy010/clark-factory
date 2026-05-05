@@ -302,12 +302,7 @@ export function AccountingSettingsTab({config, upConfig, coa, T, FS, isMob, show
           {busy ? "⏳ جاري الترحيل..." : "🚀 ابدأ الترحيل"}
         </Btn>
       </div>
-      {busy && progress.total>0 && <div style={{marginTop:14}}>
-        <div style={{fontSize:FS-2, color:T.textSec, marginBottom:6}}>{progress.label} — {progress.n}/{progress.total}</div>
-        <div style={{height:8, background:T.bg, borderRadius:4, overflow:"hidden"}}>
-          <div style={{height:"100%", width:(progress.n/progress.total*100)+"%", background:T.accent, transition:"width 0.3s"}}/>
-        </div>
-      </div>}
+      {/* V19.67: progress moved out — now rendered as a full-screen modal below */}
       {backfillResult && <div style={{marginTop:16, padding:14, borderRadius:10, background: backfillResult.aborted?T.err+"08":T.ok+"08", border:"1px solid "+(backfillResult.aborted?T.err+"40":T.ok+"40")}}>
         {backfillResult.aborted ? <div style={{color:T.err, fontWeight:700}}>❌ تم الإلغاء: {backfillResult.reason}</div>
           : <>
@@ -384,5 +379,81 @@ export function AccountingSettingsTab({config, upConfig, coa, T, FS, isMob, show
       defaultRetainedEarningsCode="3200"
       onClose={() => setShowClosing(false)}
     />}
+
+    {/* V19.67: Backfill progress — full-screen overlay modal.
+        Pre-V19.67 the progress was inline in the card so the user could navigate
+        away mid-run, leaving Firestore writes orphaned. The overlay locks the
+        screen (z-index 99999, no close button while busy) so the run completes
+        atomically. The user can monitor progress but cannot abandon the operation. */}
+    {busy && <div style={{
+      position:"fixed", inset:0, zIndex:99999,
+      background:"rgba(0,0,0,0.55)", backdropFilter:"blur(3px)",
+      display:"flex", alignItems:"center", justifyContent:"center", padding:16,
+    }}>
+      <div style={{
+        background:T.cardSolid, borderRadius:18, padding:isMob?"20px 18px":"28px 32px",
+        width:"100%", maxWidth:520, boxShadow:"0 24px 80px rgba(0,0,0,0.4)",
+        border:"1px solid "+T.brd,
+      }}>
+        <div style={{display:"flex", alignItems:"center", gap:12, marginBottom:14}}>
+          <div style={{
+            width:48, height:48, borderRadius:12, background:T.accent+"15",
+            display:"flex", alignItems:"center", justifyContent:"center",
+            fontSize:28, animation:"backfillPulse 1.5s ease-in-out infinite",
+          }}>📦</div>
+          <div style={{flex:1, minWidth:0}}>
+            <div style={{fontSize:FS+2, fontWeight:800, color:T.text, lineHeight:1.2}}>
+              جاري ترحيل القيود الأثرية
+            </div>
+            <div style={{fontSize:FS-2, color:T.textSec, marginTop:3}}>
+              لا تغلق التطبيق — الترحيل قيد التنفيذ
+            </div>
+          </div>
+        </div>
+
+        <style>{`@keyframes backfillPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.05);opacity:0.85}}`}</style>
+
+        <div style={{
+          fontSize:FS-1, color:T.text, fontWeight:700, marginBottom:8,
+          display:"flex", justifyContent:"space-between", alignItems:"center",
+        }}>
+          <span>{progress.label || "تجهيز..."}</span>
+          {progress.total>0 && <span style={{
+            fontFamily:"monospace", color:T.accent, fontSize:FS,
+          }}>{progress.n}/{progress.total}</span>}
+        </div>
+
+        <div style={{
+          height:14, background:T.bg, borderRadius:8, overflow:"hidden",
+          border:"1px solid "+T.brd, marginBottom:12, position:"relative",
+        }}>
+          <div style={{
+            height:"100%",
+            width: progress.total>0 ? (progress.n/progress.total*100)+"%" : "0%",
+            background:"linear-gradient(90deg,"+T.accent+","+T.accent+"DD)",
+            transition:"width 0.3s ease-out",
+            boxShadow:"0 0 8px "+T.accent+"60",
+          }}/>
+          {progress.total>0 && <div style={{
+            position:"absolute", inset:0, display:"flex",
+            alignItems:"center", justifyContent:"center",
+            fontSize:FS-3, fontWeight:800, color:"#fff",
+            mixBlendMode:"difference",
+          }}>
+            {Math.round(progress.n/progress.total*100)}%
+          </div>}
+        </div>
+
+        <div style={{
+          padding:"10px 12px", background:T.warn+"08",
+          border:"1px solid "+T.warn+"30", borderRadius:8,
+          fontSize:FS-2, color:T.warn, lineHeight:1.6,
+          display:"flex", alignItems:"flex-start", gap:8,
+        }}>
+          <span style={{fontSize:16, flexShrink:0}}>⚠️</span>
+          <span>الشاشة مقفولة لحد ما الترحيل يكتمل — العملية idempotent، لو حصل خطأ تقدر تعيدها بدون مشكلة</span>
+        </div>
+      </div>
+    </div>}
   </>;
 }

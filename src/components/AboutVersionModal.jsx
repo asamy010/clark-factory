@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.67",
+    date: "2026-05-05",
+    types: ["fix", "ux", "security"],
+    title: "🛠️ ٣ طلبات: ترحيل القيود + قفل مدير النظام + تنظيف شاشة أوامر القص",
+    changes: [
+      { type: "fix", text: "🚨 [الـCRITICAL: ترحيل القيود الأثرية كان فاشل] الـuser بلّغ '536 فشل' مع error `(s || []).find is not a function` على customerPay وأنواع تانية. السبب الجذري: في `backfill.js _safePost` كان بيـpass `args[args.length-2]` كـcoa للـpostEntry. ده بيشتغل لـbuilders زي `buildSaleEntry(delivery, customer, order, coa, rules)` (5 args، coa = args[3]). لكن لـbuilders اللي تأخذ config كـlast arg (customerPay، workshopPay، hr، treasury): args = (..., coa, rules, config) — args.length-2 يشاور على `rules` (object) بدلاً من coa. الـ`postEntry` بعدين يـcall `(rules||[]).find(...)` → rules object فميـيكونش له find → crash. **الـFix**: pass coa explicitly من الـouter scope (موجود فعلاً كـvariable). كل الـ536 errors المتوقع تتحل دلوقتي." },
+      { type: "ux", text: "🔒 [الترحيل بقى locked في modal] قبل V19.67 الـprogress كان inline في الـcard — الـuser يقدر يـnavigate لـtab تاني وسط الـrun، يترك Firestore writes orphan. دلوقتي full-screen overlay modal بـz-index 99999 + backdrop blur. الـuser ميقدرش يـclick أي حاجة وراه. الـmodal يـunlock تلقائياً بعد الـcompletion. + percentage badge + label واضح + warning 'لا تغلق التطبيق'." },
+      { type: "security", text: "🔒 [قفل تعديل/حذف مدير النظام] قبل V19.67 أي user بصلاحية `settings:edit` يقدر يـdemote/delete الـadmin من جدول المستخدمين. ده gap في الـUI (V19.64 firestore.rules بـenforce نفس الـguard على الـDB level). دلوقتي: لو الـrow.role==='admin'، الـSel يبقى disabled-display ('مدير النظام' بـbadge 👑)، الـDelBtn يبقى '🔒' icon non-interactive، والـname column عنده '🔒 محمي' badge. الـbypass الوحيد عبر admin-SDK لو بمشكلة." },
+      { type: "ux", text: "🧹 [تنظيف شاشة أوامر القص] شيلت الـ4 KPI cards من فوق (إجمالي الأوامر، كمية القص، متأخر، الإنجاز). الـcounts لسه ظاهرين في الـstatus chips أسفل الـsearch bar (الكل، متأخر، per-status). الـlate filter بـ`detSt==='⚠️'` لسه شغّال عبر الـchip. كود نظيف: ~40 سطر اتشال + الـloop على calcOrder للـtotalCut/totalDel اتشال." },
+    ]
+  },
+  {
     version: "V19.66",
     date: "2026-05-05",
     types: ["fix", "audit", "money"],

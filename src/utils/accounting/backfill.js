@@ -54,8 +54,14 @@ const _fail = (s, type, err, ctx) => {
   console.warn("[CLARK backfill] failed:", type, err.message, ctx);
 };
 
-/* Wrapped post call: catches errors, updates stats, returns boolean. */
-async function _safePost(s, builder, type, args, createdBy){
+/* Wrapped post call: catches errors, updates stats, returns boolean.
+   V19.67 BUGFIX: pass `coa` explicitly. Pre-V19.67 used `args[args.length-2]`
+   which broke for builders ending in (..., coa, rules, config) because args.length-2
+   pointed at `rules` (an object), and `(rules||[]).find(...)` blew up with
+   "find is not a function" — the symptom seen on customerPay / workshopPay /
+   hr / treasury builders. Caller now passes coa from the outer scope where
+   it was already known. */
+async function _safePost(s, builder, type, args, createdBy, coa){
   let entry;
   try {
     entry = builder(...args);
@@ -65,7 +71,7 @@ async function _safePost(s, builder, type, args, createdBy){
   }
   if(!entry){ _skip(s, type, "no-entry-for-input"); return false; }
   try {
-    await postEntry({...entry, coa: args[args.length-2], createdBy});
+    await postEntry({...entry, coa, createdBy});
     s.posted += 1;
     _bump(s, type);
     return true;
@@ -214,7 +220,7 @@ export async function backfillAll(data, opts){
         else  _skip(stats, t.type, "no-entry-for-input");
       } catch(e){ _fail(stats, t.type, e, {}); }
     } else {
-      await _safePost(stats, t.builder, t.type, t.args, createdBy);
+      await _safePost(stats, t.builder, t.type, t.args, createdBy, coa);/* V19.67: pass coa explicitly */
     }
     i++;
     if(i % 25 === 0) onProg(i, total, "ترحيل العمليات...");

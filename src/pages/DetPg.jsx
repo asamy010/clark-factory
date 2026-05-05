@@ -128,52 +128,11 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         </Btn>}
       </div>
 
-      {/* ═══════════════════════════════════════════════════════════════
-          2. HERO STATS — 4 quick metrics
-         ═══════════════════════════════════════════════════════════════ */}
-      {(()=>{
-        const allOrders=data.orders;
-        const totalCut=allOrders.reduce((s,o)=>s+calcOrder(o).cutQty,0);
-        const totalDel=allOrders.reduce((s,o)=>s+(o.deliveredQty||0),0);
-        const comp=totalCut?Math.round((totalDel/totalCut)*100):0;
-        const now=new Date();
-        const lateCount=allOrders.filter(o=>{
-          if(o.status==="تم التسليم لمخزن الجاهز")return false;
-          let ld=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>ld)ld=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>ld)ld=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>ld)ld=d.date});
-          return Math.floor((now-new Date(ld))/(1000*60*60*24))>7;
-        }).length;
-        return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)",gap:10,marginBottom:16}}>
-          <div className="det-stat-tile" style={{padding:"14px 16px",borderRadius:12,border:"1px solid "+T.brd,background:T.cardSolid,display:"flex",alignItems:"center",gap:12}}>
-            <div style={{width:40,height:40,borderRadius:10,background:T.accent+"12",display:"flex",alignItems:"center",justifyContent:"center",color:T.accent,flexShrink:0}}>
-              <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-            </div>
-            <div><div style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>إجمالي الأوامر</div><div style={{fontSize:isMob?FS+4:FS+8,fontWeight:900,color:T.text,lineHeight:1}}>{allOrders.length}</div></div>
-          </div>
-          <div className="det-stat-tile" style={{padding:"14px 16px",borderRadius:12,border:"1px solid "+T.brd,background:T.cardSolid,display:"flex",alignItems:"center",gap:12}}>
-            <div style={{width:40,height:40,borderRadius:10,background:"#8B5CF612",display:"flex",alignItems:"center",justifyContent:"center",color:"#8B5CF6",flexShrink:0}}>
-              <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
-            </div>
-            <div><div style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>كمية القص</div><div style={{fontSize:isMob?FS+4:FS+8,fontWeight:900,color:T.text,lineHeight:1}}>{fmt(totalCut)}</div></div>
-          </div>
-          <div className={"det-stat-tile"+(lateCount>0?" clickable":"")} onClick={lateCount>0?()=>setDetSt(detSt==="⚠️"?"الكل":"⚠️"):undefined} style={{padding:"14px 16px",borderRadius:12,border:"1px solid "+(detSt==="⚠️"?T.err:T.brd),background:detSt==="⚠️"?T.err+"06":T.cardSolid,display:"flex",alignItems:"center",gap:12}}>
-            <div style={{width:40,height:40,borderRadius:10,background:T.err+"12",display:"flex",alignItems:"center",justifyContent:"center",color:T.err,flexShrink:0}}>
-              <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            </div>
-            <div><div style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>متأخر</div><div style={{fontSize:isMob?FS+4:FS+8,fontWeight:900,color:lateCount>0?T.err:T.text,lineHeight:1}}>{lateCount}</div></div>
-          </div>
-          <div className="det-stat-tile" style={{padding:"14px 16px",borderRadius:12,border:"1px solid "+T.brd,background:T.cardSolid,display:"flex",alignItems:"center",gap:12}}>
-            <div style={{width:40,height:40,borderRadius:10,background:T.ok+"12",display:"flex",alignItems:"center",justifyContent:"center",color:T.ok,flexShrink:0}}>
-              <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-            </div>
-            <div style={{flex:1,minWidth:0}}><div style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>الإنجاز</div><div style={{fontSize:isMob?FS+4:FS+8,fontWeight:900,color:T.text,lineHeight:1}}>{comp+"%"}</div>
-              <div className="det-progress-bar" style={{marginTop:4,height:3}}><div className="det-progress-fill" style={{width:comp+"%",background:comp>=80?T.ok:comp>=50?T.warn:T.err}}/></div>
-            </div>
-          </div>
-        </div>;
-      })()}
+      {/* V19.67: HERO STATS (4 KPI cards) removed per user request — clean layout.
+          The status chips row below still surfaces الكل/متأخر/per-status counts. */}
 
       {/* ═══════════════════════════════════════════════════════════════
-          3. SEARCH + FILTERS BAR
+          2. SEARCH + FILTERS BAR
          ═══════════════════════════════════════════════════════════════ */}
       <div style={{background:T.cardSolid,borderRadius:14,border:"1px solid "+T.brd,padding:14,marginBottom:14}}>
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr 1fr 1fr",gap:8,marginBottom:10}}>
