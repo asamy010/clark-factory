@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.9",
+    date: "2026-05-05",
+    types: ["ux"],
+    title: "🔍 Searchable customer/supplier picker في checks form + centered time",
+    changes: [
+      { type: "ux", text: "🔍 [Searchable picker للـعميل/المورد في check form] الـ`<select>` كانت بتعرض list طويل للعملاء/الموردين — صعب التنقل لو كان فيه عشرات. **الـFix**: استبدلتها بـsearchable input + filtered dropdown. الـuser يكتب جزء من الاسم → الـlist تـfilter case-insensitive → click على نتيجة يـlink الـid + الـname. لو 30+ نتيجة، الـdropdown بـcap على أول 30 ويعرض count للباقي ('...30 نتيجة أكتر — اكتب أكتر للتضييق'). لما parties محدد، يظهر بـ✕ للـclear ويرجع للـsearch view. الـmanual-name fallback (للـparties المش مسجلة) لسه موجود تحت كـsecondary input." },
+      { type: "ux", text: "📐 [Centered time alignment under date في checks list] V19.70.8 ضافت time تحت date لكن aligned start (يمين في RTL). الـuser request: في المنتصف. **الـFix**: `textAlign: 'center'` على الـtd + الـ2 divs. الـtimestamp بقت في central column under the date — أوضح visually." },
+    ]
+  },
+  {
     version: "V19.70.8",
     date: "2026-05-05",
     types: ["fix", "feature", "ux"],

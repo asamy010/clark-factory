@@ -673,6 +673,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[chkNotes,setChkNotes]=useState("");const[chkEditId,setChkEditId]=useState(null);const[chkFilter,setChkFilter]=useState("الكل");
   const[chkCategory,setChkCategory]=useState("");/* category for the check — drives treasury registration */
   const[chkPartyId,setChkPartyId]=useState("");/* linked customer or supplier id */
+  /* V19.70.9: search query for the customer/supplier picker — replaces the long
+     dropdown with a filterable list. Keeps the existing chkParty/chkPartyId
+     semantics (id = linked, free-text fallback when not linked). */
+  const[chkPartySearch,setChkPartySearch]=useState("");
+  const[chkPartyOpen,setChkPartyOpen]=useState(false);
   /* Endorse */
   const[endorsePopup,setEndorsePopup]=useState(null);const[endorseSearch,setEndorseSearch]=useState("");
   /* V16.33: optional custom endorsement date (defaults to today when popup opens) */
@@ -2718,11 +2723,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               }
             })();
           }
-          setShowCheckForm(false);setChkAmount("");setChkParty("");setChkPartyId("");setChkBank("");setChkNumber("");setChkDate("");setChkDueDate("");setChkNotes("");setChkCategory("");setChkEditId(null);
+          setShowCheckForm(false);setChkAmount("");setChkParty("");setChkPartyId("");setChkBank("");setChkNumber("");setChkDate("");setChkDueDate("");setChkNotes("");setChkCategory("");setChkEditId(null);setChkPartySearch("");setChkPartyOpen(false);
           setChkBatchEnabled(false);
           showToast(chkBatchEnabled&&!chkEditId?("✓ تم حفظ "+(Math.max(1,Number(chkBatchCount)||1))+" شيك"):"✓ تم الحفظ");
         };
-        const editCheck=(c)=>{setChkEditId(c.id);setChkType(c.type);setChkAmount(String(c.amount));setChkParty(c.party||"");setChkPartyId(c.partyId||"");setChkBank(c.bank||"");setChkNumber(c.checkNo||"");setChkDate(c.date||"");setChkDueDate(c.dueDate||"");setChkNotes(c.notes||"");setChkCategory(c.category||"");setShowCheckForm(true)};
+        const editCheck=(c)=>{setChkEditId(c.id);setChkType(c.type);setChkAmount(String(c.amount));setChkParty(c.party||"");setChkPartyId(c.partyId||"");setChkBank(c.bank||"");setChkNumber(c.checkNo||"");setChkDate(c.date||"");setChkDueDate(c.dueDate||"");setChkNotes(c.notes||"");setChkCategory(c.category||"");setChkPartySearch("");setChkPartyOpen(false);setShowCheckForm(true)};
         /* V16.34: Update check status with proper treasury + customer/supplier side effects.
            Statuses for receivable: معلق → محصل | مُظهّر | مرتد | ملغي
            Statuses for payable:    معلق → مدفوع | ملغي
@@ -2926,14 +2931,62 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 {checkCats.map(c=><option key={c} value={c}>{c}</option>)}
               </Sel></div>
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المبلغ</label><Inp type="number" value={chkAmount} onChange={setChkAmount} placeholder="0"/></div>
-              <div>
+              <div style={{position:"relative"}}>
                 <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{chkType==="receivable"?"العميل":"المورد"}</label>
-                <Sel value={chkPartyId} onChange={v=>{setChkPartyId(v);const p=partyList.find(x=>x.id===v);if(p)setChkParty(p.name)}}>
-                  <option value="">— اختر من القائمة —</option>
-                  {partyList.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-                </Sel>
-                {!chkPartyId&&<Inp value={chkParty} onChange={setChkParty} placeholder="أو اكتب الاسم يدوياً..." style={{marginTop:4}}/>}
-                {selectedParty&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{selectedParty.phone?"📞 "+selectedParty.phone:""}</div>}
+                {/* V19.70.9: searchable picker — replaces long dropdown with filter input + filtered list */}
+                {chkPartyId ? (
+                  /* Selected state — show name + clear button */
+                  <div style={{display:"flex",alignItems:"center",gap:6,padding:"8px 10px",border:"1px solid "+T.brd,borderRadius:8,background:T.accent+"10"}}>
+                    <span style={{flex:1,fontSize:FS-1,fontWeight:700,color:T.text}}>{chkParty || "—"}</span>
+                    <span onClick={()=>{setChkPartyId("");setChkParty("");setChkPartySearch("");setChkPartyOpen(true);}}
+                      style={{cursor:"pointer",color:T.err,fontSize:FS-2,fontWeight:700,padding:"2px 8px",borderRadius:4}}
+                      title="إلغاء الاختيار">✕</span>
+                  </div>
+                ) : (
+                  <>
+                    <Inp value={chkPartySearch} onChange={(v)=>{setChkPartySearch(v);setChkPartyOpen(true);}}
+                      onFocus={()=>setChkPartyOpen(true)}
+                      placeholder={"ابحث في "+(chkType==="receivable"?"العملاء":"الموردين")+" بالاسم..."}/>
+                    {chkPartyOpen && (()=>{
+                      const q = String(chkPartySearch||"").trim().toLowerCase();
+                      const filtered = q
+                        ? partyList.filter(p => String(p.name||"").toLowerCase().includes(q))
+                        : partyList;
+                      return (
+                        <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:50,
+                          marginTop:4,maxHeight:240,overflowY:"auto",
+                          border:"1px solid "+T.brd,borderRadius:8,background:T.cardSolid,
+                          boxShadow:"0 4px 12px rgba(0,0,0,0.08)"}}>
+                          {filtered.length === 0 ? (
+                            <div style={{padding:"10px 12px",fontSize:FS-2,color:T.textMut,textAlign:"center"}}>
+                              {q ? "مفيش نتائج لـ\""+chkPartySearch+"\" — اكتب الاسم يدوياً تحت" : "مفيش "+(chkType==="receivable"?"عملاء":"موردين")+" مسجلين"}
+                            </div>
+                          ) : (
+                            filtered.slice(0, 30).map(p => (
+                              <div key={p.id} onClick={()=>{
+                                setChkPartyId(p.id);setChkParty(p.name||"");
+                                setChkPartySearch("");setChkPartyOpen(false);
+                              }} style={{padding:"7px 10px",cursor:"pointer",borderBottom:"1px solid "+T.brd,
+                                display:"flex",justifyContent:"space-between",alignItems:"center"}}
+                                onMouseEnter={e=>e.currentTarget.style.background=T.accent+"08"}
+                                onMouseLeave={e=>e.currentTarget.style.background=T.cardSolid}>
+                                <span style={{fontWeight:600,fontSize:FS-1,color:T.text}}>{p.name}</span>
+                                {p.phone && <span style={{fontSize:FS-3,color:T.textMut,direction:"ltr"}}>{p.phone}</span>}
+                              </div>
+                            ))
+                          )}
+                          {filtered.length > 30 && (
+                            <div style={{padding:"6px 12px",fontSize:FS-3,color:T.textMut,textAlign:"center",borderTop:"1px solid "+T.brd}}>
+                              +{filtered.length - 30} نتيجة أكتر — اكتب أكتر للتضييق
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                    <Inp value={chkParty} onChange={setChkParty} placeholder="أو اكتب الاسم يدوياً (بدون ربط بسجل)" style={{marginTop:6}}/>
+                  </>
+                )}
+                {selectedParty&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>{selectedParty.phone?"📞 "+selectedParty.phone:""}</div>}
               </div>
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>البنك</label>
                 {banksList.length>0?<>
@@ -3046,10 +3099,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 <td style={{padding:"4px 8px",fontSize:FS-2,color:T.textSec}}>{c.bank||"—"}</td>
                 <td style={{padding:"4px 8px",fontSize:FS-2,color:T.textMut}}>{c.checkNo||"—"}{c.batchId&&c.batchTotal>1&&<span style={{marginRight:6,padding:"1px 6px",borderRadius:8,background:"#0EA5E915",color:"#0284C7",fontSize:9,fontWeight:700}} title={"شيك "+c.batchIdx+" من حافظة من "+c.batchTotal+" شيكات"}>{c.batchIdx}/{c.batchTotal}</span>}</td>
                 <td style={{padding:"4px 8px",fontSize:FS-1,fontWeight:overdue?700:400,color:overdue?T.err:T.text}}>{c.dueDate||"—"}{overdue?" ⚠️":""}</td>
-                {/* V19.70.8: time UNDER date (block display, line-height tight) */}
-                <td style={{padding:"4px 8px",fontSize:FS-3,color:T.textMut,whiteSpace:"nowrap",lineHeight:1.3}}>
-                  <div>{c.date||"—"}</div>
-                  {c.createdAt&&<div style={{direction:"ltr",fontSize:FS-3,color:T.textMut}}>{formatTxTime(c.createdAt)}</div>}
+                {/* V19.70.8: time UNDER date (block display, line-height tight)
+                    V19.70.9: centered alignment for both date and time */}
+                <td style={{padding:"4px 8px",fontSize:FS-3,color:T.textMut,whiteSpace:"nowrap",lineHeight:1.3,textAlign:"center"}}>
+                  <div style={{textAlign:"center"}}>{c.date||"—"}</div>
+                  {c.createdAt&&<div style={{direction:"ltr",fontSize:FS-3,color:T.textMut,textAlign:"center"}}>{formatTxTime(c.createdAt)}</div>}
                 </td>
                 <td style={{padding:"4px 8px"}}><span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:(STATUS_COLORS[c.status]||T.textMut)+"15",color:STATUS_COLORS[c.status]||T.textMut}}>{c.status}</span></td>
                 <td style={{padding:"4px 8px"}}>
