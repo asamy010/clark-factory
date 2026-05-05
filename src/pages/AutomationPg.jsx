@@ -11,7 +11,7 @@
    configuration + manual-trigger surface.
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Btn, Card, Sel, Inp, DelBtn } from "../components/ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
@@ -194,12 +194,14 @@ export function AutomationPg({ data, upConfig, isMob, user }){
       showToast("⛔ مفيش مستلمين مشتركين في التقرير اليومي");
       return;
     }
-    /* Quick health check */
+    /* Quick health check.
+       V19.68 FIX: bridge /status returns {waState, waReady} not {state}.
+       waReady is the canonical "ready to send" boolean. */
     setBusy(true);
     const status = await bridgeStatus(bridgeUrl, bridgeToken);
-    if (!status?.ok || status.state !== "READY") {
+    if (!status?.ok || !status.waReady) {
       setBusy(false);
-      showToast("⛔ الـbridge مش جاهز (" + (status?.state || status?.error || "unknown") + ")");
+      showToast("⛔ الـbridge مش جاهز (" + (status?.waState || status?.error || "unknown") + ")");
       return;
     }
     try {
@@ -509,26 +511,44 @@ export function AutomationPg({ data, upConfig, isMob, user }){
   </div>;
 }
 
-/* ── Subcomponent: bridge status pill ── */
+/* ── Subcomponent: bridge status pill ──
+   V19.68 FIX: useEffect (not useMemo) for the async call. useMemo runs the fn
+   for memo-value computation; React doesn't guarantee its setState commits.
+   Also fixed the field — bridge /status returns `waState` + `waReady`, not `state`.
+   Refresh every 30s so the pill stays fresh while the user is on the page. */
 function BridgeStatusPill({ bridgeUrl, bridgeToken }){
-  const [status, setStatus] = useState({ state: "..." });
-  useMemo(() => {
-    if (!bridgeUrl) { setStatus({ state: "غير مضبوط", error: true }); return; }
-    bridgeStatus(bridgeUrl, bridgeToken).then(s => {
-      if (s?.ok) setStatus({ state: s.state || "READY", ok: true });
-      else setStatus({ state: s?.error || "غير متصل", error: true });
-    }).catch(e => setStatus({ state: e.message, error: true }));
+  const [status, setStatus] = useState({ label: "...", ready: false });
+
+  useEffect(() => {
+    let dead = false;
+    const refresh = async () => {
+      if (!bridgeUrl) {
+        if (!dead) setStatus({ label: "غير مضبوط", ready: false });
+        return;
+      }
+      const s = await bridgeStatus(bridgeUrl, bridgeToken);
+      if (dead) return;
+      if (s && s.ok) {
+        const ready = !!s.waReady;
+        const wstate = s.waState || (ready ? "READY" : "INIT");
+        setStatus({ label: ready ? "READY" : wstate, ready });
+      } else {
+        setStatus({ label: s?.error || "غير متصل", ready: false });
+      }
+    };
+    refresh();
+    const interval = setInterval(refresh, 30000);
+    return () => { dead = true; clearInterval(interval); };
   }, [bridgeUrl, bridgeToken]);
 
-  const isReady = status.state === "READY";
   return <div style={{
     padding:"8px 14px", borderRadius:10,
-    background: isReady ? T.ok+"12" : T.warn+"12",
-    border:"1px solid " + (isReady ? T.ok+"40" : T.warn+"40"),
-    color: isReady ? T.ok : T.warn,
+    background: status.ready ? T.ok+"12" : T.warn+"12",
+    border:"1px solid " + (status.ready ? T.ok+"40" : T.warn+"40"),
+    color: status.ready ? T.ok : T.warn,
     fontSize:FS-2, fontWeight:800, display:"flex", alignItems:"center", gap:6,
   }}>
-    <span>{isReady ? "🟢" : "🟡"}</span>
-    <span>WA Bridge: {status.state}</span>
+    <span>{status.ready ? "🟢" : "🟡"}</span>
+    <span>WA Bridge: {status.label}</span>
   </div>;
 }

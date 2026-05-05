@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.68.1",
+    date: "2026-05-05",
+    types: ["fix"],
+    title: "🛠️ Patch: Bridge status pill كان يقول 'unknown' بينما الـbridge شغّال",
+    changes: [
+      { type: "fix", text: "🐛 [BridgeStatusPill — useMemo → useEffect] الـasync side-effect كان داخل `useMemo` — React مش بيـguarantee إن الـsetState يـcommit. الـpill كان بيقول 'unknown' دايماً حتى لو الـbridge READY. الـ-replaceت بـuseEffect مع cleanup + interval refresh كل 30 ثانية." },
+      { type: "fix", text: "🐛 [حقل غلط: s.state → s.waState/waReady] الـbridge `/status` بيرجع `{waState, waReady, ok}` مش `{state}`. الـcheck في `onSendTest` كان `status.state !== 'READY'` → دايماً false → blocked. الـ-replace بـ`!status.waReady` (الـcanonical 'ready to send' boolean). دلوقتي الـmanual send يشتغل بدون 'مش جاهز' false-positive." },
+    ]
+  },
+  {
     version: "V19.68",
     date: "2026-05-05",
     types: ["feature", "automation"],
