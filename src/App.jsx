@@ -289,9 +289,23 @@ export default function App(){
   const upTasksWriteQueueRef=useRef(Promise.resolve());
   /* V16.75: partitioned collections state — hrWeeks (each week is its own document) */
   /* V19.57: dynamic init over PARTITIONED_FIELDS — adding new fields auto-extends. */
-  const[partitionedData,setPartitionedData]=useState(
-    Object.fromEntries(PARTITIONED_FIELDS.map(f=>[f,[]]))
-  );
+  /* V19.59 BUGFIX: hydrate from localStorage snapshot on first mount so users see
+     last-known master data instantly instead of an empty list. The clark-data-
+     snapshot is updated on every config change (see effect below) and persists
+     across sessions. As listeners fire, fresh data replaces the cached arrays. */
+  const[partitionedData,setPartitionedData]=useState(()=>{
+    const initial=Object.fromEntries(PARTITIONED_FIELDS.map(f=>[f,[]]));
+    try{
+      const raw=typeof localStorage!=="undefined"?localStorage.getItem("clark-data-snapshot"):null;
+      if(raw){
+        const snap=JSON.parse(raw);
+        for(const f of PARTITIONED_FIELDS){
+          if(Array.isArray(snap[f]))initial[f]=snap[f];
+        }
+      }
+    }catch(_){/* corrupt snapshot — ignore */}
+    return initial;
+  });
   const[partitionedLoaded,setPartitionedLoaded]=useState(false);
   const config=useMemo(()=>{const merged={...configDoc,...salesDoc,...tasksDoc};
     /* Safety: if salesDoc has sessions, ALWAYS prefer it over configDoc */
@@ -300,59 +314,67 @@ export default function App(){
     if(tasksDoc.tasks)merged.tasks=tasksDoc.tasks;
     if(tasksDoc.stickyNotes)merged.stickyNotes=tasksDoc.stickyNotes;
     if(tasksDoc.inventoryAudits)merged.inventoryAudits=tasksDoc.inventoryAudits;
-    /* V16.74 + V19.49: split collections override config equivalents — لكن فقط بعد:
-       1) listeners قرأت أول round trip (splitLoaded=true)
-       2) migration للـsplit days اشتغلت (الـflag الخاص بكل مجموعة)
-       لو الـmigration ما اتعملتش لسه، نخلي البيانات الأصلية في config كما هي.
-       V19.49: gating per field-group prevents wiping pre-migration data. */
-    if(splitLoaded&&configDoc[SPLIT_FLAG_V1674]){
-      merged.treasury=splitData.treasury;
-      merged.auditLog=splitData.auditLog;
-      merged.hrLog=splitData.hrLog;
+    /* V16.74 + V19.49 → V19.59 BUGFIX: split collections override config equivalents.
+       PRE-V19.59 the merge required `splitLoaded === true` (all listeners fired
+       at least once). If a single listener stalled (slow network, permission
+       hiccup, multi-tab race), `splitLoaded` stayed false → the merge never ran
+       → arrays appeared as `undefined` because configDoc no longer contains them
+       post-migration. Symptom reported: "قائمة العملاء فاضية (0)" until refresh.
+
+       V19.59 fix: drop the `splitLoaded`/`partitionedLoaded` gates from the
+       merge. partitionedData/splitData start empty and fill in incrementally as
+       each listener fires. Pages briefly see `data.customers === []` for the
+       first few hundred ms instead of `undefined` — far better than appearing
+       broken. The migration flag is the only required gate (it tells us where
+       the data SHOULD come from).
+       Loaded flags are still used for SAFETY GUARDS in writes (upConfigTx etc.)
+       — those guards are correct: we shouldn't WRITE before we've READ. But
+       READING a partial state is fine. */
+    if(configDoc[SPLIT_FLAG_V1674]){
+      merged.treasury=splitData.treasury||[];
+      merged.auditLog=splitData.auditLog||[];
+      merged.hrLog=splitData.hrLog||[];
     }
-    if(splitLoaded&&configDoc[SPLIT_FLAG_V1949]){
+    if(configDoc[SPLIT_FLAG_V1949]){
       for(const f of SPLIT_FIELDS_V1949){
         merged[f]=splitData[f]||[];
       }
     }
-    if(splitLoaded&&configDoc[SPLIT_FLAG_V1950]){
+    if(configDoc[SPLIT_FLAG_V1950]){
       for(const f of SPLIT_FIELDS_V1950){
         merged[f]=splitData[f]||[];
       }
     }
-    if(splitLoaded&&configDoc[SPLIT_FLAG_V1952]){
+    if(configDoc[SPLIT_FLAG_V1952]){
       for(const f of SPLIT_FIELDS_V1952){
         merged[f]=splitData[f]||[];
       }
     }
-    if(splitLoaded&&configDoc[SPLIT_FLAG_V1953]){
+    if(configDoc[SPLIT_FLAG_V1953]){
       for(const f of SPLIT_FIELDS_V1953){
         merged[f]=splitData[f]||[];
       }
     }
-    /* V19.51: sales-doc + tasks-doc splits — gated by their own flags on the
-       respective parent doc. Pre-migration the arrays stay in salesDoc/tasksDoc
-       and the existing merge above (lines 247-251) covers them. */
-    if(salesSplitLoaded&&salesDoc[SALES_SPLIT_FLAG_V1951]){
+    /* V19.51 + V19.59: sales-doc + tasks-doc splits (gate dropped for the same reason). */
+    if(salesDoc[SALES_SPLIT_FLAG_V1951]){
       for(const f of SALES_SPLIT_FIELDS_V1951){
         merged[f]=salesSplitData[f]||[];
       }
     }
-    if(tasksSplitLoaded&&tasksDoc[TASKS_SPLIT_FLAG_V1951]){
+    if(tasksDoc[TASKS_SPLIT_FLAG_V1951]){
       for(const f of TASKS_SPLIT_FIELDS_V1951){
         merged[f]=tasksSplitData[f]||[];
       }
     }
-    /* V16.75 + V19.57: partitioned collections — gated per-group flag.
-       hrWeeks (V16.75) overridden when _partitionedV1675Done.
-       Master data (V19.57) overridden when _partitionedV1957Done.
-       Pre-migration: keep reading from configDoc as before (transparent). */
-    if(partitionedLoaded&&configDoc[PARTITIONED_FLAG_V1675]){
+    /* V16.75 + V19.57 + V19.59 BUGFIX: partitioned collections — same gate-removal.
+       Master data (customers/suppliers/workshops/etc.) used to disappear if
+       *any* of the 8 listeners stalled. Now each fills in independently. */
+    if(configDoc[PARTITIONED_FLAG_V1675]){
       for(const f of PARTITIONED_FIELDS_V1675){
         merged[f]=partitionedData[f]||[];
       }
     }
-    if(partitionedLoaded&&configDoc[PARTITIONED_FLAG_V1957]){
+    if(configDoc[PARTITIONED_FLAG_V1957]){
       for(const f of PARTITIONED_FIELDS_V1957){
         merged[f]=partitionedData[f]||[];
       }
@@ -2298,7 +2320,18 @@ export default function App(){
      V19.57: read from `config` (the merged useMemo) instead of `configDoc` directly,
      so post-migration the snapshot still has master-data arrays from partitionedData. */
   useEffect(()=>{if(!config||!config.accessories)return;
-    try{const snap={workshops:config.workshops||[],customers:config.customers||[],suppliers:config.suppliers||[],fabrics:config.fabrics||[],accessories:config.accessories||[],sizeSets:config.sizeSets||[],garmentTypes:config.garmentTypes||[],statusCards:config.statusCards||[],employees:config.employees||[],treasuryAccounts:config.treasuryAccounts||[],savedAt:new Date().toISOString()};
+    /* V19.59: also save the partitioned master-data arrays (V19.57) so the next
+       app start can hydrate them from localStorage before listeners fire. This
+       prevents the "العملاء (0)" empty-list flash reported on slow networks. */
+    try{const snap={
+      workshops:config.workshops||[],customers:config.customers||[],suppliers:config.suppliers||[],
+      fabrics:config.fabrics||[],accessories:config.accessories||[],sizeSets:config.sizeSets||[],
+      garmentTypes:config.garmentTypes||[],statusCards:config.statusCards||[],employees:config.employees||[],
+      treasuryAccounts:config.treasuryAccounts||[],
+      /* V19.59: include the rest of V19.57 master data so hydration is complete */
+      empDebts:config.empDebts||[],generalProducts:config.generalProducts||[],
+      savedAt:new Date().toISOString(),
+    };
       localStorage.setItem("clark-data-snapshot",JSON.stringify(snap))}catch(e){}},[config]);
 
   /* ═══════════════════════════════════════════════════════════════════

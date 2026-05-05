@@ -2734,8 +2734,16 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         if(isSale&&qrSale.linkedSession&&qrSale.linkedSession!=="free"){
           const _sess=sessions.find(s=>s.id===qrSale.linkedSession);
           if(_sess){
-            const sessionOrderIds=new Set(_sess.modelIds||[]);
-            const filtered=sameModelOrders.filter(o=>sessionOrderIds.has(o.id));
+            /* V19.59 BUGFIX: same fix as the dropdown — match by modelNo, not order id.
+               linkedSess.modelIds stores SPECIFIC order ids; if a re-cut produced a new
+               order with the same modelNo, sameModelOrders contains the new order id but
+               the session's modelIds doesn't, so the filter would empty the list. */
+            const sessModelNos=new Set();
+            for(const oid of (_sess.modelIds||[])){
+              const oo=orders.find(x=>x.id===oid);
+              if(oo&&oo.modelNo)sessModelNos.add(oo.modelNo);
+            }
+            const filtered=sameModelOrders.filter(o=>sessModelNos.has(o.modelNo));
             if(filtered.length===0){
               playBeep("error");
               showToast("⛔ "+o.modelNo+": الموديل غير موجود في سجل التوزيع الحالي");
@@ -3089,8 +3097,14 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               if(isSale&&qrSale.linkedSession&&qrSale.linkedSession!=="free"){
                 const _sess=sessions.find(s=>s.id===qrSale.linkedSession);
                 if(_sess){
-                  const sessionOrderIds=new Set(_sess.modelIds||[]);
-                  const filtered=sameModel.filter(o=>sessionOrderIds.has(o.id));
+                  /* V19.59 BUGFIX: match by modelNo not order id — see dropdown filter
+                     above for the full reasoning (re-cuts produce new order ids). */
+                  const sessModelNos=new Set();
+                  for(const oid of (_sess.modelIds||[])){
+                    const oo=orders.find(x=>x.id===oid);
+                    if(oo&&oo.modelNo)sessModelNos.add(oo.modelNo);
+                  }
+                  const filtered=sameModel.filter(o=>sessModelNos.has(o.modelNo));
                   if(filtered.length===0){playBeep("error");showToast("⛔ "+pickedO.modelNo+": الموديل غير موجود في سجل التوزيع الحالي");return}
                   sameModel=filtered;
                 }
@@ -3115,10 +3129,24 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                              impossible to return through this dropdown. The fix uses customer-specific delivered/returned counts. */
                 let baseList;
                 if (isSale) {
-                  /* SALE: filter by available stock (existing logic) */
-                  baseList = linkedSess
-                    ? stockModels.filter(m => m.avail > 0 && linkedSess.modelIds.includes(m.id))
-                    : stockModels.filter(m => m.avail > 0);
+                  /* SALE: filter by available stock (existing logic).
+                     V19.59 BUGFIX: when there's a linked session, the previous filter used
+                     `linkedSess.modelIds.includes(m.id)` — comparing by ORDER id. But the
+                     same modelNo can have different order ids across seasons / re-cuts.
+                     Symptom: model appears in the customer's plan table but the dropdown
+                     says "لا توجد نتائج" because the latest order id with stock isn't the
+                     one stored in the session's modelIds. Fix: build a Set of modelNos from
+                     the session's order ids, then match by modelNo on stockModels. */
+                  if (linkedSess) {
+                    const sessModelNos = new Set();
+                    for (const oid of (linkedSess.modelIds || [])) {
+                      const o = orders.find(x => x.id === oid);
+                      if (o && o.modelNo) sessModelNos.add(o.modelNo);
+                    }
+                    baseList = stockModels.filter(m => m.avail > 0 && sessModelNos.has(m.modelNo));
+                  } else {
+                    baseList = stockModels.filter(m => m.avail > 0);
+                  }
                 } else {
                   /* RETURN: filter by what THIS customer still has (delivered to them minus already returned).
                      Search across ALL orders, not just stockModels — a fully-sold-out model still appears here. */

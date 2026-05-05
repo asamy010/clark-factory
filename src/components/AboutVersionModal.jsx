@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.59",
+    date: "2026-05-04",
+    types: ["fix", "hotfix"],
+    title: "🚨 إصلاح اختفاء العملاء + بحث البيع السريع",
+    changes: [
+      { type: "fix", text: "🚨 [HOTFIX حرج: قائمة العملاء كانت تظهر فاضية أحياناً] قبل V19.59 الـmerge في `config` useMemo كان مشروط بـ`partitionedLoaded === true` (يعني كل الـ8 listeners اللي اتزرعوا في V19.57 لازم يـfire الأول). لو **listener واحد** اتأخر أو اتقطع (slow network، multi-tab race، permission hiccup) → الشرط يفضل false → الـmerge لا يحصل أبداً → `data.customers === undefined` → التطبيق يقول 'العملاء (0)'. السبب الجذري: configDoc بعد migration ميحتويش customers/suppliers/employees (اتـstrip)، فلو الـmerge ما حصلش، مفيش مصدر تاني للبيانات. **الإصلاح**: حذف الـ`splitLoaded`/`partitionedLoaded` gates من الـmerge — كل listener يـfill الـdata بتاعته independently. الصفحات بتشوف data.customers=[] لجزء ثانية بدل undefined لو listener بطيء، وتنعكس فوراً لما الـlistener يـfire. الـloaded flags لسه بتمنع الـwrites (upConfigTx) وده الصح — ما تكتبش قبل ما تقرا — لكن الـreads مش لازم يستنوا." },
+      { type: "fix", text: "💾 [Hydrate من localStorage على البدء] التطبيق بقى يقرأ آخر snapshot من localStorage في الـuseState initial — يعني المستخدم يشوف آخر بيانات معروفة فوراً (zero loading flash) حتى لو الـnetwork بطيئة. الـlisteners بتحدّث الـstate بمجرد ما يجيبوا الـfresh data. الـsnapshot بقى يحفظ كل الـ8 master data (customers/suppliers/workshops/employees/empDebts/generalProducts/fabrics/accessories) بدل 5 بس قبل." },
+      { type: "fix", text: "🔍 [HOTFIX: البحث في البيع السريع كان ميـلاقيش الموديل أحياناً] في popup البيع السريع، لو العميل عنده موديل في الخطة (التوزيعة)، البحث في الـdropdown كان أحياناً يقول 'لا توجد نتائج' حتى لو الموديل ظاهر في الجدول فوق. السبب: الـfilter كان `linkedSess.modelIds.includes(m.id)` — يقارن بـorder id. لكن نفس الـmodelNo ممكن يكون ليه order ids مختلفة (re-cuts، seasons، تعديل الكميات أنشأ order جديد). الـmodelIds في الـsession فيها الـid القديم، الـstockModels فيها الـid الجديد → الـincludes تفشل. **الإصلاح**: المقارنة بـmodelNo بدل id في 3 مواضع (dropdown، manual add، QR scan)." },
+      { type: "fix", text: "🛡️ [Gates الـloaded لسه على الـwrites] حذف الـgates من الـreads (UI) فقط — الـwrite paths (upConfigTx, upSalesTx, upTasksTx) لسه بترفض الكتابة قبل ما الـlisteners يـload (السطر `if(configDoc[FLAG]&&!loaded) return`). ده الصح — مفيش writes غلط بسبب stale state — لكن الـUI مش هتظل عالقة في عرض empty list." },
+    ]
+  },
+  {
     version: "V19.58",
     date: "2026-05-04",
     types: ["improvement", "safety", "fix"],
