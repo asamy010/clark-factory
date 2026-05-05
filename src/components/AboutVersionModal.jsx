@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.6",
+    date: "2026-05-05",
+    types: ["feature", "ux"],
+    title: "🔁⏰ Recurring campaigns + Cairo time-of-day in transaction logs",
+    changes: [
+      { type: "feature", text: "🔁 [Recurring campaigns — 4 patterns] الـschedule UI دلوقتي عنده recurrence type selector: مرة واحدة / يومي / أسبوعي / شهري / فترة محددة. كل type عنده الـinputs المناسبة: يومي = timeOfDay، أسبوعي = أيام الأسبوع متعددة + timeOfDay، شهري = يوم الشهر (1-28) + timeOfDay، فترة محددة = rangeStart→rangeEnd + timeOfDay. End-condition optional: maxOccurrences أو endDate. Use case: حملة شكر يومية للعملاء، تذكير شهري بالـunpaid، عرض أسبوعي يوم الإثنين والأربعاء، إلخ. مفيش نسيان من المستخدم — الـsystem بيـrun لوحده." },
+      { type: "feature", text: "🔄 [Cron-side: computeNextFireTime + auto-reschedule] بعد كل fire ناجح، الـcron يحسب الـnext fire time بناءً على الـrecurrence pattern + lastFiredAt. لو في end-condition (maxOccurrences/endDate) و وصلت → status='done'. لو لأ → status='scheduled' مع scheduledAt الجديد، الحملة تستمر. مفيش الـcustomer بيستلم رسائل بعد maxOccurrences حتى لو الـserver راجع تأخر." },
+      { type: "ux", text: "📋 [ScheduledCampaignsList بيعرض الـrecurrence] الـrow بيـshow human-readable description (e.g. '🔁 يومي • 09:00'، '📆 أسبوعي • إثنين، أربعاء • 09:00'، '🗓 شهري • يوم 15 • 10:00') + counter بـ'X مرة' و آخر تنفيذ. الـrecurring campaigns مرتبة بـnext-scheduled time عادي، الـuser يشوف لما الحملة هتـrun next." },
+      { type: "feature", text: "⏰ [Cairo time-of-day في سجل الخزنة] قبل V19.70.6 الـjournal كان يعرض الـdate بس (e.g. '2026-05-05'). دلوقتي يعرض الوقت كمان بصيغة عربية 12-ساعة مع م/ص (e.g. '2026-05-05 ٣:٤٥ م') مأخوذة من createdAt للـtransaction. الـsort بقى by createdAt DESC — أحدث حركة بـالدقيقة بالظبط في الأعلى. مفيد للـmulti-entry days." },
+      { type: "feature", text: "⏰ [Cairo time في الـchecks list كمان] جدول الشيكات اتضافله column 'تسجيل' (تاريخ + وقت الـcreatedAt). الـsort اتغيّر من dueDate ASC إلى createdAt DESC — الشيكات الجديدة في الأعلى مع وقت إضافتها. الـoverdue/dueDate logic لسه نفسها، بس الترتيب يعكس الـchronological order للإضافة." },
+      { type: "improvement", text: "🛠️ [formatTxTime + formatDateTime helpers في utils/format.js] reusable functions للـ12-hour Arabic time formatting بـAfrica/Cairo timezone. أي transaction list محتاج يضيف time display ممكن يستخدمهم بدون duplication. الـIntl.DateTimeFormat caches للـ-performance (مفيش re-instantiation كل render)." },
+    ]
+  },
+  {
     version: "V19.70.5",
     date: "2026-05-05",
     types: ["feature", "fix", "ux"],

@@ -206,3 +206,32 @@ export function normalizePhone(p){
   return"+2"+d;
 }
 
+
+/* ═══════════════════════════════════════════════════════════════════
+   V19.70.6: Format a transaction's date + time-of-day in Cairo timezone
+   ───────────────────────────────────────────────────────────────────
+   Inputs:
+     dateStr       — YYYY-MM-DD (the user-facing date, possibly backdated)
+     createdAtIso  — ISO timestamp of when the entry was actually saved
+   Returns:
+     "2026-05-05 3:45 م" — date kept as-is, time of day appended in
+     Arabic 12-hour format with م/ص suffix.
+   If createdAtIso is missing, returns dateStr only.
+   The sort order in transaction lists already uses createdAt as the
+   tie-breaker after date, so newest-by-minute always lands on top.
+   ═══════════════════════════════════════════════════════════════════ */
+const _timeFmt = new Intl.DateTimeFormat("ar-EG", {
+  timeZone: "Africa/Cairo",
+  hour: "numeric", minute: "2-digit", hour12: true,
+});
+export function formatTxTime(createdAtIso){
+  if (!createdAtIso) return "";
+  const d = new Date(createdAtIso);
+  if (isNaN(d.getTime())) return "";
+  try { return _timeFmt.format(d); } catch (_) { return ""; }
+}
+export function formatDateTime(dateStr, createdAtIso){
+  const t = formatTxTime(createdAtIso);
+  if (!t) return dateStr || "";
+  return (dateStr || "") + " " + t;
+}

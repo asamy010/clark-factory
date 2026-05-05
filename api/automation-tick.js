@@ -730,6 +730,70 @@ async function scanChecksDue(db, cfg, checkCfg, cairoDate){
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   V19.70.6: Compute next-fire time for a recurring campaign
+   ───────────────────────────────────────────────────────────────────────
+   Given a recurrence object + the last fire (or first scheduled) ISO time,
+   returns the ISO timestamp of the NEXT fire after `afterIso`. Returns null
+   if the campaign should stop (end condition reached).
+
+   recurrence.type:
+     - "daily":   next day at timeOfDay
+     - "weekly":  next day in daysOfWeek[] at timeOfDay
+     - "monthly": next month on dayOfMonth at timeOfDay
+     - "range":   next day within rangeStart..rangeEnd at timeOfDay
+   ─────────────────────────────────────────────────────────────────────── */
+function computeNextFireTime(recurrence, afterIso, occurrenceCount){
+  if (!recurrence || !recurrence.type) return null;
+  /* Stop conditions */
+  if (recurrence.maxOccurrences && occurrenceCount >= recurrence.maxOccurrences) return null;
+  const [hh, mm] = String(recurrence.timeOfDay || "09:00").split(":").map(n => Number(n) || 0);
+  const after = new Date(afterIso || Date.now());
+
+  /* Helper: set time of day on a Date object */
+  const atTime = (d) => { const x = new Date(d); x.setHours(hh, mm, 0, 0); return x; };
+  /* Helper: format YYYY-MM-DD */
+  const ymd = (d) => d.toISOString().slice(0, 10);
+
+  if (recurrence.endDate && ymd(after) > recurrence.endDate) return null;
+
+  if (recurrence.type === "daily") {
+    /* Next day at timeOfDay */
+    const next = atTime(after); next.setDate(next.getDate() + 1);
+    if (recurrence.endDate && ymd(next) > recurrence.endDate) return null;
+    return next.toISOString();
+  }
+  if (recurrence.type === "weekly") {
+    const days = Array.isArray(recurrence.daysOfWeek) ? recurrence.daysOfWeek : [];
+    if (days.length === 0) return null;
+    /* Find next day in `days` after `after` */
+    for (let i = 1; i <= 7; i++) {
+      const cand = atTime(after); cand.setDate(cand.getDate() + i);
+      if (days.includes(cand.getDay())) {
+        if (recurrence.endDate && ymd(cand) > recurrence.endDate) return null;
+        return cand.toISOString();
+      }
+    }
+    return null;
+  }
+  if (recurrence.type === "monthly") {
+    const dom = Math.max(1, Math.min(28, Number(recurrence.dayOfMonth) || 1));
+    const next = new Date(after.getFullYear(), after.getMonth() + 1, dom, hh, mm, 0);
+    if (recurrence.endDate && ymd(next) > recurrence.endDate) return null;
+    return next.toISOString();
+  }
+  if (recurrence.type === "range") {
+    const next = atTime(after); next.setDate(next.getDate() + 1);
+    if (recurrence.rangeEnd && ymd(next) > recurrence.rangeEnd) return null;
+    if (recurrence.rangeStart && ymd(next) < recurrence.rangeStart) {
+      /* Snap to rangeStart at timeOfDay */
+      return new Date(recurrence.rangeStart + "T" + String(hh).padStart(2,"0") + ":" + String(mm).padStart(2,"0") + ":00").toISOString();
+    }
+    return next.toISOString();
+  }
+  return null;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    V19.70.4: Scheduled-campaigns scan
    ───────────────────────────────────────────────────────────────────────
    For each `data.scheduledCampaigns[]` entry where:
@@ -748,7 +812,10 @@ async function scanScheduledCampaigns(db, cfg, cairoDate){
   if (list.length === 0) return { scanned: 0, fired: 0 };
 
   const nowMs = Date.now();
-  /* Find the next-due campaign (oldest scheduledAt that's already passed) */
+  /* Find the next-due campaign (oldest scheduledAt that's already passed).
+     V19.70.6: this works for BOTH once and recurring — recurring entries
+     have their `scheduledAt` updated to the next fire time after each fire,
+     so the same "scheduledAt <= now" check works for both. */
   const due = list
     .filter(c => c.status === "scheduled" && c.scheduledAt && Date.parse(c.scheduledAt) <= nowMs)
     .sort((a,b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt));
@@ -861,7 +928,7 @@ async function scanScheduledCampaigns(db, cfg, cairoDate){
     return { scanned: list.length, fired: 0, error: e.message };
   }
 
-  /* Success — mark done */
+  /* Success — mark done OR re-schedule if recurring (V19.70.6) */
   const accepted = result?.queued || result?.accepted || messages.length;
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
@@ -869,9 +936,30 @@ async function scanScheduledCampaigns(db, cfg, cairoDate){
     const arr = Array.isArray(c.scheduledCampaigns) ? c.scheduledCampaigns : [];
     const idx = arr.findIndex(x => x.id === target.id);
     if (idx >= 0) {
-      arr[idx].status = "done";
-      arr[idx].sentCount = accepted;
-      arr[idx].completedAt = new Date().toISOString();
+      const entry = arr[idx];
+      const isRecurring = !!entry.recurrence;
+      const newOccurrenceCount = (entry.occurrenceCount || 0) + 1;
+      entry.occurrenceCount = newOccurrenceCount;
+      entry.lastFiredAt = new Date().toISOString();
+      /* Accumulate sentCount across occurrences for recurring */
+      entry.sentCount = (entry.sentCount || 0) + accepted;
+      if (isRecurring) {
+        const nextIso = computeNextFireTime(entry.recurrence, entry.lastFiredAt, newOccurrenceCount);
+        if (nextIso) {
+          entry.status = "scheduled";
+          entry.scheduledAt = nextIso;
+          /* Clear firingStartedAt since we're back to scheduled */
+          delete entry.firingStartedAt;
+        } else {
+          /* End-condition reached → mark done */
+          entry.status = "done";
+          entry.completedAt = new Date().toISOString();
+        }
+      } else {
+        /* Once: done after one fire */
+        entry.status = "done";
+        entry.completedAt = new Date().toISOString();
+      }
       tx.update(ref, { scheduledCampaigns: arr });
     }
   });

@@ -427,8 +427,9 @@ export function CampaignsPg({data, upConfig, isMob, canEdit, user}){
       onPickBridge={() => setMode("sendBridge")}
       onOpenBridgeSettings={() => setMode("bridgeSettings")}
       /* V19.70.4: schedule-for-later — save to data.scheduledCampaigns and return to list
-         V19.70.5: also receives images[] from the picker UI (max 4, ≤200KB each) */
-      onPickScheduled={(scheduledAt, images = []) => {
+         V19.70.5: also receives images[] from the picker UI (max 4, ≤200KB each)
+         V19.70.6: also receives recurrence object for repeating campaigns */
+      onPickScheduled={(scheduledAt, images = [], recurrence = null) => {
         const sc = {
           id: "sched_" + gid(),
           templateId: activeCampaign.template.id,
@@ -440,7 +441,7 @@ export function CampaignsPg({data, upConfig, isMob, canEdit, user}){
           items: activeCampaign.audience.map(c => ({
             id: c.id, name: c.name, phone: c.phone,
           })),
-          scheduledAt,
+          scheduledAt,/* first fire ISO; updated on each fire to next occurrence */
           status: "scheduled",/* "scheduled" | "firing" | "done" | "failed" | "cancelled" */
           createdAt: new Date().toISOString(),
           createdBy: user?.email || "",
@@ -449,6 +450,10 @@ export function CampaignsPg({data, upConfig, isMob, canEdit, user}){
           images: Array.isArray(images) ? images.map(img => ({
             name: img.name, mime: img.mime, base64: img.base64,
           })) : [],
+          /* V19.70.6: recurrence — null for "once", object for repeating campaigns */
+          recurrence,
+          occurrenceCount: 0,
+          lastFiredAt: null,
           sentCount: 0,
           failedCount: 0,
         };
@@ -1870,6 +1875,25 @@ function ChooseSendMode({campaign, bridgeUrl, bridgeToken, onCancel, onPickManua
     return d.toISOString().slice(0,16);/* format for input[type=datetime-local] */
   })();
   const [schedAt, setSchedAt] = useState(_defaultSchedTime);
+  /* V19.70.6: recurrence options.
+     type: "once" (default) | "daily" | "weekly" | "monthly" | "range"
+     - daily:   timeOfDay only (e.g. every day at 09:00)
+     - weekly:  daysOfWeek[] (e.g. every Monday + Wednesday at 09:00)
+     - monthly: dayOfMonth (1-28) + timeOfDay
+     - range:   rangeStart..rangeEnd (daily within range, at timeOfDay)
+     Optional end-condition: maxOccurrences OR endDate (whichever first). */
+  const [recType, setRecType] = useState("once");
+  const [recTimeOfDay, setRecTimeOfDay] = useState("09:00");
+  const [recDaysOfWeek, setRecDaysOfWeek] = useState([1]);/* default: Monday */
+  const [recDayOfMonth, setRecDayOfMonth] = useState(1);
+  const [recRangeStart, setRecRangeStart] = useState(new Date().toISOString().slice(0,10));
+  const [recRangeEnd, setRecRangeEnd] = useState((() => {
+    const d = new Date(Date.now() + 30*86400000);/* default: today + 30d */
+    return d.toISOString().slice(0,10);
+  })());
+  const [recMaxOccurrences, setRecMaxOccurrences] = useState("");
+  const [recEndDate, setRecEndDate] = useState("");
+  const _DOW_LABELS = ["أحد","إثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"];
   /* V19.70.5: image attachments for scheduled campaigns.
      Each image: {name, mime, base64} — ready to feed the bridge `media[]` array.
      Max 4 images, ~200KB each after compression. Total inline ≤ ~800KB per
@@ -1976,12 +2000,131 @@ function ChooseSendMode({campaign, bridgeUrl, bridgeToken, onCancel, onPickManua
         </div>
         {scheduling && (
           <div style={{marginTop:12, padding:12, background:T.bg, borderRadius:8, border:"1px solid "+T.brd}}>
+            {/* V19.70.6: recurrence type selector */}
             <label style={{fontSize:FS-2, fontWeight:700, color:T.textSec, display:"block", marginBottom:6}}>
-              📆 تاريخ ووقت التشغيل (بتوقيت القاهرة):
+              🔄 نوع التكرار:
             </label>
-            <input type="datetime-local" value={schedAt} onChange={(e) => setSchedAt(e.target.value)}
-              min={new Date().toISOString().slice(0,16)}
-              style={{width:"100%", padding:"8px 10px", fontSize:FS, border:"1px solid "+T.brd, borderRadius:6, background:T.cardSolid, color:T.text, marginBottom:10}}/>
+            <div style={{display:"flex", gap:6, flexWrap:"wrap", marginBottom:10}}>
+              {[
+                {k:"once",    label:"📅 مرة واحدة"},
+                {k:"daily",   label:"🔁 يومي"},
+                {k:"weekly",  label:"📆 أسبوعي"},
+                {k:"monthly", label:"🗓 شهري"},
+                {k:"range",   label:"📊 فترة محددة"},
+              ].map(opt => (
+                <div key={opt.k} onClick={() => setRecType(opt.k)} style={{
+                  padding:"6px 12px", borderRadius:8, cursor:"pointer", fontSize:FS-1, fontWeight:700,
+                  background: recType === opt.k ? T.accent+"20" : T.cardSolid,
+                  border: "1px solid " + (recType === opt.k ? T.accent : T.brd),
+                  color: recType === opt.k ? T.accent : T.textSec,
+                }}>{opt.label}</div>
+              ))}
+            </div>
+
+            {/* Type-specific inputs */}
+            {recType === "once" && (
+              <>
+                <label style={{fontSize:FS-2, fontWeight:700, color:T.textSec, display:"block", marginBottom:6}}>
+                  📆 تاريخ ووقت التشغيل (بتوقيت القاهرة):
+                </label>
+                <input type="datetime-local" value={schedAt} onChange={(e) => setSchedAt(e.target.value)}
+                  min={new Date().toISOString().slice(0,16)}
+                  style={{width:"100%", padding:"8px 10px", fontSize:FS, border:"1px solid "+T.brd, borderRadius:6, background:T.cardSolid, color:T.text, marginBottom:10}}/>
+              </>
+            )}
+            {recType === "daily" && (
+              <div style={{display:"flex", gap:8, alignItems:"center", marginBottom:10}}>
+                <label style={{fontSize:FS-2, fontWeight:700, color:T.textSec, minWidth:130}}>
+                  ⏰ الوقت اليومي:
+                </label>
+                <input type="time" value={recTimeOfDay} onChange={(e) => setRecTimeOfDay(e.target.value)}
+                  style={{flex:1, padding:"8px 10px", fontSize:FS, border:"1px solid "+T.brd, borderRadius:6, background:T.cardSolid, color:T.text}}/>
+              </div>
+            )}
+            {recType === "weekly" && (
+              <>
+                <label style={{fontSize:FS-2, fontWeight:700, color:T.textSec, display:"block", marginBottom:6}}>
+                  📆 الأيام:
+                </label>
+                <div style={{display:"flex", gap:4, flexWrap:"wrap", marginBottom:10}}>
+                  {_DOW_LABELS.map((label, idx) => {
+                    const on = recDaysOfWeek.includes(idx);
+                    return (
+                      <div key={idx} onClick={() => {
+                        if (on) setRecDaysOfWeek(recDaysOfWeek.filter(d => d !== idx));
+                        else setRecDaysOfWeek([...recDaysOfWeek, idx].sort());
+                      }} style={{
+                        padding:"6px 12px", borderRadius:8, cursor:"pointer", fontSize:FS-2, fontWeight:700,
+                        background: on ? T.accent+"20" : T.cardSolid,
+                        border: "1px solid " + (on ? T.accent : T.brd),
+                        color: on ? T.accent : T.textSec,
+                      }}>{on ? "☑" : "☐"} {label}</div>
+                    );
+                  })}
+                </div>
+                <div style={{display:"flex", gap:8, alignItems:"center", marginBottom:10}}>
+                  <label style={{fontSize:FS-2, fontWeight:700, color:T.textSec, minWidth:130}}>⏰ الوقت:</label>
+                  <input type="time" value={recTimeOfDay} onChange={(e) => setRecTimeOfDay(e.target.value)}
+                    style={{flex:1, padding:"8px 10px", fontSize:FS, border:"1px solid "+T.brd, borderRadius:6, background:T.cardSolid, color:T.text}}/>
+                </div>
+              </>
+            )}
+            {recType === "monthly" && (
+              <>
+                <div style={{display:"flex", gap:8, alignItems:"center", marginBottom:10}}>
+                  <label style={{fontSize:FS-2, fontWeight:700, color:T.textSec, minWidth:130}}>📅 يوم الشهر:</label>
+                  <input type="number" min={1} max={28} value={recDayOfMonth} onChange={(e) => setRecDayOfMonth(Math.max(1, Math.min(28, Number(e.target.value)||1)))}
+                    style={{width:80, padding:"8px 10px", fontSize:FS, border:"1px solid "+T.brd, borderRadius:6, background:T.cardSolid, color:T.text}}/>
+                  <span style={{fontSize:FS-3, color:T.textMut}}>(1-28 لتجنب اختلاف الأشهر)</span>
+                </div>
+                <div style={{display:"flex", gap:8, alignItems:"center", marginBottom:10}}>
+                  <label style={{fontSize:FS-2, fontWeight:700, color:T.textSec, minWidth:130}}>⏰ الوقت:</label>
+                  <input type="time" value={recTimeOfDay} onChange={(e) => setRecTimeOfDay(e.target.value)}
+                    style={{flex:1, padding:"8px 10px", fontSize:FS, border:"1px solid "+T.brd, borderRadius:6, background:T.cardSolid, color:T.text}}/>
+                </div>
+              </>
+            )}
+            {recType === "range" && (
+              <>
+                <div style={{display:"flex", gap:8, alignItems:"center", marginBottom:8}}>
+                  <label style={{fontSize:FS-2, fontWeight:700, color:T.textSec, minWidth:130}}>📅 من تاريخ:</label>
+                  <input type="date" value={recRangeStart} onChange={(e) => setRecRangeStart(e.target.value)}
+                    style={{flex:1, padding:"8px 10px", fontSize:FS, border:"1px solid "+T.brd, borderRadius:6, background:T.cardSolid, color:T.text}}/>
+                </div>
+                <div style={{display:"flex", gap:8, alignItems:"center", marginBottom:8}}>
+                  <label style={{fontSize:FS-2, fontWeight:700, color:T.textSec, minWidth:130}}>📅 إلى تاريخ:</label>
+                  <input type="date" value={recRangeEnd} onChange={(e) => setRecRangeEnd(e.target.value)}
+                    style={{flex:1, padding:"8px 10px", fontSize:FS, border:"1px solid "+T.brd, borderRadius:6, background:T.cardSolid, color:T.text}}/>
+                </div>
+                <div style={{display:"flex", gap:8, alignItems:"center", marginBottom:10}}>
+                  <label style={{fontSize:FS-2, fontWeight:700, color:T.textSec, minWidth:130}}>⏰ الوقت اليومي:</label>
+                  <input type="time" value={recTimeOfDay} onChange={(e) => setRecTimeOfDay(e.target.value)}
+                    style={{flex:1, padding:"8px 10px", fontSize:FS, border:"1px solid "+T.brd, borderRadius:6, background:T.cardSolid, color:T.text}}/>
+                </div>
+                <div style={{fontSize:FS-3, color:T.textMut, marginBottom:10}}>
+                  💡 الحملة هتشتغل يومياً من تاريخ البداية لتاريخ النهاية في الوقت المحدد.
+                </div>
+              </>
+            )}
+
+            {/* End-condition (for repeating types) */}
+            {recType !== "once" && recType !== "range" && (
+              <div style={{padding:8, background:T.cardSolid, border:"1px dashed "+T.brd, borderRadius:6, marginBottom:10}}>
+                <div style={{fontSize:FS-3, fontWeight:700, color:T.textSec, marginBottom:6}}>⏹ شرط الإيقاف (اختياري):</div>
+                <div style={{display:"flex", gap:8, alignItems:"center", marginBottom:6}}>
+                  <span style={{fontSize:FS-3, color:T.textMut, minWidth:80}}>بعد عدد:</span>
+                  <input type="number" min={0} value={recMaxOccurrences} onChange={(e) => setRecMaxOccurrences(e.target.value)}
+                    placeholder="مثلاً 10 مرات (فاضي = مفيش حد)"
+                    style={{flex:1, padding:"4px 8px", fontSize:FS-2, border:"1px solid "+T.brd, borderRadius:4, background:T.bg, color:T.text}}/>
+                </div>
+                <div style={{display:"flex", gap:8, alignItems:"center"}}>
+                  <span style={{fontSize:FS-3, color:T.textMut, minWidth:80}}>أو لتاريخ:</span>
+                  <input type="date" value={recEndDate} onChange={(e) => setRecEndDate(e.target.value)}
+                    style={{flex:1, padding:"4px 8px", fontSize:FS-2, border:"1px solid "+T.brd, borderRadius:4, background:T.bg, color:T.text}}/>
+                </div>
+              </div>
+            )}
+
             {/* V19.70.5: image picker */}
             <label style={{fontSize:FS-2, fontWeight:700, color:T.textSec, display:"block", marginBottom:6, marginTop:8}}>
               📷 الصور (اختياري — حد أقصى 4 صور، ≤200KB لكل واحدة):
@@ -2010,10 +2153,56 @@ function ChooseSendMode({campaign, bridgeUrl, bridgeToken, onCancel, onPickManua
             </div>
             <div style={{display:"flex",gap:8}}>
               <Btn primary onClick={() => {
-                if (!schedAt) { alert("اختار تاريخ"); return; }
-                const ts = Date.parse(schedAt);
-                if (!ts || ts <= Date.now()) { alert("اختار وقت في المستقبل"); return; }
-                onPickScheduled(new Date(ts).toISOString(), schedImages);
+                /* V19.70.6: build the recurrence object + first scheduledAt based on type */
+                let firstAtIso, recurrence = null;
+                const cairoTimeMs = (h, m) => h * 60 + m;
+                const parseTime = (t) => { const x = String(t||"").match(/^(\d{1,2}):(\d{2})/); return x?[+x[1],+x[2]]:[9,0]; };
+                if (recType === "once") {
+                  if (!schedAt) { alert("اختار تاريخ"); return; }
+                  const ts = Date.parse(schedAt);
+                  if (!ts || ts <= Date.now()) { alert("اختار وقت في المستقبل"); return; }
+                  firstAtIso = new Date(ts).toISOString();
+                } else {
+                  const [hh, mm] = parseTime(recTimeOfDay);
+                  /* Compute first fire time for recurring patterns */
+                  if (recType === "weekly" && recDaysOfWeek.length === 0) {
+                    alert("اختار يوم واحد على الأقل"); return;
+                  }
+                  if (recType === "range") {
+                    if (!recRangeStart || !recRangeEnd) { alert("اختار تاريخ بداية ونهاية"); return; }
+                    if (recRangeEnd < recRangeStart) { alert("تاريخ النهاية لازم يكون بعد البداية"); return; }
+                  }
+                  /* For first fire: use TODAY if today's time hasn't passed; else next occurrence.
+                     The cron will compute subsequent fires; we just need a reasonable first marker. */
+                  const now = new Date();
+                  const today = now.toISOString().slice(0,10);
+                  let baseDate = today;
+                  if (recType === "range" && recRangeStart > today) baseDate = recRangeStart;
+                  /* If recType=monthly and today's day-of-month is past dayOfMonth, fire next month */
+                  if (recType === "monthly") {
+                    const dom = recDayOfMonth;
+                    const todayDom = now.getDate();
+                    if (todayDom > dom || (todayDom === dom && (now.getHours() * 60 + now.getMinutes()) > cairoTimeMs(hh, mm))) {
+                      const next = new Date(now.getFullYear(), now.getMonth() + 1, dom, hh, mm, 0);
+                      baseDate = next.toISOString().slice(0,10);
+                    } else {
+                      const cur = new Date(now.getFullYear(), now.getMonth(), dom, hh, mm, 0);
+                      baseDate = cur.toISOString().slice(0,10);
+                    }
+                  }
+                  firstAtIso = new Date(baseDate + "T" + String(hh).padStart(2,"0") + ":" + String(mm).padStart(2,"0") + ":00").toISOString();
+                  recurrence = {
+                    type: recType,
+                    timeOfDay: recTimeOfDay,
+                    daysOfWeek: recType === "weekly" ? recDaysOfWeek : [],
+                    dayOfMonth: recType === "monthly" ? recDayOfMonth : null,
+                    rangeStart: recType === "range" ? recRangeStart : null,
+                    rangeEnd: recType === "range" ? recRangeEnd : null,
+                    maxOccurrences: recMaxOccurrences ? Math.max(1, Number(recMaxOccurrences)||0) : null,
+                    endDate: recEndDate || null,
+                  };
+                }
+                onPickScheduled(firstAtIso, schedImages, recurrence);
               }} style={{background:T.accent, color:"#fff", border:"none", fontWeight:800}}>
                 💾 احفظ الجدولة
               </Btn>
@@ -3398,6 +3587,18 @@ function ScheduledCampaignsList({data, upConfig, onClose, canEdit}){
               {list.map(c => {
                 const dt = c.scheduledAt ? new Date(c.scheduledAt) : null;
                 const due = dt && dt.getTime() <= Date.now();
+                /* V19.70.6: describe recurrence pattern in human-readable Arabic */
+                const _recDesc = (() => {
+                  if (!c.recurrence || !c.recurrence.type) return "";
+                  const r = c.recurrence;
+                  const t = r.timeOfDay || "";
+                  const dows = ["أحد","إثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"];
+                  if (r.type === "daily")  return `🔁 يومي • ${t}`;
+                  if (r.type === "weekly") return `📆 أسبوعي • ${(r.daysOfWeek||[]).map(d=>dows[d]).join("، ")} • ${t}`;
+                  if (r.type === "monthly")return `🗓 شهري • يوم ${r.dayOfMonth} • ${t}`;
+                  if (r.type === "range")  return `📊 ${r.rangeStart}→${r.rangeEnd} • ${t}`;
+                  return "";
+                })();
                 const statusColors = {
                   scheduled: due ? T.warn : T.accent,
                   firing: T.warn,
@@ -3413,9 +3614,19 @@ function ScheduledCampaignsList({data, upConfig, onClose, canEdit}){
                   cancelled: "أُلغي",
                 };
                 return <tr key={c.id} style={{borderBottom:"1px solid "+T.brd}}>
-                  <td style={{padding:"10px", fontWeight:600, color:T.text}}>{c.templateName}</td>
+                  <td style={{padding:"10px", fontWeight:600, color:T.text}}>
+                    {c.templateName}
+                    {_recDesc && <div style={{fontSize:FS-3, color:T.accent, fontWeight:600, marginTop:2}}>{_recDesc}</div>}
+                  </td>
                   <td style={{padding:"10px", fontSize:FS-2, color:T.textSec}}>{c.segmentLabel} ({c.items?.length || 0})</td>
-                  <td style={{padding:"10px", fontSize:FS-2, color:T.textSec}}>{dt ? dt.toLocaleString("ar-EG") : "—"}</td>
+                  <td style={{padding:"10px", fontSize:FS-2, color:T.textSec}}>
+                    {dt ? dt.toLocaleString("ar-EG") : "—"}
+                    {c.recurrence && c.occurrenceCount > 0 && (
+                      <div style={{fontSize:FS-3, color:T.textMut, marginTop:2}}>
+                        🔁 {c.occurrenceCount} مرة • آخر: {c.lastFiredAt ? new Date(c.lastFiredAt).toLocaleDateString("ar-EG") : "—"}
+                      </div>
+                    )}
+                  </td>
                   <td style={{padding:"10px"}}>
                     <span style={{padding:"4px 10px", borderRadius:8, fontSize:FS-3, fontWeight:700,
                       background: (statusColors[c.status]||T.textMut)+"20",
@@ -3427,6 +3638,7 @@ function ScheduledCampaignsList({data, upConfig, onClose, canEdit}){
                   <td style={{padding:"10px", fontSize:FS-2, color:T.textMut}}>
                     {c.status === "done" && `${c.sentCount||0} مرسلة`}
                     {c.status === "failed" && `${c.error || "—"}`}
+                    {c.status === "scheduled" && c.recurrence && `${c.occurrenceCount || 0} اتنفّذت`}
                   </td>
                   <td style={{padding:"10px"}}>
                     {canEdit && c.status === "scheduled" && (

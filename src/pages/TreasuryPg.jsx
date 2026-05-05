@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { FS } from "../constants/index.js";
-import { gid, fmt, fmt0, r2, _esc, dayName, dayNameFull, openWA } from "../utils/format.js";
+import { gid, fmt, fmt0, r2, _esc, dayName, dayNameFull, openWA, formatTxTime } from "../utils/format.js";
 import { playBeep } from "../utils/audio.js";
 import { addAudit } from "../utils/audit.js";
 import { showToast, ask, tell } from "../utils/popups.js";
@@ -2474,7 +2474,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               <input type="checkbox" checked={isChecked} onChange={()=>toggleTxSel(t.id)} style={{cursor:"pointer",width:16,height:16}} title="تحديد للحذف المجمع"/>
             </td>}
             <td style={{padding:"6px 8px",fontSize:FS-1,fontWeight:800,color:t.runBal>=0?"#0D9488":T.err,whiteSpace:"nowrap"}}>{fmt0(t.runBal)}</td>
-            <td style={{padding:"6px 8px",fontSize:FS-1,whiteSpace:"nowrap"}}>{isEd?<input type="date" value={d_.date} onChange={e=>setInlineDraft(p=>({...p,date:e.target.value}))} style={{...inpS,width:120}}/>:<>{t.date}{locked?" 🔒":""}</>}</td>
+            <td style={{padding:"6px 8px",fontSize:FS-1,whiteSpace:"nowrap"}}>{isEd?<input type="date" value={d_.date} onChange={e=>setInlineDraft(p=>({...p,date:e.target.value}))} style={{...inpS,width:120}}/>:<>{t.date}{t.createdAt&&<span style={{marginRight:4,fontSize:FS-3,color:T.textMut,fontWeight:600,direction:"ltr",display:"inline-block"}}>{formatTxTime(t.createdAt)}</span>}{locked?" 🔒":""}</>}</td>
             <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut,whiteSpace:"nowrap"}}>{t.day||""}</td>
             <td style={{padding:"6px 8px",fontSize:FS,fontWeight:700,color:T.ok,whiteSpace:"nowrap"}}>{isEd?(d_.type==="in"?<input type="number" value={d_.amount} onChange={e=>setInlineDraft(p=>({...p,amount:e.target.value}))} style={{...inpS,width:80,color:T.ok,fontWeight:700}}/>:<span onClick={()=>setInlineDraft(p=>({...p,type:"in"}))} style={{cursor:"pointer",color:T.textMut,fontSize:FS-2}}>↓</span>):(t.type==="in"?fmt0(t.amount):"")}</td>
             <td style={{padding:"6px 8px",fontSize:FS,fontWeight:700,color:T.err,whiteSpace:"nowrap"}}>{isEd?(d_.type==="out"?<input type="number" value={d_.amount} onChange={e=>setInlineDraft(p=>({...p,amount:e.target.value}))} style={{...inpS,width:80,color:T.err,fontWeight:700}}/>:<span onClick={()=>setInlineDraft(p=>({...p,type:"out"}))} style={{cursor:"pointer",color:T.textMut,fontSize:FS-2}}>↑</span>):(t.type==="out"?fmt0(t.amount):"")}</td>
@@ -2967,9 +2967,17 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           {/* Checks table */}
           <Card title={"📝 سجل الشيكات ("+filteredChecks.length+")"}>
             {filteredChecks.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
-              {["النوع","المبلغ","الجهة","البنك","رقم الشيك","تاريخ الاستحقاق","الحالة",""].map(h=><th key={h} style={{padding:"7px 8px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
+              {["النوع","المبلغ","الجهة","البنك","رقم الشيك","تاريخ الاستحقاق","تسجيل","الحالة",""].map(h=><th key={h} style={{padding:"7px 8px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
             </tr></thead><tbody>
-              {filteredChecks.sort((a,b)=>(a.dueDate||"").localeCompare(b.dueDate||"")).map(c=>{const overdue=c.dueDate&&c.dueDate<today&&c.status==="معلق";
+              {/* V19.70.6: sort by createdAt DESC (newest entry at top, down to the minute).
+                 Tiebreaker: dueDate ASC for entries without createdAt (legacy). */}
+              {filteredChecks.sort((a,b)=>{
+                const ac=a.createdAt||"", bc=b.createdAt||"";
+                if (ac && bc) return bc.localeCompare(ac);
+                if (ac) return -1;
+                if (bc) return 1;
+                return (a.dueDate||"").localeCompare(b.dueDate||"");
+              }).map(c=>{const overdue=c.dueDate&&c.dueDate<today&&c.status==="معلق";
                 return<tr key={c.id} style={{borderBottom:"1px solid "+T.brd,background:overdue?T.err+"04":""}}>
                 <td style={{padding:"6px 8px"}}><span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:c.type==="receivable"?T.ok+"12":T.err+"12",color:c.type==="receivable"?T.ok:T.err}}>{c.type==="receivable"?"قبض":"دفع"}</span></td>
                 <td style={{padding:"6px 8px",fontSize:FS,fontWeight:800,color:c.type==="receivable"?T.ok:T.err}}>{fmt0(c.amount)}</td>
@@ -2977,6 +2985,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textSec}}>{c.bank||"—"}</td>
                 <td style={{padding:"6px 8px",fontSize:FS-2,color:T.textMut}}>{c.checkNo||"—"}{c.batchId&&c.batchTotal>1&&<span style={{marginRight:6,padding:"1px 6px",borderRadius:8,background:"#0EA5E915",color:"#0284C7",fontSize:9,fontWeight:700}} title={"شيك "+c.batchIdx+" من حافظة من "+c.batchTotal+" شيكات"}>{c.batchIdx}/{c.batchTotal}</span>}</td>
                 <td style={{padding:"6px 8px",fontSize:FS-1,fontWeight:overdue?700:400,color:overdue?T.err:T.text}}>{c.dueDate||"—"}{overdue?" ⚠️":""}</td>
+                {/* V19.70.6: createdAt date+time column */}
+                <td style={{padding:"6px 8px",fontSize:FS-3,color:T.textMut,whiteSpace:"nowrap"}}>{c.date||"—"}{c.createdAt&&<div style={{direction:"ltr",fontSize:FS-3,color:T.textMut,marginTop:2}}>{formatTxTime(c.createdAt)}</div>}</td>
                 <td style={{padding:"6px 8px"}}><span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:(STATUS_COLORS[c.status]||T.textMut)+"15",color:STATUS_COLORS[c.status]||T.textMut}}>{c.status}</span></td>
                 <td style={{padding:"6px 8px"}}>
                 {/* V16.62: Print check receipt voucher (إذن استلام/تسليم شيك).
