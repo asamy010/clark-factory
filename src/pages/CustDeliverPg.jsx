@@ -30,6 +30,8 @@ import { autoPost } from "../utils/accounting/autoPost.js";
 import { buildSalesInvoiceFromDelivery, buildCreditNoteFromReturn, upsertSalesInvoiceFromDelivery, upsertCreditNoteFromReturn } from "../utils/invoices.js";
 import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../components/ui.jsx";
 import { T, TH, TD, TDB } from "../theme.js";
+/* V19.70.12: html→pdf for WhatsApp delivery receipts */
+import { htmlToPdfBase64, loadPdfLibs } from "../utils/htmlToPdf.js";
 
 /* V18.17: Module-level mutable variable used by inventory-audit scanner closure
    to read latest scan mode. Was assigned but never declared — caused ReferenceError
@@ -1359,6 +1361,152 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const gMods=groupSessionModels(sess);
       const g=sess.grid||{};const selCount=Object.values(groupPrint.selCusts).filter(Boolean).length;
       const selTotal=gCusts.filter(c=>groupPrint.selCusts[c.id]).reduce((s,c)=>gMods.reduce((ss,m)=>ss+getGroupQtyForPrint(m,c.id,g),0)+s,0);
+      /* V19.70.12: helper — build the per-customer receipt HTML block.
+         Same content as doPrintGroup's loop body, isolated for re-use by
+         the WhatsApp send flow. Returns: { html, totals: {qty, money, netMoney, discAmt, discPct} }. */
+      const buildOneCustomerHTML = (c, sigStr, opts) => {
+        const noP = (opts && opts.noPrices) || groupPrint.noPrices === true;
+        const origin = window.location.origin;
+        const confirmUrl = sigStr ? origin+"/?dc=1&s="+encodeURIComponent(sess.id)+"&c="+encodeURIComponent(c.id)+"&sig="+encodeURIComponent(sigStr) : "";
+        let custTotal=0, custMoney=0;
+        let h = "";
+        h += "<h2 style='text-align:center;margin:0 0 12px;font-size:18px'>CLARK — "+(noP?"إذن تسليم مخزن":"إذن تسليم")+"</h2>";
+        h += "<table style='margin:0 auto 12px;font-size:11px'><tr><td style='padding:3px 10px;font-weight:700'>التاريخ</td><td style='padding:3px 10px'>"+sess.date+"</td>"+(opts?.receiver?"<td style='padding:3px 10px;font-weight:700'>المستلم</td><td style='padding:3px 10px;font-weight:800;font-size:13px'>"+opts.receiver+"</td>":"")+"</tr></table>";
+        h += "<h3 style='margin:10px 0 6px;padding:4px 8px;background:#EFF6FF;border-right:4px solid #0EA5E9;font-size:14px'>"+c.name+(c.phone?"  <span style='font-size:11px;color:#64748B;font-weight:600'>"+c.phone+"</span>":"")+"</h3>";
+        h += "<table style='width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px;border:1px solid #94A3B8'><thead><tr style='background:#E2E8F0'><th style='padding:5px;border:1px solid #94A3B8'>الموديل</th><th style='padding:5px;border:1px solid #94A3B8'>الوصف</th><th style='padding:5px;border:1px solid #94A3B8'>الكمية</th>"+(noP?"":"<th style='padding:5px;border:1px solid #94A3B8'>السعر</th><th style='padding:5px;border:1px solid #94A3B8'>الإجمالي</th>")+"</tr></thead><tbody>";
+        gMods.forEach(m=>{
+          const q=getGroupQtyForPrint(m,c.id,g);
+          if(q>0){
+            const oids=m.orderIds||[m.id];
+            let price=0;
+            for(const oid of oids){
+              const o=orders.find(x=>x.id===oid);
+              if(o){
+                const dd=(o.customerDeliveries||[]).find(d=>d.custId===c.id&&d.sessionId===sess.id&&Number(d.price)>0);
+                if(dd){price=Number(dd.price);break}
+                if(Number(o.sellPrice)>0){price=Number(o.sellPrice);break}
+              }
+            }
+            const lineTotal=q*price;
+            custTotal+=q;
+            custMoney+=lineTotal;
+            h+="<tr><td style='padding:4px 6px;border:1px solid #CBD5E1;font-weight:700'>"+m.modelNo+"</td><td style='padding:4px 6px;border:1px solid #CBD5E1'>"+(m.modelDesc||"")+"</td><td style='padding:4px 6px;border:1px solid #CBD5E1;text-align:center;font-weight:700;color:#0EA5E9'>"+q+"</td>"+(noP?"":"<td style='padding:4px 6px;border:1px solid #CBD5E1;text-align:center'>"+(price?fmt(price):"—")+"</td><td style='padding:4px 6px;border:1px solid #CBD5E1;text-align:center;font-weight:700'>"+fmt(lineTotal)+"</td>")+"</tr>";
+          }
+        });
+        h+="<tr style='background:#F0F9FF;font-weight:800'><td colspan='2' style='padding:5px;border:1px solid #94A3B8'>اجمالي "+c.name+"</td><td style='padding:5px;border:1px solid #94A3B8;text-align:center;color:#0EA5E9'>"+custTotal+"</td>"+(noP?"":"<td style='border:1px solid #94A3B8'></td><td style='padding:5px;border:1px solid #94A3B8;text-align:center;color:#0EA5E9'>"+fmt(custMoney)+"</td>")+"</tr></tbody></table>";
+        const discPct=Number(c.discount)||0;
+        const discAmt=Math.round(custMoney*discPct/100);
+        const netAmt=custMoney-discAmt;
+        if(!noP){
+          h+="<div style='margin-top:8px;padding:10px;border:2px solid #000;border-radius:6px'>"+
+             "<div style='display:flex;justify-content:space-between;margin-bottom:4px'><span style='font-weight:700'>الإجمالي قبل الخصم</span><span style='font-weight:800'>"+fmt(custMoney)+" ج.م</span></div>";
+          if(discPct>0){
+            h+="<div style='display:flex;justify-content:space-between;margin-bottom:4px;color:#EF4444'><span style='font-weight:700'>خصم "+discPct+"%</span><span style='font-weight:800'>- "+fmt(discAmt)+" ج.م</span></div>";
+          }
+          h+="<div style='display:flex;justify-content:space-between;padding-top:5px;border-top:2px solid #000'><span style='font-weight:800;font-size:13px'>الصافي المستحق</span><span style='font-weight:900;font-size:15px;color:#059669'>"+fmt(netAmt)+" ج.م</span></div>"+
+             "</div>";
+        }
+        return { html: h, totals: { qty: custTotal, money: custMoney, netMoney: netAmt, discAmt, discPct } };
+      };
+
+      /* V19.70.12: send WhatsApp delivery receipt to selected customers.
+         For each selected customer with phone:
+         1. Generate per-customer HTML
+         2. Convert to PDF base64 via html2canvas + jsPDF (lazy-loaded)
+         3. POST to bridge /send with text summary + PDF media attachment
+         4. Update waSent status (badge in the list) */
+      const doSendWhatsApp = async () => {
+        const selC = gCusts.filter(c=>groupPrint.selCusts[c.id]);
+        if (selC.length === 0) { showToast("⚠️ اختار عميل واحد على الأقل"); return; }
+        const withPhone = selC.filter(c => c.phone && String(c.phone).trim());
+        if (withPhone.length === 0) { showToast("⚠️ مفيش عميل عنده رقم تليفون مسجّل"); return; }
+        const noPhoneCount = selC.length - withPhone.length;
+        const bridgeUrl = (data.campaignBridge||{}).url || "";
+        const bridgeToken = (data.campaignBridge||{}).token || "";
+        if (!bridgeUrl) { showToast("⛔ الـbridge URL غير مضبوط — افتح Campaigns → Bridge Settings أولاً"); return; }
+        const confirm = await ask(
+          "إرسال واتساب لـ"+withPhone.length+" عميل",
+          (noPhoneCount>0 ? "⚠️ "+noPhoneCount+" عميل بدون رقم — هيتم تخطيهم.\n\n" : "")+
+          "هيتم إرسال إذن استلام (PDF) + رسالة تفاصيل لكل عميل عبر الـbridge. الإرسال سيكون متتالي مع delays لتجنب الحظر."
+        );
+        if (!confirm) return;
+
+        /* Mark all targets as pending */
+        setGroupPrint(p => ({ ...p, waSent: withPhone.reduce((a,c)=>{a[c.id]="pending";return a;},{...(p.waSent||{})}), waSending: true }));
+
+        /* Pre-load PDF libs once */
+        try { await loadPdfLibs(); }
+        catch (e) {
+          showToast("⛔ فشل تحميل مكتبات الـPDF: "+(e.message||e));
+          setGroupPrint(p => ({ ...p, waSending: false }));
+          return;
+        }
+
+        /* Pre-fetch signatures (for the QR — same as print flow). Optional. */
+        let signatures = {};
+        try {
+          const _u = auth.currentUser;
+          if (_u) {
+            const _tok = await _u.getIdToken();
+            const pairs = withPhone.map(c=>({sessionId:sess.id,custId:c.id}));
+            const r = await fetch("/api/delivery-sign", {method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+_tok},body:JSON.stringify({pairs})});
+            const j = await r.json();
+            if (r.ok && Array.isArray(j.signatures)) j.signatures.forEach(s=>{signatures[s.custId]=s.sig});
+          }
+        } catch (_) { /* signatures optional — receipts still work without QR */ }
+
+        let okCount = 0, failCount = 0;
+        for (const c of withPhone) {
+          /* Mark sending */
+          setGroupPrint(p => ({ ...p, waSent: { ...(p.waSent||{}), [c.id]: "sending" } }));
+          try {
+            /* Build HTML + PDF */
+            const { html, totals } = buildOneCustomerHTML(c, signatures[c.id]||"", {noPrices:groupPrint.noPrices,receiver:groupPrint.receiver});
+            const pdfBase64 = await htmlToPdfBase64(html, {width:794,scale:2});
+            /* Build text summary */
+            const noP = groupPrint.noPrices === true;
+            const lines = [
+              "عميلنا الكريم *"+c.name+"* 🌟",
+              "",
+              "📦 *إذن استلام البضاعة*",
+              "📅 التاريخ: "+sess.date,
+              "📊 إجمالي القطع: "+totals.qty+" قطعة",
+            ];
+            if (!noP) {
+              lines.push("💰 الإجمالي قبل الخصم: "+fmt(totals.money)+" ج.م");
+              if (totals.discPct>0) lines.push("📉 الخصم ("+totals.discPct+"%): -"+fmt(totals.discAmt)+" ج.م");
+              lines.push("✅ الصافي المستحق: *"+fmt(totals.netMoney)+" ج.م*");
+            }
+            lines.push("");
+            lines.push("📄 التفاصيل الكاملة بالملف المرفق");
+            lines.push("");
+            lines.push("شكراً لتعاملكم — مصنع كلارك");
+            const message = lines.join("\n");
+            const fileName = "اذن_استلام_"+c.name.replace(/[^؀-ۿa-zA-Z0-9_-]/g,"_")+"_"+sess.date+".pdf";
+            /* POST to bridge /send */
+            const headers = { "Content-Type":"application/json" };
+            if (bridgeToken) headers["Authorization"] = "Bearer "+bridgeToken;
+            const r = await fetch(bridgeUrl.replace(/\/+$/,"")+"/send", {
+              method:"POST", headers,
+              body: JSON.stringify({ messages: [{
+                phone: c.phone,
+                message,
+                media: [{ base64: pdfBase64, mime: "application/pdf", name: fileName }],
+              }]}),
+            });
+            const j = await r.json().catch(()=>({}));
+            if (!r.ok) throw new Error(j.error || ("HTTP "+r.status));
+            okCount++;
+            setGroupPrint(p => ({ ...p, waSent: { ...(p.waSent||{}), [c.id]: "sent" } }));
+          } catch (e) {
+            failCount++;
+            setGroupPrint(p => ({ ...p, waSent: { ...(p.waSent||{}), [c.id]: "failed", waLastErr: { ...(p.waLastErr||{}), [c.id]: e.message||String(e) } } }));
+          }
+        }
+        setGroupPrint(p => ({ ...p, waSending: false }));
+        showToast("✓ "+okCount+" نجحت • "+(failCount?("⛔ "+failCount+" فشلت"):""));
+      };
+
       const doPrintGroup=async()=>{const selC=gCusts.filter(c=>groupPrint.selCusts[c.id]);if(selC.length===0){showToast("⚠️ اختار عميل واحد على الأقل");return}
         /* V15.50: Fetch signed URLs from backend — one per customer */
         /* V16.12: include Firebase ID token (delivery-sign now requires admin/manager) */
@@ -1470,10 +1618,18 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:12}}>
             {gCusts.map(c=>{const t=gMods.reduce((s,m)=>s+getGroupQtyForPrint(m,c.id,g),0);if(t<=0)return null;
+              /* V19.70.12: WhatsApp send status badge per customer */
+              const waStatus = (groupPrint.waSent||{})[c.id];
+              const noPhone = !c.phone || !String(c.phone).trim();
               return<div key={c.id} onClick={()=>setGroupPrint(p=>({...p,selCusts:{...p.selCusts,[c.id]:!p.selCusts[c.id]}}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",borderRadius:10,cursor:"pointer",border:"1px solid "+(groupPrint.selCusts[c.id]?"#8B5CF640":T.brd),background:groupPrint.selCusts[c.id]?"#8B5CF608":"transparent"}}>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                   <span style={{fontSize:16}}>{groupPrint.selCusts[c.id]?"☑":"☐"}</span>
                   <span style={{fontWeight:700,color:groupPrint.selCusts[c.id]?"#8B5CF6":T.text}}>{c.name}</span>
+                  {/* V19.70.12: WhatsApp status badges */}
+                  {waStatus === "sent" && <span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-3,fontWeight:700,background:"#10B98115",color:"#10B981",border:"1px solid #10B98140"}}>✓ تم الإرسال</span>}
+                  {waStatus === "sending" && <span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-3,fontWeight:700,background:T.warn+"15",color:T.warn,border:"1px solid "+T.warn+"40"}}>⏳ جاري...</span>}
+                  {waStatus === "failed" && <span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-3,fontWeight:700,background:T.err+"15",color:T.err,border:"1px solid "+T.err+"40"}} title={(groupPrint.waLastErr||{})[c.id]||""}>⛔ فشل</span>}
+                  {noPhone && !waStatus && <span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-3,fontWeight:700,background:T.textMut+"15",color:T.textMut,border:"1px solid "+T.textMut+"40"}} title="مفيش رقم تليفون مسجّل">📵 بدون رقم</span>}
                 </div>
                 <span style={{fontWeight:700,color:T.accent}}>{t+" قطعة"}</span>
               </div>})}
@@ -1491,7 +1647,25 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           <div style={{padding:10,borderRadius:10,background:T.bg,textAlign:"center",marginBottom:12}}>
             <span style={{fontWeight:800,color:"#8B5CF6"}}>{selCount+" عملاء"}</span><span style={{color:T.textMut}}>{" | "}</span><span style={{fontWeight:800,color:T.accent}}>{selTotal+" قطعة"}</span>
           </div>
-          <Btn onClick={doPrintGroup} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>🖨 طباعة</Btn>
+          {/* V19.70.12: WhatsApp send progress summary */}
+          {(() => {
+            const sentCount = Object.values(groupPrint.waSent||{}).filter(s=>s==="sent").length;
+            const failCount = Object.values(groupPrint.waSent||{}).filter(s=>s==="failed").length;
+            if (sentCount > 0 || failCount > 0) {
+              return <div style={{padding:8,borderRadius:8,background:"#25D36608",border:"1px solid #25D36630",textAlign:"center",marginBottom:10,fontSize:FS-2}}>
+                <span style={{color:"#10B981",fontWeight:700}}>✓ {sentCount} تم الإرسال</span>
+                {failCount > 0 && <span style={{marginRight:10,color:T.err,fontWeight:700}}>⛔ {failCount} فشلت</span>}
+              </div>;
+            }
+            return null;
+          })()}
+          {/* V19.70.12: action buttons row — Print + WhatsApp */}
+          <div style={{display:"flex",gap:8}}>
+            <Btn onClick={doPrintGroup} disabled={groupPrint.waSending} style={{flex:1,background:"#8B5CF6",color:"#fff",border:"none",fontWeight:700}}>🖨 طباعة</Btn>
+            <Btn onClick={doSendWhatsApp} disabled={groupPrint.waSending} style={{flex:1,background:groupPrint.waSending?"#94A3B8":"#25D366",color:"#fff",border:"none",fontWeight:700}}>
+              {groupPrint.waSending ? "⏳ جاري الإرسال..." : "📤 إرسال واتساب"}
+            </Btn>
+          </div>
         </div>
       </div>})()}
     {/* Add Customer to Session Popup */}

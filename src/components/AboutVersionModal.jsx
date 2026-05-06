@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.12",
+    date: "2026-05-06",
+    types: ["feature"],
+    title: "📤📄 WhatsApp delivery receipts — bulk send PDF + details to selected customers",
+    changes: [
+      { type: "feature", text: "📄 [Per-customer PDF receipt + WhatsApp send] في popup 'طباعة مجمعة' في صفحة CustDeliverPg، زر جديد 📤 'إرسال واتساب' بجانب زر الـprint. لكل عميل مختار عنده رقم تليفون: (1) HTML للـreceipt يتـبني (نفس الـlayout بتاع الـprint بس per-customer)، (2) html2canvas + jsPDF يـconvert لـPDF base64 (lazy-loaded من CDN — ~200KB مش بـbloat الـbundle لو ما اتستخدمتش)، (3) رسالة text بالملخص (تاريخ، إجمالي قطع، إجمالي قبل الخصم، الخصم، الصافي المستحق)، (4) POST لـbridge /send مع PDF كـmedia attachment. الـbridge من V19.31 يدعم الـpattern ده بالفعل." },
+      { type: "feature", text: "🏷️ [Status badges per-customer + progress] كل عميل في الـlist يعرض badge حالته: ⏳ جاري الإرسال (transient)، ✓ تم الإرسال (success)، ⛔ فشل (with hover tooltip للـerror message)، 📵 بدون رقم (للعملاء المش عندهم phone). الـsend button يـlock أثناء الـsending. الـpopup يحتفظ بالعميل في الـlist بعد الإرسال (مش يختفي) — يتم عرض الـbadge عشان user يعرف اللي وصل." },
+      { type: "feature", text: "⚙️ [Anti-ban: bridge defaults] الـsend loop يـpost بـsequential await (مش parallel) — الـbridge يـapply delays الـdefault (8-15 ثانية بين الرسائل) عشان مفيش حظر للرقم. لو 50 عميل، الـsending يـtake 6-12 دقيقة. progress badge يحدّث مع كل عميل يخلص. الـconfirmation prompt يحذّر الـuser قبل الـbatch send." },
+      { type: "feature", text: "🆕 [src/utils/htmlToPdf.js — reusable utility] `loadPdfLibs()` يـlazy-load html2canvas + jsPDF عبر CDN (caches in window). `htmlToPdfBase64(html, opts)` بيـrender الـHTML في offscreen container، يـcapture بـhtml2canvas (scale=2 للـcrisp text)، يـbuild PDF (A4 portrait، multi-page automatic لو طويل)، يرجّع base64 string جاهز للـbridge. الـutility reusable لأي feature تانية محتاجة HTML→PDF→WhatsApp." },
+      { type: "improvement", text: "🛡️ [Failure handling] لو عميل واحد فشل (network، bridge unreachable، PDF generation failed)، الـbatch يكمل للباقي. الـerror يتـsave في `groupPrint.waLastErr[custId]` ويظهر كـtooltip. الـsend button يفضل enabled بعد الـbatch — الـuser يقدر يـretry للفاشلة بإعادة الضغط (الـsent ones عندهم badge ✓ ومش هيتعاد إرسالهم لأن الـcheckbox عمل selection على الكل)." },
+    ]
+  },
+  {
     version: "V19.70.11",
     date: "2026-05-05",
     types: ["feature", "ux"],
