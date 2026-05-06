@@ -1362,51 +1362,127 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const g=sess.grid||{};const selCount=Object.values(groupPrint.selCusts).filter(Boolean).length;
       const selTotal=gCusts.filter(c=>groupPrint.selCusts[c.id]).reduce((s,c)=>gMods.reduce((ss,m)=>ss+getGroupQtyForPrint(m,c.id,g),0)+s,0);
       /* V19.70.12: helper — build the per-customer receipt HTML block.
-         Same content as doPrintGroup's loop body, isolated for re-use by
-         the WhatsApp send flow. Returns: { html, totals: {qty, money, netMoney, discAmt, discPct} }. */
-      const buildOneCustomerHTML = (c, sigStr, opts) => {
+         V19.70.13: rewritten to mirror the existing per-row print output EXACTLY
+         (the same HTML the user gets when clicking 🖨 on a single customer row),
+         wrapped with the CLARK header/footer + inline styles needed since we render
+         offscreen (not via printPage which adds them automatically). QR is embedded
+         as a data URL (pre-generated via the qrcode library) so html2canvas captures
+         it without async CDN dependency. Returns: { html, totals }. */
+      const buildOneCustomerHTML = async (c, sigStr, opts) => {
         const noP = (opts && opts.noPrices) || groupPrint.noPrices === true;
         const origin = window.location.origin;
         const confirmUrl = sigStr ? origin+"/?dc=1&s="+encodeURIComponent(sess.id)+"&c="+encodeURIComponent(c.id)+"&sig="+encodeURIComponent(sigStr) : "";
-        let custTotal=0, custMoney=0;
-        let h = "";
-        h += "<h2 style='text-align:center;margin:0 0 12px;font-size:18px'>CLARK — "+(noP?"إذن تسليم مخزن":"إذن تسليم")+"</h2>";
-        h += "<table style='margin:0 auto 12px;font-size:11px'><tr><td style='padding:3px 10px;font-weight:700'>التاريخ</td><td style='padding:3px 10px'>"+sess.date+"</td>"+(opts?.receiver?"<td style='padding:3px 10px;font-weight:700'>المستلم</td><td style='padding:3px 10px;font-weight:800;font-size:13px'>"+opts.receiver+"</td>":"")+"</tr></table>";
-        h += "<h3 style='margin:10px 0 6px;padding:4px 8px;background:#EFF6FF;border-right:4px solid #0EA5E9;font-size:14px'>"+c.name+(c.phone?"  <span style='font-size:11px;color:#64748B;font-weight:600'>"+c.phone+"</span>":"")+"</h3>";
-        h += "<table style='width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px;border:1px solid #94A3B8'><thead><tr style='background:#E2E8F0'><th style='padding:5px;border:1px solid #94A3B8'>الموديل</th><th style='padding:5px;border:1px solid #94A3B8'>الوصف</th><th style='padding:5px;border:1px solid #94A3B8'>الكمية</th>"+(noP?"":"<th style='padding:5px;border:1px solid #94A3B8'>السعر</th><th style='padding:5px;border:1px solid #94A3B8'>الإجمالي</th>")+"</tr></thead><tbody>";
-        gMods.forEach(m=>{
-          const q=getGroupQtyForPrint(m,c.id,g);
-          if(q>0){
-            const oids=m.orderIds||[m.id];
-            let price=0;
-            for(const oid of oids){
-              const o=orders.find(x=>x.id===oid);
-              if(o){
-                const dd=(o.customerDeliveries||[]).find(d=>d.custId===c.id&&d.sessionId===sess.id&&Number(d.price)>0);
-                if(dd){price=Number(dd.price);break}
-                if(Number(o.sellPrice)>0){price=Number(o.sellPrice);break}
+        /* Pre-generate QR as data URL (no CDN race conditions) */
+        let qrDataUrl = "";
+        if (confirmUrl) {
+          try {
+            const QRCode = (await import("qrcode")).default;
+            qrDataUrl = await QRCode.toDataURL(confirmUrl, { width: 200, errorCorrectionLevel: 'M', margin: 1 });
+          } catch (_) { /* skip QR — receipt still works */ }
+        }
+        /* Compute totals while building items */
+        let custMoney = 0, rowTotal = 0;
+        let itemsHTML = "";
+        gMods.forEach(m => {
+          const q = getGroupQtyForPrint(m, c.id, g);
+          if (q > 0) {
+            rowTotal += q;
+            const oids = m.orderIds || [m.id];
+            let price = 0;
+            for (const oid of oids) {
+              const o = orders.find(x => x.id === oid);
+              if (o) {
+                const dd = (o.customerDeliveries || []).find(d => d.custId === c.id && d.sessionId === sess.id && Number(d.price) > 0);
+                if (dd) { price = Number(dd.price); break; }
+                if (Number(o.sellPrice) > 0) { price = Number(o.sellPrice); break; }
               }
             }
-            const lineTotal=q*price;
-            custTotal+=q;
-            custMoney+=lineTotal;
-            h+="<tr><td style='padding:4px 6px;border:1px solid #CBD5E1;font-weight:700'>"+m.modelNo+"</td><td style='padding:4px 6px;border:1px solid #CBD5E1'>"+(m.modelDesc||"")+"</td><td style='padding:4px 6px;border:1px solid #CBD5E1;text-align:center;font-weight:700;color:#0EA5E9'>"+q+"</td>"+(noP?"":"<td style='padding:4px 6px;border:1px solid #CBD5E1;text-align:center'>"+(price?fmt(price):"—")+"</td><td style='padding:4px 6px;border:1px solid #CBD5E1;text-align:center;font-weight:700'>"+fmt(lineTotal)+"</td>")+"</tr>";
+            const lineTotal = q * price;
+            custMoney += lineTotal;
+            itemsHTML += "<tr><td><b>"+m.modelNo+"</b></td><td>"+(m.modelDesc||"")+"</td><td style='font-weight:800;color:#0284C7;text-align:center'>"+q+"</td>"+(noP?"":"<td style='text-align:center'>"+(price?fmt(price):"—")+"</td><td style='text-align:center;font-weight:700'>"+fmt(lineTotal)+"</td>")+"</tr>";
           }
         });
-        h+="<tr style='background:#F0F9FF;font-weight:800'><td colspan='2' style='padding:5px;border:1px solid #94A3B8'>اجمالي "+c.name+"</td><td style='padding:5px;border:1px solid #94A3B8;text-align:center;color:#0EA5E9'>"+custTotal+"</td>"+(noP?"":"<td style='border:1px solid #94A3B8'></td><td style='padding:5px;border:1px solid #94A3B8;text-align:center;color:#0EA5E9'>"+fmt(custMoney)+"</td>")+"</tr></tbody></table>";
-        const discPct=Number(c.discount)||0;
-        const discAmt=Math.round(custMoney*discPct/100);
-        const netAmt=custMoney-discAmt;
-        if(!noP){
-          h+="<div style='margin-top:8px;padding:10px;border:2px solid #000;border-radius:6px'>"+
-             "<div style='display:flex;justify-content:space-between;margin-bottom:4px'><span style='font-weight:700'>الإجمالي قبل الخصم</span><span style='font-weight:800'>"+fmt(custMoney)+" ج.م</span></div>";
-          if(discPct>0){
-            h+="<div style='display:flex;justify-content:space-between;margin-bottom:4px;color:#EF4444'><span style='font-weight:700'>خصم "+discPct+"%</span><span style='font-weight:800'>- "+fmt(discAmt)+" ج.م</span></div>";
+        const discPct = Number(c.discount) || 0;
+        const discAmt = Math.round(custMoney * discPct / 100);
+        const netAmt = custMoney - discAmt;
+        const factoryName = config.factoryName || "CLARK Factory Management";
+        const factoryLogo = config.logo || "";
+        const factoryAddr = config.address || "";
+        const factoryPhone = config.phone || "";
+        const today = new Date().toLocaleDateString("ar-EG", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+        const timeStr = new Date().toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
+        const title = "اذن تسليم — " + c.name;
+        let brandSub = "نظام إدارة مصانع الملابس";
+        if (factoryAddr) brandSub = factoryAddr;
+        if (factoryAddr && factoryPhone) brandSub = factoryAddr + " • " + factoryPhone;
+        else if (factoryPhone) brandSub = factoryPhone;
+        /* Inline styles — match the print output theme */
+        const styles =
+          "*{margin:0;padding:0;box-sizing:border-box}"+
+          "body{font-family:'Cairo',Arial,sans-serif;padding:24px 28px;font-size:12px;direction:rtl;color:#1E293B;line-height:1.5}"+
+          "h2{font-size:15px;color:#0284C7;margin:14px 0 8px;padding-bottom:4px;border-bottom:2px solid #E2E8F0}"+
+          "table{width:100%;border-collapse:collapse;margin:8px 0 14px;border:1px solid #94A3B8}"+
+          "th{background:linear-gradient(180deg,#E2E8F0,#CBD5E1);font-weight:800;font-size:10px;color:#1E293B;padding:5px 8px;text-align:right;border:1px solid #94A3B8;letter-spacing:0.3px}"+
+          "td{padding:4px 8px;text-align:right;border:1px solid #CBD5E1;font-size:11px}"+
+          "tr:nth-child(even){background:#F8FAFC}"+
+          ".hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #0284C7;padding-bottom:14px;margin-bottom:20px;gap:16px}"+
+          ".hdr-brand{display:flex;align-items:center;gap:12px;flex:1}"+
+          ".hdr-brand img{height:50px;max-width:90px;object-fit:contain}"+
+          ".hdr-brand-text{line-height:1.3}"+
+          ".hdr-brand-name{font-size:17px;font-weight:800;color:#0F172A}"+
+          ".hdr-brand-sub{font-size:10px;color:#64748B;font-weight:600;margin-top:2px}"+
+          ".hdr-title{text-align:left;flex-shrink:0;padding:8px 14px;background:#F0F9FF;border:1px solid #BAE6FD;border-radius:8px;min-width:160px}"+
+          ".hdr-title-main{font-size:14px;font-weight:800;color:#0369A1;line-height:1.2}"+
+          ".hdr-title-date{font-size:10px;color:#64748B;font-weight:600;margin-top:4px;font-family:monospace}"+
+          ".sig{margin-top:40px;display:flex;justify-content:space-around;gap:20px}"+
+          ".sig-box{text-align:center;min-width:150px;border-top:2px solid #1E293B;padding-top:10px;font-weight:700;font-size:12px}"+
+          ".foot{margin-top:30px;padding-top:10px;border-top:2px solid #CBD5E1;text-align:center;font-size:9px;color:#64748B;font-weight:600;display:flex;justify-content:space-between;gap:10px}"+
+          ".foot-brand{font-weight:800;color:#0284C7}"+
+          ".foot-meta{color:#94A3B8;font-weight:500}";
+        /* Build full HTML — header + body + footer (mirrors printPage output) */
+        let h = "<style>" + styles + "</style>";
+        /* Header */
+        h += "<div class='hdr'>"
+          + "<div class='hdr-brand'>"
+            + (factoryLogo ? "<img src='"+factoryLogo+"'/>" : "")
+            + "<div class='hdr-brand-text'>"
+              + "<div class='hdr-brand-name'>"+factoryName+"</div>"
+              + "<div class='hdr-brand-sub'>"+brandSub+"</div>"
+            + "</div>"
+          + "</div>"
+          + "<div class='hdr-title'>"
+            + "<div class='hdr-title-main'>"+title+"</div>"
+            + "<div class='hdr-title-date'>"+today+" • "+timeStr+"</div>"
+          + "</div>"
+        + "</div>";
+        /* Body — same structure as the per-row print HTML */
+        h += "<h2>🚚 اذن تسليم عميل</h2>";
+        h += "<table><tr><th>العميل</th><td><b>"+c.name+"</b></td><th>التليفون</th><td>"+(c.phone||"")+"</td></tr><tr><th>التاريخ</th><td>"+sess.date+"</td><th>العنوان</th><td>"+(c.address||"—")+"</td></tr></table>";
+        h += "<h2>تفاصيل الاستلام</h2>";
+        h += "<table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th>"+(noP?"":"<th>السعر</th><th>الإجمالي</th>")+"</tr></thead><tbody>";
+        h += itemsHTML;
+        h += "<tr style='background:#F1F5F9'><td colspan='2' style='font-weight:800'>الاجمالي</td><td style='font-weight:800;color:#0284C7;font-size:14px;text-align:center'>"+rowTotal+" قطعة</td>"+(noP?"":"<td></td><td style='font-weight:800;color:#0284C7;font-size:14px;text-align:center'>"+fmt(custMoney)+" ج.م</td>")+"</tr></tbody></table>";
+        if (!noP) {
+          h += "<div style='margin-top:12px;padding:12px;border:2px solid #000;border-radius:8px'>"
+            + "<div style='display:flex;justify-content:space-between;margin-bottom:6px'><span style='font-weight:700'>الاجمالي قبل الخصم</span><span style='font-weight:800'>"+fmt(custMoney)+" ج.م</span></div>";
+          if (discPct > 0) {
+            h += "<div style='display:flex;justify-content:space-between;margin-bottom:6px;color:#EF4444'><span style='font-weight:700'>خصم "+discPct+"%</span><span style='font-weight:800'>- "+fmt(discAmt)+" ج.م</span></div>";
           }
-          h+="<div style='display:flex;justify-content:space-between;padding-top:5px;border-top:2px solid #000'><span style='font-weight:800;font-size:13px'>الصافي المستحق</span><span style='font-weight:900;font-size:15px;color:#059669'>"+fmt(netAmt)+" ج.م</span></div>"+
-             "</div>";
+          h += "<div style='display:flex;justify-content:space-between;padding-top:8px;border-top:2px solid #000'><span style='font-weight:800;font-size:15px'>الصافي المستحق</span><span style='font-weight:900;font-size:17px;color:#059669'>"+fmt(netAmt)+" ج.م</span></div>"
+            + "</div>";
         }
-        return { html: h, totals: { qty: custTotal, money: custMoney, netMoney: netAmt, discAmt, discPct } };
+        if (qrDataUrl) {
+          h += "<div style='margin-top:14px;padding:12px;border:2px dashed #0EA5E9;border-radius:10px;display:flex;align-items:center;gap:14px;background:#F0F9FF;page-break-inside:avoid'>"
+            + "<img src='"+qrDataUrl+"' style='width:100px;height:100px;flex-shrink:0' alt='QR'/>"
+            + "<div style='flex:1;font-size:12px;line-height:1.6'>"
+            + "<div style='font-size:14px;font-weight:800;color:#0369A1;margin-bottom:3px'>📱 تأكيد الاستلام</div>"
+            + "<div style='color:#475569'>بعد مطابقة البضاعة، امسح الكود للتأكيد أو الإبلاغ عن مشكلة.</div>"
+            + "<div style='color:#94A3B8;font-size:10px;margin-top:3px'>الرابط صالح لمدة 24 ساعة من التأكيد</div>"
+            + "</div></div>";
+        }
+        h += "<div class='sig'><div class='sig-box'>مسؤول التسليم</div><div class='sig-box'>توقيع العميل<br/>"+c.name+"</div></div>";
+        h += "<div class='foot'><span class='foot-brand'>"+factoryName+"</span><span class='foot-meta'>"+today+" • Powered by CLARK Factory Management</span></div>";
+        return { html: h, totals: { qty: rowTotal, money: custMoney, netMoney: netAmt, discAmt, discPct } };
       };
 
       /* V19.70.12: send WhatsApp delivery receipt to selected customers.
@@ -1460,28 +1536,40 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           /* Mark sending */
           setGroupPrint(p => ({ ...p, waSent: { ...(p.waSent||{}), [c.id]: "sending" } }));
           try {
-            /* Build HTML + PDF */
-            const { html, totals } = buildOneCustomerHTML(c, signatures[c.id]||"", {noPrices:groupPrint.noPrices,receiver:groupPrint.receiver});
+            /* Build HTML + PDF (V19.70.13: now async — pre-generates QR data URL) */
+            const { html, totals } = await buildOneCustomerHTML(c, signatures[c.id]||"", {noPrices:groupPrint.noPrices,receiver:groupPrint.receiver});
             const pdfBase64 = await htmlToPdfBase64(html, {width:794,scale:2});
-            /* Build text summary */
+            /* V19.70.13: build text message in the EXACT same format as the per-row
+               WhatsApp button — keeps the customer's experience consistent regardless
+               of whether they got the receipt one-at-a-time or via this bulk send. */
             const noP = groupPrint.noPrices === true;
-            const lines = [
-              "عميلنا الكريم *"+c.name+"* 🌟",
-              "",
-              "📦 *إذن استلام البضاعة*",
-              "📅 التاريخ: "+sess.date,
-              "📊 إجمالي القطع: "+totals.qty+" قطعة",
-            ];
-            if (!noP) {
-              lines.push("💰 الإجمالي قبل الخصم: "+fmt(totals.money)+" ج.م");
-              if (totals.discPct>0) lines.push("📉 الخصم ("+totals.discPct+"%): -"+fmt(totals.discAmt)+" ج.م");
-              lines.push("✅ الصافي المستحق: *"+fmt(totals.netMoney)+" ج.م*");
+            const linesArr = gMods.map(m => {
+              const q = getGroupQtyForPrint(m, c.id, g);
+              if (q <= 0) return null;
+              const oids = m.orderIds || [m.id];
+              let price = 0;
+              for (const oid of oids) {
+                const o = orders.find(x => x.id === oid);
+                if (o) {
+                  const dd = (o.customerDeliveries || []).find(d => d.custId === c.id && d.sessionId === sess.id && Number(d.price) > 0);
+                  if (dd) { price = Number(dd.price); break; }
+                  if (Number(o.sellPrice) > 0) { price = Number(o.sellPrice); break; }
+                }
+              }
+              return "• *"+m.modelNo+"*: "+q+" قطعة"+(price?" × "+fmt(price)+" = "+fmt(q*price)+" ج.م":"");
+            }).filter(Boolean);
+            let message = "*CLARK — اذن تسليم عميل*\n\n• العميل: *"+c.name+"*\n• التاريخ: *"+sess.date+"*\n\n─────────────────\n"+linesArr.join("\n")+"\n─────────────────\n• الاجمالي: *"+totals.qty+"* قطعة";
+            if (totals.money > 0 && !noP) {
+              message += "\n• الاجمالي: *"+fmt(totals.money)+"* ج.م";
+              if (totals.discPct > 0) {
+                message += "\n• خصم "+totals.discPct+"%: *-"+fmt(totals.discAmt)+"* ج.م";
+                message += "\n• *الصافي المستحق: "+fmt(totals.netMoney)+" ج.م*";
+              }
             }
-            lines.push("");
-            lines.push("📄 التفاصيل الكاملة بالملف المرفق");
-            lines.push("");
-            lines.push("شكراً لتعاملكم — مصنع كلارك");
-            const message = lines.join("\n");
+            message += "\n\n📱 *برجاء مسح كود QR في إذن التسليم للتأكيد باستلام البضاعة كاملة*";
+            /* V18.33: optional account-summary footer (controlled by printSettings) */
+            try { message += formatCustomerSummaryWA(buildCustomerSummary(c.id, data), (data?.printSettings||{}).whatsappSummary); }
+            catch (_) { /* skip footer if helper fails */ }
             const fileName = "اذن_استلام_"+c.name.replace(/[^؀-ۿa-zA-Z0-9_-]/g,"_")+"_"+sess.date+".pdf";
             /* POST to bridge /send */
             const headers = { "Content-Type":"application/json" };

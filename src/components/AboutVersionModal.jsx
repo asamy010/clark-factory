@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.13",
+    date: "2026-05-06",
+    types: ["fix", "ux"],
+    title: "🎯 Bulk WhatsApp delivery — match existing per-row format exactly (PDF + message)",
+    changes: [
+      { type: "fix", text: "🎯 [الـPDF بقى مطابق لنسخة الـprint الموجودة بالظبط] User report: 'البي دي اف عاوزه يكون نفس نسخة الاستلام الموجوده بالفعل'. V19.70.12 كانت بتـbuild PDF بـlayout مبسّط مختلف عن نسخة الـ🖨 بتاع الصف. **الـFix**: rewrote `buildOneCustomerHTML` تـmirror الـstructure الكاملة: (1) CLARK header (logo + factory name + sub-line + title 'اذن تسليم — {customer}' + date/time)، (2) العميل/التليفون/التاريخ/العنوان table، (3) 'تفاصيل الاستلام' table بـالموديل/الوصف/الكمية/السعر/الإجمالي + aggregation row، (4) discount block (الإجمالي قبل الخصم / خصم N% / الصافي المستحق)، (5) QR code section بـ'تأكيد الاستلام' note، (6) signature row (مسؤول التسليم / توقيع العميل)، (7) factory branding footer." },
+      { type: "fix", text: "🎯 [رسالة الواتس بقت مطابقة للنسخة الموجودة بالظبط] User report: 'كمان رسالة الواتس تكون نفس الرسالة بالظبط اللي بتوصل العميل'. **الـFix**: استبدلت الـmessage builder الجديد بنفس الـformat اللي في الـper-row 📱 button: '*CLARK — اذن تسليم عميل*' header، '• العميل / • التاريخ' info، separator '─────────────────'، per-item lines '• *modelNo*: qty قطعة × price = total ج.م'، separator، 'الاجمالي N قطعة' + 'الاجمالي N ج.م' + خصم + 'الصافي المستحق'، '📱 *برجاء مسح كود QR في إذن التسليم للتأكيد باستلام البضاعة كاملة*'، + optional account summary footer من `formatCustomerSummaryWA(buildCustomerSummary(...))` (controlled by printSettings.whatsappSummary)." },
+      { type: "improvement", text: "🛡️ [QR code embedded as data URL — no async CDN race] قبل V19.70.13 الـHTML كان يحتوي `<canvas data-qr=...>` + script CDN لـqrcode.js يـrender بعد الـpage load. في offscreen html2canvas capture، الـcanvas ممكن يكون فاضي لأن الـCDN script ما اتـloadش بعد. **الـFix**: استخدمت `qrcode` package المثبت بالفعل في الـdependencies — `QRCode.toDataURL(url, {width:200, errorCorrectionLevel:'M'})` يـpre-generate الـQR كـdata URL سيمنكروني، ثم أضاف كـ`<img src='data:...'/>` في الـHTML. مفيش race condition، الـPDF دائماً يحتوي الـQR." },
+      { type: "improvement", text: "🛠️ [buildOneCustomerHTML بقى async] لأن QR generation async، الـfunction signature تغيّرت لـasync. الـsend loop بيـawait correctly. مفيش impact على الـperformance لأن الـloop already sequential." },
+    ]
+  },
+  {
     version: "V19.70.12",
     date: "2026-05-06",
     types: ["feature"],
