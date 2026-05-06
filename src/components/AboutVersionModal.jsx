@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.76.3",
+    date: "2026-05-06",
+    types: ["fix"],
+    title: "🐛 Hotfix: رسالة الدفعة كانت بتوصل للعميل مرتين (race بين الـ instant fire والـ cron)",
+    changes: [
+      { type: "fix", text: "🐛 [User report: 'الرسالة بتوصل مرتين للعميل متكررة'] الـ paymentReceived/checkPaymentReceived events كانوا بـ يفتحوا race window: الـ client-side instant fire (V19.70.3) بـ يبعث الرسالة فوراً، الـ cron tick بـ يـ scan كل 5 دقائق ويبعت كمان. الـ deduplication كان معتمد على `eventHistory[].success === true` — لكن `recordResult` كان بـ يكتب الـ entry بعد ما الـ bridge يـ respond (ثواني كاملة بسبب typing simulation). لو الـ cron tick جه في الـ window ده، كان بـ يلاقي history فاضي → يـ fire تاني → نسختين للعميل." },
+      { type: "fix", text: "✅ [Atomic claim transaction] أضيفت `claimEvent(db, ...)` في `_eventProcessor.js` — قبل ما الـ bridgeSend يتنفذ، نـ write entry فيها `inFlight: true` جوّا transaction. أي caller تاني (cron أو client) بيـ شوف الـ inFlight entry ويرجع `deduped: in-flight` بدل ما يـ fire. الـ stale lock timeout = 60s (لو الـ instance crashed mid-bridge، الـ next caller يـ reclaim). الـ `force` mode بـ يـ bypass الـ claim للـ manual replays." },
+      { type: "fix", text: "🔄 [recordResult يحدّث بدل ما يكرر] قبل V19.76.3 الـ recordResult كان دايماً `unshift` entry جديد — يعني الـ history كان يطلع فيه TWO entries لكل event (واحد inFlight، واحد success). دلوقتي بـ يـ findIndex لو في entry بنفس الـ idempotencyKey ويـ replace في مكانه. الـ history بقت entry واحد per event بـ at + completedAt + success/error نهائي." },
+      { type: "fix", text: "🛡 [الـ race window اتقفل تماماً] السيناريو: T=0 client يـ fire → claim writes inFlight. T=0.5s cron يـ run → الـ pre-check يـ pass (success ≠ true لسه)، يحاول claim → transaction يـ read inFlight entry, يـ return `claimed: false` → الـ cron يـ skip. T=2s bridge يرد → recordResult يـ replace inFlight بـ success: true. النتيجة: رسالة واحدة فقط للعميل، history صحي." },
+    ]
+  },
+  {
     version: "V19.76.2",
     date: "2026-05-06",
     types: ["fix"],
