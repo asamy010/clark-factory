@@ -89,26 +89,75 @@ const TIERS = [
   { key: "Platinum", label: "Platinum", icon: "💎", color: "#8B5CF6" },
 ];
 
+/* Deep clone helper. Used by the draft+save pattern to ensure isolation
+   from server data so local edits don't accidentally mutate the source. */
+const deepClone = (x) => JSON.parse(JSON.stringify(x));
+
 /* ────────────────────────────────────────────────────────────
-   MAIN PAGE
+   MAIN PAGE — V19.74.0: draft + Save Changes pattern
+   ────────────────────────────────────────────────────────────
+   All editable controls mutate a local `draft` state, NOT Firestore.
+   The user clicks "💾 حفظ التغييرات" to push the draft up via upConfig.
+   "↩️ تراجع" discards the draft and re-syncs from data.
+   This avoids:
+     • Per-keystroke Firestore writes (cost + race conditions)
+     • Visual flicker when listeners snap back
+     • Conflicts when 2 admins edit simultaneously
    ──────────────────────────────────────────────────────────── */
 export function AIAgentPg({ data, upConfig, isMob, canEdit, user }){
   const [tab, setTab] = useState("personality");
 
-  /* Defensive read — config might not have aiAgent yet (older deployments). */
-  const agent = data?.aiAgent || DEFAULT_AGENT;
+  /* Source of truth from server (defensive: defaults if not migrated yet) */
+  const serverAgent = data?.aiAgent || DEFAULT_AGENT;
 
+  /* Local editable draft. Re-syncs from server when (a) first mount, or (b)
+     server changes externally AND we have no unsaved local changes. */
+  const [draft, setDraft] = useState(() => deepClone(serverAgent));
+  const [dirty, setDirty] = useState(false);
+
+  /* If the server-side aiAgent changes (another admin saved, listener fired),
+     update our draft IFF we don't have unsaved local changes. */
+  const serverJson = JSON.stringify(serverAgent);
+  useEffect(() => {
+    if (!dirty) setDraft(deepClone(serverAgent));
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [serverJson]);
+
+  /* The current "agent" view used by all sub-tabs reads the draft. */
+  const agent = draft;
+
+  /* All edits go through this — pure local state, no Firestore call. */
   const updateAgent = (mutator) => {
     if (!canEdit) { showToast("ليس لديك صلاحية التعديل"); return; }
-    upConfig(d => {
-      if (!d.aiAgent) d.aiAgent = JSON.parse(JSON.stringify(DEFAULT_AGENT));
-      mutator(d.aiAgent);
+    setDraft(prev => {
+      const next = deepClone(prev);
+      mutator(next);
+      return next;
     });
+    setDirty(true);
   };
 
+  const saveChanges = () => {
+    if (!dirty) return;
+    upConfig(d => {
+      d.aiAgent = deepClone(draft);
+    });
+    setDirty(false);
+    showToast("✓ تم حفظ كل التغييرات");
+  };
+
+  const discardChanges = async () => {
+    if (!dirty) return;
+    const ok = await ask("التراجع عن كل التغييرات غير المحفوظة؟");
+    if (!ok) return;
+    setDraft(deepClone(serverAgent));
+    setDirty(false);
+    showToast("↩️ تم التراجع");
+  };
+
+  /* Power toggle is also part of the draft — admin must Save to apply. */
   const togglePower = () => {
     updateAgent(a => { a.enabled = !a.enabled; });
-    showToast(agent.enabled ? "🛑 تم إيقاف الـ Agent" : "✅ تم تشغيل الـ Agent");
   };
 
   return (
@@ -137,7 +186,7 @@ export function AIAgentPg({ data, upConfig, isMob, canEdit, user }){
               </span>
             </div>
             <div style={{fontSize:FS-1, color:T.textMut, marginTop:4}}>
-              مساعد كلارك الذكي على واتساب — Phase A scaffold (V19.71.0)
+              مساعد كلارك الذكي على واتساب
             </div>
           </div>
         </div>
@@ -162,6 +211,38 @@ export function AIAgentPg({ data, upConfig, isMob, canEdit, user }){
           </Btn>
         </div>
       </div>
+
+      {/* ═══ V19.74: Save / Discard sticky bar — only visible when dirty.
+                    All inline edits across ALL tabs collect into the draft,
+                    then a single click here commits everything. ═══ */}
+      {dirty && (
+        <div style={{
+          position:"sticky", top:0, zIndex:50,
+          display:"flex", alignItems:"center", justifyContent:"space-between",
+          gap:10, marginBottom:14, padding:"10px 14px",
+          background:"linear-gradient(135deg, #F59E0B12, #FBBF2412)",
+          border:"2px solid #F59E0B",
+          borderRadius:12,
+          flexWrap:"wrap",
+          boxShadow:"0 4px 16px rgba(245,158,11,0.2)",
+        }}>
+          <div style={{display:"flex", alignItems:"center", gap:10, flexWrap:"wrap"}}>
+            <span style={{fontSize:FS+2}}>⚠️</span>
+            <div>
+              <div style={{fontSize:FS, fontWeight:800, color:"#92400E"}}>
+                هناك تغييرات غير محفوظة
+              </div>
+              <div style={{fontSize:FS-2, color:"#78350F", marginTop:2}}>
+                التعديلات بـ تتـحفظ محلياً فقط. اضغط "حفظ التغييرات" عشان تتحدث في النظام.
+              </div>
+            </div>
+          </div>
+          <div style={{display:"flex", gap:8}}>
+            <Btn ghost small={isMob} onClick={discardChanges}>↩️ تراجع</Btn>
+            <Btn primary onClick={saveChanges}>💾 حفظ التغييرات</Btn>
+          </div>
+        </div>
+      )}
 
       {/* ═══ TAB NAV ═══ */}
       <style>{`
@@ -421,14 +502,14 @@ function FaqsTab({ agent, updateAgent, canEdit, isMob }){
       else a.faqs.unshift({ ...faq, createdAt: new Date().toISOString(), useCount: 0 });
     });
     setEditing(null);
-    showToast("✓ تم الحفظ");
+    showToast("✓ تم التحديث (اضغط حفظ التغييرات)");
   };
 
   const delFaq = async (id) => {
     const ok = await ask("حذف هذا السؤال؟");
     if (!ok) return;
     updateAgent(a => { a.faqs = (a.faqs||[]).filter(f => f.id !== id); });
-    showToast("🗑 تم الحذف");
+    showToast("🗑 تم الإزالة (اضغط حفظ التغييرات)");
   };
 
   const cardStyle = { background:T.cardSolid, border:`1px solid ${T.brd}`, borderRadius:14, padding: isMob?12:16, marginBottom:14 };
@@ -685,7 +766,6 @@ function ScheduleTab({ agent, updateAgent, canEdit, isMob }){
       a.schedule.holidays.push({ id: gid(), name: name.trim(), from, to: to || from });
     });
     setNewHoliday({ name:"", from:"", to:"" });
-    showToast("✓ تمت الإضافة");
   };
 
   const delHoliday = (id) => updateAgent(a => {
@@ -2090,7 +2170,21 @@ function CustomerProfileCard({ customer, onPick }){
 }
 
 function CustomerFullProfileModal({ customer, upConfig, canEdit, onClose, isMob }){
-  const c = customer;
+  /* V19.74: per-modal draft. All edits mutate the draft only.
+     "💾 حفظ التغييرات" pushes the draft up to customers[idx] in one upConfig call.
+     Closing with unsaved changes prompts to confirm. */
+  const [draft, setDraft] = useState(() => deepClone(customer));
+  const [dirty, setDirty] = useState(false);
+
+  /* If the source customer changes externally and we have no local edits,
+     refresh the draft. (Same logic as the page-level draft.) */
+  const customerJson = JSON.stringify(customer);
+  useEffect(() => {
+    if (!dirty) setDraft(deepClone(customer));
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [customerJson]);
+
+  const c = draft;
   const stage = STAGES.find(s => s.key === c.stage);
   const tier  = TIERS.find(t => t.key === c.tier);
   const aiProfile = c.ai_profile || {};
@@ -2105,14 +2199,41 @@ function CustomerFullProfileModal({ customer, upConfig, canEdit, onClose, isMob 
 
   const updateCustomer = (mutator) => {
     if (!canEdit) { showToast("ليس لديك صلاحية التعديل"); return; }
+    setDraft(prev => {
+      const next = deepClone(prev);
+      if (!next.ai_profile) next.ai_profile = {};
+      mutator(next);
+      return next;
+    });
+    setDirty(true);
+  };
+
+  const saveChanges = () => {
+    if (!dirty) return;
     upConfig(d => {
       if (!Array.isArray(d.customers)) return;
-      const idx = d.customers.findIndex(x => x.id === c.id);
+      const idx = d.customers.findIndex(x => x.id === customer.id);
       if (idx < 0) return;
-      const cur = d.customers[idx];
-      if (!cur.ai_profile) cur.ai_profile = {};
-      mutator(cur);
+      d.customers[idx] = deepClone(draft);
     });
+    setDirty(false);
+    showToast("✓ تم حفظ كل التغييرات");
+  };
+
+  const discardChanges = async () => {
+    if (!dirty) return;
+    const ok = await ask("التراجع عن كل التغييرات غير المحفوظة؟");
+    if (!ok) return;
+    setDraft(deepClone(customer));
+    setDirty(false);
+  };
+
+  const handleClose = async () => {
+    if (dirty) {
+      const ok = await ask("في تغييرات غير محفوظة. تأكيد الإغلاق؟ (هتضيع)");
+      if (!ok) return;
+    }
+    onClose();
   };
 
   const setFlag = (key, val) => updateCustomer(cur => {
@@ -2129,7 +2250,6 @@ function CustomerFullProfileModal({ customer, upConfig, canEdit, onClose, isMob 
       });
     });
     setNewNote("");
-    showToast("✓ تمت إضافة الملاحظة");
   };
 
   const removeNote = (id) => updateCustomer(cur => {
@@ -2148,7 +2268,6 @@ function CustomerFullProfileModal({ customer, upConfig, canEdit, onClose, isMob 
       });
     });
     setNewObsText("");
-    showToast("✓ تمت إضافة الملاحظة الذكية");
   };
 
   const approveObs = (obsId) => updateCustomer(cur => {
@@ -2166,7 +2285,7 @@ function CustomerFullProfileModal({ customer, upConfig, canEdit, onClose, isMob 
   const sectionStyle = { paddingBottom:14, marginBottom:14, borderBottom:`1px solid ${T.brd}` };
 
   return (
-    <div onClick={onClose} style={{
+    <div onClick={handleClose} style={{
       position:"fixed", inset:0, background:"rgba(0,0,0,0.5)",
       zIndex:99998, display:"flex", alignItems:"flex-start", justifyContent:"center",
       padding:isMob?8:24, overflow:"auto",
@@ -2185,8 +2304,26 @@ function CustomerFullProfileModal({ customer, upConfig, canEdit, onClose, isMob 
               {!stage && <span style={{fontSize:FS-2, color:T.textMut}}>(stage غير محدد)</span>}
             </div>
           </div>
-          <Btn ghost small onClick={onClose}>✕</Btn>
+          <Btn ghost small onClick={handleClose}>✕</Btn>
         </div>
+
+        {/* V19.74: dirty banner inside the modal — local to this customer's draft */}
+        {dirty && (
+          <div style={{
+            display:"flex", alignItems:"center", justifyContent:"space-between",
+            gap:10, marginBottom:16, padding:"8px 12px",
+            background:"#FEF3C7", border:"1.5px solid #F59E0B", borderRadius:10,
+            flexWrap:"wrap",
+          }}>
+            <span style={{fontSize:FS-1, color:"#92400E", fontWeight:700}}>
+              ⚠️ تغييرات غير محفوظة على ملف العميل
+            </span>
+            <div style={{display:"flex", gap:6}}>
+              <Btn ghost small onClick={discardChanges}>↩️ تراجع</Btn>
+              <Btn primary small onClick={saveChanges}>💾 حفظ</Btn>
+            </div>
+          </div>
+        )}
 
         <div style={sectionStyle}>
           <h4 style={{margin:"0 0 8px", fontSize:FS, fontWeight:800, color:T.text}}>📞 أرقام التواصل</h4>
@@ -2336,8 +2473,9 @@ function CustomerFullProfileModal({ customer, upConfig, canEdit, onClose, isMob 
           )}
         </div>
 
-        <div style={{display:"flex", justifyContent:"flex-end", paddingTop:10, borderTop:`1px solid ${T.brd}`}}>
-          <Btn primary onClick={onClose}>إغلاق</Btn>
+        <div style={{display:"flex", justifyContent:"space-between", paddingTop:10, borderTop:`1px solid ${T.brd}`, gap:8, flexWrap:"wrap"}}>
+          <Btn ghost onClick={handleClose}>إغلاق</Btn>
+          {dirty && <Btn primary onClick={saveChanges}>💾 حفظ التغييرات</Btn>}
         </div>
       </div>
     </div>

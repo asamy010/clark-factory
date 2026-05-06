@@ -25,6 +25,22 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.74.0",
+    date: "2026-05-06",
+    types: ["ux", "architectural"],
+    title: "💾 AI Agent: 'Save Changes' pattern — مفيش حفظ لحظي تاني",
+    changes: [
+      { type: "ux", text: "🛡️ [User request: 'عاوز اي تعديل في اي مكان بعدها اضغط حفظ التغييرات ويشوف التعديلات بلاش التعديل المباشر اللحظي في اي حاجة ده بيعمل مشاكل'] الـ AI Agent page كانت بـ تـwrite لـ Firestore على كل keystroke / toggle / إضافة. ده بـ يـcause: (a) per-keystroke Firestore writes (cost + rate limits)، (b) visual flicker لما الـ listener بـ يـfire ويـsnap الـ UI على الـ server state، (c) race conditions لو 2 admins بـ يعدّلوا في نفس الوقت. **الـ Fix**: kept-out كل كتابة لـ Firestore لحد ما الـ admin يضغط 💾 Save. الـ server data يـsync مع الـ draft فقط لو مفيش تغييرات محلية." },
+      { type: "architectural", text: "📐 [Pattern: page-level `draft` state + dirty flag + sticky save bar] ضافت `useState` لـ deep-cloned draft من `data.aiAgent` في AIAgentPg. كل الـ updateAgent calls (في 5 tabs: Personality / Schedule / Tools / FAQs / Funnel) دلوقتي بـ تـmutate الـ draft فقط — مفيش upConfig في الـ middle. الـ `dirty` flag بـ يـtrack لو في تغييرات pending. لما server data بـ يـchange (مثلاً admin تاني save)، useEffect بـ يـrefresh الـ draft IFF !dirty (مش بـ يـoverwrite تعديلات local)." },
+      { type: "architectural", text: "🟡 [Sticky save bar في الـ header — مرئي لما dirty فقط] الـ banner الـ 2nd layer (تحت header الـ Agent) بـ يـappear بـ orange gradient + 'هناك تغييرات غير محفوظة' + زر '↩️ تراجع' و '💾 حفظ التغييرات'. position: sticky top: 0، z-index: 50 — مرئي حتى لو الـ user scrolled في tab طويل. لما dirty=false، الـ banner بـ يختفي تماماً (مش 'overhead' permanent في الـ UI)." },
+      { type: "feature", text: "↩️ [زر تراجع — discardChanges] لو الـ admin غيّر حاجة وغيّر رأيه، بدل ما يـrefresh الصفحة (هيـlose progress في tabs أخرى)، بـ يضغط '↩️ تراجع' — بـ يـrestore الـ draft من server data. الـ confirmation prompt بـ يـask قبل الـ discard لأن العملية irreversible." },
+      { type: "feature", text: "👥 [نفس الـ pattern في CustomerFullProfileModal] الـ modal اللي بـ يعدّل ai_profile.notes/observations/flags كان بـ يـwrite كل toggle/click مباشرة. دلوقتي عنده per-instance `draft` state. لما الـ admin بـ يـclose modal مع تغييرات غير محفوظة، prompt بـ يـask للـ confirmation (else يضيع الـ progress). الـ Save button في الـ footer بدل onClose (الـ Close كـ ghost button دلوقتي)." },
+      { type: "ux", text: "📝 [Toast wording updated — مفيش 'تم الحفظ' بعد كل action] الـ toasts اللي كانت بـ تقول 'تم الحفظ' بعد add/edit/delete دلوقتي بـ تقول 'تم التحديث (اضغط حفظ التغييرات)' — يفكّر الـ admin إن في step تاني محتاج يـcommit. الـ toast الفعلي 'تم حفظ كل التغييرات' بـ يـappear فقط بعد الـ Save Changes button." },
+      { type: "improvement", text: "🔄 [Power toggle بقى ضمن الـ draft] زر '▶️ تشغيل / 🛑 إيقاف' في الـ header كان immediate write. دلوقتي ضمن الـ draft state — الـ admin يقدر يـtoggle بدون ما يـcommit، ويلاقي الـ status pill بـ يـreflect الـ draft state. لو شغّل وغيّر رأيه، بـ يضغط Discard. ده consistent مع باقي الـ controls." },
+      { type: "improvement", text: "🚀 [الـ benefit الكبير: لو في Phase D backend بدأ يـcommunicate في الـ middle] لما الـ Agent backend (Phase D) يبني، هيـكتب على `aiAgentAnalytics` و `aiAgentConversations` بـ updates frequent. مع الـ pattern الـ instant-write القديم، الـ admin's edits كانت ممكن تـrace مع الـ backend. مع الـ draft pattern، الـ backend's writes على collections منفصلة، الـ admin's writes على aiAgent doc فقط لما يـsave صراحة. الـ 2 writes ما يـconflictـش." },
+    ]
+  },
+  {
     version: "V19.73.0",
     date: "2026-05-06",
     types: ["feature"],
