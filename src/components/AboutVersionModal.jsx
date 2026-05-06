@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.18",
+    date: "2026-05-06",
+    types: ["feature"],
+    title: "✍️🔔 اسم صاحب الشيك + تذكير تلقائي للعميل قبل استحقاق الشيك",
+    changes: [
+      { type: "feature", text: "✍️ [حقل 'اسم صاحب الشيك (المكتوب على الشيك)' في فورم الشيك] يظهر فقط للـreceivable (أوراق قبض) — مش للـpayable لأن إحنا الـdrawer. الـuse case: العميل يدفع لنا بشيك من حساب طرف ثالث (مثلاً عميل Ahmed يدينا شيك من حساب أخوه Mohamed)، فنحتاج نسجّل اسم Mohamed كـdrawer. لو الحقل فاضي، الـsystem بـdefault يفترض اسم العميل. الـvalue يـsave كـ`drawerName` في الـcheck object. لو الشيك اتـendorseـت لمورد لاحقاً، الـendorse popup بيعرض الاسم ده عشان المورد يعرف صاحب الحساب الحقيقي." },
+      { type: "feature", text: "🔔 [تذكير واتساب تلقائي للعميل قبل استحقاق الشيك] الـcheckDue trigger الموجود من قبل كان owner-only (المالك يستلم تنبيه). دلوقتي ضافت recipient 'العميل' كمان (default: OFF — opt-in من Triggers tab). لما يـenable، كل يوم الـcron يـscan الشيكات اللي قرّبت تـreceive من البنك (status=معلق، type=receivable، dueDate خلال thresholdDays)، ويبعت رسالة تلقائية للعميل: 'تذكير: شيك يستحق الصرف قريباً' مع كل التفاصيل (اسم صاحب الشيك، البنك، رقم الشيك، القيمة، تاريخ الاستحقاق، عدد الأيام المتبقية) + تنبيه لتغطية الحساب البنكي. ده يقلل bounces ويحسّن cash flow." },
+      { type: "feature", text: "🎚️ [User-tunable threshold] الـ`thresholdDays` config (الموجود من V19.70 للمالك) دلوقتي بـapply على العميل كمان. الـuser يقدر يحدد قبل كام يوم تتبعت التذكير: 1، 3، 7، 14 يوم — حسب اللي يناسب الـworkflow. الـdefault = 3 أيام (نفس الـowner)." },
+      { type: "improvement", text: "🛡️ [Idempotency keys مفصولة لكل recipient role] الـcheckDue كان عنده key واحد `checkDue:${id}:${date}` للـowner. دلوقتي للـcustomer كمان: `checkDue:${id}:${date}:customer` (separate key). كده لو الـowner-fire نجح والـcustomer-fire فشل (مثلاً phone invalid)، الـowner ميـcryش re-fire في الـnext tick، والـcustomer يـretry. ولا الـ2 يـdedupe بعض. ده عبر ضافت `recipientFilter` parameter في processEvent + buildEventMessages — array من الـroles المسموح بـbuild messages لها. legacy callers (بدون filter) ما تأثرتش." },
+      { type: "improvement", text: "📝 [drawerName في كل الـcheck event payloads] checkDue، checkPaymentReceived، checkBounced، checkCollected، checkRePresented، checkEndorsed، checkPaymentIssued — كلهم دلوقتي عندهم {drawerName} variable متاح في الـtemplates. الـowner template للـcheckDue اتحدّث ليعرض '✍️ صاحب الشيك: {drawerName}' كسطر إضافي. لو الـuser عاوز يضيف الـvariable في templates تانية، يقدر يعمله من الـTriggers tab." },
+      { type: "improvement", text: "🛠️ [Mirror sync: api/_eventBuilder.js + src/utils/automation/eventBuilder.js متطابقين 100%] الـEVENT_VARIABLES.checkDue.recipientRoles + variables اتحدّثت في الـ2 ملفات بنفس الـpayload structure. الـbuildEventMessages function ضافت recipientFilter param في الـ2 mirrors. مفيش drift." },
+    ]
+  },
+  {
     version: "V19.70.17",
     date: "2026-05-06",
     types: ["feature", "ux"],

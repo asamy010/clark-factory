@@ -511,9 +511,10 @@ export const DEFAULT_AUTOMATION_CONFIG = {
       checkDue: {
         enabled: false,
         thresholdDays: 3,
-        recipients: { owner: true },
+        recipients: { owner: true, customer: false },
         templates: {
-          owner: "📅 *{checkType} يستحق قريباً*\n\n👤 {partyKind}: {partyName}\n🏢 المكتب: {office}\n🏦 البنك: {bank}\n#️⃣ رقم الشيك: {checkNo}\n💰 القيمة: {amount} ج.م\n📆 تاريخ الاستحقاق: {dueDate}\n⏱ بعد {daysToDue} يوم\n📝 {notes}",
+          owner: "📅 *{checkType} يستحق قريباً*\n\n👤 {partyKind}: {partyName}\n✍️ صاحب الشيك: {drawerName}\n🏢 المكتب: {office}\n🏦 البنك: {bank}\n#️⃣ رقم الشيك: {checkNo}\n💰 القيمة: {amount} ج.م\n📆 تاريخ الاستحقاق: {dueDate}\n⏱ بعد {daysToDue} يوم\n📝 {notes}",
+          customer: "🔔 *تذكير: شيك يستحق الصرف قريباً*\n\nمرحباً {customerName}،\nنود تذكيركم بأن الشيك التالي مستحق الصرف من البنك خلال *{daysToDue}* يوم:\n\n✍️ صاحب الشيك: {drawerName}\n🏦 البنك: {bank}\n#️⃣ رقم الشيك: {checkNo}\n💰 القيمة: {amount} ج.م\n📆 تاريخ الاستحقاق: {dueDate}\n\n⚠️ يرجى التأكد من تغطية الشيك في الحساب البنكي قبل تاريخ الاستحقاق لتجنب ارتداد الشيك.\n\nشكراً لتعاملكم 🌟",
         },
       },
     },

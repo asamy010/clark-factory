@@ -527,15 +527,27 @@ export const DEFAULT_AUTOMATION_CONFIG = {
       checkDue: {
         enabled: false,
         thresholdDays: 3,/* alert if check due within N days */
-        recipients: { owner: true },
+        /* V19.70.18: customer recipient added — fires for receivable checks only.
+           The customer (drawer) is reminded to cover their bank account before
+           we present the check. Default OFF so existing users don't suddenly
+           start blasting customers; user must opt in via Triggers UI. */
+        recipients: { owner: true, customer: false },
         templates: {
           /* V19.70.1: enriched template — covers receivable (ورقة قبض من عميل) AND
-             payable (ورقة دفع لمورد), with full party details + bank + office. */
-          owner: "📅 *{checkType} يستحق قريباً*\n\n👤 {partyKind}: {partyName}\n🏢 المكتب: {office}\n🏦 البنك: {bank}\n#️⃣ رقم الشيك: {checkNo}\n💰 القيمة: {amount} ج.م\n📆 تاريخ الاستحقاق: {dueDate}\n⏱ بعد {daysToDue} يوم\n📝 {notes}",
+             payable (ورقة دفع لمورد), with full party details + bank + office.
+             V19.70.18: drawerName surfaced when it differs from partyName (3rd-party check). */
+          owner: "📅 *{checkType} يستحق قريباً*\n\n👤 {partyKind}: {partyName}\n✍️ صاحب الشيك: {drawerName}\n🏢 المكتب: {office}\n🏦 البنك: {bank}\n#️⃣ رقم الشيك: {checkNo}\n💰 القيمة: {amount} ج.م\n📆 تاريخ الاستحقاق: {dueDate}\n⏱ بعد {daysToDue} يوم\n📝 {notes}",
+          /* V19.70.18: customer-facing reminder — receivable only (cron logic skips payable).
+             {drawerName} = the name printed on the check (so customer can identify which
+             check we mean, especially helpful when they paid us with a 3rd-party check).
+             {customerName} = the customer we received it from (the partyName). */
+          customer: "🔔 *تذكير: شيك يستحق الصرف قريباً*\n\nمرحباً {customerName}،\nنود تذكيركم بأن الشيك التالي مستحق الصرف من البنك خلال *{daysToDue}* يوم:\n\n✍️ صاحب الشيك: {drawerName}\n🏦 البنك: {bank}\n#️⃣ رقم الشيك: {checkNo}\n💰 القيمة: {amount} ج.م\n📆 تاريخ الاستحقاق: {dueDate}\n\n⚠️ يرجى التأكد من تغطية الشيك في الحساب البنكي قبل تاريخ الاستحقاق لتجنب ارتداد الشيك.\n\nشكراً لتعاملكم 🌟",
         },
-        /* checkDue is cron-detected daily; one alert per check per day max.
+        /* checkDue is cron-detected daily; one alert per check per day max per role
+           (owner gets one, customer gets one — both keyed differently in eventHistory).
            V19.70.1: ONLY fires for status==="معلق" (in factory). Endorsed
-           checks (مُظهّر) excluded — they're not in our possession anymore. */
+           checks (مُظهّر) excluded — they're not in our possession anymore.
+           V19.70.18: customer fires only for type==="receivable". */
       },
     },
     pending: [],/* [{id, eventType, payload, recipients, createdAt, attempts, lastAttemptAt, lastError}] */

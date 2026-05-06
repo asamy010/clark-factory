@@ -115,8 +115,11 @@ export function resolveOwnerPhones(et){
    - body: JSON-safe response object
    ═══════════════════════════════════════════════════════════════════════ */
 export async function processEvent(db, params){
-  /* V19.70.10: supplierPhone added for checkPaymentIssued and supplier-recipient events */
-  const { eventType, payload, customerPhone, supplierPhone, idempotencyKey, force, source, cfgCache } = params;
+  /* V19.70.10: supplierPhone added for checkPaymentIssued and supplier-recipient events
+     V19.70.18: recipientFilter — array of role names to limit which messages are built.
+     Used by checkDue to fire customer + owner as separate calls (different idempotency keys
+     so they don't dedupe each other). Omit / null to keep legacy behavior (all roles). */
+  const { eventType, payload, customerPhone, supplierPhone, idempotencyKey, force, source, cfgCache, recipientFilter } = params;
 
   /* Validate input */
   if (!eventType || !EVENT_VARIABLES[eventType]) {
@@ -171,8 +174,11 @@ export async function processEvent(db, params){
     return { ok: true, status: 200, body: { ok: true, queued: true, mode: "manual" } };
   }
 
-  /* Build messages */
-  const messages = buildEventMessages(eventType, eventCfg, payload, phones);
+  /* Build messages. V19.70.18: pass recipientFilter so checkDue can split customer/owner
+     into separate processEvent calls (each with its own idempotencyKey so they don't
+     accidentally dedupe each other). buildEventMessages drops messages whose role isn't
+     in the filter when one is provided. */
+  const messages = buildEventMessages(eventType, eventCfg, payload, phones, recipientFilter);
   if (messages.length === 0) {
     return { ok: true, status: 200, body: { ok: true, skipped: true, reason: "no-recipients" } };
   }

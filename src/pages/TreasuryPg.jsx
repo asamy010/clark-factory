@@ -673,6 +673,12 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[chkNotes,setChkNotes]=useState("");const[chkEditId,setChkEditId]=useState(null);const[chkFilter,setChkFilter]=useState("الكل");
   const[chkCategory,setChkCategory]=useState("");/* category for the check — drives treasury registration */
   const[chkPartyId,setChkPartyId]=useState("");/* linked customer or supplier id */
+  /* V19.70.18: drawer name = الاسم المكتوب على الشيك. Different from `party`/`partyId`
+     because a customer can pay us with a 3rd-party check (e.g. customer X gives us a
+     check drawn on Y's bank account). Surfaced when endorsing to a supplier so they
+     know who actually owes the bank — and used in the customer due-reminder message
+     so the customer can identify which specific check we're talking about. */
+  const[chkDrawerName,setChkDrawerName]=useState("");
   /* V19.70.9: search query for the customer/supplier picker — replaces the long
      dropdown with a filterable list. Keeps the existing chkParty/chkPartyId
      semantics (id = linked, free-text fallback when not linked). */
@@ -2643,7 +2649,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           const _instantIssuedCheck_supplier = _instantIssuedCheck_eligible
             ? suppliers.find(x => x.id === chkPartyId) : null;
           upConfig(d=>{if(!d.checks)d.checks=[];
-            if(chkEditId){const ch=d.checks.find(c=>c.id===chkEditId);if(ch){ch.type=chkType;ch.amount=amt;ch.party=chkParty;ch.partyId=chkPartyId||null;ch.bank=chkBank;ch.checkNo=chkNumber;ch.date=chkDate;ch.dueDate=chkDueDate;ch.notes=chkNotes;ch.category=chkCategory||"";ch.updatedBy=userName}}
+            if(chkEditId){const ch=d.checks.find(c=>c.id===chkEditId);if(ch){ch.type=chkType;ch.amount=amt;ch.party=chkParty;ch.partyId=chkPartyId||null;ch.bank=chkBank;ch.checkNo=chkNumber;ch.date=chkDate;ch.dueDate=chkDueDate;ch.notes=chkNotes;ch.category=chkCategory||"";
+              /* V19.70.18: persist drawerName (receivable only — payable doesn't have a separate drawer) */
+              if(chkType==="receivable") ch.drawerName=String(chkDrawerName||"").trim()||null;
+              ch.updatedBy=userName}}
             else{
               /* V16.35: Batch mode — generate N checks. Otherwise just one. */
               const count=chkBatchEnabled?Math.max(1,Math.min(60,Number(chkBatchCount)||1)):1;
@@ -2663,6 +2672,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                   date:chkDate||today,
                   dueDate:chkDueDate?addMonths(chkDueDate,i*step):"",
                   notes:chkNotes,category:chkCategory||"",status:"معلق",
+                  /* V19.70.18: drawerName for receivable checks (the name on the check
+                     itself, distinct from the party we received it from). Defaults to
+                     the party name if user left it blank. Null for payable (we ARE the drawer). */
+                  drawerName: chkType==="receivable" ? (String(chkDrawerName||"").trim() || chkParty.trim() || null) : null,
                   batchId,batchIdx:batchId?i+1:null,batchTotal:batchId?count:null,
                   by:userName,createdAt:new Date().toISOString()
                 });
@@ -2791,10 +2804,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             })();
           }
           setShowCheckForm(false);setChkAmount("");setChkParty("");setChkPartyId("");setChkBank("");setChkNumber("");setChkDate("");setChkDueDate("");setChkNotes("");setChkCategory("");setChkEditId(null);setChkPartySearch("");setChkPartyOpen(false);
+          setChkDrawerName("");/* V19.70.18 */
           setChkBatchEnabled(false);
           showToast(chkBatchEnabled&&!chkEditId?("✓ تم حفظ "+(Math.max(1,Number(chkBatchCount)||1))+" شيك"):"✓ تم الحفظ");
         };
-        const editCheck=(c)=>{setChkEditId(c.id);setChkType(c.type);setChkAmount(String(c.amount));setChkParty(c.party||"");setChkPartyId(c.partyId||"");setChkBank(c.bank||"");setChkNumber(c.checkNo||"");setChkDate(c.date||"");setChkDueDate(c.dueDate||"");setChkNotes(c.notes||"");setChkCategory(c.category||"");setChkPartySearch("");setChkPartyOpen(false);setShowCheckForm(true)};
+        const editCheck=(c)=>{setChkEditId(c.id);setChkType(c.type);setChkAmount(String(c.amount));setChkParty(c.party||"");setChkPartyId(c.partyId||"");setChkBank(c.bank||"");setChkNumber(c.checkNo||"");setChkDate(c.date||"");setChkDueDate(c.dueDate||"");setChkNotes(c.notes||"");setChkCategory(c.category||"");setChkDrawerName(c.drawerName||"");setChkPartySearch("");setChkPartyOpen(false);setShowCheckForm(true)};
         /* V16.34: Update check status with proper treasury + customer/supplier side effects.
            Statuses for receivable: معلق → محصل | مُظهّر | مرتد | ملغي
            Statuses for payable:    معلق → مدفوع | ملغي
@@ -3109,7 +3123,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           </div>
           {/* Add button + filter */}
           <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
-            {canEdit&&<Btn primary onClick={()=>{setChkEditId(null);setChkType("receivable");setChkAmount("");setChkParty("");setChkBank("");setChkNumber("");setChkDate(today);setChkDueDate("");setChkNotes("");setShowCheckForm(!showCheckForm)}}>{showCheckForm?"✕ إغلاق":"+ شيك جديد"}</Btn>}
+            {canEdit&&<Btn primary onClick={()=>{setChkEditId(null);setChkType("receivable");setChkAmount("");setChkParty("");setChkBank("");setChkNumber("");setChkDate(today);setChkDueDate("");setChkNotes("");setChkDrawerName("");setShowCheckForm(!showCheckForm)}}>{showCheckForm?"✕ إغلاق":"+ شيك جديد"}</Btn>}
             <Sel value={chkFilter} onChange={setChkFilter} style={{width:130}}><option>الكل</option><option>أوراق قبض</option><option>أوراق دفع</option></Sel>
           </div>
           {/* Form */}
@@ -3202,6 +3216,15 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رقم الشيك</label><Inp value={chkNumber} onChange={setChkNumber} placeholder="رقم"/></div>
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تاريخ التحرير</label><Inp type="date" value={chkDate} onChange={setChkDate}/></div>
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تاريخ الاستحقاق</label><Inp type="date" value={chkDueDate} onChange={setChkDueDate}/></div>
+              {/* V19.70.18: drawerName — only for receivable. The customer paying us
+                  with a 3rd party check needs to register the actual drawer's name (the
+                  one written on the check). When endorsed to a supplier, the supplier
+                  sees this as the original drawer — same person whose bank account will
+                  be debited at presentation. */}
+              {chkType==="receivable" && <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>اسم صاحب الشيك (المكتوب على الشيك)</label>
+                <Inp value={chkDrawerName} onChange={setChkDrawerName} placeholder={chkParty?("افتراضياً: "+chkParty):"اسم صاحب الحساب"}/>
+                <div style={{fontSize:FS-3,color:T.textMut,marginTop:3}}>💡 لو فاضي → يفترض اسم العميل ({chkParty||"—"})</div>
+              </div>}
               <div style={{gridColumn:isMob?"1":"1/-1"}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات</label><Inp value={chkNotes} onChange={setChkNotes} placeholder="ملاحظات"/></div>
             </div>
             {/* V16.35: Batch repeat — only for new checks (not when editing) */}
@@ -3449,8 +3472,18 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 </div>
                 <div style={{padding:12,borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF620",marginBottom:14}}>
                   <div style={{fontSize:FS-1,color:T.textSec}}>شيك من: <b style={{color:T.text}}>{ch.party}</b></div>
+                  {/* V19.70.18: surface the drawer name so the user knows whose bank
+                      account will be debited at presentation. Especially important
+                      for 3rd-party checks (where the drawer differs from the party
+                      we received it from). */}
+                  {ch.drawerName && ch.drawerName !== ch.party && (
+                    <div style={{fontSize:FS-2,color:T.textSec,marginTop:3}}>
+                      ✍️ صاحب الشيك (المكتوب عليه): <b style={{color:T.text}}>{ch.drawerName}</b>
+                    </div>
+                  )}
                   <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6",marginTop:4}}>{fmt0(ch.amount)} ج.م</div>
                   {ch.checkNo&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{"رقم: #"+ch.checkNo+(ch.dueDate?" | استحقاق: "+ch.dueDate:"")}</div>}
+                  {ch.bank&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>🏦 {ch.bank}</div>}
                 </div>
                 {/* V16.33: Optional endorsement date — defaults to today, editable */}
                 <div style={{marginBottom:12}}>

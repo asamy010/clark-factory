@@ -716,25 +716,66 @@ async function scanChecksDue(db, cfg, checkCfg, cairoDate){
     const office = partyRecord.companyName || partyRecord.company || partyRecord.office || partyRecord.businessName || "";
     const notes = c.notes || "";
     const category = c.category || "";
+    /* V19.70.18: drawerName = name written on the check (different from partyName
+       when the customer paid us with a 3rd-party check). Falls back to partyName
+       so legacy checks (without drawerName field) still get a usable value. */
+    const drawerName = c.drawerName || partyName;
 
+    /* V19.70.18: build a payload with two recipient angles. The owner template
+       uses partyKind/partyName/office. The customer template (receivable only) uses
+       customerName + drawerName so the recipient knows which check is being referenced. */
+    const basePayload = {
+      checkType, partyKind, partyName, drawerName, office, notes, category,
+      customerName: type === "receivable" ? partyName : "",
+      bank: c.bank || "—",
+      checkNo: c.checkNo || c.number || c.id,
+      amount: Number(c.amount) || 0,
+      dueDate: due,
+      daysToDue,
+      /* V19.70.1: keep legacy keys for back-compat with existing templates */
+      kindLabel: partyKind,
+    };
+
+    /* V19.70.18: customer-targeted reminder fires ONLY for receivable checks where
+       (a) the trigger config has recipients.customer=true, (b) the customer record
+       has a phone. Sent as a SEPARATE processEvent call with its own idempotency key
+       (different role suffix) so a fired owner-message doesn't dedupe the customer one,
+       and a single retry doesn't re-fire whichever one already succeeded. */
+    const wantCustomer = type === "receivable" && (checkCfg.recipients || {}).customer === true;
+    const customerPhone = wantCustomer ? (partyRecord.phone || null) : null;
+
+    if (wantCustomer && customerPhone) {
+      /* Fire the customer-side first — distinct idempotency key per role */
+      const custKey = `checkDue:${c.id}:${cairoDate}:customer`;
+      const cr = await processEvent(db, {
+        eventType: "checkDue",
+        payload: basePayload,
+        customerPhone,
+        /* Owner phones intentionally omitted from THIS call — we'll fire owner separately */
+        idempotencyKey: custKey,
+        force: false,
+        source: "cron",
+        cfgCache: cfg,
+        /* V19.70.18: hint for processEvent so it builds only the customer message
+           (skip owner template even though the trigger config says owner: true).
+           processEvent reads `recipientFilter` and limits buildEventMessages output. */
+        recipientFilter: ["customer"],
+      });
+      if (cr.body?.sent) fired++;
+      else if (cr.body?.deduped) skipped++;
+    }
+
+    /* Owner is the existing default — same idempotency key as before for backward compat */
     const idempotencyKey = `checkDue:${c.id}:${cairoDate}`;
     const r = await processEvent(db, {
       eventType: "checkDue",
-      payload: {
-        checkType, partyKind, partyName, office, notes, category,
-        bank: c.bank || "—",
-        checkNo: c.checkNo || c.number || c.id,
-        amount: Number(c.amount) || 0,
-        dueDate: due,
-        daysToDue,
-        /* V19.70.1: keep legacy keys for back-compat with existing templates */
-        kindLabel: partyKind,
-      },
-      customerPhone: null,/* check-due is owner-only */
+      payload: basePayload,
+      customerPhone: null,/* owner-only call */
       idempotencyKey,
       force: false,
       source: "cron",
       cfgCache: cfg,
+      recipientFilter: ["owner"],
     });
     if (r.body?.sent) fired++;
     else if (r.body?.deduped) skipped++;

@@ -131,16 +131,30 @@ export const EVENT_VARIABLES = {
   },
   checkDue: {
     label: "📅 شيك يستحق قريباً",
-    description: "شيك مستحق خلال أيام محدودة (الموجود في المصنع فقط — مش المظهَّر)",
-    detection: "cron-only (daily scan, one alert per check per day, status==معلق only)",
-    recipientRoles: ["owner"],
+    description: "شيك مستحق خلال أيام محدودة (الموجود في المصنع فقط — مش المظهَّر). للمالك دائماً، وللعميل في الـreceivable فقط (تذكير لتغطية الشيك قبل الصرف).",
+    detection: "cron-only (daily scan, one alert per check per day per role, status==معلق only)",
+    /* V19.70.18: customer added — receivable-only reminder so the drawer covers
+       their bank account before we present. The cron logic skips customer for
+       payable checks (we're the drawer, not them). */
+    recipientRoles: ["owner", "customer"],
     variables: {
-      /* V19.70.1: enriched check details — type label, party kind/name/office, notes, category */
+      /* V19.70.1: enriched check details — type label, party kind/name/office, notes, category
+         V19.70.18: drawerName added — the name on the check, may differ from partyName for 3rd-party checks */
       owner: [
-        "{checkType}", "{partyKind}", "{partyName}", "{office}",
+        "{checkType}", "{partyKind}", "{partyName}", "{drawerName}", "{office}",
         "{bank}", "{checkNo}", "{amount}",
         "{dueDate}", "{daysToDue}",
         "{notes}", "{category}",
+      ],
+      /* Customer-facing template — receivable only. Tells the customer to cover
+         the check at their bank before the due date. {drawerName} helps them
+         identify which specific check we're talking about (especially when the
+         check was drawn on a 3rd party). */
+      customer: [
+        "{customerName}", "{drawerName}",
+        "{bank}", "{checkNo}", "{amount}",
+        "{dueDate}", "{daysToDue}",
+        "{notes}",
       ],
     },
   },
@@ -171,17 +185,27 @@ export function substituteTemplate(template, payload, variables) {
      eventCfg:   data.automation.eventTriggers.events[eventType]
      payload:    event-specific data (customerName, qty, etc.)
      phones:     { customer?: string, owner?: string[] } — resolved phones
+     recipientFilter (optional V19.70.18): array of role names ("customer", "owner",
+       "supplier", "salesperson") — when provided, only messages for those roles are
+       built. Used by checkDue to split customer + owner into separate processEvent
+       calls so each has its own idempotencyKey and they don't dedupe each other.
    Output:
      [{ phone, message, role }] — ready for the bridge `/send` call
    Skips disabled events, disabled recipients, and missing phones. */
-export function buildEventMessages(eventType, eventCfg, payload, phones) {
+export function buildEventMessages(eventType, eventCfg, payload, phones, recipientFilter) {
   if (!eventCfg || !eventCfg.enabled) return [];
   const messages = [];
   const tpls = eventCfg.templates || {};
   const recps = eventCfg.recipients || {};
+  /* V19.70.18: when recipientFilter is provided, only roles in the list are built.
+     `null`/`undefined`/empty → no filtering (legacy behavior). */
+  const allow = (Array.isArray(recipientFilter) && recipientFilter.length > 0)
+    ? new Set(recipientFilter)
+    : null;
+  const roleAllowed = (role) => !allow || allow.has(role);
 
   /* Customer: single phone */
-  if (recps.customer && tpls.customer && phones.customer) {
+  if (roleAllowed("customer") && recps.customer && tpls.customer && phones.customer) {
     const text = substituteTemplate(tpls.customer, payload);
     if (text.trim()) {
       messages.push({ phone: phones.customer, message: text, role: "customer" });
@@ -189,7 +213,7 @@ export function buildEventMessages(eventType, eventCfg, payload, phones) {
   }
 
   /* V19.70.10: Supplier: single phone (for checkPaymentIssued) */
-  if (recps.supplier && tpls.supplier && phones.supplier) {
+  if (roleAllowed("supplier") && recps.supplier && tpls.supplier && phones.supplier) {
     const text = substituteTemplate(tpls.supplier, payload);
     if (text.trim()) {
       messages.push({ phone: phones.supplier, message: text, role: "supplier" });
@@ -197,7 +221,7 @@ export function buildEventMessages(eventType, eventCfg, payload, phones) {
   }
 
   /* Owner: 0..N phones (multiple owners possible) */
-  if (recps.owner && tpls.owner && Array.isArray(phones.owner)) {
+  if (roleAllowed("owner") && recps.owner && tpls.owner && Array.isArray(phones.owner)) {
     const text = substituteTemplate(tpls.owner, payload);
     if (text.trim()) {
       for (const p of phones.owner) {
@@ -207,7 +231,7 @@ export function buildEventMessages(eventType, eventCfg, payload, phones) {
   }
 
   /* Salesperson: 0..1 phone */
-  if (recps.salesperson && tpls.salesperson && phones.salesperson) {
+  if (roleAllowed("salesperson") && recps.salesperson && tpls.salesperson && phones.salesperson) {
     const text = substituteTemplate(tpls.salesperson, payload);
     if (text.trim()) {
       messages.push({ phone: phones.salesperson, message: text, role: "salesperson" });
