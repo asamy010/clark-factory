@@ -10,7 +10,7 @@
 /* V19.50: Single source of truth for the app version. Used in topbar pills
    (desktop + mobile), the console marker on module load, and the About modal.
    Bump this constant once and the version label is consistent everywhere. */
-export const APP_VERSION = "V19.74.0";
+export const APP_VERSION = "V19.75.0";
 
 export const FKEYS = ["A","B","C","D","E"];
 
@@ -136,6 +136,17 @@ export const INIT_CONFIG = {
       escalate_to_human: { enabled: true },
       send_otp: { enabled: true, ttlMin: 5, maxAttempts: 3 },
       verify_otp: { enabled: true },
+    },
+    /* V19.75 — Test mode (whitelist gate). Critical for soft launch:
+       admin enables a small list of friendly customers; everyone else
+       gets the configured "system under maintenance" canned reply (or
+       silence). The agent backend's availability gate enforces this
+       BEFORE running any LLM call, so non-whitelisted senders cost $0. */
+    testMode: {
+      enabled: false,
+      whitelist: [],/* {id, wid, label, addedAt}. wid format: "201XXX@c.us" or raw "XXX@lid" */
+      outsideBehavior: "canned",/* canned | silent */
+      outsideMessage: "أهلاً بحضرتك. النظام تحت اختبار محدود حالياً، الفريق هيرد عليك بكرة بإذن الله.",
     },
     /* Tier discounts (default per spec) */
     tierDiscounts: { Bronze: 0, Silver: 3, Gold: 5, Platinum: 8 },

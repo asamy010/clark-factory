@@ -212,6 +212,32 @@ export function AIAgentPg({ data, upConfig, isMob, canEdit, user }){
         </div>
       </div>
 
+      {/* V19.75: Test mode banner — visible whenever testMode.enabled is true.
+                  Yellow stripe + count of whitelisted numbers + "manage" link. */}
+      {agent.testMode?.enabled && (
+        <div style={{
+          display:"flex", alignItems:"center", justifyContent:"space-between",
+          gap:10, marginBottom:14, padding:"10px 14px",
+          background:"linear-gradient(135deg, #FEF3C7, #FDE68A)",
+          border:"2px solid #F59E0B",
+          borderRadius:12,
+          flexWrap:"wrap",
+        }}>
+          <div style={{display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", minWidth:0}}>
+            <span style={{fontSize:FS+4}}>🧪</span>
+            <div>
+              <div style={{fontSize:FS, fontWeight:800, color:"#92400E"}}>
+                وضع التجربة شغّال — الـ Agent بـ يرد على {(agent.testMode.whitelist || []).length} رقم فقط
+              </div>
+              <div style={{fontSize:FS-2, color:"#78350F", marginTop:2}}>
+                باقي الأرقام {agent.testMode.outsideBehavior === "silent" ? "مفيش رد (silent)" : "بـ تستلم رسالة \"تحت الاختبار\""}
+              </div>
+            </div>
+          </div>
+          <Btn small onClick={()=>setTab("schedule")}>📋 إدارة القائمة</Btn>
+        </div>
+      )}
+
       {/* ═══ V19.74: Save / Discard sticky bar — only visible when dirty.
                     All inline edits across ALL tabs collect into the draft,
                     then a single click here commits everything. ═══ */}
@@ -737,11 +763,57 @@ function FaqEditor({ faq, categories, onSave, onClose, isMob }){
    ════════════════════════════════════════════════════════════ */
 function ScheduleTab({ agent, updateAgent, canEdit, isMob }){
   const sch = agent.schedule || DEFAULT_AGENT.schedule;
+  const tm  = agent.testMode || DEFAULT_AGENT.testMode;
   const [newHoliday, setNewHoliday] = useState({ name:"", from:"", to:"" });
+  const [newWlPhone, setNewWlPhone] = useState("");
+  const [newWlLabel, setNewWlLabel] = useState("");
 
   const setSch = (key, val) => updateAgent(a => {
     if (!a.schedule) a.schedule = JSON.parse(JSON.stringify(DEFAULT_AGENT.schedule));
     a.schedule[key] = val;
+  });
+
+  /* V19.75: Test mode setters */
+  const setTm = (key, val) => updateAgent(a => {
+    if (!a.testMode) a.testMode = JSON.parse(JSON.stringify(DEFAULT_AGENT.testMode));
+    a.testMode[key] = val;
+  });
+
+  const addWhitelistEntry = () => {
+    const raw = (newWlPhone || "").trim();
+    if (!raw) { showToast("⚠️ ادخل رقم"); return; }
+    /* If user wrote a bare phone, format as 201XXXXXXXXX@c.us. If they
+       included @ already (e.g. an LID), keep verbatim. */
+    let wid;
+    if (raw.includes("@")) {
+      wid = raw;
+    } else {
+      let digits = raw.replace(/\D/g, "");
+      if (digits.startsWith("00")) digits = digits.slice(2);
+      if (digits.startsWith("0") && digits.length === 11) digits = "20" + digits.slice(1);
+      if (digits.length === 10 && digits.startsWith("1")) digits = "20" + digits;
+      wid = digits + "@c.us";
+    }
+    updateAgent(a => {
+      if (!a.testMode) a.testMode = JSON.parse(JSON.stringify(DEFAULT_AGENT.testMode));
+      if (!Array.isArray(a.testMode.whitelist)) a.testMode.whitelist = [];
+      /* Avoid duplicates by user-part match */
+      const userPart = wid.split("@")[0];
+      const dup = a.testMode.whitelist.find(e => (e.wid || "").split("@")[0] === userPart);
+      if (dup) { return; }
+      a.testMode.whitelist.push({
+        id: gid(), wid,
+        label: (newWlLabel || "").trim() || null,
+        addedAt: new Date().toISOString(),
+      });
+    });
+    setNewWlPhone("");
+    setNewWlLabel("");
+  };
+
+  const removeWhitelistEntry = (id) => updateAgent(a => {
+    if (!a.testMode?.whitelist) return;
+    a.testMode.whitelist = a.testMode.whitelist.filter(e => e.id !== id);
   });
 
   const setDay = (dayKey, key, val) => updateAgent(a => {
@@ -778,6 +850,98 @@ function ScheduleTab({ agent, updateAgent, canEdit, isMob }){
 
   return (
     <div>
+      {/* V19.75 — Test Mode (whitelist gate) */}
+      <div style={{
+        ...cardStyle,
+        background: tm.enabled ? "linear-gradient(135deg, #FEF3C7, #FDE68A40)" : T.cardSolid,
+        border: tm.enabled ? "2px solid #F59E0B" : `1px solid ${T.brd}`,
+      }}>
+        <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap", marginBottom:14}}>
+          <h3 style={{margin:0, fontSize:FS+2, fontWeight:800, color: tm.enabled ? "#92400E" : T.text}}>
+            🧪 وضع التجربة (Whitelist)
+          </h3>
+          <label style={{display:"flex", alignItems:"center", gap:8, cursor: canEdit?"pointer":"default"}}>
+            <input type="checkbox" checked={!!tm.enabled}
+              onChange={e => canEdit && setTm("enabled", e.target.checked)}
+              style={{width:20,height:20}}/>
+            <span style={{fontSize:FS, fontWeight:700, color: tm.enabled ? "#92400E" : T.text}}>
+              {tm.enabled ? "شغّال — الأرقام المحددة فقط" : "موقوف — كل الأرقام"}
+            </span>
+          </label>
+        </div>
+
+        <div style={{fontSize:FS-1, color: tm.enabled ? "#78350F" : T.textMut, lineHeight:1.6, marginBottom:14}}>
+          لما تشغّل الوضع ده، الـ Agent بـ يرد فقط على الأرقام في القائمة. الباقي يا بـ يستلموا رسالة "تحت الاختبار" يا silent (مفيش رد). مفيش charge على Anthropic لأي رقم خارج الـ whitelist.
+        </div>
+
+        {/* Whitelist editor */}
+        <div style={{marginBottom:14}}>
+          <label style={fieldStyle}>📞 الأرقام المسموحة ({(tm.whitelist || []).length})</label>
+          {(tm.whitelist || []).length > 0 && (
+            <div style={{display:"grid", gap:6, marginBottom:10}}>
+              {tm.whitelist.map(e => (
+                <div key={e.id} style={{
+                  display:"flex", justifyContent:"space-between", alignItems:"center",
+                  padding:"8px 12px", borderRadius:8,
+                  background: tm.enabled ? "#fff" : T.bg,
+                  border: `1px solid ${tm.enabled ? "#FCD34D" : T.brd}`,
+                }}>
+                  <div style={{display:"flex", flexDirection:"column", gap:2}}>
+                    <span style={{fontSize:FS, fontWeight:700, color:T.text, fontFamily:"'Fira Code', monospace"}}>
+                      {e.wid}
+                    </span>
+                    {e.label && <span style={{fontSize:FS-2, color:T.textMut}}>· {e.label}</span>}
+                  </div>
+                  {canEdit && <Btn danger small onClick={()=>removeWhitelistEntry(e.id)}>🗑</Btn>}
+                </div>
+              ))}
+            </div>
+          )}
+          {canEdit && (
+            <div style={{display:"grid", gridTemplateColumns: isMob?"1fr":"2fr 2fr auto", gap:8, alignItems:"end"}}>
+              <div>
+                <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, marginBottom:4, display:"block"}}>الرقم (مصري أو WA-ID كامل)</label>
+                <Inp value={newWlPhone} onChange={setNewWlPhone} placeholder="مثال: 01100201057 أو 46480236...@lid"/>
+              </div>
+              <div>
+                <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, marginBottom:4, display:"block"}}>الاسم (اختياري)</label>
+                <Inp value={newWlLabel} onChange={setNewWlLabel} placeholder="مثال: أحمد المالك"/>
+              </div>
+              <Btn primary onClick={addWhitelistEntry}>+ إضافة</Btn>
+            </div>
+          )}
+          <div style={{fontSize:FS-2, color:T.textMut, marginTop:8, lineHeight:1.5}}>
+            💡 لو حضرتك بـ تـtest، أول حاجة ضيف رقمك. لو شفت في الـ logs WA-ID بـ <code style={{background:T.bg,padding:"1px 5px",borderRadius:3}}>@lid</code>، انسخ كاملاً + الصق هنا (الـ WhatsApp Business بـ يستخدم الـ format ده للخصوصية).
+          </div>
+        </div>
+
+        {/* Outside-whitelist behavior */}
+        <div style={{display:"grid", gridTemplateColumns: isMob?"1fr":"1fr 2fr", gap:12}}>
+          <div>
+            <label style={fieldStyle}>سلوك الأرقام خارج القائمة</label>
+            <Sel value={tm.outsideBehavior || "canned"} onChange={v=>canEdit && setTm("outsideBehavior", v)}>
+              <option value="canned">يبعت رسالة "تحت الاختبار"</option>
+              <option value="silent">مفيش رد (silent)</option>
+            </Sel>
+          </div>
+          <div>
+            <label style={fieldStyle}>الرسالة (لما السلوك = "يبعت رسالة")</label>
+            <textarea
+              value={tm.outsideMessage || ""}
+              onChange={e=>canEdit && setTm("outsideMessage", e.target.value)}
+              readOnly={!canEdit}
+              rows={2}
+              style={{
+                width:"100%", padding:10, borderRadius:8,
+                border:`1px solid ${T.brd}`, background:T.cardSolid, color:T.text,
+                fontFamily:"inherit", fontSize:FS, lineHeight:1.5,
+                resize:"vertical", boxSizing:"border-box", outline:"none", direction:"rtl",
+              }}
+            />
+          </div>
+        </div>
+      </div>
+
       {/* Mode */}
       <div style={cardStyle}>
         <h3 style={{margin:"0 0 14px",fontSize:FS+2,fontWeight:800,color:T.text}}>⏰ نمط التشغيل</h3>

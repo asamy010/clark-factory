@@ -25,6 +25,22 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.75.0",
+    date: "2026-05-06",
+    types: ["feature"],
+    title: "🧪 AI Agent — Test Mode (whitelist gate) للـ soft launch",
+    changes: [
+      { type: "feature", text: "🛡 [User request: 'عاوز ازود في الاوبشن ان نعمل تيست مع ارقام معينة مش لايف يعني لحد مانوصل لمرحلة كويسة'] الـ Agent دلوقتي بقى لحظة launch — أي رقم بـ يبعت لـ CLARK رقم WhatsApp بـ يـrespond. للـ soft launch، محتاجين whitelist mode. اتعمل: `config.aiAgent.testMode = { enabled, whitelist[], outsideBehavior, outsideMessage }`. الـ availability gate في الـ backend بـ يـcheck الـ whitelist BEFORE الـ Claude call (cost protection — non-whitelisted senders cost $0)." },
+      { type: "feature", text: "🟡 [Sticky banner في الـ header — visible whenever testMode.enabled] لما الـ admin يـ enable الـ test mode، banner ذهبي بـ يظهر فوق tabs الـ navigation: '🧪 وضع التجربة شغّال — الـ Agent بـ يرد على X رقم فقط'. زر '📋 إدارة القائمة' بـ يـnavigate للـ Schedule tab. الـ banner بـ يختفي تماماً لما الـ test mode = OFF (لا overhead دائم في الـ UI)." },
+      { type: "feature", text: "📞 [Whitelist editor في Schedule tab — أعلى section] قبل 'نمط التشغيل' في الـ Schedule tab، section جديد متميز بـ amber gradient لما active. Toggle رئيسي ('شغّال/موقوف') + قائمة الأرقام الحالية بـ WID format واضح + add form (رقم مصري أو WA-ID كامل) + delete buttons + behavior selector (canned message vs silent) + textarea للـ outsideMessage. الـ admin يقدر يضيف phones (auto-formatted لـ 201XXX@c.us) أو يـpaste LIDs مباشرة." },
+      { type: "feature", text: "🔍 [Whitelist matching — tolerant + LID-aware] الـ `isInWhitelist(wid, list)` helper بـ يـmatch بالـ user-part فقط (الجزء قبل الـ @). يعني: '201100201057' بـ يـmatch مع '201100201057@c.us' و '+201100201057' و '00201100201057'. الـ LIDs بـ تـmatch بنفس الـ user-part. ده بـ يـsupport scenarios متعددة بدون ما الـ admin يحتاج يعرف format الـ WhatsApp بالظبط." },
+      { type: "feature", text: "🚦 [Order of checks in availability gate] (1) `enabled` master toggle — لو OFF، skip silent. (2) `testMode` — لو enabled و sender خارج الـ whitelist، canned/silent based على outsideBehavior. (3) Schedule mode (24x7/off/specific). الـ test mode CHECKED قبل schedule لأن المنطق هو 'مش لايف للجميع لسه' — الـ schedule ميهمش طالما الـ launch محدود." },
+      { type: "feature", text: "🧪 [10 unit tests للـ whitelist + isInWhitelist helper] tolerance tests (with/without @ suffix، +/00 prefixes، LID format)، edge cases (null/empty)، behavior tests (canned vs silent vs disabled)، integration with decideAvailability. كل الـ 49 + الـ 10 الجدد = 59/59 passing." },
+      { type: "improvement", text: "💰 [Cost protection by design] لو الـ admin شغّل الـ test mode + 5 أرقام مسموحة، أي رقم تاني بـ يبعت → الـ webhook handler بـ يـreject في الـ availability gate قبل الـ orchestrator → مفيش Claude call → مفيش $$$. الـ canned message (لو configured) بـ يبعت عبر bridge مباشرة (cheap). ده ضروري للـ soft launch لأن العميل ممكن يـshare الرقم في groups واسعة — مفيش كنترول على الـ inbound، بس عندنا كنترول على الـ outbound." },
+      { type: "improvement", text: "🎯 [الـ pro UX details] (1) Header banner تـelevate visibility — الأدمن مش هيـmiss إن الـ agent in test mode. (2) The Schedule-tab section gets a yellow-amber visual treatment when active so it's instantly recognizable. (3) Per-entry display: WID in monospace font (clear for technical readers) + optional human label ('أحمد المالك'). (4) Auto-format للـ Egyptian phones (admin بـ يكتب 01100201057 → بـ يحفظ 201100201057@c.us). (5) Anti-duplicate check on add (by user-part)." },
+    ]
+  },
+  {
     version: "V19.74.0",
     date: "2026-05-06",
     types: ["ux", "architectural"],
