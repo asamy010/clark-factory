@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.76.1",
+    date: "2026-05-06",
+    types: ["fix"],
+    title: "🐛 Hotfix: Catalog 'Import from orders' was finding 0 models",
+    changes: [
+      { type: "fix", text: "🐛 [User report: 'ازاي فاضي كل الموديلات موجوده'] الـ Import from Orders modal كان بـ يـscan كل order ويـlook لـ `o.a.code, o.b.code, ..., o.e.code` كأنها موديلات مختلفة. **الـ Bug**: في clark-factory الـ orders بـ يـحوي **موديل واحد** لكل order على top-level: `o.modelNo` (الكود) + `o.modelDesc` (الاسم). الـ A/B/C/D/E suffixes (fabricA, colorsA, إلخ) للأقمشة، مش لموديلات منفصلة. النتيجة: الـ scan كان بـ يرجع 0 موديل طول الوقت لأن الـ keys دي مش موجودة." },
+      { type: "fix", text: "✅ [Fixed: scan reads o.modelNo + o.modelDesc] الـ discovery code دلوقتي بـ يـscan الـ structure الفعلي. كمان: استخراج المقاسات من `o.sizeLabel` (مثلاً '6-8-10-12' → ['6','8','10','12']) + الألوان من `colorsA/B/C/D/E` arrays (concatenated unique). الـ ordering لسه by frequency (الموديلات الأكثر تكراراً في الـ orders أول). كل موديل بـ يظهر في الـ list بـ سيزن، عدد الـ orders اللي ظهر فيها، مقاسات، عدد ألوان." },
+      { type: "fix", text: "📥 [Import data flow now includes colors] الـ items المـsave كانت بـ تـset colors=[] فاضية. دلوقتي بـ تنسخ d.colors من الـ discovery (الألوان المستخرجة من الـ orders). الـ admin بـ يقدر يعدّل بعد الإضافة." },
+    ]
+  },
+  {
     version: "V19.76.0",
     date: "2026-05-06",
     types: ["feature"],

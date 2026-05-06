@@ -3152,31 +3152,51 @@ function CatalogImportModal({ data, existingCodes, onImport, onClose, isMob }){
   const orders = data?.orders || [];
   const activeSeason = data?.activeSeason || null;
 
+  /* V19.76 fix: orders in CLARK have ONE model each at the top level —
+     `o.modelNo` (the code) + `o.modelDesc` (the name/description). The
+     A/B/C/D/E suffixes (fabricA, colorsA, etc.) are for FABRICS, not
+     separate models per order. */
   const discovered = useMemo(() => {
     const map = new Map();
     for (const o of orders) {
-      for (const g of ["a","b","c","d","e"]) {
-        const m = o[g];
-        if (!m?.code || !m?.name) continue;
-        const code = String(m.code).trim();
-        if (!code || existingCodes.has(code)) continue;
-        if (!map.has(code)) {
-          map.set(code, {
-            code, name: String(m.name).trim(),
-            season: o.season || activeSeason || null,
-            seenInOrders: 0,
-            sizes: new Set(),
-          });
-        }
-        const entry = map.get(code);
-        entry.seenInOrders++;
-        /* Try to extract sizes from the model's distribution */
-        if (m.sizes && typeof m.sizes === "object") {
-          for (const sz of Object.keys(m.sizes)) entry.sizes.add(sz);
+      const code = String(o.modelNo || "").trim();
+      const name = String(o.modelDesc || o.modelNo || "").trim();
+      if (!code || !name) continue;
+      if (existingCodes.has(code)) continue;
+      if (!map.has(code)) {
+        map.set(code, {
+          code,
+          name,
+          season: o.season || activeSeason || null,
+          seenInOrders: 0,
+          sizes: new Set(),
+          colors: new Set(),
+        });
+      }
+      const entry = map.get(code);
+      entry.seenInOrders++;
+      /* Sizes — orders have a sizeLabel like "6-8-10-12" — split into individual sizes */
+      if (o.sizeLabel) {
+        const parts = String(o.sizeLabel).split(/[-/،,]+/).map(s => s.trim()).filter(Boolean);
+        for (const p of parts) entry.sizes.add(p);
+      }
+      /* Colors come from colorsA/B/C/D/E arrays (one per fabric group) */
+      for (const k of ["A","B","C","D","E"]) {
+        const colorsArr = o["colors" + k];
+        if (Array.isArray(colorsArr)) {
+          for (const c of colorsArr) {
+            const cn = (typeof c === "string" ? c : c?.name)?.trim();
+            if (cn) entry.colors.add(cn);
+          }
         }
       }
     }
-    return Array.from(map.values()).map(e => ({ ...e, sizes: Array.from(e.sizes) }))
+    return Array.from(map.values())
+      .map(e => ({
+        ...e,
+        sizes: Array.from(e.sizes),
+        colors: Array.from(e.colors),
+      }))
       .sort((a, b) => b.seenInOrders - a.seenInOrders);
   }, [orders, existingCodes, activeSeason]);
 
@@ -3199,7 +3219,7 @@ function CatalogImportModal({ data, existingCodes, onImport, onClose, isMob }){
         category: "ولادي",/* default — admin edits later */
         season: d.season || null,
         sizes: d.sizes,
-        colors: [],
+        colors: d.colors,/* V19.76 fix — was missing */
         fabrics: [],
         priceWholesale: null,
         minOrderQty: null,
@@ -3264,6 +3284,7 @@ function CatalogImportModal({ data, existingCodes, onImport, onClose, isMob }){
                       {d.season ? `موسم ${d.season} · ` : ""}
                       ظهر في {d.seenInOrders} أمر
                       {d.sizes.length > 0 && ` · مقاسات: ${d.sizes.join("/")}`}
+                      {d.colors.length > 0 && ` · ${d.colors.length} لون`}
                     </div>
                   </div>
                 </label>
