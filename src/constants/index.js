@@ -10,7 +10,7 @@
 /* V19.50: Single source of truth for the app version. Used in topbar pills
    (desktop + mobile), the console marker on module load, and the About modal.
    Bump this constant once and the version label is consistent everywhere. */
-export const APP_VERSION = "V19.75.0";
+export const APP_VERSION = "V19.76.0";
 
 export const FKEYS = ["A","B","C","D","E"];
 
@@ -77,6 +77,16 @@ export const INIT_CONFIG = {
   /* Warehouse module — general products (Session A) */
   generalProducts:[],/* {id,name,category,unit,stock,minStock,avgCost,price,notes,lastMovementDate} */
   productCategories:["مستلزمات تشغيل","قطع غيار","خدمات","ورق وكرتون","مواد تنظيف","أخرى"],
+  /* V19.76 — Product catalog (kids garments). The single source of truth
+     for what CLARK manufactures. The AI Agent reads this to answer
+     customer questions about models, sizes, colors, prices. Stored
+     inline in factory/config so it loads with the rest of master data;
+     images are base64-compressed thumbnails (kept small to stay under
+     Firestore's 1 MB doc limit — admin gets a warning at 50+ items). */
+  catalog: [],/* {id, code, name, nameEn, image, description, category,
+                  season, sizes[], colors[], fabrics[], priceWholesale,
+                  minOrderQty, inStock, notes, tags[], createdAt, updatedAt} */
+  catalogCategories: ["ولادي", "بناتي", "بيبي", "junior", "أخرى"],
   /* V19.71: AI Agent control center config (Phase A — UI scaffold).
      The agent backend lives on a separate VPS Node.js project (clark-ai-agent).
      CLARK app is the configuration surface — this object is what the agent

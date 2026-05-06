@@ -25,6 +25,23 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.76.0",
+    date: "2026-05-06",
+    types: ["feature"],
+    title: "📦 Product Catalog tab — single source of truth للـ AI Agent",
+    changes: [
+      { type: "feature", text: "🛡 [User report: 'سالته على كود موديل موجود بالفعل وقاللي انه الكود مش صح والموديل ده مش موجود... ازاي ندربه على الداتا'] الـ Agent ما كانش معاه structured product catalog — كان بـ يـsearch في الـ orders subcollection بدون ما يعرف الـ models بشكل موثوق. النتيجة: hallucinations عن الموديلات. **الـ Fix**: catalog tab كامل في AI Agent UI، الـ admin بـ يـcurate الموديلات يدوياً (أو بـ import من الـ orders)، الـ agent بـ يـquery منه كـ single source of truth." },
+      { type: "feature", text: "📦 [Tab '📦 الكتالوج' — جديد بين الشخصية والـ FAQs] cards layout responsive (auto-fill 280px). كل card: صورة 4:3 + كود monospace + اسم + season/category badges + وصف + sizes/colors summary + سعر/حد أدنى + edit/delete. Filter (search + category + season) + stats pills (إجمالي/ظاهر/متاح). Empty state واضح مع call-to-action للإضافة الأولى." },
+      { type: "feature", text: "✏️ [Editor modal كامل] 7 sections: (1) Basic — code, name, nameEn, category, season, inStock toggle. (2) الوصف. (3) صورة — file picker + auto-compress (4:3, 600px max, ~30KB JPG via compressImg43). (4) Specs — sizes (tag editor)، colors (tag editor)، fabrics (multi-select من factory.fabrics). (5) Pricing — wholesale price + min order qty. (6) Tags (للـ search). (7) Notes داخلية. Save → catalog[] في factory/config." },
+      { type: "feature", text: "📥 [Import from orders — auto-discovery] الـ admin بـ يضغط '📥 استيراد' → modal بـ يـscan الـ orders array (seasons/{s}/orders) ويـextract كل (code, name) فريدة + season + sizes (من distribution map) + 'seen in N orders' rank (الأكثر تكراراً أولاً). الـ admin بـ يختار اللي عاوزه + bulk import. الـ items بـ تتـadd كـ catalog entries (default category=ولادي، edit later لإضافة صور/أسعار/ألوان). توفير ضخم في الوقت لو في 100+ موديل في الـ orders." },
+      { type: "feature", text: "🔍 [Backend: searchProducts rewritten كـ catalog-first] الـ tool القديم كان يـscan seasons/{s}/orders/ subcollection ويـreturn raw matches. دلوقتي بـ يقرأ من config.catalog مباشرة بـ scoring algorithm: exact code match=1000، code substring=100، exact name=800، name substring=80، nameEn=60، tag exact=50، tag substring=20، description=30. Top N returned مع structured data (code/name/category/sizes/colors/fabrics/price/inStock/has_image). الـ image data مش بـ ترجع للـ LLM context (overhead) — بس flag has_image لو عاوزين نـsendMedia في Phase 2." },
+      { type: "feature", text: "🆕 [Backend: get_product_details(code) tool جديد] بعد ما search_products يـnarrow down للـ موديل، الـ agent بـ يقدر يـpull كل تفاصيله بالـ code. Exact match (case-insensitive). لو الـ code مش موجود، الـ tool بـ يرجع `{found: false, message: 'لا تخترع تفاصيل عنه — استخدم escalate'}` — anti-hallucination by design." },
+      { type: "feature", text: "🧠 [System prompt updates — catalog-aware factory facts] الـ buildFactoryFacts() دلوقتي بـ يـinject: عدد الموديلات في الكتالوج + الـ in-stock count + التوزيع حسب الفئة (top 4) + 6 sample model codes كـ concrete examples للـ LLM. لو الكتالوج فاضي، رسالة صريحة: 'لو العميل سأل عن موديل معين، استخدم escalate_to_human (لا تخترع)'." },
+      { type: "feature", text: "🛠 [الـ tool description بقت أكثر صرامة] الـ search_products description دلوقتي بـ يقول explicitly: '⚠️ مهم: لو الـ search بـ يرجع 0 results، الموديل **مش موجود** عندنا — لا تخترع ولا تقول تقريباً — استخدم escalate_to_human.' الـ tool descriptions جزء من الـ prompt اللي الـ LLM بـ يقراه، ده بـ يدفعه للـ correct behavior." },
+      { type: "improvement", text: "📐 [Storage strategy] الـ catalog inline في factory/config مع warning عند 50+ items. الصور compressed لـ 4:3 / ~30KB لازم تستوعب 50 موديل في حدود 1.5MB — قريبة من Firestore's 1MB doc limit لكن مش بتـcrash. لو الـ catalog كبر فوق ده، Phase 2 هيـsplit لـ separate collection." },
+    ]
+  },
+  {
     version: "V19.75.0",
     date: "2026-05-06",
     types: ["feature"],

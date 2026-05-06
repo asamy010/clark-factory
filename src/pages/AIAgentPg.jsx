@@ -44,6 +44,7 @@ import { T } from "../theme.js";
 import { FS, INIT_CONFIG } from "../constants/index.js";
 import { gid } from "../utils/format.js";
 import { showToast, ask } from "../utils/popups.js";
+import { compressImg43 } from "../utils/image.js";
 
 const DEFAULT_AGENT = INIT_CONFIG.aiAgent;
 
@@ -57,11 +58,12 @@ const DAY_LABELS = [
   { key: "fri", label: "الجمعة" },
 ];
 
-/* V19.73: All 9 tabs now functional (Phase A + B + C). Phase D = backend.
-   The `phase` property is dropped — the page lives or dies as one. */
+/* V19.76: 10 tabs. Catalog = single source of truth for products,
+   read by the agent's search_products tool. */
 const TABS = [
   { key: "dashboard",   label: "لوحة التحكم",        icon: "📊" },
   { key: "personality", label: "الشخصية",            icon: "🎭" },
+  { key: "catalog",     label: "الكتالوج",           icon: "📦" },
   { key: "faqs",        label: "الأسئلة المتكررة",   icon: "📚" },
   { key: "tools",       label: "الأدوات",            icon: "🛠" },
   { key: "schedule",    label: "الجدول الزمني",      icon: "⏰" },
@@ -306,6 +308,7 @@ export function AIAgentPg({ data, upConfig, isMob, canEdit, user }){
       <div>
         {tab==="dashboard"   && <DashboardTab agent={agent} data={data} isMob={isMob}/>}
         {tab==="personality" && <PersonalityTab agent={agent} updateAgent={updateAgent} canEdit={canEdit} isMob={isMob}/>}
+        {tab==="catalog"     && <CatalogTab data={data} upConfig={upConfig} canEdit={canEdit} isMob={isMob}/>}
         {tab==="faqs"        && <FaqsTab agent={agent} updateAgent={updateAgent} canEdit={canEdit} isMob={isMob}/>}
         {tab==="tools"       && <ToolsTab agent={agent} updateAgent={updateAgent} canEdit={canEdit} isMob={isMob}/>}
         {tab==="schedule"    && <ScheduleTab agent={agent} updateAgent={updateAgent} canEdit={canEdit} isMob={isMob}/>}
@@ -2651,6 +2654,628 @@ function ProfileField({ label, value }){
     <div>
       <div style={{fontSize:FS-2, color:T.textSec, fontWeight:600}}>{label}</div>
       <div style={{fontSize:FS-1, color:T.text, fontWeight:600, marginTop:2}}>{value}</div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════
+   CATALOG TAB (V19.76) — product master data for the AI agent
+   ─────────────────────────────────────────────────────────────
+   Stores entries in `config.catalog[]`. Each entry: code, name,
+   image (compressed base64 thumbnail), category, season, sizes,
+   colors, fabrics, price, etc. The agent's search_products tool
+   reads this as the SINGLE SOURCE OF TRUTH so it stops inventing.
+
+   Includes "Import from orders" — scans recent orders and offers
+   to add their unique models with one click.
+   ════════════════════════════════════════════════════════════ */
+function CatalogTab({ data, upConfig, canEdit, isMob }){
+  const catalog = Array.isArray(data?.catalog) ? data.catalog : [];
+  const categories = data?.catalogCategories || ["ولادي", "بناتي", "بيبي", "junior", "أخرى"];
+  const seasons = Array.isArray(data?.seasons) ? data.seasons : [];
+  const fabrics = Array.isArray(data?.fabrics) ? data.fabrics : [];
+
+  const [search, setSearch] = useState("");
+  const [filterCategory, setFilterCategory] = useState("");
+  const [filterSeason, setFilterSeason] = useState("");
+  const [editing, setEditing] = useState(null);/* product object | "new" | null */
+  const [importing, setImporting] = useState(false);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return catalog.filter(p => {
+      if (filterCategory && p.category !== filterCategory) return false;
+      if (filterSeason && p.season !== filterSeason) return false;
+      if (!q) return true;
+      const hay = [p.code, p.name, p.nameEn, p.description, ...(p.tags||[])].join(" ").toLowerCase();
+      return hay.includes(q);
+    });
+  }, [catalog, search, filterCategory, filterSeason]);
+
+  const saveProduct = (product) => {
+    if (!canEdit) { showToast("ليس لديك صلاحية"); return; }
+    upConfig(d => {
+      if (!Array.isArray(d.catalog)) d.catalog = [];
+      const idx = d.catalog.findIndex(p => p.id === product.id);
+      const now = new Date().toISOString();
+      if (idx >= 0) {
+        d.catalog[idx] = { ...d.catalog[idx], ...product, updatedAt: now };
+      } else {
+        d.catalog.unshift({ ...product, createdAt: now, updatedAt: now });
+      }
+    });
+    setEditing(null);
+    showToast("✓ تم حفظ الموديل");
+  };
+
+  const delProduct = async (id) => {
+    if (!canEdit) return;
+    const ok = await ask("حذف الموديل ده من الكتالوج؟");
+    if (!ok) return;
+    upConfig(d => { d.catalog = (d.catalog||[]).filter(p => p.id !== id); });
+    showToast("🗑 تم الحذف");
+  };
+
+  const cardStyle = { background:T.cardSolid, border:`1px solid ${T.brd}`, borderRadius:14, padding: isMob?12:16, marginBottom:14 };
+
+  /* Stats */
+  const stats = {
+    total: catalog.length,
+    byCategory: categories.map(c => ({ c, n: catalog.filter(p => p.category === c).length })).filter(x => x.n > 0),
+    bySeason:   seasons.map(s => ({ s, n: catalog.filter(p => p.season === s).length })).filter(x => x.n > 0),
+    inStock: catalog.filter(p => p.inStock).length,
+  };
+
+  return (
+    <div>
+      {/* Banner explaining the role of the catalog */}
+      <div style={{
+        padding:"10px 14px", marginBottom:14, borderRadius:10,
+        background:"#0EA5E908", border:"1px solid #0EA5E930",
+        fontSize:FS-1, color:"#0369A1", lineHeight:1.6,
+      }}>
+        💡 الكتالوج ده <strong>المصدر الوحيد للموديلات</strong> اللي الـ AI Agent بـ يقرأ منه. لو موديل مش هنا، الـ agent مش هيعرفه ولن يخترعه (قاعدة anti-hallucination). كل ما تـadd موديلات، الـ agent بقى أدق.
+      </div>
+
+      {/* Toolbar */}
+      <div style={{...cardStyle, display:"grid", gridTemplateColumns: isMob?"1fr":"2fr 1fr 1fr auto", gap:10, alignItems:"center"}}>
+        <Inp value={search} onChange={setSearch} placeholder="🔍 كود، اسم، وصف، tag..."/>
+        <Sel value={filterCategory} onChange={setFilterCategory}>
+          <option value="">📁 كل الفئات</option>
+          {categories.map(c => <option key={c} value={c}>{c}</option>)}
+        </Sel>
+        <Sel value={filterSeason} onChange={setFilterSeason}>
+          <option value="">🌦 كل المواسم</option>
+          {seasons.map(s => <option key={s} value={s}>{s}</option>)}
+        </Sel>
+        {canEdit && (
+          <div style={{display:"flex", gap:6}}>
+            <Btn onClick={()=>setImporting(true)}>📥 استيراد</Btn>
+            <Btn primary onClick={()=>setEditing("new")}>+ موديل</Btn>
+          </div>
+        )}
+      </div>
+
+      {/* Stats */}
+      <div style={{display:"flex", gap:10, marginBottom:14, flexWrap:"wrap"}}>
+        <StatPill label="إجمالي الموديلات" value={stats.total} color="#0EA5E9"/>
+        <StatPill label="ظاهر بالفلتر" value={filtered.length} color="#10B981"/>
+        <StatPill label="متاح" value={stats.inStock} color="#059669"/>
+        {catalog.length >= 50 && (
+          <div style={{flex:"1 1 200px", padding:"8px 12px", borderRadius:8, background:"#FEF3C7", border:"1px solid #FCD34D", fontSize:FS-2, color:"#78350F"}}>
+            ⚠️ أكتر من 50 موديل — لو الأداء بـ يبطؤ، فكر تـsplit الكتالوج لـ subcollection (Phase 2 work).
+          </div>
+        )}
+      </div>
+
+      {/* List */}
+      {filtered.length === 0 ? (
+        <div style={{...cardStyle, textAlign:"center", padding:"50px 24px"}}>
+          <div style={{fontSize:56, marginBottom:14, opacity:0.5}}>📦</div>
+          <div style={{fontSize:FS+3, fontWeight:800, color:T.text, marginBottom:6}}>
+            {catalog.length === 0 ? "الكتالوج فاضي" : "مفيش نتائج"}
+          </div>
+          <div style={{fontSize:FS-1, color:T.textMut, marginBottom:18, maxWidth:480, margin:"0 auto 18px"}}>
+            {catalog.length === 0
+              ? "ضيف أول موديل يدوياً، أو استورد من الأوامر الموجودة."
+              : "غيّر شروط البحث/الفلتر."}
+          </div>
+          {canEdit && catalog.length === 0 && (
+            <div style={{display:"flex", gap:8, justifyContent:"center"}}>
+              <Btn onClick={()=>setImporting(true)}>📥 استيراد من الأوامر</Btn>
+              <Btn primary onClick={()=>setEditing("new")}>+ إضافة يدوياً</Btn>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{display:"grid", gridTemplateColumns: isMob?"1fr":"repeat(auto-fill, minmax(280px, 1fr))", gap:12}}>
+          {filtered.map(p => (
+            <CatalogCard key={p.id} product={p} canEdit={canEdit}
+              onEdit={()=>setEditing(p)} onDelete={()=>delProduct(p.id)}/>
+          ))}
+        </div>
+      )}
+
+      {/* Editor */}
+      {editing && (
+        <CatalogEditor
+          product={editing === "new" ? null : editing}
+          categories={categories}
+          seasons={seasons}
+          fabrics={fabrics}
+          onSave={saveProduct}
+          onClose={()=>setEditing(null)}
+          isMob={isMob}
+        />
+      )}
+
+      {/* Import from orders */}
+      {importing && (
+        <CatalogImportModal
+          data={data}
+          existingCodes={new Set(catalog.map(p => String(p.code).trim()))}
+          onImport={(items) => {
+            upConfig(d => {
+              if (!Array.isArray(d.catalog)) d.catalog = [];
+              const now = new Date().toISOString();
+              for (const it of items) d.catalog.unshift({ ...it, id: gid(), createdAt: now, updatedAt: now });
+            });
+            showToast(`✓ تم استيراد ${items.length} موديل`);
+            setImporting(false);
+          }}
+          onClose={()=>setImporting(false)}
+          isMob={isMob}
+        />
+      )}
+    </div>
+  );
+}
+
+function CatalogCard({ product, canEdit, onEdit, onDelete }){
+  const p = product;
+  return (
+    <div style={{
+      background:T.cardSolid, border:`1px solid ${T.brd}`, borderRadius:12,
+      overflow:"hidden", display:"flex", flexDirection:"column",
+      transition:"all 0.15s",
+    }}
+    onMouseEnter={e=>e.currentTarget.style.borderColor=T.accent}
+    onMouseLeave={e=>e.currentTarget.style.borderColor=T.brd}
+    >
+      {/* Image */}
+      <div style={{
+        aspectRatio:"4/3", background:T.bg,
+        display:"flex", alignItems:"center", justifyContent:"center",
+        position:"relative", overflow:"hidden",
+      }}>
+        {p.image ? (
+          <img src={p.image} alt={p.name} style={{width:"100%", height:"100%", objectFit:"cover"}}/>
+        ) : (
+          <div style={{fontSize:48, opacity:0.3}}>📦</div>
+        )}
+        {!p.inStock && (
+          <div style={{
+            position:"absolute", top:8, right:8,
+            padding:"3px 8px", borderRadius:6,
+            background:"#FEE2E2", color:"#991B1B",
+            fontSize:11, fontWeight:700,
+          }}>غير متاح</div>
+        )}
+      </div>
+      {/* Body */}
+      <div style={{padding:12, flex:1, display:"flex", flexDirection:"column"}}>
+        <div style={{display:"flex", alignItems:"baseline", gap:8, marginBottom:4, flexWrap:"wrap"}}>
+          <span style={{fontSize:FS-2, fontFamily:"'Fira Code', monospace", color:T.textMut, fontWeight:700}}>
+            {p.code}
+          </span>
+          {p.season && <span style={{fontSize:FS-3, padding:"1px 6px", borderRadius:5, background:T.bg, color:T.textSec}}>{p.season}</span>}
+          {p.category && <span style={{fontSize:FS-3, padding:"1px 6px", borderRadius:5, background:"#EDE9FE", color:"#7C3AED"}}>{p.category}</span>}
+        </div>
+        <div style={{fontSize:FS+1, fontWeight:800, color:T.text, marginBottom:6}}>
+          {p.name}
+        </div>
+        {p.description && (
+          <div style={{fontSize:FS-1, color:T.textSec, lineHeight:1.5, marginBottom:8,
+            display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden"}}>
+            {p.description}
+          </div>
+        )}
+        <div style={{fontSize:FS-2, color:T.textMut, marginBottom:6, display:"flex", flexWrap:"wrap", gap:4}}>
+          {(p.sizes||[]).length > 0 && <span>📏 {p.sizes.slice(0,4).join("/")}{p.sizes.length>4?"…":""}</span>}
+          {(p.colors||[]).length > 0 && <span>🎨 {p.colors.length} لون</span>}
+        </div>
+        {p.priceWholesale ? (
+          <div style={{fontSize:FS, fontWeight:800, color:T.accent, marginTop:"auto"}}>
+            {Number(p.priceWholesale).toLocaleString("ar-EG")} ج
+            {p.minOrderQty ? <span style={{fontSize:FS-2, color:T.textMut, marginInlineStart:6, fontWeight:600}}>· الحد الأدنى {p.minOrderQty}</span> : null}
+          </div>
+        ) : (
+          <div style={{fontSize:FS-2, color:T.textMut, marginTop:"auto", fontStyle:"italic"}}>السعر يحدد بالاتفاق</div>
+        )}
+        {canEdit && (
+          <div style={{display:"flex", gap:6, marginTop:10, paddingTop:10, borderTop:`1px solid ${T.brd}`}}>
+            <Btn ghost small onClick={onEdit} style={{flex:1}}>✏️ تعديل</Btn>
+            <Btn danger small onClick={onDelete}>🗑</Btn>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CatalogEditor({ product, categories, seasons, fabrics, onSave, onClose, isMob }){
+  const [code, setCode] = useState(product?.code || "");
+  const [name, setName] = useState(product?.name || "");
+  const [nameEn, setNameEn] = useState(product?.nameEn || "");
+  const [description, setDescription] = useState(product?.description || "");
+  const [category, setCategory] = useState(product?.category || categories[0] || "ولادي");
+  const [season, setSeason] = useState(product?.season || seasons[0] || "");
+  const [sizes, setSizes] = useState(product?.sizes || []);
+  const [colors, setColors] = useState(product?.colors || []);
+  const [productFabrics, setProductFabrics] = useState(product?.fabrics || []);
+  const [priceWholesale, setPriceWholesale] = useState(product?.priceWholesale || "");
+  const [minOrderQty, setMinOrderQty] = useState(product?.minOrderQty || "");
+  const [inStock, setInStock] = useState(product?.inStock !== false);
+  const [notes, setNotes] = useState(product?.notes || "");
+  const [tags, setTags] = useState(product?.tags || []);
+  const [image, setImage] = useState(product?.image || null);
+  const [newSize, setNewSize] = useState("");
+  const [newColor, setNewColor] = useState("");
+  const [newTag, setNewTag] = useState("");
+  const [imageBusy, setImageBusy] = useState(false);
+
+  const handleImage = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageBusy(true);
+    try {
+      /* compressImg43 returns 4:3 aspect base64 — perfect for catalog cards */
+      const compressed = await compressImg43(file, { maxWidth: 600, quality: 0.78 });
+      setImage(compressed);
+    } catch (err) {
+      showToast("⚠️ فشل ضغط الصورة: " + err.message);
+    } finally {
+      setImageBusy(false);
+    }
+  };
+
+  const handleSave = () => {
+    if (!code.trim() || !name.trim()) {
+      showToast("⚠️ الكود واسم الموديل مطلوبين");
+      return;
+    }
+    onSave({
+      id: product?.id || gid(),
+      code: code.trim(),
+      name: name.trim(),
+      nameEn: nameEn.trim() || null,
+      description: description.trim() || null,
+      category,
+      season: season || null,
+      sizes: sizes.filter(Boolean),
+      colors: colors.filter(Boolean),
+      fabrics: productFabrics.filter(Boolean),
+      priceWholesale: priceWholesale ? Number(priceWholesale) : null,
+      minOrderQty: minOrderQty ? Number(minOrderQty) : null,
+      inStock: !!inStock,
+      notes: notes.trim() || null,
+      tags: tags.filter(Boolean),
+      image: image || null,
+    });
+  };
+
+  const fld = { fontSize:FS-1, fontWeight:700, color:T.textSec, marginBottom:4, display:"block" };
+  const tagStyle = { display:"inline-flex", alignItems:"center", gap:5, padding:"3px 9px", borderRadius:6, background:T.bg, border:`1px solid ${T.brd}`, fontSize:FS-1 };
+
+  return (
+    <div onClick={onClose} style={{
+      position:"fixed", inset:0, background:"rgba(0,0,0,0.5)",
+      zIndex:99998, display:"flex", alignItems:"flex-start", justifyContent:"center",
+      padding:isMob?8:24, overflow:"auto",
+    }}>
+      <div onClick={e=>e.stopPropagation()} style={{
+        background:T.cardSolid, borderRadius:16, padding: isMob?14:24,
+        width:"100%", maxWidth:780, marginTop: isMob?8:24, marginBottom: isMob?8:24,
+        boxShadow:"0 20px 60px rgba(0,0,0,0.3)", direction:"rtl",
+      }}>
+        <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18}}>
+          <h2 style={{margin:0, fontSize:FS+4, fontWeight:800, color:T.text}}>
+            {product ? "✏️ تعديل موديل" : "+ موديل جديد"}
+          </h2>
+          <Btn ghost small onClick={onClose}>✕</Btn>
+        </div>
+
+        {/* Section: Basic */}
+        <h4 style={{margin:"4px 0 10px", fontSize:FS, color:T.textSec, fontWeight:700}}>المعلومات الأساسية</h4>
+        <div style={{display:"grid", gridTemplateColumns: isMob?"1fr":"1fr 2fr", gap:10, marginBottom:14}}>
+          <div>
+            <label style={fld}>كود الموديل *</label>
+            <Inp value={code} onChange={setCode} placeholder="3262111"/>
+          </div>
+          <div>
+            <label style={fld}>اسم الموديل *</label>
+            <Inp value={name} onChange={setName} placeholder="WINTER PRO"/>
+          </div>
+          <div>
+            <label style={fld}>الاسم بالإنجليزي (اختياري)</label>
+            <Inp value={nameEn} onChange={setNameEn} placeholder="Winter Pro"/>
+          </div>
+          <div>
+            <label style={fld}>الفئة</label>
+            <Sel value={category} onChange={setCategory}>
+              {categories.map(c => <option key={c} value={c}>{c}</option>)}
+            </Sel>
+          </div>
+          <div>
+            <label style={fld}>الموسم</label>
+            <Sel value={season} onChange={setSeason}>
+              <option value="">-- اختر --</option>
+              {seasons.map(s => <option key={s} value={s}>{s}</option>)}
+            </Sel>
+          </div>
+          <label style={{display:"flex",alignItems:"center",gap:8,marginTop:isMob?0:18,fontSize:FS,fontWeight:600,color:T.text,cursor:"pointer"}}>
+            <input type="checkbox" checked={!!inStock} onChange={e=>setInStock(e.target.checked)} style={{width:18,height:18}}/>
+            متاح حالياً
+          </label>
+        </div>
+
+        <div style={{marginBottom:14}}>
+          <label style={fld}>الوصف</label>
+          <textarea value={description} onChange={e=>setDescription(e.target.value)} rows={2}
+            placeholder="مثلاً: جاكت ولادي شتوي بكاب، خامة صوف 80%"
+            style={{width:"100%",padding:10,borderRadius:8,border:`1px solid ${T.brd}`,background:T.cardSolid,color:T.text,fontFamily:"inherit",fontSize:FS,direction:"rtl",boxSizing:"border-box"}}/>
+        </div>
+
+        {/* Section: Image */}
+        <h4 style={{margin:"4px 0 10px", fontSize:FS, color:T.textSec, fontWeight:700}}>الصورة</h4>
+        <div style={{display:"grid", gridTemplateColumns: isMob?"1fr":"160px 1fr", gap:10, marginBottom:14, alignItems:"start"}}>
+          <div style={{aspectRatio:"4/3",background:T.bg,borderRadius:10,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center",border:`1px dashed ${T.brd}`}}>
+            {image ? (
+              <img src={image} alt="preview" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+            ) : (
+              <span style={{fontSize:36,opacity:0.4}}>📷</span>
+            )}
+          </div>
+          <div>
+            <input type="file" accept="image/*" onChange={handleImage} disabled={imageBusy}
+              style={{fontSize:FS-1,padding:8,border:`1px solid ${T.brd}`,borderRadius:8,background:T.cardSolid,color:T.text,width:"100%",boxSizing:"border-box"}}/>
+            <div style={{fontSize:FS-2, color:T.textMut, marginTop:6, lineHeight:1.5}}>
+              الصورة بـ تتـcompress تلقائياً لـ 4:3 ثم 600px (~30KB). الـ agent بـ يستخدمها مع الرد لو العميل سأل عن الموديل ده.
+              {imageBusy && <span style={{color:T.warn, marginInlineStart:6}}>⏳ بـ يـcompress...</span>}
+              {image && (
+                <span style={{display:"block", marginTop:4}}>
+                  <Btn ghost small onClick={()=>setImage(null)}>🗑 إزالة الصورة</Btn>
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Section: Specs */}
+        <h4 style={{margin:"4px 0 10px", fontSize:FS, color:T.textSec, fontWeight:700}}>المواصفات</h4>
+        <div style={{display:"grid", gridTemplateColumns: isMob?"1fr":"1fr 1fr", gap:14, marginBottom:14}}>
+          <div>
+            <label style={fld}>المقاسات</label>
+            <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:6,minHeight:28}}>
+              {sizes.map((s,i)=>(
+                <span key={i} style={tagStyle}>{s}<span onClick={()=>setSizes(sizes.filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err,fontWeight:800}}>✕</span></span>
+              ))}
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              <Inp value={newSize} onChange={setNewSize} placeholder="مثال: 8"/>
+              <Btn primary small onClick={()=>{const v=newSize.trim();if(v){setSizes([...sizes,v]);setNewSize("");}}}>+</Btn>
+            </div>
+          </div>
+          <div>
+            <label style={fld}>الألوان</label>
+            <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:6,minHeight:28}}>
+              {colors.map((c,i)=>(
+                <span key={i} style={tagStyle}>{c}<span onClick={()=>setColors(colors.filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err,fontWeight:800}}>✕</span></span>
+              ))}
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              <Inp value={newColor} onChange={setNewColor} placeholder="مثال: أزرق"/>
+              <Btn primary small onClick={()=>{const v=newColor.trim();if(v){setColors([...colors,v]);setNewColor("");}}}>+</Btn>
+            </div>
+          </div>
+        </div>
+
+        <div style={{marginBottom:14}}>
+          <label style={fld}>الأقمشة المستخدمة</label>
+          <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:6}}>
+            {fabrics.map(f => {
+              const checked = productFabrics.includes(f.name);
+              return (
+                <label key={f.id} style={{
+                  ...tagStyle,
+                  background: checked ? "#10B98115" : T.bg,
+                  borderColor: checked ? "#10B98140" : T.brd,
+                  cursor:"pointer", color: checked ? "#059669" : T.text,
+                }}>
+                  <input type="checkbox" checked={checked} onChange={e=>{
+                    if (e.target.checked) setProductFabrics([...productFabrics, f.name]);
+                    else setProductFabrics(productFabrics.filter(x => x !== f.name));
+                  }} style={{margin:0}}/>
+                  {f.name}
+                </label>
+              );
+            })}
+            {fabrics.length === 0 && <span style={{fontSize:FS-2,color:T.textMut,fontStyle:"italic"}}>(لا يوجد أقمشة في الإعدادات. أضفها من tab الإعدادات أولاً.)</span>}
+          </div>
+        </div>
+
+        {/* Section: Pricing */}
+        <h4 style={{margin:"4px 0 10px", fontSize:FS, color:T.textSec, fontWeight:700}}>السعر والكميات</h4>
+        <div style={{display:"grid", gridTemplateColumns: isMob?"1fr":"1fr 1fr", gap:10, marginBottom:14}}>
+          <div>
+            <label style={fld}>سعر الجملة (ج)</label>
+            <Inp type="number" value={priceWholesale} onChange={setPriceWholesale} placeholder="320"/>
+          </div>
+          <div>
+            <label style={fld}>الحد الأدنى للطلب (قطعة)</label>
+            <Inp type="number" value={minOrderQty} onChange={setMinOrderQty} placeholder="50"/>
+          </div>
+        </div>
+
+        {/* Tags + notes */}
+        <div style={{marginBottom:14}}>
+          <label style={fld}>Tags (للبحث)</label>
+          <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:6}}>
+            {tags.map((t,i)=>(
+              <span key={i} style={tagStyle}>{t}<span onClick={()=>setTags(tags.filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err,fontWeight:800}}>✕</span></span>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <Inp value={newTag} onChange={setNewTag} placeholder="مثال: شتوي، صوف، كاب"/>
+            <Btn primary small onClick={()=>{const v=newTag.trim();if(v){setTags([...tags,v]);setNewTag("");}}}>+</Btn>
+          </div>
+        </div>
+
+        <div style={{marginBottom:14}}>
+          <label style={fld}>ملاحظات (داخلية)</label>
+          <Inp value={notes} onChange={setNotes} placeholder="مثال: خامة صوف 80%، إنتاج كميات أسبوع"/>
+        </div>
+
+        <div style={{display:"flex",gap:10,justifyContent:"flex-end",paddingTop:10,borderTop:`1px solid ${T.brd}`}}>
+          <Btn ghost onClick={onClose}>إلغاء</Btn>
+          <Btn primary onClick={handleSave}>💾 حفظ الموديل</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CatalogImportModal({ data, existingCodes, onImport, onClose, isMob }){
+  /* Discover unique models from data.orders (the orders array merged from
+     seasons/{s}/orders/ subcollection by App.jsx). Each order has a/b/c/d/e
+     model groups. Surface unique {code, name, season} not yet in catalog. */
+  const orders = data?.orders || [];
+  const activeSeason = data?.activeSeason || null;
+
+  const discovered = useMemo(() => {
+    const map = new Map();
+    for (const o of orders) {
+      for (const g of ["a","b","c","d","e"]) {
+        const m = o[g];
+        if (!m?.code || !m?.name) continue;
+        const code = String(m.code).trim();
+        if (!code || existingCodes.has(code)) continue;
+        if (!map.has(code)) {
+          map.set(code, {
+            code, name: String(m.name).trim(),
+            season: o.season || activeSeason || null,
+            seenInOrders: 0,
+            sizes: new Set(),
+          });
+        }
+        const entry = map.get(code);
+        entry.seenInOrders++;
+        /* Try to extract sizes from the model's distribution */
+        if (m.sizes && typeof m.sizes === "object") {
+          for (const sz of Object.keys(m.sizes)) entry.sizes.add(sz);
+        }
+      }
+    }
+    return Array.from(map.values()).map(e => ({ ...e, sizes: Array.from(e.sizes) }))
+      .sort((a, b) => b.seenInOrders - a.seenInOrders);
+  }, [orders, existingCodes, activeSeason]);
+
+  const [selected, setSelected] = useState(new Set());
+
+  const toggle = (code) => {
+    const next = new Set(selected);
+    if (next.has(code)) next.delete(code); else next.add(code);
+    setSelected(next);
+  };
+  const selectAll = () => setSelected(new Set(discovered.map(d => d.code)));
+  const selectNone = () => setSelected(new Set());
+
+  const doImport = () => {
+    const items = discovered
+      .filter(d => selected.has(d.code))
+      .map(d => ({
+        code: d.code,
+        name: d.name,
+        category: "ولادي",/* default — admin edits later */
+        season: d.season || null,
+        sizes: d.sizes,
+        colors: [],
+        fabrics: [],
+        priceWholesale: null,
+        minOrderQty: null,
+        inStock: true,
+        tags: [],
+      }));
+    if (items.length === 0) { showToast("⚠️ ما اخترتش حاجة"); return; }
+    onImport(items);
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position:"fixed", inset:0, background:"rgba(0,0,0,0.5)",
+      zIndex:99998, display:"flex", alignItems:"flex-start", justifyContent:"center",
+      padding:isMob?8:24, overflow:"auto",
+    }}>
+      <div onClick={e=>e.stopPropagation()} style={{
+        background:T.cardSolid, borderRadius:16, padding: isMob?14:24,
+        width:"100%", maxWidth:720, marginTop: isMob?8:24, marginBottom: isMob?8:24,
+        boxShadow:"0 20px 60px rgba(0,0,0,0.3)", direction:"rtl",
+      }}>
+        <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18}}>
+          <h2 style={{margin:0, fontSize:FS+4, fontWeight:800, color:T.text}}>
+            📥 استيراد من الأوامر
+          </h2>
+          <Btn ghost small onClick={onClose}>✕</Btn>
+        </div>
+        <div style={{fontSize:FS-1, color:T.textSec, marginBottom:14, lineHeight:1.6}}>
+          الـ system بحث في الأوامر السابقة ولاقى <strong>{discovered.length}</strong> موديل مش موجود في الكتالوج. اختار اللي عاوزه + اضغط استيراد. تقدر تـedit التفاصيل (صور، أسعار، ألوان) بعد الإضافة.
+        </div>
+
+        {discovered.length === 0 ? (
+          <div style={{textAlign:"center", padding:"40px 20px", color:T.textMut}}>
+            <div style={{fontSize:48, marginBottom:10, opacity:0.5}}>🎉</div>
+            <div style={{fontSize:FS}}>كل الموديلات في الأوامر موجودة بالفعل في الكتالوج.</div>
+          </div>
+        ) : (
+          <>
+            <div style={{display:"flex", gap:10, marginBottom:10, flexWrap:"wrap"}}>
+              <Btn ghost small onClick={selectAll}>اختار الكل ({discovered.length})</Btn>
+              <Btn ghost small onClick={selectNone}>الغ التحديد</Btn>
+              <span style={{fontSize:FS-1, color:T.textSec, marginInlineStart:"auto", alignSelf:"center"}}>
+                مختار: {selected.size}
+              </span>
+            </div>
+            <div style={{maxHeight:380, overflowY:"auto", border:`1px solid ${T.brd}`, borderRadius:10, padding:8}}>
+              {discovered.map(d => (
+                <label key={d.code} style={{
+                  display:"flex", alignItems:"center", gap:10,
+                  padding:"8px 12px", borderRadius:8,
+                  background: selected.has(d.code) ? "#10B98108" : "transparent",
+                  border:`1px solid ${selected.has(d.code) ? "#10B98130" : "transparent"}`,
+                  marginBottom:4, cursor:"pointer",
+                }}>
+                  <input type="checkbox" checked={selected.has(d.code)} onChange={()=>toggle(d.code)} style={{width:18,height:18}}/>
+                  <div style={{flex:1, minWidth:0}}>
+                    <div style={{fontSize:FS, fontWeight:800, color:T.text}}>
+                      <code style={{fontSize:FS-1, color:T.textMut, marginInlineEnd:8}}>{d.code}</code>
+                      {d.name}
+                    </div>
+                    <div style={{fontSize:FS-2, color:T.textMut, marginTop:2}}>
+                      {d.season ? `موسم ${d.season} · ` : ""}
+                      ظهر في {d.seenInOrders} أمر
+                      {d.sizes.length > 0 && ` · مقاسات: ${d.sizes.join("/")}`}
+                    </div>
+                  </div>
+                </label>
+              ))}
+            </div>
+            <div style={{display:"flex", gap:10, justifyContent:"flex-end", marginTop:14, paddingTop:10, borderTop:`1px solid ${T.brd}`}}>
+              <Btn ghost onClick={onClose}>إلغاء</Btn>
+              <Btn primary onClick={doImport} disabled={selected.size === 0}>📥 استيراد {selected.size}</Btn>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
