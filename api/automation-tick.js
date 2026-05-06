@@ -279,29 +279,50 @@ async function ensureEnabledAt(db, eventType, currentEnabledAt){
   return { enabledAt: now, justSet: true };
 }
 
-/* Compute current balance per customer from orders + payments.
-   Formula matches `_alertsSection` in buildDailyReport.js:
-     balance = Σ(deliveries × price) − Σ(returns × price) − Σ(payments)
-   Returns: { custId: number } */
-function computeCustomerBalances(orders, payments){
-  const balances = {};
+/* Compute current balance per customer from orders + payments + customer discount.
+   V19.76.2: apply per-customer discount BEFORE subtracting payments — matches the
+   كشف الحساب formula in CustDeliverPg (totalAfterDisc = totalVal − round(totalVal × disc/100),
+   then custBalance = totalAfterDisc − totalPaid). Without discount, the WhatsApp
+   message reported a balance higher than what the customer actually owes.
+     gross   = Σ(deliveries × price) − Σ(returns × price)
+     discAmt = round(gross × discPct/100)
+     balance = (gross − discAmt) − Σ(payments)
+   `customers` is optional — if omitted, no discount is applied (legacy behavior). */
+function computeCustomerBalances(orders, payments, customers){
+  const grossByCust = {};
+  const paidByCust = {};
   for (const o of orders || []) {
     for (const d of (o.customerDeliveries || [])) {
       if (!d.custId) continue;
       const price = Number(d.price) || Number(o.sellPrice) || 0;
       const qty = Number(d.qty) || 0;
-      balances[d.custId] = (balances[d.custId] || 0) + qty * price;
+      grossByCust[d.custId] = (grossByCust[d.custId] || 0) + qty * price;
     }
     for (const r of (o.customerReturns || [])) {
       if (!r.custId) continue;
       const price = Number(r.price) || Number(o.sellPrice) || 0;
       const qty = Number(r.qty) || 0;
-      balances[r.custId] = (balances[r.custId] || 0) - qty * price;
+      grossByCust[r.custId] = (grossByCust[r.custId] || 0) - qty * price;
     }
   }
   for (const p of payments || []) {
     if (!p.custId) continue;
-    balances[p.custId] = (balances[p.custId] || 0) - (Number(p.amount) || 0);
+    paidByCust[p.custId] = (paidByCust[p.custId] || 0) + (Number(p.amount) || 0);
+  }
+  const discPctById = {};
+  if (Array.isArray(customers)) {
+    for (const c of customers) {
+      if (c && c.id) discPctById[c.id] = Number(c.discount) || 0;
+    }
+  }
+  const balances = {};
+  const allCustIds = new Set([...Object.keys(grossByCust), ...Object.keys(paidByCust)]);
+  for (const custId of allCustIds) {
+    const gross = grossByCust[custId] || 0;
+    const paid  = paidByCust[custId] || 0;
+    const discPct = discPctById[custId] || 0;
+    const discAmt = Math.round(gross * discPct / 100);
+    balances[custId] = (gross - discAmt) - paid;
   }
   return balances;
 }
@@ -413,15 +434,12 @@ async function scanRecentPayments(db, cfg, eventCfg, cairoDate, ordersCache){
     payments = Array.isArray(cfg.custPayments) ? cfg.custPayments : [];
   }
 
-  /* V19.70.2: load orders + compute balances per customer (deliveries − returns − payments). */
+  /* V19.70.2 + V19.76.2: load orders + customers (for discount) + compute balances. */
   const orders = ordersCache || await loadActiveOrders(db, cfg);
-  const balances = computeCustomerBalances(orders, payments);
-
-  let customersById = {};
-  if (eventCfg.recipients?.customer) {
-    const cs = await readPartitionedCollection("customersDocs");
-    cs.forEach(c => { if (c.id) customersById[c.id] = c; });
-  }
+  const customersList = await readPartitionedCollection("customersDocs");
+  const balances = computeCustomerBalances(orders, payments, customersList);
+  const customersById = {};
+  customersList.forEach(c => { if (c && c.id) customersById[c.id] = c; });
 
   const yesterday = new Date(Date.parse(cairoDate) - 86400000).toISOString().slice(0, 10);
   let scanned = 0, fired = 0, skipped = 0, skippedOld = 0;
@@ -438,7 +456,7 @@ async function scanRecentPayments(db, cfg, eventCfg, cairoDate, ordersCache){
     processed++;
     scanned++;
     const customer = customersById[p.custId] || {};
-    /* V19.70.2: balance from full order/payment ledger, not the missing `balanceAfter` field */
+    /* V19.70.2 + V19.76.2: balance from full ledger AFTER applying customer discount */
     const balance = Math.round(balances[p.custId] || 0);
     const idempotencyKey = `payment:${p.id}`;
     const r = await processEvent(db, {
@@ -497,14 +515,11 @@ async function scanRecentChecks(db, cfg, eventCfg, cairoDate, ordersCache){
     custPayments = Array.isArray(cfg.custPayments) ? cfg.custPayments : [];
   }
   const orders = ordersCache || await loadActiveOrders(db, cfg);
-  const balances = computeCustomerBalances(orders, custPayments);
-
-  /* Customer lookup for office name */
-  let customersById = {};
-  if (eventCfg.recipients?.customer || eventCfg.recipients?.owner) {
-    const cs = await readPartitionedCollection("customersDocs");
-    cs.forEach(c => { if (c.id) customersById[c.id] = c; });
-  }
+  /* V19.76.2: load customers for both office name AND discount in balance calc */
+  const customersList = await readPartitionedCollection("customersDocs");
+  const balances = computeCustomerBalances(orders, custPayments, customersList);
+  const customersById = {};
+  customersList.forEach(c => { if (c && c.id) customersById[c.id] = c; });
 
   const yesterday = new Date(Date.parse(cairoDate) - 86400000).toISOString().slice(0, 10);
   let scanned = 0, fired = 0, skipped = 0, skippedOld = 0;

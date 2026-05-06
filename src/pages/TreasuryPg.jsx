@@ -1059,21 +1059,27 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
        (enabled/recipients/templates), so this is just a "wake up the cron
        early" path. */
     if(_instantPay_needed && _instantPay_id && _instantPay_customer?.phone){
-      /* Compute customer balance AFTER this payment, using current data + the
-         new payment we just added. Same formula as cron-side scan. */
-      let _bal = 0;
+      /* V19.76.2: customer balance AFTER this payment, applying customer discount.
+         Matches the كشف الحساب formula in CustDeliverPg (totalAfterDisc − totalPaid).
+         Without the discount, the WhatsApp message reported a balance higher than
+         the actual receivable: e.g. 1000 sale @ 10% disc → real owed = 900, paying
+         200 → message used to say 800, now correctly says 700. */
+      let _gross = 0;
       for(const o of (data.orders||[])){
         for(const d of (o.customerDeliveries||[])){
           if(d.custId===linkedCustId){
-            _bal += (Number(d.qty)||0) * (Number(d.price)||Number(o.sellPrice)||0);
+            _gross += (Number(d.qty)||0) * (Number(d.price)||Number(o.sellPrice)||0);
           }
         }
         for(const r of (o.customerReturns||[])){
           if(r.custId===linkedCustId){
-            _bal -= (Number(r.qty)||0) * (Number(r.price)||Number(o.sellPrice)||0);
+            _gross -= (Number(r.qty)||0) * (Number(r.price)||Number(o.sellPrice)||0);
           }
         }
       }
+      const _discPct = Number(_instantPay_customer.discount)||0;
+      const _discAmt = Math.round(_gross * _discPct / 100);
+      let _bal = _gross - _discAmt;
       for(const p of (data.custPayments||[])){
         if(p.custId===linkedCustId) _bal -= Number(p.amount)||0;
       }
@@ -2692,18 +2698,21 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           if (_instantCheck_eligible && _instantCheck_customer?.phone && user && typeof user.getIdToken === "function") {
             const totalChecks = _instantCheck_count;
             const office = _instantCheck_customer.companyName || _instantCheck_customer.company || _instantCheck_customer.office || _instantCheck_customer.businessName || "";
-            /* Compute BASE balance (orders − returns − cash payments).
-               Checks NOT included here — each check's message will subtract
-               progressively: balance for check_i = base - (i+1) * checkAmt. */
-            let _baseBal = 0;
+            /* V19.76.2: BASE balance after applying customer discount, then subtracting cash payments.
+               Checks NOT included here — each check's message will subtract progressively:
+               balance for check_i = base - (i+1) * checkAmt. */
+            let _gross = 0;
             for (const o of (data.orders||[])) {
               for (const d of (o.customerDeliveries||[])) {
-                if (d.custId === chkPartyId) _baseBal += (Number(d.qty)||0) * (Number(d.price)||Number(o.sellPrice)||0);
+                if (d.custId === chkPartyId) _gross += (Number(d.qty)||0) * (Number(d.price)||Number(o.sellPrice)||0);
               }
               for (const r of (o.customerReturns||[])) {
-                if (r.custId === chkPartyId) _baseBal -= (Number(r.qty)||0) * (Number(r.price)||Number(o.sellPrice)||0);
+                if (r.custId === chkPartyId) _gross -= (Number(r.qty)||0) * (Number(r.price)||Number(o.sellPrice)||0);
               }
             }
+            const _discPct = Number(_instantCheck_customer.discount)||0;
+            const _discAmt = Math.round(_gross * _discPct / 100);
+            let _baseBal = _gross - _discAmt;
             for (const p of (data.custPayments||[])) {
               if (p.custId === chkPartyId) _baseBal -= Number(p.amount)||0;
             }
@@ -2897,15 +2906,20 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             if (customer?.phone && user && typeof user.getIdToken === "function") {
               const office = customer.companyName || customer.company || customer.office || customer.businessName || "";
               const computeBal = () => {
-                let _bal = 0;
+                /* V19.76.2: apply customer discount to base before subtracting payments,
+                   matching كشف الحساب formula. */
+                let _gross = 0;
                 for (const o of (data.orders||[])) {
                   for (const d of (o.customerDeliveries||[])) {
-                    if (d.custId === _statusSnapshot.partyId) _bal += (Number(d.qty)||0) * (Number(d.price)||Number(o.sellPrice)||0);
+                    if (d.custId === _statusSnapshot.partyId) _gross += (Number(d.qty)||0) * (Number(d.price)||Number(o.sellPrice)||0);
                   }
                   for (const r of (o.customerReturns||[])) {
-                    if (r.custId === _statusSnapshot.partyId) _bal -= (Number(r.qty)||0) * (Number(r.price)||Number(o.sellPrice)||0);
+                    if (r.custId === _statusSnapshot.partyId) _gross -= (Number(r.qty)||0) * (Number(r.price)||Number(o.sellPrice)||0);
                   }
                 }
+                const _discPct = Number(customer.discount)||0;
+                const _discAmt = Math.round(_gross * _discPct / 100);
+                let _bal = _gross - _discAmt;
                 for (const p of (data.custPayments||[])) {
                   if (p.custId === _statusSnapshot.partyId) _bal -= Number(p.amount)||0;
                 }

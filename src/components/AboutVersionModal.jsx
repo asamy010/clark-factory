@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.76.2",
+    date: "2026-05-06",
+    types: ["fix"],
+    title: "🐛 Hotfix: رسالة دفعة العميل كانت تجيب الرصيد بدون خصم",
+    changes: [
+      { type: "fix", text: "🐛 [User report: 'العميل اخد بضاعة بـ1000 خصم 10% = 900 فعلي. دفع 200 → المفروض الرسالة تقول 700 لكنها بتقول 800'] الـ paymentReceived و checkPaymentReceived events كانوا بـ يحسبوا الرصيد بـ formula `Σ(deliveries×price) − Σ(returns×price) − Σ(payments)` بدون ما يطبقوا الـ customer discount %. كشف الحساب في CustDeliverPg كان يطبقه (`totalAfterDisc = totalVal − round(totalVal × disc/100)`)، فكان فيه فرق بين اللي العميل يشوفه في الـ statement واللي يوصله في الـ WhatsApp message." },
+      { type: "fix", text: "✅ [Fix unified across 4 sites] (1) `api/automation-tick.js → computeCustomerBalances` بقت تاخد customers parameter وتطبّق الخصم: `balance = (gross − round(gross × disc/100)) − payments`. (2) `TreasuryPg.jsx` — instant fire للـ cash payment (line ~1064) دلوقتي بـ يطبّق `_instantPay_customer.discount`. (3) Instant fire للـ check (line ~2698) — `_instantCheck_customer.discount` على الـ baseBal قبل الـ progressive subtraction. (4) Status-change computeBal للـ checkCollected/Bounced/RePresented (line ~2899) — نفس الـ formula." },
+      { type: "fix", text: "🎯 [Same formula as كشف الحساب — guaranteed parity] الـ formula متطابقة 100% مع الـ totalAfterDisc - totalPaid في الـ Statement view. discAmt = Math.round(gross × discPct/100) — نفس الـ rounding، نفس الـ order of ops. لو شفت رصيد 700 في الـ kashf، الرسالة هتقول 700." },
+    ]
+  },
+  {
     version: "V19.76.1",
     date: "2026-05-06",
     types: ["fix"],
