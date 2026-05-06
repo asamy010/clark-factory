@@ -65,7 +65,7 @@ const TABS = [
 /* ────────────────────────────────────────────────────────────
    MAIN PAGE
    ──────────────────────────────────────────────────────────── */
-export default function AIAgentPg({ data, upConfig, isMob, canEdit, user }){
+export function AIAgentPg({ data, upConfig, isMob, canEdit, user }){
   const [tab, setTab] = useState("personality");
 
   /* Defensive read — config might not have aiAgent yet (older deployments). */

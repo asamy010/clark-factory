@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.71.1",
+    date: "2026-05-06",
+    types: ["fix"],
+    title: "🐛 Hotfix: AI Agent page crashed with React #306 (export mismatch)",
+    changes: [
+      { type: "fix", text: "🐛 [V19.71.0 الـAI Agent page بـtـcrash بـ React error #306 لما الـuser يفتحها] User screenshot: 'حدث خطأ غير متوقع' + console: `Minified React error #306; visit https://reactjs.org/docs/error-decoder.html?invariant=306&args[]=undefined&args[]=`. **Root cause**: في AIAgentPg.jsx كتبت `export default function AIAgentPg` بس الـ`lazyNamed()` helper في `src/utils/lazyLoad.jsx` بـtـوقع `module[exportName]` (i.e. NAMED export). React.lazy بـtـreceive `{default: undefined}` → بـtـحاول render `<undefined />` → error #306 ('Element type is invalid'). الـerror stack بـtـنزل في vendor-recharts chunk عشان الـSuspense boundary اللي بـyـcatch الـerror موجود في DashPg-loaded chunk." },
+      { type: "fix", text: "✅ [الـFix: شيلت كلمة `default` — بقت `export function AIAgentPg`] one-character change. كل الـ pages الأخرى في CLARK (HRPg, CampaignsPg, etc.) بـtـuse named exports — كان مفترض أتبع الـconvention دي من الأول. الـ`lazyNamed(importFn, 'AIAgentPg')` دلوقتي بـtـلاقي `module.AIAgentPg` صح، الـSuspense بـrender الـcomponent، الـpage بـloadش بدون crashes." },
+      { type: "improvement", text: "📚 [Lesson: لما تـadd page جديدة، اتأكد من الـexport pattern الموجود] الـ`lazyNamed` helper في `utils/lazyLoad.jsx` بـtـwrap ALL pages في CLARK. كل page بـtـmust export named function بنفس اسم الـcomponent — مش `default`. ده مكتوب في الـcomment على الـhelper نفسه: 'all CLARK pages use named exports'. الـ next sessions: لما تعمل page جديدة، انسخ الـexport line من أي page موجودة (مثلاً `export function HRPg(...)`)." },
+    ]
+  },
+  {
     version: "V19.71.0",
     date: "2026-05-06",
     types: ["feature", "architectural"],
