@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.19",
+    date: "2026-05-06",
+    types: ["fix"],
+    title: "🎯 Structural workaround: <th> → <td class='h'> — Arabic shaping يـwork أخيراً",
+    changes: [
+      { type: "fix", text: "💡 [User insight: 'العناوين مكتوبة تمام، ليه مانعملش تجميد للعناوين زي الكتابة النصية الثابتة'] الـuser لاحظ إن الـbody text (الـ<td> cells) بـrender Arabic correctly، الـ<h2> headings كمان تمام، بس الـ<th> headers هي اللي ملخبطة. الـconclusion: html2canvas's iframe بـtreat الـ<th> بشكل مختلف داخل الـrendering pipeline (default browser styling غير الـ<td> + interaction مع الـtable layout)، والـArabic bidi/shaping بتنهار في الـ<th> case. الـsolution: استخدم الـlooks-like-th بس structurally <td>." },
+      { type: "fix", text: "🛠️ [الـImplementation: <th> → <td class='h'> في buildOneCustomerHTML] في الـ2 tables داخل الـbulk PDF (info table: العميل/التليفون/التاريخ/العنوان + items table: الموديل/الوصف/الكمية/السعر/الإجمالي)، كل `<th>X</th>` بقى `<td class='h'>X</td>`. الـCSS: `.h{background:linear-gradient(...);font-weight:700;font-size:10px;color:#1E293B;padding:5px 8px;text-align:right;border:1px solid #94A3B8;letter-spacing:0.3px}` — نفس الـvisual بالضبط. الـCairo font ضافت تاني بدل Tahoma لأن الـbody (الـtd) كان بـuse Cairo بنجاح من الأصل. !important على الـbackground عشان specificity wars مع td." },
+      { type: "improvement", text: "🛡️ [Scope: bulk WA PDF only] التغيير محصور في `buildOneCustomerHTML` (السطر ~1425). أي `<th>` تانية في الـapp (browser print pages اللي بـuse `printPage`، مش html2canvas) ما اتغيرتش — هي شغّالة تمام لأن الـbrowser print بـhandle الـArabic correctly. مفيش regression risk." },
+      { type: "improvement", text: "🔄 [Path forward — flip default ON بعد user verification] الـincludePdf checkbox من V19.70.17 لسه default OFF. لو الـuser confirm إن الـArabic بـrender correctly في الـnew approach، هـnflip الـdefault لـON في V19.70.20. الـworkaround القديم (text-only) هيبقى opt-out بدل opt-in." },
+      { type: "improvement", text: "📚 [Lesson: html2canvas + <th> = unreliable] الـtakeaway للـfuture: لو محتاج Arabic في table headers في PDF generated عبر html2canvas، استخدم styled <td> بدل <th>. سواء الـfont system أو web — الـelement type نفسه هو المشكلة، مش الـfont loading." },
+    ]
+  },
+  {
     version: "V19.70.18",
     date: "2026-05-06",
     types: ["feature"],

@@ -1422,15 +1422,17 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           "body{font-family:'Cairo',Arial,sans-serif;padding:24px 28px;font-size:12px;direction:rtl;color:#1E293B;line-height:1.5}"+
           "h2{font-size:15px;color:#0284C7;margin:14px 0 8px;padding-bottom:4px;border-bottom:2px solid #E2E8F0}"+
           "table{width:100%;border-collapse:collapse;margin:8px 0 14px;border:1px solid #94A3B8}"+
-          /* V19.70.16: explicit Tahoma/Arial system stack on <th> only — bypasses
-             the html2canvas FontFace race entirely. Cairo Bold (weight 800) wasn't
-             reaching the html2canvas internal iframe even after FontFace.add() in
-             V19.70.15, so headers fell back to Arial w/o Arabic shaping. Tahoma is
-             preinstalled on Windows and has native Arabic glyph shaping; Arial is
-             the macOS fallback. The body cells (td) keep Cairo for brand consistency
-             since they only use weight 400 which loaded correctly all along. */
-          "th{background:linear-gradient(180deg,#E2E8F0,#CBD5E1);font-family:'Tahoma','Arial',sans-serif;font-weight:700;font-size:10px;color:#1E293B;padding:5px 8px;text-align:right;border:1px solid #94A3B8;letter-spacing:0.3px}"+
+          /* V19.70.19: structural workaround for the persistent Arabic shaping bug.
+             Three previous attempts failed (V19.70.14 link/document.fonts.load,
+             V19.70.15 FontFace API, V19.70.16 system fonts). The bug is specifically
+             scoped to <th> elements inside html2canvas's internal iframe — body <td>
+             cells render Arabic correctly with the SAME font and SAME weight. So
+             instead of fighting html2canvas's <th> handling, we drop <th> entirely
+             and use <td class='h'> styled to look like a header. Structurally a body
+             cell (which is known to work), visually identical to the old header.
+             User's idea: "تجميد العناوين زي الكتابة النصية الثابتة" — exactly this. */
           "td{padding:4px 8px;text-align:right;border:1px solid #CBD5E1;font-size:11px}"+
+          ".h{background:linear-gradient(180deg,#E2E8F0,#CBD5E1)!important;font-family:'Cairo',sans-serif;font-weight:700;font-size:10px;color:#1E293B;padding:5px 8px;text-align:right;border:1px solid #94A3B8;letter-spacing:0.3px}"+
           "tr:nth-child(even){background:#F8FAFC}"+
           ".hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #0284C7;padding-bottom:14px;margin-bottom:20px;gap:16px}"+
           ".hdr-brand{display:flex;align-items:center;gap:12px;flex:1}"+
@@ -1464,9 +1466,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         + "</div>";
         /* Body — same structure as the per-row print HTML */
         h += "<h2>🚚 اذن تسليم عميل</h2>";
-        h += "<table><tr><th>العميل</th><td><b>"+c.name+"</b></td><th>التليفون</th><td>"+(c.phone||"")+"</td></tr><tr><th>التاريخ</th><td>"+sess.date+"</td><th>العنوان</th><td>"+(c.address||"—")+"</td></tr></table>";
+        /* V19.70.19: <th> → <td class='h'> — same visual, structurally a body cell.
+           html2canvas renders Arabic in <td> correctly, but breaks shaping inside <th>. */
+        h += "<table><tr><td class='h'>العميل</td><td><b>"+c.name+"</b></td><td class='h'>التليفون</td><td>"+(c.phone||"")+"</td></tr><tr><td class='h'>التاريخ</td><td>"+sess.date+"</td><td class='h'>العنوان</td><td>"+(c.address||"—")+"</td></tr></table>";
         h += "<h2>تفاصيل الاستلام</h2>";
-        h += "<table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th>"+(noP?"":"<th>السعر</th><th>الإجمالي</th>")+"</tr></thead><tbody>";
+        h += "<table><thead><tr><td class='h'>الموديل</td><td class='h'>الوصف</td><td class='h'>الكمية</td>"+(noP?"":"<td class='h'>السعر</td><td class='h'>الإجمالي</td>")+"</tr></thead><tbody>";
         h += itemsHTML;
         h += "<tr style='background:#F1F5F9'><td colspan='2' style='font-weight:800'>الاجمالي</td><td style='font-weight:800;color:#0284C7;font-size:14px;text-align:center'>"+rowTotal+" قطعة</td>"+(noP?"":"<td></td><td style='font-weight:800;color:#0284C7;font-size:14px;text-align:center'>"+fmt(custMoney)+" ج.م</td>")+"</tr></tbody></table>";
         if (!noP) {
