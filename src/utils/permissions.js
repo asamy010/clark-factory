@@ -53,7 +53,7 @@ export const PERMISSION_TABS = [
   { key: "treasury",         label: "الخزنة",              icon: "💵", group: "finance" },
   { key: "hr",               label: "مرتبات + موظفين",     icon: "🧑‍💼", group: "hr" },
   { key: "campaigns",        label: "الحملات والرسائل",    icon: "📣", group: "comms" },
-  { key: "automation",       label: "الأتمتة",              icon: "🤖", group: "comms" },
+  { key: "automation",       label: "Automation",          icon: "🤖", group: "comms" },
   /* V19.71: AI Agent control center — the conversational LLM agent for WhatsApp B2B sales */
   { key: "aiAgent",          label: "AI Agent",            icon: "🤖", group: "comms" },
   { key: "audit",            label: "سجل التدقيق",         icon: "🔍", group: "admin" },

@@ -57,8 +57,8 @@ const DAY_LABELS = [
   { key: "fri", label: "الجمعة" },
 ];
 
-/* V19.72: Tabs without `phase` are shipped (Phase A or B). Tabs with `phase`
-   show a small badge so the user knows what's coming. */
+/* V19.73: All 9 tabs now functional (Phase A + B + C). Phase D = backend.
+   The `phase` property is dropped — the page lives or dies as one. */
 const TABS = [
   { key: "dashboard",   label: "لوحة التحكم",        icon: "📊" },
   { key: "personality", label: "الشخصية",            icon: "🎭" },
@@ -67,8 +67,26 @@ const TABS = [
   { key: "schedule",    label: "الجدول الزمني",      icon: "⏰" },
   { key: "logs",        label: "سجل المحادثات",      icon: "💬" },
   { key: "sandbox",     label: "اختبار",             icon: "🧪" },
-  { key: "funnel",      label: "مراحل العميل",       icon: "🎯", phase: "C" },
-  { key: "profiles",    label: "ملفات العملاء",      icon: "👥", phase: "C" },
+  { key: "funnel",      label: "مراحل العميل",       icon: "🎯" },
+  { key: "profiles",    label: "ملفات العملاء",      icon: "👥" },
+];
+
+/* Stage definitions (per spec section 6) */
+const STAGES = [
+  { key: "Stranger",  label: "غريب",          icon: "👋", color: "#94A3B8" },
+  { key: "Awareness", label: "تعرّف",         icon: "🤝", color: "#0EA5E9" },
+  { key: "Interest",  label: "اهتمام",        icon: "🔍", color: "#06B6D4" },
+  { key: "Decision",  label: "قرار شراء",     icon: "🎯", color: "#F59E0B" },
+  { key: "Customer",  label: "عميل نشط",      icon: "💼", color: "#10B981" },
+  { key: "Repeat",    label: "عميل متكرر",    icon: "🏆", color: "#8B5CF6" },
+  { key: "Dormant",   label: "خامل",          icon: "😴", color: "#64748B" },
+];
+
+const TIERS = [
+  { key: "Bronze",   label: "Bronze",   icon: "🥉", color: "#A16207" },
+  { key: "Silver",   label: "Silver",   icon: "🥈", color: "#64748B" },
+  { key: "Gold",     label: "Gold",     icon: "🥇", color: "#F59E0B" },
+  { key: "Platinum", label: "Platinum", icon: "💎", color: "#8B5CF6" },
 ];
 
 /* ────────────────────────────────────────────────────────────
@@ -186,8 +204,8 @@ export function AIAgentPg({ data, upConfig, isMob, canEdit, user }){
         {tab==="schedule"    && <ScheduleTab agent={agent} updateAgent={updateAgent} canEdit={canEdit} isMob={isMob}/>}
         {tab==="logs"        && <LogsTab agent={agent} data={data} isMob={isMob}/>}
         {tab==="sandbox"     && <SandboxTab agent={agent} data={data} isMob={isMob}/>}
-        {tab==="funnel"      && <PlaceholderTab title="مراحل العميل" icon="🎯" phase="C" desc="Customer lifecycle pipeline: Stranger → Awareness → Interest → Decision → Customer → Repeat → Dormant."/>}
-        {tab==="profiles"    && <PlaceholderTab title="ملفات العملاء" icon="👥" phase="C" desc="AI Profile لكل عميل: تفضيلات، tier، stage history، observations pending review."/>}
+        {tab==="funnel"      && <FunnelTab agent={agent} data={data} updateAgent={updateAgent} canEdit={canEdit} isMob={isMob}/>}
+        {tab==="profiles"    && <ProfilesTab agent={agent} data={data} updateAgent={updateAgent} upConfig={upConfig} canEdit={canEdit} isMob={isMob}/>}
       </div>
     </div>
   );
@@ -1677,6 +1695,660 @@ function ToolsTab({ agent, updateAgent, canEdit, isMob }){
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════
+   FUNNEL TAB (V19.73 — Phase C)
+   Customer lifecycle pipeline visualization. Reads `data.customers`
+   directly to compute stage + tier distribution. Pending stage
+   transitions come from `data.aiAgentSuggestions` (empty until
+   Phase D backend ships — clear empty state).
+   ════════════════════════════════════════════════════════════ */
+function FunnelTab({ agent, data, updateAgent, canEdit, isMob }){
+  const customers = data?.customers || [];
+  const suggestions = data?.aiAgentSuggestions || [];
+  const tierThresholds = agent.tierThresholds || INIT_CONFIG.aiAgent.tierThresholds;
+  const autoApprove = agent.stageTransitionAutoApprove || INIT_CONFIG.aiAgent.stageTransitionAutoApprove;
+
+  const stageDist = useMemo(() => {
+    const dist = Object.fromEntries(STAGES.map(s => [s.key, 0]));
+    let unset = 0;
+    for (const c of customers) {
+      const s = c.stage;
+      if (s && dist[s] !== undefined) dist[s]++;
+      else unset++;
+    }
+    return { ...dist, _unset: unset };
+  }, [customers]);
+
+  const tierDist = useMemo(() => {
+    const dist = Object.fromEntries(TIERS.map(t => [t.key, 0]));
+    let unset = 0;
+    for (const c of customers) {
+      const t = c.tier;
+      if (t && dist[t] !== undefined) dist[t]++;
+      else unset++;
+    }
+    return { ...dist, _unset: unset };
+  }, [customers]);
+
+  const movements = useMemo(() => {
+    const sevenAgo = Date.now() - 7*24*3600*1000;
+    const m = {};
+    for (const c of customers) {
+      const ts = c.stage_changed_at ? new Date(c.stage_changed_at).getTime() : null;
+      if (!ts || ts < sevenAgo) continue;
+      const hist = c.stage_history;
+      if (!Array.isArray(hist) || hist.length < 2) continue;
+      const last = hist[hist.length-1];
+      const prev = hist[hist.length-2];
+      if (!last?.to || !prev?.to) continue;
+      const k = `${prev.to}→${last.to}`;
+      m[k] = (m[k]||0) + 1;
+    }
+    return Object.entries(m).sort((a,b) => b[1]-a[1]);
+  }, [customers]);
+
+  const approachingTierUp = useMemo(() => {
+    const out = [];
+    const sortedTiers = TIERS.slice().sort((a,b) => (tierThresholds[a.key]||0) - (tierThresholds[b.key]||0));
+    for (const c of customers) {
+      const annual = c.ai_profile?.total_purchases_last_12_months || 0;
+      if (!annual) continue;
+      const currentTier = c.tier;
+      const idx = sortedTiers.findIndex(t => t.key === currentTier);
+      if (idx === -1 || idx === sortedTiers.length-1) continue;
+      const nextTier = sortedTiers[idx+1];
+      const threshold = tierThresholds[nextTier.key] || 0;
+      if (annual >= threshold * 0.9 && annual < threshold) {
+        out.push({ ...c, _annual: annual, _nextTier: nextTier, _threshold: threshold, _toGo: threshold - annual });
+      }
+    }
+    return out.sort((a,b) => a._toGo - b._toGo).slice(0, 10);
+  }, [customers, tierThresholds]);
+
+  const pendingTransitions = useMemo(() =>
+    suggestions.filter(s => s.type === "stage_transition" && s.status === "pending").slice(0, 20),
+  [suggestions]);
+
+  const setAutoApprove = (key, val) => updateAgent(a => {
+    if (!a.stageTransitionAutoApprove) a.stageTransitionAutoApprove = { ...INIT_CONFIG.aiAgent.stageTransitionAutoApprove };
+    a.stageTransitionAutoApprove[key] = val;
+  });
+
+  const total = customers.length;
+  const totalKnown = total - stageDist._unset;
+  const cardStyle = { background:T.cardSolid, border:`1px solid ${T.brd}`, borderRadius:14, padding: isMob?14:18, marginBottom:14 };
+
+  return (
+    <div>
+      <div style={{...cardStyle, display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10}}>
+        <div>
+          <h3 style={{margin:0, fontSize:FS+2, fontWeight:800, color:T.text}}>🎯 Customer Lifecycle Funnel</h3>
+          <div style={{fontSize:FS-2, color:T.textMut, marginTop:4}}>
+            إجمالي عملاء النظام: <strong>{total}</strong>
+            {stageDist._unset > 0 && <span style={{color:T.warn, marginInlineStart:8}}>· {stageDist._unset} لم يتم تصنيفهم بعد</span>}
+          </div>
+        </div>
+        {stageDist._unset > 0 && (
+          <span style={{fontSize:FS-2, color:T.textSec, padding:"6px 12px", borderRadius:8, background:"#FEF3C7", border:"1px solid #FCD34D"}}>
+            ⚠️ Phase D backend هيـclassify العملاء تلقائياً
+          </span>
+        )}
+      </div>
+
+      <div style={cardStyle}>
+        <h3 style={{margin:"0 0 14px", fontSize:FS+1, fontWeight:800, color:T.text}}>📊 توزيع المراحل</h3>
+        {totalKnown === 0 ? (
+          <EmptyHint icon="📊" msg="لسه مفيش عملاء مصنّفين بـ stage. الـ backend Phase D هيـبدأ يـclassify."/>
+        ) : (
+          <div style={{display:"grid", gap:8}}>
+            {STAGES.map(s => {
+              const count = stageDist[s.key];
+              const pct = totalKnown ? (count/totalKnown)*100 : 0;
+              return <FunnelBar key={s.key} stage={s} count={count} pct={pct}/>;
+            })}
+          </div>
+        )}
+      </div>
+
+      <div style={cardStyle}>
+        <h3 style={{margin:"0 0 14px", fontSize:FS+1, fontWeight:800, color:T.text}}>📈 الحركة آخر 7 أيام</h3>
+        {movements.length === 0 ? (
+          <EmptyHint icon="📈" msg="مفيش انتقالات بين stages آخر أسبوع. (الـ backend هيـrecord الانتقالات لما يبدأ.)"/>
+        ) : (
+          <div style={{display:"grid", gap:6}}>
+            {movements.map(([k, n]) => (
+              <div key={k} style={{display:"flex", justifyContent:"space-between", padding:"8px 12px", borderRadius:8, background:T.bg, border:`1px solid ${T.brd}`}}>
+                <span style={{fontSize:FS, fontWeight:600, color:T.text}}>{k}</span>
+                <span style={{fontSize:FS, fontWeight:800, color:T.accent}}>{n} عميل</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div style={cardStyle}>
+        <h3 style={{margin:"0 0 14px", fontSize:FS+1, fontWeight:800, color:T.text}}>
+          🔔 تحويلات المراحل المعلّقة <span style={{fontSize:FS-1, fontWeight:600, color:T.textMut}}>({pendingTransitions.length})</span>
+        </h3>
+        {pendingTransitions.length === 0 ? (
+          <EmptyHint icon="🔔" msg="مفيش suggestions معلّقة. لما الـ Agent backend (Phase D) يلاحظ انتقال محتمل، هيـكتب suggestion هنا للمراجعة."/>
+        ) : (
+          <div style={{display:"grid", gap:6}}>
+            {pendingTransitions.map(s => (
+              <div key={s.id} style={{padding:10, borderRadius:8, background:T.bg, border:`1px solid ${T.brd}`}}>
+                <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6}}>
+                  <span style={{fontSize:FS, fontWeight:700, color:T.text}}>
+                    {s.customer_name || s.customer_id}: {s.current_value} → {s.suggested_value}
+                  </span>
+                  <div style={{display:"flex", gap:4}}>
+                    <Btn primary small>✅</Btn>
+                    <Btn danger small>❌</Btn>
+                  </div>
+                </div>
+                {s.evidence && <div style={{fontSize:FS-2, color:T.textMut, marginTop:4}}>الدليل: {s.evidence}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div style={cardStyle}>
+        <h3 style={{margin:"0 0 14px", fontSize:FS+1, fontWeight:800, color:T.text}}>⚙️ الموافقة التلقائية على الانتقالات</h3>
+        <div style={{fontSize:FS-2, color:T.textMut, marginBottom:14, lineHeight:1.5}}>
+          الانتقالات الـ low-risk ممكن تتـapprove تلقائياً. الانتقالات الحساسة (Decision → Customer = طلب فعلي مؤكد) محتاجة مراجعة بشرية.
+        </div>
+        <div style={{display:"grid", gridTemplateColumns: isMob?"1fr":"1fr 1fr", gap:8}}>
+          {[
+            { key:"strangerToAwareness", label:"غريب → تعرّف",         risk:"low" },
+            { key:"awarenessToInterest", label:"تعرّف → اهتمام",       risk:"low" },
+            { key:"interestToDecision",  label:"اهتمام → قرار شراء",   risk:"high" },
+            { key:"decisionToCustomer",  label:"قرار شراء → عميل",     risk:"high" },
+            { key:"customerToRepeat",    label:"عميل → عميل متكرر",    risk:"low" },
+            { key:"customerToDormant",   label:"عميل → خامل",          risk:"low" },
+          ].map(t => (
+            <label key={t.key} style={{
+              display:"flex", alignItems:"center", gap:8, padding:"8px 12px", borderRadius:8,
+              background: autoApprove[t.key] ? "#10B98108" : T.bg,
+              border: `1px solid ${autoApprove[t.key] ? "#10B98130" : T.brd}`,
+              cursor: canEdit?"pointer":"default",
+            }}>
+              <input type="checkbox" checked={!!autoApprove[t.key]}
+                onChange={e=>canEdit && setAutoApprove(t.key, e.target.checked)}
+                style={{width:18,height:18}}/>
+              <span style={{fontSize:FS, fontWeight:600, color:T.text, flex:1}}>{t.label}</span>
+              {t.risk === "high" && <span style={{fontSize:FS-3, padding:"1px 6px", borderRadius:5, background:"#FEE2E2", color:"#991B1B", fontWeight:700}}>عالي المخاطر</span>}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div style={cardStyle}>
+        <h3 style={{margin:"0 0 14px", fontSize:FS+1, fontWeight:800, color:T.text}}>💎 توزيع الـ Tiers</h3>
+        <div style={{display:"grid", gridTemplateColumns: isMob?"1fr 1fr":"repeat(4, 1fr)", gap:10}}>
+          {TIERS.map(t => (
+            <div key={t.key} style={{
+              padding:14, borderRadius:12, background:`${t.color}10`, border:`1px solid ${t.color}30`, textAlign:"center",
+            }}>
+              <div style={{fontSize:FS+8, marginBottom:4}}>{t.icon}</div>
+              <div style={{fontSize:FS, fontWeight:800, color:t.color}}>{t.label}</div>
+              <div style={{fontSize:FS+10, fontWeight:800, color:T.text, marginTop:4, lineHeight:1.1}}>{tierDist[t.key]}</div>
+              <div style={{fontSize:FS-3, color:T.textMut, marginTop:4}}>
+                {tierThresholds[t.key]>=1000 ? `${(tierThresholds[t.key]/1000).toFixed(0)}K+ ج` : `${tierThresholds[t.key]} ج+`}
+              </div>
+            </div>
+          ))}
+        </div>
+        {tierDist._unset > 0 && (
+          <div style={{marginTop:10, padding:"8px 12px", borderRadius:8, background:T.bg, border:`1px dashed ${T.brd}`, fontSize:FS-1, color:T.textSec, textAlign:"center"}}>
+            {tierDist._unset} عميل بدون tier محدد
+          </div>
+        )}
+      </div>
+
+      <div style={cardStyle}>
+        <h3 style={{margin:"0 0 14px", fontSize:FS+1, fontWeight:800, color:T.text}}>
+          ⬆️ عملاء قريبين من ترقية الـ Tier <span style={{fontSize:FS-1, fontWeight:600, color:T.textMut}}>({approachingTierUp.length})</span>
+        </h3>
+        {approachingTierUp.length === 0 ? (
+          <EmptyHint icon="⬆️" msg="مفيش عملاء قريبين من ترقية. (الـ Agent بـ يـحسب من ai_profile.total_purchases_last_12_months — Phase D هيـlinkـه بالـ orders فعلياً.)"/>
+        ) : (
+          <div style={{display:"grid", gap:6}}>
+            {approachingTierUp.map(c => (
+              <div key={c.id} style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, padding:"8px 12px", borderRadius:8, background:T.bg, border:`1px solid ${T.brd}`, flexWrap:"wrap"}}>
+                <div style={{flex:1, minWidth:200}}>
+                  <span style={{fontSize:FS, fontWeight:700, color:T.text}}>{c.name}</span>
+                  <span style={{fontSize:FS-2, color:T.textMut, marginInlineStart:8}}>· {c.tier} حالياً</span>
+                </div>
+                <div style={{textAlign:"left"}}>
+                  <div style={{fontSize:FS, fontWeight:800, color:T.text}}>{c._annual.toLocaleString("ar-EG")} / {c._threshold.toLocaleString("ar-EG")} ج</div>
+                  <div style={{fontSize:FS-2, color:c._nextTier.color, fontWeight:700}}>
+                    باقي {c._toGo.toLocaleString("ar-EG")} ج → {c._nextTier.icon} {c._nextTier.label}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FunnelBar({ stage, count, pct }){
+  return (
+    <div style={{display:"flex", alignItems:"center", gap:10}}>
+      <div style={{minWidth:100, fontSize:FS, fontWeight:700, color:T.text, display:"flex", alignItems:"center", gap:6}}>
+        <span style={{fontSize:FS+2}}>{stage.icon}</span>
+        <span>{stage.label}</span>
+      </div>
+      <div style={{flex:1, height:24, background:T.bg, borderRadius:6, position:"relative", overflow:"hidden"}}>
+        <div style={{
+          height:"100%", width:`${Math.max(pct, 0.5)}%`,
+          background:`linear-gradient(90deg, ${stage.color}, ${stage.color}CC)`,
+          borderRadius:6, transition:"width 0.3s",
+        }}/>
+      </div>
+      <div style={{minWidth:90, textAlign:"left", fontSize:FS-1, fontWeight:700, color:T.text, fontVariantNumeric:"tabular-nums"}}>
+        {count} <span style={{color:T.textMut, fontWeight:600}}>({pct.toFixed(0)}%)</span>
+      </div>
+    </div>
+  );
+}
+
+function EmptyHint({ icon, msg }){
+  return (
+    <div style={{
+      padding:"24px 16px", textAlign:"center",
+      background:T.bg, borderRadius:10, border:`1px dashed ${T.brd}`,
+    }}>
+      <div style={{fontSize:36, marginBottom:8, opacity:0.5}}>{icon}</div>
+      <div style={{fontSize:FS-1, color:T.textSec, lineHeight:1.6, maxWidth:480, margin:"0 auto"}}>{msg}</div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════
+   PROFILES TAB (V19.73 — Phase C)
+   List of customers with their AI profile + click for full details.
+   Allows admin to manage admin_notes + observations + flags directly
+   on the customer record (writes to `data.customers` via upConfig).
+   ════════════════════════════════════════════════════════════ */
+function ProfilesTab({ agent, data, updateAgent, upConfig, canEdit, isMob }){
+  const customers = data?.customers || [];
+  const [search, setSearch] = useState("");
+  const [filterStage, setFilterStage] = useState("");
+  const [filterTier, setFilterTier] = useState("");
+  const [pickedId, setPickedId] = useState(null);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return customers.filter(c => {
+      if (filterStage && c.stage !== filterStage) return false;
+      if (filterTier  && c.tier  !== filterTier)  return false;
+      if (!q) return true;
+      const hay = [c.name, c.phone, c.address, c.notes, ...((c.additional_phones||[]).map(p=>p.number||p))].join(" ").toLowerCase();
+      return hay.includes(q);
+    });
+  }, [customers, search, filterStage, filterTier]);
+
+  const picked = customers.find(c => c.id === pickedId);
+
+  const cardStyle = { background:T.cardSolid, border:`1px solid ${T.brd}`, borderRadius:14, padding: isMob?14:18, marginBottom:14 };
+
+  return (
+    <div>
+      <div style={{...cardStyle, display:"grid", gridTemplateColumns: isMob?"1fr":"2fr 1fr 1fr", gap:10}}>
+        <Inp value={search} onChange={setSearch} placeholder="🔍 بحث: اسم، تليفون، عنوان..."/>
+        <Sel value={filterStage} onChange={setFilterStage}>
+          <option value="">📊 كل المراحل</option>
+          {STAGES.map(s => <option key={s.key} value={s.key}>{s.icon} {s.label}</option>)}
+        </Sel>
+        <Sel value={filterTier} onChange={setFilterTier}>
+          <option value="">💎 كل الـ Tiers</option>
+          {TIERS.map(t => <option key={t.key} value={t.key}>{t.icon} {t.label}</option>)}
+        </Sel>
+      </div>
+
+      <div style={{display:"flex", gap:10, marginBottom:14, flexWrap:"wrap"}}>
+        <StatPill label="إجمالي العملاء" value={customers.length} color="#0EA5E9"/>
+        <StatPill label="ظاهر بالفلتر" value={filtered.length} color="#10B981"/>
+        <StatPill label="بدون stage" value={customers.filter(c=>!c.stage).length} color="#94A3B8"/>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div style={{...cardStyle, textAlign:"center", padding:"50px 24px"}}>
+          <div style={{fontSize:56, marginBottom:14, opacity:0.5}}>👥</div>
+          <div style={{fontSize:FS+3, fontWeight:800, color:T.text, marginBottom:6}}>
+            {customers.length === 0 ? "مفيش عملاء في النظام" : "مفيش نتائج بالفلتر"}
+          </div>
+          <div style={{fontSize:FS-1, color:T.textMut, maxWidth:460, margin:"0 auto", lineHeight:1.6}}>
+            {customers.length === 0
+              ? "لما تضيف عملاء في tab قاعدة البيانات، هيظهروا هنا تلقائياً مع الـ AI profile بتاعهم."
+              : "غيّر الفلاتر أو نظّف البحث."}
+          </div>
+        </div>
+      ) : (
+        <div style={{display:"grid", gap:8}}>
+          {filtered.slice(0, 100).map(c => (
+            <CustomerProfileCard key={c.id} customer={c} onPick={()=>setPickedId(c.id)}/>
+          ))}
+          {filtered.length > 100 && (
+            <div style={{textAlign:"center", padding:14, color:T.textMut, fontSize:FS-1}}>
+              ظاهر أول 100 عميل من أصل {filtered.length}
+            </div>
+          )}
+        </div>
+      )}
+
+      {picked && (
+        <CustomerFullProfileModal
+          customer={picked}
+          upConfig={upConfig}
+          canEdit={canEdit}
+          onClose={()=>setPickedId(null)}
+          isMob={isMob}
+        />
+      )}
+    </div>
+  );
+}
+
+function CustomerProfileCard({ customer, onPick }){
+  const c = customer;
+  const stage = STAGES.find(s => s.key === c.stage);
+  const tier  = TIERS.find(t => t.key === c.tier);
+  return (
+    <div onClick={onPick} style={{
+      padding:12, background:T.cardSolid, border:`1px solid ${T.brd}`, borderRadius:12, cursor:"pointer",
+      display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, flexWrap:"wrap",
+      transition:"all 0.15s",
+    }}
+    onMouseEnter={e => e.currentTarget.style.borderColor = T.accent}
+    onMouseLeave={e => e.currentTarget.style.borderColor = T.brd}
+    >
+      <div style={{flex:1, minWidth:200}}>
+        <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
+          <span style={{fontSize:FS+1, fontWeight:800, color:T.text}}>👤 {c.name}</span>
+          {tier && <span style={{fontSize:FS-2, padding:"2px 8px", borderRadius:8, background:tier.color+"15", color:tier.color, fontWeight:700}}>{tier.icon} {tier.label}</span>}
+          {stage && <span style={{fontSize:FS-2, padding:"2px 8px", borderRadius:8, background:stage.color+"15", color:stage.color, fontWeight:700}}>{stage.icon} {stage.label}</span>}
+        </div>
+        <div style={{fontSize:FS-1, color:T.textSec, marginTop:4}}>
+          📞 {c.phone || "—"}
+          {c.additional_phones?.length > 0 && <span style={{color:T.textMut}}> (+{c.additional_phones.length} رقم)</span>}
+          {c.address && <span style={{color:T.textMut}}> · 📍 {c.address}</span>}
+        </div>
+      </div>
+      <div style={{display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4, flexShrink:0}}>
+        <span style={{fontSize:FS-1, color:T.accent, fontWeight:700}}>عرض الملف ←</span>
+      </div>
+    </div>
+  );
+}
+
+function CustomerFullProfileModal({ customer, upConfig, canEdit, onClose, isMob }){
+  const c = customer;
+  const stage = STAGES.find(s => s.key === c.stage);
+  const tier  = TIERS.find(t => t.key === c.tier);
+  const aiProfile = c.ai_profile || {};
+  const flags = aiProfile.flags || {};
+  const observations = aiProfile.observations || [];
+  const adminNotes = aiProfile.notes_from_admin || [];
+  const stageHistory = c.stage_history || [];
+  const additionalPhones = c.additional_phones || [];
+
+  const [newNote, setNewNote] = useState("");
+  const [newObsText, setNewObsText] = useState("");
+
+  const updateCustomer = (mutator) => {
+    if (!canEdit) { showToast("ليس لديك صلاحية التعديل"); return; }
+    upConfig(d => {
+      if (!Array.isArray(d.customers)) return;
+      const idx = d.customers.findIndex(x => x.id === c.id);
+      if (idx < 0) return;
+      const cur = d.customers[idx];
+      if (!cur.ai_profile) cur.ai_profile = {};
+      mutator(cur);
+    });
+  };
+
+  const setFlag = (key, val) => updateCustomer(cur => {
+    if (!cur.ai_profile.flags) cur.ai_profile.flags = {};
+    cur.ai_profile.flags[key] = val;
+  });
+
+  const addNote = () => {
+    const txt = newNote.trim(); if (!txt) return;
+    updateCustomer(cur => {
+      if (!Array.isArray(cur.ai_profile.notes_from_admin)) cur.ai_profile.notes_from_admin = [];
+      cur.ai_profile.notes_from_admin.push({
+        id: gid(), note: txt, added_at: new Date().toISOString(),
+      });
+    });
+    setNewNote("");
+    showToast("✓ تمت إضافة الملاحظة");
+  };
+
+  const removeNote = (id) => updateCustomer(cur => {
+    cur.ai_profile.notes_from_admin = (cur.ai_profile.notes_from_admin||[]).filter(n => n.id !== id);
+  });
+
+  const addObservation = () => {
+    const txt = newObsText.trim(); if (!txt) return;
+    updateCustomer(cur => {
+      if (!Array.isArray(cur.ai_profile.observations)) cur.ai_profile.observations = [];
+      cur.ai_profile.observations.push({
+        id: gid(), observation: txt,
+        suggested_at: new Date().toISOString(),
+        suggested_by: "admin_manual",
+        status: "approved",
+      });
+    });
+    setNewObsText("");
+    showToast("✓ تمت إضافة الملاحظة الذكية");
+  };
+
+  const approveObs = (obsId) => updateCustomer(cur => {
+    const obs = (cur.ai_profile.observations||[]).find(o => o.id === obsId);
+    if (obs) {
+      obs.status = "approved";
+      obs.reviewed_at = new Date().toISOString();
+    }
+  });
+
+  const rejectObs = (obsId) => updateCustomer(cur => {
+    cur.ai_profile.observations = (cur.ai_profile.observations||[]).filter(o => o.id !== obsId);
+  });
+
+  const sectionStyle = { paddingBottom:14, marginBottom:14, borderBottom:`1px solid ${T.brd}` };
+
+  return (
+    <div onClick={onClose} style={{
+      position:"fixed", inset:0, background:"rgba(0,0,0,0.5)",
+      zIndex:99998, display:"flex", alignItems:"flex-start", justifyContent:"center",
+      padding:isMob?8:24, overflow:"auto",
+    }}>
+      <div onClick={e=>e.stopPropagation()} style={{
+        background:T.cardSolid, borderRadius:16, padding: isMob?14:24,
+        width:"100%", maxWidth:740, marginTop: isMob?8:24, marginBottom: isMob?8:24,
+        boxShadow:"0 20px 60px rgba(0,0,0,0.3)", direction:"rtl",
+      }}>
+        <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:18, gap:10, flexWrap:"wrap"}}>
+          <div style={{flex:1, minWidth:200}}>
+            <div style={{fontSize:FS+6, fontWeight:800, color:T.text, lineHeight:1.2}}>👤 {c.name}</div>
+            <div style={{display:"flex", alignItems:"center", gap:8, marginTop:6, flexWrap:"wrap"}}>
+              {tier && <span style={{fontSize:FS-1, padding:"3px 10px", borderRadius:8, background:tier.color+"15", color:tier.color, fontWeight:700}}>{tier.icon} {tier.label}</span>}
+              {stage && <span style={{fontSize:FS-1, padding:"3px 10px", borderRadius:8, background:stage.color+"15", color:stage.color, fontWeight:700}}>{stage.icon} {stage.label}</span>}
+              {!stage && <span style={{fontSize:FS-2, color:T.textMut}}>(stage غير محدد)</span>}
+            </div>
+          </div>
+          <Btn ghost small onClick={onClose}>✕</Btn>
+        </div>
+
+        <div style={sectionStyle}>
+          <h4 style={{margin:"0 0 8px", fontSize:FS, fontWeight:800, color:T.text}}>📞 أرقام التواصل</h4>
+          <div style={{padding:"8px 12px", background:T.bg, borderRadius:8, fontSize:FS-1}}>
+            <div><strong>الأساسي:</strong> {c.phone || "—"} {c.normalized_phone && <span style={{color:T.textMut, fontSize:FS-2}}>· normalized: {c.normalized_phone}</span>}</div>
+            {additionalPhones.length > 0 && additionalPhones.map((p, i) => (
+              <div key={i} style={{marginTop:4}}>
+                <strong>إضافي:</strong> {typeof p === "string" ? p : (p.number || "—")}
+                {p.label && <span style={{color:T.textMut, marginInlineStart:8}}>· {p.label}</span>}
+                {p.verified_at && <span style={{color:T.ok, marginInlineStart:8}}>✅ verified</span>}
+              </div>
+            ))}
+            {additionalPhones.length === 0 && <div style={{fontSize:FS-2, color:T.textMut, marginTop:4}}>لا يوجد أرقام إضافية</div>}
+          </div>
+        </div>
+
+        <div style={sectionStyle}>
+          <h4 style={{margin:"0 0 8px", fontSize:FS, fontWeight:800, color:T.text}}>🎯 AI Profile</h4>
+          <div style={{display:"grid", gridTemplateColumns: isMob?"1fr":"1fr 1fr", gap:10, fontSize:FS-1}}>
+            <ProfileField label="الفئات المفضّلة" value={(aiProfile.preferred_categories||[]).join("، ") || "—"}/>
+            <ProfileField label="المواسم المفضّلة" value={(aiProfile.preferred_seasons||[]).join("، ") || "—"}/>
+            <ProfileField label="الموديلات المفضّلة" value={(aiProfile.preferred_models||[]).join("، ") || "—"}/>
+            <ProfileField label="متوسط قيمة الطلب" value={aiProfile.avg_order_value ? `${aiProfile.avg_order_value.toLocaleString("ar-EG")} ج` : "—"}/>
+            <ProfileField label="مشتريات آخر 12 شهر" value={aiProfile.total_purchases_last_12_months ? `${aiProfile.total_purchases_last_12_months.toLocaleString("ar-EG")} ج` : "—"}/>
+            <ProfileField label="نمط الدفع" value={aiProfile.payment_pattern || "—"}/>
+            <ProfileField label="أسلوب التواصل" value={aiProfile.communication_style || "—"}/>
+            <ProfileField label="أحسن وقت للرد" value={aiProfile.preferred_response_time || "—"}/>
+          </div>
+          {!aiProfile.preferred_categories && (
+            <div style={{marginTop:8, fontSize:FS-2, color:T.textMut, fontStyle:"italic"}}>
+              💡 الـ AI Profile لسه فاضي. الـ Agent backend (Phase D) هيـpopulate الحقول من تاريخ العميل.
+            </div>
+          )}
+        </div>
+
+        <div style={sectionStyle}>
+          <h4 style={{margin:"0 0 8px", fontSize:FS, fontWeight:800, color:T.text}}>📝 ملاحظات الإدارة</h4>
+          {adminNotes.length === 0 ? (
+            <div style={{fontSize:FS-1, color:T.textMut, fontStyle:"italic", marginBottom:8}}>لا يوجد ملاحظات بعد.</div>
+          ) : (
+            <div style={{display:"grid", gap:6, marginBottom:8}}>
+              {adminNotes.map(n => (
+                <div key={n.id} style={{padding:"8px 12px", background:"#FEF3C7", borderRadius:8, border:"1px solid #FCD34D", display:"flex", justifyContent:"space-between", gap:8, alignItems:"flex-start"}}>
+                  <div style={{flex:1, fontSize:FS-1, color:"#78350F"}}>
+                    {n.note}
+                    {n.added_at && <div style={{fontSize:FS-3, color:"#92400E", marginTop:2}}>· {new Date(n.added_at).toLocaleDateString("ar-EG")}</div>}
+                  </div>
+                  {canEdit && <span onClick={()=>removeNote(n.id)} style={{cursor:"pointer", color:"#991B1B", fontWeight:800, fontSize:FS-1}}>✕</span>}
+                </div>
+              ))}
+            </div>
+          )}
+          {canEdit && (
+            <div style={{display:"flex", gap:6}}>
+              <Inp value={newNote} onChange={setNewNote} placeholder="مثال: بيفضّل الشيكات على الكاش"/>
+              <Btn primary small onClick={addNote}>+ إضافة</Btn>
+            </div>
+          )}
+        </div>
+
+        <div style={sectionStyle}>
+          <h4 style={{margin:"0 0 8px", fontSize:FS, fontWeight:800, color:T.text}}>💡 ملاحظات ذكية (Observations)</h4>
+          {observations.length === 0 ? (
+            <div style={{fontSize:FS-1, color:T.textMut, fontStyle:"italic", marginBottom:8}}>
+              مفيش observations. الـ Agent backend (Phase D) هيـsuggest observations من المحادثات للموافقة.
+            </div>
+          ) : (
+            <div style={{display:"grid", gap:6, marginBottom:8}}>
+              {observations.map(o => (
+                <div key={o.id} style={{
+                  padding:"8px 12px", borderRadius:8,
+                  background: o.status === "pending" ? "#DBEAFE" : "#D1FAE5",
+                  border: `1px solid ${o.status === "pending" ? "#93C5FD" : "#6EE7B7"}`,
+                  display:"flex", justifyContent:"space-between", gap:8, alignItems:"flex-start", flexWrap:"wrap",
+                }}>
+                  <div style={{flex:1, minWidth:200, fontSize:FS-1, color: o.status === "pending" ? "#1E40AF" : "#065F46"}}>
+                    {o.observation}
+                    {o.evidence && <div style={{fontSize:FS-3, marginTop:2, color:T.textMut}}>الدليل: {o.evidence}</div>}
+                    <div style={{fontSize:FS-3, marginTop:2, color:T.textMut}}>
+                      {o.status === "pending" ? "🕒 قيد المراجعة" : "✅ معتمدة"}
+                      {o.suggested_by && <span> · من: {o.suggested_by === "admin_manual" ? "أدمن" : "AI"}</span>}
+                    </div>
+                  </div>
+                  {canEdit && o.status === "pending" && (
+                    <div style={{display:"flex", gap:4}}>
+                      <Btn primary small onClick={()=>approveObs(o.id)}>✅</Btn>
+                      <Btn danger small onClick={()=>rejectObs(o.id)}>❌</Btn>
+                    </div>
+                  )}
+                  {canEdit && o.status !== "pending" && (
+                    <Btn danger small onClick={()=>rejectObs(o.id)}>🗑</Btn>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {canEdit && (
+            <div style={{display:"flex", gap:6}}>
+              <Inp value={newObsText} onChange={setNewObsText} placeholder="أضف ملاحظة يدوياً (هتظهر للـ Agent)"/>
+              <Btn primary small onClick={addObservation}>+ إضافة</Btn>
+            </div>
+          )}
+        </div>
+
+        <div style={sectionStyle}>
+          <h4 style={{margin:"0 0 8px", fontSize:FS, fontWeight:800, color:T.text}}>🚩 الـ Flags</h4>
+          <div style={{display:"grid", gridTemplateColumns: isMob?"1fr":"1fr 1fr", gap:8}}>
+            {[
+              { key:"vip",               label:"⭐ VIP" },
+              { key:"careful_handling",  label:"🔒 معاملة بعناية" },
+              { key:"do_not_call",       label:"📵 ممنوع الاتصال" },
+              { key:"special_pricing",   label:"💰 أسعار خاصة" },
+            ].map(f => (
+              <label key={f.key} style={{
+                display:"flex", alignItems:"center", gap:8, padding:"8px 12px", borderRadius:8,
+                background: flags[f.key] ? "#8B5CF608" : T.bg,
+                border: `1px solid ${flags[f.key] ? "#8B5CF640" : T.brd}`,
+                cursor: canEdit?"pointer":"default",
+              }}>
+                <input type="checkbox" checked={!!flags[f.key]}
+                  onChange={e=>canEdit && setFlag(f.key, e.target.checked)}
+                  style={{width:18,height:18}}/>
+                <span style={{fontSize:FS, fontWeight:600, color:T.text}}>{f.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div style={{paddingBottom:14}}>
+          <h4 style={{margin:"0 0 8px", fontSize:FS, fontWeight:800, color:T.text}}>📅 تاريخ المراحل</h4>
+          {stageHistory.length === 0 ? (
+            <div style={{fontSize:FS-1, color:T.textMut, fontStyle:"italic"}}>مفيش تاريخ مسجّل.</div>
+          ) : (
+            <div style={{display:"grid", gap:4}}>
+              {stageHistory.map((h, i) => (
+                <div key={i} style={{padding:"6px 10px", borderRadius:6, background:T.bg, fontSize:FS-1, display:"flex", justifyContent:"space-between"}}>
+                  <span style={{color:T.text}}>
+                    {h.from ? `${h.from} → ` : ""}{h.to}
+                    {h.changed_by && <span style={{color:T.textMut, fontSize:FS-2, marginInlineStart:8}}>· بواسطة {h.changed_by}</span>}
+                  </span>
+                  <span style={{color:T.textMut, fontSize:FS-2}}>
+                    {h.changed_at ? new Date(h.changed_at).toLocaleDateString("ar-EG") : "—"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={{display:"flex", justifyContent:"flex-end", paddingTop:10, borderTop:`1px solid ${T.brd}`}}>
+          <Btn primary onClick={onClose}>إغلاق</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileField({ label, value }){
+  return (
+    <div>
+      <div style={{fontSize:FS-2, color:T.textSec, fontWeight:600}}>{label}</div>
+      <div style={{fontSize:FS-1, color:T.text, fontWeight:600, marginTop:2}}>{value}</div>
     </div>
   );
 }

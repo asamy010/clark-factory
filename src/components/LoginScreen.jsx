@@ -53,8 +53,11 @@ export const TABS=[
   {key:"hr",label:"مرتبات + موظفين",icon:"🧑‍💼",color:"#7C3AED",bg:"#EDE9FE",svg:<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>},
   /* V19.19: Bulk messaging campaigns */
   {key:"campaigns",label:"الحملات والرسائل",icon:"📣",color:"#7C3AED",bg:"#EDE9FE",svg:<><path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></>},
-  /* V19.68: Automation hub — daily reports + event triggers via WhatsApp bridge */
-  {key:"automation",label:"الأتمتة",icon:"🤖",color:"#0EA5E9",bg:"#E0F2FE",svg:<><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></>},
+  /* V19.68: Automation hub — daily reports + event triggers via WhatsApp bridge.
+     V19.73: Label switched to English "Automation" for consistency with the
+     "AI Agent" tab label — both are technical/communication features and the
+     English term reads cleaner alongside the Arabic operational labels. */
+  {key:"automation",label:"Automation",icon:"🤖",color:"#0EA5E9",bg:"#E0F2FE",svg:<><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></>},
   /* V19.71: AI Agent — control center + training school for the WhatsApp B2B sales agent.
      Distinct from "الأتمتة" (rule-based scheduling): this is the LLM-driven conversational agent.
      Label is intentionally English ("AI Agent") per user preference — it's a globally recognized

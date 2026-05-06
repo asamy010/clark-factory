@@ -10,7 +10,7 @@
 /* V19.50: Single source of truth for the app version. Used in topbar pills
    (desktop + mobile), the console marker on module load, and the About modal.
    Bump this constant once and the version label is consistent everywhere. */
-export const APP_VERSION = "V19.72.0";
+export const APP_VERSION = "V19.73.0";
 
 export const FKEYS = ["A","B","C","D","E"];
 
@@ -139,6 +139,21 @@ export const INIT_CONFIG = {
     },
     /* Tier discounts (default per spec) */
     tierDiscounts: { Bronze: 0, Silver: 3, Gold: 5, Platinum: 8 },
+    /* V19.73 — Tier thresholds (annual purchases, EGP) — used by funnel viz
+       to compute "approaching tier-up" + by backend to assign tiers. */
+    tierThresholds: { Bronze: 0, Silver: 50000, Gold: 200000, Platinum: 500000 },
+    /* V19.73 — Stage-transition auto-approval config. Per spec, the agent
+       SUGGESTS transitions; admin APPROVES. For low-risk transitions admin
+       can opt to auto-approve. Decision→Customer is intentionally manual
+       since it represents a real commitment (a confirmed order). */
+    stageTransitionAutoApprove: {
+      strangerToAwareness: true,
+      awarenessToInterest: true,
+      interestToDecision:  false,
+      decisionToCustomer:  false,
+      customerToRepeat:    true,
+      customerToDormant:   true,
+    },
     /* Escalation routing */
     escalation: {
       supportPhone: "",/* primary human-support WhatsApp number */
