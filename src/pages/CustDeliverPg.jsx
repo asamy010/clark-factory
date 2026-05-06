@@ -69,6 +69,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const[itemCardFilter,setItemCardFilter]=useState("");
   const[showNewSession,setShowNewSession]=useState(false);
   const[selModels,setSelModels]=useState({});const[selCusts,setSelCusts]=useState({});
+  /* V19.76.6: filter inputs in the "تسليم جديد" popup — quick search across many models/customers. */
+  const[newSessModelFilter,setNewSessModelFilter]=useState("");
+  const[newSessCustFilter,setNewSessCustFilter]=useState("");
   const[activeSession,setActiveSession]=useState(null);
   const[editCell,setEditCell]=useState(null);const[editVal,setEditVal]=useState(0);const[cellError,setCellError]=useState("");
   /* V19.70.22: local-state grid for the distribution matrix. Holds unsaved edits as the
@@ -497,8 +500,14 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
 
   /* Compute the available capacity for a (group, customer) cell — what's the max
      the user can enter before exceeding total stock for this group?
-     availForCell = sum_of_subOrder_stock - sum_of_subOrder_sold - sum_other_customers_in_localGrid
-     We use this for the visual warning when the cell's local qty exceeds it. */
+     V19.76.6: `subSold` (sm.custDel) counts ALL committed deliveries, INCLUDING
+     ones that came from THIS session's plan. The plan cells are already represented
+     in `otherPlan` (and the cell's own value), so subtracting subSold raw double-counts.
+     User report: "ال 48 دخلوا و ال 48 خرجوا" — 48 distributed, 48 sold from those plans,
+     yet the cells flagged "تخطى" because cap was computed as 0. Fix: add back the
+     deliveries that came from THIS session, leaving only out-of-session sales subtracted.
+       cap = subStock − (subSold − inSessionDelivered) − otherPlan
+   */
   const availForGroupCell = (m, custId) => {
     const oids = m.orderIds || [m.id];
     let cap = 0;
@@ -507,12 +516,23 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       if (!sm) continue;
       const subStock = sm.stockQty;
       const subSold = sm.custDel;
+      /* In-session deliveries: don't double-subtract, they're already in the plan cells. */
+      let inSessionDelivered = 0;
+      if (activeSess) {
+        const o = orders.find(x => x.id === oid);
+        if (o) {
+          inSessionDelivered = (o.customerDeliveries || [])
+            .filter(d => d.sessionId === activeSess.id)
+            .reduce((s, d) => s + (Number(d.qty) || 0), 0);
+        }
+      }
+      const outOfSessionSold = Math.max(0, subSold - inSessionDelivered);
       let otherPlan = 0;
       Object.entries(localGrid).forEach(([key, v]) => {
         const [subOid, subCust] = key.split("_");
         if (subOid === oid && subCust !== custId) otherPlan += Number(v) || 0;
       });
-      cap += Math.max(0, subStock - subSold - otherPlan);
+      cap += Math.max(0, subStock - outOfSessionSold - otherPlan);
     }
     return cap;
   };
@@ -1047,48 +1067,78 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           </div>
         </>}
 
-        {/* ── GROUP 1: CUSTOMERS ── */}
-        <div className="sales-group-title">👥 العملاء</div>
-        <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(auto-fill,minmax(110px,1fr))",gap:8,marginBottom:16}}>
-          {canEdit&&secBtn(I.users,"العملاء","#0EA5E9",()=>setShowCustList(true),customers.length||null)}
-          {secBtn(I.fileText,"كشف حساب","#0EA5E9",()=>{setCustStatement("pick");setCustFilter("")})}
-          {secBtn(I.receipt,"عرض سعر","#8B5CF6",()=>{setShowAllSessQuote(false);setQuoteCust("pickSess")})}
-          {/* V18.63: New "إذن تسليم" button — same flow as quote but quantities only (no prices) */}
-          {secBtn(I.truck||I.fileText,"إذن تسليم","#0EA5E9",()=>{setShowAllSessDeliver(false);setDeliverNote("pickSess")})}
-        </div>
-
-        {/* ── GROUP 2: REPORTS & ANALYSIS ── */}
-        <div className="sales-group-title">📊 التقارير والتحليل</div>
-        <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(auto-fill,minmax(110px,1fr))",gap:8,marginBottom:16}}>
-          {secBtn(I.chart,"تقرير مبيعات","#8B5CF6",()=>{setRptType("all");setRptCust("");setRptModel("");setReportRange({from:"",to:""});setShowReport(true)})}
-          {stockModels.length>0&&secBtn(I.trophy,"تحليل مبيعات","#8B5CF6",()=>setSalesAnalysis(true))}
-          {secBtn(I.calendarReport,"تقرير الموسم","#EF4444",()=>setSeasonReport(true))}
-          {secBtn(I.history,"سجل البيع","#059669",()=>{setCustSalesLog("all");setLogCustF("");setLogModelF("");setLogDateF("");setLogTypeFilter("");setLogLimit(50)})}
-          {secBtn(I.activity,"خط الانتاج","#059669",printProductionLine)}
-        </div>
-
-        {/* ── GROUP 3: WAREHOUSE & INVENTORY ── */}
-        <div className="sales-group-title">📦 المخزن والجرد</div>
-        <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(auto-fill,minmax(110px,1fr))",gap:8,marginBottom:16}}>
-          {secBtn(I.warehouse,"جرد المخزن","#8B5CF6",()=>setInvAudit({items:{},scanning:false}))}
-          {canEdit&&secBtn(I.clipboard,"جرد مبيعات","#F59E0B",()=>{setAuditDate(cairoDateStr());setAuditFrom("");setAuditTo("");setAuditNote("");setShowNewAudit(true)})}
-          {secBtn(I.package,"الكراتين","#0EA5E9",()=>setPkgPopup("list"))}
-          {secBtn(I.inbox,"تأكيد استلام","#10B981",()=>setPendingRcv({items:{}}),pendingRcvCount||null)}
-          {/* V14.59: Receipt log — historical receipts with comparison */}
-          {secBtn(I.fileText,"سجل الاستلامات","#059669",()=>setShowReceiptLog(true))}
-          {/* V18.19: Item card — full movement history for any model */}
-          {secBtn(I.activity,"كارت صنف","#0EA5E9",()=>{setItemCard("pick");setItemCardFilter("")})}
-        </div>
-
-        {/* ── GROUP 4: OTHER TOOLS ── */}
-        {(stockModels.length>0||canEdit||oList.length>0)&&<>
-          <div className="sales-group-title">🔧 أدوات أخرى</div>
-          <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(auto-fill,minmax(110px,1fr))",gap:8,marginBottom:8}}>
-            {stockModels.length>0&&secBtn(I.tag,"ليبلات QR","#F59E0B",()=>setCustomLabel("pick"))}
-            {canEdit&&secBtn(I.arrowReturn,"مرتجع حر","#EF4444",()=>{setFreeReturn("pick");setFreeRetItems({});setFreeRetNote("")})}
-            {oList.length>0&&secBtn(I.refresh,"استعادة توزيعات","#EF4444",recoverAction,oList.length)}
-          </div>
-        </>}
+        {/* V19.76.6: secondary tool groups on a 2-column grid (1 col on mobile) — each
+            group is its own rectangle card with title above the buttons, side-by-side
+            so the page is more compact without shrinking the icons.
+            Card style is reused below for each of the 4 groups. */}
+        {(()=>{
+          const cardStyle = {
+            border: "1px solid " + T.brd,
+            borderRadius: 12,
+            background: T.cardSolid,
+            padding: 12,
+            display: "flex",
+            flexDirection: "column",
+          };
+          const titleStyle = {
+            fontSize: FS - 1,
+            fontWeight: 800,
+            color: T.text,
+            marginBottom: 10,
+            paddingBottom: 8,
+            borderBottom: "1px solid " + T.brd,
+          };
+          const btnsGrid = {
+            display: "grid",
+            gridTemplateColumns: isMob ? "repeat(2,1fr)" : "repeat(auto-fill,minmax(110px,1fr))",
+            gap: 8,
+          };
+          const showOtherTools = (stockModels.length > 0 || canEdit || oList.length > 0);
+          return <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(2,1fr)",gap:12,marginBottom:8}}>
+            {/* GROUP 1: CUSTOMERS */}
+            <div style={cardStyle}>
+              <div style={titleStyle}>👥 العملاء</div>
+              <div style={btnsGrid}>
+                {canEdit&&secBtn(I.users,"العملاء","#0EA5E9",()=>setShowCustList(true),customers.length||null)}
+                {secBtn(I.fileText,"كشف حساب","#0EA5E9",()=>{setCustStatement("pick");setCustFilter("")})}
+                {secBtn(I.receipt,"عرض سعر","#8B5CF6",()=>{setShowAllSessQuote(false);setQuoteCust("pickSess")})}
+                {secBtn(I.truck||I.fileText,"إذن تسليم","#0EA5E9",()=>{setShowAllSessDeliver(false);setDeliverNote("pickSess")})}
+              </div>
+            </div>
+            {/* GROUP 2: REPORTS & ANALYSIS */}
+            <div style={cardStyle}>
+              <div style={titleStyle}>📊 التقارير والتحليل</div>
+              <div style={btnsGrid}>
+                {secBtn(I.chart,"تقرير مبيعات","#8B5CF6",()=>{setRptType("all");setRptCust("");setRptModel("");setReportRange({from:"",to:""});setShowReport(true)})}
+                {stockModels.length>0&&secBtn(I.trophy,"تحليل مبيعات","#8B5CF6",()=>setSalesAnalysis(true))}
+                {secBtn(I.calendarReport,"تقرير الموسم","#EF4444",()=>setSeasonReport(true))}
+                {secBtn(I.history,"سجل البيع","#059669",()=>{setCustSalesLog("all");setLogCustF("");setLogModelF("");setLogDateF("");setLogTypeFilter("");setLogLimit(50)})}
+                {secBtn(I.activity,"خط الانتاج","#059669",printProductionLine)}
+              </div>
+            </div>
+            {/* GROUP 3: WAREHOUSE & INVENTORY */}
+            <div style={cardStyle}>
+              <div style={titleStyle}>📦 المخزن والجرد</div>
+              <div style={btnsGrid}>
+                {secBtn(I.warehouse,"جرد المخزن","#8B5CF6",()=>setInvAudit({items:{},scanning:false}))}
+                {canEdit&&secBtn(I.clipboard,"جرد مبيعات","#F59E0B",()=>{setAuditDate(cairoDateStr());setAuditFrom("");setAuditTo("");setAuditNote("");setShowNewAudit(true)})}
+                {secBtn(I.package,"الكراتين","#0EA5E9",()=>setPkgPopup("list"))}
+                {secBtn(I.inbox,"تأكيد استلام","#10B981",()=>setPendingRcv({items:{}}),pendingRcvCount||null)}
+                {secBtn(I.fileText,"سجل الاستلامات","#059669",()=>setShowReceiptLog(true))}
+                {secBtn(I.activity,"كارت صنف","#0EA5E9",()=>{setItemCard("pick");setItemCardFilter("")})}
+              </div>
+            </div>
+            {/* GROUP 4: OTHER TOOLS */}
+            {showOtherTools && <div style={cardStyle}>
+              <div style={titleStyle}>🔧 أدوات أخرى</div>
+              <div style={btnsGrid}>
+                {stockModels.length>0&&secBtn(I.tag,"ليبلات QR","#F59E0B",()=>setCustomLabel("pick"))}
+                {canEdit&&secBtn(I.arrowReturn,"مرتجع حر","#EF4444",()=>{setFreeReturn("pick");setFreeRetItems({});setFreeRetNote("")})}
+                {oList.length>0&&secBtn(I.refresh,"استعادة توزيعات","#EF4444",recoverAction,oList.length)}
+              </div>
+            </div>}
+          </div>;
+        })()}
       </div>;
     })()}
     {/* ═══ SALES STATS CARDS ═══ */}
@@ -5593,24 +5643,40 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           <Btn ghost onClick={()=>setShowNewSession(false)} title="إغلاق">✕</Btn>
         </div>
         <div style={{marginBottom:16}}>
-          <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>📦 اختر الموديلات:</div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,gap:8,flexWrap:"wrap"}}>
+            <div style={{fontSize:FS,fontWeight:700,color:T.text}}>📦 اختر الموديلات:</div>
+            <Inp value={newSessModelFilter} onChange={v=>setNewSessModelFilter(v)} placeholder="🔍 فلتر موديل..." style={{maxWidth:200,fontSize:FS-2}}/>
+          </div>
           <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:200,overflowY:"auto"}}>
-            {stockModels.filter(m=>m.avail>0).map(m=><label key={m.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:10,background:selModels[m.id]?T.accent+"08":T.bg,border:"1px solid "+(selModels[m.id]?T.accent+"30":T.brd),cursor:"pointer"}}>
-              <input type="checkbox" checked={!!selModels[m.id]} onChange={e=>setSelModels(p=>({...p,[m.id]:e.target.checked}))} style={{width:18,height:18}}/>
-              <span style={{fontWeight:700,color:T.accent}}>{m.modelNo}</span>
-              <span style={{fontSize:FS-2,color:T.textSec,flex:1}}>{m.modelDesc}</span>
-              <span style={{fontSize:FS-2,fontWeight:700,color:T.ok}}>{"متاح: "+m.avail}</span>
-              <span style={{fontSize:FS-3,color:T.textMut}}>{"سيري: "+m.rackSize}</span>
-            </label>)}
+            {(()=>{
+              const f=newSessModelFilter.trim().toLowerCase();
+              const list=stockModels.filter(m=>m.avail>0).filter(m=>!f||(m.modelNo||"").toLowerCase().includes(f)||(m.modelDesc||"").toLowerCase().includes(f));
+              if(list.length===0)return<div style={{padding:"12px 8px",color:T.textMut,fontSize:FS-2,textAlign:"center"}}>{f?"لا يوجد موديل مطابق":"لا توجد موديلات متاحة"}</div>;
+              return list.map(m=><label key={m.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:10,background:selModels[m.id]?T.accent+"08":T.bg,border:"1px solid "+(selModels[m.id]?T.accent+"30":T.brd),cursor:"pointer"}}>
+                <input type="checkbox" checked={!!selModels[m.id]} onChange={e=>setSelModels(p=>({...p,[m.id]:e.target.checked}))} style={{width:18,height:18}}/>
+                <span style={{fontWeight:700,color:T.accent}}>{m.modelNo}</span>
+                <span style={{fontSize:FS-2,color:T.textSec,flex:1}}>{m.modelDesc}</span>
+                <span style={{fontSize:FS-2,fontWeight:700,color:T.ok}}>{"متاح: "+m.avail}</span>
+                <span style={{fontSize:FS-3,color:T.textMut}}>{"سيري: "+m.rackSize}</span>
+              </label>);
+            })()}
           </div>
         </div>
         <div style={{marginBottom:16}}>
-          <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>👥 اختر العملاء:</div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,gap:8,flexWrap:"wrap"}}>
+            <div style={{fontSize:FS,fontWeight:700,color:T.text}}>👥 اختر العملاء:</div>
+            <Inp value={newSessCustFilter} onChange={v=>setNewSessCustFilter(v)} placeholder="🔍 فلتر عميل..." style={{maxWidth:200,fontSize:FS-2}}/>
+          </div>
           <div style={{display:"flex",flexWrap:"wrap",gap:6,maxHeight:200,overflowY:"auto"}}>
-            {customers.map(c=><label key={c.id} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:10,background:selCusts[c.id]?"#05966908":T.bg,border:"1px solid "+(selCusts[c.id]?"#05966930":T.brd),cursor:"pointer",fontSize:FS-1}}>
-              <input type="checkbox" checked={!!selCusts[c.id]} onChange={e=>setSelCusts(p=>({...p,[c.id]:e.target.checked}))} style={{width:16,height:16}}/>
-              <span style={{fontWeight:600}}>{c.name}</span>
-            </label>)}
+            {(()=>{
+              const f=newSessCustFilter.trim().toLowerCase();
+              const list=customers.filter(c=>!f||(c.name||"").toLowerCase().includes(f)||(c.phone||"").toLowerCase().includes(f));
+              if(list.length===0)return<div style={{padding:"12px 8px",color:T.textMut,fontSize:FS-2,textAlign:"center",width:"100%"}}>{f?"لا يوجد عميل مطابق":"لا يوجد عملاء"}</div>;
+              return list.map(c=><label key={c.id} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:10,background:selCusts[c.id]?"#05966908":T.bg,border:"1px solid "+(selCusts[c.id]?"#05966930":T.brd),cursor:"pointer",fontSize:FS-1}}>
+                <input type="checkbox" checked={!!selCusts[c.id]} onChange={e=>setSelCusts(p=>({...p,[c.id]:e.target.checked}))} style={{width:16,height:16}}/>
+                <span style={{fontWeight:600}}>{c.name}</span>
+              </label>);
+            })()}
           </div>
         </div>
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>

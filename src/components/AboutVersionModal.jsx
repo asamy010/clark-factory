@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.76.6",
+    date: "2026-05-06",
+    types: ["fix", "feature", "ux"],
+    title: "🛠 Sales hub: false 'تخطى' warning + filters في 'تسليم جديد' + redesign الأقسام",
+    changes: [
+      { type: "fix", text: "🐛 [User report: 'ليه بيظهر تحذير تخطى مع إن الكمية مظبوطة 48 دخلوا و 48 خرجوا'] الـ matrix cell كان بيـ flag الخلية كـ 'تخطى' حتى لما الكمية تساوي اللي اتـ delivered منها. السبب: `availForGroupCell` كان بيطرح كل الـ `customerDeliveries` (sm.custDel) من الـ stock، بما فيهم الديليفريز اللي جت من الـ session نفسها — اللي هي ممثلة بالفعل في الـ planned cells. ده كان double-counting. مثال: stock=48, delivered=48 (من الـ session ده), cap = 48 - 48 - 24 = 0 (negative clamped to 0) → الخلية تطلع 'تخطى' غلط. الإصلاح: اطرح بس الـ deliveries اللي مش من الـ session ده (out-of-session sold), كده cap = 48 - 0 - 24 = 24, exceeds=24>24=false ✓." },
+      { type: "feature", text: "🔍 [User request: 'عاوز في شاشة اختيار ماتريكس التوزيعة فلتر موديل وفلتر عميل'] popup 'تسليم جديد' دلوقتي فيه فلتر بحث جنب كل قسم — بحث في كود الموديل والوصف، وبحث في اسم العميل والرقم. يـ filter الـ checkboxes لسهولة الاختيار من قوائم طويلة. لو الفلتر مفيش ليه matches، رسالة واضحة بدل قائمة فاضية." },
+      { type: "ux", text: "🎨 [User request: 'الجزء ده من شاشة المبيعات عيد تصميمة، كل جزء يكون في مستطيل بنفس الشكل ومكتوب العنوان فوق المستطيل، ويكونوا جنب بعض على صفين مش صف واحد عشان ماتصغرش الايقونات'] الـ 4 secondary groups (العملاء، التقارير والتحليل، المخزن والجرد، أدوات أخرى) كانوا stacked vertical full-width — كل واحد سطر. دلوقتي 2x2 grid على desktop (1 column على mobile) + كل group في card فيه: border + radius + padding + title فوق فاصل + الأزرار تحت بنفس الـ minmax(110px,1fr) auto-fill. الأيقونات ما اتصغرتش، بس الـ vertical space اتوفّر النص (4 صفوف → 2 صف)." },
+    ]
+  },
+  {
     version: "V19.76.5",
     date: "2026-05-06",
     types: ["feature"],
