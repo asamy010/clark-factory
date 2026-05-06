@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.24",
+    date: "2026-05-06",
+    types: ["fix", "ux"],
+    title: "🛠 Cairo TTF 403 fix + delete customer من التوزيعة + audit popup width + PDF default OFF",
+    changes: [
+      { type: "fix", text: "🐛 [الـCRITICAL: V19.70.23 الـPDF بـyـفشل لود — Cairo TTF returns 403] Error: 'Fetch https://cdn.jsdelivr.net/gh/google/fonts@main/.../Cairo-Regular.ttf failed: 403'. السبب: الـjsdelivr/gh CDN بقى يـblock الـraw passthrough للـGoogle Fonts repo. **الـFix**: switched لـfontsource CDN (نفس الـpackage اللي V19.70.15 استخدمته للـwoff2) — الـTTF متاحة في `cdn.jsdelivr.net/npm/@fontsource/cairo@5.0.13/files/cairo-arabic-{N}-normal.ttf`. الـArabic subset صغير (~30-50KB لكل weight) — أسرع من الـfull TTF. ضافت fallback chain: لو jsdelivr فشل، unpkg، لو ده فشل كمان، older fontsource version. الـ_fetchAsBase64 helper بقى يقبل array من URLs ويـtry فيهم بالترتيب." },
+      { type: "ux", text: "🔘 [الـPDF default بقى OFF — user opt-in] V19.70.23 خلّاه ON بناءً على فرضية إن الـpipeline شغّال. الـuser report بـyـقول الـCDN فاشل + بـyـفضل explicit opt-in. **الـFix**: الـcheckbox `📎 إرفاق نسخة PDF` بقى default OFF تاني. الـuser يفعّله لما يحتاج PDF فعلاً. الـsubtitle اتحدّث: 'رسالة تفاصيل نصية فقط (افتراضي — أسرع وأخف)' لما OFF، 'PDF + رسالة تفاصيل (vector PDF بـArabic shaping صحيح)' لما ON." },
+      { type: "ux", text: "🗑️ [زر حذف عميل من جدول التوزيعة — متاح دلوقتي حتى للصفوف الفاضية] User report: 'عاوز اقدر امسح عميل من داخل التوزيعة'. **الـbug**: زر الـحذف 🗑 كان موجود بس داخل الـactions column اللي بـyـظهر فقط لما `rowTotal > 0`. لو الـuser ضاف عميل بالغلط ومش عاوز يكتبله أرقام، ما كانش يقدر يحذفه — الـactions row مخفية. **الـFix**: ضافت ✕ icon أحمر صغير next to الـcustomer name في first column — always visible لو الـsession `sessCanEdit`. لو في sales فعلية للـcustomer في الـsession، الـicon بـyـبدّل لـ🔒 disabled مع tooltip 'لا يمكن الحذف — لديه بيع فعلي'. الـconfirm prompt + cleanup للـlocalGrid as well so the row disappears immediately." },
+      { type: "ux", text: "📐 [Audit popup width fits content — مش full-screen مفتوح] User report: 'عاوز تصغير مساحة البوب اب بالعرض بناءً على المحتوى الداخلي'. **الـFix**: الـwidth بقى `fit-content` بـmaxWidth dynamic = `Math.min(viewport-48, 240 + visCusts.length * 95 + 200)`. الـpopup بـyـwidn حسب عدد العملاء الـvisible — لو 3 عملاء، compact. لو 15 عميل، أعرض. الـminWidth = 480px على desktop عشان ميكونش أنحف من الـheader buttons. على mobile، 100% (full-width) كما كان." },
+      { type: "improvement", text: "🛡️ [Multiple URL fallback في الـ_fetchAsBase64] الـfetcher بقى defensive — لو واحد من الـCDN URLs returned 403/404/network error، يـtry الـnext في الـlist. الـerror الـfinal لو كلهم فشلوا includes الـlast URL + status (للـdebug). الـfont loading أصبح resilient ضد single CDN outages." },
+    ]
+  },
+  {
     version: "V19.70.23",
     date: "2026-05-06",
     types: ["fix", "architectural"],

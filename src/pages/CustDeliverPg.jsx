@@ -1293,16 +1293,48 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               const rowTotal=fMods.reduce((s,m)=>s+getGroupQtyLocal(m,c.id),0);
               const rowBg=ci%2===0?T.cardSolid:T.bg;
               return<tr key={c.id} style={{background:ci%2===0?"transparent":T.bg+"80"}}>
-                {/* V18.22: Sticky customer column */}
-                <td style={{...TD,fontWeight:700,position:"sticky",insetInlineStart:0,zIndex:5,background:rowBg,borderInlineEnd:"2px solid "+T.brd}}>{c.name}{(()=>{
-                  /* V15.50: Confirmation badge — shows customer's scan result */
-                  const cf=(activeSess.confirmations||{})[c.id];
-                  if(!cf)return<span title="في انتظار تأكيد العميل" style={{marginInlineStart:6,padding:"1px 6px",borderRadius:6,background:"#94A3B812",color:"#64748B",fontSize:FS-3,fontWeight:700,verticalAlign:"middle"}}>⏳</span>;
-                  const ageMs=Date.now()-new Date(cf.at).getTime();
-                  const locked=ageMs>=24*60*60*1000;
-                  if(cf.status==="confirm")return<span title={"أكد في "+new Date(cf.at).toLocaleString("ar-EG")+(locked?" • مقفول":"")} style={{marginInlineStart:6,padding:"1px 6px",borderRadius:6,background:"#10B98115",color:"#10B981",fontSize:FS-3,fontWeight:700,verticalAlign:"middle"}}>{locked?"🔒":""}✅</span>;
-                  return<span title={"أبلغ عن مشكلة: "+(cf.note||"—")+" • "+new Date(cf.at).toLocaleString("ar-EG")} style={{marginInlineStart:6,padding:"1px 6px",borderRadius:6,background:"#EF444415",color:"#EF4444",fontSize:FS-3,fontWeight:700,verticalAlign:"middle"}}>{locked?"🔒":""}⚠️</span>;
-                })()}<div style={{fontSize:FS-3,color:T.textMut}}>{c.phone}</div></td>
+                {/* V18.22: Sticky customer column.
+                    V19.70.24: added always-visible delete (✕) icon next to the name so the user
+                    can remove a customer from the session even when their row is empty. The
+                    icon respects the safety check (block if there are committed sales for this
+                    customer in this session — those need to be unwound first). */}
+                <td style={{...TD,fontWeight:700,position:"sticky",insetInlineStart:0,zIndex:5,background:rowBg,borderInlineEnd:"2px solid "+T.brd}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    {sessCanEdit && (() => {
+                      const hasSalesInSess = orders.some(o => (o.customerDeliveries||[]).some(d => d.custId===c.id && d.sessionId===activeSess.id));
+                      if (hasSalesInSess) {
+                        return <span title="لا يمكن الحذف — لديه بيع فعلي في هذه التوزيعة" style={{cursor:"not-allowed",fontSize:11,color:"#94A3B8",padding:"0 4px",userSelect:"none"}}>🔒</span>;
+                      }
+                      return <span title={"حذف "+c.name+" من التوزيعة"} onClick={async()=>{
+                        if (!await ask("حذف عميل","حذف "+c.name+" من التوزيعة؟",{danger:true})) return;
+                        upSales(d => {
+                          const si = (d.custDeliverySessions||[]).findIndex(s => s.id === activeSess.id);
+                          if (si >= 0) {
+                            d.custDeliverySessions[si].custIds = d.custDeliverySessions[si].custIds.filter(id => id !== c.id);
+                            const g = d.custDeliverySessions[si].grid || {};
+                            Object.keys(g).forEach(k => { if (k.endsWith("_"+c.id)) delete g[k]; });
+                          }
+                        });
+                        /* Also clean from localGrid so the matrix re-render doesn't re-show the row briefly */
+                        setLocalGrid(prev => {
+                          const next = {...prev};
+                          Object.keys(next).forEach(k => { if (k.endsWith("_"+c.id)) delete next[k]; });
+                          return next;
+                        });
+                        showToast("✓ تم حذف "+c.name);
+                      }} style={{cursor:"pointer",fontSize:11,color:"#EF4444",padding:"2px 5px",borderRadius:4,background:"#EF444410",border:"1px solid #EF444425",userSelect:"none",lineHeight:1,fontWeight:700}}>✕</span>;
+                    })()}
+                    <span>{c.name}{(()=>{
+                      /* V15.50: Confirmation badge — shows customer's scan result */
+                      const cf=(activeSess.confirmations||{})[c.id];
+                      if(!cf)return<span title="في انتظار تأكيد العميل" style={{marginInlineStart:6,padding:"1px 6px",borderRadius:6,background:"#94A3B812",color:"#64748B",fontSize:FS-3,fontWeight:700,verticalAlign:"middle"}}>⏳</span>;
+                      const ageMs=Date.now()-new Date(cf.at).getTime();
+                      const locked=ageMs>=24*60*60*1000;
+                      if(cf.status==="confirm")return<span title={"أكد في "+new Date(cf.at).toLocaleString("ar-EG")+(locked?" • مقفول":"")} style={{marginInlineStart:6,padding:"1px 6px",borderRadius:6,background:"#10B98115",color:"#10B981",fontSize:FS-3,fontWeight:700,verticalAlign:"middle"}}>{locked?"🔒":""}✅</span>;
+                      return<span title={"أبلغ عن مشكلة: "+(cf.note||"—")+" • "+new Date(cf.at).toLocaleString("ar-EG")} style={{marginInlineStart:6,padding:"1px 6px",borderRadius:6,background:"#EF444415",color:"#EF4444",fontSize:FS-3,fontWeight:700,verticalAlign:"middle"}}>{locked?"🔒":""}⚠️</span>;
+                    })()}<div style={{fontSize:FS-3,color:T.textMut}}>{c.phone}</div></span>
+                  </div>
+                </td>
                 {/* V19.70.22: each cell is now an always-on input bound to localGrid.
                     No click-to-edit. No per-cell auto-save → no flicker. The save-all
                     button at the footer commits the whole localGrid in one upSales. */}
@@ -1811,9 +1843,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         const bridgeToken = (data.campaignBridge||{}).token || "";
         if (!bridgeUrl) { showToast("⛔ الـbridge URL غير مضبوط — افتح Campaigns → Bridge Settings أولاً"); return; }
         /* V19.70.17: PDF inclusion toggleable via groupPrint.includePdf.
-           V19.70.23: default flipped to ON now that the jsPDF/Approach A pipeline is wired up.
-           If the new PDF still has issues, the user can untick to fall back to text-only. */
-        const includePdf = groupPrint.includePdf !== false;
+           V19.70.23: default flipped to ON. V19.70.24: reverted back to OFF after the
+           Cairo TTF CDN returned 403 (the fontsource fallbacks now handle that, but
+           the user prefers explicit opt-in for the PDF — text-only is fast and reliable). */
+        const includePdf = groupPrint.includePdf === true;
         const confirm = await ask(
           "إرسال واتساب لـ"+withPhone.length+" عميل",
           (noPhoneCount>0 ? "⚠️ "+noPhoneCount+" عميل بدون رقم — هيتم تخطيهم.\n\n" : "")+
@@ -2096,18 +2129,16 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>للمخزن والسائق — يخفي أعمدة السعر والإجمالي والخصم</div>
             </div>
           </div>
-          {/* V19.70.17: WhatsApp PDF attachment toggle.
-              V19.70.23: default flipped to ON. The PDF pipeline now uses jsPDF + embedded
-              Cairo TTF + an Arabic shaper (Approach A) instead of html2canvas — vector
-              output, perfect Arabic. The toggle stays as an opt-out in case a specific
-              batch needs to skip the PDF (e.g. very long item lists or customers with
-              flaky data plans). The internal `includePdf` reads as `!== false`, so an
-              undefined value treats as ON — matching the new default. */}
-          <div onClick={()=>setGroupPrint(p=>({...p,includePdf:p.includePdf===false}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,cursor:"pointer",border:"2px solid "+(groupPrint.includePdf!==false?"#25D366":T.brd),background:groupPrint.includePdf!==false?"#25D36608":"transparent",marginBottom:12}}>
-            <span style={{fontSize:18,color:groupPrint.includePdf!==false?"#25D366":T.textMut}}>{groupPrint.includePdf!==false?"☑":"☐"}</span>
+          {/* V19.70.17/24: WhatsApp PDF attachment toggle. Default OFF — explicit opt-in.
+              When ON, the V19.70.23 jsPDF + Cairo TTF + Arabic shaper pipeline is used
+              (vector output, no html2canvas). The user must tick this box explicitly,
+              acknowledging that PDF generation takes ~3-5s/customer + downloads ~80KB
+              of Cairo TTFs on first send. */}
+          <div onClick={()=>setGroupPrint(p=>({...p,includePdf:!p.includePdf}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,cursor:"pointer",border:"2px solid "+(groupPrint.includePdf?"#25D366":T.brd),background:groupPrint.includePdf?"#25D36608":"transparent",marginBottom:12}}>
+            <span style={{fontSize:18,color:groupPrint.includePdf?"#25D366":T.textMut}}>{groupPrint.includePdf?"☑":"☐"}</span>
             <div style={{flex:1}}>
-              <div style={{fontSize:FS-1,fontWeight:700,color:groupPrint.includePdf!==false?"#25D366":T.text}}>📎 إرفاق نسخة PDF مع رسالة الواتس</div>
-              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{groupPrint.includePdf!==false?"PDF + رسالة تفاصيل لكل عميل (vector PDF بـArabic shaping صحيح)":"رسالة تفاصيل نصية فقط (مفيش PDF)"}</div>
+              <div style={{fontSize:FS-1,fontWeight:700,color:groupPrint.includePdf?"#25D366":T.text}}>📎 إرفاق نسخة PDF مع رسالة الواتس</div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{groupPrint.includePdf?"PDF + رسالة تفاصيل لكل عميل (vector PDF بـArabic shaping صحيح)":"رسالة تفاصيل نصية فقط (افتراضي — أسرع وأخف)"}</div>
             </div>
           </div>
           <div style={{padding:10,borderRadius:10,background:T.bg,textAlign:"center",marginBottom:12}}>
@@ -3285,8 +3316,13 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         if (localAudGridDirty && activeAud) saveAllLocalAudGrid(activeAud.id);
         setActiveAudit(null); setAuditInclude(null);
       };
+      /* V19.70.24: width fits content. Each customer column ~90mm (~340px),
+         model column ~140px, summary 3 cols ~180px, side padding ~50px.
+         Cap at viewport - 48px so it never overflows on small screens. */
+      const audMaxW = isMob ? "100%" : Math.min(window.innerWidth - 48, 240 + visCusts.length * 95 + 200);
+      const audMinW = isMob ? "100%" : Math.min(window.innerWidth - 48, 480);
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:24}} onClick={closeAudit}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,width:"100%",maxWidth:isMob?"100%":window.innerWidth-48,maxHeight:"92vh",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,width:isMob?"100%":"fit-content",minWidth:audMinW,maxWidth:audMaxW,maxHeight:"92vh",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
         <div style={{padding:isMob?"12px 16px":"16px 24px",borderBottom:"1px solid "+T.brd,flexShrink:0}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div style={{fontSize:FS+2,fontWeight:800,color:"#F59E0B"}}>{"📋 جرد "+activeAud.date+(activeAud.notes?" — "+activeAud.notes:"")}</div>

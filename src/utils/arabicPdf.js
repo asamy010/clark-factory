@@ -29,10 +29,21 @@
 
 const JSPDF_URL    = "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js";
 const AUTOTABLE_URL = "https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js";
-/* CORS-friendly TTF mirrors via jsdelivr's GitHub passthrough.
-   Google Fonts repo serves static Cairo weights at these paths. */
-const CAIRO_REGULAR_TTF_URL = "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/cairo/static/Cairo-Regular.ttf";
-const CAIRO_BOLD_TTF_URL    = "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/cairo/static/Cairo-Bold.ttf";
+/* V19.70.24: TTF mirrors with fallback chain. The previous V19.70.23 URL
+   (cdn.jsdelivr.net/gh/google/fonts) returns 403 — Google Fonts repo blocks
+   raw passthrough on jsdelivr now. Switching to fontsource which packages the
+   TTF files in the npm bundle (the same package we used for woff2 in V19.70.15
+   for FontFace API). The Arabic subset is small (~30-50KB per weight). */
+const CAIRO_REGULAR_TTF_URLS = [
+  "https://cdn.jsdelivr.net/npm/@fontsource/cairo@5.0.13/files/cairo-arabic-400-normal.ttf",
+  "https://unpkg.com/@fontsource/cairo@5.0.13/files/cairo-arabic-400-normal.ttf",
+  "https://cdn.jsdelivr.net/npm/@fontsource/cairo@4.5.13/files/cairo-arabic-400-normal.ttf",
+];
+const CAIRO_BOLD_TTF_URLS = [
+  "https://cdn.jsdelivr.net/npm/@fontsource/cairo@5.0.13/files/cairo-arabic-700-normal.ttf",
+  "https://unpkg.com/@fontsource/cairo@5.0.13/files/cairo-arabic-700-normal.ttf",
+  "https://cdn.jsdelivr.net/npm/@fontsource/cairo@4.5.13/files/cairo-arabic-700-normal.ttf",
+];
 
 const _state = {
   loaded: false,
@@ -52,18 +63,30 @@ function _loadScript(url) {
   });
 }
 
-async function _fetchAsBase64(url) {
-  const r = await fetch(url);
-  if (!r.ok) throw new Error("Fetch " + url + " failed: " + r.status);
-  const buf = await r.arrayBuffer();
-  /* Convert ArrayBuffer to base64 chunked to avoid call-stack overflow on big binaries */
-  const bytes = new Uint8Array(buf);
-  const CHUNK = 0x8000;
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+/* V19.70.24: accept array of URLs and try them in order. Falls back to next
+   on any error (network failure, 403, 404, CORS rejection). Throws only if
+   ALL URLs fail. Returns base64 string on success. */
+async function _fetchAsBase64(urlOrUrls) {
+  const urls = Array.isArray(urlOrUrls) ? urlOrUrls : [urlOrUrls];
+  let lastErr;
+  for (const url of urls) {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) { lastErr = new Error(url + ": HTTP " + r.status); continue; }
+      const buf = await r.arrayBuffer();
+      /* Convert ArrayBuffer to base64 chunked to avoid call-stack overflow on big binaries */
+      const bytes = new Uint8Array(buf);
+      const CHUNK = 0x8000;
+      let binary = "";
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+      }
+      return btoa(binary);
+    } catch (e) {
+      lastErr = e;
+    }
   }
-  return btoa(binary);
+  throw lastErr || new Error("all CDN URLs failed: " + urls.join(", "));
 }
 
 export async function loadArabicPdfLibs() {
@@ -74,10 +97,11 @@ export async function loadArabicPdfLibs() {
     await _loadScript(JSPDF_URL);
     await _loadScript(AUTOTABLE_URL);
     if (!window.jspdf || !window.jspdf.jsPDF) throw new Error("jsPDF failed to load");
-    /* Fonts in parallel — both downloads can overlap to save wall time */
+    /* Fonts in parallel — both downloads can overlap to save wall time.
+       V19.70.24: each call passes an array of URL fallbacks. */
     const [reg, bold] = await Promise.all([
-      _fetchAsBase64(CAIRO_REGULAR_TTF_URL),
-      _fetchAsBase64(CAIRO_BOLD_TTF_URL),
+      _fetchAsBase64(CAIRO_REGULAR_TTF_URLS),
+      _fetchAsBase64(CAIRO_BOLD_TTF_URLS),
     ]);
     _state.cairoRegularBase64 = reg;
     _state.cairoBoldBase64 = bold;
