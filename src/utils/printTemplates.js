@@ -107,7 +107,7 @@ const RECEIPT_TEMPLATE=`
 `;
 
 const RECEIPT_CSS=`
-body{font-family:'Cairo',sans-serif;direction:rtl;margin:0;padding:12mm;background:#fff;color:#1F2937}
+body{font-family:'Markazi Text','Cairo',serif;direction:rtl;margin:0;padding:12mm;background:#fff;color:#1F2937}
 .receipt{max-width:210mm;margin:0 auto}
 .header{display:flex;align-items:center;gap:16px;padding-bottom:12px;border-bottom:2px solid #6366F1;margin-bottom:16px}
 .logo{width:60px;height:60px;object-fit:contain}
@@ -174,7 +174,7 @@ const SALARY_TEMPLATE=`
 `;
 
 const SALARY_CSS=`
-body{font-family:'Cairo',sans-serif;direction:rtl;margin:0;padding:10mm;font-size:13px;color:#1F2937}
+body{font-family:'Markazi Text','Cairo',serif;direction:rtl;margin:0;padding:10mm;font-size:13px;color:#1F2937}
 .slip{max-width:148mm;margin:0 auto;border:2px solid #6366F1;border-radius:12px;padding:12px;background:#fff}
 .header{text-align:center;padding-bottom:10px;border-bottom:2px solid #6366F1;margin-bottom:10px}
 .logo{width:40px;height:40px;object-fit:contain}
@@ -238,7 +238,7 @@ const WS_ORDER_TEMPLATE=`
 `;
 
 const WS_ORDER_CSS=`
-body{font-family:'Cairo',sans-serif;direction:rtl;margin:0;padding:10mm;color:#1F2937}
+body{font-family:'Markazi Text','Cairo',serif;direction:rtl;margin:0;padding:10mm;color:#1F2937}
 .order{max-width:210mm;margin:0 auto}
 .header{display:flex;align-items:center;gap:14px;padding-bottom:10px;border-bottom:2px solid #8B5CF6;margin-bottom:12px}
 .logo{width:50px;height:50px;object-fit:contain}
@@ -324,7 +324,7 @@ const STATEMENT_TEMPLATE=`
 `;
 
 const STATEMENT_CSS=`
-body{font-family:'Cairo',sans-serif;direction:rtl;margin:0;padding:10mm;color:#1F2937;font-size:12px}
+body{font-family:'Markazi Text','Cairo',serif;direction:rtl;margin:0;padding:10mm;color:#1F2937;font-size:12px}
 .stmt{max-width:210mm;margin:0 auto}
 .header{display:flex;align-items:center;gap:14px;padding-bottom:10px;border-bottom:2px solid #0EA5E9;margin-bottom:12px}
 .logo{width:50px;height:50px;object-fit:contain}
@@ -372,7 +372,7 @@ const WS_RECEIVE_TEMPLATE=`
 `;
 
 const WS_RECEIVE_CSS=`
-body{font-family:'Cairo',sans-serif;direction:rtl;margin:0;padding:10mm;color:#1F2937}
+body{font-family:'Markazi Text','Cairo',serif;direction:rtl;margin:0;padding:10mm;color:#1F2937}
 .rcv{max-width:148mm;margin:0 auto;border:2px solid #10B981;border-radius:12px;padding:12px}
 .header{text-align:center;padding-bottom:10px;border-bottom:2px solid #10B981;margin-bottom:12px}
 .logo{width:40px;height:40px}

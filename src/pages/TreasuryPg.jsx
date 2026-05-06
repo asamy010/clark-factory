@@ -1629,7 +1629,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   /* ── V15.44: Shared professional print styles — compact accounting-report look ── */
   const _printStyles=`@page{size:A4;margin:12mm 10mm}
     *{box-sizing:border-box}
-    body{font-family:'Cairo',sans-serif;font-size:10px;padding:0;margin:0;line-height:1.45;color:#1E293B}
+    body{font-family:'Markazi Text','Cairo',serif;font-size:10px;padding:0;margin:0;line-height:1.45;color:#1E293B}
     .brand-bar{height:3px;background:linear-gradient(90deg,#0EA5E9,#8B5CF6);margin-bottom:10px}
     .hdr{display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:8px;border-bottom:1px solid #CBD5E1;margin-bottom:10px}
     .hdr-left .title{font-size:14px;font-weight:800;color:#0F172A;letter-spacing:0.2px}
@@ -1649,7 +1649,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     td{padding:3px 6px;border-bottom:1px solid #F1F5F9;text-align:right;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3}
     td.wrap{white-space:normal;overflow:visible;text-overflow:clip}
     tr:hover td{background:#F8FAFC}
-    .num{font-family:'Cairo',sans-serif;font-weight:700;font-variant-numeric:tabular-nums}
+    .num{font-family:'Markazi Text','Cairo',serif;font-weight:700;font-variant-numeric:tabular-nums}
     .muted{color:#94A3B8;font-size:8.5px}
     .accounts-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:8px;border-top:1px dashed #CBD5E1}
     .acc-chip{padding:4px 8px;border-radius:4px;background:#F8FAFC;border:1px solid #E2E8F0;font-size:9px}
@@ -1670,7 +1670,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const dayN=dayNameFull(date);
     const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة وحاول مرة أخرى",{danger:true});return}
     w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>يومية ${scopeLabel} — ${date}</title>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Markazi+Text:wght@400;500;600;700&family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet"/>
     <style>${_printStyles}</style></head><body style="padding:14px">
     <div class="brand-bar"></div>
     <div class="hdr">
@@ -1715,7 +1715,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const tOut=sorted.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0);
     const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة وحاول مرة أخرى",{danger:true});return}
     w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>تقرير حركات — ${sorted.length} حركة</title>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Markazi+Text:wght@400;500;600;700&family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet"/>
     <style>${_printStyles}</style></head><body style="padding:14px">
     <div class="brand-bar"></div>
     <div class="hdr">

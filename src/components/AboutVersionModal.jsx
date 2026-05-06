@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.27",
+    date: "2026-05-06",
+    types: ["ux"],
+    title: "🔠 Markazi Text — كل الـPDFs في التطبيق بقت بالخط ده",
+    changes: [
+      { type: "ux", text: "🎨 [User chose Markazi Text from preview HTML — modern Arabic serif] بعد ما الـuser ظبط مقارنة بين Mada / Markazi Text / Reem Kufi / Amiri / Cairo، اختار Markazi Text. الـlook modern serif (مش calligraphic زي Amiri)، أقرب لـCairo بس بـserif details — أنيق + readable + متناسق مع document feel." },
+      { type: "ux", text: "🌐 [Switched في كل الـPDF paths عبر التطبيق] الـ2 paths كلهم بقوا Markazi Text: (1) **jsPDF PDFs** (bulk delivery WhatsApp + stock report popup) — الـbundled TTFs استبدلوا من Amiri لـMarkazi Text Regular + Bold (~360KB). (2) **Browser print outputs** (printPage + printTemplates + inline page CSS): الـCSS font-family بقى `'Markazi Text','Cairo',serif` في كل من print.js + constants/PRINT_CSS + printTemplates.js + CustDeliverPg.jsx + TreasuryPg.jsx + HRPg.jsx. Cairo retained as fallback في الـchain لو Markazi Text فشل لود." },
+      { type: "feature", text: "📦 [Bundled Markazi Text TTFs من Google's gstatic CDN] الـfonts.gstatic.com بـserve static TTFs مع proper User-Agent. الـRegular (181KB) + Bold (181KB) downloaded ووُضعوا في public/fonts/. Same-origin، مفيش CDN dependency في runtime، مفيش CORS، مفيش 404." },
+      { type: "improvement", text: "🛡️ [Cairo fallback chain] في كل الـCSS، الـfont-family بقى `'Markazi Text','Cairo',serif` — لو الـuser على connection ضعيف وMT ما حملش، Cairo بـyـkick in (لسه في الـGoogle Fonts CSS link). Generic serif كـlast resort." },
+      { type: "improvement", text: "🛡️ [الـUI الـon-screen لسه Cairo] الـpopups + toasts + login + dashboard + mobile shell — كلهم لسه على Cairo (modern sans للـscreen UX). الـchange محصور في الـPRINT/PDF outputs فقط." },
+      { type: "improvement", text: "📐 [Font sizes adjusted في الـPRINT_CSS] Markazi Text serif يميل لـappear smaller من Cairo sans في نفس الـpx. Bumped الـbody من 12px لـ14px، h2 من 15px لـ17px، td من 11px لـ13px في الـPRINT_CSS لـmaintain visual weight + readability في الـprinted output." },
+    ]
+  },
+  {
     version: "V19.70.26",
     date: "2026-05-06",
     types: ["fix", "ux"],

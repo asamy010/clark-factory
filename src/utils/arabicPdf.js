@@ -29,17 +29,16 @@
 
 const JSPDF_URL    = "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js";
 const AUTOTABLE_URL = "https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js";
-/* V19.70.26: switched from Tajawal → Amiri. Tajawal's cmap was incomplete for
-   Arabic Presentation Forms-B — the user reported missing letters in PDF
-   output (e.g. "التليفون" rendered as "لتليفو", missing ا and ن).
-   Amiri is specifically designed as a complete Arabic typeface (calligraphic
-   Naskh style) with FULL Arabic Presentation Forms-B coverage (U+FE70-U+FEFC).
-   Visually different from Cairo/Tajawal (more traditional, less modern), but
-   the priority right now is correctness over aesthetics — until we find a
-   modern Arabic sans-serif with complete PFB coverage that's also bundled-
-   capable. Amiri Regular + Bold = ~840KB total. */
-const ARABIC_REGULAR_URL = "/fonts/Amiri-Regular.ttf";
-const ARABIC_BOLD_URL    = "/fonts/Amiri-Bold.ttf";
+/* V19.70.27: switched Amiri → Markazi Text (user choice from font preview).
+   Markazi Text is a modern Arabic serif (closer to Cairo's modern look but
+   with serif details). The font's static TTFs are not on Google Fonts repo
+   directly, but Google's font CDN (fonts.gstatic.com) serves them via the
+   CSS API. We downloaded the Regular (400) + Bold (700) TTFs from the
+   gstatic URLs and bundled them in public/fonts/. ~180KB each, total ~360KB.
+   Verified PFB coverage looks complete (Markazi Text is a full Arabic
+   typeface designed for body text). */
+const ARABIC_REGULAR_URL = "/fonts/MarkaziText-Regular.ttf";
+const ARABIC_BOLD_URL    = "/fonts/MarkaziText-Bold.ttf";
 
 const _state = {
   loaded: false,
@@ -288,19 +287,20 @@ export function arSafe(text) {
   return ar(String(text));
 }
 
-/* Create a new jsPDF instance with Amiri Regular + Bold registered + R2L mode on.
-   V19.70.26: family aliased as "Cairo" so all the existing buildXxxPdfBase64 callers
-   still work without modification. The actual TTF is Amiri (full Arabic coverage),
-   but the API contract stays the same — just call setFont("Cairo"). */
+/* Create a new jsPDF instance with Markazi Text Regular + Bold registered + R2L mode on.
+   V19.70.27: family aliased as "Cairo" so all the existing buildXxxPdfBase64 callers
+   still work without modification. The actual TTF is Markazi Text (full Arabic coverage,
+   modern serif look — closer to Cairo than Amiri's calligraphic Naskh). API contract
+   unchanged — callers still call setFont("Cairo"). */
 export function createPdf(orientation, format) {
   if (!_state.loaded) throw new Error("call loadArabicPdfLibs() first");
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF(orientation || "p", "mm", format || "a4");
   /* Register fonts. addFileToVFS expects base64 (no data: prefix). */
-  pdf.addFileToVFS("Amiri-Regular.ttf", _state.cairoRegularBase64);
-  pdf.addFont("Amiri-Regular.ttf", "Cairo", "normal");
-  pdf.addFileToVFS("Amiri-Bold.ttf", _state.cairoBoldBase64);
-  pdf.addFont("Amiri-Bold.ttf", "Cairo", "bold");
+  pdf.addFileToVFS("MarkaziText-Regular.ttf", _state.cairoRegularBase64);
+  pdf.addFont("MarkaziText-Regular.ttf", "Cairo", "normal");
+  pdf.addFileToVFS("MarkaziText-Bold.ttf", _state.cairoBoldBase64);
+  pdf.addFont("MarkaziText-Bold.ttf", "Cairo", "bold");
   pdf.setFont("Cairo");
   /* setR2L flips direction at line layout level. We pass shaped (visual-order) text;
      the user reported text was directionally correct (with letters missing only) so
