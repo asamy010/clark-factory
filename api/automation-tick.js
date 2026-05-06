@@ -279,18 +279,25 @@ async function ensureEnabledAt(db, eventType, currentEnabledAt){
   return { enabledAt: now, justSet: true };
 }
 
-/* Compute current balance per customer from orders + payments + customer discount.
-   V19.76.2: apply per-customer discount BEFORE subtracting payments — matches the
-   كشف الحساب formula in CustDeliverPg (totalAfterDisc = totalVal − round(totalVal × disc/100),
-   then custBalance = totalAfterDisc − totalPaid). Without discount, the WhatsApp
-   message reported a balance higher than what the customer actually owes.
-     gross   = Σ(deliveries × price) − Σ(returns × price)
-     discAmt = round(gross × discPct/100)
-     balance = (gross − discAmt) − Σ(payments)
-   `customers` is optional — if omitted, no discount is applied (legacy behavior). */
-function computeCustomerBalances(orders, payments, customers){
+/* Compute current balance per customer from orders + payments + customer discount + checks.
+   V19.76.2: apply per-customer discount BEFORE subtracting payments.
+   V19.76.4: also subtract receivable, non-bounced/cancelled, "دفعة عميل" checks —
+     matches the كشف الحساب formula in CustDeliverPg (totalPaid = cash + receivableChecks).
+     Without check subtraction, a customer who paid 1000 in checks + 100 in cash would
+     see the cash payment message report a balance 1000 higher than reality.
+
+     gross    = Σ(deliveries × price) − Σ(returns × price)
+     discAmt  = round(gross × discPct/100)
+     balance  = (gross − discAmt) − Σ(cashPayments) − Σ(receivableChecks)
+
+   Both `customers` and `checks` are optional — if omitted, those terms are ignored
+   (legacy behavior). For the check-payment scan, leave `checks` undefined so the
+   per-iteration progressive subtraction still works (otherwise we'd double-count the
+   batch being processed). */
+function computeCustomerBalances(orders, payments, customers, checks){
   const grossByCust = {};
   const paidByCust = {};
+  const checksByCust = {};
   for (const o of orders || []) {
     for (const d of (o.customerDeliveries || [])) {
       if (!d.custId) continue;
@@ -309,6 +316,15 @@ function computeCustomerBalances(orders, payments, customers){
     if (!p.custId) continue;
     paidByCust[p.custId] = (paidByCust[p.custId] || 0) + (Number(p.amount) || 0);
   }
+  if (Array.isArray(checks)) {
+    for (const c of checks) {
+      if (!c || !c.partyId) continue;
+      if (c.type !== "receivable") continue;
+      if (c.status === "مرتد" || c.status === "ملغي") continue;
+      if ((c.category || "دفعة عميل") !== "دفعة عميل") continue;
+      checksByCust[c.partyId] = (checksByCust[c.partyId] || 0) + (Number(c.amount) || 0);
+    }
+  }
   const discPctById = {};
   if (Array.isArray(customers)) {
     for (const c of customers) {
@@ -316,13 +332,18 @@ function computeCustomerBalances(orders, payments, customers){
     }
   }
   const balances = {};
-  const allCustIds = new Set([...Object.keys(grossByCust), ...Object.keys(paidByCust)]);
+  const allCustIds = new Set([
+    ...Object.keys(grossByCust),
+    ...Object.keys(paidByCust),
+    ...Object.keys(checksByCust),
+  ]);
   for (const custId of allCustIds) {
-    const gross = grossByCust[custId] || 0;
-    const paid  = paidByCust[custId] || 0;
-    const discPct = discPctById[custId] || 0;
+    const gross   = grossByCust[custId]  || 0;
+    const paid    = paidByCust[custId]   || 0;
+    const ckSum   = checksByCust[custId] || 0;
+    const discPct = discPctById[custId]  || 0;
     const discAmt = Math.round(gross * discPct / 100);
-    balances[custId] = (gross - discAmt) - paid;
+    balances[custId] = (gross - discAmt) - paid - ckSum;
   }
   return balances;
 }
@@ -434,10 +455,16 @@ async function scanRecentPayments(db, cfg, eventCfg, cairoDate, ordersCache){
     payments = Array.isArray(cfg.custPayments) ? cfg.custPayments : [];
   }
 
-  /* V19.70.2 + V19.76.2: load orders + customers (for discount) + compute balances. */
+  /* V19.70.2 + V19.76.2 + V19.76.4: load orders + customers + checks for full balance. */
   const orders = ordersCache || await loadActiveOrders(db, cfg);
   const customersList = await readPartitionedCollection("customersDocs");
-  const balances = computeCustomerBalances(orders, payments, customersList);
+  let checksList = [];
+  if (cfg._splitDaysV1949Done) {
+    checksList = await readSplitCollection("checksDays");
+  } else {
+    checksList = Array.isArray(cfg.checks) ? cfg.checks : [];
+  }
+  const balances = computeCustomerBalances(orders, payments, customersList, checksList);
   const customersById = {};
   customersList.forEach(c => { if (c && c.id) customersById[c.id] = c; });
 
@@ -546,16 +573,30 @@ async function scanRecentChecks(db, cfg, eventCfg, cairoDate, ordersCache){
     /* V19.70.8: progressive balance — subtract checks from same batch up to and
        including this one. Single (non-batch) check: subtract just this check.
        Batch (batchIdx 1..N): subtract sum of amounts of checks with same batchId
-       and batchIdx <= this.batchIdx. Matches the client-side hook semantics. */
+       and batchIdx <= this.batchIdx. Matches the client-side hook semantics.
+
+       V19.76.4: also subtract PRIOR receivable cashpay checks (not bounced/cancelled
+       and NOT part of the current batch/check). Without this, a customer with 5
+       pending checks who saves 3 more would see the 3 new check messages report
+       a balance higher by 5×check_amt than reality. */
     const baseBalance = Math.round(balances[c.partyId] || 0);
+    const priorChecks = checks.filter(x =>
+      x && x.partyId === c.partyId &&
+      x.type === "receivable" &&
+      x.status !== "مرتد" && x.status !== "ملغي" &&
+      (x.category || "دفعة عميل") === "دفعة عميل" &&
+      (c.batchId ? x.batchId !== c.batchId : x.id !== c.id)
+    );
+    const priorChecksSum = priorChecks.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+    const baseAfterPriorChecks = baseBalance - priorChecksSum;
     let progressiveBalance;
     if (c.batchId && c.batchIdx) {
       const batchSiblings = checks.filter(x => x.batchId === c.batchId && (x.batchIdx || 0) <= c.batchIdx);
       const cumChecksAmt = batchSiblings.reduce((s, x) => s + (Number(x.amount) || 0), 0);
-      progressiveBalance = baseBalance - cumChecksAmt;
+      progressiveBalance = baseAfterPriorChecks - cumChecksAmt;
     } else {
       /* Single (non-batch) check */
-      progressiveBalance = baseBalance - (Number(c.amount) || 0);
+      progressiveBalance = baseAfterPriorChecks - (Number(c.amount) || 0);
     }
     /* Batch info: "(شيك X من Y)" if batched, "" otherwise */
     const batchInfo = (c.batchId && c.batchTotal && c.batchTotal > 1)

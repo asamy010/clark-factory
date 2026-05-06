@@ -20,6 +20,7 @@ import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { calculatePending, buildTxFromRule, getNextDueDate, describeRecurrence } from "../utils/recurring.js";
 import { matchWorkshopFromDesc, matchPartyFromDesc } from "../utils/orders.js";
+import { nowISO, cairoDateStr } from "../utils/serverTime.js";
 import { T } from "../theme.js";
 import { db } from "../firebase";
 import { collection, getDocs, doc, setDoc, deleteDoc } from "firebase/firestore";
@@ -84,7 +85,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         newValue:(action==="edit"?"تعديل":"حذف")+" بواسطة "+(isAdmin?"مدير":"مستخدم مصرّح له"),
         notes:"الحركة: "+(tx?.desc||"—")+" | المبلغ: "+(tx?.amount||0)+" | التاريخ: "+(tx?.date||"—")+" | حساب: "+(tx?.account||"—"),
         by:userEmail,
-        at:new Date().toISOString()
+        at:nowISO()
       });
     });
   };
@@ -167,7 +168,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           delete c.statusDate;delete c.statusBy;
           delete c.endorsedTo;delete c.endorsedToId;delete c.endorsedAt;
           delete c.bouncedAt;
-          c.autoReverted=new Date().toISOString();
+          c.autoReverted=nowISO();
           c.autoRevertReason="حركة الخزنة المرتبطة تم حذفها من مكان آخر";
         }
       });
@@ -257,8 +258,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               await setDoc(dayRef,{
                 entries:newEntries,
                 count:newEntries.length,
-                updatedAt:new Date().toISOString(),
-                _v193DupCleanup:new Date().toISOString(),
+                updatedAt:nowISO(),
+                _v193DupCleanup:nowISO(),
               });
             }
           }catch(e){
@@ -351,7 +352,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     upConfig(d=>{
       if(!d.custPayments)d.custPayments=[];
       if(!d.supplierPayments)d.supplierPayments=[];
-      const now=new Date().toISOString();
+      const now=nowISO();
       _orphansToFix.forEach(({kind,tx,party})=>{
         if(kind==="customer"){
           d.custPayments.push({
@@ -419,7 +420,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       missing.forEach(n=>{
         if(have.has(n))return;
         const isCash=/CASH|كاش|نقد/i.test(n);
-        d.treasuryAccounts.push({id:n,name:n,ownerEmail:"",type:isCash?"cash":"bank",autoRestored:new Date().toISOString()});
+        d.treasuryAccounts.push({id:n,name:n,ownerEmail:"",type:isCash?"cash":"bank",autoRestored:nowISO()});
         have.add(n);
       });
     });
@@ -458,9 +459,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   /* V18.56: Recurring transactions state */
   const[showRecurringModal,setShowRecurringModal]=useState(false);
   const[editRecurringId,setEditRecurringId]=useState(null);
-  const[recForm,setRecForm]=useState({name:"",type:"out",amount:"",category:"",account:"MAIN CASH",description:"",notes:"",pattern:"monthly",dayOfMonth:1,dayOfWeek:0,startDate:new Date().toISOString().split("T")[0],endDate:"",active:true});
+  const[recForm,setRecForm]=useState({name:"",type:"out",amount:"",category:"",account:"MAIN CASH",description:"",notes:"",pattern:"monthly",dayOfMonth:1,dayOfWeek:0,startDate:cairoDateStr(),endDate:"",active:true});
   /* V15.44: Date picker for top-level print/PDF/WhatsApp buttons — defaults to today but user can pick any day */
-  const[printDate,setPrintDate]=useState(new Date().toISOString().split("T")[0]);
+  const[printDate,setPrintDate]=useState(cairoDateStr());
   const[txType,setTxType]=useState("in");
   const[txAmount,setTxAmount]=useState("");
   const[txDesc,setTxDesc]=useState("");
@@ -468,7 +469,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[txCategory,setTxCategory]=useState("");
   const[txAccount,setTxAccount]=useState("SUB CASH");
   const[txSeason,setTxSeason]=useState(data.activeSeason||"");
-  const[txDate,setTxDate]=useState(new Date().toISOString().split("T")[0]);
+  const[txDate,setTxDate]=useState(cairoDateStr());
   const[txPartyId,setTxPartyId]=useState("");/* Customer or supplier ID */
   const[txPartyType,setTxPartyType]=useState("");/* "customer" | "supplier" */
   /* V19.70.1: payment method dropdown for cust/supplier payments.
@@ -600,7 +601,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         const isIn=t.type==="in";
         entries.push({
           ref:"CLARK-"+t.id,
-          date:t.date||new Date().toISOString().split("T")[0],
+          date:t.date||cairoDateStr(),
           journalId,
           narration:(t.desc||"")+(t.notes?" — "+t.notes:""),
           lines:[
@@ -768,7 +769,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const set=new Set([...resolvedInCats,...resolvedOutCats]);
     return Array.from(set);
   },[resolvedInCats,resolvedOutCats]);
-  const today=new Date().toISOString().split("T")[0];
+  const today=cairoDateStr();
 
   /* ── Per-account balances ── */
   const accBalances=useMemo(()=>{
@@ -949,7 +950,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           const oldEmpId=tx.empId;
           const oldHrLogId=tx.hrLogId;
           const oldSourceType=tx.sourceType;
-          tx.type=txType;tx.amount=amt;tx.desc=finalDesc;tx.notes=txNotes;tx.category=txCategory;tx.account=txAccount;tx.season=txSeason;tx.date=txDate;tx.custId=linkedCustId;tx.supplierId=linkedSupplierId;tx.empId=linkedEmpId;tx.updatedBy=userName;tx.updatedAt=new Date().toISOString();
+          tx.type=txType;tx.amount=amt;tx.desc=finalDesc;tx.notes=txNotes;tx.category=txCategory;tx.account=txAccount;tx.season=txSeason;tx.date=txDate;tx.custId=linkedCustId;tx.supplierId=linkedSupplierId;tx.empId=linkedEmpId;tx.updatedBy=userName;tx.updatedAt=nowISO();
           /* V19.3: capture the freshly-mutated tx for journal re-post (only if it was eligible) */
           if(_oldEntryForReverse&&!tx.sourceType){
             _editedEntryForRepost={...tx};
@@ -986,43 +987,43 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           if(linkedCustId&&txType==="in"){
             if(!d.custPayments)d.custPayments=[];
             const c=customers.find(x=>x.id===linkedCustId);
-            d.custPayments.push({id:gid(),custId:linkedCustId,custName:c?c.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:txMethod||"نقدي كاش",by:userName,treasuryTxId:editId,createdAt:new Date().toISOString()});
+            d.custPayments.push({id:gid(),custId:linkedCustId,custName:c?c.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:txMethod||"نقدي كاش",by:userName,treasuryTxId:editId,createdAt:nowISO()});
           }
           if(linkedSupplierId&&txType==="out"){
             if(!d.supplierPayments)d.supplierPayments=[];
             const s=suppliers.find(x=>x.id===linkedSupplierId);
-            d.supplierPayments.push({id:gid(),supplierId:linkedSupplierId,supplierName:s?s.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:txMethod||"نقدي كاش",by:userName,treasuryTxId:editId,createdAt:new Date().toISOString()});
+            d.supplierPayments.push({id:gid(),supplierId:linkedSupplierId,supplierName:s?s.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:txMethod||"نقدي كاش",by:userName,treasuryTxId:editId,createdAt:nowISO()});
           }
           /* V17.3 FIX: If the edit added an employee link (was no advance, now is one), create hrLog */
           if(linkedEmpId&&txType==="out"&&!tx.hrLogId&&linkedEmpId!==oldEmpId){
             if(!d.hrLog)d.hrLog=[];
             const emp=(d.employees||[]).find(x=>x.id===linkedEmpId);
             const logId=gid();
-            d.hrLog.unshift({id:logId,type:"advance",empId:linkedEmpId,empName:emp?emp.name:"",amount:amt,desc:txNotes||finalDesc||"سلفة",weekId:"",date:txDate,by:userName,createdAt:new Date().toISOString()});
+            d.hrLog.unshift({id:logId,type:"advance",empId:linkedEmpId,empName:emp?emp.name:"",amount:amt,desc:txNotes||finalDesc||"سلفة",weekId:"",date:txDate,by:userName,createdAt:nowISO()});
             tx.sourceType="hr_advance";tx.hrLogId=logId;
           }
         }}
       else{
         const txId=gid();
-        const baseEntry={id:txId,type:txType,amount:amt,desc:finalDesc,notes:txNotes,category:txCategory,account:txAccount,season:txSeason,date:txDate,day:dayName(txDate),custId:linkedCustId,supplierId:linkedSupplierId,empId:linkedEmpId,by:userName,createdAt:new Date().toISOString()};
+        const baseEntry={id:txId,type:txType,amount:amt,desc:finalDesc,notes:txNotes,category:txCategory,account:txAccount,season:txSeason,date:txDate,day:dayName(txDate),custId:linkedCustId,supplierId:linkedSupplierId,empId:linkedEmpId,by:userName,createdAt:nowISO()};
         /* Auto-link to customer payments if customer selected */
         if(linkedCustId&&txType==="in"){if(!d.custPayments)d.custPayments=[];
           const c=customers.find(x=>x.id===linkedCustId);
-          d.custPayments.push({id:_instantPay_id||gid(),custId:linkedCustId,custName:c?c.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:txMethod||"نقدي كاش",by:userName,treasuryTxId:txId,createdAt:new Date().toISOString()})}
+          d.custPayments.push({id:_instantPay_id||gid(),custId:linkedCustId,custName:c?c.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:txMethod||"نقدي كاش",by:userName,treasuryTxId:txId,createdAt:nowISO()})}
         /* Auto-link to supplier payments */
         if(linkedSupplierId&&txType==="out"){if(!d.supplierPayments)d.supplierPayments=[];
           const s=suppliers.find(x=>x.id===linkedSupplierId);
-          d.supplierPayments.push({id:gid(),supplierId:linkedSupplierId,supplierName:s?s.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:txMethod||"نقدي كاش",by:userName,treasuryTxId:txId,createdAt:new Date().toISOString()})}
+          d.supplierPayments.push({id:gid(),supplierId:linkedSupplierId,supplierName:s?s.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:txMethod||"نقدي كاش",by:userName,treasuryTxId:txId,createdAt:nowISO()})}
         /* Auto-link to employee advance (hrLog) */
         if(linkedEmpId&&txType==="out"){if(!d.hrLog)d.hrLog=[];
           const emp=(d.employees||[]).find(x=>x.id===linkedEmpId);
           const logId=gid();
-          d.hrLog.unshift({id:logId,type:"advance",empId:linkedEmpId,empName:emp?emp.name:"",amount:amt,desc:txNotes||finalDesc||"سلفة",weekId:"",date:txDate,by:userName,createdAt:new Date().toISOString()});
+          d.hrLog.unshift({id:logId,type:"advance",empId:linkedEmpId,empName:emp?emp.name:"",amount:amt,desc:txNotes||finalDesc||"سلفة",weekId:"",date:txDate,by:userName,createdAt:nowISO()});
           baseEntry.sourceType="hr_advance";baseEntry.hrLogId=logId}
         /* Auto-link to workshop payments */
         if(linkedWsName&&txType==="out"){if(!d.wsPayments)d.wsPayments=[];
           const w=workshops.find(x=>x.name===linkedWsName);const wsPayId=gid();
-          d.wsPayments.push({id:wsPayId,wsName:linkedWsName,wsId:w?w.id:null,amount:amt,type:txCategory==="مشتريات"?"purchase":"payment",notes:txNotes,date:txDate,createdBy:userName,treasuryTxId:txId,createdAt:new Date().toISOString()});
+          d.wsPayments.push({id:wsPayId,wsName:linkedWsName,wsId:w?w.id:null,amount:amt,type:txCategory==="مشتريات"?"purchase":"payment",notes:txNotes,date:txDate,createdBy:userName,treasuryTxId:txId,createdAt:nowISO()});
           baseEntry.wsPaymentId=wsPayId;baseEntry.wsName=linkedWsName;baseEntry.sourceType="ws_payment"}
         d.treasury.unshift(baseEntry);
         /* V18.35: stash for post-commit auto-posting */
@@ -1060,10 +1061,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
        early" path. */
     if(_instantPay_needed && _instantPay_id && _instantPay_customer?.phone){
       /* V19.76.2: customer balance AFTER this payment, applying customer discount.
-         Matches the كشف الحساب formula in CustDeliverPg (totalAfterDisc − totalPaid).
-         Without the discount, the WhatsApp message reported a balance higher than
-         the actual receivable: e.g. 1000 sale @ 10% disc → real owed = 900, paying
-         200 → message used to say 800, now correctly says 700. */
+         V19.76.4: ALSO subtract receivable, non-bounced/cancelled, "دفعة عميل"
+         checks. Without this, a customer who paid 300 in checks + new 100 cash
+         on a 1440-after-discount balance would see "1340" instead of "1040".
+         Matches the كشف الحساب formula exactly (cash + receivableChecks both subtracted). */
       let _gross = 0;
       for(const o of (data.orders||[])){
         for(const d of (o.customerDeliveries||[])){
@@ -1082,6 +1083,14 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       let _bal = _gross - _discAmt;
       for(const p of (data.custPayments||[])){
         if(p.custId===linkedCustId) _bal -= Number(p.amount)||0;
+      }
+      /* V19.76.4: subtract pending receivable cashpay checks (مرتد/ملغي excluded) */
+      for(const ck of (data.checks||[])){
+        if(ck.partyId !== linkedCustId) continue;
+        if(ck.type !== "receivable") continue;
+        if(ck.status === "مرتد" || ck.status === "ملغي") continue;
+        if((ck.category || "دفعة عميل") !== "دفعة عميل") continue;
+        _bal -= Number(ck.amount)||0;
       }
       _bal -= amt;/* the new payment we just recorded */
 
@@ -1267,9 +1276,36 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         /* V19.20: Bilateral cascade — catch records linked via EITHER direction.
            Forward: wsPayment.treasuryTxId === tx.id (existing).
            Reverse: tx.wsPaymentId === wsPayment.id (new — handles legacy/edge cases
-           where only one side of the link was set). Same for cust/supplier. */
-        if(d.custPayments)d.custPayments=d.custPayments.filter(p=>p.treasuryTxId!==id&&(!tx.custPaymentId||p.id!==tx.custPaymentId));
-        if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>p.treasuryTxId!==id&&(!tx.supplierPaymentId||p.id!==tx.supplierPaymentId));
+           where only one side of the link was set). Same for cust/supplier.
+           V19.76.4: also legacy-fallback by (custId/supplierId + amount + date) so
+           pre-V15.9 payments without treasuryTxId are still cascaded. User report:
+           "الدفعة النقدي اللي متسجلة بـ100 جنيه انا حذفتها خالص ولسه موجودة في كشف الحساب".
+           Without the fallback, payments saved before treasuryTxId existed (or after
+           a sync race that broke the link) survive the cascade and re-appear in the
+           customer's kashf as orphans. The fallback uses an exact (custId, amount, date)
+           triple — false-positive risk minimized vs date-only matching. */
+        if(d.custPayments){
+          d.custPayments=d.custPayments.filter(p=>p.treasuryTxId!==id&&(!tx.custPaymentId||p.id!==tx.custPaymentId));
+          if(tx.custId && (tx.sourceType==="cust_payment" || tx.category==="دفعة عميل")){
+            d.custPayments=d.custPayments.filter(p=>!(
+              p.treasuryTxId===undefined &&
+              p.custId===tx.custId &&
+              Math.abs((Number(p.amount)||0)-(Number(tx.amount)||0))<0.01 &&
+              p.date===tx.date
+            ));
+          }
+        }
+        if(d.supplierPayments){
+          d.supplierPayments=d.supplierPayments.filter(p=>p.treasuryTxId!==id&&(!tx.supplierPaymentId||p.id!==tx.supplierPaymentId));
+          if(tx.supplierId && (tx.sourceType==="supplier_payment" || tx.category==="دفعة مورد")){
+            d.supplierPayments=d.supplierPayments.filter(p=>!(
+              p.treasuryTxId===undefined &&
+              p.supplierId===tx.supplierId &&
+              Math.abs((Number(p.amount)||0)-(Number(tx.amount)||0))<0.01 &&
+              p.date===tx.date
+            ));
+          }
+        }
         if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>p.treasuryTxId!==id&&(!tx.wsPaymentId||p.id!==tx.wsPaymentId));
       }
     }
@@ -1430,7 +1466,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           newValue:"حذف "+adminBypassCount+" حركة بواسطة مدير",
           notes:"إجمالي المبالغ: "+fmt0(totalAmount)+" ج.م",
           by:userEmail,
-          at:new Date().toISOString()
+          at:nowISO()
         });
       }
       if(skippedCount>0)showToast("⚠️ "+deletedCount+" حذف • "+skippedCount+" متخطي (أيام مقفولة)");
@@ -1488,7 +1524,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     if(!amt||amt<=0){showToast("⚠️ أدخل المبلغ");return}
     const toAcc=accountsData.find(a=>a.name===tfTo);
     const tfId=gid();
-    const d_=tfDate||new Date().toISOString().split("T")[0];
+    const d_=tfDate||cairoDateStr();
     const dayN=dayName(d_);
     const isPending=!isAdmin;/* non-admin → needs approval */
     upConfig(d=>{
@@ -1499,7 +1535,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       d.treasuryTransfers.unshift({
         id:tfId,fromAccount:tfFrom,toAccount:tfTo,amount:amt,note:tfNote||"",
         status:isPending?"pending":"confirmed",
-        sentBy:userName,sentByEmail:userEmail,sentAt:new Date().toISOString(),
+        sentBy:userName,sentByEmail:userEmail,sentAt:nowISO(),
         date:d_,toOwnerEmail:toAcc?.ownerEmail||""
       });
       if(isPending){
@@ -1510,7 +1546,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         d.notifications.unshift({
           id:gid(),type:"transfer_pending",
           msg:"⏳ طلب تحويل جديد بانتظار موافقتك: "+fmt(amt)+" ج.م من "+tfFrom+" → "+tfTo+" • طلبه: "+userName,
-          adminOnly:true,transferId:tfId,read:false,by:userName,createdAt:new Date().toISOString()
+          adminOnly:true,transferId:tfId,read:false,by:userName,createdAt:nowISO()
         });
         /* V18.91: Also push a greeting-bar chip notification visible to all admin users.
            toEmail:"all" + custom marker `forAdminsOnly`, filtered in App.jsx. */
@@ -1521,8 +1557,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           msg:"⏳ طلب تحويل: "+fmt(amt)+" ج.م — "+tfFrom+" → "+tfTo,
           type:"مهمة عاجلة",
           fromName:userName,fromEmail:userEmail,
-          createdAt:new Date().toISOString().split("T")[0],
-          createdAtTs:new Date().toISOString(),
+          createdAt:nowISO().split("T")[0],
+          createdAtTs:nowISO(),
           expiresAt:null,/* stays until approved/rejected */
           endedAt:null,endedBy:null,/* V19.53: readBy/dismissedBy moved to userNotifStates */
           forAdminsOnly:true,/* V18.91: only admins see this chip */
@@ -1531,9 +1567,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         });
       }else{
         /* Admin: immediate double-entry */
-        d.treasury.unshift({id:gid(),type:"out",amount:amt,desc:"تحويل إلى "+tfTo+(tfNote?" — "+tfNote:""),notes:"",category:"تحويل داخلي",account:tfFrom,season:d.activeSeason||"",date:d_,day:dayN,transferId:tfId,by:userName,createdAt:new Date().toISOString()});
-        d.treasury.unshift({id:gid(),type:"in",amount:amt,desc:"تحويل من "+tfFrom+(tfNote?" — "+tfNote:""),notes:"",category:"تحويل داخلي",account:tfTo,season:d.activeSeason||"",date:d_,day:dayN,transferId:tfId,by:userName,createdAt:new Date().toISOString()});
-        if(toAcc?.ownerEmail){d.notifications.unshift({id:gid(),type:"treasury_transfer",msg:"💸 وصلك تحويل "+fmt(amt)+" ج.م من "+tfFrom+(tfNote?" — "+tfNote:""),toEmail:toAcc.ownerEmail,transferId:tfId,read:false,by:userName,createdAt:new Date().toISOString()})}
+        d.treasury.unshift({id:gid(),type:"out",amount:amt,desc:"تحويل إلى "+tfTo+(tfNote?" — "+tfNote:""),notes:"",category:"تحويل داخلي",account:tfFrom,season:d.activeSeason||"",date:d_,day:dayN,transferId:tfId,by:userName,createdAt:nowISO()});
+        d.treasury.unshift({id:gid(),type:"in",amount:amt,desc:"تحويل من "+tfFrom+(tfNote?" — "+tfNote:""),notes:"",category:"تحويل داخلي",account:tfTo,season:d.activeSeason||"",date:d_,day:dayN,transferId:tfId,by:userName,createdAt:nowISO()});
+        if(toAcc?.ownerEmail){d.notifications.unshift({id:gid(),type:"treasury_transfer",msg:"💸 وصلك تحويل "+fmt(amt)+" ج.م من "+tfFrom+(tfNote?" — "+tfNote:""),toEmail:toAcc.ownerEmail,transferId:tfId,read:false,by:userName,createdAt:nowISO()})}
       }
     });
     setShowTransfer(false);setTfFrom("");setTfTo("");setTfAmount("");setTfNote("");setTfDate("");
@@ -1547,17 +1583,17 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       const dayN=dayName(tf.date);
       const toAcc=(d.treasuryAccounts||[]).find(a=>(typeof a==="string"?a:a.name)===tf.toAccount);
       tf.status="confirmed";
-      tf.approvedBy=userName;tf.approvedByEmail=userEmail;tf.approvedAt=new Date().toISOString();
+      tf.approvedBy=userName;tf.approvedByEmail=userEmail;tf.approvedAt=nowISO();
       if(!d.treasury)d.treasury=[];
-      d.treasury.unshift({id:gid(),type:"out",amount:tf.amount,desc:"تحويل إلى "+tf.toAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.fromAccount,season:d.activeSeason||"",date:tf.date,day:dayN,transferId:tf.id,by:tf.sentBy||userName,createdAt:new Date().toISOString()});
-      d.treasury.unshift({id:gid(),type:"in",amount:tf.amount,desc:"تحويل من "+tf.fromAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.toAccount,season:d.activeSeason||"",date:tf.date,day:dayN,transferId:tf.id,by:tf.sentBy||userName,createdAt:new Date().toISOString()});
+      d.treasury.unshift({id:gid(),type:"out",amount:tf.amount,desc:"تحويل إلى "+tf.toAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.fromAccount,season:d.activeSeason||"",date:tf.date,day:dayN,transferId:tf.id,by:tf.sentBy||userName,createdAt:nowISO()});
+      d.treasury.unshift({id:gid(),type:"in",amount:tf.amount,desc:"تحويل من "+tf.fromAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.toAccount,season:d.activeSeason||"",date:tf.date,day:dayN,transferId:tf.id,by:tf.sentBy||userName,createdAt:nowISO()});
       /* Mark pending notif as read; notify requester of approval */
       (d.notifications||[]).forEach(n=>{if(n.transferId===tf.id&&n.type==="transfer_pending")n.read=true});
       /* V18.91: End the greeting-bar chip — `forAdminsOnly` notif is hidden via endedAt */
-      (d.notifications||[]).forEach(n=>{if(n.transferId===tf.id&&n.forAdminsOnly){n.endedAt=new Date().toISOString();n.endedBy=userEmail}});
+      (d.notifications||[]).forEach(n=>{if(n.transferId===tf.id&&n.forAdminsOnly){n.endedAt=nowISO();n.endedBy=userEmail}});
       if(!d.notifications)d.notifications=[];
-      if(tf.sentByEmail){d.notifications.unshift({id:gid(),type:"transfer_approved",msg:"✅ تمت الموافقة على تحويلك "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+" → "+tf.toAccount,toEmail:tf.sentByEmail,transferId:tf.id,read:false,by:userName,createdAt:new Date().toISOString()})}
-      if(toAcc&&typeof toAcc==="object"&&toAcc.ownerEmail){d.notifications.unshift({id:gid(),type:"treasury_transfer",msg:"💸 وصلك تحويل "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+(tf.note?" — "+tf.note:""),toEmail:toAcc.ownerEmail,transferId:tf.id,read:false,by:userName,createdAt:new Date().toISOString()})}
+      if(tf.sentByEmail){d.notifications.unshift({id:gid(),type:"transfer_approved",msg:"✅ تمت الموافقة على تحويلك "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+" → "+tf.toAccount,toEmail:tf.sentByEmail,transferId:tf.id,read:false,by:userName,createdAt:nowISO()})}
+      if(toAcc&&typeof toAcc==="object"&&toAcc.ownerEmail){d.notifications.unshift({id:gid(),type:"treasury_transfer",msg:"💸 وصلك تحويل "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+(tf.note?" — "+tf.note:""),toEmail:toAcc.ownerEmail,transferId:tf.id,read:false,by:userName,createdAt:nowISO()})}
     });
     showToast("✅ تم تأكيد التحويل")};
 
@@ -1569,9 +1605,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       d.treasuryTransfers=(d.treasuryTransfers||[]).filter(t=>t.id!==tfId);
       (d.notifications||[]).forEach(n=>{if(n.transferId===tfId&&n.type==="transfer_pending")n.read=true});
       /* V18.91: End the greeting-bar chip — `forAdminsOnly` notif is hidden */
-      (d.notifications||[]).forEach(n=>{if(n.transferId===tfId&&n.forAdminsOnly){n.endedAt=new Date().toISOString();n.endedBy=userEmail}});
+      (d.notifications||[]).forEach(n=>{if(n.transferId===tfId&&n.forAdminsOnly){n.endedAt=nowISO();n.endedBy=userEmail}});
       if(!d.notifications)d.notifications=[];
-      if(tf.sentByEmail){d.notifications.unshift({id:gid(),type:"transfer_rejected",msg:"❌ تم رفض طلب التحويل: "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+" → "+tf.toAccount,toEmail:tf.sentByEmail,transferId:tfId,read:false,by:userName,createdAt:new Date().toISOString()})}
+      if(tf.sentByEmail){d.notifications.unshift({id:gid(),type:"transfer_rejected",msg:"❌ تم رفض طلب التحويل: "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+" → "+tf.toAccount,toEmail:tf.sentByEmail,transferId:tfId,read:false,by:userName,createdAt:nowISO()})}
     });
     showToast("✓ تم رفض الطلب")};
   /* V16.26: Edit a confirmed transfer — updates the transfer record AND
@@ -1595,7 +1631,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       tf.note=editTf.note||"";
       tf.date=editTf.date;
       tf.editedBy=userName;
-      tf.editedAt=new Date().toISOString();
+      tf.editedAt=nowISO();
       /* Sync both treasury legs */
       (d.treasury||[]).forEach(t=>{
         if(t.transferId!==editTf.id)return;
@@ -2075,7 +2111,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           }
           setTxAmount("");setTxDesc("");setTxNotes("");setTxAccount(view.startsWith("acc_")?(accountsData.find(a=>a.id===view.slice(4))?.name||"SUB CASH"):"SUB CASH");setTxSeason(data.activeSeason||"");setTxDate(stickyDate||today);setTxPartyId("");setShowForm(!showForm)
         }}>{showForm?"✕ إغلاق":"+ حركة جديدة"}</Btn>
-        {accountsData.length>=2&&<Btn onClick={()=>{setTfDate(new Date().toISOString().split("T")[0]);setShowTransfer(true)}} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700}}>🔄 تحويل بين الخزن</Btn>}
+        {accountsData.length>=2&&<Btn onClick={()=>{setTfDate(cairoDateStr());setShowTransfer(true)}} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700}}>🔄 تحويل بين الخزن</Btn>}
         {/* V18.46: gated by master Odoo toggle */}
         {(data.odooEnabled !== false) && (data.odooSettings||{}).url&&<Btn onClick={openOdooSyncPopup} disabled={odooSyncing} style={{background:"#71486712",color:"#714867",border:"1px solid #71486730",fontWeight:700}}>{odooSyncing?<span style={{display:"inline-flex",alignItems:"center",gap:8}}><Spinner size="small" color="#714867" inline/>جاري التزامن...</span>:"🔗 تزامن Odoo"}</Btn>}
         {(data.odooEnabled !== false) && odooResult&&<span style={{fontSize:FS-1,fontWeight:700,color:odooResult.ok?T.ok:T.err,padding:"4px 10px",borderRadius:6,background:odooResult.ok?T.ok+"08":T.err+"08"}}>{odooResult.msg}</span>}
@@ -2474,7 +2510,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               const newAmt=parseFloat(d_.amount)||tx.amount;
               const newDate=d_.date||tx.date;
               const newNotes=d_.notes;
-              tx.type=d_.type||tx.type;tx.amount=newAmt;tx.desc=d_.desc;tx.notes=newNotes;tx.category=d_.category;tx.date=newDate;tx.account=d_.account||tx.account;tx.day=dayName(newDate);tx.updatedBy=userName;tx.updatedAt=new Date().toISOString();
+              tx.type=d_.type||tx.type;tx.amount=newAmt;tx.desc=d_.desc;tx.notes=newNotes;tx.category=d_.category;tx.date=newDate;tx.account=d_.account||tx.account;tx.day=dayName(newDate);tx.updatedBy=userName;tx.updatedAt=nowISO();
               /* V17.3 FIX: Sync linked records when amount/date changes via inline edit.
                  Previously inline edit only updated treasury, leaving custPayments,
                  supplierPayments, wsPayments, and hrLog out of sync. This caused
@@ -2561,7 +2597,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
 
     {/* ══ TRANSFERS VIEW ══ */}
     {view==="transfers"&&<div>
-      {canEdit&&accountsData.length>=2&&<div style={{marginBottom:14}}><Btn onClick={()=>{setTfDate(new Date().toISOString().split("T")[0]);setShowTransfer(true)}} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700}}>+ تحويل جديد</Btn></div>}
+      {canEdit&&accountsData.length>=2&&<div style={{marginBottom:14}}><Btn onClick={()=>{setTfDate(cairoDateStr());setShowTransfer(true)}} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700}}>+ تحويل جديد</Btn></div>}
       {transfers.length===0?<Card><div style={{textAlign:"center",padding:40,color:T.textMut}}>لا يوجد تحويلات بعد — اضغط "+ تحويل جديد"</div></Card>
       :<Card title={"🔄 سجل التحويلات ("+transfers.length+")"}>
         {(()=>{
@@ -2683,7 +2719,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                      the party name if user left it blank. Null for payable (we ARE the drawer). */
                   drawerName: chkType==="receivable" ? (String(chkDrawerName||"").trim() || chkParty.trim() || null) : null,
                   batchId,batchIdx:batchId?i+1:null,batchTotal:batchId?count:null,
-                  by:userName,createdAt:new Date().toISOString()
+                  by:userName,createdAt:nowISO()
                 });
               }
             }
@@ -2699,8 +2735,13 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             const totalChecks = _instantCheck_count;
             const office = _instantCheck_customer.companyName || _instantCheck_customer.company || _instantCheck_customer.office || _instantCheck_customer.businessName || "";
             /* V19.76.2: BASE balance after applying customer discount, then subtracting cash payments.
-               Checks NOT included here — each check's message will subtract progressively:
-               balance for check_i = base - (i+1) * checkAmt. */
+               V19.76.4: also subtract PRIOR receivable cashpay checks (existing pending checks
+               that are NOT being saved in the current batch). The new batch's checks are NOT yet in
+               data.checks (closure is pre-mutation), so all data.checks for this customer count as
+               prior. Without this, a customer with existing 5 pending checks who saves 3 more would
+               see the new batch messages report a balance higher by 5×check_amt than reality.
+               Each new check's message will further subtract progressively:
+                 balance for check_i = baseAfterPriorChecks - (i+1) * newCheckAmt. */
             let _gross = 0;
             for (const o of (data.orders||[])) {
               for (const d of (o.customerDeliveries||[])) {
@@ -2715,6 +2756,13 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             let _baseBal = _gross - _discAmt;
             for (const p of (data.custPayments||[])) {
               if (p.custId === chkPartyId) _baseBal -= Number(p.amount)||0;
+            }
+            for (const ck of (data.checks||[])) {
+              if (ck.partyId !== chkPartyId) continue;
+              if (ck.type !== "receivable") continue;
+              if (ck.status === "مرتد" || ck.status === "ملغي") continue;
+              if ((ck.category || "دفعة عميل") !== "دفعة عميل") continue;
+              _baseBal -= Number(ck.amount)||0;
             }
             const baseBalanceRounded = Math.round(_baseBal);
             (async () => {
@@ -2858,7 +2906,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 custId:ch.type==="receivable"?ch.partyId||null:null,
                 supplierId:ch.type==="payable"?ch.partyId||null:null,
                 sourceType:"check_collect",checkId:ch.id,
-                by:userName,createdAt:new Date().toISOString()
+                by:userName,createdAt:nowISO()
               });
             }
             if(status==="مدفوع"){
@@ -2870,7 +2918,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 custId:ch.type==="receivable"?ch.partyId||null:null,
                 supplierId:ch.type==="payable"?ch.partyId||null:null,
                 sourceType:"check_pay",checkId:ch.id,
-                by:userName,createdAt:new Date().toISOString()
+                by:userName,createdAt:nowISO()
               });
             }
             /* V16.34: Bounce — only meaningful for receivable. The original
@@ -2886,7 +2934,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 id:gid(),type:"check_bounced",
                 msg:"❌ شيك مرتد من "+(ch.party||"")+" — "+fmt(Number(ch.amount)||0)+" ج.م"+det,
                 adminOnly:true,checkId:ch.id,read:false,
-                by:userName,createdAt:new Date().toISOString()
+                by:userName,createdAt:nowISO()
               });
             }
           });
@@ -2906,8 +2954,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             if (customer?.phone && user && typeof user.getIdToken === "function") {
               const office = customer.companyName || customer.company || customer.office || customer.businessName || "";
               const computeBal = () => {
-                /* V19.76.2: apply customer discount to base before subtracting payments,
-                   matching كشف الحساب formula. */
+                /* V19.76.2: apply customer discount to base before subtracting payments.
+                   V19.76.4: subtract OTHER pending receivable cashpay checks (not the one
+                   being changed — handled separately based on new status), so the balance
+                   matches كشف الحساب exactly when the customer has multiple checks. */
                 let _gross = 0;
                 for (const o of (data.orders||[])) {
                   for (const d of (o.customerDeliveries||[])) {
@@ -2923,12 +2973,24 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 for (const p of (data.custPayments||[])) {
                   if (p.custId === _statusSnapshot.partyId) _bal -= Number(p.amount)||0;
                 }
-                /* Per-event balance semantics:
-                   - محصل: subtract check (now functionally a payment via cash flow)
-                   - مرتد: balance unchanged from base (original AR preserved)
-                   - re-present (مرتد→معلق): subtract check (now active again as receivable in motion) */
-                if (status === "محصل") _bal -= Number(_statusSnapshot.amount)||0;
-                if (_isRePresent)      _bal -= Number(_statusSnapshot.amount)||0;
+                /* V19.76.4: subtract OTHER pending receivable cashpay checks (excluding
+                   the one whose status we're changing — its contribution depends on the
+                   new status and is added below). */
+                for (const ck of (data.checks||[])) {
+                  if (ck.id === _statusSnapshot.id) continue;
+                  if (ck.partyId !== _statusSnapshot.partyId) continue;
+                  if (ck.type !== "receivable") continue;
+                  if (ck.status === "مرتد" || ck.status === "ملغي") continue;
+                  if ((ck.category || "دفعة عميل") !== "دفعة عميل") continue;
+                  _bal -= Number(ck.amount)||0;
+                }
+                /* This check's contribution based on the NEW status:
+                   - محصل: counts as paid (collected check still reduces customer's debt)
+                   - معلق via re-present: counts again
+                   - مرتد: doesn't count (customer still owes) — no subtraction */
+                if (status === "محصل" || _isRePresent) {
+                  _bal -= Number(_statusSnapshot.amount)||0;
+                }
                 return Math.round(_bal);
               };
               let eventType, idempotencyKey, dateField;
@@ -3034,7 +3096,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               date:dt,
               notes:"تظهير شيك"+(ch.party?" مستلم من "+ch.party:"")+(ch.checkNo?" #"+ch.checkNo:"")+(ch.bank?" — "+ch.bank:""),
               checkId:ch.id,
-              by:userName,createdAt:new Date().toISOString()
+              by:userName,createdAt:nowISO()
             });
           });
           setEndorsePopup(null);setEndorseSearch("");
@@ -3868,7 +3930,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 d.recurringTreasury.push({
                   id:gid(), ...ruleData,
                   generatedTxIds:[],
-                  createdAt:new Date().toISOString(),
+                  createdAt:nowISO(),
                   createdBy:userName,
                 });
               }

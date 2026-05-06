@@ -14,6 +14,7 @@ import { loadXLSX, loadQR, loadJsQR, scanQR, compressFile } from "./utils/qr.js"
 import { addAudit } from "./utils/audit.js";
 import { setUpConfigCallback as registerAutoPostCallback } from "./utils/accounting/autoPost.js";
 import { prefetchIpInfo } from "./utils/device.js";
+import { startClockSync } from "./utils/serverTime.js";
 import { enforceDataLimits } from "./utils/dataLimits.js";
 import { isSafeWrite } from "./utils/dataIntegrity.js";
 /* V19.48: Forensic helpers for write fallbacks — categorize errors, estimate
@@ -596,6 +597,11 @@ export default function App(){
   useEffect(()=>{const unsub=onAuthStateChanged(auth,u=>{setUser(u);setAuthLoading(false)});return unsub},[]);
   /* V15.92: Prefetch IP + location once per session (silent — no error if offline) */
   useEffect(()=>{prefetchIpInfo().catch(()=>{})},[]);
+  /* V19.76.4: sync the local clock against /api/now (Cairo time) so timestamps
+     and dates baked into payments / treasury / event messages aren't wrong on
+     computers with mis-set system clocks. Best-effort — falls back to local
+     Date if the endpoint is unreachable. Re-syncs lazily after 30 min. */
+  useEffect(()=>{startClockSync()},[]);
   useEffect(()=>{if(!user)return;
     let salesReady=false;let tasksReady=false;
     /* ═══════════════════════════════════════════════════════════════════

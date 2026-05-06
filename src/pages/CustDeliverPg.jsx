@@ -16,6 +16,7 @@ import { CLARK_LOGO_PRINT } from "../constants/logo.js";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { FKEYS, FS } from "../constants/index.js";
 import { gid, fmt, r2, gf, normalizePhone, parseSizes, getSizesFromSet, dayName, openWA } from "../utils/format.js";
+import { nowISO, cairoDateStr } from "../utils/serverTime.js";
 import { playBeep } from "../utils/audio.js";
 import { loadQR, loadJsQR, scanQR } from "../utils/qr.js";
 import { ask, askForm, showToast, tell } from "../utils/popups.js";
@@ -99,7 +100,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
      Shows all models with avail > 0, breaking down series-vs-broken pieces.
      Supports search/filter, print (browser-native), and WhatsApp PDF send to owner phones. */
   const[availPopup,setAvailPopup]=useState(null);/* { search, sending } | null */
-  const[showNewAudit,setShowNewAudit]=useState(false);const[auditDate,setAuditDate]=useState(new Date().toISOString().split("T")[0]);const[auditFrom,setAuditFrom]=useState("");const[auditTo,setAuditTo]=useState("");const[auditNote,setAuditNote]=useState("");const[auditSelCusts,setAuditSelCusts]=useState({});
+  const[showNewAudit,setShowNewAudit]=useState(false);const[auditDate,setAuditDate]=useState(cairoDateStr());const[auditFrom,setAuditFrom]=useState("");const[auditTo,setAuditTo]=useState("");const[auditNote,setAuditNote]=useState("");const[auditSelCusts,setAuditSelCusts]=useState({});
   const[activeAudit,setActiveAudit]=useState(null);const[auditCell,setAuditCell]=useState(null);const[auditVal,setAuditVal]=useState(0);const[showAuditAnalysis,setShowAuditAnalysis]=useState(null);
   const[ocrCust,setOcrCust]=useState(null);const[ocrLoading,setOcrLoading]=useState(false);const[ocrResult,setOcrResult]=useState(null);const ocrRef=useRef(null);const[auditInclude,setAuditInclude]=useState(null);
   /* V15.64: Enhanced OCR — preview + confidence */
@@ -181,7 +182,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     upConfig(d => {
       if (!d.custPayments) d.custPayments = [];
       const existingNow = new Set((d.custPayments||[]).filter(p => String(p.custId)===String(custStatement)).map(p=>p.treasuryTxId).filter(Boolean));
-      const now = new Date().toISOString();
+      const now = nowISO();
       orphans.forEach(t => {
         if (existingNow.has(t.id)) return;
         d.custPayments.push({
@@ -221,7 +222,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     }
   };
   /* Customer statement payment form */
-  const[payAmt,setPayAmt_]=useState("");const[payDate_,setPayDate_]=useState(new Date().toISOString().split("T")[0]);const[payNote_,setPayNote_]=useState("");const[payMethod,setPayMethod]=useState("كاش");
+  const[payAmt,setPayAmt_]=useState("");const[payDate_,setPayDate_]=useState(cairoDateStr());const[payNote_,setPayNote_]=useState("");const[payMethod,setPayMethod]=useState("كاش");
   /* V19.11: account selector in customer payment form (used to default-hardcode "SUB CASH",
      which silently routed every customer payment to that one account. Users with multiple
      treasury accounts (MAIN CASH, CIB, etc.) had to delete + re-create from TreasuryPg to
@@ -371,7 +372,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
 
   const createSession=()=>{const mIds=Object.keys(selModels).filter(k=>selModels[k]);const cIds=Object.keys(selCusts).filter(k=>selCusts[k]);
     if(mIds.length===0||cIds.length===0){showToast("⚠️ اختر موديل وعميل على الأقل");return}
-    const sess={id:gid(),date:new Date().toISOString().split("T")[0],createdAt:new Date().toISOString(),modelIds:mIds,custIds:cIds,grid:{}};
+    const sess={id:gid(),date:cairoDateStr(),createdAt:nowISO(),modelIds:mIds,custIds:cIds,grid:{}};
     upSales(d=>{if(!d.custDeliverySessions)d.custDeliverySessions=[];d.custDeliverySessions.unshift(sess)});
     setActiveSession(sess.id);setShowNewSession(false);setSelModels({});setSelCusts({});showToast("✓ تم انشاء التسليم")};
 
@@ -679,7 +680,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
 
   /* Returns */
   const doReturn=()=>{if(!returnPopup||retQty<=0)return;const{orderId,custId,custName,sessId}=returnPopup;
-    updOrder(orderId,o=>{if(!o.customerReturns)o.customerReturns=[];o.customerReturns.push({custId,custName,qty:retQty,note:retNote,date:new Date().toISOString().split("T")[0],sessId,createdBy:userName||""})});
+    updOrder(orderId,o=>{if(!o.customerReturns)o.customerReturns=[];o.customerReturns.push({custId,custName,qty:retQty,note:retNote,date:cairoDateStr(),sessId,createdBy:userName||""})});
     setReturnPopup(null);setRetQty(0);setRetNote("");showToast("✓ تم تسجيل مرتجع "+retQty+" قطعة")};
 
   /* Sell price */
@@ -830,7 +831,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
 
   const createAudit=()=>{if(!auditDate){showToast("⚠️ اختر تاريخ الجرد");return}
     const selIds=Object.entries(auditSelCusts).filter(([,v])=>v).map(([k])=>k);if(selIds.length===0){showToast("⚠️ اختر عميل واحد على الأقل");return}
-    const aud={id:gid(),date:auditDate,fromDate:auditFrom,toDate:auditTo||auditDate,notes:auditNote,createdBy:userName||"",createdAt:new Date().toISOString(),grid:{}};
+    const aud={id:gid(),date:auditDate,fromDate:auditFrom,toDate:auditTo||auditDate,notes:auditNote,createdBy:userName||"",createdAt:nowISO(),grid:{}};
     upConfig(d=>{if(!d.salesAudits)d.salesAudits=[];d.salesAudits.unshift(aud)});
     setAuditInclude(selIds);setActiveAudit(aud.id);setShowNewAudit(false);setAuditNote("");setAuditSelCusts({});showToast("✓ تم إنشاء الجرد")};
 
@@ -1025,10 +1026,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
 
       const recoverAction=async()=>{
         if(!await ask("استعادة التوزيعات","تم العثور على "+oList.length+" توزيعة محذوفة ("+oList.reduce((s,o)=>s+o.total,0)+" قطعة).\n\nهل تريد استعادتها؟",{confirmText:"استعادة"}))return;
-        oList.forEach(orp=>{const date=orp.dates.sort()[0]||new Date().toISOString().split("T")[0];
+        oList.forEach(orp=>{const date=orp.dates.sort()[0]||cairoDateStr();
           upSales(d=>{if(!d.custDeliverySessions)d.custDeliverySessions=[];
             d.custDeliverySessions.push({id:orp.id,date,modelIds:[...orp.modelIds],custIds:[...orp.custIds],grid:orp.grid,
-              status:"جاري التجهيز",saleConfirmed:true,createdBy:"RECOVERY",createdAt:new Date().toISOString(),recoveredAt:new Date().toISOString()})})});
+              status:"جاري التجهيز",saleConfirmed:true,createdBy:"RECOVERY",createdAt:nowISO(),recoveredAt:nowISO()})})});
         showToast("✅ تم استعادة "+oList.length+" توزيعة بنجاح");
       };
 
@@ -1070,7 +1071,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         <div className="sales-group-title">📦 المخزن والجرد</div>
         <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(auto-fill,minmax(110px,1fr))",gap:8,marginBottom:16}}>
           {secBtn(I.warehouse,"جرد المخزن","#8B5CF6",()=>setInvAudit({items:{},scanning:false}))}
-          {canEdit&&secBtn(I.clipboard,"جرد مبيعات","#F59E0B",()=>{setAuditDate(new Date().toISOString().split("T")[0]);setAuditFrom("");setAuditTo("");setAuditNote("");setShowNewAudit(true)})}
+          {canEdit&&secBtn(I.clipboard,"جرد مبيعات","#F59E0B",()=>{setAuditDate(cairoDateStr());setAuditFrom("");setAuditTo("");setAuditNote("");setShowNewAudit(true)})}
           {secBtn(I.package,"الكراتين","#0EA5E9",()=>setPkgPopup("list"))}
           {secBtn(I.inbox,"تأكيد استلام","#10B981",()=>setPendingRcv({items:{}}),pendingRcvCount||null)}
           {/* V14.59: Receipt log — historical receipts with comparison */}
@@ -1171,7 +1172,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         tfoot tr{background:#0ea5e9;color:#fff;font-weight:800}
         @media print{body{margin:0}}</style></head><body>
         <div class="hdr">${logo?'<img src="'+logo+'"/>':'<div style="font-size:22px;font-weight:900;color:#0ea5e9">CLARK</div>'}
-          <div style="text-align:left"><h1>📊 تقرير المبيعات الموسم: ${season}</h1><div style="font-size:10px;color:#64748b">تاريخ: ${new Date().toISOString().split("T")[0]} • <strong style="color:#0ea5e9">جميع الأرقام بعد تطبيق خصم كل عميل</strong></div></div></div>
+          <div style="text-align:left"><h1>📊 تقرير المبيعات الموسم: ${season}</h1><div style="font-size:10px;color:#64748b">تاريخ: ${cairoDateStr()} • <strong style="color:#0ea5e9">جميع الأرقام بعد تطبيق خصم كل عميل</strong></div></div></div>
         <div class="stats">
           <div class="stat s-sales"><div class="label">اجمالي المبيعات</div><div class="val">${fmt(r2(totalSales))}</div><div style="font-size:8px;color:#94a3b8;margin-top:2px">بعد الخصم</div></div>
           <div class="stat s-ret"><div class="label">المرتجعات</div><div class="val">${fmt(r2(totalReturns))}</div><div style="font-size:8px;color:#94a3b8;margin-top:2px">بعد الخصم</div></div>
@@ -2645,8 +2646,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               by:t.by||userName,
               treasuryTxId:t.id,
               reconciledFromTreasury:true,
-              reconciledAt:new Date().toISOString(),
-              createdAt:t.createdAt||new Date().toISOString(),
+              reconciledAt:nowISO(),
+              createdAt:t.createdAt||nowISO(),
             });
           });
         });
@@ -2660,12 +2661,12 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
            account regardless of which treasury the cash was actually deposited into. */
         const _resolvedAcc=payAccount||"MAIN CASH";
         /* V18.44: capture treasury account on the payment so accounting can route to the right CoA sub-account */
-        const _newPayment={id:payId,custId:custStatement,custName:cust.name,amount:amt,date:payDate_,note:payNote_,method:payMethod,account:_resolvedAcc,by:userName,treasuryTxId:txId,createdAt:new Date().toISOString()};
+        const _newPayment={id:payId,custId:custStatement,custName:cust.name,amount:amt,date:payDate_,note:payNote_,method:payMethod,account:_resolvedAcc,by:userName,treasuryTxId:txId,createdAt:nowISO()};
         upConfig(d=>{if(!d.custPayments)d.custPayments=[];
           d.custPayments.push(_newPayment);
           /* Auto-register in treasury as income — linked to the payment */
           if(!d.treasury)d.treasury=[];
-          d.treasury.unshift({id:txId,type:"in",amount:amt,desc:"دفعة من عميل "+cust.name+(payNote_?" — "+payNote_:""),notes:payMethod,category:"دفعة عميل",account:_resolvedAcc,season:d.activeSeason||"",date:payDate_,day:dayName(payDate_),sourceType:"cust_payment",custPaymentId:payId,custId:custStatement,by:userName,createdAt:new Date().toISOString()})});
+          d.treasury.unshift({id:txId,type:"in",amount:amt,desc:"دفعة من عميل "+cust.name+(payNote_?" — "+payNote_:""),notes:payMethod,category:"دفعة عميل",account:_resolvedAcc,season:d.activeSeason||"",date:payDate_,day:dayName(payDate_),sourceType:"cust_payment",custPaymentId:payId,custId:custStatement,by:userName,createdAt:nowISO()})});
         /* V18.35: auto-post journal entry */
         autoPost.customerPay(data, _newPayment, cust, userName).catch(()=>{});
         setPayAmt_("");setPayNote_("");showToast("✓ تم تسجيل الدفعة في حساب العميل وخزنة "+_resolvedAcc)};
@@ -3615,7 +3616,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const totalRet=Object.values(freeRetItems).reduce((s,v)=>s+(Number(v)||0),0);
       const saveFreeReturn=()=>{if(totalRet<=0){showToast("⚠️ ادخل كمية المرتجع");return}
         Object.entries(freeRetItems).forEach(([orderId,qty])=>{const q=Number(qty)||0;if(q<=0)return;
-          updOrder(orderId,o=>{if(!o.customerReturns)o.customerReturns=[];o.customerReturns.push({custId:freeReturn,custName:cust.name,qty:q,note:freeRetNote||"مرتجع حر",date:new Date().toISOString().split("T")[0],createdBy:userName||""})})});
+          updOrder(orderId,o=>{if(!o.customerReturns)o.customerReturns=[];o.customerReturns.push({custId:freeReturn,custName:cust.name,qty:q,note:freeRetNote||"مرتجع حر",date:cairoDateStr(),createdBy:userName||""})})});
         showToast("✓ تم تسجيل مرتجع "+totalRet+" قطعة من "+cust.name);setFreeReturn(null)};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setFreeReturn(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:isMob?420:550,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
@@ -3817,13 +3818,13 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           Object.keys(byOrder).forEach(oid => { _instantSale_deliveryIds[oid] = gid(); });
           const sessId=linkedSess?linkedSess.id:gid();const modelIds=[...new Set(qrSale.items.map(it=>it.orderId))];
           if(!linkedSess){const grid={};Object.entries(byOrder).forEach(([oid,qty])=>{grid[oid+"_"+qrSale.custId]=qty});
-            upSales(d=>{if(!d.custDeliverySessions)d.custDeliverySessions=[];d.custDeliverySessions.push({id:sessId,date:new Date().toISOString().split("T")[0],modelIds,custIds:[qrSale.custId],grid,createdBy:userName,createdAt:new Date().toISOString(),status:"تم التسليم",freeSale:true,saleConfirmed:true})})}
-          else{upSales(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===sessId);if(si>=0){d.custDeliverySessions[si].actualSales=byOrder;d.custDeliverySessions[si].actualSaleDate=new Date().toISOString().split("T")[0];d.custDeliverySessions[si].actualSaleBy=userName;d.custDeliverySessions[si].saleConfirmed=true}})}
+            upSales(d=>{if(!d.custDeliverySessions)d.custDeliverySessions=[];d.custDeliverySessions.push({id:sessId,date:cairoDateStr(),modelIds,custIds:[qrSale.custId],grid,createdBy:userName,createdAt:nowISO(),status:"تم التسليم",freeSale:true,saleConfirmed:true})})}
+          else{upSales(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===sessId);if(si>=0){d.custDeliverySessions[si].actualSales=byOrder;d.custDeliverySessions[si].actualSaleDate=cairoDateStr();d.custDeliverySessions[si].actualSaleBy=userName;d.custDeliverySessions[si].saleConfirmed=true}})}
           Object.entries(byOrder).forEach(([oid,qty])=>{updOrder(oid,o=>{if(!o.customerDeliveries)o.customerDeliveries=[];
             /* V15.45: Record custom price for free/discounted sales — enables accurate revenue reporting */
             /* V19.63: clamp negative input — `-50` would store negative price → negative AR debit */
             const cp=Math.max(0,Number(qrSale.customPrice)||0);
-            const entry={id:_instantSale_deliveryIds[oid],custId:qrSale.custId,custName:cust.name,qty,date:new Date().toISOString().split("T")[0],sessionId:sessId,createdBy:userName,createdAt:new Date().toISOString()};
+            const entry={id:_instantSale_deliveryIds[oid],custId:qrSale.custId,custName:cust.name,qty,date:cairoDateStr(),sessionId:sessId,createdBy:userName,createdAt:nowISO()};
             if(qrSale.override===true){entry.isOverride=true;entry.overrideReason="بيع طوارئ خارج الخطة"}
             if(cp>0){entry.price=cp;entry.isDiscounted=true;entry.originalPrice=Number(o.sellPrice)||0}
             /* V19.66: include timestamp so legitimate re-sales (same cust/session/order/day)
@@ -3856,7 +3857,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                   const idx = (d.salesInvoices||[]).findIndex(i => i.id === createdInv.id);
                   if(idx >= 0){
                     d.salesInvoices[idx].status = "posted";
-                    d.salesInvoices[idx].postedAt = new Date().toISOString();
+                    d.salesInvoices[idx].postedAt = nowISO();
                     d.salesInvoices[idx].postedBy = userName;
                   }
                 }
@@ -3903,7 +3904,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                         customerName: cust.name||"—",
                         qty, modelNo: order.modelNo||oid,
                         value: qty*price,
-                        date: new Date().toISOString().split("T")[0],
+                        date: cairoDateStr(),
                         salesperson: userName||"—",
                         portalLink: "",
                       },
@@ -3918,10 +3919,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             })();
           }
           /* Archive package if sale was from package */
-          if(qrSale._pkgId){upSales(d=>{const pi=(d.packages||[]).findIndex(p=>p.id===qrSale._pkgId);if(pi>=0){d.packages[pi].status="مباعة";d.packages[pi].closedAt=new Date().toISOString();if(!d.packages[pi].movements)d.packages[pi].movements=[];d.packages[pi].movements.push({date:new Date().toISOString().split("T")[0],type:"sell",custName:cust.name,totalQty:total,by:userName||""})}})}
+          if(qrSale._pkgId){upSales(d=>{const pi=(d.packages||[]).findIndex(p=>p.id===qrSale._pkgId);if(pi>=0){d.packages[pi].status="مباعة";d.packages[pi].closedAt=nowISO();if(!d.packages[pi].movements)d.packages[pi].movements=[];d.packages[pi].movements.push({date:cairoDateStr(),type:"sell",custName:cust.name,totalQty:total,by:userName||""})}})}
         }else{
           Object.entries(byOrder).forEach(([oid,qty])=>{updOrder(oid,o=>{if(!o.customerReturns)o.customerReturns=[];
-            const retEntry={custId:qrSale.custId,custName:cust.name,qty,note:qrSale.note||"مرتجع سريع",date:new Date().toISOString().split("T")[0],createdBy:userName};
+            const retEntry={custId:qrSale.custId,custName:cust.name,qty,note:qrSale.note||"مرتجع سريع",date:cairoDateStr(),createdBy:userName};
             /* V19.66: carry over original sale price for discount-aware return posting.
                Find the most recent matching delivery (same customer; same session if linked)
                and copy its price if it was a discounted/custom-price sale. Without this,
@@ -4218,7 +4219,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               if(missingPrice)return;
               const disc=Math.round(grandTotal*0.1);const net=grandTotal-disc;
               let h="<h2 style='text-align:center'>CLARK — عرض سعر</h2>";
-              h+="<table style='margin:0 auto 12px'><tr><td style='padding:4px 12px;font-weight:700'>العميل</td><td style='padding:4px 12px;font-weight:800'>"+cust.name+"</td><td style='padding:4px 12px;font-weight:700'>التاريخ</td><td style='padding:4px 12px'>"+new Date().toISOString().split("T")[0]+"</td></tr></table>";
+              h+="<table style='margin:0 auto 12px'><tr><td style='padding:4px 12px;font-weight:700'>العميل</td><td style='padding:4px 12px;font-weight:800'>"+cust.name+"</td><td style='padding:4px 12px;font-weight:700'>التاريخ</td><td style='padding:4px 12px'>"+cairoDateStr()+"</td></tr></table>";
               h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th><th>سعر القطعة</th><th>الاجمالي</th></tr></thead><tbody>";
               rows.forEach(r=>{h+="<tr><td style='font-weight:800'>"+r.no+"</td><td>"+r.desc+"</td><td style='text-align:center;font-weight:700'>"+r.qty+"</td><td style='text-align:center'>"+fmt(r.price)+"</td><td style='text-align:center;font-weight:800'>"+fmt(r.total)+"</td></tr>"});
               h+="</tbody></table>";
@@ -4271,7 +4272,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const stopPkgCam=()=>{setPkgScan(false);try{const v=document.getElementById("pkg-scan-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}};
       const closePkgCreate=()=>{stopPkgCam();setPkgPopup("list")};
       const savePkg=()=>{if(pkgItems.length===0){showToast("⚠️ أضف موديل واحد على الأقل");return}
-        const pkg={id:gid(),number:pkgNum,date:new Date().toISOString().split("T")[0],note:pkgNote,items:pkgItems.map(it=>({orderId:it.orderId,modelNo:it.modelNo,rackSize:it.rackSize,count:it.count,qty:it.qty})),createdBy:userName,status:"مخزن"};
+        const pkg={id:gid(),number:pkgNum,date:cairoDateStr(),note:pkgNote,items:pkgItems.map(it=>({orderId:it.orderId,modelNo:it.modelNo,rackSize:it.rackSize,count:it.count,qty:it.qty})),createdBy:userName,status:"مخزن"};
         upSales(d=>{if(!d.packages)d.packages=[];d.packages.push(pkg)});
         /* Print QR */
         const qrData=JSON.stringify({app:"clark",type:"pkg",id:pkg.id,num:pkgNum});
@@ -4321,21 +4322,21 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           if(existing>=0){d.packages[pi].items[existing].count++;d.packages[pi].items[existing].qty=d.packages[pi].items[existing].count*d.packages[pi].items[existing].rackSize}
           else{d.packages[pi].items.push({orderId,modelNo:o.modelNo,rackSize:rs,count:1,qty:rs})}
           if(!d.packages[pi].movements)d.packages[pi].movements=[];
-          d.packages[pi].movements.push({date:new Date().toISOString().split("T")[0],type:"add",modelNo:o.modelNo,count:1,qty:rs,by:userName||""});
+          d.packages[pi].movements.push({date:cairoDateStr(),type:"add",modelNo:o.modelNo,count:1,qty:rs,by:userName||""});
           d.packages[pi].status="مخزن"});playBeep("ok")};
       const updatePkgItem=(idx,newCount)=>{upSales(d=>{const pi=d.packages.findIndex(p=>p.id===pkgId);if(pi<0)return;const it=d.packages[pi].items[idx];if(!it)return;
         const oldCount=it.count;const diff=newCount-oldCount;it.count=Math.max(0,newCount);it.qty=it.count*it.rackSize;
         if(!d.packages[pi].movements)d.packages[pi].movements=[];
-        if(diff!==0)d.packages[pi].movements.push({date:new Date().toISOString().split("T")[0],type:diff>0?"add":"remove",modelNo:it.modelNo,count:Math.abs(diff),qty:Math.abs(diff)*it.rackSize,by:userName||""});
+        if(diff!==0)d.packages[pi].movements.push({date:cairoDateStr(),type:diff>0?"add":"remove",modelNo:it.modelNo,count:Math.abs(diff),qty:Math.abs(diff)*it.rackSize,by:userName||""});
         if(it.count<=0){d.packages[pi].items.splice(idx,1)}
         const totalRemain=d.packages[pi].items.reduce((s,x)=>s+(x.qty||0),0);
-        if(totalRemain<=0){d.packages[pi].status="مغلقة";d.packages[pi].closedAt=new Date().toISOString()}})};
+        if(totalRemain<=0){d.packages[pi].status="مغلقة";d.packages[pi].closedAt=nowISO()}})};
       const removePkgItem=(idx)=>{upSales(d=>{const pi=d.packages.findIndex(p=>p.id===pkgId);if(pi<0)return;const it=d.packages[pi].items[idx];
         if(!d.packages[pi].movements)d.packages[pi].movements=[];
-        if(it)d.packages[pi].movements.push({date:new Date().toISOString().split("T")[0],type:"remove",modelNo:it.modelNo,count:it.count,qty:it.qty,by:userName||""});
+        if(it)d.packages[pi].movements.push({date:cairoDateStr(),type:"remove",modelNo:it.modelNo,count:it.count,qty:it.qty,by:userName||""});
         d.packages[pi].items.splice(idx,1);
         const totalRemain=d.packages[pi].items.reduce((s,x)=>s+(x.qty||0),0);
-        if(totalRemain<=0){d.packages[pi].status="مغلقة";d.packages[pi].closedAt=new Date().toISOString()}});showToast("✓ تم الحذف")};
+        if(totalRemain<=0){d.packages[pi].status="مغلقة";d.packages[pi].closedAt=nowISO()}});showToast("✓ تم الحذف")};
       const reprintQR=()=>{const qrData=JSON.stringify({app:"clark",type:"pkg",id:pkg.id,num:pkg.number});
         printPkgLabel(pkg.number,pkg.date,pkg.note||"",(pkg.items||[]).map(it=>({...it,desc:orders.find(o=>o.id===it.orderId)?.modelDesc||""})),pkg.movements||[],pkg.status||"مخزن",pkg.createdBy||"",qrData,data?.printSettings,CLARK_LOGO_PRINT)};
       const printContents=()=>{const qrData=JSON.stringify({app:"clark",type:"pkg",id:pkg.id,num:pkg.number});
@@ -4445,9 +4446,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const closeStockCam=()=>{try{const v=document.getElementById("stock-rcv-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setStockRcv(p=>({...p,scanning:false}))};
       const totalRcv=Object.values(rcvItems).reduce((s,v)=>s+v,0);
       const confirmStockRcv=()=>{if(totalRcv<=0){showToast("⚠️ لا توجد كميات للاستلام");return}
-        Object.entries(rcvItems).forEach(([oid,qty])=>{if(qty<=0)return;updOrder(oid,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty,notes:"تسليم للمخزن",createdBy:userName||"",status:"pending"})})});
+        Object.entries(rcvItems).forEach(([oid,qty])=>{if(qty<=0)return;updOrder(oid,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:cairoDateStr(),qty,notes:"تسليم للمخزن",createdBy:userName||"",status:"pending"})})});
         playBeep("done");showToast("⏳ تم تسجيل "+totalRcv+" قطعة — في انتظار تأكيد أمين المخزن");closeStockCam();setStockRcv(null)};
-      const printStockRcv=()=>{let h="<h2 style='text-align:center'>📥 إذن تسليم مخزن جاهز — "+new Date().toISOString().split("T")[0]+"</h2>";
+      const printStockRcv=()=>{let h="<h2 style='text-align:center'>📥 إذن تسليم مخزن جاهز — "+cairoDateStr()+"</h2>";
         h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>متاح من التشطيب</th><th>تسليم مخزن جاهز</th><th>الفرق</th></tr></thead><tbody>";
         available.forEach(m=>{const rcv=rcvItems[m.id]||0;const diff=rcv-m.fromFinishing;h+="<tr><td style='font-weight:800'>"+m.modelNo+"</td><td>"+m.modelDesc+"</td><td style='text-align:center'>"+m.fromFinishing+"</td><td style='text-align:center;font-weight:800;color:#0EA5E9'>"+rcv+"</td><td style='text-align:center;font-weight:800;color:"+(diff===0?"#10B981":diff>0?"#0EA5E9":"#EF4444")+"'>"+diff+"</td></tr>"});
         h+="<tr style='background:#F1F5F9;font-weight:800'><td colspan='3'>الاجمالي</td><td style='text-align:center;color:#0EA5E9'>"+totalRcv+"</td><td></td></tr></tbody></table>";
@@ -4525,12 +4526,12 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const closeAuditCam=()=>{try{const v=document.getElementById("audit-scan-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setInvAudit(p=>({...p,scanning:false}))};
       const totalSystem=allStock.reduce((s,m)=>s+m.avail,0);const totalCounted=allStock.reduce((s,m)=>s+(auditItems[m.id]||0),0);const totalDiff=totalCounted-totalSystem;
       const applyAdjust=()=>{let adj=0;allStock.forEach(m=>{const counted=auditItems[m.id];if(counted===undefined)return;const diff=counted-m.avail;if(diff===0)return;adj++;
-        const adjustQty=diff;updOrder(m.id,o=>{if(!o.deliveries)o.deliveries=[];if(adjustQty>0){o.deliveries.push({date:new Date().toISOString().split("T")[0],qty:adjustQty,notes:"تسوية جرد (زيادة)",createdBy:userName||"",isAdjustment:true})}
+        const adjustQty=diff;updOrder(m.id,o=>{if(!o.deliveries)o.deliveries=[];if(adjustQty>0){o.deliveries.push({date:cairoDateStr(),qty:adjustQty,notes:"تسوية جرد (زيادة)",createdBy:userName||"",isAdjustment:true})}
           else{const absAdj=Math.abs(adjustQty);const existing=getConfirmedStock(o);const custDel=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const custRet=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
-            if(!o.customerDeliveries)o.customerDeliveries=[];o.customerDeliveries.push({custId:"_adjust",custName:"تسوية جرد",qty:absAdj,date:new Date().toISOString().split("T")[0],createdBy:userName||"",isAdjustment:true})}})});
-        upTasks(d=>{if(!d.inventoryAudits)d.inventoryAudits=[];d.inventoryAudits.push({id:Date.now().toString(36),date:new Date().toISOString().split("T")[0],by:userName||"",items:{...auditItems},adjustments:adj})});
+            if(!o.customerDeliveries)o.customerDeliveries=[];o.customerDeliveries.push({custId:"_adjust",custName:"تسوية جرد",qty:absAdj,date:cairoDateStr(),createdBy:userName||"",isAdjustment:true})}})});
+        upTasks(d=>{if(!d.inventoryAudits)d.inventoryAudits=[];d.inventoryAudits.push({id:Date.now().toString(36),date:cairoDateStr(),by:userName||"",items:{...auditItems},adjustments:adj})});
         showToast("✅ تم حفظ الجرد وتسوية "+adj+" موديل");closeAuditCam();setInvAudit(null)};
-      const printAudit=()=>{let h="<h2 style='text-align:center'>📋 تقرير جرد المخزن — "+new Date().toISOString().split("T")[0]+"</h2>";
+      const printAudit=()=>{let h="<h2 style='text-align:center'>📋 تقرير جرد المخزن — "+cairoDateStr()+"</h2>";
         h+="<table style='margin:0 auto 12px'><tr><th>النظام</th><td style='font-weight:800'>"+totalSystem+"</td><th>الجرد</th><td style='font-weight:800'>"+totalCounted+"</td><th>الفرق</th><td style='font-weight:800;color:"+(totalDiff===0?"#10B981":totalDiff>0?"#0EA5E9":"#EF4444")+"'>"+totalDiff+"</td></tr></table>";
         h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>النظام</th><th>الجرد</th><th>الفرق</th><th>الحالة</th></tr></thead><tbody>";
         allStock.forEach(m=>{const counted=auditItems[m.id]||0;const diff=counted-m.avail;h+="<tr style='background:"+(diff<0?"#FEF2F2":diff>0?"#EFF6FF":"transparent")+"'><td style='font-weight:800'>"+m.modelNo+"</td><td>"+m.modelDesc+"</td><td style='text-align:center'>"+m.avail+"</td><td style='text-align:center;font-weight:800'>"+counted+"</td><td style='text-align:center;font-weight:800;color:"+(diff===0?"#10B981":diff>0?"#0EA5E9":"#EF4444")+"'>"+diff+"</td><td style='text-align:center'>"+(diff===0?"✅ مطابق":diff>0?"🔵 زيادة":"⚠️ عجز")+"</td></tr>"});
@@ -4601,7 +4602,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           {auditTab==="physical"&&(()=>{
             const physItems=Object.entries(auditItems).filter(([k,v])=>v>0).map(([id,qty])=>{const o=orders.find(x=>x.id===id);return{id,modelNo:o?.modelNo||"—",modelDesc:o?.modelDesc||"",qty}}).sort((a,b)=>a.modelNo.localeCompare(b.modelNo));
             const physTotal=physItems.reduce((s,i)=>s+i.qty,0);
-            const printPhysical=()=>{let h="<h2 style='text-align:center'>📋 جرد مادي — "+new Date().toISOString().split("T")[0]+"</h2>";
+            const printPhysical=()=>{let h="<h2 style='text-align:center'>📋 جرد مادي — "+cairoDateStr()+"</h2>";
               h+="<table style='margin:0 auto 12px'><tr><th>عدد الموديلات</th><td style='font-weight:800'>"+physItems.length+"</td><th>إجمالي القطع</th><td style='font-weight:800'>"+physTotal+"</td></tr></table>";
               h+="<table><thead><tr><th>#</th><th>الموديل</th><th>الوصف</th><th>الكمية</th></tr></thead><tbody>";
               physItems.forEach((it,i)=>{h+="<tr><td style='text-align:center'>"+(i+1)+"</td><td style='font-weight:800'>"+it.modelNo+"</td><td>"+it.modelDesc+"</td><td style='text-align:center;font-weight:800;color:#059669'>"+it.qty+"</td></tr>"});
@@ -4642,7 +4643,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         const reportItems=[];
         pendings.forEach(p=>{const qty=Number(rcvItems[p.orderId])||0;if(qty<=0)return;
           reportItems.push({orderId:p.orderId,modelNo:p.modelNo,modelDesc:p.modelDesc,pendingQty:p.pendingQty,confirmedQty:qty,diff:qty-p.pendingQty});
-          updOrder(p.orderId,o=>{let remaining=qty;p.pendingIdxs.forEach(idx=>{if(o.deliveries&&o.deliveries[idx]&&remaining>0){const dQty=Number(o.deliveries[idx].qty)||0;const take=Math.min(remaining,dQty);o.deliveries[idx].status="confirmed";o.deliveries[idx].confirmedQty=take;o.deliveries[idx].confirmedBy=userName||"";o.deliveries[idx].confirmedAt=new Date().toISOString();if(take!==dQty)o.deliveries[idx].notes=(o.deliveries[idx].notes||"")+" | فرق: "+(dQty-take);o.deliveries[idx].qty=take;remaining-=take}});o.deliveredQty=getConfirmedStock(o);o.status=recomputeStatus(o)})});
+          updOrder(p.orderId,o=>{let remaining=qty;p.pendingIdxs.forEach(idx=>{if(o.deliveries&&o.deliveries[idx]&&remaining>0){const dQty=Number(o.deliveries[idx].qty)||0;const take=Math.min(remaining,dQty);o.deliveries[idx].status="confirmed";o.deliveries[idx].confirmedQty=take;o.deliveries[idx].confirmedBy=userName||"";o.deliveries[idx].confirmedAt=nowISO();if(take!==dQty)o.deliveries[idx].notes=(o.deliveries[idx].notes||"")+" | فرق: "+(dQty-take);o.deliveries[idx].qty=take;remaining-=take}});o.deliveredQty=getConfirmedStock(o);o.status=recomputeStatus(o)})});
         playBeep("done");showToast("✅ تم تأكيد استلام "+totalRcv+" قطعة — الرصيد تحدّث");closePendCam();setPendingRcv(null);
         /* Show the report automatically */
         setLastReceiptReport({
@@ -4650,7 +4651,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           total:totalRcv,
           totalPending:pendings.reduce((s,p)=>s+p.pendingQty,0),
           confirmedBy:userName||"",
-          at:new Date().toISOString()
+          at:nowISO()
         });
       };
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>{closePendCam();setPendingRcv(null)}}>
@@ -5340,7 +5341,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         if(net>0){const price=Number(o.sellPrice)||0;if(!price)missingPrice=true;const lineTotal=net*price;grandTotal+=lineTotal;rows.push({no:o.modelNo,desc:o.modelDesc||"",qty:net,price,total:lineTotal})}});}
       const discPct=Number(cust.discount)||0;const disc=Math.round(grandTotal*discPct/100);const netTotal=grandTotal-disc;
       const printQuote=()=>{let h="<h2 style='text-align:center'>CLARK — عرض سعر</h2>";
-        h+="<table style='margin:0 auto 12px'><tr><td style='padding:4px 12px;font-weight:700'>العميل</td><td style='padding:4px 12px;font-weight:800'>"+cust.name+"</td><td style='padding:4px 12px;font-weight:700'>التاريخ</td><td style='padding:4px 12px'>"+new Date().toISOString().split("T")[0]+"</td></tr></table>";
+        h+="<table style='margin:0 auto 12px'><tr><td style='padding:4px 12px;font-weight:700'>العميل</td><td style='padding:4px 12px;font-weight:800'>"+cust.name+"</td><td style='padding:4px 12px;font-weight:700'>التاريخ</td><td style='padding:4px 12px'>"+cairoDateStr()+"</td></tr></table>";
         h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th><th>سعر القطعة</th><th>الاجمالي</th></tr></thead><tbody>";
         rows.forEach(r=>{h+="<tr><td style='font-weight:800'>"+r.no+"</td><td>"+r.desc+"</td><td style='text-align:center;font-weight:700'>"+r.qty+"</td><td style='text-align:center'>"+fmt(r.price)+"</td><td style='text-align:center;font-weight:800'>"+fmt(r.total)+"</td></tr>"});
         h+="</tbody></table><div style='margin-top:16px;padding:12px;border:2px solid #000;border-radius:8px'>";
@@ -5465,7 +5466,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           if(existing>=0){d.packages[pi].items[existing].count++;d.packages[pi].items[existing].qty=d.packages[pi].items[existing].count*d.packages[pi].items[existing].rackSize}
           else{d.packages[pi].items.push({orderId,modelNo:o.modelNo,rackSize:rs,count:1,qty:rs})}
           if(!d.packages[pi].movements)d.packages[pi].movements=[];
-          d.packages[pi].movements.push({date:new Date().toISOString().split("T")[0],type:"add",modelNo:o.modelNo,count:1,qty:rs,by:userName||""})});
+          d.packages[pi].movements.push({date:cairoDateStr(),type:"add",modelNo:o.modelNo,count:1,qty:rs,by:userName||""})});
           playBeep("ok");showToast("✅ "+o.modelNo+" +1 سيري")}
         else{upSales(d=>{const pi=d.packages.findIndex(p=>p.id===pkgAction.id);if(pi<0)return;
           const existing=d.packages[pi].items.findIndex(it=>it.orderId===orderId);
@@ -5473,10 +5474,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           if(d.packages[pi].items[existing].count<=0){playBeep("error");showToast("⛔ "+o.modelNo+" الكمية = 0");return}
           d.packages[pi].items[existing].count--;d.packages[pi].items[existing].qty=d.packages[pi].items[existing].count*d.packages[pi].items[existing].rackSize;
           if(!d.packages[pi].movements)d.packages[pi].movements=[];
-          d.packages[pi].movements.push({date:new Date().toISOString().split("T")[0],type:"remove",modelNo:o.modelNo,count:1,qty:rs,by:userName||""});
+          d.packages[pi].movements.push({date:cairoDateStr(),type:"remove",modelNo:o.modelNo,count:1,qty:rs,by:userName||""});
           if(d.packages[pi].items[existing].count<=0)d.packages[pi].items.splice(existing,1);
           const totalRemain=d.packages[pi].items.reduce((s,x)=>s+(x.qty||0),0);
-          if(totalRemain<=0){d.packages[pi].status="مغلقة";d.packages[pi].closedAt=new Date().toISOString();playBeep("done");showToast("🔒 الكرتونة فارغة — تم الإغلاق")}else{playBeep("ok");showToast("📤 "+o.modelNo+" -1 سيري")}})}
+          if(totalRemain<=0){d.packages[pi].status="مغلقة";d.packages[pi].closedAt=nowISO();playBeep("done");showToast("🔒 الكرتونة فارغة — تم الإغلاق")}else{playBeep("ok");showToast("📤 "+o.modelNo+" -1 سيري")}})}
       }catch(e){}};
       const closePkgScan=()=>{try{const v=document.getElementById("pkg-action-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setPkgAction(null)};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={closePkgScan}>

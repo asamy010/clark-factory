@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.76.4",
+    date: "2026-05-06",
+    types: ["fix", "improvement"],
+    title: "🐛 ثلاث إصلاحات: شيكات في حساب الدفعة + cascade الحذف + ساعة القاهرة",
+    changes: [
+      { type: "fix", text: "🔥 [User report (CRITICAL): 'العميل سلم 3 شيكات والرصيد بيتحسب صح، بعدها سجلت دفعة 100 جنيه، الرسالة وصلت ان الرصيد باقي محسبش الشيكات'] رسالة الـ paymentReceived كانت بتحسب الرصيد بـ formula `gross − discount − cashPayments` بدون ما تطرح الشيكات الـ pending. كشف الحساب بيطرحهم (totalReceivableChecks)، فكان فيه فجوة ضخمة بين الرسالة والـ kashf لما العميل عنده شيكات معلقة. مثال: 1440 (after disc) − 100 (cash existing) − 100 (new cash) = 1240 في الرسالة، لكن الـ kashf يقول 940 (لأنه طارح 300 شيكات كمان)." },
+      { type: "fix", text: "✅ [Fix unified across 5 sites] (1) `api/automation-tick.js → computeCustomerBalances` اخدت parameter جديد `checks` وبتطرح receivable, non-bounced/cancelled, دفعة عميل checks. (2) `scanRecentPayments` بتـ load الـ checks وتمررها — الرسالة من الـ cron بقت صح. (3) `scanRecentChecks` ضافت subtraction للـ priorChecks (الشيكات اللي قبل الـ batch الحالي) قبل الـ progressive. (4) `TreasuryPg.jsx` — instant fire للـ cash payment بقى يطرح `data.checks`. (5) Status-change computeBal بقى يطرح كل الشيكات الـ pending ما عدا اللي بنغير حالته (يـ handle separately based on new status). الـ formula متطابقة 100% مع الـ كشف الحساب." },
+      { type: "fix", text: "🔧 [User report: 'الدفعة النقدي اللي حذفتها لسه موجودة في كشف الحساب'] الـ delTx كان يـ cascade على custPayments بـ `treasuryTxId === id` فقط. الـ payments القديمة (قبل V15.9) ما عندهاش الـ link ده — فكانت بتفضل في الـ kashf كـ orphan حتى بعد ما الـ treasury entry يتمسح. الإصلاح: ضافت legacy fallback يطرح custPayments بنفس (custId, amount, date) لما الـ treasury tx category = 'دفعة عميل'. نفس الإصلاح للـ supplierPayments." },
+      { type: "improvement", text: "🕐 [User concern: 'بياخد تاريخ الكمبيوتر وده مش صح عشان في كمبيوترات بيكون مش مظبوط تاريخه'] كل التطبيق كان بيـ rely على `new Date()` المحلي — لو الكمبيوتر ساعته/تاريخه غلط، الـ timestamps المحفوظة بتطلع غلط. الإصلاح: (1) endpoint جديد `/api/now` يرجع وقت سيرفر Vercel + Cairo wall-clock. (2) Helper `src/utils/serverTime.js` بيـ sync مرة عند الـ boot ويحسب skew vs local clock. (3) `nowISO()` و `cairoDateStr()` exposed للـ pages — استبدلوا كل `new Date().toISOString()` و `new Date().toISOString().split('T')[0]` في TreasuryPg و CustDeliverPg. الـ skew بيتطبق automatically على كل الـ timestamps المحفوظة، مش بس الـ display. Best-effort: لو `/api/now` غير متاح بيرجع للـ local Date. Re-sync كل 30 دقيقة." },
+    ]
+  },
+  {
     version: "V19.76.3",
     date: "2026-05-06",
     types: ["fix"],
