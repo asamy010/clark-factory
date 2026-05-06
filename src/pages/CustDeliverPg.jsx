@@ -4682,18 +4682,44 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     {/* Customer Sales Log */}
                 {pendingRcv&&(()=>{
       /* Group pending by orderId. V16.21: filter out entries whose pending qty
-         is zero — those are leftover/stale "pending" markers (e.g. from old
-         confirmations that flipped qty to 0) and shouldn't appear here. */
-      const pendingMap={};orders.forEach(o=>{(o.deliveries||[]).forEach((d,di)=>{if(d.status==="pending"){const key=o.id;if(!pendingMap[key])pendingMap[key]={orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc||"",pendingQty:0,pendingIdxs:[],date:d.date,by:d.createdBy||"",rackSize:getRackSize(o.id)};pendingMap[key].pendingQty+=Number(d.qty)||0;pendingMap[key].pendingIdxs.push(di)}})});
+         is zero. V19.76.7: also split each pending entry by `type` (series vs
+         broken) so the receipt screen shows the two stacked. Legacy entries
+         without `type` default to "series" — matches getConfirmedBrokenStock. */
+      const pendingMap={};orders.forEach(o=>{(o.deliveries||[]).forEach((d,di)=>{if(d.status==="pending"){const key=o.id;if(!pendingMap[key])pendingMap[key]={orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc||"",pendingQty:0,pendingSeriesQty:0,pendingBrokenQty:0,pendingSeriesIdxs:[],pendingBrokenIdxs:[],date:d.date,by:d.createdBy||"",rackSize:getRackSize(o.id)};
+        const isBroken=d.type==="broken";
+        const q=Number(d.qty)||0;
+        pendingMap[key].pendingQty+=q;
+        if(isBroken){pendingMap[key].pendingBrokenQty+=q;pendingMap[key].pendingBrokenIdxs.push(di)}
+        else{pendingMap[key].pendingSeriesQty+=q;pendingMap[key].pendingSeriesIdxs.push(di)}
+      }})});
       const pendings=Object.values(pendingMap).filter(p=>p.pendingQty>0).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-      const rcvItems=pendingRcv.items||{};const totalRcv=Object.values(rcvItems).reduce((s,v)=>s+(Number(v)||0),0);const totalPending=pendings.reduce((s,p)=>s+p.pendingQty,0);
+      const rcvItems=pendingRcv.items||{};
+      /* V19.76.7: rcvItems values are now {series:N, broken:N}. Legacy plain numbers
+         are accepted (treated as all-series) for backward compat with in-flight state. */
+      const itemQty=v=>(typeof v==="object"&&v?(Number(v.series)||0)+(Number(v.broken)||0):(Number(v)||0));
+      const itemSeries=v=>(typeof v==="object"&&v?(Number(v.series)||0):(Number(v)||0));
+      const itemBroken=v=>(typeof v==="object"&&v?(Number(v.broken)||0):0);
+      const totalRcv=Object.values(rcvItems).reduce((s,v)=>s+itemQty(v),0);const totalPending=pendings.reduce((s,p)=>s+p.pendingQty,0);
       const closePendCam=()=>{try{const v=document.getElementById("pend-rcv-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setPendingRcv(p=>({...p,scanning:false}))};
       const confirmPending=()=>{if(totalRcv<=0){showToast("⚠️ ادخل كمية واحدة على الأقل");return}
-        /* V14.59: Build report data BEFORE the update (to capture pending qty) */
+        /* V14.59: Build report data BEFORE the update (to capture pending qty)
+           V19.76.7: process series and broken pending entries separately so the
+           type metadata is preserved when status flips to confirmed. */
         const reportItems=[];
-        pendings.forEach(p=>{const qty=Number(rcvItems[p.orderId])||0;if(qty<=0)return;
+        pendings.forEach(p=>{
+          const v=rcvItems[p.orderId];
+          const qtySeries=itemSeries(v);
+          const qtyBroken=itemBroken(v);
+          const qty=qtySeries+qtyBroken;
+          if(qty<=0)return;
           reportItems.push({orderId:p.orderId,modelNo:p.modelNo,modelDesc:p.modelDesc,pendingQty:p.pendingQty,confirmedQty:qty,diff:qty-p.pendingQty});
-          updOrder(p.orderId,o=>{let remaining=qty;p.pendingIdxs.forEach(idx=>{if(o.deliveries&&o.deliveries[idx]&&remaining>0){const dQty=Number(o.deliveries[idx].qty)||0;const take=Math.min(remaining,dQty);o.deliveries[idx].status="confirmed";o.deliveries[idx].confirmedQty=take;o.deliveries[idx].confirmedBy=userName||"";o.deliveries[idx].confirmedAt=nowISO();if(take!==dQty)o.deliveries[idx].notes=(o.deliveries[idx].notes||"")+" | فرق: "+(dQty-take);o.deliveries[idx].qty=take;remaining-=take}});o.deliveredQty=getConfirmedStock(o);o.status=recomputeStatus(o)})});
+          updOrder(p.orderId,o=>{
+            const consume=(idxs,need)=>{let remaining=need;idxs.forEach(idx=>{if(o.deliveries&&o.deliveries[idx]&&remaining>0){const dQty=Number(o.deliveries[idx].qty)||0;const take=Math.min(remaining,dQty);o.deliveries[idx].status="confirmed";o.deliveries[idx].confirmedQty=take;o.deliveries[idx].confirmedBy=userName||"";o.deliveries[idx].confirmedAt=nowISO();if(take!==dQty)o.deliveries[idx].notes=(o.deliveries[idx].notes||"")+" | فرق: "+(dQty-take);o.deliveries[idx].qty=take;remaining-=take}});return remaining};
+            consume(p.pendingSeriesIdxs,qtySeries);
+            consume(p.pendingBrokenIdxs,qtyBroken);
+            o.deliveredQty=getConfirmedStock(o);o.status=recomputeStatus(o);
+          });
+        });
         playBeep("done");showToast("✅ تم تأكيد استلام "+totalRcv+" قطعة — الرصيد تحدّث");closePendCam();setPendingRcv(null);
         /* Show the report automatically */
         setLastReceiptReport({
@@ -4724,7 +4750,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             })()}
             <div style={{display:"flex",gap:6}}>
               <Btn small onClick={()=>{if(pendingRcv.scanning){closePendCam()}else{setPendingRcv(p=>({...p,scanning:true}))}}} style={{background:pendingRcv.scanning?"#EF444412":"#10B98112",color:pendingRcv.scanning?"#EF4444":"#10B981",border:"1px solid "+(pendingRcv.scanning?"#EF444430":"#10B98130")}}>{pendingRcv.scanning?"⏹ Stop":"📷 Scan"}</Btn>
-              <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(!v)return;const p=pendings.find(x=>x.orderId===v);if(p){const mode=pendingRcv.scanMode||"series";const addQty=mode==="piece"?1:(p.rackSize||1);setPendingRcv(pr=>({...pr,items:{...pr.items,[v]:(pr.items[v]||0)+addQty}}));playBeep("ok")}else{showToast("⚠️ هذا الموديل ليس معلّق")}}} options={pendings.map(p=>({value:p.orderId,label:p.modelNo+" — "+p.modelDesc+" (⏳"+p.pendingQty+")"}))} placeholder="اضف يدوي..."/></div>
+              <div style={{flex:1}}><SearchSel value="" onChange={v=>{if(!v)return;const p=pendings.find(x=>x.orderId===v);if(p){const mode=pendingRcv.scanMode||"series";const isBroken=mode==="piece";const addQty=isBroken?1:(p.rackSize||1);setPendingRcv(pr=>{const cur=pr.items[v];const curSeries=itemSeries(cur);const curBroken=itemBroken(cur);return{...pr,items:{...pr.items,[v]:{series:curSeries+(isBroken?0:addQty),broken:curBroken+(isBroken?addQty:0)}}}});playBeep("ok")}else{showToast("⚠️ هذا الموديل ليس معلّق")}}} options={pendings.map(p=>({value:p.orderId,label:p.modelNo+" — "+p.modelDesc+" (⏳"+p.pendingQty+")"}))} placeholder="اضف يدوي..."/></div>
             </div>
             {pendingRcv.scanning&&<div style={{marginTop:8}}>
               <div style={{position:"relative",width:"100%",maxWidth:200,margin:"0 auto",borderRadius:12,overflow:"hidden",background:"#000"}}>
@@ -4734,12 +4760,14 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                     {const _qr=await scanQR(canvas);if(_qr){const now=Date.now();if(_qr!==lastScan||now-lastTime>2000){lastScan=_qr;lastTime=now;
                       try{const parts=_qr.split(":");if(parts[0]==="CLARK"&&parts[1]){const oid=parts[1];const rs=Number(parts[2])||1;const p=pendings.find(x=>x.orderId===oid);
                         if(p){
-                          /* V14.62: Use scanMode to determine qty */
+                          /* V14.62: Use scanMode to determine qty.
+                             V19.76.7: split into series/broken slots — scanMode "piece" → broken. */
                           const curMode=pendingRcv.scanMode||"series";
-                          const addQty=curMode==="piece"?1:rs;
-                          setPendingRcv(pr=>({...pr,items:{...pr.items,[oid]:(pr.items[oid]||0)+addQty}}));
+                          const isBroken=curMode==="piece";
+                          const addQty=isBroken?1:rs;
+                          setPendingRcv(pr=>{const cur=pr.items[oid];const curSeries=itemSeries(cur);const curBroken=itemBroken(cur);return{...pr,items:{...pr.items,[oid]:{series:curSeries+(isBroken?0:addQty),broken:curBroken+(isBroken?addQty:0)}}}});
                           playBeep("ok");
-                          showToast("✅ "+p.modelNo+" +"+addQty+(curMode==="piece"?" قطعة":" سيري"));
+                          showToast("✅ "+p.modelNo+" +"+addQty+(isBroken?" كسر":" سيري"));
                         }
                         else{playBeep("error");showToast("⚠️ موديل غير معلّق")}}}catch(e){}}}}
                     requestAnimationFrame(scan)};scan()}catch(e){}})()}}/>
@@ -4749,7 +4777,12 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             {pendings.length>0?<div>
               <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{["الموديل","معلّق","مباع للعميل","تسليم مخزن جاهز","الفرق"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
                 {pendings.map(p=>{
-                  const val=rcvItems[p.orderId]||0;
+                  const v=rcvItems[p.orderId];
+                  const valSeries=itemSeries(v);
+                  const valBroken=itemBroken(v);
+                  const val=valSeries+valBroken;
+                  const diffSeries=valSeries-p.pendingSeriesQty;
+                  const diffBroken=valBroken-p.pendingBrokenQty;
                   const diff=val-p.pendingQty;
                   const hasVal=val>0;
                   /* V15.68: Detect already-sold pending — if the model has been distributed to customers beyond what's confirmed in stock */
@@ -4758,22 +4791,48 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                   const custRet=o?(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0):0;
                   const netSold=custDel-custRet;
                   const confirmedStock=o?getConfirmedStock(o):0;
-                  const availableInStock=confirmedStock-netSold;
-                  const isAlreadySold=netSold>=confirmedStock+p.pendingQty;/* pending was likely already consumed by sales */
+                  const isAlreadySold=netSold>=confirmedStock+p.pendingQty;
                   const bg=isAlreadySold?"#FEE2E2":(hasVal&&diff!==0?"#FEF2F2":hasVal?"#F0FDF4":"transparent");
-                  /* V17.4: deletePending function removed — was used by the delete button in this popup
-                     but the button caused accidental data loss when users clicked it by mistake. */
+                  /* V19.76.7: stacked series/broken styling — small label + value in two rows */
+                  const stackCellStyle={...TDB,padding:"4px 6px",verticalAlign:"middle"};
+                  const stackInnerStyle={display:"flex",flexDirection:"column",gap:3,alignItems:"center"};
+                  const lineStyle=(active,color)=>({display:"flex",alignItems:"center",gap:5,fontSize:FS-2,fontWeight:active?800:600,color:active?color:T.textMut,whiteSpace:"nowrap"});
+                  const tagStyle=(color)=>({fontSize:FS-4,padding:"1px 5px",borderRadius:4,background:color+"15",color:color,fontWeight:800,minWidth:30,textAlign:"center"});
                   return<tr key={p.orderId} style={{background:bg}}>
                     <td style={{...TD,fontWeight:800,color:T.accent}}>
                       <div>{p.modelNo}</div>
                       <div style={{fontSize:FS-3,color:T.textMut,fontWeight:500,marginTop:2}}>{p.modelDesc}</div>
                       {isAlreadySold&&<div style={{fontSize:FS-3,color:"#DC2626",fontWeight:700,marginTop:3}}>⚠️ تسليم قديم — الموديل اتباع بالفعل</div>}
                     </td>
-                    <td style={{...TDB,fontWeight:800,color:"#F59E0B"}}>{p.pendingQty}</td>
+                    {/* معلّق — series stacked above broken */}
+                    <td style={stackCellStyle}>
+                      <div style={stackInnerStyle}>
+                        <div style={lineStyle(p.pendingSeriesQty>0,"#10B981")}><span style={tagStyle("#10B981")}>📦 سيري</span><span>{p.pendingSeriesQty}</span></div>
+                        <div style={lineStyle(p.pendingBrokenQty>0,"#8B5CF6")}><span style={tagStyle("#8B5CF6")}>🧩 كسر</span><span>{p.pendingBrokenQty}</span></div>
+                      </div>
+                    </td>
+                    {/* مباع للعميل — kept flat (customerDeliveries don't carry series/broken type) */}
                     <td style={{...TDB,fontSize:FS-1,fontWeight:700,color:netSold>0?"#10B981":T.textMut}}>{netSold}</td>
-                    <td style={{...TD,textAlign:"center",padding:2}}><input type="number" value={val||""} onChange={e=>{const v=Math.max(0,Number(e.target.value)||0);setPendingRcv(pr=>({...pr,items:{...pr.items,[p.orderId]:v}}))}} placeholder="0" style={{width:70,textAlign:"center",border:"2px solid "+(isAlreadySold?"#EF4444":"#10B981"),borderRadius:6,padding:"6px",fontSize:FS+1,fontWeight:800,fontFamily:"inherit",background:T.bg,color:T.text}}/></td>
-                    <td style={{...TDB,fontWeight:800,color:diff<0?"#EF4444":diff===0?"#10B981":"#0EA5E9"}}>{hasVal?(diff>0?"+"+diff:diff):"—"}</td>
-                    {/* V17.4: Delete button removed — was causing accidental deletions of pending stock entries when users clicked it by mistake. Pending entries can still be cleared via other workflows if truly needed. */}
+                    {/* تسليم مخزن جاهز — TWO inputs stacked */}
+                    <td style={{...TD,textAlign:"center",padding:4}}>
+                      <div style={{display:"flex",flexDirection:"column",gap:4,alignItems:"center"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:4}}>
+                          <span style={tagStyle("#10B981")}>📦</span>
+                          <input type="number" value={valSeries||""} onChange={e=>{const nv=Math.max(0,Number(e.target.value)||0);setPendingRcv(pr=>{const cur=pr.items[p.orderId];return{...pr,items:{...pr.items,[p.orderId]:{series:nv,broken:itemBroken(cur)}}}})}} placeholder="0" style={{width:60,textAlign:"center",border:"2px solid "+(isAlreadySold?"#EF4444":"#10B981"),borderRadius:6,padding:"4px",fontSize:FS,fontWeight:800,fontFamily:"inherit",background:T.bg,color:T.text}}/>
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:4}}>
+                          <span style={tagStyle("#8B5CF6")}>🧩</span>
+                          <input type="number" value={valBroken||""} onChange={e=>{const nv=Math.max(0,Number(e.target.value)||0);setPendingRcv(pr=>{const cur=pr.items[p.orderId];return{...pr,items:{...pr.items,[p.orderId]:{series:itemSeries(cur),broken:nv}}}})}} placeholder="0" style={{width:60,textAlign:"center",border:"2px solid #8B5CF6",borderRadius:6,padding:"4px",fontSize:FS,fontWeight:800,fontFamily:"inherit",background:T.bg,color:T.text}}/>
+                        </div>
+                      </div>
+                    </td>
+                    {/* الفرق — series diff stacked above broken diff */}
+                    <td style={stackCellStyle}>
+                      <div style={stackInnerStyle}>
+                        <div style={lineStyle(valSeries>0,diffSeries<0?"#EF4444":diffSeries===0?"#10B981":"#0EA5E9")}><span style={tagStyle("#10B981")}>📦</span><span>{valSeries>0?(diffSeries>0?"+"+diffSeries:diffSeries):"—"}</span></div>
+                        <div style={lineStyle(valBroken>0,diffBroken<0?"#EF4444":diffBroken===0?"#10B981":"#0EA5E9")}><span style={tagStyle("#8B5CF6")}>🧩</span><span>{valBroken>0?(diffBroken>0?"+"+diffBroken:diffBroken):"—"}</span></div>
+                      </div>
+                    </td>
                   </tr>;
                 })}
               </tbody></table>

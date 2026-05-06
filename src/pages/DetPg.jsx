@@ -10,6 +10,7 @@ import { Badge, Btn, Card, DelBtn, FCTable, Inp, MetricCard, SearchSel, Sel, Tim
 import { DEFAULT_STATUSES, FCOL, FKEYS, FS } from "../constants/index.js";
 import { T, TD, TDB, TDL, TH } from "../theme.js";
 import { fmt, gIcon, gc, gcons, gdate, gf, gid, r2, slay, sqty, openWA } from "../utils/format.js";
+import { nowISO, cairoDateStr } from "../utils/serverTime.js";
 import { calcOrder, detectQtyMismatch, getConfirmedStock, getOrderDetails, getOrderTimeline, getPieceCutQty, getStageIndex, mkOrder, planCutSync, PRODUCTION_STAGES, recomputeStatus, sortOrders, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
 import { addAudit } from "../utils/audit.js";
 import { ask, highlightRow, showToast } from "../utils/popups.js";
@@ -1132,10 +1133,18 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           const settCost=Number(order.settlement?.cost)||0;
           const totalAllCost=t.costAll+settCost+extraTotal;
           const finalPer=order.deliveredQty>0?totalAllCost/order.deliveredQty:0;
+          /* V19.76.7: per-piece for the grand total uses the same cutQty divisor as
+             the other rows (materials/accessories/extras) — keeps the column
+             consistent. Previously التكلفة الفعلية divided by deliveredQty which
+             produced a different scale (e.g. 161,290 / 48 = 3361 vs the materials'
+             95,090 / 400 = 237.73). User flagged that "الرقم لتكلفة القطعة مش صح". */
+          const totalAllPer = cutQty > 0 ? totalAllCost / cutQty : 0;
           return<><table style={{width:"100%",borderCollapse:"collapse",fontSize:FS+1}}><thead><tr>{["البند","التكلفة الكلية","تكلفة القطعة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
+          {/* V19.76.7: extras + settlement now appear BEFORE the total. The total
+              row is the LAST row and sums everything above it. User report:
+              "اي بند اضافي يطلع فوق في الجدول والاجمالي يظهر تحت اخر صف". */}
           <tr><td style={TD}>تكلفة الخامات</td><td style={TDB}>{fmt(r2(t.totalFab))+" ج.م"}</td><td style={TDB}>{t.fabPer+" ج.م"}</td></tr>
           <tr><td style={TD}>تكاليف الاكسسوار</td><td style={TDB}>{fmt(accAll)+" ج.م"}</td><td style={TDB}>{t.accPer+" ج.م"}</td></tr>
-          <tr style={{background:T.accentBg}}><td style={{...TD,fontWeight:800,fontSize:FS+4,color:T.accent}}>الاجمالي</td><td style={{...TD,fontWeight:800,fontSize:FS+4,color:T.accent}}>{fmt(Math.ceil(t.costAll))+" ج.م"}</td><td style={{...TD,fontWeight:800,fontSize:FS+6,color:T.accent}}>{Math.ceil(t.costPer)+" ج.م"}</td></tr>
           {order.settlement&&<tr style={{background:T.err+"08"}}><td style={{...TD,fontWeight:800,color:T.err}}>{"🔴 هالك تسوية ("+order.settlement.qty+" قطعة)"}</td><td style={{...TD,fontWeight:800,color:T.err}}>{fmt(r2(order.settlement.cost))+" ج.م"}</td><td style={{...TD,fontWeight:700,color:T.err}}>{order.settlement.reason}</td></tr>}
           {/* V15.10 + V18.97: Extra costs rows — show both total + per-piece, with badge indicating costType */}
           {extraCosts.map((x,i)=>{const isPerPiece=x.costType==="perPiece";const xTotal=ecTotal(x);const xPer=ecPer(x);
@@ -1151,22 +1160,23 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
               <div style={{display:"flex",gap:6,alignItems:"center",justifyContent:"space-between"}}>
                 <span style={{fontWeight:700,color:"#F59E0B"}}>{cutQty>0?fmt(r2(xPer))+" ج.م":"—"}</span>
                 {canEdit&&!order.closed&&<div style={{display:"flex",gap:4}}>
-                  <Btn small onClick={()=>setExtraCostPopup({editId:x.id,category:x.category||"أخرى",reason:x.reason||"",amount:String(x.amount||""),costType:x.costType||"total",date:x.date||new Date().toISOString().split("T")[0],notes:x.notes||""})} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30",padding:"2px 6px",fontSize:11}} title="تعديل">✏️</Btn>
+                  <Btn small onClick={()=>setExtraCostPopup({editId:x.id,category:x.category||"أخرى",reason:x.reason||"",amount:String(x.amount||""),costType:x.costType||"total",date:x.date||cairoDateStr(),notes:x.notes||""})} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30",padding:"2px 6px",fontSize:11}} title="تعديل">✏️</Btn>
                   <DelBtn label="🗑" onConfirm={()=>updOrder(sel,o=>{o.extraCosts=(o.extraCosts||[]).filter(y=>y.id!==x.id)})}/>
                 </div>}
               </div>
             </td>
           </tr>;
           })}
-          {(order.settlement||extraCosts.length>0)&&<tr style={{background:"#1E293B08"}}>
-            <td style={{...TD,fontWeight:800,fontSize:FS+2}}>التكلفة الفعلية</td>
-            <td style={{...TD,fontWeight:800,fontSize:FS+2,color:T.err}}>{fmt(Math.ceil(totalAllCost))+" ج.م"}</td>
-            <td style={{...TD,fontWeight:800,fontSize:FS+2,color:T.err}}>{order.deliveredQty>0?Math.ceil(finalPer)+" ج.م/قطعة":"—"}</td>
-          </tr>}
+          {/* V19.76.7: single grand-total row at the bottom — sums materials + accessories + settlement + all extras */}
+          <tr style={{background:T.accentBg}}>
+            <td style={{...TD,fontWeight:800,fontSize:FS+4,color:T.accent}}>الاجمالي</td>
+            <td style={{...TD,fontWeight:800,fontSize:FS+4,color:T.accent}}>{fmt(Math.ceil(totalAllCost))+" ج.م"}</td>
+            <td style={{...TD,fontWeight:800,fontSize:FS+6,color:T.accent}}>{cutQty>0?Math.ceil(totalAllPer)+" ج.م":"—"}</td>
+          </tr>
         </tbody></table>
         {/* V15.10: Add extra cost button */}
         {canEdit&&!order.closed&&<div style={{marginTop:12,paddingTop:12,borderTop:"1px dashed "+T.brd,display:"flex",justifyContent:"flex-end"}}>
-          <Btn small onClick={()=>setExtraCostPopup({category:"هالك",reason:"",amount:"",costType:"total",date:new Date().toISOString().split("T")[0],notes:""})} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B35",fontWeight:700}}>➕ تكلفة إضافية / هالك</Btn>
+          <Btn small onClick={()=>setExtraCostPopup({category:"هالك",reason:"",amount:"",costType:"total",date:cairoDateStr(),notes:""})} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B35",fontWeight:700}}>➕ تكلفة إضافية / هالك</Btn>
         </div>}
         </>;})()}
       </Card>
