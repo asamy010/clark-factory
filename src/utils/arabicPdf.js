@@ -448,3 +448,310 @@ export async function buildAvailableStockPdfBase64(payload) {
   const dataUri = pdf.output("datauristring");
   return String(dataUri).split(",")[1] || "";
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Helpers: number formatting + emoji stripping
+   ───────────────────────────────────────────────────────────────────────
+   Cairo TTF doesn't include emoji glyphs, so emojis would render as missing
+   glyph boxes. We strip them from input strings before passing to ar(). The
+   number formatter adds thousand separators (en-US locale, since Arabic-Indic
+   digits aren't reliably supported in jsPDF's text layout for our use case).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+const _emojiRegex = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{1F600}-\u{1F64F}\u{2700}-\u{27BF}\u{2B00}-\u{2BFF}\u{1F1E6}-\u{1F1FF}\u{1F900}-\u{1F9FF}]/gu;
+
+/* Strip emojis + apply Arabic shaping in one step. Convenience for the receipt builder. */
+export function arNoEmoji(text) {
+  if (!text) return "";
+  return ar(String(text).replace(_emojiRegex, "").trim());
+}
+
+function _fmtNum(n) {
+  return Math.round(Number(n) || 0).toLocaleString("en-US");
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Delivery receipt PDF (V19.70.23 — bulk WhatsApp send)
+   ───────────────────────────────────────────────────────────────────────
+   Replaces the html2canvas-based PDF generation for the bulk delivery WA send.
+   Uses Chrome's PDF text rendering pipeline via jsPDF + embedded Cairo TTF —
+   produces a VECTOR PDF (not an image-based one), which is:
+     - Higher quality (crisp at any zoom)
+     - Smaller file size (text + graphics, no JPEG compression)
+     - Arabic text shaped via our embedded shaper (works regardless of html2canvas)
+
+   payload: {
+     factoryName, factoryLogo (data URL), factorySub,
+     date, time,
+     customer: { name, phone, address },
+     items: [{ modelNo, modelDesc, qty, price, lineTotal }],
+     totals: { qty, money, discPct, discAmt, netMoney },
+     qrDataUrl,                  // optional — confirmation QR as data URL
+     qrConfirmUrl,               // optional — text describing the QR's link expiry
+     noPrices,                   // true → hide السعر + الإجمالي columns + discount
+     receiverName,               // optional — name to display under "مسؤول التسليم"
+   }
+   Returns: base64 PDF string (no data: prefix)
+   ═══════════════════════════════════════════════════════════════════════ */
+export async function buildDeliveryReceiptPdfBase64(payload) {
+  await loadArabicPdfLibs();
+  const pdf = createPdf("p", "a4");
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const margin = 12;
+  const noP = payload.noPrices === true;
+  const c = payload.customer || {};
+
+  /* ── Top header row: factory branding (right) + receipt title box (left) ──
+     Mirrors the existing HTML's `.hdr` with `.hdr-brand` and `.hdr-title`. */
+  let y = 14;
+  /* Logo: small image on the rightmost edge if provided */
+  let brandTextX = pageW - margin;
+  if (payload.factoryLogo) {
+    try {
+      pdf.addImage(payload.factoryLogo, "PNG", pageW - margin - 18, y - 4, 18, 18);
+      brandTextX = pageW - margin - 22;/* shift name leftward to clear the logo */
+    } catch (_) { /* skip on bad image — defensive */ }
+  }
+  /* Factory name + sub-line, right-aligned */
+  pdf.setFont("Cairo", "bold");
+  pdf.setFontSize(13);
+  pdf.setTextColor(15, 23, 42);
+  pdf.text(arNoEmoji(payload.factoryName || "CLARK Factory"), brandTextX, y + 5, { align: "right" });
+  if (payload.factorySub) {
+    pdf.setFont("Cairo", "normal");
+    pdf.setFontSize(8);
+    pdf.setTextColor(100, 116, 139);
+    pdf.text(arNoEmoji(payload.factorySub), brandTextX, y + 11, { align: "right" });
+  }
+
+  /* Title box on the left (shifted to top-left corner). */
+  const boxW = 64; const boxH = 18;
+  pdf.setFillColor(240, 249, 255);/* sky-50 */
+  pdf.setDrawColor(186, 230, 253);/* sky-200 */
+  pdf.setLineWidth(0.3);
+  pdf.roundedRect(margin, y - 2, boxW, boxH, 2, 2, "FD");
+  pdf.setFont("Cairo", "bold");
+  pdf.setFontSize(11);
+  pdf.setTextColor(3, 105, 161);/* sky-700 */
+  pdf.text(arNoEmoji("اذن تسليم — " + (c.name || "")), margin + boxW / 2, y + 5, { align: "center" });
+  pdf.setFont("Cairo", "normal");
+  pdf.setFontSize(7);
+  pdf.setTextColor(100, 116, 139);
+  pdf.text((payload.date || "") + " " + (payload.time || ""), margin + boxW / 2, y + 12, { align: "center" });
+
+  y += 22;
+
+  /* Header underline */
+  pdf.setDrawColor(2, 132, 199);/* sky-600 */
+  pdf.setLineWidth(0.5);
+  pdf.line(margin, y, pageW - margin, y);
+
+  y += 6;
+
+  /* ── Section heading: "اذن تسليم عميل" (drop the truck emoji) ── */
+  pdf.setFont("Cairo", "bold");
+  pdf.setFontSize(11);
+  pdf.setTextColor(2, 132, 199);
+  pdf.text(arNoEmoji("اذن تسليم عميل"), pageW - margin, y, { align: "right" });
+  pdf.setLineWidth(0.4);
+  pdf.line(margin, y + 1.5, pageW - margin, y + 1.5);
+  y += 5;
+
+  /* ── Customer info table — 2 rows × 4 columns ──
+     RTL visual order: العميل / [name] / التليفون / [phone]
+                       التاريخ / [date] / العنوان / [address]
+     autoTable in RTL: pass the columns in their VISUAL right-to-left order
+     (the rightmost cell first). Without R2L flag, columns lay left-to-right;
+     since we want the rightmost (visual first) column to be "العميل", we
+     put it as column index 0 in the array — autoTable lays index 0 leftmost
+     by default. To get RTL layout we'd need autoTable's RTL option, but it's
+     unreliable across versions. Easier: just pre-order columns visually. */
+  pdf.autoTable({
+    startY: y,
+    margin: { left: margin, right: margin },
+    body: [
+      /* Row 1, written left-to-right but read right-to-left in the rendered PDF */
+      [arNoEmoji(c.address || "—"), arNoEmoji("العنوان"), arNoEmoji(c.phone || ""), arNoEmoji("التليفون"), arNoEmoji(c.name || ""), arNoEmoji("العميل")],
+      [arNoEmoji("—"), arNoEmoji(""), arNoEmoji(""), arNoEmoji(""), arNoEmoji(payload.date || ""), arNoEmoji("التاريخ")],
+    ],
+    styles: { font: "Cairo", fontStyle: "normal", fontSize: 9, halign: "right", valign: "middle", cellPadding: 2, lineColor: [148, 163, 184], lineWidth: 0.2, textColor: [30, 41, 59] },
+    columnStyles: {
+      0: { halign: "right" },                                                /* العنوان value */
+      1: { halign: "right", fontStyle: "bold", fillColor: [226, 232, 240] }, /* العنوان label */
+      2: { halign: "right" },                                                /* التليفون value */
+      3: { halign: "right", fontStyle: "bold", fillColor: [226, 232, 240] }, /* التليفون label */
+      4: { halign: "right" },                                                /* العميل value */
+      5: { halign: "right", fontStyle: "bold", fillColor: [226, 232, 240] }, /* العميل label */
+    },
+    didParseCell: (data) => { data.cell.styles.font = "Cairo"; },
+  });
+  y = pdf.lastAutoTable.finalY + 5;
+
+  /* ── Section heading: "تفاصيل الاستلام" ── */
+  pdf.setFont("Cairo", "bold");
+  pdf.setFontSize(11);
+  pdf.setTextColor(2, 132, 199);
+  pdf.text(arNoEmoji("تفاصيل الاستلام"), pageW - margin, y, { align: "right" });
+  pdf.setLineWidth(0.4);
+  pdf.line(margin, y + 1.5, pageW - margin, y + 1.5);
+  y += 5;
+
+  /* ── Items table ──
+     Visual order (right→left): الموديل · الوصف · الكمية · السعر · الإجمالي
+     Array order (autoTable layout left→right): الإجمالي · السعر · الكمية · الوصف · الموديل */
+  const head = noP
+    ? [[arNoEmoji("الكمية"), arNoEmoji("الوصف"), arNoEmoji("الموديل")]]
+    : [[arNoEmoji("الإجمالي"), arNoEmoji("السعر"), arNoEmoji("الكمية"), arNoEmoji("الوصف"), arNoEmoji("الموديل")]];
+
+  const body = (payload.items || []).map(it => noP
+    ? [String(it.qty || 0), arNoEmoji(it.modelDesc || "—"), arNoEmoji(String(it.modelNo || ""))]
+    : [_fmtNum(it.lineTotal || 0), it.price ? _fmtNum(it.price) : "—", String(it.qty || 0), arNoEmoji(it.modelDesc || "—"), arNoEmoji(String(it.modelNo || ""))]);
+
+  /* Aggregation row (footer of items table) — value column on the left, label on the right */
+  const aggRow = noP
+    ? [String(payload.totals.qty || 0) + " " + arNoEmoji("قطعة"), "", arNoEmoji("الاجمالي")]
+    : [_fmtNum(payload.totals.money || 0) + " " + arNoEmoji("ج.م"), "", String(payload.totals.qty || 0) + " " + arNoEmoji("قطعة"), "", arNoEmoji("الاجمالي")];
+
+  pdf.autoTable({
+    startY: y,
+    margin: { left: margin, right: margin },
+    head, body,
+    foot: [aggRow],
+    styles: { font: "Cairo", fontStyle: "normal", fontSize: 9, halign: "center", valign: "middle", cellPadding: 2.5, lineColor: [148, 163, 184], lineWidth: 0.2, textColor: [30, 41, 59] },
+    headStyles: { font: "Cairo", fontStyle: "bold", fontSize: 9, fillColor: [203, 213, 225], textColor: [30, 41, 59], halign: "center" },
+    bodyStyles: { fillColor: [255, 255, 255] },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    footStyles: { font: "Cairo", fontStyle: "bold", fontSize: 9, fillColor: [241, 245, 249], textColor: [3, 105, 161], halign: "center" },
+    columnStyles: noP ? {
+      0: { halign: "center", cellWidth: 28, fontStyle: "bold", textColor: [2, 132, 199] },/* الكمية */
+      1: { halign: "right" },                                                              /* الوصف */
+      2: { halign: "right", fontStyle: "bold", cellWidth: 35 },                            /* الموديل */
+    } : {
+      0: { halign: "center", cellWidth: 26, fontStyle: "bold" },                           /* الإجمالي */
+      1: { halign: "center", cellWidth: 22 },                                              /* السعر */
+      2: { halign: "center", cellWidth: 20, fontStyle: "bold", textColor: [2, 132, 199] }, /* الكمية */
+      3: { halign: "right" },                                                              /* الوصف */
+      4: { halign: "right", fontStyle: "bold", cellWidth: 30 },                            /* الموديل */
+    },
+    didParseCell: (data) => { data.cell.styles.font = "Cairo"; },
+  });
+  y = pdf.lastAutoTable.finalY + 4;
+
+  /* ── Discount block (only when prices are shown AND there's a discount) ── */
+  if (!noP && (payload.totals.discPct || 0) > 0) {
+    /* Draw a bordered box ~30mm tall */
+    const boxX = margin; const boxYstart = y;
+    const boxWFull = pageW - 2 * margin; const boxHFull = 28;
+    pdf.setDrawColor(0, 0, 0);
+    pdf.setLineWidth(0.5);
+    pdf.rect(boxX, boxYstart, boxWFull, boxHFull);
+
+    /* Row 1: الإجمالي قبل الخصم — value LEFT, label RIGHT (RTL convention) */
+    pdf.setFont("Cairo", "bold");
+    pdf.setFontSize(9);
+    pdf.setTextColor(30, 41, 59);
+    pdf.text(arNoEmoji("الإجمالي قبل الخصم"), pageW - margin - 3, boxYstart + 6, { align: "right" });
+    pdf.text(_fmtNum(payload.totals.money) + " " + arNoEmoji("ج.م"), margin + 3, boxYstart + 6, { align: "left" });
+
+    /* Row 2: خصم N% — red */
+    pdf.setTextColor(239, 68, 68);
+    pdf.text(arNoEmoji("خصم " + payload.totals.discPct + "%"), pageW - margin - 3, boxYstart + 13, { align: "right" });
+    pdf.text("- " + _fmtNum(payload.totals.discAmt) + " " + arNoEmoji("ج.م"), margin + 3, boxYstart + 13, { align: "left" });
+
+    /* Separator line */
+    pdf.setDrawColor(15, 23, 42);
+    pdf.setLineWidth(0.4);
+    pdf.line(boxX + 2, boxYstart + 17, boxX + boxWFull - 2, boxYstart + 17);
+
+    /* Row 3: الصافي المستحق — green, larger */
+    pdf.setFont("Cairo", "bold");
+    pdf.setFontSize(11);
+    pdf.setTextColor(5, 150, 105);/* emerald-600 */
+    pdf.text(arNoEmoji("الصافي المستحق"), pageW - margin - 3, boxYstart + 24, { align: "right" });
+    pdf.text(_fmtNum(payload.totals.netMoney) + " " + arNoEmoji("ج.م"), margin + 3, boxYstart + 24, { align: "left" });
+
+    y = boxYstart + boxHFull + 5;
+  }
+
+  /* ── QR confirmation block ── */
+  if (payload.qrDataUrl) {
+    /* Page break if not enough vertical space (need ~32mm + signatures + footer ~30mm) */
+    if (y + 70 > pageH - 15) { pdf.addPage(); y = 14; }
+    const boxYstart = y; const boxHFull = 32;
+    pdf.setDrawColor(14, 165, 233);/* sky-500 */
+    pdf.setLineWidth(0.4);
+    pdf.setLineDashPattern([2, 1], 0);
+    pdf.roundedRect(margin, boxYstart, pageW - 2 * margin, boxHFull, 2, 2);
+    pdf.setLineDashPattern([], 0);
+    /* QR image on the LEFT (visual far-from-text). 26x26mm — readable but compact. */
+    try { pdf.addImage(payload.qrDataUrl, "PNG", margin + 3, boxYstart + 3, 26, 26); }
+    catch (_) { /* skip on bad image */ }
+    /* Text on the RIGHT (RTL primary content side) */
+    pdf.setFont("Cairo", "bold");
+    pdf.setFontSize(11);
+    pdf.setTextColor(3, 105, 161);
+    pdf.text(arNoEmoji("تأكيد الاستلام"), pageW - margin - 4, boxYstart + 9, { align: "right" });
+    pdf.setFont("Cairo", "normal");
+    pdf.setFontSize(8);
+    pdf.setTextColor(71, 85, 105);
+    pdf.text(arNoEmoji("بعد مطابقة البضاعة، امسح الكود للتأكيد"), pageW - margin - 4, boxYstart + 16, { align: "right" });
+    pdf.text(arNoEmoji("أو الإبلاغ عن مشكلة"), pageW - margin - 4, boxYstart + 22, { align: "right" });
+    pdf.setFontSize(7);
+    pdf.setTextColor(148, 163, 184);
+    pdf.text(arNoEmoji("الرابط صالح لمدة 24 ساعة من التأكيد"), pageW - margin - 4, boxYstart + 28, { align: "right" });
+    y = boxYstart + boxHFull + 8;
+  }
+
+  /* ── Signature row — two signature boxes side by side ──
+     RTL convention: customer signature on the right, delivery rep on the left. */
+  if (y + 25 > pageH - 12) { pdf.addPage(); y = 14; }
+  const sigW = 56;
+  const sigGap = 18;
+  const sigYline = y + 12;
+  const sigCustX = pageW / 2 + sigGap / 2;/* customer block to the right */
+  const sigRepX  = pageW / 2 - sigGap / 2 - sigW;/* rep block to the left */
+
+  pdf.setDrawColor(30, 41, 59);
+  pdf.setLineWidth(0.6);
+  pdf.line(sigCustX, sigYline, sigCustX + sigW, sigYline);
+  pdf.line(sigRepX, sigYline, sigRepX + sigW, sigYline);
+
+  pdf.setFont("Cairo", "bold");
+  pdf.setFontSize(9);
+  pdf.setTextColor(30, 41, 59);
+  pdf.text(arNoEmoji("توقيع العميل"), sigCustX + sigW / 2, sigYline + 5, { align: "center" });
+  if (c.name) {
+    pdf.setFont("Cairo", "normal");
+    pdf.setFontSize(8);
+    pdf.text(arNoEmoji(c.name), sigCustX + sigW / 2, sigYline + 10, { align: "center" });
+  }
+  pdf.setFont("Cairo", "bold");
+  pdf.setFontSize(9);
+  pdf.text(arNoEmoji("مسؤول التسليم"), sigRepX + sigW / 2, sigYline + 5, { align: "center" });
+  if (payload.receiverName) {
+    pdf.setFont("Cairo", "normal");
+    pdf.setFontSize(8);
+    pdf.text(arNoEmoji(payload.receiverName), sigRepX + sigW / 2, sigYline + 10, { align: "center" });
+  }
+
+  /* ── Footer — at the bottom of the LAST page only ──
+     We use pdf.internal.getNumberOfPages() to write to the final page. */
+  const totalPages = pdf.internal.getNumberOfPages();
+  pdf.setPage(totalPages);
+  pdf.setDrawColor(203, 213, 225);
+  pdf.setLineWidth(0.4);
+  pdf.line(margin, pageH - 10, pageW - margin, pageH - 10);
+  pdf.setFont("Cairo", "bold");
+  pdf.setFontSize(8);
+  pdf.setTextColor(2, 132, 199);
+  pdf.text(arNoEmoji(payload.factoryName || "CLARK Factory"), pageW - margin, pageH - 5, { align: "right" });
+  pdf.setFont("Cairo", "normal");
+  pdf.setTextColor(148, 163, 184);
+  pdf.setFontSize(7);
+  pdf.text((payload.date || "") + " — Powered by CLARK Factory Management", margin, pageH - 5, { align: "left" });
+
+  /* Output base64 */
+  const dataUri = pdf.output("datauristring");
+  return String(dataUri).split(",")[1] || "";
+}

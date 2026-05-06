@@ -32,6 +32,11 @@ import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../compo
 import { T, TH, TD, TDB } from "../theme.js";
 /* V19.70.12: html→pdf for WhatsApp delivery receipts */
 import { htmlToPdfBase64, loadPdfLibs } from "../utils/htmlToPdf.js";
+/* V19.70.23: Approach A applied to bulk delivery PDF — jsPDF + Cairo TTF + Arabic shaper.
+   Replaces the html2canvas image-capture pipeline that broke Arabic shaping in V19.70.14-22
+   despite four font/element fixes. The new path uses jsPDF text APIs directly → vector PDF
+   output (high quality, smaller files) with Arabic shaped via our embedded shaper. */
+import { loadArabicPdfLibs, buildDeliveryReceiptPdfBase64 } from "../utils/arabicPdf.js";
 
 /* V18.17: Module-level mutable variable used by inventory-audit scanner closure
    to read latest scan mode. Was assigned but never declared — caused ReferenceError
@@ -1586,13 +1591,82 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const gMods=groupSessionModels(sess);
       const g=sess.grid||{};const selCount=Object.values(groupPrint.selCusts).filter(Boolean).length;
       const selTotal=gCusts.filter(c=>groupPrint.selCusts[c.id]).reduce((s,c)=>gMods.reduce((ss,m)=>ss+getGroupQtyForPrint(m,c.id,g),0)+s,0);
+      /* V19.70.23: structured payload for the new jsPDF-based engine.
+         Builds the same data the old HTML helper computes (items, totals, QR data URL),
+         but returns a plain object instead of an HTML string. Used by doSendWhatsApp
+         which then calls buildDeliveryReceiptPdfBase64() from arabicPdf.js to produce
+         the actual PDF. Sharing the items/totals math with buildOneCustomerHTML so the
+         PDF and the print receipt stay numerically identical. */
+      const buildOneCustomerPayload = async (c, sigStr, opts) => {
+        const noP = (opts && opts.noPrices) || groupPrint.noPrices === true;
+        const origin = window.location.origin;
+        const confirmUrl = sigStr ? origin+"/?dc=1&s="+encodeURIComponent(sess.id)+"&c="+encodeURIComponent(c.id)+"&sig="+encodeURIComponent(sigStr) : "";
+        let qrDataUrl = "";
+        if (confirmUrl) {
+          try {
+            const QRCode = (await import("qrcode")).default;
+            qrDataUrl = await QRCode.toDataURL(confirmUrl, { width: 200, errorCorrectionLevel: 'M', margin: 1 });
+          } catch (_) { /* skip QR */ }
+        }
+        let custMoney = 0, rowTotal = 0;
+        const items = [];
+        gMods.forEach(m => {
+          const q = getGroupQtyForPrint(m, c.id, g);
+          if (q > 0) {
+            rowTotal += q;
+            const oids = m.orderIds || [m.id];
+            let price = 0;
+            for (const oid of oids) {
+              const o = orders.find(x => x.id === oid);
+              if (o) {
+                const dd = (o.customerDeliveries || []).find(d => d.custId === c.id && d.sessionId === sess.id && Number(d.price) > 0);
+                if (dd) { price = Number(dd.price); break; }
+                if (Number(o.sellPrice) > 0) { price = Number(o.sellPrice); break; }
+              }
+            }
+            const lineTotal = q * price;
+            custMoney += lineTotal;
+            items.push({ modelNo: m.modelNo, modelDesc: m.modelDesc || "", qty: q, price, lineTotal });
+          }
+        });
+        const discPct = Number(c.discount) || 0;
+        const discAmt = Math.round(custMoney * discPct / 100);
+        const netAmt = custMoney - discAmt;
+        const factoryName = config.factoryName || "CLARK Factory Management";
+        const factoryLogo = config.logo || "";
+        const factoryAddr = config.address || "";
+        const factoryPhone = config.phone || "";
+        let factorySub = "نظام إدارة مصانع الملابس";
+        if (factoryAddr && factoryPhone) factorySub = factoryAddr + " • " + factoryPhone;
+        else if (factoryAddr) factorySub = factoryAddr;
+        else if (factoryPhone) factorySub = factoryPhone;
+        const today = new Date();
+        return {
+          payload: {
+            factoryName, factoryLogo, factorySub,
+            date: sess.date,
+            time: today.toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" }),
+            customer: { name: c.name, phone: c.phone || "", address: c.address || "" },
+            items,
+            totals: { qty: rowTotal, money: custMoney, discPct, discAmt, netMoney: netAmt },
+            qrDataUrl,
+            qrConfirmUrl: confirmUrl,
+            noPrices: noP,
+            receiverName: groupPrint.receiver || "",
+          },
+          totals: { qty: rowTotal, money: custMoney, netMoney: netAmt, discAmt, discPct },
+        };
+      };
+
       /* V19.70.12: helper — build the per-customer receipt HTML block.
          V19.70.13: rewritten to mirror the existing per-row print output EXACTLY
          (the same HTML the user gets when clicking 🖨 on a single customer row),
          wrapped with the CLARK header/footer + inline styles needed since we render
          offscreen (not via printPage which adds them automatically). QR is embedded
          as a data URL (pre-generated via the qrcode library) so html2canvas captures
-         it without async CDN dependency. Returns: { html, totals }. */
+         it without async CDN dependency. Returns: { html, totals }.
+         V19.70.23: kept around for the legacy fallback only — the active path is now
+         buildOneCustomerPayload + buildDeliveryReceiptPdfBase64 (jsPDF). */
       const buildOneCustomerHTML = async (c, sigStr, opts) => {
         const noP = (opts && opts.noPrices) || groupPrint.noPrices === true;
         const origin = window.location.origin;
@@ -1736,10 +1810,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         const bridgeUrl = (data.campaignBridge||{}).url || "";
         const bridgeToken = (data.campaignBridge||{}).token || "";
         if (!bridgeUrl) { showToast("⛔ الـbridge URL غير مضبوط — افتح Campaigns → Bridge Settings أولاً"); return; }
-        /* V19.70.17: PDF inclusion toggleable via groupPrint.includePdf. Default is
-           OFF (text-only) — the safer mode while the html2canvas Arabic shaping bug
-           is unresolved. The user can opt in to PDF attachment per-batch. */
-        const includePdf = groupPrint.includePdf === true;
+        /* V19.70.17: PDF inclusion toggleable via groupPrint.includePdf.
+           V19.70.23: default flipped to ON now that the jsPDF/Approach A pipeline is wired up.
+           If the new PDF still has issues, the user can untick to fall back to text-only. */
+        const includePdf = groupPrint.includePdf !== false;
         const confirm = await ask(
           "إرسال واتساب لـ"+withPhone.length+" عميل",
           (noPhoneCount>0 ? "⚠️ "+noPhoneCount+" عميل بدون رقم — هيتم تخطيهم.\n\n" : "")+
@@ -1750,9 +1824,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         /* Mark all targets as pending */
         setGroupPrint(p => ({ ...p, waSent: withPhone.reduce((a,c)=>{a[c.id]="pending";return a;},{...(p.waSent||{})}), waSending: true }));
 
-        /* V19.70.17: only load the heavy PDF libs if the user opted in */
+        /* V19.70.23: load the jsPDF + Cairo TTF libs (Approach A) instead of html2canvas.
+           Only when includePdf is on (the V19.70.17 toggle). The Arabic shaper is bundled
+           inside arabicPdf.js so no extra CDN load. */
         if (includePdf) {
-          try { await loadPdfLibs(); }
+          try { await loadArabicPdfLibs(); }
           catch (e) {
             showToast("⛔ فشل تحميل مكتبات الـPDF: "+(e.message||e));
             setGroupPrint(p => ({ ...p, waSending: false }));
@@ -1782,13 +1858,16 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           setGroupPrint(p => ({ ...p, waSent: { ...(p.waSent||{}), [c.id]: "sending" } }));
           try {
             /* V19.70.17: build PDF only if the user opted in. The text body is the
-               primary content either way — the PDF is decorative supplementary info. */
+               primary content either way — the PDF is decorative supplementary info.
+               V19.70.23: switched to jsPDF text rendering (vector PDF, perfect Arabic).
+               buildOneCustomerPayload returns structured data; buildDeliveryReceiptPdfBase64
+               renders it natively without html2canvas. */
             let pdfBase64 = "";
             let totals;
             if (includePdf) {
-              const out = await buildOneCustomerHTML(c, signatures[c.id]||"", {noPrices:groupPrint.noPrices,receiver:groupPrint.receiver});
+              const out = await buildOneCustomerPayload(c, signatures[c.id]||"", {noPrices:groupPrint.noPrices,receiver:groupPrint.receiver});
               totals = out.totals;
-              pdfBase64 = await htmlToPdfBase64(out.html, {width:794,scale:2});
+              pdfBase64 = await buildDeliveryReceiptPdfBase64(out.payload);
             } else {
               /* Build totals without HTML — just walk the items once for the text body */
               let qty = 0, money = 0;
@@ -2017,14 +2096,18 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>للمخزن والسائق — يخفي أعمدة السعر والإجمالي والخصم</div>
             </div>
           </div>
-          {/* V19.70.17: WhatsApp PDF attachment toggle. Default OFF — text-only is the safer
-              mode while the html2canvas Arabic glyph shaping bug remains unresolved. The user
-              can opt in per-batch if PDF rendering is acceptable for a given customer set. */}
-          <div onClick={()=>setGroupPrint(p=>({...p,includePdf:!p.includePdf}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,cursor:"pointer",border:"2px solid "+(groupPrint.includePdf?"#25D366":T.brd),background:groupPrint.includePdf?"#25D36608":"transparent",marginBottom:12}}>
-            <span style={{fontSize:18,color:groupPrint.includePdf?"#25D366":T.textMut}}>{groupPrint.includePdf?"☑":"☐"}</span>
+          {/* V19.70.17: WhatsApp PDF attachment toggle.
+              V19.70.23: default flipped to ON. The PDF pipeline now uses jsPDF + embedded
+              Cairo TTF + an Arabic shaper (Approach A) instead of html2canvas — vector
+              output, perfect Arabic. The toggle stays as an opt-out in case a specific
+              batch needs to skip the PDF (e.g. very long item lists or customers with
+              flaky data plans). The internal `includePdf` reads as `!== false`, so an
+              undefined value treats as ON — matching the new default. */}
+          <div onClick={()=>setGroupPrint(p=>({...p,includePdf:p.includePdf===false}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,cursor:"pointer",border:"2px solid "+(groupPrint.includePdf!==false?"#25D366":T.brd),background:groupPrint.includePdf!==false?"#25D36608":"transparent",marginBottom:12}}>
+            <span style={{fontSize:18,color:groupPrint.includePdf!==false?"#25D366":T.textMut}}>{groupPrint.includePdf!==false?"☑":"☐"}</span>
             <div style={{flex:1}}>
-              <div style={{fontSize:FS-1,fontWeight:700,color:groupPrint.includePdf?"#25D366":T.text}}>📎 إرفاق نسخة PDF مع رسالة الواتس</div>
-              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{groupPrint.includePdf?"PDF + رسالة تفاصيل لكل عميل":"رسالة تفاصيل نصية فقط (الموصى به مؤقتاً — حتى يتم حل مشكلة الخط العربي في الـPDF)"}</div>
+              <div style={{fontSize:FS-1,fontWeight:700,color:groupPrint.includePdf!==false?"#25D366":T.text}}>📎 إرفاق نسخة PDF مع رسالة الواتس</div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{groupPrint.includePdf!==false?"PDF + رسالة تفاصيل لكل عميل (vector PDF بـArabic shaping صحيح)":"رسالة تفاصيل نصية فقط (مفيش PDF)"}</div>
             </div>
           </div>
           <div style={{padding:10,borderRadius:10,background:T.bg,textAlign:"center",marginBottom:12}}>

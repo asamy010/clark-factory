@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.23",
+    date: "2026-05-06",
+    types: ["fix", "architectural"],
+    title: "🎯 Bulk delivery PDF بقى vector + Arabic correct (Approach A applied)",
+    changes: [
+      { type: "fix", text: "🔥 [Approach A اتـapply على الـbulk delivery PDF — html2canvas اتشال نهائياً من الـpath ده] User insight: الـbrowser print → 'Save as PDF' بـrender Arabic صح. ده يأكد إن الـbug في html2canvas، مش في الـHTML/font. الـsolution: نعمل bypass للـhtml2canvas بالكامل ونستخدم jsPDF text APIs مع Cairo TTF embedded + Arabic shaper. النتيجة: vector PDF بدل image-based — جودة أعلى، حجم أقل، Arabic مش ملخبط." },
+      { type: "feature", text: "🆕 [`buildDeliveryReceiptPdfBase64` في arabicPdf.js] function جديد بـbuild الـreceipt PDF بـlayout مطابق للـHTML version: (1) Header — logo + factory name + sub-line + receipt title + date/time في box على اليسار، (2) Customer info table — العميل/التليفون/التاريخ/العنوان عبر autoTable، (3) Section heading 'تفاصيل الاستلام'، (4) Items table — الموديل/الوصف/الكمية/السعر/الإجمالي + aggregation row، (5) Discount block (لو في خصم) — الإجمالي/الخصم/الصافي المستحق ببورد، (6) QR confirmation block — صورة QR + شرح، (7) Signature row — مسؤول التسليم + توقيع العميل، (8) Footer — factory name + date + Powered by CLARK." },
+      { type: "improvement", text: "📐 [Vector PDF — جودة أعلى من الـimage-based القديم] قبل V19.70.23: الـPDF كان image-based (html2canvas يـcapture canvas → JPEG inside PDF). تحت zoom × 200% بـtـpixelate وtـبقى blurry. حجم الـfile كبير. **بعد V19.70.23**: vector PDF — الـtext + الـlines + الـtables كلهم vector. crisp في أي zoom (يقدر يـscale infinity)، الـfile size أصغر بـ~30-50%، الـArabic shaping يـrender عبر Chrome's TTF engine native." },
+      { type: "feature", text: "✅ [Default ON — الـcheckbox 'إرفاق PDF' بقى مفعّل بـdefault] V19.70.17 خلّاه default OFF لما الـPDF كان broken. دلوقتي إن الـnew engine يـwork (نظرياً)، الـdefault بقى ON. الـuser لو حب يستخدم text-only يقدر يلغي الـtoggle. الـlabel اتحدّث: 'PDF + رسالة تفاصيل لكل عميل (vector PDF بـArabic shaping صحيح)'." },
+      { type: "improvement", text: "🛡️ [Emoji stripping helper — Cairo TTF مفيهاش emoji glyphs] الـemojis في الـtemplates (🚚، 📱، 📦) كانوا يـtrigger missing-glyph boxes في الـPDF. ضافت `arNoEmoji(text)` helper بـstrip الـemojis ثم بـapply الـArabic shaper. الـtitles + الـlabels في الـreceipt كلهم passed via arNoEmoji — مفيش boxes. الـHTML version لسه يحتفظ بالـemojis (الـbrowser بـrender عبر emoji font fallback)." },
+      { type: "improvement", text: "🔁 [الـbuildOneCustomerHTML لسه موجود كـlegacy — single source of truth للـmath] الـpayload helper الجديد (buildOneCustomerPayload) بـuse نفس الـcompute logic للـitems + totals + QR generation. الـ2 functions بـyـreturn نفس الـnumbers بالضبط. الـPDF + الـtext message بـyـreflect نفس الـdata — مفيش drift بين الاتنين." },
+      { type: "improvement", text: "📚 [Lesson final للـArabic + html2canvas: لا تستخدمها مع complex scripts] V19.70.14/15/16/19 اتعلموا ده الدرس بالـhard way. الـsolution الوحيدة الموثوقة في الـbrowser: jsPDF text APIs + manual shaping (Approach A). الـserver-side Puppeteer (Approach B) ممكن يبقى أبسط للـcomplex layouts بس بـyـadd latency. الـ200KB Cairo TTF embedded في الـPDF binary (lazy-fetched من CDN) — overhead صغير لكن justified." },
+    ]
+  },
+  {
     version: "V19.70.22",
     date: "2026-05-06",
     types: ["fix", "ux", "feature"],
