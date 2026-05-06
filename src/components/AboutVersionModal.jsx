@@ -25,10 +25,23 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.17",
+    date: "2026-05-06",
+    types: ["feature", "ux"],
+    title: "📎 Workaround: checkbox لإرفاق الـPDF في bulk WhatsApp send (default: OFF)",
+    changes: [
+      { type: "feature", text: "📎 [Toggle: 'إرفاق نسخة PDF مع رسالة الواتس' في popup الطباعة المجمعة] User report: 'نفس المشكلة ماتحلتش - كده مش مشكلة فونت'. حتى مع system fonts (Tahoma/Arial) الـArabic shaping في الـPDF لسه ملخبط — ده يأكد إن الـbug في html2canvas نفسه (مش في الـfont loading)، الـbrowser internal iframe rendering للـArabic مش reliable. **الـworkaround**: checkbox جديد في الـpopup (تحت 'إذن تسليم بدون أسعار') يخلي الـuser يقرر — يبعت PDF + رسالة، أو رسالة نصية فقط بدون PDF. Default = OFF (text-only) — أأمن default لحد ما الـPDF ينحل." },
+      { type: "feature", text: "📝 [Text-only mode بـself-contained] لما الـuser يـtoggle off الـPDF، الرسالة بقت تحتوي معلومات إضافية: التليفون + العنوان (في الـPDF كانوا موجودين بس مش في الرسالة). كده الـmessage standalone — العميل عنده كل التفاصيل اللي يحتاجها بدون ما يحتاج يفتح PDF. الـQR confirmation note (📱 برجاء مسح كود QR...) اتشال في الـtext-only mode لأنه مش relevant بدون PDF." },
+      { type: "feature", text: "⚡ [Performance gain في text-only mode] لو includePdf = false: (1) `loadPdfLibs()` (~200KB CDN download) skip، (2) `htmlToPdfBase64()` (heavy html2canvas + jsPDF capture) skip، (3) `/api/delivery-sign` round-trip للـQR signatures skip. الـbatch send في text-only mode أسرع بـ~3-5 ثواني لكل عميل (اختصاراً للـPDF generation)." },
+      { type: "ux", text: "🟢 [UI: WhatsApp green styling للـcheckbox] الـtoggle بـuse #25D366 (WhatsApp brand color) لما checked — visually consistent مع زر '📤 إرسال واتساب' الأخضر تحته. الـlabel يـadapt: لو on → 'PDF + رسالة تفاصيل لكل عميل'، لو off → 'رسالة تفاصيل نصية فقط (الموصى به مؤقتاً — حتى يتم حل مشكلة الخط العربي في الـPDF)' عشان الـuser يفهم ليه ده الـrecommended state." },
+      { type: "improvement", text: "🛡️ [Confirmation message يـadapt للـmode] قبل V19.70.17 الـconfirmation prompt كانت hardcoded 'هيتم إرسال إذن استلام (PDF) + رسالة تفاصيل'. دلوقتي conditional: لو PDF on → نفس الجملة. لو off → 'هيتم إرسال رسالة تفاصيل (نصية فقط — بدون PDF)'. الـuser يعرف بالظبط هيوصل العميل إيه قبل ما يـconfirm الـbatch." },
+    ]
+  },
+  {
     version: "V19.70.16",
     date: "2026-05-06",
     types: ["fix"],
-    title: "🔤 Final fix: Arabic table headers في PDF — استخدام Tahoma/Arial system fonts",
+    title: "🔤 Attempt 3: system fonts (Tahoma/Arial) — also didn't fix",
     changes: [
       { type: "fix", text: "🐛 [V19.70.15 لسه ما حلتش الـbug — User confirmed إن الـheaders لسه ملخبطة] الـFontFace API ضمن إن Cairo Bold بقى registered في الـmain document، لكن **html2canvas بـclone الـDOM في internal iframe**، والـregistered FontFace ما بـcopyـش للـiframe ده بشكل reliable. النتيجة: حتى مع registered FontFace، html2canvas's clone ما لاقاش Cairo Bold → fallback لـArial → الـArabic ligatures ما اتـshapedش." },
       { type: "fix", text: "🛠️ [الـREAL FIX اللي اقترحه الـuser: استبدال font في الـ<th> headers بـsystem fonts] في buildOneCustomerHTML في CustDeliverPg.jsx، الـ`<th>` selector اتعدّل من `font-weight:800` (inheriting Cairo from body) إلى explicit `font-family:'Tahoma','Arial',sans-serif;font-weight:700`. ده بـ(1) bypass الـhtml2canvas FontFace race بالكامل، (2) Tahoma مـpreinstalled على Windows بـnative Arabic glyph shaping، (3) Arial fallback لـmacOS، (4) sans-serif generic للـedge cases. الـbody cells (td) لسه بـuse Cairo (weight 400، اللي كان بـloading صح من البداية)." },

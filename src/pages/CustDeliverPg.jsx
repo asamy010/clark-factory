@@ -1507,45 +1507,83 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         const bridgeUrl = (data.campaignBridge||{}).url || "";
         const bridgeToken = (data.campaignBridge||{}).token || "";
         if (!bridgeUrl) { showToast("⛔ الـbridge URL غير مضبوط — افتح Campaigns → Bridge Settings أولاً"); return; }
+        /* V19.70.17: PDF inclusion toggleable via groupPrint.includePdf. Default is
+           OFF (text-only) — the safer mode while the html2canvas Arabic shaping bug
+           is unresolved. The user can opt in to PDF attachment per-batch. */
+        const includePdf = groupPrint.includePdf === true;
         const confirm = await ask(
           "إرسال واتساب لـ"+withPhone.length+" عميل",
           (noPhoneCount>0 ? "⚠️ "+noPhoneCount+" عميل بدون رقم — هيتم تخطيهم.\n\n" : "")+
-          "هيتم إرسال إذن استلام (PDF) + رسالة تفاصيل لكل عميل عبر الـbridge. الإرسال سيكون متتالي مع delays لتجنب الحظر."
+          "هيتم إرسال "+(includePdf ? "إذن استلام (PDF) + رسالة تفاصيل" : "رسالة تفاصيل (نصية فقط — بدون PDF)")+" لكل عميل عبر الـbridge. الإرسال سيكون متتالي مع delays لتجنب الحظر."
         );
         if (!confirm) return;
 
         /* Mark all targets as pending */
         setGroupPrint(p => ({ ...p, waSent: withPhone.reduce((a,c)=>{a[c.id]="pending";return a;},{...(p.waSent||{})}), waSending: true }));
 
-        /* Pre-load PDF libs once */
-        try { await loadPdfLibs(); }
-        catch (e) {
-          showToast("⛔ فشل تحميل مكتبات الـPDF: "+(e.message||e));
-          setGroupPrint(p => ({ ...p, waSending: false }));
-          return;
+        /* V19.70.17: only load the heavy PDF libs if the user opted in */
+        if (includePdf) {
+          try { await loadPdfLibs(); }
+          catch (e) {
+            showToast("⛔ فشل تحميل مكتبات الـPDF: "+(e.message||e));
+            setGroupPrint(p => ({ ...p, waSending: false }));
+            return;
+          }
         }
 
-        /* Pre-fetch signatures (for the QR — same as print flow). Optional. */
+        /* V19.70.17: signatures are only needed for the QR inside the PDF.
+           Skip the network round-trip if the user opted out of PDF attachment. */
         let signatures = {};
-        try {
-          const _u = auth.currentUser;
-          if (_u) {
-            const _tok = await _u.getIdToken();
-            const pairs = withPhone.map(c=>({sessionId:sess.id,custId:c.id}));
-            const r = await fetch("/api/delivery-sign", {method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+_tok},body:JSON.stringify({pairs})});
-            const j = await r.json();
-            if (r.ok && Array.isArray(j.signatures)) j.signatures.forEach(s=>{signatures[s.custId]=s.sig});
-          }
-        } catch (_) { /* signatures optional — receipts still work without QR */ }
+        if (includePdf) {
+          try {
+            const _u = auth.currentUser;
+            if (_u) {
+              const _tok = await _u.getIdToken();
+              const pairs = withPhone.map(c=>({sessionId:sess.id,custId:c.id}));
+              const r = await fetch("/api/delivery-sign", {method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+_tok},body:JSON.stringify({pairs})});
+              const j = await r.json();
+              if (r.ok && Array.isArray(j.signatures)) j.signatures.forEach(s=>{signatures[s.custId]=s.sig});
+            }
+          } catch (_) { /* signatures optional — receipts still work without QR */ }
+        }
 
         let okCount = 0, failCount = 0;
         for (const c of withPhone) {
           /* Mark sending */
           setGroupPrint(p => ({ ...p, waSent: { ...(p.waSent||{}), [c.id]: "sending" } }));
           try {
-            /* Build HTML + PDF (V19.70.13: now async — pre-generates QR data URL) */
-            const { html, totals } = await buildOneCustomerHTML(c, signatures[c.id]||"", {noPrices:groupPrint.noPrices,receiver:groupPrint.receiver});
-            const pdfBase64 = await htmlToPdfBase64(html, {width:794,scale:2});
+            /* V19.70.17: build PDF only if the user opted in. The text body is the
+               primary content either way — the PDF is decorative supplementary info. */
+            let pdfBase64 = "";
+            let totals;
+            if (includePdf) {
+              const out = await buildOneCustomerHTML(c, signatures[c.id]||"", {noPrices:groupPrint.noPrices,receiver:groupPrint.receiver});
+              totals = out.totals;
+              pdfBase64 = await htmlToPdfBase64(out.html, {width:794,scale:2});
+            } else {
+              /* Build totals without HTML — just walk the items once for the text body */
+              let qty = 0, money = 0;
+              gMods.forEach(m => {
+                const q = getGroupQtyForPrint(m, c.id, g);
+                if (q > 0) {
+                  qty += q;
+                  const oids = m.orderIds || [m.id];
+                  let price = 0;
+                  for (const oid of oids) {
+                    const o = orders.find(x => x.id === oid);
+                    if (o) {
+                      const dd = (o.customerDeliveries || []).find(d => d.custId === c.id && d.sessionId === sess.id && Number(d.price) > 0);
+                      if (dd) { price = Number(dd.price); break; }
+                      if (Number(o.sellPrice) > 0) { price = Number(o.sellPrice); break; }
+                    }
+                  }
+                  money += q * price;
+                }
+              });
+              const discPct = Number(c.discount) || 0;
+              const discAmt = Math.round(money * discPct / 100);
+              totals = { qty, money, discPct, discAmt, netMoney: money - discAmt };
+            }
             /* V19.70.13: build text message in the EXACT same format as the per-row
                WhatsApp button — keeps the customer's experience consistent regardless
                of whether they got the receipt one-at-a-time or via this bulk send. */
@@ -1565,7 +1603,14 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               }
               return "• *"+m.modelNo+"*: "+q+" قطعة"+(price?" × "+fmt(price)+" = "+fmt(q*price)+" ج.م":"");
             }).filter(Boolean);
-            let message = "*CLARK — اذن تسليم عميل*\n\n• العميل: *"+c.name+"*\n• التاريخ: *"+sess.date+"*\n\n─────────────────\n"+linesArr.join("\n")+"\n─────────────────\n• الاجمالي: *"+totals.qty+"* قطعة";
+            let message = "*CLARK — اذن تسليم عميل*\n\n• العميل: *"+c.name+"*\n• التاريخ: *"+sess.date+"*";
+            /* V19.70.17: include phone + address in text-only mode so the receipt
+               is self-contained without the PDF. */
+            if (!includePdf) {
+              if (c.phone) message += "\n• التليفون: "+c.phone;
+              if (c.address) message += "\n• العنوان: "+c.address;
+            }
+            message += "\n\n─────────────────\n"+linesArr.join("\n")+"\n─────────────────\n• الاجمالي: *"+totals.qty+"* قطعة";
             if (totals.money > 0 && !noP) {
               message += "\n• الاجمالي: *"+fmt(totals.money)+"* ج.م";
               if (totals.discPct > 0) {
@@ -1573,21 +1618,25 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                 message += "\n• *الصافي المستحق: "+fmt(totals.netMoney)+" ج.م*";
               }
             }
-            message += "\n\n📱 *برجاء مسح كود QR في إذن التسليم للتأكيد باستلام البضاعة كاملة*";
+            /* V19.70.17: QR confirmation note only makes sense when the PDF (with QR)
+               is attached. In text-only mode, drop it. */
+            if (includePdf) {
+              message += "\n\n📱 *برجاء مسح كود QR في إذن التسليم للتأكيد باستلام البضاعة كاملة*";
+            }
             /* V18.33: optional account-summary footer (controlled by printSettings) */
             try { message += formatCustomerSummaryWA(buildCustomerSummary(c.id, data), (data?.printSettings||{}).whatsappSummary); }
             catch (_) { /* skip footer if helper fails */ }
-            const fileName = "اذن_استلام_"+c.name.replace(/[^؀-ۿa-zA-Z0-9_-]/g,"_")+"_"+sess.date+".pdf";
-            /* POST to bridge /send */
+            /* POST to bridge /send. V19.70.17: media payload omitted in text-only mode. */
             const headers = { "Content-Type":"application/json" };
             if (bridgeToken) headers["Authorization"] = "Bearer "+bridgeToken;
+            const messageBody = { phone: c.phone, message };
+            if (includePdf) {
+              const fileName = "اذن_استلام_"+c.name.replace(/[^؀-ۿa-zA-Z0-9_-]/g,"_")+"_"+sess.date+".pdf";
+              messageBody.media = [{ base64: pdfBase64, mime: "application/pdf", name: fileName }];
+            }
             const r = await fetch(bridgeUrl.replace(/\/+$/,"")+"/send", {
               method:"POST", headers,
-              body: JSON.stringify({ messages: [{
-                phone: c.phone,
-                message,
-                media: [{ base64: pdfBase64, mime: "application/pdf", name: fileName }],
-              }]}),
+              body: JSON.stringify({ messages: [messageBody] }),
             });
             const j = await r.json().catch(()=>({}));
             if (!r.ok) throw new Error(j.error || ("HTTP "+r.status));
@@ -1732,11 +1781,21 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           
     <div style={{marginBottom:12}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>اسم المستلم</label><Inp value={groupPrint.receiver} onChange={v=>setGroupPrint(p=>({...p,receiver:v}))} placeholder="اسم المندوب / المستلم..."/></div>
           {/* V18.58: Print without prices toggle (delivery permit for warehouse) */}
-          <div onClick={()=>setGroupPrint(p=>({...p,noPrices:!p.noPrices}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,cursor:"pointer",border:"2px solid "+(groupPrint.noPrices?"#F59E0B":T.brd),background:groupPrint.noPrices?"#F59E0B08":"transparent",marginBottom:12}}>
+          <div onClick={()=>setGroupPrint(p=>({...p,noPrices:!p.noPrices}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,cursor:"pointer",border:"2px solid "+(groupPrint.noPrices?"#F59E0B":T.brd),background:groupPrint.noPrices?"#F59E0B08":"transparent",marginBottom:8}}>
             <span style={{fontSize:18,color:groupPrint.noPrices?"#F59E0B":T.textMut}}>{groupPrint.noPrices?"☑":"☐"}</span>
             <div style={{flex:1}}>
               <div style={{fontSize:FS-1,fontWeight:700,color:groupPrint.noPrices?"#F59E0B":T.text}}>📦 إذن تسليم بدون أسعار</div>
               <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>للمخزن والسائق — يخفي أعمدة السعر والإجمالي والخصم</div>
+            </div>
+          </div>
+          {/* V19.70.17: WhatsApp PDF attachment toggle. Default OFF — text-only is the safer
+              mode while the html2canvas Arabic glyph shaping bug remains unresolved. The user
+              can opt in per-batch if PDF rendering is acceptable for a given customer set. */}
+          <div onClick={()=>setGroupPrint(p=>({...p,includePdf:!p.includePdf}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,cursor:"pointer",border:"2px solid "+(groupPrint.includePdf?"#25D366":T.brd),background:groupPrint.includePdf?"#25D36608":"transparent",marginBottom:12}}>
+            <span style={{fontSize:18,color:groupPrint.includePdf?"#25D366":T.textMut}}>{groupPrint.includePdf?"☑":"☐"}</span>
+            <div style={{flex:1}}>
+              <div style={{fontSize:FS-1,fontWeight:700,color:groupPrint.includePdf?"#25D366":T.text}}>📎 إرفاق نسخة PDF مع رسالة الواتس</div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{groupPrint.includePdf?"PDF + رسالة تفاصيل لكل عميل":"رسالة تفاصيل نصية فقط (الموصى به مؤقتاً — حتى يتم حل مشكلة الخط العربي في الـPDF)"}</div>
             </div>
           </div>
           <div style={{padding:10,borderRadius:10,background:T.bg,textAlign:"center",marginBottom:12}}>
