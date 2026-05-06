@@ -29,21 +29,18 @@
 
 const JSPDF_URL    = "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js";
 const AUTOTABLE_URL = "https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js";
-/* V19.70.24: TTF mirrors with fallback chain. The previous V19.70.23 URL
-   (cdn.jsdelivr.net/gh/google/fonts) returns 403 — Google Fonts repo blocks
-   raw passthrough on jsdelivr now. Switching to fontsource which packages the
-   TTF files in the npm bundle (the same package we used for woff2 in V19.70.15
-   for FontFace API). The Arabic subset is small (~30-50KB per weight). */
-const CAIRO_REGULAR_TTF_URLS = [
-  "https://cdn.jsdelivr.net/npm/@fontsource/cairo@5.0.13/files/cairo-arabic-400-normal.ttf",
-  "https://unpkg.com/@fontsource/cairo@5.0.13/files/cairo-arabic-400-normal.ttf",
-  "https://cdn.jsdelivr.net/npm/@fontsource/cairo@4.5.13/files/cairo-arabic-400-normal.ttf",
-];
-const CAIRO_BOLD_TTF_URLS = [
-  "https://cdn.jsdelivr.net/npm/@fontsource/cairo@5.0.13/files/cairo-arabic-700-normal.ttf",
-  "https://unpkg.com/@fontsource/cairo@5.0.13/files/cairo-arabic-700-normal.ttf",
-  "https://cdn.jsdelivr.net/npm/@fontsource/cairo@4.5.13/files/cairo-arabic-700-normal.ttf",
-];
+/* V19.70.25: bundled Arabic TTFs in `public/fonts/` — same-origin, zero CDN
+   dependency, zero CORS risk. Switched away from CDN-fetched Cairo TTFs after:
+     - V19.70.23 used cdn.jsdelivr.net/gh/google/fonts (403 — repo blocks raw)
+     - V19.70.24 used fontsource@5 (404 — fontsource v5 ships woff2 only, no TTF)
+     - V19.70.24 fallback to unpkg (CORS-blocked from clark-factory.vercel.app)
+   Tajawal is the static-TTF Arabic font available on the google/fonts repo.
+   Visually similar to Cairo (modern sans-serif Arabic) and includes both
+   Regular + Bold as separate static TTFs (~60KB each, total ~120KB).
+   The fonts ship in the Vite `public/` directory → served from the app's
+   own origin — no CDN hops, no CORS, no 404s. */
+const TAJAWAL_REGULAR_URL = "/fonts/Tajawal-Regular.ttf";
+const TAJAWAL_BOLD_URL    = "/fonts/Tajawal-Bold.ttf";
 
 const _state = {
   loaded: false,
@@ -98,12 +95,12 @@ export async function loadArabicPdfLibs() {
     await _loadScript(AUTOTABLE_URL);
     if (!window.jspdf || !window.jspdf.jsPDF) throw new Error("jsPDF failed to load");
     /* Fonts in parallel — both downloads can overlap to save wall time.
-       V19.70.24: each call passes an array of URL fallbacks. */
+       V19.70.25: same-origin /fonts/ paths instead of CDN — no CORS risk. */
     const [reg, bold] = await Promise.all([
-      _fetchAsBase64(CAIRO_REGULAR_TTF_URLS),
-      _fetchAsBase64(CAIRO_BOLD_TTF_URLS),
+      _fetchAsBase64(TAJAWAL_REGULAR_URL),
+      _fetchAsBase64(TAJAWAL_BOLD_URL),
     ]);
-    _state.cairoRegularBase64 = reg;
+    _state.cairoRegularBase64 = reg;/* keep field name for back-compat with createPdf */
     _state.cairoBoldBase64 = bold;
     _state.loaded = true;
   })();
@@ -284,17 +281,19 @@ export function arSafe(text) {
   return ar(String(text));
 }
 
-/* Create a new jsPDF instance with Cairo Regular + Bold registered + R2L mode on.
-   Caller is responsible for any further config (page size, etc.). Default A4 portrait. */
+/* Create a new jsPDF instance with Tajawal Regular + Bold registered + R2L mode on.
+   V19.70.25: family aliased as "Cairo" so all the existing buildXxxPdfBase64 callers
+   still work without modification. The actual TTF is Tajawal, but the API contract
+   stays the same — just call setFont("Cairo"). */
 export function createPdf(orientation, format) {
   if (!_state.loaded) throw new Error("call loadArabicPdfLibs() first");
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF(orientation || "p", "mm", format || "a4");
   /* Register fonts. addFileToVFS expects base64 (no data: prefix). */
-  pdf.addFileToVFS("Cairo-Regular.ttf", _state.cairoRegularBase64);
-  pdf.addFont("Cairo-Regular.ttf", "Cairo", "normal");
-  pdf.addFileToVFS("Cairo-Bold.ttf", _state.cairoBoldBase64);
-  pdf.addFont("Cairo-Bold.ttf", "Cairo", "bold");
+  pdf.addFileToVFS("Tajawal-Regular.ttf", _state.cairoRegularBase64);
+  pdf.addFont("Tajawal-Regular.ttf", "Cairo", "normal");
+  pdf.addFileToVFS("Tajawal-Bold.ttf", _state.cairoBoldBase64);
+  pdf.addFont("Tajawal-Bold.ttf", "Cairo", "bold");
   pdf.setFont("Cairo");
   /* setR2L flips direction at line layout level. We still pass shaped (visual-order) text. */
   if (typeof pdf.setR2L === "function") pdf.setR2L(true);
