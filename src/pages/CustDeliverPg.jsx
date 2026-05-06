@@ -32,10 +32,6 @@ import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../compo
 import { T, TH, TD, TDB } from "../theme.js";
 /* V19.70.12: html→pdf for WhatsApp delivery receipts */
 import { htmlToPdfBase64, loadPdfLibs } from "../utils/htmlToPdf.js";
-/* V19.70.21: jsPDF-based Arabic PDF generation (Approach A) — bypasses html2canvas entirely.
-   Used for the available-stock popup PDF (V19.70.20). The bulk delivery PDF still uses
-   htmlToPdfBase64 until V19.70.22 migrates it. */
-import { loadArabicPdfLibs, buildAvailableStockPdfBase64 } from "../utils/arabicPdf.js";
 
 /* V18.17: Module-level mutable variable used by inventory-audit scanner closure
    to read latest scan mode. Was assigned but never declared — caused ReferenceError
@@ -69,6 +65,18 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const[selModels,setSelModels]=useState({});const[selCusts,setSelCusts]=useState({});
   const[activeSession,setActiveSession]=useState(null);
   const[editCell,setEditCell]=useState(null);const[editVal,setEditVal]=useState(0);const[cellError,setCellError]=useState("");
+  /* V19.70.22: local-state grid for the distribution matrix. Holds unsaved edits as the
+     user types. Initialized from the active session's grid when activeSession changes.
+     The save-all button (added at the matrix footer) commits the entire localGrid via a
+     single upSales call. This eliminates the per-cell flicker (typed → blur → setState
+     to null → wait for Firestore round-trip → re-read → re-display) that the user reported.
+     `localGridDirty` flips true on first edit; it gates the save button + warns on close. */
+  const[localGrid,setLocalGrid]=useState({});
+  const[localGridDirty,setLocalGridDirty]=useState(false);
+  /* Same idea for the sales-audit grid (جدول الجرد للعملاء). Separate state because
+     the audit grid is rendered in a different popup and has different lifecycle. */
+  const[localAudGrid,setLocalAudGrid]=useState({});
+  const[localAudGridDirty,setLocalAudGridDirty]=useState(false);
   const[shipPopup,setShipPopup]=useState(null);const[shipCount,setShipCount]=useState(1);
   /* V16.72: Pre-fetched delivery-sign promise — populated when shipPopup opens
      so the signature is being fetched WHILE the user is filling in the
@@ -113,6 +121,36 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       setStatementModelFilter("");
     }
   },[custStatement]);
+
+  /* V19.70.22: sync localGrid with the activeSession's committed grid whenever
+     the session changes (open/switch). We do NOT re-init on every grid change
+     during editing — that would clobber the user's unsaved edits. Only on
+     activeSession id change. The dirty flag resets too. */
+  useEffect(() => {
+    if (!activeSession) {
+      setLocalGrid({});
+      setLocalGridDirty(false);
+      return;
+    }
+    const sess = (data.custDeliverySessions || []).find(s => s.id === activeSession);
+    setLocalGrid({ ...(sess?.grid || {}) });
+    setLocalGridDirty(false);
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [activeSession]);
+
+  /* V19.70.22: same pattern for the sales-audit grid. activeAudit governs the popup;
+     when it changes, copy the audit's persisted grid into localAudGrid. */
+  useEffect(() => {
+    if (!activeAudit) {
+      setLocalAudGrid({});
+      setLocalAudGridDirty(false);
+      return;
+    }
+    const aud = ((data.salesAudits) || []).find(a => a.id === activeAudit);
+    setLocalAudGrid({ ...(aud?.grid || {}) });
+    setLocalAudGridDirty(false);
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [activeAudit]);
   
   /* V19.14: auto-sync orphan treasury → custPayments on opening a customer
      statement. Mirrors the same logic just added to PurchasePg for suppliers.
@@ -392,6 +430,123 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       else delete d.custDeliverySessions[si].grid[orderId+"_"+custId]});
     setEditCell(null)};
 
+  /* V19.70.22: helpers for the new always-on inputs in the distribution matrix.
+     Reads/writes to localGrid (unsaved local state) instead of going through
+     saveCell → upSales → Firestore round-trip per keystroke. The save-all
+     button at the matrix footer commits the entire localGrid in one upSales. */
+
+  /* Sum of qty across all sub-orders of a group, for one customer, READ FROM localGrid.
+     Mirrors getGroupQty's logic but on the unsaved local state. */
+  const getGroupQtyLocal = (m, custId) => {
+    const oids = m.orderIds || [m.id];
+    return oids.reduce((s, oid) => s + (Number(localGrid[oid + "_" + custId]) || 0), 0);
+  };
+
+  /* Set the qty for a (group, customer) cell in localGrid. For grouped models,
+     distribute the qty across sub-orders FIFO based on each sub-order's stock
+     (same algorithm as saveCell). For single-order groups, write directly.
+     Marks dirty so the save button can light up + warn-on-close gate fires. */
+  const setLocalCellQty = (m, custId, newQty) => {
+    const qty = Math.max(0, Number(newQty) || 0);
+    const oids = m.orderIds || [m.id];
+    setLocalGrid(prev => {
+      const next = { ...prev };
+      if (oids.length === 1) {
+        const k = oids[0] + "_" + custId;
+        if (qty > 0) next[k] = qty;
+        else delete next[k];
+        return next;
+      }
+      /* Multi-sub-order group: FIFO distribute qty across sub-orders.
+         Capacity per sub-order = sub_stock - other_customers_planned_in_local. */
+      let remaining = qty;
+      for (const oid of oids) {
+        const sm = stockModels.find(x => x.id === oid);
+        /* Other customers' planned qty for THIS sub-order, READ FROM localGrid (excluding this customer) */
+        let otherPlan = 0;
+        Object.entries(prev).forEach(([key, v]) => {
+          const [subOid, subCust] = key.split("_");
+          if (subOid === oid && subCust !== custId) otherPlan += Number(v) || 0;
+        });
+        const subStock = sm ? sm.stockQty : 0;/* total physical stock for this sub-order */
+        const subSold = sm ? sm.custDel : 0;/* delivered already */
+        const capacity = Math.max(0, subStock - subSold - otherPlan);
+        const take = Math.min(remaining, capacity);
+        const k = oid + "_" + custId;
+        if (take > 0) next[k] = take;
+        else delete next[k];
+        remaining -= take;
+        if (remaining <= 0) break;
+      }
+      /* Overflow — put extra in oldest sub-order so the user sees "X exceeds avail" warn */
+      if (remaining > 0) {
+        const oldest = oids[0];
+        const k = oldest + "_" + custId;
+        next[k] = (next[k] || 0) + remaining;
+      }
+      return next;
+    });
+    setLocalGridDirty(true);
+  };
+
+  /* Compute the available capacity for a (group, customer) cell — what's the max
+     the user can enter before exceeding total stock for this group?
+     availForCell = sum_of_subOrder_stock - sum_of_subOrder_sold - sum_other_customers_in_localGrid
+     We use this for the visual warning when the cell's local qty exceeds it. */
+  const availForGroupCell = (m, custId) => {
+    const oids = m.orderIds || [m.id];
+    let cap = 0;
+    for (const oid of oids) {
+      const sm = stockModels.find(x => x.id === oid);
+      if (!sm) continue;
+      const subStock = sm.stockQty;
+      const subSold = sm.custDel;
+      let otherPlan = 0;
+      Object.entries(localGrid).forEach(([key, v]) => {
+        const [subOid, subCust] = key.split("_");
+        if (subOid === oid && subCust !== custId) otherPlan += Number(v) || 0;
+      });
+      cap += Math.max(0, subStock - subSold - otherPlan);
+    }
+    return cap;
+  };
+
+  /* Commit the entire localGrid to Firestore in one upSales call. Replaces the
+     session's grid wholesale — values that were in the old grid but cleared in
+     localGrid get removed (we don't merge). Triggered by the footer save button. */
+  const saveAllLocalGrid = (sessId) => {
+    upSales(d => {
+      const si = (d.custDeliverySessions || []).findIndex(s => s.id === sessId);
+      if (si < 0) return;
+      const sess = d.custDeliverySessions[si];
+      /* Build a clean grid from localGrid: only positive entries */
+      const cleaned = {};
+      Object.entries(localGrid).forEach(([k, v]) => {
+        const num = Number(v) || 0;
+        if (num > 0) cleaned[k] = num;
+      });
+      sess.grid = cleaned;
+    });
+    setLocalGridDirty(false);
+    showToast("✓ تم حفظ كل التغييرات");
+  };
+
+  /* Same idea for the audit grid. We use upConfig (audits live on config doc). */
+  const saveAllLocalAudGrid = (audId) => {
+    upConfig(d => {
+      const ai = (d.salesAudits || []).findIndex(a => a.id === audId);
+      if (ai < 0) return;
+      const cleaned = {};
+      Object.entries(localAudGrid).forEach(([k, v]) => {
+        const num = Number(v) || 0;
+        if (num > 0) cleaned[k] = num;
+      });
+      d.salesAudits[ai].grid = cleaned;
+    });
+    setLocalAudGridDirty(false);
+    showToast("✓ تم حفظ الجرد");
+  };
+
   const delSession=(sessId)=>{const sess=sessions.find(s=>s.id===sessId);if(!sess)return;
     /* Check ACTUAL sales data - not just flags */
     const hasSales=orders.some(o=>(o.customerDeliveries||[]).some(d=>d.sessionId===sessId));
@@ -503,7 +658,14 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   };
   const isSessClosed=activeSess?.status==="تم التسليم";
   const sessCanEdit=canEdit&&!isSessClosed;/* Allow editing after sales — stock validation handles limits. Block only if closed */
-  const closeMatrix=(forceKeep)=>{if(!activeSess){setActiveSession(null);return}
+  const closeMatrix=async(forceKeep)=>{if(!activeSess){setActiveSession(null);return}
+    /* V19.70.22: auto-save unsaved edits on close. The user explicitly clicks save
+       at the footer when they're done. Closing via ✕ or backdrop also commits —
+       no silent data loss. If they really want to discard, they can use the
+       discard button at the footer (separate from close). */
+    if (localGridDirty && !forceKeep) {
+      saveAllLocalGrid(activeSess.id);
+    }
     setActiveSession(null);setCellError("")};
 
   /* Session status */
@@ -1121,7 +1283,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             <th style={{...TH,width:70}}></th>
           </tr></thead>
           <tbody>
-            {fCusts.map((c,ci)=>{const rowTotal=fMods.reduce((s,m)=>s+getGroupQty(m,c.id),0);
+            {fCusts.map((c,ci)=>{
+              /* V19.70.22: rowTotal reads localGrid (unsaved) — reflects what the user sees */
+              const rowTotal=fMods.reduce((s,m)=>s+getGroupQtyLocal(m,c.id),0);
               const rowBg=ci%2===0?T.cardSolid:T.bg;
               return<tr key={c.id} style={{background:ci%2===0?"transparent":T.bg+"80"}}>
                 {/* V18.22: Sticky customer column */}
@@ -1134,28 +1298,65 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                   if(cf.status==="confirm")return<span title={"أكد في "+new Date(cf.at).toLocaleString("ar-EG")+(locked?" • مقفول":"")} style={{marginInlineStart:6,padding:"1px 6px",borderRadius:6,background:"#10B98115",color:"#10B981",fontSize:FS-3,fontWeight:700,verticalAlign:"middle"}}>{locked?"🔒":""}✅</span>;
                   return<span title={"أبلغ عن مشكلة: "+(cf.note||"—")+" • "+new Date(cf.at).toLocaleString("ar-EG")} style={{marginInlineStart:6,padding:"1px 6px",borderRadius:6,background:"#EF444415",color:"#EF4444",fontSize:FS-3,fontWeight:700,verticalAlign:"middle"}}>{locked?"🔒":""}⚠️</span>;
                 })()}<div style={{fontSize:FS-3,color:T.textMut}}>{c.phone}</div></td>
-                {fMods.map((m,mi)=>{const k=m.id+"_"+c.id;const q=getGroupQty(m,c.id);const isEd=editCell===k;
+                {/* V19.70.22: each cell is now an always-on input bound to localGrid.
+                    No click-to-edit. No per-cell auto-save → no flicker. The save-all
+                    button at the footer commits the whole localGrid in one upSales. */}
+                {fMods.map((m,mi)=>{
+                  const q=getGroupQtyLocal(m,c.id);
+                  const cap=availForGroupCell(m,c.id);/* current avail accounting for OTHER customers in localGrid */
+                  const exceeds=q>cap;/* validation: warn (don't block) when over capacity */
                   const breakdown=m.isGrouped?getGroupBreakdown(m,c.id):"";
-                  return<td key={m.id} style={{...TD,textAlign:"center",padding:2,cursor:canEdit?"pointer":"default",background:isEd?T.warn+"10":q>0?T.ok+"04":"transparent"}}
-                    title={m.isGrouped&&q>0?breakdown:undefined}
-                    onClick={()=>{if(!sessCanEdit||isEd)return;setEditCell(k);setEditVal(q);setCellError("")}}>
-                    {isEd?<div style={{display:"flex",alignItems:"center",gap:1}}><input type="number" autoFocus value={editVal}
-                      onFocus={e=>e.target.select()}
-                      onChange={e=>{setEditVal(Number(e.target.value)||0);setCellError("")}}
-                      onBlur={()=>{setTimeout(()=>{if(editCell===k)saveCell(activeSess.id,m.id,c.id,editVal)},150)}}
-                      onKeyDown={e=>{if(e.key==="Enter"){saveCell(activeSess.id,m.id,c.id,editVal)}
-                        if(e.key==="Tab"){e.preventDefault();saveCell(activeSess.id,m.id,c.id,editVal);const nextMi=mi+1;if(nextMi<fMods.length){const nk=fMods[nextMi].id+"_"+c.id;setTimeout(()=>{setEditCell(nk);setEditVal(getGroupQty(fMods[nextMi],c.id))},50)}}
-                        if(e.key==="Escape"){setEditCell(null);setCellError("")}}}
-                      style={{width:"100%",textAlign:"center",border:"2px solid "+T.accent,borderRadius:6,padding:"4px 2px",fontSize:FS,fontWeight:700,fontFamily:"inherit",outline:"none",background:T.bg,color:T.text,boxSizing:"border-box"}}/>
-                      <span onMouseDown={e=>{e.preventDefault();setEditCell(null);setCellError("")}} style={{cursor:"pointer",fontSize:10,color:T.err,flexShrink:0,padding:"0 2px"}}>✕</span></div>
-                    :<div><span style={{fontWeight:q>0?800:400,color:q>0?T.accent:T.textMut+"50",fontSize:q>0?FS:FS-2}}>{q||"—"}</span>
-                      {m.isGrouped&&q>0&&<span style={{fontSize:FS-4,color:"#8B5CF6",marginInlineStart:3,fontWeight:700}} title={breakdown}>ⓘ</span>}
-                    {(()=>{
-                      /* V14.64: Sum delivered across all sub-orders */
-                      const orderIds=m.orderIds||[m.id];
-                      const delivered=orderIds.reduce((s,oid)=>s+getDeliveredForSess(c.id,activeSess.id,oid),0);
-                      if(delivered>0){const rem=q-delivered;return<div style={{fontSize:FS-3,lineHeight:1}}><span style={{color:"#10B981"}}>{"✓"+delivered}</span>{rem>0&&<span style={{color:"#F59E0B"}}>{" ⏳"+rem}</span>}</div>}return null})()}</div>}
-                  </td>})}
+                  /* Compute delivered (committed sales for this session) — read-only context */
+                  const orderIds=m.orderIds||[m.id];
+                  const delivered=orderIds.reduce((s,oid)=>s+getDeliveredForSess(c.id,activeSess.id,oid),0);
+                  return<td key={m.id} style={{...TD,textAlign:"center",padding:2,background:q>0?(exceeds?T.err+"10":T.ok+"04"):"transparent"}}
+                    title={(exceeds?("⚠️ تخطى المتاح: "+cap+" قطعة"):(m.isGrouped&&q>0?breakdown:undefined))||undefined}>
+                    {sessCanEdit ? (
+                      <div style={{display:"flex",flexDirection:"column",alignItems:"stretch",gap:1}}>
+                        <input type="number" min="0"
+                          value={q || ""}
+                          onFocus={e=>e.target.select()}
+                          onChange={e=>setLocalCellQty(m, c.id, e.target.value)}
+                          onKeyDown={e=>{
+                            /* Tab moves to next column (next model) for fast row-fill */
+                            if(e.key==="Tab" && !e.shiftKey){
+                              const nextMi=mi+1;
+                              if(nextMi<fMods.length){
+                                e.preventDefault();
+                                /* Focus the next input in the same row by querying its data-cell */
+                                const nextK=fMods[nextMi].id+"_"+c.id;
+                                const nextEl=document.querySelector('input[data-cell="'+nextK+'"]');
+                                if(nextEl){nextEl.focus();nextEl.select&&nextEl.select();}
+                              }
+                            }
+                          }}
+                          data-cell={m.id+"_"+c.id}
+                          style={{
+                            width:"100%",textAlign:"center",
+                            border:"1px solid "+(exceeds?T.err:(q>0?T.accent+"60":T.brd)),
+                            borderRadius:6,padding:"4px 2px",
+                            fontSize:FS,fontWeight:q>0?800:500,
+                            fontFamily:"inherit",outline:"none",
+                            background:exceeds?T.err+"08":(q>0?T.bg:"transparent"),
+                            color:exceeds?T.err:(q>0?T.accent:T.text),
+                            boxSizing:"border-box",
+                            MozAppearance:"textfield",
+                            transition:"border-color 0.15s, background-color 0.15s",
+                          }}/>
+                        {m.isGrouped&&q>0&&<span style={{fontSize:FS-4,color:"#8B5CF6",fontWeight:700}} title={breakdown}>ⓘ مقسّم</span>}
+                        {delivered>0&&(()=>{const rem=q-delivered;return<div style={{fontSize:FS-3,lineHeight:1}}><span style={{color:"#10B981"}}>{"✓"+delivered}</span>{rem>0&&<span style={{color:"#F59E0B"}}>{" ⏳"+rem}</span>}</div>;})()}
+                        {exceeds&&<span style={{fontSize:FS-4,color:T.err,fontWeight:700}} title={"المتاح: "+cap}>⚠️ تخطى</span>}
+                      </div>
+                    ) : (
+                      /* Read-only fallback for closed sessions — same display as before */
+                      <div>
+                        <span style={{fontWeight:q>0?800:400,color:q>0?T.accent:T.textMut+"50",fontSize:q>0?FS:FS-2}}>{q||"—"}</span>
+                        {m.isGrouped&&q>0&&<span style={{fontSize:FS-4,color:"#8B5CF6",marginInlineStart:3,fontWeight:700}} title={breakdown}>ⓘ</span>}
+                        {delivered>0&&(()=>{const rem=q-delivered;return<div style={{fontSize:FS-3,lineHeight:1}}><span style={{color:"#10B981"}}>{"✓"+delivered}</span>{rem>0&&<span style={{color:"#F59E0B"}}>{" ⏳"+rem}</span>}</div>;})()}
+                      </div>
+                    )}
+                  </td>;
+                })}
                 <td style={{...TD,textAlign:"center",fontWeight:800,color:T.accent,background:"#0284C706",fontSize:FS+1}}>{rowTotal||"—"}</td>
                 <td style={{...TD,whiteSpace:"nowrap",padding:"2px 4px"}}>{rowTotal>0&&<div style={{display:"flex",gap:2}}>
                   <Btn small onClick={async()=>{
@@ -1273,9 +1474,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                     :<Btn small onClick={async()=>{if(!await ask("حذف عميل","حذف "+c.name+" من التوزيعة؟",{danger:true}))return;upSales(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===activeSess.id);if(si>=0){d.custDeliverySessions[si].custIds=d.custDeliverySessions[si].custIds.filter(id=>id!==c.id);const g=d.custDeliverySessions[si].grid||{};Object.keys(g).forEach(k=>{if(k.endsWith("_"+c.id))delete g[k]})}});showToast("✓ تم حذف "+c.name)}} style={{background:"#EF444412",color:"#EF4444",border:"1px solid #EF444430",fontSize:9,padding:"2px 5px"}} title="حذف العميل">🗑</Btn>})()}
                 </div>}</td>
               </tr>})}
+            {/* V19.70.22: column totals + grand total now read localGrid (live, unsaved) */}
             <tr style={{background:T.ok+"08"}}><td style={{...TD,fontWeight:800,color:T.ok,position:"sticky",insetInlineStart:0,zIndex:5,background:T.cardSolid,borderInlineEnd:"2px solid "+T.brd}}>اجمالي توزيع</td>
-              {fMods.map(m=>{const mt=fCusts.reduce((s,c)=>s+getGroupQty(m,c.id),0);return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,color:T.ok}}>{mt||"—"}</td>})}
-              <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#fff",background:T.ok}}>{fCusts.reduce((s,c)=>s+fMods.reduce((ss,m)=>ss+getGroupQty(m,c.id),0),0)}</td><td style={TD}></td></tr>
+              {fMods.map(m=>{const mt=fCusts.reduce((s,c)=>s+getGroupQtyLocal(m,c.id),0);return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:800,color:T.ok}}>{mt||"—"}</td>})}
+              <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#fff",background:T.ok}}>{fCusts.reduce((s,c)=>s+fMods.reduce((ss,m)=>ss+getGroupQtyLocal(m,c.id),0),0)}</td><td style={TD}></td></tr>
             {/* V18.21: All rows use seriesQty (broken excluded from distribution).
                  - رصيد توزيع uses series_initial_stock = current_series_stock + this_session_net_sold
                  - مباع فعلي = this_session_net_sold (filtered by sessionId)
@@ -1288,15 +1490,16 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                 oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;
                   (o.customerDeliveries||[]).forEach(d=>{const q=Number(d.qty)||0;gCd+=q;if(d.sessionId===activeSess.id)sCd+=q});
                   (o.customerReturns||[]).forEach(r=>{const q=Number(r.qty)||0;gRet+=q;if((r.sessId||r.sessionId)===activeSess.id)sRet+=q})});
-                /* V18.21: Use seriesQty (broken excluded) — sales/returns assumed to come from series */
+                /* V18.21: Use seriesQty (broken excluded) — sales/returns assumed to come from series
+                   V19.70.22: plan reads localGrid so رصيد توزيع reacts live as the user types */
                 const currentSeries=(Number(m.seriesQty)||0)-(gCd-gRet);
                 const sessNet=sCd-sRet;
                 const sessInitSeries=currentSeries+sessNet;
-                const plan=aCusts.reduce((s,c)=>s+getGroupQty(m,c.id),0);
+                const plan=aCusts.reduce((s,c)=>s+getGroupQtyLocal(m,c.id),0);
                 const bal=sessInitSeries-plan;
                 return<td key={m.id} style={{...TD,textAlign:"center",fontWeight:700,color:bal>=0?"#0EA5E9":"#EF4444"}}>{bal}</td>;
               })}
-              <td style={{...TD,textAlign:"center",fontWeight:700,color:"#0EA5E9"}}>{(()=>{let total=0;aMods.forEach(m=>{const oids=m.orderIds||[m.id];let gCd=0,gRet=0,sCd=0,sRet=0;oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;(o.customerDeliveries||[]).forEach(d=>{const q=Number(d.qty)||0;gCd+=q;if(d.sessionId===activeSess.id)sCd+=q});(o.customerReturns||[]).forEach(r=>{const q=Number(r.qty)||0;gRet+=q;if((r.sessId||r.sessionId)===activeSess.id)sRet+=q})});const currentSeries=(Number(m.seriesQty)||0)-(gCd-gRet);const sessInitSeries=currentSeries+(sCd-sRet);const plan=aCusts.reduce((s,c)=>s+getGroupQty(m,c.id),0);total+=sessInitSeries-plan});return total})()}</td><td style={TD}></td></tr>
+              <td style={{...TD,textAlign:"center",fontWeight:700,color:"#0EA5E9"}}>{(()=>{let total=0;aMods.forEach(m=>{const oids=m.orderIds||[m.id];let gCd=0,gRet=0,sCd=0,sRet=0;oids.forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o)return;(o.customerDeliveries||[]).forEach(d=>{const q=Number(d.qty)||0;gCd+=q;if(d.sessionId===activeSess.id)sCd+=q});(o.customerReturns||[]).forEach(r=>{const q=Number(r.qty)||0;gRet+=q;if((r.sessId||r.sessionId)===activeSess.id)sRet+=q})});const currentSeries=(Number(m.seriesQty)||0)-(gCd-gRet);const sessInitSeries=currentSeries+(sCd-sRet);const plan=aCusts.reduce((s,c)=>s+getGroupQtyLocal(m,c.id),0);total+=sessInitSeries-plan});return total})()}</td><td style={TD}></td></tr>
             {/* مباع فعلي = this_session_net_sold (NO change from V18.18) */}
             <tr><td style={{...TD,fontWeight:700,color:"#8B5CF6",position:"sticky",insetInlineStart:0,zIndex:5,background:T.cardSolid,borderInlineEnd:"2px solid "+T.brd}}>مباع فعلي</td>
               {aMods.map(m=>{
@@ -1336,8 +1539,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                   {m.sellPriceMixed&&!isDirty&&<div style={{fontSize:FS-3,color:T.warn,fontWeight:700,marginTop:2}} title="الأسعار مختلفة بين الأوردرات">⚠️ مختلط</div>}
                 </td>;
               })}
-              {/* V15.30: Total sell value — uses getGroupQty for group-aware quantity */}
-              <td style={{...TD,textAlign:"center",fontWeight:800,color:"#8B5CF6",minWidth:120,whiteSpace:"nowrap"}}>{fmt(aCusts.reduce((s,c)=>s+aMods.reduce((ss,m)=>{const effPrice=sellPriceDrafts[m.key]!==undefined?(Number(sellPriceDrafts[m.key])||0):(m.sellPrice||0);return ss+getGroupQty(m,c.id)*effPrice},0),0))+" ج.م"}</td><td style={TD}></td></tr>}
+              {/* V15.30: Total sell value — uses getGroupQty for group-aware quantity.
+                  V19.70.22: switched to getGroupQtyLocal so the total reflects live unsaved edits. */}
+              <td style={{...TD,textAlign:"center",fontWeight:800,color:"#8B5CF6",minWidth:120,whiteSpace:"nowrap"}}>{fmt(aCusts.reduce((s,c)=>s+aMods.reduce((ss,m)=>{const effPrice=sellPriceDrafts[m.key]!==undefined?(Number(sellPriceDrafts[m.key])||0):(m.sellPrice||0);return ss+getGroupQtyLocal(m,c.id)*effPrice},0),0))+" ج.م"}</td><td style={TD}></td></tr>}
             {/* V15.37: Save/cancel row — shows only when there are draft changes */}
             {sessCanEdit&&Object.keys(sellPriceDrafts).length>0&&<tr style={{background:"#F59E0B08"}}>
               <td colSpan={fMods.length+2} style={{...TD,padding:"8px 12px"}}>
@@ -1355,11 +1559,24 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           </tbody>
         </table>
       </div>
-      <div style={{display:"flex",gap:10,justifyContent:"center",padding:"12px 24px",borderTop:"1px solid "+T.brd,flexShrink:0,flexWrap:"wrap"}}>
+      <div style={{display:"flex",gap:10,justifyContent:"center",alignItems:"center",padding:"12px 24px",borderTop:"1px solid "+T.brd,flexShrink:0,flexWrap:"wrap"}}>
+        {/* V19.70.22: dirty indicator + explicit save button. The save button lights
+            up only when there are unsaved local edits. Clicking it commits the entire
+            localGrid in one upSales call — no per-cell flicker. */}
+        {sessCanEdit && localGridDirty && (
+          <div style={{display:"flex",alignItems:"center",gap:8,padding:"4px 10px",borderRadius:8,background:T.warn+"15",border:"1px solid "+T.warn+"40"}}>
+            <span style={{fontSize:FS-2,color:T.warn,fontWeight:700}}>● تغييرات غير محفوظة</span>
+          </div>
+        )}
+        {sessCanEdit && (
+          <Btn onClick={()=>saveAllLocalGrid(activeSess.id)} disabled={!localGridDirty}
+            style={{background:localGridDirty?T.ok:T.bg,color:localGridDirty?"#fff":T.textMut,border:"none",fontWeight:700,padding:"8px 24px",opacity:localGridDirty?1:0.6}}>
+            💾 حفظ التغييرات
+          </Btn>
+        )}
         <Btn onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30",padding:"8px 20px"}} title="طباعة جدول التوزيع">🖨 طباعة الجدول</Btn>
         <Btn onClick={()=>{const sel={};aCusts.forEach(c=>{sel[c.id]=true});setGroupPrint({sessId:activeSess.id,selCusts:sel,receiver:""})}} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",padding:"8px 20px"}}>🖨 طباعة مجمعة</Btn>
-        <Btn ghost onClick={()=>closeMatrix()} style={{padding:"8px 20px"}}>✕ الغاء</Btn>
-        <Btn onClick={()=>closeMatrix(true)} style={{background:T.ok,color:"#fff",border:"none",fontWeight:700,padding:"8px 24px"}}>✓ تأكيد وإغلاق</Btn>
+        <Btn ghost onClick={()=>closeMatrix(true)} style={{padding:"8px 20px"}}>✕ إغلاق</Btn>
       </div>
     </div></div>}
     {/* Grouped Print Popup */}
@@ -1885,7 +2102,15 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         </div>
       </div>})()}
     {/* ══ Sales Dashboard + Stale Alerts ══ */}
-    {(()=>{const totalStock=stockModels.reduce((s,m)=>s+m.stockQty,0);const totalSold=stockModels.reduce((s,m)=>s+m.custDel,0);const totalRemain=stockModels.reduce((s,m)=>s+m.avail,0);const pct=totalStock?Math.round(totalSold/totalStock*100):0;
+    {(()=>{const totalStock=stockModels.reduce((s,m)=>s+m.stockQty,0);const totalSold=stockModels.reduce((s,m)=>s+m.custDel,0);
+      /* V19.70.22: filter avail > 0 to match the popup's totalAvail. Previously this
+         summed ALL stockModels including over-sold ones (avail < 0) which made the
+         dashboard tile show a smaller number than the popup's "الإجمالي" — the user
+         flagged the inconsistency. Now both compute the same way: positive availability
+         only. Over-sold models still appear in the matrix with a red indicator
+         elsewhere; they just don't dilute the headline number. */
+      const totalRemain=stockModels.filter(m=>m.avail>0).reduce((s,m)=>s+m.avail,0);
+      const pct=totalStock?Math.round(totalSold/totalStock*100):0;
       const totalRevenue=stockModels.reduce((s,m)=>s+m.custDel*(Number(orders.find(o=>o.id===m.id)?.sellPrice)||0),0);
       const totalCost=orders.reduce((s,o)=>{const t=calcOrder(o);return s+(t.totalCost||0)},0);
       const now=new Date();
@@ -2020,84 +2245,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         printPage("📦 الموديلات المتاحة — "+season, html, {factoryName:config.factoryName,logo:config.logo});
       };
 
-      const doSendWA = async () => {
-        const ownerPhones = (((data.automation||{}).eventTriggers||{}).ownerPhones||[]).filter(p => p && String(p).trim());
-        if (ownerPhones.length === 0) { showToast("⛔ مفيش أرقام مالك مسجلة في Automation → Triggers"); return; }
-        const bridgeUrl = (data.campaignBridge||{}).url || "";
-        const bridgeToken = (data.campaignBridge||{}).token || "";
-        if (!bridgeUrl) { showToast("⛔ الـbridge URL غير مضبوط"); return; }
-        const confirm = await ask("📤 إرسال تقرير الموديلات المتاحة", "هيتم إرسال التقرير كـPDF + رسالة نصية لـ"+ownerPhones.length+" رقم مالك مسجلين.");
-        if (!confirm) return;
-        setAvailPopup(p => ({ ...p, sending: true }));
-        try {
-          /* V19.70.21: build the PDF via jsPDF + Cairo TTF + Arabic shaper instead of
-             html2canvas. This eliminates the html2canvas Arabic shaping bug structurally.
-             We pass a structured payload (not HTML) to the new utility — single source
-             of data for the visual layout below. */
-          await loadArabicPdfLibs();
-          const today = new Date();
-          const dateStr = today.toLocaleDateString("ar-EG", { weekday:"long", year:"numeric", month:"long", day:"numeric" });
-          const timeStr = today.toLocaleTimeString("ar-EG", { hour:"2-digit", minute:"2-digit" });
-          const pdfBase64 = await buildAvailableStockPdfBase64({
-            factoryName: config.factoryName || "CLARK Factory Management",
-            logoDataUrl: config.logo || "",
-            date: dateStr,
-            time: timeStr,
-            totalAvail, totalSeries, totalBroken,
-            modelCount: rows.length,
-            rows: rows.map(r => ({
-              modelNo: r.modelNo,
-              modelDesc: r.modelDesc || "—",
-              availSeries: r.availSeries,
-              availBroken: r.availBroken,
-              avail: r.avail,
-              rackSize: r.rackSize,
-              seriesSets: r.seriesSets,
-            })),
-          });
-          /* Text summary that mirrors the PDF — shows totals + top 5 models for quick glance */
-          const top5 = rows.slice(0, 5);
-          let message = "*📦 تقرير الموديلات المتاحة — "+season+"*\n\n";
-          message += "• إجمالي المتاح: *"+fmt(totalAvail)+"* قطعة\n";
-          message += "• سيري: *"+fmt(totalSeries)+"* قطعة\n";
-          message += "• كسر: *"+fmt(totalBroken)+"* قطعة\n";
-          message += "• عدد الموديلات: *"+rows.length+"*\n";
-          message += "\n─────────────────\n*أعلى 5 موديلات:*\n";
-          top5.forEach((r,i) => {
-            message += "\n"+(i+1)+". *"+r.modelNo+"* — "+r.avail+" قطعة";
-            if (r.availSeries > 0) message += " (سيري: "+r.availSeries+")";
-            if (r.availBroken > 0) message += " (كسر: "+r.availBroken+")";
-          });
-          message += "\n\n📎 التفاصيل الكاملة في الـPDF المرفق.";
-          const fileName = "الموديلات_المتاحة_"+season+"_"+new Date().toISOString().slice(0,10).replace(/-/g,"")+".pdf";
-          const headers = { "Content-Type":"application/json" };
-          if (bridgeToken) headers["Authorization"] = "Bearer "+bridgeToken;
-          /* Sequential await per phone to keep bridge anti-ban delays effective */
-          let okCount = 0, failCount = 0;
-          for (const phone of ownerPhones) {
-            try {
-              const r = await fetch(bridgeUrl.replace(/\/+$/,"")+"/send", {
-                method:"POST", headers,
-                body: JSON.stringify({ messages: [{
-                  phone,
-                  message,
-                  media: [{ base64: pdfBase64, mime: "application/pdf", name: fileName }],
-                }]}),
-              });
-              const j = await r.json().catch(()=>({}));
-              if (!r.ok) throw new Error(j.error || ("HTTP "+r.status));
-              okCount++;
-            } catch (e) {
-              failCount++;
-            }
-          }
-          showToast("✓ "+okCount+" نجحت • "+(failCount?("⛔ "+failCount+" فشلت"):""));
-        } catch (e) {
-          showToast("⛔ "+(e.message||String(e)));
-        } finally {
-          setAvailPopup(p => p ? ({ ...p, sending: false }) : null);
-        }
-      };
+      /* V19.70.22: doSendWA function removed (WhatsApp PDF button taken out per user request).
+         The arabicPdf engine remains imported and is still wired up to buildReportHTML for
+         print fidelity, but the bulk-send path is gone. */
 
       return <div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setAvailPopup(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:780,maxHeight:"88vh",display:"flex",flexDirection:"column",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
@@ -2124,15 +2274,15 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <div style={{fontSize:FS+4,fontWeight:800,color:T.err}}>{fmt(totalBroken)}</div>
             </div>
           </div>
-          {/* Search + Action buttons */}
+          {/* V19.70.22: search + print only — WhatsApp PDF button removed per user request
+              ("ماله لازمة الطباعة تكفي"). The doSendWA function below is also removed for
+              cleanliness. If the user changes their mind, the V19.70.21 jsPDF engine
+              (buildAvailableStockPdfBase64) is still wired up in the imports. */}
           <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
             <div style={{flex:1,minWidth:200}}>
               <Inp value={availPopup.search||""} onChange={v=>setAvailPopup(p=>({...p,search:v}))} placeholder="🔍 بحث بالموديل أو الوصف..."/>
             </div>
-            <Btn onClick={doPrintReport} disabled={availPopup.sending} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:700}}>🖨 طباعة</Btn>
-            <Btn onClick={doSendWA} disabled={availPopup.sending} style={{background:availPopup.sending?"#94A3B8":"#25D366",color:"#fff",border:"none",fontWeight:700}}>
-              {availPopup.sending ? "⏳ جاري الإرسال..." : "📤 إرسال PDF واتساب"}
-            </Btn>
+            <Btn onClick={doPrintReport} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:700}}>🖨 طباعة</Btn>
           </div>
           {/* Table */}
           <div style={{flex:1,overflowY:"auto",border:"1px solid "+T.brd,borderRadius:10}}>
@@ -3045,12 +3195,19 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         </div>
       </div>
     </div>}
-    {activeAud&&auditInclude&&(()=>{const visCusts=auditCusts.filter(c=>auditInclude.includes(c.id));return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:24}} onClick={()=>{setActiveAudit(null);setAuditInclude(null)}}>
+    {activeAud&&auditInclude&&(()=>{
+      const visCusts=auditCusts.filter(c=>auditInclude.includes(c.id));
+      /* V19.70.22: shared close handler that auto-saves unsaved edits to the audit grid. */
+      const closeAudit = () => {
+        if (localAudGridDirty && activeAud) saveAllLocalAudGrid(activeAud.id);
+        setActiveAudit(null); setAuditInclude(null);
+      };
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:24}} onClick={closeAudit}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,width:"100%",maxWidth:isMob?"100%":window.innerWidth-48,maxHeight:"92vh",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
         <div style={{padding:isMob?"12px 16px":"16px 24px",borderBottom:"1px solid "+T.brd,flexShrink:0}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div style={{fontSize:FS+2,fontWeight:800,color:"#F59E0B"}}>{"📋 جرد "+activeAud.date+(activeAud.notes?" — "+activeAud.notes:"")}</div>
-            <div style={{display:"flex",gap:4}}><Btn small onClick={()=>setShowAuditAnalysis(activeAud.id)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="تحليل المبيعات">📊 تحليل</Btn><Btn ghost small onClick={()=>setActiveAudit(null)} title="إغلاق">✕</Btn></div>
+            <div style={{display:"flex",gap:4}}><Btn small onClick={()=>setShowAuditAnalysis(activeAud.id)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="تحليل المبيعات">📊 تحليل</Btn><Btn ghost small onClick={closeAudit} title="إغلاق">✕</Btn></div>
           </div>
         </div>
         <div id="audit-matrix-table" style={{flex:1,overflowY:"auto",overflowX:"auto",padding:isMob?"8px 16px 16px":"8px 24px 24px"}}>
@@ -3066,26 +3223,62 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <th style={{...TH,textAlign:"center",fontSize:FS-2}}>% البيع</th>
             </tr></thead>
             <tbody>
-              {auditModels.map((m,mi)=>{const rowTotal=visCusts.reduce((s,c)=>s+(Number(aAudGrid[m.id+"_"+c.id])||0),0);const pct=m.custDel>0?Math.round(rowTotal/m.custDel*100):0;
+              {/* V19.70.22: audit cells now read/write localAudGrid (unsaved local state).
+                  Always-on inputs replace the click-to-edit. The footer save button commits all
+                  changes via one upConfig. Tab key navigates to next column for fast row-fill. */}
+              {auditModels.map((m,mi)=>{const rowTotal=visCusts.reduce((s,c)=>s+(Number(localAudGrid[m.id+"_"+c.id])||0),0);const pct=m.custDel>0?Math.round(rowTotal/m.custDel*100):0;
                 return<tr key={m.id} style={{background:mi%2===0?"transparent":T.bg+"80"}}>
                   <td style={{...TD,fontWeight:700}}><div style={{fontWeight:800,color:T.accent}}>{m.modelNo}</div><div style={{fontSize:FS-3,color:T.textMut}}>{m.modelDesc}</div></td>
-                  {visCusts.map(c=>{const k=m.id+"_"+c.id;const q=Number(aAudGrid[k])||0;const isEd=auditCell===k;
-                    return<td key={c.id} style={{...TD,textAlign:"center",padding:2,cursor:canEdit?"pointer":"default",background:isEd?"#F59E0B10":q>0?"#F59E0B04":"transparent"}}
-                      onClick={()=>{if(!canEdit||isEd)return;setAuditCell(k);setAuditVal(q)}}>
-                      {isEd?<input type="number" autoFocus value={auditVal} onFocus={e=>e.target.select()}
-                        onChange={e=>setAuditVal(Number(e.target.value)||0)}
-                        onBlur={()=>{saveAuditCell(activeAud.id,m.id,c.id,auditVal);setAuditCell(null)}}
-                        onKeyDown={e=>{if(e.key==="Enter"||e.key==="Tab"){e.preventDefault();saveAuditCell(activeAud.id,m.id,c.id,auditVal);const ci=visCusts.indexOf(c);const mi=auditModels.indexOf(m);let ni=e.shiftKey?ci-1:ci+1;let nm=mi;if(ni>=visCusts.length){ni=0;nm=mi+1}if(ni<0){ni=visCusts.length-1;nm=mi-1}if(nm>=0&&nm<auditModels.length){const nk=auditModels[nm].id+"_"+visCusts[ni].id;setAuditCell(nk);setAuditVal(Number(aAudGrid[nk])||0)}else{setAuditCell(null)}}if(e.key==="Escape")setAuditCell(null)}}
-                        style={{width:"100%",textAlign:"center",border:"2px solid #F59E0B",borderRadius:4,padding:"2px",fontSize:FS,fontWeight:700,fontFamily:"inherit",background:"#FFF",outline:"none"}}/>
-                      :<span style={{fontWeight:q>0?700:400,color:q>0?"#F59E0B":T.textMut}}>{q||"—"}</span>}
-                    </td>})}
+                  {visCusts.map((c,ci)=>{const k=m.id+"_"+c.id;const q=Number(localAudGrid[k])||0;
+                    return<td key={c.id} style={{...TD,textAlign:"center",padding:2,background:q>0?"#F59E0B04":"transparent"}}>
+                      {canEdit ? (
+                        <input type="number" min="0" value={q || ""}
+                          onFocus={e=>e.target.select()}
+                          onChange={e=>{
+                            const v = Math.max(0, Number(e.target.value) || 0);
+                            setLocalAudGrid(prev => {
+                              const next = { ...prev };
+                              if (v > 0) next[k] = v;
+                              else delete next[k];
+                              return next;
+                            });
+                            setLocalAudGridDirty(true);
+                          }}
+                          onKeyDown={e=>{
+                            if (e.key === "Tab" && !e.shiftKey) {
+                              const nextCi = ci + 1;
+                              if (nextCi < visCusts.length) {
+                                e.preventDefault();
+                                const nk = m.id + "_" + visCusts[nextCi].id;
+                                const nextEl = document.querySelector('input[data-aud-cell="'+nk+'"]');
+                                if (nextEl) { nextEl.focus(); nextEl.select && nextEl.select(); }
+                              }
+                            }
+                          }}
+                          data-aud-cell={k}
+                          style={{
+                            width:"100%",textAlign:"center",
+                            border:"1px solid "+(q>0?"#F59E0B60":T.brd),
+                            borderRadius:6,padding:"4px 2px",
+                            fontSize:FS,fontWeight:q>0?700:500,
+                            fontFamily:"inherit",outline:"none",
+                            background:q>0?T.bg:"transparent",
+                            color:q>0?"#F59E0B":T.text,
+                            boxSizing:"border-box",
+                            transition:"border-color 0.15s, background-color 0.15s",
+                          }}/>
+                      ) : (
+                        <span style={{fontWeight:q>0?700:400,color:q>0?"#F59E0B":T.textMut}}>{q||"—"}</span>
+                      )}
+                    </td>;
+                  })}
                   <td style={{...TD,textAlign:"center",fontWeight:800,color:"#F59E0B",background:"#F59E0B08"}}>{rowTotal||"—"}</td>
                   <td style={{...TD,textAlign:"center",fontSize:FS-2,color:T.textSec}}>{m.custDel}</td>
                   <td style={{...TD,textAlign:"center",fontWeight:700,color:pct>=50?T.ok:pct>=20?T.warn:T.err}}>{pct+"%"}</td>
-                </tr>})}
+                </tr>;})}
               <tr style={{background:"#F59E0B10"}}><td style={{...TD,fontWeight:800,color:"#F59E0B"}}>اجمالي المبيعات</td>
-                {visCusts.map(c=>{const ct=auditModels.reduce((s,m)=>s+(Number(aAudGrid[m.id+"_"+c.id])||0),0);return<td key={c.id} style={{...TD,textAlign:"center",fontWeight:800,color:"#F59E0B"}}>{ct||"—"}</td>})}
-                <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#fff",background:"#F59E0B"}}>{auditModels.reduce((s,m)=>s+visCusts.reduce((ss,c)=>ss+(Number(aAudGrid[m.id+"_"+c.id])||0),0),0)}</td>
+                {visCusts.map(c=>{const ct=auditModels.reduce((s,m)=>s+(Number(localAudGrid[m.id+"_"+c.id])||0),0);return<td key={c.id} style={{...TD,textAlign:"center",fontWeight:800,color:"#F59E0B"}}>{ct||"—"}</td>})}
+                <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+2,color:"#fff",background:"#F59E0B"}}>{auditModels.reduce((s,m)=>s+visCusts.reduce((ss,c)=>ss+(Number(localAudGrid[m.id+"_"+c.id])||0),0),0)}</td>
                 <td style={TD}></td><td style={TD}></td>
               </tr>
               <tr style={{background:T.accent+"06"}}><td style={{...TD,fontWeight:700,color:T.accent,fontSize:FS-1}}>اجمالي الاستلام</td>
@@ -3094,20 +3287,36 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                 <td style={TD}></td><td style={TD}></td>
               </tr>
               <tr style={{background:T.warn+"06"}}><td style={{...TD,fontWeight:700,color:T.warn,fontSize:FS-1}}>رصيد العميل</td>
-                {visCusts.map(c=>{const del=getCustTotal(c.id);const sold=auditModels.reduce((s,m)=>s+(Number(aAudGrid[m.id+"_"+c.id])||0),0);const bal=del-sold;return<td key={c.id} style={{...TD,textAlign:"center",fontWeight:700,color:bal>0?T.warn:T.ok}}>{bal}</td>})}
+                {visCusts.map(c=>{const del=getCustTotal(c.id);const sold=auditModels.reduce((s,m)=>s+(Number(localAudGrid[m.id+"_"+c.id])||0),0);const bal=del-sold;return<td key={c.id} style={{...TD,textAlign:"center",fontWeight:700,color:bal>0?T.warn:T.ok}}>{bal}</td>})}
                 <td style={TD}></td><td style={TD}></td><td style={TD}></td>
               </tr>
               <tr style={{background:"#8B5CF608"}}><td style={{...TD,fontWeight:700,color:"#8B5CF6",fontSize:FS-2}}>% مبيعات</td>
-                {visCusts.map(c=>{const ct=auditModels.reduce((s,m)=>s+(Number(aAudGrid[m.id+"_"+c.id])||0),0);const delivered=getCustTotal(c.id);const pct=delivered>0?Math.round(ct/delivered*100):0;return<td key={c.id} style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS-1,color:pct>=50?T.ok:pct>=20?"#F59E0B":T.err}}>{pct+"%"}</td>})}
+                {visCusts.map(c=>{const ct=auditModels.reduce((s,m)=>s+(Number(localAudGrid[m.id+"_"+c.id])||0),0);const delivered=getCustTotal(c.id);const pct=delivered>0?Math.round(ct/delivered*100):0;return<td key={c.id} style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS-1,color:pct>=50?T.ok:pct>=20?"#F59E0B":T.err}}>{pct+"%"}</td>})}
                 <td style={TD}></td><td style={TD}></td><td style={TD}></td>
               </tr>
             </tbody>
           </table>
         </div>
         <div style={{display:"flex",gap:10,justifyContent:"center",alignItems:"center",padding:"12px 24px",borderTop:"1px solid "+T.brd,flexShrink:0,flexWrap:"wrap"}}>
+          {/* V19.70.22: dirty indicator + explicit save button. Auto-save on close too. */}
+          {canEdit && localAudGridDirty && (
+            <div style={{display:"flex",alignItems:"center",gap:8,padding:"4px 10px",borderRadius:8,background:T.warn+"15",border:"1px solid "+T.warn+"40"}}>
+              <span style={{fontSize:FS-2,color:T.warn,fontWeight:700}}>● تغييرات غير محفوظة</span>
+            </div>
+          )}
+          {canEdit && (
+            <Btn onClick={()=>saveAllLocalAudGrid(activeAud.id)} disabled={!localAudGridDirty}
+              style={{background:localAudGridDirty?T.ok:T.bg,color:localAudGridDirty?"#fff":T.textMut,border:"none",fontWeight:700,opacity:localAudGridDirty?1:0.6}}>
+              💾 حفظ التغييرات
+            </Btn>
+          )}
           <Btn onClick={()=>{const sel={};(auditInclude||[]).forEach(id=>{sel[id]=true});setAuditSelCusts(sel);setAuditInclude(null)}} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd}}>👥 تغيير العملاء</Btn>
           <Btn onClick={()=>setShowAuditAnalysis(activeAud.id)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="تحليل المبيعات">📊 تحليل</Btn>
-          <Btn onClick={()=>{setActiveAudit(null);setAuditInclude(null)}} style={{background:T.ok,color:"#fff",border:"none",fontWeight:700}}>✓ حفظ وإغلاق</Btn>
+          <Btn onClick={()=>{
+            /* Auto-save unsaved edits on close */
+            if (localAudGridDirty) saveAllLocalAudGrid(activeAud.id);
+            setActiveAudit(null);setAuditInclude(null);
+          }} style={{background:T.ok,color:"#fff",border:"none",fontWeight:700}}>✓ إغلاق</Btn>
         </div>
       </div>
     </div>})()}

@@ -25,6 +25,22 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.22",
+    date: "2026-05-06",
+    types: ["fix", "ux", "feature"],
+    title: "📝 الجداول inputs دايماً + save-once + validation + balance card fix + شيل WhatsApp PDF",
+    changes: [
+      { type: "fix", text: "🐛 [الـcell flicker bug — حلت] User report: 'المستخدم بيكتب العدد في الحقل ويخرج العدد يختفي في جزء أقل من الثانية ويرجع تاني'. السبب: الـclick-to-edit pattern بـsetEdit(null) قبل ما الـFirestore round-trip يخلص → الـcell بـdisplay الـcommitted value (القديمة) لـmilliseconds → الـlistener يـupdate → الـnew value يظهر. **الـFix الجذري**: الـcells كلها في الـ2 grids (التوزيعة + الجرد) بقت always-on inputs، الـvalues تتـbind بـlocal state (`localGrid` + `localAudGrid`). مفيش Firestore بين الـkeystrokes — الـcommit بـyحصل مرة واحدة لما الـuser يضغط 'حفظ التغييرات'." },
+      { type: "feature", text: "📝 [Always-on inputs في كل cells الجدولين] قبل V19.70.22: cell click → input يظهر → blur → save. دلوقتي: الـcell IS the input. الـuser يقدر يـtab بين الـcells، يكتب أي حاجة، مفيش commit حتى الضغط على 'حفظ التغييرات'. الـTab key بـnavigate للعمود الـnext في نفس الصف (ride للـrow-fill السريع). الـkeyboard navigation طبيعية بدون الـ50ms setTimeouts اللي كانت موجودة في الـold pattern." },
+      { type: "feature", text: "💾 [Save-once button + dirty indicator في footer الـ2 popups] الـmatrix popup + الـaudit popup كلهم دلوقتي عندهم: (1) `● تغييرات غير محفوظة` badge orange لما `localGridDirty=true`، (2) `💾 حفظ التغييرات` button — disabled لو مفيش edits، green لو فيه. الـbutton بـcommit الـlocalGrid كله في single upSales call. الـclose button (✕) بـauto-save الـunsaved edits قبل ما يقفل — مفيش data loss حتى لو الـuser نسي يضغط حفظ." },
+      { type: "feature", text: "⚠️ [Max-avail validation للـcells] User request: 'عاوز المستخدم مايقدرش يدخل رصيد اكبر من المتاح ويشوف تنبيه'. كل cell بـcompute `availForCell = subStock - subSold - other_customers_planned_in_localGrid` — لو الـvalue الحالي أكبر من ده، الـcell بـyـrender مع red border + red background tint + 'تخطى' badge أسفله + tooltip 'المتاح: X قطعة'. الـvalue مش بـyـblock (الـuser يقدر يكتب)، بس الـwarning واضح basariyan. كده الـuser يعرف بالظبط لو غلط." },
+      { type: "fix", text: "📊 [الرصيد في البطاقة != الرصيد في الـpopup] User report: 'الرصيد بره (666) غير الرصيد جوه التقرير (687)'. السبب: الـdashboard card كان بـsum كل الـstockModels (incl. avail < 0 للـoversold)، الـpopup بـfilter avail > 0. **الـFix**: الـcard بقى بـuse نفس الـfilter (`m.avail > 0`). دلوقتي 687 = 687 — match." },
+      { type: "ux", text: "🗑️ [شيل زر 'إرسال PDF واتساب' من popup الـرصيد متاح] User request: 'مالهوش لازمة الطباعة تكفي'. الـbutton اتشال + الـdoSendWA function اتمسح. الـimports للـarabicPdf utility اتشالت كمان (الـutility لسه موجود في الـcodebase لو احتجناه لاحقاً). الـpopup دلوقتي عنده زر طباعة فقط — أبسط وأنظف." },
+      { type: "improvement", text: "🎨 [الـvisual للـmatrix الجديد: كل cell input بـsubtle border] الـcells اللي فيها quantity > 0 بـborder accent-color soft + background light. الـcells اللي exceed avail بـborder error-red + background error-tint. الـempty cells بـborder neutral. الـtransition smooth (~150ms) للـborder color changes — UX feels alive." },
+      { type: "improvement", text: "🛡️ [Backward compat: الـold saveCell + auditCell paths لسه موجودين] لو في feature في الـcode بـcall saveCell أو saveAuditCell مباشرة (مثلاً OCR scan results)، الـ functions لسه شغّالة. الـnew localGrid pattern موازي. الـlive Firestore listener يـsync الـcommitted grid back لـlocalGrid لما الـpopup يـreopen عبر الـuseEffect." },
+    ]
+  },
+  {
     version: "V19.70.21",
     date: "2026-05-06",
     types: ["fix", "architectural"],
