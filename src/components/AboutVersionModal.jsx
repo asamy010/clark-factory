@@ -25,6 +25,25 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.71.0",
+    date: "2026-05-06",
+    types: ["feature", "architectural"],
+    title: "🤖 AI Agent control center (Phase A) — Personality + FAQs + Schedule",
+    changes: [
+      { type: "feature", text: "✨ [زر 'AI Agent' جديد في الـ Home] User request: 'عاوز ابدأ بناء AI Agent عشان يشتغل على واتس اب اوتوماتيك ويرد على العملاء في اوقات معينة'. ضافت tab جديد بـlabel إنجليزي 'AI Agent' (purple #8B5CF6) عشان يفرق بصرياً عن الـ'الأتمتة' الموجودة (rule-based). الـtab بـyـفتح صفحة AIAgentPg.jsx — مركز التحكم الكامل للـ Agent. الـlabel متعمد بالإنجليزي عشان 'AI Agent' مصطلح عالمي معروف." },
+      { type: "architectural", text: "🏗️ [Architecture: CLARK = config UI، الـ Agent backend = منفصل على VPS] الـ Agent نفسه (Node.js + Anthropic Claude + WhatsApp bridge integration) هـ يبني كـ project منفصل (clark-ai-agent) على Contabo VPS. CLARK app هي الـ admin/training UI — كل الـ settings (personality, FAQs, schedule) بتـحفظ في `config.aiAgent` في Firestore. لما الـ backend يطلع، هيقرأ نفس الـ config — مفيش API بين الاتنين، الـ Firestore هي الـ contract المشترك. ده اتعمل في Phase A قبل الـ backend عشان الـ admin يبدأ يـconfigure ويـtrain من دلوقتي." },
+      { type: "feature", text: "🎭 [Tab 'الشخصية' — full personality editor] أول الـ 3 tabs الفعّالة. الـ admin يقدر يـconfigure: اسم الـ Agent، اللغة (مصرية مهذبة/فصحى/bilingual)، الأسلوب (رسمي/مهني-ودود/عادي)، طول الإجابة، استخدام الـ emojis، عبارات التحية والختام (tags)، الممنوعات (red tags)، والـ system prompt الكامل (textarea مع reset to default). الـ system prompt هو الـ training mechanism الأساسي — أي تعديل = تغيير فوري في كل الردود لما الـ backend يبني." },
+      { type: "feature", text: "📚 [Tab 'الأسئلة المتكررة' — FAQs CRUD مع categories + phrasings] الـ admin يضيف FAQs بـ: عنوان، فئة (الشحن/الدفع/الإرجاع/المنتجات/الخصومات/الشركة/أخرى)، صياغات بديلة (الـ Agent بـ يتعرف عليها — 'الشحن بياخد كم' = 'إمتى هيوصل')، الإجابة (مع متغيرات زي {customer_name})، useCount tracking (لـ Phase B analytics). Search + filter by category + grouped display. ده الـ training mechanism الـ 2nd — كل FAQ = حالة الـ Agent بـيـحلها بدون escalation للبشري." },
+      { type: "feature", text: "⏰ [Tab 'الجدول الزمني' — operating hours + holidays + off-hours behavior] 3 modes: ساعات محددة (per-day from/to، الـ default 20:00→10:00 — overnight)، 24x7، موقوف. الـ holidays section لـ أيام الـ Agent ميـردش فيها (أعياد، إجازات رسمية). Off-hours behavior: 'يرد ويحاول يساعد' أو 'يبعت رسالة 'هنرد بكرة'' أو 'يحوّل كل شيء لبشري'. Admin alerts (طول الوقت، حتى خارج الساعات): شكاوى جودة، طلبات أكبر من X ج، Platinum منتظر أكتر من Y دقيقة." },
+      { type: "feature", text: "🚧 [6 tabs placeholders للـ Phase B/C] Dashboard (📊)، Tools (🛠 — read-only config)، Conversation Logs (💬)، Sandbox (🧪)، Customer Funnel (🎯)، Customer Profiles (👥). كل واحد بـيـعرض icon كبير + 'Phase B/C' badge + وصف لـ functionality المتوقع. الـ structure جاهز عشان نملاهم في الجلسات الجاية بدون ما نلمس الـ shell." },
+      { type: "feature", text: "🛡️ [Permissions: 8 roles كلهم محدّثين] admin/manager/sales_accountant = edit. باقي الـ 5 roles (purchase, warehouse_keeper, payroll_*, viewer) = hide. الـ tab بـ visible فقط لـ admin/manager بـ default — sales_accountant يقدر يـedit عشان فريق المبيعات يـmanage الـ FAQs والـ escalation routing." },
+      { type: "feature", text: "📐 [Header مع master power toggle + status pill] زر '▶️ تشغيل / 🛑 إيقاف' في الـ header (يـset agent.enabled). الـ status pill بـ green pulse لما شغّال، grey لما موقوف. الـ default = موقوف (الـ admin لازم يفعّله صراحة بعد ما يـreview الـ config)." },
+      { type: "architectural", text: "📋 [Schema: config.aiAgent — single source of truth] الـ schema في constants/index.js INIT_CONFIG. Fields: enabled, schedule (mode/days/holidays/offHours), personality (name/language/style/systemPrompt/...)، faqs[], faqCategories[], tools (per-tool enabled flags + thresholds), tierDiscounts (Bronze/Silver/Gold/Platinum)، escalation (supportPhone/salesTeamPhone/template/autoTriggers)، collections (refs لـ aiAgent* Firestore collections للـ Phase B logs UI). الـ default value هو fallback لو الـ config مش موجود (older deployments)." },
+      { type: "improvement", text: "🎨 [Visual distinction من 'الأتمتة' الموجودة] الـ 'الأتمتة' tab الموجود (rule-based daily reports + event triggers) لسه شغّال زي ما هو — مفيش لمسة فيه. الـ AI Agent tab الجديد purple/violet (#8B5CF6) بدل الـ sky blue، الـ icon SVG دماغ روبوت بدل الـ square mech، الـ label إنجليزي بدل عربي. الاتنين منفصلين في الـ permissions matrix كمان." },
+      { type: "improvement", text: "📦 [Version: 19.70.26 → 19.71.0] minor bump (مش patch) عشان دي feature جديدة كبيرة. الـ next sessions: Phase B (Dashboard + Logs + Sandbox + Tools)، Phase C (Funnel + Profiles)، Phase D (الـ backend Node.js على VPS)، Phase E (integration + soft launch)." },
+    ]
+  },
+  {
     version: "V19.70.26",
     date: "2026-05-06",
     types: ["fix", "ux"],

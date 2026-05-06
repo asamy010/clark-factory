@@ -77,6 +77,10 @@ const HRPg = lazyNamed(() => import("./pages/HRPg.jsx"), "HRPg");
 const CampaignsPg = lazyNamed(() => import("./pages/CampaignsPg.jsx"), "CampaignsPg");
 /* V19.68: Automation hub — daily reports + event triggers via WhatsApp bridge */
 const AutomationPg = lazyNamed(() => import("./pages/AutomationPg.jsx"), "AutomationPg");
+/* V19.71: AI Agent control center — config + training school for the WhatsApp LLM agent.
+   The agent backend itself runs as a separate Node.js project on Contabo VPS
+   (clark-ai-agent) and reads its config from this CLARK app via Firestore. */
+const AIAgentPg = lazyNamed(() => import("./pages/AIAgentPg.jsx"), "AIAgentPg");
 
 /* V15.1 phase 3: page/component imports */
 /* V15.76: print-extras imports removed — none used in App.jsx (used in pages directly) */
@@ -4961,6 +4965,8 @@ export default function App(){
         {tab==="campaigns"&&<CampaignsPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("campaigns")} user={user}/>}
         {/* V19.68: Automation hub — daily reports + (future) event triggers */}
         {tab==="automation"&&<AutomationPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
+        {/* V19.71: AI Agent control center — personality, FAQs, schedule, logs (Phase A scaffold) */}
+        {tab==="aiAgent"&&canViewTab("aiAgent")&&<AIAgentPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("aiAgent")} user={user}/>}
         {tab==="audit"&&canViewTab("audit")&&<AuditPg data={data} isMob={isMob} user={user}/>}
         {tab==="accounting"&&canViewTab("accounting")&&<AccountingPg data={data} config={config} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("accounting")} user={user}/>}
         {tab==="fixedAssets"&&canViewTab("fixedAssets")&&<FixedAssetsPg data={data} config={config} isMob={isMob} canEdit={canEditTab("fixedAssets")} user={user}/>}

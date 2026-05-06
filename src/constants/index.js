@@ -10,7 +10,7 @@
 /* V19.50: Single source of truth for the app version. Used in topbar pills
    (desktop + mobile), the console marker on module load, and the About modal.
    Bump this constant once and the version label is consistent everywhere. */
-export const APP_VERSION = "V19.70.26";
+export const APP_VERSION = "V19.71.0";
 
 export const FKEYS = ["A","B","C","D","E"];
 
@@ -77,6 +77,90 @@ export const INIT_CONFIG = {
   /* Warehouse module — general products (Session A) */
   generalProducts:[],/* {id,name,category,unit,stock,minStock,avgCost,price,notes,lastMovementDate} */
   productCategories:["مستلزمات تشغيل","قطع غيار","خدمات","ورق وكرتون","مواد تنظيف","أخرى"],
+  /* V19.71: AI Agent control center config (Phase A — UI scaffold).
+     The agent backend lives on a separate VPS Node.js project (clark-ai-agent).
+     CLARK app is the configuration surface — this object is what the agent
+     reads from Firestore at runtime (read-only on agent side, edit on CLARK
+     admin side). Schema kept flat-ish so Firestore writes stay cheap. */
+  aiAgent: {
+    enabled: false,
+    /* Schedule — when the agent answers customers */
+    schedule: {
+      mode: "specific",/* "specific" | "24x7" | "off" */
+      timezone: "Africa/Cairo",
+      days: {
+        sat: { enabled: true,  from: "20:00", to: "10:00" },
+        sun: { enabled: true,  from: "20:00", to: "10:00" },
+        mon: { enabled: true,  from: "20:00", to: "10:00" },
+        tue: { enabled: true,  from: "20:00", to: "10:00" },
+        wed: { enabled: true,  from: "20:00", to: "10:00" },
+        thu: { enabled: true,  from: "20:00", to: "10:00" },
+        fri: { enabled: false, from: "20:00", to: "10:00" },
+      },
+      holidays: [],/* {id, name, from(YYYY-MM-DD), to} */
+      offHoursMessage: "أهلاً بحضرتك. الفريق متاح من ٩ ص لـ ٥ م. هنرد بكرة بإذن الله.",
+      offHoursBehavior: "answer_anyway",/* answer_anyway | say_we_reply | escalate_all */
+      adminAlerts: {
+        qualityComplaints: true,
+        ordersAboveValue: 50000,
+        platinumWaitMinutes: 10,
+      },
+    },
+    /* Personality — tone + style + brand voice */
+    personality: {
+      name: "كلارك",
+      language: "egyptian_polite",/* egyptian_polite | msa | bilingual */
+      style: "professional_friendly",/* formal | professional_friendly | casual */
+      answerLength: "medium",/* short | medium | long */
+      emojiUse: "moderate",/* none | minimal | moderate | rich */
+      greetings: ["أهلاً بحضرتك", "أهلاً وسهلاً"],
+      closings: ["في خدمتك دايماً", "أي وقت محتاج"],
+      forbidden: ["emojis كثيرة (>3)", "وعد بتسليم بدون تحقق", "خصومات استثنائية بدون موافقة"],
+      systemPrompt: "أنت \"كلارك\"، المساعد الذكي الرسمي لمصنع كلارك للملابس الأطفال.\nأنت موظف مبيعات افتراضي محترف، تتعامل مع عملاء جملة فقط.\n\n⚠️ القاعدة الذهبية: READ-ONLY — لا تكتب، لا تعدّل، لا تحذف أي بيانات.\n\nشخصيتك:\n- مهني وودود — عامية مصرية مهذبة\n- مختصر — 2-4 جمل عادةً\n- صادق — لو ما تعرفش، حوّل لمسؤول\n- محترم — استخدم \"حضرتك\" و \"أ/\" قبل الاسم\n\nالقواعد:\n1. لا تخترع أرقام — أي سعر/رصيد/طلب لازم من tool\n2. لا تلتزم بـ commitments — تواريخ تسليم، خصومات، شروط دفع\n3. حماية بيانات العملاء — ما تعرضش بيانات عميل لرقم غير مالكه\n4. خارج النطاق — السياسة، الدين، المنافسين، شؤون شخصية\n5. التحويل لبشري — شكوى جودة، عميل غاضب، طلب >100K، تعديل فاتورة قائمة",
+    },
+    /* FAQs — agent uses these to answer common questions */
+    faqs: [],/* {id, title, category, phrasings[], answer, variables[], useCount, createdAt} */
+    faqCategories: ["الشحن", "الدفع", "الإرجاع", "المنتجات", "الخصومات", "الشركة", "أخرى"],
+    /* Tools — phase A scaffold, real config in phase B */
+    tools: {
+      get_customer_info: { enabled: true },
+      search_products:   { enabled: true, includePricing: true, includeStock: true, includeImages: true, maxResults: 5 },
+      get_customer_balance: { enabled: true },
+      get_customer_orders:  { enabled: true },
+      get_order_details:    { enabled: true },
+      get_faq_answer:       { enabled: true },
+      generate_portal_link: { enabled: true, ttlHours: 24 },
+      generate_statement_pdf: { enabled: true, businessHoursOnly: true },
+      notify_sales_team: { enabled: true, maxValueBeforeManual: 100000 },
+      notify_admin_phone_request: { enabled: true, requiresOtp: true },
+      escalate_to_human: { enabled: true },
+      send_otp: { enabled: true, ttlMin: 5, maxAttempts: 3 },
+      verify_otp: { enabled: true },
+    },
+    /* Tier discounts (default per spec) */
+    tierDiscounts: { Bronze: 0, Silver: 3, Gold: 5, Platinum: 8 },
+    /* Escalation routing */
+    escalation: {
+      supportPhone: "",/* primary human-support WhatsApp number */
+      salesTeamPhone: "",/* sales team group/number */
+      template: "🆘 تحويل عاجل\n👤 {customerName} | 📞 {phone}\n🏆 Tier: {tier} | 📊 Stage: {stage}\n💬 السبب: {reason}\n",
+      autoTriggers: {
+        qualityComplaint: true,
+        orderAbove100k: true,
+        angryCustomer: true,
+        outOfScope: true,
+        platinumCustomer: true,
+      },
+    },
+    /* Agent-only collections meta — for phase B logs UI */
+    collections: {
+      conversations: "aiAgentConversations",
+      escalations: "aiAgentEscalations",
+      salesNotifications: "aiAgentSalesNotifications",
+      suggestions: "aiAgentSuggestions",
+      analytics: "aiAgentAnalytics",
+    },
+  },
   permissions:{
     admin:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"edit",custDeliver:"edit",treasury:"edit",hr:"edit",purchase:"edit",warehouse:"edit"},
     manager:{dashboard:"edit",details:"edit",external:"edit",stock:"edit",reports:"edit",calc:"edit",tasks:"edit",db:"edit",settings:"hide",custDeliver:"edit",treasury:"view",hr:"view",purchase:"edit",warehouse:"edit"},
