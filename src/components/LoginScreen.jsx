@@ -58,8 +58,20 @@ export const TABS=[
   /* V19.71: AI Agent — control center + training school for the WhatsApp B2B sales agent.
      Distinct from "الأتمتة" (rule-based scheduling): this is the LLM-driven conversational agent.
      Label is intentionally English ("AI Agent") per user preference — it's a globally recognized
-     product term and visually separates it from the rule-based automation tab above. */
-  {key:"aiAgent",label:"AI Agent",icon:"🤖",color:"#8B5CF6",bg:"#EDE9FE",svg:<><circle cx="12" cy="12" r="9"/><circle cx="9" cy="10" r="1"/><circle cx="15" cy="10" r="1"/><path d="M9 15a4 4 0 0 0 6 0"/><path d="M12 3v2"/><path d="M5 7l1.5 1.5"/><path d="M19 7l-1.5 1.5"/></>},
+     product term and visually separates it from the rule-based automation tab above.
+     V19.72: Icon swapped to a solid-fill robot mascot (square head + antenna + side ears + 2 round
+     eyes) per user's uploaded reference. The Home tile's outer SVG is `fill="none" stroke="currentColor"`,
+     so we override fill="currentColor" on body/ears/antenna-bulb and fill="white" on eyes to get
+     the solid look against the tile's tinted background. */
+  {key:"aiAgent",label:"AI Agent",icon:"🤖",color:"#8B5CF6",bg:"#EDE9FE",svg:<>
+    <line x1="12" y1="2" x2="12" y2="5"/>
+    <circle cx="12" cy="2" r="0.9" fill="currentColor"/>
+    <rect x="2" y="11" width="2.6" height="4.2" rx="0.6" fill="currentColor" stroke="none"/>
+    <rect x="19.4" y="11" width="2.6" height="4.2" rx="0.6" fill="currentColor" stroke="none"/>
+    <rect x="5" y="6" width="14" height="14" rx="2.4" fill="currentColor"/>
+    <circle cx="9.4" cy="13" r="1.7" fill="white" stroke="none"/>
+    <circle cx="14.6" cy="13" r="1.7" fill="white" stroke="none"/>
+  </>},
   {key:"audit",label:"سجل التدقيق",icon:"🔍",color:"#DC2626",bg:"#FEE2E2",svg:<><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><path d="M11 8v3l2 2"/></>},
   {key:"accounting",label:"محاسبة",icon:"📊",color:"#0891B2",bg:"#CFFAFE",svg:<><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/><circle cx="7" cy="14" r="1.5"/><circle cx="11" cy="10" r="1.5"/><circle cx="15" cy="14" r="1.5"/><circle cx="20" cy="9" r="1.5"/></>},
   {key:"fixedAssets",label:"أصول ثابتة",icon:"🏭",color:"#0EA5E9",bg:"#E0F2FE",svg:<><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="10" r="1.5"/><circle cx="15" cy="10" r="1.5"/><path d="M5 17l3-3 4 2 7-7"/></>},
