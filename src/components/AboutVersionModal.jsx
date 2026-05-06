@@ -25,10 +25,23 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.16",
+    date: "2026-05-06",
+    types: ["fix"],
+    title: "🔤 Final fix: Arabic table headers في PDF — استخدام Tahoma/Arial system fonts",
+    changes: [
+      { type: "fix", text: "🐛 [V19.70.15 لسه ما حلتش الـbug — User confirmed إن الـheaders لسه ملخبطة] الـFontFace API ضمن إن Cairo Bold بقى registered في الـmain document، لكن **html2canvas بـclone الـDOM في internal iframe**، والـregistered FontFace ما بـcopyـش للـiframe ده بشكل reliable. النتيجة: حتى مع registered FontFace، html2canvas's clone ما لاقاش Cairo Bold → fallback لـArial → الـArabic ligatures ما اتـshapedش." },
+      { type: "fix", text: "🛠️ [الـREAL FIX اللي اقترحه الـuser: استبدال font في الـ<th> headers بـsystem fonts] في buildOneCustomerHTML في CustDeliverPg.jsx، الـ`<th>` selector اتعدّل من `font-weight:800` (inheriting Cairo from body) إلى explicit `font-family:'Tahoma','Arial',sans-serif;font-weight:700`. ده بـ(1) bypass الـhtml2canvas FontFace race بالكامل، (2) Tahoma مـpreinstalled على Windows بـnative Arabic glyph shaping، (3) Arial fallback لـmacOS، (4) sans-serif generic للـedge cases. الـbody cells (td) لسه بـuse Cairo (weight 400، اللي كان بـloading صح من البداية)." },
+      { type: "improvement", text: "🎨 [Visual تأثير: minimal] Tahoma 700 + Cairo 400 mix بـmaintain الـoverall look — الـheaders شوية أنحف بصرياً عن Cairo 800 لكن لسه bold + الـArabic ligatures correct. الـbrand consistency مش متأثرة لأن الـbody (اللي بـcontain اسم العميل، التفاصيل، والـmoney values) لسه Cairo." },
+      { type: "improvement", text: "🛡️ [Defense-in-depth: 3-layer fallback chain] حتى لو Tahoma غير متوفر (لو الـbrowser بـrun على environment غريب)، Arial كمان عنده Arabic shaping. ولو الاتنين فشلوا، sans-serif الـgeneric يـpick up أي Arabic-aware system font (Noto Sans Arabic على Linux مثلاً). مفيش حالة الـheaders تـrender disconnected." },
+      { type: "improvement", text: "📚 [Lesson learned: html2canvas + custom fonts = unreliable] الـtakeaway للمشاريع الجاية: لو محتاج Arabic في PDF generated عبر html2canvas، استخدم system fonts (Tahoma, Arial, Times New Roman) بدل web fonts (Cairo, Tajawal, IBM Plex Arabic). أو فكّر في jsPDF text APIs مباشرة (Approach A من الـhandoff). html2canvas's iframe clone مش reliable مع FontFace registry." },
+    ]
+  },
+  {
     version: "V19.70.15",
     date: "2026-05-06",
     types: ["fix"],
-    title: "🔤 Real fix: Arabic PDF glyph shaping — FontFace API + binary preload",
+    title: "🔤 Attempt 2: FontFace API + binary preload (didn't fully fix)",
     changes: [
       { type: "fix", text: "🐛 [الـCRITICAL: V19.70.14 ما حلّتش الـbug — الـheaders لسه ملخبطة] User confirmed إن V19.70.14 (الـlink injection + document.fonts.load) لم يحل المشكلة. **السبب الحقيقي**: `document.fonts.load(\"800 12px Cairo\")` بـtrigger الـload بس مش بـguarantee إن الـTTF binary خلص download. على fresh page-load، الـawait بـresolve في ~5-10ms والـbinary لسه في flight → html2canvas بـcapture بـArial fallback → الـArabic ligatures مش بـshape." },
       { type: "fix", text: "🛠️ [الـREAL FIX: استخدام FontFace API بدل document.fonts.load string]  `new FontFace(\"Cairo\", \"url(woff2)\", {weight:\"800\"})` بـcreate explicit FontFace object backed by specific binary URL. `face.load()` يـawait الـbinary download + parse. `document.fonts.add(face)` يـregister عبر الـdocument. مفيش race condition ممكنة. الـfont URLs بقت direct woff2 من fontsource CDN (الـArabic subset فقط ~30KB لكل weight بدل ~200KB من Google Fonts CSS wrapper)." },

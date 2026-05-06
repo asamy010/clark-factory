@@ -1422,7 +1422,14 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           "body{font-family:'Cairo',Arial,sans-serif;padding:24px 28px;font-size:12px;direction:rtl;color:#1E293B;line-height:1.5}"+
           "h2{font-size:15px;color:#0284C7;margin:14px 0 8px;padding-bottom:4px;border-bottom:2px solid #E2E8F0}"+
           "table{width:100%;border-collapse:collapse;margin:8px 0 14px;border:1px solid #94A3B8}"+
-          "th{background:linear-gradient(180deg,#E2E8F0,#CBD5E1);font-weight:800;font-size:10px;color:#1E293B;padding:5px 8px;text-align:right;border:1px solid #94A3B8;letter-spacing:0.3px}"+
+          /* V19.70.16: explicit Tahoma/Arial system stack on <th> only — bypasses
+             the html2canvas FontFace race entirely. Cairo Bold (weight 800) wasn't
+             reaching the html2canvas internal iframe even after FontFace.add() in
+             V19.70.15, so headers fell back to Arial w/o Arabic shaping. Tahoma is
+             preinstalled on Windows and has native Arabic glyph shaping; Arial is
+             the macOS fallback. The body cells (td) keep Cairo for brand consistency
+             since they only use weight 400 which loaded correctly all along. */
+          "th{background:linear-gradient(180deg,#E2E8F0,#CBD5E1);font-family:'Tahoma','Arial',sans-serif;font-weight:700;font-size:10px;color:#1E293B;padding:5px 8px;text-align:right;border:1px solid #94A3B8;letter-spacing:0.3px}"+
           "td{padding:4px 8px;text-align:right;border:1px solid #CBD5E1;font-size:11px}"+
           "tr:nth-child(even){background:#F8FAFC}"+
           ".hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #0284C7;padding-bottom:14px;margin-bottom:20px;gap:16px}"+
