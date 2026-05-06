@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.26",
+    date: "2026-05-06",
+    types: ["fix", "ux"],
+    title: "🔠 Switch to Amiri (full PFB coverage) + shaper algo fix + QC-2 label larger",
+    changes: [
+      { type: "fix", text: "🐛 [V19.70.25 الـPDF لسه فيه حروف ناقصة — Tajawal cmap مش complete] User report: 'الكتابة فيها حروف ناقصة كتير، حرف الالف في كل كلمة مش موجود وحرف الراء في كلمة التاريخ، الالف والنون في كلمة التليفون'. **Diagnosis**: الـTajawal TTF المـbundled مش بـyـcontain كل الـArabic Presentation Forms-B codepoints (U+FE70-U+FEFC). لما الـshaper بـyـemit (مثلاً) 0xFE8D للـا isolated أو 0xFEE5 للـن isolated، الـTajawal cmap مش لاقياهم → jsPDF بـyـskip drawing الـglyph silently (مش بـyـrender placeholder حتى). النتيجة: حروف بتختفي." },
+      { type: "fix", text: "📦 [Switched لـAmiri (full Arabic coverage, ~840KB)] Amiri عبارة عن typeface عربي traditional Naskh designed specifically للـArabic — عنده **complete** Presentation Forms-B coverage مع كل الـcontextual variants. الـlook calligraphic مش modern زي Cairo، لكن الـpriority الآن CORRECTNESS قبل الـaesthetics. Cairo's google/fonts repo بـyـship variable font فقط (مش static TTFs)، Tajawal بـyـship static TTFs لكن coverage incomplete. Amiri بـyـsatisfy الـ2 شروط (static + complete)." },
+      { type: "fix", text: "🛠️ [Shaper algorithm bug — fix لـcorrect form selection] الـ`nextConnectsBackward` كان بـyـconsider فقط 'هل الـnext letter يقدر يـreceive من previous؟'. **Bug**: الـright-joining letters (ا، د، ذ، ر، ز، و، ء، ؤ، ة، ى) ما بـyـconnect أبداً للـnext. لما واحد من دول كان بين dual-joining letters، الـalgo كان emit الـmedial form (formIdx 3) — لكن الـright-joining letters في table بتاعنا map medial=final glyph، فالـletter كانت تـrender كـfinal-form variant في وسط الكلمة (ملخبطة). **الـFix**: ضافت `iJoinsForward = entry[4]` check + `nextConnectsBackward = iJoinsForward && _connectsFromPrev(next)`. دلوقتي right-joining letters في وسط الكلمة بـyـemit final form (correct)." },
+      { type: "ux", text: "🏷 [QC-2 label box أكبر + text أكبر] User report: 'عاوز مربع الـQC يكبر شوية بالارتفاع يكون متناسق، والكلمة تكبر شوية عشان مش واضحة للعين'. **الـFix**: الـbox height زادت من 18% إلى 26% من حجم الـQR. الـtext font size زاد من 0.55 إلى 0.7 من الـbox height (~35% أكبر). الـborder بقى أسمك (1.5 → 1.8). الـpadding عمودي زاد من 0.4mm → 0.6mm. الـletter-spacing من 1px → 1.5px. الـborder-radius من 1mm → 1.2mm. الـQC-2 stamp دلوقتي واضح للعين على الـlabels." },
+      { type: "improvement", text: "📚 [Lesson: Arabic in jsPDF needs (1) full PFB coverage (2) correct shaper] المسار الصحيح للـArabic في jsPDF/PDF generation: (a) Font لازم يكون عنده ALL Arabic Presentation Forms-B codepoints (U+FE70-U+FEFC) في الـcmap، (b) الـshaper لازم يـoutput الـcorrect form codepoint based على الـcontextual joining algorithm. الـAmiri بـyـsatisfy (a). الـshaper بعد V19.70.26's fix بـyـsatisfy (b). الـcombo دلوقتي should produce correctly-shaped Arabic." },
+      { type: "improvement", text: "🛡️ [Future: switch back to a modern sans Arabic لو لقينا واحد بـfull PFB coverage] Amiri calligraphic look مش everyone's preference للـmodern delivery receipts. الـoptions الـbundled with full PFB: Amiri (current), Markazi Text، Reem Kufi، Mada، Lateef. لو الـuser عاوز modern sans، نقدر نضيف toggle/setting. للحد دلوقتي، Amiri = default (correctness > aesthetics)." },
+    ]
+  },
+  {
     version: "V19.70.25",
     date: "2026-05-06",
     types: ["fix"],

@@ -29,18 +29,17 @@
 
 const JSPDF_URL    = "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js";
 const AUTOTABLE_URL = "https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js";
-/* V19.70.25: bundled Arabic TTFs in `public/fonts/` — same-origin, zero CDN
-   dependency, zero CORS risk. Switched away from CDN-fetched Cairo TTFs after:
-     - V19.70.23 used cdn.jsdelivr.net/gh/google/fonts (403 — repo blocks raw)
-     - V19.70.24 used fontsource@5 (404 — fontsource v5 ships woff2 only, no TTF)
-     - V19.70.24 fallback to unpkg (CORS-blocked from clark-factory.vercel.app)
-   Tajawal is the static-TTF Arabic font available on the google/fonts repo.
-   Visually similar to Cairo (modern sans-serif Arabic) and includes both
-   Regular + Bold as separate static TTFs (~60KB each, total ~120KB).
-   The fonts ship in the Vite `public/` directory → served from the app's
-   own origin — no CDN hops, no CORS, no 404s. */
-const TAJAWAL_REGULAR_URL = "/fonts/Tajawal-Regular.ttf";
-const TAJAWAL_BOLD_URL    = "/fonts/Tajawal-Bold.ttf";
+/* V19.70.26: switched from Tajawal → Amiri. Tajawal's cmap was incomplete for
+   Arabic Presentation Forms-B — the user reported missing letters in PDF
+   output (e.g. "التليفون" rendered as "لتليفو", missing ا and ن).
+   Amiri is specifically designed as a complete Arabic typeface (calligraphic
+   Naskh style) with FULL Arabic Presentation Forms-B coverage (U+FE70-U+FEFC).
+   Visually different from Cairo/Tajawal (more traditional, less modern), but
+   the priority right now is correctness over aesthetics — until we find a
+   modern Arabic sans-serif with complete PFB coverage that's also bundled-
+   capable. Amiri Regular + Bold = ~840KB total. */
+const ARABIC_REGULAR_URL = "/fonts/Amiri-Regular.ttf";
+const ARABIC_BOLD_URL    = "/fonts/Amiri-Bold.ttf";
 
 const _state = {
   loaded: false,
@@ -95,12 +94,13 @@ export async function loadArabicPdfLibs() {
     await _loadScript(AUTOTABLE_URL);
     if (!window.jspdf || !window.jspdf.jsPDF) throw new Error("jsPDF failed to load");
     /* Fonts in parallel — both downloads can overlap to save wall time.
-       V19.70.25: same-origin /fonts/ paths instead of CDN — no CORS risk. */
+       V19.70.25: same-origin /fonts/ paths instead of CDN — no CORS risk.
+       V19.70.26: switched to Amiri (full PFB coverage). */
     const [reg, bold] = await Promise.all([
-      _fetchAsBase64(TAJAWAL_REGULAR_URL),
-      _fetchAsBase64(TAJAWAL_BOLD_URL),
+      _fetchAsBase64(ARABIC_REGULAR_URL),
+      _fetchAsBase64(ARABIC_BOLD_URL),
     ]);
-    _state.cairoRegularBase64 = reg;/* keep field name for back-compat with createPdf */
+    _state.cairoRegularBase64 = reg;/* field name kept for back-compat with createPdf */
     _state.cairoBoldBase64 = bold;
     _state.loaded = true;
   })();
@@ -256,9 +256,17 @@ export function ar(text) {
 
     const prev = i > 0 ? s.codePointAt(i - 1) : 0;
     const next = i + 1 < s.length ? s.codePointAt(i + 1) : 0;
-    /* Skip lam-alef sequences for the alef position (already handled above as ligature) */
+    const entry = _AR_FORMS[cp];
+    /* V19.70.26: bug fix — nextConnectsBackward must also consider whether THIS letter
+       can connect to its next at all. Right-joining letters (ا د ذ ر ز و ء ؤ ة ى)
+       NEVER connect to next, so they can't be initial or medial regardless of next.
+       Before this fix, ا between two dual-joining letters was incorrectly emitted as
+       MEDIAL (formIdx 3 = 0xFE8E final-form codepoint, which is similar but uses the
+       "final-shaped" variant that connects to prev only — looking weird/wrong in mid-word).
+       Now: I connect to next iff (next is connectable) AND (I am dual-joining). */
+    const iJoinsForward = entry[4] === true;
     const prevConnectsForward = _joinsForward(prev);
-    const nextConnectsBackward = _connectsFromPrev(next);
+    const nextConnectsBackward = iJoinsForward && _connectsFromPrev(next);
 
     let formIdx;
     if (prevConnectsForward && nextConnectsBackward) formIdx = 3;/* medial */
@@ -266,7 +274,6 @@ export function ar(text) {
     else if (nextConnectsBackward) formIdx = 2;/* initial */
     else formIdx = 0;/* isolated */
 
-    const entry = _AR_FORMS[cp];
     out.push(String.fromCodePoint(entry[formIdx]));
   }
   /* Reverse to convert from logical order to visual order (RTL).
@@ -281,21 +288,23 @@ export function arSafe(text) {
   return ar(String(text));
 }
 
-/* Create a new jsPDF instance with Tajawal Regular + Bold registered + R2L mode on.
-   V19.70.25: family aliased as "Cairo" so all the existing buildXxxPdfBase64 callers
-   still work without modification. The actual TTF is Tajawal, but the API contract
-   stays the same — just call setFont("Cairo"). */
+/* Create a new jsPDF instance with Amiri Regular + Bold registered + R2L mode on.
+   V19.70.26: family aliased as "Cairo" so all the existing buildXxxPdfBase64 callers
+   still work without modification. The actual TTF is Amiri (full Arabic coverage),
+   but the API contract stays the same — just call setFont("Cairo"). */
 export function createPdf(orientation, format) {
   if (!_state.loaded) throw new Error("call loadArabicPdfLibs() first");
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF(orientation || "p", "mm", format || "a4");
   /* Register fonts. addFileToVFS expects base64 (no data: prefix). */
-  pdf.addFileToVFS("Tajawal-Regular.ttf", _state.cairoRegularBase64);
-  pdf.addFont("Tajawal-Regular.ttf", "Cairo", "normal");
-  pdf.addFileToVFS("Tajawal-Bold.ttf", _state.cairoBoldBase64);
-  pdf.addFont("Tajawal-Bold.ttf", "Cairo", "bold");
+  pdf.addFileToVFS("Amiri-Regular.ttf", _state.cairoRegularBase64);
+  pdf.addFont("Amiri-Regular.ttf", "Cairo", "normal");
+  pdf.addFileToVFS("Amiri-Bold.ttf", _state.cairoBoldBase64);
+  pdf.addFont("Amiri-Bold.ttf", "Cairo", "bold");
   pdf.setFont("Cairo");
-  /* setR2L flips direction at line layout level. We still pass shaped (visual-order) text. */
+  /* setR2L flips direction at line layout level. We pass shaped (visual-order) text;
+     the user reported text was directionally correct (with letters missing only) so
+     R2L wasn't double-reversing. Keeping it on for correct alignment behavior. */
   if (typeof pdf.setR2L === "function") pdf.setR2L(true);
   return pdf;
 }

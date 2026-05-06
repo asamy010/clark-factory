@@ -5412,7 +5412,11 @@ export default function App(){
          keeps working as normal. */
       const secondGrade=!!barcodePopup._secondGrade;
       const qrMMEffective=secondGrade?Math.round(qrMM*0.8):qrMM;
-      const qcStampMM=Math.max(3,Math.round(qrMM*0.18));/* QC-2 box height ≈18% of QR */
+      /* V19.70.26: QC-2 box larger and more legible. Was ≈18% of QR (too small to read
+         on a typical 30-40mm QR), now ≈26% giving more headroom for the bigger text.
+         The box's vertical padding (0.4mm) is unchanged so the box itself doesn't
+         dominate; only the inner font + height grow proportionally. */
+      const qcStampMM=Math.max(4,Math.round(qrMM*0.26));/* QC-2 box height ≈26% of QR */
       const buildLabel=(qrText,modelNo,desc,sizeStr,seriesStr)=>{let h="<div class='lbl'>";
         /* V16.49: logo overrides brand-text when enabled. brightness(0) forces pure black for thermal print. */
         if(showLogoFlag)h+="<img src='"+CLARK_LOGO_PRINT+"' alt='CLARK' style='width:75%;max-width:30mm;height:auto;max-height:7mm;object-fit:contain;filter:brightness(0) saturate(100%);margin-bottom:0.5mm;display:block;margin-left:auto;margin-right:auto'/>";
@@ -5428,7 +5432,10 @@ export default function App(){
           h+="<div style='flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.8mm'>";
           h+="<img class='qr-img' data-text='"+qrText+"' style='width:"+qrMMEffective+"mm;height:"+qrMMEffective+"mm'/>";
           if(secondGrade){
-            h+="<div style='border:1.5px solid #000;padding:0.4mm "+(qcStampMM*0.6)+"mm;font-weight:900;font-size:"+(qcStampMM*0.55)+"mm;line-height:1;letter-spacing:1px;border-radius:1mm'>QC-2</div>";
+            /* V19.70.26: bigger inner font (0.7 of box height) + slightly more
+               horizontal padding so 'QC-2' has breathing room.
+               Box height comes from qcStampMM (~26% of QR vs old 18%). */
+            h+="<div style='border:1.8px solid #000;padding:0.6mm "+(qcStampMM*0.7)+"mm;font-weight:900;font-size:"+(qcStampMM*0.7)+"mm;line-height:1;letter-spacing:1.5px;border-radius:1.2mm'>QC-2</div>";
           }
           h+="</div>";
         }
