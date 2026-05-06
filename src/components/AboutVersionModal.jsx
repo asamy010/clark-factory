@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.14",
+    date: "2026-05-06",
+    types: ["fix"],
+    title: "🔤 Hotfix: Arabic glyph shaping في الـPDF — حروف الـheaders كانت ملخبطة",
+    changes: [
+      { type: "fix", text: "🐛 [الـCRITICAL: Arabic letters في table headers بـrender disconnected] User report: 'عناوين الجداول في ال بي دي اف العربي ملخبط ومش مقروء وبالعكس'. الـscreenshot أوضح إن 'العميل' بـrender 'لـعميل'، 'التاريخ' بـrender 'لـتايخ'، إلخ. الـcustomer name + address (في td، weight 400) كانوا fine. **السبب**: الـ`<th>` في الـCSS عنده `font-weight: 800` (Cairo Bold). الـoffscreen html2canvas capture بـrun قبل ما الـCairo Bold variant يـload في الـbrowser font cache → الـbrowser يـfallback لـArial أو system font اللي ما بـshapeش الـArabic ligatures correctly → كل حرف يـrender في isolated form بدل ما يتـconnect مع المجاور." },
+      { type: "fix", text: "🛠️ [Cairo font preload + wait-for-load قبل html2canvas] **الـFix**: ضافت `ensureCairoLoaded()` helper في htmlToPdf.js. بـ(1) inject `<link>` لـCairo Google Fonts مع كل الـweights (400, 500, 600, 700, 800, 900) لو مش موجود، (2) `document.fonts.load()` لكل weight ضروري بـPromise.all، (3) `document.fonts.ready` كـfallback، (4) extra 200ms delay علشان الـmetrics يـsettle. كده لما html2canvas يـcapture، Cairo Bold يكون موجود فعلاً في الـcache → الـArabic shaping correct." },
+      { type: "improvement", text: "🛡️ [Defense-in-depth: explicit dir + lang attrs] قبل V19.70.14 الـoffscreen container كان عنده `direction: 'rtl'` كـCSS بس. ضافت `setAttribute('dir', 'rtl')` و `setAttribute('lang', 'ar')` على الـcontainer كـHTML attributes. بعض الـrendering engines (Chrome internals) تستخدم الـattributes مع الـCSS لـbidi resolution — الـattribute أقوى من الـstyle. + `letterRendering: true` في html2canvas options لـbetter glyph fidelity." },
+      { type: "improvement", text: "⏱️ [Wait time من 100ms إلى 250ms قبل capture] الـoriginal had 100ms للـQR/image loading. زدتها لـ250ms عشان الـfont metrics + image rendering يـsettle على الـslowest devices. الـperformance impact ~150ms per customer — مع 50 عميل ده 7.5 ثانية extra على الـtotal بس مش لكل عميل (لأن الـensureCairoLoaded بـcache after first call)." },
+    ]
+  },
+  {
     version: "V19.70.13",
     date: "2026-05-06",
     types: ["fix", "ux"],
