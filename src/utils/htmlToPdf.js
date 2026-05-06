@@ -35,8 +35,7 @@ const CAIRO_FONT_URLS = {
   900: "https://cdn.jsdelivr.net/npm/@fontsource/cairo@5.0.13/files/cairo-arabic-900-normal.woff2",
 };
 /* Legacy fallback URL for browsers without FontFace API (very rare — Safari < 10) */
-/* V19.70.27: switched primary font to Markazi Text per user request, kept Cairo as fallback */
-const CAIRO_FONT_CSS_URL = "https://fonts.googleapis.com/css2?family=Markazi+Text:wght@400;500;600;700&family=Cairo:wght@400;700&display=swap";
+const CAIRO_FONT_CSS_URL = "https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap";
 
 let _libsLoaded = false;
 let _libsLoading = null;

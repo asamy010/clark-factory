@@ -82,10 +82,7 @@ export function printPage(title,bodyHtml,configInfo){const pw=openPrintWindow();
     +"<span class='foot-brand'>"+factoryName+"</span>"
     +"<span class='foot-meta'>"+today+" • Powered by CLARK Factory Management</span>"
   +"</div>";
-  /* V19.70.27: switched the print/PDF font from Cairo to Markazi Text per user request.
-     Cairo kept as a fallback in the font-family chain so legacy PRINT_CSS (which still
-     references Cairo) doesn't render a generic system font when MT fails to load. */
-  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Markazi+Text:wght@400;500;600;700&family=Cairo:wght@400;700&display=swap' rel='stylesheet'/><script src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'></"+"script><title>"+title+"</title><style>"+PRINT_CSS+enhancedStyles+".pbar{position:sticky;top:0;background:#fff;padding:8px 16px;border-bottom:2px solid #E2E8F0;display:flex;justify-content:center;gap:10px;z-index:999}.pbar button{padding:8px 22px;border-radius:8px;border:none;cursor:pointer;font-family:'Markazi Text','Cairo',serif;font-size:13px;font-weight:700}.pb-back{background:#F1F5F9;color:#475569}.pb-print{background:#0EA5E9;color:#fff}.pb-pdf{background:#EF4444;color:#fff}.pb-pdf:disabled{opacity:0.6;cursor:wait}@media print{.pbar{display:none}}</style></head><body><div class='pbar'><button class='pb-back' onclick='window.close()'>↩ رجوع</button><button class='pb-print' onclick='window.print()'>🖨 طباعة</button><button class='pb-pdf' id='pdf-btn' onclick='savePdf()'>📄 حفظ PDF</button></div><div id='report-content'>"+header+bodyHtml+footer+"</div><script>function savePdf(){var btn=document.getElementById('pdf-btn');if(!window.html2pdf){alert('مكتبة PDF لم تُحمّل بعد — انتظر قليلاً ثم أعد المحاولة');return}var el=document.getElementById('report-content');if(!el){alert('محتوى التقرير غير موجود');return}var orig=btn.textContent;btn.disabled=true;btn.textContent='⏳ جاري الإنشاء...';window.html2pdf().set({margin:[10,10,10,10],filename:'"+safeTitle.replace(/'/g,"\\'")+".pdf',image:{type:'jpeg',quality:0.95},html2canvas:{scale:2,useCORS:true,letterRendering:true,allowTaint:true},jsPDF:{unit:'mm',format:'a4',orientation:'portrait',compress:true},pagebreak:{mode:['css','legacy','avoid-all']}}).from(el).save().then(function(){btn.disabled=false;btn.textContent=orig}).catch(function(e){alert('فشل إنشاء PDF: '+e.message);btn.disabled=false;btn.textContent=orig})}</"+"script></body></html>");pw.document.close();/* V15.83: restore focus + auto-print.
+  pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><script src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'></"+"script><title>"+title+"</title><style>"+PRINT_CSS+enhancedStyles+".pbar{position:sticky;top:0;background:#fff;padding:8px 16px;border-bottom:2px solid #E2E8F0;display:flex;justify-content:center;gap:10px;z-index:999}.pbar button{padding:8px 22px;border-radius:8px;border:none;cursor:pointer;font-family:'Cairo',sans-serif;font-size:13px;font-weight:700}.pb-back{background:#F1F5F9;color:#475569}.pb-print{background:#0EA5E9;color:#fff}.pb-pdf{background:#EF4444;color:#fff}.pb-pdf:disabled{opacity:0.6;cursor:wait}@media print{.pbar{display:none}}</style></head><body><div class='pbar'><button class='pb-back' onclick='window.close()'>↩ رجوع</button><button class='pb-print' onclick='window.print()'>🖨 طباعة</button><button class='pb-pdf' id='pdf-btn' onclick='savePdf()'>📄 حفظ PDF</button></div><div id='report-content'>"+header+bodyHtml+footer+"</div><script>function savePdf(){var btn=document.getElementById('pdf-btn');if(!window.html2pdf){alert('مكتبة PDF لم تُحمّل بعد — انتظر قليلاً ثم أعد المحاولة');return}var el=document.getElementById('report-content');if(!el){alert('محتوى التقرير غير موجود');return}var orig=btn.textContent;btn.disabled=true;btn.textContent='⏳ جاري الإنشاء...';window.html2pdf().set({margin:[10,10,10,10],filename:'"+safeTitle.replace(/'/g,"\\'")+".pdf',image:{type:'jpeg',quality:0.95},html2canvas:{scale:2,useCORS:true,letterRendering:true,allowTaint:true},jsPDF:{unit:'mm',format:'a4',orientation:'portrait',compress:true},pagebreak:{mode:['css','legacy','avoid-all']}}).from(el).save().then(function(){btn.disabled=false;btn.textContent=orig}).catch(function(e){alert('فشل إنشاء PDF: '+e.message);btn.disabled=false;btn.textContent=orig})}</"+"script></body></html>");pw.document.close();/* V15.83: restore focus + auto-print.
      Was removed in V15.79 but caused "nothing happens" — new window opens in background tab,
      user misses it. Now focus brings the window to front, print() opens the native dialog.
      Toolbar (رجوع/طباعة/PDF) stays visible so user can cancel dialog and use PDF button. */
@@ -594,13 +591,12 @@ export function printSalaryEnvelopes(empsList,weekInfo,configInfo){
   });
   pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/>"
     +"<script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script>"
-    /* V19.70.27: Markazi Text + Cairo fallback */
-    +"<link href='https://fonts.googleapis.com/css2?family=Markazi+Text:wght@400;500;600;700&family=Cairo:wght@500;700&display=swap' rel='stylesheet'/>"
+    +"<link href='https://fonts.googleapis.com/css2?family=Cairo:wght@500;700;800;900&display=swap' rel='stylesheet'/>"
     +"<style>"
     /* DL envelope — 220mm x 110mm landscape. Direct feed into printer. */
     +"@page{size:220mm 110mm;margin:0}"
     +"*{margin:0;padding:0;box-sizing:border-box}"
-    +"body{font-family:'Markazi Text','Cairo',serif;color:#000;background:#fff}"
+    +"body{font-family:'Cairo',sans-serif;color:#000;background:#fff}"
     +".env{width:220mm;height:110mm;padding:7mm 12mm;display:flex;flex-direction:column;page-break-after:always;overflow:hidden;position:relative}"
     +".env:last-child{page-break-after:auto}"
     /* Header: logo + factory name + date */
@@ -608,7 +604,7 @@ export function printSalaryEnvelopes(empsList,weekInfo,configInfo){
     +".logo{width:14mm;height:14mm;object-fit:contain;flex-shrink:0}"
     +".logo-ph{width:14mm;height:14mm;flex-shrink:0}"
     +".brand{font-size:16pt;font-weight:900;flex:1;letter-spacing:0.5px}"
-    +".date{font-size:10pt;font-weight:600;color:#000;font-family:'Markazi Text','Cairo',monospace;white-space:nowrap}"
+    +".date{font-size:10pt;font-weight:600;color:#000;font-family:'Cairo',monospace;white-space:nowrap}"
     /* Divider */
     +".divider{height:2px;background:linear-gradient(90deg,#000 0%,#000 20%,#888 50%,#000 80%,#000 100%);margin:1mm 0 4mm}"
     /* Body: QR column on right, employee info on left */
@@ -617,7 +613,7 @@ export function printSalaryEnvelopes(empsList,weekInfo,configInfo){
     /* Professional week badge — stamp-style above QR */
     +".week-badge{display:flex;flex-direction:column;align-items:center;justify-content:center;width:32mm;padding:1.5mm 0;border:2.5px solid #000;border-radius:2mm;background:#000;color:#fff;line-height:1}"
     +".week-label{font-size:7pt;font-weight:700;letter-spacing:1.5px;opacity:0.75;margin-bottom:0.5mm}"
-    +".week-num{font-size:16pt;font-weight:700;font-family:'Markazi Text','Cairo',monospace;letter-spacing:1px}"
+    +".week-num{font-size:16pt;font-weight:900;font-family:'Cairo',monospace;letter-spacing:1px}"
     +".qr{width:32mm!important;height:32mm!important}"
     /* Employee info */
     +".emp-info{flex:1;display:flex;flex-direction:column;gap:2.5mm}"
@@ -628,7 +624,7 @@ export function printSalaryEnvelopes(empsList,weekInfo,configInfo){
     +".emp-cta-sub{font-size:9pt;font-weight:500;color:#000}"
     /* On-screen preview controls (hidden on print) */
     +".pbar{position:sticky;top:0;background:#fff;padding:6px;display:none;justify-content:center;gap:8px;border-bottom:2px solid #ccc;z-index:10}"
-    +".pbar button{padding:6px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Markazi Text','Cairo',serif;font-size:11px;font-weight:700;background:#fff}"
+    +".pbar button{padding:6px 16px;border-radius:6px;border:1px solid #000;cursor:pointer;font-family:'Cairo';font-size:11px;font-weight:700;background:#fff}"
     +".pbar .pr{background:#000;color:#fff}"
     +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
     +"</style></head><body>"
