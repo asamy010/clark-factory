@@ -78,6 +78,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const[reportRange,setReportRange]=useState({from:"",to:""});const[showReport,setShowReport]=useState(false);const[rptType,setRptType]=useState("all");const[rptCust,setRptCust]=useState("");const[rptModel,setRptModel]=useState("");
   const[invAudit,setInvAudit]=useState(null);/* {items:{orderId:{counted:n}},scanning:false} */
   const[groupPrint,setGroupPrint]=useState(null);const[addCustPick,setAddCustPick]=useState(null);const[stockRcv,setStockRcv]=useState(null);/* {items:{},scanning:false} */
+  /* V19.70.20: Click-to-expand popup for the رصيد متاح dashboard card.
+     Shows all models with avail > 0, breaking down series-vs-broken pieces.
+     Supports search/filter, print (browser-native), and WhatsApp PDF send to owner phones. */
+  const[availPopup,setAvailPopup]=useState(null);/* { search, sending } | null */
   const[showNewAudit,setShowNewAudit]=useState(false);const[auditDate,setAuditDate]=useState(new Date().toISOString().split("T")[0]);const[auditFrom,setAuditFrom]=useState("");const[auditTo,setAuditTo]=useState("");const[auditNote,setAuditNote]=useState("");const[auditSelCusts,setAuditSelCusts]=useState({});
   const[activeAudit,setActiveAudit]=useState(null);const[auditCell,setAuditCell]=useState(null);const[auditVal,setAuditVal]=useState(0);const[showAuditAnalysis,setShowAuditAnalysis]=useState(null);
   const[ocrCust,setOcrCust]=useState(null);const[ocrLoading,setOcrLoading]=useState(false);const[ocrResult,setOcrResult]=useState(null);const ocrRef=useRef(null);const[auditInclude,setAuditInclude]=useState(null);
@@ -1894,11 +1898,261 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)",gap:isMob?8:12,marginBottom:14}}>
           <div style={{padding:12,borderRadius:12,background:T.accent+"08",border:"1px solid "+T.accent+"15",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>تسليم مخزن جاهز</div><div style={{fontSize:isMob?18:24,fontWeight:800,color:T.accent}}>{fmt(totalStock)}</div></div>
           <div style={{padding:12,borderRadius:12,background:T.ok+"08",border:"1px solid "+T.ok+"15",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>المبيعات</div><div style={{fontSize:isMob?18:24,fontWeight:800,color:T.ok}}>{fmt(totalSold)}</div><div style={{fontSize:FS-3,color:T.ok}}>{pct+"%"}</div></div>
-          <div style={{padding:12,borderRadius:12,background:T.warn+"08",border:"1px solid "+T.warn+"15",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>رصيد متاح</div><div style={{fontSize:isMob?18:24,fontWeight:800,color:T.warn}}>{fmt(totalRemain)}</div></div>
+          {/* V19.70.20: clickable — opens the model-by-model breakdown popup with print + WA PDF */}
+          <div onClick={()=>setAvailPopup({search:""})} style={{padding:12,borderRadius:12,background:T.warn+"08",border:"1px solid "+T.warn+"15",textAlign:"center",cursor:"pointer",transition:"transform 0.15s, box-shadow 0.15s",position:"relative"}}
+            onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow="0 4px 12px "+T.warn+"30"}}
+            onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=""}}>
+            <div style={{fontSize:FS-2,color:T.textSec}}>رصيد متاح</div>
+            <div style={{fontSize:isMob?18:24,fontWeight:800,color:T.warn}}>{fmt(totalRemain)}</div>
+            <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>👆 اضغط للتفاصيل</div>
+          </div>
           <div style={{padding:12,borderRadius:12,background:"#8B5CF608",border:"1px solid #8B5CF615",textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textSec}}>الإيرادات</div><div style={{fontSize:isMob?18:24,fontWeight:800,color:"#8B5CF6"}}>{fmt(totalRevenue)}</div><div style={{fontSize:FS-3,color:T.textMut}}>ج.م</div></div>
         </div>
         {/* V16.17: Stale-models alert moved to bottom of page (rendered before closing div) */}
       </div>})()}
+    {/* V19.70.20: Available stock breakdown popup. Triggered by clicking the رصيد متاح dashboard card.
+        Lists all models with avail>0, splitting series-vs-broken pieces. Sales deplete series first
+        (matching the existing رصيد متاح للبيع computation in the matrix), so:
+          availSeries = max(0, seriesQty - custDel)
+          availBroken = avail - availSeries
+        Supports search/filter, browser-native print, and WhatsApp PDF send to ownerPhones from the
+        automation config. The PDF uses <td class='h'> headers (V19.70.19 fix) so Arabic shapes correctly. */}
+    {availPopup && (()=>{
+      const q = String(availPopup.search||"").trim().toLowerCase();
+      /* Build the rows. Sort by avail descending so the highest-stock models appear first. */
+      const allRows = stockModels
+        .filter(m => m.avail > 0)
+        .map(m => {
+          const seriesQty = Number(m.seriesQty)||0;
+          const brokenQty = Number(m.brokenQty)||0;
+          const custDel = Number(m.custDel)||0;
+          /* Sales deplete series first (matches existing matrix logic). */
+          const availSeries = Math.max(0, seriesQty - custDel);
+          const availBroken = Math.max(0, m.avail - availSeries);
+          const rackSize = Number(m.rackSize)||0;
+          const seriesSets = rackSize > 0 ? Math.floor(availSeries / rackSize) : 0;
+          return { ...m, availSeries, availBroken, seriesSets, rackSize };
+        })
+        .sort((a,b) => b.avail - a.avail);
+      const rows = q
+        ? allRows.filter(r => String(r.modelNo||"").toLowerCase().includes(q) || String(r.modelDesc||"").toLowerCase().includes(q))
+        : allRows;
+      const totalSeries = rows.reduce((s,r)=>s+r.availSeries,0);
+      const totalBroken = rows.reduce((s,r)=>s+r.availBroken,0);
+      const totalAvail = rows.reduce((s,r)=>s+r.avail,0);
+
+      /* Build the HTML used by both print and WA-PDF. Same layout, single source of truth. */
+      const buildReportHTML = () => {
+        const factoryName = config.factoryName || "CLARK Factory Management";
+        const factoryLogo = config.logo || "";
+        const today = new Date().toLocaleDateString("ar-EG", { weekday:"long", year:"numeric", month:"long", day:"numeric" });
+        const timeStr = new Date().toLocaleTimeString("ar-EG", { hour:"2-digit", minute:"2-digit" });
+        const styles =
+          "*{margin:0;padding:0;box-sizing:border-box}"+
+          "body{font-family:'Cairo',Arial,sans-serif;padding:20px 24px;font-size:12px;direction:rtl;color:#1E293B;line-height:1.5}"+
+          "h2{font-size:16px;color:#F59E0B;margin:14px 0 8px;padding-bottom:4px;border-bottom:2px solid #FED7AA}"+
+          "table{width:100%;border-collapse:collapse;margin:8px 0 14px;border:1px solid #94A3B8}"+
+          "td{padding:5px 8px;text-align:right;border:1px solid #CBD5E1;font-size:11px}"+
+          /* V19.70.19/.20: header cells via <td class='h'> — bypasses html2canvas <th> Arabic bug */
+          ".h{background:linear-gradient(180deg,#FEF3C7,#FDE68A)!important;font-family:'Cairo',sans-serif;font-weight:700;font-size:10px;color:#78350F;padding:6px 8px;text-align:center;border:1px solid #D97706;letter-spacing:0.3px}"+
+          "tr:nth-child(even){background:#FFFBEB}"+
+          ".totals{background:#FEF3C7;font-weight:800;color:#92400E}"+
+          ".hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #F59E0B;padding-bottom:14px;margin-bottom:18px;gap:16px}"+
+          ".hdr-brand{display:flex;align-items:center;gap:12px;flex:1}"+
+          ".hdr-brand img{height:50px;max-width:90px;object-fit:contain}"+
+          ".hdr-brand-name{font-size:17px;font-weight:800;color:#0F172A}"+
+          ".hdr-title{text-align:left;flex-shrink:0;padding:8px 14px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;min-width:170px}"+
+          ".hdr-title-main{font-size:14px;font-weight:800;color:#92400E}"+
+          ".hdr-title-date{font-size:10px;color:#A16207;font-weight:600;margin-top:4px;font-family:monospace}"+
+          ".summary{display:flex;justify-content:space-around;padding:12px;background:#FEF3C7;border:1px solid #FDE68A;border-radius:10px;margin-bottom:14px}"+
+          ".summary-item{text-align:center}"+
+          ".summary-label{font-size:10px;color:#78350F;font-weight:600}"+
+          ".summary-val{font-size:20px;font-weight:800;color:#92400E;margin-top:2px}";
+        let h = "<style>"+styles+"</style>";
+        h += "<div class='hdr'>"
+          + "<div class='hdr-brand'>"
+            + (factoryLogo ? "<img src='"+factoryLogo+"'/>" : "")
+            + "<div><div class='hdr-brand-name'>"+factoryName+"</div></div>"
+          + "</div>"
+          + "<div class='hdr-title'>"
+            + "<div class='hdr-title-main'>📦 الموديلات المتاحة</div>"
+            + "<div class='hdr-title-date'>"+today+" • "+timeStr+"</div>"
+          + "</div>"
+        + "</div>";
+        h += "<div class='summary'>"
+          + "<div class='summary-item'><div class='summary-label'>إجمالي المتاح</div><div class='summary-val'>"+fmt(totalAvail)+"</div></div>"
+          + "<div class='summary-item'><div class='summary-label'>سيري</div><div class='summary-val'>"+fmt(totalSeries)+"</div></div>"
+          + "<div class='summary-item'><div class='summary-label'>كسر</div><div class='summary-val'>"+fmt(totalBroken)+"</div></div>"
+          + "<div class='summary-item'><div class='summary-label'>عدد الموديلات</div><div class='summary-val'>"+rows.length+"</div></div>"
+        + "</div>";
+        h += "<table><thead><tr>"
+          + "<td class='h'>#</td>"
+          + "<td class='h'>الموديل</td>"
+          + "<td class='h'>الوصف</td>"
+          + "<td class='h'>سيري</td>"
+          + "<td class='h'>كسر</td>"
+          + "<td class='h'>الإجمالي</td>"
+        + "</tr></thead><tbody>";
+        rows.forEach((r,i) => {
+          h += "<tr>"
+            + "<td style='text-align:center;color:#94A3B8'>"+(i+1)+"</td>"
+            + "<td style='font-weight:700'>"+r.modelNo+"</td>"
+            + "<td>"+(r.modelDesc||"—")+"</td>"
+            + "<td style='text-align:center;color:#0EA5E9;font-weight:700'>"+r.availSeries+(r.rackSize>0?" <span style=\"color:#94A3B8;font-size:9px\">("+r.seriesSets+"×"+r.rackSize+")</span>":"")+"</td>"
+            + "<td style='text-align:center;color:"+(r.availBroken>0?"#EF4444":"#94A3B8")+";font-weight:700'>"+r.availBroken+"</td>"
+            + "<td style='text-align:center;color:#F59E0B;font-weight:800;font-size:13px'>"+r.avail+"</td>"
+          + "</tr>";
+        });
+        h += "<tr class='totals'><td colspan='3' style='text-align:left;font-weight:800'>الإجمالي ("+rows.length+" موديل)</td>"
+          + "<td style='text-align:center;font-weight:800;color:#0EA5E9'>"+fmt(totalSeries)+"</td>"
+          + "<td style='text-align:center;font-weight:800;color:#EF4444'>"+fmt(totalBroken)+"</td>"
+          + "<td style='text-align:center;font-weight:800;color:#92400E;font-size:14px'>"+fmt(totalAvail)+"</td></tr>";
+        h += "</tbody></table>";
+        return h;
+      };
+
+      const doPrintReport = () => {
+        const html = buildReportHTML();
+        printPage("📦 الموديلات المتاحة — "+season, html, {factoryName:config.factoryName,logo:config.logo});
+      };
+
+      const doSendWA = async () => {
+        const ownerPhones = (((data.automation||{}).eventTriggers||{}).ownerPhones||[]).filter(p => p && String(p).trim());
+        if (ownerPhones.length === 0) { showToast("⛔ مفيش أرقام مالك مسجلة في Automation → Triggers"); return; }
+        const bridgeUrl = (data.campaignBridge||{}).url || "";
+        const bridgeToken = (data.campaignBridge||{}).token || "";
+        if (!bridgeUrl) { showToast("⛔ الـbridge URL غير مضبوط"); return; }
+        const confirm = await ask("📤 إرسال تقرير الموديلات المتاحة", "هيتم إرسال التقرير كـPDF + رسالة نصية لـ"+ownerPhones.length+" رقم مالك مسجلين.");
+        if (!confirm) return;
+        setAvailPopup(p => ({ ...p, sending: true }));
+        try {
+          await loadPdfLibs();
+          const html = buildReportHTML();
+          const pdfBase64 = await htmlToPdfBase64(html, { width: 794, scale: 2 });
+          /* Text summary that mirrors the PDF — shows totals + top 5 models for quick glance */
+          const top5 = rows.slice(0, 5);
+          let message = "*📦 تقرير الموديلات المتاحة — "+season+"*\n\n";
+          message += "• إجمالي المتاح: *"+fmt(totalAvail)+"* قطعة\n";
+          message += "• سيري: *"+fmt(totalSeries)+"* قطعة\n";
+          message += "• كسر: *"+fmt(totalBroken)+"* قطعة\n";
+          message += "• عدد الموديلات: *"+rows.length+"*\n";
+          message += "\n─────────────────\n*أعلى 5 موديلات:*\n";
+          top5.forEach((r,i) => {
+            message += "\n"+(i+1)+". *"+r.modelNo+"* — "+r.avail+" قطعة";
+            if (r.availSeries > 0) message += " (سيري: "+r.availSeries+")";
+            if (r.availBroken > 0) message += " (كسر: "+r.availBroken+")";
+          });
+          message += "\n\n📎 التفاصيل الكاملة في الـPDF المرفق.";
+          const fileName = "الموديلات_المتاحة_"+season+"_"+new Date().toISOString().slice(0,10).replace(/-/g,"")+".pdf";
+          const headers = { "Content-Type":"application/json" };
+          if (bridgeToken) headers["Authorization"] = "Bearer "+bridgeToken;
+          /* Sequential await per phone to keep bridge anti-ban delays effective */
+          let okCount = 0, failCount = 0;
+          for (const phone of ownerPhones) {
+            try {
+              const r = await fetch(bridgeUrl.replace(/\/+$/,"")+"/send", {
+                method:"POST", headers,
+                body: JSON.stringify({ messages: [{
+                  phone,
+                  message,
+                  media: [{ base64: pdfBase64, mime: "application/pdf", name: fileName }],
+                }]}),
+              });
+              const j = await r.json().catch(()=>({}));
+              if (!r.ok) throw new Error(j.error || ("HTTP "+r.status));
+              okCount++;
+            } catch (e) {
+              failCount++;
+            }
+          }
+          showToast("✓ "+okCount+" نجحت • "+(failCount?("⛔ "+failCount+" فشلت"):""));
+        } catch (e) {
+          showToast("⛔ "+(e.message||String(e)));
+        } finally {
+          setAvailPopup(p => p ? ({ ...p, sending: false }) : null);
+        }
+      };
+
+      return <div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setAvailPopup(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:780,maxHeight:"88vh",display:"flex",flexDirection:"column",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          {/* Header */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div>
+              <div style={{fontSize:FS+2,fontWeight:800,color:T.warn}}>📦 الموديلات المتاحة</div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{rows.length} موديل · {fmt(totalAvail)} قطعة إجمالي</div>
+            </div>
+            <Btn ghost small onClick={()=>setAvailPopup(null)}>✕</Btn>
+          </div>
+          {/* Summary chips */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
+            <div style={{padding:"8px 10px",borderRadius:10,background:T.warn+"08",border:"1px solid "+T.warn+"20",textAlign:"center"}}>
+              <div style={{fontSize:FS-3,color:T.textSec}}>الإجمالي</div>
+              <div style={{fontSize:FS+4,fontWeight:800,color:T.warn}}>{fmt(totalAvail)}</div>
+            </div>
+            <div style={{padding:"8px 10px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"20",textAlign:"center"}}>
+              <div style={{fontSize:FS-3,color:T.textSec}}>سيري</div>
+              <div style={{fontSize:FS+4,fontWeight:800,color:T.accent}}>{fmt(totalSeries)}</div>
+            </div>
+            <div style={{padding:"8px 10px",borderRadius:10,background:T.err+"08",border:"1px solid "+T.err+"20",textAlign:"center"}}>
+              <div style={{fontSize:FS-3,color:T.textSec}}>كسر</div>
+              <div style={{fontSize:FS+4,fontWeight:800,color:T.err}}>{fmt(totalBroken)}</div>
+            </div>
+          </div>
+          {/* Search + Action buttons */}
+          <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:200}}>
+              <Inp value={availPopup.search||""} onChange={v=>setAvailPopup(p=>({...p,search:v}))} placeholder="🔍 بحث بالموديل أو الوصف..."/>
+            </div>
+            <Btn onClick={doPrintReport} disabled={availPopup.sending} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:700}}>🖨 طباعة</Btn>
+            <Btn onClick={doSendWA} disabled={availPopup.sending} style={{background:availPopup.sending?"#94A3B8":"#25D366",color:"#fff",border:"none",fontWeight:700}}>
+              {availPopup.sending ? "⏳ جاري الإرسال..." : "📤 إرسال PDF واتساب"}
+            </Btn>
+          </div>
+          {/* Table */}
+          <div style={{flex:1,overflowY:"auto",border:"1px solid "+T.brd,borderRadius:10}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+              <thead style={{position:"sticky",top:0,zIndex:1}}>
+                <tr style={{background:T.warn+"15",borderBottom:"2px solid "+T.warn+"40"}}>
+                  <td style={{padding:"8px 10px",fontWeight:700,color:T.text,textAlign:"center",fontSize:FS-2,width:40}}>#</td>
+                  <td style={{padding:"8px 10px",fontWeight:700,color:T.text,fontSize:FS-2}}>الموديل</td>
+                  <td style={{padding:"8px 10px",fontWeight:700,color:T.text,fontSize:FS-2}}>الوصف</td>
+                  <td style={{padding:"8px 10px",fontWeight:700,color:T.text,textAlign:"center",fontSize:FS-2,width:90}}>سيري</td>
+                  <td style={{padding:"8px 10px",fontWeight:700,color:T.text,textAlign:"center",fontSize:FS-2,width:60}}>كسر</td>
+                  <td style={{padding:"8px 10px",fontWeight:700,color:T.text,textAlign:"center",fontSize:FS-2,width:80}}>الإجمالي</td>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.length === 0 ? (
+                  <tr><td colSpan={6} style={{padding:20,textAlign:"center",color:T.textMut}}>{q?"مفيش نتائج بحث":"مفيش موديلات متاحة"}</td></tr>
+                ) : rows.map((r,i)=>(
+                  <tr key={r.id} style={{borderBottom:"1px solid "+T.brd,background:i%2===1?T.bg:"transparent"}}>
+                    <td style={{padding:"7px 10px",textAlign:"center",color:T.textMut,fontSize:FS-2}}>{i+1}</td>
+                    <td style={{padding:"7px 10px",fontWeight:700,color:T.text}}>{r.modelNo}</td>
+                    <td style={{padding:"7px 10px",color:T.textSec,fontSize:FS-2}}>{r.modelDesc||"—"}</td>
+                    <td style={{padding:"7px 10px",textAlign:"center",fontWeight:700,color:T.accent}}>
+                      {r.availSeries}
+                      {r.rackSize>0 && r.seriesSets>0 && <div style={{fontSize:FS-3,color:T.textMut,fontWeight:500,marginTop:2}}>{r.seriesSets}×{r.rackSize}</div>}
+                    </td>
+                    <td style={{padding:"7px 10px",textAlign:"center",fontWeight:700,color:r.availBroken>0?T.err:T.textMut}}>{r.availBroken}</td>
+                    <td style={{padding:"7px 10px",textAlign:"center",fontWeight:800,color:T.warn,fontSize:FS}}>{r.avail}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {rows.length > 0 && (
+                <tfoot>
+                  <tr style={{background:T.warn+"10",borderTop:"2px solid "+T.warn+"40",position:"sticky",bottom:0}}>
+                    <td colSpan={3} style={{padding:"8px 10px",fontWeight:800,color:T.text,fontSize:FS-2}}>الإجمالي ({rows.length} موديل)</td>
+                    <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:T.accent}}>{fmt(totalSeries)}</td>
+                    <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:T.err}}>{fmt(totalBroken)}</td>
+                    <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:T.warn,fontSize:FS}}>{fmt(totalAvail)}</td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </div>
+      </div>;
+    })()}
     {/* Season Report Popup */}
     {seasonReport&&(()=>{
       const totalCut=orders.reduce((s,o)=>s+calcOrder(o).cutQty,0);

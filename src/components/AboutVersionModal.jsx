@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.20",
+    date: "2026-05-06",
+    types: ["feature"],
+    title: "📦 بطاقة 'رصيد متاح' clickable — popup بالموديلات (سيري/كسر) + طباعة + إرسال PDF واتساب",
+    changes: [
+      { type: "feature", text: "👆 [البطاقة بقت clickable مع hover effect] في صفحة CustDeliverPg، البطاقة 'رصيد متاح' في الـSales Dashboard دلوقتي clickable. الـhover بـlift translateY(-2px) + soft shadow بلون warn. الـlabel '👆 اضغط للتفاصيل' أسفل الرقم عشان الـuser يعرف إنها interactive. لا تأثير على الـ3 cards التانية (تسليم مخزن جاهز، المبيعات، الإيرادات) — لو الـuser عاوز نخليها كلها clickable نقدر نضيف في version جاي." },
+      { type: "feature", text: "📊 [Popup بكل الموديلات المتاحة مع تقسيم سيري/كسر] الـpopup يعرض table عريض بكل الـrows: # / الموديل / الوصف / سيري / كسر / الإجمالي. الـsorting by الإجمالي descending — أعلى stock في الأعلى. الـsales تتـdeplete من السيري first (matching الـlogic الموجود في matrix الـ'رصيد متاح للبيع' table)، فـ`availSeries = max(0, seriesQty - custDel)` و `availBroken = avail - availSeries`. لو الـmodel عنده rackSize، الـسيري column بـshow كمان '4×6' (4 سيري × 6 قطعة) كـsubtitle. الـtotals row في الـfooter sticky." },
+      { type: "feature", text: "🔍 [Search/filter input] الـpopup فيه search input بـreal-time filter على modelNo + modelDesc (case-insensitive). الـtotals بـrecompute حسب الـfiltered rows — مفيد لو الـuser عاوز يطبع تقرير لـsubset من الموديلات (مثلاً 'فستان' فقط)." },
+      { type: "feature", text: "🖨 [زر طباعة — browser-native]  بـbuild HTML report بـheader (logo + اسم المصنع + تاريخ + وقت)، summary chips (الإجمالي / سيري / كسر / عدد الموديلات)، table بـbranded warn-color theme (orange gradient على الـheaders، خلفية cream)، totals footer. بـuse `printPage()` (الـbrowser print pipeline اللي بـhandle Arabic correctly — مفيش html2canvas)." },
+      { type: "feature", text: "📤 [زر إرسال PDF واتساب لأرقام المالك] بـuse `loadPdfLibs()` + `htmlToPdfBase64()` لـbuild الـPDF (الـHTML نفسه بتاع الـprint، single source of truth). يـsend sequential لكل phone في `data.automation.eventTriggers.ownerPhones[]` عبر الـbridge، مع text summary (الإجمالي + سيري + كسر + عدد الموديلات + top 5 models). الـPDF بـuse `<td class='h'>` headers (V19.70.19 fix) عشان Arabic shaping يـwork. الـconfirmation prompt + status toast + sending state lock." },
+      { type: "improvement", text: "🎨 [Theme: orange/amber للـtable داخل الـPDF] لتمييزه عن الـreceipt blue. الـheaders بـuse linear-gradient(#FEF3C7, #FDE68A) مع border #D97706 وtext color #78350F. الـeven rows بـbackground #FFFBEB. الـtotals row بـbackground #FEF3C7 و weight 800. visual identity متناسقة مع الـwarn color للـcard اللي فتحت الـpopup." },
+      { type: "improvement", text: "🛡️ [Single source of truth للـHTML] الـbuildReportHTML helper بـfunction واحد مشترك بين الـprint والـWA PDF — مفيش drift بين الـ2 outputs. الـuser يطبع نفس اللي يـsend لنفسه عبر واتساب." },
+    ]
+  },
+  {
     version: "V19.70.19",
     date: "2026-05-06",
     types: ["fix"],
