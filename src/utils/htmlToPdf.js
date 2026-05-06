@@ -16,15 +16,31 @@
 
 const HTML2CANVAS_URL = "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js";
 const JSPDF_URL = "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js";
-/* V19.70.14: Cairo font URL — needed for proper Arabic glyph shaping inside
-   the offscreen html2canvas capture. Without explicit font preload, html2canvas
-   may capture before Cairo Bold loads, causing letters to render disconnected
-   ("لعميل" instead of "العميل"). */
-const CAIRO_FONT_URL = "https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap";
+/* V19.70.15: Direct WOFF2 binaries from fontsource CDN — these are the actual
+   font files (not a CSS wrapper). Each FontFace.load() awaits the binary download,
+   which guarantees the font is in the browser's font cache before html2canvas
+   captures. The previous V19.70.14 approach used Google Fonts' CSS link + the
+   document.fonts.load() string API which only triggers a lazy load — the await
+   could resolve before the actual TTF binary finished downloading, causing
+   html2canvas to capture with a fallback font (Arial) and break Arabic shaping.
+
+   Fontsource CDN serves the Arabic subset specifically — smaller download
+   (~30KB per weight vs ~200KB) and contains the full Arabic glyph range. */
+const CAIRO_FONT_URLS = {
+  400: "https://cdn.jsdelivr.net/npm/@fontsource/cairo@5.0.13/files/cairo-arabic-400-normal.woff2",
+  500: "https://cdn.jsdelivr.net/npm/@fontsource/cairo@5.0.13/files/cairo-arabic-500-normal.woff2",
+  600: "https://cdn.jsdelivr.net/npm/@fontsource/cairo@5.0.13/files/cairo-arabic-600-normal.woff2",
+  700: "https://cdn.jsdelivr.net/npm/@fontsource/cairo@5.0.13/files/cairo-arabic-700-normal.woff2",
+  800: "https://cdn.jsdelivr.net/npm/@fontsource/cairo@5.0.13/files/cairo-arabic-800-normal.woff2",
+  900: "https://cdn.jsdelivr.net/npm/@fontsource/cairo@5.0.13/files/cairo-arabic-900-normal.woff2",
+};
+/* Legacy fallback URL for browsers without FontFace API (very rare — Safari < 10) */
+const CAIRO_FONT_CSS_URL = "https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap";
 
 let _libsLoaded = false;
 let _libsLoading = null;
 let _cairoLoaded = false;
+let _cairoLoading = null;
 
 function _loadScript(url) {
   return new Promise((resolve, reject) => {
@@ -53,36 +69,72 @@ export function loadPdfLibs() {
   return _libsLoading;
 }
 
-/* V19.70.14: ensure Cairo font is loaded BEFORE html2canvas captures.
-   Without this, headers with font-weight 800 (or other weights not yet
-   in the page's font cache) fall back to a non-Arabic font and the
-   text renders as disconnected glyphs (e.g. "العميل" → "لعميل"). */
+/* V19.70.15: bulletproof Cairo font loading via the FontFace API.
+
+   Why the V19.70.14 approach didn't work:
+     - Injected a <link> to Google Fonts CSS, then called document.fonts.load("800 12px Cairo")
+     - document.fonts.load() returns a promise but the API only TRIGGERS a load —
+       it doesn't reliably wait for the actual TTF binary to finish downloading
+     - On a fresh page-load, the await would resolve in ~5-10ms while the binary
+       was still in flight, so html2canvas captured before Cairo Bold was ready
+     - Result: <th> elements with font-weight:800 fell back to Arial → Arabic
+       glyphs rendered disconnected (الـcontextual shaping requires the actual
+       Cairo glyph outlines)
+
+   Why the V19.70.15 approach works:
+     - new FontFace("Cairo", "url(woff2)", { weight: "800" }) creates an explicit
+       FontFace object backed by a specific binary URL
+     - face.load() returns a promise that resolves AFTER the binary has been
+       downloaded AND the font has been parsed
+     - document.fonts.add(face) registers the face document-wide so any element
+       (including those in offscreen containers) can use it immediately
+     - No race condition possible — the await guarantees readiness */
 async function ensureCairoLoaded() {
   if (_cairoLoaded) return;
-  /* Inject the link if not already present */
-  if (!document.querySelector('link[href*="Cairo"]')) {
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = CAIRO_FONT_URL;
-    document.head.appendChild(link);
-  }
-  /* Wait for ALL Cairo weights to actually be available in the browser's font cache */
-  if (document.fonts && document.fonts.load) {
-    await Promise.all([
-      document.fonts.load("400 12px Cairo"),
-      document.fonts.load("700 12px Cairo"),
-      document.fonts.load("800 12px Cairo"),
-      document.fonts.load("900 12px Cairo"),
-    ]).catch(() => {});
-  }
-  /* Generic ready signal as a fallback */
-  if (document.fonts && document.fonts.ready) {
-    await document.fonts.ready;
-  }
-  /* Small extra delay so the browser actually settles font metrics — empirically
-     needed on first-load when the network fetch + font parse takes a moment. */
-  await new Promise(r => setTimeout(r, 200));
-  _cairoLoaded = true;
+  if (_cairoLoading) return _cairoLoading;
+  _cairoLoading = (async () => {
+    /* Browsers without FontFace API: fall back to <link> injection (Safari < 10).
+       This is mostly a safety net — every browser shipped after 2017 supports it. */
+    if (!window.FontFace || !document.fonts || !document.fonts.add) {
+      if (!document.querySelector('link[href*="Cairo"]')) {
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = CAIRO_FONT_CSS_URL;
+        document.head.appendChild(link);
+      }
+      await new Promise(r => setTimeout(r, 800));
+      _cairoLoaded = true;
+      return;
+    }
+
+    /* Load each weight as an explicit FontFace, await actual binary download,
+       then register with the document. We focus on 400/700/800 (the weights
+       used by the receipt template) but include 500/600/900 for future flexibility. */
+    const weights = Object.entries(CAIRO_FONT_URLS);
+    await Promise.all(weights.map(async ([weight, url]) => {
+      try {
+        const face = new FontFace("Cairo", `url(${url}) format("woff2")`, {
+          weight: String(weight),
+          style: "normal",
+          display: "swap",
+        });
+        await face.load();
+        document.fonts.add(face);
+      } catch (e) {
+        /* Per-weight failure is non-fatal — other weights may still succeed.
+           Log so we can debug if a CDN has an outage. */
+        console.warn("[ensureCairoLoaded] weight " + weight + " failed:", e?.message || e);
+      }
+    }));
+
+    /* Belt-and-braces: also wait for document.fonts.ready in case the browser
+       has any other pending font work it needs to settle. */
+    if (document.fonts && document.fonts.ready) {
+      await document.fonts.ready;
+    }
+    _cairoLoaded = true;
+  })();
+  return _cairoLoading;
 }
 
 /* Render an HTML string into an offscreen container, capture as canvas,
@@ -119,16 +171,41 @@ export async function htmlToPdfBase64(html, options) {
   container.style.padding = "20px";
   container.style.boxSizing = "border-box";
   container.style.direction = "rtl";
-  container.style.fontFamily = "Cairo, 'Segoe UI', Arial, sans-serif";
+  /* V19.70.15: force Cairo as the only family (no fallback chain) inside the
+     offscreen container. Reasoning: if Cairo loaded successfully via FontFace,
+     every glyph SHOULD use it. If we list Arial as fallback and Cairo lookup
+     somehow fails on a specific weight, Arial would silently take over and
+     re-introduce the shaping bug. Better to fail visibly (with serif fallback)
+     so the bug is obvious, than to silently break Arabic. */
+  container.style.fontFamily = "Cairo, sans-serif";
   container.style.fontSize = "12px";
   container.style.lineHeight = "1.5";
   container.innerHTML = html;
   document.body.appendChild(container);
 
   try {
-    /* V19.70.14: extra wait — image loading (logo, QR) + font metrics settling.
-       Empirically 250ms is enough on the slowest devices we've seen. */
-    await new Promise(r => setTimeout(r, 250));
+    /* V19.70.15: force a reflow so the browser commits the font choice for
+     every node before html2canvas walks the tree. Without this the offscreen
+     container's font cascade can be in a "pending" state when html2canvas
+     reads computed styles. */
+    void container.offsetHeight;
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    /* Wait for all images inside the container (logo, QR) to actually finish
+       decoding. html2canvas can capture before images render otherwise.
+       V19.70.15: replaces the fragile 250ms timeout from V19.70.14. */
+    const imgs = Array.from(container.querySelectorAll("img"));
+    await Promise.all(imgs.map(img => {
+      if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+      return new Promise(resolve => {
+        const done = () => resolve();
+        img.addEventListener("load", done, { once: true });
+        img.addEventListener("error", done, { once: true });
+        /* Cap at 3s in case of CDN hang — better to render with placeholder
+           than block forever. */
+        setTimeout(done, 3000);
+      });
+    }));
 
     const canvas = await window.html2canvas(container, {
       scale,

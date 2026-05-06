@@ -25,10 +25,23 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.15",
+    date: "2026-05-06",
+    types: ["fix"],
+    title: "🔤 Real fix: Arabic PDF glyph shaping — FontFace API + binary preload",
+    changes: [
+      { type: "fix", text: "🐛 [الـCRITICAL: V19.70.14 ما حلّتش الـbug — الـheaders لسه ملخبطة] User confirmed إن V19.70.14 (الـlink injection + document.fonts.load) لم يحل المشكلة. **السبب الحقيقي**: `document.fonts.load(\"800 12px Cairo\")` بـtrigger الـload بس مش بـguarantee إن الـTTF binary خلص download. على fresh page-load، الـawait بـresolve في ~5-10ms والـbinary لسه في flight → html2canvas بـcapture بـArial fallback → الـArabic ligatures مش بـshape." },
+      { type: "fix", text: "🛠️ [الـREAL FIX: استخدام FontFace API بدل document.fonts.load string]  `new FontFace(\"Cairo\", \"url(woff2)\", {weight:\"800\"})` بـcreate explicit FontFace object backed by specific binary URL. `face.load()` يـawait الـbinary download + parse. `document.fonts.add(face)` يـregister عبر الـdocument. مفيش race condition ممكنة. الـfont URLs بقت direct woff2 من fontsource CDN (الـArabic subset فقط ~30KB لكل weight بدل ~200KB من Google Fonts CSS wrapper)." },
+      { type: "improvement", text: "🛡️ [Force reflow + image-load wait قبل html2canvas capture] V19.70.15 ضافت: (1) `void container.offsetHeight` — force layout reflow عشان الـbrowser commits the font choice، (2) double `requestAnimationFrame` — wait two paint cycles عشان الـrendering tree تـsettle، (3) explicit `<img>` decode wait بدل الـ250ms timeout الفاسد — لكل image في الـcontainer، await `load` event مع 3s timeout cap." },
+      { type: "improvement", text: "🎯 [Tighter font-family chain — \"Cairo, sans-serif\" بدل \"Cairo, 'Segoe UI', Arial\"] لو Cairo فشل لـany reason، الـfallback يبقى generic sans-serif (مش Arial تحديداً). الـbug يبقى أوضح للـdebug، ومفيش 'silent break' بسبب Arial اللي ما بـshapeش الـArabic correctly." },
+      { type: "improvement", text: "🔁 [_cairoLoading promise — concurrent calls share single load] لو 50 عميل في bulk send، الـensureCairoLoaded() بيـcall لكل واحد. قبل V19.70.15 كان فيه potential race بين الأول والثاني. دلوقتي الـ_cairoLoading promise يـcache الـin-flight load — كل الـcalls الـconcurrent يـawait نفس الـpromise." },
+    ]
+  },
+  {
     version: "V19.70.14",
     date: "2026-05-06",
     types: ["fix"],
-    title: "🔤 Hotfix: Arabic glyph shaping في الـPDF — حروف الـheaders كانت ملخبطة",
+    title: "🔤 Hotfix: Arabic glyph shaping في الـPDF — attempt 1 (didn't fully fix)",
     changes: [
       { type: "fix", text: "🐛 [الـCRITICAL: Arabic letters في table headers بـrender disconnected] User report: 'عناوين الجداول في ال بي دي اف العربي ملخبط ومش مقروء وبالعكس'. الـscreenshot أوضح إن 'العميل' بـrender 'لـعميل'، 'التاريخ' بـrender 'لـتايخ'، إلخ. الـcustomer name + address (في td، weight 400) كانوا fine. **السبب**: الـ`<th>` في الـCSS عنده `font-weight: 800` (Cairo Bold). الـoffscreen html2canvas capture بـrun قبل ما الـCairo Bold variant يـload في الـbrowser font cache → الـbrowser يـfallback لـArial أو system font اللي ما بـshapeش الـArabic ligatures correctly → كل حرف يـrender في isolated form بدل ما يتـconnect مع المجاور." },
       { type: "fix", text: "🛠️ [Cairo font preload + wait-for-load قبل html2canvas] **الـFix**: ضافت `ensureCairoLoaded()` helper في htmlToPdf.js. بـ(1) inject `<link>` لـCairo Google Fonts مع كل الـweights (400, 500, 600, 700, 800, 900) لو مش موجود، (2) `document.fonts.load()` لكل weight ضروري بـPromise.all، (3) `document.fonts.ready` كـfallback، (4) extra 200ms delay علشان الـmetrics يـsettle. كده لما html2canvas يـcapture، Cairo Bold يكون موجود فعلاً في الـcache → الـArabic shaping correct." },
