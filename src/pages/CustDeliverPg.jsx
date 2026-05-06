@@ -32,6 +32,10 @@ import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../compo
 import { T, TH, TD, TDB } from "../theme.js";
 /* V19.70.12: html→pdf for WhatsApp delivery receipts */
 import { htmlToPdfBase64, loadPdfLibs } from "../utils/htmlToPdf.js";
+/* V19.70.21: jsPDF-based Arabic PDF generation (Approach A) — bypasses html2canvas entirely.
+   Used for the available-stock popup PDF (V19.70.20). The bulk delivery PDF still uses
+   htmlToPdfBase64 until V19.70.22 migrates it. */
+import { loadArabicPdfLibs, buildAvailableStockPdfBase64 } from "../utils/arabicPdf.js";
 
 /* V18.17: Module-level mutable variable used by inventory-audit scanner closure
    to read latest scan mode. Was assigned but never declared — caused ReferenceError
@@ -2026,9 +2030,31 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         if (!confirm) return;
         setAvailPopup(p => ({ ...p, sending: true }));
         try {
-          await loadPdfLibs();
-          const html = buildReportHTML();
-          const pdfBase64 = await htmlToPdfBase64(html, { width: 794, scale: 2 });
+          /* V19.70.21: build the PDF via jsPDF + Cairo TTF + Arabic shaper instead of
+             html2canvas. This eliminates the html2canvas Arabic shaping bug structurally.
+             We pass a structured payload (not HTML) to the new utility — single source
+             of data for the visual layout below. */
+          await loadArabicPdfLibs();
+          const today = new Date();
+          const dateStr = today.toLocaleDateString("ar-EG", { weekday:"long", year:"numeric", month:"long", day:"numeric" });
+          const timeStr = today.toLocaleTimeString("ar-EG", { hour:"2-digit", minute:"2-digit" });
+          const pdfBase64 = await buildAvailableStockPdfBase64({
+            factoryName: config.factoryName || "CLARK Factory Management",
+            logoDataUrl: config.logo || "",
+            date: dateStr,
+            time: timeStr,
+            totalAvail, totalSeries, totalBroken,
+            modelCount: rows.length,
+            rows: rows.map(r => ({
+              modelNo: r.modelNo,
+              modelDesc: r.modelDesc || "—",
+              availSeries: r.availSeries,
+              availBroken: r.availBroken,
+              avail: r.avail,
+              rackSize: r.rackSize,
+              seriesSets: r.seriesSets,
+            })),
+          });
           /* Text summary that mirrors the PDF — shows totals + top 5 models for quick glance */
           const top5 = rows.slice(0, 5);
           let message = "*📦 تقرير الموديلات المتاحة — "+season+"*\n\n";

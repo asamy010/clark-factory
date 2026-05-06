@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.70.21",
+    date: "2026-05-06",
+    types: ["fix", "architectural"],
+    title: "🎯 Approach A: jsPDF + Cairo TTF embedded + Arabic shaper — نشيل html2canvas من الـPDF pipeline",
+    changes: [
+      { type: "fix", text: "🔥 [الـStructural Fix النهائي للـArabic PDF — html2canvas اتشال بالكامل] V19.70.14/15/16/19 جربوا 4 fixes للـhtml2canvas Arabic shaping bug — مفيش واحد منهم حل المشكلة بشكل reliable. السبب الحقيقي: html2canvas's internal canvas rendering للـcomplex scripts (Arabic) مش reliable cross-browser. **الـsolution**: نـbuild الـPDF عبر jsPDF text APIs مباشرة — Cairo TTF embedded في الـPDF نفسه + Arabic letter-shaping تطبق على الـtext قبل الـrendering. الـRTL native، الـligatures طبيعية، الـfont guaranteed (مدمج في الـPDF binary)." },
+      { type: "feature", text: "🆕 [`src/utils/arabicPdf.js` — utility جديد كامل] الـpipeline: (1) lazy-load jsPDF + jspdf-autotable من CDN، (2) lazy-fetch Cairo Regular + Bold TTF من jsdelivr/gh (CORS-safe، Google Fonts repo passthrough)، (3) `pdf.addFileToVFS()` + `pdf.addFont()` لـregister الـCairo داخل الـPDF، (4) `pdf.setR2L(true)` للـright-to-left layout، (5) `ar(text)` shaper بـapply Arabic Presentation Forms-B (U+FE70-U+FEFC) على الـtext — converts e.g. 'العميل' Unicode logical → visual shaped form بالحروف المتصلة الصحيحة." },
+      { type: "feature", text: "🔤 [Embedded Arabic shaper — ~150 سطر، lookup table كامل] الـjsPDF ما بـyـshape Arabic auto. كتبت minimal shaper بـimplement الـcontextual joining algorithm: لكل letter يـlook up الـjoining type (right-joining للـ'ا د ذ ر ز و ء' وأخواتها، dual-joining لباقي الحروف)، يحدد الـform (isolated/initial/medial/final) based على الـcontext، ويـemit الـcorresponding presentation form codepoint. كمان supports Lam-Alef ligature (ل + ا → glyph واحد ﻻ). الـnon-Arabic chars بـpass through unchanged." },
+      { type: "feature", text: "📦 [Applied على popup الـ'رصيد متاح' (V19.70.20) — الـsimpler case الأول] الـpopup كان بـuse htmlToPdfBase64 (html2canvas-based) — اتغيّر ليـuse `buildAvailableStockPdfBase64({factoryName, totalAvail, totalSeries, totalBroken, modelCount, rows, ...})`. الـreport بنفس الـlayout: header (logo + factory name + title + date)، 4 summary chips (الإجمالي/سيري/كسر/عدد الموديلات)، table عبر autoTable مع amber theme، footer 'Powered by CLARK'. كل الـArabic بـrender عبر الـnew engine — مفيش html2canvas في الـpath." },
+      { type: "improvement", text: "🛡️ [الـbulk delivery WA send لسه على الـtext-only (V19.70.17)] الـrefactor الكامل لـbuildOneCustomerHTML للـjsPDF يـtake substantial work (header + 2 tables + discount block + QR + signatures + footer). هـyـshipt في V19.70.22 لو الـpopup PDF شغّال صح. لحد ما يتعمل، الـuser لسه يقدر يـtoggle الـ'إرفاق PDF' لو حب، بس default OFF." },
+      { type: "improvement", text: "📚 [Documentation: lessons learned] لو محتاج تـgenerate Arabic PDF في المستقبل: متستخدمش html2canvas. استخدم jsPDF مع TTF embedded + manual shaping. ده الـonly bulletproof path في الـbrowser. الـserver-side Puppeteer (Approach B) ممكن يبقى أبسط لكن بـyـadd ~3-5s/PDF latency و~50MB لـVercel function deps." },
+    ]
+  },
+  {
     version: "V19.70.20",
     date: "2026-05-06",
     types: ["feature"],
