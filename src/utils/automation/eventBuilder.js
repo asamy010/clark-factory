@@ -56,6 +56,19 @@ export const EVENT_VARIABLES = {
       owner:    ["{customerName}", "{amount}", "{bank}", "{checkNo}", "{dueDate}", "{batchInfo}", "{office}", "{balance}", "{date}"],
     },
   },
+  /* V19.76.5: outgoing cash/wallet/transfer payment to supplier — mirror of
+     paymentReceived but for the supplier side. Fires when a treasury "out"
+     entry is saved with category="دفعة مورد" and method != شيكات. */
+  supplierPaymentSent: {
+    label: "💸 دفعة كاش/تحويل لمورد",
+    description: "نقدي/محفظة/انستاباي/تحويل بنكي (تسجيل supplierPayment) — مش شيكات",
+    detection: "client (instant) + cron fallback",
+    recipientRoles: ["supplier", "owner"],
+    variables: {
+      supplier: ["{supplierName}", "{amount}", "{method}", "{balance}", "{date}"],
+      owner:    ["{supplierName}", "{amount}", "{method}", "{balance}", "{date}", "{office}"],
+    },
+  },
   /* V19.70.10: outgoing checks to suppliers (شيكات أوراق دفع لمورد). Same UX as
      checkPaymentReceived but the party is a supplier, balance reflects what we
      owe them (after this check, our debt to them decreases). */
@@ -247,6 +260,7 @@ export function validateEventPayload(eventType, payload) {
   const required = {
     saleCompleted:        ["customerName", "qty", "modelNo", "value"],
     paymentReceived:      ["customerName", "amount"],
+    supplierPaymentSent:  ["supplierName", "amount"],
     checkPaymentReceived: ["customerName", "amount", "bank", "checkNo"],
     checkPaymentIssued:   ["supplierName", "amount", "bank", "checkNo"],
     checkCollected:       ["customerName", "amount", "bank", "checkNo"],
@@ -270,6 +284,11 @@ export const DEFAULT_EVENT_TEMPLATES = {
   paymentReceived: {
     customer: "✅ *تم استلام دفعة*\nالقيمة: {amount} ج.م\nالطريقة: {method}\nالرصيد المتبقي: {balance} ج.م\nالتاريخ: {date}\n\nشكراً لك 🌟",
     owner: "💵 *دفعة من عميل*\n{customerName}: {amount} ج.م ({method})\nالرصيد المتبقي: {balance} ج.م",
+  },
+  /* V19.76.5: supplier-side mirror of paymentReceived */
+  supplierPaymentSent: {
+    supplier: "✅ *تم إرسال دفعة*\nالقيمة: {amount} ج.م\nالطريقة: {method}\nالرصيد المتبقي: {balance} ج.م\nالتاريخ: {date}\n\nشكراً لتعاملكم 🌟",
+    owner: "💸 *دفعة لمورد*\n{supplierName}: {amount} ج.م ({method})\nالرصيد المتبقي: {balance} ج.م",
   },
   checkPaymentReceived: {
     customer: "🏦 *تم استلام شيك* {batchInfo}\n\nالبنك: {bank}\nرقم الشيك: {checkNo}\nالقيمة: {amount} ج.م\nتاريخ الاستحقاق: {dueDate}\nالرصيد المتبقي: {balance} ج.م\n\nشكراً لك 🌟",
@@ -320,6 +339,10 @@ export function samplePayload(eventType) {
     paymentReceived: {
       customerName: "أحمد محمد", amount: 5000, method: "تحويل بنكي",
       balance: 7500, date: today, portalLink: "https://app.../portal?p=c&i=...",
+    },
+    supplierPaymentSent: {
+      supplierName: "شركة النسيج", amount: 12000, method: "تحويل بنكي",
+      balance: 18000, office: "شركة النسيج المصرية", date: today,
     },
     checkPaymentReceived: {
       customerName: "أحمد محمد", amount: 5000,

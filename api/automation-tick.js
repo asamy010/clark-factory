@@ -508,6 +508,90 @@ async function scanRecentPayments(db, cfg, eventCfg, cairoDate, ordersCache){
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   V19.76.5: Recent-supplier-payment scan (supplierPaymentSent)
+   ───────────────────────────────────────────────────────────────────────
+   Iterate supplierPayments with date within last 24 hours, EXCLUDING
+   check-method payments (those fire as checkPaymentIssued instead).
+   Idempotency via `supplierPay:${paymentId}`. Limit: 50 per tick.
+
+   Supplier balance is an approximation — sum of supplier payments inverted
+   (negative = how much we paid; matching the checkPaymentIssued semantics
+   where balance roughly tracks "what we still owe"). Per-supplier accurate
+   ledger balances would require purchase invoice/PO aggregation which is
+   out of scope for the simple message context.
+   ─────────────────────────────────────────────────────────────────────── */
+async function scanRecentSupplierPayments(db, cfg, eventCfg, cairoDate){
+  const ea = await ensureEnabledAt(db, "supplierPaymentSent", eventCfg.enabledAt);
+  if (ea.justSet) return { scanned: 0, fired: 0, reason: "enabledAt-just-set" };
+  const enabledTs = Date.parse(ea.enabledAt);
+
+  let payments = [];
+  if (cfg._splitDaysV1949Done) {
+    payments = await readSplitCollection("supplierPaymentsDays");
+  } else {
+    payments = Array.isArray(cfg.supplierPayments) ? cfg.supplierPayments : [];
+  }
+
+  /* Suppliers (for phone + office name) */
+  const suppliersList = await readPartitionedCollection("suppliersDocs");
+  const suppliersById = {};
+  suppliersList.forEach(s => { if (s && s.id) suppliersById[s.id] = s; });
+
+  /* Approximate supplier balances (pre-aggregate to avoid O(N²) per-payment loop) */
+  const supplierBalances = {};
+  for (const p of payments) {
+    if (!p || !p.supplierId) continue;
+    /* Skip endorsed-check payments — those have their own checkEndorsed event */
+    if (p.method === "endorsed_check") continue;
+    supplierBalances[p.supplierId] =
+      (supplierBalances[p.supplierId] || 0) - (Number(p.amount) || 0);
+  }
+
+  const yesterday = new Date(Date.parse(cairoDate) - 86400000).toISOString().slice(0, 10);
+  let scanned = 0, fired = 0, skipped = 0, skippedOld = 0;
+  let processed = 0;
+  for (const p of payments) {
+    if (!p || !p.id) continue;
+    if (!p.supplierId) continue;
+    /* Filter out check-method + endorsed-check payments — those fire via
+       checkPaymentIssued / checkEndorsed events, not via this one. */
+    const m = String(p.method || "").trim();
+    if (m === "endorsed_check") continue;
+    if (m.indexOf("شيك") >= 0) continue;
+    const date = String(p.date || "").slice(0, 10);
+    if (!date || date < yesterday) continue;
+    const ts = entityTs(p);
+    if (!ts || ts < enabledTs) { skippedOld++; continue; }
+    if (processed >= 50) break;
+    processed++;
+    scanned++;
+    const supplier = suppliersById[p.supplierId] || {};
+    const office = supplier.companyName || supplier.company || supplier.office || supplier.businessName || "";
+    const balance = Math.round(supplierBalances[p.supplierId] || 0);
+    const idempotencyKey = `supplierPay:${p.id}`;
+    const r = await processEvent(db, {
+      eventType: "supplierPaymentSent",
+      payload: {
+        supplierName: supplier.name || p.supplierName || "—",
+        amount: Number(p.amount) || 0,
+        method: m || "—",
+        balance,/* signed: negative = we owe supplier; positive = supplier credit */
+        date,
+        office,
+      },
+      supplierPhone: supplier.phone || null,
+      idempotencyKey,
+      force: false,
+      source: "cron",
+      cfgCache: cfg,
+    });
+    if (r.body?.sent) fired++;
+    else if (r.body?.deduped || r.body?.skipped) skipped++;
+  }
+  return { scanned, fired, skipped, skippedOld };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    V19.70.5: Recent-checks-from-customer scan (checkPaymentReceived)
    ───────────────────────────────────────────────────────────────────────
    Scans `data.checks` for newly-added receivable checks (status=معلق, type=
@@ -1271,6 +1355,15 @@ export default async function handler(req, res) {
         const r = await scanRecentChecks(db, cfg, chkPayCfg, cairo.date, ordersCache);
         if (r.scanned > 0 || r.reason) result.actions.push({ type: "checkPaymentReceived", ...r });
       } catch (e) { result.errors.push({ type: "checkPaymentReceived", error: e.message }); }
+    }
+
+    /* ── C3. V19.76.5: Supplier-payment-sent scan (last 24h, cash/transfer only) ── */
+    const supPayCfg = (eventTriggers.events || {}).supplierPaymentSent;
+    if (supPayCfg?.enabled) {
+      try {
+        const r = await scanRecentSupplierPayments(db, cfg, supPayCfg, cairo.date);
+        if (r.scanned > 0 || r.reason) result.actions.push({ type: "supplierPaymentSent", ...r });
+      } catch (e) { result.errors.push({ type: "supplierPaymentSent", error: e.message }); }
     }
 
     /* ── D. Late order scan (daily) ── */

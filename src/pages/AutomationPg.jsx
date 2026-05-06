@@ -781,6 +781,8 @@ function TriggersTab(props){
      V19.70.11: + checkEndorsed (مُظهَّر to supplier), checkRePresented (مرتد re-submitted). */
   const eventTypes = [
     "saleCompleted", "paymentReceived",
+    /* V19.76.5: supplier-side cash payment mirror */
+    "supplierPaymentSent",
     "checkPaymentReceived", "checkPaymentIssued",
     "checkEndorsed",
     "checkCollected", "checkBounced", "checkRePresented",

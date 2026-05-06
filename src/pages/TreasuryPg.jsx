@@ -943,6 +943,12 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const _instantPay_needed = (linkedCustId && txType==="in" && txCategory==="دفعة عميل" && !editId);
     const _instantPay_id = _instantPay_needed ? gid() : null;
     const _instantPay_customer = _instantPay_needed ? customers.find(x=>x.id===linkedCustId) : null;
+    /* V19.76.5: same pattern for supplier-side cash payments. Skip شيكات (those fire
+       via checkPaymentIssued instead — handled on the saveCheck path). */
+    const _isCheckMethod = String(txMethod||"").indexOf("شيك") >= 0;
+    const _instantSupplierPay_needed = (linkedSupplierId && txType==="out" && txCategory==="دفعة مورد" && !editId && !_isCheckMethod);
+    const _instantSupplierPay_id = _instantSupplierPay_needed ? gid() : null;
+    const _instantSupplierPay_supplier = _instantSupplierPay_needed ? suppliers.find(x=>x.id===linkedSupplierId) : null;
     upConfig(d=>{if(!d.treasury)d.treasury=[];
       if(editId){const tx=d.treasury.find(t=>t.id===editId);
         if(tx){
@@ -1010,10 +1016,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         if(linkedCustId&&txType==="in"){if(!d.custPayments)d.custPayments=[];
           const c=customers.find(x=>x.id===linkedCustId);
           d.custPayments.push({id:_instantPay_id||gid(),custId:linkedCustId,custName:c?c.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:txMethod||"نقدي كاش",by:userName,treasuryTxId:txId,createdAt:nowISO()})}
-        /* Auto-link to supplier payments */
+        /* Auto-link to supplier payments. V19.76.5: use pre-generated _instantSupplierPay_id
+           when applicable so the idempotencyKey on the instant fire matches the cron's id. */
         if(linkedSupplierId&&txType==="out"){if(!d.supplierPayments)d.supplierPayments=[];
           const s=suppliers.find(x=>x.id===linkedSupplierId);
-          d.supplierPayments.push({id:gid(),supplierId:linkedSupplierId,supplierName:s?s.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:txMethod||"نقدي كاش",by:userName,treasuryTxId:txId,createdAt:nowISO()})}
+          d.supplierPayments.push({id:_instantSupplierPay_id||gid(),supplierId:linkedSupplierId,supplierName:s?s.name:"",amount:amt,date:txDate,note:txNotes||finalDesc,method:txMethod||"نقدي كاش",by:userName,treasuryTxId:txId,createdAt:nowISO()})}
         /* Auto-link to employee advance (hrLog) */
         if(linkedEmpId&&txType==="out"){if(!d.hrLog)d.hrLog=[];
           const emp=(d.employees||[]).find(x=>x.id===linkedEmpId);
@@ -1119,6 +1126,47 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         }catch(e){
           /* Silent — cron will retry on next tick (within 5 min) */
           console.warn("[V19.70.3] instant paymentReceived fire failed (cron will retry):", e?.message||e);
+        }
+      })();
+    }
+    /* V19.76.5: INSTANT supplierPaymentSent fire — mirror of the customer-side hook above.
+       Fires when a treasury "out" with category="دفعة مورد" + non-check method is saved.
+       Supplier balance is approximated as -Σ(supplierPayments for this supplier) — same
+       semantic the existing checkPaymentIssued uses. Idempotency key matches the cron's. */
+    if(_instantSupplierPay_needed && _instantSupplierPay_id && _instantSupplierPay_supplier?.phone){
+      let _supBal = 0;
+      for(const p of (data.supplierPayments||[])){
+        if(p.supplierId===linkedSupplierId) _supBal -= Number(p.amount)||0;
+      }
+      _supBal -= amt;/* the new payment we just recorded */
+      const _supOffice = _instantSupplierPay_supplier.companyName
+        || _instantSupplierPay_supplier.company
+        || _instantSupplierPay_supplier.office
+        || _instantSupplierPay_supplier.businessName
+        || "";
+      (async ()=>{
+        try{
+          if(!user || typeof user.getIdToken !== "function") return;
+          const _idToken = await user.getIdToken();
+          await fetch("/api/event-trigger", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + _idToken },
+            body: JSON.stringify({
+              eventType: "supplierPaymentSent",
+              payload: {
+                supplierName: _instantSupplierPay_supplier.name || "—",
+                amount: amt,
+                method: txMethod || "نقدي كاش",
+                balance: Math.round(_supBal),
+                date: txDate,
+                office: _supOffice,
+              },
+              supplierPhone: _instantSupplierPay_supplier.phone,
+              idempotencyKey: "supplierPay:" + _instantSupplierPay_id,
+            }),
+          });
+        }catch(e){
+          console.warn("[V19.76.5] instant supplierPaymentSent fire failed (cron will retry):", e?.message||e);
         }
       })();
     }

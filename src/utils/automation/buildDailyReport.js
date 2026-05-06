@@ -452,6 +452,16 @@ export const DEFAULT_AUTOMATION_CONFIG = {
         },
         cooldownMinutes: 0,
       },
+      /* V19.76.5: supplier-side mirror — fires when treasury "out" + category=دفعة مورد + method != شيكات */
+      supplierPaymentSent: {
+        enabled: false,
+        recipients: { supplier: true, owner: true },
+        templates: {
+          supplier: "✅ *تم إرسال دفعة*\nالقيمة: {amount} ج.م\nالطريقة: {method}\nالرصيد المتبقي: {balance} ج.م\nالتاريخ: {date}\n\nشكراً لتعاملكم 🌟",
+          owner: "💸 *دفعة لمورد*\n{supplierName}: {amount} ج.م ({method})\nالرصيد المتبقي: {balance} ج.م",
+        },
+        cooldownMinutes: 0,
+      },
       /* V19.70.5: separate event for check-based payments — same UX as cash payments
          but with full check details + per-check messages for batches (حافظة شيكات). */
       checkPaymentReceived: {

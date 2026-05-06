@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.76.5",
+    date: "2026-05-06",
+    types: ["feature"],
+    title: "💸 Trigger جديد: دفعة كاش لمورد (supplierPaymentSent)",
+    changes: [
+      { type: "feature", text: "🛒 [User request: 'عاوز اضيف في تريجر الفورية دفعة كاش لمورد بنفس طريقة دفعة كاش لعميل'] الـ Triggers الفورية كان فيها paymentReceived للعميل لكن مفيش mirror للمورد. لما المصنع يدفع لمورد كاش/تحويل بنكي/محفظة، المفروض يبعت رسالة واتس آب فورية للمورد بالقيمة + الطريقة + الرصيد المتبقي. الـ checkPaymentIssued موجود بالفعل لشيكات المورد، لكن للكاش مكنش فيه trigger." },
+      { type: "feature", text: "✅ [Event جديد: supplierPaymentSent] متضاف في 6 أماكن للـ end-to-end coverage: (1) `EVENT_VARIABLES` + `DEFAULT_EVENT_TEMPLATES` + `samplePayload` + `validateEventPayload` في `eventBuilder.js` (و الـ mirror في `api/_eventBuilder.js`). (2) `DEFAULT_AUTOMATION_CONFIG.eventTriggers.events.supplierPaymentSent` (default OFF — admin opt-in). (3) `eventTypes` array في `AutomationPg.jsx` بعد paymentReceived. (4) `scanRecentSupplierPayments` cron scan في `api/automation-tick.js` + registered في الـ main loop section C3. (5) Client-side instant fire في `TreasuryPg.jsx` بنفس نمط `_instantPay_needed` للعميل. (6) `idempotencyKey: \"supplierPay:\" + id` لمنع الـ duplicates." },
+      { type: "feature", text: "🚦 [Filtering — لا يـ overlap مع checkPaymentIssued] الـ supplierPaymentSent بـ يـ skip أي supplier payment بـ method فيها 'شيك' أو method='endorsed_check' — هؤلاء يفيرو عبر checkPaymentIssued / checkEndorsed على التوالي. كده مفيش رسالتين للنفس الـ payment." },
+      { type: "feature", text: "📝 [Default templates] للمورد: '✅ تم إرسال دفعة\\nالقيمة: {amount} ج.م\\nالطريقة: {method}\\nالرصيد المتبقي: {balance} ج.م\\nالتاريخ: {date}\\n\\nشكراً لتعاملكم 🌟'. للمالك: '💸 دفعة لمورد\\n{supplierName}: {amount} ج.م ({method})\\nالرصيد المتبقي: {balance} ج.م'. الـ admin يقدر يعدّل من Triggers UI زي أي event تاني." },
+      { type: "feature", text: "💰 [Supplier balance approximation] الـ balance بيـ compute كـ `-Σ(supplierPayments)` لكل مورد — نفس approach الـ checkPaymentIssued. ده approximation لأن الـ supplier ledger الكامل (purchase invoices + POs + returns) معقد ومش مطلوب للـ message context. الـ admin يقدر يحذف {balance} من الـ template لو مش محتاجه." },
+    ]
+  },
+  {
     version: "V19.76.4",
     date: "2026-05-06",
     types: ["fix", "improvement"],
