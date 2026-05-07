@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.1",
+    date: "2026-05-07",
+    types: ["fix"],
+    title: "🔄 صف الأعلى: الصورة يمين + التايم لاين يستغل العرض الفاضي",
+    changes: [
+      { type: "fix", text: "🔄 [User feedback] في V19.80.0 الصف الأعلى كان [التايم لاين | الكروت | الصورة] فالصورة كانت على اليسار. المستخدم طلب عكس الاتجاه: الصورة على اليمين (الـ RTL right edge)، الكروت في النص، التايم لاين على اليسار وياخد كل العرض المتبقي. الإصلاح: عكسنا DOM order (image → kpis → timeline) و الـ grid columns بقت `auto auto 1fr` فالعمود الأخير (التايم لاين) ياخد المساحة الباقية." },
+      { type: "fix", text: "📏 [Timeline now stretches full width] قبل: الـ Timeline outer div كان flex item بـ default `flex:0 1 auto` فعرضه = عرض الـ content فقط (~550px لـ 5 مراحل). دلوقتي ضفنا قاعدة `.det-timeline-cell > div{width:100%;flex:1;min-width:0}` فالـ Timeline يـ stretch لكامل عرض العمود وكل phase يتوزع بالتساوي عليه." },
+    ]
+  },
+  {
     version: "V19.80.0",
     date: "2026-05-07",
     types: ["improvement", "feature"],

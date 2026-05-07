@@ -545,20 +545,23 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
     </div>
     <div id="parea">
       {/* ═══════════════════════════════════════════════════════════════
-          V19.80.0 — Top row: timeline + 2x2 KPIs + image, all on one row
+          V19.80.1 — Top row: reversed direction + timeline stretches full width
           ───────────────────────────────────────────────────────────────
-          Desktop: [timeline (1fr) | 2x2 KPI grid | image]
-          Tablet (<1100px): [image | 2x2 KPI grid] then [timeline below]
+          Desktop (RTL visual): [image (right) | 2x2 KPI grid | timeline (left, 1fr)]
+          DOM order matches visual RTL so the timeline cell gets the 1fr column
+          and stretches across the entire remaining width.
+          Tablet (<1100px): [image | 2x2 KPI grid] then [timeline full-width below]
           Mobile (<540px): same 2-row layout, smaller image + tighter cards
          ═══════════════════════════════════════════════════════════════ */}
       <style>{`
-        .det-top-row{display:grid;grid-template-columns:1fr auto auto;gap:12px;margin-bottom:12px;align-items:stretch}
+        .det-top-row{display:grid;grid-template-columns:auto auto 1fr;gap:12px;margin-bottom:12px;align-items:stretch}
         .det-top-row > .det-img-cell{position:relative;display:flex;align-items:stretch}
         .det-top-row > .det-img-cell > img,.det-top-row > .det-img-cell > div:first-child{height:100%}
         .det-top-row > .det-kpis-cell{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-width:280px}
         .det-top-row > .det-kpis-cell > div,.det-top-row > .det-kpis-cell > .metric-card{height:100%;box-sizing:border-box}
         .det-top-row > .det-kpis-cell .metric-card{padding:10px 12px;height:100%}
-        .det-top-row > .det-timeline-cell{min-width:0;background:${T.cardSolid};border-radius:12px;padding:8px 12px;border:1px solid ${T.brd};overflow-x:auto;-webkit-overflow-scrolling:touch;display:flex;align-items:center}
+        .det-top-row > .det-timeline-cell{min-width:0;background:${T.cardSolid};border-radius:12px;padding:8px 12px;border:1px solid ${T.brd};overflow-x:auto;-webkit-overflow-scrolling:touch;display:flex;align-items:center;justify-content:stretch}
+        .det-top-row > .det-timeline-cell > div{width:100%;flex:1;min-width:0}
         @media (max-width: 1100px){
           .det-top-row{grid-template-columns:auto 1fr;grid-template-rows:auto auto}
           .det-top-row > .det-img-cell{grid-column:1;grid-row:1}
@@ -583,34 +586,12 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         .det-pieces-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center;padding:10px 12px;background:${T.cardSolid};border-radius:12px;border:1px solid ${T.brd}}
       `}</style>
       <div className="det-top-row">
-        {/* Timeline — left column on desktop, full-width on tablet/mobile */}
-        <div className="det-timeline-cell">
-          {(()=>{const wds=order.workshopDeliveries||[];const dels=order.deliveries||[];
-            const totalWsDel=wds.reduce((s,wd)=>s+(Number(wd.qty)||0),0);
-            const totalWsRcv=wds.reduce((s,wd)=>s+(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0),0);
-            const stockDel=getConfirmedStock(order);const isClosed=order.closed||!!order.settlement;
-            const phases=[];
-            phases.push({title:"تم القص",color:T.accent,date:order.date,details:["كمية: "+t.cutQty]});
-            const wsDetails=[];const wsNames=[...new Set(wds.map(w=>w.wsName))];
-            wsNames.forEach(n=>{const wdForWs=wds.filter(w=>w.wsName===n);const pieces=wdForWs.map(w=>(w.garmentType||"عام")+" ("+w.qty+")").join("، ");wsDetails.push(n+": "+pieces)});
-            if(wsDetails.length>0)phases.push({title:"في التشغيل",color:"#8B5CF6",date:wds[0]?.date,details:wsDetails});
-            else phases.push({title:"في التشغيل",color:"#8B5CF6",details:[]});
-            const rcvDetails=[];wsNames.forEach(n=>{const rcvd=wds.filter(w=>w.wsName===n).reduce((s,w)=>(w.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);if(rcvd>0)rcvDetails.push("استلام "+n+": "+rcvd)});
-            phases.push({title:"تشطيب وتعبئة",color:T.ok,details:rcvDetails.length>0?rcvDetails:[]});
-            const stockDetails=[];if(stockDel>0)stockDetails.push("مؤكد: "+stockDel+" قطعة");
-            const pendDel=dels.filter(d=>d.status==="pending").reduce((s,d)=>s+(Number(d.qty)||0),0);
-            if(pendDel>0)stockDetails.push("⏳ معلّق: "+pendDel);
-            phases.push({title:"مخزن نهائي",color:"#059669",details:stockDetails});
-            if(isClosed)phases.push({title:"مغلق ✅",color:"#64748B",details:order.settlement?["هالك: "+(order.settlement.qty||0)]:[]});
-            let curIdx=0;
-            if(totalWsDel>0)curIdx=1;
-            if(totalWsRcv>0)curIdx=2;
-            if(stockDel>0)curIdx=3;
-            if(isClosed)curIdx=phases.length-1;
-            return<Timeline phases={phases} currentIdx={curIdx}/>;
-          })()}
+        {/* V19.80.1: image first → goes to RTL right edge (col 1: auto width) */}
+        <div className="det-img-cell">
+          <DefaultModelImg src={order.image} modelNo={order.modelNo} modelDesc={order.modelDesc} orderPieces={order.orderPieces} width={isMob?100:140} style={{borderRadius:14,border:"1px solid "+T.brd,boxShadow:T.shadow}}/>
+          {canEdit&&order.image&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true})){const path=order.imageStoragePath;updOrder(sel,o=>{o.image="";o.imageStoragePath=""});if(path)deleteOrderImage(path).catch(err=>console.warn("[V19.36] storage cleanup failed:",err))}}} style={{position:"absolute",top:6,right:6,width:24,height:24,borderRadius:12,background:"rgba(0,0,0,0.65)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12}}>✕</div>}
         </div>
-        {/* 2x2 KPI grid */}
+        {/* 2x2 KPI grid → middle column (col 2: auto width) */}
         <div className="det-kpis-cell">
           {/* KPI 1 — cut qty (clickable to per-piece editor) */}
           <div onClick={canEdit?()=>{
@@ -651,10 +632,32 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
             return<MetricCard label={label} value={value} icon="💰" color={color} sub={sub}/>;
           })()}
         </div>
-        {/* Image — right column on desktop, top-right on tablet/mobile */}
-        <div className="det-img-cell">
-          <DefaultModelImg src={order.image} modelNo={order.modelNo} modelDesc={order.modelDesc} orderPieces={order.orderPieces} width={isMob?100:140} style={{borderRadius:14,border:"1px solid "+T.brd,boxShadow:T.shadow}}/>
-          {canEdit&&order.image&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true})){const path=order.imageStoragePath;updOrder(sel,o=>{o.image="";o.imageStoragePath=""});if(path)deleteOrderImage(path).catch(err=>console.warn("[V19.36] storage cleanup failed:",err))}}} style={{position:"absolute",top:6,right:6,width:24,height:24,borderRadius:12,background:"rgba(0,0,0,0.65)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12}}>✕</div>}
+        {/* V19.80.1: Timeline → leftmost column (col 3: 1fr) — stretches across the remaining width */}
+        <div className="det-timeline-cell">
+          {(()=>{const wds=order.workshopDeliveries||[];const dels=order.deliveries||[];
+            const totalWsDel=wds.reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+            const totalWsRcv=wds.reduce((s,wd)=>s+(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0),0);
+            const stockDel=getConfirmedStock(order);const isClosed=order.closed||!!order.settlement;
+            const phases=[];
+            phases.push({title:"تم القص",color:T.accent,date:order.date,details:["كمية: "+t.cutQty]});
+            const wsDetails=[];const wsNames=[...new Set(wds.map(w=>w.wsName))];
+            wsNames.forEach(n=>{const wdForWs=wds.filter(w=>w.wsName===n);const pieces=wdForWs.map(w=>(w.garmentType||"عام")+" ("+w.qty+")").join("، ");wsDetails.push(n+": "+pieces)});
+            if(wsDetails.length>0)phases.push({title:"في التشغيل",color:"#8B5CF6",date:wds[0]?.date,details:wsDetails});
+            else phases.push({title:"في التشغيل",color:"#8B5CF6",details:[]});
+            const rcvDetails=[];wsNames.forEach(n=>{const rcvd=wds.filter(w=>w.wsName===n).reduce((s,w)=>(w.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);if(rcvd>0)rcvDetails.push("استلام "+n+": "+rcvd)});
+            phases.push({title:"تشطيب وتعبئة",color:T.ok,details:rcvDetails.length>0?rcvDetails:[]});
+            const stockDetails=[];if(stockDel>0)stockDetails.push("مؤكد: "+stockDel+" قطعة");
+            const pendDel=dels.filter(d=>d.status==="pending").reduce((s,d)=>s+(Number(d.qty)||0),0);
+            if(pendDel>0)stockDetails.push("⏳ معلّق: "+pendDel);
+            phases.push({title:"مخزن نهائي",color:"#059669",details:stockDetails});
+            if(isClosed)phases.push({title:"مغلق ✅",color:"#64748B",details:order.settlement?["هالك: "+(order.settlement.qty||0)]:[]});
+            let curIdx=0;
+            if(totalWsDel>0)curIdx=1;
+            if(totalWsRcv>0)curIdx=2;
+            if(stockDel>0)curIdx=3;
+            if(isClosed)curIdx=phases.length-1;
+            return<Timeline phases={phases} currentIdx={curIdx}/>;
+          })()}
         </div>
       </div>
 
