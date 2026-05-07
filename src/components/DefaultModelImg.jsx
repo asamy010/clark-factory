@@ -1,9 +1,10 @@
 /* ═══════════════════════════════════════════════════════════════════════
-   CLARK · DefaultModelImg (V19.0)
+   CLARK · DefaultModelImg (V19.80.6)
    ───────────────────────────────────────────────────────────────────────
-   Renders an image with a 3:4 portrait aspect ratio.
-   If `src` is missing or empty, shows a default placeholder with a garment
-   icon, the model number, and the piece type — all on a soft gradient.
+   Renders an image with a 4:5 portrait aspect ratio (1080:1350 — matches
+   typical fashion catalog photo dimensions). If `src` is missing or empty,
+   shows a default placeholder with a garment icon, the model number, and
+   the piece type — all on a soft gradient.
 
    Used in: order list cards (DetPg list view), order detail page,
    and any other place that previously rendered a raw <img> for a model.
@@ -30,10 +31,11 @@ function pieceIconFor(modelDesc, orderPieces){
 
 export function DefaultModelImg({src,modelNo,modelDesc,orderPieces,width,height,style,className,onClick,title,loading}){
   const hasImg = src && typeof src==="string" && src.trim().length>0;
-  /* Standard 3:4 portrait. Width takes priority; height auto-derived. */
-  const w = width || (height ? Math.round(height*3/4) : null);
-  const h = height || (width ? Math.round(width*4/3) : null);
-  const sizeStyle = w&&h ? {width:w, height:h} : {width:"100%", aspectRatio:"3 / 4"};
+  /* V19.80.6: 4:5 portrait (1080:1350). Width takes priority; height auto-derived.
+     Catalog/lookbook photos are universally 4:5 — matches that out of the box. */
+  const w = width || (height ? Math.round(height*4/5) : null);
+  const h = height || (width ? Math.round(width*5/4) : null);
+  const sizeStyle = w&&h ? {width:w, height:h} : {width:"100%", aspectRatio:"4 / 5"};
   const baseStyle = {
     ...sizeStyle,
     borderRadius: 8,

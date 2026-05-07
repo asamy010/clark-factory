@@ -584,13 +584,13 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       <style>{`
         .det-top-row{display:grid;grid-template-columns:auto auto 1fr;gap:12px;margin-bottom:12px;align-items:stretch}
         .det-top-row > .det-img-cell{position:relative;display:flex;align-items:stretch}
-        /* V19.80.4: image cell uses a fixed-size container (3:4 portrait) so the
-           image is always boxed regardless of natural pixel size. Without this,
-           uploading a large image (e.g. 1280x1707) would force the row height
-           to the image's natural pixel count, blowing the layout up. The image
-           inside fills the box with object-fit:cover. */
-        .det-top-row > .det-img-cell > .det-img-frame{width:140px;height:187px;border-radius:14px;overflow:hidden;border:1px solid ${T.brd};box-shadow:${T.shadow};flex-shrink:0;align-self:flex-start}
-        @media (max-width: 540px){.det-top-row > .det-img-cell > .det-img-frame{width:105px;height:140px}}
+        /* V19.80.6: image cell uses a fixed-size container with 4:5 portrait
+           ratio (1080:1350 — fashion catalog standard). Desktop 144×180 and
+           mobile 108×135 are both exact 4:5 multiples (×36 and ×27 respectively).
+           Source image is uploaded at natural ratio; the displayed frame crops
+           with object-fit:cover so any source still looks framed correctly. */
+        .det-top-row > .det-img-cell > .det-img-frame{width:144px;height:180px;border-radius:14px;overflow:hidden;border:1px solid ${T.brd};box-shadow:${T.shadow};flex-shrink:0;align-self:flex-start}
+        @media (max-width: 540px){.det-top-row > .det-img-cell > .det-img-frame{width:108px;height:135px}}
         .det-top-row > .det-img-cell > .det-img-frame > img,.det-top-row > .det-img-cell > .det-img-frame > div{width:100%;height:100%;object-fit:cover;border-radius:0;border:none;box-shadow:none}
         .det-top-row > .det-kpis-cell{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-width:280px}
         .det-top-row > .det-kpis-cell > div,.det-top-row > .det-kpis-cell > .metric-card{height:100%;box-sizing:border-box}
@@ -1787,7 +1787,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
     {/* V19.80.5: Image zoom lightbox — click anywhere on the backdrop or press Esc to close.
         The image is constrained to a 3:4 portrait frame so it never blows past 90vh. */}
     {imgZoom&&order.image&&<div onClick={()=>setImgZoom(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:24,cursor:"zoom-out"}}>
-      <div style={{position:"relative",height:"90vh",aspectRatio:"3 / 4",maxWidth:"95vw",borderRadius:16,overflow:"hidden",boxShadow:"0 30px 80px rgba(0,0,0,0.6)"}}>
+      <div style={{position:"relative",height:"90vh",aspectRatio:"4 / 5",maxWidth:"95vw",borderRadius:16,overflow:"hidden",boxShadow:"0 30px 80px rgba(0,0,0,0.6)"}}>
         <img src={order.image} alt={order.modelNo||""} loading="eager" decoding="async" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
       </div>
       <button onClick={(e)=>{e.stopPropagation();setImgZoom(false)}} style={{position:"absolute",top:18,insetInlineEnd:18,width:40,height:40,borderRadius:20,background:"rgba(0,0,0,0.55)",color:"#fff",border:"1px solid rgba(255,255,255,0.25)",fontSize:18,fontWeight:800,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}} title="إغلاق (Esc)">✕</button>

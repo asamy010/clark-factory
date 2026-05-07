@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.6",
+    date: "2026-05-07",
+    types: ["improvement"],
+    title: "📐 صور الموديل: 4:5 طولي (1080:1350) — معيار صور الكتالوج",
+    changes: [
+      { type: "improvement", text: "📐 [Aspect ratio: 3:4 → 4:5 (1080:1350)] الصور دلوقتي بنسبة 4:5 portrait (1080:1350 — معيار صور الكتالوج/lookbook). كانت 3:4 (0.75)؛ دلوقتي 4:5 (0.8)، أطول قليلاً ومتوافق مع صور المنتج المعتادة." },
+      { type: "improvement", text: "🔢 [Exact dimensions, multiples of 4 and 5]\n• تفاصيل الأوردر — frame ثابت: 144×180 desktop، 108×135 mobile (كان 140×187 / 105×140)\n• OrdForm upload preview: 144×180 desktop / full-width × auto mobile (كان 120×160 / 100% × 5:8)\n• الـ zoom lightbox: aspect-ratio:4/5 على height:90vh (كان 3:4)\n• Orders list table thumbnails: 36×45 (كان 36×48)\n• Orders list cards thumbnails: 60×75 (كان 60×80)\n\nكلهم exact 1080:1350 multiples (×0.133, ×0.1, ×0.045, ...)." },
+      { type: "improvement", text: "🛠 [Implementation: single source of truth in DefaultModelImg] الـ component دلوقتي يحسب: `w = h × 4/5` و `h = w × 5/4` (كان 3/4 و 4/3). الـ default placeholder بـ `aspectRatio:\"4 / 5\"` لما الـ width/height مش متمررة. كل callers أوتوماتيك attached للنسبة الجديدة بدون تعديل." },
+      { type: "improvement", text: "🖼 [Source images preserved at natural ratio] الـ upload pipeline (compressOrderImageToBlob في orderImages.js) ما يـ crop-ش — يـ downscale لـ max 1280px ويحفظ النسبة الأصلية. الـ 4:5 framing يحصل عند الـ display بـ CSS aspect-ratio + object-fit:cover. لو الصورة الأصلية 4:5 (catalog standard) → ما فيش cropping. لو مربعة أو landscape → الـ frame يـ crop uniform من الجوانب. الصورة الـ original محفوظة في Storage بحجمها الكامل." },
+    ]
+  },
+  {
     version: "V19.80.5",
     date: "2026-05-07",
     types: ["fix", "feature"],
