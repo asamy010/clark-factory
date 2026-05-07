@@ -195,21 +195,22 @@ export default function App(){
   /* V16.3: Customer portal — public read-only account page for customers.
      V18.15: Now supports two URL formats (backward compat):
        Legacy:   /?portal=1&c=<custId>&sig=<hmac_hex>
-       Short:    /?p=c&i=<custId>&s=<hmac_b64url> */
+       Short:    /?p=c&i=<custId>&s=<hmac_b64url>
+     V19.78.2 BUGFIX: also forward `t` (timestamp) to the page. V19.64 introduced
+     timestamped HMAC signatures; without `t` the API falls back to legacy
+     verification → 403 for any link generated post-V19.64. */
   if(urlParams.get("portal")==="1"||urlParams.get("p")==="c"){
-    const c=urlParams.get("c")||urlParams.get("i"),sig=urlParams.get("sig")||urlParams.get("s");
+    const c=urlParams.get("c")||urlParams.get("i"),sig=urlParams.get("sig")||urlParams.get("s"),t=urlParams.get("t")||"";
     if(c&&sig){
-      return <CustomerPortalPage params={{c,sig}}/>;
+      return <CustomerPortalPage params={{c,sig,t}}/>;
     }
   }
   /* V17.9: Workshop portal — public read-only account page for workshops.
-     V18.15: Now supports two URL formats (backward compat):
-       Legacy:   /?wsportal=1&w=<wsId>&sig=<hmac_hex>
-       Short:    /?p=w&i=<wsId>&s=<hmac_b64url> */
+     V18.15: Two URL formats. V19.78.2 BUGFIX: forward `t` like customer portal. */
   if(urlParams.get("wsportal")==="1"||urlParams.get("p")==="w"){
-    const w=urlParams.get("w")||urlParams.get("i"),sig=urlParams.get("sig")||urlParams.get("s");
+    const w=urlParams.get("w")||urlParams.get("i"),sig=urlParams.get("sig")||urlParams.get("s"),t=urlParams.get("t")||"";
     if(w&&sig){
-      return <WorkshopPortalPage params={{w,sig}}/>;
+      return <WorkshopPortalPage params={{w,sig,t}}/>;
     }
   }
   /* V16.73: Public workshop-delivery confirmation — opened when a workshop

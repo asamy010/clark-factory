@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.78.2",
+    date: "2026-05-07",
+    types: ["fix", "feature"],
+    title: "🐛 Portal 403 fix لرابط عميل + 🇪🇬 الـ Agent بقى يلتزم بالعامية المصرية",
+    changes: [
+      { type: "fix", text: "🐛 [User report: 'رابط غير صالح لعميل معين، باقي العملاء شغالين تمام، 403 من /api/customer-portal'] الـ frontend portal page (App.jsx + CustomerPortalPage + WorkshopPortalPage) كانت بـ تقرأ `c` و `sig` بس من الـ URL وتنسى الـ `t` (timestamp) اللي V19.64 بدأت تضيفه. الـ API بـ يـ verify بالـ V2 timestamped HMAC لو الـ `t` متوفر، أو يـ fallback للـ legacy. لما الـ `t` ما اتمررش، الـ API كانت بـ تشغّل verify legacy على signature V2 → mismatch → 403. الإصلاح: الـ frontend دلوقتي بـ يقرأ `t` ويـ pass للـ API. الـ links القديمة بدون `t` لسه شغّالة (legacy fallback)." },
+      { type: "feature", text: "🇪🇬 [User report: 'الـ Agent بيتكلم خليجي أحياناً، عاوزه مصري عامي بس'] الـ system prompt كان فيه سطر ضعيف 'عامية مصرية مهذبة' بس. دلوقتي قاعدة #0 صارمة في القواعد الذهبية مع جدول كلمات ممنوعة (شلونك → إزيك، تبي → تحب، الحين → دلوقتي، إلخ). كل الـ Khaleeji forbidden مع الـ Egyptian equivalent. الـ Agent ملزم بالمصري ما لم يغيّر الأدمن `personality.language` لـ 'msa' (فصحى) أو 'bilingual'." },
+      { type: "feature", text: "🎚 [Personality language + emoji wired into prompt] الـ UI كان فيه selectors لـ language و emojiUse لكن الـ backend ما كانش بـ يستخدمهم. دلوقتي: language=egyptian_polite (default) → enforce المصري. msa → فصحى. bilingual → عربي + إنجليزي. emojiUse=none/minimal/moderate/rich → 0/1/3/5 emojis لكل رد." },
+      { type: "feature", text: "💪 [Admin's systemPrompt has higher priority] الـ 'تعليمات إضافية من الإدارة' في personality.systemPrompt دلوقتي مؤطّرة كـ '═══ إلزامية — لها الأولوية ═══' فالـ Claude بـ يعاملها كـ override authoritative. لو الأدمن كتب فيها 'لا تذكر أبداً سعر' أو 'استخدم اللهجة الصعيدية' — هتـ override الـ defaults." },
+    ]
+  },
+  {
     version: "V19.78.1",
     date: "2026-05-07",
     types: ["feature"],

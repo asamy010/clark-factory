@@ -33,7 +33,7 @@ const exportPdf = (tabLabel) => {
 };
 
 export function WorkshopPortalPage({ params }) {
-  const { w: wsId, sig } = params;
+  const { w: wsId, sig, t: ts } = params;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [errorMeta, setErrorMeta] = useState(null);/* V18.16: holds {archived, name} when archived */
@@ -45,8 +45,11 @@ export function WorkshopPortalPage({ params }) {
   useEffect(() => {
     const load = async () => {
       try {
+        /* V19.78.2: forward `t` (timestamp) for V19.64+ HMAC v2 verification.
+           Same fix as customer portal — without it, post-V19.64 links 403. */
         const url = "/api/workshop-portal?w=" + encodeURIComponent(wsId) +
-                    "&sig=" + encodeURIComponent(sig);
+                    "&sig=" + encodeURIComponent(sig) +
+                    (ts ? "&t=" + encodeURIComponent(ts) : "");
         const r = await fetch(url);
         const j = await r.json();
         if (!r.ok) {
@@ -63,7 +66,7 @@ export function WorkshopPortalPage({ params }) {
       }
     };
     load();
-  }, [wsId, sig]);
+  }, [wsId, sig, ts]);
 
   const wrapperStyle = {
     minHeight: "100vh",

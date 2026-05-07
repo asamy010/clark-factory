@@ -56,7 +56,7 @@ const tblTh = { textAlign: "right", fontWeight: 800, color: "#475569", borderBot
 const tblTd = { color: "#1E293B", whiteSpace: "nowrap" };
 
 export function CustomerPortalPage({ params }) {
-  const { c: custId, sig } = params;
+  const { c: custId, sig, t: ts } = params;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [errorMeta, setErrorMeta] = useState(null);/* V18.16: holds {archived, name} when archived */
@@ -68,8 +68,12 @@ export function CustomerPortalPage({ params }) {
   useEffect(() => {
     const load = async () => {
       try {
+        /* V19.78.2: include `t` (timestamp) for V19.64+ links so the API uses
+           the timestamped V2 verification rather than legacy. Without it,
+           any link minted after V19.64 returned 403. */
         const url = "/api/customer-portal?c=" + encodeURIComponent(custId) +
-                    "&sig=" + encodeURIComponent(sig);
+                    "&sig=" + encodeURIComponent(sig) +
+                    (ts ? "&t=" + encodeURIComponent(ts) : "");
         const r = await fetch(url);
         const j = await r.json();
         if (!r.ok) {
@@ -86,7 +90,7 @@ export function CustomerPortalPage({ params }) {
       }
     };
     load();
-  }, [custId, sig]);
+  }, [custId, sig, ts]);
 
   const wrapperStyle = {
     minHeight: "100vh",
